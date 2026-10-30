@@ -1,5 +1,6 @@
 import { cn } from "../lib/cn";
 import { useT, type MessageKey } from "../lib/i18n";
+import { useKeybindingLabel } from "../lib/keybindings";
 import type { Tone } from "../lib/tone";
 import { useStore } from "../store";
 import { liveDisplayPhase, type LiveDisplayPhase } from "@omp-ui/core/live-voice";
@@ -49,6 +50,7 @@ export function LiveVoiceControl({
   className?: string;
 }) {
   const t = useT();
+  const holdLabel = useKeybindingLabel("holdToTalk");
   const live = useStore((s) => s.rpc[tabId]?.live ?? null);
   // The badge map mirrors the runtime's park flags; the parked capsule reads
   // it so an ended-but-armed snapshot stays visibly resumable (#815).
@@ -68,7 +70,7 @@ export function LiveVoiceControl({
       type="button"
       disabled={disabled}
       aria-label={t("composer.live.holdToTalk")}
-      title={t("composer.live.holdToTalkHint")}
+      title={t("composer.live.holdToTalkHint", { key: holdLabel })}
       aria-pressed={talking}
       onPointerDown={(e) => {
         if (e.button !== 0) return;
@@ -102,7 +104,7 @@ export function LiveVoiceControl({
         <span className="flex min-w-0 flex-col">
           <span className="text-xs">{t("composer.live.start")}</span>
           <span className="font-mono text-[10px]">
-            {active && display !== null ? t(PHASE_KEY[display]) : t("composer.live.phasePending")}
+            {active && display !== null ? t(PHASE_KEY[display], { key: holdLabel }) : t("composer.live.phasePending")}
           </span>
         </span>
         {active && talkButton}
@@ -173,7 +175,7 @@ export function LiveVoiceControl({
         className={cn(CAPSULE_SEGMENT, "text-[10px] font-mono")}
       >
         <Dot tone={phaseTone} pulse={display === "listening" || display === "working"} />
-        {display !== null ? t(PHASE_KEY[display]) : t("composer.live.phasePending")}
+        {display !== null ? t(PHASE_KEY[display], { key: holdLabel }) : t("composer.live.phasePending")}
       </button>
       {talkButton}
       {levels !== null && (

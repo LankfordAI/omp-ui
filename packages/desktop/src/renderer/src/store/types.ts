@@ -1,3 +1,4 @@
+import type { KeybindingOverrides } from "@omp-ui/core/keybindings";
 import type { ThemeMode } from "@omp-ui/core/theme";
 import type { VsCodeImportResult, VsCodeThemeFileInput } from "@omp-ui/core/vscode-theme";
 import type {
@@ -619,6 +620,7 @@ export interface ErrorNotice {
 export type SettingsPage =
   | "general"
   | "appearance"
+  | "keyboard"
   | "updates"
   | "remote"
   | "webhooks"
@@ -702,6 +704,8 @@ export interface SettingsSlice {
   setTranscriptWidth(width: TranscriptWidth): Promise<void>;
   setGlassChrome(level: GlassChrome): Promise<void>;
   setLocaleId(id: string): Promise<void>;
+  /** Replaces the rebound app shortcuts (issue #998); rejects on a host refusal so the Keyboard page shows it. */
+  setKeybindings(overrides: KeybindingOverrides): Promise<void>;
   setAppUpdateCheckOnLaunch(on: boolean): Promise<void>;
   setAppUpdateTrain(train: UpdateTrain): Promise<void>;
   /** Voice vault note bodies take (#793); reaches sessions started afterwards. */

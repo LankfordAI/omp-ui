@@ -2,8 +2,8 @@ import { useImperativeHandle, type KeyboardEvent, type Ref } from "react";
 import { cn } from "../lib/cn";
 import type { StashedDraft } from "../lib/draft-stash";
 import { relativeTime } from "../lib/format";
-import { formatHotkey } from "../lib/hotkeys";
 import { useT } from "../lib/i18n";
+import { useKeybindingLabel } from "../lib/keybindings";
 import { PaletteList, usePaletteNav } from "./palette";
 import { Chip, IconButton, IconClose, Label } from "./ui";
 
@@ -11,9 +11,6 @@ export interface StashPaletteHandle {
   /** Consumes navigation keys, Enter, Delete, and Escape. True when handled. */
   handleKey(e: KeyboardEvent): boolean;
 }
-
-/** The chord that stashes a draft, or opens this picker from an empty composer. */
-export const STASH_HOTKEY = "mod+alt+s";
 
 /**
  * The draft stash picker (issue #989), opened above an empty composer: the
@@ -35,6 +32,7 @@ export function StashPalette({
   ref?: Ref<StashPaletteHandle>;
 }) {
   const t = useT();
+  const stashLabel = useKeybindingLabel("stashDraft");
   const nav = usePaletteNav({ items: drafts, resetKey: null, onPick: onApply, onClose });
   const { active, setActive, activeRef } = nav;
 
@@ -60,7 +58,7 @@ export function StashPalette({
   if (drafts.length === 0) {
     return (
       <div data-stash-palette className={cn(shell, "px-3 py-2.5")}>
-        <p className="text-xs text-ink-dim">{t("composer.stash.empty", { key: formatHotkey(STASH_HOTKEY) })}</p>
+        <p className="text-xs text-ink-dim">{t("composer.stash.empty", { key: stashLabel })}</p>
       </div>
     );
   }

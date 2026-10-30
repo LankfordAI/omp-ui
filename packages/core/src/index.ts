@@ -81,6 +81,7 @@ export * from "./fleet-host";
 export * from "./remote-vscode";
 export * from "./fleet-wake";
 export * from "./webhook";
+export * from "./keybindings";
 export { WebhookDeliveryLog, WebhookStore, WEBHOOK_STORE_UNAVAILABLE } from "./webhook-store";
 export * from "./mcp-endpoint";
 export { McpCallLog, McpClientStore } from "./mcp-endpoint-store";

@@ -12,7 +12,8 @@ import {
 } from "@omp-ui/core/fleet";
 import { mintBranchName, nextMintedWorktreeBranch, worktreeBranchPrefix } from "@omp-ui/core/worktree-branch";
 import { backend } from "../backend";
-import { formatHotkey } from "../lib/hotkeys";
+import { formatHotkey, matchesHotkey } from "../lib/hotkeys";
+import { useKeybinding } from "../lib/keybindings";
 import { useT } from "../lib/i18n";
 import { useLoad } from "../lib/load";
 import { projectKey } from "../lib/project-key";
@@ -29,12 +30,9 @@ import { WorktreeBranchFields } from "./WorktreeBranchFields";
  * FleetDispatchRequest for main's FleetDispatcher (ADR-0061 provenance stays
  * on dispatches; the local seed is not staged through it). An empty prompt is
  * legal locally (an idle session) and illegal on the fleet. Start in
- * background (`mod+alt+enter`, issue #982) launches "here" without leaving
+ * background (`mod+alt+enter` unless rebound, issues #982/#998) launches "here" without leaving
  * the focused tab and keeps the dialog open, cleared, for the next ask.
  */
-
-/** The send-in-background chord on every new-session surface (issue #982). */
-export const BACKGROUND_SEND_HOTKEY = "mod+alt+enter";
 
 const FIELD =
   "mt-1.5 w-full rounded-md border border-line bg-void px-2 py-1.5 font-mono text-[11px] text-ink outline-none placeholder:text-ink-faint focus:border-line-strong";
@@ -74,6 +72,7 @@ interface HereGroup {
 
 export function NewSessionDialog() {
   const t = useT();
+  const backgroundChord = useKeybinding("sendInBackground");
   const seed = useStore((s) => s.newSessionDialog);
   const closeNewSessionDialog = useStore((s) => s.closeNewSessionDialog);
   const launchSession = useStore((s) => s.launchSession);
@@ -449,8 +448,7 @@ export function NewSessionDialog() {
   };
 
   const onKeyDown = (event: KeyboardEvent<HTMLDivElement>): void => {
-    if (event.key !== "Enter" || !event.altKey || !(event.metaKey || event.ctrlKey) || event.shiftKey) return;
-    if (event.nativeEvent.isComposing || face !== "here") return;
+    if (!matchesHotkey(event.nativeEvent, backgroundChord) || face !== "here") return;
     event.preventDefault();
     void submit(true);
   };
@@ -472,11 +470,11 @@ export function NewSessionDialog() {
               variant="outline"
               tone="signal"
               disabled={!canSubmit}
-              title={t("dialog.newsession.backgroundTitle", { hotkey: formatHotkey(BACKGROUND_SEND_HOTKEY) })}
+              title={t("dialog.newsession.backgroundTitle", { hotkey: formatHotkey(backgroundChord) })}
               onClick={() => void submit(true)}
             >
               {t("dialog.newsession.background")}
-              <span className="ml-1.5 font-mono text-[10px] opacity-70">{formatHotkey(BACKGROUND_SEND_HOTKEY)}</span>
+              <span className="ml-1.5 font-mono text-[10px] opacity-70">{formatHotkey(backgroundChord)}</span>
             </Button>
           )}
           <Button variant="solid" tone="signal" disabled={!canSubmit} onClick={() => void submit()}>

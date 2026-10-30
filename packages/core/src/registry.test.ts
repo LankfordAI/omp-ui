@@ -117,6 +117,7 @@ describe("SETTINGS", () => {
       "transcriptWidth",
       "glassChrome",
       "localeId",
+      "keybindings",
       "appUpdateCheckOnLaunch",
       "appUpdateTrain",
       "vaultRegistry",

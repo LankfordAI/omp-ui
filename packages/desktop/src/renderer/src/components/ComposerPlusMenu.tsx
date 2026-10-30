@@ -1,10 +1,9 @@
 import { useEffect, useRef, useState, type ReactNode } from "react";
-import { formatHotkey } from "../lib/hotkeys";
 import { useT } from "../lib/i18n";
+import { useKeybindingLabel } from "../lib/keybindings";
 import { useDismissal } from "../lib/use-dismissal";
 import { useStore } from "../store";
 import { MenuRow } from "./MenuRow";
-import { STASH_HOTKEY } from "./StashPalette";
 import { ICON_STROKE, IconMic, IconPlus } from "./ui";
 
 /**
@@ -47,6 +46,8 @@ export function ComposerPlusMenu({
   const [open, setOpen] = useState(false);
   const rootRef = useRef<HTMLSpanElement | null>(null);
   const triggerRef = useRef<HTMLButtonElement | null>(null);
+  const stashLabel = useKeybindingLabel("stashDraft");
+  const holdLabel = useKeybindingLabel("holdToTalk");
   const live = useStore((s) => s.rpc[tabId]?.live ?? null);
   const parked = useStore((s) => s.liveVoice[tabId]?.parked === true);
   const startLiveVoice = useStore((s) => s.startLiveVoice);
@@ -98,7 +99,7 @@ export function ComposerPlusMenu({
             <MenuRow
               glyph={<IconMic />}
               label={t("composer.plus.dictate")}
-              hint={t("composer.plus.dictateHint")}
+              hint={t("composer.plus.dictateHint", { key: holdLabel })}
               disabled={dictateDisabled}
               onClick={run(onDictate)}
             />
@@ -135,7 +136,7 @@ export function ComposerPlusMenu({
           <MenuRow
             glyph={<IconStash />}
             label={stash === "pick" ? t("composer.stash.open") : t("composer.stash.stash")}
-            hint={formatHotkey(STASH_HOTKEY)}
+            hint={stashLabel}
             onClick={run(onStash)}
           />
         </PlusMenuPanel>

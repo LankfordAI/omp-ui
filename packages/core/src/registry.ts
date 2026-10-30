@@ -11,6 +11,7 @@ import { isHeldPrompt } from "./held-prompt";
 import { isScheduledPrompt } from "./scheduled-prompt";
 import { isProjectIcon } from "./project-icon";
 import { parsePullRequestLinks } from "./pull-requests";
+import { parseKeybindingOverrides, type KeybindingOverrides } from "./keybindings";
 import {
   isFleetProvenance,
   parseFleetGrants,
@@ -141,6 +142,8 @@ export interface RegistrySettings {
   glassChrome: GlassChrome;
   /** Active UI locale id; the renderer resolves it against its own locale table. */
   localeId: string;
+  /** Rebound app shortcuts (issue #998), action id → chord; absent actions keep their defaults. */
+  keybindings: KeybindingOverrides;
   /** Check for a newer omp-ui release at launch. */
   appUpdateCheckOnLaunch: boolean;
   /** Release train for omp-ui's own update check (issue #493); default stable. */
@@ -414,6 +417,8 @@ export const SETTINGS: SettingDescriptors = {
     () => "en",
     (value): value is string => typeof value === "string" && value !== "",
   ),
+  // Fresh object every parse: setSetting no-ops on Object.is equality.
+  keybindings: { fallback: () => ({}), parse: parseKeybindingOverrides },
   appUpdateCheckOnLaunch: validatedSetting(
     () => true,
     (value): value is boolean => typeof value === "boolean",

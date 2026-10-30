@@ -1,10 +1,11 @@
 import { useEffect } from "react";
 import { useStore } from "../store";
 import { isTypingTarget } from "./hotkeys";
-import { DICTATION_HOTKEY_KEY } from "./use-dictation-hotkey";
+import { useKeybinding } from "./keybindings";
 
 /**
- * Hold-to-talk for live voice (ADR-0070): the #707 bare-R gesture. Dictation's
+ * Hold-to-talk for live voice (ADR-0070): the #707 bare-R gesture, on the
+ * hold-to-talk key (`R` unless rebound, issue #998). Dictation's
  * listener is suppressed while a call is open (#805), so a press never
  * reaches both. Same guards: no modifiers, no auto-repeat, no composition,
  * never from a text field; the release lands from anywhere, and window blur
@@ -17,12 +18,13 @@ export function useLiveTalkHotkey(tabId: string, viewed: boolean): void {
       live != null && !live.ended;
   });
   const setLiveTalking = useStore((s) => s.setLiveTalking);
+  const holdKey = useKeybinding("holdToTalk");
   useEffect(() => {
     if (!enabled) return;
     let held = false;
     const isR = (e: KeyboardEvent): boolean =>
       !e.isComposing && !e.metaKey && !e.ctrlKey && !e.altKey &&
-      e.key.toLowerCase() === DICTATION_HOTKEY_KEY;
+      e.key.toLowerCase() === holdKey;
     const release = (): void => {
       if (!held) return;
       held = false;
@@ -43,5 +45,5 @@ export function useLiveTalkHotkey(tabId: string, viewed: boolean): void {
       window.removeEventListener("blur", release);
       release();
     };
-  }, [enabled, setLiveTalking, tabId]);
+  }, [enabled, holdKey, setLiveTalking, tabId]);
 }

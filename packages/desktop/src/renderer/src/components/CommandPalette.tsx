@@ -4,7 +4,9 @@ import { ANONYMIZE_MIN_OMP, supportsAnonymize } from "../lib/anonymize";
 import { cn } from "../lib/cn";
 import { fuzzyBest, highlightRuns } from "../lib/fuzzy";
 import { useCompactShell } from "../lib/responsive";
-import { formatHotkey, useHotkeys } from "../lib/hotkeys";
+import { formatHotkey } from "../lib/hotkeys";
+import { useActionHotkeys, useKeybindingOverrides } from "../lib/keybindings";
+import { effectiveChord } from "@omp-ui/core/keybindings";
 import { currentLocaleId, useT } from "../lib/i18n";
 import { canSettle, findOwner, findRecord, isChatTab, sessionCwd, useStore } from "../store";
 import { Chip, Dot, IconSearch, Label, Modal, type Tone } from "./ui";
@@ -97,6 +99,8 @@ export function CommandPalette() {
   const openScheduleDialog = useStore((s) => s.openScheduleDialog);
   const rpcRunning = useStore((s) => (activeTabId === null ? false : s.rpc[activeTabId]?.status === "running"));
   const settleUndoCount = useStore((s) => s.settleUndo.length);
+  // Hint chips read the effective chords; a rebind rebuilds the list.
+  const keybindings = useKeybindingOverrides();
   const undoSettle = useStore((s) => s.undoSettle);
   const switchMode = useStore((s) => s.switchMode);
   const regenerateSessionTitle = useStore((s) => s.regenerateSessionTitle);
@@ -252,7 +256,7 @@ export function CommandPalette() {
         group: t("palette.group.app"),
         name: t("palette.action.undoSettle"),
         desc: t("palette.action.undoSettleDesc"),
-        hint: "mod+z",
+        hint: effectiveChord(keybindings, "undoSettle"),
         run: () => void undoSettle(),
       });
     }
@@ -406,7 +410,7 @@ export function CommandPalette() {
       group: t("palette.group.app"),
       name: t("palette.action.settings"),
       desc: t("palette.action.settingsDesc"),
-      hint: "mod+,",
+      hint: effectiveChord(keybindings, "openSettings"),
       run: () => openSettings(),
     });
     out.push({
@@ -432,7 +436,7 @@ export function CommandPalette() {
     });
 
     return out;
-  }, [state, tabs, activeTabId, openSession, newSession, newChat, openProjectPicker, openCapabilitiesViewer, openSessionTreeView, openLab, openStats, openFleet, openNewSessionDialog, openExperimentDialog, terminate, settleSessions, openScheduleDialog, rpcRunning, settleUndoCount, undoSettle, switchMode, regenerateSessionTitle, askAboutSession, toggleBrowserPane, shareSession, anonymizeSession, ompInstalled, openShareLive, checkAppUpdate, checkOmpUpdate, openSettings, openDiagnosticsDialog, openGettingStarted, t, localeId]);
+  }, [state, tabs, activeTabId, openSession, newSession, newChat, openProjectPicker, openCapabilitiesViewer, openSessionTreeView, openLab, openStats, openFleet, openNewSessionDialog, openExperimentDialog, terminate, settleSessions, openScheduleDialog, rpcRunning, settleUndoCount, undoSettle, switchMode, regenerateSessionTitle, askAboutSession, toggleBrowserPane, shareSession, anonymizeSession, ompInstalled, openShareLive, checkAppUpdate, checkOmpUpdate, openSettings, openDiagnosticsDialog, openGettingStarted, t, localeId, keybindings]);
 
   // Flat, already-ordered result list; group headers are derived from it so the
   // arrow-key index and the rendered rows can never disagree.
@@ -469,7 +473,7 @@ export function CommandPalette() {
     setOpen(true);
   }, [setActive]);
 
-  useHotkeys({ "mod+k": (e) => { e.preventDefault(); show(); } });
+  useActionHotkeys({ commandPalette: (e) => { e.preventDefault(); show(); } });
 
   useEffect(() => {
     const onOpen = (e: CustomEvent<PaletteOpenDetail | undefined>): void => show(e.detail?.query);

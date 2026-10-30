@@ -4,6 +4,7 @@ import { backend } from "../backend";
 import { useTheme } from "../lib/themes";
 import { useFontFamily } from "../lib/font-families";
 import { matchesHotkey } from "../lib/hotkeys";
+import { useKeybinding } from "../lib/keybindings";
 import { applyTerminalAppearance, createPtyResizePusher, createTerminal, type CreatedTerminal } from "../lib/terminal";
 import { findRecord, registerShellWriter, sessionCwd, useStore } from "../store";
 import { useT } from "../lib/i18n";
@@ -49,6 +50,8 @@ export function ShellDrawer({ tabId, visible }: { tabId: string; visible: boolea
   const dismissTuiHandoff = useStore((s) => s.dismissTuiHandoff);
   const restartSession = useStore((s) => s.restartSession);
   const copyMenu = useTerminalCopyMenu(termRef);
+  const consoleChord = useRef("");
+  consoleChord.current = useKeybinding("toggleConsole");
 
   useEffect(() => {
     const host = hostRef.current;
@@ -56,12 +59,13 @@ export function ShellDrawer({ tabId, visible }: { tabId: string; visible: boolea
     const { term, fit } = createTerminal(host, theme, font);
     termRef.current = { term, fit };
 
-    // mod+j is this drawer's own toggle (App.tsx). xterm translates Ctrl+J to
+    // The console toggle (mod+j unless rebound, issue #998) is this drawer's
+    // own toggle (App.tsx); read through a ref so a rebind applies at once. xterm translates Ctrl+J to
     // a line feed and stops the keydown before the window-level hotkey sees
     // it, so with focus in the console the chord would run the shell's current
     // line instead of closing the drawer (issue #637). Returning false makes
     // xterm skip the event, which then bubbles to useHotkeys untouched.
-    term.attachCustomKeyEventHandler((e) => !matchesHotkey(e, "mod+j"));
+    term.attachCustomKeyEventHandler((e) => !matchesHotkey(e, consoleChord.current));
 
     // No spawn here: after a mode-switch round trip the drawer can remount
     // while display:none, where fit() degenerates. The visible effect spawns.

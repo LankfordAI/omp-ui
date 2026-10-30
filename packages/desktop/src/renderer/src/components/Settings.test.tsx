@@ -159,6 +159,7 @@ const backendMock = {
   setFontFamilyId: vi.fn(async () => {}),
   setTranscriptWidth: vi.fn(async () => {}),
   setGlassChrome: vi.fn(async () => {}),
+  setKeybindings: vi.fn(async () => {}),
   setLocaleId: vi.fn(async () => {}),
   setAppUpdateCheckOnLaunch: vi.fn(async () => {}),
   setAppUpdateTrain: vi.fn(async () => {}),
@@ -2449,6 +2450,78 @@ describe("Settings Appearance page transcript width and glass chrome (issues #39
     await renderSettings();
     expect(card("Comfortable transcript width").getAttribute("aria-pressed")).toBe("true");
     expect(card("Off glass chrome").getAttribute("aria-pressed")).toBe("true");
+  });
+});
+
+describe("Settings Keyboard page (issue #998)", () => {
+  const seedKeyboard = (keybindings: Record<string, string> = {}): void => {
+    useStore.setState({
+      settingsPage: "keyboard",
+      state: backendState({ keybindings }),
+      tabs: [],
+      activeTabId: null,
+      appUpdate: appUpdateState({}),
+      ompUpdate: idleOmpUpdate,
+    });
+  };
+  const recorder = (action: string): HTMLButtonElement =>
+    document.querySelector<HTMLButtonElement>(`[data-keybinding-row="${action}"] button[aria-pressed]`)!;
+  const record = (action: string, init: KeyboardEventInit): void => {
+    click(recorder(action));
+    act(() => {
+      recorder(action).dispatchEvent(new KeyboardEvent("keydown", { bubbles: true, ...init }));
+    });
+  };
+  const row = (action: string): HTMLElement => document.querySelector<HTMLElement>(`[data-keybinding-row="${action}"]`)!;
+
+  it("blocks Save while two actions share a chord and saves once the conflict is resolved", async () => {
+    seedKeyboard();
+    await renderSettings();
+    record("toggleConsole", { key: "k", ctrlKey: true });
+    expect(recorder("toggleConsole").textContent).toBe("Ctrl+K");
+    expect(row("toggleConsole").textContent).toContain("Also bound to Open the command palette");
+    expect(row("commandPalette").textContent).toContain("Also bound to Show or hide the console");
+    expect(buttonWithText("Save")!.disabled).toBe(true);
+
+    record("commandPalette", { key: "j", ctrlKey: true });
+    expect(row("toggleConsole").textContent).not.toContain("Also bound to");
+    click(buttonWithText("Save")!);
+    await act(async () => {});
+    expect(backendMock.setKeybindings).toHaveBeenCalledWith({ commandPalette: "mod+j", toggleConsole: "mod+k" });
+  });
+
+  it("refuses a reserved or modifier-less chord without changing the row", async () => {
+    seedKeyboard();
+    await renderSettings();
+    record("findInSession", { key: "c", ctrlKey: true });
+    expect(row("findInSession").querySelector('[role="alert"]')?.textContent).toContain("reserved");
+    // Still recording after a refusal: the next key is tried without another click.
+    act(() => {
+      recorder("findInSession").dispatchEvent(new KeyboardEvent("keydown", { key: "g", bubbles: true }));
+    });
+    expect(row("findInSession").querySelector('[role="alert"]')?.textContent).toContain("cannot be used");
+    expect(recorder("findInSession").textContent).toBe("press a chord…");
+    expect(buttonWithText("Save")!.disabled).toBe(true);
+  });
+
+  it("records shifted punctuation by the key on the cap", async () => {
+    seedKeyboard();
+    await renderSettings();
+    record("textReset", { key: ")", ctrlKey: true, shiftKey: true });
+    expect(recorder("textReset").textContent).toBe("Ctrl+Shift+0");
+  });
+
+  it("resets one row, then all rows, back to the defaults", async () => {
+    seedKeyboard({ toggleConsole: "mod+shift+j", findInSession: "f3" });
+    await renderSettings();
+    expect(recorder("toggleConsole").textContent).toBe("Ctrl+Shift+J");
+    click(document.querySelector<HTMLButtonElement>('button[aria-label="Reset Show or hide the console to its default"]')!);
+    expect(recorder("toggleConsole").textContent).toBe("Ctrl+J");
+    click(buttonWithText("Reset all")!);
+    expect(recorder("findInSession").textContent).toBe("Ctrl+F");
+    click(buttonWithText("Save")!);
+    await act(async () => {});
+    expect(backendMock.setKeybindings).toHaveBeenCalledWith({});
   });
 });
 

@@ -57,6 +57,9 @@ export function useOverlay(
     });
     const onKey = (event: KeyboardEvent) => {
       if (overlayStack.at(-1) !== id) return;
+      // A shortcut recorder (Settings → Keyboard) owns every key it is sent,
+      // Escape and Tab included.
+      if (event.target instanceof Element && event.target.closest("[data-key-recorder]")) return;
       if (
         event.key === "Escape" &&
         event.target instanceof Node &&

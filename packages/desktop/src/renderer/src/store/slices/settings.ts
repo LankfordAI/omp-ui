@@ -394,6 +394,9 @@ export const createSettingsSlice: StateCreator<UiStore, [], [], SettingsSlice> =
         get().reportError(err);
       }
     },
+    async setKeybindings(overrides) {
+      await backend.setKeybindings(overrides);
+    },
 
     async setAppUpdateCheckOnLaunch(on) {
       try {

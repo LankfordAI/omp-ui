@@ -1,13 +1,12 @@
 import { useEffect, useRef } from "react";
 import { useStore } from "../store";
 import { isTypingTarget } from "./hotkeys";
+import { useKeybinding } from "./keybindings";
 import type { Dictation } from "./use-dictation";
 
-/** The push-to-talk key. Bare `r`; every modifier disqualifies the press. */
-export const DICTATION_HOTKEY_KEY = "r";
-
 /**
- * Push-to-talk dictation (issue #707): hold `r` to capture, release to
+ * Push-to-talk dictation (issue #707): hold the hold-to-talk key (`R` unless
+ * rebound in Settings → Keyboard, issue #998) to capture, release to
  * transcribe. Deliberately NOT a `useHotkeys` map entry — that registry only
  * listens for keydown, while push-to-talk needs keyup, blur, and auto-repeat
  * guards; and registering bare `r` there would make `isAppHotkey` claim it and
@@ -35,6 +34,8 @@ export function useDictationHotkey(
   const voiceRef = useRef(voice);
   voiceRef.current = voice;
   const active = enabled && !suppressed;
+  // One bare key, lowercase: a letter, digit, or function key (`f5`).
+  const holdKey = useKeybinding("holdToTalk");
 
   useEffect(() => {
     if (!active) return;
@@ -46,7 +47,7 @@ export function useDictationHotkey(
       !e.ctrlKey &&
       !e.altKey &&
       !e.shiftKey &&
-      e.key.toLowerCase() === DICTATION_HOTKEY_KEY &&
+      e.key.toLowerCase() === holdKey &&
       !isTypingTarget(e.target);
     const onKeyDown = (e: KeyboardEvent): void => {
       const v = voiceRef.current;
@@ -67,7 +68,7 @@ export function useDictationHotkey(
         !e.metaKey &&
         !e.ctrlKey &&
         !e.altKey &&
-        e.key.toLowerCase() === DICTATION_HOTKEY_KEY &&
+        e.key.toLowerCase() === holdKey &&
         isVoicePhase(v.phase)
       ) {
         v.stop();
@@ -86,5 +87,5 @@ export function useDictationHotkey(
       window.removeEventListener("keyup", onKeyUp);
       window.removeEventListener("blur", onBlur);
     };
-  }, [active]);
+  }, [active, holdKey]);
 }

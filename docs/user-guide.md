@@ -351,6 +351,8 @@ For connecting a phone or another browser to the compact shell, see [Remote acce
 
 **Mod** means `Command` on macOS and `Ctrl` on Linux and Windows.
 
+The tables list the default chords. Every app shortcut, plus `Mod+Z`, `Mod+Alt+S`, `Mod+Alt+Enter`, and hold-to-talk `R`, can be rebound in [Settings → Keyboard](settings.md#keyboard); menus, tooltips, and the command palette then show your chord. The composer's other keys, the sidebar selection gestures, and the project quick-open's `Mod+1`…`Mod+9` stay fixed.
+
 ### App shortcuts
 
 | Shortcut | Action |
@@ -365,7 +367,9 @@ For connecting a phone or another browser to the compact shell, see [Remote acce
 | `Mod+-` | Decrease native transcript text size. |
 | `Mod+0` | Reset native transcript text size. |
 | `Mod+,` | Open Settings. |
+| `Mod+F` | Find in the focused session's transcript or terminal scrollback. |
 | `Mod+Z` | Undo the most recent Settle and resume that session; outside a text field only. |
+| Hold `R` | Dictate, or talk in a live voice call; outside a text field only. |
 | `Mod+click`, `Shift+click` (sidebar row) | Add a row to the sidebar selection or remove it; select a range within one section. `Escape` clears the selection. |
 
 ### Composer shortcuts

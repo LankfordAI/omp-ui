@@ -1,6 +1,6 @@
 import { useCallback } from "react";
 import { useStore } from "../store";
-import { formatHotkey } from "../lib/hotkeys";
+import { useKeybindingLabel } from "../lib/keybindings";
 import { useSettleUndoHotkey } from "../lib/use-settle-undo-hotkey";
 import { useT } from "../lib/i18n";
 import { Button, UpdateCard } from "./ui";
@@ -16,6 +16,7 @@ export const SETTLE_TOAST_MS = 8000;
 export function SettleToast() {
   const t = useT();
   useSettleUndoHotkey();
+  const undoLabel = useKeybindingLabel("undoSettle");
   const entry = useStore((s) =>
     s.settleToastId === null ? undefined : s.settleUndo.find((e) => e.id === s.settleToastId),
   );
@@ -42,7 +43,7 @@ export function SettleToast() {
           <Button variant="outline" size="xs" onClick={() => void undoSettle()}>
             {t("settle.toast.undo")}
           </Button>
-          <span className="font-mono text-[10px] text-ink-faint">{formatHotkey("mod+z")}</span>
+          <span className="font-mono text-[10px] text-ink-faint">{undoLabel}</span>
         </div>
       </div>
     </UpdateCard>

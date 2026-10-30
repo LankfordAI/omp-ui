@@ -42,6 +42,7 @@ export function backendState(patch: Partial<BackendState> = {}): BackendState {
     transcriptWidth: "wide",
     glassChrome: "subtle",
     localeId: "en",
+    keybindings: {},
     appUpdateCheckOnLaunch: true,
     appUpdateTrain: "stable",
     vaultRegistry: { vaults: [], defaultWriteVault: null },

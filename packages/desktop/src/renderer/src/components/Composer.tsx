@@ -32,8 +32,9 @@ import { findInstance, findOwner, isChatTab, sessionCwd, useStore } from "../sto
 import { useDismissal } from "../lib/use-dismissal";
 import { useImageDraft } from "../lib/use-image-draft";
 import { stashDraft, takeStashedDraft, useDraftStash } from "../lib/draft-stash";
-import { isTypingTarget, useHotkeys } from "../lib/hotkeys";
-import { STASH_HOTKEY, StashPalette, type StashPaletteHandle } from "./StashPalette";
+import { isTypingTarget, matchesHotkey } from "../lib/hotkeys";
+import { useActionHotkeys, useKeybinding } from "../lib/keybindings";
+import { StashPalette, type StashPaletteHandle } from "./StashPalette";
 import { AnnotationChips } from "./AnnotationChips";
 import { SessionReferenceChips } from "./SessionReferenceChips";
 import { SESSION_DRAG_MIME } from "../lib/session-drag";
@@ -1115,8 +1116,9 @@ export function Composer({
     e.preventDefault();
     void stashOrPick();
   };
-  // macOS reports Option+S as `ß` in `e.key`; both spellings are the chord.
-  useHotkeys(activeHere ? { [STASH_HOTKEY]: stashKey, "mod+alt+ß": stashKey } : {});
+  // hotkeys.ts folds macOS's Option glyphs (Option+S reports `ß`) back to the key.
+  useActionHotkeys(activeHere ? { stashDraft: stashKey } : {});
+  const backgroundChord = useKeybinding("sendInBackground");
 
   /** A drained take hands the caret back to the draft. */
   const focusDraft = useCallback(() => box.current?.focus({ preventScroll: true }), []);
@@ -1173,11 +1175,16 @@ export function Composer({
       void abortAgent(tabId);
       return;
     }
-    if (e.key === "Enter" && (e.metaKey || e.ctrlKey) && e.altKey) {
-      // Send in background (issue #982) — the hero's chord only; elsewhere it
-      // is unbound and must not fall through to queue or interrupt.
+    if (matchesHotkey(e.nativeEvent, backgroundChord)) {
+      // Send in background (issue #982), on its effective chord (issue #998).
       e.preventDefault();
-      if (!e.shiftKey) void sendInBackground();
+      void sendInBackground();
+      return;
+    }
+    if (e.key === "Enter" && (e.metaKey || e.ctrlKey) && e.altKey) {
+      // Every Mod+Alt+Enter variant is reserved for the composer: unbound
+      // here, it must not fall through to queue or interrupt.
+      e.preventDefault();
       return;
     }
     if (e.key === "Enter" && (e.metaKey || e.ctrlKey)) {

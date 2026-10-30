@@ -200,6 +200,7 @@ const VALID_ARGS = {
   setFontFamilyId: ["mono"],
   setGettingStartedSeen: [true],
   setGlassChrome: ["subtle"],
+  setKeybindings: [{ toggleConsole: "mod+shift+j" }],
   setThemeMode: ["system"],
   setLightThemeId: ["light"],
   setDarkThemeId: ["graphite"],

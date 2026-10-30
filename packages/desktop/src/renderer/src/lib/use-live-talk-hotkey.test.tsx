@@ -2,7 +2,7 @@
 import { act } from "react";
 import { createRoot, type Root } from "react-dom/client";
 import { afterEach, beforeEach, describe, expect, it, vi } from "vitest";
-import { rpcTabState } from "../test/fixtures";
+import { backendState, rpcTabState } from "../test/fixtures";
 import type { LiveSnapshot } from "@omp-ui/core/live-voice";
 
 (globalThis as Record<string, unknown>).IS_REACT_ACT_ENVIRONMENT = true;
@@ -48,6 +48,7 @@ beforeEach(() => {
 
 afterEach(() => {
   act(() => root?.unmount());
+  useStore.setState({ state: null });
   root = null;
   document.body.innerHTML = "";
 });
@@ -61,6 +62,18 @@ describe("useLiveTalkHotkey (ADR-0070)", () => {
     press("keyup");
     expect(setLiveTalking).toHaveBeenLastCalledWith(TAB, false);
     expect(setLiveTalking).toHaveBeenCalledTimes(2);
+  });
+
+  it("follows a rebound hold-to-talk key (issue #998)", () => {
+    seed();
+    useStore.setState({ state: backendState({ keybindings: { holdToTalk: "t" } }) });
+    mount();
+    press("keydown");
+    expect(setLiveTalking).not.toHaveBeenCalled();
+    press("keydown", { key: "t" });
+    expect(setLiveTalking).toHaveBeenLastCalledWith(TAB, true);
+    press("keyup", { key: "t" });
+    expect(setLiveTalking).toHaveBeenLastCalledWith(TAB, false);
   });
 
   it("ignores an auto-repeat keydown", () => {

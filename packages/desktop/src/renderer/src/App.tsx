@@ -39,7 +39,9 @@ import { Sidebar } from "./components/Sidebar";
 import { TerminalTab } from "./components/TerminalTab";
 import { Button, Chevron, IconButton, IconInspect, IconPlus } from "./components/ui";
 import { cn } from "./lib/cn";
-import { formatHotkey, useHotkeys } from "./lib/hotkeys";
+import { formatHotkey } from "./lib/hotkeys";
+import { useActionHotkeys, useKeybindingLabel, useKeybindingOverrides } from "./lib/keybindings";
+import { effectiveChord, type KeybindingActionId } from "@omp-ui/core/keybindings";
 import { useT, type MessageKey } from "./lib/i18n";
 import { IS_ELECTRON, IS_MAC, IS_WINDOWS } from "./lib/platform";
 import { resetTranscriptScale, stepTranscriptScale } from "./lib/text-scale";
@@ -47,16 +49,16 @@ import { useAppViewport, useCompactShell } from "./lib/responsive";
 import { tabTitle } from "./lib/tab-title";
 import { findInstance, findOwner, findRecord, isChatTab, useStore } from "./store";
 
-/** The shortcuts the chrome actually registers, spelled out for newcomers. */
-const HINTS: [combo: string, what: MessageKey][] = [
-  ["mod+k", "app.welcome.hintCommandPalette"],
-  ["mod+shift+n", "app.welcome.hintNewSession"],
-  ["mod+shift+o", "app.welcome.hintNewChat"],
-  ["mod+o", "app.welcome.hintNewSessionDialog"],
-  ["mod+shift+p", "app.welcome.hintMode"],
-  ["mod+j", "app.welcome.hintConsole"],
-  ["mod+f", "app.welcome.hintSearch"],
-  ["mod+=", "app.welcome.hintTranscriptScale"],
+/** The shortcuts the chrome actually registers, spelled out for newcomers in their effective chords. */
+const HINTS: [action: KeybindingActionId, what: MessageKey][] = [
+  ["commandPalette", "app.welcome.hintCommandPalette"],
+  ["newSession", "app.welcome.hintNewSession"],
+  ["newChat", "app.welcome.hintNewChat"],
+  ["newSessionDialog", "app.welcome.hintNewSessionDialog"],
+  ["togglePlanMode", "app.welcome.hintMode"],
+  ["toggleConsole", "app.welcome.hintConsole"],
+  ["findInSession", "app.welcome.hintSearch"],
+  ["textLarger", "app.welcome.hintTranscriptScale"],
 ];
 
 // The native overlay rect is composited over the strip's right end; reserve
@@ -190,6 +192,8 @@ function Welcome() {
   const openProjectPicker = useStore((s) => s.openProjectPicker);
   const openGettingStarted = useStore((s) => s.openGettingStarted);
   const hasProjects = useStore((s) => (s.state?.projects.length ?? 0) > 0);
+  const keybindings = useKeybindingOverrides();
+  const newSessionHotkey = useKeybindingLabel("newSession");
 
   return (
     <div className="ambient flex h-full flex-col items-center justify-center bg-void px-5">
@@ -198,7 +202,7 @@ function Welcome() {
           <h1 className="font-display text-3xl font-semibold tracking-tight text-ink">omp-ui</h1>
           <p className="text-balance-tight text-sm leading-relaxed text-ink-dim">
             {hasProjects
-              ? t("app.welcome.hasProjectsHint")
+              ? t("app.welcome.hasProjectsHint", { hotkey: newSessionHotkey })
               : t("app.welcome.noProjectsHint")}
           </p>
         </div>
@@ -218,10 +222,10 @@ function Welcome() {
         </div>
 
         <dl className="compact-welcome-hints mt-2 grid grid-cols-[auto_1fr] items-center gap-x-3 gap-y-1.5 text-left">
-          {HINTS.map(([combo, what]) => (
-            <div key={combo} className="col-span-2 grid grid-cols-subgrid items-center">
+          {HINTS.map(([action, what]) => (
+            <div key={action} className="col-span-2 grid grid-cols-subgrid items-center">
               <dt className="justify-self-end rounded border border-line bg-raised px-1.5 py-px font-mono text-[10px] leading-4 text-ink-mid">
-                {formatHotkey(combo)}
+                {formatHotkey(effectiveChord(keybindings, action))}
               </dt>
               <dd className="text-[11px] text-ink-faint">{t(what)}</dd>
             </div>
@@ -324,20 +328,22 @@ export default function App() {
     if (s.experimentDialog !== null) s.closeExperimentDialog();
   }, [experimentsEnabled]);
 
-  // mod+shift+n, the keyboard twin of the sidebar's New session button:
+  // App shortcuts, each on its effective chord (issue #998: rebindable in
+  // Settings → Keyboard; defaults in core/keybindings.ts).
+  // newSession, the keyboard twin of the sidebar's New session button:
   // always the project quick-open, chat tab included (issue #919). The
   // quick-open orders No project first when a chat (or nothing) is focused
   // and the focused project first otherwise, so a bare Enter still repeats
   // "another one of these".
-  useHotkeys({
-    "mod+shift+n": (e) => {
+  useActionHotkeys({
+    newSession: (e) => {
       e.preventDefault();
       openProjectQuickOpen();
     },
     // A new Chat in one keystroke (issue #962): the quick-open's No project row
     // without the quick-open, from any focused tab, chat or project. A mod
     // combo, so it fires mid-draft; the draft stays with its own tab.
-    "mod+shift+o": (e) => {
+    newChat: (e) => {
       e.preventDefault();
       void useStore.getState().newChat();
     },
@@ -347,7 +353,7 @@ export default function App() {
     // drawer) keeps Ctrl+O for OMP's TUI with no carve-out here: xterm turns
     // it into ^O and stops the keydown before this window listener. An open
     // dialog is left alone so a second press never reseeds a form in progress.
-    "mod+o": (e) => {
+    newSessionDialog: (e) => {
       e.preventDefault();
       const s = useStore.getState();
       if (s.newSessionDialog !== null) return;
@@ -359,7 +365,7 @@ export default function App() {
     // owns plan mode. A mod combo so it fires mid-draft (hotkeys.ts
     // suppresses bare combos in typing targets); focus never moves, so a
     // partially typed prompt survives.
-    "mod+shift+p": (e) => {
+    togglePlanMode: (e) => {
       e.preventDefault();
       const tab = tabs.find((t) => t.tabId === activeTabId);
       if (tab?.mode !== "rpc-ui") return;
@@ -369,7 +375,7 @@ export default function App() {
       void setPlanMode(tab.tabId, !(plan?.enabled ?? false));
     },
     // Console drawer (issue #33): rpc-ui tabs only — terminal tabs have no console.
-    "mod+j": (e) => {
+    toggleConsole: (e) => {
       e.preventDefault();
       const tab = tabs.find((t) => t.tabId === activeTabId);
       if (tab?.mode === "rpc-ui") toggleConsole(tab.tabId);
@@ -380,7 +386,7 @@ export default function App() {
     // (subagent view, plan-review dock, exited session); refocuses
     // its input when the bar is already open. A mod combo, so it
     // fires from the composer or the xterm textarea alike.
-    "mod+f": (e) => {
+    findInSession: (e) => {
       e.preventDefault();
       if (activeTabId === null) return;
       const tab = tabs.find((t) => t.tabId === activeTabId);
@@ -401,28 +407,23 @@ export default function App() {
     },
     // Transcript text scale (issue #30). Registered app-wide: the combos are
     // free because Electron zoom is disabled, and a scale keystroke with no
-    // transcript visible is harmless.
-    "mod+=": (e) => {
+    // transcript visible is harmless. The default also fires on
+    // Ctrl+Shift+=, how many keyboards type "+" (a default alternate).
+    textLarger: (e) => {
       e.preventDefault();
       stepTranscriptScale(1);
     },
-    // Ctrl+Shift+= is how many keyboards actually type "+"; UNSHIFT maps the
-    // key back to "=" but keeps the shift modifier, so it needs its own entry.
-    "mod+shift+=": (e) => {
-      e.preventDefault();
-      stepTranscriptScale(1);
-    },
-    "mod+-": (e) => {
+    textSmaller: (e) => {
       e.preventDefault();
       stepTranscriptScale(-1);
     },
-    "mod+0": (e) => {
+    textReset: (e) => {
       e.preventDefault();
       resetTranscriptScale();
     },
-    // Settings modal (issue #36). The combo is free — Electron menus don't
+    // Settings modal (issue #36). The default is free — Electron menus don't
     // claim it — and matches the platform convention for preferences.
-    "mod+,": (e) => {
+    openSettings: (e) => {
       e.preventDefault();
       openSettings();
     },

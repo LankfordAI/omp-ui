@@ -81,6 +81,7 @@ import type { LiveHistoryTurn } from "./live-voice";
 import { isSubagentModelMap, type SubagentModelMap } from "./subagent-model";
 import { parseWebhookInput, parseWebhookPatch, type WebhookInput, type WebhookPatch } from "./webhook";
 import { VSCODE_THEME_FILE_BYTES_MAX, type VsCodeThemeFileInput } from "./vscode-theme";
+import { keybindingOverridesError, type KeybindingOverrides } from "./keybindings";
 import { parseMcpClientInput, parseMcpClientPatch, type McpClientInput, type McpClientPatch } from "./mcp-endpoint";
 
 export interface ArgCodec<T> {
@@ -236,6 +237,19 @@ export const spendCapKeyCodec: ArgCodec<SpendCapKey> = oneOf("warnCost", "maxCos
 export const serviceTierCodec: ArgCodec<ServiceTier> = oneOf("priority", "ultrafast");
 export const transcriptWidthCodec: ArgCodec<TranscriptWidth> = oneOf("comfortable", "wide", "full");
 export const glassChromeCodec: ArgCodec<GlassChrome> = oneOf("off", "subtle", "frosted");
+/** The whole override map (issue #998): every chord valid for its action, no two actions sharing one. */
+export const keybindingOverridesCodec: ArgCodec<KeybindingOverrides> = {
+  expected: "a keybinding override map",
+  decode(value, path) {
+    const fields = record().decode(value, path);
+    for (const [id, chord] of Object.entries(fields)) {
+      if (typeof chord !== "string") fail(`${path}.${id}`, "a chord string");
+    }
+    const problem = keybindingOverridesError(fields as Record<string, string>);
+    if (problem !== null) fail(path, `a keybinding override map (${problem})`);
+    return fields as KeybindingOverrides;
+  },
+};
 /** One picked VS Code theme file (issue #999): its base name and bounded UTF-8 text. */
 export const vsCodeThemeFileCodec: ArgCodec<VsCodeThemeFileInput> = objectOf<VsCodeThemeFileInput>({
   name: shortStr(255),

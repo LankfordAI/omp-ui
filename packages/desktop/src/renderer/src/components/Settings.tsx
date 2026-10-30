@@ -16,6 +16,7 @@ import { AdvancedPage } from "./settings/AdvancedPage";
 import { AppearancePage } from "./settings/AppearancePage";
 import { ExperimentalFooter, ExperimentalPage } from "./settings/ExperimentalPage";
 import { GeneralFooter, GeneralPage } from "./settings/GeneralPage";
+import { KeyboardPage } from "./settings/KeyboardPage";
 import { MemoryFooter, MemoryPage } from "./settings/MemoryPage";
 import { OmpFooter, OmpPage } from "./settings/OmpPage";
 import { ProvidersFooter, ProvidersPage } from "./settings/ProvidersPage";
@@ -60,6 +61,7 @@ const PAGES: ReadonlyArray<{
 }> = [
   { id: "general", labelKey: "settings.nav.general", render: () => <GeneralPage />, footer: GeneralFooter },
   { id: "appearance", labelKey: "settings.nav.appearance", render: () => <AppearancePage /> },
+  { id: "keyboard", labelKey: "settings.nav.keyboard", render: () => <KeyboardPage /> },
   { id: "updates", labelKey: "settings.nav.updates", render: () => <UpdatesPage />, footer: UpdatesFooter },
   { id: "remote", labelKey: "settings.nav.remote", render: () => <RemotePage />, footer: RemoteFooter },
   { id: "webhooks", labelKey: "settings.nav.webhooks", render: () => <WebhooksPage /> },

@@ -50,6 +50,7 @@ interface RegistrySettings {
   transcriptWidth: TranscriptWidth;
   glassChrome: GlassChrome;
   localeId: string;
+  keybindings: Record<string, string>;
   appUpdateCheckOnLaunch: boolean;
   appUpdateTrain: "stable" | "nightly";
   vaultRegistry: {
@@ -170,6 +171,7 @@ export function seedRegistry(file: string, patch: RegistrySeedPatch = {}): void 
     transcriptWidth: "wide",
     glassChrome: "subtle",
     localeId: "en",
+    keybindings: {},
     appUpdateCheckOnLaunch: true,
     appUpdateTrain: "stable",
     vaultRegistry: { vaults: [], defaultWriteVault: null },

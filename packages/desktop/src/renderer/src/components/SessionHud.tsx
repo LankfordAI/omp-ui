@@ -11,7 +11,7 @@ import { cn } from "../lib/cn";
 import { startVisibleInterval } from "../lib/visible-interval";
 import { formatDuration } from "../lib/duration";
 import { compactNum, exactNum, formatCost } from "../lib/format";
-import { formatHotkey } from "../lib/hotkeys";
+import { useKeybindingLabel } from "../lib/keybindings";
 import { useCompactShell } from "../lib/responsive";
 import { remoteVsCodeRow, useRemoteVsCodeTarget } from "../lib/remote-vscode";
 import { backend } from "../backend";
@@ -1125,6 +1125,8 @@ function TitleMenu({
     panelRef.current?.querySelector<HTMLElement>('[role^="menuitem"]:not(:disabled)')?.focus();
   }, [surface]);
 
+  const consoleLabel = useKeybindingLabel("toggleConsole");
+  const undoSettleLabel = useKeybindingLabel("undoSettle");
   const checkRow = (label: string, checked: boolean, hotkey: string | null, onClick: () => void): ReactNode => (
     <button type="button" role="menuitemcheckbox" aria-checked={checked} onClick={act(onClick)} className={MENU_ROW}>
       <span className={cn("flex min-w-0 items-center gap-1.5", checked && "text-ink")}>
@@ -1189,7 +1191,7 @@ function TitleMenu({
                   {t("hud.menu.retitle")}
                 </button>
                 <MenuGroup heading={t("hud.menu.view")}>
-                  {checkRow(t("hud.menu.console"), consoleOpen, formatHotkey("mod+j"), () => toggleConsole(tabId))}
+                  {checkRow(t("hud.menu.console"), consoleOpen, consoleLabel, () => toggleConsole(tabId))}
                   {checkRow(t("hud.menu.browserPane"), paneOpen, null, () => toggleBrowserPane(tabId))}
                 </MenuGroup>
                 {MENU_SEPARATOR}
@@ -1256,7 +1258,7 @@ function TitleMenu({
                     <button
                       type="button"
                       role="menuitem"
-                      title={t("hud.menu.settleTitle")}
+                      title={t("hud.menu.settleTitle", { hotkey: undoSettleLabel })}
                       onClick={act(() => void settleSessions([tabId]))}
                       className={MENU_ROW}
                     >

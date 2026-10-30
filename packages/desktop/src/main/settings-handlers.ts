@@ -4,9 +4,11 @@ import {
   DEFAULT_THEME_ID,
   IMPORTED_THEMES_MAX,
   importVsCodeThemeFiles,
+  normalizeKeybindingOverrides,
   parseFleetProjectRoots,
   type AgentMode,
   type GlassChrome,
+  type KeybindingOverrides,
   type PlanFormat,
   type PlacementPreference,
   type FleetRung,
@@ -56,6 +58,7 @@ type SettingsHandlerChannels =
   | typeof CH.setTranscriptWidth
   | typeof CH.setGlassChrome
   | typeof CH.setLocaleId
+  | typeof CH.setKeybindings
   | typeof CH.setAppUpdateCheckOnLaunch
   | typeof CH.setAppUpdateTrain
   | typeof CH.setOmpUpdateCheckOnLaunch
@@ -152,6 +155,10 @@ export function registerSettingsHandlers(
     [CH.setTranscriptWidth]: (value: TranscriptWidth) => commit("transcriptWidth", value),
     [CH.setGlassChrome]: (value: GlassChrome) => commit("glassChrome", value),
     [CH.setLocaleId]: (value: string) => commit("localeId", value),
+    // The codec already refused conflicts and reserved chords; defaults drop
+    // so the registry stores only what the user changed.
+    [CH.setKeybindings]: (value: KeybindingOverrides) =>
+      commit("keybindings", normalizeKeybindingOverrides(value)),
     [CH.setAppUpdateCheckOnLaunch]: (value: boolean) => commit("appUpdateCheckOnLaunch", value),
     [CH.setAppUpdateTrain]: async (value: UpdateTrain) => {
       deps.registry.setSetting("appUpdateTrain", value);

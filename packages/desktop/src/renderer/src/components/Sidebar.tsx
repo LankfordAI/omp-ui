@@ -3,6 +3,7 @@ import { createPortal } from "react-dom";
 import { useT } from "../lib/i18n";
 import { cn } from "../lib/cn";
 import { formatHotkey, isTypingTarget } from "../lib/hotkeys";
+import { useKeybindingLabel } from "../lib/keybindings";
 import { useDismissal } from "../lib/use-dismissal";
 import { useCompactShell, useViewportWidth } from "../lib/responsive";
 import {
@@ -430,6 +431,7 @@ function SelectionBar({
 
 export function Sidebar() {
   const t = useT();
+  const newSessionLabel = useKeybindingLabel("newSession");
   const state = useStore((st) => st.state);
   const openProjectQuickOpen = useStore((st) => st.openProjectQuickOpen);
   const openSettings = useStore((st) => st.openSettings);
@@ -737,7 +739,7 @@ export function Sidebar() {
               <div className="min-h-0 flex-1 overflow-y-auto">
                 <Empty
                   title={t("sidebar.empty.noLive")}
-                  hint={t("sidebar.empty.noLiveHint", { hotkey: formatHotkey("mod+shift+n") })}
+                  hint={t("sidebar.empty.noLiveHint", { hotkey: newSessionLabel })}
                   action={
                     <Button variant="solid" onClick={() => { openProjectQuickOpen(); closeCompactSurface(); }}>
                       {t("sidebar.empty.newSession")}

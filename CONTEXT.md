@@ -1665,6 +1665,16 @@ live content moving behind it: the transcript scrolls under the floating
 composer.
 _Avoid_: transparency mode, acrylic, vibrancy, glassmorphism
 
+**Keybinding**:
+An app action's chord, rebindable in Settings → Keyboard (issue #998). The
+registry stores only overrides (`keybindings`, action id → chord); the
+action table and defaults live in `core/keybindings.ts`. A press action
+needs Mod or a function key; hold to talk is one unmodified key. The host
+refuses reserved chords and any map where two actions share a chord, so
+dispatch never sees a conflict. Composer keys and the quick-open's
+`Mod+1`…`Mod+9` are fixed, not keybindings.
+_Avoid_: hotkey profile, keymap, accelerator
+
 **Floating composer**:
 The bottom-anchored stack a desktop rpc-ui tab floats over its transcript —
 the pending extension dialog card and the composer card — lifted clear of the

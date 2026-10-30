@@ -2661,6 +2661,7 @@ export class MainBackend {
       audioOutputDevice: this.registry.getSetting("audioOutputDevice"),
       glassChrome: this.registry.getSetting("glassChrome"),
       localeId: this.registry.getSetting("localeId"),
+      keybindings: this.registry.getSetting("keybindings"),
       appUpdateCheckOnLaunch: this.registry.getSetting("appUpdateCheckOnLaunch"),
       appUpdateTrain: this.registry.getSetting("appUpdateTrain"),
       vaultRegistry: this.registry.getSetting("vaultRegistry"),

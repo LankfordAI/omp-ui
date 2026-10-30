@@ -25,7 +25,7 @@ export const en = {
 
   // App Welcome
   "app.welcome.hasProjectsHint":
-    "No sessions open — start one with New session in the sidebar or Ctrl+Shift+N, or reopen one from Settled.",
+    "No sessions open — start one with New session in the sidebar or {hotkey}, or reopen one from Settled.",
   "app.welcome.addProject": "Add project",
   "app.welcome.openSession": "Open session…",
   "app.welcome.noProjectsHint":
@@ -485,7 +485,7 @@ export const en = {
   "composer.plus.label": "attach, voice, and commands",
   "composer.plus.attachHint": "images · pdf",
   "composer.plus.dictate": "dictate",
-  "composer.plus.dictateHint": "hold R",
+  "composer.plus.dictateHint": "hold {key}",
   "composer.plus.commands": "commands",
   "composer.plus.mention": "mention a file",
   "composer.plus.shell": "shell command",
@@ -522,10 +522,10 @@ export const en = {
   "composer.error.dismissPaste": "dismiss paste warning",
   "composer.error.dismissWorktree": "dismiss worktree error",
   // Dictation (issue #647): the composer's speech-to-text path.
-  "composer.dictation.start": "dictate a message (hold R)",
+  "composer.dictation.start": "dictate a message (hold {key})",
   "composer.dictation.stop": "stop recording and transcribe",
   "composer.dictation.requesting": "opening the microphone…",
-  "composer.dictation.recording": "recording — {seconds}s, release R or click to stop",
+  "composer.dictation.recording": "recording — {seconds}s, release {key} or click to stop",
   "composer.dictation.transcribing": "transcribing…",
   "composer.dictation.errorBlocked":
     "microphone access was blocked — check your OS privacy settings",
@@ -539,7 +539,7 @@ export const en = {
   "composer.live.stop": "stop live voice",
   "composer.live.holdToTalk": "hold to talk",
   "composer.live.holdToTalkHint":
-    "Hold to talk, or hold R anywhere outside a text field. The microphone is closed whenever you are not holding.",
+    "Hold to talk, or hold {key} anywhere outside a text field. The microphone is closed whenever you are not holding.",
   "composer.live.micInUse": "the microphone is in use by live voice",
   "composer.live.needsNewerOmp": "this omp has no live voice — update omp to {version} or later",
   "composer.live.sendFailed": "the live voice command could not be sent",
@@ -550,7 +550,7 @@ export const en = {
   "composer.live.phaseListening": "listening",
   "composer.live.phaseWorking": "working",
   "composer.live.phaseSpeaking": "speaking",
-  "composer.live.phaseReady": "hold R to talk",
+  "composer.live.phaseReady": "hold {key} to talk",
   "composer.live.phaseError": "error",
   "composer.live.phasePending": "…",
   "composer.live.roleUser": "you",
@@ -1067,6 +1067,41 @@ export const en = {
   "settings.appearance.glassFrosted": "Frosted",
   "settings.appearance.glassFrostedHint":
     "Stronger blur and wash; costs a little GPU.",
+
+  // KeyboardPage (issue #998)
+  "settings.keyboard.intro":
+    "Click a shortcut, then press the new chord. Press shortcuts need Ctrl (⌘ on macOS) or a function key; hold to talk takes one key with no modifiers. Escape cancels recording. Changes apply when you save.",
+  "settings.keyboard.action.commandPalette": "Open the command palette",
+  "settings.keyboard.action.newSession": "New session (project quick-open)",
+  "settings.keyboard.action.newChat": "New chat",
+  "settings.keyboard.action.newSessionDialog": "New session dialog",
+  "settings.keyboard.action.togglePlanMode": "Switch Build / Plan",
+  "settings.keyboard.action.toggleConsole": "Show or hide the console",
+  "settings.keyboard.action.findInSession": "Find in session",
+  "settings.keyboard.action.textLarger": "Larger transcript text",
+  "settings.keyboard.action.textSmaller": "Smaller transcript text",
+  "settings.keyboard.action.textReset": "Reset transcript text size",
+  "settings.keyboard.action.openSettings": "Open Settings",
+  "settings.keyboard.action.undoSettle": "Undo settle",
+  "settings.keyboard.action.stashDraft": "Stash draft / open stashed drafts",
+  "settings.keyboard.action.sendInBackground": "Start in background",
+  "settings.keyboard.action.holdToTalk": "Hold to talk (dictation and live voice)",
+  "settings.keyboard.recordAria": "{action}: {chord}. Press to record a new shortcut",
+  "settings.keyboard.recording": "press a chord…",
+  "settings.keyboard.recordingHold": "press a key…",
+  "settings.keyboard.reset": "reset",
+  "settings.keyboard.resetAria": "Reset {action} to its default",
+  "settings.keyboard.resetAll": "Reset all",
+  "settings.keyboard.save": "Save",
+  "settings.keyboard.discard": "Discard",
+  "settings.keyboard.unsaved": "Unsaved changes",
+  "settings.keyboard.conflict": "Also bound to {actions}",
+  "settings.keyboard.conflictsBlock": "Resolve conflicts to save",
+  "settings.keyboard.reserved": "{chord} is reserved for text editing, the composer, or the window",
+  "settings.keyboard.invalidPress": "{chord} cannot be used: include {mod} or use a function key",
+  "settings.keyboard.invalidHold": "{chord} cannot be used: hold to talk takes one letter, digit, or function key with no modifiers",
+  "settings.keyboard.fixed":
+    "Composer keys stay fixed: Enter, Shift+Enter, {queue}, {interrupt}, Escape, and the picker keys, as do {positional} in the project quick-open.",
 
   // UpdatesPage
   "settings.updates.newerRelease": "a newer release",
@@ -2065,7 +2100,7 @@ export const en = {
   "hud.menu.newChat": "New chat",
   "hud.menu.compact": "Compact now",
   "hud.menu.settle": "Settle",
-  "hud.menu.settleTitle": "done with this session: stop it and move it to Settled (Mod+Z undoes)",
+  "hud.menu.settleTitle": "done with this session: stop it and move it to Settled ({hotkey} undoes)",
   "hud.menu.schedule": "Schedule…",
   "hud.menu.editSchedule": "Edit schedule…",
   "hud.menu.scheduleTitle": "send a prompt into this session at a time or on a recurring schedule",
@@ -2868,6 +2903,7 @@ export const en = {
   "settings.shell.title": "Settings",
   "settings.nav.general": "General",
   "settings.nav.appearance": "Appearance",
+  "settings.nav.keyboard": "Keyboard",
   "settings.nav.updates": "Updates",
   "settings.nav.remote": "Remote access",
   "settings.nav.webhooks": "Webhooks",

@@ -89,6 +89,7 @@ import type {
 } from "./types";
 import type { LiveAudioEntry, LiveAudioLoad, LiveHistoryEntry, LiveHistoryTurn } from "./live-voice";
 import type { SubagentModelMap } from "./subagent-model";
+import type { KeybindingOverrides } from "./keybindings";
 import type { ReviewRosterView, ReviewWriteRequest } from "./review-config";
 import type { SessionCapabilitiesResult, SetSessionToolEnabledResult } from "./capabilities";
 import type { CollabAccess, CollabTabSnapshot, CollabTabState } from "./collab";
@@ -162,6 +163,7 @@ import {
   documentAttachmentCodec,
   consoleProgramCodec,
   glassChromeCodec,
+  keybindingOverridesCodec,
   vsCodeThemeFileCodec,
   imageAttachmentCodec,
   knowledgeHomeCodec,
@@ -585,6 +587,15 @@ export const BACKEND_CHANNELS = {
     ...request<[level: GlassChrome], void>([glassChromeCodec]),
   },
   setLocaleId: { channel: "settings:setLocaleId", ...request<[id: string], void>([str()]) },
+  /**
+   * Replaces the rebound app shortcuts (issue #998) with one whole map. The
+   * host refuses unknown actions, invalid or reserved chords, and any chord
+   * two actions would share, so a stored map never conflicts.
+   */
+  setKeybindings: {
+    channel: "settings:setKeybindings",
+    ...request<[overrides: KeybindingOverrides], void>([keybindingOverridesCodec]),
+  },
   setAppUpdateCheckOnLaunch: {
     channel: "settings:setAppUpdateCheckOnLaunch",
     ...request<[on: boolean], void>([bool()]),

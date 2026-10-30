@@ -7,7 +7,8 @@ import { IS_MAC } from "./platform";
  * A combo is a lowercase `+`-joined string in the fixed order
  * `mod` → `alt` → `shift` → key: `mod+k`, `mod+shift+p`, `mod+1`,
  * `alt+arrowleft`. `mod` collapses Cmd and Ctrl so one map serves every
- * platform.
+ * platform. App actions are rebindable (issue #998): their maps come from
+ * `useActionHotkeys` in keybindings.ts, never from literal chords.
  */
 export type HotkeyMap = Record<string, (e: KeyboardEvent) => void>;
 
@@ -51,27 +52,71 @@ const GLYPH: Record<string, string> = {
   enter: "↵",
   escape: "Esc",
   backspace: "⌫",
+  tab: "Tab",
+  delete: "Del",
+  insert: "Ins",
+  home: "Home",
+  end: "End",
+  pageup: "PgUp",
+  pagedown: "PgDn",
   " ": "Space",
 };
 
-/** `mod+k` → `⌘K` on darwin, `Ctrl+K` elsewhere. */
+/** `mod+k` → `⌘K` on darwin, `Ctrl+K` elsewhere; `f5` → `F5`. */
 export function formatHotkey(key: string): string {
-  const parts = key
-    .split("+")
-    .map((part) => GLYPH[part] ?? (part.length === 1 ? part.toUpperCase() : part));
+  // The key may be " " itself: split the modifiers off, never the key.
+  const cut = key.lastIndexOf("+", key.length - 2);
+  const parts = [...(cut === -1 ? [] : key.slice(0, cut).split("+")), cut === -1 ? key : key.slice(cut + 1)].map(
+    (part) => GLYPH[part] ?? part.toUpperCase(),
+  );
   return IS_MAC ? parts.join("") : parts.join("+");
 }
 
-function comboCandidates(e: KeyboardEvent): string[] {
+/**
+ * The base character a held Alt/Option changed: macOS reports Option+S as `ß`
+ * in `e.key`, so the physical key (`KeyS`) names the chord instead.
+ */
+function altBase(e: KeyboardEvent): string | undefined {
+  // A plain letter or digit is already the key on the cap (and on a non-US
+  // layout `e.code` would name a different one).
+  if (!e.altKey || /^[a-z0-9]$/i.test(e.key)) return undefined;
+  const m = /^(?:Key([A-Z])|Digit(\d))$/.exec(e.code);
+  return m === null ? undefined : (m[1] ?? m[2])!.toLowerCase();
+}
+
+function modifierPrefix(e: KeyboardEvent): string[] {
   const mods: string[] = [];
   if (e.metaKey || e.ctrlKey) mods.push("mod");
   if (e.altKey) mods.push("alt");
   if (e.shiftKey) mods.push("shift");
+  return mods;
+}
+
+function comboCandidates(e: KeyboardEvent): string[] {
+  const mods = modifierPrefix(e);
   const key = e.key.toLowerCase();
   const combos = [[...mods, key].join("+")];
-  const base = UNSHIFT[key];
-  if (base !== undefined) combos.push([...mods, base].join("+"));
+  const base = UNSHIFT[key] ?? altBase(e);
+  if (base !== undefined && base !== key) combos.push([...mods, base].join("+"));
   return combos;
+}
+
+const MODIFIER_KEYS: Record<string, true> = { control: true, shift: true, alt: true, meta: true, altgraph: true, os: true };
+
+/**
+ * The canonical chord a keydown spells, as the Keyboard settings recorder
+ * stores it: shifted punctuation and Option glyphs folded back to the key on
+ * the cap. Null for a lone modifier, which only starts a chord.
+ */
+export function chordFromEvent(e: KeyboardEvent): string | null {
+  const key = e.key.toLowerCase();
+  if (Object.hasOwn(MODIFIER_KEYS, key) || key === "dead" || key === "unidentified") return null;
+  return [...modifierPrefix(e), UNSHIFT[key] ?? altBase(e) ?? key].join("+");
+}
+
+/** Mod chords and function keys fire from text fields; any other chord stays the field's. */
+function firesInTextFields(combo: string): boolean {
+  return combo.startsWith("mod") || /(^|\+)f\d{1,2}$/.test(combo);
 }
 
 /** Bare letters belong to whatever the user is typing into. */
@@ -94,7 +139,7 @@ export function isAppHotkey(e: KeyboardEvent): boolean {
   for (const combo of comboCandidates(e)) {
     for (const ref of mounted) {
       if (ref.current[combo] === undefined) continue;
-      return combo.startsWith("mod") || !isTypingTarget(e.target);
+      return firesInTextFields(combo) || !isTypingTarget(e.target);
     }
   }
   return false;
@@ -121,7 +166,7 @@ export function useHotkeys(map: HotkeyMap): void {
       for (const combo of comboCandidates(e)) {
         const handler = mapRef.current[combo];
         if (!handler) continue;
-        if (!combo.startsWith("mod") && isTypingTarget(e.target)) return;
+        if (!firesInTextFields(combo) && isTypingTarget(e.target)) return;
         handler(e);
         return;
       }

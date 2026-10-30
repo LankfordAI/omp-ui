@@ -42,6 +42,14 @@ Transcript width chooses the column the native transcript, the composer card, an
 
 Glass chrome lets the sidebar, inspector rail, title bar, composer card, sheets, and modals show a soft backdrop through them: Off (opaque, as before), Subtle (the default; light blur), or Frosted (stronger blur; costs a little GPU). Text is never blurred and terminals, transcripts, and dialogs' reading surfaces stay opaque ([ADR-0026](adr/0026-glass-chrome-via-backdrop-filter.md)). The choice applies immediately and is remembered for the next launch.
 
+## Keyboard
+
+Settings → Keyboard lists every app action you can rebind, with its current shortcut ([#998](https://github.com/LankfordAI/omp-ui/issues/998)): the command palette, new session, new chat, the New session dialog, Build / Plan, the console, find in session, transcript text size, Settings, undo settle, the draft stash, start in background, and hold to talk.
+
+Click a shortcut, then press the new chord; `Escape` cancels. A press shortcut needs `Mod` (`Ctrl`, or `⌘` on macOS) or a function key, so a plain letter never steals typing; hold to talk takes one letter, digit, or function key with no modifiers. Chords that belong to text editing, the composer, or the window cannot be taken: `Mod+C`, `Mod+V`, `Mod+X`, `Mod+A`, `Mod+Z`, `Mod+Shift+Z`, `Mod+Y`, every `Mod+Enter` variant, `Mod+1`…`Mod+9`, `Mod+W`, `Mod+Q`, `Mod+R`, `Mod+Shift+R`, `Mod+Shift+I`, and `F11`. When two actions share a chord, both rows say so and **Save** stays disabled until you change one. **reset** returns one row to its default and **Reset all** returns every row; both still need **Save**, and **Discard** drops unsaved edits.
+
+Saved shortcuts are stored in omp-ui's registry, apply at once in every window and remote browser of this app, and are remembered for the next launch. Only the shortcuts you changed are stored. The composer's other keys (`Enter`, `Shift+Enter`, `Mod+Enter`, `Mod+Shift+Enter`, `Escape`, and the picker keys) stay fixed.
+
 ## Updates
 
 The two update sections are independent. Each has its own current version, status, launch check, manual check, dismissed version, and **Re-offer** action. Downloads always require a click.

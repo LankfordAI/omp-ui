@@ -1,6 +1,7 @@
 import { IconButton, IconClose, IconMic } from "./ui";
 import { cn } from "../lib/cn";
 import { useT } from "../lib/i18n";
+import { useKeybindingLabel } from "../lib/keybindings";
 import type { Dictation } from "../lib/use-dictation";
 
 /**
@@ -20,6 +21,7 @@ export function DictationControl({
   voice: Dictation;
 }) {
   const t = useT();
+  const holdLabel = useKeybindingLabel("holdToTalk");
   if (!voice.supported) return null;
   const recording = voice.phase === "recording";
   const label =
@@ -28,8 +30,8 @@ export function DictationControl({
       : voice.phase === "transcribing"
         ? t("composer.dictation.transcribing")
         : recording
-          ? t("composer.dictation.recording", { seconds: voice.seconds })
-          : t("composer.dictation.start");
+          ? t("composer.dictation.recording", { seconds: voice.seconds, key: holdLabel })
+          : t("composer.dictation.start", { key: holdLabel });
   return (
     <IconButton
       label={label}

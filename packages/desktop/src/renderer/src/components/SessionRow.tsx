@@ -4,6 +4,7 @@ import { tileModel, tileQuote } from "../lib/session-tile";
 import type { SessionSummary } from "@omp-ui/core/types";
 import { parseTitleCard } from "@omp-ui/core/title-card";
 import { localeTag, useT, type MessageKey } from "../lib/i18n";
+import { useKeybindingLabel } from "../lib/keybindings";
 import { formatSnoozeUntil } from "../lib/snooze-until";
 import { cn } from "../lib/cn";
 import { canSettle, deriveSidebarSessionState, useStore, type SidebarSessionState } from "../store";
@@ -251,6 +252,7 @@ export function SessionRow({
   onModifierClick?: (event: ReactMouseEvent<HTMLButtonElement>) => boolean;
 }) {
   const t = useT();
+  const holdLabel = useKeybindingLabel("holdToTalk");
   const openSession = useStore((st) => st.openSession);
   const deleteSession = useStore((st) => st.deleteSession);
   const terminate = useStore((st) => st.terminate);
@@ -379,14 +381,14 @@ export function SessionRow({
             ? t("sidebar.session.liveVoiceArmed")
             : liveBadge === "pending"
               ? t("sidebar.session.liveVoicePending")
-              : t("sidebar.session.liveVoice", { phase: t(LIVE_PHASE_TITLE[liveBadge]) })
+              : t("sidebar.session.liveVoice", { phase: t(LIVE_PHASE_TITLE[liveBadge], { key: holdLabel }) })
         }
         title={
           liveBadge === "armed"
             ? t("sidebar.session.liveVoiceArmed")
             : liveBadge === "pending"
               ? t("sidebar.session.liveVoicePending")
-              : t("sidebar.session.liveVoice", { phase: t(LIVE_PHASE_TITLE[liveBadge]) })
+              : t("sidebar.session.liveVoice", { phase: t(LIVE_PHASE_TITLE[liveBadge], { key: holdLabel }) })
         }
         className={cn(
           "shrink-0 self-center",

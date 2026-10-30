@@ -58,6 +58,7 @@
     "./fleet": "./src/fleet.ts",
     "./fleet-wake": "./src/fleet-wake.ts",
     "./webhook": "./src/webhook.ts",
+    "./keybindings": "./src/keybindings.ts",
     "./theme": "./src/theme.ts",
     "./vscode-theme": "./src/vscode-theme.ts",
     "./mcp-endpoint": "./src/mcp-endpoint.ts"
