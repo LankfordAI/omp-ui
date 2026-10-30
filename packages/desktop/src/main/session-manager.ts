@@ -1576,13 +1576,16 @@ export class SessionManager {
       // starting work in projects is what it is for. Every other session
       // follows the user's setting at each spawn/resume (ADR-0048); an
       // agent-dispatched session never gets them (no recursion, ADR-0061; a
-      // chat is never dispatched). exec/project/update inherit this gate plus
-      // each owner node's grant ladder (#901, ADR-0062).
+      // chat is never dispatched), and neither does a webhook-started one — its
+      // prompt carries an outside sender's body (ADR-0075). exec/project/update
+      // inherit this gate plus each owner node's grant ladder (#901, ADR-0062).
       setHostToolsCommand({
         vault: vaults.vaults.length > 0,
         fleet:
           record.chat ||
-          (this.deps.registry.getSetting("fleetAgentDispatch") && record.fleet?.requestedBy.kind !== "agent"),
+          (this.deps.registry.getSetting("fleetAgentDispatch") &&
+            record.fleet?.requestedBy.kind !== "agent" &&
+            record.fleet?.requestedBy.kind !== "webhook"),
       }),
     );
     // The issue #774 recovery pick: `--model` forces the boot but never

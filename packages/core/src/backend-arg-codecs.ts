@@ -69,6 +69,7 @@ import type {
 import type { ReviewDocument, ReviewReviewer, ReviewTargetKind, ReviewWriteRequest } from "./review-config";
 import type { LiveHistoryTurn } from "./live-voice";
 import { isSubagentModelMap, type SubagentModelMap } from "./subagent-model";
+import { parseWebhookInput, parseWebhookPatch, type WebhookInput, type WebhookPatch } from "./webhook";
 
 export interface ArgCodec<T> {
   readonly expected: string;
@@ -650,6 +651,28 @@ export const fleetDispatchRequestCodec: ArgCodec<FleetDispatchRequest> = {
   decode(value, path) {
     try {
       return parseFleetDispatchRequest(value);
+    } catch (error) {
+      return fail(path, `${this.expected} (${(error as Error).message})`);
+    }
+  },
+};
+
+/** Webhook create/update (issue #997): the strict core parsers, so messages are user-facing. */
+export const webhookInputCodec: ArgCodec<WebhookInput> = {
+  expected: "a valid webhook",
+  decode(value, path) {
+    try {
+      return parseWebhookInput(value);
+    } catch (error) {
+      return fail(path, `${this.expected} (${(error as Error).message})`);
+    }
+  },
+};
+export const webhookPatchCodec: ArgCodec<WebhookPatch> = {
+  expected: "a valid webhook change",
+  decode(value, path) {
+    try {
+      return parseWebhookPatch(value);
     } catch (error) {
       return fail(path, `${this.expected} (${(error as Error).message})`);
     }

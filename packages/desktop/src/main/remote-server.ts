@@ -3,6 +3,7 @@ import {
   mintRemoteToken,
   startRemoteServer,
   type RemoteHost,
+  type WebhookIntake,
   type RemoteServerHandle,
 } from "@omp-ui/server";
 
@@ -32,6 +33,8 @@ export interface RemoteServerManagerDeps {
   getSettings: () => RemoteSettings;
   setToken: (token: string) => void;
   send: (state: RemoteState) => void;
+  /** Webhook intake (issue #997); it reads its own switch per request, so toggling never restarts the server. */
+  webhooks?: WebhookIntake;
 }
 
 /** True when both tuples name the same listener. */
@@ -182,6 +185,7 @@ export class RemoteServerManager {
         port: desired.port,
         webRoot: this.deps.webRoot,
         password,
+        webhooks: this.deps.webhooks ?? null,
       });
       this.#handle = handle;
       this.#running = desired;

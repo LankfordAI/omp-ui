@@ -196,8 +196,11 @@ import {
   type ArgCodec,
   type ArgCodecs,
   subagentModelMapCodec,
+  webhookInputCodec,
+  webhookPatchCodec,
 } from "./backend-arg-codecs";
 import type { HeldPromptPayload, HeldPromptRequest } from "./held-prompt";
+import type { WebhookInput, WebhookPatch, WebhookSecretReveal, WebhooksState } from "./webhook";
 
 declare const CHANNEL_ARGS: unique symbol;
 
@@ -1785,6 +1788,27 @@ export const BACKEND_CHANNELS = {
   /** Clears the password; remote access falls back to token-only. Restarts the server. */
   clearRemotePassword: { channel: "remote:clearPassword", ...request<[], void>([]) },
   onRemoteState: { channel: "remote:state", ...event<[state: RemoteState]>() },
+  /**
+   * Webhooks (issue #997, ADR-0075). Host-local like the remote:* channels:
+   * never in REMOTE_PROXY_CHANNELS, and the state carries no secret.
+   */
+  getWebhooksState: { channel: "webhooks:getState", ...request<[], WebhooksState>([]) },
+  /** The Accept webhooks master switch; off by default. */
+  setWebhooksEnabled: { channel: "webhooks:setEnabled", ...request<[on: boolean], void>([bool()]) },
+  /** Mints the id and secret; the reply is the only time the secret is shown. Refused without an OS credential store. */
+  createWebhook: {
+    channel: "webhooks:create",
+    ...request<[input: WebhookInput], WebhookSecretReveal>([webhookInputCodec]),
+  },
+  updateWebhook: {
+    channel: "webhooks:update",
+    ...request<[id: string, patch: WebhookPatch], void>([str(), webhookPatchCodec]),
+  },
+  /** Replaces the secret; the old one stops working at once. */
+  rotateWebhookSecret: { channel: "webhooks:rotateSecret", ...request<[id: string], WebhookSecretReveal>([str()]) },
+  removeWebhook: { channel: "webhooks:remove", ...request<[id: string], void>([str()]) },
+  clearWebhookDeliveries: { channel: "webhooks:clearDeliveries", ...request<[], void>([]) },
+  onWebhooksState: { channel: "webhooks:state", ...event<[state: WebhooksState]>() },
   /** This app's stable identity; a joiner uses it to detect itself and version skew (issue #416). */
   getInstanceIdentity: { channel: "instance:identity", ...request<[], InstanceIdentity>([]) },
   /** Signs in (password) or adopts a token, stores the derived credential, connects. Rejects with a user-facing message. */

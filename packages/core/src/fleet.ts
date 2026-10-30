@@ -128,8 +128,9 @@ export interface FleetRequester {
   instanceId: string;
   /** `os.hostname()`, truncated to FLEET_LABEL_MAX. */
   label: string;
-  kind: "user" | "agent";
-  /** The agent's tab on the dispatcher; null for a user dispatch. */
+  /** "webhook": a Webhook delivery on this app (issue #997, ADR-0075); never gets fleet tools. */
+  kind: "user" | "agent" | "webhook";
+  /** The agent's tab on the dispatcher; null for a user or webhook dispatch. */
   sourceTabId: string | null;
 }
 
@@ -579,7 +580,7 @@ export function parseFleetRequester(value: unknown, label = "requester"): FleetR
   if (typeof name !== "string" || name.trim() === "" || CONTROL_CHARS.test(name) || [...name].length > FLEET_LABEL_MAX) {
     throw new Error(`${label}.label must be 1..${FLEET_LABEL_MAX} characters without control characters`);
   }
-  if (r.kind !== "user" && r.kind !== "agent") throw new Error(`${label}.kind must be user or agent`);
+  if (r.kind !== "user" && r.kind !== "agent" && r.kind !== "webhook") throw new Error(`${label}.kind must be user, agent, or webhook`);
   return {
     instanceId: idString(r.instanceId, `${label}.instanceId`),
     label: name,
@@ -621,7 +622,7 @@ export function isFleetProvenance(value: unknown): value is FleetProvenance {
   return (
     typeof q.instanceId === "string" &&
     typeof q.label === "string" &&
-    (q.kind === "user" || q.kind === "agent") &&
+    (q.kind === "user" || q.kind === "agent" || q.kind === "webhook") &&
     (q.sourceTabId === null || typeof q.sourceTabId === "string")
   );
 }

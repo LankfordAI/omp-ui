@@ -71,6 +71,32 @@ Prefer localhost. If another device must connect, supply HTTPS in front of the l
 
 A plain `http://<lan-ip>` origin is not a secure browser context. The responsive browser client still works, and omp-ui has fallbacks for correlation IDs and text copying. Browsers will not offer secure-context-only capabilities such as PWA installation or service-worker-backed offline support on that origin. `http://localhost` receives the browser's special trustworthy-origin treatment. An HTTPS terminator restores a secure browser context for remote devices.
 
+## Webhooks
+
+Webhooks let an outside event, such as a GitHub pull request, a failed deploy, or a `curl` from a script, start a session ([#997](https://github.com/LankfordAI/omp-ui/issues/997), [ADR-0075](adr/0075-webhooks-ride-the-remote-access-listener-with-per-webhook-secrets.md)). They are off by default. Turn on remote access, then **Settings → Webhooks → Accept webhooks**, and create a webhook there. Each webhook is an endpoint on this listener:
+
+```text
+POST http://127.0.0.1:PORT/webhooks/WEBHOOK_ID
+```
+
+A webhook sender is not a remote-access client. The remote password, cookie, and token never authenticate a delivery, and a webhook secret never opens the app. Each webhook has its own random secret, shown once when you create the webhook or rotate the secret:
+
+- **GitHub signature (HMAC):** set the secret as the webhook's secret in GitHub. omp-ui checks `X-Hub-Signature-256: sha256=…`, the HMAC-SHA256 of the raw body.
+- **Bearer token:** send `Authorization: Bearer SECRET`. A secret in the query string is never accepted.
+
+```bash
+body='{"ref":"main","status":"failed"}'
+sig=$(printf '%s' "$body" | openssl dgst -sha256 -hmac "$SECRET" | sed 's/^.* //')
+curl -X POST "http://127.0.0.1:4677/webhooks/$WEBHOOK_ID" \
+  -H "Content-Type: application/json" -H "X-Hub-Signature-256: sha256=$sig" -d "$body"
+```
+
+A delivery that authenticates answers `202 Accepted` with a delivery id, and omp-ui starts one fresh native session in the webhook's project, on this computer or a joined remote instance, in the webhook's mode and workspace. Its first prompt is the webhook's template, then a notice that what follows is untrusted outside input, then the request body in a fenced block labelled with the webhook name, the `X-GitHub-Event` header, the content type, and the size. The session's header reads **Started by a webhook on HOST**, and it never gets the fleet tools.
+
+Other answers: `401` for an unknown id, a wrong signature or token, an unreadable secret, or a disabled webhook (all look the same); `413` for a body over 64 KiB; `400` for a body that is not UTF-8 text; `429` with `Retry-After` when the webhook's hourly limit or the app-wide limit of 60 deliveries per hour is reached; `200` without a new session when GitHub redelivers an `X-GitHub-Delivery` id omp-ui already accepted. Every delivery to a known webhook appears in **Recent deliveries** with its status and outcome; the body, the headers, and the secret are never recorded. The rate limits and the redelivery check reset when omp-ui restarts.
+
+Anyone who holds a webhook's secret can start sessions in its project with whatever they put in the body. New webhooks start in **Plan** mode, so a payload that tries to steer the agent meets the plan review before anything changes. Exposing webhooks to the internet means exposing this listener, so put an HTTPS terminator or tunnel in front of the localhost listener and forward only the `/webhooks/` path. Without HTTPS, an attacker who captures a signed delivery can replay it.
+
 ## Build the browser bundle for development
 
 Packaged desktop builds include the browser bundle. From the repository root, build it for a development checkout with:

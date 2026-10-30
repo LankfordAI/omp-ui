@@ -54,7 +54,8 @@
     "./title-card": "./src/title-card.ts",
     "./vault-shared": "./src/vault-shared.ts",
     "./fleet": "./src/fleet.ts",
-    "./fleet-wake": "./src/fleet-wake.ts"
+    "./fleet-wake": "./src/fleet-wake.ts",
+    "./webhook": "./src/webhook.ts"
   },
   "scripts": {
     "test": "vitest run --passWithNoTests",

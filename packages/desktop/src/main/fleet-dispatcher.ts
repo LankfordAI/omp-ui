@@ -391,7 +391,7 @@ export class FleetDispatcher {
 
   async dispatch(
     raw: FleetDispatchRequest,
-    who: { kind: "user" } | { kind: "agent"; sourceTabId: string },
+    who: { kind: "user" } | { kind: "webhook" } | { kind: "agent"; sourceTabId: string },
     opts: { deadlineMs?: number } = {},
   ): Promise<FleetDispatchResult> {
     // The channel codec already parsed a user request; the agent path arrives unparsed.

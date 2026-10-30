@@ -1,4 +1,5 @@
 // @vitest-environment jsdom
+import type { WebhookSecretReveal } from "@omp-ui/core/webhook";
 import { act } from "react";
 import { createRoot, type Root } from "react-dom/client";
 import { afterEach, describe, expect, it, vi } from "vitest";
@@ -236,6 +237,18 @@ const backendMock = {
   setRemotePassword: vi.fn(async () => {}),
   clearRemotePassword: vi.fn(async () => {}),
   onRemoteState: vi.fn(),
+  getWebhooksState: vi.fn(async () => ({ enabled: false, credentialStore: false, webhooks: [], deliveries: [] })),
+  setWebhooksEnabled: vi.fn(async () => {}),
+  createWebhook: vi.fn(async (): Promise<WebhookSecretReveal> => {
+    throw new Error("createWebhook not mocked");
+  }),
+  updateWebhook: vi.fn(async () => {}),
+  rotateWebhookSecret: vi.fn(async (): Promise<WebhookSecretReveal> => {
+    throw new Error("rotateWebhookSecret not mocked");
+  }),
+  removeWebhook: vi.fn(async () => {}),
+  clearWebhookDeliveries: vi.fn(async () => {}),
+  onWebhooksState: vi.fn(),
   getProviderOAuthState: vi.fn(async () => idleProviderOAuth),
   onProviderOAuthState: vi.fn(),
   readProviderOAuth: vi.fn(async (): Promise<ProviderOAuthStatus[]> => []),
@@ -1592,6 +1605,7 @@ describe("Settings page footer dispatch (issue #300)", () => {
     { page: "appearance", marker: null },
     { page: "updates", marker: "Downloads always need a click." },
     { page: "remote", marker: "Changing anything here restarts only the server" },
+    { page: "webhooks", marker: null },
     { page: "remote-instances", marker: "A joined instance grants this app full control" },
     { page: "providers", marker: "omp reads credentials from the environment" },
     { page: "memory", marker: "Memory configuration applies to sessions started after the change" },

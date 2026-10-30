@@ -721,6 +721,7 @@ type BackendBroadcastSettings = Omit<
   | "reviewRosterImported"
   | "chatLastModel"
   | "chatLastThinkingLevel"
+  | "webhooksEnabled"
 >;
 
 export interface BackendState extends BackendBroadcastSettings {

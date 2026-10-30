@@ -712,7 +712,7 @@ describe("fleet update request parsers", () => {
     expect(parseFleetUpdateMemberRequest(raw)).toEqual(raw);
     expect(() => parseFleetUpdateMemberRequest({ ...raw, extra: 1 })).toThrow("fleet update request contains unknown field extra");
     expect(() => parseFleetUpdateMemberRequest({ ...raw, requester: { ...requester, kind: "robot" } })).toThrow(
-      "fleet update request.requester.kind must be user or agent",
+      "fleet update request.requester.kind must be user, agent, or webhook",
     );
     expect(() => parseFleetUpdateMemberRequest({ target: "app", action: "check" })).toThrow("fleet update request.requester must be an object");
   });

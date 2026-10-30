@@ -1836,9 +1836,14 @@ export function SessionHud({ tabId }: { tabId: string }) {
   );
   const fleetChip = fleetFrom !== null && (
     <Chip mono className={compact ? undefined : "shrink-0 [app-region:no-drag]"}>
-      {t(fleetFrom.kind === "agent" ? "fleet.hud.dispatchedFromAgent" : "fleet.hud.dispatchedFrom", {
-        label: fleetFrom.label,
-      })}
+      {t(
+        fleetFrom.kind === "agent"
+          ? "fleet.hud.dispatchedFromAgent"
+          : fleetFrom.kind === "webhook"
+            ? "fleet.hud.startedByWebhook"
+            : "fleet.hud.dispatchedFrom",
+        { label: fleetFrom.label },
+      )}
     </Chip>
   );
 

@@ -129,6 +129,7 @@ describe("SETTINGS", () => {
       "fleetExecCeiling",
       "fleetGrants",
       "fleetProjectRoots",
+      "webhooksEnabled",
     ]);
   });
   it("creates fresh mutable fallbacks", () => {

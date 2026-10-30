@@ -72,6 +72,8 @@ const backendMock = {
   onAppUpdateState: vi.fn(),
   onOmpUpdateState: vi.fn(),
   onRemoteState: vi.fn(),
+  getWebhooksState: vi.fn(async () => ({ enabled: false, credentialStore: false, webhooks: [], deliveries: [] })),
+  onWebhooksState: vi.fn(),
   onProviderOAuthState: vi.fn(),
   onStateChanged: vi.fn(),
   onBranchChanged: vi.fn(),

@@ -8504,7 +8504,7 @@ describe("fleet dispatch on the owning side (issue #899, ADR-0061)", () => {
   const commandsOf = (): Cmd[] => (RpcClientMock.mock.calls.at(-1)?.[0]?.initialCommands ?? []) as Cmd[];
   const fleetSpawn = (
     manager: SessionManager,
-    opts: { dispatchId?: string; projectCwd?: string; kind?: "user" | "agent"; planMode?: boolean; model?: string; thinkingLevel?: string } = {},
+    opts: { dispatchId?: string; projectCwd?: string; kind?: "user" | "agent" | "webhook"; planMode?: boolean; model?: string; thinkingLevel?: string } = {},
   ): Promise<Core.SpawnAnswer> =>
     manager.spawn({
       origin: "new",
@@ -8669,6 +8669,7 @@ describe("fleet dispatch on the owning side (issue #899, ADR-0061)", () => {
     ["setting off, user-dispatched", false, "user", false],
     ["setting on, user-dispatched", true, "user", true],
     ["setting on, agent-dispatched", true, "agent", false],
+    ["setting on, webhook-started", true, "webhook", false],
     ["setting on, not dispatched", true, null, true],
   ] as const)("registers the fleet tools only when allowed (%s)", async (_label, setting, kind, expected) => {
     const { manager, registry } = setup({ mode: "rpc-ui" });

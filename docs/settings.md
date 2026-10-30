@@ -71,6 +71,15 @@ Remote access is off by default. A connected client has the same authority as th
 
 A remote-setting change does not restart omp-ui or any omp session process. When remote access is running, changing the bind address, port, password, or token restarts only the embedded server. Enabling remote access starts the server, and disabling it stops the server. Running sessions continue. Localhost provides the full browser app. A local-network URL works as a responsive web app, but browsers require a secure origin for installation and offline support. Plain `http://<lan-ip>` does not qualify. Put the server behind your own HTTPS endpoint if you need those browser features.
 
+## Webhooks
+
+Webhooks let an outside event start a session: each webhook is an endpoint `POST /webhooks/<id>` on the remote-access listener. They are off by default and need remote access listening. See [Remote access → Webhooks](remote-access.md#webhooks) for the request format and the security model.
+
+- **Accept webhooks** turns the endpoints on for this app. While it is off, `/webhooks/…` is not a route at all. Turning it on or off does not restart the server.
+- **New webhook** names the webhook and picks its project (on this computer or a joined remote instance), the prompt template, the mode (**Plan**, the default, or **Build**), the workspace (**New worktree** or the project checkout), the authentication (**GitHub signature (HMAC)** or **Bearer token**), and an optional limit of deliveries per hour (6 by default; empty means none). omp-ui shows the secret once, right after you create the webhook or rotate its secret; copy it then. Creating a webhook is refused when no OS credential store is available.
+- Each webhook row shows its endpoint URL, an enabled switch, **Edit**, **Rotate secret**, and **Delete**. A row whose secret no longer decrypts says so; rotate the secret to use it again.
+- **Recent deliveries** lists the last 200 deliveries with their HTTP status and outcome, and **Open** for a session started on this computer. **Clear** empties the list.
+
 ## Remote instances
 
 Remote instances joins other omp-ui apps that have remote access enabled, so their sessions appear in this app's sidebar list with a nickname on each row and their projects appear in the project quick-open. A joined instance grants this app full control of that host's sessions and files. See [Remote instances](remote-instances.md) for what crosses, what does not, and how reconnection works. While any saved instance is unreachable, needs sign-in, or is incompatible, the sidebar footer shows an **N unreachable** chip that opens this page.

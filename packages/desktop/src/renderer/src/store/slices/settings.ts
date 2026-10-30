@@ -29,6 +29,13 @@ const DEFAULT_REMOTE: SettingsSlice["remote"] = {
   error: null,
 };
 
+const DEFAULT_WEBHOOKS: SettingsSlice["webhooks"] = {
+  enabled: false,
+  credentialStore: false,
+  webhooks: [],
+  deliveries: [],
+};
+
 const DEFAULT_PROVIDER_OAUTH: SettingsSlice["providerOAuth"] = {
   providerId: null,
   phase: "idle",
@@ -67,6 +74,7 @@ export const createSettingsSlice: StateCreator<UiStore, [], [], SettingsSlice> =
   return {
     settingsPage: null,
     remote: DEFAULT_REMOTE,
+    webhooks: DEFAULT_WEBHOOKS,
     providerOAuth: DEFAULT_PROVIDER_OAUTH,
     compactionSettings: {},
     compactionMethods: { status: "unloaded" },
@@ -81,6 +89,10 @@ export const createSettingsSlice: StateCreator<UiStore, [], [], SettingsSlice> =
 
     replaceRemote(remote) {
       set({ remote });
+    },
+
+    replaceWebhooks(webhooks) {
+      set({ webhooks });
     },
 
     async setDefaultMode(mode) {
@@ -506,6 +518,48 @@ export const createSettingsSlice: StateCreator<UiStore, [], [], SettingsSlice> =
         await backend.refreshRemoteInstanceState(id);
       } catch (err) {
         get().reportError(err);
+      }
+    },
+
+    async setWebhooksEnabled(on) {
+      try {
+        await backend.setWebhooksEnabled(on);
+      } catch (err) {
+        reportRemoteError(err);
+      }
+    },
+
+    // Create and rotate carry the secret once and reject with the server's
+    // message: the Webhooks page shows both inline (issue #997).
+    createWebhook(input) {
+      return backend.createWebhook(input);
+    },
+
+    async updateWebhook(id, patch) {
+      try {
+        await backend.updateWebhook(id, patch);
+      } catch (err) {
+        reportRemoteError(err);
+      }
+    },
+
+    rotateWebhookSecret(id) {
+      return backend.rotateWebhookSecret(id);
+    },
+
+    async removeWebhook(id) {
+      try {
+        await backend.removeWebhook(id);
+      } catch (err) {
+        reportRemoteError(err);
+      }
+    },
+
+    async clearWebhookDeliveries() {
+      try {
+        await backend.clearWebhookDeliveries();
+      } catch (err) {
+        reportRemoteError(err);
       }
     },
 

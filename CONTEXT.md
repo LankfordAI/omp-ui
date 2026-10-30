@@ -954,6 +954,20 @@ now**, and sends it at the reset plus a minute — resuming a session that is
 not running. omp never sees it until then; it is not a Parked message.
 _Avoid_: scheduled prompt (that is #987's general feature), queued prompt, deferred message
 
+**Webhook**:
+An authenticated HTTP endpoint, `POST /webhooks/<id>` on the remote-access
+listener, that starts one fresh native session when an outside sender posts to
+it (issue #997, ADR-0075). Off by default behind **Settings → Webhooks →
+Accept webhooks**; each webhook names a project (on this computer or a joined
+remote instance), a prompt template, a mode, a workspace, a per-webhook secret
+checked as a GitHub HMAC signature or a bearer token, and an optional hourly
+limit. The request body joins the prompt after the template as a fenced block
+labelled untrusted. The session is a Fleet dispatch whose requester kind is
+`webhook`, so it never gets the fleet tools. Every delivery to a known webhook
+lands in **Recent deliveries** with its outcome. The remote credential never
+authenticates a delivery, and a webhook secret never opens the app.
+_Avoid_: hook, trigger, inbound integration
+
 **Proposed plans pane**:
 The inspector rail pane (ADR-0004 vocab) that lists every plan the focus
 session has proposed — the live pending plan first, with review / request

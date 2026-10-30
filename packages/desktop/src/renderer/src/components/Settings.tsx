@@ -22,6 +22,7 @@ import { ProvidersFooter, ProvidersPage } from "./settings/ProvidersPage";
 import { RemoteFooter, RemotePage } from "./settings/RemotePage";
 import { RemoteInstancesFooter, RemoteInstancesPage } from "./settings/RemoteInstancesPage";
 import { UpdatesFooter, UpdatesPage } from "./settings/UpdatesPage";
+import { WebhooksPage } from "./settings/WebhooksPage";
 import type { FooterContext, Load } from "./settings/types";
 import { KnowledgeVaultPage } from "./settings/KnowledgeVaultPage";
 
@@ -61,6 +62,7 @@ const PAGES: ReadonlyArray<{
   { id: "appearance", labelKey: "settings.nav.appearance", render: () => <AppearancePage /> },
   { id: "updates", labelKey: "settings.nav.updates", render: () => <UpdatesPage />, footer: UpdatesFooter },
   { id: "remote", labelKey: "settings.nav.remote", render: () => <RemotePage />, footer: RemoteFooter },
+  { id: "webhooks", labelKey: "settings.nav.webhooks", render: () => <WebhooksPage /> },
   {
     id: "remote-instances",
     labelKey: "settings.nav.remoteInstances",

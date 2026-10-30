@@ -66,6 +66,10 @@ import {
   ProviderKeys,
   Registry,
   RemoteInstanceStore,
+  WebhookDeliveryLog,
+  WebhookStore,
+  type WebhookInput,
+  type WebhookPatch,
   resolveOmpBinary,
   anonymizeSession,
   adoptIntoLineage,
@@ -206,6 +210,7 @@ import { applyAudioDevice, execPactlRunner } from "./audio-devices";
 import { registerLiveAudioHandlers } from "./live-audio";
 import { registerLiveTranscriptHandlers } from "./live-transcript";
 import { registerRemoteHandlers } from "./remote-handlers";
+import { WebhookService } from "./webhook-service";
 import { registerVaultHandlers } from "./vault-handlers";
 import { DESKTOP_PANE_PORT, DESKTOP_PANE_PORT_REQUEST, type DesktopMediaMessage } from "../browser-pane-desktop-protocol";
 import { createDesktopPaneStream } from "./browser-pane-desktop-stream";
@@ -235,6 +240,8 @@ export class MainBackend {
   private readonly appUpdater: AppUpdater;
   private readonly ompUpdater: OmpUpdater;
   private readonly remote: RemoteServerManager;
+  /** Webhooks (issue #997, ADR-0075): the store, the audit list, and the intake the remote server calls. */
+  private readonly webhooks: WebhookService;
   /** Joined remote instances (issue #416): their sockets, credentials, and merged registries. */
   private readonly remoteInstances: RemoteInstanceManager;
   /** Fleet dispatch, dispatching side (issue #899, ADR-0061). */
@@ -331,6 +338,10 @@ export class MainBackend {
       providerKeysFile?: string;
       /** Where joined-instance credentials are stored; defaults beside the registry. */
       remoteInstancesFile?: string;
+      /** Where webhook secrets (issue #997) are stored; defaults beside the registry. */
+      webhooksFile?: string;
+      /** Where the webhook delivery audit list is kept; defaults beside the registry. */
+      webhookDeliveriesFile?: string;
       /** Where worktree checkouts live; defaults beside the registry. */
       worktreesRoot?: string;
       /** Where chat scratch dirs live; defaults beside the registry. */
@@ -512,7 +523,19 @@ export class MainBackend {
     // Mint at construction so the settings page always has a token to reveal, even before the
     // server is first enabled.
     if (this.registry.getSetting("remoteToken") === "") this.registry.setSetting("remoteToken", mintRemoteToken());
+    const dataDir = path.dirname(registryFile);
+    this.webhooks = new WebhookService({
+      store: new WebhookStore(opts.webhooksFile ?? path.join(dataDir, "webhooks.json"), electronKeyCipher()),
+      log: new WebhookDeliveryLog(
+        opts.webhookDeliveriesFile ?? path.join(dataDir, "webhook-deliveries.json"),
+      ),
+      enabled: () => this.registry.getSetting("webhooksEnabled"),
+      setEnabled: (on) => this.registry.setSetting("webhooksEnabled", on),
+      dispatch: (req, dispatchOpts) => this.fleet.dispatch(req, { kind: "webhook" }, dispatchOpts),
+      send: (state) => this.send(CH.onWebhooksState, state),
+    });
     this.remote = new RemoteServerManager({
+      webhooks: this.webhooks,
       host: { handlers: () => this.handlers(), addSink: (s) => this.addSink(s) },
       webRoot: opts.webRoot ?? "",
       getSettings: () => ({
@@ -1351,6 +1374,17 @@ export class MainBackend {
           restart: () => this.remote.restart(),
           breadcrumbs: this.breadcrumbs,
         }),
+        // Webhooks (issue #997, ADR-0075): host-local like remote:*; the state never carries a secret.
+        [CH.getWebhooksState]: () => this.webhooks.state(),
+        [CH.setWebhooksEnabled]: (on: boolean) => {
+          this.webhooks.setEnabled(on);
+          this.breadcrumbs.record("webhooks-enable", { detail: on ? "on" : "off" });
+        },
+        [CH.createWebhook]: (input: WebhookInput) => this.webhooks.create(input),
+        [CH.updateWebhook]: (id: string, patch: WebhookPatch) => this.webhooks.update(id, patch),
+        [CH.rotateWebhookSecret]: (id: string) => this.webhooks.rotate(id),
+        [CH.removeWebhook]: (id: string) => this.webhooks.remove(id),
+        [CH.clearWebhookDeliveries]: () => this.webhooks.clearDeliveries(),
         // Remote instances (issue #416): identity for joiners; the manager owns the rest.
         [CH.getInstanceIdentity]: () => ({
           instanceId: this.registry.getSetting("instanceId"),

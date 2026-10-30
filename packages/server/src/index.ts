@@ -36,6 +36,13 @@ import {
   tokenMatches,
   verifyRemotePassword,
 } from "./token";
+import {
+  WEBHOOK_BODY_MAX_BYTES,
+  WEBHOOK_ID_PATTERN,
+  WEBHOOK_PATH_PREFIX,
+  type WebhookAuth,
+} from "@omp-ui/core/webhook";
+import { verifyWebhookRequest } from "./webhook-auth";
 
 /** What the transport needs from MainBackend — nothing about sessions, Electron, or the registry. */
 export interface RemoteHost {
@@ -58,6 +65,48 @@ export interface RemoteServerOptions {
    * phone silently wanders off Wi-Fi. 0 disables. Tests shrink it.
    */
   keepAliveIntervalMs?: number;
+  /**
+   * Webhook intake (issue #997, ADR-0075). Absent, or `enabled()` false, means
+   * `/webhooks/…` is not a route at all and falls through to the normal
+   * unauthenticated handling.
+   */
+  webhooks?: WebhookIntake | null;
+}
+
+/** What the route learns about one webhook id; null for an unknown id. */
+export interface WebhookLookup {
+  auth: WebhookAuth;
+  /** Null when the stored secret no longer decrypts: every delivery is unauthorized. */
+  secret: string | null;
+  enabled: boolean;
+}
+
+/** Request facts handed to the intake; never the raw headers, never a credential. */
+export interface WebhookRequestMeta {
+  remoteAddress: string;
+  event: string | null;
+  deliveryId: string | null;
+  contentType: string | null;
+  bytes: number;
+}
+
+export type WebhookRefusal = "unauthorized" | "disabled" | "too-large" | "bad-request";
+
+export interface WebhookAnswer {
+  status: number;
+  /** JSON body sent back to the caller. */
+  body: Record<string, unknown>;
+  retryAfterSeconds?: number;
+}
+
+/** Main's side of the webhook route; the server owns parsing, the body cap, and authentication. */
+export interface WebhookIntake {
+  enabled(): boolean;
+  lookup(id: string): WebhookLookup | null;
+  /** A known webhook's delivery the server refused; audit only. */
+  refused(id: string, reason: WebhookRefusal, meta: WebhookRequestMeta): void;
+  /** An authenticated delivery with a UTF-8 body. */
+  accept(id: string, meta: WebhookRequestMeta, body: string): WebhookAnswer;
 }
 
 export interface RemoteServerHandle {
@@ -140,6 +189,12 @@ function requestUrl(req: IncomingMessage): URL {
   // The host header only shapes the URL object we parse against; nothing is echoed back to
   // the client from it, so a forged Host cannot poison a response.
   return new URL(req.url ?? "/", `http://${req.headers.host ?? "127.0.0.1"}`);
+}
+
+/** One header's value; a repeated header reads as absent rather than picking one. */
+function singleHeader(req: IncomingMessage, name: string): string | null {
+  const value = req.headers[name];
+  return typeof value === "string" ? value : null;
 }
 
 /** `decodeURIComponent` throws on malformed escapes — attacker-controlled text must never crash main. */
@@ -318,6 +373,98 @@ export function startRemoteServer(opts: RemoteServerOptions): Promise<RemoteServ
     });
   };
 
+  // --- Webhooks (issue #997, ADR-0075) ---
+  // Matched before the remote credential check and never consulting it: the remote token or
+  // cookie never authenticates a delivery, and a webhook secret never opens the app.
+  const webhooks = opts.webhooks ?? null;
+  const handleWebhook = (req: IncomingMessage, res: ServerResponse, id: string): void => {
+    const intake = webhooks!;
+    const json = (code: number, body: Record<string, unknown>, extra: Record<string, string> = {}): void => {
+      const text = JSON.stringify(body);
+      res.writeHead(code, { "Content-Type": "application/json; charset=utf-8", "Content-Length": Buffer.byteLength(text), ...extra });
+      res.end(text);
+    };
+    if (req.method !== "POST") {
+      json(405, { error: "method not allowed" }, { Allow: "POST" });
+      return;
+    }
+    const hook = intake.lookup(id);
+    if (hook === null) {
+      // Same answer as a bad signature: the endpoint never reveals which ids exist.
+      json(401, { error: "unauthorized" });
+      return;
+    }
+    const meta = (bytes: number): WebhookRequestMeta => ({
+      remoteAddress: req.socket.remoteAddress ?? "?",
+      event: singleHeader(req, "x-github-event"),
+      deliveryId: singleHeader(req, "x-github-delivery"),
+      contentType: singleHeader(req, "content-type"),
+      bytes,
+    });
+    const tooLarge = (bytes: number): void => {
+      intake.refused(id, "too-large", meta(bytes));
+      // Stop reading an oversized body: answer 413, then drop the connection once it flushed.
+      res.once("finish", () => req.destroy());
+      json(413, { error: `body exceeds ${WEBHOOK_BODY_MAX_BYTES} bytes` }, { Connection: "close" });
+    };
+    const declared = Number(req.headers["content-length"] ?? "0");
+    if (Number.isFinite(declared) && declared > WEBHOOK_BODY_MAX_BYTES) {
+      tooLarge(declared);
+      return;
+    }
+    const chunks: Buffer[] = [];
+    let size = 0;
+    let aborted = false;
+    req.on("data", (chunk: Buffer) => {
+      if (aborted) return;
+      size += chunk.length;
+      if (size > WEBHOOK_BODY_MAX_BYTES) {
+        aborted = true;
+        tooLarge(size);
+        return;
+      }
+      chunks.push(chunk);
+    });
+    req.on("end", () => {
+      if (aborted) return;
+      const body = Buffer.concat(chunks);
+      const facts = meta(body.length);
+      // Re-read after the body: the webhook may have been removed or rotated meanwhile.
+      const current = intake.lookup(id);
+      if (current === null || current.secret === null || !verifyWebhookRequest(current.auth, current.secret, req.headers, body)) {
+        if (current !== null) intake.refused(id, "unauthorized", facts);
+        json(401, { error: "unauthorized" });
+        return;
+      }
+      if (!current.enabled || !intake.enabled()) {
+        intake.refused(id, "disabled", facts);
+        json(401, { error: "unauthorized" });
+        return;
+      }
+      let text: string;
+      try {
+        text = new TextDecoder("utf-8", { fatal: true }).decode(body);
+      } catch {
+        intake.refused(id, "bad-request", facts);
+        json(400, { error: "body must be UTF-8 text" });
+        return;
+      }
+      let answer: WebhookAnswer;
+      try {
+        answer = intake.accept(id, facts, text);
+      } catch (err) {
+        console.warn("[remote] webhook intake failed:", err instanceof Error ? err.message : String(err));
+        json(500, { error: "internal error" });
+        return;
+      }
+      json(
+        answer.status,
+        answer.body,
+        answer.retryAfterSeconds === undefined ? {} : { "Retry-After": String(answer.retryAfterSeconds) },
+      );
+    });
+  };
+
   const server: Server = createServer((req, res) => {
     let url: URL;
     try {
@@ -325,6 +472,13 @@ export function startRemoteServer(opts: RemoteServerOptions): Promise<RemoteServ
     } catch {
       send(res, 400, "bad request");
       return;
+    }
+    if (webhooks !== null && webhooks.enabled() && url.pathname.startsWith(WEBHOOK_PATH_PREFIX)) {
+      const id = url.pathname.slice(WEBHOOK_PATH_PREFIX.length);
+      if (WEBHOOK_ID_PATTERN.test(id)) {
+        handleWebhook(req, res, id);
+        return;
+      }
     }
     const { value, from } = presentedToken(req, url);
 
@@ -705,6 +859,7 @@ export {
   type InstanceClient,
   type InstanceConnectFailure,
 } from "./client";
+export { mintWebhookId, mintWebhookSecret, verifyWebhookRequest, webhookSignature } from "./webhook-auth";
 
 /**
  * Resolves once every client socket has left OPEN/CLOSING, or after `ms` — whichever first. A

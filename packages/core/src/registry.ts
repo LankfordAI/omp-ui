@@ -161,6 +161,8 @@ export interface RegistrySettings {
   fleetGrants: Record<string, FleetGrantRecord>;
   /** Absolute directories rung-3 fleet verbs may write into (issue #901); default []. */
   fleetProjectRoots: string[];
+  /** Accept webhooks master switch (issue #997, ADR-0075); default off. Host-local, never broadcast. */
+  webhooksEnabled: boolean;
 }
 
 interface RegistryData {
@@ -441,6 +443,10 @@ export const SETTINGS: SettingDescriptors = {
   // Fresh object every parse: setSetting no-ops on Object.is equality.
   fleetGrants: { fallback: () => ({}), parse: parseFleetGrants },
   fleetProjectRoots: { fallback: () => [], parse: parseFleetProjectRoots },
+  webhooksEnabled: validatedSetting(
+    () => false,
+    (value): value is boolean => typeof value === "boolean",
+  ),
 };
 
 const SETTING_KEYS = Object.keys(SETTINGS) as SettingKey[];

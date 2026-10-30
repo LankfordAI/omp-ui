@@ -501,6 +501,7 @@ export const useStore = create<UiStore>()((set, get, api) => {
         get().replaceOmpUpdate(ompUpdate),
       );
       backend.onRemoteState((remote) => get().replaceRemote(remote));
+      backend.onWebhooksState((webhooks) => get().replaceWebhooks(webhooks));
       backend.onProviderOAuthState((s) => get().replaceProviderOAuth(s));
       backend.onCollabChanged((tabId, state) => get().applyCollabState(tabId, state));
       // Live-share state (issue #686): the snapshot of every PTY tab as main
@@ -513,14 +514,15 @@ export const useStore = create<UiStore>()((set, get, api) => {
           for (const snap of snapshots) get().applyCollabState(snap.tabId, snap.state);
         })
         .catch(() => {});
-      const [state, appUpdate, ompUpdate, remote, providerOAuth] = await Promise.all([
+      const [state, appUpdate, ompUpdate, remote, webhooks, providerOAuth] = await Promise.all([
         backend.getState(),
         backend.getAppUpdateState(),
         backend.getOmpUpdateState(),
         backend.getRemoteState(),
+        backend.getWebhooksState(),
         backend.getProviderOAuthState(),
       ]);
-      set({ appUpdate, ompUpdate, remote, providerOAuth });
+      set({ appUpdate, ompUpdate, remote, webhooks, providerOAuth });
       applyAuthoritativeState(state);
       await restoreDesktopView(api);
       installDesktopViewPersistence(api);

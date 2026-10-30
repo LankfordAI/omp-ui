@@ -24,6 +24,7 @@ export type BreadcrumbKind =
   | "update-stage"
   | "remote-enable"
   | "remote-token-regenerate"
+  | "webhooks-enable"
   | "renderer-gone"
   | "renderer-reload"
   | "renderer-crash-loop"

@@ -3,6 +3,7 @@
 // store module evaluates, and the dynamic import below preserves that
 // ordering. Every store test file imports the single `h` namespace and
 // nothing else from here — no test file may import ../store directly.
+import type { WebhookSecretReveal } from "@omp-ui/core/webhook";
 import { beforeEach, vi } from "vitest";
 import type {
   AppUpdateState,
@@ -360,6 +361,18 @@ const mockBackend = {
   setRemotePassword: vi.fn(async () => {}),
   clearRemotePassword: vi.fn(async () => {}),
   onRemoteState: vi.fn(),
+  getWebhooksState: vi.fn(async () => ({ enabled: false, credentialStore: false, webhooks: [], deliveries: [] })),
+  setWebhooksEnabled: vi.fn(async () => {}),
+  createWebhook: vi.fn(async (): Promise<WebhookSecretReveal> => {
+    throw new Error("createWebhook not mocked");
+  }),
+  updateWebhook: vi.fn(async () => {}),
+  rotateWebhookSecret: vi.fn(async (): Promise<WebhookSecretReveal> => {
+    throw new Error("rotateWebhookSecret not mocked");
+  }),
+  removeWebhook: vi.fn(async () => {}),
+  clearWebhookDeliveries: vi.fn(async () => {}),
+  onWebhooksState: vi.fn(),
   getProviderOAuthState: vi.fn(async () => idleProviderOAuth),
   onProviderOAuthState: vi.fn(),
   readProviderKeys: vi.fn(
@@ -664,6 +677,7 @@ beforeEach(() => {
     appUpdate: idleAppUpdate,
     ompUpdate: idleOmpUpdate,
     remote: idleRemoteState,
+    webhooks: { enabled: false, credentialStore: false, webhooks: [], deliveries: [] },
     providerOAuth: idleProviderOAuth,
     lab: null,
     stats: null,
