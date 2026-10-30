@@ -837,6 +837,21 @@ describe("Composer session references (issue #984)", () => {
     expect(referenceGroup()).toBeNull();
   });
 
+  it("accepts a row drag whose allowed operation arrives as copy (Wayland)", () => {
+    seed("ready");
+    renderComposer();
+    const target = document.body.querySelector<HTMLElement>("textarea")!.closest<HTMLElement>(".shrink-0")!;
+    // Chromium on Wayland reports any in-window drag as effectAllowed "copy";
+    // a dropEffect the source does not allow makes Blink skip the drop event.
+    const transfer = { types: [SESSION_DRAG_MIME], effectAllowed: "copy", dropEffect: "none", getData: () => "" };
+    const over = new Event("dragover", { bubbles: true, cancelable: true });
+    Object.assign(over, { dataTransfer: transfer });
+    act(() => target.dispatchEvent(over));
+    expect(over.defaultPrevented).toBe(true);
+    expect(transfer.dropEffect).toBe("copy");
+    expect(target.dataset.sessionDrop).toBe("over");
+  });
+
   it("lists other sessions in the @-palette, never itself, and swaps the @-word for a reference", async () => {
     seed("ready");
     withOther();
