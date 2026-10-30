@@ -78,21 +78,6 @@ describe("deleteSessions (issue #988)", () => {
   });
 });
 
-describe("terminateSessions (issue #988)", () => {
-  it("stages one confirmation for the live rows and stops each once accepted", async () => {
-    h.useStore.setState({ state: sessions({ tabId: "a" }, { tabId: "b" }, { tabId: "c", live: "dormant" }) });
-    h.mockBackend.terminateSession.mockResolvedValueOnce(undefined).mockRejectedValueOnce(new Error("kill refused"));
-
-    await store().terminateSessions(["a", "b", "c"]);
-    const pending = store().lifecycleConfirmation!;
-    expect(pending).toMatchObject({ kind: "terminate-many", tabIds: ["a", "b"], titles: ["a", "b"] });
-
-    await store().confirmLifecycleAction(pending.id);
-    expect(h.mockBackend.terminateSession.mock.calls).toEqual([["a"], ["b"]]);
-    expect(h.errorMessages()).toEqual(["1 of 2 sessions failed:\nb: kill refused"]);
-  });
-});
-
 describe("snoozeSessions / retitleSessions (issue #988)", () => {
   it("snoozes only the rows not already snoozed, keeping the two-argument call for an indefinite snooze", async () => {
     const state = sessions({ tabId: "a" }, { tabId: "b", snoozed: true });

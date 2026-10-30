@@ -280,12 +280,12 @@ describe("console-drawer shell lifecycle (issue #42)", () => {
     expect(fake.write).not.toHaveBeenCalled();
   });
 
-  it("terminate kills the tab's shell even with no live session", () => {
+  it("settle kills the tab's shell even with no live session", async () => {
     setup();
     invoke(CH.shellSpawn, TAB, "/proj", 80, 24);
     const fake = fakeShells[0]!;
 
-    invoke(CH.terminateSession, TAB);
+    await invoke(CH.settleSession, TAB);
     expect(fake.kill).toHaveBeenCalled();
   });
 

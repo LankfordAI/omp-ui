@@ -169,7 +169,7 @@ function Row({
   const ompInstalledVersion = useStore((st) => st.ompUpdate.installedVersion);
   const snoozedEnabled = useStore((st) => st.state?.snoozedSectionEnabled === true);
   // Settle (#980): the same eligibility as the row's hover action.
-  const settle = useStore((st) => canSettle(entry.session, st.rpc[entry.session.tabId]?.status === "running", snoozedEnabled));
+  const settle = canSettle(entry.session, snoozedEnabled);
   return (
     <div className={cn(!entry.reachable && "opacity-60")}>
       <SessionRow
@@ -292,8 +292,8 @@ function SidebarSection({
  * The selection bar (issue #988): replaces the sidebar footer while two or
  * more rows are selected. Each action applies to every selected row that
  * supports it — its count says how many — and stays tab-routed per row, so
- * rows on different instances mix. Delete… keeps its confirmation; Stop keeps
- * its own unless the terminate opt-out is set.
+ * rows on different instances mix. Delete… keeps its confirmation; Settle
+ * confirms first when any row is mid-turn, unless the opt-out is set.
  */
 function SelectionBar({
   tabIds,
@@ -313,14 +313,13 @@ function SelectionBar({
   const snoozeSessions = useStore((st) => st.snoozeSessions);
   const unsnoozeSessions = useStore((st) => st.unsnoozeSessions);
   const retitleSessions = useStore((st) => st.retitleSessions);
-  const terminateSessions = useStore((st) => st.terminateSessions);
   const deleteSessions = useStore((st) => st.deleteSessions);
   const snoozedOn = useStore((st) => st.state?.snoozedSectionEnabled === true);
   // Per-action counts of the rows that support it; shallow-compared, so the
   // bar re-renders only when a count changes.
   const counts = useStore(
     useShallow((st) => {
-      const n = { settle: 0, snooze: 0, unsnooze: 0, retitle: 0, stop: 0 };
+      const n = { settle: 0, snooze: 0, unsnooze: 0, retitle: 0 };
       for (const tabId of tabIds) {
         const rec = findRecord(st.state, tabId);
         if (rec === undefined) continue;
@@ -415,9 +414,6 @@ function SelectionBar({
           onClick={() => act(() => retitleSessions(tabIds))}
         >
           {t("sidebar.selection.action", { action: t("sidebar.selection.retitle"), n: counts.retitle })}
-        </Button>
-        <Button size="xs" tone="copper" disabled={counts.stop === 0} onClick={() => act(() => terminateSessions(tabIds))}>
-          {t("sidebar.selection.action", { action: t("sidebar.selection.stop"), n: counts.stop })}
         </Button>
         <Button size="xs" tone="rose" onClick={() => act(() => deleteSessions(tabIds))}>
           {t("sidebar.selection.action", { action: t("sidebar.selection.delete"), n: tabIds.length })}

@@ -297,7 +297,6 @@ const mockBackend = {
   setSkipTerminateConfirmation: vi.fn(async () => {}),
   setGettingStartedSeen: vi.fn(async () => {}),
   spawnSession: vi.fn(),
-  terminateSession: vi.fn(),
   hibernatePlanSource: vi.fn(async () => true),
   settleSession: vi.fn(async () => true),
   restartSession: vi.fn(),

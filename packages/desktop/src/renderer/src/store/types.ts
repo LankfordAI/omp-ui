@@ -486,9 +486,9 @@ export interface BulkDeleteConfirmation {
  * confirmation's own identity, so a subject's id travels under its own name.
  */
 export type LifecycleConfirmationChoice =
-  | { kind: "terminate"; tabId: string; title: string }
-  /** Stop for several selected rows at once (issue #988); titles in selection order. */
-  | { kind: "terminate-many"; tabIds: string[]; titles: string[] }
+  /** Settle that would interrupt a running turn (issue #1005): every requested
+   *  row in `tabIds`, the mid-turn ones named in `runningTitles` (request order). */
+  | { kind: "settle-running"; tabIds: string[]; runningTitles: string[] }
   | {
       kind: "switch-mode";
       tabId: string;
@@ -1421,7 +1421,6 @@ export interface UiStore extends SettingsSlice, UpdatesSlice, LabSlice, StatsSli
   openSession(tabId: string): Promise<void>;
   focusTab(tabId: string): void;
   hideTab(tabId: string): void;
-  terminate(tabId: string): Promise<void>;
   switchMode(tabId: string, mode: SessionMode): Promise<void>;
   /** Relaunch a dead tab. `restore` relaunches the PTY with omp --restore so
    *  the interrupted turn continues (#872); ignored for rpc-ui tabs. */
@@ -1430,9 +1429,6 @@ export interface UiStore extends SettingsSlice, UpdatesSlice, LabSlice, StatsSli
   resumeWithModel(tabId: string, model: string): Promise<void>;
   deleteSession(tabId: string): Promise<void>;
   confirmDeleteSession(skipFuture: boolean): Promise<void>;
-  /** Stop for every selected live row (issue #988): one confirmation, one
-   *  failure notice. A single row takes `terminate`'s path. */
-  terminateSessions(tabIds: readonly string[]): Promise<void>;
   /** Delete for every selected row (issue #988): one confirmation naming the
    *  count, one failure notice. A single row takes `deleteSession`'s dialog. */
   deleteSessions(tabIds: readonly string[]): Promise<void>;
@@ -1449,12 +1445,13 @@ export interface UiStore extends SettingsSlice, UpdatesSlice, LabSlice, StatsSli
    */
   settleFinishedSession(tabId: string): Promise<boolean>;
   /**
-   * Settle (issue #980): reaps each eligible session through the tab-routed
-   * `session:settle` and clears its snooze, so the row files to Settled. Rows
-   * mid-turn are skipped (they keep Stop). One call is one undo entry.
-   * Never throws; failures report to the error notices.
+   * Settle (issues #980, #1005): reaps each eligible session through the
+   * tab-routed `session:settle` and clears its snooze, so the row files to
+   * Settled. A row mid-turn first stages one `settle-running` confirmation for
+   * the whole action unless `opts.confirmed` or the skip setting is set. One
+   * call is one undo entry. Never throws.
    */
-  settleSessions(tabIds: readonly string[]): Promise<void>;
+  settleSessions(tabIds: readonly string[], opts?: { confirmed?: boolean }): Promise<void>;
   /** Settles made in this window during this run, oldest first; capped. */
   settleUndo: SettleUndoEntry[];
   /** The undo entry the transient toast offers; null = no toast. */

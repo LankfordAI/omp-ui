@@ -323,7 +323,6 @@ const VALID_ARGS = {
   switchMode: ["tab-1", "pty"],
   submitProviderOAuthInput: ["https://chatgpt.com/…"],
   tabViewed: ["client-1", null],
-  terminateSession: ["tab-1"],
   transcribeAudio: [{ audioBase64: "AUIATABc", language: null }],
   toggleFavorite: ["model"],
   updateRemoteInstance: ["inst-1", { nickname: "box" }],

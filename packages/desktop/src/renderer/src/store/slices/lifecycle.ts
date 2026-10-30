@@ -111,13 +111,11 @@ export type LifecycleSlice = Pick<
   | "openSession"
   | "focusTab"
   | "hideTab"
-  | "terminate"
   | "switchMode"
   | "resumeDead"
   | "resumeWithModel"
   | "deleteSession"
   | "confirmDeleteSession"
-  | "terminateSessions"
   | "deleteSessions"
   | "confirmDeleteSessions"
   | "cancelDeleteSessions"
@@ -1492,19 +1490,9 @@ export function createLifecycleSlice(
   const runLifecycleConfirmation = async (
     confirmation: LifecycleConfirmation,
   ): Promise<void> => {
-    if (confirmation.kind === "terminate") {
-      const rec = findRecord(get().state, confirmation.tabId);
-      if (!rec || rec.live !== "live") return;
-      await backend.terminateSession(confirmation.tabId);
-      // Only a successful stop retires the handoff: killShell suppresses the
-      // drawer program's exit event, so a discarded handoff after a failed
-      // termination would silently strand its banner over a still-live PTY —
-      // and a rejection is not the stop the user accepted.
-      set((s) => ({ tuiHandoff: dropTuiHandoff(s.tuiHandoff, confirmation.tabId) }));
-      return;
-    }
-    if (confirmation.kind === "terminate-many") {
-      await stopMany(confirmation.tabIds);
+    if (confirmation.kind === "settle-running") {
+      // Re-gated at acceptance: settleSessions re-reads every row (#1005).
+      await get().settleSessions(confirmation.tabIds, { confirmed: true });
       return;
     }
     if (confirmation.kind === "switch-mode") {
@@ -1715,73 +1703,6 @@ export function createLifecycleSlice(
     const pending = get().lifecycleConfirmation;
     if (!pending || pending.id !== id || pending.busy) return;
     set({ lifecycleConfirmation: null });
-  };
-
-  const terminate = async (tabId: string): Promise<void> => {
-    // Stopping is a live-session action: no record or no live process means
-    // there is nothing to confirm, and no DOM dialog is staged.
-    const rec = findRecord(get().state, tabId);
-    if (!rec || rec.live !== "live") return;
-    if (get().state?.skipTerminateConfirmation === true) {
-      // Opt-out fast path (issue #925): same effect as the confirmed
-      // terminate arm, including its handoff rule — only a successful stop
-      // retires the handoff (see runLifecycleConfirmation above).
-      try {
-        await backend.terminateSession(tabId);
-        set((s) => ({ tuiHandoff: dropTuiHandoff(s.tuiHandoff, tabId) }));
-      } catch (err) {
-        get().reportError(err);
-      }
-      return;
-    }
-    stageLifecycleConfirmation({ kind: "terminate", tabId, title: rec.title });
-  };
-
-  /**
-   * The accepted bulk Stop (issue #988): re-checks each row, stops the live
-   * ones in parallel, each tab-routed to its owner, and reports every failure
-   * in one notice. Only a successful stop retires its row's TUI handoff.
-   */
-  const stopMany = async (tabIds: readonly string[]): Promise<void> => {
-    const rows = tabIds.flatMap((tabId) => {
-      const rec = findRecord(get().state, tabId);
-      return rec?.live === "live" ? [rec] : [];
-    });
-    const failures: BulkFailure[] = [];
-    await Promise.all(
-      rows.map(async (rec) => {
-        try {
-          await backend.terminateSession(rec.tabId);
-          set((s) => ({ tuiHandoff: dropTuiHandoff(s.tuiHandoff, rec.tabId) }));
-        } catch (err) {
-          failures.push({ tabId: rec.tabId, title: rec.title, message: failureMessage(err) });
-        }
-      }),
-    );
-    const notice = bulkFailureNotice(failures, rows.map((r) => r.tabId));
-    if (notice !== null) get().reportError(notice);
-  };
-
-  const terminateSessions = async (tabIds: readonly string[]): Promise<void> => {
-    const rows = [...new Set(tabIds)].flatMap((tabId) => {
-      const rec = findRecord(get().state, tabId);
-      return rec?.live === "live" ? [rec] : [];
-    });
-    if (rows.length === 0) return;
-    if (rows.length === 1) {
-      await terminate(rows[0]!.tabId);
-      return;
-    }
-    // The terminate opt-out (issue #925) covers a bulk Stop too: same effect.
-    if (get().state?.skipTerminateConfirmation === true) {
-      await stopMany(rows.map((r) => r.tabId));
-      return;
-    }
-    stageLifecycleConfirmation({
-      kind: "terminate-many",
-      tabIds: rows.map((r) => r.tabId),
-      titles: rows.map((r) => r.title),
-    });
   };
 
   const switchMode = async (tabId: string, mode: SessionMode): Promise<void> => {
@@ -2265,13 +2186,11 @@ export function createLifecycleSlice(
     openSession,
     focusTab,
     hideTab,
-    terminate,
     switchMode,
     resumeDead,
     resumeWithModel,
     deleteSession,
     confirmDeleteSession,
-    terminateSessions,
     deleteSessions,
     confirmDeleteSessions,
     cancelDeleteSessions,

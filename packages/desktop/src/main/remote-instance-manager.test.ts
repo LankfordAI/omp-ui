@@ -133,8 +133,9 @@ function fakeHost(
       [CH.toggleFavorite]: (key: string) => {
         requests.push({ ch: CH.toggleFavorite, args: [key] });
       },
-      [CH.terminateSession]: (tabId: string) => {
-        requests.push({ ch: CH.terminateSession, args: [tabId] });
+      [CH.settleSession]: (tabId: string) => {
+        requests.push({ ch: CH.settleSession, args: [tabId] });
+        return true;
       },
       [CH.spawnSession]: (req: SpawnRequest) => {
         requests.push({ ch: CH.spawnSession, args: [req] });
@@ -427,22 +428,22 @@ describe("proxy and routing", () => {
     const h = harness();
     const instance = await join(h, server.port);
 
-    const local = vi.fn();
+    const local = vi.fn(() => true);
     const spawnLocal = vi.fn(() => ({ tabId: "t-local-new" }));
     const table = {
-      request: { [CH.terminateSession]: local, [CH.spawnSession]: spawnLocal },
+      request: { [CH.settleSession]: local, [CH.spawnSession]: spawnLocal },
       notify: {},
     } as unknown as ChannelTable;
     const routed = routeByTab(table, (id) => h.manager.ownerOf(id), h.manager);
     const request = routed.request as unknown as Record<string, (...a: unknown[]) => unknown>;
 
-    await request[CH.terminateSession]!("t-remote");
-    expect(host.requests.filter((r) => r.ch === CH.terminateSession)).toEqual([
-      { ch: CH.terminateSession, args: ["t-remote"] },
+    await request[CH.settleSession]!("t-remote");
+    expect(host.requests.filter((r) => r.ch === CH.settleSession)).toEqual([
+      { ch: CH.settleSession, args: ["t-remote"] },
     ]);
     expect(local).not.toHaveBeenCalled();
 
-    await request[CH.terminateSession]!("t-local");
+    await request[CH.settleSession]!("t-local");
     expect(local).toHaveBeenCalledWith("t-local");
 
     const resume: SpawnRequest = { origin: "resume", resumeTabId: "t-remote", cols: 80, rows: 24 };

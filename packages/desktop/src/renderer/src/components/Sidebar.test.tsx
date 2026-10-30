@@ -40,7 +40,7 @@ const backendMock = {
   setAutoSettleMergedPullRequests: vi.fn(async () => {}),
   setRemoteVsCodeEnabled: vi.fn(async () => {}),
   spawnSession: vi.fn(),
-  terminateSession: vi.fn(),
+  settleSession: vi.fn(async () => true),
   switchMode: vi.fn(),
   deleteSession: vi.fn(async (tabId: string) => ({ deleted: [tabId], failed: [] })),
   deleteSessionPreview: vi.fn(async () => ({ descendants: [] })),
@@ -1232,23 +1232,23 @@ describe("Sidebar multi-select (issue #988)", () => {
     expect(bar()).toBeNull();
   });
 
-  it("counts per action what the selection supports and Stop asks once for every live row", () => {
+  it("counts per action what the selection supports and Settle settles every live row", async () => {
     setSettledOpen(true);
     renderSidebar();
     click("a", { ctrlKey: true });
     click("b", { ctrlKey: true });
     click("old", { ctrlKey: true });
-    // Stop and Retitle need a process; Delete takes every selected row.
-    expect(barButton("Stop").textContent).toBe("Stop (2)");
+    // Settle and Retitle need a process; Delete takes every selected row.
+    expect(barButton("Settle").textContent).toBe("Settle (2)");
     expect(barButton("Delete").textContent).toBe("Delete… (3)");
     expect(barButton("Retitle").disabled).toBe(true);
-    act(() => barButton("Stop").click());
-    expect(useStore.getState().lifecycleConfirmation).toMatchObject({
-      kind: "terminate-many",
-      tabIds: ["a", "b"],
+    expect(barButton("Stop")).toBeUndefined();
+    await act(async () => {
+      barButton("Settle").click();
     });
+    expect(backendMock.settleSession).toHaveBeenCalledWith("a");
+    expect(backendMock.settleSession).toHaveBeenCalledWith("b");
     // Acting clears the selection.
     expect(selected()).toEqual([]);
-    useStore.setState({ lifecycleConfirmation: null });
   });
 });

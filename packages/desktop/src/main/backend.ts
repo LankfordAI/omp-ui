@@ -976,7 +976,7 @@ export class MainBackend {
         [CH.browseDirectories]: (partialPath: string) => browseDirectories(partialPath),
         [CH.removeProject]: async (projectPath: string) => {
           if (this.sessions.hasLiveInProject(projectPath)) {
-            throw new Error("project has live sessions — terminate them first");
+            throw new Error("project has live sessions — settle them first");
           }
           this.sessions.stopProjectWatchers(projectPath);
           this.headWatchers.stop(projectPath);
@@ -1172,7 +1172,6 @@ export class MainBackend {
           }
           return this.sessions.spawn(req);
         },
-        [CH.terminateSession]: (tabId: string) => this.sessions.terminate(tabId),
         [CH.hibernatePlanSource]: (sourceTabId: string, implementationTabId: string) =>
           this.sessions.hibernatePlanSource(sourceTabId, implementationTabId),
         [CH.settleSession]: (tabId: string) => this.sessions.settleSession(tabId),

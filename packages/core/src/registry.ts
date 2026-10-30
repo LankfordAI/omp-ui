@@ -84,7 +84,7 @@ export interface RegistrySettings {
   /** Agent names from the last roster refresh (unpack + agent dirs). */
   agentRoster: string[];
   skipDeleteConfirmation: boolean;
-  /** Opt out of the "Stop the agent?" confirmation (issue #925); default off. */
+  /** Opt out of the confirmation before settling a session mid-turn (issues #925, #1005); default off. */
   skipTerminateConfirmation: boolean;
   /** Global feature flag for the Experiments Lab + autoresearch bridge (issue #571); default off. */
   experimentsEnabled: boolean;
