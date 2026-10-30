@@ -256,6 +256,18 @@ export const en = {
   "transcript.fleetWake.result": "Fleet result",
   "transcript.fleetWake.question": "Fleet session needs you",
   "transcript.fleetWake.from": "{title} · {machine}",
+  // Send at reset (issue #986).
+  "transcript.heldPrompt.label": "Send at reset",
+  "transcript.heldPrompt.at": "sends {when}",
+  "transcript.heldPrompt.due": "sending…",
+  "transcript.heldPrompt.sent": "sent — waiting for the turn to end",
+  "transcript.heldPrompt.waiting": "hit the usage limit again — waiting for the next reported reset",
+  "transcript.heldPrompt.failed": "not sent: {error}",
+  "transcript.heldPrompt.images": "images: {count}",
+  "transcript.heldPrompt.documents": "documents: {count}",
+  "transcript.heldPrompt.attempts": "re-armed after the limit: {count}",
+  "transcript.heldPrompt.cancel": "cancel",
+  "transcript.heldPrompt.sendNow": "send now",
   "transcript.rewind.done":
     "rewound — later turns stay in the session file as another branch",
   "transcript.rewind.navigated": "navigated — the transcript shows the branch you jumped to",
@@ -579,6 +591,10 @@ export const en = {
   "composer.actions.abortLabel": "stop the turn — queued messages return to the draft (esc)",
   "composer.actions.runTitle": "run this command (enter)",
   "composer.actions.sendTitle": "send (enter) · shift+enter for a newline",
+  // Send at reset (issue #986).
+  "composer.actions.sendAtReset": "send at reset ({when})",
+  "composer.actions.sendAtResetTitle":
+    "omp-ui holds this prompt and sends it when the provider's usage window resets ({when}), resuming the session if it is not running",
   "composer.actions.moreRoutes": "more ways to send",
   // Compact prompt-options sheet (ComposerSheet)
   "composer.sheet.modelEffort": "model & effort",

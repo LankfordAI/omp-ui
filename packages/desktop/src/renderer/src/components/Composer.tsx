@@ -17,7 +17,7 @@ import { SESSION_SPEND_COMMAND } from "@omp-ui/core/session-spend";
 import { SIDE_COMMANDS_COMMAND } from "@omp-ui/core/side-commands";
 import { backend, backendFor, displayMessage } from "../backend";
 import { cn } from "../lib/cn";
-import { currentLocaleId, useT, type MessageKey } from "../lib/i18n";
+import { currentLocaleId, localeTag, useT, type MessageKey } from "../lib/i18n";
 import { useCompactShell } from "../lib/responsive";
 import { keywordPalette, SHIMMER_PERIOD_MS } from "../lib/keyword-colors";
 import { MAGIC_KEYWORDS, magicKeywordSegments, type MagicKeyword } from "@omp-ui/core/magic-keywords";
@@ -50,6 +50,15 @@ import { useDictation } from "../lib/use-dictation";
 import { useDictationHotkey } from "../lib/use-dictation-hotkey";
 import { NATIVE_LIVE_MIN_OMP, supportsNativeLive } from "../lib/live-voice";
 import { canOpenLivePeer } from "../lib/live-peer";
+import { sendAtResetMs } from "../lib/send-at-reset";
+import { startVisibleInterval } from "../lib/visible-interval";
+import { formatSnoozeUntil } from "../lib/snooze-until";
+
+/** How often the composer re-reads the clock while it offers Send at reset. */
+const SEND_AT_RESET_TICK_MS = 30_000;
+
+/** The composer's submit routes: omp's prompt routes, interrupt, and Send at reset (#986). */
+export type SubmitRoute = PromptRoute | "interrupt" | "at-reset";
 
 /**
  * The composer. Everything the user can *say* to a live agent lives here:
@@ -173,6 +182,16 @@ export function Composer({
   const currentModel = useStore((s) => s.rpc[tabId]?.model ?? null);
   // #932: booted without its pinned model; main refuses prompts until a pick.
   const modelHold = useStore((s) => findOwner(s.state, tabId)?.record.modelHold ?? null);
+  // Send at reset (issue #986): the provider's next reset while the session is
+  // limited. Ticks so a passed reset withdraws the offer.
+  const [resetNow, setResetNow] = useState(() => Date.now());
+  const resetAtMs = useStore((s) => sendAtResetMs(s.rpc[tabId], resetNow));
+  useEffect(() => {
+    if (resetAtMs === null) return;
+    return startVisibleInterval(() => setResetNow(Date.now()), SEND_AT_RESET_TICK_MS);
+  }, [resetAtMs]);
+  // A native session only: a terminal tab has no prompt channel main may inject into.
+  const holdsPrompts = record?.mode === "rpc-ui";
   // Live voice gates on the omp version (issue #778): 18.14.0 added the
   // `live_connect` verb (ADR-0071), unknown version hides the feature. It also
   // gates on this client carrying the call's peer (issue #968): the peer runs
@@ -223,6 +242,7 @@ export function Composer({
   const finishTabId = record?.worktree != null ? tabId : undefined;
 
   const sendPrompt = useStore((s) => s.sendPrompt);
+  const holdPrompt = useStore((s) => s.holdPrompt);
   const abortAgent = useStore((s) => s.abortAgent);
   const abortAndPrompt = useStore((s) => s.abortAndPrompt);
   const runSlashCommand = useStore((s) => s.runSlashCommand);
@@ -593,7 +613,7 @@ export function Composer({
   }, [workspace, runWorktreeConversion]);
 
   const submit = useCallback(
-    async (route: PromptRoute | "interrupt") => {
+    async (route: SubmitRoute) => {
       let message = text.trim();
       let payload = images;
       let docRefs: DocumentRef[] = [];
@@ -609,6 +629,10 @@ export function Composer({
       // #932: a held session starts no turn; the notice says why, and the
       // draft stays. Slash and bash commands still go out.
       if (modelHold !== null && !message.startsWith("/") && !message.startsWith("!")) return;
+      // Send at reset (issue #986) holds a prompt, never a command; the owning
+      // host keeps it, so a refusal returns before the draft clears.
+      const atReset = route === "at-reset";
+      if (atReset && (resetAtMs === null || message.startsWith("/") || message.startsWith("!"))) return;
       // A leading "!" is omp's bash command, dispatched concurrently over
       // rpc-ui with no model turn (issue #678). Like slash, it takes no
       // images and gets no @-resolution; the draft goes out verbatim. It
@@ -640,7 +664,7 @@ export function Composer({
       // does until the editor frame lands. On "kept-draft" the draft (and
       // the tray) stay put for that editor frame; an answer is not a
       // prompt, so no history push, no hero dismissal, no conversion.
-      if (!compact && route !== "interrupt" && !message.startsWith("/")) {
+      if (!compact && route !== "interrupt" && !atReset && !message.startsWith("/")) {
         const outcome = answerPendingQuestion(tabId, message);
         if (outcome !== "not-answerable") {
           if (outcome === "answered") {
@@ -682,6 +706,9 @@ export function Composer({
           return;
         }
       }
+      if (atReset) {
+        if (!(await holdPrompt(tabId, message, resetAtMs!, payload, docRefs))) return;
+      }
       recall.current = null;
       setText("");
       clearDraft();
@@ -712,9 +739,10 @@ export function Composer({
         }
       }
 
+      // A held prompt is main's from here; the transcript's pending card shows it.
       if (route === "interrupt") {
         void abortAndPrompt(tabId, message, payload, docRefs);
-      } else {
+      } else if (!atReset) {
         void sendPrompt(tabId, message, route, payload, docRefs);
       }
       box.current?.focus({ preventScroll: true });
@@ -740,6 +768,8 @@ export function Composer({
       moving,
       runWorktreeConversion,
       modelHold,
+      resetAtMs,
+      holdPrompt,
     ],
   );
 
@@ -919,6 +949,12 @@ export function Composer({
     !converting &&
     moving === null &&
     (modelHold === null || isSlash || trimmed.startsWith("!"));
+  // Send at reset (issue #986): a prompt — never a command — for a native
+  // session whose provider reports a reset ahead; its label names the reset.
+  const atReset =
+    holdsPrompts && resetAtMs !== null && !isSlash && !trimmed.startsWith("!")
+      ? { when: formatSnoozeUntil(resetAtMs, new Date(resetNow), localeTag()), canHold: canSend && modelHold === null }
+      : null;
   const lines = text === "" ? 0 : text.split("\n").length;
 
   return (
@@ -1231,6 +1267,7 @@ export function Composer({
 
             <ComposerActions
               layout="desktop"
+              atReset={atReset}
               running={running}
               isSlash={isSlash}
               canSend={canSend}
@@ -1274,6 +1311,7 @@ export function Composer({
               {queueChip && <Chip mono tone="copper" title={running ? t("composer.queue.queuedTitle") : t("composer.queue.parkedTitle")}>{queued}</Chip>}
               <ComposerActions
                 layout="compact"
+                atReset={atReset}
                 running={running}
                 isSlash={isSlash}
                 canSend={canSend}

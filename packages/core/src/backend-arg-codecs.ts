@@ -33,6 +33,7 @@ import {
 } from "./fleet";
 import type { RpcFrame } from "./rpc/codec";
 import type { BrowserPaneInputEvent, BrowserPaneNavigate } from "./browser-pane";
+import type { HeldPromptRequest } from "./held-prompt";
 import type {
   AgentMode,
   ApprovalMode,
@@ -711,6 +712,15 @@ export const fleetExecPollRequestCodec: ArgCodec<FleetExecPollRequest> = {
     }
   },
 };
+
+/** A composer's Send at reset request (issue #986). */
+export const heldPromptRequestCodec: ArgCodec<HeldPromptRequest> = objectOf<HeldPromptRequest>({
+  text: str(),
+  preview: str(),
+  images: arrayOf(imageAttachmentCodec),
+  documents: arrayOf(str()),
+  resetAtMs: num(),
+});
 
 /** Fleet send (issue #959), via the shared parser. */
 export const fleetSendRequestCodec: ArgCodec<FleetSendRequest> = {

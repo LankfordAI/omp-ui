@@ -249,6 +249,8 @@ export const RpcTab = memo(function RpcTab({ tabId, active }: { tabId: string; a
   const closeBrowserPane = useStore((s) => s.closeBrowserPane);
   const projectCwd = useStore((s) => findRecord(s.state, tabId)?.projectCwd);
   const chat = useStore((s) => findRecord(s.state, tabId)?.chat === true);
+  // A held prompt (issue #986) is a prompt: the transcript shows its card.
+  const holding = useStore((s) => findRecord(s.state, tabId)?.heldPrompt != null);
   /** Latched on the first local prompt: the hero docks now, not a round-trip later. */
   const [prompted, setPrompted] = useState(false);
   // A reboot (resume, advisor relaunch, lineage switch) passes through
@@ -272,6 +274,7 @@ export const RpcTab = memo(function RpcTab({ tabId, active }: { tabId: string; a
     !compact &&
     exitCode === undefined &&
     !prompted &&
+    !holding &&
     (status === "starting" || status === "ready") &&
     preExchange(items) &&
     !paneColumn;

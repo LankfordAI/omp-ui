@@ -175,6 +175,7 @@ import {
   fleetDispatchRequestCodec,
   fleetExecPollRequestCodec,
   fleetSendRequestCodec,
+  heldPromptRequestCodec,
   fleetFinishRequestCodec,
   fleetExecRequestCodec,
   fleetProjectManageCodec,
@@ -191,6 +192,7 @@ import {
   type ArgCodecs,
   subagentModelMapCodec,
 } from "./backend-arg-codecs";
+import type { HeldPromptPayload, HeldPromptRequest } from "./held-prompt";
 
 declare const CHANNEL_ARGS: unique symbol;
 
@@ -957,6 +959,24 @@ export const BACKEND_CHANNELS = {
   setSessionPinned: {
     channel: "session:setPinned",
     ...request<[tabId: string, pinned: boolean], void>([str(), bool()]),
+  },
+  /** Holds a native session's prompt until its provider's usage window
+   *  resets (issue #986). The owning host keeps it on the record and sends it
+   *  at `resetAtMs` plus a margin; replaces any prompt already held. */
+  holdPrompt: {
+    channel: "session:holdPrompt",
+    ...request<[tabId: string, req: HeldPromptRequest], void>([str(), heldPromptRequestCodec]),
+  },
+  /** Drops the held prompt and returns its text and images for the draft;
+   *  null when nothing was held (issue #986). */
+  cancelHeldPrompt: {
+    channel: "session:cancelHeldPrompt",
+    ...request<[tabId: string], HeldPromptPayload | null>([str()]),
+  },
+  /** Sends the held prompt now, resuming a hibernated session first (issue #986). */
+  sendHeldPromptNow: {
+    channel: "session:sendHeldPromptNow",
+    ...request<[tabId: string], void>([str()]),
   },
 
   /**

@@ -133,6 +133,7 @@ export function remoteOwnedState(tabId: string, instanceId: string): BackendStat
                 snoozed: false,
                 snoozedUntilMs: null,
                 pinnedAtMs: null,
+                heldPrompt: null,
                 private: false,
                 chat: false,
                 askSource: null,

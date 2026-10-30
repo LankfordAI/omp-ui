@@ -1,4 +1,5 @@
-import { modelFastTier, type PromptRoute } from "../lib/rpc-types";
+import { modelFastTier } from "../lib/rpc-types";
+import type { SubmitRoute } from "./Composer";
 import { useT } from "../lib/i18n";
 import { queueChipCount, queueChipView } from "../lib/queue-chip";
 import { findOwner, isChatTab, useStore } from "../store";
@@ -41,7 +42,7 @@ export function ComposerSheet({
   unavailable: boolean;
   liveVoiceVisible?: boolean;
   canSend: boolean;
-  onSubmit: (route: PromptRoute | "interrupt") => void;
+  onSubmit: (route: SubmitRoute) => void;
 }) {
   const t = useT();
   const status = useStore((s) => s.rpc[tabId]?.status);

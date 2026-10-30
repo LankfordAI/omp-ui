@@ -149,6 +149,7 @@ import {
   type DiscardedApplyResult,
   type DiscardedChange,
   type VaultAction,
+  LIMITS_COMMAND,
 } from "@omp-ui/core";
 import { CollabTracker } from "./collab-tracker";
 import type { Attention } from "./desktop-notifier";
@@ -175,6 +176,7 @@ import { readConfinedPlanFile } from "./plan-file";
 import { GoalStatusTracker } from "./goal-status-tracker";
 import { VibeStatusTracker } from "./vibe-status-tracker";
 import { AutoresearchStatusTracker } from "./autoresearch-status-tracker";
+import { HeldPromptScheduler } from "./held-prompt-scheduler";
 import {
   prepareResumeRecord,
   writeReviewRosterForSpawn,
@@ -369,6 +371,8 @@ export class SessionManager {
   private readonly goals: GoalStatusTracker;
   private readonly autoresearch: AutoresearchStatusTracker;
   private readonly vibes: VibeStatusTracker;
+  /** Send at reset (issue #986): the held prompt per native session. */
+  readonly heldPrompts: HeldPromptScheduler;
   /** The open blocking dialogs per tab — the summary's `pendingDialogs` (#555). */
   private readonly dialogGates = new DialogGateTracker();
   /** The omp collab local-registry watcher for terminal tabs (issue #686). */
@@ -564,6 +568,30 @@ export class SessionManager {
     this.goals = new GoalStatusTracker({ broadcast: () => this.deps.broadcast() });
     this.vibes = new VibeStatusTracker({ broadcast: () => this.deps.broadcast() });
     this.autoresearch = new AutoresearchStatusTracker({ broadcast: () => this.deps.broadcast() });
+    this.heldPrompts = new HeldPromptScheduler({
+      sessions: () => deps.registry.sessions,
+      updateSession: (tabId, patch) => deps.registry.updateSession(tabId, patch),
+      broadcast: () => void deps.broadcast(),
+      lineageDir: (record) => path.join(deps.getSessionsRoot(), record.lineageDir),
+      canSendNow: (tabId) => {
+        const entry = this.live.get(tabId);
+        return (
+          entry?.kind === "rpc-ui" &&
+          entry.rpc !== null &&
+          entry.modelHold === null &&
+          this.pendingOp(tabId) === undefined &&
+          !this.turns.isRunning(tabId) &&
+          !this.awaitingHumanAnswer(tabId)
+        );
+      },
+      isLive: (tabId) => this.live.has(tabId),
+      busy: (tabId) => this.pendingOp(tabId) !== undefined,
+      send: (tabId, cmd) => this.rpcSend(tabId, cmd),
+      resume: (tabId) => this.spawn({ origin: "resume", resumeTabId: tabId, cols: 80, rows: 24 }),
+      refreshLimits: (tabId) =>
+        this.rpcSend(tabId, { type: "prompt", id: `omp-ui-held-limits-${randomUUID()}`, message: `/${LIMITS_COMMAND}` }),
+    });
+    // Last: it reads the turn latch and answer gates the observers above settle.
     this.frameObservers = [
       this.hibernation,
       this.planGates,
@@ -574,6 +602,7 @@ export class SessionManager {
       this.vibes,
       this.autoresearch,
       this.dialogGates,
+      this.heldPrompts,
     ];
     this.collab = new CollabTracker({
       getOmpPath: deps.getOmpPath,
@@ -659,6 +688,7 @@ export class SessionManager {
     this.hibernation.disposeAll();
     this.stallWatchdog.disposeAll();
     this.toolControl.disposeAll();
+    this.heldPrompts.disposeAll();
     this.planPreflight.clearAll();
   }
 
@@ -1047,6 +1077,7 @@ export class SessionManager {
           snoozed: false,
           snoozedUntilMs: null,
           pinnedAtMs: null,
+          heldPrompt: null,
           private: req.private === true,
           chat,
           askSource: ask?.source ?? null,
@@ -1608,6 +1639,10 @@ export class SessionManager {
     // The overlay drops only the model; the record keeps it for the next spawn.
     const modelHold = await this.probeModelHold(record, modelOverride);
     entry.modelHold = modelHold;
+    // A held prompt that is due rides last (issue #986): the session resumed
+    // for it, or for anything else once its reset passed. Never while held.
+    const heldCommand = this.heldPrompts.initialCommand(record, modelHold !== null);
+    if (heldCommand !== null) initialCommands.push(heldCommand);
     const configOverlays = await writeRpcOverlays(
       modelHold === null ? record : { ...record, model: null },
       absLineageDir,
@@ -3058,6 +3093,7 @@ export class SessionManager {
     this.hibernation.dispose(tabId);
     this.toolControl.dispose(tabId);
     this.planPreflight.dispose(tabId);
+    this.heldPrompts.dispose(tabId);
     this.watcherHub.stop(tabId);
     this.killShell(tabId);
     this.browserPanes.dispose(tabId, { forgetUrl: true });
@@ -3158,6 +3194,7 @@ export class SessionManager {
       snoozed: false,
       snoozedUntilMs: null,
       pinnedAtMs: null,
+      heldPrompt: null,
       private: source.private,
       // A branch of a chat is a chat sharing its scratch dir.
       chat: source.chat,

@@ -165,6 +165,7 @@ import {
   type SpendCapKey,
   type ProjectSubagentModelsResult,
   type SubagentModelMap,
+  type HeldPromptRequest,
   type RootGuard,
   type VaultDetection,
 } from "@omp-ui/core";
@@ -673,6 +674,9 @@ export class MainBackend {
     // Timed snooze (#979): a deadline that passed while the app was closed
     // wakes here, after every collaborator the broadcast reads exists.
     this.snoozeClock.sync();
+    // Send at reset (#986): a held prompt that fell due while the app was
+    // closed resumes its session now; later ones arm their timer.
+    this.sessions.heldPrompts?.sync();
   }
 
   /** Read the window's real page devicePixelRatio; screen.scaleFactor lies under Wayland fractional scaling (#557). */
@@ -1023,6 +1027,9 @@ export class MainBackend {
           this.registry.updateSession(tabId, { pinnedAtMs: pinned ? (record.pinnedAtMs ?? Date.now()) : null });
           void this.broadcast();
         },
+        [CH.holdPrompt]: (tabId: string, req: HeldPromptRequest) => this.sessions.heldPrompts.hold(tabId, req),
+        [CH.cancelHeldPrompt]: (tabId: string) => this.sessions.heldPrompts.cancel(tabId),
+        [CH.sendHeldPromptNow]: (tabId: string) => this.sessions.heldPrompts.sendNow(tabId),
         [CH.setSessionSubagentModels]: (tabId: string, map: SubagentModelMap | null) =>
           this.sessions.setSessionSubagentModels(tabId, map),
         [CH.spawnSession]: (req: SpawnRequest) => {
@@ -1916,6 +1923,7 @@ export class MainBackend {
           snoozed: false,
           snoozedUntilMs: null,
           pinnedAtMs: null,
+          heldPrompt: null,
           private: false,
           // A migrated session always lands in a project.
           chat: false,

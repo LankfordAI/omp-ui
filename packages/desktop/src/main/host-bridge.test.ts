@@ -249,6 +249,7 @@ describe("HostBridge omp-ui://sessions", () => {
       snoozed: false,
       snoozedUntilMs: null,
       pinnedAtMs: null,
+      heldPrompt: null,
       private: false,
       chat: false,
       askSource: null,

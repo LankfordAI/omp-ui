@@ -205,6 +205,18 @@ export {
   type LimitsWindow,
 } from "./limits";
 export {
+  HELD_PROMPT_COMMAND_PREFIX,
+  HELD_PROMPT_MARGIN_MS,
+  HELD_PROMPT_PREVIEW_MAX,
+  OMP_ERROR_FLAG_USAGE_LIMIT,
+  heldPromptCommandId,
+  isUsageLimitError,
+  usageResetMs,
+  type HeldPrompt,
+  type HeldPromptPayload,
+  type HeldPromptRequest,
+} from "./held-prompt";
+export {
   isHtmlPlanPath,
   isPlanArtifactPath,
   comparePlanDiagnostics,

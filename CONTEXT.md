@@ -926,6 +926,19 @@ draft — en masse by Escape or the stop control while a turn runs, or one row a
 a time by the queue chip's edit action (issue #776).
 _Avoid_: stuck queue, ghost message
 
+**Held prompt**:
+A prompt omp-ui keeps for a native session until its provider's usage window
+resets, then sends through the normal prompt path (issue #986, ADR-0074). The
+composer offers **send at reset (Tue 14:05)** beside Send while the limits
+bridge reports an exhausted window, or the last turn failed on omp's
+usage-limit class with the binding window still ahead. The owning host's main
+process keeps it on the session record (`heldPrompt`, so it survives a
+restart and a remote session's prompt waits on its host), shows it as a card
+at the transcript's tail with **cancel** (back into the draft) and **send
+now**, and sends it at the reset plus a minute — resuming a session that is
+not running. omp never sees it until then; it is not a Parked message.
+_Avoid_: scheduled prompt (that is #987's general feature), queued prompt, deferred message
+
 **Proposed plans pane**:
 The inspector rail pane (ADR-0004 vocab) that lists every plan the focus
 session has proposed — the live pending plan first, with review / request

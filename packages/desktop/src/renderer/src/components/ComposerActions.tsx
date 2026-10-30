@@ -1,5 +1,6 @@
 import { useEffect, useRef, useState } from "react";
 import type { PromptRoute } from "../lib/rpc-types";
+import type { SubmitRoute } from "./Composer";
 import { cn } from "../lib/cn";
 import { formatHotkey } from "../lib/hotkeys";
 import { useT } from "../lib/i18n";
@@ -27,6 +28,7 @@ function IconSend() {
 
 export function ComposerActions({
   layout,
+  atReset = null,
   running,
   isSlash,
   canSend,
@@ -34,6 +36,11 @@ export function ComposerActions({
   onAbort,
 }: {
   layout: ComposerActionsLayout;
+  /**
+   * Send at reset (issue #986): the provider's reset as a local clock label,
+   * offered beside idle Send while the session is limited. Null hides it.
+   */
+  atReset?: { when: string; canHold: boolean } | null;
   running: boolean;
   /**
    * A slash draft is a command, not a prompt: every route verb reads "run".
@@ -42,10 +49,22 @@ export function ComposerActions({
    */
   isSlash: boolean;
   canSend: boolean;
-  onSubmit: (route: PromptRoute | "interrupt") => void;
+  onSubmit: (route: SubmitRoute) => void;
   onAbort: () => void;
 }) {
   const t = useT();
+  const atResetButton = atReset !== null && !running && (
+    <Button
+      variant="outline"
+      tone="copper"
+      disabled={!atReset.canHold}
+      title={t("composer.actions.sendAtResetTitle", { when: atReset.when })}
+      onClick={() => onSubmit("at-reset")}
+      className={layout === "compact" ? "h-11 rounded-lg px-3" : "h-7 shrink-0 rounded-full px-2.5 text-[11px]"}
+    >
+      {t("composer.actions.sendAtReset", { when: atReset.when })}
+    </Button>
+  );
   const label = (verb: "send" | "steer") => {
     const word =
       isSlash
@@ -80,10 +99,13 @@ export function ComposerActions({
         <Button tone="rose" variant="outline" onClick={onAbort} className="h-11 rounded-lg px-3">{t("composer.actions.abort")}</Button>
       </>
     ) : (
-      <Button variant="solid" disabled={!canSend} onClick={() => onSubmit("prompt")} className="h-11 gap-1.5 rounded-lg px-4">
-        <IconSend />
-        {label("send")}
-      </Button>
+      <>
+        {atResetButton}
+        <Button variant="solid" disabled={!canSend} onClick={() => onSubmit("prompt")} className="h-11 gap-1.5 rounded-lg px-4">
+          <IconSend />
+          {label("send")}
+        </Button>
+      </>
     );
   }
 
@@ -111,16 +133,19 @@ export function ComposerActions({
       </IconButton>
     </>
   ) : (
-    <Button
-      variant="solid"
-      disabled={!canSend}
-      title={isSlash ? t("composer.actions.runTitle") : t("composer.actions.sendTitle")}
-      onClick={() => onSubmit("prompt")}
-      className="size-7 shrink-0 justify-center rounded-full p-0"
-    >
-      <IconSend />
-      <span className="sr-only">{label("send")}</span>
-    </Button>
+    <>
+      {atResetButton}
+      <Button
+        variant="solid"
+        disabled={!canSend}
+        title={isSlash ? t("composer.actions.runTitle") : t("composer.actions.sendTitle")}
+        onClick={() => onSubmit("prompt")}
+        className="size-7 shrink-0 justify-center rounded-full p-0"
+      >
+        <IconSend />
+        <span className="sr-only">{label("send")}</span>
+      </Button>
+    </>
   );
 }
 

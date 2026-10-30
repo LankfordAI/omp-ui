@@ -47,6 +47,7 @@ import { AdvisoryNotes, ToolCard } from "./ToolCard";
 import { VaultToolCard } from "./VaultToolCard";
 import { VAULT_WRITE_TOOLS } from "@omp-ui/core/vault-shared";
 import { SelectionContextMenu } from "./SelectionContextMenu";
+import { HeldPromptCard } from "./HeldPromptCard";
 import {
   Chip,
   CopyButton,
@@ -1392,6 +1393,8 @@ export function TranscriptView({
               <ExchangeReceipt changes={trailingReceipt} tabId={tabId} />
             </div>
           )}
+          {/* Send at reset (issue #986): the prompt the host holds goes last. */}
+          {tabId !== undefined && <HeldPromptCard tabId={tabId} />}
         </div>
         {/* Tail clearance for the floating composer (issue #395). RpcTab
             publishes its measured height; every other host of this view — the

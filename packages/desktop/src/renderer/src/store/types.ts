@@ -1404,6 +1404,19 @@ export interface UiStore extends SettingsSlice, UpdatesSlice, LabSlice, StatsSli
   setSessionSnoozed(tabId: string, snoozed: boolean, untilMs?: number | null): Promise<void>;
   /** Pins a session to the sidebar's Pinned group or unpins it (issue #981). */
   setSessionPinned(tabId: string, pinned: boolean): Promise<void>;
+  /** Holds the draft until the provider's usage window resets; main sends it
+   *  then (issue #986). False when the owning host refused it. */
+  holdPrompt(
+    tabId: string,
+    message: string,
+    resetAtMs: number,
+    images?: ImageAttachment[],
+    docRefs?: DocumentRef[],
+  ): Promise<boolean>;
+  /** Drops the held prompt and restores it into the composer draft (issue #986). */
+  cancelHeldPrompt(tabId: string): Promise<void>;
+  /** Sends the held prompt now, resuming a hibernated session first (issue #986). */
+  sendHeldPromptNow(tabId: string): Promise<void>;
   /** Pins the session's approval mode (issue #681); a live rpc session relaunches. */
   setSessionApprovalMode(tabId: string, mode: ApprovalMode | null): Promise<void>;
   setAdvisorModel(tabId: string, selector: string | null): Promise<void>;

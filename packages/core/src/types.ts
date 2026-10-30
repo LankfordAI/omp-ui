@@ -14,6 +14,7 @@ import type { SessionExperiment } from "./experiment-types";
 import type { VaultAction } from "./vault-shared";
 import type { FleetModelChoice, FleetPendingDispatch, FleetProvenance, FleetSpawnSpec } from "./fleet";
 import type { APPROVAL_MODES } from "./approval";
+import type { HeldPrompt } from "./held-prompt";
 export type {
   CheckoutExperiments,
   ExperimentDetail,
@@ -505,6 +506,11 @@ export interface OwnedSessionRecord {
    *  ordered by this stamp, exempt from Working and Snoozed. The owning host
    *  stamps it. Post-dates schema-1: absent normalizes to null. */
   pinnedAtMs: number | null;
+  /** The prompt omp-ui holds until the provider's usage window resets
+   *  (issue #986); null when none. The owning host's main process sends it
+   *  at `sendAtMs` through the normal prompt path. Post-dates schema-1:
+   *  absent normalizes to null. */
+  heldPrompt: HeldPrompt | null;
   cachedTitle: string | null;
   cachedModified: string | null;
 }

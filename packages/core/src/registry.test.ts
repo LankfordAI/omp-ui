@@ -40,6 +40,7 @@ function sessionRecord(patch: Partial<OwnedSessionRecord> = {}): OwnedSessionRec
     snoozed: false,
     snoozedUntilMs: null,
     pinnedAtMs: null,
+    heldPrompt: null,
     private: false,
     chat: false,
     askSource: null,
@@ -1932,6 +1933,33 @@ describe("pinned sidebar stamp (issue #981)", () => {
     expect(reg.sessions.map((s) => [s.tabId, s.pinnedAtMs])).toEqual([
       ["tab-1", null],
       ["tab-2", 1_800_000_000_000],
+    ]);
+  });
+});
+
+describe("held prompt (issue #986)", () => {
+  it("keeps the session when its held prompt is absent or malformed, and loads a complete one", () => {
+    const file = tmpFile();
+    const legacy: Record<string, unknown> = { ...sessionRecord() };
+    delete legacy.heldPrompt;
+    const held = {
+      id: "h1",
+      preview: "next step",
+      imageCount: 0,
+      documentCount: 0,
+      createdAtMs: 1_800_000_000_000,
+      sendAtMs: 1_800_000_060_000,
+      sentAtMs: null,
+      attempts: 0,
+      error: null,
+    };
+    const holding = { ...sessionRecord(), tabId: "tab-2", heldPrompt: held };
+    const bad = { ...sessionRecord(), tabId: "tab-3", heldPrompt: { id: "h2" } };
+    fs.writeFileSync(file, JSON.stringify({ schemaVersion: 1, projects: [], sessions: [legacy, holding, bad] }));
+    expect(Registry.load(file).sessions.map((s) => [s.tabId, s.heldPrompt])).toEqual([
+      ["tab-1", null],
+      ["tab-2", held],
+      ["tab-3", null],
     ]);
   });
 });

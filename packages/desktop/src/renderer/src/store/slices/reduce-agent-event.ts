@@ -1,6 +1,7 @@
 import { LIVE_DELEGATION_CUSTOM_TYPE } from "@omp-ui/core/live-voice";
 import { MAGIC_KEYWORDS } from "@omp-ui/core/magic-keywords";
 import { modelStreamCheckpointLabel } from "@omp-ui/core/stream-activity";
+import { OMP_ERROR_FLAG_USAGE_LIMIT } from "@omp-ui/core/held-prompt";
 import { formatDuration } from "../../lib/duration";
 import { arrField, boolField, field, numField, strField } from "../../lib/fields";
 import { noticeItem, textFromContent, type NoticeItem } from "../../lib/transcript";
@@ -12,8 +13,6 @@ export const USAGE_REFRESH_MS = 500;
 
 /** pi-ai's StreamTimeoutError classifier bit (Flag.Timeout, pi-ai error/flags.ts). */
 const OMP_ERROR_FLAG_TIMEOUT = 0x0004_0000;
-/** pi-ai's UsageLimit classifier bit (Flag.UsageLimit, pi-ai error/flags.ts). */
-const OMP_ERROR_FLAG_USAGE_LIMIT = 0x0008_0000;
 /** Every built-in provider's stall/first-event watchdog message (pi-ai providers/*). */
 const STALL_MESSAGE_RE =
   /stream (stalled|timed out) while waiting for the (next|first) event/i;

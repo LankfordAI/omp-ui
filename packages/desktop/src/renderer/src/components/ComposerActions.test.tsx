@@ -3,7 +3,7 @@ import { act } from "react";
 import { createRoot, type Root } from "react-dom/client";
 import { afterEach, describe, expect, it, vi } from "vitest";
 import { ComposerActions, type ComposerActionsLayout } from "./ComposerActions";
-import type { PromptRoute } from "../lib/rpc-types";
+import type { SubmitRoute } from "./Composer";
 import { formatHotkey } from "../lib/hotkeys";
 
 interface Props {
@@ -13,7 +13,7 @@ interface Props {
   canSend?: boolean;
 }
 let root: Root | null = null;
-let onSubmit: (route: PromptRoute | "interrupt") => void;
+let onSubmit: (route: SubmitRoute) => void;
 let onAbort: () => void;
 
 function mount(p: Props = {}): void {

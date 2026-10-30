@@ -127,6 +127,9 @@ export type SessionParamsSlice = Pick<
   | "setSessionAdvisor"
   | "setSessionSnoozed"
   | "setSessionPinned"
+  | "holdPrompt"
+  | "cancelHeldPrompt"
+  | "sendHeldPromptNow"
   | "setSessionApprovalMode"
   | "setAdvisorModel"
   | "setModel"
@@ -789,6 +792,53 @@ export function createSessionParamsSlice(
     // host, and an older host's unknown-channel rejection surfaces here.
     try {
       await backend.setSessionPinned(tabId, pinned);
+    } catch (err) {
+      get().reportError(err);
+    }
+  };
+  const holdPrompt = async (
+    tabId: string,
+    message: string,
+    resetAtMs: number,
+    images: ImageAttachment[] = [],
+    docRefs: DocumentRef[] = [],
+  ): Promise<boolean> => {
+    // Send at reset (issue #986): the owning host keeps the prompt — tab-routed,
+    // so a remote session's prompt waits on its host — and sends it with the
+    // same wire text sendPrompt would have built.
+    const text = withAttachmentRoutingContext(withDocumentContext(message, docRefs), images.length);
+    try {
+      await backend.holdPrompt(tabId, {
+        text,
+        preview: message,
+        images,
+        documents: docRefs.map((doc) => doc.path),
+        resetAtMs,
+      });
+      return true;
+    } catch (err) {
+      get().reportError(err);
+      return false;
+    }
+  };
+  const cancelHeldPrompt = async (tabId: string): Promise<void> => {
+    try {
+      const payload = await backend.cancelHeldPrompt(tabId);
+      if (payload === null) return;
+      // Back into the draft by the queue-restore path (#776): prose, then the
+      // documents its block names, then the images.
+      const { text, documents } = splitQueuedWireText(payload.text);
+      if (text !== "") get().queueComposerText(tabId, text);
+      for (const image of payload.images) get().queueComposerAttachment(tabId, image, "");
+      for (const doc of documents)
+        get().queueComposerDocument(tabId, { type: "document", mimeType: DOCUMENT_MIME, name: doc.name, path: doc.path }, "");
+    } catch (err) {
+      get().reportError(err);
+    }
+  };
+  const sendHeldPromptNow = async (tabId: string): Promise<void> => {
+    try {
+      await backend.sendHeldPromptNow(tabId);
     } catch (err) {
       get().reportError(err);
     }
@@ -2678,6 +2728,9 @@ export function createSessionParamsSlice(
     setSessionAdvisor,
     setSessionSnoozed,
     setSessionPinned,
+    holdPrompt,
+    cancelHeldPrompt,
+    sendHeldPromptNow,
     setSessionApprovalMode,
     setAdvisorModel,
     setModel,

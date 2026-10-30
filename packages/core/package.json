@@ -20,6 +20,7 @@
     "./async-jobs": "./src/async-jobs.ts",
     "./session-spend": "./src/session-spend.ts",
     "./limits": "./src/limits.ts",
+    "./held-prompt": "./src/held-prompt.ts",
     "./mcp-status": "./src/mcp-status.ts",
     "./capabilities": "./src/capabilities.ts",
     "./magic-keywords": "./src/magic-keywords.ts",

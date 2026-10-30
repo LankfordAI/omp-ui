@@ -7,6 +7,7 @@ import { isSubagentModelMap, type SubagentModelMap } from "./subagent-model";
 import { parseProposedPlans } from "./plan";
 import { parseVaultRegistry } from "./vault-registry";
 import { isKnowledgeHome } from "./vault-shared";
+import { isHeldPrompt } from "./held-prompt";
 import {
   isFleetProvenance,
   parseFleetGrants,
@@ -726,6 +727,9 @@ function parseRegistryData(raw: unknown): RegistryData | null {
       // A deadline without the flag is meaningless: only a snoozed record keeps it.
       snoozedUntilMs: s.snoozed === true ? (s.snoozedUntilMs ?? null) : null,
       pinnedAtMs: s.pinnedAtMs ?? null,
+      // Never a validity gate (the reviewRoster rule): a malformed held prompt
+      // (issue #986) normalizes to null so the session always survives.
+      heldPrompt: isHeldPrompt(s.heldPrompt) ? s.heldPrompt : null,
       askSource: s.askSource ?? null,
       fleet: s.fleet ?? null,
       model: s.model ?? null,

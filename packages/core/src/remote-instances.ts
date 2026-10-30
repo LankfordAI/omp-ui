@@ -92,6 +92,10 @@ export const TAB_ROUTED_REQUESTS: ReadonlySet<string> = new Set<string>([
   "session:setSubagentModels",
   "session:setSnoozed",
   "session:setPinned",
+  // A held prompt waits on the session's host (issue #986).
+  "session:holdPrompt",
+  "session:cancelHeldPrompt",
+  "session:sendHeldPromptNow",
   "plan:read",
   "plan:answer",
   "plan:dismiss",
