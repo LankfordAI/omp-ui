@@ -236,6 +236,11 @@ export const OMP_SETTING_GROUPS: ReadonlyArray<OmpSettingGroup> = [
       "compaction.reserveTokens",
       // omp 18.11 (issue #871): pre-walks the context before the first turn.
       "prewalk.enabled",
+      // omp 18.14 (issue #972): the planning model /prewalk restart returns to
+      // (default @default) and the model or role prewalk hands off to at the
+      // first edit (default @smol). Plain strings: model selector or @role.
+      "prewalk.from",
+      "prewalk.into",
     ],
   },
   SHARPSHOOTER_SETTING_GROUP,
