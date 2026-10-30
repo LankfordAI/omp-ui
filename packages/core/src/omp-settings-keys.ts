@@ -141,6 +141,23 @@ export const APPROVAL_SETTING_GROUP: OmpSettingGroup = {
 };
 
 /**
+ * omp's per-tool approval policy record, `tools.approval`, and the one entry
+ * omp-ui edits in it: `computer.control` (omp 18.14.0, issue #976), which
+ * answers the computer tool's foreground-control requests — `allow` or `deny`
+ * without prompting, absent = ask. Allowlisted but NOT in OMP_SETTING_GROUPS:
+ * the record is REPLACE-not-merge on `omp config set` and omp writes the dotted
+ * entry name as one literal key (verified), so ComputerControlSection spreads
+ * the whole global record back — the generic row would clobber sibling
+ * per-tool policies.
+ */
+export const TOOL_APPROVAL_POLICIES_KEY = "tools.approval";
+export const COMPUTER_CONTROL_POLICY = "computer.control";
+export const TOOL_APPROVAL_POLICIES_SETTING_GROUP: OmpSettingGroup = {
+  title: "Computer control",
+  keys: [TOOL_APPROVAL_POLICIES_KEY],
+};
+
+/**
  * omp's per-session spend caps (omp 18.13.0, issue #952): positive USD
  * amounts; omp warns once at warnCost and stops sending model requests at
  * maxCost, subagents included. Allowlisted but NOT in OMP_SETTING_GROUPS: the
@@ -302,6 +319,7 @@ export const OMP_SETTING_KEYS: readonly string[] = [
   ...PRIVACY_SETTING_GROUP.keys,
   ...SHARE_SETTING_GROUP.keys,
   ...APPROVAL_SETTING_GROUP.keys,
+  ...TOOL_APPROVAL_POLICIES_SETTING_GROUP.keys,
   ...SPEND_CAP_SETTING_GROUP.keys,
   ...RESTRICTED_FOLDERS_SETTING_GROUP.keys,
   ...LIVE_VOICE_SETTING_GROUP.keys,

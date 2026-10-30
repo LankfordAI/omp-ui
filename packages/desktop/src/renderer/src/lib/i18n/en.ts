@@ -1298,6 +1298,15 @@ export const en = {
     "Runs /forget-approvals in the focused session. omp forgets the approvals remembered for every session and the ones this session remembered; other running sessions keep their own until they end.",
   "settings.omp.approvalForgetUnavailable": "Focus a running session on this computer to forget remembered approvals.",
   "settings.omp.approvalForgetSent": "Sent — omp's reply is in the focused session's transcript.",
+  // ComputerControlSection.tsx (#976)
+  "settings.omp.computerControl": "Computer control",
+  "settings.omp.computerControlHint":
+    "How omp answers the computer tool's requests for foreground control of this machine's desktop (omp 18.14+). allow approves them without prompting — for a dedicated fleet member nobody is watching; deny refuses them without prompting; ask shows the approval prompt, and a session with no one to answer it gets no control. This does not grant computer access: the computer tool stays off until computer.enabled is on. Edits write the global layer and apply at the next request.",
+  "settings.omp.computerControlProjectWins":
+    "The focused project's .omp/config.yml sets its own tools.approval, so sessions there resolve to {value}.",
+  "settings.omp.computerControl.ask": "ask",
+  "settings.omp.computerControl.allow": "allow",
+  "settings.omp.computerControl.deny": "deny",
   "settings.omp.restrictedFolders": "Restricted folders",
   "settings.omp.restrictedFoldersHint":
     "Folders where every read, write, edit, search, or command asks for Approve/Deny in every approval mode, yolo included; no session or remembered approval covers them. A folder restricts everything under it, and commands match by the directory they run in. ~ expands to your home folder; a relative path resolves against each session's working directory. Global only (omp 18.13.1+).",

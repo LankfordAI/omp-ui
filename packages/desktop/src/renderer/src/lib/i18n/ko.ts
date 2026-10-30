@@ -1174,6 +1174,15 @@ export const ko: Partial<Record<MessageKey, string>> = {
     "포커스된 세션에서 /forget-approvals를 실행합니다. omp는 모든 세션용으로 기억된 승인과 이 세션이 기억한 승인을 지웁니다. 실행 중인 다른 세션은 종료될 때까지 자체 승인을 유지합니다.",
   "settings.omp.approvalForgetUnavailable": "기억된 승인을 지우려면 이 컴퓨터에서 실행 중인 세션에 포커스하세요.",
   "settings.omp.approvalForgetSent": "전송됨 — omp의 응답은 포커스된 세션의 대화 기록에 있습니다.",
+  // ComputerControlSection.tsx (#976)
+  "settings.omp.computerControl": "컴퓨터 제어",
+  "settings.omp.computerControlHint":
+    "computer 도구가 이 머신 데스크톱의 포그라운드 제어를 요청할 때 omp가 응답하는 방식입니다 (omp 18.14+). allow는 묻지 않고 승인합니다 — 아무도 지켜보지 않는 전용 fleet 멤버용입니다. deny는 묻지 않고 거부합니다. ask는 승인 프롬프트를 표시하며, 응답할 사람이 없는 세션은 제어를 얻지 못합니다. 이 설정은 컴퓨터 접근 권한을 부여하지 않습니다: computer.enabled가 켜질 때까지 computer 도구는 꺼져 있습니다. 편집은 global 레이어에 기록되며 다음 요청부터 적용됩니다.",
+  "settings.omp.computerControlProjectWins":
+    "포커스된 프로젝트의 .omp/config.yml이 자체 tools.approval을 설정하므로, 그곳의 세션은 {value}(으)로 해석됩니다.",
+  "settings.omp.computerControl.ask": "ask",
+  "settings.omp.computerControl.allow": "allow",
+  "settings.omp.computerControl.deny": "deny",
   "settings.omp.restrictedFolders": "제한된 폴더",
   "settings.omp.restrictedFoldersHint":
     "이 폴더에서의 모든 읽기, 쓰기, 편집, 검색, 명령은 yolo를 포함한 모든 승인 모드에서 승인/거부를 요청하며, 세션 승인이나 기억된 승인으로 대신할 수 없습니다. 폴더를 지정하면 그 아래 전체가 제한되고, 명령은 실행 디렉터리로 판단합니다. ~는 홈 폴더로 확장되고, 상대 경로는 각 세션의 작업 디렉터리를 기준으로 해석됩니다. Global 전용입니다 (omp 18.13.1+).",

@@ -16,6 +16,7 @@ import {
   RESTRICTED_FOLDERS_KEY,
   TTS_LOCAL_SPEED_SETTING_KEY,
   STATUS_LINE_SEGMENT_OPTIONS_KEY,
+  TOOL_APPROVAL_POLICIES_KEY,
 } from "@omp-ui/core/omp-settings-keys";
 import { ModelRolesSection } from "./ModelRolesSection";
 import { SubagentModelsSection } from "./SubagentModelsSection";
@@ -23,6 +24,7 @@ import { SubagentConcurrencySection } from "./SubagentConcurrencySection";
 import { SpendCapSection } from "./SpendCapSection";
 import { ApprovalModeSection } from "./ApprovalModeSection";
 import { RestrictedFoldersSection } from "./RestrictedFoldersSection";
+import { ComputerControlSection } from "./ComputerControlSection";
 import { ContextFilesSection } from "./ContextFilesSection";
 import { LiveVoiceSection } from "./LiveVoiceSection";
 import { StatusLineSection } from "./StatusLineSection";
@@ -163,6 +165,12 @@ export function OmpPage({
         pendingKey={pendingKey}
         commit={commit}
         retry={retry}
+      />
+
+      <ComputerControlSection
+        entry={byKey.get(TOOL_APPROVAL_POLICIES_KEY)}
+        pendingKey={pendingKey}
+        commit={commit}
       />
 
       <RestrictedFoldersSection

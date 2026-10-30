@@ -3324,3 +3324,83 @@ describe("Settings omp Sharpshooter and status line rows (issue #887)", () => {
     });
   });
 });
+
+describe("Settings omp Computer control section (issue #976)", () => {
+  const policiesEntry = (
+    globalValue: Record<string, unknown>,
+    value: Record<string, unknown> = globalValue,
+  ): OmpSettingsSnapshot["entries"][number] => ({
+    key: "tools.approval",
+    type: "record" as const,
+    description: "",
+    value,
+    globalValue,
+    options: null,
+    layer: "global" as const,
+  });
+
+  function seedPolicies(
+    entry: OmpSettingsSnapshot["entries"][number],
+    installedVersion: string | null = "18.14.0",
+  ): void {
+    backendMock.readOmpSettings.mockResolvedValue({ ...emptyOmpSettings, entries: [entry] });
+    useStore.setState({
+      settingsPage: "omp",
+      state: backendState(),
+      tabs: [],
+      activeTabId: null,
+      appUpdate: appUpdateState({}),
+      ompUpdate: { ...idleOmpUpdate, installedVersion },
+    });
+  }
+
+  const controlSelect = (): HTMLSelectElement | null =>
+    document.querySelector<HTMLSelectElement>('select[aria-label="computer.control"]');
+
+  async function pick(value: string): Promise<void> {
+    await act(async () => {
+      controlSelect()!.value = value;
+      controlSelect()!.dispatchEvent(new Event("change", { bubbles: true }));
+    });
+  }
+
+  it("writes allow into the record and keeps sibling per-tool policies", async () => {
+    seedPolicies(policiesEntry({ bash: "prompt" }));
+    await renderSettings();
+    expect(controlSelect()!.value).toBe("ask");
+    await pick("allow");
+    // `omp config set` replaces the whole record: a naive write drops bash.
+    expect(backendMock.writeOmpSetting).toHaveBeenCalledWith("tools.approval", {
+      bash: "prompt",
+      "computer.control": "allow",
+    });
+  });
+
+  it("ask removes the entry instead of writing a policy", async () => {
+    seedPolicies(policiesEntry({ bash: "deny", "computer.control": " DENY " }));
+    await renderSettings();
+    // omp trims and lowercases a policy before honoring it.
+    expect(controlSelect()!.value).toBe("deny");
+    await pick("ask");
+    expect(backendMock.writeOmpSetting).toHaveBeenCalledWith("tools.approval", { bash: "deny" });
+  });
+
+  it("merges against the global layer, never a project layer's record", async () => {
+    seedPolicies(policiesEntry({ edit: "allow" }, { "computer.control": "deny" }));
+    await renderSettings();
+    expect(controlSelect()!.value).toBe("ask");
+    expect(document.body.textContent).toContain("sessions there resolve to deny");
+    await pick("allow");
+    expect(backendMock.writeOmpSetting).toHaveBeenCalledWith("tools.approval", {
+      edit: "allow",
+      "computer.control": "allow",
+    });
+  });
+
+  it("stays hidden on an omp older than 18.14.0, which ignores the entry", async () => {
+    seedPolicies(policiesEntry({}), "18.13.3");
+    await renderSettings();
+    expect(controlSelect()).toBeNull();
+    expect(document.body.textContent).not.toContain("Computer control");
+  });
+});

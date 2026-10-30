@@ -778,6 +778,14 @@ session approval or remembered grant covers it, and a `deny` policy still
 denies. Edited on the omp settings page, Global layer only (issue #951).
 _Avoid_: protected folder, blocked folder, sandboxed folder
 
+**Computer control policy**:
+The `computer.control` entry of omp's `tools.approval` record (omp ≥ 18.14.0):
+`allow` or `deny` answers the computer tool's foreground-control requests
+without prompting; absent, omp asks, and a session with no one to answer gets
+no control. It grants no computer access — `computer.enabled` does. Edited on
+Settings → omp → Computer control, Global layer only (issue #976).
+_Avoid_: computer permission, desktop access setting, computer-use toggle
+
 **Magic keyword**:
 One of omp's four prose keywords — `ultrathink`, `orchestrate`, `workflowz`,
 `jevify` — which, submitted as standalone prose, make omp append a hidden
