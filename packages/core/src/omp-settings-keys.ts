@@ -187,7 +187,9 @@ export const LIVE_VOICE_SETTING_GROUP: OmpSettingGroup = {
   keys: [LIVE_VOICE_SETTING_KEY, SPEECH_SPEED_SETTING_KEY, TTS_LOCAL_SPEED_SETTING_KEY],
 };
 
-/** The shared-work guard for the bash tool (omp 18.8.7, issue #832). */
+/** The shared-work guard for the bash tool (omp 18.8.7, issue #832); scoped to
+ *  shared checkouts, with discards in linked worktrees saved on
+ *  refs/omp/discarded, since omp 18.14 (issue #973). */
 export const BASH_GIT_GUARD_KEY = "bash.gitGuard";
 
 /** Git safety for the bash tool. A plain boolean row; the worktree default

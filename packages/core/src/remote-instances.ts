@@ -97,6 +97,8 @@ export const TAB_ROUTED_REQUESTS: ReadonlySet<string> = new Set<string>([
   "session:restart",
   "session:convert-to-worktree",
   "worktree:sync",
+  "worktree:discarded",
+  "worktree:applyDiscarded",
   "worktree:renameBranch",
   "session:release-worktree",
   "session:capabilities",

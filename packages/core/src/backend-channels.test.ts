@@ -166,6 +166,8 @@ const VALID_ARGS = {
   resolveMergeDestination: ["/project", "main"],
   createBranch: ["/project", "release/x", "main"],
   syncWorktree: ["tab-1", "main"],
+  listDiscardedChanges: ["tab-1"],
+  applyDiscardedChange: ["tab-1", "05c606e1bdef56eceebf2417f7d84396453eacf5"],
   renameWorktreeBranch: ["tab-1", "feat/renamed"],
   removeProject: ["/project"],
   removeRemoteInstance: ["inst-1"],

@@ -141,10 +141,12 @@ export function writeSessionOverlays(
   } catch (err) {
     console.warn("[vault] could not write the overlay:", err);
   }
-  // #832: a worktree session shares its checkout with sibling sessions, so
-  // boot it with omp's destructive-git guard unless the user's own config
-  // layers already name bash.gitGuard — an explicit value, either way, is
-  // the override and gets restated by omp itself, not by us.
+  // #832: a worktree session runs beside sibling sessions on the shared
+  // project checkout, so boot it with omp's destructive-git guard unless the
+  // user's own config layers already name bash.gitGuard — an explicit value,
+  // either way, is the override and gets restated by omp itself, not by us.
+  // omp 18.14 lets the guarded commands run inside the linked worktree itself
+  // and saves what they discard on refs/omp/discarded (#973).
   try {
     const configured =
       record.worktree === null

@@ -58,6 +58,8 @@ import type {
   WorktreeReleaseResult,
   WebSearchProviderSnapshot,
   WorktreeSyncResult,
+  DiscardedApplyResult,
+  DiscardedChange,
   PushResult,
 } from "@omp-ui/core/types";
 import type { DocumentRef } from "../lib/document-context";
@@ -1266,6 +1268,12 @@ export interface UiStore extends SettingsSlice, UpdatesSlice, LabSlice, StatsSli
    * when main rejected — already reported to the error notices.
    */
   syncWorktreeSession(tabId: string, source: string): Promise<WorktreeSyncResult | null>;
+  /** omp's git-guard saves from a worktree session's checkout, newest first
+   *  (issue #973); [] when none or unreadable. Never throws, never reports. */
+  listDiscardedChanges(tabId: string): Promise<DiscardedChange[]>;
+  /** Re-applies one guard save into the checkout (issue #973); null when main
+   *  rejected — already reported to the error notices. */
+  applyDiscardedChange(tabId: string, commit: string): Promise<DiscardedApplyResult | null>;
   /** Spawns a native resolution session in the explicitly addressed instance's
    * checkout, reusing its registered worktree when applicable. True only once
    * that session acknowledges the resolution prompt. */

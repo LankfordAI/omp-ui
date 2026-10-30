@@ -1,4 +1,5 @@
 import { useEffect, useId, useRef } from "react";
+import { relativeTime } from "../lib/format";
 import { useT, type MessageKey } from "../lib/i18n";
 import { useStore } from "../store";
 import { Button, ConfirmDialog } from "./ui";
@@ -14,9 +15,12 @@ import { NEW_BRANCH_SENTINEL } from "./WorktreeBranchFields";
  * git merge-tree before anything moves; a predicted conflict offers the
  * sync path so conflicts are resolved in the worktree by the session that
  * owns the change. A dirty checkout cannot be returned — the checkbox says
- * so, and main enforces it. A merged finish ends on the done row instead of
- * closing: the work is landed, and sharing it with the remote stays an
- * explicit step. Supersedes the merge rows the two chips used to carry inline.
+ * so, and main enforces it. Tracked changes omp's git guard saved before a
+ * git command in the worktree discarded them (omp 18.14, issue #973) are
+ * listed with a restore action that re-applies one into the checkout. A
+ * merged finish ends on the done row instead of closing: the work is landed,
+ * and sharing it with the remote stays an explicit step. Supersedes the merge
+ * rows the two chips used to carry inline.
  */
 
 const stepLabel: Record<FinishStep, MessageKey> = {
@@ -25,6 +29,7 @@ const stepLabel: Record<FinishStep, MessageKey> = {
   merging: "finish.step.merging",
   syncing: "finish.step.syncing",
   returning: "finish.step.returning",
+  restoring: "finish.step.restoring",
 };
 
 const fieldClass =
@@ -277,6 +282,46 @@ export function FinishWorktreeDialog({ tabId }: { tabId: string }) {
             </p>
           )}
         </div>
+
+        {/* 1b. What omp's git guard saved before a git command in the worktree
+            discarded it (issue #973): each save re-applies with
+            git stash apply --index, staged changes staged again. */}
+        {c.discarded.length > 0 && !done && (
+          <section className="space-y-1.5 rounded-md border border-line bg-raised px-3 py-2.5">
+            <p className="text-xs text-ink">{t("finish.discarded.title", { count: c.discarded.length })}</p>
+            <p className={quietClass}>{t("finish.discarded.hint")}</p>
+            <ul className="space-y-1">
+              {c.discarded.slice(0, 5).map((save) => (
+                <li key={save.commit} className="flex items-center justify-between gap-2">
+                  <span className="min-w-0" title={save.files.join("\n")}>
+                    <span className="block truncate font-mono text-[11px] text-ink-mid">
+                      {t("finish.discarded.entry", {
+                        command: save.command === "" ? save.commit.slice(0, 7) : save.command,
+                        branch: save.branch,
+                      })}
+                    </span>
+                    <span className={`block ${quietClass}`}>
+                      {save.commit.slice(0, 7)} · {relativeTime(new Date(save.savedAt).toISOString())} ·{" "}
+                      {t("finish.discarded.files", { count: save.files.length })}
+                    </span>
+                  </span>
+                  <Button
+                    size="xs"
+                    variant="ghost"
+                    disabled={working || c.resolutionBusy || c.ownRunning}
+                    title={c.ownRunning ? t("finish.discarded.restoreBlockedRunning") : undefined}
+                    onClick={() => void c.restoreDiscarded(save.commit)}
+                  >
+                    {t("finish.discarded.restore")}
+                  </Button>
+                </li>
+              ))}
+              {c.discarded.length > 5 && (
+                <li className={quietClass}>{t("dialog.delete.more", { n: c.discarded.length - 5 })}</li>
+              )}
+            </ul>
+          </section>
+        )}
 
         {/* 2. Where the work goes. The worktree's own branch is not a
             destination; "new branch…" cuts one from a chosen start point. */}

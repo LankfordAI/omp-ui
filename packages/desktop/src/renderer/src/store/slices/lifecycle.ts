@@ -4,6 +4,8 @@
 import type {
   DeleteSessionPreview,
   DeleteSessionResult,
+  DiscardedApplyResult,
+  DiscardedChange,
   DocumentAttachment,
   ImageAttachment,
   KnowledgeHome,
@@ -106,6 +108,8 @@ export type LifecycleSlice = Pick<
   | "releaseWorktreeSession"
   | "settleFinishedSession"
   | "syncWorktreeSession"
+  | "listDiscardedChanges"
+  | "applyDiscardedChange"
   | "renameWorktreeSessionBranch"
   | "resolveWorktreeMerge"
   | "cancelDeleteSession"
@@ -1838,6 +1842,32 @@ export function createLifecycleSlice(
   };
 
   /**
+   * omp's git-guard saves from the session's checkout (issue #973). A quiet
+   * read: a failure — an older remote instance without the channel included —
+   * lists nothing rather than raising an error notice on every dialog open.
+   */
+  const listDiscardedChanges = async (tabId: string): Promise<DiscardedChange[]> => {
+    try {
+      return await backend.listDiscardedChanges(tabId);
+    } catch {
+      return [];
+    }
+  };
+
+  /** Re-applies one guard save into the session's checkout (issue #973). */
+  const applyDiscardedChange = async (
+    tabId: string,
+    commit: string,
+  ): Promise<DiscardedApplyResult | null> => {
+    try {
+      return await backend.applyDiscardedChange(tabId, commit);
+    } catch (err) {
+      get().reportError(err);
+      return null;
+    }
+  };
+
+  /**
    * Renames the branch a worktree session runs on (issues #386, #389): main
    * moves the ref and the record; the broadcast refreshes every reader.
    */
@@ -1959,6 +1989,8 @@ export function createLifecycleSlice(
     releaseWorktreeSession,
     settleFinishedSession,
     syncWorktreeSession,
+    listDiscardedChanges,
+    applyDiscardedChange,
     renameWorktreeSessionBranch,
     cancelDeleteSession,
     clearShellExited,

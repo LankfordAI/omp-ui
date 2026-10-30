@@ -287,6 +287,33 @@ export interface WorktreeSyncResult {
   files: string[];
 }
 
+/**
+ * One save omp's `bash.gitGuard` made on `refs/omp/discarded` before a git
+ * command discarded tracked changes in a linked worktree (omp 18.14, issue
+ * #973): a `git stash create` commit, so `git stash apply --index` restores it.
+ */
+export interface DiscardedChange {
+  /** The full stash-shaped commit id. */
+  commit: string;
+  /** When omp saved it, in Unix milliseconds (the reflog entry's time). */
+  savedAt: number;
+  /** The command that discarded the changes, e.g. `git reset --hard`; "" when the reflog message is not omp's. */
+  command: string;
+  /** The branch the checkout held when the changes were saved. */
+  branch: string;
+  /** Tracked paths the save holds, relative to the repository root. */
+  files: string[];
+}
+
+/** Outcome of re-applying a DiscardedChange into the worktree checkout (issue #973). */
+export interface DiscardedApplyResult {
+  kind: "applied" | "conflicts";
+  /** False when git could not restore the staged/unstaged split and applied everything unstaged. */
+  indexRestored: boolean;
+  /** Conflicted paths left in the worktree when kind is "conflicts". */
+  files: string[];
+}
+
 /** How releaseWorktree treats the branch (issues #386, #385). */
 export interface WorktreeReleaseOptions {
   keepBranch: boolean;

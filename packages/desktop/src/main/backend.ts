@@ -1034,6 +1034,10 @@ export class MainBackend {
           this.sessions.releaseWorktree(tabId, opts),
         [CH.syncWorktree]: (tabId: string, source: string) =>
           this.sessions.syncWorktree(tabId, source),
+        [CH.listDiscardedChanges]: (tabId: string) =>
+          this.sessions.listDiscardedChanges(tabId),
+        [CH.applyDiscardedChange]: (tabId: string, commit: string) =>
+          this.sessions.applyDiscardedChange(tabId, commit),
         [CH.renameWorktreeBranch]: (tabId: string, newName: string) =>
           this.sessions.renameWorktreeBranch(tabId, newName),
         [CH.setSessionAdvisor]: (

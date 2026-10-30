@@ -5,6 +5,8 @@ import { afterEach, beforeEach, describe, expect, it, vi } from "vitest";
 import type {
   BackendState,
   BranchList,
+  DiscardedApplyResult,
+  DiscardedChange,
   MergeBackResult,
   MergeBackStatus,
   MergeDestination,
@@ -88,6 +90,12 @@ const backendMock = {
   syncWorktree: vi.fn(async (): Promise<WorktreeSyncResult> => ({
     kind: "merged",
     source: "main",
+    files: [],
+  })),
+  listDiscardedChanges: vi.fn(async (): Promise<DiscardedChange[]> => []),
+  applyDiscardedChange: vi.fn(async (): Promise<DiscardedApplyResult> => ({
+    kind: "applied",
+    indexRestored: true,
     files: [],
   })),
   renameWorktreeBranch: vi.fn(async () => {}),
@@ -297,6 +305,8 @@ beforeEach(() => {
   backendMock.releaseWorktree.mockResolvedValue(releaseResult);
   backendMock.settleSession.mockResolvedValue(true);
   backendMock.syncWorktree.mockResolvedValue({ kind: "merged", source: "main", files: [] });
+  backendMock.listDiscardedChanges.mockResolvedValue([]);
+  backendMock.applyDiscardedChange.mockResolvedValue({ kind: "applied", indexRestored: true, files: [] });
   backendMock.renameWorktreeBranch.mockResolvedValue(undefined);
   backendMock.suggestBranchName.mockResolvedValue(null);
   backendMock.pushBranch.mockResolvedValue({
@@ -539,6 +549,54 @@ describe("FinishWorktreeDialog", () => {
     expect(notice).toBeDefined();
     expect(notice!.text).toContain("the sync of main stopped on 2 file(s) in /wt/x");
     expect(notice!.level).toBe("warn");
+  });
+
+  it("lists omp's git-guard saves and restores one into the worktree, re-reading what changed (#973)", async () => {
+    const save: DiscardedChange = {
+      commit: "05c606e1bdef56eceebf2417f7d84396453eacf5",
+      savedAt: Date.now(),
+      command: "git reset --hard",
+      branch: BRANCH,
+      files: ["a.txt", "b.txt"],
+    };
+    backendMock.listDiscardedChanges.mockResolvedValueOnce([save]).mockResolvedValue([]);
+    await openDialog();
+    useStore.setState({ rpc: { [TAB]: rpcTabState() } });
+
+    expect(backendMock.listDiscardedChanges).toHaveBeenCalledWith(TAB);
+    expect(document.body.textContent).toContain("discarded changes omp saved (1)");
+    expect(document.body.textContent).toContain(`git reset --hard on ${BRANCH}`);
+    backendMock.getMergeBackStatus.mockResolvedValue(statusFixture({ worktreeDirty: true }));
+    const statusReads = backendMock.getMergeBackStatus.mock.calls.length;
+
+    act(() => buttonByText("restore")!.click());
+    await act(async () => {
+      await flushMicrotasks();
+    });
+
+    expect(backendMock.applyDiscardedChange).toHaveBeenCalledWith(TAB, save.commit);
+    // The checkout is dirty again: the status re-read drops the return, and the list empties.
+    expect(backendMock.getMergeBackStatus.mock.calls.length).toBeGreaterThan(statusReads);
+    expect(returnCheckbox().disabled).toBe(true);
+    expect(document.body.textContent).not.toContain("discarded changes omp saved");
+    const notice = useStore.getState().rpc[TAB]!.items.find((item) => item.kind === "notice");
+    expect(notice!.text).toContain("restored the changes omp saved as 05c606e into /wt/x");
+  });
+
+  it("refuses to restore a save while the session is mid-turn (#973)", async () => {
+    backendMock.listDiscardedChanges.mockResolvedValue([
+      { commit: "05c606e1bdef56eceebf2417f7d84396453eacf5", savedAt: Date.now(), command: "git reset --hard", branch: BRANCH, files: ["a.txt"] },
+    ]);
+    await openDialog();
+    useStore.setState({ rpc: { [TAB]: { ...rpcTabState(), status: "running" } } });
+    await act(async () => {
+      await flushMicrotasks();
+    });
+
+    const restore = buttonByText("restore")!;
+    expect(restore.disabled).toBe(true);
+    expect(restore.title).toBe("this session is mid-turn — pause it before restoring");
+    expect(backendMock.applyDiscardedChange).not.toHaveBeenCalled();
   });
 
   it("keeps the dialog on a conflict left in the project and releases nothing", async () => {

@@ -23,6 +23,8 @@ import type {
   PackStartResult,
   DiagnosticsPreview,
   DirBrowseResult,
+  DiscardedApplyResult,
+  DiscardedChange,
   GlassChrome,
   ImageAttachment,
   McpServersResult,
@@ -1300,6 +1302,25 @@ export const BACKEND_CHANNELS = {
   syncWorktree: {
     channel: "worktree:sync",
     ...request<[tabId: string, source: string], WorktreeSyncResult>([str(), str()]),
+  },
+  /**
+   * Lists the saves omp's git guard made on `refs/omp/discarded` from the
+   * session's worktree checkout (omp 18.14, issue #973), newest first.
+   * Rejects when the tab is unknown or not a worktree session.
+   */
+  listDiscardedChanges: {
+    channel: "worktree:discarded",
+    ...request<[tabId: string], DiscardedChange[]>([str()]),
+  },
+  /**
+   * Re-applies one listed save into the session's worktree checkout with
+   * `git stash apply --index` (issue #973). Rejects when the commit is not a
+   * save of this checkout or git refuses without touching the tree;
+   * conflicts are LEFT IN PLACE and reported.
+   */
+  applyDiscardedChange: {
+    channel: "worktree:applyDiscarded",
+    ...request<[tabId: string, commit: string], DiscardedApplyResult>([str(), str()]),
   },
   /**
    * Renames the branch a worktree session runs on, in the checkout and on

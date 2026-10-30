@@ -2419,6 +2419,16 @@ export const en = {
   "finish.step.merging": "merging…",
   "finish.step.syncing": "syncing…",
   "finish.step.returning": "returning…",
+  "finish.step.restoring": "restoring…",
+
+  // FinishWorktreeDialog.tsx — omp's git-guard saves (issue #973): tracked
+  // changes a git command in the worktree discarded, kept on refs/omp/discarded.
+  "finish.discarded.title": "discarded changes omp saved ({count})",
+  "finish.discarded.hint": "omp's git guard saved these before a git command in this worktree discarded them; untracked files are never saved, and saves expire with git's reflog",
+  "finish.discarded.entry": "{command} on {branch}",
+  "finish.discarded.files": "{count} file(s)",
+  "finish.discarded.restore": "restore",
+  "finish.discarded.restoreBlockedRunning": "this session is mid-turn — pause it before restoring",
   "finish.primary.mergeReturn": "merge & return",
   "finish.primary.return": "return",
   "finish.primary.merge": "merge",
@@ -2446,6 +2456,9 @@ export const en = {
   "notice.merge.landed": "merged {branch} ({commits}) into {destination}",
   "notice.finish.switchSkippedBusy": "the project checkout was left on its own branch — session “{title}” is mid-turn there; the work is in {destination}",
   "notice.finish.settleSkipped": "the session did not settle — stop it by hand when you're done",
+  "notice.discarded.restored": "restored the changes omp saved as {commit} into {path}",
+  "notice.discarded.restoredUnstaged": "restored the changes omp saved as {commit} into {path}, all unstaged — git could not rebuild the staged split",
+  "notice.discarded.conflicts": "restoring the changes omp saved as {commit} stopped on {count} file(s) in {path} — resolve them in the worktree; the save stays on refs/omp/discarded",
   "project.actions.newPrivate": "New private session",
   "project.actions.newSession": "New session",
   "project.actions.newTerminal": "New terminal session",

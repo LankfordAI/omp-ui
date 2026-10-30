@@ -146,6 +146,8 @@ import {
   type CollabCliDeps,
   type CollabTabSnapshot,
   type WorktreeSyncResult,
+  type DiscardedApplyResult,
+  type DiscardedChange,
   type VaultAction,
 } from "@omp-ui/core";
 import { CollabTracker } from "./collab-tracker";
@@ -2432,6 +2434,27 @@ export class SessionManager {
       if (!record) throw new Error(`unknown session tab ${tabId}`);
       if (!record.worktree) throw new Error("session does not run in a worktree");
       return this.worktreeOps.sync(record.projectCwd, record.worktree.path, source);
+    });
+  }
+
+  /** omp's git-guard saves from the session's checkout, newest first (issue #973). */
+  async listDiscardedChanges(tabId: string): Promise<DiscardedChange[]> {
+    const record = this.deps.registry.sessions.find((s) => s.tabId === tabId);
+    if (!record) throw new Error(`unknown session tab ${tabId}`);
+    if (!record.worktree) throw new Error("session does not run in a worktree");
+    return this.worktreeOps.discarded(record.worktree);
+  }
+
+  /**
+   * Re-applies one guard save into the session's checkout (issue #973),
+   * serialised against the tab's other lifecycle ops like a sync.
+   */
+  async applyDiscardedChange(tabId: string, commit: string): Promise<DiscardedApplyResult> {
+    return this.enqueueOp(tabId, "relaunch", async () => {
+      const record = this.deps.registry.sessions.find((s) => s.tabId === tabId);
+      if (!record) throw new Error(`unknown session tab ${tabId}`);
+      if (!record.worktree) throw new Error("session does not run in a worktree");
+      return this.worktreeOps.applyDiscarded(record.worktree, commit);
     });
   }
 

@@ -45,6 +45,7 @@ export {
   syncWorktree,
   worktreeProjectDir,
 } from "./worktree";
+export { applyDiscardedChange, listDiscardedChanges } from "./discarded-changes";
 export {
   baseBranchSegment,
   composeWorktreeBranch,

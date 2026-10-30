@@ -1,5 +1,6 @@
 import { useEffect, useRef, useState } from "react";
 import type {
+  DiscardedChange,
   MergeBackResult,
   MergeBackStatus,
   PushResult,
@@ -32,7 +33,7 @@ import { isMintedWorktreeBranch, worktreeBranchPrefix } from "@omp-ui/core/workt
 
 export type FinishOutcome = "merge" | "keep";
 
-export type FinishStep = "creating" | "renaming" | "merging" | "syncing" | "returning";
+export type FinishStep = "creating" | "renaming" | "merging" | "syncing" | "returning" | "restoring";
 
 export type FinishPhase =
   | { s: "idle" }
@@ -137,6 +138,14 @@ export interface FinishController {
   dismissPushConfirm(): void;
   /** Opens the host's new-pull-request page for the pushed destination. */
   openPullRequest(): Promise<void>;
+  /**
+   * Tracked changes omp's git guard saved on `refs/omp/discarded` before a
+   * git command in this checkout discarded them (omp 18.14, issue #973),
+   * newest first; [] when none.
+   */
+  discarded: DiscardedChange[];
+  /** Re-applies one save into the worktree with `git stash apply --index`. */
+  restoreDiscarded(commit: string): Promise<void>;
   /** null disables the primary button. */
   primaryLabel: string | null;
 }
@@ -181,6 +190,8 @@ export function useFinishWorktree(tabId: string): FinishController {
   const settleFinishedSession = useStore((s) => s.settleFinishedSession);
   const syncWorktreeSession = useStore((s) => s.syncWorktreeSession);
   const renameWorktreeSessionBranch = useStore((s) => s.renameWorktreeSessionBranch);
+  const listDiscardedChanges = useStore((s) => s.listDiscardedChanges);
+  const applyDiscardedChange = useStore((s) => s.applyDiscardedChange);
   const suggestBranchName = useStore((s) => s.suggestBranchName);
   const appendNotice = useStore((s) => s.appendNotice);
   const closeFinishWorktree = useStore((s) => s.closeFinishWorktree);
@@ -214,6 +225,7 @@ export function useFinishWorktree(tabId: string): FinishController {
   const [prUnavailable, setPrUnavailable] = useState(false);
   const [resolutionBusy, setResolutionBusy] = useState(false);
   const [resolutionError, setResolutionError] = useState<string | null>(null);
+  const [discarded, setDiscarded] = useState<DiscardedChange[]>([]);
   const [resolutionAttempt, setResolutionAttempt] = useState<FinishResolution | null>(null);
   // React state cannot exclude two clicks in one event turn; this latch can.
   const resolutionPending = useRef(false);
@@ -223,6 +235,25 @@ export function useFinishWorktree(tabId: string): FinishController {
   const resolveSeq = useRef(0);
   const statusSeq = useRef(0);
   const worktreeBranch = record?.worktree?.branch ?? null;
+  const worktreePath = record?.worktree?.path ?? null;
+
+  // The guard's saves for this checkout (issue #973): read once per open and
+  // again after a restore. The sequence keeps a late answer off a newer read
+  // and off an unmounted dialog.
+  const discardedSeq = useRef(0);
+  const fetchDiscarded = (): void => {
+    const seq = ++discardedSeq.current;
+    void listDiscardedChanges(tabId).then((saves) => {
+      if (seq === discardedSeq.current) setDiscarded(saves);
+    });
+  };
+  useEffect(() => {
+    if (worktreePath === null) return;
+    fetchDiscarded();
+    return () => {
+      discardedSeq.current++;
+    };
+  }, [worktreePath, worktreeBranch]);
 
   // Initialisation, in order: branch listing (local refs only), destination
   // suggestion from the recorded base, then the fallback chain
@@ -755,6 +786,45 @@ export function useFinishWorktree(tabId: string): FinishController {
     setPhase({ s: "idle" });
   };
 
+  // Re-applies a guard save (issue #973). Like sync it changes the checkout
+  // under the session, so the dialog refuses while the session is mid-turn.
+  // A clean apply re-reads the status (the checkout is dirty again, so the
+  // return checkbox follows) and the list; conflicts are left in the worktree
+  // for the session that owns them, the sync story.
+  const restoreDiscarded = async (commit: string): Promise<void> => {
+    if (resolutionPending.current || ownRunning) return;
+    if (record === undefined || record.worktree == null) return;
+    if (phase.s === "working" || phase.s === "done") return;
+    const path = record.worktree.path;
+    const short = commit.slice(0, 7);
+    setPhase({ s: "working", step: "restoring" });
+    const result = await applyDiscardedChange(tabId, commit);
+    if (result === null) {
+      setPhase({ s: "idle" });
+      return;
+    }
+    if (result.kind === "conflicts") {
+      appendNotice(
+        tabId,
+        t("notice.discarded.conflicts", { commit: short, count: result.files.length, path }),
+        "warn",
+      );
+      closeFinishWorktree();
+      return;
+    }
+    appendNotice(
+      tabId,
+      t(result.indexRestored ? "notice.discarded.restored" : "notice.discarded.restoredUnstaged", {
+        commit: short,
+        path,
+      }),
+      result.indexRestored ? "info" : "warn",
+    );
+    fetchDiscarded();
+    fetchStatus();
+    setPhase({ s: "idle" });
+  };
+
   // The done row's push (issue #414). The branch is shared state, so a
   // session mid-turn on this checkout — another tab in the project, or this
   // one still streaming — earns the same confirm the branch chip's push row
@@ -901,6 +971,8 @@ export function useFinishWorktree(tabId: string): FinishController {
     askPushConfirm,
     dismissPushConfirm,
     openPullRequest,
+    discarded,
+    restoreDiscarded,
     primaryLabel,
   };
 }

@@ -1,6 +1,7 @@
 import {
   addWorktree,
   addWorktreeForBranch,
+  applyDiscardedChange,
   addWorktreeFromNewBase,
   checkoutBranch,
   finalizeMintBranch,
@@ -8,11 +9,14 @@ import {
   readMergeBackStatus,
   readWorktreeDirty,
   readWorktreeLanding,
+  listDiscardedChanges,
   reclaimCheckouts,
   removeWorktreeBranch,
   renameWorktreeBranch,
   resolveMergeDestination,
   syncWorktree,
+  type DiscardedApplyResult,
+  type DiscardedChange,
   type Registry,
   type SessionWorktree,
   type WorktreeBranchRemoval,
@@ -157,6 +161,16 @@ export class WorktreeOps {
 
   sync(projectCwd: string, worktreePath: string, source: string): Promise<WorktreeSyncResult> {
     return syncWorktree(projectCwd, worktreePath, source);
+  }
+
+  /** omp's git-guard saves this checkout made (issue #973). */
+  discarded(worktree: SessionWorktree): Promise<DiscardedChange[]> {
+    return listDiscardedChanges(worktree.path, worktree.branch);
+  }
+
+  /** Re-applies one of `discarded`'s saves into the checkout (issue #973). */
+  applyDiscarded(worktree: SessionWorktree, commit: string): Promise<DiscardedApplyResult> {
+    return applyDiscardedChange(worktree.path, worktree.branch, commit);
   }
 
   async rename(tabId: string, worktree: SessionWorktree, newName: string): Promise<void> {
