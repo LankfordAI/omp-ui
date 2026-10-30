@@ -1037,6 +1037,9 @@ function TitleMenu({
   });
   const setSessionAutoSettleOnMerge = useStore((s) => s.setSessionAutoSettleOnMerge);
   const refreshPullRequests = useStore((s) => s.refreshPullRequests);
+  const openScheduleDialog = useStore((s) => s.openScheduleDialog);
+  const scheduleable = useStore((s) => findRecord(s.state, tabId)?.mode === "rpc-ui");
+  const hasSchedule = useStore((s) => findRecord(s.state, tabId)?.scheduledPrompt != null);
   const [surface, setSurface] = useState<null | "menu" | "modes">(null);
   const [editing, setEditing] = useState(false);
   const [pos, setPos] = useState<{ x: number; y: number } | null>(null);
@@ -1188,6 +1191,19 @@ function TitleMenu({
                   >
                     {t("hud.menu.compact")}
                   </button>
+                  {/* Scheduled prompts (issue #987): native sessions only — a
+                      terminal has no prompt channel main may inject into. */}
+                  {scheduleable && (
+                    <button
+                      type="button"
+                      role="menuitem"
+                      title={t("hud.menu.scheduleTitle")}
+                      onClick={act(() => openScheduleDialog(tabId))}
+                      className={MENU_ROW}
+                    >
+                      {t(hasSchedule ? "hud.menu.editSchedule" : "hud.menu.schedule")}
+                    </button>
+                  )}
                   {settleable && (
                     <button
                       type="button"

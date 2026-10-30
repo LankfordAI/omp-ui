@@ -84,6 +84,7 @@ function liveState(): void {
               snoozedUntilMs: null,
               pinnedAtMs: null,
               heldPrompt: null,
+              scheduledPrompt: null,
               pullRequests: [],
               autoSettleOnMerge: null,
               private: false,

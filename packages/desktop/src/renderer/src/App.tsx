@@ -6,6 +6,7 @@ import { ChangesViewerHost } from "./components/ChangesViewer";
 import { ImageViewerHost } from "./components/ImageViewer";
 import { BrowserPaneClearDialog } from "./components/BrowserPaneClearDialog";
 import { ShareSessionDialog } from "./components/ShareSessionDialog";
+import { ScheduleDialog } from "./components/ScheduleDialog";
 import { ShareLiveDialog } from "./components/ShareLiveDialog";
 import { ShareLiveConfirmDialog } from "./components/ShareLiveConfirmDialog";
 import { DiagnosticsExportDialog } from "./components/DiagnosticsExportDialog";
@@ -240,6 +241,7 @@ export default function App() {
   const gettingStartedOpen = useStore((s) => s.gettingStartedOpen);
   const browserPaneClearDialogOpen = useStore((s) => s.browserPaneClearDialogOpen);
   const shareConfirmTab = useStore((s) => s.shareConfirmTab);
+  const scheduleDialogTab = useStore((s) => s.scheduleDialogTab);
   const capabilitiesViewer = useStore((s) => s.capabilitiesViewer);
   const shareLiveTab = useStore((s) => s.shareLiveTab);
   const shareLiveConfirm = useStore((s) => s.shareLiveConfirmTab);
@@ -550,6 +552,7 @@ export default function App() {
       {diagnosticsDialogOpen && <DiagnosticsExportDialog />}
       {browserPaneClearDialogOpen && <BrowserPaneClearDialog />}
       {shareConfirmTab !== null && <ShareSessionDialog tabId={shareConfirmTab} />}
+      {scheduleDialogTab !== null && <ScheduleDialog tabId={scheduleDialogTab} />}
       {shareLiveTab !== null && <ShareLiveDialog tabId={shareLiveTab} />}
       {shareLiveConfirm !== null && <ShareLiveConfirmDialog />}
       {capabilitiesModal !== null && (

@@ -76,6 +76,7 @@ import type {
   BrowserPaneUnavailableReason,
 } from "@omp-ui/core/browser-pane";
 import type { PlanReviewRequest, PlanStatus } from "@omp-ui/core/plan";
+import type { ScheduledPromptRequest } from "@omp-ui/core/scheduled-prompt";
 import type { AdvisorStatsView } from "@omp-ui/core/advisor-stats";
 import type { AsyncJobsSnapshot } from "@omp-ui/core/async-jobs";
 import type { SessionSpendSnapshot } from "@omp-ui/core/session-spend";
@@ -1140,6 +1141,10 @@ export interface UiStore extends SettingsSlice, UpdatesSlice, LabSlice, StatsSli
   browserPaneClearDialogOpen: boolean;
   /** The tab whose first-share privacy dialog is open (issue #679); null = closed. */
   shareConfirmTab: string | null;
+  /** The tab whose Schedule dialog is open (issue #987); null = closed. */
+  scheduleDialogTab: string | null;
+  openScheduleDialog(tabId: string): void;
+  closeScheduleDialog(): void;
   /** The New session dialog (one launcher for local and fleet work); null = closed. */
   newSessionDialog: {
     /** Seed project; null opens with the first registry project. */
@@ -1568,6 +1573,12 @@ export interface UiStore extends SettingsSlice, UpdatesSlice, LabSlice, StatsSli
   cancelHeldPrompt(tabId: string): Promise<void>;
   /** Sends the held prompt now, resuming a hibernated session first (issue #986). */
   sendHeldPromptNow(tabId: string): Promise<void>;
+  /** Attaches a scheduled prompt to the session on its owning host (issue #987). False when refused. */
+  setScheduledPrompt(tabId: string, req: ScheduledPromptRequest): Promise<boolean>;
+  /** Removes the session's scheduled prompt (issue #987). */
+  clearScheduledPrompt(tabId: string): Promise<void>;
+  /** Fires the scheduled prompt now, resuming the session first (issue #987). */
+  runScheduledPromptNow(tabId: string): Promise<void>;
   /** Pins the session's approval mode (issue #681); a live rpc session relaunches. */
   setSessionApprovalMode(tabId: string, mode: ApprovalMode | null): Promise<void>;
   setAdvisorModel(tabId: string, selector: string | null): Promise<void>;

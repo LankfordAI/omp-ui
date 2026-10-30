@@ -16,6 +16,7 @@ export {
   IconPlay,
   IconSpeaker,
   IconPin,
+  IconClock,
   IconPencil,
   IconPlus,
   IconRefresh,

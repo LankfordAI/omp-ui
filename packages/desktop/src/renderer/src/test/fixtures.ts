@@ -140,6 +140,7 @@ export function remoteOwnedState(tabId: string, instanceId: string): BackendStat
                 snoozedUntilMs: null,
                 pinnedAtMs: null,
                 heldPrompt: null,
+                scheduledPrompt: null,
                 pullRequests: [],
                 autoSettleOnMerge: null,
                 private: false,

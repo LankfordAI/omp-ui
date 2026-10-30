@@ -45,6 +45,7 @@ function group(path: string, tabId: string, title: string): ProjectGroup {
  snoozedUntilMs: null,
  pinnedAtMs: null,
  heldPrompt: null,
+ scheduledPrompt: null,
  pullRequests: [],
  autoSettleOnMerge: null,
  private: false,

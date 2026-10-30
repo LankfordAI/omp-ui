@@ -94,6 +94,7 @@ export function CommandPalette() {
   const openSessionTreeView = useStore((s) => s.openSessionTreeView);
   const terminate = useStore((s) => s.terminate);
   const settleSessions = useStore((s) => s.settleSessions);
+  const openScheduleDialog = useStore((s) => s.openScheduleDialog);
   const rpcRunning = useStore((s) => (activeTabId === null ? false : s.rpc[activeTabId]?.status === "running"));
   const settleUndoCount = useStore((s) => s.settleUndo.length);
   const undoSettle = useStore((s) => s.undoSettle);
@@ -277,6 +278,16 @@ export function CommandPalette() {
           run: () => void settleSessions([tab.tabId]),
         });
       }
+      // Scheduled prompts (issue #987): native sessions only.
+      if (rec?.mode === "rpc-ui") {
+        out.push({
+          id: "session:schedule",
+          group: t("palette.group.session"),
+          name: t(rec.scheduledPrompt != null ? "palette.action.editSchedule" : "palette.action.schedule"),
+          desc: t("palette.action.scheduleDesc", { title }),
+          run: () => openScheduleDialog(tab.tabId),
+        });
+      }
       // A chat runs in native mode only — no terminal twin to switch to.
       if (!isChatTab(state, tab.tabId)) {
         out.push({
@@ -421,7 +432,7 @@ export function CommandPalette() {
     });
 
     return out;
-  }, [state, tabs, activeTabId, openSession, newSession, newChat, openProjectPicker, openCapabilitiesViewer, openSessionTreeView, openLab, openStats, openFleet, openNewSessionDialog, openExperimentDialog, terminate, settleSessions, rpcRunning, settleUndoCount, undoSettle, switchMode, regenerateSessionTitle, askAboutSession, toggleBrowserPane, shareSession, anonymizeSession, ompInstalled, openShareLive, checkAppUpdate, checkOmpUpdate, openSettings, openDiagnosticsDialog, openGettingStarted, t, localeId]);
+  }, [state, tabs, activeTabId, openSession, newSession, newChat, openProjectPicker, openCapabilitiesViewer, openSessionTreeView, openLab, openStats, openFleet, openNewSessionDialog, openExperimentDialog, terminate, settleSessions, openScheduleDialog, rpcRunning, settleUndoCount, undoSettle, switchMode, regenerateSessionTitle, askAboutSession, toggleBrowserPane, shareSession, anonymizeSession, ompInstalled, openShareLive, checkAppUpdate, checkOmpUpdate, openSettings, openDiagnosticsDialog, openGettingStarted, t, localeId]);
 
   // Flat, already-ordered result list; group headers are derived from it so the
   // arrow-key index and the rendered rows can never disagree.

@@ -99,6 +99,10 @@ export const TAB_ROUTED_REQUESTS: ReadonlySet<string> = new Set<string>([
   "session:holdPrompt",
   "session:cancelHeldPrompt",
   "session:sendHeldPromptNow",
+  // A scheduled prompt fires on the session's host (issue #987).
+  "session:setScheduledPrompt",
+  "session:clearScheduledPrompt",
+  "session:runScheduledPromptNow",
   "plan:read",
   "plan:answer",
   "plan:dismiss",

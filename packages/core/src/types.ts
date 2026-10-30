@@ -15,6 +15,7 @@ import type { VaultAction } from "./vault-shared";
 import type { FleetModelChoice, FleetPendingDispatch, FleetProvenance, FleetSpawnSpec } from "./fleet";
 import type { APPROVAL_MODES } from "./approval";
 import type { HeldPrompt } from "./held-prompt";
+import type { ScheduledPrompt } from "./scheduled-prompt";
 export type {
   CheckoutExperiments,
   ExperimentDetail,
@@ -537,6 +538,10 @@ export interface OwnedSessionRecord {
    *  at `sendAtMs` through the normal prompt path. Post-dates schema-1:
    *  absent normalizes to null. */
   heldPrompt: HeldPrompt | null;
+  /** The prompt the owning host sends at a scheduled time, once or on a
+   *  recurring schedule (issue #987, ADR-0081); null when none. Post-dates
+   *  schema-1: absent or malformed normalizes to null. */
+  scheduledPrompt: ScheduledPrompt | null;
   /** Pull requests whose head is this session's worktree branch, newest
    *  first, as the owning host's poll last saw them on the forge (issue
    *  #985). Post-dates schema-1: absent or malformed normalizes to []. */

@@ -50,6 +50,8 @@ export interface ViewSlice {
   browserPaneClearDialogOpen: boolean;
   /** The tab whose first-share privacy dialog is open (issue #679); null = closed. */
   shareConfirmTab: string | null;
+  /** The tab whose Schedule dialog is open (issue #987); null = closed. */
+  scheduleDialogTab: string | null;
   /** The New session dialog (one launcher for local and fleet work); null = closed. */
   newSessionDialog: {
     /** Seed project; null opens with the first registry project. */
@@ -114,6 +116,8 @@ export interface ViewSlice {
   closeBrowserPaneClearDialog(): void;
   /** Records the first-share privacy flag and forwards /share for the tab (issue #679). */
   confirmSharePrivacy(tabId: string): Promise<void>;
+  openScheduleDialog(tabId: string): void;
+  closeScheduleDialog(): void;
   cancelSharePrivacy(): void;
   openNewSessionDialog(seed?: {
     projectCwd?: string | null;
@@ -388,6 +392,7 @@ export const createViewSlice: StateCreator<UiStore, [], [], ViewSlice> = (set, g
   diagnosticsDialogOpen: false,
   browserPaneClearDialogOpen: false,
   shareConfirmTab: null,
+  scheduleDialogTab: null,
   newSessionDialog: null,
   projectQuickOpen: null,
   finishWorktreeTab: null,
@@ -471,6 +476,12 @@ export const createViewSlice: StateCreator<UiStore, [], [], ViewSlice> = (set, g
   },
   cancelSharePrivacy() {
     set({ shareConfirmTab: null });
+  },
+  openScheduleDialog(tabId) {
+    set({ scheduleDialogTab: tabId });
+  },
+  closeScheduleDialog() {
+    set({ scheduleDialogTab: null });
   },
   openNewSessionDialog(seed) {
     set({

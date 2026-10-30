@@ -36,6 +36,7 @@ import {
 import type { RpcFrame } from "./rpc/codec";
 import type { BrowserPaneInputEvent, BrowserPaneNavigate } from "./browser-pane";
 import type { HeldPromptRequest } from "./held-prompt";
+import { parseScheduledPromptRequest, type ScheduledPromptRequest } from "./scheduled-prompt";
 import type {
   AgentMode,
   ApprovalMode,
@@ -795,6 +796,18 @@ export const fleetExecPollRequestCodec: ArgCodec<FleetExecPollRequest> = {
   decode(value, path) {
     try {
       return parseFleetExecPollRequest(value);
+    } catch (error) {
+      return fail(path, `${this.expected} (${(error as Error).message})`);
+    }
+  },
+};
+
+/** A Schedule dialog's request (issue #987), via the shared parser. */
+export const scheduledPromptRequestCodec: ArgCodec<ScheduledPromptRequest> = {
+  expected: "a valid scheduled prompt",
+  decode(value, path) {
+    try {
+      return parseScheduledPromptRequest(value);
     } catch (error) {
       return fail(path, `${this.expected} (${(error as Error).message})`);
     }

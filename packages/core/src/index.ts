@@ -235,6 +235,21 @@ export {
   type HeldPromptRequest,
 } from "./held-prompt";
 export {
+  SCHEDULED_PROMPT_COMMAND_PREFIX,
+  SCHEDULED_PROMPT_LATE_MS,
+  SCHEDULED_PROMPT_NOTICES_MAX,
+  SCHEDULED_PROMPT_TEXT_MAX,
+  countRunsBetween,
+  isScheduledPrompt,
+  nextRunAfter,
+  parseScheduledPromptRequest,
+  scheduledPromptCommandId,
+  type PromptSchedule,
+  type ScheduledPrompt,
+  type ScheduledPromptNotice,
+  type ScheduledPromptRequest,
+} from "./scheduled-prompt";
+export {
   isHtmlPlanPath,
   isPlanArtifactPath,
   comparePlanDiagnostics,

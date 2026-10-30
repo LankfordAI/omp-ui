@@ -169,6 +169,7 @@ const summary = (overrides: Partial<SessionSummary> = {}): SessionSummary => ({
  snoozedUntilMs: null,
  pinnedAtMs: null,
  heldPrompt: null,
+ scheduledPrompt: null,
  pullRequests: [],
  autoSettleOnMerge: null,
  private: false,

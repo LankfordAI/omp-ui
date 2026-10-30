@@ -179,6 +179,7 @@ import { GoalStatusTracker } from "./goal-status-tracker";
 import { VibeStatusTracker } from "./vibe-status-tracker";
 import { AutoresearchStatusTracker } from "./autoresearch-status-tracker";
 import { HeldPromptScheduler } from "./held-prompt-scheduler";
+import { ScheduledPromptRunner } from "./scheduled-prompt-runner";
 import {
   prepareResumeRecord,
   writeReviewRosterForSpawn,
@@ -377,6 +378,8 @@ export class SessionManager {
   private readonly vibes: VibeStatusTracker;
   /** Send at reset (issue #986): the held prompt per native session. */
   readonly heldPrompts: HeldPromptScheduler;
+  /** Scheduled prompts (issue #987): the schedule per native session. */
+  readonly scheduledPrompts: ScheduledPromptRunner;
   /** The open blocking dialogs per tab — the summary's `pendingDialogs` (#555). */
   private readonly dialogGates = new DialogGateTracker();
   /** The omp collab local-registry watcher for terminal tabs (issue #686). */
@@ -597,6 +600,25 @@ export class SessionManager {
       refreshLimits: (tabId) =>
         this.rpcSend(tabId, { type: "prompt", id: `omp-ui-held-limits-${randomUUID()}`, message: `/${LIMITS_COMMAND}` }),
     });
+    this.scheduledPrompts = new ScheduledPromptRunner({
+      sessions: () => deps.registry.sessions,
+      updateSession: (tabId, patch) => deps.registry.updateSession(tabId, patch),
+      broadcast: () => void deps.broadcast(),
+      isLive: (tabId) => this.live.has(tabId),
+      busy: (tabId) => this.pendingOp(tabId) !== undefined,
+      inRun: (tabId) => this.turns.isRunning(tabId) || this.awaitingHumanAnswer(tabId),
+      canSendNow: (tabId) => {
+        const entry = this.live.get(tabId);
+        return entry?.kind === "rpc-ui" && entry.rpc !== null && entry.modelHold === null && this.pendingOp(tabId) === undefined;
+      },
+      planBridgeLoaded: (tabId) => {
+        const entry = this.live.get(tabId);
+        return entry?.kind === "rpc-ui" && entry.planBridgeLoaded;
+      },
+      send: (tabId, cmd) => this.rpcSend(tabId, cmd),
+      // A scheduled run starts in Build (ADR-0081).
+      resume: (tabId) => this.spawn({ origin: "resume", resumeTabId: tabId, cols: 80, rows: 24, planMode: false }),
+    });
     // Last: it reads the turn latch and answer gates the observers above settle.
     this.frameObservers = [
       this.hibernation,
@@ -609,6 +631,7 @@ export class SessionManager {
       this.autoresearch,
       this.dialogGates,
       this.heldPrompts,
+      this.scheduledPrompts,
     ];
     this.collab = new CollabTracker({
       getOmpPath: deps.getOmpPath,
@@ -695,6 +718,7 @@ export class SessionManager {
     this.stallWatchdog.disposeAll();
     this.toolControl.disposeAll();
     this.heldPrompts.disposeAll();
+    this.scheduledPrompts.disposeAll();
     this.planPreflight.clearAll();
   }
 
@@ -1084,6 +1108,7 @@ export class SessionManager {
           snoozedUntilMs: null,
           pinnedAtMs: null,
           heldPrompt: null,
+          scheduledPrompt: null,
           pullRequests: [],
           autoSettleOnMerge: null,
           private: req.private === true,
@@ -1655,6 +1680,9 @@ export class SessionManager {
     // for it, or for anything else once its reset passed. Never while held.
     const heldCommand = this.heldPrompts.initialCommand(record, modelHold !== null);
     if (heldCommand !== null) initialCommands.push(heldCommand);
+    // A due scheduled prompt rides after it (issue #987), leaving plan mode
+    // first when this spawn boots in it. Never while held.
+    initialCommands.push(...this.scheduledPrompts.initialCommands(record, modelHold !== null, planMode && bridgeLoaded.plan));
     const configOverlays = await writeRpcOverlays(
       modelHold === null ? record : { ...record, model: null },
       absLineageDir,
@@ -3129,6 +3157,7 @@ export class SessionManager {
     this.toolControl.dispose(tabId);
     this.planPreflight.dispose(tabId);
     this.heldPrompts.dispose(tabId);
+    this.scheduledPrompts.dispose(tabId);
     this.watcherHub.stop(tabId);
     this.killShell(tabId);
     this.browserPanes.dispose(tabId, { forgetUrl: true });
@@ -3230,6 +3259,7 @@ export class SessionManager {
       snoozedUntilMs: null,
       pinnedAtMs: null,
       heldPrompt: null,
+      scheduledPrompt: null,
       pullRequests: [],
       autoSettleOnMerge: null,
       private: source.private,

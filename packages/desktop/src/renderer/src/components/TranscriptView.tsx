@@ -57,6 +57,7 @@ import {
 import { AnnotationChips } from "./AnnotationChips";
 import { normalizeAnnotationQuote } from "../lib/annotations";
 import { HeldPromptCard } from "./HeldPromptCard";
+import { ScheduledPromptCard } from "./ScheduledPromptCard";
 import {
   Chip,
   CopyButton,
@@ -1405,6 +1406,8 @@ export function TranscriptView({
           )}
           {/* Send at reset (issue #986): the prompt the host holds goes last. */}
           {tabId !== undefined && <HeldPromptCard tabId={tabId} />}
+          {/* Scheduled prompt (issue #987): the session's schedule and its notices. */}
+          {tabId !== undefined && <ScheduledPromptCard tabId={tabId} />}
         </div>
         {/* Tail clearance for the floating composer (issue #395). RpcTab
             publishes its measured height; every other host of this view — the

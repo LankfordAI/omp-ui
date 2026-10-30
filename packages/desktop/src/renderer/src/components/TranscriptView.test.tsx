@@ -1267,6 +1267,7 @@ describe("rewind affordances (issue #680)", () => {
       snoozedUntilMs: null,
       pinnedAtMs: null,
       heldPrompt: null,
+      scheduledPrompt: null,
       pullRequests: [],
       autoSettleOnMerge: null,
       private: false,

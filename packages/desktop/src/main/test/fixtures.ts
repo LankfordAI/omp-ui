@@ -114,6 +114,7 @@ export function ownedSessionRecord(
     snoozedUntilMs: null,
     pinnedAtMs: null,
     heldPrompt: null,
+    scheduledPrompt: null,
     pullRequests: [],
     autoSettleOnMerge: null,
     private: false,

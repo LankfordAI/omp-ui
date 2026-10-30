@@ -989,7 +989,21 @@ restart and a remote session's prompt waits on its host), shows it as a card
 at the transcript's tail with **cancel** (back into the draft) and **send
 now**, and sends it at the reset plus a minute — resuming a session that is
 not running. omp never sees it until then; it is not a Parked message.
-_Avoid_: scheduled prompt (that is #987's general feature), queued prompt, deferred message
+_Avoid_: scheduled prompt (that is the **Scheduled prompt**, a clock schedule), queued prompt, deferred message
+
+**Scheduled prompt**:
+A prompt the owning host sends into a native session at a wall-clock time,
+once or on a recurring schedule (daily, weekdays, weekly, or a five-field
+cron expression read in the time zone of the client that set it; issue #987,
+ADR-0081). Set from **Schedule…** in the Session HUD title menu or the
+command palette; the record carries it (`scheduledPrompt`), the sidebar row
+shows a clock and the next run, and a **Scheduled** card at the transcript's
+tail offers edit, remove, and run now. Each fire goes through the normal
+prompt path in Build, resuming a session that is not running; a run still in
+progress skips the fire with a notice, and fires missed while omp-ui was
+closed run once with a notice. A snoozed session returns to the main list
+when its run starts. Text only; one schedule per session.
+_Avoid_: cron job, timer, recurring task, held prompt (that waits for a usage reset)
 
 **Webhook**:
 An authenticated HTTP endpoint, `POST /webhooks/<id>` on the remote-access

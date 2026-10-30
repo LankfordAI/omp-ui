@@ -8,6 +8,7 @@ import { parseProposedPlans } from "./plan";
 import { parseVaultRegistry } from "./vault-registry";
 import { isKnowledgeHome } from "./vault-shared";
 import { isHeldPrompt } from "./held-prompt";
+import { isScheduledPrompt } from "./scheduled-prompt";
 import { isProjectIcon } from "./project-icon";
 import { parsePullRequestLinks } from "./pull-requests";
 import {
@@ -785,6 +786,8 @@ function parseRegistryData(raw: unknown): RegistryData | null {
       // Never a validity gate (the reviewRoster rule): a malformed held prompt
       // (issue #986) normalizes to null so the session always survives.
       heldPrompt: isHeldPrompt(s.heldPrompt) ? s.heldPrompt : null,
+      // Same rule (issue #987): a schedule that no longer parses drops, never the session.
+      scheduledPrompt: isScheduledPrompt(s.scheduledPrompt) ? s.scheduledPrompt : null,
       // Never a validity gate: a malformed link drops only itself (issue #985).
       pullRequests: parsePullRequestLinks(s.pullRequests),
       autoSettleOnMerge: s.autoSettleOnMerge ?? null,

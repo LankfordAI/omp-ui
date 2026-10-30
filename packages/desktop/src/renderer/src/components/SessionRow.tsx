@@ -8,7 +8,7 @@ import { formatSnoozeUntil } from "../lib/snooze-until";
 import { cn } from "../lib/cn";
 import { canSettle, deriveSidebarSessionState, useStore, type SidebarSessionState } from "../store";
 import { SEANCE_MIN_OMP, supportsSeance } from "../lib/seance";
-import { Button, Chip, Dot, IconButton, IconLock, IconPin, IconSpeaker, type Tone } from "./ui";
+import { Button, Chip, Dot, IconButton, IconClock, IconLock, IconPin, IconSpeaker, type Tone } from "./ui";
 import type { SessionHandoff } from "../lib/session-handoffs";
 import { openPullRequest, pullRequestFace, PullRequestChip } from "./PullRequestChip";
 import { liveDisplayPhase, type LiveDisplayPhase } from "@omp-ui/core/live-voice";
@@ -352,6 +352,23 @@ export function SessionRow({
         <IconPin />
       </span>
     ) : null;
+  // Scheduled prompt (#987): a clock glyph and the next run. An older remote
+  // host publishes no scheduledPrompt — absent is none.
+  const nextRunAtMs = s.scheduledPrompt?.nextRunAtMs ?? null;
+  const scheduleLabel =
+    nextRunAtMs === null ? null : t("sidebar.session.nextRun", { when: formatSnoozeUntil(nextRunAtMs, new Date(), localeTag()) });
+  const clockMark =
+    s.scheduledPrompt != null ? (
+      <span
+        role="img"
+        data-schedule-mark
+        aria-label={scheduleLabel ?? t("sidebar.session.scheduled")}
+        title={scheduleLabel ?? t("sidebar.session.scheduled")}
+        className="shrink-0 self-center text-ink-faint"
+      >
+        <IconClock />
+      </span>
+    ) : null;
   const voiceMark =
     liveBadge !== null ? (
       <span
@@ -411,6 +428,7 @@ export function SessionRow({
         ? t("sidebar.session.snoozed")
         : t("sidebar.session.snoozedUntil", { when: formatSnoozeUntil(s.snoozedUntilMs, new Date(), localeTag()) });
   if (slim && snoozedLabel !== null) meta.push(snoozedLabel);
+  if (slim && scheduleLabel !== null) meta.push(scheduleLabel);
 
   return (
     <div
@@ -480,6 +498,7 @@ export function SessionRow({
           </span>
           {slim && prChip}
           {slim && pinMark}
+          {slim && clockMark}
           {slim && lockMark}
           {slim && voiceMark}
           {when && (
@@ -533,7 +552,9 @@ export function SessionRow({
             {snoozedLabel !== null ? (
               <span className="shrink-0 text-ink-faint">{snoozedLabel}</span>
             ) : null}
+            {scheduleLabel !== null ? <span className="shrink-0 text-ink-faint">{scheduleLabel}</span> : null}
             <span className="ml-auto flex shrink-0 items-center gap-1">
+              {clockMark}
               {pinMark}
               {lockMark}
               {voiceMark}

@@ -187,6 +187,7 @@ import {
   fleetExecPollRequestCodec,
   fleetSendRequestCodec,
   heldPromptRequestCodec,
+  scheduledPromptRequestCodec,
   fleetFinishRequestCodec,
   fleetExecRequestCodec,
   fleetProjectFilesCodec,
@@ -209,6 +210,7 @@ import {
   mcpClientPatchCodec,
 } from "./backend-arg-codecs";
 import type { HeldPromptPayload, HeldPromptRequest } from "./held-prompt";
+import type { ScheduledPromptRequest } from "./scheduled-prompt";
 import type { WebhookInput, WebhookPatch, WebhookSecretReveal, WebhooksState } from "./webhook";
 import type { ThemeMode } from "./theme";
 import type { VsCodeImportResult, VsCodeThemeFileInput } from "./vscode-theme";
@@ -1044,6 +1046,23 @@ export const BACKEND_CHANNELS = {
   /** Sends the held prompt now, resuming a hibernated session first (issue #986). */
   sendHeldPromptNow: {
     channel: "session:sendHeldPromptNow",
+    ...request<[tabId: string], void>([str()]),
+  },
+  /** Attaches a scheduled prompt to a native session, replacing any schedule
+   *  it had (issue #987). The owning host keeps it on the record and fires it. */
+  setScheduledPrompt: {
+    channel: "session:setScheduledPrompt",
+    ...request<[tabId: string, req: ScheduledPromptRequest], void>([str(), scheduledPromptRequestCodec]),
+  },
+  /** Removes the session's scheduled prompt (issue #987). */
+  clearScheduledPrompt: {
+    channel: "session:clearScheduledPrompt",
+    ...request<[tabId: string], void>([str()]),
+  },
+  /** Fires the scheduled prompt now, resuming the session first; a recurring
+   *  schedule keeps its next run (issue #987). */
+  runScheduledPromptNow: {
+    channel: "session:runScheduledPromptNow",
     ...request<[tabId: string], void>([str()]),
   },
 

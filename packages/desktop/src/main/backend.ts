@@ -182,6 +182,7 @@ import {
   type ProjectSubagentModelsResult,
   type SubagentModelMap,
   type HeldPromptRequest,
+  type ScheduledPromptRequest,
   type RootGuard,
   type VaultDetection,
 } from "@omp-ui/core";
@@ -759,6 +760,9 @@ export class MainBackend {
     // Send at reset (#986): a held prompt that fell due while the app was
     // closed resumes its session now; later ones arm their timer.
     this.sessions.heldPrompts?.sync();
+    // Scheduled prompts (#987): a fire missed while the app was closed runs
+    // once now, with a late notice; later ones arm their timer.
+    this.sessions.scheduledPrompts?.sync();
     // Pull request links (#985): one gh call per repository, now and on a
     // focus-dependent cadence. Never throws; a missing or logged-out gh only logs.
     this.pullRequests.start();
@@ -1122,6 +1126,9 @@ export class MainBackend {
         [CH.holdPrompt]: (tabId: string, req: HeldPromptRequest) => this.sessions.heldPrompts.hold(tabId, req),
         [CH.cancelHeldPrompt]: (tabId: string) => this.sessions.heldPrompts.cancel(tabId),
         [CH.sendHeldPromptNow]: (tabId: string) => this.sessions.heldPrompts.sendNow(tabId),
+        [CH.setScheduledPrompt]: (tabId: string, req: ScheduledPromptRequest) => this.sessions.scheduledPrompts.set(tabId, req),
+        [CH.clearScheduledPrompt]: (tabId: string) => this.sessions.scheduledPrompts.clear(tabId),
+        [CH.runScheduledPromptNow]: (tabId: string) => this.sessions.scheduledPrompts.runNow(tabId),
         [CH.setSessionSubagentModels]: (tabId: string, map: SubagentModelMap | null) =>
           this.sessions.setSessionSubagentModels(tabId, map),
         [CH.spawnSession]: (req: SpawnRequest) => {
@@ -2095,6 +2102,7 @@ export class MainBackend {
           snoozedUntilMs: null,
           pinnedAtMs: null,
           heldPrompt: null,
+          scheduledPrompt: null,
           pullRequests: [],
           autoSettleOnMerge: null,
           private: false,

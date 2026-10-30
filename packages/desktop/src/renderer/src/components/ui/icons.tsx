@@ -151,6 +151,16 @@ export function IconLock({ className }: { className?: string }) {
   );
 }
 
+/** Clock face — the scheduled-prompt badge (issue #987). */
+export function IconClock({ className }: { className?: string }) {
+  return (
+    <svg viewBox="0 0 16 16" aria-hidden className={cn("size-3.5", className)} {...ICON_STROKE}>
+      <circle cx="8" cy="8" r="5.5" />
+      <path d="M8 5v3l2 1.5" />
+    </svg>
+  );
+}
+
 /** Push pin — the pinned-session badge (issue #981). */
 export function IconPin({ className }: { className?: string }) {
   return (

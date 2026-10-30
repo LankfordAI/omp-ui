@@ -6,6 +6,7 @@ import { ADVISOR_STATS_COMMAND } from "@omp-ui/core/advisor-stats";
 import { LIMITS_COMMAND } from "@omp-ui/core/limits";
 import { SESSION_SPEND_COMMAND } from "@omp-ui/core/session-spend";
 import { isHtmlPlanPath, planMessage } from "@omp-ui/core/plan";
+import type { ScheduledPromptRequest } from "@omp-ui/core/scheduled-prompt";
 import { parseExperimentProposalTitle } from "@omp-ui/core/autoresearch";
 import { approvalReply, parseApprovalPrompt } from "@omp-ui/core/approval";
 import {
@@ -133,6 +134,9 @@ export type SessionParamsSlice = Pick<
   | "holdPrompt"
   | "cancelHeldPrompt"
   | "sendHeldPromptNow"
+  | "setScheduledPrompt"
+  | "clearScheduledPrompt"
+  | "runScheduledPromptNow"
   | "setSessionApprovalMode"
   | "setAdvisorModel"
   | "setModel"
@@ -899,6 +903,31 @@ export function createSessionParamsSlice(
   const sendHeldPromptNow = async (tabId: string): Promise<void> => {
     try {
       await backend.sendHeldPromptNow(tabId);
+    } catch (err) {
+      get().reportError(err);
+    }
+  };
+  // Scheduled prompts (issue #987): tab-routed, so a remote session's
+  // schedule lives and fires on its host.
+  const setScheduledPrompt = async (tabId: string, req: ScheduledPromptRequest): Promise<boolean> => {
+    try {
+      await backend.setScheduledPrompt(tabId, req);
+      return true;
+    } catch (err) {
+      get().reportError(err);
+      return false;
+    }
+  };
+  const clearScheduledPrompt = async (tabId: string): Promise<void> => {
+    try {
+      await backend.clearScheduledPrompt(tabId);
+    } catch (err) {
+      get().reportError(err);
+    }
+  };
+  const runScheduledPromptNow = async (tabId: string): Promise<void> => {
+    try {
+      await backend.runScheduledPromptNow(tabId);
     } catch (err) {
       get().reportError(err);
     }
@@ -2796,6 +2825,9 @@ export function createSessionParamsSlice(
     holdPrompt,
     cancelHeldPrompt,
     sendHeldPromptNow,
+    setScheduledPrompt,
+    clearScheduledPrompt,
+    runScheduledPromptNow,
     setSessionApprovalMode,
     setAdvisorModel,
     setModel,

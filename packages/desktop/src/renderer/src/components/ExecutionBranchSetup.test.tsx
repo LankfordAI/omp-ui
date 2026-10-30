@@ -164,6 +164,7 @@ function sessionRecord(tabId: string, title: string) {
  snoozedUntilMs: null,
  pinnedAtMs: null,
  heldPrompt: null,
+ scheduledPrompt: null,
  pullRequests: [],
  autoSettleOnMerge: null,
  private: false,
