@@ -2630,7 +2630,7 @@ describe("handleRpcFrame routing", () => {
     await h.flushMicrotasks();
     expect(h.useStore.getState().activeTabId).toBe(freshId);
     expect(h.useStore.getState().handedOffFor[h.TAB]).toBe(freshId);
-    expect(h.sent.some((entry) => entry.tabId === previousId && entry.cmd.type === "live_start")).toBe(false);
+    expect(h.sent.some((entry) => entry.tabId === previousId && entry.cmd.type === "live_connect")).toBe(false);
     expect(h.mockBackend.hibernatePlanSource).toHaveBeenCalledWith(h.TAB, freshId);
     await rearmHandoffSource();
   });
@@ -3295,13 +3295,13 @@ describe("handleRpcFrame routing", () => {
         rpc: {
           ...state.rpc,
           [h.TAB]: rpcTabState({
-            capabilities: withVersion("18.7.0"),
+            capabilities: withVersion("18.14.0"),
             live,
           }),
         },
       }));
       await dispatchFreshSeed(id, {
-        capabilities: withVersion("18.7.0"),
+        capabilities: withVersion("18.14.0"),
         ...freshPatch,
       });
       const sourceRuntime = peekTabRuntime(h.TAB)!;
@@ -3333,7 +3333,7 @@ describe("handleRpcFrame routing", () => {
 
     const liveVerbs = () =>
       h.sent
-        .filter((s) => s.cmd.type === "live_stop" || s.cmd.type === "live_start")
+        .filter((s) => s.cmd.type === "live_stop" || s.cmd.type === "live_connect")
         .map((s) => ({ tabId: s.tabId, type: s.cmd.type }));
 
     const warnNotices = () =>
@@ -3360,7 +3360,7 @@ describe("handleRpcFrame routing", () => {
       await ackSeed();
       expect(liveVerbs()).toEqual([
         { tabId: h.TAB, type: "live_stop" },
-        { tabId: "fresh-tab", type: "live_start" },
+        { tabId: "fresh-tab", type: "live_connect" },
       ]);
       // Issue #840: the seed ACK triggers exactly one reap request, and a
       // confirmed exit is the terminal boundary — the source runtime is
@@ -3370,7 +3370,7 @@ describe("handleRpcFrame routing", () => {
       expect(peekTabRuntime(h.TAB)).toBeUndefined();
       expect(warnNotices()).toHaveLength(0);
       const start = h.sent.find(
-        (entry) => entry.tabId === "fresh-tab" && entry.cmd.type === "live_start",
+        (entry) => entry.tabId === "fresh-tab" && entry.cmd.type === "live_connect",
       )!;
       h.respond("fresh-tab", start.cmd, {});
       await h.flushMicrotasks();
@@ -3404,13 +3404,13 @@ describe("handleRpcFrame routing", () => {
       h.useStore.setState((state) => ({
         rpc: {
           ...state.rpc,
-          "fresh-tab": { ...state.rpc["fresh-tab"]!, capabilities: withVersion("18.7.0") },
+          "fresh-tab": { ...state.rpc["fresh-tab"]!, capabilities: withVersion("18.14.0") },
         },
       }));
       await h.flushMicrotasks();
       expect(liveVerbs()).toEqual([
         { tabId: h.TAB, type: "live_stop" },
-        { tabId: "fresh-tab", type: "live_start" },
+        { tabId: "fresh-tab", type: "live_connect" },
       ]);
     });
 
@@ -3424,7 +3424,7 @@ describe("handleRpcFrame routing", () => {
       // fire-and-forget stop never double-dispatches the park's stop.
       expect(liveVerbs()).toEqual([
         { tabId: h.TAB, type: "live_stop" },
-        { tabId: "fresh-tab", type: "live_start" },
+        { tabId: "fresh-tab", type: "live_connect" },
       ]);
       const stop = h.sent.find((entry) => entry.tabId === h.TAB && entry.cmd.type === "live_stop");
       h.respond(h.TAB, stop!.cmd, {});
@@ -3435,7 +3435,7 @@ describe("handleRpcFrame routing", () => {
       ).toHaveLength(1);
       expect(liveVerbs()).toEqual([
         { tabId: h.TAB, type: "live_stop" },
-        { tabId: "fresh-tab", type: "live_start" },
+        { tabId: "fresh-tab", type: "live_connect" },
       ]);
     });
 
@@ -3444,7 +3444,7 @@ describe("handleRpcFrame routing", () => {
       await dispatchWithLive("carry-reap-false", liveSnap("listening"));
       await ackSeed();
       expect(liveVerbs()).toEqual([{ tabId: h.TAB, type: "live_stop" }]);
-      expect(liveVerbs().filter((entry) => entry.type === "live_start")).toHaveLength(0);
+      expect(liveVerbs().filter((entry) => entry.type === "live_connect")).toHaveLength(0);
       expect(warnNotices()).toHaveLength(1);
       // No retry, no re-seed: one reap request and one seed, and the source
       // process is left running (its runtime untouched by any teardown).
@@ -3472,7 +3472,7 @@ describe("handleRpcFrame routing", () => {
       h.useStore.setState((state) => ({
         rpc: {
           ...state.rpc,
-          "fresh-tab": { ...state.rpc["fresh-tab"]!, capabilities: withVersion("18.7.0") },
+          "fresh-tab": { ...state.rpc["fresh-tab"]!, capabilities: withVersion("18.14.0") },
         },
       }));
       await h.flushMicrotasks();
@@ -3534,7 +3534,7 @@ describe("handleRpcFrame routing", () => {
       await h.flushMicrotasks();
       expect(liveVerbs()).toEqual([
         { tabId: h.TAB, type: "live_stop" },
-        { tabId: "fresh-tab", type: "live_start" },
+        { tabId: "fresh-tab", type: "live_connect" },
       ]);
     });
 
@@ -3552,7 +3552,7 @@ describe("handleRpcFrame routing", () => {
       await h.flushMicrotasks();
       expect(liveVerbs()).toEqual([
         { tabId: h.TAB, type: "live_stop" },
-        { tabId: "fresh-tab", type: "live_start" },
+        { tabId: "fresh-tab", type: "live_connect" },
       ]);
     });
 
@@ -3579,7 +3579,7 @@ describe("handleRpcFrame routing", () => {
         rpc: {
           ...state.rpc,
           [h.TAB]: rpcTabState({
-            capabilities: withVersion("18.7.0"),
+            capabilities: withVersion("18.14.0"),
             live: liveSnap("listening"),
           }),
         },
@@ -3598,7 +3598,7 @@ describe("handleRpcFrame routing", () => {
           "fresh-tab": rpcTabState({
             status: "ready",
             planText: null,
-            capabilities: withVersion("18.7.0"),
+            capabilities: withVersion("18.14.0"),
           }),
         },
       }));
@@ -3669,7 +3669,7 @@ describe("handleRpcFrame routing", () => {
       h.respond(h.TAB, sourceStop.cmd, {});
       await h.flushMicrotasks();
       const destFrames = h.sent.filter((s) => s.tabId === "fresh-tab");
-      const startIndex = destFrames.findIndex((s) => s.cmd.type === "live_start");
+      const startIndex = destFrames.findIndex((s) => s.cmd.type === "live_connect");
       expect(startIndex).toBeGreaterThanOrEqual(0);
       // Hold-to-talk (ADR-0070): the pre-mute follows the start on the wire.
       const preMute = destFrames[startIndex + 1];
@@ -3693,7 +3693,7 @@ describe("handleRpcFrame routing", () => {
           .filter(
             (s) =>
               s.tabId === "fresh-tab" &&
-              (s.cmd.type === "live_stop" || s.cmd.type === "live_start"),
+              (s.cmd.type === "live_stop" || s.cmd.type === "live_connect"),
           ),
       ).toEqual([]);
       expect(peekTabRuntime("fresh-tab")?.livePendingFeedback).toEqual([]);
@@ -4814,14 +4814,9 @@ describe("live voice frames (issue #778)", () => {
   });
 
   it("levels clamp into [0, 1] and patch without transcript rows", () => {
-    h.useStore.getState().handleRpcFrame(h.TAB, { type: "live_levels", input: 1.5, output: -1 });
+    h.useStore.getState().reportLiveLevels(h.TAB, 1.5, -1);
     expect(live()?.levels).toEqual({ input: 1, output: 0 });
     expect(items()).toEqual([]);
-  });
-
-  it("a malformed levels frame drops", () => {
-    h.useStore.getState().handleRpcFrame(h.TAB, { type: "live_levels", input: 0.5 });
-    expect(live()).toBeNull();
   });
 
   it("transcript turns replace by (role, turn) and never become rows", () => {
@@ -4920,7 +4915,7 @@ describe("live voice park/resume frames (issue #811)", () => {
     const starting = h.useStore.getState().startLiveVoice(h.TAB);
     await h.flushMicrotasks();
     const start = h.sent.find(
-      (s) => s.tabId === h.TAB && s.cmd.type === "live_start",
+      (s) => s.tabId === h.TAB && s.cmd.type === "live_connect",
     );
     if (start === undefined) throw new Error("startLiveVoice dispatched nothing");
     h.respond(h.TAB, start.cmd, {});
@@ -4962,7 +4957,7 @@ describe("live voice park/resume frames (issue #811)", () => {
   const settleVerbs = async (): Promise<void> => {
     for (let wave = 0; wave < 3; wave++) {
       await h.flushMicrotasks();
-      for (const s of h.sent.filter((e) => e.cmd.type === "live_stop" || e.cmd.type === "live_start"))
+      for (const s of h.sent.filter((e) => e.cmd.type === "live_stop" || e.cmd.type === "live_connect"))
         h.respond(h.TAB, s.cmd, {});
     }
     await h.flushMicrotasks();
@@ -4973,7 +4968,7 @@ describe("live voice park/resume frames (issue #811)", () => {
     h.useStore.setState({
       state: h.backendState,
       activeTabId: h.TAB,
-      rpc: { [h.TAB]: rpcTabState({ capabilities: withVersion("18.7.0") }) },
+      rpc: { [h.TAB]: rpcTabState({ capabilities: withVersion("18.14.0") }) },
     });
   });
 
@@ -4985,7 +4980,7 @@ describe("live voice park/resume frames (issue #811)", () => {
   const pending = () => peekTabRuntime(h.TAB)?.livePendingFeedback ?? [];
   const verbs = (type: string) => h.sent.filter((s) => s.cmd.type === type);
   const levels = (output: number): void =>
-    frame({ type: "live_levels", input: 0.05, output });
+    h.useStore.getState().reportLiveLevels(h.TAB, 0.05, output);
 
   it("a parked turn's answer is stored as pending and lights the badge (AC 3)", async () => {
     await arm();
@@ -4999,7 +4994,7 @@ describe("live voice park/resume frames (issue #811)", () => {
     expect(pending()).toEqual(["Deployed the preview build"]);
     expect(badge()).toEqual({ armed: true, parked: true, pending: true, talking: false });
     // An unviewed parked call keeps its answer pending until return.
-    expect(h.sent.filter((s) => s.cmd.type === "live_start")).toEqual([]);
+    expect(h.sent.filter((s) => s.cmd.type === "live_connect")).toEqual([]);
   });
 
   it("a call that heard the request delivers nothing extra (omp speaks it)", async () => {
@@ -5028,7 +5023,7 @@ describe("live voice park/resume frames (issue #811)", () => {
     h.useStore.setState({ activeTabId: h.TAB });
     const starting = h.useStore.getState().startLiveVoice(h.TAB);
     await h.flushMicrotasks();
-    const start = h.sent.find((s) => s.cmd.type === "live_start")!;
+    const start = h.sent.find((s) => s.cmd.type === "live_connect")!;
     h.respond(h.TAB, start.cmd, {});
     await starting;
     await h.flushMicrotasks();
@@ -5042,6 +5037,54 @@ describe("live voice park/resume frames (issue #811)", () => {
     expect(badge()).toEqual({ armed: true, parked: false, pending: false, talking: false });
   });
 
+  // #967: the realtime model neither opens a response from instructions nor
+  // reads carried results back from them, so a resumed call must append the
+  // stored answer on the data channel — once, after the session starts.
+  it("a resumed call appends its carried answer once the realtime session starts", async () => {
+    await arm();
+    frame({ type: "agent_start" });
+    delegation();
+    await park();
+    h.useStore.setState({ activeTabId: null });
+    finalAnswer("Deployed the preview build");
+    frame({ type: "agent_end" });
+
+    h.useStore.setState({ activeTabId: h.TAB });
+    const starting = h.useStore.getState().startLiveVoice(h.TAB);
+    await h.flushMicrotasks();
+    const connect = h.sent.find((s) => s.cmd.type === "live_connect")!;
+    const peer = h.livePeers.at(-1)!;
+    expect(connect.cmd.sdpOffer).toBe(peer.offer);
+    expect(String(connect.cmd.instructions)).toContain("Deployed the preview build");
+    h.respond(h.TAB, connect.cmd, { sdpAnswer: "v=0 resumed-answer" });
+    await starting;
+    expect(peer.answer).toBe("v=0 resumed-answer");
+    // Nothing is said before the server's session exists, and the mic is shut.
+    expect(peer.sentEvents).toEqual([]);
+    expect(peer.micEnabled).toBe(false);
+
+    peer.events.onSessionStarted();
+    peer.events.onSessionStarted();
+    expect(peer.sentEvents).toEqual([
+      { type: "session.context.append", content: [{ type: "input_text", text: '"Agent Final Message":\n\nDeployed the preview build' }] },
+    ]);
+  });
+
+  it("a resumed call with nothing pending speaks nothing on connect", async () => {
+    await arm();
+    await park();
+    const starting = h.useStore.getState().startLiveVoice(h.TAB);
+    await h.flushMicrotasks();
+    h.respond(h.TAB, verbs("live_connect")[0]!.cmd, {});
+    await starting;
+    const peer = h.livePeers.at(-1)!;
+    peer.events.onSessionStarted();
+    // No recap was spoken in this test, and nothing speakable is appended.
+    expect(peer.sentEvents).toEqual([]);
+    // The park released the previous call's microphone.
+    expect(h.livePeers[0]!.closed).toBe(true);
+  });
+
   /** Resumes a parked call mid-turn: the ack clears the call's spoken-request
    *  flag while the live-owned turn is still running — the orphan. */
   const resumeMidTurn = async (): Promise<void> => {
@@ -5051,7 +5094,7 @@ describe("live voice park/resume frames (issue #811)", () => {
     await park();
     const starting = h.useStore.getState().startLiveVoice(h.TAB);
     await h.flushMicrotasks();
-    h.respond(h.TAB, verbs("live_start")[0]!.cmd, {});
+    h.respond(h.TAB, verbs("live_connect")[0]!.cmd, {});
     await starting;
     // Hold-to-talk resting phase: omp reports `muted` while the mic is closed.
     frame({ type: "live_phase", phase: "muted" });
@@ -5081,7 +5124,7 @@ describe("live voice park/resume frames (issue #811)", () => {
       vi.useRealTimers();
     }
     expect(verbs("live_stop")).toHaveLength(1);
-    const starts = verbs("live_start");
+    const starts = verbs("live_connect");
     expect(starts).toHaveLength(1);
     expect(String(starts[0]!.cmd.instructions)).toContain("Deployed the preview build");
   });
@@ -5120,7 +5163,7 @@ describe("live voice park/resume frames (issue #811)", () => {
       vi.useRealTimers();
     }
     expect(verbs("live_stop")).toHaveLength(1);
-    const starts = verbs("live_start");
+    const starts = verbs("live_connect");
     expect(starts).toHaveLength(1);
     expect(String(starts[0]!.cmd.instructions)).toContain("Deployed the preview build");
   });
@@ -5137,7 +5180,7 @@ describe("live voice park/resume frames (issue #811)", () => {
 
     const starting = h.useStore.getState().startLiveVoice(h.TAB);
     await h.flushMicrotasks();
-    const start = verbs("live_start")[0]!;
+    const start = verbs("live_connect")[0]!;
 
     // The stop lands while the start is still on the wire: a parked call
     // has nothing to close, so the stop dispatches nothing but bumps the
@@ -5172,11 +5215,11 @@ describe("live voice park/resume frames (issue #811)", () => {
       await vi.advanceTimersByTimeAsync(LIVE_ORPHAN_SETTLE_MS);
       await h.flushMicrotasks();
       expect(verbs("live_stop")).toHaveLength(1);
-      expect(verbs("live_start")).toEqual([]);
+      expect(verbs("live_connect")).toEqual([]);
       h.respond(h.TAB, verbs("live_stop")[0]!.cmd, {});
       await h.flushMicrotasks();
-      expect(verbs("live_start")).toHaveLength(1);
-      const restart = verbs("live_start")[0]!;
+      expect(verbs("live_connect")).toHaveLength(1);
+      const restart = verbs("live_connect")[0]!;
       expect(String(restart.cmd.instructions)).toContain("Deployed the preview build");
       h.respond(h.TAB, restart.cmd, {});
       await h.flushMicrotasks();

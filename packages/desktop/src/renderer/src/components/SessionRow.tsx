@@ -223,7 +223,7 @@ export function SessionRow({
   // Live voice output (issue #807) plus the park/resume badges (#811): a
   // running live session speaks even when its tab is not visible, and the
   // row says what a closed call is waiting for. The selector reads phase,
-  // not the snapshot, so 10 Hz `live_levels` patches never re-render the
+  // not the snapshot, so the peer's 10 Hz level patches never re-render the
   // row; `ended` swaps the phase glyph for the runtime badge mirror —
   // results waiting outranks merely-ready, and a tab with no live voice at
   // all (no key) stays bare.

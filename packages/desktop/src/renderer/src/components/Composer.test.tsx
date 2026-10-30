@@ -1084,7 +1084,7 @@ describe("Composer dictation (issue #647)", () => {
         ...s.rpc,
         [TAB]: {
           ...s.rpc[TAB]!,
-          capabilities: { ...gateSnapshot([]), ompVersion: "18.5.1" },
+          capabilities: { ...gateSnapshot([]), ompVersion: "18.14.0" },
           live,
         },
       },
@@ -1127,7 +1127,7 @@ describe("Composer dictation (issue #647)", () => {
   const sentLiveStart = (): boolean =>
     backendMock.rpcSend.mock.calls
       .map((call) => call[1] as Record<string, unknown>)
-      .some((frame) => frame.type === "live_start");
+      .some((frame) => frame.type === "live_connect");
 
   it("the web client hides the capsule and keeps the dictation mic on a live-capable session (#816)", async () => {
     platformMocks.electron = false;

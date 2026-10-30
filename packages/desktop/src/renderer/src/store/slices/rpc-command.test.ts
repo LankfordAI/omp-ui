@@ -1653,7 +1653,7 @@ describe("live voice Auto-title (issue #803)", () => {
       rpc: {
         [h.TAB]: rpcTabState({
           status: "running",
-          capabilities: { ompVersion: "18.8.5" } as unknown as CapabilitySnapshot,
+          capabilities: { ompVersion: "18.14.0" } as unknown as CapabilitySnapshot,
         }),
       },
     });
@@ -1670,7 +1670,7 @@ describe("live voice Auto-title (issue #803)", () => {
   const startLive = async (): Promise<void> => {
     const starting = h.useStore.getState().startLiveVoice(h.TAB);
     await h.flushMicrotasks();
-    const cmd = h.sent.find((s) => s.cmd.type === "live_start")!.cmd;
+    const cmd = h.sent.find((s) => s.cmd.type === "live_connect")!.cmd;
     h.respond(h.TAB, cmd, {});
     await starting;
     h.sent.length = 0;
@@ -1752,7 +1752,7 @@ describe("live voice Auto-title (issue #803)", () => {
   it("a failed live_start grants no ownership", async () => {
     const starting = h.useStore.getState().startLiveVoice(h.TAB);
     await h.flushMicrotasks();
-    const cmd = h.sent.find((s) => s.cmd.type === "live_start")!.cmd;
+    const cmd = h.sent.find((s) => s.cmd.type === "live_connect")!.cmd;
     h.respond(h.TAB, cmd, "no audio input device", false);
     await starting;
     h.sent.length = 0;

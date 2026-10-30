@@ -124,7 +124,7 @@ function seedLiveCapable(): void {
     rpc: {
       [TAB]: {
         ...s.rpc[TAB]!,
-        capabilities: { ompVersion: "18.5.1" } as unknown as CapabilitySnapshot,
+        capabilities: { ompVersion: "18.14.0" } as unknown as CapabilitySnapshot,
       },
     },
   }));
@@ -191,7 +191,7 @@ describe("ComposerSheet", () => {
           ...current.rpc[TAB]!,
           capabilities: {
             version: 1 as const, processKey: "voice-process", sessionId: null,
-            revision: 1, updatedAt: 0, ompVersion: "18.5.1", skillCommandsEnabled: null,
+            revision: 1, updatedAt: 0, ompVersion: "18.14.0", skillCommandsEnabled: null,
             skills: { status: "unavailable" as const, reason: "missing-api" as const },
             tools: { status: "unavailable" as const, reason: "missing-api" as const },
             magicKeywords: { status: "unavailable" as const, reason: "missing-api" as const },

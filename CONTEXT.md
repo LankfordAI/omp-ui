@@ -532,50 +532,55 @@ The address of one turn's audio in a live voice session:
 live connection minted at connect (omp's turn numbers restart each connection,
 so the connection id is what keeps two connections' turn 0 apart), the role, and
 the turn number (issue #809, ADR-0049). A reference is not a promise: bytes live
-in the lineage's `live-audio/` dir only if something wrote them, and omp's
-current rpc surface exposes no assistant output audio, so a reference honestly
-answers `unavailable` until a capture source exists.
+in the lineage's `live-audio/` dir only if something wrote them; the assistant's
+audio reaches the renderer's peer as a WebRTC track (ADR-0071) but nothing
+records it yet, so a reference honestly answers `unavailable`.
 _Avoid_: audio id, clip id, recording url
 
 **Armed**:
 The per-session live voice intent (issue #811): the user wants to talk in this
-session. A successful `live_start` sets it; only an explicit stop or the plan
+session. A successful call start (`live_connect`) sets it; only an explicit stop or the plan
 hand-off's carry-over clears it. Parking never clears it: the microphone went
 quiet because the call could not use it right now, not because the user asked.
 _Avoid_: enabled, connected, on
 
 **Parked**:
 Armed with no realtime call open. The session's tab is not the viewed tab
-(issue #811) — omp records audio per session, so an unviewed tab must not
-listen at all; closing is the honest mute — or the call ended on its own while
-the intent stayed armed. Either way the session keeps its *voice recap*;
-returning to the tab opens a fresh call whose instructions carry it, plus any
-*pending voice feedback*.
+(issue #811) — the call holds this machine's microphone, so an unviewed tab
+must not listen at all; closing is the honest mute — or the call ended on its
+own while the intent stayed armed. Either way the session keeps its *voice
+recap*; returning to the tab opens a fresh call that is told the recap and
+then speaks any *pending voice feedback* (ADR-0071).
 Not the *Hibernated session* sense its _Avoid_ list warns about: a parked
 session's process runs on; only its realtime call is closed.
 _Avoid_: muted, paused, suspended, backgrounded
 
 **Hold-to-talk**:
 Live voice's microphone gate (ADR-0070): every call opens with the
-microphone closed (`live_mute`), and it opens only while the user holds `R`
-outside a text field or the capsule's talk button; a release closes it after
-a short tail. The call itself stays open through the agent's work.
+renderer peer's microphone track disabled (and omp's `live_mute` phase in
+step), and it opens only while the user holds `R` outside a text field or
+the capsule's talk button; a release closes it after a short tail. The call
+itself stays open through the agent's work.
 _Avoid_: push-to-talk (that is Dictation's hold-R gesture), mute, PTT
 
 **Pending voice feedback**:
 The text of a live-delegated turn's final answer that the voice never spoke:
 the turn ended while the session was *parked*, or an open call never heard the
 spoken request the answer belongs to (the orphan rule, issue #811). Order is
-kept — the next resume's instructions carry every entry, oldest first — and
-the call's first final assistant transcript proves delivery and clears them.
+kept — the next resume appends every entry to the open call, oldest first, as
+omp's own final-message frame, so the voice speaks it unprompted (issue #967,
+ADR-0071) — and the call's first final assistant transcript proves delivery
+and clears them.
 _Avoid_: missed message, unread reply, backlog
 
 **Voice recap**:
 The rolling per-tab text transcript of earlier spoken turns (issue #811),
 appended from the snapshot's turns at every park; a turn the call closed
-mid-sentence rides marked as cut off. The resume's `live_start` instructions
-carry it (bounded, oldest trimmed first) so the model hears the conversation
-the closed call had.
+mid-sentence rides marked as cut off. The resume's instructions carry it
+(bounded, oldest trimmed first), and because the realtime model does not read
+its instructions back, the resume also appends it to the call on the silent
+commentary channel (ADR-0071) so the model knows the conversation the closed
+call had.
 _Avoid_: history, summary, chat log
 
 **Live transcript history**:
@@ -586,7 +591,7 @@ the connection UUID the composer minted at connect — the same identity the
 *Voice Recording Reference* carries. The composer strip renders disk history
 plus the current snapshot's turns, so the exchange survives every park,
 resume, clean end, and app restart. Distinct from the *Voice recap*, which is
-the capped, process-local text the resume's `live_start` carries to the model
+the capped, process-local text the resume carries to the model
 — the history never feeds the voice model.
 _Avoid_: call log, voice log
 
@@ -699,7 +704,7 @@ advisor's notes already land. The fold is a per-review switch, default on.
 Voice joins the gate without owning it: with the session's live voice call
 armed, a new gate reconnects the call with the complete readable plan
 embedded in the reconnect instructions — OMP exposes no in-call update verb,
-so the artifact rides `live_start` only, never truncated — and asks for one
+so the artifact rides the reconnect's instructions only, never truncated — and asks for one
 spoken overview per gate (issue #818). The overview marker records that a
 briefing was *requested*, not that speech was proven. "Explain this plan"
 requests a briefing explicitly; when voice is off the action reads "Start

@@ -172,8 +172,8 @@ export function Composer({
   const currentModel = useStore((s) => s.rpc[tabId]?.model ?? null);
   // #932: booted without its pinned model; main refuses prompts until a pick.
   const modelHold = useStore((s) => findOwner(s.state, tabId)?.record.modelHold ?? null);
-  // Live voice gates on the omp version (issue #778): 18.5.1 added the
-  // live_* verbs, unknown version hides the feature. It also gates on the
+  // Live voice gates on the omp version (issue #778): 18.14.0 added the
+  // `live_connect` verb (ADR-0071), unknown version hides the feature. It also gates on the
   // hardware (issue #816): the call runs on the session host's mic and
   // speakers, so only the desktop shell on a locally owned tab offers it.
   const liveSupported = useStore(

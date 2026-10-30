@@ -1,10 +1,12 @@
 // The live voice (`live_*`) wire contract. Pure — zero runtime imports —
 // because the renderer imports it directly via the @omp-ui/core/live-voice
-// subpath, exactly like side-questions.ts. omp ≥ 18.5.1 runs the realtime
-// session and records audio itself; omp-ui only sends three commands
-// (`live_start`, `live_stop`, `live_mute`) and renders four frame types
-// (`live_phase`, `live_levels`, `live_transcript`, `live_end`). omp owns the
-// phase machine — this file only renders what the frames say; it never drives
+// subpath, exactly like side-questions.ts. omp ≥ 18.14.0 signals the realtime
+// call and keeps its sideband; the renderer owns the WebRTC peer that
+// `live_connect` hands omp an SDP offer for (ADR-0071): microphone, speaker,
+// level meters, and the `oai-events` data channel. omp-ui sends three
+// commands (`live_connect`, `live_stop`, `live_mute`) and renders three frame
+// types (`live_phase`, `live_transcript`, `live_end`). omp owns the phase
+// machine — this file only renders what the frames say; it never drives
 // transitions.
 //
 // Live state is a snapshot slice, not transcript rows: a `live_transcript`
@@ -28,7 +30,7 @@ export type LiveRole = "user" | "assistant";
 export interface LiveAudioRef {
   /** The owned session's UUID — from the capability frame / OwnedSessionRecord. */
   sessionId: string;
-  /** A fresh UUID the renderer mints on each successful `live_start`. */
+  /** A fresh UUID the renderer mints on each successful `live_connect`. */
   connectionId: string;
   role: LiveRole;
   /** omp's per-connection integer. Reused across connections is fine: the
@@ -81,11 +83,11 @@ export interface LiveSnapshot {
   turns: LiveTurn[];
   /** Set by live_end. */
   ended: boolean;
-  /** live_end's error text, or a live_start/live_stop/live_mute failure line. */
+  /** live_end's error text, or a live_connect/live_stop/live_mute failure line. */
   error: string | null;
   /**
    * The connection these turns belong to (#809): minted by the renderer on
-   * each successful `live_start` and kept until the next start replaces it,
+   * each successful `live_connect` and kept until the next start replaces it,
    * so history keys on it even after `ended`. Null before any local start.
    * `applyLivePhase` deliberately leaves it alone — omp owns the phase
    * machine; the start/stop actions own this field's lifecycle.
@@ -137,15 +139,51 @@ export function parseLivePhaseFrame(frame: unknown): LivePhase | null {
     : null;
 }
 
-/** Tolerant: both levels present and finite, or the frame drops. */
-export function parseLiveLevelsFrame(
-  frame: unknown,
-): { input: number; output: number } | null {
-  const input = frameField(frame, "input");
-  const output = frameField(frame, "output");
-  if (typeof input !== "number" || !Number.isFinite(input)) return null;
-  if (typeof output !== "number" || !Number.isFinite(output)) return null;
-  return { input, output };
+/** One context append for the open call (issue #967). `commentary` is the
+ *  silent channel — context the model keeps but does not speak; omitted
+ *  means speakable, which the server answers with a spoken response. */
+export interface LiveContextAppend {
+  text: string;
+  channel?: "commentary";
+}
+
+/** The realtime client event that adds context to the open call (verified
+ *  on omp 18.14.0's `gpt-live-1-codex` call, issue #967). It is the only
+ *  client event that makes the model speak unprompted: `response.create` is
+ *  refused on a client-delegation session, and `session.update` may not
+ *  change instructions after initialization. */
+export function liveContextAppendEvent(append: LiveContextAppend): object {
+  return {
+    type: "session.context.append",
+    ...(append.channel === undefined ? {} : { channel: append.channel }),
+    content: [{ type: "input_text", text: append.text }],
+  };
+}
+
+/** omp's server-side cap per context append (omp 18.14.0 `live/protocol.ts`
+ *  MAX_CONTEXT_APPEND_BYTES; codex `CONTEXT_APPEND_MAX_BYTES`). */
+const CONTEXT_APPEND_MAX_BYTES = 500;
+
+/** Splits text into ≤ 500-byte UTF-8 chunks on code-point boundaries, the
+ *  same split omp's `chunkContextText` makes. */
+function contextAppendChunks(text: string): string[] {
+  const chunks: string[] = [];
+  let start = 0;
+  let bytes = 0;
+  let index = 0;
+  for (const char of text) {
+    const point = char.codePointAt(0)!;
+    const size = point <= 0x7f ? 1 : point <= 0x7ff ? 2 : point <= 0xffff ? 3 : 4;
+    if (bytes + size > CONTEXT_APPEND_MAX_BYTES) {
+      chunks.push(text.slice(start, index));
+      start = index;
+      bytes = 0;
+    }
+    bytes += size;
+    index += char.length;
+  }
+  chunks.push(text.slice(start));
+  return chunks;
 }
 
 /** Tolerant: role/turn/text required, `final` defaults false when absent. */
@@ -172,7 +210,7 @@ export function applyLivePhase(snap: LiveSnapshot, phase: LivePhase): LiveSnapsh
   };
 }
 
-/** Replaces both levels, clamped — omp reports RMS in [0, 1], at most every 100 ms. */
+/** Replaces both levels, clamped — the renderer's peer meters RMS in [0, 1] every 100 ms. */
 export function applyLiveLevels(
   snap: LiveSnapshot,
   input: number,
@@ -311,7 +349,7 @@ export function parseLiveHistoryLine(line: string): LiveHistoryTurn | null {
 
 /**
  * Live voice park/resume (issue #811). A parked tab's call is closed, so the
- * resumed `live_start` carries the conversation as `instructions`: omp's
+ * resumed `live_connect` carries the conversation as `instructions`: omp's
  * handler passes them to its controller and a passed string REPLACES the
  * default prompt, which is why the base below is vendored verbatim and the
  * recap rides behind it. Pure functions only; the renderer owns when they run.
@@ -345,7 +383,7 @@ export function appendLiveRecap(
   return next;
 }
 
-/** Ceilings the instruction builder trims to. If a `live_start` ever fails
+/** Ceilings the instruction builder trims to. If a `live_connect` ever fails
  *  on payload size, record omp's server limit here (issue #811). */
 export const LIVE_INSTRUCTION_LIMITS = {
   recapTurns: 20,
@@ -354,14 +392,15 @@ export const LIVE_INSTRUCTION_LIMITS = {
   totalChars: 16_000,
 } as const;
 
-/** The connecting watchdog (#827): live_start acked (or a connecting phase
+/** The connecting watchdog (#827): live_connect acked (or a connecting phase
  *  was observed) and no further phase arrived. Kept under the 30 s RPC
  *  command budget so an unacked start still fails through the ack path
  *  instead. */
 export const LIVE_CONNECT_TIMEOUT_MS = 20_000;
 
 /** Hold-to-talk (ADR-0070). omp's own speech threshold, vendored from
- *  omp 18.13.3 `live/output-activity.ts` OUTPUT_ACTIVE_LEVEL. */
+ *  omp 18.13.3 `live/output-activity.ts` OUTPUT_ACTIVE_LEVEL; the renderer's
+ *  peer meters the same RMS scale (ADR-0071). */
 export const LIVE_OUTPUT_ACTIVE_LEVEL = 0.015;
 /** After a talk release the mic stays open this long so the realtime
  *  server hears trailing silence and ends the user's turn. */
@@ -406,7 +445,19 @@ export interface LiveInstructions {
   instructions: string;
   /** Prefix of `pending` the builder carried; the clear rule consumes it. */
   pendingUsed: number;
+  /**
+   * Context appends the call must receive once its session starts, in order
+   * (issue #967). The realtime model neither opens a response from its
+   * instructions nor reads them back, so a resumed call is told its
+   * conversation as a silent commentary recap, then each carried result in
+   * omp's own final-message shape — which it speaks.
+   */
+  contextAppends: LiveContextAppend[];
 }
+
+/** omp 18.14.0 `live/prompts/agent-final-message.md`: the frame its own
+ *  controller appends when a delegated turn ends on an open call. */
+const agentFinalMessage = (message: string): string => `"Agent Final Message":\n\n${message}`;
 
 const recapLine = (turn: LiveTurn): string =>
   `${turn.role === "user" ? "User" : "Assistant"}: ${turn.text}`;
@@ -487,11 +538,22 @@ export function buildLiveInstructions(opts: {
     entries = entries.slice(0, -1);
     text = assemble();
   }
-  return { instructions: text, pendingUsed: entries.length };
+  const recapAppends: LiveContextAppend[] = recapLines.length === 0
+    ? []
+    : contextAppendChunks(`Earlier in this conversation, oldest first:\n${recapLines.join("\n")}`)
+        .map((chunk) => ({ text: chunk, channel: "commentary" }));
+  return {
+    instructions: text,
+    pendingUsed: entries.length,
+    contextAppends: [
+      ...recapAppends,
+      ...entries.flatMap((entry) => contextAppendChunks(agentFinalMessage(entry)).map((chunk) => ({ text: chunk }))),
+    ],
+  };
 }
 
 /** Vendored verbatim from omp 18.8.6 `live/prompts/live-instructions.md`;
- *  re-verified identical against omp 18.13.3
+ *  re-verified identical against omp 18.14.0 (UTF-16 in the binary)
  *  (issue #811). Re-check when the bundled omp is bumped — risk: prompt
  *  drift. `{{firstName}}`/`{{username}}` are rendered by omp's placeholder
  *  pass on any passed string, verified on the 18.8.6 binary. */

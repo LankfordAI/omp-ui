@@ -73,6 +73,7 @@ omp's own final-message delivery speaks the result again. The visibility park
   showed a resumed call carrying `<pending-results>` stays silent until the
   user speaks, despite the "speak immediately" wording: omp sends nothing
   after connect, and the realtime model does not open a response from
-  instructions alone. Tracked as a separate bug (#967).
+  instructions alone. Fixed by [ADR-0071](0071-live-voice-runs-on-a-renderer-owned-peer.md)
+  (#967): the renderer owns the peer and appends the results.
 - No hands-free mode remains. The mic-privacy reason parking existed is
   covered by hold-to-talk.

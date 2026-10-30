@@ -2766,7 +2766,7 @@ describe("PlanReview live voice tray", () => {
     recording.mockReset().mockResolvedValue({ status: "ready" });
     useStore.setState({
       rpc: { [TAB]: tabState({
-        capabilities: capabilities("18.5.1"),
+        capabilities: capabilities("18.14.0"),
         planVoice: { ready: true, busy: false, error: null },
       }) },
       exited: {}, liveVoice: {}, liveReplay: null,
@@ -2783,7 +2783,7 @@ describe("PlanReview live voice tray", () => {
     render();
     // Floor plan §6: the section stays mounted and names the requirement.
     expect(tray()).not.toBeNull();
-    expect(tray()!.getAttribute("title")).toContain("18.5.1");
+    expect(tray()!.getAttribute("title")).toContain("18.14.0");
     expect(accessibleButton("start live voice").disabled).toBe(true);
     expect(buttonByText("refine").disabled).toBe(false);
   });

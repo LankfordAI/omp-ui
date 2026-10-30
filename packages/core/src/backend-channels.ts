@@ -713,7 +713,7 @@ export const BACKEND_CHANNELS = {
   /**
    * Persist one final spoken turn (#817). The renderer dispatches it the
    * moment a final `live_transcript` frame lands, keyed by the connectionId
-   * it minted at `live_start` — the same identity #809's refs use. Appended
+   * it minted at `live_connect` — the same identity #809's refs use. Appended
    * to `<lineageDir>/live-transcript/<connectionId>.jsonl`; an invalid
    * connection id or over-cap text is dropped, never written.
    */

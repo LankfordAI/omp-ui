@@ -1324,6 +1324,8 @@ export interface UiStore extends SettingsSlice, UpdatesSlice, LabSlice, StatsSli
     opts?: { quiet?: boolean; captureId?: (id: string) => void },
   ): Promise<unknown>;
   handleRpcFrame(tabId: string, frame: object): void;
+  /** The renderer peer's microphone and speaker meters (ADR-0071). */
+  reportLiveLevels(tabId: string, input: number, output: number): void;
   answerExtension(
     tabId: string,
     request: unknown,
@@ -1404,8 +1406,9 @@ export interface UiStore extends SettingsSlice, UpdatesSlice, LabSlice, StatsSli
   /** Stops omp's live voice session (issue #778); `live_end` is the truth.
    *  Clears the #811 armed intent and the recap/pending buffers. */
   stopLiveVoice(tabId: string): Promise<void>;
-  /** Hold-to-talk (ADR-0070): opens the open call's microphone while held;
-   *  a release closes it after LIVE_TALK_RELEASE_TAIL_MS. Owner-only. */
+  /** Hold-to-talk (ADR-0070): opens the open call's microphone while held
+   *  (the peer's track and omp's `live_mute`); a release closes it after
+   *  LIVE_TALK_RELEASE_TAIL_MS. Owner-only. */
   setLiveTalking(tabId: string, talking: boolean): Promise<void>;
   /** Drops the live error strip; keeps a running session's snapshot. */
   clearLiveError(tabId: string): void;

@@ -100,12 +100,16 @@ import {
   applyLivePhase,
   buildLiveInstructions,
   emptyLiveSnapshot,
+  liveContextAppendEvent,
   LIVE_TALK_RELEASE_TAIL_MS,
   LIVE_CONNECT_TIMEOUT_MS,
+  type LiveContextAppend,
+  type LiveInstructions,
   type LiveSnapshot,
   type LivePlanReviewContext,
 } from "@omp-ui/core/live-voice";
 import { liveAudioLocalToClient, supportsNativeLive } from "../../lib/live-voice";
+import { openLivePeer, type LivePeer } from "../../lib/live-peer";
 import { planReviewText } from "../../lib/plan-review-text";
 import type { CompactionOutcome, RpcTabState, UiStore, WordPredictionFeedback } from "../types";
 
@@ -1124,12 +1128,12 @@ export function createSessionParamsSlice(
   };
 
   /** Both the promise slot and its cleanup are scoped to one process lifetime. */
-  const trackLiveDispatch = (
+  const trackLiveDispatch = <T>(
     tabId: string,
     rt: TabRuntime,
     field: "liveStartInFlight" | "liveStopInFlight",
-    dispatch: Promise<unknown>,
-  ): Promise<unknown> => {
+    dispatch: Promise<T>,
+  ): Promise<T> => {
     const tracked = dispatch.finally(() => {
       if (peekTabRuntime(tabId) === rt && rt[field] === tracked) {
         m.patchRuntime(tabId, { [field]: undefined });
@@ -1141,6 +1145,70 @@ export function createSessionParamsSlice(
       publishPlanVoice(tabId);
     }
     return tracked;
+  };
+
+  /** Closes the call's peer (mic, speaker, meters) — only the named one when
+   *  given, so a late continuation never closes its replacement. */
+  const releaseLivePeer = (rt: TabRuntime, peer?: LivePeer): void => {
+    const current = rt.livePeer;
+    if (current === undefined || (peer !== undefined && current !== peer)) return;
+    rt.livePeer = undefined;
+    current.close();
+  };
+
+  /** Every `live_stop` releases the peer first: omp discards the call, so
+   *  the microphone must not outlive the dispatch. */
+  const dispatchLiveStop = (tabId: string, rt: TabRuntime): Promise<unknown> => {
+    releaseLivePeer(rt);
+    return m.runCommand(tabId, { type: "live_stop" }, { quiet: true });
+  };
+
+  /** The peer's audio path died mid-call: say so and close omp's half; its
+   *  `live_end` folds the recap and parks an armed session as usual. */
+  const failLivePeer = (tabId: string, rt: TabRuntime, peer: LivePeer): void => {
+    if (rt.livePeer !== peer) return;
+    releaseLivePeer(rt, peer);
+    const current = get().rpc[tabId]?.live;
+    if (peekTabRuntime(tabId) !== rt || !hasLiveCall(current)) return;
+    livePatch(tabId, { ...current, error: t("composer.live.audioFailed") });
+    if (rt.liveStopInFlight === undefined)
+      void trackLiveDispatch(tabId, rt, "liveStopInFlight", dispatchLiveStop(tabId, rt));
+  };
+
+  /**
+   * Opens the call's peer (ADR-0071). `appends` ride the data channel, in
+   * order, once the realtime session starts: the model neither speaks from
+   * instructions nor reads them back (issue #967), so the recap rides the
+   * silent commentary channel and each stored answer is appended the way
+   * omp delivers a final message. Null when the mic or peer could not open.
+   */
+  const openCallPeer = async (
+    tabId: string,
+    rt: TabRuntime,
+    appends: readonly LiveContextAppend[],
+  ): Promise<LivePeer | null> => {
+    let pending = appends;
+    let opened: LivePeer | undefined;
+    try {
+      opened = await openLivePeer({
+        onSessionStarted: () => {
+          if (pending.length === 0 || opened === undefined || rt.livePeer !== opened) return;
+          const toSend = pending;
+          pending = [];
+          for (const append of toSend) opened.send(liveContextAppendEvent(append));
+        },
+        onLevels: (input, output) => {
+          if (opened !== undefined && rt.livePeer === opened && peekTabRuntime(tabId) === rt)
+            get().reportLiveLevels(tabId, input, output);
+        },
+        onFailed: () => {
+          if (opened !== undefined) failLivePeer(tabId, rt, opened);
+        },
+      });
+    } catch {
+      return null;
+    }
+    return opened;
   };
 
   const liveAdmitted = (tabId: string): boolean => {
@@ -1158,7 +1226,7 @@ export function createSessionParamsSlice(
     opts?: { instructions?: string },
   ): Promise<void> => {
     if (!valid() || !liveAdmitted(tabId) || rt.liveStartInFlight !== undefined) return;
-    // #816: live_start arms the *host's* microphone; only a client that is
+    // #816: the call opens the *host's* microphone; only a client that is
     // the host may dispatch it. Render gates already hide the control —
     // this closes the store-level path (handoff carry-over, hotkeys, any
     // future caller).
@@ -1174,8 +1242,8 @@ export function createSessionParamsSlice(
     const briefOverview = opts?.instructions === undefined && review !== null &&
       get().rpc[tabId]?.planDeferred !== true &&
       (request?.briefOverview === true || rt.liveReviewAutoRequestedGateKey !== review.gateKey);
-    const built = opts?.instructions !== undefined
-      ? { instructions: opts.instructions, pendingUsed: 0 }
+    const built: LiveInstructions = opts?.instructions !== undefined
+      ? { instructions: opts.instructions, pendingUsed: 0, contextAppends: [] }
       : buildLiveInstructions({
           recap: rt.liveRecap,
           pending: rt.livePendingFeedback,
@@ -1186,20 +1254,55 @@ export function createSessionParamsSlice(
     if (briefOverview && review !== null)
       m.patchRuntime(tabId, { liveReviewAutoRequestedGateKey: review.gateKey });
     const beforeStart = get().rpc[tabId]?.live;
-    const startDispatch = m.runCommand(tabId, { type: "live_start", instructions: built.instructions }, { quiet: true });
-    // Hold-to-talk (ADR-0070): the start frame is already on the wire; omp
-    // builds the controller synchronously and runs live_mute on the serial
-    // tail, so the microphone is closed before recording begins. A start that
-    // fails before its controller exists answers this with an error — ignored.
-    void get().rpcCommand(tabId, { type: "live_mute", muted: true }, { quiet: true }).catch(() => undefined);
-    const resp = await trackLiveDispatch(tabId, rt, "liveStartInFlight", startDispatch);
+    // One tracked start (ADR-0071): open the peer (microphone + ICE), hand
+    // omp its offer, apply the answer. `resp` is omp's success or null;
+    // `failure` names why a start that never reached omp's answer failed.
+    const start = async (): Promise<{ resp: unknown; failure?: MessageKey }> => {
+      const peer = await openCallPeer(tabId, rt, built.contextAppends);
+      if (peer === null) return { resp: null, failure: "composer.live.micUnavailable" };
+      if (!valid() || liveVoiceGeneration(tabId) !== generation || !liveAdmitted(tabId) ||
+        peekTabRuntime(tabId) !== rt) {
+        peer.close();
+        return { resp: null };
+      }
+      rt.livePeer = peer;
+      const connecting = m.runCommand(
+        tabId,
+        { type: "live_connect", sdpOffer: peer.offer, instructions: built.instructions },
+        { quiet: true },
+      );
+      // Hold-to-talk (ADR-0070): the connect frame is already on the wire;
+      // omp builds the controller synchronously and runs live_mute on the
+      // serial tail, so its phase rests at `muted`. The peer's track starts
+      // disabled, so nothing is transmitted until a hold. A start that fails
+      // before its controller exists answers this with an error — ignored.
+      void get().rpcCommand(tabId, { type: "live_mute", muted: true }, { quiet: true }).catch(() => undefined);
+      const resp = await connecting;
+      const answer = strField(respData(resp), "sdpAnswer");
+      if (resp === null) {
+        releaseLivePeer(rt, peer);
+        return { resp: null };
+      }
+      try {
+        if (answer === undefined) throw new Error("live_connect returned no sdpAnswer");
+        await peer.accept(answer);
+      } catch {
+        // omp opened its half; close it so a retry is lawful.
+        if (peekTabRuntime(tabId) === rt && rt.liveStopInFlight === undefined)
+          void trackLiveDispatch(tabId, rt, "liveStopInFlight", dispatchLiveStop(tabId, rt));
+        else releaseLivePeer(rt, peer);
+        return { resp: null, failure: "composer.live.audioFailed" };
+      }
+      return { resp };
+    };
+    const { resp, failure } = await trackLiveDispatch(tabId, rt, "liveStartInFlight", start());
     if (!valid(resp !== null) || liveVoiceGeneration(tabId) !== generation || !liveAdmitted(tabId)) {
       // A late successful call is closed without restoring intent or markers.
       // A new process with the same id is not this call's lifetime.
       if (resp !== null && peekTabRuntime(tabId) === rt && rt.liveStopInFlight === undefined) {
         const closing = get().rpc[tabId]?.live;
         void trackLiveDispatch(tabId, rt, "liveStopInFlight",
-          m.runCommand(tabId, { type: "live_stop" }, { quiet: true }).then((stopped) => {
+          dispatchLiveStop(tabId, rt).then((stopped) => {
             const current = get().rpc[tabId]?.live;
             if (peekTabRuntime(tabId) !== rt || current?.connectionId !== closing?.connectionId)
               return stopped;
@@ -1219,7 +1322,7 @@ export function createSessionParamsSlice(
     m.patchRuntime(tabId, { liveReviewExplicitBriefingKey: undefined });
     if (resp === null) {
       m.patchRuntime(tabId, { liveReviewFailedSourceKey: review?.sourceKey ?? null });
-      livePatch(tabId, { ...emptyLiveSnapshot(), ended: true, error: t("composer.live.sendFailed") });
+      livePatch(tabId, { ...emptyLiveSnapshot(), ended: true, error: t(failure ?? "composer.live.sendFailed") });
       publishPlanVoice(tabId);
       return;
     }
@@ -1289,8 +1392,7 @@ export function createSessionParamsSlice(
       liveParked: true,
     });
     m.syncLiveVoiceBadge(tabId);
-    const resp = await trackLiveDispatch(tabId, rt, "liveStopInFlight",
-      m.runCommand(tabId, { type: "live_stop" }, { quiet: true }));
+    const resp = await trackLiveDispatch(tabId, rt, "liveStopInFlight", dispatchLiveStop(tabId, rt));
     const current = get().rpc[tabId]?.live;
     if (peekTabRuntime(tabId) !== rt || current === null || current === undefined ||
       current.connectionId !== live.connectionId) return false;
@@ -1424,9 +1526,10 @@ export function createSessionParamsSlice(
     m.patchRuntime(tabId, clearLiveVoiceState);
     m.syncLiveVoiceBadge(tabId);
     publishPlanVoice(tabId);
+    // The microphone closes even when omp's call already ended or a stop is out.
+    releaseLivePeer(rt);
     if (current === null || current === undefined || current.ended || existingStop !== undefined) return;
-    const resp = await trackLiveDispatch(tabId, rt, "liveStopInFlight",
-      m.runCommand(tabId, { type: "live_stop" }, { quiet: true }));
+    const resp = await trackLiveDispatch(tabId, rt, "liveStopInFlight", dispatchLiveStop(tabId, rt));
     const after = get().rpc[tabId]?.live;
     if (peekTabRuntime(tabId) !== rt || after === null || after === undefined ||
       after.connectionId !== current.connectionId) return;
@@ -1443,6 +1546,9 @@ export function createSessionParamsSlice(
     const token = {};
     liveTalkRequests.set(rt, token);
     const connectionId = get().rpc[tabId]?.live?.connectionId;
+    // The peer's track is the microphone gate (ADR-0071); live_mute keeps
+    // omp's phase machine in step with it.
+    rt.livePeer?.setMicEnabled(!muted);
     const resp = await m.runCommand(tabId, { type: "live_mute", muted }, { quiet: true });
     if (liveTalkRequests.get(rt) !== token) return; // a newer request owns the outcome
     liveTalkRequests.delete(rt);
@@ -1452,6 +1558,7 @@ export function createSessionParamsSlice(
     // only reachable when omp has no controller (the call is gone) or the
     // command timed out; either way the strip says so.
     if (!muted && rt.liveTalking === true) {
+      rt.livePeer?.setMicEnabled(false);
       m.patchRuntime(tabId, { liveTalking: false });
       m.syncLiveVoiceBadge(tabId);
     }
@@ -1511,8 +1618,7 @@ export function createSessionParamsSlice(
     publishPlanVoice(tabId);
     get().reconcileLivePlanReview(tabId);
     if (rt !== undefined && rt.liveVoiceOwner === true && rt.liveStopInFlight === undefined) {
-      void trackLiveDispatch(tabId, rt, "liveStopInFlight",
-        m.runCommand(tabId, { type: "live_stop" }, { quiet: true }));
+      void trackLiveDispatch(tabId, rt, "liveStopInFlight", dispatchLiveStop(tabId, rt));
     }
   };
 

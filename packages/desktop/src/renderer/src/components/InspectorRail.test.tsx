@@ -1151,7 +1151,7 @@ describe("Side questions pane (issue #775)", () => {
   beforeEach(() => backendMock.rpcSend.mockReset());
 
   it("opens only its own pane from the Ask group and refreshes on mount", () => {
-    useStore.setState({ rpc: { [TAB]: runtime({ capabilities: cap("18.7.0") }) } });
+    useStore.setState({ rpc: { [TAB]: runtime({ capabilities: cap("18.14.0") }) } });
     renderRail();
     openPane("side questions");
     expect(memberTab("side questions")?.getAttribute("aria-selected")).toBe("true");
@@ -1177,7 +1177,7 @@ describe("Side questions pane (issue #775)", () => {
     useStore.setState({
       rpc: {
         [TAB]: runtime({
-          capabilities: cap("18.7.0"),
+          capabilities: cap("18.14.0"),
           sideQuestions: snapshot({
             topics: [topic("a", "one", "complete", "x"), topic("b", "two", "error"), topic("c", "three", "cancelled")],
           }),
@@ -1194,7 +1194,7 @@ describe("Side questions pane (issue #775)", () => {
     useStore.setState({
       rpc: {
         [TAB]: runtime({
-          capabilities: cap("18.7.0"),
+          capabilities: cap("18.14.0"),
           sideQuestions: snapshot({
             topics: [topic("a", "why is the sky blue?", "complete", "Rayleigh scattering"), topic("b", "broken one", "error")],
           }),
@@ -1218,7 +1218,7 @@ describe("Side questions pane (issue #775)", () => {
     useStore.setState({
       rpc: {
         [TAB]: runtime({
-          capabilities: cap("18.7.0"),
+          capabilities: cap("18.14.0"),
           sideQuestions: snapshot({ active: { topicId: "t", question: "in flight", answer: "partial words" } }),
         }),
       },
@@ -1239,7 +1239,7 @@ describe("Side questions pane (issue #775)", () => {
     useStore.setState({
       rpc: {
         [TAB]: runtime({
-          capabilities: cap("18.7.0"),
+          capabilities: cap("18.14.0"),
           sideQuestions: snapshot({ available: false, unavailableReason: "no ephemeral API here", busy: "still running" }),
         }),
       },
@@ -1255,7 +1255,7 @@ describe("Side questions pane (issue #775)", () => {
       sideQuestionTitles: { a: "/sitrep foo" },
       rpc: {
         [TAB]: runtime({
-          capabilities: cap("18.7.0"),
+          capabilities: cap("18.14.0"),
           sideQuestions: snapshot({ topics: [topic("a", "Give a sitrep about foo", "complete", "all good")] }),
         }),
       },
@@ -1272,7 +1272,7 @@ describe("Side questions pane (issue #775)", () => {
     useStore.setState({
       rpc: {
         [TAB]: runtime({
-          capabilities: cap("18.7.0"),
+          capabilities: cap("18.14.0"),
           sideQuestions: snapshot({
             topics: [
               {

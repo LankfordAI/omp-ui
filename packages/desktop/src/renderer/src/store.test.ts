@@ -454,7 +454,7 @@ describe("plan review relaunch lifetime", () => {
     });
     h.useStore.getState().setPlanReadiness(h.TAB, { sourceKey, status: "ready" });
     expect(h.useStore.getState().rpc[h.TAB]!.planReadiness).toBeNull();
-    expect(h.sent.some((s) => s.cmd.type === "live_start")).toBe(false);
+    expect(h.sent.some((s) => s.cmd.type === "live_connect")).toBe(false);
     spawning.resolve({ tabId: h.TAB });
     await resuming;
   });
@@ -736,6 +736,8 @@ describe("live voice park/resume (issue #811)", () => {
     vi.resetModules();
     const { useStore: fresh } = await import("./store");
     const { peekTabRuntime } = await import("./store/slices/shared");
+    const { setLivePeerFactoryForTests } = await import("./lib/live-peer");
+    setLivePeerFactoryForTests(h.fakeLivePeerFactory);
     await fresh.getState().init();
     h.sent.length = 0;
     return { fresh, peek: peekTabRuntime };
@@ -754,7 +756,8 @@ describe("live voice park/resume (issue #811)", () => {
           id: cmd.id,
           command: cmd.type,
           success: true,
-          data: {},
+          // omp answers every successful live_connect with the peer's answer.
+          data: cmd.type === "live_connect" ? { sdpAnswer: "v=0 fake-answer" } : {},
         });
       }
     }
@@ -769,14 +772,14 @@ describe("live voice park/resume (issue #811)", () => {
     await h.flushMicrotasks();
     // The start must be on the wire before its ack; a silently no-op'ed
     // start would otherwise hang here instead of failing at the gate.
-    const start = h.sent.find((s) => s.tabId === tabId && s.cmd.type === "live_start");
+    const start = h.sent.find((s) => s.tabId === tabId && s.cmd.type === "live_connect");
     if (start === undefined) throw new Error(`startLiveVoice dispatched nothing for ${tabId}`);
     fresh.getState().handleRpcFrame(tabId, {
       type: "response",
       id: start.cmd.id,
-      command: "live_start",
+      command: "live_connect",
       success: true,
-      data: {},
+      data: { sdpAnswer: "v=0 fake-answer" },
     });
     await starting;
     // The ack lands `live: null` on the rpc entry; a live_phase frame
@@ -794,8 +797,8 @@ describe("live voice park/resume (issue #811)", () => {
     fresh.setState({
       tabs: [tabInfo({ tabId: A }), tabInfo({ tabId: B })],
       rpc: {
-        [A]: rpcTabState({ capabilities: version("18.7.0"), live: aLive }),
-        [B]: rpcTabState({ capabilities: version("18.7.0"), live: bLive }),
+        [A]: rpcTabState({ capabilities: version("18.14.0"), live: aLive }),
+        [B]: rpcTabState({ capabilities: version("18.14.0"), live: bLive }),
       },
       activeTabId: A,
     });
@@ -843,7 +846,7 @@ describe("live voice park/resume (issue #811)", () => {
     expect(fresh.getState().rpc[A]!.planDeferred).toBe(false);
     expect(fresh.getState().rpc[A]!.planSourceKey).toBe(sourceKey);
     expect(sentOf("live_stop")).toEqual([]);
-    expect(sentOf("live_start")).toEqual([]);
+    expect(sentOf("live_connect")).toEqual([]);
     expect(runtime.liveReviewAutoRequestedGateKey).toBe(gateKey);
     const stopping = fresh.getState().stopLiveVoice(A);
     await settleSends(fresh);
@@ -907,8 +910,10 @@ describe("live voice park/resume (issue #811)", () => {
       await settleSends(fresh);
       h.sent.length = 0;
       fresh.getState().focusTab(A);
+      // The wake opens its peer (microphone + ICE) before live_connect is sent.
+      await h.flushMicrotasks();
 
-      const starts = sentOf("live_start");
+      const starts = sentOf("live_connect");
       expect(starts).toHaveLength(1);
       // `cmd` is the harness's untyped record; stringContaining narrows at
       // the assertion instead of a cast at the read.
@@ -944,13 +949,14 @@ describe("live voice park/resume (issue #811)", () => {
       h.sent.length = 0;
 
       fresh.getState().focusTab(B);
+      await h.flushMicrotasks();
 
       // Both were armed while viewed: A parks as the parked B resumes.
       expect(sentOf("live_stop")).toEqual([
         { tabId: A, cmd: expect.objectContaining({ type: "live_stop" }) },
       ]);
-      expect(sentOf("live_start")).toEqual([
-        { tabId: B, cmd: expect.objectContaining({ type: "live_start" }) },
+      expect(sentOf("live_connect")).toEqual([
+        { tabId: B, cmd: expect.objectContaining({ type: "live_connect" }) },
       ]);
       expect(fresh.getState().rpc[A]?.live?.ended).toBe(false); // stop not acked yet
       await settleSends(fresh);
@@ -983,10 +989,10 @@ describe("live voice park/resume (issue #811)", () => {
 
       // The resume opens muted: live_start is immediately followed by the gate.
       const ofA = h.sent
-        .filter((s) => s.tabId === A && (s.cmd.type === "live_start" || s.cmd.type === "live_mute"))
+        .filter((s) => s.tabId === A && (s.cmd.type === "live_connect" || s.cmd.type === "live_mute"))
         .map((s) => s.cmd);
       expect(ofA).toEqual([
-        expect.objectContaining({ type: "live_start" }),
+        expect.objectContaining({ type: "live_connect" }),
         expect.objectContaining({ type: "live_mute", muted: true }),
       ]);
       expect(peek(A)?.liveTalking).toBe(false);
@@ -1014,7 +1020,7 @@ describe("live voice park/resume (issue #811)", () => {
       expect(fresh.getState().liveVoice[A]).toBeUndefined();
 
       fresh.getState().focusTab(A);
-      expect(sentOf("live_start")).toEqual([]);
+      expect(sentOf("live_connect")).toEqual([]);
     } finally {
       platformMocks.electron = false;
     }
@@ -1069,7 +1075,7 @@ describe("live voice park/resume (issue #811)", () => {
     const { fresh, peek } = await freshGuardedStore();
     fresh.setState({
       tabs: [tabInfo({ tabId: A, mode: "pty" }), tabInfo({ tabId: B, mode: "rpc-ui" })],
-      rpc: { [B]: rpcTabState({ capabilities: version("18.7.0") }) },
+      rpc: { [B]: rpcTabState({ capabilities: version("18.14.0") }) },
       activeTabId: A,
     });
 
@@ -1675,7 +1681,7 @@ describe("live voice handoff on a web client (issue #816)", () => {
       rpc: {
         ...state.rpc,
         [h.TAB]: rpcTabState({
-          capabilities: version("18.7.0"),
+          capabilities: version("18.14.0"),
           live: liveSnap("listening"),
         }),
       },
@@ -1698,7 +1704,7 @@ describe("live voice handoff on a web client (issue #816)", () => {
         "fresh-tab": rpcTabState({
           status: "ready",
           planText: null,
-          capabilities: version("18.7.0"),
+          capabilities: version("18.14.0"),
         }),
       },
     }));
@@ -1719,11 +1725,11 @@ describe("live voice handoff on a web client (issue #816)", () => {
     // only); the hardware gate silences the destination's start entirely.
     expect(
       h.sent
-        .filter((s) => s.cmd.type === "live_stop" || s.cmd.type === "live_start")
+        .filter((s) => s.cmd.type === "live_stop" || s.cmd.type === "live_connect")
         .map((s) => ({ tabId: s.tabId, type: s.cmd.type })),
     ).toEqual([{ tabId: h.TAB, type: "live_stop" }]);
     expect(
-      h.sent.some((s) => s.tabId === "fresh-tab" && s.cmd.type === "live_start"),
+      h.sent.some((s) => s.tabId === "fresh-tab" && s.cmd.type === "live_connect"),
     ).toBe(false);
     // The hand-off itself is undisturbed by the gate.
     expect(h.mockBackend.hibernatePlanSource).toHaveBeenCalledWith(h.TAB, "fresh-tab");

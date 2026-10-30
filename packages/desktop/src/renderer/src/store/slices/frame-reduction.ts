@@ -35,7 +35,6 @@ import {
   liveOutputSpeaking,
   emptyLiveSnapshot,
   isLiveSessionActive,
-  parseLiveLevelsFrame,
   parseLivePhaseFrame,
   parseLiveTranscriptFrame,
 } from "@omp-ui/core/live-voice";
@@ -107,7 +106,7 @@ import type { UiStore } from "../types";
 
 export type FrameReductionSlice = Pick<
   UiStore,
-  "handleRpcFrame" | "appendNotice"
+  "handleRpcFrame" | "appendNotice" | "reportLiveLevels"
 >;
 
 /**
@@ -1014,20 +1013,6 @@ export function createFrameReductionSlice(
           }
           return;
         }
-        case "live_levels": {
-          // ≤10 Hz; a direct patch is fine — btw deltas patch at a higher rate.
-          const levels = parseLiveLevelsFrame(frame);
-          if (levels !== null) {
-            const live = tab.live ?? emptyLiveSnapshot();
-            m.patchRpc(tabId, { live: applyLiveLevels(live, levels.input, levels.output) });
-            // The first level report can be a late view's only evidence of an
-            // existing call. Publish review ownership without inventing a phase.
-            if (tab.live?.phase == null && tab.live?.levels == null && tab.planReview !== null)
-              get().reconcileLivePlanReview(tabId);
-            scheduleOrphanRestart(tabId);
-          }
-          return;
-        }
         case "live_transcript": {
           // Replaces the entry with the same (role, turn); never appended to
           // the transcript, whose unknown-type path would drop the frames.
@@ -1071,6 +1056,12 @@ export function createFrameReductionSlice(
           cancelLiveTimer(tabId, "connect");
           cancelLiveTimer(tabId, "talkTail");
           cancelLiveTimer(tabId, "orphan");
+          // omp's half is gone; the renderer's mic and speaker go with it.
+          const endedPeer = m.runtime(tabId).livePeer;
+          if (endedPeer !== undefined) {
+            m.patchRuntime(tabId, { livePeer: undefined });
+            endedPeer.close();
+          }
           if (m.runtime(tabId).liveTalking === true) {
             m.patchRuntime(tabId, { liveTalking: false });
             m.syncLiveVoiceBadge(tabId);
@@ -1148,5 +1139,16 @@ export function createFrameReductionSlice(
     m.appendItem(tabId, noticeItem(text, level));
   };
 
-  return { handleRpcFrame, appendNotice };
+  /** The renderer peer's meters (ADR-0071), edge-triggered at ≤ 10 Hz; a
+   *  direct patch is fine — btw deltas patch at a higher rate. */
+  const reportLiveLevels = (tabId: string, input: number, output: number): void => {
+    const tab = get().rpc[tabId];
+    if (tab === undefined) return;
+    const live = tab.live ?? emptyLiveSnapshot();
+    m.patchRpc(tabId, { live: applyLiveLevels(live, input, output) });
+    // never mid-speech, mid-hold, or mid-work: only a settled idle call restarts
+    scheduleOrphanRestart(tabId);
+  };
+
+  return { handleRpcFrame, appendNotice, reportLiveLevels };
 }

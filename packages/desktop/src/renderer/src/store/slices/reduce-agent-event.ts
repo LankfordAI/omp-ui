@@ -368,7 +368,7 @@ export function reduceAgentEvent(
       if (runtime.liveVoiceOwner === true) {
         // #811: this turn's answer is live-owned (turn flag, cleared at
         // `agent_start`), and this call has heard a spoken request (call
-        // flag, cleared at each `live_start` ack) — together they decide
+        // flag, cleared at each `live_connect` ack) — together they decide
         // who delivers the final answer at `agent_end`.
         runtimePatch.liveDelegatedTurnSeen = true;
         runtimePatch.liveCallSawDelegation = true;

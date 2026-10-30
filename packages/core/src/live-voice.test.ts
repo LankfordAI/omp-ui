@@ -20,7 +20,6 @@ import {
   emptyLiveSnapshot,
   parseLiveAudioRef,
   parseLiveHistoryLine,
-  parseLiveLevelsFrame,
   parseLivePhaseFrame,
   parseLiveTranscriptFrame,
   type LivePhase,
@@ -68,23 +67,7 @@ describe("live phase frames", () => {
   });
 });
 
-describe("live levels frames", () => {
-  it("parses both levels when present and finite", () => {
-    expect(parseLiveLevelsFrame({ type: "live_levels", input: 0.4, output: 0 })).toEqual({
-      input: 0.4,
-      output: 0,
-    });
-  });
-
-  it("drops frames with missing or non-finite levels", () => {
-    expect(parseLiveLevelsFrame({ type: "live_levels", input: 0.5 })).toBeNull();
-    expect(
-      parseLiveLevelsFrame({ type: "live_levels", input: 0.5, output: Number.NaN }),
-    ).toBeNull();
-    expect(parseLiveLevelsFrame({ type: "live_levels", input: "0", output: 0 })).toBeNull();
-    expect(parseLiveLevelsFrame(null)).toBeNull();
-  });
-
+describe("live levels", () => {
   it("clamps levels into [0, 1]", () => {
     const next = applyLiveLevels(fresh(), 1.5, -0.2);
     expect(next.levels).toEqual({ input: 1, output: 0 });
@@ -314,6 +297,7 @@ describe("buildLiveInstructions (#811)", () => {
     const built = buildLiveInstructions({ recap: [], pending: [] });
     expect(built.instructions).toBe(LIVE_BASE_INSTRUCTIONS);
     expect(built.pendingUsed).toBe(0);
+    expect(built.contextAppends).toEqual([]);
   });
 
   it("renders the recap oldest first and keeps pending out when empty", () => {
@@ -326,6 +310,11 @@ describe("buildLiveInstructions (#811)", () => {
       "User: fix the bug\nAssistant: on it",
     );
     expect(built.instructions).not.toContain("<pending-results>");
+    // #967: the model does not read its instructions back, so the recap
+    // also rides the silent commentary channel.
+    expect(built.contextAppends).toEqual([
+      { text: "Earlier in this conversation, oldest first:\nUser: fix the bug\nAssistant: on it", channel: "commentary" },
+    ]);
   });
 
   it("a pending section names the results and counts what it carried", () => {
@@ -333,6 +322,27 @@ describe("buildLiveInstructions (#811)", () => {
     expect(built.instructions).toContain("<pending-results>");
     expect(built.instructions).toContain("done: tests pass");
     expect(built.pendingUsed).toBe(1);
+    // #967: the model neither speaks from instructions nor reads them back,
+    // so each carried result is appended, speakable, in omp's final-message shape.
+    expect(built.contextAppends).toEqual([{ text: '"Agent Final Message":\n\ndone: tests pass' }]);
+  });
+
+  it("appends exactly the carried prefix, after the recap, split at omp's 500-byte cap on code points", () => {
+    const long = "é".repeat(400); // 800 UTF-8 bytes
+    const built = buildLiveInstructions({ recap: [turn("user", 0, "ship it")], pending: [long, "second"], base: "B" });
+    expect(built.pendingUsed).toBe(2);
+    const encoder = new TextEncoder();
+    for (const append of built.contextAppends) expect(encoder.encode(append.text).length).toBeLessThanOrEqual(500);
+    const [recap, ...answers] = built.contextAppends;
+    expect(recap).toEqual({ text: "Earlier in this conversation, oldest first:\nUser: ship it", channel: "commentary" });
+    expect(answers.every((a) => a.channel === undefined)).toBe(true);
+    expect(answers.slice(0, -1).map((a) => a.text).join("")).toBe(`"Agent Final Message":\n\n${long}`);
+    expect(answers.at(-1)!.text).toBe('"Agent Final Message":\n\nsecond');
+    const dropped = buildLiveInstructions({
+      recap: [], pending: ["x"], base: "B".repeat(LIVE_INSTRUCTION_LIMITS.totalChars),
+    });
+    expect(dropped.pendingUsed).toBe(0);
+    expect(dropped.contextAppends).toEqual([]);
   });
 
   it("keeps the newest recapTurns entries", () => {

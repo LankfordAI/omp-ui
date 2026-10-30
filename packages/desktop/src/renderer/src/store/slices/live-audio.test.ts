@@ -37,7 +37,7 @@ const snap = (patch: Partial<LiveSnapshot> = {}): LiveSnapshot => ({
 });
 
 const CAPS = {
-  capabilities: { ompVersion: "18.8.6" } as unknown as CapabilitySnapshot,
+  capabilities: { ompVersion: "18.14.0" } as unknown as CapabilitySnapshot,
 };
 
 function seed(
@@ -120,6 +120,7 @@ describe("startLiveVoice connection identity (#809)", () => {
   const start = async (): Promise<void> => {
     seed({ ended: true }, SESSION, CAPS);
     const promise = h.useStore.getState().startLiveVoice(TAB);
+    await h.flushMicrotasks();
     for (const { tabId, cmd } of [...h.sent]) h.respond(tabId, cmd, { voice: "ash" }, true);
     await promise;
   };
@@ -147,6 +148,7 @@ describe("startLiveVoice connection identity (#809)", () => {
   it("a failed start leaves no connection id", async () => {
     seed({ ended: true }, SESSION, CAPS);
     const promise = h.useStore.getState().startLiveVoice(TAB);
+    await h.flushMicrotasks();
     for (const { tabId, cmd } of [...h.sent]) h.respond(tabId, cmd, {}, false);
     await promise;
     expect(connectionOf()).toBeNull();

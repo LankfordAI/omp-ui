@@ -331,8 +331,8 @@ const liveGuardInstalled = new WeakSet<StoreApi<UiStore>>();
  *
  * Parking keeps `liveArmed` — the user never asked to stop — and folding the
  * spoken turns into the recap before the stop lets the resume's
- * `live_start { instructions }` carry the conversation on (#811). The owner
- * gate (#803) parks only in the renderer whose `live_start` succeeded; a
+ * `live_connect { instructions }` carry the conversation on (#811). The owner
+ * gate (#803) parks only in the renderer whose `live_connect` succeeded; a
  * second client viewing the same tab never disturbs the call. The enter
  * path is idempotent: `startLiveVoice` refuses while a call is open and
  * clears `liveParked` on its ack, so at most one call stays open (AC 6).

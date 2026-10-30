@@ -32,6 +32,49 @@ import type {
 import type { LiveAudioLoad, LiveHistoryEntry } from "@omp-ui/core/live-voice";
 import type { BrowserPaneEnsureResult } from "@omp-ui/core/browser-pane";
 import { backendState as makeBackendState } from "./fixtures";
+import { setLivePeerFactoryForTests, type LivePeer, type LivePeerEvents, type LivePeerFactory } from "../lib/live-peer";
+
+// --- Live peer fake: node has no WebRTC (ADR-0071) --------------------------
+
+/** One renderer peer the store opened: what it sent and how it was left. */
+export interface FakeLivePeer extends LivePeer {
+  events: LivePeerEvents;
+  sentEvents: object[];
+  micEnabled: boolean;
+  closed: boolean;
+  answer: string | null;
+}
+
+const livePeers: FakeLivePeer[] = [];
+/** Records every peer in `livePeers`. A suite that re-evaluates the store
+ *  (`vi.resetModules`) installs it on its fresh `lib/live-peer` instance. */
+const fakeLivePeerFactory: LivePeerFactory = async (events) => {
+  const peer: FakeLivePeer = {
+    events,
+    sentEvents: [],
+    micEnabled: false,
+    closed: false,
+    answer: null,
+    offer: `v=0 fake-offer-${livePeers.length}`,
+    accept: async (answer) => {
+      peer.answer = answer;
+    },
+    setMicEnabled: (enabled) => {
+      peer.micEnabled = enabled;
+    },
+    send: (event) => {
+      if (peer.closed) return false;
+      peer.sentEvents.push(event);
+      return true;
+    },
+    close: () => {
+      peer.closed = true;
+    },
+  };
+  livePeers.push(peer);
+  return peer;
+};
+setLivePeerFactoryForTests(fakeLivePeerFactory);
 
 // --- Bridge mock: store.ts reads window.ompBackend at module load -----------
 
@@ -543,7 +586,13 @@ function respond(
     id: cmd.id,
     command: cmd.type,
     success,
-    ...(success ? { data } : { error: String(data) }),
+    // omp answers every successful live_connect with the peer's SDP answer;
+    // a test that cares supplies its own.
+    ...(!success
+      ? { error: String(data) }
+      : cmd.type === "live_connect" && typeof data === "object" && data !== null
+        ? { data: { sdpAnswer: "v=0 fake-answer", ...data } }
+        : { data }),
   });
 }
 
@@ -574,6 +623,7 @@ beforeEach(() => {
   rpcCommandMachinery.resetForTests();
   resetTabRuntimesForTests();
   sent.length = 0;
+  livePeers.length = 0;
   localStorageStub.clear();
   openedUrls.length = 0;
   backendState = makeBackendState();
@@ -632,6 +682,9 @@ export const h = {
   registerShellWriter,
   rpcCommandMachinery,
   sent,
+  /** Every renderer live peer the store opened, oldest first (ADR-0071). */
+  livePeers,
+  fakeLivePeerFactory,
   openedUrls,
   mockBackend,
   windowStub,

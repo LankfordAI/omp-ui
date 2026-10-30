@@ -13,6 +13,7 @@ import {
   type SessionCommandType,
 } from "@omp-ui/core/session-command";
 import type { LiveTurn } from "@omp-ui/core/live-voice";
+import type { LivePeer } from "../../lib/live-peer";
 import { backgroundWorkInFlight } from "../../lib/async-jobs";
 import { formatDuration } from "../../lib/duration";
 import { field, isObj } from "../../lib/fields";
@@ -134,7 +135,7 @@ export interface TabRuntime {
   /** A failed refresh is retried only by an intentional request. */
   liveReviewFailedSourceKey?: string | null;
   /** Live voice park/resume (issue #811): the user wants live voice in this
-   *  session. Set on a successful `live_start`; cleared only by an explicit
+   *  session. Set on a successful call start; cleared only by an explicit
    *  stop or the #808 hand-off — parking does not clear it. */
   liveArmed?: boolean;
   /** Armed, but no realtime call is open: the tab is not the viewed tab
@@ -149,7 +150,7 @@ export interface TabRuntime {
   /** Final answers awaiting delivery, oldest first (#811). */
   livePendingFeedback: string[];
   /** A live-delegation was received during the current call (cleared at each
-   *  `live_start` ack) — the orphan rule's counter-evidence (#811). */
+   *  call start) — the orphan rule's counter-evidence (#811). */
   liveCallSawDelegation?: boolean;
   /** A live-delegation was received during the current agent turn (cleared at
    *  `agent_start`) — whose answer is live-owned, whichever call outlives it
@@ -163,14 +164,18 @@ export interface TabRuntime {
   /** The in-flight `live_stop` promise, identity-cleared in a finally;
    *  published by every dispatch site of the verb (issue #815). */
   liveStopInFlight?: Promise<unknown>;
-  /** The in-flight `live_start` promise, identity-cleared in a finally;
-   *  published by every dispatch site of the verb (issue #815). */
+  /** The in-flight call start — peer open, `live_connect`, answer applied —
+   *  identity-cleared in a finally; published by every dispatch site (#815). */
   liveStartInFlight?: Promise<unknown>;
+  /** The renderer-owned WebRTC peer of this tab's call (ADR-0071): mic,
+   *  speaker, meters, data channel. Released at every `live_stop` dispatch,
+   *  at `live_end`, on peer failure, and with the runtime. */
+  livePeer?: LivePeer;
   /** How many pending entries the in-flight resume instructions carried; the
    *  first final assistant transcript clears exactly this prefix (#811). */
   livePendingIncluded?: number;
   /**
-   * This renderer's `live_start` succeeded on the current process (issue #803).
+   * This renderer's call start succeeded on the current process (issue #803).
    * Only the renderer that started live voice arms Auto-title from a live
    * voice delegation, so a second client viewing the same tab never sends a
    * duplicate `/rename`. Not cleared at `live_end` — a delegation queued as a
@@ -714,6 +719,8 @@ export function createMachinery(
     // Live switch side channels die with the runtime; the generation bumps so
     // a relaunch under this tab id can never match a captured generation (#815).
     disposeLiveSwitch(tabId);
+    // The process is gone or replaced: its call's mic and speaker go too.
+    current.livePeer?.close();
     tabRuntimes.delete(tabId);
   };
 

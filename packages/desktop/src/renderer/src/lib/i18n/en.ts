@@ -476,6 +476,8 @@ export const en = {
   "composer.live.needsNewerOmp": "this omp has no live voice — update omp to {version} or later",
   "composer.live.sendFailed": "the live voice command could not be sent",
   "composer.live.connectTimeout": "the live call did not connect — try again",
+  "composer.live.micUnavailable": "live voice could not open the microphone",
+  "composer.live.audioFailed": "the live call's audio connection failed — try again",
   "composer.live.phaseConnecting": "connecting…",
   "composer.live.phaseListening": "listening",
   "composer.live.phaseWorking": "working",

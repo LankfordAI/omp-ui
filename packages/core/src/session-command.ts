@@ -54,17 +54,19 @@ export const SESSION_COMMANDS = {
   set_session_name: { lateAck: false },
   set_todos: { lateAck: false },
   goal: { lateAck: false },
-  // Live voice (issue #778): omp runs the realtime session and records audio
-  // itself; omp-ui only sends these three verbs. live_start IS in omp's
-  // off-chain set (verified on the 18.7.0 binary: bash/predict_word/
-  // live_start/btw_cancel) — silence while it connects proves nothing.
-  // live_stop and live_mute are NOT listed, so they queue on the serial chain.
-  live_start: { lateAck: false, offChain: true },
+  // Live voice (issue #778, ADR-0071): the renderer owns the WebRTC peer and
+  // omp signals the call; omp-ui sends these three verbs. live_connect IS in
+  // omp's off-chain set (verified on the 18.14.0 binary: bash/predict_word/
+  // live_start/live_connect/btw_cancel/abort_branch_summary) — silence while
+  // it connects proves nothing. live_stop and live_mute are NOT listed, so
+  // they queue on the serial chain.
+  live_connect: { lateAck: false, offChain: true },
   live_stop: { lateAck: false },
   live_mute: { lateAck: false },
-  // `btw` is NOT in omp's off-chain set (verified on the 18.7.0 binary: the
-  // set is bash/predict_word/live_start/btw_cancel): it queues on the serial
-  // chain, so its ack can beat the ordinary budget behind a model turn.
+  // `btw` is NOT in omp's off-chain set (re-verified on the 18.14.0 binary:
+  // bash/predict_word/live_start/live_connect/btw_cancel/abort_branch_summary):
+  // it queues on the serial chain, so its ack can beat the ordinary budget
+  // behind a model turn.
   btw: { lateAck: true },
   btw_cancel: { lateAck: false, offChain: true },
   get_btw_history: { lateAck: true },

@@ -437,6 +437,8 @@ export const ko: Partial<Record<MessageKey, string>> = {
   "composer.live.needsNewerOmp": "이 omp에는 라이브 음성이 없습니다 — omp를 {version} 이상으로 업데이트하세요",
   "composer.live.sendFailed": "라이브 음성 명령을 보낼 수 없습니다",
   "composer.live.connectTimeout": "라이브 통화가 연결되지 않았습니다 — 다시 시도하세요",
+  "composer.live.micUnavailable": "라이브 음성이 마이크를 열 수 없습니다",
+  "composer.live.audioFailed": "라이브 통화의 오디오 연결이 끊겼습니다 — 다시 시도하세요",
   "composer.live.phaseConnecting": "연결 중…",
   "composer.live.phaseListening": "듣는 중",
   "composer.live.phaseWorking": "작업 중",
