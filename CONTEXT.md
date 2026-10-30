@@ -1000,7 +1000,9 @@ while idle (issue #181). A parked follow-up can be *promoted* from the queue
 chip, which moves it into steering and, since the session is idle, starts a
 turn (issue #714). A parked or steering message can also be *restored* to the
 draft — en masse by Escape or the stop control while a turn runs, or one row at
-a time by the queue chip's edit action (issue #776).
+a time by the queue chip's edit action (issue #776). omp reports the count only
+through get_state, so omp-ui re-reads it whenever a `queue_update` list falls
+below it; withdrawing the last parked row clears the chip at once (issue #1003).
 _Avoid_: stuck queue, ghost message
 
 **Held prompt**:

@@ -129,6 +129,11 @@ export const COMPACTION_USAGE_MAX_ATTEMPTS = 6;
  */
 export const QUEUE_SETTLE_REFRESH_MS = 1500;
 const queueSettleTimers = new Map<string, number>();
+/**
+ * The in-flight queue-count re-read per tab (issue #1003); `true` once another
+ * stale-count queue_update landed mid-read, which earns one trailing read.
+ */
+const queueCountReads = new Map<string, boolean>();
 
 /**
  * Heartbeat-driven roster refresh (issue #62): every subagent_* frame wants a
@@ -359,6 +364,30 @@ export function createFrameReductionSlice(
     attempt(1);
   };
 
+  /**
+   * Re-reads omp's queue count (issue #1003). Only get_state carries it, so a
+   * queue change no turn boundary follows — editing a parked row emits one
+   * queue_update and nothing else — would leave the old count holding the
+   * chip (`queueChipCount` shows the larger number) until some later turn.
+   * One read in flight plus one trailing read: a change that lands mid-read
+   * may postdate the snapshot that read answers with.
+   */
+  const refreshQueueCount = (tabId: string): void => {
+    if (queueCountReads.has(tabId)) {
+      queueCountReads.set(tabId, true);
+      return;
+    }
+    queueCountReads.set(tabId, false);
+    void get()
+      .rpcCommand(tabId, { type: "get_state" }, { quiet: true })
+      .then((resp) => m.applyRpcState(tabId, resp))
+      .catch(() => {})
+      .finally(() => {
+        const trailing = queueCountReads.get(tabId) === true;
+        queueCountReads.delete(tabId);
+        if (trailing) refreshQueueCount(tabId);
+      });
+  };
 
   const scheduleQueueSettleRefresh = (tabId: string): void => {
     const tab = get().rpc[tabId];
@@ -373,10 +402,7 @@ export function createFrameReductionSlice(
         const current = get().rpc[tabId];
         // A new turn's own agent_end re-arms this; never fire mid-turn.
         if (!current || current.status === "running") return;
-        void get()
-          .rpcCommand(tabId, { type: "get_state" }, { quiet: true })
-          .then((resp) => m.applyRpcState(tabId, resp))
-          .catch(() => {});
+        refreshQueueCount(tabId);
       }, QUEUE_SETTLE_REFRESH_MS),
     );
   };
@@ -639,7 +665,12 @@ export function createFrameReductionSlice(
           // it, never from local bookkeeping. The count stays get_state's —
           // it also covers advisor cards and deferred items this list omits.
           const queued = parseQueuedMessages(frame);
-          if (queued !== null) m.patchSession(tabId, { queuedMessages: queued });
+          if (queued === null) return;
+          m.patchSession(tabId, { queuedMessages: queued });
+          // A count above the new list may only be stale (issue #1003):
+          // re-read it, or a change no turn boundary follows pins the chip.
+          if (tab.session.queuedMessageCount > queued.steering.length + queued.followUp.length)
+            refreshQueueCount(tabId);
           return;
         }
         case "session_info_update": {

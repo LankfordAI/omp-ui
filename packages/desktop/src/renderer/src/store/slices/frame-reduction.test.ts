@@ -36,6 +36,7 @@ import {
   EXPERIMENT_PROPOSAL_SENTINEL,
   type AutoresearchSnapshot,
 } from "@omp-ui/core/autoresearch";
+import { queueChipCount } from "../../lib/queue-chip";
 import { emptySessionRuntime } from "../../lib/rpc-types";
 import { commandItem, type NoticeItem } from "../../lib/transcript";
 import {
@@ -795,22 +796,64 @@ describe("handleRpcFrame routing", () => {
     });
   });
 
-  it("queue_update lists omp's queue without touching get_state's count (issue #714)", () => {
-    h.useStore.setState({
-      rpc: {
-        [h.TAB]: rpcTabState({
-          session: { ...emptySessionRuntime(), queuedMessageCount: 5 },
-        }),
-      },
+  describe("queue_update and the queue count (issues #714, #1003)", () => {
+    const getStateCalls = () => h.sent.filter((s) => s.cmd.type === "get_state");
+    const seedQueue = (key: string, count: number, steering: string[], followUp: string[]) =>
+      h.useStore.setState({
+        rpc: {
+          [key]: rpcTabState({
+            status: "ready",
+            session: { ...emptySessionRuntime(), queuedMessageCount: count, queuedMessages: { steering, followUp } },
+          }),
+        },
+      });
+    const chip = (key: string) => queueChipCount(h.useStore.getState().rpc[key]!.session);
+
+    it("lists omp's queue; only get_state's reply moves the count", async () => {
+      seedQueue(h.TAB, 5, [], []);
+      h.useStore.getState().handleRpcFrame(h.TAB, {
+        type: "queue_update",
+        steering: ["s1"],
+        followUp: ["f1", "f2"],
+      });
+      const session = h.useStore.getState().rpc[h.TAB]!.session;
+      expect(session.queuedMessages).toEqual({ steering: ["s1"], followUp: ["f1", "f2"] });
+      expect(session.queuedMessageCount).toBe(5);
+      // The count covers advisor cards and deferred items the list omits.
+      h.respond(h.TAB, getStateCalls().at(-1)!.cmd, { queuedMessageCount: 4 });
+      await h.flushMicrotasks();
+      expect(h.useStore.getState().rpc[h.TAB]!.session.queuedMessageCount).toBe(4);
     });
-    h.useStore.getState().handleRpcFrame(h.TAB, {
-      type: "queue_update",
-      steering: ["s1"],
-      followUp: ["f1", "f2"],
+
+    it("clears the chip when a parked row is withdrawn while idle", async () => {
+      const key = `${h.TAB}-parked-edit`;
+      seedQueue(key, 1, [], ["f1"]);
+      // omp emits this queue_update and nothing else: no turn boundary
+      // refresh will ever re-read the count.
+      h.useStore.getState().handleRpcFrame(key, { type: "queue_update", steering: [], followUp: [] });
+      h.respond(key, getStateCalls().at(-1)!.cmd, {
+        queuedMessageCount: 0,
+        queuedMessages: { steering: [], followUp: [], liveSteered: 0 },
+      });
+      await h.flushMicrotasks();
+      expect(chip(key)).toBe(0);
     });
-    const session = h.useStore.getState().rpc[h.TAB]!.session;
-    expect(session.queuedMessages).toEqual({ steering: ["s1"], followUp: ["f1", "f2"] });
-    expect(session.queuedMessageCount).toBe(5);
+
+    it("re-reads once more when the queue changes again mid-read", async () => {
+      const key = `${h.TAB}-mid-read`;
+      seedQueue(key, 2, [], ["f1", "f2"]);
+      h.useStore.getState().handleRpcFrame(key, { type: "queue_update", steering: [], followUp: ["f2"] });
+      h.useStore.getState().handleRpcFrame(key, { type: "queue_update", steering: [], followUp: [] });
+      expect(getStateCalls()).toHaveLength(1);
+      // The first reply's snapshot predates the second change.
+      h.respond(key, getStateCalls()[0]!.cmd, { queuedMessageCount: 1 });
+      await h.flushMicrotasks();
+      expect(getStateCalls()).toHaveLength(2);
+      h.respond(key, getStateCalls()[1]!.cmd, { queuedMessageCount: 0 });
+      await h.flushMicrotasks();
+      expect(chip(key)).toBe(0);
+      expect(getStateCalls()).toHaveLength(2);
+    });
   });
 
   it("refreshes get_state and get_session_stats live on message_end while the agent runs", () => {
