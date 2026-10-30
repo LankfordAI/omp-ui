@@ -1097,7 +1097,6 @@ export function createSessionParamsSlice(
       context: {
         title: review.request.title,
         planFilePath: review.request.planFilePath,
-        sourceHash: review.request.sourceHash,
         text,
         briefOverview: false,
       },
@@ -1178,9 +1177,10 @@ export function createSessionParamsSlice(
   /**
    * Opens the call's peer (ADR-0071). `appends` ride the data channel, in
    * order, once the realtime session starts: the model neither speaks from
-   * instructions nor reads them back (issue #967), so the recap rides the
-   * silent commentary channel and each stored answer is appended the way
-   * omp delivers a final message. Null when the mic or peer could not open.
+   * instructions nor reads them back (issues #967, #1001), so the recap and
+   * a reviewed plan ride the silent commentary channel, and each stored
+   * answer and the plan briefing cue are appended speakable. Null when the
+   * mic or peer could not open.
    */
   const openCallPeer = async (
     tabId: string,

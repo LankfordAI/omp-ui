@@ -4074,6 +4074,20 @@ describe("live voice in plan review", () => {
     });
     await h.flushMicrotasks();
   };
+  /** What the nth call learns once its session starts (#1001): the plan
+   *  rides its peer's context appends, never `instructions`. `text` joins
+   *  every append; `spoken` lists the speakable ones. */
+  const callContext = (n: number): { text: string; spoken: string[] } => {
+    const offer = verbs("live_connect")[n]!.cmd.sdpOffer;
+    const peer = h.livePeers.find((candidate) => candidate.offer === offer)!;
+    if (peer.sentEvents.length === 0) peer.events.onSessionStarted();
+    const appends = peer.sentEvents as { channel?: string; content: { text: string }[] }[];
+    return {
+      text: appends.map((append) => append.content[0]!.text).join(""),
+      spoken: appends.filter((append) => append.channel === undefined).map((append) => append.content[0]!.text),
+    };
+  };
+  const BRIEFING = /^Brief the user on the plan under review now/;
 
   beforeEach(() => {
     acknowledged.clear();
@@ -4097,8 +4111,11 @@ describe("live voice in plan review", () => {
     const third = h.useStore.getState().explainPlanVoice(h.TAB);
     await h.flushMicrotasks();
     expect(verbs("live_connect")).toHaveLength(1);
-    expect(String(verbs("live_connect")[0]!.cmd.instructions)).toContain(tail);
-    expect(String(verbs("live_connect")[0]!.cmd.instructions)).toContain("Full artifact");
+    const context = callContext(0);
+    expect(context.text).toContain(tail);
+    expect(context.text).toContain("Full artifact");
+    expect(String(verbs("live_connect")[0]!.cmd.instructions)).not.toContain("Full artifact");
+    expect(context.spoken).toEqual([expect.stringMatching(BRIEFING)]);
     expect(tab().planVoice.busy).toBe(true);
     await ack("live_connect");
     await Promise.all([first, second, third]);
@@ -4138,7 +4155,7 @@ describe("live voice in plan review", () => {
     expect(tab().planVoice.ready).toBe(true);
     const explaining = h.useStore.getState().explainPlanVoice(h.TAB);
     await h.flushMicrotasks();
-    expect(String(verbs("live_connect")[0]!.cmd.instructions)).toContain("Exact HTML verification.");
+    expect(callContext(0).text).toContain("Exact HTML verification.");
     await ack("live_connect");
     await explaining;
     expect(h.mockBackend.readPlanFile).toHaveBeenCalledTimes(1);
@@ -4155,9 +4172,11 @@ describe("live voice in plan review", () => {
     expect(peekTabRuntime(h.TAB)?.liveReviewAutoRequestedGateKey).toBeUndefined();
     await ack("live_stop");
     expect(verbs("live_connect")).toHaveLength(1);
-    const instructions = String(verbs("live_connect")[0]!.cmd.instructions);
-    expect(instructions).toContain("Please retain the compatibility decision");
-    expect(instructions).toContain("Preserve the exact verification tail.");
+    const context = callContext(0);
+    expect(context.text).toContain("Please retain the compatibility decision");
+    expect(context.text).toContain("Preserve the exact verification tail.");
+    // The first presentation of a gate requests its one automatic overview.
+    expect(context.spoken).toEqual([expect.stringMatching(BRIEFING)]);
     await ack("live_connect");
     expect(h.sent.filter((entry) => entry.cmd.type === "live_stop" || entry.cmd.type === "live_connect")
       .map((entry) => entry.cmd.type)).toEqual(["live_stop", "live_connect"]);
@@ -4320,10 +4339,10 @@ describe("live voice in plan review", () => {
     if (earlyEnd) h.useStore.getState().handleRpcFrame(h.TAB, { type: "live_end" });
     await ack("live_stop");
     expect(verbs("live_connect")).toHaveLength(1);
-    const instructions = String(verbs("live_connect")[0]!.cmd.instructions);
-    expect(instructions).toContain("Replacement context");
-    expect(instructions).not.toContain("Obsolete context");
-    expect(instructions.match(/One retained question/g)).toHaveLength(1);
+    const context = callContext(0).text;
+    expect(context).toContain("Replacement context");
+    expect(context).not.toContain("Obsolete context");
+    expect(context.match(/One retained question/g)).toHaveLength(1);
     await ack("live_connect");
     expect(peekTabRuntime(h.TAB)?.liveReviewAppliedSourceKey).toBe(tab().planSourceKey);
   });
@@ -4350,10 +4369,10 @@ describe("live voice in plan review", () => {
     if (earlyEnd) h.useStore.getState().handleRpcFrame(h.TAB, { type: "live_end" });
     await ack("live_stop");
     expect(verbs("live_connect")).toHaveLength(2);
-    const instructions = String(verbs("live_connect")[1]!.cmd.instructions);
-    expect(instructions).toContain("Replacement context");
-    expect(instructions).not.toContain("Obsolete context");
-    expect(instructions.match(/One retained question/g)).toHaveLength(1);
+    const context = callContext(1).text;
+    expect(context).toContain("Replacement context");
+    expect(context).not.toContain("Obsolete context");
+    expect(context.match(/One retained question/g)).toHaveLength(1);
     expect(peekTabRuntime(h.TAB)?.liveReviewAutoRequestedGateKey).not.toBe(obsoleteOverview);
     await ack("live_connect");
     expect(peekTabRuntime(h.TAB)?.liveReviewAppliedSourceKey).toBe(tab().planSourceKey);
@@ -4409,7 +4428,8 @@ describe("live voice in plan review", () => {
       : h.useStore.getState().switchLiveVoice(h.TAB, { mode: "wake" });
     await h.flushMicrotasks();
     expect(verbs("live_connect")).toHaveLength(1);
-    expect(String(verbs("live_connect")[0]!.cmd.instructions)).toContain("Preserve the exact verification tail.");
+    expect(callContext(0).text).toContain("Preserve the exact verification tail.");
+    expect(callContext(0).spoken).toEqual([]);
     expect(peekTabRuntime(h.TAB)?.liveReviewAutoRequestedGateKey).toBeUndefined();
     await ack("live_connect");
     await starting;
@@ -4432,10 +4452,10 @@ describe("live voice in plan review", () => {
     expect(verbs("live_connect")).toHaveLength(1);
     await ack("live_stop");
     expect(verbs("live_connect")).toHaveLength(2);
-    const instructions = String(verbs("live_connect")[1]!.cmd.instructions);
-    expect(instructions).toContain("Retain our release discussion");
-    expect(instructions).not.toContain("Preserve the exact verification tail.");
-    expect(instructions).not.toContain("local://voice-plan.md");
+    const context = callContext(1).text;
+    expect(context).toContain("Retain our release discussion");
+    expect(context).not.toContain("Preserve the exact verification tail.");
+    expect(context).not.toContain("local://voice-plan.md");
     await ack("live_connect");
     expect(peekTabRuntime(h.TAB)?.liveReviewAppliedSourceKey).toBeNull();
     expect(peekTabRuntime(h.TAB)?.liveReviewAutoRequestedGateKey).toBeUndefined();
@@ -4456,7 +4476,8 @@ describe("live voice in plan review", () => {
     const returning = h.useStore.getState().switchLiveVoice(h.TAB, { mode: "wake" });
     await h.flushMicrotasks();
     expect(verbs("live_connect")).toHaveLength(2);
-    expect(String(verbs("live_connect")[1]!.cmd.instructions)).toContain("Preserve the exact verification tail.");
+    expect(callContext(1).text).toContain("Preserve the exact verification tail.");
+    expect(callContext(1).spoken).toEqual([]);
     await ack("live_connect");
     await returning;
     h.useStore.getState().handleRpcFrame(h.TAB, { type: "live_phase", phase: "listening" });

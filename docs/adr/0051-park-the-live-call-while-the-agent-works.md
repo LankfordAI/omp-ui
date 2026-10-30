@@ -95,6 +95,9 @@ switch, and the reconnect that carries the plan artifact's full readable text
 (a separate `<plan-review>` section in `buildLiveInstructions`, exempt from the
 recap trim ceiling) rides that same wake — the artifact travels only in
 `live_start` instructions, because omp exposes no in-call update or speak verb.
+[ADR-0073](0073-live-voice-plan-review-rides-context-appends.md) (#1001)
+supersedes this delivery: the model never read those instructions, so the plan
+and the briefing request now ride context appends on the renderer's peer.
 A gate whose artifact path and hash are unchanged still wakes a briefing when
 the request is explicit; automatic briefings key on the gate identity so a
 re-presented identical plan is not re-narrated unprompted. On execute, the

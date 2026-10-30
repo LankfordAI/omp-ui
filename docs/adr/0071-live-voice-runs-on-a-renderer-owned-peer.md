@@ -1,6 +1,6 @@
 # Live voice runs on a renderer-owned peer, so a resumed call can be told its results
 
-> **Status:** Accepted, 2026-10-30 ([#967](https://github.com/LankfordAI/omp-ui/issues/967)). Amended by [ADR-0072](0072-live-voice-runs-on-the-client-that-starts-it.md): the peer runs in whichever client starts the call.
+> **Status:** Accepted, 2026-10-30 ([#967](https://github.com/LankfordAI/omp-ui/issues/967)). Amended by [ADR-0072](0072-live-voice-runs-on-the-client-that-starts-it.md): the peer runs in whichever client starts the call. Amended by [ADR-0073](0073-live-voice-plan-review-rides-context-appends.md): the reviewed plan and its briefing ride the same appends.
 
 Amends [ADR-0050](0050-live-voice-park-resume-with-vendored-instructions.md),
 [ADR-0070](0070-live-voice-holds-to-talk.md), and
@@ -63,10 +63,9 @@ data channel is the one client path that can make the model speak first.
   device errors no longer apply.
 - The browser's `getUserMedia` uses the system default input. The audio
   device picker still changes the system default, so it still works.
-- The plan-review briefing (#818) is still carried only by instructions,
-  which the model does not read. That is a separate defect,
-  [#1001](https://github.com/LankfordAI/omp-ui/issues/1001). This decision
-  only fixes the delivery of pending results.
+- The plan-review briefing (#818) was still carried only by instructions,
+  which the model does not read. [ADR-0073](0073-live-voice-plan-review-rides-context-appends.md)
+  moves it onto the same appends (#1001).
 - Output audio now reaches the renderer as a WebRTC track, so ADR-0049's
   "omp exposes no output audio" no longer limits omp-ui. Recording it is
   still not built.

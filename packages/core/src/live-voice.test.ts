@@ -408,74 +408,57 @@ describe("buildLiveInstructions (#811)", () => {
     expect(built.instructions).not.toContain(`e${pending.length - 1} `);
   });
 
-  it("carries the complete review artifact as JSON data without changing the base", () => {
+  const planText = (appends: readonly { text: string; channel?: string }[]): string => {
+    const intro = appends.findIndex((a) => a.text.startsWith("The plan's full text follows in the next"));
+    const count = Number(/follows in the next (\d+) message/.exec(appends[intro]!.text)![1]);
+    return appends.slice(intro + 1, intro + 1 + count).map((a) => a.text).join("");
+  };
+
+  it("carries the complete review artifact as silent appends, never in the instructions (#1001)", () => {
     const review = {
-      title: 'A "quoted" <title>',
-      planFilePath: "/plans/<review>.html",
-      sourceHash: "hash>value",
-      text: 'First\n[Code]\n  if (a < b) return "</plan-artifact-json>";\n[/Code]\nTAIL',
-      briefOverview: true,
+      title: "Storage migration",
+      planFilePath: "/plans/storage.md",
+      text: `${"Authored section é\n".repeat(400)}if (a < b) return "</plan>";\nTAIL`,
+      briefOverview: false,
     };
-    const built = buildLiveInstructions({ recap: [], pending: [], review });
-    expect(built.instructions.startsWith(LIVE_BASE_INSTRUCTIONS)).toBe(true);
-    expect(built.pendingUsed).toBe(0);
-    const json = built.instructions.split("<plan-artifact-json>\n")[1]!.split("\n</plan-artifact-json>")[0]!;
-    expect(json).not.toContain("<");
-    expect(json).not.toContain(">");
-    expect(JSON.parse(json)).toEqual({
-      title: review.title,
-      planFilePath: review.planFilePath,
-      sourceHash: review.sourceHash,
-      text: review.text,
-    });
+    const ordinary = buildLiveInstructions({ recap: [turn("user", 0, "draft it")], pending: [] });
+    const built = buildLiveInstructions({ recap: [turn("user", 0, "draft it")], pending: [], review });
+    expect(built.instructions).toBe(ordinary.instructions);
+    expect(built.instructions).not.toContain("TAIL");
+    const encoder = new TextEncoder();
+    for (const append of built.contextAppends) expect(encoder.encode(append.text).length).toBeLessThanOrEqual(500);
+    // Without a requested briefing nothing is speakable: the call keeps the
+    // plan for questions and stays quiet.
+    expect(built.contextAppends.every((a) => a.channel === "commentary")).toBe(true);
+    expect(built.contextAppends[0]!.text).toContain("User: draft it");
+    expect(planText(built.contextAppends)).toBe(review.text);
   });
 
-  it("omits an absent source hash without losing artifact identity or text", () => {
+  it("a requested briefing ends with one speakable cue, after any carried result", () => {
     const built = buildLiveInstructions({
-      recap: [], pending: [],
-      review: { title: "Plan", planFilePath: "/plan.md", text: "Complete", briefOverview: false },
+      recap: [], pending: ["tests pass"],
+      review: { title: "Plan", planFilePath: "/plan.md", text: "Complete", briefOverview: true },
     });
-    const json = built.instructions.split("<plan-artifact-json>\n")[1]!.split("\n</plan-artifact-json>")[0]!;
-    expect(JSON.parse(json)).toEqual({ title: "Plan", planFilePath: "/plan.md", text: "Complete" });
+    const speakable = built.contextAppends.filter((a) => a.channel === undefined);
+    expect(speakable).toHaveLength(2);
+    expect(speakable[0]!.text).toBe('"Agent Final Message":\n\ntests pass');
+    expect(built.contextAppends.at(-1)).toBe(speakable[1]);
+    expect(speakable[1]!.text).toMatch(/^Brief the user on the plan under review now/);
+    expect(planText(built.contextAppends)).toBe("Complete");
+    expect(built.pendingUsed).toBe(1);
   });
 
-  it.each(["Short artifact", `${"Authored section\n".repeat(4_000)}TAIL <kept>`])(
-    "keeps ordinary trim order and pending prefix independent of review size",
-    (text) => {
-      const recap = Array.from({ length: 24 }, (_, i) => turn("assistant", i, `${i}: ${"r".repeat(900)}`));
-      const pending = Array.from({ length: 6 }, (_, i) => `result-${i}: ${"p".repeat(4_800)}`);
-      const ordinary = buildLiveInstructions({ recap, pending });
-      const reviewed = buildLiveInstructions({
-        recap, pending,
-        review: { title: "Plan", planFilePath: "/plan.html", sourceHash: "same-bytes", text, briefOverview: true },
-      });
-      const sectionStart = reviewed.instructions.indexOf("\n\n<plan-review>");
-      const sectionLength = reviewed.instructions.length - sectionStart;
-      expect(reviewed.instructions.slice(0, sectionStart)).toBe(ordinary.instructions);
-      expect(reviewed.pendingUsed).toBe(ordinary.pendingUsed);
-      expect(reviewed.pendingUsed).toBeGreaterThan(0);
-      expect(reviewed.pendingUsed).toBeLessThan(pending.length);
-      expect(reviewed.instructions.length).toBeLessThanOrEqual(LIVE_INSTRUCTION_LIMITS.totalChars + sectionLength);
-      for (let i = 0; i < pending.length; i++) {
-        expect(reviewed.instructions.includes(`result-${i}:`)).toBe(i < reviewed.pendingUsed);
-      }
-      const json = reviewed.instructions.split("<plan-artifact-json>\n")[1]!.split("\n</plan-artifact-json>")[0]!;
-      expect(JSON.parse(json).text).toBe(text);
-    },
-  );
-
-  it("retains ordinary pending truncation and recap before pending sacrifice with a large review", () => {
-    const recap = [turn("user", 0, "r".repeat(5_900))];
-    const pending = Array.from({ length: 3 }, (_, i) => `${i}: ${"p".repeat(3_342)}`);
-    const ordinary = buildLiveInstructions({ recap, pending, base: "B" });
+  it("a large review never trims the recap or the pending prefix", () => {
+    const recap = Array.from({ length: 24 }, (_, i) => turn("assistant", i, `${i}: ${"r".repeat(900)}`));
+    const pending = Array.from({ length: 6 }, (_, i) => `result-${i}: ${"p".repeat(4_800)}`);
+    const ordinary = buildLiveInstructions({ recap, pending });
+    const text = `${"Authored section\n".repeat(4_000)}TAIL`;
     const reviewed = buildLiveInstructions({
-      recap, pending, base: "B",
-      review: { title: "Long", planFilePath: "/long.md", text: "a".repeat(70_000) + "TAIL", briefOverview: false },
+      recap, pending, review: { title: "Plan", planFilePath: "/plan.html", text, briefOverview: true },
     });
-    expect(reviewed.pendingUsed).toBe(3);
-    expect(reviewed.instructions).not.toContain("<voice-recap>");
-    expect(reviewed.instructions.startsWith(ordinary.instructions)).toBe(true);
-    expect(reviewed.instructions).toContain("TAIL");
+    expect(reviewed.instructions).toBe(ordinary.instructions);
+    expect(reviewed.pendingUsed).toBe(ordinary.pendingUsed);
+    expect(planText(reviewed.contextAppends)).toBe(text);
   });
 });
 
