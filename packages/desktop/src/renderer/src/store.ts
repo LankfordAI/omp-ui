@@ -48,6 +48,7 @@ import {
   createMachinery,
   persistedPlanHandoffs,
   shellWriters,
+  stopOwnedLiveCallsForUnload,
   termWriters,
 } from "./store/slices/shared";
 import { createUpdatesSlice } from "./store/slices/updates";
@@ -523,6 +524,9 @@ export const useStore = create<UiStore>()((set, get, api) => {
       // takes the audio back (#810); installed beside the mic guard so the
       // first transition it sees is post-restore, same rationale.
       installLiveReplayGuards(api);
+      // A closing or reloading renderer ends the calls whose peer it owns
+      // (#968): the session host would otherwise keep a dead call open.
+      window.addEventListener("pagehide", stopOwnedLiveCallsForUnload, { once: true });
       // First-run onboarding (issue #623): the desktop shell of a fresh install
       // opens the Getting started checklist once. Remote renderers never
       // auto-open — joining someone's app is not an install — and a surfaced

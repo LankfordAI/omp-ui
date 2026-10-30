@@ -546,7 +546,8 @@ _Avoid_: enabled, connected, on
 
 **Parked**:
 Armed with no realtime call open. The session's tab is not the viewed tab
-(issue #811) — the call holds this machine's microphone, so an unviewed tab
+(issue #811) — the call holds the microphone of the client that started it
+(the desktop, a browser, or a joined remote tab; ADR-0072), so an unviewed tab
 must not listen at all; closing is the honest mute — or the call ended on its
 own while the intent stayed armed. Either way the session keeps its *voice
 recap*; returning to the tab opens a fresh call that is told the recap and

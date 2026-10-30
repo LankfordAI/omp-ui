@@ -474,6 +474,9 @@ const windowStub = {
     return 0;
   },
   cancelAnimationFrame: (): void => {},
+  // init() registers the #968 unload stop; node has no page lifecycle.
+  addEventListener: (): void => {},
+  removeEventListener: (): void => {},
 };
 Object.assign(globalThis, { window: windowStub });
 

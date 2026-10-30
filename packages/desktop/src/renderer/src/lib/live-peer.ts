@@ -161,6 +161,20 @@ async function openBrowserLivePeer(events: LivePeerEvents): Promise<LivePeer> {
 
 let factory: LivePeerFactory = openBrowserLivePeer;
 
+/**
+ * Whether this client can carry a call (issue #968): the peer lives in
+ * whichever renderer started it — the desktop shell, a remote web client, or
+ * a joined remote-instance tab — while `live_connect` signaling reaches the
+ * session host over `rpc:send`. A non-secure `http://<lan-ip>` origin has no
+ * `mediaDevices`, so it has no call. A test factory stands in for WebRTC.
+ */
+export function canOpenLivePeer(): boolean {
+  if (factory !== openBrowserLivePeer) return true;
+  return typeof RTCPeerConnection === "function" &&
+    typeof navigator !== "undefined" &&
+    typeof navigator.mediaDevices?.getUserMedia === "function";
+}
+
 export function openLivePeer(events: LivePeerEvents): Promise<LivePeer> {
   return factory(events);
 }

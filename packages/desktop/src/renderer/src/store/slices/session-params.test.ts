@@ -1,5 +1,5 @@
 // Session parameter slice tests (moved verbatim from store.test.ts for #295).
-import { afterEach, beforeEach, describe, expect, it, vi } from "vitest";
+import { beforeEach, describe, expect, it, vi } from "vitest";
 import { EXPERIMENT_PROPOSAL_SENTINEL, type ExperimentProposal } from "@omp-ui/core/autoresearch";
 import type { CapabilitySnapshot } from "@omp-ui/core/capabilities";
 import {
@@ -11,21 +11,9 @@ import { emptySessionRuntime } from "../../lib/rpc-types";
 import { backendState, remoteOwnedState, rpcTabState, tabInfo } from "../../test/fixtures";
 import type { RenderItem } from "../../lib/transcript";
 import { h } from "../../test/store-harness";
-import { createMachinery, peekTabRuntime, resetTabRuntimesForTests } from "./shared";
+import { createMachinery, peekTabRuntime, resetTabRuntimesForTests, stopOwnedLiveCallsForUnload } from "./shared";
 import { installLiveVoiceParkResumeGuard } from "./view";
-
-// #816: liveAudioLocalToClient reads the Electron-shell signal, false under
-// node/jsdom; the live-voice dispatch tests opt in per-describe (the same
-// hoisted-mutable-getter pattern as store.test.ts).
-const platformMocks = vi.hoisted(() => ({ electron: false }));
-
-vi.mock("../../lib/platform", () => ({
-  get IS_ELECTRON() {
-    return platformMocks.electron;
-  },
-  IS_MAC: false,
-  IS_WINDOWS: false,
-}));
+import { setLivePeerFactoryForTests } from "../../lib/live-peer";
 
 const ONE_IMAGE_CONTEXT =
   "[omp-ui attachment routing: For tool calls, this prompt's attached image is available as attachment://1. Attachment handles restart at 1 for each prompt.]";
@@ -2399,7 +2387,6 @@ describe("project default models (issue #257)", () => {
   });
 });
 
-
 describe("re-titling (issues #433, #788)", () => {
   const exchange = (): RenderItem[] => [
     { kind: "user", id: "u1", text: "the login button is broken on mobile" },
@@ -3433,17 +3420,12 @@ describe("word prediction (issue #715)", () => {
 });
 
 describe("live voice actions (issue #778)", () => {
-  // #816: startLiveVoice dispatches only when the client owns the session's
-  // audio, i.e. the Electron shell on a locally owned tab, so the dispatch
-  // tests opt into the shell for their whole run.
+  // The harness's fake peer factory stands in for WebRTC, so this client can
+  // carry a call (#968) unless a test restores the browser peer.
   beforeEach(() => {
-    platformMocks.electron = true;
     h.backendState = h.stateWithRecord("sess-1");
     h.useStore.setState({ state: h.backendState, activeTabId: h.TAB, rpc: { [h.TAB]: rpcTabState() } });
     h.sent.length = 0;
-  });
-  afterEach(() => {
-    platformMocks.electron = false;
   });
 
   /** The capabilities snapshot seed the version gate reads. */
@@ -3826,26 +3808,52 @@ describe("live voice actions (issue #778)", () => {
     expect(live()).toMatchObject({ phase: "connecting", ended: false });
   });
 
-  // #816: live_start arms the session host's microphone, so the store
-  // refuses to dispatch for a client that is not the host — a tab owned by
-  // a remote instance, or a remote (non-Electron) renderer.
-  it("start on a remote-instance-owned tab sends nothing even in the shell", async () => {
+  // #968: the peer runs in this renderer and only signaling crosses to the
+  // session host, so a joined remote-instance tab starts its own call: the
+  // offer rides rpc:send, which main routes to the owning instance.
+  it("start on a remote-instance-owned tab connects this client's peer", async () => {
     withVersion("18.14.0");
     h.backendState = remoteOwnedState(h.TAB, "inst-1");
     h.useStore.setState({ state: h.backendState });
-    await h.useStore.getState().startLiveVoice(h.TAB);
-    expect(h.sent.filter((s) => s.cmd.type === "live_connect")).toEqual([]);
-    expect(live()).toBeNull();
-    expect(peekTabRuntime(h.TAB)?.liveArmed).not.toBe(true);
+    const starting = h.useStore.getState().startLiveVoice(h.TAB);
+    await h.flushMicrotasks();
+    const connect = h.sent.find((s) => s.cmd.type === "live_connect");
+    expect(connect).toMatchObject({ tabId: h.TAB, cmd: { sdpOffer: h.livePeers[0]!.offer } });
+    h.respond(h.TAB, connect!.cmd, { sdpAnswer: "v=0 remote-host-answer" });
+    await starting;
+    expect(h.livePeers[0]!.answer).toBe("v=0 remote-host-answer");
+    expect(peekTabRuntime(h.TAB)?.liveArmed).toBe(true);
   });
 
-  it("start from a remote web client sends nothing on a locally owned tab", async () => {
-    platformMocks.electron = false;
+  it("start from a client with no WebRTC or microphone sends nothing", async () => {
+    // Node has neither, like a non-secure http://<lan-ip> origin.
+    setLivePeerFactoryForTests(null);
+    try {
+      withVersion("18.14.0");
+      await h.useStore.getState().startLiveVoice(h.TAB);
+      expect(h.sent.filter((s) => s.cmd.type === "live_connect")).toEqual([]);
+      expect(live()).toBeNull();
+      expect(peekTabRuntime(h.TAB)?.liveArmed).not.toBe(true);
+    } finally {
+      setLivePeerFactoryForTests(h.fakeLivePeerFactory);
+    }
+  });
+
+  // #968: a remote web client's peer dies with its page; without a stop the
+  // session host keeps omp's half of the call open.
+  it("page unload closes this renderer's peer and sends live_stop to the host", async () => {
     withVersion("18.14.0");
-    await h.useStore.getState().startLiveVoice(h.TAB);
-    expect(h.sent.filter((s) => s.cmd.type === "live_connect")).toEqual([]);
-    expect(live()).toBeNull();
-    expect(peekTabRuntime(h.TAB)?.liveArmed).not.toBe(true);
+    const starting = h.useStore.getState().startLiveVoice(h.TAB);
+    await h.flushMicrotasks();
+    h.respond(h.TAB, h.sent.find((s) => s.cmd.type === "live_connect")!.cmd, {});
+    await starting;
+    h.sent.length = 0;
+    stopOwnedLiveCallsForUnload();
+    expect(h.livePeers[0]!.closed).toBe(true);
+    expect(h.sent.map((s) => [s.tabId, s.cmd.type])).toEqual([[h.TAB, "live_stop"]]);
+    // A second unload event finds no peer and sends nothing more.
+    stopOwnedLiveCallsForUnload();
+    expect(h.sent).toHaveLength(1);
   });
 
   it("tab departure parks locally owned transient-error and levels-only calls through the common switch", async () => {
@@ -4068,7 +4076,6 @@ describe("live voice in plan review", () => {
   };
 
   beforeEach(() => {
-    platformMocks.electron = true;
     acknowledged.clear();
     h.backendState = h.stateWithRecord("sess-1");
     h.useStore.setState({
@@ -4076,10 +4083,6 @@ describe("live voice in plan review", () => {
       activeTabId: h.TAB,
       rpc: { [h.TAB]: rpcTabState({ capabilities: version }) },
     });
-  });
-
-  afterEach(() => {
-    platformMocks.electron = false;
   });
 
   it("a ready unarmed gate never opens the microphone; explanation clicks share one start with the full artifact", async () => {

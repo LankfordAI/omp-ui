@@ -10,7 +10,8 @@ import { BuildPlanControl } from "./BuildPlanControl";
 import { QueuedMessageList } from "./QueuedMessageList";
 import { FastModeControl } from "./FastModeControl";
 import { LiveVoiceControl } from "./LiveVoiceControl";
-import { NATIVE_LIVE_MIN_OMP, liveAudioLocalToClient, supportsNativeLive } from "../lib/live-voice";
+import { NATIVE_LIVE_MIN_OMP, supportsNativeLive } from "../lib/live-voice";
+import { canOpenLivePeer } from "../lib/live-peer";
 import { Button, Chip, Label, Sheet } from "./ui";
 
 /** Stable empty so the per-field selector doesn't fire on every store tick. */
@@ -58,15 +59,14 @@ export function ComposerSheet({
   const fastEnabled = useStore((s) => s.rpc[tabId]?.session.fastModeEnabled ?? false);
   const fastActive = useStore((s) => s.rpc[tabId]?.session.fastModeActive ?? false);
   // Live voice gates on the omp version, like the inline rows (issue #778),
-  // and on host-local audio (issue #816): a remote client's mic never
-  // reaches the host-side call.
+  // and on this client carrying the call's peer (issue #968): a remote web
+  // client or a joined remote-instance tab runs the peer here and signals
+  // through the session host; a non-secure origin has no microphone.
   const liveSupported = useStore(
-    (s) =>
-      supportsNativeLive(s.rpc[tabId]?.capabilities?.ompVersion ?? null) &&
-      liveAudioLocalToClient(findOwner(s.state, tabId)?.instanceId ?? null),
+    (s) => supportsNativeLive(s.rpc[tabId]?.capabilities?.ompVersion ?? null) && canOpenLivePeer(),
   );
   // The version gate alone, so the row's title can name the required omp
-  // when old-harness omp — not remote audio — is why live voice is absent.
+  // when old-harness omp — not a missing microphone — is why live voice is absent.
   const liveGateBlocked = useStore((s) => {
     const v = s.rpc[tabId]?.capabilities?.ompVersion ?? null;
     return v !== null && !supportsNativeLive(v);
@@ -108,8 +108,8 @@ export function ComposerSheet({
           )}
           {/* The row stays mounted, inert, with the required version in the
               wrapper's title when the version gate closes it (floor plan §6).
-              Remote-host audio (issue #816) keeps hiding the row: a newer
-              omp would not bring it back here. */}
+              A client that cannot open a peer (no WebRTC or microphone,
+              issue #968) keeps hiding the row: a newer omp would not help. */}
           {liveVoiceVisible && (liveSupported ? (
             <div className="mt-2 flex min-h-11 items-center justify-between gap-2 rounded-lg border border-line bg-void/35 px-3">
               <LiveVoiceControl tabId={tabId} layout="sheet" disabled={unavailable} className="w-full" />

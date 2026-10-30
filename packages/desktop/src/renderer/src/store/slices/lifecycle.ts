@@ -28,7 +28,7 @@ import {
 import { armPlanGoal } from "./plan-goal-dispatch";
 import { gitResolutionPrompt, type GitResolutionTrigger } from "../../lib/git-resolution-prompt";
 import { worktreeMergeResolutionState } from "../../lib/worktree-merge-resolution";
-import { liveAudioLocalToClient, supportsNativeLive } from "../../lib/live-voice";
+import { supportsNativeLive } from "../../lib/live-voice";
 import { planSeedInfo, planSeedText } from "../../lib/plan-seed";
 import { composeCarryoverContext } from "../../lib/carryover-context";
 import { noticeItem, settleRunningItems, type AdvisorNote } from "../../lib/transcript";
@@ -509,21 +509,16 @@ export function createLifecycleSlice(
     // token only exists while the implementation is actually viewed.
     const srcRt = peekTabRuntime(srcTabId);
     const srcLive = get().rpc[srcTabId]?.live;
+    // #968: the call's peer lives in the renderer that started it, so only
+    // that renderer carries voice over. An open snapshot this renderer does
+    // not own is another client's call — desktop or web — and the hand-off
+    // must not steal it (#821); the source reap ends it on its own.
     const sourceWantsVoice =
       srcRt !== undefined &&
       srcLive?.phase !== "error" &&
       srcLive?.error == null &&
-      (srcRt.liveVoiceOwner === true
-        ? srcRt.liveArmed === true || (srcLive != null && !srcLive.ended)
-        : // #816: a client that is not the session host can never own or arm
-          // a call, so an open source snapshot is the host's microphone and
-          // the handoff still releases it (stopLiveVoice is version-gated,
-          // never hardware-gated; the destination start no-ops at the store
-          // gate). A second Electron view of a locally owned call must not
-          // steal the other view's call (#821).
-          srcLive != null &&
-          !srcLive.ended &&
-          !liveAudioLocalToClient(findOwner(get().state, srcTabId)?.instanceId ?? null));
+      srcRt.liveVoiceOwner === true &&
+      (srcRt.liveArmed === true || (srcLive != null && !srcLive.ended));
     const destinationViewed = (): boolean => get().activeTabId === freshId &&
       get().tabs.some((tab) => tab.tabId === freshId && !tab.hidden) &&
       get().exited[freshId] === undefined;

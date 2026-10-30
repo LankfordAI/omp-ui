@@ -1,6 +1,6 @@
 # Live voice runs on a renderer-owned peer, so a resumed call can be told its results
 
-> **Status:** Accepted, 2026-10-30 ([#967](https://github.com/LankfordAI/omp-ui/issues/967)).
+> **Status:** Accepted, 2026-10-30 ([#967](https://github.com/LankfordAI/omp-ui/issues/967)). Amended by [ADR-0072](0072-live-voice-runs-on-the-client-that-starts-it.md): the peer runs in whichever client starts the call.
 
 Amends [ADR-0050](0050-live-voice-park-resume-with-vendored-instructions.md),
 [ADR-0070](0070-live-voice-holds-to-talk.md), and

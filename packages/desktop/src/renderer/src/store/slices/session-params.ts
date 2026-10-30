@@ -108,8 +108,8 @@ import {
   type LiveSnapshot,
   type LivePlanReviewContext,
 } from "@omp-ui/core/live-voice";
-import { liveAudioLocalToClient, supportsNativeLive } from "../../lib/live-voice";
-import { openLivePeer, type LivePeer } from "../../lib/live-peer";
+import { supportsNativeLive } from "../../lib/live-voice";
+import { canOpenLivePeer, openLivePeer, type LivePeer } from "../../lib/live-peer";
 import { planReviewText } from "../../lib/plan-review-text";
 import type { CompactionOutcome, RpcTabState, UiStore, WordPredictionFeedback } from "../types";
 
@@ -1226,11 +1226,12 @@ export function createSessionParamsSlice(
     opts?: { instructions?: string },
   ): Promise<void> => {
     if (!valid() || !liveAdmitted(tabId) || rt.liveStartInFlight !== undefined) return;
-    // #816: the call opens the *host's* microphone; only a client that is
-    // the host may dispatch it. Render gates already hide the control —
-    // this closes the store-level path (handoff carry-over, hotkeys, any
-    // future caller).
-    if (!liveAudioLocalToClient(findOwner(get().state, tabId)?.instanceId ?? null)) return;
+    // #968: the peer opens in THIS renderer — desktop, remote web client, or
+    // joined remote-instance tab — and `live_connect` reaches the session
+    // host over rpc:send. A client with no WebRTC or microphone (a
+    // non-secure origin) never dispatches; render gates already hide the
+    // control, this closes the store-level path (handoff, hotkeys).
+    if (!canOpenLivePeer()) return;
     if (rt.liveStopInFlight !== undefined) {
       const stopped = await rt.liveStopInFlight.catch(() => null);
       if (stopped === null || !valid() || !liveAdmitted(tabId)) return;

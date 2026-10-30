@@ -49,18 +49,6 @@ import { HANDOFF_SOURCE_GRACE_MS, type LifecycleSlice } from "./lifecycle";
 import type { UiStore } from "../types";
 import { reduceAgentEvent } from "./reduce-agent-event";
 import type { ObservedTabRuntime } from "./reduce-agent-event";
-// #816: startLiveVoice is gated on liveAudioLocalToClient (IS_ELECTRON &&
-// no remote instance). Node/jsdom reports a plain browser shell, so suites
-// that drive the real start path opt into the Electron signal below.
-const platformMocks = vi.hoisted(() => ({ electron: false }));
-vi.mock("../../lib/platform", () => ({
-  get IS_ELECTRON() {
-    return platformMocks.electron;
-  },
-  IS_MAC: false,
-  IS_WINDOWS: false,
-}));
-
 // The shared bridge mock predates the acknowledged plan-answer channel (issue
 // #312 follow-up): an HTML gate settles only through it, so install it here.
 // Markdown gates never reach it and keep their direct `rpcSend` semantics.
@@ -3343,13 +3331,6 @@ describe("handleRpcFrame routing", () => {
           (item) => item.kind === "notice" && item.level === "warn",
         );
 
-    beforeEach(() => {
-      platformMocks.electron = true;
-    });
-
-    afterEach(() => {
-      platformMocks.electron = false;
-    });
     it.each(["listening", null] as const)("carries the owned capture across the reaped source (%s)", async (phase) => {
       h.mockBackend.hibernatePlanSource.mockImplementationOnce(async () => {
         await Promise.resolve();
@@ -4964,16 +4945,11 @@ describe("live voice park/resume frames (issue #811)", () => {
   };
 
   beforeEach(() => {
-    platformMocks.electron = true;
     h.useStore.setState({
       state: h.backendState,
       activeTabId: h.TAB,
       rpc: { [h.TAB]: rpcTabState({ capabilities: withVersion("18.14.0") }) },
     });
-  });
-
-  afterEach(() => {
-    platformMocks.electron = false;
   });
 
   const badge = () => h.useStore.getState().liveVoice[h.TAB];

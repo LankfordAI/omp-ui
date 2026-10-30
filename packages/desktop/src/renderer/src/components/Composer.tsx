@@ -48,7 +48,8 @@ import { AttachmentButton, Button, Chevron, Chip, IconButton, IconClose, IconTun
 import { DictationControl, DictationStrip } from "./ComposerDictation";
 import { useDictation } from "../lib/use-dictation";
 import { useDictationHotkey } from "../lib/use-dictation-hotkey";
-import { NATIVE_LIVE_MIN_OMP, liveAudioLocalToClient, supportsNativeLive } from "../lib/live-voice";
+import { NATIVE_LIVE_MIN_OMP, supportsNativeLive } from "../lib/live-voice";
+import { canOpenLivePeer } from "../lib/live-peer";
 
 /**
  * The composer. Everything the user can *say* to a live agent lives here:
@@ -173,16 +174,15 @@ export function Composer({
   // #932: booted without its pinned model; main refuses prompts until a pick.
   const modelHold = useStore((s) => findOwner(s.state, tabId)?.record.modelHold ?? null);
   // Live voice gates on the omp version (issue #778): 18.14.0 added the
-  // `live_connect` verb (ADR-0071), unknown version hides the feature. It also gates on the
-  // hardware (issue #816): the call runs on the session host's mic and
-  // speakers, so only the desktop shell on a locally owned tab offers it.
+  // `live_connect` verb (ADR-0071), unknown version hides the feature. It also
+  // gates on this client carrying the call's peer (issue #968): the peer runs
+  // in whichever renderer starts the call — desktop, remote web client, or a
+  // joined remote-instance tab — and a non-secure origin has no microphone.
   const liveSupported = useStore(
-    (s) =>
-      supportsNativeLive(s.rpc[tabId]?.capabilities?.ompVersion ?? null) &&
-      liveAudioLocalToClient(findOwner(s.state, tabId)?.instanceId ?? null),
+    (s) => supportsNativeLive(s.rpc[tabId]?.capabilities?.ompVersion ?? null) && canOpenLivePeer(),
   );
   // The version gate alone, so the mic's title can name the required omp
-  // when old-harness omp — not remote audio — is why live voice is absent.
+  // when old-harness omp — not a missing microphone — is why live voice is absent.
   const liveGateBlocked = useStore((s) => {
     const v = s.rpc[tabId]?.capabilities?.ompVersion ?? null;
     return v !== null && !supportsNativeLive(v);

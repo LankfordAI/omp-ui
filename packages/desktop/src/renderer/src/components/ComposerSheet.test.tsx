@@ -10,16 +10,13 @@ import { t } from "../lib/i18n";
 
 (globalThis as Record<string, unknown>).IS_REACT_ACT_ENVIRONMENT = true;
 
-const platformMocks = vi.hoisted(() => ({ electron: false }));
+const peerMocks = vi.hoisted(() => ({ available: false }));
 
-// live-voice.ts gates live audio on the Electron shell (issue #816); the
-// live-gate describe below flips this, following the store.test.ts idiom.
-vi.mock("../lib/platform", () => ({
-  get IS_ELECTRON() {
-    return platformMocks.electron;
-  },
-  IS_MAC: false,
-  IS_WINDOWS: false,
+// The live row gates on this client opening a call peer (issue #968); jsdom
+// has no WebRTC, so the live-gate tests opt in.
+vi.mock("../lib/live-peer", async (importOriginal) => ({
+  ...(await importOriginal<typeof import("../lib/live-peer")>()),
+  canOpenLivePeer: () => peerMocks.available,
 }));
 
 const OFF_REPO: BranchList = {
@@ -172,7 +169,7 @@ afterEach(() => {
   root = null;
   document.body.replaceChildren();
   vi.unstubAllGlobals();
-  platformMocks.electron = false;
+  peerMocks.available = false;
 });
 
 describe("ComposerSheet", () => {
@@ -180,7 +177,7 @@ describe("ComposerSheet", () => {
   afterEach(() => useStore.setState(voiceActions));
 
   it("keeps live voice available by default and starts it from the sheet", async () => {
-    platformMocks.electron = true;
+    peerMocks.available = true;
     seed("ready");
     const start = vi.fn(async () => {});
     useStore.setState((current) => ({
@@ -450,25 +447,25 @@ describe("ComposerSheet", () => {
   });
 });
 
-// Issue #816: the sheet's live row rides the host-local audio gate — the
-// switch shows only on the Electron shell, on a locally owned tab, next to
-// the model/effort controls it belongs to; a web client never arms a call
-// whose audio would land on someone else's hardware.
-describe("ComposerSheet live voice gate (issue #816)", () => {
+// Issue #968: the sheet's live row shows wherever this client can open the
+// call's peer — desktop, remote web client, or a joined remote-instance
+// tab — next to the model/effort controls it belongs to; a client with no
+// WebRTC or microphone (a non-secure origin) never offers it.
+describe("ComposerSheet live voice gate (issue #968)", () => {
   const liveSwitch = (): HTMLButtonElement | null =>
     document.body.querySelector<HTMLButtonElement>(
       `button[role="switch"][aria-label="${t("composer.live.start")}"]`,
     );
 
   beforeEach(() => {
-    platformMocks.electron = true;
+    peerMocks.available = true;
   });
 
   afterEach(() => {
-    platformMocks.electron = false;
+    peerMocks.available = false;
   });
 
-  it("rides the model/effort section on the desktop shell", () => {
+  it("rides the model/effort section on a client that can open a peer", () => {
     seedLiveCapable();
     render(true);
     const sw = liveSwitch();
@@ -476,8 +473,8 @@ describe("ComposerSheet live voice gate (issue #816)", () => {
     expect(sw!.closest("section")!.textContent).toContain("model & effort");
   });
 
-  it("is absent for a web client on the same live-capable runtime", () => {
-    platformMocks.electron = false;
+  it("is absent on a client that cannot open a peer", () => {
+    peerMocks.available = false;
     seedLiveCapable();
     render(true);
     expect(liveSwitch()).toBeNull();

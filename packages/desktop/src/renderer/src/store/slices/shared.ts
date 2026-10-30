@@ -598,6 +598,22 @@ export function peekTabRuntime(tabId: string): TabRuntime | undefined {
   return tabRuntimes.get(tabId);
 }
 
+/**
+ * The page is going away (#968): close every call peer this renderer owns
+ * and tell each session host to drop its half. A remote web client's peer
+ * otherwise dies silently with the tab, and omp keeps the call open on the
+ * host. Fire-and-forget: nothing after `pagehide` can await an answer.
+ */
+export function stopOwnedLiveCallsForUnload(): void {
+  for (const [tabId, runtime] of tabRuntimes) {
+    const peer = runtime.livePeer;
+    if (peer === undefined) continue;
+    runtime.livePeer = undefined;
+    peer.close();
+    backend.rpcSend(tabId, { type: "live_stop", id: `live-unload-${tabId}` });
+  }
+}
+
 
 /**
  * Live stream-stall detection (issue #228). Clock: the renderer-observed

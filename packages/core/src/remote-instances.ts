@@ -119,6 +119,12 @@ export const TAB_ROUTED_REQUESTS: ReadonlySet<string> = new Set<string>([
   // A dispatched session's summary is rendered by its owner (issue #899);
   // the fleet status tool reads it through the join.
   "fleet:sessionSummary",
+  // A joined remote-instance tab now carries its own live call (#968): its
+  // spoken turns and recordings belong to the owner's lineage dir.
+  "liveTranscript:append",
+  "liveTranscript:read",
+  "liveAudio:list",
+  "liveAudio:read",
 ]);
 
 /** Notify channels whose first argument is the owning tabId. */

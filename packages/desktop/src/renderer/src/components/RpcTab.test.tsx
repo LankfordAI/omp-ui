@@ -45,17 +45,14 @@ function fireResize(): void {
   for (const cb of [...resizeCallbacks]) cb([], {} as ResizeObserver);
 }
 
-// #816: the live-voice controls ride the Electron-shell signal, false under
-// jsdom; tests that assert the controls opt in (same hoisted-getter pattern
-// as ComposerSheet.test.tsx).
-const platformMocks = vi.hoisted(() => ({ electron: false }));
+// #968: the live-voice controls ride canOpenLivePeer, false under jsdom (no
+// WebRTC); tests that assert the controls opt in (same hoisted-getter
+// pattern as ComposerSheet.test.tsx).
+const peerMocks = vi.hoisted(() => ({ available: false }));
 
-vi.mock("../lib/platform", () => ({
-  get IS_ELECTRON() {
-    return platformMocks.electron;
-  },
-  IS_MAC: false,
-  IS_WINDOWS: false,
+vi.mock("../lib/live-peer", async (importOriginal) => ({
+  ...(await importOriginal<typeof import("../lib/live-peer")>()),
+  canOpenLivePeer: () => peerMocks.available,
 }));
 const backendMock = {
   rpcSend: vi.fn(),
@@ -204,7 +201,7 @@ beforeEach(() => {
 });
 
 afterEach(() => {
-  platformMocks.electron = false;
+  peerMocks.available = false;
   if (root) act(() => root!.unmount());
   root = null;
 });
@@ -353,8 +350,8 @@ describe("RpcTab plan-review takeover (issue #277)", () => {
       configurable: true,
       value: vi.fn(() => ({ matches: true, addEventListener: vi.fn(), removeEventListener: vi.fn() })),
     });
-    // The host-local audio gate (#816) hides the live controls off the shell.
-    platformMocks.electron = true;
+    // A client that cannot open a call peer hides the live controls (#968).
+    peerMocks.available = true;
     seed(null);
     const start = vi.fn(async () => {});
     useStore.setState((current) => ({

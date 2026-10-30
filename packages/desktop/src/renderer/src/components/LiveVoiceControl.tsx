@@ -10,9 +10,9 @@ import { Capsule, CAPSULE_SEGMENT, Dot, IconButton, IconClose, IconMic, Meter, S
  * native verbs. omp owns the phase machine — the display reads only the
  * snapshot the `live_*` frames patch, never a local toggle. The component
  * never gates on its own: every callsite gates on `supportsNativeLive`
- * && `liveAudioLocalToClient` (#816), mounting the control disabled with a
+ * && `canOpenLivePeer` (#968), mounting the control disabled with a
  * hint when the version gate closes it (floor plan §6) and hiding it only
- * when remote-host audio is the reason. Hold-to-talk (ADR-0070) gates the
+ * when this client cannot open a peer. Hold-to-talk (ADR-0070) gates the
  * microphone through `live_mute`: every call starts muted, and holding the
  * talk button (or R) unmutes until release plus a short tail.
  */

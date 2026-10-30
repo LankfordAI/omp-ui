@@ -28,17 +28,14 @@ const clipboardImageMock = vi.hoisted(() => ({
 
 vi.mock("../lib/clipboard-image", () => clipboardImageMock);
 
-const platformMocks = vi.hoisted(() => ({ electron: false }));
+const peerMocks = vi.hoisted(() => ({ available: false }));
 
-// The live voice render/store gates (#816) read IS_ELECTRON from lib/platform.
-// Default false keeps every other suite on the web-client path; the dictation
-// suite flips it opt-in for the live tests (pattern: store.test.ts:23-34).
-vi.mock("../lib/platform", () => ({
-  get IS_ELECTRON() {
-    return platformMocks.electron;
-  },
-  IS_MAC: false,
-  IS_WINDOWS: false,
+// The live voice render gate (#968) reads canOpenLivePeer; jsdom has no
+// WebRTC. Default false keeps every other suite off live voice; the
+// dictation suite opts in for its live tests.
+vi.mock("../lib/live-peer", async (importOriginal) => ({
+  ...(await importOriginal<typeof import("../lib/live-peer")>()),
+  canOpenLivePeer: () => peerMocks.available,
 }));
 
 (globalThis as Record<string, unknown>).IS_REACT_ACT_ENVIRONMENT = true;
@@ -843,9 +840,9 @@ describe("Composer dictation (issue #647)", () => {
   }
 
   beforeEach(() => {
-    // The live-gate tests in this describe need the desktop shell; #816
-    // hides the capsule for every non-Electron client otherwise.
-    platformMocks.electron = true;
+    // The live-gate tests in this describe need a client that can open a
+    // call peer (#968); without one the capsule stays hidden.
+    peerMocks.available = true;
     closeCalls = 0;
     stopTrack = vi.fn();
     vi.stubGlobal("AudioContext", CtxStub);
@@ -859,7 +856,7 @@ describe("Composer dictation (issue #647)", () => {
   });
 
   afterEach(() => {
-    platformMocks.electron = false;
+    peerMocks.available = false;
     vi.unstubAllGlobals();
     Reflect.deleteProperty(navigator, "mediaDevices");
   });
@@ -1129,8 +1126,9 @@ describe("Composer dictation (issue #647)", () => {
       .map((call) => call[1] as Record<string, unknown>)
       .some((frame) => frame.type === "live_connect");
 
-  it("the web client hides the capsule and keeps the dictation mic on a live-capable session (#816)", async () => {
-    platformMocks.electron = false;
+  it("a client that cannot open a peer hides the capsule and keeps the dictation mic (#968)", async () => {
+    // A non-secure http://<lan-ip> origin: no mediaDevices, no call.
+    peerMocks.available = false;
     try {
       desktopRow();
       seed("ready");
@@ -1140,16 +1138,16 @@ describe("Composer dictation (issue #647)", () => {
       expect(liveCapsule()).toBeUndefined();
       expect(micButton()).toBeDefined();
       // The store guard makes even a stray dispatch impossible: the mic
-      // slot records dictation, and no live_start ever reaches omp.
+      // slot records dictation, and no live_connect ever reaches omp.
       await act(async () => micButton()!.click());
       await settle();
       expect(sentLiveStart()).toBe(false);
     } finally {
-      platformMocks.electron = true;
+      peerMocks.available = true;
     }
   });
 
-  it("the Electron shell hides the capsule on a joined remote-instance tab (#816)", async () => {
+  it("a joined remote-instance tab offers the capsule: the peer runs on this client (#968)", () => {
     desktopRow();
     seed("ready");
     // The session record moves under the joined instance's projects
@@ -1158,11 +1156,8 @@ describe("Composer dictation (issue #647)", () => {
     seedLiveCapable();
     enableVoice();
     renderComposer();
-    expect(liveCapsule()).toBeUndefined();
-    expect(micButton()).toBeDefined();
-    await act(async () => micButton()!.click());
-    await settle();
-    expect(sentLiveStart()).toBe(false);
+    expect(liveCapsule()).toBeDefined();
+    expect(micButton()).toBeUndefined();
   });
 });
 
