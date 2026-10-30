@@ -7,11 +7,11 @@ import {
   useHighlightTokens,
   useIncrementalHighlightTokens,
 } from "../lib/highlight";
-import { strField } from "../lib/fields";
+import { arrField, strField } from "../lib/fields";
 import { editErrorKindLabel } from "../lib/edit-rejections";
 import type { ThemedToken } from "shiki/core";
 import { useT, type MessageKey } from "../lib/i18n";
-import type { AdvisorNote, ToolItem } from "../lib/transcript";
+import type { AdvisorNote, RecordedTaskFile, ToolItem } from "../lib/transcript";
 import { isPlanArtifactPath } from "@omp-ui/core/plan";
 import { useStore } from "../store";
 import { DiffViewer, OpChip } from "./DiffViewer";
@@ -458,6 +458,57 @@ function ToolArgs({ name, args }: { name: string; args: unknown }) {
   );
 }
 
+interface TaskFileRow {
+  key: number;
+  /** Batch item name (or `#N`); undefined for the flat single-spawn shape. */
+  label?: string;
+  path: string;
+  sha256?: string;
+}
+
+/**
+ * omp 18.14 `task.file`: a task item may name its assignment by `taskFile`
+ * instead of inline `task` text (exactly one of the two per item). Rows come
+ * from the call's own args, flat or `tasks[]`, so a file-only spawn shows its
+ * file while it runs; the SHA-256 omp recorded joins by item index once
+ * progress or results report it.
+ */
+function taskFileRows(args: unknown, recorded: RecordedTaskFile[] | undefined): TaskFileRow[] {
+  const shaByIndex = new Map((recorded ?? []).map((r) => [r.index, r.sha256]));
+  const rows: TaskFileRow[] = [];
+  // The flat shape and `tasks[]` are exclusive (omp rejects a top-level
+  // taskFile in batch calls); a flat spawn records its file at index 0.
+  const flat = strField(args, "taskFile");
+  if (flat !== undefined) rows.push({ key: -1, path: flat, sha256: shaByIndex.get(0) });
+  arrField(args, "tasks").forEach((entry, index) => {
+    const path = strField(entry, "taskFile");
+    if (path === undefined) return;
+    const name = strField(entry, "name")?.trim();
+    rows.push({ key: index, label: name || `#${index + 1}`, path, sha256: shaByIndex.get(index) });
+  });
+  return rows;
+}
+
+function TaskFiles({ rows }: { rows: TaskFileRow[] }) {
+  const t = useT();
+  return (
+    <div className="space-y-1">
+      <Label>{t("transcript.tool.taskFile")}</Label>
+      {rows.map((row) => (
+        <div key={row.key} className="flex min-w-0 flex-wrap items-center gap-1.5">
+          {row.label !== undefined && <Chip tone="iris" mono>{row.label}</Chip>}
+          <PathChip value={row.path} />
+          {row.sha256 !== undefined && (
+            <Chip mono title={t("transcript.tool.taskFileShaTitle", { sha256: row.sha256 })}>
+              {`sha256 ${row.sha256.slice(0, 12)}`}
+            </Chip>
+          )}
+        </div>
+      ))}
+    </div>
+  );
+}
+
 function jsonText(value: unknown): string {
   try {
     return JSON.stringify(value, null, 2) ?? String(value);
@@ -591,6 +642,10 @@ export function ToolCard({ item, tabId }: { item: ToolItem; tabId?: string }) {
   const headline = item.intent ?? argSummary(item.args);
   const duration = item.wallTimeMs !== undefined ? formatDuration(item.wallTimeMs) : "";
   const draft = useMemo(() => editDraft(item.name, item.args), [item.name, item.args]);
+  const taskFiles = useMemo(
+    () => (glyphFor(item.name) === "agent" ? taskFileRows(item.args, item.taskFiles) : []),
+    [item.name, item.args, item.taskFiles],
+  );
   const kind = glyphFor(item.name);
   const resultLang = kind === "read" ? langFromPath(item.path ?? pathFromArgs(item.args)) : undefined;
   // Read bodies stream with the same header+gutter shape as the settled result;
@@ -675,6 +730,7 @@ export function ToolCard({ item, tabId }: { item: ToolItem; tabId?: string }) {
       {open && hasBody && (
         <div className="space-y-2 border-t border-line-soft px-2.5 py-2">
           <ToolArgs name={item.name} args={item.args} />
+          {taskFiles.length > 0 && <TaskFiles rows={taskFiles} />}
 
           {(item.path || item.op) && !hasDiff && (
             <div className="flex flex-wrap items-center gap-1.5">

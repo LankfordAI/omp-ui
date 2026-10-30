@@ -1880,3 +1880,45 @@ describe("delta-mode streaming (issue #718)", () => {
     expect(assistant(items)).toMatchObject({ thinking: "plan", narration: "narrate", streaming: false });
   });
 });
+
+describe("task file details (issue #975)", () => {
+  const sha = "1d2bba0563c367e5b113bdb150f48bfabd28f03abd6f66236a5f80fe1f848cd8";
+  // The omp 18.14.0 result shape a file-backed batch item produced for real.
+  const details = {
+    projectAgentsDir: null,
+    totalDurationMs: 1500,
+    results: [
+      { index: 0, id: "Inline", agent: "task", task: "t", assignment: "t" },
+      { index: 1, id: "Pine", agent: "task", assignment: "x", taskFile: "/tmp/brief.md", taskFileSha256: sha },
+    ],
+  };
+
+  it("replay records the file-backed item at its own index and skips inline items", () => {
+    const items = historyToItems([
+      { role: "assistant", content: [{ type: "toolCall", id: "c1", name: "task", arguments: { tasks: [] } }] },
+      { role: "toolResult", toolCallId: "c1", toolName: "task", content: [{ type: "text", text: "ok" }], details },
+    ]);
+    expect(tool(items, "c1")?.taskFiles).toEqual([{ index: 1, path: "/tmp/brief.md", sha256: sha }]);
+  });
+
+  it("a live progress update records the hash before the call settles", () => {
+    const start = reduceEvent([], {
+      type: "tool_execution_start",
+      toolCallId: "c2",
+      toolName: "task",
+      args: { agent: "task", taskFile: "/tmp/brief.md" },
+    });
+    const updated = reduceEvent(start, {
+      type: "tool_execution_update",
+      toolCallId: "c2",
+      partialResult: {
+        content: [{ type: "text", text: "Running agent Pine..." }],
+        details: { results: [], progress: [{ index: 0, id: "Pine", taskFile: "/tmp/brief.md", taskFileSha256: sha }] },
+      },
+    });
+    expect(tool(updated, "c2")).toMatchObject({
+      status: "running",
+      taskFiles: [{ index: 0, path: "/tmp/brief.md", sha256: sha }],
+    });
+  });
+});

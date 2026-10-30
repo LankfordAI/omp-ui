@@ -359,6 +359,8 @@ export const en = {
   "transcript.tool.streaming": "streaming",
   "transcript.tool.showOutput": "show output · {lines} lines",
   "transcript.tool.allArguments": "all arguments",
+  "transcript.tool.taskFile": "task file",
+  "transcript.tool.taskFileShaTitle": "SHA-256 omp recorded for this file's bytes at spawn: {sha256}",
   "selection.contextmenu.copy": "Copy",
   "selection.contextmenu.copyMarkdown": "Copy as Markdown",
   "transcript.findbar.placeholder": "search",

@@ -565,3 +565,39 @@ describe("ToolCard edit rejection reason (issue #953)", () => {
     act(() => root.unmount());
   });
 });
+
+describe("ToolCard task files (issue #975)", () => {
+  it("shows each file-backed item's path with the SHA-256 recorded for that item", () => {
+    const sha = "1d2bba0563c367e5b113bdb150f48bfabd28f03abd6f66236a5f80fe1f848cd8";
+    const { el, root } = renderCard(
+      tool({
+        name: "task",
+        args: {
+          context: "smoke",
+          tasks: [
+            { name: "Inline", task: "do the inline thing" },
+            { name: "Pine", agent: "task", taskFile: "/tmp/briefs/pine.md" },
+          ],
+        },
+        // Recorded for item 1 only; item 0 has no file.
+        taskFiles: [{ index: 1, path: "/tmp/briefs/pine.md", sha256: sha }],
+      }),
+    );
+    const text = el.textContent ?? "";
+    expect(text).toContain("task file");
+    expect(text).toContain("Pine");
+    expect(el.querySelector('[title="/tmp/briefs/pine.md"]')).not.toBeNull();
+    const hash = el.querySelector<HTMLElement>(`[title$="${sha}"]`);
+    expect(hash?.textContent).toBe(`sha256 ${sha.slice(0, 12)}`);
+    act(() => root.unmount());
+  });
+
+  it("shows a flat taskFile before omp has recorded a hash", () => {
+    const { el, root } = renderCard(
+      tool({ name: "task", status: "running", args: { agent: "task", taskFile: "local://brief.md" } }),
+    );
+    expect(el.querySelector('[title="local://brief.md"]')).not.toBeNull();
+    expect(el.textContent).not.toContain("sha256");
+    act(() => root.unmount());
+  });
+});

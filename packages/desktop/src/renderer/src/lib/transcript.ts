@@ -58,6 +58,14 @@ export interface AssistantItem {
   /** When the turn completed — epoch ms off the assistant message. */
   timestamp?: number;
 }
+/** One task item's assignment file as omp recorded it at spawn (omp 18.14 `task.file`). */
+export interface RecordedTaskFile {
+  /** The item's position in `tasks[]`; 0 for the flat single-spawn shape. */
+  index: number;
+  /** `taskFile` exactly as the call named it (absolute path or `local://` URL). */
+  path: string;
+  sha256?: string;
+}
 export interface ToolItem {
   kind: "tool";
   id: string;
@@ -86,6 +94,9 @@ export interface ToolItem {
   wallTimeMs?: number;
   /** edit details.errorKind (omp 18.13.0+): why omp refused a failed edit; the card shows it only on error. */
   errorKind?: string;
+  /** task details.results[]/progress[] (omp 18.14 `task.file`): the file each item read its
+   *  assignment from and the SHA-256 omp recorded, keyed by the call's item index. */
+  taskFiles?: RecordedTaskFile[];
   notes?: AdvisorNote[];
   /** omp-ui vault host tool result details (issue #767): the card and the rail's Vault notes read it. */
   vault?: VaultToolDetails;
@@ -515,6 +526,32 @@ function detailFacts(details: unknown): Pick<ToolItem, "path" | "op" | "wallTime
   };
 }
 
+/**
+ * task `details.results[]` (settled spawns) and `details.progress[]` (running or
+ * async spawns) both spread `{ taskFile, taskFileSha256 }` onto file-backed items;
+ * a later results entry wins over progress for the same index.
+ */
+function recordedTaskFiles(details: unknown): RecordedTaskFile[] {
+  const byIndex = new Map<number, RecordedTaskFile>();
+  for (const key of ["progress", "results"] as const) {
+    const entries = field(details, key);
+    if (!Array.isArray(entries)) continue;
+    for (const entry of entries) {
+      const path = strField(entry, "taskFile");
+      if (path === undefined) continue;
+      const index = numField(entry, "index") ?? 0;
+      const sha256 = strField(entry, "taskFileSha256");
+      byIndex.set(index, { index, path, ...(sha256 !== undefined ? { sha256 } : {}) });
+    }
+  }
+  return [...byIndex.values()];
+}
+
+function taskFilesField(details: unknown): Pick<ToolItem, "taskFiles"> {
+  const taskFiles = recordedTaskFiles(details);
+  return taskFiles.length > 0 ? { taskFiles } : {};
+}
+
 /** Port of omp's isAdvisorCard — render from details.notes, never the XML. */
 export function isAdvisorMessage(message: Record<string, unknown>): boolean {
   return message.role === "custom" && message.customType === "advisor";
@@ -919,7 +956,7 @@ export function reduceEvent(items: RenderItem[], event: unknown): RenderItem[] {
       const partialText = partial ? textFromContent(partial.content) : "";
       // Status stays `running` — an update is progress, never completion.
       if (!partialText) return items;
-      return replaceAt(items, idx, { ...item, partialText });
+      return replaceAt(items, idx, { ...item, partialText, ...taskFilesField(partial?.details) });
     }
 
     case "tool_execution_end": {
@@ -936,6 +973,7 @@ export function reduceEvent(items: RenderItem[], event: unknown): RenderItem[] {
         vault: parseVaultDetails(details) ?? undefined,
         ...detailFacts(details),
         ...imagesField(result ? result.content : undefined, details),
+        ...taskFilesField(details),
       };
       const idx = toolCallId
         ? items.findIndex((i) => i.kind === "tool" && i.toolCallId === toolCallId)
@@ -1172,6 +1210,7 @@ export function historyToItems(messages: unknown[]): RenderItem[] {
         vault: parseVaultDetails(details) ?? undefined,
         ...detailFacts(details),
         ...imagesField(raw.content, details),
+        ...taskFilesField(details),
       };
     }
   }

@@ -310,6 +310,13 @@ export const OMP_SETTING_GROUPS: ReadonlyArray<OmpSettingGroup> = [
     title: "Background jobs",
     keys: ["async.widgets"],
   },
+  {
+    // omp 18.14 (issue #975): off by default. On, a task call may name each
+    // item's assignment by `taskFile` (absolute path or local:// URL, ≤4 MiB)
+    // instead of inline `task`; omp records the file's SHA-256 on the result.
+    title: "Subagents",
+    keys: ["task.file"],
+  },
   GIT_SETTING_GROUP,
 ];
 export const OMP_SETTING_KEYS: readonly string[] = [
