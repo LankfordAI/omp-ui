@@ -116,6 +116,8 @@ import type {
   FleetGrantRaiseRequest,
   FleetHostReport,
   FleetMachine,
+  FleetProjectFilesOutcome,
+  FleetProjectFilesRequest,
   FleetProjectManageOutcome,
   FleetProjectManageRequest,
   FleetProviderKeysOutcome,
@@ -130,6 +132,8 @@ import type {
   FleetRequester,
   FleetRung,
   PlacementPreference,
+  ProjectCopyPreview,
+  ProjectCopyResult,
 } from "./fleet";
 import { PLAN_EXECUTE, PLAN_REFINE, type PlanAnswerResult, type PlanReviewVerdict } from "./plan";
 import {
@@ -183,6 +187,7 @@ import {
   heldPromptRequestCodec,
   fleetFinishRequestCodec,
   fleetExecRequestCodec,
+  fleetProjectFilesCodec,
   fleetProjectManageCodec,
   fleetProviderKeysRequestCodec,
   fleetUpdateMemberRequestCodec,
@@ -1239,6 +1244,25 @@ export const BACKEND_CHANNELS = {
   fleetProjectManage: {
     channel: "fleet:projectManage",
     ...request<[req: FleetProjectManageRequest], FleetProjectManageOutcome>([fleetProjectManageCodec]),
+  },
+  /** Project copy (issue #992): writes a copy's gitignored files into the owner's new checkout (rung 3). Proxied, main-to-main. */
+  fleetProjectFiles: {
+    channel: "fleet:projectFiles",
+    ...request<[req: FleetProjectFilesRequest], FleetProjectFilesOutcome>([fleetProjectFilesCodec]),
+  },
+  /** What a Project copy of this computer's checkout would carry: names and sizes only. Local only. */
+  fleetProjectCopyPreview: {
+    channel: "fleet:projectCopyPreview",
+    ...request<[projectCwd: string], ProjectCopyPreview>([str()]),
+  },
+  /** User-started Project copy to member `machineKey`; the renderer sends file names only. Local only. */
+  fleetCopyProject: {
+    channel: "fleet:copyProject",
+    ...request<[machineKey: string, projectCwd: string, files: string[]], ProjectCopyResult>([
+      machineKeyCodec,
+      str(),
+      arrayOf(str()),
+    ]),
   },
   /** The dispatcher's effective rung on the owner. Proxied, observe-floor. */
   fleetGrantRung: {

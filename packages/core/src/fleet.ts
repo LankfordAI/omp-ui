@@ -755,6 +755,127 @@ export type FleetProjectManageOutcome =
   | { status: "accepted"; path: string; headCommit: string | null }
   | { status: "refused"; reason: string };
 
+// ── Project copy (issue #992) ───────────────────────────────────────────────
+
+/** Largest gitignored file a Project copy carries. */
+export const PROJECT_COPY_FILE_MAX_BYTES = 1_048_576;
+/** Most bytes one Project copy carries across all its gitignored files. */
+export const PROJECT_COPY_TOTAL_MAX_BYTES = 8 * 1_048_576;
+/** Most gitignored files one Project copy carries. */
+export const PROJECT_COPY_FILES_MAX = 500;
+/** An ignored folder holding more files than this (node_modules, .venv, build output) is skipped whole. */
+export const PROJECT_COPY_FOLDER_FILES_MAX = 50;
+const PROJECT_COPY_PATH_MAX = 1_024;
+
+/** How the source checkout's remote reads: an https web URL, a web host reached over ssh, or no web face at all. */
+export type ProjectCopyRemote = "https" | "ssh" | "none";
+
+export type ProjectCopySkipReason =
+  | "too-large"
+  | "over-total"
+  | "too-many"
+  | "provider-key"
+  | "symlink"
+  | "folder-too-large"
+  | "unreadable";
+
+export interface ProjectCopyFile {
+  /** Relative to the checkout root, `/`-separated. */
+  path: string;
+  bytes: number;
+}
+
+export interface ProjectCopySkip {
+  /** A file, or a folder ending in `/` for folder-too-large. */
+  path: string;
+  reason: ProjectCopySkipReason;
+  /** The Provider key variable a provider-key skip names; null otherwise. */
+  envName: string | null;
+}
+
+/** What a Project copy would carry, read in main; names and sizes only, never content. */
+export interface ProjectCopyPreview {
+  /** The https URL the member clones; null when the remote has no web face. */
+  repositoryUrl: string | null;
+  remote: ProjectCopyRemote;
+  files: ProjectCopyFile[];
+  skipped: ProjectCopySkip[];
+}
+
+export type ProjectCopyResult =
+  | {
+      status: "copied";
+      /** The member's new checkout. */
+      path: string;
+      headCommit: string | null;
+      filesWritten: string[];
+      filesFailed: Array<{ path: string; reason: string }>;
+    }
+  | { status: "refused"; reason: string };
+
+/** One gitignored file a Project copy writes into the member's new checkout. */
+export interface FleetProjectFileEntry {
+  path: string;
+  /** Base64 file bytes. */
+  data: string;
+  executable: boolean;
+}
+
+/** `fleet:projectFiles`: rung 3; writes new files only, inside a registered project under a declared root. */
+export interface FleetProjectFilesRequest {
+  requester: FleetRequester;
+  /** The member checkout the clone verb answered with. */
+  path: string;
+  files: FleetProjectFileEntry[];
+}
+
+export type FleetProjectFilesOutcome =
+  | { status: "accepted"; written: string[]; failed: Array<{ path: string; reason: string }> }
+  | { status: "refused"; reason: string };
+
+/** A Project copy's source read at copy time: the fresh scan, the picked files' bytes, and the picks that did not qualify. */
+export interface ProjectCopyRead {
+  preview: ProjectCopyPreview;
+  files: FleetProjectFileEntry[];
+  failed: Array<{ path: string; reason: string }>;
+}
+
+/**
+ * The Provider key variable a file's text names, or null (ADR-0065: Provider
+ * keys travel only by Provider key rollout, never from a project file). Any
+ * whole-word mention counts, so dotenv, JSON, YAML, and TOML all match.
+ */
+export function projectCopyProviderKeyName(text: string): string | null {
+  for (const name of PROVIDER_ENV_NAMES) {
+    let at = text.indexOf(name);
+    while (at >= 0) {
+      const before = at === 0 ? "" : text[at - 1]!;
+      const after = text[at + name.length] ?? "";
+      if (!/[A-Za-z0-9_]/.test(before) && !/[A-Za-z0-9_]/.test(after)) return name;
+      at = text.indexOf(name, at + 1);
+    }
+  }
+  return null;
+}
+
+/**
+ * A checkout-relative, `/`-separated file path a Project copy may write: no
+ * absolute or drive prefix, no backslash, no empty, `.`, or `..` segment, and
+ * nothing inside `.git`.
+ */
+export function projectCopyRelativePath(value: unknown, label: string): string {
+  if (typeof value !== "string" || value === "" || value.length > PROJECT_COPY_PATH_MAX || CONTROL_CHARS.test(value)) {
+    throw new Error(`${label} must be a non-empty relative path`);
+  }
+  if (value.includes("\\") || value.startsWith("/") || /^[A-Za-z]:/.test(value)) {
+    throw new Error(`${label} must be relative to the checkout`);
+  }
+  const segments = value.split("/");
+  if (segments.some((s) => s === "" || s === "." || s === "..")) throw new Error(`${label} must not contain empty, . or .. segments`);
+  if (segments.some((s) => s.toLowerCase() === ".git")) throw new Error(`${label} must not reach into .git`);
+  return value;
+}
+
 /** A grant raise re-presents the node's join credential on the node. */
 export interface FleetGrantRaiseRequest {
   requester: FleetRequester;
@@ -1223,6 +1344,51 @@ export function parseFleetProjectManageRequest(value: unknown): FleetProjectMana
     return { requester, verb: "register", path: pathArg(req.path, `${label}.path`) };
   }
   throw new Error(`${label}.verb must be clone or register`);
+}
+
+const BASE64 = /^[A-Za-z0-9+/]*={0,2}$/;
+/** Encoded length of `bytes` raw bytes in padded base64. */
+const base64Length = (bytes: number): number => Math.ceil(bytes / 3) * 4;
+
+/**
+ * Strict parse of a Project copy's file write (issue #992): 1..PROJECT_COPY_FILES_MAX
+ * entries, each a checkout-relative path and base64 bytes within the per-file
+ * cap, all within the total cap. Messages name paths or indexes, never bytes.
+ */
+export function parseFleetProjectFilesRequest(value: unknown): FleetProjectFilesRequest {
+  const label = "project files request";
+  const req = objectValue(value, label);
+  rejectUnknownKeys(req, ["requester", "path", "files"], label);
+  const requester = parseFleetRequester(req.requester, `${label}.requester`);
+  const dir = pathArg(req.path, `${label}.path`);
+  if (!Array.isArray(req.files) || req.files.length < 1 || req.files.length > PROJECT_COPY_FILES_MAX) {
+    throw new Error(`${label}.files must list 1 to ${PROJECT_COPY_FILES_MAX} files`);
+  }
+  const seen = new Set<string>();
+  let total = 0;
+  const files = req.files.map((raw, i): FleetProjectFileEntry => {
+    const at = `${label}.files[${i}]`;
+    const entry = objectValue(raw, at);
+    rejectUnknownKeys(entry, ["path", "data", "executable"], at);
+    const rel = projectCopyRelativePath(entry.path, `${at}.path`);
+    if (seen.has(rel)) throw new Error(`${at}: ${rel} appears more than once`);
+    seen.add(rel);
+    if (
+      typeof entry.data !== "string" ||
+      entry.data.length > base64Length(PROJECT_COPY_FILE_MAX_BYTES) ||
+      entry.data.length % 4 !== 0 ||
+      !BASE64.test(entry.data)
+    ) {
+      throw new Error(`${at}.data must be base64 of at most ${PROJECT_COPY_FILE_MAX_BYTES} bytes`);
+    }
+    total += entry.data.length;
+    if (typeof entry.executable !== "boolean") throw new Error(`${at}.executable must be a boolean`);
+    return { path: rel, data: entry.data, executable: entry.executable };
+  });
+  if (total > base64Length(PROJECT_COPY_TOTAL_MAX_BYTES)) {
+    throw new Error(`${label}.files exceed ${PROJECT_COPY_TOTAL_MAX_BYTES} bytes together`);
+  }
+  return { requester, path: dir, files };
 }
 
 /** Registry-safe project roots: absolute directories only; anything else drops the entry. */

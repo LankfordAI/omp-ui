@@ -302,8 +302,10 @@ machine holding the repository, this computer first. A project page holds
 every project action: New session, New terminal session, New private session,
 New session… (the **New session dialog**), Open in VS Code / Files / Terminal,
 Experiments and New experiment (when experiments are enabled), Project
-settings…, and Remove project…. A new session starts on this computer's
-checkout when it has one; the **Machine chip** moves it to another before the
+settings…, Copy project to… (this computer's checkout, while a remote
+instance is joined; see **Project copy**), and Remove project…. A new
+session starts on this computer's checkout when it has one; the **Machine
+chip** moves it to another before the
 first prompt. The *No project* page offers New chat and New private chat. The
 open targets are omitted for a remote project and in the compact shell: a
 compact shell is usually a phone talking to a remote omp-ui, where opening on
@@ -1463,6 +1465,16 @@ them in its own OS credential store. The user starts it from the Fleet view
 behind a confirmation, the member must grant Full control, and key values
 never reach a renderer or an agent (ADR-0065).
 _Avoid_: key sync, credential carry, key push
+
+**Project copy**:
+Cloning one of this computer's projects onto a fleet member from the Project
+quick-open: the member clones the repository's https remote into one of its
+declared project roots and registers it, then optionally writes the
+gitignored files the user ticked — small ones only, never a file naming a
+Provider key — into the new checkout (ADR-0076). The member must grant Manage
+projects; a private or SSH-only repository is provisioned by an agent over
+its own ssh instead.
+_Avoid_: project sync, mirror, replicate, push project
 
 **Web search order**:
 The Settings → Providers choice naming which provider OMP's native `web_search`

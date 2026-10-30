@@ -388,6 +388,15 @@ const VALID_ARGS = {
     },
   ],
   fleetRolloutProviderKeys: ["member-1", ["ANTHROPIC_API_KEY"]],
+  fleetProjectFiles: [
+    {
+      requester: { instanceId: "instance-1", label: "workstation", kind: "user", sourceTabId: null },
+      path: "/srv/projects/app",
+      files: [{ path: "config/local.json", data: "e30=", executable: false }],
+    },
+  ],
+  fleetProjectCopyPreview: ["/project"],
+  fleetCopyProject: ["member-1", "/project", [".env"]],
   fleetUpdateMachine: ["member-1", { target: "app", action: "check", version: null, allowLiveSessions: false }],
   fleetUpdateAll: [],
   fleetUpdateAllStatus: [],

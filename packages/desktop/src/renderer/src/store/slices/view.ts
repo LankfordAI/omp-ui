@@ -68,6 +68,8 @@ export interface ViewSlice {
   } | null;
   /** The row whose Migrate session dialog is open (issue #888); null = closed. */
   migrateDialog: { tabId: string } | null;
+  /** This computer's project whose Copy project dialog is open (issue #992); null = closed. */
+  copyProjectDialog: UiStore["copyProjectDialog"];
   /** App-global successes awaiting acknowledgment, oldest first (issue #888). */
   infoNotices: UiStore["infoNotices"];
   reportNotice(message: string): void;
@@ -124,6 +126,8 @@ export interface ViewSlice {
   closeProjectQuickOpen(): void;
   openMigrateDialog(tabId: string): void;
   closeMigrateDialog(): void;
+  openCopyProjectDialog(projectCwd: string, name: string): void;
+  closeCopyProjectDialog(): void;
   openFinishWorktree(tabId: string): void;
   closeFinishWorktree(): void;
   /** Opens the tree navigator for a live tab and arms its bridge (issue #680). */
@@ -389,6 +393,7 @@ export const createViewSlice: StateCreator<UiStore, [], [], ViewSlice> = (set, g
   finishWorktreeTab: null,
   sessionTreeView: null,
   migrateDialog: null,
+  copyProjectDialog: null,
   capabilitiesViewer: null,
 	projectSettings: null,
   ptyRedrawRevision: {},
@@ -491,6 +496,12 @@ export const createViewSlice: StateCreator<UiStore, [], [], ViewSlice> = (set, g
   },
   closeMigrateDialog() {
     set({ migrateDialog: null });
+  },
+  openCopyProjectDialog(projectCwd, name) {
+    set({ copyProjectDialog: { projectCwd, name } });
+  },
+  closeCopyProjectDialog() {
+    set({ copyProjectDialog: null });
   },
   openFinishWorktree(tabId) {
     set({ finishWorktreeTab: tabId });

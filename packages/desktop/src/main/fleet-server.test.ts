@@ -428,6 +428,70 @@ describe("FleetServer.projectManage", () => {
   });
 });
 
+posix("FleetServer.projectFiles (Project copy, issue #992)", () => {
+  const b64 = (text: string): string => Buffer.from(text).toString("base64");
+  let root: string;
+  let checkout: string;
+
+  beforeEach(() => {
+    registry.setSetting("fleetExecCeiling", "manage");
+    grant(A.instanceId, "manage");
+    root = path.join(base, "root");
+    checkout = path.join(root, "app");
+    fs.mkdirSync(path.join(checkout, ".git"), { recursive: true });
+    registry.setSetting("fleetProjectRoots", [root]);
+    registry.addProject(checkout);
+  });
+
+  it("refuses below Manage projects without writing", async () => {
+    grant(A.instanceId, "dispatch");
+    const outcome = await server().projectFiles({ requester: A, path: checkout, files: [{ path: ".env", data: b64("A=1"), executable: false }] });
+    expect(outcome.status).toBe("refused");
+    expect(fs.existsSync(path.join(checkout, ".env"))).toBe(false);
+  });
+
+  it("refuses a checkout that is not a registered project under a declared root", async () => {
+    const stray = path.join(root, "stray");
+    fs.mkdirSync(stray);
+    expect(await server().projectFiles({ requester: A, path: stray, files: [{ path: ".env", data: b64("A=1"), executable: false }] })).toEqual({
+      status: "refused",
+      reason: expect.stringContaining("not a registered project"),
+    });
+  });
+
+  it("writes new files owner-only, never overwrites, and never follows a folder out of the checkout", async () => {
+    fs.writeFileSync(path.join(checkout, "tracked.txt"), "keep");
+    const outside = fs.mkdtempSync(path.join(os.tmpdir(), "fleet-copy-outside-"));
+    fs.symlinkSync(outside, path.join(checkout, "link"));
+    try {
+      const outcome = await server().projectFiles({
+        requester: A,
+        path: checkout,
+        files: [
+          { path: "config/local.json", data: b64("{}"), executable: false },
+          { path: "bin/run.sh", data: b64("#!/bin/sh"), executable: true },
+          { path: "tracked.txt", data: b64("clobber"), executable: false },
+          { path: "link/escape.txt", data: b64("x"), executable: false },
+        ],
+      });
+      expect(outcome).toEqual({
+        status: "accepted",
+        written: ["config/local.json", "bin/run.sh"],
+        failed: [
+          { path: "tracked.txt", reason: "already exists in the new checkout" },
+          { path: "link/escape.txt", reason: "its folder resolves outside the checkout" },
+        ],
+      });
+      expect(fs.readFileSync(path.join(checkout, "tracked.txt"), "utf8")).toBe("keep");
+      expect(fs.readdirSync(outside)).toEqual([]);
+      expect(fs.statSync(path.join(checkout, "config/local.json")).mode & 0o777).toBe(0o600);
+      expect(fs.statSync(path.join(checkout, "bin/run.sh")).mode & 0o777).toBe(0o700);
+    } finally {
+      fs.rmSync(outside, { recursive: true, force: true });
+    }
+  });
+});
+
 function openFull(instanceId: string): void {
   registry.setSetting("fleetExecEnabled", true);
   registry.setSetting("fleetExecCeiling", "full");

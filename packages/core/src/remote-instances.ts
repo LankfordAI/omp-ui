@@ -233,9 +233,12 @@ export const REMOTE_PROXY_CHANNELS: ReadonlySet<string> = new Set<string>([
   // remote version update follows the same split: fleet:updateMember and
   // fleet:updatePoll are proxied; the local fleet:updateMachine is not. Fleet
   // send (#959) and fleet finish (#978) are proxied too; the owner re-checks
-  // the dispatcher and rung.
+  // the dispatcher and rung. Project copy's file write (#992) is proxied and
+  // main-to-main; its local fleet:copyProject / fleet:projectCopyPreview
+  // orchestration stays off this list.
   "fleet:exec",
   "fleet:projectManage",
+  "fleet:projectFiles",
   "fleet:grantRung",
   "fleet:grantRaise",
   "fleet:execDetach",

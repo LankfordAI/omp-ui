@@ -156,6 +156,31 @@ function lifecycleCopy(
         action: t("dialog.lifecycle.rollout-keys.action"),
         target: null,
       };
+    case "copy-project": {
+      // The Project copy gate (#992): the project, the member, and — when
+      // gitignored files ride along — their count and the join transport.
+      const count = confirmation.files.length;
+      const args = { name: confirmation.projectName, target: confirmation.targetLabel, count };
+      return {
+        tone: count === 0 ? "copper" : "rose",
+        title: t("dialog.lifecycle.copy-project.title", { target: confirmation.targetLabel }),
+        body:
+          count === 0
+            ? t("dialog.lifecycle.copy-project.body", args)
+            : t(
+                count === 1
+                  ? confirmation.encrypted
+                    ? "dialog.lifecycle.copy-project.bodyFiles.one"
+                    : "dialog.lifecycle.copy-project.bodyFilesPlain.one"
+                  : confirmation.encrypted
+                    ? "dialog.lifecycle.copy-project.bodyFiles"
+                    : "dialog.lifecycle.copy-project.bodyFilesPlain",
+                args,
+              ),
+        action: t("dialog.lifecycle.copy-project.action"),
+        target: confirmation.projectCwd,
+      };
+    }
     case "fleet-update-omp": {
       // The omp-binary arm of the Fleet remote version update: names the member
       // and the version hop (null target = latest). Live sessions on the member

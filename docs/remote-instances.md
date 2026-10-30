@@ -103,6 +103,21 @@ omp-ui never opens the SSH connection, stores or syncs a key, or runs setup itse
 
 The reachability check is only a TCP connect to port 22 from this computer. A member whose SSH server listens on another port shows *closed*; give it a `Host` entry with that `Port` in `~/.ssh/config` so the agent's `ssh` still reaches it. A member that is not connected shows only its address.
 
+### Copy a project to a member
+
+You can copy one of this computer's projects onto a member yourself, without an agent ([#992](https://github.com/LankfordAI/omp-ui/issues/992), [ADR-0076](adr/0076-project-copy-clones-on-the-member-and-carries-gitignored-files.md)). The member must declare at least one folder under **Fleet project roots** and grant this app **Manage projects**, as [access rungs](#access-rungs) describes.
+
+1. Open the project quick-open (`Mod+Shift+N`), drill into the project's page (→ or the row's actions button), and choose **Copy project to…**. The action shows for this computer's own checkouts while at least one remote instance is joined.
+2. Pick the member. A member that is not connected, lacks Manage projects, or declares no project roots is listed but cannot be picked, with the reason.
+3. Optionally turn on **Also copy gitignored files** (off by default). The dialog lists this checkout's gitignored files, each ticked, with its size; untick any you want to keep here. Under **Not copied** it names what it left out and why: files over 1 MB, anything past 8 MB or 500 files in total, symlinks, ignored folders with more than 50 files (such as `node_modules` or a virtualenv), and any file that names a [Provider key](settings.md#providers) variable such as `OPENROUTER_API_KEY`. Provider keys move only by [Roll out Provider keys](#roll-out-provider-keys).
+4. Choose **Continue**, read the confirmation, and choose **Copy project**.
+
+The member clones the repository's remote over HTTPS into the first of its project roots that has no folder with the repository's name, and registers it, so it appears in the project quick-open with its repository key. Then this computer sends the files you ticked, and the member writes them into the new checkout readable only by its user. A file never replaces one the clone already has. The notice names the new path and how many files were written; a file that could not be written is reported by name with the reason.
+
+The member clones with no credentials of its own. A private repository, or one this checkout reaches only over SSH, fails to clone, and the dialog and the error say to ask an agent to [provision the member over SSH](#provision-a-member-over-ssh) instead. A checkout with no web remote cannot be copied this way at all.
+
+Files travel over the join connection like Provider keys: encrypted over an `https://` join, in plaintext over `http://`, and the confirmation says which before anything is sent. File contents never reach a renderer, a log, or the audit line; Activity on the member shows one *manage* entry for the clone and one for the files written.
+
 ### Machine upkeep
 
 An agent can install software and set up toolchains on a member that grants this app Full control ([#905](https://github.com/LankfordAI/omp-ui/issues/905)). Each member reports its operating system and the package managers found on it. `omp-ui_fleet_machines` prints them on a `system:` line under the member's `ssh:` line:

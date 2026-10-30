@@ -8,6 +8,7 @@ import {
   parseFleetSendRequest,
   parseFleetFinishRequest,
   parseFleetExecRequest,
+  parseFleetProjectFilesRequest,
   parseFleetProjectManageRequest,
   parseFleetProviderKeysRequest,
   parseFleetRequester,
@@ -21,6 +22,7 @@ import {
   type FleetSendRequest,
   type FleetFinishRequest,
   type FleetExecRequest,
+  type FleetProjectFilesRequest,
   type FleetProjectManageRequest,
   type FleetProviderKeysRequest,
   type FleetUpdateMemberRequest,
@@ -714,6 +716,18 @@ export const fleetProjectManageCodec: ArgCodec<FleetProjectManageRequest> = {
   decode(value, path) {
     try {
       return parseFleetProjectManageRequest(value);
+    } catch (error) {
+      return fail(path, `${this.expected} (${(error as Error).message})`);
+    }
+  },
+};
+
+/** Project copy's file write (issue #992): rung 3; messages name paths, never bytes. */
+export const fleetProjectFilesCodec: ArgCodec<FleetProjectFilesRequest> = {
+  expected: "a valid fleet project files request",
+  decode(value, path) {
+    try {
+      return parseFleetProjectFilesRequest(value);
     } catch (error) {
       return fail(path, `${this.expected} (${(error as Error).message})`);
     }

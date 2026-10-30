@@ -79,6 +79,7 @@ export function ProjectQuickOpen() {
   const openExperimentDialog = useStore((s) => s.openExperimentDialog);
   const openProjectSettings = useStore((s) => s.openProjectSettings);
   const removeProject = useStore((s) => s.removeProject);
+  const openCopyProjectDialog = useStore((s) => s.openCopyProjectDialog);
   const reportError = useStore((s) => s.reportError);
   const t = useT();
   const localeId = currentLocaleId();
@@ -248,6 +249,12 @@ export function ProjectQuickOpen() {
       action("newExperiment", t("project.actions.newExperiment"), () => openExperimentDialog(p, i));
     }
     action("settings", t("project.actions.settings"), () => openProjectSettings(p, i));
+    // Project copy (issue #992): this computer's checkout only, while at
+    // least one joined member could receive it.
+    const label = pageRow.label;
+    if (i === null && (state?.remoteInstances ?? []).some((instance) => instance.status === "joined")) {
+      action("copyTo", t("project.actions.copyTo"), () => openCopyProjectDialog(p, label));
+    }
     // The store owns the confirmation.
     action("remove", t("project.actions.remove"), () => void removeProject(p, i), { danger: true });
     return rows;
@@ -264,6 +271,8 @@ export function ProjectQuickOpen() {
     openExperimentDialog,
     openProjectSettings,
     removeProject,
+    openCopyProjectDialog,
+    state,
     reportError,
     t,
     localeId,

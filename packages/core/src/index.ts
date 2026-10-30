@@ -69,6 +69,7 @@ export * from "./fleet-host";
 export * from "./fleet-wake";
 export * from "./webhook";
 export { WebhookDeliveryLog, WebhookStore, WEBHOOK_STORE_UNAVAILABLE } from "./webhook-store";
+export { previewProjectCopy, readProjectCopyFiles } from "./project-copy";
 export { fleetWakeExtensionPath, fleetWakeExtensionSource, writeFleetWakeExtension } from "./fleet-wake-extension";
 export * from "./sessions-resource";
 export { listProjectFiles, MAX_PROJECT_FILES } from "./project-files";

@@ -570,6 +570,19 @@ export type LifecycleConfirmationChoice =
       targetLabel: string;
       envNames: string[];
       encrypted: boolean;
+    }
+  | {
+      /** Project copy to one fleet member (issue #992). Mandatory gate: the body names
+       *  the project, the member, how many gitignored files leave this computer, and
+       *  whether the join transport is encrypted. Only file names ride the renderer;
+       *  main reads the bytes at confirm time. */
+      kind: "copy-project";
+      instanceId: string;
+      targetLabel: string;
+      projectCwd: string;
+      projectName: string;
+      files: string[];
+      encrypted: boolean;
     };
 
 export type LifecycleConfirmation = {
@@ -1111,6 +1124,10 @@ export interface UiStore extends SettingsSlice, UpdatesSlice, LabSlice, StatsSli
   migrateDialog: { tabId: string } | null;
   openMigrateDialog(tabId: string): void;
   closeMigrateDialog(): void;
+  /** This computer's project whose Copy project dialog is open (issue #992); null = closed. */
+  copyProjectDialog: { projectCwd: string; name: string } | null;
+  openCopyProjectDialog(projectCwd: string, name: string): void;
+  closeCopyProjectDialog(): void;
   /** The tab whose Finish worktree dialog is open (issues #385–#389); null = closed. */
   finishWorktreeTab: string | null;
   /** The session tree navigator (issue #680, Phase 2): the pinned live tab

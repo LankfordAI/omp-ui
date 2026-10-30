@@ -52,6 +52,8 @@ import {
   type FleetMachine,
   type FleetMaintenanceRecord,
   type FleetPendingDispatch,
+  type FleetProjectFilesOutcome,
+  type FleetProjectFilesRequest,
   type FleetProjectManageOutcome,
   type FleetProjectManageRequest,
   type FleetProviderKeyEntry,
@@ -84,6 +86,8 @@ import {
   type RemoteInstanceSummary,
   type SessionSummary,
   type SpawnAnswer,
+  type ProjectCopyRead,
+  type ProjectCopyResult,
 } from "@omp-ui/core";
 
 /** A joined member's report must arrive inside this window, or the member reads as an error. */
@@ -140,6 +144,8 @@ export interface FleetDispatcherDeps {
   sendLocal(req: FleetSendRequest): Promise<FleetSendOutcome>;
   /** FleetServer.finish on this machine (issue #978). */
   finishLocal(req: FleetFinishRequest): Promise<FleetFinishOutcome>;
+  /** readProjectCopyFiles on this machine (issue #992): re-scans the checkout and reads the picked files' bytes. */
+  readProjectCopy(projectCwd: string, picked: readonly string[]): Promise<ProjectCopyRead>;
   now?: () => number;
   uuid?: () => string;
 }
@@ -792,6 +798,65 @@ export class FleetDispatcher {
         reason: message.includes("unknown channel") ? `${name} runs an omp-ui without Provider key rollout; update omp-ui there` : message,
       };
     }
+  }
+
+  /**
+   * Project copy (issue #992) to member `machineKey`, user-initiated only:
+   * the member clones this checkout's web remote over https into one of its
+   * declared project roots and registers it (the rung-3 clone verb), then
+   * receives the picked gitignored files main-to-main. File bytes are read
+   * here and never reach a renderer, a log line, or a reason.
+   */
+  async copyProject(machineKey: string, projectCwd: string, picked: string[]): Promise<ProjectCopyResult> {
+    if (machineKey === LOCAL_MACHINE_KEY) return { status: "refused", reason: "this project already lives on this computer" };
+    const remote = this.#deps.remotes().find((r) => r.id === machineKey && r.status !== "self");
+    if (remote === undefined) return { status: "refused", reason: "no joined fleet instance has that id" };
+    const name = fleetMachineName(remote);
+    if (remote.status !== "joined") return { status: "refused", reason: `${name} is not joined` };
+    let read: ProjectCopyRead;
+    try {
+      read = await this.#deps.readProjectCopy(projectCwd, picked);
+    } catch (err) {
+      return { status: "refused", reason: messageOf(err) };
+    }
+    const { repositoryUrl, remote: reach } = read.preview;
+    if (repositoryUrl === null) {
+      return {
+        status: "refused",
+        reason: `this checkout has no web remote ${name} can clone; ask an agent to provision ${name} over its own ssh instead`,
+      };
+    }
+    const requester = this.requester("user", null);
+    const clone: FleetProjectManageRequest = { requester, verb: "clone", repositoryUrl };
+    const cloned = await this.#memberCall<FleetProjectManageOutcome>(machineKey, CH.fleetProjectManage, [clone], name);
+    if (cloned.status !== "accepted") {
+      // ADR-0064: a member clones with no credential of its own, so a private
+      // or SSH-only repository is provisioned by an agent over the user's ssh.
+      const note = /git clone failed|timed out/.test(cloned.reason)
+        ? `. If the repository is private${reach === "ssh" ? " or reachable only over SSH" : ""}, ask an agent to provision ${name} over its own ssh instead`
+        : "";
+      return { status: "refused", reason: `${cloned.reason}${note}` };
+    }
+    const result = {
+      status: "copied" as const,
+      path: cloned.path,
+      headCommit: cloned.headCommit,
+      filesWritten: [] as string[],
+      filesFailed: [...read.failed],
+    };
+    if (read.files.length === 0) return result;
+    const req: FleetProjectFilesRequest = { requester, path: cloned.path, files: read.files };
+    const written = await this.#memberCall<FleetProjectFilesOutcome>(machineKey, CH.fleetProjectFiles, [req], name);
+    if (written.status !== "accepted") {
+      const reason = written.reason.includes("unknown channel")
+        ? `${name} runs an omp-ui without Project copy; update omp-ui there`
+        : written.reason;
+      result.filesFailed.push(...read.files.map((f) => ({ path: f.path, reason })));
+      return result;
+    }
+    result.filesWritten = written.written;
+    result.filesFailed.push(...written.failed);
+    return result;
   }
 
   /**

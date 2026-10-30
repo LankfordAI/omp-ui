@@ -29,6 +29,8 @@ import {
   type FleetGrantRaiseOutcome,
   type FleetGrantRaiseRequest,
   type FleetGrantRecord,
+  type FleetProjectFilesOutcome,
+  type FleetProjectFilesRequest,
   type FleetProjectManageOutcome,
   type FleetProjectManageRequest,
   type FleetProviderKeysOutcome,
@@ -595,6 +597,78 @@ export class FleetServer {
       return { status: "refused", reason: `registration failed: ${messageOf(err)}` };
     }
     return { status: "accepted", path: real, headCommit: await this.#headCommit(real) };
+  }
+
+  /**
+   * `fleet:projectFiles` (Project copy, issue #992): rung 3, then each carried
+   * gitignored file into a registered checkout under a declared root. New
+   * files only — an existing path is never overwritten — and a write whose
+   * parent resolves outside the checkout (a tracked symlink) is refused. Files
+   * land owner-only (0600, or 0700 when executable). The audit names the
+   * checkout and counts, never a file's bytes.
+   */
+  async projectFiles(req: FleetProjectFilesRequest): Promise<FleetProjectFilesOutcome> {
+    const gate = this.check(req.requester, "manage");
+    if (!gate.ok) {
+      this.#audit("manage", req.requester, "manage", false, "files", null);
+      return { status: "refused", reason: gate.reason };
+    }
+    const refuse = (reason: string): FleetProjectFilesOutcome => {
+      this.#audit("manage", req.requester, gate.rung, false, `files ${req.path}`, null);
+      return { status: "refused", reason };
+    };
+    let real: string;
+    try {
+      real = fs.realpathSync(req.path);
+    } catch {
+      return refuse(`${req.path} does not exist on this machine`);
+    }
+    const roots = this.#deps.registry.getSetting("fleetProjectRoots");
+    const underRoot = roots.some((root) => {
+      try {
+        return real.startsWith(fs.realpathSync(root) + path.sep);
+      } catch {
+        return false;
+      }
+    });
+    if (!underRoot) return refuse(`${real} is not under a declared project root`);
+    const registered = this.#deps.registry.projects.some((p) => {
+      try {
+        return fs.realpathSync(p.path) === real;
+      } catch {
+        return false;
+      }
+    });
+    if (!registered) return refuse(`${real} is not a registered project`);
+    const written: string[] = [];
+    const failed: Array<{ path: string; reason: string }> = [];
+    for (const file of req.files) {
+      const target = path.join(real, ...file.path.split("/"));
+      try {
+        // The deepest folder that already exists must resolve inside the
+        // checkout before mkdir can follow a tracked symlink out of it.
+        let existing = path.dirname(target);
+        while (!fs.existsSync(existing)) existing = path.dirname(existing);
+        const resolved = await fs.promises.realpath(existing);
+        if (resolved !== real && !resolved.startsWith(real + path.sep)) throw new Error("its folder resolves outside the checkout");
+        await fs.promises.mkdir(path.dirname(target), { recursive: true });
+        // "wx": refuse an existing path, including one a symlink names.
+        await fs.promises.writeFile(target, Buffer.from(file.data, "base64"), { flag: "wx", mode: file.executable ? 0o700 : 0o600 });
+        written.push(file.path);
+      } catch (err) {
+        const code = (err as NodeJS.ErrnoException).code;
+        failed.push({ path: file.path, reason: code === "EEXIST" ? "already exists in the new checkout" : messageOf(err) });
+      }
+    }
+    this.#audit(
+      "manage",
+      req.requester,
+      gate.rung,
+      failed.length === 0,
+      `files ${written.length}/${req.files.length} into ${real}`,
+      null,
+    );
+    return { status: "accepted", written, failed };
   }
 
   async #headCommit(dir: string): Promise<string | null> {

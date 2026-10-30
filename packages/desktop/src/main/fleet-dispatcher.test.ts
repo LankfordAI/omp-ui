@@ -121,6 +121,9 @@ function harness(opts: {
     nextBroadcast: async () => {},
     sendLocal: async () => ({ status: "delivered" }),
     finishLocal: async () => ({ status: "refused", reason: "not wired in this fixture" }),
+    readProjectCopy: async () => {
+      throw new Error("not wired in this fixture");
+    },
     now: () => NOW,
     uuid: () => `id-${++ids}`,
     ...opts.deps,
@@ -569,6 +572,9 @@ describe("FleetDispatcher fleet ladder (issue #901)", () => {
     answer: (channel: string, args: unknown[]) => Promise<unknown>,
     remotes = [remote("r1")],
     providerKeyValue: (envName: string) => string | null = () => null,
+    readProjectCopy: FleetDispatcherDeps["readProjectCopy"] = async () => {
+      throw new Error("not wired in this fixture");
+    },
   ) {
     const request = vi.fn(async (_id: string, channel: string, args: unknown[]) => {
       if (channel === CH.fleetHostReport) return report([project({ path: "/srv/app" })]);
@@ -591,6 +597,7 @@ describe("FleetDispatcher fleet ladder (issue #901)", () => {
       nextBroadcast: async () => {},
       sendLocal: async () => ({ status: "delivered" }),
       finishLocal: async () => ({ status: "refused", reason: "not wired in this fixture" }),
+      readProjectCopy,
       now: () => NOW,
       uuid: () => "u",
     });
@@ -828,6 +835,74 @@ describe("FleetDispatcher fleet ladder (issue #901)", () => {
       vi.useRealTimers();
     }
   });
+
+  describe("Project copy (issue #992)", () => {
+    const env = { path: ".env", data: "QT0x", executable: false };
+    const copyRead = (remote: "https" | "ssh" | "none") => async () => ({
+      preview: { repositoryUrl: remote === "none" ? null : "https://github.com/acme/app", remote, files: [], skipped: [] },
+      files: [env],
+      failed: [{ path: "gone.txt", reason: "no longer eligible to copy" }],
+    });
+
+    it("clones over https, then writes the picked files into the checkout the member answered", async () => {
+      const h = ladder(
+        async (channel) =>
+          channel === CH.fleetProjectManage
+            ? { status: "accepted", path: "/srv/app", headCommit: "abc" }
+            : { status: "accepted", written: [".env"], failed: [] },
+        [remote("r1")],
+        undefined,
+        copyRead("https"),
+      );
+      expect(await h.dispatcher.copyProject("r1", "/work/app", [".env", "gone.txt"])).toEqual({
+        status: "copied",
+        path: "/srv/app",
+        headCommit: "abc",
+        filesWritten: [".env"],
+        filesFailed: [{ path: "gone.txt", reason: "no longer eligible to copy" }],
+      });
+      expect(h.sent(CH.fleetProjectManage)[0]!.args).toEqual([
+        expect.objectContaining({ verb: "clone", repositoryUrl: "https://github.com/acme/app", requester: expect.objectContaining({ kind: "user" }) }),
+      ]);
+      expect(h.sent(CH.fleetProjectFiles)[0]!.args).toEqual([expect.objectContaining({ path: "/srv/app", files: [env] })]);
+    });
+
+    it("points a failed clone of an SSH remote at agent provisioning and sends no files", async () => {
+      const h = ladder(
+        async () => ({ status: "refused", reason: "git clone failed: fatal: could not read Username" }),
+        [remote("r1")],
+        undefined,
+        copyRead("ssh"),
+      );
+      const outcome = await h.dispatcher.copyProject("r1", "/work/app", [".env"]);
+      expect(outcome).toEqual({ status: "refused", reason: expect.stringContaining("reachable only over SSH, ask an agent to provision box-r1 over its own ssh") });
+      expect(h.sent(CH.fleetProjectFiles)).toEqual([]);
+    });
+
+    it("refuses a checkout with no web remote before contacting the member", async () => {
+      const h = ladder(async () => null, [remote("r1")], undefined, copyRead("none"));
+      expect((await h.dispatcher.copyProject("r1", "/work/app", [])).status).toBe("refused");
+      expect(h.sent(CH.fleetProjectManage)).toEqual([]);
+    });
+
+    it("keeps the registered clone and reports every file failed when the member predates the file channel", async () => {
+      const h = ladder(
+        async (channel) => {
+          if (channel === CH.fleetProjectManage) return { status: "accepted", path: "/srv/app", headCommit: null };
+          throw new Error("unknown channel fleet:projectFiles");
+        },
+        [remote("r1")],
+        undefined,
+        copyRead("https"),
+      );
+      expect(await h.dispatcher.copyProject("r1", "/work/app", [".env"])).toMatchObject({
+        status: "copied",
+        path: "/srv/app",
+        filesWritten: [],
+        filesFailed: expect.arrayContaining([{ path: ".env", reason: "box-r1 runs an omp-ui without Project copy; update omp-ui there" }]),
+      });
+    });
+  });
 });
 
 describe("FleetDispatcher member address (issue #904)", () => {
@@ -851,6 +926,9 @@ describe("FleetDispatcher member address (issue #904)", () => {
       nextBroadcast: async () => {},
       sendLocal: async () => ({ status: "delivered" }),
       finishLocal: async () => ({ status: "refused", reason: "not wired in this fixture" }),
+      readProjectCopy: async () => {
+        throw new Error("not wired in this fixture");
+      },
       now: () => NOW,
       uuid: () => "u",
     });
@@ -898,6 +976,9 @@ describe("FleetDispatcher fleet maintenance (fleet remote version update)", () =
       nextBroadcast: async () => {},
       sendLocal: async () => ({ status: "delivered" }),
       finishLocal: async () => ({ status: "refused", reason: "not wired in this fixture" }),
+      readProjectCopy: async () => {
+        throw new Error("not wired in this fixture");
+      },
       now: () => NOW,
       uuid: () => "u",
     });
@@ -1184,6 +1265,9 @@ describe("FleetDispatcher Update all (issue #990)", () => {
       nextBroadcast: async () => {},
       sendLocal: async () => ({ status: "delivered" }),
       finishLocal: async () => ({ status: "refused", reason: "not wired in this fixture" }),
+      readProjectCopy: async () => {
+        throw new Error("not wired in this fixture");
+      },
       now: () => NOW,
       uuid: () => "run-1",
     });

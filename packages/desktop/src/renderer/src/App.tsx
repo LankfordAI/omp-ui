@@ -17,6 +17,7 @@ import { SessionTreeViewer } from "./components/SessionTreeViewer";
 import { NewExperimentDialog } from "./components/NewExperimentDialog";
 import { NewSessionDialog } from "./components/NewSessionDialog";
 import { MigrateSessionDialog } from "./components/MigrateSessionDialog";
+import { CopyProjectDialog } from "./components/fleet/CopyProjectDialog";
 import { ProjectQuickOpen } from "./components/ProjectQuickOpen";
 import { SeanceConsultDialog } from "./components/SeanceConsultDialog";
 import { FinishWorktreeDialog } from "./components/FinishWorktreeDialog";
@@ -249,6 +250,7 @@ export default function App() {
   const newSessionDialog = useStore((s) => s.newSessionDialog);
   const projectQuickOpen = useStore((s) => s.projectQuickOpen);
   const migrateDialog = useStore((s) => s.migrateDialog);
+  const copyProjectDialog = useStore((s) => s.copyProjectDialog);
   const openProjectQuickOpen = useStore((s) => s.openProjectQuickOpen);
   const finishWorktreeTab = useStore((s) => s.finishWorktreeTab);
   const lab = useStore((s) => s.lab);
@@ -571,6 +573,13 @@ export default function App() {
       {projectQuickOpen !== null && <ProjectQuickOpen />}
       {migrateDialog !== null && (
         <MigrateSessionDialog key={migrateDialog.tabId} tabId={migrateDialog.tabId} />
+      )}
+      {copyProjectDialog !== null && (
+        <CopyProjectDialog
+          key={copyProjectDialog.projectCwd}
+          projectCwd={copyProjectDialog.projectCwd}
+          name={copyProjectDialog.name}
+        />
       )}
       {experimentDialog !== null && experimentsEnabled && (
         <NewExperimentDialog

@@ -101,6 +101,8 @@ import {
   git,
   renderSessionSummary,
   resolveRepositoryKey,
+  previewProjectCopy,
+  readProjectCopyFiles,
   detectProjectIcon,
   projectIconDataUrl,
   sampleHostResources,
@@ -112,6 +114,7 @@ import {
   type FleetExecPollRequest,
   type FleetProviderKeysRequest,
   type FleetGrantRaiseRequest,
+  type FleetProjectFilesRequest,
   type FleetProjectManageRequest,
   type FleetRequester,
   type FleetRung,
@@ -619,6 +622,7 @@ export class MainBackend {
       },
       sendLocal: (req) => this.fleetServer.send(req),
       finishLocal: (req) => this.fleetServer.finish(req),
+      readProjectCopy: (projectCwd, picked) => readProjectCopyFiles(this.registeredProjectPath(projectCwd), picked),
     });
     // The node half of the fleet ladder (issue #901): the owner answers for
     // its own machine, so it shares the registry and log dir with everything else.
@@ -1417,6 +1421,12 @@ export class MainBackend {
         // proxy as well; every rung decision lands inside FleetServer.
         [CH.fleetExec]: (req: FleetExecRequest) => this.fleetServer.exec(req),
         [CH.fleetProjectManage]: (req: FleetProjectManageRequest) => this.fleetServer.projectManage(req),
+        // Project copy (issue #992): the file write is proxied to the owner;
+        // the preview and the copy orchestrate in this main.
+        [CH.fleetProjectFiles]: (req: FleetProjectFilesRequest) => this.fleetServer.projectFiles(req),
+        [CH.fleetProjectCopyPreview]: (projectCwd: string) => previewProjectCopy(this.registeredProjectPath(projectCwd)),
+        [CH.fleetCopyProject]: (machineKey: string, projectCwd: string, files: string[]) =>
+          this.fleet.copyProject(machineKey, projectCwd, files),
         [CH.fleetGrantRung]: (req: FleetRequester) => this.fleetServer.grantRung(req),
         [CH.fleetGrantRaise]: (req: FleetGrantRaiseRequest) => this.fleetServer.grantRaise(req),
         // Detached exec and Provider key rollout (issue #905): the first three
@@ -1785,11 +1795,17 @@ export class MainBackend {
     if (changed) void this.broadcast();
   }
 
-  /** Project settings' icon actions (issue #1000); answers with the stored icon. */
-  private async setProjectIcon(projectPath: string, req: ProjectIconRequest): Promise<ProjectIcon | null> {
+  /** `projectPath` when this app registered it; renderer-named paths read nothing else. */
+  private registeredProjectPath(projectPath: string): string {
     if (!this.registry.projects.some((project) => project.path === projectPath)) {
       throw new Error("that project is not registered here");
     }
+    return projectPath;
+  }
+
+  /** Project settings' icon actions (issue #1000); answers with the stored icon. */
+  private async setProjectIcon(projectPath: string, req: ProjectIconRequest): Promise<ProjectIcon | null> {
+    this.registeredProjectPath(projectPath);
     let icon: ProjectIcon | null;
     if (req.kind === "none") {
       icon = { source: "none" };

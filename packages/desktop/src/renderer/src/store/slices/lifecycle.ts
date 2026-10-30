@@ -1570,6 +1570,37 @@ export function createLifecycleSlice(
       }
       return;
     }
+    if (confirmation.kind === "copy-project") {
+      // #992: the confirmation is the Project copy gate. The renderer sends
+      // file names only; main reads the bytes and sends them main-to-main.
+      // A member forgotten meanwhile has nothing to receive the copy.
+      if (findInstance(get().state, confirmation.instanceId) === undefined) return;
+      const target = confirmation.targetLabel;
+      const result = await backend.fleetCopyProject(confirmation.instanceId, confirmation.projectCwd, confirmation.files);
+      if (result.status === "refused") throw new Error(result.reason);
+      const written = result.filesWritten.length;
+      get().reportNotice(
+        written === 0
+          ? t("notice.copyProject.done", { name: confirmation.projectName, target, path: result.path })
+          : t(written === 1 ? "notice.copyProject.doneFiles.one" : "notice.copyProject.doneFiles", {
+              name: confirmation.projectName,
+              target,
+              path: result.path,
+              count: written,
+            }),
+      );
+      if (result.filesFailed.length > 0) {
+        get().reportError(
+          new Error(
+            t("notice.copyProject.failed", {
+              target,
+              detail: result.filesFailed.map((f) => `${f.path}: ${f.reason}`).join("; "),
+            }),
+          ),
+        );
+      }
+      return;
+    }
     if (
       confirmation.kind === "fleet-update-omp" ||
       confirmation.kind === "fleet-stage-app" ||
