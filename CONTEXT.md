@@ -85,7 +85,11 @@ no process and not snoozed — dormant, hibernated, archived, and missing alike 
 first. Collapsed by default; the open/closed choice persists locally,
 and a non-empty sidebar search shows it expanded without changing that choice.
 A settling session hides its tab on the way in; clicking the row resurfaces
-the tab so its exit card offers resume.
+the tab so its exit card offers resume. **Settle** is the explicit way in
+(issue #980): the row's check action, row menu, Session HUD title menu, or
+palette stops the process the way hibernation does and clears a snooze. A
+row mid-turn keeps Stop instead. `Mod+Z` outside a text field, or the toast's
+Undo, resumes the most recent settle made in this window during this run.
 _Avoid_: archive, history, inactive list
 
 **Working**:

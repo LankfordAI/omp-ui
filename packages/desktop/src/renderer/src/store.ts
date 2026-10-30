@@ -41,6 +41,7 @@ import { createSeanceSlice } from "./store/slices/seance";
 import { createSessionParamsSlice } from "./store/slices/session-params";
 import { createSideQuestionsSlice } from "./store/slices/side-questions";
 import { createSettingsSlice } from "./store/slices/settings";
+import { createSettleSlice } from "./store/slices/settle";
 import { createSubagentControlSlice } from "./store/slices/subagent-control";
 import { createAsyncJobsSlice } from "./store/slices/async-jobs";
 import {
@@ -102,6 +103,7 @@ export {
   COMPACTION_USAGE_MAX_ATTEMPTS,
 } from "./store/slices/frame-reduction";
 export { resolveSeanceSource } from "./store/slices/seance";
+export { canSettle } from "./store/slices/settle";
 export {
   COMPACT_SETTLE_DEADLINE_MS,
   RPC_COMMAND_TIMEOUT_MS,
@@ -194,6 +196,7 @@ export const useStore = create<UiStore>()((set, get, api) => {
   const seance = createSeanceSlice(set, get, m, { resolveSpawnParams: lifecycle.resolveSpawnParams });
   const asyncJobs = createAsyncJobsSlice(get, m);
   const liveAudio = createLiveAudioSlice(get, set);
+  const settle = createSettleSlice(set, get);
   /**
    * Repaints the document to match the registry's persisted themeId. The
    * registry stays authoritative; lib/themes.ts keeps only a localStorage
@@ -412,6 +415,7 @@ export const useStore = create<UiStore>()((set, get, api) => {
     ...collab,
     ...sideQuestions,
     ...migrate,
+    ...settle,
     ...subagentControl,
     ...seance,
     ...asyncJobs,

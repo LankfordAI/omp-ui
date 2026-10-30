@@ -20,7 +20,7 @@ import { projectKey } from "../lib/project-key";
 import type { ContextUsage, SubagentInfo, UsageLimit } from "../lib/rpc-types";
 import { JOB_WIDGET_TONE, backgroundWorkInFlight, freshestWidgetJob, jobWidgetFigure, runningJobCount } from "../lib/async-jobs";
 import type { AsyncJob } from "@omp-ui/core/async-jobs";
-import { findInstance, findOwner, findRecord, isChatTab, sessionCwd, useStore } from "../store";
+import { canSettle, findInstance, findOwner, findRecord, isChatTab, sessionCwd, useStore } from "../store";
 import type { RpcTabState } from "../store/types";
 import type { SessionSpendSnapshot } from "@omp-ui/core/session-spend";
 import { useDismissal } from "../lib/use-dismissal";
@@ -1021,6 +1021,12 @@ function TitleMenu({
   const openCapabilitiesViewer = useStore((s) => s.openCapabilitiesViewer);
   const consoleOpen = useStore((s) => s.consoleOpen[tabId] === true);
   const paneOpen = useStore((s) => s.rpc[tabId]?.browserPane.open === true);
+  const settleSessions = useStore((s) => s.settleSessions);
+  // Settle (issue #980): finished work only — a session mid-turn keeps Stop.
+  const settleable = useStore((s) => {
+    const rec = findRecord(s.state, tabId);
+    return rec !== undefined && canSettle(rec, s.rpc[tabId]?.status === "running", s.state?.snoozedSectionEnabled === true);
+  });
   const [surface, setSurface] = useState<null | "menu" | "modes">(null);
   const [editing, setEditing] = useState(false);
   const [pos, setPos] = useState<{ x: number; y: number } | null>(null);
@@ -1172,6 +1178,17 @@ function TitleMenu({
                   >
                     {t("hud.menu.compact")}
                   </button>
+                  {settleable && (
+                    <button
+                      type="button"
+                      role="menuitem"
+                      title={t("hud.menu.settleTitle")}
+                      onClick={act(() => void settleSessions([tabId]))}
+                      className={MENU_ROW}
+                    >
+                      {t("hud.menu.settle")}
+                    </button>
+                  )}
                 </MenuGroup>
                 {MENU_SEPARATOR}
                 <MenuGroup heading={t("hud.menu.share")}>

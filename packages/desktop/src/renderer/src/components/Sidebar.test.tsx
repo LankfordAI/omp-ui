@@ -347,10 +347,10 @@ describe("Sidebar Ask about this session menu (issue #895)", () => {
     expect(openMenuItems()).toEqual([]);
   });
 
-  it("offers Ask and Pin but not Migrate on a live local row", () => {
+  it("offers Settle, Ask, and Pin but not Migrate on an idle live local row", () => {
     renderSidebar();
     openContextMenu(row("Owned session"));
-    expect(itemLabels()).toEqual(["Ask about this session", "Pin"]);
+    expect(itemLabels()).toEqual(["Settle", "Ask about this session", "Pin"]);
   });
 
   it("opens no menu on a row with no saved transcript", () => {

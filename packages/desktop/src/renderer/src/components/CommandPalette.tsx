@@ -6,7 +6,7 @@ import { fuzzyBest, highlightRuns } from "../lib/fuzzy";
 import { useCompactShell } from "../lib/responsive";
 import { formatHotkey, useHotkeys } from "../lib/hotkeys";
 import { currentLocaleId, useT } from "../lib/i18n";
-import { findOwner, findRecord, isChatTab, sessionCwd, useStore } from "../store";
+import { canSettle, findOwner, findRecord, isChatTab, sessionCwd, useStore } from "../store";
 import { Chip, Dot, IconSearch, Label, Modal, type Tone } from "./ui";
 import { PaletteEmpty, PaletteList, PaletteSearchHeader, usePaletteNav } from "./palette";
 
@@ -93,6 +93,10 @@ export function CommandPalette() {
   const openCapabilitiesViewer = useStore((s) => s.openCapabilitiesViewer);
   const openSessionTreeView = useStore((s) => s.openSessionTreeView);
   const terminate = useStore((s) => s.terminate);
+  const settleSessions = useStore((s) => s.settleSessions);
+  const rpcRunning = useStore((s) => (activeTabId === null ? false : s.rpc[activeTabId]?.status === "running"));
+  const settleUndoCount = useStore((s) => s.settleUndo.length);
+  const undoSettle = useStore((s) => s.undoSettle);
   const switchMode = useStore((s) => s.switchMode);
   const regenerateSessionTitle = useStore((s) => s.regenerateSessionTitle);
   const askAboutSession = useStore((s) => s.askAboutSession);
@@ -240,6 +244,17 @@ export function CommandPalette() {
       desc: t("palette.action.newSessionDialogDesc"),
       run: () => openNewSessionDialog({ projectCwd: tab?.projectCwd ?? null, instanceId: tab?.instanceId ?? null }),
     });
+    // Undo settle (issue #980): the palette twin of the toast's Undo button.
+    if (settleUndoCount > 0) {
+      out.push({
+        id: "app:undoSettle",
+        group: t("palette.group.app"),
+        name: t("palette.action.undoSettle"),
+        desc: t("palette.action.undoSettleDesc"),
+        hint: "mod+z",
+        run: () => void undoSettle(),
+      });
+    }
 
     if (tab) {
       const title = findRecord(state, tab.tabId)?.title ?? t("palette.action.sessionFallback");
@@ -251,6 +266,17 @@ export function CommandPalette() {
         desc: t("palette.action.terminateDesc", { title }),
         run: () => void terminate(tab.tabId),
       });
+      // Settle (issue #980): finished work only — a session mid-turn keeps Stop.
+      const rec = findRecord(state, tab.tabId);
+      if (rec !== undefined && canSettle(rec, rpcRunning, state?.snoozedSectionEnabled === true)) {
+        out.push({
+          id: "session:settle",
+          group: t("palette.group.session"),
+          name: t("palette.action.settle"),
+          desc: t("palette.action.settleDesc", { title }),
+          run: () => void settleSessions([tab.tabId]),
+        });
+      }
       // A chat runs in native mode only — no terminal twin to switch to.
       if (!isChatTab(state, tab.tabId)) {
         out.push({
@@ -395,7 +421,7 @@ export function CommandPalette() {
     });
 
     return out;
-  }, [state, tabs, activeTabId, openSession, newSession, newChat, openProjectPicker, openCapabilitiesViewer, openSessionTreeView, openLab, openStats, openFleet, openNewSessionDialog, openExperimentDialog, terminate, switchMode, regenerateSessionTitle, askAboutSession, toggleBrowserPane, shareSession, anonymizeSession, ompInstalled, openShareLive, checkAppUpdate, checkOmpUpdate, openSettings, openDiagnosticsDialog, openGettingStarted, t, localeId]);
+  }, [state, tabs, activeTabId, openSession, newSession, newChat, openProjectPicker, openCapabilitiesViewer, openSessionTreeView, openLab, openStats, openFleet, openNewSessionDialog, openExperimentDialog, terminate, settleSessions, rpcRunning, settleUndoCount, undoSettle, switchMode, regenerateSessionTitle, askAboutSession, toggleBrowserPane, shareSession, anonymizeSession, ompInstalled, openShareLive, checkAppUpdate, checkOmpUpdate, openSettings, openDiagnosticsDialog, openGettingStarted, t, localeId]);
 
   // Flat, already-ordered result list; group headers are derived from it so the
   // arrow-key index and the rendered rows can never disagree.

@@ -7040,6 +7040,45 @@ describe("merged-finish settle (issue #924)", () => {
     expect(predecessor.signals).toEqual(["default"]);
     expect(manager.isLive(tabId)).toBe(false);
   });
+
+  it("clears a snooze on settle so the row files to Settled (issue #980)", async () => {
+    const { manager, registry, broadcast } = setup({ mode: "rpc-ui" });
+    await resumeRpc(manager);
+    const rpc = rpcInstances[0]!;
+    rpc.kill.mockImplementation(() => rpc.exit(0));
+    registry.updateSession(TAB, { snoozed: true, snoozedUntilMs: Date.now() + 60_000 });
+    broadcast.mockClear();
+
+    await expect(manager.settleSession(TAB)).resolves.toBe(true);
+
+    expect(registry.sessions.find((s) => s.tabId === TAB)).toMatchObject({ snoozed: false, snoozedUntilMs: null });
+    expect(broadcast).toHaveBeenCalled();
+  });
+
+  it("clears the snooze of an already-dormant snoozed session", async () => {
+    const { manager, registry } = setup();
+    registry.updateSession(TAB, { snoozed: true, snoozedUntilMs: null });
+
+    await expect(manager.settleSession(TAB)).resolves.toBe(true);
+
+    expect(registry.sessions.find((s) => s.tabId === TAB)?.snoozed).toBe(false);
+  });
+
+  it("keeps the snooze when the reap fails: the session is still live", async () => {
+    vi.useFakeTimers();
+    try {
+      const { manager, registry } = setup({ mode: "rpc-ui" });
+      await resumeRpc(manager);
+      registry.updateSession(TAB, { snoozed: true, snoozedUntilMs: null });
+      const settling = manager.settleSession(TAB);
+      await vi.advanceTimersByTimeAsync(5_000); // child ignores SIGTERM and SIGKILL
+
+      await expect(settling).resolves.toBe(false);
+      expect(registry.sessions.find((s) => s.tabId === TAB)?.snoozed).toBe(true);
+    } finally {
+      vi.useRealTimers();
+    }
+  });
 });
 
 describe("session lifecycle breadcrumbs (issue #413)", () => {

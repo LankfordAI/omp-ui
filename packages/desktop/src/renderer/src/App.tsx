@@ -25,6 +25,7 @@ import { Stats } from "./components/stats/Stats";
 import { Fleet } from "./components/fleet/Fleet";
 import { ProjectSettings } from "./components/ProjectSettings";
 import { OmpUpdateCard } from "./components/OmpUpdateCard";
+import { SettleToast } from "./components/SettleToast";
 import { ProjectPicker } from "./components/ProjectPicker";
 import { RpcTab } from "./components/RpcTab";
 import { SessionHud } from "./components/SessionHud";
@@ -534,6 +535,7 @@ export default function App() {
       <div className="fixed right-[max(1rem,var(--safe-right))] bottom-[max(1rem,var(--safe-bottom))] z-40 flex w-80 max-w-[calc(100vw-var(--safe-left)-var(--safe-right)-2rem)] flex-col gap-2">
         <AppUpdateCard />
         <OmpUpdateCard />
+        <SettleToast />
       </div>
       {deleteConfirmation && (
         <DeleteSessionDialog key={deleteConfirmation.tabId} confirmation={deleteConfirmation} />

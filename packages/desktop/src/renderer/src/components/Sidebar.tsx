@@ -15,7 +15,7 @@ import { setSettledOpen, useSettledOpen } from "../lib/sidebar-settled";
 import { setSidebarSectionOpen, useSidebarSectionOpen } from "../lib/sidebar-section-open";
 import { supportsSessionMigrate } from "../lib/session-migrate";
 import { fromDateTimeLocal, snoozePresets, toDateTimeLocal, type SnoozePreset } from "../lib/snooze-until";
-import { useStore } from "../store";
+import { canSettle, useStore } from "../store";
 import { SessionRow } from "./SessionRow";
 import { useBrowserPaneSplitOpen } from "./browser-pane/BrowserPaneSplit";
 import { Button, Chevron, ConfirmDialog, Dot, Empty, IconButton, IconClose, IconFleet, IconPlus, IconSearch, Panel, ResizeHandle, Sheet } from "./ui";
@@ -57,11 +57,11 @@ function SkeletonRows() {
   );
 }
 
-/** Opens a session row's context menu with the items it can accept (#888 Migrate, #895 Ask, #935 Snooze, #981 Pin). */
+/** Opens a session row's context menu with the items it can accept (#888 Migrate, #895 Ask, #935 Snooze, #981 Pin, #980 Settle). */
 type OpenSessionMenu = (
   tabId: string,
   event: ReactMouseEvent<HTMLElement>,
-  items: { migrate: boolean; ask: boolean; snooze: boolean; snoozed: boolean; pin: boolean; pinned: boolean },
+  items: { migrate: boolean; ask: boolean; snooze: boolean; snoozed: boolean; pin: boolean; pinned: boolean; settle: boolean },
 ) => void;
 
 interface SessionMenuRequest {
@@ -72,6 +72,7 @@ interface SessionMenuRequest {
   snoozed: boolean;
   pin: boolean;
   pinned: boolean;
+  settle: boolean;
   x: number;
   y: number;
   trigger: HTMLElement;
@@ -151,6 +152,8 @@ function Row({
   // Issue #888: gate the row context menu on the local binary's floor.
   const ompInstalledVersion = useStore((st) => st.ompUpdate.installedVersion);
   const snoozedEnabled = useStore((st) => st.state?.snoozedSectionEnabled === true);
+  // Settle (#980): the same eligibility as the row's hover action.
+  const settle = useStore((st) => canSettle(entry.session, st.rpc[entry.session.tabId]?.status === "running", snoozedEnabled));
   return (
     <div className={cn(!entry.reachable && "opacity-60")}>
       <SessionRow
@@ -185,8 +188,8 @@ function Row({
           // settled one that keeps its pin until resume.
           const pinned = typeof s.pinnedAtMs === "number";
           const pin = pinned || s.live === "live";
-          if (!migrate && !ask && !snooze && !pin) return;
-          openSessionMenu(s.tabId, event, { migrate, ask, snooze, snoozed, pin, pinned });
+          if (!migrate && !ask && !snooze && !pin && !settle) return;
+          openSessionMenu(s.tabId, event, { migrate, ask, snooze, snoozed, pin, pinned, settle });
         }}
       />
     </div>
@@ -266,6 +269,7 @@ export function Sidebar() {
   const askAboutSession = useStore((st) => st.askAboutSession);
   const setSessionSnoozed = useStore((st) => st.setSessionSnoozed);
   const setSessionPinned = useStore((st) => st.setSessionPinned);
+  const settleSessions = useStore((st) => st.settleSessions);
   const compact = useCompactShell();
   const surface = useStore((st) => st.compactSurface);
   const closeCompactSurface = useStore((st) => st.closeCompactSurface);
@@ -297,7 +301,7 @@ export function Sidebar() {
   const [snoozeCustomTabId, setSnoozeCustomTabId] = useState<string | null>(null);
 
   // Issue #888/#895: the per-row Migrate/Ask menu.
-  const openSessionMenu: OpenSessionMenu = (tabId, event, { migrate, ask, snooze, snoozed, pin, pinned }) => {
+  const openSessionMenu: OpenSessionMenu = (tabId, event, { migrate, ask, snooze, snoozed, pin, pinned, settle }) => {
     event.preventDefault();
     const currentTarget = event.currentTarget;
     if (!(currentTarget instanceof HTMLElement)) return;
@@ -311,6 +315,7 @@ export function Sidebar() {
       snoozed,
       pin,
       pinned,
+      settle,
       x: keyboardPosition ? rect.left : event.clientX,
       y: keyboardPosition ? rect.bottom : event.clientY,
       trigger: currentTarget,
@@ -560,9 +565,24 @@ export function Sidebar() {
                 sessionMenu.y > window.innerHeight / 2 && "-translate-y-full",
               )}
             >
-              {sessionMenu.ask && (
+              {sessionMenu.settle && (
                 <button
                   ref={sessionMenuItemRef}
+                  type="button"
+                  role="menuitem"
+                  onClick={() => {
+                    const { tabId } = sessionMenu;
+                    setSessionMenu(null);
+                    void settleSessions([tabId]);
+                  }}
+                  className={MENU_ROW}
+                >
+                  {t("sidebar.session.settleMenu")}
+                </button>
+              )}
+              {sessionMenu.ask && (
+                <button
+                  ref={sessionMenu.settle ? undefined : sessionMenuItemRef}
                   type="button"
                   role="menuitem"
                   onClick={() => {
@@ -578,7 +598,7 @@ export function Sidebar() {
               )}
               {sessionMenu.migrate && (
                 <button
-                  ref={sessionMenu.ask ? undefined : sessionMenuItemRef}
+                  ref={sessionMenu.settle || sessionMenu.ask ? undefined : sessionMenuItemRef}
                   type="button"
                   role="menuitem"
                   onClick={() => {
@@ -593,7 +613,7 @@ export function Sidebar() {
               )}
               {sessionMenu.pin && (
                 <button
-                  ref={sessionMenu.ask || sessionMenu.migrate ? undefined : sessionMenuItemRef}
+                  ref={sessionMenu.settle || sessionMenu.ask || sessionMenu.migrate ? undefined : sessionMenuItemRef}
                   type="button"
                   role="menuitem"
                   onClick={() => {
@@ -608,7 +628,7 @@ export function Sidebar() {
               )}
               {sessionMenu.snooze && (
                 <button
-                  ref={sessionMenu.ask || sessionMenu.migrate || sessionMenu.pin ? undefined : sessionMenuItemRef}
+                  ref={sessionMenu.settle || sessionMenu.ask || sessionMenu.migrate || sessionMenu.pin ? undefined : sessionMenuItemRef}
                   type="button"
                   role="menuitem"
                   onClick={() => {

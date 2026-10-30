@@ -6,7 +6,7 @@ import { parseTitleCard } from "@omp-ui/core/title-card";
 import { localeTag, useT, type MessageKey } from "../lib/i18n";
 import { formatSnoozeUntil } from "../lib/snooze-until";
 import { cn } from "../lib/cn";
-import { deriveSidebarSessionState, useStore, type SidebarSessionState } from "../store";
+import { canSettle, deriveSidebarSessionState, useStore, type SidebarSessionState } from "../store";
 import { SEANCE_MIN_OMP, supportsSeance } from "../lib/seance";
 import { Button, Chip, Dot, IconButton, IconLock, IconPin, IconSpeaker, type Tone } from "./ui";
 import type { SessionHandoff } from "../lib/session-handoffs";
@@ -139,6 +139,24 @@ function IconPower() {
   );
 }
 
+/** A check — the row's Settle action, "done with this" (issue #980). */
+function IconSettle() {
+  return (
+    <svg
+      viewBox="0 0 16 16"
+      aria-hidden
+      className="size-3.5"
+      fill="none"
+      stroke="currentColor"
+      strokeWidth={1.6}
+      strokeLinecap="round"
+      strokeLinejoin="round"
+    >
+      <path d="M3.5 8.5l3 3 6-7" />
+    </svg>
+  );
+}
+
 /** A small plan document — the row's link back to the planning session (issue #238). */
 function IconPlan() {
   return (
@@ -207,6 +225,11 @@ export function SessionRow({
   const deleteSession = useStore((st) => st.deleteSession);
   const terminate = useStore((st) => st.terminate);
   const resumeDead = useStore((st) => st.resumeDead);
+  const settleSessions = useStore((st) => st.settleSessions);
+  // Settle (issue #980): finished work only — a row mid-turn keeps Stop.
+  const settleable = useStore((st) =>
+    canSettle(s, st.rpc[s.tabId]?.status === "running", st.state?.snoozedSectionEnabled === true),
+  );
   const exited = useStore((st) => st.exited[s.tabId]);
   // Issue #926 — a settle hides the dead tab even for a record that never
   // materialized on disk, so the missing row must still be able to un-hide
@@ -499,6 +522,11 @@ export function SessionRow({
             onClick={() => void openSession(source.tabId)}
           >
             <IconPlan />
+          </IconButton>
+        )}
+        {settleable && (
+          <IconButton label={t("sidebar.session.settle")} onClick={() => void settleSessions([s.tabId])}>
+            <IconSettle />
           </IconButton>
         )}
         {!missing && s.live === "live" ? (

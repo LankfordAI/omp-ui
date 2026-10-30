@@ -161,3 +161,29 @@ ADR-0067's rejection of manual reordering: there is still no drag, no
 keyboard move, and no move channel. A pin that only exempts the row from
 Working without moving it was considered and rejected: the issue's second
 complaint is rows moving under the pointer, which only a fixed group solves.
+
+## Addendum: Settle (#980, 2026-10-30)
+
+**Settle** is the explicit way into Settled: a check-glyph hover action on
+main-list and Snoozed rows, plus the row menu, the Session HUD title menu, and
+the command palette. It calls the existing tab-routed `session:settle` (#924),
+so a remote row settles on its host: rpc-ui reaps as hibernation (no exit
+card), PTY through the terminate-style reap. On a settle that succeeds, main
+also clears `snoozed`/`snoozedUntilMs`, so the row leaves Snoozed for Settled;
+a failed reap leaves the snooze alone. A row mid-turn (`turnRunning`, or this
+renderer's own running turn) is not offered Settle — it keeps Stop. A dormant
+snoozed row offers Settle while the section is on, which only clears the
+snooze.
+
+Undo is renderer-local: `Mod+Z` outside a text field, or the transient toast's
+**Undo** button, pops the newest entry and resumes each session through the
+normal resume path, restoring a cleared snooze first. One entry per action, so
+a multi-session settle undoes as one. It covers only settles made in that
+window during that run; nothing persists. `Mod+Z` stays out of the
+`useHotkeys` map so `isAppHotkey` never claims it from the browser pane's
+page, and with nothing to undo the key passes through untouched.
+
+Reusing Stop was rejected: Stop reports an exit card and is the mid-turn kill
+switch. A separate "Archived" state was rejected: CONTEXT.md lists *archive*
+as an avoid term for Settled, and archived already means omp's gzipped
+session file.

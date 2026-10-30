@@ -612,6 +612,7 @@ describe("SessionHud title menu (issue #941)", () => {
       "Session tree",
       "New session here",
       "Compact now",
+      "Settle",
       "Export HTML",
       "Publish encrypted snapshot",
       "Write redacted copy",

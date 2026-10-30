@@ -953,6 +953,20 @@ export interface LiveVoiceBadge {
   talking: boolean;
 }
 
+/** One Settle action's undo record (issue #980): every session it settled, in request order. */
+export interface SettleUndoEntry {
+  id: string;
+  sessions: Array<{
+    tabId: string;
+    title: string;
+    /** Had a process: undo resumes it. A dormant snoozed row only gets its snooze back. */
+    wasLive: boolean;
+    /** The snooze the settle cleared, restored on undo. */
+    snoozed: boolean;
+    snoozedUntilMs: number | null;
+  }>;
+}
+
 export interface UiStore extends SettingsSlice, UpdatesSlice, LabSlice, StatsSlice, FleetSlice, SeanceSlice {
   state: BackendState | null;
   tabs: TabInfo[];
@@ -1263,6 +1277,21 @@ export interface UiStore extends SettingsSlice, UpdatesSlice, LabSlice, StatsSli
    * process), already reported as a transcript notice. Never throws.
    */
   settleFinishedSession(tabId: string): Promise<boolean>;
+  /**
+   * Settle (issue #980): reaps each eligible session through the tab-routed
+   * `session:settle` and clears its snooze, so the row files to Settled. Rows
+   * mid-turn are skipped (they keep Stop). One call is one undo entry.
+   * Never throws; failures report to the error notices.
+   */
+  settleSessions(tabIds: readonly string[]): Promise<void>;
+  /** Settles made in this window during this run, oldest first; capped. */
+  settleUndo: SettleUndoEntry[];
+  /** The undo entry the transient toast offers; null = no toast. */
+  settleToastId: string | null;
+  /** Undoes the newest settle: restores snoozes and resumes through the
+   *  normal resume path. False when nothing is left to undo. */
+  undoSettle(): boolean;
+  dismissSettleToast(): void;
   /**
    * Merges `source` into a worktree session's checkout (issue #387); null
    * when main rejected — already reported to the error notices.
