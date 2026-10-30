@@ -8,6 +8,8 @@
 import { randomUUID } from "node:crypto";
 import {
   CH,
+  FLEET_APP_NO_RELEASE_DETAIL,
+  FLEET_EXEC_POLL_WAIT_MAX_MS,
   FLEET_RUNGS,
   FLEET_STATUS_WAIT_MAX_MS,
   LOCAL_MACHINE_KEY,
@@ -72,6 +74,10 @@ import {
   type FleetUpdatePollOutcome,
   type FleetUpdatePollRequest,
   type FleetUpdateRequest,
+  type FleetUpdateAllMember,
+  type FleetUpdateAllRun,
+  type FleetUpdateAllStart,
+  type FleetUpdateAllStep,
   type NewRpcSpawnRequest,
   type PlacementCandidate,
   type PlacementPreference,
@@ -196,6 +202,22 @@ function agentAnswerOf(ack: FleetUpdateAck): FleetAgentUpdateAnswer {
   return { kind: "applied", detail: ack.detail };
 }
 
+/** Why Update all leaves a member out before asking it anything (issue #990); null to ask. */
+function updateAllSkipReason(machine: FleetMachine): string | null {
+  if (machine.status !== "ready") return machine.error ?? machine.status;
+  if (machine.grantRung !== "full") {
+    return machine.grantRung === null
+      ? "this app's fleet access there is unknown; Update all needs Full control"
+      : `this app holds fleet access "${machine.grantRung}" there; Update all needs Full control`;
+  }
+  return null;
+}
+
+/** One Update all leg as the same local request the Update versions… dialog sends. */
+function updateAllRequest(target: "omp" | "app", action: FleetUpdateRequest["action"]): FleetUpdateRequest {
+  return { target, action, version: null, allowLiveSessions: false };
+}
+
 export class FleetDispatcher {
   readonly #deps: FleetDispatcherDeps;
   readonly #now: () => number;
@@ -210,6 +232,8 @@ export class FleetDispatcher {
   readonly #settledShowing = new Set<string>();
   /** Job ids the update tool started per machine|target, so "poll again with the same arguments" never double-starts. */
   readonly #updateJobs = new Map<string, string>();
+  /** The current or last Update all run (issue #990); in memory, replaced by the next start. */
+  #updateAll: FleetUpdateAllRun | null = null;
 
   constructor(deps: FleetDispatcherDeps) {
     this.#deps = deps;
@@ -862,6 +886,154 @@ export class FleetDispatcher {
     // The translator already mapped the tool's "update" to the wire's "stage";
     // the member audits the agent's tab through the claimed identity.
     return agentAnswerOf(await this.updateMachine(machineKey, translated.request, { kind: "agent", sourceTabId: tabId }));
+  }
+
+  /**
+   * Update all (issue #990): the per-member update `updateMachine` runs, on
+   * every joined member at once — the omp binary first, then omp-ui staged
+   * and armed to install at that member's next quit (ADR-0066: nothing here
+   * restarts a member). A member this app does not hold Full control on, or
+   * one that is not ready, is skipped with the reason; the member's own gate
+   * (master switch, pin, package format, one job at a time) answers the rest.
+   * Answers at once with the run; `updateAllStatus` reads its progress.
+   */
+  async updateAll(): Promise<FleetUpdateAllStart> {
+    if (this.#updateAll !== null && this.#updateAll.finishedAt === null) {
+      return { status: "refused", reason: "an Update all run is already in progress" };
+    }
+    const machines = (await this.machines()).filter((m) => m.key !== LOCAL_MACHINE_KEY);
+    if (machines.length === 0) return { status: "refused", reason: "no fleet member is joined" };
+    const run: FleetUpdateAllRun = {
+      runId: this.#uuid(),
+      startedAt: this.#now(),
+      finishedAt: null,
+      members: machines.map((machine): FleetUpdateAllMember => {
+        const skip = updateAllSkipReason(machine);
+        return {
+          machineKey: machine.key,
+          nickname: machine.nickname,
+          state: skip === null ? "queued" : "skipped",
+          step: null,
+          progress: null,
+          omp: null,
+          app: null,
+          reason: skip,
+        };
+      }),
+    };
+    this.#updateAll = run;
+    const legs = run.members
+      .filter((m) => m.state === "queued")
+      .map((m) =>
+        this.#updateAllMember(m).catch((err: unknown) => {
+          m.state = "failed";
+          m.step = null;
+          m.reason = messageOf(err);
+        }),
+      );
+    void Promise.all(legs).then(() => {
+      run.finishedAt = this.#now();
+    });
+    return { status: "accepted", run: structuredClone(run) };
+  }
+
+  /** A copy of the current or last Update all run; null before the first. */
+  updateAllStatus(): FleetUpdateAllRun | null {
+    return this.#updateAll === null ? null : structuredClone(this.#updateAll);
+  }
+
+  /** One member's two steps in order; the app step runs even when the omp step failed. */
+  async #updateAllMember(member: FleetUpdateAllMember): Promise<void> {
+    const name = fleetMachineName({ nickname: member.nickname ?? member.machineKey });
+    member.state = "running";
+    member.step = "omp";
+    const omp = await this.#updateAllOmp(member, name);
+    if (omp === null) return;
+    member.omp = omp;
+    member.step = "app";
+    member.progress = null;
+    member.app = await this.#updateAllApp(member, name);
+    member.step = null;
+    member.progress = null;
+    member.state = member.omp.kind === "failed" || member.app.kind === "failed" ? "failed" : "done";
+  }
+
+  /** The omp step; null when the member's gate refused the first check (the whole member is skipped). */
+  async #updateAllOmp(member: FleetUpdateAllMember, name: string): Promise<FleetUpdateAllStep | null> {
+    const checked = await this.updateMachine(member.machineKey, updateAllRequest("omp", "check"));
+    if (checked.status === "refused") {
+      member.state = "skipped";
+      member.step = null;
+      member.reason = checked.reason;
+      return null;
+    }
+    if (!("check" in checked) || checked.check.target !== "omp") return { kind: "failed", reason: `${name} answered the omp check without one` };
+    const check = checked.check;
+    if (check.pinned) return { kind: "skipped", reason: "omp is pinned by OMP_UI_OMP_PATH there" };
+    if (check.latestVersion === null) return { kind: "skipped", reason: `${name} could not look up the newest omp release` };
+    if (check.installedVersion !== null && !check.updateAvailable) return { kind: "current", version: check.installedVersion };
+    const started = await this.updateMachine(member.machineKey, updateAllRequest("omp", "stage"));
+    if (started.status === "refused") return { kind: "skipped", reason: started.reason };
+    if (!("jobId" in started)) return { kind: "failed", reason: `${name} started no omp job` };
+    const settled = await this.#updateAllSettle(member, started.jobId, name);
+    if (settled.state === "succeeded") return { kind: "updated", version: check.latestVersion, detail: settled.detail };
+    return { kind: "failed", reason: settled.detail ?? settled.state };
+  }
+
+  /** The omp-ui step: stage through the member's own updater, then arm install-at-next-quit. */
+  async #updateAllApp(member: FleetUpdateAllMember, name: string): Promise<FleetUpdateAllStep> {
+    const checked = await this.updateMachine(member.machineKey, updateAllRequest("app", "check"));
+    if (checked.status === "refused") return { kind: "skipped", reason: checked.reason };
+    if (!("check" in checked) || checked.check.target !== "app") return { kind: "failed", reason: `${name} answered the omp-ui check without one` };
+    let latest = checked.check.latestVersion;
+    if (!checked.check.staged) {
+      const started = await this.updateMachine(member.machineKey, updateAllRequest("app", "stage"));
+      if (started.status === "refused") return { kind: "skipped", reason: started.reason };
+      if (!("jobId" in started)) return { kind: "failed", reason: `${name} started no omp-ui job` };
+      const settled = await this.#updateAllSettle(member, started.jobId, name);
+      if (settled.state !== "succeeded") {
+        // An up-to-date train settles the staging job failed with the shared detail.
+        if (settled.detail === FLEET_APP_NO_RELEASE_DETAIL) return { kind: "current", version: checked.check.currentVersion };
+        return { kind: "failed", reason: settled.detail ?? settled.state };
+      }
+      // The job's detail reads "app staged <version>".
+      latest = /(\d+\.\d+\.\d+\S*)$/.exec(settled.detail ?? "")?.[1] ?? latest;
+    } else if (checked.check.installOnQuit) {
+      return { kind: "updated", version: latest, detail: "already staged and armed for the next quit" };
+    }
+    // Accepting the Update all gate is the "Install when I quit" choice for
+    // members with live sessions: they keep running until that member quits.
+    const armed = await this.updateMachine(member.machineKey, { ...updateAllRequest("app", "apply"), allowLiveSessions: true });
+    if (armed.status === "refused") return { kind: "failed", reason: armed.reason };
+    return { kind: "updated", version: latest, detail: "staged; installs at that machine's next quit" };
+  }
+
+  /**
+   * Long-poll one started job until it settles. The member caps a job at
+   * 10 minutes, so this always ends; a refusal (the job is gone) or three
+   * unanswered polls in a row read as a failure.
+   */
+  async #updateAllSettle(
+    member: FleetUpdateAllMember,
+    jobId: string,
+    name: string,
+  ): Promise<{ state: "succeeded" | "failed" | "revoked"; detail: string | null }> {
+    let misses = 0;
+    for (;;) {
+      const polled = await this.#memberCall<FleetUpdatePollOutcome>(
+        member.machineKey,
+        CH.fleetUpdatePoll,
+        [{ requester: this.requester("user", null), jobId, waitMs: FLEET_EXEC_POLL_WAIT_MAX_MS }],
+        name,
+      );
+      if (polled.status === "refused") {
+        if (/^no answer from /.test(polled.reason) && ++misses < 3) continue;
+        return { state: "failed", detail: fleetUpdateSkew(polled, name).reason };
+      }
+      misses = 0;
+      if (polled.state !== "running") return { state: polled.state, detail: polled.detail };
+      member.progress = polled.progress?.percent ?? null;
+    }
   }
 
   /** Forget one member's chip and its survival flag; the member's own job is untouched. */

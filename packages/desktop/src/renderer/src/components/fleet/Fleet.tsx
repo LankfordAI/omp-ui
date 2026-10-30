@@ -12,6 +12,9 @@ import {
   type FleetPackageManager,
   type FleetPendingDispatch,
   type FleetRung,
+  type FleetUpdateAllMember,
+  type FleetUpdateAllRun,
+  type FleetUpdateAllStep,
   type PlacementPreference,
 } from "@omp-ui/core/fleet";
 import { useT, type MessageKey } from "../../lib/i18n";
@@ -72,11 +75,12 @@ interface FleetRow {
   nickname: string | null;
 }
 
-function Section({ title, children }: { title: string; children: ReactNode }) {
+function Section({ title, action, children }: { title: string; action?: ReactNode; children: ReactNode }) {
   return (
     <section className="border-b border-line-soft px-3 py-2.5 last:border-b-0">
       <div className="mb-1.5 flex items-center gap-2">
         <Label className="min-w-0 flex-1 truncate">{title}</Label>
+        {action}
       </div>
       {children}
     </section>
@@ -297,6 +301,80 @@ function MachineRow({
   );
 }
 
+/* ----------------------------------------------------------- update all */
+
+const UPDATE_ALL_FACE: Record<FleetUpdateAllMember["state"], { tone: Tone; labelKey: MessageKey }> = {
+  queued: { tone: "neutral", labelKey: "fleet.updateAll.state.queued" },
+  running: { tone: "copper", labelKey: "fleet.updateAll.state.running" },
+  done: { tone: "signal", labelKey: "fleet.updateAll.state.done" },
+  skipped: { tone: "neutral", labelKey: "fleet.updateAll.state.skipped" },
+  failed: { tone: "rose", labelKey: "fleet.updateAll.state.failed" },
+};
+
+/** One step's outcome as the row's chip text and tone. */
+function UpdateAllStepChip({ product, step }: { product: "omp" | "omp-ui"; step: FleetUpdateAllStep }) {
+  const t = useT();
+  const tone: Tone = step.kind === "updated" ? "signal" : step.kind === "failed" ? "rose" : "neutral";
+  const text =
+    step.kind === "current"
+      ? t("fleet.updateAll.step.current", { product, version: step.version ?? "" })
+      : step.kind === "updated"
+        ? t(product === "omp" ? "fleet.updateAll.step.updatedOmp" : "fleet.updateAll.step.stagedApp", {
+            product,
+            version: step.version ?? "",
+          })
+        : step.kind === "skipped"
+          ? t("fleet.updateAll.step.skipped", { product })
+          : t("fleet.updateAll.step.failed", { product });
+  const title = step.kind === "skipped" || step.kind === "failed" ? step.reason : step.kind === "updated" ? (step.detail ?? undefined) : undefined;
+  return (
+    <span data-update-all-step={product} data-step-kind={step.kind} className="min-w-0">
+      <Chip tone={tone} truncate title={title}>
+        {text}
+      </Chip>
+    </span>
+  );
+}
+
+/** Update all's progress (issue #990): one row per member, from the run main keeps. */
+function UpdateAllProgress({ run }: { run: FleetUpdateAllRun }) {
+  const t = useT();
+  const settled = run.finishedAt !== null;
+  return (
+    <div data-update-all-run={settled ? "finished" : "running"} className="mb-2 rounded-md border border-line bg-raised px-3 py-2">
+      <p className="mb-1 text-[11px] text-ink-mid">
+        {settled ? t("fleet.updateAll.finished") : t("fleet.updateAll.running")}
+      </p>
+      <ul className="divide-y divide-line-soft">
+        {run.members.map((member) => {
+          const face = UPDATE_ALL_FACE[member.state];
+          return (
+            <li
+              key={member.machineKey}
+              data-update-all-member={member.machineKey}
+              data-update-all-state={member.state}
+              className="flex flex-wrap items-center gap-x-2 gap-y-1 py-1 text-[11px]"
+            >
+              <span className="truncate text-xs text-ink">{member.nickname ?? member.machineKey}</span>
+              <Chip tone={face.tone}>
+                {member.state === "running" && member.step !== null
+                  ? t("fleet.updateAll.state.runningStep", {
+                      product: member.step === "omp" ? "omp" : "omp-ui",
+                      progress: member.progress === null ? "" : ` ${member.progress}%`,
+                    })
+                  : t(face.labelKey)}
+              </Chip>
+              {member.omp !== null && <UpdateAllStepChip product="omp" step={member.omp} />}
+              {member.app !== null && <UpdateAllStepChip product="omp-ui" step={member.app} />}
+              {member.reason !== null && <span className="min-w-0 flex-1 truncate text-ink-faint">{member.reason}</span>}
+            </li>
+          );
+        })}
+      </ul>
+    </div>
+  );
+}
+
 function MachinesSection() {
   const t = useT();
   const view = useStore((s) => s.fleet);
@@ -336,8 +414,37 @@ function MachinesSection() {
     }
   };
   if (view === null) return null;
+  const members = (view.machines ?? []).filter((m) => m.key !== LOCAL_MACHINE_KEY);
+  // Who Update all asks: ready members this app holds Full control on (the dispatcher skips the rest).
+  const eligible = members.filter((m) => m.status === "ready" && m.grantRung === "full").length;
+  const runActive = view.updateAll !== null && view.updateAll.finishedAt === null;
   return (
-    <Section title={t("fleet.section.machines")}>
+    <Section
+      title={t("fleet.section.machines")}
+      action={
+        members.length > 0 && (
+          // #990: this computer's own update stays on Settings → Updates.
+          <Button
+            size="xs"
+            variant="ghost"
+            disabled={eligible === 0 || runActive}
+            title={
+              runActive
+                ? t("fleet.updateAll.busy")
+                : eligible === 0
+                  ? t("fleet.updateAll.needsFull")
+                  : t("fleet.updateAll.hint")
+            }
+            onClick={() =>
+              stageLifecycleConfirmation({ kind: "fleet-update-all", eligible, skipped: members.length - eligible })
+            }
+          >
+            {t("fleet.updateAll.button")}
+          </Button>
+        )
+      }
+    >
+      {view.updateAll !== null && <UpdateAllProgress run={view.updateAll} />}
       {view.error !== null && (
         <p className="mb-1.5 rounded-md border border-line bg-raised px-3 py-2 text-[11px] text-ink-mid">{view.error}</p>
       )}

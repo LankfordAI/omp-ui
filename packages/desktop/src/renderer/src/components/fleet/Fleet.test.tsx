@@ -279,7 +279,7 @@ function maintenance(patch: Partial<FleetMaintenanceRecord> & { state: FleetMain
 function seedWith(machines: FleetMachine[]): void {
   backendMock.fleetMachines.mockResolvedValue(machines);
   useStore.setState({
-    fleet: { machines, audit: null, loading: false, error: null },
+    fleet: { machines, audit: null, updateAll: null, loading: false, error: null },
     fleetLastRequests: {},
     lifecycleConfirmation: null,
     rpc: {},
@@ -319,7 +319,7 @@ const buttons = (scope: Element, text: string): HTMLButtonElement[] =>
 describe("Fleet view", () => {
   it("groups dispatched sessions by batch and offers Retry only for requests this renderer still holds", () => {
     useStore.setState({
-      fleet: { machines: [], audit: null, loading: false, error: null },
+      fleet: { machines: [], audit: null, updateAll: null, loading: false, error: null },
       fleetLastRequests: {
         "d-live": {
           req: { targets: { kind: "auto", reference: { machineKey: "local", projectCwd: "/p" }, count: 1 }, prompt: "go", title: null, workspace: "worktree", planMode: false },
@@ -541,5 +541,76 @@ describe("Fleet view", () => {
     expect(buttons(dialog, "Update omp")).toHaveLength(0);
     // The app leg answered normally: its section still renders.
     expect(dialog.querySelector('[data-update-section="app"]')!.textContent).toContain("1.0.0 → 1.1.0");
+  });
+
+  it("stages the Update all gate with the eligible count, and disables it with no Full-control member (#990)", () => {
+    seedMachines();
+    render();
+    // inst-full and inst-staged are ready with Full control; three other members are not.
+    act(() => buttons(document.body, "Update all")[0]!.click());
+    expect(useStore.getState().lifecycleConfirmation).toMatchObject({ kind: "fleet-update-all", eligible: 2, skipped: 3 });
+
+    act(() => useStore.setState({ lifecycleConfirmation: null }));
+    act(() => seedWith([machine({ key: "local" }), machine({ key: "inst-dispatch", nickname: "box-a", grantRung: "dispatch" })]));
+    expect(buttons(document.body, "Update all")[0]!.disabled).toBe(true);
+  });
+
+  it("shows one progress row per member of the run with each step's outcome (#990)", () => {
+    seedMachines();
+    act(() =>
+      useStore.setState((s) => ({
+        fleet: {
+          ...s.fleet!,
+          updateAll: {
+            runId: "run-1",
+            startedAt: 0,
+            finishedAt: null,
+            members: [
+              {
+                machineKey: "inst-full",
+                nickname: "studio",
+                state: "running",
+                step: "app",
+                progress: 40,
+                omp: { kind: "updated", version: "18.14.0", detail: "omp 18.12.0 → 18.14.0 at /x" },
+                app: null,
+                reason: null,
+              },
+              {
+                machineKey: "inst-staged",
+                nickname: "stage-box",
+                state: "failed",
+                step: null,
+                progress: null,
+                omp: { kind: "current", version: "18.14.0" },
+                app: { kind: "failed", reason: "timed out after 600 s" },
+                reason: null,
+              },
+              {
+                machineKey: "inst-dispatch",
+                nickname: "box-a",
+                state: "skipped",
+                step: null,
+                progress: null,
+                omp: null,
+                app: null,
+                reason: 'this app holds fleet access "dispatch" there; Update all needs Full control',
+              },
+            ],
+          },
+        },
+      })),
+    );
+    render();
+    const member = (key: string) => document.body.querySelector(`[data-update-all-member="${key}"]`)!;
+    expect(member("inst-full").textContent).toContain("updating omp-ui… 40%");
+    expect(member("inst-full").textContent).toContain("omp → 18.14.0");
+    expect(member("inst-staged").getAttribute("data-update-all-state")).toBe("failed");
+    expect(member("inst-staged").querySelector('[data-update-all-step="omp-ui"] [title]')!.getAttribute("title")).toBe(
+      "timed out after 600 s",
+    );
+    expect(member("inst-dispatch").textContent).toContain("needs Full control");
+    // A run in progress blocks a second one.
+    expect(buttons(document.body, "Update all")[0]!.disabled).toBe(true);
   });
 });

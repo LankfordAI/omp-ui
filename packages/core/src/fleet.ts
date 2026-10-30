@@ -899,6 +899,55 @@ export type FleetUpdatePollOutcome =
     }
   | { status: "refused"; reason: string };
 
+/**
+ * The failure detail a member's app staging job settles with when its train
+ * holds nothing newer. Update all reads it as "already current", not a
+ * failure, so the member and the dispatcher share this one string.
+ */
+export const FLEET_APP_NO_RELEASE_DETAIL = "no omp-ui release is available for this machine's train";
+
+/** One Update all step's result on one member (issue #990). */
+export type FleetUpdateAllStep =
+  /** Nothing newer was available; `version` is what the member runs, when known. */
+  | { kind: "current"; version: string | null }
+  /** omp installed, or the omp-ui update staged and armed for the member's next quit. */
+  | { kind: "updated"; version: string | null; detail: string | null }
+  /** The member refused before anything started (pin, package format, a running job). */
+  | { kind: "skipped"; reason: string }
+  /** A started job failed or was revoked, or the arm was refused. */
+  | { kind: "failed"; reason: string };
+
+/** One member's row in an Update all run (issue #990). */
+export interface FleetUpdateAllMember {
+  machineKey: string;
+  nickname: string | null;
+  /**
+   * queued → running → done | failed; skipped when the member was never
+   * asked (not ready, below Full control) or its gate refused the first check
+   * (master switch off, an omp-ui without fleet updates).
+   */
+  state: "queued" | "running" | "done" | "skipped" | "failed";
+  /** The step in flight while running; null otherwise. */
+  step: "omp" | "app" | null;
+  /** The running job's percentage, when its phase has one. */
+  progress: number | null;
+  omp: FleetUpdateAllStep | null;
+  app: FleetUpdateAllStep | null;
+  /** Why the member was skipped. */
+  reason: string | null;
+}
+
+/** The dispatcher's one Update all run (issue #990): in memory, the last one kept until the next starts. */
+export interface FleetUpdateAllRun {
+  runId: string;
+  startedAt: number;
+  /** Null while any member still runs. */
+  finishedAt: number | null;
+  members: FleetUpdateAllMember[];
+}
+
+export type FleetUpdateAllStart = { status: "accepted"; run: FleetUpdateAllRun } | { status: "refused"; reason: string };
+
 /** Strict parse of the local update request body (shared by both parsers). */
 export function parseFleetUpdateRequest(value: unknown, label: string): FleetUpdateRequest {
   const req = objectValue(value, label);

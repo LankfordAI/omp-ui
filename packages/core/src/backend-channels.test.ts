@@ -370,6 +370,8 @@ const VALID_ARGS = {
   ],
   fleetRolloutProviderKeys: ["member-1", ["ANTHROPIC_API_KEY"]],
   fleetUpdateMachine: ["member-1", { target: "app", action: "check", version: null, allowLiveSessions: false }],
+  fleetUpdateAll: [],
+  fleetUpdateAllStatus: [],
   fleetUpdateMember: [
     {
       requester: { instanceId: "instance-1", label: "workstation", kind: "agent", sourceTabId: "tab-1" },

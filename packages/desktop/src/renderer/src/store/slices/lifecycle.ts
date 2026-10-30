@@ -1594,6 +1594,16 @@ export function createLifecycleSlice(
       void get().refreshFleet();
       return;
     }
+    if (confirmation.kind === "fleet-update-all") {
+      // Update all (issue #990): one fleet:updateAll call starts every member's
+      // run in main; the Fleet view's progress rows poll it. A refusal (a run
+      // already going, no member joined) rides reportError like every gate.
+      const result = await backend.fleetUpdateAll();
+      if (result.status === "refused") throw new Error(result.reason);
+      set((s) => (s.fleet === null ? s : { fleet: { ...s.fleet, updateAll: result.run } }));
+      void get().refreshFleet();
+      return;
+    }
     const registered = projectGroups(confirmation.instanceId)?.some(
       (group) => group.project.path === confirmation.projectPath,
     );

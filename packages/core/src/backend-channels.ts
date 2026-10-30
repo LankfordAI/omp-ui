@@ -121,6 +121,8 @@ import type {
   FleetProviderKeysOutcome,
   FleetProviderKeysRequest,
   FleetUpdateAck,
+  FleetUpdateAllRun,
+  FleetUpdateAllStart,
   FleetUpdateMemberRequest,
   FleetUpdatePollOutcome,
   FleetUpdatePollRequest,
@@ -1302,6 +1304,11 @@ export const BACKEND_CHANNELS = {
     channel: "fleet:updateMachine",
     ...request<[machineKey: string, req: FleetUpdateRequest], FleetUpdateAck>([machineKeyCodec, fleetUpdateRequestCodec]),
   },
+  /** Update all (issue #990): start one run of the per-member update on every
+   *  member, omp first then omp-ui staged and armed for the next quit. Local only. */
+  fleetUpdateAll: { channel: "fleet:updateAll", ...request<[], FleetUpdateAllStart>([]) },
+  /** The current or last Update all run, polled by the open Fleet view. Local only. */
+  fleetUpdateAllStatus: { channel: "fleet:updateAllStatus", ...request<[], FleetUpdateAllRun | null>([]) },
   /** The member leg: rung 4 + master switch, then this machine updates itself. Proxied, main-to-main. */
   fleetUpdateMember: {
     channel: "fleet:updateMember",

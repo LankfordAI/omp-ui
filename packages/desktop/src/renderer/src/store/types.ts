@@ -7,6 +7,7 @@ import type {
   FleetPendingDispatch,
   FleetRung,
   FleetTargetPick,
+  FleetUpdateAllRun,
   PlacementPreference,
 } from "@omp-ui/core/fleet";
 import type { MagicKeyword } from "@omp-ui/core/magic-keywords";
@@ -534,6 +535,15 @@ export type LifecycleConfirmationChoice =
       liveSessions: number;
     }
   | {
+      /** Update all (issue #990): the per-member update on every member this app
+       *  holds Full control on — omp first, then omp-ui staged and armed for each
+       *  member's next quit. `eligible` names the count the body states; live
+       *  sessions keep running, so accepting IS the "Install when I quit" choice. */
+      kind: "fleet-update-all";
+      eligible: number;
+      skipped: number;
+    }
+  | {
       /** Provider key rollout to one fleet member (issue #905). Mandatory gate: the body
        *  names the count, the member, and whether the join transport is encrypted. Values
        *  never reach the renderer; main reads them at confirm time. */
@@ -849,6 +859,8 @@ export interface FleetView {
   error: string | null;
   /** This machine's own fleet audit ring (#901); null until the first read. */
   audit: FleetAuditEntry[] | null;
+  /** The current or last Update all run (issue #990); null before the first. */
+  updateAll: FleetUpdateAllRun | null;
 }
 
 /** What a Retry re-sends for one unknown-outcome dispatch: the request and its one target. */

@@ -1,6 +1,7 @@
 import { describe, expect, it, vi } from "vitest";
 import {
   CH,
+  FLEET_APP_NO_RELEASE_DETAIL,
   LOCAL_MACHINE_KEY,
   type FleetDispatchRequest,
   type FleetHostProject,
@@ -1122,5 +1123,208 @@ describe("FleetDispatcher fleet maintenance (fleet remote version update)", () =
       kind: "refused",
       reason: "omp is pinned by OMP_UI_OMP_PATH on this machine; install into the managed path or clear the pin",
     });
+  });
+});
+
+describe("FleetDispatcher Update all (issue #990)", () => {
+  type Member = {
+    rung: string;
+    /** The member's gate refusal for every update call (master switch off, older omp-ui). */
+    gate?: string;
+    omp: { installedVersion: string | null; latestVersion: string | null; updateAvailable: boolean; pinned?: boolean };
+    /** The omp job's settle. */
+    ompJob?: { state: string; detail: string };
+    app: { currentVersion: string; latestVersion: string | null; staged: boolean; installOnQuit?: boolean };
+    appJob?: { state: string; detail: string };
+    /** The member's app-stage refusal (a package-manager install). */
+    appStageRefusal?: string;
+  };
+
+  /** Joined members by id, each answering the fleet update channels from its script. */
+  function fleet(members: Record<string, Member>) {
+    const { promise: gatePoll, resolve: finishPoll } = Promise.withResolvers<void>();
+    let hold = false;
+    const request = vi.fn(async (id: string, channel: string, args: unknown[]): Promise<unknown> => {
+      const m = members[id]!;
+      if (channel === CH.fleetHostReport) return report([project()]);
+      if (channel === CH.fleetGrantRung) return { rung: m.rung, ceiling: "full", execEnabled: true };
+      const req = args[0] as { target: "omp" | "app"; action: string; allowLiveSessions?: boolean; jobId?: string };
+      if (channel === CH.fleetUpdatePoll) {
+        if (hold) await gatePoll;
+        const job = req.jobId === `${id}-omp` ? m.ompJob! : m.appJob!;
+        return { status: "accepted", jobId: req.jobId, state: job.state, progress: null, detail: job.detail, elapsedMs: 1 };
+      }
+      if (channel !== CH.fleetUpdateMember) return null;
+      if (m.gate !== undefined) return { status: "refused", reason: m.gate };
+      if (req.action === "check") {
+        return req.target === "omp"
+          ? { status: "accepted", check: { target: "omp", installPath: "/x/omp", belowMinimum: false, pinned: false, ...m.omp } }
+          : { status: "accepted", check: { target: "app", format: "appimage", installOnQuit: false, liveSessions: 2, ...m.app } };
+      }
+      if (req.action === "stage") {
+        if (req.target === "app" && m.appStageRefusal !== undefined) return { status: "refused", reason: m.appStageRefusal };
+        return { status: "accepted", jobId: `${id}-${req.target}` };
+      }
+      return { status: "accepted", detail: "arm-on-quit" };
+    });
+    const dispatcher = new FleetDispatcher({
+      localReport: async () => report([project()]),
+      spawnLocal: async () => ({ tabId: "t" }),
+      remotes: () => Object.keys(members).map((id) => remote(id)),
+      request,
+      preferences: () => ({}),
+      requesterBase: () => ({ instanceId: "dispatcher", label: "desk" }),
+      knownDispatchIds: () => new Set(),
+      fleetSessions: async () => [],
+      localSummary: async () => "",
+      broadcast: async () => {},
+      probeSsh: async () => true,
+      providerKeyValue: () => null,
+      watchAgentDispatch: () => {},
+      nextBroadcast: async () => {},
+      sendLocal: async () => ({ status: "delivered" }),
+      finishLocal: async () => ({ status: "refused", reason: "not wired in this fixture" }),
+      now: () => NOW,
+      uuid: () => "run-1",
+    });
+    const updates = (id: string) =>
+      request.mock.calls
+        .filter(([to, ch]) => to === id && ch === CH.fleetUpdateMember)
+        .map(([, , args]) => {
+          const { target, action, allowLiveSessions } = args[0] as { target: string; action: string; allowLiveSessions: boolean };
+          return `${target}/${action}${allowLiveSessions ? "+live" : ""}`;
+        });
+    const settled = async () => {
+      await vi.waitFor(() => expect(dispatcher.updateAllStatus()?.finishedAt).not.toBeNull());
+      return dispatcher.updateAllStatus()!;
+    };
+    return { dispatcher, updates, settled, holdPolls: () => (hold = true), releasePolls: finishPoll };
+  }
+
+  const stale = { installedVersion: "18.12.0", latestVersion: "18.14.0", updateAvailable: true };
+  const current = { installedVersion: "18.14.0", latestVersion: "18.14.0", updateAvailable: false };
+
+  it("updates omp before staging and arming omp-ui, and skips members without Full control or with the switch off", async () => {
+    const h = fleet({
+      full: {
+        rung: "full",
+        omp: stale,
+        ompJob: { state: "succeeded", detail: "omp 18.12.0 → 18.14.0 at /x/omp" },
+        app: { currentVersion: "1.4.0", latestVersion: null, staged: false },
+        appJob: { state: "succeeded", detail: "app staged 1.5.0" },
+      },
+      dispatchOnly: { rung: "dispatch", omp: stale, app: { currentVersion: "1.4.0", latestVersion: null, staged: false } },
+      switchOff: {
+        rung: "full",
+        gate: "fleet exec is off on this machine (Settings → Remote instances → Fleet access)",
+        omp: stale,
+        app: { currentVersion: "1.4.0", latestVersion: null, staged: false },
+      },
+    });
+    expect(await h.dispatcher.updateAll()).toMatchObject({ status: "accepted", run: { runId: "run-1", finishedAt: null } });
+    const run = await h.settled();
+    // omp first, then omp-ui staged, then armed with live sessions allowed (accepting the gate is the choice).
+    expect(h.updates("full")).toEqual(["omp/check", "omp/stage", "app/check", "app/stage", "app/apply+live"]);
+    expect(h.updates("dispatchOnly")).toEqual([]);
+    expect(h.updates("switchOff")).toEqual(["omp/check"]);
+    expect(run.members).toEqual([
+      {
+        machineKey: "full",
+        nickname: "box-full",
+        state: "done",
+        step: null,
+        progress: null,
+        omp: { kind: "updated", version: "18.14.0", detail: "omp 18.12.0 → 18.14.0 at /x/omp" },
+        app: { kind: "updated", version: "1.5.0", detail: "staged; installs at that machine's next quit" },
+        reason: null,
+      },
+      expect.objectContaining({
+        machineKey: "dispatchOnly",
+        state: "skipped",
+        omp: null,
+        app: null,
+        reason: 'this app holds fleet access "dispatch" there; Update all needs Full control',
+      }),
+      expect.objectContaining({
+        machineKey: "switchOff",
+        state: "skipped",
+        omp: null,
+        app: null,
+        reason: "fleet exec is off on this machine (Settings → Remote instances → Fleet access)",
+      }),
+    ]);
+  });
+
+  it("reads an up-to-date member as current, never failed, and starts nothing for omp", async () => {
+    const h = fleet({
+      r1: {
+        rung: "full",
+        omp: current,
+        app: { currentVersion: "1.5.0", latestVersion: null, staged: false },
+        appJob: { state: "failed", detail: FLEET_APP_NO_RELEASE_DETAIL },
+      },
+    });
+    await h.dispatcher.updateAll();
+    const [member] = (await h.settled()).members;
+    expect(h.updates("r1")).toEqual(["omp/check", "app/check", "app/stage"]);
+    expect(member).toMatchObject({
+      state: "done",
+      omp: { kind: "current", version: "18.14.0" },
+      app: { kind: "current", version: "1.5.0" },
+    });
+  });
+
+  it("still stages omp-ui after a failed omp job, and the member reads failed", async () => {
+    const h = fleet({
+      r1: {
+        rung: "full",
+        omp: stale,
+        ompJob: { state: "failed", detail: "omp --version did not run" },
+        app: { currentVersion: "1.4.0", latestVersion: "1.5.0", staged: true },
+      },
+    });
+    await h.dispatcher.updateAll();
+    const [member] = (await h.settled()).members;
+    // Already staged: no second stage, only the arm.
+    expect(h.updates("r1")).toEqual(["omp/check", "omp/stage", "app/check", "app/apply+live"]);
+    expect(member).toMatchObject({
+      state: "failed",
+      omp: { kind: "failed", reason: "omp --version did not run" },
+      app: { kind: "updated", version: "1.5.0" },
+    });
+  });
+
+  it("lists a pinned omp and a package-manager install as skipped steps, not failures", async () => {
+    const h = fleet({
+      r1: {
+        rung: "full",
+        omp: { ...stale, pinned: true },
+        app: { currentVersion: "1.4.0", latestVersion: null, staged: false },
+        appStageRefusal: "this machine installs omp-ui as a deb package; update it with its package manager",
+      },
+    });
+    await h.dispatcher.updateAll();
+    const [member] = (await h.settled()).members;
+    expect(h.updates("r1")).toEqual(["omp/check", "app/check", "app/stage"]);
+    expect(member).toMatchObject({
+      state: "done",
+      omp: { kind: "skipped", reason: "omp is pinned by OMP_UI_OMP_PATH there" },
+      app: { kind: "skipped", reason: "this machine installs omp-ui as a deb package; update it with its package manager" },
+    });
+  });
+
+  it("refuses a second run while one is in progress, and with no member joined", async () => {
+    const h = fleet({
+      r1: { rung: "full", omp: stale, ompJob: { state: "succeeded", detail: "ok" }, app: { currentVersion: "1.5.0", latestVersion: "1.5.0", staged: true, installOnQuit: true } },
+    });
+    h.holdPolls();
+    await h.dispatcher.updateAll();
+    await vi.waitFor(() => expect(h.dispatcher.updateAllStatus()?.members[0]).toMatchObject({ state: "running", step: "omp" }));
+    expect(await h.dispatcher.updateAll()).toEqual({ status: "refused", reason: "an Update all run is already in progress" });
+    h.releasePolls();
+    await h.settled();
+    // Staged and already armed: nothing is re-armed.
+    expect(h.updates("r1")).toEqual(["omp/check", "omp/stage", "app/check"]);
+    expect(await fleet({}).dispatcher.updateAll()).toEqual({ status: "refused", reason: "no fleet member is joined" });
   });
 });

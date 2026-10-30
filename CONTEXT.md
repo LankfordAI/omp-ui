@@ -1382,6 +1382,13 @@ downloads from its own network through its own verified updater; the controller
 sends only the instruction, and nothing ships through the join link.
 _Avoid_: remote install, push update, fleet upgrade
 
+**Update all**:
+One Fleet maintenance run across every member this app holds Full control on:
+each installs the newest omp, then stages its omp-ui update armed for its next
+quit, with one progress row per member (#990). This computer is never part of
+it; its own update stays on Settings → Updates.
+_Avoid_: fleet upgrade, mass update, bulk install
+
 **Maintenance job**:
 The member-side record of one in-flight Fleet maintenance, polled only by the
 dispatcher that started it; capped at 10 minutes, one running per machine, and

@@ -10,6 +10,7 @@ import * as fs from "node:fs";
 import * as os from "node:os";
 import * as path from "node:path";
 import {
+  FLEET_APP_NO_RELEASE_DETAIL,
   FLEET_CLONE_TIMEOUT_MS,
   FLEET_EXEC_OUTPUT_MAX,
   FLEET_EXEC_TIMEOUT_MIN_MS,
@@ -444,7 +445,7 @@ export class FleetServer {
         if (result === "staged") return { detail: `app staged ${stagedAt ?? ""}`.trim() };
         // A stale check costs one round trip and keeps `app / check` cheap: an
         // up-to-date train FAILS the job so the dispatcher reads the reason.
-        if (result === "up-to-date") throw new Error("no omp-ui release is available for this machine's train");
+        if (result === "up-to-date") throw new Error(FLEET_APP_NO_RELEASE_DETAIL);
         if (result === "unavailable") throw new Error(disabled);
         throw new Error("the omp-ui update could not be staged on this machine");
       });

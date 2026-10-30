@@ -18,8 +18,12 @@ export function createFleetSlice(set: SetState, get: GetState): FleetSlice {
     reading = true;
     set((s) => (s.fleet === null ? s : { fleet: { ...s.fleet, loading: true } }));
     try {
-      const [machines, audit] = await Promise.all([backend.fleetMachines(), backend.fleetAudit()]);
-      set((s) => (s.fleet === null ? s : { fleet: { machines, audit, loading: false, error: null } }));
+      const [machines, audit, updateAll] = await Promise.all([
+        backend.fleetMachines(),
+        backend.fleetAudit(),
+        backend.fleetUpdateAllStatus(),
+      ]);
+      set((s) => (s.fleet === null ? s : { fleet: { machines, audit, updateAll, loading: false, error: null } }));
     } catch (err) {
       const error = displayMessage(err);
       set((s) => (s.fleet === null ? s : { fleet: { ...s.fleet, loading: false, error } }));
@@ -32,7 +36,9 @@ export function createFleetSlice(set: SetState, get: GetState): FleetSlice {
     const s = get();
     // closeLab, not a bare `lab: null`: it also stops the Lab's refresh timer.
     if (s.lab !== null) s.closeLab();
-    if (s.fleet === null) set({ fleet: { machines: null, audit: null, loading: false, error: null }, stats: null });
+    if (s.fleet === null) {
+      set({ fleet: { machines: null, audit: null, updateAll: null, loading: false, error: null }, stats: null });
+    }
     void refreshFleet();
   };
 

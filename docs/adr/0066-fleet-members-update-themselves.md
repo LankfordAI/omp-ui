@@ -147,6 +147,19 @@ socket. Start needs rung 4 plus the master switch through the existing
 - Update starts write audit lines and polls write none, exactly as detached
   exec's start/poll split does; a long download is one approval at most in an
   asking approval mode, not one per poll.
+- **Amended 2026-10-30 (#990): Update all.** The Fleet view's **Update all**
+  runs the same per-member maintenance on every member at once. It is local
+  orchestration in the dispatcher (`fleet:updateAll` starts the run,
+  `fleet:updateAllStatus` reads it; neither is proxied). Each member gets
+  `omp / check` → `omp / stage` (only when a newer release exists), then
+  `app / check` → `app / stage` → `app / apply`. The dispatcher long-polls
+  `fleet:updatePoll` for each job and keeps the last run in memory. The
+  rules above are unchanged: the same rung 4 + master switch gate, no
+  restart, apply only arms install-at-next-quit. Accepting the one
+  confirmation is the *Install when I quit* choice, so the arm carries
+  `allowLiveSessions`. A member's up-to-date app train settles its staging
+  job failed with `FLEET_APP_NO_RELEASE_DETAIL`, which Update all reads as
+  *current*. This computer is never in the run.
 
 ## Amends / relates
 

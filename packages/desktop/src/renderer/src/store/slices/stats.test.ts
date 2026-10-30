@@ -33,7 +33,7 @@ describe("Stats view slice", () => {
   });
 
   it("openStats closes the Fleet view: the main pane shows one surface", () => {
-    h.useStore.setState({ fleet: { machines: null, audit: null, loading: false, error: null } });
+    h.useStore.setState({ fleet: { machines: null, audit: null, updateAll: null, loading: false, error: null } });
     h.useStore.getState().openStats();
     expect(h.useStore.getState().fleet).toBeNull();
   });

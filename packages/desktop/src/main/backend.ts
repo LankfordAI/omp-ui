@@ -1402,6 +1402,8 @@ export class MainBackend {
         [CH.fleetUpdatePoll]: (req: FleetUpdatePollRequest) => this.fleetServer.updatePoll(req),
         [CH.fleetUpdateMachine]: (machineKey: string, req: FleetUpdateRequest) =>
           this.fleet.updateMachine(machineKey, req),
+        [CH.fleetUpdateAll]: () => this.fleet.updateAll(),
+        [CH.fleetUpdateAllStatus]: () => this.fleet.updateAllStatus(),
         [CH.fleetAudit]: () => this.fleetServer.auditEntries(),
         [CH.fleetGrantSet]: async (dispatcherId: string, rung: FleetRung | null) => {
           this.fleetServer.setGrant(dispatcherId, rung);

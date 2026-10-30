@@ -215,6 +215,18 @@ function lifecycleCopy(
         target: null,
       };
     }
+    case "fleet-update-all":
+      // Update all (#990): names how many members it asks and how many it
+      // leaves out; nothing restarts, and live sessions keep running.
+      return {
+        tone: "copper",
+        title: t("fleet.updateAll.title"),
+        body: t(confirmation.eligible === 1 ? "fleet.updateAll.body.one" : "fleet.updateAll.body", {
+          count: confirmation.eligible,
+        }) + (confirmation.skipped > 0 ? ` ${t("fleet.updateAll.bodySkipped", { count: confirmation.skipped })}` : ""),
+        action: t("fleet.updateAll.action"),
+        target: null,
+      };
   }
 }
 

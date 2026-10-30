@@ -2883,7 +2883,7 @@ describe("Fleet remote version update gates (slice H)", () => {
         key: "inst-a", nickname: "studio", status: "ready", error: null, preference: "normal",
         report: null, receivedAt: 0, grantRung: null, address: null, sshReachable: null,
         maintenance: null,
-      }], audit: [], loading: false, error: null },
+      }], audit: [], updateAll: null, loading: false, error: null },
     });
   };
 
