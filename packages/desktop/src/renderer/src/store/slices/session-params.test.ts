@@ -1772,6 +1772,23 @@ describe("prompting, slash commands, and session ops", () => {
     ]);
   });
 
+  it.each([
+    ["18.14.0", "exported to /tmp/session.html — opening it needs network access"],
+    ["18.13.3", "exported to /tmp/session.html"],
+  ])("exportHtml on omp %s says whether the file needs network access (issue #974)", async (ompVersion, text) => {
+    // omp 18.14.0 packaged builds load the viewer from stencil.so at open time;
+    // older harnesses embed it, and an unknown version claims neither.
+    h.useStore.setState({
+      rpc: { [h.TAB]: rpcTabState({ capabilities: { ompVersion } as unknown as CapabilitySnapshot }) },
+    });
+    const promise = h.useStore.getState().exportHtml(h.TAB);
+    await settleAll({ path: "/tmp/session.html" });
+    await promise;
+    expect(h.useStore.getState().rpc[h.TAB]!.items).toEqual([
+      expect.objectContaining({ kind: "notice", text, path: "/tmp/session.html" }),
+    ]);
+  });
+
   it("exportHtml without a path in the response leaves a plain notice", async () => {
     const promise = h.useStore.getState().exportHtml(h.TAB);
     await settleAll({});

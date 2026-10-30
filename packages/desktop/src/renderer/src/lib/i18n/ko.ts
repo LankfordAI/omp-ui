@@ -2463,6 +2463,10 @@ export const ko: Partial<Record<MessageKey, string>> = {
   "dialog.share.cancel": "취소",
   // 저장소의 공유 알림 (issue #679): 이 탭은 /share를 광고하지 않습니다.
   "notice.share.needsOmpCommand": "이 omp 세션은 /share를 제공하지 않습니다 — omp를 업데이트하여 share 명령을 게시하세요",
+  // 저장소의 HTML 내보내기 알림 (issue #84, #974): 기록된 파일과 뷰어의 네트워크 필요 여부.
+  "notice.export.done": "{path}(으)로 내보냈습니다",
+  "notice.export.doneNetwork": "{path}(으)로 내보냈습니다 — 열려면 네트워크 연결이 필요합니다",
+  "notice.export.finished": "내보내기 완료",
   // 아너미스 공유 알련 (issue #834): 출력 폴더와 실패 사유.
   "notice.anonymize.done": "아너미스화된 사본이 세션 폴더에 쓰어졌습니다",
   "notice.anonymize.failed": "아너미스화 실패: {message}",

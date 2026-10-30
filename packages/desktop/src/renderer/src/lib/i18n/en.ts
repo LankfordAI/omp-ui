@@ -2641,6 +2641,11 @@ export const en = {
   "dialog.share.cancel": "cancel",
   // The store's share notice (issue #679): the tab advertises no /share.
   "notice.share.needsOmpCommand": "this omp session does not offer /share — update omp to publish the share command",
+  // The store's HTML export notices (issues #84, #974): the written file, and
+  // whether its viewer loads from the network (omp ≥ 18.14.0 packaged builds).
+  "notice.export.done": "exported to {path}",
+  "notice.export.doneNetwork": "exported to {path} — opening it needs network access",
+  "notice.export.finished": "export finished",
   // The store's share-anonymized notices (issue #834): the output folder of
   // the omp-side redaction, or why it failed.
   "notice.anonymize.done": "an anonymized copy was written to the session folder",

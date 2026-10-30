@@ -28,6 +28,7 @@ import { t, type MessageKey } from "../../lib/i18n";
 import { projectKey } from "../../lib/project-key";
 import { hasSeenSharePrivacy } from "../../lib/share-privacy";
 import { supportsAnonymize } from "../../lib/anonymize";
+import { exportViewerNeedsNetwork } from "../../lib/export-html";
 import { supportsRestoreQueue } from "../../lib/queue-chip";
 import { parseRestoreResult, projectImages, splitQueuedWireText } from "../../lib/queue-restore";
 import { arrField, boolField, field, numField, strField } from "../../lib/fields";
@@ -1618,10 +1619,17 @@ export function createSessionParamsSlice(
     const resp = await m.runCommand(tabId, { type: "export_html" });
     if (resp === null) return;
     const path = strField(respData(resp), "path");
+    // omp ≥ 18.14.0 packaged builds load the viewer from the network when the
+    // file opens (issue #974), so the notice says so instead of implying a
+    // self-contained file.
+    const network = exportViewerNeedsNetwork(get().rpc[tabId]?.capabilities?.ompVersion ?? null);
+    const text = path === undefined
+      ? t("notice.export.finished")
+      : t(network ? "notice.export.doneNetwork" : "notice.export.done", { path });
     // The path rides the notice as data so the transcript can offer
     // open/reveal without parsing it back out of the text (issue #84).
     m.appendItem(tabId, {
-      ...noticeItem(path ? `exported to ${path}` : "export finished", "info"),
+      ...noticeItem(text, "info"),
       ...(path === undefined ? {} : { path }),
     });
   };
