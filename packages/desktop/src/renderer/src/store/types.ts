@@ -1,3 +1,5 @@
+import type { ThemeMode } from "@omp-ui/core/theme";
+import type { VsCodeImportResult, VsCodeThemeFileInput } from "@omp-ui/core/vscode-theme";
 import type {
   FleetAuditEntry,
   FleetDispatchRequest,
@@ -672,7 +674,15 @@ export interface SettingsSlice {
   setSttModel(model: string | null): Promise<void>;
   /** One role's app-wide audio device (issue #857); null = OS default. */
   setAudioDevice(role: AudioDeviceRole, id: string | null): Promise<void>;
+  /** The fixed-mode theme. */
   setThemeId(id: string): Promise<void>;
+  /** Fixed theme, or follow the OS scheme between the light and dark picks (issue #999). */
+  setThemeMode(mode: ThemeMode): Promise<void>;
+  setLightThemeId(id: string): Promise<void>;
+  setDarkThemeId(id: string): Promise<void>;
+  /** Host-gated VS Code import (issue #999); resolves the gate's verdict, never rejects on a failed gate. */
+  importVsCodeTheme(files: VsCodeThemeFileInput[]): Promise<VsCodeImportResult>;
+  removeImportedTheme(id: string): Promise<void>;
   setFontFamilyId(id: string): Promise<void>;
   setTranscriptWidth(width: TranscriptWidth): Promise<void>;
   setGlassChrome(level: GlassChrome): Promise<void>;

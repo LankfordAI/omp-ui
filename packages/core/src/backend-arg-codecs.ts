@@ -72,6 +72,7 @@ import type { ReviewDocument, ReviewReviewer, ReviewTargetKind, ReviewWriteReque
 import type { LiveHistoryTurn } from "./live-voice";
 import { isSubagentModelMap, type SubagentModelMap } from "./subagent-model";
 import { parseWebhookInput, parseWebhookPatch, type WebhookInput, type WebhookPatch } from "./webhook";
+import { VSCODE_THEME_FILE_BYTES_MAX, type VsCodeThemeFileInput } from "./vscode-theme";
 
 export interface ArgCodec<T> {
   readonly expected: string;
@@ -226,6 +227,11 @@ export const spendCapKeyCodec: ArgCodec<SpendCapKey> = oneOf("warnCost", "maxCos
 export const serviceTierCodec: ArgCodec<ServiceTier> = oneOf("priority", "ultrafast");
 export const transcriptWidthCodec: ArgCodec<TranscriptWidth> = oneOf("comfortable", "wide", "full");
 export const glassChromeCodec: ArgCodec<GlassChrome> = oneOf("off", "subtle", "frosted");
+/** One picked VS Code theme file (issue #999): its base name and bounded UTF-8 text. */
+export const vsCodeThemeFileCodec: ArgCodec<VsCodeThemeFileInput> = objectOf<VsCodeThemeFileInput>({
+  name: shortStr(255),
+  text: shortStr(VSCODE_THEME_FILE_BYTES_MAX),
+});
 export const projectOpenTargetCodec: ArgCodec<ProjectOpenTarget> = oneOf(
   "vscode",
   "files",

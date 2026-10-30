@@ -9,7 +9,7 @@ import type { PlanExecutionOptions } from "./lib/plan-concerns";
 import type { AdvisorNote } from "./lib/transcript";
 import { projectKey } from "./lib/project-key";
 import { IS_ELECTRON } from "./lib/platform";
-import { applyTheme, currentThemeId, resolveTheme, subscribeTheme, type Theme } from "./lib/themes";
+import { applyThemePreference, currentTheme, subscribeTheme, type Theme } from "./lib/themes";
 import { applyFontFamily, currentFontFamilyId, resolveFontFamily } from "./lib/font-families";
 import {
   applyTranscriptWidth,
@@ -137,7 +137,7 @@ function paintWindowChrome(theme: Theme): void {
 }
 // lib/themes.ts applied the persisted theme while it evaluated, before this
 // subscription existed, so paint that one now.
-paintWindowChrome(resolveTheme(currentThemeId()));
+paintWindowChrome(currentTheme());
 subscribeTheme(paintWindowChrome);
 
 // StrictMode double-invokes effects in dev, and the preload listener API has
@@ -202,15 +202,17 @@ export const useStore = create<UiStore>()((set, get, api) => {
   const settle = createSettleSlice(set, get);
   const sessionBulk = createSessionBulkSlice(get);
   /**
-   * Repaints the document to match the registry's persisted themeId. The
-   * registry stays authoritative; lib/themes.ts keeps only a localStorage
-   * mirror so the first frame paints before this runs. The id guard is what
-   * stops a redundant broadcast from re-writing ~28 custom properties on
-   * every state change.
+   * Repaints the document to match the registry's theme preference and
+   * imported themes (issue #999). The registry stays authoritative;
+   * lib/themes.ts keeps only a localStorage mirror so the first frame paints
+   * before this runs, and skips the repaint when the effective theme is
+   * unchanged.
    */
   const syncTheme = (s: BackendState): void => {
-    const t = resolveTheme(s.themeId);
-    if (t.id !== currentThemeId()) applyTheme(t);
+    applyThemePreference(
+      { themeMode: s.themeMode, themeId: s.themeId, lightThemeId: s.lightThemeId, darkThemeId: s.darkThemeId },
+      s.importedThemes,
+    );
   };
 
   /**

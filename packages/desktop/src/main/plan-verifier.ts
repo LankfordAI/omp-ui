@@ -2,7 +2,7 @@ import * as path from "node:path";
 import { pathToFileURL } from "node:url";
 import { session, BrowserWindow, type Session } from "electron";
 import { PLAN_ARTIFACT_BYTE_LIMIT, PLAN_PREPARED_BYTE_LIMIT } from "./plan-file";
-import type { PlanDiagnostic, PlanRenderResult } from "@omp-ui/core";
+import type { PlanDiagnostic, PlanRenderResult, ThemeSource } from "@omp-ui/core";
 
 /**
  * The main-process plan verification service (issue #312 follow-up;
@@ -30,6 +30,8 @@ export const PLAN_VERIFY_TOTAL_DEADLINE_MS = TOTAL_DEADLINE_MS;
 export interface PlanVerifierDeps {
   /** Test seam: swaps the real BrowserWindow page for a fake. */
   createPage?: () => Promise<VerifierPage>;
+  /** Imported themes by id (issue #999); absent = curated themes only. */
+  importedTheme?: (id: string) => ThemeSource | null;
 }
 
 /** The page contract the queue relies on; the BrowserWindow impl wraps it. */
@@ -45,6 +47,8 @@ export interface VerifierPage {
 export interface VerifyArgs {
   html: string;
   themeId: string;
+  /** The imported theme `themeId` names (issue #999); the page knows only curated ones. */
+  importedTheme: ThemeSource | null;
   preparedByteLimit: number;
 }
 
@@ -64,9 +68,11 @@ export class PlanVerifier {
   private readonly pending = new Set<Job>();
   private disposed = false;
   private readonly createPage: () => Promise<VerifierPage>;
+  private readonly importedTheme: (id: string) => ThemeSource | null;
 
   constructor(deps: PlanVerifierDeps = {}) {
     this.createPage = deps.createPage ?? (() => BrowserVerifierPage.create());
+    this.importedTheme = deps.importedTheme ?? (() => null);
   }
 
   /**
@@ -96,7 +102,12 @@ export class PlanVerifier {
         ],
       });
     }
-    const args: VerifyArgs = { html, themeId, preparedByteLimit: PLAN_PREPARED_BYTE_LIMIT };
+    const args: VerifyArgs = {
+      html,
+      themeId,
+      importedTheme: this.importedTheme(themeId),
+      preparedByteLimit: PLAN_PREPARED_BYTE_LIMIT,
+    };
     // Executor form (not Promise.withResolvers): the node tsconfig lib is
     // ES2022, same convention as live-entry.ts.
     let resolve!: (result: PlanRenderResult) => void;

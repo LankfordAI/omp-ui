@@ -1499,12 +1499,26 @@ this choice.
 _Avoid_: search provider picker, search backend, engine, fallback list
 
 **Theme**:
-A curated token set covering all three consumers of the palette at once — the
+A token set covering all three consumers of the palette at once — the
 `@theme` custom properties, the xterm ITheme, and the shiki code theme —
-switched at runtime by writing CSS variables on the document root. Every theme
-keeps the signal accent reserved for agent liveness (ADR-0004); a theme is a
-fixed set, never a free-form colour picker.
+switched at runtime by writing CSS variables on the document root. A theme is
+either curated (shipped in `theme-sources.json`) or an **imported theme**.
+Every theme passes the same contrast gate and keeps the signal accent reserved
+for agent liveness (ADR-0004, ADR-0078); a theme is a fixed set, never a
+free-form colour picker.
 _Avoid_: color scheme, skin, palette
+
+**Imported theme**:
+A theme mapped from a VS Code colour theme file the user picked (issue #999),
+stored in the registry only after it passes the curated themes' contrast gate.
+Its id starts with `vscode-`, so it never shadows a curated theme (ADR-0078).
+_Avoid_: custom theme, user theme
+
+**Theme mode**:
+Whether Settings → Appearance paints one theme always (**One theme**) or
+follows the OS scheme between a light pick and a dark pick (**Follow
+system**), switching the moment the OS does (ADR-0078).
+_Avoid_: auto theme, dark mode toggle
 
 **UI locale**:
 The Settings → General choice that selects the language of omp-ui's own

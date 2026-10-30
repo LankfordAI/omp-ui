@@ -31,6 +31,10 @@ export function backendState(patch: Partial<BackendState> = {}): BackendState {
     // Existing suites never auto-open the first-run checklist (issue #623).
     gettingStartedSeen: true,
     themeId: "graphite",
+    themeMode: "fixed",
+    lightThemeId: "light",
+    darkThemeId: "graphite",
+    importedThemes: [],
     fontFamilyId: "default",
     transcriptWidth: "wide",
     glassChrome: "subtle",

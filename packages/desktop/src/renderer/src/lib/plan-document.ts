@@ -30,7 +30,7 @@ import {
   type ParsedPlanSource,
   type PlanReplacement,
 } from "./plan-source";
-import { currentThemeId, resolveTheme, type Theme } from "./themes";
+import { currentTheme, type Theme } from "./themes";
 import {
   CSP_META,
   GUARDRAIL_ID,
@@ -374,7 +374,7 @@ export function verifyPlanStructure(prepared: string): PlanDiagnostic[] {
  */
 export async function preparePlanDocument(
   html: string,
-  theme: Theme = resolveTheme(currentThemeId()),
+  theme: Theme = currentTheme(),
 ): Promise<PreparedPlanDocument> {
   let parsed: ParsedPlanSource;
   try {

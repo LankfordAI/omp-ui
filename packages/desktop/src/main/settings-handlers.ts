@@ -1,5 +1,9 @@
 import {
   CH,
+  DEFAULT_LIGHT_THEME_ID,
+  DEFAULT_THEME_ID,
+  IMPORTED_THEMES_MAX,
+  importVsCodeThemeFiles,
   parseFleetProjectRoots,
   type AgentMode,
   type GlassChrome,
@@ -10,6 +14,9 @@ import {
   type RequestHandlers,
   type RegistrySettings,
   type SessionMode,
+  type ThemeMode,
+  type VsCodeImportResult,
+  type VsCodeThemeFileInput,
   type TranscriptWidth,
   type UpdateTrain,
   type VaultNoteVoice,
@@ -37,6 +44,11 @@ type SettingsHandlerChannels =
   | typeof CH.setVoiceInputEnabled
   | typeof CH.setSttModel
   | typeof CH.setThemeId
+  | typeof CH.setThemeMode
+  | typeof CH.setLightThemeId
+  | typeof CH.setDarkThemeId
+  | typeof CH.importVsCodeTheme
+  | typeof CH.removeImportedTheme
   | typeof CH.setFontFamilyId
   | typeof CH.setTranscriptWidth
   | typeof CH.setGlassChrome
@@ -101,6 +113,35 @@ export function registerSettingsHandlers(
     [CH.setVoiceInputEnabled]: (value: boolean) => commit("voiceInputEnabled", value),
     [CH.setSttModel]: (value: string | null) => commit("sttModel", value),
     [CH.setThemeId]: (value: string) => commit("themeId", value),
+    [CH.setThemeMode]: (value: ThemeMode) => commit("themeMode", value),
+    [CH.setLightThemeId]: (value: string) => commit("lightThemeId", value),
+    [CH.setDarkThemeId]: (value: string) => commit("darkThemeId", value),
+    // The host re-runs the same mapping and gate the page previewed: a remote
+    // client cannot store a theme that fails contrast (issue #999).
+    [CH.importVsCodeTheme]: async (files: VsCodeThemeFileInput[]): Promise<VsCodeImportResult> => {
+      const result = importVsCodeThemeFiles(files);
+      if (!result.ok) return result;
+      const rest = deps.registry.getSetting("importedThemes").filter((t) => t.id !== result.source.id);
+      if (rest.length >= IMPORTED_THEMES_MAX) {
+        return {
+          ok: false,
+          reason: "parse",
+          message: `at most ${IMPORTED_THEMES_MAX} imported themes can be kept; remove one first`,
+        };
+      }
+      await commit("importedThemes", [...rest, result.source]);
+      return result;
+    },
+    // Picks naming the removed theme fall back to their defaults, so the
+    // registry never points at a theme that no longer exists.
+    [CH.removeImportedTheme]: async (id: string) => {
+      const reg = deps.registry;
+      reg.setSetting("importedThemes", reg.getSetting("importedThemes").filter((t) => t.id !== id));
+      if (reg.getSetting("themeId") === id) reg.setSetting("themeId", DEFAULT_THEME_ID);
+      if (reg.getSetting("darkThemeId") === id) reg.setSetting("darkThemeId", DEFAULT_THEME_ID);
+      if (reg.getSetting("lightThemeId") === id) reg.setSetting("lightThemeId", DEFAULT_LIGHT_THEME_ID);
+      await deps.broadcast();
+    },
     [CH.setFontFamilyId]: (value: string) => commit("fontFamilyId", value),
     [CH.setTranscriptWidth]: (value: TranscriptWidth) => commit("transcriptWidth", value),
     [CH.setGlassChrome]: (value: GlassChrome) => commit("glassChrome", value),

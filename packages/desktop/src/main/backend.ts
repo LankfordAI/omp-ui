@@ -4,10 +4,11 @@ import * as os from "node:os";
 import * as path from "node:path";
 import { pipeline } from "node:stream/promises";
 import { createGunzip } from "node:zlib";
-import { app, dialog, ipcMain, MessageChannelMain, screen, shell, type BrowserWindow, type MessagePortMain } from "electron";
+import { app, dialog, ipcMain, MessageChannelMain, nativeTheme, screen, shell, type BrowserWindow, type MessagePortMain } from "electron";
 import {
   CH,
   browseDirectories,
+  effectiveThemeId,
   checkoutBranch,
   discoverAgentNames,
   execOmpConfigRunner,
@@ -405,7 +406,9 @@ export class MainBackend {
       icon: () => (fs.existsSync(iconPath) ? iconPath : null),
       send: (channel, ...args) => this.send(channel, ...args),
     });
-    this.planVerifier = new PlanVerifier();
+    this.planVerifier = new PlanVerifier({
+      importedTheme: (id) => this.registry.getSetting("importedThemes").find((t) => t.id === id) ?? null,
+    });
     this.clockStamper = new ClockStamper();
     this.snoozeClock = new SnoozeClock({
       sessions: () => this.registry.sessions,
@@ -437,6 +440,18 @@ export class MainBackend {
         appVersion: this.appVersion,
         mainLog: (line) => appendMainLog(this.logDir, "main.log", line),
         planVerify: (html, themeId, signal) => this.planVerifier.verify(html, themeId, signal),
+        // Main reads the OS scheme from nativeTheme; the renderer follows the
+        // same signal through prefers-color-scheme (issue #999).
+        effectiveThemeId: () =>
+          effectiveThemeId(
+            {
+              themeMode: this.registry.getSetting("themeMode"),
+              themeId: this.registry.getSetting("themeId"),
+              lightThemeId: this.registry.getSetting("lightThemeId"),
+              darkThemeId: this.registry.getSetting("darkThemeId"),
+            },
+            nativeTheme.shouldUseDarkColors,
+          ),
         // The host notify tool posts through the same notifier, bypassing the
         // attention pipeline's delay and suppression (#688).
         hostNotify: (tabId, title, message) => this.notifier.notifyNow(tabId, title, message),
@@ -2487,6 +2502,10 @@ export class MainBackend {
       skipTerminateConfirmation: this.registry.getSetting("skipTerminateConfirmation"),
       gettingStartedSeen: this.registry.getSetting("gettingStartedSeen"),
       themeId: this.registry.getSetting("themeId"),
+      themeMode: this.registry.getSetting("themeMode"),
+      lightThemeId: this.registry.getSetting("lightThemeId"),
+      darkThemeId: this.registry.getSetting("darkThemeId"),
+      importedThemes: this.registry.getSetting("importedThemes"),
       fontFamilyId: this.registry.getSetting("fontFamilyId"),
       transcriptWidth: this.registry.getSetting("transcriptWidth"),
       experimentsEnabled: this.registry.getSetting("experimentsEnabled"),

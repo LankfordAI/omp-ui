@@ -1,7 +1,8 @@
 import { compactionSettingsFromEntries } from "@omp-ui/core/compaction-threshold";
 import type { StateCreator } from "zustand";
 import { backend } from "../../backend";
-import { applyTheme, currentThemeId, resolveTheme } from "../../lib/themes";
+import type { ThemePreference } from "@omp-ui/core/theme";
+import { applyThemePreference, currentImportedThemes, currentThemePreference } from "../../lib/themes";
 import { applyFontFamily, currentFontFamilyId, resolveFontFamily } from "../../lib/font-families";
 import {
   applyTranscriptWidth,
@@ -15,6 +16,23 @@ import {
 } from "../../lib/glass-chrome";
 import { applyLocale, currentLocaleId, resolveLocale } from "../../lib/i18n";
 import type { SettingsSlice, UiStore } from "../types";
+
+/**
+ * Optimistic theme switch: paint the patched preference at once, persist it,
+ * and repaint the previous one if the host refuses. The broadcast that
+ * follows a successful write re-applies the same preference, a no-op.
+ */
+async function switchTheme(patch: Partial<ThemePreference>, persist: () => Promise<void>): Promise<void> {
+  const previous = currentThemePreference();
+  const imported = currentImportedThemes();
+  applyThemePreference({ ...previous, ...patch }, imported);
+  try {
+    await persist();
+  } catch (err) {
+    applyThemePreference(previous, imported);
+    throw err;
+  }
+}
 
 const DEFAULT_REMOTE: SettingsSlice["remote"] = {
   status: "stopped",
@@ -275,12 +293,31 @@ export const createSettingsSlice: StateCreator<UiStore, [], [], SettingsSlice> =
     },
 
     async setThemeId(id) {
-      const previousId = currentThemeId();
-      applyTheme(resolveTheme(id));
+      await switchTheme({ themeId: id }, () => backend.setThemeId(id)).catch((err: unknown) => get().reportError(err));
+    },
+
+    async setThemeMode(mode) {
+      await switchTheme({ themeMode: mode }, () => backend.setThemeMode(mode)).catch((err: unknown) => get().reportError(err));
+    },
+
+    async setLightThemeId(id) {
+      await switchTheme({ lightThemeId: id }, () => backend.setLightThemeId(id)).catch((err: unknown) => get().reportError(err));
+    },
+
+    async setDarkThemeId(id) {
+      await switchTheme({ darkThemeId: id }, () => backend.setDarkThemeId(id)).catch((err: unknown) => get().reportError(err));
+    },
+
+    async importVsCodeTheme(files) {
+      // No optimistic paint: the host's gate decides, and a failure must
+      // leave the current theme untouched for the page to explain why.
+      return await backend.importVsCodeTheme(files);
+    },
+
+    async removeImportedTheme(id) {
       try {
-        await backend.setThemeId(id);
+        await backend.removeImportedTheme(id);
       } catch (err) {
-        applyTheme(resolveTheme(previousId));
         get().reportError(err);
       }
     },

@@ -974,6 +974,29 @@ export const en = {
   // AppearancePage
   "settings.appearance.themeDark": "dark",
   "settings.appearance.themeLight": "light",
+  "settings.appearance.themeMode": "Theme mode",
+  "settings.appearance.themeModeFixed": "One theme",
+  "settings.appearance.themeModeSystem": "Follow system",
+  "settings.appearance.themeModeSystemHint":
+    "Uses your light theme while the OS is in light mode and your dark theme while it is in dark mode, and switches the moment the OS does.",
+  "settings.appearance.lightTheme": "Light theme",
+  "settings.appearance.darkTheme": "Dark theme",
+  "settings.appearance.nowShowing": "Now showing: {name}",
+  "settings.appearance.themeImported": "imported",
+  "settings.appearance.themeAria": "{name} theme",
+  "settings.appearance.importTitle": "Import a VS Code theme",
+  "settings.appearance.importHint":
+    "Choose a VS Code colour theme .json. If it includes another theme file, select both together. The theme must pass the same contrast checks the built-in themes pass, or it is not saved.",
+  "settings.appearance.importChoose": "Choose theme file…",
+  "settings.appearance.importBusy": "Importing…",
+  "settings.appearance.importSaved": "Imported {name}.",
+  "settings.appearance.importParseFailed": "Could not import: {message}",
+  "settings.appearance.importContrastFailed":
+    "{name} was not saved: {count} colour pairings are below the contrast floor.",
+  "settings.appearance.importContrastPair": "{label}: {ratio}:1 (needs {min}:1)",
+  "settings.appearance.importPlanes": "{label}: the two planes are the same colour",
+  "settings.appearance.importRemove": "Remove",
+  "settings.appearance.importRemoveAria": "Remove imported theme {name}",
   "settings.appearance.mintNote":
     "Every theme keeps mint reserved for agent liveness (ADR-0004).",
   "settings.appearance.fontFamily": "Font family",

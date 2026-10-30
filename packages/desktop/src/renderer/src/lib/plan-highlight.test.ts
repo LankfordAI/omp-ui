@@ -13,8 +13,9 @@ const THEME: Theme = {
   id: "test",
   label: "Test",
   dark: false,
-  tokens: {},
-  term: {},
+  // The parser never reads chrome or terminal colours.
+  tokens: {} as Theme["tokens"],
+  term: {} as Theme["term"],
   code: {
     foreground: "#111111",
     comment: "#888888",

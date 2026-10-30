@@ -153,6 +153,7 @@ import {
   documentAttachmentCodec,
   consoleProgramCodec,
   glassChromeCodec,
+  vsCodeThemeFileCodec,
   imageAttachmentCodec,
   knowledgeHomeCodec,
   liveHistoryTurnCodec,
@@ -206,6 +207,8 @@ import {
 } from "./backend-arg-codecs";
 import type { HeldPromptPayload, HeldPromptRequest } from "./held-prompt";
 import type { WebhookInput, WebhookPatch, WebhookSecretReveal, WebhooksState } from "./webhook";
+import type { ThemeMode } from "./theme";
+import type { VsCodeImportResult, VsCodeThemeFileInput } from "./vscode-theme";
 
 declare const CHANNEL_ARGS: unique symbol;
 
@@ -500,6 +503,26 @@ export const BACKEND_CHANNELS = {
     ]),
   },
   setThemeId: { channel: "settings:setThemeId", ...request<[id: string], void>([str()]) },
+  /** Fixed theme, or follow the OS scheme between the light and dark picks (issue #999). */
+  setThemeMode: {
+    channel: "settings:setThemeMode",
+    ...request<[mode: ThemeMode], void>([oneOf("fixed", "system")]),
+  },
+  setLightThemeId: { channel: "settings:setLightThemeId", ...request<[id: string], void>([str()]) },
+  setDarkThemeId: { channel: "settings:setDarkThemeId", ...request<[id: string], void>([str()]) },
+  /**
+   * Imports a VS Code colour theme (issue #999): the theme file first, then
+   * any files its `include` chain names. The owning host maps and gates it
+   * again; only a theme that passes the contrast gate is saved, replacing an
+   * earlier import with the same id. A failure resolves, never rejects, so the
+   * page can show which pairing failed.
+   */
+  importVsCodeTheme: {
+    channel: "settings:importVsCodeTheme",
+    ...request<[files: VsCodeThemeFileInput[]], VsCodeImportResult>([arrayOf(vsCodeThemeFileCodec)]),
+  },
+  /** Drops one imported theme; a pick that named it falls back to the default. */
+  removeImportedTheme: { channel: "settings:removeImportedTheme", ...request<[id: string], void>([str()]) },
   setFontFamilyId: { channel: "settings:setFontFamilyId", ...request<[id: string], void>([str()]) },
   setTranscriptWidth: {
     channel: "settings:setTranscriptWidth",

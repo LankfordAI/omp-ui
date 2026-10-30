@@ -57,8 +57,10 @@ projects sharing one favicon still read as different repositories.
   live in exactly one place, `renderer/src/lib/theme-sources.json`: each theme
   supplies complete semantic tokens, compact syntax seeds, and only the
   exceptional terminal or code overrides needed to preserve its identity.
-  `lib/themes.ts` derives the renderer chrome, xterm palette, and Shiki palette
-  from that source. The generated `theme-default.css` projects the same
+  `@omp-ui/core/theme` derives the renderer chrome, xterm palette, and Shiki
+  palette from that source. Imported VS Code themes (ADR-0078) are the one
+  other colour source: they live in the registry, never in components, and
+  are saved only after passing the same contrast gate. The generated `theme-default.css` projects the same
   graphite tokens into the build-time first-paint fallback.
 - **Motion is CSS-only** — the named animations in `style.css` (`rise`,
   `slide-in`, `sweep`, `sweep-loop`, `caret`, and the sheet/scrim entries) and

@@ -28,7 +28,11 @@ The pages below follow the order in the app. Pay attention to the timing notes. 
 
 ## Appearance
 
-Choose a theme from the fixed theme grid. The choice updates the app chrome, terminal colors, and code highlighting immediately, and omp-ui remembers it for the next launch. Themes are curated sets rather than user-editable color controls. Every set reserves the signal color for agent liveness.
+Choose a theme from the theme grid. The choice updates the app chrome, terminal colors, and code highlighting immediately, and omp-ui remembers it for the next launch. Themes are curated sets rather than user-editable color controls. Every set reserves the signal color for agent liveness.
+
+**One theme** paints the theme you pick always. **Follow system** shows two grids, a light theme and a dark theme: omp-ui paints the light one while the OS is in light mode and the dark one while it is in dark mode, and switches the moment the OS does. The page names the theme it is showing now. Plan verification uses the same theme.
+
+**Import a VS Code theme** reads a VS Code colour theme `.json` (comments and trailing commas are fine) and maps its `colors` and `tokenColors` onto the app chrome, terminal, and code highlighting. A theme that names another file through `include` — VS Code's own built-in themes do — needs that file selected together with it; the page names the missing file. Colours below a contrast floor are moved toward the theme's text colour only as far as the floor needs. A theme whose text still cannot reach the floors is not saved, and the page lists each failing pairing with its ratio. An imported theme joins every grid with an *imported* tag; **Remove** deletes it, and a pick that named it returns to the default ([ADR-0078](adr/0078-imported-themes-pass-the-curated-contrast-gate.md)).
 
 The application and Ubuntu families both use bundled Pretendard Variable after their Latin sans face for Korean chrome. Code, paths, terminal text, and other monospace content keep their selected monospace face.
 

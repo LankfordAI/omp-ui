@@ -5,7 +5,7 @@ import {
   type LayoutProbe,
   type LayoutProbeResult,
 } from "./plan-probe";
-import { currentThemeId, resolveTheme, type Theme } from "./themes";
+import { currentTheme, type Theme } from "./themes";
 
 /** One reviewed-pipeline outcome for the surfaces (§3). */
 export type PreparedReviewOutcome =
@@ -36,7 +36,7 @@ export interface PlanReviewOptions {
 export async function preparePlanForReview(
   html: string,
   probe: LayoutProbe = probePlanLayout,
-  theme: Theme = resolveTheme(currentThemeId()),
+  theme: Theme = currentTheme(),
   options: PlanReviewOptions = {},
 ): Promise<PreparedReviewOutcome> {
   const widths = options.widths ?? [800];
@@ -132,7 +132,7 @@ function utf8Length(text: string): number {
  */
 export async function renderPlanPreflight(
   html: string,
-  theme: Theme = resolveTheme(currentThemeId()),
+  theme: Theme = currentTheme(),
   options: PlanReviewOptions = {},
 ): Promise<PlanRenderResult> {
   const outcome = await preparePlanForReview(html, options.probe ?? probePlanLayout, theme, {

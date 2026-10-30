@@ -2,7 +2,7 @@
 import { afterEach, describe, expect, it, vi } from "vitest";
 import { preparePlanDocument, verifyPlanStructure } from "./plan-document";
 import { PLAN_DOCUMENT_CSP } from "./plan-guardrails";
-import { currentThemeId, DEFAULT_THEME_ID, mixHex, resolveTheme } from "./themes";
+import { currentTheme, DEFAULT_THEME_ID, mixHex, resolveTheme } from "./themes";
 import type { CodeTokenizer } from "./plan-highlight";
 import type { Theme } from "./themes";
 import type { DiagramRenderer, PlanCanvas } from "./plan-diagrams";
@@ -570,7 +570,7 @@ describe("preparePlanDocument code highlighting (issue #319)", () => {
     await preparePlanDocument(source, explicit);
     await preparePlanDocument(source);
 
-    expect(seams.themes).toEqual(["explicit", resolveTheme(currentThemeId()).id]);
+    expect(seams.themes).toEqual(["explicit", currentTheme().id]);
   });
 
   it("splices token spans onto the block range and lands the token CSS in the guardrail sheet", async () => {

@@ -148,6 +148,11 @@ const backendMock = {
   dismissAppUpdate: vi.fn(),
   onAppUpdateState: vi.fn(),
   setThemeId: vi.fn(async () => {}),
+  setThemeMode: vi.fn(async () => {}),
+  setLightThemeId: vi.fn(async () => {}),
+  setDarkThemeId: vi.fn(async () => {}),
+  importVsCodeTheme: vi.fn(),
+  removeImportedTheme: vi.fn(async () => {}),
   setFontFamilyId: vi.fn(async () => {}),
   setTranscriptWidth: vi.fn(async () => {}),
   setGlassChrome: vi.fn(async () => {}),
@@ -2429,6 +2434,47 @@ describe("Settings Appearance page transcript width and glass chrome (issues #39
     await renderSettings();
     expect(card("Comfortable transcript width").getAttribute("aria-pressed")).toBe("true");
     expect(card("Off glass chrome").getAttribute("aria-pressed")).toBe("true");
+  });
+});
+
+describe("Settings Appearance page theme mode and VS Code import (issue #999)", () => {
+  const card = (label: string, within: ParentNode = document): HTMLButtonElement =>
+    within.querySelector<HTMLButtonElement>(`button[aria-label="${label}"]`)!;
+  const group = (label: string): HTMLElement => document.querySelector<HTMLElement>(`[aria-label="${label}"]`)!;
+
+  it("in system mode presses the light and dark picks separately and persists each", async () => {
+    useStore.setState({
+      settingsPage: "appearance",
+      state: backendState({ themeMode: "system", lightThemeId: "solarized-light", darkThemeId: "nord" }),
+    });
+    await renderSettings();
+    expect(card("Solarized Light theme", group("Light theme")).getAttribute("aria-pressed")).toBe("true");
+    expect(card("Nord theme", group("Dark theme")).getAttribute("aria-pressed")).toBe("true");
+    expect(card("Nord theme", group("Light theme")).getAttribute("aria-pressed")).toBe("false");
+
+    click(card("Dracula theme", group("Dark theme")));
+    expect(backendMock.setDarkThemeId).toHaveBeenCalledWith("dracula");
+    expect(backendMock.setLightThemeId).not.toHaveBeenCalled();
+  });
+
+  it("reports which pairings failed and leaves the theme unsaved", async () => {
+    backendMock.importVsCodeTheme.mockResolvedValueOnce({
+      ok: false,
+      reason: "contrast",
+      label: "Fog",
+      failures: [{ kind: "contrast", label: "--color-ink", fg: "#888888", bg: "#777777", ratio: 1.22, min: 10 }],
+    });
+    useStore.setState({ settingsPage: "appearance", state: backendState({}) });
+    await renderSettings();
+    const picker = document.querySelector<HTMLInputElement>('[data-testid="vscode-theme-picker"]')!;
+    const file = new File(['{"name":"Fog"}'], "fog.json", { type: "application/json" });
+    Object.defineProperty(picker, "files", { value: [file], configurable: true });
+    await act(async () => {
+      picker.dispatchEvent(new Event("change", { bubbles: true }));
+    });
+    await vi.waitFor(() => expect(document.querySelector('[role="alert"]')?.textContent).toContain("Fog was not saved"));
+    expect(backendMock.importVsCodeTheme).toHaveBeenCalledWith([{ name: "fog.json", text: '{"name":"Fog"}' }]);
+    expect(document.querySelector('[role="alert"]')?.textContent).toContain("--color-ink: 1.22:1 (needs 10:1)");
   });
 });
 

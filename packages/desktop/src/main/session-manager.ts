@@ -298,6 +298,8 @@ export interface SessionManagerDependencies {
    * Electron runtime either: the seam keeps the gate semantics identical.
    */
   planVerify?: (html: string, themeId: string, signal: AbortSignal) => Promise<PlanRenderResult>;
+  /** The theme the user currently sees (issue #999); absent = the fixed pick. */
+  effectiveThemeId?: () => string;
   /**
    * Dev/test model pins this instance forces on every spawn it makes
    * (docs/development.md). Absent or blank means an ungated launch.
@@ -463,7 +465,9 @@ export class SessionManager {
             },
           ],
         })),
-      getThemeId: () => deps.registry.getSetting("themeId") ?? "",
+      // The effective theme (issue #999): system mode follows the OS scheme,
+      // which the backend reads through Electron's nativeTheme.
+      getThemeId: () => deps.effectiveThemeId?.() ?? deps.registry.getSetting("themeId") ?? "",
       sendToLive: (entry, frame) => {
         if (entry.kind === "rpc-ui") entry.rpc?.send(frame);
       },

@@ -19,6 +19,13 @@ import {
   type FleetRung,
   type PlacementPreference,
 } from "./fleet";
+import {
+  DEFAULT_LIGHT_THEME_ID,
+  DEFAULT_THEME_ID,
+  parseImportedThemes,
+  type ThemeMode,
+  type ThemeSource,
+} from "./theme";
 import type {
   AgentMode,
   ApprovalMode,
@@ -109,8 +116,16 @@ export interface RegistrySettings {
   dismissedAppUpdateVersion: string | null;
   /** omp version whose update/install card the user dismissed ("Later"). */
   dismissedOmpUpdateVersion: string | null;
-  /** Active theme id (see renderer lib/themes.ts). */
+  /** Theme painted in fixed mode (see renderer lib/themes.ts). */
   themeId: string;
+  /** Fixed paints `themeId`; system follows the OS scheme between the two picks below (issue #999). */
+  themeMode: ThemeMode;
+  /** Theme painted in system mode while the OS prefers light (issue #999). */
+  lightThemeId: string;
+  /** Theme painted in system mode while the OS prefers dark (issue #999). */
+  darkThemeId: string;
+  /** VS Code themes the user imported, each already past the contrast gate (issue #999). */
+  importedThemes: ThemeSource[];
   /** Active font family id (see renderer lib/font-families.ts). */
   fontFamilyId: string;
   /** Transcript column width step (see renderer lib/transcript-width.ts); default wide (issue #391). */
@@ -344,9 +359,22 @@ export const SETTINGS: SettingDescriptors = {
   // Any non-empty string is kept as-is: theme ids are validated by the
   // renderer's own table, so registries written by newer builds remain intact.
   themeId: validatedSetting(
-    () => "graphite",
+    () => DEFAULT_THEME_ID,
     (value): value is string => typeof value === "string" && value !== "",
   ),
+  themeMode: validatedSetting<ThemeMode>(
+    () => "fixed",
+    (value): value is ThemeMode => value === "system",
+  ),
+  lightThemeId: validatedSetting(
+    () => DEFAULT_LIGHT_THEME_ID,
+    (value): value is string => typeof value === "string" && value !== "",
+  ),
+  darkThemeId: validatedSetting(
+    () => DEFAULT_THEME_ID,
+    (value): value is string => typeof value === "string" && value !== "",
+  ),
+  importedThemes: { fallback: () => [], parse: parseImportedThemes },
   // Any non-empty string is kept as-is: font family ids are validated by the
   // renderer's own table, so registries written by newer builds remain intact.
   fontFamilyId: validatedSetting(

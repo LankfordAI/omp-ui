@@ -40,6 +40,10 @@ interface RegistrySettings {
   dismissedAppUpdateVersion: string | null;
   dismissedOmpUpdateVersion: string | null;
   themeId: string;
+  themeMode: "fixed" | "system";
+  lightThemeId: string;
+  darkThemeId: string;
+  importedThemes: unknown[];
   fontFamilyId: string;
   transcriptWidth: TranscriptWidth;
   glassChrome: GlassChrome;
@@ -151,6 +155,10 @@ export function seedRegistry(file: string, patch: RegistrySeedPatch = {}): void 
     dismissedAppUpdateVersion: null,
     dismissedOmpUpdateVersion: null,
     themeId: "graphite",
+    themeMode: "fixed",
+    lightThemeId: "light",
+    darkThemeId: "graphite",
+    importedThemes: [],
     fontFamilyId: "default",
     transcriptWidth: "wide",
     glassChrome: "subtle",

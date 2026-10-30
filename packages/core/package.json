@@ -55,7 +55,9 @@
     "./vault-shared": "./src/vault-shared.ts",
     "./fleet": "./src/fleet.ts",
     "./fleet-wake": "./src/fleet-wake.ts",
-    "./webhook": "./src/webhook.ts"
+    "./webhook": "./src/webhook.ts",
+    "./theme": "./src/theme.ts",
+    "./vscode-theme": "./src/vscode-theme.ts"
   },
   "scripts": {
     "test": "vitest run --passWithNoTests",
