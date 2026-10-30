@@ -1363,6 +1363,7 @@ export class MainBackend {
           this.sessions.ptyPasteImage(tabId, image),
         [CH.attachDocument]: (tabId: string, documents: DocumentAttachment[]) =>
           this.sessions.attachDocument(tabId, documents),
+        [CH.readDocument]: (tabId: string, file: string) => this.sessions.readDocument(tabId, file),
         [CH.ptyPasteDocument]: (tabId: string, document: DocumentAttachment) =>
           this.sessions.ptyPasteDocument(tabId, document),
         [CH.shellSpawn]: (

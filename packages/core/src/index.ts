@@ -461,6 +461,7 @@ export {
   DOCUMENT_MIME,
   MAX_DOCUMENT_BATCH_BYTES,
   MAX_DOCUMENT_BYTES,
+  readScratchDocument,
   resolveDocument,
 } from "./documents";
 export {

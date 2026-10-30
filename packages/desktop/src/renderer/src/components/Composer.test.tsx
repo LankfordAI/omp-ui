@@ -21,6 +21,8 @@ const clipboardImageMock = vi.hoisted(() => ({
   readClipboardDocuments: vi.fn(),
   readImageFiles: vi.fn(),
   readDocumentFiles: vi.fn(),
+  MAX_IMAGE_BYTES: 20 * 1024 * 1024,
+  MAX_DOCUMENT_BYTES: 20 * 1024 * 1024,
   // The dictation hook encodes its WAV through this helper; the mock must
   // keep the export real or finish() dies on an undefined function.
   bytesToBase64: vi.fn((bytes: Uint8Array) => Buffer.from(bytes).toString("base64")),
@@ -75,6 +77,8 @@ const backendMock = {
   pullBranch: vi.fn(async () => {}),
   rpcSend: vi.fn(),
   transcribeAudio: vi.fn(async () => ({ text: "dictated words" })),
+  readDocument: vi.fn(async (): Promise<string> => "UERGLWJ5dGVz"),
+  attachDocument: vi.fn(async (): Promise<string[]> => ["/remote/tmp/omp-ui-attach/new.pdf"]),
 };
 Object.assign(window, { ompBackend: backendMock });
 // Dynamic import is required because store.ts captures window.ompBackend at module evaluation.
@@ -796,6 +800,60 @@ describe("Composer annotation chips (issue #983)", () => {
     await act(async () => { press(box, "Enter"); });
     expect(runSlashCommand).toHaveBeenCalledWith(TAB, "/compact");
     expect(chipGroup()?.textContent).toContain("add jitter here");
+  });
+});
+
+describe("Composer draft stash (issue #989)", () => {
+  const ANNOTATION = { quote: "the parser drops CRLF", comment: "fix this first" };
+  const DOC = { type: "document" as const, name: "spec.pdf", mimeType: "application/pdf", path: "/tmp/omp-ui-attach/a.pdf" };
+  const chord = (target: HTMLElement): void => {
+    act(() => target.dispatchEvent(new KeyboardEvent("keydown", { key: "s", ctrlKey: true, altKey: true, bubbles: true, cancelable: true })));
+  };
+  const stashRows = (): HTMLElement[] => [...document.body.querySelectorAll<HTMLElement>('[data-stash-palette] [role="option"]')];
+
+  it("parks the whole draft, re-captures a path-only document as bytes, and applies it back", async () => {
+    seed("ready");
+    useStore.setState({ activeTabId: TAB });
+    renderComposer();
+    act(() => useStore.getState().queueComposerDocument(TAB, DOC, ""));
+    act(() => useStore.getState().queueComposerAnnotations(TAB, [ANNOTATION]));
+    const box = typeDraft("half-written prompt");
+    await act(async () => chord(box));
+    expect(backendMock.readDocument).toHaveBeenCalledWith(TAB, DOC.path);
+    expect(box.value).toBe("");
+    expect(document.body.textContent).not.toContain("spec.pdf");
+
+    // An empty composer opens the picker instead of stashing nothing.
+    chord(box);
+    expect(stashRows()).toHaveLength(1);
+    expect(stashRows()[0]!.textContent).toContain("half-written prompt");
+    expect(stashRows()[0]!.textContent).toContain("+2");
+
+    await act(async () => { press(box, "Enter"); });
+    expect(document.body.querySelector("[data-stash-palette]")).toBeNull();
+    expect(box.value).toBe("half-written prompt");
+    expect(document.body.textContent).toContain("spec.pdf");
+
+    // The applied document carries bytes, so it materializes on this tab's host at send.
+    await act(async () => { press(box, "Enter"); });
+    expect(backendMock.attachDocument).toHaveBeenCalledWith(TAB, [
+      { type: "document", name: "spec.pdf", mimeType: "application/pdf", data: "UERGLWJ5dGVz" },
+    ]);
+    chord(box);
+    expect(stashRows()).toHaveLength(0);
+  });
+
+  it("keeps the draft when its document can no longer be read", async () => {
+    seed("ready");
+    useStore.setState({ activeTabId: TAB });
+    renderComposer();
+    backendMock.readDocument.mockRejectedValueOnce(new Error("document not found: /tmp/omp-ui-attach/a.pdf"));
+    act(() => useStore.getState().queueComposerDocument(TAB, DOC, ""));
+    const box = typeDraft("keep me");
+    await act(async () => chord(box));
+    expect(box.value).toBe("keep me");
+    expect(document.body.textContent).toContain("spec.pdf");
+    expect(document.body.textContent).toContain("could not stash the draft: document not found");
   });
 });
 

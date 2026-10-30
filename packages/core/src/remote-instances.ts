@@ -112,6 +112,8 @@ export const TAB_ROUTED_REQUESTS: ReadonlySet<string> = new Set<string>([
   "pty:pasteImage",
   // Document Attachments materialize on the owning instance's machine (ADR-0044).
   "session:attachDocument",
+  // A stashed draft re-captures a path-only document's bytes on its host (#989).
+  "session:readDocument",
   "pty:pasteDocument",
   "shell:spawn",
   "browser-pane:ensure",

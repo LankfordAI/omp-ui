@@ -31,6 +31,9 @@ import { slashCompletion } from "../lib/slash-completion";
 import { findInstance, findOwner, isChatTab, sessionCwd, useStore } from "../store";
 import { useDismissal } from "../lib/use-dismissal";
 import { useImageDraft } from "../lib/use-image-draft";
+import { stashDraft, takeStashedDraft, useDraftStash } from "../lib/draft-stash";
+import { isTypingTarget, useHotkeys } from "../lib/hotkeys";
+import { STASH_HOTKEY, StashPalette, type StashPaletteHandle } from "./StashPalette";
 import { AnnotationChips } from "./AnnotationChips";
 import { useWordGhost } from "../lib/use-word-ghost";
 import { ComposerActions } from "./ComposerActions";
@@ -278,6 +281,11 @@ export function Composer({
    */
   const [files, setFiles] = useState<{ list: string[]; truncated: boolean } | null>(null);
   const [queueMenu, setQueueMenu] = useState(false);
+  /** The draft stash picker (issue #989); shown only over an empty draft. */
+  const [stashOpen, setStashOpen] = useState(false);
+  /** A stash is reading documents back and persisting; a second chord waits. */
+  const stashing = useRef(false);
+  const stashed = useDraftStash();
   const {
     images,
     documents,
@@ -340,6 +348,7 @@ export function Composer({
   const composer = useRef<HTMLDivElement | null>(null);
   const palette = useRef<SlashPaletteHandle | null>(null);
   const mentionPalette = useRef<MentionPaletteHandle | null>(null);
+  const stashPalette = useRef<StashPaletteHandle | null>(null);
   const queueAnchor = useRef<HTMLSpanElement | null>(null);
   const queueTrigger = useRef<HTMLButtonElement | null>(null);
   /** The highlight layer under the (transparent-text) textarea. */
@@ -576,6 +585,7 @@ export function Composer({
     restoreFocus: () => queueTrigger.current?.focus(),
   });
 
+  useDismissal({ open: stashOpen, refs: composer, onClose: () => setStashOpen(false) });
   useDismissal({
     open: paletteOpen || mentionOpen,
     refs: composer,
@@ -964,6 +974,78 @@ export function Composer({
     box.current?.focus({ preventScroll: true });
   };
 
+  const draftEmpty = text === "" && images.length === 0 && documents.length === 0 && annotations.length === 0;
+  useEffect(() => {
+    if (!draftEmpty || unavailable) setStashOpen(false);
+  }, [draftEmpty, unavailable]);
+
+  /**
+   * Draft stash (issue #989): a draft moves into the app-wide stash and the
+   * composer clears; an empty composer opens the picker instead. A path-only
+   * document (rewind prefill, restored queue entry) is read back on its host
+   * first, so the stashed draft owns its bytes. The draft clears before the
+   * write lands and comes back if it fails — the send-refused keep-draft shape.
+   */
+  const stashOrPick = async (): Promise<void> => {
+    if (unavailable || moving !== null || converting || stashing.current) return;
+    if (draftEmpty) {
+      setStashOpen((open) => !open);
+      box.current?.focus({ preventScroll: true });
+      return;
+    }
+    stashing.current = true;
+    const draft = { text, images, documents, annotations };
+    recall.current = null;
+    setText("");
+    clearDraft();
+    setDismissedFor(null);
+    setMentionDismissedFor(null);
+    try {
+      const owned = await Promise.all(
+        draft.documents.map(async (document) =>
+          document.data !== undefined || document.path === undefined
+            ? document
+            : { type: document.type, name: document.name, mimeType: document.mimeType, data: await backend.readDocument(tabId, document.path) },
+        ),
+      );
+      await stashDraft({ ...draft, documents: owned });
+    } catch (err) {
+      setText((current) => (current === "" ? draft.text : current));
+      addImages(draft.images);
+      addDocuments(draft.documents);
+      addAnnotations(draft.annotations);
+      setPasteError(t("composer.stash.failed", { reason: displayMessage(err) }));
+    } finally {
+      stashing.current = false;
+      box.current?.focus({ preventScroll: true });
+    }
+  };
+
+  /** Moves a stashed draft into this composer; its documents re-materialize on this tab's host at send. */
+  const applyStashed = async (id: string): Promise<void> => {
+    setStashOpen(false);
+    const draft = await takeStashedDraft(id).catch(() => null);
+    box.current?.focus({ preventScroll: true });
+    if (draft === null) return;
+    addImages(draft.images);
+    addDocuments(draft.documents);
+    addAnnotations(draft.annotations);
+    if (draft.text !== "") setText((prev) => (prev === "" ? draft.text : `${prev}\n${draft.text}`));
+  };
+
+  // While the plan review owns the column the composer is hidden (liveVoiceVisible
+  // false): the chord must not stash a draft the user cannot see.
+  const activeHere = useStore((s) => s.activeTabId === tabId) && liveVoiceVisible;
+  const stashKey = (e: globalThis.KeyboardEvent): void => {
+    // Another text field keeps the chord: only the composer's own box or a
+    // non-editable focus stashes this tab's draft.
+    if (isTypingTarget(e.target) && e.target !== box.current) return;
+    e.preventDefault();
+    void stashOrPick();
+  };
+  // macOS reports Option+S as `ß` in `e.key`; both spellings are the chord.
+  useHotkeys(activeHere ? { [STASH_HOTKEY]: stashKey, "mod+alt+ß": stashKey } : {});
+
   /** A drained take hands the caret back to the draft. */
   const focusDraft = useCallback(() => box.current?.focus({ preventScroll: true }), []);
 
@@ -985,6 +1067,7 @@ export function Composer({
     // The palettes get first refusal on navigation keys while one is open.
     if (paletteOpen && palette.current?.handleKey(e) === true) return;
     if (mentionOpen && mentionPalette.current?.handleKey(e) === true) return;
+    if (stashOpen && stashPalette.current?.handleKey(e) === true) return;
     const plain = !e.ctrlKey && !e.metaKey && !e.altKey && !e.nativeEvent.isComposing;
     if (plain && e.key.length === 1) {
       const absorbed = wordGhost.takeProvisionalKey(e.key);
@@ -1102,6 +1185,15 @@ export function Composer({
           its side gutters do not swallow wheel and selection aimed at the
           transcript; the card column itself takes clicks (issue #395). */}
       <div className={cn("relative pointer-events-auto", !compact && "mx-auto w-full max-w-[var(--transcript-max)]")}>
+        {stashOpen && (
+          <StashPalette
+            ref={stashPalette}
+            drafts={stashed}
+            onApply={(draft) => void applyStashed(draft.id)}
+            onDelete={(draft) => void takeStashedDraft(draft.id).catch(() => {})}
+            onClose={() => setStashOpen(false)}
+          />
+        )}
         {mentionOpen && atQuery !== null && (
           <MentionPalette
             ref={mentionPalette}
@@ -1315,6 +1407,8 @@ export function Composer({
               onAttach={() => filePicker.current?.click()}
               onDictate={voice.toggle}
               onInsert={insertTrigger}
+              stash={draftEmpty ? "pick" : "stash"}
+              onStash={() => void stashOrPick()}
             />
             <ComposerOptions
               tabId={tabId}
@@ -1543,6 +1637,11 @@ export function Composer({
         liveVoiceVisible={liveVoiceVisible}
         canSend={canSend}
         onSubmit={(route) => void submit(route)}
+        stash={draftEmpty ? "pick" : "stash"}
+        onStash={() => {
+          closeCompactSurface();
+          void stashOrPick();
+        }}
       />
     </div>
   );

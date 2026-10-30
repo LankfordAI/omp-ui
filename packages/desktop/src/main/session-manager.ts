@@ -59,6 +59,7 @@ import {
   mcpRuntimeStatusMessage,
   privateGuardArmMessage,
   MAX_DOCUMENT_BATCH_BYTES,
+  readScratchDocument,
   resolveDocument,
   resolveKnowledgeHome,
   resolveVaultProject,
@@ -2545,6 +2546,14 @@ export class SessionManager {
       );
     }
     return documents.map((doc) => resolveDocument(doc));
+  }
+
+  /** A stashed draft re-captures a path-only document's bytes here (issue #989). */
+  async readDocument(tabId: string, file: string): Promise<string> {
+    if (!this.deps.registry.sessions.some((s) => s.tabId === tabId)) {
+      throw new Error(`unknown session tab ${tabId}`);
+    }
+    return readScratchDocument(file);
   }
 
   async ptyPasteDocument(tabId: string, document: DocumentAttachment): Promise<void> {

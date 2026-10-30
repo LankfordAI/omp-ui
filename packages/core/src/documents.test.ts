@@ -4,6 +4,7 @@ import {
   clearDocumentScratch,
   documentScratchDir,
   MAX_DOCUMENT_BYTES,
+  readScratchDocument,
   resolveDocument,
 } from "./documents";
 import type { DocumentAttachment } from "./types";
@@ -71,6 +72,32 @@ describe("resolveDocument", () => {
     expect(() => resolveDocument({ ...PDF, data: "AAAA", path: "/tmp/x.pdf" })).toThrow(
       "document attachment needs exactly one of data/path",
     );
+  });
+});
+
+describe("readScratchDocument", () => {
+  it("round-trips a materialized document's bytes", () => {
+    const data = Buffer.from("%PDF-1.4 stashed").toString("base64");
+    expect(readScratchDocument(resolveDocument({ ...PDF, data }))).toBe(data);
+  });
+
+  it("refuses a file outside the scratch dir, even through a symlink", () => {
+    const dir = fs.mkdtempSync(`${documentScratchDir()}-probe-`);
+    fs.mkdirSync(documentScratchDir(), { recursive: true });
+    try {
+      const outside = `${dir}/secret.pdf`;
+      fs.writeFileSync(outside, "%PDF");
+      expect(() => readScratchDocument(outside)).toThrow("not an attached document");
+      const link = `${documentScratchDir()}/link.pdf`;
+      fs.symlinkSync(outside, link);
+      expect(() => readScratchDocument(link)).toThrow("not an attached document");
+    } finally {
+      fs.rmSync(dir, { recursive: true, force: true });
+    }
+  });
+
+  it("names a swept file as not found", () => {
+    expect(() => readScratchDocument(`${documentScratchDir()}/gone.pdf`)).toThrow("document not found");
   });
 });
 

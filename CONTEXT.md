@@ -560,6 +560,17 @@ the prompt text as an `<annotations>` block; the user bubble shows the chips,
 not the block. omp's own `/annotate` is TUI-only.
 _Avoid_: citation, highlight, note (a note is a Knowledge vault note)
 
+**Draft stash**:
+Composer drafts parked app-wide, outside any session (issue #989).
+`Mod+Alt+S` or the `+` menu moves the whole draft — text, image
+Attachments, Document Attachments, Annotations — into it and clears the
+composer; from an empty composer the same chord opens the picker, which
+moves a chosen draft into that composer. It lives in the client's own
+IndexedDB, and every stashed document carries its bytes (a path-only one is
+read back from its scratch file on the owning host first), so applying it to
+a session on another host re-materializes there at send (ADR-0044).
+_Avoid_: saved prompt, template, clipboard
+
 **Dictation**:
 The composer's speech-to-text path (issue #647, ADR-0034): capture runs in
 the renderer's memory (no MediaRecorder/Blob); each phrase closes at a pause and

@@ -1582,6 +1582,16 @@ export const BACKEND_CHANNELS = {
     ]),
   },
   /**
+   * Reads one materialized Document Attachment back as base64 on the
+   * machine that owns the tab (issue #989): a stashed draft keeps a
+   * path-only chip as bytes so it survives the quit sweep and can be applied
+   * on another host. Refuses anything outside the scratch dir.
+   */
+  readDocument: {
+    channel: "session:readDocument",
+    ...request<[tabId: string, path: string], string>([str(), str()]),
+  },
+  /**
    * Terminal-tab twin of attachDocument: writes the scratch file on the
    * owning instance and bracketed-pastes the bare path into the PTY, like
    * pty:pasteImage but with a .pdf extension — omp's TUI treats a non-image

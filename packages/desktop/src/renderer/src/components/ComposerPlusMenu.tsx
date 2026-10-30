@@ -1,14 +1,17 @@
 import { useEffect, useRef, useState, type ReactNode } from "react";
+import { formatHotkey } from "../lib/hotkeys";
 import { useT } from "../lib/i18n";
 import { useDismissal } from "../lib/use-dismissal";
 import { useStore } from "../store";
 import { MenuRow } from "./MenuRow";
+import { STASH_HOTKEY } from "./StashPalette";
 import { ICON_STROKE, IconMic, IconPlus } from "./ui";
 
 /**
  * The desktop composer footer's `+` menu (issue #939): attachments, the one
- * voice affordance the footer slot also shows (#805), and the line-start
- * draft triggers `/` `@` `!`. The compact shell keeps its own paperclip row.
+ * voice affordance the footer slot also shows (#805), the line-start draft
+ * triggers `/` `@` `!`, and the draft stash (#989). The compact shell keeps
+ * its own paperclip row; its prompt-options sheet carries the stash button.
  */
 export function ComposerPlusMenu({
   tabId,
@@ -20,6 +23,8 @@ export function ComposerPlusMenu({
   onAttach,
   onDictate,
   onInsert,
+  stash,
+  onStash,
 }: {
   tabId: string;
   /** Composer `unavailable`. */
@@ -34,6 +39,9 @@ export function ComposerPlusMenu({
   onAttach: () => void;
   onDictate: () => void;
   onInsert: (trigger: "/" | "@" | "!") => void;
+  /** Draft stash (issue #989): "stash" parks the draft, "pick" opens the picker. */
+  stash: "stash" | "pick";
+  onStash: () => void;
 }) {
   const t = useT();
   const [open, setOpen] = useState(false);
@@ -123,6 +131,13 @@ export function ComposerPlusMenu({
             title={draftEmpty ? undefined : t("composer.plus.emptyDraftOnly")}
             onClick={run(() => onInsert("!"))}
           />
+          <div className="my-1 border-t border-line" />
+          <MenuRow
+            glyph={<IconStash />}
+            label={stash === "pick" ? t("composer.stash.open") : t("composer.stash.stash")}
+            hint={formatHotkey(STASH_HOTKEY)}
+            onClick={run(onStash)}
+          />
         </PlusMenuPanel>
       )}
     </span>
@@ -156,6 +171,14 @@ function IconPaperclip() {
   return (
     <svg viewBox="0 0 16 16" aria-hidden className="size-3.5" {...ICON_STROKE}>
       <path d="m5.1 8.8 4.5-4.5a2.1 2.1 0 0 1 3 3l-5.7 5.6a3.4 3.4 0 0 1-4.8-4.8l5.6-5.6" />
+    </svg>
+  );
+}
+
+function IconStash() {
+  return (
+    <svg viewBox="0 0 16 16" aria-hidden className="size-3.5" {...ICON_STROKE}>
+      <path d="M2.5 6.5h11v6.5h-11zM4 4h8M5.5 2h5M6 9.5h4" />
     </svg>
   );
 }

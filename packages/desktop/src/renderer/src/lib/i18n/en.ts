@@ -460,6 +460,16 @@ export const en = {
   "composer.plus.mention": "mention a file",
   "composer.plus.shell": "shell command",
   "composer.plus.emptyDraftOnly": "starts a new draft — clear the current draft first",
+  // Draft stash (issue #989)
+  "composer.stash.stash": "stash draft",
+  "composer.stash.open": "stashed drafts",
+  "composer.stash.title": "stashed drafts",
+  "composer.stash.keys": "enter applies · del deletes",
+  "composer.stash.empty": "no stashed drafts — {key} with a draft stashes it",
+  "composer.stash.noText": "attachments only",
+  "composer.stash.attached": "+{n}",
+  "composer.stash.delete": "delete stashed draft",
+  "composer.stash.failed": "could not stash the draft: {reason}",
   "composer.model.fallback": "no model",
   // Queue chip (lib/queue-chip strings moved to the catalog at the use sites)
   "composer.queue.queued": "queued: {n}",

@@ -61,6 +61,32 @@ export function resolveDocument(doc: DocumentAttachment): string {
   return file;
 }
 
+/**
+ * Reads a materialized Document Attachment back as base64 (issue #989): a
+ * stashed draft must outlive the quit sweep and travel to another host, so a
+ * path-only chip (rewind prefill, restored queue entry) is re-captured as
+ * bytes. Only a `.pdf` inside THIS machine's scratch dir is readable — the
+ * channel must not become a general file read.
+ */
+export function readScratchDocument(file: string): string {
+  let real: string;
+  let root: string;
+  try {
+    real = fs.realpathSync(file);
+    root = fs.realpathSync(documentScratchDir());
+  } catch {
+    throw new Error(`document not found: ${file}`);
+  }
+  if (path.dirname(real) !== root || path.extname(real).toLowerCase() !== ".pdf") {
+    throw new Error(`not an attached document: ${file}`);
+  }
+  const size = fs.statSync(real).size;
+  if (size > MAX_DOCUMENT_BYTES) {
+    throw new Error(`${path.basename(real)} is ${(size / (1024 * 1024)).toFixed(1)} MB — over the 20 MB document limit`);
+  }
+  return fs.readFileSync(real).toString("base64");
+}
+
 /** Best-effort sweep of the scratch dir on quit; failure is not worth surfacing. */
 export function clearDocumentScratch(): void {
   try {

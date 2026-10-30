@@ -34,6 +34,8 @@ export function ComposerSheet({
   liveVoiceVisible = true,
   canSend,
   onSubmit,
+  stash,
+  onStash,
 }: {
   open: boolean;
   onClose: () => void;
@@ -43,6 +45,9 @@ export function ComposerSheet({
   liveVoiceVisible?: boolean;
   canSend: boolean;
   onSubmit: (route: SubmitRoute) => void;
+  /** Draft stash (issue #989): "stash" parks the draft, "pick" opens the picker. */
+  stash: "stash" | "pick";
+  onStash: () => void;
 }) {
   const t = useT();
   const status = useStore((s) => s.rpc[tabId]?.status);
@@ -153,6 +158,9 @@ export function ComposerSheet({
             )}
           </div>
         </section>
+        <Button disabled={unavailable} onClick={onStash} className="min-h-11 w-full justify-center">
+          {stash === "pick" ? t("composer.stash.open") : t("composer.stash.stash")}
+        </Button>
         <ComposerActions
           layout="sheet"
           running={running}

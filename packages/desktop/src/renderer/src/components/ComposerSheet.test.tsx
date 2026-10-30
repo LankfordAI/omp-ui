@@ -141,6 +141,8 @@ function render(open = true): void {
         unavailable={false}
         canSend={true}
         onSubmit={(route) => onSubmitRoute(route)}
+        stash="stash"
+        onStash={() => {}}
       />,
     ),
   );
