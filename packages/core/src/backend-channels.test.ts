@@ -138,6 +138,7 @@ const VALID_ARGS = {
     "tab-1",
     [{ type: "document", name: "spec.pdf", data: "base64", mimeType: "application/pdf" }],
   ],
+  attachImage: ["tab-1", { type: "image", data: "base64", mimeType: "image/png" }],
   readDocument: ["tab-1", "/tmp/omp-ui-attach/a.pdf"],
   ptyPasteDocument: [
     "tab-1",

@@ -1603,6 +1603,17 @@ export const BACKEND_CHANNELS = {
     ]),
   },
   /**
+   * Writes one native prompt's image to a scratch file on the machine that
+   * owns the tab's session and returns its absolute path (issue #993). The
+   * image still rides the prompt frame's `images`; the path joins the
+   * attachment routing suffix so the agent's tools have a file. One image per
+   * request keeps each well under the remote WS transport's frame cap.
+   */
+  attachImage: {
+    channel: "session:attachImage",
+    ...request<[tabId: string, image: ImageAttachment], string>([str(), imageAttachmentCodec]),
+  },
+  /**
    * Reads one materialized Document Attachment back as base64 on the
    * machine that owns the tab (issue #989): a stashed draft keeps a
    * path-only chip as bytes so it survives the quit sweep and can be applied

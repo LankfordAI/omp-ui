@@ -61,6 +61,7 @@ import {
   MAX_DOCUMENT_BATCH_BYTES,
   readScratchDocument,
   resolveDocument,
+  writeImageAttachment,
   resolveKnowledgeHome,
   resolveVaultProject,
   plainVaultProject,
@@ -2552,6 +2553,18 @@ export class SessionManager {
       );
     }
     return documents.map((doc) => resolveDocument(doc));
+  }
+
+  /**
+   * Writes a native prompt's image to a scratch file on THIS machine — the
+   * remote host for a joined tab, routed by routeByTab (issue #993) — and
+   * returns the path the routing suffix names.
+   */
+  async attachImage(tabId: string, image: ImageAttachment): Promise<string> {
+    if (!this.deps.registry.sessions.some((s) => s.tabId === tabId)) {
+      throw new Error(`unknown session tab ${tabId}`);
+    }
+    return writeImageAttachment(image);
   }
 
   /** A stashed draft re-captures a path-only document's bytes here (issue #989). */

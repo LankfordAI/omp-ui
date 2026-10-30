@@ -6,6 +6,7 @@ import {
   MAX_DOCUMENT_BYTES,
   readScratchDocument,
   resolveDocument,
+  writeImageAttachment,
 } from "./documents";
 import type { DocumentAttachment } from "./types";
 
@@ -14,6 +15,18 @@ import type { DocumentAttachment } from "./types";
 afterEach(() => clearDocumentScratch());
 
 const PDF = { type: "document" as const, name: "spec.pdf", mimeType: "application/pdf" };
+
+describe("writeImageAttachment", () => {
+  it("saves a native prompt image beside the documents, under omp's extension, swept on quit", () => {
+    const data = Buffer.from("image bytes must round-trip");
+    const file = writeImageAttachment({ type: "image", data: data.toString("base64"), mimeType: "image/jpeg" });
+    expect(file.startsWith(documentScratchDir())).toBe(true);
+    expect(file.endsWith(".jpg")).toBe(true);
+    expect(fs.readFileSync(file)).toEqual(data);
+    clearDocumentScratch();
+    expect(fs.existsSync(file)).toBe(false);
+  });
+});
 
 describe("resolveDocument", () => {
   it("writes decoded bytes to a fresh uuid-named .pdf", () => {

@@ -586,18 +586,41 @@ export function createSessionParamsSlice(
    * The one wire-text builder every prompt route shares: annotations lead
    * (ADR-0077), the document block attaches to the prose (ADR-0044), and the
    * image routing suffix stays last, preserving
-   * stripAttachmentRoutingContext's endsWith round-trip.
+   * stripAttachmentRoutingContext's terminal round-trip. `imageFiles` are
+   * the images' scratch paths on the session's host (issue #993).
    */
   const promptWireText = (
     message: string,
     images: readonly ImageAttachment[] | undefined,
     docRefs: readonly DocumentRef[] | undefined,
     annotations: readonly Annotation[] | undefined,
+    imageFiles: readonly string[] | undefined,
   ): string =>
     withAttachmentRoutingContext(
       withDocumentContext(withAnnotationContext(message, annotations ?? []), docRefs ?? []),
       images?.length ?? 0,
+      imageFiles,
     );
+
+  /**
+   * Writes each prompt image to a scratch file on the machine that owns the
+   * session (issue #993), so the agent's tools get a file next to the inline
+   * bytes. The frame's `images` already carry what the model sees, so a
+   * failure — a joined host older than the channel, a full temp dir — sends
+   * the handles-only suffix instead of blocking the prompt. Callers await it
+   * only when images exist: a text prompt's frame must leave synchronously.
+   */
+  const materializeImages = async (
+    tabId: string,
+    images: readonly ImageAttachment[],
+  ): Promise<string[] | undefined> => {
+    try {
+      return await Promise.all(images.map((image) => backend.attachImage(tabId, image)));
+    } catch (err) {
+      console.warn("[omp-ui] prompt images not saved as files; sending handles only", err);
+      return undefined;
+    }
+  };
 
   const sendPrompt = async (
     tabId: string,
@@ -632,7 +655,8 @@ export function createSessionParamsSlice(
       route === "follow_up" || route === "advisor_reply" || route === "stall_continue"
         ? "followUp"
         : "steer";
-    const wireMessage = promptWireText(message, images, docRefs, annotations);
+    const imageFiles = images?.length ? await materializeImages(tabId, images) : undefined;
+    const wireMessage = promptWireText(message, images, docRefs, annotations, imageFiles);
     const cmd = { type: "prompt" as const, message: wireMessage, streamingBehavior };
     // `images` is omitted entirely when empty: omp's own client sends no key
     // rather than an empty array, and every byte here is on one JSON line.
@@ -700,7 +724,8 @@ export function createSessionParamsSlice(
     advisorReplyWatcher.reset(tabId);
     stallContinueWatcher.reset(tabId);
     const type = "abort_and_prompt";
-    const wireMessage = promptWireText(message, images, docRefs, annotations);
+    const imageFiles = images?.length ? await materializeImages(tabId, images) : undefined;
+    const wireMessage = promptWireText(message, images, docRefs, annotations, imageFiles);
     // The title shot rides the user message's `message_start` in the
     // reducer, same as `sendPrompt` (issue #795).
     const response = await m.runCommand(
@@ -839,7 +864,8 @@ export function createSessionParamsSlice(
     // Send at reset (issue #986): the owning host keeps the prompt — tab-routed,
     // so a remote session's prompt waits on its host — and sends it with the
     // same wire text sendPrompt would have built.
-    const text = promptWireText(message, images, docRefs, annotations);
+    const imageFiles = images.length ? await materializeImages(tabId, images) : undefined;
+    const text = promptWireText(message, images, docRefs, annotations, imageFiles);
     try {
       await backend.holdPrompt(tabId, {
         text,

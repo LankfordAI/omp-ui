@@ -165,25 +165,34 @@ describe("prompting, slash commands, and session ops", () => {
     expect(h.useStore.getState().rpc[h.TAB]!.hasRenamed).toBe(true);
   });
 
-  it("routes prompt and abort image handles without changing image objects", async () => {
+  it("routes prompt and abort image handles and scratch paths without changing image objects", async () => {
     const images = [
       { type: "image" as const, data: "first", mimeType: "image/png" },
       { type: "image" as const, data: "second", mimeType: "image/webp" },
     ];
     const prompt = h.useStore.getState().sendPrompt(h.TAB, "compare", "steer", images);
     expect(h.useStore.getState().rpc[h.TAB]!.initialPrompt).toBe("compare");
+    await h.flushMicrotasks();
+    // Each image is saved on the session's host before the frame leaves (issue #993).
+    expect(h.mockBackend.attachImage).toHaveBeenCalledWith(h.TAB, images[0]);
+    expect(h.mockBackend.attachImage).toHaveBeenCalledWith(h.TAB, images[1]);
     const promptFrame = h.sent.find((sent) => sent.cmd.type === "prompt");
     expect(promptFrame?.cmd).toMatchObject({
       type: "prompt",
-      message: `compare\n\n${TWO_IMAGE_CONTEXT}`,
+      message: `compare\n\n${TWO_IMAGE_CONTEXT.slice(0, -1)} The same images are saved as files, in the same order:\n/tmp/omp-ui-attach/png-copy\n/tmp/omp-ui-attach/webp-copy\n]`,
       streamingBehavior: "steer",
       images,
     });
     await settleAll();
     await prompt;
 
+    // A host that cannot save them still gets the prompt, handles only.
     h.sent.length = 0;
+    h.mockBackend.attachImage.mockRejectedValueOnce(new Error("unknown channel session:attachImage"));
+    const warn = vi.spyOn(console, "warn").mockImplementation(() => {});
     const abort = h.useStore.getState().abortAndPrompt(h.TAB, "inspect", [images[0]!]);
+    await h.flushMicrotasks();
+    warn.mockRestore();
     expect(h.sent[0]?.cmd).toMatchObject({
       type: "abort_and_prompt",
       message: `inspect\n\n${ONE_IMAGE_CONTEXT}`,

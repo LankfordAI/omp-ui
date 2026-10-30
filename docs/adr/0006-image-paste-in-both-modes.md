@@ -33,6 +33,39 @@ terminal suffix is canonical for the exact number of image blocks on that
 message. A malformed or count-mismatched lookalike remains visible user prose;
 the session file and OMP events are never rewritten.
 
+### The image as a file the agent can use (issue #993)
+
+The model sees the inline bytes, but a task like "save this as
+`docs/img/foo.png`" or "attach this to the PR" needs a real path. omp 18.14
+already writes each image into its session blob store when `read
+attachment://N` asks (`session-provider-boundary.ts` `getImageAttachments`),
+but that path appears only in that read's result, and only `read` resolves the
+handle: `bash`, `edit`, and the other tools take no `attachment://` URL.
+
+So every image-bearing native prompt also writes each image to a scratch file
+on the machine that owns the session: `session:attachImage` is tab-routed like
+`session:attachDocument` (ADR-0044), one image per request, and writes
+`os.tmpdir()/omp-ui-attach/<uuid>.<ext>`, the PDF scratch dir that is swept on
+quit. The routing suffix then lists the absolute paths, one per line, in frame
+order:
+
+```
+[omp-ui attachment routing: For tool calls, this prompt's attached image is available as attachment://1. Attachment handles restart at 1 for each prompt. The same image is saved as a file:
+/tmp/omp-ui-attach/<uuid>.png
+]
+```
+
+- The `images` field is unchanged, so the model still sees the image inline.
+  The file holds the clipboard's bytes. omp re-encodes only its own copy.
+- The handle sentence stays the only place `attachment://` appears, so the
+  queue and restore splitters still recover the image count from the suffix.
+  Transcript derivation strips both the handles-only and the file-list shape,
+  and only when the list has exactly one non-blank line per image block.
+- A save failure (an older joined host without the channel, a full temp dir)
+  sends the handles-only suffix: the prompt is never blocked on its copy.
+- A session resumed after the sweep names dead paths, and the agent's tool
+  gets "file not found". PDFs make the same trade.
+
 ## PTY — a scratch file plus a bracketed paste
 
 The PTY carries no byte channel, so the bytes are written to

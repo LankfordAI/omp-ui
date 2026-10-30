@@ -475,6 +475,7 @@ export {
   MAX_DOCUMENT_BYTES,
   readScratchDocument,
   resolveDocument,
+  writeImageAttachment,
 } from "./documents";
 export {
   deleteSessionFiles,

@@ -202,6 +202,9 @@ const mockBackend = {
   setSessionAutoSettleOnMerge: vi.fn(async () => {}),
   refreshPullRequests: vi.fn(async () => {}),
   holdPrompt: vi.fn(async () => {}),
+  attachImage: vi.fn(async (_tabId: string, image: { mimeType: string }) =>
+    `/tmp/omp-ui-attach/${image.mimeType.slice("image/".length)}-copy`,
+  ),
   cancelHeldPrompt: vi.fn(async () => null),
   sendHeldPromptNow: vi.fn(async () => {}),
   setSnoozedSectionEnabled: vi.fn(async () => {}),

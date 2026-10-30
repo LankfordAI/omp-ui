@@ -2,8 +2,8 @@ import { randomUUID } from "node:crypto";
 import * as fs from "node:fs";
 import * as os from "node:os";
 import * as path from "node:path";
-import { base64Bytes } from "./images";
-import type { DocumentAttachment } from "./types";
+import { base64Bytes, imageExtension, MAX_IMAGE_BYTES } from "./images";
+import type { DocumentAttachment, ImageAttachment } from "./types";
 
 /**
  * Document-Attachment plumbing (ADR-0044): the omp rpc protocol carries no
@@ -27,9 +27,29 @@ export const MAX_DOCUMENT_BATCH_BYTES = 48 * 1024 * 1024;
 /** The one document type handled today; the extension point for later ones. */
 export const DOCUMENT_MIME = "application/pdf";
 
-/** Where Document Attachments materialize; swept on quit like the image dir. */
+/**
+ * Where Document Attachments and native-prompt image copies (issue #993)
+ * materialize; swept on quit like the PTY paste dir.
+ */
 export function documentScratchDir(): string {
   return path.join(os.tmpdir(), "omp-ui-attach");
+}
+
+/**
+ * Writes a native prompt's image to a fresh uuid-named scratch file on THIS
+ * machine and returns its absolute path (issue #993). The image still rides
+ * the prompt frame's `images`; this copy is the file the agent's tools work
+ * with, named in the attachment routing suffix. Same ceiling as the frame.
+ */
+export function writeImageAttachment(image: ImageAttachment): string {
+  if (base64Bytes(image.data) > MAX_IMAGE_BYTES) {
+    throw new Error(`image is over omp's ${MAX_IMAGE_BYTES / (1024 * 1024)} MB input limit`);
+  }
+  const dir = documentScratchDir();
+  fs.mkdirSync(dir, { recursive: true });
+  const file = path.join(dir, `${randomUUID()}.${imageExtension(image.mimeType)}`);
+  fs.writeFileSync(file, Buffer.from(image.data, "base64"));
+  return file;
 }
 
 /**
