@@ -349,6 +349,12 @@ const VALID_ARGS = {
       mode: "queue",
     },
   ],
+  fleetFinish: [
+    {
+      requester: { instanceId: "instance-1", label: "workstation", kind: "agent", sourceTabId: "tab-1" },
+      dispatchId: "dispatch-1",
+    },
+  ],
   fleetProviderKeys: [
     {
       requester: { instanceId: "instance-1", label: "workstation", kind: "user", sourceTabId: null },

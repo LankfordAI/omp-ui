@@ -9,7 +9,7 @@ import { APP_PACKAGE_FORMATS, type AppPackageFormat } from "./update-types";
 import { compareVersions } from "./semver";
 import { PROVIDER_ENV_NAMES } from "./provider-catalog";
 import { parseModelRole } from "./model-role";
-import type { CatalogModelOption, ModelCatalogSnapshot, SessionSummary } from "./types";
+import type { CatalogModelOption, ModelCatalogSnapshot, SessionSummary, WorktreeBranchRemoval, WorktreeReleaseResult } from "./types";
 
 export const LOCAL_MACHINE_KEY = "local";
 export type PlacementPreference = "prefer" | "normal" | "less" | "manual";
@@ -56,7 +56,7 @@ export const FLEET_SSH_PORT = 22;
 // eslint-disable-next-line no-control-regex
 export const CONTROL_CHARS = /[\u0000-\u001f\u007f-\u009f]/;
 
-/** The eight agent-facing host tools (§6, issues #901, #905, #959), in registration order. */
+/** The nine agent-facing host tools (§6, issues #901, #905, #959, #978), in registration order. */
 export const FLEET_TOOLS = [
   "omp-ui_fleet_machines",
   "omp-ui_fleet_dispatch",
@@ -66,6 +66,7 @@ export const FLEET_TOOLS = [
   "omp-ui_fleet_exec_poll",
   "omp-ui_fleet_update",
   "omp-ui_fleet_send",
+  "omp-ui_fleet_finish",
 ] as const;
 export type FleetToolName = (typeof FLEET_TOOLS)[number];
 
@@ -962,7 +963,7 @@ export interface FleetAuditEntry {
   dispatcherLabel: string;
   /** The agent's tab on the dispatcher when the call came from a tool. */
   sourceTabId: string | null;
-  action: "exec" | "exec-detached" | "manage" | "keys" | "update" | "send" | "grant-raise" | "grant-set";
+  action: "exec" | "exec-detached" | "manage" | "keys" | "update" | "send" | "finish" | "grant-raise" | "grant-set";
   /** The rung used (actions) or the literal marker for grant bookkeeping. */
   rung: FleetRung | "raise" | "set";
   accepted: boolean;
@@ -1075,6 +1076,47 @@ export function parseFleetSendRequest(value: unknown): FleetSendRequest {
 /** The text the child sees; the prefix is fixed so the transcript says who spoke. */
 export function fleetSendText(message: string): string {
   return `[omp-ui fleet] Message from the session that dispatched you:\n\n${message}`;
+}
+
+/** Finish an already-landed dispatched worktree session (issue #978); the owner authorizes. */
+export interface FleetFinishRequest {
+  requester: FleetRequester;
+  dispatchId: string;
+}
+export interface FleetToolFinishArgs {
+  dispatchId: string;
+}
+/** A branch the agent checked out inside the worktree besides the minted one, and what finish did with it. */
+export interface FleetFinishWorkingBranch {
+  branch: string;
+  /** `not-made-here`: the branch existed before the worktree, so finish never deletes it. */
+  outcome: WorktreeBranchRemoval["kind"] | "not-attempted" | "not-made-here";
+}
+/** `finished` means the session was settled first: its process is gone and its row is in Settled. */
+export type FleetFinishOutcome =
+  | {
+      status: "finished";
+      /** The base the work was verified to be in. */
+      destination: string;
+      worktreePath: string;
+      /** Why the checkout survived; null when it was removed. */
+      checkoutKept: WorktreeReleaseResult["checkoutKept"];
+      /** The session's recorded worktree branch. */
+      branch: string;
+      branchOutcome: WorktreeReleaseResult["branchOutcome"];
+      workingBranches: FleetFinishWorkingBranch[];
+    }
+  | { status: "refused"; reason: string };
+
+/** Strict parse of a fleet finish request (codec + owner entry check). */
+export function parseFleetFinishRequest(value: unknown): FleetFinishRequest {
+  const label = "finish request";
+  const req = objectValue(value, label);
+  rejectUnknownKeys(req, ["requester", "dispatchId"], label);
+  return {
+    requester: parseFleetRequester(req.requester, `${label}.requester`),
+    dispatchId: idString(req.dispatchId, `${label}.dispatchId`),
+  };
 }
 
 const FLEET_PROVIDER_KEY_VALUE_MAX_BYTES = 8_192;
@@ -1292,6 +1334,7 @@ export type FleetToolArguments =
   | { ok: true; tool: "execPoll"; args: FleetToolExecPollArgs }
   | { ok: true; tool: "update"; args: FleetToolUpdateArgs }
   | { ok: true; tool: "send"; args: FleetToolSendArgs }
+  | { ok: true; tool: "finish"; args: FleetToolFinishArgs }
   | { ok: false; reason: string };
 
 function refuse(reason: string): { ok: false; reason: string } {
@@ -1414,6 +1457,12 @@ export function parseFleetToolArguments(name: string, raw: unknown): FleetToolAr
     if (a.message.length > FLEET_SEND_MAX) return refuse(`message exceeds ${FLEET_SEND_MAX} characters`);
     if (a.mode !== undefined && a.mode !== "queue" && a.mode !== "steer") return refuse("mode must be queue or steer");
     return { ok: true, tool: "send", args: { dispatchId: a.dispatchId.trim(), message: a.message, mode: a.mode === "steer" ? "steer" : "queue" } };
+  }
+  if (name === "omp-ui_fleet_finish") {
+    const extra = unknownKey(["dispatchId"]);
+    if (extra !== undefined) return refuse(`unknown argument "${extra}"`);
+    if (typeof a.dispatchId !== "string" || a.dispatchId.trim() === "") return refuse("dispatchId must be a non-empty string");
+    return { ok: true, tool: "finish", args: { dispatchId: a.dispatchId.trim() } };
   }
   if (name !== "omp-ui_fleet_dispatch") return refuse(`unknown host tool "${name}"`);
   const extra = unknownKey(["prompt", "title", "project", "machines", "count", "workspace", "planMode", "model", "thinkingLevel"]);

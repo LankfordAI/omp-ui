@@ -46,10 +46,12 @@ import {
   type FleetExecPollOutcome,
   type FleetProjectManageOutcome,
   type FleetSendOutcome,
+  type FleetFinishOutcome,
   type FleetToolExecArgs,
   type FleetToolExecPollArgs,
   type FleetToolProjectArgs,
   type FleetToolSendArgs,
+  type FleetToolFinishArgs,
   type FleetToolUpdateArgs,
   type FleetMachine,
   type ObsidianListEntry,
@@ -113,6 +115,8 @@ export interface FleetBridgeDeps {
   update(tabId: string, args: FleetToolUpdateArgs): Promise<FleetAgentUpdateAnswer>;
   /** Sends one message into a session this tab dispatched (issue #959); refusals ride the outcome. */
   send(tabId: string, args: FleetToolSendArgs): Promise<FleetSendOutcome>;
+  /** Cleans up an already-landed worktree session this tab dispatched (issue #978); refusals ride the outcome. */
+  finish(tabId: string, args: FleetToolFinishArgs): Promise<FleetFinishOutcome>;
 }
 
 export interface HostBridgeDeps {
@@ -504,6 +508,12 @@ export class HostBridge {
         reply(hostToolTextResult(call.id, text));
         return;
       }
+      if (parsed.tool === "finish") {
+        const outcome = await deps.finish(tabId, parsed.args);
+        this.deps.log(`omp-ui_fleet_finish from ${tabId}: ${parsed.args.dispatchId} ${outcome.status}`);
+        reply(hostToolTextResult(call.id, fleetFinishText(parsed.args.dispatchId, outcome)));
+        return;
+      }
       const machines = await deps.machines();
       if (!retained()) return;
       const translated = fleetToolDispatchRequest(parsed.args, machines);
@@ -841,6 +851,31 @@ const SESSION_SUMMARY_RESOURCE = /^sessions\/([^/?#]+)\/summary$/;
 function planContentType(absPath: string): HostUriContentType {
   const ext = absPath.slice(absPath.lastIndexOf(".")).toLowerCase();
   return ext === ".json" ? "application/json" : "text/markdown";
+}
+
+/** Render one omp-ui_fleet_finish outcome (issue #978): what was removed, what stayed, and why. */
+function fleetFinishText(dispatchId: string, outcome: FleetFinishOutcome): string {
+  if (outcome.status === "refused") return `refused — ${outcome.reason}`;
+  const branchText = (kind: string): string =>
+    ({
+      removed: "deleted",
+      "already-gone": "already gone",
+      "kept-requested": "kept",
+      "kept-unmerged": `kept: not fully in ${outcome.destination}`,
+      "kept-no-destination": "kept: no base branch to check it against",
+      "kept-refused": "kept: git refused to delete it",
+      "not-attempted": "kept: the worktree stayed",
+      "not-made-here": "kept: it existed before the worktree",
+    })[kind] ?? kind;
+  const lines = [
+    `finished dispatch ${dispatchId}: its work is in ${outcome.destination}, and the session is settled.`,
+    outcome.checkoutKept === null
+      ? `- worktree ${outcome.worktreePath}: removed`
+      : `- worktree ${outcome.worktreePath}: kept (${outcome.checkoutKept})`,
+    `- branch ${outcome.branch}: ${branchText(outcome.branchOutcome)}`,
+    ...outcome.workingBranches.map((b) => `- branch ${b.branch}: ${branchText(b.outcome)}`),
+  ];
+  return lines.join("\n");
 }
 
 /** Render one omp-ui_fleet_update answer (fleet remote version update, §8); pure render data from the dispatcher. */

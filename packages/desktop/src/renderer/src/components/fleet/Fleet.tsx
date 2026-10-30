@@ -62,6 +62,7 @@ const AUDIT_ACTION_LABEL: Record<FleetAuditEntry["action"], MessageKey> = {
   keys: "fleet.audit.keys",
   update: "fleet.audit.update",
   send: "fleet.audit.send",
+  finish: "fleet.audit.finish",
 };
 
 /** One dispatched session wherever it lives: this app's registry or a joined instance's. */

@@ -123,3 +123,36 @@ window in ADR-0061.
 - The renderer draws `omp-ui:fleet-wake` custom messages as cards, live and in
   history; every other custom type except advisor stays ignored.
 - The fleet tool roster grows to eight with `omp-ui_fleet_send`.
+
+## Fleet finish addendum (issue #978)
+
+A dispatching session cleans up after each dispatched worktree session with
+`omp-ui_fleet_finish { dispatchId }`. It follows the `omp-ui_fleet_send` route:
+the dispatcher pre-checks the requester, the proxied channel `fleet:finish`
+reaches the owner, a cross-instance call needs the Dispatch rung, the call
+audits as `finish`, and the owner re-checks that the requester dispatched the
+session.
+
+- **Already landed only.** The owner refuses unless all of these hold: the
+  recorded branch is in the destination resolved from the recorded base, the
+  checkout is clean, and the checkout's HEAD is in that destination. HEAD
+  matters because agents commit on working branches of their own. It also
+  refuses while a turn runs, a human answer is pending, or another operation
+  holds the tab. It never merges, pushes, or discards work: there is no new
+  merge path.
+- **Settle first, then release.** The order is settle (reap), re-check the
+  landed facts (the process could commit until it died), then
+  `releaseWorktree` with `mergedInto` set to the destination. A settled tab is
+  dormant, so the release demotes and reclaims without a relaunch, and the
+  row lands in Settled exactly like a merged finish from the dialog.
+- **Working branches by reflog, deleted by ancestry.** The worktree's own HEAD
+  reflog names every branch the checkout held. A branch whose own reflog
+  starts strictly after the worktree's first HEAD entry was made there, and
+  it is deleted only when `removeWorktreeBranch`'s ancestry check passes. Any
+  other visited branch, or one with no reflog, is reported as kept, never
+  deleted on a guess. The reflog dies with the checkout, so it is read before
+  removal.
+- **Rejected: let the child remove its own worktree.** `git worktree remove`
+  from inside the session bypasses the registry: the record keeps a dead path
+  and the session never settles.
+- The fleet tool roster grows to nine with `omp-ui_fleet_finish`.

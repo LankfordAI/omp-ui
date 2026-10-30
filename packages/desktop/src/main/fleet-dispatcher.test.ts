@@ -119,6 +119,7 @@ function harness(opts: {
     watchAgentDispatch: () => {},
     nextBroadcast: async () => {},
     sendLocal: async () => ({ status: "delivered" }),
+    finishLocal: async () => ({ status: "refused", reason: "not wired in this fixture" }),
     now: () => NOW,
     uuid: () => `id-${++ids}`,
     ...opts.deps,
@@ -588,6 +589,7 @@ describe("FleetDispatcher fleet ladder (issue #901)", () => {
       watchAgentDispatch: () => {},
       nextBroadcast: async () => {},
       sendLocal: async () => ({ status: "delivered" }),
+      finishLocal: async () => ({ status: "refused", reason: "not wired in this fixture" }),
       now: () => NOW,
       uuid: () => "u",
     });
@@ -847,6 +849,7 @@ describe("FleetDispatcher member address (issue #904)", () => {
       watchAgentDispatch: () => {},
       nextBroadcast: async () => {},
       sendLocal: async () => ({ status: "delivered" }),
+      finishLocal: async () => ({ status: "refused", reason: "not wired in this fixture" }),
       now: () => NOW,
       uuid: () => "u",
     });
@@ -893,6 +896,7 @@ describe("FleetDispatcher fleet maintenance (fleet remote version update)", () =
       watchAgentDispatch: () => {},
       nextBroadcast: async () => {},
       sendLocal: async () => ({ status: "delivered" }),
+      finishLocal: async () => ({ status: "refused", reason: "not wired in this fixture" }),
       now: () => NOW,
       uuid: () => "u",
     });

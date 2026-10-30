@@ -109,6 +109,7 @@ describe("host registration definitions", () => {
         "omp-ui_fleet_exec_poll",
         "omp-ui_fleet_update",
         "omp-ui_fleet_send",
+        "omp-ui_fleet_finish",
       ],
     ],
     [
@@ -149,6 +150,7 @@ describe("host registration definitions", () => {
         "omp-ui_fleet_exec_poll",
         "omp-ui_fleet_update",
         "omp-ui_fleet_send",
+        "omp-ui_fleet_finish",
       ],
     ],
   ])("registers %j as exactly these tools in order", (opts, names) => {
@@ -162,7 +164,7 @@ describe("host registration definitions", () => {
       expect(tool.parameters.type).toBe("object");
       expect(tool.parameters.additionalProperties).toBe(false);
     }
-    expect(fleet).toHaveLength(8);
+    expect(fleet).toHaveLength(9);
     expect(fleet.map((tool) => tool.parameters.required ?? [])).toEqual([
       [],
       ["prompt", "project"],
@@ -172,6 +174,7 @@ describe("host registration definitions", () => {
       ["machine", "execId"],
       ["machine", "target", "action"],
       ["dispatchId", "message"],
+      ["dispatchId"],
     ]);
     const status = fleet[2]!.parameters.properties as Record<string, Record<string, unknown>>;
     expect(status.waitMs).toMatchObject({ type: "integer", minimum: 0, maximum: 45_000 });

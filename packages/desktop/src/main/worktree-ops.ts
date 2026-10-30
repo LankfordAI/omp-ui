@@ -5,12 +5,18 @@ import {
   checkoutBranch,
   finalizeMintBranch,
   mintWorktreePath,
+  readMergeBackStatus,
   readWorktreeDirty,
+  readWorktreeLanding,
   reclaimCheckouts,
+  removeWorktreeBranch,
   renameWorktreeBranch,
+  resolveMergeDestination,
   syncWorktree,
   type Registry,
   type SessionWorktree,
+  type WorktreeBranchRemoval,
+  type WorktreeLanding,
   type SpawnRequest,
   type WorktreeCheckoutDescriptor,
   type WorktreeReleaseResult,
@@ -103,6 +109,46 @@ export class WorktreeOps {
     return result
       ? { checkoutKept: result.checkoutKept, branchOutcome: result.branchOutcome }
       : { checkoutKept: "failed", branchOutcome: "not-attempted" };
+  }
+
+  /**
+   * The already-landed check behind omp-ui_fleet_finish (issue #978): the
+   * destination resolved from the recorded base, the recorded branch in it,
+   * the checkout clean, and the checkout's HEAD in it — an agent may have
+   * worked on a branch of its own. Reads the HEAD reflog, so it must run
+   * before the checkout is removed. A refusal is a user-facing reason.
+   */
+  async landedFinish(
+    projectCwd: string,
+    worktree: SessionWorktree,
+  ): Promise<{ ok: true; destination: string; landing: WorktreeLanding } | { ok: false; reason: string }> {
+    const { destination } = await resolveMergeDestination(projectCwd, worktree.base);
+    if (destination === null) {
+      return { ok: false, reason: `no local branch matches the worktree's base ${worktree.base ?? "(unrecorded)"}` };
+    }
+    const status = await readMergeBackStatus(projectCwd, worktree.branch, destination, worktree.path);
+    if (!status.destinationExists) return { ok: false, reason: `the base branch ${destination} no longer exists` };
+    if (status.worktreeDirty === null) return { ok: false, reason: `the worktree at ${worktree.path} cannot be read` };
+    if (status.worktreeDirty) return { ok: false, reason: "the worktree has uncommitted changes" };
+    if (status.branchExists && !status.alreadyMerged) {
+      return {
+        ok: false,
+        reason: `${worktree.branch} has ${status.ahead} commit${status.ahead === 1 ? "" : "s"} ${destination} lacks; land the work first`,
+      };
+    }
+    const landing = await readWorktreeLanding(projectCwd, worktree.path, worktree.branch, destination);
+    if (!landing.headLanded) {
+      return {
+        ok: false,
+        reason: `the worktree's checked-out ${landing.headBranch ?? "HEAD"} holds commits ${destination} lacks; land the work first`,
+      };
+    }
+    return { ok: true, destination, landing };
+  }
+
+  /** Deletes `branch` only when it is fully in `destination` (removeWorktreeBranch's ancestry rule). */
+  removeMergedBranch(projectCwd: string, branch: string, destination: string): Promise<WorktreeBranchRemoval> {
+    return removeWorktreeBranch(projectCwd, branch, [destination]);
   }
 
   checkout(projectCwd: string, branch: string): Promise<void> {

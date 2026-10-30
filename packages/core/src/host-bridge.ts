@@ -72,7 +72,7 @@ export function hostUriSchemeDefinition(): RpcHostUriSchemeDefinition {
   };
 }
 
-/** Notify is always present; registered vaults enable the ten vault tools; the caller's fleet gate (every chat, or the fleet setting) enables the eight fleet tools. */
+/** Notify is always present; registered vaults enable the ten vault tools; the caller's fleet gate (every chat, or the fleet setting) enables the nine fleet tools. */
 export function hostToolsDefinition(
   opts: { vault: boolean; fleet: boolean } = { vault: false, fleet: false },
 ): RpcHostToolDefinition[] {
@@ -296,7 +296,7 @@ function vaultTools(): RpcHostToolDefinition[] {
  * governs each call.
  */
 function fleetTools(): RpcHostToolDefinition[] {
-  const [machines, dispatch, status, exec, project, execPoll, update, send] = FLEET_TOOLS;
+  const [machines, dispatch, status, exec, project, execPoll, update, send, finish] = FLEET_TOOLS;
   return [
     {
       name: machines,
@@ -475,6 +475,20 @@ function fleetTools(): RpcHostToolDefinition[] {
           mode: { type: "string", enum: ["queue", "steer"] },
         },
         required: ["dispatchId", "message"],
+        additionalProperties: false,
+      },
+    },
+    {
+      name: finish,
+      loadMode: "essential",
+      description:
+        "Clean up a worktree session you started with omp-ui_fleet_dispatch once its work is already in its base branch (for example after it rebased, fast-forwarded the base, and pushed): removes its worktree, deletes its worktree branch and any fully merged branch it created there, and settles the session. Only the session that dispatched the work can finish it. It never merges, pushes, or discards work: it refuses while the session is working, waiting for the user's answer, has uncommitted changes, or holds commits its base lacks.",
+      parameters: {
+        type: "object",
+        properties: {
+          dispatchId: { type: "string", description: "The dispatchId omp-ui_fleet_dispatch reported." },
+        },
+        required: ["dispatchId"],
         additionalProperties: false,
       },
     },

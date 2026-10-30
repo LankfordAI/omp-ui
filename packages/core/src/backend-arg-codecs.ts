@@ -6,6 +6,7 @@ import {
   parseFleetDispatchRequest,
   parseFleetExecPollRequest,
   parseFleetSendRequest,
+  parseFleetFinishRequest,
   parseFleetExecRequest,
   parseFleetProjectManageRequest,
   parseFleetProviderKeysRequest,
@@ -18,6 +19,7 @@ import {
   type FleetDispatchRequest,
   type FleetExecPollRequest,
   type FleetSendRequest,
+  type FleetFinishRequest,
   type FleetExecRequest,
   type FleetProjectManageRequest,
   type FleetProviderKeysRequest,
@@ -716,6 +718,18 @@ export const fleetSendRequestCodec: ArgCodec<FleetSendRequest> = {
   decode(value, path) {
     try {
       return parseFleetSendRequest(value);
+    } catch (error) {
+      return fail(path, `${this.expected} (${(error as Error).message})`);
+    }
+  },
+};
+
+/** Fleet finish (issue #978), via the shared parser. */
+export const fleetFinishRequestCodec: ArgCodec<FleetFinishRequest> = {
+  expected: "a valid fleet finish request",
+  decode(value, path) {
+    try {
+      return parseFleetFinishRequest(value);
     } catch (error) {
       return fail(path, `${this.expected} (${(error as Error).message})`);
     }

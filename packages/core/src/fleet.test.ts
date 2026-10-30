@@ -240,7 +240,7 @@ describe("parseFleetDispatchRequest", () => {
 describe("fleet exec ladder contracts (issue #901)", () => {
   const requester = { instanceId: "inst-a", label: "studio", kind: "agent", sourceTabId: "tab-1" } as const;
 
-  it("exposes the eight agent tools in registration order", () => {
+  it("exposes the nine agent tools in registration order", () => {
     expect(FLEET_TOOLS).toEqual([
       "omp-ui_fleet_machines",
       "omp-ui_fleet_dispatch",
@@ -250,6 +250,7 @@ describe("fleet exec ladder contracts (issue #901)", () => {
       "omp-ui_fleet_exec_poll",
       "omp-ui_fleet_update",
       "omp-ui_fleet_send",
+      "omp-ui_fleet_finish",
     ]);
   });
 

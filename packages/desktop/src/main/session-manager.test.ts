@@ -7392,6 +7392,7 @@ describe("host tools and host URIs (issue #688, ADR-0043)", () => {
             "omp-ui_fleet_exec_poll",
             "omp-ui_fleet_update",
             "omp-ui_fleet_send",
+            "omp-ui_fleet_finish",
           ]
         : []),
     ]);
@@ -9133,6 +9134,102 @@ describe("fleet wake and fleet send (issues #957, #959)", () => {
         message: Core.fleetSendText("Now reply with OK."),
         streamingBehavior: "followUp",
       });
+    });
+  });
+
+  describe("fleetFinish (#978)", () => {
+    const finishReq = (over: Partial<Core.FleetFinishRequest> = {}): Core.FleetFinishRequest => ({
+      requester: requester(),
+      dispatchId: DISPATCH,
+      ...over,
+    });
+    /** reflog seconds are git's clock: an explicit date orders a branch before or after the worktree. */
+    const gitAt = (cwd: string, at: number, args: string[]) =>
+      execFileP("git", args, { cwd, env: { ...process.env, GIT_COMMITTER_DATE: `@${at} +0000` } });
+    const branches = async (cwd: string): Promise<string[]> =>
+      (await execFileP("git", ["branch", "--format=%(refname:short)"], { cwd })).stdout.split("\n").filter(Boolean).sort();
+
+    async function worktreeChild(manager: SessionManager, registry: Core.Registry) {
+      const project = await gitProject(base);
+      registry.addProject(project);
+      const minted = "omp-ui/main/f1n15h00";
+      const { tabId } = await manager.spawn({
+        origin: "new",
+        projectCwd: project,
+        mode: "rpc-ui",
+        advisor: false,
+        cols: 80,
+        rows: 24,
+        worktree: { mint: { branch: minted, baseRef: null, baseBranch: null } },
+        planMode: false,
+        fleet: { dispatchId: DISPATCH, batchId: null, title: "Fix the flake", prompt: "Fix it.", requestedBy: requester() },
+      });
+      const rpc = rpcInstances.at(-1)!;
+      rpc.kill.mockImplementation(() => rpc.exit(0));
+      const wt = registry.sessions.find((s) => s.tabId === tabId)!.worktree!;
+      return { project, tabId, wt, minted };
+    }
+
+    it("refuses unlanded work and leaves the session, worktree, and branches untouched", async () => {
+      const { manager, registry } = setup({ mode: "rpc-ui" });
+      const { project, tabId, wt } = await worktreeChild(manager, registry);
+      // The agent's own working branch carries a commit main lacks.
+      await execFileP("git", ["checkout", "-q", "-b", "fix/978-x"], { cwd: wt.path });
+      fs.writeFileSync(path.join(wt.path, "fix.txt"), "fix\n");
+      await execFileP("git", ["add", "fix.txt"], { cwd: wt.path });
+      await execFileP("git", ["commit", "-q", "-m", "fix"], { cwd: wt.path });
+
+      await expect(manager.fleetFinish(finishReq({ requester: requester("other-tab") }))).resolves.toEqual({
+        status: "refused",
+        reason: "only the session that dispatched this work can finish it",
+      });
+      await expect(manager.fleetFinish(finishReq())).resolves.toEqual({
+        status: "refused",
+        reason: "the worktree's checked-out fix/978-x holds commits main lacks; land the work first",
+      });
+
+      expect(manager.isLive(tabId)).toBe(true);
+      expect(registry.sessions.find((s) => s.tabId === tabId)!.worktree).toEqual(wt);
+      expect(fs.existsSync(wt.path)).toBe(true);
+      expect(await branches(project)).toContain("fix/978-x");
+    });
+
+    it("settles a landed session, removes its worktree, and deletes only the merged branches it made", async () => {
+      const { manager, registry } = setup({ mode: "rpc-ui" });
+      const { project, tabId, wt } = await worktreeChild(manager, registry);
+      // The harness fakes Date; git stamps reflogs from the real clock, so read the worktree's birth from git.
+      const { stdout } = await execFileP("git", ["reflog", "show", "--date=unix", "--format=%gd", "HEAD"], { cwd: wt.path });
+      const now = Math.min(...[...stdout.matchAll(/@\{(\d+)\}/g)].map((m) => Number(m[1])));
+      // A branch the user had before the worktree, visited by the agent: never deleted.
+      await gitAt(project, now - 3_600, ["branch", "release/keep"]);
+      await execFileP("git", ["checkout", "-q", "release/keep"], { cwd: wt.path });
+      // The agent's own working branch, landed on main by fast-forward.
+      await gitAt(wt.path, now + 60, ["checkout", "-q", "-b", "fix/978-x"]);
+      fs.writeFileSync(path.join(wt.path, "fix.txt"), "fix\n");
+      await execFileP("git", ["add", "fix.txt"], { cwd: wt.path });
+      await gitAt(wt.path, now + 61, ["commit", "-q", "-m", "fix"]);
+      await execFileP("git", ["merge", "-q", "--ff-only", "fix/978-x"], { cwd: project });
+
+      const outcome = await manager.fleetFinish(finishReq());
+
+      expect(outcome).toEqual({
+        status: "finished",
+        destination: "main",
+        worktreePath: wt.path,
+        checkoutKept: null,
+        branch: wt.branch,
+        branchOutcome: "removed",
+        workingBranches: expect.arrayContaining([
+          { branch: "release/keep", outcome: "not-made-here" },
+          { branch: "fix/978-x", outcome: "removed" },
+        ]),
+      });
+      expect(manager.isLive(tabId)).toBe(false);
+      expect(registry.sessions.find((s) => s.tabId === tabId)!.worktree).toBeNull();
+      expect(fs.existsSync(wt.path)).toBe(false);
+      expect(await branches(project)).toEqual(["main", "release/keep"]);
+      // Released dormant: no relaunch after the settle.
+      expect(RpcClientMock).toHaveBeenCalledTimes(1);
     });
   });
 });

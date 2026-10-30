@@ -57,11 +57,14 @@ import {
   type FleetProviderKeysRequest,
   type FleetSendOutcome,
   type FleetSendRequest,
+  type FleetFinishOutcome,
+  type FleetFinishRequest,
   type FleetRequester,
   type FleetRung,
   type FleetToolExecArgs,
   type FleetToolExecPollArgs,
   type FleetToolSendArgs,
+  type FleetToolFinishArgs,
   type FleetToolProjectArgs,
   type FleetToolUpdateArgs,
   type FleetUpdateAck,
@@ -129,6 +132,8 @@ export interface FleetDispatcherDeps {
   nextBroadcast(timeoutMs: number): Promise<void>;
   /** FleetServer.send on this machine (issue #959). */
   sendLocal(req: FleetSendRequest): Promise<FleetSendOutcome>;
+  /** FleetServer.finish on this machine (issue #978). */
+  finishLocal(req: FleetFinishRequest): Promise<FleetFinishOutcome>;
   now?: () => number;
   uuid?: () => string;
 }
@@ -618,6 +623,28 @@ export class FleetDispatcher {
     const req: FleetSendRequest = { requester, dispatchId: args.dispatchId, message: args.message, mode: args.mode };
     if (s.machineKey === LOCAL_MACHINE_KEY) return this.#deps.sendLocal(req);
     return this.#memberCall<FleetSendOutcome>(s.machineKey, CH.fleetSend, [req], fleetMachineName({ nickname: s.nickname ?? s.machineKey }));
+  }
+
+  /**
+   * `omp-ui_fleet_finish` (issue #978): clean up an already-landed worktree
+   * session this session dispatched. Pre-checked here; the owner re-checks
+   * the requester and every git fact.
+   */
+  async finish(tabId: string, args: FleetToolFinishArgs): Promise<FleetFinishOutcome> {
+    const s = (await this.#deps.fleetSessions()).find((x) => x.summary.fleet?.dispatchId === args.dispatchId);
+    if (s === undefined) {
+      return this.pending().some((p) => p.dispatchId === args.dispatchId)
+        ? { status: "refused", reason: "that dispatch's outcome is still unknown" }
+        : { status: "refused", reason: `no dispatched session has dispatch ${args.dispatchId}` };
+    }
+    const requester = this.requester("agent", tabId);
+    const by = s.summary.fleet!.requestedBy;
+    if (by.instanceId !== requester.instanceId || by.sourceTabId !== requester.sourceTabId) {
+      return { status: "refused", reason: "only the session that dispatched this work can finish it" };
+    }
+    const req: FleetFinishRequest = { requester, dispatchId: args.dispatchId };
+    if (s.machineKey === LOCAL_MACHINE_KEY) return this.#deps.finishLocal(req);
+    return this.#memberCall<FleetFinishOutcome>(s.machineKey, CH.fleetFinish, [req], fleetMachineName({ nickname: s.nickname ?? s.machineKey }));
   }
 
   /**

@@ -102,6 +102,7 @@ function server(
     liveSessions: () => liveSessions,
     pinned: () => pinned,
     deliverSend: (req) => deliverSend(req),
+    deliverFinish: async () => ({ status: "refused", reason: "not wired in this fixture" }),
     ...(execGit === undefined ? {} : { execGit }),
     ...(commandDeps === undefined ? {} : { commandDeps }),
   });

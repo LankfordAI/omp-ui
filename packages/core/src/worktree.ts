@@ -911,3 +911,82 @@ export async function removeWorktreeBranch(
   }
   return { kind: "removed" };
 }
+
+/** A branch the worktree's HEAD has been on, other than its recorded one (issue #978). */
+export interface WorktreeVisitedBranch {
+  branch: string;
+  /** The branch's own reflog starts strictly after the worktree's: it was made during the worktree's life. */
+  createdInWorktree: boolean;
+}
+
+/** Whether a worktree's current state is already in `destination`, and which branches it visited (issue #978). */
+export interface WorktreeLanding {
+  /** The branch the worktree has checked out now; null when detached or unreadable. */
+  headBranch: string | null;
+  /** The worktree's HEAD commit is an ancestor of (or equal to) `destination`. */
+  headLanded: boolean;
+  /** Local branches the worktree's HEAD reflog checked out, minus `recordedBranch` and `destination`. */
+  visited: WorktreeVisitedBranch[];
+}
+
+/** Reflog entries as [unix seconds, message], newest first; [] when there is no reflog. */
+async function readReflog(cwd: string, ref: string): Promise<Array<[number, string]>> {
+  let out: string;
+  try {
+    out = await git(cwd, ["reflog", "show", "--date=unix", "--format=%gd%x09%gs", ref, "--"]);
+  } catch {
+    return [];
+  }
+  const entries: Array<[number, string]> = [];
+  for (const line of out.split(/\r?\n/)) {
+    const match = /@\{(\d+)\}\t(.*)$/.exec(line);
+    if (match) entries.push([Number(match[1]), match[2]!]);
+  }
+  return entries;
+}
+
+/**
+ * Reads what an already-merged finish needs beyond readMergeBackStatus (issue
+ * #978): an agent may have left the recorded branch for its own working
+ * branch inside the worktree, so the recorded branch being merged proves
+ * nothing about HEAD. The worktree's HEAD reflog is per-worktree (it lives
+ * under the worktree's admin dir), so its `checkout: moving from A to B`
+ * entries name exactly the branches this checkout held. A visited branch
+ * counts as made here only when its own reflog starts strictly after the
+ * worktree's first HEAD entry; a branch with no reflog is never claimed.
+ * Must run while the worktree still exists: removal deletes its HEAD reflog.
+ */
+export async function readWorktreeLanding(
+  projectCwd: string,
+  worktreePath: string,
+  recordedBranch: string,
+  destination: string,
+): Promise<WorktreeLanding> {
+  let head: string;
+  try {
+    head = (await git(worktreePath, ["rev-parse", "--verify", "--quiet", "HEAD^{commit}"])).trim();
+  } catch {
+    head = "";
+  }
+  const headBranch = (await currentBranch(worktreePath)) || null;
+  const headLanded = head !== "" && (await isAncestor(projectCwd, head, destination));
+  const headLog = await readReflog(worktreePath, "HEAD");
+  const born = headLog.length === 0 ? null : Math.min(...headLog.map(([at]) => at));
+  const names = new Set<string>();
+  for (const [, message] of headLog) {
+    const match = /^checkout: moving from (.+) to (.+)$/.exec(message);
+    if (match) names.add(match[2]!.trim());
+  }
+  if (headBranch !== null) names.add(headBranch);
+  names.delete(recordedBranch);
+  names.delete(destination);
+  const visited: WorktreeVisitedBranch[] = [];
+  for (const branch of names) {
+    if (!(await hasRef(projectCwd, `refs/heads/${branch}`))) continue;
+    const log = await readReflog(projectCwd, `refs/heads/${branch}`);
+    const created = log.length === 0 ? null : Math.min(...log.map(([at]) => at));
+    // Strictly later: reflogs keep whole seconds, and a tie is never claimed.
+    visited.push({ branch, createdInWorktree: born !== null && created !== null && created > born });
+  }
+  return { headBranch, headLanded, visited };
+}

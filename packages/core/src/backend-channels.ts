@@ -105,6 +105,8 @@ import type {
   FleetExecPollRequest,
   FleetSendOutcome,
   FleetSendRequest,
+  FleetFinishOutcome,
+  FleetFinishRequest,
   FleetExecRequest,
   FleetGrantRaiseOutcome,
   FleetGrantRaiseRequest,
@@ -171,6 +173,7 @@ import {
   fleetDispatchRequestCodec,
   fleetExecPollRequestCodec,
   fleetSendRequestCodec,
+  fleetFinishRequestCodec,
   fleetExecRequestCodec,
   fleetProjectManageCodec,
   fleetProviderKeysRequestCodec,
@@ -1226,6 +1229,11 @@ export const BACKEND_CHANNELS = {
   fleetSend: {
     channel: "fleet:send",
     ...request<[req: FleetSendRequest], FleetSendOutcome>([fleetSendRequestCodec]),
+  },
+  /** Finishes an already-landed dispatched worktree session (issue #978). Proxied; the owner authorizes. */
+  fleetFinish: {
+    channel: "fleet:finish",
+    ...request<[req: FleetFinishRequest], FleetFinishOutcome>([fleetFinishRequestCodec]),
   },
   /** Provider key rollout (issue #905): the owner stores the carried values in its own keyring under Full control. Proxied, main-to-main. */
   fleetProviderKeys: {

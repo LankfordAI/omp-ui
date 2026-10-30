@@ -110,6 +110,7 @@ import {
   type FleetRequester,
   type FleetRung,
   type FleetSendRequest,
+  type FleetFinishRequest,
   type FleetHostReport,
   type FleetUpdateRequest,
   type FleetUpdateMemberRequest,
@@ -580,6 +581,7 @@ export class MainBackend {
         return promise;
       },
       sendLocal: (req) => this.fleetServer.send(req),
+      finishLocal: (req) => this.fleetServer.finish(req),
     });
     // The node half of the fleet ladder (issue #901): the owner answers for
     // its own machine, so it shares the registry and log dir with everything else.
@@ -605,6 +607,7 @@ export class MainBackend {
       liveSessions: () => this.sessions.liveCount,
       pinned: () => ompPinActive(),
       deliverSend: (req) => this.sessions.fleetSend(req),
+      deliverFinish: (req) => this.sessions.fleetFinish(req),
     });
     this.fleetWake = new FleetWakeCoordinator({
       dir: path.join(path.dirname(registryFile), "fleet-wake"),
@@ -1347,6 +1350,8 @@ export class MainBackend {
         [CH.fleetExecPoll]: (req: FleetExecPollRequest) => this.fleetServer.execPoll(req),
         // Fleet send (issue #959): proxied to the owner, which authorizes and audits.
         [CH.fleetSend]: (req: FleetSendRequest) => this.fleetServer.send(req),
+        // Fleet finish (issue #978): proxied to the owner, which authorizes, re-checks the git facts, and audits.
+        [CH.fleetFinish]: (req: FleetFinishRequest) => this.fleetServer.finish(req),
         [CH.fleetProviderKeys]: (req: FleetProviderKeysRequest) => this.fleetServer.providerKeys(req),
         [CH.fleetRolloutProviderKeys]: (machineKey: string, envNames: string[]) =>
           this.fleet.rolloutProviderKeys(machineKey, envNames),

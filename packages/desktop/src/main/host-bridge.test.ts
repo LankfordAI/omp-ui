@@ -501,6 +501,7 @@ describe("HostBridge fleet tools (issue #899)", () => {
         execPoll: async () => ({ status: "refused", reason: "not wired in this fixture" }),
         update: async () => ({ kind: "refused", reason: "not wired in this fixture" }),
         send: async () => ({ status: "refused", reason: "not wired in this fixture" }),
+        finish: async () => ({ status: "refused", reason: "not wired in this fixture" }),
         ...fleet,
       },
     });

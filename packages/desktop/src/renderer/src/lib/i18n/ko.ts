@@ -2825,6 +2825,7 @@ export const ko: Partial<Record<MessageKey, string>> = {
   "fleet.maintenance.revokedTitle": "업데이트가 커밋되기 전에 이 머신에 대한 완전 제어 권한이 상실되어 아무것도 교체되지 않았습니다.",
   "fleet.audit.update": "업데이트",
   "fleet.audit.send": "전송",
+  "fleet.audit.finish": "마무리",
   "fleet.update.title": "{target}의 버전 업데이트",
   "fleet.update.intro": "{target}은(는) 자체 네트워크에서 자체 검증 업데이터로 스스로 업데이트하며, 이 컴퓨터에서는 아무것도 전송하지 않습니다.",
   "fleet.update.loading": "{target}에 실행 중인 버전을 묻는 중…",

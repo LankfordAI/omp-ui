@@ -36,6 +36,8 @@ import {
   type FleetRung,
   type FleetSendOutcome,
   type FleetSendRequest,
+  type FleetFinishOutcome,
+  type FleetFinishRequest,
   type FleetUpdateAck,
   type FleetUpdateMemberRequest,
   type FleetUpdatePollOutcome,
@@ -139,6 +141,8 @@ export interface FleetServerDeps {
   pinned: () => boolean;
   /** SessionManager.fleetSend on this machine (issue #959): stage, then deliver or resume. */
   deliverSend: (req: FleetSendRequest) => Promise<FleetSendOutcome>;
+  /** SessionManager.fleetFinish on this machine (issue #978): settle, then release an already-landed worktree. */
+  deliverFinish: (req: FleetFinishRequest) => Promise<FleetFinishOutcome>;
   /** Test seams. */
   commandDeps?: FleetCommandDeps;
   execGit?: (file: string, args: string[], opts: { cwd: string; timeout: number }) => Promise<{ stdout: Buffer }>;
@@ -263,6 +267,27 @@ export class FleetServer {
     }
     const outcome = await this.#deps.deliverSend(req);
     this.#audit("send", req.requester, rung, outcome.status !== "refused", `${req.dispatchId.slice(0, 8)} ${outcome.status}`, null);
+    return outcome;
+  }
+
+  /**
+   * `fleet:finish` (issue #978): the same gate as send — a foreign instance
+   * needs the Dispatch rung, the own instance skips the ladder, and
+   * SessionManager re-checks the dispatcher before touching anything.
+   */
+  async finish(req: FleetFinishRequest): Promise<FleetFinishOutcome> {
+    const own = req.requester.instanceId === this.#deps.registry.getSetting("instanceId");
+    let rung: FleetRung = "dispatch";
+    if (!own) {
+      const gate = this.check(req.requester, "dispatch");
+      if (!gate.ok) {
+        this.#audit("finish", req.requester, "dispatch", false, req.dispatchId.slice(0, 8), null);
+        return { status: "refused", reason: gate.reason };
+      }
+      rung = gate.rung;
+    }
+    const outcome = await this.#deps.deliverFinish(req);
+    this.#audit("finish", req.requester, rung, outcome.status === "finished", `${req.dispatchId.slice(0, 8)} ${outcome.status}`, null);
     return outcome;
   }
 

@@ -119,6 +119,10 @@ import {
   type FleetToolSendArgs,
   type FleetSendRequest,
   type FleetSendOutcome,
+  type FleetToolFinishArgs,
+  type FleetFinishRequest,
+  type FleetFinishOutcome,
+  type FleetFinishWorkingBranch,
   type AskSource,
   type ObsidianListEntry,
   type RpcFrame,
@@ -233,6 +237,8 @@ export interface FleetDispatcherLike {
   update(tabId: string, args: FleetToolUpdateArgs): Promise<FleetAgentUpdateAnswer>;
   /** omp-ui_fleet_send (#959): a message into a session this tab dispatched. */
   send(tabId: string, args: FleetToolSendArgs): Promise<FleetSendOutcome>;
+  /** omp-ui_fleet_finish (#978): clean up an already-landed worktree session this tab dispatched. */
+  finish(tabId: string, args: FleetToolFinishArgs): Promise<FleetFinishOutcome>;
 }
 
 /** The agent dispatch deadline: the answer must land inside HOST_ANSWER_WATCHDOG_MS (60 s). */
@@ -536,6 +542,7 @@ export class SessionManager {
               // Fleet remote version update: the dispatcher answers polls for jobs it started; refusals ride the answer.
               update: (tabId, args) => fleet().update(tabId, args),
               send: (tabId, args) => fleet().send(tabId, args),
+              finish: (tabId, args) => fleet().finish(tabId, args),
             },
           }),
     });
@@ -2022,6 +2029,80 @@ export class SessionManager {
       console.warn(`[fleet] ${record.tabId}: resume for a sent message failed:`, err),
     );
     return { status: "queued", detail: "the session was not running; it is resuming and receives the message first" };
+  }
+
+  /**
+   * omp-ui_fleet_finish on the owner (#978): the Finish worktree settle path
+   * for a dispatched worktree session whose work already landed. Order: every
+   * refusal check while the session is untouched; settle (reap); re-check
+   * the git facts, since the process could commit until it died; release the
+   * dormant tab (demote, reclaim, no relaunch); then the working branches the
+   * agent made inside the checkout, each deleted only when fully in the base.
+   * Never merges, pushes, or discards work.
+   */
+  async fleetFinish(req: FleetFinishRequest): Promise<FleetFinishOutcome> {
+    const refused = (reason: string): FleetFinishOutcome => ({ status: "refused", reason });
+    const record = this.deps.registry.sessions.find((s) => s.fleet?.dispatchId === req.dispatchId);
+    if (record === undefined || record.fleet === null)
+      return refused(`no session on this machine carries dispatch ${req.dispatchId}`);
+    const by = record.fleet.requestedBy;
+    if (
+      by.kind !== "agent" ||
+      by.instanceId !== req.requester.instanceId ||
+      by.sourceTabId === null ||
+      by.sourceTabId !== req.requester.sourceTabId
+    )
+      return refused("only the session that dispatched this work can finish it");
+    const wt = record.worktree;
+    if (wt === null) return refused("the dispatched session does not run in a worktree; there is nothing to finish");
+    const tabId = record.tabId;
+    const busy = (): string | null => {
+      if (this.pendingOp(tabId)) return "another operation on the session is still running";
+      if (this.turns.isRunning(tabId)) return "the session is still working";
+      if (this.awaitingHumanAnswer(tabId)) return "the session is waiting for the user's answer; only the user can answer it";
+      return null;
+    };
+    const before = busy();
+    if (before !== null) return refused(before);
+    const first = await this.worktreeOps.landedFinish(record.projectCwd, wt);
+    if (!first.ok) return refused(first.reason);
+    const raced = busy();
+    if (raced !== null) return refused(raced);
+
+    if (!(await this.settleSession(tabId))) {
+      return refused("the session's process did not stop, so nothing was removed");
+    }
+    const current = this.deps.registry.sessions.find((s) => s.tabId === tabId)?.worktree;
+    if (current?.path !== wt.path) return refused("the session's worktree changed while finishing; nothing was removed");
+    const landed = await this.worktreeOps.landedFinish(record.projectCwd, wt);
+    if (!landed.ok) return refused(`the session is settled, but its worktree stays: ${landed.reason}`);
+
+    let release: WorktreeReleaseResult;
+    try {
+      release = await this.releaseWorktree(tabId, { keepBranch: false, mergedInto: landed.destination });
+    } catch (err) {
+      return refused(`the session is settled, but its worktree stays: ${err instanceof Error ? err.message : String(err)}`);
+    }
+    const workingBranches: FleetFinishWorkingBranch[] = [];
+    for (const visited of landed.landing.visited) {
+      if (!visited.createdInWorktree) {
+        workingBranches.push({ branch: visited.branch, outcome: "not-made-here" });
+      } else if (release.checkoutKept !== null) {
+        workingBranches.push({ branch: visited.branch, outcome: "not-attempted" });
+      } else {
+        const removal = await this.worktreeOps.removeMergedBranch(record.projectCwd, visited.branch, landed.destination);
+        workingBranches.push({ branch: visited.branch, outcome: removal.kind });
+      }
+    }
+    return {
+      status: "finished",
+      destination: landed.destination,
+      worktreePath: release.worktreePath,
+      checkoutKept: release.checkoutKept,
+      branch: release.branch,
+      branchOutcome: release.branchOutcome,
+      workingBranches,
+    };
   }
 
   /** The observer fan-out + client broadcast tail of `onFrame` (§5.3). */

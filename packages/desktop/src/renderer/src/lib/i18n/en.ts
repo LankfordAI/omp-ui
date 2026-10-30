@@ -3011,6 +3011,7 @@ export const en = {
   "fleet.maintenance.revokedTitle": "Full control was lost on this machine before the update committed, so nothing was replaced.",
   "fleet.audit.update": "update",
   "fleet.audit.send": "send",
+  "fleet.audit.finish": "finish",
   "fleet.update.title": "Update versions on {target}",
   "fleet.update.intro": "{target} updates itself from its own network through its own verified updaters; nothing ships from this computer.",
   "fleet.update.loading": "Asking {target} what it runs…",
