@@ -176,6 +176,12 @@ The model's between-tool prose: omp 18.12 marks it on thinking blocks, and
 omp-ui presents it as reply text in the transcript.
 _Avoid_: treating it as thinking output
 
+**Out reply**:
+A mid-turn reply the agent writes to omp's `out://` (omp 18.14): a `write` to
+`out://` or a bash `> out://`. omp-ui pins `out.enabled` on for native sessions
+and presents each one as assistant prose, never as a tool card's output.
+_Avoid_: out write, reply card
+
 **Shell command**:
 A composer draft prefixed `!`, dispatched as OMP's concurrent `bash` RPC and
 recorded in the session without a model turn; its output is visible to the

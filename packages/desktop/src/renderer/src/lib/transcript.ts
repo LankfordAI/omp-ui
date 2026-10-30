@@ -6,6 +6,7 @@ import { splitDocumentContext, type DocumentRef } from "./document-context";
 import { parseOmpDiff, type DiffRow } from "./omp-diff";
 import { parseVaultDetails, type VaultToolDetails } from "@omp-ui/core/vault-shared";
 import { FLEET_WAKE_CUSTOM_TYPE, parseFleetWakeCard, type FleetWakeCard } from "@omp-ui/core/fleet-wake";
+import { toolResultReplies } from "@omp-ui/core/out-replies";
 
 export interface AdvisorNote {
   note: string;
@@ -97,6 +98,9 @@ export interface ToolItem {
   /** task details.results[]/progress[] (omp 18.14 `task.file`): the file each item read its
    *  assignment from and the SHA-256 omp recorded, keyed by the call's item index. */
   taskFiles?: RecordedTaskFile[];
+  /** details.replies (omp 18.14 `out.enabled`): each `> out://` write a bash run made, shown as
+   *  reply prose after the card (issue #969). Grows across tool_execution_update frames. */
+  replies?: string[];
   notes?: AdvisorNote[];
   /** omp-ui vault host tool result details (issue #767): the card and the rail's Vault notes read it. */
   vault?: VaultToolDetails;
@@ -297,6 +301,7 @@ export function itemSearchText(item: RenderItem): string {
         item.op,
         item.resultText,
         item.partialText,
+        ...(item.replies ?? []),
       );
       break;
     case "advisory":
@@ -552,6 +557,11 @@ function taskFilesField(details: unknown): Pick<ToolItem, "taskFiles"> {
   return taskFiles.length > 0 ? { taskFiles } : {};
 }
 
+function repliesField(details: unknown): Pick<ToolItem, "replies"> {
+  const replies = toolResultReplies(details);
+  return replies.length > 0 ? { replies } : {};
+}
+
 /** Port of omp's isAdvisorCard — render from details.notes, never the XML. */
 export function isAdvisorMessage(message: Record<string, unknown>): boolean {
   return message.role === "custom" && message.customType === "advisor";
@@ -716,10 +726,15 @@ function reduceToolcallStream(
   if (contentIndex < 0) return items;
   const partial = isObj(ame.partial) ? ame.partial : null;
   const content = Array.isArray(partial?.content) ? partial.content : [];
-  const raw = type === "toolcall_end" && isObj(ame.toolCall) ? ame.toolCall : content[contentIndex];
+  // Delta mode's toolcall_start names the call in `block` (id, name, empty
+  // args); without it a reply write (issue #969) could not be told from any
+  // other card until toolcall_end, after its prose had finished streaming.
+  const raw =
+    type === "toolcall_end" && isObj(ame.toolCall)
+      ? ame.toolCall
+      : (content[contentIndex] ?? (type === "toolcall_start" ? ame.block : undefined));
   const block = isObj(raw) && raw.type === "toolCall" ? raw : null;
-  // Delta-mode frames carry no snapshot block: the start opens the card,
-  // the deltas accumulate the args fragment.
+  // Other delta-mode frames carry no block: the deltas accumulate the args fragment.
   const fragment =
     block === null && (type === "toolcall_start" || str(ame.delta) !== null)
       ? (str(ame.delta) ?? "")
@@ -954,9 +969,17 @@ export function reduceEvent(items: RenderItem[], event: unknown): RenderItem[] {
       if (item === null) return items;
       const partial = isObj(event.partialResult) ? event.partialResult : null;
       const partialText = partial ? textFromContent(partial.content) : "";
+      // A `> out://` write streams its reply on an update whose text is still
+      // empty (issue #969), so a reply alone is progress worth keeping.
+      const replies = repliesField(partial?.details);
       // Status stays `running` — an update is progress, never completion.
-      if (!partialText) return items;
-      return replaceAt(items, idx, { ...item, partialText, ...taskFilesField(partial?.details) });
+      if (!partialText && replies.replies === undefined) return items;
+      return replaceAt(items, idx, {
+        ...item,
+        ...(partialText ? { partialText } : {}),
+        ...taskFilesField(partial?.details),
+        ...replies,
+      });
     }
 
     case "tool_execution_end": {
@@ -974,6 +997,7 @@ export function reduceEvent(items: RenderItem[], event: unknown): RenderItem[] {
         ...detailFacts(details),
         ...imagesField(result ? result.content : undefined, details),
         ...taskFilesField(details),
+        ...repliesField(details),
       };
       const idx = toolCallId
         ? items.findIndex((i) => i.kind === "tool" && i.toolCallId === toolCallId)
@@ -1211,6 +1235,7 @@ export function historyToItems(messages: unknown[]): RenderItem[] {
         ...detailFacts(details),
         ...imagesField(raw.content, details),
         ...taskFilesField(details),
+        ...repliesField(details),
       };
     }
   }

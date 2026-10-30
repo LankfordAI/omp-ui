@@ -16,6 +16,7 @@ import { formatCost, tokenCount } from "../lib/format";
 import { splitInterviewDraft } from "../lib/interview-draft";
 import { localeTag, useT } from "../lib/i18n";
 import { supportsNarration } from "../lib/narration";
+import { isReplyWrite, replyWriteContent, supportsOutReplies } from "@omp-ui/core/out-replies";
 import { useTranscriptScale } from "../lib/text-scale";
 import type {
   AssistantItem,
@@ -26,6 +27,7 @@ import type {
   NoticeItem,
   RenderItem,
   ShellItem,
+  ToolItem,
   UserItem,
 } from "../lib/transcript";
 import { onTranscriptReveal } from "../lib/transcript-reveal";
@@ -230,6 +232,42 @@ function AssistantBlock({ item, tabId }: { item: AssistantItem; tabId?: string }
       )}
       <UsageStrip item={item} />
     </div>
+  );
+}
+
+/**
+ * A `write` to `out://` (omp 18.14, issue #969): the agent's mid-turn reply,
+ * streamed from the call's args and presented as assistant prose, not a tool
+ * card. A refused write keeps the prose and states omp's reason under it.
+ */
+function ReplyWriteBlock({ item }: { item: ToolItem }) {
+  const text = replyWriteContent(item.args);
+  const caret =
+    item.status === "running" ? (
+      <span className="animate-caret ml-px inline-block align-baseline font-mono text-signal">▍</span>
+    ) : undefined;
+  return (
+    <div className="animate-rise space-y-1" data-markdown-source={text !== "" ? text : undefined}>
+      {(text !== "" || caret) && <Markdown text={text} className="text-ink" trailing={caret} />}
+      {item.status === "error" && item.resultText && (
+        <p data-selectable className="font-mono text-[11px] leading-snug text-rose">
+          {item.resultText}
+        </p>
+      )}
+    </div>
+  );
+}
+
+/** Each `> out://` write a bash run made (details.replies, issue #969), as prose after its card. */
+function ToolReplies({ replies }: { replies: readonly string[] }) {
+  return (
+    <>
+      {replies.map((reply, i) => (
+        <div key={i} className="animate-rise" data-markdown-source={reply}>
+          <Markdown text={reply} className="text-ink" />
+        </div>
+      ))}
+    </>
   );
 }
 
@@ -825,7 +863,12 @@ const SPEAKER: Record<RenderItem["kind"], string> = {
   fleetWake: "meta",
 };
 
-function buildRuns(items: RenderItem[]): Run[] {
+/** A reply write reads as the assistant speaking, so it joins the assistant's run. */
+function isPresentedReplyWrite(item: RenderItem, replyWrites: boolean): boolean {
+  return replyWrites && item.kind === "tool" && isReplyWrite(item.name, item.args) === true;
+}
+
+function buildRuns(items: RenderItem[], replyWrites: boolean): Run[] {
   const runs: Run[] = [];
   for (const item of items) {
     const last = runs.at(-1);
@@ -839,7 +882,7 @@ function buildRuns(items: RenderItem[]): Run[] {
       lastRow.count++;
       continue;
     }
-    const speaker = SPEAKER[item.kind];
+    const speaker = isPresentedReplyWrite(item, replyWrites) ? "assistant" : SPEAKER[item.kind];
     if (last && last.speaker === speaker) {
       last.rows.push({ item, count: 1 });
     } else {
@@ -875,6 +918,7 @@ const TranscriptRow = memo(function TranscriptRow({
   first,
   tabId,
   userPosition,
+  replyWrites,
 }: {
   item: RenderItem;
   count: number;
@@ -883,6 +927,8 @@ const TranscriptRow = memo(function TranscriptRow({
   /** Index among the transcript's user items (issue #680). A plain number:
    *  stable per item, so the row stays shallow-compare stable (#187). */
   userPosition?: number;
+  /** The tab's omp presents `write` to `out://` as a reply (issue #969). */
+  replyWrites: boolean;
 }) {
   switch (item.kind) {
     case "user":
@@ -890,11 +936,17 @@ const TranscriptRow = memo(function TranscriptRow({
     case "assistant":
       return <AssistantBlock item={item} tabId={tabId} />;
     case "tool":
-      // The four vault write tools get their own card (issue #767); reads, search and list stay generic.
-      return VAULT_WRITE_TOOLS.some((name) => name === item.name) ? (
-        <VaultToolCard item={item} tabId={tabId} />
-      ) : (
-        <ToolCard item={item} tabId={tabId} />
+      if (isPresentedReplyWrite(item, replyWrites)) return <ReplyWriteBlock item={item} />;
+      return (
+        <>
+          {/* The four vault write tools get their own card (issue #767); reads, search and list stay generic. */}
+          {VAULT_WRITE_TOOLS.some((name) => name === item.name) ? (
+            <VaultToolCard item={item} tabId={tabId} />
+          ) : (
+            <ToolCard item={item} tabId={tabId} />
+          )}
+          {item.replies !== undefined && <ToolReplies replies={item.replies} />}
+        </>
       );
     case "advisory":
       return (
@@ -1008,9 +1060,14 @@ export function TranscriptView({
     lastScrollTopRef.current = el.scrollTop;
   }
 
+  // omp 18.14+ (issue #969): a `write` to `out://` is a mid-turn reply. On an
+  // older or unknown harness the path is just a path, so the card stays.
+  const replyWrites = useStore(
+    (s) => tabId !== undefined && supportsOutReplies(s.rpc[tabId]?.capabilities?.ompVersion ?? null),
+  );
   // Runs are built from the bounded tail window only (issue #867); the DOM
   // cost is the window's, never the tab's whole history.
-  const runs = useMemo(() => buildRuns(visible), [visible]);
+  const runs = useMemo(() => buildRuns(visible, replyWrites), [visible, replyWrites]);
   // The rewind correlation's positional key (issue #680): each user item's
   // index among user items. The map is rebuilt with the items, but the value
   // handed to each row is a stable primitive, so a stream tick leaves every
@@ -1062,7 +1119,10 @@ export function TranscriptView({
     last?.kind === "assistant"
       ? last.text.length + last.thinking.length + last.narration.length
       : last?.kind === "tool"
-        ? (last.partialText?.length ?? 0) + (last.resultText?.length ?? 0)
+        ? (last.partialText?.length ?? 0) +
+          (last.resultText?.length ?? 0) +
+          (last.argsText?.length ?? 0) +
+          (last.replies?.length ?? 0)
         : 0;
 
   // Follow mode is exited only by a deliberate upward user scroll; content
@@ -1310,6 +1370,7 @@ export function TranscriptView({
                             userPosition={
                               item.kind === "user" ? userPositions.get(item.id) : undefined
                             }
+                            replyWrites={replyWrites}
                           />
                         </ErrorBoundary>
                       </div>

@@ -44,6 +44,7 @@
     "./update-types": "./src/update-types.ts",
     "./semver": "./src/semver.ts",
     "./harness-floor": "./src/harness-floor.ts",
+    "./out-replies": "./src/out-replies.ts",
     "./session-command": "./src/session-command.ts",
     "./session-tree": "./src/session-tree.ts",
     "./side-questions": "./src/side-questions.ts",

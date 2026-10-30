@@ -23,7 +23,9 @@ import {
   writeAdvisorStatsExtension,
   writeCapabilitiesExtension,
   writeCompactionMethodOverlay,
+  readInstalledOmpVersion,
   readLayeredConfigScalar,
+  supportsOutReplies,
   writeGoalContinuationOverlay,
   writeDefaultModelOverlay,
   writeKnowledgeVaultExtension,
@@ -47,6 +49,7 @@ import {
   writeChatOverlay,
   writeVaultOverlay,
   writeWorktreeOverlay,
+  writeOutRepliesOverlay,
 } from "@omp-ui/core";
 import { NO_GATE, type SpawnGate } from "./spawn-gate";
 
@@ -291,6 +294,7 @@ export async function writeRpcOverlays(
       return null;
     },
   );
+  const ompVersion = readInstalledOmpVersion(ompPath);
   await writeCompactionOverlay(record, absLineageDir, ompPath, projectCwd, overlays);
   const modes = await goalModes;
   try {
@@ -298,6 +302,19 @@ export async function writeRpcOverlays(
     if (overlay !== null) overlays.push(overlay);
   } catch (err) {
     console.warn("[goal] could not write the continuation overlay:", err);
+  }
+  // #969: omp resolves `out.enabled` on only in its own TUI, so an rpc-ui
+  // session has out:// refused by tool policy. Pin it on for omp >= 18.14
+  // unless the user's config layers name the key — an explicit value either
+  // way is theirs. Terminal tabs never reach here: the TUI defaults it on.
+  const outPin =
+    supportsOutReplies(await ompVersion) &&
+    readLayeredConfigScalar(record.projectCwd, "out", "enabled") === undefined;
+  try {
+    const overlay = writeOutRepliesOverlay(absLineageDir, outPin ? true : null);
+    if (overlay !== null) overlays.push(overlay);
+  } catch (err) {
+    console.warn("[out] could not write the overlay:", err);
   }
   return overlays;
 }

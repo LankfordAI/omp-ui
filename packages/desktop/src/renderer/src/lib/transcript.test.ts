@@ -1693,6 +1693,41 @@ describe("delta-mode streaming (issue #718)", () => {
     expect(tool(items, "")?.args).toBeUndefined();
   });
 
+  it("names the card from toolcall_start's block, so a reply write is known while it streams (#969)", () => {
+    let items: RenderItem[] = [];
+    items = reduceEvent(items, {
+      type: "message_start",
+      message: { role: "assistant", content: [] },
+    });
+    items = reduceEvent(
+      items,
+      delta("toolcall_start", { block: { type: "toolCall", id: "w1", name: "write", arguments: {} } }),
+    );
+    items = reduceEvent(items, delta("toolcall_delta", { delta: '{"path":"out://","content":"Hal' }));
+    expect(tool(items, "w1")).toMatchObject({
+      name: "write",
+      argsStreaming: true,
+      args: { path: "out://", content: "Hal" },
+    });
+  });
+
+  it("keeps a bash run's out:// replies from an update with no output text (#969)", () => {
+    let items: RenderItem[] = [];
+    items = reduceEvent(items, { type: "tool_execution_start", toolCallId: "b1", toolName: "bash", args: {} });
+    items = reduceEvent(items, {
+      type: "tool_execution_update",
+      toolCallId: "b1",
+      partialResult: { content: [{ type: "text", text: "" }], details: { replies: ["first\n"] } },
+    });
+    expect(tool(items, "b1")).toMatchObject({ status: "running", replies: ["first\n"] });
+    items = reduceEvent(items, {
+      type: "tool_execution_end",
+      toolCallId: "b1",
+      result: { content: [{ type: "text", text: "(no output)" }], details: { replies: ["first\n", "second"] } },
+    });
+    expect(tool(items, "b1")).toMatchObject({ status: "done", replies: ["first\n", "second"] });
+  });
+
   it("adapts per frame when a stream mixes partial snapshots and deltas", () => {
     let items: RenderItem[] = [];
     items = reduceEvent(items, {

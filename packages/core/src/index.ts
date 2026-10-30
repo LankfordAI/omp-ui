@@ -101,6 +101,14 @@ export { worktreeOverlayPath, writeWorktreeOverlay } from "./worktree-overlay";
 export { modelOverlayPath, writeDefaultModelOverlay } from "./model-overlay";
 export { gitGuardOverlayPath, writeGitGuardOverlay } from "./git-guard-overlay";
 export { privateOverlayPath, writePrivateOverlay } from "./private-overlay";
+export { outRepliesOverlayPath, writeOutRepliesOverlay } from "./out-replies-overlay";
+export {
+  OUT_REPLIES_MIN_OMP,
+  isReplyWrite,
+  replyWriteContent,
+  supportsOutReplies,
+  toolResultReplies,
+} from "./out-replies";
 export {
   CHAT_DIR_RE,
   chatDirPath,

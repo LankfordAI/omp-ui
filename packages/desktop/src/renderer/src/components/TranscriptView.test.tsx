@@ -1608,6 +1608,84 @@ describe("between-tool narration (issue #884)", () => {
   }
 });
 
+describe("out:// mid-turn replies (issue #969)", () => {
+  const TAB = "tab-out";
+  function seedVersion(ompVersion: string | null): void {
+    useStore.setState({
+      rpc: {
+        [TAB]: {
+          ...rpcTabState(),
+          capabilities: {
+            version: 1,
+            processKey: "p",
+            sessionId: null,
+            revision: 1,
+            updatedAt: 0,
+            ompVersion,
+            skillCommandsEnabled: null,
+            skills: { status: "unavailable", reason: "missing-api" },
+            tools: { status: "unavailable", reason: "missing-api" },
+            magicKeywords: { status: "unavailable", reason: "missing-api" },
+            toolControl: "unsupported",
+            toolMutation: null,
+          },
+        },
+      },
+    });
+  }
+  afterEach(() => {
+    useStore.setState({ rpc: {} });
+  });
+  const replyWrite: RenderItem = {
+    kind: "tool",
+    id: "w1",
+    toolCallId: "w1",
+    name: "write",
+    args: { path: "out://", content: "Halfway: **tests pass**" },
+    status: "done",
+    resultText: "Shown to the user.",
+  };
+  const bash: RenderItem = {
+    kind: "tool",
+    id: "b1",
+    toolCallId: "b1",
+    name: "bash",
+    args: { command: "echo hi > out://" },
+    status: "done",
+    resultText: "(no output)",
+    replies: ["bash **reply**\n"],
+  };
+
+  it("presents a reply write as assistant prose, not a card, on omp 18.14", () => {
+    seedVersion("18.14.0");
+    const { el, root } = render([replyWrite], TAB);
+    expect(el.querySelector("strong")?.textContent).toBe("tests pass");
+    expect(el.textContent).not.toContain("Shown to the user.");
+    expect(el.textContent).not.toContain("out://");
+    // It opens the exchange, so it carries the assistant's speaker label.
+    expect(el.querySelector(".speaker-label-left")).not.toBeNull();
+    act(() => root.unmount());
+  });
+
+  it("keeps the write card on an older or unknown omp", () => {
+    for (const ompVersion of ["18.13.3", null]) {
+      seedVersion(ompVersion);
+      const { el, root } = render([replyWrite], TAB);
+      expect(el.textContent).toContain("out://");
+      expect(el.querySelector(".speaker-label-left")).toBeNull();
+      act(() => root.unmount());
+    }
+  });
+
+  it("renders a bash run's out:// replies as prose after its card", () => {
+    seedVersion("18.14.0");
+    const { el, root } = render([bash], TAB);
+    expect(el.textContent).toContain("echo hi > out://");
+    expect(el.querySelector("strong")?.textContent).toBe("reply");
+    act(() => root.unmount());
+  });
+});
+
 describe("exchange receipts (issue #933)", () => {
   const TAB = "tab-receipt";
 
