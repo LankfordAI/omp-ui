@@ -246,7 +246,10 @@ export const REMOTE_PROXY_CHANNELS: ReadonlySet<string> = new Set<string>([
   // send (#959) and fleet finish (#978) are proxied too; the owner re-checks
   // the dispatcher and rung. Project copy's file write (#992) is proxied and
   // main-to-main; its local fleet:copyProject / fleet:projectCopyPreview
-  // orchestration stays off this list.
+  // orchestration stays off this list. Fleet terminal (#991, ADR-0084): the
+  // member legs — open, renew, end, write, size — are proxied and the owner
+  // checks the Terminal rung; the local fleet:terminalStart / Close / Input /
+  // Resize stay off this list.
   "fleet:exec",
   "fleet:projectManage",
   "fleet:projectFiles",
@@ -259,6 +262,11 @@ export const REMOTE_PROXY_CHANNELS: ReadonlySet<string> = new Set<string>([
   "fleet:updatePoll",
   "fleet:send",
   "fleet:finish",
+  "fleet:terminalOpen",
+  "fleet:terminalRenew",
+  "fleet:terminalEnd",
+  "fleet:terminalWrite",
+  "fleet:terminalSize",
   // Session migration (#888): the pack legs run on the source host, the
   // ingest legs on the target; every chunk frame is base64 under the socket's
   // MAX_PAYLOAD. Transcript bytes may ride the renderer (already visible

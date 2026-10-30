@@ -205,7 +205,7 @@ export function createLabSlice(
         };
       }
     }
-    set({ lab: view, fleet: null });
+    set({ lab: view, fleet: null, fleetTerminal: null });
     if (view.projectCwd !== null) void loadExperiments(view.projectCwd, view.instanceId);
     if (view.experiment !== null) void loadExperimentDetail(view.experiment);
     if (refreshTimer === null) refreshTimer = window.setInterval(refresh, LAB_REFRESH_MS);

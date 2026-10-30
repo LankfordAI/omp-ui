@@ -144,3 +144,7 @@ turned on; the owner's check is enforced on the inbound handler.**
   than hosts a session.
 - ADR-0043 / ADR-0048 (host tools) — follows vault/fleet tool registration,
   `loadMode: "essential"`, and the fixed `exec` approval tier.
+- ADR-0084 (fleet terminal) — *amended (#991):* the ladder gains a fifth
+  rung, `terminal`, above `full`, for a user-opened interactive shell on the
+  member. Exec stays one bounded command; the master switch now gates Full
+  control and everything above it.

@@ -2,6 +2,8 @@ import { randomUUID } from "node:crypto";
 import {
   assertNicknameUnique,
   defaultNickname,
+  FLEET_MEMBER_TERMINAL_DATA,
+  FLEET_MEMBER_TERMINAL_EXIT,
   normalizeInstanceUrl,
   REMOTE_PROXY_CHANNELS,
   REMOTE_TAB_EVENTS,
@@ -42,6 +44,8 @@ export interface RemoteInstanceManagerDeps {
   sendToRenderers: (channel: string, args: unknown[]) => void;
   /** Rebuilds and fans out BackendState (MainBackend.broadcast). */
   broadcast: () => Promise<void>;
+  /** A member's own fleet terminal event (issue #991); converted locally, never mirrored into sinks. */
+  onMemberTerminalEvent?: (instanceId: string, channel: string, args: unknown[]) => void;
   /** Test seams. */
   connect?: typeof connectInstanceClient;
   signIn?: typeof signInForCredential;
@@ -503,6 +507,12 @@ export class RemoteInstanceManager {
       const projectCwd = args[0];
       if (typeof projectCwd === "string")
         this.deps.sendToRenderers(channel, [projectCwd, entry.record.id]);
+      return;
+    }
+    // #991: the member's own terminal events. The dispatcher converts only the
+    // ids it opened; relaying them would loop on a mutual join.
+    if (channel === FLEET_MEMBER_TERMINAL_DATA || channel === FLEET_MEMBER_TERMINAL_EXIT) {
+      this.deps.onMemberTerminalEvent?.(entry.record.id, channel, args);
       return;
     }
     if (REMOTE_TAB_EVENTS.has(channel)) this.deps.send(channel, args);

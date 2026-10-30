@@ -1490,6 +1490,14 @@ started it (ADR-0065). It is killed, and reads revoked, when that dispatcher
 loses Full control on the member; quitting omp-ui kills it.
 _Avoid_: background job, remote job, async exec
 
+**Fleet terminal**:
+An interactive login shell running on a fleet member, opened by the user from
+the Fleet view and shown in this app's main pane (ADR-0084). The member keeps
+it only while this app renews its lease; closing it, the member losing it, or
+this app quitting ends the shell, and nothing persists on the member. It needs
+the Terminal rung, above Full control, and an agent can never open one.
+_Avoid_: remote shell, ssh session, fleet exec — that is one bounded command
+
 **Fleet maintenance**:
 One version change a Fleet member applies to itself at a controller's request —
 its managed omp binary or its own omp-ui install (ADR-0066). The member
@@ -1514,7 +1522,7 @@ _Avoid_: detached exec — that is a shell command
 
 **Fleet grant**:
 The rung one dispatcher holds on this machine — Observe, Dispatch, Manage
-projects, or Full control — cumulative upward, with joining defaulting to
+projects, Full control, or Terminal — cumulative upward, with joining defaulting to
 Dispatch and a host ceiling capping whatever any dispatcher may hold. Raising
 it remotely re-presents the join credential; the node enforces every rung
 check (ADR-0062).

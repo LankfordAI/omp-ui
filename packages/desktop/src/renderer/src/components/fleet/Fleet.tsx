@@ -3,6 +3,7 @@ import type { SessionSummary } from "@omp-ui/core/types";
 import {
   fleetAppUpdateAvailable,
   fleetOsLabel,
+  fleetRungAtLeast,
   LOCAL_MACHINE_KEY,
   PLACEMENT_PREFERENCES,
   type FleetAuditEntry,
@@ -54,7 +55,15 @@ const RUNG_LABEL: Record<FleetRung, MessageKey> = {
   dispatch: "fleet.rung.dispatch",
   manage: "fleet.rung.manage",
   full: "fleet.rung.full",
+  terminal: "fleet.rung.terminal",
 };
+
+/** Full control or above: the rung the member-side maintenance verbs need (#905, ADR-0066). */
+const holdsFull = (machine: FleetMachine): boolean => machine.grantRung !== null && fleetRungAtLeast(machine.grantRung, "full");
+
+/** Columns and rows a fleet terminal opens at before its view fits itself (issue #991). */
+const TERMINAL_OPEN_COLS = 120;
+const TERMINAL_OPEN_ROWS = 32;
 
 const AUDIT_ACTION_LABEL: Record<FleetAuditEntry["action"], MessageKey> = {
   exec: "fleet.audit.exec",
@@ -66,6 +75,7 @@ const AUDIT_ACTION_LABEL: Record<FleetAuditEntry["action"], MessageKey> = {
   update: "fleet.audit.update",
   send: "fleet.audit.send",
   finish: "fleet.audit.finish",
+  terminal: "fleet.audit.terminal",
 };
 
 /** One dispatched session wherever it lives: this app's registry or a joined instance's. */
@@ -172,6 +182,8 @@ function MachineRow({
 }) {
   const t = useT();
   const setFleetPlacement = useStore((s) => s.setFleetPlacement);
+  const openFleetTerminal = useStore((s) => s.openFleetTerminal);
+  const holdsTerminal = machine.grantRung !== null && fleetRungAtLeast(machine.grantRung, "terminal");
   const name = machine.nickname ?? t("fleet.machine.thisComputer");
   const face = STATUS_FACE[machine.status];
   const report = machine.report;
@@ -211,7 +223,7 @@ function MachineRow({
         {maintenance !== null && <MaintenanceChip record={maintenance} />}
         {/* #901: what this member will accept from us; null for this computer and older peers. */}
         {machine.grantRung !== null && (
-          <Chip tone={machine.grantRung === "full" ? "copper" : "neutral"}>
+          <Chip tone={holdsFull(machine) ? "copper" : "neutral"}>
             {t("fleet.machine.access", { rung: t(RUNG_LABEL[machine.grantRung]) })}
           </Chip>
         )}
@@ -268,12 +280,22 @@ function MachineRow({
       </span>
       {machine.key !== LOCAL_MACHINE_KEY && machine.status === "ready" && (
         <>
+          {/* #991: an interactive login shell on the member; it refuses anything below the Terminal rung. */}
+          <Button
+            size="xs"
+            variant="ghost"
+            disabled={!holdsTerminal}
+            title={holdsTerminal ? t("fleet.machine.terminalHint", { machine: name }) : t("fleet.machine.terminalNeedsRung")}
+            onClick={() => void openFleetTerminal(machine.key, TERMINAL_OPEN_COLS, TERMINAL_OPEN_ROWS)}
+          >
+            {t("fleet.machine.terminal")}
+          </Button>
           {/* #905: Provider key rollout; the member refuses anything below Full control. */}
           <Button
             size="xs"
             variant="ghost"
-            disabled={machine.grantRung !== "full"}
-            title={machine.grantRung !== "full" ? t("fleet.machine.rolloutKeysNeedsFull") : undefined}
+            disabled={!holdsFull(machine)}
+            title={!holdsFull(machine) ? t("fleet.machine.rolloutKeysNeedsFull") : undefined}
             onClick={() => onRollout(machine)}
           >
             {t("fleet.machine.rolloutKeys")}
@@ -282,8 +304,8 @@ function MachineRow({
           <Button
             size="xs"
             variant="ghost"
-            disabled={machine.grantRung !== "full"}
-            title={machine.grantRung !== "full" ? t("fleet.machine.updateVersionsNeedsFull") : undefined}
+            disabled={!holdsFull(machine)}
+            title={!holdsFull(machine) ? t("fleet.machine.updateVersionsNeedsFull") : undefined}
             onClick={() => onUpdate(machine)}
           >
             {t("fleet.machine.updateVersions")}
@@ -416,7 +438,7 @@ function MachinesSection() {
   if (view === null) return null;
   const members = (view.machines ?? []).filter((m) => m.key !== LOCAL_MACHINE_KEY);
   // Who Update all asks: ready members this app holds Full control on (the dispatcher skips the rest).
-  const eligible = members.filter((m) => m.status === "ready" && m.grantRung === "full").length;
+  const eligible = members.filter((m) => m.status === "ready" && holdsFull(m)).length;
   const runActive = view.updateAll !== null && view.updateAll.finishedAt === null;
   return (
     <Section
@@ -656,6 +678,42 @@ function AuditSection() {
   );
 }
 
+/* ------------------------------------------------------------ terminals */
+
+/** The fleet terminals this app has open (issue #991): reopen one, or close it to end its shell. */
+function TerminalsSection() {
+  const t = useT();
+  const terminals = useStore((s) => s.state?.fleetTerminals ?? null);
+  const showFleetTerminal = useStore((s) => s.showFleetTerminal);
+  const closeFleetTerminal = useStore((s) => s.closeFleetTerminal);
+  if (terminals === null || terminals.length === 0) return null;
+  return (
+    <Section title={t("fleet.section.terminals")}>
+      <ul className="divide-y divide-line-soft">
+        {terminals.map((ft) => (
+          <li key={ft.terminalId} className="flex items-center gap-2 py-1.5 text-[11px]" data-fleet-terminal-row={ft.terminalId}>
+            <Dot tone={ft.exitCode === null ? "signal" : "neutral"} />
+            <span className="min-w-0 flex-1 truncate text-xs text-ink">{t("fleet.terminal.title", { machine: ft.nickname })}</span>
+            <span className="shrink-0 font-mono tabular-nums text-ink-dim">
+              {ft.exitCode === null
+                ? new Date(ft.openedAt).toLocaleTimeString()
+                : ft.exitCode === -1
+                  ? t("fleet.terminal.lost")
+                  : t("fleet.terminal.exited", { code: ft.exitCode })}
+            </span>
+            <Button size="xs" variant="ghost" onClick={() => showFleetTerminal(ft.terminalId)}>
+              {t("fleet.terminal.show")}
+            </Button>
+            <Button size="xs" variant="ghost" tone="rose" onClick={() => void closeFleetTerminal(ft.terminalId)}>
+              {t("fleet.terminal.close")}
+            </Button>
+          </li>
+        ))}
+      </ul>
+    </Section>
+  );
+}
+
 /* --------------------------------------------------------------- surface */
 
 export function Fleet() {
@@ -688,6 +746,7 @@ export function Fleet() {
         </IconButton>
       </header>
       <MachinesSection />
+      <TerminalsSection />
       <UnresolvedSection />
       <DispatchesSection />
       <AuditSection />

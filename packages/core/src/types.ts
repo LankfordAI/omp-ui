@@ -12,7 +12,7 @@ import type { RegistrySettings } from "./registry";
 import type { ReviewDocument } from "./review-config";
 import type { SessionExperiment } from "./experiment-types";
 import type { VaultAction } from "./vault-shared";
-import type { FleetModelChoice, FleetPendingDispatch, FleetProvenance, FleetSpawnSpec } from "./fleet";
+import type { FleetModelChoice, FleetPendingDispatch, FleetProvenance, FleetSpawnSpec, FleetTerminalRecord } from "./fleet";
 import type { APPROVAL_MODES } from "./approval";
 import type { HeldPrompt } from "./held-prompt";
 import type { ScheduledPrompt } from "./scheduled-prompt";
@@ -795,6 +795,8 @@ export interface BackendState extends BackendBroadcastSettings {
   /** Fleet dispatches whose outcome this app could not learn (issue #899):
    *  in memory only, cleared once a session carrying the dispatchId appears. */
   fleetPending: FleetPendingDispatch[];
+  /** Fleet terminals this app opened on members (issue #991): in memory only, never persisted. */
+  fleetTerminals: FleetTerminalRecord[];
 }
 
 /**

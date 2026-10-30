@@ -440,6 +440,21 @@ const VALID_ARGS = {
       waitMs: 25_000,
     },
   ],
+  fleetTerminalOpen: [
+    { requester: { instanceId: "instance-1", label: "workstation", kind: "user", sourceTabId: null }, terminalId: "term-1", cols: 80, rows: 24 },
+  ],
+  fleetTerminalRenew: [
+    { requester: { instanceId: "instance-1", label: "workstation", kind: "user", sourceTabId: null }, terminalIds: ["term-1"] },
+  ],
+  fleetTerminalEnd: [
+    { requester: { instanceId: "instance-1", label: "workstation", kind: "user", sourceTabId: null }, terminalId: "term-1" },
+  ],
+  fleetTerminalWrite: ["instance-1", "term-1", "ls\r"],
+  fleetTerminalSize: ["instance-1", "term-1", 100, 30],
+  fleetTerminalStart: ["member-1", 80, 24],
+  fleetTerminalClose: ["term-1"],
+  fleetTerminalInput: ["term-1", "ls\r"],
+  fleetTerminalResize: ["term-1", 100, 30],
   setFleetExecEnabled: [true],
   setFleetExecCeiling: ["manage"],
   setFleetProjectRoots: [["/srv/repos"]],

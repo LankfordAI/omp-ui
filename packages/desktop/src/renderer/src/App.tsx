@@ -1,4 +1,5 @@
 import { useEffect } from "react";
+import type { FleetTerminalRecord } from "@omp-ui/core/fleet";
 import { AppFeedback } from "./components/AppFeedback";
 import { AppUpdateCard } from "./components/AppUpdateCard";
 import { CommandPalette, openPalette } from "./components/CommandPalette";
@@ -25,6 +26,7 @@ import { FinishWorktreeDialog } from "./components/FinishWorktreeDialog";
 import { Lab } from "./components/lab/Lab";
 import { Stats } from "./components/stats/Stats";
 import { Fleet } from "./components/fleet/Fleet";
+import { FleetTerminalView } from "./components/fleet/FleetTerminalView";
 import { ProjectSettings } from "./components/ProjectSettings";
 import { OmpUpdateCard } from "./components/OmpUpdateCard";
 import { SettleToast } from "./components/SettleToast";
@@ -69,6 +71,8 @@ const HINTS: [combo: string, what: MessageKey][] = [
 // every use is gated on IS_ELECTRON (#122).
 const OVERLAY_INSET = IS_MAC ? 0 : IS_WINDOWS ? 138 : 132;
 const TRAFFIC_LIGHT_INSET = IS_MAC ? 78 : 0;
+/** Stable fallback so the selector never hands App a fresh array before state lands. */
+const EMPTY_FLEET_TERMINALS: FleetTerminalRecord[] = [];
 
 /** Hamburger — the compact shell's sessions-sheet trigger. */
 function IconMenu() {
@@ -258,6 +262,10 @@ export default function App() {
   const lab = useStore((s) => s.lab);
   const stats = useStore((s) => s.stats);
   const fleetOpen = useStore((s) => s.fleet !== null);
+  const fleetTerminal = useStore((s) => s.fleetTerminal);
+  const fleetTerminals = useStore((s) => s.state?.fleetTerminals ?? EMPTY_FLEET_TERMINALS);
+  // A shown terminal that was closed (here or in another window) leaves the pane to the tabs.
+  const shownFleetTerminal = fleetTerminals.some((ft) => ft.terminalId === fleetTerminal) ? fleetTerminal : null;
   const experimentDialog = useStore((s) => s.experimentDialog);
   const seanceDialog = useStore((s) => s.seanceDialog);
   const experimentsEnabled = useStore((s) => s.state?.experimentsEnabled === true);
@@ -455,9 +463,11 @@ export default function App() {
       ? t("stats.header.title")
       : fleetOpen
         ? t("fleet.header.title")
-        : lab !== null
-          ? t("lab.header.title")
-          : activeTitle ?? t("app.compact.sessions");
+        : shownFleetTerminal !== null
+          ? t("fleet.terminal.title", { machine: fleetTerminals.find((ft) => ft.terminalId === shownFleetTerminal)?.nickname ?? "" })
+          : lab !== null
+            ? t("lab.header.title")
+            : activeTitle ?? t("app.compact.sessions");
 
   return (
     <div className="relative flex h-[var(--app-viewport-height,100dvh)] flex-col overflow-hidden backdrop-wash font-sans text-ink">
@@ -510,7 +520,7 @@ export default function App() {
              * with it and the session becomes unrecoverable in place.
              */}
             {tabs.map((t) => {
-              const shown = lab === null && stats === null && !fleetOpen && t.tabId === activeTabId && !t.hidden;
+              const shown = lab === null && stats === null && !fleetOpen && shownFleetTerminal === null && t.tabId === activeTabId && !t.hidden;
               return (
                 <div
                   key={t.tabId}
@@ -529,7 +539,13 @@ export default function App() {
             {lab !== null && experimentsEnabled && <Lab view={lab} />}
             {stats !== null && <Stats />}
             {fleetOpen && <Fleet />}
-            {visibleTabs.length === 0 && (lab === null || !experimentsEnabled) && stats === null && !fleetOpen && (restoringTabs ? <RestoringSessions /> : <Welcome />)}
+            {/* Every open fleet terminal stays mounted, hidden with `display`, so Back to Fleet keeps its scrollback (#991). */}
+            {fleetTerminals.map((ft) => (
+              <div key={ft.terminalId} className="absolute inset-0" style={{ display: !fleetOpen && ft.terminalId === shownFleetTerminal ? "block" : "none" }}>
+                <FleetTerminalView terminal={ft} />
+              </div>
+            ))}
+            {visibleTabs.length === 0 && (lab === null || !experimentsEnabled) && stats === null && !fleetOpen && shownFleetTerminal === null && (restoringTabs ? <RestoringSessions /> : <Welcome />)}
           </div>
         </div>
       </div>

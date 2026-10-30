@@ -219,16 +219,17 @@ function InstancePanel({ instance }: { instance: RemoteInstanceSummary }) {
   );
 }
 
-/** The four ladder rungs, ladder order; labels ride the Fleet view's keys. */
+/** The five ladder rungs, ladder order; labels ride the Fleet view's keys. */
 const RUNG_LABEL: Record<FleetRung, MessageKey> = {
   observe: "fleet.rung.observe",
   dispatch: "fleet.rung.dispatch",
   manage: "fleet.rung.manage",
   full: "fleet.rung.full",
+  terminal: "fleet.rung.terminal",
 };
 
-/** What a manager can ask a member for: the two rungs above the join default. */
-const RAISE_RUNGS = ["manage", "full"] as const satisfies readonly FleetRung[];
+/** What a manager can ask a member for: the rungs above the join default. */
+const RAISE_RUNGS = ["manage", "full", "terminal"] as const satisfies readonly FleetRung[];
 
 /**
  * The re-presentation ceremony (issue #901), manager side: asking a joined

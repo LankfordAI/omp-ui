@@ -44,6 +44,7 @@ describe("Stats view slice", () => {
       lab: null,
       stats: null,
       fleet: null,
+      fleetTerminal: null,
     });
   });
 });

@@ -133,6 +133,12 @@ import type {
   FleetUpdateRequest,
   FleetRequester,
   FleetRung,
+  FleetTerminalEndRequest,
+  FleetTerminalOpenOutcome,
+  FleetTerminalOpenRequest,
+  FleetTerminalRenewOutcome,
+  FleetTerminalRenewRequest,
+  FleetTerminalStartOutcome,
   PlacementPreference,
   ProjectCopyPreview,
   ProjectCopyResult,
@@ -200,6 +206,10 @@ import {
   fleetGrantRaiseCodec,
   fleetRequesterCodec,
   fleetRungCodec,
+  fleetTerminalEndRequestCodec,
+  fleetTerminalIdCodec,
+  fleetTerminalOpenRequestCodec,
+  fleetTerminalRenewRequestCodec,
   machineKeyCodec,
   placementPreferenceCodec,
   type ArgCodec,
@@ -1434,6 +1444,61 @@ export const BACKEND_CHANNELS = {
     channel: "fleet:updateMember",
     ...request<[req: FleetUpdateMemberRequest], FleetUpdateAck>([fleetUpdateMemberRequestCodec]),
   },
+  /**
+   * Fleet terminal, member leg (issue #991, ADR-0084): open one login shell
+   * under a dispatcher-minted id. Proxied; the OWNER checks the Terminal rung
+   * plus the exec master switch and answers refusals as outcomes.
+   */
+  fleetTerminalOpen: {
+    channel: "fleet:terminalOpen",
+    ...request<[req: FleetTerminalOpenRequest], FleetTerminalOpenOutcome>([fleetTerminalOpenRequestCodec]),
+  },
+  /** Extends the lease on the requester's own open terminals; answers which still run. Proxied. */
+  fleetTerminalRenew: {
+    channel: "fleet:terminalRenew",
+    ...request<[req: FleetTerminalRenewRequest], FleetTerminalRenewOutcome>([fleetTerminalRenewRequestCodec]),
+  },
+  /** Ends one of the requester's own terminals on the member. Proxied. */
+  fleetTerminalEnd: {
+    channel: "fleet:terminalEnd",
+    ...request<[req: FleetTerminalEndRequest], void>([fleetTerminalEndRequestCodec]),
+  },
+  /** Keystrokes into the requester's own member terminal. Proxied; the owner drops other dispatchers' writes. */
+  fleetTerminalWrite: {
+    channel: "fleet:terminalWrite",
+    ...notify<[dispatcherId: string, terminalId: string, data: string]>([str(), fleetTerminalIdCodec, str()]),
+  },
+  /** Resizes the requester's own member terminal. Proxied. */
+  fleetTerminalSize: {
+    channel: "fleet:terminalSize",
+    ...notify<[dispatcherId: string, terminalId: string, cols: number, rows: number]>([
+      str(),
+      fleetTerminalIdCodec,
+      num(),
+      num(),
+    ]),
+  },
+  /** Fleet terminal, dispatcher leg: the user opens a terminal on member `machineKey`. Local only. */
+  fleetTerminalStart: {
+    channel: "fleet:terminalStart",
+    ...request<[machineKey: string, cols: number, rows: number], FleetTerminalStartOutcome>([
+      machineKeyCodec,
+      num(),
+      num(),
+    ]),
+  },
+  /** Closes one fleet terminal this app opened: the member ends its shell. Local only. */
+  fleetTerminalClose: { channel: "fleet:terminalClose", ...request<[terminalId: string], void>([fleetTerminalIdCodec]) },
+  /** Renderer keystrokes into a fleet terminal this app opened. Local only. */
+  fleetTerminalInput: {
+    channel: "fleet:terminalInput",
+    ...notify<[terminalId: string, data: string]>([fleetTerminalIdCodec, str()]),
+  },
+  /** Renderer resize of a fleet terminal this app opened. Local only. */
+  fleetTerminalResize: {
+    channel: "fleet:terminalResize",
+    ...notify<[terminalId: string, cols: number, rows: number]>([fleetTerminalIdCodec, num(), num()]),
+  },
   /** Poll one maintenance job the same dispatcher started. Proxied; owner-only, mirrors fleet:execPoll. */
   fleetUpdatePoll: {
     channel: "fleet:updatePoll",
@@ -1746,6 +1811,11 @@ export const BACKEND_CHANNELS = {
   onShellData: {
     channel: "shell:data",
     ...event<[tabId: string, data: Uint8Array]>(),
+  },
+  /** Bytes from a fleet terminal this app opened (issue #991); converted from the member's own event. */
+  onFleetTerminalData: {
+    channel: "fleet:terminalData",
+    ...event<[terminalId: string, data: Uint8Array]>(),
   },
   onShellExit: {
     channel: "shell:exit",

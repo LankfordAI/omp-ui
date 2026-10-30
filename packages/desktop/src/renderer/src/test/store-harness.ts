@@ -184,6 +184,7 @@ const mockBackend = {
   onSessionsAutoSettled: vi.fn(),
   onFocusSession: vi.fn(),
   onShellData: vi.fn(),
+  onFleetTerminalData: vi.fn(),
   onShellExit: vi.fn((cb: (tabId: string, code: number) => void) => {
     shellExitCb = cb;
   }),

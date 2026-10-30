@@ -961,6 +961,13 @@ export interface FleetSlice {
   openFleet(): void;
   closeFleet(): void;
   refreshFleet(): Promise<void>;
+  /** The open fleet terminal shown in the main pane (issue #991); null when none is. */
+  fleetTerminal: string | null;
+  /** Asks main to open a terminal on member `machineKey`, then shows it; a refusal becomes an error notice. */
+  openFleetTerminal(machineKey: string, cols: number, rows: number): Promise<void>;
+  showFleetTerminal(terminalId: string): void;
+  /** Ends the member's shell and forgets the terminal. */
+  closeFleetTerminal(terminalId: string): Promise<void>;
   /** Null when the dispatcher rejected the whole request (reported as an error notice). */
   dispatchFleet(req: FleetDispatchRequest): Promise<FleetDispatchResult | null>;
   setFleetPlacement(machineKey: string, pref: PlacementPreference): Promise<void>;

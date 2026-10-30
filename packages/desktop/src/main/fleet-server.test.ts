@@ -5,6 +5,7 @@ import { afterEach, beforeEach, describe, expect, it, vi, type Mock } from "vite
 import {
   FLEET_EXEC_OUTPUT_MAX,
   FLEET_RUNGS,
+  FLEET_TERMINAL_LEASE_MS,
   Registry,
   type AppUpdateState,
   type FleetRequester,
@@ -12,6 +13,7 @@ import {
   type FleetSendOutcome,
   type FleetSendRequest,
   type FleetUpdateMemberRequest,
+  type PtyHandle,
 } from "@omp-ui/core";
 import { hashRemotePassword, passwordSessionCredential } from "@omp-ui/server";
 
@@ -49,6 +51,49 @@ let registry: Registry;
 let broadcasts: number;
 let installProviderKey: (envName: string, value: string) => void;
 let live: FleetServer[];
+let clientEvents: Array<{ channel: string; args: unknown[] }>;
+
+/** A PTY stand-in for fleet terminals: records writes and kill signals, emits on demand. */
+interface FakeTerminal extends PtyHandle {
+  writes: string[];
+  killed: boolean;
+  /** Every kill in order; the default (hangup) records as "default". */
+  signals: string[];
+  emit(data: Buffer): void;
+  exit(code: number): void;
+}
+let spawned: FakeTerminal[];
+
+function fakeTerminal(id: string): FakeTerminal {
+  let onData: ((data: Buffer) => void) | null = null;
+  let onExit: ((e: { exitCode: number }) => void) | null = null;
+  const term: FakeTerminal = {
+    id,
+    pid: 4242,
+    writes: [],
+    killed: false,
+    signals: [],
+    onData: (cb) => {
+      onData = cb;
+      return () => {
+        onData = null;
+      };
+    },
+    onExit: (cb) => {
+      onExit = cb;
+    },
+    write: (data) => term.writes.push(data),
+    resize: () => {},
+    kill: (signal) => {
+      term.killed = true;
+      term.signals.push(signal ?? "default");
+    },
+    emit: (data) => onData?.(data),
+    exit: (code) => onExit?.({ exitCode: code }),
+  };
+  spawned.push(term);
+  return term;
+}
 
 // Fleet update seams: every dep is a mutable holder so each test flips only
 // what it asserts; server() reads them through at call time.
@@ -103,6 +148,8 @@ function server(
     pinned: () => pinned,
     deliverSend: (req) => deliverSend(req),
     deliverFinish: async () => ({ status: "refused", reason: "not wired in this fixture" }),
+    sendToClients: (channel, args) => clientEvents.push({ channel, args }),
+    terminalSpawn: (opts) => fakeTerminal(opts.id),
     ...(execGit === undefined ? {} : { execGit }),
     ...(commandDeps === undefined ? {} : { commandDeps }),
   });
@@ -120,6 +167,8 @@ beforeEach(() => {
   broadcasts = 0;
   installProviderKey = () => {};
   live = [];
+  clientEvents = [];
+  spawned = [];
   ompInstallPath = null;
   onOmpApplied = vi.fn();
   appState = appStateOf();
@@ -158,7 +207,7 @@ describe("FleetServer ladder (issue #901)", () => {
   });
 
   // Every grant × ceiling: the effective rung never exceeds the ceiling, and
-  // rung 4 additionally needs the master switch.
+  // Full control and Terminal additionally need the master switch.
   it.each(FLEET_RUNGS.flatMap((g) => FLEET_RUNGS.map((c) => [g, c] as const)))(
     "grant %s under ceiling %s",
     (granted, ceiling) => {
@@ -167,15 +216,17 @@ describe("FleetServer ladder (issue #901)", () => {
       const s = server();
       const rank = (r: FleetRung): number => FLEET_RUNGS.indexOf(r);
       const effective = FLEET_RUNGS[Math.min(rank(granted), rank(ceiling))]!;
+      const switched = (need: FleetRung) => rank(need) >= rank("full");
       expect(s.grantRung(A).rung).toBe(effective);
       for (const need of FLEET_RUNGS) {
         const verdict = s.check(A, need);
-        const allowed = rank(effective) >= rank(need) && need !== "full";
-        if (need === "full") expect(verdict.ok).toBe(false); // master switch off
-        else expect(verdict.ok).toBe(allowed);
+        if (switched(need)) expect(verdict.ok).toBe(false); // master switch off
+        else expect(verdict.ok).toBe(rank(effective) >= rank(need));
       }
       registry.setSetting("fleetExecEnabled", true);
-      expect(server().check(A, "full").ok).toBe(effective === "full");
+      for (const need of FLEET_RUNGS.filter(switched)) {
+        expect(server().check(A, need).ok).toBe(rank(effective) >= rank(need));
+      }
     },
   );
 
@@ -184,6 +235,109 @@ describe("FleetServer ladder (issue #901)", () => {
     grant(A.instanceId, "full");
     const verdict = server().check(A, "full");
     expect(verdict).toEqual({ ok: false, reason: expect.stringContaining("fleet exec is off") });
+  });
+});
+
+posix("FleetServer fleet terminal (issue #991)", () => {
+  const B: FleetRequester = { instanceId: "inst-b", label: "laptop", kind: "user", sourceTabId: null };
+  const open = (s: FleetServer, who: FleetRequester, terminalId: string) =>
+    s.terminalOpen({ requester: who, terminalId, cols: 80, rows: 24 });
+  const openLadder = () => {
+    registry.setSetting("fleetExecEnabled", true);
+    registry.setSetting("fleetExecCeiling", "terminal");
+  };
+
+  it("refuses Full control: a login shell needs the Terminal rung above it", () => {
+    openLadder();
+    grant(A.instanceId, "full");
+    const s = server();
+    expect(open(s, A, "t-1")).toEqual({ status: "refused", reason: expect.stringContaining('needs "terminal"') });
+    expect(spawned).toEqual([]);
+    expect(s.auditEntries()).toEqual([expect.objectContaining({ action: "terminal", accepted: false, rung: "terminal" })]);
+  });
+
+  it("is unreachable at the default ceiling even with a Terminal grant", () => {
+    registry.setSetting("fleetExecEnabled", true);
+    grant(A.instanceId, "terminal");
+    expect(open(server(), A, "t-1").status).toBe("refused");
+    expect(spawned).toEqual([]);
+  });
+
+  it("streams to clients, takes only its dispatcher's input, and ends on the owner's end", () => {
+    openLadder();
+    grant(A.instanceId, "terminal");
+    grant(B.instanceId, "terminal");
+    const s = server();
+    expect(open(s, A, "t-1")).toEqual({ status: "accepted" });
+    const term = spawned[0]!;
+    term.emit(Buffer.from("prompt$ "));
+    expect(clientEvents).toEqual([{ channel: "fleet:memberTerminalData", args: ["t-1", Buffer.from("prompt$ ")] }]);
+
+    s.terminalWrite("inst-b", "t-1", "rm -rf ~\r"); // another dispatcher's keystrokes are dropped
+    s.terminalWrite("inst-a", "t-1", "ls\r");
+    expect(term.writes).toEqual(["ls\r"]);
+
+    s.terminalEnd({ requester: B, terminalId: "t-1" }); // not B's to end
+    expect(term.killed).toBe(false);
+    s.terminalEnd({ requester: A, terminalId: "t-1" });
+    expect(term.killed).toBe(true);
+    term.exit(0);
+    expect(clientEvents.at(-1)).toEqual({ channel: "fleet:memberTerminalExit", args: ["t-1", 0] });
+    expect(s.auditEntries().at(-1)).toMatchObject({ action: "terminal", detail: "t-1 ended (closed)", exitCode: 0 });
+    expect(s.terminalRenew({ requester: A, terminalIds: ["t-1"] })).toEqual({ alive: [] });
+  });
+
+  it("ends the shell when its dispatcher drops below the Terminal rung", () => {
+    openLadder();
+    grant(A.instanceId, "terminal");
+    const s = server();
+    open(s, A, "t-1");
+    s.setGrant(A.instanceId, "full");
+    expect(spawned[0]!.killed).toBe(true);
+    spawned[0]!.exit(129);
+    expect(s.auditEntries().at(-1)).toMatchObject({ action: "terminal", detail: "t-1 ended (revoked)" });
+  });
+
+  it("ends a shell whose lease lapses unrenewed and keeps a renewed one", () => {
+    vi.useFakeTimers();
+    try {
+      openLadder();
+      grant(A.instanceId, "terminal");
+      const s = server();
+      open(s, A, "t-kept");
+      open(s, A, "t-lapsed");
+      vi.advanceTimersByTime(FLEET_TERMINAL_LEASE_MS - 1_000);
+      expect(s.terminalRenew({ requester: A, terminalIds: ["t-kept"] })).toEqual({ alive: ["t-kept"] });
+      vi.advanceTimersByTime(2_000);
+      expect(spawned.map((t) => [t.id, t.killed])).toEqual([
+        ["t-kept", false],
+        ["t-lapsed", true],
+      ]);
+    } finally {
+      vi.useRealTimers();
+    }
+  });
+
+  // An interactive zsh ignores node-pty's hangup and SIGTERM, so a close that
+  // only asked politely would leave the shell running on the member forever.
+  it("forces a shell that ignores the hangup and stops forcing once it exits", () => {
+    vi.useFakeTimers();
+    try {
+      openLadder();
+      grant(A.instanceId, "terminal");
+      const s = server();
+      open(s, A, "t-stubborn");
+      open(s, A, "t-polite");
+      const [stubborn, polite] = spawned;
+      s.terminalEnd({ requester: A, terminalId: "t-stubborn" });
+      s.terminalEnd({ requester: A, terminalId: "t-polite" });
+      polite!.exit(0); // the hangup was enough
+      vi.advanceTimersByTime(5_000);
+      expect(stubborn!.signals).toEqual(["default", "SIGKILL"]);
+      expect(polite!.signals).toEqual(["default"]);
+    } finally {
+      vi.useRealTimers();
+    }
   });
 });
 

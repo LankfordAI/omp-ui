@@ -53,6 +53,7 @@ export function backendState(patch: Partial<BackendState> = {}): BackendState {
     spawnGate: { model: null, advisorModel: null },
     remoteInstances: [],
     fleetPending: [],
+    fleetTerminals: [],
     fleetPlacement: {},
     fleetAgentDispatch: false,
     fleetExecEnabled: false,

@@ -18,6 +18,7 @@ import {
   deriveFleetTitle,
   eligibleMachineCount,
   fleetChildSettled,
+  fleetRungAtLeast,
   fleetChoiceText,
   fleetMachineName,
   fleetMemberAddress,
@@ -211,7 +212,7 @@ function agentAnswerOf(ack: FleetUpdateAck): FleetAgentUpdateAnswer {
 /** Why Update all leaves a member out before asking it anything (issue #990); null to ask. */
 function updateAllSkipReason(machine: FleetMachine): string | null {
   if (machine.status !== "ready") return machine.error ?? machine.status;
-  if (machine.grantRung !== "full") {
+  if (machine.grantRung === null || !fleetRungAtLeast(machine.grantRung, "full")) {
     return machine.grantRung === null
       ? "this app's fleet access there is unknown; Update all needs Full control"
       : `this app holds fleet access "${machine.grantRung}" there; Update all needs Full control`;

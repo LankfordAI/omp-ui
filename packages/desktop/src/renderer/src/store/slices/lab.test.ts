@@ -387,6 +387,7 @@ describe("Lab view", () => {
       lab: null,
       stats: null,
       fleet: null,
+      fleetTerminal: null,
     });
   });
 

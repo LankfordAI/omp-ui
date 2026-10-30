@@ -51,6 +51,22 @@ export const FLEET_DETACHED_EXECS_RUNNING_MAX = 4;
 export const FLEET_DETACHED_EXECS_RETAINED = 32;
 /** The SSH port the dispatcher probes for each member's reachability (issue #904). */
 export const FLEET_SSH_PORT = 22;
+/** Fleet terminals one member keeps open at once, across all dispatchers (issue #991). */
+export const FLEET_TERMINALS_MAX = 8;
+/** How long a member keeps a fleet terminal without a renewal from its dispatcher (issue #991). */
+export const FLEET_TERMINAL_LEASE_MS = 45_000;
+/** How often the dispatcher renews its open fleet terminals; well inside the lease. */
+export const FLEET_TERMINAL_RENEW_MS = 10_000;
+/** Largest terminal side a fleet terminal accepts, in cells. */
+export const FLEET_TERMINAL_CELLS_MAX = 1_000;
+/**
+ * The member's own terminal events (issue #991). They fan out to every client
+ * of the member like console-shell bytes do; a dispatcher converts only the
+ * ids it opened into its local `fleet:terminalData`, so neither name is ever
+ * relayed onward and a mutual join cannot loop.
+ */
+export const FLEET_MEMBER_TERMINAL_DATA = "fleet:memberTerminalData";
+export const FLEET_MEMBER_TERMINAL_EXIT = "fleet:memberTerminalExit";
 
 /** C0 and C1 control characters; names, titles, and labels refuse them. */
 // eslint-disable-next-line no-control-regex
@@ -72,13 +88,17 @@ export type FleetToolName = (typeof FLEET_TOOLS)[number];
 
 // ── Grant ladder (issue #901, ADR-0062 as amended) ──────────────────────────
 
-/** Cumulative access rungs, lowest first. Enforcement lives on the node. */
-export const FLEET_RUNGS = ["observe", "dispatch", "manage", "full"] as const;
+/**
+ * Cumulative access rungs, lowest first. Enforcement lives on the node.
+ * `terminal` (issue #991) sits above Full control: an interactive login shell
+ * outranks one bounded command, so granting Full control never opens one.
+ */
+export const FLEET_RUNGS = ["observe", "dispatch", "manage", "full", "terminal"] as const;
 export type FleetRung = (typeof FLEET_RUNGS)[number];
 
-/** 1..4 ladder depth; compare rungs through ranks. */
-export function fleetRungRank(r: FleetRung): 1 | 2 | 3 | 4 {
-  return (FLEET_RUNGS.indexOf(r) + 1) as 1 | 2 | 3 | 4;
+/** 1..5 ladder depth; compare rungs through ranks. */
+export function fleetRungRank(r: FleetRung): 1 | 2 | 3 | 4 | 5 {
+  return (FLEET_RUNGS.indexOf(r) + 1) as 1 | 2 | 3 | 4 | 5;
 }
 
 export function fleetRungAtLeast(held: FleetRung, need: FleetRung): boolean {
@@ -891,6 +911,101 @@ export interface FleetGrantRaiseRequest {
 
 export type FleetGrantRaiseOutcome = { ok: true; rung: FleetRung } | { ok: false; reason: string };
 
+// ── Fleet terminal (issue #991, ADR-0084) ───────────────────────────────────
+
+/** Open one login shell on the member under a dispatcher-minted id. `requester` is the CLAIMED identity. */
+export interface FleetTerminalOpenRequest {
+  requester: FleetRequester;
+  terminalId: string;
+  cols: number;
+  rows: number;
+}
+
+export type FleetTerminalOpenOutcome = { status: "accepted" } | { status: "refused"; reason: string };
+
+/** Extend the lease on the requester's own open terminals; the member answers which are still running. */
+export interface FleetTerminalRenewRequest {
+  requester: FleetRequester;
+  terminalIds: string[];
+}
+
+export interface FleetTerminalRenewOutcome {
+  alive: string[];
+}
+
+/** End one of the requester's own open terminals on the member. */
+export interface FleetTerminalEndRequest {
+  requester: FleetRequester;
+  terminalId: string;
+}
+
+/** One fleet terminal this app opened, as BackendState carries it to every client. */
+export interface FleetTerminalRecord {
+  terminalId: string;
+  machineKey: string;
+  /** The member's nickname when it was opened. */
+  nickname: string;
+  openedAt: string;
+  /** Null while the shell runs; its exit code once it ended (-1 when the member lost it without one). */
+  exitCode: number | null;
+}
+
+/** What the dispatcher's own `fleet:terminalStart` answers; refusals are answers, never errors. */
+export type FleetTerminalStartOutcome =
+  | { status: "accepted"; terminal: FleetTerminalRecord }
+  | { status: "refused"; reason: string };
+
+/** A terminal side in cells, 1..FLEET_TERMINAL_CELLS_MAX. */
+function terminalCells(value: unknown, label: string): number {
+  if (typeof value !== "number" || !Number.isInteger(value) || value < 1 || value > FLEET_TERMINAL_CELLS_MAX) {
+    throw new Error(`${label} must be a whole number from 1 to ${FLEET_TERMINAL_CELLS_MAX}`);
+  }
+  return value;
+}
+
+/** Strict parse of a fleet terminal open (codec + member entry check). Messages are user-facing. */
+export function parseFleetTerminalOpenRequest(value: unknown): FleetTerminalOpenRequest {
+  const label = "terminal open request";
+  const req = objectValue(value, label);
+  rejectUnknownKeys(req, ["requester", "terminalId", "cols", "rows"], label);
+  return {
+    requester: parseFleetRequester(req.requester, `${label}.requester`),
+    terminalId: idString(req.terminalId, `${label}.terminalId`),
+    cols: terminalCells(req.cols, `${label}.cols`),
+    rows: terminalCells(req.rows, `${label}.rows`),
+  };
+}
+
+/** Strict parse of a fleet terminal renewal. Messages are user-facing. */
+export function parseFleetTerminalRenewRequest(value: unknown): FleetTerminalRenewRequest {
+  const label = "terminal renew request";
+  const req = objectValue(value, label);
+  rejectUnknownKeys(req, ["requester", "terminalIds"], label);
+  if (!Array.isArray(req.terminalIds) || req.terminalIds.length > FLEET_TERMINALS_MAX) {
+    throw new Error(`${label}.terminalIds must be a list of at most ${FLEET_TERMINALS_MAX} ids`);
+  }
+  return {
+    requester: parseFleetRequester(req.requester, `${label}.requester`),
+    terminalIds: req.terminalIds.map((id, i) => idString(id, `${label}.terminalIds[${i}]`)),
+  };
+}
+
+/** Strict parse of a fleet terminal end. Messages are user-facing. */
+export function parseFleetTerminalEndRequest(value: unknown): FleetTerminalEndRequest {
+  const label = "terminal end request";
+  const req = objectValue(value, label);
+  rejectUnknownKeys(req, ["requester", "terminalId"], label);
+  return {
+    requester: parseFleetRequester(req.requester, `${label}.requester`),
+    terminalId: idString(req.terminalId, `${label}.terminalId`),
+  };
+}
+
+/** A dispatcher-minted terminal id as the local channels accept it. Throws a user-facing message. */
+export function parseFleetTerminalId(value: unknown, label = "terminal id"): string {
+  return idString(value, label);
+}
+
 // ── Detached exec (issue #905, ADR-0065) ────────────────────────────────────
 
 /** Start one command the member keeps running past the call. `requester` is the CLAIMED identity. */
@@ -1139,7 +1254,7 @@ export interface FleetAuditEntry {
   dispatcherLabel: string;
   /** The agent's tab on the dispatcher when the call came from a tool. */
   sourceTabId: string | null;
-  action: "exec" | "exec-detached" | "manage" | "keys" | "update" | "send" | "finish" | "grant-raise" | "grant-set";
+  action: "exec" | "exec-detached" | "manage" | "keys" | "update" | "send" | "finish" | "terminal" | "grant-raise" | "grant-set";
   /** The rung used (actions) or the literal marker for grant bookkeeping. */
   rung: FleetRung | "raise" | "set";
   accepted: boolean;

@@ -37,6 +37,11 @@ import {
   type FleetProviderKeysRequest,
   type FleetRequester,
   type FleetRung,
+  type FleetTerminalEndRequest,
+  type FleetTerminalOpenOutcome,
+  type FleetTerminalOpenRequest,
+  type FleetTerminalRenewOutcome,
+  type FleetTerminalRenewRequest,
   type FleetSendOutcome,
   type FleetSendRequest,
   type FleetFinishOutcome,
@@ -55,6 +60,7 @@ import {
 import { passwordSessionCredential, tokenMatches, verifyRemotePassword } from "@omp-ui/server";
 import { FleetDetachedExecs } from "./fleet-detached-exec";
 import { FleetMaintenance } from "./fleet-maintenance";
+import { FleetTerminals, type FleetTerminalsDeps } from "./fleet-terminals";
 import { launchFleetShell, messageOf, resolveFleetCwd, type FleetCommandDeps, type FleetCommandSpec } from "./fleet-shell";
 import { isAutoUpdateFormat } from "./app-update";
 import { appendMainLog } from "./main-log";
@@ -146,8 +152,11 @@ export interface FleetServerDeps {
   deliverSend: (req: FleetSendRequest) => Promise<FleetSendOutcome>;
   /** SessionManager.fleetFinish on this machine (issue #978): settle, then release an already-landed worktree. */
   deliverFinish: (req: FleetFinishRequest) => Promise<FleetFinishOutcome>;
+  /** Fans a member terminal event to this machine's socket clients (issue #991); never its own window. */
+  sendToClients: (channel: string, args: unknown[]) => void;
   /** Test seams. */
   commandDeps?: FleetCommandDeps;
+  terminalSpawn?: FleetTerminalsDeps["spawn"];
   execGit?: (file: string, args: string[], opts: { cwd: string; timeout: number }) => Promise<{ stdout: Buffer }>;
 }
 
@@ -156,6 +165,7 @@ export class FleetServer {
   readonly #ring: FleetAuditEntry[] = [];
   readonly #detached: FleetDetachedExecs;
   readonly #maintenance: FleetMaintenance;
+  readonly #terminals: FleetTerminals;
   /** jobId → the omp version an accepted stage was about to install; consumed
    *  by the registry's onFinish so onOmpApplied never fires for revoked work. */
   readonly #ompJobVersions = new Map<string, string>();
@@ -179,12 +189,19 @@ export class FleetServer {
         if (rec.kind === "omp" && rec.state === "succeeded" && version !== undefined) this.#deps.onOmpApplied(version);
       },
     });
+    this.#terminals = new FleetTerminals({
+      sendToClients: deps.sendToClients,
+      spawn: deps.terminalSpawn,
+      onEnd: (rec, reason, exitCode) =>
+        this.#audit("terminal", rec.requester, rec.rung, true, `${rec.terminalId.slice(0, 8)} ended (${reason})`, exitCode),
+    });
   }
 
   /**
    * The ladder check: effective rung = min(grant ?? "dispatch", ceiling);
-   * rung 4 additionally requires the host master switch. First sight of a
-   * dispatcher records it (label only) so the Fleet-access UI can name it.
+   * Full control and above additionally require the host master switch.
+   * First sight of a dispatcher records it (label only) so the Fleet-access
+   * UI can name it.
    */
   check(requester: FleetRequester, need: FleetRung): { ok: true; rung: FleetRung } | { ok: false; reason: string } {
     this.#recordFirstSight(requester);
@@ -194,7 +211,7 @@ export class FleetServer {
     if (!fleetRungAtLeast(rung, need)) {
       return { ok: false, reason: `${requester.label} holds fleet access "${rung}" on this machine; this call needs "${need}"` };
     }
-    if (fleetRungRank(need) === 4 && !registry.getSetting("fleetExecEnabled")) {
+    if (fleetRungAtLeast(need, "full") && !registry.getSetting("fleetExecEnabled")) {
       return { ok: false, reason: "fleet exec is off on this machine (Settings → Remote instances → Fleet access)" };
     }
     return { ok: true, rung };
@@ -250,6 +267,42 @@ export class FleetServer {
   execPoll(req: FleetExecPollRequest): Promise<FleetExecPollOutcome> {
     this.#recordFirstSight(req.requester);
     return this.#detached.poll(req.requester, req.execId, req.waitMs, req.cancel);
+  }
+
+  /**
+   * `fleet:terminalOpen` (issue #991, ADR-0084): the Terminal rung plus the
+   * master switch, then one login shell under the dispatcher's own id. A user
+   * opens it from the Fleet view; agents never reach this channel.
+   */
+  terminalOpen(req: FleetTerminalOpenRequest): FleetTerminalOpenOutcome {
+    const gate = this.check(req.requester, "terminal");
+    if (!gate.ok) {
+      this.#audit("terminal", req.requester, "terminal", false, "open", null);
+      return { status: "refused", reason: gate.reason };
+    }
+    const outcome = this.#terminals.open(req.requester, gate.rung, req.terminalId, req.cols, req.rows);
+    const detail = outcome.status === "accepted" ? `${req.terminalId.slice(0, 8)} opened` : `open: ${outcome.reason}`;
+    this.#audit("terminal", req.requester, gate.rung, outcome.status === "accepted", detail, null);
+    return outcome;
+  }
+
+  /** `fleet:terminalRenew`: no ladder check — only the requester's own ids renew, and revocation ends them. Never audited. */
+  terminalRenew(req: FleetTerminalRenewRequest): FleetTerminalRenewOutcome {
+    return { alive: this.#terminals.renew(req.requester, req.terminalIds) };
+  }
+
+  /** `fleet:terminalEnd`: the requester's own terminal only; the end lands in the audit through onEnd. */
+  terminalEnd(req: FleetTerminalEndRequest): void {
+    this.#terminals.end(req.requester, req.terminalId);
+  }
+
+  /** `fleet:terminalWrite`: keystrokes into the claimed dispatcher's own terminal; anything else is dropped. */
+  terminalWrite(dispatcherId: string, terminalId: string, data: string): void {
+    this.#terminals.write(dispatcherId, terminalId, data);
+  }
+
+  terminalSize(dispatcherId: string, terminalId: string, cols: number, rows: number): void {
+    this.#terminals.resize(dispatcherId, terminalId, cols, rows);
   }
 
   /**
@@ -495,20 +548,26 @@ export class FleetServer {
     return this.#maintenance.poll(req.requester, req.jobId, req.waitMs);
   }
 
-  /** Revoke every running detached exec or maintenance job whose starter no longer holds Full control here. */
-  enforceDetached(): void {
+  /**
+   * Revoke every running detached exec or maintenance job whose starter no
+   * longer holds Full control here, and end every fleet terminal whose
+   * dispatcher no longer holds the Terminal rung (issue #991).
+   */
+  enforceLadder(): void {
     const registry = this.#deps.registry;
-    const stillAllowed = (id: string) =>
+    const holds = (id: string, need: FleetRung) =>
       registry.getSetting("fleetExecEnabled") &&
-      fleetRungAtLeast(fleetEffectiveRung(registry.getSetting("fleetGrants")[id], registry.getSetting("fleetExecCeiling")), "full");
-    this.#detached.revokeWhere(stillAllowed);
-    this.#maintenance.revokeWhere(stillAllowed);
+      fleetRungAtLeast(fleetEffectiveRung(registry.getSetting("fleetGrants")[id], registry.getSetting("fleetExecCeiling")), need);
+    this.#detached.revokeWhere((id) => holds(id, "full"));
+    this.#maintenance.revokeWhere((id) => holds(id, "full"));
+    this.#terminals.revokeWhere((id) => holds(id, "terminal"));
   }
 
-  /** Quit path: kill every running detached exec, revoke every maintenance job (never install on the way out). */
+  /** Quit path: kill every running detached exec and fleet terminal, revoke every maintenance job (never install on the way out). */
   dispose(): void {
     this.#detached.dispose();
     this.#maintenance.dispose();
+    this.#terminals.dispose();
   }
 
   /** `fleet:projectManage`: rung 3 + declared roots; the fixed clone/register verbs. */
@@ -714,7 +773,7 @@ export class FleetServer {
     this.#deps.broadcast();
     this.#audit("grant-raise", req.requester, "raise", true, `raised to ${req.targetRung}`, null);
     // A "raise" may name a lower rung: a dispatcher it drops below Full loses its running detached execs.
-    this.enforceDetached();
+    this.enforceLadder();
     return { ok: true, rung: req.targetRung };
   }
 
@@ -737,7 +796,7 @@ export class FleetServer {
       rung === null ? "reset to default" : `set ${rung}`,
       null,
     );
-    this.enforceDetached();
+    this.enforceLadder();
   }
 
   #credentialMatches(credential: string): boolean {

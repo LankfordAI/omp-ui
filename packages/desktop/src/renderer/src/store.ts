@@ -50,6 +50,7 @@ import {
   createMachinery,
   persistedPlanHandoffs,
   shellWriters,
+  fleetTerminalWriters,
   stopOwnedLiveCallsForUnload,
   termWriters,
 } from "./store/slices/shared";
@@ -118,6 +119,7 @@ export {
   isLateAckCommand,
   registerBrowserPaneWriter,
   registerShellWriter,
+  registerFleetTerminalWriter,
   registerTermWriter,
 } from "./store/slices/shared";
 
@@ -482,6 +484,7 @@ export const useStore = create<UiStore>()((set, get, api) => {
         void get().openSession(tabId);
       });
       backend.onShellData((tabId, data) => shellWriters.get(tabId)?.(data));
+      backend.onFleetTerminalData((terminalId, data) => fleetTerminalWriters.get(terminalId)?.(data));
       backend.onShellExit((tabId, code) => {
         set((s) => {
           // The handoff TUI quit, so its banner switches from "send" to

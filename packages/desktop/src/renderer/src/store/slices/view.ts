@@ -166,13 +166,13 @@ export interface ViewSlice {
 
 /**
  * Moves the global focus for a tab activation. Activating a tab also closes
- * the Lab, the Stats view, and the Fleet view (issues #559, #668, #899): the
- * main pane shows one thing at a time.
+ * the Lab, the Stats view, the Fleet view, and a shown fleet terminal (issues
+ * #559, #668, #899, #991): the main pane shows one thing at a time.
  */
 export function focusOn(
   tabId: string,
-): Pick<UiStore, "activeTabId" | "lab" | "stats" | "fleet"> {
-  return { activeTabId: tabId, lab: null, stats: null, fleet: null };
+): Pick<UiStore, "activeTabId" | "lab" | "stats" | "fleet" | "fleetTerminal"> {
+  return { activeTabId: tabId, lab: null, stats: null, fleet: null, fleetTerminal: null };
 }
 
 /** Restores resumable tabs in saved renderer order, then settles the active tab. */

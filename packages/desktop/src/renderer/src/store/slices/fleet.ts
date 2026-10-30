@@ -37,9 +37,18 @@ export function createFleetSlice(set: SetState, get: GetState): FleetSlice {
     // closeLab, not a bare `lab: null`: it also stops the Lab's refresh timer.
     if (s.lab !== null) s.closeLab();
     if (s.fleet === null) {
-      set({ fleet: { machines: null, audit: null, updateAll: null, loading: false, error: null }, stats: null });
+      set({ fleet: { machines: null, audit: null, updateAll: null, loading: false, error: null }, stats: null, fleetTerminal: null });
+    } else if (s.fleetTerminal !== null) {
+      set({ fleetTerminal: null });
     }
     void refreshFleet();
+  };
+
+  /** Shows one open fleet terminal in the main pane, in place of the tabs and the Fleet view (issue #991). */
+  const showFleetTerminal: FleetSlice["showFleetTerminal"] = (terminalId) => {
+    const s = get();
+    if (s.lab !== null) s.closeLab();
+    set({ fleetTerminal: terminalId, fleet: null, stats: null });
   };
 
   const dispatchFleet: FleetSlice["dispatchFleet"] = async (req) => {
@@ -74,6 +83,31 @@ export function createFleetSlice(set: SetState, get: GetState): FleetSlice {
     closeFleet: () => set({ fleet: null }),
     refreshFleet,
     dispatchFleet,
+    fleetTerminal: null,
+    showFleetTerminal,
+
+    async openFleetTerminal(machineKey, cols, rows) {
+      try {
+        const outcome = await backend.fleetTerminalStart(machineKey, cols, rows);
+        if (outcome.status === "refused") {
+          get().reportError(new Error(outcome.reason));
+          return;
+        }
+        showFleetTerminal(outcome.terminal.terminalId);
+      } catch (err) {
+        get().reportError(err);
+      }
+    },
+
+    // Closing ends the member's shell; the Fleet view takes the pane back.
+    async closeFleetTerminal(terminalId) {
+      if (get().fleetTerminal === terminalId) openFleet();
+      try {
+        await backend.fleetTerminalClose(terminalId);
+      } catch (err) {
+        get().reportError(err);
+      }
+    },
 
     async setFleetPlacement(machineKey, pref) {
       try {

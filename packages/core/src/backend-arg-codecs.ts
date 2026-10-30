@@ -12,6 +12,10 @@ import {
   parseFleetProjectManageRequest,
   parseFleetProviderKeysRequest,
   parseFleetRequester,
+  parseFleetTerminalEndRequest,
+  parseFleetTerminalId,
+  parseFleetTerminalOpenRequest,
+  parseFleetTerminalRenewRequest,
   parseFleetUpdateMemberRequest,
   parseFleetUpdatePollRequest,
   parseFleetUpdateRequest,
@@ -31,6 +35,9 @@ import {
   type FleetGrantRaiseRequest,
   type FleetRequester,
   type FleetRung,
+  type FleetTerminalEndRequest,
+  type FleetTerminalOpenRequest,
+  type FleetTerminalRenewRequest,
   type PlacementPreference,
 } from "./fleet";
 import type { RpcFrame } from "./rpc/codec";
@@ -814,6 +821,53 @@ export const scheduledPromptRequestCodec: ArgCodec<ScheduledPromptRequest> = {
   },
 };
 
+/** Fleet terminal open (issue #991): strict keys and cell bounds, via the shared parser. */
+export const fleetTerminalOpenRequestCodec: ArgCodec<FleetTerminalOpenRequest> = {
+  expected: "a valid fleet terminal open request",
+  decode(value, path) {
+    try {
+      return parseFleetTerminalOpenRequest(value);
+    } catch (error) {
+      return fail(path, `${this.expected} (${(error as Error).message})`);
+    }
+  },
+};
+
+/** Fleet terminal lease renewal (issue #991), via the shared parser. */
+export const fleetTerminalRenewRequestCodec: ArgCodec<FleetTerminalRenewRequest> = {
+  expected: "a valid fleet terminal renew request",
+  decode(value, path) {
+    try {
+      return parseFleetTerminalRenewRequest(value);
+    } catch (error) {
+      return fail(path, `${this.expected} (${(error as Error).message})`);
+    }
+  },
+};
+
+/** Fleet terminal end (issue #991), via the shared parser. */
+export const fleetTerminalEndRequestCodec: ArgCodec<FleetTerminalEndRequest> = {
+  expected: "a valid fleet terminal end request",
+  decode(value, path) {
+    try {
+      return parseFleetTerminalEndRequest(value);
+    } catch (error) {
+      return fail(path, `${this.expected} (${(error as Error).message})`);
+    }
+  },
+};
+
+/** A dispatcher-minted fleet terminal id (issue #991). */
+export const fleetTerminalIdCodec: ArgCodec<string> = {
+  expected: "a fleet terminal id",
+  decode(value, path) {
+    try {
+      return parseFleetTerminalId(value);
+    } catch {
+      return fail(path, this.expected);
+    }
+  },
+};
 /** A composer's Send at reset request (issue #986). */
 export const heldPromptRequestCodec: ArgCodec<HeldPromptRequest> = objectOf<HeldPromptRequest>({
   text: str(),

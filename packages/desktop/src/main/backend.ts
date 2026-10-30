@@ -102,6 +102,8 @@ import {
   findObsidianList,
   knowledgeVaultDiagnostics,
   FLEET_LABEL_MAX,
+  FLEET_MEMBER_TERMINAL_DATA,
+  FLEET_MEMBER_TERMINAL_EXIT,
   LOCAL_MACHINE_KEY,
   git,
   renderSessionSummary,
@@ -123,6 +125,9 @@ import {
   type FleetProjectManageRequest,
   type FleetRequester,
   type FleetRung,
+  type FleetTerminalEndRequest,
+  type FleetTerminalOpenRequest,
+  type FleetTerminalRenewRequest,
   type FleetSendRequest,
   type FleetFinishRequest,
   type FleetHostReport,
@@ -197,6 +202,7 @@ import { routeByTab } from "./remote-route";
 import { SessionManager } from "./session-manager";
 import { FleetDispatcher } from "./fleet-dispatcher";
 import { FleetServer } from "./fleet-server";
+import { FleetTerminalClient } from "./fleet-terminal-client";
 import { FleetWakeCoordinator } from "./fleet-wake";
 import { probeSshPort } from "./ssh-probe";
 import { PlanVerifier } from "./plan-verifier";
@@ -264,6 +270,8 @@ export class MainBackend {
   private readonly fleet: FleetDispatcher;
   /** Fleet exec ladder, node side (issue #901, ADR-0062): this machine's ceiling. */
   private readonly fleetServer: FleetServer;
+  /** Fleet terminals this app opened on members (issue #991, ADR-0084). */
+  private readonly fleetTerminals: FleetTerminalClient;
   /** Fleet result wake-up (issue #957, ADR-0069): the dispatching session's watch → stage → deliver ledger. */
   private readonly fleetWake: FleetWakeCoordinator;
   /** fleet:hostReport caches: one shared resource sample per 5 s, repository
@@ -645,6 +653,7 @@ export class MainBackend {
       send: (ch, args) => this.send(ch, ...args),
       sendToRenderers: (ch, args) => this.sendToRenderers(ch, args),
       broadcast: () => this.broadcast(),
+      onMemberTerminalEvent: (instanceId, channel, args) => this.fleetTerminals.onMemberEvent(instanceId, channel, args),
     });
     this.fleet = new FleetDispatcher({
       localReport: () => this.fleetHostReport(),
@@ -709,6 +718,16 @@ export class MainBackend {
       pinned: () => ompPinActive(),
       deliverSend: (req) => this.sessions.fleetSend(req),
       deliverFinish: (req) => this.sessions.fleetFinish(req),
+      // The member's terminal bytes reach its socket clients; sendToRenderers drops them for this window.
+      sendToClients: (channel, args) => this.send(channel, ...args),
+    });
+    this.fleetTerminals = new FleetTerminalClient({
+      remotes: () => this.remoteInstances.summaries(),
+      request: (id, channel, args) => this.remoteInstances.request(id, channel, args),
+      notify: (id, channel, args) => this.remoteInstances.notify(id, channel, args),
+      requester: () => this.fleet.requester("user", null),
+      send: (channel, args) => this.send(channel, ...args),
+      broadcast: () => void this.broadcast(),
     });
     this.fleetWake = new FleetWakeCoordinator({
       dir: path.join(path.dirname(registryFile), "fleet-wake"),
@@ -864,6 +883,8 @@ export class MainBackend {
       if (typeof tabId === "string" && frame instanceof Uint8Array) this.desktopPaneStream.offer(tabId, frame);
       return;
     }
+    // A member's fleet terminal bytes are for the dispatcher across the join (#991), never this window.
+    if (channel === FLEET_MEMBER_TERMINAL_DATA || channel === FLEET_MEMBER_TERMINAL_EXIT) return;
     if (this.win.isDestroyed()) return;
     const wc = this.win.webContents;
     // A crashed renderer is not "destroyed" — sending into it throws
@@ -1054,7 +1075,7 @@ export class MainBackend {
             (await readOmpCompactionMethods({ ompPath: this.ompPath, projectCwd: null }))
               .supported,
           onAppUpdateTrainChanged: () => this.appUpdater.onTrainChanged(),
-          onFleetLadderChanged: () => this.fleetServer.enforceDetached(),
+          onFleetLadderChanged: () => this.fleetServer.enforceLadder(),
         }),
         ...registerVaultHandlers({
           registry: this.registry,
@@ -1535,6 +1556,15 @@ export class MainBackend {
         // the local-machine request orchestrates in this main like dispatch.
         [CH.fleetUpdateMember]: (req: FleetUpdateMemberRequest) => this.fleetServer.updateMember(req),
         [CH.fleetUpdatePoll]: (req: FleetUpdatePollRequest) => this.fleetServer.updatePoll(req),
+        // Fleet terminal (issue #991, ADR-0084): the member legs arrive through
+        // the proxy and every rung decision lands in FleetServer; start/close
+        // orchestrate in this main for the terminals this app opened.
+        [CH.fleetTerminalOpen]: (req: FleetTerminalOpenRequest) => this.fleetServer.terminalOpen(req),
+        [CH.fleetTerminalRenew]: (req: FleetTerminalRenewRequest) => this.fleetServer.terminalRenew(req),
+        [CH.fleetTerminalEnd]: (req: FleetTerminalEndRequest) => this.fleetServer.terminalEnd(req),
+        [CH.fleetTerminalStart]: (machineKey: string, cols: number, rows: number) =>
+          this.fleetTerminals.start(machineKey, cols, rows),
+        [CH.fleetTerminalClose]: (terminalId: string) => this.fleetTerminals.close(terminalId),
         [CH.fleetUpdateMachine]: (machineKey: string, req: FleetUpdateRequest) =>
           this.fleet.updateMachine(machineKey, req),
         [CH.fleetUpdateAll]: () => this.fleet.updateAll(),
@@ -1657,6 +1687,13 @@ export class MainBackend {
           this.notifier.stallCap(tabId, paused),
         [CH.remoteInstanceNotify]: (instanceId: string, channel: string, args: unknown[]) =>
           this.remoteInstances.notify(instanceId, channel, args),
+        [CH.fleetTerminalWrite]: (dispatcherId: string, terminalId: string, data: string) =>
+          this.fleetServer.terminalWrite(dispatcherId, terminalId, data),
+        [CH.fleetTerminalSize]: (dispatcherId: string, terminalId: string, cols: number, rows: number) =>
+          this.fleetServer.terminalSize(dispatcherId, terminalId, cols, rows),
+        [CH.fleetTerminalInput]: (terminalId: string, data: string) => this.fleetTerminals.input(terminalId, data),
+        [CH.fleetTerminalResize]: (terminalId: string, cols: number, rows: number) =>
+          this.fleetTerminals.resize(terminalId, cols, rows),
       },
     } satisfies ChannelTable;
     // Tab-scoped channels reach the instance that owns the tab; a local tab stays local.
@@ -2273,6 +2310,7 @@ export class MainBackend {
     this.sessions.killAll();
     const headsSettled = this.headWatchers.disposeAll();
     this.fleetServer.dispose();
+    this.fleetTerminals.dispose();
     this.remoteInstances.stop();
     void this.remote.stop();
     return Promise.allSettled([headsSettled, ...this.projectProbes]).then(() => undefined);
@@ -2629,6 +2667,7 @@ export class MainBackend {
       fleetGrants: this.registry.getSetting("fleetGrants"),
       fleetProjectRoots: this.registry.getSetting("fleetProjectRoots"),
       fleetPending: this.fleet.pending(),
+      fleetTerminals: this.fleetTerminals.list(),
     };
   }
 

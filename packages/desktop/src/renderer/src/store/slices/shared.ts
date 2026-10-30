@@ -431,7 +431,20 @@ export function registerBrowserPaneWriter(
   };
 }
 
-export { termWriters, shellWriters, browserPaneWriters };
+// One data listener total; each mounted FleetTerminalView registers its writer
+// here by terminal id (issue #991). Bytes for an id with no writer are dropped.
+const fleetTerminalWriters = new Map<string, (data: Uint8Array) => void>();
+export function registerFleetTerminalWriter(
+  terminalId: string,
+  cb: (data: Uint8Array) => void,
+): () => void {
+  fleetTerminalWriters.set(terminalId, cb);
+  return () => {
+    fleetTerminalWriters.delete(terminalId);
+  };
+}
+
+export { termWriters, shellWriters, browserPaneWriters, fleetTerminalWriters };
 
 function dropExited(
   exited: Record<string, number>,
