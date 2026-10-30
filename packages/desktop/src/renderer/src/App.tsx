@@ -9,7 +9,7 @@ import { ShareSessionDialog } from "./components/ShareSessionDialog";
 import { ShareLiveDialog } from "./components/ShareLiveDialog";
 import { ShareLiveConfirmDialog } from "./components/ShareLiveConfirmDialog";
 import { DiagnosticsExportDialog } from "./components/DiagnosticsExportDialog";
-import { DeleteSessionDialog } from "./components/DeleteSessionDialog";
+import { BulkDeleteSessionsDialog, DeleteSessionDialog } from "./components/DeleteSessionDialog";
 import { GettingStarted } from "./components/GettingStarted";
 import { inspectorBadgeTotal } from "./components/InspectorRail";
 import { CapabilitiesViewer } from "./components/CapabilitiesViewer";
@@ -233,6 +233,7 @@ export default function App() {
   const restoringTabs = useStore((s) => s.restoringTabs);
   const activeTabId = useStore((s) => s.activeTabId);
   const deleteConfirmation = useStore((s) => s.deleteConfirmation);
+  const bulkDeleteConfirmation = useStore((s) => s.bulkDeleteConfirmation);
   const projectPickerOpen = useStore((s) => s.projectPickerOpen);
   const diagnosticsDialogOpen = useStore((s) => s.diagnosticsDialogOpen);
   const gettingStartedOpen = useStore((s) => s.gettingStartedOpen);
@@ -542,6 +543,7 @@ export default function App() {
       {deleteConfirmation && (
         <DeleteSessionDialog key={deleteConfirmation.tabId} confirmation={deleteConfirmation} />
       )}
+      {bulkDeleteConfirmation && <BulkDeleteSessionsDialog confirmation={bulkDeleteConfirmation} />}
       {projectPickerOpen && <ProjectPicker />}
       {diagnosticsDialogOpen && <DiagnosticsExportDialog />}
       {browserPaneClearDialogOpen && <BrowserPaneClearDialog />}

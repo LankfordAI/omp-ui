@@ -444,6 +444,21 @@ export interface DeleteConfirmation {
   cascade: PlanHandoffDescendant[];
 }
 
+/** One row of a bulk Delete (issue #988): the single-delete facts, per row. */
+export interface BulkDeleteRow {
+  tabId: string;
+  title: string;
+  running: boolean;
+  worktreeBranch: string | null;
+  worktreePath: string | null;
+  cascade: PlanHandoffDescendant[];
+}
+
+/** A bulk Delete awaiting confirmation (issue #988): every selected row it erases. */
+export interface BulkDeleteConfirmation {
+  rows: BulkDeleteRow[];
+}
+
 /**
  * One destructive/disruptive session decision awaiting a DOM confirmation
  * (issue #373). Data-only: no promise resolver or callback lives in state —
@@ -452,6 +467,8 @@ export interface DeleteConfirmation {
  */
 export type LifecycleConfirmationChoice =
   | { kind: "terminate"; tabId: string; title: string }
+  /** Stop for several selected rows at once (issue #988); titles in selection order. */
+  | { kind: "terminate-many"; tabIds: string[]; titles: string[] }
   | {
       kind: "switch-mode";
       tabId: string;
@@ -1005,6 +1022,8 @@ export interface UiStore extends SettingsSlice, UpdatesSlice, LabSlice, StatsSli
   branchDiffRevision: Record<string, number>;
   advisorDefaults: Record<string, AdvisorDefaults>;
   deleteConfirmation: DeleteConfirmation | null;
+  /** A bulk Delete from the sidebar selection bar awaiting confirmation (issue #988). */
+  bulkDeleteConfirmation: BulkDeleteConfirmation | null;
   /** A pending session/project decision awaiting DOM confirmation (issue #373). */
   lifecycleConfirmation: LifecycleConfirmation | null;
   /** Stages one pending session decision (#373); every caller of a
@@ -1298,6 +1317,14 @@ export interface UiStore extends SettingsSlice, UpdatesSlice, LabSlice, StatsSli
   resumeWithModel(tabId: string, model: string): Promise<void>;
   deleteSession(tabId: string): Promise<void>;
   confirmDeleteSession(skipFuture: boolean): Promise<void>;
+  /** Stop for every selected live row (issue #988): one confirmation, one
+   *  failure notice. A single row takes `terminate`'s path. */
+  terminateSessions(tabIds: readonly string[]): Promise<void>;
+  /** Delete for every selected row (issue #988): one confirmation naming the
+   *  count, one failure notice. A single row takes `deleteSession`'s dialog. */
+  deleteSessions(tabIds: readonly string[]): Promise<void>;
+  confirmDeleteSessions(skipFuture: boolean): Promise<void>;
+  cancelDeleteSessions(): void;
   releaseWorktreeSession(
     tabId: string,
     opts: WorktreeReleaseOptions,
@@ -1435,6 +1462,10 @@ export interface UiStore extends SettingsSlice, UpdatesSlice, LabSlice, StatsSli
   setSessionSnoozed(tabId: string, snoozed: boolean, untilMs?: number | null): Promise<void>;
   /** Pins a session to the sidebar's Pinned group or unpins it (issue #981). */
   setSessionPinned(tabId: string, pinned: boolean): Promise<void>;
+  /** Snoozes every selected unsnoozed row (issue #988); `untilMs` null = indefinite. */
+  snoozeSessions(tabIds: readonly string[], untilMs: number | null): Promise<void>;
+  /** Unsnoozes every selected snoozed row (issue #988). */
+  unsnoozeSessions(tabIds: readonly string[]): Promise<void>;
   /** Holds the draft until the provider's usage window resets; main sends it
    *  then (issue #986). False when the owning host refused it. */
   holdPrompt(
@@ -1597,6 +1628,8 @@ export interface UiStore extends SettingsSlice, UpdatesSlice, LabSlice, StatsSli
   stageNavigate(tabId: string, entryId: string, summarize: boolean): Promise<void>;
   /** Re-title a live session from its transcript digest (issue #433). A user action, never automatic. */
   regenerateSessionTitle(tabId: string): Promise<void>;
+  /** Re-titles every selected live native row this window runs (issue #988). */
+  retitleSessions(tabIds: readonly string[]): Promise<void>;
   setPlanMode(tabId: string, enabled: boolean): Promise<void>;
   executePlan(
     tabId: string,

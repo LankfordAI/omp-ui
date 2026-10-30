@@ -203,6 +203,8 @@ export function SessionRow({
   instanceNickname = null,
   onContextMenu,
   density = "tile",
+  multiSelected = false,
+  onModifierClick,
 }: {
   s: SessionSummary;
   onActivate?: () => void;
@@ -219,6 +221,11 @@ export function SessionRow({
   /** tile: the three-line card (main list, Working, Snoozed); slim: the
    *  two-line Settled row (issue #938). */
   density?: "tile" | "slim";
+  /** In the sidebar's multi-selection (issue #988): the row takes the selected treatment. */
+  multiSelected?: boolean;
+  /** Mod/Shift+click on the row (issue #988); true = consumed as a selection
+   *  gesture, so the row does not open its session. */
+  onModifierClick?: (event: ReactMouseEvent<HTMLButtonElement>) => boolean;
 }) {
   const t = useT();
   const openSession = useStore((st) => st.openSession);
@@ -384,10 +391,10 @@ export function SessionRow({
       onContextMenu={onContextMenu}
       className={cn(
         "group/row animate-slide-in relative rounded-md transition-colors duration-150",
-        selected ? "bg-raised" : "hover:bg-raised/60",
+        selected || multiSelected ? "bg-raised" : "hover:bg-raised/60",
       )}
     >
-      {selected && (
+      {(selected || multiSelected) && (
         <span
           aria-hidden
           className="absolute inset-y-1 left-0 w-0.5 rounded-full bg-signal"
@@ -397,10 +404,17 @@ export function SessionRow({
       <button
         type="button"
         aria-current={selected ? "page" : undefined}
+        data-multi-selected={multiSelected ? "true" : undefined}
         title={
           missing && !strandedSettle ? t("sidebar.session.missingHint") : implementsNote !== null ? `${s.title} — ${implementsNote}` : s.title
         }
-        onClick={() => {
+        // Shift+click extends the selection: keep the browser from also
+        // selecting the text between the anchor and this row (issue #988).
+        onMouseDown={(event) => {
+          if (event.shiftKey && onModifierClick !== undefined) event.preventDefault();
+        }}
+        onClick={(event) => {
+          if (onModifierClick?.(event) === true) return;
           if (missing && !strandedSettle) return;
           void openSession(s.tabId);
           onActivate?.();

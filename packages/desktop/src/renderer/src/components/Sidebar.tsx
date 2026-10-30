@@ -2,7 +2,7 @@ import { useEffect, useMemo, useRef, useState, type MouseEvent as ReactMouseEven
 import { createPortal } from "react-dom";
 import { useT } from "../lib/i18n";
 import { cn } from "../lib/cn";
-import { formatHotkey } from "../lib/hotkeys";
+import { formatHotkey, isTypingTarget } from "../lib/hotkeys";
 import { useDismissal } from "../lib/use-dismissal";
 import { useCompactShell, useViewportWidth } from "../lib/responsive";
 import {
@@ -15,7 +15,8 @@ import { setSettledOpen, useSettledOpen } from "../lib/sidebar-settled";
 import { setSidebarSectionOpen, useSidebarSectionOpen } from "../lib/sidebar-section-open";
 import { supportsSessionMigrate } from "../lib/session-migrate";
 import { fromDateTimeLocal, snoozePresets, toDateTimeLocal, type SnoozePreset } from "../lib/snooze-until";
-import { canSettle, useStore } from "../store";
+import { useShallow } from "zustand/react/shallow";
+import { canSettle, findRecord, supportsBulkAction, useStore } from "../store";
 import { SessionRow } from "./SessionRow";
 import { useBrowserPaneSplitOpen } from "./browser-pane/BrowserPaneSplit";
 import { Button, Chevron, ConfirmDialog, Dot, Empty, IconButton, IconClose, IconFleet, IconPlus, IconSearch, Panel, ResizeHandle, Sheet } from "./ui";
@@ -136,17 +137,31 @@ function SnoozeUntilDialog({
   );
 }
 
+/** The sidebar sections a Shift+click range stays inside (issue #988); the main list is Pinned plus the rest. */
+type SelectionSection = "main" | "snoozed" | "working" | "settled";
+
+/** The multi-selection a row reads and writes (issue #988); Sidebar-local, never in the store. */
+interface RowSelection {
+  selected: ReadonlySet<string>;
+  /** Mod/Shift+click on a row; true = consumed as a selection gesture. */
+  onModifierClick: (entry: SidebarEntry, section: SelectionSection, event: ReactMouseEvent<HTMLButtonElement>) => boolean;
+}
+
 /** One sidebar row: a session from this app or a joined instance, any project or a chat. */
 function Row({
   entry,
   onActivate,
   openSessionMenu,
   slim,
+  section,
+  selection,
 }: {
   entry: SidebarEntry;
   onActivate: () => void;
   openSessionMenu: OpenSessionMenu;
   slim: boolean;
+  section: SelectionSection;
+  selection: RowSelection;
 }) {
   const t = useT();
   // Issue #888: gate the row context menu on the local binary's floor.
@@ -163,6 +178,8 @@ function Row({
         projectLabel={entry.projectName ?? t("sidebar.session.chat")}
         instanceNickname={entry.nickname}
         density={slim ? "slim" : "tile"}
+        multiSelected={selection.selected.has(entry.session.tabId)}
+        onModifierClick={(event) => selection.onModifierClick(entry, section, event)}
         onContextMenu={(event) => {
           // A row opens the menu only with an item it can accept; it never
           // opens an empty one (issue #888). Migrate: omp refuses to pack a
@@ -214,6 +231,8 @@ function SidebarSection({
   onActivate,
   openSessionMenu,
   slim,
+  section,
+  selection,
 }: {
   heading: string;
   entries: SidebarEntry[];
@@ -225,6 +244,8 @@ function SidebarSection({
   openSessionMenu: OpenSessionMenu;
   /** Settled rows render slim; every other section renders tiles (issue #938). */
   slim: boolean;
+  section: SelectionSection;
+  selection: RowSelection;
 }) {
   return (
     <div
@@ -250,11 +271,158 @@ function SidebarSection({
       {shown && entries.length > 0 && (
         <div className={cn("min-h-0 overflow-y-auto px-1.5 py-1", slim ? "space-y-px" : "space-y-1", grow && "flex-1")}>
           {entries.map((entry) => (
-            <Row key={rowKey(entry)} entry={entry} onActivate={onActivate} openSessionMenu={openSessionMenu} slim={slim} />
+            <Row
+              key={rowKey(entry)}
+              entry={entry}
+              onActivate={onActivate}
+              openSessionMenu={openSessionMenu}
+              slim={slim}
+              section={section}
+              selection={selection}
+            />
           ))}
         </div>
       )}
     </div>
+  );
+}
+
+/**
+ * The selection bar (issue #988): replaces the sidebar footer while two or
+ * more rows are selected. Each action applies to every selected row that
+ * supports it — its count says how many — and stays tab-routed per row, so
+ * rows on different instances mix. Delete… keeps its confirmation; Stop keeps
+ * its own unless the terminate opt-out is set.
+ */
+function SelectionBar({
+  tabIds,
+  snoozeMenuOpen,
+  setSnoozeMenuOpen,
+  onSnoozeCustom,
+  onClear,
+}: {
+  tabIds: string[];
+  snoozeMenuOpen: boolean;
+  setSnoozeMenuOpen: (open: boolean) => void;
+  onSnoozeCustom: (tabIds: string[]) => void;
+  onClear: () => void;
+}) {
+  const t = useT();
+  const settleSessions = useStore((st) => st.settleSessions);
+  const snoozeSessions = useStore((st) => st.snoozeSessions);
+  const unsnoozeSessions = useStore((st) => st.unsnoozeSessions);
+  const retitleSessions = useStore((st) => st.retitleSessions);
+  const terminateSessions = useStore((st) => st.terminateSessions);
+  const deleteSessions = useStore((st) => st.deleteSessions);
+  const snoozedOn = useStore((st) => st.state?.snoozedSectionEnabled === true);
+  // Per-action counts of the rows that support it; shallow-compared, so the
+  // bar re-renders only when a count changes.
+  const counts = useStore(
+    useShallow((st) => {
+      const n = { settle: 0, snooze: 0, unsnooze: 0, retitle: 0, stop: 0 };
+      for (const tabId of tabIds) {
+        const rec = findRecord(st.state, tabId);
+        if (rec === undefined) continue;
+        for (const action of Object.keys(n) as (keyof typeof n)[]) {
+          if (supportsBulkAction(st, rec, action)) n[action] += 1;
+        }
+      }
+      return n;
+    }),
+  );
+  const menuRef = useRef<HTMLDivElement>(null);
+  const snoozeButtonRef = useRef<HTMLDivElement>(null);
+  useDismissal({
+    open: snoozeMenuOpen,
+    refs: [menuRef, snoozeButtonRef],
+    onClose: () => setSnoozeMenuOpen(false),
+    onEscape: () => setSnoozeMenuOpen(false),
+  });
+
+  const act = (run: () => unknown): void => {
+    setSnoozeMenuOpen(false);
+    void run();
+    onClear();
+  };
+
+  return (
+    <footer
+      role="toolbar"
+      aria-label={t("sidebar.selection.label", { n: tabIds.length })}
+      className="relative shrink-0 space-y-1.5 border-t border-line bg-raised/60 px-3 py-2 text-[10px] text-ink-faint"
+    >
+      <div className="flex items-center gap-2">
+        <span className="font-mono tabular-nums text-ink-mid">{t("sidebar.selection.count", { n: tabIds.length })}</span>
+        <span className="ml-auto font-mono">{formatHotkey("escape")}</span>
+        <IconButton label={t("sidebar.selection.clear")} onClick={onClear} className="size-5">
+          <IconClose className="size-3.5" />
+        </IconButton>
+      </div>
+      <div className="flex flex-wrap gap-1">
+        <Button size="xs" disabled={counts.settle === 0} onClick={() => act(() => settleSessions(tabIds))}>
+          {t("sidebar.selection.action", { action: t("sidebar.session.settleMenu"), n: counts.settle })}
+        </Button>
+        {snoozedOn && (
+          <div ref={snoozeButtonRef} className="relative">
+            <Button
+              size="xs"
+              disabled={counts.snooze === 0}
+              selected={snoozeMenuOpen}
+              onClick={() => setSnoozeMenuOpen(!snoozeMenuOpen)}
+            >
+              {t("sidebar.selection.action", { action: t("sidebar.session.snooze"), n: counts.snooze })}
+            </Button>
+            {snoozeMenuOpen && (
+              <div ref={menuRef} role="menu" className="absolute bottom-full left-0 z-50 mb-1">
+                <Panel className="edge-lit animate-rise w-max p-1">
+                  <button type="button" role="menuitem" autoFocus className={MENU_ROW} onClick={() => act(() => snoozeSessions(tabIds, null))}>
+                    {t("sidebar.session.snooze")}
+                  </button>
+                  {snoozePresets(new Date()).map(({ preset, untilMs }) => (
+                    <button
+                      key={preset}
+                      type="button"
+                      role="menuitem"
+                      className={MENU_ROW}
+                      onClick={() => act(() => snoozeSessions(tabIds, untilMs))}
+                    >
+                      {t(SNOOZE_PRESET_LABEL[preset])}
+                    </button>
+                  ))}
+                  <button
+                    type="button"
+                    role="menuitem"
+                    className={MENU_ROW}
+                    onClick={() => act(() => onSnoozeCustom(tabIds))}
+                  >
+                    {t("sidebar.session.snoozeCustom")}
+                  </button>
+                </Panel>
+              </div>
+            )}
+          </div>
+        )}
+        {snoozedOn && (
+          <Button size="xs" disabled={counts.unsnooze === 0} onClick={() => act(() => unsnoozeSessions(tabIds))}>
+            {t("sidebar.selection.action", { action: t("sidebar.session.unsnooze"), n: counts.unsnooze })}
+          </Button>
+        )}
+        <Button
+          size="xs"
+          disabled={counts.retitle === 0}
+          title={counts.retitle === 0 ? t("session.error.retitleNotLive") : undefined}
+          onClick={() => act(() => retitleSessions(tabIds))}
+        >
+          {t("sidebar.selection.action", { action: t("sidebar.selection.retitle"), n: counts.retitle })}
+        </Button>
+        <Button size="xs" tone="copper" disabled={counts.stop === 0} onClick={() => act(() => terminateSessions(tabIds))}>
+          {t("sidebar.selection.action", { action: t("sidebar.selection.stop"), n: counts.stop })}
+        </Button>
+        <Button size="xs" tone="rose" onClick={() => act(() => deleteSessions(tabIds))}>
+          {t("sidebar.selection.action", { action: t("sidebar.selection.delete"), n: tabIds.length })}
+        </Button>
+      </div>
+    </footer>
   );
 }
 
@@ -270,6 +438,7 @@ export function Sidebar() {
   const setSessionSnoozed = useStore((st) => st.setSessionSnoozed);
   const setSessionPinned = useStore((st) => st.setSessionPinned);
   const settleSessions = useStore((st) => st.settleSessions);
+  const snoozeSessions = useStore((st) => st.snoozeSessions);
   const compact = useCompactShell();
   const surface = useStore((st) => st.compactSurface);
   const closeCompactSurface = useStore((st) => st.closeCompactSurface);
@@ -297,8 +466,14 @@ export function Sidebar() {
   const [sessionMenu, setSessionMenu] = useState<SessionMenuRequest | null>(null);
   const sessionMenuRef = useRef<HTMLDivElement>(null);
   const sessionMenuItemRef = useRef<HTMLButtonElement>(null);
-  // Timed snooze's custom picker (issue #979): the tab it will snooze, or closed.
-  const [snoozeCustomTabId, setSnoozeCustomTabId] = useState<string | null>(null);
+  // Timed snooze's custom picker (issue #979): the tabs it will snooze — one
+  // row's menu or the selection bar (#988) — or closed.
+  const [snoozeCustomTabIds, setSnoozeCustomTabIds] = useState<string[] | null>(null);
+  // Multi-select (issue #988): Mod+click toggles, Shift+click extends from the
+  // anchor within its section. Sidebar-local, never in the store.
+  const [selection, setSelection] = useState<ReadonlySet<string>>(() => new Set());
+  const selectionAnchor = useRef<{ section: SelectionSection; tabId: string } | null>(null);
+  const [bulkSnoozeOpen, setBulkSnoozeOpen] = useState(false);
 
   // Issue #888/#895: the per-row Migrate/Ask menu.
   const openSessionMenu: OpenSessionMenu = (tabId, event, { migrate, ask, snooze, snoozed, pin, pinned, settle }) => {
@@ -340,6 +515,84 @@ export function Sidebar() {
 
   const filtering = query.trim().length > 0;
   const lists = useMemo(() => (state === null ? null : buildSidebarLists(state, query)), [state, query]);
+  // The rows a Shift+click range walks, per section, in display order.
+  const sectionEntries = useMemo(
+    () =>
+      lists === null
+        ? null
+        : {
+            main: [...lists.pinned, ...lists.active],
+            snoozed: lists.snoozed,
+            working: lists.working,
+            settled: lists.settled,
+          },
+    [lists],
+  );
+  // The selection as it stands now: a row deleted, filtered out, or on an
+  // instance that dropped leaves it without a stale entry acting on it.
+  const selectedEntries = useMemo(() => {
+    if (sectionEntries === null || selection.size === 0) return [];
+    return [...sectionEntries.main, ...sectionEntries.snoozed, ...sectionEntries.working, ...sectionEntries.settled].filter(
+      (entry) => entry.reachable && selection.has(entry.session.tabId),
+    );
+  }, [sectionEntries, selection]);
+  const selectedIds = useMemo(() => new Set(selectedEntries.map((entry) => entry.session.tabId)), [selectedEntries]);
+  const clearSelection = (): void => {
+    setSelection(new Set());
+    selectionAnchor.current = null;
+    setBulkSnoozeOpen(false);
+  };
+  const rowSelection: RowSelection = {
+    selected: selectedIds,
+    onModifierClick: (entry, section, event) => {
+      const toggle = event.metaKey || event.ctrlKey;
+      if (!toggle && !event.shiftKey) return false;
+      // An unreachable row's actions cannot reach its host: never selectable.
+      if (!entry.reachable || sectionEntries === null) return true;
+      const tabId = entry.session.tabId;
+      const anchor = selectionAnchor.current;
+      if (event.shiftKey && anchor !== null && anchor.section === section) {
+        const rows = sectionEntries[section];
+        const from = rows.findIndex((e) => e.session.tabId === anchor.tabId);
+        const to = rows.findIndex((e) => e.session.tabId === tabId);
+        if (from !== -1 && to !== -1) {
+          const range = rows
+            .slice(Math.min(from, to), Math.max(from, to) + 1)
+            .filter((e) => e.reachable)
+            .map((e) => e.session.tabId);
+          setSelection((prev) => new Set([...prev, ...range]));
+          return true;
+        }
+      }
+      // Mod+click, or a Shift+click with no anchor in this section, toggles
+      // the row and makes it the anchor. Functional updates: two clicks
+      // before a render must both land. An id whose row has since gone stays
+      // in state but never acts — selectedEntries reads only live rows.
+      selectionAnchor.current = { section, tabId };
+      setSelection((prev) => {
+        const next = new Set(prev);
+        if (next.has(tabId)) next.delete(tabId);
+        else next.add(tabId);
+        return next;
+      });
+      return true;
+    },
+  };
+
+  // Escape clears the selection, unless a menu it would close is open or
+  // focus sits in a text field (the filter box keeps its own Escape).
+  const selecting = selection.size > 0;
+  const menuOpen = sessionMenu !== null || bulkSnoozeOpen;
+  useEffect(() => {
+    if (!selecting || menuOpen) return;
+    const onKeyDown = (event: KeyboardEvent): void => {
+      if (event.key !== "Escape" || event.defaultPrevented || isTypingTarget(event.target)) return;
+      setSelection(new Set());
+      selectionAnchor.current = null;
+    };
+    window.addEventListener("keydown", onKeyDown);
+    return () => window.removeEventListener("keydown", onKeyDown);
+  }, [selecting, menuOpen]);
   // "No running sessions" fires only with no live row anywhere (pinned,
   // active, working, or a live snoozed row); "Nothing matches" only when no
   // row at all survives the filter. A dormant snoozed row is a row, so it
@@ -468,14 +721,14 @@ export function Sidebar() {
                       {t("sidebar.pinned.heading", { n: lists.pinned.length })}
                     </div>
                     {lists.pinned.map((entry) => (
-                      <Row key={rowKey(entry)} entry={entry} onActivate={closeCompactSurface} openSessionMenu={openSessionMenu} slim={false} />
+                      <Row key={rowKey(entry)} entry={entry} onActivate={closeCompactSurface} openSessionMenu={openSessionMenu} slim={false} section="main" selection={rowSelection} />
                     ))}
                   </div>
                 )}
                 {lists.active.length > 0 && (
                   <div className={cn("space-y-1", lists.pinned.length > 0 && "mt-1.5 border-t border-line-soft pt-1.5")}>
                     {lists.active.map((entry) => (
-                      <Row key={rowKey(entry)} entry={entry} onActivate={closeCompactSurface} openSessionMenu={openSessionMenu} slim={false} />
+                      <Row key={rowKey(entry)} entry={entry} onActivate={closeCompactSurface} openSessionMenu={openSessionMenu} slim={false} section="main" selection={rowSelection} />
                     ))}
                   </div>
                 )}
@@ -520,6 +773,8 @@ export function Sidebar() {
                 onActivate={closeCompactSurface}
                 openSessionMenu={openSessionMenu}
                 slim={false}
+                section="snoozed"
+                selection={rowSelection}
               />
             )}
             <SidebarSection
@@ -532,6 +787,8 @@ export function Sidebar() {
               onActivate={closeCompactSurface}
               openSessionMenu={openSessionMenu}
               slim={false}
+              section="working"
+              selection={rowSelection}
             />
             {lists.settled.length > 0 && (
               <SidebarSection
@@ -544,6 +801,8 @@ export function Sidebar() {
                 onActivate={closeCompactSurface}
                 openSessionMenu={openSessionMenu}
                 slim
+                section="settled"
+                selection={rowSelection}
               />
             )}
           </>
@@ -665,7 +924,7 @@ export function Sidebar() {
                     onClick={() => {
                       const { tabId } = sessionMenu;
                       setSessionMenu(null);
-                      setSnoozeCustomTabId(tabId);
+                      setSnoozeCustomTabIds([tabId]);
                     }}
                     className={MENU_ROW}
                   >
@@ -677,18 +936,28 @@ export function Sidebar() {
           </div>,
           document.body,
         )}
-      {snoozeCustomTabId !== null && (
+      {snoozeCustomTabIds !== null && (
         <SnoozeUntilDialog
-          onClose={() => setSnoozeCustomTabId(null)}
+          onClose={() => setSnoozeCustomTabIds(null)}
           onSnooze={(untilMs) => {
-            const tabId = snoozeCustomTabId;
-            setSnoozeCustomTabId(null);
-            void setSessionSnoozed(tabId, true, untilMs);
+            const tabIds = snoozeCustomTabIds;
+            setSnoozeCustomTabIds(null);
+            if (tabIds.length === 1) void setSessionSnoozed(tabIds[0]!, true, untilMs);
+            else void snoozeSessions(tabIds, untilMs);
           }}
         />
       )}
 
-      {/* -------- footer -------- */}
+      {/* -------- footer: the selection bar replaces it for 2+ rows (#988) -------- */}
+      {selectedEntries.length >= 2 ? (
+        <SelectionBar
+          tabIds={selectedEntries.map((entry) => entry.session.tabId)}
+          snoozeMenuOpen={bulkSnoozeOpen}
+          setSnoozeMenuOpen={setBulkSnoozeOpen}
+          onSnoozeCustom={(tabIds) => setSnoozeCustomTabIds(tabIds)}
+          onClear={clearSelection}
+        />
+      ) : (
       <footer className="flex shrink-0 items-center gap-2 border-t border-line px-3 py-2 text-[10px] text-ink-faint">
         <IconButton label={t("sidebar.footer.settings")} onClick={() => { openSettings(); closeCompactSurface(); }}>
           <IconGear />
@@ -719,6 +988,7 @@ export function Sidebar() {
           <span>{t("sidebar.footer.live")}</span>
         </span>
       </footer>
+      )}
       {!compact && (
         <ResizeHandle
           label={t("sidebar.footer.resize")}

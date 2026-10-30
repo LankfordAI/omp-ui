@@ -62,6 +62,15 @@ function lifecycleCopy(
         action: t("dialog.lifecycle.terminateAction"),
         target: confirmation.title,
       };
+    case "terminate-many":
+      // Bulk Stop (#988): the count in the title, the titles as the body's list.
+      return {
+        tone: "copper",
+        title: t("dialog.lifecycle.terminateManyTitle", { n: confirmation.tabIds.length }),
+        body: t("dialog.lifecycle.terminateManyBody", { titles: confirmation.titles.join("\n") }),
+        action: t("dialog.lifecycle.terminateManyAction", { n: confirmation.tabIds.length }),
+        target: null,
+      };
     case "switch-mode":
       return {
         tone: "copper",
@@ -347,7 +356,7 @@ export function AppFeedback(): JSX.Element | null {
             onClick={() => {
               // Persist before dispatching so a concurrent stop cannot slip
               // past an unsaved setting; a failed persist still proceeds.
-              if (skipTerminate && confirmation.kind === "terminate") {
+              if (skipTerminate && (confirmation.kind === "terminate" || confirmation.kind === "terminate-many")) {
                 void setSkipTerminateConfirmation(true);
               }
               void confirmLifecycleAction(confirmation.id);
@@ -367,7 +376,7 @@ export function AppFeedback(): JSX.Element | null {
         <p className="whitespace-pre-wrap text-sm leading-relaxed text-ink-dim [overflow-wrap:anywhere] break-words">
           {copy.body}
         </p>
-        {confirmation.kind === "terminate" && !busy && (
+        {(confirmation.kind === "terminate" || confirmation.kind === "terminate-many") && !busy && (
           <label className="flex cursor-pointer items-center gap-2.5 rounded-md border border-line bg-raised px-3 py-2.5 text-xs text-ink-mid transition-colors hover:border-line-strong hover:text-ink">
             <input
               type="checkbox"

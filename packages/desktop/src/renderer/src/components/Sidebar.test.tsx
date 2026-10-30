@@ -1134,3 +1134,108 @@ describe("Sidebar Working and Snoozed sections (issue #935)", () => {
     expect(backendMock.setSessionPinned).toHaveBeenCalledWith("watched", false);
   });
 });
+
+describe("Sidebar multi-select (issue #988)", () => {
+  const project = state.projects[0]!.project;
+  const baseSession = state.projects[0]!.sessions[0]!;
+  // launchedAt descending = display order a, b, c, d in the main list.
+  const sess = (tabId: string, minute: number, patch: Partial<SessionSummary> = {}): SessionSummary => ({
+    ...baseSession,
+    tabId,
+    title: tabId,
+    cachedTitle: tabId,
+    launchedAt: `2026-08-03T00:${String(59 - minute).padStart(2, "0")}:00.000Z`,
+    ...patch,
+  });
+  const rowButton = (title: string): HTMLButtonElement =>
+    [...document.body.querySelectorAll<HTMLButtonElement>("button[title]")].find((b) => b.title === title)!;
+  const click = (title: string, init: MouseEventInit = {}): void => {
+    act(() => {
+      rowButton(title).dispatchEvent(new MouseEvent("click", { bubbles: true, cancelable: true, ...init }));
+    });
+  };
+  const selected = (): string[] =>
+    [...document.body.querySelectorAll<HTMLButtonElement>('button[data-multi-selected="true"]')].map((b) => b.title);
+  const bar = (): HTMLElement | null => document.body.querySelector<HTMLElement>('footer[role="toolbar"]');
+  const barButton = (prefix: string): HTMLButtonElement =>
+    [...(bar()?.querySelectorAll<HTMLButtonElement>("button") ?? [])].find((b) => b.textContent?.startsWith(prefix))!;
+
+  beforeEach(() => {
+    useStore.setState({
+      state: backendState({
+        projects: [
+          {
+            project,
+            sessions: [
+              sess("a", 0),
+              sess("b", 1),
+              sess("c", 2),
+              sess("d", 3),
+              sess("old", 4, { live: "dormant" }),
+            ],
+          },
+        ],
+      }),
+    });
+  });
+
+  it("Mod+click toggles rows without opening them; two rows swap the footer for the selection bar", () => {
+    renderSidebar();
+    click("a", { ctrlKey: true });
+    expect(selected()).toEqual(["a"]);
+    // One row is a selection but not yet a bulk: the footer stays.
+    expect(bar()).toBeNull();
+    click("c", { metaKey: true });
+    expect(selected()).toEqual(["a", "c"]);
+    expect(bar()!.textContent).toContain("2 selected");
+    click("a", { ctrlKey: true });
+    expect(selected()).toEqual(["c"]);
+    expect(bar()).toBeNull();
+    expect(openSession).not.toHaveBeenCalled();
+
+    click("b");
+    expect(openSession).toHaveBeenCalledWith("b");
+  });
+
+  it("Shift+click selects the range from the anchor within its section only", () => {
+    setSettledOpen(true);
+    renderSidebar();
+    click("b", { ctrlKey: true });
+    click("d", { shiftKey: true });
+    expect(selected()).toEqual(["b", "c", "d"]);
+    // A Shift+click in another section has no anchor there: it toggles alone.
+    click("old", { shiftKey: true });
+    expect(selected()).toEqual(["b", "c", "d", "old"]);
+  });
+
+  it("Escape clears the selection", () => {
+    renderSidebar();
+    click("a", { ctrlKey: true });
+    click("b", { ctrlKey: true });
+    act(() => {
+      window.dispatchEvent(new KeyboardEvent("keydown", { key: "Escape", bubbles: true }));
+    });
+    expect(selected()).toEqual([]);
+    expect(bar()).toBeNull();
+  });
+
+  it("counts per action what the selection supports and Stop asks once for every live row", () => {
+    setSettledOpen(true);
+    renderSidebar();
+    click("a", { ctrlKey: true });
+    click("b", { ctrlKey: true });
+    click("old", { ctrlKey: true });
+    // Stop and Retitle need a process; Delete takes every selected row.
+    expect(barButton("Stop").textContent).toBe("Stop (2)");
+    expect(barButton("Delete").textContent).toBe("Delete… (3)");
+    expect(barButton("Retitle").disabled).toBe(true);
+    act(() => barButton("Stop").click());
+    expect(useStore.getState().lifecycleConfirmation).toMatchObject({
+      kind: "terminate-many",
+      tabIds: ["a", "b"],
+    });
+    // Acting clears the selection.
+    expect(selected()).toEqual([]);
+    useStore.setState({ lifecycleConfirmation: null });
+  });
+});

@@ -1,6 +1,6 @@
 import { useEffect, useState } from "react";
 import type { MergeBackStatus } from "@omp-ui/core/types";
-import type { DeleteConfirmation } from "../store";
+import type { BulkDeleteConfirmation, DeleteConfirmation } from "../store";
 import { findOwner, findRecord, runningSessionTitleOnCheckout, skipConfirmationCovers, useStore } from "../store";
 import { projectKey } from "../lib/project-key";
 import { Button, ConfirmDialog } from "./ui";
@@ -238,6 +238,79 @@ export function DeleteSessionDialog({
           <p className="text-xs leading-relaxed text-rose">{mergeError}</p>
         )}
 
+        {offerOptOut && (
+          <label className="flex cursor-pointer items-center gap-2.5 rounded-md border border-line bg-raised px-3 py-2.5 text-xs text-ink-mid transition-colors hover:border-line-strong hover:text-ink">
+            <input
+              type="checkbox"
+              checked={skipFuture}
+              onChange={(event) => setSkipFuture(event.target.checked)}
+              className="size-3.5 accent-current"
+            />
+            {t("dialog.delete.dontShowAgain")}
+          </label>
+        )}
+      </div>
+    </ConfirmDialog>
+  );
+}
+
+/**
+ * The bulk Delete confirmation (issue #988): the selection bar's Delete…
+ * names the count and lists the rows it erases, with the same "running",
+ * "worktree", and cascade facts the single dialog states. No merge-back row:
+ * a merge is a per-session choice, so a worktree row is deleted with its
+ * commits surviving on the branch. The opt-out shows only where it would
+ * cover every row (issue #641).
+ */
+export function BulkDeleteSessionsDialog({ confirmation }: { confirmation: BulkDeleteConfirmation }) {
+  const t = useT();
+  const [skipFuture, setSkipFuture] = useState(false);
+  const confirmDeleteSessions = useStore((s) => s.confirmDeleteSessions);
+  const cancelDeleteSessions = useStore((s) => s.cancelDeleteSessions);
+  const { rows } = confirmation;
+  const descendants = rows.reduce((n, row) => n + row.cascade.length, 0);
+  const anyRunning = rows.some((row) => row.running || row.cascade.some((d) => d.running));
+  const anyWorktree = rows.some((row) => row.worktreePath !== null || row.cascade.some((d) => d.worktree));
+  const offerOptOut = rows.every((row) => skipConfirmationCovers(row));
+  const shown = rows.slice(0, 6);
+
+  return (
+    <ConfirmDialog
+      kicker={t("dialog.delete.kicker")}
+      title={t("dialog.delete.bulkTitle", { n: rows.length })}
+      tone="rose"
+      onClose={cancelDeleteSessions}
+      width="w-[28rem]"
+      actions={
+        <>
+          <Button variant="ghost" onClick={cancelDeleteSessions}>
+            {t("common.dialog.cancel")}
+          </Button>
+          <Button variant="solid" tone="rose" onClick={() => void confirmDeleteSessions(skipFuture)}>
+            {t("dialog.delete.deleteMany", { n: rows.length + descendants })}
+          </Button>
+        </>
+      }
+    >
+      <div className="space-y-4">
+        <ul className="list-none space-y-0.5 rounded-md border border-line bg-raised px-3 py-2.5 text-xs text-ink-mid">
+          {shown.map((row) => (
+            <li key={row.tabId} className="truncate">
+              {row.title}
+              {row.running ? t("dialog.delete.runningSuffix") : ""}
+              {row.worktreeBranch !== null ? t("dialog.delete.worktreeSuffix") : ""}
+            </li>
+          ))}
+          {rows.length > shown.length && <li>{t("dialog.delete.more", { n: rows.length - shown.length })}</li>}
+        </ul>
+        <p className="text-sm leading-relaxed text-ink-dim">
+          {anyRunning && t("dialog.delete.bulkRunning")}
+          {t("dialog.delete.bulkErased")}
+          {anyWorktree && t("dialog.delete.bulkWorktree")}
+          {descendants > 0 && t("dialog.delete.alsoDeletes", { n: descendants, s: descendants === 1 ? "" : "s" })}
+          {descendants > 0 && ". "}
+          {t("dialog.delete.cannotUndo")}
+        </p>
         {offerOptOut && (
           <label className="flex cursor-pointer items-center gap-2.5 rounded-md border border-line bg-raised px-3 py-2.5 text-xs text-ink-mid transition-colors hover:border-line-strong hover:text-ink">
             <input

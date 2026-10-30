@@ -653,6 +653,7 @@ beforeEach(() => {
     compactSurface: null,
     compactionSettings: {},
     deleteConfirmation: null,
+    bulkDeleteConfirmation: null,
     gettingStartedOpen: false,
     shareConfirmTab: null,
     collab: {},

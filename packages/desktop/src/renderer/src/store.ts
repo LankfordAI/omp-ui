@@ -42,6 +42,7 @@ import { createSessionParamsSlice } from "./store/slices/session-params";
 import { createSideQuestionsSlice } from "./store/slices/side-questions";
 import { createSettingsSlice } from "./store/slices/settings";
 import { createSettleSlice } from "./store/slices/settle";
+import { createSessionBulkSlice } from "./store/slices/session-bulk";
 import { createSubagentControlSlice } from "./store/slices/subagent-control";
 import { createAsyncJobsSlice } from "./store/slices/async-jobs";
 import {
@@ -70,6 +71,7 @@ export type {
   CollabTabView,
   CompactSurface,
   CompactionMethodsLoad,
+  BulkDeleteConfirmation,
   DeleteConfirmation,
   ErrorNotice,
   ExperimentsCache,
@@ -104,6 +106,7 @@ export {
 } from "./store/slices/frame-reduction";
 export { resolveSeanceSource } from "./store/slices/seance";
 export { canSettle } from "./store/slices/settle";
+export { supportsBulkAction, type BulkAction } from "./store/slices/session-bulk";
 export {
   COMPACT_SETTLE_DEADLINE_MS,
   RPC_COMMAND_TIMEOUT_MS,
@@ -197,6 +200,7 @@ export const useStore = create<UiStore>()((set, get, api) => {
   const asyncJobs = createAsyncJobsSlice(get, m);
   const liveAudio = createLiveAudioSlice(get, set);
   const settle = createSettleSlice(set, get);
+  const sessionBulk = createSessionBulkSlice(get);
   /**
    * Repaints the document to match the registry's persisted themeId. The
    * registry stays authoritative; lib/themes.ts keeps only a localStorage
@@ -416,6 +420,7 @@ export const useStore = create<UiStore>()((set, get, api) => {
     ...sideQuestions,
     ...migrate,
     ...settle,
+    ...sessionBulk,
     ...subagentControl,
     ...seance,
     ...asyncJobs,

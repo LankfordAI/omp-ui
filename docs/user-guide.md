@@ -46,6 +46,8 @@ Every other owned session — dormant, hibernated, archived, or missing — wait
 
 When you are done with a session, **Settle** it: hover its row and press the check button, or choose **Settle** from the row's right-click menu, the session title menu, or the command palette. Settling stops the session's process without an exit card and moves the row to **Settled**; a snoozed row leaves **Snoozed** too. A session in the middle of a turn offers **Stop** instead, because Settle is for finished work. Changed your mind? A toast with **Undo** appears after each settle, and `Mod+Z` (with the cursor outside a text field) resumes the most recently settled session, even after the toast closes. Undo covers settles made in this window since omp-ui started. Settling a joined remote instance's session stops it on the machine that owns it.
 
+To act on several sessions at once, select them. `Mod+click` a row to add it to the selection or take it out; `Shift+click` adds every row between the last row you picked and this one, within the same section. Selected rows are highlighted, and `Escape` clears the selection. With two or more rows selected, a selection bar replaces the sidebar footer with **Settle**, **Snooze** (including the timed choices), **Unsnooze**, **Retitle**, **Stop**, and **Delete…**. Each button shows how many of the selected rows it applies to and skips the rest: **Retitle** applies only to running native sessions, **Stop** only to running ones, and **Snooze** and **Unsnooze** appear only while the **Snoozed** section is on. **Stop** and **Delete…** ask once for the whole selection, and the delete confirmation lists each session. A multi-row settle is one Undo. Rows from different joined remote instances can be mixed; each acts on the machine that owns it, and any rows that fail are listed together in one notice.
+
 ### Project pages
 
 Every project action lives on the project's page in the project quick-open. Press **New session** in the sidebar header (or `Mod+Shift+N`), highlight a project, and press `→` with the caret at the end of the search box — or click the row's arrow button. The page lists **New session**, **New terminal session**, **New private session**, **New session…** (the [New session dialog](#start-resume-and-stop-sessions) that starts work here or on the fleet), **Open in VS Code** (when installed), **Open in Files**, **Open in Terminal** (when a launchable system terminal is found), **Experiments** and **New experiment…** (when experiments are enabled), **Project settings…**, and **Remove project…**. Type to filter the actions, press `Backspace` on an empty search to return to the project list, or press `Escape` to close. When the same repository is checked out on several machines, its row's subline names each of them, and the composer's machine chip picks which one the new session runs on.
@@ -357,6 +359,7 @@ For connecting a phone or another browser to the compact shell, see [Remote acce
 | `Mod+0` | Reset native transcript text size. |
 | `Mod+,` | Open Settings. |
 | `Mod+Z` | Undo the most recent Settle and resume that session; outside a text field only. |
+| `Mod+click`, `Shift+click` (sidebar row) | Add a row to the sidebar selection or remove it; select a range within one section. `Escape` clears the selection. |
 
 ### Composer shortcuts
 

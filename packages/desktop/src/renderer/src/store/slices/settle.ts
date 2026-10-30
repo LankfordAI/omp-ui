@@ -7,6 +7,7 @@ import { backend } from "../../backend";
 import { t } from "../../lib/i18n";
 import { randomId } from "../../lib/random-id";
 import type { SettleUndoEntry, UiStore } from "../types";
+import { bulkFailureNotice, failureMessage, type BulkFailure } from "./bulk-failures";
 import { findRecord } from "./view";
 import type { GetState, SetState } from "./shared";
 
@@ -58,18 +59,29 @@ export function createSettleSlice(set: SetState, get: GetState): SettleSlice {
       if (targets.length === 0) return;
       for (const target of targets) inFlight.add(target.tabId);
       const settled: SettleUndoEntry["sessions"] = [];
+      // A bulk settle (#988) reports every failed row in one notice.
+      const failures: BulkFailure[] = [];
       await Promise.all(
         targets.map(async (target) => {
           try {
             if (await backend.settleSession(target.tabId)) settled.push(target);
-            else get().reportError(t("settle.error.skipped", { title: target.title }));
+            else {
+              failures.push({
+                tabId: target.tabId,
+                title: target.title,
+                message: t("settle.error.skippedReason"),
+                alone: t("settle.error.skipped", { title: target.title }),
+              });
+            }
           } catch (err) {
-            get().reportError(err);
+            failures.push({ tabId: target.tabId, title: target.title, message: failureMessage(err) });
           } finally {
             inFlight.delete(target.tabId);
           }
         }),
       );
+      const notice = bulkFailureNotice(failures, targets.map((target) => target.tabId));
+      if (notice !== null) get().reportError(notice);
       if (settled.length === 0) return;
       // Request order, not completion order: the toast names the first one.
       settled.sort((a, b) => targets.indexOf(a) - targets.indexOf(b));

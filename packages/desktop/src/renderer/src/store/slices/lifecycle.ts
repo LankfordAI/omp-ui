@@ -50,9 +50,11 @@ import {
   type Watchers,
 } from "./shared";
 import { disposeTabRuntime } from "./rpc-command";
+import { bulkFailureNotice, failureMessage, type BulkFailure } from "./bulk-failures";
 import { liveVoiceGeneration } from "./live-switch";
 import { findInstance, findOwner, findRecord, findWorktreeAt, focusOn } from "./view";
 import type {
+  BulkDeleteRow,
   DeleteConfirmation,
   LifecycleConfirmation,
   LifecycleConfirmationChoice,
@@ -79,6 +81,7 @@ export type LifecycleSlice = Pick<
   | "searchOpen"
   | "tuiHandoff"
   | "deleteConfirmation"
+  | "bulkDeleteConfirmation"
   | "lifecycleConfirmation"
   | "confirmLifecycleAction"
   | "cancelLifecycleAction"
@@ -111,6 +114,10 @@ export type LifecycleSlice = Pick<
   | "resumeWithModel"
   | "deleteSession"
   | "confirmDeleteSession"
+  | "terminateSessions"
+  | "deleteSessions"
+  | "confirmDeleteSessions"
+  | "cancelDeleteSessions"
   | "releaseWorktreeSession"
   | "settleFinishedSession"
   | "syncWorktreeSession"
@@ -1423,7 +1430,7 @@ export function createLifecycleSlice(
     choice: LifecycleConfirmationChoice,
   ): void => {
     const s = get();
-    if (s.lifecycleConfirmation !== null || s.deleteConfirmation !== null) return;
+    if (s.lifecycleConfirmation !== null || s.deleteConfirmation !== null || s.bulkDeleteConfirmation !== null) return;
     set({ lifecycleConfirmation: { ...choice, id: randomId(), busy: false } });
   };
 
@@ -1456,6 +1463,10 @@ export function createLifecycleSlice(
       // termination would silently strand its banner over a still-live PTY —
       // and a rejection is not the stop the user accepted.
       set((s) => ({ tuiHandoff: dropTuiHandoff(s.tuiHandoff, confirmation.tabId) }));
+      return;
+    }
+    if (confirmation.kind === "terminate-many") {
+      await stopMany(confirmation.tabIds);
       return;
     }
     if (confirmation.kind === "switch-mode") {
@@ -1657,6 +1668,53 @@ export function createLifecycleSlice(
     stageLifecycleConfirmation({ kind: "terminate", tabId, title: rec.title });
   };
 
+  /**
+   * The accepted bulk Stop (issue #988): re-checks each row, stops the live
+   * ones in parallel, each tab-routed to its owner, and reports every failure
+   * in one notice. Only a successful stop retires its row's TUI handoff.
+   */
+  const stopMany = async (tabIds: readonly string[]): Promise<void> => {
+    const rows = tabIds.flatMap((tabId) => {
+      const rec = findRecord(get().state, tabId);
+      return rec?.live === "live" ? [rec] : [];
+    });
+    const failures: BulkFailure[] = [];
+    await Promise.all(
+      rows.map(async (rec) => {
+        try {
+          await backend.terminateSession(rec.tabId);
+          set((s) => ({ tuiHandoff: dropTuiHandoff(s.tuiHandoff, rec.tabId) }));
+        } catch (err) {
+          failures.push({ tabId: rec.tabId, title: rec.title, message: failureMessage(err) });
+        }
+      }),
+    );
+    const notice = bulkFailureNotice(failures, rows.map((r) => r.tabId));
+    if (notice !== null) get().reportError(notice);
+  };
+
+  const terminateSessions = async (tabIds: readonly string[]): Promise<void> => {
+    const rows = [...new Set(tabIds)].flatMap((tabId) => {
+      const rec = findRecord(get().state, tabId);
+      return rec?.live === "live" ? [rec] : [];
+    });
+    if (rows.length === 0) return;
+    if (rows.length === 1) {
+      await terminate(rows[0]!.tabId);
+      return;
+    }
+    // The terminate opt-out (issue #925) covers a bulk Stop too: same effect.
+    if (get().state?.skipTerminateConfirmation === true) {
+      await stopMany(rows.map((r) => r.tabId));
+      return;
+    }
+    stageLifecycleConfirmation({
+      kind: "terminate-many",
+      tabIds: rows.map((r) => r.tabId),
+      titles: rows.map((r) => r.title),
+    });
+  };
+
   const switchMode = async (tabId: string, mode: SessionMode): Promise<void> => {
     const rec = findRecord(get().state, tabId);
     // Absent record or an already-selected mode: no action, no prompt.
@@ -1815,6 +1873,109 @@ export function createLifecycleSlice(
       }
     }
     await eraseSession(pending.tabId, pending.cascade.map((d) => d.tabId));
+  };
+
+  /**
+   * The accepted bulk Delete (issue #988): one tab-routed `session:delete`
+   * per row, cascading where that row has plan-handoff descendants, in
+   * parallel. Every erased tab drops at once, and every row-level and
+   * cascade-member failure lands in one notice; failed records stay mounted.
+   */
+  const eraseSessions = async (rows: readonly BulkDeleteRow[]): Promise<void> => {
+    const deleted: string[] = [];
+    const failures: BulkFailure[] = [];
+    await Promise.all(
+      rows.map(async (row) => {
+        try {
+          const result = await backend.deleteSession(row.tabId, row.cascade.length > 0);
+          deleted.push(...result.deleted);
+          for (const failure of result.failed) {
+            // A cascade member's failure names the member, not its source row.
+            const title =
+              failure.tabId === row.tabId
+                ? row.title
+                : (row.cascade.find((d) => d.tabId === failure.tabId)?.title ?? failure.tabId);
+            failures.push({ tabId: failure.tabId, title, message: failure.message });
+          }
+        } catch (err) {
+          failures.push({ tabId: row.tabId, title: row.title, message: failureMessage(err) });
+        }
+      }),
+    );
+    if (deleted.length > 0) dropTabs([...new Set(deleted)], "the session was deleted");
+    const order = rows.flatMap((r) => [r.tabId, ...r.cascade.map((d) => d.tabId)]);
+    const notice = bulkFailureNotice(failures, order);
+    if (notice !== null) get().reportError(notice);
+  };
+
+  const deleteSessions = async (tabIds: readonly string[]): Promise<void> => {
+    const recs = [...new Set(tabIds)].flatMap((tabId) => {
+      const rec = findRecord(get().state, tabId);
+      return rec === undefined ? [] : [rec];
+    });
+    if (recs.length === 0) return;
+    if (recs.length === 1) {
+      await deleteSession(recs[0]!.tabId);
+      return;
+    }
+    const failures: BulkFailure[] = [];
+    const previews = await Promise.all(
+      recs.map(async (rec) => {
+        try {
+          return await backend.deleteSessionPreview(rec.tabId);
+        } catch (err) {
+          failures.push({ tabId: rec.tabId, title: rec.title, message: failureMessage(err) });
+          return null;
+        }
+      }),
+    );
+    // A row whose preview failed is never erased blind: its descendants are unknown.
+    const notice = bulkFailureNotice(failures, recs.map((r) => r.tabId));
+    if (notice !== null) get().reportError(notice);
+    // A descendant that is itself selected is erased by its source's cascade.
+    const cascaded = new Set(previews.flatMap((p) => p?.descendants.map((d) => d.tabId) ?? []));
+    const rows: BulkDeleteRow[] = recs.flatMap((rec, i) => {
+      const preview = previews[i];
+      if (preview === null || preview === undefined || cascaded.has(rec.tabId)) return [];
+      return [
+        {
+          tabId: rec.tabId,
+          title: rec.title,
+          running: rec.live === "live",
+          worktreeBranch: rec.worktree?.branch ?? null,
+          worktreePath: rec.worktree?.path ?? null,
+          cascade: preview.descendants,
+        },
+      ];
+    });
+    if (rows.length === 0) return;
+    // The opt-out (issue #641) covers a bulk Delete only when it covers every
+    // row: a worktree checkout anywhere in the closure always asks.
+    if (get().state?.skipDeleteConfirmation === true && rows.every((row) => skipConfirmationCovers(row))) {
+      await eraseSessions(rows);
+      return;
+    }
+    const s = get();
+    if (s.lifecycleConfirmation !== null || s.deleteConfirmation !== null) return;
+    set({ bulkDeleteConfirmation: { rows } });
+  };
+
+  const confirmDeleteSessions = async (skipFuture: boolean): Promise<void> => {
+    const pending = get().bulkDeleteConfirmation;
+    if (!pending) return;
+    set({ bulkDeleteConfirmation: null });
+    if (skipFuture) {
+      try {
+        await backend.setSkipDeleteConfirmation(true);
+      } catch (err) {
+        get().reportError(err);
+      }
+    }
+    await eraseSessions(pending.rows);
+  };
+
+  const cancelDeleteSessions = (): void => {
+    set({ bulkDeleteConfirmation: null });
   };
 
   /**
@@ -1999,6 +2160,7 @@ export function createLifecycleSlice(
     searchOpen: {},
     tuiHandoff: {},
     deleteConfirmation: null,
+    bulkDeleteConfirmation: null,
     lifecycleConfirmation: null,
     confirmLifecycleAction,
     cancelLifecycleAction,
@@ -2040,6 +2202,10 @@ export function createLifecycleSlice(
     resumeWithModel,
     deleteSession,
     confirmDeleteSession,
+    terminateSessions,
+    deleteSessions,
+    confirmDeleteSessions,
+    cancelDeleteSessions,
     releaseWorktreeSession,
     settleFinishedSession,
     syncWorktreeSession,

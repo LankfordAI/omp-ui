@@ -187,3 +187,31 @@ Reusing Stop was rejected: Stop reports an exit card and is the mid-turn kill
 switch. A separate "Archived" state was rejected: CONTEXT.md lists *archive*
 as an avoid term for Settled, and archived already means omp's gzipped
 session file.
+
+## Addendum: multi-select and the selection bar (#988, 2026-10-30)
+
+The sidebar gains a renderer-local multi-selection: `Mod+click` toggles a
+row, `Shift+click` adds the range from the anchor within the same section
+(Pinned and the main list count as one section; a Shift+click with no anchor
+in that section toggles alone), and `Escape` outside a text field clears it.
+Unreachable rows are never selectable. With two or more rows selected, a
+**selection bar** replaces the footer. Its actions reuse the per-row
+eligibility rules: Settle uses `canSettle`; Snooze/Unsnooze exist only while
+the section is on; Retitle needs a live native row this window runs
+(`session.error.retitleNotLive` otherwise); Stop needs a process; and Delete
+takes every row.
+
+There are no new channels. Each row's call is the existing tab-routed one
+(`session:settle`, `session:setSnoozed`, `/rename` over the row's rpc,
+`session:terminate`, `session:delete` with that row's cascade), so rows on
+different instances mix. Stop and Delete… stage one confirmation for the
+whole selection. The terminate and delete opt-outs apply to a bulk action
+only when they would cover every row, so a worktree anywhere in the closure
+still asks. A selected plan descendant is left to its source's cascade. The
+bulk Delete has no merge-back row, because merging is a per-session choice:
+worktree commits survive on their branches. A multi-row Settle is one undo
+entry, and every per-row failure of one action is listed in a single notice.
+
+A per-section "settle all" button was rejected as too coarse. The selection
+is not stored in the store or persisted: it is a gesture in this window, not
+session state.
