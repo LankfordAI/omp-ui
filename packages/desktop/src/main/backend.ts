@@ -1015,6 +1015,14 @@ export class MainBackend {
           this.snoozeClock.sync();
           void this.broadcast();
         },
+        [CH.setSessionPinned]: (tabId: string, pinned: boolean) => {
+          // Pin time orders the Pinned group (issue #981): this host's clock
+          // stamps it, and re-pinning keeps the first stamp so the row holds its place.
+          const record = this.registry.sessions.find((s) => s.tabId === tabId);
+          if (record === undefined) return;
+          this.registry.updateSession(tabId, { pinnedAtMs: pinned ? (record.pinnedAtMs ?? Date.now()) : null });
+          void this.broadcast();
+        },
         [CH.setSessionSubagentModels]: (tabId: string, map: SubagentModelMap | null) =>
           this.sessions.setSessionSubagentModels(tabId, map),
         [CH.spawnSession]: (req: SpawnRequest) => {
@@ -1907,6 +1915,7 @@ export class MainBackend {
           autoTitled: false,
           snoozed: false,
           snoozedUntilMs: null,
+          pinnedAtMs: null,
           private: false,
           // A migrated session always lands in a project.
           chat: false,

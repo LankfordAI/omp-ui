@@ -1046,6 +1046,7 @@ export class SessionManager {
           autoTitled: false,
           snoozed: false,
           snoozedUntilMs: null,
+          pinnedAtMs: null,
           private: req.private === true,
           chat,
           askSource: ask?.source ?? null,
@@ -3149,6 +3150,7 @@ export class SessionManager {
       autoTitled: source.autoTitled,
       snoozed: false,
       snoozedUntilMs: null,
+      pinnedAtMs: null,
       private: source.private,
       // A branch of a chat is a chat sharing its scratch dir.
       chat: source.chat,

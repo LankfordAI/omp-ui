@@ -90,6 +90,7 @@ function todayRecord(projectCwd: string): OwnedSessionRecord {
     autoTitled: false,
     snoozed: false,
     snoozedUntilMs: null,
+    pinnedAtMs: null,
     private: false,
     chat: false,
     askSource: null,

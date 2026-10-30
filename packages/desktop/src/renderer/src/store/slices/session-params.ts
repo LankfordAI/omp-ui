@@ -126,6 +126,7 @@ export type SessionParamsSlice = Pick<
   | "loadAdvisorDefaults"
   | "setSessionAdvisor"
   | "setSessionSnoozed"
+  | "setSessionPinned"
   | "setSessionApprovalMode"
   | "setAdvisorModel"
   | "setModel"
@@ -779,6 +780,15 @@ export function createSessionParamsSlice(
     try {
       if (snoozed && untilMs !== null) await backend.setSessionSnoozed(tabId, true, untilMs);
       else await backend.setSessionSnoozed(tabId, snoozed);
+    } catch (err) {
+      get().reportError(err);
+    }
+  };
+  const setSessionPinned = async (tabId: string, pinned: boolean): Promise<void> => {
+    // Tab-routed like snooze (issue #981): a remote-owned session pins on its
+    // host, and an older host's unknown-channel rejection surfaces here.
+    try {
+      await backend.setSessionPinned(tabId, pinned);
     } catch (err) {
       get().reportError(err);
     }
@@ -2667,6 +2677,7 @@ export function createSessionParamsSlice(
     loadAdvisorDefaults,
     setSessionAdvisor,
     setSessionSnoozed,
+    setSessionPinned,
     setSessionApprovalMode,
     setAdvisorModel,
     setModel,

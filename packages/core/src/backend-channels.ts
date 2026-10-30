@@ -950,6 +950,13 @@ export const BACKEND_CHANNELS = {
       trailingOptional(nullable(num())),
     ]),
   },
+  /** Pins a session to the sidebar's Pinned group, or unpins it (issue #981).
+   *  The owning host stamps `pinnedAtMs` on pin; re-pinning a pinned session
+   *  keeps its original stamp. */
+  setSessionPinned: {
+    channel: "session:setPinned",
+    ...request<[tabId: string, pinned: boolean], void>([str(), bool()]),
+  },
 
   /**
    * Session-scope subagent model choices (ADR-0031). Registry write, then the

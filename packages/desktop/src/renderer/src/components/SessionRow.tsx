@@ -8,7 +8,7 @@ import { formatSnoozeUntil } from "../lib/snooze-until";
 import { cn } from "../lib/cn";
 import { deriveSidebarSessionState, useStore, type SidebarSessionState } from "../store";
 import { SEANCE_MIN_OMP, supportsSeance } from "../lib/seance";
-import { Button, Chip, Dot, IconButton, IconLock, IconSpeaker, type Tone } from "./ui";
+import { Button, Chip, Dot, IconButton, IconLock, IconPin, IconSpeaker, type Tone } from "./ui";
 import type { SessionHandoff } from "../lib/session-handoffs";
 import { liveDisplayPhase, type LiveDisplayPhase } from "@omp-ui/core/live-voice";
 
@@ -288,6 +288,18 @@ export function SessionRow({
       <IconLock />
     </span>
   ) : null;
+  // Pinned (#981): an older remote host publishes no pinnedAtMs — absent is unpinned.
+  const pinMark =
+    typeof s.pinnedAtMs === "number" ? (
+      <span
+        role="img"
+        aria-label={t("sidebar.session.pinned")}
+        title={t("sidebar.session.pinned")}
+        className="shrink-0 self-center text-ink-faint"
+      >
+        <IconPin />
+      </span>
+    ) : null;
   const voiceMark =
     liveBadge !== null ? (
       <span
@@ -403,6 +415,7 @@ export function SessionRow({
               </>
             )}
           </span>
+          {slim && pinMark}
           {slim && lockMark}
           {slim && voiceMark}
           {when && (
@@ -456,6 +469,7 @@ export function SessionRow({
               <span className="shrink-0 text-ink-faint">{snoozedLabel}</span>
             ) : null}
             <span className="ml-auto flex shrink-0 items-center gap-1">
+              {pinMark}
               {lockMark}
               {voiceMark}
             </span>

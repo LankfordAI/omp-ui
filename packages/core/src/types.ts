@@ -500,6 +500,11 @@ export interface OwnedSessionRecord {
    *  (timed snooze, issue #979). Null for an indefinite snooze and whenever
    *  `snoozed` is false. Post-dates schema-1: absent normalizes to null. */
   snoozedUntilMs: number | null;
+  /** Epoch ms when the user pinned the session (issue #981); null while
+   *  unpinned. A pinned live session renders in the sidebar's Pinned group,
+   *  ordered by this stamp, exempt from Working and Snoozed. The owning host
+   *  stamps it. Post-dates schema-1: absent normalizes to null. */
+  pinnedAtMs: number | null;
   cachedTitle: string | null;
   cachedModified: string | null;
 }

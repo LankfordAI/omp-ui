@@ -374,6 +374,31 @@ describe("session:setSnoozed", () => {
   });
 });
 
+describe("session:setPinned (issue #981)", () => {
+  it("stamps pin time on the record, keeps the first stamp on re-pin, clears it on unpin, and broadcasts", async () => {
+    setup();
+    const before = Date.now();
+    await invoke(CH.setSessionPinned, "tab-1", true);
+    const { pinnedAtMs } = readRegistry().sessions[0] as { pinnedAtMs: number };
+    expect(pinnedAtMs).toBeGreaterThanOrEqual(before);
+    // Any broadcast, not the last send: an earlier test's backend shares `win`.
+    type Broadcast = { projects: { sessions: { pinnedAtMs: number | null }[] }[] };
+    await vi.waitFor(() => {
+      const states = sent.filter((m) => m.channel === CH.onStateChanged).map((m): Broadcast => m.args[0] as Broadcast);
+      expect(states.some((s) => s.projects[0]?.sessions[0]?.pinnedAtMs === pinnedAtMs)).toBe(true);
+    });
+
+    // A later clock must not restamp a pinned row.
+    const later = vi.spyOn(Date, "now").mockReturnValue(pinnedAtMs + 60_000);
+    await invoke(CH.setSessionPinned, "tab-1", true);
+    later.mockRestore();
+    expect(readRegistry().sessions[0]).toMatchObject({ pinnedAtMs });
+
+    await invoke(CH.setSessionPinned, "tab-1", false);
+    expect(readRegistry().sessions[0]).toMatchObject({ pinnedAtMs: null });
+  });
+});
+
 const LINEAGE_S = "omp-ui--proj--aaaaaaaa-1111-2222-3333-444444444444";
 const LINEAGE_I1 = "omp-ui--proj--bbbbbbbb-1111-2222-3333-444444444444";
 const LINEAGE_I2 = "omp-ui--proj--cccccccc-1111-2222-3333-444444444444";

@@ -57,11 +57,11 @@ function SkeletonRows() {
   );
 }
 
-/** Opens a session row's context menu with the items it can accept (#888 Migrate, #895 Ask, #935 Snooze). */
+/** Opens a session row's context menu with the items it can accept (#888 Migrate, #895 Ask, #935 Snooze, #981 Pin). */
 type OpenSessionMenu = (
   tabId: string,
   event: ReactMouseEvent<HTMLElement>,
-  items: { migrate: boolean; ask: boolean; snooze: boolean; snoozed: boolean },
+  items: { migrate: boolean; ask: boolean; snooze: boolean; snoozed: boolean; pin: boolean; pinned: boolean },
 ) => void;
 
 interface SessionMenuRequest {
@@ -70,6 +70,8 @@ interface SessionMenuRequest {
   ask: boolean;
   snooze: boolean;
   snoozed: boolean;
+  pin: boolean;
+  pinned: boolean;
   x: number;
   y: number;
   trigger: HTMLElement;
@@ -179,8 +181,12 @@ function Row({
           // is on — parking a `missing` record is legitimate.
           const snooze = snoozedEnabled;
           const snoozed = s.snoozed === true;
-          if (!migrate && !ask && !snooze) return;
-          openSessionMenu(s.tabId, event, { migrate, ask, snooze, snoozed });
+          // Pin (#981): a live row can pin; any pinned row can unpin, even a
+          // settled one that keeps its pin until resume.
+          const pinned = typeof s.pinnedAtMs === "number";
+          const pin = pinned || s.live === "live";
+          if (!migrate && !ask && !snooze && !pin) return;
+          openSessionMenu(s.tabId, event, { migrate, ask, snooze, snoozed, pin, pinned });
         }}
       />
     </div>
@@ -259,6 +265,7 @@ export function Sidebar() {
   const openMigrateDialog = useStore((st) => st.openMigrateDialog);
   const askAboutSession = useStore((st) => st.askAboutSession);
   const setSessionSnoozed = useStore((st) => st.setSessionSnoozed);
+  const setSessionPinned = useStore((st) => st.setSessionPinned);
   const compact = useCompactShell();
   const surface = useStore((st) => st.compactSurface);
   const closeCompactSurface = useStore((st) => st.closeCompactSurface);
@@ -290,7 +297,7 @@ export function Sidebar() {
   const [snoozeCustomTabId, setSnoozeCustomTabId] = useState<string | null>(null);
 
   // Issue #888/#895: the per-row Migrate/Ask menu.
-  const openSessionMenu: OpenSessionMenu = (tabId, event, { migrate, ask, snooze, snoozed }) => {
+  const openSessionMenu: OpenSessionMenu = (tabId, event, { migrate, ask, snooze, snoozed, pin, pinned }) => {
     event.preventDefault();
     const currentTarget = event.currentTarget;
     if (!(currentTarget instanceof HTMLElement)) return;
@@ -302,6 +309,8 @@ export function Sidebar() {
       ask,
       snooze,
       snoozed,
+      pin,
+      pinned,
       x: keyboardPosition ? rect.left : event.clientX,
       y: keyboardPosition ? rect.bottom : event.clientY,
       trigger: currentTarget,
@@ -326,18 +335,20 @@ export function Sidebar() {
 
   const filtering = query.trim().length > 0;
   const lists = useMemo(() => (state === null ? null : buildSidebarLists(state, query)), [state, query]);
-  // "No running sessions" fires only with no live row anywhere (active,
-  // working, or a live snoozed row); "Nothing matches" only when no row at
-  // all survives the filter. A dormant snoozed row is a row, so it counts
-  // toward anyRow even though it is not live (issue #935).
+  // "No running sessions" fires only with no live row anywhere (pinned,
+  // active, working, or a live snoozed row); "Nothing matches" only when no
+  // row at all survives the filter. A dormant snoozed row is a row, so it
+  // counts toward anyRow even though it is not live (issue #935).
   const liveAnywhere =
     lists !== null &&
-    (lists.active.length > 0 ||
+    (lists.pinned.length > 0 ||
+      lists.active.length > 0 ||
       lists.working.length > 0 ||
       lists.snoozed.some((e) => e.session.live === "live"));
   const anyRow =
     lists !== null &&
-    (lists.active.length > 0 ||
+    (lists.pinned.length > 0 ||
+      lists.active.length > 0 ||
       lists.working.length > 0 ||
       lists.snoozed.length > 0 ||
       lists.settled.length > 0);
@@ -416,7 +427,9 @@ export function Sidebar() {
             {filtering && (
               <>
                 <span className="shrink-0 font-mono text-[10px] text-ink-dim tabular-nums">
-                  {lists === null ? 0 : lists.active.length + lists.working.length + lists.snoozed.length + lists.settled.length}
+                  {lists === null
+                    ? 0
+                    : lists.pinned.length + lists.active.length + lists.working.length + lists.snoozed.length + lists.settled.length}
                 </span>
                 <IconButton label={t("sidebar.filter.clear")} onClick={() => setQuery("")} className="size-5">
                   <IconClose className="size-3.5" />
@@ -440,11 +453,27 @@ export function Sidebar() {
           <SkeletonRows />
         ) : (
           <>
-            {lists.active.length > 0 ? (
-              <div className="min-h-0 flex-1 space-y-1 overflow-y-auto px-1.5 py-1">
-                {lists.active.map((entry) => (
-                  <Row key={rowKey(entry)} entry={entry} onActivate={closeCompactSurface} openSessionMenu={openSessionMenu} slim={false} />
-                ))}
+            {lists.pinned.length > 0 || lists.active.length > 0 ? (
+              <div className="min-h-0 flex-1 overflow-y-auto px-1.5 py-1">
+                {/* Pinned (#981) heads the main list in pin order; it never
+                    collapses, since a pin means "keep this in view". */}
+                {lists.pinned.length > 0 && (
+                  <div role="group" aria-label={t("sidebar.pinned.heading", { n: lists.pinned.length })} className="space-y-1">
+                    <div className="px-1.5 pt-1 pb-0.5 font-mono text-[10px] uppercase text-ink-faint">
+                      {t("sidebar.pinned.heading", { n: lists.pinned.length })}
+                    </div>
+                    {lists.pinned.map((entry) => (
+                      <Row key={rowKey(entry)} entry={entry} onActivate={closeCompactSurface} openSessionMenu={openSessionMenu} slim={false} />
+                    ))}
+                  </div>
+                )}
+                {lists.active.length > 0 && (
+                  <div className={cn("space-y-1", lists.pinned.length > 0 && "mt-1.5 border-t border-line-soft pt-1.5")}>
+                    {lists.active.map((entry) => (
+                      <Row key={rowKey(entry)} entry={entry} onActivate={closeCompactSurface} openSessionMenu={openSessionMenu} slim={false} />
+                    ))}
+                  </div>
+                )}
               </div>
             ) : !filtering && !liveAnywhere ? (
               <div className="min-h-0 flex-1 overflow-y-auto">
@@ -562,9 +591,24 @@ export function Sidebar() {
                   {t("sidebar.session.migrate")}
                 </button>
               )}
+              {sessionMenu.pin && (
+                <button
+                  ref={sessionMenu.ask || sessionMenu.migrate ? undefined : sessionMenuItemRef}
+                  type="button"
+                  role="menuitem"
+                  onClick={() => {
+                    const { tabId, pinned } = sessionMenu;
+                    setSessionMenu(null);
+                    void setSessionPinned(tabId, !pinned);
+                  }}
+                  className={MENU_ROW}
+                >
+                  {t(sessionMenu.pinned ? "sidebar.session.unpin" : "sidebar.session.pin")}
+                </button>
+              )}
               {sessionMenu.snooze && (
                 <button
-                  ref={(sessionMenu.ask || sessionMenu.migrate) ? undefined : sessionMenuItemRef}
+                  ref={sessionMenu.ask || sessionMenu.migrate || sessionMenu.pin ? undefined : sessionMenuItemRef}
                   type="button"
                   role="menuitem"
                   onClick={() => {

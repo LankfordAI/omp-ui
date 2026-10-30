@@ -2584,6 +2584,7 @@ export const en = {
   "sidebar.newSession": "new session — pick a project",
   "sidebar.settled.heading": "Settled ({n})",
   "sidebar.working.heading": "Working ({n})",
+  "sidebar.pinned.heading": "Pinned ({n})",
   "sidebar.snoozed.heading": "Snoozed ({n})",
   "sidebar.session.chat": "chat",
 
@@ -2908,6 +2909,10 @@ export const en = {
   "sidebar.session.snooze": "Snooze",
   "sidebar.session.unsnooze": "Unsnooze",
   "sidebar.session.snoozed": "snoozed",
+  // Pinned sessions (issue #981).
+  "sidebar.session.pin": "Pin",
+  "sidebar.session.unpin": "Unpin",
+  "sidebar.session.pinned": "Pinned",
   // Timed snooze (issue #979).
   "sidebar.session.snoozedUntil": "snoozed until {when}",
   "sidebar.session.snoozeHour": "Snooze 1 hour",

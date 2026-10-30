@@ -91,6 +91,7 @@ export const TAB_ROUTED_REQUESTS: ReadonlySet<string> = new Set<string>([
   "session:setModel",
   "session:setSubagentModels",
   "session:setSnoozed",
+  "session:setPinned",
   "plan:read",
   "plan:answer",
   "plan:dismiss",

@@ -237,6 +237,7 @@ const VALID_ARGS = {
   setSessionModel: ["tab-1", null, null],
   setSessionAutoTitled: ["tab-1", true],
   setSessionSnoozed: ["tab-1", true],
+  setSessionPinned: ["tab-1", true],
   setSessionServiceTier: ["tab-1", null],
   settleSession: ["tab-1"],
   setSkipDeleteConfirmation: [true],

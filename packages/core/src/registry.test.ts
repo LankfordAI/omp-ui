@@ -39,6 +39,7 @@ function sessionRecord(patch: Partial<OwnedSessionRecord> = {}): OwnedSessionRec
     autoTitled: false,
     snoozed: false,
     snoozedUntilMs: null,
+    pinnedAtMs: null,
     private: false,
     chat: false,
     askSource: null,
@@ -1916,6 +1917,22 @@ describe("snoozed sidebar flag (issue #935)", () => {
     const stray = { ...sessionRecord(), snoozed: false, snoozedUntilMs: 1_800_000_000_000 };
     fs.writeFileSync(file, JSON.stringify({ schemaVersion: 1, projects: [], sessions: [stray] }));
     expect(Registry.load(file).sessions[0]).toMatchObject({ snoozed: false, snoozedUntilMs: null });
+  });
+});
+
+describe("pinned sidebar stamp (issue #981)", () => {
+  it("loads an absent pinnedAtMs as null, keeps a stamp, and drops a non-number one", () => {
+    const file = tmpFile();
+    const legacy: Record<string, unknown> = { ...sessionRecord() };
+    delete legacy.pinnedAtMs;
+    const pinned = { ...sessionRecord(), tabId: "tab-2", pinnedAtMs: 1_800_000_000_000 };
+    const bad = { ...sessionRecord(), tabId: "tab-3", pinnedAtMs: true };
+    fs.writeFileSync(file, JSON.stringify({ schemaVersion: 1, projects: [], sessions: [legacy, pinned, bad] }));
+    const reg = Registry.load(file);
+    expect(reg.sessions.map((s) => [s.tabId, s.pinnedAtMs])).toEqual([
+      ["tab-1", null],
+      ["tab-2", 1_800_000_000_000],
+    ]);
   });
 });
 

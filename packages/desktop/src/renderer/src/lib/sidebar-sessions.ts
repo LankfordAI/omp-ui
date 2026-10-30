@@ -15,14 +15,18 @@ export interface SidebarEntry {
 }
 
 export interface SidebarLists {
-  /** live and either not in a turn or blocked on the user (pending plan / human answer), not snoozed — newest open first. */
+  /** live and pinned (`pinnedAtMs !== null`), whatever its turn or snooze —
+   *  earliest pin first, so pinning a row never moves another (issue #981). */
+  pinned: SidebarEntry[];
+  /** live and either not in a turn or blocked on the user (pending plan / human answer), not pinned or snoozed — newest open first. */
   active: SidebarEntry[];
-  /** live with a running turn and not blocked on the user, not snoozed — newest open first. */
+  /** live with a running turn and not blocked on the user, not pinned or snoozed — newest open first. */
   working: SidebarEntry[];
-  /** snoozed === true — newest open first. Always empty while the
-   *  snoozedSectionEnabled setting is off (issue #935). */
+  /** snoozed === true and not live-pinned — newest open first. Always empty
+   *  while the snoozedSectionEnabled setting is off (issue #935). */
   snoozed: SidebarEntry[];
-  /** Not live and not snoozed (dormant, archived, missing) — newest open first. */
+  /** Not live and not snoozed (dormant, archived, missing) — newest open
+   *  first. A pinned record that is not live lands here, pin intact. */
   settled: SidebarEntry[];
 }
 
@@ -47,8 +51,9 @@ function matches(entry: SidebarEntry, q: string): boolean {
  * The sidebar's session lists: every local project session and chat plus
  * every non-self remote instance's sessions, filtered by `query`, sorted
  * newest open first by `launchedAt` (ties keep build order), and split into
- * four sections — active (live, no running turn or blocked on the user),
- * working (live with a running turn, not blocked on the user), snoozed (parked via the sidebar, when the
+ * five sections — pinned (live and pinned, earliest pin first), active (live,
+ * no running turn or blocked on the user), working (live with a running turn,
+ * not blocked on the user), snoozed (parked via the sidebar, when the
  * snoozedSectionEnabled setting is on), and settled (not live, not
  * snoozed). Handoffs resolve per host over that host's full session set,
  * before any filtering or partitioning, so a live implementation still
@@ -114,12 +119,21 @@ export function buildSidebarLists(state: BackendState, query: string): SidebarLi
   });
 
   const snoozedSectionOn = state.snoozedSectionEnabled === true;
+  const pinned: SidebarEntry[] = [];
   const active: SidebarEntry[] = [];
   const working: SidebarEntry[] = [];
   const snoozed: SidebarEntry[] = [];
   const settled: SidebarEntry[] = [];
   for (const entry of kept) {
     const s = entry.session;
+    // A live pinned session stays in Pinned mid-turn and snoozed: the pin is
+    // the user's "keep this in view" (issue #981). Settled still wins — a pin
+    // without a process files below with the rest, and returns on resume. An
+    // older remote host publishes no pinnedAtMs; absent reads as unpinned.
+    if (s.live === "live" && typeof s.pinnedAtMs === "number") {
+      pinned.push(entry);
+      continue;
+    }
     // Snoozed outranks every other placement, and only exists while the
     // setting is on; with it off, flagged sessions fall through to their
     // natural lists and keep their persisted flag (issue #935).
@@ -140,5 +154,8 @@ export function buildSidebarLists(state: BackendState, query: string): SidebarLi
     if (s.turnRunning === true && !needsUser) working.push(entry);
     else active.push(entry);
   }
-  return { active, working, snoozed, settled };
+  // Pin time is a fixed rule, not a hand-kept order (ADR-0067 rejects manual
+  // reordering). Stable sort: equal stamps keep open order.
+  pinned.sort((a, b) => (a.session.pinnedAtMs as number) - (b.session.pinnedAtMs as number));
+  return { pinned, active, working, snoozed, settled };
 }

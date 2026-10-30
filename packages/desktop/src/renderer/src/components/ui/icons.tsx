@@ -151,6 +151,15 @@ export function IconLock({ className }: { className?: string }) {
   );
 }
 
+/** Push pin — the pinned-session badge (issue #981). */
+export function IconPin({ className }: { className?: string }) {
+  return (
+    <svg viewBox="0 0 16 16" aria-hidden className={cn("size-3.5", className)} {...ICON_STROKE}>
+      <path d="M6 2.5h4M7 2.5v4L4.5 9.5h7L9 6.5v-4M8 9.5V14" />
+    </svg>
+  );
+}
+
 export function Chevron({ open, className }: { open: boolean; className?: string }) {
   return (
     <svg

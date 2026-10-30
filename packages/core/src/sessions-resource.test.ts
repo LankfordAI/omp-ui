@@ -49,6 +49,7 @@ function sessionRecord(patch: Partial<OwnedSessionRecord> = {}): OwnedSessionRec
     autoTitled: false,
     snoozed: false,
     snoozedUntilMs: null,
+    pinnedAtMs: null,
     private: false,
     chat: false,
     askSource: null,

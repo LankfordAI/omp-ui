@@ -109,6 +109,16 @@ deadline (`snoozedUntilMs`); the owning host's main process unsnoozes it then,
 or at the next launch if the app was closed (ADR-0068 addendum, #979).
 _Avoid_: parked session, hidden session, waiting session
 
+**Pinned session**:
+An owned session the user pinned through its sidebar row's context menu
+(*Pin* / *Unpin*). The record keeps the pin time (`pinnedAtMs`), stamped by the
+owning host. A live pinned session sits in the **Pinned** group at the top of
+the main list, ordered by pin time, and never moves to **Working** or
+**Snoozed**. Without a process it files to **Settled** with its pin intact and
+returns to **Pinned** on resume. Pinning is a fixed rule, not manual reordering
+(ADR-0068 addendum, #981).
+_Avoid_: favorite session, starred session, sticky session
+
 **Private session**:
 An owned session pinned write-quiet against the memory system: its spawns
 carry a per-lineage `--config` overlay (ADR-0055) pinning `autolearn.enabled:

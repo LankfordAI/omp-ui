@@ -32,6 +32,7 @@ function session(tabId: string, patch: Partial<SessionSummary> = {}): SessionSum
     autoTitled: false,
     snoozed: false,
     snoozedUntilMs: null,
+    pinnedAtMs: null,
     private: false,
     chat: false,
     askSource: null,
@@ -366,5 +367,53 @@ describe("Working and Snoozed sections (issue #935)", () => {
     expect(ids(lists.snoozed)).toEqual(["parked"]);
     expect(lists.active).toEqual([]);
     expect(lists.working).toEqual([]);
+  });
+});
+
+describe("Pinned group (issue #981)", () => {
+  it("keeps a live pinned session in pinned mid-turn and snoozed, ordered by pin time, not open order", () => {
+    const state = backendState({
+      snoozedSectionEnabled: true,
+      projects: [
+        group("/a", "alpha", [
+          session("idle"),
+          session("late-pin", { pinnedAtMs: 2_000, launchedAt: "2026-08-19T09:00:00.000Z" }),
+          session("busy-pin", { pinnedAtMs: 1_000, turnRunning: true, launchedAt: "2026-08-19T12:00:00.000Z" }),
+          session("snoozed-pin", { pinnedAtMs: 3_000, snoozed: true }),
+        ]),
+      ],
+    });
+    const lists = buildSidebarLists(state, "");
+    expect(ids(lists.pinned)).toEqual(["busy-pin", "late-pin", "snoozed-pin"]);
+    expect(ids(lists.active)).toEqual(["idle"]);
+    expect(lists.working).toEqual([]);
+    expect(lists.snoozed).toEqual([]);
+  });
+
+  it("files a pinned session with no process under settled, or snoozed when also snoozed", () => {
+    const state = backendState({
+      snoozedSectionEnabled: true,
+      projects: [
+        group("/a", "alpha", [
+          session("gone", { pinnedAtMs: 1_000, live: "dormant" }),
+          session("parked", { pinnedAtMs: 2_000, live: "dormant", snoozed: true }),
+        ]),
+      ],
+    });
+    const lists = buildSidebarLists(state, "");
+    expect(lists.pinned).toEqual([]);
+    expect(ids(lists.settled)).toEqual(["gone"]);
+    expect(ids(lists.snoozed)).toEqual(["parked"]);
+  });
+
+  it("reads an older remote host's absent pinnedAtMs as unpinned", () => {
+    const legacy = session("old-host", { turnRunning: true }) as Partial<SessionSummary>;
+    delete legacy.pinnedAtMs;
+    const state = backendState({
+      projects: [group("/a", "alpha", [legacy as SessionSummary])],
+    });
+    const lists = buildSidebarLists(state, "");
+    expect(lists.pinned).toEqual([]);
+    expect(ids(lists.working)).toEqual(["old-host"]);
   });
 });

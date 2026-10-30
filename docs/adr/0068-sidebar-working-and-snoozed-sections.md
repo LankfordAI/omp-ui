@@ -136,3 +136,28 @@ hibernate.
 
 Renderer-side timers were rejected: they miss deadlines while no window is
 open and disagree across joined clients.
+
+## Addendum: pinned sessions (#981, 2026-10-30)
+
+A row's menu offers **Pin** on a live row and **Unpin** on any pinned row.
+`OwnedSessionRecord.pinnedAtMs` (epoch ms, `null` while unpinned; absent loads
+as `null`) records when it was pinned. `session:setPinned(tabId, pinned)`
+joins `TAB_ROUTED_REQUESTS`, so the owning host's clock stamps the pin and a
+remote-owned row pins on its host; re-pinning keeps the first stamp. An older
+host rejects the unknown channel and the renderer surfaces the error notice.
+
+A live pinned session files to a **Pinned** group heading the main list,
+ordered by pin time (earliest first), and is exempt from Working and Snoozed:
+it stays in Pinned mid-turn, waiting on the user, or snoozed. Settled still
+wins: a pinned session with no process files to Settled (or Snoozed, when it
+is also snoozed and the section is on) with its pin intact, and returns to
+Pinned on resume. Precedence is now Pinned (live) > Snoozed > Settled > main
+list (needs the user) > Working > main list. The group has no collapse
+toggle; a pin means "keep this in view". Every pinned row, settled ones
+included, shows a pin glyph beside the private padlock in either density.
+
+Pin time is a fixed rule, not a hand-kept order, so this does not reopen
+ADR-0067's rejection of manual reordering: there is still no drag, no
+keyboard move, and no move channel. A pin that only exempts the row from
+Working without moving it was considered and rejected: the issue's second
+complaint is rows moving under the pointer, which only a fixed group solves.

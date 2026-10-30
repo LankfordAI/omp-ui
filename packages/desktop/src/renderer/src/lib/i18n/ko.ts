@@ -2406,6 +2406,7 @@ export const ko: Partial<Record<MessageKey, string>> = {
   "sidebar.newSession": "새 세션 — 프로젝트 선택",
   "sidebar.settled.heading": "종료됨 ({n})",
   "sidebar.working.heading": "작업 중 ({n})",
+  "sidebar.pinned.heading": "고정됨 ({n})",
   "sidebar.snoozed.heading": "보류됨 ({n})",
   "sidebar.session.chat": "채팅",
 
@@ -2720,6 +2721,9 @@ export const ko: Partial<Record<MessageKey, string>> = {
   "sidebar.session.snooze": "보류",
   "sidebar.session.unsnooze": "보류 해제",
   "sidebar.session.snoozed": "보류됨",
+  "sidebar.session.pin": "고정",
+  "sidebar.session.unpin": "고정 해제",
+  "sidebar.session.pinned": "고정됨",
   "sidebar.session.snoozedUntil": "{when}까지 보류됨",
   "sidebar.session.snoozeHour": "1시간 보류",
   "sidebar.session.snoozeEvening": "오늘 저녁까지 보류",

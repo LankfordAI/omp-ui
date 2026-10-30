@@ -60,6 +60,7 @@ function session(patch: Partial<SessionSummary> & Pick<SessionSummary, "tabId">)
  autoTitled: false,
  snoozed: false,
  snoozedUntilMs: null,
+ pinnedAtMs: null,
  private: false,
  chat: false,
  askSource: null,

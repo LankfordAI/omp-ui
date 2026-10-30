@@ -49,6 +49,7 @@ const backendMock = {
   setProjectDefaultAdvisorModel: vi.fn(async () => {}),
   setSessionModel: vi.fn(),
   setSessionSnoozed: vi.fn(async () => {}),
+  setSessionPinned: vi.fn(async () => {}),
   readPlanFile: vi.fn(),
   getBranchDiff: vi.fn(),
   ptyPasteImage: vi.fn(),
@@ -126,6 +127,7 @@ const state = backendState({
  autoTitled: false,
  snoozed: false,
  snoozedUntilMs: null,
+ pinnedAtMs: null,
  private: false,
  chat: false,
  askSource: null,
@@ -159,6 +161,7 @@ const state = backendState({
  autoTitled: false,
  snoozed: false,
  snoozedUntilMs: null,
+ pinnedAtMs: null,
  private: false,
  chat: false,
  askSource: null,
@@ -344,10 +347,10 @@ describe("Sidebar Ask about this session menu (issue #895)", () => {
     expect(openMenuItems()).toEqual([]);
   });
 
-  it("offers Ask but not Migrate on a live local row", () => {
+  it("offers Ask and Pin but not Migrate on a live local row", () => {
     renderSidebar();
     openContextMenu(row("Owned session"));
-    expect(itemLabels()).toEqual(["Ask about this session"]);
+    expect(itemLabels()).toEqual(["Ask about this session", "Pin"]);
   });
 
   it("opens no menu on a row with no saved transcript", () => {
@@ -601,6 +604,7 @@ describe("Sidebar plan handoffs (issue #238)", () => {
  autoTitled: false,
  snoozed: false,
  snoozedUntilMs: null,
+ pinnedAtMs: null,
  private: false,
  chat: false,
  askSource: null,
@@ -1102,5 +1106,26 @@ describe("Sidebar Working and Snoozed sections (issue #935)", () => {
     renderSidebar();
     setFilter("zzzz-nothing");
     expect(document.body.textContent).toContain("Nothing matches");
+  });
+
+  it("Pin sends the pin, a pinned in-turn row heads the list under Pinned (n) with a glyph, and offers Unpin (issue #981)", () => {
+    backendMock.setSessionPinned.mockClear();
+    useStore.setState({ state: stateWith([sess("loose"), sess("watched", { turnRunning: true, pinnedAtMs: 1_000 })]) });
+    renderSidebar();
+    openContextMenu(rowButton("loose")!);
+    act(() => {
+      openMenuItems().find((b) => b.textContent === "Pin")!.click();
+    });
+    expect(backendMock.setSessionPinned).toHaveBeenCalledWith("loose", true);
+
+    const group = document.body.querySelector<HTMLElement>('[role="group"][aria-label="Pinned (1)"]')!;
+    expect(group.contains(rowButton("watched")!)).toBe(true);
+    expect(group.querySelector('[role="img"][aria-label="Pinned"]')).not.toBeNull();
+    expect(sectionToggle("Working")!.textContent).toBe("Working (0)");
+    openContextMenu(rowButton("watched")!);
+    act(() => {
+      openMenuItems().find((b) => b.textContent === "Unpin")!.click();
+    });
+    expect(backendMock.setSessionPinned).toHaveBeenCalledWith("watched", false);
   });
 });

@@ -15,6 +15,7 @@ export {
   IconPlanMode,
   IconPlay,
   IconSpeaker,
+  IconPin,
   IconPencil,
   IconPlus,
   IconRefresh,
