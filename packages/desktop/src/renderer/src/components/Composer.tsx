@@ -37,7 +37,7 @@ import { useActionHotkeys, useKeybinding } from "../lib/keybindings";
 import { StashPalette, type StashPaletteHandle } from "./StashPalette";
 import { AnnotationChips } from "./AnnotationChips";
 import { SessionReferenceChips } from "./SessionReferenceChips";
-import { SESSION_DRAG_MIME } from "../lib/session-drag";
+import { SESSION_DRAG_EFFECT, SESSION_DRAG_MIME } from "../lib/session-drag";
 import { useWordGhost } from "../lib/use-word-ghost";
 import { ComposerActions } from "./ComposerActions";
 import { ComposerOptions } from "./ComposerOptions";
@@ -1257,7 +1257,7 @@ export function Composer({
         // Only a sidebar session row (issue #984): files and text keep their own paths.
         if (unavailable || !e.dataTransfer.types.includes(SESSION_DRAG_MIME)) return;
         e.preventDefault();
-        e.dataTransfer.dropEffect = "link";
+        e.dataTransfer.dropEffect = SESSION_DRAG_EFFECT;
         if (!dropping) setDropping(true);
       }}
       onDragLeave={(e) => {
