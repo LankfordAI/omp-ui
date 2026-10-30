@@ -242,11 +242,16 @@ export const OMP_SETTING_GROUPS: ReadonlyArray<OmpSettingGroup> = [
   {
     title: "Providers",
     description:
-      "OpenRouter’s nitro variant prioritizes throughput. Longer watchdog budgets tolerate quiet reasoning but delay recovery from a dead stream; 0 disables a watchdog.",
+      "OpenRouter’s nitro variant prioritizes throughput. Longer watchdog budgets tolerate quiet reasoning but delay recovery from a dead stream; 0 disables a watchdog. OpenAI live steering is off by default since omp 18.14: steers then wait for the next tool boundary.",
     keys: [
       "providers.openrouterVariant",
       "providers.streamFirstEventTimeoutSeconds",
       "providers.streamIdleTimeoutSeconds",
+      // omp 18.14.0 (issue #971): off by default, so a steer typed while a GPT
+      // response streams waits for the next tool boundary. On, omp delivers it
+      // into the streaming response over the Codex WebSocket; a lane that
+      // rejects it (unsupported_native_inflight_message) falls back to a turn.
+      "providers.openaiLiveSteering",
     ],
   },
   {

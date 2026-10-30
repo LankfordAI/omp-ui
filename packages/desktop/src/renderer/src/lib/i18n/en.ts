@@ -437,6 +437,7 @@ export const en = {
   "composer.queue.queuedTitle": "messages waiting for the current turn to finish",
   "composer.queue.parkedTitle": "queued items do not run while the agent is idle — sending a new prompt runs parked follow-ups",
   "composer.queue.steering": "steering",
+  "composer.queue.steeringTitle": "steers reach the agent at the next tool boundary — GPT models over the Codex WebSocket take them mid-response only when providers.openaiLiveSteering is on (Settings → omp → Providers)",
   "composer.queue.followUp": "follow-up",
   "composer.queue.promote": "promote",
   "composer.queue.promoteTitleRunning": "move to steering — delivered at the next tool boundary",

@@ -51,7 +51,7 @@ export function QueuedMessageList({ tabId, disabled }: { tabId: string; disabled
   return (
     <div className="flex flex-col gap-2">
       {queued.steering.length > 0 && (
-        <section className="flex flex-col gap-1">
+        <section className="flex flex-col gap-1" title={t("composer.queue.steeringTitle")}>
           <Label>{t("composer.queue.steering")}</Label>
           {queued.steering.map((raw, index) => (
             <QueueRow key={`steering-${index}`} raw={raw}>

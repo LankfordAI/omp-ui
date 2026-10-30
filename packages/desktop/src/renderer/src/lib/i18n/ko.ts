@@ -401,6 +401,7 @@ export const ko: Partial<Record<MessageKey, string>> = {
   "composer.queue.queuedTitle": "현재 턴이 끝나기를 기다리는 메시지",
   "composer.queue.parkedTitle": "에이전트가 유휴 상태일 때 대기 항목은 실행되지 않습니다. 새 프롬프트를 보내면 보류된 후속 작업이 실행됩니다",
   "composer.queue.steering": "지시",
+  "composer.queue.steeringTitle": "지시는 다음 도구 경계에서 에이전트에 전달됩니다 — Codex WebSocket을 쓰는 GPT 모델은 providers.openaiLiveSteering이 켜져 있을 때만 응답 도중에 받습니다 (설정 → omp → Providers)",
   "composer.queue.followUp": "후속",
   "composer.queue.promote": "승격",
   "composer.queue.promoteTitleRunning": "지시 대기열로 이동 — 다음 도구 경계에서 전달됩니다",

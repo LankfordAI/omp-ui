@@ -188,6 +188,8 @@ The **judge** row binds `modelRoles.judge`, the model-kind role omp 18.4.0 uses 
 
 The web-search provider order is not on this page: it is edited on **Providers**, beside the credentials it depends on.
 
+Under **Providers**, `providers.openaiLiveSteering` (omp 18.14+, off by default) controls whether omp delivers a steer into a GPT response that is still streaming over the Codex WebSocket. Off, a steer waits for the next tool boundary. On, a Codex turn lane that rejects the in-flight message (`unsupported_native_inflight_message`) makes omp disable live steering for that connection and retry the message as its own turn. omp reads the setting on each model request.
+
 With a session focused, the page resolves values as that project would see them. With no focused session, it shows global configuration. A `project` badge means the focused project's `.omp/config.yml` supplies the effective value. A `global` badge means omp's global file supplies it. Defaults remain unbadged.
 
 Every edit runs through `omp config set`, uses omp's own validation, and writes only the global layer. Project configuration still wins. omp regenerates its global YAML on write, so comments in that file are dropped. Model-role and advisor values bind when the omp process starts; they take effect on the next session spawn, or on an existing session after you stop its agent and open it again. For other settings, follow the timing in the description supplied by the installed omp version.

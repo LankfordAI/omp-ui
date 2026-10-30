@@ -727,6 +727,18 @@ describe("writeOmpSetting", () => {
     expect(seen).toEqual(["config", "set", "async.widgets", "false", "--json"]);
   });
 
+  it("admits providers.openaiLiveSteering to the write boundary (#971)", async () => {
+    let seen: readonly string[] = [];
+    await writeOmpSetting(
+      { ompPath: OMP, key: "providers.openaiLiveSteering", value: true },
+      async (args) => {
+        seen = args;
+        return "";
+      },
+    );
+    expect(seen).toEqual(["config", "set", "providers.openaiLiveSteering", "true", "--json"]);
+  });
+
   it("admits sharpshooter.minPromptLength and statusLine.segmentOptions to the write boundary (#887)", async () => {
     let seen: readonly string[] = [];
     await writeOmpSetting(
