@@ -938,10 +938,17 @@ export const BACKEND_CHANNELS = {
     channel: "session:setAutoTitled",
     ...request<[tabId: string, autoTitled: boolean], void>([str(), bool()]),
   },
-  /** Parks a session in the sidebar's Snoozed section, or returns it (issue #935). */
+  /** Parks a session in the sidebar's Snoozed section, or returns it (issue #935).
+   *  `untilMs` (issue #979) is the epoch-ms deadline at which the owning host's
+   *  main process unsnoozes it; absent or null snoozes indefinitely. Ignored
+   *  when `snoozed` is false. */
   setSessionSnoozed: {
     channel: "session:setSnoozed",
-    ...request<[tabId: string, snoozed: boolean], void>([str(), bool()]),
+    ...request<[tabId: string, snoozed: boolean, untilMs?: number | null], void>([
+      str(),
+      bool(),
+      trailingOptional(nullable(num())),
+    ]),
   },
 
   /**

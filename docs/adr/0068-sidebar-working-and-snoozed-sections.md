@@ -104,3 +104,35 @@ the same rule; snoozed still outranks it. Renderer-local waits
 (`experimentProposal`, `extensionQueue`) are not visible to
 `buildSidebarLists` and leave such a row in Working while its badge reads
 "answer needed" — documented limitation.
+
+## Addendum: timed snooze (#979, 2026-10-30)
+
+A snooze can carry a deadline. `OwnedSessionRecord.snoozedUntilMs` (epoch ms,
+`null` for an indefinite snooze; absent loads as `null`, and a record that is
+not snoozed never keeps one) sits beside `snoozed`. `session:setSnoozed` takes
+an optional third argument, `untilMs`, and stays tab-routed, so a
+remote-owned session's deadline lives on its host. The renderer sends the
+two-argument form for an indefinite snooze, which an older host still
+accepts; a timed snooze on an older host is rejected and surfaces as an error
+notice.
+
+The row's menu offers **Snooze** (indefinite) plus **Snooze 1 hour**, **Snooze
+until this evening** (18:00, only before 18:00), **Snooze until tomorrow
+morning** (09:00), **Snooze until next week** (the coming Monday 09:00) and
+**Snooze until…** (a date-time picker). Presets resolve in the renderer's
+local time when the menu opens. A timed row's subline reads "snoozed until
+Tue 09:00".
+
+**The owning host's main process owns the deadline.** `SnoozeClock` keeps one
+timer for the earliest deadline among its records and, at that deadline,
+clears `snoozed` and `snoozedUntilMs` through `registry.updateSession`, then
+broadcasts. It also syncs once at launch, so a deadline that passed while the
+app was closed wakes on the next start. Node timers stop while the machine
+sleeps, so the clock re-reads the wall clock at least once a minute: a
+deadline missed during sleep wakes within a minute of resume. No timer runs
+while no record holds a deadline. The returning row lands wherever this ADR's
+partition puts it, and the process is never touched: snooze is still not
+hibernate.
+
+Renderer-side timers were rejected: they miss deadlines while no window is
+open and disagree across joined clients.

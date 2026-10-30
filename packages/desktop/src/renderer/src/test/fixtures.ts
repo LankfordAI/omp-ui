@@ -131,6 +131,7 @@ export function remoteOwnedState(tabId: string, instanceId: string): BackendStat
                 proposedPlans: [],
                 autoTitled: false,
                 snoozed: false,
+                snoozedUntilMs: null,
                 private: false,
                 chat: false,
                 askSource: null,

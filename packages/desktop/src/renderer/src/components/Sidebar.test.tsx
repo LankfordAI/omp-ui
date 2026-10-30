@@ -125,6 +125,7 @@ const state = backendState({
  proposedPlans: [],
  autoTitled: false,
  snoozed: false,
+ snoozedUntilMs: null,
  private: false,
  chat: false,
  askSource: null,
@@ -157,6 +158,7 @@ const state = backendState({
  proposedPlans: [],
  autoTitled: false,
  snoozed: false,
+ snoozedUntilMs: null,
  private: false,
  chat: false,
  askSource: null,
@@ -598,6 +600,7 @@ describe("Sidebar plan handoffs (issue #238)", () => {
  proposedPlans: [],
  autoTitled: false,
  snoozed: false,
+ snoozedUntilMs: null,
  private: false,
  chat: false,
  askSource: null,
@@ -1013,6 +1016,32 @@ describe("Sidebar Working and Snoozed sections (issue #935)", () => {
       openMenuItems().find((b) => b.textContent === "Unsnooze")!.click();
     });
     expect(backendMock.setSessionSnoozed).toHaveBeenCalledWith("done", false);
+  });
+
+  it("timed snooze sends its deadline, and a snoozed row offers no timed items (issue #979)", () => {
+    useStore.setState({
+      state: stateWith([sess("parked"), sess("done", { snoozed: true, snoozedUntilMs: Date.now() + 3_600_000 })], {
+        snoozedSectionEnabled: true,
+      }),
+    });
+    renderSidebar();
+    const before = Date.now();
+    openContextMenu(rowButton("parked")!);
+    expect(menuItemLabels()).toEqual(
+      expect.arrayContaining(["Snooze", "Snooze 1 hour", "Snooze until tomorrow morning", "Snooze until next week", "Snooze until…"]),
+    );
+    act(() => {
+      openMenuItems().find((b) => b.textContent === "Snooze 1 hour")!.click();
+    });
+    const [tabId, snoozed, untilMs] = backendMock.setSessionSnoozed.mock.calls.at(-1) as unknown as [string, boolean, number];
+    expect([tabId, snoozed]).toEqual(["parked", true]);
+    expect(untilMs - before).toBeGreaterThanOrEqual(3_600_000);
+    expect(untilMs - before).toBeLessThan(3_600_000 + 5_000);
+
+    act(() => sectionToggle("Snoozed")!.click());
+    expect(document.body.textContent).toMatch(/snoozed until \w+ \d\d:\d\d/);
+    openContextMenu(rowButton("done")!);
+    expect(menuItemLabels().filter((l) => l.startsWith("Snooze") || l === "Unsnooze")).toEqual(["Unsnooze"]);
   });
 
   it("persists the Snoozed collapse choice to its own localStorage key", () => {

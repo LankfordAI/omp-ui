@@ -653,6 +653,9 @@ function isOwnedSessionRecord(value: unknown): value is OwnedSessionRecord {
     // snoozed (issue #935) post-dates schema-1 like chat; absent loads as
     // false, a present non-boolean drops the record.
     optional(value, "snoozed", (v) => typeof v === "boolean") &&
+    // snoozedUntilMs (issue #979) post-dates snoozed; absent loads as null, a
+    // present value must be a finite epoch-ms number or null.
+    optNullable(value, "snoozedUntilMs", (v) => typeof v === "number" && Number.isFinite(v)) &&
     // askSource (issue #895) post-dates schema-1; absent loads as null, a
     // present value must name both the source tab and its session id.
     optNullable(value, "askSource", isAskSource) &&
@@ -717,6 +720,8 @@ function parseRegistryData(raw: unknown): RegistryData | null {
       private: s.private === true,
       chat: s.chat === true,
       snoozed: s.snoozed === true,
+      // A deadline without the flag is meaningless: only a snoozed record keeps it.
+      snoozedUntilMs: s.snoozed === true ? (s.snoozedUntilMs ?? null) : null,
       askSource: s.askSource ?? null,
       fleet: s.fleet ?? null,
       model: s.model ?? null,

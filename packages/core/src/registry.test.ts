@@ -38,6 +38,7 @@ function sessionRecord(patch: Partial<OwnedSessionRecord> = {}): OwnedSessionRec
     proposedPlans: [],
     autoTitled: false,
     snoozed: false,
+    snoozedUntilMs: null,
     private: false,
     chat: false,
     askSource: null,
@@ -1897,6 +1898,24 @@ describe("snoozed sidebar flag (issue #935)", () => {
     expect(Registry.load(file).sessions[0]).toMatchObject({ tabId: "tab-1", snoozed: true });
     reg.updateSession("tab-1", { snoozed: false });
     expect(Registry.load(file).sessions[0]).toMatchObject({ tabId: "tab-1", snoozed: false });
+  });
+
+  it("normalizes an absent snoozedUntilMs to null and drops a non-number one (issue #979)", () => {
+    const file = tmpFile();
+    const legacy: Record<string, unknown> = { ...sessionRecord(), snoozed: true };
+    delete legacy.snoozedUntilMs;
+    const bad = { ...sessionRecord(), tabId: "tab-2", snoozed: true, snoozedUntilMs: "9am" };
+    fs.writeFileSync(file, JSON.stringify({ schemaVersion: 1, projects: [], sessions: [legacy, bad] }));
+    const reg = Registry.load(file);
+    expect(reg.sessions).toHaveLength(1);
+    expect(reg.sessions[0]).toMatchObject({ tabId: "tab-1", snoozed: true, snoozedUntilMs: null });
+  });
+
+  it("drops a deadline left on an unsnoozed record", () => {
+    const file = tmpFile();
+    const stray = { ...sessionRecord(), snoozed: false, snoozedUntilMs: 1_800_000_000_000 };
+    fs.writeFileSync(file, JSON.stringify({ schemaVersion: 1, projects: [], sessions: [stray] }));
+    expect(Registry.load(file).sessions[0]).toMatchObject({ snoozed: false, snoozedUntilMs: null });
   });
 });
 

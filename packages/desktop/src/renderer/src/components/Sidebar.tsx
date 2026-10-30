@@ -14,10 +14,12 @@ import { buildSidebarLists, type SidebarEntry } from "../lib/sidebar-sessions";
 import { setSettledOpen, useSettledOpen } from "../lib/sidebar-settled";
 import { setSidebarSectionOpen, useSidebarSectionOpen } from "../lib/sidebar-section-open";
 import { supportsSessionMigrate } from "../lib/session-migrate";
+import { fromDateTimeLocal, snoozePresets, toDateTimeLocal, type SnoozePreset } from "../lib/snooze-until";
 import { useStore } from "../store";
 import { SessionRow } from "./SessionRow";
 import { useBrowserPaneSplitOpen } from "./browser-pane/BrowserPaneSplit";
-import { Button, Chevron, Dot, Empty, IconButton, IconClose, IconFleet, IconPlus, IconSearch, Panel, ResizeHandle, Sheet } from "./ui";
+import { Button, Chevron, ConfirmDialog, Dot, Empty, IconButton, IconClose, IconFleet, IconPlus, IconSearch, Panel, ResizeHandle, Sheet } from "./ui";
+import { FIELD } from "./settings/rows";
 
 /* ------------------------------------------------------------------- icons */
 
@@ -75,6 +77,61 @@ interface SessionMenuRequest {
 
 const MENU_ROW =
   "block w-full rounded-md px-2.5 py-1.5 text-left text-xs text-ink-mid transition-colors duration-150 hover:bg-hover hover:text-ink focus-visible:bg-hover focus-visible:text-ink focus-visible:outline-none";
+
+/** Menu label per timed-snooze preset (issue #979). */
+const SNOOZE_PRESET_LABEL = {
+  hour: "sidebar.session.snoozeHour",
+  evening: "sidebar.session.snoozeEvening",
+  morning: "sidebar.session.snoozeMorning",
+  nextWeek: "sidebar.session.snoozeNextWeek",
+} as const satisfies Record<SnoozePreset, string>;
+
+/** The custom "Snooze until…" picker (issue #979): a local date-time, future only. */
+function SnoozeUntilDialog({
+  onSnooze,
+  onClose,
+}: {
+  onSnooze: (untilMs: number) => void;
+  onClose: () => void;
+}) {
+  const t = useT();
+  // Opens on tomorrow 09:00, the "Tomorrow morning" preset's deadline.
+  const [value, setValue] = useState(() => toDateTimeLocal(snoozePresets(new Date()).find((p) => p.preset === "morning")!.untilMs));
+  const picked = fromDateTimeLocal(value);
+  const untilMs = picked !== null && picked > Date.now() ? picked : null;
+  return (
+    <ConfirmDialog
+      kicker={t("dialog.snoozeUntil.kicker")}
+      title={t("dialog.snoozeUntil.title")}
+      tone="iris"
+      onClose={onClose}
+      width="w-[22rem]"
+      actions={
+        <>
+          <Button variant="ghost" onClick={onClose}>
+            {t("common.dialog.cancel")}
+          </Button>
+          <Button variant="solid" tone="iris" disabled={untilMs === null} onClick={() => untilMs !== null && onSnooze(untilMs)}>
+            {t("sidebar.session.snooze")}
+          </Button>
+        </>
+      }
+    >
+      <label className="flex flex-col gap-1.5 text-xs text-ink-mid">
+        {t("dialog.snoozeUntil.label")}
+        <input
+          type="datetime-local"
+          autoFocus
+          value={value}
+          min={toDateTimeLocal(Date.now())}
+          onChange={(event) => setValue(event.target.value)}
+          className={FIELD}
+        />
+      </label>
+      {untilMs === null && <p className="mt-2 text-[11px] text-rose">{t("dialog.snoozeUntil.past")}</p>}
+    </ConfirmDialog>
+  );
+}
 
 /** One sidebar row: a session from this app or a joined instance, any project or a chat. */
 function Row({
@@ -229,6 +286,8 @@ export function Sidebar() {
   const [sessionMenu, setSessionMenu] = useState<SessionMenuRequest | null>(null);
   const sessionMenuRef = useRef<HTMLDivElement>(null);
   const sessionMenuItemRef = useRef<HTMLButtonElement>(null);
+  // Timed snooze's custom picker (issue #979): the tab it will snooze, or closed.
+  const [snoozeCustomTabId, setSnoozeCustomTabId] = useState<string | null>(null);
 
   // Issue #888/#895: the per-row Migrate/Ask menu.
   const openSessionMenu: OpenSessionMenu = (tabId, event, { migrate, ask, snooze, snoozed }) => {
@@ -518,10 +577,52 @@ export function Sidebar() {
                   {t(sessionMenu.snoozed ? "sidebar.session.unsnooze" : "sidebar.session.snooze")}
                 </button>
               )}
+              {/* Timed snooze (#979): presets resolve against the clock at open. */}
+              {sessionMenu.snooze && !sessionMenu.snoozed && (
+                <>
+                  {snoozePresets(new Date()).map(({ preset, untilMs }) => (
+                    <button
+                      key={preset}
+                      type="button"
+                      role="menuitem"
+                      onClick={() => {
+                        const { tabId } = sessionMenu;
+                        setSessionMenu(null);
+                        void setSessionSnoozed(tabId, true, untilMs);
+                      }}
+                      className={MENU_ROW}
+                    >
+                      {t(SNOOZE_PRESET_LABEL[preset])}
+                    </button>
+                  ))}
+                  <button
+                    type="button"
+                    role="menuitem"
+                    onClick={() => {
+                      const { tabId } = sessionMenu;
+                      setSessionMenu(null);
+                      setSnoozeCustomTabId(tabId);
+                    }}
+                    className={MENU_ROW}
+                  >
+                    {t("sidebar.session.snoozeCustom")}
+                  </button>
+                </>
+              )}
             </Panel>
           </div>,
           document.body,
         )}
+      {snoozeCustomTabId !== null && (
+        <SnoozeUntilDialog
+          onClose={() => setSnoozeCustomTabId(null)}
+          onSnooze={(untilMs) => {
+            const tabId = snoozeCustomTabId;
+            setSnoozeCustomTabId(null);
+            void setSessionSnoozed(tabId, true, untilMs);
+          }}
+        />
+      )}
 
       {/* -------- footer -------- */}
       <footer className="flex shrink-0 items-center gap-2 border-t border-line px-3 py-2 text-[10px] text-ink-faint">

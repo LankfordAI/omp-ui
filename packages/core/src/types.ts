@@ -496,6 +496,10 @@ export interface OwnedSessionRecord {
    *  pure grouping — the process keeps running and hibernation rules are
    *  unchanged. Post-dates schema-1: absent normalizes to false. */
   snoozed: boolean;
+  /** Epoch ms at which the owning host's main process clears `snoozed`
+   *  (timed snooze, issue #979). Null for an indefinite snooze and whenever
+   *  `snoozed` is false. Post-dates schema-1: absent normalizes to null. */
+  snoozedUntilMs: number | null;
   cachedTitle: string | null;
   cachedModified: string | null;
 }

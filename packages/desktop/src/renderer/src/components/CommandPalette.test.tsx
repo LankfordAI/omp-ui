@@ -124,6 +124,7 @@ const CWD_RECORD = {
  proposedPlans: [],
  autoTitled: false,
  snoozed: false,
+ snoozedUntilMs: null,
  private: false,
  chat: false,
  askSource: null,

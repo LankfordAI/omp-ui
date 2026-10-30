@@ -161,6 +161,7 @@ function sessionRecord(tabId: string, title: string) {
  proposedPlans: [],
  autoTitled: false,
  snoozed: false,
+ snoozedUntilMs: null,
  private: false,
     chat: false,
     askSource: null,

@@ -334,6 +334,44 @@ describe("session:setSnoozed", () => {
     const unparked = readRegistry().sessions[0] as { snoozed: boolean };
     expect(unparked.snoozed).toBe(false);
   });
+
+  it("unsnoozes a timed snooze at its deadline and broadcasts the returned row (issue #979)", async () => {
+    setup();
+    const untilMs = Date.now() + 80;
+    await invoke(CH.setSessionSnoozed, "tab-1", true, untilMs);
+    expect(readRegistry().sessions[0]).toMatchObject({ snoozed: true, snoozedUntilMs: untilMs });
+
+    await vi.waitFor(() => {
+      expect(readRegistry().sessions[0]).toMatchObject({ snoozed: false, snoozedUntilMs: null });
+    });
+    await vi.waitFor(() => {
+      const last = sent.filter((m) => m.channel === CH.onStateChanged).at(-1);
+      const state = last!.args[0] as { projects: { sessions: { snoozed: boolean }[] }[] };
+      expect(state.projects[0]!.sessions[0]!.snoozed).toBe(false);
+    });
+  });
+
+  it("an indefinite snooze, or an unsnooze, clears any earlier deadline", async () => {
+    setup();
+    await invoke(CH.setSessionSnoozed, "tab-1", true, Date.now() + 60_000);
+    await invoke(CH.setSessionSnoozed, "tab-1", true);
+    expect(readRegistry().sessions[0]).toMatchObject({ snoozed: true, snoozedUntilMs: null });
+    await invoke(CH.setSessionSnoozed, "tab-1", true, Date.now() + 60_000);
+    await invoke(CH.setSessionSnoozed, "tab-1", false, Date.now() + 60_000);
+    expect(readRegistry().sessions[0]).toMatchObject({ snoozed: false, snoozedUntilMs: null });
+  });
+
+  it("wakes a deadline that passed while the app was closed on the next launch", () => {
+    setup();
+    const registryFile = path.join(base, "registry.json");
+    const data = JSON.parse(fs.readFileSync(registryFile, "utf8")) as { sessions: Record<string, unknown>[] };
+    data.sessions[0]!.snoozed = true;
+    data.sessions[0]!.snoozedUntilMs = Date.now() - 60_000;
+    fs.writeFileSync(registryFile, JSON.stringify(data));
+
+    new MainBackend(win as never, registryFile);
+    expect(readRegistry().sessions[0]).toMatchObject({ snoozed: false, snoozedUntilMs: null });
+  });
 });
 
 const LINEAGE_S = "omp-ui--proj--aaaaaaaa-1111-2222-3333-444444444444";

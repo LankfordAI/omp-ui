@@ -59,6 +59,7 @@ function session(patch: Partial<SessionSummary> & Pick<SessionSummary, "tabId">)
  proposedPlans: [],
  autoTitled: false,
  snoozed: false,
+ snoozedUntilMs: null,
  private: false,
  chat: false,
  askSource: null,

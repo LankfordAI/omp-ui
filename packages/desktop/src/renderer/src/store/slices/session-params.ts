@@ -771,11 +771,14 @@ export function createSessionParamsSlice(
       );
     }
   };
-  const setSessionSnoozed = async (tabId: string, snoozed: boolean): Promise<void> => {
+  const setSessionSnoozed = async (tabId: string, snoozed: boolean, untilMs: number | null = null): Promise<void> => {
     // Tab-routed in main: a remote-owned session snoozes on its host, and an
     // older host's unknown-channel rejection surfaces here (issue #935).
+    // An indefinite snooze keeps the two-argument call, so a host older than
+    // timed snooze (#979) still accepts it; a timed one there rejects loudly.
     try {
-      await backend.setSessionSnoozed(tabId, snoozed);
+      if (snoozed && untilMs !== null) await backend.setSessionSnoozed(tabId, true, untilMs);
+      else await backend.setSessionSnoozed(tabId, snoozed);
     } catch (err) {
       get().reportError(err);
     }

@@ -104,7 +104,9 @@ An owned session the user parked through its sidebar row's context menu
 pure sidebar grouping — the process keeps running, idle-hibernation rules are
 unchanged, and the footer live count still includes snoozed live sessions.
 While the `snoozedSectionEnabled` setting is off, snoozed sessions render in
-their natural lists and keep their persisted flag.
+their natural lists and keep their persisted flag. A *timed* snooze carries a
+deadline (`snoozedUntilMs`); the owning host's main process unsnoozes it then,
+or at the next launch if the app was closed (ADR-0068 addendum, #979).
 _Avoid_: parked session, hidden session, waiting session
 
 **Private session**:

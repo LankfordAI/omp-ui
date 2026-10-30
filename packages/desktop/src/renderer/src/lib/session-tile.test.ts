@@ -26,6 +26,7 @@ function session(patch: Partial<SessionSummary> = {}): SessionSummary {
     proposedPlans: [],
     autoTitled: false,
     snoozed: false,
+    snoozedUntilMs: null,
     private: false,
     chat: false,
     askSource: null,

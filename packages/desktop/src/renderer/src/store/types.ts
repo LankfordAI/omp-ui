@@ -1370,8 +1370,9 @@ export interface UiStore extends SettingsSlice, UpdatesSlice, LabSlice, StatsSli
     advisor: boolean,
     advisorModel: string | null,
   ): Promise<void>;
-  /** Parks a session in the sidebar's Snoozed section or returns it (issue #935). */
-  setSessionSnoozed(tabId: string, snoozed: boolean): Promise<void>;
+  /** Parks a session in the sidebar's Snoozed section or returns it (issue #935);
+   *  `untilMs` makes the snooze timed — main unsnoozes it then (issue #979). */
+  setSessionSnoozed(tabId: string, snoozed: boolean, untilMs?: number | null): Promise<void>;
   /** Pins the session's approval mode (issue #681); a live rpc session relaunches. */
   setSessionApprovalMode(tabId: string, mode: ApprovalMode | null): Promise<void>;
   setAdvisorModel(tabId: string, selector: string | null): Promise<void>;

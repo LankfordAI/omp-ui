@@ -1045,6 +1045,7 @@ export class SessionManager {
           proposedPlans: [],
           autoTitled: false,
           snoozed: false,
+          snoozedUntilMs: null,
           private: req.private === true,
           chat,
           askSource: ask?.source ?? null,
@@ -3147,6 +3148,7 @@ export class SessionManager {
       cachedModified: new Date().toISOString(),
       autoTitled: source.autoTitled,
       snoozed: false,
+      snoozedUntilMs: null,
       private: source.private,
       // A branch of a chat is a chat sharing its scratch dir.
       chat: source.chat,

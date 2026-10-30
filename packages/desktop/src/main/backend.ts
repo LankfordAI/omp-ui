@@ -204,6 +204,7 @@ import { registerVaultHandlers } from "./vault-handlers";
 import { DESKTOP_PANE_PORT, DESKTOP_PANE_PORT_REQUEST, type DesktopMediaMessage } from "../browser-pane-desktop-protocol";
 import { createDesktopPaneStream } from "./browser-pane-desktop-stream";
 import { TransferState } from "./transfer-state";
+import { SnoozeClock } from "./snooze-clock";
 
 /** A Fleet result's summary read races this window, the same bound as the status tool's summary race. */
 const FLEET_CHILD_SUMMARY_TIMEOUT_MS = 5_000;
@@ -221,6 +222,8 @@ export class MainBackend {
   private readonly planVerifier: PlanVerifier;
   /** Stamps the browser clock onto agent screenshots (see CONTEXT.md "Browser clock"). */
   private readonly clockStamper: ClockStamper;
+  /** Timed snooze deadlines (issue #979): wakes snoozed rows on this host. */
+  private readonly snoozeClock: SnoozeClock;
   /** OS notifications for background sessions (issue #271). */
   private readonly notifier: DesktopNotifier;
   private readonly appUpdater: AppUpdater;
@@ -384,6 +387,11 @@ export class MainBackend {
     });
     this.planVerifier = new PlanVerifier();
     this.clockStamper = new ClockStamper();
+    this.snoozeClock = new SnoozeClock({
+      sessions: () => this.registry.sessions,
+      updateSession: (tabId, patch) => this.registry.updateSession(tabId, patch),
+      broadcast: () => void this.broadcast(),
+    });
     this.sessions =
       opts.sessions ??
       new SessionManager({
@@ -662,6 +670,9 @@ export class MainBackend {
         if (removed.length > 0) console.log(`[backend] swept ${removed.length} orphan chat dir(s)`);
       })
       .catch((err) => console.warn("[backend] chat sweep failed:", err));
+    // Timed snooze (#979): a deadline that passed while the app was closed
+    // wakes here, after every collaborator the broadcast reads exists.
+    this.snoozeClock.sync();
   }
 
   /** Read the window's real page devicePixelRatio; screen.scaleFactor lies under Wayland fractional scaling (#557). */
@@ -995,8 +1006,13 @@ export class MainBackend {
           this.registry.updateSession(tabId, { autoTitled });
           void this.broadcast();
         },
-        [CH.setSessionSnoozed]: (tabId: string, snoozed: boolean) => {
-          this.registry.updateSession(tabId, { snoozed });
+        [CH.setSessionSnoozed]: (tabId: string, snoozed: boolean, untilMs?: number | null) => {
+          this.registry.updateSession(tabId, {
+            snoozed,
+            snoozedUntilMs: snoozed ? (untilMs ?? null) : null,
+          });
+          // Re-arms for the new deadline; a deadline already past wakes now.
+          this.snoozeClock.sync();
           void this.broadcast();
         },
         [CH.setSessionSubagentModels]: (tabId: string, map: SubagentModelMap | null) =>
@@ -1890,6 +1906,7 @@ export class MainBackend {
           cachedModified: now,
           autoTitled: false,
           snoozed: false,
+          snoozedUntilMs: null,
           private: false,
           // A migrated session always lands in a project.
           chat: false,
@@ -2040,6 +2057,7 @@ export class MainBackend {
     this.providerOAuth.dispose();
     this.planVerifier.dispose();
     this.clockStamper.dispose();
+    this.snoozeClock.dispose();
     this.transfers.dispose();
     this.sessions.killAll();
     const headsSettled = this.headWatchers.disposeAll();

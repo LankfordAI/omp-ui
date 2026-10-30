@@ -3,7 +3,8 @@ import { relativeTime } from "../lib/format";
 import { tileModel, tileQuote } from "../lib/session-tile";
 import type { SessionSummary } from "@omp-ui/core/types";
 import { parseTitleCard } from "@omp-ui/core/title-card";
-import { useT, type MessageKey } from "../lib/i18n";
+import { localeTag, useT, type MessageKey } from "../lib/i18n";
+import { formatSnoozeUntil } from "../lib/snooze-until";
 import { cn } from "../lib/cn";
 import { deriveSidebarSessionState, useStore, type SidebarSessionState } from "../store";
 import { SEANCE_MIN_OMP, supportsSeance } from "../lib/seance";
@@ -334,7 +335,14 @@ export function SessionRow({
       <span title={t("sidebar.session.machine", { machine: instanceNickname })}>{instanceNickname}</span>,
     );
   }
-  if (slim && s.snoozed === true) meta.push(t("sidebar.session.snoozed"));
+  // Timed snooze (#979) names its deadline: "snoozed until Tue 09:00".
+  const snoozedLabel =
+    s.snoozed !== true
+      ? null
+      : s.snoozedUntilMs === null
+        ? t("sidebar.session.snoozed")
+        : t("sidebar.session.snoozedUntil", { when: formatSnoozeUntil(s.snoozedUntilMs, new Date(), localeTag()) });
+  if (slim && snoozedLabel !== null) meta.push(snoozedLabel);
 
   return (
     <div
@@ -444,8 +452,8 @@ export function SessionRow({
             {handoff?.hasDescendants ? (
               <span className="shrink-0 text-ink-faint">{t("sidebar.session.planSource")}</span>
             ) : null}
-            {s.snoozed === true ? (
-              <span className="shrink-0 text-ink-faint">{t("sidebar.session.snoozed")}</span>
+            {snoozedLabel !== null ? (
+              <span className="shrink-0 text-ink-faint">{snoozedLabel}</span>
             ) : null}
             <span className="ml-auto flex shrink-0 items-center gap-1">
               {lockMark}

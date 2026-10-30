@@ -103,6 +103,7 @@ function session(tabId: string, title: string, fleet: FleetProvenance | null): S
     proposedPlans: [],
     autoTitled: false,
     snoozed: false,
+    snoozedUntilMs: null,
     private: false,
     chat: false,
     askSource: null,

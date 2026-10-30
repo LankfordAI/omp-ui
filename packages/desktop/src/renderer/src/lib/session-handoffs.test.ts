@@ -39,6 +39,7 @@ function session(tabId: string, patch: Partial<SessionSummary> = {}): SessionSum
  proposedPlans: [],
  autoTitled: false,
  snoozed: false,
+ snoozedUntilMs: null,
  private: false,
  chat: false,
  askSource: null,
