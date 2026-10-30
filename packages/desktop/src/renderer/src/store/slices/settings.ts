@@ -54,6 +54,8 @@ const DEFAULT_WEBHOOKS: SettingsSlice["webhooks"] = {
   deliveries: [],
 };
 
+const DEFAULT_MCP_ENDPOINT: SettingsSlice["mcpEndpoint"] = { enabled: false, clients: [], calls: [] };
+
 const DEFAULT_PROVIDER_OAUTH: SettingsSlice["providerOAuth"] = {
   providerId: null,
   phase: "idle",
@@ -93,6 +95,7 @@ export const createSettingsSlice: StateCreator<UiStore, [], [], SettingsSlice> =
     settingsPage: null,
     remote: DEFAULT_REMOTE,
     webhooks: DEFAULT_WEBHOOKS,
+    mcpEndpoint: DEFAULT_MCP_ENDPOINT,
     providerOAuth: DEFAULT_PROVIDER_OAUTH,
     compactionSettings: {},
     compactionMethods: { status: "unloaded" },
@@ -111,6 +114,10 @@ export const createSettingsSlice: StateCreator<UiStore, [], [], SettingsSlice> =
 
     replaceWebhooks(webhooks) {
       set({ webhooks });
+    },
+
+    replaceMcpEndpoint(mcpEndpoint) {
+      set({ mcpEndpoint });
     },
 
     async setDefaultMode(mode) {
@@ -602,6 +609,48 @@ export const createSettingsSlice: StateCreator<UiStore, [], [], SettingsSlice> =
     async clearWebhookDeliveries() {
       try {
         await backend.clearWebhookDeliveries();
+      } catch (err) {
+        reportRemoteError(err);
+      }
+    },
+
+    async setMcpEndpointEnabled(on) {
+      try {
+        await backend.setMcpEndpointEnabled(on);
+      } catch (err) {
+        reportRemoteError(err);
+      }
+    },
+
+    // Create and rotate carry the token once and reject with the server's
+    // message: the MCP endpoint section shows both inline (issue #996).
+    createMcpClient(input) {
+      return backend.createMcpClient(input);
+    },
+
+    async updateMcpClient(id, patch) {
+      try {
+        await backend.updateMcpClient(id, patch);
+      } catch (err) {
+        reportRemoteError(err);
+      }
+    },
+
+    rotateMcpToken(id) {
+      return backend.rotateMcpToken(id);
+    },
+
+    async removeMcpClient(id) {
+      try {
+        await backend.removeMcpClient(id);
+      } catch (err) {
+        reportRemoteError(err);
+      }
+    },
+
+    async clearMcpCalls() {
+      try {
+        await backend.clearMcpCalls();
       } catch (err) {
         reportRemoteError(err);
       }

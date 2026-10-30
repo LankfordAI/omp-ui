@@ -182,6 +182,8 @@ export interface RegistrySettings {
   fleetProjectRoots: string[];
   /** Accept webhooks master switch (issue #997, ADR-0075); default off. Host-local, never broadcast. */
   webhooksEnabled: boolean;
+  /** Accept MCP clients master switch (issue #996, ADR-0080); default off. Host-local, never broadcast. */
+  mcpEndpointEnabled: boolean;
 }
 
 interface RegistryData {
@@ -480,6 +482,10 @@ export const SETTINGS: SettingDescriptors = {
   fleetGrants: { fallback: () => ({}), parse: parseFleetGrants },
   fleetProjectRoots: { fallback: () => [], parse: parseFleetProjectRoots },
   webhooksEnabled: validatedSetting(
+    () => false,
+    (value): value is boolean => typeof value === "boolean",
+  ),
+  mcpEndpointEnabled: validatedSetting(
     () => false,
     (value): value is boolean => typeof value === "boolean",
   ),

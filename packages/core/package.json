@@ -57,7 +57,8 @@
     "./fleet-wake": "./src/fleet-wake.ts",
     "./webhook": "./src/webhook.ts",
     "./theme": "./src/theme.ts",
-    "./vscode-theme": "./src/vscode-theme.ts"
+    "./vscode-theme": "./src/vscode-theme.ts",
+    "./mcp-endpoint": "./src/mcp-endpoint.ts"
   },
   "scripts": {
     "test": "vitest run --passWithNoTests",

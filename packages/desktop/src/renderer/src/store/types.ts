@@ -89,6 +89,7 @@ import type {
 import type { GoalState } from "@omp-ui/core/goal";
 import type { VibeSnapshot } from "@omp-ui/core/vibe";
 import type { WebhookInput, WebhookPatch, WebhookSecretReveal, WebhooksState } from "@omp-ui/core/webhook";
+import type { McpClientInput, McpClientPatch, McpEndpointState, McpTokenReveal } from "@omp-ui/core/mcp-endpoint";
 import type { BtwSnapshot } from "@omp-ui/core/side-questions";
 import type { SideCommandsSnapshot } from "@omp-ui/core/side-commands";
 import type {
@@ -640,6 +641,8 @@ export interface SettingsSlice {
   remote: RemoteState;
   /** Webhooks settings and audit list (issue #997); host-local, never proxied. */
   webhooks: WebhooksState;
+  /** MCP endpoint clients and call audit list (issue #996); host-local, never proxied. */
+  mcpEndpoint: McpEndpointState;
   compactionMethods: CompactionMethodsLoad;
   /**
    * Effective compaction threshold keys per project, from the settings read.
@@ -650,6 +653,7 @@ export interface SettingsSlice {
   closeSettings(): void;
   replaceRemote(remote: RemoteState): void;
   replaceWebhooks(webhooks: WebhooksState): void;
+  replaceMcpEndpoint(state: McpEndpointState): void;
   setDefaultMode(mode: SessionMode): Promise<void>;
   setDefaultAgentMode(mode: AgentMode): Promise<void>;
   ensureCompactionMethods(): Promise<void>;
@@ -729,6 +733,14 @@ export interface SettingsSlice {
   rotateWebhookSecret(id: string): Promise<WebhookSecretReveal>;
   removeWebhook(id: string): Promise<void>;
   clearWebhookDeliveries(): Promise<void>;
+  setMcpEndpointEnabled(on: boolean): Promise<void>;
+  /** Resolves with the token, shown once; rejects so the form shows the message inline. */
+  createMcpClient(input: McpClientInput): Promise<McpTokenReveal>;
+  updateMcpClient(id: string, patch: McpClientPatch): Promise<void>;
+  /** Resolves with the new token, shown once; rejects so the page shows the message inline. */
+  rotateMcpToken(id: string): Promise<McpTokenReveal>;
+  removeMcpClient(id: string): Promise<void>;
+  clearMcpCalls(): Promise<void>;
   readOmpSettings(projectCwd: string | null): Promise<OmpSettingsSnapshot>;
   ensureCompactionSettings(projectCwd: string): Promise<void>;
   writeOmpSetting(key: string, value: OmpSettingValue): Promise<void>;

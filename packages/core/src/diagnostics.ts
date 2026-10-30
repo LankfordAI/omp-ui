@@ -511,6 +511,7 @@ function manifestBytes(
       "provider-keys.json and all key material are never read",
       "remote-instances.json (joined-instance credentials) is never read",
       "webhooks.json (webhook secrets) and webhook-deliveries.json are never read",
+      "mcp-clients.json (MCP client token hashes) and mcp-calls.json are never read",
       "remoteToken/remotePasswordHash/remotePasswordSalt replaced by hasRemoteToken/hasRemotePassword booleans",
       "<userData>/oauth-login/ is never walked",
       "plan bodies, transcripts (unless opted in), and project file contents are excluded",

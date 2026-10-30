@@ -145,6 +145,8 @@ const mockBackend = {
   onRemoteState: vi.fn(),
   getWebhooksState: vi.fn(async () => ({ enabled: false, credentialStore: false, webhooks: [], deliveries: [] })),
   onWebhooksState: vi.fn(),
+  getMcpEndpointState: vi.fn(async () => ({ enabled: false, clients: [], calls: [] })),
+  onMcpEndpointState: vi.fn(),
   getProviderOAuthState: vi.fn(async () => ({
     providerId: null,
     phase: "idle",

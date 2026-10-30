@@ -756,6 +756,7 @@ type BackendBroadcastSettings = Omit<
   | "chatLastModel"
   | "chatLastThinkingLevel"
   | "webhooksEnabled"
+  | "mcpEndpointEnabled"
 >;
 
 export interface BackendState extends BackendBroadcastSettings {

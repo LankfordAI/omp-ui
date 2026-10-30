@@ -205,11 +205,14 @@ import {
   subagentModelMapCodec,
   webhookInputCodec,
   webhookPatchCodec,
+  mcpClientInputCodec,
+  mcpClientPatchCodec,
 } from "./backend-arg-codecs";
 import type { HeldPromptPayload, HeldPromptRequest } from "./held-prompt";
 import type { WebhookInput, WebhookPatch, WebhookSecretReveal, WebhooksState } from "./webhook";
 import type { ThemeMode } from "./theme";
 import type { VsCodeImportResult, VsCodeThemeFileInput } from "./vscode-theme";
+import type { McpClientInput, McpClientPatch, McpEndpointState, McpTokenReveal } from "./mcp-endpoint";
 
 declare const CHANNEL_ARGS: unique symbol;
 
@@ -1889,6 +1892,27 @@ export const BACKEND_CHANNELS = {
   removeWebhook: { channel: "webhooks:remove", ...request<[id: string], void>([str()]) },
   clearWebhookDeliveries: { channel: "webhooks:clearDeliveries", ...request<[], void>([]) },
   onWebhooksState: { channel: "webhooks:state", ...event<[state: WebhooksState]>() },
+  /**
+   * MCP endpoint (issue #996, ADR-0080). Host-local like the remote:* channels:
+   * never in REMOTE_PROXY_CHANNELS, and the state carries no token.
+   */
+  getMcpEndpointState: { channel: "mcp-endpoint:getState", ...request<[], McpEndpointState>([]) },
+  /** The Accept MCP clients master switch; off by default. */
+  setMcpEndpointEnabled: { channel: "mcp-endpoint:setEnabled", ...request<[on: boolean], void>([bool()]) },
+  /** Mints the id and token; the reply is the only time the token is shown. */
+  createMcpClient: {
+    channel: "mcp-endpoint:createClient",
+    ...request<[input: McpClientInput], McpTokenReveal>([mcpClientInputCodec]),
+  },
+  updateMcpClient: {
+    channel: "mcp-endpoint:updateClient",
+    ...request<[id: string, patch: McpClientPatch], void>([str(), mcpClientPatchCodec]),
+  },
+  /** Replaces the token; the old one stops working at once. */
+  rotateMcpToken: { channel: "mcp-endpoint:rotateToken", ...request<[id: string], McpTokenReveal>([str()]) },
+  removeMcpClient: { channel: "mcp-endpoint:removeClient", ...request<[id: string], void>([str()]) },
+  clearMcpCalls: { channel: "mcp-endpoint:clearCalls", ...request<[], void>([]) },
+  onMcpEndpointState: { channel: "mcp-endpoint:state", ...event<[state: McpEndpointState]>() },
   /** This app's stable identity; a joiner uses it to detect itself and version skew (issue #416). */
   getInstanceIdentity: { channel: "instance:identity", ...request<[], InstanceIdentity>([]) },
   /** Signs in (password) or adopts a token, stores the derived credential, connects. Rejects with a user-facing message. */

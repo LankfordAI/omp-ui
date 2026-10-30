@@ -1583,8 +1583,8 @@ export class SessionManager {
       // starting work in projects is what it is for. Every other session
       // follows the user's setting at each spawn/resume (ADR-0048); an
       // agent-dispatched session never gets them (no recursion, ADR-0061; a
-      // chat is never dispatched), and neither does a webhook-started one — its
-      // prompt carries an outside sender's body (ADR-0075). exec/project/update
+      // chat is never dispatched), and neither does a webhook- or MCP-started
+      // one — its prompt comes from an outside sender (ADR-0075, ADR-0080). exec/project/update
       // inherit this gate plus each owner node's grant ladder (#901, ADR-0062).
       setHostToolsCommand({
         vault: vaults.vaults.length > 0,
@@ -1592,7 +1592,8 @@ export class SessionManager {
           record.chat ||
           (this.deps.registry.getSetting("fleetAgentDispatch") &&
             record.fleet?.requestedBy.kind !== "agent" &&
-            record.fleet?.requestedBy.kind !== "webhook"),
+            record.fleet?.requestedBy.kind !== "webhook" &&
+            record.fleet?.requestedBy.kind !== "mcp"),
       }),
     );
     // The issue #774 recovery pick: `--model` forces the boot but never
@@ -2036,17 +2037,20 @@ export class SessionManager {
     if (record === undefined || record.fleet === null)
       return refused(`no session on this machine carries dispatch ${req.dispatchId}`);
     const by = record.fleet.requestedBy;
+    // An agent session or an MCP client (ADR-0080) may send to what it started;
+    // the kind must match too, so an MCP client id never stands in for a tab.
     if (
-      by.kind !== "agent" ||
+      (by.kind !== "agent" && by.kind !== "mcp") ||
+      by.kind !== req.requester.kind ||
       by.instanceId !== req.requester.instanceId ||
       by.sourceTabId === null ||
       by.sourceTabId !== req.requester.sourceTabId
     )
-      return refused("only the session that dispatched this work can send to it");
+      return refused(by.kind === "mcp" ? "only the MCP client that started this session can send to it" : "only the session that dispatched this work can send to it");
     if (record.mode !== "rpc-ui") return refused("the dispatched session runs in terminal mode");
     const absLineageDir = path.join(this.deps.getSessionsRoot(), record.lineageDir);
     const id = randomUUID();
-    const text = fleetSendText(req.message);
+    const text = fleetSendText(req.message, by.kind);
     const entry = this.live.get(record.tabId);
     if (entry?.kind === "rpc-ui") {
       if (entry.modelHold !== null) return refused(`the session is held: ${modelHoldNotice(entry.modelHold)}`);

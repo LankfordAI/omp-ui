@@ -1002,6 +1002,21 @@ lands in **Recent deliveries** with its outcome. The remote credential never
 authenticates a delivery, and a webhook secret never opens the app.
 _Avoid_: hook, trigger, inbound integration
 
+**MCP endpoint**:
+omp-ui's own MCP server, `/mcp` on the remote-access listener, through which an
+outside app or agent (Claude Desktop, a chat bot, a script) lists machines,
+projects, and sessions, starts a session with a prompt, sends to a session it
+started, and reads a session's status and latest reply (issue #996,
+ADR-0080). Off by default behind **Settings → Remote access → MCP endpoint →
+Accept MCP clients**. Each **MCP client** has its own bearer token (shown
+once, stored only as a hash) and a scope — Read only, Dispatch, or Send —
+mirroring the Fleet access rungs. A session it starts is a Fleet dispatch
+whose requester kind is `mcp`: Plan mode by default, never the fleet tools.
+Every call lands in **Recent MCP calls**. The remote credential never opens
+it, and a client token never opens the app. Not the **MCP manager**, which
+lists the MCP servers omp itself connects to.
+_Avoid_: MCP server (ambiguous with omp's own), API, integration token
+
 **Proposed plans pane**:
 The inspector rail pane (ADR-0004 vocab) that lists every plan the focus
 session has proposed — the live pending plan first, with review / request

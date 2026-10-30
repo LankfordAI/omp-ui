@@ -1,5 +1,6 @@
 // @vitest-environment jsdom
 import type { WebhookSecretReveal } from "@omp-ui/core/webhook";
+import type { McpTokenReveal } from "@omp-ui/core/mcp-endpoint";
 import { act } from "react";
 import { createRoot, type Root } from "react-dom/client";
 import { afterEach, describe, expect, it, vi } from "vitest";
@@ -255,6 +256,18 @@ const backendMock = {
   removeWebhook: vi.fn(async () => {}),
   clearWebhookDeliveries: vi.fn(async () => {}),
   onWebhooksState: vi.fn(),
+  getMcpEndpointState: vi.fn(async () => ({ enabled: false, clients: [], calls: [] })),
+  setMcpEndpointEnabled: vi.fn(async () => {}),
+  createMcpClient: vi.fn(async (): Promise<McpTokenReveal> => {
+    throw new Error("createMcpClient not mocked");
+  }),
+  updateMcpClient: vi.fn(async () => {}),
+  rotateMcpToken: vi.fn(async (): Promise<McpTokenReveal> => {
+    throw new Error("rotateMcpToken not mocked");
+  }),
+  removeMcpClient: vi.fn(async () => {}),
+  clearMcpCalls: vi.fn(async () => {}),
+  onMcpEndpointState: vi.fn(),
   getProviderOAuthState: vi.fn(async () => idleProviderOAuth),
   onProviderOAuthState: vi.fn(),
   readProviderOAuth: vi.fn(async (): Promise<ProviderOAuthStatus[]> => []),

@@ -533,6 +533,7 @@ function DispatchRow({ row, state }: { row: FleetRow; state: SidebarSessionState
           {t("fleet.dispatches.from", { label: requestedBy.label })}
           {requestedBy.kind === "agent" && ` · ${t("fleet.dispatches.agent")}`}
           {requestedBy.kind === "webhook" && ` · ${t("fleet.dispatches.webhook")}`}
+          {requestedBy.kind === "mcp" && ` · ${t("fleet.dispatches.mcp")}`}
         </span>
       </span>
       <span className={`shrink-0 ${face.textClass}`}>{t(face.labelKey)}</span>

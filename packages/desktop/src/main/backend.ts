@@ -69,6 +69,10 @@ import {
   RemoteInstanceStore,
   WebhookDeliveryLog,
   WebhookStore,
+  McpCallLog,
+  McpClientStore,
+  type McpClientInput,
+  type McpClientPatch,
   type WebhookInput,
   type WebhookPatch,
   resolveOmpBinary,
@@ -214,6 +218,7 @@ import { applyAudioDevice, execPactlRunner } from "./audio-devices";
 import { registerLiveAudioHandlers } from "./live-audio";
 import { registerLiveTranscriptHandlers } from "./live-transcript";
 import { registerRemoteHandlers } from "./remote-handlers";
+import { McpEndpointService, type FleetSessionRow } from "./mcp-endpoint-service";
 import { WebhookService } from "./webhook-service";
 import { registerVaultHandlers } from "./vault-handlers";
 import { DESKTOP_PANE_PORT, DESKTOP_PANE_PORT_REQUEST, type DesktopMediaMessage } from "../browser-pane-desktop-protocol";
@@ -249,6 +254,8 @@ export class MainBackend {
   private readonly remote: RemoteServerManager;
   /** Webhooks (issue #997, ADR-0075): the store, the audit list, and the intake the remote server calls. */
   private readonly webhooks: WebhookService;
+  /** MCP endpoint (issue #996, ADR-0080): client token hashes, the call audit list, and the intake the remote server calls. */
+  private readonly mcp: McpEndpointService;
   /** Joined remote instances (issue #416): their sockets, credentials, and merged registries. */
   private readonly remoteInstances: RemoteInstanceManager;
   /** Fleet dispatch, dispatching side (issue #899, ADR-0061). */
@@ -349,6 +356,10 @@ export class MainBackend {
       webhooksFile?: string;
       /** Where the webhook delivery audit list is kept; defaults beside the registry. */
       webhookDeliveriesFile?: string;
+      /** Where MCP client token hashes (issue #996) are stored; defaults beside the registry. */
+      mcpClientsFile?: string;
+      /** Where the MCP call audit list is kept; defaults beside the registry. */
+      mcpCallsFile?: string;
       /** Where worktree checkouts live; defaults beside the registry. */
       worktreesRoot?: string;
       /** Where chat scratch dirs live; defaults beside the registry. */
@@ -569,8 +580,23 @@ export class MainBackend {
       dispatch: (req, dispatchOpts) => this.fleet.dispatch(req, { kind: "webhook" }, dispatchOpts),
       send: (state) => this.send(CH.onWebhooksState, state),
     });
+    this.mcp = new McpEndpointService({
+      store: new McpClientStore(opts.mcpClientsFile ?? path.join(dataDir, "mcp-clients.json")),
+      log: new McpCallLog(opts.mcpCallsFile ?? path.join(dataDir, "mcp-calls.json")),
+      enabled: () => this.registry.getSetting("mcpEndpointEnabled"),
+      setEnabled: (on) => this.registry.setSetting("mcpEndpointEnabled", on),
+      instanceId: () => this.registry.getSetting("instanceId"),
+      machines: () => this.fleet.machines(),
+      sessions: () => this.fleetSessionRows(),
+      summary: (machineKey, tabId) => this.fleetChildSummary(machineKey, tabId),
+      dispatch: (clientId, req, dispatchOpts) => this.fleet.dispatch(req, { kind: "mcp", sourceTabId: clientId }, dispatchOpts),
+      send: (clientId, args) => this.fleet.send(clientId, args, "mcp"),
+      publish: (state) => this.send(CH.onMcpEndpointState, state),
+    });
     this.remote = new RemoteServerManager({
       webhooks: this.webhooks,
+      mcp: this.mcp,
+      version: this.appVersion,
       host: { handlers: () => this.handlers(), addSink: (s) => this.addSink(s) },
       webRoot: opts.webRoot ?? "",
       getSettings: () => ({
@@ -627,15 +653,7 @@ export class MainBackend {
         }
         return ids;
       },
-      fleetSessions: async () => {
-        const local = (await this.buildState()).projects.flatMap((g) =>
-          g.sessions.map((summary) => ({ machineKey: LOCAL_MACHINE_KEY, nickname: null, summary })),
-        );
-        const remote = this.remoteInstances.summaries().flatMap((r) =>
-          r.projects.flatMap((g) => g.sessions.map((summary) => ({ machineKey: r.id, nickname: r.nickname, summary }))),
-        );
-        return [...local, ...remote];
-      },
+      fleetSessions: () => this.fleetSessionRows(),
       localSummary: (tabId) => this.fleetSessionSummary(tabId),
       broadcast: () => this.broadcast(),
       probeSsh: (host) => probeSshPort(host),
@@ -1431,6 +1449,17 @@ export class MainBackend {
         [CH.rotateWebhookSecret]: (id: string) => this.webhooks.rotate(id),
         [CH.removeWebhook]: (id: string) => this.webhooks.remove(id),
         [CH.clearWebhookDeliveries]: () => this.webhooks.clearDeliveries(),
+        // MCP endpoint (issue #996, ADR-0080): host-local like remote:*; the state never carries a token.
+        [CH.getMcpEndpointState]: () => this.mcp.state(),
+        [CH.setMcpEndpointEnabled]: (on: boolean) => {
+          this.mcp.setEnabled(on);
+          this.breadcrumbs.record("mcp-enable", { detail: on ? "on" : "off" });
+        },
+        [CH.createMcpClient]: (input: McpClientInput) => this.mcp.create(input),
+        [CH.updateMcpClient]: (id: string, patch: McpClientPatch) => this.mcp.update(id, patch),
+        [CH.rotateMcpToken]: (id: string) => this.mcp.rotate(id),
+        [CH.removeMcpClient]: (id: string) => this.mcp.remove(id),
+        [CH.clearMcpCalls]: () => this.mcp.clearCalls(),
         // Remote instances (issue #416): identity for joiners; the manager owns the rest.
         [CH.getInstanceIdentity]: () => ({
           instanceId: this.registry.getSetting("instanceId"),
@@ -2431,6 +2460,17 @@ export class MainBackend {
     }
     await this.broadcast();
     return record;
+  }
+
+  /** Project sessions on this computer and every joined instance; read by fleet status and the MCP endpoint. */
+  private async fleetSessionRows(): Promise<FleetSessionRow[]> {
+    const local = (await this.buildState()).projects.flatMap((g) =>
+      g.sessions.map((summary) => ({ machineKey: LOCAL_MACHINE_KEY, nickname: null, summary })),
+    );
+    const remote = this.remoteInstances.summaries().flatMap((r) =>
+      r.projects.flatMap((g) => g.sessions.map((summary) => ({ machineKey: r.id, nickname: r.nickname, summary }))),
+    );
+    return [...local, ...remote];
   }
 
   /** The owner-rendered summary the fleet status tool reads (issue #899). */

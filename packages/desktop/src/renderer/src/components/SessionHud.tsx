@@ -1870,7 +1870,9 @@ export function SessionHud({ tabId }: { tabId: string }) {
           ? "fleet.hud.dispatchedFromAgent"
           : fleetFrom.kind === "webhook"
             ? "fleet.hud.startedByWebhook"
-            : "fleet.hud.dispatchedFrom",
+            : fleetFrom.kind === "mcp"
+              ? "fleet.hud.startedByMcp"
+              : "fleet.hud.dispatchedFrom",
         { label: fleetFrom.label },
       )}
     </Chip>

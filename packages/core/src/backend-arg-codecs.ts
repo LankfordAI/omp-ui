@@ -73,6 +73,7 @@ import type { LiveHistoryTurn } from "./live-voice";
 import { isSubagentModelMap, type SubagentModelMap } from "./subagent-model";
 import { parseWebhookInput, parseWebhookPatch, type WebhookInput, type WebhookPatch } from "./webhook";
 import { VSCODE_THEME_FILE_BYTES_MAX, type VsCodeThemeFileInput } from "./vscode-theme";
+import { parseMcpClientInput, parseMcpClientPatch, type McpClientInput, type McpClientPatch } from "./mcp-endpoint";
 
 export interface ArgCodec<T> {
   readonly expected: string;
@@ -681,6 +682,28 @@ export const webhookPatchCodec: ArgCodec<WebhookPatch> = {
   decode(value, path) {
     try {
       return parseWebhookPatch(value);
+    } catch (error) {
+      return fail(path, `${this.expected} (${(error as Error).message})`);
+    }
+  },
+};
+
+/** MCP client create/update (issue #996): the strict core parsers, so messages are user-facing. */
+export const mcpClientInputCodec: ArgCodec<McpClientInput> = {
+  expected: "a valid MCP client",
+  decode(value, path) {
+    try {
+      return parseMcpClientInput(value);
+    } catch (error) {
+      return fail(path, `${this.expected} (${(error as Error).message})`);
+    }
+  },
+};
+export const mcpClientPatchCodec: ArgCodec<McpClientPatch> = {
+  expected: "a valid MCP client change",
+  decode(value, path) {
+    try {
+      return parseMcpClientPatch(value);
     } catch (error) {
       return fail(path, `${this.expected} (${(error as Error).message})`);
     }

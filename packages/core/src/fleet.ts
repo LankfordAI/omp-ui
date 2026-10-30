@@ -128,9 +128,12 @@ export interface FleetRequester {
   instanceId: string;
   /** `os.hostname()`, truncated to FLEET_LABEL_MAX. */
   label: string;
-  /** "webhook": a Webhook delivery on this app (issue #997, ADR-0075); never gets fleet tools. */
-  kind: "user" | "agent" | "webhook";
-  /** The agent's tab on the dispatcher; null for a user or webhook dispatch. */
+  /**
+   * "webhook": a Webhook delivery on this app (issue #997, ADR-0075); "mcp": an
+   * MCP client of this app's MCP endpoint (issue #996, ADR-0080). Neither gets fleet tools.
+   */
+  kind: "user" | "agent" | "webhook" | "mcp";
+  /** The agent's tab on the dispatcher, or the MCP client id; null for a user or webhook dispatch. */
   sourceTabId: string | null;
 }
 
@@ -580,7 +583,9 @@ export function parseFleetRequester(value: unknown, label = "requester"): FleetR
   if (typeof name !== "string" || name.trim() === "" || CONTROL_CHARS.test(name) || [...name].length > FLEET_LABEL_MAX) {
     throw new Error(`${label}.label must be 1..${FLEET_LABEL_MAX} characters without control characters`);
   }
-  if (r.kind !== "user" && r.kind !== "agent" && r.kind !== "webhook") throw new Error(`${label}.kind must be user, agent, or webhook`);
+  if (r.kind !== "user" && r.kind !== "agent" && r.kind !== "webhook" && r.kind !== "mcp") {
+    throw new Error(`${label}.kind must be user, agent, webhook, or mcp`);
+  }
   return {
     instanceId: idString(r.instanceId, `${label}.instanceId`),
     label: name,
@@ -622,7 +627,7 @@ export function isFleetProvenance(value: unknown): value is FleetProvenance {
   return (
     typeof q.instanceId === "string" &&
     typeof q.label === "string" &&
-    (q.kind === "user" || q.kind === "agent" || q.kind === "webhook") &&
+    (q.kind === "user" || q.kind === "agent" || q.kind === "webhook" || q.kind === "mcp") &&
     (q.sourceTabId === null || typeof q.sourceTabId === "string")
   );
 }
@@ -1245,8 +1250,10 @@ export function parseFleetSendRequest(value: unknown): FleetSendRequest {
 }
 
 /** The text the child sees; the prefix is fixed so the transcript says who spoke. */
-export function fleetSendText(message: string): string {
-  return `[omp-ui fleet] Message from the session that dispatched you:\n\n${message}`;
+export function fleetSendText(message: string, from: "agent" | "mcp"): string {
+  return from === "mcp"
+    ? `[omp-ui fleet] Message from the MCP client that started you:\n\n${message}`
+    : `[omp-ui fleet] Message from the session that dispatched you:\n\n${message}`;
 }
 
 /** Finish an already-landed dispatched worktree session (issue #978); the owner authorizes. */

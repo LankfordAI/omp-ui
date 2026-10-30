@@ -8504,7 +8504,7 @@ describe("fleet dispatch on the owning side (issue #899, ADR-0061)", () => {
   const commandsOf = (): Cmd[] => (RpcClientMock.mock.calls.at(-1)?.[0]?.initialCommands ?? []) as Cmd[];
   const fleetSpawn = (
     manager: SessionManager,
-    opts: { dispatchId?: string; projectCwd?: string; kind?: "user" | "agent" | "webhook"; planMode?: boolean; model?: string; thinkingLevel?: string } = {},
+    opts: { dispatchId?: string; projectCwd?: string; kind?: "user" | "agent" | "webhook" | "mcp"; planMode?: boolean; model?: string; thinkingLevel?: string } = {},
   ): Promise<Core.SpawnAnswer> =>
     manager.spawn({
       origin: "new",
@@ -8524,7 +8524,7 @@ describe("fleet dispatch on the owning side (issue #899, ADR-0061)", () => {
           instanceId: "inst-a",
           label: "host-a",
           kind: opts.kind ?? "user",
-          sourceTabId: opts.kind === "agent" ? "src-tab" : null,
+          sourceTabId: opts.kind === "agent" ? "src-tab" : opts.kind === "mcp" ? "mcp-client" : null,
         },
         ...(opts.model === undefined ? {} : { model: opts.model }),
         ...(opts.thinkingLevel === undefined ? {} : { thinkingLevel: opts.thinkingLevel }),
@@ -8670,6 +8670,7 @@ describe("fleet dispatch on the owning side (issue #899, ADR-0061)", () => {
     ["setting on, user-dispatched", true, "user", true],
     ["setting on, agent-dispatched", true, "agent", false],
     ["setting on, webhook-started", true, "webhook", false],
+    ["setting on, MCP-started", true, "mcp", false],
     ["setting on, not dispatched", true, null, true],
   ] as const)("registers the fleet tools only when allowed (%s)", async (_label, setting, kind, expected) => {
     const { manager, registry } = setup({ mode: "rpc-ui" });
@@ -9095,6 +9096,19 @@ describe("fleet wake and fleet send (issues #957, #959)", () => {
       expect(client.send).not.toHaveBeenCalled();
     });
 
+    it("refuses an MCP requester carrying the dispatching tab's id (ADR-0080)", async () => {
+      const { manager } = setup({ mode: "rpc-ui" });
+      await childSpawn(manager);
+      const client = rpcInstances.at(-1)!;
+      client.send.mockClear();
+
+      await expect(manager.fleetSend(sendReq({ requester: { ...requester(), kind: "mcp" } }))).resolves.toEqual({
+        status: "refused",
+        reason: "only the session that dispatched this work can send to it",
+      });
+      expect(client.send).not.toHaveBeenCalled();
+    });
+
     it("refuses while the session waits on the user's answer", async () => {
       const { manager, registry, sessionsRoot } = setup({ mode: "rpc-ui" });
       const { tabId } = await childSpawn(manager);
@@ -9145,7 +9159,7 @@ describe("fleet wake and fleet send (issues #957, #959)", () => {
       const cmd = client.send.mock.calls[0]![0] as Cmd;
       expect(cmd).toMatchObject({
         type: "prompt",
-        message: Core.fleetSendText("Now reply with OK."),
+        message: Core.fleetSendText("Now reply with OK.", "agent"),
         streamingBehavior: behavior,
       });
       expect(cmd.id!.startsWith(Core.FLEET_SEND_COMMAND_PREFIX)).toBe(true);
@@ -9167,12 +9181,12 @@ describe("fleet wake and fleet send (issues #957, #959)", () => {
 
       expect(outcome).toMatchObject({ status: "queued" });
       const inbox = Core.readFleetInbox(lineageOf(registry, sessionsRoot, tabId));
-      expect(inbox).toEqual([{ id: expect.any(String), text: Core.fleetSendText("Now reply with OK."), mode: "queue" }]);
+      expect(inbox).toEqual([{ id: expect.any(String), text: Core.fleetSendText("Now reply with OK.", "agent"), mode: "queue" }]);
       await vi.waitFor(() => expect(RpcClientMock).toHaveBeenCalledTimes(2));
       expect(commandsOf().at(-1)).toEqual({
         type: "prompt",
         id: Core.fleetSendCommandId(inbox[0]!.id),
-        message: Core.fleetSendText("Now reply with OK."),
+        message: Core.fleetSendText("Now reply with OK.", "agent"),
         streamingBehavior: "followUp",
       });
     });

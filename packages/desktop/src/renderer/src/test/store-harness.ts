@@ -4,6 +4,7 @@
 // ordering. Every store test file imports the single `h` namespace and
 // nothing else from here — no test file may import ../store directly.
 import type { WebhookSecretReveal } from "@omp-ui/core/webhook";
+import type { McpTokenReveal } from "@omp-ui/core/mcp-endpoint";
 import { beforeEach, vi } from "vitest";
 import type {
   AppUpdateState,
@@ -382,6 +383,18 @@ const mockBackend = {
   removeWebhook: vi.fn(async () => {}),
   clearWebhookDeliveries: vi.fn(async () => {}),
   onWebhooksState: vi.fn(),
+  getMcpEndpointState: vi.fn(async () => ({ enabled: false, clients: [], calls: [] })),
+  setMcpEndpointEnabled: vi.fn(async () => {}),
+  createMcpClient: vi.fn(async (): Promise<McpTokenReveal> => {
+    throw new Error("createMcpClient not mocked");
+  }),
+  updateMcpClient: vi.fn(async () => {}),
+  rotateMcpToken: vi.fn(async (): Promise<McpTokenReveal> => {
+    throw new Error("rotateMcpToken not mocked");
+  }),
+  removeMcpClient: vi.fn(async () => {}),
+  clearMcpCalls: vi.fn(async () => {}),
+  onMcpEndpointState: vi.fn(),
   getProviderOAuthState: vi.fn(async () => idleProviderOAuth),
   onProviderOAuthState: vi.fn(),
   readProviderKeys: vi.fn(
@@ -689,6 +702,7 @@ beforeEach(() => {
     ompUpdate: idleOmpUpdate,
     remote: idleRemoteState,
     webhooks: { enabled: false, credentialStore: false, webhooks: [], deliveries: [] },
+    mcpEndpoint: { enabled: false, clients: [], calls: [] },
     providerOAuth: idleProviderOAuth,
     lab: null,
     stats: null,

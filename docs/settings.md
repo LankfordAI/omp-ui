@@ -76,6 +76,16 @@ Remote access is off by default. A connected client has the same authority as th
 
 A remote-setting change does not restart omp-ui or any omp session process. When remote access is running, changing the bind address, port, password, or token restarts only the embedded server. Enabling remote access starts the server, and disabling it stops the server. Running sessions continue. Localhost provides the full browser app. A local-network URL works as a responsive web app, but browsers require a secure origin for installation and offline support. Plain `http://<lan-ip>` does not qualify. Put the server behind your own HTTPS endpoint if you need those browser features.
 
+### MCP endpoint
+
+The **MCP endpoint** section at the bottom of Remote access lets outside apps and agents drive omp-ui over MCP. See [Remote access → MCP endpoint](remote-access.md#mcp-endpoint) for the tools and the security model.
+
+- **Accept MCP clients** turns `/mcp` on for this app (off by default). While it is off, `/mcp` is not a route at all. Turning it on or off does not restart the server.
+- **MCP URL** shows the endpoint while the listener runs.
+- **Add MCP client** names the client, picks its scope (**Read only**, the default, **Dispatch**, or **Send**), and an optional limit of session starts and sends per hour (6 by default; empty means none). omp-ui shows the token once, with **Copy MCP URL** for the URL and a client config carrying it.
+- Each client row has an enabled switch, its scope, **Copy MCP URL** (with a `YOUR_TOKEN` placeholder), **Rotate token**, and **Delete**. A scope change applies to the client's next call.
+- **Recent MCP calls** lists the last 200 calls with their tool, target, outcome, and duration. **Clear** empties the list.
+
 ## Webhooks
 
 Webhooks let an outside event start a session: each webhook is an endpoint `POST /webhooks/<id>` on the remote-access listener. They are off by default and need remote access listening. See [Remote access → Webhooks](remote-access.md#webhooks) for the request format and the security model.

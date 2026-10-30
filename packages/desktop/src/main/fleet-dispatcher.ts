@@ -397,7 +397,11 @@ export class FleetDispatcher {
 
   async dispatch(
     raw: FleetDispatchRequest,
-    who: { kind: "user" } | { kind: "webhook" } | { kind: "agent"; sourceTabId: string },
+    who:
+      | { kind: "user" }
+      | { kind: "webhook" }
+      | { kind: "agent"; sourceTabId: string }
+      | { kind: "mcp"; sourceTabId: string },
     opts: { deadlineMs?: number } = {},
   ): Promise<FleetDispatchResult> {
     // The channel codec already parsed a user request; the agent path arrives unparsed.
@@ -409,7 +413,7 @@ export class FleetDispatcher {
     const requestedBy = {
       ...this.#deps.requesterBase(),
       kind: who.kind,
-      sourceTabId: who.kind === "agent" ? who.sourceTabId : null,
+      sourceTabId: who.kind === "agent" || who.kind === "mcp" ? who.sourceTabId : null,
     };
     let pendingAdded = false;
     const outcomes = await Promise.all(
@@ -636,19 +640,23 @@ export class FleetDispatcher {
 
   /**
    * `omp-ui_fleet_send` (issue #959): a message to a child this session
-   * dispatched. Pre-checked here; the owner re-checks the requester.
+   * dispatched — or, with kind "mcp", one an MCP client started (ADR-0080);
+   * then `tabId` is the client id. Pre-checked here; the owner re-checks the requester.
    */
-  async send(tabId: string, args: FleetToolSendArgs): Promise<FleetSendOutcome> {
+  async send(tabId: string, args: FleetToolSendArgs, kind: "agent" | "mcp" = "agent"): Promise<FleetSendOutcome> {
     const s = (await this.#deps.fleetSessions()).find((x) => x.summary.fleet?.dispatchId === args.dispatchId);
     if (s === undefined) {
       return this.pending().some((p) => p.dispatchId === args.dispatchId)
         ? { status: "refused", reason: "that dispatch's outcome is still unknown" }
         : { status: "refused", reason: `no dispatched session has dispatch ${args.dispatchId}` };
     }
-    const requester = this.requester("agent", tabId);
+    const requester = this.requester(kind, tabId);
     const by = s.summary.fleet!.requestedBy;
-    if (by.instanceId !== requester.instanceId || by.sourceTabId !== requester.sourceTabId) {
-      return { status: "refused", reason: "only the session that dispatched this work can send to it" };
+    if (by.kind !== kind || by.instanceId !== requester.instanceId || by.sourceTabId !== requester.sourceTabId) {
+      return {
+        status: "refused",
+        reason: kind === "mcp" ? "only the MCP client that started this session can send to it" : "only the session that dispatched this work can send to it",
+      };
     }
     const req: FleetSendRequest = { requester, dispatchId: args.dispatchId, message: args.message, mode: args.mode };
     if (s.machineKey === LOCAL_MACHINE_KEY) return this.#deps.sendLocal(req);

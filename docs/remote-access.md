@@ -97,6 +97,39 @@ Other answers: `401` for an unknown id, a wrong signature or token, an unreadabl
 
 Anyone who holds a webhook's secret can start sessions in its project with whatever they put in the body. New webhooks start in **Plan** mode, so a payload that tries to steer the agent meets the plan review before anything changes. Exposing webhooks to the internet means exposing this listener, so put an HTTPS terminator or tunnel in front of the localhost listener and forward only the `/webhooks/` path. Without HTTPS, an attacker who captures a signed delivery can replay it.
 
+## MCP endpoint
+
+The MCP endpoint lets an outside app or agent, such as Claude Desktop, a chat bot, a script, or another omp, drive omp-ui over the Model Context Protocol ([#996](https://github.com/LankfordAI/omp-ui/issues/996), [ADR-0080](adr/0080-mcp-endpoint-rides-the-remote-access-listener-with-scoped-client-tokens.md)). It is off by default. Turn on remote access, then **Settings → Remote access → MCP endpoint → Accept MCP clients**, and add a client there. The endpoint speaks MCP streamable HTTP on this listener:
+
+```text
+POST http://127.0.0.1:PORT/mcp
+Authorization: Bearer CLIENT_TOKEN
+```
+
+An MCP client is not a remote-access client. The remote password, cookie, and token never open `/mcp`, and a client token never opens the app. Each client has its own token, shown once when you add the client or rotate its token; omp-ui keeps only a hash of it. **Copy MCP URL** right after creating a client puts the URL and a client config with the token on the clipboard:
+
+```json
+{
+  "mcpServers": {
+    "omp-ui": {
+      "type": "http",
+      "url": "http://127.0.0.1:4677/mcp",
+      "headers": { "Authorization": "Bearer CLIENT_TOKEN" }
+    }
+  }
+}
+```
+
+Each client has a scope, and sees only the tools its scope allows:
+
+- **Read only:** `list_machines`, `list_projects`, `list_sessions` (project sessions on this computer and every joined instance; private sessions and chats are never listed), and `session_status` (state and the latest landed reply).
+- **Dispatch:** also `start_session`, which starts one session in a project with a prompt. It starts in **Plan** mode unless the call passes `planMode: false`, in a fresh worktree unless it passes `workspace: "checkout"`. The session reads **Started by an MCP client on HOST** and never gets the fleet tools.
+- **Send:** also `send_to_session`, which messages a session this client started, queued after the current turn or steered into it. Sessions another client or you started refuse it.
+
+New clients start at **Read only**. A client may start sessions and send messages up to its hourly limit (6 by default; empty means none), and all MCP clients together up to 60 per hour; over a limit the tool answers with a refusal. The limits reset when omp-ui restarts. Unknown, disabled, and missing tokens all answer `401`; a request from a browser page on another origin answers `403`. Every call appears in **Recent MCP calls** with its tool, target, outcome, and duration; prompts, messages, and tokens are never recorded.
+
+A **Dispatch** or **Send** token lets its holder start agent sessions on any ready fleet machine with prompts of its choosing, and a **Read only** token reads the titles and latest replies of every project session. Keep the listener on localhost or behind HTTPS so tokens are not sent in the clear.
+
 ## Build the browser bundle for development
 
 Packaged desktop builds include the browser bundle. From the repository root, build it for a development checkout with:

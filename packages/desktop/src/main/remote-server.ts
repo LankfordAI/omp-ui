@@ -4,6 +4,7 @@ import {
   startRemoteServer,
   type RemoteHost,
   type WebhookIntake,
+  type McpIntake,
   type RemoteServerHandle,
 } from "@omp-ui/server";
 
@@ -35,6 +36,10 @@ export interface RemoteServerManagerDeps {
   send: (state: RemoteState) => void;
   /** Webhook intake (issue #997); it reads its own switch per request, so toggling never restarts the server. */
   webhooks?: WebhookIntake;
+  /** MCP endpoint intake (issue #996); it reads its own switch per request, so toggling never restarts the server. */
+  mcp?: McpIntake;
+  /** The app version the MCP endpoint reports. */
+  version?: string;
 }
 
 /** True when both tuples name the same listener. */
@@ -186,6 +191,8 @@ export class RemoteServerManager {
         webRoot: this.deps.webRoot,
         password,
         webhooks: this.deps.webhooks ?? null,
+        mcp: this.deps.mcp ?? null,
+        version: this.deps.version,
       });
       this.#handle = handle;
       this.#running = desired;

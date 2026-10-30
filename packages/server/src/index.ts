@@ -43,6 +43,8 @@ import {
   type WebhookAuth,
 } from "@omp-ui/core/webhook";
 import { verifyWebhookRequest } from "./webhook-auth";
+import { MCP_PATH } from "@omp-ui/core/mcp-endpoint";
+import { handleMcpRequest, type McpIntake } from "./mcp";
 
 /** What the transport needs from MainBackend — nothing about sessions, Electron, or the registry. */
 export interface RemoteHost {
@@ -71,6 +73,14 @@ export interface RemoteServerOptions {
    * unauthenticated handling.
    */
   webhooks?: WebhookIntake | null;
+  /**
+   * MCP endpoint intake (issue #996, ADR-0080). Absent, or `enabled()` false,
+   * means `/mcp` is not a route at all and falls through to the normal
+   * unauthenticated handling.
+   */
+  mcp?: McpIntake | null;
+  /** The app version `initialize` reports as serverInfo.version. */
+  version?: string;
 }
 
 /** What the route learns about one webhook id; null for an unknown id. */
@@ -480,6 +490,12 @@ export function startRemoteServer(opts: RemoteServerOptions): Promise<RemoteServ
         return;
       }
     }
+    // MCP endpoint (issue #996, ADR-0080): matched before the remote credential check and never
+    // consulting it, exactly like webhooks — a client token never opens the app.
+    if (opts.mcp != null && opts.mcp.enabled() && url.pathname === MCP_PATH) {
+      handleMcpRequest(req, res, opts.mcp, opts.version ?? "0.0.0");
+      return;
+    }
     const { value, from } = presentedToken(req, url);
 
     if (credentialMatches(value)) {
@@ -860,6 +876,7 @@ export {
   type InstanceConnectFailure,
 } from "./client";
 export { mintWebhookId, mintWebhookSecret, verifyWebhookRequest, webhookSignature } from "./webhook-auth";
+export { mintMcpClientId, mintMcpToken, type McpCaller, type McpIntake, type McpRequestMeta, type McpToolResult } from "./mcp";
 
 /**
  * Resolves once every client socket has left OPEN/CLOSING, or after `ms` — whichever first. A

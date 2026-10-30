@@ -13,6 +13,7 @@ import {
 } from "../ui";
 import { CommitField, FIELD, Row } from "./rows";
 import { PairingQr } from "../PairingQr";
+import { McpEndpointSection } from "./McpEndpointSection";
 import { t, useT } from "../../lib/i18n";
 
 function remoteStatusLine(r: RemoteState): string {
@@ -294,6 +295,8 @@ export function RemotePage() {
           caption={remote.hasPassword ? t("settings.remote.pairPassword") : t("settings.remote.pairToken")}
         />
       )}
+
+      <McpEndpointSection />
     </div>
   );
 }

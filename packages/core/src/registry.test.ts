@@ -137,6 +137,7 @@ describe("SETTINGS", () => {
       "fleetGrants",
       "fleetProjectRoots",
       "webhooksEnabled",
+      "mcpEndpointEnabled",
     ]);
   });
   it("creates fresh mutable fallbacks", () => {
