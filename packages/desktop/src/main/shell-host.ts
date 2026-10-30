@@ -16,9 +16,24 @@ export interface ShellHostDependencies {
   getOmpModelArg?: () => string | null;
 }
 
+/**
+ * How long a killed console program gets to exit on the hangup before SIGKILL.
+ * A shell that ignores SIGHUP (`trap '' HUP`, a zsh `TRAPHUP`) keeps running
+ * while omp-ui holds its PTY open, and node-pty's SIGTERM never ends an
+ * interactive zsh — the same trap fleet terminals escalate past (issue #1004).
+ */
+const KILL_GRACE_MS = 2_000;
+
+interface HostedShell {
+  handle: PtyHandle;
+  detachData: () => void;
+  /** Armed by kill; forces the end if the program outlives the hangup. */
+  escalation: NodeJS.Timeout | undefined;
+}
+
 /** Owns console-drawer programs independently of live OMP session children. */
 export class ShellHost {
-  private readonly shells = new Map<string, { handle: PtyHandle; detachData: () => void }>();
+  private readonly shells = new Map<string, HostedShell>();
 
   constructor(private readonly deps: ShellHostDependencies) {}
 
@@ -42,12 +57,14 @@ export class ShellHost {
           })
         : spawnShell({ id: tabId, cwd, cols, rows });
     const detachData = handle.onData((data) => this.deps.send(CH.onShellData, tabId, data));
-    this.shells.set(tabId, { handle, detachData });
+    const hosted: HostedShell = { handle, detachData, escalation: undefined };
+    this.shells.set(tabId, hosted);
     handle.onExit(({ exitCode }) => {
-      const current = this.shells.get(tabId);
-      if (!current || current.handle !== handle) return;
+      // A killed program's exit still disarms its own escalation.
+      clearTimeout(hosted.escalation);
+      if (this.shells.get(tabId) !== hosted) return;
       this.shells.delete(tabId);
-      current.detachData();
+      hosted.detachData();
       this.deps.send(CH.onShellExit, tabId, exitCode);
     });
   }
@@ -67,6 +84,12 @@ export class ShellHost {
     // Detach before kill so final output cannot reach a successor or closed drawer.
     shell.detachData();
     shell.handle.kill();
+    // ConPTY's kill already terminates; it has no signal to escalate to.
+    if (process.platform === "win32") return;
+    // Unref'd: a quit never waits on it, and the exiting app closes the PTY,
+    // which ends even a hangup-ignoring shell.
+    shell.escalation = setTimeout(() => shell.handle.kill("SIGKILL"), KILL_GRACE_MS);
+    shell.escalation.unref();
   }
 
   killAll(): void {

@@ -297,6 +297,29 @@ describe("console-drawer shell lifecycle (issue #42)", () => {
     await invoke(CH.deleteSession, TAB, false);
     expect(fake.kill).toHaveBeenCalled();
   });
+
+  // A shell that ignores the hangup (zsh `TRAPHUP`, `trap '' HUP`) would
+  // outlive a polite kill as an orphan in the session's working tree (issue #1004).
+  it.skipIf(process.platform === "win32")(
+    "forces a shell that outlives the hangup and stops forcing once it exits",
+    () => {
+      vi.useFakeTimers();
+      try {
+        setup();
+        invoke(CH.shellSpawn, TAB, "/proj", 80, 24);
+        const stubborn = fakeShells[0]!;
+        invoke(CH.shellSpawn, TAB, "/proj", 80, 24); // respawn kills the first
+        const polite = fakeShells[1]!;
+        invoke(CH.shellKill, TAB);
+        polite.exitCb!({ exitCode: 1 }); // the hangup was enough
+        vi.advanceTimersByTime(5_000);
+        expect(stubborn.kill.mock.calls).toEqual([[], ["SIGKILL"]]);
+        expect(polite.kill.mock.calls).toEqual([[]]);
+      } finally {
+        vi.useRealTimers();
+      }
+    },
+  );
 });
 
 describe("console-drawer TUI handoff (issue #243)", () => {

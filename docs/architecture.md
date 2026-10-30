@@ -118,7 +118,9 @@ the rollback. Cascade deletion runs each member through its normal per-tab queue
 settles the full closure, then asks core's `reclaimCheckouts` to deduplicate the
 captured descriptors against an explicit snapshot of surviving records. The
 console drawer follows the same ownership boundary through a separate
-`ShellHost`; it is not part of the live OMP child map.
+`ShellHost`; it is not part of the live OMP child map. A drawer kill sends the
+PTY hangup, then SIGKILL after a 2 s grace on Unix, because a shell that
+ignores SIGHUP would otherwise outlive the session that owned it.
 
 See [Session storage and encoding](session-encoding.md) for the verified JSONL, title-slot, artifacts, root-resolution, and archive formats. Directory encoding is diagnostic only. Code must read the JSONL header instead of reconstructing a project path from a directory name.
 
