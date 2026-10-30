@@ -47,6 +47,15 @@ import { AdvisoryNotes, ToolCard } from "./ToolCard";
 import { VaultToolCard } from "./VaultToolCard";
 import { VAULT_WRITE_TOOLS } from "@omp-ui/core/vault-shared";
 import { SelectionContextMenu } from "./SelectionContextMenu";
+import {
+  SelectionCommentButton,
+  SelectionCommentPopover,
+  selectionInside,
+  useSelectionCommentButton,
+  type SelectionAnchor,
+} from "./SelectionComment";
+import { AnnotationChips } from "./AnnotationChips";
+import { normalizeAnnotationQuote } from "../lib/annotations";
 import { HeldPromptCard } from "./HeldPromptCard";
 import {
   Chip,
@@ -295,14 +304,6 @@ function markdownSourceForSelection(sel: Selection): string | null {
   return el?.closest("[data-markdown-source]")?.getAttribute("data-markdown-source") ?? null;
 }
 
-/** Whether the selection's common ancestor lives under `root`. */
-function selectionWithin(root: HTMLElement | null, sel: Selection): boolean {
-  if (root === null || sel.rangeCount === 0) return false;
-  const node = sel.getRangeAt(0).commonAncestorContainer;
-  const el = node.nodeType === Node.TEXT_NODE ? node.parentElement : (node as HTMLElement);
-  return el !== null && root.contains(el);
-}
-
 /* ------------------------------------------------------------ small kinds */
 
 function UserBubble({
@@ -353,6 +354,7 @@ function UserBubble({
   const rewindTitle = rewindBusy ? t("transcript.rewind.busy") : undefined;
   const fileMentions = item.fileMentions ?? [];
   const documents = item.documents ?? [];
+  const annotations = item.annotations ?? [];
   return (
     <div className="speaker-run animate-rise flex flex-col items-end gap-1">
       {first && <Label className="speaker-label speaker-label-right">{t("transcript.speaker.you")}</Label>}
@@ -360,6 +362,7 @@ function UserBubble({
         className="group relative min-w-0 max-w-[72%] space-y-2 rounded-lg border border-iris-dim/40 bg-iris-wash px-3 py-2 text-ink has-[.md-plan]:w-full has-[.md-plan]:max-w-full"
         data-markdown-source={item.text !== "" ? item.text : undefined}
       >
+        {annotations.length > 0 && <AnnotationChips annotations={annotations} align="end" />}
         {draft === null ? (
           item.text !== "" && <Markdown text={item.text} />
         ) : (
@@ -1029,6 +1032,21 @@ export function TranscriptView({
   // Last observed scrollTop, for scroll direction.
   const lastScrollTopRef = useRef(0);
   const [menu, setMenu] = useState<TranscriptMenuState | null>(null);
+  // Comment… (issue #983): an annotation goes to this tab's composer, so only
+  // a live native tab offers it — never a subagent view or a PTY tab.
+  const canComment = useStore(
+    (s) =>
+      tabId !== undefined &&
+      findRecord(s.state, tabId)?.mode === "rpc-ui" &&
+      findRecord(s.state, tabId)?.live === "live",
+  );
+  const queueComposerAnnotations = useStore((s) => s.queueComposerAnnotations);
+  /** The selection the comment popover annotates; null while closed. */
+  const [comment, setComment] = useState<SelectionAnchor | null>(null);
+  const commentButton = useSelectionCommentButton(
+    scrollRef,
+    canComment && menu === null && comment === null,
+  );
 
   function updateFollowing(value: boolean) {
     followingRef.current = value;
@@ -1270,15 +1288,7 @@ export function TranscriptView({
           if (sel === null || sel.isCollapsed) return;
           const text = sel.toString();
           if (text === "") return;
-          if (!selectionWithin(scrollRef.current, sel)) return;
-          const anchor = sel.anchorNode;
-          const anchorEl =
-            anchor === null
-              ? null
-              : anchor.nodeType === Node.TEXT_NODE
-                ? anchor.parentElement
-                : (anchor as HTMLElement);
-          if (!anchorEl?.closest("[data-selectable]")) return;
+          if (scrollRef.current === null || !selectionInside(scrollRef.current, sel)) return;
           // No selection → fall through untouched (issue #72). preventDefault
           // keeps Chromium from clearing the selection before the action
           // reads it; the captured string makes the action immune regardless.
@@ -1440,7 +1450,31 @@ export function TranscriptView({
           onCopyMarkdown={
             menu.markdown === null ? null : () => void copyFallback(menu.markdown!)
           }
+          onComment={
+            canComment && normalizeAnnotationQuote(menu.text) !== ""
+              ? () => setComment({ quote: normalizeAnnotationQuote(menu.text), x: menu.x, y: menu.y })
+              : null
+          }
           onClose={() => setMenu(null)}
+        />
+      )}
+      {commentButton.anchor !== null && (
+        <SelectionCommentButton
+          anchor={commentButton.anchor}
+          onComment={() => {
+            setComment(commentButton.anchor);
+            commentButton.clear();
+          }}
+        />
+      )}
+      {comment !== null && tabId !== undefined && (
+        <SelectionCommentPopover
+          anchor={comment}
+          onSave={(annotation) => {
+            queueComposerAnnotations(tabId, [annotation]);
+            window.getSelection()?.removeAllRanges();
+          }}
+          onClose={() => setComment(null)}
         />
       )}
     </div>

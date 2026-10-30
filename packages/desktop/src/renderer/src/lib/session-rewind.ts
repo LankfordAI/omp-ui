@@ -7,6 +7,7 @@
 // `userContentFromContent()` strip that built the items; any mismatch refuses
 // the rewind rather than guessing an id.
 
+import type { Annotation } from "./annotations";
 import { strField } from "./fields";
 import { isObj } from "./fields";
 import { userContentFromContent } from "./transcript";
@@ -20,6 +21,8 @@ export interface PromptEntry {
   images: { data: string; mimeType: string }[];
   /** Scratch-path Documents parsed out of the block; re-sent by path (ADR-0044). */
   documents?: { name: string; path: string }[];
+  /** Annotation chips parsed out of the leading block (ADR-0077). */
+  annotations?: Annotation[];
 }
 
 /**
@@ -103,6 +106,7 @@ export function visiblePromptEntries(
       text: content.text,
       images: content.images ?? [],
       ...(content.documents?.length ? { documents: content.documents } : {}),
+      ...(content.annotations?.length ? { annotations: content.annotations } : {}),
     });
   }
   return out;
@@ -156,6 +160,7 @@ export function entryUserPrompt(
       text: content.text,
       images: content.images ?? [],
       ...(content.documents?.length ? { documents: content.documents } : {}),
+      ...(content.annotations?.length ? { annotations: content.annotations } : {}),
     };
   }
   return null;

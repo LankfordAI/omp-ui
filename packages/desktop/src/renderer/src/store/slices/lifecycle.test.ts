@@ -3035,7 +3035,7 @@ describe("moveUnpromptedSession (issue #936)", () => {
     seed();
     const next = await h.useStore
       .getState()
-      .moveUnpromptedSession(h.TAB, toRemote, { text: "fix the login bug", images: [image], documents: [pdf] });
+      .moveUnpromptedSession(h.TAB, toRemote, { text: "fix the login bug", images: [image], documents: [pdf], annotations: [] });
 
     expect(next).toBe(FRESH);
     // Routed to the target instance's backend, not the local one.
@@ -3058,7 +3058,7 @@ describe("moveUnpromptedSession (issue #936)", () => {
     seed();
     const next = await h.useStore
       .getState()
-      .moveUnpromptedSession(h.TAB, toLocal, { text: "hi", images: [], documents: [] });
+      .moveUnpromptedSession(h.TAB, toLocal, { text: "hi", images: [], documents: [], annotations: [] });
 
     expect(next).toBe(FRESH);
     expect(h.mockBackend.spawnSession).toHaveBeenCalledWith(
@@ -3072,7 +3072,7 @@ describe("moveUnpromptedSession (issue #936)", () => {
     h.mockBackend.spawnSession.mockRejectedValueOnce(new Error("pty spawn failed"));
     const next = await h.useStore
       .getState()
-      .moveUnpromptedSession(h.TAB, toLocal, { text: "hi", images: [], documents: [] });
+      .moveUnpromptedSession(h.TAB, toLocal, { text: "hi", images: [], documents: [], annotations: [] });
 
     expect(next).toBeNull();
     expect(h.mockBackend.deleteSession).not.toHaveBeenCalled();
@@ -3084,7 +3084,7 @@ describe("moveUnpromptedSession (issue #936)", () => {
     seed("sess-1");
     const next = await h.useStore
       .getState()
-      .moveUnpromptedSession(h.TAB, toLocal, { text: "hi", images: [], documents: [] });
+      .moveUnpromptedSession(h.TAB, toLocal, { text: "hi", images: [], documents: [], annotations: [] });
 
     expect(next).toBeNull();
     expect(h.mockBackend.spawnSession).not.toHaveBeenCalled();
@@ -3096,7 +3096,7 @@ describe("moveUnpromptedSession (issue #936)", () => {
     seed();
     await h.useStore
       .getState()
-      .moveUnpromptedSession(h.TAB, toRemote, { text: "read these", images: [], documents: [pdf, pathOnly] });
+      .moveUnpromptedSession(h.TAB, toRemote, { text: "read these", images: [], documents: [pdf, pathOnly], annotations: [] });
 
     const fresh = h.useStore.getState().rpc[FRESH]!;
     expect(fresh.composerQueue?.documents).toEqual([pdf]);

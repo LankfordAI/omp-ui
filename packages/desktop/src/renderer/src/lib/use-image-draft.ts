@@ -10,18 +10,22 @@ import {
   readDocumentFiles,
   readImageFiles,
 } from "./clipboard-image";
+import type { Annotation } from "./annotations";
 import { sanitizeDocumentName } from "./document-context";
 
 /**
  * The Attachment draft shared by the composer and the plan review's refine
- * notes (issue #299, PDFs per ADR-0044): paste and picker both append to the
- * same lists — images and PDF Document Attachments — and refusals surface as
- * one dismissible message.
+ * notes (issue #299, PDFs per ADR-0044, annotations per ADR-0077): paste and
+ * picker both append to the same lists — images and PDF Document
+ * Attachments — the selection Comment action appends annotations, and
+ * refusals surface as one dismissible message.
  */
 export interface ImageDraft {
   images: ImageAttachment[];
   /** PDF Document Attachments, materialized to paths at send (ADR-0044). */
   documents: DocumentAttachment[];
+  /** Quoted selections with comments; they lead the prompt text at send (ADR-0077). */
+  annotations: Annotation[];
   /** Why an Attachment was refused (over a size ceiling, unreadable). */
   pasteError: string | null;
   /** Intercepts an image or PDF paste; text pastes pass through untouched. */
@@ -32,9 +36,12 @@ export interface ImageDraft {
   addImages: (images: ImageAttachment[]) => void;
   /** Appends ready-made Documents (rewind prefill re-sends by path) under the same size guard. */
   addDocuments: (documents: DocumentAttachment[]) => void;
+  /** Appends annotations (the selection Comment action, a restored draft). */
+  addAnnotations: (annotations: Annotation[]) => void;
   dropImage: (index: number) => void;
   dropDocument: (index: number) => void;
-  /** Clears both Attachment lists and any refusal message together (send / refine). */
+  dropAnnotation: (index: number) => void;
+  /** Clears every draft list and any refusal message together (send / refine). */
   clearDraft: () => void;
   /** Surfaces a send-time refusal (materialization failed) beside the draft. */
   setPasteError: (message: string) => void;
@@ -50,6 +57,8 @@ export function useImageDraft(): ImageDraft {
   const [images, setImages] = useState<ImageAttachment[]>([]);
   /** PDF Documents in the draft; they ride the message text, not the frame. */
   const [documents, setDocuments] = useState<DocumentAttachment[]>([]);
+  /** Annotations in the draft, in the order they were added. */
+  const [annotations, setAnnotations] = useState<Annotation[]>([]);
   /** Why an Attachment was refused (over a size ceiling, unreadable). */
   const [pasteError, setPasteError] = useState<string | null>(null);
 
@@ -132,6 +141,10 @@ export function useImageDraft(): ImageDraft {
     setPasteError(rejected.length > 0 ? rejected.join("; ") : null);
   }, []);
 
+  const addAnnotations = useCallback((incoming: Annotation[]) => {
+    if (incoming.length > 0) setAnnotations((prev) => [...prev, ...incoming]);
+  }, []);
+
   const dropImage = useCallback((index: number) => {
     setImages((prev) => prev.filter((_, i) => i !== index));
   }, []);
@@ -140,9 +153,14 @@ export function useImageDraft(): ImageDraft {
     setDocuments((prev) => prev.filter((_, i) => i !== index));
   }, []);
 
+  const dropAnnotation = useCallback((index: number) => {
+    setAnnotations((prev) => prev.filter((_, i) => i !== index));
+  }, []);
+
   const clearDraft = useCallback(() => {
     setImages([]);
     setDocuments([]);
+    setAnnotations([]);
     setPasteError(null);
   }, []);
 
@@ -151,14 +169,17 @@ export function useImageDraft(): ImageDraft {
   return {
     images,
     documents,
+    annotations,
     pasteError,
     setPasteError,
     onPaste,
     pickFiles,
     addImages,
     addDocuments,
+    addAnnotations,
     dropImage,
     dropDocument,
+    dropAnnotation,
     clearDraft,
     dismissError,
   };

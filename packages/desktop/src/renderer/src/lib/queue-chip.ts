@@ -1,4 +1,5 @@
 import { compareVersions } from "@omp-ui/core/semver";
+import { annotationQuotePreview, splitAnnotationContext } from "./annotations";
 import { stripTrailingAttachmentRoutingContext } from "./attachment-routing";
 import { splitDocumentContext } from "./document-context";
 import { splitResolvedMentionContext } from "./mentions";
@@ -70,11 +71,15 @@ export function queueChipCount(session: SessionRuntime): number {
 /**
  * Queue-chip text is omp-ui's wire message verbatim. Display it the way the
  * transcript does (transcript.ts userContentFromContent): routing suffix,
- * then document block, then resolved mention blocks. Promote still sends the
- * RAW text — omp matches it exactly.
+ * then document block, then the leading annotations block, then resolved
+ * mention blocks. Each annotation shows as one `> quote` line ahead of the
+ * prose. Promote still sends the RAW text — omp matches it exactly.
  */
 export function queueEntryDisplayText(raw: string): string {
   const routed = stripTrailingAttachmentRoutingContext(raw);
   const { text: docless } = splitDocumentContext(routed);
-  return splitResolvedMentionContext(docless).text;
+  const { text: prose, annotations } = splitAnnotationContext(docless);
+  const text = splitResolvedMentionContext(prose).text;
+  const quotes = annotations.map((annotation) => `> ${annotationQuotePreview(annotation.quote)}`);
+  return [...quotes, ...(text === "" ? [] : [text])].join("\n");
 }

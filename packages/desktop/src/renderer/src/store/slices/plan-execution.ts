@@ -598,19 +598,24 @@ export function createPlanExecutionSlice(
       const text = notes?.text?.trim() ?? "";
       const images = notes?.images;
       const documents = notes?.documents;
-      if (text === "" && !images?.length && !documents?.length) return;
+      const annotations = notes?.annotations;
+      if (text === "" && !images?.length && !documents?.length && !annotations?.length) return;
       // The planner's current turn continues after the refine verdict; the
       // notes steer it live, and omp appends images after the text block.
       const represented = review?.represented === true;
       // A live gate's ToolResult already named the file for the planner. A
       // re-presented one answered no tool call, so the notes must name it.
       const lead = represented ? `Revise the plan at ${planKey}` : "Revise the plan";
+      // Plan annotations lead the wire text (ADR-0077), quoting the plan
+      // passages the requested changes are about.
       const body = text
         ? `${lead} to incorporate these requested changes:\n\n${text}`
-        : `${lead} per the attached change notes.`;
+        : annotations?.length
+          ? `${lead} per the annotated passages above.`
+          : `${lead} per the attached change notes.`;
       const message = represented ? `${body}\n\nThen propose it again.` : body;
       // Refine notes carry resolved scratch paths, never raw bytes (ADR-0044).
-      void get().sendPrompt(tabId, message, "steer", images, documents);
+      void get().sendPrompt(tabId, message, "steer", images, documents, annotations);
     };
     if (review !== undefined && isHtmlPlanPath(review.planFilePath)) {
       // Refine needs the same gate identity but NOT unchanged disk bytes —

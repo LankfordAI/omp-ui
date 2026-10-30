@@ -33,6 +33,7 @@ import { worktreeMergeResolutionState } from "../../lib/worktree-merge-resolutio
 import { supportsNativeLive } from "../../lib/live-voice";
 import { planSeedInfo, planSeedText } from "../../lib/plan-seed";
 import { composeCarryoverContext } from "../../lib/carryover-context";
+import type { Annotation } from "../../lib/annotations";
 import type { DocumentRef } from "../../lib/document-context";
 import { noticeItem, settleRunningItems, type AdvisorNote } from "../../lib/transcript";
 import { t } from "../../lib/i18n";
@@ -1199,6 +1200,7 @@ export function createLifecycleSlice(
       prompt?: string;
       images?: ImageAttachment[];
       documents?: DocumentAttachment[];
+      annotations?: Annotation[];
       title?: string | null;
       planMode?: boolean;
       worktree?:
@@ -1227,14 +1229,21 @@ export function createLifecycleSlice(
   /** launchSession's seed: title, then the first prompt, once the runtime is ready. */
   const deliverLaunchSeed = async (
     tabId: string,
-    opts: { prompt?: string; images?: ImageAttachment[]; documents?: DocumentAttachment[]; title?: string | null },
+    opts: {
+      prompt?: string;
+      images?: ImageAttachment[];
+      documents?: DocumentAttachment[];
+      annotations?: Annotation[];
+      title?: string | null;
+    },
     background: boolean,
   ): Promise<void> => {
     const prompt = opts.prompt?.trim() ?? "";
     const images = opts.images ?? [];
     const documents = opts.documents ?? [];
+    const annotations = opts.annotations ?? [];
     // No prompt: quick-launch behaviour — the tab alone is the whole ask.
-    if (prompt === "" && images.length === 0 && documents.length === 0) return;
+    if (prompt === "" && images.length === 0 && documents.length === 0 && annotations.length === 0) return;
     /** The seed did not go out; `notice` puts the warn on the new tab itself. */
     const notSent = (notice: boolean): void => {
       if (notice) m.appendItem(tabId, noticeItem(t("dialog.newsession.seedNotSent"), "warn"));
@@ -1263,7 +1272,7 @@ export function createLifecycleSlice(
         return;
       }
     }
-    const accepted = await get().sendPrompt(tabId, prompt, "prompt", images, docRefs);
+    const accepted = await get().sendPrompt(tabId, prompt, "prompt", images, docRefs, annotations);
     if (!accepted) notSent(true);
   };
 
@@ -1299,7 +1308,12 @@ export function createLifecycleSlice(
   const moveUnpromptedSession = async (
     tabId: string,
     target: { projectCwd: string; instanceId: string | null },
-    draft: { text: string; images: ImageAttachment[]; documents: DocumentAttachment[] },
+    draft: {
+      text: string;
+      images: ImageAttachment[];
+      documents: DocumentAttachment[];
+      annotations: Annotation[];
+    },
   ): Promise<string | null> => {
     const owner = findOwner(get().state, tabId);
     if (
@@ -1323,6 +1337,7 @@ export function createLifecycleSlice(
     // a draft queued before boot would be wiped.
     await m.pollUntilSettled(next);
     get().queueComposerText(next, draft.text);
+    get().queueComposerAnnotations(next, draft.annotations);
     for (const image of draft.images) get().queueComposerAttachment(next, image, "");
     for (const document of draft.documents) {
       if (document.data !== undefined) {

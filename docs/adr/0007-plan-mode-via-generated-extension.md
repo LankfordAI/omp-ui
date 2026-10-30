@@ -124,3 +124,9 @@ _Amended by [ADR-0033](0033-proposed-plans-outlive-their-process.md): the comman
   off a model-chosen URL, so the main process denies every subframe navigation
   (`will-frame-navigate`) and routes web URLs to the system browser through the
   same `openExternalSafe` policy `window.open` already uses (issue #101).
+
+**Amended 2026-10-30 (#983, ADR-0077):** the plan review dock's frame adds the
+single token `allow-same-origin` so the dock can read the reviewer's selection
+for Comment…. It still carries no `allow-scripts`, the plan CSP keeps
+`script-src 'none'`, and `will-frame-navigate` still denies every subframe
+navigation. Transcript plan frames keep the empty sandbox.

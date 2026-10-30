@@ -7,16 +7,18 @@ import { Panel } from "./ui";
 
 /**
  * Right-click menu for a live text selection: the native transcript's DOM
- * selection (issue #72) and an xterm selection in the console drawer or a
- * terminal tab (issue #638). Follows the sidebar's terminal-menu pattern —
- * one fixed-position [role="menu"] portaled to document.body, dismissed by
- * outside pointerdown or Escape, first item focused on open — rather than
- * introducing a second menu convention.
+ * selection (issue #72), an xterm selection in the console drawer or a
+ * terminal tab (issue #638), and the plan review's document. Follows the
+ * sidebar's terminal-menu pattern — one fixed-position [role="menu"]
+ * portaled to document.body, dismissed by outside pointerdown or Escape,
+ * first item focused on open — rather than introducing a second menu
+ * convention.
  *
  * The parent captures the selection text at contextmenu time and owns the
  * copy itself (via `copyFallback`); this component is only positioning,
  * dismissal, and intent. That split keeps the action immune to the selection
- * collapsing between right-click and click.
+ * collapsing between right-click and click. `onComment` (issue #983) opens
+ * the parent's annotation popover for the captured selection.
  */
 
 /** Identical to the sidebar terminal menu's item — one menu convention. */
@@ -29,6 +31,7 @@ export function SelectionContextMenu({
   markdown,
   onCopy,
   onCopyMarkdown,
+  onComment = null,
   onClose,
 }: {
   x: number;
@@ -37,6 +40,8 @@ export function SelectionContextMenu({
   markdown: string | null;
   onCopy: () => void;
   onCopyMarkdown: (() => void) | null;
+  /** Comment… — present only where an annotation can go (a composer or refine box). */
+  onComment?: (() => void) | null;
   onClose: () => void;
 }) {
   const t = useT();
@@ -88,6 +93,19 @@ export function SelectionContextMenu({
             }}
           >
             {t("selection.contextmenu.copyMarkdown")}
+          </button>
+        )}
+        {onComment !== null && (
+          <button
+            type="button"
+            role="menuitem"
+            className={MENU_ITEM_CLASS}
+            onClick={() => {
+              onClose();
+              onComment();
+            }}
+          >
+            {t("selection.contextmenu.comment")}
           </button>
         )}
       </Panel>

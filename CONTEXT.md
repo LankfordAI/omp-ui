@@ -550,6 +550,16 @@ re-attaches by path, with no byte re-upload. A terminal tab delivers the same
 scratch path as a plain paste.
 _Avoid_: upload, media, doc
 
+**Annotation**:
+A quoted selection plus the user's comment, carried on the next prompt (issue
+#983, ADR-0077). Select text in the native transcript or the plan review's
+document and choose **Comment…** from the selection menu, or press the
+floating **comment** button beside the selection; the saved annotation is a
+chip in the composer draft (or the refine box, for a plan). On send it leads
+the prompt text as an `<annotations>` block; the user bubble shows the chips,
+not the block. omp's own `/annotate` is TUI-only.
+_Avoid_: citation, highlight, note (a note is a Knowledge vault note)
+
 **Dictation**:
 The composer's speech-to-text path (issue #647, ADR-0034): capture runs in
 the renderer's memory (no MediaRecorder/Blob); each phrase closes at a pause and

@@ -14,6 +14,7 @@ import {
 } from "@omp-ui/core/session-command";
 import type { LiveTurn } from "@omp-ui/core/live-voice";
 import type { LivePeer } from "../../lib/live-peer";
+import type { Annotation } from "../../lib/annotations";
 import { backgroundWorkInFlight } from "../../lib/async-jobs";
 import { formatDuration } from "../../lib/duration";
 import { field, isObj } from "../../lib/fields";
@@ -498,6 +499,15 @@ export function persistedPlanHandoffs(state: BackendState): Record<string, strin
   return result;
 }
 
+/** The clicked prompt's visible content, re-staged into the draft on edit-and-resend. */
+export interface RewindPrefill {
+  text: string;
+  images: { data: string; mimeType: string }[];
+  documents?: { name: string; path: string }[];
+  /** Annotation chips the prompt carried (issue #983); they return as chips. */
+  annotations?: Annotation[];
+}
+
 /**
  * The edit-and-resend prefill staged per tab (issue #680): the clicked
  * prompt's visible text/images, captured at staging because staging→confirm
@@ -506,31 +516,13 @@ export function persistedPlanHandoffs(state: BackendState): Record<string, strin
  * idiom `rpcBooting` uses. `disposeTabRuntime` clears it so a relaunch can
  * never prefill a stale prompt.
  */
-const rewindPrefills = new Map<
-  string,
-  {
-    text: string;
-    images: { data: string; mimeType: string }[];
-    documents?: { name: string; path: string }[];
-  }
->();
+const rewindPrefills = new Map<string, RewindPrefill>();
 
-export function setRewindPrefill(
-  tabId: string,
-  prefill: {
-    text: string;
-    images: { data: string; mimeType: string }[];
-    documents?: { name: string; path: string }[];
-  },
-): void {
+export function setRewindPrefill(tabId: string, prefill: RewindPrefill): void {
   rewindPrefills.set(tabId, prefill);
 }
 
-export function takeRewindPrefill(tabId: string): {
-  text: string;
-  images: { data: string; mimeType: string }[];
-  documents?: { name: string; path: string }[];
-} | null {
+export function takeRewindPrefill(tabId: string): RewindPrefill | null {
   const prefill = rewindPrefills.get(tabId) ?? null;
   rewindPrefills.delete(tabId);
   return prefill;

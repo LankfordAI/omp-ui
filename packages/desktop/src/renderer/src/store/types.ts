@@ -65,6 +65,7 @@ import type {
   DiscardedChange,
   PushResult,
 } from "@omp-ui/core/types";
+import type { Annotation } from "../lib/annotations";
 import type { DocumentRef } from "../lib/document-context";
 import type {
   BrowserPaneFrameHeader,
@@ -152,6 +153,8 @@ export interface PlanRevisionNotes {
   images?: ImageAttachment[];
   /** Resolved scratch paths; refinePlan re-sends them with zero re-upload. */
   documents?: DocumentRef[];
+  /** Plan selections with comments; they lead the refine prompt (ADR-0077). */
+  annotations?: Annotation[];
 }
 
 /**
@@ -255,7 +258,13 @@ export interface RpcTabState {
    * Attachments handed to the composer from outside it — the browser pane's
    * attach-to-prompt button. Drained once by the composer's effect.
    */
-  composerQueue?: { images: ImageAttachment[]; documents?: DocumentAttachment[]; text: string[] };
+  composerQueue?: {
+    images: ImageAttachment[];
+    documents?: DocumentAttachment[];
+    /** Quoted selections with comments (issue #983): the transcript's Comment action and restored drafts. */
+    annotations?: Annotation[];
+    text: string[];
+  };
   subagentMarkers: Map<string, string>;
   subagentAckLevel?: "progress" | "events";
   extensionStatus: Record<string, string>;
@@ -1210,10 +1219,13 @@ export interface UiStore extends SettingsSlice, UpdatesSlice, LabSlice, StatsSli
   /** Queues prose with no image — the rewind's edit-and-resend prefill
    *  (issue #680); the composer drains it like an attachment hand-back. */
   queueComposerText(tabId: string, text: string): void;
+  /** Queues annotation chips for the composer draft (issue #983). */
+  queueComposerAnnotations(tabId: string, annotations: Annotation[]): void;
   /** Takes the queued attachments; null when nothing is queued. */
   drainComposerQueue(tabId: string): {
     images: ImageAttachment[];
     documents?: DocumentAttachment[];
+    annotations?: Annotation[];
     text: string[];
   } | null;
   restartSession(tabId: string): Promise<boolean>;
@@ -1287,6 +1299,8 @@ export interface UiStore extends SettingsSlice, UpdatesSlice, LabSlice, StatsSli
       prompt?: string;
       images?: ImageAttachment[];
       documents?: DocumentAttachment[];
+      /** The hero background send's annotation chips (issue #983). */
+      annotations?: Annotation[];
       title?: string | null;
       planMode?: boolean;
       worktree?:
@@ -1322,7 +1336,12 @@ export interface UiStore extends SettingsSlice, UpdatesSlice, LabSlice, StatsSli
   moveUnpromptedSession(
     tabId: string,
     target: { projectCwd: string; instanceId: string | null },
-    draft: { text: string; images: ImageAttachment[]; documents: DocumentAttachment[] },
+    draft: {
+      text: string;
+      images: ImageAttachment[];
+      documents: DocumentAttachment[];
+      annotations: Annotation[];
+    },
   ): Promise<string | null>;
   openNewSessionDialog(seed?: {
     projectCwd?: string | null;
@@ -1467,20 +1486,25 @@ export interface UiStore extends SettingsSlice, UpdatesSlice, LabSlice, StatsSli
    *  `todo init` when the title is still an omp-ui-generated auto-title;
    *  no-op when any gate (marker, titled, ladder, floor) refuses. */
   refreshAutoTitle(tabId: string): void;
+  /** Sends a prompt; `annotations` lead the wire text (ADR-0077). False when
+   *  the tab refused it or omp rejected it — the composer returns the draft. */
   sendPrompt(
     tabId: string,
     message: string,
     route?: PromptRoute,
     images?: ImageAttachment[],
     docRefs?: DocumentRef[],
+    annotations?: Annotation[],
   ): Promise<boolean>;
   abortAgent(tabId: string): Promise<void>;
+  /** Interrupt-and-replace; false when refused or rejected, like sendPrompt. */
   abortAndPrompt(
     tabId: string,
     message: string,
     images?: ImageAttachment[],
     docRefs?: DocumentRef[],
-  ): Promise<void>;
+    annotations?: Annotation[],
+  ): Promise<boolean>;
   loadAdvisorDefaults(projectCwd: string, instanceId?: string | null): Promise<void>;
   setSessionAdvisor(
     tabId: string,
@@ -1504,6 +1528,7 @@ export interface UiStore extends SettingsSlice, UpdatesSlice, LabSlice, StatsSli
     resetAtMs: number,
     images?: ImageAttachment[],
     docRefs?: DocumentRef[],
+    annotations?: Annotation[],
   ): Promise<boolean>;
   /** Drops the held prompt and restores it into the composer draft (issue #986). */
   cancelHeldPrompt(tabId: string): Promise<void>;

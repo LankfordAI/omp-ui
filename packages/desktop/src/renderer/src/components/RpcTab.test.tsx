@@ -146,7 +146,7 @@ function seed(selectedSubagent: string | null): void {
     },
     compactSurface: null,
     sendPrompt: vi.fn(async () => true),
-    abortAndPrompt: vi.fn(async () => {}),
+    abortAndPrompt: vi.fn(async () => true),
     abortAgent: vi.fn(async () => {}),
   });
 }

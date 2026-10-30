@@ -278,11 +278,12 @@ if (!app.requestSingleInstanceLock()) {
       return { action: "deny" };
     });
 
-    // The plan-review iframe (PlanReview.tsx) is the only iframe in the app and
-    // renders agent-authored HTML under `sandbox=""` — no scripts, opaque
-    // origin. An empty sandbox still blocks only *top* navigation, so a link
-    // click inside it navigates the frame itself: the reviewed plan would be
-    // replaced by a remote page and a request would leave the machine off a
+    // Plan frames (PlanReview.tsx, PlanCard, plan documents in messages)
+    // render agent-authored HTML with no `allow-scripts` token — the review
+    // dock's frame adds only `allow-same-origin` so it can read a selection
+    // (ADR-0077). A sandbox blocks only *top* navigation, so a link click
+    // inside navigates the frame itself: the reviewed plan would be replaced
+    // by a remote page and a request would leave the machine off a
     // model-chosen URL. The frame only ever loads its own srcdoc, so deny every
     // other subframe navigation and route web URLs to the system browser,
     // exactly like window.open above.

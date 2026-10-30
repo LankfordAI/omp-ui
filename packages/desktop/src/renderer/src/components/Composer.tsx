@@ -31,6 +31,7 @@ import { slashCompletion } from "../lib/slash-completion";
 import { findInstance, findOwner, isChatTab, sessionCwd, useStore } from "../store";
 import { useDismissal } from "../lib/use-dismissal";
 import { useImageDraft } from "../lib/use-image-draft";
+import { AnnotationChips } from "./AnnotationChips";
 import { useWordGhost } from "../lib/use-word-ghost";
 import { ComposerActions } from "./ComposerActions";
 import { ComposerOptions } from "./ComposerOptions";
@@ -280,13 +281,16 @@ export function Composer({
   const {
     images,
     documents,
+    annotations,
     pasteError,
     onPaste,
     pickFiles,
     addImages,
     addDocuments,
+    addAnnotations,
     dropImage,
     dropDocument,
+    dropAnnotation,
     clearDraft,
     setPasteError,
     dismissError,
@@ -315,7 +319,7 @@ export function Composer({
         ? t("quickopen.host.local")
         : (findInstance(useStore.getState().state, member.instanceId)?.nickname ?? member.instanceId),
     );
-    const next = await moveUnpromptedSession(tabId, member, { text, images, documents });
+    const next = await moveUnpromptedSession(tabId, member, { text, images, documents, annotations });
     // Success unmounts this composer with its tab; a failure keeps the draft.
     if (next === null) setMoving(null);
   };
@@ -550,17 +554,20 @@ export function Composer({
   }, [unavailable, compactSurface, closeCompactSurface]);
   // The browser pane's hand-back (issue #519): its screenshot joins the image
   // draft and its URL the text, drained once so a re-render cannot add them
-  // twice. Only this composer reads the queue — PlanReview's draft never does.
+  // twice. The transcript's Comment action (issue #983) and every restore
+  // path queue annotation chips the same way. Only this composer reads the
+  // queue — PlanReview's draft never does.
   useEffect(() => {
     if (composerQueue === undefined) return;
     const queued = drainComposerQueue(tabId);
     if (queued === null) return;
     addImages(queued.images);
     addDocuments(queued.documents ?? []);
+    addAnnotations(queued.annotations ?? []);
     const lines = queued.text.join("\n");
     if (lines !== "") setText((prev) => (prev === "" ? lines : `${prev}\n${lines}`));
     box.current?.focus({ preventScroll: true });
-  }, [composerQueue, tabId, drainComposerQueue, addImages, addDocuments]);
+  }, [composerQueue, tabId, drainComposerQueue, addImages, addDocuments, addAnnotations]);
   useDismissal({
     open: queueMenu,
     refs: queueAnchor,
@@ -617,13 +624,14 @@ export function Composer({
 
   const submit = useCallback(
     async (route: SubmitRoute) => {
-      let message = text.trim();
+      const draftText = text.trim();
+      let message = draftText;
       let payload = images;
       let docRefs: DocumentRef[] = [];
-      // An image or PDF with no words is a legitimate prompt ("what is
-      // this?"), so emptiness is judged on the whole draft, not the text alone.
+      // An image, PDF, or annotation with no words is a legitimate prompt
+      // ("what is this?"), so emptiness is judged on the whole draft.
       if (
-        (message === "" && payload.length === 0 && documents.length === 0) ||
+        (message === "" && payload.length === 0 && documents.length === 0 && annotations.length === 0) ||
         unavailable ||
         converting ||
         moving !== null
@@ -649,6 +657,8 @@ export function Composer({
         recall.current = null;
         setText("");
         clearDraft();
+        // Annotations only ride prompts (ADR-0077): a command keeps them.
+        addAnnotations(annotations);
         setDismissedFor(null);
         setMentionDismissedFor(null);
         if (message.length > 1) {
@@ -673,6 +683,8 @@ export function Composer({
           if (outcome === "answered") {
             setText("");
             clearDraft();
+            // A dialog answer is not a prompt: annotation chips stay for the next one.
+            addAnnotations(annotations);
           }
           box.current?.focus({ preventScroll: true });
           return;
@@ -710,7 +722,7 @@ export function Composer({
         }
       }
       if (atReset) {
-        if (!(await holdPrompt(tabId, message, resetAtMs!, payload, docRefs))) return;
+        if (!(await holdPrompt(tabId, message, resetAtMs!, payload, docRefs, annotations))) return;
       }
       recall.current = null;
       setText("");
@@ -721,7 +733,9 @@ export function Composer({
       // A leading "/" is a command, never a prompt — even mid-run. Commands take
       // no images, so any attached here would be silently dropped by omp;
       // holding them back would be worse, since the draft is already cleared.
+      // Annotation chips stay: they are the next prompt's (ADR-0077).
       if (message.startsWith("/")) {
+        addAnnotations(annotations);
         void runSlashCommand(tabId, message);
         box.current?.focus({ preventScroll: true });
         return;
@@ -742,18 +756,31 @@ export function Composer({
         }
       }
 
-      // A held prompt is main's from here; the transcript's pending card shows it.
-      if (route === "interrupt") {
-        void abortAndPrompt(tabId, message, payload, docRefs);
-      } else if (!atReset) {
-        void sendPrompt(tabId, message, route, payload, docRefs);
-      }
       box.current?.focus({ preventScroll: true });
+      // A held prompt is main's from here; the transcript's pending card shows it.
+      if (atReset) return;
+      const accepted =
+        route === "interrupt"
+          ? await abortAndPrompt(tabId, message, payload, docRefs, annotations)
+          : await sendPrompt(tabId, message, route, payload, docRefs, annotations);
+      if (!accepted) {
+        // Refused or rejected (runCommand already reported why): the draft
+        // comes back — the send-in-background keep-draft shape — unless the
+        // user has started a new one in the meantime.
+        setText((current) => (current === "" ? draftText : current));
+        addImages(images);
+        addDocuments(documents);
+        addAnnotations(annotations);
+      }
     },
     [
       text,
       images,
       documents,
+      annotations,
+      addImages,
+      addDocuments,
+      addAnnotations,
       setPasteError,
       unavailable,
       compact,
@@ -789,7 +816,7 @@ export function Composer({
       !unprompted ||
       chat ||
       record === undefined ||
-      (message === "" && images.length === 0 && documents.length === 0) ||
+      (message === "" && images.length === 0 && documents.length === 0 && annotations.length === 0) ||
       message.startsWith("/") ||
       message.startsWith("!") ||
       unavailable ||
@@ -797,7 +824,7 @@ export function Composer({
       moving !== null
     )
       return;
-    const draft = { text, images, documents };
+    const draft = { text, images, documents, annotations };
     const worktree =
       workspace.mode === "worktree"
         ? { mint: { branch: workspace.branch, baseRef: workspace.baseRef, baseBranch: workspace.baseBranch } }
@@ -816,6 +843,7 @@ export function Composer({
         prompt: draft.text,
         images: draft.images,
         documents: draft.documents,
+        annotations: draft.annotations,
         planMode: planOn,
         worktree,
         background: true,
@@ -830,6 +858,7 @@ export function Composer({
       setText((current) => (current === "" ? draft.text : current));
       addImages(draft.images);
       addDocuments(draft.documents);
+      addAnnotations(draft.annotations);
       return;
     }
     // The minted branch is checked out now: the next background ask needs its own.
@@ -851,6 +880,7 @@ export function Composer({
     text,
     images,
     documents,
+    annotations,
     unprompted,
     chat,
     record,
@@ -864,6 +894,7 @@ export function Composer({
     clearDraft,
     addImages,
     addDocuments,
+    addAnnotations,
   ]);
 
   /** Applies a palette pick: run it now, or complete the line for what follows. */
@@ -1043,7 +1074,7 @@ export function Composer({
   // A held session still runs slash and bash commands (/new, !ls, …); main
   // refuses any that would start a turn.
   const canSend =
-    (trimmed !== "" || images.length > 0 || documents.length > 0) &&
+    (trimmed !== "" || images.length > 0 || documents.length > 0 || annotations.length > 0) &&
     !unavailable &&
     !converting &&
     moving === null &&
@@ -1179,6 +1210,14 @@ export function Composer({
                 {documents.length} {documents.length === 1 ? t("composer.attachment.document") : t("composer.attachment.documents")}
               </Label>
             </div>
+          )}
+          {annotations.length > 0 && (
+            <AnnotationChips
+              annotations={annotations}
+              onRemove={dropAnnotation}
+              disabled={unavailable}
+              className="border-b border-line px-2 pt-2 pb-1.5"
+            />
           )}
           {/* The mirror draws the glyphs; the textarea above it owns the caret,
               selection, and every interaction. Their box metrics must stay

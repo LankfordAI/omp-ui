@@ -87,7 +87,7 @@ const IMAGE_ONE = { type: "image" as const, data: "one", mimeType: "image/png" }
 const IMAGE_TWO = { type: "image" as const, data: "two", mimeType: "image/jpeg" };
 const TAB = "tab-compose";
 const sendPrompt = vi.fn(async () => true);
-const abortAndPrompt = vi.fn(async () => {});
+const abortAndPrompt = vi.fn(async () => true);
 const abortAgent = vi.fn(async () => {});
 const runSlashCommand = vi.fn(async () => {});
 const setFastMode = vi.fn(async () => {});
@@ -245,7 +245,7 @@ describe("compact Composer", () => {
     const textarea = typeDraft("mobile sentinel");
     const send = [...document.body.querySelectorAll<HTMLButtonElement>("button")].find((button) => button.textContent === "Send")!;
     await act(async () => send.click());
-    expect(sendPrompt).toHaveBeenCalledWith(TAB, "mobile sentinel", "prompt", [], []);
+    expect(sendPrompt).toHaveBeenCalledWith(TAB, "mobile sentinel", "prompt", [], [], []);
     expect(textarea.value).toBe("");
     expect(document.activeElement).toBe(textarea);
   });
@@ -258,11 +258,11 @@ describe("compact Composer", () => {
     expect(byText("Abort")).toBeDefined();
     act(() => document.body.querySelector<HTMLButtonElement>('button[title="prompt options"]')!.click());
     await act(async () => byText("Queue").click());
-    expect(sendPrompt).toHaveBeenCalledWith(TAB, "running draft", "follow_up", [], []);
+    expect(sendPrompt).toHaveBeenCalledWith(TAB, "running draft", "follow_up", [], [], []);
 
     typeDraft("replace turn");
     await act(async () => byText("Interrupt-and-send").click());
-    expect(abortAndPrompt).toHaveBeenCalledWith(TAB, "replace turn", [], []);
+    expect(abortAndPrompt).toHaveBeenCalledWith(TAB, "replace turn", [], [], []);
   });
 
   it("marks the active effort and plan state in the options sheet", () => {
@@ -710,7 +710,7 @@ describe("Composer attachment picker", () => {
     });
 
     expect(clipboardImageMock.readImageFiles).toHaveBeenCalledWith([first, second]);
-    expect(sendPrompt).toHaveBeenCalledWith(TAB, "compare these", "prompt", [IMAGE_ONE, IMAGE_TWO], []);
+    expect(sendPrompt).toHaveBeenCalledWith(TAB, "compare these", "prompt", [IMAGE_ONE, IMAGE_TWO], [], []);
   });
 
   it("resets the input immediately so the same image can be selected again", async () => {
@@ -758,9 +758,45 @@ describe("Composer attachment picker", () => {
         .find((button) => button.textContent === "Send")!
         .click();
     });
-    expect(sendPrompt).toHaveBeenCalledWith(TAB, "continue without it", "prompt", [], []);
+    expect(sendPrompt).toHaveBeenCalledWith(TAB, "continue without it", "prompt", [], [], []);
   });
 
+});
+
+describe("Composer annotation chips (issue #983)", () => {
+  const ANNOTATION = { quote: "the retry loop never backs off", comment: "add jitter here" };
+  const sendButton = (): HTMLButtonElement =>
+    [...document.body.querySelectorAll<HTMLButtonElement>("button")].find((button) => button.textContent === "Send")!;
+  const chipGroup = (): HTMLElement | null =>
+    document.body.querySelector<HTMLElement>('[role="group"][aria-label="annotations"]');
+
+  it("sends a queued annotation alone and returns it to the draft when the prompt is rejected", async () => {
+    seed("ready"); renderComposer();
+    act(() => useStore.getState().queueComposerAnnotations(TAB, [ANNOTATION]));
+    expect(chipGroup()?.textContent).toContain("the retry loop never backs off");
+    // An annotation with no typed words is a whole prompt.
+    expect(sendButton().disabled).toBe(false);
+
+    sendPrompt.mockResolvedValueOnce(false);
+    await act(async () => sendButton().click());
+    expect(sendPrompt).toHaveBeenCalledWith(TAB, "", "prompt", [], [], [ANNOTATION]);
+    // Rejected: the chip comes back for another try.
+    expect(chipGroup()?.textContent).toContain("add jitter here");
+
+    await act(async () => sendButton().click());
+    expect(sendPrompt).toHaveBeenLastCalledWith(TAB, "", "prompt", [], [], [ANNOTATION]);
+    expect(chipGroup()).toBeNull();
+  });
+
+  it("keeps annotation chips through a slash command", async () => {
+    seed("ready"); renderComposer();
+    act(() => useStore.getState().queueComposerAnnotations(TAB, [ANNOTATION]));
+    useStore.setState({ runSlashCommand });
+    const box = typeDraft("/compact");
+    await act(async () => { press(box, "Enter"); });
+    expect(runSlashCommand).toHaveBeenCalledWith(TAB, "/compact");
+    expect(chipGroup()?.textContent).toContain("add jitter here");
+  });
 });
 
 describe("Composer action row overflow", () => {
@@ -1709,7 +1745,7 @@ describe("Composer shell dispatch (issue #678)", () => {
     press(textarea, "Enter");
     await act(async () => {});
     expect(runShellCommand).not.toHaveBeenCalled();
-    expect(sendPrompt).toHaveBeenCalledWith(TAB, "look at this !", "prompt", [], []);
+    expect(sendPrompt).toHaveBeenCalledWith(TAB, "look at this !", "prompt", [], [], []);
   });
 });
 
@@ -2444,7 +2480,7 @@ describe("worktree conversion through the branch chip (issue #227)", () => {
     await flush();
     expect(backendMock.convertToWorktree).toHaveBeenCalledTimes(1);
     expect(backendMock.convertToWorktree).toHaveBeenCalledWith(TAB, expect.stringMatching(/^p\/main\/[0-9a-f]{8}$/), "main", null);
-    expect(sendPrompt).toHaveBeenCalledWith(TAB, "hello", "prompt", [], []);
+    expect(sendPrompt).toHaveBeenCalledWith(TAB, "hello", "prompt", [], [], []);
     // A successful conversion resets the selection; the chip reads the checkout's branch again.
     expect(chipTrigger().textContent).toContain("main");
     expect(chipTrigger().textContent).not.toContain("worktree");
@@ -2618,7 +2654,7 @@ describe("Composer answers pending questions (desktop, issue #421)", () => {
     renderRpcTab();
     const box = typeDraft("hello");
     press(box, "Enter");
-    expect(sendPrompt).toHaveBeenCalledWith(TAB, "hello", "prompt", [], []);
+    expect(sendPrompt).toHaveBeenCalledWith(TAB, "hello", "prompt", [], [], []);
     expect(answerFrames()).toHaveLength(0);
   });
 
@@ -2632,7 +2668,7 @@ describe("Composer answers pending questions (desktop, issue #421)", () => {
     expect(answerFrames()).toHaveLength(0);
     typeDraft("abort this");
     act(() => box.dispatchEvent(new KeyboardEvent("keydown", { key: "Enter", metaKey: true, shiftKey: true, bubbles: true, cancelable: true })));
-    expect(abortAndPrompt).toHaveBeenCalledWith(TAB, "abort this", [], []);
+    expect(abortAndPrompt).toHaveBeenCalledWith(TAB, "abort this", [], [], []);
     expect(answerFrames()).toHaveLength(0);
   });
 
@@ -2654,7 +2690,7 @@ describe("Composer answers pending questions (desktop, issue #421)", () => {
     renderRpcTab();
     const box = typeDraft("compact steer");
     press(box, "Enter");
-    expect(sendPrompt).toHaveBeenCalledWith(TAB, "compact steer", "prompt", [], []);
+    expect(sendPrompt).toHaveBeenCalledWith(TAB, "compact steer", "prompt", [], [], []);
     expect(answerFrames()).toHaveLength(0);
   });
 });

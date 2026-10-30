@@ -90,3 +90,8 @@ renderer-local preparation and verification described here, keeps
 `sandbox=""`, carries no source identity, and never submits or answers
 anything. Its fallback shows the diagnostics and escaped source but omits the
 reviewed-artifact footer, since no artifact on disk backs it.
+
+**Amended 2026-10-30 (#983, ADR-0077):** the review dock's presented frame is
+now `sandbox="allow-same-origin"`, the same script-less one-way channel this
+ADR's probe frame uses, so the dock can read a selection for Comment…. The
+transcript PlanCard and message frames keep `sandbox=""`.

@@ -1,5 +1,6 @@
 import { formatDuration } from "./duration";
 import { stripAttachmentRoutingContext } from "./attachment-routing";
+import { splitAnnotationContext, type Annotation } from "./annotations";
 import { boolField, field, isObj, numField, str, strField } from "./fields";
 import { splitResolvedMentionContext } from "./mentions";
 import { splitDocumentContext, type DocumentRef } from "./document-context";
@@ -27,6 +28,8 @@ export interface UserItem {
   images?: { data: string; mimeType: string }[];
   /** PDF Document Attachments parsed back out of the attached-documents block (ADR-0044). */
   documents?: DocumentRef[];
+  /** Quoted selections with comments, parsed back out of the leading annotations block (ADR-0077). */
+  annotations?: Annotation[];
   /** Epoch ms the prompt was sent (live) or written (backfill); the catch-up digest windows off it (issue #273). */
   timestamp?: number;
 }
@@ -452,7 +455,7 @@ function imagesField(content: unknown, details: unknown): Pick<ToolItem, "images
 
 export function userContentFromContent(
   content: unknown,
-): Pick<UserItem, "text" | "fileMentions" | "images" | "documents"> {
+): Pick<UserItem, "text" | "fileMentions" | "images" | "documents" | "annotations"> {
   const blocks = typeof content === "string" ? [] : contentBlocks(content);
   const rawText =
     typeof content === "string"
@@ -465,14 +468,18 @@ export function userContentFromContent(
   const visibleText = stripAttachmentRoutingContext(rawText, images.length);
   // File blocks precede the document block on the wire, and the mention
   // splitter anchors its close at end-of-text — the document block must go
-  // first or the file block would never parse as terminal.
+  // first or the file block would never parse as terminal. The annotations
+  // block leads the prompt (ADR-0077) and comes off before the mention split,
+  // so a quoted `@path` never counts as one of the prompt's mentions.
   const { text: docless, documents } = splitDocumentContext(visibleText);
-  const { text, paths } = splitResolvedMentionContext(docless);
+  const { text: prose, annotations } = splitAnnotationContext(docless);
+  const { text, paths } = splitResolvedMentionContext(prose);
   return {
     text,
     ...(paths.length > 0 ? { fileMentions: paths } : {}),
     ...(images.length > 0 ? { images } : {}),
     ...(documents.length > 0 ? { documents } : {}),
+    ...(annotations.length > 0 ? { annotations } : {}),
   };
 }
 

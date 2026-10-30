@@ -1,8 +1,10 @@
-import { useEffect, useMemo, useRef, useState, type KeyboardEvent } from "react";
+import { useCallback, useEffect, useMemo, useRef, useState, type KeyboardEvent, type MouseEvent } from "react";
 import { parseModelRole } from "@omp-ui/core/model-role";
 import { isHtmlPlanPath, type PlanReviewTier } from "@omp-ui/core/plan";
 import { branchNameFromPlanPath } from "../lib/branch-name";
 import { cn } from "../lib/cn";
+import { copyFallback } from "../lib/clipboard";
+import { normalizeAnnotationQuote } from "../lib/annotations";
 import { useT, type MessageKey } from "../lib/i18n";
 import { backend, backendFor, displayMessage } from "../backend";
 import type { DocumentRef } from "../lib/document-context";
@@ -28,6 +30,16 @@ import { LiveVoiceStrip } from "./LiveVoiceStrip";
 import { Markdown } from "./Markdown";
 import { ModelPalette } from "./ModelSelector";
 import { PreparedPlanView } from "./PlanDocumentView";
+import { AnnotationChips } from "./AnnotationChips";
+import { SelectionContextMenu } from "./SelectionContextMenu";
+import {
+  SelectionCommentButton,
+  SelectionCommentPopover,
+  selectionInside,
+  useFrameSelection,
+  useSelectionCommentButton,
+  type SelectionAnchor,
+} from "./SelectionComment";
 import { AttachmentButton, Button, Chip, CopyButton, IconButton, IconClose, Label, Switch } from "./ui";
 import { TONE_CHIP } from "./ui/tone";
 import { mintBranchName, worktreeBranchPrefix } from "@omp-ui/core/worktree-branch";
@@ -229,7 +241,44 @@ export function PlanReview({
   } | null>(null);
   /** Change notes for the planner; text + optional images ride a steer prompt. */
   const [changes, setChanges] = useState("");
-  const { images, documents, pasteError, onPaste, pickFiles, dropImage, dropDocument, clearDraft, setPasteError } = useImageDraft();
+  const {
+    images,
+    documents,
+    annotations,
+    pasteError,
+    onPaste,
+    pickFiles,
+    dropImage,
+    dropDocument,
+    addAnnotations,
+    dropAnnotation,
+    clearDraft,
+    setPasteError,
+  } = useImageDraft();
+  // Comment… on the plan (issue #983, ADR-0077): a selection in the plan
+  // document becomes an annotation chip in the refine box. Markdown plans
+  // select in this DOM; HTML plans select inside the review frame.
+  const planDocRef = useRef<HTMLDivElement>(null);
+  const [planFrame, setPlanFrame] = useState<HTMLIFrameElement | null>(null);
+  const onPlanFrame = useCallback((frame: HTMLIFrameElement | null) => setPlanFrame(frame), []);
+  const [planMenu, setPlanMenu] = useState<{ x: number; y: number; text: string } | null>(null);
+  const [planComment, setPlanComment] = useState<SelectionAnchor | null>(null);
+  const surfaceIdle = planMenu === null && planComment === null;
+  const markdownButton = useSelectionCommentButton(planDocRef, surfaceIdle && review != null && !deferred);
+  const frameSelection = useFrameSelection(planFrame, surfaceIdle && review != null && !deferred);
+  const commentAnchor = markdownButton.anchor ?? frameSelection.anchor;
+  const activeMenu = planMenu ?? frameSelection.menu;
+  const closeMenu = (): void => {
+    setPlanMenu(null);
+    frameSelection.closeMenu();
+  };
+  const onPlanContextMenu = (event: MouseEvent<HTMLDivElement>): void => {
+    const sel = window.getSelection();
+    if (planDocRef.current === null || sel === null || !selectionInside(planDocRef.current, sel)) return;
+    event.preventDefault();
+    markdownButton.clear();
+    setPlanMenu({ x: event.clientX, y: event.clientY, text: sel.toString() });
+  };
   /**
    * Fold the advisor's review of the plan turn (it lands only after an execute
    * verdict lets the turn end) into the implementation prompt. Inert on
@@ -492,10 +541,13 @@ export function PlanReview({
       text: changes,
       images: images.length ? images : undefined,
       documents: docRefs.length ? docRefs : undefined,
+      annotations: annotations.length ? annotations : undefined,
     };
     refinePlan(
       tabId,
-      changes.trim() !== "" || images.length > 0 || docRefs.length > 0 ? notes : undefined,
+      changes.trim() !== "" || images.length > 0 || docRefs.length > 0 || annotations.length > 0
+        ? notes
+        : undefined,
     );
     // The draft has been spent. RpcTab keeps this pane mounted for the whole
     // life of an active tab, so refine → revised proposal never unmounts it and
@@ -668,13 +720,18 @@ export function PlanReview({
             aria-label={t("plan.review.proposedPlan")}
           >
             {(!compact || compactStep === "review") && (
-              <div className={cn("plan-review-preview min-h-0 min-w-0 flex-1", planIsHtml && "flex flex-col")}>
+              <div
+                ref={planDocRef}
+                onContextMenu={planIsHtml ? undefined : onPlanContextMenu}
+                className={cn("plan-review-preview min-h-0 min-w-0 flex-1", planIsHtml && "flex flex-col")}
+              >
                 {planIsHtml ? (
                   <PreparedPlanView
                     prepared={prepared}
                     source={planText ?? planHtml ?? ""}
                     title={t("plan.review.proposedPlan")}
                     className="min-h-0 flex-1"
+                    onFrame={onPlanFrame}
                   />
                 ) : planText ? (
                   <Markdown text={planText} />
@@ -747,6 +804,13 @@ export function PlanReview({
                         : t("composer.attachment.documents")}
                     </Label>
                   </div>
+                )}
+                {annotations.length > 0 && (
+                  <AnnotationChips
+                    annotations={annotations}
+                    onRemove={dropAnnotation}
+                    className="border-b border-line px-2 pt-2 pb-1.5"
+                  />
                 )}
                 <textarea
                   rows={3}
@@ -1316,6 +1380,49 @@ export function PlanReview({
           setPickingAdvisorModel(false);
           setStagedAdvisorModel(selector);
         }}
+      />
+    )}
+    {activeMenu !== null && (
+      <SelectionContextMenu
+        x={activeMenu.x}
+        y={activeMenu.y}
+        markdown={null}
+        onCopy={() => void copyFallback(activeMenu.text)}
+        onCopyMarkdown={null}
+        onComment={
+          normalizeAnnotationQuote(activeMenu.text) === ""
+            ? null
+            : () =>
+                setPlanComment({
+                  quote: normalizeAnnotationQuote(activeMenu.text),
+                  x: activeMenu.x,
+                  y: activeMenu.y,
+                })
+        }
+        onClose={closeMenu}
+      />
+    )}
+    {commentAnchor !== null && (
+      <SelectionCommentButton
+        anchor={commentAnchor}
+        onComment={() => {
+          setPlanComment(commentAnchor);
+          markdownButton.clear();
+          frameSelection.clear();
+        }}
+      />
+    )}
+    {planComment !== null && (
+      <SelectionCommentPopover
+        anchor={planComment}
+        onSave={(annotation) => {
+          addAnnotations([annotation]);
+          // The compact shell shows one step at a time: land on the refine box.
+          if (compact) setCompactStep("refine");
+          window.getSelection()?.removeAllRanges();
+          planFrame?.contentDocument?.getSelection()?.removeAllRanges();
+        }}
+        onClose={() => setPlanComment(null)}
       />
     )}
     </>

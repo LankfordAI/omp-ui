@@ -1774,9 +1774,10 @@ describe("PlanReview plan rendering (issue #109)", () => {
     // first (issue #652): the iframe is there when preparation reports a doc.
     await until(() => planFrame() !== null);
     const frame = planFrame()!;
-    // The empty token list is the whole security story: no scripts, no
-    // same-origin access, no forms, no popups, no navigation.
-    expect(frame.getAttribute("sandbox")).toBe("");
+    // The review frame's one token is allow-same-origin, so the dock can read
+    // a selection for Comment… (ADR-0077). Without allow-scripts the document
+    // still runs nothing, submits no form, opens no popup, never navigates.
+    expect(frame.getAttribute("sandbox")).toBe("allow-same-origin");
     // Diagram substitution + guardrail injection resolve asynchronously.
     expect(frame.getAttribute("srcdoc")).toContain("<h1>Fix</h1><p>html-body</p>");
     // The document also carries its own restrictive policy, so the sandbox is
@@ -1826,7 +1827,7 @@ describe("PlanReview plan rendering (issue #109)", () => {
       const document = new DOMParser().parseFromString(planFrame()!.srcdoc, "text/html");
       expect(document.querySelector("h1")?.textContent).toBe("Requested HTML document");
       expect(document.body.textContent).toContain("authored implementation");
-      expect(planFrame()!.getAttribute("sandbox")).toBe("");
+      expect(planFrame()!.getAttribute("sandbox")).toBe("allow-same-origin");
     } else {
       expect(planFrame()).toBeNull();
       expect(document.body.textContent).toContain("Requested Markdown document");
@@ -1965,7 +1966,7 @@ describe("PlanReview mermaid diagrams (issue #285)", () => {
     expect(document.querySelectorAll("svg[data-diagram]")).toHaveLength(1);
     expect(document.querySelector("pre.mermaid")).toBeNull();
     expect(document.querySelector("p")?.textContent).toBe("after the diagram");
-    expect(frame.getAttribute("sandbox")).toBe("");
+    expect(frame.getAttribute("sandbox")).toBe("allow-same-origin");
   });
 });
 
@@ -1989,7 +1990,7 @@ describe("PlanReview code highlighting (issue #319)", () => {
     expect(blocks[0]!.querySelectorAll("span").length).toBeGreaterThan(0);
     expect(blocks[1]!.textContent).toBe("no class stays plain");
     expect(blocks[1]!.querySelector("span")).toBeNull();
-    expect(frame.getAttribute("sandbox")).toBe("");
+    expect(frame.getAttribute("sandbox")).toBe("allow-same-origin");
   });
 });
 

@@ -8,8 +8,11 @@ import { PlanDiagnostics, PlanFallback, PlanPreparing } from "./PlanFallback";
  * HTML plan documents in transcript messages). Pending names the wait (#652);
  * a failed or doc-less outcome shows diagnostics plus source; a document under
  * an inconclusive probe says verification was incomplete, never that display
- * failed (#415). Displayed frames keep the empty sandbox: no scripts, no
- * same-origin access, no navigation (ADR-0007, ADR-0022).
+ * failed (#415). Displayed frames run no scripts and never navigate
+ * (ADR-0007, ADR-0022). Only the review dock passes `onFrame`: its frame adds
+ * `allow-same-origin` — still no script token — so the dock can read the
+ * reviewer's selection for Comment… (ADR-0077); every other frame keeps the
+ * empty sandbox.
  */
 export function PreparedPlanView({
   prepared,
@@ -17,6 +20,7 @@ export function PreparedPlanView({
   title,
   className,
   sourceNote = true,
+  onFrame,
 }: {
   prepared: PreparedPlanState;
   /** Authored source, shown as text when no document can be displayed. */
@@ -26,6 +30,8 @@ export function PreparedPlanView({
   className?: string;
   /** PlanFallback's reviewed-artifact footer; false outside plan review. */
   sourceNote?: boolean;
+  /** Receives the presented frame; makes its document readable to the parent (ADR-0077). */
+  onFrame?: (frame: HTMLIFrameElement | null) => void;
 }) {
   return prepared.status === "pending" ? (
     <PlanPreparing className={className} />
@@ -46,8 +52,9 @@ export function PreparedPlanView({
         />
       )}
       <iframe
+        ref={onFrame}
         title={title}
-        sandbox=""
+        sandbox={onFrame === undefined ? "" : "allow-same-origin"}
         srcDoc={prepared.doc}
         className="min-h-0 w-full flex-1 rounded-md border border-line bg-surface"
       />
