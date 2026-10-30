@@ -289,6 +289,17 @@ export class FleetDispatcher {
     return Promise.all([local, ...remotes]);
   }
 
+  /**
+   * One joined member's row, read the way machines() reads it (host report,
+   * cached port-22 probe); null for an unknown id or this app's own entry.
+   * Open in VS Code over Remote-SSH (issue #995) asks for one member only.
+   */
+  async machine(instanceId: string): Promise<FleetMachine | null> {
+    const remote = this.#deps.remotes().find((r) => r.id === instanceId && r.status !== "self");
+    if (remote === undefined) return null;
+    return this.#remoteMachine(remote, this.#deps.preferences()[remote.id] ?? "normal");
+  }
+
   async #remoteMachine(remote: RemoteInstanceSummary, preference: PlacementPreference): Promise<FleetMachine> {
     const machine: FleetMachine = {
       key: remote.id,

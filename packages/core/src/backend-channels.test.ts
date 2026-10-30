@@ -133,6 +133,8 @@ const VALID_ARGS = {
   openAppUpdateReleaseNotes: [],
   openPath: ["/tmp/transcript.html"],
   openProject: ["/project", "files"],
+  getRemoteVsCodeTarget: ["inst-1"],
+  openRemoteVsCode: ["inst-1", "/srv/app"],
   ptyPasteImage: ["tab-1", { type: "image", data: "base64", mimeType: "image/png" }],
   attachDocument: [
     "tab-1",
@@ -193,6 +195,7 @@ const VALID_ARGS = {
   setHtmlArtifactScripts: [true],
   setExperimentsEnabled: [true],
   setSnoozedSectionEnabled: [true],
+  setRemoteVsCodeEnabled: [true],
   setAutoSettleMergedPullRequests: [false],
   setFontFamilyId: ["mono"],
   setGettingStartedSeen: [true],

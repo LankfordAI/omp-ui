@@ -320,8 +320,21 @@ chip** moves it to another before the
 first prompt. The *No project* page offers New chat and New private chat. The
 open targets are omitted for a remote project and in the compact shell: a
 compact shell is usually a phone talking to a remote omp-ui, where opening on
-the host answers a question nobody asked.
+the host answers a question nobody asked. The one remote open target is
+**Remote VS Code open**.
 _Avoid_: project switcher, launcher, project menu
+
+**Remote VS Code open**:
+Open in VS Code for a **Remote instance**'s project or session, opening VS
+Code on *this* computer in Remote-SSH mode against that member at the
+checkout the member reported (a remote session's worktree checkout when it
+has one). Off until Settings → Remote instances → *Open remote projects in VS
+Code over SSH*; offered on the project's **Project quick-open** page and the
+session's title menu, disabled with the reason while the member's port 22
+does not answer. omp-ui holds no key: VS Code's Remote-SSH extension uses the
+user's own ssh config and agent (ADR-0083). Files and Terminal stay
+host-local.
+_Avoid_: remote open, SSH open, open on host
 
 **Subagent view**:
 The rpc-ui tab's main pane while a subagent is selected in the Agents

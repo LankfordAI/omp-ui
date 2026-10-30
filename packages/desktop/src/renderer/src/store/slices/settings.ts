@@ -285,6 +285,13 @@ export const createSettingsSlice: StateCreator<UiStore, [], [], SettingsSlice> =
         get().reportError(err);
       }
     },
+    async setRemoteVsCodeEnabled(on) {
+      try {
+        await backend.setRemoteVsCodeEnabled(on);
+      } catch (err) {
+        get().reportError(err);
+      }
+    },
 
     async setVoiceInputEnabled(on) {
       try {

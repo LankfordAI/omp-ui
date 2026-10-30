@@ -8,6 +8,7 @@ import { formatHotkey, useHotkeys, type HotkeyMap } from "../lib/hotkeys";
 import { identityWash } from "../lib/project-colors";
 import { checkoutEntries, groupByRepository, projectIdentitySeed, type CheckoutEntry } from "../lib/repository-members";
 import { useCompactShell } from "../lib/responsive";
+import { remoteVsCodeRow, useRemoteVsCodeTarget } from "../lib/remote-vscode";
 import { isChatTab, useStore } from "../store";
 import { Chevron, Chip, IconButton, IconSearch, Label, Modal } from "./ui";
 import { ProjectMonogram } from "./ProjectMonogram";
@@ -57,6 +58,8 @@ interface QuickRow {
   run?: () => void;
   /** kind "action": destructive styling (Remove project). */
   danger?: boolean;
+  /** kind "action": shown but inert; `sub` says why (Open in VS Code over SSH, #995). */
+  disabled?: boolean;
 }
 
 type Page =
@@ -213,10 +216,18 @@ export function ProjectQuickOpen() {
   }, [page, baseRows]);
 
   const experimentsEnabled = state?.experimentsEnabled === true;
+  const remoteVsCodeEnabled = state?.remoteVsCodeEnabled === true;
+  const pageInstanceId = pageRow?.pair?.instanceId ?? null;
+  const remoteVsCode = useRemoteVsCodeTarget(pageInstanceId, remoteVsCodeEnabled && !compact && pageInstanceId !== null);
 
   const actionRows = useMemo<QuickRow[]>(() => {
     const rows: QuickRow[] = [];
-    const action = (id: string, label: string, run: () => void, extra: { sub?: string; danger?: boolean } = {}): void => {
+    const action = (
+      id: string,
+      label: string,
+      run: () => void,
+      extra: { sub?: string; danger?: boolean; disabled?: boolean } = {},
+    ): void => {
       rows.push({ id, group: null, label, hits: [], kind: "action", index: rows.length, run, ...extra });
     };
     if (page.kind === "chat") {
@@ -244,6 +255,20 @@ export function ProjectQuickOpen() {
       openIn("files", t("project.open.files"));
       if (availability?.terminal === true) openIn("terminal", t("project.open.terminal"));
     }
+    // A remote checkout opens in this computer's VS Code over Remote-SSH
+    // (issue #995, ADR-0083) once the user turns it on; the row stays,
+    // disabled with the reason, while the member's ssh is not reachable.
+    if (i !== null && remoteVsCodeEnabled && !compact) {
+      const row = remoteVsCodeRow(remoteVsCode, nicknames.get(i) ?? i, t);
+      if (row.show) {
+        action(
+          "open:remoteVscode",
+          t("quickopen.action.openIn", { target: "VS Code" }),
+          () => void backend.openRemoteVsCode(i, p).catch(reportError),
+          row.reason === null ? { sub: t("remotevscode.sub") } : { sub: row.reason, disabled: true },
+        );
+      }
+    }
     if (experimentsEnabled) {
       action("lab", t("project.actions.lab"), () => openLab(p, i));
       action("newExperiment", t("project.actions.newExperiment"), () => openExperimentDialog(p, i));
@@ -263,6 +288,9 @@ export function ProjectQuickOpen() {
     pageRow,
     compact,
     availability,
+    remoteVsCodeEnabled,
+    remoteVsCode,
+    nicknames,
     experimentsEnabled,
     newChat,
     newSession,
@@ -309,6 +337,8 @@ export function ProjectQuickOpen() {
 
   const pick = useCallback(
     (row: QuickRow): void => {
+      // A disabled row stays focusable so its reason reads; picking it does nothing.
+      if (row.disabled === true) return;
       // Close first, run after: the overlay must never outlive the pick it
       // just committed, even while the spawn timeout burns inside newSession.
       close();
@@ -472,7 +502,8 @@ export function ProjectQuickOpen() {
                   type="button"
                   ref={i === active ? activeRef : null}
                   onClick={() => pick(row)}
-                  title={row.title}
+                  aria-disabled={row.disabled === true ? true : undefined}
+                  title={row.title ?? (row.disabled === true ? row.sub : undefined)}
                   className="flex min-w-0 flex-1 items-center gap-2.5 px-3.5 py-1.5 text-left"
                 >
                   {row.kind === "project" ? (
@@ -487,7 +518,12 @@ export function ProjectQuickOpen() {
                       )}
                     />
                   )}
-                  <span className={cn("min-w-0 flex-1 truncate text-xs", row.danger === true ? "text-rose" : "text-ink")}>
+                  <span
+                    className={cn(
+                      "min-w-0 flex-1 truncate text-xs",
+                      row.danger === true ? "text-rose" : row.disabled === true ? "text-ink-faint" : "text-ink",
+                    )}
+                  >
                     {highlightRuns(row.label, row.hits).map((run, r) =>
                       run.hit ? (
                         <mark key={r} className="bg-transparent font-semibold text-signal">

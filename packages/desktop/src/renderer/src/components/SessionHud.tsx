@@ -13,6 +13,8 @@ import { formatDuration } from "../lib/duration";
 import { compactNum, exactNum, formatCost } from "../lib/format";
 import { formatHotkey } from "../lib/hotkeys";
 import { useCompactShell } from "../lib/responsive";
+import { remoteVsCodeRow, useRemoteVsCodeTarget } from "../lib/remote-vscode";
+import { backend } from "../backend";
 import { localeTag, useT, type MessageKey } from "../lib/i18n";
 import { linkedExperiment } from "../lib/experiment-link";
 import { deltaLabel } from "./lab/experiment-state";
@@ -954,6 +956,46 @@ function MenuGroup({ heading, children }: { heading: string; children: ReactNode
 
 const MENU_SEPARATOR = <div className="my-1 border-t border-line-soft" />;
 
+/**
+ * The title menu's Open in VS Code row for a remote session (issue #995,
+ * ADR-0083): asks main for the member's ssh target while the menu is open;
+ * hidden when this computer has no VS Code, disabled with the reason as a
+ * second line while the member's ssh is not reachable.
+ */
+function RemoteVsCodeRow({
+  instanceId,
+  nickname,
+  open,
+  onOpen,
+}: {
+  instanceId: string;
+  nickname: string;
+  open: boolean;
+  onOpen: () => void;
+}) {
+  const t = useT();
+  const row = remoteVsCodeRow(useRemoteVsCodeTarget(instanceId, open), nickname, t);
+  if (!row.show) return null;
+  return (
+    <>
+      {MENU_SEPARATOR}
+      <button
+        type="button"
+        role="menuitem"
+        disabled={row.reason !== null}
+        title={row.reason ?? t("remotevscode.sub")}
+        onClick={onOpen}
+        className={MENU_ROW}
+      >
+        <span className="min-w-0">
+          {t("quickopen.action.openIn", { target: "VS Code" })}
+          {row.reason !== null && <span className="block text-[10px] text-ink-faint">{row.reason}</span>}
+        </span>
+      </button>
+    </>
+  );
+}
+
 /** Arrow/Home/End roving focus over the menu's enabled items; Escape stays with useDismissal. */
 function rovingFocus(e: React.KeyboardEvent<HTMLDivElement>): void {
   if (e.key !== "ArrowDown" && e.key !== "ArrowUp" && e.key !== "Home" && e.key !== "End") return;
@@ -1040,6 +1082,12 @@ function TitleMenu({
   const openScheduleDialog = useStore((s) => s.openScheduleDialog);
   const scheduleable = useStore((s) => findRecord(s.state, tabId)?.mode === "rpc-ui");
   const hasSchedule = useStore((s) => findRecord(s.state, tabId)?.scheduledPrompt != null);
+  // Open in VS Code over Remote-SSH (issue #995, ADR-0083): a remote
+  // session's effective working tree — its worktree checkout when it has one.
+  const remoteTree = useStore((s) => (instanceId === null ? undefined : sessionCwd(findRecord(s.state, tabId))));
+  const remoteVsCodeEnabled = useStore((s) => s.state?.remoteVsCodeEnabled === true);
+  const remoteNickname = useStore((s) => findInstance(s.state, instanceId)?.nickname ?? instanceId ?? "");
+  const reportError = useStore((s) => s.reportError);
   const [surface, setSurface] = useState<null | "menu" | "modes">(null);
   const [editing, setEditing] = useState(false);
   const [pos, setPos] = useState<{ x: number; y: number } | null>(null);
@@ -1232,6 +1280,14 @@ function TitleMenu({
                     </>
                   )}
                 </MenuGroup>
+                {instanceId !== null && remoteVsCodeEnabled && remoteTree !== undefined && (
+                  <RemoteVsCodeRow
+                    instanceId={instanceId}
+                    nickname={remoteNickname}
+                    open={surface === "menu"}
+                    onOpen={act(() => void backend.openRemoteVsCode(instanceId, remoteTree).catch(reportError))}
+                  />
+                )}
                 {MENU_SEPARATOR}
                 <MenuGroup heading={t("hud.menu.share")}>
                   <button type="button" role="menuitem" onClick={act(() => void exportHtml(tabId))} className={MENU_ROW}>

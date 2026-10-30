@@ -30,6 +30,7 @@ interface RegistrySettings {
   experimentsEnabled: boolean;
   snoozedSectionEnabled: boolean;
   autoSettleMergedPullRequests: boolean;
+  remoteVsCodeEnabled: boolean;
   voiceInputEnabled: boolean;
   sttModel: string | null;
   memoryDefaultsSeeded: boolean;
@@ -149,6 +150,7 @@ export function seedRegistry(file: string, patch: RegistrySeedPatch = {}): void 
     experimentsEnabled: false,
     snoozedSectionEnabled: false,
     autoSettleMergedPullRequests: true,
+    remoteVsCodeEnabled: false,
     voiceInputEnabled: false,
     sttModel: null,
     memoryDefaultsSeeded: false,

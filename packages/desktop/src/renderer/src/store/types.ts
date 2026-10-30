@@ -677,6 +677,8 @@ export interface SettingsSlice {
   setSnoozedSectionEnabled(on: boolean): Promise<void>;
   /** Settle worktree sessions once their pull requests merge (issue #985); default on. */
   setAutoSettleMergedPullRequests(on: boolean): Promise<void>;
+  /** Open in VS Code over Remote-SSH (issue #995); default off. */
+  setRemoteVsCodeEnabled(on: boolean): Promise<void>;
   /** Shows/hides the composer mic button app-wide (issue #647). */
   setVoiceInputEnabled(on: boolean): Promise<void>;
   /** The app-wide dictation model; null auto-resolves at call time. */

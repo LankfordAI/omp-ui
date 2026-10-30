@@ -3492,6 +3492,16 @@ export const en = {
   "settings.remoteinstances.fleetAgentTitle": "Let agents dispatch fleet work",
   "settings.remoteinstances.fleetAgentHint":
     "Adds fleet tools to project sessions started after this is on, including starting sessions in this computer's projects. Chats always have them; agent-dispatched sessions never do.",
+  // Open in VS Code over Remote-SSH (issue #995, ADR-0083)
+  "settings.remoteinstances.vsCodeTitle": "Open remote projects in VS Code over SSH",
+  "settings.remoteinstances.vsCodeHint":
+    "Adds Open in VS Code to a remote project's page and a remote session's title menu. VS Code on this computer connects with its Remote-SSH extension, your ssh config, and your ssh agent; omp-ui holds no keys. Off by default.",
+  "remotevscode.sub": "Remote-SSH",
+  "remotevscode.checking": "checking SSH…",
+  "remotevscode.reason.failed": "could not check SSH",
+  "remotevscode.reason.noReport": "{at} sent no host report",
+  "remotevscode.reason.badTarget": "{at} reports an ssh host or user VS Code cannot use",
+  "remotevscode.reason.sshClosed": "SSH port 22 did not answer on {at}",
   // Fleet access ladder (issue #901, ADR-0062)
   "settings.remoteinstances.fleetAccessTitle": "Fleet access",
   "settings.remoteinstances.execTitle": "Allow fleet exec",

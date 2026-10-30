@@ -565,6 +565,8 @@ export function RemoteInstancesPage() {
   const instances = useStore((s) => s.state?.remoteInstances ?? null);
   const fleetAgentDispatch = useStore((s) => s.state?.fleetAgentDispatch === true);
   const setFleetAgentDispatch = useStore((s) => s.setFleetAgentDispatch);
+  const remoteVsCodeEnabled = useStore((s) => s.state?.remoteVsCodeEnabled === true);
+  const setRemoteVsCodeEnabled = useStore((s) => s.setRemoteVsCodeEnabled);
 
   return (
     <div className="space-y-3 px-4 py-3">
@@ -587,6 +589,13 @@ export function RemoteInstancesPage() {
           on={fleetAgentDispatch}
           onChange={(next) => void setFleetAgentDispatch(next)}
           label={t("settings.remoteinstances.fleetAgentTitle")}
+        />
+      </Row>
+      <Row title={t("settings.remoteinstances.vsCodeTitle")} hint={t("settings.remoteinstances.vsCodeHint")}>
+        <Switch
+          on={remoteVsCodeEnabled}
+          onChange={(next) => void setRemoteVsCodeEnabled(next)}
+          label={t("settings.remoteinstances.vsCodeTitle")}
         />
       </Row>
       <div>

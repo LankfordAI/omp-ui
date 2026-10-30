@@ -114,6 +114,24 @@ export interface ProjectOpenAvailability {
   terminal: boolean;
 }
 
+/**
+ * Whether a joined remote instance's checkouts can open in this computer's
+ * VS Code over Remote-SSH (issue #995, ADR-0083). A ready target names the
+ * ssh destination VS Code connects to: the join URL's host, and the member's
+ * reported login user when it has one. `noVsCode`: this computer has no
+ * `vscode:` handler. `noReport`: the member is not joined or sent no host
+ * report. `badTarget`: its host or user falls outside the ssh-safe character
+ * set. `sshClosed`: its port 22 did not answer this computer.
+ */
+export type RemoteVsCodeTarget =
+  | { kind: "ready"; host: string; user: string | null }
+  | {
+      kind: "unavailable";
+      reason: "noVsCode" | "noReport" | "badTarget" | "sshClosed";
+      /** The member's join host, for the reason text; null when unknown. */
+      address: string | null;
+    };
+
 export type KnowledgeHomeKind = "docs" | "vault" | "both";
 
 export interface KnowledgeHome {

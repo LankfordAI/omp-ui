@@ -212,6 +212,7 @@ const mockBackend = {
   runScheduledPromptNow: vi.fn(async () => {}),
   setSnoozedSectionEnabled: vi.fn(async () => {}),
   setAutoSettleMergedPullRequests: vi.fn(async () => {}),
+  setRemoteVsCodeEnabled: vi.fn(async () => {}),
   setSessionSubagentModels: vi.fn(async () => {}),
   setSessionApprovalMode: vi.fn(async () => {}),
   setSessionServiceTier: vi.fn(async () => {}),

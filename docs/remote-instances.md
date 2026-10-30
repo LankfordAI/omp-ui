@@ -38,7 +38,7 @@ The knowledge vault follows the session's owner. Vault tools run only on the ins
 Nothing is copied and no second omp process starts. Closing the tab hides it; the session keeps running on the remote instance. Quitting this app disconnects from every remote instance and leaves their sessions running, exactly as closing a browser view of that app would.
 Deleting a host-owned session from a joined client removes that session's tab from every connected renderer when the host broadcasts its new state. Removing a registered project does the same for each session record removed by the cascade.
 
-Host-local actions stay on their own host. Opening a project or file in VS Code, Files, or a terminal is not offered for a remote target, file paths in a remote transcript render as plain text, and the remote's own app preferences, updates, providers, remote-access settings, and diagnostics are never reachable from this app. Providers are no exception: a remote session whose host reports no models shows a note naming the instance instead of opening this app's Providers page — provider credentials live on that host, so configure them by opening Providers on the instance itself, or copy this computer's keys there with [Roll out Provider keys](#roll-out-provider-keys). Remote sessions raise no desktop notifications here.
+Host-local actions stay on their own host. Opening a project or file in Files or a terminal is not offered for a remote target, file paths in a remote transcript render as plain text, and the remote's own app preferences, updates, providers, remote-access settings, and diagnostics are never reachable from this app. VS Code is the one exception, and it opens on this computer rather than on the host: see [Open a remote checkout in VS Code](#open-a-remote-checkout-in-vs-code). Providers are no exception: a remote session whose host reports no models shows a note naming the instance instead of opening this app's Providers page — provider credentials live on that host, so configure them by opening Providers on the instance itself, or copy this computer's keys there with [Roll out Provider keys](#roll-out-provider-keys). Remote sessions raise no desktop notifications here.
 
 The relation is directed. Joining B from A gives B no view of A, and a join never follows the remote's own joins: only the remote's own projects and sessions appear, never the instances it has joined itself. Joining this app's own connection URL is reported as *this app* and adds nothing.
 
@@ -102,6 +102,16 @@ omp-ui never opens the SSH connection, stores or syncs a key, or runs setup itse
 - **A project root and the Manage projects rung.** The member declares at least one folder under **Fleet project roots** and grants this app **Manage projects** (its **Fleet exec ceiling** at least Manage projects), as [access rungs](#access-rungs) describes, and **Let agents dispatch fleet work** is on here.
 
 The reachability check is only a TCP connect to port 22 from this computer. A member whose SSH server listens on another port shows *closed*; give it a `Host` entry with that `Port` in `~/.ssh/config` so the agent's `ssh` still reaches it. A member that is not connected shows only its address.
+
+### Open a remote checkout in VS Code
+
+You can open the code a remote session works on in VS Code on this computer, connected to the member over Remote-SSH ([#995](https://github.com/LankfordAI/omp-ui/issues/995), [ADR-0083](adr/0083-remote-checkouts-open-in-local-vs-code-over-the-users-ssh.md)). Turn on **Settings › Remote instances › Open remote projects in VS Code over SSH** (off by default). Then **Open in VS Code** appears on a remote project's page in the project quick-open and in a remote session's title menu, which opens that session's worktree checkout when it has one. VS Code opens a new window on `ssh-remote+<user>@<address>` at that path.
+
+The row is enabled only when the member sent its host report and port 22 answered this computer; otherwise it stays disabled and says why, for example *SSH port 22 did not answer on studio.tailnet*. It is hidden when this computer has no VS Code, and in the compact shell.
+
+omp-ui opens no SSH connection and holds no key: VS Code's **Remote - SSH** extension connects with your own `~/.ssh/config` and ssh agent, exactly as a connection you start by hand, and installs VS Code Server on the member under that account. So the member needs your key in its `authorized_keys` and an SSH server, as for [provisioning](#provision-a-member-over-ssh). A missing Remote - SSH extension, an unknown host key, or a failed login is reported by VS Code in its own window. A member reached on another port or through a jump host needs a matching `Host` entry in your `~/.ssh/config`; the port-22 check still decides whether the row is enabled.
+
+omp-ui opens only paths the member itself reported for a project, session, or worktree. The address is always the host of the URL you joined the member at; the login user is the one the member reports, and omp-ui refuses a host or user with characters ssh or a URL could misread.
 
 ### Copy a project to a member
 

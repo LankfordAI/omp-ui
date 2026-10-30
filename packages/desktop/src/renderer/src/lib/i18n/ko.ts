@@ -3294,6 +3294,16 @@ export const ko: Partial<Record<MessageKey, string>> = {
   "settings.remoteinstances.fleetAgentTitle": "에이전트의 플릿 작업 디스패치 허용",
   "settings.remoteinstances.fleetAgentHint":
     "이 설정을 켠 뒤 시작한 프로젝트 세션에 플릿 도구를 추가합니다. 이 컴퓨터의 프로젝트에서 세션을 시작하는 것도 포함됩니다. 채팅에는 항상 추가되고, 에이전트가 디스패치한 세션에는 추가되지 않습니다.",
+  // SSH로 VS Code에서 열기 (이슈 #995)
+  "settings.remoteinstances.vsCodeTitle": "SSH로 원격 프로젝트를 VS Code에서 열기",
+  "settings.remoteinstances.vsCodeHint":
+    "원격 프로젝트 페이지와 원격 세션의 제목 메뉴에 VS Code에서 열기를 추가합니다. 이 컴퓨터의 VS Code가 Remote-SSH 확장, ssh 설정, ssh 에이전트로 연결하며 omp-ui는 키를 보관하지 않습니다. 기본값은 꺼짐입니다.",
+  "remotevscode.sub": "Remote-SSH",
+  "remotevscode.checking": "SSH 확인 중…",
+  "remotevscode.reason.failed": "SSH를 확인할 수 없음",
+  "remotevscode.reason.noReport": "{at}에서 호스트 보고가 없음",
+  "remotevscode.reason.badTarget": "{at}이(가) VS Code에서 쓸 수 없는 ssh 호스트나 사용자를 보고함",
+  "remotevscode.reason.sshClosed": "{at}의 SSH 포트 22가 응답하지 않음",
   // Fleet 접근 사다리 (이슈 #901)
   "settings.remoteinstances.fleetAccessTitle": "플릿 접근",
   "settings.remoteinstances.execTitle": "플릿 exec 허용",

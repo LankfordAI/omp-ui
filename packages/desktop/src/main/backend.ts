@@ -206,6 +206,7 @@ import { DesktopNotifier } from "./desktop-notifier";
 import { appendMainLog } from "./main-log";
 import { electronKeyCipher } from "./key-cipher";
 import { ProjectOpener } from "./project-open";
+import { RemoteVsCodeOpener } from "./remote-vscode-open";
 import { openExternalSafe } from "./open-external";
 import { openExternal, openPath } from "./system-open";
 import { NO_GATE, type SpawnGate } from "./spawn-gate";
@@ -296,6 +297,14 @@ export class MainBackend {
   /** Per-project gitdir watchers (#498): churn answers with branch:changed. */
   private readonly headWatchers: HeadWatcherHub;
   private readonly projectOpener = new ProjectOpener();
+  /** Open in VS Code over Remote-SSH (issue #995, ADR-0083). */
+  private readonly remoteVsCode = new RemoteVsCodeOpener({
+    enabled: () => this.registry.getSetting("remoteVsCodeEnabled"),
+    remotes: () => this.remoteInstances.summaries(),
+    machine: (instanceId) => this.fleet.machine(instanceId),
+    vsCodeAvailable: () => this.projectOpener.availability().vsCode,
+    openUrl: (url, label) => this.projectOpener.openRemoteUrlInVsCode(url, label),
+  });
   /** #888 bundle staging: pack archives in, ingest bundles out; shredded on
    * abort, finish, or the idle sweep. */
   private readonly transfers = new TransferState();
@@ -1193,6 +1202,9 @@ export class MainBackend {
         [CH.getProjectOpenAvailability]: () => this.projectOpener.availability(),
         [CH.openProject]: (projectPath: string, target: ProjectOpenTarget) =>
           this.projectOpener.open(projectPath, target),
+        [CH.getRemoteVsCodeTarget]: (instanceId: string) => this.remoteVsCode.target(instanceId),
+        [CH.openRemoteVsCode]: (instanceId: string, remotePath: string) =>
+          this.remoteVsCode.open(instanceId, remotePath),
         // Rejecting lets the renderer surface a failure instead of the click
         // dying silently.
         [CH.openPath]: (absPath: string) => openPath(absPath),
@@ -2591,6 +2603,7 @@ export class MainBackend {
       experimentsEnabled: this.registry.getSetting("experimentsEnabled"),
       snoozedSectionEnabled: this.registry.getSetting("snoozedSectionEnabled"),
       autoSettleMergedPullRequests: this.registry.getSetting("autoSettleMergedPullRequests"),
+      remoteVsCodeEnabled: this.registry.getSetting("remoteVsCodeEnabled"),
       voiceInputEnabled: this.registry.getSetting("voiceInputEnabled"),
       sttModel: this.registry.getSetting("sttModel"),
       audioInputDevice: this.registry.getSetting("audioInputDevice"),

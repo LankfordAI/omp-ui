@@ -140,6 +140,7 @@ describe("SETTINGS", () => {
       "fleetProjectRoots",
       "webhooksEnabled",
       "mcpEndpointEnabled",
+      "remoteVsCodeEnabled",
     ]);
   });
   it("creates fresh mutable fallbacks", () => {

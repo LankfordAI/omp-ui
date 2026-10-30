@@ -2,7 +2,7 @@
 import { act } from "react";
 import { createRoot, type Root } from "react-dom/client";
 import { afterEach, beforeEach, describe, expect, it, vi, type Mock } from "vitest";
-import type { ProjectGroup, ProjectIcon, ProjectOpenAvailability, SessionSummary } from "@omp-ui/core/types";
+import type { ProjectGroup, ProjectIcon, ProjectOpenAvailability, RemoteVsCodeTarget, SessionSummary } from "@omp-ui/core/types";
 import type { TabInfo } from "../store";
 import { backendState, remoteInstance, tabInfo } from "../test/fixtures";
 
@@ -11,6 +11,8 @@ HTMLElement.prototype.scrollIntoView = vi.fn();
 const backendMock = {
   getProjectOpenAvailability: vi.fn<() => Promise<ProjectOpenAvailability>>(),
   openProject: vi.fn<(path: string, target: "vscode" | "files" | "terminal") => Promise<void>>(),
+  getRemoteVsCodeTarget: vi.fn<(instanceId: string) => Promise<RemoteVsCodeTarget>>(),
+  openRemoteVsCode: vi.fn<(instanceId: string, path: string) => Promise<void>>(),
 };
 Object.assign(window, { ompBackend: backendMock });
 // Dynamic import is required because store.ts captures window.ompBackend at module evaluation.
@@ -98,6 +100,8 @@ interface RenderOptions {
   remoteProjects?: ProjectGroup[];
   /** Icon on the remote /remote/r checkout (merged into bravo's row). */
   remoteIcon?: ProjectIcon;
+  /** The remoteVsCodeEnabled setting (issue #995). */
+  remoteVsCode?: boolean;
 }
 
 interface Rendered {
@@ -146,6 +150,7 @@ function renderQuickOpen(options: RenderOptions = {}): Rendered {
     ...mocks,
     state: backendState({
       experimentsEnabled: options.experiments === true,
+      remoteVsCodeEnabled: options.remoteVsCode === true,
       projects: [projectGroup("/a", "alpha", null), projectGroup("/b", "bravo", "github.com/o/r")],
       chats: options.chats ?? [],
       remoteInstances: [
@@ -228,6 +233,9 @@ beforeEach(() => {
   backendMock.getProjectOpenAvailability.mockReturnValue(new Promise(() => {}));
   backendMock.openProject.mockReset();
   backendMock.openProject.mockResolvedValue(undefined);
+  backendMock.getRemoteVsCodeTarget.mockReset();
+  backendMock.openRemoteVsCode.mockReset();
+  backendMock.openRemoteVsCode.mockResolvedValue(undefined);
 });
 
 afterEach(() => {
@@ -491,6 +499,29 @@ describe("ProjectQuickOpen pages (issue #919)", () => {
     expect(rowLabels()).toContain("New session");
     expect(rowLabels().some((label) => label.startsWith("Open in"))).toBe(false);
     expect(backendMock.getProjectOpenAvailability).not.toHaveBeenCalled();
+  });
+
+  it("offers Open in VS Code over SSH for a remote target once turned on, disabled while port 22 is closed (#995)", async () => {
+    backendMock.getRemoteVsCodeTarget.mockResolvedValue({ kind: "unavailable", reason: "sshClosed", address: "box-a" });
+    renderQuickOpen({ remoteProjects: [projectGroup("/remote/s", "sigma", null)], remoteVsCode: true });
+    act(() => labelled("actions for sigma")!.click());
+    await flush();
+    expect(backendMock.getRemoteVsCodeTarget).toHaveBeenCalledWith("inst-1");
+    const closed = rowByLabel("Open in VS Code")!;
+    expect(closed.getAttribute("aria-disabled")).toBe("true");
+    expect(closed.textContent).toContain("SSH port 22 did not answer on box-a");
+    act(() => closed.click());
+    expect(backendMock.openRemoteVsCode).not.toHaveBeenCalled();
+    expect(rowLabels().filter((label) => label.startsWith("Open in"))).toEqual(["Open in VS Code"]);
+  });
+
+  it("opens the remote checkout through main when the member's ssh is ready (#995)", async () => {
+    backendMock.getRemoteVsCodeTarget.mockResolvedValue({ kind: "ready", host: "box-a", user: "ada" });
+    renderQuickOpen({ remoteProjects: [projectGroup("/remote/s", "sigma", null)], remoteVsCode: true });
+    act(() => labelled("actions for sigma")!.click());
+    await flush();
+    act(() => rowByLabel("Open in VS Code")!.click());
+    expect(backendMock.openRemoteVsCode).toHaveBeenCalledExactlyOnceWith("inst-1", "/remote/s");
   });
 
   it("omits open rows in the compact shell and never probes", () => {

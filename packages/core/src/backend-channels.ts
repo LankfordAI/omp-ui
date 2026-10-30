@@ -50,6 +50,7 @@ import type {
   ProjectIconRequest,
   ProjectOpenAvailability,
   ProjectOpenTarget,
+  RemoteVsCodeTarget,
   ProjectScalarResult,
   ProjectSpendCapsResult,
   SpendCapKey,
@@ -295,6 +296,25 @@ export const BACKEND_CHANNELS = {
     channel: "project:open",
     ...request<[projectPath: string, target: ProjectOpenTarget], void>([str(), projectOpenTargetCodec]),
   },
+  /**
+   * Whether a joined instance's checkouts can open in this computer's VS Code
+   * over Remote-SSH (issue #995, ADR-0083): reads the member's host report and
+   * this computer's cached port-22 probe. Host-local; never proxied.
+   */
+  getRemoteVsCodeTarget: {
+    channel: "project:remoteVsCodeTarget",
+    ...request<[instanceId: string], RemoteVsCodeTarget>([str()]),
+  },
+  /**
+   * Opens one checkout of a joined instance in this computer's VS Code over
+   * Remote-SSH. Main re-derives the ssh target and accepts only a project or
+   * session path that instance reported; rejects while `remoteVsCodeEnabled`
+   * is off. Host-local; never proxied.
+   */
+  openRemoteVsCode: {
+    channel: "project:openRemoteVsCode",
+    ...request<[instanceId: string, remotePath: string], void>([str(), str()]),
+  },
   /** Directory listing for the in-app project picker (read-only, never mutates). */
   browseDirectories: {
     channel: "dir:browse",
@@ -498,6 +518,11 @@ export const BACKEND_CHANNELS = {
   /** Settle a worktree session once every linked pull request merges (issue #985); default on. */
   setAutoSettleMergedPullRequests: {
     channel: "settings:setAutoSettleMergedPullRequests",
+    ...request<[on: boolean], void>([bool()]),
+  },
+  /** Open in VS Code over Remote-SSH for remote projects and sessions (issue #995, ADR-0083); default off. */
+  setRemoteVsCodeEnabled: {
+    channel: "settings:setRemoteVsCodeEnabled",
     ...request<[on: boolean], void>([bool()]),
   },
   /** Shows or hides the microphone button in every composer (issue #647). */

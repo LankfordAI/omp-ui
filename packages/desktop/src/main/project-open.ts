@@ -3,7 +3,7 @@ import { accessSync, constants, existsSync } from "node:fs";
 import path from "node:path";
 
 import type { ProjectOpenAvailability, ProjectOpenTarget } from "@omp-ui/core";
-import { withoutAppImageRuntime } from "@omp-ui/core";
+import { vscodeUrlPath, withoutAppImageRuntime } from "@omp-ui/core";
 import { app } from "electron";
 
 import { openExternal, openPath, spawnDetached } from "./system-open";
@@ -89,19 +89,9 @@ const DESKTOP_HINTS: Record<string, string> = {
 
 /** Builds a stable-VS-Code protocol URL without treating any path segment as URL syntax. */
 export function vscodeProjectUrl(projectPath: string): string {
-  let normalized = projectPath.replaceAll("\\", "/");
-  if (!normalized.startsWith("/")) normalized = `/${normalized}`;
-
-  const segments = normalized.split("/").map((segment, index) => {
-    if (index === 1 && /^[A-Za-z]:$/.test(segment)) {
-      return `${segment[0].toLowerCase()}:`;
-    }
-    return encodeURIComponent(segment);
-  });
-
   // windowId=_blank opens the folder in a NEW window (VS Code >= 1.70);
   // older builds ignore the unknown param and reuse the active window.
-  return `vscode://file${segments.join("/")}?windowId=_blank`;
+  return `vscode://file${vscodeUrlPath(projectPath)}?windowId=_blank`;
 }
 
 
@@ -219,13 +209,23 @@ export class ProjectOpener {
   }
 
   private async openInVsCode(projectPath: string): Promise<void> {
+    await this.launchVsCode(vscodeProjectUrl(projectPath), `"${projectPath}"`, " Open the project in Files instead.");
+  }
+
+  /**
+   * Hands a `vscode://vscode-remote/ssh-remote+…` URL to this computer's VS
+   * Code (issue #995). A missing Remote-SSH extension or a failed connection
+   * is VS Code's own error, shown in its window; omp-ui sees only the launch.
+   */
+  async openRemoteUrlInVsCode(url: string, label: string): Promise<void> {
+    await this.launchVsCode(url, label, "");
+  }
+
+  private async launchVsCode(url: string, label: string, hint: string): Promise<void> {
     if (!this.availability().vsCode) {
-      throw new Error(
-        `VS Code is not available to open "${projectPath}". Open the project in Files instead.`,
-      );
+      throw new Error(`VS Code is not available to open ${label}.${hint}`);
     }
 
-    const url = vscodeProjectUrl(projectPath);
     let firstCause: unknown;
     try {
       await this.host.openExternal(url);
@@ -242,19 +242,13 @@ export class ProjectOpener {
       } catch (cause) {
         this.vsCodeAvailable = undefined;
         const detail = cause instanceof Error ? cause.message : String(cause);
-        throw new Error(
-          `Could not open "${projectPath}" in VS Code: ${detail}. Open the project in Files instead.`,
-          { cause },
-        );
+        throw new Error(`Could not open ${label} in VS Code: ${detail}.${hint}`, { cause });
       }
     }
 
     this.vsCodeAvailable = undefined;
     const detail = firstCause instanceof Error ? firstCause.message : String(firstCause);
-    throw new Error(
-      `Could not open "${projectPath}" in VS Code: ${detail}. Open the project in Files instead.`,
-      { cause: firstCause },
-    );
+    throw new Error(`Could not open ${label} in VS Code: ${detail}.${hint}`, { cause: firstCause });
   }
 
   private async openInFiles(projectPath: string): Promise<void> {

@@ -92,6 +92,12 @@ We decided against that reading. The Electron **main process** owns the join:
   outside it: a remote palette with no catalog shows guidance naming the
   instance instead of opening this app's Providers page, because provider
   credentials are host-local.
+  _Amended 2026-10-30 (#995, [ADR-0083](0083-remote-checkouts-open-in-local-vs-code-over-the-users-ssh.md)):
+  one remote open target exists. With *Open remote projects in VS Code over
+  SSH* on, a remote project or session opens in **this computer's** VS Code
+  over Remote-SSH; main builds the URL from the member's own report and
+  never proxies the request. Files, Terminal, and `project:open` stay
+  host-local._
 - **Disconnects keep the sidebar honest.** A dropped socket marks the instance
   *unreachable* and keeps its last-known projects and favorites visible but
   dimmed; main retries with capped backoff (1 s → 30 s). A rejected credential

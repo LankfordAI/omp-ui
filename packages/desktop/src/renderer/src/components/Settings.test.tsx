@@ -112,6 +112,7 @@ const backendMock = {
   setExperimentsEnabled: vi.fn(async () => {}),
   setSnoozedSectionEnabled: vi.fn(async () => {}),
   setAutoSettleMergedPullRequests: vi.fn(async () => {}),
+  setRemoteVsCodeEnabled: vi.fn(async () => {}),
   spawnSession: vi.fn(),
   terminateSession: vi.fn(),
   switchMode: vi.fn(),

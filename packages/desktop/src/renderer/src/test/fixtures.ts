@@ -26,6 +26,7 @@ export function backendState(patch: Partial<BackendState> = {}): BackendState {
     experimentsEnabled: false,
     snoozedSectionEnabled: false,
     autoSettleMergedPullRequests: true,
+    remoteVsCodeEnabled: false,
     voiceInputEnabled: false,
     sttModel: null,
     audioInputDevice: null,
