@@ -77,6 +77,7 @@ function projectRecord(projectPath: string, name: string): ProjectRecord {
     reviewRoster: null,
     knowledgeHome: null,
     repositoryKey: null,
+    icon: null,
   };
 }
 

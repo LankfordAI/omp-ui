@@ -45,6 +45,8 @@ import type {
   OmpUpdateState,
   PlanFormat,
   ProjectRecord,
+  ProjectIcon,
+  ProjectIconRequest,
   ProjectOpenAvailability,
   ProjectOpenTarget,
   ProjectScalarResult,
@@ -155,6 +157,7 @@ import {
   oneOf,
   planFormatCodec,
   projectOpenTargetCodec,
+  projectIconRequestCodec,
   remoteBindCodec,
   remoteInstanceInputCodec,
   remoteInstancePatchCodec,
@@ -306,6 +309,17 @@ export const BACKEND_CHANNELS = {
   setProjectKnowledgeHome: {
     channel: "project:setKnowledgeHome",
     ...request<[projectPath: string, home: KnowledgeHome | null], void>([str(), nullable(knowledgeHomeCodec)]),
+  },
+  /**
+   * Changes the project's icon (issue #1000): re-run detection, show
+   * initials, or use a picked image. The owning instance decodes and shrinks
+   * the image and answers with the icon it stored (null: detection found
+   * nothing). Rejects with a user-facing message when a picked file is not an
+   * image it can show.
+   */
+  setProjectIcon: {
+    channel: "project:setIcon",
+    ...request<[projectPath: string, icon: ProjectIconRequest], ProjectIcon | null>([str(), projectIconRequestCodec]),
   },
   /**
    * The project layer's `task.agentModelOverrides` (ADR-0031): the map plus

@@ -1109,6 +1109,7 @@ describe("Registry mutations", () => {
       reviewRoster: null,
       knowledgeHome: null,
       repositoryKey: null,
+      icon: null,
     });
   });
 
@@ -1795,6 +1796,7 @@ describe("legacy registries with absent optional fields (issue #294)", () => {
       defaultAdvisorModel: null,
       knowledgeHome: null,
       repositoryKey: null,
+      icon: null,
     });
     expect(reg.sessions).toHaveLength(1);
     expect(reg.sessions[0]).toMatchObject({

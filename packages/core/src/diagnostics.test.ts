@@ -61,6 +61,7 @@ function project(override: Partial<ProjectRecord> & { path: string }): ProjectRe
     reviewRoster: null,
     knowledgeHome: null,
     repositoryKey: null,
+    icon: null,
     ...override,
   };
 }

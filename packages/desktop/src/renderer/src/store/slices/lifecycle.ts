@@ -9,6 +9,8 @@ import type {
   DocumentAttachment,
   ImageAttachment,
   KnowledgeHome,
+  ProjectIcon,
+  ProjectIconRequest,
   PlanImplementationSource,
   SessionMode,
   SessionWorktree,
@@ -88,6 +90,7 @@ export type LifecycleSlice = Pick<
   | "setProjectDefaultAdvisorModel"
   | "setProjectBrowserClock"
   | "setProjectKnowledgeHome"
+  | "setProjectIcon"
   | "vaultNames"
   | "toggleFavorite"
   | "newSession"
@@ -905,6 +908,12 @@ export function createLifecycleSlice(
   ): Promise<void> => {
     await backendFor(instanceId).setProjectKnowledgeHome(projectPath, home);
   };
+
+  const setProjectIcon = (
+    projectPath: string,
+    icon: ProjectIconRequest,
+    instanceId: string | null = null,
+  ): Promise<ProjectIcon | null> => backendFor(instanceId).setProjectIcon(projectPath, icon);
 
   const vaultNames = (instanceId: string | null = null): Promise<string[]> =>
     backendFor(instanceId).vaultNames();
@@ -2000,6 +2009,7 @@ export function createLifecycleSlice(
     setProjectDefaultAdvisorModel,
     setProjectBrowserClock,
     setProjectKnowledgeHome,
+    setProjectIcon,
     vaultNames,
     toggleFavorite,
     newSession,

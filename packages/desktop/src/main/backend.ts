@@ -97,6 +97,8 @@ import {
   git,
   renderSessionSummary,
   resolveRepositoryKey,
+  detectProjectIcon,
+  projectIconDataUrl,
   sampleHostResources,
   detectHostOs,
   detectPackageManagers,
@@ -130,6 +132,8 @@ import {
   type DocumentAttachment,
   type ImageAttachment,
   type KnowledgeHome,
+  type ProjectIcon,
+  type ProjectIconRequest,
   type McpSetEnabledRequest,
   type ScopedCapabilityMutation,
   type ReviewWriteRequest,
@@ -170,6 +174,7 @@ import {
   type VaultDetection,
 } from "@omp-ui/core";
 import { mintRemoteToken } from "@omp-ui/server";
+import { normalizeProjectIconRaster } from "./project-icon-raster";
 import { HeadWatcherHub } from "./git-head-watchers";
 import { OmpUpdater } from "./omp-update";
 import { AppUpdater, isAutoUpdateFormat } from "./app-update";
@@ -893,6 +898,7 @@ export class MainBackend {
         [CH.setProjectKnowledgeHome]: async (projectPath: string, home: KnowledgeHome | null) => {
           if (this.registry.setProjectKnowledgeHome(projectPath, home)) await this.broadcast();
         },
+        [CH.setProjectIcon]: (projectPath: string, req: ProjectIconRequest) => this.setProjectIcon(projectPath, req),
         [CH.getProjectSubagentModels]: (projectCwd: string): ProjectSubagentModelsResult => {
           const layer = readProjectConfigMap(projectCwd, ["task", "agentModelOverrides"]);
           return { map: layer.shape === "map" ? layer.value : {}, layer };
@@ -1696,6 +1702,9 @@ export class MainBackend {
     // Repository keys self-heal at startup (#903), fired like the watchers:
     // registries written before the field existed carry nulls.
     void this.trackProbe(this.backfillRepositoryKeys());
+    // Project icons re-read the checkout at every launch (#1000), so a
+    // favicon added, changed, or removed since shows up without a re-add.
+    void this.trackProbe(this.refreshProjectIcons());
     return this.sessions.hydrateAll();
   }
 
@@ -1721,6 +1730,44 @@ export class MainBackend {
       }
     }
     if (changed) void this.broadcast();
+  }
+
+  /**
+   * Re-run icon detection for every project still on automatic (issue
+   * #1000): a user's custom pick or explicit initials is never overwritten.
+   * One shared broadcast when any icon changed; a project whose checkout is
+   * unreadable keeps its stored icon.
+   */
+  private async refreshProjectIcons(): Promise<void> {
+    let changed = false;
+    for (const project of this.registry.projects) {
+      if (project.icon?.source === "custom" || project.icon?.source === "none") continue;
+      if (!fs.existsSync(project.path)) continue;
+      const icon = await detectProjectIcon(project.path, normalizeProjectIconRaster);
+      if (this.registry.setProjectIcon(project.path, icon)) changed = true;
+    }
+    if (changed) void this.broadcast();
+  }
+
+  /** Project settings' icon actions (issue #1000); answers with the stored icon. */
+  private async setProjectIcon(projectPath: string, req: ProjectIconRequest): Promise<ProjectIcon | null> {
+    if (!this.registry.projects.some((project) => project.path === projectPath)) {
+      throw new Error("that project is not registered here");
+    }
+    let icon: ProjectIcon | null;
+    if (req.kind === "none") {
+      icon = { source: "none" };
+    } else if (req.kind === "detect") {
+      icon = await detectProjectIcon(projectPath, normalizeProjectIconRaster);
+    } else {
+      const dataUrl = projectIconDataUrl(Buffer.from(req.data, "base64"), normalizeProjectIconRaster);
+      if (dataUrl === null) {
+        throw new Error("that file is not an image omp-ui can use as an icon (PNG, JPEG, ICO, or a small SVG, GIF, or WebP)");
+      }
+      icon = { source: "custom", dataUrl };
+    }
+    if (this.registry.setProjectIcon(projectPath, icon)) await this.broadcast();
+    return icon;
   }
 
   private providerSnapshot(projectCwd: string | null): ProviderKeysSnapshot {
@@ -2277,6 +2324,14 @@ export class MainBackend {
         // Swallowed by design: the add already succeeded.
       }
     })());
+    // Project icon (issue #1000): off the add path like the key; an
+    // already-registered path keeps a custom pick or explicit initials.
+    if (record.icon === null || record.icon.source === "detected") {
+      void this.trackProbe((async () => {
+        const icon = await detectProjectIcon(resolved, normalizeProjectIconRaster);
+        if (this.registry.setProjectIcon(resolved, icon)) void this.broadcast();
+      })());
+    }
     await this.broadcast();
     return record;
   }

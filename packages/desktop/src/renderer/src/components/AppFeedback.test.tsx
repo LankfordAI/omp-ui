@@ -49,6 +49,7 @@ const PROJECT = {
   reviewRoster: null,
   knowledgeHome: null,
   repositoryKey: null,
+  icon: null,
 };
 
 function record(patch: Partial<SessionSummary> = {}): SessionSummary {

@@ -2546,6 +2546,18 @@ export const en = {
   "project.settings.browserClockHint":
     "Shows the date and time above this project's browser pane and stamps it onto every browser screenshot — the camera button, element picks, and screenshots the agent takes.",
   "project.settings.knowledge": "Knowledge",
+  "project.settings.icon": "Icon",
+  "project.settings.iconHint":
+    "Shown in place of this project's initials, ringed in its colour. omp-ui looks for a favicon or app icon in the repository (favicon.ico, public/favicon.*, app/icon.*, static/favicon.*, assets/icon.*) when you add the project and each time omp-ui starts.",
+  "project.settings.iconDetected": "Found {file}",
+  "project.settings.iconCustom": "Your image",
+  "project.settings.iconInitials": "Initials (detection off)",
+  "project.settings.iconNone": "Initials. No icon was found in the repository.",
+  "project.settings.iconNotFound": "No icon found in the repository; showing initials.",
+  "project.settings.iconChoose": "Choose image…",
+  "project.settings.iconDetect": "Detect from repository",
+  "project.settings.iconUseInitials": "Use initials",
+  "project.settings.iconTooLarge": "That image is larger than 1 MB.",
   "project.settings.knowledgeHome": "Knowledge home",
   "project.settings.knowledgeHint": "Where the agent files decisions and lessons for this project.",
   "project.settings.knowledgeDocs": "Repo docs",

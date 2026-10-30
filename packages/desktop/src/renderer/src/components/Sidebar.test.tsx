@@ -104,6 +104,7 @@ const state = backendState({
         reviewRoster: null,
         knowledgeHome: null,
         repositoryKey: null,
+        icon: null,
       },
       sessions: [
         {
@@ -636,6 +637,7 @@ describe("Sidebar plan handoffs (issue #238)", () => {
     reviewRoster: null,
     knowledgeHome: null,
     repositoryKey: null,
+    icon: null,
   };
 
   // The implementation names a planning session that still resolves; the

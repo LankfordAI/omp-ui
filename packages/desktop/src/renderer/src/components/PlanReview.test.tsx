@@ -243,6 +243,7 @@ function stateWithSessions(
           reviewRoster: null,
           knowledgeHome: null,
           repositoryKey: null,
+          icon: null,
         },
         sessions: Object.entries(titles).map(([tabId, title]) => ({
           ...sessionRecord(tabId, title),

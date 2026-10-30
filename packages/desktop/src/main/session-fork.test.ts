@@ -93,6 +93,7 @@ function setup(
         reviewRoster: null,
         knowledgeHome: null,
         repositoryKey: null,
+        icon: null,
       },
     ],
     sessions: [

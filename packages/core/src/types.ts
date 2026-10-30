@@ -120,6 +120,26 @@ export interface KnowledgeHome {
   vault?: string;
 }
 
+/**
+ * A project's icon (issue #1000), painted in place of its monogram initials.
+ * `detected` came from a favicon/app icon in the checkout (`file` is relative
+ * to the project root) and is re-read at startup; `custom` is an image the
+ * user picked; `none` is the user's explicit choice of initials, which also
+ * stops detection. `dataUrl` is always a small `data:image/...` URL built by
+ * the owning instance, so a remote project's icon rides its state as-is.
+ */
+export type ProjectIcon =
+  | { source: "detected"; file: string; dataUrl: string }
+  | { source: "custom"; dataUrl: string }
+  | { source: "none" };
+
+/** What Project settings asks the owning instance to do with a project's icon. */
+export type ProjectIconRequest =
+  | { kind: "detect" }
+  | { kind: "none" }
+  /** `data` is the picked file's bytes as bare base64. */
+  | { kind: "custom"; data: string };
+
 export interface ProjectRecord {
   path: string;
   name: string;
@@ -179,6 +199,12 @@ export interface ProjectRecord {
    * startup, so absence is transient.
    */
   repositoryKey: string | null;
+  /**
+   * The project's icon (issue #1000). null = automatic with nothing found:
+   * the monogram shows initials and the next detection may fill it. Legacy
+   * or malformed values load as null; the record always survives.
+   */
+  icon: ProjectIcon | null;
 }
 
 /**

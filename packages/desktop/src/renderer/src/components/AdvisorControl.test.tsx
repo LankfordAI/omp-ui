@@ -38,6 +38,7 @@ const PROJECT = {
   reviewRoster: null,
   knowledgeHome: null,
   repositoryKey: null,
+  icon: null,
 };
 
 const advisorA: ModelInfo = { id: "advisor-a", name: "Advisor A", provider: "p" };

@@ -5,12 +5,12 @@ import { cn } from "../lib/cn";
 import { fuzzyBest, highlightRuns } from "../lib/fuzzy";
 import { currentLocaleId, useT } from "../lib/i18n";
 import { formatHotkey, useHotkeys, type HotkeyMap } from "../lib/hotkeys";
-import { initials } from "../lib/initials";
-import { identityWash, monogramColors } from "../lib/project-colors";
-import { checkoutEntries, groupByRepository, type CheckoutEntry } from "../lib/repository-members";
+import { identityWash } from "../lib/project-colors";
+import { checkoutEntries, groupByRepository, projectIdentitySeed, type CheckoutEntry } from "../lib/repository-members";
 import { useCompactShell } from "../lib/responsive";
 import { isChatTab, useStore } from "../store";
 import { Chevron, Chip, IconButton, IconSearch, Label, Modal } from "./ui";
+import { ProjectMonogram } from "./ProjectMonogram";
 import { PaletteEmpty, PaletteList, PaletteSearchHeader, usePaletteNav } from "./palette";
 
 /**
@@ -49,6 +49,8 @@ interface QuickRow {
   index: number;
   /** Every checkout merged into this row (#903); drives focused-row matching. */
   members?: Pair[];
+  /** kind "project": the icon `data:` URL (#1000); null = initials. */
+  icon?: string | null;
   /** kind "add": the instance the project is registered on; null = this app. */
   addOn?: string | null;
   /** kind "action": runs after the overlay closes. */
@@ -135,7 +137,7 @@ export function ProjectQuickOpen() {
         (focusedInstanceId !== null ? group.members.find((m) => m.instanceId === focusedInstanceId) : undefined) ??
         group.members[0]!;
       return {
-        id: group.key !== null ? `repo:${group.key}` : `${target.instanceId ?? "local"}\u0000${target.projectCwd}`,
+        id: projectIdentitySeed({ repositoryKey: group.key, instanceId: target.instanceId, projectCwd: target.projectCwd }),
         group: t("quickopen.group.projects"),
         label: target.name,
         sub:
@@ -148,6 +150,9 @@ export function ProjectQuickOpen() {
         hits: [],
         kind: "project",
         pair: { projectCwd: target.projectCwd, instanceId: target.instanceId },
+        // The target names the row, so its icon leads; a merged row falls
+        // back to any member's icon (#1000).
+        icon: target.icon ?? group.members.find((m) => m.icon !== null)?.icon ?? null,
         index: 0,
         members: group.members.map((m) => ({ projectCwd: m.projectCwd, instanceId: m.instanceId })),
       };
@@ -464,12 +469,7 @@ export function ProjectQuickOpen() {
                   {row.kind === "project" ? (
                     // The monogram box, so the row reads as the same
                     // repository the session rows name.
-                    <span
-                      style={monogramColors(row.id)}
-                      className="grid size-6 shrink-0 place-items-center rounded-md font-display text-[10px] font-semibold"
-                    >
-                      {initials(row.label)}
-                    </span>
+                    <ProjectMonogram seed={row.id} name={row.label} icon={row.icon ?? null} />
                   ) : (
                     <span
                       className={cn(

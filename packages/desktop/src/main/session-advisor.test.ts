@@ -102,6 +102,7 @@ function setup(opts: { materialized: boolean; defaultAgentMode?: "plan" | "build
         reviewRoster: null,
         knowledgeHome: null,
         repositoryKey: null,
+        icon: null,
       },
     ],
     sessions: [

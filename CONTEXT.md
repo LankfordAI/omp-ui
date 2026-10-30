@@ -1136,7 +1136,7 @@ _Avoid_: capabilities panel, plugin manager, tool browser
 **Project settings**:
 The modal the "Project settings…" row of a project page in the **Project
 quick-open** opens: one dialog for the project with
-eight sections behind a tab strip — one visible at a time, the active tab
+nine sections behind a tab strip — one visible at a time, the active tab
 dialog-local and resetting to MCP servers on each open (issue #564) — the
 project's MCP servers (the same resolved list,
 per-server toggles, per-source provenance, and per-file errors the MCP manager
@@ -1144,7 +1144,8 @@ renders, project-scoped with no pinned tab), the project's **capability
 catalogs** for Skills and Tools (issue #383: the same panels the global viewer
 uses, scoped to this project, their switches writing `.omp/config.yml` in
 place), and the project's default-model pins (main-model and advisor-model
-with their pickers and Clear actions), and the project's **Knowledge home**.
+with their pickers and Clear actions), the project's **Knowledge home**, and
+its **Project icon**.
 Toggles write through core's mcp-config and capability modules; pins through
 setProjectDefaultModel / setProjectDefaultAdvisorModel; all take effect on
 the next session spawn. Session-scoped control keeps the capabilities
@@ -1152,6 +1153,16 @@ viewer's pinned tab: the palette's "Capabilities for this session", /mcp,
 and Settings → omp; the Capabilities item in the Session HUD's title menu
 itself opens the global catalog, badge and all.
 _Avoid_: project preferences, per-project settings page, project options
+
+**Project icon**:
+The image a **Project**'s monogram box shows in place of its initials, ringed
+in the project's identity colour. By default it is detected: the first
+favicon or app icon found at the common locations in the project checkout,
+read when the project is added and again at every launch. Project settings →
+Icon can replace it with a picked image or switch it to initials; either is a
+standing choice detection never overwrites. A remote project's icon is read
+and stored by the instance that owns it.
+_Avoid_: avatar, logo, favicon (the favicon is one source, not the term)
 
 **Memory settings**:
 The Settings → Memory surface configures omp's memory backend and recall

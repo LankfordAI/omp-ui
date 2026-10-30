@@ -116,6 +116,7 @@ const liveSessionState = backendState({
         reviewRoster: null,
         knowledgeHome: null,
         repositoryKey: null,
+        icon: null,
       },
       sessions: [liveSession("tab-1")],
     },
@@ -136,6 +137,7 @@ const project: ProjectRecord = {
   reviewRoster: null,
   knowledgeHome: null,
   repositoryKey: null,
+  icon: null,
 };
 
 /** The joined instance owning the remote project in the routing test below. */
@@ -397,10 +399,10 @@ describe("ProjectSettings", () => {
     expect(document.activeElement).toBe(tabButton("Skills"));
 
     await keydown(tabButton("Skills"), "End");
-    expect(tabButton("Knowledge").getAttribute("aria-selected")).toBe("true");
-    expect(document.activeElement).toBe(tabButton("Knowledge"));
+    expect(tabButton("Icon").getAttribute("aria-selected")).toBe("true");
+    expect(document.activeElement).toBe(tabButton("Icon"));
 
-    await keydown(tabButton("Knowledge"), "Home");
+    await keydown(tabButton("Icon"), "Home");
     expect(tabButton("MCP servers").getAttribute("aria-selected")).toBe("true");
     expect(document.activeElement).toBe(tabButton("MCP servers"));
   });
@@ -510,6 +512,41 @@ describe("ProjectSettings", () => {
     expect(backendMock.setProjectKnowledgeHome).not.toHaveBeenCalled();
     expect(backendMock.vaultNames).not.toHaveBeenCalled();
     expect(buttons("Open Settings")).toHaveLength(0);
+  });
+
+  it("sends a joined project's picked icon to its instance and shows a refusal (#1000)", async () => {
+    useStore.setState({
+      projectSettings: { projectCwd: PROJECT, instanceId: INSTANCE },
+      state: backendState({
+        remoteInstances: [remoteInstance({ projects: [{ project, sessions: [] }] })],
+      }),
+    });
+    const answer = backendMock.remoteInstanceRequest.getMockImplementation()!;
+    backendMock.remoteInstanceRequest.mockImplementation(async (id: string, channel: string, args: unknown[]) => {
+      const req = args[1];
+      if (channel === "project:setIcon" && typeof req === "object" && req !== null && "data" in req) {
+        throw new Error("Error invoking remote method 'remote-instance:request': Error: that file is not an image");
+      }
+      return answer(id, channel, args);
+    });
+    await renderDialog();
+    await act(async () => tabButton("Icon").click());
+    const input = document.body.querySelector<HTMLInputElement>('input[type="file"]')!;
+    const file = new File([new Uint8Array([0x89, 0x50, 0x4e, 0x47])], "logo.png", { type: "image/png" });
+    Object.defineProperty(input, "files", { configurable: true, value: [file] });
+    await act(async () => {
+      input.dispatchEvent(new Event("change", { bubbles: true }));
+    });
+    await act(async () => {});
+    expect(backendMock.remoteInstanceRequest).toHaveBeenCalledWith(INSTANCE, "project:setIcon", [
+      PROJECT,
+      { kind: "custom", data: "iVBORw==" },
+    ]);
+    expect(document.body.querySelector('[role="alert"]')?.textContent).toBe("that file is not an image");
+
+    // Use initials is a standing choice on the owner, not a local write.
+    await act(async () => button("Use initials").click());
+    expect(backendMock.remoteInstanceRequest).toHaveBeenCalledWith(INSTANCE, "project:setIcon", [PROJECT, { kind: "none" }]);
   });
 
   it("routes catalog toggles to the project scope, never across it", async () => {

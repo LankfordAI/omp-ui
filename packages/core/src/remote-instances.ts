@@ -157,6 +157,7 @@ const PROJECT_PROXY_CHANNELS: readonly string[] = [
   "project:setDefaultAdvisorModel",
   "project:setBrowserClock",
   "project:setKnowledgeHome",
+  "project:setIcon",
   "project:getSubagentModels",
   "project:setSubagentModel",
   "dir:browse",

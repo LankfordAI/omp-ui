@@ -19,6 +19,7 @@ function group(path: string, tabId: string, title: string): ProjectGroup {
       reviewRoster: null,
       knowledgeHome: null,
       repositoryKey: null,
+      icon: null,
     },
     sessions: [
       {

@@ -225,7 +225,7 @@ const userNativeRow: McpServerEntry = {
 const liveState = backendState({
   projects: [
     {
-      project: { path: PROJECT, name: "Proj", addedAt: "t", lastModel: null, lastThinkingLevel: null, lastAdvisor: null, lastAdvisorModel: null, defaultModel: null, defaultAdvisorModel: null, browserClock: false, reviewRoster: null, knowledgeHome: null, repositoryKey: null },
+      project: { path: PROJECT, name: "Proj", addedAt: "t", lastModel: null, lastThinkingLevel: null, lastAdvisor: null, lastAdvisorModel: null, defaultModel: null, defaultAdvisorModel: null, browserClock: false, reviewRoster: null, knowledgeHome: null, repositoryKey: null, icon: null },
       sessions: [
         {
           tabId: TAB,

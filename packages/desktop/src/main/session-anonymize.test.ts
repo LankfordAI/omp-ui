@@ -97,6 +97,7 @@ function setup(): { backend: InstanceType<typeof MainBackend>; sessionsRoot: str
         reviewRoster: null,
         knowledgeHome: null,
         repositoryKey: null,
+        icon: null,
       },
     ],
     sessions: [

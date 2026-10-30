@@ -46,6 +46,7 @@ import type {
   GlassChrome,
   ImageAttachment,
   KnowledgeHome,
+  ProjectIconRequest,
   McpSetEnabledRequest,
   OmpSettingValue,
   PlanFormat,
@@ -489,6 +490,27 @@ export const knowledgeHomeCodec: ArgCodec<KnowledgeHome> = {
     if (vault === "") fail(`${path}.vault`, "a non-empty string");
     // No undefined-valued key: isKnowledgeHome rejects { vault: undefined }.
     return vault === undefined ? { home } : { home, vault };
+  },
+};
+
+/**
+ * A Project settings icon request (issue #1000). The picked file's base64 is
+ * bounded here (1 MiB of bytes, as base64) so an oversized pick is refused
+ * before it is decoded; what the bytes are is the owning instance's check.
+ */
+export const projectIconRequestCodec: ArgCodec<ProjectIconRequest> = {
+  expected: "a project icon request",
+  decode(value, path) {
+    const f = record().decode(value, path);
+    const kind = oneOf("detect", "none", "custom").decode(f["kind"], `${path}.kind`);
+    if (kind !== "custom") {
+      exactKeys(f, ["kind"], path);
+      return { kind };
+    }
+    exactKeys(f, ["kind", "data"], path);
+    const data = shortStr(Math.ceil((1024 * 1024) / 3) * 4).decode(f["data"], `${path}.data`);
+    if (data === "") fail(`${path}.data`, "a non-empty string");
+    return { kind, data };
   },
 };
 

@@ -106,6 +106,7 @@ export function remoteOwnedState(tabId: string, instanceId: string): BackendStat
               reviewRoster: null,
               knowledgeHome: null,
               repositoryKey: null,
+              icon: null,
             },
             sessions: [
               {

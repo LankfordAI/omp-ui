@@ -166,6 +166,7 @@ describe("CommandPalette capabilities actions (issue #383)", () => {
               reviewRoster: null,
               knowledgeHome: null,
               repositoryKey: null,
+              icon: null,
             },
             sessions: [{ ...CWD_RECORD, mode: "rpc-ui" }],
           },
@@ -242,6 +243,7 @@ describe("CommandPalette share action (issue #679)", () => {
               reviewRoster: null,
               knowledgeHome: null,
               repositoryKey: null,
+              icon: null,
             },
             sessions: [{ ...CWD_RECORD, mode: "rpc-ui" }],
           },
@@ -289,6 +291,7 @@ describe("CommandPalette ask action (issue #895)", () => {
       reviewRoster: null,
       knowledgeHome: null,
       repositoryKey: null,
+      icon: null,
     },
     sessions: [CWD_RECORD],
   };

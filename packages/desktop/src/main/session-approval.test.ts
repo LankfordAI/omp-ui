@@ -79,6 +79,7 @@ function setup(): { sessionsRoot: string } {
         reviewRoster: null,
         knowledgeHome: null,
         repositoryKey: null,
+        icon: null,
       },
     ],
     sessions: [

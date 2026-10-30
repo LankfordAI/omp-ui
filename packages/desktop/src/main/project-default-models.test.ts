@@ -64,6 +64,7 @@ function setup(): { registryFile: string } {
         reviewRoster: null,
         knowledgeHome: null,
         repositoryKey: null,
+        icon: null,
       },
     ],
   });

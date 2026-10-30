@@ -55,6 +55,7 @@ function liveState(): void {
             reviewRoster: null,
             knowledgeHome: null,
             repositoryKey: null,
+            icon: null,
           },
           sessions: [
             {

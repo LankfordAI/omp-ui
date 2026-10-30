@@ -145,6 +145,7 @@ function setup(opts: { spawnGate?: SpawnGate } = {}): { backend: InstanceType<ty
         reviewRoster: null,
         knowledgeHome: null,
         repositoryKey: null,
+        icon: null,
       },
     ],
     sessions: [

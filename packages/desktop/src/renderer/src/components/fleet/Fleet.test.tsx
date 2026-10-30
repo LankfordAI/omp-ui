@@ -136,6 +136,7 @@ function group(sessions: SessionSummary[]): ProjectGroup {
       reviewRoster: null,
       knowledgeHome: null,
       repositoryKey: null,
+      icon: null,
     },
     sessions,
   };

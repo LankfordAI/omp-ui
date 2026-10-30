@@ -65,6 +65,7 @@ function group(path: string, name: string, sessions: SessionSummary[]): ProjectG
       reviewRoster: null,
       knowledgeHome: null,
       repositoryKey: null,
+      icon: null,
     },
     sessions,
   };

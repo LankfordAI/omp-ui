@@ -32,6 +32,12 @@ matching `alpha` and `axle`, which share only `a` — Tab cycles the candidates
 immediately instead of inserting a prefix: the first Tab gives `~/alpha`, the
 next `~/axle`; it never rewrites your text to the shorter `a`.
 
+### Project icons
+
+A project row in the project quick-open shows the project's own icon when its repository has one, ringed in the project's colour, and its initials otherwise. When you add a project, and each time omp-ui starts, omp-ui looks for a favicon or app icon at the usual places: `favicon.ico`, `public/favicon.*`, `app/icon.*`, `app/favicon.ico` (also under `src/app/`), `static/favicon.*`, and `assets/icon.*`. It takes the first one it finds that is a real image, and prefers an SVG over a PNG in the same place. Large SVG, GIF, and WebP files (over 16 KB) are skipped.
+
+To change it, open **Project settings → Icon**. **Choose image…** uses a PNG, JPEG, ICO, SVG, GIF, or WebP file of up to 1 MB, shrunk to a small icon. **Detect from repository** looks again. **Use initials** keeps the initials; omp-ui then stops detecting for that project until you pick **Detect from repository** again. A joined remote instance's project gets its icon from the machine that owns it, and changing it there changes it for everyone who joins that machine.
+
 ### The session list
 
 The sidebar lists sessions, not projects. Its main list holds every live session — project sessions, chats, and sessions on joined [remote instances](remote-instances.md) — with the most recent activity on top. Each session is a tile. Its first line shows the title (up to two lines) and how long ago it last changed; the second names its project (or *chat*), its worktree branch, and, for a remote session, its machine. The third line shows the session's state, its model and thinking level, a *plan* chip in Plan mode, an *impl* chip on a plan implementation, and the private lock. When a session waits on you, the tile quotes the question it asks or the title of the plan ready for review. Hover a tile, or tab into it, to reveal its actions at the top-right. Rows move as sessions work; there is no manual order. A plan-implementation session also gets a button that opens its planning session. Rows in the **Settled** section stay compact: one title line and a state-first meta line.

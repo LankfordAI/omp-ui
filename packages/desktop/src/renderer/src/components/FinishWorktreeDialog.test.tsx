@@ -181,6 +181,7 @@ const stateWith = (session: SessionSummary): BackendState =>
           reviewRoster: null,
           knowledgeHome: null,
           repositoryKey: null,
+          icon: null,
         },
         sessions: [session],
       },

@@ -200,6 +200,7 @@ const VALID_ARGS = {
   setPlanFormat: ["html"],
   setProjectBrowserClock: ["/project", true],
   setProjectKnowledgeHome: ["/project", { home: "vault", vault: "Vault" }],
+  setProjectIcon: ["/project", { kind: "custom", data: "iVBORw0KGgo=" }],
   setProjectDefaultAdvisorModel: ["/project", null],
   setProjectDefaultModel: ["/project", null],
   getProjectSubagentModels: ["/project"],
@@ -536,6 +537,8 @@ describe("transport dispatch", () => {
     [CH.setProjectKnowledgeHome, ["/project", { home: "docs", vault: "" }], "argument 1.vault"],
     [CH.setProjectKnowledgeHome, ["/project", { home: "repo" }], "argument 1.home"],
     [CH.setProjectKnowledgeHome, ["/project", { home: "docs", extra: 1 }], "argument 1.extra"],
+    [CH.setProjectIcon, ["/project", { kind: "detect", data: "iVBORw0KGgo=" }], "argument 1.data"],
+    [CH.setProjectIcon, ["/project", { kind: "custom" }], "argument 1.data"],
     [
       CH.fleetDispatch,
       [

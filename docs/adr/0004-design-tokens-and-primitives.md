@@ -27,7 +27,9 @@ One hue exists outside the four accents: the *project identity colour* in
 quick-open header chip. It encodes *which repository*, never a state — it is
 identity, not decoration, and it carries none of the four accents' meanings.
 Its generation lives in that one module; no component mixes its own project
-hue.
+hue. When a project has an icon (issue #1000), the monogram box paints the
+icon instead of initials and keeps the hue as a ring around it, so two
+projects sharing one favicon still read as different repositories.
 
 ## Considered Options
 

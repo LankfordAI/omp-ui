@@ -80,6 +80,7 @@ function group(path: string, name: string, repositoryKey: string | null) {
       reviewRoster: null,
       knowledgeHome: null,
       repositoryKey,
+      icon: null,
     },
     sessions: [],
   };
@@ -127,6 +128,7 @@ const localProjectState = (): BackendState =>
           reviewRoster: null,
           knowledgeHome: null,
           repositoryKey: null,
+          icon: null,
         },
         sessions: [],
       },

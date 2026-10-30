@@ -2368,6 +2368,18 @@ export const ko: Partial<Record<MessageKey, string>> = {
   "project.settings.browserClockHint":
     "이 프로젝트의 브라우저 창 위에 날짜와 시간을 표시하고, 카메라 버튼·요소 선택·에이전트가 찍은 스크린샷 등 모든 브라우저 스크린샷에 새겨 넣습니다.",
   "project.settings.knowledge": "지식",
+  "project.settings.icon": "아이콘",
+  "project.settings.iconHint":
+    "이 프로젝트의 이니셜 대신 프로젝트 색상 테두리와 함께 표시됩니다. omp-ui는 프로젝트를 추가할 때와 시작할 때마다 저장소에서 파비콘이나 앱 아이콘(favicon.ico, public/favicon.*, app/icon.*, static/favicon.*, assets/icon.*)을 찾습니다.",
+  "project.settings.iconDetected": "{file} 발견",
+  "project.settings.iconCustom": "직접 고른 이미지",
+  "project.settings.iconInitials": "이니셜 (자동 감지 끔)",
+  "project.settings.iconNone": "이니셜. 저장소에서 아이콘을 찾지 못했습니다.",
+  "project.settings.iconNotFound": "저장소에서 아이콘을 찾지 못해 이니셜을 표시합니다.",
+  "project.settings.iconChoose": "이미지 선택…",
+  "project.settings.iconDetect": "저장소에서 감지",
+  "project.settings.iconUseInitials": "이니셜 사용",
+  "project.settings.iconTooLarge": "이미지가 1MB보다 큽니다.",
   "project.settings.knowledgeHome": "지식 저장 위치",
   "project.settings.knowledgeHint": "에이전트가 이 프로젝트의 결정과 교훈을 기록하는 곳입니다.",
   "project.settings.knowledgeDocs": "저장소 docs",

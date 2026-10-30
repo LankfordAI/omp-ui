@@ -61,6 +61,7 @@ export * from "./line-diff";
 export * from "./vault-overlay";
 export * from "./vault-registry";
 export * from "./knowledge-home";
+export * from "./project-icon";
 export * from "./knowledge-vault-extension";
 export * from "./ask-context";
 export * from "./fleet";

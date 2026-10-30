@@ -1,4 +1,23 @@
-import type { BackendState } from "@omp-ui/core/types";
+import type { BackendState, ProjectIcon } from "@omp-ui/core/types";
+
+/**
+ * The `data:` URL a project's monogram paints (#1000), or null for
+ * initials. `?.` because a joined remote instance on an older omp-ui sends
+ * records without the field.
+ */
+export function projectIconUrl(icon: ProjectIcon | null | undefined): string | null {
+  return icon?.source === "detected" || icon?.source === "custom" ? icon.dataUrl : null;
+}
+
+/**
+ * The identity seed a project's monogram hue derives from (ADR-0004): the
+ * repository key when it has one, so every checkout of one repository shares
+ * a colour, else the owning instance plus path. It doubles as the quick-open
+ * row id.
+ */
+export function projectIdentitySeed(entry: { repositoryKey: string | null; instanceId: string | null; projectCwd: string }): string {
+  return entry.repositoryKey !== null ? `repo:${entry.repositoryKey}` : `${entry.instanceId ?? "local"}\u0000${entry.projectCwd}`;
+}
 
 /**
  * The repository merge shared by the Project quick-open and the composer's
@@ -15,6 +34,8 @@ export interface CheckoutEntry {
   /** Full path tooltip; set for remote entries only. */
   title?: string;
   repositoryKey: string | null;
+  /** The checkout's project icon as a `data:` URL (#1000); null = initials. */
+  icon: string | null;
 }
 
 /** Local registry first, then each joined instance (status !== "self"), registry order. */
@@ -26,6 +47,7 @@ export function checkoutEntries(state: BackendState | null): CheckoutEntry[] {
       projectCwd: group.project.path,
       name: group.project.name,
       repositoryKey: group.project.repositoryKey,
+      icon: projectIconUrl(group.project.icon),
     });
   }
   const joined = (state?.remoteInstances ?? []).filter((instance) => instance.status !== "self");
@@ -37,6 +59,7 @@ export function checkoutEntries(state: BackendState | null): CheckoutEntry[] {
         name: group.project.name,
         title: group.project.path,
         repositoryKey: group.project.repositoryKey,
+        icon: projectIconUrl(group.project.icon),
       });
     }
   }

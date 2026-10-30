@@ -2,7 +2,7 @@
 import { act } from "react";
 import { createRoot, type Root } from "react-dom/client";
 import { afterEach, beforeEach, describe, expect, it, vi, type Mock } from "vitest";
-import type { ProjectGroup, ProjectOpenAvailability, SessionSummary } from "@omp-ui/core/types";
+import type { ProjectGroup, ProjectIcon, ProjectOpenAvailability, SessionSummary } from "@omp-ui/core/types";
 import type { TabInfo } from "../store";
 import { backendState, remoteInstance, tabInfo } from "../test/fixtures";
 
@@ -21,7 +21,7 @@ const originalMatchMedia = window.matchMedia;
 let root: Root | null = null;
 
 /** A registry group for the given path/name/key triple; sessions never matter here. */
-function projectGroup(path: string, name: string, repositoryKey: string | null): ProjectGroup {
+function projectGroup(path: string, name: string, repositoryKey: string | null, icon: ProjectIcon | null = null): ProjectGroup {
   return {
     project: {
       path,
@@ -37,6 +37,7 @@ function projectGroup(path: string, name: string, repositoryKey: string | null):
       reviewRoster: null,
       knowledgeHome: null,
       repositoryKey,
+      icon,
     },
     sessions: [],
   };
@@ -92,6 +93,8 @@ interface RenderOptions {
   experiments?: boolean;
   /** Extra projects registered on inst-1, after /remote/r. */
   remoteProjects?: ProjectGroup[];
+  /** Icon on the remote /remote/r checkout (merged into bravo's row). */
+  remoteIcon?: ProjectIcon;
 }
 
 interface Rendered {
@@ -146,7 +149,7 @@ function renderQuickOpen(options: RenderOptions = {}): Rendered {
         remoteInstance({
           id: "inst-1",
           nickname: "box-a",
-          projects: [projectGroup("/remote/r", "rho", "github.com/o/r"), ...(options.remoteProjects ?? [])],
+          projects: [projectGroup("/remote/r", "rho", "github.com/o/r", options.remoteIcon ?? null), ...(options.remoteProjects ?? [])],
         }),
         remoteInstance({ id: "inst-2", nickname: "box-b", status: "unreachable" }),
       ],
@@ -560,5 +563,23 @@ describe("ProjectQuickOpen identity colours", () => {
     const chatChip = headerChip();
     expect(chatChip).not.toBeNull();
     expect(chatChip!.style.backgroundColor).toBe("");
+  });
+
+  it("paints a merged row with a remote member's icon, ringed in the row's hue (#1000)", () => {
+    const dataUrl = "data:image/png;base64,iVBORw0KGgo=";
+    renderQuickOpen({ remoteIcon: { source: "custom", dataUrl } });
+    const bravo = leadOf("bravo");
+    expect(bravo.querySelector("img")?.getAttribute("src")).toBe(dataUrl);
+    expect(bravo.textContent).toBe("");
+    expect(bravo.style.boxShadow).not.toBe("");
+    // The keyless local row has no icon and keeps its initials.
+    expect(leadOf("alpha").querySelector("img")).toBeNull();
+    expect(leadOf("alpha").textContent).toBe("AL");
+  });
+
+  it("keeps initials when the owner chose them over detection", () => {
+    renderQuickOpen({ remoteIcon: { source: "none" } });
+    expect(leadOf("bravo").querySelector("img")).toBeNull();
+    expect(leadOf("bravo").textContent).toBe("BR");
   });
 });

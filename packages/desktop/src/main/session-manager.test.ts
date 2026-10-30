@@ -283,6 +283,7 @@ function setup(opts: { mode?: "pty" | "rpc-ui"; project?: string; projectName?: 
         reviewRoster: null,
         knowledgeHome: opts.knowledgeHome ?? null,
         repositoryKey: null,
+        icon: null,
       },
     ],
     sessions: [

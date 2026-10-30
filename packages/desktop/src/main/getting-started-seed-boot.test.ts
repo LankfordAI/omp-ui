@@ -52,6 +52,7 @@ const PROJECT: ProjectRecord = {
   reviewRoster: null,
   knowledgeHome: null,
   repositoryKey: null,
+  icon: null,
 };
 
 let base: string;

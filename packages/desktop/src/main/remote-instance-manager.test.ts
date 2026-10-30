@@ -53,6 +53,7 @@ function projectGroups(paths: string[]): ProjectGroup[] {
       reviewRoster: null,
       knowledgeHome: null,
       repositoryKey: null,
+      icon: null,
     },
     sessions: [
       {

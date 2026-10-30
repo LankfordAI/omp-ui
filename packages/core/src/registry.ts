@@ -8,6 +8,7 @@ import { parseProposedPlans } from "./plan";
 import { parseVaultRegistry } from "./vault-registry";
 import { isKnowledgeHome } from "./vault-shared";
 import { isHeldPrompt } from "./held-prompt";
+import { isProjectIcon } from "./project-icon";
 import {
   isFleetProvenance,
   parseFleetGrants,
@@ -24,6 +25,7 @@ import type {
   AskSource,
   GlassChrome,
   KnowledgeHome,
+  ProjectIcon,
   OwnedSessionRecord,
   PlanFormat,
   PlanImplementationSource,
@@ -712,6 +714,8 @@ function parseRegistryData(raw: unknown): RegistryData | null {
       // Late-added like reviewRoster/knowledgeHome (#903): absent or
       // malformed keys normalize to null; the record always survives.
       repositoryKey: typeof p.repositoryKey === "string" ? p.repositoryKey : null,
+      // Late-added like repositoryKey (#1000): a malformed icon loads as null.
+      icon: isProjectIcon(p.icon) ? p.icon : null,
     }));
   const sessions = sessionsValue
     .filter(isOwnedSessionRecord)
@@ -918,6 +922,7 @@ export class Registry {
       reviewRoster: null,
       knowledgeHome: null,
       repositoryKey: null,
+      icon: null,
     };
     this.#transaction((draft) => {
       draft.projects.push(record);
@@ -1117,6 +1122,21 @@ export class Registry {
       const project = draft.projects.find((candidate) => candidate.path === projectPath);
       if (!project || project.repositoryKey === key) return false;
       project.repositoryKey = key;
+      return true;
+    });
+  }
+
+  /**
+   * Sets (or clears, with null) one project's icon (issue #1000). Unknown
+   * project or an equal value: no save — the icon is an object, compared
+   * like reviewRoster.
+   */
+  setProjectIcon(projectPath: string, icon: ProjectIcon | null): boolean {
+    return this.#transaction((draft) => {
+      const project = draft.projects.find((candidate) => candidate.path === projectPath);
+      if (!project) return false;
+      if (JSON.stringify(project.icon ?? null) === JSON.stringify(icon)) return false;
+      project.icon = icon;
       return true;
     });
   }

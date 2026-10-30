@@ -10,6 +10,7 @@ import { McpServersPanel, SkillsScopePanel, ToolsScopePanel } from "./Capabiliti
 import { AdvisorRosterEditor } from "./AdvisorRoster";
 import { ModelPalette } from "./ModelSelector";
 import { KnowledgeHomeSection } from "./KnowledgeHomeSection";
+import { ProjectIconSection } from "./ProjectIconSection";
 import { ReviewRosterEditor } from "./ReviewRoster";
 import { Button, Label, Modal, Switch } from "./ui";
 
@@ -339,7 +340,16 @@ export function ProjectModelPins({
   );
 }
 
-export type ProjectSettingsSectionId = "mcp" | "skills" | "tools" | "models" | "advisors" | "reviewers" | "browser" | "knowledge";
+export type ProjectSettingsSectionId =
+  | "mcp"
+  | "skills"
+  | "tools"
+  | "models"
+  | "advisors"
+  | "reviewers"
+  | "browser"
+  | "knowledge"
+  | "icon";
 
 const SECTIONS: { id: ProjectSettingsSectionId; labelKey: MessageKey }[] = [
   { id: "mcp", labelKey: "project.settings.mcpServers" },
@@ -350,6 +360,7 @@ const SECTIONS: { id: ProjectSettingsSectionId; labelKey: MessageKey }[] = [
   { id: "reviewers", labelKey: "project.settings.reviewers" },
   { id: "browser", labelKey: "project.settings.browser" },
   { id: "knowledge", labelKey: "project.settings.knowledge" },
+  { id: "icon", labelKey: "project.settings.icon" },
 ];
 
 /**
@@ -357,9 +368,9 @@ const SECTIONS: { id: ProjectSettingsSectionId; labelKey: MessageKey }[] = [
  * a project's standing configuration — MCP servers, the skills and tools
  * catalogs at project scope, the default-model pins, the advisor roster (WATCHDOG.yml), the
  * reviewer roster (app state, issue #738, hidden unless the experiments flag
- * is on), the browser clock, and the Knowledge home
- * (`ProjectRecord.knowledgeHome`, stored in omp-ui's registry) — behind an
- * eight-tab strip,
+ * is on), the browser clock, the Knowledge home
+ * (`ProjectRecord.knowledgeHome`, stored in omp-ui's registry), and the
+ * project icon (`ProjectRecord.icon`, issue #1000) — behind a nine-tab strip,
  * opened from the desktop project header and the
  * compact actions sheet. Session-scoped behavior (rosters, session-local
  * switches, restart, TUI reauth handoff) stays in CapabilitiesViewer; this
@@ -554,6 +565,8 @@ export function ProjectSettings({
           )}
 
           {active === "knowledge" && <KnowledgeHomeSection project={project} instanceId={instanceId} />}
+
+          {active === "icon" && <ProjectIconSection project={project} instanceId={instanceId} />}
         </div>
       </section>
     </Modal>

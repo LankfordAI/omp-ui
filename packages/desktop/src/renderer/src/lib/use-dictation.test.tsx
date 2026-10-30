@@ -107,6 +107,7 @@ function mount(voiceInputEnabled: boolean, ownerId: string | null = null): void 
       reviewRoster: null,
       knowledgeHome: null,
       repositoryKey: null,
+      icon: null,
     },
     sessions: [
       {
