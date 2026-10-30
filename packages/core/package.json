@@ -27,6 +27,7 @@
     "./magic-keywords": "./src/magic-keywords.ts",
     "./browser-pane": "./src/browser-pane.ts",
     "./host-bridge": "./src/host-bridge.ts",
+    "./html-artifact": "./src/html-artifact.ts",
     "./goal": "./src/goal.ts",
     "./vibe": "./src/vibe.ts",
     "./collab": "./src/collab.ts",

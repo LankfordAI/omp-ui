@@ -2572,6 +2572,7 @@ export class MainBackend {
       advisorAutoReply: this.registry.getSetting("advisorAutoReply"),
       stallAutoContinue: this.registry.getSetting("stallAutoContinue"),
       desktopNotifications: this.registry.getSetting("desktopNotifications"),
+      htmlArtifactScripts: this.registry.getSetting("htmlArtifactScripts"),
       defaultAdvisor: this.registry.getSetting("defaultAdvisor"),
       defaultAutoThinking: this.registry.getSetting("defaultAutoThinking"),
       subagentModelInheritByDefault: this.registry.getSetting("subagentModelInheritByDefault"),

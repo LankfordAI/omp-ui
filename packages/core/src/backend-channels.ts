@@ -452,6 +452,11 @@ export const BACKEND_CHANNELS = {
     channel: "settings:setDesktopNotifications",
     ...request<[on: boolean], void>([bool()]),
   },
+  /** Interactive HTML artifacts run their scripts (issue #994); default on. */
+  setHtmlArtifactScripts: {
+    channel: "settings:setHtmlArtifactScripts",
+    ...request<[on: boolean], void>([bool()]),
+  },
   setDefaultAdvisor: {
     channel: "settings:setDefaultAdvisor",
     ...request<[on: boolean], void>([bool()]),

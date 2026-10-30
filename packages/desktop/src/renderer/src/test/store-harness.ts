@@ -287,6 +287,7 @@ const mockBackend = {
   setAdvisorAutoReply: vi.fn(async () => {}),
   setStallAutoContinue: vi.fn(async () => {}),
   setDesktopNotifications: vi.fn(async () => {}),
+  setHtmlArtifactScripts: vi.fn(async () => {}),
   setDefaultAdvisor: vi.fn(async () => {}),
   setDefaultAutoThinking: vi.fn(async () => {}),
   setSkipDeleteConfirmation: vi.fn(async () => {}),

@@ -5,6 +5,7 @@ import { MainBackend } from "./backend";
 import { appUpdateEnabledForBuild } from "./app-update-policy";
 import { openExternalSafe } from "./open-external";
 import { setupSpellcheck } from "./spellcheck";
+import { installHtmlArtifactGuard } from "./html-artifact-guard";
 import {
   fitWindowBounds,
   loadWindowState,
@@ -220,8 +221,13 @@ if (!app.requestSingleInstanceLock()) {
         contextIsolation: true,
         nodeIntegration: false,
         sandbox: true,
+        // Interactive HTML artifacts run in <webview> guests (issue #994,
+        // ADR-0082); installHtmlArtifactGuard admits only the locked artifact
+        // partition and confines every guest that attaches.
+        webviewTag: true,
       },
     });
+    installHtmlArtifactGuard(win.webContents);
     breadcrumbs.record("window-created", { detail: `state=${savedWindowState ? "restored" : "fresh"}` });
 
     let revealed = false;

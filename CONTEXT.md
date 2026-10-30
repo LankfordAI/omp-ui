@@ -1267,6 +1267,16 @@ bank view nor parses the full system prompt. The browse and edit channels were
 removed in #330, leaving `memory:overview` as the sole memory channel.
 _Avoid_: memory manager, knowledge base, memory browser tab
 
+**HTML artifact**:
+A self-contained interactive document (a chart, sortable table, small
+simulator) the agent shows inline in the native transcript by calling the
+`omp-ui_render_html` host tool. The document is the tool call's own arguments,
+so it re-renders from the transcript on reload and for joined viewers. On the
+desktop it runs in a sandboxed `<webview>` guest that has no network; with
+scripts off, and in browser clients, it shows static. Separate from an HTML
+plan, whose frames never run scripts.
+_Avoid_: widget, embed, HTML plan (for this surface)
+
 **Knowledge vault**:
 The curated, human-readable store of decisions, lessons, and write-ups that
 outlive a **Session**: one or more registered Obsidian vaults that the agent

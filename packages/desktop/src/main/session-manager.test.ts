@@ -7408,6 +7408,7 @@ describe("host tools and host URIs (issue #688, ADR-0043)", () => {
     const tools = Array.isArray(registration?.tools) ? registration.tools : [];
     expect(tools.map((tool) => Core.isObject(tool) ? tool.name : null)).toEqual([
       "omp-ui_notify",
+      "omp-ui_render_html",
       ...(hasVaults
         ? [
             "omp-ui_vault_search",
@@ -8310,7 +8311,7 @@ describe("chat sessions (issue #894)", () => {
       const names = (Array.isArray(registration?.tools) ? registration.tools : []).map((tool: unknown) =>
         Core.isObject(tool) ? tool.name : null,
       );
-      expect(names).toEqual(["omp-ui_notify", ...Core.FLEET_TOOLS]);
+      expect(names).toEqual(["omp-ui_notify", "omp-ui_render_html", ...Core.FLEET_TOOLS]);
     },
   );
 
@@ -8682,7 +8683,8 @@ describe("fleet dispatch on the owning side (issue #899, ADR-0061)", () => {
     const names = (Array.isArray(registration?.tools) ? registration.tools : []).map((tool: unknown) =>
       Core.isObject(tool) ? tool.name : null,
     );
-    expect(names).toEqual(expected ? ["omp-ui_notify", ...Core.FLEET_TOOLS] : ["omp-ui_notify"]);
+    const always = ["omp-ui_notify", "omp-ui_render_html"];
+    expect(names).toEqual(expected ? [...always, ...Core.FLEET_TOOLS] : always);
   });
 
   describe("model choice (#956)", () => {

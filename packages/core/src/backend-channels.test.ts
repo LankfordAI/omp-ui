@@ -190,6 +190,7 @@ const VALID_ARGS = {
   setDefaultCompactionMethod: [null],
   setDefaultMode: ["rpc-ui"],
   setDesktopNotifications: [true],
+  setHtmlArtifactScripts: [true],
   setExperimentsEnabled: [true],
   setSnoozedSectionEnabled: [true],
   setAutoSettleMergedPullRequests: [false],

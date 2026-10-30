@@ -147,7 +147,7 @@ describe.skipIf(ompPath === null)("host registration on the real runtime", () =>
     );
     expect(toolsResponse).toMatchObject({
       success: true,
-      data: { toolNames: ["omp-ui_notify"] },
+      data: { toolNames: ["omp-ui_notify", "omp-ui_render_html"] },
     });
   }, 60_000);
 });

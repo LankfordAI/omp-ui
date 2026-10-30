@@ -386,6 +386,11 @@ export const en = {
   "transcript.tool.aborted": "aborted",
   "transcript.tool.cancelled": "cancelled",
   "transcript.tool.stalled": "stalled {duration}",
+  "transcript.artifact.chip": "interactive",
+  "transcript.artifact.untitled": "HTML artifact",
+  "transcript.artifact.taller": "Taller",
+  "transcript.artifact.shorter": "Shorter",
+  "transcript.artifact.expand": "Expand to full view",
   "transcript.tool.stalledTitle":
     "No model-stream frame (text, thinking, or tool-call arguments) has arrived while " +
     "the assistant response is open. Local tool execution does not reset this clock.",
@@ -944,6 +949,9 @@ export const en = {
   "settings.general.desktopNotifications": "Desktop notifications",
   "settings.general.desktopNotificationsHint":
     "Post an OS notification when a background native session needs attention — its turn finished, a plan review is waiting for an answer, or stall auto-continue paused at its cap. The banner appears while the window is unfocused or a different tab is in view; clicking it focuses the window and resurfaces the session. Terminal sessions are not announced, and remote browser clients are unaffected.",
+  "settings.general.htmlArtifactScripts": "Run scripts in HTML artifacts",
+  "settings.general.htmlArtifactScriptsHint":
+    "Interactive documents the agent renders inline in the transcript run their scripts sandboxed, with no network, storage, popups, forms, or navigation. Off shows every artifact as a static document. Remote browser clients always show artifacts static.",
   "settings.general.advisorAutoReply": "Advisor auto-reply",
   "settings.general.advisorAutoReplyHint":
     "An advisor comment that lands after the turn ends is answered automatically; off leaves it sitting in the transcript.",

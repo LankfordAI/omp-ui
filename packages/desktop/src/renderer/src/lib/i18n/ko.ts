@@ -360,6 +360,11 @@ export const ko: Partial<Record<MessageKey, string>> = {
   "transcript.tool.aborted": "중단됨",
   "transcript.tool.cancelled": "취소됨",
   "transcript.tool.stalled": "{duration} 동안 멈춤",
+  "transcript.artifact.chip": "인터랙티브",
+  "transcript.artifact.untitled": "HTML 아티팩트",
+  "transcript.artifact.taller": "높이 늘리기",
+  "transcript.artifact.shorter": "높이 줄이기",
+  "transcript.artifact.expand": "전체 보기로 확장",
   "transcript.tool.stalledTitle":
     "어시스턴트 응답이 열려 있는 동안 모델 스트림 프레임(텍스트, 사고, 도구 호출 인수)이 도착하지 않았습니다. 로컬 도구 실행은 이 타이머를 초기화하지 않습니다.",
   "transcript.tool.writing": "작성 중",
@@ -883,6 +888,9 @@ export const ko: Partial<Record<MessageKey, string>> = {
   "settings.general.desktopNotifications": "데스크톱 알림",
   "settings.general.desktopNotificationsHint":
     "백그라운드 네이티브 세션에 주의가 필요할 때 OS 알림을 보냅니다. 턴이 끝났거나, 플랜 검토가 답변을 기다리거나, stall auto-continue가 한도에서 일시정지된 경우입니다. 창이 포커스를 잃었거나 다른 탭을 보는 동안 배너가 표시되며, 클릭하면 창과 해당 세션이 표시됩니다. 터미널 세션은 알리지 않으며 원격 브라우저 클라이언트에는 영향을 주지 않습니다.",
+  "settings.general.htmlArtifactScripts": "HTML 아티팩트에서 스크립트 실행",
+  "settings.general.htmlArtifactScriptsHint":
+    "에이전트가 대화록에 인라인으로 렌더링하는 인터랙티브 문서의 스크립트를 네트워크, 저장소, 팝업, 폼, 이동 없이 샌드박스에서 실행합니다. 끄면 모든 아티팩트를 정적 문서로 표시합니다. 원격 브라우저 클라이언트에서는 항상 정적으로 표시됩니다.",
   "settings.general.advisorAutoReply": "어드바이저 자동 답변",
   "settings.general.advisorAutoReplyHint": "턴이 끝난 뒤 도착한 어드바이저 의견에 자동으로 답합니다. 끄면 대화록에 그대로 남습니다.",
   "settings.general.defaultAdvisor": "기본 어드바이저",

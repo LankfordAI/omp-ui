@@ -665,6 +665,7 @@ export interface SettingsSlice {
   setAdvisorAutoReply(on: boolean): Promise<void>;
   setStallAutoContinue(on: boolean): Promise<void>;
   setDesktopNotifications(on: boolean): Promise<void>;
+  setHtmlArtifactScripts(on: boolean): Promise<void>;
   setDefaultAdvisor(on: boolean): Promise<void>;
   setDefaultAutoThinking(on: boolean): Promise<void>;
   setSubagentModelInheritByDefault(on: boolean): Promise<void>;

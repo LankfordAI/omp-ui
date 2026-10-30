@@ -200,6 +200,7 @@ export {
 export * from "./capabilities";
 export * from "./event-filter";
 export * from "./host-bridge";
+export * from "./html-artifact";
 export * from "./browser-pane";
 export * from "./goal";
 export * from "./goal-overlay";

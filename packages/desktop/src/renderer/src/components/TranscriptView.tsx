@@ -45,7 +45,9 @@ import { openImageViewer } from "./ImageViewer";
 import { PlanCard } from "./PlanCard";
 import { AdvisoryNotes, ToolCard } from "./ToolCard";
 import { VaultToolCard } from "./VaultToolCard";
+import { HtmlArtifactCard } from "./HtmlArtifactCard";
 import { VAULT_WRITE_TOOLS } from "@omp-ui/core/vault-shared";
+import { HTML_ARTIFACT_TOOL_NAME } from "@omp-ui/core/html-artifact";
 import { SelectionContextMenu } from "./SelectionContextMenu";
 import {
   SelectionCommentButton,
@@ -945,7 +947,9 @@ const TranscriptRow = memo(function TranscriptRow({
       return (
         <>
           {/* The four vault write tools get their own card (issue #767); reads, search and list stay generic. */}
-          {VAULT_WRITE_TOOLS.some((name) => name === item.name) ? (
+          {item.name === HTML_ARTIFACT_TOOL_NAME ? (
+            <HtmlArtifactCard item={item} />
+          ) : VAULT_WRITE_TOOLS.some((name) => name === item.name) ? (
             <VaultToolCard item={item} tabId={tabId} />
           ) : (
             <ToolCard item={item} tabId={tabId} />

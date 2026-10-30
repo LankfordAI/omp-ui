@@ -20,6 +20,7 @@ import {
   hostUriSchemeDefinition,
   type RpcHostToolDefinition,
 } from "./host-bridge";
+import { HTML_ARTIFACT_TOOL_NAME } from "./html-artifact";
 
 describe("host registration definitions", () => {
   it("registers omp-ui as a read-only immutable scheme outside the reserved set", () => {
@@ -31,15 +32,21 @@ describe("host registration definitions", () => {
     expect(definition.immutable).toBe(true);
   });
 
-  it("registers one namespaced tool with an object parameter schema", () => {
+  it("registers notify and render_html as namespaced tools with object parameter schemas", () => {
     const tools = hostToolsDefinition();
-    expect(tools).toHaveLength(1);
-    const tool = tools[0];
-    expect(tool.name).toBe(HOST_NOTIFY_TOOL_NAME);
-    // omp rejects the WHOLE set_host_tools command on a name collision; the
-    // namespace is what keeps that impossible against built-ins.
-    expect(tool.name).toMatch(/^[a-z][a-z0-9._-]*$/);
-    expect(tool.parameters.type).toBe("object");
+    expect(tools.map((tool) => tool.name)).toEqual([HOST_NOTIFY_TOOL_NAME, HTML_ARTIFACT_TOOL_NAME]);
+    for (const tool of tools) {
+      // omp rejects the WHOLE set_host_tools command on a name collision; the
+      // namespace is what keeps that impossible against built-ins.
+      expect(tool.name).toMatch(/^[a-z][a-z0-9._-]*$/);
+      expect(tool.parameters.type).toBe("object");
+    }
+    // Essential: a discoverable tool runs through `write xd://…`, which the
+    // transcript records as a write — the artifact card would never render.
+    expect(tools[1]).toMatchObject({
+      loadMode: "essential",
+      parameters: { additionalProperties: false, required: ["title", "html"] },
+    });
   });
 
   it("builds registration commands with stable ids and unchanged notify parameters", () => {
@@ -52,20 +59,26 @@ describe("host registration definitions", () => {
     expect(setHostToolsCommand()).toMatchObject({
       id: "omp-ui-host-tools-1",
       type: "set_host_tools",
-      tools: [{
-        name: "omp-ui_notify",
-        parameters: {
-          type: "object",
-          properties: { message: { type: "string" }, title: { type: "string" } },
-          required: ["message"],
+      tools: [
+        {
+          name: "omp-ui_notify",
+          parameters: {
+            type: "object",
+            properties: { message: { type: "string" }, title: { type: "string" } },
+            required: ["message"],
+          },
         },
-      }],
+        { name: "omp-ui_render_html" },
+      ],
     });
     expect(setHostToolsCommand({ vault: false, fleet: false }, "tools-custom")).toMatchObject({ id: "tools-custom" });
   });
 
-  it("adds exactly ten essential vault tools after notify only when enabled", () => {
-    expect(hostToolsDefinition({ vault: false, fleet: false }).map((tool) => tool.name)).toEqual(["omp-ui_notify"]);
+  it("adds exactly ten essential vault tools after the always-on tools only when enabled", () => {
+    expect(hostToolsDefinition({ vault: false, fleet: false }).map((tool) => tool.name)).toEqual([
+      "omp-ui_notify",
+      "omp-ui_render_html",
+    ]);
     const command = setHostToolsCommand({ vault: true, fleet: false }, "vault-tools") as {
       id: string;
       type: string;
@@ -75,6 +88,7 @@ describe("host registration definitions", () => {
     expect(command.type).toBe("set_host_tools");
     expect(command.tools.map((tool) => tool.name)).toEqual([
       "omp-ui_notify",
+      "omp-ui_render_html",
       "omp-ui_vault_search",
       "omp-ui_vault_read",
       "omp-ui_vault_list",
@@ -86,7 +100,7 @@ describe("host registration definitions", () => {
       "omp-ui_vault_delete",
       "omp-ui_vault_refactor",
     ]);
-    for (const tool of command.tools.slice(1)) {
+    for (const tool of command.tools.slice(2)) {
       expect(tool.name).toMatch(/^[a-z][a-z0-9._-]*$/);
       expect(tool.loadMode).toBe("essential");
       expect(tool.parameters.type).toBe("object");
@@ -96,11 +110,12 @@ describe("host registration definitions", () => {
   });
 
   it.each([
-    [{ vault: false, fleet: false }, ["omp-ui_notify"]],
+    [{ vault: false, fleet: false }, ["omp-ui_notify", "omp-ui_render_html"]],
     [
       { vault: false, fleet: true },
       [
         "omp-ui_notify",
+        "omp-ui_render_html",
         "omp-ui_fleet_machines",
         "omp-ui_fleet_dispatch",
         "omp-ui_fleet_status",
@@ -116,6 +131,7 @@ describe("host registration definitions", () => {
       { vault: true, fleet: false },
       [
         "omp-ui_notify",
+        "omp-ui_render_html",
         "omp-ui_vault_search",
         "omp-ui_vault_read",
         "omp-ui_vault_list",
@@ -132,6 +148,7 @@ describe("host registration definitions", () => {
       { vault: true, fleet: true },
       [
         "omp-ui_notify",
+        "omp-ui_render_html",
         "omp-ui_vault_search",
         "omp-ui_vault_read",
         "omp-ui_vault_list",
@@ -158,7 +175,7 @@ describe("host registration definitions", () => {
   });
 
   it("advertises the fleet tools as essential strict object schemas", () => {
-    const fleet = hostToolsDefinition({ vault: false, fleet: true }).slice(1);
+    const fleet = hostToolsDefinition({ vault: false, fleet: true }).slice(2);
     for (const tool of fleet) {
       expect(tool.loadMode).toBe("essential");
       expect(tool.parameters.type).toBe("object");
@@ -193,7 +210,7 @@ describe("host registration definitions", () => {
   });
 
   it("advertises each tool's exact argument types, required fields and defaults", () => {
-    const actual = hostToolsDefinition({ vault: true, fleet: false }).slice(1).map((tool) => {
+    const actual = hostToolsDefinition({ vault: true, fleet: false }).slice(2).map((tool) => {
       const properties = tool.parameters.properties as Record<string, Record<string, unknown>>;
       return {
         name: tool.name,

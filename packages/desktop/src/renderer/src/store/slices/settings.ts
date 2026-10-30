@@ -216,6 +216,14 @@ export const createSettingsSlice: StateCreator<UiStore, [], [], SettingsSlice> =
       }
     },
 
+    async setHtmlArtifactScripts(on) {
+      try {
+        await backend.setHtmlArtifactScripts(on);
+      } catch (err) {
+        get().reportError(err);
+      }
+    },
+
     async setDefaultAdvisor(on) {
       try {
         await backend.setDefaultAdvisor(on);

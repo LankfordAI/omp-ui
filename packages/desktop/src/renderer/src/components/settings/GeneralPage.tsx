@@ -309,6 +309,7 @@ export function GeneralPage() {
   const setAdvisorAutoReply = useStore((s) => s.setAdvisorAutoReply);
   const setStallAutoContinue = useStore((s) => s.setStallAutoContinue);
   const setDesktopNotifications = useStore((s) => s.setDesktopNotifications);
+  const setHtmlArtifactScripts = useStore((s) => s.setHtmlArtifactScripts);
   const setDefaultAdvisor = useStore((s) => s.setDefaultAdvisor);
   const setDefaultAutoThinking = useStore((s) => s.setDefaultAutoThinking);
   const setSubagentModelInheritByDefault = useStore((s) => s.setSubagentModelInheritByDefault);
@@ -484,6 +485,16 @@ export function GeneralPage() {
           on={state?.desktopNotifications ?? true}
           onChange={(next) => void setDesktopNotifications(next)}
           label={t("settings.general.desktopNotifications")}
+        />
+      </Row>
+      <Row
+        title={t("settings.general.htmlArtifactScripts")}
+        hint={t("settings.general.htmlArtifactScriptsHint")}
+      >
+        <Switch
+          on={state?.htmlArtifactScripts ?? true}
+          onChange={(next) => void setHtmlArtifactScripts(next)}
+          label={t("settings.general.htmlArtifactScripts")}
         />
       </Row>
       <Row

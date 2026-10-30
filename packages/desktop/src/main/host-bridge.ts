@@ -4,6 +4,9 @@ import {
   fleetToolDispatchRequest,
   formatFleetMachines,
   HOST_NOTIFY_TOOL_NAME,
+  HTML_ARTIFACT_TOOL_NAME,
+  htmlArtifactResultText,
+  parseHtmlArtifactArgs,
   HOST_URI_SCHEME,
   hostToolErrorResult,
   hostToolTextResult,
@@ -350,6 +353,20 @@ export class HostBridge {
     }
     if (call.toolName.startsWith("omp-ui_fleet_")) {
       await this.answerFleet(tabId, call, send);
+      return;
+    }
+    if (call.toolName === HTML_ARTIFACT_TOOL_NAME) {
+      // The document travels in the call's own arguments, which omp persists
+      // with the session: the card renders from them on every viewer and on
+      // reload, so main validates and keeps nothing (ADR-0082).
+      const parsed = parseHtmlArtifactArgs(call.args);
+      this.answer(
+        call.id,
+        parsed.ok
+          ? hostToolTextResult(call.id, htmlArtifactResultText(parsed.args))
+          : hostToolErrorResult(call.id, `render_html refused: ${parsed.reason}`),
+        send,
+      );
       return;
     }
     if (call.toolName !== HOST_NOTIFY_TOOL_NAME) {

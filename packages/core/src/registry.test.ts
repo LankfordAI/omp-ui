@@ -85,6 +85,7 @@ describe("SETTINGS", () => {
       "advisorAutoReply",
       "stallAutoContinue",
       "desktopNotifications",
+      "htmlArtifactScripts",
       "defaultAdvisor",
       "defaultAutoThinking",
       "modelFavorites",

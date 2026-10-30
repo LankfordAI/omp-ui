@@ -144,6 +144,27 @@ describe("HostBridge.notify", () => {
   });
 });
 
+describe("HostBridge render_html (issue #994)", () => {
+  it("answers a valid artifact exactly once with a success result omp accepts", async () => {
+    const f = fixture();
+    f.bridge.route("t1", toolCallFrame("h1", "omp-ui_render_html", { title: "Chart", html: "<canvas></canvas>" }), f.send);
+    await settled();
+    expect(f.sent).toHaveLength(1);
+    expect(f.sent[0]).toMatchObject({ type: "host_tool_result", id: "h1", result: { content: [{ type: "text" }] } });
+    expect(f.sent[0]).not.toHaveProperty("isError");
+    expect(JSON.stringify(f.sent[0])).toContain("Chart");
+  });
+
+  it("refuses an artifact the card would not show, telling the model why", async () => {
+    const f = fixture();
+    f.bridge.route("t1", toolCallFrame("h1", "omp-ui_render_html", { title: "Chart" }), f.send);
+    await settled();
+    expect(f.sent).toHaveLength(1);
+    expect(f.sent[0]).toMatchObject({ type: "host_tool_result", id: "h1", isError: true });
+    expect(JSON.stringify(f.sent[0])).toContain("html must be a non-empty string");
+  });
+});
+
 describe("HostBridge omp-ui://plan", () => {
   it("answers no-plan-before-any-proposal", async () => {
     const f = fixture();

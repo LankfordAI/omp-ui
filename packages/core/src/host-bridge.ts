@@ -16,6 +16,14 @@ import {
   FLEET_STATUS_WAIT_MAX_MS,
   FLEET_TOOLS,
 } from "./fleet";
+import {
+  HTML_ARTIFACT_DEFAULT_HEIGHT,
+  HTML_ARTIFACT_MAX_BYTES,
+  HTML_ARTIFACT_MAX_HEIGHT,
+  HTML_ARTIFACT_MIN_HEIGHT,
+  HTML_ARTIFACT_TITLE_MAX,
+  HTML_ARTIFACT_TOOL_NAME,
+} from "./html-artifact";
 
 /** The one scheme omp-ui registers. Not in omp's reserved built-in set. */
 export const HOST_URI_SCHEME = "omp-ui";
@@ -72,7 +80,7 @@ export function hostUriSchemeDefinition(): RpcHostUriSchemeDefinition {
   };
 }
 
-/** Notify is always present; registered vaults enable the ten vault tools; the caller's fleet gate (every chat, or the fleet setting) enables the nine fleet tools. */
+/** Notify and render_html are always present; registered vaults enable the ten vault tools; the caller's fleet gate (every chat, or the fleet setting) enables the nine fleet tools. */
 export function hostToolsDefinition(
   opts: { vault: boolean; fleet: boolean } = { vault: false, fleet: false },
 ): RpcHostToolDefinition[] {
@@ -93,10 +101,47 @@ export function hostToolsDefinition(
         required: ["message"],
       },
     },
+    renderHtmlTool(),
   ];
   if (opts.vault) tools.push(...vaultTools());
   if (opts.fleet) tools.push(...fleetTools());
   return tools;
+}
+
+/**
+ * The interactive HTML artifact tool (issue #994, ADR-0082). Essential so the
+ * model calls it by name — a discoverable tool would run through `write
+ * xd://…` and the transcript would record a `write`, not this card's call.
+ */
+function renderHtmlTool(): RpcHostToolDefinition {
+  return {
+    name: HTML_ARTIFACT_TOOL_NAME,
+    loadMode: "essential",
+    description:
+      "Show the user a self-contained interactive HTML document inline in their transcript: a chart of results, a sortable table, a dependency graph, a small simulator. " +
+      "Use it when a visual explains better than prose; never for plain text. " +
+      "Inline every script, style, image (data: URIs), and dataset in the html: the document runs sandboxed with NO network (no CDNs, fetch, or external URLs), no storage, popups, forms, or navigation, so external resources fail to load. " +
+      "It may read the user's theme from CSS variables such as var(--color-surface), var(--color-ink), var(--color-ink-dim), var(--color-line), var(--color-signal), var(--color-copper), var(--color-rose), var(--color-iris); color-scheme is set to match. " +
+      `At most ${HTML_ARTIFACT_MAX_BYTES / 1024} KiB of html.`,
+    parameters: {
+      type: "object",
+      additionalProperties: false,
+      properties: {
+        title: { type: "string", description: `Short card title, at most ${HTML_ARTIFACT_TITLE_MAX} characters.` },
+        html: {
+          type: "string",
+          description: "The complete self-contained document or body fragment, with every resource inlined.",
+        },
+        height: {
+          type: "integer",
+          minimum: HTML_ARTIFACT_MIN_HEIGHT,
+          maximum: HTML_ARTIFACT_MAX_HEIGHT,
+          description: `Inline frame height in CSS pixels (default ${HTML_ARTIFACT_DEFAULT_HEIGHT}); the user can expand it to a full view.`,
+        },
+      },
+      required: ["title", "html"],
+    },
+  };
 }
 
 function vaultTools(): RpcHostToolDefinition[] {
