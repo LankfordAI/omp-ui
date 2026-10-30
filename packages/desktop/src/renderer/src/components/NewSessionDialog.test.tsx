@@ -165,6 +165,7 @@ Object.assign(window, { ompBackend: backendMock });
 // at module load, so the mock above must land first.
 const { useStore } = await import("../store");
 const { NewSessionDialog } = await import("./NewSessionDialog");
+const { BackgroundSeedToast } = await import("./BackgroundSeedToast");
 
 let root: Root | null = null;
 
@@ -686,5 +687,105 @@ describe("NewSessionDialog unified project view (issue #903)", () => {
       expect.objectContaining({ projectCwd: "/p" }),
     );
     expect(backendMock.remoteInstanceRequest).not.toHaveBeenCalled();
+  });
+});
+
+describe("NewSessionDialog start in background (issue #982)", () => {
+  const chord = async (): Promise<void> => {
+    await act(async () => {
+      promptArea().dispatchEvent(
+        new KeyboardEvent("keydown", { key: "Enter", ctrlKey: true, altKey: true, bubbles: true, cancelable: true }),
+      );
+      await flushMicrotasks();
+    });
+  };
+
+  /** The user is looking at another session when the dialog opens. */
+  const seedFocused = (): void => {
+    useStore.setState({
+      tabs: [{ tabId: "other", mode: "rpc-ui", projectCwd: "/p", hidden: false, instanceId: null }],
+      activeTabId: "other",
+    });
+  };
+
+  it("lands the session without focus, keeps the dialog open and cleared, and sends the seed later", async () => {
+    seedFocused();
+    await render();
+    await typeInto(titleInput(), "First ask");
+    await typeInto(promptArea(), "do the first thing");
+    await chord();
+
+    const st = useStore.getState();
+    expect(st.tabs.map((tab) => tab.tabId)).toEqual(["other", "launch-1"]);
+    expect(st.activeTabId).toBe("other");
+    expect(st.newSessionDialog).not.toBeNull();
+    expect(promptArea().value).toBe("");
+    expect(titleInput().value).toBe("");
+    expect(document.activeElement).toBe(promptArea());
+
+    // The seed follows once the background tab's boot reports ready.
+    useStore.setState((s) => ({ rpc: { ...s.rpc, "launch-1": rpcTabState() } }));
+    await act(async () => {
+      await flushMicrotasks();
+    });
+    respondTo(sent.shift()!);
+    await act(async () => {
+      await flushMicrotasks();
+    });
+    expect(sent.map((s) => [s.tabId, s.cmd.type, s.cmd.message])).toEqual([["launch-1", "prompt", "do the first thing"]]);
+    expect(useStore.getState().activeTabId).toBe("other");
+  });
+
+  it("raises the toast when a background seed is not sent, and Open session focuses it", async () => {
+    seedFocused();
+    useStore.setState({ rpc: { "launch-1": rpcTabState({ status: "starting" }) }, backgroundSeedFailedTabId: null });
+    await render();
+    await typeInto(promptArea(), "do the thing");
+    vi.useFakeTimers({ toFake: ["setTimeout", "clearTimeout"] });
+    await chord();
+    await act(async () => {
+      await vi.advanceTimersByTimeAsync(15_000);
+    });
+
+    expect(sent).toEqual([]);
+    expect(useStore.getState().backgroundSeedFailedTabId).toBe("launch-1");
+    // The warn still lands on the new tab itself.
+    expect(useStore.getState().rpc["launch-1"]!.items.at(-1)).toMatchObject({ kind: "notice", level: "warn" });
+
+    vi.useRealTimers();
+    const host = document.createElement("div");
+    document.body.appendChild(host);
+    const toastRoot = createRoot(host);
+    await act(async () => toastRoot.render(<BackgroundSeedToast />));
+    expect(host.textContent).toContain("its first prompt was not sent");
+    await click(button(en["dialog.newsession.backgroundOpen"]));
+    expect(useStore.getState().activeTabId).toBe("launch-1");
+    expect(useStore.getState().backgroundSeedFailedTabId).toBeNull();
+    act(() => toastRoot.unmount());
+  });
+
+  it("mints a fresh worktree branch for the next background launch and keeps Plan on it", async () => {
+    useStore.setState({
+      newSessionDialog: { projectCwd: null, instanceId: null, where: "here", workspace: "worktree" },
+    });
+    await render();
+    await click(button(en["dialog.newsession.plan"]));
+    const branchField = (): HTMLInputElement => document.body.querySelector<HTMLInputElement>("#newsession-branch")!;
+    const first = branchField().value;
+    await chord();
+    backendMock.spawnSession.mockResolvedValue({ tabId: "launch-2" });
+    const second = branchField().value;
+    expect(second).not.toBe(first);
+    // Same base segments, a new hash tail.
+    expect(second.slice(0, second.lastIndexOf("/"))).toBe(first.slice(0, first.lastIndexOf("/")));
+    await chord();
+
+    const requests = backendMock.spawnSession.mock.calls.map(([request]) => request);
+    expect(requests).toEqual([
+      expect.objectContaining({ planMode: true, worktree: { mint: expect.objectContaining({ branch: first }) } }),
+      expect.objectContaining({ planMode: true, worktree: { mint: expect.objectContaining({ branch: second }) } }),
+    ]);
+    expect(useStore.getState().tabs.map((tab) => tab.tabId)).toEqual(["launch-1", "launch-2"]);
+    expect(useStore.getState().newSessionDialog).not.toBeNull();
   });
 });

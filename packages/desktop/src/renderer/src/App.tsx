@@ -26,6 +26,7 @@ import { Fleet } from "./components/fleet/Fleet";
 import { ProjectSettings } from "./components/ProjectSettings";
 import { OmpUpdateCard } from "./components/OmpUpdateCard";
 import { SettleToast } from "./components/SettleToast";
+import { BackgroundSeedToast } from "./components/BackgroundSeedToast";
 import { ProjectPicker } from "./components/ProjectPicker";
 import { RpcTab } from "./components/RpcTab";
 import { SessionHud } from "./components/SessionHud";
@@ -536,6 +537,7 @@ export default function App() {
         <AppUpdateCard />
         <OmpUpdateCard />
         <SettleToast />
+        <BackgroundSeedToast />
       </div>
       {deleteConfirmation && (
         <DeleteSessionDialog key={deleteConfirmation.tabId} confirmation={deleteConfirmation} />

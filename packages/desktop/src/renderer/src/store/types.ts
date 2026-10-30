@@ -1180,8 +1180,9 @@ export interface UiStore extends SettingsSlice, UpdatesSlice, LabSlice, StatsSli
     /** `{ private: true }` spawns a private session (issue #852): pinned
      *  write-quiet against the memory system. Never a default.
      *  `{ planMode: true }` starts the fresh session in plan mode (rpc-ui
-     *  only; ignored for pty). */
-    opts?: { private?: boolean; planMode?: boolean },
+     *  only; ignored for pty). `{ background: true }` lands the tab without
+     *  taking focus (issue #982). */
+    opts?: { private?: boolean; planMode?: boolean; background?: boolean },
   ): Promise<string | null>;
   /** Spawns a fresh Chat (local only) and lands its tab; resolves its tabId, or null when it never landed. */
   newChat(opts?: { private?: boolean; askSource?: { tabId: string; title: string } }): Promise<string | null>;
@@ -1194,7 +1195,8 @@ export interface UiStore extends SettingsSlice, UpdatesSlice, LabSlice, StatsSli
    * (issue #390); it lands verbatim in the spawn request's worktree field.
    * Returns null when the spawn never answers within SPAWN_SETTLE_MS (the
    * timeout is already reported; issue #907) — a spawn that lands later
-   * still mounts its tab.
+   * still mounts its tab. `planMode` starts a native session in plan mode
+   * (issue #1002); `background` lands the tab without focus (issue #982).
    */
   newWorktreeSession(
     projectCwd: string,
@@ -1202,27 +1204,40 @@ export interface UiStore extends SettingsSlice, UpdatesSlice, LabSlice, StatsSli
       | { mint: { branch: string; baseRef: string | null; baseBranch: string | null } }
       | { checkout: { branch: string } },
     instanceId?: string | null,
+    opts?: { planMode?: boolean; background?: boolean; private?: boolean },
   ): Promise<string | null>;
   /**
-   * One launcher action (the New session dialog): spawns a session — in a
-   * worktree checkout when asked, otherwise plainly, optionally in plan
-   * mode — then applies an optional title and sends an optional first
-   * prompt once the runtime reports ready. Returns the landed tab id, or
-   * null when the spawn never landed.
+   * One launcher action (the New session dialog, and the fresh-session
+   * hero's send in background): spawns a session — in a worktree checkout
+   * when asked, otherwise plainly, optionally in plan mode — then applies an
+   * optional title and sends an optional first prompt (with images and
+   * documents) once the runtime reports ready. Returns the landed tab id, or
+   * null when the spawn never landed. `background` (issue #982) keeps focus
+   * where it is and resolves as soon as the tab lands; the seed follows.
    */
   launchSession(
     projectCwd: string,
     opts: {
       instanceId?: string | null;
       prompt?: string;
+      images?: ImageAttachment[];
+      documents?: DocumentAttachment[];
       title?: string | null;
       planMode?: boolean;
       worktree?:
         | { mint: { branch: string; baseRef: string | null; baseBranch: string | null } }
         | { checkout: { branch: string } }
         | null;
+      background?: boolean;
+      /** A private session (issue #852); passed only by the hero's
+       *  background send, carrying the privacy of the session it was typed in. */
+      private?: boolean;
     },
   ): Promise<string | null>;
+  /** A background launch whose first prompt was not sent (issue #982); its
+   *  toast names the session and offers to open it. Null = no toast. */
+  backgroundSeedFailedTabId: string | null;
+  dismissBackgroundSeedToast(): void;
   /**
    * Converts an unprompted session to a worktree session (issue #225);
    * throws on failure (the composer renders the message inline) — unlike

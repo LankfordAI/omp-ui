@@ -1,4 +1,4 @@
-import { useCallback, useEffect, useMemo, useRef, useState } from "react";
+import { useCallback, useEffect, useMemo, useRef, useState, type KeyboardEvent } from "react";
 import {
   FLEET_BATCH_MAX,
   FLEET_PROMPT_MAX,
@@ -10,8 +10,9 @@ import {
   type FleetMachine,
   type FleetTargetPick,
 } from "@omp-ui/core/fleet";
-import { mintBranchName, worktreeBranchPrefix } from "@omp-ui/core/worktree-branch";
+import { mintBranchName, nextMintedWorktreeBranch, worktreeBranchPrefix } from "@omp-ui/core/worktree-branch";
 import { backend } from "../backend";
+import { formatHotkey } from "../lib/hotkeys";
 import { useT } from "../lib/i18n";
 import { useLoad } from "../lib/load";
 import { projectKey } from "../lib/project-key";
@@ -27,8 +28,13 @@ import { WorktreeBranchFields } from "./WorktreeBranchFields";
  * while "fleet" ports FleetDispatchDialog's fields verbatim and builds a
  * FleetDispatchRequest for main's FleetDispatcher (ADR-0061 provenance stays
  * on dispatches; the local seed is not staged through it). An empty prompt is
- * legal locally (an idle session) and illegal on the fleet.
+ * legal locally (an idle session) and illegal on the fleet. Start in
+ * background (`mod+alt+enter`, issue #982) launches "here" without leaving
+ * the focused tab and keeps the dialog open, cleared, for the next ask.
  */
+
+/** The send-in-background chord on every new-session surface (issue #982). */
+export const BACKGROUND_SEND_HOTKEY = "mod+alt+enter";
 
 const FIELD =
   "mt-1.5 w-full rounded-md border border-line bg-void px-2 py-1.5 font-mono text-[11px] text-ink outline-none placeholder:text-ink-faint focus:border-line-strong";
@@ -348,9 +354,20 @@ export function NewSessionDialog() {
     if (!busy) closeNewSessionDialog();
   };
 
-  const submit = async (): Promise<void> => {
+  /** Set by a background launch: the prompt takes focus back once it re-enables. */
+  const promptBox = useRef<HTMLTextAreaElement | null>(null);
+  const refocusPrompt = useRef(false);
+  useEffect(() => {
+    if (busy || !refocusPrompt.current) return;
+    refocusPrompt.current = false;
+    promptBox.current?.focus();
+  }, [busy]);
+
+  const submit = async (background = false): Promise<void> => {
     if (!canSubmit) return;
     if (face === "fleet") {
+      // A dispatch already runs elsewhere; it has no foreground to skip.
+      if (background) return;
       if (reference === null) return;
       const picks: FleetTargetPick[] = [];
       if (runOn === "choose") {
@@ -395,15 +412,47 @@ export function NewSessionDialog() {
           : { checkout: { branch: existingBranch } }
         : null;
     setBusy(true);
+    setError(null);
     try {
       // A null return means the spawn already reported its failure — close
       // anyway; a thrown worktree spawn (git's stderr) stays inline here.
-      await launchSession(projectCwd, { instanceId, prompt, title, planMode, worktree });
-      closeNewSessionDialog();
+      const landed = await launchSession(projectCwd, { instanceId, prompt, title, planMode, worktree, background });
+      if (!background) {
+        closeNewSessionDialog();
+        return;
+      }
+      // Background (issue #982): the dialog stays for the next ask. A spawn
+      // that never landed keeps the draft; it was already reported.
+      if (landed !== null) {
+        setPrompt("");
+        setTitle("");
+        // The branch just used is checked out now: the next launch needs its own.
+        if (worktree !== null) {
+          if (source === "new") {
+            setBranch(nextMintedWorktreeBranch(branch, worktreeBranchPrefix(projectCwd)));
+            // A base created by this launch exists now: the next one cuts from it.
+            if (baseBranch !== null) {
+              setBaseRef(baseBranch.trim());
+              setBaseBranch(null);
+            }
+          } else {
+            setSource("new");
+          }
+        }
+      }
+      refocusPrompt.current = true;
+      setBusy(false);
     } catch (err) {
       setError(err instanceof Error ? err.message : String(err));
       setBusy(false);
     }
+  };
+
+  const onKeyDown = (event: KeyboardEvent<HTMLDivElement>): void => {
+    if (event.key !== "Enter" || !event.altKey || !(event.metaKey || event.ctrlKey) || event.shiftKey) return;
+    if (event.nativeEvent.isComposing || face !== "here") return;
+    event.preventDefault();
+    void submit(true);
   };
 
   return (
@@ -418,13 +467,25 @@ export function NewSessionDialog() {
           <Button variant="ghost" disabled={busy} onClick={close}>
             {t("common.dialog.cancel")}
           </Button>
+          {face === "here" && (
+            <Button
+              variant="outline"
+              tone="signal"
+              disabled={!canSubmit}
+              title={t("dialog.newsession.backgroundTitle", { hotkey: formatHotkey(BACKGROUND_SEND_HOTKEY) })}
+              onClick={() => void submit(true)}
+            >
+              {t("dialog.newsession.background")}
+              <span className="ml-1.5 font-mono text-[10px] opacity-70">{formatHotkey(BACKGROUND_SEND_HOTKEY)}</span>
+            </Button>
+          )}
           <Button variant="solid" tone="signal" disabled={!canSubmit} onClick={() => void submit()}>
             {busy ? t("dialog.newsession.busy") : t("dialog.newsession.create")}
           </Button>
         </>
       }
     >
-      <div className="space-y-4">
+      <div className="space-y-4" onKeyDown={onKeyDown}>
         {joined.length > 0 && (
           <div>
             <p className={LABEL}>{t("dialog.newsession.where")}</p>
@@ -602,6 +663,7 @@ export function NewSessionDialog() {
                   {t("dialog.newsession.prompt")}
                 </label>
                 <textarea
+                  ref={promptBox}
                   id="newsession-prompt"
                   rows={5}
                   value={prompt}

@@ -60,6 +60,8 @@ Press **New session** in the sidebar header, or `Mod+Shift+N`, to open the **pro
 
 Choose **New terminal session** when you want OMP's TUI. Choose **New session…** — the **New session dialog**, the one form that starts work here or on the [fleet](remote-instances.md#dispatch-work) — when the work must run in a separate checkout: pick **New worktree** as its workspace, and the [worktree sessions](#worktree-sessions) section explains its persistence and deletion rules. An optional first prompt rides along; left empty here, the session simply starts idle. `Mod+O` opens the dialog directly, seeded with the focused tab's project, even mid-draft in the composer. A focused terminal — a terminal tab or the console drawer — keeps `Ctrl+O` for itself, because OMP's TUI expands tool output with it; click outside the terminal first.
 
+To start several sessions without leaving the one you are in, **start them in background**. In the New session dialog, press **Start in background** or `Mod+Alt+Enter`: the session starts with your prompt, but focus stays on your current tab. The dialog stays open and clears its prompt and title, ready for the next ask. A fresh worktree launch picks a new branch name for the next one. From a fresh session's empty composer (the hero), `Mod+Alt+Enter` does the same in that session's project, machine, mode, and workspace choice, while the session you typed in stays unprompted. Each new session appears in the sidebar and moves through **Working** like any other. If its first prompt cannot be sent, the new session's transcript says so, and a toast names it with an **Open session** button.
+
 Select a dormant or archived owned session under **Settled** to resume it. omp-ui restores an archived transcript before resuming. If an agent exits, use **Resume** in the sidebar or the session's exit screen. A session marked **missing** still has a record, but omp-ui cannot find its files, so its only available action is deletion.
 
 **Terminate** and **Delete** have different effects:
@@ -357,6 +359,7 @@ For connecting a phone or another browser to the compact shell, see [Remote acce
 | `Enter` | Send when idle; steer when running; run a slash command on a command line. |
 | `Shift+Enter` | Insert a line break. |
 | `Mod+Enter` | Queue a follow-up after the current turn. |
+| `Mod+Alt+Enter` | In the New session dialog or a fresh session's empty composer: start a new session with the draft without switching to it. |
 | `Mod+Shift+Enter` | Abort the current turn and send the draft as a fresh prompt. |
 | `Escape` | Abort a running agent; queued messages return to the draft on OMP 18.6.3 or newer. When a slash or `@` picker is open, close that picker first. |
 | `Up` / `Down` | Recall sent composer text when the draft is empty, or navigate an open slash or `@` picker. |

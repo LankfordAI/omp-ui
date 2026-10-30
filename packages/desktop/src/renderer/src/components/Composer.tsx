@@ -53,6 +53,7 @@ import { canOpenLivePeer } from "../lib/live-peer";
 import { sendAtResetMs } from "../lib/send-at-reset";
 import { startVisibleInterval } from "../lib/visible-interval";
 import { formatSnoozeUntil } from "../lib/snooze-until";
+import { nextMintedWorktreeBranch, worktreeBranchPrefix } from "@omp-ui/core/worktree-branch";
 
 /** How often the composer re-reads the clock while it offers Send at reset. */
 const SEND_AT_RESET_TICK_MS = 30_000;
@@ -249,6 +250,8 @@ export function Composer({
   const runShellCommand = useStore((s) => s.runShellCommand);
   const convertSessionToWorktree = useStore((s) => s.convertSessionToWorktree);
   const moveUnpromptedSession = useStore((s) => s.moveUnpromptedSession);
+  const launchSession = useStore((s) => s.launchSession);
+  const planOn = useStore((s) => s.rpc[tabId]?.plan?.enabled === true);
 
   const [text, setText] = useState("");
   /**
@@ -773,6 +776,95 @@ export function Composer({
     ],
   );
 
+  /**
+   * Send in background (issue #982): from the fresh-session hero, the draft
+   * starts a NEW session — this hero's project, machine, privacy, mode, and
+   * workspace choice — without leaving this tab. The draft clears and the
+   * box keeps focus for the next ask; this session stays unprompted. Prompts
+   * only: a slash or shell line is this session's own command.
+   */
+  const sendInBackground = useCallback(async (): Promise<void> => {
+    const message = text.trim();
+    if (
+      !unprompted ||
+      chat ||
+      record === undefined ||
+      (message === "" && images.length === 0 && documents.length === 0) ||
+      message.startsWith("/") ||
+      message.startsWith("!") ||
+      unavailable ||
+      converting ||
+      moving !== null
+    )
+      return;
+    const draft = { text, images, documents };
+    const worktree =
+      workspace.mode === "worktree"
+        ? { mint: { branch: workspace.branch, baseRef: workspace.baseRef, baseBranch: workspace.baseBranch } }
+        : null;
+    if (message !== "" && history.current[history.current.length - 1] !== message) history.current.push(message);
+    recall.current = null;
+    setText("");
+    clearDraft();
+    setDismissedFor(null);
+    setMentionDismissedFor(null);
+    box.current?.focus({ preventScroll: true });
+    let landed: string | null = null;
+    try {
+      landed = await launchSession(record.projectCwd, {
+        instanceId,
+        prompt: draft.text,
+        images: draft.images,
+        documents: draft.documents,
+        planMode: planOn,
+        worktree,
+        background: true,
+        private: record.private,
+      });
+    } catch (err) {
+      // A worktree spawn throws git's stderr: the composer's inline strip owns it.
+      setWorkspaceError(err instanceof Error ? err.message : String(err));
+    }
+    if (landed === null) {
+      // Never landed (already reported) or refused: the draft comes back.
+      setText((current) => (current === "" ? draft.text : current));
+      addImages(draft.images);
+      addDocuments(draft.documents);
+      return;
+    }
+    // The minted branch is checked out now: the next background ask needs its own.
+    if (workspace.mode === "worktree") {
+      setWorkspace((current) =>
+        current.mode !== "worktree"
+          ? current
+          : {
+              ...current,
+              branch: nextMintedWorktreeBranch(current.branch, worktreeBranchPrefix(record.projectCwd)),
+              // A base this launch created exists now: the next one cuts from it.
+              ...(current.baseBranch !== null && current.baseBranch.trim() !== ""
+                ? { baseRef: current.baseBranch.trim(), baseBranch: null, baseTouched: true }
+                : {}),
+            },
+      );
+    }
+  }, [
+    text,
+    images,
+    documents,
+    unprompted,
+    chat,
+    record,
+    unavailable,
+    converting,
+    moving,
+    workspace,
+    instanceId,
+    planOn,
+    launchSession,
+    clearDraft,
+    addImages,
+    addDocuments,
+  ]);
 
   /** Applies a palette pick: run it now, or complete the line for what follows. */
   const pick = useCallback(
@@ -893,6 +985,13 @@ export function Composer({
       if (!running) return;
       e.preventDefault();
       void abortAgent(tabId);
+      return;
+    }
+    if (e.key === "Enter" && (e.metaKey || e.ctrlKey) && e.altKey) {
+      // Send in background (issue #982) — the hero's chord only; elsewhere it
+      // is unbound and must not fall through to queue or interrupt.
+      e.preventDefault();
+      if (!e.shiftKey) void sendInBackground();
       return;
     }
     if (e.key === "Enter" && (e.metaKey || e.ctrlKey)) {

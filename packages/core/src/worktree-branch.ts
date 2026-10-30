@@ -102,3 +102,15 @@ export function remintWorktreeBranch(
   if (!isMintedWorktreeBranch(branch, prefix)) return branch;
   return composeWorktreeBranch(prefix, segment, branch.slice(branch.lastIndexOf("/") + 1));
 }
+
+/**
+ * The branch for the next launch from a surface that stays open after a
+ * background send (issue #982): the previous name is now a real branch, so
+ * reusing it would collide. A mint keeps its base segments under a fresh
+ * hash; a hand-typed name is replaced by a bare mint of this project.
+ */
+export function nextMintedWorktreeBranch(branch: string, prefix: string): string {
+  const fresh = mintBranchName(prefix);
+  if (!isMintedWorktreeBranch(branch, prefix)) return fresh;
+  return branch.slice(0, branch.lastIndexOf("/") + 1) + fresh.slice(fresh.lastIndexOf("/") + 1);
+}

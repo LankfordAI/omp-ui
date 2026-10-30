@@ -31,6 +31,7 @@ import { worktreeMergeResolutionState } from "../../lib/worktree-merge-resolutio
 import { supportsNativeLive } from "../../lib/live-voice";
 import { planSeedInfo, planSeedText } from "../../lib/plan-seed";
 import { composeCarryoverContext } from "../../lib/carryover-context";
+import type { DocumentRef } from "../../lib/document-context";
 import { noticeItem, settleRunningItems, type AdvisorNote } from "../../lib/transcript";
 import { t } from "../../lib/i18n";
 import { randomId } from "../../lib/random-id";
@@ -94,6 +95,8 @@ export type LifecycleSlice = Pick<
   | "askAboutSession"
   | "newWorktreeSession"
   | "launchSession"
+  | "backgroundSeedFailedTabId"
+  | "dismissBackgroundSeedToast"
   | "convertSessionToWorktree"
   | "moveUnpromptedSession"
   | "openSession"
@@ -945,7 +948,8 @@ export function createLifecycleSlice(
     instanceId: string | null = null,
     // Privacy is deliberately deliberate (issue #852): only the explicit menu
     // entries pass the flag; no caller inherits it from stored state.
-    opts: { private?: boolean; planMode?: boolean } = {},
+    // `background` (issue #982) lands the tab without taking focus.
+    opts: { private?: boolean; planMode?: boolean; background?: boolean } = {},
   ): Promise<string | null> => {
     const { mode, advisor, advisorModel } = await resolveSpawnParams(
       projectCwd,
@@ -960,7 +964,7 @@ export function createLifecycleSlice(
       landed = true;
       set((s) => ({
         tabs: [...s.tabs, { tabId, mode, projectCwd, hidden: false, instanceId }],
-        ...focusOn(tabId),
+        ...(opts.background === true ? {} : focusOn(tabId)),
         exited: dropExited(s.exited, tabId),
       }));
       // A fresh session is the moment the user checks what the remote has
@@ -1084,6 +1088,7 @@ export function createLifecycleSlice(
       | { mint: { branch: string; baseRef: string | null; baseBranch: string | null } }
       | { checkout: { branch: string } },
     instanceId: string | null = null,
+    opts: { planMode?: boolean; background?: boolean; private?: boolean } = {},
   ): Promise<string | null> => {
     const { mode, advisor, advisorModel } =
       await resolveSpawnParams(projectCwd, undefined, instanceId);
@@ -1098,6 +1103,7 @@ export function createLifecycleSlice(
             cols: 80,
             rows: 24,
             worktree: spec,
+            ...(opts.private === true ? { private: true } : {}),
           }
         : {
             origin: "new",
@@ -1108,6 +1114,9 @@ export function createLifecycleSlice(
             cols: 80,
             rows: 24,
             worktree: spec,
+            ...(opts.private === true ? { private: true } : {}),
+            // Issue #1002: the dialog's Plan choice holds for a worktree too.
+            ...(opts.planMode === true ? { planMode: true } : {}),
           };
     let landed = false;
     let spawnedId: string | null = null;
@@ -1123,7 +1132,7 @@ export function createLifecycleSlice(
       }
       set((s) => ({
         tabs: [...s.tabs, { tabId, mode, projectCwd, hidden: false, instanceId }],
-        ...focusOn(tabId),
+        ...(opts.background === true ? {} : focusOn(tabId)),
         exited: dropExited(s.exited, tabId),
       }));
     };
@@ -1154,64 +1163,92 @@ export function createLifecycleSlice(
   };
 
   /**
-   * One launcher action (the New session dialog): spawns a session — in a
-   * worktree checkout when asked, otherwise plainly, optionally in plan
-   * mode — then applies an optional title and sends an optional first
-   * prompt once the runtime reports ready. Resolves to the landed tab id,
-   * or null when the spawn never landed (already reported). A worktree
-   * spawn keeps newWorktreeSession's throw-on-failure contract; a seed
-   * that cannot be sent is reported as a warn notice on the new tab, and
-   * the tab id is still returned.
+   * One launcher action (the New session dialog and the hero's background
+   * send): spawns a session — in a worktree checkout when asked, otherwise
+   * plainly, optionally in plan mode — then applies an optional title and
+   * sends an optional first prompt (with its images and documents) once the
+   * runtime reports ready. Resolves to the landed tab id, or null when the
+   * spawn never landed (already reported). A worktree spawn keeps
+   * newWorktreeSession's throw-on-failure contract; a seed that cannot be
+   * sent is reported as a warn notice on the new tab, and the tab id is
+   * still returned. `background` (issue #982) lands the tab without focus
+   * and resolves as soon as it lands; the seed follows on its own, and a
+   * seed that fails while the user is elsewhere also raises the
+   * background-seed toast.
    */
   const launchSession = async (
     projectCwd: string,
     opts: {
       instanceId?: string | null;
       prompt?: string;
+      images?: ImageAttachment[];
+      documents?: DocumentAttachment[];
       title?: string | null;
       planMode?: boolean;
       worktree?:
         | { mint: { branch: string; baseRef: string | null; baseBranch: string | null } }
         | { checkout: { branch: string } }
         | null;
+      background?: boolean;
+      /** A private session (issue #852): only the hero's background send
+       *  passes it, carrying the privacy of the session it was typed in. */
+      private?: boolean;
     },
   ): Promise<string | null> => {
     const instanceId = opts.instanceId ?? null;
+    const background = opts.background === true;
+    const spawnOpts = { planMode: opts.planMode === true, background, private: opts.private === true };
     const tabId = opts.worktree
-      ? await newWorktreeSession(projectCwd, opts.worktree, instanceId)
-      : await newSession(projectCwd, undefined, instanceId, {
-          planMode: opts.planMode === true,
-        });
+      ? await newWorktreeSession(projectCwd, opts.worktree, instanceId, spawnOpts)
+      : await newSession(projectCwd, undefined, instanceId, spawnOpts);
     if (tabId === null) return null;
+    const seeding = deliverLaunchSeed(tabId, opts, background);
+    if (background) void seeding.catch((err: unknown) => get().reportError(err));
+    else await seeding;
+    return tabId;
+  };
+
+  /** launchSession's seed: title, then the first prompt, once the runtime is ready. */
+  const deliverLaunchSeed = async (
+    tabId: string,
+    opts: { prompt?: string; images?: ImageAttachment[]; documents?: DocumentAttachment[]; title?: string | null },
+    background: boolean,
+  ): Promise<void> => {
     const prompt = opts.prompt?.trim() ?? "";
+    const images = opts.images ?? [];
+    const documents = opts.documents ?? [];
     // No prompt: quick-launch behaviour — the tab alone is the whole ask.
-    if (prompt === "") return tabId;
+    if (prompt === "" && images.length === 0 && documents.length === 0) return;
+    /** The seed did not go out; `notice` puts the warn on the new tab itself. */
+    const notSent = (notice: boolean): void => {
+      if (notice) m.appendItem(tabId, noticeItem(t("dialog.newsession.seedNotSent"), "warn"));
+      // Nobody is looking at a background tab (issue #982): say so where they are.
+      if (background && get().activeTabId !== tabId) set({ backgroundSeedFailedTabId: tabId });
+    };
     await m.pollUntilSettled(tabId);
     if (get().rpc[tabId]?.status !== "ready") {
       // Mirrors the plan-dispatch guard (#622): an errored boot owns a
       // failure banner and an exited one an exit notice; only a boot that
       // never reported says so itself — on the new tab, where the user is.
-      if (
-        get().rpc[tabId]?.status !== "error" &&
-        get().exited[tabId] === undefined
-      ) {
-        m.appendItem(
-          tabId,
-          noticeItem(t("dialog.newsession.seedNotSent"), "warn"),
-        );
-      }
-      return tabId;
+      notSent(get().rpc[tabId]?.status !== "error" && get().exited[tabId] === undefined);
+      return;
     }
     const title = opts.title?.trim() ?? "";
     if (title !== "") await get().renameSessionTo(tabId, title);
-    const accepted = await get().sendPrompt(tabId, prompt, "prompt");
-    if (!accepted) {
-      m.appendItem(
-        tabId,
-        noticeItem(t("dialog.newsession.seedNotSent"), "warn"),
-      );
+    // PDFs materialize on the machine that owns the new session (ADR-0044),
+    // which only exists from here on.
+    let docRefs: DocumentRef[] = [];
+    if (documents.length > 0) {
+      try {
+        const paths = await backend.attachDocument(tabId, documents);
+        docRefs = documents.map((document, i) => ({ name: document.name, path: paths[i]! }));
+      } catch {
+        notSent(true);
+        return;
+      }
     }
-    return tabId;
+    const accepted = await get().sendPrompt(tabId, prompt, "prompt", images, docRefs);
+    if (!accepted) notSent(true);
   };
 
   /**
@@ -1970,6 +2007,8 @@ export function createLifecycleSlice(
     askAboutSession,
     newWorktreeSession,
     launchSession,
+    backgroundSeedFailedTabId: null,
+    dismissBackgroundSeedToast: () => set({ backgroundSeedFailedTabId: null }),
     convertSessionToWorktree,
     moveUnpromptedSession,
     openSession,

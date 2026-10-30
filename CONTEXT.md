@@ -270,7 +270,10 @@ a plain session, never a **Fleet dispatch**; the dialog's Fleet face produces
 dispatches only for multi-target or auto runs, and a dispatch is always this
 dialog's Fleet face producing it, never a second launcher (ADR-0061). A local
 session that comes up without its first prompt sent says so; the user sends it
-there by hand.
+there by hand. **Start in background** (`mod+alt+enter`, also from the
+fresh-session hero) launches a local session without moving focus to it; the
+dialog stays open and cleared for the next one, and a first prompt that fails
+to send also raises a toast naming the session.
 _Avoid_: launch modal, dispatch window, new session window, launcher dialog
 
 **Project quick-open**:

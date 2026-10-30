@@ -3332,3 +3332,62 @@ describe("Composer options popover (issue #939)", () => {
     expect(setModel).toHaveBeenCalledWith(TAB, OTHER);
   });
 });
+
+describe("send in background from the hero (issue #982)", () => {
+  const launchSession = vi.fn<(projectCwd: string, opts: Record<string, unknown>) => Promise<string | null>>();
+
+  function chord(textarea: HTMLTextAreaElement): KeyboardEvent {
+    const event = new KeyboardEvent("keydown", { key: "Enter", ctrlKey: true, altKey: true, bubbles: true, cancelable: true });
+    act(() => textarea.dispatchEvent(event));
+    return event;
+  }
+
+  function renderHero(): void {
+    const host = document.createElement("div"); document.body.append(host); root = createRoot(host);
+    act(() => root!.render(<Composer tabId={TAB} unprompted />));
+  }
+
+  beforeEach(() => {
+    seed("ready");
+    launchSession.mockReset().mockResolvedValue("fresh");
+    useStore.setState({ launchSession: launchSession as never });
+  });
+
+  it("starts a background session in this project, clears the draft, and prompts nothing here", async () => {
+    renderHero();
+    const textarea = typeDraft("  look into the flaky test  ");
+    expect(chord(textarea).defaultPrevented).toBe(true);
+    await act(async () => {});
+
+    expect(launchSession).toHaveBeenCalledExactlyOnceWith("/p", expect.objectContaining({
+      instanceId: null,
+      prompt: "  look into the flaky test  ",
+      planMode: false,
+      worktree: null,
+      background: true,
+      private: false,
+    }));
+    expect(textarea.value).toBe("");
+    expect(document.activeElement).toBe(textarea);
+    expect(sendPrompt).not.toHaveBeenCalled();
+  });
+
+  it("gives the draft back when the background spawn never lands", async () => {
+    launchSession.mockResolvedValue(null);
+    renderHero();
+    const textarea = typeDraft("keep me");
+    chord(textarea);
+    await act(async () => {});
+    expect(textarea.value).toBe("keep me");
+  });
+
+  it("is unbound past the hero: neither a launch nor a queued follow-up", async () => {
+    renderComposer();
+    const textarea = typeDraft("not a follow-up");
+    expect(chord(textarea).defaultPrevented).toBe(true);
+    await act(async () => {});
+    expect(launchSession).not.toHaveBeenCalled();
+    expect(sendPrompt).not.toHaveBeenCalled();
+    expect(textarea.value).toBe("not a follow-up");
+  });
+});
