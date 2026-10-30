@@ -13,6 +13,7 @@ import type {
   ProjectIconRequest,
   PlanImplementationSource,
   SessionMode,
+  SessionReference,
   SessionWorktree,
   SpawnRequest,
   SpawnWorktree,
@@ -34,6 +35,7 @@ import { supportsNativeLive } from "../../lib/live-voice";
 import { planSeedInfo, planSeedText } from "../../lib/plan-seed";
 import { composeCarryoverContext } from "../../lib/carryover-context";
 import type { Annotation } from "../../lib/annotations";
+import type { DraftSessionReference } from "../../lib/session-references";
 import type { DocumentRef } from "../../lib/document-context";
 import { noticeItem, settleRunningItems, type AdvisorNote } from "../../lib/transcript";
 import { t } from "../../lib/i18n";
@@ -1201,6 +1203,7 @@ export function createLifecycleSlice(
       images?: ImageAttachment[];
       documents?: DocumentAttachment[];
       annotations?: Annotation[];
+      references?: SessionReference[];
       title?: string | null;
       planMode?: boolean;
       worktree?:
@@ -1234,6 +1237,7 @@ export function createLifecycleSlice(
       images?: ImageAttachment[];
       documents?: DocumentAttachment[];
       annotations?: Annotation[];
+      references?: SessionReference[];
       title?: string | null;
     },
     background: boolean,
@@ -1242,8 +1246,16 @@ export function createLifecycleSlice(
     const images = opts.images ?? [];
     const documents = opts.documents ?? [];
     const annotations = opts.annotations ?? [];
+    const references = opts.references ?? [];
     // No prompt: quick-launch behaviour — the tab alone is the whole ask.
-    if (prompt === "" && images.length === 0 && documents.length === 0 && annotations.length === 0) return;
+    if (
+      prompt === "" &&
+      images.length === 0 &&
+      documents.length === 0 &&
+      annotations.length === 0 &&
+      references.length === 0
+    )
+      return;
     /** The seed did not go out; `notice` puts the warn on the new tab itself. */
     const notSent = (notice: boolean): void => {
       if (notice) m.appendItem(tabId, noticeItem(t("dialog.newsession.seedNotSent"), "warn"));
@@ -1272,7 +1284,7 @@ export function createLifecycleSlice(
         return;
       }
     }
-    const accepted = await get().sendPrompt(tabId, prompt, "prompt", images, docRefs, annotations);
+    const accepted = await get().sendPrompt(tabId, prompt, "prompt", images, docRefs, annotations, references);
     if (!accepted) notSent(true);
   };
 
@@ -1313,6 +1325,7 @@ export function createLifecycleSlice(
       images: ImageAttachment[];
       documents: DocumentAttachment[];
       annotations: Annotation[];
+      references: DraftSessionReference[];
     },
   ): Promise<string | null> => {
     const owner = findOwner(get().state, tabId);
@@ -1338,6 +1351,16 @@ export function createLifecycleSlice(
     await m.pollUntilSettled(next);
     get().queueComposerText(next, draft.text);
     get().queueComposerAnnotations(next, draft.annotations);
+    // A reference names a path on its owner's machine (ADR-0085): it carries
+    // only to a session on that same instance, else the move says it dropped it.
+    get().queueComposerReferences(
+      next,
+      draft.references.filter((ref) => ref.instanceId === target.instanceId),
+    );
+    for (const ref of draft.references) {
+      if (ref.instanceId !== target.instanceId)
+        m.appendItem(next, noticeItem(t("composer.reference.droppedOnMove", { title: ref.title }), "warn"));
+    }
     for (const image of draft.images) get().queueComposerAttachment(next, image, "");
     for (const document of draft.documents) {
       if (document.data !== undefined) {

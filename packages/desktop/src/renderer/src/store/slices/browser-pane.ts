@@ -21,6 +21,7 @@ export type BrowserPaneSlice = Pick<
   | "queueComposerDocument"
   | "queueComposerText"
   | "queueComposerAnnotations"
+  | "queueComposerReferences"
   | "drainComposerQueue"
 >;
 
@@ -282,6 +283,23 @@ export function createBrowserPaneSlice(
             [tabId]: {
               ...tab,
               composerQueue: { ...queue, annotations: [...(queue.annotations ?? []), ...annotations] },
+            },
+          },
+        };
+      });
+    },
+    queueComposerReferences(tabId, references) {
+      if (references.length === 0) return;
+      set((s) => {
+        const tab = s.rpc[tabId];
+        if (!tab) return s;
+        const queue = tab.composerQueue ?? { images: [], text: [] };
+        return {
+          rpc: {
+            ...s.rpc,
+            [tabId]: {
+              ...tab,
+              composerQueue: { ...queue, references: [...(queue.references ?? []), ...references] },
             },
           },
         };

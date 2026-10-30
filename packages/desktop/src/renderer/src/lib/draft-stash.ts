@@ -1,13 +1,14 @@
 import { useSyncExternalStore } from "react";
 import type { DocumentAttachment, ImageAttachment } from "@omp-ui/core/types";
 import type { Annotation } from "./annotations";
+import type { DraftSessionReference } from "./session-references";
 import { randomId } from "./random-id";
 
 /**
  * The draft stash (issue #989): composer drafts parked app-wide, outside any
  * tab, so one can be moved into another session's composer. A stashed draft
  * carries everything the composer draft does — text, image Attachments,
- * Document Attachments, annotations — and every document carries its bytes:
+ * Document Attachments, annotations, session references — and every document carries its bytes:
  * a scratch path is valid only on the host that wrote it and only until the
  * quit sweep (ADR-0044), so applying re-materializes on the target's host at
  * send like any picked PDF.
@@ -25,6 +26,12 @@ export interface StashedDraft {
   /** Every entry has `data`, never `path`. */
   documents: DocumentAttachment[];
   annotations: Annotation[];
+  /**
+   * Session references with their owning instance (issue #984). Absent on a
+   * draft stashed before them. Applying them to a session on another
+   * instance refuses them, like dropping a row there would.
+   */
+  references?: DraftSessionReference[];
 }
 
 export type DraftContent = Omit<StashedDraft, "id" | "stashedAt">;

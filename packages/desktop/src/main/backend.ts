@@ -1184,6 +1184,19 @@ export class MainBackend {
           this.sessions.deleteSession(tabId, cascade),
         [CH.forkSession]: (tabId: string) => this.sessions.forkSession(tabId),
         [CH.sessionTranscriptPath]: (tabId: string) => this.sessions.transcriptPath(tabId),
+        // A session reference (issue #984) names this host: the path exists only here.
+        [CH.sessionReference]: async (tabId: string) => {
+          const record = this.registry.sessions.find((s) => s.tabId === tabId);
+          if (!record || record.sessionId === null) return null;
+          const path = await this.sessions.transcriptPath(tabId);
+          if (path === null) return null;
+          return {
+            sessionId: record.sessionId,
+            title: record.cachedTitle?.trim() || "New session",
+            machine: this.fleetLabel,
+            path,
+          };
+        },
         [CH.convertToWorktree]: (
           tabId: string,
           branch: string,

@@ -11,13 +11,15 @@ import {
   readImageFiles,
 } from "./clipboard-image";
 import type { Annotation } from "./annotations";
+import type { DraftSessionReference } from "./session-references";
 import { sanitizeDocumentName } from "./document-context";
 
 /**
  * The Attachment draft shared by the composer and the plan review's refine
- * notes (issue #299, PDFs per ADR-0044, annotations per ADR-0077): paste and
- * picker both append to the same lists — images and PDF Document
- * Attachments — the selection Comment action appends annotations, and
+ * notes (issue #299, PDFs per ADR-0044, annotations per ADR-0077, session
+ * references per ADR-0085): paste and picker both append to the same lists —
+ * images and PDF Document Attachments — the selection Comment action appends
+ * annotations, a dropped sidebar row appends a session reference, and
  * refusals surface as one dismissible message.
  */
 export interface ImageDraft {
@@ -26,6 +28,8 @@ export interface ImageDraft {
   documents: DocumentAttachment[];
   /** Quoted selections with comments; they lead the prompt text at send (ADR-0077). */
   annotations: Annotation[];
+  /** Other sessions handed over as references; their block leads the prompt (ADR-0085). */
+  references: DraftSessionReference[];
   /** Why an Attachment was refused (over a size ceiling, unreadable). */
   pasteError: string | null;
   /** Intercepts an image or PDF paste; text pastes pass through untouched. */
@@ -38,9 +42,12 @@ export interface ImageDraft {
   addDocuments: (documents: DocumentAttachment[]) => void;
   /** Appends annotations (the selection Comment action, a restored draft). */
   addAnnotations: (annotations: Annotation[]) => void;
+  /** Appends session references, skipping any session already in the draft. */
+  addReferences: (references: DraftSessionReference[]) => void;
   dropImage: (index: number) => void;
   dropDocument: (index: number) => void;
   dropAnnotation: (index: number) => void;
+  dropReference: (index: number) => void;
   /** Clears every draft list and any refusal message together (send / refine). */
   clearDraft: () => void;
   /** Surfaces a send-time refusal (materialization failed) beside the draft. */
@@ -59,6 +66,8 @@ export function useImageDraft(): ImageDraft {
   const [documents, setDocuments] = useState<DocumentAttachment[]>([]);
   /** Annotations in the draft, in the order they were added. */
   const [annotations, setAnnotations] = useState<Annotation[]>([]);
+  /** Session references in the draft (issue #984), in the order they were added. */
+  const [references, setReferences] = useState<DraftSessionReference[]>([]);
   /** Why an Attachment was refused (over a size ceiling, unreadable). */
   const [pasteError, setPasteError] = useState<string | null>(null);
 
@@ -145,6 +154,19 @@ export function useImageDraft(): ImageDraft {
     if (incoming.length > 0) setAnnotations((prev) => [...prev, ...incoming]);
   }, []);
 
+  const addReferences = useCallback((incoming: DraftSessionReference[]) => {
+    if (incoming.length === 0) return;
+    // One chip per session: a second drop of the same row adds nothing.
+    setReferences((prev) => [
+      ...prev,
+      ...incoming.filter(
+        (ref, i) =>
+          !prev.some((p) => p.instanceId === ref.instanceId && p.sessionId === ref.sessionId) &&
+          incoming.findIndex((r) => r.instanceId === ref.instanceId && r.sessionId === ref.sessionId) === i,
+      ),
+    ]);
+  }, []);
+
   const dropImage = useCallback((index: number) => {
     setImages((prev) => prev.filter((_, i) => i !== index));
   }, []);
@@ -157,10 +179,15 @@ export function useImageDraft(): ImageDraft {
     setAnnotations((prev) => prev.filter((_, i) => i !== index));
   }, []);
 
+  const dropReference = useCallback((index: number) => {
+    setReferences((prev) => prev.filter((_, i) => i !== index));
+  }, []);
+
   const clearDraft = useCallback(() => {
     setImages([]);
     setDocuments([]);
     setAnnotations([]);
+    setReferences([]);
     setPasteError(null);
   }, []);
 
@@ -170,6 +197,7 @@ export function useImageDraft(): ImageDraft {
     images,
     documents,
     annotations,
+    references,
     pasteError,
     setPasteError,
     onPaste,
@@ -177,9 +205,11 @@ export function useImageDraft(): ImageDraft {
     addImages,
     addDocuments,
     addAnnotations,
+    addReferences,
     dropImage,
     dropDocument,
     dropAnnotation,
+    dropReference,
     clearDraft,
     dismissError,
   };

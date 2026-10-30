@@ -3,6 +3,7 @@ import { annotationQuotePreview, splitAnnotationContext } from "./annotations";
 import { stripTrailingAttachmentRoutingContext } from "./attachment-routing";
 import { splitDocumentContext } from "./document-context";
 import { splitResolvedMentionContext } from "./mentions";
+import { splitSessionReferenceContext } from "./session-references";
 import type { SessionRuntime } from "./rpc-types";
 
 /**
@@ -71,15 +72,18 @@ export function queueChipCount(session: SessionRuntime): number {
 /**
  * Queue-chip text is omp-ui's wire message verbatim. Display it the way the
  * transcript does (transcript.ts userContentFromContent): routing suffix,
- * then document block, then the leading annotations block, then resolved
- * mention blocks. Each annotation shows as one `> quote` line ahead of the
+ * then document block, then the leading session references and annotations
+ * blocks, then resolved mention blocks. Each reference shows as one
+ * `@ title` line and each annotation as one `> quote` line ahead of the
  * prose. Promote still sends the RAW text — omp matches it exactly.
  */
 export function queueEntryDisplayText(raw: string): string {
   const routed = stripTrailingAttachmentRoutingContext(raw);
   const { text: docless } = splitDocumentContext(routed);
-  const { text: prose, annotations } = splitAnnotationContext(docless);
+  const { text: unreferenced, references } = splitSessionReferenceContext(docless);
+  const { text: prose, annotations } = splitAnnotationContext(unreferenced);
   const text = splitResolvedMentionContext(prose).text;
+  const refs = references.map((ref) => `@ ${ref.title}`);
   const quotes = annotations.map((annotation) => `> ${annotationQuotePreview(annotation.quote)}`);
-  return [...quotes, ...(text === "" ? [] : [text])].join("\n");
+  return [...refs, ...quotes, ...(text === "" ? [] : [text])].join("\n");
 }

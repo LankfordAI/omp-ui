@@ -1,11 +1,13 @@
 import { formatDuration } from "./duration";
 import { stripAttachmentRoutingContext } from "./attachment-routing";
 import { splitAnnotationContext, type Annotation } from "./annotations";
+import { splitSessionReferenceContext } from "./session-references";
 import { boolField, field, isObj, numField, str, strField } from "./fields";
 import { splitResolvedMentionContext } from "./mentions";
 import { splitDocumentContext, type DocumentRef } from "./document-context";
 import { parseOmpDiff, type DiffRow } from "./omp-diff";
 import { parseVaultDetails, type VaultToolDetails } from "@omp-ui/core/vault-shared";
+import type { SessionReference } from "@omp-ui/core/types";
 import { FLEET_WAKE_CUSTOM_TYPE, parseFleetWakeCard, type FleetWakeCard } from "@omp-ui/core/fleet-wake";
 import { toolResultReplies } from "@omp-ui/core/out-replies";
 
@@ -30,6 +32,8 @@ export interface UserItem {
   documents?: DocumentRef[];
   /** Quoted selections with comments, parsed back out of the leading annotations block (ADR-0077). */
   annotations?: Annotation[];
+  /** Other sessions handed over as references, parsed back out of the leading block (ADR-0085). */
+  references?: SessionReference[];
   /** Epoch ms the prompt was sent (live) or written (backfill); the catch-up digest windows off it (issue #273). */
   timestamp?: number;
 }
@@ -455,7 +459,7 @@ function imagesField(content: unknown, details: unknown): Pick<ToolItem, "images
 
 export function userContentFromContent(
   content: unknown,
-): Pick<UserItem, "text" | "fileMentions" | "images" | "documents" | "annotations"> {
+): Pick<UserItem, "text" | "fileMentions" | "images" | "documents" | "annotations" | "references"> {
   const blocks = typeof content === "string" ? [] : contentBlocks(content);
   const rawText =
     typeof content === "string"
@@ -468,11 +472,13 @@ export function userContentFromContent(
   const visibleText = stripAttachmentRoutingContext(rawText, images.length);
   // File blocks precede the document block on the wire, and the mention
   // splitter anchors its close at end-of-text — the document block must go
-  // first or the file block would never parse as terminal. The annotations
-  // block leads the prompt (ADR-0077) and comes off before the mention split,
-  // so a quoted `@path` never counts as one of the prompt's mentions.
+  // first or the file block would never parse as terminal. The session
+  // references block leads the prompt (ADR-0085), the annotations block
+  // follows it (ADR-0077); both come off before the mention split, so a
+  // quoted `@path` never counts as one of the prompt's mentions.
   const { text: docless, documents } = splitDocumentContext(visibleText);
-  const { text: prose, annotations } = splitAnnotationContext(docless);
+  const { text: unreferenced, references } = splitSessionReferenceContext(docless);
+  const { text: prose, annotations } = splitAnnotationContext(unreferenced);
   const { text, paths } = splitResolvedMentionContext(prose);
   return {
     text,
@@ -480,6 +486,7 @@ export function userContentFromContent(
     ...(images.length > 0 ? { images } : {}),
     ...(documents.length > 0 ? { documents } : {}),
     ...(annotations.length > 0 ? { annotations } : {}),
+    ...(references.length > 0 ? { references } : {}),
   };
 }
 

@@ -587,10 +587,22 @@ the prompt text as an `<annotations>` block; the user bubble shows the chips,
 not the block. omp's own `/annotate` is TUI-only.
 _Avoid_: citation, highlight, note (a note is a Knowledge vault note)
 
+**Session reference**:
+Another saved **Session** handed to this session's next prompt (issue #984,
+ADR-0085). Drag a sidebar row onto a native composer, or pick it under the
+`@`-palette's *Sessions*; it becomes a chip in the draft. On send it leads
+the prompt as a `<session references>` block naming the session's title, id,
+owning machine, and the absolute path of its transcript there, with a hint
+that omp's `seance` task agent can read it without resuming it. Same-machine
+only: a session owned by another instance is refused, and a draft moved to
+another machine drops its references. A live session may be referenced; the
+path names its file as of the prompt.
+_Avoid_: link, mention (an `@path` file mention), attachment, citation
+
 **Draft stash**:
 Composer drafts parked app-wide, outside any session (issue #989).
 `Mod+Alt+S` or the `+` menu moves the whole draft — text, image
-Attachments, Document Attachments, Annotations — into it and clears the
+Attachments, Document Attachments, Annotations, Session references — into it and clears the
 composer; from an empty composer the same chord opens the picker, which
 moves a chosen draft into that composer. It lives in the client's own
 IndexedDB, and every stashed document carries its bytes (a path-only one is

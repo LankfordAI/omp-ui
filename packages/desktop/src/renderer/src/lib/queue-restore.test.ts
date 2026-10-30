@@ -27,11 +27,12 @@ describe("splitQueuedWireText", () => {
         { name: "Q3: budget.pdf", path: "/tmp/q3.pdf" },
       ],
       annotations: [],
+      references: [],
     });
   });
 
   it("leaves bare prose untouched", () => {
-    expect(splitQueuedWireText("just words")).toEqual({ text: "just words", documents: [], annotations: [] });
+    expect(splitQueuedWireText("just words")).toEqual({ text: "just words", documents: [], annotations: [], references: [] });
   });
 
   it("keeps raw @tokens and strips only the resolved mention blocks", () => {
@@ -45,16 +46,17 @@ describe("splitQueuedWireText", () => {
       text: "read @src/a.ts and @src/b.ts",
       documents: [],
       annotations: [],
+      references: [],
     });
   });
 
   it("keeps a malformed document lookalike as prose", () => {
     const lookalike = "notes\n\n<attached documents>\nnot a pair line\n</attached documents>";
-    expect(splitQueuedWireText(lookalike)).toEqual({ text: lookalike, documents: [], annotations: [] });
+    expect(splitQueuedWireText(lookalike)).toEqual({ text: lookalike, documents: [], annotations: [], references: [] });
   });
 
   it("strips the routing suffix even when it is the whole frame", () => {
-    expect(splitQueuedWireText(TWO_IMAGE_CONTEXT)).toEqual({ text: "", documents: [], annotations: [] });
+    expect(splitQueuedWireText(TWO_IMAGE_CONTEXT)).toEqual({ text: "", documents: [], annotations: [], references: [] });
   });
 
   it("splits all three suffixes in wire order", () => {
@@ -69,6 +71,7 @@ describe("splitQueuedWireText", () => {
       text: "ship @src/a.ts",
       documents: [{ name: "spec.pdf", path: "/p/spec.pdf" }],
       annotations: [],
+      references: [],
     });
   });
 });

@@ -2,8 +2,9 @@
 // wire message back into draft parts, and validate omp's
 // `abort_and_restore_queue` / `remove_queued_message` payloads. No React, no
 // store — the slice composes them.
-import type { ImageAttachment } from "@omp-ui/core/types";
+import type { ImageAttachment, SessionReference } from "@omp-ui/core/types";
 import { splitAnnotationContext, type Annotation } from "./annotations";
+import { splitSessionReferenceContext } from "./session-references";
 import { stripTrailingAttachmentRoutingContext } from "./attachment-routing";
 import { splitDocumentContext, type DocumentRef } from "./document-context";
 import { boolField, field, isObj, strField } from "./fields";
@@ -11,9 +12,11 @@ import { splitResolvedMentionContext } from "./mentions";
 
 /**
  * Splits one queued wire message back into draft prose plus the documents its
- * block names and the annotations its leading block carries. Mirror image of
+ * block names, the session references its leading block names (ADR-0085), and
+ * the annotations block that follows them. Mirror image of
  * `queueEntryDisplayText`'s order (queue-chip.ts): routing suffix, document
- * block, annotations block, resolved mention blocks. The prose keeps its
+ * block, session references block, annotations block, resolved mention
+ * blocks. The prose keeps its
  * raw `@` tokens — `splitResolvedMentionContext` only removes the terminal
  * blocks — and images come from the response, never the text. The routing
  * suffix is stripped by construction: the restored draft gets one fresh,
@@ -24,12 +27,14 @@ export function splitQueuedWireText(raw: string): {
   text: string;
   documents: DocumentRef[];
   annotations: Annotation[];
+  references: SessionReference[];
 } {
   const { text: docless, documents } = splitDocumentContext(
     stripTrailingAttachmentRoutingContext(raw),
   );
-  const { text: prose, annotations } = splitAnnotationContext(docless);
-  return { text: splitResolvedMentionContext(prose).text, documents, annotations };
+  const { text: unreferenced, references } = splitSessionReferenceContext(docless);
+  const { text: prose, annotations } = splitAnnotationContext(unreferenced);
+  return { text: splitResolvedMentionContext(prose).text, documents, annotations, references };
 }
 
 /** Projects a bare `ImageContent[]` — what `remove_queued_message` returns —

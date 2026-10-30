@@ -6,7 +6,7 @@
 import { beforeEach, describe, expect, it } from "vitest";
 import type { CapabilitySnapshot } from "@omp-ui/core/capabilities";
 import type { SessionSummary } from "@omp-ui/core/types";
-import { rpcTabState, tabInfo } from "../../test/fixtures";
+import { remoteOwnedState, rpcTabState, tabInfo } from "../../test/fixtures";
 import { h } from "../../test/store-harness";
 
 // The harness owns the window-stub ordering (no test file imports ../store
@@ -321,5 +321,53 @@ describe("resolveSeanceSource (issue #885)", () => {
     second.sessionId = "sess-2";
     two.projects[0]!.sessions.push(second as SessionSummary);
     expect(await resolveSeanceSource(two, null, "sess-")).toBeNull();
+  });
+});
+
+describe("referenceSession (issue #984)", () => {
+  const SOURCE = "source-tab";
+  /** The target tab plus one more local session to reference. */
+  function withSource(sessionId: string | null): void {
+    setup("rpc-ui");
+    const state = structuredClone(h.backendState);
+    const source = structuredClone(state.projects[0]!.sessions[0]!);
+    source.tabId = SOURCE;
+    source.sessionId = sessionId;
+    source.title = "Deploy fix";
+    state.projects[0]!.sessions.push(source as SessionSummary);
+    h.backendState = state;
+    h.useStore.setState({ state });
+  }
+  const queued = () => h.useStore.getState().rpc[h.TAB]?.composerQueue?.references;
+
+  it("queues the owner's resolved reference, tagged with the owning instance", async () => {
+    withSource("sess-ref");
+    await h.useStore.getState().referenceSession(h.TAB, SOURCE);
+    expect(h.mockBackend.sessionReference).toHaveBeenCalledWith(SOURCE);
+    expect(queued()).toEqual([
+      { sessionId: "sess-ref", title: "Deploy fix", machine: "box", path: "/s/lineage/ref.jsonl", instanceId: null },
+    ]);
+  });
+
+  it("refuses a session on another instance without asking any host", async () => {
+    withSource("sess-ref");
+    const remote = remoteOwnedState("remote-tab", "inst-1");
+    const state = { ...h.backendState, remoteInstances: remote.remoteInstances };
+    h.useStore.setState({ state });
+    h.mockBackend.sessionReference.mockClear();
+    await h.useStore.getState().referenceSession(h.TAB, "remote-tab");
+    expect(h.mockBackend.sessionReference).not.toHaveBeenCalled();
+    expect(queued()).toBeUndefined();
+    expect(notices().join("\n")).toContain("box-a");
+  });
+
+  it("refuses the session itself and one with nothing saved", async () => {
+    withSource(null);
+    h.mockBackend.sessionReference.mockClear();
+    await h.useStore.getState().referenceSession(h.TAB, h.TAB);
+    await h.useStore.getState().referenceSession(h.TAB, SOURCE);
+    expect(h.mockBackend.sessionReference).not.toHaveBeenCalled();
+    expect(queued()).toBeUndefined();
+    expect(notices()).toHaveLength(2);
   });
 });

@@ -8,6 +8,7 @@ import { formatSnoozeUntil } from "../lib/snooze-until";
 import { cn } from "../lib/cn";
 import { canSettle, deriveSidebarSessionState, useStore, type SidebarSessionState } from "../store";
 import { SEANCE_MIN_OMP, supportsSeance } from "../lib/seance";
+import { SESSION_DRAG_MIME } from "../lib/session-drag";
 import { Button, Chip, Dot, IconButton, IconClock, IconLock, IconPin, IconSpeaker, type Tone } from "./ui";
 import type { SessionHandoff } from "../lib/session-handoffs";
 import { openPullRequest, pullRequestFace, PullRequestChip } from "./PullRequestChip";
@@ -433,6 +434,13 @@ export function SessionRow({
   return (
     <div
       onContextMenu={onContextMenu}
+      // A drag source for session references (issue #984): drop on a native
+      // composer to hand this session over. A missing row has nothing saved.
+      draggable={!missing}
+      onDragStart={(event) => {
+        event.dataTransfer.setData(SESSION_DRAG_MIME, s.tabId);
+        event.dataTransfer.effectAllowed = "link";
+      }}
       className={cn(
         "group/row animate-slide-in relative rounded-md transition-colors duration-150",
         selected || multiSelected ? "bg-raised" : "hover:bg-raised/60",

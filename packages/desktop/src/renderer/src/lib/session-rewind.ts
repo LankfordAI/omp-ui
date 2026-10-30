@@ -7,6 +7,7 @@
 // `userContentFromContent()` strip that built the items; any mismatch refuses
 // the rewind rather than guessing an id.
 
+import type { SessionReference } from "@omp-ui/core/types";
 import type { Annotation } from "./annotations";
 import { strField } from "./fields";
 import { isObj } from "./fields";
@@ -23,6 +24,8 @@ export interface PromptEntry {
   documents?: { name: string; path: string }[];
   /** Annotation chips parsed out of the leading block (ADR-0077). */
   annotations?: Annotation[];
+  /** Session references parsed out of the leading block (ADR-0085). */
+  references?: SessionReference[];
 }
 
 /**
@@ -107,6 +110,7 @@ export function visiblePromptEntries(
       images: content.images ?? [],
       ...(content.documents?.length ? { documents: content.documents } : {}),
       ...(content.annotations?.length ? { annotations: content.annotations } : {}),
+      ...(content.references?.length ? { references: content.references } : {}),
     });
   }
   return out;
@@ -161,6 +165,7 @@ export function entryUserPrompt(
       images: content.images ?? [],
       ...(content.documents?.length ? { documents: content.documents } : {}),
       ...(content.annotations?.length ? { annotations: content.annotations } : {}),
+      ...(content.references?.length ? { references: content.references } : {}),
     };
   }
   return null;

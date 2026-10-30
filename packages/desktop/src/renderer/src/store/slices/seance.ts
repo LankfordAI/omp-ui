@@ -4,16 +4,16 @@
 // — and follow-ups ride the existing `steer_subagent`. Consulting state is not
 // stored here: the subagent roster filtered by `agent === "seance"` is the
 // truth, and omp's hub persists the consultant's transcript for backfill.
-import { backendFor } from "../../backend";
+import { backendFor, displayMessage } from "../../backend";
 import { noticeItem } from "../../lib/transcript";
 import { t } from "../../lib/i18n";
 import { parseSeanceArgs } from "../../lib/seance-args";
 import { seanceKickoff } from "../../lib/seance-kickoff";
 import { SEANCE_MIN_OMP, supportsSeance } from "../../lib/seance";
-import type { SessionSummary } from "@omp-ui/core/types";
+import type { SessionReference, SessionSummary } from "@omp-ui/core/types";
 import type { SeanceSlice, UiStore } from "../types";
 import { dropExited, type GetState, type SetState, type StoreMachinery } from "./shared";
-import { findOwner, findRecord, focusOn } from "./view";
+import { findInstance, findOwner, findRecord, focusOn } from "./view";
 
 export interface SeanceDeps {
   resolveSpawnParams(
@@ -227,6 +227,44 @@ export function createSeanceSlice(
     );
   };
 
+  const referenceSession: SeanceSlice["referenceSession"] = async (targetTabId, sourceTabId) => {
+    const state = get().state;
+    const target = findOwner(state, targetTabId);
+    const source = findOwner(state, sourceTabId);
+    if (target === undefined || source === undefined) return;
+    const title = source.record.title;
+    if (sourceTabId === targetTabId) {
+      get().appendNotice(targetTabId, t("composer.reference.self"), "warn");
+      return;
+    }
+    // Same-machine only (issue #984): the path names a file on the source's
+    // owner, so a target owned by any other instance could never open it.
+    if (source.instanceId !== target.instanceId) {
+      const machine =
+        source.instanceId === null
+          ? t("fleet.machine.thisComputer")
+          : (findInstance(state, source.instanceId)?.nickname ?? source.instanceId);
+      get().appendNotice(targetTabId, t("composer.reference.otherMachine", { title, machine }), "warn");
+      return;
+    }
+    if (source.record.sessionId === null) {
+      get().appendNotice(targetTabId, t("composer.reference.noTranscript", { title }), "warn");
+      return;
+    }
+    let reference: SessionReference | null;
+    try {
+      reference = await backendFor(source.instanceId).sessionReference(sourceTabId);
+    } catch (err) {
+      get().appendNotice(targetTabId, t("composer.reference.failed", { title, reason: displayMessage(err) }), "warn");
+      return;
+    }
+    if (reference === null) {
+      get().appendNotice(targetTabId, t("composer.reference.noTranscript", { title }), "warn");
+      return;
+    }
+    get().queueComposerReferences(targetTabId, [{ ...reference, instanceId: source.instanceId }]);
+  };
+
   return {
     seanceDialog: null,
     openSeanceDialog,
@@ -234,5 +272,6 @@ export function createSeanceSlice(
     launchSeanceConsult,
     runSeanceLine,
     consultFromRow,
+    referenceSession,
   };
 }

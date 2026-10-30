@@ -1,4 +1,4 @@
-import { useImperativeHandle, useMemo, type KeyboardEvent, type Ref } from "react";
+import { Fragment, useImperativeHandle, useMemo, type KeyboardEvent, type Ref } from "react";
 import { MAX_PROJECT_FILES } from "@omp-ui/core/project-files-limit";
 import { cn } from "../lib/cn";
 import { useT } from "../lib/i18n";
@@ -12,7 +12,8 @@ import { PaletteList, usePaletteNav } from "./palette";
  * SlashPalette's machinery pointed at the project file listing instead of the
  * command set. Same split: the palette owns filtering and the selection
  * cursor, and the composer's textarea forwards its keydown through
- * `handleKey`, so focus never leaves the input.
+ * `handleKey`, so focus never leaves the input. Sessions this one may
+ * reference (issue #984) lead the list under their own label.
  */
 
 export interface MentionPaletteHandle {
@@ -25,19 +26,43 @@ const MAX_ROWS = 50;
 /** The cap as the footer displays it: "10 000". */
 const CAP_LABEL = String(MAX_PROJECT_FILES).replace(/\B(?=(\d{3})+(?!\d))/g, " ");
 
-interface Row {
-  /** Project-relative path; dirs carry a trailing "/". */
-  path: string;
-  isDir: boolean;
-  /** Indices of `path` the query consumed, for emphasis. */
-  hits: number[];
+/** A referenceable session row: its tab and display title. */
+export interface MentionSession {
+  tabId: string;
+  title: string;
 }
+
+const NO_SESSIONS: readonly MentionSession[] = [];
+/** Session rows shown at most above the files. */
+const MAX_SESSION_ROWS = 8;
+
+type Row =
+  | {
+      kind: "file";
+      /** Project-relative path; dirs carry a trailing "/". */
+      path: string;
+      isDir: boolean;
+      /** Indices of `path` the query consumed, for emphasis. */
+      hits: number[];
+      score?: number;
+    }
+  | {
+      kind: "session";
+      tabId: string;
+      /** The session title, displayed and matched like a path. */
+      path: string;
+      isDir: false;
+      hits: number[];
+      score?: number;
+    };
 
 export function MentionPalette({
   query,
   files,
   truncated,
+  sessions = NO_SESSIONS,
   onPick,
+  onPickSession,
   onClose,
   ref,
 }: {
@@ -47,19 +72,35 @@ export function MentionPalette({
   files: readonly string[];
   /** The listing hit MAX_PROJECT_FILES — narrowing the query still helps. */
   truncated: boolean;
+  /** Sessions this one may reference (issue #984), newest first; listed above the files. */
+  sessions?: readonly MentionSession[];
   onPick(relPath: string): void;
+  /** A session row was picked: the composer swaps the @-word for a reference chip. */
+  onPickSession?(tabId: string): void;
   onClose(): void;
   ref?: Ref<MentionPaletteHandle>;
 }) {
   const t = useT();
 
   const rows = useMemo(() => {
+    const sessionRows: Row[] = [];
+    for (const session of sessions) {
+      if (query === "") {
+        sessionRows.push({ kind: "session", tabId: session.tabId, path: session.title, isDir: false, hits: [] });
+        continue;
+      }
+      const hit = fuzzyMatch(session.title, query);
+      if (hit !== null)
+        sessionRows.push({ kind: "session", tabId: session.tabId, path: session.title, isDir: false, hits: hit.hits, score: hit.score });
+    }
+    if (query !== "") sessionRows.sort((a, b) => (b.score ?? 0) - (a.score ?? 0));
     const all: Row[] = [
-      ...files.map((path) => ({ path, isDir: false, hits: [] as number[] })),
-      ...deriveDirs(files).map((path) => ({ path, isDir: true, hits: [] as number[] })),
+      ...files.map((path) => ({ kind: "file" as const, path, isDir: false, hits: [] as number[] })),
+      ...deriveDirs(files).map((path) => ({ kind: "file" as const, path, isDir: true, hits: [] as number[] })),
     ];
+    const leading = sessionRows.slice(0, MAX_SESSION_ROWS);
     // An empty query lists in listed order — ranking zeroes would only shuffle.
-    if (query === "") return all.slice(0, MAX_ROWS);
+    if (query === "") return [...leading, ...all.slice(0, MAX_ROWS)];
     const scored: { row: Row; score: number }[] = [];
     for (const row of all) {
       const full = fuzzyMatch(row.path, query);
@@ -71,14 +112,19 @@ export function MentionPalette({
       scored.push({ row: { ...row, hits: full.hits }, score });
     }
     scored.sort((a, b) => b.score - a.score || a.row.path.localeCompare(b.row.path));
-    return scored.slice(0, MAX_ROWS).map((s) => s.row);
-  }, [files, query]);
+    return [...leading, ...scored.slice(0, MAX_ROWS).map((s) => s.row)];
+  }, [files, sessions, query]);
+
+  const pickRow = (row: Row): void => {
+    if (row.kind === "session") onPickSession?.(row.tabId);
+    else onPick(pickPath(row));
+  };
 
   const { active, setActive, activeRef, handleKey } = usePaletteNav({
     items: rows,
     resetKey: query,
     acceptTab: true,
-    onPick: (row) => onPick(pickPath(row)),
+    onPick: pickRow,
     onClose,
   });
 
@@ -97,31 +143,41 @@ export function MentionPalette({
     );
   }
 
+  const sessionCount = rows.findIndex((row) => row.kind !== "session");
+  const firstFile = sessionCount === -1 ? rows.length : sessionCount;
   return (
     <PaletteList className={cn(shell, "max-h-[min(18rem,calc(var(--app-viewport-height,100dvh)*0.45))] py-1")}>
       {rows.map((row, i) => (
-        <button
-          key={row.path}
-          type="button"
-          ref={i === active ? activeRef : null}
-          // Keep the caret in the textarea: a blur would tear the palette down.
-          onMouseDown={(e) => e.preventDefault()}
-          onMouseEnter={() => setActive(i)}
-          onClick={() => onPick(pickPath(row))}
-          className={cn(
-            "flex w-full items-baseline gap-2 px-3 py-1 text-left",
-            i === active ? "bg-hover" : "hover:bg-raised",
+        <Fragment key={row.kind === "session" ? `session:${row.tabId}` : row.path}>
+          {i === 0 && firstFile > 0 && (
+            <div className="px-3 pb-0.5 pt-1">
+              <Label>{t("composer.mention.sessions")}</Label>
+            </div>
           )}
-        >
-          <span className="min-w-0 flex-1 truncate font-mono text-xs text-ink">
-            {highlightRuns(row.path, row.hits).map((part, j) => (
-              <span key={j} className={part.hit ? "text-signal" : undefined}>
-                {part.text}
-              </span>
-            ))}
-          </span>
-          {row.isDir && <Chip>{t("composer.mention.dir")}</Chip>}
-        </button>
+          {i === firstFile && firstFile > 0 && <div className="my-1 border-t border-line" />}
+          <button
+            type="button"
+            data-mention-session={row.kind === "session" ? row.tabId : undefined}
+            ref={i === active ? activeRef : null}
+            // Keep the caret in the textarea: a blur would tear the palette down.
+            onMouseDown={(e) => e.preventDefault()}
+            onMouseEnter={() => setActive(i)}
+            onClick={() => pickRow(row)}
+            className={cn(
+              "flex w-full items-baseline gap-2 px-3 py-1 text-left",
+              i === active ? "bg-hover" : "hover:bg-raised",
+            )}
+          >
+            <span className={cn("min-w-0 flex-1 truncate text-xs text-ink", row.kind === "file" && "font-mono")}>
+              {highlightRuns(row.path, row.hits).map((part, j) => (
+                <span key={j} className={part.hit ? "text-signal" : undefined}>
+                  {part.text}
+                </span>
+              ))}
+            </span>
+            {row.isDir && <Chip>{t("composer.mention.dir")}</Chip>}
+          </button>
+        </Fragment>
       ))}
       {truncated && (
         <div className="border-t border-line px-3 pb-1 pt-1.5">

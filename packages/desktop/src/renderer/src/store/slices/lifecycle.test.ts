@@ -3044,7 +3044,7 @@ describe("moveUnpromptedSession (issue #936)", () => {
     seed();
     const next = await h.useStore
       .getState()
-      .moveUnpromptedSession(h.TAB, toRemote, { text: "fix the login bug", images: [image], documents: [pdf], annotations: [] });
+      .moveUnpromptedSession(h.TAB, toRemote, { text: "fix the login bug", images: [image], documents: [pdf], annotations: [], references: [] });
 
     expect(next).toBe(FRESH);
     // Routed to the target instance's backend, not the local one.
@@ -3067,7 +3067,7 @@ describe("moveUnpromptedSession (issue #936)", () => {
     seed();
     const next = await h.useStore
       .getState()
-      .moveUnpromptedSession(h.TAB, toLocal, { text: "hi", images: [], documents: [], annotations: [] });
+      .moveUnpromptedSession(h.TAB, toLocal, { text: "hi", images: [], documents: [], annotations: [], references: [] });
 
     expect(next).toBe(FRESH);
     expect(h.mockBackend.spawnSession).toHaveBeenCalledWith(
@@ -3081,7 +3081,7 @@ describe("moveUnpromptedSession (issue #936)", () => {
     h.mockBackend.spawnSession.mockRejectedValueOnce(new Error("pty spawn failed"));
     const next = await h.useStore
       .getState()
-      .moveUnpromptedSession(h.TAB, toLocal, { text: "hi", images: [], documents: [], annotations: [] });
+      .moveUnpromptedSession(h.TAB, toLocal, { text: "hi", images: [], documents: [], annotations: [], references: [] });
 
     expect(next).toBeNull();
     expect(h.mockBackend.deleteSession).not.toHaveBeenCalled();
@@ -3093,7 +3093,7 @@ describe("moveUnpromptedSession (issue #936)", () => {
     seed("sess-1");
     const next = await h.useStore
       .getState()
-      .moveUnpromptedSession(h.TAB, toLocal, { text: "hi", images: [], documents: [], annotations: [] });
+      .moveUnpromptedSession(h.TAB, toLocal, { text: "hi", images: [], documents: [], annotations: [], references: [] });
 
     expect(next).toBeNull();
     expect(h.mockBackend.spawnSession).not.toHaveBeenCalled();
@@ -3105,7 +3105,7 @@ describe("moveUnpromptedSession (issue #936)", () => {
     seed();
     await h.useStore
       .getState()
-      .moveUnpromptedSession(h.TAB, toRemote, { text: "read these", images: [], documents: [pdf, pathOnly], annotations: [] });
+      .moveUnpromptedSession(h.TAB, toRemote, { text: "read these", images: [], documents: [pdf, pathOnly], annotations: [], references: [] });
 
     const fresh = h.useStore.getState().rpc[FRESH]!;
     expect(fresh.composerQueue?.documents).toEqual([pdf]);
@@ -3114,5 +3114,17 @@ describe("moveUnpromptedSession (issue #936)", () => {
       level: "warn",
       text: expect.stringContaining("notes.pdf"),
     });
+  });
+
+  it("carries no reference to another machine: the chip is dropped with a notice naming it", async () => {
+    seed();
+    const local = { sessionId: "s-1", title: "Deploy fix", machine: "box", path: "/s/a.jsonl", instanceId: null };
+    await h.useStore
+      .getState()
+      .moveUnpromptedSession(h.TAB, toRemote, { text: "compare", images: [], documents: [], annotations: [], references: [local] });
+
+    const fresh = h.useStore.getState().rpc[FRESH]!;
+    expect(fresh.composerQueue?.references).toBeUndefined();
+    expect(fresh.items.at(-1)).toMatchObject({ kind: "notice", level: "warn", text: expect.stringContaining("Deploy fix") });
   });
 });

@@ -57,6 +57,7 @@ import {
   type SelectionAnchor,
 } from "./SelectionComment";
 import { AnnotationChips } from "./AnnotationChips";
+import { SessionReferenceChips } from "./SessionReferenceChips";
 import { normalizeAnnotationQuote } from "../lib/annotations";
 import { HeldPromptCard } from "./HeldPromptCard";
 import { ScheduledPromptCard } from "./ScheduledPromptCard";
@@ -358,6 +359,7 @@ function UserBubble({
   const fileMentions = item.fileMentions ?? [];
   const documents = item.documents ?? [];
   const annotations = item.annotations ?? [];
+  const references = item.references ?? [];
   return (
     <div className="speaker-run animate-rise flex flex-col items-end gap-1">
       {first && <Label className="speaker-label speaker-label-right">{t("transcript.speaker.you")}</Label>}
@@ -365,6 +367,7 @@ function UserBubble({
         className="group relative min-w-0 max-w-[72%] space-y-2 rounded-lg border border-iris-dim/40 bg-iris-wash px-3 py-2 text-ink has-[.md-plan]:w-full has-[.md-plan]:max-w-full"
         data-markdown-source={item.text !== "" ? item.text : undefined}
       >
+        {references.length > 0 && <SessionReferenceChips references={references} align="end" />}
         {annotations.length > 0 && <AnnotationChips annotations={annotations} align="end" />}
         {draft === null ? (
           item.text !== "" && <Markdown text={item.text} />

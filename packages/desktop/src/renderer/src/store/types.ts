@@ -56,6 +56,7 @@ import type {
   RemoteInstancePatch,
   RemoteState,
   SessionMode,
+  SessionReference,
   SttModelSnapshot,
   TranscriptWidth,
   UpdateTrain,
@@ -69,6 +70,7 @@ import type {
   PushResult,
 } from "@omp-ui/core/types";
 import type { Annotation } from "../lib/annotations";
+import type { DraftSessionReference } from "../lib/session-references";
 import type { DocumentRef } from "../lib/document-context";
 import type {
   BrowserPaneFrameHeader,
@@ -268,6 +270,8 @@ export interface RpcTabState {
     documents?: DocumentAttachment[];
     /** Quoted selections with comments (issue #983): the transcript's Comment action and restored drafts. */
     annotations?: Annotation[];
+    /** Session references (issue #984): a dropped sidebar row and restored drafts. */
+    references?: DraftSessionReference[];
     text: string[];
   };
   subagentMarkers: Map<string, string>;
@@ -1031,6 +1035,13 @@ export interface SeanceSlice {
   runSeanceLine(tabId: string, line: string): Promise<void>;
   /** The sidebar row's ghost action: resolves the source transcript path, then opens the dialog defaulted to that row. */
   consultFromRow(sourceTabId: string): Promise<void>;
+  /**
+   * Adds `sourceTabId` as a session reference chip to `targetTabId`'s
+   * composer draft (issue #984): resolves the owner's transcript path and
+   * machine name, or refuses with a notice on the target (itself, another
+   * instance's session, nothing saved yet).
+   */
+  referenceSession(targetTabId: string, sourceTabId: string): Promise<void>;
 }
 
 /**
@@ -1263,11 +1274,14 @@ export interface UiStore extends SettingsSlice, UpdatesSlice, LabSlice, StatsSli
   queueComposerText(tabId: string, text: string): void;
   /** Queues annotation chips for the composer draft (issue #983). */
   queueComposerAnnotations(tabId: string, annotations: Annotation[]): void;
+  /** Queues session reference chips for the composer draft (issue #984). */
+  queueComposerReferences(tabId: string, references: DraftSessionReference[]): void;
   /** Takes the queued attachments; null when nothing is queued. */
   drainComposerQueue(tabId: string): {
     images: ImageAttachment[];
     documents?: DocumentAttachment[];
     annotations?: Annotation[];
+    references?: DraftSessionReference[];
     text: string[];
   } | null;
   restartSession(tabId: string): Promise<boolean>;
@@ -1343,6 +1357,8 @@ export interface UiStore extends SettingsSlice, UpdatesSlice, LabSlice, StatsSli
       documents?: DocumentAttachment[];
       /** The hero background send's annotation chips (issue #983). */
       annotations?: Annotation[];
+      /** The hero background send's session references (issue #984). */
+      references?: SessionReference[];
       title?: string | null;
       planMode?: boolean;
       worktree?:
@@ -1383,6 +1399,8 @@ export interface UiStore extends SettingsSlice, UpdatesSlice, LabSlice, StatsSli
       images: ImageAttachment[];
       documents: DocumentAttachment[];
       annotations: Annotation[];
+      /** Carried only when the target is the same instance (ADR-0085). */
+      references: DraftSessionReference[];
     },
   ): Promise<string | null>;
   openNewSessionDialog(seed?: {
@@ -1531,8 +1549,9 @@ export interface UiStore extends SettingsSlice, UpdatesSlice, LabSlice, StatsSli
    *  `todo init` when the title is still an omp-ui-generated auto-title;
    *  no-op when any gate (marker, titled, ladder, floor) refuses. */
   refreshAutoTitle(tabId: string): void;
-  /** Sends a prompt; `annotations` lead the wire text (ADR-0077). False when
-   *  the tab refused it or omp rejected it — the composer returns the draft. */
+  /** Sends a prompt; session `references` (ADR-0085) then `annotations`
+   *  (ADR-0077) lead the wire text. False when the tab refused it or omp
+   *  rejected it — the composer returns the draft. */
   sendPrompt(
     tabId: string,
     message: string,
@@ -1540,6 +1559,7 @@ export interface UiStore extends SettingsSlice, UpdatesSlice, LabSlice, StatsSli
     images?: ImageAttachment[],
     docRefs?: DocumentRef[],
     annotations?: Annotation[],
+    references?: SessionReference[],
   ): Promise<boolean>;
   abortAgent(tabId: string): Promise<void>;
   /** Interrupt-and-replace; false when refused or rejected, like sendPrompt. */
@@ -1549,6 +1569,7 @@ export interface UiStore extends SettingsSlice, UpdatesSlice, LabSlice, StatsSli
     images?: ImageAttachment[],
     docRefs?: DocumentRef[],
     annotations?: Annotation[],
+    references?: SessionReference[],
   ): Promise<boolean>;
   loadAdvisorDefaults(projectCwd: string, instanceId?: string | null): Promise<void>;
   setSessionAdvisor(
@@ -1578,6 +1599,7 @@ export interface UiStore extends SettingsSlice, UpdatesSlice, LabSlice, StatsSli
     images?: ImageAttachment[],
     docRefs?: DocumentRef[],
     annotations?: Annotation[],
+    references?: SessionReference[],
   ): Promise<boolean>;
   /** Drops the held prompt and restores it into the composer draft (issue #986). */
   cancelHeldPrompt(tabId: string): Promise<void>;

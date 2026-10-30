@@ -307,6 +307,7 @@ const VALID_ARGS = {
   signOutProviderOAuth: ["openai-codex", 11],
   spawnSession: [spawnRequest],
   sessionTranscriptPath: ["tab-1"],
+  sessionReference: ["tab-1"],
   setSessionToolEnabled: ["tab-1", "proc-1", "sess-1", "web search", true],
   startProviderOAuth: ["openai-codex"],
   statsOverview: [7],

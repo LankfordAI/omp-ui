@@ -71,6 +71,7 @@ import type {
   WatchdogRosterResult,
   WatchdogWriteRequest,
   SessionMode,
+  SessionReference,
   SpawnAnswer,
   SpawnRequest,
   StatsOverview,
@@ -980,6 +981,16 @@ export const BACKEND_CHANNELS = {
   sessionTranscriptPath: {
     channel: "session:transcriptPath",
     ...request<[tabId: string], string | null>([str()]),
+  },
+  /**
+   * The facts a session reference names (issue #984): session id, title, this
+   * host's name, and the transcript path resolved like `sessionTranscriptPath`.
+   * Null when the session has no saved transcript. Tab-routed, so the owning
+   * host answers with its own name and a path that exists there.
+   */
+  sessionReference: {
+    channel: "session:reference",
+    ...request<[tabId: string], SessionReference | null>([str()]),
   },
   /**
    * Re-pins a session's advisor state. omp binds both the enable flag and the

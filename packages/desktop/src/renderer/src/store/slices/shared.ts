@@ -15,6 +15,7 @@ import {
 import type { LiveTurn } from "@omp-ui/core/live-voice";
 import type { LivePeer } from "../../lib/live-peer";
 import type { Annotation } from "../../lib/annotations";
+import type { SessionReference } from "@omp-ui/core/types";
 import { backgroundWorkInFlight } from "../../lib/async-jobs";
 import { formatDuration } from "../../lib/duration";
 import { field, isObj } from "../../lib/fields";
@@ -519,6 +520,8 @@ export interface RewindPrefill {
   documents?: { name: string; path: string }[];
   /** Annotation chips the prompt carried (issue #983); they return as chips. */
   annotations?: Annotation[];
+  /** Session references the prompt carried (issue #984); they return as chips. */
+  references?: SessionReference[];
 }
 
 /**

@@ -13,6 +13,7 @@ import { keywordPalette, SHIMMER_PERIOD_MS } from "../lib/keyword-colors";
 import { markerItem, noticeItem } from "../lib/transcript";
 import { withAttachmentRoutingContext } from "../lib/attachment-routing";
 import { withDocumentContext } from "../lib/document-context";
+import { SESSION_DRAG_MIME } from "../lib/session-drag";
 
 const clipboardImageMock = vi.hoisted(() => ({
   hasClipboardImage: vi.fn(() => false),
@@ -85,7 +86,6 @@ Object.assign(window, { ompBackend: backendMock });
 const { useStore } = await import("../store");
 const { Composer } = await import("./Composer");
 const { RpcTab } = await import("./RpcTab");
-
 
 const IMAGE_ONE = { type: "image" as const, data: "one", mimeType: "image/png" };
 const IMAGE_TWO = { type: "image" as const, data: "two", mimeType: "image/jpeg" };
@@ -249,7 +249,7 @@ describe("compact Composer", () => {
     const textarea = typeDraft("mobile sentinel");
     const send = [...document.body.querySelectorAll<HTMLButtonElement>("button")].find((button) => button.textContent === "Send")!;
     await act(async () => send.click());
-    expect(sendPrompt).toHaveBeenCalledWith(TAB, "mobile sentinel", "prompt", [], [], []);
+    expect(sendPrompt).toHaveBeenCalledWith(TAB, "mobile sentinel", "prompt", [], [], [], []);
     expect(textarea.value).toBe("");
     expect(document.activeElement).toBe(textarea);
   });
@@ -262,11 +262,11 @@ describe("compact Composer", () => {
     expect(byText("Abort")).toBeDefined();
     act(() => document.body.querySelector<HTMLButtonElement>('button[title="prompt options"]')!.click());
     await act(async () => byText("Queue").click());
-    expect(sendPrompt).toHaveBeenCalledWith(TAB, "running draft", "follow_up", [], [], []);
+    expect(sendPrompt).toHaveBeenCalledWith(TAB, "running draft", "follow_up", [], [], [], []);
 
     typeDraft("replace turn");
     await act(async () => byText("Interrupt-and-send").click());
-    expect(abortAndPrompt).toHaveBeenCalledWith(TAB, "replace turn", [], [], []);
+    expect(abortAndPrompt).toHaveBeenCalledWith(TAB, "replace turn", [], [], [], []);
   });
 
   it("marks the active effort and plan state in the options sheet", () => {
@@ -714,7 +714,7 @@ describe("Composer attachment picker", () => {
     });
 
     expect(clipboardImageMock.readImageFiles).toHaveBeenCalledWith([first, second]);
-    expect(sendPrompt).toHaveBeenCalledWith(TAB, "compare these", "prompt", [IMAGE_ONE, IMAGE_TWO], [], []);
+    expect(sendPrompt).toHaveBeenCalledWith(TAB, "compare these", "prompt", [IMAGE_ONE, IMAGE_TWO], [], [], []);
   });
 
   it("resets the input immediately so the same image can be selected again", async () => {
@@ -762,7 +762,7 @@ describe("Composer attachment picker", () => {
         .find((button) => button.textContent === "Send")!
         .click();
     });
-    expect(sendPrompt).toHaveBeenCalledWith(TAB, "continue without it", "prompt", [], [], []);
+    expect(sendPrompt).toHaveBeenCalledWith(TAB, "continue without it", "prompt", [], [], [], []);
   });
 
 });
@@ -783,12 +783,12 @@ describe("Composer annotation chips (issue #983)", () => {
 
     sendPrompt.mockResolvedValueOnce(false);
     await act(async () => sendButton().click());
-    expect(sendPrompt).toHaveBeenCalledWith(TAB, "", "prompt", [], [], [ANNOTATION]);
+    expect(sendPrompt).toHaveBeenCalledWith(TAB, "", "prompt", [], [], [ANNOTATION], []);
     // Rejected: the chip comes back for another try.
     expect(chipGroup()?.textContent).toContain("add jitter here");
 
     await act(async () => sendButton().click());
-    expect(sendPrompt).toHaveBeenLastCalledWith(TAB, "", "prompt", [], [], [ANNOTATION]);
+    expect(sendPrompt).toHaveBeenLastCalledWith(TAB, "", "prompt", [], [], [ANNOTATION], []);
     expect(chipGroup()).toBeNull();
   });
 
@@ -800,6 +800,56 @@ describe("Composer annotation chips (issue #983)", () => {
     await act(async () => { press(box, "Enter"); });
     expect(runSlashCommand).toHaveBeenCalledWith(TAB, "/compact");
     expect(chipGroup()?.textContent).toContain("add jitter here");
+  });
+});
+
+describe("Composer session references (issue #984)", () => {
+  const REF = { sessionId: "s-other", title: "Deploy fix", machine: "box", path: "/s/other.jsonl", instanceId: null };
+  const OTHER = "tab-other";
+  const referenceGroup = (): HTMLElement | null =>
+    document.body.querySelector<HTMLElement>('[role="group"][aria-label="session references"]');
+  const sendButton = (): HTMLButtonElement =>
+    [...document.body.querySelectorAll<HTMLButtonElement>("button")].find((button) => button.textContent === "Send")!;
+  const withOther = (): void => {
+    const project = state.projects[0]!;
+    const other = { ...project.sessions[0]!, tabId: OTHER, sessionId: "s-other", title: "Deploy fix", cachedModified: "u", live: "dormant" as const };
+    useStore.setState({ state: { ...state, projects: [{ ...project, sessions: [...project.sessions, other] }] } });
+  };
+
+  it("hands a dropped sidebar row to the store and sends the resulting chip", async () => {
+    seed("ready");
+    const referenceSession = vi.fn(async () => {});
+    useStore.setState({ referenceSession });
+    renderComposer();
+    const target = document.body.querySelector<HTMLElement>("textarea")!.closest<HTMLElement>(".shrink-0")!;
+    const data = new Map<string, string>([[SESSION_DRAG_MIME, OTHER]]);
+    const transfer = { types: [...data.keys()], getData: (k: string) => data.get(k) ?? "", dropEffect: "none" };
+    const drop = new Event("drop", { bubbles: true, cancelable: true });
+    Object.assign(drop, { dataTransfer: transfer });
+    act(() => target.dispatchEvent(drop));
+    expect(referenceSession).toHaveBeenCalledWith(TAB, OTHER);
+
+    // The store's resolve queues the chip; a reference alone is a whole prompt.
+    act(() => useStore.getState().queueComposerReferences(TAB, [REF]));
+    expect(referenceGroup()?.textContent).toContain("Deploy fix");
+    await act(async () => sendButton().click());
+    expect(sendPrompt).toHaveBeenCalledWith(TAB, "", "prompt", [], [], [], [REF]);
+    expect(referenceGroup()).toBeNull();
+  });
+
+  it("lists other sessions in the @-palette, never itself, and swaps the @-word for a reference", async () => {
+    seed("ready");
+    withOther();
+    const referenceSession = vi.fn(async () => {});
+    useStore.setState({ referenceSession });
+    renderComposer();
+    typeDraft("compare @dep");
+    await act(async () => {});
+    const rows = [...document.body.querySelectorAll<HTMLButtonElement>("[data-mention-session]")];
+    expect(rows.map((row) => row.dataset.mentionSession)).toEqual([OTHER]);
+    act(() => rows[0]!.click());
+    expect(referenceSession).toHaveBeenCalledWith(TAB, OTHER);
+    expect(document.body.querySelector<HTMLTextAreaElement>("textarea")!.value).toBe("compare ");
   });
 });
 
@@ -1803,7 +1853,7 @@ describe("Composer shell dispatch (issue #678)", () => {
     press(textarea, "Enter");
     await act(async () => {});
     expect(runShellCommand).not.toHaveBeenCalled();
-    expect(sendPrompt).toHaveBeenCalledWith(TAB, "look at this !", "prompt", [], [], []);
+    expect(sendPrompt).toHaveBeenCalledWith(TAB, "look at this !", "prompt", [], [], [], []);
   });
 });
 
@@ -2538,7 +2588,7 @@ describe("worktree conversion through the branch chip (issue #227)", () => {
     await flush();
     expect(backendMock.convertToWorktree).toHaveBeenCalledTimes(1);
     expect(backendMock.convertToWorktree).toHaveBeenCalledWith(TAB, expect.stringMatching(/^p\/main\/[0-9a-f]{8}$/), "main", null);
-    expect(sendPrompt).toHaveBeenCalledWith(TAB, "hello", "prompt", [], [], []);
+    expect(sendPrompt).toHaveBeenCalledWith(TAB, "hello", "prompt", [], [], [], []);
     // A successful conversion resets the selection; the chip reads the checkout's branch again.
     expect(chipTrigger().textContent).toContain("main");
     expect(chipTrigger().textContent).not.toContain("worktree");
@@ -2712,7 +2762,7 @@ describe("Composer answers pending questions (desktop, issue #421)", () => {
     renderRpcTab();
     const box = typeDraft("hello");
     press(box, "Enter");
-    expect(sendPrompt).toHaveBeenCalledWith(TAB, "hello", "prompt", [], [], []);
+    expect(sendPrompt).toHaveBeenCalledWith(TAB, "hello", "prompt", [], [], [], []);
     expect(answerFrames()).toHaveLength(0);
   });
 
@@ -2726,7 +2776,7 @@ describe("Composer answers pending questions (desktop, issue #421)", () => {
     expect(answerFrames()).toHaveLength(0);
     typeDraft("abort this");
     act(() => box.dispatchEvent(new KeyboardEvent("keydown", { key: "Enter", metaKey: true, shiftKey: true, bubbles: true, cancelable: true })));
-    expect(abortAndPrompt).toHaveBeenCalledWith(TAB, "abort this", [], [], []);
+    expect(abortAndPrompt).toHaveBeenCalledWith(TAB, "abort this", [], [], [], []);
     expect(answerFrames()).toHaveLength(0);
   });
 
@@ -2748,7 +2798,7 @@ describe("Composer answers pending questions (desktop, issue #421)", () => {
     renderRpcTab();
     const box = typeDraft("compact steer");
     press(box, "Enter");
-    expect(sendPrompt).toHaveBeenCalledWith(TAB, "compact steer", "prompt", [], [], []);
+    expect(sendPrompt).toHaveBeenCalledWith(TAB, "compact steer", "prompt", [], [], [], []);
     expect(answerFrames()).toHaveLength(0);
   });
 });

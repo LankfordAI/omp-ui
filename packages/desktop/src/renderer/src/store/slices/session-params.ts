@@ -1,7 +1,7 @@
 // Session parameter domain (decomposed for #295): prompting, slash commands,
 // and every per-session parameter command — model, advisor, modes, retry,
 // compaction, plan, todos, refreshes, subagent drill-down.
-import type { ApprovalMode, BackendState, ImageAttachment, ServiceTier } from "@omp-ui/core/types";
+import type { ApprovalMode, BackendState, ImageAttachment, ServiceTier, SessionReference } from "@omp-ui/core/types";
 import { ADVISOR_STATS_COMMAND } from "@omp-ui/core/advisor-stats";
 import { LIMITS_COMMAND } from "@omp-ui/core/limits";
 import { SESSION_SPEND_COMMAND } from "@omp-ui/core/session-spend";
@@ -23,6 +23,7 @@ import {
 } from "@omp-ui/core/vibe";
 import { backend, backendFor } from "../../backend";
 import { withAnnotationContext, type Annotation } from "../../lib/annotations";
+import { withSessionReferenceContext, type DraftSessionReference } from "../../lib/session-references";
 import { withAttachmentRoutingContext } from "../../lib/attachment-routing";
 import { withDocumentContext, type DocumentRef } from "../../lib/document-context";
 import { DOCUMENT_MIME } from "../../lib/clipboard-image";
@@ -587,24 +588,38 @@ export function createSessionParamsSlice(
   };
 
   /**
-   * The one wire-text builder every prompt route shares: annotations lead
-   * (ADR-0077), the document block attaches to the prose (ADR-0044), and the
-   * image routing suffix stays last, preserving
-   * stripAttachmentRoutingContext's terminal round-trip. `imageFiles` are
-   * the images' scratch paths on the session's host (issue #993).
+   * The one wire-text builder every prompt route shares: session references
+   * lead (ADR-0085), annotations follow (ADR-0077), the document block
+   * attaches to the prose (ADR-0044), and the image routing suffix stays
+   * last, preserving stripAttachmentRoutingContext's terminal round-trip.
+   * `imageFiles` are the images' scratch paths on the session's host (issue
+   * #993).
    */
   const promptWireText = (
     message: string,
     images: readonly ImageAttachment[] | undefined,
     docRefs: readonly DocumentRef[] | undefined,
     annotations: readonly Annotation[] | undefined,
+    references: readonly SessionReference[] | undefined,
     imageFiles: readonly string[] | undefined,
   ): string =>
     withAttachmentRoutingContext(
-      withDocumentContext(withAnnotationContext(message, annotations ?? []), docRefs ?? []),
+      withDocumentContext(
+        withSessionReferenceContext(withAnnotationContext(message, annotations ?? []), references ?? []),
+        docRefs ?? [],
+      ),
       images?.length ?? 0,
       imageFiles,
     );
+
+  /**
+   * References parsed back out of a tab's own wire text name sessions on the
+   * tab's own host — the only host whose paths they could carry.
+   */
+  const ownedReferences = (tabId: string, refs: readonly SessionReference[]): DraftSessionReference[] => {
+    const instanceId = findOwner(get().state, tabId)?.instanceId ?? null;
+    return refs.map((ref) => ({ ...ref, instanceId }));
+  };
 
   /**
    * Writes each prompt image to a scratch file on the machine that owns the
@@ -633,6 +648,7 @@ export function createSessionParamsSlice(
     images?: ImageAttachment[],
     docRefs?: DocumentRef[],
     annotations?: Annotation[],
+    references?: SessionReference[],
   ): Promise<boolean> => {
     if (!m.acceptsCommands(tabId)) return false;
     if (route === "advisor_reply" || route === "stall_continue") {
@@ -660,7 +676,7 @@ export function createSessionParamsSlice(
         ? "followUp"
         : "steer";
     const imageFiles = images?.length ? await materializeImages(tabId, images) : undefined;
-    const wireMessage = promptWireText(message, images, docRefs, annotations, imageFiles);
+    const wireMessage = promptWireText(message, images, docRefs, annotations, references, imageFiles);
     const cmd = { type: "prompt" as const, message: wireMessage, streamingBehavior };
     // `images` is omitted entirely when empty: omp's own client sends no key
     // rather than an empty array, and every byte here is on one JSON line.
@@ -691,9 +707,10 @@ export function createSessionParamsSlice(
       // Staging rides the existing composerQueue drain — the identical
       // plumbing rewind's edit-resend uses and the browser pane's hand-back.
       for (const entry of [...restored.steering, ...restored.followUp]) {
-        const { text, documents, annotations } = splitQueuedWireText(entry.text);
+        const { text, documents, annotations, references } = splitQueuedWireText(entry.text);
         if (text !== "") get().queueComposerText(tabId, text);
         get().queueComposerAnnotations(tabId, annotations);
+        get().queueComposerReferences(tabId, ownedReferences(tabId, references));
         for (const image of entry.images)
           get().queueComposerAttachment(tabId, image, "");
         // Path-only re-attach: zero re-upload; a swept scratch file fails at
@@ -721,6 +738,7 @@ export function createSessionParamsSlice(
     images?: ImageAttachment[],
     docRefs?: DocumentRef[],
     annotations?: Annotation[],
+    references?: SessionReference[],
   ): Promise<boolean> => {
     if (!m.acceptsCommands(tabId)) return false;
     set((state) => ({ handedOffFor: dropPlanHandoff(state.handedOffFor, tabId) }));
@@ -729,7 +747,7 @@ export function createSessionParamsSlice(
     stallContinueWatcher.reset(tabId);
     const type = "abort_and_prompt";
     const imageFiles = images?.length ? await materializeImages(tabId, images) : undefined;
-    const wireMessage = promptWireText(message, images, docRefs, annotations, imageFiles);
+    const wireMessage = promptWireText(message, images, docRefs, annotations, references, imageFiles);
     // The title shot rides the user message's `message_start` in the
     // reducer, same as `sendPrompt` (issue #795).
     const response = await m.runCommand(
@@ -864,12 +882,13 @@ export function createSessionParamsSlice(
     images: ImageAttachment[] = [],
     docRefs: DocumentRef[] = [],
     annotations: Annotation[] = [],
+    references: SessionReference[] = [],
   ): Promise<boolean> => {
     // Send at reset (issue #986): the owning host keeps the prompt — tab-routed,
     // so a remote session's prompt waits on its host — and sends it with the
     // same wire text sendPrompt would have built.
     const imageFiles = images.length ? await materializeImages(tabId, images) : undefined;
-    const text = promptWireText(message, images, docRefs, annotations, imageFiles);
+    const text = promptWireText(message, images, docRefs, annotations, references, imageFiles);
     try {
       await backend.holdPrompt(tabId, {
         text,
@@ -890,9 +909,10 @@ export function createSessionParamsSlice(
       if (payload === null) return;
       // Back into the draft by the queue-restore path (#776): prose, then the
       // documents its block names, then the images.
-      const { text, documents, annotations } = splitQueuedWireText(payload.text);
+      const { text, documents, annotations, references } = splitQueuedWireText(payload.text);
       if (text !== "") get().queueComposerText(tabId, text);
       get().queueComposerAnnotations(tabId, annotations);
+      get().queueComposerReferences(tabId, ownedReferences(tabId, references));
       for (const image of payload.images) get().queueComposerAttachment(tabId, image, "");
       for (const doc of documents)
         get().queueComposerDocument(tabId, { type: "document", mimeType: DOCUMENT_MIME, name: doc.name, path: doc.path }, "");
@@ -1108,9 +1128,10 @@ export function createSessionParamsSlice(
       void get().refreshState(tabId);
       return;
     }
-    const { text, documents, annotations } = splitQueuedWireText(message);
+    const { text, documents, annotations, references } = splitQueuedWireText(message);
     if (text !== "") get().queueComposerText(tabId, text);
     get().queueComposerAnnotations(tabId, annotations);
+    get().queueComposerReferences(tabId, ownedReferences(tabId, references));
     for (const image of projectImages(arrField(data, "images")))
       get().queueComposerAttachment(tabId, image, "");
     for (const doc of documents)
@@ -2033,6 +2054,7 @@ export function createSessionParamsSlice(
       images: clicked.images ?? [],
       documents: clicked.documents ?? [],
       annotations: clicked.annotations ?? [],
+      references: clicked.references ?? [],
     });
     get().stageLifecycleConfirmation({
       kind: "rewind",
@@ -2163,6 +2185,7 @@ export function createSessionParamsSlice(
       if (editResend && source !== null) {
         if (source.text !== "") get().queueComposerText(tabId, source.text);
         get().queueComposerAnnotations(tabId, source.annotations ?? []);
+        get().queueComposerReferences(tabId, ownedReferences(tabId, source.references ?? []));
         for (const image of source.images)
           void get().queueComposerAttachment(tabId, { type: "image", ...image }, "");
         // Path-only re-attach: zero re-upload; a swept file fails at send

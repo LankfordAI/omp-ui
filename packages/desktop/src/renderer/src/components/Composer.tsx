@@ -35,13 +35,15 @@ import { stashDraft, takeStashedDraft, useDraftStash } from "../lib/draft-stash"
 import { isTypingTarget, useHotkeys } from "../lib/hotkeys";
 import { STASH_HOTKEY, StashPalette, type StashPaletteHandle } from "./StashPalette";
 import { AnnotationChips } from "./AnnotationChips";
+import { SessionReferenceChips } from "./SessionReferenceChips";
+import { SESSION_DRAG_MIME } from "../lib/session-drag";
 import { useWordGhost } from "../lib/use-word-ghost";
 import { ComposerActions } from "./ComposerActions";
 import { ComposerOptions } from "./ComposerOptions";
 import { ComposerPlusMenu } from "./ComposerPlusMenu";
 import { ComposerSheet } from "./ComposerSheet";
 import { answerPendingQuestion, freeTextTarget } from "./ExtensionDialogHost";
-import { MentionPalette, type MentionPaletteHandle } from "./MentionPalette";
+import { MentionPalette, type MentionPaletteHandle, type MentionSession } from "./MentionPalette";
 import { LiveVoiceControl } from "./LiveVoiceControl";
 import { LiveVoiceStrip } from "./LiveVoiceStrip";
 import type { CheckoutEntry } from "../lib/repository-members";
@@ -256,6 +258,8 @@ export function Composer({
   const moveUnpromptedSession = useStore((s) => s.moveUnpromptedSession);
   const launchSession = useStore((s) => s.launchSession);
   const planOn = useStore((s) => s.rpc[tabId]?.plan?.enabled === true);
+  const referenceSession = useStore((s) => s.referenceSession);
+  const appendNotice = useStore((s) => s.appendNotice);
 
   const [text, setText] = useState("");
   /**
@@ -290,15 +294,18 @@ export function Composer({
     images,
     documents,
     annotations,
+    references,
     pasteError,
     onPaste,
     pickFiles,
     addImages,
     addDocuments,
     addAnnotations,
+    addReferences,
     dropImage,
     dropDocument,
     dropAnnotation,
+    dropReference,
     clearDraft,
     setPasteError,
     dismissError,
@@ -317,6 +324,8 @@ export function Composer({
   const [converting, setConverting] = useState(false);
   /** The machine chip's target name while the session moves there (#936). */
   const [moving, setMoving] = useState<string | null>(null);
+  /** A sidebar session row is dragged over this composer (issue #984). */
+  const [dropping, setDropping] = useState(false);
   // The machine chip (#936): an unprompted, project-checkout session with
   // nothing materialized can be re-homed onto another checkout's machine.
   const offerMachine = unprompted && !chat && !hasWorktree && record?.sessionId === null;
@@ -327,7 +336,7 @@ export function Composer({
         ? t("quickopen.host.local")
         : (findInstance(useStore.getState().state, member.instanceId)?.nickname ?? member.instanceId),
     );
-    const next = await moveUnpromptedSession(tabId, member, { text, images, documents, annotations });
+    const next = await moveUnpromptedSession(tabId, member, { text, images, documents, annotations, references });
     // Success unmounts this composer with its tab; a failure keeps the draft.
     if (next === null) setMoving(null);
   };
@@ -464,6 +473,22 @@ export function Composer({
     };
   }, [mentionOpen, cwd, instanceId]);
 
+  // The @-palette's session rows (issue #984): saved sessions this one may
+  // reference — the same instance only (the path must exist on this
+  // session's machine), never itself, newest first. Read only while open.
+  const mentionState = useStore((s) => (mentionOpen ? s.state : null));
+  const mentionSessions = useMemo((): MentionSession[] => {
+    if (mentionState === null) return NO_SESSIONS;
+    const pool =
+      instanceId === null
+        ? [...mentionState.projects.flatMap((p) => p.sessions), ...mentionState.chats]
+        : (findInstance(mentionState, instanceId)?.projects.flatMap((p) => p.sessions) ?? []);
+    return pool
+      .filter((s) => s.tabId !== tabId && s.sessionId !== null && s.live !== "missing")
+      .sort((a, b) => (b.cachedModified ?? "").localeCompare(a.cachedModified ?? ""))
+      .map((s) => ({ tabId: s.tabId, title: s.title }));
+  }, [mentionState, instanceId, tabId]);
+
   // Grow to fit, then scroll. Height must be released before measuring, or
   // `scrollHeight` reports the previous, larger box and never shrinks back.
   const fit = useCallback(() => {
@@ -573,10 +598,11 @@ export function Composer({
     addImages(queued.images);
     addDocuments(queued.documents ?? []);
     addAnnotations(queued.annotations ?? []);
+    addReferences(queued.references ?? []);
     const lines = queued.text.join("\n");
     if (lines !== "") setText((prev) => (prev === "" ? lines : `${prev}\n${lines}`));
     box.current?.focus({ preventScroll: true });
-  }, [composerQueue, tabId, drainComposerQueue, addImages, addDocuments, addAnnotations]);
+  }, [composerQueue, tabId, drainComposerQueue, addImages, addDocuments, addAnnotations, addReferences]);
   useDismissal({
     open: queueMenu,
     refs: queueAnchor,
@@ -641,7 +667,11 @@ export function Composer({
       // An image, PDF, or annotation with no words is a legitimate prompt
       // ("what is this?"), so emptiness is judged on the whole draft.
       if (
-        (message === "" && payload.length === 0 && documents.length === 0 && annotations.length === 0) ||
+        (message === "" &&
+          payload.length === 0 &&
+          documents.length === 0 &&
+          annotations.length === 0 &&
+          references.length === 0) ||
         unavailable ||
         converting ||
         moving !== null
@@ -669,6 +699,7 @@ export function Composer({
         clearDraft();
         // Annotations only ride prompts (ADR-0077): a command keeps them.
         addAnnotations(annotations);
+        addReferences(references);
         setDismissedFor(null);
         setMentionDismissedFor(null);
         if (message.length > 1) {
@@ -695,6 +726,7 @@ export function Composer({
             clearDraft();
             // A dialog answer is not a prompt: annotation chips stay for the next one.
             addAnnotations(annotations);
+            addReferences(references);
           }
           box.current?.focus({ preventScroll: true });
           return;
@@ -732,7 +764,7 @@ export function Composer({
         }
       }
       if (atReset) {
-        if (!(await holdPrompt(tabId, message, resetAtMs!, payload, docRefs, annotations))) return;
+        if (!(await holdPrompt(tabId, message, resetAtMs!, payload, docRefs, annotations, references))) return;
       }
       recall.current = null;
       setText("");
@@ -746,6 +778,7 @@ export function Composer({
       // Annotation chips stay: they are the next prompt's (ADR-0077).
       if (message.startsWith("/")) {
         addAnnotations(annotations);
+        addReferences(references);
         void runSlashCommand(tabId, message);
         box.current?.focus({ preventScroll: true });
         return;
@@ -771,8 +804,8 @@ export function Composer({
       if (atReset) return;
       const accepted =
         route === "interrupt"
-          ? await abortAndPrompt(tabId, message, payload, docRefs, annotations)
-          : await sendPrompt(tabId, message, route, payload, docRefs, annotations);
+          ? await abortAndPrompt(tabId, message, payload, docRefs, annotations, references)
+          : await sendPrompt(tabId, message, route, payload, docRefs, annotations, references);
       if (!accepted) {
         // Refused or rejected (runCommand already reported why): the draft
         // comes back — the send-in-background keep-draft shape — unless the
@@ -781,6 +814,7 @@ export function Composer({
         addImages(images);
         addDocuments(documents);
         addAnnotations(annotations);
+        addReferences(references);
       }
     },
     [
@@ -788,9 +822,11 @@ export function Composer({
       images,
       documents,
       annotations,
+      references,
       addImages,
       addDocuments,
       addAnnotations,
+      addReferences,
       setPasteError,
       unavailable,
       compact,
@@ -826,7 +862,11 @@ export function Composer({
       !unprompted ||
       chat ||
       record === undefined ||
-      (message === "" && images.length === 0 && documents.length === 0 && annotations.length === 0) ||
+      (message === "" &&
+        images.length === 0 &&
+        documents.length === 0 &&
+        annotations.length === 0 &&
+        references.length === 0) ||
       message.startsWith("/") ||
       message.startsWith("!") ||
       unavailable ||
@@ -834,7 +874,7 @@ export function Composer({
       moving !== null
     )
       return;
-    const draft = { text, images, documents, annotations };
+    const draft = { text, images, documents, annotations, references };
     const worktree =
       workspace.mode === "worktree"
         ? { mint: { branch: workspace.branch, baseRef: workspace.baseRef, baseBranch: workspace.baseBranch } }
@@ -854,6 +894,7 @@ export function Composer({
         images: draft.images,
         documents: draft.documents,
         annotations: draft.annotations,
+        references: draft.references,
         planMode: planOn,
         worktree,
         background: true,
@@ -869,6 +910,7 @@ export function Composer({
       addImages(draft.images);
       addDocuments(draft.documents);
       addAnnotations(draft.annotations);
+      addReferences(draft.references);
       return;
     }
     // The minted branch is checked out now: the next background ask needs its own.
@@ -891,6 +933,7 @@ export function Composer({
     images,
     documents,
     annotations,
+    references,
     unprompted,
     chat,
     record,
@@ -905,6 +948,7 @@ export function Composer({
     addImages,
     addDocuments,
     addAnnotations,
+    addReferences,
   ]);
 
   /** Applies a palette pick: run it now, or complete the line for what follows. */
@@ -942,6 +986,20 @@ export function Composer({
     [text, caret, atQuery],
   );
 
+  /** A session row picked from the @-palette (issue #984): the @-word goes, a reference chip comes. */
+  const pickSessionMention = useCallback(
+    (sourceTabId: string) => {
+      if (atQuery === null) return;
+      setText(text.slice(0, atQuery.start) + text.slice(caret));
+      setCaret(atQuery.start);
+      setMentionDismissedFor(null);
+      requestAnimationFrame(() => box.current?.setSelectionRange(atQuery.start, atQuery.start));
+      box.current?.focus({ preventScroll: true });
+      void referenceSession(tabId, sourceTabId);
+    },
+    [text, caret, atQuery, tabId, referenceSession],
+  );
+
   /** Splices one dictated phrase at the caret like pickMention does — joined
    *  against non-space neighbours, never submitted, never focusing (issue
    *  #647, #746). A transcript landing while a slash palette is open just
@@ -974,7 +1032,8 @@ export function Composer({
     box.current?.focus({ preventScroll: true });
   };
 
-  const draftEmpty = text === "" && images.length === 0 && documents.length === 0 && annotations.length === 0;
+  const draftEmpty =
+    text === "" && images.length === 0 && documents.length === 0 && annotations.length === 0 && references.length === 0;
   useEffect(() => {
     if (!draftEmpty || unavailable) setStashOpen(false);
   }, [draftEmpty, unavailable]);
@@ -994,7 +1053,7 @@ export function Composer({
       return;
     }
     stashing.current = true;
-    const draft = { text, images, documents, annotations };
+    const draft = { text, images, documents, annotations, references };
     recall.current = null;
     setText("");
     clearDraft();
@@ -1014,6 +1073,7 @@ export function Composer({
       addImages(draft.images);
       addDocuments(draft.documents);
       addAnnotations(draft.annotations);
+      addReferences(draft.references);
       setPasteError(t("composer.stash.failed", { reason: displayMessage(err) }));
     } finally {
       stashing.current = false;
@@ -1030,6 +1090,18 @@ export function Composer({
     addImages(draft.images);
     addDocuments(draft.documents);
     addAnnotations(draft.annotations);
+    // A stashed reference names a path on its owner (ADR-0085): only a
+    // session on that same instance can take it.
+    const stashedRefs = draft.references ?? [];
+    addReferences(stashedRefs.filter((ref) => ref.instanceId === instanceId));
+    for (const ref of stashedRefs) {
+      if (ref.instanceId === instanceId) continue;
+      const machine =
+        ref.instanceId === null
+          ? t("fleet.machine.thisComputer")
+          : (findInstance(useStore.getState().state, ref.instanceId)?.nickname ?? ref.machine);
+      appendNotice(tabId, t("composer.reference.otherMachine", { title: ref.title, machine }), "warn");
+    }
     if (draft.text !== "") setText((prev) => (prev === "" ? draft.text : `${prev}\n${draft.text}`));
   };
 
@@ -1157,7 +1229,7 @@ export function Composer({
   // A held session still runs slash and bash commands (/new, !ls, …); main
   // refuses any that would start a turn.
   const canSend =
-    (trimmed !== "" || images.length > 0 || documents.length > 0 || annotations.length > 0) &&
+    (trimmed !== "" || images.length > 0 || documents.length > 0 || annotations.length > 0 || references.length > 0) &&
     !unavailable &&
     !converting &&
     moving === null &&
@@ -1173,6 +1245,25 @@ export function Composer({
   return (
     <div
       ref={composer}
+      data-session-drop={dropping ? "over" : undefined}
+      onDragOver={(e) => {
+        // Only a sidebar session row (issue #984): files and text keep their own paths.
+        if (unavailable || !e.dataTransfer.types.includes(SESSION_DRAG_MIME)) return;
+        e.preventDefault();
+        e.dataTransfer.dropEffect = "link";
+        if (!dropping) setDropping(true);
+      }}
+      onDragLeave={(e) => {
+        if (!e.currentTarget.contains(e.relatedTarget as Node | null)) setDropping(false);
+      }}
+      onDrop={(e) => {
+        const source = e.dataTransfer.getData(SESSION_DRAG_MIME);
+        setDropping(false);
+        if (unavailable || source === "") return;
+        e.preventDefault();
+        void referenceSession(tabId, source);
+        box.current?.focus({ preventScroll: true });
+      }}
       className={cn(
         "relative shrink-0",
         compact
@@ -1180,6 +1271,11 @@ export function Composer({
           : "px-4 pb-3 pt-1.5",
       )}
     >
+      {dropping && (
+        <div className="pointer-events-none absolute inset-1 z-30 flex items-center justify-center rounded-xl border border-dashed border-iris bg-iris-wash/60 text-xs text-iris">
+          {t("composer.reference.dropHint")}
+        </div>
+      )}
 
       {/* pointer-events-auto: the float above is transparent to the pointer so
           its side gutters do not swallow wheel and selection aimed at the
@@ -1200,7 +1296,9 @@ export function Composer({
             query={atQuery.query}
             files={files?.list ?? NO_FILES}
             truncated={files?.truncated ?? false}
+            sessions={mentionSessions}
             onPick={pickMention}
+            onPickSession={pickSessionMention}
             onClose={() => setMentionDismissedFor(mentionKey)}
           />
         )}
@@ -1302,6 +1400,14 @@ export function Composer({
                 {documents.length} {documents.length === 1 ? t("composer.attachment.document") : t("composer.attachment.documents")}
               </Label>
             </div>
+          )}
+          {references.length > 0 && (
+            <SessionReferenceChips
+              references={references}
+              onRemove={dropReference}
+              disabled={unavailable}
+              className="border-b border-line px-2 pt-2 pb-1.5"
+            />
           )}
           {annotations.length > 0 && (
             <AnnotationChips
@@ -1774,4 +1880,5 @@ const UI_AUTORESEARCH_SUBCOMMANDS: { name: string; key: MessageKey }[] = [
 /** Stable empties keep the per-field selectors from firing on every store tick. */
 const NO_COMMANDS: never[] = [];
 const NO_FILES: never[] = [];
+const NO_SESSIONS: MentionSession[] = [];
 const NO_KEYWORDS: readonly MagicKeyword[] = [];

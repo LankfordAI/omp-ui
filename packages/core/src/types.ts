@@ -1461,6 +1461,18 @@ export interface InstanceIdentity {
   version: string;
 }
 
+/**
+ * One saved session as a reference for another session's prompt (issue #984),
+ * resolved by `session:reference` on the host that owns it: `machine` is that
+ * host's name and `path` its absolute transcript path there, valid only on it.
+ */
+export interface SessionReference {
+  sessionId: string;
+  title: string;
+  machine: string;
+  path: string;
+}
+
 /** What the user types to join or edit an instance. The secret never comes back. */
 export interface RemoteInstanceInput {
   url: string;
