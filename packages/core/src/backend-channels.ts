@@ -508,7 +508,7 @@ export const BACKEND_CHANNELS = {
     channel: "settings:setSkipDeleteConfirmation",
     ...request<[skip: boolean], void>([bool()]),
   },
-  /** Opt out of the "Stop the agent?" confirmation; set from the dialog checkbox or Settings. */
+  /** Opt out of the confirmation before settling a session mid-turn (#1005); set from the dialog checkbox or Settings. */
   setSkipTerminateConfirmation: {
     channel: "settings:setSkipTerminateConfirmation",
     ...request<[skip: boolean], void>([bool()]),
@@ -915,10 +915,6 @@ export const BACKEND_CHANNELS = {
   spawnSession: {
     channel: "session:spawn",
     ...request<[req: SpawnRequest], SpawnAnswer>([spawnRequestCodec]),
-  },
-  terminateSession: {
-    channel: "session:terminate",
-    ...request<[tabId: string], void>([str()]),
   },
   /**
    * Stops the validated planning source after a fresh or worktree implementation

@@ -10,7 +10,7 @@ import { canSettle } from "./settle";
 import { findRecord } from "./view";
 import type { GetState } from "./shared";
 
-export type BulkAction = "settle" | "snooze" | "unsnooze" | "retitle" | "stop" | "delete";
+export type BulkAction = "settle" | "snooze" | "unsnooze" | "retitle" | "delete";
 
 /**
  * Whether one row supports one bulk action — the same gates its row menu,
@@ -23,7 +23,7 @@ export function supportsBulkAction(st: UiStore, s: SessionSummary, action: BulkA
   const snoozedOn = st.state?.snoozedSectionEnabled === true;
   switch (action) {
     case "settle":
-      return canSettle(s, st.rpc[s.tabId]?.status === "running", snoozedOn);
+      return canSettle(s, snoozedOn);
     case "snooze":
       return snoozedOn && s.snoozed !== true;
     case "unsnooze":
@@ -35,8 +35,6 @@ export function supportsBulkAction(st: UiStore, s: SessionSummary, action: BulkA
         st.rpc[s.tabId] !== undefined &&
         st.exited[s.tabId] === undefined
       );
-    case "stop":
-      return s.live === "live";
     case "delete":
       return true;
   }

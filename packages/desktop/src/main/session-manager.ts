@@ -344,7 +344,7 @@ export interface SessionManagerDependencies {
 }
 
 /** `tool`: a session-local tool enable/disable holding the tab while it waits. */
-type OpKind = "spawn" | "delete" | "hibernate" | "relaunch" | "settle" | "tool" | "terminate" | "fork";
+type OpKind = "spawn" | "delete" | "hibernate" | "relaunch" | "settle" | "tool" | "fork";
 
 export class SessionManager {
   private readonly live = new Map<string, LiveEntry>();
@@ -2882,8 +2882,11 @@ export class SessionManager {
    * terminate-style reap so the ordinary exit path settles the transcript.
    * A settled session is no longer snoozed, so its row files to Settled
    * instead of staying in Snoozed; a failed reap leaves the snooze alone.
+   * Settle also kills the tab's drawer shell, as the removed terminate did:
+   * a settled tab keeps no process.
    */
   async settleSession(tabId: string): Promise<boolean> {
+    this.killShell(tabId);
     // Captured before the chain runs: if a resume replaces the process while
     // this queues, the reap must never touch the successor. Absent means
     // already dormant — nothing to reap, and that is a settled session.
@@ -2894,12 +2897,7 @@ export class SessionManager {
         const current = this.live.get(tabId);
         if (current !== captured) return current === undefined;
         if (current.kind === "rpc-ui") return this.hibernate(tabId, current);
-        // PTY: the terminate reap verbatim minus its own enqueueOp (we already
-        // hold the chain; re-entering terminate() would deadlock on itself).
-        // Killing the companion shell first mirrors terminate(): a handoff
-        // drawer program's noise is suppressed, while the omp child's own exit
-        // event still flows exactly like a manual terminate.
-        this.killShell(tabId);
+        // PTY: the terminate-style reap minus its own enqueueOp (we already hold the chain).
         this.deps.breadcrumb?.record("session-terminate", { tabId });
         await this.escalateOnTerminate(tabId, current);
         return this.live.get(tabId) !== current;
@@ -3087,16 +3085,6 @@ export class SessionManager {
 
   killShell(tabId: string): void {
     this.shellHost.kill(tabId);
-  }
-
-  terminate(tabId: string): void {
-    this.killShell(tabId);
-    void this.enqueueOp(tabId, "terminate", async () => {
-      const entry = this.live.get(tabId);
-      if (!entry) return;
-      this.deps.breadcrumb?.record("session-terminate", { tabId });
-      await this.escalateOnTerminate(tabId, entry);
-    });
   }
 
   async deleteSession(tabId: string, cascade: boolean): Promise<DeleteSessionResult> {

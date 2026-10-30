@@ -541,7 +541,7 @@ function UnresolvedSection() {
 function DispatchRow({ row, state }: { row: FleetRow; state: SidebarSessionState }) {
   const t = useT();
   const openSession = useStore((s) => s.openSession);
-  const terminate = useStore((s) => s.terminate);
+  const settleSessions = useStore((s) => s.settleSessions);
   const { summary } = row;
   const face = SESSION_FACE[state];
   const requestedBy = summary.fleet.requestedBy;
@@ -563,8 +563,8 @@ function DispatchRow({ row, state }: { row: FleetRow; state: SidebarSessionState
         {t("fleet.dispatches.open")}
       </Button>
       {summary.live === "live" && (
-        <Button variant="ghost" size="xs" tone="rose" onClick={() => void terminate(summary.tabId)}>
-          {t("fleet.dispatches.stop")}
+        <Button variant="ghost" size="xs" onClick={() => void settleSessions([summary.tabId])}>
+          {t("fleet.dispatches.settle")}
         </Button>
       )}
     </li>

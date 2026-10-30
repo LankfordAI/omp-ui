@@ -3128,7 +3128,7 @@ describe("handleRpcFrame routing", () => {
             (item) => item.kind === "notice" && item.level === "warn",
           ),
       ).toHaveLength(1);
-      expect(h.mockBackend.terminateSession).not.toHaveBeenCalled();
+      expect(h.mockBackend.settleSession).not.toHaveBeenCalled();
     } finally {
       warn.mockRestore();
       await rearmHandoffSource();

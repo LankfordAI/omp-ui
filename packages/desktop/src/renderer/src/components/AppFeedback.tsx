@@ -54,23 +54,29 @@ function lifecycleCopy(
   target: string | null;
 } {
   switch (confirmation.kind) {
-    case "terminate":
-      return {
-        tone: "copper",
-        title: t("dialog.lifecycle.terminateTitle"),
-        body: t("dialog.lifecycle.terminateBody"),
-        action: t("dialog.lifecycle.terminateAction"),
-        target: confirmation.title,
-      };
-    case "terminate-many":
-      // Bulk Stop (#988): the count in the title, the titles as the body's list.
-      return {
-        tone: "copper",
-        title: t("dialog.lifecycle.terminateManyTitle", { n: confirmation.tabIds.length }),
-        body: t("dialog.lifecycle.terminateManyBody", { titles: confirmation.titles.join("\n") }),
-        action: t("dialog.lifecycle.terminateManyAction", { n: confirmation.tabIds.length }),
-        target: null,
-      };
+    case "settle-running": {
+      // Settle mid-turn (#1005): only the running rows are listed.
+      const n = confirmation.runningTitles.length;
+      const action =
+        confirmation.tabIds.length === 1
+          ? t("dialog.lifecycle.settleRunningAction")
+          : t("dialog.lifecycle.settleRunningManyAction", { n: confirmation.tabIds.length });
+      return n === 1
+        ? {
+            tone: "copper",
+            title: t("dialog.lifecycle.settleRunningTitle"),
+            body: t("dialog.lifecycle.settleRunningBody"),
+            action,
+            target: confirmation.runningTitles[0]!,
+          }
+        : {
+            tone: "copper",
+            title: t("dialog.lifecycle.settleRunningManyTitle", { n }),
+            body: t("dialog.lifecycle.settleRunningManyBody", { titles: confirmation.runningTitles.join("\n") }),
+            action,
+            target: null,
+          };
+    }
     case "switch-mode":
       return {
         tone: "copper",
@@ -273,10 +279,10 @@ export function AppFeedback(): JSX.Element | null {
   const confirmation = useStore((s) => s.lifecycleConfirmation);
   const confirmLifecycleAction = useStore((s) => s.confirmLifecycleAction);
   const cancelLifecycleAction = useStore((s) => s.cancelLifecycleAction);
-  // Opt-out for the terminate confirmation (issue #925). The host component
+  // Opt-out for the settle-running confirmation (issues #925, #1005). The host component
   // stays mounted across confirmations — ConfirmDialog is keyed, this is not —
   // so the checkbox must be cleared explicitly whenever a new decision is
-  // staged, including non-terminate kinds that never render the row.
+  // staged, including other kinds that never render the row.
   const [skipTerminate, setSkipTerminate] = useState(false);
   const setSkipTerminateConfirmation = useStore((s) => s.setSkipTerminateConfirmation);
   useEffect(() => {
@@ -381,7 +387,7 @@ export function AppFeedback(): JSX.Element | null {
             onClick={() => {
               // Persist before dispatching so a concurrent stop cannot slip
               // past an unsaved setting; a failed persist still proceeds.
-              if (skipTerminate && (confirmation.kind === "terminate" || confirmation.kind === "terminate-many")) {
+              if (skipTerminate && confirmation.kind === "settle-running") {
                 void setSkipTerminateConfirmation(true);
               }
               void confirmLifecycleAction(confirmation.id);
@@ -401,7 +407,7 @@ export function AppFeedback(): JSX.Element | null {
         <p className="whitespace-pre-wrap text-sm leading-relaxed text-ink-dim [overflow-wrap:anywhere] break-words">
           {copy.body}
         </p>
-        {(confirmation.kind === "terminate" || confirmation.kind === "terminate-many") && !busy && (
+        {confirmation.kind === "settle-running" && !busy && (
           <label className="flex cursor-pointer items-center gap-2.5 rounded-md border border-line bg-raised px-3 py-2.5 text-xs text-ink-mid transition-colors hover:border-line-strong hover:text-ink">
             <input
               type="checkbox"

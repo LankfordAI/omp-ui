@@ -183,12 +183,12 @@ export const en = {
 
   // AppFeedback.tsx — staged session/project confirmations (issue #373)
   "dialog.lifecycle.kicker": "Session action",
-  "dialog.lifecycle.terminateTitle": "Stop the agent?",
-  "dialog.lifecycle.terminateBody": "Terminate the running agent? The session stays resumable.",
-  "dialog.lifecycle.terminateAction": "Stop agent",
-  "dialog.lifecycle.terminateManyTitle": "Stop {n} agents?",
-  "dialog.lifecycle.terminateManyBody": "Terminate these running agents? Each session stays resumable.\n\n{titles}",
-  "dialog.lifecycle.terminateManyAction": "Stop {n} agents",
+  "dialog.lifecycle.settleRunningTitle": "Interrupt the running turn?",
+  "dialog.lifecycle.settleRunningBody": "Settling stops the session's process now and interrupts the turn in progress. The session moves to Settled and stays resumable; Undo resumes it.",
+  "dialog.lifecycle.settleRunningAction": "Settle",
+  "dialog.lifecycle.settleRunningManyTitle": "Interrupt {n} running turns?",
+  "dialog.lifecycle.settleRunningManyBody": "Settling stops these sessions' processes now and interrupts their turns in progress. Each moves to Settled and stays resumable; Undo resumes them.\n\n{titles}",
+  "dialog.lifecycle.settleRunningManyAction": "Settle {n} sessions",
   "dialog.lifecycle.dontShowAgain": "Do not show this warning again",
   "dialog.lifecycle.switchTitle": "Switch session mode?",
   "dialog.lifecycle.switchBody": "Restart this session in {mode} mode? The process is killed and resumed.",
@@ -977,9 +977,9 @@ export const en = {
   "settings.general.skipDeleteConfirmation": "Skip the delete confirmation",
   "settings.general.skipDeleteConfirmationHint":
     "Deleting a session erases its whole lineage dir and every plan implementation descendant; skipping removes the warning. A delete that removes a worktree checkout still asks.",
-  "settings.general.skipTerminateConfirmation": "Skip the stop-agent confirmation",
+  "settings.general.skipTerminateConfirmation": "Skip the confirmation before settling a running session",
   "settings.general.skipTerminateConfirmationHint":
-    "Stopping an agent kills its process; the session stays resumable. Skipping stops live agents immediately.",
+    "Settling a session mid-turn stops its process and interrupts the turn; the session stays resumable. Skipping settles running sessions immediately.",
   "settings.general.voiceInput": "Voice input",
   "settings.general.voiceInputHint":
     "Adds a microphone button to every composer; each phrase is transcribed by the provider below when you pause and inserted into the draft, never sent.",
@@ -1761,8 +1761,6 @@ export const en = {
   "palette.action.addProject": "Add project…",
   "palette.action.addProjectDesc": "pick a directory to track",
   "palette.action.sessionFallback": "this session",
-  "palette.action.terminate": "Terminate agent",
-  "palette.action.terminateDesc": "{title} — the session stays resumable",
   "palette.action.settle": "Settle session",
   "palette.action.settleDesc": "{title} — done with it; moves to Settled",
   "palette.action.schedule": "Schedule a prompt…",
@@ -2854,7 +2852,6 @@ export const en = {
   "sidebar.session.quotePlan": "plan ready",
 
   "sidebar.session.openPlanning": "open planning session",
-  "sidebar.session.stopResumable": "stop the agent (session stays resumable)",
   "sidebar.session.settle": "settle (done with this — moves to Settled)",
   "sidebar.session.settleMenu": "Settle",
   "sidebar.selection.label": "{n} selected sessions",
@@ -2862,7 +2859,6 @@ export const en = {
   "sidebar.selection.clear": "clear selection",
   "sidebar.selection.action": "{action} ({n})",
   "sidebar.selection.retitle": "Retitle",
-  "sidebar.selection.stop": "Stop",
   "sidebar.selection.delete": "Delete…",
   "sidebar.session.seance": "consult this saved session (read-only)",
   "sidebar.session.seanceNeedsOmp": "this omp has no seance — update omp to {version} or later",
@@ -2966,7 +2962,7 @@ export const en = {
   "notice.anonymize.failed": "anonymize failed: {message}",
   // The store's plan-handoff notice (issue #840): the seed was accepted but
   // the planning source could not be reaped, so it stays live and suppressed.
-  "notice.planHandoff.stopFailed": "implementation started, but the planning agent could not be stopped — terminate it manually",
+  "notice.planHandoff.stopFailed": "implementation started, but the planning agent could not be stopped — settle it manually",
   // Live sharing via omp's /collab (issue #686): the Share-live dialog,
   // its first-use confirm, the terminal chip, and the palette row.
   "collab.access.full": "full",
@@ -3343,7 +3339,7 @@ export const en = {
   "fleet.dispatches.mcp": "MCP client",
   "fleet.dispatches.stateCount": "{count} {state}",
   "fleet.dispatches.open": "Open",
-  "fleet.dispatches.stop": "Stop",
+  "fleet.dispatches.settle": "Settle",
   // Fleet exec ladder (issue #901)
   "fleet.section.activity": "Activity",
   "fleet.machine.access": "access {rung}",

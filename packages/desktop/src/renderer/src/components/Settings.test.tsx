@@ -114,7 +114,6 @@ const backendMock = {
   setAutoSettleMergedPullRequests: vi.fn(async () => {}),
   setRemoteVsCodeEnabled: vi.fn(async () => {}),
   spawnSession: vi.fn(),
-  terminateSession: vi.fn(),
   switchMode: vi.fn(),
   deleteSession: vi.fn(async (tabId: string) => ({ deleted: [tabId], failed: [] })),
   deleteSessionPreview: vi.fn(async () => ({ descendants: [] })),

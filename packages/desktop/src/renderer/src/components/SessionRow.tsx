@@ -127,21 +127,6 @@ function IconTrash() {
   );
 }
 
-function IconPower() {
-  return (
-    <svg viewBox="0 0 16 16" aria-hidden className="size-3.5">
-      <path d="M8 2V7.5" fill="none" stroke="currentColor" strokeWidth={1.4} strokeLinecap="round" />
-      <path
-        d="M4.6 4.6a4.8 4.8 0 106.8 0"
-        fill="none"
-        stroke="currentColor"
-        strokeWidth={1.4}
-        strokeLinecap="round"
-      />
-    </svg>
-  );
-}
-
 /** A check — the row's Settle action, "done with this" (issue #980). */
 function IconSettle() {
   return (
@@ -255,13 +240,10 @@ export function SessionRow({
   const holdLabel = useKeybindingLabel("holdToTalk");
   const openSession = useStore((st) => st.openSession);
   const deleteSession = useStore((st) => st.deleteSession);
-  const terminate = useStore((st) => st.terminate);
   const resumeDead = useStore((st) => st.resumeDead);
   const settleSessions = useStore((st) => st.settleSessions);
-  // Settle (issue #980): finished work only — a row mid-turn keeps Stop.
-  const settleable = useStore((st) =>
-    canSettle(s, st.rpc[s.tabId]?.status === "running", st.state?.snoozedSectionEnabled === true),
-  );
+  // Settle (#980, #1005): every live row; a running turn confirms first.
+  const settleable = useStore((st) => canSettle(s, st.state?.snoozedSectionEnabled === true));
   const exited = useStore((st) => st.exited[s.tabId]);
   // Issue #926 — a settle hides the dead tab even for a record that never
   // materialized on disk, so the missing row must still be able to un-hide
@@ -610,15 +592,7 @@ export function SessionRow({
             <IconSettle />
           </IconButton>
         )}
-        {!missing && s.live === "live" ? (
-          <IconButton
-            label={t("sidebar.session.stopResumable")}
-            tone="copper"
-            onClick={() => void terminate(s.tabId)}
-          >
-            <IconPower />
-          </IconButton>
-        ) : !missing && exited !== undefined ? (
+        {!missing && s.live !== "live" && exited !== undefined ? (
           <Button
             size="xs"
             tone="signal"

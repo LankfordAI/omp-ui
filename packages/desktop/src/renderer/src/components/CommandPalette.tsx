@@ -94,10 +94,8 @@ export function CommandPalette() {
   const openProjectPicker = useStore((s) => s.openProjectPicker);
   const openCapabilitiesViewer = useStore((s) => s.openCapabilitiesViewer);
   const openSessionTreeView = useStore((s) => s.openSessionTreeView);
-  const terminate = useStore((s) => s.terminate);
   const settleSessions = useStore((s) => s.settleSessions);
   const openScheduleDialog = useStore((s) => s.openScheduleDialog);
-  const rpcRunning = useStore((s) => (activeTabId === null ? false : s.rpc[activeTabId]?.status === "running"));
   const settleUndoCount = useStore((s) => s.settleUndo.length);
   // Hint chips read the effective chords; a rebind rebuilds the list.
   const keybindings = useKeybindingOverrides();
@@ -264,16 +262,9 @@ export function CommandPalette() {
     if (tab) {
       const title = findRecord(state, tab.tabId)?.title ?? t("palette.action.sessionFallback");
       const other = tab.mode === "pty" ? "rpc-ui" : "pty";
-      out.push({
-        id: "session:terminate",
-        group: t("palette.group.session"),
-        name: t("palette.action.terminate"),
-        desc: t("palette.action.terminateDesc", { title }),
-        run: () => void terminate(tab.tabId),
-      });
-      // Settle (issue #980): finished work only — a session mid-turn keeps Stop.
+      // Settle (#980, #1005): any live session; a running turn confirms first.
       const rec = findRecord(state, tab.tabId);
-      if (rec !== undefined && canSettle(rec, rpcRunning, state?.snoozedSectionEnabled === true)) {
+      if (rec !== undefined && canSettle(rec, state?.snoozedSectionEnabled === true)) {
         out.push({
           id: "session:settle",
           group: t("palette.group.session"),
@@ -436,7 +427,7 @@ export function CommandPalette() {
     });
 
     return out;
-  }, [state, tabs, activeTabId, openSession, newSession, newChat, openProjectPicker, openCapabilitiesViewer, openSessionTreeView, openLab, openStats, openFleet, openNewSessionDialog, openExperimentDialog, terminate, settleSessions, openScheduleDialog, rpcRunning, settleUndoCount, undoSettle, switchMode, regenerateSessionTitle, askAboutSession, toggleBrowserPane, shareSession, anonymizeSession, ompInstalled, openShareLive, checkAppUpdate, checkOmpUpdate, openSettings, openDiagnosticsDialog, openGettingStarted, t, localeId, keybindings]);
+  }, [state, tabs, activeTabId, openSession, newSession, newChat, openProjectPicker, openCapabilitiesViewer, openSessionTreeView, openLab, openStats, openFleet, openNewSessionDialog, openExperimentDialog, settleSessions, openScheduleDialog, settleUndoCount, undoSettle, switchMode, regenerateSessionTitle, askAboutSession, toggleBrowserPane, shareSession, anonymizeSession, ompInstalled, openShareLive, checkAppUpdate, checkOmpUpdate, openSettings, openDiagnosticsDialog, openGettingStarted, t, localeId, keybindings]);
 
   // Flat, already-ordered result list; group headers are derived from it so the
   // arrow-key index and the rendered rows can never disagree.

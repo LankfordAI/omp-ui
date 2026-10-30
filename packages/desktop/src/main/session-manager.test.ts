@@ -1374,7 +1374,7 @@ describe("session tool control (issue #379)", () => {
     expect(rpcInstances).toHaveLength(2);
   });
 
-  it("queues terminate behind an in-flight lifecycle mutation", async () => {
+  it("queues settle behind an in-flight lifecycle mutation", async () => {
     const { manager } = setup({ mode: "rpc-ui" });
     await resumeRpc(manager);
     const rpc = rpcInstances.at(-1)!;
@@ -1384,7 +1384,7 @@ describe("session tool control (issue #379)", () => {
     const pending = manager.setSessionToolEnabled(TAB, "proc-1", null, "read", false);
     await flush();
     const [prompt] = mutationPrompts(rpc);
-    manager.terminate(TAB);
+    const settling = manager.settleSession(TAB);
     await flush();
     expect(rpc.kill).not.toHaveBeenCalled();
 
@@ -1397,7 +1397,7 @@ describe("session tool control (issue #379)", () => {
       }),
     );
     await pending;
-    await flush();
+    await settling;
     expect(rpc.kill).toHaveBeenCalledOnce();
   });
 
@@ -2077,9 +2077,7 @@ describe("resume model recovery (issue #774)", () => {
     await resume(manager);
     const first = rpcInstances[0]!;
     first.kill.mockImplementation(() => first.exit(0));
-    manager.terminate(TAB);
-    // Microtask drain (the tool-control describe owns the shared `flush`).
-    for (let i = 0; i < 8; i += 1) await Promise.resolve();
+    await manager.settleSession(TAB);
 
     await resume(manager);
     const second = rpcInstances.at(-1)!;
@@ -6940,6 +6938,24 @@ describe("merged-finish settle (issue #924)", () => {
     expect(manager.isLive(TAB)).toBe(false);
   });
 
+  it("a settle kills the tab's drawer shell, live or dormant", async () => {
+    const live = setup({ mode: "rpc-ui" });
+    await resumeRpc(live.manager);
+    const rpc = rpcInstances[0]!;
+    rpc.kill.mockImplementation(() => rpc.exit(0));
+    live.manager.launchShell(TAB, PROJECT, 80, 24);
+    const liveShell = fakeShells.at(-1)!;
+    await live.manager.settleSession(TAB);
+    expect(liveShell.kill).toHaveBeenCalledOnce();
+
+    const dormant = setup();
+    dormant.manager.launchShell(TAB, PROJECT, 80, 24);
+    const dormantShell = fakeShells.at(-1)!;
+    expect(dormantShell).not.toBe(liveShell);
+    await dormant.manager.settleSession(TAB);
+    expect(dormantShell.kill).toHaveBeenCalledOnce();
+  });
+
   it("an already-dormant session settles with nothing to reap", async () => {
     const { manager, sent } = setup();
 
@@ -7132,21 +7148,6 @@ describe("session lifecycle breadcrumbs (issue #413)", () => {
       }),
     ).rejects.toThrow("unknown plan source tab missing-source");
     expect(kinds(crumbs)).toEqual(["spawn-attempt"]);
-  });
-
-  it("terminate records the kill and the child's exit code", async () => {
-    nextPtyDiesOn = "default";
-    const { manager, crumbs } = setup();
-    await resume(manager);
-    // The fake pty dies on the default kill signal, which handleExit sees
-    // synchronously inside terminate(); no flush needed.
-    manager.terminate(TAB);
-    expect(kinds(crumbs)).toEqual([
-      "spawn-attempt",
-      "session-resume",
-      "session-terminate",
-      "session-exit",
-    ]);
   });
 
   it("delete suppresses the exit row but not the resume row", async () => {

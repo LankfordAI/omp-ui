@@ -283,12 +283,13 @@ describe("live session teardown (issue #64)", () => {
   const processStarts = (): number =>
     spawnOmpMock.mock.calls.length + RpcClientMock.mock.calls.length;
 
-  it("terminate detaches the pty data listener and kills the process", async () => {
+  it("settle detaches the pty data listener and kills the process", async () => {
     setup();
     const tabId = await spawnPtySession();
     const fake = fakePtys[0]!;
 
-    invoke(CH.terminateSession, tabId);
+    fake.kill.mockImplementation(() => fake.exit(0));
+    await invoke(CH.settleSession, tabId);
 
     expect(fake.detachData).toHaveBeenCalled();
     expect(fake.dataCb).toBeNull();
@@ -502,76 +503,6 @@ describe("live session teardown (issue #64)", () => {
     fake.exit(0);
 
     expect(sent.filter((e) => e.channel === CH.onPtyExit)).toEqual([]);
-  });
-});
-
-describe("terminate escalation (issue #182)", () => {
-  const spawnRpcSession = async (): Promise<string> => {
-    const res = (await invoke(CH.spawnSession, {
-      origin: "new",
-      projectCwd: PROJECT,
-      mode: "rpc-ui",
-      advisor: false,
-      cols: 80,
-      rows: 24,
-      worktree: null,
-    })) as { tabId: string };
-    return res.tabId;
-  };
-
-  it("escalates to SIGKILL when the child ignores SIGTERM", async () => {
-    vi.useFakeTimers();
-    try {
-      setup();
-      const tabId = await spawnRpcSession();
-      const rpc = rpcInstances[0]!;
-
-      invoke(CH.terminateSession, tabId);
-      expect(rpc.kill).toHaveBeenCalledTimes(1);
-
-      await vi.advanceTimersByTimeAsync(3_000);
-
-      expect(rpc.kill).toHaveBeenCalledWith("SIGKILL");
-    } finally {
-      vi.useRealTimers();
-    }
-  });
-
-  it("does not escalate when the child exits inside the grace window", async () => {
-    vi.useFakeTimers();
-    try {
-      setup();
-      const tabId = await spawnRpcSession();
-      const rpc = rpcInstances[0]!;
-      rpc.kill.mockImplementation(() => rpc.exit(0));
-
-      invoke(CH.terminateSession, tabId);
-      await vi.advanceTimersByTimeAsync(10_000);
-
-      expect(rpc.kill).toHaveBeenCalledTimes(1);
-      expect(rpc.kill).not.toHaveBeenCalledWith("SIGKILL");
-    } finally {
-      vi.useRealTimers();
-    }
-  });
-
-  it("still reports the exit after an escalated reap (no suppressExit)", async () => {
-    vi.useFakeTimers();
-    try {
-      setup();
-      const tabId = await spawnRpcSession();
-      const rpc = rpcInstances[0]!;
-
-      invoke(CH.terminateSession, tabId);
-      await vi.advanceTimersByTimeAsync(3_000);
-      expect(rpc.kill).toHaveBeenCalledWith("SIGKILL");
-
-      rpc.exit(137);
-
-      expect(sent).toContainEqual({ channel: CH.onPtyExit, args: [tabId, 137] });
-    } finally {
-      vi.useRealTimers();
-    }
   });
 });
 

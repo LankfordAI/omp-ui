@@ -215,3 +215,22 @@ entry, and every per-row failure of one action is listed in a single notice.
 A per-section "settle all" button was rejected as too coarse. The selection
 is not stored in the store or persisted: it is a gesture in this window, not
 session state.
+
+## Addendum: Settle replaces Stop (#1005, 2026-10-30)
+
+A settled session holds no process, and Settle is the only manual way to end
+one. Stop is gone from every surface — the row's power button, the selection
+bar, the palette's Terminate agent, and the Fleet dispatch row — along with
+`session:terminate`. Settle is offered on every live row. A row mid-turn
+(`turnRunning`, or this renderer's own running turn) first stages one
+`settle-running` confirmation for the whole action, naming the turns it
+interrupts; accepting runs the same `session:settle` reap with Undo. The
+`skipTerminateConfirmation` opt-out now skips that confirmation. A settle also
+kills the tab's drawer shell and retires a staged TUI handoff, as Stop did.
+
+This supersedes the Settle addendum's "Reusing Stop was rejected": the
+confirmation is the mid-turn kill switch now, and an rpc-ui reap leaves no exit
+card. A single button that flips between Settle and Stop with turn state was
+rejected: a turn starting while the pointer travels would turn the click into an
+unconfirmed kill. The composer's abort and the finish dialog's "Stop that turn"
+still abort a turn without ending the process.

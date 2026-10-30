@@ -78,7 +78,6 @@ export interface RemoteInstanceRecord {
 
 /** Request channels whose first argument is the owning tabId; main routes them to that tab's instance. */
 export const TAB_ROUTED_REQUESTS: ReadonlySet<string> = new Set<string>([
-  "session:terminate",
   "session:hibernatePlanSource",
   "session:settle",
   "session:switchMode",

@@ -99,7 +99,6 @@ const backendMock = {
   setSkipDeleteConfirmation: vi.fn(),
   setSkipTerminateConfirmation: vi.fn(),
   spawnSession: vi.fn(),
-  terminateSession: vi.fn(),
   switchMode: vi.fn(),
   deleteSession: vi.fn(async (tabId: string) => ({ deleted: [tabId], failed: [] })),
   deleteSessionPreview: vi.fn(async () => ({ descendants: [] })),

@@ -10,7 +10,7 @@ import { backendState, tabInfo } from "../test/fixtures";
 
 const backendMock = {
   getState: vi.fn(async () => backendState()),
-  terminateSession: vi.fn(async () => {}),
+  settleSession: vi.fn(async () => true),
   switchMode: vi.fn(async () => {}),
   setSkipTerminateConfirmation: vi.fn(async () => {}),
   removeProject: vi.fn(async () => {}),
@@ -113,6 +113,15 @@ function seed(): void {
   });
 }
 
+/** A turn in flight: settling it stages the settle-running confirmation. */
+function seedRunning(): void {
+  useStore.setState({
+    state: backendState({
+      projects: [{ project: PROJECT, sessions: [record({ turnRunning: true })] }],
+    }),
+  });
+}
+
 let root: Root | null = null;
 let host: HTMLDivElement | null = null;
 
@@ -167,19 +176,20 @@ afterEach(() => {
   expect(nativeConfirm).not.toHaveBeenCalled();
 });
 
-describe("stop confirmation is a drivable DOM dialog", () => {
-  it("stages on the stop action, Cancel from the DOM declines", async () => {
+describe("settle-running confirmation is a drivable DOM dialog", () => {
+  it("stages on the settle action, Cancel from the DOM declines", async () => {
     await render();
     expect(dialog()).toBeNull();
 
     await act(async () => {
-      await useStore.getState().terminate(TAB);
+      seedRunning();
+      await useStore.getState().settleSessions([TAB]);
     });
     await settle();
     expect(dialog()).not.toBeNull();
-    expect(dialog()!.textContent).toContain("Stop the agent?");
+    expect(dialog()!.textContent).toContain("Interrupt the running turn?");
     expect(dialog()!.textContent).toContain("Running task"); // the captured target
-    expect(backendMock.terminateSession).not.toHaveBeenCalled();
+    expect(backendMock.settleSession).not.toHaveBeenCalled();
     // Cancel owns the initial focus: accepting must be a deliberate act.
     expect(document.activeElement?.textContent).toBe("Cancel");
 
@@ -188,37 +198,40 @@ describe("stop confirmation is a drivable DOM dialog", () => {
     });
     expect(useStore.getState().lifecycleConfirmation).toBeNull();
     expect(dialog()).toBeNull();
-    expect(backendMock.terminateSession).not.toHaveBeenCalled();
+    expect(backendMock.settleSession).not.toHaveBeenCalled();
   });
 
-  it("Escape cancels before acceptance and Confirm dispatches the stop once", async () => {
+  it("Escape cancels before acceptance and Confirm dispatches the settle once", async () => {
     await render();
     await act(async () => {
-      await useStore.getState().terminate(TAB);
+      seedRunning();
+      await useStore.getState().settleSessions([TAB]);
     });
     await settle();
     pressEscape();
     expect(useStore.getState().lifecycleConfirmation).toBeNull();
-    expect(backendMock.terminateSession).not.toHaveBeenCalled();
+    expect(backendMock.settleSession).not.toHaveBeenCalled();
 
     await act(async () => {
-      await useStore.getState().terminate(TAB);
+      seedRunning();
+      await useStore.getState().settleSessions([TAB]);
     });
     await settle();
     await act(async () => {
-      buttonIn("Stop agent").click();
+      buttonIn("Settle").click();
     });
-    expect(backendMock.terminateSession).toHaveBeenCalledWith(TAB);
+    expect(backendMock.settleSession).toHaveBeenCalledWith(TAB);
     expect(useStore.getState().lifecycleConfirmation).toBeNull();
     expect(dialog()).toBeNull();
   });
 
-  it("while an accepted stop is in flight the dialog blocks and dispatches once", async () => {
-    const stop = deferred<void>();
-    backendMock.terminateSession.mockReturnValueOnce(stop.promise);
+  it("while an accepted settle is in flight the dialog blocks and dispatches once", async () => {
+    const stop = deferred<boolean>();
+    backendMock.settleSession.mockReturnValueOnce(stop.promise);
     await render();
     await act(async () => {
-      await useStore.getState().terminate(TAB);
+      seedRunning();
+      await useStore.getState().settleSessions([TAB]);
     });
     await settle();
     const id = useStore.getState().lifecycleConfirmation!.id;
@@ -234,9 +247,9 @@ describe("stop confirmation is a drivable DOM dialog", () => {
     await act(async () => {
       await useStore.getState().confirmLifecycleAction(id);
     });
-    expect(backendMock.terminateSession).toHaveBeenCalledTimes(1);
+    expect(backendMock.settleSession).toHaveBeenCalledTimes(1);
 
-    stop.resolve(undefined);
+    stop.resolve(true);
     await act(async () => {
       await change;
     });
@@ -245,16 +258,17 @@ describe("stop confirmation is a drivable DOM dialog", () => {
   });
 });
 
-// The terminate dialog's opt-out row (issue #925): the checkbox persists the
+// The settle-running dialog's opt-out row (issue #925): the checkbox persists the
 // setting before dispatching, and only on accept.
-describe("stop-confirmation opt-out checkbox (issue #925)", () => {
+describe("settle-running confirmation opt-out checkbox (issue #925)", () => {
   const checkboxInDialog = (): HTMLInputElement | null =>
     dialog()?.querySelector<HTMLInputElement>('input[type="checkbox"]') ?? null;
 
-  it("offers the opt-out and persists it before dispatching the stop", async () => {
+  it("offers the opt-out and persists it before dispatching the settle", async () => {
     await render();
     await act(async () => {
-      await useStore.getState().terminate(TAB);
+      seedRunning();
+      await useStore.getState().settleSessions([TAB]);
     });
     await settle();
     const checkbox = checkboxInDialog();
@@ -266,20 +280,21 @@ describe("stop-confirmation opt-out checkbox (issue #925)", () => {
     expect(checkbox!.checked).toBe(true);
 
     await act(async () => {
-      buttonIn("Stop agent").click();
+      buttonIn("Settle").click();
     });
     expect(backendMock.setSkipTerminateConfirmation).toHaveBeenCalledWith(true);
-    expect(backendMock.terminateSession).toHaveBeenCalledWith(TAB);
-    // Persist before dispatch: a concurrent stop must see the saved setting.
+    expect(backendMock.settleSession).toHaveBeenCalledWith(TAB);
+    // Persist before dispatch: a concurrent settle must see the saved setting.
     expect(backendMock.setSkipTerminateConfirmation.mock.invocationCallOrder[0]).toBeLessThan(
-      backendMock.terminateSession.mock.invocationCallOrder[0],
+      backendMock.settleSession.mock.invocationCallOrder[0],
     );
   });
 
   it("does not persist when the dialog is cancelled with the box checked", async () => {
     await render();
     await act(async () => {
-      await useStore.getState().terminate(TAB);
+      seedRunning();
+      await useStore.getState().settleSessions([TAB]);
     });
     await settle();
     act(() => checkboxInDialog()!.click());
@@ -287,7 +302,7 @@ describe("stop-confirmation opt-out checkbox (issue #925)", () => {
       buttonIn("Cancel").click();
     });
     expect(backendMock.setSkipTerminateConfirmation).not.toHaveBeenCalled();
-    expect(backendMock.terminateSession).not.toHaveBeenCalled();
+    expect(backendMock.settleSession).not.toHaveBeenCalled();
   });
 
   it("offers no checkbox on a mode-switch confirmation", async () => {
@@ -300,10 +315,11 @@ describe("stop-confirmation opt-out checkbox (issue #925)", () => {
     expect(checkboxInDialog()).toBeNull();
   });
 
-  it("resets the checkbox when a second stop is staged", async () => {
+  it("resets the checkbox when a second settle is staged", async () => {
     await render();
     await act(async () => {
-      await useStore.getState().terminate(TAB);
+      seedRunning();
+      await useStore.getState().settleSessions([TAB]);
     });
     await settle();
     act(() => checkboxInDialog()!.click());
@@ -312,7 +328,8 @@ describe("stop-confirmation opt-out checkbox (issue #925)", () => {
     });
 
     await act(async () => {
-      await useStore.getState().terminate(TAB);
+      seedRunning();
+      await useStore.getState().settleSessions([TAB]);
     });
     await settle();
     expect(checkboxInDialog()!.checked).toBe(false);
@@ -350,7 +367,8 @@ describe("mode-switch and project-removal dialogs", () => {
 describe("error notices", () => {
   it("reads the full backend text in order and restores the hidden confirmation", async () => {
     await act(async () => {
-      await useStore.getState().terminate(TAB);
+      seedRunning();
+      await useStore.getState().settleSessions([TAB]);
     });
     await render();
     useStore.setState({
@@ -389,7 +407,7 @@ describe("error notices", () => {
     });
     await settle();
     // Both notices acknowledged: the still-pending decision is back.
-    expect(dialog()!.textContent).toContain("Stop the agent?");
+    expect(dialog()!.textContent).toContain("Interrupt the running turn?");
     expect(useStore.getState().lifecycleConfirmation).not.toBeNull();
 
     await act(async () => {
@@ -427,7 +445,8 @@ describe("credential-carry gate and success notices (issue #888)", () => {
 
   it("renders successes in order under the error queue and restores the hidden confirmation", async () => {
     await act(async () => {
-      await useStore.getState().terminate(TAB);
+      seedRunning();
+      await useStore.getState().settleSessions([TAB]);
     });
     await render();
     useStore.setState({
@@ -455,7 +474,7 @@ describe("credential-carry gate and success notices (issue #888)", () => {
       buttonIn("Dismiss").click();
     });
     await settle();
-    expect(dialog()!.textContent).toContain("Stop the agent?");
+    expect(dialog()!.textContent).toContain("Interrupt the running turn?");
     expect(useStore.getState().infoNotices).toEqual([]);
 
     await act(async () => {

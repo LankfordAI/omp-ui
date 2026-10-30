@@ -2,6 +2,7 @@
 // tab-routed `session:settle` channel (#924's reap), so a remote session
 // settles on its host, and keeps a renderer-local undo stack: undo exists only
 // for settles made in this window during this run, one entry per action.
+// Settle replaced Stop (#1005): a row mid-turn confirms before it is reaped.
 import type { SessionSummary } from "@omp-ui/core/types";
 import { backend } from "../../backend";
 import { t } from "../../lib/i18n";
@@ -9,7 +10,7 @@ import { randomId } from "../../lib/random-id";
 import type { SettleUndoEntry, UiStore } from "../types";
 import { bulkFailureNotice, failureMessage, type BulkFailure } from "./bulk-failures";
 import { findRecord } from "./view";
-import type { GetState, SetState } from "./shared";
+import { dropTuiHandoff, type GetState, type SetState } from "./shared";
 
 /** Undo entries kept; older settles fall off and can only be resumed by hand. */
 export const SETTLE_UNDO_LIMIT = 20;
@@ -20,16 +21,19 @@ export type SettleSlice = Pick<
 >;
 
 /**
- * Whether a session can be settled now. A live row inside a turn keeps Stop
- * instead: Settle is for finished work. `localTurn` is this renderer's own
- * turn signal (rpc status `running`), which leads the host-published latch.
+ * Whether a session can be settled now (issues #980, #1005). Every live
+ * session can: a running turn only adds a confirmation (see settleSessions).
  * A snoozed row can always settle — it leaves Snoozed for Settled — but only
- * while the Snoozed section is on, the only place such a row reads as parked.
- * A dormant unsnoozed row is already settled.
+ * while the Snoozed section is on. A dormant unsnoozed row is already settled.
  */
-export function canSettle(s: SessionSummary, localTurn: boolean, snoozedSectionEnabled: boolean): boolean {
-  if (s.live === "live") return s.turnRunning !== true && !localTurn;
+export function canSettle(s: SessionSummary, snoozedSectionEnabled: boolean): boolean {
+  if (s.live === "live") return true;
   return snoozedSectionEnabled && s.snoozed === true;
+}
+
+/** A live session inside a turn: the host latch, or this renderer's own running turn. */
+function interruptsTurn(s: SessionSummary, localTurn: boolean): boolean {
+  return s.live === "live" && (s.turnRunning === true || localTurn);
 }
 
 export function createSettleSlice(set: SetState, get: GetState): SettleSlice {
@@ -40,14 +44,16 @@ export function createSettleSlice(set: SetState, get: GetState): SettleSlice {
     settleUndo: [],
     settleToastId: null,
 
-    async settleSessions(tabIds) {
+    async settleSessions(tabIds, opts) {
       const s0 = get();
       const snoozedOn = s0.state?.snoozedSectionEnabled === true;
       const targets: SettleUndoEntry["sessions"] = [];
+      const runningTitles: string[] = [];
       for (const tabId of tabIds) {
         const rec = findRecord(s0.state, tabId);
         if (rec === undefined || inFlight.has(tabId)) continue;
-        if (!canSettle(rec, s0.rpc[tabId]?.status === "running", snoozedOn)) continue;
+        if (!canSettle(rec, snoozedOn)) continue;
+        if (interruptsTurn(rec, s0.rpc[tabId]?.status === "running")) runningTitles.push(rec.title);
         targets.push({
           tabId,
           title: rec.title,
@@ -57,6 +63,11 @@ export function createSettleSlice(set: SetState, get: GetState): SettleSlice {
         });
       }
       if (targets.length === 0) return;
+      if (runningTitles.length > 0 && opts?.confirmed !== true && s0.state?.skipTerminateConfirmation !== true) {
+        // Interrupting a turn is the old Stop's job: ask once for the whole action (#1005).
+        s0.stageLifecycleConfirmation({ kind: "settle-running", tabIds: targets.map((x) => x.tabId), runningTitles });
+        return;
+      }
       for (const target of targets) inFlight.add(target.tabId);
       const settled: SettleUndoEntry["sessions"] = [];
       // A bulk settle (#988) reports every failed row in one notice.
@@ -64,8 +75,11 @@ export function createSettleSlice(set: SetState, get: GetState): SettleSlice {
       await Promise.all(
         targets.map(async (target) => {
           try {
-            if (await backend.settleSession(target.tabId)) settled.push(target);
-            else {
+            if (await backend.settleSession(target.tabId)) {
+              settled.push(target);
+              // killShell detaches the drawer program first, so no shell:exit retires the handoff.
+              set((s) => ({ tuiHandoff: dropTuiHandoff(s.tuiHandoff, target.tabId) }));
+            } else {
               failures.push({
                 tabId: target.tabId,
                 title: target.title,

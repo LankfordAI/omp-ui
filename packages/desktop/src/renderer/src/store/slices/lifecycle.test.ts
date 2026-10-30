@@ -188,187 +188,40 @@ describe("TUI handoff staging (issue #243)", () => {
     await h.useStore.getState().confirmDeleteSession(false);
     expect(h.useStore.getState().tuiHandoff[h.TAB]).toBeUndefined();
   });
-
-  it("drops the staged handoff when the agent is terminated", async () => {
-    // killShell suppresses the drawer program's exit event, so no shell:exit
-    // ever arrives to retire the handoff — an accepted terminate must.
-    h.useStore.setState({
-      state: h.stateWithRecord("sess-1", "live"),
-      tuiHandoff: {
-        [h.TAB]: { line: "/mcp reauth linear", key: 1, phase: "running" },
-      },
-    });
-
-    await h.useStore.getState().terminate(h.TAB);
-    const confirmation = h.useStore.getState().lifecycleConfirmation!;
-    // Before approval: neither the backend nor the handoff is touched.
-    expect(h.mockBackend.terminateSession).not.toHaveBeenCalled();
-    expect(h.useStore.getState().tuiHandoff[h.TAB]).toBeDefined();
-
-    await h.useStore.getState().confirmLifecycleAction(confirmation.id);
-    expect(h.mockBackend.terminateSession).toHaveBeenCalledWith(h.TAB);
-    expect(h.useStore.getState().tuiHandoff[h.TAB]).toBeUndefined();
-    expect(h.useStore.getState().lifecycleConfirmation).toBeNull();
-  });
-
-  it("keeps the staged handoff when terminate is cancelled", async () => {
-    const staged = {
-      line: "/mcp reauth linear",
-      key: 1,
-      phase: "running" as const,
-    };
-    h.useStore.setState({
-      state: h.stateWithRecord("sess-1", "live"),
-      tuiHandoff: { [h.TAB]: staged },
-    });
-
-    await h.useStore.getState().terminate(h.TAB);
-    const confirmation = h.useStore.getState().lifecycleConfirmation!;
-    h.useStore.getState().cancelLifecycleAction(confirmation.id);
-
-    expect(h.mockBackend.terminateSession).not.toHaveBeenCalled();
-    expect(h.useStore.getState().tuiHandoff[h.TAB]).toEqual(staged);
-    expect(h.useStore.getState().lifecycleConfirmation).toBeNull();
-  });
-
-  it("reports a failed stop without retiring the handoff", async () => {
-    // A rejection is not the stop the user accepted: the banner must stay
-    // over the still-live PTY, and the reason must reach an error notice.
-    const staged = {
-      line: "/mcp reauth linear",
-      key: 1,
-      phase: "running" as const,
-    };
-    h.mockBackend.terminateSession.mockRejectedValueOnce(new Error("kill failed"));
-    h.useStore.setState({
-      state: h.stateWithRecord("sess-1", "live"),
-      tuiHandoff: { [h.TAB]: staged },
-    });
-
-    await h.useStore.getState().terminate(h.TAB);
-    const confirmation = h.useStore.getState().lifecycleConfirmation!;
-    await h.useStore.getState().confirmLifecycleAction(confirmation.id);
-
-    expect(h.errorMessages()).toEqual(["kill failed"]);
-    expect(h.useStore.getState().tuiHandoff[h.TAB]).toEqual(staged);
-    expect(h.useStore.getState().lifecycleConfirmation).toBeNull();
-  });
-
-  // Opt-out fast path (issue #925): with the warning skipped there is no
-  // dialog, but the liveness guard and the handoff rule must survive.
-  it("stops immediately without a dialog once warnings are skipped", async () => {
-    h.useStore.setState({
-      state: makeBackendState({
-        ...h.stateWithRecord("sess-1", "live"),
-        skipTerminateConfirmation: true,
-      }),
-      tuiHandoff: {
-        [h.TAB]: { line: "/mcp reauth linear", key: 1, phase: "running" },
-      },
-    });
-
-    await h.useStore.getState().terminate(h.TAB);
-
-    expect(h.useStore.getState().lifecycleConfirmation).toBeNull();
-    expect(h.mockBackend.terminateSession).toHaveBeenCalledWith(h.TAB);
-    expect(h.useStore.getState().tuiHandoff[h.TAB]).toBeUndefined();
-  });
-
-  it("keeps the handoff and reports when the fast-path kill fails", async () => {
-    const staged = {
-      line: "/mcp reauth linear",
-      key: 1,
-      phase: "running" as const,
-    };
-    h.mockBackend.terminateSession.mockRejectedValueOnce(new Error("kill failed"));
-    h.useStore.setState({
-      state: makeBackendState({
-        ...h.stateWithRecord("sess-1", "live"),
-        skipTerminateConfirmation: true,
-      }),
-      tuiHandoff: { [h.TAB]: staged },
-    });
-
-    await h.useStore.getState().terminate(h.TAB);
-
-    expect(h.errorMessages()).toEqual(["kill failed"]);
-    expect(h.useStore.getState().tuiHandoff[h.TAB]).toEqual(staged);
-    expect(h.useStore.getState().lifecycleConfirmation).toBeNull();
-  });
-
-  it("is a no-op for a dormant session even with the setting on", async () => {
-    h.useStore.setState({
-      state: makeBackendState({
-        ...h.stateWithRecord("sess-1", "dormant"),
-        skipTerminateConfirmation: true,
-      }),
-    });
-
-    await h.useStore.getState().terminate(h.TAB);
-
-    expect(h.mockBackend.terminateSession).not.toHaveBeenCalled();
-    expect(h.useStore.getState().lifecycleConfirmation).toBeNull();
-  });
 });
 
 describe("lifecycle confirmation acceptance (issue #373)", () => {
-  const staged = {
-    line: "/mcp reauth linear",
-    key: 1,
-    phase: "running" as const,
+  /** The harness record mid-turn, so a settle stages `settle-running`. */
+  const running = (): BackendState => {
+    const state = h.stateWithRecord("sess-1", "live");
+    state.projects[0]!.sessions[0]!.turnRunning = true;
+    return state;
   };
 
   it("dispatches once no matter how often the accepted button fires", async () => {
-    const stop = h.deferred<void>();
-    h.mockBackend.terminateSession.mockReturnValueOnce(stop.promise);
-    h.useStore.setState({
-      state: h.stateWithRecord("sess-1", "live"),
-      tuiHandoff: { [h.TAB]: staged },
-    });
-    await h.useStore.getState().terminate(h.TAB);
+    const settle = h.deferred<boolean>();
+    h.mockBackend.settleSession.mockReturnValueOnce(settle.promise);
+    h.useStore.setState({ state: running() });
+    await h.useStore.getState().settleSessions([h.TAB]);
     const id = h.useStore.getState().lifecycleConfirmation!.id;
 
     const first = h.useStore.getState().confirmLifecycleAction(id);
     // The dialog disables both buttons while busy; a stale activation must
     // still find the busy flag and dispatch nothing.
     await h.useStore.getState().confirmLifecycleAction(id);
-    expect(h.mockBackend.terminateSession).toHaveBeenCalledTimes(1);
+    expect(h.mockBackend.settleSession).toHaveBeenCalledTimes(1);
     expect(h.useStore.getState().lifecycleConfirmation).toMatchObject({
       id,
       busy: true,
     });
-    stop.resolve(undefined);
+    settle.resolve(true);
     await first;
     expect(h.useStore.getState().lifecycleConfirmation).toBeNull();
   });
 
-  it("re-checks liveness at acceptance and dismisses a vanished target", async () => {
-    h.useStore.setState({
-      state: h.stateWithRecord("sess-1", "live"),
-      tuiHandoff: { [h.TAB]: staged },
-    });
-    await h.useStore.getState().terminate(h.TAB);
-    const id = h.useStore.getState().lifecycleConfirmation!.id;
-    // The process died on its own while the dialog was open.
-    h.useStore.setState({ state: h.stateWithRecord("sess-1", "dormant") });
-
-    await h.useStore.getState().confirmLifecycleAction(id);
-    expect(h.mockBackend.terminateSession).not.toHaveBeenCalled();
-    expect(h.useStore.getState().tuiHandoff[h.TAB]).toEqual(staged);
-    expect(h.useStore.getState().lifecycleConfirmation).toBeNull();
-  });
-
-  it("does nothing when a non-live session is asked to stop", async () => {
-    h.useStore.setState({ state: h.stateWithRecord("sess-1", "dormant") });
-    await h.useStore.getState().terminate(h.TAB);
-    expect(h.useStore.getState().lifecycleConfirmation).toBeNull();
-    await h.useStore.getState().confirmLifecycleAction("stale-id");
-    expect(h.mockBackend.terminateSession).not.toHaveBeenCalled();
-  });
-
   it("never queues behind a pending confirmation or a visible delete warning", async () => {
     h.useStore.setState({
-      state: h.stateWithRecord("sess-1", "live"),
+      state: running(),
       deleteConfirmation: {
         tabId: h.TAB,
         title: "New session",
@@ -380,29 +233,30 @@ describe("lifecycle confirmation acceptance (issue #373)", () => {
         cascade: [],
       },
     });
-    await h.useStore.getState().terminate(h.TAB);
+    await h.useStore.getState().settleSessions([h.TAB]);
     expect(h.useStore.getState().lifecycleConfirmation).toBeNull();
 
     h.useStore.setState({ deleteConfirmation: null });
-    await h.useStore.getState().terminate(h.TAB);
+    await h.useStore.getState().settleSessions([h.TAB]);
     const first = h.useStore.getState().lifecycleConfirmation!;
     // A repeated request while one is pending is a no-op, not a second row.
-    await h.useStore.getState().terminate(h.TAB);
+    await h.useStore.getState().settleSessions([h.TAB]);
     expect(h.useStore.getState().lifecycleConfirmation).toBe(first);
+    expect(h.mockBackend.settleSession).not.toHaveBeenCalled();
   });
 
   it("ignores cancel and confirm aimed at a superseded id", async () => {
-    h.useStore.setState({ state: h.stateWithRecord("sess-1", "live") });
-    await h.useStore.getState().terminate(h.TAB);
+    h.useStore.setState({ state: running() });
+    await h.useStore.getState().settleSessions([h.TAB]);
     const stale = h.useStore.getState().lifecycleConfirmation!.id;
     h.useStore.setState({ lifecycleConfirmation: null });
-    await h.useStore.getState().terminate(h.TAB);
+    await h.useStore.getState().settleSessions([h.TAB]);
     const current = h.useStore.getState().lifecycleConfirmation!;
 
     h.useStore.getState().cancelLifecycleAction(stale);
     expect(h.useStore.getState().lifecycleConfirmation).toBe(current);
     await h.useStore.getState().confirmLifecycleAction(stale);
-    expect(h.mockBackend.terminateSession).not.toHaveBeenCalled();
+    expect(h.mockBackend.settleSession).not.toHaveBeenCalled();
   });
 });
 

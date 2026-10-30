@@ -1065,10 +1065,10 @@ function TitleMenu({
   const consoleOpen = useStore((s) => s.consoleOpen[tabId] === true);
   const paneOpen = useStore((s) => s.rpc[tabId]?.browserPane.open === true);
   const settleSessions = useStore((s) => s.settleSessions);
-  // Settle (issue #980): finished work only — a session mid-turn keeps Stop.
+  // Settle (#980, #1005): any live session; a running turn confirms first.
   const settleable = useStore((s) => {
     const rec = findRecord(s.state, tabId);
-    return rec !== undefined && canSettle(rec, s.rpc[tabId]?.status === "running", s.state?.snoozedSectionEnabled === true);
+    return rec !== undefined && canSettle(rec, s.state?.snoozedSectionEnabled === true);
   });
   // Settle on merge (issue #985): only worktree sessions link pull requests.
   // The record's override wins; null follows Settings → General.

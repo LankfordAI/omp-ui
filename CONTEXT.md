@@ -87,8 +87,10 @@ and a non-empty sidebar search shows it expanded without changing that choice.
 A settling session hides its tab on the way in; clicking the row resurfaces
 the tab so its exit card offers resume. **Settle** is the explicit way in
 (issue #980): the row's check action, row menu, Session HUD title menu, or
-palette stops the process the way hibernation does and clears a snooze. A
-row mid-turn keeps Stop instead. `Mod+Z` outside a text field, or the toast's
+palette (and the Fleet dispatch row) stops the process the way hibernation
+does, kills the drawer shell, and clears a snooze. It is the only manual way to
+end a session's process; a row mid-turn asks once before its turn is
+interrupted (#1005). `Mod+Z` outside a text field, or the toast's
 Undo, resumes the most recent settle made in this window during this run.
 _Avoid_: archive, history, inactive list
 
@@ -107,10 +109,11 @@ _Avoid_: session PR, tracked PR, attached PR
 The sidebar footer's replacement while two or more rows are in the sidebar's
 multi-selection (issue #988). `Mod+click` toggles a row, `Shift+click` extends
 from the last picked row within one section, and `Escape` clears. It offers
-Settle, Snooze (timed choices included), Unsnooze, Retitle, Stop, and
+Settle, Snooze (timed choices included), Unsnooze, Retitle, and
 Delete…, each applied to the selected rows that support it and counted on its
 button. Every call stays tab-routed per row, so rows on different instances
-mix. Stop and Delete… confirm once for the whole selection, a multi-row
+mix. Delete… confirms once for the whole selection, a Settle that interrupts
+running turns confirms once, a multi-row
 Settle is one undo entry, and per-row failures land in one notice. The
 selection is renderer-local and never persists.
 _Avoid_: bulk mode, batch bar, multi-edit
