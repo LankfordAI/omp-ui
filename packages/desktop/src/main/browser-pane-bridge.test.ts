@@ -17,9 +17,9 @@ import {
 import type { PaneContents, PaneDebugger } from "./browser-pane-contents";
 import { createBrowserPaneCapture, type CapturedPaneFrame } from "./browser-pane-capture";
 
-// U5: the root shim replayed against real omp 18.1.21 + puppeteer 25.3 traffic
-// captured through the #526 prototype. U6: the request gate and one real
-// loopback listener.
+// U5: the root shim replayed against real omp 18.14.0 (native WebMCP) +
+// puppeteer 25.3 traffic, recorded through the #526 prototype bridge (#977).
+// U6: the request gate and one real loopback listener.
 //
 // Promises use the executor form (not Promise.withResolvers): the node tsconfig
 // lib is ES2022.
@@ -63,8 +63,10 @@ const note = rows.find((r) => r.kind === "note" && r.pageId !== undefined);
 if (note?.pageId === undefined || note.tabId === undefined) throw new Error("fixture lacks the ids note");
 const PAGE_ID = note.pageId;
 const TAB_ID = note.tabId;
-const TAB_SESSION_1 = "5870D21A40B506636144CA44978694E7";
-const PAGE_SESSION_1 = "C25DADA716CECF1F2237FE327A8DFA9E";
+const TAB_SESSION_1 = "00B4A24AC2CCF56F586AB790FDFD4FAF";
+const PAGE_SESSION_1 = "18B610A4A11E32001C94AC516195A6A5";
+/** omp's page session on client 3, the one that lists and invokes the page's WebMCP tool. */
+const OMP_PAGE_SESSION = "20144DE43873331107E480D8DBAF866B";
 
 /** Root-shim methods the bridge answers itself; every other client command is forwarded. */
 const INTERCEPTED_ROOT: Readonly<Record<string, true>> = {
@@ -271,7 +273,7 @@ function replyIndex(frames: BridgeFrame[], id: number): number {
 
 // ---------------------------------------------------------------- U5
 
-describe("browser pane bridge root shim (omp 18.1.21 + puppeteer replay)", () => {
+describe("browser pane bridge root shim (omp 18.14.0 + puppeteer replay)", () => {
   let replay: Replay;
   const ready = replayFixture().then((r) => {
     replay = r;
@@ -375,7 +377,7 @@ describe("browser pane bridge root shim (omp 18.1.21 + puppeteer replay)", () =>
     const frames = framesOf(replay, 1);
     expect(frames[replyIndex(frames, 86)]).toEqual({
       id: 86,
-      sessionId: "5BB8EEE01B060F26C304C2FEE9C6CAFB",
+      sessionId: "939A5A0F0397F42995B0B622C2B30153",
       error: { code: -32000, message: "'OMP.claimTarget' wasn't found" },
     });
   });
@@ -408,7 +410,7 @@ describe("browser pane bridge root shim (omp 18.1.21 + puppeteer replay)", () =>
     ]);
     expect(frames[end]).toEqual({ id: 88, result: { success: true } });
     // Other clients never hear about it; Electron never gets a close.
-    for (const client of [2, 3, 4, 5, 6]) {
+    for (const client of [2, 3]) {
       expect(framesOf(replay, client).some((f) => f.method === "Target.targetDestroyed")).toBe(false);
     }
     expect(
@@ -432,8 +434,25 @@ describe("browser pane bridge root shim (omp 18.1.21 + puppeteer replay)", () =>
       .filter((c) => c.method === "Target.detachFromTarget")
       .map((c) => c.params.sessionId);
     // Client 2 left holding its tab session and the page nested under it.
-    expect(detached).toContain("4F33A24A7607AF0CDEA3008EE261DA05");
-    expect(detached).toContain("043DE06FAE7E6BDEBADB294CE24E7679");
+    expect(detached).toContain("5DF174168CE455C385BD9A465EB237DB");
+    expect(detached).toContain("E46F7F3FC80C780BF4EE674137D4C4FE");
+  });
+
+  it("routes omp's native WebMCP traffic on its page session to that client alone", async () => {
+    await ready;
+    const frames = framesOf(replay, 3);
+    const invokeAt = replyIndex(frames, 104);
+    expect(frames[invokeAt]).toMatchObject({ id: 104, sessionId: OMP_PAGE_SESSION, result: { invocationId: expect.any(String) } });
+    const responded = frames.findIndex(
+      (f, i) => i > invokeAt && f.method === "WebMCP.toolResponded" && f.sessionId === OMP_PAGE_SESSION,
+    );
+    expect(responded).toBeGreaterThan(invokeAt);
+    expect(frames[responded]?.params).toMatchObject({ status: "Completed", output: { sum: 5 } });
+    expect(frames.some((f) => f.method === "WebMCP.toolsAdded" && f.sessionId === OMP_PAGE_SESSION)).toBe(true);
+    // Another client's session never carries client 3's invocation.
+    for (const client of [1, 2]) {
+      expect(framesOf(replay, client).some((f) => f.sessionId === OMP_PAGE_SESSION)).toBe(false);
+    }
   });
 });
 

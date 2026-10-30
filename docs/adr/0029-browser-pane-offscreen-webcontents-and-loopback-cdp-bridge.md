@@ -17,7 +17,12 @@ through a **loopback CDP bridge** the main process hosts:
   `webPreferences.offscreen`, in the app-wide `persist:browser-pane` partition,
   with `sandbox`, `contextIsolation`, no `nodeIntegration`, and no preload
   (the plan verifier's isolation recipe). Native painting stays stopped; the
-  offscreen frame rate and every publication ceiling remain 30 fps.
+  offscreen frame rate and every publication ceiling remain 30 fps. The pane
+  page alone enables Chrome's `WebMCP` Blink feature (#977): omp 18.14's
+  `tab.webmcpList`/`webmcpInvoke` read page-registered tools through the
+  `WebMCP` CDP domain, which Chromium answers with an empty list unless
+  `navigator.modelContext` exists, and the bridge forwards that domain
+  unchanged. The app renderer and the plan verifier never get it.
 - A **local desktop viewer uses Chromium tab capture** (#651). Main mints a
   single-use `webContents.getMediaSourceId(requester)` lease for the
   requesting window's top-level frame and records a single-use, 10-second

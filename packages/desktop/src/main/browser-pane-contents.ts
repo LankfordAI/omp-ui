@@ -150,6 +150,11 @@ export function makeElectronPaneFactory(deniedPorts: () => ReadonlySet<number>):
         webSecurity: true,
         // Hidden windows must keep painting; the pane is never shown.
         backgroundThrottling: false,
+        // Chrome's native WebMCP (`navigator.modelContext`) is off by default;
+        // omp 18.14's tab.webmcp* helpers list and invoke page-registered tools
+        // over the WebMCP CDP domain, which reports nothing without it (#977).
+        // Scoped to the pane: omp-ui's own renderer never exposes it.
+        enableBlinkFeatures: "WebMCP",
       },
     });
     win.setMenuBarVisibility(false);
