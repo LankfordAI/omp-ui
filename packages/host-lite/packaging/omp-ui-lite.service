@@ -8,6 +8,8 @@ Type=simple
 ExecStart=%h/.local/bin/omp-ui-lite serve
 Restart=on-failure
 RestartSec=5
+# node-pty ships ADJACENT to the SEA binary (native module, not embeddable):
+Environment=NODE_PATH=%h/.local/lib/omp-ui-lite/node_modules
 EnvironmentFile=-%h/.local/share/omp-ui-lite/service.env
 # Honest OS-user trust boundary: no hardening that breaks node-pty spawn trees.
 NoNewPrivileges=true
