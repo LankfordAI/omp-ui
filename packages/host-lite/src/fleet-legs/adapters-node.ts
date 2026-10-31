@@ -1,22 +1,19 @@
 /**
  * Production adapters for the lite member's fleet legs (issue #1010).
  *
- * ═══════════════════════════════════════════════════════════════════════════
- * TODO_INTEGRATION — THE ONE FILE THE MERGE OWNER REWIRES.
- * Every desktop-module import lives here, behind dynamic `import()` calls on
- * build-time relative paths (the slice-2 session-bundle esbuild artifact
- * resolves the same specifiers). `@omp-ui/desktop` is deliberately NOT a
- * package dependency of host-lite; if the bundle layout changes, only this
- * file changes. Nothing else in this directory imports desktop source, and
- * nothing here is imported by the unit tests' fake-seam path except through
- * the same dynamic specifier at run time.
- * ═══════════════════════════════════════════════════════════════════════════
+ * Desktop modules reach this file ONLY through the built session bundle
+ * (`bundle-artifact.ts` → `dist/session-bundle.mjs`, whose entry re-exports
+ * fleet-shell / fleet-detached-exec / fleet-terminals / main-log). Source-path
+ * runtime imports would resolve under tsx but not inside the SEA artifact, so
+ * they are forbidden here; static `import type` of desktop shapes stays fine
+ * (erased at build — no package dependency on @omp-ui/desktop). The bundle's
+ * electron-drift-gate keeps the artifact itself honest.
  *
  * Reimplemented glue (kept byte-faithful to the desktop member's behavior):
  * - the bounded exec runner (`runFleetCommand`): fleet-server.ts cannot be
  *   imported here because its version-update path pulls `app-update.ts`,
  *   which imports electron. The detached owner, terminal host, and shell
- *   launcher ARE electron-free and are used as-is through dynamic import.
+ *   launcher ARE electron-free and are used as-is through the bundle.
  * - clone/register/projectFiles bodies (FleetServer's private methods): same
  *   reasons, same refusal strings — an owner's UI quotes them verbatim.
  */
@@ -24,6 +21,7 @@ import { execFile as execFileCb } from "node:child_process";
 import * as fs from "node:fs";
 import * as os from "node:os";
 import * as path from "node:path";
+import { loadSessionBundle } from "../bundle-artifact";
 import {
   FLEET_CLONE_TIMEOUT_MS,
   FLEET_EXEC_OUTPUT_MAX,
@@ -45,8 +43,18 @@ import type {
   FleetProjectManageOutcome,
   ProjectRecord,
 } from "@omp-ui/core";
-import type { DetachedExecRecord } from "../../../desktop/src/main/fleet-detached-exec";
-import type { FleetCommandDeps } from "../../../desktop/src/main/fleet-shell";
+import type {
+  DetachedExecRecord,
+  FleetDetachedExecs,
+} from "../../../desktop/src/main/fleet-detached-exec";
+import type {
+  FleetCommandDeps,
+  launchFleetShell,
+  messageOf,
+  resolveFleetCwd,
+} from "../../../desktop/src/main/fleet-shell";
+import type { FleetTerminals } from "../../../desktop/src/main/fleet-terminals";
+import type { appendMainLog } from "../../../desktop/src/main/main-log";
 import type {
   FleetExecCommandSpec,
   FleetExecLegs,
@@ -58,23 +66,40 @@ import type {
 /** The audit-ring writer `registerFleetLegs` also feeds (see createAuditRing). */
 export type LiteAuditFn = (entry: FleetAuditEntry) => void;
 
+/**
+ * The subset of the session bundle this file loads, typed against the desktop
+ * sources it mirrors. Every member is a top-level `import type` binding
+ * referenced through `typeof` (all erased), so the view is exact without any
+ * runtime dependency on @omp-ui/desktop; drift between the bundle entry's
+ * re-exports and this view fails at use with a TypeError naming the missing
+ * symbol, and S4's register-fleet-legs tests catch any behavior gap.
+ */
+interface LegsBundle {
+  launchFleetShell: typeof launchFleetShell;
+  messageOf: typeof messageOf;
+  resolveFleetCwd: typeof resolveFleetCwd;
+  FleetDetachedExecs: typeof FleetDetachedExecs;
+  FleetTerminals: typeof FleetTerminals;
+  appendMainLog: typeof appendMainLog;
+}
+
 // ── exec ────────────────────────────────────────────────────────────────────
 
 export interface ExecAdapterDeps {
   commandDeps?: FleetCommandDeps;
   /** Finish-audit writer (the ring); mirrors FleetServer's onFinish mapping. */
   onExecFinish?: LiteAuditFn;
+  /** Session-bundle artifact override (tests build one on demand; production uses the installed default). */
+  bundlePath?: string;
 }
 
 export async function createExecLegs(deps: ExecAdapterDeps = {}): Promise<FleetExecLegs> {
-  // Dynamic import by design (issue #1010 slice contract): @omp-ui/desktop is
-  // forbidden as a package dependency of host-lite; these build-time relative
-  // specifiers are rewired by the slice-2 session-bundle owner, so a static
-  // import would hard-wire the package graph the integration forbids.
-  const [{ launchFleetShell, messageOf, resolveFleetCwd }, { FleetDetachedExecs }] = await Promise.all([
-    import("../../../desktop/src/main/fleet-shell"),
-    import("../../../desktop/src/main/fleet-detached-exec"),
-  ]);
+  // Single sanctioned boundary: the built session bundle re-exports these
+  // electron-free desktop modules (see bundle-artifact.ts). A static import of
+  // desktop source would hard-wire the package graph the integration forbids
+  // and cannot resolve inside the SEA artifact.
+  const bundle = await loadSessionBundle<LegsBundle>(deps.bundlePath);
+  const { launchFleetShell, messageOf, resolveFleetCwd, FleetDetachedExecs } = bundle;
 
   // Byte-faithful port of fleet-server.ts's runFleetCommand (electron-poisoned
   // module; see header). Fresh child, no PTY, byte caps before decode, hard
@@ -154,14 +179,15 @@ export async function createExecLegs(deps: ExecAdapterDeps = {}): Promise<FleetE
 export interface TerminalAdapterDeps {
   /** Fans member terminal events to this host's socket clients, never a window. */
   sendToClients: (channel: string, args: unknown[]) => void;
-  /** End-audit writer (the ring/log); mirrors FleetServer's onEnd mapping exactly. */
+  /** End-audit writer (the ring); mirrors FleetServer's onEnd mapping exactly. */
   onTerminalEnd?: LiteAuditFn;
+  /** Session-bundle artifact override; production uses the installed default. */
+  bundlePath?: string;
 }
 
 export async function createTerminalLegs(deps: TerminalAdapterDeps): Promise<FleetTerminalLegs> {
-  // Runtime-selected boundary: the desktop module is only loadable through the
-  // slice-2 bundle rewrite (see TODO_INTEGRATION header); never a static dep.
-  const { FleetTerminals } = await import("../../../desktop/src/main/fleet-terminals");
+  // Same single bundle boundary as the exec legs (bundle-artifact.ts).
+  const { FleetTerminals } = await loadSessionBundle<LegsBundle>(deps.bundlePath);
   const terminals = new FleetTerminals({
     sendToClients: deps.sendToClients,
     onEnd: (rec, reason, exitCode) =>
@@ -402,14 +428,19 @@ async function gitHead(dir: string): Promise<string | null> {
 
 // ── audit persistence ───────────────────────────────────────────────────────
 
+export interface AuditSinkDeps {
+  /** Session-bundle artifact override; production uses the installed default. */
+  bundlePath?: string;
+}
+
 /**
  * The append-only `fleet-audit.log` sink (1 MiB rotation, ISO prefix), shared
  * with the desktop member through its electron-free main-log module. The ring
- * itself lives in `registerFleetLegs`; compose them with one `createAuditRing`.
+ * itself lives in `registerFleetLegs`; compose them with one audit fn per sink.
  */
-export async function createAuditFileSink(logDir: string): Promise<LiteAuditFn> {
-  // Same bundle-rewrite boundary as the other desktop specifiers above.
-  const { appendMainLog } = await import("../../../desktop/src/main/main-log");
+export async function createAuditFileSink(logDir: string, deps: AuditSinkDeps = {}): Promise<LiteAuditFn> {
+  // Same single bundle boundary as the exec/terminal legs (bundle-artifact.ts).
+  const { appendMainLog } = await loadSessionBundle<LegsBundle>(deps.bundlePath);
   return (entry) => appendMainLog(logDir, "fleet-audit.log", JSON.stringify(entry));
 }
 

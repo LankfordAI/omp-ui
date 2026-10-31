@@ -29,17 +29,20 @@ export interface ProductionFleetLegsDeps {
   /** Audit ring + file sink land under `<dataDir>/logs`. */
   dataDir: string;
   version: string;
+  /** Session-bundle artifact override (tests build one on demand); production uses the installed default. */
+  bundlePath?: string;
 }
 
 export async function buildProductionFleetLegs(deps: ProductionFleetLegsDeps): Promise<FleetLegsHandle> {
-  const { registry, sessions, backend, dataDir, version } = deps;
-  const auditSink = await createAuditFileSink(`${dataDir}/logs`);
+  const { registry, sessions, backend, dataDir, version, bundlePath } = deps;
+  const auditSink = await createAuditFileSink(`${dataDir}/logs`, { ...(bundlePath !== undefined ? { bundlePath } : {}) });
   const [exec, terminals] = await Promise.all([
-    createExecLegs({ onExecFinish: auditSink }),
+    createExecLegs({ ...(bundlePath !== undefined ? { bundlePath } : {}), onExecFinish: auditSink }),
     createTerminalLegs({
       // Member terminal events fan to joined owners' sockets, never a window.
       sendToClients: (channel, args) => backend.emit(channel, args),
       onTerminalEnd: auditSink,
+      ...(bundlePath !== undefined ? { bundlePath } : {}),
     }),
   ]);
   return registerFleetLegs({

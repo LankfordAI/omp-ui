@@ -1,22 +1,18 @@
 import { spawnSync } from "node:child_process";
 import * as path from "node:path";
-import { fileURLToPath } from "node:url";
 import type { Registry } from "@omp-ui/core";
 import { ProviderKeys } from "@omp-ui/core";
+import { loadSessionBundle } from "./bundle-artifact";
 import type { LiteKeyCipher, LiteSessions } from "./seams";
 
 /**
  * The production session cluster for the headless member (issue #1010): loads
  * the esbuild artifact of the CURRENT desktop session cluster
- * (`scripts/bundle-session.mjs` output — never a source fork) and wires the
- * dependency bag a windowless host needs. Serves through `LiteSessions`, so
- * serve.ts stays test-pure; the drift gate in the bundle script is what keeps
- * this honest against desktop changes.
- *
- * The artifact ships as plain JS with no checked-in types, and a static import
- * would hard-wire the desktop package graph into host-lite — forbidden by the
- * slice contract (desktop modules reach lite ONLY through this built bundle).
- * So the load is genuinely runtime-selected: dynamic import of a resolved path.
+ * (`scripts/bundle-session.mjs` output — never a source fork) through the one
+ * bundle boundary (`bundle-artifact.ts`) and wires the dependency bag a
+ * windowless host needs. Serves through `LiteSessions`, so serve.ts stays
+ * test-pure; the drift gate in the bundle script keeps this honest against
+ * desktop changes (no source fork can drift silently).
  */
 
 export interface ProductionSessionsDeps {
@@ -95,9 +91,7 @@ export function withPlacementGates(
 
 export async function createProductionSessions(deps: ProductionSessionsDeps): Promise<LiteSessions> {
   const env = deps.env ?? process.env;
-  const bundlePath =
-    deps.bundlePath ?? fileURLToPath(new URL("../dist/session-bundle.mjs", import.meta.url));
-  const bundle = (await import(bundlePath)) as BundleModule;
+  const bundle = await loadSessionBundle<BundleModule>(deps.bundlePath);
   const keyCipher =
     deps.cipher === null
       ? { available: false, backend: "none", encrypt: (): Buffer => Buffer.alloc(0), decrypt: (): string => "" }

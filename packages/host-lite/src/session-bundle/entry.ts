@@ -424,6 +424,14 @@ type SessionBundleRequestHandlers = ChannelTable["request"];
 type SessionBundleNotifyHandlers = ChannelTable["notify"];
 
 export { SessionManager, type SessionManagerDependencies } from "../../../desktop/src/main/session-manager";
+// Fleet member-leg machinery (#1010 Task B): the electron-free legs modules ride
+// the same single bundle boundary as the session cluster — adapters-node.ts and
+// production-sessions.ts load them through the built artifact, never by
+// importing desktop source at runtime (source paths do not exist in the SEA).
+export { launchFleetShell, messageOf, resolveFleetCwd } from "../../../desktop/src/main/fleet-shell";
+export { FleetDetachedExecs } from "../../../desktop/src/main/fleet-detached-exec";
+export { FleetTerminals } from "../../../desktop/src/main/fleet-terminals";
+export { appendMainLog } from "../../../desktop/src/main/main-log";
 // Re-exported so a bundled lite host shares ONE core copy (class identity for
 // Registry/ProviderKeys between the index slice and this bundle) and reads
 // channel names from the same table it dispatches.
