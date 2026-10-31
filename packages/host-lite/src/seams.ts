@@ -41,4 +41,13 @@ export interface LiteSessions {
   on(cb: (channel: string, args: unknown[]) => void): () => void;
   /** Stops processes and watchers; idempotent. */
   dispose(): Promise<void>;
+  /**
+   * Fleet placement gate for `fleet:hostReport` (issue #1010 member legs): can
+   * this machine spawn an agent in `cwd` right now (provider configured, omp
+   * resolvable). Absent = fail-closed — the composition root reports the
+   * project not ready rather than guessing a joiner's dispatch into failure.
+   */
+  providerReady?(cwd: string): boolean;
+  /** Live-session/turn counts for `fleet:hostReport` activity; absent = zeros. */
+  activity?(): { liveSessions: number; runningTurns: number };
 }

@@ -5,6 +5,7 @@ import { mintRemoteToken } from "@omp-ui/server";
 import { ensureInstanceId, ensureLiteHome, resolveLiteHome } from "./config";
 import { LiteBackend, registryOnlySessions } from "./lite-backend";
 import { LiteRemoteServer } from "./remote-server";
+import type { FleetLegsHandle } from "./fleet-legs";
 import type { LiteKeyCipher, LiteSessions } from "./seams";
 
 /**
@@ -24,6 +25,29 @@ export interface LiteServeOptions {
   sessions?: LiteSessions;
   /** S3's sealed-secret codec; threaded to the handle for stores that need it, used by nothing yet. */
   cipher?: LiteKeyCipher;
+  /**
+   * The fleet member-leg table (S4), for tests: a pre-built handle is attached
+   * to the backend before the listener starts; absent/null = no fleet channels
+   * (owners see `unknown channel`, the same contract an unupgraded desktop
+   * gives). Production uses `buildFleet` instead — legs cannot exist before
+   * the backend does (their terminal fan-out emits through it).
+   */
+  fleet?: FleetLegsHandle | null;
+  /**
+   * Production seam: build the member legs once the backend exists. Called
+   * after LiteBackend construction and BEFORE the listener starts, and the
+   * handle is attached to the backend before serving, so joined owners see the
+   * fleet channels from their very first request. A rejection degrades to a
+   * legs-absent member with one log line — broken exec must not prevent the
+   * box from joining and being watched.
+   */
+  buildFleet?: (ctx: {
+    backend: LiteBackend;
+    sessions: LiteSessions;
+    registry: Registry;
+    dataDir: string;
+    version: string;
+  }) => Promise<FleetLegsHandle>;
   env?: NodeJS.ProcessEnv;
   /**
    * Skip bringing up the remote listener (status-style unit tests that assert
@@ -79,6 +103,15 @@ export async function startLiteFleetMember(opts: LiteServeOptions = {}): Promise
   const instanceId = ensureInstanceId(dataDir, randomUUID);
 
   const sessions = opts.sessions ?? registryOnlySessions(registry);
+  // Fleet member legs (S4). A pre-built handle (tests) rides the backend's
+  // deps; production builds legs AFTER the backend exists — its terminal
+  // fan-out emits through `backend.emit` — and attaches them via a table
+  // rebuild BEFORE the listener starts, so a joined owner sees the fleet
+  // channels from its very first request. A build failure degrades to a
+  // legs-absent member (`unknown channel` on every fleet:*, exactly what an
+  // unupgraded desktop gives): broken exec must not stop the box joining.
+  // `liveFleet` is whichever handle became active; stop() disposes it.
+  let liveFleet: FleetLegsHandle | null = opts.fleet ?? null;
   const remote = new LiteRemoteServer({
     host: { handlers: () => backend.handlers(), addSink: (s) => backend.addSink(s) },
     // A member carries no browser bundle unless one is staged beside it; "" serves transport only.
@@ -104,7 +137,18 @@ export async function startLiteFleetMember(opts: LiteServeOptions = {}): Promise
     instanceId,
     version: opts.version ?? PACKAGE_VERSION,
     remote,
+    fleet: liveFleet ?? undefined,
   });
+  // Production legs exist only after the backend (terminal fan-out needs its
+  // emit); build-then-attach lands them in the table before any listener runs.
+  if (opts.buildFleet !== undefined) {
+    try {
+      liveFleet = await opts.buildFleet({ backend, sessions, registry, dataDir, version: opts.version ?? PACKAGE_VERSION });
+      backend.attachFleet(liveFleet);
+    } catch (err) {
+      log(`omp-ui-lite: fleet legs unavailable (${err instanceof Error ? err.message : String(err)}); fleet channels stay absent`);
+    }
+  }
 
   if (opts.listen !== false) {
     await remote.apply();
@@ -132,6 +176,9 @@ export async function startLiteFleetMember(opts: LiteServeOptions = {}): Promise
       if (stopped) return;
       stopped = true;
       await remote.stop();
+      // Legs first after the listener: cancel detached execs and end fleet
+      // terminals before the session machinery drains below them.
+      liveFleet?.dispose();
       await sessions.dispose();
     },
   };

@@ -2,6 +2,7 @@ import { Registry } from "@omp-ui/core";
 import { connectInstanceClient, type InstanceClient } from "@omp-ui/server";
 import { pathToFileURL } from "node:url";
 import { ensureLiteHome, resolveLiteHome } from "./config";
+import { buildProductionFleetLegs } from "./production-legs";
 import { startLiteFleetMember } from "./serve";
 
 /**
@@ -152,7 +153,10 @@ if (process.argv[1] !== undefined && import.meta.url === pathToFileURL(process.a
       stderr: (line) => console.error(line),
       env: process.env,
     },
-    serve: async ({ dataDir }) => startLiteFleetMember({ dataDir }),
+    // Production member: answer the fleet ladder too. A legs-build failure
+    // degrades inside serve (one log line, fleet channels absent) rather than
+    // here, so a box with broken exec still boots, joins, and gets watched.
+    serve: ({ dataDir }) => startLiteFleetMember({ dataDir, buildFleet: buildProductionFleetLegs }),
     connect: connectInstanceClient,
   });
   process.exit(code);

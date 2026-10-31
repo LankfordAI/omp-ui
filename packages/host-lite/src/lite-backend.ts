@@ -16,6 +16,7 @@ import {
   type RemoteHost,
 } from "@omp-ui/server";
 import type { LiteSessions } from "./seams";
+import type { FleetLegsHandle } from "./fleet-legs";
 
 /**
  * The headless `lite` fleet member's RemoteHost (issue #1010): the ChannelTable
@@ -52,6 +53,13 @@ export interface LiteBackendDeps {
   /** The member's omp-ui version, reported as identity.version. */
   version: string;
   remote: RemoteController;
+  /**
+   * The fleet member-leg table (issue #1010 S4), merged into this host's
+   * ChannelTable below the core channels. Absent = a member that answers no
+   * fleet exec/terminal/project legs — every such channel is ABSENT, matching
+   * the desktop giving an unupgraded client `unknown channel`.
+   */
+  fleet?: FleetLegsHandle;
 }
 
 type Sink = (channel: string, args: unknown[]) => void;
@@ -106,7 +114,9 @@ export function broadcastSettings(registry: Registry): BroadcastSettings {
 
 export class LiteBackend implements RemoteHost {
   readonly #sinks = new Set<Sink>();
-  readonly #table: ChannelTable;
+  #table: ChannelTable;
+  /** The fleet member legs merged into the table; set at construction or via attachFleet. */
+  #fleet: FleetLegsHandle | null;
   /** Serializes merged state:changed broadcasts so a slow seam can't interleave two. */
   #stateChain: Promise<void> = Promise.resolve();
 
@@ -129,6 +139,20 @@ export class LiteBackend implements RemoteHost {
         console.warn(`[host-lite] state:changed broadcast failed: ${String(err)}`);
       });
     });
+    this.#fleet = deps.fleet ?? null;
+    this.#table = this.#buildTable();
+  }
+
+  /**
+   * Merge the fleet legs built AFTER construction (issue #1010 integration):
+   * the production terminals seam needs `backend.emit` to exist, so
+   * serve builds the backend first, then hands the finished legs here. The
+   * table is rebuilt through the same precedence as construction, so core
+   * channels stay law over a leg that tries to shadow them; calling twice
+   * replaces the previous legs wholesale.
+   */
+  attachFleet(legs: FleetLegsHandle): void {
+    this.#fleet = legs;
     this.#table = this.#buildTable();
   }
 
@@ -156,9 +180,12 @@ export class LiteBackend implements RemoteHost {
     const { registry, remote } = this.deps;
     // Sessions channels first, core channels after: the core's `state:get`,
     // `instance:identity` and `remote:*` always win over a seam that tries to
-    // shadow them (see seams.ts).
+    // shadow them (see seams.ts). Fleet legs ride the same precedence — they
+    // carry no key that collides with the core's, but the ordering keeps the
+    // "core is law" rule a single readable line.
     const request = {
       ...this.deps.sessions.handlers,
+      ...(this.#fleet?.request ?? {}),
       [CH.getState]: () => this.state(),
       [CH.getInstanceIdentity]: () => ({
         instanceId: this.deps.instanceId,
@@ -202,10 +229,11 @@ export class LiteBackend implements RemoteHost {
     // this table installs are exactly the CH entries above plus S2's seam.
     return {
       request: request as ChannelTable["request"],
-      // Notify channels belong to S2's LiteSessions when it lands. Until then an
-      // empty table is the honest runtime shape — dispatchNotify ignores unknown
+      // The fleet terminal write/size legs ride notifies (S4); S2's LiteSessions
+      // owns every other notify channel when it lands. An empty table remains
+      // the honest runtime shape otherwise — dispatchNotify ignores unknown
       // channels — the full-keys type simply cannot express "none are wired yet".
-      notify: {} as ChannelTable["notify"],
+      notify: { ...(this.#fleet?.notify ?? {}) } as ChannelTable["notify"],
     };
   }
 }
