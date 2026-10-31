@@ -2,8 +2,7 @@ import { Registry } from "@omp-ui/core";
 import { connectInstanceClient, type InstanceClient } from "@omp-ui/server";
 import { pathToFileURL } from "node:url";
 import { ensureLiteHome, resolveLiteHome } from "./config";
-import { buildProductionFleetLegs } from "./production-legs";
-import { startLiteFleetMember } from "./serve";
+import { bootProductionLite } from "./production-boot";
 
 /**
  * The `omp-lite` command (issue #1010): `serve` runs the headless fleet member
@@ -153,10 +152,11 @@ if (process.argv[1] !== undefined && import.meta.url === pathToFileURL(process.a
       stderr: (line) => console.error(line),
       env: process.env,
     },
-    // Production member: answer the fleet ladder too. A legs-build failure
-    // degrades inside serve (one log line, fleet channels absent) rather than
-    // here, so a box with broken exec still boots, joins, and gets watched.
-    serve: ({ dataDir }) => startLiteFleetMember({ dataDir, buildFleet: buildProductionFleetLegs }),
+    // Production member: open the cipher, build the session cluster over the
+    // bundle, and answer the fleet ladder — all composed by bootProductionLite.
+    // A legs-build failure still degrades inside serve (one log line, fleet
+    // channels absent), so a box with broken exec boots, joins, and gets watched.
+    serve: ({ dataDir }) => bootProductionLite({ dataDir }),
     connect: connectInstanceClient,
   });
   process.exit(code);

@@ -48,6 +48,15 @@ export interface LiteServeOptions {
     dataDir: string;
     version: string;
   }) => Promise<FleetLegsHandle>;
+  /**
+   * Production seam: build the session cluster AFTER serve has loaded the one
+   * authoritative `Registry` (so the cluster and the backend never hold two
+   * divergent in-memory registries for the same file). Called before the
+   * backend is constructed; its return replaces `opts.sessions`. Failing here
+   * is fatal — a member with no session machinery answers joins with an empty
+   * backend, so the CLI's production boot lets the rejection surface.
+   */
+  buildSessions?: (ctx: { registry: Registry; dataDir: string; version: string }) => Promise<LiteSessions>;
   env?: NodeJS.ProcessEnv;
   /**
    * Skip bringing up the remote listener (status-style unit tests that assert
@@ -102,7 +111,16 @@ export async function startLiteFleetMember(opts: LiteServeOptions = {}): Promise
   if (registry.getSetting("remoteToken") === "") registry.setSetting("remoteToken", mintRemoteToken());
   const instanceId = ensureInstanceId(dataDir, randomUUID);
 
-  const sessions = opts.sessions ?? registryOnlySessions(registry);
+  // Sessions resolve before the backend (whose constructor subscribes to
+  // LiteSessions.on). Production builds the real cluster here through the one
+  // authoritative Registry serve just loaded; tests pass `sessions` directly.
+  const version = opts.version ?? PACKAGE_VERSION;
+  let sessions: LiteSessions;
+  if (opts.buildSessions !== undefined) {
+    sessions = await opts.buildSessions({ registry, dataDir, version });
+  } else {
+    sessions = opts.sessions ?? registryOnlySessions(registry);
+  }
   // Fleet member legs (S4). A pre-built handle (tests) rides the backend's
   // deps; production builds legs AFTER the backend exists — its terminal
   // fan-out emits through `backend.emit` — and attaches them via a table
@@ -129,13 +147,13 @@ export async function startLiteFleetMember(opts: LiteServeOptions = {}): Promise
       // Joined owners watch `remote:state` like the desktop renderer does.
       backend.emit(CH.onRemoteState, [state]);
     },
-    version: opts.version ?? PACKAGE_VERSION,
+    version,
   });
   const backend = new LiteBackend({
     registry,
     sessions,
     instanceId,
-    version: opts.version ?? PACKAGE_VERSION,
+    version,
     remote,
     fleet: liveFleet ?? undefined,
   });
@@ -143,7 +161,7 @@ export async function startLiteFleetMember(opts: LiteServeOptions = {}): Promise
   // emit); build-then-attach lands them in the table before any listener runs.
   if (opts.buildFleet !== undefined) {
     try {
-      liveFleet = await opts.buildFleet({ backend, sessions, registry, dataDir, version: opts.version ?? PACKAGE_VERSION });
+      liveFleet = await opts.buildFleet({ backend, sessions, registry, dataDir, version });
       backend.attachFleet(liveFleet);
     } catch (err) {
       log(`omp-ui-lite: fleet legs unavailable (${err instanceof Error ? err.message : String(err)}); fleet channels stay absent`);
