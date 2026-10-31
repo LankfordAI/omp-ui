@@ -2,6 +2,7 @@ import { describe, expect, it } from "vitest";
 import {
   androidChildEnv,
   androidSdkStatus,
+  avdConfigPath,
   emulatorDiscoveryDirs,
   parseAdbDevices,
   parseAvdList,
@@ -28,7 +29,7 @@ describe("resolveAndroidSdk", () => {
 
   it("skips a root without platform-tools/adb and reports a missing emulator", () => {
     const paths = resolveAndroidSdk({ platform: "linux", env, home: "/h", isFile: filesIn(["/b/platform-tools/adb"]) });
-    expect(paths).toEqual({ sdkRoot: "/b", adb: "/b/platform-tools/adb", emulator: null });
+    expect(paths).toEqual({ sdkRoot: "/b", adb: "/b/platform-tools/adb", emulator: null, avdmanager: null });
     expect(androidSdkStatus(paths)).toEqual({ status: "missing", missing: ["emulator"] });
     expect(resolveAndroidSdk({ platform: "linux", env: {}, home: "/h", isFile: () => false })).toBeNull();
     expect(androidSdkStatus(null).status).toBe("missing");
@@ -45,12 +46,34 @@ describe("resolveAndroidSdk", () => {
     expect(paths?.emulator).toBe("C:\\L\\Android\\Sdk\\emulator\\emulator.exe");
     expect(androidSdkStatus(paths)).toEqual({ status: "ready", sdkRoot: "C:\\L\\Android\\Sdk" });
   });
+
+  it("probes cmdline-tools/latest/bin/avdmanager beside the emulator", () => {
+    const files = ["/a/platform-tools/adb", "/a/cmdline-tools/latest/bin/avdmanager"];
+    expect(resolveAndroidSdk({ platform: "linux", env, home: "/h", isFile: filesIn(files) })?.avdmanager).toBe(
+      "/a/cmdline-tools/latest/bin/avdmanager",
+    );
+    expect(resolveAndroidSdk({ platform: "linux", env, home: "/h", isFile: filesIn(all) })?.avdmanager).toBeNull();
+    const win = resolveAndroidSdk({
+      platform: "win32",
+      env: { LOCALAPPDATA: "C:\\L" },
+      home: "C:\\U",
+      isFile: filesIn(["C:\\L\\Android\\Sdk\\platform-tools\\adb.exe", "C:\\L\\Android\\Sdk\\cmdline-tools\\latest\\bin\\avdmanager.bat"]),
+    });
+    expect(win?.avdmanager).toBe("C:\\L\\Android\\Sdk\\cmdline-tools\\latest\\bin\\avdmanager.bat");
+  });
+});
+
+describe("avdConfigPath", () => {
+  it("joins under ~/.android/avd", () => {
+    expect(avdConfigPath("/h", "pixel_11_pro_xl", "linux")).toBe("/h/.android/avd/pixel_11_pro_xl.avd/config.ini");
+    expect(avdConfigPath("C:\\U", "a.b", "win32")).toBe("C:\\U\\.android\\avd\\a.b.avd\\config.ini");
+  });
 });
 
 describe("androidChildEnv", () => {
   it("prepends tool dirs to PATH and sets ANDROID_HOME", () => {
     const env = androidChildEnv(
-      { sdkRoot: "/s", adb: "/s/platform-tools/adb", emulator: "/s/emulator/emulator" },
+      { sdkRoot: "/s", adb: "/s/platform-tools/adb", emulator: "/s/emulator/emulator", avdmanager: null },
       { PATH: "/usr/bin" },
       "linux",
     );

@@ -13,6 +13,7 @@ import type {
   DevicePaneState,
   DeviceTarget,
 } from "@omp-ui/core/device-pane";
+import { DEVICE_PROFILES, type DeviceProfile } from "@omp-ui/core/device-pane";
 import { backend } from "../../backend";
 import { createFramePainter } from "../../lib/browser-pane-frame";
 import { cn } from "../../lib/cn";
@@ -394,6 +395,11 @@ export function DevicePane({ tabId, posture }: { tabId: string; posture: DeviceP
   const pickTarget = (value: string): void => {
     if (value.startsWith("serial:")) void actDevicePane(tabId, { action: "bind", serial: value.slice(7) });
     else if (value.startsWith("avd:")) void actDevicePane(tabId, { action: "boot", avd: value.slice(4) });
+    else if (value.startsWith("profile:")) {
+      // Booting an unprovisioned profile's avd name makes main create it first.
+      const profile = DEVICE_PROFILES.find((p) => p.id === value.slice(8));
+      if (profile !== undefined) void actDevicePane(tabId, { action: "boot", avd: profile.avd });
+    }
   };
 
   const refresh = async (): Promise<void> => {
@@ -427,6 +433,10 @@ export function DevicePane({ tabId, posture }: { tabId: string; posture: DeviceP
   const forcedColumn = posture === "column" && pane?.fullscreen !== true;
 
   const targets = inventory?.targets ?? [];
+  /** Profiles whose avd name isn't an AVD yet; once provisioned the target row owns it. */
+  const offeredProfiles: readonly DeviceProfile[] = DEVICE_PROFILES.filter(
+    (profile) => !targets.some((target) => target.avd === profile.avd),
+  );
   const selected = currentTargetValue(state);
   const selectedListed = selected === "" || targets.some((target) => targetValue(target) === selected);
   const targetLabel = (target: DeviceTarget): string =>
@@ -487,6 +497,15 @@ export function DevicePane({ tabId, posture }: { tabId: string; posture: DeviceP
               {targetLabel(target)}
             </option>
           ))}
+          {offeredProfiles.length > 0 && (
+            <optgroup label={t("device.toolbar.profiles")}>
+              {offeredProfiles.map((profile) => (
+                <option key={profile.id} value={`profile:${profile.id}`}>
+                  {profile.name} · {profile.width}×{profile.height}
+                </option>
+              ))}
+            </optgroup>
+          )}
         </select>
         <IconButton label={t("device.toolbar.refresh")} disabled={instanceDown} onClick={() => void refresh()}>
           <IconRefresh />

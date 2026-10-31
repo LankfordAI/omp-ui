@@ -74,3 +74,6 @@ export type DevicePaneInputEvent =
 export const DEVICE_SERIAL_PATTERN = "^emulator-\\d{1,5}$";
 /** AVD names as `avdmanager` accepts them. */
 export const DEVICE_AVD_PATTERN = "^[A-Za-z0-9._-]{1,128}$";
+
+// Bundled device profiles re-exported here so the renderer reaches them via @omp-ui/core/device-pane.
+export { DEVICE_PROFILES, findDeviceProfileByAvd, type DeviceProfile } from "./device-profiles";

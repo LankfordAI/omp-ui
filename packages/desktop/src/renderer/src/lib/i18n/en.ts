@@ -1760,6 +1760,7 @@ export const en = {
   "device.toolbar.attach": "attach screen to prompt",
   "device.toolbar.attached": "screenshot added to the composer",
   "device.toolbar.powerOff": "power off emulator",
+  "device.toolbar.profiles": "new from profile",
   "device.toolbar.fullscreen": "fill the column",
   "device.toolbar.split": "back to split view",
   "device.toolbar.close": "close device pane",

@@ -15,6 +15,8 @@ export interface AndroidSdkPaths {
   sdkRoot: string;
   adb: string;
   emulator: string | null;
+  /** Provisioning only (create-avd); existing-AVD use works without it, so status never reports it. */
+  avdmanager: string | null;
 }
 
 /** An emulator discovery file name: `pid_<pid>.ini` or `pid_<pid>_info.ini`. */
@@ -62,7 +64,13 @@ export function resolveAndroidSdk(deps: AndroidSdkProbeDeps = {}): AndroidSdkPat
     const adb = p.join(root, "platform-tools", `adb${exe}`);
     if (!isFile(adb)) continue;
     const emulator = p.join(root, "emulator", `emulator${exe}`);
-    return { sdkRoot: root, adb, emulator: isFile(emulator) ? emulator : null };
+    const avdmanager = p.join(root, "cmdline-tools", "latest", "bin", `avdmanager${platform === "win32" ? ".bat" : ""}`);
+    return {
+      sdkRoot: root,
+      adb,
+      emulator: isFile(emulator) ? emulator : null,
+      avdmanager: isFile(avdmanager) ? avdmanager : null,
+    };
   }
   return null;
 }
@@ -71,6 +79,12 @@ export function androidSdkStatus(paths: AndroidSdkPaths | null): DeviceSdkStatus
   if (!paths) return { status: "missing", missing: ["sdk", "adb", "emulator"] };
   if (!paths.emulator) return { status: "missing", missing: ["emulator"] };
   return { status: "ready", sdkRoot: paths.sdkRoot };
+}
+
+/** `<home>/.android/avd/<avdName>.avd/config.ini`; the file `avdmanager create avd` writes. */
+export function avdConfigPath(home: string, avdName: string, platform: NodeJS.Platform = process.platform): string {
+  const p = pathFor(platform);
+  return p.join(home, ".android", "avd", `${avdName}.avd`, "config.ini");
 }
 
 /** Prepends platform-tools and emulator dirs; sets ANDROID_HOME. Base env is withoutAppImageRuntime(). */

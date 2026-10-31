@@ -1,6 +1,6 @@
 import { execFile, spawn } from "node:child_process";
 import { createHash, randomUUID } from "node:crypto";
-import { readFile, rm } from "node:fs/promises";
+import { readdir, readFile, rm, writeFile } from "node:fs/promises";
 import * as os from "node:os";
 import * as path from "node:path";
 import {
@@ -14,15 +14,20 @@ import {
   DEVICE_TOOL_TIMEOUT_MS,
   androidChildEnv,
   androidSdkStatus,
+  avdConfigPath,
   decodeImage,
   encodeBrowserPaneFrameHeader,
   encodeKeyInput,
   encodeMouseInput,
   encodeTouchInput,
   encodeWheelInput,
+  findDeviceProfileByAvd,
   parseAdbDevices,
   parseAvdList,
+  parseInstalledImages,
   parseWmSize,
+  patchAvdConfig,
+  pickSystemImagePackage,
   planDeviceCommand,
   resolveAndroidSdk,
   type AndroidSdkPaths,
@@ -33,6 +38,7 @@ import {
   type DevicePaneDiagnostics,
   type DevicePaneInputEvent,
   type DevicePaneState,
+  type DeviceProfile,
   type DeviceSdkStatus,
   type DeviceTarget,
   type HostToolContent,
@@ -83,6 +89,13 @@ export interface DevicePaneHostDeps {
   discover?(): EmulatorDiscoveryRecord[];
   /** Default: isPidAlive (process.kill(pid, 0)). */
   pidAlive?(pid: number): boolean;
+  /** Directory entry names, for the system-images scan. Default: readdir from node:fs/promises. */
+  listDir?(dir: string): Promise<string[]>;
+  /** AVD config.ini read/write during provisioning. Default: node:fs/promises. */
+  readFile?(file: string): Promise<string>;
+  writeFile?(file: string, text: string): Promise<void>;
+  /** AVD home (~/.android lives here). Default: os.homedir(). */
+  home?(): string;
   /** §8.2 resolveAgentDeviceBin. */
   agentDeviceBin(): string | null;
   /** <userData>/agent-device */
@@ -160,6 +173,8 @@ function newEntry(tabId: string): DeviceEntry {
 const FRAME_INTERVAL_MS = Math.round(1000 / DEVICE_PANE_FPS);
 const STREAM_FORMAT = { width: DEVICE_PANE_MAX_EDGE, height: DEVICE_PANE_MAX_EDGE };
 const ADB_TIMEOUT_MS = 15_000;
+// avdmanager is a cold JVM start; it can take well over a minute on a busy disk.
+const PROVISION_TIMEOUT_MS = 120_000;
 const DISCOVERY_POLL_MS = 500;
 const DISCOVERY_POLLS = 120; // 60 s
 const BOOT_POLL_MS = 1_000;
@@ -261,6 +276,10 @@ export class DevicePaneHost {
   private readonly ensureEndpoint: typeof ensureEmulatorGrpcEndpoint;
   private readonly discover: () => EmulatorDiscoveryRecord[];
   private readonly pidAlive: (pid: number) => boolean;
+  private readonly listDir: (dir: string) => Promise<string[]>;
+  private readonly readFile: (file: string) => Promise<string>;
+  private readonly writeFile: (file: string, text: string) => Promise<void>;
+  private readonly home: () => string;
   private readonly agentDeviceBin: () => string | null;
   private readonly stateDir: () => string;
   private readonly tempDir: () => string;
@@ -276,6 +295,10 @@ export class DevicePaneHost {
     this.ensureEndpoint = deps.ensureEndpoint ?? ensureEmulatorGrpcEndpoint;
     this.discover = deps.discover ?? (() => readEmulatorDiscovery());
     this.pidAlive = deps.pidAlive ?? isPidAlive;
+    this.listDir = deps.listDir ?? ((dir) => readdir(dir));
+    this.readFile = deps.readFile ?? ((file) => readFile(file, "utf8"));
+    this.writeFile = deps.writeFile ?? ((file, text) => writeFile(file, text, "utf8"));
+    this.home = deps.home ?? (() => os.homedir());
     this.agentDeviceBin = deps.agentDeviceBin;
     this.stateDir = deps.stateDir;
     this.tempDir = deps.tempDir ?? (() => os.tmpdir());
@@ -664,6 +687,48 @@ export class DevicePaneHost {
     }
   }
 
+  /** Provision an AVD for a bundled device profile; returns an error message or null. */
+  private async provision(sdk: AndroidSdkPaths, profile: DeviceProfile): Promise<string | null> {
+    if (sdk.avdmanager === null) return "provisioning needs Android command-line tools (avdmanager)";
+    const rows: Array<readonly [string, string, string]> = [];
+    const imagesRoot = path.join(sdk.sdkRoot, "system-images");
+    // listDir failures read as empty: a half-installed SDK dir simply yields no rows.
+    const ls = async (dir: string): Promise<string[]> => {
+      try {
+        return await this.listDir(dir);
+      } catch {
+        return [];
+      }
+    };
+    for (const api of await ls(imagesRoot)) {
+      for (const tag of await ls(path.join(imagesRoot, api))) {
+        for (const abi of await ls(path.join(imagesRoot, api, tag))) rows.push([api, tag, abi]);
+      }
+    }
+    const pkg = pickSystemImagePackage(parseInstalledImages(rows), process.arch);
+    if (pkg === null) {
+      const abi = process.arch === "arm64" ? "arm64-v8a" : "x86_64";
+      return `no Android system image is installed; install one first (e.g. sdkmanager "system-images;android-36;google_apis;${abi}")`;
+    }
+    const created = await this.run(
+      sdk.avdmanager,
+      ["create", "avd", "-n", profile.avd, "-k", pkg, "-d", profile.donor],
+      { env: androidChildEnv(sdk), timeoutMs: PROVISION_TIMEOUT_MS },
+    );
+    if (created.code !== 0) {
+      return `avdmanager could not create ${profile.avd}: ${(created.stderr.trim() || "avdmanager create avd failed").slice(0, 500)}`;
+    }
+    const cfg = avdConfigPath(this.home(), profile.avd);
+    try {
+      const text = await this.readFile(cfg);
+      await this.writeFile(cfg, patchAvdConfig(text, profile));
+    } catch (err) {
+      // The AVD exists; booting unpatched beats deleting user-visible state.
+      console.error(`device pane: provisioned ${profile.avd} but could not patch its config.ini: ${errorText(err)}`);
+    }
+    return null;
+  }
+
   /** Resolves once the emulator is spawned (phase booting); discovery, boot wait and bind continue in the background. */
   private async boot(entry: DeviceEntry, avd: string): Promise<void> {
     const sdk = this.sdk();
@@ -698,6 +763,20 @@ export class DevicePaneHost {
     const generation = entry.generation;
     this.booting.set(avd, entry.tabId);
     const env = androidChildEnv(sdk);
+    // Bundled-profile AVDs are provisioned on demand. Idempotent: an AVD that
+    // already exists (even one a shell made under the same name) boots unchanged.
+    const avdsOut = await this.run(sdk.emulator, ["-list-avds"], { env, timeoutMs: ADB_TIMEOUT_MS });
+    if (!parseAvdList(avdsOut.stdout).includes(avd)) {
+      const profile = findDeviceProfileByAvd(avd);
+      if (profile !== null) {
+        const message = await this.provision(sdk, profile);
+        if (message !== null) {
+          this.booting.delete(avd);
+          this.setPhase(entry, "error", message);
+          return;
+        }
+      }
+    }
     const display = process.env.DISPLAY || process.env.WAYLAND_DISPLAY;
     const gpu = display || process.platform === "darwin" || process.platform === "win32" ? "host" : SOFTWARE_GPU;
     const emulator = sdk.emulator;
