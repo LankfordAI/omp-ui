@@ -5,10 +5,13 @@
   "license": "MIT",
   "type": "module",
   "exports": {
+    ".": "./src/index.ts",
     "./credentials": "./src/credentials/index.ts",
     "./fleet-legs": "./src/fleet-legs/index.ts"
   },
   "scripts": {
+    "dev": "tsx src/cli.ts serve",
+    "serve": "tsx src/cli.ts serve",
     "test": "vitest run --passWithNoTests",
     "typecheck": "tsc --noEmit"
   },
@@ -18,6 +21,8 @@
   },
   "devDependencies": {
     "@types/node": "^26.1.2",
+    "@types/ws": "^8.18.1",
+    "tsx": "^4.20.0",
     "typescript": "~7.0.2",
     "vitest": "^4.1.10"
   }
