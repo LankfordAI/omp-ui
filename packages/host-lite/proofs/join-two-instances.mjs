@@ -1,3 +1,4 @@
+/* global process, console */
 // Join proof (issue #1010 gate 2, CI-safe part): two host-lite instances join
 // each other over the real transport with fake session bundles — no Electron,
 // no omp spawn. The live desktop-owner proof is separate (dev:headless per
