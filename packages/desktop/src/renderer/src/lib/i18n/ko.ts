@@ -1614,6 +1614,7 @@ export const ko: Partial<Record<MessageKey, string>> = {
   "device.toolbar.attach": "화면을 프롬프트에 첨부",
   "device.toolbar.attached": "스크린샷을 작성기에 추가했습니다",
   "device.toolbar.powerOff": "에뮬레이터 전원 끄기",
+  "device.toolbar.profiles": "프로필로 새로 생성",
   "device.toolbar.fullscreen": "열 전체로 펼치기",
   "device.toolbar.split": "분할 보기로 돌아가기",
   "device.toolbar.close": "기기 패널 닫기",

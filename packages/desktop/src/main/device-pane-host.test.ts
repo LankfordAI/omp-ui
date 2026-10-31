@@ -1,6 +1,7 @@
 import {
   CH,
   DEVICE_PANE_ACTING_MS,
+  avdConfigPath,
   decodeBrowserPaneFrame,
   encodeKeyInput,
   encodeTouchInput,
@@ -10,7 +11,12 @@ import {
 import { afterEach, beforeEach, describe, expect, it, vi, type Mock } from "vitest";
 import { DevicePaneHost, type DeviceRunResult, type DevicePaneHostDeps, type EmulatorGrpc } from "./device-pane-host";
 
-const SDK: AndroidSdkPaths = { sdkRoot: "/sdk", adb: "/sdk/platform-tools/adb", emulator: "/sdk/emulator/emulator" };
+const SDK: AndroidSdkPaths = {
+  sdkRoot: "/sdk",
+  adb: "/sdk/platform-tools/adb",
+  emulator: "/sdk/emulator/emulator",
+  avdmanager: "/sdk/cmdline-tools/latest/bin/avdmanager",
+};
 const SERIAL = "emulator-5554";
 
 function varint(n: number): number[] {
@@ -47,13 +53,25 @@ interface Harness {
   inputs: Uint8Array[];
   clipboard: string[];
   encodes: Array<{ width: number; height: number; firstPixel: number[] }>;
+  spawns: Array<{ file: string; args: string[]; env: NodeJS.ProcessEnv }>;
   getScreenshot: Mock<EmulatorGrpc["getScreenshot"]>;
   run: Mock<NonNullable<DevicePaneHostDeps["run"]>>;
   states(tabId: string): DevicePaneState[];
   frames(tabId: string): Uint8Array[];
 }
 
-function harness(opts: { sdk?: AndroidSdkPaths | null; agentRun?: () => Promise<DeviceRunResult> } = {}): Harness {
+function harness(
+  opts: {
+    sdk?: AndroidSdkPaths | null;
+    agentRun?: () => Promise<DeviceRunResult>;
+    /** `adb devices` stdout; the default lists one online emulator. */
+    devices?: string;
+    listDir?: (dir: string) => Promise<string[]>;
+    readFile?: (file: string) => Promise<string>;
+    writeFile?: (file: string, text: string) => Promise<void>;
+    home?: () => string;
+  } = {},
+): Harness {
   const sent: Harness["sent"] = [];
   const streams: FakeStream[] = [];
   const inputs: Uint8Array[] = [];
@@ -77,12 +95,15 @@ function harness(opts: { sdk?: AndroidSdkPaths | null; agentRun?: () => Promise<
   const run = vi.fn<NonNullable<DevicePaneHostDeps["run"]>>(async (file, args) => {
     if (file === process.execPath) return opts.agentRun ? opts.agentRun() : { code: 0, stdout: "ok", stderr: "" };
     const joined = args.join(" ");
-    if (joined === "devices") return { code: 0, stdout: `List of devices attached\n${SERIAL}\tdevice\n`, stderr: "" };
+    if (joined === "devices")
+      return { code: 0, stdout: opts.devices ?? `List of devices attached\n${SERIAL}\tdevice\n`, stderr: "" };
     if (joined === "-list-avds") return { code: 0, stdout: "INFO | something\nPixel_7\nTablet\n", stderr: "" };
+    if (file.endsWith("avdmanager")) return { code: 0, stdout: `Created Android Virtual Device (AVD) ${args[3]}.`, stderr: "" };
     if (joined.endsWith("wm size")) return { code: 0, stdout: "Physical size: 1080x2400\n", stderr: "" };
     if (joined.endsWith("emu avd name")) return { code: 0, stdout: "Pixel_7\nOK\n", stderr: "" };
     return { code: 1, stdout: "", stderr: "unexpected" };
   });
+  const spawns: Harness["spawns"] = [];
   const host = new DevicePaneHost({
     send: (channel, ...args) => sent.push({ channel, args }),
     encodeJpeg: (bgra, width, height) => {
@@ -91,11 +112,18 @@ function harness(opts: { sdk?: AndroidSdkPaths | null; agentRun?: () => Promise<
     },
     sdk: () => (opts.sdk === undefined ? SDK : opts.sdk),
     run,
-    spawnDetached: () => 4242,
+    spawnDetached: (file, args, env) => {
+      spawns.push({ file, args, env });
+      return 4242;
+    },
     createGrpc: () => client,
     ensureEndpoint: async () => ({ port: 8554, token: "t" }),
     discover: () => [],
     pidAlive: () => true,
+    listDir: opts.listDir ?? (async () => []),
+    readFile: opts.readFile ?? (async () => ""),
+    writeFile: opts.writeFile ?? (async () => {}),
+    home: opts.home ?? (() => "/home/test"),
     agentDeviceBin: () => "/app/node_modules/agent-device/bin/agent-device.mjs",
     stateDir: () => "/user/agent-device",
     tempDir: () => "/tmp",
@@ -107,6 +135,7 @@ function harness(opts: { sdk?: AndroidSdkPaths | null; agentRun?: () => Promise<
     inputs,
     clipboard,
     encodes,
+    spawns,
     getScreenshot,
     run,
     states: (tabId) =>
@@ -279,5 +308,93 @@ describe("DevicePaneHost", () => {
     expect(answer.isError).toBe(true);
     expect(h.run).not.toHaveBeenCalled();
     expect((await h.host.inventory()).sdk).toEqual({ status: "missing", missing: ["sdk", "adb", "emulator"] });
+  });
+
+  /** /sdk/system-images with android-36/google_apis/x86_64 and android-35/default/x86_64 installed. */
+  const listImages = async (dir: string): Promise<string[]> => {
+    if (dir === "/sdk/system-images") return ["android-36", "android-35"];
+    if (dir === "/sdk/system-images/android-36") return ["google_apis"];
+    if (dir === "/sdk/system-images/android-36/google_apis") return ["x86_64"];
+    if (dir === "/sdk/system-images/android-35") return ["default"];
+    if (dir === "/sdk/system-images/android-35/default") return ["x86_64"];
+    return [];
+  };
+
+  it("provisions a bundled-profile AVD before spawning the emulator", async () => {
+    const writes: Array<{ file: string; text: string }> = [];
+    const stubConfig = [
+      "avd.id=pixel_11_pro_xl",
+      "avd.name=pixel_11_pro_xl",
+      "hw.keyboard=no",
+      "hw.lcd.width=1080",
+      "hw.lcd.height=1920",
+      "hw.lcd.density=420",
+      "hw.lcd.size=8.0",
+      "hw.cpu.arch=x86_64",
+      "",
+    ].join("\n");
+    const h = harness({
+      devices: "List of devices attached\n",
+      listDir: listImages,
+      readFile: async () => stubConfig,
+      writeFile: async (file, text) => {
+        writes.push({ file, text });
+      },
+      home: () => "/home/test",
+    });
+    const state = await h.host.act("t", { action: "boot", avd: "pixel_11_pro_xl" });
+    expect(state.phase).toBe("booting");
+
+    const create = h.run.mock.calls.find(([file]) => file.endsWith("avdmanager"));
+    expect(create?.[1]).toEqual([
+      "create",
+      "avd",
+      "-n",
+      "pixel_11_pro_xl",
+      "-k",
+      "system-images;android-36;google_apis;x86_64",
+      "-d",
+      "pixel_10_pro",
+    ]);
+
+    expect(writes).toHaveLength(1);
+    expect(writes[0]?.file).toBe(avdConfigPath("/home/test", "pixel_11_pro_xl"));
+    const cfg = writes[0]?.text ?? "";
+    expect(cfg).toContain("hw.lcd.width=1344");
+    expect(cfg).toContain("hw.lcd.height=2992");
+    expect(cfg).toContain("hw.lcd.density=480");
+    expect(cfg).toContain("hw.keyboard=yes");
+    expect(cfg).not.toContain("hw.keyboard=no");
+    expect(cfg).not.toContain("hw.lcd.size");
+
+    expect(h.spawns).toHaveLength(1);
+    expect(h.spawns[0]?.file).toBe("/sdk/emulator/emulator");
+    expect(h.spawns[0]?.args).toEqual(expect.arrayContaining(["-avd", "pixel_11_pro_xl", "-no-window"]));
+  });
+
+  it("boots an existing AVD without any avdmanager call", async () => {
+    const h = harness({ devices: "List of devices attached\n", listDir: listImages });
+    const state = await h.host.act("t", { action: "boot", avd: "Pixel_7" });
+    expect(state.phase).toBe("booting");
+    expect(h.run.mock.calls.some(([file]) => file.endsWith("avdmanager"))).toBe(false);
+    expect(h.spawns).toHaveLength(1);
+  });
+
+  it("errors a profile boot when avdmanager is missing", async () => {
+    const h = harness({ devices: "List of devices attached\n", sdk: { ...SDK, avdmanager: null } });
+    const state = await h.host.act("t", { action: "boot", avd: "pixel_11_pro_xl" });
+    expect(state.phase).toBe("error");
+    expect(state.error).toContain("avdmanager");
+    expect(h.spawns).toHaveLength(0);
+  });
+
+  it("names sdkmanager when no installed system image fits", async () => {
+    const h = harness({ devices: "List of devices attached\n", listDir: async () => [] });
+    const state = await h.host.act("t", { action: "boot", avd: "pixel_11_pro_xl" });
+    expect(state.phase).toBe("error");
+    expect(state.error).toContain("system-images");
+    expect(state.error).toContain("sdkmanager");
+    expect(h.run.mock.calls.some(([file]) => file.endsWith("avdmanager"))).toBe(false);
+    expect(h.spawns).toHaveLength(0);
   });
 });

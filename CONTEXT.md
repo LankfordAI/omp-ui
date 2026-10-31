@@ -406,10 +406,11 @@ _Avoid_: timestamp overlay, watermark, system tray clock
 
 **Device pane**:
 A live Android emulator inside an rpc-ui tab that the user and the agent
-share. The owning main process binds one emulator per tab, streams its screen
-to every view as frames, takes the user's touches and keys, and gives the
-agent the same emulator through the `omp-ui_device` host tool when Agents can
-use devices is on. It takes the same split beside the native transcript as
+share. The owning main process binds one emulator per tab, can provision an
+AVD from a bundled device profile when a pick names one that does not exist
+yet, streams its screen to every view as frames, takes the user's touches and
+keys, and gives the agent the same emulator through the `omp-ui_device` host
+tool when Agents can use devices is on. It takes the same split beside the native transcript as
 the **Browser pane**; only one of the two is open in a tab. Closing it only
 stops the stream; the emulator keeps running until powered off.
 _Avoid_: simulator panel, device tab, emulator window, device hub

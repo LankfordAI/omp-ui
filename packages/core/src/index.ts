@@ -205,6 +205,7 @@ export * from "./host-bridge";
 export * from "./html-artifact";
 export * from "./browser-pane";
 export * from "./device-pane";
+export * from "./device-profiles";
 export * from "./android-sdk";
 export * from "./emulator-proto";
 export * from "./device-tool";
