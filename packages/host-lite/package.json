@@ -1,0 +1,19 @@
+{
+  "name": "@omp-ui/host-lite",
+  "version": "0.0.0",
+  "private": true,
+  "license": "MIT",
+  "type": "module",
+  "exports": {
+    "./credentials": "./src/credentials/index.ts"
+  },
+  "scripts": {
+    "test": "vitest run --passWithNoTests",
+    "typecheck": "tsc --noEmit"
+  },
+  "devDependencies": {
+    "@types/node": "^26.1.2",
+    "typescript": "~7.0.2",
+    "vitest": "^4.1.10"
+  }
+}
