@@ -51,6 +51,9 @@ function fakeHost(): FakeHost {
       [CH.browserPaneSubscribe]: (tabId: string, clientId: string, on: boolean) => {
         notified.push({ ch: CH.browserPaneSubscribe, args: [tabId, clientId, on] });
       },
+      [CH.devicePaneSubscribe]: (tabId: string, clientId: string, on: boolean) => {
+        notified.push({ ch: CH.devicePaneSubscribe, args: [tabId, clientId, on] });
+      },
     },
   } as unknown as ChannelTable;
   return {
@@ -182,8 +185,14 @@ function frameBarrier(ws: WebSocket): Promise<void> {
   });
 }
 
-async function subscribe(ws: WebSocket, tabId: string, clientId = "viewer", on = true): Promise<void> {
-  ws.send(JSON.stringify({ t: "notify", ch: CH.browserPaneSubscribe, args: [tabId, clientId, on] }));
+async function subscribe(
+  ws: WebSocket,
+  tabId: string,
+  clientId = "viewer",
+  on = true,
+  channel: string = CH.browserPaneSubscribe,
+): Promise<void> {
+  ws.send(JSON.stringify({ t: "notify", ch: channel, args: [tabId, clientId, on] }));
   await reliableBarrier(ws);
 }
 
@@ -808,6 +817,47 @@ describe("startRemoteServer paired frame stream", () => {
     expect(frames.deliveries.map((frame) => [frame.tabId, frame.payload[0]])).toEqual([["tab", 1], ["other", 4]]);
     await ack(frames, frames.deliveries[1]!.id);
     expect(frames.deliveries.map((frame) => frame.payload[0])).toEqual([1, 4]);
+  });
+
+  it("keys pane subscriptions per frame channel so one tab's browser and device frames stay independent", async () => {
+    const { base, host } = await serve();
+    const reliable = await connect(base, TOKEN);
+    const frames = await connectFrames(base, frameKeys.get(reliable)!);
+    await subscribe(reliable, "tab", "viewer", true, CH.browserPaneSubscribe);
+    await subscribe(reliable, "tab", "viewer", true, CH.devicePaneSubscribe);
+    host.emit(CH.onBrowserPaneFrame, ["tab", Uint8Array.of(1)]);
+    // A device frame for the same tab never replaces the pending browser frame.
+    host.emit(CH.onDevicePaneFrame, ["tab", Uint8Array.of(2)]);
+    host.emit(CH.onBrowserPaneFrame, ["tab", Uint8Array.of(3)]);
+    await frameBarrier(frames.ws);
+    await ack(frames, frames.deliveries[0]!.id);
+    await ack(frames, frames.deliveries[1]!.id);
+    expect(frames.deliveries.map((frame) => [frame.channel, frame.tabId, frame.payload[0]])).toEqual([
+      [CH.onBrowserPaneFrame, "tab", 1],
+      [CH.onDevicePaneFrame, "tab", 2],
+      [CH.onBrowserPaneFrame, "tab", 3],
+    ]);
+    await ack(frames, frames.deliveries[2]!.id);
+
+    await subscribe(reliable, "tab", "viewer", false, CH.browserPaneSubscribe);
+    expect(host.notified).toEqual([
+      { ch: CH.browserPaneSubscribe, args: ["tab", "viewer", true] },
+      { ch: CH.devicePaneSubscribe, args: ["tab", "viewer", true] },
+      { ch: CH.browserPaneSubscribe, args: ["tab", "viewer", false] },
+    ]);
+    host.emit(CH.onBrowserPaneFrame, ["tab", Uint8Array.of(4)]);
+    host.emit(CH.onDevicePaneFrame, ["tab", Uint8Array.of(5)]);
+    await frameBarrier(frames.ws);
+    expect(frames.deliveries.slice(3).map((frame) => [frame.channel, frame.payload[0]])).toEqual([
+      [CH.onDevicePaneFrame, 5],
+    ]);
+
+    // Closing the pair releases the remaining device viewer upstream, not the browser one again;
+    // the companion's 1001 follows the release loop in the same close handler.
+    const closed = new Promise<number>((resolve) => frames.ws.once("close", (code) => resolve(code)));
+    await closeSocket(reliable);
+    expect(await closed).toBe(1001);
+    expect(host.notified.slice(3)).toEqual([{ ch: CH.devicePaneSubscribe, args: ["tab", "viewer", false] }]);
   });
 
   it("rejects malformed subscription tuples without widening frame delivery", async () => {

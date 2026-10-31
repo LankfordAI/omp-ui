@@ -73,6 +73,11 @@ import {
   type BrowserPaneClearDataResult,
   type BrowserPaneDiagnostics,
   type BrowserPaneEnsureResult,
+  type DevicePaneAction,
+  type DevicePaneDiagnostics,
+  type DevicePaneEnsureResult,
+  type DevicePaneInputEvent,
+  type DevicePaneState,
   type BrowserPaneInputEvent,
   type BrowserPaneNavigate,
   type BrowserPanePickResult,
@@ -156,6 +161,7 @@ import {
 import { CollabTracker } from "./collab-tracker";
 import type { Attention } from "./desktop-notifier";
 import { BrowserPaneHost, type BrowserPaneHostDeps } from "./browser-pane-host";
+import { DevicePaneHost, type DevicePaneHostDeps } from "./device-pane-host";
 import type { DesktopMediaLease } from "../browser-pane-desktop-protocol";
 import type { BreadcrumbSink } from "./breadcrumbs";
 import type { FrameObserver } from "./frame-observer";
@@ -313,6 +319,8 @@ export interface SessionManagerDependencies {
     BrowserPaneHostDeps,
     "createPane" | "createListener" | "targetScaleFactor" | "clearPartition" | "stampImage" | "onDesktopMedia"
   >;
+  /** Device pane seams (#1006): the JPEG encoder, the agent-device bin resolver, and its state dir; tests fake them. */
+  devicePane: Pick<DevicePaneHostDeps, "encodeJpeg" | "agentDeviceBin" | "stateDir">;
   /** Posts one immediate OS notification for the host notify tool (#688); absent = notifications report as disabled. */
   hostNotify?: (tabId: string, title: string | null, message: string) => string;
   /** Registry probe seams for the collab watcher (#686); tests fake them. */
@@ -357,6 +365,7 @@ export class SessionManager {
   );
   private readonly shellHost: ShellHost;
   readonly browserPanes: BrowserPaneHost;
+  readonly devicePanes: DevicePaneHost;
   private readonly watcherHub: WatcherHub;
   private readonly ops = new Map<string, { kind: OpKind; chain: Promise<void> }>();
   private readonly worktreeOps: WorktreeOps;
@@ -425,6 +434,7 @@ export class SessionManager {
       clockEnabled: (tabId) => this.browserClockEnabled(tabId),
       clockText: () => browserClockText(new Date(), deps.registry.getSetting("localeId")),
     });
+    this.devicePanes = new DevicePaneHost({ send: deps.send, ...deps.devicePane });
     this.watcherHub = new WatcherHub({
       registry: deps.registry,
       getSessionsRoot: () => deps.getSessionsRoot(),
@@ -539,6 +549,13 @@ export class SessionManager {
         locate: (lineageDir, sessionId) =>
           resolveSessionLocation(deps.getSessionsRoot(), deps.getArchiveRoot(), lineageDir, sessionId),
         now: () => new Date(),
+      },
+      device: {
+        run: (tabId, args) => {
+          const record = deps.registry.sessions.find((session) => session.tabId === tabId);
+          const cwd = record === undefined ? os.homedir() : record.worktree?.path ?? record.projectCwd;
+          return this.devicePanes.runAgentCommand(tabId, cwd, args);
+        },
       },
       ...(fleet === undefined
         ? {}
@@ -713,6 +730,7 @@ export class SessionManager {
     this.collab.dispose();
     this.shellHost.killAll();
     this.browserPanes.disposeAll();
+    this.devicePanes.disposeAll();
     this.watcherHub.disposeAll();
     this.hibernation.disposeAll();
     this.stallWatchdog.disposeAll();
@@ -1620,6 +1638,10 @@ export class SessionManager {
             record.fleet?.requestedBy.kind !== "agent" &&
             record.fleet?.requestedBy.kind !== "webhook" &&
             record.fleet?.requestedBy.kind !== "mcp"),
+        device:
+          this.deps.registry.getSetting("deviceAgentAccess") &&
+          record.fleet?.requestedBy.kind !== "webhook" &&
+          record.fleet?.requestedBy.kind !== "mcp",
       }),
     );
     // The issue #774 recovery pick: `--model` forces the boot but never
@@ -2313,6 +2335,31 @@ export class SessionManager {
     if (entry.kind === "pty") return { status: "terminal" };
     return this.browserPanes.ensure(tabId);
   }
+  /** The device pane's open path (#1006): the same lifecycle ladder as the browser pane; the host answers the tail. */
+  async devicePaneEnsure(tabId: string): Promise<DevicePaneEnsureResult> {
+    const record = this.deps.registry.sessions.find((s) => s.tabId === tabId);
+    if (!record) return { status: "missing-session" };
+    const entry = this.live.get(tabId);
+    if (!entry) return { status: "not-live" };
+    if (entry.kind === "pty") return { status: "terminal" };
+    const { state, inventory } = await this.devicePanes.ensure(tabId);
+    return { status: "available", state, inventory };
+  }
+  devicePaneAct(tabId: string, action: DevicePaneAction): Promise<DevicePaneState> {
+    return this.devicePanes.act(tabId, action);
+  }
+  devicePaneSubscribe(tabId: string, clientId: string, on: boolean): void {
+    this.devicePanes.subscribe(tabId, clientId, on);
+  }
+  devicePaneInput(tabId: string, event: DevicePaneInputEvent): void {
+    this.devicePanes.input(tabId, event);
+  }
+  devicePaneSetOpen(tabId: string, open: boolean): void {
+    this.devicePanes.setOpen(tabId, open);
+  }
+  devicePaneDiagnostics(): DevicePaneDiagnostics[] {
+    return this.devicePanes.diagnostics();
+  }
 
   /**
    * The capabilities viewer's tool toggle (issue #379): one deliberate
@@ -2914,6 +2961,7 @@ export class SessionManager {
     if (await this.reapWithEscalation(entry)) {
       // The page goes with the process; the last URL is what a resume restores.
       this.browserPanes.dispose(tabId);
+      this.devicePanes.dispose(tabId);
       this.deps.send(CH.onSessionHibernated, tabId);
       this.deps.breadcrumb?.record("session-hibernate", { tabId });
       void this.deps.broadcast();
@@ -3149,6 +3197,7 @@ export class SessionManager {
     this.watcherHub.stop(tabId);
     this.killShell(tabId);
     this.browserPanes.dispose(tabId, { forgetUrl: true });
+    this.devicePanes.dispose(tabId, { forget: true });
     try {
       await deleteSessionFiles(
         this.deps.getSessionsRoot(),
@@ -3276,7 +3325,10 @@ export class SessionManager {
       if (record.chat && mode === "pty") throw new Error("a chat runs in native mode only");
       this.deps.breadcrumb?.record("session-mode", { tabId, mode });
       this.killShell(tabId);
-      if (mode === "pty") this.browserPanes.dispose(tabId);
+      if (mode === "pty") {
+        this.browserPanes.dispose(tabId);
+        this.devicePanes.dispose(tabId);
+      }
       const entry = this.live.get(tabId);
       if (!entry) {
         this.deps.registry.updateSession(tabId, { mode });

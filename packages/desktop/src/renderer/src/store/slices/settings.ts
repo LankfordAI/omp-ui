@@ -224,6 +224,14 @@ export const createSettingsSlice: StateCreator<UiStore, [], [], SettingsSlice> =
       }
     },
 
+    async setDeviceAgentAccess(on) {
+      try {
+        await backend.setDeviceAgentAccess(on);
+      } catch (err) {
+        get().reportError(err);
+      }
+    },
+
     async setDefaultAdvisor(on) {
       try {
         await backend.setDefaultAdvisor(on);

@@ -165,6 +165,53 @@ describe("HostBridge render_html (issue #994)", () => {
   });
 });
 
+describe("HostBridge device tool (issue #1006)", () => {
+  it("answers through deps.device, passing content and the error flag through", async () => {
+    const calls: { tabId: string; args: unknown }[] = [];
+    const sent: RpcFrame[] = [];
+    const bridge = new HostBridge({
+      ...fixtureDeps(),
+      device: {
+        run: async (tabId, args) => {
+          calls.push({ tabId, args });
+          return { content: [{ type: "text", text: "exit 1" }], isError: true };
+        },
+      },
+    });
+    bridge.route("t1", toolCallFrame("h1", "omp-ui_device", { command: "snapshot" }), (frame) => sent.push(frame));
+    await settled();
+    expect(calls).toEqual([{ tabId: "t1", args: { command: "snapshot" } }]);
+    expect(sent).toHaveLength(1);
+    expect(sent[0]).toMatchObject({
+      type: "host_tool_result",
+      id: "h1",
+      isError: true,
+      result: { content: [{ type: "text", text: "exit 1" }] },
+    });
+  });
+
+  it("answers a successful run without the error flag", async () => {
+    const sent: RpcFrame[] = [];
+    const bridge = new HostBridge({
+      ...fixtureDeps(),
+      device: { run: async () => ({ content: [{ type: "text", text: "ok" }], isError: false }) },
+    });
+    bridge.route("t1", toolCallFrame("h1", "omp-ui_device", {}), (frame) => sent.push(frame));
+    await settled();
+    expect(sent).toHaveLength(1);
+    expect(sent[0]).not.toHaveProperty("isError");
+  });
+
+  it("answers unavailable when no device deps are wired", async () => {
+    const f = fixture();
+    f.bridge.route("t1", toolCallFrame("h1", "omp-ui_device", {}), f.send);
+    await settled();
+    expect(f.sent).toHaveLength(1);
+    expect(f.sent[0]).toMatchObject({ type: "host_tool_result", id: "h1", isError: true });
+    expect(JSON.stringify(f.sent[0])).toContain("device tools are unavailable");
+  });
+});
+
 describe("HostBridge omp-ui://plan", () => {
   it("answers no-plan-before-any-proposal", async () => {
     const f = fixture();

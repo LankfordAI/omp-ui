@@ -28,6 +28,7 @@ import type { SessionSpendSnapshot } from "@omp-ui/core/session-spend";
 import { useDismissal } from "../lib/use-dismissal";
 import { ConsoleToggle } from "./ConsoleDrawer";
 import { BrowserPaneToggle } from "./browser-pane/BrowserPaneToggle";
+import { DevicePaneToggle } from "./device-pane/DevicePaneToggle";
 import { BuildPlanControl } from "./BuildPlanControl";
 import { FastModeControl } from "./FastModeControl";
 import { AdvisorRosterView } from "./AdvisorRoster";
@@ -1053,6 +1054,7 @@ function TitleMenu({
   const regenerateSessionTitle = useStore((s) => s.regenerateSessionTitle);
   const toggleConsole = useStore((s) => s.toggleConsole);
   const toggleBrowserPane = useStore((s) => s.toggleBrowserPane);
+  const toggleDevicePane = useStore((s) => s.toggleDevicePane);
   const branchSession = useStore((s) => s.branchSession);
   const openSessionTreeView = useStore((s) => s.openSessionTreeView);
   const newSession = useStore((s) => s.newSession);
@@ -1064,6 +1066,7 @@ function TitleMenu({
   const openCapabilitiesViewer = useStore((s) => s.openCapabilitiesViewer);
   const consoleOpen = useStore((s) => s.consoleOpen[tabId] === true);
   const paneOpen = useStore((s) => s.rpc[tabId]?.browserPane.open === true);
+  const deviceOpen = useStore((s) => s.rpc[tabId]?.devicePane.open === true);
   const settleSessions = useStore((s) => s.settleSessions);
   // Settle (#980, #1005): any live session; a running turn confirms first.
   const settleable = useStore((s) => {
@@ -1193,6 +1196,7 @@ function TitleMenu({
                 <MenuGroup heading={t("hud.menu.view")}>
                   {checkRow(t("hud.menu.console"), consoleOpen, consoleLabel, () => toggleConsole(tabId))}
                   {checkRow(t("hud.menu.browserPane"), paneOpen, null, () => toggleBrowserPane(tabId))}
+                  {checkRow(t("hud.menu.devicePane"), deviceOpen, null, () => toggleDevicePane(tabId))}
                 </MenuGroup>
                 {MENU_SEPARATOR}
                 <MenuGroup heading={t("hud.menu.session")}>
@@ -1984,6 +1988,7 @@ export function SessionHud({ tabId }: { tabId: string }) {
           {usage && <ContextCluster usage={usage} markerTokens={markerTokens} />}
           <ConsoleToggle tabId={tabId} className="size-11" />
           <BrowserPaneToggle tabId={tabId} className="size-11" />
+          <DevicePaneToggle tabId={tabId} className="size-11" />
           <IconButton label={t("hud.actions.sessionActions")} onClick={() => showCompactSurface("session-actions")} className="size-11">
             <IconKebab />
             <span className="sr-only">{t("hud.actions.sessionActions")}</span>

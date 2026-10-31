@@ -1,4 +1,4 @@
-import type { DesktopFrameDelivery } from "../browser-pane-desktop-protocol";
+import type { DesktopFrameChannel, DesktopFrameDelivery } from "../browser-pane-desktop-protocol";
 
 export interface DesktopPaneSubscription {
   tabId: string;
@@ -15,8 +15,8 @@ export interface DesktopPaneStream {
   reset(): DesktopPaneSubscription[];
 }
 
-/** One delivery awaiting paint, plus the latest pending frame per desired tab. */
-export function createDesktopPaneStream(): DesktopPaneStream {
+/** One delivery awaiting paint per frame channel (own credit and ids), plus the latest pending frame per desired tab. */
+export function createDesktopPaneStream(channel: DesktopFrameChannel): DesktopPaneStream {
   const desired = new Map<string, Set<string>>();
   const pending = new Map<string, Uint8Array>();
   let inflight: DesktopFrameDelivery | null = null;
@@ -41,7 +41,7 @@ export function createDesktopPaneStream(): DesktopPaneStream {
     for (const [tabId, frame] of pending) {
       pending.delete(tabId);
       if (!desired.has(tabId)) continue;
-      const delivery: DesktopFrameDelivery = { type: "frame", id: nextId++, tabId, frame };
+      const delivery: DesktopFrameDelivery = { type: "frame", channel, id: nextId++, tabId, frame };
       inflight = delivery;
       try {
         send(delivery);

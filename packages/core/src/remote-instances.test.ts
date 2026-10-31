@@ -46,6 +46,30 @@ describe("browser pane routing sets", () => {
   });
 });
 
+// The device pane rides the same relay (#1006): its controls run on the
+// instance that owns the tab, and its frames and state mirror back unchanged.
+describe("device pane routing sets", () => {
+  const DEVICE_REQUESTS = ["device-pane:ensure", "device-pane:act"];
+  const DEVICE_NOTIFIES = ["device-pane:subscribe", "device-pane:input", "device-pane:set-open"];
+
+  it("routes the device requests and notifies by their owning tab and proxies them", () => {
+    for (const channel of DEVICE_REQUESTS) expect(TAB_ROUTED_REQUESTS.has(channel)).toBe(true);
+    for (const channel of DEVICE_NOTIFIES) expect(TAB_ROUTED_NOTIFIES.has(channel)).toBe(true);
+    for (const channel of [...DEVICE_REQUESTS, ...DEVICE_NOTIFIES]) {
+      expect(REMOTE_PROXY_CHANNELS.has(channel)).toBe(true);
+    }
+  });
+
+  it("mirrors device frames and state from a joined instance", () => {
+    expect(REMOTE_TAB_EVENTS.has("device-pane:frame")).toBe(true);
+    expect(REMOTE_TAB_EVENTS.has("device-pane:state")).toBe(true);
+  });
+
+  it("never proxies the device agent access setting to a joined instance", () => {
+    expect(REMOTE_PROXY_CHANNELS.has("settings:setDeviceAgentAccess")).toBe(false);
+  });
+});
+
 describe("autoresearch proxy channels (issue #559)", () => {
   it("proxies the three Lab reads to a joined instance", () => {
     for (const channel of ["autoresearch:overview", "autoresearch:experiment", "autoresearch:runLog"]) {

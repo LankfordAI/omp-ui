@@ -3,48 +3,12 @@ import { cn } from "../../lib/cn";
 import {
   BROWSER_PANE_DEFAULT_WIDTH,
   BROWSER_PANE_MIN_WIDTH,
-  resolveDesktopPanelWidths,
-  type DesktopPanelWidths,
 } from "../../lib/panel-layout";
-import { useCompactShell, useViewportWidth } from "../../lib/responsive";
 import { useT } from "../../lib/i18n";
 import { useStore } from "../../store";
 import { ResizeHandle } from "../ui";
+import { useDesktopPanelWidths } from "../split-slot";
 import { BrowserPane } from "./BrowserPane";
-
-/**
- * Whether a tab's browser pane is taking a split column right now — the one
- * fact the shared width budget needs (spec 6.2). A fullscreen pane owns the
- * transcript column instead, and the compact shell has no columns at all.
- */
-export function useBrowserPaneSplitOpen(tabId: string | null): boolean {
-  const compact = useCompactShell();
-  const open = useStore((s) => {
-    const pane = tabId === null ? undefined : s.rpc[tabId]?.browserPane;
-    return pane?.open === true && !pane.fullscreen;
-  });
-  return open && !compact;
-}
-
-/** The desktop width budget with this tab's browser pane counted in. */
-export function useDesktopPanelWidths(tabId: string): DesktopPanelWidths {
-  const viewportWidth = useViewportWidth();
-  const sidebarWidth = useStore((s) => s.sidebarWidth);
-  const inspectorWidth = useStore((s) => s.inspectorWidth);
-  const sidebarCollapsed = useStore((s) => s.sidebarCollapsed);
-  const inspectorOpen = useStore((s) => s.inspectorOpen);
-  const browserPaneWidth = useStore((s) => s.browserPaneWidth);
-  const browserPaneOpen = useBrowserPaneSplitOpen(tabId);
-  return resolveDesktopPanelWidths({
-    viewportWidth,
-    sidebarWidth,
-    inspectorWidth,
-    sidebarCollapsed,
-    inspectorOpen,
-    browserPaneWidth,
-    browserPaneOpen,
-  });
-}
 
 /** The desktop split: the pane as a resizable column between the transcript and the inspector rail. */
 export function BrowserPaneSplit({ tabId }: { tabId: string }) {
@@ -59,7 +23,7 @@ export function BrowserPaneSplit({ tabId }: { tabId: string }) {
     setPreviewWidth(null);
   }, [browserPaneWidth]);
 
-  const displayedWidth = previewWidth ?? resolved.browserPaneWidth;
+  const displayedWidth = previewWidth ?? resolved.splitWidth;
 
   return (
     <aside
@@ -75,7 +39,7 @@ export function BrowserPaneSplit({ tabId }: { tabId: string }) {
         edge="left"
         value={displayedWidth}
         min={BROWSER_PANE_MIN_WIDTH}
-        max={resolved.browserPaneAllowedMax}
+        max={resolved.splitAllowedMax}
         defaultValue={BROWSER_PANE_DEFAULT_WIDTH}
         onPreview={setPreviewWidth}
         onCommit={(width) => {

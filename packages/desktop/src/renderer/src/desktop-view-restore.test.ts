@@ -75,6 +75,8 @@ const mockBackend = {
   onShellExit: vi.fn(),
   onBrowserPaneFrame: vi.fn(),
   onBrowserPaneState: vi.fn(),
+  onDevicePaneFrame: vi.fn(),
+  onDevicePaneState: vi.fn(),
   shellSpawn: vi.fn(),
   shellKill: vi.fn(),
   shellWrite: vi.fn(),
@@ -243,6 +245,7 @@ const SEED_SNAPSHOT: DesktopViewStateV1 = {
   sidebarWidth: 416,
   inspectorWidth: 256,
   browserPaneWidth: 720,
+  devicePaneWidth: 420,
   diffViewLayout: "split",
 };
 const SEED_JSON = JSON.stringify(SEED_SNAPSHOT);

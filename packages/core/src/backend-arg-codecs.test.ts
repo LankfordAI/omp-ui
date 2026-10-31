@@ -6,6 +6,8 @@ import {
   branchListOptionsCodec,
   browserPaneInputCodec,
   browserPaneNavigateCodec,
+  devicePaneActionCodec,
+  devicePaneInputCodec,
   checkoutOptionsCodec,
   consoleProgramCodec,
   imageAttachmentCodec,
@@ -284,5 +286,84 @@ describe("domain argument codecs", () => {
     }
     expect(() => decode(browserPaneNavigateCodec, { action: "goto" })).toThrow("argument 0.url");
     expect(() => decode(browserPaneNavigateCodec, { action: "back", url: "x" })).toThrow();
+  });
+
+  it("decodes every device pane input arm strictly", () => {
+    const events = [
+      { type: "touch", phase: "down", x: 0, y: 1, pointer: 0 },
+      { type: "touch", phase: "move", x: 0.5, y: 0.5, pointer: 9 },
+      { type: "touch", phase: "up", x: 1, y: 0, pointer: 3 },
+      { type: "wheel", x: 0.5, y: 0.5, dx: -10_000, dy: 10_000 },
+      { type: "key", phase: "down", key: "Enter" },
+      { type: "key", phase: "up", key: "a" },
+      { type: "text", text: "héllo 한" },
+      { type: "button", button: "back" },
+      { type: "button", button: "home" },
+      { type: "button", button: "recents" },
+      { type: "button", button: "power" },
+    ];
+    for (const event of events) expect(decode(devicePaneInputCodec, event)).toEqual(event);
+
+    expect(() => decode(devicePaneInputCodec, { type: "touch", phase: "down", x: 1.01, y: 0, pointer: 0 })).toThrow(
+      "argument 0.x",
+    );
+    expect(() => decode(devicePaneInputCodec, { type: "touch", phase: "down", x: 0, y: -0.01, pointer: 0 })).toThrow(
+      "argument 0.y",
+    );
+    expect(() =>
+      decode(devicePaneInputCodec, { type: "wheel", x: Number.NaN, y: 0, dx: 0, dy: 0 }),
+    ).toThrow("argument 0.x");
+    expect(() => decode(devicePaneInputCodec, { type: "touch", phase: "down", x: 0, y: 0, pointer: 10 })).toThrow(
+      "argument 0.pointer",
+    );
+    expect(() => decode(devicePaneInputCodec, { type: "touch", phase: "down", x: 0, y: 0, pointer: 0.5 })).toThrow(
+      "argument 0.pointer",
+    );
+    expect(() =>
+      decode(devicePaneInputCodec, { type: "touch", phase: "down", x: 0, y: 0, pointer: 0, extra: true }),
+    ).toThrow("argument 0.extra");
+    expect(() => decode(devicePaneInputCodec, { type: "touch", phase: "down", x: 0, y: 0 })).toThrow(
+      "argument 0.pointer",
+    );
+    expect(() => decode(devicePaneInputCodec, { type: "wheel", x: 0, y: 0, dx: 10_001, dy: 0 })).toThrow(
+      "argument 0.dx",
+    );
+    expect(() => decode(devicePaneInputCodec, { type: "key", phase: "down", key: "K".repeat(33) })).toThrow(
+      "argument 0.key",
+    );
+    expect(() => decode(devicePaneInputCodec, { type: "text", text: "x".repeat(1025) })).toThrow(
+      "argument 0.text",
+    );
+    expect(() => decode(devicePaneInputCodec, { type: "button", button: "menu" })).toThrow(
+      "argument 0.button",
+    );
+    expect(() => decode(devicePaneInputCodec, { type: "text", text: "a", key: "b" })).toThrow("argument 0.key");
+    expect(() => decode(devicePaneInputCodec, { type: "swipe" })).toThrow("argument 0.type");
+  });
+
+  it("decodes device pane actions with each arm's own keys", () => {
+    expect(decode(devicePaneActionCodec, { action: "bind", serial: "emulator-5554" })).toEqual({
+      action: "bind",
+      serial: "emulator-5554",
+    });
+    expect(decode(devicePaneActionCodec, { action: "boot", avd: "Pixel_8_API_35" })).toEqual({
+      action: "boot",
+      avd: "Pixel_8_API_35",
+    });
+    for (const action of ["unbind", "power-off", "refresh"]) {
+      expect(decode(devicePaneActionCodec, { action })).toEqual({ action });
+    }
+    expect(() => decode(devicePaneActionCodec, { action: "bind", serial: "192.168.1.5:5555" })).toThrow(
+      "argument 0.serial",
+    );
+    expect(() => decode(devicePaneActionCodec, { action: "bind" })).toThrow("argument 0.serial");
+    expect(() => decode(devicePaneActionCodec, { action: "boot", avd: "../evil" })).toThrow("argument 0.avd");
+    expect(() => decode(devicePaneActionCodec, { action: "boot", avd: "a".repeat(129) })).toThrow(
+      "argument 0.avd",
+    );
+    expect(() => decode(devicePaneActionCodec, { action: "unbind", serial: "emulator-5554" })).toThrow(
+      "argument 0.serial",
+    );
+    expect(() => decode(devicePaneActionCodec, { action: "wipe" })).toThrow("argument 0.action");
   });
 });

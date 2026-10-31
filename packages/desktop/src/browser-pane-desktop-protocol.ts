@@ -1,14 +1,18 @@
 import type { OmpBackend } from "@omp-ui/core/types";
 
-export type DesktopBackendBridge = Omit<OmpBackend, "onBrowserPaneFrame">;
+export type DesktopBackendBridge = Omit<OmpBackend, "onBrowserPaneFrame" | "onDevicePaneFrame">;
 
 export const DESKTOP_PANE_PORT_REQUEST = "browser-pane:desktop-port-request";
 export const DESKTOP_PANE_PORT = "browser-pane:desktop-port";
 export const DESKTOP_PANE_WINDOW_REQUEST = "omp-ui:browser-pane:desktop-port-request";
 export const DESKTOP_PANE_WINDOW_PORT = "omp-ui:browser-pane:desktop-port";
 
+/** The lossy pane frame channels that ride the desktop MessagePort. */
+export type DesktopFrameChannel = "browser-pane:frame" | "device-pane:frame";
+
 export interface DesktopFrameDelivery {
   type: "frame";
+  channel: DesktopFrameChannel;
   id: number;
   tabId: string;
   frame: Uint8Array;
@@ -35,7 +39,7 @@ export interface DesktopMediaLease {
 
 export type DesktopFrameReply =
   | { type: "ready" }
-  | { type: "ack"; id: number }
+  | { type: "ack"; channel: DesktopFrameChannel; id: number }
   | { type: "media-lease-request"; requestId: number; tabId: string };
 
 export type DesktopMediaMessage =

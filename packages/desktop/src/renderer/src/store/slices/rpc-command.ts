@@ -38,6 +38,7 @@ import {
   type Watchers,
 } from "./shared";
 import { freshBrowserPaneView } from "./browser-pane";
+import { freshDevicePaneView } from "./device-pane";
 import { findRecord } from "./view";
 import { isNewerSnapshot } from "../snapshot-acceptance";
 import type {
@@ -587,6 +588,7 @@ function freshRpcTabState(
     subagentItems: {},
     selectedSubagent: null,
     browserPane: freshBrowserPaneView(),
+    devicePane: freshDevicePaneView(),
     composerQueue: undefined,
     subagentMarkers: new Map(),
     subagentAckLevel: undefined,
@@ -721,6 +723,9 @@ export function createRpcCommandSlice(
         browserPane: prior
           ? { ...prior.browserPane, ensure: "idle", state: null }
           : freshBrowserPaneView(),
+        devicePane: prior
+          ? { ...prior.devicePane, ensure: "idle", state: null }
+          : freshDevicePaneView(),
       });
       // The tab may not exist in state yet — ensure the slot exists.
       if (!get().rpc[tabId]) {

@@ -1,6 +1,7 @@
 // Pure types, zero runtime imports — the renderer imports these type-only via
 // the @omp-ui/core/types subpath.
 import type { BrowserPaneAgentState } from "./browser-pane";
+import type { DevicePaneState } from "./device-pane";
 import type { RpcFrame } from "./rpc/codec";
 import type { GoalState } from "./goal";
 import type { VibeSnapshot } from "./vibe";
@@ -1822,6 +1823,19 @@ export interface BrowserPaneDiagnostics {
   bridgePort: number | null;
   partition: "persist:browser-pane";
   lastError: string | null;
+}
+
+/** One device pane's host-side counters for the diagnostics bundle (#1006); the serial is the only device identifier. */
+export interface DevicePaneDiagnostics {
+  tabId: string;
+  serial: string | null;
+  phase: DevicePaneState["phase"];
+  subscribers: number;
+  framesEncoded: number;
+  framesCoalesced: number;
+  /** Decode + swap + JPEG for the most recent frame, in ms. */
+  lastEncodeMs: number | null;
+  maxEncodeMs: number | null;
 }
 
 /** Knowledge vault registry and detection for the diagnostics bundle; folder paths never included (#758). */

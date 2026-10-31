@@ -450,8 +450,9 @@ export default function App() {
   }, []);
 
   useEffect(() => {
-    const pane = activeTabId === null ? undefined : useStore.getState().rpc[activeTabId]?.browserPane;
-    if (compact && pane?.open) showCompactSurface("browser-pane");
+    const tab = activeTabId === null ? undefined : useStore.getState().rpc[activeTabId];
+    if (compact && tab?.browserPane.open) showCompactSurface("browser-pane");
+    else if (compact && tab?.devicePane.open) showCompactSurface("device-pane");
     else closeCompactSurface();
   }, [activeTabId, compact, closeCompactSurface, showCompactSurface]);
 

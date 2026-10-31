@@ -42,6 +42,13 @@ import {
 } from "./fleet";
 import type { RpcFrame } from "./rpc/codec";
 import type { BrowserPaneInputEvent, BrowserPaneNavigate } from "./browser-pane";
+import {
+  DEVICE_AVD_PATTERN,
+  DEVICE_BUTTONS,
+  DEVICE_SERIAL_PATTERN,
+  type DevicePaneAction,
+  type DevicePaneInputEvent,
+} from "./device-pane";
 import type { HeldPromptRequest } from "./held-prompt";
 import { parseScheduledPromptRequest, type ScheduledPromptRequest } from "./scheduled-prompt";
 import type {
@@ -662,6 +669,101 @@ export const browserPaneNavigateCodec: ArgCodec<BrowserPaneNavigate> = {
     }
     exactKeys(fields, ["action"], path);
     return { action };
+  },
+};
+
+const deviceSerialPattern = new RegExp(DEVICE_SERIAL_PATTERN);
+const deviceAvdPattern = new RegExp(DEVICE_AVD_PATTERN);
+const deviceSerial: ArgCodec<string> = codec(
+  "an emulator serial",
+  (value) => typeof value === "string" && deviceSerialPattern.test(value),
+);
+const deviceAvd: ArgCodec<string> = codec(
+  "an AVD name",
+  (value) => typeof value === "string" && deviceAvdPattern.test(value),
+);
+
+/** Device pane controls (#1006): each arm carries exactly its own keys. */
+export const devicePaneActionCodec: ArgCodec<DevicePaneAction> = {
+  expected: "a device pane action",
+  decode(value, path) {
+    const fields = record().decode(value, path);
+    const action = oneOf("bind", "boot", "unbind", "power-off", "refresh").decode(
+      fields["action"],
+      `${path}.action`,
+    );
+    switch (action) {
+      case "bind":
+        exactKeys(fields, ["action", "serial"], path);
+        return { action, serial: deviceSerial.decode(fields["serial"], `${path}.serial`) };
+      case "boot":
+        exactKeys(fields, ["action", "avd"], path);
+        return { action, avd: deviceAvd.decode(fields["avd"], `${path}.avd`) };
+      case "unbind":
+      case "power-off":
+      case "refresh":
+        exactKeys(fields, ["action"], path);
+        return { action };
+    }
+  },
+};
+
+/** A unit coordinate over the painted frame; outside [0,1] is malformed, not clamped. */
+const deviceUnitCoord: ArgCodec<number> = codec(
+  "a unit coordinate",
+  (value) => typeof value === "number" && Number.isFinite(value) && value >= 0 && value <= 1,
+);
+const devicePointer: ArgCodec<number> = codec(
+  "a pointer index",
+  (value) => Number.isInteger(value) && (value as number) >= 0 && (value as number) <= 9,
+);
+const deviceWheelDelta: ArgCodec<number> = codec(
+  "a wheel delta",
+  (value) => typeof value === "number" && Number.isFinite(value) && Math.abs(value) <= 10_000,
+);
+
+/**
+ * Renderer input into the device pane (#1006), decoded strictly per arm so a
+ * half-formed event is rejected, never partially injected.
+ */
+export const devicePaneInputCodec: ArgCodec<DevicePaneInputEvent> = {
+  expected: "a device pane input event",
+  decode(value, path) {
+    const fields = record().decode(value, path);
+    const type = oneOf("touch", "wheel", "key", "text", "button").decode(fields["type"], `${path}.type`);
+    switch (type) {
+      case "touch":
+        exactKeys(fields, ["type", "phase", "x", "y", "pointer"], path);
+        return {
+          type,
+          phase: oneOf("down", "move", "up").decode(fields["phase"], `${path}.phase`),
+          x: deviceUnitCoord.decode(fields["x"], `${path}.x`),
+          y: deviceUnitCoord.decode(fields["y"], `${path}.y`),
+          pointer: devicePointer.decode(fields["pointer"], `${path}.pointer`),
+        };
+      case "wheel":
+        exactKeys(fields, ["type", "x", "y", "dx", "dy"], path);
+        return {
+          type,
+          x: deviceUnitCoord.decode(fields["x"], `${path}.x`),
+          y: deviceUnitCoord.decode(fields["y"], `${path}.y`),
+          dx: deviceWheelDelta.decode(fields["dx"], `${path}.dx`),
+          dy: deviceWheelDelta.decode(fields["dy"], `${path}.dy`),
+        };
+      case "key":
+        exactKeys(fields, ["type", "phase", "key"], path);
+        return {
+          type,
+          phase: oneOf("down", "up").decode(fields["phase"], `${path}.phase`),
+          key: shortStr(32).decode(fields["key"], `${path}.key`),
+        };
+      case "text":
+        exactKeys(fields, ["type", "text"], path);
+        return { type, text: shortStr(1024).decode(fields["text"], `${path}.text`) };
+      case "button":
+        exactKeys(fields, ["type", "button"], path);
+        return { type, button: oneOf(...DEVICE_BUTTONS).decode(fields["button"], `${path}.button`) };
+    }
   },
 };
 

@@ -19,7 +19,7 @@ import { fromDateTimeLocal, snoozePresets, toDateTimeLocal, type SnoozePreset } 
 import { useShallow } from "zustand/react/shallow";
 import { canSettle, findRecord, supportsBulkAction, useStore } from "../store";
 import { SessionRow } from "./SessionRow";
-import { useBrowserPaneSplitOpen } from "./browser-pane/BrowserPaneSplit";
+import { useSplitSlot } from "./split-slot";
 import { Button, Chevron, ConfirmDialog, Dot, Empty, IconButton, IconClose, IconFleet, IconPlus, IconSearch, Panel, ResizeHandle, Sheet } from "./ui";
 import { FIELD } from "./settings/rows";
 
@@ -452,9 +452,8 @@ export function Sidebar() {
   const sidebarWidth = useStore((st) => st.sidebarWidth);
   const inspectorWidth = useStore((st) => st.inspectorWidth);
   const inspectorOpen = useStore((st) => st.inspectorOpen);
-  const browserPaneWidth = useStore((st) => st.browserPaneWidth);
   const activeTabId = useStore((st) => st.activeTabId);
-  const browserPaneOpen = useBrowserPaneSplitOpen(activeTabId);
+  const split = useSplitSlot(activeTabId);
   const setSidebarWidth = useStore((st) => st.setSidebarWidth);
   const viewportWidth = useViewportWidth();
   const [previewWidth, setPreviewWidth] = useState<number | null>(null);
@@ -640,8 +639,7 @@ export function Sidebar() {
     inspectorWidth,
     sidebarCollapsed: false,
     inspectorOpen,
-    browserPaneWidth,
-    browserPaneOpen,
+    split,
   });
   const displayedSidebarWidth = previewWidth ?? resolvedWidths.sidebarWidth;
   const headerButton = compact ? "size-9 rounded-md border border-line" : "size-7";

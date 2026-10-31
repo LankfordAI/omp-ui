@@ -404,10 +404,20 @@ the agent takes through the pane's endpoint. It exists for evidence that must
 carry a timestamp. Stamps change only the image, never the page.
 _Avoid_: timestamp overlay, watermark, system tray clock
 
+**Device pane**:
+A live Android emulator inside an rpc-ui tab that the user and the agent
+share. The owning main process binds one emulator per tab, streams its screen
+to every view as frames, takes the user's touches and keys, and gives the
+agent the same emulator through the `omp-ui_device` host tool when Agents can
+use devices is on. It takes the same split beside the native transcript as
+the **Browser pane**; only one of the two is open in a tab. Closing it only
+stops the stream; the emulator keeps running until powered off.
+_Avoid_: simulator panel, device tab, emulator window, device hub
+
 **Session HUD**:
 The status bar atop an rpc-ui tab: liveness, the session title as a menu
 button, status chips, and a gauge chip. The title menu
-holds rename and retitle, the View toggles (console, browser pane), Session
+holds rename and retitle, the View toggles (console, browser pane, device pane), Session
 actions (branch, session tree, new session, compact now), Share actions
 (export HTML, encrypted snapshot, redacted copy), Capabilities, queue modes and
 retry, and refresh. The gauge chip shows context fill and whole-session spend;

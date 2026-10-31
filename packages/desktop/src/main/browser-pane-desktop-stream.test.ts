@@ -3,7 +3,7 @@ import type { DesktopFrameDelivery } from "../browser-pane-desktop-protocol";
 import { createDesktopPaneStream } from "./browser-pane-desktop-stream";
 
 function harness() {
-  const stream = createDesktopPaneStream();
+  const stream = createDesktopPaneStream("browser-pane:frame");
   const sent: DesktopFrameDelivery[] = [];
   const send = (delivery: DesktopFrameDelivery): void => { sent.push(delivery); };
   const offer = (tabId: string, value: number): void => stream.offer(tabId, new Uint8Array([value]));
@@ -141,5 +141,35 @@ describe("desktop pane stream", () => {
     h.offer("a", 2);
     h.stream.ready(h.send);
     expect(h.sent.map((f) => [f.id, f.frame[0]])).toEqual([[2, 2]]);
+  });
+
+  it("keeps separate credit and ids per channel on one port", () => {
+    const browser = createDesktopPaneStream("browser-pane:frame");
+    const device = createDesktopPaneStream("device-pane:frame");
+    const sent: DesktopFrameDelivery[] = [];
+    const send = (delivery: DesktopFrameDelivery): void => { sent.push(delivery); };
+    const acks: Record<DesktopFrameDelivery["channel"], (id: number) => void> = {
+      "browser-pane:frame": (id) => browser.ack(id),
+      "device-pane:frame": (id) => device.ack(id),
+    };
+    browser.subscribe("t", "desktop", true);
+    device.subscribe("t", "desktop", true);
+    browser.ready(send);
+    device.ready(send);
+    browser.offer("t", new Uint8Array([1]));
+    device.offer("t", new Uint8Array([2]));
+    device.offer("t", new Uint8Array([3]));
+    expect(sent.map((d) => [d.channel, d.id, d.frame[0]])).toEqual([
+      ["browser-pane:frame", 1, 1],
+      ["device-pane:frame", 1, 2],
+    ]);
+    // A browser ACK carrying the device delivery's id never releases device credit.
+    acks["browser-pane:frame"](1);
+    browser.offer("t", new Uint8Array([4]));
+    expect(sent.map((d) => [d.channel, d.frame[0]])).toEqual([
+      ["browser-pane:frame", 1], ["device-pane:frame", 2], ["browser-pane:frame", 4],
+    ]);
+    acks["device-pane:frame"](1);
+    expect(sent.at(-1)).toMatchObject({ channel: "device-pane:frame", id: 2, frame: new Uint8Array([3]) });
   });
 });

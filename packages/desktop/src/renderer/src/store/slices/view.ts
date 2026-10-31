@@ -22,6 +22,7 @@ import {
 import { IS_ELECTRON } from "../../lib/platform";
 import {
   BROWSER_PANE_DEFAULT_WIDTH,
+  DEVICE_PANE_DEFAULT_WIDTH,
   clampPanelWidth,
   INSPECTOR_DEFAULT_WIDTH,
   SIDEBAR_DEFAULT_WIDTH,
@@ -104,6 +105,8 @@ export interface ViewSlice {
   focusRailPane(tabId: string, pane: RailTab): void;
   /** Split browser pane width preference (issue #519); persisted beside the other two. */
   browserPaneWidth: number;
+  /** Split device pane width preference (issue #1006); persisted beside the browser pane's. */
+  devicePaneWidth: number;
   /** Diff viewer layout preference (issue #933); persisted beside the widths. */
   diffViewLayout: "unified" | "split";
   openProjectPicker(instanceId?: string | null): void;
@@ -153,6 +156,7 @@ export interface ViewSlice {
   setInspectorWidth(width: number): void;
   setInspectorOpen(open: boolean): void;
   setBrowserPaneWidth(width: number): void;
+  setDevicePaneWidth(width: number): void;
   setDiffViewLayout(layout: "unified" | "split"): void;
   /**
    * Backend failures awaiting acknowledgment (issue #373): the renderer-side
@@ -215,6 +219,7 @@ export async function restoreDesktopView(api: StoreApi<UiStore>): Promise<void> 
       sidebarWidth: widths.sidebarWidth,
       inspectorWidth: widths.inspectorWidth,
       browserPaneWidth: widths.browserPaneWidth,
+      devicePaneWidth: widths.devicePaneWidth,
       diffViewLayout: widths.diffViewLayout,
     });
   }
@@ -250,6 +255,7 @@ export function installDesktopViewPersistence(api: StoreApi<UiStore>): void {
       state.sidebarWidth === previous.sidebarWidth &&
       state.inspectorWidth === previous.inspectorWidth &&
       state.browserPaneWidth === previous.browserPaneWidth &&
+      state.devicePaneWidth === previous.devicePaneWidth &&
       state.diffViewLayout === previous.diffViewLayout
     ) {
       return;
@@ -409,6 +415,7 @@ export const createViewSlice: StateCreator<UiStore, [], [], ViewSlice> = (set, g
   inspectorOpen: false,
   railPaneFocus: {},
   browserPaneWidth: BROWSER_PANE_DEFAULT_WIDTH,
+  devicePaneWidth: DEVICE_PANE_DEFAULT_WIDTH,
   diffViewLayout: "unified",
   errorNotices: [],
   reportError(error) {
@@ -574,6 +581,9 @@ export const createViewSlice: StateCreator<UiStore, [], [], ViewSlice> = (set, g
   },
   setBrowserPaneWidth(width) {
     set({ browserPaneWidth: clampPanelWidth("browserPane", width) });
+  },
+  setDevicePaneWidth(width) {
+    set({ devicePaneWidth: clampPanelWidth("devicePane", width) });
   },
   setDiffViewLayout(layout) {
     set({ diffViewLayout: layout });

@@ -24,7 +24,7 @@ import { isInterruptedPlan, pendingPlanCount, proposedPlansFor } from "../lib/pr
 import { findOwner, findRecord, sessionCwd, useStore, type RpcTabState } from "../store";
 import { DiffViewer } from "./DiffViewer";
 import { JobsPane } from "./JobsPane";
-import { useBrowserPaneSplitOpen } from "./browser-pane/BrowserPaneSplit";
+import { useSplitSlot } from "./split-slot";
 import { AGENT_TONE } from "../lib/agent-tone";
 import { compactNum, exactNum, formatCost, relativeTime, shortBase } from "../lib/format";
 import { TodoPanel } from "./TodoPanel";
@@ -1253,8 +1253,7 @@ export function InspectorRail({ tabId }: { tabId: string }) {
   const setInspectorWidth = useStore((s) => s.setInspectorWidth);
   const sidebarWidth = useStore((s) => s.sidebarWidth);
   const sidebarCollapsed = useStore((s) => s.sidebarCollapsed);
-  const browserPaneWidth = useStore((s) => s.browserPaneWidth);
-  const browserPaneOpen = useBrowserPaneSplitOpen(tabId);
+  const split = useSplitSlot(tabId);
   const [previewWidth, setPreviewWidth] = useState<number | null>(null);
   const [resizing, setResizing] = useState(false);
 
@@ -1298,8 +1297,7 @@ export function InspectorRail({ tabId }: { tabId: string }) {
     inspectorWidth,
     sidebarCollapsed,
     inspectorOpen: open,
-    browserPaneWidth,
-    browserPaneOpen,
+    split,
   });
   const displayedInspectorWidth = previewWidth ?? resolvedWidths.inspectorWidth;
   const record = useStore((s) => findRecord(s.state, tabId));

@@ -310,6 +310,7 @@ export function GeneralPage() {
   const setStallAutoContinue = useStore((s) => s.setStallAutoContinue);
   const setDesktopNotifications = useStore((s) => s.setDesktopNotifications);
   const setHtmlArtifactScripts = useStore((s) => s.setHtmlArtifactScripts);
+  const setDeviceAgentAccess = useStore((s) => s.setDeviceAgentAccess);
   const setDefaultAdvisor = useStore((s) => s.setDefaultAdvisor);
   const setDefaultAutoThinking = useStore((s) => s.setDefaultAutoThinking);
   const setSubagentModelInheritByDefault = useStore((s) => s.setSubagentModelInheritByDefault);
@@ -495,6 +496,16 @@ export function GeneralPage() {
           on={state?.htmlArtifactScripts ?? true}
           onChange={(next) => void setHtmlArtifactScripts(next)}
           label={t("settings.general.htmlArtifactScripts")}
+        />
+      </Row>
+      <Row
+        title={t("settings.general.deviceAgentAccess")}
+        hint={t("settings.general.deviceAgentAccessHint")}
+      >
+        <Switch
+          on={state?.deviceAgentAccess === true}
+          onChange={(next) => void setDeviceAgentAccess(next)}
+          label={t("settings.general.deviceAgentAccess")}
         />
       </Row>
       <Row

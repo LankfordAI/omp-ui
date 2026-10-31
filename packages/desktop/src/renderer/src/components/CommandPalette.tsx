@@ -104,6 +104,7 @@ export function CommandPalette() {
   const regenerateSessionTitle = useStore((s) => s.regenerateSessionTitle);
   const askAboutSession = useStore((s) => s.askAboutSession);
   const toggleBrowserPane = useStore((s) => s.toggleBrowserPane);
+  const toggleDevicePane = useStore((s) => s.toggleDevicePane);
   const shareSession = useStore((s) => s.shareSession);
   const anonymizeSession = useStore((s) => s.anonymizeSession);
   const ompInstalled = useStore((s) => s.ompUpdate.installedVersion);
@@ -313,6 +314,14 @@ export function CommandPalette() {
             desc: t("palette.action.browserPaneDesc", { title }),
             run: () => toggleBrowserPane(tab.tabId),
           },
+          // The device pane (issue #1006) binds an emulator to the same rpc tab.
+          {
+            id: "session:device-pane",
+            group: t("palette.group.session"),
+            name: t("palette.action.devicePane"),
+            desc: t("palette.action.devicePaneDesc", { title }),
+            run: () => toggleDevicePane(tab.tabId),
+          },
           // omp's /share rides this tab's own prompt channel (issue #679); a
           // terminal tab's TUI owns the command itself, so no row there.
           {
@@ -427,7 +436,7 @@ export function CommandPalette() {
     });
 
     return out;
-  }, [state, tabs, activeTabId, openSession, newSession, newChat, openProjectPicker, openCapabilitiesViewer, openSessionTreeView, openLab, openStats, openFleet, openNewSessionDialog, openExperimentDialog, settleSessions, openScheduleDialog, settleUndoCount, undoSettle, switchMode, regenerateSessionTitle, askAboutSession, toggleBrowserPane, shareSession, anonymizeSession, ompInstalled, openShareLive, checkAppUpdate, checkOmpUpdate, openSettings, openDiagnosticsDialog, openGettingStarted, t, localeId, keybindings]);
+  }, [state, tabs, activeTabId, openSession, newSession, newChat, openProjectPicker, openCapabilitiesViewer, openSessionTreeView, openLab, openStats, openFleet, openNewSessionDialog, openExperimentDialog, settleSessions, openScheduleDialog, settleUndoCount, undoSettle, switchMode, regenerateSessionTitle, askAboutSession, toggleBrowserPane, toggleDevicePane, shareSession, anonymizeSession, ompInstalled, openShareLive, checkAppUpdate, checkOmpUpdate, openSettings, openDiagnosticsDialog, openGettingStarted, t, localeId, keybindings]);
 
   // Flat, already-ordered result list; group headers are derived from it so the
   // arrow-key index and the rendered rows can never disagree.

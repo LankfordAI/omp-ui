@@ -4,7 +4,7 @@ import * as os from "node:os";
 import * as path from "node:path";
 import { pipeline } from "node:stream/promises";
 import { createGunzip } from "node:zlib";
-import { app, dialog, ipcMain, MessageChannelMain, nativeTheme, screen, shell, type BrowserWindow, type MessagePortMain } from "electron";
+import { app, dialog, ipcMain, MessageChannelMain, nativeImage, nativeTheme, screen, shell, type BrowserWindow, type MessagePortMain } from "electron";
 import {
   CH,
   browseDirectories,
@@ -139,6 +139,8 @@ import {
   type HostResources,
   type BrowserPaneInputEvent,
   type BrowserPaneNavigate,
+  type DevicePaneAction,
+  type DevicePaneInputEvent,
   TITLE_MODEL_ROLES,
   type AdvisorDefaults,
   type BackendState,
@@ -229,8 +231,9 @@ import { registerRemoteHandlers } from "./remote-handlers";
 import { McpEndpointService, type FleetSessionRow } from "./mcp-endpoint-service";
 import { WebhookService } from "./webhook-service";
 import { registerVaultHandlers } from "./vault-handlers";
-import { DESKTOP_PANE_PORT, DESKTOP_PANE_PORT_REQUEST, type DesktopMediaMessage } from "../browser-pane-desktop-protocol";
+import { DESKTOP_PANE_PORT, DESKTOP_PANE_PORT_REQUEST, type DesktopFrameDelivery, type DesktopMediaMessage } from "../browser-pane-desktop-protocol";
 import { createDesktopPaneStream } from "./browser-pane-desktop-stream";
+import { resolveAgentDeviceBin } from "./agent-device-bin";
 import { TransferState } from "./transfer-state";
 import { SnoozeClock } from "./snooze-clock";
 import { PullRequestPoller } from "./pull-request-poller";
@@ -350,10 +353,13 @@ export class MainBackend {
   /** The app window's real page devicePixelRatio; screen.scaleFactor lies on Wayland fractional scaling (#557). */
   private panePageDpr = 1;
   private paneDprProbeTimer: NodeJS.Timeout | undefined;
-  private readonly desktopPaneStream = createDesktopPaneStream();
+  private readonly desktopPaneStream = createDesktopPaneStream(CH.onBrowserPaneFrame);
+  /** Device frames share the port with their own credit and ids; always the JPEG path (#1006). */
+  private readonly desktopDeviceStream = createDesktopPaneStream(CH.onDevicePaneFrame);
   private desktopPanePort: MessagePortMain | null = null;
   private desktopPaneSubscribe: ChannelTable["notify"][typeof CH.browserPaneSubscribe] | null = null;
   private readonly desktopPaneSubscriptions = new Map<string, Map<string, "media" | "jpeg">>();
+  private desktopPaneSubscribeDevice: ChannelTable["notify"][typeof CH.devicePaneSubscribe] | null = null;
   private desktopPaneStopped = false;
 
   constructor(
@@ -506,6 +512,12 @@ export class MainBackend {
           },
           stampImage: (req) => this.clockStamper.stamp(req),
           onDesktopMedia: (tabId, message) => this.forwardDesktopMedia(tabId, message),
+        },
+        devicePane: {
+          encodeJpeg: (bitmap, width, height, quality) =>
+            nativeImage.createFromBitmap(bitmap, { width, height }).toJPEG(quality),
+          agentDeviceBin: () => resolveAgentDeviceBin(),
+          stateDir: () => path.join(app.getPath("userData"), "agent-device"),
         },
       });
     this.pullRequests = new PullRequestPoller({
@@ -883,6 +895,11 @@ export class MainBackend {
       if (typeof tabId === "string" && frame instanceof Uint8Array) this.desktopPaneStream.offer(tabId, frame);
       return;
     }
+    if (channel === CH.onDevicePaneFrame) {
+      const [tabId, frame] = args;
+      if (typeof tabId === "string" && frame instanceof Uint8Array) this.desktopDeviceStream.offer(tabId, frame);
+      return;
+    }
     // A member's fleet terminal bytes are for the dispatcher across the join (#991), never this window.
     if (channel === FLEET_MEMBER_TERMINAL_DATA || channel === FLEET_MEMBER_TERMINAL_EXIT) return;
     if (this.win.isDestroyed()) return;
@@ -924,6 +941,7 @@ export class MainBackend {
       liveTabIds: sessions.filter((s) => this.sessions.isLive(s.tabId)).map((s) => s.tabId),
       breadcrumbs: this.breadcrumbs.entries(),
       browserPanes: this.sessions.browserPaneDiagnostics(),
+      devicePanes: this.sessions.devicePaneDiagnostics(),
       knowledgeVault: knowledgeVaultDiagnostics(
         this.registry.getSetting("vaultRegistry"),
         await this.detectVaults(),
@@ -1445,6 +1463,9 @@ export class MainBackend {
         [CH.browserPanePick]: (tabId: string, x: number, y: number) =>
           this.sessions.browserPanePick(tabId, x, y),
         [CH.browserPaneClearData]: (force: boolean) => this.sessions.browserPaneClearData(force),
+        [CH.devicePaneEnsure]: (tabId: string) => this.sessions.devicePaneEnsure(tabId),
+        [CH.devicePaneAct]: (tabId: string, action: DevicePaneAction) =>
+          this.sessions.devicePaneAct(tabId, action),
         [CH.setSessionToolEnabled]: (
           tabId: string,
           processKey: string,
@@ -1692,6 +1713,12 @@ export class MainBackend {
           this.sessions.browserPaneNavigate(tabId, nav),
         [CH.browserPaneSetOpen]: (tabId: string, open: boolean) =>
           this.sessions.browserPaneSetOpen(tabId, open),
+        [CH.devicePaneSubscribe]: (tabId: string, clientId: string, on: boolean) =>
+          this.sessions.devicePaneSubscribe(tabId, clientId, on),
+        [CH.devicePaneInput]: (tabId: string, event: DevicePaneInputEvent) =>
+          this.sessions.devicePaneInput(tabId, event),
+        [CH.devicePaneSetOpen]: (tabId: string, open: boolean) =>
+          this.sessions.devicePaneSetOpen(tabId, open),
         [CH.rpcSend]: (tabId: string, cmd: RpcFrame) => this.sessions.rpcSend(tabId, cmd),
         [CH.tabViewed]: (clientId: string, tabId: string | null) =>
           this.sessions.setViewedTab(clientId, tabId),
@@ -1721,16 +1748,24 @@ export class MainBackend {
     const viewed = table.notify[CH.tabViewed];
     const subscribe = table.notify[CH.browserPaneSubscribe];
     this.desktopPaneSubscribe = subscribe;
+    const subscribeDevice = table.notify[CH.devicePaneSubscribe];
+    this.desktopPaneSubscribeDevice = subscribeDevice;
     const notify: ChannelTable["notify"] = {
       ...table.notify,
       [CH.browserPaneSubscribe]: (tabId: string, clientId: string, on: boolean) => {
         this.setDesktopPaneSubscription(tabId, clientId, on);
+      },
+      [CH.devicePaneSubscribe]: (tabId: string, clientId: string, on: boolean) => {
+        // Cached frames can arrive synchronously from the routed handler.
+        this.desktopDeviceStream.subscribe(tabId, clientId, on);
+        subscribeDevice(tabId, clientId, on);
       },
       [CH.tabViewed]: (clientId: string, tabId: string | null) => {
         for (const [id, clients] of this.desktopPaneSubscriptions) {
           if (id !== tabId && clients.has(clientId)) this.setDesktopPaneSubscription(id, clientId, false);
         }
         this.desktopPaneStream.noteViewed(clientId, tabId);
+        this.desktopDeviceStream.noteViewed(clientId, tabId);
         viewed(clientId, tabId);
         this.sessions.noteDesktopClientId(clientId);
         if (tabId !== null) this.notifier.viewedChanged(tabId);
@@ -1766,7 +1801,7 @@ export class MainBackend {
               if (path === "media") this.sessions.browserPaneSetDesktopViewer(tabId, clientId, true);
             }
           }
-          this.desktopPaneStream.ready((delivery) => {
+          const deliver = (delivery: DesktopFrameDelivery): void => {
             if (this.desktopPanePort !== port1) return;
             try {
               // Structured clone, not transfer: the pane and remote sinks still own these bytes.
@@ -1774,9 +1809,13 @@ export class MainBackend {
             } catch {
               this.disconnectDesktopPanePort();
             }
-          });
-        } else if (data.type === "ack" && "id" in data && typeof data.id === "number") {
-          this.desktopPaneStream.ack(data.id);
+          };
+          this.desktopPaneStream.ready(deliver);
+          this.desktopDeviceStream.ready(deliver);
+        } else if (data.type === "ack" && "id" in data && typeof data.id === "number" && "channel" in data) {
+          // Each channel owns its credit: an ACK only releases its own stream's delivery.
+          if (data.channel === CH.onBrowserPaneFrame) this.desktopPaneStream.ack(data.id);
+          else if (data.channel === CH.onDevicePaneFrame) this.desktopDeviceStream.ack(data.id);
         } else if (data.type === "media-lease-request" && "requestId" in data &&
           typeof data.requestId === "number" && Number.isFinite(data.requestId) &&
           "tabId" in data && typeof data.tabId === "string") {
@@ -1853,6 +1892,7 @@ export class MainBackend {
     const port = this.desktopPanePort;
     this.desktopPanePort = null;
     this.desktopPaneStream.disconnect();
+    this.desktopDeviceStream.disconnect();
     port?.close();
   }
 
@@ -1862,6 +1902,9 @@ export class MainBackend {
       for (const clientId of clients.keys()) this.setDesktopPaneSubscription(tabId, clientId, false);
     }
     this.desktopPaneStream.reset();
+    for (const { tabId, clientId } of this.desktopDeviceStream.reset()) {
+      this.desktopPaneSubscribeDevice?.(tabId, clientId, false);
+    }
   }
 
   /**
@@ -2635,6 +2678,7 @@ export class MainBackend {
       stallAutoContinue: this.registry.getSetting("stallAutoContinue"),
       desktopNotifications: this.registry.getSetting("desktopNotifications"),
       htmlArtifactScripts: this.registry.getSetting("htmlArtifactScripts"),
+      deviceAgentAccess: this.registry.getSetting("deviceAgentAccess"),
       defaultAdvisor: this.registry.getSetting("defaultAdvisor"),
       defaultAutoThinking: this.registry.getSetting("defaultAutoThinking"),
       subagentModelInheritByDefault: this.registry.getSetting("subagentModelInheritByDefault"),

@@ -78,6 +78,11 @@ import type {
   BrowserPaneState,
   BrowserPaneUnavailableReason,
 } from "@omp-ui/core/browser-pane";
+import type {
+  DevicePaneAction,
+  DeviceInventory,
+  DevicePaneState,
+} from "@omp-ui/core/device-pane";
 import type { PlanReviewRequest, PlanStatus } from "@omp-ui/core/plan";
 import type { ScheduledPromptRequest } from "@omp-ui/core/scheduled-prompt";
 import type { AdvisorStatsView } from "@omp-ui/core/advisor-stats";
@@ -227,6 +232,19 @@ export interface BrowserPaneView {
 }
 
 /**
+ * The renderer's posture on one tab's device pane (issue #1006). Mirrors
+ * BrowserPaneView: `open`/`fullscreen` survive a reboot, `ensure` restarts.
+ */
+export interface DevicePaneView {
+  open: boolean;
+  fullscreen: boolean;
+  ensure: "idle" | "pending" | "available" | "not-live";
+  state: DevicePaneState | null;
+  inventory: DeviceInventory | null;
+  frame: BrowserPaneFrameHeader | null;
+}
+
+/**
  * A manual compaction's verdict as the renderer knows it. `pending` means omp
  * has neither acknowledged nor refused it yet — past the response budget the
  * ack is still coming, and only the response frame can prove the work landed
@@ -262,6 +280,7 @@ export interface RpcTabState {
   subagentItems: Record<string, RenderItem[]>;
   selectedSubagent: string | null;
   browserPane: BrowserPaneView;
+  devicePane: DevicePaneView;
   /**
    * Attachments handed to the composer from outside it — the browser pane's
    * attach-to-prompt button. Drained once by the composer's effect.
@@ -634,7 +653,12 @@ export type SettingsPage =
   | "about";
 
 export type CompactSurface =
-  "sessions" | "inspector" | "session-actions" | "composer-options" | "browser-pane";
+  | "sessions"
+  | "inspector"
+  | "session-actions"
+  | "composer-options"
+  | "browser-pane"
+  | "device-pane";
 
 export type CompactionMethodsLoad =
   | { status: "unloaded" }
@@ -672,6 +696,8 @@ export interface SettingsSlice {
   setStallAutoContinue(on: boolean): Promise<void>;
   setDesktopNotifications(on: boolean): Promise<void>;
   setHtmlArtifactScripts(on: boolean): Promise<void>;
+  /** Gives new and resumed sessions the omp-ui_device tool (issue #1006); default off. */
+  setDeviceAgentAccess(on: boolean): Promise<void>;
   setDefaultAdvisor(on: boolean): Promise<void>;
   setDefaultAutoThinking(on: boolean): Promise<void>;
   setSubagentModelInheritByDefault(on: boolean): Promise<void>;
@@ -1221,6 +1247,8 @@ export interface UiStore extends SettingsSlice, UpdatesSlice, LabSlice, StatsSli
   inspectorOpen: boolean;
   /** Split browser pane width preference (issue #519). */
   browserPaneWidth: number;
+  /** Split device pane width preference (issue #1006). */
+  devicePaneWidth: number;
   /** Diff viewer layout preference (issue #933); persisted beside the widths. */
   diffViewLayout: "unified" | "split";
   init(): Promise<void>;
@@ -1259,6 +1287,7 @@ export interface UiStore extends SettingsSlice, UpdatesSlice, LabSlice, StatsSli
   railPaneFocus: Record<string, { pane: RailTab; nonce: number }>;
   focusRailPane(tabId: string, pane: RailTab): void;
   setBrowserPaneWidth(width: number): void;
+  setDevicePaneWidth(width: number): void;
   setDiffViewLayout(layout: "unified" | "split"): void;
   /** Opens the tab's browser pane and asks main to ensure its page exists. */
   openBrowserPane(tabId: string): void;
@@ -1271,6 +1300,17 @@ export interface UiStore extends SettingsSlice, UpdatesSlice, LabSlice, StatsSli
   handleBrowserPaneState(tabId: string, state: BrowserPaneState): void;
   /** Records the painted frame's size; a no-op while the dimensions are unchanged. */
   noteBrowserPaneFrame(tabId: string, header: BrowserPaneFrameHeader): void;
+  /** Opens the tab's device pane (closing its browser pane) and ensures it. */
+  openDevicePane(tabId: string): void;
+  closeDevicePane(tabId: string): void;
+  toggleDevicePane(tabId: string): void;
+  setDevicePaneFullscreen(tabId: string, on: boolean): void;
+  /** Re-runs `devicePaneEnsure`; a stale answer for a rebuilt tab is dropped. */
+  ensureDevicePane(tabId: string): Promise<void>;
+  actDevicePane(tabId: string, action: DevicePaneAction): Promise<void>;
+  /** A `device-pane:state` push; adopts main's `open` (agent auto-open). */
+  handleDevicePaneState(tabId: string, state: DevicePaneState): void;
+  noteDevicePaneFrame(tabId: string, header: BrowserPaneFrameHeader): void;
   queueComposerAttachment(tabId: string, image: ImageAttachment, text: string): void;
   queueComposerDocument(tabId: string, document: DocumentAttachment, text: string): void;
   /** Queues prose with no image — the rewind's edit-and-resend prefill

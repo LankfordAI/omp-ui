@@ -21,9 +21,9 @@ class Port implements MessagePort {
   message(data: unknown): void {
     this.onmessage?.call(this, new MessageEvent("message", { data }));
   }
-  deliver(id: number): void {
+  deliver(id: number, channel: "browser-pane:frame" | "device-pane:frame" = "browser-pane:frame"): void {
     this.onmessage?.call(this, new MessageEvent("message", {
-      data: { type: "frame", id, tabId: "tab", frame: new Uint8Array([id]) },
+      data: { type: "frame", channel, id, tabId: "tab", frame: new Uint8Array([id]) },
     }));
   }
 }
@@ -57,9 +57,9 @@ describe("desktop pane receiver", () => {
     const receiver = createDesktopPaneFrameReceiver();
     disposals.push(() => receiver.dispose());
     expect(port.postMessage).not.toHaveBeenCalled();
-    receiver.onFrame(() => {});
+    receiver.onFrame("browser-pane:frame", () => {});
     expect(port.postMessage.mock.calls).toEqual([[{ type: "ready" }]]);
-    receiver.onFrame(() => {});
+    receiver.onFrame("browser-pane:frame", () => {});
     expect(port.postMessage.mock.calls).toEqual([[{ type: "ready" }]]);
   });
 
@@ -68,7 +68,7 @@ describe("desktop pane receiver", () => {
     const port = new Port();
     const painting = Promise.withResolvers<void>();
     const writer = vi.fn(() => painting.promise);
-    h.receiver.onFrame(writer);
+    h.receiver.onFrame("browser-pane:frame", writer);
     h.attach([port]);
     port.deliver(7);
     await settle();
@@ -76,13 +76,13 @@ describe("desktop pane receiver", () => {
     expect(port.postMessage.mock.calls).toEqual([[{ type: "ready" }]]);
     painting.resolve();
     await settle();
-    expect(port.postMessage.mock.calls).toEqual([[{ type: "ready" }], [{ type: "ack", id: 7 }]]);
+    expect(port.postMessage.mock.calls).toEqual([[{ type: "ready" }], [{ type: "ack", channel: "browser-pane:frame", id: 7 }]]);
   });
 
   it.each(["drop", "throw", "reject"])("ACKs an intentional %s without blocking future deliveries", async (outcome) => {
     const h = harness();
     const port = new Port();
-    h.receiver.onFrame(() => {
+    h.receiver.onFrame("browser-pane:frame", () => {
       if (outcome === "throw") throw new Error("paint failed");
       if (outcome === "reject") return Promise.reject(new Error("decode failed"));
     });
@@ -92,7 +92,7 @@ describe("desktop pane receiver", () => {
     port.deliver(2);
     await settle();
     expect(port.postMessage.mock.calls).toEqual([
-      [{ type: "ready" }], [{ type: "ack", id: 1 }], [{ type: "ack", id: 2 }],
+      [{ type: "ready" }], [{ type: "ack", channel: "browser-pane:frame", id: 1 }], [{ type: "ack", channel: "browser-pane:frame", id: 2 }],
     ]);
   });
 
@@ -101,7 +101,7 @@ describe("desktop pane receiver", () => {
     const first = new Port();
     const second = new Port();
     const painting = Promise.withResolvers<void>();
-    h.receiver.onFrame(() => painting.promise);
+    h.receiver.onFrame("browser-pane:frame", () => painting.promise);
     h.attach([first]);
     first.deliver(1);
     h.attach([second]);
@@ -117,7 +117,7 @@ describe("desktop pane receiver", () => {
   it("requests exactly one immediate replacement on live close, never on disposal", async () => {
     const h = harness();
     const first = new Port();
-    h.receiver.onFrame(() => {});
+    h.receiver.onFrame("browser-pane:frame", () => {});
     h.attach([first]);
     first.dispatchEvent(new Event("close"));
     first.dispatchEvent(new Event("close"));
@@ -126,7 +126,7 @@ describe("desktop pane receiver", () => {
     ]);
     const second = new Port();
     const painting = Promise.withResolvers<void>();
-    h.receiver.onFrame(() => painting.promise);
+    h.receiver.onFrame("browser-pane:frame", () => painting.promise);
     h.attach([second]);
     second.deliver(2);
     h.receiver.dispose();
@@ -141,7 +141,7 @@ describe("desktop pane receiver", () => {
   it("rejects a foreign source or extra ports without displacing the live port", async () => {
     const h = harness();
     const writer = vi.fn();
-    h.receiver.onFrame(writer);
+    h.receiver.onFrame("browser-pane:frame", writer);
     const live = new Port();
     h.attach([live]);
     const foreign = new Port();
@@ -157,7 +157,7 @@ describe("desktop pane receiver", () => {
     live.deliver(3);
     await settle();
     expect(writer).toHaveBeenCalledWith("tab", new Uint8Array([3]));
-    expect(live.postMessage).toHaveBeenLastCalledWith({ type: "ack", id: 3 });
+    expect(live.postMessage).toHaveBeenLastCalledWith({ type: "ack", channel: "browser-pane:frame", id: 3 });
   });
 
   it("queues leases before the first port and settles only the matching tab and request", async () => {
@@ -214,5 +214,38 @@ describe("desktop pane receiver", () => {
     unsubscribe();
     port.message(ended);
     expect(listener).toHaveBeenCalledOnce();
+  });
+
+  it("dispatches each delivery to its channel's writer and ACKs on that channel", async () => {
+    const h = harness();
+    const port = new Port();
+    const browser = vi.fn();
+    const device = vi.fn();
+    h.receiver.onFrame("browser-pane:frame", browser);
+    h.receiver.onFrame("device-pane:frame", device);
+    h.attach([port]);
+    port.deliver(1, "device-pane:frame");
+    await settle();
+    port.deliver(1, "browser-pane:frame");
+    await settle();
+    expect(device).toHaveBeenCalledExactlyOnceWith("tab", new Uint8Array([1]));
+    expect(browser).toHaveBeenCalledExactlyOnceWith("tab", new Uint8Array([1]));
+    expect(port.postMessage.mock.calls).toEqual([
+      [{ type: "ready" }],
+      [{ type: "ack", channel: "device-pane:frame", id: 1 }],
+      [{ type: "ack", channel: "browser-pane:frame", id: 1 }],
+    ]);
+  });
+
+  it("ignores deliveries without a known channel", async () => {
+    const h = harness();
+    const port = new Port();
+    const writer = vi.fn();
+    h.receiver.onFrame("browser-pane:frame", writer);
+    h.attach([port]);
+    port.message({ type: "frame", id: 1, tabId: "tab", frame: new Uint8Array([1]) });
+    await settle();
+    expect(writer).not.toHaveBeenCalled();
+    expect(port.postMessage.mock.calls).toEqual([[{ type: "ready" }]]);
   });
 });

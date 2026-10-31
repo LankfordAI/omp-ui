@@ -27,6 +27,7 @@
  */
 import {
   BROWSER_PANE_DEFAULT_WIDTH,
+  DEVICE_PANE_DEFAULT_WIDTH,
   clampPanelWidth,
   INSPECTOR_DEFAULT_WIDTH,
   SIDEBAR_DEFAULT_WIDTH,
@@ -57,6 +58,11 @@ export interface DesktopViewStateV1 {
    * written before the pane existed; the parser defaults it (#528).
    */
   browserPaneWidth: number;
+  /**
+   * Split device pane width preference in CSS pixels. Absent from snapshots
+   * written before the pane existed; the parser defaults it (#1006).
+   */
+  devicePaneWidth: number;
   /**
    * Diff viewer layout preference. Absent from snapshots written before the
    * split view existed; the parser defaults it to "unified" (#933) — any
@@ -124,6 +130,10 @@ export function parseDesktopView(raw: string | null): DesktopViewStateV1 | null 
     typeof value.browserPaneWidth === "number" && Number.isFinite(value.browserPaneWidth)
       ? clampPanelWidth("browserPane", value.browserPaneWidth)
       : BROWSER_PANE_DEFAULT_WIDTH;
+  const devicePaneWidth =
+    typeof value.devicePaneWidth === "number" && Number.isFinite(value.devicePaneWidth)
+      ? clampPanelWidth("devicePane", value.devicePaneWidth)
+      : DEVICE_PANE_DEFAULT_WIDTH;
   const diffViewLayout = value.diffViewLayout === "split" ? "split" : "unified";
 
   return {
@@ -134,6 +144,7 @@ export function parseDesktopView(raw: string | null): DesktopViewStateV1 | null 
     sidebarWidth,
     inspectorWidth,
     browserPaneWidth,
+    devicePaneWidth,
     diffViewLayout,
   };
 }
@@ -206,6 +217,7 @@ export interface ProjectedView {
   sidebarWidth: number;
   inspectorWidth: number;
   browserPaneWidth: number;
+  devicePaneWidth: number;
   diffViewLayout: "unified" | "split";
 }
 
@@ -234,6 +246,7 @@ export function projectDesktopView(
     sidebarWidth: clampPanelWidth("sidebar", view.sidebarWidth),
     inspectorWidth: clampPanelWidth("inspector", view.inspectorWidth),
     browserPaneWidth: clampPanelWidth("browserPane", view.browserPaneWidth),
+    devicePaneWidth: clampPanelWidth("devicePane", view.devicePaneWidth),
     diffViewLayout: view.diffViewLayout,
   };
 }

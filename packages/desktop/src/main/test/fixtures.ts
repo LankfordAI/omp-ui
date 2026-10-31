@@ -31,6 +31,7 @@ interface RegistrySettings {
   snoozedSectionEnabled: boolean;
   autoSettleMergedPullRequests: boolean;
   remoteVsCodeEnabled: boolean;
+  deviceAgentAccess: boolean;
   voiceInputEnabled: boolean;
   sttModel: string | null;
   memoryDefaultsSeeded: boolean;
@@ -152,6 +153,7 @@ export function seedRegistry(file: string, patch: RegistrySeedPatch = {}): void 
     snoozedSectionEnabled: false,
     autoSettleMergedPullRequests: true,
     remoteVsCodeEnabled: false,
+    deviceAgentAccess: false,
     voiceInputEnabled: false,
     sttModel: null,
     memoryDefaultsSeeded: false,

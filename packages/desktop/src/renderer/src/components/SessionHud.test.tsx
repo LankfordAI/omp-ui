@@ -613,6 +613,7 @@ describe("SessionHud title menu (issue #941)", () => {
       "Retitle from transcript",
       "Console",
       "Browser pane",
+      "Device pane",
       "Branch into a new tab",
       "Session tree",
       "New session here",

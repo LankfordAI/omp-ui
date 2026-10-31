@@ -38,6 +38,7 @@
   "dependencies": {
     "@omp-ui/core": "*",
     "@omp-ui/server": "*",
+    "agent-device": "0.21.35",
     "electron-updater": "^6.8.9",
     "node-pty": "^1.1.0"
   },

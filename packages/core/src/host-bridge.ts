@@ -7,6 +7,7 @@
 // result MUST carry `result.content` as an array or omp drops it as
 // malformed, and a URI scheme must match `^[a-z][a-z0-9+.-]*$`.
 
+import { deviceTool } from "./device-tool";
 import {
   FLEET_BATCH_MAX,
   FLEET_COMMAND_MAX,
@@ -80,9 +81,9 @@ export function hostUriSchemeDefinition(): RpcHostUriSchemeDefinition {
   };
 }
 
-/** Notify and render_html are always present; registered vaults enable the ten vault tools; the caller's fleet gate (every chat, or the fleet setting) enables the nine fleet tools. */
+/** Notify and render_html are always present; registered vaults enable the ten vault tools; the caller's fleet gate (every chat, or the fleet setting) enables the nine fleet tools; a session-bound device pane enables omp-ui_device last. */
 export function hostToolsDefinition(
-  opts: { vault: boolean; fleet: boolean } = { vault: false, fleet: false },
+  opts: { vault: boolean; fleet: boolean; device: boolean } = { vault: false, fleet: false, device: false },
 ): RpcHostToolDefinition[] {
   const tools: RpcHostToolDefinition[] = [
     {
@@ -105,6 +106,7 @@ export function hostToolsDefinition(
   ];
   if (opts.vault) tools.push(...vaultTools());
   if (opts.fleet) tools.push(...fleetTools());
+  if (opts.device) tools.push(deviceTool());
   return tools;
 }
 
@@ -561,7 +563,7 @@ export function setHostUriSchemesCommand(id = "omp-ui-host-uri-1"): object {
 }
 
 export function setHostToolsCommand(
-  opts: { vault: boolean; fleet: boolean } = { vault: false, fleet: false },
+  opts: { vault: boolean; fleet: boolean; device: boolean } = { vault: false, fleet: false, device: false },
   id = "omp-ui-host-tools-1",
 ): object {
   return { id, type: "set_host_tools", tools: hostToolsDefinition(opts) };

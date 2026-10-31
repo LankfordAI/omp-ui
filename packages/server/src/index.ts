@@ -6,8 +6,8 @@ import * as path from "node:path";
 import type { Duplex } from "node:stream";
 import { WebSocket, WebSocketServer } from "ws";
 import {
-  CH,
   LOSSY_CHANNELS,
+  PANE_FRAME_CHANNELS,
   dispatchNotify,
   dispatchRequest,
   type ChannelTable,
@@ -143,6 +143,8 @@ const REMOTE_KEEP_ALIVE_MS = 30_000;
 
 interface PendingFrame {
   id: number;
+  /** `${frameChannel}\u0000${tabId}`: one pending slot per pane per tab. */
+  key: string;
   tabId: string;
   bytes: Uint8Array;
 }
@@ -150,10 +152,18 @@ interface PendingFrame {
 interface FramePair {
   reliable: WebSocket;
   frames: WebSocket | null;
+  /** Viewer client ids keyed by `${frameChannel}\u0000${tabId}`. */
   subscriptions: Map<string, Set<string>>;
   pending: Map<string, PendingFrame>;
   inFlight: PendingFrame | null;
   replayInFlight: boolean;
+}
+
+type PaneFrameChannels = (typeof PANE_FRAME_CHANNELS)[number];
+
+/** A tab's subscription key for one pane, so a browser viewer never receives that tab's device frames. */
+function paneKey(frameChannel: string, tabId: string): string {
+  return `${frameChannel}\u0000${tabId}`;
 }
 
 const MIME: Readonly<Record<string, string>> = {
@@ -590,8 +600,8 @@ export function startRemoteServer(opts: RemoteServerOptions): Promise<RemoteServ
     if (pair.inFlight !== null || pair.frames?.readyState !== WebSocket.OPEN) return;
     const next = pair.pending.entries().next();
     if (next.done) return;
-    const [tabId, frame] = next.value;
-    pair.pending.delete(tabId);
+    const [key, frame] = next.value;
+    pair.pending.delete(key);
     pair.inFlight = frame;
     pair.replayInFlight = true;
     pair.frames.send(frame.bytes);
@@ -620,10 +630,10 @@ export function startRemoteServer(opts: RemoteServerOptions): Promise<RemoteServ
       pair.frames = null;
       const frame = pair.inFlight;
       if (
-        frame !== null && pair.replayInFlight && pair.subscriptions.has(frame.tabId) &&
-        !pair.pending.has(frame.tabId)
+        frame !== null && pair.replayInFlight && pair.subscriptions.has(frame.key) &&
+        !pair.pending.has(frame.key)
       ) {
-        pair.pending.set(frame.tabId, frame);
+        pair.pending.set(frame.key, frame);
       }
       pair.inFlight = null;
       pair.replayInFlight = false;
@@ -633,11 +643,13 @@ export function startRemoteServer(opts: RemoteServerOptions): Promise<RemoteServ
 
   /** Releases one viewer tuple upstream only after no live pair still holds it: two sockets from one
    *  browser share a stable client id, and the host's sink set is keyed by that id alone. */
-  const releaseUpstream = (tabId: string, clientId: string): void => {
+  const releaseUpstream = (subscribe: PaneFrameChannels["subscribe"], tabId: string, clientId: string): void => {
+    const pane = PANE_FRAME_CHANNELS.find((row) => row.subscribe === subscribe)!;
+    const key = paneKey(pane.frame, tabId);
     for (const other of pairs.values()) {
-      if (other.subscriptions.get(tabId)?.has(clientId) === true) return;
+      if (other.subscriptions.get(key)?.has(clientId) === true) return;
     }
-    table.notify[CH.browserPaneSubscribe](tabId, clientId, false);
+    table.notify[subscribe](tabId, clientId, false);
   };
 
   server.on("upgrade", (req: IncomingMessage, socket: Duplex, head: Buffer) => {
@@ -692,34 +704,40 @@ export function startRemoteServer(opts: RemoteServerOptions): Promise<RemoteServ
     // host. A subscribe may synchronously replay the cached frame through our sink.
     const subscriptionTable: ChannelTable = {
       request: table.request,
-      notify: {
-        [CH.browserPaneSubscribe]: (tabId: string, clientId: string, on: boolean) => {
-          if (on) {
-            let viewers = pair.subscriptions.get(tabId);
-            if (viewers === undefined) {
-              viewers = new Set();
-              pair.subscriptions.set(tabId, viewers);
+      notify: Object.fromEntries(
+        PANE_FRAME_CHANNELS.map((pane) => [
+          pane.subscribe,
+          (tabId: string, clientId: string, on: boolean) => {
+            const subKey = paneKey(pane.frame, tabId);
+            if (on) {
+              let viewers = pair.subscriptions.get(subKey);
+              if (viewers === undefined) {
+                viewers = new Set();
+                pair.subscriptions.set(subKey, viewers);
+              }
+              viewers.add(clientId);
+              table.notify[pane.subscribe](tabId, clientId, true);
+            } else {
+              const viewers = pair.subscriptions.get(subKey);
+              viewers?.delete(clientId);
+              if (viewers?.size === 0) {
+                pair.subscriptions.delete(subKey);
+                pair.pending.delete(subKey);
+                if (pair.inFlight?.key === subKey) pair.replayInFlight = false;
+              }
+              releaseUpstream(pane.subscribe, tabId, clientId);
             }
-            viewers.add(clientId);
-            table.notify[CH.browserPaneSubscribe](tabId, clientId, true);
-          } else {
-            const viewers = pair.subscriptions.get(tabId);
-            viewers?.delete(clientId);
-            if (viewers?.size === 0) {
-              pair.subscriptions.delete(tabId);
-              pair.pending.delete(tabId);
-              if (pair.inFlight?.tabId === tabId) pair.replayInFlight = false;
-            }
-            releaseUpstream(tabId, clientId);
-          }
-        },
-      } as ChannelTable["notify"],
+          },
+        ]),
+      ) as unknown as ChannelTable["notify"],
     };
     ws.on("close", () => {
       pairs.delete(key);
       // End capture upstream for the departed viewers unless another live pair holds the same tuple.
-      for (const [tabId, viewers] of pair.subscriptions) {
-        for (const clientId of viewers) releaseUpstream(tabId, clientId);
+      for (const [subKey, viewers] of pair.subscriptions) {
+        const pane = PANE_FRAME_CHANNELS.find((row) => subKey.startsWith(`${row.frame}\u0000`))!;
+        const tabId = subKey.slice(pane.frame.length + 1);
+        for (const clientId of viewers) releaseUpstream(pane.subscribe, tabId, clientId);
       }
       pair.subscriptions.clear();
       pair.pending.clear();
@@ -749,7 +767,8 @@ export function startRemoteServer(opts: RemoteServerOptions): Promise<RemoteServ
       const frame = parseClientFrame(parsed);
       if (frame === null) return;
       if (frame.t === "notify") {
-        dispatchNotify(frame.ch === CH.browserPaneSubscribe ? subscriptionTable : table, frame.ch, frame.args);
+        const paneSubscribe = PANE_FRAME_CHANNELS.some((row) => row.subscribe === frame.ch);
+        dispatchNotify(paneSubscribe ? subscriptionTable : table, frame.ch, frame.args);
         return;
       }
       const id = frame.id;
@@ -775,15 +794,21 @@ export function startRemoteServer(opts: RemoteServerOptions): Promise<RemoteServ
       // Lossy bytes never share the reliable socket, even before a companion has connected.
       if (!(payload instanceof Uint8Array) || typeof args[0] !== "string") return;
       const tabId = args[0];
+      const subKey = paneKey(channel, tabId);
       let frame: PendingFrame | null = null;
       for (const pair of pairs.values()) {
-        if (!pair.subscriptions.has(tabId) || pair.reliable.readyState !== WebSocket.OPEN) continue;
+        if (!pair.subscriptions.has(subKey) || pair.reliable.readyState !== WebSocket.OPEN) continue;
         if (frame === null) {
           nextFrameId = nextFrameId === 0xffffffff ? 1 : nextFrameId + 1;
-          frame = { id: nextFrameId, tabId, bytes: encodeFrameDelivery(nextFrameId, channel, tabId, payload) };
+          frame = {
+            id: nextFrameId,
+            key: subKey,
+            tabId,
+            bytes: encodeFrameDelivery(nextFrameId, channel, tabId, payload),
+          };
         }
         // Replacing an entry preserves its insertion order: busy tabs cannot starve others.
-        pair.pending.set(tabId, frame);
+        pair.pending.set(subKey, frame);
         flushFrame(pair);
       }
       return;
