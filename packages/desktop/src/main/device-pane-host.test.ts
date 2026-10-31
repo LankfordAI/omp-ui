@@ -8,6 +8,7 @@ import {
   type AndroidSdkPaths,
   type DevicePaneState,
 } from "@omp-ui/core";
+import * as path from "node:path";
 import { afterEach, beforeEach, describe, expect, it, vi, type Mock } from "vitest";
 import { DevicePaneHost, type DeviceRunResult, type DevicePaneHostDeps, type EmulatorGrpc } from "./device-pane-host";
 
@@ -311,12 +312,15 @@ describe("DevicePaneHost", () => {
   });
 
   /** /sdk/system-images with android-36/google_apis/x86_64 and android-35/default/x86_64 installed. */
+  // Keys built with the platform's join: provision() asks for path.join(sdkRoot,
+  // "system-images", ...), which is backslashed on win32 (issue #1011).
+  const images = (...parts: string[]): string => path.join(SDK.sdkRoot, "system-images", ...parts);
   const listImages = async (dir: string): Promise<string[]> => {
-    if (dir === "/sdk/system-images") return ["android-36", "android-35"];
-    if (dir === "/sdk/system-images/android-36") return ["google_apis"];
-    if (dir === "/sdk/system-images/android-36/google_apis") return ["x86_64"];
-    if (dir === "/sdk/system-images/android-35") return ["default"];
-    if (dir === "/sdk/system-images/android-35/default") return ["x86_64"];
+    if (dir === images()) return ["android-36", "android-35"];
+    if (dir === images("android-36")) return ["google_apis"];
+    if (dir === images("android-36", "google_apis")) return ["x86_64"];
+    if (dir === images("android-35")) return ["default"];
+    if (dir === images("android-35", "default")) return ["x86_64"];
     return [];
   };
 
