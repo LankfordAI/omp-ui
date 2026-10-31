@@ -106,7 +106,10 @@ export function createBrowserPaneSlice(
   };
 
   const openPane = (tabId: string, agentOpened: boolean): void => {
-    if (get().rpc[tabId] === undefined) return;
+    const tab = get().rpc[tabId];
+    if (tab === undefined) return;
+    // One split slot: the device pane yields to the browser pane (#1006).
+    if (tab.devicePane.open) get().closeDevicePane(tabId);
     // Optimistic local patch (zero latency for the actor) plus the
     // session-level publish: every other viewer adopts it from main's next
     // state push (#556). A notify — a down instance fails silently and the

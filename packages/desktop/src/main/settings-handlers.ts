@@ -36,6 +36,7 @@ type SettingsHandlerChannels =
   | typeof CH.setStallAutoContinue
   | typeof CH.setDesktopNotifications
   | typeof CH.setHtmlArtifactScripts
+  | typeof CH.setDeviceAgentAccess
   | typeof CH.setDefaultAdvisor
   | typeof CH.setDefaultAutoThinking
   | typeof CH.setSubagentModelInheritByDefault
@@ -108,6 +109,7 @@ export function registerSettingsHandlers(
     [CH.setStallAutoContinue]: (value: boolean) => commit("stallAutoContinue", value),
     [CH.setDesktopNotifications]: (value: boolean) => commit("desktopNotifications", value),
     [CH.setHtmlArtifactScripts]: (value: boolean) => commit("htmlArtifactScripts", value),
+    [CH.setDeviceAgentAccess]: (value: boolean) => commit("deviceAgentAccess", value),
     [CH.setDefaultAdvisor]: (value: boolean) => commit("defaultAdvisor", value),
     [CH.setDefaultAutoThinking]: (value: boolean) => commit("defaultAutoThinking", value),
     [CH.setSubagentModelInheritByDefault]: (value: boolean) =>

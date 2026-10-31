@@ -54,6 +54,7 @@ function runtime(patch: Partial<RpcTabState> = {}): RpcTabState {
     asyncJobs: null, asyncJobsKill: null, asyncJobsKillError: null, sessionSpend: null,
     subagentControlBusy: {}, subagentControlError: null,
     browserPane: { open: false, fullscreen: false, agentOpened: false, ensure: "idle", unavailableReason: null, state: null, frame: null },
+    devicePane: { open: false, fullscreen: false, ensure: "idle", state: null, inventory: null, frame: null },
     ...patch,
   };
 }

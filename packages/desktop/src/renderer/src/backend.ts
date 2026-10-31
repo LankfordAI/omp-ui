@@ -12,7 +12,11 @@ if (desktopReceiver !== null) {
 }
 export const backend: OmpBackend = "onBrowserPaneFrame" in suppliedBackend
   ? suppliedBackend
-  : { ...suppliedBackend, onBrowserPaneFrame: desktopReceiver!.onFrame };
+  : {
+    ...suppliedBackend,
+    onBrowserPaneFrame: (cb) => desktopReceiver!.onFrame("browser-pane:frame", cb),
+    onDevicePaneFrame: (cb) => desktopReceiver!.onFrame("device-pane:frame", cb),
+  };
 
 const instanceBackends = new Map<string, OmpBackend>();
 

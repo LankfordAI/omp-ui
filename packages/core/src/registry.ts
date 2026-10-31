@@ -72,6 +72,8 @@ export interface RegistrySettings {
   desktopNotifications: boolean;
   /** Interactive HTML artifacts run their scripts (issue #994); off shows them static. Default on. */
   htmlArtifactScripts: boolean;
+  /** The agent may drive the tab's bound emulator via omp-ui_device (issue #1006); default off. */
+  deviceAgentAccess: boolean;
   /** Seeds the advisor on/off for new sessions (issue #174); default off. */
   defaultAdvisor: boolean;
   /** Seeds omp's auto thinking selector for new sessions with no
@@ -267,6 +269,10 @@ export const SETTINGS: SettingDescriptors = {
   ),
   htmlArtifactScripts: validatedSetting(
     () => true,
+    (value): value is boolean => typeof value === "boolean",
+  ),
+  deviceAgentAccess: validatedSetting(
+    () => false,
     (value): value is boolean => typeof value === "boolean",
   ),
   // The app default is off (issue #174): omp config may say on, but a booted

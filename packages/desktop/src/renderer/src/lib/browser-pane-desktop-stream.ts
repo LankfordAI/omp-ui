@@ -1,6 +1,7 @@
 import {
   DESKTOP_PANE_WINDOW_PORT,
   DESKTOP_PANE_WINDOW_REQUEST,
+  type DesktopFrameChannel,
   type DesktopFrameDelivery,
   type DesktopFrameReply,
   type DesktopMediaGeometry,
@@ -46,6 +47,7 @@ function isMediaMessage(value: unknown): value is DesktopMediaMessage {
 function isDelivery(value: unknown): value is DesktopFrameDelivery {
   return typeof value === "object" && value !== null &&
     "type" in value && value.type === "frame" &&
+    "channel" in value && (value.channel === "browser-pane:frame" || value.channel === "device-pane:frame") &&
     "id" in value && typeof value.id === "number" && Number.isSafeInteger(value.id) && value.id > 0 &&
     "tabId" in value && typeof value.tabId === "string" &&
     "frame" in value && value.frame instanceof Uint8Array;
@@ -54,7 +56,7 @@ function isDelivery(value: unknown): value is DesktopFrameDelivery {
 /** ACKs only after the registered writer has painted or deliberately dropped a frame. */
 export function createDesktopPaneFrameReceiver(win: PaneWindow = window) {
   let port: MessagePort | null = null;
-  let callback: FrameCallback | null = null;
+  const callbacks = new Map<DesktopFrameChannel, FrameCallback>();
   let disposed = false;
   let ready = false;
   let nextRequestId = 0;
@@ -71,7 +73,7 @@ export function createDesktopPaneFrameReceiver(win: PaneWindow = window) {
     }
   };
   const sendReady = (): void => {
-    if (port === null || (callback === null && mediaListeners.size === 0) || ready) return;
+    if (port === null || (callbacks.size === 0 && mediaListeners.size === 0) || ready) return;
     ready = true;
     reply(port, { type: "ready" });
   };
@@ -102,11 +104,11 @@ export function createDesktopPaneFrameReceiver(win: PaneWindow = window) {
     }
     if (!ready || !isDelivery(value)) return;
     try {
-      await callback?.(value.tabId, value.frame);
+      await callbacks.get(value.channel)?.(value.tabId, value.frame);
     } catch {
       // Writer failures intentionally drop the delivery, just like decode failures.
     } finally {
-      reply(target, { type: "ack", id: value.id });
+      reply(target, { type: "ack", channel: value.channel, id: value.id });
     }
   };
   const closePort = (): void => {
@@ -143,9 +145,9 @@ export function createDesktopPaneFrameReceiver(win: PaneWindow = window) {
   win.addEventListener("message", accept);
   request();
   return {
-    onFrame(cb: FrameCallback): void {
+    onFrame(channel: DesktopFrameChannel, cb: FrameCallback): void {
       if (disposed) return;
-      callback = cb;
+      callbacks.set(channel, cb);
       sendReady();
     },
     requestMediaLease(tabId: string): Promise<DesktopMediaLease | null> {
@@ -163,7 +165,7 @@ export function createDesktopPaneFrameReceiver(win: PaneWindow = window) {
     },
     dispose(): void {
       disposed = true;
-      callback = null;
+      callbacks.clear();
       mediaListeners.clear();
       win.removeEventListener("message", accept);
       closePort();

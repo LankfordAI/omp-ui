@@ -34,6 +34,7 @@ import type {
 } from "@omp-ui/core/capabilities";
 import type { LiveAudioLoad, LiveHistoryEntry } from "@omp-ui/core/live-voice";
 import type { BrowserPaneEnsureResult } from "@omp-ui/core/browser-pane";
+import type { DevicePaneEnsureResult, DevicePaneState } from "@omp-ui/core/device-pane";
 import { backendState as makeBackendState } from "./fixtures";
 import { setLivePeerFactoryForTests, type LivePeer, type LivePeerEvents, type LivePeerFactory } from "../lib/live-peer";
 
@@ -215,6 +216,7 @@ const mockBackend = {
   setSnoozedSectionEnabled: vi.fn(async () => {}),
   setAutoSettleMergedPullRequests: vi.fn(async () => {}),
   setRemoteVsCodeEnabled: vi.fn(async () => {}),
+  setDeviceAgentAccess: vi.fn(async () => {}),
   setSessionSubagentModels: vi.fn(async () => {}),
   setSessionApprovalMode: vi.fn(async () => {}),
   setSessionServiceTier: vi.fn(async () => {}),
@@ -455,6 +457,26 @@ const mockBackend = {
   browserPaneSetOpen: vi.fn(),
   onBrowserPaneFrame: vi.fn(),
   onBrowserPaneState: vi.fn(),
+  // Device pane (issue #1006): no emulator unless a case arms one.
+  devicePaneEnsure: vi.fn(
+    async (): Promise<DevicePaneEnsureResult> => ({ status: "not-live" }),
+  ),
+  devicePaneAct: vi.fn(
+    async (): Promise<DevicePaneState> => ({
+      serial: null,
+      avd: null,
+      phase: "unbound",
+      agent: "detached",
+      error: null,
+      open: false,
+      display: null,
+    }),
+  ),
+  devicePaneSubscribe: vi.fn(),
+  devicePaneInput: vi.fn(),
+  devicePaneSetOpen: vi.fn(),
+  onDevicePaneFrame: vi.fn(),
+  onDevicePaneState: vi.fn(),
   // Experiments Lab (issue #559): a harness project has no autoresearch DB
   // unless a case seeds one, exactly as main answers for a fresh git checkout.
   autoresearchOverview: vi.fn(

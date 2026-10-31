@@ -24,6 +24,7 @@ import {
 import { applyLocale, currentLocaleId, resolveLocale } from "./lib/i18n";
 import { createBranchesSlice } from "./store/slices/branches";
 import { createBrowserPaneSlice } from "./store/slices/browser-pane";
+import { createDevicePaneSlice } from "./store/slices/device-pane";
 import { createCollabSlice } from "./store/slices/collab";
 import { createFrameReductionSlice } from "./store/slices/frame-reduction";
 import { createStatsSlice } from "./store/slices/stats";
@@ -47,6 +48,7 @@ import { createSubagentControlSlice } from "./store/slices/subagent-control";
 import { createAsyncJobsSlice } from "./store/slices/async-jobs";
 import {
   browserPaneWriters,
+  devicePaneWriters,
   createMachinery,
   persistedPlanHandoffs,
   shellWriters,
@@ -73,6 +75,7 @@ export type {
   CompactSurface,
   CompactionMethodsLoad,
   BulkDeleteConfirmation,
+  DevicePaneView,
   DeleteConfirmation,
   ErrorNotice,
   ExperimentsCache,
@@ -118,6 +121,7 @@ export {
   deriveSidebarSessionState,
   isLateAckCommand,
   registerBrowserPaneWriter,
+  registerDevicePaneWriter,
   registerShellWriter,
   registerFleetTerminalWriter,
   registerTermWriter,
@@ -191,6 +195,7 @@ export const useStore = create<UiStore>()((set, get, api) => {
     stall: stallContinueWatcher,
   });
   const browserPane = createBrowserPaneSlice(set, get, m);
+  const devicePane = createDevicePaneSlice(set, get, m);
   const lab = createLabSlice(set, get, m, { resolveSpawnParams: lifecycle.resolveSpawnParams });
   const stats = createStatsSlice(set, get);
   const fleet = createFleetSlice(set, get);
@@ -417,6 +422,7 @@ export const useStore = create<UiStore>()((set, get, api) => {
     ...lifecycle,
     ...sessionParams,
     ...browserPane,
+    ...devicePane,
     ...lab,
     ...stats,
     ...fleet,
@@ -501,6 +507,8 @@ export const useStore = create<UiStore>()((set, get, api) => {
       });
       backend.onBrowserPaneFrame((tabId, frame) => browserPaneWriters.get(tabId)?.(frame));
       backend.onBrowserPaneState((tabId, state) => get().handleBrowserPaneState(tabId, state));
+      backend.onDevicePaneFrame((tabId, frame) => devicePaneWriters.get(tabId)?.(frame));
+      backend.onDevicePaneState((tabId, state) => get().handleDevicePaneState(tabId, state));
       backend.onRpcFrame((tabId, frame) => get().handleRpcFrame(tabId, frame));
       backend.onAppUpdateState((appUpdate) =>
         get().replaceAppUpdate(appUpdate),

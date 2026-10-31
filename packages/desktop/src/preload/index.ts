@@ -13,12 +13,12 @@ const api = makeBackendClient({
   request: (channel, args) => ipcRenderer.invoke(channel, ...args),
   notify: (channel, args) => ipcRenderer.send(channel, ...args),
   on: <Args extends unknown[]>(channel: string, cb: (...args: Args) => void) => {
-    if (channel === CH.onBrowserPaneFrame) return;
+    if (channel === CH.onBrowserPaneFrame || channel === CH.onDevicePaneFrame) return;
     ipcRenderer.on(channel, (_event, ...args: unknown[]) => cb(...(args as unknown as Args)));
   },
 });
 
-const { onBrowserPaneFrame: _onBrowserPaneFrame, ...bridge } = api;
+const { onBrowserPaneFrame: _onBrowserPaneFrame, onDevicePaneFrame: _onDevicePaneFrame, ...bridge } = api;
 contextBridge.exposeInMainWorld("ompBackend", bridge satisfies DesktopBackendBridge);
 
 if (window === window.top) {

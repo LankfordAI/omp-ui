@@ -249,6 +249,30 @@ The **browser pane** is a live web page inside a native tab that you and the age
 
 The agent doesn't reach for the pane first for everything: it prefers configured CLIs and APIs for structured service work and reserves the pane for rendered interaction, browser state, browser-only authentication, and pages you explicitly ask it to look at — no permission prompt appears either way, and you can always ask it to open a page.
 
+## Device pane
+
+The **device pane** is a live Android emulator inside a native tab that you and the agent share, for trying the app you are building without leaving the session. Open it from the Session HUD's title menu (View → Device pane; the phone in the compact header) or the *Toggle device pane* palette action. It takes the same split beside the transcript as the browser pane, so opening one closes the other in that tab.
+
+**What you need.** The device pane uses the Android SDK on the machine that owns the session: **platform-tools** (`adb`), the **emulator**, and at least one Android Virtual Device (AVD) with a system image. omp-ui looks for the SDK in `ANDROID_HOME`, then `ANDROID_SDK_ROOT`, then the default location (`~/Android/Sdk` on Linux, `~/Library/Android/sdk` on macOS, `%LOCALAPPDATA%\Android\Sdk` on Windows); it does not use your `PATH`, so set `ANDROID_HOME` for a custom location. On Linux the emulator needs KVM: `/dev/kvm` must exist and be accessible to you. When a piece is missing, the pane names it. With Google's command-line tools unpacked into `$ANDROID_HOME/cmdline-tools/latest`, this installs the rest and creates an AVD:
+
+```bash
+export ANDROID_HOME=~/Android/Sdk
+yes | $ANDROID_HOME/cmdline-tools/latest/bin/sdkmanager --licenses
+$ANDROID_HOME/cmdline-tools/latest/bin/sdkmanager "platform-tools" "emulator" "system-images;android-35;google_apis;x86_64"
+echo no | $ANDROID_HOME/cmdline-tools/latest/bin/avdmanager create avd -n Pixel_7 -k "system-images;android-35;google_apis;x86_64" -d pixel_7
+sed -i 's/^hw.keyboard=no/hw.keyboard=yes/' ~/.android/avd/Pixel_7.avd/config.ini
+```
+
+`avdmanager` creates AVDs with `hw.keyboard=no`, and the emulator then drops the keys, text, and **Back**/**Home**/**Recents** presses the pane sends (touch still works). The `sed` line turns the hardware keyboard on.
+
+**Pick a device.** The picker lists running emulators, then your stopped AVDs. Choosing a running emulator connects to it; choosing a stopped AVD boots it headless, without opening a desktop window, and connects once Android has finished starting. One emulator belongs to one session at a time: another session's pick is refused while it is in use. **Refresh** re-reads the list and reconnects after an error.
+
+**Use it.** Click or drag on the screen to touch, scroll to swipe, and type once you have clicked the screen; text that is not plain ASCII is pasted through the emulator's clipboard, so it lands only in fields that accept paste. **Back**, **Home**, and **Recents** press the Android buttons. **Attach** puts a screenshot of the current screen into the composer for your next message. The fullscreen control gives the emulator the whole transcript column with the composer kept; on compact screens the pane is a bottom sheet. Closing the pane only stops the stream: the emulator keeps running, even after omp-ui quits, until you press **Power off** and confirm. A session that hibernates or switches to terminal mode remembers its emulator and reconnects to it when it comes back, as long as that emulator is still running.
+
+**Let the agent use it.** Turn on Settings → General → **Agents can use devices** (off by default). Sessions started or resumed after that get the `omp-ui_device` tool, which drives the same emulator through the bundled `agent-device` CLI: opening apps, reading the screen, tapping, typing, and taking screenshots. When no device is chosen yet, the agent can list them and pick one itself. When it acts, the pane opens if it was closed, an **agent connected** badge shows, and the border pulses while a command runs; the agent never closes the pane. Sessions started by a webhook or an MCP client never get the tool.
+
+**Remote viewing.** Remote-access browsers and joined instances see the same screen and can touch and type on it. The emulator always runs on the machine that owns the session, never on the machine you are viewing from, so that machine is the one that needs the SDK.
+
 ## Knowledge vault
 
 The **Knowledge vault** is where the agent files decisions, lessons, and write-ups that should outlive a session but do not belong in a repository: one or more Obsidian vaults you register on the **Knowledge vault** Settings page ([Settings](settings.md#knowledge-vault)). Registering a vault binds it: a native session started afterwards gets ten `omp-ui_vault_*` tools for the registered vaults; terminal sessions do not. omp-ui stays thin — it writes the notes, shows what it wrote, and hands each note to Obsidian, which remains the reader.

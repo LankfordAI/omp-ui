@@ -26,6 +26,7 @@
     "./capabilities": "./src/capabilities.ts",
     "./magic-keywords": "./src/magic-keywords.ts",
     "./browser-pane": "./src/browser-pane.ts",
+    "./device-pane": "./src/device-pane.ts",
     "./host-bridge": "./src/host-bridge.ts",
     "./html-artifact": "./src/html-artifact.ts",
     "./goal": "./src/goal.ts",

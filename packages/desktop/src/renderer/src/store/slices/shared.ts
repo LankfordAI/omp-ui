@@ -106,6 +106,8 @@ export interface TabRuntime {
    * discarded this runtime — is dropped.
    */
   browserPaneEnsureGeneration?: number;
+  /** The device pane ensure this tab last issued (issue #1006); same fence. */
+  devicePaneEnsureGeneration?: number;
   /**
    * Vibe commands awaiting their correlated result: requestId → transcript
    * command-row id (issue #683). The result rides a published snapshot, not
@@ -432,6 +434,19 @@ export function registerBrowserPaneWriter(
   };
 }
 
+// One lossy frame listener total; each mounted DevicePane registers its
+// painter here (issue #1006). Frames for a tab with no writer are dropped.
+const devicePaneWriters = new Map<string, (frame: Uint8Array) => void | Promise<void>>();
+export function registerDevicePaneWriter(
+  tabId: string,
+  cb: (frame: Uint8Array) => void | Promise<void>,
+): () => void {
+  devicePaneWriters.set(tabId, cb);
+  return () => {
+    devicePaneWriters.delete(tabId);
+  };
+}
+
 // One data listener total; each mounted FleetTerminalView registers its writer
 // here by terminal id (issue #991). Bytes for an id with no writer are dropped.
 const fleetTerminalWriters = new Map<string, (data: Uint8Array) => void>();
@@ -445,7 +460,7 @@ export function registerFleetTerminalWriter(
   };
 }
 
-export { termWriters, shellWriters, browserPaneWriters, fleetTerminalWriters };
+export { termWriters, shellWriters, browserPaneWriters, devicePaneWriters, fleetTerminalWriters };
 
 function dropExited(
   exited: Record<string, number>,

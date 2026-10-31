@@ -101,6 +101,12 @@ import type {
   BrowserPaneState,
   BrowserPaneClearDataResult,
 } from "./browser-pane";
+import type {
+  DevicePaneAction,
+  DevicePaneEnsureResult,
+  DevicePaneInputEvent,
+  DevicePaneState,
+} from "./device-pane";
 import type { RpcFrame } from "./rpc/codec";
 import type {
   FleetAuditEntry,
@@ -154,6 +160,8 @@ import {
   any,
   browserPaneInputCodec,
   browserPaneNavigateCodec,
+  devicePaneActionCodec,
+  devicePaneInputCodec,
   collabAccessCodec,
   arrayOf,
   diagnosticsExportRequestCodec,
@@ -488,6 +496,11 @@ export const BACKEND_CHANNELS = {
   /** Interactive HTML artifacts run their scripts (issue #994); default on. */
   setHtmlArtifactScripts: {
     channel: "settings:setHtmlArtifactScripts",
+    ...request<[on: boolean], void>([bool()]),
+  },
+  /** The agent may drive the bound emulator through omp-ui_device (issue #1006); default off. */
+  setDeviceAgentAccess: {
+    channel: "settings:setDeviceAgentAccess",
     ...request<[on: boolean], void>([bool()]),
   },
   setDefaultAdvisor: {
@@ -1890,6 +1903,42 @@ export const BACKEND_CHANNELS = {
     channel: "browser-pane:state",
     ...event<[tabId: string, state: BrowserPaneState]>(),
   },
+  /**
+   * Opens the tab's device pane entry and answers the bound state plus the
+   * host's emulator inventory (#1006); tab-routed.
+   */
+  devicePaneEnsure: {
+    channel: "device-pane:ensure",
+    ...request<[tabId: string], DevicePaneEnsureResult>([str()]),
+  },
+  /** Bind/boot/unbind/power-off/refresh the tab's emulator (#1006); tab-routed. */
+  devicePaneAct: {
+    channel: "device-pane:act",
+    ...request<[tabId: string, action: DevicePaneAction], DevicePaneState>([str(), devicePaneActionCodec]),
+  },
+  /** Sink registry like browserPaneSubscribe; tabId first so routeByTab applies (#1006). */
+  devicePaneSubscribe: {
+    channel: "device-pane:subscribe",
+    ...notify<[tabId: string, clientId: string, on: boolean]>([str(), str(), bool()]),
+  },
+  devicePaneInput: {
+    channel: "device-pane:input",
+    ...notify<[tabId: string, event: DevicePaneInputEvent]>([str(), devicePaneInputCodec]),
+  },
+  /** Sets the tab's device pane visibility; every viewer of the tab follows (#1006). */
+  devicePaneSetOpen: {
+    channel: "device-pane:set-open",
+    ...notify<[tabId: string, open: boolean]>([str(), bool()]),
+  },
+  /** Same header + JPEG framing as onBrowserPaneFrame; lossy (#1006). */
+  onDevicePaneFrame: {
+    channel: "device-pane:frame",
+    ...lossyEvent<[tabId: string, frame: Uint8Array]>(),
+  },
+  onDevicePaneState: {
+    channel: "device-pane:state",
+    ...event<[tabId: string, state: DevicePaneState]>(),
+  },
   rpcSend: { channel: "rpc:send", ...notify<[tabId: string, command: RpcFrame]>([str(), rpcFrameCodec]) },
   /**
    * Reports the tab this renderer currently has in view, or null when none.
@@ -2237,6 +2286,12 @@ export const LOSSY_CHANNELS: ReadonlySet<string> = new Set(
     .filter((descriptor) => descriptor.kind === "event" && descriptor.lossy === true)
     .map((descriptor) => descriptor.channel),
 );
+
+/** Every pane whose frames ride the lossy transport: subscribe notify ↔ frame event. */
+export const PANE_FRAME_CHANNELS = [
+  { subscribe: CH.browserPaneSubscribe, frame: CH.onBrowserPaneFrame },
+  { subscribe: CH.devicePaneSubscribe, frame: CH.onDevicePaneFrame },
+] as const;
 
 const ARG_CODECS_BY_CHANNEL = new Map<string, readonly ArgCodec<unknown>[]>();
 for (const descriptor of Object.values(BACKEND_CHANNELS)) {

@@ -124,7 +124,7 @@ describe("desktop pane port integration", () => {
     invoke(CH.browserPaneSubscribe, "remote", "desktop", true);
     expect(pairs[0]!.port1.postMessage).not.toHaveBeenCalled();
     pairs[0]!.port1.reply({ type: "ready" });
-    expect(pairs[0]!.port1.postMessage).toHaveBeenCalledWith({ type: "frame", id: 1, tabId: "remote", frame: new Uint8Array([1]) });
+    expect(pairs[0]!.port1.postMessage).toHaveBeenCalledWith({ type: "frame", channel: "browser-pane:frame", id: 1, tabId: "remote", frame: new Uint8Array([1]) });
     expect(state.viewer).not.toHaveBeenCalled();
     expect(wc.send).not.toHaveBeenCalledWith(CH.onBrowserPaneFrame, expect.anything(), expect.anything());
   });
@@ -188,12 +188,12 @@ describe("desktop pane port integration", () => {
     expect(current.postMessage).not.toHaveBeenCalled();
     current.reply({ type: "ready" });
     state.send(CH.onBrowserPaneFrame, "remote", new Uint8Array([3]));
-    old.reply({ type: "ack", id: 2 });
-    current.reply({ type: "ack", id: "2" });
-    current.reply({ type: "ack", id: 1 });
-    expect(current.postMessage.mock.calls).toEqual([[{ type: "frame", id: 2, tabId: "remote", frame: new Uint8Array([2]) }]]);
-    current.reply({ type: "ack", id: 2 });
-    expect(current.postMessage).toHaveBeenLastCalledWith({ type: "frame", id: 3, tabId: "remote", frame: new Uint8Array([3]) });
+    old.reply({ type: "ack", channel: "browser-pane:frame", id: 2 });
+    current.reply({ type: "ack", channel: "browser-pane:frame", id: "2" });
+    current.reply({ type: "ack", channel: "browser-pane:frame", id: 1 });
+    expect(current.postMessage.mock.calls).toEqual([[{ type: "frame", channel: "browser-pane:frame", id: 2, tabId: "remote", frame: new Uint8Array([2]) }]]);
+    current.reply({ type: "ack", channel: "browser-pane:frame", id: 2 });
+    expect(current.postMessage).toHaveBeenLastCalledWith({ type: "frame", channel: "browser-pane:frame", id: 3, tabId: "remote", frame: new Uint8Array([3]) });
   });
 
   it.each(["navigation", "crash", "destruction", "killAll"])("releases both subscription paths on %s", async (cause) => {

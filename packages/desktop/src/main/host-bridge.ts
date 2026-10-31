@@ -3,6 +3,7 @@ import {
   fleetMachineName,
   fleetToolDispatchRequest,
   formatFleetMachines,
+  DEVICE_TOOL_NAME,
   HOST_NOTIFY_TOOL_NAME,
   HTML_ARTIFACT_TOOL_NAME,
   htmlArtifactResultText,
@@ -38,6 +39,7 @@ import {
   vaultList,
   vaultRead,
   vaultRefactor,
+  type HostToolContent,
   vaultRename,
   vaultSearch,
   VAULT_WRITE_TOOLS,
@@ -139,6 +141,8 @@ export interface HostBridgeDeps {
   sessions?: SessionsResourceDeps;
   /** The fleet tools' answerers; absent means the fleet tools answer as unavailable. */
   fleet?: FleetBridgeDeps;
+  /** The device host tool's answerer (#1006); absent means the device tool answers as unavailable. */
+  device?: { run(tabId: string, args: unknown): Promise<{ content: HostToolContent[]; isError: boolean }> };
 }
 
 interface PendingHostAnswer {
@@ -353,6 +357,16 @@ export class HostBridge {
     }
     if (call.toolName.startsWith("omp-ui_fleet_")) {
       await this.answerFleet(tabId, call, send);
+      return;
+    }
+    if (call.toolName === DEVICE_TOOL_NAME) {
+      const device = this.deps.device;
+      if (device === undefined) {
+        this.answer(call.id, hostToolErrorResult(call.id, "device tools are unavailable"), send);
+        return;
+      }
+      const { content, isError } = await device.run(tabId, call.args);
+      this.answer(call.id, hostToolResult(call.id, content, {}, isError), send);
       return;
     }
     if (call.toolName === HTML_ARTIFACT_TOOL_NAME) {

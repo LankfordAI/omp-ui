@@ -23,7 +23,10 @@ import { TranscriptView, ShareLinkRow, TuiHandoffButton } from "./TranscriptView
 import { ModelPalette } from "./ModelSelector";
 import { Button, Chip, CopyButton, Panel, ProgressSweep, Sheet } from "./ui";
 import { BrowserPane } from "./browser-pane/BrowserPane";
-import { BrowserPaneSplit, useDesktopPanelWidths } from "./browser-pane/BrowserPaneSplit";
+import { BrowserPaneSplit } from "./browser-pane/BrowserPaneSplit";
+import { DevicePane } from "./device-pane/DevicePane";
+import { DevicePaneSplit } from "./device-pane/DevicePaneSplit";
+import { useDesktopPanelWidths } from "./split-slot";
 
 const NO_ITEMS: never[] = [];
 
@@ -244,9 +247,15 @@ export const RpcTab = memo(function RpcTab({ tabId, active }: { tabId: string; a
   const pane = rpc?.browserPane;
   const resolved = useDesktopPanelWidths(tabId);
   const paneColumn =
-    pane?.open === true && (pane.fullscreen || !resolved.browserPaneFits) && !compact;
+    pane?.open === true && (pane.fullscreen || !resolved.splitFits) && !compact;
+  // The device pane (issue #1006) shares the split slot with the browser
+  // pane — one is open at a time — and takes the same three postures.
+  const device = rpc?.devicePane;
+  const deviceColumn =
+    device?.open === true && (device.fullscreen || !resolved.splitFits) && !compact;
   const surface = useStore((s) => s.compactSurface);
   const closeBrowserPane = useStore((s) => s.closeBrowserPane);
+  const closeDevicePane = useStore((s) => s.closeDevicePane);
   const projectCwd = useStore((s) => findRecord(s.state, tabId)?.projectCwd);
   const chat = useStore((s) => findRecord(s.state, tabId)?.chat === true);
   // A held prompt (issue #986) is a prompt: the transcript shows its card.
@@ -504,7 +513,7 @@ export const RpcTab = memo(function RpcTab({ tabId, active }: { tabId: string; a
                     execution destination survives reopening the same gate. */}
                 {active && rpc?.planReview != null && <PlanReview tabId={tabId} fill dictationActive={dictationActive} />}
                 {(!planReviewOpen || !active) &&
-                  (paneColumn ? (
+                  (paneColumn || deviceColumn ? (
                     /* The subagent view above already owns the column, so this
                        is the main transcript slot: the page sits above the
                        composer, never under its glass (#527) — the column view
@@ -513,7 +522,11 @@ export const RpcTab = memo(function RpcTab({ tabId, active }: { tabId: string; a
                       className="flex min-h-0 flex-1 flex-col"
                       style={{ paddingBottom: "var(--transcript-bottom-inset, 0px)" }}
                     >
-                      <BrowserPane tabId={tabId} posture="column" />
+                      {paneColumn ? (
+                        <BrowserPane tabId={tabId} posture="column" />
+                      ) : (
+                        <DevicePane tabId={tabId} posture="column" />
+                      )}
                     </div>
                   ) : centered ? (
                     hero ? (
@@ -575,6 +588,7 @@ export const RpcTab = memo(function RpcTab({ tabId, active }: { tabId: string; a
             )}
           </div>
           {pane?.open === true && !paneColumn && !compact && <BrowserPaneSplit tabId={tabId} />}
+          {device?.open === true && !deviceColumn && !compact && <DevicePaneSplit tabId={tabId} />}
           <InspectorRail tabId={tabId} />
         </div>
         <ConsoleDrawer tabId={tabId} />
@@ -587,6 +601,18 @@ export const RpcTab = memo(function RpcTab({ tabId, active }: { tabId: string; a
           >
             <div className="flex h-[70dvh] flex-col">
               <BrowserPane tabId={tabId} posture="sheet" />
+            </div>
+          </Sheet>
+        )}
+        {compact && active && (
+          <Sheet
+            open={surface === "device-pane"}
+            placement="bottom"
+            label={t("device.sheet.label")}
+            onClose={() => closeDevicePane(tabId)}
+          >
+            <div className="flex h-[70dvh] flex-col">
+              <DevicePane tabId={tabId} posture="sheet" />
             </div>
           </Sheet>
         )}

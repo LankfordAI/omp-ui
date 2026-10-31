@@ -21,6 +21,9 @@ files:
   - "!**/node_modules/node-pty/prebuilds/**/*.pdb"
 asarUnpack:
   - "**/node_modules/node-pty/**"
+  # agent-device pushes its bundled helper APKs through adb (real files) and
+  # re-spawns process.execPath on its own bin (issue #1006).
+  - "**/node_modules/agent-device/**"
 npmRebuild: false
 # node-pty's darwin prebuild stores spawn-helper mode 0644; OR the exec bit
 # back in the packed tree before signing (issue #489).

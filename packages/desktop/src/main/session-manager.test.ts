@@ -346,6 +346,11 @@ function setup(opts: { mode?: "pty" | "rpc-ui"; project?: string; projectName?: 
     appVersion: opts.appVersion,
     mainLog: opts.mainLog,
     vaultProject: opts.vaultProject,
+    devicePane: {
+      encodeJpeg: () => new Uint8Array(),
+      agentDeviceBin: () => null,
+      stateDir: () => path.join(os.tmpdir(), "omp-ui-test-agent-device"),
+    },
     browserPane: {
       createPane: async () => {
         const pane = fakePaneContents();

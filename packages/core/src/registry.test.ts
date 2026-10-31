@@ -86,6 +86,7 @@ describe("SETTINGS", () => {
       "stallAutoContinue",
       "desktopNotifications",
       "htmlArtifactScripts",
+      "deviceAgentAccess",
       "defaultAdvisor",
       "defaultAutoThinking",
       "modelFavorites",

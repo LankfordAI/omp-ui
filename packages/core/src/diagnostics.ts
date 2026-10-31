@@ -25,6 +25,7 @@ import { buildZip } from "./zip-writer";
 import type { RegistrySettings } from "./registry";
 import type {
   BrowserPaneDiagnostics,
+  DevicePaneDiagnostics,
   DiagnosticsExportResult,
   DiagnosticsPreview,
   DiagnosticsSection,
@@ -81,6 +82,8 @@ export interface DiagnosticsOptions {
   breadcrumbs?: readonly DiagnosticsBreadcrumbEntry[];
   /** Live browser pane hosts, one row per tab with a page or bridge listener (#519). */
   browserPanes: readonly BrowserPaneDiagnostics[];
+  /** Live device pane hosts, one row per tab (#1006); rides the pane section as device-<tabId>.json. */
+  devicePanes?: readonly DevicePaneDiagnostics[];
   /** Vault registry and detection (#764); null omits the section. */
   knowledgeVault: KnowledgeVaultDiagnostics | null;
   gitRunner?: GitRunner;
@@ -433,8 +436,11 @@ async function buildSections(
   sections.push({
     id: "browser-pane",
     prefix: "browser-pane/",
-    included: o.browserPanes.length > 0,
-    files: o.browserPanes.map((p) => bytesFile(`${p.tabId}.json`, p)),
+    included: o.browserPanes.length > 0 || (o.devicePanes?.length ?? 0) > 0,
+    files: [
+      ...o.browserPanes.map((p) => bytesFile(`${p.tabId}.json`, p)),
+      ...(o.devicePanes ?? []).map((p) => bytesFile(`device-${p.tabId}.json`, p)),
+    ],
   });
   sections.push({
     id: "knowledge-vault",

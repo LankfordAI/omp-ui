@@ -3,6 +3,7 @@ import {
   BACKEND_CHANNELS,
   CH,
   LOSSY_CHANNELS,
+  PANE_FRAME_CHANNELS,
   dispatchNotify,
   dispatchRequest,
   makeBackendClient,
@@ -81,6 +82,11 @@ const VALID_ARGS = {
   browserPaneResize: ["tab-1", 800, 600],
   browserPaneSetOpen: ["tab-1", true],
   browserPaneSubscribe: ["tab-1", "client-1", true],
+  devicePaneEnsure: ["tab-1"],
+  devicePaneAct: ["tab-1", { action: "bind", serial: "emulator-5554" }],
+  devicePaneSubscribe: ["tab-1", "client-1", true],
+  devicePaneInput: ["tab-1", { type: "touch", phase: "down", x: 0.5, y: 0.25, pointer: 0 }],
+  devicePaneSetOpen: ["tab-1", true],
   cancelProviderOAuth: [],
   checkAppUpdate: [],
   checkOmpUpdate: [],
@@ -196,6 +202,7 @@ const VALID_ARGS = {
   setExperimentsEnabled: [true],
   setSnoozedSectionEnabled: [true],
   setRemoteVsCodeEnabled: [true],
+  setDeviceAgentAccess: [true],
   setAutoSettleMergedPullRequests: [false],
   setFontFamilyId: ["mono"],
   setGettingStartedSeen: [true],
@@ -529,8 +536,9 @@ describe("BACKEND_CHANNELS", () => {
     >();
   });
 
-  it("marks only the browser pane frame as lossy", () => {
-    expect(LOSSY_CHANNELS).toEqual(new Set(["browser-pane:frame"]));
+  it("marks only the pane frames as lossy", () => {
+    expect(LOSSY_CHANNELS).toEqual(new Set(["browser-pane:frame", "device-pane:frame"]));
+    expect(new Set(PANE_FRAME_CHANNELS.map((row) => row.frame))).toEqual(LOSSY_CHANNELS);
     expect(LOSSY_CHANNELS.has(CH.onPtyData)).toBe(false);
     expect(LOSSY_CHANNELS.has(CH.onShellData)).toBe(false);
   });
