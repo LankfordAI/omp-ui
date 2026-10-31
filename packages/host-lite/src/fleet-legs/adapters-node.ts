@@ -47,7 +47,6 @@ import type {
 } from "@omp-ui/core";
 import type { DetachedExecRecord } from "../../../desktop/src/main/fleet-detached-exec";
 import type { FleetCommandDeps } from "../../../desktop/src/main/fleet-shell";
-import type { FleetTerminalEndReason, FleetTerminalRecordOnMember } from "../../../desktop/src/main/fleet-terminals";
 import type {
   FleetExecCommandSpec,
   FleetExecLegs,
@@ -155,8 +154,8 @@ export async function createExecLegs(deps: ExecAdapterDeps = {}): Promise<FleetE
 export interface TerminalAdapterDeps {
   /** Fans member terminal events to this host's socket clients, never a window. */
   sendToClients: (channel: string, args: unknown[]) => void;
-  /** End-audit writer (the ring); mirrors FleetServer's onEnd mapping. */
-  onTerminalEnd?: (reason: FleetTerminalEndReason, rec: FleetTerminalRecordOnMember, exitCode: number | null) => void;
+  /** End-audit writer (the ring/log); mirrors FleetServer's onEnd mapping exactly. */
+  onTerminalEnd?: LiteAuditFn;
 }
 
 export async function createTerminalLegs(deps: TerminalAdapterDeps): Promise<FleetTerminalLegs> {
@@ -165,7 +164,18 @@ export async function createTerminalLegs(deps: TerminalAdapterDeps): Promise<Fle
   const { FleetTerminals } = await import("../../../desktop/src/main/fleet-terminals");
   const terminals = new FleetTerminals({
     sendToClients: deps.sendToClients,
-    onEnd: (rec, reason, exitCode) => deps.onTerminalEnd?.(reason, rec, exitCode),
+    onEnd: (rec, reason, exitCode) =>
+      deps.onTerminalEnd?.({
+        at: new Date().toISOString(),
+        dispatcherId: rec.requester.instanceId,
+        dispatcherLabel: rec.requester.label,
+        sourceTabId: rec.requester.sourceTabId,
+        action: "terminal",
+        rung: rec.rung,
+        accepted: true,
+        detail: `${rec.terminalId.slice(0, 8)} ended (${reason})`,
+        exitCode,
+      }),
   });
   // FleetTerminals' member-side surface already matches FleetTerminalLegs.
   return {
