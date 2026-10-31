@@ -3245,6 +3245,36 @@ describe("html plan preflight (issue #312 follow-up)", () => {
     });
   });
 
+  it("lets dismiss answer without re-reading disk bytes", async () => {
+    const { manager, registry, sessionsRoot } = setup({ mode: "rpc-ui", planVerify: passedVerify() });
+    await resumeRpc(manager);
+    const abs = planFile(sessionsRoot);
+    rpcInstances[0]!.frame(planFrame("p1", abs));
+    await vi.waitFor(() =>
+      expect(manager.planGate(TAB)?.pending?.frameId).toBe("p1"),
+    );
+    const hash = hashOf(htmlText);
+    fs.writeFileSync(abs, htmlText + "<!-- edited -->", "utf8");
+
+    // Dismiss needs the gate identity but NOT unchanged disk bytes: changed
+    // on-disk bytes still answer accepted, like refine.
+    await expect(manager.answerPlanReview(TAB, "p1", "dismiss", hash)).resolves.toEqual({
+      status: "accepted",
+    });
+    expect(rpcInstances[0]!.send).toHaveBeenCalledWith({
+      type: "extension_ui_response",
+      id: "p1",
+      value: Core.PLAN_DISMISS,
+    });
+    expect(manager.planGate(TAB)).toEqual({
+      pending: null,
+      settle: { frameId: "p1", verdict: "dismissed" },
+    });
+    expect(
+      registry.sessions.find((s) => s.tabId === TAB)!.proposedPlans,
+    ).toEqual([{ key: "local://auth-plan.html", title: "add auth", status: "dismissed" }]);
+  });
+
   it("never runs the verifier for a markdown proposal", async () => {
     const planVerify = passedVerify();
     const { manager, sessionsRoot } = setup({ mode: "rpc-ui", planVerify });

@@ -3048,8 +3048,8 @@ export class SessionManager {
    * The acknowledged answer for a plan-review gate (§6). The only path that
    * may settle an HTML gate: verifies the live entry, the gate identity, and
    * — for `execute` — that the artifact still hashes to the validated
-   * snapshot. The settle reservation is atomic before the read, so two
-   * clients cannot both execute.
+   * snapshot (refine and dismiss also skip the hash verification). The settle
+   * reservation is atomic before the read, so two clients cannot both execute.
    */
   async answerPlanReview(
     tabId: string,
@@ -3066,9 +3066,9 @@ export class SessionManager {
       return { status: "rejected", reason: "stale" };
     }
     const html = isHtmlPlanPath(pending.planFilePath);
-    if (!html || verdict === "refine") {
-      // Markdown keeps un-gated semantics; refine needs the gate identity
-      // but NOT unchanged disk bytes.
+    if (!html || verdict !== "execute") {
+      // Markdown keeps un-gated semantics; refine and dismiss need the gate
+      // identity but NOT unchanged disk bytes.
       this.settlePlanGateToChild(tabId, entry, frameId, verdict);
       return { status: "accepted" };
     }

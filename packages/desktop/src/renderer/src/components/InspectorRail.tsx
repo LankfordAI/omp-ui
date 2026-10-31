@@ -839,6 +839,7 @@ function PlansPane({ tabId }: { tabId: string }) {
   const planUnavailable = useStore((s) => s.rpc[tabId]?.plan?.unavailable !== undefined);
   const showPlanReview = useStore((s) => s.showPlanReview);
   const deferPlanReview = useStore((s) => s.deferPlanReview);
+  const dismissPlanReview = useStore((s) => s.dismissPlanReview);
   const refinePlan = useStore((s) => s.refinePlan);
   const representPlan = useStore((s) => s.representPlan);
   const dismissProposedPlan = useStore((s) => s.dismissProposedPlan);
@@ -915,6 +916,14 @@ function PlansPane({ tabId }: { tabId: string }) {
                   onClick={() => refinePlan(tabId)}
                 >
                   {t("rail.plans.requestChanges")}
+                </Button>
+                <Button
+                  size="xs"
+                  variant="ghost"
+                  title={t("rail.plans.dismissPendingTitle")}
+                  onClick={() => void dismissPlanReview(tabId)}
+                >
+                  {t("rail.plans.dismiss")}
                 </Button>
                 <Button
                   size="xs"

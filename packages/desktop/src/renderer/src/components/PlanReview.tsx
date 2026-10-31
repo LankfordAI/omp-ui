@@ -219,6 +219,7 @@ export function PlanReview({
   const executePlan = useStore((s) => s.executePlan);
   const refinePlan = useStore((s) => s.refinePlan);
   const deferPlanReview = useStore((s) => s.deferPlanReview);
+  const dismissPlanReview = useStore((s) => s.dismissPlanReview);
   /** True after "not now": the pane is dismissed but the gate is unanswered. */
   const deferred = useStore((s) => s.rpc[tabId]?.planDeferred === true);
   const t = useT();
@@ -1273,6 +1274,13 @@ export function PlanReview({
                   <Button title={t("plan.review.notNowTitle")} variant="ghost" onClick={dismiss}>
                     {t("plan.review.notNow")}
                   </Button>
+                  <Button
+                    title={t("plan.review.dismissTitle")}
+                    variant="ghost"
+                    onClick={() => void dismissPlanReview(tabId)}
+                  >
+                    {t("plan.review.dismiss")}
+                  </Button>
                   <Button onClick={() => setCompactStep("refine")}>{t("plan.review.refine")}</Button>
                   <Button variant="solid" tone="signal" onClick={() => setCompactStep("setup")}>
                     {t("plan.review.execute")}
@@ -1339,6 +1347,13 @@ export function PlanReview({
             )}
             <div className="flex shrink-0 items-center gap-2">
               <Button title={t("plan.review.notNowTitle")} variant="ghost" onClick={dismiss}>{t("plan.review.notNow")}</Button>
+              <Button
+                title={t("plan.review.dismissTitle")}
+                variant="ghost"
+                onClick={() => void dismissPlanReview(tabId)}
+              >
+                {t("plan.review.dismiss")}
+              </Button>
               <Button onClick={() => void refine()}>{t("plan.review.refine")}</Button>
               <ExecutePlanButton
                 contextLabel={contextLabel}

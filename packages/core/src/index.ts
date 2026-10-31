@@ -273,6 +273,7 @@ export {
   settleProposedPlan,
   upsertProposedPlan,
   PLAN_COMMAND,
+  PLAN_DISMISS,
   PLAN_EXECUTE,
   PLAN_REFINE,
   PLAN_REVIEW_SENTINEL,

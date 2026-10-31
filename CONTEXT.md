@@ -794,7 +794,11 @@ third, non-answering verdict: `deferPlanReview` dismisses it without resolving
 the gate, so the agent stays paused on its proposal and the plan stays pending
 in the rail's proposed plans pane until the user returns. Defer encodes
 "ignore for the time being"; refine is the only verdict that revises
-immediately. Both keep the working tree read-only. The pending plan gate itself is owned by the main process —
+immediately. Both keep the working tree read-only. Declining is the fourth
+outcome (issue #1012): answering the gate with *dismiss* settles the plan
+without an implementation or a revision and ends the agent's turn — unlike
+defer it resolves the gate, and plan mode stays armed with the tree read-only.
+The pending plan gate itself is owned by the main process —
 the proposal frame is recorded as the session's `pendingPlan` on its summary,
 and a verdict as `planSettle` (issue #215) — so a renderer that joins late (a
 remote client) hydrates the review from the record and settles a verdict
@@ -1078,15 +1082,18 @@ _Avoid_: MCP server (ambiguous with omp's own), API, integration token
 **Proposed plans pane**:
 The inspector rail pane (ADR-0004 vocab) that lists every plan the focus
 session has proposed — the live pending plan first, with review / request
-changes / not now actions, then interrupted plans with re-present / dismiss,
-then settled plans dimmed by verdict. The list is main-process owned and
-persisted on the owned session record (ADR-0033), so it survives an app
+changes / dismiss / not now actions, then interrupted plans with re-present /
+dismiss, then settled plans dimmed by verdict. The list is main-process owned
+and persisted on the owned session record (ADR-0033), so it survives an app
 restart; the gate behind a pending plan does not. The live pending plan is one
 per session and is the same object the plan review shows: clicking it or the
 review action restores the review in that tab, request changes answers
-`refinePlan` without notes, and not now calls `deferPlanReview`. Only the
-focused tab's review renders; a background session's pending plan surfaces
-here (its sidebar row reads "answer needed") instead of stacking review on review.
+`refinePlan` without notes, and not now calls `deferPlanReview`. The two
+dismisses differ: on the live plan it *declines* the gate with the dismiss
+verdict (issue #1012); on an interrupted plan it is `plan:dismiss`, which
+stops tracking it. Only the focused tab's review renders; a background
+session's pending plan surfaces here (its sidebar row reads "answer needed")
+instead of stacking review on review.
 _Avoid_: plan inbox, plan queue, plan history
 
 **Interrupted plan**:

@@ -447,6 +447,57 @@ describe("desktop InspectorRail", () => {
     expect(busy?.disabled).toBe(true);
   });
 
+  it("the live actionable row's dismiss answers the gate, not dismissProposedPlan", async () => {
+    const liveGate = backendState({
+      projects: [
+        {
+          ...state.projects[0]!,
+          sessions: state.projects[0]!.sessions.map((s) => ({
+            ...s,
+            proposedPlans: [
+              { key: "local://auth-plan.html", title: "add auth", status: "pending" as const },
+            ],
+          })),
+        },
+      ],
+    });
+    const dismissSpy = vi.fn(async (): Promise<void> => {});
+    const realDismiss = useStore.getState().dismissPlanReview;
+    useStore.setState({
+      state: liveGate,
+      rpc: {
+        [TAB]: runtime({
+          planReview: {
+            request: {
+              title: "add auth",
+              planFilePath: "local://auth-plan.html",
+              planAbsPath: "/plans/auth-plan.html",
+            },
+            frame: { id: "p1" },
+          },
+        }),
+      },
+      dismissPlanReview: dismissSpy,
+    });
+    try {
+      renderRail();
+      openPane("plans");
+      const dismiss = [...document.body.querySelectorAll<HTMLButtonElement>("button")].find(
+        (b) => b.title === t("rail.plans.dismissPendingTitle"),
+      );
+      expect(dismiss).toBeDefined();
+
+      backendMock.dismissProposedPlan.mockClear();
+      act(() => dismiss!.click());
+      await act(async () => {});
+      expect(dismissSpy).toHaveBeenCalledWith(TAB);
+      // The channel-scoped interrupted-plan path stays untouched for live gates.
+      expect(backendMock.dismissProposedPlan).not.toHaveBeenCalled();
+    } finally {
+      useStore.setState({ dismissPlanReview: realDismiss });
+    }
+  });
+
   it("renders Todos pane chrome from the catalog under both locales (issue #581)", () => {
     // A phase with no `phase` name: the fallback heading is one of the strings under test.
     const unnamed = runtime({ todos: [{ tasks: [{ content: "First task", status: "pending" }] }] });

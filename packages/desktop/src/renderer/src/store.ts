@@ -607,6 +607,7 @@ export const useStore = create<UiStore>()((set, get, api) => {
     executePlan: plan.executePlan,
     refinePlan: plan.refinePlan,
     deferPlanReview: plan.deferPlanReview,
+    dismissPlanReview: plan.dismissPlanReview,
     showPlanReview: plan.showPlanReview,
     representPlan: plan.representPlan,
     dismissProposedPlan: plan.dismissProposedPlan,

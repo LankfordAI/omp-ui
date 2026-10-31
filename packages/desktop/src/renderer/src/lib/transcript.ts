@@ -177,8 +177,11 @@ export interface PlanItem {
   planAbsPath: string | null;
   /** Plan markdown snapshot read off disk; null until loaded or when unreadable. */
   text: string | null;
-  /** `invalidated` = the validated source changed under review (§6), NOT a verdict. */
-  status: "pending" | "executed" | "refined" | "invalidated";
+  /**
+   * `invalidated` = the validated source changed under review (§6), NOT a
+   * verdict. `dismissed` = the user declined the live review (issue #1012).
+   */
+  status: "pending" | "executed" | "refined" | "invalidated" | "dismissed";
 }
 export interface CommandItem {
   kind: "command";

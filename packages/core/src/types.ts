@@ -630,8 +630,10 @@ export interface PlanSettle {
   /**
    * `invalidated` is not a user verdict: the gate's validated source changed
    * under review, so no implementation started (issue #312 follow-up).
+   * `dismissed` = the user declined a live gate; the turn ended with no
+   * implementation and no revision (issue #1012).
    */
-  verdict: "executed" | "refined" | "invalidated";
+  verdict: "executed" | "refined" | "invalidated" | "dismissed";
 }
 
 /** One plan a session proposed for review (ADR-0033). Main-process owned, persisted. */
@@ -644,7 +646,8 @@ export interface ProposedPlan {
    * `pending`: no verdict yet — a live gate while the summary's `pendingPlan`
    * names this key, otherwise an interrupted plan. `invalidated` is not a user
    * verdict (the validated source changed under review). `dismissed` is the
-   * user's decision to stop tracking an interrupted plan.
+   * user's decision to stop tracking an interrupted plan, or to decline a
+   * live gate without executing or revising it (issue #1012).
    */
   status: "pending" | "executed" | "refined" | "invalidated" | "dismissed";
 }
