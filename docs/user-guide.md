@@ -260,13 +260,16 @@ export ANDROID_HOME=~/Android/Sdk
 yes | $ANDROID_HOME/cmdline-tools/latest/bin/sdkmanager --licenses
 $ANDROID_HOME/cmdline-tools/latest/bin/sdkmanager "platform-tools" "emulator" "system-images;android-35;google_apis;x86_64"
 echo no | $ANDROID_HOME/cmdline-tools/latest/bin/avdmanager create avd -n Pixel_7 -k "system-images;android-35;google_apis;x86_64" -d pixel_7
+sed -i 's/^hw.keyboard=no/hw.keyboard=yes/' ~/.android/avd/Pixel_7.avd/config.ini
 ```
+
+`avdmanager` creates AVDs with `hw.keyboard=no`, and the emulator then drops the keys, text, and **Back**/**Home**/**Recents** presses the pane sends (touch still works). The `sed` line turns the hardware keyboard on.
 
 **Pick a device.** The picker lists running emulators, then your stopped AVDs. Choosing a running emulator connects to it; choosing a stopped AVD boots it headless, without opening a desktop window, and connects once Android has finished starting. One emulator belongs to one session at a time: another session's pick is refused while it is in use. **Refresh** re-reads the list and reconnects after an error.
 
 **Use it.** Click or drag on the screen to touch, scroll to swipe, and type once you have clicked the screen; text that is not plain ASCII is pasted through the emulator's clipboard, so it lands only in fields that accept paste. **Back**, **Home**, and **Recents** press the Android buttons. **Attach** puts a screenshot of the current screen into the composer for your next message. The fullscreen control gives the emulator the whole transcript column with the composer kept; on compact screens the pane is a bottom sheet. Closing the pane only stops the stream: the emulator keeps running, even after omp-ui quits, until you press **Power off** and confirm. A session that hibernates or switches to terminal mode remembers its emulator and reconnects to it when it comes back, as long as that emulator is still running.
 
-**Let the agent use it.** Turn on Settings → General → **Agents can use devices** (off by default). Sessions started or resumed after that get the `omp-ui_device` tool, which drives the same emulator through the bundled `agent-device` CLI: opening apps, reading the screen, tapping, typing, and taking screenshots. When no device is chosen yet, the agent can list them and pick one itself. When it acts, the pane opens if it was closed, an **agent attached** badge shows, and the border pulses while a command runs; the agent never closes the pane. Sessions started by a webhook or an MCP client never get the tool.
+**Let the agent use it.** Turn on Settings → General → **Agents can use devices** (off by default). Sessions started or resumed after that get the `omp-ui_device` tool, which drives the same emulator through the bundled `agent-device` CLI: opening apps, reading the screen, tapping, typing, and taking screenshots. When no device is chosen yet, the agent can list them and pick one itself. When it acts, the pane opens if it was closed, an **agent connected** badge shows, and the border pulses while a command runs; the agent never closes the pane. Sessions started by a webhook or an MCP client never get the tool.
 
 **Remote viewing.** Remote-access browsers and joined instances see the same screen and can touch and type on it. The emulator always runs on the machine that owns the session, never on the machine you are viewing from, so that machine is the one that needs the SDK.
 

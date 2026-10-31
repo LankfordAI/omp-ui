@@ -54,4 +54,28 @@ describe("emulator-proto", () => {
     expect(() => new GrpcMessageParser(1024, () => {}).push(compressed)).toThrow();
     expect(() => new GrpcMessageParser(2, () => {}).push(grpcFrame(Uint8Array.from([1, 2, 3])))).toThrow();
   });
+
+  it("GrpcMessageParser reassembles a 1 MB message from 16 KB chunks plus a trailing message", () => {
+    const big = new Uint8Array(1 << 20);
+    for (let i = 0; i < big.length; i++) big[i] = (i * 31 + 7) & 0xff;
+    const small = Uint8Array.from([9, 8, 7]);
+    const a = grpcFrame(big);
+    const b = grpcFrame(small);
+    const stream = new Uint8Array(a.length + b.length);
+    stream.set(a);
+    stream.set(b, a.length);
+    const got: Uint8Array[] = [];
+    const parser = new GrpcMessageParser(2 << 20, (m) => got.push(m.slice()));
+    const step = 16 * 1024;
+    let pos = 0;
+    while (stream.length - pos > step + b.length) {
+      parser.push(stream.slice(pos, pos + step));
+      pos += step;
+    }
+    expect(got).toHaveLength(0);
+    parser.push(stream.slice(pos));
+    expect(got).toHaveLength(2);
+    expect(got[0]).toEqual(big);
+    expect(got[1]).toEqual(small);
+  });
 });

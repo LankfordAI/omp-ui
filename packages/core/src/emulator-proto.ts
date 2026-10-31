@@ -169,7 +169,10 @@ export function grpcFrame(message: Uint8Array): Uint8Array {
  * or a frame over maxBytes; the parser is unusable afterward.
  */
 export class GrpcMessageParser {
-  private pending = new Uint8Array(0);
+  /** Unconsumed bytes are chunks[0].subarray(head) followed by chunks[1..]. */
+  private chunks: Uint8Array[] = [];
+  private head = 0;
+  private total = 0;
   private failed: Error | null = null;
 
   constructor(
@@ -179,24 +182,69 @@ export class GrpcMessageParser {
 
   push(chunk: Uint8Array): void {
     if (this.failed) throw this.failed;
-    const merged = new Uint8Array(this.pending.length + chunk.length);
-    merged.set(this.pending);
-    merged.set(chunk, this.pending.length);
-    let pos = 0;
-    while (merged.length - pos >= 5) {
-      if (merged[pos] !== 0) this.fail("compressed gRPC frames are not supported");
-      const len = new DataView(merged.buffer, merged.byteOffset + pos + 1, 4).getUint32(0);
+    if (chunk.length === 0) return;
+    this.chunks.push(chunk);
+    this.total += chunk.length;
+    while (this.total >= 5) {
+      if (this.peekByte(0) !== 0) this.fail("compressed gRPC frames are not supported");
+      const len =
+        (this.peekByte(1) * 0x1000000 + (this.peekByte(2) << 16) + (this.peekByte(3) << 8) + this.peekByte(4)) >>> 0;
       if (len > this.maxBytes) this.fail(`gRPC frame of ${len} bytes exceeds ${this.maxBytes}`);
-      if (merged.length - pos - 5 < len) break;
-      this.onMessage(merged.subarray(pos + 5, pos + 5 + len));
-      pos += 5 + len;
+      if (this.total - 5 < len) break;
+      this.skip(5);
+      this.onMessage(this.take(len));
     }
-    this.pending = merged.slice(pos);
+  }
+
+  private peekByte(i: number): number {
+    let off = this.head + i;
+    for (const c of this.chunks) {
+      if (off < c.length) return c[off];
+      off -= c.length;
+    }
+    throw new Error("unreachable: peek past buffered bytes");
+  }
+
+  private skip(n: number): void {
+    this.total -= n;
+    while (n > 0) {
+      const avail = this.chunks[0].length - this.head;
+      if (n < avail) {
+        this.head += n;
+        return;
+      }
+      n -= avail;
+      this.chunks.shift();
+      this.head = 0;
+    }
+  }
+
+  /** Consume n bytes; zero-copy when they lie in one chunk, else one allocation. */
+  private take(n: number): Uint8Array {
+    const first = this.chunks[0];
+    if (n === 0) return new Uint8Array(0);
+    if (first.length - this.head >= n) {
+      const out = first.subarray(this.head, this.head + n);
+      this.skip(n);
+      return out;
+    }
+    const out = new Uint8Array(n);
+    let filled = 0;
+    while (filled < n) {
+      const c = this.chunks[0];
+      const part = Math.min(c.length - this.head, n - filled);
+      out.set(c.subarray(this.head, this.head + part), filled);
+      filled += part;
+      this.skip(part);
+    }
+    return out;
   }
 
   private fail(message: string): never {
     this.failed = new Error(message);
-    this.pending = new Uint8Array(0);
+    this.chunks = [];
+    this.head = 0;
+    this.total = 0;
     throw this.failed;
   }
 }
