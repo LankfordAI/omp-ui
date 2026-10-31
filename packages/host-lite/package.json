@@ -1,0 +1,23 @@
+{
+  "name": "@omp-ui/host-lite",
+  "version": "0.0.0",
+  "private": true,
+  "license": "MIT",
+  "type": "module",
+  "exports": {
+    "./fleet-legs": "./src/fleet-legs/index.ts"
+  },
+  "scripts": {
+    "test": "vitest run --passWithNoTests",
+    "typecheck": "tsc --noEmit"
+  },
+  "dependencies": {
+    "@omp-ui/core": "*",
+    "@omp-ui/server": "*"
+  },
+  "devDependencies": {
+    "@types/node": "^26.1.2",
+    "typescript": "~7.0.2",
+    "vitest": "^4.1.10"
+  }
+}
