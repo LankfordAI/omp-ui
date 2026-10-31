@@ -5,40 +5,63 @@
  *    nowhere in the output.
  * 2. The bundle runs in plain Node: `createSessionBundle` builds the real
  *    SessionManager over fake deps (the same shape as desktop's
- *    session-manager.test.ts setup()), `state()` projects the
- *    projects/modelFavorites-bearing BackendState, and the pane leaf that
- *    needs a window degrades through its shim instead of crashing.
+ *    session-manager.test.ts setup()), satisfies the seams.ts LiteSessions
+ *    contract, `state()` projects the projects/modelFavorites-bearing
+ *    BackendState, and the pane leaf that needs a window degrades through its
+ *    shim instead of crashing.
  * 3. The drift gate: an `import "electron"` leaf added to the graph FAILS the
  *    build with the gate's named error — a future runtime-electron import
  *    reaching the session cluster can not ship silently inside lite.
  */
+import { execFile } from "node:child_process";
 import * as fs from "node:fs";
 import * as os from "node:os";
 import * as path from "node:path";
+import { promisify } from "node:util";
 import { fileURLToPath } from "node:url";
 import { afterAll, beforeAll, describe, expect, it } from "vitest";
-import { build } from "../../scripts/bundle-session.mjs";
+
+const execFileP = promisify(execFile);
 
 const here = path.dirname(fileURLToPath(import.meta.url));
+const pkgRoot = path.resolve(here, "../..");
+const script = path.join(pkgRoot, "scripts/bundle-session.mjs");
 const outDir = path.join(here, ".build");
 const bundleFile = path.join(outDir, "session-bundle.mjs");
-// The fixture build uses outdir mode: entries keep their relative layout
+// Fixture builds use the CLI's outdir mode: entries keep their relative layout
 // under .build (both entries live under src/session-bundle).
 const paneLeafFile = path.join(outDir, "__fixtures__", "pane-leaf.js");
 const driftFile = path.join(here, "__fixtures__/drift-leaf.ts");
 
+/** Run the bundler CLI; resolves with combined output, rejects naming stderr. */
+async function runScript(...args: string[]): Promise<string> {
+  try {
+    const { stdout, stderr } = await execFileP(process.execPath, [script, ...args], { cwd: pkgRoot });
+    return `${stdout}${stderr}`;
+  } catch (err) {
+    const e = err as { stdout?: string; stderr?: string; message?: string };
+    throw new Error(`bundle-session failed: ${(e.stderr ?? "") + (e.stdout ?? "") || e.message}`, { cause: err });
+  }
+}
+
+/** The bundle's export surface, per seams.ts LiteSessions plus the extras entry.ts adds. */
 type BundleExports = {
   createSessionBundle(input: unknown): {
-    handlers: { request: Record<string, unknown>; notify: Record<string, unknown> };
+    /** seams.ts: flat partial RequestHandlers channel map. */
+    handlers: Record<string, unknown>;
+    /** additive seam field (src/seams.ts): flat partial notify map. */
+    notify: Record<string, unknown>;
     sessions: {
       browserPaneEnsure(tabId: string): Promise<Record<string, unknown>>;
       /** Public desktop field (BrowserPaneHost); the shim-path proof drives it. */
       browserPanes: { ensure(tabId: string): Promise<Record<string, unknown>> };
       killAll(): void;
     };
-    state(): Promise<Record<string, unknown> & { projects: Array<{ project: { name: string }; sessions: unknown[] }> }>;
+    state(): Promise<
+      Record<string, unknown> & { projects: Array<{ project: { name: string }; sessions: unknown[] }> }
+    >;
     on(cb: (channel: string, args: unknown[]) => void): () => void;
-    dispose(): void;
+    dispose(): Promise<void>;
   };
   CH: Record<string, string>;
   Registry: { load(file: string): { setSetting(key: string, value: unknown): void } & Record<string, never> };
@@ -51,10 +74,10 @@ describe("session bundle", () => {
 
   beforeAll(async () => {
     fs.rmSync(outDir, { recursive: true, force: true });
-    // Build the entry alone first (and with it, prove the gate passes the real
-    // graph), then add the pane-leaf fixture so its swap can be exercised.
-    await build({ outfile: bundleFile });
-    await build({ extraEntries: [path.join(here, "__fixtures__/pane-leaf.ts")], outfile: path.join(outDir, "x") });
+    // The CLI (the CI drift-gate command) builds the real graph into dist/ and
+    // the pane-leaf fixture alongside; both runs must pass the gate.
+    await runScript("--outfile", bundleFile);
+    await runScript("--entry", path.join(here, "__fixtures__/pane-leaf.ts"), "--outfile", path.join(outDir, "x"));
     // Dynamic import: the artifact this loads is BUILT in beforeAll — no
     // static specifier can name a file that does not exist at compile time.
     bundle = (await import(bundleFile)) as BundleExports;
@@ -65,7 +88,7 @@ describe("session bundle", () => {
   });
 
   it("the built bundle is electron-free with node-pty kept external", async () => {
-    await build({ outfile: bundleFile });
+    await runScript("--outfile", bundleFile);
     const js = fs.readFileSync(bundleFile, "utf8");
     expect(js).not.toMatch(/from\s*["']electron["']/);
     expect(js).not.toMatch(/require\(\s*["']electron["']\s*\)/);
@@ -106,7 +129,7 @@ describe("session bundle", () => {
       expect(state).not.toHaveProperty("remotePasswordHash");
       expect(state).not.toHaveProperty("instanceId");
 
-      lite.dispose();
+      await lite.dispose();
     } finally {
       fs.rmSync(base, { recursive: true, force: true });
     }
@@ -120,6 +143,7 @@ describe("session bundle", () => {
       const CH = bundle.CH;
 
       // spawn / terminate(settle) / send(rpc+pty) / interrupt-shaped rails:
+      // request channels on handlers, fire-and-forget rails on notify.
       for (const ch of [
         "getState",
         "spawnSession",
@@ -131,16 +155,14 @@ describe("session bundle", () => {
         "deleteSession",
         "deleteSessionPreview",
         "sessionTranscriptPath",
-        "rpcSend",
-        "ptyWrite",
-        "ptyResize",
-        "shellSpawn",
-        "shellWrite",
-        "shellKill",
         "answerPlanReview",
         "toggleFavorite",
       ]) {
-        expect(lite.handlers.request[CH[ch]] ?? lite.handlers.notify[CH[ch]], ch).toBeTypeOf("function");
+        expect(lite.handlers[CH[ch] as string], ch).toBeTypeOf("function");
+      }
+      for (const ch of ["rpcSend", "ptyWrite", "ptyResize", "shellSpawn", "shellWrite", "shellKill"]) {
+        const target = lite.notify[CH[ch] as string] ?? lite.handlers[CH[ch] as string];
+        expect(target, ch).toBeTypeOf("function");
       }
 
       // Physically-impossible-without-a-window channels: absent, not denied.
@@ -157,10 +179,10 @@ describe("session bundle", () => {
         "fleetTerminalWrite",
         "remoteInstanceNotify",
       ]) {
-        expect(lite.handlers.request[CH[ch]]).toBeUndefined();
-        expect(lite.handlers.notify[CH[ch]]).toBeUndefined();
+        expect(lite.handlers[CH[ch] as string]).toBeUndefined();
+        expect(lite.notify[CH[ch] as string]).toBeUndefined();
       }
-      lite.dispose();
+      await lite.dispose();
     } finally {
       fs.rmSync(base, { recursive: true, force: true });
     }
@@ -176,7 +198,9 @@ describe("session bundle", () => {
 
       // toggleFavorite is the bundle's own handler: it broadcasts. Start from
       // the empty seed so the toggle ADDS the favorite it then reports.
-      await (lite.handlers.request[bundle.CH.toggleFavorite] as (key: string) => Promise<void>)("litellm/Model-Y");
+      await (lite.handlers[bundle.CH.toggleFavorite as string] as (key: string) => Promise<void>)(
+        "litellm/Model-Y",
+      );
       expect(got.length).toBeGreaterThanOrEqual(1);
       const [stateEvent] = got;
       expect(stateEvent?.channel).toBe(bundle.CH.onStateChanged);
@@ -185,9 +209,11 @@ describe("session bundle", () => {
 
       off();
       const before = got.length;
-      await (lite.handlers.request[bundle.CH.toggleFavorite] as (key: string) => Promise<void>)("litellm/Model-Y");
+      await (lite.handlers[bundle.CH.toggleFavorite as string] as (key: string) => Promise<void>)(
+        "litellm/Model-Y",
+      );
       expect(got.length).toBe(before);
-      lite.dispose();
+      await lite.dispose();
     } finally {
       fs.rmSync(base, { recursive: true, force: true });
     }
@@ -209,7 +235,7 @@ describe("session bundle", () => {
       // And through a live-session-shaped rpc tab: without one, the real
       // desktop ladder answers not-live (no spawn runs in this suite).
       expect(await lite.sessions.browserPaneEnsure("tab-1")).toEqual({ status: "not-live" });
-      lite.dispose();
+      await lite.dispose();
     } finally {
       fs.rmSync(base, { recursive: true, force: true });
     }
@@ -219,28 +245,31 @@ describe("session bundle", () => {
     // pane-leaf.ts imports browser-pane-contents BY PATH; the swap map must
     // redirect it (the build succeeds although that desktop file imports
     // electron) and the swapped exports behave as README documents.
-    // Dynamic import (same reason as above): pane-leaf.js is built output of
-    // the preceding bundle() call, absent at compile time.
+    // Dynamic import (same reason as the bundle): pane-leaf.js is built output
+    // of the beforeAll CLI run, absent at compile time.
     const leaf = (await import(paneLeafFile)) as unknown as {
-      makeElectronPaneFactory(denied: () => ReadonlySet<number>): (opts: never) => Promise<never>;
-      clearBrowserPanePartition(partition: string): Promise<void>;
+      makeElectronPaneFactory(): (opts: never) => Promise<never>;
+      clearBrowserPanePartition(): Promise<void>;
     };
     expect(typeof leaf.makeElectronPaneFactory).toBe("function");
-    const factory = leaf.makeElectronPaneFactory(() => new Set());
-    await expect(factory({} as never)).rejects.toThrow(/windowless|no window|headless/i);
-    await expect(leaf.clearBrowserPanePartition("omp-ui-browser-pane")).resolves.toBeUndefined();
+    const factory = leaf.makeElectronPaneFactory();
+    await expect(factory({} as never)).rejects.toThrow(/windowed host|headless/i);
+    await expect(leaf.clearBrowserPanePartition()).resolves.toBeUndefined();
   });
 
-  it("DRIFT GATE: an `import \"electron\"` leaf in the graph fails the build, naming itself", async () => {
+  it(`DRIFT GATE: an import "electron" leaf in the graph fails the CLI build, naming itself`, async () => {
     expect(fs.existsSync(driftFile)).toBe(true);
-    await expect(
-      build({ extraEntries: [driftFile], outfile: path.join(outDir, "gate") }),
-    ).rejects.toThrow(/electron-drift-gate/);
+    await expect(runScript("--entry", driftFile, "--outfile", path.join(outDir, "gate"))).rejects.toThrow(
+      /electron-drift-gate/,
+    );
   });
 });
 
 /** Fake deps copied from packages/desktop/src/main/session-manager.test.ts setup(): the same seams lite ships without a real omp or window. */
-function fakeDeps(bundle: BundleExports, base: string): { deps: Record<string, unknown>; registry: { setSetting(key: string, value: unknown): void } } {
+function fakeDeps(
+  bundle: BundleExports,
+  base: string,
+): { deps: Record<string, unknown>; registry: { setSetting(key: string, value: unknown): void } } {
   const LINEAGE = "omp-ui--proj--11111111-2222-3333-4444-555555555555";
   const SESSION_ID = "01931d8a-6f7e-7000-8000-0000000000aa";
   const PROJECT = path.join(base, "proj");

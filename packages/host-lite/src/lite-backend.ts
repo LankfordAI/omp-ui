@@ -202,10 +202,12 @@ export class LiteBackend implements RemoteHost {
     // this table installs are exactly the CH entries above plus S2's seam.
     return {
       request: request as ChannelTable["request"],
-      // Notify channels belong to S2's LiteSessions when it lands. Until then an
-      // empty table is the honest runtime shape — dispatchNotify ignores unknown
-      // channels — the full-keys type simply cannot express "none are wired yet".
-      notify: {} as ChannelTable["notify"],
+      // S2's LiteSessions ships the notify rails (pty/shell/rpc/tabViewed) on
+      // the optional seam field; a slice without one leaves the transport's
+      // ignore-every-notify shape (dispatchNotify drops unknown channels).
+      notify: {
+        ...this.deps.sessions.notify,
+      } as ChannelTable["notify"],
     };
   }
 }

@@ -166,9 +166,20 @@ export async function build({ extraEntries = [], outfile = null } = {}) {
 }
 
 if (process.argv[1] && fileURLToPath(import.meta.url) === safeRealpath(process.argv[1])) {
+  const argv = process.argv.slice(2);
+  /** @type {string[]} */ const extraEntries = [];
+  let outfile = null;
+  for (let i = 0; i < argv.length; i += 1) {
+    if (argv[i] === "--entry") extraEntries.push(argv[++i]);
+    else if (argv[i] === "--outfile") outfile = argv[++i];
+    else {
+      console.error(`[bundle-session] unknown argument: ${argv[i]}`);
+      process.exit(2);
+    }
+  }
   const started = Date.now();
   try {
-    const result = await build();
+    const result = await build({ extraEntries, outfile });
     const outputs = Object.entries(result.metafile.outputs);
     const [output, info] = outputs.find(([p]) => !p.endsWith(".map")) ?? outputs[0];
     console.log(

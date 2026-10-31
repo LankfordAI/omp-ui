@@ -47,7 +47,19 @@ import {
   SessionManager,
   type SessionManagerDependencies,
 } from "../../../desktop/src/main/session-manager";
-import type { LiteEvent, LiteSessions } from "./seams-shape";
+import type { LiteSessions } from "../seams";
+
+/** One rebroadcast frame; the seam's sink signature (RemoteHost addSink). */
+type LiteSink = (channel: string, args: unknown[]) => void;
+
+/**
+ * The seam shape plus the manager handle: `startLiteFleetMember({ sessions })`
+ * consumes it as a plain LiteSessions; the composition slice may reach the
+ * real SessionManager behind it for its own getters.
+ */
+export interface LiteSessionBundle extends LiteSessions {
+  readonly sessions: SessionManager;
+}
 
 // The bundle owns the two event seams every desktop caller injects: `send`
 // fans per-session frames into the sinks, `broadcast` rebuilds the state and
@@ -88,8 +100,8 @@ const NON_BROADCAST_SETTINGS: readonly string[] = [
  * every window-touching path behind them (page factory, encoders) only runs
  * when a pane channel is dispatched, and lite ships none of those channels.
  */
-export function createSessionBundle(input: LiteSessionBundleDependencies): LiteSessions {
-  const sinks = new Set<LiteEvent>();
+export function createSessionBundle(input: LiteSessionBundleDependencies): LiteSessionBundle {
+  const sinks = new Set<LiteSink>();
   const emit = (channel: string, ...args: unknown[]): void => {
     for (const sink of [...sinks]) sink(channel, args);
   };
@@ -387,7 +399,10 @@ export function createSessionBundle(input: LiteSessionBundleDependencies): LiteS
   } satisfies Partial<SessionBundleNotifyHandlers>;
 
   return {
-    handlers: { request, notify },
+    // The seam's flat request-channel map; lite-backend layers the core-owned
+    // channels (state:get, instance:identity, remote:*) over this.
+    handlers: request,
+    notify,
     sessions: manager,
     state: buildState,
     on: (cb) => {
@@ -396,7 +411,7 @@ export function createSessionBundle(input: LiteSessionBundleDependencies): LiteS
         sinks.delete(cb);
       };
     },
-    dispose: () => {
+    dispose: async () => {
       manager.killAll();
       sinks.clear();
     },
@@ -413,4 +428,4 @@ export { SessionManager, type SessionManagerDependencies } from "../../../deskto
 // Registry/ProviderKeys between the index slice and this bundle) and reads
 // channel names from the same table it dispatches.
 export { CH, Registry, ProviderKeys } from "@omp-ui/core";
-export type { LiteEvent, LiteSessions } from "./seams-shape";
+export type { LiteSessions } from "../seams";

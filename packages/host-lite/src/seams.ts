@@ -1,4 +1,4 @@
-import type { BackendState, RequestHandlers } from "@omp-ui/core";
+import type { BackendState, ChannelTable, RequestHandlers } from "@omp-ui/core";
 
 /**
  * The two contracts the other #1010 slices implement against `@omp-ui/host-lite`.
@@ -32,6 +32,13 @@ export interface LiteKeyCipher {
 export interface LiteSessions {
   /** Session/request channels the member exposes on top of the core table. */
   readonly handlers: Partial<RequestHandlers>;
+  /**
+   * Notify channels (pty/shell/rpc/tabViewed rails). Optional additive field
+   * for S2 (#1010 session-bundle slice): lite-backend.ts merges it into the
+   * table's notify half; a session slice without one ships request channels
+   * only, and the transport ignores every notify channel.
+   */
+  readonly notify?: Partial<ChannelTable["notify"]>;
   /** Current full backend state for this member (before the registry merge). */
   state(): BackendState | Promise<BackendState>;
   /**
