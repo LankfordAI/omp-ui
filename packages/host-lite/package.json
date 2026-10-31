@@ -5,11 +5,16 @@
   "license": "MIT",
   "type": "module",
   "exports": {
-    "./credentials": "./src/credentials/index.ts"
+    "./credentials": "./src/credentials/index.ts",
+    "./fleet-legs": "./src/fleet-legs/index.ts"
   },
   "scripts": {
     "test": "vitest run --passWithNoTests",
     "typecheck": "tsc --noEmit"
+  },
+  "dependencies": {
+    "@omp-ui/core": "*",
+    "@omp-ui/server": "*"
   },
   "devDependencies": {
     "@types/node": "^26.1.2",
