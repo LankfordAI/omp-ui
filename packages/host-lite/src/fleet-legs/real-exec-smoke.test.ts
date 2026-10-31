@@ -1,9 +1,35 @@
-import { describe, expect, it } from "vitest";
+import { execFile } from "node:child_process";
+import * as fs from "node:fs";
+import { promisify } from "node:util";
+import * as path from "node:path";
+import { fileURLToPath } from "node:url";
+import { afterAll, beforeAll, describe, expect, it } from "vitest";
 import type { ChannelTable, FleetRequester } from "@omp-ui/core";
 import { CH, dispatchRequest } from "@omp-ui/core";
 import { createExecLegs } from "./adapters-node";
 import { registerFleetLegs } from "./register-fleet-legs";
 import type { FleetLegsSettings, FleetLegsSettingKey } from "./types";
+
+const execFileP = promisify(execFile);
+const here = path.dirname(fileURLToPath(import.meta.url));
+const pkgRoot = path.join(here, "..", "..");
+// The artifact under test lives in a gitignored .build dir and is removed in
+// afterAll (the same contract bundle.test.ts keeps): dist/ only exists after an
+// explicit build, so the test must not depend on that side effect — and a
+// built bundle left inside src/ would be swept up by the repo's eslint pass.
+const outDir = path.join(here, ".build");
+const smokeBundle = path.join(outDir, "smoke-session-bundle.mjs");
+
+beforeAll(async () => {
+  if (process.platform === "win32") return; // the only consumer skips there
+  await execFileP(process.execPath, [path.join(pkgRoot, "scripts/bundle-session.mjs"), "--outfile", smokeBundle], {
+    cwd: pkgRoot,
+  });
+}, 120_000);
+
+afterAll(() => {
+  fs.rmSync(outDir, { recursive: true, force: true });
+});
 
 const WHO: FleetRequester = { instanceId: "m-1", label: "desk", kind: "agent", sourceTabId: null };
 
@@ -21,7 +47,7 @@ describe("production exec adapter through the member wiring", () => {
       setSetting: <K extends FleetLegsSettingKey>(k: K, v: FleetLegsSettings[K]) => { store[k] = v; },
       projects: [],
     };
-    const legs = await createExecLegs({ commandDeps: { homeDir: () => "/tmp" } });
+    const legs = await createExecLegs({ commandDeps: { homeDir: () => "/tmp" }, bundlePath: smokeBundle });
     const table = registerFleetLegs({ registry: registry as never, host: {
       resources: async () => ({ cpuCount: 1, cpuUtilization: null, totalMemoryBytes: 1, availableMemoryBytes: 1 }),
       projects: async () => [], activity: () => ({ liveSessions: 0, runningTurns: 0 }),
