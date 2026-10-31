@@ -2,3 +2,6 @@
 # the test suite's in-package build output (it must live inside the package so
 # external node-pty/ws/js-yaml resolve from the app tree, never /tmp).
 .build/
+# SEA packaging output (scripts/package-sea.mjs): a copied Node binary + blob,
+# never committed.
+dist-sea/

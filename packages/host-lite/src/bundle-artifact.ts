@@ -1,4 +1,7 @@
+import * as fs from "node:fs";
+import * as path from "node:path";
 import { fileURLToPath } from "node:url";
+import { isSea } from "node:sea";
 
 /**
  * The single desktop-runtime boundary of host-lite (issue #1010): every module
@@ -14,9 +17,14 @@ import { fileURLToPath } from "node:url";
  * production adapters declare seams everywhere else in this package.
  */
 
-/** Default artifact location: `<pkgRoot>/dist/session-bundle.mjs`. */
+/** Default artifact location beside the member: plain-Node runs resolve under
+ * `dist/`; the SEA binary (whose import.meta.url lives inside the blob) falls
+ * back to a session-bundle.mjs next to the executable — the adjacency node-pty
+ * already relies on via NODE_PATH in packaging/omp-ui-lite.service. */
 export function defaultBundlePath(): string {
-  return fileURLToPath(new URL("../dist/session-bundle.mjs", import.meta.url));
+  const candidates = [fileURLToPath(new URL("../dist/session-bundle.mjs", import.meta.url))];
+  if (isSea()) candidates.push(path.join(path.dirname(process.execPath), "session-bundle.mjs"));
+  return candidates.find((p) => fs.existsSync(p)) ?? candidates[0]!;
 }
 
 /** A missing bundle is an install/build error, never a silent empty member. */
