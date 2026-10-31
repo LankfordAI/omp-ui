@@ -1,0 +1,4 @@
+# Bundle artifacts: dist/ is covered by the repo root .gitignore; .build/ holds
+# the test suite's in-package build output (it must live inside the package so
+# external node-pty/ws/js-yaml resolve from the app tree, never /tmp).
+.build/

@@ -229,11 +229,15 @@ export class LiteBackend implements RemoteHost {
     // this table installs are exactly the CH entries above plus S2's seam.
     return {
       request: request as ChannelTable["request"],
-      // The fleet terminal write/size legs ride notifies (S4); S2's LiteSessions
-      // owns every other notify channel when it lands. An empty table remains
-      // the honest runtime shape otherwise — dispatchNotify ignores unknown
-      // channels — the full-keys type simply cannot express "none are wired yet".
-      notify: { ...(this.#fleet?.notify ?? {}) } as ChannelTable["notify"],
+      // Notify rails from both slices: S2's LiteSessions ships the pty/shell/
+      // rpc/tabViewed channels; the fleet terminal write/size legs ride #fleet.
+      // Same precedence as the request side — sessions first, fleet after; a
+      // slice without either leaves the transport's ignore-every-notify shape
+      // (dispatchNotify drops unknown channels).
+      notify: {
+        ...this.deps.sessions.notify,
+        ...(this.#fleet?.notify ?? {}),
+      } as ChannelTable["notify"],
     };
   }
 }
