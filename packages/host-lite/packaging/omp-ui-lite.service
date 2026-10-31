@@ -1,0 +1,16 @@
+[Unit]
+Description=omp-ui lite fleet member
+After=network-online.target
+Wants=network-online.target
+
+[Service]
+Type=simple
+ExecStart=%h/.local/bin/omp-ui-lite serve
+Restart=on-failure
+RestartSec=5
+EnvironmentFile=-%h/.local/share/omp-ui-lite/service.env
+# Honest OS-user trust boundary: no hardening that breaks node-pty spawn trees.
+NoNewPrivileges=true
+
+[Install]
+WantedBy=default.target
