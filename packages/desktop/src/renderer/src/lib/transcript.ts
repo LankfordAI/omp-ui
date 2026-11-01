@@ -1091,10 +1091,9 @@ export function reduceEvent(items: RenderItem[], event: unknown): RenderItem[] {
     case "retry_fallback_applied": {
       const from = strField(event, "from");
       const to = strField(event, "to");
-      return [
-        ...items,
-        markerItem(from && to ? `retry fallback: ${from} → ${to}` : "retry fallback applied", "copper"),
-      ];
+      const reason = strField(event, "reason");
+      const base = from && to ? `retry fallback: ${from} → ${to}` : "retry fallback applied";
+      return [...items, markerItem(reason ? `${base} · ${truncateLabel(reason)}` : base, "copper")];
     }
     // omp emits `retry_fallback_succeeded`; `retry_succeeded` is the older name.
     case "retry_fallback_succeeded":
