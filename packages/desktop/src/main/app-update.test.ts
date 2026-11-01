@@ -380,13 +380,13 @@ describe("AppUpdater.download (deb/rpm/flatpak)", () => {
 
 /** electron-updater double with manual event emission. */
 interface FakeAutoUpdater extends AutoUpdaterLike {
-  checkForUpdates: Mock<() => Promise<{ isUpdateAvailable: boolean }>>;
-  downloadUpdate: Mock<() => Promise<unknown>>;
+  checkForUpdates: Mock<AutoUpdaterLike["checkForUpdates"]>;
+  downloadUpdate: Mock<AutoUpdaterLike["downloadUpdate"]>;
   setFeedURL: Mock<AutoUpdaterLike["setFeedURL"]>;
   addQuitHandler: Mock<() => void>;
   quitAndInstall: Mock<() => void>;
   emitProgress: (percent: number) => void;
-  emitDownloaded: () => void;
+  emitDownloaded: (version?: string) => void;
   emitError: (error: Error) => void;
 }
 
@@ -409,8 +409,8 @@ function makeFakeAutoUpdater(): FakeAutoUpdater {
     quitAndInstall: vi.fn(),
     emitProgress: (percent) =>
       listeners.get("download-progress")?.forEach((cb) => cb({ percent })),
-    emitDownloaded: () =>
-      listeners.get("update-downloaded")?.forEach((cb) => cb({ version: "1.2.0" })),
+    emitDownloaded: (version = "1.2.0") =>
+      listeners.get("update-downloaded")?.forEach((cb) => cb({ version })),
     emitError: (error) =>
       listeners.get("error")?.forEach((cb) => cb(error)),
   } as FakeAutoUpdater;
@@ -742,6 +742,79 @@ describe("AppUpdater.stageForRemoteRequest (fleet remote version update)", () =>
   });
 });
 
+describe("AppUpdater stage ownership (issue #1019)", () => {
+  /** AppImage stage whose electron-updater check parks until released. */
+  function parkedStage(): MadeUpdater & { autoUpdater: FakeAutoUpdater; releaseCheck: () => void } {
+    const autoUpdater = makeFakeAutoUpdater();
+    let releaseCheck: () => void = () => {};
+    const parked = new Promise<void>((res) => {
+      releaseCheck = res;
+    });
+    autoUpdater.checkForUpdates.mockImplementation(async () => {
+      await parked;
+      return { isUpdateAvailable: true };
+    });
+    const made = makeUpdater({
+      fetchImpl: updateFetch({ releaseBody: releaseBody("1.2.0") }),
+      autoUpdaterFactory: async () => autoUpdater,
+      env: { APPIMAGE: "/run/omp-ui.AppImage" },
+      exists: () => false,
+    });
+    return { ...made, autoUpdater, releaseCheck };
+  }
+
+  it("a manual check that joins a quiet stage still downloads it", async () => {
+    const { updater, autoUpdater, releaseCheck } = parkedStage();
+    const background = updater.checkNow(false);
+    await vi.waitFor(() => expect(autoUpdater.checkForUpdates).toHaveBeenCalledTimes(1));
+
+    await updater.checkNow(true); // joins and reveals the in-flight stage
+    expect(updater.state.status).toBe("downloading");
+
+    releaseCheck();
+    await background;
+    expect(autoUpdater.checkForUpdates).toHaveBeenCalledTimes(1);
+    expect(autoUpdater.downloadUpdate).toHaveBeenCalledTimes(1);
+    autoUpdater.emitProgress(42);
+    expect(updater.state.progress).toBe(42);
+    autoUpdater.emitDownloaded();
+    expect(updater.state).toMatchObject({ status: "downloaded", latestVersion: "1.2.0" });
+  });
+
+  it("a check that joins an in-flight stage re-announces it instead of staying on checking", async () => {
+    const { updater, autoUpdater, releaseCheck } = parkedStage();
+    const background = updater.checkNow(false);
+    await vi.waitFor(() => expect(autoUpdater.checkForUpdates).toHaveBeenCalledTimes(1));
+
+    await updater.checkNow(false); // quiet join keeps the quiet posture
+    expect(updater.state.status).toBe("idle");
+    await updater.checkNow(true); // reveal
+    await updater.checkNow(true); // a second manual join keeps the card
+    expect(updater.state.status).toBe("downloading");
+    await updater.checkNow(false); // a background join never hides it
+    expect(updater.state.status).toBe("downloading");
+
+    releaseCheck();
+    await background;
+  });
+
+  it("a Fleet staging request that joins an in-flight stage settles when it completes", async () => {
+    const { updater, autoUpdater, releaseCheck } = parkedStage();
+    autoUpdater.downloadUpdate.mockImplementation(async () => {
+      autoUpdater.emitDownloaded();
+      return [];
+    });
+    const background = updater.checkNow(false);
+    await vi.waitFor(() => expect(autoUpdater.checkForUpdates).toHaveBeenCalledTimes(1));
+
+    const staged = updater.stageForRemoteRequest();
+    await vi.waitFor(() => expect(updater.state.status).toBe("idle")); // joined
+    releaseCheck();
+    expect(await staged).toBe("staged");
+    await background;
+  });
+});
+
 
 describe("AppUpdater update trains (issue #493)", () => {
   const json = (body: unknown) => ({
@@ -946,6 +1019,80 @@ describe("AppUpdater update trains (issue #493)", () => {
     expect(sent.length).toBe(mark);
     expect(autoUpdater.setFeedURL).toHaveBeenCalledTimes(1);
     expect(made.updater.state.latestVersion).toBe("1.0.0-nightly.20260911.abc1234");
+  });
+
+  it("a train switch cancels the old train's in-flight download (issue #1019)", async () => {
+    let train: "stable" | "nightly" = "stable";
+    const nightly = "1.2.0-nightly.20260912T071530.abc1234";
+    const autoUpdater = makeFakeAutoUpdater();
+    const token = { cancel: vi.fn() };
+    autoUpdater.checkForUpdates.mockResolvedValueOnce({ isUpdateAvailable: true, cancellationToken: token });
+    autoUpdater.downloadUpdate.mockImplementationOnce(
+      () =>
+        new Promise<unknown>((_resolve, reject) => {
+          token.cancel.mockImplementation(() => reject(new Error("cancelled")));
+        }),
+    );
+    const made = makeUpdater({
+      getTrain: () => train,
+      fetchImpl: async (url) =>
+        json(url.includes("/tags/nightly") ? nightlyBody(nightly) : releaseBody("1.2.0")),
+      autoUpdaterFactory: async () => autoUpdater,
+      env: { APPIMAGE: "/run/omp-ui.AppImage" },
+    });
+    const stable = made.updater.checkNow(true);
+    await vi.waitFor(() => expect(autoUpdater.downloadUpdate).toHaveBeenCalledWith(token));
+
+    train = "nightly";
+    await made.updater.onTrainChanged();
+    expect(token.cancel).toHaveBeenCalledTimes(1);
+    await stable; // the abandoned stage settled silently
+    expect(statuses()).not.toContain("error");
+    expect(autoUpdater.setFeedURL).toHaveBeenLastCalledWith({
+      provider: "generic",
+      url: "https://github.com/LankfordAI/omp-ui/releases/download/nightly/",
+    });
+    expect(autoUpdater.downloadUpdate).toHaveBeenCalledTimes(2);
+    autoUpdater.emitDownloaded(nightly);
+    expect(made.updater.state).toMatchObject({ status: "downloaded", latestVersion: nightly });
+  });
+
+  it("a new train's stage waits out the old train's in-flight check (issue #1019)", async () => {
+    let train: "stable" | "nightly" = "stable";
+    const nightly = "1.2.0-nightly.20260912T071530.abc1234";
+    const autoUpdater = makeFakeAutoUpdater();
+    let releaseOldCheck: () => void = () => {};
+    const oldCheck = new Promise<void>((res) => {
+      releaseOldCheck = res;
+    });
+    autoUpdater.checkForUpdates.mockImplementationOnce(async () => {
+      await oldCheck;
+      return { isUpdateAvailable: true };
+    });
+    const made = makeUpdater({
+      getTrain: () => train,
+      fetchImpl: async (url) =>
+        json(url.includes("/tags/nightly") ? nightlyBody(nightly) : releaseBody("1.2.0")),
+      autoUpdaterFactory: async () => autoUpdater,
+      env: { APPIMAGE: "/run/omp-ui.AppImage" },
+    });
+    const stable = made.updater.checkNow(false);
+    await vi.waitFor(() => expect(autoUpdater.checkForUpdates).toHaveBeenCalledTimes(1));
+
+    train = "nightly";
+    const switching = made.updater.onTrainChanged();
+    await vi.waitFor(() => expect(made.updater.state.latestVersion).toBe(nightly)); // new stage began
+    // electron-updater would hand a second call the stable check in flight.
+    expect(autoUpdater.checkForUpdates).toHaveBeenCalledTimes(1);
+    expect(autoUpdater.setFeedURL).toHaveBeenCalledTimes(1);
+
+    releaseOldCheck();
+    await switching;
+    await stable;
+    expect(autoUpdater.checkForUpdates).toHaveBeenCalledTimes(2);
+    expect(autoUpdater.downloadUpdate).toHaveBeenCalledTimes(1); // the old stage never downloads
+    autoUpdater.emitDownloaded(nightly);
+    expect(made.updater.state).toMatchObject({ status: "downloaded", latestVersion: nightly });
   });
 });
 describe("resolveAutoUpdater", () => {
