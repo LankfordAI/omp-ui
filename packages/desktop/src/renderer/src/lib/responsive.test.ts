@@ -2,7 +2,7 @@
 import { act, createElement, type ReactNode } from "react";
 import { createRoot, type Root } from "react-dom/client";
 import { afterEach, describe, expect, it, vi } from "vitest";
-import { COMPACT_SHELL_QUERY, useAppViewport, useCompactShell } from "./responsive";
+import { BOOK_POSTURE_QUERY, COMPACT_SHELL_QUERY, useAppViewport, useBookSplitX, useCompactShell } from "./responsive";
 
 (globalThis as Record<string, unknown>).IS_REACT_ACT_ENVIRONMENT = true;
 let root: Root | null = null;
@@ -20,6 +20,7 @@ afterEach(() => {
   document.body.replaceChildren();
   document.documentElement.style.removeProperty("--app-viewport-height");
   vi.restoreAllMocks();
+  delete (window as { viewport?: unknown }).viewport;
 });
 
 describe("responsive viewport hooks", () => {
@@ -66,5 +67,30 @@ describe("responsive viewport hooks", () => {
     act(() => root!.unmount());
     root = null;
     expect(document.documentElement.style.getPropertyValue("--app-viewport-height")).toBe("");
+  });
+
+  it("reports the book-posture split from the right segment", () => {
+    let book = true;
+    const listeners = new Set<(event: MediaQueryListEvent) => void>();
+    vi.stubGlobal("matchMedia", vi.fn((query: string) => ({
+      media: query,
+      get matches() { return query === BOOK_POSTURE_QUERY && book; },
+      addEventListener: (_: string, listener: (event: MediaQueryListEvent) => void) => { if (query === BOOK_POSTURE_QUERY) listeners.add(listener); },
+      removeEventListener: (_: string, listener: (event: MediaQueryListEvent) => void) => listeners.delete(listener),
+    })));
+    const segments = { segments: [{ left: 0 }, { left: 369 }] as { left: number }[] };
+    Object.defineProperty(window, "viewport", { configurable: true, value: segments });
+    const values: (number | null)[] = [];
+    function Probe() { values.push(useBookSplitX()); return null; }
+    mount(createElement(Probe));
+    expect(values.at(-1)).toBe(369);
+    segments.segments = [{ left: 0 }, { left: 200 }, { left: 400 }];
+    act(() => window.dispatchEvent(new Event("resize")));
+    expect(values.at(-1)).toBeNull();
+    segments.segments = [{ left: 0 }, { left: 369 }];
+    act(() => window.dispatchEvent(new Event("resize")));
+    expect(values.at(-1)).toBe(369);
+    act(() => { book = false; listeners.forEach((listener) => listener({ matches: false } as MediaQueryListEvent)); });
+    expect(values.at(-1)).toBeNull();
   });
 });

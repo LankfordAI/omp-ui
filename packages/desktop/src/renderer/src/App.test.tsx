@@ -2,6 +2,7 @@
 import { act } from "react";
 import { createRoot, type Root } from "react-dom/client";
 import { afterEach, beforeEach, describe, expect, it, vi } from "vitest";
+import { COMPACT_SHELL_QUERY, DOCKED_SIDEBAR_QUERY } from "./lib/responsive";
 import { emptySessionRuntime } from "./lib/rpc-types";
 import { backendState } from "./test/fixtures";
 import type { RpcTabState, UiStore } from "./store";
@@ -36,7 +37,19 @@ const { backend } = await import("./backend");
 const { default: App } = await import("./App");
 
 let compact = true;
-const mediaListeners = new Set<(event: MediaQueryListEvent) => void>();
+let docked = false;
+type MediaListener = (event: MediaQueryListEvent) => void;
+const mediaListeners = new Map<string, Set<MediaListener>>();
+
+function mediaMatches(query: string): boolean {
+  return query === COMPACT_SHELL_QUERY ? compact : query === DOCKED_SIDEBAR_QUERY ? docked : false;
+}
+
+function fireMedia(query: string, matches: boolean): void {
+  if (query === COMPACT_SHELL_QUERY) compact = matches;
+  else if (query === DOCKED_SIDEBAR_QUERY) docked = matches;
+  mediaListeners.get(query)?.forEach((listener) => listener({ matches, media: query } as MediaQueryListEvent));
+}
 let root: Root | null = null;
 
 function runtime(patch: Partial<RpcTabState> = {}): RpcTabState {
@@ -121,11 +134,17 @@ const projectState = (): BackendState =>
 
 beforeEach(() => {
   compact = true;
+  docked = false;
   mediaListeners.clear();
-  Object.defineProperty(window, "matchMedia", { configurable: true, value: vi.fn(() => ({
-    get matches() { return compact; },
-    addEventListener: (_: string, listener: (event: MediaQueryListEvent) => void) => mediaListeners.add(listener),
-    removeEventListener: (_: string, listener: (event: MediaQueryListEvent) => void) => mediaListeners.delete(listener),
+  Object.defineProperty(window, "matchMedia", { configurable: true, value: vi.fn((query: string) => ({
+    media: query,
+    get matches() { return mediaMatches(query); },
+    addEventListener: (_: string, listener: MediaListener) => {
+      let set = mediaListeners.get(query);
+      if (!set) mediaListeners.set(query, set = new Set());
+      set.add(listener);
+    },
+    removeEventListener: (_: string, listener: MediaListener) => mediaListeners.get(query)?.delete(listener),
   })) });
   seed();
 });
@@ -148,7 +167,7 @@ describe("compact App shell", () => {
     expect(useStore.getState().compactSurface).toBe("inspector");
     act(() => useStore.setState({ activeTabId: "pty" }));
     expect(useStore.getState().compactSurface).toBeNull();
-    act(() => { useStore.getState().showCompactSurface("sessions"); compact = false; mediaListeners.forEach((listener) => listener({ matches: false } as MediaQueryListEvent)); });
+    act(() => { useStore.getState().showCompactSurface("sessions"); fireMedia(COMPACT_SHELL_QUERY, false); });
     expect(useStore.getState().compactSurface).toBeNull();
   });
 
@@ -158,10 +177,7 @@ describe("compact App shell", () => {
       browserPane: { open: true, fullscreen: false, agentOpened: false, ensure: "available", unavailableReason: null, state: null, frame: null },
     }) } });
     renderApp();
-    act(() => {
-      compact = true;
-      mediaListeners.forEach((listener) => listener({ matches: true } as MediaQueryListEvent));
-    });
+    act(() => fireMedia(COMPACT_SHELL_QUERY, true));
     expect(useStore.getState().compactSurface).toBe("browser-pane");
     act(() => useStore.setState({ activeTabId: "pty" }));
     expect(useStore.getState().compactSurface).toBeNull();
@@ -201,6 +217,35 @@ describe("compact App shell", () => {
     expect(title.className).not.toContain("flex-1");
     expect(title.parentElement!.className).toContain("flex-1");
     expect(title.parentElement!.classList.contains("[app-region:no-drag]")).toBe(false);
+  });
+
+  it("docks the sidebar: the hamburger toggles collapse and the title is plain text (issue #1015)", () => {
+    docked = true;
+    useStore.setState({ sidebarCollapsed: false });
+    renderApp();
+    const nav = document.body.querySelector("nav")!;
+    const controls = [...nav.querySelectorAll<HTMLButtonElement>("button")];
+    expect(controls.length).toBe(2);
+    const title = nav.querySelector("span.flex-1 > span")!;
+    expect(title.tagName).toBe("SPAN");
+    expect(title.closest("button")).toBeNull();
+    const hamburger = controls[0]!;
+    expect(hamburger.querySelector(".sr-only")?.textContent).toBe("collapse sidebar");
+    act(() => hamburger.click());
+    expect(useStore.getState().sidebarCollapsed).toBe(true);
+    expect(useStore.getState().compactSurface).toBeNull();
+    expect(hamburger.querySelector(".sr-only")?.textContent).toBe("expand sidebar");
+    act(() => hamburger.click());
+    expect(useStore.getState().sidebarCollapsed).toBe(false);
+  });
+
+  it("closes the sessions sheet when the sidebar docks (issue #1015)", () => {
+    useStore.setState({ sidebarCollapsed: false });
+    renderApp();
+    act(() => useStore.getState().showCompactSurface("sessions"));
+    expect(useStore.getState().compactSurface).toBe("sessions");
+    act(() => fireMedia(DOCKED_SIDEBAR_QUERY, true));
+    expect(useStore.getState().compactSurface).toBeNull();
   });
 
   it("reserves no native caption strip outside the Electron shell", () => {

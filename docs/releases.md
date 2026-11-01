@@ -4,6 +4,8 @@ This guide explains what users receive from a release and how maintainers publis
 
 ## Unreleased
 
+- On a foldable's inner screen or a small tablet (600–899 pixels wide, at least 600 tall), the compact shell keeps the sidebar docked beside the transcript, collapsible from the top-left control; held half-open like a book, the sidebar fills the left half. #1015
+
 Nothing since [v0.29.0](https://github.com/LankfordAI/omp-ui/releases/tag/v0.29.0). Add one bullet per shipped change here, citing its issue as `#N`; the release tag lifts these into Highlights.
 
 ## Choose a download

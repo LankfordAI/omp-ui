@@ -1698,6 +1698,15 @@ dispatch never sees a conflict. Composer keys and the quick-open's
 `Mod+1`…`Mod+9` are fixed, not keybindings.
 _Avoid_: hotkey profile, keymap, accelerator
 
+**Compact shell**:
+The renderer's layout below 900 pixels wide, for phones, foldables and narrow
+windows: a nav row replaces the title bar, the inspector rail, session actions
+and prompt options become sheets, and the composer sits in flow. Below 600
+pixels in either dimension the sidebar is the sessions sheet; at 600 or more in
+both it stays docked beside the transcript, and on a foldable in book posture it
+fills the segment left of the hinge.
+_Avoid_: mobile mode, phone layout, responsive mode
+
 **Floating composer**:
 The bottom-anchored stack a desktop rpc-ui tab floats over its transcript —
 the pending extension dialog card and the composer card — lifted clear of the
