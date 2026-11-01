@@ -1833,6 +1833,8 @@ export interface UiStore extends SettingsSlice, UpdatesSlice, LabSlice, StatsSli
     itemId?: string,
   ): Promise<void>;
   deferPlanReview(tabId: string): void;
+  /** Declines a live gate without executing or reworking (issue #1012). */
+  dismissPlanReview(tabId: string): Promise<void>;
   showPlanReview(tabId: string): void;
   /** Re-raises the review for an interrupted plan (ADR-0033). */
   representPlan(tabId: string, planFilePath: string, title: string): Promise<void>;

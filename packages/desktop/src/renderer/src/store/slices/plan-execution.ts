@@ -8,6 +8,7 @@ import type {
 } from "@omp-ui/core/types";
 import {
   isHtmlPlanPath,
+  PLAN_DISMISS,
   PLAN_EXECUTE,
   PLAN_REFINE,
   planReviewMessage,
@@ -54,6 +55,8 @@ export interface PlanExecutionSlice {
   ): void;
   refinePlan(tabId: string, notes?: PlanRevisionNotes): void;
   deferPlanReview(tabId: string): void;
+  /** Declines a live gate without executing or reworking (issue #1012). */
+  dismissPlanReview(tabId: string): Promise<void>;
   showPlanReview(tabId: string): void;
   /** Re-raises the review for an interrupted plan (ADR-0033). */
   representPlan(tabId: string, planFilePath: string, title: string): Promise<void>;
@@ -264,7 +267,7 @@ export function createPlanExecutionSlice(
    */
   const acknowledgePlanReview = async (
     tabId: string,
-    verdict: "execute" | "refine",
+    verdict: "execute" | "refine" | "dismiss",
   ): Promise<boolean> => {
     const tab = get().rpc[tabId];
     const review = tab?.planReview;
@@ -658,6 +661,40 @@ export function createPlanExecutionSlice(
     get().reconcileLivePlanReview(tabId);
   };
 
+  const dismissPlanReview = async (tabId: string): Promise<void> => {
+    const gate = get().rpc[tabId]?.planReview;
+    if (!gate) return;
+    const gateKey = planReviewGateKey(gate);
+    const planKey = gate.request?.planFilePath;
+    const settle = (): void => {
+      if (planKey) settlePlanReview(tabId, planKey, "dismissed", gateKey);
+    };
+    if (gate.request !== undefined && isHtmlPlanPath(gate.request.planFilePath)) {
+      // HTML: only main's accepted answer settles the gate (§6). Dismiss needs
+      // the gate identity but NOT unchanged disk bytes (issue #1012).
+      try {
+        const frameId = strField(gate.frame, "id") ?? "";
+        const result = await backend.answerPlanReview(tabId, frameId, "dismiss", null);
+        if (result.status !== "accepted") {
+          // stale / source-changed: the record wins via reconcilePlanGates;
+          // unavailable / channel skew says so once, per ADR-0028 per-call skew.
+          if (result.status === "rejected" && result.reason === "unavailable")
+            m.appendItem(tabId, noticeItem("could not dismiss the plan: no live session", "warn"));
+          return;
+        }
+      } catch (err) {
+        const reason = err instanceof Error ? err.message : String(err);
+        m.appendItem(tabId, noticeItem(`could not dismiss the plan: ${reason}`, "warn"));
+        return;
+      }
+      settle();
+      return;
+    }
+    // Markdown keeps its un-gated semantics: the verdict rides the select reply.
+    if (!answerPlanSelect(tabId, PLAN_DISMISS)) return;
+    settle();
+  };
+
   const showPlanReview = (tabId: string): void => {
     m.patchRpc(tabId, { planDeferred: false });
     get().reconcileLivePlanReview(tabId);
@@ -758,6 +795,7 @@ export function createPlanExecutionSlice(
     executePlan,
     refinePlan,
     deferPlanReview,
+    dismissPlanReview,
     showPlanReview,
     loadPlanText,
     representPlan,

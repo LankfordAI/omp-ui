@@ -787,6 +787,8 @@ export const en = {
   "plan.review.refine": "refine",
   "plan.review.notNow": "not now",
   "plan.review.notNowTitle": "Leave the plan pending — the agent stays paused until you answer here",
+  "plan.review.dismiss": "dismiss",
+  "plan.review.dismissTitle": "Decline this plan — the planner's turn ends without executing or revising it; the file stays on disk",
   "plan.review.backToPlan": "back to plan",
   "plan.review.sendChanges": "send changes",
   "plan.review.ready": "plan ready",
@@ -896,6 +898,7 @@ export const en = {
   "plan.card.executed": "executed",
   "plan.card.refined": "refined",
   "plan.card.invalidated": "invalidated",
+  "plan.card.dismissed": "dismissed",
   "plan.card.show": "show plan",
   "plan.card.proposedPlan": "proposed plan",
   // Plan verification diagnostics (issue #312 follow-up): stable machine
@@ -2541,6 +2544,7 @@ export const en = {
   "rail.plans.representBusy": "Available once the session is idle and no other review is open",
   "rail.plans.dismiss": "dismiss",
   "rail.plans.dismissTitle": "Stop tracking this plan — its file stays on disk",
+  "rail.plans.dismissPendingTitle": "Decline this plan — the agent's turn ends without executing or revising it; the file stays on disk",
 
   "rail.tabs.todos": "todos",
   "rail.tabs.agents": "agents",

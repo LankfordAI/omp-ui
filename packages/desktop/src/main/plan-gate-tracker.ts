@@ -2,6 +2,7 @@ import {
   normalizeControlFrame,
   parsePlanReviewTitle,
   parsePlanStatus,
+  PLAN_DISMISS,
   PLAN_EXECUTE,
   PLAN_STATUS_KEY,
   settleProposedPlan,
@@ -166,7 +167,11 @@ export class PlanGateTracker implements FrameObserver {
     const gate = this.gates.get(tabId);
     if (id === null || !gate || gate.pending === null || gate.pending.frameId !== id) return;
     const key = gate.pending.planFilePath;
-    const verdict = control.value === PLAN_EXECUTE ? "executed" : "refined";
+    const verdict = control.value === PLAN_EXECUTE
+      ? "executed"
+      : control.value === PLAN_DISMISS
+        ? "dismissed"
+        : "refined";
     this.gates.set(tabId, { pending: null, settle: { frameId: id, verdict } });
     this.recordPlans(tabId, (plans) => settleProposedPlan(plans, key, verdict));
     this.deps.attention?.planSettled(tabId);

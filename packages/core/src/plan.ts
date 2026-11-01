@@ -35,18 +35,20 @@ export function planReviewMessage(planFilePath: string, title: string): string {
     : `/${PLAN_COMMAND} review ${planFilePath} ${oneLine}`;
 }
 
-/** The two verdicts the renderer may give the approval `select`.
+/** The three verdicts the renderer may give the approval `select`.
  *
  * `PLAN_EXECUTE` is the single verdict behind every execution context — it
  * tells the agent only that the plan is accepted and it must stop and wait;
  * the renderer then dispatches implementation (same session, compacted, or a
  * fresh session) as a normal prompt. `PLAN_REFINE` sends the agent back to
- * revise the draft. */
+ * revise the draft. `PLAN_DISMISS` declines the plan: neither execute nor
+ * rework; the turn ends (issue #1012). */
 export const PLAN_EXECUTE = "execute";
 export const PLAN_REFINE = "refine";
+export const PLAN_DISMISS = "dismiss";
 
-/** The acknowledged answer's verdict argument (execute lands a gate; refine sends the planner back). */
-export type PlanReviewVerdict = typeof PLAN_EXECUTE | typeof PLAN_REFINE;
+/** The acknowledged answer's verdict argument (execute lands a gate; refine sends the planner back; dismiss declines it and ends the turn). */
+export type PlanReviewVerdict = typeof PLAN_EXECUTE | typeof PLAN_REFINE | typeof PLAN_DISMISS;
 
 /**
  * Result of `answerPlanReview` (issue #312 follow-up): the acknowledge path
