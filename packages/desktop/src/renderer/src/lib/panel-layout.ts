@@ -169,3 +169,25 @@ export function resolveDesktopPanelWidths({
     splitFits: true,
   };
 }
+
+export interface DockedSidebarWidth {
+  sidebarWidth: number;
+  sidebarAllowedMax: number;
+  /** True when the hinge, not the preference, sets the width: no resize handle. */
+  pinned: boolean;
+}
+
+/** The compact shell's docked sidebar: only the transcript reserve is fixed; a book-posture hinge pins the width. */
+export function resolveDockedSidebarWidth(
+  viewportWidth: number,
+  sidebarWidth: number,
+  hingeX: number | null,
+): DockedSidebarWidth {
+  const viewport = Number.isFinite(viewportWidth) ? Math.max(0, viewportWidth) : 0;
+  const sidebarAllowedMax = Math.max(SIDEBAR_MIN_WIDTH, Math.min(SIDEBAR_MAX_WIDTH, viewport - MAIN_CONTENT_MIN_WIDTH));
+  const clampToRoom = (width: number) => Math.max(SIDEBAR_MIN_WIDTH, Math.min(sidebarAllowedMax, width));
+  if (hingeX !== null && Number.isFinite(hingeX)) {
+    return { sidebarWidth: clampToRoom(hingeX), sidebarAllowedMax, pinned: true };
+  }
+  return { sidebarWidth: clampToRoom(clampPanelWidth("sidebar", sidebarWidth)), sidebarAllowedMax, pinned: false };
+}

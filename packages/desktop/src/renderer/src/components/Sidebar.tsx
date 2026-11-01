@@ -5,11 +5,12 @@ import { cn } from "../lib/cn";
 import { formatHotkey, isTypingTarget } from "../lib/hotkeys";
 import { useKeybindingLabel } from "../lib/keybindings";
 import { useDismissal } from "../lib/use-dismissal";
-import { useCompactShell, useViewportWidth } from "../lib/responsive";
+import { useBookSplitX, useCompactShell, useDockedSidebar, useViewportWidth } from "../lib/responsive";
 import {
   SIDEBAR_DEFAULT_WIDTH,
   SIDEBAR_MIN_WIDTH,
   resolveDesktopPanelWidths,
+  resolveDockedSidebarWidth,
 } from "../lib/panel-layout";
 import { buildSidebarLists, type SidebarEntry } from "../lib/sidebar-sessions";
 import { setSettledOpen, useSettledOpen } from "../lib/sidebar-settled";
@@ -438,6 +439,9 @@ export function Sidebar() {
   const settleSessions = useStore((st) => st.settleSessions);
   const snoozeSessions = useStore((st) => st.snoozeSessions);
   const compact = useCompactShell();
+  const docked = useDockedSidebar();
+  const hingeX = useBookSplitX();
+  const sheet = compact && !docked;
   const surface = useStore((st) => st.compactSurface);
   const closeCompactSurface = useStore((st) => st.closeCompactSurface);
   const openFleet = useStore((st) => st.openFleet);
@@ -629,19 +633,24 @@ export function Sidebar() {
     (i) => i.status !== "self" && i.status !== "joined" && i.status !== "connecting",
   ).length;
 
-  // Collapse hides the desktop sidebar entirely; the title bar keeps the
-  // toggle and New session. The compact sheet ignores the desktop collapse.
-  if (!compact && collapsed) return null;
+  // Collapse hides the docked sidebar (desktop and the compact shell's docked
+  // posture); the sessions sheet ignores it.
+  if (!sheet && collapsed) return null;
 
-  const resolvedWidths = resolveDesktopPanelWidths({
-    viewportWidth,
-    sidebarWidth,
-    inspectorWidth,
-    sidebarCollapsed: false,
-    inspectorOpen,
-    split,
-  });
-  const displayedSidebarWidth = previewWidth ?? resolvedWidths.sidebarWidth;
+  const resolved = docked
+    ? resolveDockedSidebarWidth(viewportWidth, sidebarWidth, hingeX)
+    : {
+        ...resolveDesktopPanelWidths({
+          viewportWidth,
+          sidebarWidth,
+          inspectorWidth,
+          sidebarCollapsed: false,
+          inspectorOpen,
+          split,
+        }),
+        pinned: false,
+      };
+  const displayedSidebarWidth = previewWidth ?? resolved.sidebarWidth;
   const headerButton = compact ? "size-9 rounded-md border border-line" : "size-7";
   const settledShown = settledOpen || filtering;
   const workingShown = workingOpen || filtering;
@@ -652,9 +661,9 @@ export function Sidebar() {
       className={cn(
         "ambient relative flex shrink-0 flex-col border-r border-line chrome-sunken",
         !resizing && "transition-[width] duration-200 ease-out-quint",
-        compact && "h-full w-full border-r-0",
+        sheet && "h-full w-full border-r-0",
       )}
-      style={compact ? undefined : { width: displayedSidebarWidth }}
+      style={sheet ? undefined : { width: displayedSidebarWidth }}
     >
       {/* -------- header -------- */}
       <div className="shrink-0 border-b border-line px-3 py-2.5">
@@ -985,13 +994,13 @@ export function Sidebar() {
         </span>
       </footer>
       )}
-      {!compact && (
+      {!sheet && !resolved.pinned && (
         <ResizeHandle
           label={t("sidebar.footer.resize")}
           edge="right"
           value={displayedSidebarWidth}
           min={SIDEBAR_MIN_WIDTH}
-          max={resolvedWidths.sidebarAllowedMax}
+          max={resolved.sidebarAllowedMax}
           defaultValue={SIDEBAR_DEFAULT_WIDTH}
           onPreview={setPreviewWidth}
           onCommit={(width) => {
@@ -1003,7 +1012,7 @@ export function Sidebar() {
       )}
     </aside>
   );
-  return compact ? (
+  return sheet ? (
     <Sheet open={surface === "sessions"} placement="left" label={t("app.compact.sessions")} onClose={closeCompactSurface}>
       {sidebar}
     </Sheet>

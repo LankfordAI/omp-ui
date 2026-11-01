@@ -45,7 +45,7 @@ import { effectiveChord, type KeybindingActionId } from "@omp-ui/core/keybinding
 import { useT, type MessageKey } from "./lib/i18n";
 import { IS_ELECTRON, IS_MAC, IS_WINDOWS } from "./lib/platform";
 import { resetTranscriptScale, stepTranscriptScale } from "./lib/text-scale";
-import { useAppViewport, useCompactShell } from "./lib/responsive";
+import { useAppViewport, useCompactShell, useDockedSidebar } from "./lib/responsive";
 import { tabTitle } from "./lib/tab-title";
 import { findInstance, findOwner, findRecord, isChatTab, useStore } from "./store";
 
@@ -288,6 +288,9 @@ export default function App() {
   const showCompactSurface = useStore((s) => s.showCompactSurface);
   const closeCompactSurface = useStore((s) => s.closeCompactSurface);
   const compact = useCompactShell();
+  const docked = useDockedSidebar();
+  const sidebarCollapsed = useStore((s) => s.sidebarCollapsed);
+  const toggleSidebarCollapsed = useStore((s) => s.toggleSidebarCollapsed);
   useAppViewport();
   // The dialog reads its project from the owning registry — this app's own,
   // or a joined remote instance's (issue #416) — so a removed project (or a
@@ -456,6 +459,12 @@ export default function App() {
     else closeCompactSurface();
   }, [activeTabId, compact, closeCompactSurface, showCompactSurface]);
 
+  // The docked posture shows the sidebar beside the transcript; a sessions
+  // sheet left open from the narrower posture would duplicate it.
+  useEffect(() => {
+    if (docked && useStore.getState().compactSurface === "sessions") closeCompactSurface();
+  }, [docked, closeCompactSurface]);
+
   const visibleTabs = tabs.filter((t) => !t.hidden);
   const activeTab = tabs.find((tab) => tab.tabId === activeTabId);
   // The Lab takes the main pane whole (issue #559): the tabs stay mounted
@@ -488,12 +497,16 @@ export default function App() {
           className="flex min-h-11 shrink-0 items-center gap-1 border-b border-line chrome-void px-[max(0.25rem,var(--safe-left))] pt-[var(--safe-top)] pr-[max(0.25rem,var(--safe-right))] [app-region:drag]"
           style={IS_ELECTRON && TRAFFIC_LIGHT_INSET > 0 ? { paddingLeft: TRAFFIC_LIGHT_INSET } : undefined}
         >
-          <Button variant="ghost" className="h-11 min-w-11 justify-center px-2 text-ink-mid [app-region:no-drag]" onClick={() => showCompactSurface("sessions")}>
+          <Button variant="ghost" className="h-11 min-w-11 justify-center px-2 text-ink-mid [app-region:no-drag]" onClick={docked ? toggleSidebarCollapsed : () => showCompactSurface("sessions")}>
             <IconMenu />
-            <span className="sr-only">{t("app.compact.sessions")}</span>
+            <span className="sr-only">{docked ? t(sidebarCollapsed ? "app.titlebar.expandSidebar" : "app.titlebar.collapseSidebar") : t("app.compact.sessions")}</span>
           </Button>
           <span className="min-w-0 flex-1 text-center">
-            <button type="button" className="max-w-[calc(100%-4rem)] truncate px-2 py-2 text-center font-display text-sm font-semibold [app-region:no-drag]" onClick={() => showCompactSurface("sessions")}>{compactTitle}</button>
+            {docked ? (
+              <span className="max-w-[calc(100%-4rem)] truncate px-2 py-2 text-center font-display text-sm font-semibold">{compactTitle}</span>
+            ) : (
+              <button type="button" className="max-w-[calc(100%-4rem)] truncate px-2 py-2 text-center font-display text-sm font-semibold [app-region:no-drag]" onClick={() => showCompactSurface("sessions")}>{compactTitle}</button>
+            )}
           </span>
           {activeTab?.mode === "rpc-ui" ? (
             <Button variant="ghost" className="relative h-11 min-w-11 justify-center px-2 text-ink-mid [app-region:no-drag]" onClick={() => showCompactSurface("inspector")}>
