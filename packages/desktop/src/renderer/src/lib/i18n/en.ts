@@ -553,6 +553,7 @@ export const en = {
   "composer.live.phaseReady": "hold {key} to talk",
   "composer.live.phaseError": "error",
   "composer.live.phasePending": "…",
+  "composer.live.off": "off",
   "composer.live.roleUser": "you",
   "composer.live.roleAssistant": "assistant",
   "composer.live.audioUnavailable": "omp did not expose the output audio for this reply",

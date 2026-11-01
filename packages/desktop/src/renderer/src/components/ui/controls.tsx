@@ -406,7 +406,7 @@ export function Capsule({
 
 /** Shared classes for an interactive capsule segment. */
 export const CAPSULE_SEGMENT = cn(
-  "flex min-w-0 items-center gap-1 px-1.5",
+  "tap-target flex min-w-0 items-center gap-1 px-1.5",
   "first:rounded-l-[5px] last:rounded-r-[5px]",
   "transition-colors duration-150 hover:bg-hover",
   "disabled:pointer-events-none disabled:text-ink-faint",
@@ -573,7 +573,7 @@ export function Switch({
       disabled={disabled}
       onClick={() => onChange(!on)}
       className={cn(
-        "relative h-4 w-7 shrink-0 rounded-full border transition-colors duration-150",
+        "tap-target relative h-4 w-7 shrink-0 rounded-full border transition-colors duration-150",
         "disabled:pointer-events-none disabled:opacity-35",
         on ? "border-signal-dim bg-signal-wash" : "border-line bg-raised hover:border-line-strong",
       )}

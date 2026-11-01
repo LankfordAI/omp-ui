@@ -486,7 +486,7 @@ export function ModelPalette(props: ModelPaletteProps) {
                     type="button"
                     ref={index === active ? activeRef : null}
                     onClick={() => pickRow(row)}
-                    className="flex min-w-0 flex-1 items-center gap-2 px-3 py-1.5 text-left"
+                    className="model-palette-row flex min-w-0 flex-1 items-center gap-2 px-3 py-1.5 text-left"
                   >
                     <span className="grid w-2 shrink-0 place-items-center">
                       {isCurrent && (props.variant !== "advisor" || !props.inherited) && (
@@ -496,11 +496,11 @@ export function ModelPalette(props: ModelPaletteProps) {
                         />
                       )}
                     </span>
-                    <span className="min-w-0 flex-1">
+                    <span className="model-palette-name min-w-0 flex-1">
                       <span className="block truncate font-display text-sm text-ink">{model.name}</span>
                       <span className="block truncate font-mono text-[10px] text-ink-faint">{modelKey}</span>
                     </span>
-                    <span className="flex shrink-0 items-center gap-1">
+                    <span className="model-palette-chips flex shrink-0 items-center gap-1">
                       {model.reasoning === true && <Chip tone="iris">{t("composer.model.reasoning")}</Chip>}
                       {props.variant === "main" && model.input?.includes("image") === true && (
                         <Chip tone="signal">{t("composer.model.vision")}</Chip>
@@ -526,11 +526,16 @@ export function ModelPalette(props: ModelPaletteProps) {
             })}
           </div>
 
-          <div className="flex items-center gap-3 border-t border-line px-3 py-1.5 text-[10px] text-ink-faint">
-            <span>{t("composer.model.kbdMove")}</span>
-            <span>{t("composer.model.kbdPick")}</span>
-            <span>{t("composer.model.kbdClose")}</span>
-            <span>{t("composer.model.kbdTabs")}</span>
+          <div
+            className={cn(
+              "flex flex-wrap items-center gap-x-3 gap-y-0.5 border-t border-line px-3 py-1.5 text-[10px] text-ink-faint",
+              props.variant !== "main" && "model-palette-kbd",
+            )}
+          >
+            <span className="model-palette-kbd">{t("composer.model.kbdMove")}</span>
+            <span className="model-palette-kbd">{t("composer.model.kbdPick")}</span>
+            <span className="model-palette-kbd">{t("composer.model.kbdClose")}</span>
+            <span className="model-palette-kbd">{t("composer.model.kbdTabs")}</span>
             {props.variant === "main" && (
               <>
                 <span className="flex-1" />
@@ -541,7 +546,7 @@ export function ModelPalette(props: ModelPaletteProps) {
                       onClose();
                       openSettings("providers");
                     }}
-                    className="text-ink-faint underline decoration-dotted hover:text-ink-mid"
+                    className="tap-target text-ink-faint underline decoration-dotted hover:text-ink-mid"
                   >
                     {t("composer.model.providerKeys")}
                   </button>

@@ -512,6 +512,7 @@ export const ko: Partial<Record<MessageKey, string>> = {
   "composer.live.phaseReady": "{key}을(를) 눌러 말하기",
   "composer.live.phaseError": "오류",
   "composer.live.phasePending": "…",
+  "composer.live.off": "꺼짐",
   "composer.live.roleUser": "사용자",
   "composer.live.roleAssistant": "어시스턴트",
   "composer.live.audioUnavailable": "omp가 이 응답의 출력 오디오를 공개하지 않았습니다",
