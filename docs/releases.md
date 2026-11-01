@@ -4,10 +4,7 @@ This guide explains what users receive from a release and how maintainers publis
 
 ## Unreleased
 
-- On a foldable's inner screen or a small tablet (600–899 pixels wide, at least 600 tall), the compact shell keeps the sidebar docked beside the transcript, collapsible from the top-left control; held half-open like a book, the sidebar fills the left half (#1015).
-- You can now **dismiss** a live proposed plan from the plan review or the inspector rail's plan row: the planner's turn ends without executing or revising the plan, plan mode stays on, the plan file stays on disk, and the transcript's plan card shows a *dismissed* chip (#1012).
-
-Nothing since [v0.29.0](https://github.com/LankfordAI/omp-ui/releases/tag/v0.29.0). Add one bullet per shipped change here, citing its issue as `#N`; the release tag lifts these into Highlights.
+Nothing since [v0.30.0](https://github.com/LankfordAI/omp-ui/releases/tag/v0.30.0). Add one bullet per shipped change here, citing its issue as `#N`; the release tag lifts these into Highlights.
 
 ## Choose a download
 
