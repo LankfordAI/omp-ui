@@ -188,7 +188,7 @@ function JobRow({
           >
             <Dot tone={AGENT_TONE[job.status] ?? "neutral"} pulse={running} title={job.status} />
             <span className="shrink-0 font-mono text-[11px] text-ink">{job.id}</span>
-            <span className="min-w-0 flex-1 truncate text-[11px] text-ink-dim" title={job.label}>{job.label}</span>
+            <span className="min-w-0 flex-1 truncate text-[11px] text-ink-dim" title={job.label}>{job.intent ?? job.label}</span>
           </button>
           <Chip mono>{job.type}</Chip>
           {agent !== null && (
@@ -207,6 +207,11 @@ function JobRow({
             </Button>
           )}
         </div>
+        {job.caption !== null && (
+          <p data-job-caption className="mt-0.5 truncate pl-3 text-[10px] text-ink-faint" title={job.caption}>
+            {job.caption}
+          </p>
+        )}
         <div className="mt-0.5 flex items-baseline gap-1.5 pl-3 font-mono text-[10px] text-ink-faint">
           <span>{job.status}</span>
           {job.exitCode !== null && <span>{t("rail.jobs.exit", { code: job.exitCode })}</span>}

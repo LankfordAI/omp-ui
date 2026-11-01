@@ -690,4 +690,45 @@ describe("writeAsyncJobsExtension", () => {
       expect(job.completionPercent).toBe(30);
     }
   });
+
+  it("publishes omp's intent and caption cleaned and clipped; absent keys publish null", async () => {
+    const harness = executableExtension({
+      getAsyncJobSnapshot: () => ({
+        running: [
+          rawJob({ intent: "  Run \u001b[1mthe suite\u001b[0m ", caption: "c".repeat(600) }),
+          rawJob({ id: "bg_2", intent: "", caption: undefined }),
+          rawJob({ id: "bg_3" }),
+        ],
+        recent: [],
+        delivery: null,
+      }),
+      inspectAsyncJob: () => ({ output: "" }),
+    });
+    await bindRoot(harness);
+    await harness.arm();
+    const [first, second, third] = harness.latest().running;
+    expect(first).toMatchObject({ intent: "Run the suite", label: "sleep 30" });
+    expect(first!.caption).toBe("c".repeat(511) + "\u2026");
+    expect(second).toMatchObject({ intent: null, caption: null });
+    expect(third).toMatchObject({ intent: null, caption: null });
+  });
+
+  it("an oversized snapshot drops captions before the job list", async () => {
+    const harness = executableExtension({
+      getAsyncJobSnapshot: () => ({
+        running: Array.from({ length: 600 }, (_, i) =>
+          rawJob({ id: `bg_${i}`, startTime: 1_000 + i, intent: "purpose", caption: "k".repeat(512) }),
+        ),
+        recent: [],
+        delivery: null,
+      }),
+      inspectAsyncJob: () => ({ output: "" }),
+    });
+    await bindRoot(harness);
+    await harness.arm();
+    const snapshot = harness.latest();
+    expect(snapshot.available).toBe(true);
+    expect(snapshot.running).toHaveLength(600);
+    for (const job of snapshot.running) expect(job).toMatchObject({ intent: "purpose", caption: null });
+  });
 });

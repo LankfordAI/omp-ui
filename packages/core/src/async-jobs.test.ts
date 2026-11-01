@@ -29,13 +29,23 @@ function job(overrides: Record<string, unknown> = {}): Record<string, unknown> {
     widget: null,
     completionPercent: null,
     stage: null,
+    intent: null,
+    caption: null,
     ...overrides,
   };
 }
 
+/** A v3 (pre-#1017) wire job: no intent or caption keys (the hybrid rule). */
+function v3Job(overrides: Record<string, unknown> = {}): Record<string, unknown> {
+  const bare: Record<string, unknown> = job();
+  delete bare.intent;
+  delete bare.caption;
+  return { ...bare, ...overrides };
+}
+
 /** A pre-#954 (v1/v2) wire job: no live-widget keys at all (the hybrid rule). */
 function legacyJob(overrides: Record<string, unknown> = {}): Record<string, unknown> {
-  const bare: Record<string, unknown> = job();
+  const bare: Record<string, unknown> = v3Job();
   delete bare.widget;
   delete bare.completionPercent;
   delete bare.stage;
@@ -133,7 +143,25 @@ describe("parseAsyncJobsSnapshot", () => {
     expect(parsed!.running[0]!.widget).toBeNull();
   });
 
-  it("parses a v3 job's live widget, completion estimate, and stage", () => {
+  it("parses a v4 job's purpose and caption", () => {
+    const text = publish({
+      running: [job({ intent: "Run the core suite", caption: "Runs vitest across core; ends when the summary prints" })],
+    });
+    const parsed = parseAsyncJobsSnapshot(text);
+    expect(parsed as AsyncJobsSnapshot).toEqual(JSON.parse(text));
+    expect(parsed!.running[0]).toMatchObject({ intent: "Run the core suite", caption: "Runs vitest across core; ends when the summary prints" });
+  });
+
+  it("a v3 job parses with null intent and caption; a v3 job carrying a v4 key is malformed", () => {
+    const parsed = parseAsyncJobsSnapshot(publish({ version: 3, running: [v3Job({ stage: "x" })], recent: [] }));
+    expect(parsed).not.toBeNull();
+    expect(parsed!.version).toBe(ASYNC_JOBS_SNAPSHOT_VERSION);
+    expect(parsed!.running[0]).toMatchObject({ intent: null, caption: null, stage: "x" });
+    expect(parseAsyncJobsSnapshot(publish({ version: 3, running: [v3Job({ intent: "p" })], recent: [] }))).toBeNull();
+    expect(parseAsyncJobsSnapshot(publish({ version: 3, running: [v3Job({ caption: null })], recent: [] }))).toBeNull();
+  });
+
+  it("parses a v3+ job's live widget, completion estimate, and stage", () => {
     const text = publish({
       running: [
         job({ type: "task", agentId: "A", widget: allBlocksWidget, completionPercent: 42, stage: "writing tests" }),
@@ -173,7 +201,11 @@ describe("parseAsyncJobsSnapshot", () => {
     ["completionPercent -1", job({ completionPercent: -1 })],
     ["an empty stage", job({ stage: "" })],
     ["an empty widget", job({ widget: { title: "Empty", headline: null, stage: null, blocks: [], updatedAt: 1 } })],
-  ])("rejects a malformed v3 job: %s", (_name, running) => {
+    ["a missing intent key", v3Job({ caption: null })],
+    ["a missing caption key", v3Job({ intent: null })],
+    ["an empty intent", job({ intent: "" })],
+    ["a numeric caption", job({ caption: 3 })],
+  ])("rejects a malformed v4 job: %s", (_name, running) => {
     expect(parseAsyncJobsSnapshot(publish({ running: [running] }))).toBeNull();
   });
 
@@ -208,7 +240,7 @@ describe("parseAsyncJobsSnapshot", () => {
     ["an agent with a numeric parentId", publish({ agents: [{ id: "a-1", parentId: 2 }] })],
     ["an agent with an empty id", publish({ agents: [{ id: "", parentId: null }] })],
     ["a v1 hybrid carrying v2 tree keys", JSON.stringify({ ...snapshotV2(), version: 1 })],
-    ["version 4", publish({ version: 4 })],
+    ["version 5", publish({ version: 5 })],
     ["invalid JSON", "{not json"],
     ["undefined", undefined as unknown as string],
   ])("rejects %s", (_name, text) => {
@@ -236,6 +268,8 @@ function rowJob(id: string, overrides: Partial<AsyncJob> = {}): AsyncJob {
     widget: null,
     completionPercent: null,
     stage: null,
+    intent: null,
+    caption: null,
     ...overrides,
   };
 }

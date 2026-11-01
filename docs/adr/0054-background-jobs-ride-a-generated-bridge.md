@@ -94,3 +94,28 @@ Decision:
   not by version.
 - The byte rungs gain one step: before it gives up, the bridge drops widgets
   and keeps the estimate and stage.
+
+## Addendum (issue #1017): the v4 envelope carries purpose and caption
+
+Re-verified against `omp/18.15.0`. The job projection behind `getAsyncJobTree`
+and `getAsyncJobSnapshot` gains two fields: `intent`, the purpose the model gave
+for the call (absent for task jobs and on older omp), and `caption`, the widget
+registry's one-line caption.
+
+- omp writes a caption with the `widget` model role only when `async.widgets` is
+  on, the job is `bash`, it has run for at least 15 s, its widget view has been
+  read (`shown`), and the command is longer than 60 characters or contains a
+  newline, `;`, `|`, `&`, a backtick, or `$(`. The bridge's `inspectAsyncJob`
+  poll already reads the view, so captions are authored for omp-ui sessions
+  without any extra call; the bridge never calls `requestJobCaptions()`, which
+  would author captions for jobs nobody looks at.
+
+Decision:
+
+- The envelope becomes `version: 4`. Every job states `intent` and `caption`,
+  each cleaned, clipped like `label`, and `null` when absent or empty. A missing
+  key is malformed. v1–v3 payloads parse with nulls; an older envelope that
+  carries a v4 key is malformed. Reads go by key presence, not by version.
+- The byte rungs drop captions before they drop widgets; the purpose stays.
+- The Jobs pane names a row by `intent`, falling back to `label`, and keeps the
+  label as the hover title; the caption is a muted line under the row header.

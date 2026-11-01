@@ -138,6 +138,10 @@ interface CollectedJob {
   widget: Record<string, unknown> | null;
   completionPercent: number | null;
   stage: string | null;
+  /** The purpose the model gave (omp 18.15+); null when absent. */
+  intent: string | null;
+  /** The widget role's one-line caption (omp 18.15+); null when absent. */
+  caption: string | null;
 }
 
 interface CollectedAgent {
@@ -496,6 +500,9 @@ export default function (pi: ExtensionApi) {
     const cwd = str(pick("cwd"));
     const agentId = str(job.agentId);
     const ownerId = str(job.ownerId);
+    // Read by key presence: older omp builds have neither key and publish null.
+    const intent = clip(clean(str(job.intent)).trim(), LABEL_LIMIT);
+    const caption = clip(clean(str(job.caption)).trim(), LABEL_LIMIT);
     return {
       id,
       type,
@@ -513,6 +520,8 @@ export default function (pi: ExtensionApi) {
       widget: live,
       completionPercent: progress.completionPercent,
       stage: progress.stage,
+      intent: intent === "" ? null : intent,
+      caption: caption === "" ? null : caption,
     };
   }
 
@@ -564,13 +573,15 @@ export default function (pi: ExtensionApi) {
     return { available: true, unavailable: null, canInspect, canCancel, running: read(record.running), recent: read(record.recent), rootId, agents };
   }
 
-  function shape(job: CollectedJob, tailChars: number, widgets: boolean): Record<string, unknown> {
+  function shape(job: CollectedJob, tailChars: number, widgets: boolean, captions: boolean): Record<string, unknown> {
     const truncated = job.output.length > tailChars;
     return {
       id: job.id,
       type: job.type,
       status: job.status,
       label: job.label,
+      intent: job.intent,
+      caption: captions ? job.caption : null,
       command: job.command,
       cwd: job.cwd,
       startTime: job.startTime,
@@ -587,14 +598,14 @@ export default function (pi: ExtensionApi) {
     };
   }
 
-  function body(c: Collected, tailChars: number, widgets: boolean): Record<string, unknown> {
+  function body(c: Collected, tailChars: number, widgets: boolean, captions: boolean): Record<string, unknown> {
     return {
       available: c.available,
       unavailable: c.unavailable,
       canInspect: c.canInspect,
       canCancel: c.canCancel,
-      running: c.running.map((job) => shape(job, tailChars, widgets)),
-      recent: c.recent.map((job) => shape(job, tailChars, widgets)),
+      running: c.running.map((job) => shape(job, tailChars, widgets, captions)),
+      recent: c.recent.map((job) => shape(job, tailChars, widgets, captions)),
       rootId: c.rootId,
       agents: c.agents,
     };
@@ -603,7 +614,7 @@ export default function (pi: ExtensionApi) {
   function publish(force: boolean, result: KillResult | null): void {
     if (ui === null) return;
     const collected = collect();
-    const full = body(collected, TAIL_CHARS, true);
+    const full = body(collected, TAIL_CHARS, true, true);
     const digest = JSON.stringify(full);
     if (!force && digest === lastDigest) return;
     markActive();
@@ -611,12 +622,13 @@ export default function (pi: ExtensionApi) {
       JSON.stringify(Object.assign({ version: SNAPSHOT_VERSION, processKey, revision: revision + 1 }, b, { result }));
     // An impossible payload degrades rung by rung, never into half a job.
     let json = envelope(full);
-    if (utf8Length(json) > BYTE_LIMIT) json = envelope(body(collected, SHORT_TAIL_CHARS, true));
-    if (utf8Length(json) > BYTE_LIMIT) json = envelope(body(collected, 0, true));
-    // Widgets go before the job list does; the estimate and stage are a few bytes.
-    if (utf8Length(json) > BYTE_LIMIT) json = envelope(body(collected, 0, false));
+    if (utf8Length(json) > BYTE_LIMIT) json = envelope(body(collected, SHORT_TAIL_CHARS, true, true));
+    if (utf8Length(json) > BYTE_LIMIT) json = envelope(body(collected, 0, true, true));
+    // Captions go first, then widgets, before the job list does; the estimate and stage are a few bytes.
+    if (utf8Length(json) > BYTE_LIMIT) json = envelope(body(collected, 0, true, false));
+    if (utf8Length(json) > BYTE_LIMIT) json = envelope(body(collected, 0, false, false));
     if (utf8Length(json) > BYTE_LIMIT) {
-      json = envelope(body(unavailable("background job list exceeded " + BYTE_LIMIT + " bytes"), 0, false));
+      json = envelope(body(unavailable("background job list exceeded " + BYTE_LIMIT + " bytes"), 0, false, false));
     }
     revision += 1;
     lastDigest = digest;
