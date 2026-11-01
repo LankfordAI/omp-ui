@@ -40,6 +40,8 @@ function job(overrides: Partial<AsyncJob> = {}): AsyncJob {
     widget: null,
     completionPercent: null,
     stage: null,
+    intent: null,
+    caption: null,
     ...overrides,
   };
 }
