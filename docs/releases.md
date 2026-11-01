@@ -4,6 +4,8 @@ This guide explains what users receive from a release and how maintainers publis
 
 ## Unreleased
 
+- Switching the update train while a check or download is in flight, or checking again mid-download, no longer leaves the update card stuck on "Downloading…" until a restart: a later check joins the running download, and a train switch cancels the old train's download before staging the new one (#1019).
+
 Nothing since [v0.30.0](https://github.com/LankfordAI/omp-ui/releases/tag/v0.30.0). Add one bullet per shipped change here, citing its issue as `#N`; the release tag lifts these into Highlights.
 
 ## Choose a download
@@ -62,7 +64,7 @@ Continue only when the selected file reports `OK`.
 
 ## How application updates behave
 
-Packaged Linux, Windows, and macOS builds check their update train in the background at launch when the omp-ui launch check is enabled: the stable train, the default, reads the latest stable GitHub release, and the nightly train reads the rolling `nightly` prerelease (Settings → Updates, *Update train*). The command palette can run the check on demand. Drafts and prereleases never qualify for the stable train. Background lookup, metadata, and download failures stay silent, as do no-update results. An on-demand check reports its staging progress and failures. Development builds and builds without a valid stamped version do not check.
+Packaged Linux, Windows, and macOS builds check their update train in the background at launch when the omp-ui launch check is enabled: the stable train, the default, reads the latest stable GitHub release, and the nightly train reads the rolling `nightly` prerelease (Settings → Updates, *Update train*). The command palette can run the check on demand. Drafts and prereleases never qualify for the stable train. Background lookup, metadata, and download failures stay silent, as do no-update results. An on-demand check reports its staging progress and failures, including those of a download a background check already started. Development builds and builds without a valid stamped version do not check.
 
 AppImage, NSIS, and macOS installs use `electron-updater`. A background check downloads and verifies a newer release before the update card appears:
 
@@ -73,7 +75,7 @@ AppImage, NSIS, and macOS installs use `electron-updater`. A background check do
 A staged update does not install silently. `Restart now` asks for confirmation when live sessions exist, then quits, installs, and relaunches. `Install when I quit` arms the staged update for the next natural quit and can be undone. A natural quit still goes through the live-session quit guard. Once the user confirms a quit, omp-ui stops its processes; neither update choice preserves running work. After the relaunch, omp-ui reopens the tabs whose sessions were live when it quit; a session that was hibernated or had exited stays dormant in the sidebar.
 On macOS, the wrapper download completes before Squirrel.Mac finishes its native preparation. After `Restart now`, omp-ui immediately displays `Applying update…` and removes the update actions. The app may remain open for several minutes while a large ZIP is prepared, then quits and relaunches automatically. A native preparation failure remains visible as an update error instead of leaving an apparently inert restart control.
 
-`Later` on an available offer remembers that release version during background checks. After an auto-updatable package is staged, `Later` only hides the ready card; it does not remove the staged download or undo `Install when I quit`. A manual check bypasses a remembered dismissal. Switching trains clears a remembered dismissal, disarms `Install when I quit`, and re-checks quietly on the new train, so a switch always offers rather than reporting a false up to date.
+`Later` on an available offer remembers that release version during background checks. After an auto-updatable package is staged, `Later` only hides the ready card; it does not remove the staged download or undo `Install when I quit`. A manual check bypasses a remembered dismissal. Switching trains clears a remembered dismissal, disarms `Install when I quit`, cancels a download still in flight on the old train, and re-checks quietly on the new train, so a switch always offers rather than reporting a false up to date.
 
 ### Legacy Linux installs
 

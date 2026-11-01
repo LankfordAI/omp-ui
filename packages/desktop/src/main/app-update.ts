@@ -44,6 +44,10 @@ export function isAutoUpdateFormat(
 ): format is AutoUpdateFormat {
   return format === "appimage" || format === "nsis" || format === "maczip";
 }
+/** electron-updater's CancellationToken, as far as this flow drives it. */
+export interface CancellationTokenLike {
+  cancel(): void;
+}
 /** The slice of electron-updater's AppUpdater this flow uses (6.8.9 API). */
 export interface AutoUpdaterLike {
   autoDownload: boolean;
@@ -60,8 +64,12 @@ export interface AutoUpdaterLike {
   on(event: "download-progress", cb: (p: { percent: number }) => void): void;
   on(event: "update-downloaded", cb: (info: { version: string }) => void): void;
   on(event: "error", cb: (err: Error) => void): void;
-  checkForUpdates(): Promise<{ isUpdateAvailable: boolean } | null>;
-  downloadUpdate(): Promise<unknown>;
+  /** `cancellationToken` accompanies an available update (6.8.9 doCheckForUpdates). */
+  checkForUpdates(): Promise<{
+    isUpdateAvailable: boolean;
+    cancellationToken?: CancellationTokenLike;
+  } | null>;
+  downloadUpdate(cancellationToken?: CancellationTokenLike): Promise<unknown>;
   /**
    * BaseUpdater's idempotent quit-hook registration. electron-updater marks
    * this protected in TypeScript but exposes it at runtime; arming after a
@@ -415,9 +423,21 @@ export class AppUpdater extends UpdateController<AppUpdateState> {
   private installOnQuitArmed = false;
   /** Irreversible installer-handoff guard while quitAndInstall is in flight. */
   private restarting = false;
-  /** Monotonic checkNow token: a newer check (or a train switch)
-   *  supersedes every older in-flight check, which then goes silent. */
+  /** Monotonic checkNow token: a newer check (or a train switch) supersedes
+   *  every older in-flight check before it stages, which then goes silent.
+   *  A stage, once begun, is owned by stageSeq, never by this. */
   private checkGen = 0;
+  /** Stage ownership token (issue #1019): bumped when a stage begins and when a
+   *  train switch abandons one. Only the call that began the current stage
+   *  drives electron-updater for it; a check that finds it in flight joins. */
+  private stageSeq = 0;
+  /** The in-flight stage download's cancellation token; a train switch
+   *  cancels it so the new train never inherits the old train's download. */
+  private stageCancel: CancellationTokenLike | null = null;
+  /** Settles once the last stage's electron-updater work (check + download)
+   *  is over. 6.8.9 hands a concurrent checkForUpdates()/downloadUpdate() the
+   *  call already in flight, so a new stage waits here before setFeedURL. */
+  private updaterIdle: Promise<void> = Promise.resolve();
   /** Pending Fleet remote-staging requests (fleet remote version update),
    *  each tagged with the checkNow generation that drives it: the publish()
    *  choke point settles a waiter when a stage completes, empties, or fails;
@@ -595,7 +615,7 @@ export class AppUpdater extends UpdateController<AppUpdateState> {
     }
     const format = detectPackageFormat(this.deps.env, this.deps.exists, this.deps.platform);
     if (isAutoUpdateFormat(format)) {
-      await this.stageAutoUpdate(release, format, stageVisible, train, gen);
+      await this.stageAutoUpdate(release, format, stageVisible, train);
       return this.state;
     }
     this.publish({ t: "available", release, format: train === "nightly" ? "unknown" : format });
@@ -607,26 +627,44 @@ export class AppUpdater extends UpdateController<AppUpdateState> {
    * sha512/blockmap-verified path; on macOS the staged ZIP is applied through
    * Squirrel.Mac. Background checks expose only the completed state; a manual
    * check makes the same in-flight stage and failures visible.
+   *
+   * Ownership (issue #1019): the call that begins a stage drives it to its end;
+   * a check that finds a stage in flight only joins it. Only a train switch
+   * abandons a stage (stageSeq) — a newer checkGen never does.
    */
   private async stageAutoUpdate(
     release: AppReleaseInfo,
     format: AutoUpdateFormat,
     visible: boolean,
     train: UpdateTrain,
-    gen: number,
   ): Promise<void> {
     if (this.machine.stage !== null) {
-      if (visible && !this.machine.stage.visible) {
-        this.publish({ t: "stage-enter", visible: true, release, format });
-      }
+      // Join: re-announce so this check's check-begin never lingers on
+      // "checking", never hide a stage a manual check revealed, and keep the
+      // stage's own release — update-downloaded is matched against it.
+      this.publish({
+        t: "stage-enter",
+        visible: visible || this.machine.stage.visible,
+        release: this.machine.release ?? release,
+        format,
+      });
       return;
     }
 
+    const seq = ++this.stageSeq;
+    const previous = this.updaterIdle;
+    const { promise: idle, resolve: markIdle } = Promise.withResolvers<void>();
+    this.updaterIdle = idle;
+    let token: CancellationTokenLike | null = null;
     this.publish({ t: "stage-enter", visible, release, format });
     try {
       this.autoUpdater ??= await (this.deps.autoUpdaterFactory ?? defaultAutoUpdaterFactory)();
-      // A superseded check must not touch the shared updater anymore.
-      if (gen !== this.checkGen) return;
+      // electron-updater shares one in-flight check and one in-flight download
+      // across callers: wait out the previous stage's (a train switch cancels
+      // its download) so this stage never inherits the old train's call.
+      await previous;
+      // A train switch abandoned this stage while it waited.
+      if (seq !== this.stageSeq) return;
       const autoUpdater = this.autoUpdater;
       // omp-ui controls when staging begins; electron-updater must not start a
       // second download from its own checkForUpdates() call.
@@ -678,10 +716,12 @@ export class AppUpdater extends UpdateController<AppUpdateState> {
       autoUpdater.allowPrerelease = train === "nightly";
 
       const result = await autoUpdater.checkForUpdates();
-      // A superseded call never publishes for the new generation's stage.
-      if (gen !== this.checkGen) return;
+      // A train switch abandoned this stage during the check.
+      if (seq !== this.stageSeq) return;
       if (result?.isUpdateAvailable) {
-        await autoUpdater.downloadUpdate();
+        token = result.cancellationToken ?? null;
+        this.stageCancel = token;
+        await autoUpdater.downloadUpdate(result.cancellationToken);
       } else {
         // Reports from the flag this call began with, not the stage's
         // current visibility — a reentrant reveal mid-call must not change
@@ -694,14 +734,17 @@ export class AppUpdater extends UpdateController<AppUpdateState> {
       // stage-enter (and updater callbacks) mutate the snapshot across the
       // await; TypeScript retains the stale pre-await null narrowing.
       const currentStage = (this.machine as AppUpdateMachine).stage;
-      // An abandoned check cannot fail a stage the new generation owns.
-      if (gen !== this.checkGen) return;
+      // An abandoned stage stays silent — including its cancelled download.
+      if (seq !== this.stageSeq) return;
       if (currentStage === null) return;
       this.publish({
         t: "stage-failed",
         visible: currentStage.visible,
         message: error instanceof Error ? error.message : String(error),
       });
+    } finally {
+      if (token !== null && this.stageCancel === token) this.stageCancel = null;
+      markIdle();
     }
   }
 
@@ -816,11 +859,15 @@ export class AppUpdater extends UpdateController<AppUpdateState> {
     this.publish({ t: "install-on-quit", on });
   }
 
-  /** Reset the old train's state and quietly check the new train (issue #493). */
+  /** Reset the old train's state, abandon its in-flight stage (cancelling
+   *  its download), and quietly check the new train (issues #493, #1019). */
   async onTrainChanged(): Promise<void> {
     this.deps.setDismissed(null);
     this.installOnQuitArmed = false;
     if (this.autoUpdater !== null) this.autoUpdater.autoInstallOnAppQuit = false;
+    this.stageSeq += 1;
+    this.stageCancel?.cancel();
+    this.stageCancel = null;
     this.publish({ t: "train-changed" });
     await this.checkNow(false);
   }
