@@ -6,6 +6,8 @@ This guide explains what users receive from a release and how maintainers publis
 
 - Switching the update train while a check or download is in flight, or checking again mid-download, no longer leaves the update card stuck on "Downloading…" until a restart: a later check joins the running download, and a train switch cancels the old train's download before staging the new one (#1019).
 - On touch screens, switches, capsule controls (live voice, advisor, Build/Plan, fast tier), and the branch chip keep their drawn size with an invisible 44px tap area instead of growing into 44px blocks. On a narrow screen the model picker wraps a row's capability chips under the model name, provider tabs scroll at full width clear of the close button, and keyboard hints hide on touch-only devices. The prompt options sheet's live voice row reads "off" when idle (#1018).
+- The Jobs pane names each background job by its purpose and shows its caption under the header, using omp 18.15's job intent and caption (#1017).
+- Retry-fallback markers in the transcript now show omp's reason, such as "no credential for <provider>", so a lost login no longer looks like a rate-limit failover (#1016).
 
 ## Choose a download
 
