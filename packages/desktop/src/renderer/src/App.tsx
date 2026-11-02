@@ -4,6 +4,7 @@ import { AppFeedback } from "./components/AppFeedback";
 import { AppUpdateCard } from "./components/AppUpdateCard";
 import { CommandPalette, openPalette } from "./components/CommandPalette";
 import { ChangesViewerHost } from "./components/ChangesViewer";
+import { CornerTools } from "./components/CornerTools";
 import { ImageViewerHost } from "./components/ImageViewer";
 import { BrowserPaneClearDialog } from "./components/BrowserPaneClearDialog";
 import { ShareSessionDialog } from "./components/ShareSessionDialog";
@@ -164,6 +165,10 @@ function TitleBar() {
           <span className="min-w-0 flex-1" />
         </>
       )}
+
+      {/* The focused project's toolbox, parked left of the caption-button
+          inset (issue #1021); it carves its own no-drag box. */}
+      <CornerTools />
 
       {IS_ELECTRON && OVERLAY_INSET > 0 && (
         <div className="h-full shrink-0" style={{ width: OVERLAY_INSET }} />

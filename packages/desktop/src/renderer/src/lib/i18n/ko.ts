@@ -50,6 +50,8 @@ export const ko: Partial<Record<MessageKey, string>> = {
   "quickopen.page.back": "프로젝트로 돌아가기",
   "quickopen.actions.placeholder": "작업 검색…",
   "quickopen.action.openIn": "{target}에서 열기",
+  "cornertools.trigger": "프로젝트 도구",
+  "cornertools.header": "{name} 도구",
   "app.gettingstarted.title": "시작하기",
   "app.gettingstarted.subtitle": "첫 세션까지 네 단계, 그리고 Python 준비 상태 확인. 진행하면 상태가 갱신됩니다.",
   "app.gettingstarted.stepBinary": "omp 에이전트 바이너리 설치",
