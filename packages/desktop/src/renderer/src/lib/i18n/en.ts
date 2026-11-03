@@ -56,6 +56,10 @@ export const en = {
   "quickopen.actions.placeholder": "Search actions…",
   "quickopen.action.openIn": "Open in {target}",
 
+  // CornerTools — the title-bar project tools card (issue #1021)
+  "cornertools.trigger": "Project tools",
+  "cornertools.header": "tools for {name}",
+
   // App getting-started checklist (issue #623)
   "app.gettingstarted.title": "Getting started",
   "app.gettingstarted.subtitle": "Four steps to your first session, plus a Python readiness check. Status updates as you go.",

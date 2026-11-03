@@ -327,6 +327,18 @@ the host answers a question nobody asked. The one remote open target is
 **Remote VS Code open**.
 _Avoid_: project switcher, launcher, project menu
 
+**Corner tools**:
+The collapsible card at the right end of the **Session HUD**'s title bar, just
+left of the native window controls: one icon that expands on hover or click
+into a compact card for the focused project — identity header, New session, the
+Open in VS Code / Files / Terminal targets (or **Remote VS Code open** for a
+remote checkout), and Project settings…. It surfaces the actions the **Project
+quick-open** hides behind its drill-in page; the full action list stays there.
+Pinned by a click, closed by Escape or a click-away; an unpinned card closes
+when the pointer leaves. Worktree opens stay in the **Session HUD**'s worktree
+chip. Absent in the compact shell, where there is no desktop to launch into.
+_Avoid_: quick menu, T3 menu, HUD menu
+
 **Remote VS Code open**:
 Open in VS Code for a **Remote instance**'s project or session, opening VS
 Code on *this* computer in Remote-SSH mode against that member at the
