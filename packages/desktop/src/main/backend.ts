@@ -43,6 +43,8 @@ import {
   mergeWorktreeBranch,
   readMemoryOverview,
   readStatsOverview,
+  readSessionTitles,
+  type SessionTitlesRead,
   readModelsFileModelProviders,
   resolveModelHold,
   readModelSelectorError,
@@ -343,6 +345,8 @@ export class MainBackend {
   /** Main-process log directory; shared with index.ts when it passes one. */
   private readonly logDir: string;
   private readonly breadcrumbs: BreadcrumbSink;
+  /** Env seam for the read-only history.db title lookup (issue #1034). */
+  private readonly historyEnv: NodeJS.ProcessEnv;
   /** This build's version as reported to joiners and the app updater alike. */
   private readonly appVersion: string;
   /** One in-flight export at a time (issue #413). */
@@ -396,11 +400,15 @@ export class MainBackend {
       logDir?: string;
       /** Lifecycle breadcrumb sink; defaults to the silent NO_BREADCRUMBS. */
       breadcrumbs?: BreadcrumbSink;
+      /** Environment consulted to locate omp's history.db for resume titles
+       * (issue #1034); defaults to process.env, injectable for hermetic tests. */
+      historyEnv?: NodeJS.ProcessEnv;
     } = {},
   ) {
     this.registryFile = registryFile;
     this.logDir = opts.logDir ?? path.join(path.dirname(registryFile), "logs");
     this.breadcrumbs = opts.breadcrumbs ?? NO_BREADCRUMBS;
+    this.historyEnv = opts.historyEnv ?? process.env;
     this.appVersion = opts.appVersion ?? app.getVersion();
     this.registry = Registry.load(registryFile);
     // Applied in the constructor, not at boot: spawn() must never be reachable
@@ -2639,6 +2647,12 @@ export class MainBackend {
   }
 
   private async buildState(): Promise<BackendState> {
+    // Issue #1034: one read-only pass over omp's history.db title index per
+    // state build (core opens/closes the connection itself; readSessionTitles
+    // never throws — a missing/foreign/corrupt db degrades to { titles:{},
+    // error } and this `.error` is intentionally swallowed: title gap-fill is
+    // best-effort, "New session" remains the floor).
+    const historyTitles = readSessionTitles(this.historyEnv).titles;
     // Group records by project in one pass; the old per-project filter was
     // O(projects × sessions).
     const byProject = new Map<string, OwnedSessionRecord[]>();
@@ -2658,12 +2672,12 @@ export class MainBackend {
       // writes inside are synchronous — so they run concurrently; one slow disk no
       // longer stalls the rest. Order within a group follows the registry array.
       const sessions = await Promise.all(
-        (byProject.get(project.path) ?? []).map((record) => this.summarize(record)),
+        (byProject.get(project.path) ?? []).map((record) => this.summarize(record, historyTitles)),
       );
       groups.push({ project, sessions });
     }
     // Chats never join a project group (ADR-0059); registry order is newest first.
-    const chats = await Promise.all(chatRecords.map((record) => this.summarize(record)));
+    const chats = await Promise.all(chatRecords.map((record) => this.summarize(record, historyTitles)));
     // Registry order is preserved as-is; the renderer sorts the sidebar by recency.
     return {
       projects: groups,
@@ -2728,7 +2742,14 @@ export class MainBackend {
     };
   }
 
-  private async summarize(record: OwnedSessionRecord): Promise<SessionSummary> {
+  private async summarize(
+    record: OwnedSessionRecord,
+    // Issue #1034: titles read once per buildState from omp's read-only
+    // history.db index, keyed by session id. Gap-fill only — see the fallback
+    // chain below. Raw strings; title-card splitting is a renderer concern
+    // (parseTitleCard at display time).
+    historyTitles: SessionTitlesRead["titles"] = {},
+  ): Promise<SessionSummary> {
     const loc = await resolveSessionLocation(
       this.sessionsRoot,
       this.archiveRoot,
@@ -2764,6 +2785,16 @@ export class MainBackend {
       } catch {
         // Vanished mid-hydrate — render from cached fields.
       }
+    }
+    // Issue #1034 gap-fill: live-file title > cachedTitle > history.db title >
+    // "New session" (applied at the return below). Strictly additive — anything
+    // already titled keeps its title. Deliberately NOT patched into
+    // record.cachedTitle: history.db has no tombstones, so a row may be an
+    // orphan for a deleted session until `omp gc`; caching it would persist a
+    // possibly-stale title into the registry.
+    if (!title?.trim() && record.sessionId) {
+      const historyTitle = historyTitles[record.sessionId]?.title?.trim();
+      if (historyTitle) title = historyTitle;
     }
     const gate = this.sessions.planGate(record.tabId);
     // Ephemeral like the plan gate: omp's runtime in the live child owns goal

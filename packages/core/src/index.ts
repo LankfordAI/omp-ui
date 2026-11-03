@@ -300,6 +300,12 @@ export {
 } from "./plan";
 export { readMemoryOverview } from "./memory-store";
 export {
+  historyDbCandidates,
+  readSessionTitles,
+  type SessionTitleEntry,
+  type SessionTitlesRead,
+} from "./history-store";
+export {
   autoresearchCandidateKeys,
   autoresearchDbPath,
   autoresearchProjectKey,

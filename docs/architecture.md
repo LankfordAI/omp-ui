@@ -685,6 +685,10 @@ The F4 renderer slice (#767) derives its surfaces from the transcript alone. `re
 
 OMP exposes no memory command over rpc-ui. Core therefore reads mnemopi SQLite banks directly with `node:sqlite`, one read-only connection per request, and writes none. There is a single memory channel, `memory:overview`. The renderer sends `projectCwd`, never a database path; main resolves and confines both banks itself. Reads coexist with OMP's WAL writer. omp-ui discovers existing project banks and does not derive or create their hashed names. The settings surface reports configured banks but does not claim to show the exact memories OMP injected into a running session. See [ADR-0017](adr/0017-memory-pane-reads-mnemopi-sqlite-directly.md).
 
+### Session history reads
+
+Core reads omp's `~/.omp/agent/history.db` directly with `node:sqlite` (`packages/core/src/history-store.ts`), one read-only connection per call, closed in `finally`, writing nothing — the same discipline as the Memory, autoresearch, and stats stores, and the renderer never sends a database path. omp 18.16 is where concurrent reads of agent.db and history.db became safe upstream (the OFD-lock fix, upstream issue #15586 / PR #17833); regardless of that hardening, omp-ui MUST stay read-only and short-lived on omp-owned databases forever. history.db carries session titles with no tombstones: rows for deleted sessions linger until `omp gc`, so omp-ui uses them only as a gap-fill title source behind the session-file/cached title chain ([#1034](https://github.com/LankfordAI/omp-ui/issues/1034)), never as a liveness signal.
+
 ## ACP is deliberately unwrapped
 
 omp already provides an Agent Client Protocol server over stdio:
