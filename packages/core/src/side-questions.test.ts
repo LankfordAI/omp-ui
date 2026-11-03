@@ -5,7 +5,10 @@ import {
   btwEntryFileName,
   btwSnapshotFromRecords,
   btwTopicFromRecord,
+  formatBtwInjectText,
+  getBtwInject,
   parseBtwRecord,
+  splitBtwInject,
 } from "./side-questions";
 
 const turn = {
@@ -277,5 +280,66 @@ describe("applyBtwDelta", () => {
 
   it("has nothing to append to without a snapshot", () => {
     expect(applyBtwDelta(null, "a", "x")).toBeNull();
+  });
+});
+
+describe("btw <inject> blocks (omp ≥ 18.16, issue #1029)", () => {
+  it("takes the complete block even when prose mentions the opener first", () => {
+    const answer = "I'll wrap it in <inject> tags:\n<inject>\n  Stop retrying the build.\n</inject>";
+    expect(getBtwInject(answer)).toBe("Stop retrying the build.");
+    const parts = splitBtwInject(answer)!;
+    expect(parts.before).toBe("I'll wrap it in <inject> tags:\n");
+    expect(parts.closed).toBe(true);
+  });
+
+  it("pairs the last opener with the first close after it: a stray close in prose cannot capture", () => {
+    expect(getBtwInject("<inject>Stop.</inject> The delimiter is </inject>.")).toBe("Stop.");
+    const parts = splitBtwInject("<inject>Stop.</inject> The delimiter is </inject>.")!;
+    expect(parts.inject).toBe("Stop.");
+  });
+
+  it("reports an unclosed block as streaming and never offers it for injection", () => {
+    expect(splitBtwInject("thinking…\n<inject>Stop the")).toEqual({
+      before: "thinking…\n",
+      inject: "Stop the",
+      after: "",
+      closed: false,
+    });
+    expect(getBtwInject("thinking…\n<inject>Stop the")).toBeUndefined();
+  });
+
+  it("returns undefined with no tags at all", () => {
+    expect(splitBtwInject("plain answer, no block here")).toBeUndefined();
+    expect(getBtwInject("plain answer, no block here")).toBeUndefined();
+  });
+
+  it("treats blank, whitespace-only and control-only blocks as nothing to inject", () => {
+    expect(getBtwInject("<inject></inject>")).toBeUndefined();
+    expect(getBtwInject("<inject>   \n\t  </inject>")).toBeUndefined();
+    expect(getBtwInject("<inject>\x1b[31m\x1b[0m</inject>")).toBeUndefined();
+  });
+
+  it("strips ANSI from the block text", () => {
+    expect(getBtwInject("<inject>Stop \x1b[31mnow\x1b[0m.</inject>")).toBe("Stop now.");
+    expect(formatBtwInjectText("\x1b]0;window title\x07keep\x1b\x07!\x85")).toBe("keep!");
+  });
+
+  it("expands tabs to three spaces and trims the ends", () => {
+    expect(formatBtwInjectText("a\tb")).toBe("a   b");
+    expect(getBtwInject("<inject>\n\tStop.\n</inject>")).toBe("Stop.");
+  });
+
+  it("takes the last opener's block when several are closed", () => {
+    expect(getBtwInject("<inject>a<inject>b</inject>")).toBe("b");
+    expect(getBtwInject("<inject>first</inject>\n<inject>second</inject>")).toBe("second");
+  });
+
+  it("preserves the prose around the block, whitespace and all", () => {
+    expect(splitBtwInject("before:\n<inject>\nDo it.\n</inject>\nafter prose")).toEqual({
+      before: "before:\n",
+      inject: "\nDo it.\n",
+      after: "\nafter prose",
+      closed: true,
+    });
   });
 });

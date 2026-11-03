@@ -42,6 +42,8 @@ export type SideQuestionsSlice = Pick<
   | "cancelSideQuestion"
   | "refreshSideQuestions"
   | "sideQuestionTitles"
+  | "sideQuestionInjects"
+  | "injectSideQuestion"
   | "runSideCommand"
   | "refreshSideCommands"
 >;
@@ -281,12 +283,54 @@ export function createSideQuestionsSlice(
     }
   };
 
+  /**
+   * Send one `<inject>` block's text to the tab's main session (issue #1029).
+   * Upstream BtwController `#inject` semantics: admitted = sent, and a drop
+   * or refusal before the ack returns the block to pending. omp has no rpc
+   * send verb (verified against v18.16.0 rpc-btw.ts), so the client composes
+   * the prompt itself: steer while the tab runs, otherwise a new turn, and
+   * `sendPrompt` always emits the `prompt` frame with `streamingBehavior`
+   * like Composer does (omp ignores it while idle). One mark per answer is
+   * omp-ui state only — the once-per-answer rule lives here.
+   */
+  const injectSideQuestion = async (
+    tabId: string,
+    turnKey: string,
+    text: string,
+  ): Promise<boolean> => {
+    // Once per answer: a sent or in-flight block dispatches nothing more.
+    if (get().sideQuestionInjects[tabId]?.[turnKey] !== undefined) return false;
+    if (text.trim() === "") return false;
+    const setMark = (mark: "sending" | "injected" | null): void => {
+      const next: Record<string, "sending" | "injected"> = {
+        ...get().sideQuestionInjects[tabId],
+      };
+      if (mark === null) delete next[turnKey];
+      else next[turnKey] = mark;
+      set({
+        sideQuestionInjects: { ...get().sideQuestionInjects, [tabId]: next },
+      });
+    };
+    setMark("sending");
+    const running = get().rpc[tabId]?.status === "running";
+    const ok = await get().sendPrompt(tabId, text, running ? "steer" : "prompt");
+    if (ok) {
+      setMark("injected");
+      return true;
+    }
+    // Refused or rejected before the ack: back to pending, retry allowed.
+    setMark(null);
+    return false;
+  };
+
   return {
     sideQuestionTitles: loadSideQuestionTitles(),
+    sideQuestionInjects: {},
     runSideQuestionCommand,
     askSideQuestion,
     cancelSideQuestion,
     refreshSideQuestions,
+    injectSideQuestion,
     runSideCommand,
     refreshSideCommands,
   };

@@ -1355,6 +1355,135 @@ describe("Side questions pane (issue #775)", () => {
     expect(img).toBeDefined();
   });
 
+  // #1029: omp ≥ 18.16 drafts steering prompts in an <inject> block; the pane
+  // railes them and offers one "inject into main session" send per answer.
+  describe("btw inject blocks (issue #1029)", () => {
+    const INJECT_ANSWER = "It is looping.\n<inject>Stop retrying the build.</inject>\nThat should do it.";
+    type SentFrame = { id?: string; type?: string; message?: string; streamingBehavior?: string };
+    const promptFrames = (): SentFrame[] =>
+      backendMock.rpcSend.mock.calls
+        .map((call) => call[1] as SentFrame)
+        .filter((frame) => frame.type === "prompt");
+    // The ack the bridge sends for a `prompt` command (jobs kill above uses
+    // the same frame shape): settles rpcCommand's pending wait.
+    function ackPrompt(frame: SentFrame, success: boolean): void {
+      act(() => {
+        useStore.getState().handleRpcFrame(TAB, {
+          type: "response",
+          id: frame.id,
+          command: "prompt",
+          success,
+          data: {},
+        });
+      });
+    }
+    // Drain the whole await chain from ack → sendPrompt → injectSideQuestion
+    // → the block's own .then (several promise ticks, not one).
+    const flush = (): Promise<void> =>
+      act(async () => {
+        for (let i = 0; i < 10; i++) await Promise.resolve();
+      });
+    const injectButton = (): HTMLButtonElement | undefined =>
+      [...document.body.querySelectorAll<HTMLButtonElement>("button")].find(
+        (b) => b.textContent === t("rail.btw.injectAction"),
+      );
+    function expandTopic(question: string): void {
+      const row = [...document.body.querySelectorAll<HTMLButtonElement>("button[aria-expanded]")].find(
+        (b) => b.textContent?.includes(question),
+      )!;
+      act(() => row.click());
+    }
+    function renderWithTopic(answer: string, ompVersion: string): void {
+      useStore.setState({
+        // The once-per-answer marks live only in the store; the file's
+        // beforeEach does not reset them, so each case starts unmarked.
+        sideQuestionInjects: {},
+        rpc: {
+          [TAB]: runtime({
+            capabilities: cap(ompVersion),
+            sideQuestions: snapshot({ topics: [topic("a", "why is it looping?", "complete", answer)] }),
+          }),
+        },
+      });
+      renderRail();
+      openPane("side questions");
+      expandTopic("why is it looping?");
+    }
+
+    it("sends the block once per answer on the latest completed turn and marks it injected", async () => {
+      renderWithTopic(INJECT_ANSWER, "18.16.0");
+      expect(document.body.textContent).toContain("It is looping.");
+      expect(document.body.textContent).toContain("That should do it.");
+      const btn = injectButton();
+      expect(btn).toBeDefined();
+      // A second click while the send is in flight dispatches nothing more.
+      act(() => {
+        btn!.click();
+        btn!.click();
+      });
+      const frames = promptFrames();
+      expect(frames).toHaveLength(1);
+      expect(frames[0]).toMatchObject({ message: "Stop retrying the build.", streamingBehavior: "steer" });
+      ackPrompt(frames[0]!, true);
+      await flush();
+      expect(document.body.textContent).toContain(t("rail.btw.injected"));
+      expect(injectButton()).toBeUndefined();
+      // Once per answer at the store level too: a direct re-send is refused.
+      let ok = true;
+      await act(async () => {
+        ok = await useStore.getState().injectSideQuestion(TAB, "a:0", "Stop retrying the build.");
+      });
+      expect(ok).toBe(false);
+      expect(promptFrames()).toHaveLength(1);
+    });
+
+    it("renders the block as plain text when the omp predates the inject gate", () => {
+      renderWithTopic(INJECT_ANSWER, "18.14.0");
+      expect(injectButton()).toBeUndefined();
+      // The whole answer, tags and all, stays in the prose.
+      expect(document.body.textContent).toContain("Stop retrying the build.");
+      expect(promptFrames()).toHaveLength(0);
+    });
+
+    it("offers no affordance for an unclosed block in a finished answer", () => {
+      renderWithTopic("Working on it.\n<inject>Stop ret", "18.16.0");
+      expect(injectButton()).toBeUndefined();
+      expect(document.body.textContent).toContain("<inject>Stop ret");
+    });
+
+    it("a refused send returns the affordance with a notice and a retry dispatches again", async () => {
+      renderWithTopic(INJECT_ANSWER, "18.16.0");
+      act(() => injectButton()!.click());
+      const frames = promptFrames();
+      expect(frames).toHaveLength(1);
+      ackPrompt(frames[0]!, false);
+      await flush();
+      // Back to pending with the failure notice, and retrying sends a new frame.
+      expect(document.body.textContent).toContain(t("rail.btw.injectFailed"));
+      const retry = injectButton();
+      expect(retry).toBeDefined();
+      act(() => retry!.click());
+      expect(promptFrames()).toHaveLength(2);
+    });
+
+    it("railes the running card's closed block without a send button", () => {
+      useStore.setState({
+        rpc: {
+          [TAB]: runtime({
+            capabilities: cap("18.16.0"),
+            sideQuestions: snapshot({
+              active: { topicId: "t", question: "in flight", answer: "Looping.\n<inject>Hold off.</inject>" },
+            }),
+          }),
+        },
+      });
+      renderRail();
+      openPane("side questions");
+      expect(document.body.textContent).toContain("Hold off.");
+      expect(injectButton()).toBeUndefined();
+    });
+  });
+
   it("selects and opens the pane when another surface asks for it", () => {
     renderRail();
     expect(button("collapse inspector")).toBeNull();

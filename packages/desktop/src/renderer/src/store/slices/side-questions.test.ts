@@ -405,3 +405,94 @@ describe("side commands in a native tab (issue #955)", () => {
     expect(prompts()).toEqual([`/${SIDE_COMMANDS_COMMAND}`]);
   });
 });
+
+// The rail's "Inject into main session" send (issue #1029): the block's text
+// rides UiStore's own prompt path — steer while the tab runs, a new turn
+// otherwise — and the once-per-answer mark is omp-ui state only.
+function setupInject(status: "ready" | "running"): void {
+  h.backendState = h.stateWithRecord("sess-1");
+  h.sent.length = 0;
+  h.useStore.setState({
+    state: h.backendState,
+    tabs: [tabInfo({ tabId: h.TAB, mode: "rpc-ui" })],
+    rpc: {
+      [h.TAB]: rpcTabState({ status, capabilities: capabilities("18.16.0") }),
+    },
+    railPaneFocus: {},
+    sideQuestionInjects: {},
+  });
+}
+
+const inject = (turnKey: string, text: string): Promise<boolean> =>
+  h.useStore.getState().injectSideQuestion(h.TAB, turnKey, text);
+const injectMark = (turnKey: string): "sending" | "injected" | undefined =>
+  h.useStore.getState().sideQuestionInjects[h.TAB]?.[turnKey];
+
+describe("btw <inject> sends to the main session (issue #1029)", () => {
+  it("steers a running tab exactly once and marks the answer injected", async () => {
+    setupInject("running");
+    const sending = inject("t1:0", "Stop retrying.");
+    await h.flushMicrotasks();
+    expect(h.sent.filter(({ cmd }) => cmd.type === "prompt")).toHaveLength(1);
+    expect(commands("prompt")).toMatchObject([
+      { type: "prompt", message: "Stop retrying.", streamingBehavior: "steer" },
+    ]);
+    expect(injectMark("t1:0")).toBe("sending");
+    const [frame] = h.sent.filter(({ cmd }) => cmd.type === "prompt");
+    h.respond(frame!.tabId, frame!.cmd, {}, true);
+    await expect(sending).resolves.toBe(true);
+    expect(injectMark("t1:0")).toBe("injected");
+
+    // Once per answer: a second click dispatches nothing and resolves false.
+    await expect(inject("t1:0", "Stop retrying.")).resolves.toBe(false);
+    expect(h.sent.filter(({ cmd }) => cmd.type === "prompt")).toHaveLength(1);
+  });
+
+  it("dispatches the identical prompt frame while the tab is idle", async () => {
+    setupInject("ready");
+    const sending = inject("t1:0", "Stop retrying.");
+    await h.flushMicrotasks();
+    // The wire is identical either way; routing rides route/streamingBehavior.
+    expect(commands("prompt")).toMatchObject([
+      { type: "prompt", message: "Stop retrying.", streamingBehavior: "steer" },
+    ]);
+    const [frame] = h.sent.filter(({ cmd }) => cmd.type === "prompt");
+    h.respond(frame!.tabId, frame!.cmd, {}, true);
+    await expect(sending).resolves.toBe(true);
+    expect(injectMark("t1:0")).toBe("injected");
+  });
+
+  it("a rejected send returns the block to pending and a retry dispatches again", async () => {
+    setupInject("running");
+    const sending = inject("t1:0", "Stop retrying.");
+    await h.flushMicrotasks();
+    const [frame] = h.sent.filter(({ cmd }) => cmd.type === "prompt");
+    h.respond(frame!.tabId, frame!.cmd, "boom", false);
+    await expect(sending).resolves.toBe(false);
+    expect(injectMark("t1:0")).toBeUndefined();
+
+    const retry = inject("t1:0", "Stop retrying.");
+    await h.flushMicrotasks();
+    const frames = h.sent.filter(({ cmd }) => cmd.type === "prompt");
+    expect(frames).toHaveLength(2);
+    h.respond(frames[1]!.tabId, frames[1]!.cmd, {}, true);
+    await expect(retry).resolves.toBe(true);
+    expect(injectMark("t1:0")).toBe("injected");
+  });
+
+  it("refuses blank text with zero frames and no mark", async () => {
+    setupInject("running");
+    await expect(inject("t1:0", "   ")).resolves.toBe(false);
+    expect(h.sent).toEqual([]);
+    expect(injectMark("t1:0")).toBeUndefined();
+  });
+
+  it("a tab without capabilities or command admission refuses with zero frames", async () => {
+    setupInject("ready");
+    // No rpc entry at all: sendPrompt's own admission guard answers false.
+    h.useStore.setState({ rpc: {} });
+    await expect(inject("t1:0", "Stop retrying.")).resolves.toBe(false);
+    expect(h.sent).toEqual([]);
+    expect(injectMark("t1:0")).toBeUndefined();
+  });
+});

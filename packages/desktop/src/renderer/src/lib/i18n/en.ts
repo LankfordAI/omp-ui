@@ -2588,6 +2588,11 @@ export const en = {
   "rail.btw.sideCommandGone": "{command} is no longer a side command. Send it again to run it as a prompt.",
   "rail.btw.sendFailed": "The side question could not be sent to the session.",
   "rail.btw.refreshLabel": "reload side questions",
+  // omp ≥ 18.16 drafts steering prompts in an inject block (issue #1029).
+  "rail.btw.injectAction": "inject into main session",
+  "rail.btw.injected": "injected into main session",
+  "rail.btw.injecting": "sending…",
+  "rail.btw.injectFailed": "The steering prompt was not sent — try again.",
   // Seance consult (issue #885): the eighth rail pane and its dialog.
   "rail.tabs.seance": "seance",
   "rail.seance.emptyTitle": "No Seance consults yet",

@@ -1893,6 +1893,10 @@ export interface UiStore extends SettingsSlice, UpdatesSlice, LabSlice, StatsSli
   cancelSideQuestion(tabId: string): Promise<void>;
   /** Asks the bridge to re-read `btw-history/` and republish. */
   refreshSideQuestions(tabId: string): Promise<void>;
+  /** omp-ui-side btw `<inject>` send marks, per tab by `topicId:turnIndex` (omp-ui state only; omp keeps no send state over rpc — issue #1029). */
+  sideQuestionInjects: Readonly<Record<string, Readonly<Record<string, "sending" | "injected">>>>;
+  /** Send a `<inject>` block's text to the tab's main session once: steer while running, else a new turn. False when already sent/in flight, refused, or the send failed (retry by calling again). */
+  injectSideQuestion(tabId: string, turnKey: string, text: string): Promise<boolean>;
   /** One subagent verb (issues #684, #713) on omp's native rpc command; the response settles it, never a transcript row. */
   steerSubagent(tabId: string, agentId: string, text: string): Promise<void>;
   killSubagent(tabId: string, agentId: string): Promise<void>;

@@ -14,6 +14,13 @@
 // store opens remains omp's loader's job, not this file's. omp ≥ 18.13.0
 // records carry per-turn `images`, and omp resends earlier turns' images
 // itself on a follow-up.
+//
+// omp ≥ 18.16.0 drafts steering instructions inside an `<inject>…</inject>`
+// block in the answer text (issue #1029). The extraction below mirrors
+// upstream v18.16.0 `packages/tui/src/overlays/btw-history.ts`
+// (`splitBtwInject`) exactly, and rpc-ui streams answer text verbatim —
+// verified against upstream v18.16.0 `rpc-btw.ts`: no server-side strip and
+// no wire verb, so the block reaches this file intact.
 
 /** Cap on one question, checked before anything is sent (never silently truncated). */
 export const BTW_QUESTION_CHAR_LIMIT = 32_000;
@@ -328,4 +335,74 @@ export function applyBtwDelta(
   // The running card reads `active`, so the streamed answer must land there
   // too; re-deriving keeps it equal to the running topic's latest turn.
   return touched ? { ...snapshot, topics, active: deriveActive(topics) } : snapshot;
+}
+
+// ---------------------------------------------------------- <inject> blocks
+
+const INJECT_OPEN = "<inject>";
+const INJECT_CLOSE = "</inject>";
+
+/**
+ * An answer split around omp's steering block. Mirrors upstream v18.16.0
+ * `btw-history.ts` `splitBtwInject` exactly: `after` resumes immediately past
+ * the closing tag, so prose after the block keeps its leading whitespace.
+ */
+export interface BtwInjectParts {
+  before: string;
+  inject: string;
+  after: string;
+  /** False while no opener has a close: the block may still be streaming, so it runs to the end. */
+  closed: boolean;
+}
+
+/**
+ * Linear scan, no regex: the LAST opener that has ANY close after it is the
+ * block, paired with the FIRST close after that opener, so an `<inject>` or
+ * `</inject>` merely mentioned in prose cannot capture the block. With no
+ * closed block, a trailing bare opener is treated as a block still streaming.
+ */
+export function splitBtwInject(answer: string): BtwInjectParts | undefined {
+  const lastClose = answer.lastIndexOf(INJECT_CLOSE);
+  const open =
+    lastClose === -1 ? -1 : answer.lastIndexOf(INJECT_OPEN, lastClose - INJECT_OPEN.length);
+  if (open !== -1) {
+    const close = answer.indexOf(INJECT_CLOSE, open + INJECT_OPEN.length);
+    return {
+      before: answer.slice(0, open),
+      inject: answer.slice(open + INJECT_OPEN.length, close),
+      after: answer.slice(close + INJECT_CLOSE.length),
+      closed: true,
+    };
+  }
+  const streaming = answer.lastIndexOf(INJECT_OPEN);
+  if (streaming === -1) return undefined;
+  return {
+    before: answer.slice(0, streaming),
+    inject: answer.slice(streaming + INJECT_OPEN.length),
+    after: "",
+    closed: false,
+  };
+}
+
+// Upstream v18.16.0 sanitizeDisplayText, in its order: CSI (final byte @-~,
+// bracketed intermediate params allowed), then OSC terminated by BEL or ST,
+// then lone ESC/BEL, then the remaining C0 controls (keeping \n and \t) and
+// the C1 range.
+// eslint-disable-next-line no-control-regex -- stripping them is the point
+const ANSI_PATTERN = /\x1b\[[0-?]*[ -/]*[@-~]|\x1b\][^\x07\x1b]*(?:\x07|\x1b\\)|\x1b|\x07|[\x00-\x08\x0b-\x1f\u0080-\u009f]/g;
+
+/** Upstream DEFAULT_TAB_WIDTH: every tab becomes exactly three spaces. */
+const INJECT_TAB_SPACES = "   ";
+
+/** A block's text as shown and as sent: control sequences stripped, tabs expanded (3 spaces), trimmed. */
+export function formatBtwInjectText(inject: string): string {
+  return inject.replace(ANSI_PATTERN, "").replace(/\t/g, INJECT_TAB_SPACES).trim();
+}
+
+/** The steering prompt to send, exactly as the block shows it; undefined while unclosed or blank. */
+export function getBtwInject(answer: string): string | undefined {
+  const parts = splitBtwInject(answer);
+  if (parts === undefined || !parts.closed) return undefined;
+  const text = formatBtwInjectText(parts.inject);
+  return text.length > 0 ? text : undefined;
 }

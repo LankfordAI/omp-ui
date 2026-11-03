@@ -1,8 +1,22 @@
-import { useEffect, useMemo, useState, type FormEvent } from "react";
-import type { BtwImage, BtwTopic, BtwTurnStatus } from "@omp-ui/core/side-questions";
+import {
+  useEffect,
+  useMemo,
+  useState,
+  type FormEvent,
+  type ReactNode,
+} from "react";
+import {
+  formatBtwInjectText,
+  splitBtwInject,
+  type BtwImage,
+  type BtwInjectParts,
+  type BtwTopic,
+  type BtwTurnStatus,
+} from "@omp-ui/core/side-questions";
 import { relativeTime } from "../lib/format";
 import { useT } from "../lib/i18n";
 import { cn } from "../lib/cn";
+import { supportsBtwInject } from "../lib/btw-inject";
 import { NATIVE_BTW_MIN_OMP, supportsNativeBtw } from "../lib/native-btw";
 import { useStore } from "../store";
 import { openImageViewer } from "./ImageViewer";
@@ -17,7 +31,10 @@ import { Button, Chip, Empty, IconButton, IconRefresh, type Tone } from "./ui";
  * file slash command whose frontmatter sets `side: true` opens here too,
  * titled by the command as typed (#955), and turns show their attached images.
  * Below the native-command version floor it renders itself unavailable and
- * dispatches nothing.
+ * dispatches nothing. On omp ≥ 18.16 an answer may draft a steering prompt
+ * inside an `<inject>` block: the pane shows it as a railed mono block, and on
+ * the topic's latest completed turn it offers one "inject into main session"
+ * send per answer (issue #1029).
  */
 
 const STATUS_TONE: Record<BtwTurnStatus, Tone> = {
@@ -121,6 +138,112 @@ function TurnImages({ images }: { images: readonly BtwImage[] }) {
   );
 }
 
+/**
+ * The railed display of one answer's `<inject>` block (issue #1029). The
+ * store mark drives the label row so remounts keep the sent state; a failed
+ * send returns the block to pending with a local retry notice. Only the
+ * latest completed turn is sendable (`sendable`); running/earlier turns show
+ * the block alone, plus any mark it already carries.
+ */
+function InjectBlock({
+  tabId,
+  turnKey,
+  parts,
+  sendable,
+}: {
+  tabId: string;
+  turnKey: string | undefined;
+  parts: BtwInjectParts;
+  sendable: boolean;
+}) {
+  const t = useT();
+  const mark = useStore((s) =>
+    turnKey === undefined ? undefined : s.sideQuestionInjects[tabId]?.[turnKey],
+  );
+  const injectSideQuestion = useStore((s) => s.injectSideQuestion);
+  const [failed, setFailed] = useState(false);
+  const text = formatBtwInjectText(parts.inject);
+  const send = (): void => {
+    if (turnKey === undefined) return;
+    setFailed(false);
+    void injectSideQuestion(tabId, turnKey, text).then((ok) => {
+      if (ok) return;
+      // A refusal with no mark left by anyone else (another send or a blank
+      // block): back to pending, so say the send did not happen.
+      if (useStore.getState().sideQuestionInjects[tabId]?.[turnKey] === undefined)
+        setFailed(true);
+    });
+  };
+  return (
+    <div className="space-y-1">
+      <div
+        className={cn(
+          "rounded-r border-l-2 bg-sunken px-2 py-1.5 font-mono text-[11px] leading-relaxed",
+          mark === "injected" ? "border-signal-dim text-ink-mid" : "border-copper-dim/60 text-ink-mid",
+        )}
+      >
+        {text.split("\n").map((line, index) => (
+          <p key={index} className="whitespace-pre-wrap break-words">
+            {line === "" ? "\u00a0" : line}
+          </p>
+        ))}
+      </div>
+      {(mark !== undefined || (sendable && text !== "")) && (
+        <div className="space-y-0.5">
+          {mark === "injected" ? (
+            <span className="text-[11px] text-signal">{`\u2197 ${t("rail.btw.injected")}`}</span>
+          ) : mark === "sending" ? (
+            <Button size="xs" variant="outline" disabled>
+              {t("rail.btw.injecting")}
+            </Button>
+          ) : (
+            <Button size="xs" variant="outline" onClick={send}>
+              {t("rail.btw.injectAction")}
+            </Button>
+          )}
+          {failed && (
+            <p role="alert" className="text-[11px] text-rose">
+              {t("rail.btw.injectFailed")}
+            </p>
+          )}
+        </div>
+      )}
+    </div>
+  );
+}
+
+/** Where an answer renders, and whether its `<inject>` block may be sent. */
+interface AnswerContext {
+  tabId: string;
+  /** The 18.16 gate: off, every answer is plain Markdown as before. */
+  injectGate: boolean;
+  /** True while the turn streams: an unclosed block still shows railed. */
+  running: boolean;
+  turnKey: string | undefined;
+  sendable: boolean;
+}
+
+/**
+ * One answer as prose around its `<inject>` block (issue #1029). An unclosed
+ * block is only ever a railed display while the turn runs — once the answer
+ * is finished, upstream leaves it plain text, and so do we.
+ */
+function renderAnswer(answer: string, ctx: AnswerContext): ReactNode {
+  const parts = ctx.injectGate ? splitBtwInject(answer) : undefined;
+  if (parts === undefined || (!parts.closed && !ctx.running)) {
+    return <Markdown text={answer} className={ANSWER_CLASS} />;
+  }
+  const before = parts.before.trim() !== "";
+  const after = parts.after.trim() !== "";
+  return (
+    <>
+      {before && <Markdown text={parts.before} className={ANSWER_CLASS} />}
+      <InjectBlock tabId={ctx.tabId} turnKey={ctx.turnKey} parts={parts} sendable={ctx.sendable && parts.closed} />
+      {after && <Markdown text={parts.after} className={ANSWER_CLASS} />}
+    </>
+  );
+}
+
 function TopicCard({
   topic,
   title,
@@ -128,6 +251,8 @@ function TopicCard({
   onToggle,
   followUpDisabled,
   onFollowUp,
+  tabId,
+  injectGate,
 }: {
   topic: BtwTopic;
   title?: string;
@@ -135,6 +260,8 @@ function TopicCard({
   onToggle: () => void;
   followUpDisabled: boolean;
   onFollowUp: (question: string) => void;
+  tabId: string;
+  injectGate: boolean;
 }) {
   const t = useT();
   const label = t(STATUS_LABEL_KEY[topic.status]);
@@ -165,7 +292,16 @@ function TopicCard({
             <div key={index} className="space-y-1">
               {index > 0 && <p className="text-[12px] font-medium leading-snug text-ink">{turn.question}</p>}
               {turn.images !== undefined && turn.images.length > 0 && <TurnImages images={turn.images} />}
-              {turn.answer !== "" && <Markdown text={turn.answer} className={ANSWER_CLASS} />}
+              {turn.answer !== "" &&
+                renderAnswer(turn.answer, {
+                  tabId,
+                  injectGate,
+                  running: turn.status === "running",
+                  // Matches upstream getBtwTurnKey; only the latest completed
+                  // turn gets the send (issue #1029).
+                  turnKey: `${topic.id}:${index}`,
+                  sendable: index === topic.turns.length - 1 && turn.status === "complete",
+                })}
               {turn.status === "running" && turn.answer === "" && (
                 <p className="text-[11px] text-ink-faint">{t("rail.btw.thinking")}</p>
               )}
@@ -193,6 +329,9 @@ export function SideQuestionsPane({ tabId }: { tabId: string }) {
   const snapshot = useStore((s) => s.rpc[tabId]?.sideQuestions) ?? null;
   const native = useStore((s) =>
     supportsNativeBtw(s.rpc[tabId]?.capabilities?.ompVersion ?? null),
+  );
+  const injectGate = useStore((s) =>
+    supportsBtwInject(s.rpc[tabId]?.capabilities?.ompVersion ?? null),
   );
   const askSideQuestion = useStore((s) => s.askSideQuestion);
   const cancelSideQuestion = useStore((s) => s.cancelSideQuestion);
@@ -265,7 +404,15 @@ export function SideQuestionsPane({ tabId }: { tabId: string }) {
           {active.answer === "" ? (
             <p className="text-[11px] text-ink-faint">{t("rail.btw.thinking")}</p>
           ) : (
-            <Markdown text={active.answer} className={ANSWER_CLASS} />
+            renderAnswer(active.answer, {
+              tabId,
+              injectGate,
+              running: true,
+              // The running turn is the topic's latest; it is never sendable —
+              // a steering block only goes out once its answer is complete.
+              turnKey: `${active.topicId}:${(activeTopic?.turns.length ?? 1) - 1}`,
+              sendable: false,
+            })
           )}
         </div>
       )}
@@ -287,6 +434,8 @@ export function SideQuestionsPane({ tabId }: { tabId: string }) {
                 onToggle={() => setExpanded((current) => (current === topic.id ? null : topic.id))}
                 followUpDisabled={busy || unavailable}
                 onFollowUp={(question) => void askSideQuestion(tabId, question, topic.id)}
+                tabId={tabId}
+                injectGate={injectGate}
               />
             ))}
         </div>

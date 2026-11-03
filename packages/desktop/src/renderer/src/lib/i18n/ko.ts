@@ -2404,6 +2404,11 @@ export const ko: Partial<Record<MessageKey, string>> = {
   "rail.btw.sideCommandGone": "{command}은(는) 더 이상 곁가지 명령이 아닙니다. 다시 보내면 일반 프롬프트로 실행됩니다.",
   "rail.btw.sendFailed": "곁가지 질문을 세션에 보내지 못했습니다.",
   "rail.btw.refreshLabel": "곁가지 질문 다시 불러오기",
+  // omp 18.16 이상은 inject 블록 안에 조종 프롬프트를 작성합니다 (issue #1029).
+  "rail.btw.injectAction": "메인 세션에 주입",
+  "rail.btw.injected": "메인 세션에 주입됨",
+  "rail.btw.injecting": "전송 중…",
+  "rail.btw.injectFailed": "조종 프롬프트가 전송되지 않았습니다 — 다시 시도하세요.",
   // Seance 문의 (issue #885): 여덟 번째 레일 패널과 대화 상자.
   "rail.tabs.seance": "영혼 문의",
   "rail.seance.emptyTitle": "아직 Seance 문의가 없습니다",
