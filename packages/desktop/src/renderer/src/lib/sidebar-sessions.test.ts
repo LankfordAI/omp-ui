@@ -375,6 +375,67 @@ describe("Working and Snoozed sections (issue #935)", () => {
   });
 });
 
+describe("background work in flight (issue #1026)", () => {
+  it("moves a live session with background work but no running turn into working", () => {
+    const state = backendState({
+      projects: [group("/a", "alpha", [session("bg", { turnRunning: false })])],
+    });
+    const lists = buildSidebarLists(state, "", new Set(["bg"]));
+    expect(ids(lists.working)).toEqual(["bg"]);
+    expect(lists.active).toEqual([]);
+  });
+
+  it("keeps a background-work row awaiting a human answer in active, not working", () => {
+    const state = backendState({
+      projects: [group("/a", "alpha", [session("bg-asking", { turnRunning: false, awaitingHumanAnswer: true })])],
+    });
+    const lists = buildSidebarLists(state, "", new Set(["bg-asking"]));
+    expect(ids(lists.active)).toEqual(["bg-asking"]);
+    expect(lists.working).toEqual([]);
+  });
+
+  it("keeps a background-work row with a pending plan in active, not working", () => {
+    const pendingPlan = {
+      title: "Pending plan",
+      planFilePath: "local://plan.md",
+      planAbsPath: null,
+      frameId: "pending",
+      proposedAt: "2026-10-26T10:00:00.000Z",
+    };
+    const state = backendState({
+      projects: [group("/a", "alpha", [session("bg-plan", { turnRunning: false, pendingPlan })])],
+    });
+    const lists = buildSidebarLists(state, "", new Set(["bg-plan"]));
+    expect(ids(lists.active)).toEqual(["bg-plan"]);
+    expect(lists.working).toEqual([]);
+  });
+
+  it("pin and snooze outrank background work", () => {
+    const state = backendState({
+      snoozedSectionEnabled: true,
+      projects: [
+        group("/a", "alpha", [
+          session("bg-pin", { turnRunning: false, pinnedAtMs: 1_000 }),
+          session("bg-snoozed", { turnRunning: false, snoozed: true }),
+        ]),
+      ],
+    });
+    const lists = buildSidebarLists(state, "", new Set(["bg-pin", "bg-snoozed"]));
+    expect(ids(lists.pinned)).toEqual(["bg-pin"]);
+    expect(ids(lists.snoozed)).toEqual(["bg-snoozed"]);
+    expect(lists.working).toEqual([]);
+  });
+
+  it("a tab absent from the set is unaffected", () => {
+    const state = backendState({
+      projects: [group("/a", "alpha", [session("idle", { turnRunning: false })])],
+    });
+    const lists = buildSidebarLists(state, "");
+    expect(ids(lists.active)).toEqual(["idle"]);
+    expect(lists.working).toEqual([]);
+  });
+});
+
 describe("Pinned group (issue #981)", () => {
   it("keeps a live pinned session in pinned mid-turn and snoozed, ordered by pin time, not open order", () => {
     const state = backendState({

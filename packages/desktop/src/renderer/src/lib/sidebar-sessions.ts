@@ -20,7 +20,8 @@ export interface SidebarLists {
   pinned: SidebarEntry[];
   /** live and either not in a turn or blocked on the user (pending plan / human answer), not pinned or snoozed — newest open first. */
   active: SidebarEntry[];
-  /** live with a running turn and not blocked on the user, not pinned or snoozed — newest open first. */
+  /** live with a running turn or a running background job and not blocked on
+   *  the user, not pinned or snoozed — newest open first. */
   working: SidebarEntry[];
   /** snoozed === true and not live-pinned — newest open first. Always empty
    *  while the snoozedSectionEnabled setting is off (issue #935). */
@@ -47,6 +48,8 @@ function matches(entry: SidebarEntry, q: string): boolean {
   );
 }
 
+const EMPTY_TAB_IDS: ReadonlySet<string> = new Set();
+
 /**
  * The sidebar's session lists: every local project session and chat plus
  * every non-self remote instance's sessions, filtered by `query`, sorted
@@ -58,8 +61,18 @@ function matches(entry: SidebarEntry, q: string): boolean {
  * snoozed). Handoffs resolve per host over that host's full session set,
  * before any filtering or partitioning, so a live implementation still
  * finds its settled planning session.
+ *
+ * `backgroundWorkTabIds` carries the tabs whose bridge snapshot reports a running
+ * background job (issue #1026): like a running turn, that work needs nothing from
+ * the user, so those rows join Working. The caller builds the set from its own
+ * renderer state (local rpc-ui tabs only); remote rows never appear in it and keep
+ * the host-published `turnRunning` level alone.
  */
-export function buildSidebarLists(state: BackendState, query: string): SidebarLists {
+export function buildSidebarLists(
+  state: BackendState,
+  query: string,
+  backgroundWorkTabIds: ReadonlySet<string> = EMPTY_TAB_IDS,
+): SidebarLists {
   const entries: SidebarEntry[] = [];
 
   const local: SessionSummary[] = [];
@@ -150,8 +163,12 @@ export function buildSidebarLists(state: BackendState, query: string): SidebarLi
     // from the user (issue #944). Both are host-published levels, so remote rows
     // move too. A terminal session never reports turnRunning, so it can never
     // land in Working; an older remote host's absent latch reads the same way.
+    // Background work that outlives its dispatching turn counts exactly as the
+    // row's chip counts it (issue #851, placement fixed by issue #1026): the
+    // caller passes the local tabs whose async-jobs snapshot has a running job.
     const needsUser = s.pendingPlan !== null || s.awaitingHumanAnswer === true;
-    if (s.turnRunning === true && !needsUser) working.push(entry);
+    const workInFlight = s.turnRunning === true || backgroundWorkTabIds.has(s.tabId);
+    if (workInFlight && !needsUser) working.push(entry);
     else active.push(entry);
   }
   // Pin time is a fixed rule, not a hand-kept order (ADR-0067 rejects manual

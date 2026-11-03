@@ -2,6 +2,7 @@
 import { act } from "react";
 import { createRoot, type Root } from "react-dom/client";
 import { afterEach, beforeEach, describe, expect, it, vi } from "vitest";
+import { ASYNC_JOBS_SNAPSHOT_VERSION, type AsyncJobsSnapshot } from "@omp-ui/core/async-jobs";
 import type { BackendState, OmpUpdateState, RemoteInstanceSummary, SessionSummary } from "@omp-ui/core/types";
 import { backendState, remoteInstance, rpcTabState } from "../test/fixtures";
 import { setSettledOpen } from "../lib/sidebar-settled";
@@ -1197,6 +1198,67 @@ describe("Sidebar Working and Snoozed sections (issue #935)", () => {
       openMenuItems().find((b) => b.textContent === "Unpin")!.click();
     });
     expect(backendMock.setSessionPinned).toHaveBeenCalledWith("watched", false);
+  });
+
+  // issue #1026: a local rpc-ui row whose async-jobs bridge snapshot reports a
+  // running background job belongs in Working even while its turn is idle,
+  // matching the row chip. Snapshot/job literals mirror lib/async-jobs.test.ts.
+  it("moves a live row with a running background job into Working (issue #1026)", () => {
+    const runningSnapshot: AsyncJobsSnapshot = {
+      version: ASYNC_JOBS_SNAPSHOT_VERSION,
+      processKey: "p",
+      revision: 1,
+      available: true,
+      unavailable: null,
+      canInspect: true,
+      canCancel: true,
+      running: [
+        {
+          id: "bg_1",
+          type: "bash",
+          status: "running",
+          label: "l",
+          command: null,
+          cwd: null,
+          startTime: 0,
+          endTime: null,
+          agentId: null,
+          ownerId: null,
+          pids: [],
+          exitCode: null,
+          outputTail: "",
+          outputTruncated: false,
+          widget: null,
+          completionPercent: null,
+          stage: null,
+          intent: null,
+          caption: null,
+        },
+      ],
+      recent: [],
+      rootId: null,
+      agents: [],
+      result: null,
+    };
+    useStore.setState({
+      state: stateWith([sess("bgwork", { turnRunning: false })]),
+      rpc: { bgwork: rpcTabState({ asyncJobs: runningSnapshot }) },
+    });
+    renderSidebar();
+    expect(sectionToggle("Working")!.textContent).toBe("Working (1)");
+    expect(rowButton("bgwork")).toBeDefined();
+    // The row left the main list, and it is live, so no empty state shows.
+    expect(document.body.textContent).not.toContain("No running sessions");
+
+    act(() => {
+      useStore.setState({
+        rpc: { bgwork: rpcTabState({ asyncJobs: { ...runningSnapshot, running: [] } }) },
+      });
+    });
+    expect(sectionToggle("Working")!.textContent).toBe("Working (0)");
+    // Back in the main/active list.
+    expect(rowButton("bgwork")).toBeDefined();
+    expect(document.body.textContent).not.toContain("No running sessions");
   });
 });
 
