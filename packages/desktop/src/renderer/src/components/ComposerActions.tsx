@@ -1,4 +1,4 @@
-import { useEffect, useRef, useState } from "react";
+import { useEffect, useRef, useState, type ReactNode } from "react";
 import type { PromptRoute } from "../lib/rpc-types";
 import type { SubmitRoute } from "./Composer";
 import { cn } from "../lib/cn";
@@ -6,7 +6,7 @@ import { formatHotkey } from "../lib/hotkeys";
 import { useT } from "../lib/i18n";
 import { useDismissal } from "../lib/use-dismissal";
 import { MenuRow } from "./MenuRow";
-import { Button, Chevron, IconButton, Label } from "./ui";
+import { Button, Chevron, IconButton, Label, ProgressRing } from "./ui";
 
 /**
  * The composer's running/idle send cluster, one component across all three
@@ -34,6 +34,7 @@ export function ComposerActions({
   canSend,
   onSubmit,
   onAbort,
+  contextRing = null,
 }: {
   layout: ComposerActionsLayout;
   /**
@@ -51,6 +52,14 @@ export function ComposerActions({
   canSend: boolean;
   onSubmit: (route: SubmitRoute) => void;
   onAbort: () => void;
+  /**
+   * Context-fill halo around the desktop composer's round control: the idle
+   * send button, or the stop button while running (same rightmost slot). Null
+   * renders no ring — before the first usage report the controls are exactly
+   * the plain circles. Ignored by compact/sheet layouts: their primaries are
+   * pills, and a halo traces a circle.
+   */
+  contextRing?: { fraction: number; title: string } | null;
 }) {
   const t = useT();
   const atResetButton = atReset !== null && !running && (
@@ -74,6 +83,19 @@ export function ComposerActions({
           : t("composer.actions.steer");
     return layout === "compact" ? word.charAt(0).toUpperCase() + word.slice(1) : word;
   };
+
+  const haloed = (control: ReactNode) =>
+    contextRing == null ? (
+      control
+    ) : (
+      <span className="relative flex shrink-0 items-center justify-center">
+        <ProgressRing
+          fraction={contextRing.fraction}
+          className="pointer-events-none absolute -inset-[3px] size-[calc(100%+6px)]"
+        />
+        {control}
+      </span>
+    );
 
   if (layout === "sheet") {
     if (!running) return null;
@@ -112,39 +134,49 @@ export function ComposerActions({
   return running ? (
     <>
       <SteerSplit steerLabel={label("steer")} canSend={canSend} onSubmit={onSubmit} />
-      <IconButton
-        label={t("composer.actions.abortLabel")}
-        tone="rose"
-        onClick={onAbort}
-        // The one destructive control here: readable before hover.
-        className="size-7 rounded-full border border-rose-dim/50 bg-rose-wash text-rose"
-      >
-        <svg viewBox="0 0 16 16" fill="none" strokeWidth={1.4} className="size-4">
-          <rect
-            x="4.75"
-            y="4.75"
-            width="6.5"
-            height="6.5"
-            rx="1.25"
-            fill="currentColor"
-            stroke="currentColor"
-          />
-        </svg>
-      </IconButton>
+      {haloed(
+        <IconButton
+          label={t("composer.actions.abortLabel")}
+          tone="rose"
+          onClick={onAbort}
+          // The one destructive control here: readable before hover.
+          className="size-7 rounded-full border border-rose-dim/50 bg-rose-wash text-rose"
+        >
+          <svg viewBox="0 0 16 16" fill="none" strokeWidth={1.4} className="size-4">
+            <rect
+              x="4.75"
+              y="4.75"
+              width="6.5"
+              height="6.5"
+              rx="1.25"
+              fill="currentColor"
+              stroke="currentColor"
+            />
+          </svg>
+        </IconButton>,
+      )}
     </>
   ) : (
     <>
       {atResetButton}
-      <Button
-        variant="solid"
-        disabled={!canSend}
-        title={isSlash ? t("composer.actions.runTitle") : t("composer.actions.sendTitle")}
-        onClick={() => onSubmit("prompt")}
-        className="size-7 shrink-0 justify-center rounded-full p-0"
-      >
-        <IconSend />
-        <span className="sr-only">{label("send")}</span>
-      </Button>
+      {haloed(
+        <Button
+          variant="solid"
+          disabled={!canSend}
+          title={
+            contextRing == null
+              ? isSlash
+                ? t("composer.actions.runTitle")
+                : t("composer.actions.sendTitle")
+              : `${isSlash ? t("composer.actions.runTitle") : t("composer.actions.sendTitle")}\n${contextRing.title}`
+          }
+          onClick={() => onSubmit("prompt")}
+          className="size-7 shrink-0 justify-center rounded-full p-0"
+        >
+          <IconSend />
+          <span className="sr-only">{label("send")}</span>
+        </Button>,
+      )}
     </>
   );
 }

@@ -138,6 +138,48 @@ export function PerimeterSweep({
   );
 }
 
+const RING_TONE = { signal: "stroke-signal", copper: "stroke-copper", rose: "stroke-rose" } as const;
+
+/**
+ * Determinate progress ring: fill sweeps clockwise from 12 o'clock. Tone
+ * escalates with the fraction exactly like Meter, so a filling context window
+ * turns copper then rose without the caller deciding. Traces its host when
+ * rendered as a direct absolute child of a rounded, `relative` host (like
+ * PerimeterSweep); also usable standalone at any square size via className.
+ */
+export function ProgressRing({
+  fraction,
+  strokeWidth = 2,
+  className,
+}: {
+  fraction: number;
+  strokeWidth?: number;
+  className?: string;
+}) {
+  const clamped = Math.min(1, Math.max(0, fraction));
+  const tone = clamped > 0.9 ? "rose" : clamped > 0.7 ? "copper" : "signal";
+  const size = 16;
+  const r = size / 2 - strokeWidth / 2 - 0.5;
+  const circumference = 2 * Math.PI * r;
+  return (
+    <svg viewBox={`0 0 ${size} ${size}`} aria-hidden data-progress-ring className={cn("-rotate-90", className)}>
+      <circle cx={size / 2} cy={size / 2} r={r} fill="none" strokeWidth={strokeWidth} className="stroke-line" />
+      {clamped > 0 && (
+        <circle
+          cx={size / 2}
+          cy={size / 2}
+          r={r}
+          fill="none"
+          strokeWidth={strokeWidth}
+          strokeLinecap="round"
+          className={cn(RING_TONE[tone], "transition-[stroke-dasharray] duration-500")}
+          strokeDasharray={`${clamped * circumference} ${circumference}`}
+        />
+      )}
+    </svg>
+  );
+}
+
 /** The conic ring CSS for a PerimeterGlow: `colors` in order, closed back to the first. */
 export function conicRing(colors: readonly string[], angle: number): string {
   return `conic-gradient(from ${angle}deg, ${colors.join(", ")}, ${colors[0]})`;
