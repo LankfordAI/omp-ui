@@ -1,5 +1,4 @@
 #!/usr/bin/env node
-/* global console, process */
 /**
  * Bundle the desktop session cluster for the headless lite member (issue #1010).
  *

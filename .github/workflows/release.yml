@@ -93,6 +93,34 @@ jobs:
           gh release upload "$GITHUB_REF_NAME" --clobber \
             "${appimages[0]}" \
             latest-linux.yml
+      # Lite fleet member (issue #1010): SEA single-file binary + the adjacent
+      # node_modules payload node-pty cannot live inside a SEA. Asset names
+      # are load-bearing: packaging/install.sh downloads exactly these and its
+      # comment says both sides change together. They stay OUT of
+      # scripts/release-artifacts.mjs's canonical manifest — the .sha256 asset
+      # is their checksum.
+      - name: Build host-lite session bundle and SEA binary
+        run: |
+          npm run bundle -w @omp-ui/host-lite
+          npm run sea -w @omp-ui/host-lite
+      - name: Stage and upload host-lite assets
+        shell: bash
+        env:
+          GH_TOKEN: ${{ secrets.GITHUB_TOKEN }}
+        run: |
+          set -euo pipefail
+          stage="$(mktemp -d)"
+          install -d "$stage/node_modules"
+          # node-pty plus the bundle's runtime externals (bundle-session.mjs):
+          # ws and js-yaml stay external, and argparse rides js-yaml.
+          cp -R node_modules/node-pty node_modules/ws node_modules/js-yaml node_modules/argparse "$stage/node_modules/"
+          tar -czf host-lite-node-pty-linux-x64.tgz -C "$stage" node_modules
+          cp packages/host-lite/dist-sea/omp-ui-lite omp-ui-lite-linux-x64
+          sha256sum omp-ui-lite-linux-x64 > omp-ui-lite-linux-x64.sha256
+          gh release upload "$GITHUB_REF_NAME" --clobber \
+            omp-ui-lite-linux-x64 \
+            omp-ui-lite-linux-x64.sha256 \
+            host-lite-node-pty-linux-x64.tgz
 
   release-notes:
     needs: prepare

@@ -31,7 +31,7 @@ export function defaultBundlePath(): string {
 export class LiteBundleMissingError extends Error {
   constructor(bundlePath: string, cause: unknown) {
     super(
-      `session bundle missing at ${bundlePath} (${cause instanceof Error ? cause.message : String(cause)}); run: npm run bundle:session -w @omp-ui/host-lite`,
+      `session bundle missing at ${bundlePath} (${cause instanceof Error ? cause.message : String(cause)}); run: npm run bundle -w @omp-ui/host-lite`,
       { cause },
     );
     this.name = "LiteBundleMissingError";

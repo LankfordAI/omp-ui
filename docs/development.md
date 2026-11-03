@@ -103,6 +103,24 @@ npm run themes:generate --workspace @omp-ui/desktop
 
 # Fail when committed theme CSS does not match its source.
 npm run themes:check --workspace @omp-ui/desktop
+
+# Rebuild the lite member's session bundle from the real desktop sources —
+# the electron drift gate (a new runtime Electron import in the bundled
+# cluster fails here, loudly). CI runs this every check; it needs no app
+# boot at all.
+npm run bundle -w @omp-ui/host-lite
+
+# Run a headless lite member against a throwaway data dir: plain Node, no
+# window, no display — the same rule #858 sets for verification runs.
+OMP_UI_LITE_HOME=$(mktemp -d) npm run serve -w @omp-ui/host-lite
+
+# Two-instance join proof: one real lite member + one owner-side join, both
+# in-process; prints pass/fail, writes nothing outside its temp dirs.
+npm run proof:join -w @omp-ui/host-lite
+
+# Build the single-file SEA binary (linux-x64 only; needs a pinned
+# linux-x64 Node 22 via OMP_UI_LITE_NODE and the declared postject devDep).
+npm run sea -w @omp-ui/host-lite
 ```
 
 The browser-pane smoke reports `frameProcessMs` for main-thread base64 decoding,

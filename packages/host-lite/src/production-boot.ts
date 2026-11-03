@@ -4,7 +4,7 @@ import { createProductionSessions } from "./production-sessions";
 import { startLiteFleetMember, type LiteInstance } from "./serve";
 
 /**
- * The production boot for `omp-lite serve` (issue #1010): the one place that
+ * The production boot for `omp-ui-lite serve` (issue #1010): the one place that
  * composes the real slices and hands them to the pure `serve` pipeline through
  * its two build seams — `buildSessions` (the session cluster over the built
  * desktop bundle) and `buildFleet` (the fleet member legs). Kept separate from

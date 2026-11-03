@@ -12,7 +12,7 @@ import type { LiteKeyCipher, LiteSessions } from "./seams";
  * The headless `lite` fleet member's boot (issue #1010): data dir → registry →
  * stable instance id → the sessions seam (S2; injected, defaults to an honest
  * empty backend) → LiteBackend as RemoteHost → the remote listener on the
- * bind/port/token persisted in the member's own settings. `omp-lite serve`
+ * bind/port/token persisted in the member's own settings. `omp-ui-lite serve`
  * calls this and nothing else does; tests boot the same pipeline with fakes.
  */
 

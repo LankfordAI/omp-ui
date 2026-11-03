@@ -1,6 +1,6 @@
 /* Fleet-visible join proof (issue #1010 gate 3, CI-safe half): a real member
    booted with its production composition (fake session bundle; the fleet legs
-   built from the bundle artifact — the same wiring `omp-lite serve` uses) is
+   built from the bundle artifact — the same wiring `omp-ui-lite serve` uses) is
    joined by the REAL owner-side RemoteInstanceManager client code. The owner
    sees it `joined`, projects projected, and gets a bounded exec through the
    member's ladder — the machines-list and exec semantics of gate 3 without an

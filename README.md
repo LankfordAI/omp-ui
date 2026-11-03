@@ -23,6 +23,12 @@ both native transcript tabs and terminal tabs for your coding work.
 - Turn on optional remote access to reach the same app and live sessions from
   a browser or phone.
 
+- Join other omp-ui apps — desktop instances or the headless `omp-ui-lite`
+  fleet member ([#1010](https://github.com/LankfordAI/omp-ui/issues/1010), a
+  plain-Node process with its own data dir running the same session code) —
+  as remote instances: their sessions and projects appear here, and agents can
+  dispatch work across the fleet.
+
 - Let omp-ui install and update its managed `omp` binary, and supply provider
   keys to every `omp` process it launches.
 

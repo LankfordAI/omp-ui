@@ -1,5 +1,4 @@
 #!/usr/bin/env node
-/* global process, console */
 // SEA packaging for the lite member (issue #1010, plan step E). v1: linux-x64 only.
 // Flow (verified against this repo's Node 22): esbuild single-file bundle ->
 // `node --experimental-sea-config` blob -> postject injection into a copy of the

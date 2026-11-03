@@ -15,7 +15,7 @@ import type { LiteSessions } from "./seams";
  * builds S4's adapter seams on real node machinery and hands `registerFleetLegs`
  * a complete {@link FleetLegsHandle}. Kept out of `serve.ts` so the boot pipeline
  * stays deterministically testable (serve just threads whatever handle it is
- * given); the production CLI (`omp-lite serve`) calls this and passes the result.
+ * given); the production CLI (`omp-ui-lite serve`) calls this and passes the result.
  *
  * A failure here never kills the member: the caller degrades to a legs-absent
  * boot (owners see `unknown channel` on every fleet:*, exactly what an unupgraded

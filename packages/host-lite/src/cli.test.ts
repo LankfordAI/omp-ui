@@ -64,7 +64,7 @@ async function freePort(): Promise<number> {
   return port;
 }
 
-describe("omp-lite status (issue #1010)", () => {
+describe("omp-ui-lite status (issue #1010)", () => {
   it("reports reachable with a live listener and an authenticated probe", async () => {
     // Real end to end: boot the member on a concrete persisted port, then run
     // `status` against the same data dir with the real connector.
@@ -138,7 +138,7 @@ describe("omp-lite status (issue #1010)", () => {
     });
     expect(code).toBe(LITE_EXIT.USAGE);
     expect(board.err.join("\n")).toContain('unknown command "wat"');
-    expect(board.out.join("\n")).toContain("Usage: omp-lite");
+    expect(board.out.join("\n")).toContain("Usage: omp-ui-lite");
   });
 
   it("serve boots through the injected pipeline and drains on signal", async () => {

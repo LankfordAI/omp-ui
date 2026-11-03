@@ -54,6 +54,11 @@ jobs:
       - run: node --test scripts/close-landed-issues.test.mjs
       - run: node --test scripts/check-commit-refs.test.mjs
       - run: npm test
+      # The session bundle is a generated artifact the lite member ships; this
+      # rebuilds it from current sources so a drift-breaking edit to the
+      # bundled closure fails CI instead of shipping (bundle-session.mjs header).
+      - name: Build the host-lite session bundle (drift gate)
+        run: node packages/host-lite/scripts/bundle-session.mjs
       - run: npm run test:live
       - run: npm run build
       - name: Smoke the browser pane under real Electron

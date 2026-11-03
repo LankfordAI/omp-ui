@@ -5,7 +5,7 @@ import { ensureLiteHome, resolveLiteHome } from "./config";
 import { bootProductionLite } from "./production-boot";
 
 /**
- * The `omp-lite` command (issue #1010): `serve` runs the headless fleet member
+ * The `omp-ui-lite` command (issue #1010): `serve` runs the headless fleet member
  * in the foreground (never daemonizes); `status` probes the local listener.
  * Every effect is injectable so both commands run under vitest; the bin entry
  * wires the real ones.
@@ -35,7 +35,7 @@ export type LiteExitCode = (typeof LITE_EXIT)[keyof typeof LITE_EXIT];
 /** The `status` probe budget; a hung listener is unreachable, not slow. */
 const PROBE_TIMEOUT_MS = 2_000;
 
-const HELP = `Usage: omp-lite <command>
+const HELP = `Usage: omp-ui-lite <command>
 
 Commands:
   serve       Run the headless fleet member in the foreground (never daemonizes).
@@ -58,7 +58,7 @@ export async function runLiteCli(argv: readonly string[], deps: LiteCliDeps): Pr
   }
   if (command === "serve") return runServe(deps);
   if (command === "status") return runStatus(deps);
-  deps.io.stderr(`omp-lite: unknown command "${command}"`);
+  deps.io.stderr(`omp-ui-lite: unknown command "${command}"`);
   deps.io.stdout(HELP);
   return LITE_EXIT.USAGE;
 }
@@ -83,7 +83,7 @@ async function runServe(deps: LiteCliDeps): Promise<LiteExitCode> {
   } catch (err) {
     signals.removeListener("SIGINT", signalReceived);
     signals.removeListener("SIGTERM", signalReceived);
-    deps.io.stderr(`omp-lite serve: ${err instanceof Error ? err.message : String(err)}`);
+    deps.io.stderr(`omp-ui-lite serve: ${err instanceof Error ? err.message : String(err)}`);
     return LITE_EXIT.OPERATIONAL;
   }
 }

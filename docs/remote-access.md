@@ -142,6 +142,16 @@ The embedded server can still start when `index.html` is absent or is not a file
 
 The missing-bundle notice in **Settings > Remote access** records availability only when the server starts. It is a historical startup diagnostic, not a live availability check, and may remain visible after the bundle has been built.
 
+## Join a headless member
+
+A machine that runs no desktop app can still be a fleet member: `omp-ui-lite` (the `@omp-ui/host-lite` workspace, [#1010](https://github.com/LankfordAI/omp-ui/issues/1010)) is a plain-Node process that owns its own data dir, spawns omp sessions from the same session code the desktop ships, and answers the very join protocol described above — there is no second protocol. Install it with `packaging/install.sh` (linux-x64 v1, checksum-verified release assets; node-pty unpacked next to the binary), or run it from a checkout with `npm run serve -w @omp-ui/host-lite`.
+
+1. Start it: `omp-ui-lite serve`. The first run mints an access token, persists it with its bind and port in the member's own data dir (`OMP_UI_LITE_HOME`, default `<dataHome>/omp-ui-lite`), and prints the listening token URL — that URL is the pairing URL.
+2. On the owner app, open **Settings → Remote instances**, press **Join**, and paste the printed URL exactly as for any other instance: the token rides in it (`…/?t=TOKEN`) and the password field hides itself. Give the member a nickname if you like.
+3. The member appears in the sidebar's machine list like a joined desktop app. Its project sessions, dispatch, and fleet channels behave as documented in [Remote instances](remote-instances.md); desktop-only surfaces (windows, the browser pane host, vaults, updates) are simply absent from its channel table — a joiner calling one gets the same `unknown channel` answer an older client gets, never a stub.
+
+`omp-ui-lite status` probes the local listener without touching any session. The shipped systemd unit (`packaging/omp-ui-lite.service`) plus `loginctl enable-linger` keep it running across logout; the join URL and token never change under it, so a machine joins once.
+
 ## Related guides
 
 - [Settings](settings.md) covers the rest of the Settings surface.
