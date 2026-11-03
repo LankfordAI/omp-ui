@@ -1,8 +1,8 @@
 /**
  * The composer's magic-keyword colours — the character shimmer and the border
  * ring painted for each keyword. Matching, the keyword table, and its hue
- * endpoints come from `@omp-ui/core/magic-keywords` (the port of omp 18.3.2);
- * this module only turns a keyword's hue ramp into CSS.
+ * endpoints come from `@omp-ui/core/magic-keywords` (the port of omp 18.3.2
+ * plus post-18.16 chillax); this module only turns a keyword's ramps into CSS.
  *
  * The gradient is the only signal the user gets that a keyword armed, so the
  * ramps are sampled continuously from omp's endpoints: omp's terminal editor
@@ -19,10 +19,16 @@ export const SHIMMER_PERIOD_MS = 1800;
 /** Colour stops in a keyword's border ring (`keywordPalette`). */
 const STOPS = 14;
 
-/** Hue in degrees at t ∈ [0, 1) along `keyword`'s omp ramp. */
-function hueAt(keyword: MagicKeyword, t: number): number {
-  const [start, end] = MAGIC_KEYWORDS.find((k) => k.word === keyword)!.hue;
-  return Math.round(start + t * (end - start)) % 360;
+/** One CSS colour at t ∈ [0, 1) along `keyword`'s omp hue/lightness ramps. */
+function colorAt(keyword: MagicKeyword, t: number): string {
+  const spec = MAGIC_KEYWORDS.find((k) => k.word === keyword)!;
+  const [h0, h1] = spec.hue;
+  const hue = Math.round(h0 + t * (h1 - h0)) % 360;
+  // Rows without an omp lightness ramp keep the port's default lightness: a
+  // flat [62, 62] ramp rounds to exactly 62 at every sample.
+  const [l0, l1] = spec.lightness ?? [62, 62];
+  const lightness = Math.round(l0 + t * (l1 - l0));
+  return `hsl(${hue} 90% ${lightness}%)`;
 }
 
 /**
@@ -36,7 +42,7 @@ export function keywordColors(keyword: MagicKeyword, phase: number): string[] {
   const n = keyword.length;
   const colors: string[] = [];
   for (let i = 0; i < n; i++) {
-    colors.push(`hsl(${hueAt(keyword, (i / n + wrapped) % 1)} 90% 62%)`);
+    colors.push(colorAt(keyword, (i / n + wrapped) % 1));
   }
   return colors;
 }
@@ -54,7 +60,7 @@ export function keywordPalette(keyword: MagicKeyword): readonly string[] {
   let palette = PALETTES.get(keyword);
   if (palette === undefined) {
     const stops: string[] = [];
-    for (let i = 0; i < STOPS; i++) stops.push(`hsl(${hueAt(keyword, i / STOPS)} 90% 62%)`);
+    for (let i = 0; i < STOPS; i++) stops.push(colorAt(keyword, i / STOPS));
     palette = stops;
     PALETTES.set(keyword, palette);
   }

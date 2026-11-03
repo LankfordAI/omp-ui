@@ -67,9 +67,10 @@ describe("magicKeywordSegments", () => {
   });
 
   it("finds every keyword in one pass, in source order", () => {
-    const input = "ultrathink then orchestrate then workflowz then jevify";
+    const input = "ultrathink then chillax then orchestrate then workflowz then jevify";
     expect(kw(input).map((s) => s.keyword)).toEqual([
       "ultrathink",
+      "chillax",
       "orchestrate",
       "workflowz",
       "jevify",
@@ -81,6 +82,13 @@ describe("magicKeywordSegments", () => {
     expect(found).toEqual([{ text: "jevify", keyword: "jevify" }]);
     expect(kw("jevify_rate")).toHaveLength(0);
     expect(kw("Jevify")).toHaveLength(0);
+  });
+
+  it("matches chillax as standalone prose", () => {
+    const found = kw("please chillax first");
+    expect(found).toEqual([{ text: "chillax", keyword: "chillax" }]);
+    expect(kw("chillax_mode")).toHaveLength(0);
+    expect(kw("Chillax")).toHaveLength(0);
   });
 
   it("drops matches for words outside the allowed set", () => {
@@ -109,31 +117,55 @@ describe("magicKeywordSegments", () => {
 });
 
 describe("the keyword table", () => {
-  it("mirrors omp 18.3.2's four rows, in notice-push order", () => {
+  it("mirrors omp's five rows — 18.3.2 plus post-18.16 chillax — in notice-push order", () => {
     expect(MAGIC_KEYWORDS.map((k) => k.id)).toEqual([
       "ultrathink",
+      "chillax",
       "orchestrate",
       "workflow",
       "jevify",
     ]);
     expect(MAGIC_KEYWORDS.map((k) => k.word)).toEqual([
       "ultrathink",
+      "chillax",
       "orchestrate",
       "workflowz",
       "jevify",
     ]);
     expect(MAGIC_KEYWORDS.map((k) => k.hue)).toEqual([
       [0, 330],
+      [180, 235],
       [150, 280],
       [30, 150],
       [300, 420],
     ]);
-    expect(MAGIC_KEYWORDS.map((k) => k.requires)).toEqual([[], ["task"], ["task", "eval"], ["eval"]]);
-    expect([...ALL_MAGIC_KEYWORDS]).toEqual(["ultrathink", "orchestrate", "workflowz", "jevify"]);
+    expect(MAGIC_KEYWORDS.map((k) => k.lightness ?? null)).toEqual([
+      null,
+      [62, 45],
+      null,
+      null,
+      null,
+    ]);
+    expect(MAGIC_KEYWORDS.map((k) => k.requires)).toEqual([
+      [],
+      [],
+      ["task"],
+      ["task", "eval"],
+      ["eval"],
+    ]);
+    expect([...ALL_MAGIC_KEYWORDS]).toEqual([
+      "ultrathink",
+      "chillax",
+      "orchestrate",
+      "workflowz",
+      "jevify",
+    ]);
   });
 
   it("keywordsIn reports the matched words", () => {
     expect([...keywordsIn("ultrathink, and `orchestrate`")]).toEqual(["ultrathink"]);
+    // A title-model draft must see chillax outside its fence but not inside it.
+    expect([...keywordsIn("chillax and `orchestrate`")]).toEqual(["chillax"]);
     expect(keywordsIn("nothing here").size).toBe(0);
   });
 });
@@ -211,7 +243,7 @@ describe("withoutAccidentalKeywords", () => {
 });
 
 describe("parity with the live omp binary — skipped when there is none", () => {
-  it("omp's settings keys are exactly magicKeywords.enabled plus one per keyword", async () => {
+  it("omp never publishes a magic-keyword setting the port does not know", async () => {
     const { execFile } = await import("node:child_process");
     const { resolveOmpBinary } = await import("./paths");
     const ompPath = resolveOmpBinary();
@@ -225,7 +257,12 @@ describe("parity with the live omp binary — skipped when there is none", () =>
     const published = Object.keys(JSON.parse(stdout) as Record<string, unknown>)
       .filter((key) => key.startsWith("magicKeywords."))
       .sort();
-    const expected = ["magicKeywords.enabled", ...MAGIC_KEYWORDS.map((k) => `magicKeywords.${k.id}`)].sort();
-    expect(published).toEqual(expected);
+    const known = ["magicKeywords.enabled", ...MAGIC_KEYWORDS.map((k) => `magicKeywords.${k.id}`)];
+    // The direction that must always hold: an omp keyword the port lacks fails here.
+    expect(published.filter((key) => !known.includes(key))).toEqual([]);
+    // chillax landed on omp main after the 18.16.0 tag, so no version gate is
+    // honest — the binary's own published keys gate the strict comparison,
+    // which engages automatically once a chillax binary exists.
+    if (published.includes("magicKeywords.chillax")) expect(published).toEqual([...known].sort());
   }, 30_000);
 });

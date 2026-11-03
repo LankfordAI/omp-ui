@@ -16,8 +16,17 @@ describe("keywordColors", () => {
 
   it("gives each keyword its own hue origin", () => {
     expect(keywordColors("ultrathink", 0)[0]).toBe("hsl(0 90% 62%)");
+    expect(keywordColors("chillax", 0)[0]).toBe("hsl(180 90% 62%)");
     expect(keywordColors("workflowz", 0)[0]).toBe("hsl(30 90% 62%)");
     expect(keywordColors("jevify", 0)[0]).toBe("hsl(300 90% 62%)");
+  });
+
+  it("darkens chillax along its lightness ramp", () => {
+    // chillax is the only row with an omp lightness sweep, [62, 45]: the last
+    // character of the 7-char word sits at t = 6/7 — hue round(180 + 6/7·55)
+    // = 227, lightness round(62 + 6/7·(45 − 62)) = 47 — a deeper blue than
+    // the cyan origin.
+    expect(keywordColors("chillax", 0)[6]).toBe("hsl(227 90% 47%)");
   });
 
   it("wraps jevify's ramp past 360", () => {
@@ -47,7 +56,7 @@ describe("keywordColors", () => {
 
 describe("keywordPalette", () => {
   it("returns the 14-stop ring each keyword's colours sample", () => {
-    for (const kw of ["ultrathink", "orchestrate", "workflowz", "jevify"] as const) {
+    for (const kw of ["ultrathink", "chillax", "orchestrate", "workflowz", "jevify"] as const) {
       const palette = keywordPalette(kw);
       expect(palette).toHaveLength(14);
       expect(palette[0]).toBe(keywordColors(kw, 0)[0]);

@@ -1,6 +1,6 @@
 /**
- * omp's "magic keywords" — `ultrathink`, `orchestrate`, `workflowz`, `jevify` —
- * matched the way omp itself matches them.
+ * omp's "magic keywords" — `ultrathink`, `chillax`, `orchestrate`, `workflowz`,
+ * `jevify` — matched the way omp itself matches them.
  *
  * Typing one of these as standalone prose makes omp append a hidden system
  * notice that steers the turn (`AgentSession.prompt` → `#createMagicKeywordNotices`).
@@ -10,7 +10,9 @@
  * glowing — is worse than no affordance at all.
  *
  * Ported from omp 18.3.2 `packages/tui/src/prompt/{markdown-prose,magic-keywords}.ts`
- * and `packages/coding-agent/src/modes/magic-keywords.ts`. Four keywords.
+ * and `packages/coding-agent/src/modes/magic-keywords.ts`. Five keywords: chillax
+ * is ported from omp main, where it landed after the 18.16.0 tag — no released
+ * binary publishes it yet — and whose table also grew the optional lightness ramp.
  *
  * Pure: zero imports, no DOM, no Node. Shared by the main process (file blocks,
  * one-shots) and the renderer (paint); colours live in the renderer.
@@ -24,13 +26,20 @@ export interface MagicKeywordSpec {
   readonly word: string;
   /** Hue ramp endpoints in degrees; hue(t) = (start + t * (end - start)) mod 360. */
   readonly hue: readonly [number, number];
+  /**
+   * Optional HSL lightness sweep [from, to] percent painted alongside the hue;
+   * omitted keeps the default lightness (62 in this port).
+   */
+  readonly lightness?: readonly [number, number];
   /** Tools that must be in the enabled roster before omp attaches the notice. */
   readonly requires: readonly string[];
 }
 
-/** omp 18.3.2 MAGIC_KEYWORDS, in omp's notice-push order. */
+/** omp's MAGIC_KEYWORDS (18.3.2 plus post-18.16 chillax), in omp's notice-push order. */
 export const MAGIC_KEYWORDS = [
   { id: "ultrathink", word: "ultrathink", hue: [0, 330], requires: [] },
+  // Cyan darkening into deep blue.
+  { id: "chillax", word: "chillax", hue: [180, 235], lightness: [62, 45], requires: [] },
   { id: "orchestrate", word: "orchestrate", hue: [150, 280], requires: ["task"] },
   { id: "workflow", word: "workflowz", hue: [30, 150], requires: ["task", "eval"] },
   { id: "jevify", word: "jevify", hue: [300, 420], requires: ["eval"] },
@@ -356,7 +365,7 @@ export function magicKeywordSegments(
     }
   }
   if (hits.length === 0) return [{ text, keyword: null }];
-  // The four literals are distinct and none contains another, so matches can
+  // The five literals are distinct and none contains another, so matches can
   // never overlap — ordering them is enough, no merge pass.
   hits.sort((a, b) => a.start - b.start);
 

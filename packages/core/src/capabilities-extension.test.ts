@@ -836,7 +836,11 @@ describe("magic keyword gate publishing", () => {
     expect(section.items.map((row) => row.id)).toEqual(MAGIC_KEYWORDS.map((k) => k.id));
     expect(section.items.map((row) => row.word)).toEqual(MAGIC_KEYWORDS.map((k) => k.word));
     expect(section.items.map((row) => row.requires)).toEqual(MAGIC_KEYWORDS.map((k) => [...k.requires]));
-    expect(section.items.map((row) => row.enabled)).toEqual([true, false, true, true]);
+    // Derived from the table's order so a new keyword row never desynchronises
+    // this positional list; orchestrate is the one switched off above.
+    expect(section.items.map((row) => row.enabled)).toEqual(
+      MAGIC_KEYWORDS.map((k) => k.id !== "orchestrate"),
+    );
     const off = executableExtension(fullSeam(keywordSettings({ "magicKeywords.enabled": false })));
     await armRoot(off);
     const master = off.latest().magicKeywords;
@@ -869,7 +873,9 @@ describe("magic keyword gate publishing", () => {
       const section = h.latest().magicKeywords;
       expect(section.status).toBe("available");
       if (section.status !== "available") return;
-      expect(section.items.map((row) => row.enabled)).toEqual([true, true, false, true]);
+      expect(section.items.map((row) => row.enabled)).toEqual(
+        MAGIC_KEYWORDS.map((k) => k.id !== "workflow"),
+      );
     } finally {
       vi.useRealTimers();
     }

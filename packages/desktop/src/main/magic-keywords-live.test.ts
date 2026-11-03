@@ -1,7 +1,7 @@
 import * as fs from "node:fs";
 import * as os from "node:os";
 import * as path from "node:path";
-import { spawn } from "node:child_process";
+import { execFileSync, spawn } from "node:child_process";
 import { createServer, type ServerResponse } from "node:http";
 import { afterEach, describe, expect, it } from "vitest";
 import {
@@ -39,6 +39,39 @@ import { rpcTabState } from "../renderer/src/test/fixtures";
 
 const ompPath = resolveOmpBinary();
 
+/**
+ * The keyword ids the resolved binary itself publishes as `magicKeywords.*`
+ * settings. Version floors are dishonest here — chillax landed on omp main
+ * after the 18.16.0 tag, so only the binary's own published settings tell us
+ * which expectations apply. Null when no binary exists or the probe fails.
+ */
+function publishedKeywordIds(): ReadonlySet<string> | null {
+  if (ompPath === null) return null;
+  try {
+    const out = execFileSync(ompPath, ["config", "list", "--json"], {
+      timeout: 15_000,
+      maxBuffer: 4 * 1024 * 1024,
+      stdio: ["ignore", "pipe", "ignore"],
+    }).toString();
+    const settings = JSON.parse(out) as Record<string, unknown>;
+    const ids = new Set<string>();
+    for (const key of Object.keys(settings)) {
+      if (!key.startsWith("magicKeywords.")) continue;
+      const id = key.slice("magicKeywords.".length);
+      if (id !== "enabled") ids.add(id);
+    }
+    return ids;
+  } catch {
+    return null;
+  }
+}
+
+const publishedIds = publishedKeywordIds();
+/** The port rows this binary publishes; a failed probe assumes pre-chillax. */
+const liveKeywords = MAGIC_KEYWORDS.filter((k) =>
+  publishedIds === null ? k.id !== "chillax" : publishedIds.has(k.id),
+);
+
 const MODELS_YML = `providers:
   kwprobe:
     baseUrl: http://127.0.0.1:9/v1
@@ -57,8 +90,8 @@ retry:
   enabled: false
 `;
 
-/** A prompt carrying all four words, each in matchable standalone prose. */
-const ALL_WORDS = "ultrathink orchestrate workflowz jevify";
+/** A prompt carrying every keyword this binary knows, each in matchable standalone prose. */
+const ALL_WORDS = liveKeywords.map((k) => k.word).join(" ");
 
 interface Frame {
   type: string;
@@ -378,14 +411,31 @@ describe.skipIf(ompPath === null)("magic keywords on the real runtime", () => {
       "the kw-table status publish",
     );
     const rows = JSON.parse(published) as Array<Record<string, unknown>>;
-    expect(rows.map((row) => ({ id: row.id, word: row.word, hue: row.hue, requires: row.requires })))
-      .toEqual(MAGIC_KEYWORDS.map((k) => ({ id: k.id, word: k.word, hue: [...k.hue], requires: [...k.requires] })));
+    // Relaxed only in one direction: port rows this binary doesn't publish
+    // (chillax postdates every released binary's `magicKeywords.*` keys) are
+    // not demanded of it. A live row the port lacks still fails — extra rows
+    // never pass — so a binary that gains chillax gets strict coverage here.
+    expect(rows.map((row) => ({
+      id: row.id,
+      word: row.word,
+      hue: row.hue,
+      lightness: (row.lightness as readonly number[] | undefined) ?? null,
+      requires: row.requires,
+    }))).toEqual(
+      MAGIC_KEYWORDS.filter((k) => liveKeywords.includes(k)).map((k) => ({
+        id: k.id,
+        word: k.word,
+        hue: [...k.hue],
+        lightness: k.lightness === undefined ? null : [...k.lightness],
+        requires: [...k.requires],
+      })),
+    );
   }, 60_000);
 
   it("publishes hidden canonical notice start/end pairs before consuming the user", async () => {
     scope = spawnScope({ tools: "read,bash,task,eval" });
     const frames = await inputFramesFor(scope, ALL_WORDS, true);
-    const notices = ["ultrathink-notice", "orchestrate-notice", "workflow-notice", "jevify-notice"];
+    const notices = liveKeywords.map((k) => `${k.id}-notice`);
     expect(inputLifecycle(frames)).toEqual(expectedInputLifecycle(notices));
     expect(frames.filter((frame) => frame.type === "agent_start" || frame.type === "turn_start").map((frame) => frame.type))
       .toEqual(["agent_start", "turn_start"]);
@@ -394,8 +444,8 @@ describe.skipIf(ompPath === null)("magic keywords on the real runtime", () => {
     const userAt = frames.findIndex((frame) => frame.type === "message_start" && frame.message?.role === "user");
     expect(userAt).toBeGreaterThan(0);
     expect(activeKeywordsAfter(frames.slice(0, userAt))).toEqual([]);
-    expect(activeKeywordsAfter(frames.slice(0, userAt + 1))).toEqual(MAGIC_KEYWORDS.map((keyword) => keyword.word));
-    expect(activeKeywordsAfter(frames)).toEqual(MAGIC_KEYWORDS.map((keyword) => keyword.word));
+    expect(activeKeywordsAfter(frames.slice(0, userAt + 1))).toEqual(liveKeywords.map((keyword) => keyword.word));
+    expect(activeKeywordsAfter(frames)).toEqual(liveKeywords.map((keyword) => keyword.word));
   }, 60_000);
 
   it("accepts a queued keyword without notices, then activates it only when consumed in the same run", async () => {
@@ -445,6 +495,10 @@ describe.skipIf(ompPath === null)("magic keywords on the real runtime", () => {
   }, 120_000);
 
   it("the firing matrix equals the port and the table", async () => {
+    // The matrix relaxes through ALL_WORDS: corpus[0] carries exactly the
+    // keywords this binary publishes, and no other corpus string introduces
+    // one ALL_WORDS lacks. expectedNotices() may filter the full port table
+    // because a word absent from ALL_WORDS is never armed in the corpus.
     const corpus = [
       ALL_WORDS,
       "`orchestrate` and <b>jevify</b>\n\n```\nworkflowz\n```\n\nsee orchestrate.ts, jevify_rate, re-ultrathink",
@@ -470,12 +524,14 @@ describe.skipIf(ompPath === null)("magic keywords on the real runtime", () => {
   }, 120_000);
 
   it("each magicKeywords setting switch drops exactly its notice", async () => {
-    for (const keyword of MAGIC_KEYWORDS) {
+    // Only keywords this binary publishes: writing `magicKeywords.chillax:
+    // false` to a binary that has no such setting is not a meaningful probe.
+    for (const keyword of liveKeywords) {
       scope = spawnScope({
         overlays: [{ name: `kw-${keyword.id}.yml`, yaml: `magicKeywords:\n  ${keyword.id}: false\n` }],
       });
       const frames = await inputFramesFor(scope, ALL_WORDS, true);
-      const enabled = MAGIC_KEYWORDS.filter((k) => k.id !== keyword.id);
+      const enabled = liveKeywords.filter((k) => k.id !== keyword.id);
       expect(noticeTypes(frames)).toEqual(enabled.map((k) => `${k.id}-notice`));
       expect(inputLifecycle(frames)).toEqual(expectedInputLifecycle(enabled.map((k) => `${k.id}-notice`)));
       expect(activeKeywordsAfter(frames)).toEqual(enabled.map((k) => k.word));
@@ -513,7 +569,11 @@ describe.skipIf(ompPath === null)("magic keywords on the real runtime", () => {
     }, 30_000, "a snapshot with an available keyword section");
     const section = snapshot.magicKeywords;
     if (section.status !== "available") return;
-    expect(section.items.map((row) => row.enabled)).toEqual([true, false, true, false]);
+    // The section lists whichever keywords the binary publishes (five rows on
+    // a chillax build), so the gate expectation is keyed by id, not position.
+    expect(section.items.map((row) => [row.id, row.enabled])).toEqual(
+      liveKeywords.map((k) => [k.id, k.id !== "orchestrate" && k.id !== "jevify"]),
+    );
   }, 90_000);
 
   it("inert quoting holds against the real matcher", async () => {

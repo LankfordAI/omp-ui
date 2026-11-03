@@ -414,6 +414,7 @@ describe("authoritative running-input keywords (issue #726)", () => {
     user();
     expect(tab().activeTurnKeywords).toEqual(["orchestrate", "workflowz", "jevify"]);
     notice("ultrathink");
+    notice("chillax");
     user();
     expect(tab().activeTurnKeywords).toEqual(MAGIC_KEYWORDS.map(({ word }) => word));
     const active = tab().activeTurnKeywords;
