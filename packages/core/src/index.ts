@@ -130,6 +130,7 @@ export {
   supportsOutReplies,
   toolResultReplies,
 } from "./out-replies";
+export { parseBashMinimized, type BashMinimized } from "./bash-minimized";
 export {
   CHAT_DIR_RE,
   chatDirPath,

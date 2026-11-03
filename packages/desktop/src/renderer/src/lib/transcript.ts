@@ -10,6 +10,7 @@ import { parseVaultDetails, type VaultToolDetails } from "@omp-ui/core/vault-sha
 import type { SessionReference } from "@omp-ui/core/types";
 import { FLEET_WAKE_CUSTOM_TYPE, parseFleetWakeCard, type FleetWakeCard } from "@omp-ui/core/fleet-wake";
 import { toolResultReplies } from "@omp-ui/core/out-replies";
+import { parseBashMinimized, type BashMinimized } from "@omp-ui/core/bash-minimized";
 
 export interface AdvisorNote {
   note: string;
@@ -108,6 +109,9 @@ export interface ToolItem {
   /** details.replies (omp 18.14 `out.enabled`): each `> out://` write a bash run made, shown as
    *  reply prose after the card (issue #969). Grows across tool_execution_update frames. */
   replies?: string[];
+  /** bash result `details.meta.minimized` (omp 18.16.0): provenance for output the minimizer rewrote;
+   *  absent on older sessions and whenever the payload passed through untouched. */
+  minimized?: BashMinimized;
   notes?: AdvisorNote[];
   /** omp-ui vault host tool result details (issue #767): the card and the rail's Vault notes read it. */
   vault?: VaultToolDetails;
@@ -579,6 +583,11 @@ function repliesField(details: unknown): Pick<ToolItem, "replies"> {
   return replies.length > 0 ? { replies } : {};
 }
 
+function minimizedField(details: unknown): { minimized?: BashMinimized } {
+  const m = parseBashMinimized(details);
+  return m ? { minimized: m } : {};
+}
+
 /** Port of omp's isAdvisorCard — render from details.notes, never the XML. */
 export function isAdvisorMessage(message: Record<string, unknown>): boolean {
   return message.role === "custom" && message.customType === "advisor";
@@ -996,6 +1005,7 @@ export function reduceEvent(items: RenderItem[], event: unknown): RenderItem[] {
         ...(partialText ? { partialText } : {}),
         ...taskFilesField(partial?.details),
         ...replies,
+        ...minimizedField(partial?.details),
       });
     }
 
@@ -1015,6 +1025,7 @@ export function reduceEvent(items: RenderItem[], event: unknown): RenderItem[] {
         ...imagesField(result ? result.content : undefined, details),
         ...taskFilesField(details),
         ...repliesField(details),
+        ...minimizedField(details),
       };
       const idx = toolCallId
         ? items.findIndex((i) => i.kind === "tool" && i.toolCallId === toolCallId)
@@ -1252,6 +1263,7 @@ export function historyToItems(messages: unknown[]): RenderItem[] {
         ...imagesField(raw.content, details),
         ...taskFilesField(details),
         ...repliesField(details),
+        ...minimizedField(details),
       };
     }
   }

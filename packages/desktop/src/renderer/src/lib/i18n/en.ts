@@ -401,6 +401,7 @@ export const en = {
   "transcript.tool.writing": "writing",
   "transcript.tool.streaming": "streaming",
   "transcript.tool.showOutput": "show output · {lines} lines",
+  "transcript.tool.minimized": "Minimized: {filter} {before} → {after}",
   "transcript.tool.allArguments": "all arguments",
   "transcript.tool.taskFile": "task file",
   "transcript.tool.taskFileShaTitle": "SHA-256 omp recorded for this file's bytes at spawn: {sha256}",

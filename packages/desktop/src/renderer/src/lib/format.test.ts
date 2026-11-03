@@ -1,5 +1,5 @@
 import { describe, expect, it } from "vitest";
-import { compactNum, exactNum, formatCost, shortBase, tokenCount } from "./format";
+import { compactNum, exactNum, formatBytes, formatCost, shortBase, tokenCount } from "./format";
 
 describe("shortBase", () => {
   it("shortens a 40-hex commit to 8 chars and leaves refs verbatim", () => {
@@ -41,5 +41,16 @@ describe("tokenCount", () => {
     expect(tokenCount(9999)).toBe("9999");
     expect(tokenCount(10000)).toBe("10.0k");
     expect(tokenCount(12345)).toBe("12.3k");
+  });
+});
+
+describe("formatBytes", () => {
+  it("humanizes byte counts with one decimal above the raw step", () => {
+    expect(formatBytes(512)).toBe("512B");
+    expect(formatBytes(1023)).toBe("1023B");
+    expect(formatBytes(1024)).toBe("1.0KB");
+    expect(formatBytes(1536)).toBe("1.5KB");
+    expect(formatBytes(1024 ** 2)).toBe("1.0MB");
+    expect(formatBytes(1024 ** 3)).toBe("1.0GB");
   });
 });

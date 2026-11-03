@@ -1,5 +1,6 @@
 import { memo, useEffect, useMemo, useRef, useState, type ReactNode } from "react";
 import { cn } from "../lib/cn";
+import { formatBytes } from "../lib/format";
 import { formatDuration } from "../lib/duration";
 import {
   HIGHLIGHT_CHAR_CAP,
@@ -766,6 +767,16 @@ export function ToolCard({ item, tabId }: { item: ToolItem; tabId?: string }) {
           )}
 
           {hasDiff && item.diff && <DiffViewer rows={item.diff} path={item.path} op={item.op} defaultOpen />}
+
+          {item.minimized && (
+            <div className="font-mono text-[10px] tabular-nums text-ink-faint">
+              {t("transcript.tool.minimized", {
+                filter: item.minimized.filter,
+                before: formatBytes(item.minimized.inputBytes),
+                after: formatBytes(item.minimized.outputBytes),
+              })}
+            </div>
+          )}
 
           {item.resultText !== undefined &&
             item.resultText !== "" &&

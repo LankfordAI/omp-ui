@@ -21,6 +21,14 @@ export function exactNum(value: number): string {
   return value.toLocaleString("en-US");
 }
 
+/** `1234` → `1234B`, `1536` → `1.5KB`, then MB/GB at one decimal (omp 18.16 minimizer provenance). */
+export function formatBytes(bytes: number): string {
+  if (bytes < 1024) return `${bytes}B`;
+  if (bytes < 1024 ** 2) return `${(bytes / 1024).toFixed(1)}KB`;
+  if (bytes < 1024 ** 3) return `${(bytes / 1024 ** 2).toFixed(1)}MB`;
+  return `${(bytes / 1024 ** 3).toFixed(1)}GB`;
+}
+
 /** Cost display precision is a product decision, shared by the HUD and the rail. */
 export function formatCost(cost: number): string {
   return `$${cost.toFixed(4)}`;

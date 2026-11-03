@@ -601,3 +601,26 @@ describe("ToolCard task files (issue #975)", () => {
     act(() => root.unmount());
   });
 });
+
+describe("ToolCard bash minimizer provenance", () => {
+  it("renders the filter and humanized byte counts when omp minimized the output", () => {
+    const { el, root } = renderCard(
+      tool({
+        name: "bash",
+        args: { command: "git log" },
+        resultText: "trimmed",
+        minimized: { filter: "git", inputBytes: 123_290, outputBytes: 3_277 },
+      }),
+    );
+    expect(el.textContent).toContain("Minimized: git 120.4KB → 3.2KB");
+    act(() => root.unmount());
+  });
+
+  it("renders no minimizer line when omp recorded none", () => {
+    const { el, root } = renderCard(
+      tool({ name: "bash", args: { command: "git log" }, resultText: "raw" }),
+    );
+    expect(el.textContent).not.toContain("Minimized");
+    act(() => root.unmount());
+  });
+});

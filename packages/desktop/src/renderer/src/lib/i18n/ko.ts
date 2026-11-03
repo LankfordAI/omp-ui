@@ -372,6 +372,7 @@ export const ko: Partial<Record<MessageKey, string>> = {
   "transcript.tool.writing": "작성 중",
   "transcript.tool.streaming": "스트리밍 중",
   "transcript.tool.showOutput": "출력 보기 · {lines}줄",
+  "transcript.tool.minimized": "축소됨: {filter} {before} → {after}",
   "transcript.tool.allArguments": "모든 인수",
   "transcript.tool.taskFile": "작업 파일",
   "transcript.tool.taskFileShaTitle": "생성 시 omp가 이 파일 내용에 대해 기록한 SHA-256: {sha256}",

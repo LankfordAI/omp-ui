@@ -575,6 +575,50 @@ describe("reduceEvent tool executions", () => {
     expect(tool(items, "t7")?.wallTimeMs).toBe(1234);
   });
 
+  it("carries bash minimizer provenance from details.meta.minimized (omp 18.16.0)", () => {
+    const items = reduceEvent([], {
+      type: "tool_execution_end",
+      toolCallId: "m1",
+      toolName: "bash",
+      result: {
+        content: [],
+        details: { meta: { minimized: { filter: "git", inputBytes: 123340, outputBytes: 3276, artifactId: "a1" } } },
+      },
+    });
+    expect(tool(items, "m1")?.minimized).toEqual({ filter: "git", inputBytes: 123340, outputBytes: 3276 });
+  });
+
+  it("leaves minimized absent when an end frame has no provenance", () => {
+    const items = reduceEvent([], {
+      type: "tool_execution_end",
+      toolCallId: "m2",
+      toolName: "bash",
+      result: { content: [], details: { wallTimeMs: 5 } },
+    });
+    expect(tool(items, "m2")?.minimized).toBeUndefined();
+    expect("minimized" in tool(items, "m2")!).toBe(false);
+  });
+
+  it("drops a malformed minimized shape without throwing", () => {
+    const noFilter = reduceEvent([], {
+      type: "tool_execution_end",
+      toolCallId: "m3",
+      toolName: "bash",
+      result: { content: [], details: { meta: { minimized: { inputBytes: 10, outputBytes: 5 } } } },
+    });
+    expect(tool(noFilter, "m3")?.minimized).toBeUndefined();
+    const stringBytes = reduceEvent([], {
+      type: "tool_execution_end",
+      toolCallId: "m4",
+      toolName: "bash",
+      result: {
+        content: [],
+        details: { meta: { minimized: { filter: "git", inputBytes: "10", outputBytes: 5 } } },
+      },
+    });
+    expect(tool(stringBytes, "m4")?.minimized).toBeUndefined();
+  });
+
   it("keeps a failed edit's errorKind (issue #953)", () => {
     const items = reduceEvent([], {
       type: "tool_execution_end",
@@ -1429,6 +1473,22 @@ describe("historyToItems", () => {
       },
     ]);
     expect(tool(items, "e2")).toMatchObject({ status: "error", errorKind: "unseen_lines" });
+  });
+
+  it("restores bash minimizer provenance on backfill, same as the live frame (omp 18.16.0)", () => {
+    const details = { meta: { minimized: { filter: "grep", inputBytes: 2048, outputBytes: 512 } } };
+    const live = reduceEvent([], {
+      type: "tool_execution_end",
+      toolCallId: "m5",
+      toolName: "bash",
+      result: { content: [], details },
+    });
+    const backfilled = historyToItems([
+      { role: "assistant", content: [{ type: "toolCall", id: "m5", name: "bash", arguments: {} }] },
+      { role: "toolResult", toolCallId: "m5", toolName: "bash", isError: false, content: [], details },
+    ]);
+    expect(tool(backfilled, "m5")?.minimized).toEqual(tool(live, "m5")?.minimized);
+    expect(tool(backfilled, "m5")?.minimized).toEqual({ filter: "grep", inputBytes: 2048, outputBytes: 512 });
   });
 });
 
