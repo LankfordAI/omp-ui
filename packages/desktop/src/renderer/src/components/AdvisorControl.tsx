@@ -164,7 +164,7 @@ export function AdvisorControl({ tabId, disabled, layout = "inline" }: { tabId: 
           tone={on ? "signal" : "neutral"}
           className={cn(
             "font-mono",
-            layout === "sheet" && "h-11 w-full",
+            layout === "sheet" && "h-11 min-w-0 flex-1",
             layout === "inline" && "min-w-0 shrink",
           )}
         >
