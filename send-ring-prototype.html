@@ -1,0 +1,105 @@
+<!doctype html>
+<html lang="en">
+<head>
+<meta charset="utf-8">
+<title>Send-button context ring — Halo vs Rim vs Core</title>
+<style>
+  /* Theme tokens copied from theme-default.css (dark) so the compare is honest. */
+  :root {
+    --color-void: #0a0b0d;
+    --color-raised: #14171c;
+    --color-line: #23282f;
+    --color-line-soft: #1b1f25;
+    --color-ink: #e8ecf1;
+    --color-ink-mid: #9aa4af;
+    --color-ink-dim: #626d78;
+    --color-signal: #4ade9f;
+    --color-signal-dim: #2a8f65;
+    --color-copper: #f0a868;
+    --color-copper-dim: #9a6a3f;
+    --color-copper-wash: #2b1d12;
+    --color-rose: #f2748c;
+    --color-rose-dim: #a04a5b;
+    --color-rose-wash: #2b141a;
+  }
+  body { background: var(--color-void); color: var(--color-ink); font: 13px/1.5 ui-sans-serif, system-ui; margin: 24px; }
+  h1 { font-size: 16px; } h2 { font-size: 13px; color: var(--color-ink-mid); margin-top: 28px; }
+  p.note { color: var(--color-ink-dim); max-width: 60ch; }
+  .row { display: flex; align-items: center; gap: 12px; background: var(--color-raised); border: 1px solid var(--color-line-soft); border-radius: 10px; padding: 8px 10px; width: max-content; margin-top: 8px; }
+  .field { width: 340px; height: 26px; border: 1px solid var(--color-line); border-radius: 8px; background: var(--color-void); color: var(--color-ink-dim); padding: 0 8px; line-height: 26px; }
+  .spacer { flex: 1; min-width: 200px; }
+  .cand { display: inline-flex; flex-direction: column; align-items: center; gap: 6px; }
+  .cand small { color: var(--color-ink-dim); font-size: 10px; }
+  /* Real desktop Button geometry: size-7 rounded-full, solid ink face. */
+  .btn { position: relative; width: 28px; height: 28px; border-radius: 9999px; background: var(--color-ink); color: var(--color-void); display: flex; align-items: center; justify-content: center; }
+  .btn.ghost-disabled { background: transparent; color: var(--color-ink-dim); border: 1px solid var(--color-line); }
+  .btn.stop { background: var(--color-rose-wash); color: var(--color-rose); border: 1px solid color-mix(in srgb, var(--color-rose-dim) 50%, transparent); width: 28px; height: 28px; }
+  svg.glyph { width: 16px; height: 16px; }
+  /* HALO: detached SVG arc with 3px air, stroke-line track + tone arc. */
+  .halo { position: relative; display: flex; align-items: center; justify-content: center; }
+  .halo > svg.ring { position: absolute; inset: -3px; width: calc(100% + 6px); height: calc(100% + 6px); pointer-events: none; transform: rotate(-90deg); }
+  .ring .track { fill: none; stroke: var(--color-line); stroke-width: 2; }
+  .ring .fill { fill: none; stroke-width: 2; stroke-linecap: round; transition: stroke-dasharray 500ms linear; }
+  .ring.signal .fill { stroke: var(--color-signal); } .ring.copper .fill { stroke: var(--color-copper); } .ring.rose .fill { stroke: var(--color-rose); }
+  /* RIM: conic-gradient flush to the border, opaque disc masks the face. */
+  .rim { position: relative; width: 28px; height: 28px; border-radius: 9999px; padding: 2px; background: conic-gradient(var(--color-signal) var(--p), var(--color-line) 0); }
+  .rim > .disc { width: 100%; height: 100%; border-radius: 9999px; background: var(--color-ink); color: var(--color-void); display: flex; align-items: center; justify-content: center; }
+  .rim.stop { background: conic-gradient(var(--color-copper) var(--p), var(--color-line) 0); }
+  .rim.stop > .disc { background: var(--color-rose-wash); border: 1px solid color-mix(in srgb, var(--color-rose-dim) 50%, transparent); color: var(--color-rose); }
+  /* CORE: radial pie painted on the button face itself. */
+  .core { width: 28px; height: 28px; border-radius: 9999px; display: flex; align-items: center; justify-content: center; color: var(--color-void); background: conic-gradient(from -90deg, var(--tone) calc(var(--p) * 360deg), var(--color-ink) 0); }
+  label { font-size: 11px; color: var(--color-ink-mid); }
+  input[type=range] { width: 220px; }
+</style>
+</head>
+<body>
+<h1>Context ring on the composer's round control — prototype compare</h1>
+<p class="note">Real Button geometry (28px round), real theme tokens. Drag the fill slider; Halo animates (stroke-dasharray transition), Rim/Core hard-step (conic stops do not transition). Inspect Rim's disabled ghost state: the mask disc cannot match a transparent ghost face without replicating every Button state.</p>
+<label>fill <input id="f" type="range" min="0" max="100" value="45"></label>
+
+<h2>Idle row (send button)</h2>
+<div class="row"><div class="field">draft text…</div><div class="spacer"></div>
+  <span class="cand"><span class="halo" id="h1w"><button class="btn"><svg class="glyph" viewBox="0 0 16 16" fill="none" stroke="currentColor" stroke-width="1.6" stroke-linecap="round" stroke-linejoin="round"><path d="M8 13V3M3.5 7.5 8 3l4.5 4.5"/></svg></button></span><small>Halo</small></span>
+  <span class="cand"><span class="rim" id="r1"><span class="disc"><svg class="glyph" viewBox="0 0 16 16" fill="none" stroke="currentColor" stroke-width="1.6" stroke-linecap="round" stroke-linejoin="round"><path d="M8 13V3M3.5 7.5 8 3l4.5 4.5"/></svg></span></span><small>Rim</small></span>
+  <span class="cand"><span class="core" id="c1"><svg class="glyph" viewBox="0 0 16 16" fill="none" stroke="currentColor" stroke-width="1.6" stroke-linecap="round" stroke-linejoin="round"><path d="M8 13V3M3.5 7.5 8 3l4.5 4.5"/></svg></span><small>Core</small></span>
+</div>
+
+<h2>Idle row, disabled ghost (empty draft)</h2>
+<div class="row"><div class="field"></div><div class="spacer"></div>
+  <span class="cand"><span class="halo" id="h2w"><button class="btn ghost-disabled"><svg class="glyph" viewBox="0 0 16 16" fill="none" stroke="currentColor" stroke-width="1.6" stroke-linecap="round" stroke-linejoin="round"><path d="M8 13V3M3.5 7.5 8 3l4.5 4.5"/></svg></button></span><small>Halo — face untouched</small></span>
+  <span class="cand"><span class="rim" id="r2"><span class="disc" style="background:transparent;border:1px dashed var(--color-rose);opacity:.35"><svg class="glyph" viewBox="0 0 16 16" fill="none" stroke="currentColor" stroke-width="1.6" stroke-linecap="round" stroke-linejoin="round"><path d="M8 13V3M3.5 7.5 8 3l4.5 4.5"/></svg></span></span><small>Rim — disc guesses the ghost</small></span>
+  <span class="cand"><span class="core" id="c2" style="color:var(--color-ink-dim)"><svg class="glyph" viewBox="0 0 16 16" fill="none" stroke="currentColor" stroke-width="1.6" stroke-linecap="round" stroke-linejoin="round"><path d="M8 13V3M3.5 7.5 8 3l4.5 4.5"/></svg></span><small>Core</small></span>
+</div>
+
+<h2>Running row (stop control)</h2>
+<div class="row"><div class="field">turn in flight…</div><div class="spacer"></div>
+  <span class="cand"><span class="halo" id="h3w"><button class="btn stop"><svg class="glyph" viewBox="0 0 16 16" fill="none" stroke="currentColor" stroke-width="1.4"><rect x="4.75" y="4.75" width="6.5" height="6.5" rx="1.25" fill="currentColor" stroke="currentColor"/></svg></button></span><small>Halo</small></span>
+  <span class="cand"><span class="rim stop" id="r3"><span class="disc"><svg class="glyph" viewBox="0 0 16 16" fill="none" stroke="currentColor" stroke-width="1.4"><rect x="4.75" y="4.75" width="6.5" height="6.5" rx="1.25" fill="currentColor" stroke="currentColor"/></svg></span></span><small>Rim</small></span>
+  <span class="cand"><span class="core" id="c3" style="color:var(--color-rose)"><svg class="glyph" viewBox="0 0 16 16" fill="none" stroke="currentColor" stroke-width="1.4"><rect x="4.75" y="4.75" width="6.5" height="6.5" rx="1.25" fill="currentColor" stroke="currentColor"/></svg></span><small>Core — pie bisects the square</small></span>
+</div>
+
+<script>
+  const f = document.getElementById("f");
+  const C = 2 * Math.PI * (16 / 2 - 2 / 2 - 0.5); // r = 6.5 in a 16 viewBox
+  function ringSvg(p) {
+    return `<svg class="ring" viewBox="0 0 16 16" aria-hidden><circle class="track" cx="8" cy="8" r="6.5"/><circle class="fill" cx="8" cy="8" r="6.5" stroke-dasharray="${p * C} ${C}"/></svg>`;
+  }
+  function tone(p) { return p > 0.9 ? "rose" : p > 0.7 ? "copper" : "signal"; }
+  function apply() {
+    const p = f.value / 100;
+    for (const id of ["h1w", "h2w", "h3w"]) {
+      const w = document.getElementById(id);
+      let svg = w.querySelector("svg.ring");
+      if (!svg) { w.insertAdjacentHTML("afterbegin", ringSvg(p)); svg = w.querySelector("svg.ring"); }
+      svg.classList.remove("signal", "copper", "rose"); svg.classList.add(tone(p));
+      const fill = svg.querySelector(".fill");
+      fill.setAttribute("stroke-dasharray", `${p * C} ${p >= 1 ? C : C}`);
+    }
+    for (const id of ["r1", "r2", "r3"]) document.getElementById(id).style.setProperty("--p", p);
+    const t = tone(p) === "signal" ? "var(--color-signal)" : tone(p) === "copper" ? "var(--color-copper)" : "var(--color-rose)";
+    for (const id of ["c1", "c2", "c3"]) { const e = document.getElementById(id); e.style.setProperty("--p", p); e.style.setProperty("--tone", t); }
+  }
+  f.addEventListener("input", apply); apply();
+</script>
+</body>
+</html>
