@@ -1455,6 +1455,7 @@ describe("Settings Memory page (issue #213)", () => {
   const overview: MemoryOverview = {
     backend: "mnemopi",
     scoping: "per-project-tagged",
+    hindsightGlobalScope: null,
     baseDir: "/home/a/.omp/memory",
     global: {
       bank: "global",
@@ -1524,6 +1525,38 @@ describe("Settings Memory page (issue #213)", () => {
     expect(document.body.textContent).toContain("/home/a/.omp/memory/project-abc/db.sqlite");
     expect(document.body.textContent).toContain("exists");
     expect(document.body.textContent).toContain("not created");
+    // mnemopi has its own scoping story; the hindsight global-scope chip stays hidden.
+    expect(document.body.textContent).not.toContain("global scope on");
+    expect(document.body.textContent).not.toContain("global scope off");
+  });
+
+  it("surfaces the effective hindsight global scope on the overview (issue #1033)", async () => {
+    seedMemory();
+    backendMock.memoryOverview.mockResolvedValue({
+      ...overview,
+      backend: "hindsight",
+      scoping: "per-project-tagged",
+      hindsightGlobalScope: true,
+    });
+    await renderSettings();
+
+    expect(document.body.textContent).toContain("hindsight");
+    expect(document.body.textContent).toContain("global scope on");
+    expect(document.body.textContent).not.toContain("global scope off");
+  });
+
+  it("shows global scope off when hindsight's gate is closed (issue #1033)", async () => {
+    seedMemory();
+    backendMock.memoryOverview.mockResolvedValue({
+      ...overview,
+      backend: "hindsight",
+      scoping: "per-project-tagged",
+      hindsightGlobalScope: false,
+    });
+    await renderSettings();
+
+    expect(document.body.textContent).toContain("global scope off");
+    expect(document.body.textContent).not.toContain("global scope on");
   });
 
   it("writes through the existing path, then refreshes settings and overview", async () => {

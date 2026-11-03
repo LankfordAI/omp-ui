@@ -24,6 +24,12 @@ export const MEMORY_SETTING_GROUP: OmpSettingGroup = {
     "mnemopi.autoRetain",
     "mnemopi.noEmbeddings",
     "autolearn.enabled",
+    // omp's hindsight global-scope gate (omp 18.16.0, issue #1033): a plain
+    // boolean, off by default; upstream shows it only when the hindsight
+    // backend is active. It renders through the generic SettingControl row.
+    // An older binary publishes no key, so readOmpSettings emits no row — the
+    // existing per-key "skip keys omp does not publish" rule covers the skew.
+    "hindsight.globalScope",
   ],
 };
 

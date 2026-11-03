@@ -1425,6 +1425,8 @@ export const en = {
   "settings.memory.retry": "retry",
   "settings.memory.globalBank": "This project uses the global bank.",
   "settings.memory.noProjectBank": "No project bank has been discovered yet.",
+  "settings.memory.globalScopeOn": "global scope on",
+  "settings.memory.globalScopeOff": "global scope off",
   "settings.memory.reading": "Reading memory configuration…",
   "settings.memory.readFailed": "Could not read memory configuration",
   "settings.memory.ompMissingHint":

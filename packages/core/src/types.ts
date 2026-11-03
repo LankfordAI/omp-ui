@@ -1701,6 +1701,17 @@ export interface MemoryBankInfo {
 export interface MemoryOverview {
   backend: MemoryBackendKind;
   scoping: MemoryScoping;
+  /**
+   * omp's effective hindsight global-scope gate (omp 18.16.0, issue #1033).
+   * Null when the backend is NOT hindsight — mnemopi has its own scoping
+   * story, off/local have no scope to grant. When it IS hindsight: the
+   * effective gate upstream applies to `scope:"global"` retain/learn —
+   * `hindsight.globalScope` on AND the effective `hindsight.scoping` honors
+   * global ("global" or "per-project-tagged"; absent keys mean omp's own
+   * defaults, false / per-project-tagged). Honest even on binaries predating
+   * the key: it does not exist there, so global scope is off, not unknown.
+   */
+  hindsightGlobalScope: boolean | null;
   baseDir: string;
   global: MemoryBankInfo;
   /** Null when scoping is "global" or no project bank was discovered. */

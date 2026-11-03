@@ -371,6 +371,38 @@ describe("readOmpSettings", () => {
     });
   });
 
+  it("emits the allowlisted hindsight.globalScope boolean (#1033)", async () => {
+    const schema = entry(true, "boolean", "Allow hindsight retain/learn to write global-scope memories");
+    const snapshot = await readOmpSettings(
+      { ompPath: OMP, projectCwd: null },
+      fakeRunner(
+        {
+          global: { "hindsight.globalScope": schema },
+          pristine: { "hindsight.globalScope": schema },
+        },
+        null,
+      ),
+    );
+    expect(snapshot.error).toBeNull();
+    expect(
+      snapshot.entries.find((e) => e.key === "hindsight.globalScope"),
+    ).toMatchObject({
+      type: "boolean",
+      value: true,
+      layer: "default",
+    });
+  });
+
+  it("emits nothing for hindsight.globalScope on an omp that predates the key (#1033)", async () => {
+    const snapshot = await readOmpSettings(
+      { ompPath: OMP, projectCwd: null },
+      fakeRunner({ global: {}, pristine: {} }, null),
+    );
+    expect(
+      snapshot.entries.some((e) => e.key === "hindsight.globalScope"),
+    ).toBe(false);
+  });
+
   it("emits the allowlisted share keys for the first-share dialog", async () => {
     const snapshot = await readOmpSettings(
       { ompPath: OMP, projectCwd: null },

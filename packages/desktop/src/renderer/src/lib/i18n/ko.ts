@@ -1311,6 +1311,8 @@ export const ko: Partial<Record<MessageKey, string>> = {
   "settings.memory.retry": "재시도",
   "settings.memory.globalBank": "이 프로젝트는 global bank를 사용합니다.",
   "settings.memory.noProjectBank": "아직 project bank를 찾지 못했습니다.",
+  "settings.memory.globalScopeOn": "전역 범위 켜짐",
+  "settings.memory.globalScopeOff": "전역 범위 꺼짐",
   "settings.memory.reading": "memory 설정 읽는 중…",
   "settings.memory.readFailed": "memory 설정을 읽을 수 없음",
   "settings.memory.ompMissingHint": "omp가 설치되지 않아 아직 설정할 항목이 없습니다.",

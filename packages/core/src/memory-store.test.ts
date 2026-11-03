@@ -317,6 +317,49 @@ describe("readMemoryOverview", () => {
     expect(overview.project).toBeNull();
   });
 
+  it("reports the effective hindsight global-scope gate when the backend is hindsight", () => {
+    // globalScope on with scoping absent ⇒ omp's default per-project-tagged, which honors global.
+    const tagged = setup("memory:\n  backend: hindsight\nhindsight:\n  globalScope: true\n");
+    expect(readMemoryOverview(tagged.project, tagged.env).hindsightGlobalScope).toBe(true);
+
+    // scoping "global" also honors it.
+    const global = setup(
+      "memory:\n  backend: hindsight\nhindsight:\n  globalScope: true\n  scoping: global\n",
+    );
+    expect(readMemoryOverview(global.project, global.env).hindsightGlobalScope).toBe(true);
+
+    // per-project scoping vetoes the gate.
+    const perProject = setup(
+      "memory:\n  backend: hindsight\nhindsight:\n  globalScope: true\n  scoping: per-project\n",
+    );
+    expect(readMemoryOverview(perProject.project, perProject.env).hindsightGlobalScope).toBe(false);
+
+    // globalScope absent ⇒ off, not unknown — honest on binaries predating the key.
+    const absent = setup("memory:\n  backend: hindsight\n");
+    expect(readMemoryOverview(absent.project, absent.env).hindsightGlobalScope).toBe(false);
+  });
+
+  it("nulls hindsightGlobalScope for non-hindsight backends regardless of hindsight.* keys", () => {
+    const keys = "hindsight:\n  globalScope: true\n  scoping: global\n";
+    const off = setup(`symbolPreset: unicode\n${keys}`);
+    expect(readMemoryOverview(off.project, off.env).hindsightGlobalScope).toBeNull();
+    const mnemopi = setup(`${MNEMOPI_CONFIG}${keys}`);
+    expect(readMemoryOverview(mnemopi.project, mnemopi.env).hindsightGlobalScope).toBeNull();
+  });
+
+  it("lets the project .omp/config.yml override the global layer for the hindsight gate", () => {
+    const { env, project } = setup(
+      "memory:\n  backend: hindsight\nhindsight:\n  scoping: per-project\n",
+    );
+    // Global says per-project (vetoed); the project layer turns the gate on.
+    fs.mkdirSync(path.join(project, ".omp"), { recursive: true });
+    fs.writeFileSync(
+      path.join(project, ".omp", "config.yml"),
+      "hindsight:\n  globalScope: true\n  scoping: per-project-tagged\n",
+    );
+    expect(readMemoryOverview(project, env).hindsightGlobalScope).toBe(true);
+  });
+
   it("counts both stores of an existing global bank", () => {
     const { env, baseDir, project } = setup();
     const dbPath = path.join(baseDir, "mnemopi.db");

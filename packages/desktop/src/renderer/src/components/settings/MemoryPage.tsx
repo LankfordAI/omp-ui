@@ -85,6 +85,13 @@ function MemoryOverviewPanel({
         <Label className="mr-auto">{t("settings.memory.resolvedMemory")}</Label>
         <Chip mono>{overview.backend}</Chip>
         <Chip mono>{overview.scoping}</Chip>
+        {overview.hindsightGlobalScope !== null && (
+          <Chip mono>
+            {overview.hindsightGlobalScope
+              ? t("settings.memory.globalScopeOn")
+              : t("settings.memory.globalScopeOff")}
+          </Chip>
+        )}
       </div>
       {overview.error !== null && (
         <div className="flex items-center justify-between gap-3 rounded border border-rose-dim/50 bg-rose-wash px-2 py-1.5">

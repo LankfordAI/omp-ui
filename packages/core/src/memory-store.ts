@@ -114,6 +114,34 @@ export function resolveMemoryBase(
   return { backend, scoping, baseDir, baseBank };
 }
 
+/** The scoping values upstream's gate honors for `scope:"global"` (issue #1033). */
+const GLOBAL_HONORING_SCOPINGS: readonly string[] = ["global", "per-project-tagged"];
+
+/**
+ * omp's effective hindsight global-scope gate (omp 18.16.0, issue #1033), the
+ * one upstream applies before accepting `scope:"global"` on retain/learn:
+ * `hindsight.globalScope` on AND the effective `hindsight.scoping` honors
+ * global. Null whenever the backend is not hindsight — mnemopi has its own
+ * scoping story, off/local have no scope to grant. Absent keys mean omp's own
+ * defaults (false / per-project-tagged), which stays honest on binaries that
+ * predate the key: global scope is simply off there. An unrecognised scoping
+ * value degrades to the omp default per-project-tagged, mirroring how
+ * {@link SCOPINGS} coerces mnemopi's scoping; never throws.
+ */
+export function resolveHindsightGlobalScope(
+  backend: MemoryBackendKind,
+  projectCwd: string,
+  env: NodeJS.ProcessEnv = process.env,
+): boolean | null {
+  if (backend !== "hindsight") return null;
+  if (readLayeredConfigScalar(projectCwd, "hindsight", "globalScope", env) !== "true") {
+    return false;
+  }
+  const scopingRaw = readLayeredConfigScalar(projectCwd, "hindsight", "scoping", env);
+  const scoping = SCOPINGS.find((kind) => kind === scopingRaw) ?? "per-project-tagged";
+  return GLOBAL_HONORING_SCOPINGS.includes(scoping);
+}
+
 /** The global bank: `<baseDir>/mnemopi.db` for "default", a banks/ subdir otherwise. */
 export function resolveGlobalBank(base: MemoryBase): ResolvedBank {
   const dbPath =
@@ -269,10 +297,12 @@ export function readMemoryOverview(
 ): MemoryOverview {
   try {
     const base = resolveMemoryBase(projectCwd, env);
+    const hindsightGlobalScope = resolveHindsightGlobalScope(base.backend, projectCwd, env);
     if (base.backend !== "mnemopi") {
       return {
         backend: base.backend,
         scoping: base.scoping,
+        hindsightGlobalScope,
         baseDir: base.baseDir,
         global: emptyBankInfo(),
         project: null,
@@ -284,6 +314,7 @@ export function readMemoryOverview(
     return {
       backend: base.backend,
       scoping: base.scoping,
+      hindsightGlobalScope,
       baseDir: base.baseDir,
       global: globalInfo,
       project: projectBank === null ? null : readBankInfo(projectBank),
@@ -293,6 +324,7 @@ export function readMemoryOverview(
     return {
       backend: "mnemopi",
       scoping: "per-project",
+      hindsightGlobalScope: null,
       baseDir: "",
       global: emptyBankInfo(),
       project: null,
