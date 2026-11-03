@@ -4,6 +4,7 @@ import * as path from "node:path";
 import { afterEach, beforeEach, describe, expect, it, vi, type Mock } from "vitest";
 import {
   CH,
+  PLAN_DISMISS,
   PLAN_EXECUTE,
   PLAN_REVIEW_SENTINEL,
   Registry,
@@ -454,6 +455,26 @@ describe("plan-review gate on the wire (issue #215)", () => {
     state = lastBroadcast();
     expect(sessionsOf(state, "/p/a")[0]!.pendingPlan).toBeNull();
     expect(sessionsOf(state, "/p/a")[0]!.planSettle).toBeNull();
+  });
+
+  it("settles a dismissed verdict on the wire (issue #1012)", async () => {
+    const { manager, rpc } = await gateBackend();
+    rpc.frame(proposalFrame("p1"));
+
+    manager.rpcSend(TAB_A, {
+      type: "extension_ui_response",
+      id: "p1",
+      value: PLAN_DISMISS,
+    });
+    await invoke(CH.toggleFavorite, "model-d");
+    const state = lastBroadcast();
+    expect(sessionsOf(state, "/p/a")[0]!.pendingPlan).toBeNull();
+    expect(sessionsOf(state, "/p/a")[0]!.planSettle).toEqual({
+      frameId: "p1",
+      verdict: "dismissed",
+    });
+
+    rpc.exit(0);
   });
 
   it("records the proposal and keeps it pending past the process exit (ADR-0033)", async () => {

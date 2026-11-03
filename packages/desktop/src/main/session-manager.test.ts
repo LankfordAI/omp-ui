@@ -3245,6 +3245,36 @@ describe("html plan preflight (issue #312 follow-up)", () => {
     });
   });
 
+  it("lets dismiss answer without re-reading disk bytes", async () => {
+    const { manager, registry, sessionsRoot } = setup({ mode: "rpc-ui", planVerify: passedVerify() });
+    await resumeRpc(manager);
+    const abs = planFile(sessionsRoot);
+    rpcInstances[0]!.frame(planFrame("p1", abs));
+    await vi.waitFor(() =>
+      expect(manager.planGate(TAB)?.pending?.frameId).toBe("p1"),
+    );
+    const hash = hashOf(htmlText);
+    fs.writeFileSync(abs, htmlText + "<!-- edited -->", "utf8");
+
+    // Dismiss needs the gate identity but NOT unchanged disk bytes: changed
+    // on-disk bytes still answer accepted, like refine.
+    await expect(manager.answerPlanReview(TAB, "p1", "dismiss", hash)).resolves.toEqual({
+      status: "accepted",
+    });
+    expect(rpcInstances[0]!.send).toHaveBeenCalledWith({
+      type: "extension_ui_response",
+      id: "p1",
+      value: Core.PLAN_DISMISS,
+    });
+    expect(manager.planGate(TAB)).toEqual({
+      pending: null,
+      settle: { frameId: "p1", verdict: "dismissed" },
+    });
+    expect(
+      registry.sessions.find((s) => s.tabId === TAB)!.proposedPlans,
+    ).toEqual([{ key: "local://auth-plan.html", title: "add auth", status: "dismissed" }]);
+  });
+
   it("never runs the verifier for a markdown proposal", async () => {
     const planVerify = passedVerify();
     const { manager, sessionsRoot } = setup({ mode: "rpc-ui", planVerify });
@@ -5279,6 +5309,54 @@ describe("stream-stall watchdog (issue #248)", () => {
     } finally {
       vi.useRealTimers();
     }
+  });
+});
+
+describe("foreign omp launch notice (#1022)", () => {
+  const resumeRpc = (manager: SessionManager): Promise<{ tabId: string }> =>
+    manager.spawn({
+      origin: "resume",
+      resumeTabId: TAB,
+      cols: 80,
+      rows: 24,
+    });
+
+  const foreignNotices = (sent: { channel: string; args: unknown[] }[]): unknown[] =>
+    sent
+      .filter((s) => s.channel === CH.onRpcFrame)
+      .map((s) => s.args[1])
+      .filter(
+        (f) =>
+          typeof f === "object" &&
+          f !== null &&
+          (f as Record<string, unknown>).reason === "foreign-omp-launch",
+      );
+
+  it("posts exactly one notice when the agent launches a bare omp", async () => {
+    const { manager, sent } = setup({ mode: "rpc-ui" });
+    await resumeRpc(manager);
+    const rpc = rpcInstances[0]!;
+
+    rpc.frame({ type: "agent_start" });
+    rpc.frame({ type: "tool_execution_start", toolCallId: "t1", toolName: "bash", args: { command: "OMP_SESSION_LOG=/tmp/x omp --print 'hi' && echo done" } });
+    rpc.frame({ type: "tool_execution_end", toolCallId: "t1" });
+    rpc.frame({ type: "tool_execution_start", toolCallId: "t2", toolName: "bash", args: { command: "omp --print again" } });
+
+    const notices = foreignNotices(sent);
+    expect(notices).toHaveLength(1);
+    expect(notices[0]).toMatchObject({ type: "omp_ui_notice", level: "warn", reason: "foreign-omp-launch" });
+  });
+
+  it("stays silent for ordinary bash commands", async () => {
+    const { manager, sent } = setup({ mode: "rpc-ui" });
+    await resumeRpc(manager);
+    const rpc = rpcInstances[0]!;
+
+    rpc.frame({ type: "agent_start" });
+    rpc.frame({ type: "tool_execution_start", toolCallId: "t1", toolName: "bash", args: { command: "npm run build && cat my-omp-config.toml" } });
+    rpc.frame({ type: "tool_execution_end", toolCallId: "t1" });
+
+    expect(foreignNotices(sent)).toHaveLength(0);
   });
 });
 
@@ -9293,6 +9371,91 @@ describe("fleet wake and fleet send (issues #957, #959)", () => {
       expect(await branches(project)).toEqual(["main", "release/keep"]);
       // Released dormant: no relaunch after the settle.
       expect(RpcClientMock).toHaveBeenCalledTimes(1);
+    });
+
+    it("settles a session whose checkout was removed out-of-band (#1014)", async () => {
+      const { manager, registry } = setup({ mode: "rpc-ui" });
+      const { project, tabId, wt } = await worktreeChild(manager, registry);
+      // Land the minted branch on main, then yank the checkout from under us.
+      fs.writeFileSync(path.join(wt.path, "done.txt"), "done\n");
+      await execFileP("git", ["add", "done.txt"], { cwd: wt.path });
+      await execFileP("git", ["commit", "-q", "-m", "done"], { cwd: wt.path });
+      await execFileP("git", ["merge", "-q", "--ff-only", wt.branch], { cwd: project });
+      fs.rmSync(wt.path, { recursive: true, force: true });
+
+      const outcome = await manager.fleetFinish(finishReq());
+
+      expect(outcome).toEqual({
+        status: "finished",
+        destination: "main",
+        worktreePath: wt.path,
+        checkoutKept: "gone",
+        branch: wt.branch,
+        branchOutcome: "removed",
+        workingBranches: [],
+      });
+      expect(manager.isLive(tabId)).toBe(false);
+      expect(registry.sessions.find((s) => s.tabId === tabId)!.worktree).toBeNull();
+      expect(await branches(project)).toEqual(["main"]);
+    });
+
+    it("finishes onto a declared destination instead of the base (#1013)", async () => {
+      const { manager, registry } = setup({ mode: "rpc-ui" });
+      const { project, tabId, wt } = await worktreeChild(manager, registry);
+      // The work landed on feature/x, not the base main: point the
+      // nowhere-checked-out branch at the commit from the project side.
+      fs.writeFileSync(path.join(wt.path, "land.txt"), "land\n");
+      await execFileP("git", ["add", "land.txt"], { cwd: wt.path });
+      await execFileP("git", ["commit", "-q", "-m", "land"], { cwd: wt.path });
+      const sha = (await execFileP("git", ["rev-parse", "HEAD"], { cwd: wt.path })).stdout.trim();
+      await execFileP("git", ["update-ref", "refs/heads/feature/x", sha], { cwd: project });
+
+      // Without the declaration the finish refuses: main lacks the work.
+      await expect(manager.fleetFinish(finishReq())).resolves.toMatchObject({
+        status: "refused",
+        reason: expect.stringContaining("land the work first"),
+      });
+
+      const outcome = await manager.fleetFinish(finishReq({ landedOn: "feature/x" }));
+      expect(outcome).toEqual({
+        status: "finished",
+        destination: "feature/x",
+        worktreePath: wt.path,
+        checkoutKept: null,
+        branch: wt.branch,
+        branchOutcome: "removed",
+        workingBranches: [],
+      });
+      expect(manager.isLive(tabId)).toBe(false);
+      expect(registry.sessions.find((s) => s.tabId === tabId)!.worktree).toBeNull();
+      expect(await branches(project)).toEqual(["feature/x", "main"]);
+    });
+
+    it("names the declared branch in the refusal when the destination is missing (#1013)", async () => {
+      const { manager, registry } = setup({ mode: "rpc-ui" });
+      const { tabId, wt } = await worktreeChild(manager, registry);
+      await expect(
+        manager.fleetFinish(finishReq({ landedOn: "feature/nope" })),
+      ).resolves.toEqual({
+        status: "refused",
+        reason: "the base branch feature/nope no longer exists",
+      });
+      expect(manager.isLive(tabId)).toBe(true);
+      expect(registry.sessions.find((s) => s.tabId === tabId)!.worktree).toEqual(wt);
+    });
+
+    it("still refuses a gone checkout whose branch provably lags the destination (#1014)", async () => {
+      const { manager, registry } = setup({ mode: "rpc-ui" });
+      const { wt } = await worktreeChild(manager, registry);
+      fs.writeFileSync(path.join(wt.path, "hot.txt"), "hot\n");
+      await execFileP("git", ["add", "hot.txt"], { cwd: wt.path });
+      await execFileP("git", ["commit", "-q", "-m", "hot"], { cwd: wt.path });
+      fs.rmSync(wt.path, { recursive: true, force: true });
+
+      await expect(manager.fleetFinish(finishReq())).resolves.toEqual({
+        status: "refused",
+        reason: `${wt.branch} has 1 commit main lacks; land the work first`,
+      });
     });
   });
 });

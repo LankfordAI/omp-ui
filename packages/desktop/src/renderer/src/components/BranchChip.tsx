@@ -558,7 +558,7 @@ export function BranchChip({
                 })
         }
         onClick={toggleMenu}
-        className="inline-flex h-6 min-w-0 items-center gap-1 rounded-md border border-line px-1.5 font-mono text-[10px] leading-4 text-ink-mid transition-colors duration-150 hover:bg-hover hover:text-ink"
+        className="tap-target inline-flex h-6 min-w-0 items-center gap-1 rounded-md border border-line px-1.5 font-mono text-[10px] leading-4 text-ink-mid transition-colors duration-150 hover:bg-hover hover:text-ink"
       >
         <svg viewBox="0 0 16 16" aria-hidden className="size-3.5">
           <circle cx="5" cy="4" r="1.6" {...ICON_STROKE} />

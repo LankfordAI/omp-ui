@@ -7,6 +7,7 @@ import {
 } from "./generated-extension-source";
 import {
   PLAN_COMMAND,
+  PLAN_DISMISS,
   PLAN_EXECUTE,
   PLAN_PREFLIGHT_REPLY_VERSION,
   PLAN_PREFLIGHT_RESULT_PREFIX,
@@ -83,6 +84,7 @@ const REVIEW_SENTINEL = ${JSON.stringify(PLAN_REVIEW_SENTINEL)};
 const COMMAND = ${JSON.stringify(PLAN_COMMAND)};
 const EXECUTE = ${JSON.stringify(PLAN_EXECUTE)};
 const REFINE = ${JSON.stringify(PLAN_REFINE)};
+const DISMISS = ${JSON.stringify(PLAN_DISMISS)};
 const PREFLIGHT_RESULT_PREFIX = ${JSON.stringify(PLAN_PREFLIGHT_RESULT_PREFIX)};
 const PREFLIGHT_REPLY_VERSION = ${JSON.stringify(PLAN_PREFLIGHT_REPLY_VERSION)};
 const TRANSITION_KEY = ${JSON.stringify(VIBE_MODE_TRANSITION_KEY)};
@@ -1053,7 +1055,7 @@ export default function (pi: PlanExtensionApi) {
     let answer: string | undefined;
     if (represent) reviewOpen = true;
     try {
-      answer = await dialog.select(REVIEW_SENTINEL + JSON.stringify(request), [EXECUTE, REFINE]);
+      answer = await dialog.select(REVIEW_SENTINEL + JSON.stringify(request), [EXECUTE, REFINE, DISMISS]);
     } catch {
       // A dropped dialog is a refusal, never a silent approval.
       answer = undefined;
@@ -1102,12 +1104,32 @@ export default function (pi: PlanExtensionApi) {
         details,
       };
     }
-    // A real verdict (execute/refine) means the gate passed preflight and
+    // A real verdict (execute/refine/dismiss) means the gate passed preflight and
     // reached a human: this artifact's repair budget resets. A dropped
     // dialog is not a success and keeps the budget spent.
-    if (html && (answer === EXECUTE || answer === REFINE)) {
+    if (html && (answer === EXECUTE || answer === REFINE || answer === DISMISS)) {
       preflightFailures.delete(planFilePath);
       preflightStopped.delete(planFilePath);
+    }
+    if (answer === DISMISS) {
+      // Dismissal answers the gate without approving or reworking the plan:
+      // nothing pinned, plan mode stays armed, the tree stays read-only, and
+      // the turn ends. The execute-only machinery below (pin, exit, approved,
+      // retracted-exit announcement) deliberately never runs.
+      publish();
+      return {
+        content: [
+          {
+            type: "text",
+            text:
+              "The user dismissed this plan review: the plan is neither approved nor sent back for " +
+              "revision. Do NOT implement it, do NOT revise it, and do NOT re-propose it unless the " +
+              "user explicitly asks. Plan mode stays armed and the working tree stays read-only. " +
+              "End this turn now with a one-line acknowledgement and wait for further instructions.",
+          },
+        ],
+        details,
+      };
     }
     if (answer !== EXECUTE) {
       // Refinement keeps plan mode active for another turn. Nothing to promote

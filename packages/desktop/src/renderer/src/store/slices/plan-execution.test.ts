@@ -916,3 +916,101 @@ describe("Run as goal arms a native goal after the accepted implementation promp
     expect(h.sent.some((s) => s.cmd.type === "goal")).toBe(false);
   });
 });
+
+describe("dismiss declines a live gate without executing or reworking (issue #1012)", () => {
+  const markdownGateFrame = (id: string) => ({
+    type: "extension_ui_request",
+    id,
+    method: "select",
+    title:
+      "omp-ui:plan-review:" +
+      JSON.stringify({ title: "t", planFilePath: "local://p.md" }),
+  });
+
+  const htmlGate = () => {
+    const planItem = planProposalItem("add auth", "local://auth-plan.html", "/l/auth-plan.html");
+    h.useStore.setState({
+      rpc: {
+        [h.TAB]: rpcTabState({
+          planReview: {
+            request: {
+              title: "add auth",
+              planFilePath: "local://auth-plan.html",
+              planAbsPath: "/l/auth-plan.html",
+              sourceHash: SOURCE_HASH,
+            },
+            frame: { id: "dm1" },
+          },
+          items: [planItem],
+        }),
+      },
+    });
+    return planItem;
+  };
+
+  it("an HTML dismiss answers through the acknowledged channel and dispatches nothing", async () => {
+    const planItem = htmlGate();
+    await h.useStore.getState().dismissPlanReview(h.TAB);
+    await h.flushMicrotasks();
+
+    expect(answerPlanReview).toHaveBeenCalledWith(h.TAB, "dm1", "dismiss", null);
+    // Dismiss ends the turn with no execution and no rework: no implementation
+    // prompt, no steer notes, and no unacknowledged select reply on the wire.
+    expect(h.sent.some((s) => s.cmd.type === "prompt")).toBe(false);
+    expect(h.sent.some((s) => s.cmd.type === "extension_ui_response")).toBe(false);
+
+    const tab = h.useStore.getState().rpc[h.TAB]!;
+    // Only the accepted answer settles: pane cleared, row dismissed.
+    expect(tab.planReview).toBeNull();
+    expect(tab.items).toEqual([{ ...planItem, status: "dismissed" }]);
+  });
+
+  it("a rejected HTML dismiss leaves the review open and dispatches nothing", async () => {
+    const planItem = htmlGate();
+    answerPlanReview.mockResolvedValueOnce({ status: "rejected", reason: "stale" });
+
+    await h.useStore.getState().dismissPlanReview(h.TAB);
+    await h.flushMicrotasks();
+
+    expect(answerPlanReview).toHaveBeenCalledWith(h.TAB, "dm1", "dismiss", null);
+    // stale / source-changed: the record wins via reconcilePlanGates; this
+    // client settles nothing and says nothing.
+    const tab = h.useStore.getState().rpc[h.TAB]!;
+    expect(tab.planReview).not.toBeNull();
+    expect(tab.items).toEqual([planItem]);
+    expect(h.sent.some((s) => s.cmd.type === "prompt")).toBe(false);
+    expect(h.sent.some((s) => s.cmd.type === "extension_ui_response")).toBe(false);
+    expect(
+      tab.items.filter((i) => i.kind === "notice" && i.level === "warn"),
+    ).toHaveLength(0);
+  });
+
+  it("a Markdown dismiss rides the unacknowledged select reply as 'dismiss'", async () => {
+    h.useStore.setState({ rpc: { [h.TAB]: rpcTabState() } });
+    h.useStore.getState().handleRpcFrame(h.TAB, markdownGateFrame("dm2"));
+
+    await h.useStore.getState().dismissPlanReview(h.TAB);
+    await h.flushMicrotasks();
+
+    // Markdown keeps its un-gated semantics: the verdict goes straight back on
+    // the blocked select and never touches the acknowledged channel (§6).
+    expect(
+      h.sent.find((s) => s.cmd.type === "extension_ui_response")?.cmd,
+    ).toMatchObject({ id: "dm2", value: "dismiss" });
+    expect(answerPlanReview).not.toHaveBeenCalled();
+    expect(h.sent.some((s) => s.cmd.type === "prompt")).toBe(false);
+
+    const tab = h.useStore.getState().rpc[h.TAB]!;
+    expect(tab.planReview).toBeNull();
+    expect(tab.items.filter((i) => i.kind === "plan").at(-1)).toMatchObject({
+      status: "dismissed",
+    });
+  });
+
+  it("dismiss without a live gate is inert", async () => {
+    h.useStore.setState({ rpc: { [h.TAB]: rpcTabState() } });
+    await h.useStore.getState().dismissPlanReview(h.TAB);
+    expect(answerPlanReview).not.toHaveBeenCalled();
+    expect(h.sent.some((s) => s.cmd.type === "extension_ui_response")).toBe(false);
+  });
+});

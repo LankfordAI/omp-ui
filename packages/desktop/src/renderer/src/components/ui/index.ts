@@ -11,6 +11,7 @@ export {
   IconLock,
   IconMic,
   IconModel,
+  IconOpenIn,
   IconPause,
   IconPlanMode,
   IconPlay,

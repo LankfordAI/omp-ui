@@ -14,6 +14,7 @@ import {
   SIDEBAR_MIN_WIDTH,
   clampPanelWidth,
   resolveDesktopPanelWidths,
+  resolveDockedSidebarWidth,
   type DesktopPanelWidthsInput,
 } from "./panel-layout";
 
@@ -199,5 +200,22 @@ describe("desktop panel layout", () => {
       ...resolveDesktopPanelWidths({ ...defaults, viewportWidth: 1100, split: null }),
       splitFits: false,
     });
+  });
+});
+
+describe("docked sidebar width", () => {
+  it("reserves only the transcript minimum", () => {
+    expect(resolveDockedSidebarWidth(739, SIDEBAR_DEFAULT_WIDTH, null)).toEqual({ sidebarWidth: 312, sidebarAllowedMax: 419, pinned: false });
+    expect(resolveDockedSidebarWidth(600, SIDEBAR_DEFAULT_WIDTH, null)).toEqual({ sidebarWidth: 280, sidebarAllowedMax: 280, pinned: false });
+    expect(resolveDockedSidebarWidth(739, SIDEBAR_MAX_WIDTH, null)).toEqual({ sidebarWidth: 419, sidebarAllowedMax: 419, pinned: false });
+  });
+
+  it("pins the width to the hinge, clamped to the sidebar minimum", () => {
+    expect(resolveDockedSidebarWidth(739, SIDEBAR_DEFAULT_WIDTH, 369)).toEqual({ sidebarWidth: 369, sidebarAllowedMax: 419, pinned: true });
+    expect(resolveDockedSidebarWidth(739, SIDEBAR_DEFAULT_WIDTH, 150)).toEqual({ sidebarWidth: 224, sidebarAllowedMax: 419, pinned: true });
+  });
+
+  it("falls back to the minimum for a non-finite viewport", () => {
+    expect(resolveDockedSidebarWidth(Number.NaN, SIDEBAR_DEFAULT_WIDTH, null)).toEqual({ sidebarWidth: 224, sidebarAllowedMax: 224, pinned: false });
   });
 });

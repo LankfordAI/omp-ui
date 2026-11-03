@@ -57,3 +57,18 @@ proposing, rewrote the reviewed file first (observed 2026-09-23).
   re-presented review is open.
 - The transcript still shows no plan card for an interrupted plan; the pane is
   the persistent surface.
+
+## Amendment (2026-10, issue #1012)
+
+The Decision's **Dismiss** bullet stands: the tab-routed `plan:dismiss` still
+refuses a live gate and settles only interrupted plans. What changed is the
+answer side. A live gate is now answerable with a third verdict, **dismiss**
+(decline), through `plan:answer`: it unblocks the agent's blocked
+`xd://propose` select and settles the record as `dismissed`. No `exitPlanMode`,
+no reference pin, no approved flag — plan mode stays armed and the tree stays
+read-only, exactly as a refine leaves them.
+
+The consequence worth naming: dismissing spends the planner's blocked turn,
+ending it cleanly with one tool result — no model work is promised by its stop
+instruction. Defer ("not now") remains the non-answering pause that leaves the
+gate and the blocked turn open.

@@ -6,6 +6,7 @@ import {
   type FleetDispatchRequest,
   type FleetHostProject,
   type FleetHostReport,
+  type FleetFinishRequest,
   type FleetSendRequest,
   type NewRpcSpawnRequest,
   type RemoteInstanceSummary,
@@ -563,6 +564,43 @@ describe("FleetDispatcher wake-up, long-poll status, send (issues #957-#959)", (
       message: "hi",
       mode: "steer",
     });
+  });
+
+  it("relays landedOn to the owner and omits the key entirely when unset (#1013)", async () => {
+    const h = harness({
+      local: report([project()]),
+      remotes: { r1: { report: async () => report([]) } },
+      deps: { fleetSessions: async () => [fleetSession("r1", "d1")] },
+    });
+    h.request.mockImplementation(async (_id, channel) => {
+      if (channel === CH.fleetFinish) return { status: "refused", reason: "fixture" };
+      throw new Error(`unexpected ${channel}`);
+    });
+    await h.dispatcher.finish("parent", { dispatchId: "d1", landedOn: "feature/x" });
+    const call = h.request.mock.calls.find(([, ch]) => ch === CH.fleetFinish)!;
+    expect(call[2][0] as FleetFinishRequest).toMatchObject({ dispatchId: "d1", landedOn: "feature/x" });
+
+    await h.dispatcher.finish("parent", { dispatchId: "d1" });
+    const bare = h.request.mock.calls.filter(([, ch]) => ch === CH.fleetFinish).at(-1)![2][0];
+    expect(bare).not.toHaveProperty("landedOn");
+  });
+
+  it("passes a declared destination to finishLocal for a local child (#1013)", async () => {
+    const seen: FleetFinishRequest[] = [];
+    const h = harness({
+      local: report([project()]),
+      deps: {
+        fleetSessions: async () => [fleetSession(LOCAL_MACHINE_KEY, "d1")],
+        finishLocal: async (req) => {
+          seen.push(req);
+          return { status: "refused", reason: "fixture" };
+        },
+      },
+    });
+    await h.dispatcher.finish("parent", { dispatchId: "d1", landedOn: "release/9" });
+    await h.dispatcher.finish("parent", { dispatchId: "d1" });
+    expect(seen[0]).toMatchObject({ dispatchId: "d1", landedOn: "release/9" });
+    expect("landedOn" in seen[1]!).toBe(false);
   });
 });
 

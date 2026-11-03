@@ -134,6 +134,12 @@ export interface AsyncJob {
   completionPercent: number | null;
   /** A running task subagent's current step in its own words; null otherwise. */
   stage: string | null;
+  /** The purpose the model gave for the job (omp 18.15+, issue #1017); null when
+   *  absent (task jobs, older omp) and on v1–v3 payloads. */
+  intent: string | null;
+  /** The `widget` role's one-line caption of a long or compound bash job (omp
+   *  18.15+, issue #1017); null when not authored and on v1–v3 payloads. */
+  caption: string | null;
 }
 
 export interface AsyncJobsKillRequest {
@@ -160,11 +166,12 @@ export interface AsyncJobAgent {
   parentId: string | null;
 }
 
-/** The published envelope version (issues #868, #954). The bridge interpolates
- *  this constant so publisher and parser can never drift; v1 and v2 payloads —
- *  written by an older omp-ui's bridge against the same session — parse to v3
- *  with null widget, completionPercent, and stage (v1 also flat: no tree). */
-export const ASYNC_JOBS_SNAPSHOT_VERSION = 3;
+/** The published envelope version (issues #868, #954, #1017). The bridge
+ *  interpolates this constant so publisher and parser can never drift; v1–v3
+ *  payloads — written by an older omp-ui's bridge against the same session —
+ *  parse to v4 with null intent and caption, v1/v2 also with null widget,
+ *  completionPercent, and stage (v1 also flat: no tree). */
+export const ASYNC_JOBS_SNAPSHOT_VERSION = 4;
 
 export interface AsyncJobsSnapshot {
   version: typeof ASYNC_JOBS_SNAPSHOT_VERSION;
@@ -198,7 +205,7 @@ export function asyncJobsKillMessage(request: AsyncJobsKillRequest): string {
   return `/${ASYNC_JOBS_COMMAND} ${ASYNC_JOBS_KILL_ARG} ${JSON.stringify(request)}`;
 }
 
-type WireVersion = 1 | 2 | typeof ASYNC_JOBS_SNAPSHOT_VERSION;
+type WireVersion = 1 | 2 | 3 | typeof ASYNC_JOBS_SNAPSHOT_VERSION;
 
 function asObject(value: unknown): Record<string, unknown> | null {
   return value === null || typeof value !== "object" || Array.isArray(value)
@@ -210,6 +217,10 @@ function isWidgetText(value: unknown): value is string {
 }
 function isFilledText(value: unknown): value is string {
   return isWidgetText(value) && value !== "";
+}
+/** A non-empty intent or caption within the bridge's label clip. */
+function isJobText(value: unknown): value is string {
+  return typeof value === "string" && value !== "" && value.length <= ASYNC_JOBS_LABEL_CHAR_LIMIT;
 }
 function isTone(value: unknown): value is AsyncJobWidgetTone {
   return typeof value === "string" && (ASYNC_JOB_WIDGET_TONES as readonly string[]).includes(value);
@@ -377,8 +388,8 @@ function readJob(value: unknown, version: WireVersion): AsyncJob | null {
   let liveWidget: AsyncJobWidget | null = null;
   let percent: number | null = null;
   let step: string | null = null;
-  if (version === ASYNC_JOBS_SNAPSHOT_VERSION) {
-    // v3 states every key; null is the absent value, a missing key is malformed.
+  if (version >= 3) {
+    // v3+ states every key; null is the absent value, a missing key is malformed.
     if (!("widget" in record) || !("completionPercent" in record) || !("stage" in record)) return null;
     const read = readWidget(widget);
     if (read === undefined) return null;
@@ -395,6 +406,23 @@ function readJob(value: unknown, version: WireVersion): AsyncJob | null {
     }
   } else if (widget !== undefined || completionPercent !== undefined || stage !== undefined) {
     // An older envelope carrying v3 keys is a half-written hybrid (the #868 rule).
+    return null;
+  }
+  const { intent, caption } = record;
+  let purpose: string | null = null;
+  let line: string | null = null;
+  if (version === ASYNC_JOBS_SNAPSHOT_VERSION) {
+    // v4 states both keys, as v3 does its own.
+    if (!("intent" in record) || !("caption" in record)) return null;
+    if (intent !== null) {
+      if (!isJobText(intent)) return null;
+      purpose = intent;
+    }
+    if (caption !== null) {
+      if (!isJobText(caption)) return null;
+      line = caption;
+    }
+  } else if (intent !== undefined || caption !== undefined) {
     return null;
   }
   return {
@@ -416,6 +444,8 @@ function readJob(value: unknown, version: WireVersion): AsyncJob | null {
     widget: liveWidget,
     completionPercent: percent,
     stage: step,
+    intent: purpose,
+    caption: line,
   };
 }
 
@@ -472,11 +502,12 @@ export function parseAsyncJobsSnapshot(text: string | undefined): AsyncJobsSnaps
   }
   if (parsed === null || typeof parsed !== "object" || Array.isArray(parsed)) return null;
   const record = parsed as Record<string, unknown>;
-  // v1 (before the jobs tree, issue #868) and v2 (before live widgets, issue
-  // #954) are stale bridges: legal on the wire of an older publish, mapped to
-  // v3 — v1 flat, both with null live fields — so the pane renders today's list.
+  // v1 (before the jobs tree, issue #868), v2 (before live widgets, issue
+  // #954), and v3 (before purpose and caption, issue #1017) are stale bridges:
+  // legal on the wire of an older publish, mapped to v4 with null missing
+  // fields — v1 also flat — so the pane renders today's list.
   const version = record.version;
-  if (version !== 1 && version !== 2 && version !== ASYNC_JOBS_SNAPSHOT_VERSION) return null;
+  if (version !== 1 && version !== 2 && version !== 3 && version !== ASYNC_JOBS_SNAPSHOT_VERSION) return null;
   const { processKey, revision, available, unavailable, canInspect, canCancel } = record;
   if (typeof processKey !== "string" || processKey === "") return null;
   if (typeof revision !== "number" || !Number.isInteger(revision) || revision < 1) return null;

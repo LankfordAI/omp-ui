@@ -151,7 +151,7 @@ import type {
   ProjectCopyPreview,
   ProjectCopyResult,
 } from "./fleet";
-import { PLAN_EXECUTE, PLAN_REFINE, type PlanAnswerResult, type PlanReviewVerdict } from "./plan";
+import { PLAN_DISMISS, PLAN_EXECUTE, PLAN_REFINE, type PlanAnswerResult, type PlanReviewVerdict } from "./plan";
 import {
   agentModeCodec,
   approvalModeCodec,
@@ -1182,14 +1182,15 @@ export const BACKEND_CHANNELS = {
    * hashes to the preflight `sourceHash` before answering the agent's blocked
    * select. Two clients can therefore never both execute, and a changed file
    * cannot start an implementation. `sourceHash` is null for markdown gates,
-   * which keep their un-gated semantics.
+   * which keep their un-gated semantics. `refine` and `dismiss` need the gate
+   * identity but no artifact hash — nobody implements those plans.
    */
   answerPlanReview: {
     channel: "plan:answer",
     ...request<
       [tabId: string, frameId: string, verdict: PlanReviewVerdict, sourceHash: string | null],
       PlanAnswerResult
-    >([str(), str(), oneOf(PLAN_EXECUTE, PLAN_REFINE), nullable(str())]),
+    >([str(), str(), oneOf(PLAN_EXECUTE, PLAN_REFINE, PLAN_DISMISS), nullable(str())]),
   },
   /**
    * Stops tracking an interrupted plan (ADR-0033). A no-op for a plan whose

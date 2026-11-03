@@ -692,7 +692,12 @@ export class FleetDispatcher {
     if (by.instanceId !== requester.instanceId || by.sourceTabId !== requester.sourceTabId) {
       return { status: "refused", reason: "only the session that dispatched this work can finish it" };
     }
-    const req: FleetFinishRequest = { requester, dispatchId: args.dispatchId };
+    // #1013: spread-guard so an unset landedOn emits no own key on the wire.
+    const req: FleetFinishRequest = {
+      requester,
+      dispatchId: args.dispatchId,
+      ...(args.landedOn === undefined ? {} : { landedOn: args.landedOn }),
+    };
     if (s.machineKey === LOCAL_MACHINE_KEY) return this.#deps.finishLocal(req);
     return this.#memberCall<FleetFinishOutcome>(s.machineKey, CH.fleetFinish, [req], fleetMachineName({ nickname: s.nickname ?? s.machineKey }));
   }

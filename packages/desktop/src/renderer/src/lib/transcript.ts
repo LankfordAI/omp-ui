@@ -177,8 +177,11 @@ export interface PlanItem {
   planAbsPath: string | null;
   /** Plan markdown snapshot read off disk; null until loaded or when unreadable. */
   text: string | null;
-  /** `invalidated` = the validated source changed under review (§6), NOT a verdict. */
-  status: "pending" | "executed" | "refined" | "invalidated";
+  /**
+   * `invalidated` = the validated source changed under review (§6), NOT a
+   * verdict. `dismissed` = the user declined the live review (issue #1012).
+   */
+  status: "pending" | "executed" | "refined" | "invalidated" | "dismissed";
 }
 export interface CommandItem {
   kind: "command";
@@ -1088,10 +1091,9 @@ export function reduceEvent(items: RenderItem[], event: unknown): RenderItem[] {
     case "retry_fallback_applied": {
       const from = strField(event, "from");
       const to = strField(event, "to");
-      return [
-        ...items,
-        markerItem(from && to ? `retry fallback: ${from} → ${to}` : "retry fallback applied", "copper"),
-      ];
+      const reason = strField(event, "reason");
+      const base = from && to ? `retry fallback: ${from} → ${to}` : "retry fallback applied";
+      return [...items, markerItem(reason ? `${base} · ${truncateLabel(reason)}` : base, "copper")];
     }
     // omp emits `retry_fallback_succeeded`; `retry_succeeded` is the older name.
     case "retry_fallback_succeeded":

@@ -192,6 +192,20 @@ export function isAllowedBrowserPaneSubframeUrl(url: string): boolean {
   );
 }
 
+/**
+ * True for a host every machine resolves to itself: `localhost`, all of
+ * 127.0.0.0/8, and `::1` (issue #1023). Pure so pane chrome and transcript
+ * links share one rule. IPv6 hosts arrive bracketed from `URL.hostname`;
+ * both forms are accepted. Loopback is machine-local: a URL that resolves on
+ * the session's OWNING machine does not resolve here.
+ */
+export function isLoopbackHost(host: string): boolean {
+  const h = host.toLowerCase().replace(/^\[(.*)\]$/, "$1");
+  if (h === "localhost" || h === "::1") return true;
+  const parts = h.split(".");
+  return parts.length === 4 && parts[0] === "127" && parts.every((p) => /^\d{1,3}$/.test(p) && Number(p) <= 255);
+}
+
 function parseProtocol(url: string): string | null {
   try {
     return new URL(url).protocol;

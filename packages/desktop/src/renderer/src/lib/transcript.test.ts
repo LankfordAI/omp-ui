@@ -998,18 +998,27 @@ describe("reduceEvent markers, notice, irc, unknowns", () => {
     expect(item.tone).toBe("rose");
   });
 
-  it("labels retry_fallback_applied with the provider switch (issue #100)", () => {
-    const item = reduceEvent([], {
-      type: "retry_fallback_applied",
-      from: "openrouter/kimi",
-      to: "anthropic/claude",
-      role: "default",
-    })[0];
-    expect(item).toMatchObject({
+  it("labels retry_fallback_applied with the provider switch and clipped reason (issues #100, #1016)", () => {
+    const switchFields = { type: "retry_fallback_applied", from: "openrouter/kimi", to: "anthropic/claude", role: "default" };
+    const bare = reduceEvent([], switchFields)[0];
+    expect(bare).toMatchObject({
       kind: "marker",
       label: "retry fallback: openrouter/kimi → anthropic/claude",
       tone: "copper",
     });
+
+    const withReason = reduceEvent([], { ...switchFields, reason: "no credential for openrouter" })[0];
+    expect(withReason).toMatchObject({
+      kind: "marker",
+      label: "retry fallback: openrouter/kimi → anthropic/claude · no credential for openrouter",
+      tone: "copper",
+    });
+
+    const long = reduceEvent([], { ...switchFields, reason: "e".repeat(300) })[0];
+    if (long?.kind !== "marker") throw new Error("expected a marker");
+    const clipped = long.label.split(" · ")[1] ?? "";
+    expect(clipped.length).toBe(120);
+    expect(clipped.endsWith("…")).toBe(true);
   });
 
   it("renders notice and irc_message", () => {

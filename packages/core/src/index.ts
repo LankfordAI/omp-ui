@@ -53,6 +53,7 @@ export {
   resolveMergeDestination,
   sweepOrphanWorktrees,
   syncWorktree,
+  worktreeCheckoutMissing,
   worktreeProjectDir,
 } from "./worktree";
 export { applyDiscardedChange, listDiscardedChanges } from "./discarded-changes";
@@ -273,6 +274,7 @@ export {
   settleProposedPlan,
   upsertProposedPlan,
   PLAN_COMMAND,
+  PLAN_DISMISS,
   PLAN_EXECUTE,
   PLAN_REFINE,
   PLAN_REVIEW_SENTINEL,

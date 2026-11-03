@@ -104,7 +104,13 @@ export function LiveVoiceControl({
         <span className="flex min-w-0 flex-col">
           <span className="text-xs">{t("composer.live.start")}</span>
           <span className="font-mono text-[10px]">
-            {active && display !== null ? t(PHASE_KEY[display], { key: holdLabel }) : t("composer.live.phasePending")}
+            {active
+              ? display !== null
+                ? t(PHASE_KEY[display], { key: holdLabel })
+                : t("composer.live.phasePending")
+              : parked
+                ? t("composer.live.parked")
+                : t("composer.live.off")}
           </span>
         </span>
         {active && talkButton}

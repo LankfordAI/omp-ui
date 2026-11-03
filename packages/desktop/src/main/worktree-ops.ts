@@ -15,6 +15,7 @@ import {
   renameWorktreeBranch,
   resolveMergeDestination,
   syncWorktree,
+  worktreeCheckoutMissing,
   type DiscardedApplyResult,
   type DiscardedChange,
   type Registry,
@@ -121,14 +122,49 @@ export class WorktreeOps {
    * the checkout clean, and the checkout's HEAD in it — an agent may have
    * worked on a branch of its own. Reads the HEAD reflog, so it must run
    * before the checkout is removed. A refusal is a user-facing reason.
+   * When the checkout directory is already gone (#1014) the two
+   * checkout-bound reads are impossible, so the answer degrades to
+   * `{ ok: true, destination, gone: true }` on project-side facts alone:
+   * destination exists, and the recorded branch ref — if it still exists —
+   * is an ancestor of the destination. Refusal needs provable non-containment.
+   * `landedOn` (#1013) declares where the work landed when it is not the
+   * base-derived destination: it replaces the derivation for every check
+   * below, nothing more — never a merge, never a push.
    */
   async landedFinish(
     projectCwd: string,
     worktree: SessionWorktree,
-  ): Promise<{ ok: true; destination: string; landing: WorktreeLanding } | { ok: false; reason: string }> {
-    const { destination } = await resolveMergeDestination(projectCwd, worktree.base);
-    if (destination === null) {
-      return { ok: false, reason: `no local branch matches the worktree's base ${worktree.base ?? "(unrecorded)"}` };
+    landedOn?: string,
+  ): Promise<
+    | { ok: true; destination: string; landing: WorktreeLanding }
+    | { ok: true; destination: string; gone: true }
+    | { ok: false; reason: string }
+  > {
+    let destination: string | null;
+    if (landedOn !== undefined) {
+      destination = landedOn;
+    } else {
+      destination = (await resolveMergeDestination(projectCwd, worktree.base)).destination;
+      if (destination === null) {
+        return { ok: false, reason: `no local branch matches the worktree's base ${worktree.base ?? "(unrecorded)"}` };
+      }
+    }
+    if (await worktreeCheckoutMissing(worktree.path)) {
+      // #1014: an out-of-band removal must not strand the row forever. The
+      // destination existence check and the branch-ancestry check both run
+      // with cwd = projectCwd, so they survive the missing checkout; a ref
+      // that vanished with the directory simply proves nothing to refuse on.
+      const goneStatus = await readMergeBackStatus(projectCwd, worktree.branch, destination, null);
+      if (!goneStatus.destinationExists) {
+        return { ok: false, reason: `the base branch ${destination} no longer exists` };
+      }
+      if (goneStatus.branchExists && !goneStatus.alreadyMerged) {
+        return {
+          ok: false,
+          reason: `${worktree.branch} has ${goneStatus.ahead} commit${goneStatus.ahead === 1 ? "" : "s"} ${destination} lacks; land the work first`,
+        };
+      }
+      return { ok: true, destination, gone: true };
     }
     const status = await readMergeBackStatus(projectCwd, worktree.branch, destination, worktree.path);
     if (!status.destinationExists) return { ok: false, reason: `the base branch ${destination} no longer exists` };

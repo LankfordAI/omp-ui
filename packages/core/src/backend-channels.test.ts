@@ -411,6 +411,7 @@ const VALID_ARGS = {
     {
       requester: { instanceId: "instance-1", label: "workstation", kind: "agent", sourceTabId: "tab-1" },
       dispatchId: "dispatch-1",
+      landedOn: "feature/x",
     },
   ],
   fleetProviderKeys: [
@@ -727,6 +728,17 @@ describe("transport dispatch", () => {
       dispatchRequest(table, CH.pushBranch, ["/project", "feature/x", "origin", true]),
     ).rejects.toThrow("expected at most 3");
     expect(lengths).toEqual([2, 3]);
+  });
+
+  it("accepts every plan-review verdict on plan:answer", async () => {
+    const { table, calls } = recordingTable();
+    for (const verdict of ["execute", "refine", "dismiss"]) {
+      await dispatchRequest(table, CH.answerPlanReview, ["tab-1", "frame-1", verdict, null]);
+    }
+    expect(calls.map(({ args }) => args[2])).toEqual(["execute", "refine", "dismiss"]);
+    await expect(
+      dispatchRequest(table, CH.answerPlanReview, ["tab-1", "frame-1", "defer", null]),
+    ).rejects.toThrow("argument 2");
   });
 
   it("rejects undeclared and inherited request channels and ignores notify equivalents", async () => {

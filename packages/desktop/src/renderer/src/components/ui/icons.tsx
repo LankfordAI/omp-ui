@@ -267,6 +267,16 @@ export function IconFleet({ className }: { className?: string }) {
   );
 }
 
+/** Box with an arrow leaving it — "open in <app>" (the corner tools card, #1021). */
+export function IconOpenIn({ className }: { className?: string }) {
+  return (
+    <svg viewBox="0 0 16 16" aria-hidden className={cn("size-3.5", className)} {...ICON_STROKE}>
+      <path d="M9.5 3H13v3.5M13 3 8 8" />
+      <path d="M11 10.5V12a1.5 1.5 0 0 1-1.5 1.5h-6A1.5 1.5 0 0 1 2 12V6a1.5 1.5 0 0 1 1.5-1.5H5" />
+    </svg>
+  );
+}
+
 /** Side panel — the compact nav's inspector button, echoing the rail. */
 export function IconInspect({ className }: { className?: string }) {
   return (

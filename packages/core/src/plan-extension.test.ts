@@ -10,6 +10,7 @@ import {
   PLAN_REVIEW_SENTINEL,
   PLAN_STATUS_KEY,
   type PlanReviewRequest,
+  type PlanStatus,
 } from "./plan";
 import { planExtensionPath, writePlanExtension } from "./plan-extension";
 import { transpileGeneratedExtension, typecheckGeneratedExtension } from "./generated-extension-test-utils";
@@ -240,7 +241,7 @@ interface Harness {
   propose: (title: string) => Promise<ToolResult>;
   /** The plan review request the extension packed behind the sentinel. */
   reviewed: () => PlanReviewRequest | null;
-  status: () => { enabled: boolean } | null;
+  status: () => PlanStatus | null;
   /** What omp's write guard sees. */
   guardArmed: () => boolean;
   /** The path pinned as the session's plan reference when the user executes. */
@@ -249,6 +250,8 @@ interface Harness {
   prepared: string[];
   /** Titles handed to `ui.select`. */
   selects: string[];
+  /** The option lists handed to each `ui.select`, in call order. */
+  selectOptions: string[][];
   /** Choose what the next `ui.select` answers with. */
   answer: (value: string | undefined) => void;
   /** Only with the `heldSelect` option: resolves the select in flight. */
@@ -276,6 +279,7 @@ function harness(
   const notices: string[] = [];
   const prepared: string[] = [];
   const selects: string[] = [];
+  const selectOptions: string[][] = [];
   const listeners: Record<string, ((...args: unknown[]) => void)[]> = {};
   let tools = ["read", "grep", "write"];
   let planState: { enabled: boolean } | undefined;
@@ -355,8 +359,9 @@ function harness(
     setStatus: (_key, text) => {
       statusText = text;
     },
-    select: async (title) => {
+    select: async (title, optionList) => {
       selects.push(title);
+      selectOptions.push([...optionList]);
       if (options?.heldSelect === true) {
         return new Promise<string | undefined>((resolve) => {
           releaseHeld = resolve;
@@ -407,6 +412,7 @@ function harness(
     referencePath: () => referencePath,
     prepared,
     selects,
+    selectOptions,
     answer: (value) => {
       answer = value;
     },
@@ -529,6 +535,28 @@ describe("html plans", () => {
 
     expect(text).toContain("local://auth-plan.html");
     expect(text).not.toContain("-plan.md");
+  });
+
+  it("ends the turn on dismiss without pinning or exiting", async () => {
+    // Dismiss answers the gate but approves nothing and reworks nothing: plan
+    // mode stays armed, nothing is pinned, no exit rides the message bus, and
+    // the ToolResult tells the agent to stop.
+    const artifacts = tempArtifacts();
+    writePlanFile(artifacts, "auth-plan.html", 1_700_000_000);
+    const h = harness(await loadExtension(), { artifactsDir: artifacts });
+    await h.run("on html");
+    h.answer("dismiss");
+    const result = await h.propose("auth");
+
+    expect(result.isError).toBeFalsy();
+    const text = result.content.map((c) => c.text).join("\n");
+    expect(text).toContain("dismissed");
+    expect(text).toContain("Do NOT implement");
+    expect(h.guardArmed()).toBe(true);
+    expect(h.referencePath()).toBeNull();
+    expect(exits(h.sent)).toHaveLength(0);
+    expect(h.status()?.approved).toBe(false);
+    expect(h.selectOptions.at(-1)).toEqual(["execute", "refine", "dismiss"]);
   });
 
   it("degrades to md when the session cannot carry hidden instructions", async () => {
@@ -1220,6 +1248,22 @@ describe("re-presenting a plan (ADR-0033)", () => {
     });
     // The named file skips omp's title resolver entirely.
     expect(h.prepared).toEqual([]);
+  });
+
+  it("a re-presented dismiss keeps plan mode armed and unapproved", async () => {
+    // The represented review shares onProposal, so its ToolResult is ignored
+    // exactly like refine's; the state effects are what matter here.
+    const artifacts = tempArtifacts();
+    writePlanFile(artifacts, "auth-plan.html", 1_700_000_000);
+    const h = harness(await loadExtension(), { artifactsDir: artifacts });
+    await h.run("on html");
+    h.answer("dismiss");
+    await h.run("review local://auth-plan.html Auth plan");
+
+    expect(h.guardArmed()).toBe(true);
+    expect(h.status()?.approved).toBe(false);
+    expect(h.referencePath()).toBeNull();
+    expect(exits(h.sent)).toHaveLength(0);
   });
 
   it("a re-presented execute pins, exits, and announces the retraction", async () => {

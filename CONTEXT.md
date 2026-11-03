@@ -327,6 +327,18 @@ the host answers a question nobody asked. The one remote open target is
 **Remote VS Code open**.
 _Avoid_: project switcher, launcher, project menu
 
+**Corner tools**:
+The collapsible card at the right end of the **Session HUD**'s title bar, just
+left of the native window controls: one icon that expands on hover or click
+into a compact card for the focused project — identity header, New session, the
+Open in VS Code / Files / Terminal targets (or **Remote VS Code open** for a
+remote checkout), and Project settings…. It surfaces the actions the **Project
+quick-open** hides behind its drill-in page; the full action list stays there.
+Pinned by a click, closed by Escape or a click-away; an unpinned card closes
+when the pointer leaves. Worktree opens stay in the **Session HUD**'s worktree
+chip. Absent in the compact shell, where there is no desktop to launch into.
+_Avoid_: quick menu, T3 menu, HUD menu
+
 **Remote VS Code open**:
 Open in VS Code for a **Remote instance**'s project or session, opening VS
 Code on *this* computer in Remote-SSH mode against that member at the
@@ -794,7 +806,11 @@ third, non-answering verdict: `deferPlanReview` dismisses it without resolving
 the gate, so the agent stays paused on its proposal and the plan stays pending
 in the rail's proposed plans pane until the user returns. Defer encodes
 "ignore for the time being"; refine is the only verdict that revises
-immediately. Both keep the working tree read-only. The pending plan gate itself is owned by the main process —
+immediately. Both keep the working tree read-only. Declining is the fourth
+outcome (issue #1012): answering the gate with *dismiss* settles the plan
+without an implementation or a revision and ends the agent's turn — unlike
+defer it resolves the gate, and plan mode stays armed with the tree read-only.
+The pending plan gate itself is owned by the main process —
 the proposal frame is recorded as the session's `pendingPlan` on its summary,
 and a verdict as `planSettle` (issue #215) — so a renderer that joins late (a
 remote client) hydrates the review from the record and settles a verdict
@@ -1078,15 +1094,18 @@ _Avoid_: MCP server (ambiguous with omp's own), API, integration token
 **Proposed plans pane**:
 The inspector rail pane (ADR-0004 vocab) that lists every plan the focus
 session has proposed — the live pending plan first, with review / request
-changes / not now actions, then interrupted plans with re-present / dismiss,
-then settled plans dimmed by verdict. The list is main-process owned and
-persisted on the owned session record (ADR-0033), so it survives an app
+changes / dismiss / not now actions, then interrupted plans with re-present /
+dismiss, then settled plans dimmed by verdict. The list is main-process owned
+and persisted on the owned session record (ADR-0033), so it survives an app
 restart; the gate behind a pending plan does not. The live pending plan is one
 per session and is the same object the plan review shows: clicking it or the
 review action restores the review in that tab, request changes answers
-`refinePlan` without notes, and not now calls `deferPlanReview`. Only the
-focused tab's review renders; a background session's pending plan surfaces
-here (its sidebar row reads "answer needed") instead of stacking review on review.
+`refinePlan` without notes, and not now calls `deferPlanReview`. The two
+dismisses differ: on the live plan it *declines* the gate with the dismiss
+verdict (issue #1012); on an interrupted plan it is `plan:dismiss`, which
+stops tracking it. Only the focused tab's review renders; a background
+session's pending plan surfaces here (its sidebar row reads "answer needed")
+instead of stacking review on review.
 _Avoid_: plan inbox, plan queue, plan history
 
 **Interrupted plan**:
@@ -1193,7 +1212,11 @@ to Settled, regardless of the idle-hibernation setting; a keep finish leaves
 the session live (#924). The session that dispatched a worktree session can
 run the already-merged settle itself with `omp-ui_fleet_finish`: it
 settles the session and releases its worktree only when the work is
-already in its base (#978). It never merges or pushes.
+already in its base (#978), or in the branch the finisher declares in
+`landedOn` when it landed elsewhere — a declaration the owner verifies,
+never trusts (#1013). A checkout already removed out-of-band still settles,
+reported as gone, because containment proves the work is safe even without
+the directory (#1014). It never merges or pushes.
 The dialog also lists the **discarded changes** omp's git guard saved in the
 worktree (omp 18.14+: in a linked worktree the guard lets discarding git
 commands run after saving tracked changes on `refs/omp/discarded`), and
@@ -1690,6 +1713,15 @@ refuses reserved chords and any map where two actions share a chord, so
 dispatch never sees a conflict. Composer keys and the quick-open's
 `Mod+1`…`Mod+9` are fixed, not keybindings.
 _Avoid_: hotkey profile, keymap, accelerator
+
+**Compact shell**:
+The renderer's layout below 900 pixels wide, for phones, foldables and narrow
+windows: a nav row replaces the title bar, the inspector rail, session actions
+and prompt options become sheets, and the composer sits in flow. Below 600
+pixels in either dimension the sidebar is the sessions sheet; at 600 or more in
+both it stays docked beside the transcript, and on a foldable in book posture it
+fills the segment left of the hinge.
+_Avoid_: mobile mode, phone layout, responsive mode
 
 **Floating composer**:
 The bottom-anchored stack a desktop rpc-ui tab floats over its transcript —

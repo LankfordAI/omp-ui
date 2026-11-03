@@ -902,7 +902,9 @@ function fleetFinishText(dispatchId: string, outcome: FleetFinishOutcome): strin
     `finished dispatch ${dispatchId}: its work is in ${outcome.destination}, and the session is settled.`,
     outcome.checkoutKept === null
       ? `- worktree ${outcome.worktreePath}: removed`
-      : `- worktree ${outcome.worktreePath}: kept (${outcome.checkoutKept})`,
+      : outcome.checkoutKept === "gone"
+        ? `- worktree ${outcome.worktreePath}: already gone`
+        : `- worktree ${outcome.worktreePath}: kept (${outcome.checkoutKept})`,
     `- branch ${outcome.branch}: ${branchText(outcome.branchOutcome)}`,
     ...outcome.workingBranches.map((b) => `- branch ${b.branch}: ${branchText(b.outcome)}`),
   ];

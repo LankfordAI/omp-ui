@@ -156,3 +156,21 @@ session.
   from inside the session bypasses the registry: the record keeps a dead path
   and the session never settles.
 - The fleet tool roster grows to nine with `omp-ui_fleet_finish`.
+
+### Amendment (issues #1013, #1014)
+
+`omp-ui_fleet_finish` takes an optional `landedOn`: the branch the finisher
+declares the work landed on when it is not the base-derived destination. The
+declaration replaces the derivation for every existing check — destination
+exists, recorded branch contained, HEAD contained — with the same refusal
+texts naming the declared branch; it is verified, never trusted, and grants
+no merge or push anywhere. Absent, the request decodes byte-identically to
+the pre-#1013 shape, so older peers keep talking to newer owners. When the
+checkout directory is verifiably absent (a path probe, deliberately not the
+dirty-read's null, which conflates missing with unreadable), the two
+checkout-bound reads are skipped and the answer degrades to a gone settle on
+project-side facts alone: refusal needs provable non-containment of a ref
+that still exists. The row then settles with `checkoutKept: "gone"` and no
+working branches — the HEAD reflog died with the directory — because an
+out-of-band `git worktree remove` must not strand the session forever, and
+the work's safety is already proven by containment.

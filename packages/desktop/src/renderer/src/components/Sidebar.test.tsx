@@ -7,6 +7,7 @@ import { backendState, remoteInstance, rpcTabState } from "../test/fixtures";
 import { setSettledOpen } from "../lib/sidebar-settled";
 import { setSidebarSectionOpen } from "../lib/sidebar-section-open";
 import { SIDEBAR_DEFAULT_WIDTH } from "../lib/panel-layout";
+import { BOOK_POSTURE_QUERY, COMPACT_SHELL_QUERY, DOCKED_SIDEBAR_QUERY } from "../lib/responsive";
 import type { LiveSnapshot } from "@omp-ui/core/live-voice";
 
 (globalThis as Record<string, unknown>).IS_REACT_ACT_ENVIRONMENT = true;
@@ -304,13 +305,64 @@ describe("Sidebar resizing", () => {
   });
 
   it("renders no separator in the compact project sheet", () => {
-    Object.defineProperty(window, "matchMedia", { configurable: true, value: vi.fn(() => ({
-      matches: true,
+    Object.defineProperty(window, "matchMedia", { configurable: true, value: vi.fn((query: string) => ({
+      matches: query === COMPACT_SHELL_QUERY,
       addEventListener: vi.fn(),
       removeEventListener: vi.fn(),
     })) });
     useStore.setState({ compactSurface: "sessions" });
     renderSidebar();
+    expect(document.body.querySelector('[role="separator"]')).toBeNull();
+  });
+});
+
+describe("Sidebar docked in the compact shell (issue #1015)", () => {
+  const stubPosture = (book: boolean) => {
+    const on = new Set([COMPACT_SHELL_QUERY, DOCKED_SIDEBAR_QUERY, ...(book ? [BOOK_POSTURE_QUERY] : [])]);
+    Object.defineProperty(window, "matchMedia", { configurable: true, value: vi.fn((query: string) => ({
+      matches: on.has(query),
+      addEventListener: vi.fn(),
+      removeEventListener: vi.fn(),
+    })) });
+    Object.defineProperty(window, "visualViewport", {
+      configurable: true,
+      value: Object.assign(new EventTarget(), { width: 739, height: 979 }),
+    });
+  };
+
+  beforeEach(() => {
+    useStore.setState({ compactSurface: null, sidebarCollapsed: false });
+  });
+
+  afterEach(() => {
+    Reflect.deleteProperty(window, "viewport");
+  });
+
+  it("renders the aside beside the transcript with a resize separator", () => {
+    stubPosture(false);
+    renderSidebar();
+    const aside = document.body.querySelector<HTMLElement>("aside")!;
+    expect(aside).not.toBeNull();
+    expect(aside.closest('[role="dialog"]')).toBeNull();
+    expect(aside.style.width).toBe("272px");
+    expect(document.body.querySelector('[role="separator"]')).not.toBeNull();
+  });
+
+  it("honours the sidebar collapse", () => {
+    stubPosture(false);
+    renderSidebar();
+    act(() => useStore.getState().toggleSidebarCollapsed());
+    expect(document.body.querySelector("aside")).toBeNull();
+  });
+
+  it("pins the width to the hinge in book posture with no separator", () => {
+    stubPosture(true);
+    Object.defineProperty(window, "viewport", {
+      configurable: true,
+      value: { segments: [{ left: 0 }, { left: 369 }] },
+    });
+    renderSidebar();
+    expect(document.body.querySelector<HTMLElement>("aside")!.style.width).toBe("369px");
     expect(document.body.querySelector('[role="separator"]')).toBeNull();
   });
 });

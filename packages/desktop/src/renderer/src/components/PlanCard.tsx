@@ -34,6 +34,7 @@ export function PlanCard({ item }: { item: PlanItem }) {
         {item.status === "executed" && <Chip tone="signal">{t("plan.card.executed")}</Chip>}
         {item.status === "refined" && <Chip>{t("plan.card.refined")}</Chip>}
         {item.status === "invalidated" && <Chip tone="rose">{t("plan.card.invalidated")}</Chip>}
+        {item.status === "dismissed" && <Chip>{t("plan.card.dismissed")}</Chip>}
       </div>
       <div className="border-t border-line-soft px-2.5 py-2">
         {item.text !== null ? (

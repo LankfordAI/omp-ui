@@ -251,6 +251,8 @@ describe("deriveSidebarSessionState", () => {
       widget: null,
       completionPercent: null,
       stage: null,
+      intent: null,
+      caption: null,
     };
     const snapshot = (running: AsyncJob[]): AsyncJobsSnapshot => ({
       version: ASYNC_JOBS_SNAPSHOT_VERSION,

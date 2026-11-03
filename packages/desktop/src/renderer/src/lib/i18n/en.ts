@@ -56,6 +56,10 @@ export const en = {
   "quickopen.actions.placeholder": "Search actions…",
   "quickopen.action.openIn": "Open in {target}",
 
+  // CornerTools — the title-bar project tools card (issue #1021)
+  "cornertools.trigger": "Project tools",
+  "cornertools.header": "tools for {name}",
+
   // App getting-started checklist (issue #623)
   "app.gettingstarted.title": "Getting started",
   "app.gettingstarted.subtitle": "Four steps to your first session, plus a Python readiness check. Status updates as you go.",
@@ -553,6 +557,7 @@ export const en = {
   "composer.live.phaseReady": "hold {key} to talk",
   "composer.live.phaseError": "error",
   "composer.live.phasePending": "…",
+  "composer.live.off": "off",
   "composer.live.roleUser": "you",
   "composer.live.roleAssistant": "assistant",
   "composer.live.audioUnavailable": "omp did not expose the output audio for this reply",
@@ -787,6 +792,8 @@ export const en = {
   "plan.review.refine": "refine",
   "plan.review.notNow": "not now",
   "plan.review.notNowTitle": "Leave the plan pending — the agent stays paused until you answer here",
+  "plan.review.dismiss": "dismiss",
+  "plan.review.dismissTitle": "Decline this plan — the planner's turn ends without executing or revising it; the file stays on disk",
   "plan.review.backToPlan": "back to plan",
   "plan.review.sendChanges": "send changes",
   "plan.review.ready": "plan ready",
@@ -896,6 +903,7 @@ export const en = {
   "plan.card.executed": "executed",
   "plan.card.refined": "refined",
   "plan.card.invalidated": "invalidated",
+  "plan.card.dismissed": "dismissed",
   "plan.card.show": "show plan",
   "plan.card.proposedPlan": "proposed plan",
   // Plan verification diagnostics (issue #312 follow-up): stable machine
@@ -1739,6 +1747,9 @@ export const en = {
   "browser.state.unavailable": "browser pane unavailable ({reason})",
   "browser.state.noFrames": "no frames received yet",
   "browser.state.instanceDown": "showing the last frame while the instance is unreachable",
+  "browser.state.loopback": "this page is served from {machine}’s loopback — the pane shows it through that machine",
+  "browser.toolbar.loopback.label": "loopback on {machine}",
+  "browser.toolbar.loopback.tip": "this address only resolves on {machine}; the pane frames it through the owning instance",
   "browser.toolbar.blocked": "only http and https pages load here",
   "browser.split.resize": "resize browser pane",
   "browser.surface.label": "shared page — keys and clicks go to the page",
@@ -2068,6 +2079,8 @@ export const en = {
   "markdown.svg.aria": "SVG image",
   "markdown.plan.frameTitle": "html plan",
   "markdown.inf.tip": "Model-flagged inference: not verified against sources",
+  "markdown.link.otherMachine.tip": "lives on {machine}: this loopback address only resolves there, not on this computer",
+  "markdown.link.otherMachine.note": "this address only resolves on {machine} — open it there, or use the session’s browser pane",
   // Last-resort app crash surface
   "app.crash.title": "omp-ui hit a render error",
   "app.crash.body":
@@ -2541,6 +2554,7 @@ export const en = {
   "rail.plans.representBusy": "Available once the session is idle and no other review is open",
   "rail.plans.dismiss": "dismiss",
   "rail.plans.dismissTitle": "Stop tracking this plan — its file stays on disk",
+  "rail.plans.dismissPendingTitle": "Decline this plan — the agent's turn ends without executing or revising it; the file stays on disk",
 
   "rail.tabs.todos": "todos",
   "rail.tabs.agents": "agents",
@@ -3593,7 +3607,7 @@ export const en = {
   "palette.action.fleetDispatchDesc": "start fresh sessions on one or more fleet machines",
   "settings.remoteinstances.fleetAgentTitle": "Let agents dispatch fleet work",
   "settings.remoteinstances.fleetAgentHint":
-    "Adds fleet tools to project sessions started after this is on, including starting sessions in this computer's projects. Chats always have them; agent-dispatched sessions never do.",
+    "Adds fleet tools to project sessions started after this is on, including starting sessions in this computer's projects. Chats always have them; agent-dispatched sessions never do. Off, an agent that spawns omp by hand orphans a child session: invisible to omp-ui and spending money untracked.",
   // Open in VS Code over Remote-SSH (issue #995, ADR-0083)
   "settings.remoteinstances.vsCodeTitle": "Open remote projects in VS Code over SSH",
   "settings.remoteinstances.vsCodeHint":

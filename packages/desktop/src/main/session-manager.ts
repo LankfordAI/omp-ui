@@ -181,6 +181,7 @@ import { HostBridge } from "./host-bridge";
 import { PlanGateTracker, type PlanGate } from "./plan-gate-tracker";
 import { PlanPreflightController } from "./plan-preflight";
 import { readConfinedPlanFile } from "./plan-file";
+import { ForeignOmpTracker } from "./foreign-omp-tracker";
 import { GoalStatusTracker } from "./goal-status-tracker";
 import { VibeStatusTracker } from "./vibe-status-tracker";
 import { AutoresearchStatusTracker } from "./autoresearch-status-tracker";
@@ -381,6 +382,7 @@ export class SessionManager {
   private readonly frameObservers: FrameObserver[] = [];
   private readonly hibernation: HibernationTracker;
   private readonly stallWatchdog: StallWatchdog;
+  private readonly foreignOmp: ForeignOmpTracker;
   private readonly toolControl: CapabilityControlTracker;
   private readonly goals: GoalStatusTracker;
   private readonly autoresearch: AutoresearchStatusTracker;
@@ -587,6 +589,7 @@ export class SessionManager {
       liveEntries: () => this.live,
       awaitingHumanAnswer: (tabId) => this.awaitingHumanAnswer(tabId),
     });
+    this.foreignOmp = new ForeignOmpTracker({ send: deps.send });
     this.toolControl = new CapabilityControlTracker({
       registry: deps.registry,
       getLive: (tabId) => this.live.get(tabId),
@@ -642,6 +645,7 @@ export class SessionManager {
       this.planGates,
       this.planPreflight,
       this.stallWatchdog,
+      this.foreignOmp,
       this.toolControl,
       this.goals,
       this.vibes,
@@ -2168,7 +2172,7 @@ export class SessionManager {
     };
     const before = busy();
     if (before !== null) return refused(before);
-    const first = await this.worktreeOps.landedFinish(record.projectCwd, wt);
+    const first = await this.worktreeOps.landedFinish(record.projectCwd, wt, req.landedOn);
     if (!first.ok) return refused(first.reason);
     const raced = busy();
     if (raced !== null) return refused(raced);
@@ -2178,7 +2182,7 @@ export class SessionManager {
     }
     const current = this.deps.registry.sessions.find((s) => s.tabId === tabId)?.worktree;
     if (current?.path !== wt.path) return refused("the session's worktree changed while finishing; nothing was removed");
-    const landed = await this.worktreeOps.landedFinish(record.projectCwd, wt);
+    const landed = await this.worktreeOps.landedFinish(record.projectCwd, wt, req.landedOn);
     if (!landed.ok) return refused(`the session is settled, but its worktree stays: ${landed.reason}`);
 
     let release: WorktreeReleaseResult;
@@ -2187,22 +2191,28 @@ export class SessionManager {
     } catch (err) {
       return refused(`the session is settled, but its worktree stays: ${err instanceof Error ? err.message : String(err)}`);
     }
+    // #1014: a gone checkout has no HEAD reflog to mine for working branches —
+    // that history died with the directory — and reclaim reports "removed" for
+    // a pruned dir, which would falsely claim we deleted what was already gone.
+    const gone = "gone" in landed;
     const workingBranches: FleetFinishWorkingBranch[] = [];
-    for (const visited of landed.landing.visited) {
-      if (!visited.createdInWorktree) {
-        workingBranches.push({ branch: visited.branch, outcome: "not-made-here" });
-      } else if (release.checkoutKept !== null) {
-        workingBranches.push({ branch: visited.branch, outcome: "not-attempted" });
-      } else {
-        const removal = await this.worktreeOps.removeMergedBranch(record.projectCwd, visited.branch, landed.destination);
-        workingBranches.push({ branch: visited.branch, outcome: removal.kind });
+    if (!gone) {
+      for (const visited of landed.landing.visited) {
+        if (!visited.createdInWorktree) {
+          workingBranches.push({ branch: visited.branch, outcome: "not-made-here" });
+        } else if (release.checkoutKept !== null) {
+          workingBranches.push({ branch: visited.branch, outcome: "not-attempted" });
+        } else {
+          const removal = await this.worktreeOps.removeMergedBranch(record.projectCwd, visited.branch, landed.destination);
+          workingBranches.push({ branch: visited.branch, outcome: removal.kind });
+        }
       }
     }
     return {
       status: "finished",
       destination: landed.destination,
       worktreePath: release.worktreePath,
-      checkoutKept: release.checkoutKept,
+      checkoutKept: gone ? "gone" : release.checkoutKept,
       branch: release.branch,
       branchOutcome: release.branchOutcome,
       workingBranches,
@@ -3048,8 +3058,8 @@ export class SessionManager {
    * The acknowledged answer for a plan-review gate (§6). The only path that
    * may settle an HTML gate: verifies the live entry, the gate identity, and
    * — for `execute` — that the artifact still hashes to the validated
-   * snapshot. The settle reservation is atomic before the read, so two
-   * clients cannot both execute.
+   * snapshot (refine and dismiss also skip the hash verification). The settle
+   * reservation is atomic before the read, so two clients cannot both execute.
    */
   async answerPlanReview(
     tabId: string,
@@ -3066,9 +3076,9 @@ export class SessionManager {
       return { status: "rejected", reason: "stale" };
     }
     const html = isHtmlPlanPath(pending.planFilePath);
-    if (!html || verdict === "refine") {
-      // Markdown keeps un-gated semantics; refine needs the gate identity
-      // but NOT unchanged disk bytes.
+    if (!html || verdict !== "execute") {
+      // Markdown keeps un-gated semantics; refine and dismiss need the gate
+      // identity but NOT unchanged disk bytes.
       this.settlePlanGateToChild(tabId, entry, frameId, verdict);
       return { status: "accepted" };
     }

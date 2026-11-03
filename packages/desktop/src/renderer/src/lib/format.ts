@@ -91,6 +91,8 @@ export function releaseNoticeText(
   let tail: string;
   if (release.checkoutKept === "shared")
     tail = `The checkout ${release.worktreePath} and branch ${release.branch} are kept: another session still runs there.`;
+  else if (release.checkoutKept === "gone")
+    tail = `The checkout ${release.worktreePath} was already gone — omp-ui settled the session and pruned its worktree entry.`;
   else if (release.checkoutKept !== null)
     tail = `The checkout ${release.worktreePath} could not be removed (${release.checkoutKept}) and the branch was kept — remove it by hand, or omp-ui sweeps it at next launch.`;
   else if (keepBranch) tail = `The checkout is gone; branch ${release.branch} is kept.`;
@@ -104,10 +106,11 @@ export function releaseNoticeText(
 
 /**
  * info when everything landed as asked — reclaimed, already gone, or kept on
- * purpose (issue #386) — warn when something was left behind by accident.
+ * purpose (issue #386) — warn when something was left behind by accident. A
+ * checkout that was already gone (#1014) is an honest settle, not a loss.
  */
 export function releaseNoticeLevel(release: WorktreeReleaseResult): "info" | "warn" {
-  return release.checkoutKept === null &&
+  return (release.checkoutKept === null || release.checkoutKept === "gone") &&
     release.checkoutSwitch.kind !== "failed" &&
     (release.branchOutcome === "removed" ||
       release.branchOutcome === "already-gone" ||

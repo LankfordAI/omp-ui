@@ -23,6 +23,7 @@ import {
   parseFleetDispatchRequest,
   parseFleetExecPollRequest,
   parseFleetExecRequest,
+  parseFleetFinishRequest,
   parseFleetGrants,
   parseFleetHostOs,
   parseFleetModelChoice,
@@ -883,6 +884,54 @@ describe("omp-ui_fleet_send (#959)", () => {
     expect(() => parseFleetSendRequest({ ...req, message: "x".repeat(FLEET_SEND_MAX + 1) })).toThrow();
     expect(() => parseFleetSendRequest({ ...req, dispatchId: "" })).toThrow();
     expect(() => parseFleetSendRequest({ ...req, requester: undefined })).toThrow();
+  });
+});
+
+describe("omp-ui_fleet_finish landedOn (#1013)", () => {
+  const finishRequester = {
+    instanceId: "inst-a",
+    label: "studio",
+    kind: "agent",
+    sourceTabId: "tab-1",
+  } as const;
+  const req = { requester: finishRequester, dispatchId: "d-1" };
+  it("parses landedOn strictly and keeps the older two-field shape decoding", () => {
+    expect(parseFleetFinishRequest(req)).toEqual(req);
+    // An absent field emits NO own key: byte-identical to what an older peer sent.
+    expect(Object.keys(parseFleetFinishRequest(req))).toEqual(["requester", "dispatchId"]);
+    expect(parseFleetFinishRequest({ ...req, landedOn: "release/9" })).toEqual({ ...req, landedOn: "release/9" });
+    expect(() => parseFleetFinishRequest({ ...req, landedOn: "" })).toThrow();
+    expect(() => parseFleetFinishRequest({ ...req, landedOn: 7 })).toThrow();
+    expect(() => parseFleetFinishRequest({ ...req, landedOn: null })).toThrow();
+    expect(() => parseFleetFinishRequest({ ...req, extra: true })).toThrow();
+  });
+
+  it("parses the tool argument trimmed, and refuses empty or wrong-typed landedOn", () => {
+    expect(parseFleetToolArguments("omp-ui_fleet_finish", { dispatchId: " d-1 " })).toEqual({
+      ok: true,
+      tool: "finish",
+      args: { dispatchId: "d-1" },
+    });
+    const bare = parseFleetToolArguments("omp-ui_fleet_finish", { dispatchId: "d-1" });
+    if (!bare.ok || bare.tool !== "finish") throw new Error("bare finish args must parse");
+    expect(Object.keys(bare.args)).toEqual(["dispatchId"]);
+    expect(parseFleetToolArguments("omp-ui_fleet_finish", { dispatchId: "d-1", landedOn: " feature/x " })).toEqual({
+      ok: true,
+      tool: "finish",
+      args: { dispatchId: "d-1", landedOn: "feature/x" },
+    });
+    expect(parseFleetToolArguments("omp-ui_fleet_finish", { dispatchId: "d-1", landedOn: "  " })).toEqual({
+      ok: false,
+      reason: "landedOn must be a non-empty branch name",
+    });
+    expect(parseFleetToolArguments("omp-ui_fleet_finish", { dispatchId: "d-1", landedOn: 7 })).toEqual({
+      ok: false,
+      reason: "landedOn must be a non-empty branch name",
+    });
+    expect(parseFleetToolArguments("omp-ui_fleet_finish", { dispatchId: "d-1", bogus: true })).toEqual({
+      ok: false,
+      reason: 'unknown argument "bogus"',
+    });
   });
 });
 

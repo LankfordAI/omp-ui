@@ -535,8 +535,12 @@
     overflow-y: hidden !important;
     border-right: 0 !important;
     border-bottom: 1px solid var(--color-line);
+    padding-right: 3.5rem;
   }
-  .model-provider-rail > button { min-width: 44px; min-height: 44px; border-right: 0 !important; }
+  .model-provider-rail > button { min-width: 44px; min-height: 44px; flex-shrink: 0; border-right: 0 !important; }
+  .model-palette-row { flex-wrap: wrap; row-gap: 0.25rem; }
+  .model-palette-name { flex: 1 1 10rem; }
+  .model-palette-chips { margin-left: auto; }
   .plan-review { height: 100%; max-height: none !important; min-height: 0; }
   .plan-review-header {
     z-index: 10;
@@ -574,13 +578,33 @@
   .console-drawer-body { height: min(18rem, 42dvh) !important; }
 }
 
+/* Touch hit area without changing the drawn size (#1018): fixed-size
+ * primitives (Switch, capsule segments, h-6 chips) opt in with
+ * .tap-target; a centred, invisible ::after grows the target to 44px.
+ * In @layer components so a positioning utility on the element still wins. */
+@layer components {
+  @media (any-pointer: coarse) {
+    .tap-target { position: relative; }
+    .tap-target::after {
+      content: "";
+      position: absolute;
+      left: 50%;
+      top: 50%;
+      width: max(100%, 44px);
+      height: max(100%, 44px);
+      transform: translate(-50%, -50%);
+    }
+  }
+}
+
 @media (any-pointer: coarse) {
-  button, [role="button"], [role="menuitem"], [role="switch"] { min-height: 44px; min-width: 44px; }
+  :where(button, [role="button"], [role="menuitem"], [role="switch"]):not(.tap-target) { min-height: 44px; min-width: 44px; }
   button:active, [role="button"]:active { background-color: var(--color-hover); }
 }
 
 @media (hover: none) {
   .group\/row button, .group\/att button, .console-drawer-controls { opacity: 1 !important; }
+  .model-palette-kbd { display: none; }
 }
 
 :focus-visible {
