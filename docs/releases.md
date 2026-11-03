@@ -4,15 +4,7 @@ This guide explains what users receive from a release and how maintainers publis
 
 ## Unreleased
 
-- The desktop composer's round send/stop control traces a context-fill halo: it fills clockwise as the window fills, escalating tone like the HUD meter, and rides whichever control is mounted so the readout never blinks out mid-turn; the send tooltip gains the exact usage line (#1025).
-- A corner tools card sits at the right end of the title bar for the focused project: hover previews, click pins, and the card carries New session, the host-local open targets (Open in VS Code over Remote-SSH for a remote checkout), and Project settings (#1021).
-- Live voice goes half-duplex: while the microphone transmits (a hold, or the 800 ms release tail) the call's own playback is paused locally, so a reply on speakers no longer hears itself back through the server VAD and cuts off mid-sentence (#1024).
-- The prompt-options sheet's advisor capsule shares its row with the dev/test badge instead of pushing it off-screen at phone widths (#1020).
-- `omp-ui_fleet_finish` settles a dispatched session whose worktree checkout was removed out-of-band — reported as gone, from containment facts alone — so an out-of-band `git worktree remove` can no longer strand the row (#1014).
-- `omp-ui_fleet_finish` takes an optional `landedOn` for work that landed on a branch other than the base; the owner verifies the declaration exactly like a derived destination and never trusts it (#1013).
-- Loopback URLs say where they resolve: the browser pane chips "loopback on &lt;machine&gt;" under a remote owner, and transcript links to `localhost` addresses label their machine and explain on click instead of opening them on the wrong box (#1023).
-- An agent that launches a bare `omp` from its own session gets one warn notice naming the orphaned-child symptom and the fleet-dispatch route; foreign sessions stay invisible by design (#1022).
-- The headless fleet member ships: `omp-ui-lite` (linux-x64 SEA + plain-Node entry) joins as a fleet member over the same protocol, with its session bundle drift-gated in CI and release assets in lockstep with `install.sh` (#1010).
+Nothing since [v0.30.2](https://github.com/LankfordAI/omp-ui/releases/tag/v0.30.2). Add one bullet per shipped change here, citing its issue as `#N`; the release tag lifts these into Highlights.
 
 ## Choose a download
 
