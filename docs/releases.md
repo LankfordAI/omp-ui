@@ -4,7 +4,12 @@ This guide explains what users receive from a release and how maintainers publis
 
 ## Unreleased
 
-Nothing since [v0.30.1](https://github.com/LankfordAI/omp-ui/releases/tag/v0.30.1). Add one bullet per shipped change here, citing its issue as `#N`; the release tag lifts these into Highlights.
+- The prompt-options sheet's advisor capsule shares its row with the dev/test badge instead of pushing it off-screen at phone widths (#1020).
+- `omp-ui_fleet_finish` settles a dispatched session whose worktree checkout was removed out-of-band — reported as gone, from containment facts alone — so an out-of-band `git worktree remove` can no longer strand the row (#1014).
+- `omp-ui_fleet_finish` takes an optional `landedOn` for work that landed on a branch other than the base; the owner verifies the declaration exactly like a derived destination and never trusts it (#1013).
+- Loopback URLs say where they resolve: the browser pane chips "loopback on &lt;machine&gt;" under a remote owner, and transcript links to `localhost` addresses label their machine and explain on click instead of opening them on the wrong box (#1023).
+- An agent that launches a bare `omp` from its own session gets one warn notice naming the orphaned-child symptom and the fleet-dispatch route; foreign sessions stay invisible by design (#1022).
+- The headless fleet member ships: `omp-ui-lite` (linux-x64 SEA + plain-Node entry) joins as a fleet member over the same protocol, with its session bundle drift-gated in CI and release assets in lockstep with `install.sh` (#1010).
 
 ## Choose a download
 
