@@ -39,10 +39,15 @@ fs.mkdirSync(outDir, { recursive: true });
 
 // 1. Bundle the CLI via esbuild's JS API (the `bin/esbuild` file is a native
 //    Go ELF, not a node script, so it must not be prefixed with `node`). Entry
-//    is S1's; keep externals so natives resolve at runtime from NODE_PATH
-//    (adjacent node_modules) exactly like the installed unit does. ESM output:
-//    cli.ts uses top-level await and import.meta.url — both require esm, and
-//    Node 22 SEA accepts an esm main (verified on this repo's 22.22).
+//    is S1's; keep externals so natives resolve at runtime from the node_modules
+//    tree found by the ESM loader walk from where the launcher extracts this
+//    bundle — exactly like the installed unit does.
+//    Node 22 SEA runs ONLY a CommonJS main (node:internal embedderRunCjs; the
+//    `useRunModule` ESM main is Node 23+). So the ESM bundle rides as a SEA
+//    ASSET and a tiny CJS launcher extracts it next to the binary and
+//    dynamic-imports it (verified against official node v22.22.0: getRawAsset,
+//    argv normalization so process.argv[1] is the extracted file, and bare
+//    specifiers resolving through the adjacent node_modules tree).
 const { build } = await import("esbuild");
 await build({
   entryPoints: [path.join(pkgRoot, "src", "cli.ts")],
@@ -57,10 +62,44 @@ await build({
   banner: { js: "import{createRequire as __cr}from'node:module';const require=__cr(import.meta.url);" },
 });
 
-// 2. Blob + injection (postject is the documented post-Node-20 path).
+// 2. The CJS launcher main (see the Node-22 constraint above). It extracts the
+//    cli.mjs asset next to the executable — so import.meta.url-relative paths
+//    (bundle-artifact.ts's beside-binary candidate) and the node_modules walk
+//    both work — splices argv so the ESM entry sees `argv[1] = extracted file`,
+//    and imports it.
+const seaMainPath = path.join(outDir, "sea-main.cjs");
+fs.writeFileSync(
+  seaMainPath,
+  `'use strict';
+const sea = require("node:sea");
+const fs = require("node:fs"), path = require("node:path");
+const { pathToFileURL } = require("node:url");
+if (!sea.isSea()) { console.error("omp-ui-lite: this build expects the SEA main; run dist/cli.js instead"); process.exit(2); }
+const file = path.join(path.dirname(process.execPath), "cli.sea.mjs");
+fs.writeFileSync(file, new Uint8Array(sea.getRawAsset("cli.mjs")));
+const binReal = (() => { try { return fs.realpathSync(process.execPath); } catch { return process.execPath; } })();
+const raw = [...process.argv];
+while (raw.length > 0) {
+  let r;
+  try { r = fs.realpathSync(raw[0]); } catch { r = path.resolve(raw[0]); }
+  if (r === binReal) raw.shift();
+  else break;
+}
+process.argv.length = 0;
+process.argv.push(process.execPath, file, ...raw);
+import(pathToFileURL(file).href).catch((err) => { console.error(err); process.exit(1); });
+`,
+);
+
+// 3. Blob + injection (postject is the documented post-Node-20 path). The ESM
+//    bundle rides as the "cli.mjs" asset the launcher extracts.
 fs.writeFileSync(
   configPath,
-  JSON.stringify({ main: bundlePath, output: blobPath, disableExperimentalSEAWarning: true }, null, 2),
+  JSON.stringify(
+    { main: seaMainPath, output: blobPath, assets: { "cli.mjs": bundlePath }, disableExperimentalSEAWarning: true },
+    null,
+    2,
+  ),
 );
 run(process.execPath, ["--experimental-sea-config", configPath]);
 
