@@ -9,6 +9,7 @@ import {
   encodeBrowserPaneFrameHeader,
   isAllowedBrowserPaneSubframeUrl,
   isAllowedBrowserPaneTopLevelUrl,
+  isLoopbackHost,
   parseBrowserPaneSetArgs,
   type BrowserPaneFrameHeader,
 } from "./browser-pane";
@@ -117,6 +118,33 @@ describe("navigation allow-lists", () => {
     for (const url of ["file:///etc/passwd", "javascript:alert(1)", "chrome://gpu", "data:text/html,\u0001"]) {
       expect(isAllowedBrowserPaneSubframeUrl(url)).toBe(false);
     }
+  });
+});
+
+describe("loopback host predicate (#1023)", () => {
+  it.each([
+    "localhost",
+    "LOCALHOST",
+    "127.0.0.1",
+    "127.5.6.7",
+    "::1",
+    "[::1]",
+  ])("accepts %j", (host) => {
+    expect(isLoopbackHost(host)).toBe(true);
+  });
+
+  it.each([
+    "",
+    "example.com",
+    "notlocalhost.dev",
+    "localhost.example.com",
+    "10.0.0.1",
+    "127.0.0.256",
+    "127.0.0",
+    "::2",
+    "fe80::1",
+  ])("rejects %j", (host) => {
+    expect(isLoopbackHost(host)).toBe(false);
   });
 });
 

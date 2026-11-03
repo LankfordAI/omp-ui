@@ -130,8 +130,12 @@ const group: ProjectGroup = {
   sessions: [session],
 };
 
-/** The tab under a remote instance in the given status; local when null. `clock` turns the project's browser clock on. */
-function seed(instanceStatus: "joined" | "unreachable" | null, clock = false): void {
+/** The tab under a remote instance in the given status; local when null. `clock` turns the project's browser clock on. `url` is the page the pane shows. */
+function seed(
+  instanceStatus: "joined" | "unreachable" | null,
+  clock = false,
+  url = "https://localhost:5173/",
+): void {
   const seeded: ProjectGroup = clock ? { ...group, project: { ...group.project, browserClock: true } } : group;
   useStore.setState({
     state: backendState(
@@ -149,7 +153,7 @@ function seed(instanceStatus: "joined" | "unreachable" | null, clock = false): v
           ensure: "available",
           unavailableReason: null,
           state: {
-            url: "https://localhost:5173/",
+            url,
             title: "app",
             loading: false,
             canGoBack: true,
@@ -422,5 +426,34 @@ describe("BrowserPane browser clock (#642)", () => {
     expect(document.body.querySelector('[role="alert"]')?.textContent).toBe(
       "Couldn't stamp the clock on the screenshot — nothing was attached",
     );
+  });
+});
+
+describe("BrowserPane loopback ownership chip (#1023)", () => {
+  const chip = (): HTMLElement | null =>
+    [...document.body.querySelectorAll("span")].find((el) => el.textContent?.startsWith("loopback on")) ?? null;
+
+  it("names the owning machine for a loopback page under a joined remote instance", () => {
+    seed("joined");
+    render();
+    expect(chip()?.textContent).toContain("loopback on box-a");
+    // The banner tells the viewer which machine actually serves the page.
+    expect(document.body.textContent).toContain(
+      "this page is served from box-a’s loopback — the pane shows it through that machine",
+    );
+  });
+
+  it("says nothing for a local owner: the address resolves right here", () => {
+    seed(null);
+    render();
+    expect(chip()).toBeNull();
+    expect(document.body.textContent).not.toContain("loopback on");
+  });
+
+  it("says nothing when the remote page is not loopback", () => {
+    seed("joined", false, "https://example.com/app");
+    render();
+    expect(chip()).toBeNull();
+    expect(document.body.textContent).not.toContain("loopback on");
   });
 });

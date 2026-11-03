@@ -1599,6 +1599,9 @@ export const ko: Partial<Record<MessageKey, string>> = {
   "browser.state.notLive": "세션이 실행 중이 아닙니다 — 브라우저 패널을 사용하려면 세션을 다시 시작하세요",
   "browser.state.unavailable": "브라우저 패널을 사용할 수 없습니다 ({reason})",
   "browser.state.noFrames": "아직 프레임을 받지 못했습니다",
+  "browser.state.loopback": "이 페이지는 {machine}의 루프백에서 제공됩니다 — 패널은 해당 컴퓨터를 통해 화면을 표시합니다",
+  "browser.toolbar.loopback.label": "{machine} 루프백",
+  "browser.toolbar.loopback.tip": "이 주소는 {machine}에서만 해석됩니다. 패널은 소유 인스턴스를 통해 프레임을 전송받습니다",
   "browser.state.instanceDown": "인스턴스에 연결할 수 없어 마지막 프레임을 표시하고 있습니다",
   "browser.toolbar.blocked": "여기서는 http 및 https 페이지만 열 수 있습니다",
   "browser.split.resize": "브라우저 패널 크기 조절",
@@ -1901,6 +1904,8 @@ export const ko: Partial<Record<MessageKey, string>> = {
   "markdown.svg.aria": "SVG image",
   "markdown.plan.frameTitle": "HTML 플랜",
   "markdown.inf.tip": "모델이 표시한 추론: 출처가 확인되지 않음",
+  "markdown.link.otherMachine.tip": "{machine}에 있습니다: 이 루프백 주소는 해당 컴퓨터에서만 해석되며 이 컴퓨터에서는 해석되지 않습니다",
+  "markdown.link.otherMachine.note": "이 주소는 {machine}에서만 해석됩니다 — 해당 컴퓨터에서 열거나 세션의 브라우저 패널을 사용하세요",
 
   "app.crash.title": "omp-ui 렌더링 오류",
   "app.crash.body": "세션 자체에는 영향이 없습니다. omp는 백그라운드에서 계속 실행됩니다. 다시 연결하려면 reload하세요.",

@@ -11,6 +11,7 @@ import {
 import {
   browserClockText,
   isAllowedBrowserPaneTopLevelUrl,
+  isLoopbackHost,
   type BrowserPaneInputEvent,
   type BrowserPanePickResult,
 } from "@omp-ui/core/browser-pane";
@@ -142,6 +143,16 @@ function pointerLike(e: ReactPointerEvent<HTMLCanvasElement>): PointerLike {
     metaKey: e.metaKey,
     capsLock: e.getModifierState("CapsLock"),
   };
+}
+
+/** Hostname of a parseable URL; "" for null/unparseable (never throws). */
+function loopbackHostname(url: string | null): string {
+  if (url === null) return "";
+  try {
+    return new URL(url).hostname;
+  } catch {
+    return "";
+  }
 }
 
 function keyLike(e: ReactKeyboardEvent<HTMLInputElement>): KeyLike {
@@ -510,6 +521,13 @@ export function BrowserPane({ tabId, posture }: { tabId: string; posture: Browse
   const controlsDisabled = instanceDown || !available;
   /** The column posture forced by a too-narrow window cannot be split back by hand. */
   const forcedColumn = posture === "column" && pane?.fullscreen !== true;
+  // #1023: the pane frames stream from the OWNING machine, so a loopback URL
+  // is honest there — but the viewer should know which machine serves it,
+  // since typing the same address into a local browser would not resolve.
+  const ownerMachine = useStore(
+    (s) => (instanceId === null ? null : (findInstance(s.state, instanceId)?.nickname ?? instanceId)),
+  );
+  const loopbackOnOwner = ownerMachine !== null && isLoopbackHost(loopbackHostname(state?.url ?? null));
 
   let status: string | null = null;
   if (ensure === "pending") status = t("browser.state.pending");
@@ -605,6 +623,15 @@ export function BrowserPane({ tabId, posture }: { tabId: string; posture: Browse
           >
             <Dot tone={acting ? "copper" : "signal"} pulse={acting} />
             {acting ? t("browser.agent.acting") : t("browser.agent.attached")}
+          </span>
+        )}
+        {loopbackOnOwner && (
+          <span
+            title={t("browser.toolbar.loopback.tip", { machine: ownerMachine })}
+            className="flex shrink-0 items-center gap-1 rounded border border-line px-1 text-[10px] text-ink-mid"
+          >
+            <Dot tone="iris" />
+            {t("browser.toolbar.loopback.label", { machine: ownerMachine })}
           </span>
         )}
         <span className="relative shrink-0">
@@ -715,6 +742,11 @@ export function BrowserPane({ tabId, posture }: { tabId: string; posture: Browse
         {instanceDown && (
           <p className="pointer-events-none absolute inset-x-0 top-0 bg-overlay/85 px-3 py-1 text-center text-[10px] text-ink-mid backdrop-glass">
             {t("browser.state.instanceDown")}
+          </p>
+        )}
+        {loopbackOnOwner && !instanceDown && !picking && pickNote !== "miss" && (
+          <p className="pointer-events-none absolute inset-x-0 top-0 bg-overlay/85 px-3 py-1 text-center text-[10px] text-ink-mid backdrop-glass">
+            {t("browser.state.loopback", { machine: ownerMachine })}
           </p>
         )}
         {(picking || pickNote === "miss") && !instanceDown && (

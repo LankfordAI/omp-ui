@@ -1747,6 +1747,9 @@ export const en = {
   "browser.state.unavailable": "browser pane unavailable ({reason})",
   "browser.state.noFrames": "no frames received yet",
   "browser.state.instanceDown": "showing the last frame while the instance is unreachable",
+  "browser.state.loopback": "this page is served from {machine}’s loopback — the pane shows it through that machine",
+  "browser.toolbar.loopback.label": "loopback on {machine}",
+  "browser.toolbar.loopback.tip": "this address only resolves on {machine}; the pane frames it through the owning instance",
   "browser.toolbar.blocked": "only http and https pages load here",
   "browser.split.resize": "resize browser pane",
   "browser.surface.label": "shared page — keys and clicks go to the page",
@@ -2076,6 +2079,8 @@ export const en = {
   "markdown.svg.aria": "SVG image",
   "markdown.plan.frameTitle": "html plan",
   "markdown.inf.tip": "Model-flagged inference: not verified against sources",
+  "markdown.link.otherMachine.tip": "lives on {machine}: this loopback address only resolves there, not on this computer",
+  "markdown.link.otherMachine.note": "this address only resolves on {machine} — open it there, or use the session’s browser pane",
   // Last-resort app crash surface
   "app.crash.title": "omp-ui hit a render error",
   "app.crash.body":

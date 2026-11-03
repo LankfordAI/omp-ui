@@ -4,6 +4,7 @@ import type { DiagramRenderer } from "../lib/plan-diagrams";
 import { act, type ReactNode } from "react";
 import { createRoot, type Root } from "react-dom/client";
 import { linkify, Markdown, ObsidianNoteLinkContext } from "./Markdown";
+import { TabMachineContext } from "./MarkdownMachineContext";
 import { obsidianReplyLink, type ObsidianNoteTarget } from "@omp-ui/core/vault-shared";
 import { DEFAULT_THEME_ID, resolveTheme } from "../lib/themes";
 
@@ -915,5 +916,64 @@ describe("Markdown Obsidian links", () => {
     expect(el.querySelector("a")).toBeNull();
     expect(renderLink).not.toHaveBeenCalled();
     act(() => root.unmount());
+  });
+});
+
+describe("owner-loopback transcript links (#1023)", () => {
+  function withMachine(text: string, machine: string | null): { el: HTMLDivElement; root: Root } {
+    const el = document.createElement("div");
+    document.body.appendChild(el);
+    const root = createRoot(el);
+    act(() => {
+      root.render(
+        <TabMachineContext.Provider value={machine}>
+          <Markdown text={text} />
+        </TabMachineContext.Provider>,
+      );
+    });
+    return { el, root };
+  }
+
+  it("labels a loopback link with the owning machine and opens nothing on click", () => {
+    const open = vi.spyOn(window, "open").mockImplementation(() => null);
+    const { el, root } = withMachine("see [the app](http://localhost:5173/)", "box-a");
+    const anchor = el.querySelector('a[role="link"]')!;
+    expect(anchor.textContent).toContain("box-a");
+    expect(anchor.getAttribute("title")).toContain("lives on box-a");
+    act(() => {
+      anchor.dispatchEvent(new MouseEvent("click", { bubbles: true }));
+    });
+    expect(open).not.toHaveBeenCalled();
+    // The click explains where the URL resolves instead of mis-opening.
+    expect(el.textContent).toContain("this address only resolves on box-a");
+    open.mockRestore();
+    act(() => root.unmount());
+    el.remove();
+  });
+
+  it("keeps window.open for a non-loopback link under the same remote owner", () => {
+    const open = vi.spyOn(window, "open").mockImplementation(() => null);
+    const { el, root } = withMachine("see [the site](https://example.com/x)", "box-a");
+    act(() => {
+      el.querySelector('a[role="link"]')!.dispatchEvent(new MouseEvent("click", { bubbles: true }));
+    });
+    expect(open).toHaveBeenCalledWith("https://example.com/x", "_blank", "noopener,noreferrer");
+    open.mockRestore();
+    act(() => root.unmount());
+    el.remove();
+  });
+
+  it("keeps today's behavior for a loopback link in a local transcript", () => {
+    const open = vi.spyOn(window, "open").mockImplementation(() => null);
+    const { el, root } = withMachine("see [the app](http://localhost:5173/)", null);
+    const anchor = el.querySelector('a[role="link"]')!;
+    expect(anchor.getAttribute("title")).toBe("http://localhost:5173/");
+    act(() => {
+      anchor.dispatchEvent(new MouseEvent("click", { bubbles: true }));
+    });
+    expect(open).toHaveBeenCalledWith("http://localhost:5173/", "_blank", "noopener,noreferrer");
+    open.mockRestore();
+    act(() => root.unmount());
+    el.remove();
   });
 });

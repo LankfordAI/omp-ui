@@ -18,6 +18,7 @@ import { RemoteInstanceBanner } from "./RemoteInstanceBanner";
 import { SessionHud } from "./SessionHud";
 import { SubagentView } from "./SubagentView";
 import { linkify } from "./Markdown";
+import { MarkdownMachineProvider } from "./MarkdownMachineProvider";
 import { MarkdownVaultProvider } from "./MarkdownVaultProvider";
 import { TranscriptView, ShareLinkRow, TuiHandoffButton } from "./TranscriptView";
 import { ModelPalette } from "./ModelSelector";
@@ -663,5 +664,9 @@ export const RpcTab = memo(function RpcTab({ tabId, active }: { tabId: string; a
       )}
     </div>
   );
-  return <MarkdownVaultProvider tabId={tabId}>{content}</MarkdownVaultProvider>;
+  return (
+    <MarkdownMachineProvider tabId={tabId}>
+      <MarkdownVaultProvider tabId={tabId}>{content}</MarkdownVaultProvider>
+    </MarkdownMachineProvider>
+  );
 });

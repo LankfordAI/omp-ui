@@ -1,7 +1,9 @@
 import { createContext, Fragment, useContext, useMemo, useState, type CSSProperties, type ReactNode } from "react";
 import katex from "katex";
 import type { ThemedToken } from "shiki/core";
+import { isLoopbackHost } from "@omp-ui/core/browser-pane";
 import { parseObsidianNoteUri, type ObsidianNoteTarget } from "@omp-ui/core/vault-shared";
+import { useTabMachine } from "./MarkdownMachineContext";
 import { cn } from "../lib/cn";
 import { useHighlightTokens } from "../lib/highlight";
 import { useDiagramSvg } from "../lib/diagram";
@@ -104,9 +106,47 @@ function MathExpression({ text, display }: { text: string; display: boolean }): 
 /**
  * One external link anchor: no `href` attribute (renderer never navigates; the
  * absence also kills middle-click/drag), clicks route window.open — intercepted
- * by main's setWindowOpenHandler → openExternalSafe (issue #101).
+ * by main's setWindowOpenHandler → openExternalSafe (issue #101). The one
+ * exception: a loopback URL inside a REMOTE session's transcript (#1023).
+ * `http://localhost:…` resolves on the owning machine, so opening it here
+ * would load a different page (or nothing); the link says where the URL
+ * lives and the click explains instead of silently mis-opening.
  */
 export function OpenExternalLink({ href, children }: { href: string; children: ReactNode }) {
+  const t = useT();
+  const machine = useTabMachine();
+  const ownerLoopback = machine !== null && isLoopbackHost(safeHostname(href));
+  const [explained, setExplained] = useState(false);
+  if (ownerLoopback) {
+    return (
+      <span className="inline">
+        <a
+          role="link"
+          tabIndex={0}
+          title={t("markdown.link.otherMachine.tip", { machine })}
+          onClick={() => setExplained(true)}
+          onKeyDown={(e) => {
+            if (e.key === "Enter" || e.key === " ") {
+              e.preventDefault();
+              setExplained(true);
+            }
+          }}
+          className="cursor-pointer text-iris underline decoration-iris-dim underline-offset-2 hover:decoration-iris"
+        >
+          {children}
+          <span className="ml-1 font-mono text-[0.75em] text-ink-faint">↗ {machine}</span>
+        </a>
+        {explained && (
+          <span
+            role="status"
+            className="ml-2 rounded border border-line bg-overlay px-1.5 py-0.5 text-[0.8em] text-ink-mid"
+          >
+            {t("markdown.link.otherMachine.note", { machine })}
+          </span>
+        )}
+      </span>
+    );
+  }
   return (
     <a
       role="link"
@@ -124,6 +164,15 @@ export function OpenExternalLink({ href, children }: { href: string; children: R
       {children}
     </a>
   );
+}
+
+/** Hostname of a parseable URL; "" for anything else (never throws). */
+function safeHostname(href: string): string {
+  try {
+    return new URL(href).hostname;
+  } catch {
+    return "";
+  }
 }
 
 function Spans({ spans }: { spans: MdSpan[] }) {
