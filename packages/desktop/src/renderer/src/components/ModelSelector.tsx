@@ -47,6 +47,9 @@ export function ModelSelector({ tabId, disabled }: { tabId: string; disabled?: b
   // #932: a held session runs on omp's fallback, which the user never chose —
   // the chip asks for a pick instead of naming it.
   const held = useStore((s) => (findOwner(s.state, tabId)?.record.modelHold ?? null) !== null);
+  // #1032: omp switched off the pin for a credential-less provider; the chip
+  // names the running model (truth) but stays copper until the pin serves again.
+  const credFallback = useStore((s) => s.rpc[tabId]?.credentialFallback ?? null);
   const models = useStore((s) => s.rpc[tabId]?.availableModels ?? EMPTY);
   const running = useStore((s) => s.rpc[tabId]?.status === "running");
   const setModel = useStore((s) => s.setModel);
@@ -124,10 +127,16 @@ export function ModelSelector({ tabId, disabled }: { tabId: string; disabled?: b
             ? t("composer.model.afterTurn")
             : model === null || held
               ? t("composer.model.pick")
-              : `${model.provider}/${model.id}`
+              : credFallback !== null
+                ? t("composer.model.credFallback", { to: `${model.provider}/${model.id}`, pin: credFallback.from })
+                : `${model.provider}/${model.id}`
         }
         onClick={() => setOpen(true)}
-        className={cn(CAPSULE_SEGMENT, "max-w-56 text-xs font-medium", held ? "text-copper" : "text-ink-mid")}
+        className={cn(
+          CAPSULE_SEGMENT,
+          "max-w-56 text-xs font-medium",
+          held || credFallback !== null ? "text-copper" : "text-ink-mid",
+        )}
       >
         <span className="min-w-0 truncate">
           {held ? t("composer.model.held") : model === null ? t("composer.model.fallback") : model.name || model.id}

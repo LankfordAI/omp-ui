@@ -266,6 +266,68 @@ describe("ModelSelector", () => {
     act(() => trigger!.click());
     expect(openSettings).not.toHaveBeenCalled();
   });
+
+  // #1032: omp switched off the pin for a credential-less provider. The chip
+  // names the running model (truth) but stays copper with a divergence tooltip.
+  it("names the running fallback model while flagging the credential divergence in copper", () => {
+    const running: ModelInfo = { id: "m1", name: "m1", provider: "keyprov" };
+    useStore.setState({
+      state,
+      rpc: {
+        [TAB]: tabState({
+          model: running,
+          availableModels: [...models, running],
+          credentialFallback: { from: "nokeyprov/m1", to: "keyprov/m1" },
+        }),
+      },
+    });
+    mount(<ModelSelector tabId={TAB} />);
+
+    const trigger = buttonByTitle(
+      t("composer.model.credFallback", { to: "keyprov/m1", pin: "nokeyprov/m1" }),
+    );
+    expect(trigger.textContent).toContain("m1");
+    expect(trigger.className).toContain("text-copper");
+  });
+
+  it("leaves tone and title untouched when no credential fallback is active", () => {
+    useStore.setState({ state, rpc: { [TAB]: tabState({ credentialFallback: null }) } });
+    mount(<ModelSelector tabId={TAB} />);
+
+    const trigger = buttonByTitle("anthropic/claude-sonnet");
+    expect(trigger.className).toContain("text-ink-mid");
+    expect(trigger.className).not.toContain("text-copper");
+  });
+
+  it("keeps the held copy on top when a credential fallback arrives under a model hold", () => {
+    const group = remoteProjectGroup();
+    useStore.setState({
+      state: backendState({
+        projects: [
+          {
+            ...group,
+            sessions: [
+              {
+                ...group.sessions[0],
+                modelHold: {
+                  reason: "unreachable",
+                  model: "anthropic/claude-sonnet",
+                  provider: "anthropic",
+                  endpoint: "127.0.0.1:4677",
+                },
+              },
+            ],
+          },
+        ],
+      }),
+      rpc: { [TAB]: tabState({ credentialFallback: { from: "nokeyprov/m1", to: "keyprov/m1" } }) },
+    });
+    mount(<ModelSelector tabId={TAB} />);
+
+    // The hold masks the fallback: ask-for-a-pick copy, never the divergence tooltip.
+    const trigger = buttonByTitle(t("composer.model.pick"));
+    expect(trigger.textContent).toContain(t("composer.model.held"));
+  });
 });
 
 describe("ModelPalette variants", () => {

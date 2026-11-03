@@ -1117,6 +1117,14 @@ export function createFrameReductionSlice(
           get().reconcileLivePlanReview(tabId);
           return;
         }
+        case "model_changed": {
+          // #1032: omp changed the session model behind our back — the credential
+          // fallback switch and its revert emit nothing else. get_state is the
+          // only truth carrier, so re-read it (same convergence rule the compaction
+          // end and set_model paths already follow).
+          void m.refreshUsage(tabId);
+          return;
+        }
         default: {
           const reduction = reduceAgentEvent(
             tab,

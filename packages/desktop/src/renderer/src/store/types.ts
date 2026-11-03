@@ -95,6 +95,7 @@ import type {
   CapabilitySnapshot,
   SetSessionToolEnabledResult,
 } from "@omp-ui/core/capabilities";
+import type { CredentialFallback } from "@omp-ui/core/credential-fallback";
 import type { GoalState } from "@omp-ui/core/goal";
 import type { VibeSnapshot } from "@omp-ui/core/vibe";
 import type { WebhookInput, WebhookPatch, WebhookSecretReveal, WebhooksState } from "@omp-ui/core/webhook";
@@ -413,6 +414,15 @@ export interface RpcTabState {
    * agent_start, so the chip lives exactly through the turn that experienced it.
    */
   quotaEvent?: { at: number; kind: "rotation" | "wait"; delayMs?: number } | null;
+  /**
+   * omp switched the session off its pinned model because the pin's provider
+   * had no usable credential (issue #1032): set by a credential-reasoned
+   * `retry_fallback_applied`, cleared once the converged live model is no
+   * longer the fallback candidate — the revert, or any later model change.
+   * The chip shows `to` while this is set; prompts run normally, so this is
+   * NOT a model hold (#970 honesty rule: never claim the pin when diverged).
+   */
+  credentialFallback?: CredentialFallback | null;
   /**
    * omp's spend-cap stop (issue #952): set when a prompt_result carries
    * `error.code: "cost_cap"`; cleared at the next agent_start (omp admitted a

@@ -394,6 +394,13 @@ that case the notice shows omp's error and its suggestions (#970). A
 ready, and the tab's failure surface offers the recovery picker instead.
 _Avoid_: model lock, fallback mode, stale model banner
 
+**Credential fallback**:
+A live session that ran its prompt on a `retry.fallbackChains` candidate
+because the pinned model's provider had no usable credential (omp 18.15,
+upstream #17559). It is not a **Model hold** — prompts run. The model chip
+names the running model and stays copper until the pin serves again.
+_Avoid_: fallback mode, stale model banner, silent downgrade, auto model
+
 **Browser pane**:
 A live web page inside an rpc-ui tab that the user and the agent share. The
 main process owns the page (an offscreen renderer in its own partition),

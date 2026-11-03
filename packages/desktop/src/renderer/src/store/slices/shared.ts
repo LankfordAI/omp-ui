@@ -1226,6 +1226,14 @@ export function createMachinery(
           : tab.todos,
       model,
       session,
+      // #1032: once the converged live model is no longer the fallback
+      // candidate — omp reverted to the pin, or any later model change —
+      // the credential divergence is over and the chip goes honest again.
+      ...(tab.credentialFallback != null &&
+      model !== null &&
+      `${model.provider}/${model.id}` !== tab.credentialFallback.to
+        ? { credentialFallback: null }
+        : {}),
     });
     if (model) {
       // get_state reports only the RESOLVED level: persist the selector when

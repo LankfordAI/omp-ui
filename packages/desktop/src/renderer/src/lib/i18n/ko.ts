@@ -681,6 +681,7 @@ export const ko: Partial<Record<MessageKey, string>> = {
   "composer.model.held": "모델 선택",
   "composer.modelHold.notice": "{provider}({endpoint})에 연결할 수 없어 이 세션은 {model} 없이 시작되었습니다. 보내려면 모델을 선택하세요.",
   "composer.modelHold.notFound": "omp가 {model}을(를) 찾지 못해 이 세션은 대체 모델로 시작되었습니다. 보내려면 모델을 선택하세요. omp: {message}",
+  "composer.model.credFallback": "{pin}에 사용할 수 있는 자격 증명이 없어 {to}(으)로 실행 중",
   "composer.model.afterTurn": "현재 턴이 끝나면 모델을 변경할 수 있습니다",
   "composer.model.free": "무료",
   "composer.model.searchFavorites": "즐겨찾기 검색…",

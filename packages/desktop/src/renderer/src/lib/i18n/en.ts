@@ -728,6 +728,7 @@ export const en = {
   "composer.model.held": "pick a model",
   "composer.modelHold.notice": "{provider} ({endpoint}) is not reachable, so this session started without {model}. Pick a model to send.",
   "composer.modelHold.notFound": "omp could not find {model}, so this session started on a fallback model. Pick a model to send. omp: {message}",
+  "composer.model.credFallback": "Running {to} — no usable credential for {pin}",
   "composer.model.afterTurn": "model changes are available after the current turn finishes",
   "composer.model.free": "free",
   "composer.model.searchFavorites": "search favorites…",

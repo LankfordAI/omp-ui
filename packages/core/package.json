@@ -30,6 +30,7 @@
     "./host-bridge": "./src/host-bridge.ts",
     "./html-artifact": "./src/html-artifact.ts",
     "./goal": "./src/goal.ts",
+    "./credential-fallback": "./src/credential-fallback.ts",
     "./vibe": "./src/vibe.ts",
     "./collab": "./src/collab.ts",
     "./omp-settings-keys": "./src/omp-settings-keys.ts",

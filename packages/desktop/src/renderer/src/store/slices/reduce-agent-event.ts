@@ -1,3 +1,4 @@
+import { credentialFallbackFromFrame } from "@omp-ui/core/credential-fallback";
 import { LIVE_DELEGATION_CUSTOM_TYPE } from "@omp-ui/core/live-voice";
 import { MAGIC_KEYWORDS } from "@omp-ui/core/magic-keywords";
 import { modelStreamCheckpointLabel } from "@omp-ui/core/stream-activity";
@@ -236,6 +237,17 @@ export function reduceAgentEvent(
   const quotaEvent = retryQuotaEvent(type, frame, now);
   if (quotaEvent !== null) {
     rpc.quotaEvent = quotaEvent;
+    hasRpcPatch = true;
+  }
+
+  // Credential-fallback signal beside the quota signal (issue #1032): a
+  // retry_fallback_applied whose reason names a missing credential means omp
+  // switched the session off its pinned model, and no config_update follows —
+  // this frame is the only switch announcement. Clearing lives in applyRpcState
+  // (get_state convergence), not here.
+  const credentialFallback = credentialFallbackFromFrame(frame);
+  if (credentialFallback !== null) {
+    rpc.credentialFallback = credentialFallback;
     hasRpcPatch = true;
   }
 

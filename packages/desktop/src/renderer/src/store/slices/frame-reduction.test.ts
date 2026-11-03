@@ -1414,6 +1414,73 @@ describe("handleRpcFrame routing", () => {
     });
   });
 
+  describe("credential fallback chip state (issue #1032)", () => {
+    const getStateCalls = () => h.sent.filter((s) => s.cmd.type === "get_state");
+
+    it("claims a credential-reasoned retry_fallback_applied as chip state", () => {
+      h.useStore.getState().handleRpcFrame(h.TAB, {
+        type: "retry_fallback_applied",
+        from: "nokeyprov/gpt",
+        to: "otherprov/gpt",
+        role: "nokeyprov/gpt",
+        reason: "no credential for nokeyprov",
+      });
+      expect(h.useStore.getState().rpc[h.TAB]!.credentialFallback).toEqual({
+        from: "nokeyprov/gpt",
+        to: "otherprov/gpt",
+      });
+    });
+
+    it("leaves the chip unset for a non-credential fallback reason", () => {
+      h.useStore.getState().handleRpcFrame(h.TAB, {
+        type: "retry_fallback_applied",
+        from: "a/m",
+        to: "b/m",
+        reason: "Request failed: overloaded",
+      });
+      expect(h.useStore.getState().rpc[h.TAB]!.credentialFallback ?? null).toBeNull();
+    });
+
+    it.each([
+      { label: "missing from", frame: { type: "retry_fallback_applied", to: "b/m", reason: "no credential for a" } },
+      { label: "non-string reason", frame: { type: "retry_fallback_applied", from: "a/m", to: "b/m", reason: 42 } },
+    ])("leaves the chip unset for a malformed frame ($label)", ({ frame }) => {
+      h.useStore.getState().handleRpcFrame(h.TAB, frame);
+      expect(h.useStore.getState().rpc[h.TAB]!.credentialFallback ?? null).toBeNull();
+    });
+
+    it("re-reads get_state quietly on model_changed", () => {
+      // #1032: omp's switch and its revert emit nothing but a bare
+      // model_changed — get_state is the only truth carrier.
+      h.useStore.getState().handleRpcFrame(h.TAB, { type: "model_changed" });
+      expect(getStateCalls()).toHaveLength(1);
+      expect(getStateCalls()[0]!.cmd).toMatchObject({ type: "get_state" });
+    });
+
+    it("keeps the chip while the converged model is still the fallback candidate", async () => {
+      const key = `${h.TAB}-fallback-keep`;
+      h.useStore.setState({
+        rpc: { [key]: rpcTabState({ status: "ready", credentialFallback: { from: "a/m", to: "b/m" } }) },
+      });
+      h.useStore.getState().handleRpcFrame(key, { type: "model_changed" });
+      h.respond(key, getStateCalls().at(-1)!.cmd, { model: { id: "m", name: "m", provider: "b" } });
+      await h.flushMicrotasks();
+      expect(h.useStore.getState().rpc[key]!.credentialFallback).toEqual({ from: "a/m", to: "b/m" });
+    });
+
+    it("clears the chip once the converged model is no longer the fallback candidate", async () => {
+      const key = `${h.TAB}-fallback-clear`;
+      h.useStore.setState({
+        rpc: { [key]: rpcTabState({ status: "ready", credentialFallback: { from: "a/m", to: "b/m" } }) },
+      });
+      h.useStore.getState().handleRpcFrame(key, { type: "model_changed" });
+      // omp reverted the pin's credential and switched back to a/m.
+      h.respond(key, getStateCalls().at(-1)!.cmd, { model: { id: "m", name: "m", provider: "a" } });
+      await h.flushMicrotasks();
+      expect(h.useStore.getState().rpc[key]!.credentialFallback).toBeNull();
+    });
+  });
+
   describe("MCP runtime failure state", () => {
     const statusFrame = (statusText: string, id = "mcp-status") => ({
       type: "extension_ui_request",
