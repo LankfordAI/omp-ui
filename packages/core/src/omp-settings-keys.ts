@@ -228,6 +228,30 @@ export const STATUS_LINE_SETTING_GROUP: OmpSettingGroup = {
   keys: [STATUS_LINE_SEGMENT_OPTIONS_KEY],
 };
 
+/**
+ * Composer next-message predictions. `composer.predictions` is the master
+ * (omp 18.9.0): after a completed turn omp asks the active model to predict
+ * the user's next message and ghosts it in the empty composer.
+ * `composer.predictionAlternatives` (omp 18.16.0, issue #1030) asks for up to
+ * four distinct candidates instead of one. Allowlisted but NOT in
+ * OMP_SETTING_GROUPS: upstream lists the alternatives key only while the
+ * master reads true (omp `modes/settings.ts`, condition
+ * `composerPredictionsEnabled`), and the generic group loop would show both
+ * rows unconditionally; ComposerPredictionSection mirrors the listing rule.
+ * Both are plain booleans whose Switch renders through SettingControl. The
+ * alternatives themselves stay inside omp's own TUI at 18.16.0 — RPC
+ * `predict_word` still answers a single `suffix` and
+ * `predict_word_feedback` carries no rank (omp-ui's composer ghost is the
+ * daemon word-completion, a different feature; see issue #1030) — so these
+ * keys toggle omp's interactive editor only, never this UI's ghost.
+ */
+export const COMPOSER_PREDICTIONS_KEY = "composer.predictions";
+export const COMPOSER_PREDICTION_ALTERNATIVES_KEY = "composer.predictionAlternatives";
+export const COMPOSER_PREDICTION_SETTING_GROUP: OmpSettingGroup = {
+  title: "Composer predictions",
+  keys: [COMPOSER_PREDICTIONS_KEY, COMPOSER_PREDICTION_ALTERNATIVES_KEY],
+};
+
 /** The omp settings the settings surface exposes, grouped for the omp page. */
 export const OMP_SETTING_GROUPS: ReadonlyArray<OmpSettingGroup> = [
   {
@@ -335,6 +359,7 @@ export const OMP_SETTING_KEYS: readonly string[] = [
   ...STATUS_LINE_SETTING_GROUP.keys,
   ...COMPACTION_MODEL_THRESHOLD_SETTING_GROUP.keys,
   ...CONTEXT_FILES_SETTING_GROUP.keys,
+  ...COMPOSER_PREDICTION_SETTING_GROUP.keys,
 ];
 /** modelRoles is a record edited per-role, so it is handled apart from the scalar list. */
 export const OMP_MODEL_ROLES_KEY = "modelRoles";

@@ -6,6 +6,8 @@ import { Row, SettingControl, layerBadge } from "./rows";
 import { OMP_MISSING, type FooterContext, type Load } from "./types";
 import {
   APPROVAL_SETTING_KEY,
+  COMPOSER_PREDICTION_ALTERNATIVES_KEY,
+  COMPOSER_PREDICTIONS_KEY,
   CONTEXT_FILES_EXTRA_KEY,
   LIVE_VOICE_SETTING_KEY,
   OMP_MAX_CONCURRENCY_KEY,
@@ -28,6 +30,7 @@ import { ComputerControlSection } from "./ComputerControlSection";
 import { ContextFilesSection } from "./ContextFilesSection";
 import { LiveVoiceSection } from "./LiveVoiceSection";
 import { StatusLineSection } from "./StatusLineSection";
+import { ComposerPredictionSection } from "./ComposerPredictionSection";
 import { useT } from "../../lib/i18n";
 
 export function OmpPage({
@@ -195,6 +198,13 @@ export function OmpPage({
 
       <StatusLineSection
         entry={byKey.get(STATUS_LINE_SEGMENT_OPTIONS_KEY)}
+        pendingKey={pendingKey}
+        commit={commit}
+      />
+
+      <ComposerPredictionSection
+        masterEntry={byKey.get(COMPOSER_PREDICTIONS_KEY)}
+        alternativesEntry={byKey.get(COMPOSER_PREDICTION_ALTERNATIVES_KEY)}
         pendingKey={pendingKey}
         commit={commit}
       />

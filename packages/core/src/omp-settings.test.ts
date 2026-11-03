@@ -21,6 +21,8 @@ import {
 } from "./omp-settings";
 import {
   COMPACTION_MODEL_THRESHOLD_SETTING_GROUP,
+  COMPOSER_PREDICTIONS_KEY,
+  COMPOSER_PREDICTION_ALTERNATIVES_KEY,
   CONTEXT_FILES_EXTRA_KEY,
   SESSION_MAX_COST_KEY,
   SESSION_WARN_COST_KEY,
@@ -507,6 +509,51 @@ describe("readOmpSettings", () => {
       snapshot.entries.some((e) => e.key === "statusLine.segmentOptions"),
     ).toBe(false);
   });
+
+  it("emits both composer prediction keys when the binary publishes them (#1030)", async () => {
+    const master = entry(true, "boolean", "Composer Predictions");
+    const alternatives = entry(false, "boolean", "Prediction Alternatives");
+    const snapshot = await readOmpSettings(
+      { ompPath: OMP, projectCwd: null },
+      fakeRunner(
+        {
+          global: {
+            [COMPOSER_PREDICTIONS_KEY]: master,
+            [COMPOSER_PREDICTION_ALTERNATIVES_KEY]: alternatives,
+          },
+          pristine: {
+            [COMPOSER_PREDICTIONS_KEY]: master,
+            [COMPOSER_PREDICTION_ALTERNATIVES_KEY]: alternatives,
+          },
+        },
+        null,
+      ),
+    );
+    expect(snapshot.error).toBeNull();
+    expect(
+      snapshot.entries.find((e) => e.key === COMPOSER_PREDICTIONS_KEY),
+    ).toMatchObject({ type: "boolean", value: true, options: null });
+    expect(
+      snapshot.entries.find(
+        (e) => e.key === COMPOSER_PREDICTION_ALTERNATIVES_KEY,
+      ),
+    ).toMatchObject({ type: "boolean", value: false, options: null });
+  });
+
+  it("emits nothing for the composer prediction keys on an omp that predates them (#1030)", async () => {
+    const snapshot = await readOmpSettings(
+      { ompPath: OMP, projectCwd: null },
+      fakeRunner({ global: {}, pristine: {} }, null),
+    );
+    expect(
+      snapshot.entries.some((e) => e.key === COMPOSER_PREDICTIONS_KEY),
+    ).toBe(false);
+    expect(
+      snapshot.entries.some(
+        (e) => e.key === COMPOSER_PREDICTION_ALTERNATIVES_KEY,
+      ),
+    ).toBe(false);
+  });
 });
 
 describe("OpenRouter variant", () => {
@@ -737,6 +784,42 @@ describe("writeOmpSetting", () => {
       },
     );
     expect(seen).toEqual(["config", "set", "providers.openaiLiveSteering", "true", "--json"]);
+  });
+
+  it("admits both composer prediction keys to the write boundary (#1030)", async () => {
+    let seen: readonly string[] = [];
+    await writeOmpSetting(
+      { ompPath: OMP, key: COMPOSER_PREDICTIONS_KEY, value: true },
+      async (args) => {
+        seen = args;
+        return "";
+      },
+    );
+    expect(seen).toEqual([
+      "config",
+      "set",
+      COMPOSER_PREDICTIONS_KEY,
+      "true",
+      "--json",
+    ]);
+    await writeOmpSetting(
+      {
+        ompPath: OMP,
+        key: COMPOSER_PREDICTION_ALTERNATIVES_KEY,
+        value: true,
+      },
+      async (args) => {
+        seen = args;
+        return "";
+      },
+    );
+    expect(seen).toEqual([
+      "config",
+      "set",
+      COMPOSER_PREDICTION_ALTERNATIVES_KEY,
+      "true",
+      "--json",
+    ]);
   });
 
   it("admits sharpshooter.minPromptLength and statusLine.segmentOptions to the write boundary (#887)", async () => {
