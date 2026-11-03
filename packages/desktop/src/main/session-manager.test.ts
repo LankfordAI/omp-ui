@@ -9351,6 +9351,51 @@ describe("fleet wake and fleet send (issues #957, #959)", () => {
       expect(await branches(project)).toEqual(["main"]);
     });
 
+    it("finishes onto a declared destination instead of the base (#1013)", async () => {
+      const { manager, registry } = setup({ mode: "rpc-ui" });
+      const { project, tabId, wt } = await worktreeChild(manager, registry);
+      // The work landed on feature/x, not the base main: point the
+      // nowhere-checked-out branch at the commit from the project side.
+      fs.writeFileSync(path.join(wt.path, "land.txt"), "land\n");
+      await execFileP("git", ["add", "land.txt"], { cwd: wt.path });
+      await execFileP("git", ["commit", "-q", "-m", "land"], { cwd: wt.path });
+      const sha = (await execFileP("git", ["rev-parse", "HEAD"], { cwd: wt.path })).stdout.trim();
+      await execFileP("git", ["update-ref", "refs/heads/feature/x", sha], { cwd: project });
+
+      // Without the declaration the finish refuses: main lacks the work.
+      await expect(manager.fleetFinish(finishReq())).resolves.toMatchObject({
+        status: "refused",
+        reason: expect.stringContaining("land the work first"),
+      });
+
+      const outcome = await manager.fleetFinish(finishReq({ landedOn: "feature/x" }));
+      expect(outcome).toEqual({
+        status: "finished",
+        destination: "feature/x",
+        worktreePath: wt.path,
+        checkoutKept: null,
+        branch: wt.branch,
+        branchOutcome: "removed",
+        workingBranches: [],
+      });
+      expect(manager.isLive(tabId)).toBe(false);
+      expect(registry.sessions.find((s) => s.tabId === tabId)!.worktree).toBeNull();
+      expect(await branches(project)).toEqual(["feature/x", "main"]);
+    });
+
+    it("names the declared branch in the refusal when the destination is missing (#1013)", async () => {
+      const { manager, registry } = setup({ mode: "rpc-ui" });
+      const { tabId, wt } = await worktreeChild(manager, registry);
+      await expect(
+        manager.fleetFinish(finishReq({ landedOn: "feature/nope" })),
+      ).resolves.toEqual({
+        status: "refused",
+        reason: "the base branch feature/nope no longer exists",
+      });
+      expect(manager.isLive(tabId)).toBe(true);
+      expect(registry.sessions.find((s) => s.tabId === tabId)!.worktree).toEqual(wt);
+    });
+
     it("still refuses a gone checkout whose branch provably lags the destination (#1014)", async () => {
       const { manager, registry } = setup({ mode: "rpc-ui" });
       const { wt } = await worktreeChild(manager, registry);

@@ -127,18 +127,27 @@ export class WorktreeOps {
    * `{ ok: true, destination, gone: true }` on project-side facts alone:
    * destination exists, and the recorded branch ref — if it still exists —
    * is an ancestor of the destination. Refusal needs provable non-containment.
+   * `landedOn` (#1013) declares where the work landed when it is not the
+   * base-derived destination: it replaces the derivation for every check
+   * below, nothing more — never a merge, never a push.
    */
   async landedFinish(
     projectCwd: string,
     worktree: SessionWorktree,
+    landedOn?: string,
   ): Promise<
     | { ok: true; destination: string; landing: WorktreeLanding }
     | { ok: true; destination: string; gone: true }
     | { ok: false; reason: string }
   > {
-    const { destination } = await resolveMergeDestination(projectCwd, worktree.base);
-    if (destination === null) {
-      return { ok: false, reason: `no local branch matches the worktree's base ${worktree.base ?? "(unrecorded)"}` };
+    let destination: string | null;
+    if (landedOn !== undefined) {
+      destination = landedOn;
+    } else {
+      destination = (await resolveMergeDestination(projectCwd, worktree.base)).destination;
+      if (destination === null) {
+        return { ok: false, reason: `no local branch matches the worktree's base ${worktree.base ?? "(unrecorded)"}` };
+      }
     }
     if (await worktreeCheckoutMissing(worktree.path)) {
       // #1014: an out-of-band removal must not strand the row forever. The

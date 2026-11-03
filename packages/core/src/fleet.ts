@@ -1375,9 +1375,14 @@ export function fleetSendText(message: string, from: "agent" | "mcp"): string {
 export interface FleetFinishRequest {
   requester: FleetRequester;
   dispatchId: string;
+  /** Branch the caller declares the work landed on (#1013). Absent: the
+   *  owner derives the destination from the recorded base. A declaration is
+   *  verified, never trusted: containment still has to hold git-side. */
+  landedOn?: string;
 }
 export interface FleetToolFinishArgs {
   dispatchId: string;
+  landedOn?: string;
 }
 /** A branch the agent checked out inside the worktree besides the minted one, and what finish did with it. */
 export interface FleetFinishWorkingBranch {
@@ -1405,10 +1410,18 @@ export type FleetFinishOutcome =
 export function parseFleetFinishRequest(value: unknown): FleetFinishRequest {
   const label = "finish request";
   const req = objectValue(value, label);
-  rejectUnknownKeys(req, ["requester", "dispatchId"], label);
+  rejectUnknownKeys(req, ["requester", "dispatchId", "landedOn"], label);
+  // #1013: landedOn rides only when present — an older peer's two-field
+  // request must decode to exactly what it sent (same convention as
+  // WorktreeReleaseOptions.checkoutOnReturn).
+  const landedOn =
+    req.landedOn === undefined
+      ? {}
+      : { landedOn: idString(req.landedOn, `${label}.landedOn`) };
   return {
     requester: parseFleetRequester(req.requester, `${label}.requester`),
     dispatchId: idString(req.dispatchId, `${label}.dispatchId`),
+    ...landedOn,
   };
 }
 
@@ -1797,10 +1810,16 @@ export function parseFleetToolArguments(name: string, raw: unknown): FleetToolAr
     return { ok: true, tool: "send", args: { dispatchId: a.dispatchId.trim(), message: a.message, mode: a.mode === "steer" ? "steer" : "queue" } };
   }
   if (name === "omp-ui_fleet_finish") {
-    const extra = unknownKey(["dispatchId"]);
+    const extra = unknownKey(["dispatchId", "landedOn"]);
     if (extra !== undefined) return refuse(`unknown argument "${extra}"`);
     if (typeof a.dispatchId !== "string" || a.dispatchId.trim() === "") return refuse("dispatchId must be a non-empty string");
-    return { ok: true, tool: "finish", args: { dispatchId: a.dispatchId.trim() } };
+    let landedOn: string | undefined;
+    if (a.landedOn !== undefined) {
+      if (typeof a.landedOn !== "string" || a.landedOn.trim() === "") return refuse("landedOn must be a non-empty branch name");
+      landedOn = a.landedOn.trim();
+    }
+    // #1013: no own `landedOn` key when unset, so older owners keep decoding.
+    return { ok: true, tool: "finish", args: { dispatchId: a.dispatchId.trim(), ...(landedOn === undefined ? {} : { landedOn }) } };
   }
   if (name !== "omp-ui_fleet_dispatch") return refuse(`unknown host tool "${name}"`);
   const extra = unknownKey(["prompt", "title", "project", "machines", "count", "workspace", "planMode", "model", "thinkingLevel"]);

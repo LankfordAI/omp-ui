@@ -2168,7 +2168,7 @@ export class SessionManager {
     };
     const before = busy();
     if (before !== null) return refused(before);
-    const first = await this.worktreeOps.landedFinish(record.projectCwd, wt);
+    const first = await this.worktreeOps.landedFinish(record.projectCwd, wt, req.landedOn);
     if (!first.ok) return refused(first.reason);
     const raced = busy();
     if (raced !== null) return refused(raced);
@@ -2178,7 +2178,7 @@ export class SessionManager {
     }
     const current = this.deps.registry.sessions.find((s) => s.tabId === tabId)?.worktree;
     if (current?.path !== wt.path) return refused("the session's worktree changed while finishing; nothing was removed");
-    const landed = await this.worktreeOps.landedFinish(record.projectCwd, wt);
+    const landed = await this.worktreeOps.landedFinish(record.projectCwd, wt, req.landedOn);
     if (!landed.ok) return refused(`the session is settled, but its worktree stays: ${landed.reason}`);
 
     let release: WorktreeReleaseResult;

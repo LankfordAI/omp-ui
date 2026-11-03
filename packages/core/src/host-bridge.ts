@@ -529,11 +529,16 @@ function fleetTools(): RpcHostToolDefinition[] {
       name: finish,
       loadMode: "essential",
       description:
-        "Clean up a worktree session you started with omp-ui_fleet_dispatch once its work is already in its base branch (for example after it rebased, fast-forwarded the base, and pushed): removes its worktree, deletes its worktree branch and any fully merged branch it created there, and settles the session. Only the session that dispatched the work can finish it. It never merges, pushes, or discards work: it refuses while the session is working, waiting for the user's answer, has uncommitted changes, or holds commits its base lacks.",
+        "Clean up a worktree session you started with omp-ui_fleet_dispatch once its work is already landed (for example after it rebased, fast-forwarded the base, and pushed): removes its worktree, deletes its worktree branch and any fully merged branch it created there, and settles the session. By default the work must be in the branch the worktree was based on; when it landed somewhere else, declare that branch in landedOn — it is verified, never trusted. Only the session that dispatched the work can finish it. It never merges, pushes, or discards work: it refuses while the session is working, waiting for the user's answer, has uncommitted changes, or holds commits its destination lacks.",
       parameters: {
         type: "object",
         properties: {
           dispatchId: { type: "string", description: "The dispatchId omp-ui_fleet_dispatch reported." },
+          landedOn: {
+            type: "string",
+            description:
+              "Optional local branch the work already landed on when it is not the base branch (for example a release branch you merged into and pushed). Omit for the usual landing on the base.",
+          },
         },
         required: ["dispatchId"],
         additionalProperties: false,

@@ -210,6 +210,8 @@ describe("host registration definitions", () => {
     const exec = fleet[3]!.parameters.properties as Record<string, Record<string, unknown>>;
     expect(exec.detach).toMatchObject({ type: "boolean" });
     expect(exec.timeoutMs).toMatchObject({ type: "integer", minimum: 100, maximum: 30 * 60_000 });
+    const finish = fleet[8]!.parameters.properties as Record<string, Record<string, unknown>>;
+    expect(finish).toMatchObject({ dispatchId: { type: "string" }, landedOn: { type: "string" } });
     const poll = fleet[5]!.parameters.properties as Record<string, Record<string, unknown>>;
     expect(poll).toMatchObject({
       machine: { type: "string" },

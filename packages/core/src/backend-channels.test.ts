@@ -411,6 +411,7 @@ const VALID_ARGS = {
     {
       requester: { instanceId: "instance-1", label: "workstation", kind: "agent", sourceTabId: "tab-1" },
       dispatchId: "dispatch-1",
+      landedOn: "feature/x",
     },
   ],
   fleetProviderKeys: [

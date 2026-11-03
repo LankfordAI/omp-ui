@@ -1212,7 +1212,11 @@ to Settled, regardless of the idle-hibernation setting; a keep finish leaves
 the session live (#924). The session that dispatched a worktree session can
 run the already-merged settle itself with `omp-ui_fleet_finish`: it
 settles the session and releases its worktree only when the work is
-already in its base (#978). It never merges or pushes.
+already in its base (#978), or in the branch the finisher declares in
+`landedOn` when it landed elsewhere — a declaration the owner verifies,
+never trusts (#1013). A checkout already removed out-of-band still settles,
+reported as gone, because containment proves the work is safe even without
+the directory (#1014). It never merges or pushes.
 The dialog also lists the **discarded changes** omp's git guard saved in the
 worktree (omp 18.14+: in a linked worktree the guard lets discarding git
 commands run after saving tracked changes on `refs/omp/discarded`), and
