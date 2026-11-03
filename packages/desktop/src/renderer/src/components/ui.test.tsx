@@ -5,7 +5,7 @@ import { createRoot, type Root } from "react-dom/client";
 import { afterEach, describe, expect, it, vi } from "vitest";
 import type { ModelInfo } from "../lib/rpc-types";
 import { backendState } from "../test/fixtures";
-import { Button, Chip, ChoiceCapsule, ConfirmDialog, Meter, Modal, PerimeterGlow, PerimeterSweep, ProgressSweep, ResizeHandle, Sheet, UpdateCard, conicRing } from "./ui";
+import { Button, Chip, ChoiceCapsule, ConfirmDialog, Meter, Modal, PerimeterGlow, PerimeterSweep, ProgressRing, ProgressSweep, ResizeHandle, Sheet, UpdateCard, conicRing } from "./ui";
 
 (globalThis as Record<string, unknown>).IS_REACT_ACT_ENVIRONMENT = true;
 HTMLElement.prototype.scrollIntoView = vi.fn();
@@ -574,6 +574,56 @@ describe("Meter", () => {
     expect(fill(0.8).className).toContain("bg-copper");
     expect(fill(0.95).className).toContain("bg-rose");
     expect(fill(0.95).style.width).toBe("95%");
+  });
+});
+
+describe("ProgressRing", () => {
+  // Default strokeWidth 2 in a 16-unit viewBox ⇒ r = 6.5.
+  const CIRCUMFERENCE = 2 * Math.PI * (16 / 2 - 2 / 2 - 0.5);
+
+  it("fills half the circumference at fraction 0.5", async () => {
+    await render(<ProgressRing fraction={0.5} />);
+    const svg = document.querySelector<SVGSVGElement>("svg[data-progress-ring]");
+    expect(svg).not.toBeNull();
+    expect(svg!.getAttribute("viewBox")).toBe("0 0 16 16");
+    const circles = svg!.querySelectorAll("circle");
+    expect(circles).toHaveLength(2);
+    const [fill, gap] = String(circles[1].getAttribute("stroke-dasharray")).split(/\s+/).map(Number);
+    expect(fill).toBeCloseTo(CIRCUMFERENCE / 2);
+    expect(gap).toBeCloseTo(CIRCUMFERENCE);
+  });
+
+  it("renders track only for fractions below zero", async () => {
+    await render(<ProgressRing fraction={-1} />);
+    const svg = document.querySelector<SVGSVGElement>("svg[data-progress-ring]")!;
+    expect(svg.querySelectorAll("circle")).toHaveLength(1);
+  });
+
+  it("clamps fractions above full to the whole circumference", async () => {
+    await render(<ProgressRing fraction={2} />);
+    const circles = document.querySelectorAll("svg[data-progress-ring] circle");
+    expect(circles).toHaveLength(2);
+    const [fill] = String(circles[1].getAttribute("stroke-dasharray")).split(/\s+/).map(Number);
+    expect(fill).toBeCloseTo(CIRCUMFERENCE);
+  });
+
+  it("escalates fill tone signal, copper, rose", async () => {
+    await render(<ProgressRing fraction={0.75} />);
+    const svg = document.querySelector<SVGSVGElement>("svg[data-progress-ring]")!;
+    expect(svg.querySelectorAll("circle")[1].classList.contains("stroke-copper")).toBe(true);
+    act(() => root!.render(<ProgressRing fraction={0.95} />));
+    expect(svg.querySelectorAll("circle")[1].classList.contains("stroke-rose")).toBe(true);
+    expect(svg.querySelectorAll("circle")[1].classList.contains("stroke-copper")).toBe(false);
+    act(() => root!.render(<ProgressRing fraction={0.5} />));
+    expect(svg.querySelectorAll("circle")[1].classList.contains("stroke-signal")).toBe(true);
+    expect(svg.querySelectorAll("circle")[0].classList.contains("stroke-line")).toBe(true);
+  });
+
+  it("renders only the track at fraction 0", async () => {
+    await render(<ProgressRing fraction={0} />);
+    const svg = document.querySelector<SVGSVGElement>("svg[data-progress-ring]")!;
+    expect(svg.querySelectorAll("circle.stroke-line")).toHaveLength(1);
+    expect(svg.querySelectorAll("circle")).toHaveLength(1);
   });
 });
 

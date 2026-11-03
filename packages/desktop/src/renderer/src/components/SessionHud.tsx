@@ -8,6 +8,7 @@ import type { LimitsView } from "@omp-ui/core/limits";
 import type { AutoresearchSnapshot } from "@omp-ui/core/autoresearch";
 import { ANONYMIZE_MIN_OMP, supportsAnonymize } from "../lib/anonymize";
 import { cn } from "../lib/cn";
+import { contextReadout, percentTone } from "../lib/context-readout";
 import { startVisibleInterval } from "../lib/visible-interval";
 import { formatDuration } from "../lib/duration";
 import { compactNum, exactNum, formatCost } from "../lib/format";
@@ -36,7 +37,7 @@ import { ApprovalModeControl } from "./ApprovalModeControl";
 import { GoalChip } from "./GoalChip";
 import { WorktreeChip } from "./WorktreeChip";
 import { PullRequestChip } from "./PullRequestChip";
-import { Button, Chevron, Chip, CopyButton, Dot, ICON_STROKE, IconButton, IconLock, IconRefresh, IconSessionTree, Label, Meter, Panel, Sheet, Switch, type Tone } from "./ui";
+import { Button, Chevron, Chip, CopyButton, Dot, ICON_STROKE, IconButton, IconLock, IconRefresh, IconSessionTree, Label, Meter, Panel, ProgressRing, Sheet, Switch, type Tone } from "./ui";
 import { TONE_TEXT } from "./ui/tone";
 
 /**
@@ -506,48 +507,6 @@ function TitleField({ tabId, title }: { tabId: string; title: string }) {
       </button>
     </span>
   );
-}
-
-type Translate = (key: MessageKey, vars?: Record<string, string | number>) => string;
-
-interface ContextReadout {
-  window: number;
-  fraction: number;
-  percent: number;
-  /** Auto-compact notch as a 0..1 fraction of the window; null = no notch. */
-  marker: number | null;
-  /** The exact-usage tooltip. */
-  exact: string;
-}
-
-/** The context fill math the context meter and the gauge chip share. */
-function contextReadout(usage: ContextUsage, markerTokens: number | null | undefined, t: Translate): ContextReadout {
-  const window = usage.contextWindow > 0 ? usage.contextWindow : 0;
-  const fraction = window > 0 ? usage.tokens / window : 0;
-  const percent = Number.isFinite(usage.percent) ? usage.percent : fraction * 100;
-  const threshold =
-    typeof markerTokens === "number" && window > 0
-      ? { tokens: markerTokens, at: Math.min(1, Math.max(0, markerTokens / window)) }
-      : null;
-  const thresholdLine = threshold
-    ? t("hud.context.autoCompactThreshold", {
-        threshold: exactNum(threshold.tokens),
-        window: exactNum(window),
-        percent: ((threshold.tokens / window) * 100).toFixed(1),
-      })
-    : null;
-  const exact = t("hud.context.usage", {
-    tokens: exactNum(usage.tokens),
-    window: window > 0 ? exactNum(window) : "?",
-    percent: percent.toFixed(2),
-    threshold: thresholdLine ? `\n${thresholdLine}` : "",
-  });
-  return { window, fraction, percent, marker: threshold?.at ?? null, exact };
-}
-
-/** Context percent tone: rose past 90 %, copper past 70 %. */
-function percentTone(percent: number): string {
-  return percent > 90 ? "text-rose" : percent > 70 ? "text-copper" : "text-ink-dim";
 }
 
 function ContextCluster({
@@ -1364,33 +1323,6 @@ function TitleMenu({
   );
 }
 
-const RING_TONE = { signal: "stroke-signal", copper: "stroke-copper", rose: "stroke-rose" } as const;
-
-/** The gauge chip's decorative context ring; tone thresholds match Meter. */
-function GaugeRing({ fraction }: { fraction: number }) {
-  const clamped = Math.min(1, Math.max(0, fraction));
-  const tone = clamped > 0.9 ? "rose" : clamped > 0.7 ? "copper" : "signal";
-  const r = 6;
-  const circumference = 2 * Math.PI * r;
-  return (
-    <svg viewBox="0 0 16 16" aria-hidden className="size-3.5 shrink-0 -rotate-90">
-      <circle cx="8" cy="8" r={r} fill="none" strokeWidth={2} className="stroke-line" />
-      {clamped > 0 && (
-        <circle
-          cx="8"
-          cy="8"
-          r={r}
-          fill="none"
-          strokeWidth={2}
-          strokeLinecap="round"
-          className={RING_TONE[tone]}
-          strokeDasharray={`${clamped * circumference} ${circumference}`}
-        />
-      )}
-    </svg>
-  );
-}
-
 interface MainSpend {
   cost: number;
   tokens: number;
@@ -1516,7 +1448,7 @@ function GaugeChip({
           open && "bg-hover",
         )}
       >
-        <GaugeRing fraction={readout?.fraction ?? 0} />
+        <ProgressRing fraction={readout?.fraction ?? 0} className="size-3.5 shrink-0" />
         <span className={readout ? percentTone(readout.percent) : "text-ink-dim"}>
           {readout ? `${Math.round(readout.percent)}%` : "—"}
         </span>

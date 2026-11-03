@@ -24,6 +24,7 @@ import { MAGIC_KEYWORDS, magicKeywordSegments, type MagicKeyword } from "@omp-ui
 import { firingKeywords } from "../lib/magic-keyword-gate";
 import { deriveDirs, detectAtQuery, insertMention } from "../lib/mentions";
 import { composerPaintRuns } from "../lib/composer-paint";
+import { contextReadout } from "../lib/context-readout";
 import type { DocumentRef } from "../lib/document-context";
 import { queueChipCount, queueChipView } from "../lib/queue-chip";
 import type { PromptRoute, SlashCommandInfo } from "../lib/rpc-types";
@@ -110,6 +111,16 @@ export function Composer({
   const busy = useStore((s) => s.rpc[tabId]?.busy ?? false);
   const activeTurnKeywords = useStore((s) => s.rpc[tabId]?.activeTurnKeywords ?? NO_KEYWORDS);
   const commands = useStore((s) => s.rpc[tabId]?.commands ?? NO_COMMANDS);
+  // The send button's context ring: same source and math as the gauge chip.
+  const contextUsage = useStore((s) => {
+    const rpc = s.rpc[tabId];
+    return rpc?.session?.contextUsage ?? rpc?.stats?.contextUsage ?? null;
+  });
+  const contextRing = useMemo(() => {
+    if (contextUsage === null) return null;
+    const readout = contextReadout(contextUsage, null, t);
+    return { fraction: readout.fraction, title: readout.exact };
+  }, [contextUsage, t]);
   const experimentsEnabled = useStore((s) => s.state?.experimentsEnabled === true);
   // A chat has no plan mode and no project for autoresearch to key on (#894).
   const chat = useStore((s) => isChatTab(s.state, tabId));
@@ -1616,6 +1627,7 @@ export function Composer({
               running={running}
               isSlash={isSlash}
               canSend={canSend}
+              contextRing={contextRing}
               onSubmit={(route) => void submit(route)}
               onAbort={() => void abortAgent(tabId)}
             />

@@ -11,6 +11,7 @@ interface Props {
   running?: boolean;
   isSlash?: boolean;
   canSend?: boolean;
+  contextRing?: { fraction: number; title: string } | null;
 }
 let root: Root | null = null;
 let onSubmit: (route: SubmitRoute) => void;
@@ -29,6 +30,7 @@ function mount(p: Props = {}): void {
         running={p.running ?? false}
         isSlash={p.isSlash ?? false}
         canSend={p.canSend ?? true}
+        contextRing={p.contextRing}
         onSubmit={onSubmit}
         onAbort={onAbort}
       />,
@@ -185,6 +187,53 @@ describe("ComposerActions sheet", () => {
   it("running: canSend false disables both routes", () => {
     mount({ layout: "sheet", running: true, canSend: false });
     expect(buttons().every((button) => button.disabled)).toBe(true);
+  });
+});
+
+describe("ComposerActions context ring", () => {
+  const ring = { fraction: 0.5, title: "128,000 of 256,000 context tokens (50.00%)" };
+
+  it("idle desktop: the round send button wears the ring and appends the readout to its title", () => {
+    mount({ layout: "desktop", contextRing: ring });
+    const all = buttons();
+    expect(all).toHaveLength(1);
+    const wrapper = all[0]!.parentElement!;
+    expect(wrapper.tagName).toBe("SPAN");
+    const svg = wrapper.querySelector("svg[data-progress-ring]");
+    expect(svg).not.toBeNull();
+    const fill = svg!.querySelectorAll("circle")[1]!;
+    const dash = Number.parseFloat(fill.getAttribute("stroke-dasharray")!.split(" ")[0]!);
+    expect(dash).toBeGreaterThan(0);
+    expect(all[0]!.title.endsWith(`\n${ring.title}`)).toBe(true);
+    expect(all[0]!.title.startsWith("send (enter) · shift+enter for a newline\n")).toBe(true);
+  });
+
+  it("idle desktop without the readout renders plain unwrapped controls", () => {
+    mount({ layout: "desktop" });
+    expect(document.body.querySelector("svg[data-progress-ring]")).toBeNull();
+    expect(buttons()[0]!.parentElement!.querySelector("svg[data-progress-ring]")).toBeNull();
+  });
+
+  it("running desktop: only the abort control wears the ring and keeps its plain title", () => {
+    mount({ layout: "desktop", running: true, contextRing: ring });
+    const [steer, , abort] = buttons();
+    expect(steer!.parentElement!.querySelector("svg[data-progress-ring]")).toBeNull();
+    expect(abort!.parentElement!.querySelector("svg[data-progress-ring]")).not.toBeNull();
+    expect(abort!.title).toBe("stop the turn — queued messages return to the draft (esc)");
+    expect(document.body.querySelectorAll("svg[data-progress-ring]")).toHaveLength(1);
+  });
+
+  it("compact never renders the ring, idle or running", () => {
+    for (const running of [false, true]) {
+      mount({ layout: "compact", running, contextRing: ring });
+      expect(document.body.querySelector("svg[data-progress-ring]"), `running=${running}`).toBeNull();
+      for (const button of buttons()) {
+        expect(button.parentElement!.querySelector("svg[data-progress-ring]")).toBeNull();
+      }
+      if (root) act(() => root!.unmount());
+      root = null;
+      document.body.replaceChildren();
+    }
   });
 });
 
