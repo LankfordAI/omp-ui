@@ -352,6 +352,15 @@ describe("ProjectQuickOpen root rows (issues #915, #919)", () => {
     expect(newChat).toHaveBeenCalledOnce();
     expect(useStore.getState().projectQuickOpen).toBeNull();
   });
+
+  it("a bare Enter follows the focused remote tab's twin, not the local checkout (#1036)", () => {
+    const { newSession } = renderQuickOpen({
+      tabs: [tabInfo({ tabId: "r1", projectCwd: "/remote/r", instanceId: "inst-1" })],
+    });
+    pressQuick("Enter");
+    expect(newSession).toHaveBeenCalledExactlyOnceWith("/remote/r", undefined, "inst-1");
+    expect(useStore.getState().projectQuickOpen).toBeNull();
+  });
 });
 
 describe("ProjectQuickOpen pages (issue #919)", () => {
@@ -555,6 +564,47 @@ describe("ProjectQuickOpen pages (issue #919)", () => {
     });
     expect(quickInput().placeholder).toBe("Search projects…");
     expect(quickInput().value).toBe("alp");
+  });
+
+  /** The merged bravo group with its remote twin focused (issue #1036). */
+  function renderFocusedRemote(options: RenderOptions = {}): Rendered {
+    return renderQuickOpen({
+      ...options,
+      tabs: [tabInfo({ tabId: "r1", projectCwd: "/remote/r", instanceId: "inst-1" })],
+    });
+  }
+
+  it("bravo's page targets the focused remote twin with only the Remote-SSH open row (#1036)", async () => {
+    backendMock.getRemoteVsCodeTarget.mockResolvedValue({ kind: "ready", host: "box-a.local", user: "austin" });
+    renderFocusedRemote({ remoteVsCode: true });
+    drillIn();
+    await flush();
+    expect(backendMock.getProjectOpenAvailability).not.toHaveBeenCalled();
+    const openRows = rowLabels().filter((label) => label.startsWith("Open in"));
+    expect(openRows).toEqual(["Open in VS Code"]);
+    const vsCode = rowByLabel("Open in VS Code")!;
+    expect(vsCode.children[2]!.textContent).toBe("Remote-SSH");
+    expect(vsCode.getAttribute("aria-disabled")).not.toBe("true");
+    act(() => vsCode.click());
+    expect(backendMock.openRemoteVsCode).toHaveBeenCalledExactlyOnceWith("inst-1", "/remote/r");
+  });
+
+  it.each<[label: string, fn: keyof Omit<Rendered, "seenOpen">, args: unknown[]]>([
+    ["New session", "newSession", ["/remote/r", undefined, "inst-1"]],
+    ["New terminal session", "newSession", ["/remote/r", "pty", "inst-1"]],
+    ["New private session", "newSession", ["/remote/r", undefined, "inst-1", { private: true }]],
+  ])("%s on bravo's page forwards the focused remote pair (#1036)", (label, fn, args) => {
+    const rendered = renderFocusedRemote();
+    drillIn();
+    act(() => rowByLabel(label)!.click());
+    expect(rendered[fn]).toHaveBeenCalledExactlyOnceWith(...args);
+  });
+
+  it("bravo's page shows no open rows for the focused remote twin while Remote-SSH is off (#1036)", () => {
+    renderFocusedRemote();
+    drillIn();
+    expect(rowLabels().some((label) => label.startsWith("Open in"))).toBe(false);
+    expect(backendMock.getRemoteVsCodeTarget).not.toHaveBeenCalled();
   });
 });
 

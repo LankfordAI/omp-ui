@@ -3612,7 +3612,7 @@ export const en = {
   // Open in VS Code over Remote-SSH (issue #995, ADR-0083)
   "settings.remoteinstances.vsCodeTitle": "Open remote projects in VS Code over SSH",
   "settings.remoteinstances.vsCodeHint":
-    "Adds Open in VS Code to a remote project's page and a remote session's title menu. VS Code on this computer connects with its Remote-SSH extension, your ssh config, and your ssh agent; omp-ui holds no keys. Off by default.",
+    "Adds Open in VS Code to a remote project's page and a remote session's title menu. VS Code on this computer connects with its Remote-SSH extension, your ssh config, and your ssh agent; omp-ui holds no keys. On by default.",
   "remotevscode.sub": "Remote-SSH",
   "remotevscode.checking": "checking SSH…",
   "remotevscode.reason.failed": "could not check SSH",

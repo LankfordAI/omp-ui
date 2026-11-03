@@ -3411,7 +3411,7 @@ export const ko: Partial<Record<MessageKey, string>> = {
   // SSH로 VS Code에서 열기 (이슈 #995)
   "settings.remoteinstances.vsCodeTitle": "SSH로 원격 프로젝트를 VS Code에서 열기",
   "settings.remoteinstances.vsCodeHint":
-    "원격 프로젝트 페이지와 원격 세션의 제목 메뉴에 VS Code에서 열기를 추가합니다. 이 컴퓨터의 VS Code가 Remote-SSH 확장, ssh 설정, ssh 에이전트로 연결하며 omp-ui는 키를 보관하지 않습니다. 기본값은 꺼짐입니다.",
+    "원격 프로젝트 페이지와 원격 세션의 제목 메뉴에 VS Code에서 열기를 추가합니다. 이 컴퓨터의 VS Code가 Remote-SSH 확장, ssh 설정, ssh 에이전트로 연결하며 omp-ui는 키를 보관하지 않습니다. 기본값은 켜짐입니다.",
   "remotevscode.sub": "Remote-SSH",
   "remotevscode.checking": "SSH 확인 중…",
   "remotevscode.reason.failed": "SSH를 확인할 수 없음",

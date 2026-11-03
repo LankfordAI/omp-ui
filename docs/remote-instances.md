@@ -116,7 +116,7 @@ The reachability check is only a TCP connect to port 22 from this computer. A me
 
 ### Open a remote checkout in VS Code
 
-You can open the code a remote session works on in VS Code on this computer, connected to the member over Remote-SSH ([#995](https://github.com/LankfordAI/omp-ui/issues/995), [ADR-0083](adr/0083-remote-checkouts-open-in-local-vs-code-over-the-users-ssh.md)). Turn on **Settings › Remote instances › Open remote projects in VS Code over SSH** (off by default). Then **Open in VS Code** appears on a remote project's page in the project quick-open and in a remote session's title menu, which opens that session's worktree checkout when it has one. VS Code opens a new window on `ssh-remote+<user>@<address>` at that path.
+You can open the code a remote session works on in VS Code on this computer, connected to the member over Remote-SSH ([#995](https://github.com/LankfordAI/omp-ui/issues/995), [ADR-0083](adr/0083-remote-checkouts-open-in-local-vs-code-over-the-users-ssh.md)). Turn on **Settings › Remote instances › Open remote projects in VS Code over SSH** (on by default). Then **Open in VS Code** appears on a remote project's page in the project quick-open and in a remote session's title menu, which opens that session's worktree checkout when it has one. VS Code opens a new window on `ssh-remote+<user>@<address>` at that path.
 
 The row is enabled only when the member sent its host report and port 22 answered this computer; otherwise it stays disabled and says why, for example *SSH port 22 did not answer on studio.tailnet*. It is hidden when this computer has no VS Code, and in the compact shell.
 

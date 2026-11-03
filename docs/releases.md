@@ -5,6 +5,7 @@ This guide explains what users receive from a release and how maintainers publis
 ## Unreleased
 
 - The sidebar's Working section now also holds sessions with a running background job, matching the row chip (#1026).
+- **Open in VS Code** on the corner-tools card and a project's quick-open page now targets the instance holding the focused session's tab — a remote session opens its checkout over Remote-SSH instead of this computer's twin (#1036). *Open remote projects in VS Code over SSH* is on by default (amends [ADR-0083](adr/0083-remote-checkouts-open-in-local-vs-code-over-the-users-ssh.md)).
 
 ## Choose a download
 

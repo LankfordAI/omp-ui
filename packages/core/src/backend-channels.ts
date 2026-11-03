@@ -546,7 +546,7 @@ export const BACKEND_CHANNELS = {
     channel: "settings:setAutoSettleMergedPullRequests",
     ...request<[on: boolean], void>([bool()]),
   },
-  /** Open in VS Code over Remote-SSH for remote projects and sessions (issue #995, ADR-0083); default off. */
+  /** Open in VS Code over Remote-SSH for remote projects and sessions (issue #995, ADR-0083); on by default (issue #1036). */
   setRemoteVsCodeEnabled: {
     channel: "settings:setRemoteVsCodeEnabled",
     ...request<[on: boolean], void>([bool()]),

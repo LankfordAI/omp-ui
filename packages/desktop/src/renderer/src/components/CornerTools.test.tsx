@@ -304,4 +304,43 @@ describe("CornerTools (issue #1021)", () => {
     });
     expect(panel()).toBeNull();
   });
+
+  it("targets the instance holding the focused tab (issue #1036)", async () => {
+    // The Q3 inversion: a focused remote tab wins its group's target pair even
+    // though the local twin /b exists; the card names rho, not bravo.
+    backendMock.getRemoteVsCodeTarget.mockResolvedValue({ kind: "ready", host: "box-a.local", user: "austin" });
+    render({ tabs: [tabInfo({ tabId: "r1", projectCwd: "/remote/r", instanceId: "inst-1" })], remoteVsCode: true });
+    await openByHover();
+    expect(panel()?.getAttribute("aria-label")).toBe("tools for rho");
+    // The header subline lists every machine in the merged group.
+    const subline = panel()!.querySelector("span.font-mono");
+    expect(subline?.textContent).toContain("This computer · box-a");
+    // A remote target renders only the Remote-SSH open row; no host-local rows,
+    // and no local availability probe at all.
+    expect(rowLabels().filter((label) => label.startsWith("Open in"))).toEqual(["Open in VS Code"]);
+    expect(rowLabels()).toEqual(["New session", "Open in VS Code", "Project settings…"]);
+    expect(backendMock.getProjectOpenAvailability).not.toHaveBeenCalled();
+    // Ready target: enabled row whose hint is the Remote-SSH sub (MenuRow puts
+    // `hint` in a trailing font-mono span; title stays empty when reason is null).
+    const row = rowByLabel("Open in VS Code");
+    expect(row).toBeDefined();
+    expect(row!.disabled).toBe(false);
+    expect(row!.children[2]?.textContent).toBe("Remote-SSH");
+    expect(row!.title).toBe("");
+    act(() => row!.click());
+    expect(backendMock.openRemoteVsCode).toHaveBeenCalledExactlyOnceWith("inst-1", "/remote/r");
+    // Close-before-run, and the local opener is never touched.
+    expect(panel()).toBeNull();
+    expect(backendMock.openProject).not.toHaveBeenCalled();
+  });
+
+  it("honors an explicit remoteVsCode off for a focused remote tab (issue #1036)", async () => {
+    render({ tabs: [tabInfo({ tabId: "r1", projectCwd: "/remote/r", instanceId: "inst-1" })] });
+    await openByHover();
+    // Remote target with the feature off: no open rows of any kind, and
+    // neither probe fires — the card is host-local actions only.
+    expect(rowLabels().filter((label) => label.startsWith("Open in"))).toEqual([]);
+    expect(backendMock.getProjectOpenAvailability).not.toHaveBeenCalled();
+    expect(backendMock.getRemoteVsCodeTarget).not.toHaveBeenCalled();
+  });
 });
