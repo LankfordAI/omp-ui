@@ -1,6 +1,5 @@
 import { CH, type RpcFrame } from "@omp-ui/core";
 import type { FrameObserver } from "./frame-observer";
-import type { LiveEntry } from "./live-entry";
 
 /**
  * A bare `omp` launch inside an owned session's bash command (issue #1022):
@@ -29,7 +28,7 @@ export class ForeignOmpTracker implements FrameObserver {
 
   constructor(private readonly deps: ForeignOmpTrackerDeps) {}
 
-  onFrame(tabId: string, frame: RpcFrame, _entry: LiveEntry): void {
+  onFrame(tabId: string, frame: RpcFrame): void {
     if (frame.type !== "tool_execution_start" || frame.toolName !== "bash") return;
     const args = frame.args;
     if (typeof args !== "object" || args === null) return;
