@@ -9324,5 +9324,45 @@ describe("fleet wake and fleet send (issues #957, #959)", () => {
       // Released dormant: no relaunch after the settle.
       expect(RpcClientMock).toHaveBeenCalledTimes(1);
     });
+
+    it("settles a session whose checkout was removed out-of-band (#1014)", async () => {
+      const { manager, registry } = setup({ mode: "rpc-ui" });
+      const { project, tabId, wt } = await worktreeChild(manager, registry);
+      // Land the minted branch on main, then yank the checkout from under us.
+      fs.writeFileSync(path.join(wt.path, "done.txt"), "done\n");
+      await execFileP("git", ["add", "done.txt"], { cwd: wt.path });
+      await execFileP("git", ["commit", "-q", "-m", "done"], { cwd: wt.path });
+      await execFileP("git", ["merge", "-q", "--ff-only", wt.branch], { cwd: project });
+      fs.rmSync(wt.path, { recursive: true, force: true });
+
+      const outcome = await manager.fleetFinish(finishReq());
+
+      expect(outcome).toEqual({
+        status: "finished",
+        destination: "main",
+        worktreePath: wt.path,
+        checkoutKept: "gone",
+        branch: wt.branch,
+        branchOutcome: "removed",
+        workingBranches: [],
+      });
+      expect(manager.isLive(tabId)).toBe(false);
+      expect(registry.sessions.find((s) => s.tabId === tabId)!.worktree).toBeNull();
+      expect(await branches(project)).toEqual(["main"]);
+    });
+
+    it("still refuses a gone checkout whose branch provably lags the destination (#1014)", async () => {
+      const { manager, registry } = setup({ mode: "rpc-ui" });
+      const { wt } = await worktreeChild(manager, registry);
+      fs.writeFileSync(path.join(wt.path, "hot.txt"), "hot\n");
+      await execFileP("git", ["add", "hot.txt"], { cwd: wt.path });
+      await execFileP("git", ["commit", "-q", "-m", "hot"], { cwd: wt.path });
+      fs.rmSync(wt.path, { recursive: true, force: true });
+
+      await expect(manager.fleetFinish(finishReq())).resolves.toEqual({
+        status: "refused",
+        reason: `${wt.branch} has 1 commit main lacks; land the work first`,
+      });
+    });
   });
 });

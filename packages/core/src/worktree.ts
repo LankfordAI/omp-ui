@@ -490,6 +490,24 @@ export async function readWorktreeDirty(
   }
 }
 
+/**
+ * True when the checkout directory at `worktreePath` no longer exists on disk
+ * (issue #1014): a dispatched session's worktree removed out-of-band, before
+ * or after its finish. Deliberately NOT `readWorktreeDirty === null`, which
+ * conflates missing with non-repo and permission failures — the finish path
+ * must only relax on a path that is verifiably absent. Note that git's admin
+ * entry for the worktree can survive the directory; the prune belongs to
+ * {@link removeWorktree}'s fallback, not here.
+ */
+export async function worktreeCheckoutMissing(worktreePath: string): Promise<boolean> {
+  try {
+    await fs.promises.stat(worktreePath);
+    return false;
+  } catch {
+    return true;
+  }
+}
+
 /** Compares two filesystem paths for sameness across platform separators. */
 function sameCheckoutPath(a: string, b: string): boolean {
   const real = (p: string): string => {

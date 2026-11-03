@@ -385,8 +385,9 @@ export interface WorktreeReleaseResult {
   branch: string;
   /** The project checkout the session now runs in. */
   projectCwd: string;
-  /** Why the checkout survived; null when it was removed. */
-  checkoutKept: "shared" | "non-canonical" | "failed" | null;
+  /** Why the checkout survived; null when it was removed. "gone" reports the
+   *  checkout directory was already missing when finish reclaimed it (#1014). */
+  checkoutKept: "shared" | "non-canonical" | "failed" | "gone" | null;
   /** What happened to the branch; "not-attempted" when the checkout stayed. */
   branchOutcome: WorktreeBranchRemoval["kind"] | "not-attempted";
   /** What the return did with the project checkout's branch (#431): "switched"

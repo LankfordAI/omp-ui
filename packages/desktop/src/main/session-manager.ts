@@ -2187,22 +2187,28 @@ export class SessionManager {
     } catch (err) {
       return refused(`the session is settled, but its worktree stays: ${err instanceof Error ? err.message : String(err)}`);
     }
+    // #1014: a gone checkout has no HEAD reflog to mine for working branches —
+    // that history died with the directory — and reclaim reports "removed" for
+    // a pruned dir, which would falsely claim we deleted what was already gone.
+    const gone = "gone" in landed;
     const workingBranches: FleetFinishWorkingBranch[] = [];
-    for (const visited of landed.landing.visited) {
-      if (!visited.createdInWorktree) {
-        workingBranches.push({ branch: visited.branch, outcome: "not-made-here" });
-      } else if (release.checkoutKept !== null) {
-        workingBranches.push({ branch: visited.branch, outcome: "not-attempted" });
-      } else {
-        const removal = await this.worktreeOps.removeMergedBranch(record.projectCwd, visited.branch, landed.destination);
-        workingBranches.push({ branch: visited.branch, outcome: removal.kind });
+    if (!gone) {
+      for (const visited of landed.landing.visited) {
+        if (!visited.createdInWorktree) {
+          workingBranches.push({ branch: visited.branch, outcome: "not-made-here" });
+        } else if (release.checkoutKept !== null) {
+          workingBranches.push({ branch: visited.branch, outcome: "not-attempted" });
+        } else {
+          const removal = await this.worktreeOps.removeMergedBranch(record.projectCwd, visited.branch, landed.destination);
+          workingBranches.push({ branch: visited.branch, outcome: removal.kind });
+        }
       }
     }
     return {
       status: "finished",
       destination: landed.destination,
       worktreePath: release.worktreePath,
-      checkoutKept: release.checkoutKept,
+      checkoutKept: gone ? "gone" : release.checkoutKept,
       branch: release.branch,
       branchOutcome: release.branchOutcome,
       workingBranches,

@@ -53,6 +53,7 @@ export {
   resolveMergeDestination,
   sweepOrphanWorktrees,
   syncWorktree,
+  worktreeCheckoutMissing,
   worktreeProjectDir,
 } from "./worktree";
 export { applyDiscardedChange, listDiscardedChanges } from "./discarded-changes";
