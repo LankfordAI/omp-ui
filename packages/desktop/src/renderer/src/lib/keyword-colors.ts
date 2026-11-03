@@ -11,7 +11,7 @@
  * the stepped pick made the GUI shimmer stall and lurch (issue #204).
  */
 
-import { MAGIC_KEYWORDS, type MagicKeyword } from "@omp-ui/core/magic-keywords";
+import { MAGIC_KEYWORDS, type MagicKeyword, type MagicKeywordSpec } from "@omp-ui/core/magic-keywords";
 
 /** Time for the gradient to sweep one full cycle across each keyword. */
 export const SHIMMER_PERIOD_MS = 1800;
@@ -21,7 +21,10 @@ const STOPS = 14;
 
 /** One CSS colour at t ∈ [0, 1) along `keyword`'s omp hue/lightness ramps. */
 function colorAt(keyword: MagicKeyword, t: number): string {
-  const spec = MAGIC_KEYWORDS.find((k) => k.word === keyword)!;
+  // Widened to the row interface: the `as const` table's literal union only
+  // declares `lightness` on the rows that set it, so the property is absent
+  // on the other members. Every row satisfies MagicKeywordSpec.
+  const spec: MagicKeywordSpec = MAGIC_KEYWORDS.find((k) => k.word === keyword)!;
   const [h0, h1] = spec.hue;
   const hue = Math.round(h0 + t * (h1 - h0)) % 360;
   // Rows without an omp lightness ramp keep the port's default lightness: a

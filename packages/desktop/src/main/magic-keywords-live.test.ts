@@ -20,6 +20,7 @@ import {
   keywordsIn,
   MAGIC_KEYWORDS,
   withoutAccidentalKeywords,
+  type MagicKeywordSpec,
 } from "@omp-ui/core/magic-keywords";
 import { reduceAgentEvent, type ObservedTabRuntime } from "../renderer/src/store/slices/reduce-agent-event";
 import { rpcTabState } from "../renderer/src/test/fixtures";
@@ -422,7 +423,9 @@ describe.skipIf(ompPath === null)("magic keywords on the real runtime", () => {
       lightness: (row.lightness as readonly number[] | undefined) ?? null,
       requires: row.requires,
     }))).toEqual(
-      MAGIC_KEYWORDS.filter((k) => liveKeywords.includes(k)).map((k) => ({
+      // Typed as the row interface: the `as const` table's literal union only
+      // declares `lightness` on rows that set it.
+      (MAGIC_KEYWORDS.filter((k) => liveKeywords.includes(k)) as readonly MagicKeywordSpec[]).map((k) => ({
         id: k.id,
         word: k.word,
         hue: [...k.hue],

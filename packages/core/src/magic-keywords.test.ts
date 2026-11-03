@@ -12,6 +12,7 @@ import {
   INERT_QUOTING,
   type KeywordQuoting,
   type MagicKeyword,
+  type MagicKeywordSpec,
 } from "./magic-keywords";
 
 /**
@@ -139,7 +140,9 @@ describe("the keyword table", () => {
       [30, 150],
       [300, 420],
     ]);
-    expect(MAGIC_KEYWORDS.map((k) => k.lightness ?? null)).toEqual([
+    // Widened to the row interface: the `as const` table's literal union only
+    // declares `lightness` on rows that set it.
+    expect((MAGIC_KEYWORDS as readonly MagicKeywordSpec[]).map((k) => k.lightness ?? null)).toEqual([
       null,
       [62, 45],
       null,
