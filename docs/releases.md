@@ -4,6 +4,7 @@ This guide explains what users receive from a release and how maintainers publis
 
 ## Unreleased
 
+- Live voice goes half-duplex: while the microphone transmits (a hold, or the 800 ms release tail) the call's own playback is paused locally, so a reply on speakers no longer hears itself back through the server VAD and cuts off mid-sentence (#1024).
 - The prompt-options sheet's advisor capsule shares its row with the dev/test badge instead of pushing it off-screen at phone widths (#1020).
 - `omp-ui_fleet_finish` settles a dispatched session whose worktree checkout was removed out-of-band — reported as gone, from containment facts alone — so an out-of-band `git worktree remove` can no longer strand the row (#1014).
 - `omp-ui_fleet_finish` takes an optional `landedOn` for work that landed on a branch other than the base; the owner verifies the declaration exactly like a derived destination and never trusts it (#1013).
