@@ -1,5 +1,7 @@
 import { useEffect, useMemo, useRef, useState, type MouseEvent as ReactMouseEvent } from "react";
 import { createPortal } from "react-dom";
+import type { SessionSummary } from "@omp-ui/core/types";
+import { backgroundWorkInFlight } from "../lib/async-jobs";
 import { useT } from "../lib/i18n";
 import { cn } from "../lib/cn";
 import { formatHotkey, isTypingTarget } from "../lib/hotkeys";
@@ -515,7 +517,28 @@ export function Sidebar() {
   });
 
   const filtering = query.trim().length > 0;
-  const lists = useMemo(() => (state === null ? null : buildSidebarLists(state, query)), [state, query]);
+  // Tabs whose bridge snapshot reports a running background job (issue #1026):
+  // the same signal `deriveSidebarSessionState` calls working, so the section
+  // and the chip agree. Joined string for a stable selector; Set rebuilt per key.
+  const bgWorkKey = useStore((st) => {
+    if (st.state === null) return "";
+    const ids: string[] = [];
+    const push = (s: SessionSummary): void => {
+      if (s.mode === "pty" || s.live !== "live") return;
+      if (backgroundWorkInFlight(st.rpc[s.tabId]?.asyncJobs ?? null)) ids.push(s.tabId);
+    };
+    for (const group of st.state.projects) for (const s of group.sessions) push(s);
+    for (const s of st.state.chats) push(s);
+    return ids.join(",");
+  });
+  const backgroundWorkTabIds = useMemo(
+    () => new Set(bgWorkKey === "" ? [] : bgWorkKey.split(",")),
+    [bgWorkKey],
+  );
+  const lists = useMemo(
+    () => (state === null ? null : buildSidebarLists(state, query, backgroundWorkTabIds)),
+    [state, query, backgroundWorkTabIds],
+  );
   // The rows a Shift+click range walks, per section, in display order.
   const sectionEntries = useMemo(
     () =>

@@ -4,7 +4,7 @@ This guide explains what users receive from a release and how maintainers publis
 
 ## Unreleased
 
-Nothing since [v0.30.2](https://github.com/LankfordAI/omp-ui/releases/tag/v0.30.2). Add one bullet per shipped change here, citing its issue as `#N`; the release tag lifts these into Highlights.
+- The sidebar's Working section now also holds sessions with a running background job, matching the row chip (#1026).
 
 ## Choose a download
 
