@@ -4,6 +4,8 @@ This guide explains what users receive from a release and how maintainers publis
 
 ## Unreleased
 
+- The desktop composer's round send/stop control traces a context-fill halo: it fills clockwise as the window fills, escalating tone like the HUD meter, and rides whichever control is mounted so the readout never blinks out mid-turn; the send tooltip gains the exact usage line (#1025).
+- A corner tools card sits at the right end of the title bar for the focused project: hover previews, click pins, and the card carries New session, the host-local open targets (Open in VS Code over Remote-SSH for a remote checkout), and Project settings (#1021).
 - Live voice goes half-duplex: while the microphone transmits (a hold, or the 800 ms release tail) the call's own playback is paused locally, so a reply on speakers no longer hears itself back through the server VAD and cuts off mid-sentence (#1024).
 - The prompt-options sheet's advisor capsule shares its row with the dev/test badge instead of pushing it off-screen at phone widths (#1020).
 - `omp-ui_fleet_finish` settles a dispatched session whose worktree checkout was removed out-of-band — reported as gone, from containment facts alone — so an out-of-band `git worktree remove` can no longer strand the row (#1014).
