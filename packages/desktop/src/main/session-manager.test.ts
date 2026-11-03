@@ -5312,6 +5312,54 @@ describe("stream-stall watchdog (issue #248)", () => {
   });
 });
 
+describe("foreign omp launch notice (#1022)", () => {
+  const resumeRpc = (manager: SessionManager): Promise<{ tabId: string }> =>
+    manager.spawn({
+      origin: "resume",
+      resumeTabId: TAB,
+      cols: 80,
+      rows: 24,
+    });
+
+  const foreignNotices = (sent: { channel: string; args: unknown[] }[]): unknown[] =>
+    sent
+      .filter((s) => s.channel === CH.onRpcFrame)
+      .map((s) => s.args[1])
+      .filter(
+        (f) =>
+          typeof f === "object" &&
+          f !== null &&
+          (f as Record<string, unknown>).reason === "foreign-omp-launch",
+      );
+
+  it("posts exactly one notice when the agent launches a bare omp", async () => {
+    const { manager, sent } = setup({ mode: "rpc-ui" });
+    await resumeRpc(manager);
+    const rpc = rpcInstances[0]!;
+
+    rpc.frame({ type: "agent_start" });
+    rpc.frame({ type: "tool_execution_start", toolCallId: "t1", toolName: "bash", args: { command: "OMP_SESSION_LOG=/tmp/x omp --print 'hi' && echo done" } });
+    rpc.frame({ type: "tool_execution_end", toolCallId: "t1" });
+    rpc.frame({ type: "tool_execution_start", toolCallId: "t2", toolName: "bash", args: { command: "omp --print again" } });
+
+    const notices = foreignNotices(sent);
+    expect(notices).toHaveLength(1);
+    expect(notices[0]).toMatchObject({ type: "omp_ui_notice", level: "warn", reason: "foreign-omp-launch" });
+  });
+
+  it("stays silent for ordinary bash commands", async () => {
+    const { manager, sent } = setup({ mode: "rpc-ui" });
+    await resumeRpc(manager);
+    const rpc = rpcInstances[0]!;
+
+    rpc.frame({ type: "agent_start" });
+    rpc.frame({ type: "tool_execution_start", toolCallId: "t1", toolName: "bash", args: { command: "npm run build && cat my-omp-config.toml" } });
+    rpc.frame({ type: "tool_execution_end", toolCallId: "t1" });
+
+    expect(foreignNotices(sent)).toHaveLength(0);
+  });
+});
+
 describe("agent mode persistence (issue #263)", () => {
   const resumeRpc = (manager: SessionManager): Promise<{ tabId: string }> =>
     manager.spawn({

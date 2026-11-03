@@ -181,6 +181,7 @@ import { HostBridge } from "./host-bridge";
 import { PlanGateTracker, type PlanGate } from "./plan-gate-tracker";
 import { PlanPreflightController } from "./plan-preflight";
 import { readConfinedPlanFile } from "./plan-file";
+import { ForeignOmpTracker } from "./foreign-omp-tracker";
 import { GoalStatusTracker } from "./goal-status-tracker";
 import { VibeStatusTracker } from "./vibe-status-tracker";
 import { AutoresearchStatusTracker } from "./autoresearch-status-tracker";
@@ -381,6 +382,7 @@ export class SessionManager {
   private readonly frameObservers: FrameObserver[] = [];
   private readonly hibernation: HibernationTracker;
   private readonly stallWatchdog: StallWatchdog;
+  private readonly foreignOmp: ForeignOmpTracker;
   private readonly toolControl: CapabilityControlTracker;
   private readonly goals: GoalStatusTracker;
   private readonly autoresearch: AutoresearchStatusTracker;
@@ -587,6 +589,7 @@ export class SessionManager {
       liveEntries: () => this.live,
       awaitingHumanAnswer: (tabId) => this.awaitingHumanAnswer(tabId),
     });
+    this.foreignOmp = new ForeignOmpTracker({ send: deps.send });
     this.toolControl = new CapabilityControlTracker({
       registry: deps.registry,
       getLive: (tabId) => this.live.get(tabId),
@@ -642,6 +645,7 @@ export class SessionManager {
       this.planGates,
       this.planPreflight,
       this.stallWatchdog,
+      this.foreignOmp,
       this.toolControl,
       this.goals,
       this.vibes,

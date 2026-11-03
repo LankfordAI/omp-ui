@@ -3607,7 +3607,7 @@ export const en = {
   "palette.action.fleetDispatchDesc": "start fresh sessions on one or more fleet machines",
   "settings.remoteinstances.fleetAgentTitle": "Let agents dispatch fleet work",
   "settings.remoteinstances.fleetAgentHint":
-    "Adds fleet tools to project sessions started after this is on, including starting sessions in this computer's projects. Chats always have them; agent-dispatched sessions never do.",
+    "Adds fleet tools to project sessions started after this is on, including starting sessions in this computer's projects. Chats always have them; agent-dispatched sessions never do. Off, an agent that spawns omp by hand orphans a child session: invisible to omp-ui and spending money untracked.",
   // Open in VS Code over Remote-SSH (issue #995, ADR-0083)
   "settings.remoteinstances.vsCodeTitle": "Open remote projects in VS Code over SSH",
   "settings.remoteinstances.vsCodeHint":

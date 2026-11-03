@@ -3406,7 +3406,7 @@ export const ko: Partial<Record<MessageKey, string>> = {
   "palette.action.fleetDispatchDesc": "하나 이상의 플릿 머신에서 새 세션 시작",
   "settings.remoteinstances.fleetAgentTitle": "에이전트의 플릿 작업 디스패치 허용",
   "settings.remoteinstances.fleetAgentHint":
-    "이 설정을 켠 뒤 시작한 프로젝트 세션에 플릿 도구를 추가합니다. 이 컴퓨터의 프로젝트에서 세션을 시작하는 것도 포함됩니다. 채팅에는 항상 추가되고, 에이전트가 디스패치한 세션에는 추가되지 않습니다.",
+    "이 설정을 켠 뒤 시작한 프로젝트 세션에 플릿 도구를 추가합니다. 이 컴퓨터의 프로젝트에서 세션을 시작하는 것도 포함됩니다. 채팅에는 항상 추가되고, 에이전트가 디스패치한 세션에는 추가되지 않습니다. 꺼 두면 에이전트가 omp를 수동으로 실행할 때 자식 세션이 고아됩니다: omp-ui에 보이지 않고 비용이 추적되지 않습니다.",
   // SSH로 VS Code에서 열기 (이슈 #995)
   "settings.remoteinstances.vsCodeTitle": "SSH로 원격 프로젝트를 VS Code에서 열기",
   "settings.remoteinstances.vsCodeHint":
