@@ -3,12 +3,14 @@ import * as os from "node:os";
 import * as path from "node:path";
 import { spawn } from "node:child_process";
 import { afterEach, describe, expect, it } from "vitest";
-import { RpcClient, resolveOmpBinary, writeBrowserPaneExtension } from "@omp-ui/core";
 import {
-  BROWSER_PANE_CUSTOM_TYPE,
-  browserPaneInstruction,
-  browserPaneSetMessage,
-} from "@omp-ui/core/browser-pane";
+  RpcClient,
+  browserPaneInstructionFor,
+  readInstalledOmpVersion,
+  resolveOmpBinary,
+  writeBrowserPaneExtension,
+} from "@omp-ui/core";
+import { BROWSER_PANE_CUSTOM_TYPE, browserPaneSetMessage } from "@omp-ui/core/browser-pane";
 
 /**
  * Runtime proof for the browser pane handshake (issue #519, ADR-0029) against
@@ -153,9 +155,13 @@ describe.skipIf(ompPath === null)("browser pane handshake on the real runtime", 
 
     const paneMessages = messages.filter((m) => m.customType === BROWSER_PANE_CUSTOM_TYPE);
     expect(paneMessages).toHaveLength(1);
+    // Version-honest (issue #1031): the preamble omits the pre-18.16 click
+    // workaround exactly when this very binary parses >= 18.16.0, byte-identical
+    // to the legacy text below the gate.
+    const expected = browserPaneInstructionFor(ENDPOINT, await readInstalledOmpVersion(ompPath!));
     expect(paneMessages[0]).toMatchObject({
       role: "custom",
-      content: browserPaneInstruction(ENDPOINT),
+      content: expected,
       display: false,
       attribution: "agent",
     });

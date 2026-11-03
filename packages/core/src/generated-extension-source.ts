@@ -145,3 +145,31 @@ function readOmpSetting(settings: unknown, id: string): unknown {
   }
 }`;
 }
+
+/**
+ * Generated omp-version probe: true when pi.pi.VERSION parses >= `min`; unknown or hostile → false.
+ * The emitted function closes over the factory's \`pi\` and must be interpolated
+ * inside the default-export body.
+ */
+export function generatedOmpVersionAtLeastSource(functionName: string, min: string): string {
+  const [major = 0, minor = 0, patch = 0] = min.split(".").map(Number);
+  return `function ${functionName}(): boolean {
+  try {
+    const value: unknown = pi.pi?.VERSION;
+    if (typeof value !== "string") return false;
+    const parsed = /^v?(\\d+)\\.(\\d+)\\.(\\d+)/.exec(value.trim());
+    if (parsed === null) return false;
+    const actual = [Number(parsed[1]), Number(parsed[2]), Number(parsed[3])];
+    const floor = [${major}, ${minor}, ${patch}];
+    for (const index of [0, 1, 2]) {
+      const a = actual[index] ?? -1;
+      const b = floor[index] ?? -1;
+      if (a !== b) return a > b;
+    }
+    return true;
+  } catch {
+    // A hardening guard that throws on VERSION keeps the conservative answer.
+    return false;
+  }
+}`;
+}

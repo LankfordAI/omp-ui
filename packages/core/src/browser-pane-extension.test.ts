@@ -9,6 +9,7 @@ import {
   browserPaneSetMessage,
 } from "./browser-pane";
 import { browserPaneExtensionPath, writeBrowserPaneExtension } from "./browser-pane-extension";
+import { browserPaneInstructionFor } from "./browser-pane-relay";
 import { transpileGeneratedExtension, typecheckGeneratedExtension } from "./generated-extension-test-utils";
 
 const dirs: string[] = [];
@@ -54,7 +55,7 @@ interface Harness {
 }
 
 /** Transpiles the generated file and instantiates it against a fake omp surface. */
-function harness(opts: { canSendMessages?: boolean } = {}): Harness {
+function harness(opts: { canSendMessages?: boolean; VERSION?: unknown } = {}): Harness {
   const file = writeBrowserPaneExtension(tempLineage());
   const source = fs.readFileSync(file, "utf8");
   const outputText = transpileGeneratedExtension(source, "cjs");
@@ -86,7 +87,7 @@ function harness(opts: { canSendMessages?: boolean } = {}): Harness {
   }
 
   factory({
-    pi: { AgentSession: FakeAgentSession },
+    pi: { AgentSession: FakeAgentSession, ...(opts.VERSION === undefined ? {} : { VERSION: opts.VERSION }) },
     registerCommand: (name: string, options: { handler: typeof handler }): void => {
       expect(name).toBe(BROWSER_PANE_COMMAND);
       handler = options.handler;
@@ -155,6 +156,23 @@ describe("endpoint delivery", () => {
     });
     expect(opts).toEqual({ deliverAs: "nextTurn", triggerTurn: false });
     expect(h.notices).toEqual([]);
+  });
+
+  it("omits the click workaround sentence when pi.VERSION is at least 18.16.0 (issue #1031)", async () => {
+    const h = harness({ VERSION: "18.16.0" });
+    await bound(h);
+    await h.invoke(setArgs(URL_A));
+    expect(h.sent).toHaveLength(1);
+    expect(h.sent[0]!.msg.content).toBe(browserPaneInstructionFor(URL_A, "18.16.0"));
+    expect(h.sent[0]!.msg.content).not.toContain("tab.click hangs");
+  });
+
+  it("keeps the click workaround sentence when pi.VERSION is older (issue #1031)", async () => {
+    const h = harness({ VERSION: "18.15.0" });
+    await bound(h);
+    await h.invoke(setArgs(URL_A));
+    expect(h.sent).toHaveLength(1);
+    expect(h.sent[0]!.msg.content).toBe(browserPaneInstruction(URL_A));
   });
 
   it("steers a streaming root instead of waiting for the next turn", async () => {

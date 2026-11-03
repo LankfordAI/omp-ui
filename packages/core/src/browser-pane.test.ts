@@ -1,7 +1,9 @@
 import { describe, expect, it } from "vitest";
 import {
+  BROWSER_PANE_CLICK_WORKAROUND_SENTENCE,
   BROWSER_PANE_COMMAND,
   BROWSER_PANE_FRAME_HEADER_BYTES,
+  BROWSER_PANE_INSTRUCTION_PARTS,
   browserPaneCssSize,
   browserPaneInstruction,
   browserPaneSetMessage,
@@ -153,6 +155,20 @@ describe("hidden instruction", () => {
     const text = browserPaneInstruction(ENDPOINT);
     expect(text.split(ENDPOINT)).toHaveLength(2);
     expect(text).toContain("cdp_url");
+  });
+
+  it("keeps the pre-18.16 click workaround byte-for-byte (issue #1031)", () => {
+    expect(BROWSER_PANE_CLICK_WORKAROUND_SENTENCE).toBe(
+      " tab.click hangs against this endpoint; click with tab.run(async ({ page }) => page.click(selector)).",
+    );
+    expect(browserPaneInstruction(ENDPOINT)).toContain(BROWSER_PANE_CLICK_WORKAROUND_SENTENCE);
+    expect(browserPaneInstruction(ENDPOINT)).toBe(
+      BROWSER_PANE_INSTRUCTION_PARTS[0] +
+        ENDPOINT +
+        BROWSER_PANE_INSTRUCTION_PARTS[1] +
+        BROWSER_PANE_INSTRUCTION_PARTS[2] +
+        BROWSER_PANE_INSTRUCTION_PARTS[3],
+    );
   });
 
   it("carries the direct-tools-first routing policy (#561)", () => {

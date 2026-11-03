@@ -384,7 +384,8 @@ through a **loopback CDP bridge** the main process hosts:
   disconnect-only `tab.close`, and the extension API's `registerCommand`,
   `sendCustomMessage` and session events. omp's `tab.click` hang against every
   CDP target is worked around in the hidden message (`tab.run` + `page.click`),
-  not fixed here.
+  not fixed here — since omp 18.16 the sentence itself is version-gated; see
+  the "Amendment — the click workaround is version-gated" below.
 - **Three implementation deviations were explicitly ratified.** Browser
   translation keys use the existing three-segment catalog convention
   (`browser.toolbar.blocked`, `browser.split.resize`). Root
@@ -407,3 +408,29 @@ the image is too small for the badge, in which case a strip is added on top.
 A stamping failure is returned to the client as the command's CDP error,
 never as an unstamped image. The page is never touched: the stamp is drawn in
 a separate main-owned hidden page, not in the pane.
+
+## Amendment — the click workaround is version-gated (#1031, omp 18.16)
+
+omp 18.16.0 fixed the relay defects this ADR's `tab.click` workaround exists
+for (upstream #17778, #17767): click no longer ignores `{ button, count }`,
+cancelled/timed-out gestures release held buttons, and relay waits honor their
+own timeout. The hidden message's *"tab.click hangs against this endpoint"*
+sentence is therefore composed per harness: `BROWSER_PANE_INSTRUCTION_PARTS`
+is a 4-tuple split around the sentence, and the generated extension — the one
+place both the endpoint and the running omp version are known (#532 keeps the
+endpoint out of main and renderer) — probes its own `pi.pi.VERSION` (the same
+probe the capabilities bridge ships) and drops the sentence at
+`>= BROWSER_PANE_RELAY_FIXES_MIN_OMP` (`packages/core/src/browser-pane-relay.ts`,
+issue #1031). Unknown or unparseable version keeps the workaround; below the
+floor the delivered text is byte-identical to the pre-amendment message, pinned
+by unit tests and by the live handshake test, which now expects
+`browserPaneInstructionFor(endpoint, binaryVersion)` so it passes unchanged on
+either runtime. The gate is deliberately unregistered against
+`MIN_SUPPORTED_OMP` (the out-replies polarity): below it the preamble still
+honestly describes the harness. What the fix does **not** retire without a live
+re-proof on an >= 18.16 bundle — recorded as the checklist in the issue #1031
+comment: the single-shared-page machinery (`Target.createTarget` alias,
+`fakeClose`, socket-only `Browser.close`) stays regardless of per-agent tab
+ownership (#15975, #16133) because there is only ever one page to own; and no
+client-side timeout exists in the pane to simplify — the bridge forwards CDP
+commands unbounded.
