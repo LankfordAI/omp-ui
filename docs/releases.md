@@ -31,7 +31,7 @@ The installer verifies the AppImage against `SHA256SUMS.txt`, writes it to `~/.l
 
 ## Understand the release files
 
-The four distributables ship with six supporting files, for 10 release assets in total:
+The four distributables ship with six supporting files, plus three headless fleet member files, for 13 release assets in total:
 
 - `latest-linux.yml` names the AppImage and supplies its SHA-512 update metadata. The AppImage blockmap is embedded, so Linux does not publish a separate blockmap file.
 - `latest.yml` names the Windows installer and supplies its SHA-512 update metadata.
@@ -39,6 +39,7 @@ The four distributables ship with six supporting files, for 10 release assets in
 - `latest-mac.yml` names the Apple Silicon DMG and ZIP, with their sizes and SHA-512 digests. The ZIP is the Squirrel.Mac update payload.
 - `SHA256SUMS.txt` contains one SHA-256 line for each of the four distributables.
 - `SHA256SUMS-macos-arm64.txt` covers the DMG and ZIP. The workflow creates it during platform verification, then creates the combined manifest after all platforms finish.
+- `omp-ui-lite-linux-x64` is the headless fleet member's single-file binary and `omp-ui-lite-linux-x64.sha256` its checksum; `host-lite-node-pty-linux-x64.tgz` unpacks node-pty and its runtime externals adjacent to the binary. These stay out of the update-manifest lanes; `packages/host-lite/packaging/install.sh` downloads exactly these names (see [issue #1010](https://github.com/LankfordAI/omp-ui/issues/1010)).
 
 The SHA-256 manifests and update metadata detect corrupt or substituted bytes. They do not establish publisher identity. macOS gets publisher identity from Developer ID signing and notarization. The Windows preview has no equivalent trusted Authenticode signature yet.
 
