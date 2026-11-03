@@ -19,7 +19,11 @@ export interface LivePeer {
   readonly offer: string;
   /** Applies omp's `sdpAnswer`. */
   accept(answer: string): Promise<void>;
-  /** Hold-to-talk: only an enabled track transmits audio. Starts disabled. */
+  /**
+   * Hold-to-talk: only an enabled track transmits audio. Starts disabled.
+   * Half-duplex (ADR-0087): while the gate is open the call's own local
+   * playback falls silent, so the call never hears itself through speakers.
+   */
   setMicEnabled(enabled: boolean): void;
   /** One client event on the data channel; false when the channel is not open. */
   send(event: object): boolean;
@@ -34,6 +38,39 @@ const EVENTS_CHANNEL = "oai-events";
 /** The signaling POST is not trickle ICE: the offer must carry its candidates. */
 const ICE_GATHER_TIMEOUT_MS = 3_000;
 const LEVEL_INTERVAL_MS = 100;
+
+/** The slice of HTMLAudioElement the half-duplex gate touches — stubbable in tests. */
+export interface PlayableSpeaker {
+  readonly paused: boolean;
+  pause(): void;
+  play(): Promise<void>;
+}
+
+/**
+ * Half-duplex gate for a live call (ADR-0087): while the microphone transmits, the
+ * assistant's local playback is paused, so the realtime server's input VAD never
+ * hears its own answer through the speakers and truncates it mid-sentence. Holds
+ * (and the 800 ms release tail) pause the speaker; closing the mic resumes it —
+ * only if it was actually playing when the hold began. State-change driven:
+ * repeated opens or closes are no-ops.
+ */
+export function createSpeakerGate(speaker: PlayableSpeaker): { setMicOpen(open: boolean): void } {
+  let micOpen = false;
+  let resumeAfterHold = false;
+  return {
+    setMicOpen(open: boolean): void {
+      if (open === micOpen) return;
+      micOpen = open;
+      if (open) {
+        resumeAfterHold = !speaker.paused;
+        speaker.pause();
+      } else if (resumeAfterHold) {
+        resumeAfterHold = false;
+        void speaker.play().catch(() => undefined);
+      }
+    },
+  };
+}
 
 function rms(buffer: Float32Array<ArrayBuffer>): number {
   let sum = 0;
@@ -55,6 +92,7 @@ async function openBrowserLivePeer(events: LivePeerEvents): Promise<LivePeer> {
   const pc = new RTCPeerConnection();
   const channel = pc.createDataChannel(EVENTS_CHANNEL);
   const speaker = new Audio();
+  const speakerGate = createSpeakerGate(speaker);
   const inputMeter = ctx.createAnalyser();
   ctx.createMediaStreamSource(mic).connect(inputMeter);
   let outputMeter: { node: AnalyserNode; buffer: Float32Array<ArrayBuffer> } | null = null;
@@ -148,7 +186,9 @@ async function openBrowserLivePeer(events: LivePeerEvents): Promise<LivePeer> {
       await pc.setRemoteDescription({ type: "answer", sdp: answer });
     },
     setMicEnabled: (enabled) => {
-      if (!closed) track.enabled = enabled;
+      if (closed) return;
+      track.enabled = enabled;
+      speakerGate.setMicOpen(enabled);
     },
     send: (event) => {
       if (closed || channel.readyState !== "open") return false;

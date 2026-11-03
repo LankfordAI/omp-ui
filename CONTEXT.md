@@ -680,7 +680,9 @@ Live voice's microphone gate (ADR-0070): every call opens with the
 renderer peer's microphone track disabled (and omp's `live_mute` phase in
 step), and it opens only while the user holds `R` outside a text field or
 the capsule's talk button; a release closes it after a short tail. The call
-itself stays open through the agent's work.
+itself stays open through the agent's work. While the gate is open the call's
+own playback falls silent (half-duplex, ADR-0087), so the call never hears
+itself.
 _Avoid_: push-to-talk (that is Dictation's hold-R gesture), mute, PTT
 
 **Pending voice feedback**:
