@@ -192,7 +192,7 @@ export interface RegistrySettings {
   webhooksEnabled: boolean;
   /** Accept MCP clients master switch (issue #996, ADR-0080); default off. Host-local, never broadcast. */
   mcpEndpointEnabled: boolean;
-  /** Open in VS Code over Remote-SSH for remote projects and sessions (issue #995, ADR-0083); default off. */
+  /** Open in VS Code over Remote-SSH for remote projects and sessions (issue #995, ADR-0083); on by default (issue #1036). */
   remoteVsCodeEnabled: boolean;
 }
 
@@ -510,7 +510,7 @@ export const SETTINGS: SettingDescriptors = {
     (value): value is boolean => typeof value === "boolean",
   ),
   remoteVsCodeEnabled: validatedSetting(
-    () => false,
+    () => true,
     (value): value is boolean => typeof value === "boolean",
   ),
 };

@@ -189,6 +189,8 @@ describe("Registry.load", () => {
     expect(reg.getSetting("desktopNotifications")).toBe(true);
     // Issue #174: the advisor does not default on.
     expect(reg.getSetting("defaultAdvisor")).toBe(false);
+    // Issue #1036: Remote-SSH opens are on by default (amends ADR-0083).
+    expect(reg.getSetting("remoteVsCodeEnabled")).toBe(true);
   });
 
   it("parses a non-boolean snoozedSectionEnabled setting as false (issue #935)", () => {

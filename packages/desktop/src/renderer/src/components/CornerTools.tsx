@@ -124,17 +124,22 @@ export function CornerTools() {
   const face = useMemo<Face | null>(() => {
     const groups = groupByRepository(checkoutEntries(state));
     if (groups.length === 0) return null;
-    const focusedInstanceId = focused?.instanceId ?? null;
+    const focusedInstanceId =
+      focused !== null && !isChatTab(state, focused.tabId) ? (focused.instanceId ?? null) : null;
     const leadCwd = focused !== null && !isChatTab(state, focused.tabId) ? focused.projectCwd : null;
     const group =
       (leadCwd !== null ? groups.find((g) => g.members.some((m) => m.projectCwd === leadCwd)) : undefined) ??
       groups.find((g) => g.members.some((m) => m.instanceId === null)) ??
       groups[0]!;
-    // Target pair (the Q3 rule, mirrored from quick-open): the local checkout
-    // wins, else the instance holding the focused tab, else registry order.
+    // Target pair (issue #1036, amending the Q3 rule): the instance holding
+    // the focused tab wins, else this computer's checkout (the card stays
+    // this machine's toolbox when you are looking at local work), else
+    // registry order.
     const target =
+      (focusedInstanceId !== null
+        ? group.members.find((m) => m.instanceId === focusedInstanceId)
+        : undefined) ??
       group.members.find((m) => m.instanceId === null) ??
-      (focusedInstanceId !== null ? group.members.find((m) => m.instanceId === focusedInstanceId) : undefined) ??
       group.members[0]!;
     // The subline names every machine holding a checkout (#936): local first,
     // then member order, each machine once (twins collapse).

@@ -130,15 +130,19 @@ export function ProjectQuickOpen() {
         .join(" · ");
     };
 
-    const focusedInstanceId = focused?.instanceId ?? null;
+    const focusedInstanceId =
+      focused !== null && !isChatTab(state, focused.tabId) ? (focused.instanceId ?? null) : null;
 
     const projectRows: QuickRow[] = groups.map((group) => {
-      // Target pair (the Q3 rule): the local checkout wins, else the instance
-      // holding the focused tab, else registry order. The target names the row
-      // and decides which host the subline shows.
+      // Target pair (issue #1036, amending the Q3 rule): the instance holding
+      // the focused tab wins, else this computer's checkout, else registry
+      // order. The target names the row and decides which host the subline
+      // shows.
       const target =
+        (focusedInstanceId !== null
+          ? group.members.find((m) => m.instanceId === focusedInstanceId)
+          : undefined) ??
         group.members.find((m) => m.instanceId === null) ??
-        (focusedInstanceId !== null ? group.members.find((m) => m.instanceId === focusedInstanceId) : undefined) ??
         group.members[0]!;
       return {
         id: projectIdentitySeed({ repositoryKey: group.key, instanceId: target.instanceId, projectCwd: target.projectCwd }),

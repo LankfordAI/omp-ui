@@ -1,6 +1,6 @@
 # Remote checkouts open in this computer's VS Code over the user's own SSH
 
-> **Status:** Accepted, 2026-10-30 ([#995](https://github.com/LankfordAI/omp-ui/issues/995)). Verified against VS Code 1.140.0 and Remote - SSH 0.129.2026100915. Amends the host-local bullet of [ADR-0028](0028-remote-instances-joined-by-main-process-proxy.md).
+> **Status:** Accepted, 2026-10-30 ([#995](https://github.com/LankfordAI/omp-ui/issues/995)). Verified against VS Code 1.140.0 and Remote - SSH 0.129.2026100915. Amends the host-local bullet of [ADR-0028](0028-remote-instances-joined-by-main-process-proxy.md). Amended [#1036](https://github.com/LankfordAI/omp-ui/issues/1036): on by default.
 
 Most sessions run on fleet members. Looking at or editing the checkout a
 remote session works in meant opening VS Code, connecting over Remote-SSH by
@@ -35,11 +35,16 @@ one exception: VS Code on *this* computer, connected to the member over SSH.
 
 ## Decision
 
-**Off by default.** `remoteVsCodeEnabled` (Settings → Remote instances →
-*Open remote projects in VS Code over SSH*) is false until the user turns it
-on. While off, neither surface shows the row, and main refuses
-`project:openRemoteVsCode` with an error naming the setting. ADR-0028 and the
-existing docs had no default for this case; off is the conservative choice.
+**On by default (amended in [#1036](https://github.com/LankfordAI/omp-ui/issues/1036)).**
+An un-set `remoteVsCodeEnabled` (Settings → Remote instances →
+*Open remote projects in VS Code over SSH*) now shows the row. An explicit
+off still hides it on both surfaces, and main still refuses
+`project:openRemoteVsCode` with an error naming the setting. Why the flip:
+with the focused-instance target rule (#1036) a remote session's tab makes
+the remote checkout the open target, and a silent no-row there reads as a
+missing feature rather than a turned-off one. The row self-gates — no local
+`vscode:` handler hides it, and an ssh reason disables it in place with the
+reason line.
 
 **Two surfaces, one main path.** A remote project's page in the **Project
 quick-open** and a remote session's title menu (its effective working tree:
