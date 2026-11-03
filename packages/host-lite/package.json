@@ -15,7 +15,7 @@
     "bundle": "node scripts/bundle-session.mjs",
     "build:cli": "esbuild src/cli.ts --bundle --platform=node --format=esm --outfile=dist/cli.js --external:node-pty --external:node:* --banner:js=\"import{createRequire as __cr}from'node:module';const require=__cr(import.meta.url);\"",
     "sea": "node scripts/package-sea.mjs",
-    "proof:join": "node proofs/join-two-instances.mjs",
+    "proof:join": "node --import tsx proofs/join-two-instances.mjs",
     "test": "vitest run --passWithNoTests",
     "typecheck": "tsc --noEmit"
   },
