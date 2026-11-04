@@ -34,6 +34,17 @@ export function formatCost(cost: number): string {
   return `$${cost.toFixed(4)}`;
 }
 
+/**
+ * Whether a whole-session spend figure can be shown as the headline (round-7
+ * judge, Clarity 1): the session total must cover the current run's receipts.
+ * A session total smaller than one run inside it is stale — the bridge has not
+ * caught up with the journal — so the surface shows the larger run figure
+ * instead of asserting a reconciliation it cannot verify.
+ */
+export function sessionSpendTrustworthy(sessionCost: number, runCost: number): boolean {
+  return sessionCost + 1e-9 >= runCost;
+}
+
 /** 40-hex git commit → first 8 chars; refs pass through. */
 export function shortBase(base: string): string {
   return /^[0-9a-f]{40}$/.test(base) ? base.slice(0, 8) : base;

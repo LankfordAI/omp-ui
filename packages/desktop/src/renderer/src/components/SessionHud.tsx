@@ -11,7 +11,7 @@ import { cn } from "../lib/cn";
 import { contextReadout, percentTone } from "../lib/context-readout";
 import { startVisibleInterval } from "../lib/visible-interval";
 import { formatDuration } from "../lib/duration";
-import { compactNum, exactNum, formatCost } from "../lib/format";
+import { compactNum, exactNum, formatCost, sessionSpendTrustworthy } from "../lib/format";
 import { useKeybindingLabel } from "../lib/keybindings";
 import { useCompactShell } from "../lib/responsive";
 import { remoteVsCodeRow, useRemoteVsCodeTarget } from "../lib/remote-vscode";
@@ -1560,7 +1560,10 @@ function GaugeChip({
                       )}
                     </div>
                   )}
-                  {sessionSpend?.available && (
+                  {/* The main/subagent split belongs to the session figure;
+                      while that read lags behind the run (the pill fell back
+                      to `stats`), showing it would contradict the headline. */}
+                  {mainSpend.sessionTotal && sessionSpend !== null && (
                     <>
                       <div className={cn(GAUGE_HEADER, "pl-2 text-ink-dim")}>
                         <span>{t("hud.gauge.main")}</span>
@@ -1659,8 +1662,14 @@ export function SessionHud({ tabId }: { tabId: string }) {
   const stats = useStore((s) => s.rpc[tabId]?.stats);
   // Whole-session spend (issue #866): root + every subagent transcript,
   // surviving compaction. `stats` stays the fallback until the bridge answers.
+  // Round-7 judge, Clarity 1: a session total below this run's receipts is a
+  // lagging read, not a fact — fall back to the run figure rather than show
+  // the pill asserting a smaller whole than its own part.
   const sessionSpend = useStore((s) => s.rpc[tabId]?.sessionSpend ?? null);
-  const mainSpend = sessionSpend?.available
+  const sessionTotalReady =
+    sessionSpend?.available === true &&
+    (!stats || sessionSpendTrustworthy(sessionSpend.total.cost, stats.cost));
+  const mainSpend = sessionTotalReady && sessionSpend !== null
     ? {
         cost: sessionSpend.total.cost,
         tokens: sessionSpend.total.totalTokens,

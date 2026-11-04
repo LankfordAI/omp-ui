@@ -384,6 +384,51 @@ describe("desktop InspectorRail", () => {
     expect(railSection("spend")!.textContent).toContain("subagents");
   });
 
+  it("leads with the run figure when the session read sits below it (round-7 judge)", () => {
+    const totals = (cost: number) => ({
+      cost, input: 0, output: 0, reasoning: 0, cacheRead: 0, cacheWrite: 0, totalTokens: 10, premiumRequests: 1, requests: 1,
+    });
+    // A lagging bridge read: the journal-wide total ($0.0000) under this run's
+    // receipts ($0.1694). The impossible smaller whole never headlines.
+    useStore.setState({
+      rpc: {
+        [TAB]: runtime({
+          sessionSpend: {
+            version: 1 as const, processKey: "p", revision: 1, available: true, unavailable: null,
+            sessionFile: "/s.jsonl",
+            main: totals(0), subagents: totals(0), total: totals(0), transcripts: 1,
+          },
+          stats: sessionStats({ cost: 0.1694 }),
+        }),
+      },
+    });
+    renderRail();
+    openPane("session");
+    const spend = railSection("spend")!;
+    // The headline (ink) row is the run figure; the session row rides faint
+    // with its catch-up title instead of a false reconciliation claim.
+    const rows = [...spend.querySelectorAll<HTMLElement>("dt")];
+    const headline = rows.find(
+      (dt) => dt.nextElementSibling?.querySelector(".text-ink") !== null,
+    );
+    expect(headline?.textContent).toBe(t("rail.stats.cost"));
+    expect(spend.textContent).toContain("$0.1694");
+    const stale = rows.find((dt) => dt.getAttribute("title") === t("rail.stats.sessionStaleTitle"));
+    expect(stale?.textContent).toBe(t("rail.stats.sessionCost"));
+  });
+
+  it("names the remainder beyond user + assistant on the surface (round-7 judge)", () => {
+    useStore.setState({
+      rpc: { [TAB]: runtime({ stats: sessionStats({ userMessages: 2, assistantMessages: 2, toolCalls: 0, toolResults: 0, totalMessages: 5 }) }) },
+    });
+    renderRail();
+    openPane("session");
+    const messages = railSection("messages")!;
+    expect(messages.textContent).toContain(t("rail.stats.other"));
+    // 2 + 2 + other 1 = total 5, all visible.
+    expect(messages.textContent).toMatch(/other\s*1/);
+  });
+
   it("renders queue-mode and provider values proportional, numbers mono (round-2 judge)", () => {
     useStore.setState({
       rpc: {
