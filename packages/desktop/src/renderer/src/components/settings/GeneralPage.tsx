@@ -146,11 +146,11 @@ function CompactionMethodPicker({
                     : "text-ink-mid hover:bg-hover/50 focus-visible:bg-hover/50 focus-visible:outline-none",
               )}
             >
-              <span className={cn("w-40 shrink-0 text-xs", selected && "font-medium")}>
+              <span className={cn("w-40 shrink-0 text-sm", selected && "font-medium")}>
                 {option.label}
               </span>
               {option.description !== undefined && (
-                <span className="min-w-0 flex-1 text-xs leading-snug text-ink-faint">
+                <span className="min-w-0 flex-1 text-sm leading-snug text-ink-faint">
                   {option.description}
                 </span>
               )}
@@ -193,22 +193,30 @@ function DictationModelPicker({
     return <p className="text-xs text-ink-faint">{t("settings.omp.reading")}</p>;
   }
   const { snapshot } = load;
-  const options: Array<{ id: string | null; label: string; disabled?: boolean }> = [
-    { id: null, label: t("settings.general.dictationAuto") },
-  ];
+  // One option row: proportional prose (name, notes) with the selector kept
+  // mono — a chip must not mix faces within one word.
+  type Option = {
+    id: string | null;
+    label: string;
+    selector?: string;
+    note?: string;
+    disabled?: boolean;
+  };
+  const options: Option[] = [{ id: null, label: t("settings.general.dictationAuto") }];
   if (value !== null && !snapshot.models.some((m) => m.selector === value)) {
     options.push({
       id: value,
-      label: `${value}${t("settings.general.dictationOptionOutside")}`,
+      label: value,
+      note: t("settings.general.dictationOptionOutside"),
     });
   }
   for (const model of snapshot.models) {
     options.push({
       id: model.selector,
-      label: `${model.name} · ${model.selector}${
-        model.callable ? "" : t("settings.general.dictationOptionNotCallable")
-      }`,
+      label: model.name,
+      selector: model.selector,
       // Pressed-but-labelled, never hidden: the unavailable-compaction pattern.
+      note: model.callable ? undefined : t("settings.general.dictationOptionNotCallable"),
       disabled: !model.callable && model.selector !== value,
     });
   }
@@ -232,7 +240,7 @@ function DictationModelPicker({
                 if (option.id !== value) onSelect(option.id);
               }}
               className={cn(
-                "flex w-full items-center gap-2 px-2.5 py-1.5 text-left transition-colors duration-150",
+                "flex w-full min-w-0 items-center gap-2 px-2.5 py-1.5 text-left transition-colors duration-150",
                 option.disabled
                   ? "cursor-not-allowed opacity-45"
                   : selected
@@ -240,15 +248,21 @@ function DictationModelPicker({
                     : "text-ink-mid hover:bg-hover/50 focus-visible:bg-hover/50 focus-visible:outline-none",
               )}
             >
-              <span className={cn("min-w-0 truncate font-mono text-xs", selected && "font-medium")}>
+              <span className={cn("min-w-0 shrink truncate text-sm", selected && "font-medium")}>
                 {option.label}
               </span>
+              {option.selector !== undefined && (
+                <span className="shrink-0 font-mono text-xs text-ink-mid">{option.selector}</span>
+              )}
+              {option.note !== undefined && (
+                <span className="min-w-0 truncate text-sm text-ink-faint">{option.note}</span>
+              )}
             </button>
           );
         })}
       </div>
       {snapshot.discovered && noCallable && (
-        <p className="text-xs text-ink-faint">{t("settings.general.dictationNoModels")}</p>
+        <p className="text-sm text-ink-faint">{t("settings.general.dictationNoModels")}</p>
       )}
       {!snapshot.discovered && (
         <p className="text-xs text-ink-faint">
@@ -374,7 +388,7 @@ export function GeneralPage() {
           value={state?.localeId ?? "en"}
           options={UI_LOCALES.map((l) => ({ value: l.id, label: l.label }))}
           onChange={(value) => void setLocaleId(value)}
-          optionClassName="px-2 text-xs"
+          optionClassName="chrome-label px-2"
         />
       </Row>
       <Row
@@ -386,7 +400,7 @@ export function GeneralPage() {
           value={mode}
           options={sessionModeOptions}
           onChange={(value) => void setDefaultMode(value)}
-          optionClassName="px-2 text-xs"
+          optionClassName="chrome-label px-2"
         />
       </Row>
       <Row
@@ -398,7 +412,7 @@ export function GeneralPage() {
           value={agentMode}
           options={agentModeOptions}
           onChange={(value) => void setDefaultAgentMode(value)}
-          optionClassName="px-2 text-xs"
+          optionClassName="chrome-label px-2"
         />
       </Row>
       <Row
@@ -421,7 +435,7 @@ export function GeneralPage() {
           value={planFormat}
           options={PLAN_FORMAT_OPTIONS}
           onChange={(value) => void setPlanFormat(value)}
-          optionClassName="px-2 text-xs"
+          optionClassName="chrome-label px-2"
         />
       </Row>
       <Row
@@ -433,7 +447,7 @@ export function GeneralPage() {
           value={state?.hibernateIdleMinutes ?? 0}
           options={hibernateIdleOptions}
           onChange={(value) => void setHibernateIdleMinutes(value)}
-          optionClassName="px-2 text-xs"
+          optionClassName="chrome-label px-2"
         />
       </Row>
       <Row
@@ -465,7 +479,7 @@ export function GeneralPage() {
           value={state?.streamStallAbortSeconds ?? 180}
           options={stallAbortOptions}
           onChange={(value) => void setStreamStallAbortSeconds(value)}
-          optionClassName="px-2 text-xs"
+          optionClassName="chrome-label px-2"
         />
       </Row>
       <Row

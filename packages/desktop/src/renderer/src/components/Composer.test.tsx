@@ -3552,8 +3552,8 @@ describe("send in background from the hero (issue #982)", () => {
   });
 });
 
-describe("Composer context halo (issue #1025)", () => {
-  it("haloes the idle desktop send button and appends the exact-usage line to its title", () => {
+describe("Composer context halo (issue #1025, round-2: bare at rest)", () => {
+  it("leaves the idle desktop send button bare — no ring, plain title", () => {
     Object.defineProperty(window, "matchMedia", {
       configurable: true,
       value: vi.fn(() => ({ matches: false, addEventListener: vi.fn(), removeEventListener: vi.fn() })),
@@ -3575,7 +3575,7 @@ describe("Composer context halo (issue #1025)", () => {
     renderComposer();
     const send = [...document.body.querySelectorAll<HTMLButtonElement>("button")]
       .find((button) => button.textContent?.trim() === "send")!;
-    expect(send.parentElement?.querySelector("svg[data-progress-ring]")).not.toBeNull();
-    expect(send.title).toContain("\n128,000 of 256,000 context tokens (50.00%)");
+    expect(document.body.querySelector("svg[data-progress-ring]")).toBeNull();
+    expect(send.title).not.toContain("128,000 of 256,000");
   });
 });

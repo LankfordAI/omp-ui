@@ -58,8 +58,8 @@ export function KnowledgeVaultPage() {
   return (
     <div className="space-y-3 px-4 py-3">
       <div>
-        <h3 className="font-display text-sm font-semibold text-ink">{t("settings.vault.title")}</h3>
-        <p className="mt-0.5 text-xs text-ink-faint">{t("settings.vault.hint")}</p>
+        <h3 className="text-base font-semibold text-ink">{t("settings.vault.title")}</h3>
+        <p className="mt-0.5 text-sm text-ink-faint">{t("settings.vault.hint")}</p>
       </div>
 
       <DetectionPanel load={load} />
@@ -94,7 +94,7 @@ export function KnowledgeVaultPage() {
                 { value: "assistant", label: t("settings.vault.noteVoiceAssistant") },
               ]}
               onChange={(v) => void setVaultNoteVoice(v)}
-              optionClassName="px-2 text-xs"
+              optionClassName="chrome-label px-2"
             />
           </Row>
         </>
@@ -199,7 +199,7 @@ function DetectionPanel({ load }: { load: Load<VaultDetection> }) {
                   )}
                 </dd>
               </div>
-              {row.hint !== undefined && <p className="mt-0.5 text-xs text-ink-faint">{row.hint}</p>}
+              {row.hint !== undefined && <p className="mt-0.5 text-sm text-ink-faint">{row.hint}</p>}
             </div>
           ))}
         </dl>
@@ -230,7 +230,7 @@ function VaultRow({
   return (
     <Panel className="px-3 py-2.5">
       <div className="flex flex-wrap items-center gap-x-2 gap-y-1">
-        <span className="text-xs font-semibold text-ink">{entry.name}</span>
+        <span className="text-sm font-semibold text-ink">{entry.name}</span>
         <span className="min-w-0 break-all font-mono text-xs text-ink-dim">{entry.path}</span>
         <span className="ml-auto flex shrink-0 flex-wrap items-center gap-1.5">
           <OpenInObsidianButton vaultName={entry.name} file={null} uriHandler={uriHandler} />
@@ -257,10 +257,10 @@ function VaultRow({
             )}
           </div>
           {row.status === "no-obsidian-dir" && (
-            <p className="mt-1 text-xs text-ink-faint">{t("settings.vault.noObsidianHint")}</p>
+            <p className="mt-1 text-sm text-ink-faint">{t("settings.vault.noObsidianHint")}</p>
           )}
           {row.status === "refused-root" && (
-            <p className="mt-1 text-xs text-ink-faint">{t("settings.vault.refusedRootHint")}</p>
+            <p className="mt-1 text-sm text-ink-faint">{t("settings.vault.refusedRootHint")}</p>
           )}
         </>
       )}
@@ -305,7 +305,7 @@ function VaultRow({
         />
         <span className="text-xs text-ink-mid">{t("settings.vault.writesOutside")}</span>
       </div>
-      <p className="mt-1 text-xs text-ink-faint">{t("settings.vault.writesOutsideHint")}</p>
+      <p className="mt-1 text-sm text-ink-faint">{t("settings.vault.writesOutsideHint")}</p>
     </Panel>
   );
 }

@@ -228,7 +228,7 @@ export function SeanceConsultDialog() {
             ) : (
               groups.map((group) => (
                 <div key={group.key}>
-                  <p className="sticky top-0 truncate bg-raised px-2 py-1 font-mono text-xs uppercase tracking-[0.12em] text-ink-faint">
+                  <p className="sticky top-0 truncate bg-raised px-2 py-1 chrome-label text-ink-faint">
                     {group.name} <span className="normal-case tracking-normal">{group.path}</span>
                   </p>
                   {group.rows.map((session) => (

@@ -141,7 +141,7 @@ export function SubagentConcurrencySection({
               }
               onClick={() => setScope(choice)}
               className={cn(
-                "rounded-md px-2 py-0.5 text-xs transition-colors",
+                "chrome-label rounded-md px-2 py-0.5 transition-colors",
                 scope === choice
                   ? "bg-raised text-ink"
                   : "text-ink-faint hover:text-ink-mid disabled:pointer-events-none disabled:opacity-35",
@@ -154,7 +154,7 @@ export function SubagentConcurrencySection({
           ))}
         </span>
       </div>
-      <p className="mt-0.5 text-xs leading-relaxed text-ink-faint">
+      <p className="mt-0.5 text-sm leading-relaxed text-ink-faint">
         {t("settings.omp.subagentConcurrencyHint")}
       </p>
       {unsupported !== null && (

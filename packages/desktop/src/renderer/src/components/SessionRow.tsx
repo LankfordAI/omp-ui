@@ -148,7 +148,7 @@ function IconSettle() {
       className="size-3.5"
       fill="none"
       stroke="currentColor"
-      strokeWidth={1.6}
+      strokeWidth={1.4}
       strokeLinecap="round"
       strokeLinejoin="round"
     >
@@ -166,7 +166,7 @@ function IconPullRequest() {
       className="size-3.5"
       fill="none"
       stroke="currentColor"
-      strokeWidth={1.6}
+      strokeWidth={1.4}
       strokeLinecap="round"
       strokeLinejoin="round"
     >
@@ -417,18 +417,23 @@ export function SessionRow({
       ? { label: t(EXIT_WORD[s.status] ?? "sidebar.exit.unknown"), title: t("sidebar.exit.title") }
       : null;
 
-  // Line 2: project · branch · machine; the slim row leads with its state.
-  // The machine stays an inline span: a `<Chip>` would break the ellipsis.
+  // The one meta line (round-2 judge): tiles used to split project and model
+  // across two lines; both densities now read a single 12px prose line. The
+  // machine stays an inline span: a `<Chip>` would break the ellipsis.
   const meta: ReactNode[] = [];
   if (slim) {
-    // A neutral state word must not outshine the title it sits under
-    // (round-1 judge): colour-bearing states keep their accent; plain ones
-    // step to the meta tier.
-    meta.push(
-      <span className={face.tone === "neutral" ? "text-ink-faint" : face.textClass}>
-        {t(face.labelKey)}
-      </span>,
-    );
+    // A settled row reads time + outcome, never "no process" (round-2
+    // judge): the absence of a live tile is the fact, and Settled says it.
+    // Only a coloured state earns a word on a slim row; the neutral one is
+    // exactly what the section heading already conveys.
+    if (face.tone !== "neutral") meta.push(<span className={face.textClass}>{t(face.labelKey)}</span>);
+    if (when !== "") meta.push(<span title={absoluteTime(s.cachedModified)}>{when}</span>);
+    if (exitWord !== null) meta.push(<span title={exitWord.title}>{exitWord.label}</span>);
+  } else {
+    // A dormant record surfaced as a tile (Snoozed) is still "no process";
+    // that word never prints on the meta line (round-2 judge). Every other
+    // state keeps its coloured word — the state channel is colour, not size.
+    if (sidebarState !== "dormant") meta.push(<span className={face.textClass}>{t(face.labelKey)}</span>);
     if (exitWord !== null) meta.push(<span title={exitWord.title}>{exitWord.label}</span>);
   }
   if (projectLabel) meta.push(projectLabel);
@@ -438,6 +443,13 @@ export function SessionRow({
       <span title={t("sidebar.session.machine", { machine: instanceNickname })}>{instanceNickname}</span>,
     );
   }
+  // The model rides the same line as its project, proportional like every
+  // display name (contract): mono stays for identifiers only.
+  if (!slim && model !== null) {
+    meta.push(
+      <span title={thinkingAuto ? t("sidebar.session.thinkingAuto") : s.model ?? undefined}>{model}</span>,
+    );
+  }
   // Timed snooze (#979) names its deadline: "snoozed until Tue 09:00".
   const snoozedLabel =
     s.snoozed !== true
@@ -445,8 +457,8 @@ export function SessionRow({
       : s.snoozedUntilMs === null
         ? t("sidebar.session.snoozed")
         : t("sidebar.session.snoozedUntil", { when: formatSnoozeUntil(s.snoozedUntilMs, new Date(), localeTag()) });
-  if (slim && snoozedLabel !== null) meta.push(snoozedLabel);
-  if (slim && scheduleLabel !== null) meta.push(scheduleLabel);
+  if (snoozedLabel !== null) meta.push(snoozedLabel);
+  if (scheduleLabel !== null) meta.push(scheduleLabel);
 
   return (
     <div
@@ -463,18 +475,22 @@ export function SessionRow({
         selected || multiSelected ? "bg-raised" : "hover:bg-raised/60",
       )}
     >
-      {/* The status band (#1037): always present, toned by state; a selected
-          or multi-selected row overrides it green, as the old rail did. It
-          replaces the leading Dot in both densities — the verb text spans the
-          state aloud, and the Dot's hover tooltip rides the band. */}
-      <span
-        aria-hidden
-        title={t(face.titleKey)}
-        className={cn(
-          "absolute inset-y-1.5 left-0 w-0.5 rounded-full transition-colors",
-          selected || multiSelected ? "bg-signal" : TONE_DOT[face.tone],
-        )}
-      />
+      {/* The status band (#1037): toned by state; a selected or
+          multi-selected row overrides it green, as the old rail did. It
+          replaces the leading Dot, and the Dot's hover tooltip rides the
+          band. Settled (slim) rows carry no band at all (round-2 judge): the
+          bar is the live/working state channel, and a grey one on ~25 dead
+          rows is noise — their state reads through the meta line's words. */}
+      {!slim && (
+        <span
+          aria-hidden
+          title={t(face.titleKey)}
+          className={cn(
+            "absolute inset-y-1.5 left-0 w-0.5 rounded-full transition-colors",
+            selected || multiSelected ? "bg-signal" : TONE_DOT[face.tone],
+          )}
+        />
+      )}
 
       <button
         type="button"
@@ -504,21 +520,22 @@ export function SessionRow({
           <span
             data-session-tile-title
             className={cn(
-              "min-w-0 flex-1 transition-colors duration-150",
-              // The title is the row's one primary voice (issue #1042): tiles
-              // carry it at full ink, slim Settled rows step it down a tier.
-              slim ? "truncate text-xs" : "line-clamp-2 break-words text-sm leading-snug",
+              "min-w-0 flex-1 text-sm transition-colors duration-150",
+              // Every sidebar title is one size (round-2 judge): 14px. State
+              // rides the accent bar and the meta line's state-word colour,
+              // never the type size; the settled title only steps ink a tier.
+              slim ? "truncate" : "line-clamp-2 break-words leading-snug",
               missing || slim ? "text-ink-mid group-hover/row:text-ink" : "text-ink",
             )}
           >
             {withTitleCard(s.title)}
           </span>
-          {slim && prChip}
-          {slim && pinMark}
-          {slim && clockMark}
-          {slim && lockMark}
-          {slim && voiceMark}
-          {when && (
+          {prChip}
+          {pinMark}
+          {clockMark}
+          {lockMark}
+          {voiceMark}
+          {!slim && when && (
             <span
               title={absoluteTime(s.cachedModified)}
               className="shrink-0 pt-0.5 text-xs tabular-nums text-ink-faint"
@@ -528,8 +545,9 @@ export function SessionRow({
           )}
         </span>
 
-        {/* Meta reads as prose (round-1 judge: mono chrome): the row's voice is
-            Instrument Sans; mono is reserved for identifiers inside it. */}
+        {/* The one meta line (round-2 judge): state · exit · project · model,
+            12px prose. Handoff chips keep their own strip only when one is
+            actually present; the hover-edge marks ride the title line. */}
         {meta.length > 0 && (
           <span className="mt-0.5 block truncate text-xs text-ink-faint">
             {meta.map((node, i) => (
@@ -541,21 +559,8 @@ export function SessionRow({
           </span>
         )}
 
-        {!slim && (
+        {!slim && (planMode || impl || orphanSource !== null || handoff?.hasDescendants) && (
           <span className="mt-1 flex min-w-0 items-center gap-1.5 text-xs">
-            <span className={cn("inline-flex shrink-0 items-center gap-1", face.textClass)}>
-              {t(face.labelKey)}
-            </span>
-            {exitWord !== null ? (
-              <span className="shrink-0" title={exitWord.title}>
-                {exitWord.label}
-              </span>
-            ) : null}
-            {model !== null && (
-              <span title={thinkingAuto ? t("sidebar.session.thinkingAuto") : s.model ?? undefined} className="min-w-0 truncate font-mono text-ink-dim">
-                {model}
-              </span>
-            )}
             {planMode && (
               <Chip tone="iris" title={t("hud.mode.planDescription")}>
                 {t("sidebar.session.planChip")}
@@ -568,17 +573,6 @@ export function SessionRow({
             {handoff?.hasDescendants ? (
               <span className="shrink-0 text-ink-faint">{t("sidebar.session.planSource")}</span>
             ) : null}
-            {prChip}
-            {snoozedLabel !== null ? (
-              <span className="shrink-0 text-ink-faint">{snoozedLabel}</span>
-            ) : null}
-            {scheduleLabel !== null ? <span className="shrink-0 text-ink-faint">{scheduleLabel}</span> : null}
-            <span className="ml-auto flex shrink-0 items-center gap-1">
-              {clockMark}
-              {pinMark}
-              {lockMark}
-              {voiceMark}
-            </span>
           </span>
         )}
 

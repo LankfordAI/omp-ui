@@ -63,7 +63,7 @@ export function ComputerControlSection({
   return (
     <section className="px-4 pt-3">
       <Label>{t("settings.omp.computerControl")}</Label>
-      <p className="mt-0.5 text-xs leading-relaxed text-ink-faint">
+      <p className="mt-0.5 text-sm leading-relaxed text-ink-faint">
         {t("settings.omp.computerControlHint")}
       </p>
       <div className="mt-1 divide-y divide-line-soft">

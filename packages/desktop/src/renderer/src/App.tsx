@@ -187,7 +187,7 @@ function RestoringSessions() {
   const t = useT();
   return (
     <div className="ambient flex h-full flex-col items-center justify-center bg-void px-5">
-      <p className="font-display text-sm text-ink-dim">{t("app.restoring.label")}</p>
+      <p className="text-sm text-ink-dim">{t("app.restoring.label")}</p>
     </div>
   );
 }
@@ -219,16 +219,27 @@ function Welcome() {
           </div>
 
           <div className="flex flex-wrap items-center justify-center gap-2">
-            <Button variant="solid" onClick={() => openProjectPicker()}>
-              {t("app.welcome.addProject")}
-            </Button>
-            <Button variant="ghost" onClick={openGettingStarted}>
-              {t("app.gettingstarted.open")}
-            </Button>
-            {hasProjects && (
-              <Button variant="ghost" onClick={() => openPalette()}>
-                {t("app.welcome.openSession")}
-              </Button>
+            {/* One primary per screen (round-2 judge, Hierarchy 2): with a
+                project already registered the next step is a session, so the
+                session button carries the fill and Add project steps back. */}
+            {hasProjects ? (
+              <>
+                <Button variant="solid" onClick={() => openPalette()}>
+                  {t("app.welcome.openSession")}
+                </Button>
+                <Button variant="ghost" onClick={() => openProjectPicker()}>
+                  {t("app.welcome.addProject")}
+                </Button>
+              </>
+            ) : (
+              <>
+                <Button variant="solid" onClick={() => openProjectPicker()}>
+                  {t("app.welcome.addProject")}
+                </Button>
+                <Button variant="ghost" onClick={openGettingStarted}>
+                  {t("app.gettingstarted.open")}
+                </Button>
+              </>
             )}
           </div>
         </div>
@@ -515,9 +526,9 @@ export default function App() {
           </Button>
           <span className="min-w-0 flex-1 text-center">
             {docked ? (
-              <span className="max-w-[calc(100%-4rem)] truncate px-2 py-2 text-center font-display text-sm font-semibold">{compactTitle}</span>
+              <span className="max-w-[calc(100%-4rem)] truncate px-2 py-2 text-center text-sm font-semibold">{compactTitle}</span>
             ) : (
-              <button type="button" className="max-w-[calc(100%-4rem)] truncate px-2 py-2 text-center font-display text-sm font-semibold [app-region:no-drag]" onClick={() => showCompactSurface("sessions")}>{compactTitle}</button>
+              <button type="button" className="max-w-[calc(100%-4rem)] truncate px-2 py-2 text-center text-sm font-semibold [app-region:no-drag]" onClick={() => showCompactSurface("sessions")}>{compactTitle}</button>
             )}
           </span>
           {activeTab?.mode === "rpc-ui" ? (

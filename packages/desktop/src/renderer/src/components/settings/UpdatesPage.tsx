@@ -106,7 +106,7 @@ export function UpdatesPage() {
       <Panel className="px-4 py-3">
         <div className="flex items-start justify-between gap-3">
           <div className="min-w-0">
-            <p className="text-xs font-medium text-ink">omp-ui</p>
+            <p className="text-sm font-medium text-ink">omp-ui</p>
             <p className="mt-0.5 font-mono text-xs text-ink-mid tabular-nums">
               {appUpdate.currentVersion ?? t("settings.updates.unversionedBuild")}
             </p>
@@ -187,7 +187,7 @@ export function UpdatesPage() {
           </div>
         </div>
         <div className="mt-3 flex items-center justify-between gap-3">
-          <span className="text-xs text-ink-mid">{t("settings.updates.trainLabel")}</span>
+          <span className="text-sm text-ink-mid">{t("settings.updates.trainLabel")}</span>
           <ChoiceCapsule
             label={t("settings.updates.trainLabel")}
             value={state?.appUpdateTrain ?? "stable"}
@@ -196,12 +196,12 @@ export function UpdatesPage() {
               { value: "nightly", label: t("settings.updates.trainNightly") },
             ]}
             onChange={(value) => void setAppUpdateTrain(value as UpdateTrain)}
-            optionClassName="px-2 text-xs"
+            optionClassName="chrome-label px-2"
           />
         </div>
-        <p className="mt-1 text-xs text-ink-dim">{t("settings.updates.trainHint")}</p>
+        <p className="mt-1 text-sm text-ink-dim">{t("settings.updates.trainHint")}</p>
         <div className="mt-3 flex items-center justify-between gap-3">
-          <span className="text-xs text-ink-mid">{t("settings.updates.checkOnLaunch")}</span>
+          <span className="text-sm text-ink-mid">{t("settings.updates.checkOnLaunch")}</span>
           <Switch
             on={state?.appUpdateCheckOnLaunch ?? true}
             onChange={(next) => void setAppUpdateCheckOnLaunch(next)}
@@ -225,7 +225,7 @@ export function UpdatesPage() {
       <Panel className="px-4 py-3">
         <div className="flex items-start justify-between gap-3">
           <div className="min-w-0">
-            <p className="text-xs font-medium text-ink">{t("settings.updates.ompBinary")}</p>
+            <p className="text-sm font-medium text-ink">{t("settings.updates.ompBinary")}</p>
             <p className="mt-0.5 font-mono text-xs text-ink-mid tabular-nums">
               {ompUpdate.installedVersion ?? t("settings.updates.notInstalled")}
             </p>
@@ -262,7 +262,7 @@ export function UpdatesPage() {
           </div>
         </div>
         <div className="mt-3 flex items-center justify-between gap-3">
-          <span className="text-xs text-ink-mid">{t("settings.updates.checkOnLaunch")}</span>
+          <span className="text-sm text-ink-mid">{t("settings.updates.checkOnLaunch")}</span>
           <Switch
             on={state?.ompUpdateCheckOnLaunch ?? true}
             onChange={(next) => void setOmpUpdateCheckOnLaunch(next)}
@@ -270,7 +270,7 @@ export function UpdatesPage() {
           />
         </div>
         <div className="mt-3 flex items-center justify-between gap-3">
-          <span className="text-xs text-ink-mid" title={t("settings.updates.autoUpgradeHint")}>
+          <span className="text-sm text-ink-mid" title={t("settings.updates.autoUpgradeHint")}>
             {t("settings.updates.autoUpgrade")}
           </span>
           <Switch

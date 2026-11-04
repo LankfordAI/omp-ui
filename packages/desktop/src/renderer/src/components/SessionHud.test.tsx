@@ -419,6 +419,33 @@ describe("wide Session HUD", () => {
     expect(spend().textContent).not.toContain("subagents");
   });
 
+  it("labels the chip's spend as this-run-only and spells out the CTX glyph (round-2 judge)", () => {
+    useStore.setState({
+      rpc: {
+        [TAB]: {
+          ...useStore.getState().rpc[TAB]!,
+          stats: {
+            userMessages: 1, assistantMessages: 1, toolCalls: 0, toolResults: 0, totalMessages: 2,
+            tokens: { input: 60_000, output: 40_000, reasoning: 0, cacheRead: 0, cacheWrite: 0, total: 100_000 },
+            cost: 0.0886, premiumRequests: 0, editRejections: [], contextUsage: null,
+          },
+        },
+      },
+    });
+    const host = renderWide();
+    const chip = host.querySelector<HTMLButtonElement>('button[aria-label="context and spend"]')!;
+    const cost = chip.querySelector<HTMLElement>(".titlebar-gauge-cost")!;
+    // The header figure counts only this process; say so next to it.
+    expect(cost.textContent).toContain(t("hud.metrics.thisRun"));
+    expect(cost.getAttribute("title")).toBe(t("hud.metrics.runOnlyTitle"));
+    // The CTX glyph keeps its short form but the title spells it out.
+    const ctx = chip.querySelector<HTMLElement>("span[title]")!;
+    expect(ctx.textContent).toBe("ctx");
+    expect(ctx.getAttribute("title")).toBe(
+      t("hud.gauge.contextTitle", { used: "20", window: "100" }),
+    );
+  });
+
   it("keeps default Plan unnamed and gives exceptional Build its permission tooltip (#142)", () => {
     useStore.setState((state) => ({
       rpc: {
@@ -1042,7 +1069,9 @@ describe("SessionHud stream-stall chip (issue #228)", () => {
     seedRunning();
     const host = document.createElement("div"); document.body.append(host); root = createRoot(host);
     act(() => root!.render(<SessionHud tabId={TAB} />));
-    expect(host.textContent).toContain("running");
+    // The chip word comes from the catalog (round-2 vocabulary: the HUD's
+    // in-turn label is "working"; pinning the literal would re-pin churn).
+    expect(host.textContent).toContain(t("hud.status.running"));
     expect(host.textContent).not.toContain("stalled");
   });
 

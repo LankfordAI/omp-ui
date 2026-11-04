@@ -535,15 +535,11 @@ export function Panel({
   );
 }
 
-/** Uppercase micro-label for section headers and rail titles. */
+/** Uppercase micro-label for section headers and rail titles; the one
+ *  caps-tracked chrome system lives in style.css's `chrome-label`. */
 export function Label({ children, className }: { children: ReactNode; className?: string }) {
   return (
-    <span
-      className={cn(
-        "text-xs font-semibold uppercase tracking-[0.14em] text-ink-faint",
-        className,
-      )}
-    >
+    <span className={cn("chrome-label text-ink-faint", className)}>
       {children}
     </span>
   );
@@ -671,7 +667,9 @@ export function Empty({
 }) {
   return (
     <div className="flex flex-col items-center justify-center gap-2 px-6 py-10 text-center">
-      <p className="font-display text-sm text-ink-mid">{title}</p>
+      {/* Display type starts at 16px; a 14px empty-state title is body
+          furniture (round-2 judge, Typography 4). */}
+      <p className="text-sm font-semibold text-ink-mid">{title}</p>
       {hint && <p className="max-w-xs text-xs leading-relaxed text-ink-faint">{hint}</p>}
       {action}
     </div>

@@ -89,7 +89,7 @@ function ConsultCard({
             pulse={AGENT_TONE[status] === "copper"}
             title={status}
           />
-          <span className="min-w-0 flex-1 truncate font-display text-xs text-ink">
+          <span className="min-w-0 flex-1 truncate text-xs text-ink">
             {agent.label ?? agent.name ?? agent.id}
           </span>
         </button>

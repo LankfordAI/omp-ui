@@ -579,7 +579,7 @@ describe("Sidebar session list", () => {
       }),
     });
     renderSidebar();
-    expect(document.body.textContent).toContain("No running sessions");
+    expect(document.body.textContent).toContain("No live sessions");
     const emptyAction = [...document.body.querySelectorAll<HTMLButtonElement>("button")].find(
       (b) => b.textContent === "New session",
     )!;
@@ -742,8 +742,10 @@ describe("Sidebar plan handoffs (issue #238)", () => {
     if (found === undefined) throw new Error(`session row not found: ${title}`);
     return found;
   }
+  // The innermost match wins: the chips ride a wrapper span whose textContent
+  // equals the single chip's label, and document order puts it first.
   const chip = (target: HTMLElement, text: string): HTMLElement | undefined =>
-    [...target.querySelectorAll<HTMLElement>("span")].find((el) => el.textContent === text);
+    [...target.querySelectorAll<HTMLElement>("span")].filter((el) => el.textContent === text).at(-1);
 
   it("labels implementation, plan source, and orphan rows without exposing the plan path", () => {
     useStore.setState({ state: handoffState });
@@ -1055,8 +1057,8 @@ describe("Sidebar Working and Snoozed sections (issue #935)", () => {
     expect(toggle.textContent).toBe("Working (1)");
     expect(toggle.getAttribute("aria-expanded")).toBe("true");
     expect(rowButton("busy")).toBeDefined();
-    // The main list is empty: a live row exists, so no "No running sessions".
-    expect(document.body.textContent).not.toContain("No running sessions");
+    // The main list is empty: a live row exists, so no "No live sessions".
+    expect(document.body.textContent).not.toContain("No live sessions");
   });
 
   it("keeps Working (0) visible and docked directly above Settled, below Snoozed", () => {
@@ -1183,7 +1185,7 @@ describe("Sidebar Working and Snoozed sections (issue #935)", () => {
   it("shows the no-live empty state when no row is live", () => {
     useStore.setState({ state: stateWith([sess("old", { live: "dormant" })]) });
     renderSidebar();
-    expect(document.body.textContent).toContain("No running sessions");
+    expect(document.body.textContent).toContain("No live sessions");
   });
 
   it("shows the no-matches empty state when a filter matches nothing", () => {
@@ -1264,7 +1266,7 @@ describe("Sidebar Working and Snoozed sections (issue #935)", () => {
     expect(sectionToggle("Working")!.textContent).toBe("Working (1)");
     expect(rowButton("bgwork")).toBeDefined();
     // The row left the main list, and it is live, so no empty state shows.
-    expect(document.body.textContent).not.toContain("No running sessions");
+    expect(document.body.textContent).not.toContain("No live sessions");
 
     act(() => {
       useStore.setState({
@@ -1274,7 +1276,7 @@ describe("Sidebar Working and Snoozed sections (issue #935)", () => {
     expect(sectionToggle("Working")!.textContent).toBe("Working (0)");
     // Back in the main/active list.
     expect(rowButton("bgwork")).toBeDefined();
-    expect(document.body.textContent).not.toContain("No running sessions");
+    expect(document.body.textContent).not.toContain("No live sessions");
   });
 });
 

@@ -173,7 +173,7 @@ export function ApprovalModeSection({
               }
               onClick={() => setScope(choice)}
               className={cn(
-                "rounded-md px-2 py-0.5 text-xs transition-colors",
+                "chrome-label rounded-md px-2 py-0.5 transition-colors",
                 scope === choice
                   ? "bg-raised text-ink"
                   : "text-ink-faint hover:text-ink-mid disabled:pointer-events-none disabled:opacity-35",
@@ -186,7 +186,7 @@ export function ApprovalModeSection({
           ))}
         </span>
       </div>
-      <p className="mt-0.5 text-xs leading-relaxed text-ink-faint">
+      <p className="mt-0.5 text-sm leading-relaxed text-ink-faint">
         {t("settings.omp.approvalHint")}
       </p>
       {unsupported !== null && (
@@ -250,7 +250,7 @@ export function ApprovalModeSection({
         >
           {t("settings.omp.approvalForget")}
         </Button>
-        <span className="text-xs leading-snug text-ink-faint">
+        <span className="text-sm leading-snug text-ink-faint">
           {forgetTab === null
             ? t("settings.omp.approvalForgetUnavailable")
             : forgetSentFor === forgetTab

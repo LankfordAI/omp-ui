@@ -488,7 +488,7 @@ describe("RpcTab exit overlay", () => {
     const text = document.body.textContent ?? "";
     expect(text).toContain("Hibernated");
     expect(text).not.toContain("Agent exited");
-    expect(text).toContain("idle — process stopped to free memory");
+    expect(text).toContain("Idle — stopped to free memory");
     expect(text).not.toContain("exit 0");
     expect(text).toContain("The session is dormant — its transcript is safe on disk. Resume to continue.");
     expect(text).toContain("resume session");
@@ -758,6 +758,14 @@ describe("RpcTab floating composer (issue #395)", () => {
     renderTab(true);
     const { column, float } = measure();
     expect(float.className).toContain("absolute");
+    // Round-2 judge: the float is an OPAQUE plane — full width to the bottom
+    // edge, so no transcript text shows in the gutters or below the card —
+    // and still transparent to the pointer (its cards re-enable their own).
+    expect(float.className).toContain("inset-x-0");
+    expect(float.className).toContain("bottom-0");
+    expect(float.className).toContain("bg-surface");
+    expect(float.className).toContain("border-t");
+    expect(float.className).toContain("pointer-events-none");
     expect(column.style.getPropertyValue("--transcript-bottom-inset")).toBe("140px");
   });
 

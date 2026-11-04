@@ -161,7 +161,7 @@ export function SubagentModelsSection({
               }
               onClick={() => setScope(choice)}
               className={cn(
-                "rounded-md px-2 py-0.5 text-xs transition-colors",
+                "chrome-label rounded-md px-2 py-0.5 transition-colors",
                 scope === choice
                   ? "bg-raised text-ink"
                   : "text-ink-faint hover:text-ink-mid disabled:pointer-events-none disabled:opacity-35",
@@ -172,7 +172,7 @@ export function SubagentModelsSection({
           ))}
         </span>
       </div>
-      <p className="mt-0.5 text-xs leading-relaxed text-ink-faint">
+      <p className="mt-0.5 text-sm leading-relaxed text-ink-faint">
         {t("settings.omp.subagentModelsHint")}
       </p>
       {unsupported !== null && (
@@ -228,7 +228,7 @@ export function SubagentModelsSection({
           {refreshing ? t("settings.omp.subagentRefreshing") : t("settings.omp.subagentRefresh")}
         </Button>
         {roster.length === 0 && (
-          <span className="text-xs text-ink-faint">{t("settings.omp.subagentRosterEmpty")}</span>
+          <span className="text-sm text-ink-faint">{t("settings.omp.subagentRosterEmpty")}</span>
         )}
       </div>
 

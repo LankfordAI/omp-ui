@@ -58,7 +58,7 @@ export function ContextFilesSection({
         <Label>{t("settings.omp.contextFiles")}</Label>
         {layerBadge(entry.layer)}
       </div>
-      <p className="mt-0.5 text-xs leading-relaxed text-ink-faint">
+      <p className="mt-0.5 text-sm leading-relaxed text-ink-faint">
         {t("settings.omp.contextFilesHint")}
       </p>
       <div className="mt-1.5 divide-y divide-line-soft">

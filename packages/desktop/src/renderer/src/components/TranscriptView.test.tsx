@@ -769,10 +769,14 @@ describe("NoticeLine mcpMount summary (issue #848)", () => {
       "tab-1",
     );
 
-    expect(el.textContent).toContain("3 MCP tools are active");
+    expect(el.textContent).toContain("3 MCP tools available to the agent");
+    // Round-2 judge: the underline belongs to the control alone — the count is
+    // plain text, and the only button is the "See which" affordance.
     const button = el.querySelector<HTMLButtonElement>("button");
     expect(button).not.toBeNull();
-    expect(button!.textContent).toContain("View");
+    expect(button!.textContent).toBe("See which");
+    expect(button!.className).toContain("underline");
+    expect(button!.previousElementSibling?.textContent).toContain("3 MCP tools available to the agent");
 
     act(() => {
       button!.click();
@@ -789,7 +793,7 @@ describe("NoticeLine mcpMount summary (issue #848)", () => {
     const { el, root } = render([
       { kind: "notice", id: "n1", text: "", level: "info", source: "xdev", mcpMount: { count: 1 } },
     ]);
-    expect(el.textContent).toContain("1 MCP tool is active");
+    expect(el.textContent).toContain("1 MCP tool available to the agent");
     act(() => root.unmount());
   });
 });

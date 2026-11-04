@@ -142,7 +142,7 @@ export function JobsPane({ tabId }: { tabId: string }) {
 function Field({ label, children }: { label: string; children: ReactNode }) {
   return (
     <div>
-      <dt className="text-xs uppercase tracking-[0.08em] text-ink-faint">{label}</dt>
+      <dt className="chrome-label text-ink-faint">{label}</dt>
       <dd className="whitespace-pre-wrap break-all font-mono text-xs text-ink-mid">{children}</dd>
     </div>
   );

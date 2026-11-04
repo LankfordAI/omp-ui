@@ -69,7 +69,7 @@ export function ExperimentCard({
     >
       <div className="flex items-start justify-between gap-2">
         <span className="min-w-0 flex-1">
-          <span className="block truncate font-display text-sm font-semibold">{record.name}</span>
+          <span className="block truncate text-sm font-semibold">{record.name}</span>
           {record.goal !== null && record.goal !== "" && (
             <span className="mt-0.5 line-clamp-2 block text-xs leading-relaxed text-ink-mid">{record.goal}</span>
           )}
@@ -120,7 +120,7 @@ export function PendingExperimentCard({
     <div className={CARD_CLASS}>
       <div className="flex items-start justify-between gap-2">
         <span className="min-w-0 flex-1">
-          <span className="block truncate font-display text-sm font-semibold">{title}</span>
+          <span className="block truncate text-sm font-semibold">{title}</span>
           <span className="mt-0.5 line-clamp-2 block text-xs leading-relaxed text-ink-mid">{experiment.goal}</span>
         </span>
         <Chip tone="copper">{t("lab.overview.settingUp")}</Chip>

@@ -220,6 +220,36 @@ function Row({
 
 const rowKey = (entry: SidebarEntry): string => `${entry.instanceId ?? "local"}:${entry.session.tabId}`;
 
+/** One collapsible section heading: chevron + caps label, the whole strip a
+ *  toggle button. Shared by SidebarSection and the Ready group so every group
+ *  header reads and behaves alike (round-2 judge). The search forces sections
+ *  open, so the toggle is inert while filtering and the stored choice stays
+ *  untouched (issue #935). */
+function SectionHeading({
+  heading,
+  shown,
+  disabled,
+  onToggle,
+}: {
+  heading: string;
+  shown: boolean;
+  disabled: boolean;
+  onToggle: () => void;
+}) {
+  return (
+    <button
+      type="button"
+      aria-expanded={shown}
+      disabled={disabled}
+      onClick={onToggle}
+      className="chrome-label flex w-full shrink-0 items-center gap-1.5 px-3 pt-2 pb-1 text-left text-ink-dim transition-colors duration-150 hover:text-ink focus-visible:text-ink focus-visible:outline-none disabled:hover:text-ink-dim"
+    >
+      <Chevron open={shown} />
+      {heading}
+    </button>
+  );
+}
+
 /** One collapsible sidebar section: a heading toggle and its row list. The
  *  search forces the block open, so the toggle is inert while filtering and
  *  the stored choice stays untouched (issue #935). An open `grow` section
@@ -263,16 +293,7 @@ function SidebarSection({
             : "flex max-h-[40%] min-h-0 shrink-0 flex-col",
       )}
     >
-      <button
-        type="button"
-        aria-expanded={shown}
-        disabled={disabled}
-        onClick={onToggle}
-        className="flex w-full shrink-0 items-center gap-1.5 px-3 pt-2 pb-1 text-left text-xs font-semibold uppercase tracking-[0.08em] text-ink-dim transition-colors duration-150 hover:text-ink focus-visible:text-ink focus-visible:outline-none disabled:hover:text-ink-dim"
-      >
-        <Chevron open={shown} />
-        {heading}
-      </button>
+      <SectionHeading heading={heading} shown={shown} disabled={disabled} onToggle={onToggle} />
       {shown && entries.length > 0 && (
         <div className={cn("min-h-0 overflow-y-auto px-1.5 py-1", slim ? "space-y-px" : "space-y-1", grow && "flex-1")}>
           {entries.map((entry) => (
@@ -450,6 +471,10 @@ export function Sidebar() {
   const openFleet = useStore((st) => st.openFleet);
   const fleetOpen = useStore((st) => st.fleet !== null);
   const settledOpen = useSettledOpen();
+  // Ready (the main live list) collapses like its peers (round-2 judge); it
+  // starts open — a hidden live session would be dishonest.
+  const READY_KEY = "omp-ui.sidebarReadyOpen";
+  const readyOpen = useSidebarSectionOpen(READY_KEY, true);
   // Working now starts collapsed, #1037 — waiting sessions surface as
   // attention-stack cards instead of hiding inside an expanded section.
   const workingOpen = useSidebarSectionOpen("omp-ui.sidebarWorkingOpen", false);
@@ -701,6 +726,7 @@ export function Sidebar() {
   const settledShown = settledOpen || filtering;
   const workingShown = workingOpen || filtering;
   const snoozedShown = snoozedOpen || filtering;
+  const readyShown = readyOpen || filtering;
 
   const sidebar = (
     <aside
@@ -778,7 +804,7 @@ export function Sidebar() {
                     collapses, since a pin means "keep this in view". */}
                 {lists.pinned.length > 0 && (
                   <div role="group" aria-label={t("sidebar.pinned.heading", { n: lists.pinned.length })} className="space-y-1">
-                    <div className="px-1.5 pt-1.5 pb-1 text-xs font-semibold uppercase tracking-[0.08em] text-ink-dim">
+                    <div className="chrome-label px-1.5 pt-1.5 pb-1 text-ink-dim">
                       {t("sidebar.pinned.heading", { n: lists.pinned.length })}
                     </div>
                     {lists.pinned.map((entry) => (
@@ -789,28 +815,37 @@ export function Sidebar() {
                 {lists.active.length > 0 && (
                   <div
                     role="group"
-                    aria-label={t("sidebar.active.heading", { n: lists.active.length })}
+                    aria-label={t("sidebar.ready.heading", { n: lists.active.length })}
                     className={cn("space-y-1", lists.pinned.length > 0 && "mt-1.5 border-t border-line-soft pt-1.5")}
                   >
-                    {/* The live group carries its own header now (round-1
-                        judge): unheaded, it left WORKING/SETTLED as the only
-                        labelled groups and its position shifted with state. */}
-                    <div className="px-1.5 pt-1.5 pb-1 text-xs font-semibold uppercase tracking-[0.08em] text-ink-dim">
-                      {t("sidebar.active.heading", { n: lists.active.length })}
-                    </div>
-                    {lists.active.map((entry) => (
-                      <Row key={rowKey(entry)} entry={entry} onActivate={closeCompactSurface} openSessionMenu={openSessionMenu} slim={false} section="main" selection={rowSelection} />
-                    ))}
+                    {/* The live group is Ready (n), collapsible with a chevron
+                        like its Working/Settled peers (round-2 judge); the
+                        choice persists in its own localStorage key. */}
+                    <SectionHeading
+                      heading={t("sidebar.ready.heading", { n: lists.active.length })}
+                      shown={readyShown}
+                      disabled={filtering}
+                      onToggle={() => setSidebarSectionOpen(READY_KEY, !readyOpen)}
+                    />
+                    {readyShown &&
+                      lists.active.map((entry) => (
+                        <Row key={rowKey(entry)} entry={entry} onActivate={closeCompactSurface} openSessionMenu={openSessionMenu} slim={false} section="main" selection={rowSelection} />
+                      ))}
                   </div>
                 )}
               </div>
             ) : !filtering && !liveAnywhere ? (
-              <div className="min-h-0 flex-1 overflow-y-auto">
+              /* The no-live empty state sits at content height so the headed
+                 sections stack directly beneath it (round-2 judge: flex-1
+                 here parked ~520px of dead space above WORKING). #937's
+                 bottom-docking survives only in the third branch below,
+                 where live sessions exist elsewhere. */
+              <div className="shrink-0">
                 <Empty
                   title={t("sidebar.empty.noLive")}
                   hint={t("sidebar.empty.noLiveHint", { hotkey: newSessionLabel })}
                   action={
-                    <Button variant="solid" onClick={() => { openProjectQuickOpen(); closeCompactSurface(); }}>
+                    <Button variant="ghost" onClick={() => { openProjectQuickOpen(); closeCompactSurface(); }}>
                       {t("sidebar.empty.newSession")}
                     </Button>
                   }

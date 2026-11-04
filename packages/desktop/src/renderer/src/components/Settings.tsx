@@ -203,9 +203,14 @@ export function Settings() {
 
   return (
     <Modal onClose={closeSettings} width="w-[46rem]" labelledBy="settings-title">
-      <section className="settings-surface">
-        <header className="settings-header border-b border-line px-4 py-3.5">
-          <p className="mb-1 font-mono text-xs uppercase tracking-[0.16em] text-ink-faint">
+      {/* The surface carries one fixed viewport-relative height: switching
+          sections (and pages that show or hide a footer) must never resize or
+          re-centre the dialog box; long pages scroll inside `.settings-body`.
+          The unlayered `.settings-*` overrides in style.css keep the mobile
+          fullscreen layout filling the viewport instead. */}
+      <section className="settings-surface flex h-[min(72vh,720px)] max-h-full flex-col">
+        <header className="settings-header shrink-0 border-b border-line px-4 py-3.5">
+          <p className="chrome-label mb-1 text-ink-faint">
             {t("settings.shell.application")}
           </p>
           <h2
@@ -216,7 +221,7 @@ export function Settings() {
           </h2>
         </header>
 
-        <div className="settings-layout flex">
+        <div className="settings-layout flex min-h-0 flex-1">
           <nav className="settings-nav w-40 shrink-0 space-y-px border-r border-line p-1.5">
             {PAGES.map((p) => (
               <button
@@ -225,7 +230,7 @@ export function Settings() {
                 aria-current={page === p.id ? "page" : undefined}
                 onClick={() => openSettings(p.id)}
                 className={cn(
-                  "block w-full rounded-md px-2.5 py-1.5 text-left text-xs transition-colors duration-150",
+                  "block w-full rounded-md px-2.5 py-1.5 text-left text-sm transition-colors duration-150",
                   "hover:bg-hover hover:text-ink focus-visible:bg-hover focus-visible:text-ink focus-visible:outline-none",
                   page === p.id ? "bg-hover text-ink" : "text-ink-mid",
                 )}
@@ -235,13 +240,14 @@ export function Settings() {
             ))}
           </nav>
 
-          <div className="settings-body max-h-[30rem] min-w-0 flex-1 overflow-y-auto">
+          {/* Fills the fixed surface; pages taller than it scroll here. */}
+          <div className="settings-body min-h-0 min-w-0 flex-1 overflow-y-auto">
             {active !== undefined && active.render(ctx)}
           </div>
         </div>
 
         {Footer !== undefined && (
-          <footer className="border-t border-line px-4 py-3 text-xs leading-relaxed text-ink-faint">
+          <footer className="shrink-0 border-t border-line px-4 py-3 text-xs leading-relaxed text-ink-faint">
             <Footer agentDir={agentDir} anyLive={anyLive} />
           </footer>
         )}

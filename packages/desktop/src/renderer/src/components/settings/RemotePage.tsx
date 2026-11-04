@@ -73,8 +73,8 @@ function PasswordRow() {
     <div className="py-2.5">
       <div className="flex items-center gap-3">
         <div className="min-w-0 flex-1">
-          <p className="text-xs font-medium text-ink">{t("settings.remote.password")}</p>
-          <p className="mt-0.5 text-xs leading-relaxed text-ink-faint">
+          <p className="text-sm font-medium text-ink">{t("settings.remote.password")}</p>
+          <p className="mt-0.5 text-sm leading-relaxed text-ink-faint">
             {t("settings.remote.passwordHint")}
           </p>
         </div>
@@ -152,12 +152,12 @@ export function RemotePage() {
             tone={remoteStatusTone(remote.status)}
             pulse={remote.status === "starting"}
           />
-          <p className="text-xs font-medium text-ink">
+          <p className="text-sm font-medium text-ink">
             {remoteStatusLine(remote)}
           </p>
         </div>
         {remote.webBundleMissing && (
-          <p className="mt-1.5 text-xs leading-relaxed text-copper">
+          <p className="mt-1.5 text-sm leading-relaxed text-copper">
             {t("settings.remote.webBundleMissing")}
             <span className="font-mono">npm run build:web</span>
           </p>
@@ -188,11 +188,11 @@ export function RemotePage() {
                 { value: "lan", label: t("settings.remote.bindLocalNetwork") },
               ] as const}
               onChange={(value) => void setRemoteBind(value)}
-              optionClassName="px-2 text-xs"
+              optionClassName="chrome-label px-2"
             />
           </Row>
           {remote.bind === "lan" && (
-            <p className="pb-2.5 text-xs leading-relaxed text-rose">
+            <p className="pb-2.5 text-sm leading-relaxed text-rose">
               {t("settings.remote.lanWarning")}
             </p>
           )}

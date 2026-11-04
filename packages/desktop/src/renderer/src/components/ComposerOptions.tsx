@@ -210,7 +210,7 @@ export function ComposerOptions({
         <span
           data-pill-segment="thinking"
           title={auto ? autoTitle : undefined}
-          className="shrink-0 font-mono tabular-nums text-iris"
+          className="shrink-0 text-iris"
           style={auto ? undefined : { color: levelColour }}
         >
           {auto ? t("composer.thinking.auto") : levelText}
@@ -286,7 +286,7 @@ export function ComposerOptions({
                         ) : (
                           <span key={i}>
                             <span
-                              className="font-mono transition-colors duration-300 motion-reduce:transition-none"
+                              className="transition-colors duration-300 motion-reduce:transition-none"
                               style={{ color: levelColour }}
                             >
                               {levelText}
@@ -298,7 +298,7 @@ export function ComposerOptions({
                   </span>
                 ) : (
                   <span
-                    className="truncate font-mono transition-colors duration-300 motion-reduce:transition-none"
+                    className="truncate transition-colors duration-300 motion-reduce:transition-none"
                     style={{ color: levelColour }}
                   >
                     {levelText}

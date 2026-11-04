@@ -51,7 +51,7 @@ export function SubagentView({
           title={status}
         />
         <span
-          className="min-w-0 truncate font-display text-sm text-ink"
+          className="min-w-0 truncate text-sm text-ink"
           title={name}
         >
           {name}

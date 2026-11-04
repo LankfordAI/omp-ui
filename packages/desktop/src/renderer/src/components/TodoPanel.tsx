@@ -84,7 +84,7 @@ export function TodoPanel({ tabId }: { tabId: string }) {
         return (
           <section key={pi}>
             <div className="mb-1 flex items-baseline gap-2">
-              <h3 className="min-w-0 flex-1 truncate font-display text-xs text-ink">
+              <h3 className="min-w-0 flex-1 truncate text-xs text-ink">
                 {phase.phase ?? t("todo.panel.phase", { n: pi + 1 })}
               </h3>
               <span

@@ -72,7 +72,7 @@ function ThemeCard({
       )}
     >
       <span className="flex min-w-0 items-center gap-2">
-        <span className="truncate text-xs font-medium text-ink">{theme.label}</span>
+        <span className="truncate text-sm font-medium text-ink">{theme.label}</span>
         <Chip>{theme.dark ? t("settings.appearance.themeDark") : t("settings.appearance.themeLight")}</Chip>
         {imported && <Chip>{t("settings.appearance.themeImported")}</Chip>}
       </span>
@@ -141,8 +141,8 @@ function ImportSection({ imported }: { imported: readonly Theme[] }) {
 
   return (
     <div className="mt-4 border-t border-line-soft pt-3">
-      <h3 className="text-xs font-medium text-ink">{t("settings.appearance.importTitle")}</h3>
-      <p className="mt-0.5 text-xs leading-relaxed text-ink-faint">{t("settings.appearance.importHint")}</p>
+      <h3 className="text-base font-semibold text-ink">{t("settings.appearance.importTitle")}</h3>
+      <p className="mt-0.5 text-sm leading-relaxed text-ink-faint">{t("settings.appearance.importHint")}</p>
       <div className="mt-2 flex items-center gap-2">
         <Button disabled={busy} onClick={() => picker.current?.click()}>
           {busy ? t("settings.appearance.importBusy") : t("settings.appearance.importChoose")}
@@ -160,17 +160,17 @@ function ImportSection({ imported }: { imported: readonly Theme[] }) {
         onChange={(event) => void pick(event)}
       />
       {result?.ok === true && (
-        <p role="status" className="mt-2 text-xs text-ink-mid">
+        <p role="status" className="mt-2 text-sm text-ink-mid">
           {t("settings.appearance.importSaved", { name: result.source.label })}
         </p>
       )}
       {result?.ok === false && result.reason === "parse" && (
-        <p role="alert" className="mt-2 text-xs text-rose">
+        <p role="alert" className="mt-2 text-sm text-rose">
           {t("settings.appearance.importParseFailed", { message: result.message })}
         </p>
       )}
       {result?.ok === false && result.reason === "contrast" && (
-        <div role="alert" className="mt-2 text-xs text-rose">
+        <div role="alert" className="mt-2 text-sm text-rose">
           <p>
             {t("settings.appearance.importContrastFailed", {
               name: result.label,
@@ -193,14 +193,14 @@ function ImportSection({ imported }: { imported: readonly Theme[] }) {
         </div>
       )}
       {error !== null && (
-        <p role="alert" className="mt-2 text-xs text-rose">
+        <p role="alert" className="mt-2 text-sm text-rose">
           {t("settings.appearance.importParseFailed", { message: error })}
         </p>
       )}
       {imported.length > 0 && (
         <ul className="mt-3 flex flex-col gap-1">
           {imported.map((theme) => (
-            <li key={theme.id} className="flex items-center justify-between gap-2 text-xs text-ink-mid">
+            <li key={theme.id} className="flex items-center justify-between gap-2 text-sm text-ink-mid">
               <span className="truncate">{theme.label}</span>
               <Button
                 variant="ghost"
@@ -256,6 +256,7 @@ export function AppearancePage() {
           { value: "system", label: t("settings.appearance.themeModeSystem") },
         ]}
         onChange={(mode) => void setThemeMode(mode)}
+        optionClassName="chrome-label px-2"
       />
       {themeMode === "fixed" ? (
         <div className="mt-3">
@@ -263,13 +264,13 @@ export function AppearancePage() {
         </div>
       ) : (
         <>
-          <p className="mt-2 text-xs leading-relaxed text-ink-faint">
+          <p className="mt-2 text-sm leading-relaxed text-ink-faint">
             {t("settings.appearance.themeModeSystemHint")}
           </p>
-          <p data-testid="theme-now-showing" className="mt-1 text-xs text-ink-mid">
+          <p data-testid="theme-now-showing" className="mt-1 text-sm text-ink-mid">
             {t("settings.appearance.nowShowing", { name: showing.label })}
           </p>
-          <h3 className="mt-3 text-xs font-medium text-ink">{t("settings.appearance.lightTheme")}</h3>
+          <h3 className="mt-3 text-base font-semibold text-ink">{t("settings.appearance.lightTheme")}</h3>
           <div className="mt-2" role="group" aria-label={t("settings.appearance.lightTheme")}>
             <ThemeGrid
               themes={allThemes}
@@ -277,7 +278,7 @@ export function AppearancePage() {
               onPick={(id) => void setLightThemeId(id)}
             />
           </div>
-          <h3 className="mt-3 text-xs font-medium text-ink">{t("settings.appearance.darkTheme")}</h3>
+          <h3 className="mt-3 text-base font-semibold text-ink">{t("settings.appearance.darkTheme")}</h3>
           <div className="mt-2" role="group" aria-label={t("settings.appearance.darkTheme")}>
             <ThemeGrid
               themes={allThemes}
@@ -287,15 +288,15 @@ export function AppearancePage() {
           </div>
         </>
       )}
-      <p className="mt-3 text-xs text-ink-faint">
+      <p className="mt-3 text-sm text-ink-faint">
         {t("settings.appearance.mintNote")}
       </p>
 
       <ImportSection imported={imported} />
 
       <div className="mt-4 border-t border-line-soft pt-3">
-        <h3 className="text-xs font-medium text-ink">{t("settings.appearance.fontFamily")}</h3>
-        <p className="mt-0.5 text-xs leading-relaxed text-ink-faint">
+        <h3 className="text-base font-semibold text-ink">{t("settings.appearance.fontFamily")}</h3>
+        <p className="mt-0.5 text-sm leading-relaxed text-ink-faint">
           {t("settings.appearance.fontFamilyHint")}
         </p>
         <div className="mt-2 grid grid-cols-2 gap-2">
@@ -315,7 +316,7 @@ export function AppearancePage() {
                     : "border-line bg-raised hover:border-line-strong",
                 )}
               >
-                <span className="text-xs font-medium text-ink">{f.label}</span>
+                <span className="text-sm font-medium text-ink">{f.label}</span>
                 {/* Inline styles are the one sanctioned exception here: these
                     samples paint a family that is NOT the active one, so the
                     live CSS tokens cannot express them. */}
@@ -338,10 +339,10 @@ export function AppearancePage() {
       </div>
 
       <div className="mt-4 border-t border-line-soft pt-3">
-        <h3 className="text-xs font-medium text-ink">
+        <h3 className="text-base font-semibold text-ink">
           {t("settings.appearance.transcriptWidth")}
         </h3>
-        <p className="mt-0.5 text-xs leading-relaxed text-ink-faint">
+        <p className="mt-0.5 text-sm leading-relaxed text-ink-faint">
           {t("settings.appearance.transcriptWidthHint")}
         </p>
         <div className="mt-2 grid grid-cols-3 gap-2">
@@ -364,7 +365,7 @@ export function AppearancePage() {
                     : "border-line bg-raised hover:border-line-strong",
                 )}
               >
-                <span className="text-xs font-medium text-ink">{t(card.label)}</span>
+                <span className="text-sm font-medium text-ink">{t(card.label)}</span>
                 <span className={cn("mt-2 block h-1.5 rounded bg-line-strong", card.bar)} />
               </button>
             );
@@ -373,8 +374,8 @@ export function AppearancePage() {
       </div>
 
       <div className="mt-4 border-t border-line-soft pt-3">
-        <h3 className="text-xs font-medium text-ink">{t("settings.appearance.glassChrome")}</h3>
-        <p className="mt-0.5 text-xs leading-relaxed text-ink-faint">
+        <h3 className="text-base font-semibold text-ink">{t("settings.appearance.glassChrome")}</h3>
+        <p className="mt-0.5 text-sm leading-relaxed text-ink-faint">
           {t("settings.appearance.glassChromeHint")}
         </p>
         <div className="mt-2 grid grid-cols-3 gap-2">
@@ -395,8 +396,8 @@ export function AppearancePage() {
                     : "border-line bg-raised hover:border-line-strong",
                 )}
               >
-                <span className="text-xs font-medium text-ink">{t(card.label)}</span>
-                <span className="mt-1 block text-xs leading-4 text-ink-dim">{t(card.hint)}</span>
+                <span className="text-sm font-medium text-ink">{t(card.label)}</span>
+                <span className="mt-1 block text-sm leading-snug text-ink-dim">{t(card.hint)}</span>
               </button>
             );
           })}

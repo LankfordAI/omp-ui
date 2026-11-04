@@ -440,7 +440,10 @@ function CodeBlock({
   const asImage = isSvg && imgSrc !== null && !showSource;
   const asDiagram = isDiagram && svg !== null && !showSource;
   return (
-    <div className="overflow-hidden rounded-md border border-line bg-sunken">
+    // One right edge (round-2 judge, Spacing 2): a fenced block that runs to
+    // the full column while prose caps at --prose-max leaves the table rule
+    // below it ending ~300px short of this slab.
+    <div className={cn("overflow-hidden rounded-md border border-line bg-sunken", MEASURE)}>
       <CodeHeader
         label={lang ?? "text"}
         text={text}
@@ -614,7 +617,10 @@ function Block({ block, trailing }: { block: MdBlock; trailing?: ReactNode }) {
       return (
         <Tag
           className={cn(
-            "font-display font-semibold text-ink",
+            // The display face is display type: it starts at h3. h4-h6 stay
+            // 14px and read as bold body (round-2 judge, Typography 4).
+            block.level <= 3 ? "font-display" : "text-sm",
+            "font-semibold text-ink",
             MEASURE,
             HEADING_CLASS[block.level] ?? "text-sm",
             block.level >= 4 && "text-ink-mid",

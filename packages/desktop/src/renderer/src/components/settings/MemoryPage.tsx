@@ -26,7 +26,7 @@ function MemoryBankPath({
   const t = useT();
   return (
     <div className="grid grid-cols-[4.5rem_minmax(0,1fr)_auto] items-baseline gap-2">
-      <span className="text-xs uppercase tracking-wide text-ink-faint">
+      <span className="chrome-label text-ink-faint">
         {label}
       </span>
       <span className="truncate font-mono text-xs text-ink-mid" title={path}>
@@ -53,7 +53,7 @@ function MemoryOverviewPanel({
     return (
       <Panel className="px-3 py-2.5">
         <Label>{t("settings.memory.resolvedMemory")}</Label>
-        <p className="mt-1 text-xs leading-relaxed text-ink-faint">
+        <p className="mt-1 text-sm leading-relaxed text-ink-faint">
           {t("settings.memory.focusTab")}
         </p>
       </Panel>
@@ -71,7 +71,7 @@ function MemoryOverviewPanel({
     return (
       <Panel className="px-3 py-2.5">
         <div className="flex items-center justify-between gap-3">
-          <p className="text-xs leading-relaxed text-rose">{load.message}</p>
+          <p className="text-sm leading-relaxed text-rose">{load.message}</p>
           <Button size="xs" onClick={retry}>{t("settings.memory.retry")}</Button>
         </div>
       </Panel>
@@ -95,12 +95,12 @@ function MemoryOverviewPanel({
       </div>
       {overview.error !== null && (
         <div className="flex items-center justify-between gap-3 rounded border border-rose-dim/50 bg-rose-wash px-2 py-1.5">
-          <p className="text-xs leading-relaxed text-rose">{overview.error}</p>
+          <p className="text-sm leading-relaxed text-rose">{overview.error}</p>
           <Button size="xs" onClick={retry}>{t("settings.memory.retry")}</Button>
         </div>
       )}
       <div className="grid grid-cols-[4.5rem_minmax(0,1fr)] items-baseline gap-2">
-        <span className="text-xs uppercase tracking-wide text-ink-faint">{t("settings.memory.base")}</span>
+        <span className="chrome-label text-ink-faint">{t("settings.memory.base")}</span>
         <span className="truncate font-mono text-xs text-ink-mid" title={overview.baseDir}>
           {overview.baseDir}
         </span>
@@ -117,7 +117,7 @@ function MemoryOverviewPanel({
           exists={overview.project.exists}
         />
       ) : (
-        <p className="text-xs leading-relaxed text-ink-faint">
+        <p className="text-sm leading-relaxed text-ink-faint">
           {overview.scoping === "global"
             ? t("settings.memory.globalBank")
             : t("settings.memory.noProjectBank")}
@@ -208,8 +208,8 @@ export function MemoryPage({
   return (
     <div className="space-y-3 px-4 py-3">
       <div>
-        <p className="text-xs font-medium text-ink">{t("settings.memory.title")}</p>
-        <p className="mt-0.5 text-xs leading-relaxed text-ink-faint">
+        <p className="text-base font-semibold text-ink">{t("settings.memory.title")}</p>
+        <p className="mt-0.5 text-sm leading-relaxed text-ink-faint">
           {t("settings.memory.titleHint")}
         </p>
       </div>
@@ -225,7 +225,7 @@ export function MemoryPage({
             <Label>{MEMORY_SETTING_GROUP.title}</Label>
           </div>
           {MEMORY_SETTING_GROUP.description !== undefined && (
-            <p className="mt-0.5 text-xs leading-relaxed text-ink-faint">
+            <p className="mt-0.5 text-sm leading-relaxed text-ink-faint">
               {MEMORY_SETTING_GROUP.description}
             </p>
           )}

@@ -193,19 +193,13 @@ describe("ComposerActions sheet", () => {
 describe("ComposerActions context ring", () => {
   const ring = { fraction: 0.5, title: "128,000 of 256,000 context tokens (50.00%)" };
 
-  it("idle desktop: the round send button wears the ring and appends the readout to its title", () => {
+  it("idle desktop: the round send button is bare — no ring at rest", () => {
     mount({ layout: "desktop", contextRing: ring });
     const all = buttons();
     expect(all).toHaveLength(1);
-    const wrapper = all[0]!.parentElement!;
-    expect(wrapper.tagName).toBe("SPAN");
-    const svg = wrapper.querySelector("svg[data-progress-ring]");
-    expect(svg).not.toBeNull();
-    const fill = svg!.querySelectorAll("circle")[1]!;
-    const dash = Number.parseFloat(fill.getAttribute("stroke-dasharray")!.split(" ")[0]!);
-    expect(dash).toBeGreaterThan(0);
-    expect(all[0]!.title.endsWith(`\n${ring.title}`)).toBe(true);
-    expect(all[0]!.title.startsWith("send (enter) · shift+enter for a newline\n")).toBe(true);
+    expect(document.body.querySelector("svg[data-progress-ring]")).toBeNull();
+    expect(all[0]!.parentElement!.tagName).not.toBe("SPAN");
+    expect(all[0]!.title).toBe("send (enter) · shift+enter for a newline");
   });
 
   it("idle desktop without the readout renders plain unwrapped controls", () => {

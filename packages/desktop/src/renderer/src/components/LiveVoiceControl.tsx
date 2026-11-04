@@ -163,7 +163,7 @@ export function LiveVoiceControl({
           className={cn(CAPSULE_SEGMENT, "text-xs font-mono")}
         >
           <Dot tone={live?.error != null ? "rose" : "neutral"} />
-          live
+          {t("composer.live.idlePill")}
         </button>
       </Capsule>
     );

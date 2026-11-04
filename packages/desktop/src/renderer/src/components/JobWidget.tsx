@@ -196,7 +196,7 @@ function WidgetBlock({ block }: { block: AsyncJobWidgetBlock }) {
 export function JobWidgetBlocks({ widget }: { widget: AsyncJobWidget }) {
   return (
     <section data-job-widget aria-label={widget.title} className="mt-1 space-y-1.5 pl-3">
-      <h4 className="text-xs uppercase tracking-[0.08em] text-ink-faint">{widget.title}</h4>
+      <h4 className="chrome-label text-ink-faint">{widget.title}</h4>
       {widget.blocks.map((block, index) => (
         <WidgetBlock key={`${index}-${block.kind}`} block={block} />
       ))}

@@ -60,7 +60,7 @@ export function RestrictedFoldersSection({
         <Label>{t("settings.omp.restrictedFolders")}</Label>
         {layerBadge(entry.layer)}
       </div>
-      <p className="mt-0.5 text-xs leading-relaxed text-ink-faint">
+      <p className="mt-0.5 text-sm leading-relaxed text-ink-faint">
         {t("settings.omp.restrictedFoldersHint")}
       </p>
       {entry.layer === "project" && (

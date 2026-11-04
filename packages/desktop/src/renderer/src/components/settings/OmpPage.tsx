@@ -219,7 +219,7 @@ export function OmpPage({
           <section key={group.title} className="px-4 pt-3">
             <Label>{group.title}</Label>
             {group.description !== undefined && (
-              <p className="mt-0.5 text-xs leading-relaxed text-ink-faint">
+              <p className="mt-0.5 text-sm leading-relaxed text-ink-faint">
                 {group.description}
               </p>
             )}

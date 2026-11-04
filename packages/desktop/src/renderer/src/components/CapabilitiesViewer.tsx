@@ -540,7 +540,7 @@ export function McpServersPanel({
               </ul>
               {visibleRuntimeOnly.length > 0 && (
                 <div className="mt-1.5">
-                  <p className="px-4 pt-2 pb-1 text-xs font-semibold uppercase tracking-[0.14em] text-ink-faint">
+                  <p className="px-4 pt-2 pb-1 chrome-label text-ink-faint">
                     {t("viewer.mcp.runtimeOnly")}
                   </p>
                   <ul className="divide-y divide-line-soft border-t border-line-soft">
@@ -1541,7 +1541,7 @@ export function CapabilitiesViewer({
   return (
     <Modal onClose={closeCapabilitiesViewer} width="w-[42rem]" labelledBy="capabilities-viewer-title">
       <header className="border-b border-line px-4 py-3.5">
-        <p className="mb-1 font-mono text-xs uppercase tracking-[0.16em] text-ink-faint">
+        <p className="mb-1 chrome-label text-ink-faint">
           {scopeCwd === null ? t("viewer.header.globalKicker") : t("viewer.header.projectKicker")}
         </p>
         <h2 id="capabilities-viewer-title" className="font-display text-base font-semibold text-ink">

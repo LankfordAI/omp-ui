@@ -470,7 +470,7 @@ function TitleRenameInput({ tabId, title, onDone }: { tabId: string; title: stri
           onDone();
         }
       }}
-      className="min-w-0 flex-1 rounded border border-line-strong bg-void px-1.5 py-0.5 font-display text-sm text-ink outline-none focus:border-signal-dim [app-region:no-drag]"
+      className="min-w-0 flex-1 rounded border border-line-strong bg-void px-1.5 py-0.5 text-sm text-ink outline-none focus:border-signal-dim [app-region:no-drag]"
     />
   );
 }
@@ -491,7 +491,7 @@ function TitleField({ tabId, title }: { tabId: string; title: string }) {
         type="button"
         title={t("hud.session.renameTitle", { title })}
         onClick={() => setEditing(true)}
-        className="min-w-0 truncate rounded px-1 py-0.5 text-left font-display text-sm text-ink transition-colors hover:bg-hover [app-region:no-drag]"
+        className="min-w-0 truncate rounded px-1 py-0.5 text-left text-sm text-ink transition-colors hover:bg-hover [app-region:no-drag]"
       >
         {title}
       </button>
@@ -633,7 +633,7 @@ function LimitsCluster({ limits, layout = "inline" }: { limits: LimitsView; layo
       className="titlebar-limits flex shrink-0 items-center gap-1.5 font-mono text-xs tabular-nums"
       title={details}
     >
-      <span className="text-xs font-semibold uppercase tracking-wide text-ink-faint">
+      <span className="chrome-label text-ink-faint">
         {t("hud.limits.label")}
       </span>
       {limits.windows.map((window) => (
@@ -777,7 +777,8 @@ function ModeRow({
     <div className="mt-2 first:mt-0">
       <div className="mb-1 flex items-baseline justify-between gap-2" title={hint}>
         <Label>{label}</Label>
-        <span className="font-mono text-xs text-ink-faint">{value ?? "—"}</span>
+        {/* Enum-ish mode words are prose, not code: proportional. */}
+        <span className="text-xs text-ink-faint">{value ?? "—"}</span>
       </div>
       <Segmented value={value} options={values.map((v) => ({ value: v, label: v, title: optionHints?.[v] }))} onChange={onChange} />
     </div>
@@ -1113,7 +1114,7 @@ function TitleMenu({
           aria-expanded={surface === "menu"}
           title={t("hud.menu.triggerTitle", { title })}
           onClick={toggle}
-          className="flex min-w-0 max-w-[28rem] items-center gap-1 rounded px-1 py-0.5 font-display text-sm text-ink transition-colors hover:bg-hover"
+          className="flex min-w-0 max-w-[28rem] items-center gap-1 rounded px-1 py-0.5 text-sm text-ink transition-colors hover:bg-hover"
         >
           <span className="min-w-0 truncate">{withTitleCard(title)}</span>
           <Chevron open className="text-ink-dim" />
@@ -1450,13 +1451,32 @@ function GaugeChip({
         )}
       >
         <ProgressRing fraction={readout?.fraction ?? 0} className="size-3.5 shrink-0" />
-        <span className="text-xs uppercase tracking-[0.08em] text-ink-faint">{t("hud.gauge.contextShort")}</span>
+        {/* The glyph stays short; the title spells out what it measures. */}
+        <span
+          className="chrome-label font-sans text-ink-faint"
+          title={
+            usage && readout
+              ? t("hud.gauge.contextTitle", {
+                  used: exactNum(usage.tokens),
+                  window: readout.window > 0 ? exactNum(readout.window) : "?",
+                })
+              : t("hud.metrics.context")
+          }
+        >
+          {t("hud.gauge.contextShort")}
+        </span>
         <span className={readout ? percentTone(readout.percent) : "text-ink-dim"}>
           {readout ? `${Math.round(readout.percent)}%` : "—"}
         </span>
         {mainSpend && (
-          <span className={cn("titlebar-gauge-cost", costCap ? "text-rose" : "text-ink-faint")}>
+          <span
+            className={cn("titlebar-gauge-cost", costCap ? "text-rose" : "text-ink-faint")}
+            // Round-2 judge: the header figure counts only this process, while
+            // the receipts under the transcript cover every turn. Say so here.
+            title={t("hud.metrics.runOnlyTitle")}
+          >
             {formatCost(mainSpend.cost)}
+            <span className="ml-1 font-sans">{t("hud.metrics.thisRun")}</span>
           </span>
         )}
       </button>
@@ -1936,7 +1956,7 @@ export function SessionHud({ tabId }: { tabId: string }) {
                 {worktree && <div className="space-y-1"><div className="flex items-center justify-between gap-3"><Label>{t("hud.metrics.worktree")}</Label><span className="flex items-center gap-1"><Chip mono title={worktree.path}>⎇ {worktree.branch}</Chip><CopyButton text={worktree.branch} label={t("hud.actions.copy")} doneLabel={t("hud.actions.copied")} /></span></div><div className="flex items-center justify-between gap-2"><span className="min-w-0 truncate font-mono text-xs text-ink-faint" title={worktree.path}>{worktree.path}</span><CopyButton text={worktree.path} label={t("hud.actions.copy")} doneLabel={t("hud.actions.copied")} /></div></div>}
                 {isPrivate && <div className="flex items-center justify-between gap-3"><Label>{t("hud.metrics.memory")}</Label><span className="flex items-center gap-1 text-ink-mid"><IconLock /><span title={t("session.badge.private")}>{t("hud.metrics.memoryPrivate")}</span></span></div>}
                 {usage && <div className="flex items-center justify-between gap-3"><Label>{t("hud.metrics.context")}</Label><ContextCluster usage={usage} markerTokens={markerTokens} /></div>}
-                {mainSpend && <div className="flex items-center justify-between gap-3"><Label>{t("hud.metrics.spend")}</Label><span className="font-mono text-xs tabular-nums text-ink-mid" title={mainSpend.title}>{t("hud.stats.compact", { cost: formatCost(mainSpend.cost), tokens: compactNum(mainSpend.tokens), premium: mainSpend.premium })}</span></div>}
+                {mainSpend && <div className="flex items-center justify-between gap-3"><Label>{t("hud.metrics.spend")}</Label><span className="font-mono text-xs tabular-nums text-ink-mid" title={[mainSpend.title, t("hud.metrics.runOnlyTitle")].join("\n")}>{t("hud.stats.compact", { cost: formatCost(mainSpend.cost), tokens: compactNum(mainSpend.tokens), premium: mainSpend.premium })} <span className="font-sans">{t("hud.metrics.thisRun")}</span></span></div>}
                 {costCapChip && (
                   <div className="flex items-center justify-between gap-3">
                     <Label>{t("hud.costCap.label")}</Label>

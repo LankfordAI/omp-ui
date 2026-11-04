@@ -33,7 +33,7 @@ export function AttentionStack({
       aria-label={t("sidebar.attention.heading", { n: entries.length })}
       className="mb-1.5 space-y-0.5 rounded-md border border-line bg-raised/60 p-1"
     >
-      <div className="px-2 pt-1.5 pb-1 text-xs font-semibold uppercase tracking-[0.08em] text-ink-dim">
+      <div className="chrome-label px-2 pt-1.5 pb-1 text-ink-dim">
         {t("sidebar.attention.heading", { n: entries.length })}
       </div>
       {entries.map((a) => {
@@ -54,14 +54,14 @@ export function AttentionStack({
               className={cn("absolute inset-y-1.5 left-0 w-0.5 rounded-full", TONE_DOT[face.tone])}
             />
             <span className="flex min-w-0 flex-col gap-0.5">
-              <span className={cn("font-mono text-xs", face.textClass)}>{t(face.labelKey)}</span>
+              <span className={cn("text-xs", face.textClass)}>{t(face.labelKey)}</span>
               <span className="line-clamp-1 break-words text-sm leading-snug text-ink">
                 {a.entry.session.title}
               </span>
               <span className="line-clamp-1 break-words text-xs text-ink-mid">
                 {a.mark.snippet ?? t("sidebar.attention.fallback")}
               </span>
-              <span className="truncate font-mono text-xs text-ink-faint">
+              <span className="truncate text-xs tabular-nums text-ink-faint">
                 {projectLabel} · {relativeTime(new Date(a.mark.atMs).toISOString())}
               </span>
             </span>

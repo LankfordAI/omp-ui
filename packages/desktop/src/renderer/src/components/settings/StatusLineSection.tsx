@@ -50,7 +50,7 @@ export function StatusLineSection({
   return (
     <section className="px-4 pt-3">
       <Label>{t("settings.omp.statusLine")}</Label>
-      <p className="mt-0.5 text-xs leading-relaxed text-ink-faint">
+      <p className="mt-0.5 text-sm leading-relaxed text-ink-faint">
         {t("settings.omp.statusLineHint")}
       </p>
       <div className="mt-1 divide-y divide-line-soft">

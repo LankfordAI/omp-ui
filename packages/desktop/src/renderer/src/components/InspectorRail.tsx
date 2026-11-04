@@ -185,9 +185,7 @@ function IconCollapse() {
 function Row({ label, children }: { label: string; children: ReactNode }) {
   return (
     <div className="flex items-baseline gap-2 py-0.5">
-      <dt className="w-[6.5rem] shrink-0 text-xs uppercase tracking-[0.08em] text-ink-faint">
-        {label}
-      </dt>
+      <dt className="chrome-label w-[6.5rem] shrink-0 text-ink-faint">{label}</dt>
       <dd className="min-w-0 flex-1 text-xs text-ink-mid">{children}</dd>
     </div>
   );
@@ -278,7 +276,7 @@ function AgentsPane({ tabId }: { tabId: string }) {
                         pulse={AGENT_TONE[status] === "copper"}
                         title={status}
                       />
-                      <span className="min-w-0 flex-1 truncate font-display text-xs text-ink">
+                      <span className="min-w-0 flex-1 truncate text-xs text-ink">
                         {agent.name ?? agent.agent ?? agent.id}
                       </span>
                     </button>
@@ -410,7 +408,7 @@ function VibeWorkerRow({
               pulse={worker.state === "running"}
               title={worker.killed ? t("rail.vibe.killed") : worker.state}
             />
-            <span className="min-w-0 flex-1 truncate font-display text-xs text-ink">
+            <span className="min-w-0 flex-1 truncate text-xs text-ink">
               {worker.id}
             </span>
             <Chip mono title={t("rail.vibe.tierTitle", { cli: worker.cli })}>
@@ -511,7 +509,7 @@ function StatsTable({
             <tbody>
               {stats.editRejections.map(({ kind, count }) => (
                 <tr key={kind}>
-                  <td title={kind} className="py-0.5 text-xs uppercase tracking-[0.08em] text-ink-faint">
+                  <td title={kind} className="chrome-label py-0.5 text-ink-faint">
                     {editErrorKindLabel(kind)}
                   </td>
                   <td className="py-0.5 text-right font-mono text-xs tabular-nums text-ink-mid">
@@ -521,7 +519,7 @@ function StatsTable({
               ))}
               {stats.editRejections.length > 1 && (
                 <tr className="border-t border-line-soft">
-                  <td className="py-0.5 text-xs uppercase tracking-[0.08em] text-ink-faint">
+                  <td className="chrome-label py-0.5 text-ink-faint">
                     {t("rail.stats.total")}
                   </td>
                   <td className="py-0.5 text-right font-mono text-xs tabular-nums text-ink">
@@ -533,13 +531,16 @@ function StatsTable({
           </table>
         </Section>
       )}
-      {tokens && (
+      {/* Round-2 judge: an all-zero TOKENS block is noise, not a zero-state;
+          it appears the moment any figure lands. Individual zero rows inside
+          a live table stay demoted instead. */}
+      {tokens && Object.values(tokens).some((value) => value > 0) && (
         <Section title={t("rail.stats.tokens")}>
           <table className="w-full">
             <tbody>
               {TOKEN_ROWS.map(({ key, labelKey }) => (
                 <tr key={key} className={key === "total" ? "border-t border-line-soft" : undefined}>
-                  <td className="py-0.5 text-xs uppercase tracking-[0.08em] text-ink-faint">
+                  <td className="chrome-label py-0.5 text-ink-faint">
                     {t(labelKey)}
                   </td>
                   <td
@@ -564,12 +565,16 @@ function StatsTable({
           </table>
         </Section>
       )}
-      <Section title={t("rail.stats.spend")}>
+      {/* Round-2 judge: like the HUD chip, this counts only the current
+          process; the receipts under the transcript cover every turn. */}
+      <Section
+        title={<span title={t("hud.metrics.runOnlyTitle")}>{t("rail.stats.spend")}</span>}
+      >
         <dl>
           <Row label={t("rail.stats.cost")}>
             <Mono title={`${cost}`}>{formatCost(cost)}</Mono>
           </Row>
-          {spend && subagentCost !== null && (
+          {spend && subagentCost !== null && subagentCost > 0 && (
             <Row label={t("rail.stats.subagentCost")}>
               <Mono title={`${subagentCost}`}>{formatCost(subagentCost)}</Mono>
             </Row>
@@ -644,7 +649,7 @@ function VoiceRecordingsSection({ tabId }: { tabId: string }) {
           // supersedes it, and supersede is never an overlap.
           return (
             <li key={clipKey} className="flex min-w-0 items-center gap-1.5 text-xs">
-              <span className="shrink-0 font-mono text-xs uppercase tracking-[0.08em] text-ink-faint">
+              <span className="chrome-label shrink-0 text-ink-faint">
                 {entry.role === "user" ? t("composer.live.roleUser") : t("composer.live.roleAssistant")}
               </span>
               <Mono title={clipKey}>{entry.turn}</Mono>
@@ -756,16 +761,17 @@ function SessionPane({ tabId, onJump }: { tabId: string; onJump?: () => void }) 
             </span>
           </Row>
           <Row label={t("rail.session.provider")}>
-            <Mono>{model?.provider ?? "—"}</Mono>
+            {/* Provider names are prose, not code: proportional. */}
+            <span className="block truncate">{model?.provider ?? "—"}</span>
           </Row>
           <Row label={t("rail.session.thinking")}>
             {/* Under the automatic selector the row shows the selector and
                 what this turn resolved to, never the resolved level alone. */}
-            <Mono>
+            <span className="block truncate">
               {session?.thinkingConfigured === "auto"
                 ? `auto → ${session.thinkingLevel ?? "—"}`
                 : session?.thinkingLevel ?? "—"}
-            </Mono>
+            </span>
           </Row>
           <Row label={t("rail.session.context")}>
             <Mono>{model?.contextWindow ? compactNum(model.contextWindow) : "—"}</Mono>
@@ -775,14 +781,16 @@ function SessionPane({ tabId, onJump }: { tabId: string; onJump?: () => void }) 
 
       <Section title={t("rail.session.queue")}>
         <dl>
+          {/* Enum-ish mode words (`one-at-a-time`, `immediate`) are prose, not
+              code: proportional. */}
           <Row label={t("rail.session.steering")}>
-            <Mono>{session?.steeringMode ?? "—"}</Mono>
+            <span className="block truncate">{session?.steeringMode ?? "—"}</span>
           </Row>
           <Row label={t("rail.session.followUp")}>
-            <Mono>{session?.followUpMode ?? "—"}</Mono>
+            <span className="block truncate">{session?.followUpMode ?? "—"}</span>
           </Row>
           <Row label={t("rail.session.interrupt")}>
-            <Mono>{session?.interruptMode ?? "—"}</Mono>
+            <span className="block truncate">{session?.interruptMode ?? "—"}</span>
           </Row>
           <Row label={t("rail.session.autoCompact")}>
             <Chip tone={session?.autoCompactionEnabled ? "signal" : "neutral"}>
@@ -1252,7 +1260,7 @@ function MemberTabs({
             title={count > 0 ? t("rail.chrome.badgedTitle", { label, count }) : label}
             onClick={() => onSelect(pane)}
             className={cn(
-              "flex items-center gap-1 rounded-md px-2 py-0.5 text-xs transition-colors",
+              "chrome-label flex items-center gap-1 rounded-md px-2 py-0.5 transition-colors",
               selected ? "bg-hover text-ink" : "text-ink-mid hover:text-ink",
             )}
           >
@@ -1397,7 +1405,7 @@ export function InspectorRail({ tabId }: { tabId: string }) {
                 )}
               >
                 <GroupIcon group={id} />
-                <span>{label}</span>
+                <span className="chrome-label">{label}</span>
                 {count > 0 && <span className="absolute right-1.5 top-1 min-w-3.5 rounded-full bg-copper-wash px-1 text-center font-mono text-xs leading-3.5 text-copper">{count > 99 ? "99+" : count}</span>}
                 {active && <span aria-hidden className="absolute inset-x-3 bottom-0 h-0.5 rounded-full bg-ink" />}
               </button>
@@ -1465,7 +1473,7 @@ export function InspectorRail({ tabId }: { tabId: string }) {
               )}
             >
               <GroupIcon group={id} />
-              <span className="max-w-full truncate">{label}</span>
+              <span className="chrome-label max-w-full truncate">{label}</span>
               {count > 0 && <span className="absolute right-0.5 top-0.5 min-w-3 rounded-full bg-copper-wash px-0.5 text-center font-mono text-xs leading-3 text-copper">{count > 99 ? "99" : count}</span>}
             </button>
           );

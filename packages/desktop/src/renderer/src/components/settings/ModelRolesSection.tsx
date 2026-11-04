@@ -86,11 +86,11 @@ export function ModelRolesSection({
         {layerBadge(entry.layer)}
       </div>
       {entry.description !== "" && (
-        <p className="mt-0.5 text-xs leading-relaxed text-ink-faint">
+        <p className="mt-0.5 text-sm leading-relaxed text-ink-faint">
           {entry.description}
         </p>
       )}
-      <p className="mt-0.5 text-xs leading-relaxed text-ink-faint">
+      <p className="mt-0.5 text-sm leading-relaxed text-ink-faint">
         {t("settings.omp.modelRolesHint")}
       </p>
       <div className="mt-1.5 divide-y divide-line-soft">
@@ -126,7 +126,7 @@ export function ModelRolesSection({
         />
       </div>
       {paletteRole !== null && catalog.status === "loading" && (
-        <p className="mt-1.5 text-xs text-ink-faint">{t("settings.omp.modelRoleReading")}</p>
+        <p className="mt-1.5 text-sm text-ink-faint">{t("settings.omp.modelRoleReading")}</p>
       )}
       {paletteRole !== null &&
         catalog.status === "loaded" &&

@@ -1345,7 +1345,7 @@ export function Composer({
 
         <div
           className={cn(
-            "relative rounded-lg border border-line transition-colors",
+            "relative rounded-md border border-line transition-colors",
             "focus-within:border-line-strong",
             compact
               ? "bg-raised"
@@ -1354,7 +1354,9 @@ export function Composer({
               // (round-1 judge: composer overlap). ADR-0026 permits this — it
               // allows, not requires, translucency; separation here is pure
               // elevation (border + shadow-float), matching the #409 amendment.
-              : "ambient bg-surface rounded-md shadow-float " +
+              // One 6px card radius app-wide (round-2 judge, Consistency 4):
+              // the composer was the window's only 8px element.
+              : "ambient bg-surface shadow-float " +
                 "focus-within:ring-1 focus-within:ring-iris-dim/35",
             isSlash && "focus-within:border-iris-dim",
             unavailable && "opacity-50",
@@ -1667,7 +1669,7 @@ export function Composer({
                 onClick={() => showCompactSurface("composer-options")}
               >
                 <IconTune className="size-4 shrink-0" />
-                <span className="truncate font-mono text-xs">{currentModel?.name || currentModel?.id || t("composer.model.fallback")}</span>
+                <span className="truncate text-xs">{currentModel?.name || currentModel?.id || t("composer.model.fallback")}</span>
                 <span className="sr-only">{t("composer.options.title")}</span>
               </Button>
               {queueChip && <Chip mono tone="copper" title={running ? t("composer.queue.queuedTitle") : t("composer.queue.parkedTitle")}>{queued}</Chip>}

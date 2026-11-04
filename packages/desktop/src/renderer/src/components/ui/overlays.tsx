@@ -207,7 +207,7 @@ export function Sheet({
             </div>
           )}
           <div className="flex min-h-11 items-center gap-3 px-[max(1rem,var(--safe-left))] pr-[max(0.5rem,var(--safe-right))]">
-            <h2 className="min-w-0 flex-1 truncate font-display text-sm font-semibold text-ink">{label}</h2>
+            <h2 className="min-w-0 flex-1 truncate text-sm font-semibold text-ink">{label}</h2>
             <IconButton label={t("common.overlay.closeNamed", { label })} onClick={onClose} className="size-11">
               <IconClose />
             </IconButton>

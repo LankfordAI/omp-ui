@@ -3,7 +3,7 @@ import { cn } from "../../lib/cn";
 /** The selected-choice glyph. Rendered by Button, never by callers. */
 export function CheckIcon() {
   return (
-    <svg viewBox="0 0 16 16" fill="none" strokeWidth={1.8} aria-hidden className="size-3.5 shrink-0">
+    <svg viewBox="0 0 16 16" fill="none" strokeWidth={1.4} aria-hidden className="size-3.5 shrink-0">
       <path d="M3.5 8.5l3 3 6-7" stroke="currentColor" strokeLinecap="round" strokeLinejoin="round" />
     </svg>
   );
@@ -194,7 +194,7 @@ export function StarIcon({ filled, className }: { filled?: boolean; className?: 
         d="M8 1.5l1.76 3.57 3.94.57-2.85 2.78.67 3.93L8 10.27 4.48 12.35l.67-3.93L2.3 5.64l3.94-.57L8 1.5z"
         fill={filled ? "currentColor" : "none"}
         stroke="currentColor"
-        strokeWidth={1.2}
+        strokeWidth={1.4}
         strokeLinejoin="round"
       />
     </svg>

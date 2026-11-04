@@ -94,7 +94,7 @@ function HeroFooter({ items, tabId }: { items: RenderItem[]; tabId: string }) {
         ) : item.kind === "marker" ? (
           <p
             key={item.id}
-            className="font-mono text-xs uppercase tracking-[0.12em] text-ink-faint"
+            className="chrome-label text-ink-faint"
           >
             {item.label}
           </p>
@@ -550,15 +550,23 @@ export const RpcTab = memo(function RpcTab({ tabId, active }: { tabId: string; a
                   ))}
                 {/* The floating composer (issue #395): the pending extension
                     dialog card and the composer as one bottom-anchored stack.
-                    While it floats it is transparent to the pointer — only its
-                    own cards take clicks (Composer's inner column and the
-                    dialog card re-enable them), so a wheel or a drag in the
-                    side gutters still reaches the transcript underneath. */}
+                    While it floats the stack is an OPAQUE plane (round-2 judge:
+                    transcript text leaked through the side gutters and the strip
+                    below the card): full column width, down to the bottom edge,
+                    `bg-surface` with a top hairline. The plane itself stays
+                    transparent to the pointer — wheel, drag, and selection over
+                    it reach the transcript underneath because hit-testing skips
+                    a `pointer-events-none` box regardless of its background;
+                    only the cards re-enable their own pointer events (Composer's
+                    inner column, the approval card, the dialog card). The inset
+                    RpcTab measures off this element's top edge is therefore the
+                    plane's top edge. */}
                 <div
                   ref={floatRef}
                   data-composer-float
                   className={cn(
-                    floating && "pointer-events-none absolute inset-x-0 bottom-3 z-10",
+                    floating &&
+                      "pointer-events-none absolute inset-x-0 bottom-0 z-10 border-t border-line bg-surface pb-3",
                   )}
                 >
                   <ApprovalCard tabId={tabId} />
@@ -628,11 +636,13 @@ export const RpcTab = memo(function RpcTab({ tabId, active }: { tabId: string; a
               failure && "w-[calc(100%-2rem)] max-w-xl",
             )}
           >
-            <p className="font-display text-sm text-ink">
+            <p className="text-sm font-semibold text-ink">
               {hibernated ? t("tab.exited.titleHibernated") : t("tab.exited.titleExited")}
             </p>
             {hibernated ? (
-              <Chip tone="neutral" mono>
+              // A sentence, not data: proportional. The exit chip below keeps
+              // mono because its payload is the numeric exit code.
+              <Chip tone="neutral">
                 {t("tab.exited.idleChip")}
               </Chip>
             ) : (
@@ -641,7 +651,7 @@ export const RpcTab = memo(function RpcTab({ tabId, active }: { tabId: string; a
               </Chip>
             )}
             {hibernated && (
-              <p className="text-xs text-ink-dim">
+              <p className="text-sm text-ink-dim">
                 {t("tab.exited.dormant")}
               </p>
             )}

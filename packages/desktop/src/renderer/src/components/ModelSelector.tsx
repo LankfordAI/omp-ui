@@ -424,7 +424,7 @@ export function ModelPalette(props: ModelPaletteProps) {
                       {inherited && <Dot tone="signal" title={t("composer.model.inUse")} />}
                     </span>
                     <span className="min-w-0 flex-1">
-                      <span className="block truncate font-display text-sm text-ink">
+                      <span className="block truncate text-sm text-ink">
                         {t("composer.model.useConfigured")}
                       </span>
                       <span className="block truncate font-mono text-xs text-ink-faint">
@@ -460,7 +460,7 @@ export function ModelPalette(props: ModelPaletteProps) {
                       {isCurrent && <Dot tone="signal" title={t("composer.model.inUse")} />}
                     </span>
                     <span className="min-w-0 flex-1">
-                      <span className="block truncate font-display text-sm text-ink">
+                      <span className="block truncate text-sm text-ink">
                         {isSessionRow
                           ? t("composer.model.subagentSessionModel")
                           : t("composer.model.subagentOmpDefault")}
@@ -506,7 +506,7 @@ export function ModelPalette(props: ModelPaletteProps) {
                       )}
                     </span>
                     <span className="model-palette-name min-w-0 flex-1">
-                      <span className="block truncate font-display text-sm text-ink">{model.name}</span>
+                      <span className="block truncate text-sm text-ink">{model.name}</span>
                       <span className="block truncate font-mono text-xs text-ink-faint">{modelKey}</span>
                     </span>
                     <span className="model-palette-chips flex shrink-0 items-center gap-1">

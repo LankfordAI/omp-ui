@@ -426,7 +426,7 @@ export function ProjectSettings({
     <Modal onClose={onClose} width="w-[44rem]" labelledBy="project-settings-title">
       <section>
         <header className="border-b border-line px-4 py-3.5">
-          <p className="mb-1 font-mono text-xs uppercase tracking-[0.16em] text-ink-faint">
+          <p className="mb-1 chrome-label text-ink-faint">
             {t("project.settings.title")}
           </p>
           <h2 id="project-settings-title" className="font-display text-base font-semibold text-ink">
@@ -478,7 +478,7 @@ export function ProjectSettings({
         >
           {active === "mcp" && (
             <section aria-labelledby="project-settings-mcp" className="pb-3">
-              <h3 id="project-settings-mcp" className="px-4 pt-4 font-display text-sm font-semibold text-ink">
+              <h3 id="project-settings-mcp" className="px-4 pt-4 text-sm font-semibold text-ink">
                 {t("project.settings.mcpServers")}
               </h3>
               {/* A project dialog pins no session, so the project root is the
@@ -492,7 +492,7 @@ export function ProjectSettings({
 
           {active === "skills" && (
             <section aria-labelledby="project-settings-skills" className="pb-3">
-              <h3 id="project-settings-skills" className="px-4 pt-4 font-display text-sm font-semibold text-ink">
+              <h3 id="project-settings-skills" className="px-4 pt-4 text-sm font-semibold text-ink">
                 {t("project.settings.skills")}
               </h3>
               <SkillsScopePanel scopeCwd={project.path} instanceId={instanceId} />
@@ -504,7 +504,7 @@ export function ProjectSettings({
 
           {active === "tools" && (
             <section aria-labelledby="project-settings-tools" className="pb-3">
-              <h3 id="project-settings-tools" className="px-4 pt-4 font-display text-sm font-semibold text-ink">
+              <h3 id="project-settings-tools" className="px-4 pt-4 text-sm font-semibold text-ink">
                 {t("project.settings.tools")}
               </h3>
               <ToolsScopePanel scopeCwd={project.path} instanceId={instanceId} />
@@ -516,7 +516,7 @@ export function ProjectSettings({
 
           {active === "models" && (
             <section aria-labelledby="project-settings-models" className="px-4 py-4">
-              <h3 id="project-settings-models" className="mb-4 font-display text-sm font-semibold text-ink">
+              <h3 id="project-settings-models" className="mb-4 text-sm font-semibold text-ink">
                 {t("project.settings.defaultModels")}
               </h3>
               <ProjectModelPins project={project} instanceId={instanceId} />
@@ -525,7 +525,7 @@ export function ProjectSettings({
 
           {active === "advisors" && (
             <section aria-labelledby="project-settings-advisors" className="pb-3">
-              <h3 id="project-settings-advisors" className="px-4 pt-4 font-display text-sm font-semibold text-ink">
+              <h3 id="project-settings-advisors" className="px-4 pt-4 text-sm font-semibold text-ink">
                 {t("project.settings.advisors")}
               </h3>
               <AdvisorRosterEditor scopeCwd={project.path} instanceId={instanceId} />
@@ -535,7 +535,7 @@ export function ProjectSettings({
 
           {active === "reviewers" && experimentsEnabled && (
             <section aria-labelledby="project-settings-reviewers" className="pb-3">
-              <h3 id="project-settings-reviewers" className="px-4 pt-4 font-display text-sm font-semibold text-ink">
+              <h3 id="project-settings-reviewers" className="px-4 pt-4 text-sm font-semibold text-ink">
                 {t("project.settings.reviewers")}
               </h3>
               <ReviewRosterEditor scopeCwd={project.path} instanceId={instanceId} />
@@ -545,7 +545,7 @@ export function ProjectSettings({
 
           {active === "browser" && (
             <section aria-labelledby="project-settings-browser" className="px-4 py-4">
-              <h3 id="project-settings-browser" className="mb-3 font-display text-sm font-semibold text-ink">
+              <h3 id="project-settings-browser" className="mb-3 text-sm font-semibold text-ink">
                 {t("project.settings.browser")}
               </h3>
               <div className="flex items-start justify-between gap-4">

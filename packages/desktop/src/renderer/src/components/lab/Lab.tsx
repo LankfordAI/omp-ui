@@ -149,7 +149,7 @@ function ProjectExperimentsSection({ project }: { project: ScopedProject }) {
   return (
     <section className="flex flex-col gap-3">
       <div className="flex items-baseline gap-2">
-        <h2 className="font-display text-sm font-semibold">{project.label}</h2>
+        <h2 className="text-sm font-semibold">{project.label}</h2>
         <span className="min-w-0 flex-1 truncate font-mono text-xs text-ink-faint">{group.project.path}</span>
         {cache?.load === "loading" && <span className="text-xs text-ink-faint">{t("lab.overview.loading")}</span>}
       </div>

@@ -311,6 +311,76 @@ describe("desktop InspectorRail", () => {
     expect(railSection("messages")).toBeDefined();
   });
 
+  it("hides the tokens block while every figure is zero and reveals it with data (round-2 judge)", () => {
+    useStore.setState({ rpc: { [TAB]: runtime({ stats: sessionStats() }) } });
+    renderRail();
+    openPane("session");
+    expect(railSection("tokens")).toBeDefined();
+
+    act(() =>
+      useStore.setState({
+        rpc: {
+          [TAB]: runtime({
+            stats: sessionStats({
+              tokens: { input: 0, output: 0, reasoning: 0, cacheRead: 0, cacheWrite: 0, total: 0 },
+            }),
+          }),
+        },
+      }),
+    );
+    expect(railSection("tokens")).toBeUndefined();
+    expect(railSection("messages")).toBeDefined();
+  });
+
+  it("hides a zero subagent-spend line, shows it once subagents cost, and titles the group run-only", () => {
+    const totals = (cost: number) => ({
+      cost, input: 0, output: 0, reasoning: 0, cacheRead: 0, cacheWrite: 0, totalTokens: 10, premiumRequests: 1, requests: 1,
+    });
+    const snapshot = (subagentCost: number) => ({
+      version: 1 as const,
+      processKey: "p",
+      revision: 1,
+      available: true,
+      unavailable: null,
+      sessionFile: "/s.jsonl",
+      main: totals(0.5),
+      subagents: totals(subagentCost),
+      total: totals(0.5 + subagentCost),
+      transcripts: 2,
+    });
+    useStore.setState({ rpc: { [TAB]: runtime({ sessionSpend: snapshot(0) }) } });
+    renderRail();
+    openPane("session");
+    const spend = railSection("spend")!;
+    expect(spend.textContent).not.toContain("subagents");
+    expect(spend.querySelector<HTMLElement>("[title]")?.getAttribute("title")).toBe(t("hud.metrics.runOnlyTitle"));
+
+    act(() => useStore.setState({ rpc: { [TAB]: runtime({ sessionSpend: snapshot(0.25) }) } }));
+    expect(railSection("spend")!.textContent).toContain("subagents");
+  });
+
+  it("renders queue-mode and provider values proportional, numbers mono (round-2 judge)", () => {
+    useStore.setState({
+      rpc: {
+        [TAB]: runtime({
+          session: { ...emptySessionRuntime(), steeringMode: "one-at-a-time", interruptMode: "immediate" },
+          model: { id: "m", name: "Model", provider: "openrouter" },
+        }),
+      },
+    });
+    renderRail();
+    openPane("session");
+    const valueFor = (label: string): HTMLElement =>
+      [...document.body.querySelectorAll<HTMLElement>("dt")].find((dt) => dt.textContent === label)!
+        .nextElementSibling as HTMLElement;
+    // Mono lives on the inner value span, not the dd wrapper.
+    expect(valueFor(t("rail.session.steering")).querySelector(".font-mono")).toBeNull();
+    expect(valueFor(t("rail.session.interrupt")).querySelector(".font-mono")).toBeNull();
+    expect(valueFor(t("rail.session.provider")).querySelector(".font-mono")).toBeNull();
+    // Counts stay mono.
+    expect(valueFor(t("rail.session.messages")).querySelector(".font-mono")).not.toBeNull();
+  });
+
   it("shows four labelled groups and opens one pane at a time (issues #48, #75, #940)", () => {
     renderRail();
 

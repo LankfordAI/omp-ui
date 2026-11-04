@@ -114,7 +114,7 @@ export function KeyboardPage() {
 
   return (
     <div className="px-4 py-3">
-      <p className="text-xs leading-relaxed text-ink-faint">{t("settings.keyboard.intro")}</p>
+      <p className="text-sm leading-relaxed text-ink-faint">{t("settings.keyboard.intro")}</p>
 
       <ul className="mt-2 divide-y divide-line-soft">
         {KEYBINDING_ACTIONS.map(({ id, kind }) => {
@@ -126,7 +126,7 @@ export function KeyboardPage() {
           return (
             <li key={id} className="py-2" data-keybinding-row={id}>
               <div className="flex items-center gap-3">
-                <span className="min-w-0 flex-1 text-xs text-ink">{label}</span>
+                <span className="min-w-0 flex-1 text-sm text-ink">{label}</span>
                 <button
                   type="button"
                   data-key-recorder={live ? "" : undefined}
@@ -185,7 +185,7 @@ export function KeyboardPage() {
         })}
       </ul>
 
-      <p className="mt-3 text-xs leading-relaxed text-ink-faint">
+      <p className="mt-3 text-sm leading-relaxed text-ink-faint">
         {t("settings.keyboard.fixed", {
           queue: formatHotkey("mod+enter"),
           interrupt: formatHotkey("mod+shift+enter"),

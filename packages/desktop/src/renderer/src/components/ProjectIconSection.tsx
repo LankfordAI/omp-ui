@@ -66,7 +66,7 @@ export function ProjectIconSection({ project, instanceId }: { project: ProjectRe
 
   return (
     <section aria-labelledby="project-settings-icon" className="px-4 py-4">
-      <h3 id="project-settings-icon" className="mb-1 font-display text-sm font-semibold text-ink">
+      <h3 id="project-settings-icon" className="mb-1 text-sm font-semibold text-ink">
         {t("project.settings.icon")}
       </h3>
       <p className="text-xs leading-relaxed text-ink-faint">{t("project.settings.iconHint")}</p>

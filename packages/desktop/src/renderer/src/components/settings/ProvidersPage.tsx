@@ -104,7 +104,7 @@ function ProviderRow({
       <div className="flex flex-wrap items-center gap-x-3 gap-y-1.5">
         <div className="min-w-0 flex-1">
           <div className="flex flex-wrap items-center gap-x-2 gap-y-1">
-            <span className="min-w-0 break-words text-xs font-medium text-ink">
+            <span className="min-w-0 break-words text-sm font-medium text-ink">
               {row.label}
             </span>
             {sourceChip(row)}
@@ -183,7 +183,7 @@ function ProviderRow({
       {/* Unreadable alternates remain visible while editing the primary key. */}
       {row.unreadableStoredEnvs.map((envName) => (
         <div key={envName} className="mt-1.5 flex flex-wrap items-center gap-x-2 gap-y-1">
-          <p className="min-w-0 flex-1 break-words text-xs leading-relaxed text-copper">
+          <p className="min-w-0 flex-1 break-words text-sm leading-relaxed text-copper">
             {t("settings.providers.unreadableDetail", { env: envName })}
           </p>
           <Button
@@ -201,7 +201,7 @@ function ProviderRow({
       ))}
 
       {row.shadowsEnvironment && !editing && (
-        <p className="mt-1 text-xs leading-relaxed text-ink-faint">
+        <p className="mt-1 text-sm leading-relaxed text-ink-faint">
           {t("settings.providers.shadowsEnvPrefix")}
           <span className="font-mono">{row.activeEnv}</span>
           {t("settings.providers.shadowsEnvSuffix")}
@@ -268,7 +268,7 @@ function ProviderSignInRow({
       <div className="flex flex-wrap items-center gap-x-3 gap-y-1.5">
         <div className="min-w-0 flex-1">
           <div className="flex flex-wrap items-center gap-x-2 gap-y-1">
-            <span className="min-w-0 break-words text-xs font-medium text-ink">
+            <span className="min-w-0 break-words text-sm font-medium text-ink">
               {row.label}
             </span>
             {signedIn ? (
@@ -282,7 +282,7 @@ function ProviderSignInRow({
           {signedIn ? (
             row.credentials.map((c) => (
               <div key={c.credentialId}>
-                <p className="mt-0.5 break-words text-xs text-ink-faint">{c.label}</p>
+                <p className="mt-0.5 break-words text-sm text-ink-faint">{c.label}</p>
                 <p className="break-words font-mono text-xs text-ink-faint">{c.detail}</p>
                 {c.provider !== row.providerId && (
                   <p className="break-words font-mono text-xs text-ink-faint">
@@ -327,11 +327,11 @@ function ProviderSignInRow({
 
       {mine && (flow.phase === "browser" || flow.phase === "input") && (
         <div className="mt-2 space-y-1.5">
-          <p className="break-words text-xs leading-relaxed text-ink-dim">
+          <p className="break-words text-sm leading-relaxed text-ink-dim">
             {t("settings.providers.oauthBrowser")}
           </p>
           {flow.instructions !== null && (
-            <p className="whitespace-pre-wrap break-words text-xs leading-relaxed text-ink-faint">
+            <p className="whitespace-pre-wrap break-words text-sm leading-relaxed text-ink-faint">
               {flow.instructions}
             </p>
           )}
@@ -391,7 +391,7 @@ function ProviderSignInRow({
 
       {mine && flow.phase === "error" && (
         <div className="mt-2 flex flex-wrap items-center gap-2">
-          <p className="min-w-0 flex-1 break-words text-xs leading-relaxed text-rose">
+          <p className="min-w-0 flex-1 break-words text-sm leading-relaxed text-rose">
             {t("settings.providers.oauthFailed", {
               error: flow.error ?? "",
             })}
@@ -425,17 +425,17 @@ function WebSearchNotes({
   return (
     <>
       {undiscovered && (
-        <p className="text-xs leading-relaxed text-ink-faint">
+        <p className="text-sm leading-relaxed text-ink-faint">
           {t("settings.providers.webSearchUndiscovered")}
         </p>
       )}
       {chosen !== null && excludedOrder.includes(chosen) && (
-        <p className="text-xs leading-relaxed text-rose">
+        <p className="text-sm leading-relaxed text-rose">
           {t("settings.providers.webSearchExcluded", { provider: chosen })}
         </p>
       )}
       {toolOff && (
-        <p className="text-xs leading-relaxed text-ink-faint">
+        <p className="text-sm leading-relaxed text-ink-faint">
           {t("settings.providers.webSearchToolOff")}
         </p>
       )}
@@ -487,7 +487,7 @@ function WebSearchProviderRow({
   if (failure !== null || load.status !== "loaded") {
     return (
       <div className="flex items-center justify-between gap-3 py-2.5">
-        <p className="text-xs leading-relaxed text-rose">
+        <p className="text-sm leading-relaxed text-rose">
           {t("settings.providers.webSearchUnavailable")}{" "}
           {failure === OMP_MISSING ? t("settings.omp.ompMissingHint") : failure}
         </p>
@@ -948,7 +948,7 @@ export function ProvidersPage({
       <Panel className="px-4 py-3">
         <div className="flex items-center gap-2">
           <Dot tone={configuredCount > 0 ? "signal" : "copper"} />
-          <p className="min-w-0 break-words text-xs font-medium text-ink">
+          <p className="min-w-0 break-words text-sm font-medium text-ink">
             {configuredCount === 0
               ? unreadableCount > 0
                 ? t("settings.providers.noneUsable")
@@ -960,25 +960,25 @@ export function ProvidersPage({
           </p>
         </div>
         {encryptionAvailable ? (
-          <p className="mt-1.5 text-xs leading-relaxed text-ink-faint">
+          <p className="mt-1.5 text-sm leading-relaxed text-ink-faint">
             {t("settings.providers.encryptedPrefix")}
             <span className="font-mono">{backend}</span>
             {t("settings.providers.encryptedSuffix")}
           </p>
         ) : (
-          <p className="mt-1.5 text-xs leading-relaxed text-copper">
+          <p className="mt-1.5 text-sm leading-relaxed text-copper">
             {t("settings.providers.noCredentialStore")}
           </p>
         )}
         {unreadableCount > 0 && (
-          <p className="mt-1.5 break-words text-xs leading-relaxed text-copper">
+          <p className="mt-1.5 break-words text-sm leading-relaxed text-copper">
             {t("settings.providers.unreadableSummary", { count: unreadableCount })}
           </p>
         )}
       </Panel>
 
       {(writeError ?? ompError) !== null && (
-        <p className="text-xs leading-relaxed text-rose">
+        <p className="text-sm leading-relaxed text-rose">
           {writeError ?? ompError}
         </p>
       )}
@@ -1004,7 +1004,7 @@ export function ProvidersPage({
                 />
               ))}
               {id === "models" && configFileProviders.length > 0 && (
-                <p className="break-words py-2.5 text-xs leading-relaxed text-ink-faint">
+                <p className="break-words py-2.5 text-sm leading-relaxed text-ink-faint">
                   {modelsFileLead}
                   {configFileProviders.map((providerId, index) => (
                     <span key={providerId}>
@@ -1032,11 +1032,11 @@ export function ProvidersPage({
 
       <div className="space-y-0.5">
         <Label>{t("settings.providers.oauthGroup")}</Label>
-        <p className="text-xs leading-relaxed text-ink-faint">
+        <p className="text-sm leading-relaxed text-ink-faint">
           {t("settings.providers.oauthLimit")}
         </p>
         {oauth.status === "error" ? (
-          <p className="py-2.5 text-xs leading-relaxed text-rose">
+          <p className="py-2.5 text-sm leading-relaxed text-rose">
             {t("settings.providers.oauthReadFailed")}
             {oauth.message}
           </p>
@@ -1057,7 +1057,7 @@ export function ProvidersPage({
           </div>
         ) : null}
         {stillAuthenticated !== null && (
-          <p className="break-words py-2.5 text-xs leading-relaxed text-ink-dim">
+          <p className="break-words py-2.5 text-sm leading-relaxed text-ink-dim">
             {t("settings.providers.oauthStillAuthenticated")}{" "}
             <span className="font-mono">{stillAuthenticated}</span>
           </p>

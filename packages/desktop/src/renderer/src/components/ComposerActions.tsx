@@ -20,7 +20,7 @@ export type ComposerActionsLayout = "desktop" | "compact" | "sheet";
 /** Arrow-up send glyph for the idle primary control. */
 function IconSend() {
   return (
-    <svg viewBox="0 0 16 16" aria-hidden fill="none" stroke="currentColor" strokeWidth={1.6} strokeLinecap="round" strokeLinejoin="round" className="size-4">
+    <svg viewBox="0 0 16 16" aria-hidden fill="none" stroke="currentColor" strokeWidth={1.4} strokeLinecap="round" strokeLinejoin="round" className="size-4">
       <path d="M8 13V3M3.5 7.5 8 3l4.5 4.5" />
     </svg>
   );
@@ -53,11 +53,12 @@ export function ComposerActions({
   onSubmit: (route: SubmitRoute) => void;
   onAbort: () => void;
   /**
-   * Context-fill halo around the desktop composer's round control: the idle
-   * send button, or the stop button while running (same rightmost slot). Null
-   * renders no ring — before the first usage report the controls are exactly
-   * the plain circles. Ignored by compact/sheet layouts: their primaries are
-   * pills, and a halo traces a circle.
+   * Context-fill halo around the desktop composer's round control — shown ONLY
+   * while a turn runs, on the stop button. At rest the send button is bare:
+   * a standing arc over an idle control reads as a stray decoration (round-2
+   * judge), and the context readout lives in the HUD gauge anyway. Null or an
+   * idle state renders no ring. Ignored by compact/sheet layouts: their
+   * primaries are pills, and a halo traces a circle.
    */
   contextRing?: { fraction: number; title: string } | null;
 }) {
@@ -159,24 +160,18 @@ export function ComposerActions({
   ) : (
     <>
       {atResetButton}
-      {haloed(
-        <Button
-          variant="solid"
-          disabled={!canSend}
-          title={
-            contextRing == null
-              ? isSlash
-                ? t("composer.actions.runTitle")
-                : t("composer.actions.sendTitle")
-              : `${isSlash ? t("composer.actions.runTitle") : t("composer.actions.sendTitle")}\n${contextRing.title}`
-          }
-          onClick={() => onSubmit("prompt")}
-          className="size-7 shrink-0 justify-center rounded-full p-0"
-        >
-          <IconSend />
-          <span className="sr-only">{label("send")}</span>
-        </Button>,
-      )}
+      {/* Bare at rest (round-2 judge): the context halo rides only the running
+          stop button — a second ring over an idle send reads as a stray arc. */}
+      <Button
+        variant="solid"
+        disabled={!canSend}
+        title={isSlash ? t("composer.actions.runTitle") : t("composer.actions.sendTitle")}
+        onClick={() => onSubmit("prompt")}
+        className="size-7 shrink-0 justify-center rounded-full p-0"
+      >
+        <IconSend />
+        <span className="sr-only">{label("send")}</span>
+      </Button>
     </>
   );
 }

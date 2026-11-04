@@ -10,7 +10,7 @@ import { Chip, Switch } from "../ui";
 import { useT } from "../../lib/i18n";
 
 export const FIELD =
-  "h-7 min-w-0 rounded-md border border-line bg-raised px-2 text-xs text-ink " +
+  "h-7 min-w-0 rounded-md border border-line bg-raised px-2 text-sm text-ink " +
   "transition-colors duration-150 focus:border-line-strong focus:outline-none " +
   "disabled:pointer-events-none disabled:opacity-35";
 
@@ -36,7 +36,7 @@ export function Row({
           {badge}
         </div>
         {hint !== undefined && hint !== "" && (
-          <p className="mt-0.5 text-xs leading-relaxed text-ink-faint">{hint}</p>
+          <p className="mt-0.5 text-sm leading-relaxed text-ink-faint">{hint}</p>
         )}
         <div className="mt-1.5">{children}</div>
       </div>
@@ -50,7 +50,7 @@ export function Row({
           {badge}
         </div>
         {hint !== undefined && hint !== "" && (
-          <p className="mt-0.5 text-xs leading-relaxed text-ink-faint">
+          <p className="mt-0.5 text-sm leading-relaxed text-ink-faint">
             {hint}
           </p>
         )}

@@ -8,9 +8,10 @@ import { formatHotkey } from "../lib/hotkeys";
 import { useActionHotkeys, useKeybindingOverrides } from "../lib/keybindings";
 import { effectiveChord } from "@omp-ui/core/keybindings";
 import { currentLocaleId, useT } from "../lib/i18n";
-import { canSettle, findOwner, findRecord, isChatTab, sessionCwd, useStore } from "../store";
+import { canSettle, deriveSidebarSessionState, findOwner, findRecord, isChatTab, sessionCwd, useStore } from "../store";
 import { parseTitleCard } from "@omp-ui/core/title-card";
 import { Chip, Dot, IconSearch, Label, Modal, type Tone } from "./ui";
+import { SESSION_FACE } from "./SessionRow";
 import { PaletteEmpty, PaletteList, PaletteSearchHeader, usePaletteNav } from "./palette";
 
 /**
@@ -46,6 +47,8 @@ interface Action {
   /** A `useHotkeys` combo string, rendered through `formatHotkey`. */
   hint?: string;
   dot?: Tone;
+  /** Halo on the dot: only the sidebar's live-activity faces carry one. */
+  dotPulse?: boolean;
   /** Set when the row is inert (feature gate): shown as a title, pick is a no-op. */
   disabledHint?: string;
   run: () => void;
@@ -56,13 +59,6 @@ interface Row {
   action: Action;
   hits: number[];
 }
-
-const LIVE_TONE: Record<SessionSummary["live"], Tone> = {
-  live: "signal",
-  dormant: "neutral",
-  archived: "copper",
-  missing: "rose",
-};
 
 /* ------------------------------------------------------------------ scoring */
 
@@ -87,6 +83,9 @@ export function CommandPalette() {
   const compact = useCompactShell();
 
   const state = useStore((s) => s.state);
+  // Session dots borrow the sidebar's face: same `deriveSidebarSessionState`
+  // signal SessionRow reads, so both surfaces agree per session.
+  const rpcTabs = useStore((s) => s.rpc);
   const tabs = useStore((s) => s.tabs);
   const activeTabId = useStore((s) => s.activeTabId);
   const openSession = useStore((s) => s.openSession);
@@ -130,6 +129,12 @@ export function CommandPalette() {
   const actions = useMemo<Action[]>(() => {
     const out: Action[] = [];
     const experimentsEnabled = state?.experimentsEnabled === true;
+    // The dot is the sidebar face for this session's derived state, so a
+    // working row reads copper and only live faces carry a halo.
+    const faceOf = (s: SessionSummary): { dot: Tone; dotPulse: boolean } => {
+      const face = SESSION_FACE[deriveSidebarSessionState(s, rpcTabs[s.tabId])];
+      return { dot: face.tone, dotPulse: face.pulse };
+    };
     for (const group of state?.projects ?? []) {
       for (const s of group.sessions) {
         if (s.live === "missing") continue;
@@ -138,7 +143,7 @@ export function CommandPalette() {
           group: t("palette.group.sessions"),
           name: s.title,
           desc: group.project.name,
-          dot: LIVE_TONE[s.live],
+          ...faceOf(s),
           run: () => void openSession(s.tabId),
         });
       }
@@ -150,7 +155,7 @@ export function CommandPalette() {
         group: t("palette.group.sessions"),
         name: s.title,
         desc: t("palette.chat.desc"),
-        dot: LIVE_TONE[s.live],
+        ...faceOf(s),
         run: () => void openSession(s.tabId),
       });
     }
@@ -437,7 +442,7 @@ export function CommandPalette() {
     });
 
     return out;
-  }, [state, tabs, activeTabId, openSession, newSession, newChat, openProjectPicker, openCapabilitiesViewer, openSessionTreeView, openLab, openStats, openFleet, openNewSessionDialog, openExperimentDialog, settleSessions, openScheduleDialog, settleUndoCount, undoSettle, switchMode, regenerateSessionTitle, askAboutSession, toggleBrowserPane, toggleDevicePane, shareSession, anonymizeSession, ompInstalled, openShareLive, checkAppUpdate, checkOmpUpdate, openSettings, openDiagnosticsDialog, openGettingStarted, t, localeId, keybindings]);
+  }, [state, rpcTabs, tabs, activeTabId, openSession, newSession, newChat, openProjectPicker, openCapabilitiesViewer, openSessionTreeView, openLab, openStats, openFleet, openNewSessionDialog, openExperimentDialog, settleSessions, openScheduleDialog, settleUndoCount, undoSettle, switchMode, regenerateSessionTitle, askAboutSession, toggleBrowserPane, toggleDevicePane, shareSession, anonymizeSession, ompInstalled, openShareLive, checkAppUpdate, checkOmpUpdate, openSettings, openDiagnosticsDialog, openGettingStarted, t, localeId, keybindings]);
 
   // Flat, already-ordered result list; group headers are derived from it so the
   // arrow-key index and the rendered rows can never disagree.
@@ -489,7 +494,7 @@ export function CommandPalette() {
   return (
     <Modal onClose={close} width="w-[34rem]">
       <PaletteSearchHeader>
-        <IconSearch className="size-4 shrink-0 text-ink-dim" />
+        <IconSearch className="size-3.5 shrink-0 text-ink-dim" />
         <input
           ref={inputRef}
           value={query}
@@ -533,7 +538,7 @@ export function CommandPalette() {
                 )}
               >
                 {action.dot ? (
-                  <Dot tone={action.dot} pulse={action.dot === "signal"} />
+                  <Dot tone={action.dot} pulse={action.dotPulse} />
                 ) : (
                   <span
                     className={cn(

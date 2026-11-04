@@ -426,7 +426,7 @@ export function ExtensionDialogHost({
         )}
         <div className="flex items-start gap-2">
           <Dot tone="signal" pulse className="mt-1.5" title={t("dialog.extension.waiting")} />
-          <h2 className="min-w-0 flex-1 whitespace-pre-wrap break-words font-display text-sm leading-snug text-ink">
+          <h2 className="min-w-0 flex-1 whitespace-pre-wrap break-words text-sm leading-snug text-ink">
             {reviewEntry !== undefined ? reviewEntry.title : displayTitle}
           </h2>
           {reviewEntry !== undefined && <Chip tone="signal">{t("dialog.extension.answered")}</Chip>}

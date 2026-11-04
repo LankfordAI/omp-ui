@@ -104,17 +104,17 @@ function SecretReveal({ reveal, onDone }: { reveal: WebhookSecretReveal; onDone:
   const t = useT();
   return (
     <Panel tone="copper" className="px-4 py-3">
-      <p className="text-xs font-medium text-ink">
+      <p className="text-sm font-medium text-ink">
         {t("settings.webhooks.reveal.title", { name: reveal.webhook.name })}
       </p>
-      <p className="mt-0.5 text-xs leading-relaxed text-ink-faint">{t("settings.webhooks.reveal.once")}</p>
+      <p className="mt-0.5 text-sm leading-relaxed text-ink-faint">{t("settings.webhooks.reveal.once")}</p>
       <div className="mt-2 flex items-center gap-1.5">
         <span data-selectable data-testid="webhook-secret" className="min-w-0 flex-1 truncate font-mono text-xs text-ink">
           {reveal.secret}
         </span>
         <CopyButton text={reveal.secret} />
       </div>
-      <p className="mt-2 text-xs leading-relaxed text-ink-mid">
+      <p className="mt-2 text-sm leading-relaxed text-ink-mid">
         {reveal.webhook.auth === "hmac" ? t("settings.webhooks.reveal.hmac") : t("settings.webhooks.reveal.bearer")}
       </p>
       <div className="mt-2 flex justify-end">
@@ -274,7 +274,7 @@ function WebhookForm({
             { value: "build", label: t("settings.webhooks.mode.build") },
           ] as const}
           onChange={setMode}
-          optionClassName="px-2 text-xs"
+          optionClassName="chrome-label px-2"
         />
       </Row>
       <Row title={t("settings.webhooks.form.workspace")}>
@@ -286,7 +286,7 @@ function WebhookForm({
             { value: "checkout", label: t("settings.webhooks.workspace.checkout") },
           ] as const}
           onChange={setWorkspace}
-          optionClassName="px-2 text-xs"
+          optionClassName="chrome-label px-2"
         />
       </Row>
       <Row title={t("settings.webhooks.form.auth")}>
@@ -298,7 +298,7 @@ function WebhookForm({
             { value: "bearer", label: t("settings.webhooks.auth.bearer") },
           ] as const}
           onChange={setAuth}
-          optionClassName="px-2 text-xs"
+          optionClassName="chrome-label px-2"
         />
       </Row>
       <Row title={t("settings.webhooks.form.rate")} hint={t("settings.webhooks.form.rateHint")}>
@@ -317,7 +317,7 @@ function WebhookForm({
       </Row>
       <div className="flex items-center gap-3 py-2.5">
         {error !== null && (
-          <p role="alert" className="min-w-0 flex-1 text-xs leading-relaxed text-rose">
+          <p role="alert" className="min-w-0 flex-1 text-sm leading-relaxed text-rose">
             {error}
           </p>
         )}
@@ -385,7 +385,7 @@ function WebhookPanel({
     <Panel className="px-4 py-3">
       <div className="flex items-start gap-3">
         <div className="min-w-0 flex-1">
-          <p className="truncate text-xs font-medium text-ink">{webhook.name}</p>
+          <p className="truncate text-sm font-medium text-ink">{webhook.name}</p>
           <p className="mt-0.5 truncate text-xs text-ink-mid">
             {t("settings.webhooks.projectOn", {
               project: projectName(choices, webhook.machineKey, webhook.projectCwd),
@@ -417,10 +417,10 @@ function WebhookPanel({
         )}
       </div>
       {!webhook.secretReadable && (
-        <p className="mt-1.5 text-xs leading-relaxed text-rose">{t("settings.webhooks.secretUnreadable")}</p>
+        <p className="mt-1.5 text-sm leading-relaxed text-rose">{t("settings.webhooks.secretUnreadable")}</p>
       )}
       {error !== null && (
-        <p role="alert" className="mt-1.5 text-xs leading-relaxed text-rose">
+        <p role="alert" className="mt-1.5 text-sm leading-relaxed text-rose">
           {error}
         </p>
       )}
@@ -515,8 +515,8 @@ export function WebhooksPage() {
 
   return (
     <div className="space-y-3 px-4 py-3">
-      <p className="text-xs leading-relaxed text-ink-faint">{t("settings.webhooks.intro")}</p>
-      <p className="text-xs leading-relaxed text-copper">{t("settings.webhooks.warning")}</p>
+      <p className="text-sm leading-relaxed text-ink-faint">{t("settings.webhooks.intro")}</p>
+      <p className="text-sm leading-relaxed text-copper">{t("settings.webhooks.warning")}</p>
 
       <div className="divide-y divide-line-soft">
         <Row title={t("settings.webhooks.accept")} hint={t("settings.webhooks.acceptHint")}>
@@ -529,14 +529,14 @@ export function WebhooksPage() {
       </div>
       {remoteStatus !== "listening" && (
         <div className="flex items-center gap-2">
-          <p className="min-w-0 flex-1 text-xs leading-relaxed text-copper">{t("settings.webhooks.needsRemote")}</p>
+          <p className="min-w-0 flex-1 text-sm leading-relaxed text-copper">{t("settings.webhooks.needsRemote")}</p>
           <Button size="xs" onClick={() => openSettings("remote")}>
             {t("settings.webhooks.openRemote")}
           </Button>
         </div>
       )}
       {!webhooks.credentialStore && (
-        <p className="text-xs leading-relaxed text-rose">{t("settings.webhooks.noCredentialStore")}</p>
+        <p className="text-sm leading-relaxed text-rose">{t("settings.webhooks.noCredentialStore")}</p>
       )}
 
       {reveal !== null && <SecretReveal reveal={reveal} onDone={() => setReveal(null)} />}
