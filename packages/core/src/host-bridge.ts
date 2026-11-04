@@ -120,8 +120,9 @@ function renderHtmlTool(): RpcHostToolDefinition {
     name: HTML_ARTIFACT_TOOL_NAME,
     loadMode: "essential",
     description:
-      "Show the user a self-contained interactive HTML document inline in their transcript: a chart of results, a sortable table, a dependency graph, a small simulator. " +
+      "Show the user a self-contained interactive HTML document that sits flush in their transcript at its own content height, with no card chrome around it — like a figure in prose: a chart of results, a sortable table, a dependency graph, a small simulator. " +
       "Use it when a visual explains better than prose; never for plain text. " +
+      "Body margin is reset and the page background matches the transcript canvas. Do not add a page wrapper background, outer border, or duplicate title heading; lead with the figure. The URL fragment is reserved for height reporting — keep all document state in JS. " +
       "Inline every script, style, image (data: URIs), and dataset in the html: the document runs sandboxed with NO network (no CDNs, fetch, or external URLs), no storage, popups, forms, or navigation, so external resources fail to load. " +
       "It may read the user's theme from CSS variables such as var(--color-surface), var(--color-ink), var(--color-ink-dim), var(--color-line), var(--color-signal), var(--color-copper), var(--color-rose), var(--color-iris); color-scheme is set to match. " +
       `At most ${HTML_ARTIFACT_MAX_BYTES / 1024} KiB of html.`,
@@ -129,7 +130,7 @@ function renderHtmlTool(): RpcHostToolDefinition {
       type: "object",
       additionalProperties: false,
       properties: {
-        title: { type: "string", description: `Short card title, at most ${HTML_ARTIFACT_TITLE_MAX} characters.` },
+        title: { type: "string", description: `Short name for screen readers and the full-view modal, at most ${HTML_ARTIFACT_TITLE_MAX} characters.` },
         html: {
           type: "string",
           description: "The complete self-contained document or body fragment, with every resource inlined.",
@@ -138,7 +139,7 @@ function renderHtmlTool(): RpcHostToolDefinition {
           type: "integer",
           minimum: HTML_ARTIFACT_MIN_HEIGHT,
           maximum: HTML_ARTIFACT_MAX_HEIGHT,
-          description: `Inline frame height in CSS pixels (default ${HTML_ARTIFACT_DEFAULT_HEIGHT}); the user can expand it to a full view.`,
+          description: `Initial frame height in CSS pixels while the document measures itself (default ${HTML_ARTIFACT_DEFAULT_HEIGHT}); after the first measurement the artifact sizes to its own content.`,
         },
       },
       required: ["title", "html"],

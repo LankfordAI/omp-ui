@@ -93,3 +93,20 @@ prompt-injected through tool output, so this ADR records its threat model.
 - Electron's guidance prefers iframes to `<webview>`. omp-ui accepts the tag
   because an iframe gives no session-level network control, and the attach
   guard removes the tag's usual risk: a renderer minting an arbitrary guest.
+
+## Amendment — artifacts size to their own content (2026-11, issue #1041)
+
+The card's chrome (title bar, taller/shorter controls) is gone: the artifact
+renders flush in the transcript column and sizes to its own document. The
+height channel rides a same-document address rewrite. The injected guest
+script calls `history.replaceState` with `#omph<px>` and its measured content
+height — deliberately not a `location.hash` write, which is a fragment
+navigation the confinement guard's `will-navigate` cancels (verified live on
+this Electron). A replace of the fragment crosses no origin, issues no
+request, and trips no navigation handler, yet Chromium still surfaces it to
+the host as a `did-navigate-in-page` event, without loosening any boundary. The host parses
+the reported height only from that prefix, ignores anything else, and clamps
+it to [`HTML_ARTIFACT_MIN_HEIGHT`, `HTML_ARTIFACT_MAX_HEIGHT`]; the agent's
+requested height stays the initial hint and the static fallback, which is the
+only height a scripts-off or browser-client view can have. The guest boundary
+is unchanged: same partition, same request filter, same CSP.

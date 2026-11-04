@@ -19,6 +19,14 @@ export const HTML_ARTIFACT_MAX_BYTES = 512 * 1024;
 
 export const HTML_ARTIFACT_TITLE_MAX = 200;
 
+/**
+ * The artifact document's URL hash is reserved for the host height channel:
+ * the guest reports its content height as `#omph<cssPx>` through a
+ * same-document fragment navigation, surfaced to the host as
+ * `did-navigate-in-page`.
+ */
+export const HEIGHT_HASH_PREFIX = "#omph";
+
 /** Inline frame height bounds in CSS px; expand-to-full-view has no inline cap. */
 export const HTML_ARTIFACT_MIN_HEIGHT = 120;
 export const HTML_ARTIFACT_MAX_HEIGHT = 1200;
@@ -96,7 +104,7 @@ export function parseHtmlArtifactArgs(
  *  the viewer, not the owner answering here. */
 export function htmlArtifactResultText(args: HtmlArtifactArgs): string {
   return (
-    `Rendered "${args.title}" (${utf8Length(args.html)} bytes) inline in the user's transcript. ` +
+    `Rendered "${args.title}" (${utf8Length(args.html)} bytes) flush in the user's transcript, sized to its own content height. ` +
     "Its scripts run sandboxed with no network, storage, popups, forms, or navigation; " +
     "if the user turned artifact scripts off in Settings, it shows as a static document."
   );
@@ -120,14 +128,61 @@ export function htmlArtifactThemeCss(tokens: Readonly<Record<string, string>>, d
  */
 export function composeHtmlArtifactDocument(html: string, themeCss: string, scripts: boolean): string {
   const csp = scripts ? HTML_ARTIFACT_CSP : HTML_ARTIFACT_STATIC_CSP;
+  // Margin reset and the auto-height stub ride scripts mode: a static
+  // document keeps author margins and has no script to report with.
+  const style = scripts
+    ? `<style>${themeCss}html{background:var(--color-surface);color:var(--color-ink)}body{margin:0}</style>`
+    : `<style>${themeCss}html{background:var(--color-surface);color:var(--color-ink)}</style>`;
   return (
     "<!doctype html><html><head>" +
     `<meta http-equiv="Content-Security-Policy" content="${csp}">` +
     '<meta charset="utf-8"><meta name="viewport" content="width=device-width,initial-scale=1">' +
-    `<style>${themeCss}html{background:var(--color-surface);color:var(--color-ink)}</style>` +
+    style +
+    (scripts ? HEIGHT_REPORT_STUB : "") +
     `</head><body>${html}`
   );
 }
+
+/** The guest's auto-height reporter, composed into scripts-mode documents
+ *  ahead of the author's markup (the same parser-hoisting guarantee the CSP
+ *  meta relies on; inline scripts are already admitted by HTML_ARTIFACT_CSP).
+ *  The channel is an address rewrite only — history.replaceState of the
+ *  reserved `#omph` fragment, which crosses no origin, requests nothing, and
+ *  trips no navigation guard — surfaced to the host as `did-navigate-in-page`
+ *  URLs. Verified live against the confined guest on this Electron. */
+const HEIGHT_REPORT_STUB =
+  "<script>" +
+  "// Appended by the composer when scripts run. Reports content height to the\n" +
+  `// host by rewriting the address to '${HEIGHT_HASH_PREFIX}<cssPx>'.\n` +
+  "(function () {\n" +
+  "  var last = -1, raf = 0;\n" +
+  "  function report() {\n" +
+  "    raf = 0;\n" +
+  "    // documentElement.scrollHeight never falls below the frame's viewport,\n" +
+  "    // so it alone could only grow the frame; the <html> layout box tracks\n" +
+  "    // content in both directions, and body.scrollHeight catches overflow\n" +
+  "    // descendants outside its box.\n" +
+  "    var h = Math.ceil(Math.max(\n" +
+  "      document.documentElement.getBoundingClientRect().height,\n" +
+  "      document.body ? document.body.scrollHeight : 0));\n" +
+  "    if (h === last) return;\n" +
+  "    last = h;\n" +
+  "    // A bare location.hash write is a fragment navigation, which the guest\n" +
+  "    // guard's will-navigate cancels; replaceState rewrites the address with\n" +
+  "    // no navigation at all (no origin crossing, no request) and Chromium\n" +
+  "    // still surfaces it to the host as did-navigate-in-page. If it ever\n" +
+  "    // refuses, the frame simply keeps its last height — graceful degrade.\n" +
+  `    try { history.replaceState(null, '', '${HEIGHT_HASH_PREFIX}' + h); } catch (e) {}\n` +
+  "  }\n" +
+  "  function schedule() { if (!raf) raf = requestAnimationFrame(report); }\n" +
+  "  var ro = new ResizeObserver(schedule);\n" +
+  "  ro.observe(document.documentElement);\n" +
+  "  if (document.body) ro.observe(document.body);\n" +
+  "  window.addEventListener('resize', schedule);\n" +
+  "  window.addEventListener('load', report);\n" +
+  "  report();\n" +
+  "})();" +
+  "</script>";
 
 /** The guest's one URL: the composed document as a base64 data: URL. A data:
  *  document is an opaque origin with no host to reach back to. */

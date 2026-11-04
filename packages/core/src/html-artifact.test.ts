@@ -5,6 +5,7 @@ import {
   HTML_ARTIFACT_DEFAULT_HEIGHT,
   HTML_ARTIFACT_MAX_BYTES,
   HTML_ARTIFACT_MAX_HEIGHT,
+  HEIGHT_HASH_PREFIX,
   HTML_ARTIFACT_MIN_HEIGHT,
   HTML_ARTIFACT_STATIC_CSP,
   htmlArtifactDataUrl,
@@ -65,6 +66,25 @@ describe("composeHtmlArtifactDocument", () => {
       expect(csp).toMatch(/^default-src 'none';/);
       expect(csp).not.toMatch(/connect-src|https?:|\*/);
     }
+  });
+
+  it("stubs the height reporter and margin reset ahead of authored markup when scripts run", () => {
+    const authored = "<script>run()</script>";
+    const doc = composeHtmlArtifactDocument(authored, ":root{}", true);
+    expect(doc).toContain("body{margin:0}");
+    expect(doc).toContain(HEIGHT_HASH_PREFIX);
+    expect(doc).toContain("ResizeObserver");
+    for (const needle of ["body{margin:0}", HEIGHT_HASH_PREFIX, "ResizeObserver"]) {
+      expect(doc.indexOf(needle)).toBeGreaterThan(0);
+      expect(doc.indexOf(needle)).toBeLessThan(doc.indexOf(authored));
+    }
+  });
+
+  it("stamps neither the height stub nor the margin reset into a static document", () => {
+    const doc = composeHtmlArtifactDocument("<p>x</p>", ":root{}", false);
+    expect(doc).not.toContain("body{margin:0}");
+    expect(doc).not.toContain(HEIGHT_HASH_PREFIX);
+    expect(doc).not.toContain("ResizeObserver");
   });
 });
 
