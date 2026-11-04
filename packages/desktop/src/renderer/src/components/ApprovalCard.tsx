@@ -68,7 +68,7 @@ export function ApprovalCard({ tabId }: { tabId: string }) {
       aria-modal="false"
       aria-label={t("dialog.approval.title")}
       data-approval-card
-      className="animate-rise pointer-events-auto mx-auto mb-2 w-full max-w-[var(--transcript-max)] rounded-md border border-line ambient glass-surface shadow-float"
+      className="animate-rise pointer-events-auto mx-auto mb-2 w-full max-w-[var(--prose-max)] rounded-md border border-line ambient glass-surface shadow-float"
     >
       <div className="flex items-center gap-2 px-4 pt-3">
         <Label>{t("dialog.approval.title")}</Label>

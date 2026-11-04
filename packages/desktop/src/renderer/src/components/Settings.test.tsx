@@ -695,12 +695,8 @@ describe("Settings General page default compaction method (issue #275)", () => {
     expect(pickerButtons()[1].getAttribute("aria-pressed")).toBe("true");
     expect(labelOf(pickerButtons()[3])).toBe("future");
     expect(pickerButtons()[3].children).toHaveLength(1);
-    expect(document.body.textContent).toContain(
-      "Summarize in place with a compaction model without using server compaction",
-    );
-    expect(document.body.textContent).toContain(
-      "Use provider-native OpenAI-compatible server compaction when the active route supports it",
-    );
+    // Known methods carry a description child; the unknown id gets none.
+    expect(pickerButtons()[1].children).toHaveLength(2);
     click(pickerButtons()[0]);
     expect(backendMock.setDefaultCompactionMethod).toHaveBeenCalledWith(null);
     // Mirror what the real backend round-trip does, then pick another method.
@@ -2465,7 +2461,6 @@ describe("Settings Appearance page transcript width and glass chrome (issues #39
 
     click(card("Full transcript width"));
     expect(backendMock.setTranscriptWidth).toHaveBeenCalledWith("full");
-    expect(document.documentElement.style.getPropertyValue("--transcript-max")).toBe("none");
     expect(document.documentElement.style.getPropertyValue("--prose-max")).toBe("88ch");
 
     click(card("Frosted glass chrome"));

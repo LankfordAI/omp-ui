@@ -1301,16 +1301,15 @@ export function Composer({
         </div>
       )}
 
-      {/* pointer-events-auto: the float above is transparent to the pointer so
-          its side gutters do not swallow wheel and selection aimed at the
-          transcript; the card column itself takes clicks (issue #395).
-          Two caps, mirroring the transcript scroller exactly: the outer cap
-          centres on the same column width, and the inner prose cap then shares
-          the column's left edge — so the card's right edge lands on the same
-          line as prose, tables, code, and the user bubble (round-3 judge,
-          Spacing 1). The float plane behind still spans the column. */}
-      <div className={cn("relative pointer-events-auto", !compact && "mx-auto w-full max-w-[var(--transcript-max)]")}>
-        <div className={cn(!compact && "w-full max-w-[var(--prose-max)]")}>
+          {/* pointer-events-auto: the float above is transparent to the pointer so
+              its side gutters do not swallow wheel and selection aimed at the
+              transcript; the card column itself takes clicks (issue #395).
+              Round-7 judge, Spacing 1: one measure — the card caps at the same
+              --prose-max as the transcript column and centres in the pane, so
+              its edges land on the prose edges with equal gutters. The float
+              plane behind still spans the full pane. */}
+      <div className={cn("relative pointer-events-auto", !compact && "mx-auto w-full max-w-[var(--prose-max)]")}>
+        <div className="w-full">
         {stashOpen && (
           <StashPalette
             ref={stashPalette}

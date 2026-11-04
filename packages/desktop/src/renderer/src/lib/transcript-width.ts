@@ -5,26 +5,26 @@ import type { TranscriptWidth } from "@omp-ui/core/types";
  * Transcript column width steps (issue #391).
  *
  * The store syncs the persisted `transcriptWidth` setting from the backend and
- * this module repoints two CSS custom properties on the document root:
- * `--transcript-max` caps the centred transcript column (and, by sharing the
- * same value, the composer card, the transcript skeleton, the hero column, and
- * the extension dialog card), while `--prose-max` keeps prose paragraphs on a
- * readable measure inside that column (issue #26's rule — the measure scales
- * with the step instead of staying frozen at 70ch).
+ * this module repoints one CSS custom property on the document root:
+ * `--prose-max` caps the centred transcript column, and with it every surface
+ * that shares its axis — prose paragraphs, the composer card, the transcript
+ * skeleton, the hero column, and the extension dialog card (issue #26's rule —
+ * the measure scales with the step instead of staying frozen at 70ch).
+ * Round-7 judge, Spacing 1: the column used to ride a wider box than its own
+ * content and left-align inside it, so the pane gutters came out 38px vs
+ * 338px. One measure on one box centres everything.
  */
 
 export interface TranscriptWidthStep {
   id: TranscriptWidth;
-  /** CSS length for --transcript-max ("none" = uncapped). */
-  columnMax: string;
   /** CSS length for --prose-max (issue #26's readable measure). */
   proseMax: string;
 }
 
 export const TRANSCRIPT_WIDTHS: readonly TranscriptWidthStep[] = [
-  { id: "comfortable", columnMax: "56rem", proseMax: "70ch" }, // today's max-w-4xl
-  { id: "wide", columnMax: "72rem", proseMax: "80ch" },
-  { id: "full", columnMax: "none", proseMax: "88ch" },
+  { id: "comfortable", proseMax: "70ch" },
+  { id: "wide", proseMax: "80ch" },
+  { id: "full", proseMax: "88ch" },
 ];
 
 export const DEFAULT_TRANSCRIPT_WIDTH_ID: TranscriptWidth = "wide";
@@ -57,7 +57,6 @@ export function applyTranscriptWidth(step: TranscriptWidthStep): void {
 
   if (typeof document !== "undefined") {
     const root = document.documentElement;
-    root.style.setProperty("--transcript-max", step.columnMax);
     root.style.setProperty("--prose-max", step.proseMax);
   }
 

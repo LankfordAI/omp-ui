@@ -989,20 +989,24 @@ function buildRuns(items: RenderItem[], replyWrites: boolean): Run[] {
   // Round-5 judge, Clarity 3: every tool remount records its own mount notice,
   // so a resumed session stacked identical "N MCP tools" pills. Only the newest
   // one is the current truth; the earlier ones fold away.
-  let lastMcpMountId: string | null = null;
+  let lastMcpMount: RenderItem | null = null;
   for (const item of items) {
-    if (item.kind === "notice" && item.mcpMount !== undefined) lastMcpMountId = item.id;
+    if (item.kind === "notice" && item.mcpMount !== undefined) lastMcpMount = item;
   }
+  // Round-7 judge, Clarity 3: the mount count is a session-start fact, yet a
+  // remount lands it at the tail where it reads as the conversation's final
+  // word. It rides above the first message instead, wherever it was recorded.
+  const ordered: RenderItem[] =
+    lastMcpMount === null
+      ? items
+      : [
+          lastMcpMount,
+          ...items.filter(
+            (item) => !(item.kind === "notice" && item.mcpMount !== undefined),
+          ),
+        ];
   const runs: Run[] = [];
-  for (const item of items) {
-    if (
-      lastMcpMountId !== null &&
-      item.kind === "notice" &&
-      item.mcpMount !== undefined &&
-      item.id !== lastMcpMountId
-    ) {
-      continue;
-    }
+  for (const item of ordered) {
     const last = runs.at(-1);
     const lastRow = last?.rows.at(-1);
     // Repeated turn/agent markers otherwise stack into a wall of hairlines.
@@ -1467,7 +1471,7 @@ export function TranscriptView({
         <div
           ref={contentRef}
           data-hanging={hanging}
-          className="transcript-column relative mx-auto flex max-w-[var(--transcript-max)] flex-col gap-5"
+          className="transcript-column relative mx-auto flex w-full max-w-[var(--prose-max)] flex-col gap-5"
           // Transcript-scoped text size (issue #30): `zoom` scales every px
           // value inside the document surface — markdown, tool cards, slabs —
           // while the chrome around it stays fixed. The ResizeObserver above

@@ -33,7 +33,7 @@ const NO_ITEMS: never[] = [];
 
 /** Boot placeholder — an empty pane reads as a hang, three bars read as work.
  *  `centered` anchors the bars just above the mid-pane composer, aligned to
- *  its card (same px-4 outer gutter + --transcript-max column as Composer
+ *  its card (same px-4 outer gutter + --prose-max column as Composer
  *  and TranscriptView). */
 function TranscriptSkeleton({ centered = false }: { centered?: boolean }) {
   const bars = [0.62, 0.9, 0.44].map((width, i) => (
@@ -46,7 +46,7 @@ function TranscriptSkeleton({ centered = false }: { centered?: boolean }) {
   if (centered) {
     return (
       <div className="animate-rise flex min-h-0 flex-1 flex-col justify-end px-4 pb-6">
-        <div className="mx-auto flex w-full max-w-[var(--transcript-max)] flex-col gap-3">{bars}</div>
+        <div className="mx-auto flex w-full max-w-[var(--prose-max)] flex-col gap-3">{bars}</div>
       </div>
     );
   }
@@ -81,7 +81,7 @@ function HeroFooter({ items, tabId }: { items: RenderItem[]; tabId: string }) {
             key={item.id}
             data-selectable
             className={cn(
-              "max-w-[var(--transcript-max)] text-center font-mono text-xs",
+              "max-w-[var(--prose-max)] text-center font-mono text-xs",
               item.level === "error"
                 ? "text-rose"
                 : item.level === "warn"
@@ -99,7 +99,7 @@ function HeroFooter({ items, tabId }: { items: RenderItem[]; tabId: string }) {
             {item.label}
           </p>
         ) : item.kind === "command" ? (
-          <div key={item.id} className="flex max-w-[var(--transcript-max)] flex-col gap-1 font-mono text-xs">
+          <div key={item.id} className="flex max-w-[var(--prose-max)] flex-col gap-1 font-mono text-xs">
             <p
               data-selectable
               className={cn(

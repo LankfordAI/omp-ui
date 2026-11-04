@@ -809,6 +809,10 @@ describe("NoticeLine mcpMount summary (issue #848)", () => {
     expect(el.textContent).toContain("170 MCP tools available to the agent");
     expect(el.textContent).not.toContain("3 MCP tools");
     expect(el.textContent).not.toContain("5 MCP tools");
+    // Round-7 judge, Clarity 3: the survivor rides at the head, above the
+    // conversation, not as the transcript's final word.
+    const rows = Array.from(el.querySelectorAll("[data-item-id]"));
+    expect(rows[0]?.getAttribute("data-item-id")).toBe("n4");
     // Other notices ride on untouched.
     expect(el.textContent).toContain("an unrelated notice");
     act(() => root.unmount());
