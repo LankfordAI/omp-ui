@@ -24,10 +24,16 @@ export function AttentionStack({
   const openSession = useStore((st) => st.openSession);
   if (entries.length === 0) return null;
   return (
-    // Fenced like every other sidebar boundary (#1039): the rule below keeps
-    // the digest from reading as the head of the main list it sits atop.
-    <div role="group" aria-label={t("sidebar.attention.heading", { n: entries.length })} className="space-y-1 border-b border-line pb-1.5">
-      <div className="px-1.5 pt-1 pb-0.5 font-mono text-[10px] uppercase text-ink-faint">
+    // Fenced as its own surface (#1039): the hairline rule alone still read
+    // as part of the list. The raised panel + full border separate the digest
+    // from the rows it sits above; card hover rides the theme's hover tone so
+    // it stays visible on the raised surface.
+    <div
+      role="group"
+      aria-label={t("sidebar.attention.heading", { n: entries.length })}
+      className="mb-1.5 space-y-0.5 rounded-md border border-line bg-raised/60 p-1"
+    >
+      <div className="px-2 pt-1 pb-0.5 font-mono text-[10px] uppercase text-ink-faint">
         {t("sidebar.attention.heading", { n: entries.length })}
       </div>
       {entries.map((a) => {
@@ -41,7 +47,7 @@ export function AttentionStack({
               void openSession(a.entry.session.tabId);
               onActivate?.();
             }}
-            className="relative block w-full min-w-0 rounded-md px-3 py-2 text-left transition-colors hover:bg-raised/60"
+            className="relative block w-full min-w-0 rounded-md px-3 py-2 text-left transition-colors hover:bg-hover/50"
           >
             <span
               aria-hidden
