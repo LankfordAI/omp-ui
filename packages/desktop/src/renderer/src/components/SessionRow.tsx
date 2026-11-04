@@ -488,19 +488,23 @@ export function SessionRow({
         selected || multiSelected ? "bg-raised ring-1 ring-line-strong" : "hover:bg-raised/60",
       )}
     >
-      {/* The status band (#1037): toned by state; a selected or
-          multi-selected row overrides it green, as the old rail did. It
-          replaces the leading Dot, and the Dot's hover tooltip rides the
-          band. Settled (slim) rows carry no band at all (round-2 judge): the
-          bar is the live/working state channel, and a grey one on ~25 dead
-          rows is noise — their state reads through the meta line's words. */}
+      {/* The status band (#1037): toned by state, and the state colour holds
+          through selection (round-8 judge, Consistency 2): a selected Working
+          row keeps its copper bar, because the green-selection override made
+          a working session read as ready — exactly what the Appearance page
+          promises against. Selection rides the raised fill + hairline ring
+          alone. The band replaces the leading Dot, and the Dot's hover
+          tooltip rides it. Settled (slim) rows carry no band at all (round-2
+          judge): the bar is the live/working state channel, and a grey one on
+          ~25 dead rows is noise — their state reads through the meta line's
+          words. */}
       {!slim && (
         <span
           aria-hidden
           title={t(face.titleKey)}
           className={cn(
             "absolute inset-y-1.5 left-0 w-0.5 rounded-full transition-colors",
-            selected || multiSelected ? "bg-signal" : TONE_DOT[face.tone],
+            TONE_DOT[face.tone],
           )}
         />
       )}

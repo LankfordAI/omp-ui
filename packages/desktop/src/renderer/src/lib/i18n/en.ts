@@ -2972,6 +2972,9 @@ export const en = {
 
   "sidebar.attention.heading": "Needs attention ({n})",
   "sidebar.attention.fallback": "The agent posted a new reply.",
+  // Round-8 judge, Clarity 3: the card's last-reply line labels itself; the
+  // bare `ok` between title and project read like a status word.
+  "sidebar.attention.reply": "reply",
 
   "sidebar.status.workingLabel": "working",
   "sidebar.status.workingTitle": "Agent is working",

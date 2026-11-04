@@ -2735,6 +2735,7 @@ export const ko: Partial<Record<MessageKey, string>> = {
 
   "sidebar.attention.heading": "주의 필요 ({n})",
   "sidebar.attention.fallback": "에이전트가 새 답변을 게시했습니다.",
+  "sidebar.attention.reply": "답변",
 
   "sidebar.status.workingLabel": "작업 중",
   "sidebar.status.workingTitle": "에이전트가 작업 중입니다",
