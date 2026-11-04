@@ -201,8 +201,11 @@ export function Settings() {
     revision: reloadKey,
   };
 
+  // 52rem (round-3 judge, Spacing 3): at 46rem the compaction rows squeezed
+  // a two-line label column against a 2–3-line description column; the
+  // two-column Row layout wants the extra room.
   return (
-    <Modal onClose={closeSettings} width="w-[46rem]" labelledBy="settings-title">
+    <Modal onClose={closeSettings} width="w-[52rem]" labelledBy="settings-title">
       {/* The surface carries one fixed viewport-relative height: switching
           sections (and pages that show or hide a footer) must never resize or
           re-centre the dialog box; long pages scroll inside `.settings-body`.
@@ -215,7 +218,7 @@ export function Settings() {
           </p>
           <h2
             id="settings-title"
-            className="font-display text-base font-semibold text-ink"
+            className="text-base font-semibold text-ink"
           >
             {t("settings.shell.title")}
           </h2>

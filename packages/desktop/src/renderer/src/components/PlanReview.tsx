@@ -650,7 +650,7 @@ export function PlanReview({
                     : t("plan.review.stepSetup")
                 : t("plan.review.ready")}
             </Label>
-            <h2 id="plan-review-title" className="mt-1 truncate font-display text-base font-medium text-ink" title={request.title}>
+            <h2 id="plan-review-title" className="mt-1 truncate text-base font-semibold text-ink" title={request.title}>
               {request.title}
             </h2>
             <p className="plan-review-artifact mt-0.5 truncate font-mono text-xs text-ink-faint">

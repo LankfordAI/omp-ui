@@ -1544,7 +1544,7 @@ export function CapabilitiesViewer({
         <p className="mb-1 chrome-label text-ink-faint">
           {scopeCwd === null ? t("viewer.header.globalKicker") : t("viewer.header.projectKicker")}
         </p>
-        <h2 id="capabilities-viewer-title" className="font-display text-base font-semibold text-ink">
+        <h2 id="capabilities-viewer-title" className="text-base font-semibold text-ink">
           {t("viewer.header.title")}
         </h2>
         {record !== undefined && record.title.length > 0 && (

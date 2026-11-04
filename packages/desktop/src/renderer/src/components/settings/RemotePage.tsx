@@ -188,7 +188,7 @@ export function RemotePage() {
                 { value: "lan", label: t("settings.remote.bindLocalNetwork") },
               ] as const}
               onChange={(value) => void setRemoteBind(value)}
-              optionClassName="chrome-label px-2"
+              optionClassName="tab-label px-2"
             />
           </Row>
           {remote.bind === "lan" && (

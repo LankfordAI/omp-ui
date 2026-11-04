@@ -319,7 +319,7 @@ export function CornerTools() {
           "transition-colors duration-150 hover:bg-hover hover:text-ink"
         }
       >
-        <IconOpenIn className="size-4" />
+        <IconOpenIn className="size-3.5" />
       </button>
       {open &&
         pos !== null &&

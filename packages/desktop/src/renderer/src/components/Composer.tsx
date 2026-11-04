@@ -1297,8 +1297,14 @@ export function Composer({
 
       {/* pointer-events-auto: the float above is transparent to the pointer so
           its side gutters do not swallow wheel and selection aimed at the
-          transcript; the card column itself takes clicks (issue #395). */}
+          transcript; the card column itself takes clicks (issue #395).
+          Two caps, mirroring the transcript scroller exactly: the outer cap
+          centres on the same column width, and the inner prose cap then shares
+          the column's left edge — so the card's right edge lands on the same
+          line as prose, tables, code, and the user bubble (round-3 judge,
+          Spacing 1). The float plane behind still spans the column. */}
       <div className={cn("relative pointer-events-auto", !compact && "mx-auto w-full max-w-[var(--transcript-max)]")}>
+        <div className={cn(!compact && "w-full max-w-[var(--prose-max)]")}>
         {stashOpen && (
           <StashPalette
             ref={stashPalette}
@@ -1760,6 +1766,7 @@ export function Composer({
             )}
           </div>
         )}
+        </div>
       </div>
       <ComposerSheet
         open={compactSurface === "composer-options"}

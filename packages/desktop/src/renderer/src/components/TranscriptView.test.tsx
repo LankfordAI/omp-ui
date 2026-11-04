@@ -13,6 +13,7 @@ import { requestTranscriptReveal } from "../lib/transcript-reveal";
 // Statically imported even though the module is mocked: vi.mock hoists above
 // imports, so this binding is the mock, not the window.ompBackend reader.
 import { backend } from "../backend";
+import { t } from "../lib/i18n";
 import { backendState, remoteOwnedState, rpcTabState, tabInfo } from "../test/fixtures";
 import { useStore } from "../store";
 import { TranscriptView, type FindState } from "./TranscriptView";
@@ -573,7 +574,7 @@ describe("UserBubble copy affordances (issue #644)", () => {
 
   function copyChip(el: HTMLDivElement): HTMLButtonElement {
     const button = [...bubble(el).querySelectorAll<HTMLButtonElement>("button")].find(
-      (b) => b.textContent === "copy",
+      (b) => b.textContent === t("common.button.copy"),
     );
     if (!button) throw new Error("copy chip not found");
     return button;
@@ -613,12 +614,12 @@ describe("UserBubble copy affordances (issue #644)", () => {
 
     act(() => button.click());
     await act(async () => {});
-    expect(button.textContent).toBe("copied");
+    expect(button.textContent).toBe(t("common.button.copied"));
 
     act(() => {
       vi.advanceTimersByTime(1200);
     });
-    expect(button.textContent).toBe("copy");
+    expect(button.textContent).toBe(t("common.button.copy"));
     act(() => root.unmount());
   });
 
@@ -632,11 +633,11 @@ describe("UserBubble copy affordances (issue #644)", () => {
     ]);
     const { el, root } = render(items);
 
-    expect(el.textContent).not.toContain("copy");
+    expect(el.textContent).not.toContain(t("common.button.copy"));
     // The image renders as an enlarge button, so count only copy chips.
     expect(
       [...bubble(el).querySelectorAll("button")].filter(
-        (b) => b.textContent === "copy",
+        (b) => b.textContent === t("common.button.copy"),
       ),
     ).toHaveLength(0);
     expect(el.querySelector("img")).not.toBeNull();
@@ -1075,7 +1076,7 @@ describe("command rows (slash-command parity)", () => {
     );
     expect(openLink).toBeDefined();
     expect(openLink!.getAttribute("title")).toBe("https://my.omp.sh/s/abc123#kZ9_a");
-    const copy = [...el.querySelectorAll("button")].find((b) => b.textContent === "copy");
+    const copy = [...el.querySelectorAll("button")].find((b) => b.textContent === t("common.button.copy"));
     expect(copy).toBeDefined();
     act(() => root.unmount());
   });

@@ -94,7 +94,7 @@ export function CarryAuthDialog({ onClose }: { onClose: () => void }) {
               { value: "import-file", label: t("dialog.carryAuth.importFile") },
             ]}
             onChange={(value) => setAction(value as CarryAction)}
-            optionClassName="chrome-label px-2"
+            optionClassName="tab-label px-2"
           />
         </div>
         {(action === "to-instance" || action === "from-instance") && (
@@ -107,7 +107,7 @@ export function CarryAuthDialog({ onClose }: { onClose: () => void }) {
                 value={instanceId ?? joined[0]!.id}
                 options={joined.map((instance) => ({ value: instance.id, label: instance.nickname }))}
                 onChange={(value) => setInstanceId(String(value))}
-                optionClassName="chrome-label px-2"
+                optionClassName="tab-label px-2"
               />
             )}
           </div>

@@ -47,7 +47,7 @@ function SecretKindCapsule({
         { value: "token", label: t("remoteinstances.field.token") },
       ] as const}
       onChange={onChange}
-      optionClassName="chrome-label px-2"
+      optionClassName="tab-label px-2"
     />
   );
 }
@@ -271,7 +271,7 @@ function GrantCeremony({ instance, onDone }: { instance: RemoteInstanceSummary; 
           value={rung}
           options={RAISE_RUNGS.map((r) => ({ value: r, label: t(RUNG_LABEL[r]) }))}
           onChange={setRung}
-          optionClassName="chrome-label px-2"
+          optionClassName="tab-label px-2"
         />
         <SecretKindCapsule value={secretKind} onChange={setSecretKind} />
         <SecretField
@@ -335,7 +335,7 @@ function DispatcherGrantRow({ dispatcherId, record }: { dispatcherId: string; re
         value={held}
         options={FLEET_RUNGS.map((rung) => ({ value: rung, label: t(RUNG_LABEL[rung]) }))}
         onChange={(rung) => void setFleetGrant(dispatcherId, rung)}
-        optionClassName="chrome-label px-2"
+        optionClassName="tab-label px-2"
       />
       <Button size="xs" variant="ghost" disabled={record.rung === undefined} onClick={() => void setFleetGrant(dispatcherId, null)}>
         {t("settings.remoteinstances.grant.reset")}
@@ -382,7 +382,7 @@ function FleetAccessSection() {
           value={ceiling}
           options={FLEET_RUNGS.map((rung) => ({ value: rung, label: t(RUNG_LABEL[rung]) }))}
           onChange={(rung) => void setFleetExecCeiling(rung)}
-          optionClassName="chrome-label px-2"
+          optionClassName="tab-label px-2"
         />
       </Row>
       <div className="py-2">

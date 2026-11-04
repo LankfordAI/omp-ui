@@ -429,7 +429,7 @@ export function ProjectSettings({
           <p className="mb-1 chrome-label text-ink-faint">
             {t("project.settings.title")}
           </p>
-          <h2 id="project-settings-title" className="font-display text-base font-semibold text-ink">
+          <h2 id="project-settings-title" className="text-base font-semibold text-ink">
             {project.name}
           </h2>
           <p title={project.path} className="mt-1 truncate font-mono text-xs text-ink-dim">

@@ -3,6 +3,7 @@ import { act } from "react";
 import { createRoot, type Root } from "react-dom/client";
 import { afterEach, beforeEach, describe, expect, it, vi } from "vitest";
 import { COMPACT_SHELL_QUERY, DOCKED_SIDEBAR_QUERY } from "./lib/responsive";
+import { t } from "./lib/i18n";
 import { emptySessionRuntime } from "./lib/rpc-types";
 import { backendState } from "./test/fixtures";
 import type { RpcTabState, UiStore } from "./store";
@@ -504,7 +505,7 @@ describe("always-mounted sidebar (issue #919)", () => {
     expect(document.body.querySelector("aside")).not.toBeNull();
     // Welcome still fills the empty canvas.
     expect(document.body.textContent).toContain("Add project");
-    expect(document.body.textContent).toContain("No sessions open");
+    expect(document.body.textContent).toContain(t("app.welcome.hasProjectsHint", { hotkey: "Ctrl+Shift+N" }).slice(0, 20));
   });
 
   it("keeps the sidebar mounted when every tab is hidden", () => {
@@ -545,7 +546,7 @@ describe("settled sessions leave the canvas (issue #926)", () => {
     expect(useStore.getState().activeTabId).toBeNull();
     // Welcome fills the canvas (the zero-tab contract, #919)…
     expect(document.body.textContent).toContain("Add project");
-    expect(document.body.textContent).toContain("No sessions open");
+    expect(document.body.textContent).toContain(t("app.welcome.hasProjectsHint", { hotkey: "Ctrl+Shift+N" }).slice(0, 20));
     // …and the exit card never reaches it.
     expect(document.body.textContent).not.toContain("Agent exited");
   });

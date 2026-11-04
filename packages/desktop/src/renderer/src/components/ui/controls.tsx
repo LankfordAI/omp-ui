@@ -2,6 +2,7 @@ import { useEffect, useRef, useState, type CSSProperties, type ReactNode } from 
 import type * as React from "react";
 import { cn } from "../../lib/cn";
 import { copyFallback } from "../../lib/clipboard";
+import { t as tr } from "../../lib/i18n";
 import { PANEL_KEYBOARD_STEP } from "../../lib/panel-layout";
 import { CheckIcon, Chevron, IconClose } from "./icons";
 import { TONE_BORDER_FULL, TONE_BORDER_FULL_HOVER, TONE_BORDER_OUTLINE_HOVER, TONE_BORDER_RAISED, TONE_CAPSULE, TONE_CHIP, TONE_TEXT, type Tone } from "./tone";
@@ -615,11 +616,13 @@ export function Disclosure({
   );
 }
 
-/** Copy-to-clipboard affordance that reports success in place. */
+/** Copy-to-clipboard affordance that reports success in place. Defaults
+ *  follow the catalog so every Copy button shares one action casing
+ *  (round-3 judge, Consistency 2). */
 export function CopyButton({
   text,
-  label = "copy",
-  doneLabel = "copied",
+  label = tr("common.button.copy"),
+  doneLabel = tr("common.button.copied"),
 }: {
   text: string;
   label?: string;

@@ -2436,8 +2436,8 @@ export const en = {
   "hud.status.rpcStatus": "rpc status: {status}",
   "hud.status.running": "working",
   "hud.status.starting": "starting",
-  "worktree.actions.copy": "copy",
-  "worktree.actions.copied": "copied",
+  "worktree.actions.copy": "Copy",
+  "worktree.actions.copied": "Copied",
   "worktree.actions.openFiles": "Open in Files",
   "worktree.actions.openVsCode": "Open in VS Code",
   "worktree.actions.finish": "finish worktree…",
@@ -2556,6 +2556,7 @@ export const en = {
   "rail.session.provider": "provider",
   "rail.session.thinking": "thinking",
   "rail.session.context": "context",
+  "rail.session.contextFill": "used",
   "rail.session.queue": "queue",
   "rail.session.steering": "steering",
   "rail.session.followUp": "follow-up",
@@ -2628,7 +2629,7 @@ export const en = {
   "rail.btw.injecting": "sending…",
   "rail.btw.injectFailed": "The steering prompt was not sent — try again.",
   // Seance consult (issue #885): the eighth rail pane and its dialog.
-  "rail.tabs.seance": "seance",
+  "rail.tabs.seance": "Seance",
   "rail.seance.emptyTitle": "No Seance consults yet",
   "rail.seance.emptyHint":
     "A Seance consult asks a read-only consultant about a saved session — the session under consultation is never resumed or modified. Launch one with /seance or the button below.",
@@ -3009,11 +3010,6 @@ export const en = {
   "sidebar.empty.noMatches": "Nothing matches “{query}”",
   "sidebar.empty.noMatchesHint": "No session title, plan, project, or machine name contains that.",
   "sidebar.empty.noLive": "No live sessions",
-  // The main welcome panel carries the full entry-point explanation; the
-  // sidebar hint stays one clause so the same sentence never appears twice
-  // on one screen (round-2 judge, Clarity 4).
-  "sidebar.empty.noLiveHint": "Use New session or {hotkey}.",
-  "sidebar.empty.newSession": "New session",
 
   "sidebar.footer.settings": "Settings",
   // `live` is CONTEXT.md's canonical word for "has a running process"; the

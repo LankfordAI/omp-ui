@@ -388,7 +388,7 @@ export function GeneralPage() {
           value={state?.localeId ?? "en"}
           options={UI_LOCALES.map((l) => ({ value: l.id, label: l.label }))}
           onChange={(value) => void setLocaleId(value)}
-          optionClassName="chrome-label px-2"
+          optionClassName="tab-label px-2"
         />
       </Row>
       <Row
@@ -400,7 +400,7 @@ export function GeneralPage() {
           value={mode}
           options={sessionModeOptions}
           onChange={(value) => void setDefaultMode(value)}
-          optionClassName="chrome-label px-2"
+          optionClassName="tab-label px-2"
         />
       </Row>
       <Row
@@ -412,7 +412,7 @@ export function GeneralPage() {
           value={agentMode}
           options={agentModeOptions}
           onChange={(value) => void setDefaultAgentMode(value)}
-          optionClassName="chrome-label px-2"
+          optionClassName="tab-label px-2"
         />
       </Row>
       <Row
@@ -435,7 +435,7 @@ export function GeneralPage() {
           value={planFormat}
           options={PLAN_FORMAT_OPTIONS}
           onChange={(value) => void setPlanFormat(value)}
-          optionClassName="chrome-label px-2"
+          optionClassName="tab-label px-2"
         />
       </Row>
       <Row
@@ -447,7 +447,7 @@ export function GeneralPage() {
           value={state?.hibernateIdleMinutes ?? 0}
           options={hibernateIdleOptions}
           onChange={(value) => void setHibernateIdleMinutes(value)}
-          optionClassName="chrome-label px-2"
+          optionClassName="tab-label px-2"
         />
       </Row>
       <Row
@@ -479,7 +479,7 @@ export function GeneralPage() {
           value={state?.streamStallAbortSeconds ?? 180}
           options={stallAbortOptions}
           onChange={(value) => void setStreamStallAbortSeconds(value)}
-          optionClassName="chrome-label px-2"
+          optionClassName="tab-label px-2"
         />
       </Row>
       <Row

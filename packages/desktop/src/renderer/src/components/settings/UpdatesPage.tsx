@@ -196,7 +196,7 @@ export function UpdatesPage() {
               { value: "nightly", label: t("settings.updates.trainNightly") },
             ]}
             onChange={(value) => void setAppUpdateTrain(value as UpdateTrain)}
-            optionClassName="chrome-label px-2"
+            optionClassName="tab-label px-2"
           />
         </div>
         <p className="mt-1 text-sm text-ink-dim">{t("settings.updates.trainHint")}</p>

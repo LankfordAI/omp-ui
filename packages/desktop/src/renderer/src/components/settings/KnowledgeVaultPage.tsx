@@ -94,7 +94,7 @@ export function KnowledgeVaultPage() {
                 { value: "assistant", label: t("settings.vault.noteVoiceAssistant") },
               ]}
               onChange={(v) => void setVaultNoteVoice(v)}
-              optionClassName="chrome-label px-2"
+              optionClassName="tab-label px-2"
             />
           </Row>
         </>

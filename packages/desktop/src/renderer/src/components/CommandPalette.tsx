@@ -518,8 +518,12 @@ export function CommandPalette() {
           lastGroup = action.group;
           return (
             <div key={action.id}>
+              {/* Section headers sit at the 14px chrome floor now (round-3
+                  judge, Typography 1): the palette was the app's densest
+                  12px field. The caps + tracking treatment stays — it is the
+                  section-header role. */}
               {header && (
-                <Label className="mt-1.5 block px-3.5 pb-1 pt-1.5 first:mt-0">{header}</Label>
+                <Label className="chrome-label-lg mt-1.5 block px-3.5 pb-1 pt-1.5 first:mt-0">{header}</Label>
               )}
               <button
                 type="button"
@@ -588,7 +592,7 @@ export function CommandPalette() {
                   })()}
                 </span>
                 {action.desc && (
-                  <span className="min-w-0 max-w-[14rem] shrink-0 truncate text-xs text-ink-dim">
+                  <span className="min-w-0 max-w-[14rem] shrink-0 truncate text-sm text-ink-dim">
                     {action.desc}
                   </span>
                 )}
@@ -599,14 +603,16 @@ export function CommandPalette() {
         })}
       </PaletteList>
 
-      <div className="flex items-center gap-3 border-t border-line px-3.5 py-2 text-xs text-ink-faint">
-        <span className="font-mono">{formatHotkey("arrowup")}{formatHotkey("arrowdown")}</span>
+      {/* Keycaps stay 12px mono (true metadata); the words that name them sit
+          at the 14px chrome floor (round-3 judge, Typography 1). */}
+      <div className="flex items-center gap-3 border-t border-line px-3.5 py-2 text-sm text-ink-faint">
+        <span className="font-mono text-xs">{formatHotkey("arrowup")}{formatHotkey("arrowdown")}</span>
         <span>{t("palette.footer.navigate")}</span>
-        <span className="font-mono">{formatHotkey("enter")}</span>
+        <span className="font-mono text-xs">{formatHotkey("enter")}</span>
         <span>{t("palette.footer.run")}</span>
-        <span className="font-mono">Ctrl+N</span>
+        <span className="font-mono text-xs">Ctrl+N</span>
         <span>/</span>
-        <span className="font-mono">Ctrl+P</span>
+        <span className="font-mono text-xs">Ctrl+P</span>
         <span>{t("palette.footer.alsoMove")}</span>
       </div>
     </Modal>

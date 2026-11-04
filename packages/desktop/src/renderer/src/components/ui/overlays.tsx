@@ -309,7 +309,7 @@ export function ConfirmDialog({
         <p className={cn("mb-1 font-mono text-xs uppercase tracking-[0.16em]", TONE_TEXT[tone])}>
           {kicker}
         </p>
-        <h2 id={titleId} className="font-display text-base font-semibold text-ink">
+        <h2 id={titleId} className="text-base font-semibold text-ink">
           {title}
         </h2>
       </header>

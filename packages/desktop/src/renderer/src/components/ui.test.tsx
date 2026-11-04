@@ -578,8 +578,10 @@ describe("Meter", () => {
 });
 
 describe("ProgressRing", () => {
-  // Default strokeWidth 2 in a 16-unit viewBox ⇒ r = 6.5.
-  const CIRCUMFERENCE = 2 * Math.PI * (16 / 2 - 2 / 2 - 0.5);
+  // Circumferences come off the rendered circle's own r, not a hardcoded
+  // stroke width: the sweep math is the behavior; the ring's default stroke
+  // is styling the design pass owns (round-4 set it to the app's single icon
+  // stroke).
 
   it("fills half the circumference at fraction 0.5", async () => {
     await render(<ProgressRing fraction={0.5} />);
@@ -588,9 +590,10 @@ describe("ProgressRing", () => {
     expect(svg!.getAttribute("viewBox")).toBe("0 0 16 16");
     const circles = svg!.querySelectorAll("circle");
     expect(circles).toHaveLength(2);
+    const circumference = 2 * Math.PI * Number(circles[1]!.getAttribute("r"));
     const [fill, gap] = String(circles[1].getAttribute("stroke-dasharray")).split(/\s+/).map(Number);
-    expect(fill).toBeCloseTo(CIRCUMFERENCE / 2);
-    expect(gap).toBeCloseTo(CIRCUMFERENCE);
+    expect(fill).toBeCloseTo(circumference / 2);
+    expect(gap).toBeCloseTo(circumference);
   });
 
   it("renders track only for fractions below zero", async () => {
@@ -604,7 +607,7 @@ describe("ProgressRing", () => {
     const circles = document.querySelectorAll("svg[data-progress-ring] circle");
     expect(circles).toHaveLength(2);
     const [fill] = String(circles[1].getAttribute("stroke-dasharray")).split(/\s+/).map(Number);
-    expect(fill).toBeCloseTo(CIRCUMFERENCE);
+    expect(fill).toBeCloseTo(2 * Math.PI * Number(circles[1]!.getAttribute("r")));
   });
 
   it("escalates fill tone signal, copper, rose", async () => {

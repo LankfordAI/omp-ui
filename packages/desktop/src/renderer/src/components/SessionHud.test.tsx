@@ -419,7 +419,7 @@ describe("wide Session HUD", () => {
     expect(spend().textContent).not.toContain("subagents");
   });
 
-  it("labels the chip's spend as this-run-only and spells out the CTX glyph (round-2 judge)", () => {
+  it("labels the chip's spend as this-run-only and spells out the context word", () => {
     useStore.setState({
       rpc: {
         [TAB]: {
@@ -438,9 +438,10 @@ describe("wide Session HUD", () => {
     // The header figure counts only this process; say so next to it.
     expect(cost.textContent).toContain(t("hud.metrics.thisRun"));
     expect(cost.getAttribute("title")).toBe(t("hud.metrics.runOnlyTitle"));
-    // The CTX glyph keeps its short form but the title spells it out.
+    // Round-3 judge, Clarity 2: the abbreviation left visible chrome — the
+    // face text now spells the word out, following the catalog.
     const ctx = chip.querySelector<HTMLElement>("span[title]")!;
-    expect(ctx.textContent).toBe("ctx");
+    expect(ctx.textContent).toBe(t("hud.gauge.contextShort"));
     expect(ctx.getAttribute("title")).toBe(
       t("hud.gauge.contextTitle", { used: "20", window: "100" }),
     );

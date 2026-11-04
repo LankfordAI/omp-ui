@@ -51,7 +51,7 @@ function ScopeCapsule({ value, onChange }: { value: McpScope; onChange: (scope: 
         { value: "send", label: t(SCOPE_LABEL.send) },
       ] as const}
       onChange={onChange}
-      optionClassName="chrome-label px-2"
+      optionClassName="tab-label px-2"
     />
   );
 }

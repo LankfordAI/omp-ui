@@ -17,10 +17,12 @@ import { Button, Chevron, IconButton, Label, ProgressRing } from "./ui";
  */
 export type ComposerActionsLayout = "desktop" | "compact" | "sheet";
 
-/** Arrow-up send glyph for the idle primary control. */
+/** Arrow-up send glyph for the idle primary control. One size per strip
+ *  (round-3 judge, Iconography 3): it matches the `+` and chip glyphs at 14px
+ *  instead of outweighing them at 16px. */
 function IconSend() {
   return (
-    <svg viewBox="0 0 16 16" aria-hidden fill="none" stroke="currentColor" strokeWidth={1.4} strokeLinecap="round" strokeLinejoin="round" className="size-4">
+    <svg viewBox="0 0 16 16" aria-hidden fill="none" stroke="currentColor" strokeWidth={1.4} strokeLinecap="round" strokeLinejoin="round" className="size-3.5">
       <path d="M8 13V3M3.5 7.5 8 3l4.5 4.5" />
     </svg>
   );

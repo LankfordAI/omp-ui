@@ -274,7 +274,7 @@ function WebhookForm({
             { value: "build", label: t("settings.webhooks.mode.build") },
           ] as const}
           onChange={setMode}
-          optionClassName="chrome-label px-2"
+          optionClassName="tab-label px-2"
         />
       </Row>
       <Row title={t("settings.webhooks.form.workspace")}>
@@ -286,7 +286,7 @@ function WebhookForm({
             { value: "checkout", label: t("settings.webhooks.workspace.checkout") },
           ] as const}
           onChange={setWorkspace}
-          optionClassName="chrome-label px-2"
+          optionClassName="tab-label px-2"
         />
       </Row>
       <Row title={t("settings.webhooks.form.auth")}>
@@ -298,7 +298,7 @@ function WebhookForm({
             { value: "bearer", label: t("settings.webhooks.auth.bearer") },
           ] as const}
           onChange={setAuth}
-          optionClassName="chrome-label px-2"
+          optionClassName="tab-label px-2"
         />
       </Row>
       <Row title={t("settings.webhooks.form.rate")} hint={t("settings.webhooks.form.rateHint")}>

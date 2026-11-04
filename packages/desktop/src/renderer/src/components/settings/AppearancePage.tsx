@@ -256,7 +256,7 @@ export function AppearancePage() {
           { value: "system", label: t("settings.appearance.themeModeSystem") },
         ]}
         onChange={(mode) => void setThemeMode(mode)}
-        optionClassName="chrome-label px-2"
+        optionClassName="tab-label px-2"
       />
       {themeMode === "fixed" ? (
         <div className="mt-3">

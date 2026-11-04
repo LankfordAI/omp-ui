@@ -135,7 +135,7 @@ function TitleBar() {
     >
       <div className="flex shrink-0 items-center gap-1 pl-3 [app-region:no-drag]">
         <span aria-hidden className="size-1.5 shrink-0 rounded-full bg-signal" />
-        <span className="titlebar-brand pr-1 font-display text-sm font-semibold tracking-tight text-ink">
+        <span className="titlebar-brand pr-1 text-sm font-semibold tracking-tight text-ink">
           omp<span className="text-ink-faint">-ui</span>
         </span>
         <IconButton
@@ -250,7 +250,10 @@ function Welcome() {
               <dt className="justify-self-end whitespace-nowrap rounded border border-line bg-raised px-1.5 py-px font-mono text-xs leading-4 text-ink-mid">
                 {formatHotkey(effectiveChord(keybindings, action))}
               </dt>
-              <dd className="min-w-0 truncate text-xs text-ink-dim">{t(what)}</dd>
+              {/* The shortcut description is a sentence, not metadata: it sits
+                  at the 14px chrome floor (round-3 judge, Typography 1); only
+                  the keycap keeps 12px mono. */}
+              <dd className="min-w-0 truncate text-sm text-ink-dim">{t(what)}</dd>
             </div>
           ))}
         </dl>

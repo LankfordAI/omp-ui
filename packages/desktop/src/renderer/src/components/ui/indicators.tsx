@@ -149,7 +149,7 @@ const RING_TONE = { signal: "stroke-signal", copper: "stroke-copper", rose: "str
  */
 export function ProgressRing({
   fraction,
-  strokeWidth = 2,
+  strokeWidth = 1.4,
   className,
 }: {
   fraction: number;

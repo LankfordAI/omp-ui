@@ -2357,6 +2357,7 @@ export const ko: Partial<Record<MessageKey, string>> = {
   "rail.session.provider": "제공자",
   "rail.session.thinking": "사고 수준",
   "rail.session.context": "컨텍스트",
+  "rail.session.contextFill": "사용량",
   "rail.session.queue": "대기열",
   "rail.session.steering": "조정",
   "rail.session.followUp": "후속 작업",
@@ -2800,8 +2801,6 @@ export const ko: Partial<Record<MessageKey, string>> = {
   "sidebar.empty.noMatches": "‘{query}’과(와) 일치하는 항목이 없습니다",
   "sidebar.empty.noMatchesHint": "세션 제목, 플랜, 프로젝트, 머신 이름 중 일치하는 항목이 없습니다.",
   "sidebar.empty.noLive": "라이브 세션 없음",
-  "sidebar.empty.noLiveHint": "새 세션 또는 {hotkey}를 사용하세요.",
-  "sidebar.empty.newSession": "새 세션",
 
   "sidebar.footer.settings": "설정",
   "sidebar.footer.live": "라이브",
