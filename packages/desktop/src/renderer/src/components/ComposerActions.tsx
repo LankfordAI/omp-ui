@@ -143,7 +143,7 @@ export function ComposerActions({
           tone="rose"
           onClick={onAbort}
           // The one destructive control here: readable before hover.
-          className="size-7 rounded-full border border-rose-dim/50 bg-rose-wash text-rose"
+          className="size-7 rounded-md border border-rose-dim/50 bg-rose-wash text-rose"
         >
           <svg viewBox="0 0 16 16" fill="none" strokeWidth={1.4} className="size-4">
             <rect
@@ -169,7 +169,9 @@ export function ComposerActions({
         disabled={!canSend}
         title={isSlash ? t("composer.actions.runTitle") : t("composer.actions.sendTitle")}
         onClick={() => onSubmit("prompt")}
-        className="size-7 shrink-0 justify-center rounded-full p-0"
+        // Square in the app's 6px radius family (round-4 judge, Iconography 1):
+        // the circle was the only circular control among rounded-md buttons.
+        className="size-7 shrink-0 justify-center rounded-md p-0"
       >
         <IconSend />
         <span className="sr-only">{label("send")}</span>

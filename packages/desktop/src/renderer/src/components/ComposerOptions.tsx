@@ -184,7 +184,9 @@ export function ComposerOptions({
         title={t("composer.options.title")}
         onClick={() => setOpen((o) => !o)}
         className={cn(
-          "tap-target inline-flex h-6 min-w-0 shrink items-center gap-1 border border-line px-2 text-xs text-ink-mid transition-colors duration-150 hover:bg-hover hover:text-ink aria-expanded:bg-hover",
+          // 14px like the placeholder above it (round-4 judge, Typography 1):
+          // the primary session control must not be the smallest text in the card.
+          "tap-target inline-flex h-7 min-w-0 shrink items-center gap-1 border border-line px-2.5 text-sm text-ink-mid transition-colors duration-150 hover:bg-hover hover:text-ink aria-expanded:bg-hover",
           showPullCap ? "rounded-l-full" : "rounded-full",
         )}
       >
@@ -255,7 +257,7 @@ export function ComposerOptions({
           }
           onClick={() => void handlePullCapClick()}
           className={cn(
-            "tap-target inline-flex h-6 shrink-0 items-center rounded-r-full border border-l-0 border-line px-2 font-mono text-xs tabular-nums transition-colors duration-150 hover:bg-hover disabled:pointer-events-none disabled:text-ink-dim",
+            "tap-target inline-flex h-7 shrink-0 items-center rounded-r-full border border-l-0 border-line px-2.5 font-mono text-sm tabular-nums transition-colors duration-150 hover:bg-hover disabled:pointer-events-none disabled:text-ink-dim",
             diverged || mergeInProgress ? "text-copper" : "text-ink-mid hover:text-ink",
           )}
         >

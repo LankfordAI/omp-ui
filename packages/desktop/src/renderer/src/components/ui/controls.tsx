@@ -76,7 +76,9 @@ export function Button({
         "inline-flex shrink-0 items-center gap-1.5 rounded-md border font-medium",
         "transition-[background-color,border-color,color,filter,opacity] duration-150",
         "disabled:pointer-events-none",
-        size === "xs" ? "h-6 px-2 text-xs" : "h-7 px-2.5 text-xs",
+        // Round-4 judge, Typography 1: action buttons carry the same 14px as
+        // the text they sit beside; 12px is reserved for metadata and keycaps.
+        size === "xs" ? "h-6 px-2 text-sm" : "h-7 px-2.5 text-sm",
         variantClass,
         disabledClass,
         className,

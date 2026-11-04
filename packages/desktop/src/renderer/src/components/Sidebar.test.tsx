@@ -581,7 +581,7 @@ describe("Sidebar session list", () => {
     renderSidebar();
     // The empty block is one line (round-3 judge, Hierarchy 2): no duplicated
     // New session button competing with the header's.
-    expect(document.body.textContent).toContain("No live sessions");
+    expect(document.body.textContent).toContain(t("sidebar.empty.noLive"));
     expect(
       [...document.body.querySelectorAll<HTMLButtonElement>("button")].some((b) => b.textContent === "New session"),
     ).toBe(false);
@@ -1059,8 +1059,8 @@ describe("Sidebar Working and Snoozed sections (issue #935)", () => {
     expect(toggle.textContent).toBe("Working (1)");
     expect(toggle.getAttribute("aria-expanded")).toBe("true");
     expect(rowButton("busy")).toBeDefined();
-    // The main list is empty: a live row exists, so no "No live sessions".
-    expect(document.body.textContent).not.toContain("No live sessions");
+    // The main list is empty: a live row exists, so no empty line.
+    expect(document.body.textContent).not.toContain(t("sidebar.empty.noLive"));
   });
 
   it("keeps Working (0) visible and docked directly above Settled, below Snoozed", () => {
@@ -1187,7 +1187,7 @@ describe("Sidebar Working and Snoozed sections (issue #935)", () => {
   it("shows the no-live empty state when no row is live", () => {
     useStore.setState({ state: stateWith([sess("old", { live: "dormant" })]) });
     renderSidebar();
-    expect(document.body.textContent).toContain("No live sessions");
+    expect(document.body.textContent).toContain(t("sidebar.empty.noLive"));
   });
 
   it("shows the no-matches empty state when a filter matches nothing", () => {
@@ -1268,7 +1268,7 @@ describe("Sidebar Working and Snoozed sections (issue #935)", () => {
     expect(sectionToggle("Working")!.textContent).toBe("Working (1)");
     expect(rowButton("bgwork")).toBeDefined();
     // The row left the main list, and it is live, so no empty state shows.
-    expect(document.body.textContent).not.toContain("No live sessions");
+    expect(document.body.textContent).not.toContain(t("sidebar.empty.noLive"));
 
     act(() => {
       useStore.setState({
@@ -1278,7 +1278,7 @@ describe("Sidebar Working and Snoozed sections (issue #935)", () => {
     expect(sectionToggle("Working")!.textContent).toBe("Working (0)");
     // Back in the main/active list.
     expect(rowButton("bgwork")).toBeDefined();
-    expect(document.body.textContent).not.toContain("No live sessions");
+    expect(document.body.textContent).not.toContain(t("sidebar.empty.noLive"));
   });
 });
 

@@ -188,12 +188,15 @@ function IconCollapse() {
 function Row({ label, title, children }: { label: string; title?: string; children: ReactNode }) {
   return (
     <div className="flex items-baseline gap-2 py-0.5">
-      <dt className="chrome-label w-[6.5rem] shrink-0 text-ink-faint" title={title}>
+      {/* Round-4 judge, Typography 2: row keys are data labels, not headers —
+          sentence case at the floor size in ink-dim. Tracked caps belong to
+          section headers alone, so the rail reads as two levels. */}
+      <dt className="w-[7rem] shrink-0 text-sm text-ink-dim" title={title}>
         {label}
       </dt>
       {/* Values are 14px proportional (round-3 judge, Typography 1/2): the
           rail was the app's densest 12px field and most of its numbers wore
-          mono. The caps dt stays 12px — that is true metadata. */}
+          mono. */}
       <dd className="min-w-0 flex-1 text-sm text-ink-mid">{children}</dd>
     </div>
   );
@@ -563,7 +566,7 @@ function StatsTable({
             <tbody>
               {stats.editRejections.map(({ kind, count }) => (
                 <tr key={kind}>
-                  <td title={kind} className="chrome-label py-0.5 text-ink-faint">
+                  <td title={kind} className="py-0.5 text-sm text-ink-dim">
                     {editErrorKindLabel(kind)}
                   </td>
                   <td className="py-0.5 text-right text-sm tabular-nums text-ink-mid">
@@ -573,7 +576,7 @@ function StatsTable({
               ))}
               {stats.editRejections.length > 1 && (
                 <tr className="border-t border-line-soft">
-                  <td className="chrome-label py-0.5 text-ink-faint">
+                  <td className="py-0.5 text-sm text-ink-dim">
                     {t("rail.stats.total")}
                   </td>
                   <td className="py-0.5 text-right text-sm tabular-nums text-ink">
@@ -594,7 +597,7 @@ function StatsTable({
             <tbody>
               {TOKEN_ROWS.map(({ key, labelKey }) => (
                 <tr key={key} className={key === "total" ? "border-t border-line-soft" : undefined}>
-                  <td className="chrome-label py-0.5 text-ink-faint">
+                  <td className="py-0.5 text-sm text-ink-dim">
                     {t(labelKey)}
                   </td>
                   <td

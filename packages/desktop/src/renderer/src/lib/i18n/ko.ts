@@ -22,7 +22,7 @@ export const ko: Partial<Record<MessageKey, string>> = {
   "app.welcome.hasProjectsHint":
     "종료된 세션은 사이드바의 종료됨에서 다시 열고, {hotkey}(으)로 새 세션을 시작하세요.",
   "app.welcome.addProject": "프로젝트 추가",
-  "app.welcome.openSession": "세션 열기…",
+  "app.welcome.openSession": "새 세션…",
   "app.welcome.noProjectsHint":
     "프로젝트 디렉터리를 추적한 다음 터미널이나 네이티브 세션에서 omp 에이전트를 실행하세요.",
   "app.welcome.hintCommandPalette": "명령 팔레트",
@@ -992,7 +992,7 @@ export const ko: Partial<Record<MessageKey, string>> = {
   "settings.appearance.importPlanes": "{label}: 두 면의 색이 같습니다",
   "settings.appearance.importRemove": "제거",
   "settings.appearance.importRemoveAria": "가져온 테마 {name} 제거",
-  "settings.appearance.mintNote": "모든 테마에서 mint 색상은 에이전트 활성 상태를 나타내는 용도로만 사용합니다(ADR-0004).",
+  "settings.appearance.mintNote": "모든 테마에서 초록색은 에이전트 활동 상태만 나타냅니다 — 장식용이 아닙니다.",
   "settings.appearance.fontFamily": "글꼴 모음",
   "settings.appearance.fontFamilyHint": "기본값은 앱의 Bricolage Grotesque, Instrument Sans, JetBrains Mono입니다. Ubuntu를 선택하면 코드와 터미널을 포함한 전체 글꼴 세트가 바뀝니다.",
   "settings.appearance.fontFamilyAria": "{name} 글꼴 모음",
@@ -2333,7 +2333,8 @@ export const ko: Partial<Record<MessageKey, string>> = {
   "rail.stats.cacheRead": "캐시 읽기",
   "rail.stats.cacheWrite": "캐시 쓰기",
   "rail.stats.spend": "비용",
-  "rail.stats.cost": "비용",
+  // 이번 실행 기준; 트랜스크립트의 영수증은 모든 턴을 합산합니다.
+  "rail.stats.cost": "이번 실행",
   "rail.stats.premiumReqs": "프리미엄 요청",
   "rail.stats.subagentCost": "서브에이전트",
   "rail.stats.title": "통계",
@@ -2349,7 +2350,7 @@ export const ko: Partial<Record<MessageKey, string>> = {
   "rail.session.refreshLabel": "상태 및 통계 새로고침",
   "rail.session.id": "ID",
   "rail.session.file": "파일",
-  "rail.session.messages": "메시지",
+  "rail.session.messages": "파일 메시지",
   "rail.session.queued": "대기 중",
   "rail.session.parkedSuffix": " (대기 보류)",
   "rail.session.modelSection": "모델",
@@ -2800,11 +2801,12 @@ export const ko: Partial<Record<MessageKey, string>> = {
 
   "sidebar.empty.noMatches": "‘{query}’과(와) 일치하는 항목이 없습니다",
   "sidebar.empty.noMatchesHint": "세션 제목, 플랜, 프로젝트, 머신 이름 중 일치하는 항목이 없습니다.",
-  "sidebar.empty.noLive": "라이브 세션 없음",
+  "sidebar.empty.noLive": "실행 중인 세션 없음",
 
   "sidebar.footer.settings": "설정",
-  "sidebar.footer.live": "라이브",
-  "sidebar.footer.liveTitle": "{n}개 실행 중 — 준비됨 및 작업 중",
+  "sidebar.footer.readyCount": "준비됨 {n}",
+  "sidebar.footer.workingCount": "작업 중 {n}",
+  "sidebar.footer.liveTitle": "라이브 세션: 프로세스가 실행 중인 세션 {n}개 — 준비됨 및 작업 중",
   "sidebar.footer.resize": "사이드바 크기 조정",
   "sidebar.footer.hostsAttention": "호스트 {n}개 오프라인",
   "sidebar.footer.hostsAttentionTitle": "이 창이 연결했던 원격 컴퓨터가 응답을 멈췄습니다. 해당 세션은 그 컴퓨터에 남아 있습니다. 원격 인스턴스를 열어 다시 연결하거나 삭제하세요.",

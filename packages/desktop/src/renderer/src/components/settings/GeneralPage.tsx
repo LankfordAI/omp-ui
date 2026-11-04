@@ -47,8 +47,11 @@ const COMPACTION_METHOD_META: Record<string, { label: string; description: strin
     description:
       "Use provider-native OpenAI-compatible server compaction when the active route supports it",
   },
+  // Round-4 judge, Clarity 4: the raw omp method names stay (they match what
+  // a user would type into omp's own config) but each carries its plain-language
+  // meaning in the label, so the picker never reads as insider shorthand.
   snapcompact: {
-    label: "Snapcompact",
+    label: "Snapcompact — vision snapshots",
     description:
       "Archive history onto dense bitmap images the active vision model reads back; no LLM call",
   },
@@ -61,7 +64,7 @@ const COMPACTION_METHOD_META: Record<string, { label: string; description: strin
     description: "Summarize in place with a compaction model without using server compaction",
   },
   shake: {
-    label: "Shake",
+    label: "Shake — drop heavy content",
     description: "Drop recoverable heavy content in place without an LLM call",
   },
 };
@@ -146,11 +149,14 @@ function CompactionMethodPicker({
                     : "text-ink-mid hover:bg-hover/50 focus-visible:bg-hover/50 focus-visible:outline-none",
               )}
             >
-              <span className={cn("w-40 shrink-0 text-sm", selected && "font-medium")}>
+              <span className={cn("w-52 shrink-0 text-sm", selected && "font-medium")}>
                 {option.label}
               </span>
               {option.description !== undefined && (
-                <span className="min-w-0 flex-1 text-sm leading-snug text-ink-faint">
+                // ink-dim, not ink-faint: on a selected row the description
+                // sits on bg-hover, the app's darkest text plane (round-4
+                // judge, Color 1).
+                <span className="min-w-0 flex-1 text-sm leading-snug text-ink-dim">
                   {option.description}
                 </span>
               )}

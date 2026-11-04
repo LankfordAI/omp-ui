@@ -660,8 +660,8 @@ describe("Settings General page default agent mode (issue #143)", () => {
     });
     await renderSettings();
 
-    expect(buttonWithText("plan")!.getAttribute("aria-pressed")).toBe("true");
-    click(buttonWithText("build")!);
+    expect(buttonWithText("Plan")!.getAttribute("aria-pressed")).toBe("true");
+    click(buttonWithText("Build")!);
     expect(backendMock.setDefaultAgentMode).toHaveBeenCalledWith("build");
   });
 });
