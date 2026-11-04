@@ -46,14 +46,16 @@ describe("desktop panel layout", () => {
     expect(clampPanelWidth("devicePane", Number.NaN)).toBe(DEVICE_PANE_DEFAULT_WIDTH);
   });
 
-  it("reduces the inspector first when the 900px desktop budget is exceeded", () => {
-    // 900 − 380 fixed = 520 of room against 312 + 304 = 616: the inspector
-    // bottoms out at 224 (80 given) and the sidebar gives the remaining 16.
+  it("both chrome panes bottom out at their minimums when the prose floor exceeds a 900px budget", () => {
+    // Issue #1042: without a split pane the column is prose and keeps a
+    // 560px measure. 900 − 620 fixed = 280 of room against 312 + 304 = 616;
+    // both panes give everything they can (to 224 each) and the floor is
+    // simply not reachable — the soft budget never forces a pane under it.
     expect(resolveDesktopPanelWidths({ ...defaults, viewportWidth: 900 })).toEqual({
-      sidebarWidth: 296,
+      sidebarWidth: SIDEBAR_MIN_WIDTH,
       inspectorWidth: INSPECTOR_MIN_WIDTH,
       splitWidth: 0,
-      sidebarAllowedMax: 296,
+      sidebarAllowedMax: SIDEBAR_MIN_WIDTH,
       inspectorAllowedMax: INSPECTOR_MIN_WIDTH,
       splitAllowedMax: BROWSER_PANE_MAX_WIDTH,
       splitFits: true,
@@ -69,32 +71,41 @@ describe("desktop panel layout", () => {
       sidebarCollapsed: true,
     });
     expect(collapsed.sidebarWidth).toBe(0);
-    expect(collapsed.inspectorWidth).toBe(480);
+    // The prose floor holds even with the sidebar gone: 900 − 620 leaves 280,
+    // under the 480 preference (issue #1042 — the rail no longer starves the
+    // column at a 360px measure).
+    expect(collapsed.inspectorWidth).toBe(280);
 
-    // A collapsed sidebar adds nothing to the fixed budget: 820 − 380 fixed
-    // leaves the inspector all 440px.
+    // A collapsed sidebar adds nothing of its own, but the prose floor still
+    // holds: 820 − 620 fixed leaves 200 for the inspector, which bottoms out
+    // at its minimum rather than starving the column.
     const collapsedNarrow = resolveDesktopPanelWidths({
       ...defaults,
       viewportWidth: 820,
       inspectorWidth: 480,
       sidebarCollapsed: true,
     });
-    expect(collapsedNarrow).toMatchObject({ sidebarWidth: 0, inspectorWidth: 440, inspectorAllowedMax: 440 });
+    expect(collapsedNarrow).toMatchObject({ sidebarWidth: 0, inspectorWidth: INSPECTOR_MIN_WIDTH, inspectorAllowedMax: INSPECTOR_MIN_WIDTH });
 
     const closed = resolveDesktopPanelWidths({
       ...defaults,
-      viewportWidth: 900,
+      viewportWidth: 1200,
       sidebarWidth: 512,
       inspectorWidth: 480,
       inspectorOpen: false,
     });
+    // 1200 − 620 fixed leaves 580 for a closed-rail budget — the sidebar keeps
+    // its whole 512 preference. A closed pane contributes nothing (issue #1042
+    // moved the default viewport to 1200: at 900 the prose floor would clamp it).
     expect(closed.sidebarWidth).toBe(512);
     expect(closed.inspectorWidth).toBe(0);
   });
 
   it("preserves wide viewport preferences", () => {
+    // 1440 − 620 fixed = 820 of room against 416 + 256 = 672: both fit whole.
     expect(resolveDesktopPanelWidths({
       ...defaults,
+      viewportWidth: 1440,
       sidebarWidth: 416,
       inspectorWidth: 256,
     })).toMatchObject({ sidebarWidth: 416, inspectorWidth: 256 });
@@ -156,10 +167,11 @@ describe("desktop panel layout", () => {
       ...resolveDesktopPanelWidths({ ...defaults, viewportWidth: 900, split: null }),
       splitFits: false,
     });
-    // 1100 → 720 of room: the pair fits at preference (616) but leaves 104 for
-    // the pane, under its 360 minimum; neither chrome pane yields for it.
+    // 1100 without the un-renderable pane is prose posture: 1100 − 620 = 480
+    // against 616 at preference — the pair yields for the measure (inspector
+    // first to 224, then the sidebar), and the split still reports no fit.
     expect(resolveDesktopPanelWidths({ ...defaults, viewportWidth: 1100, split: browserSplit }))
-      .toMatchObject({ sidebarWidth: 312, inspectorWidth: 304, splitFits: false });
+      .toMatchObject({ sidebarWidth: 256, inspectorWidth: 224, splitFits: false });
     // Collapsing the sidebar and closing the inspector frees enough room: the
     // collapsed sidebar takes no width, so the pane gets 900 − 380 = 520.
     expect(resolveDesktopPanelWidths({

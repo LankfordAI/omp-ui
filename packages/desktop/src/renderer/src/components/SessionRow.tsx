@@ -93,6 +93,17 @@ export const SESSION_FACE: Record<
   },
 };
 
+// The saved transcript's exit word (issue #1042): the wire `SessionStatus`
+// decoded into reader language instead of a raw enum on the row.
+const EXIT_WORD: Record<string, MessageKey> = {
+  complete: "sidebar.exit.complete",
+  interrupted: "sidebar.exit.interrupted",
+  aborted: "sidebar.exit.aborted",
+  error: "sidebar.exit.error",
+  pending: "sidebar.exit.pending",
+  unknown: "sidebar.exit.unknown",
+};
+
 // Live voice output (issue #807): phase → the existing composer phase label.
 const LIVE_PHASE_TITLE: Record<LiveDisplayPhase, MessageKey> = {
   connecting: "composer.live.phaseConnecting",
@@ -311,6 +322,9 @@ export function SessionRow({
   const slim = density === "slim";
   const quote = slim ? null : tileQuote(s);
   const model = slim ? null : tileModel(s);
+  // A bare `auto` in the row means omp classifies each prompt (issue #1042):
+  // the tooltip says so instead of leaving the word to decode itself.
+  const thinkingAuto = s.thinkingLevel === "auto";
   // agentMode records the last rpc-ui incarnation, so a terminal tab never shows it.
   const planMode = rpc && s.agentMode === "plan";
   const impl = source !== null || orphanSource !== null;
@@ -392,12 +406,20 @@ export function SessionRow({
   const firstPr = pullRequests[0];
   const prChip = firstPr !== undefined ? <PullRequestChip links={pullRequests} interactive={false} /> : null;
 
+  // The wire status decoded for readers (issue #1042): a raw `complete` next
+  // to `dormant` read as insider vocabulary; now both words are locale words
+  // and the exit word says what it describes on hover.
+  const exitWord =
+    showPersistedStatus && s.status !== null
+      ? { label: t(EXIT_WORD[s.status] ?? "sidebar.exit.unknown"), title: t("sidebar.exit.title") }
+      : null;
+
   // Line 2: project · branch · machine; the slim row leads with its state.
   // The machine stays an inline span: a `<Chip>` would break the ellipsis.
   const meta: ReactNode[] = [];
   if (slim) {
     meta.push(<span className={face.textClass}>{t(face.labelKey)}</span>);
-    if (showPersistedStatus && s.status) meta.push(s.status);
+    if (exitWord !== null) meta.push(<span title={exitWord.title}>{exitWord.label}</span>);
   }
   if (projectLabel) meta.push(projectLabel);
   if (s.worktree) meta.push(<span title={s.worktree.path}>⎇ {s.worktree.branch}</span>);
@@ -473,20 +495,20 @@ export function SessionRow({
             data-session-tile-title
             className={cn(
               "min-w-0 flex-1 transition-colors duration-150",
+              // The title is the row's one primary voice (issue #1042): tiles
+              // carry it at full ink, slim Settled rows step it down a tier.
               slim ? "truncate text-xs" : "line-clamp-2 break-words text-sm leading-snug",
-              missing ? "text-ink-faint" : "text-ink-mid group-hover/row:text-ink",
-              selected && !missing && "text-ink",
+              missing || slim ? "text-ink-mid group-hover/row:text-ink" : "text-ink",
             )}
           >
             {card === null ? (
               s.title
             ) : (
               <>
-                {card.icon !== null && (
-                  <span aria-hidden className="mr-1">
-                    {card.icon}
-                  </span>
-                )}
+                {/* The card's emoji stays out of the row (issue #1042): the app's
+                    icon language is the 16px stroke set, and a colour emoji at
+                    text size fights it for the title line's attention. The
+                    code chip carries the identity; search keeps the raw title. */}
                 <span className="mr-1.5 rounded bg-raised px-1 font-mono text-xs tracking-wide text-ink-mid">
                   {card.code}
                 </span>
@@ -525,11 +547,13 @@ export function SessionRow({
             <span className={cn("inline-flex shrink-0 items-center gap-1 font-mono", face.textClass)}>
               {t(face.labelKey)}
             </span>
-            {showPersistedStatus && s.status ? (
-              <span className="shrink-0 font-mono text-ink-faint">{s.status}</span>
+            {exitWord !== null ? (
+              <span className="shrink-0 font-mono" title={exitWord.title}>
+                {exitWord.label}
+              </span>
             ) : null}
             {model !== null && (
-              <span title={s.model ?? undefined} className="min-w-0 truncate font-mono text-ink-faint">
+              <span title={thinkingAuto ? t("sidebar.session.thinkingAuto") : s.model ?? undefined} className="min-w-0 truncate font-mono text-ink-dim">
                 {model}
               </span>
             )}

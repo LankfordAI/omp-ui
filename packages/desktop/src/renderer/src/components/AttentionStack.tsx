@@ -33,7 +33,7 @@ export function AttentionStack({
       aria-label={t("sidebar.attention.heading", { n: entries.length })}
       className="mb-1.5 space-y-0.5 rounded-md border border-line bg-raised/60 p-1"
     >
-      <div className="px-2 pt-1 pb-0.5 font-mono text-xs uppercase text-ink-faint">
+      <div className="px-2 pt-1.5 pb-1 text-xs font-semibold uppercase tracking-[0.08em] text-ink-dim">
         {t("sidebar.attention.heading", { n: entries.length })}
       </div>
       {entries.map((a) => {

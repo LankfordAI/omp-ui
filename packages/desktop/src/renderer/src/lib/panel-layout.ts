@@ -12,6 +12,15 @@ export const DEVICE_PANE_DEFAULT_WIDTH = 420;
 export const DEVICE_PANE_MIN_WIDTH = 300;
 export const DEVICE_PANE_MAX_WIDTH = 900;
 export const MAIN_CONTENT_MIN_WIDTH = 320;
+/**
+ * The desktop transcript floor while no split pane shares the column
+ * (issue #1042): with only sidebar + inspector competing, they used to yield
+ * just after the bare 320px collapse guard, so two maxed panes could starve
+ * the prose. Round 0 measured ~460px of transcript beside an open rail; now
+ * the chrome gives room before the column falls under a readable measure.
+ * A split pane is deliberate content, so its posture keeps the old guard.
+ */
+export const DESKTOP_CONTENT_MIN_WIDTH = 560;
 export const PANEL_KEYBOARD_STEP = 16;
 
 /** The inspector rail's panes; InspectorRail groups them (Work, Review, Ask, Info). */
@@ -100,7 +109,11 @@ export function resolveDesktopPanelWidths({
   const sidebarPreference = clampPanelWidth("sidebar", sidebarWidth);
   const inspectorPreference = clampPanelWidth("inspector", inspectorWidth);
   const splitBounds = split === null ? null : PANEL_BOUNDS[split.kind];
-  const fixed = MAIN_CONTENT_MIN_WIDTH + INSPECTOR_STRIP_WIDTH;
+  // No split pane means the column is prose: it keeps its readable measure.
+  // A split pane is deliberate content beside the transcript, so only the
+  // bare collapse guard applies (issue #1042).
+  const contentMin = split === null ? DESKTOP_CONTENT_MIN_WIDTH : MAIN_CONTENT_MIN_WIDTH;
+  const fixed = contentMin + INSPECTOR_STRIP_WIDTH;
   const variableBudget = Math.max(0, viewport - fixed);
 
   // The variable set: every open/expanded pane at its preference, reduced in

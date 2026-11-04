@@ -78,24 +78,42 @@ const AT_BOTTOM_SLACK = 64;
 /* ------------------------------------------------------------- assistant */
 
 /**
- * The receipt: one dim line under a finished turn. It exists so cost and
- * latency are always answerable without opening a panel, which means it has
- * to stay quiet enough to ignore — hence one line, faint until hover.
+ * The receipt: one quiet line under a finished turn. It exists so cost and
+ * latency are always answerable without opening a panel — which means every
+ * value has to decode at a glance (issue #1042): the old `↑4 ↓536 $0.08` run
+ * was undecodable at its size, so each part now names itself and carries its
+ * own hover meaning, and the line sits at `ink-dim`, not faint.
  */
 function UsageStrip({ item }: { item: AssistantItem }) {
   const t = useT();
   const usage = item.usage;
   if (!usage) return null;
-  const parts: string[] = [];
+  const parts: { text: string; title?: string }[] = [];
   // item.model is the requested selector, not an inferred routed model.
-  if (item.model) parts.push(item.model);
-  if (item.upstreamProvider) parts.push(t("transcript.usage.via", { provider: item.upstreamProvider }));
-  parts.push(`↑${tokenCount(usage.input)}`, `↓${tokenCount(usage.output)}`);
-  if (usage.cacheRead > 0) parts.push(`${t("transcript.usage.cache")} ${tokenCount(usage.cacheRead)}`);
-  if (usage.cost > 0) parts.push(formatCost(usage.cost));
+  if (item.model) parts.push({ text: item.model });
+  if (item.upstreamProvider)
+    parts.push({ text: t("transcript.usage.via", { provider: item.upstreamProvider }) });
+  parts.push(
+    { text: t("transcript.usage.in", { n: tokenCount(usage.input) }), title: t("transcript.usage.inTitle") },
+    { text: t("transcript.usage.out", { n: tokenCount(usage.output) }), title: t("transcript.usage.outTitle") },
+  );
+  if (usage.cacheRead > 0)
+    parts.push({
+      text: t("transcript.usage.cache", { n: tokenCount(usage.cacheRead) }),
+      title: t("transcript.usage.cacheTitle"),
+    });
+  if (usage.cost > 0)
+    parts.push({ text: formatCost(usage.cost), title: t("transcript.usage.costTitle") });
   if (item.ttftMs !== undefined && item.ttftMs > 0)
-    parts.push(`${t("transcript.usage.ttft")} ${formatDuration(item.ttftMs)}`);
-  if (item.durationMs !== undefined && item.durationMs > 0) parts.push(formatDuration(item.durationMs));
+    parts.push({
+      text: t("transcript.usage.ttft", { time: formatDuration(item.ttftMs) }),
+      title: t("transcript.usage.ttftTitle"),
+    });
+  if (item.durationMs !== undefined && item.durationMs > 0)
+    parts.push({
+      text: t("transcript.usage.duration", { time: formatDuration(item.durationMs) }),
+      title: t("transcript.usage.durationTitle"),
+    });
   // Decode rate: generated tokens over the post-ttft window only. Unlike omp
   // stats' tokens/s this excludes time to first token, and it renders only
   // when both halves of the subtraction exist — no ttft means no honest rate.
@@ -105,34 +123,42 @@ function UsageStrip({ item }: { item: AssistantItem }) {
     item.durationMs > item.ttftMs && item.ttftMs > 0
   ) {
     const rate = (usage.output * 1000) / (item.durationMs - item.ttftMs);
-    parts.push(`${rate >= 10 ? String(Math.round(rate)) : rate.toFixed(1)} ${t("transcript.usage.rate")}`);
+    parts.push({
+      text: `${rate >= 10 ? String(Math.round(rate)) : rate.toFixed(1)} ${t("transcript.usage.rate")}`,
+      title: t("transcript.usage.rateTitle"),
+    });
   }
   if (item.stopReason && item.stopReason !== "end_turn" && item.stopReason !== "stop") {
-    parts.push(item.stopReason);
+    parts.push({ text: item.stopReason });
   }
   // Wall-clock anchor: local short time inline, full locale date+time on hover.
   const at = item.timestamp === undefined ? null : new Date(item.timestamp);
   const atText = at?.toLocaleTimeString(localeTag(), { hour: "2-digit", minute: "2-digit", second: "2-digit" });
   const atTooltip = at?.toLocaleString(localeTag());
-  // Hover facts, in order: gateway, upstream, response id, completion time.
-  const facts = [
+  // Hover facts ride the clock: gateway, upstream, response id, completion time.
+  const clockTitle = [
     item.provider ? t("transcript.usage.gateway", { provider: item.provider }) : null,
     item.upstreamProvider ? t("transcript.usage.upstream", { provider: item.upstreamProvider }) : null,
     item.responseId ? t("transcript.usage.response", { id: item.responseId }) : null,
     atTooltip,
-  ];
+  ]
+    .filter(Boolean)
+    .join(" · ");
   return (
     <div
-      className="flex flex-wrap items-center gap-x-2 gap-y-0.5 font-mono text-xs tabular-nums text-ink-faint transition-colors hover:text-ink-dim"
-      title={facts.filter(Boolean).join(" · ") || undefined}
+      data-usage-receipt
+      className="flex flex-wrap items-center gap-x-1.5 gap-y-0.5 font-mono text-xs tabular-nums text-ink-dim"
     >
       {parts.map((part, i) => (
-        <span key={i}>{part}</span>
+        <Fragment key={i}>
+          {i > 0 ? <span aria-hidden className="text-ink-faint">·</span> : null}
+          <span title={part.title}>{part.text}</span>
+        </Fragment>
       ))}
       {at && (
         <>
-          {" · "}
-          <span title={atTooltip}>{atText}</span>
+          <span aria-hidden className="text-ink-faint">·</span>
+          <span title={clockTitle || undefined}>{atText}</span>
         </>
       )}
     </div>
@@ -168,7 +194,7 @@ const ExchangeReceipt = memo(function ExchangeReceipt({
           tabId,
         })
       }
-      className="flex flex-wrap items-center gap-x-2 font-mono text-xs tabular-nums text-ink-faint transition-colors hover:text-ink-dim"
+      className="flex flex-wrap items-center gap-x-2 font-mono text-xs tabular-nums text-ink-dim"
     >
       <span>{t("transcript.receipt.changedFiles", { files: changes.files })}</span>
       <span className="text-signal">+{changes.added}</span>

@@ -595,6 +595,10 @@ describe("desktop InspectorRail", () => {
   });
 
   it("shares committed width across close, reopen, and tab instances", () => {
+    // A wide window: this test is about width persistence, and the prose floor
+    // (issue #1042) would otherwise clamp the rail below its preference at
+    // jsdom's default 1024px viewport.
+    Object.defineProperty(window, "innerWidth", { configurable: true, value: 1400 });
     renderRail();
     act(() => button("work")!.click());
     const pane = button("collapse inspector")!.parentElement!.parentElement as HTMLElement;

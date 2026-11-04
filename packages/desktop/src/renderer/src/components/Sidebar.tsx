@@ -268,7 +268,7 @@ function SidebarSection({
         aria-expanded={shown}
         disabled={disabled}
         onClick={onToggle}
-        className="flex w-full shrink-0 items-center gap-1.5 px-3 pt-2 pb-1 text-left font-mono text-xs uppercase text-ink-faint transition-colors duration-150 hover:text-ink-mid focus-visible:text-ink focus-visible:outline-none disabled:hover:text-ink-faint"
+        className="flex w-full shrink-0 items-center gap-1.5 px-3 pt-2 pb-1 text-left text-xs font-semibold uppercase tracking-[0.08em] text-ink-dim transition-colors duration-150 hover:text-ink focus-visible:text-ink focus-visible:outline-none disabled:hover:text-ink-dim"
       >
         <Chevron open={shown} />
         {heading}
@@ -772,7 +772,7 @@ export function Sidebar() {
                     collapses, since a pin means "keep this in view". */}
                 {lists.pinned.length > 0 && (
                   <div role="group" aria-label={t("sidebar.pinned.heading", { n: lists.pinned.length })} className="space-y-1">
-                    <div className="px-1.5 pt-1 pb-0.5 font-mono text-xs uppercase text-ink-faint">
+                    <div className="px-1.5 pt-1.5 pb-1 text-xs font-semibold uppercase tracking-[0.08em] text-ink-dim">
                       {t("sidebar.pinned.heading", { n: lists.pinned.length })}
                     </div>
                     {lists.pinned.map((entry) => (
@@ -1013,17 +1013,33 @@ export function Sidebar() {
           onClear={clearSelection}
         />
       ) : (
-      <footer className="flex shrink-0 items-center gap-2 border-t border-line px-3 py-2 text-xs text-ink-faint">
-        <IconButton label={t("sidebar.footer.settings")} onClick={() => { openSettings(); closeCompactSurface(); }}>
+        /* Container-queried labels (issue #1042): at a readable sidebar width the
+           gear and fleet glyphs carry words instead of tooltip-only affordances;
+           below it they stay icon-only. */
+        <footer className="@container flex shrink-0 items-center gap-2 border-t border-line px-3 py-2 text-xs text-ink-faint">
+        <IconButton
+          label={t("sidebar.footer.settings")}
+          onClick={() => {
+            openSettings();
+            closeCompactSurface();
+          }}
+          className="flex size-auto h-6 w-auto items-center gap-1 px-1"
+        >
           <IconGear />
+          <span className="hidden whitespace-nowrap @[17rem]:inline">{t("sidebar.footer.settings")}</span>
         </IconButton>
         {hasInstances && (
           <IconButton
             label={t("fleet.sidebar.open")}
             pressed={fleetOpen}
-            onClick={() => { openFleet(); closeCompactSurface(); }}
+            onClick={() => {
+              openFleet();
+              closeCompactSurface();
+            }}
+            className="flex size-auto h-6 w-auto items-center gap-1 px-1"
           >
             <IconFleet />
+            <span className="hidden whitespace-nowrap @[17rem]:inline">{t("fleet.sidebar.open")}</span>
           </IconButton>
         )}
         {unreachable > 0 && (

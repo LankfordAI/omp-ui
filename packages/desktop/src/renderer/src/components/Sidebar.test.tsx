@@ -610,7 +610,7 @@ describe("Sidebar session list", () => {
     useStore.setState({ state: withRemote({ status: "unreachable", error: "connection lost" }) });
     renderSidebar();
     const chip = [...document.body.querySelectorAll<HTMLButtonElement>("footer button")].find(
-      (b) => b.textContent === "1 unreachable",
+      (b) => b.textContent === t("sidebar.footer.hostsAttention", { n: 1 }),
     )!;
     act(() => chip.click());
     expect(useStore.getState().settingsPage).toBe("remote-instances");
@@ -988,8 +988,11 @@ describe("Sidebar title cards (issue #838)", () => {
     });
     renderSidebar();
     const button = rowButton("📝 PLAN: Ship dark mode");
+    // The emoji stays out of the visible line (issue #1042 — colour emoji
+    // clash with the stroke icon set); the tooltip keeps the raw card.
+    expect(button.getAttribute("title")).toBe("📝 PLAN: Ship dark mode");
     const line = titleLine(button);
-    expect(line.querySelector('[aria-hidden="true"]')?.textContent).toBe("📝");
+    expect(line.textContent).not.toContain("📝");
     const chip = [...line.querySelectorAll("span")].find((el) => el.textContent === "PLAN");
     expect(chip?.className).toContain("font-mono");
     expect(line.lastElementChild?.textContent).toBe("Ship dark mode");
