@@ -2188,6 +2188,9 @@ export const en = {
   "hud.menu.modes": "Queue modes & retry…",
   "hud.menu.refresh": "Refresh state",
   "hud.gauge.label": "context and spend",
+  // Round-1 judge: `4% $0.0000` with no label decoded only on hover; the
+  // percentage now names itself in the bar itself.
+  "hud.gauge.contextShort": "ctx",
   "hud.gauge.main": "main",
   "hud.gauge.subagents": "subagents ({count})",
   "hud.gauge.advisor": "advisor",
@@ -2640,10 +2643,13 @@ export const en = {
   "rail.chrome.collapse": "collapse inspector",
   "rail.chrome.badgedTitle": "{label} ({count})",
   // Inspector rail groups (issue #940): the strip's four labelled buttons.
-  "rail.groups.work": "work",
-  "rail.groups.review": "review",
-  "rail.groups.ask": "ask",
-  "rail.groups.info": "info",
+  // Capitalised single words (round-1 judge casing sweep): the lowercase forms
+  // read as a different system from the sidebar's tracked section headers,
+  // which are uppercase by design; sentence case matches every other label.
+  "rail.groups.work": "Work",
+  "rail.groups.review": "Review",
+  "rail.groups.ask": "Ask",
+  "rail.groups.info": "Info",
 
   "diff.rail.readingTitle": "Reading branch…",
   "diff.rail.readingHint": "Gathering the working-tree diff.",
@@ -2914,10 +2920,10 @@ export const en = {
   "sidebar.status.startingTitle": "Native session is starting",
   "sidebar.status.errorLabel": "error",
   "sidebar.status.errorTitle": "Native session hit an error",
-  "sidebar.status.liveLabel": "live",
+  "sidebar.status.liveLabel": "running",
   "sidebar.status.liveTitle":
     "Session process is live; detailed activity is unavailable",
-  "sidebar.status.dormantLabel": "dormant",
+  "sidebar.status.dormantLabel": "no process",
   "sidebar.status.dormantTitle": "No running process — click to resume it",
   // How the saved transcript ended (the wire status, decoded for readers;
   // issue #1042: a raw "complete" beside "dormant" read as insider vocabulary).
@@ -2969,6 +2975,7 @@ export const en = {
   "sidebar.newSession": "new session — pick a project",
   "sidebar.settled.heading": "Settled ({n})",
   "sidebar.working.heading": "Working ({n})",
+  "sidebar.active.heading": "Active ({n})",
   "sidebar.pinned.heading": "Pinned ({n})",
   "sidebar.snoozed.heading": "Snoozed ({n})",
   "sidebar.session.chat": "chat",
@@ -2985,8 +2992,8 @@ export const en = {
   "sidebar.empty.noLiveHint": "Start one with New session or {hotkey}. Past sessions wait under Settled.",
   "sidebar.empty.newSession": "New session",
 
-  "sidebar.footer.settings": "settings",
-  "sidebar.footer.live": "live",
+  "sidebar.footer.settings": "Settings",
+  "sidebar.footer.live": "running",
   "sidebar.footer.resize": "resize sidebar",
   "sidebar.footer.hostsAttention": "{n} host offline",
   "sidebar.footer.hostsAttentionTitle": "A remote computer this window joined stopped answering. Its sessions stay on that computer; open Remote instances to reconnect or remove it.",

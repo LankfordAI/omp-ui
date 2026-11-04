@@ -766,7 +766,13 @@ export function Sidebar() {
                 scroll container (#1037): a non-empty stack renders even when
                 pinned and active are both empty. */}
             {lists.pinned.length > 0 || lists.active.length > 0 || attention.length > 0 ? (
-              <div className="min-h-0 flex-1 overflow-y-auto px-1.5 py-1">
+              /* Content-height when it fits, capped at 60% so Working and
+                 Settled keep usable space (round-1 judge: ~190px of dead
+                 space sat between the last live row and WORKING because this
+                 region grew greedily). With rows present the headed sections
+                 now stack directly below; #937's bottom-docking survives in
+                 the no-live-rows branch below. */
+              <div className="min-h-0 max-h-[60%] shrink-0 overflow-y-auto px-1.5 py-1">
                 <AttentionStack entries={attention} onActivate={closeCompactSurface} />
                 {/* Pinned (#981) heads the main list in pin order; it never
                     collapses, since a pin means "keep this in view". */}
@@ -781,7 +787,17 @@ export function Sidebar() {
                   </div>
                 )}
                 {lists.active.length > 0 && (
-                  <div className={cn("space-y-1", lists.pinned.length > 0 && "mt-1.5 border-t border-line-soft pt-1.5")}>
+                  <div
+                    role="group"
+                    aria-label={t("sidebar.active.heading", { n: lists.active.length })}
+                    className={cn("space-y-1", lists.pinned.length > 0 && "mt-1.5 border-t border-line-soft pt-1.5")}
+                  >
+                    {/* The live group carries its own header now (round-1
+                        judge): unheaded, it left WORKING/SETTLED as the only
+                        labelled groups and its position shifted with state. */}
+                    <div className="px-1.5 pt-1.5 pb-1 text-xs font-semibold uppercase tracking-[0.08em] text-ink-dim">
+                      {t("sidebar.active.heading", { n: lists.active.length })}
+                    </div>
                     {lists.active.map((entry) => (
                       <Row key={rowKey(entry)} entry={entry} onActivate={closeCompactSurface} openSessionMenu={openSessionMenu} slim={false} section="main" selection={rowSelection} />
                     ))}

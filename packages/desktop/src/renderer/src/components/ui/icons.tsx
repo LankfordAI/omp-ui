@@ -126,8 +126,8 @@ export function IconSearch({ className }: { className?: string }) {
 
 export function IconClose({ className }: { className?: string }) {
   return (
-    <svg viewBox="0 0 16 16" fill="none" strokeWidth={1.6} aria-hidden className={cn("size-2.5", className)}>
-      <path d="M4 4l8 8M12 4l-8 8" stroke="currentColor" strokeLinecap="round" />
+    <svg viewBox="0 0 16 16" aria-hidden className={cn("size-2.5", className)} {...ICON_STROKE}>
+      <path d="M4 4l8 8M12 4l-8 8" />
     </svg>
   );
 }

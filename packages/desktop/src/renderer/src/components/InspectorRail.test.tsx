@@ -234,6 +234,13 @@ const GROUP_OF: Record<string, string> = {
   session: "info",
 };
 
+/** Strip buttons carry the translated group label as their aria-label
+ *  (rail.groups.* is the source of truth; tests follow wording changes).
+ *  A function, not a constant: some cases switch locale mid-suite. */
+function GROUP_LABEL(group: "work" | "review" | "ask" | "info"): string {
+  return t(`rail.groups.${group}` as const);
+}
+
 /** A member tab in the open pane's tab row. */
 function memberTab(label: string): HTMLButtonElement | null {
   return document.body.querySelector<HTMLButtonElement>(`[role="tab"][aria-label="${label}"]`);
@@ -241,7 +248,7 @@ function memberTab(label: string): HTMLButtonElement | null {
 
 /** Opens a member pane: its group from the strip (unless already shown), then its tab when the group has one. */
 function openPane(label: string): void {
-  const group = button(GROUP_OF[label]!)!;
+  const group = button(GROUP_LABEL(GROUP_OF[label]! as "work" | "review" | "ask" | "info"))!;
   if (group.getAttribute("aria-pressed") !== "true") act(() => group.click());
   const tab = memberTab(label);
   if (tab !== null && tab.getAttribute("aria-selected") !== "true") act(() => tab.click());
@@ -309,19 +316,19 @@ describe("desktop InspectorRail", () => {
 
     // The strip is the whole rail: labelled group buttons with badges, no expand control.
     expect(button("expand inspector")).toBeNull();
-    for (const label of ["work", "review", "ask", "info"]) {
-      expect(button(label)?.textContent).toContain(label);
+    for (const label of ["work", "review", "ask", "info"] as const) {
+      expect(button(GROUP_LABEL(label))?.textContent).toContain(GROUP_LABEL(label));
     }
     expect(button("todos")).toBeNull();
     expect(button("memory")).toBeNull();
     // One open todo plus one subagent.
-    expect(button("work")?.title).toBe("work (2)");
+    expect(button(GROUP_LABEL("work"))?.title).toBe(`${GROUP_LABEL("work")} (2)`);
 
     // Pressing a group opens its pane beside the strip, on its first member.
-    act(() => button("work")!.click());
+    act(() => button(GROUP_LABEL("work"))!.click());
     expect(document.body.textContent).toContain("First task");
     expect(button("collapse inspector")).not.toBeNull();
-    expect(button("work")?.getAttribute("aria-pressed")).toBe("true");
+    expect(button(GROUP_LABEL("work"))?.getAttribute("aria-pressed")).toBe("true");
     const tabs = [...document.body.querySelectorAll('[role="tablist"] [role="tab"]')].map((el) => el.getAttribute("aria-label"));
     expect(tabs).toEqual(["todos", "agents", "jobs"]);
     expect(memberTab("todos")?.getAttribute("aria-selected")).toBe("true");
@@ -333,34 +340,34 @@ describe("desktop InspectorRail", () => {
     expect(document.body.textContent).not.toContain("First task");
 
     // Another group swaps the open pane; returning restores the remembered member.
-    act(() => button("review")!.click());
+    act(() => button(GROUP_LABEL("review"))!.click());
     expect(memberTab("plans")?.getAttribute("aria-selected")).toBe("true");
-    act(() => button("work")!.click());
+    act(() => button(GROUP_LABEL("work"))!.click());
     expect(memberTab("agents")?.getAttribute("aria-selected")).toBe("true");
 
     // Re-pressing the active group dismisses the pane back to the strip alone.
-    act(() => button("work")!.click());
+    act(() => button(GROUP_LABEL("work"))!.click());
     expect(button("collapse inspector")).toBeNull();
     expect(document.body.textContent).not.toContain("worker");
-    expect(button("work")).not.toBeNull();
+    expect(button(GROUP_LABEL("work"))).not.toBeNull();
   });
 
   it("Info has no tab row; its header names the group", () => {
     renderRail();
-    act(() => button("info")!.click());
+    act(() => button(GROUP_LABEL("info"))!.click());
     expect(document.body.querySelector('[role="tablist"]')).toBeNull();
     expect(document.body.textContent).toContain(t("rail.session.title"));
-    expect(button("collapse inspector")!.parentElement!.firstElementChild?.textContent).toBe("info");
+    expect(button("collapse inspector")!.parentElement!.firstElementChild?.textContent).toBe(GROUP_LABEL("info"));
   });
 
   it("remembers group and member per tab across a tab switch", () => {
     renderRail();
     openPane("seance");
     act(() => root!.render(<InspectorRail tabId="another-tab" />));
-    expect(button("work")?.getAttribute("aria-pressed")).toBe("true");
+    expect(button(GROUP_LABEL("work"))?.getAttribute("aria-pressed")).toBe("true");
     expect(memberTab("todos")?.getAttribute("aria-selected")).toBe("true");
     act(() => root!.render(<InspectorRail tabId={TAB} />));
-    expect(button("ask")?.getAttribute("aria-pressed")).toBe("true");
+    expect(button(GROUP_LABEL("ask"))?.getAttribute("aria-pressed")).toBe("true");
     expect(memberTab("seance")?.getAttribute("aria-selected")).toBe("true");
   });
 
@@ -392,8 +399,8 @@ describe("desktop InspectorRail", () => {
     useStore.setState({ state: backendState({ chats: [{ ...projectRecord, chat: true }] }) });
     renderRail();
 
-    expect(button("review")).toBeNull();
-    expect(button("work")?.getAttribute("aria-pressed")).toBe("true");
+    expect(button(GROUP_LABEL("review"))).toBeNull();
+    expect(button(GROUP_LABEL("work"))?.getAttribute("aria-pressed")).toBe("true");
     expect(memberTab("todos")?.getAttribute("aria-selected")).toBe("true");
     expect(document.body.textContent).toContain("First task");
   });
@@ -416,7 +423,7 @@ describe("desktop InspectorRail", () => {
     renderRail();
 
     // The row is pending with no gate anywhere: interrupted, badge 1.
-    expect(button("review")?.title).toBe("review (1)");
+    expect(button(GROUP_LABEL("review"))?.title).toBe(`${GROUP_LABEL("review")} (1)`);
     openPane("plans");
     expect(memberTab("plans")?.title).toBe("plans (1)");
     expect(document.body.textContent).toContain("interrupted");
@@ -438,9 +445,9 @@ describe("desktop InspectorRail", () => {
     );
 
     // A running turn refuses the command, so the action is disabled.
-    act(() => button("review")!.click()); // back to the strip
+    act(() => button(GROUP_LABEL("review"))!.click()); // back to the strip
     useStore.setState({ rpc: { [TAB]: runtime({ status: "running" }) } });
-    act(() => button("review")!.click()); // reopens on the remembered plans
+    act(() => button(GROUP_LABEL("review"))!.click()); // reopens on the remembered plans
     const busy = [...document.body.querySelectorAll<HTMLButtonElement>("button")].find(
       (b) => b.textContent === "re-present",
     );
@@ -600,7 +607,7 @@ describe("desktop InspectorRail", () => {
     // jsdom's default 1024px viewport.
     Object.defineProperty(window, "innerWidth", { configurable: true, value: 1400 });
     renderRail();
-    act(() => button("work")!.click());
+    act(() => button(GROUP_LABEL("work"))!.click());
     const pane = button("collapse inspector")!.parentElement!.parentElement as HTMLElement;
     const handle = document.body.querySelector<HTMLElement>('[role="separator"][aria-label="resize inspector"]')!;
     expect(pane.style.width).toBe("304px");
@@ -616,7 +623,7 @@ describe("desktop InspectorRail", () => {
 
     act(() => button("collapse inspector")!.click());
     expect(useStore.getState().inspectorOpen).toBe(false);
-    act(() => button("work")!.click());
+    act(() => button(GROUP_LABEL("work"))!.click());
     expect((button("collapse inspector")!.parentElement!.parentElement as HTMLElement).style.width).toBe("354px");
 
     act(() => root!.render(<InspectorRail tabId="another-tab" />));
@@ -785,7 +792,7 @@ describe("desktop InspectorRail", () => {
     expect(document.body.textContent).toContain("refreshed.txt");
     expect(document.body.textContent).not.toContain("initial.txt");
 
-    act(() => button("review")!.click());
+    act(() => button(GROUP_LABEL("review"))!.click());
     expect(button("collapse inspector")).toBeNull();
     expect(document.body.textContent).not.toContain("refreshed.txt");
   });
@@ -908,7 +915,7 @@ describe("desktop InspectorRail", () => {
     const dialog = document.body.querySelector('[role="dialog"][aria-label="inspector"]');
     expect(dialog).not.toBeNull();
     for (const label of ["work", "review", "ask", "info"]) {
-      expect(dialog!.querySelector(`button[aria-label="${label}"]`)).not.toBeNull();
+      expect(dialog!.querySelector(`button[aria-label="${GROUP_LABEL(label as "work" | "review" | "ask" | "info")}"]`)).not.toBeNull();
     }
     expect(document.body.querySelector('[role="separator"]')).toBeNull();
   });
@@ -1028,7 +1035,7 @@ describe("Jobs pane (issue #835)", () => {
     publishJobs();
     renderRail();
     // One open todo, one subagent, one running job.
-    expect(button("work")?.title).toBe("work (3)");
+    expect(button(GROUP_LABEL("work"))?.title).toBe(`${GROUP_LABEL("work")} (3)`);
     openPane("jobs");
     expect(memberTab("jobs")?.title).toBe("jobs (1)");
     expect(document.body.textContent).toContain("bg_1");
@@ -1131,7 +1138,7 @@ describe("Jobs pane (issue #835)", () => {
     });
     publishJobs({ running: [{ ...runningJob, id: "agent-1", type: "task", agentId: "agent-1" }] });
     renderRail();
-    act(() => button("work")!.click());
+    act(() => button(GROUP_LABEL("work"))!.click());
     expect(memberTab("jobs")?.title).toBe("jobs");
   });
 
@@ -1248,8 +1255,8 @@ describe("Side questions pane (issue #775)", () => {
       },
     });
     renderRail();
-    expect(button("ask")?.title).toBe("ask (1)");
-    act(() => button("ask")!.click());
+    expect(button(GROUP_LABEL("ask"))?.title).toBe(`${GROUP_LABEL("ask")} (1)`);
+    act(() => button(GROUP_LABEL("ask"))!.click());
     expect(memberTab("side questions")?.title).toBe("side questions (1)");
   });
 
@@ -1493,7 +1500,7 @@ describe("Side questions pane (issue #775)", () => {
     expect(button("collapse inspector")).toBeNull();
     act(() => useStore.getState().focusRailPane(TAB, "btw"));
     expect(button("collapse inspector")).not.toBeNull();
-    expect(button("ask")?.getAttribute("aria-pressed")).toBe("true");
+    expect(button(GROUP_LABEL("ask"))?.getAttribute("aria-pressed")).toBe("true");
     expect(memberTab("side questions")?.getAttribute("aria-selected")).toBe("true");
   });
 });
@@ -1604,8 +1611,8 @@ describe("Seance rail pane (issue #885)", () => {
       },
     });
     renderRail();
-    expect(button("ask")?.title).toBe("ask (2)");
-    act(() => button("ask")!.click());
+    expect(button(GROUP_LABEL("ask"))?.title).toBe(`${GROUP_LABEL("ask")} (2)`);
+    act(() => button(GROUP_LABEL("ask"))!.click());
     expect(memberTab("seance")?.title).toBe("seance (2)");
   });
 });

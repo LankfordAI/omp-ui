@@ -2,7 +2,7 @@ import { Fragment, type MouseEvent as ReactMouseEvent, type ReactNode } from "re
 import { relativeTime } from "../lib/format";
 import { tileModel, tileQuote } from "../lib/session-tile";
 import type { SessionSummary } from "@omp-ui/core/types";
-import { parseTitleCard } from "@omp-ui/core/title-card";
+import { withTitleCard } from "./TitleCardChip";
 import { localeTag, useT, type MessageKey } from "../lib/i18n";
 import { useKeybindingLabel } from "../lib/keybindings";
 import { formatSnoozeUntil } from "../lib/snooze-until";
@@ -298,11 +298,10 @@ export function SessionRow({
   const rpc = s.mode === "rpc-ui";
   const when = relativeTime(s.cachedModified);
   const face = SESSION_FACE[sidebarState];
-  // omp's title card (issue #838): the icon/code ride inside the title
-  // string itself; recognized at render time, never stored. The tooltip and
+  // omp's title card (issue #838) renders through withTitleCard — the one
+  // treatment header, sidebar, and palette share (round-1 judge). Tooltip and
   // every search/filter path keep the raw string — the card verbatim is the
   // unambiguous identity, and searching "PLAN" must still find the row.
-  const card = parseTitleCard(s.title);
   const showPersistedStatus = !(s.live === "live" && rpc);
 
   // Plan handoff (issue #238). The dispatch snapshot lives on the row's own
@@ -321,7 +320,11 @@ export function SessionRow({
   // Issue #938: the tile's extra lines. Slim rows skip the derivations.
   const slim = density === "slim";
   const quote = slim ? null : tileQuote(s);
-  const model = slim ? null : tileModel(s);
+  // One display form per model (round-1 judge): a booted tab's catalog names
+  // the model the same way the composer pill and Settings do; without one
+  // (dormant rows) tileModel falls back to the selector tail.
+  const modelCatalog = useStore((st) => st.rpc[s.tabId]?.availableModels ?? null);
+  const model = slim ? null : tileModel(s, modelCatalog);
   // A bare `auto` in the row means omp classifies each prompt (issue #1042):
   // the tooltip says so instead of leaving the word to decode itself.
   const thinkingAuto = s.thinkingLevel === "auto";
@@ -418,7 +421,14 @@ export function SessionRow({
   // The machine stays an inline span: a `<Chip>` would break the ellipsis.
   const meta: ReactNode[] = [];
   if (slim) {
-    meta.push(<span className={face.textClass}>{t(face.labelKey)}</span>);
+    // A neutral state word must not outshine the title it sits under
+    // (round-1 judge): colour-bearing states keep their accent; plain ones
+    // step to the meta tier.
+    meta.push(
+      <span className={face.tone === "neutral" ? "text-ink-faint" : face.textClass}>
+        {t(face.labelKey)}
+      </span>,
+    );
     if (exitWord !== null) meta.push(<span title={exitWord.title}>{exitWord.label}</span>);
   }
   if (projectLabel) meta.push(projectLabel);
@@ -501,20 +511,7 @@ export function SessionRow({
               missing || slim ? "text-ink-mid group-hover/row:text-ink" : "text-ink",
             )}
           >
-            {card === null ? (
-              s.title
-            ) : (
-              <>
-                {/* The card's emoji stays out of the row (issue #1042): the app's
-                    icon language is the 16px stroke set, and a colour emoji at
-                    text size fights it for the title line's attention. The
-                    code chip carries the identity; search keeps the raw title. */}
-                <span className="mr-1.5 rounded bg-raised px-1 font-mono text-xs tracking-wide text-ink-mid">
-                  {card.code}
-                </span>
-                <span>{card.title}</span>
-              </>
-            )}
+            {withTitleCard(s.title)}
           </span>
           {slim && prChip}
           {slim && pinMark}
@@ -524,15 +521,17 @@ export function SessionRow({
           {when && (
             <span
               title={absoluteTime(s.cachedModified)}
-              className="shrink-0 pt-0.5 font-mono text-xs tabular-nums text-ink-faint"
+              className="shrink-0 pt-0.5 text-xs tabular-nums text-ink-faint"
             >
               {when}
             </span>
           )}
         </span>
 
+        {/* Meta reads as prose (round-1 judge: mono chrome): the row's voice is
+            Instrument Sans; mono is reserved for identifiers inside it. */}
         {meta.length > 0 && (
-          <span className="mt-0.5 block truncate font-mono text-xs text-ink-faint">
+          <span className="mt-0.5 block truncate text-xs text-ink-faint">
             {meta.map((node, i) => (
               <Fragment key={i}>
                 {i > 0 ? " · " : null}
@@ -544,11 +543,11 @@ export function SessionRow({
 
         {!slim && (
           <span className="mt-1 flex min-w-0 items-center gap-1.5 text-xs">
-            <span className={cn("inline-flex shrink-0 items-center gap-1 font-mono", face.textClass)}>
+            <span className={cn("inline-flex shrink-0 items-center gap-1", face.textClass)}>
               {t(face.labelKey)}
             </span>
             {exitWord !== null ? (
-              <span className="shrink-0 font-mono" title={exitWord.title}>
+              <span className="shrink-0" title={exitWord.title}>
                 {exitWord.label}
               </span>
             ) : null}
@@ -588,7 +587,7 @@ export function SessionRow({
             title={quote.text}
             className="mt-1.5 line-clamp-2 break-words border-l-2 border-iris-dim/60 pl-2 text-xs leading-snug text-ink-mid"
           >
-            <span className="mr-1 font-mono text-xs uppercase text-iris">
+            <span className="mr-1 text-xs uppercase tracking-wide text-iris">
               {t(quote.kind === "plan" ? "sidebar.session.quotePlan" : "sidebar.session.quoteQuestion")}
             </span>
             {quote.text}

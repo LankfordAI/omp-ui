@@ -16,6 +16,7 @@ import { useKeybindingLabel } from "../lib/keybindings";
 import { useCompactShell } from "../lib/responsive";
 import { remoteVsCodeRow, useRemoteVsCodeTarget } from "../lib/remote-vscode";
 import { backend } from "../backend";
+import { withTitleCard } from "./TitleCardChip";
 import { localeTag, useT, type MessageKey } from "../lib/i18n";
 import { linkedExperiment } from "../lib/experiment-link";
 import { deltaLabel } from "./lab/experiment-state";
@@ -1114,7 +1115,7 @@ function TitleMenu({
           onClick={toggle}
           className="flex min-w-0 max-w-[28rem] items-center gap-1 rounded px-1 py-0.5 font-display text-sm text-ink transition-colors hover:bg-hover"
         >
-          <span className="min-w-0 truncate">{title}</span>
+          <span className="min-w-0 truncate">{withTitleCard(title)}</span>
           <Chevron open className="text-ink-dim" />
         </button>
       )}
@@ -1449,6 +1450,7 @@ function GaugeChip({
         )}
       >
         <ProgressRing fraction={readout?.fraction ?? 0} className="size-3.5 shrink-0" />
+        <span className="text-xs uppercase tracking-[0.08em] text-ink-faint">{t("hud.gauge.contextShort")}</span>
         <span className={readout ? percentTone(readout.percent) : "text-ink-dim"}>
           {readout ? `${Math.round(readout.percent)}%` : "—"}
         </span>

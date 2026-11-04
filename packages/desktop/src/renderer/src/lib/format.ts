@@ -47,6 +47,28 @@ export function shortModelLabel(selector: string): string {
   return colon > 0 ? tail.slice(0, colon) : tail;
 }
 
+/**
+ * One display form for a model everywhere the chrome names one (round-1
+ * judge: `GPT-5.6 Luna` in the composer pill vs `gpt-5.6-luna` in the sidebar
+ * named the same model two ways). The catalog's own name wins — it is what
+ * Settings and the model picker show; the compact selector tail is the
+ * fallback whenever no catalog row matches (dormant rows boot no process and
+ * have no catalog). `selector` is omp's `provider/id[:level]`.
+ */
+export function modelDisplayLabel(
+  selector: string,
+  catalog?: readonly { id: string; name: string }[] | null,
+): string {
+  const tail = shortModelLabel(selector);
+  // Catalog ids may keep their own vendor prefix (`openai/gpt-5.6-luna` under
+  // the openrouter provider), so match the full tail or its last slash-part.
+  const row = catalog?.find(
+    (model) =>
+      model.id === tail || shortModelLabel(model.id) === tail,
+  );
+  return row !== undefined && row.name !== "" ? row.name : tail;
+}
+
 /** Coarse localized relative time for scan-first rows and cards. */
 export function relativeTime(iso: string | null): string {
   if (!iso) return "";

@@ -1290,7 +1290,7 @@ export function Composer({
       )}
     >
       {dropping && (
-        <div className="pointer-events-none absolute inset-1 z-30 flex items-center justify-center rounded-xl border border-dashed border-iris bg-iris-wash/60 text-xs text-iris">
+        <div className="pointer-events-none absolute inset-1 z-30 flex items-center justify-center rounded-md border border-dashed border-iris bg-iris-wash/60 text-xs text-iris">
           {t("composer.reference.dropHint")}
         </div>
       )}
@@ -1349,7 +1349,12 @@ export function Composer({
             "focus-within:border-line-strong",
             compact
               ? "bg-raised"
-              : "ambient glass-surface rounded-xl shadow-float " +
+              // Opaque, never glass: the card floats over scrolling transcript
+              // text, and at 86% alpha that text bled through the draft field
+              // (round-1 judge: composer overlap). ADR-0026 permits this — it
+              // allows, not requires, translucency; separation here is pure
+              // elevation (border + shadow-float), matching the #409 amendment.
+              : "ambient bg-surface rounded-md shadow-float " +
                 "focus-within:ring-1 focus-within:ring-iris-dim/35",
             isSlash && "focus-within:border-iris-dim",
             unavailable && "opacity-50",

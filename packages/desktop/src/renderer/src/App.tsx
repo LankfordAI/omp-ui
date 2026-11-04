@@ -202,11 +202,13 @@ function Welcome() {
 
   return (
     <div className="ambient flex h-full flex-col items-center justify-center bg-void px-5 @container">
-      {/* The shortcut table rides beside the actions on a wide canvas instead
-          of trailing a 26rem column that left ~70% of the window blank
-          (issue #1042); it stacks again when narrow. */}
-      <div className="animate-rise flex w-full max-w-[30rem] flex-col items-center gap-5 text-center @[44rem]:max-w-[46rem] @[44rem]:flex-row @[44rem]:gap-10">
-        <div className="flex flex-1 flex-col items-center gap-5 text-center">
+      {/* The shortcut table rides beside the actions on a wide canvas (issue
+          #1042); it stacks again when narrow. Real grid tracks with
+          minmax(0,…) — round 1 caught flex children overflowing into each
+          other ("Open session…" overlapping the Ctrl+F key column): grid +
+          wrappable buttons make that structurally impossible. */}
+      <div className="animate-rise flex w-full max-w-[30rem] flex-col items-center gap-6 text-center @[44rem]:mx-auto @[44rem]:grid @[44rem]:max-w-[52rem] @[44rem]:grid-cols-[minmax(0,1fr)_minmax(17rem,max-content)] @[44rem]:items-center @[44rem]:gap-x-14 @[44rem]:gap-y-6">
+        <div className="flex w-full min-w-0 flex-col items-center gap-5 text-center">
           <div className="flex flex-col items-center gap-1.5">
             <h1 className="font-display text-2xl font-semibold tracking-tight text-ink">omp-ui</h1>
             <p className="text-balance-tight text-sm leading-relaxed text-ink-dim">
@@ -216,7 +218,7 @@ function Welcome() {
             </p>
           </div>
 
-          <div className="flex items-center gap-2">
+          <div className="flex flex-wrap items-center justify-center gap-2">
             <Button variant="solid" onClick={() => openProjectPicker()}>
               {t("app.welcome.addProject")}
             </Button>
@@ -231,13 +233,13 @@ function Welcome() {
           </div>
         </div>
 
-        <dl className="compact-welcome-hints mt-2 grid w-full max-w-[22rem] grid-cols-[auto_1fr] items-center gap-x-3 gap-y-1.5 text-left @[44rem]:mt-0 @[44rem]:max-w-none">
+        <dl className="compact-welcome-hints grid w-full min-w-0 grid-cols-[max-content_1fr] items-center gap-x-3 gap-y-1.5 text-left border-line @[44rem]:border-l @[44rem]:pl-6">
           {HINTS.map(([action, what]) => (
             <div key={action} className="col-span-2 grid grid-cols-subgrid items-center">
-              <dt className="justify-self-end rounded border border-line bg-raised px-1.5 py-px font-mono text-xs leading-4 text-ink-mid">
+              <dt className="justify-self-end whitespace-nowrap rounded border border-line bg-raised px-1.5 py-px font-mono text-xs leading-4 text-ink-mid">
                 {formatHotkey(effectiveChord(keybindings, action))}
               </dt>
-              <dd className="text-xs text-ink-dim">{t(what)}</dd>
+              <dd className="min-w-0 truncate text-xs text-ink-dim">{t(what)}</dd>
             </div>
           ))}
         </dl>

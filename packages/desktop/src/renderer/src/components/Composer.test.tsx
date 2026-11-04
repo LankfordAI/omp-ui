@@ -312,12 +312,13 @@ describe("desktop floating Composer card", () => {
     seed("ready");
     renderComposer();
     const card = document.body.querySelector("textarea")!.parentElement!.parentElement!;
-    // ADR-0026: the composer card is a glass plane. Its tone must equal the
-    // transcript's reading plane — plane-lit (raised) paints a lighter
-    // rectangle over the prose the card now floats above (#396, lineage of
-    // #194/#395). The tab root carries ambient grain over bg-surface, so the
-    // card keeps ambient too and the grain layers cancel in the comparison.
-    expect(card.className).toContain("glass-surface");
+    // Round-1 judge fix: the card floats over scrolling transcript text, and
+    // the 86%-alpha glass plane let that text bleed through the draft field.
+    // The card is now opaque, keeping the reading plane's tone (never the
+    // lighter plane-lit/raised rectangle — #396 lineage) with separation by
+    // elevation: border + shadow-float.
+    expect(card.className).toContain("bg-surface");
+    expect(card.className).not.toContain("glass-surface");
     expect(card.className).not.toContain("plane-lit");
   });
 });

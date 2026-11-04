@@ -12,7 +12,7 @@ import { cn } from "../lib/cn";
 import { copyFallback } from "../lib/clipboard";
 import { formatDuration } from "../lib/duration";
 import { summarizeExchanges, type ExchangeChanges } from "../lib/exchange-changes";
-import { formatCost, tokenCount } from "../lib/format";
+import { formatCost, shortModelLabel, tokenCount } from "../lib/format";
 import { splitInterviewDraft } from "../lib/interview-draft";
 import { localeTag, useT } from "../lib/i18n";
 import { supportsNarration } from "../lib/narration";
@@ -89,8 +89,11 @@ function UsageStrip({ item }: { item: AssistantItem }) {
   const usage = item.usage;
   if (!usage) return null;
   const parts: { text: string; title?: string }[] = [];
-  // item.model is the requested selector, not an inferred routed model.
-  if (item.model) parts.push({ text: item.model });
+  // item.model is the requested selector, not an inferred routed model. The
+  // receipt keeps the compact tail rather than the catalog's pretty name —
+  // it is data, and hover carries the full selector — but drops the provider
+  // prefix so the row matches how the composer names the same model (#1042).
+  if (item.model) parts.push({ text: shortModelLabel(item.model), title: item.model });
   if (item.upstreamProvider)
     parts.push({ text: t("transcript.usage.via", { provider: item.upstreamProvider }) });
   parts.push(
@@ -204,7 +207,10 @@ const ExchangeReceipt = memo(function ExchangeReceipt({
   );
 });
 
-/** Pins to the tail while the model is still emitting reasoning. */
+/**
+ * Reasoning reads as prose, not a log (round-1 judge): proportional voice at
+ * the quiet tier. Mono stays for data — ids, models, numbers, code.
+ */
 function ThinkingPane({ text, live }: { text: string; live: boolean }) {
   const ref = useRef<HTMLPreElement>(null);
   useEffect(() => {
@@ -216,7 +222,7 @@ function ThinkingPane({ text, live }: { text: string; live: boolean }) {
     <pre
       ref={ref}
       data-selectable
-      className="mt-1 max-h-64 overflow-y-auto whitespace-pre-wrap break-words font-mono text-xs leading-[1.55] text-ink-dim"
+      className="mt-1 max-h-64 overflow-y-auto whitespace-pre-wrap break-words font-sans text-sm leading-[1.6] text-ink-mid"
     >
       {text}
     </pre>
@@ -532,7 +538,7 @@ function NoticeLine({ item, tabId }: { item: NoticeItem; tabId?: string }) {
     <div className="animate-rise flex justify-center">
       <div
         className={cn(
-          "flex max-w-[80%] items-center gap-1.5 rounded-2xl border px-2.5 py-1 text-xs",
+          "flex max-w-[80%] items-center gap-1.5 rounded-md border px-2.5 py-1 text-xs",
           tone === "rose" && "border-rose-dim/50 bg-rose-wash text-rose",
           tone === "copper" && "border-copper-dim/50 bg-copper-wash text-copper",
           tone === "neutral" && "border-line bg-raised text-ink-dim",

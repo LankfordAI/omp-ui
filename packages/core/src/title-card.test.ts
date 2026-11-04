@@ -41,6 +41,16 @@ describe("parseTitleCard (issue #838)", () => {
     });
   });
 
+  it("splits a variation-selector emoji card (♻️ U+267B U+FE0F)", () => {
+    // The base codepoint lacks Emoji_Presentation; only VS16 makes it an
+    // emoji. Round-2 fixture rows showed the raw string when this missed.
+    expect(parseTitleCard("♻️ REFACTOR: Split SessionRow")).toEqual({
+      icon: "♻️",
+      code: "REFACTOR",
+      title: "Split SessionRow",
+    });
+  });
+
   it("returns null for plain titles, boring icons, and lookalikes", () => {
     expect(parseTitleCard("Add MIT license file")).toBeNull();
     expect(parseTitleCard("HTTP: a primer")).toBeNull();

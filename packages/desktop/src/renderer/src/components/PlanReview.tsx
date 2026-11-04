@@ -625,7 +625,7 @@ export function PlanReview({
         // footer stays visible and the plan/setup panes scroll internally. A
         // block child would render at natural height and overflow-hidden would
         // clip the footer away.
-        "animate-rise mx-auto mb-2 flex w-full flex-col overflow-hidden rounded-xl border border-line ambient plane-lit shadow-float",
+        "animate-rise mx-auto mb-2 flex w-full flex-col overflow-hidden rounded-md border border-line ambient plane-lit shadow-float",
         fill
           ? "min-h-0 flex-1" // issue #277: owns the chat-history slot, uncapped
           : "shrink-0",

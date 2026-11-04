@@ -2011,6 +2011,7 @@ export const ko: Partial<Record<MessageKey, string>> = {
   "hud.menu.modes": "대기열 모드 및 재시도…",
   "hud.menu.refresh": "상태 새로 고침",
   "hud.gauge.label": "컨텍스트 및 지출",
+  "hud.gauge.contextShort": "컨텍스트",
   "hud.gauge.main": "메인",
   "hud.gauge.subagents": "서브에이전트 ({count})",
   "hud.gauge.advisor": "어드바이저",
@@ -2730,7 +2731,7 @@ export const ko: Partial<Record<MessageKey, string>> = {
   "sidebar.status.errorTitle": "네이티브 세션에서 오류가 발생했습니다",
   "sidebar.status.liveLabel": "실행 중",
   "sidebar.status.liveTitle": "세션 프로세스가 실행 중이며 자세한 활동은 알 수 없습니다",
-  "sidebar.status.dormantLabel": "휴면",
+  "sidebar.status.dormantLabel": "프로세스 없음",
   "sidebar.status.dormantTitle": "실행 중인 프로세스 없음 — 클릭하여 재개",
   // How the saved transcript ended (the wire status, decoded for readers;
   // issue #1042: a raw "complete" beside "dormant" read as insider vocabulary).
@@ -2800,6 +2801,7 @@ export const ko: Partial<Record<MessageKey, string>> = {
 
   "sidebar.footer.settings": "설정",
   "sidebar.footer.live": "실행 중",
+  "sidebar.active.heading": "활성 ({n})",
   "sidebar.footer.resize": "사이드바 크기 조정",
   "sidebar.footer.hostsAttention": "호스트 {n}개 오프라인",
   "sidebar.footer.hostsAttentionTitle": "이 창이 연결했던 원격 컴퓨터가 응답을 멈췄습니다. 해당 세션은 그 컴퓨터에 남아 있습니다. 원격 인스턴스를 열어 다시 연결하거나 삭제하세요.",

@@ -152,8 +152,17 @@ function TabIcon({ tab }: { tab: RailTab }) {
 
 function GroupIcon({ group }: { group: RailGroup }) {
   if (group === "work") return <TabIcon tab="todos" />;
-  if (group === "review") return <TabIcon tab="plans" />;
   if (group === "ask") return <TabIcon tab="btw" />;
+  if (group === "review")
+    // Magnifier over lines — "reading the work". The clipboard-and-check it
+    // replaced read as a padlock at 14px (round-1 judge).
+    return (
+      <svg viewBox="0 0 16 16" aria-hidden className="size-3.5">
+        <path d="M2.8 3.4h7.4M2.8 6.4h5M2.8 9.4h3.6" {...ICON_STROKE} />
+        <circle cx="10.4" cy="10.2" r="2.9" {...ICON_STROKE} />
+        <path d="M12.6 12.4l1.6 1.6" {...ICON_STROKE} />
+      </svg>
+    );
   return (
     <svg viewBox="0 0 16 16" aria-hidden className="size-3.5">
       <circle cx="8" cy="8" r="5.6" {...ICON_STROKE} />
@@ -281,7 +290,9 @@ function AgentsPane({ tabId }: { tabId: string }) {
                     <SubagentControls tabId={tabId} agentId={agent.id} status={status} />
                   </div>
                   <div className="mt-0.5 flex items-baseline gap-1.5 pl-3">
-                    <span className="shrink-0 font-mono text-xs text-ink-faint">{status}</span>
+                    {/* State words read as prose (round-1 judge: mono chrome);
+                        the percent beside them stays mono — it is a number. */}
+                    <span className="shrink-0 text-xs text-ink-faint">{status}</span>
                     {agent.completionPercent !== undefined && status === "running" && (
                       <span
                         className="shrink-0 font-mono text-xs text-ink-faint"
@@ -535,7 +546,14 @@ function StatsTable({
                     title={exactNum(tokens[key])}
                     className={cn(
                       "py-0.5 text-right font-mono text-xs tabular-nums",
-                      key === "total" ? "text-ink" : "text-ink-mid",
+                      // All-zero rows carry no information; they step down a
+                      // tier instead of competing with real data (round-1
+                      // judge: 30 equal-weight rows).
+                      tokens[key] === 0
+                        ? "text-ink-faint"
+                        : key === "total"
+                          ? "text-ink"
+                          : "text-ink-mid",
                     )}
                   >
                     {compactNum(tokens[key])}

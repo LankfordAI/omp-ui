@@ -409,7 +409,7 @@ function OptionRow({
   iconStyle?: CSSProperties;
 }) {
   return (
-    <div className="flex min-h-8 min-w-0 items-center gap-2.5 rounded-[5px] px-2 text-xs text-ink">
+    <div className="flex min-h-8 min-w-0 items-center gap-2.5 rounded-md px-2 text-xs text-ink">
       <span
         aria-hidden
         className="shrink-0 text-ink-mid transition-colors duration-300 motion-reduce:transition-none"

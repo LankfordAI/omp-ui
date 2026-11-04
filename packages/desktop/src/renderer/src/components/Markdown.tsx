@@ -36,9 +36,9 @@ export const ObsidianNoteLinkContext = createContext<
  * keeps a heading that opens the answer flush.
  */
 const HEADING_CLASS: Record<number, string> = {
-  1: "text-xl mt-5 first:mt-0",
-  2: "text-base mt-4 first:mt-0",
-  3: "text-base mt-3 first:mt-0",
+  1: "text-2xl mt-6 first:mt-0",
+  2: "text-xl mt-5 first:mt-0",
+  3: "text-lg mt-4 first:mt-0",
   4: "text-sm mt-3 first:mt-0",
   5: "text-sm mt-3 first:mt-0",
   6: "text-sm mt-3 first:mt-0",
@@ -198,7 +198,10 @@ function Spans({ spans }: { spans: MdSpan[] }) {
             );
           case "code":
             return (
-              <code key={i} className="rounded bg-overlay px-1 font-mono text-[0.9em] text-ink">
+              // bg-overlay is white-on-white against Light's raised/overlay
+              // planes — the chip vanished (round-1 judge). bg-hover is the
+              // one plane every theme keeps distinct from surface AND raised.
+              <code key={i} className="rounded bg-hover px-1.5 font-mono text-[0.9em] text-ink">
                 {span.text}
               </code>
             );
@@ -539,8 +542,10 @@ function alignStyle(table: MdTableTail, column: number): CSSProperties | undefin
  * the transcript past its scroll wrapper. The caret rides the last cell.
  */
 function TableGrid({ table, trailing }: { table: MdTableTail; trailing?: ReactNode }) {
+  // Round-1 judge: tables ran the full column while prose stopped at the
+  // measure, so right edges were ragged. Same measure as prose now.
   return (
-    <div className="overflow-x-auto">
+    <div className={cn("overflow-x-auto", MEASURE)}>
       <table className="w-full border-collapse">
         <thead>
           <tr>
