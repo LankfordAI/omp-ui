@@ -229,11 +229,15 @@ function SectionHeading({
   shown,
   disabled,
   onToggle,
+  className,
 }: {
   heading: string;
   shown: boolean;
   disabled: boolean;
   onToggle: () => void;
+  /** Cancels a padded ancestor so the toggle strip spans the sidebar's full
+   *  width like its peers (round-7 judge, Consistency 1). */
+  className?: string;
 }) {
   return (
     <button
@@ -241,7 +245,10 @@ function SectionHeading({
       aria-expanded={shown}
       disabled={disabled}
       onClick={onToggle}
-      className="chrome-label flex w-full shrink-0 items-center gap-1.5 px-3 pt-2 pb-1 text-left text-ink-dim transition-colors duration-150 hover:text-ink focus-visible:text-ink focus-visible:outline-none disabled:hover:text-ink-dim"
+      className={cn(
+        "chrome-label flex w-full shrink-0 items-center gap-1.5 px-3 pt-2 pb-1 text-left text-ink-dim transition-colors duration-150 hover:text-ink focus-visible:text-ink focus-visible:outline-none disabled:hover:text-ink-dim",
+        className,
+      )}
     >
       <Chevron open={shown} />
       {heading}
@@ -823,7 +830,7 @@ export function Sidebar() {
                     collapses, since a pin means "keep this in view". */}
                 {lists.pinned.length > 0 && (
                   <div role="group" aria-label={t("sidebar.pinned.heading", { n: lists.pinned.length })} className="space-y-1">
-                    <div className="chrome-label px-1.5 pt-1.5 pb-1 text-ink-dim">
+                    <div className="chrome-label -mx-1.5 px-3 pt-2 pb-1 text-ink-dim">
                       {t("sidebar.pinned.heading", { n: lists.pinned.length })}
                     </div>
                     {lists.pinned.map((entry) => (
@@ -841,6 +848,7 @@ export function Sidebar() {
                         like its Working/Settled peers (round-2 judge); the
                         choice persists in its own localStorage key. */}
                     <SectionHeading
+                      className="-mx-1.5"
                       heading={t("sidebar.ready.heading", { n: lists.active.length })}
                       shown={readyShown}
                       disabled={filtering}

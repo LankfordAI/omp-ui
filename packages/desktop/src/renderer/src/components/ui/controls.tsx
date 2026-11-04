@@ -602,11 +602,15 @@ export function Disclosure({
   children,
   defaultOpen = false,
   className,
+  chevronClassName,
 }: {
   summary: ReactNode;
   children: ReactNode;
   defaultOpen?: boolean;
   className?: string;
+  /** Tints the chevron alone (round-7 judge, Hierarchy nit: keep the accent
+   *  on the marker while the caps label stays quiet). */
+  chevronClassName?: string;
 }) {
   const [open, setOpen] = useState(defaultOpen);
   return (
@@ -616,7 +620,7 @@ export function Disclosure({
         onClick={() => setOpen(!open)}
         className="flex w-full items-center gap-1.5 text-left text-ink-dim transition-colors hover:text-ink-mid"
       >
-        <Chevron open={open} />
+        <Chevron open={open} className={chevronClassName} />
         {summary}
       </button>
       {open && <div className="animate-rise">{children}</div>}

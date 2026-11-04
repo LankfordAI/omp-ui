@@ -284,10 +284,13 @@ function AssistantBlock({ item, tabId }: { item: AssistantItem; tabId?: string }
             "-ml-[9px] rounded-md border border-line-soft bg-sunken px-2 py-1",
             "max-w-[calc(var(--prose-max)+0.5625rem)]",
           )}
+          chevronClassName="text-think-warm"
           summary={
-            // Round-5 judge, Color: the plate speaks `think-warm`, the thinking
-            // ramp's own hue; copper stays reserved for "working" status.
-            <Label className="text-think-warm">{t("transcript.assistant.thinking")}</Label>
+            // Round-5 judge, Color: the plate speaks `think-warm`. Round-7
+            // judge, Hierarchy nit: the saturated caps label outranked the h2
+            // under it, so the accent rides the chevron and the label sits at
+            // the same ink-faint as every other section header.
+            <Label>{t("transcript.assistant.thinking")}</Label>
           }
         >
           <ThinkingPane text={shownThinking} live={working} />

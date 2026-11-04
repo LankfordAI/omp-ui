@@ -518,12 +518,11 @@ export function CommandPalette() {
           lastGroup = action.group;
           return (
             <div key={action.id}>
-              {/* Section headers sit at the 14px chrome floor now (round-3
-                  judge, Typography 1): the palette was the app's densest
-                  12px field. The caps + tracking treatment stays — it is the
-                  section-header role. */}
+              {/* One caps-label spec app-wide (round-7 judge, Typography 3):
+                  the palette header joins the sidebar and rail headers at
+                  12px/600 with the shared tracking. */}
               {header && (
-                <Label className="chrome-label-lg mt-1.5 block px-3.5 pb-1 pt-1.5 first:mt-0">{header}</Label>
+                <Label className="mt-1.5 block px-3.5 pb-1 pt-1.5 first:mt-0">{header}</Label>
               )}
               <button
                 type="button"

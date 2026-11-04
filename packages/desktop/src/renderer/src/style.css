@@ -530,14 +530,6 @@
   font-weight: 500;
 }
 
-/* Section-header role at the 14px chrome floor (round-3 judge, Typography 1):
- * surfaces where the caps header sits among full-size rows (the command
- * palette). `@utility` beats utilities of the same name in source order, so a
- * second utility composes the override deterministically. */
-@utility chrome-label-lg {
-  font-size: 0.875rem;
-}
-
 
 /* The desktop title bar queries the HUD's actual allocation rather than the window:
  * native caption buttons and macOS traffic lights consume different widths. The

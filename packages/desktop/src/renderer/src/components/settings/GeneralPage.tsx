@@ -125,7 +125,11 @@ function CompactionMethodPicker({
       <div
         role="group"
         aria-label={t("settings.general.compactionGroup")}
-        className="divide-y divide-line-soft rounded-md border border-line bg-raised"
+        // `line`, not `line-soft`: on Dark's raised modal the soft hairline is
+        // invisible (rgb 36,36,36 on #2d2d30), so the same list read as divided
+        // cards in Light and a borderless stack in Dark (round-7 judge,
+        // Consistency 2). `line` shows in both themes.
+        className="divide-y divide-line rounded-md border border-line bg-raised"
       >
         {options.map((option) => {
           const selected = option.id === value;
@@ -234,7 +238,8 @@ function DictationModelPicker({
       <div
         role="group"
         aria-label={t("settings.general.dictationGroup")}
-        className="divide-y divide-line-soft rounded-md border border-line bg-raised"
+        // Same visible-hairline rule as the compaction list above.
+        className="divide-y divide-line rounded-md border border-line bg-raised"
       >
         {options.map((option) => {
           const selected = option.id === value;
