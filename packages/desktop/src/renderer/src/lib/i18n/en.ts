@@ -390,10 +390,7 @@ export const en = {
   "transcript.tool.aborted": "aborted",
   "transcript.tool.cancelled": "cancelled",
   "transcript.tool.stalled": "stalled {duration}",
-  "transcript.artifact.chip": "interactive",
   "transcript.artifact.untitled": "HTML artifact",
-  "transcript.artifact.taller": "Taller",
-  "transcript.artifact.shorter": "Shorter",
   "transcript.artifact.expand": "Expand to full view",
   "transcript.tool.stalledTitle":
     "No model-stream frame (text, thinking, or tool-call arguments) has arrived while " +
