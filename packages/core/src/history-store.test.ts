@@ -310,7 +310,13 @@ describe("historyDbCandidates", () => {
     ).toEqual([path.join(home, ".omp", "agent", "history.db")]);
   });
 
-  it("prefers the first existing candidate when reading", () => {
+  // The XDG branch is POSIX-only in production (upstream dirs.ts), pinned by
+  // the win32 candidate-shape assertion above — on Windows the ONLY candidate
+  // is the config-root one, so an XDG-seeded store can never resolve there
+  // and this first-hit fixture cannot exist (#1040). The Windows lane skips
+  // it; the Linux/macOS lanes run it unchanged.
+  const posixOnly = process.platform !== "win32";
+  it.runIf(posixOnly)("prefers the first existing candidate when reading", () => {
     const xdg = tmpDir();
     const ompDir = path.join(xdg, "omp");
     fs.mkdirSync(ompDir, { recursive: true });
