@@ -266,23 +266,32 @@
     --glass-filter: blur(14px) saturate(1.08); /* backdrop-filter of chrome planes */
     --glass-wash: 55%; /* strength of the backdrop light */
     /* The composer card (round-4 owner directive): a floating frosted card
-       over scrolling transcript text. Its fill sits denser than the general
-       chrome alpha so placeholder, chip, and send-glyph text still clear
-       WCAG AA against the brightest content that can pass behind it; the
-       blur keeps whatever survives readable as texture, not as text. */
-    --glass-alpha-composer: 92%;
+       over scrolling transcript text, and the depth must read — content
+       behind it shows as soft blurred texture, not a flat fill. Its fill sits
+       in the general chrome range while its own moderate blur keeps line and
+       paragraph shapes legible as texture (a bigger blur would average the
+       plate into flatness). Glyph legibility on the card is tuned here too:
+       this alpha, together with the blur, must keep placeholder/chip/send at
+       AA over the worst composited content behind them. */
+    --glass-alpha-composer: 74%;
+    --glass-filter-composer: blur(8px);
   }
   :root[data-glass="off"] {
     --glass-alpha: 100%;
     --glass-filter: none;
     --glass-wash: 0%;
     --glass-alpha-composer: 100%;
+    --glass-filter-composer: none;
   }
   :root[data-glass="frosted"] {
     --glass-alpha: 70%;
     --glass-filter: blur(24px) saturate(1.12);
     --glass-wash: 100%;
-    --glass-alpha-composer: 84%;
+    /* Glassier than the default composer fill, and blurrier — the frosted
+       posture trades depth-resolution for atmosphere everywhere, composer
+       included. */
+    --glass-alpha-composer: 70%;
+    --glass-filter-composer: blur(16px);
   }
 
 @layer base {
@@ -454,12 +463,13 @@
   backdrop-filter: var(--glass-filter);
 }
 /* The composer card's own frost (round-4 owner directive): same fill channel
- * as `glass-surface` at the denser composer alpha, so transcript text behind
- * the card reads as dimmed texture while every glyph ON the card still clears
- * AA. `data-glass="off"` collapses it to opaque surface. */
+ * as `glass-surface` at the composer alpha, with a dedicated moderate blur so
+ * code lines and paragraphs behind the card read as soft texture — visible
+ * depth, never a flat fill — while the card's own glyphs still clear AA.
+ * `data-glass="off"` collapses it to opaque surface. */
 @utility glass-composer {
   background-color: color-mix(in srgb, var(--color-surface) var(--glass-alpha-composer), transparent);
-  backdrop-filter: var(--glass-filter);
+  backdrop-filter: var(--glass-filter-composer);
 }
 @utility backdrop-glass {
   backdrop-filter: var(--glass-filter);

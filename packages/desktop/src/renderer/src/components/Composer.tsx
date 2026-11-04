@@ -1356,11 +1356,12 @@ export function Composer({
             compact
               ? "bg-raised"
               // A floating frosted card (round-4 owner directive, restoring
-              // the pre-#90b88271 posture): translucent bg-surface + blur so
-              // transcript text stays visible behind it and in the gutters.
-              // Readability of the card's own glyphs comes from the denser
-              // --glass-alpha-composer fill (style.css), not from opacity;
-              // clearance for the last message comes from the scroller's
+              // the pre-#90b88271 posture): translucent bg-surface + a
+              // moderate dedicated blur (--glass-alpha-composer /
+              // --glass-filter-composer in style.css) so prose and code pass
+              // behind it as perceptible soft texture — visible depth, never
+              // a flat fill — while the card's own glyphs still clear AA.
+              // Clearance for the last message comes from the scroller's
               // bottom inset, never from an opaque mask.
               // One 6px card radius app-wide (round-2 judge, Consistency 4).
               : "ambient glass-composer shadow-float " +
