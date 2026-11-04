@@ -205,7 +205,7 @@ export function Settings() {
     <Modal onClose={closeSettings} width="w-[46rem]" labelledBy="settings-title">
       <section className="settings-surface">
         <header className="settings-header border-b border-line px-4 py-3.5">
-          <p className="mb-1 font-mono text-[10px] uppercase tracking-[0.16em] text-ink-faint">
+          <p className="mb-1 font-mono text-xs uppercase tracking-[0.16em] text-ink-faint">
             {t("settings.shell.application")}
           </p>
           <h2
@@ -241,7 +241,7 @@ export function Settings() {
         </div>
 
         {Footer !== undefined && (
-          <footer className="border-t border-line px-4 py-3 text-[11px] leading-relaxed text-ink-faint">
+          <footer className="border-t border-line px-4 py-3 text-xs leading-relaxed text-ink-faint">
             <Footer agentDir={agentDir} anyLive={anyLive} />
           </footer>
         )}

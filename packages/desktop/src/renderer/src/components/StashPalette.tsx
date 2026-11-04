@@ -72,7 +72,7 @@ export function StashPalette({
     >
       <div className="flex items-baseline gap-2 px-3 pb-1 pt-0.5">
         <Label>{t("composer.stash.title")}</Label>
-        <span className="ml-auto text-[10px] text-ink-faint">{t("composer.stash.keys")}</span>
+        <span className="ml-auto text-xs text-ink-faint">{t("composer.stash.keys")}</span>
       </div>
       {drafts.map((draft, i) => {
         const preview = draft.text.trim().split("\n")[0] ?? "";
@@ -97,7 +97,7 @@ export function StashPalette({
                 {preview === "" ? t("composer.stash.noText") : preview}
               </span>
               {attached > 0 && <Chip tone="iris">{t("composer.stash.attached", { n: attached })}</Chip>}
-              <span className="shrink-0 text-[10px] text-ink-faint">
+              <span className="shrink-0 text-xs text-ink-faint">
                 {relativeTime(new Date(draft.stashedAt).toISOString())}
               </span>
             </button>

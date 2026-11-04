@@ -69,7 +69,7 @@ export function ComposerActions({
       disabled={!atReset.canHold}
       title={t("composer.actions.sendAtResetTitle", { when: atReset.when })}
       onClick={() => onSubmit("at-reset")}
-      className={layout === "compact" ? "h-11 rounded-lg px-3" : "h-7 shrink-0 rounded-full px-2.5 text-[11px]"}
+      className={layout === "compact" ? "h-11 rounded-lg px-3" : "h-7 shrink-0 rounded-full px-2.5 text-xs"}
     >
       {t("composer.actions.sendAtReset", { when: atReset.when })}
     </Button>

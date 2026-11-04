@@ -44,7 +44,7 @@ export function VaultImportDialog({
         <h2 id="vault-import-title" className="font-display text-sm font-semibold text-ink">
           {t("settings.vault.importTitle")}
         </h2>
-        <p className="mt-0.5 text-[11px] text-ink-faint">{t("settings.vault.importHint")}</p>
+        <p className="mt-0.5 text-xs text-ink-faint">{t("settings.vault.importHint")}</p>
       </header>
 
       <div className="max-h-[22rem] overflow-y-auto px-2 py-2">
@@ -64,11 +64,11 @@ export function VaultImportDialog({
                   <span className="min-w-0 flex-1">
                     <span className="flex flex-wrap items-center gap-1.5">
                       <span className="text-xs font-semibold text-ink">{vaultNameFromPath(entry.path)}</span>
-                      <span className="font-mono text-[10px] text-ink-faint">{entry.id}</span>
+                      <span className="font-mono text-xs text-ink-faint">{entry.id}</span>
                       {entry.open && <Chip>{t("settings.vault.open")}</Chip>}
                       {added && <Chip tone="signal">{t("settings.vault.added")}</Chip>}
                     </span>
-                    <span className="block break-all font-mono text-[11px] text-ink-dim">{entry.path}</span>
+                    <span className="block break-all font-mono text-xs text-ink-dim">{entry.path}</span>
                   </span>
                 </label>
               </li>

@@ -179,10 +179,10 @@ export function ScheduleDialog({ tabId }: { tabId: string }) {
             />
           </label>
         )}
-        <p className="text-[11px] text-ink-dim">
+        <p className="text-xs text-ink-dim">
           {error ?? t("dialog.schedule.next", { when: formatSnoozeUntil(nextRun!, new Date(now), localeTag()), zone: timeZone })}
         </p>
-        <p className="text-[11px] text-ink-faint">{t("dialog.schedule.hint")}</p>
+        <p className="text-xs text-ink-faint">{t("dialog.schedule.hint")}</p>
       </div>
     </ConfirmDialog>
   );

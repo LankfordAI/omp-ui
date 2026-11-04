@@ -181,19 +181,19 @@ export function WorktreeBranchFields({
   return (
     <>
       <div>
-        <label htmlFor={`${idPrefix}-branch`} className="block text-[10px] text-ink-faint">
+        <label htmlFor={`${idPrefix}-branch`} className="block text-xs text-ink-faint">
           {t("worktree.field.branch")}
         </label>
         <input
           id={`${idPrefix}-branch`}
           value={branch}
           onChange={(event) => onBranchChange(event.target.value)}
-          className="mt-1.5 w-full rounded-md border border-line bg-void px-2 py-1.5 font-mono text-[11px] text-ink outline-none placeholder:text-ink-faint focus:border-line-strong"
+          className="mt-1.5 w-full rounded-md border border-line bg-void px-2 py-1.5 font-mono text-xs text-ink outline-none placeholder:text-ink-faint focus:border-line-strong"
         />
       </div>
       {showBase !== false && (
         <div>
-          <label htmlFor={`${idPrefix}-base`} className="block text-[10px] text-ink-faint">
+          <label htmlFor={`${idPrefix}-base`} className="block text-xs text-ink-faint">
             {t("worktree.field.base")}
           </label>
           <select
@@ -213,7 +213,7 @@ export function WorktreeBranchFields({
               onBaseBranchChange?.(null);
               onBaseRefChange(value === "" ? null : value);
             }}
-            className="mt-1.5 w-full rounded-md border border-line bg-void px-2 py-1.5 font-mono text-[11px] text-ink outline-none focus:border-line-strong"
+            className="mt-1.5 w-full rounded-md border border-line bg-void px-2 py-1.5 font-mono text-xs text-ink outline-none focus:border-line-strong"
           >
             {optionRows}
             {onBaseBranchChange !== undefined && (
@@ -223,7 +223,7 @@ export function WorktreeBranchFields({
           {creatingBase && (
             <div className="mt-1.5 space-y-2">
               <div>
-                <label htmlFor={`${idPrefix}-new-base`} className="block text-[10px] text-ink-faint">
+                <label htmlFor={`${idPrefix}-new-base`} className="block text-xs text-ink-faint">
                   {t("worktree.field.newBaseName")}
                 </label>
                 <input
@@ -232,11 +232,11 @@ export function WorktreeBranchFields({
                   spellCheck={false}
                   value={baseBranch ?? ""}
                   onChange={(event) => onBaseBranchChange?.(event.target.value)}
-                  className="mt-1.5 w-full rounded-md border border-line bg-void px-2 py-1.5 font-mono text-[11px] text-ink outline-none placeholder:text-ink-faint focus:border-line-strong"
+                  className="mt-1.5 w-full rounded-md border border-line bg-void px-2 py-1.5 font-mono text-xs text-ink outline-none placeholder:text-ink-faint focus:border-line-strong"
                 />
               </div>
               <div>
-                <label htmlFor={`${idPrefix}-new-base-from`} className="block text-[10px] text-ink-faint">
+                <label htmlFor={`${idPrefix}-new-base-from`} className="block text-xs text-ink-faint">
                   {t("worktree.field.newBaseFrom")}
                 </label>
                 <select
@@ -247,11 +247,11 @@ export function WorktreeBranchFields({
                     markTouched();
                     onBaseRefChange(event.target.value === "" ? null : event.target.value);
                   }}
-                  className="mt-1.5 w-full rounded-md border border-line bg-void px-2 py-1.5 font-mono text-[11px] text-ink outline-none focus:border-line-strong"
+                  className="mt-1.5 w-full rounded-md border border-line bg-void px-2 py-1.5 font-mono text-xs text-ink outline-none focus:border-line-strong"
                 >
                   {optionRows}
                 </select>
-                <p className="mt-1 text-[10px] leading-snug text-ink-faint">
+                <p className="mt-1 text-xs leading-snug text-ink-faint">
                   {t("worktree.field.newBaseHint", {
                     name: (baseBranch ?? "").trim() || "…",
                     from: baseRef ?? t("worktree.field.currentHead"),

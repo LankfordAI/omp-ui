@@ -61,7 +61,7 @@ export function ScheduledPromptCard({ tabId }: { tabId: string }) {
       : t("transcript.scheduled.next", { when: formatSnoozeUntil(scheduled.nextRunAtMs, now, localeTag()) });
   return (
     <div data-scheduled-prompt className="animate-rise rounded-md border border-iris-dim/60 bg-raised px-2.5 py-1.5">
-      <div className="flex flex-wrap items-center gap-1.5 text-[11px]">
+      <div className="flex flex-wrap items-center gap-1.5 text-xs">
         <Chip tone="iris">{t("transcript.scheduled.label")}</Chip>
         <span className="min-w-0 flex-1 truncate text-ink-mid">
           {describeSchedule(scheduled, t, now)} · {next}
@@ -76,12 +76,12 @@ export function ScheduledPromptCard({ tabId }: { tabId: string }) {
           {t("transcript.scheduled.runNow")}
         </Button>
       </div>
-      <p className="mt-1 line-clamp-2 whitespace-pre-wrap text-[12px] text-ink">{scheduled.text}</p>
+      <p className="mt-1 line-clamp-2 whitespace-pre-wrap text-xs text-ink">{scheduled.text}</p>
       {scheduled.notices.map((notice) => (
         <p
           key={`${notice.kind}-${notice.atMs}`}
           data-scheduled-notice={notice.kind}
-          className={notice.kind === "failed" ? "mt-0.5 text-[11px] text-rose" : "mt-0.5 text-[11px] text-ink-dim"}
+          className={notice.kind === "failed" ? "mt-0.5 text-xs text-rose" : "mt-0.5 text-xs text-ink-dim"}
         >
           {noticeText(notice, t, now)}
         </p>

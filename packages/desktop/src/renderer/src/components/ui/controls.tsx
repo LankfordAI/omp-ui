@@ -75,7 +75,7 @@ export function Button({
         "inline-flex shrink-0 items-center gap-1.5 rounded-md border font-medium",
         "transition-[background-color,border-color,color,filter,opacity] duration-150",
         "disabled:pointer-events-none",
-        size === "xs" ? "h-6 px-2 text-[11px]" : "h-7 px-2.5 text-xs",
+        size === "xs" ? "h-6 px-2 text-xs" : "h-7 px-2.5 text-xs",
         variantClass,
         disabledClass,
         className,
@@ -358,7 +358,7 @@ export function Chip({
       title={title}
       style={style}
       className={cn(
-        "inline-flex items-center gap-1 rounded border px-1.5 py-px text-[10px] leading-4",
+        "inline-flex items-center gap-1 rounded border px-1.5 py-px text-xs leading-4",
         truncate ? "min-w-0 max-w-full" : "shrink-0",
         mono && "font-mono tabular-nums",
         TONE_CHIP[tone],
@@ -540,7 +540,7 @@ export function Label({ children, className }: { children: ReactNode; className?
   return (
     <span
       className={cn(
-        "text-[10px] font-semibold uppercase tracking-[0.14em] text-ink-faint",
+        "text-xs font-semibold uppercase tracking-[0.14em] text-ink-faint",
         className,
       )}
     >

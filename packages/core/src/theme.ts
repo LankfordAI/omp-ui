@@ -360,15 +360,19 @@ export type ThemeContrastFailure =
   | { kind: "planes"; label: string; colour: string };
 
 /**
- * Ink tiers descend on purpose: `ink` is reading content, `ink-faint` is
- * de-emphasis (timestamps, disabled affordances) that must be *visible*, not
- * legible at length. Each tier gets the floor its job needs.
+ * Ink tiers descend on purpose: `ink` is reading content, `ink-faint` is the
+ * deepest de-emphasis. But every tier ships carrying real text (timestamps,
+ * model names, section headers, usage receipts), so every text-bearing tier
+ * holds the WCAG AA 4.5:1 floor; the tiers stay distinguishable by staying
+ * strictly ordered. Round 0 of the UI hill-climb (#1042) measured
+ * `ink-faint` at 2.58:1 on Dark Modern surface across 408 visible text nodes,
+ * so the old 3:1/2:1 floors are retired here as well as in the palette.
  */
 const INK_TIERS: ReadonlyArray<readonly [ThemeTokenName, number]> = [
   ["--color-ink", 10],
   ["--color-ink-mid", 4.5],
-  ["--color-ink-dim", 3],
-  ["--color-ink-faint", 2],
+  ["--color-ink-dim", 4.5],
+  ["--color-ink-faint", 4.5],
 ];
 
 const ACCENTS = ["signal", "copper", "rose", "iris"] as const;
@@ -413,9 +417,10 @@ export function themeContrastFailures(theme: Theme): ThemeContrastFailure[] {
 
   // Every ink tier legible on its surface.
   for (const [token, min] of INK_TIERS) check(token, t[token], surface, min);
-  // Disabled chrome renders on bg-raised: ink-dim is its text, ink-faint its icons.
-  check("ink-dim on raised", t["--color-ink-dim"], t["--color-raised"], 3);
-  check("ink-faint on raised", t["--color-ink-faint"], t["--color-raised"], 2);
+  // Raised cards and disabled chrome carry the same ink text as the surface,
+  // so both tiers hold AA on bg-raised too (issue #1042).
+  check("ink-dim on raised", t["--color-ink-dim"], t["--color-raised"], 4.5);
+  check("ink-faint on raised", t["--color-ink-faint"], t["--color-raised"], 4.5);
 
   // Light planes separate by luminance only: a pale tint within a few steps
   // of the composer surface vanishes (issue #66).

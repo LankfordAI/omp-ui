@@ -60,11 +60,11 @@ export function RestrictedFoldersSection({
         <Label>{t("settings.omp.restrictedFolders")}</Label>
         {layerBadge(entry.layer)}
       </div>
-      <p className="mt-0.5 text-[11px] leading-relaxed text-ink-faint">
+      <p className="mt-0.5 text-xs leading-relaxed text-ink-faint">
         {t("settings.omp.restrictedFoldersHint")}
       </p>
       {entry.layer === "project" && (
-        <p className="mt-1 rounded-md border border-copper-dim/50 bg-copper-wash px-3 py-2 text-[11px] text-copper">
+        <p className="mt-1 rounded-md border border-copper-dim/50 bg-copper-wash px-3 py-2 text-xs text-copper">
           {t("settings.omp.restrictedFoldersProjectOverride", {
             paths: effective.length === 0 ? "[]" : effective.join(", "),
           })}
@@ -73,7 +73,7 @@ export function RestrictedFoldersSection({
       <div className="mt-1.5 divide-y divide-line-soft">
         {paths.map((path) => (
           <div key={path} className="flex items-center gap-3 py-1.5">
-            <span className="min-w-0 truncate font-mono text-[11px] text-ink-mid" title={path}>
+            <span className="min-w-0 truncate font-mono text-xs text-ink-mid" title={path}>
               {path}
             </span>
             <Button

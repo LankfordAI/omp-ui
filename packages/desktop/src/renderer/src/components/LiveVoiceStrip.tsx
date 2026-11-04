@@ -195,7 +195,7 @@ export function LiveVoiceStrip({
       return (
         <span className="ml-auto flex shrink-0 items-center gap-1">
           {replay.notice !== null && (
-            <span className="text-[10px] text-ink-faint" title={t("composer.live.replayLiveBusy")}>
+            <span className="text-xs text-ink-faint" title={t("composer.live.replayLiveBusy")}>
               {t("composer.live.phaseSpeaking")}
             </span>
           )}
@@ -226,7 +226,7 @@ export function LiveVoiceStrip({
       return (
         <span className="ml-auto flex shrink-0 items-center gap-1">
           {replay.notice !== null && (
-            <span className="text-[10px] text-ink-faint" title={t("composer.live.replayLiveBusy")}>
+            <span className="text-xs text-ink-faint" title={t("composer.live.replayLiveBusy")}>
               {t("composer.live.phaseSpeaking")}
             </span>
           )}
@@ -268,7 +268,7 @@ export function LiveVoiceStrip({
         following.current = el.scrollHeight - el.scrollTop - el.clientHeight <= FOLLOW_SLACK;
       }}
       className={cn(
-        "animate-rise min-w-0 rounded-lg border border-line text-[11px]",
+        "animate-rise min-w-0 rounded-lg border border-line text-xs",
         layout === "composer" && "mt-2",
         layout === "review" && "max-h-[min(6rem,18dvh)] overflow-y-auto overscroll-contain",
         compact ? "bg-raised" : "ambient glass-surface",
@@ -294,7 +294,7 @@ export function LiveVoiceStrip({
           >
             <span
               className={cn(
-                "shrink-0 font-mono text-[10px] uppercase tracking-[0.08em]",
+                "shrink-0 font-mono text-xs uppercase tracking-[0.08em]",
                 row.role === "user" ? "text-ink-faint" : "text-signal",
               )}
             >
@@ -319,7 +319,7 @@ export function LiveVoiceStrip({
         ))}
       </div>
       {live !== null && live.ended && error === null && parked && (
-        <div className="px-3 pb-2 pt-1 text-[10px] text-ink-faint">
+        <div className="px-3 pb-2 pt-1 text-xs text-ink-faint">
           {t("composer.live.parkedHint")}
         </div>
       )}

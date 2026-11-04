@@ -63,7 +63,7 @@ export function JudgeRoleRow({
   return (
     <div className="py-1.5">
       <div className="flex items-center gap-3">
-        <span className="w-20 shrink-0 font-mono text-[11px] text-ink-mid">
+        <span className="w-20 shrink-0 font-mono text-xs text-ink-mid">
           {OMP_JUDGE_ROLE_ID}
         </span>
         <CommitField
@@ -80,7 +80,7 @@ export function JudgeRoleRow({
         </Button>
       </div>
       {open && load.status === "loading" && (
-        <p className="mt-1.5 text-[11px] text-ink-faint">{t("settings.omp.reading")}</p>
+        <p className="mt-1.5 text-xs text-ink-faint">{t("settings.omp.reading")}</p>
       )}
       {open && load.status === "loaded" && (
         <div className="mt-1.5 flex min-w-0 flex-col gap-2">
@@ -122,7 +122,7 @@ export function JudgeRoleRow({
                   >
                     <span
                       className={cn(
-                        "min-w-0 truncate font-mono text-[11px]",
+                        "min-w-0 truncate font-mono text-xs",
                         selected && "font-medium",
                       )}
                     >
@@ -134,10 +134,10 @@ export function JudgeRoleRow({
             })()}
           </div>
           {load.snapshot.discovered && load.snapshot.models.length === 0 && (
-            <p className="text-[10px] text-ink-faint">{t("settings.omp.judgeNone")}</p>
+            <p className="text-xs text-ink-faint">{t("settings.omp.judgeNone")}</p>
           )}
           {!load.snapshot.discovered && (
-            <p className="text-[10px] text-ink-faint">
+            <p className="text-xs text-ink-faint">
               {t("settings.omp.judgeLoadFailed", { message: load.snapshot.error ?? "" })}
             </p>
           )}

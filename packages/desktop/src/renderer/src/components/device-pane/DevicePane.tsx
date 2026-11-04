@@ -478,7 +478,7 @@ export function DevicePane({ tabId, posture }: { tabId: string; posture: DeviceP
           value={selected}
           onChange={(e) => pickTarget(e.target.value)}
           className={cn(
-            "h-6 min-w-0 flex-1 rounded-md border border-line bg-surface px-1.5 text-[11px] text-ink outline-none",
+            "h-6 min-w-0 flex-1 rounded-md border border-line bg-surface px-1.5 text-xs text-ink outline-none",
             "focus:border-line-strong disabled:text-ink-faint",
           )}
         >
@@ -526,7 +526,7 @@ export function DevicePane({ tabId, posture }: { tabId: string; posture: DeviceP
         {agent !== "detached" && (
           <span
             className={cn(
-              "flex shrink-0 items-center gap-1 px-1 text-[10px]",
+              "flex shrink-0 items-center gap-1 px-1 text-xs",
               acting ? "text-copper" : "text-ink-dim",
             )}
           >
@@ -541,7 +541,7 @@ export function DevicePane({ tabId, posture }: { tabId: string; posture: DeviceP
           {attachedAt !== 0 && (
             <span
               role="status"
-              className="pointer-events-none absolute right-0 top-full z-10 mt-0.5 whitespace-nowrap rounded-md border border-line bg-overlay px-2 py-1 text-[10px] text-ink-mid"
+              className="pointer-events-none absolute right-0 top-full z-10 mt-0.5 whitespace-nowrap rounded-md border border-line bg-overlay px-2 py-1 text-xs text-ink-mid"
             >
               {t("device.toolbar.attached")}
             </span>
@@ -615,18 +615,18 @@ export function DevicePane({ tabId, posture }: { tabId: string; posture: DeviceP
           onCompositionEnd={onCompositionEnd}
         />
         {status !== null && (
-          <p className="pointer-events-none absolute inset-x-6 top-1/2 -translate-y-1/2 text-center text-[11px] leading-snug text-ink-dim">
+          <p className="pointer-events-none absolute inset-x-6 top-1/2 -translate-y-1/2 text-center text-xs leading-snug text-ink-dim">
             {status}
           </p>
         )}
         {instanceDown ? (
-          <p className="pointer-events-none absolute inset-x-0 top-0 bg-overlay/85 px-3 py-1 text-center text-[10px] text-ink-mid backdrop-glass">
+          <p className="pointer-events-none absolute inset-x-0 top-0 bg-overlay/85 px-3 py-1 text-center text-xs text-ink-mid backdrop-glass">
             {t("device.state.instanceDown")}
           </p>
         ) : (
           phase === "error" &&
           showFrame && (
-            <p className="pointer-events-none absolute inset-x-0 top-0 bg-overlay/85 px-3 py-1 text-center text-[10px] text-rose backdrop-glass">
+            <p className="pointer-events-none absolute inset-x-0 top-0 bg-overlay/85 px-3 py-1 text-center text-xs text-rose backdrop-glass">
               {state?.error ?? t("device.state.error")}
             </p>
           )

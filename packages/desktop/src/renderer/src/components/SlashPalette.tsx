@@ -155,7 +155,7 @@ export function SlashPalette({
         <div className="flex items-baseline gap-2 px-3 pb-1 pt-1.5">
           <Label>{`/${command.name}`}</Label>
           {hint !== undefined && hint !== "" && (
-            <span className="font-mono text-[10px] text-ink-faint">{hint}</span>
+            <span className="font-mono text-xs text-ink-faint">{hint}</span>
           )}
         </div>
         {matches.map(({ subcommand: sub, hits }, self) => {
@@ -184,9 +184,9 @@ export function SlashPalette({
                 ))}
               </span>
               {sub.usage !== undefined && sub.usage !== "" && (
-                <span className="shrink-0 font-mono text-[10px] text-ink-faint">{sub.usage}</span>
+                <span className="shrink-0 font-mono text-xs text-ink-faint">{sub.usage}</span>
               )}
-              <span className="min-w-0 flex-1 truncate text-[11px] text-ink-dim">{sub.description}</span>
+              <span className="min-w-0 flex-1 truncate text-xs text-ink-dim">{sub.description}</span>
             </button>
           );
         })}
@@ -232,15 +232,15 @@ export function SlashPalette({
                     isActive ? "bg-hover" : "hover:bg-raised",
                   )}
                 >
-                  <span className="shrink-0 font-mono text-[11px] text-ink-mid">
+                  <span className="shrink-0 font-mono text-xs text-ink-mid">
                     /{item.command.name} {sub.name}
                   </span>
                   {sub.usage !== undefined && sub.usage !== "" && (
-                    <span className="shrink-0 font-mono text-[10px] text-ink-faint">
+                    <span className="shrink-0 font-mono text-xs text-ink-faint">
                       {sub.usage}
                     </span>
                   )}
-                  <span className="min-w-0 flex-1 truncate text-[11px] text-ink-faint">
+                  <span className="min-w-0 flex-1 truncate text-xs text-ink-faint">
                     {sub.description}
                   </span>
                 </button>
@@ -272,11 +272,11 @@ export function SlashPalette({
                   ))}
                 </span>
                 {item.command.input?.hint && (
-                  <span className="shrink-0 font-mono text-[10px] text-ink-faint">
+                  <span className="shrink-0 font-mono text-xs text-ink-faint">
                     {item.command.input.hint}
                   </span>
                 )}
-                <span className="min-w-0 flex-1 truncate text-[11px] text-ink-dim">
+                <span className="min-w-0 flex-1 truncate text-xs text-ink-dim">
                   {item.command.description}
                 </span>
                 {source !== undefined && source !== "builtin" && (

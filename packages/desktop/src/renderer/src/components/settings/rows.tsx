@@ -36,7 +36,7 @@ export function Row({
           {badge}
         </div>
         {hint !== undefined && hint !== "" && (
-          <p className="mt-0.5 text-[11px] leading-relaxed text-ink-faint">{hint}</p>
+          <p className="mt-0.5 text-xs leading-relaxed text-ink-faint">{hint}</p>
         )}
         <div className="mt-1.5">{children}</div>
       </div>
@@ -50,7 +50,7 @@ export function Row({
           {badge}
         </div>
         {hint !== undefined && hint !== "" && (
-          <p className="mt-0.5 text-[11px] leading-relaxed text-ink-faint">
+          <p className="mt-0.5 text-xs leading-relaxed text-ink-faint">
             {hint}
           </p>
         )}
@@ -248,7 +248,7 @@ export function SettingControl({
   // Future array/record entries stay visible without guessing an editor.
   return (
     <span
-      className="max-w-56 truncate font-mono text-[11px] text-ink-mid"
+      className="max-w-56 truncate font-mono text-xs text-ink-mid"
       title={entry.key}
     >
       {entry.value === undefined ? "—" : JSON.stringify(entry.value)}

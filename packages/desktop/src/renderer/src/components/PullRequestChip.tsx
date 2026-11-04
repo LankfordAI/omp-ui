@@ -58,7 +58,7 @@ export function PullRequestChip({
     </>
   );
   const chipClass = cn(
-    "inline-flex shrink-0 items-center gap-1 rounded border px-1.5 py-px font-mono text-[10px] leading-4",
+    "inline-flex shrink-0 items-center gap-1 rounded border px-1.5 py-px font-mono text-xs leading-4",
     TONE_CHIP[face.tone],
     className,
   );

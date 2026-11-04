@@ -125,7 +125,7 @@ export function DiagnosticsExportDialog() {
       {preview !== null && (
         <div className="space-y-3">
           <div>
-            <h3 className="mb-1.5 font-mono text-[10px] uppercase tracking-[0.16em] text-ink-dim">
+            <h3 className="mb-1.5 font-mono text-xs uppercase tracking-[0.16em] text-ink-dim">
               {t("dialog.diagnostics.sectionsHeading")}
             </h3>
             <ul className="space-y-1">

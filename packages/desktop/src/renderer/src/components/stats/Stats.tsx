@@ -30,8 +30,8 @@ function useKeptStats(view: StatsView) {
 function Stat({ label, value, title }: { label: string; value: ReactNode; title?: string }) {
   return (
     <div className="flex flex-col gap-0.5" title={title}>
-      <span className="text-[10px] uppercase tracking-[0.08em] text-ink-faint">{label}</span>
-      <span className="font-mono text-[12px] tabular-nums text-ink">{value}</span>
+      <span className="text-xs uppercase tracking-[0.08em] text-ink-faint">{label}</span>
+      <span className="font-mono text-xs tabular-nums text-ink">{value}</span>
     </div>
   );
 }
@@ -86,7 +86,7 @@ function Th({
       <button
         type="button"
         onClick={() => toggle(column)}
-        className="text-[10px] uppercase tracking-[0.08em] text-ink-faint hover:text-ink-mid"
+        className="text-xs uppercase tracking-[0.08em] text-ink-faint hover:text-ink-mid"
       >
         {label}
         {sort?.column === column ? (sort.desc ? " ▾" : " ▴") : ""}
@@ -95,8 +95,8 @@ function Th({
   );
 }
 
-const TD_RIGHT = "py-0.5 text-right font-mono text-[11px] tabular-nums text-ink-mid";
-const TD_LEFT = "min-w-0 py-0.5 text-[11px] text-ink-mid";
+const TD_RIGHT = "py-0.5 text-right font-mono text-xs tabular-nums text-ink-mid";
+const TD_LEFT = "min-w-0 py-0.5 text-xs text-ink-mid";
 
 /* -------------------------------------------------------------- sections */
 
@@ -118,7 +118,7 @@ function TotalsStrip({ stats }: { stats: StatsOverview }) {
             <>
               {exactNum(totals.requests)}
               {totals.failed > 0 && (
-                <span className="ml-1.5 text-[10px] text-ink-faint">{t("stats.totals.failed", { n: totals.failed })}</span>
+                <span className="ml-1.5 text-xs text-ink-faint">{t("stats.totals.failed", { n: totals.failed })}</span>
               )}
             </>
           }
@@ -129,7 +129,7 @@ function TotalsStrip({ stats }: { stats: StatsOverview }) {
         )}
       </div>
       {totals.lastTs !== null && (
-        <div className="mt-1 text-[10px] text-ink-faint">
+        <div className="mt-1 text-xs text-ink-faint">
           {t("stats.totals.through", { time: relativeTime(new Date(totals.lastTs).toISOString()) })}
         </div>
       )}
@@ -142,7 +142,7 @@ function DaysSection({ stats }: { stats: StatsOverview }) {
   if (stats.days.length === 0) {
     return (
       <Section title={t("stats.section.days")}>
-        <p className="text-[11px] text-ink-faint">{t("stats.empty.noRows")}</p>
+        <p className="text-xs text-ink-faint">{t("stats.empty.noRows")}</p>
       </Section>
     );
   }
@@ -173,7 +173,7 @@ function ModelsSection({ rows }: { rows: StatsModelRow[] }) {
   if (rows.length === 0) {
     return (
       <Section title={t("stats.section.models")}>
-        <p className="text-[11px] text-ink-faint">{t("stats.empty.noRows")}</p>
+        <p className="text-xs text-ink-faint">{t("stats.empty.noRows")}</p>
       </Section>
     );
   }
@@ -193,7 +193,7 @@ function ModelsSection({ rows }: { rows: StatsModelRow[] }) {
         <tbody>
           {sorted.map((row) => (
             <tr key={`${row.model}\u0000${row.provider}`}>
-              <td className="min-w-0 py-0.5 font-mono text-[11px] text-ink-mid" title={row.model}>
+              <td className="min-w-0 py-0.5 font-mono text-xs text-ink-mid" title={row.model}>
                 <span className="block truncate">{row.model}</span>
               </td>
               <td className={TD_LEFT}>{row.provider}</td>
@@ -232,7 +232,7 @@ function ProjectsSection({ rows }: { rows: StatsProjectRow[] }) {
   if (rows.length === 0) {
     return (
       <Section title={t("stats.section.projects")}>
-        <p className="text-[11px] text-ink-faint">{t("stats.empty.noRows")}</p>
+        <p className="text-xs text-ink-faint">{t("stats.empty.noRows")}</p>
       </Section>
     );
   }
@@ -302,7 +302,7 @@ function SessionsSection({ rows }: { rows: StatsSessionRow[] }) {
   if (rows.length === 0) {
     return (
       <Section title={t("stats.section.sessions")}>
-        <p className="text-[11px] text-ink-faint">{t("stats.empty.noRows")}</p>
+        <p className="text-xs text-ink-faint">{t("stats.empty.noRows")}</p>
       </Section>
     );
   }
@@ -380,7 +380,7 @@ export function Stats() {
             const picked = RANGES.find((range) => String(range) === event.target.value);
             if (picked !== undefined) setStatsRange(picked);
           }}
-          className="h-6 max-w-[16rem] rounded-md border border-line bg-raised px-1.5 text-[11px] text-ink-mid"
+          className="h-6 max-w-[16rem] rounded-md border border-line bg-raised px-1.5 text-xs text-ink-mid"
         >
           {RANGES.map((range) => (
             <option key={String(range)} value={String(range)}>
@@ -397,7 +397,7 @@ export function Stats() {
         </IconButton>
       </header>
       {load.status === "error" && (
-        <div className="m-3 rounded-md border border-line bg-raised px-3 py-2 text-[11px] text-ink-mid">
+        <div className="m-3 rounded-md border border-line bg-raised px-3 py-2 text-xs text-ink-mid">
           {load.message}
           <span className="ml-2 inline-block">
             <Button variant="ghost" size="xs" onClick={retry}>
@@ -408,14 +408,14 @@ export function Stats() {
       )}
       {value === null ? (
         load.status === "loading" && (
-          <div className="m-3 text-[11px] text-ink-faint">{t("stats.overview.loading")}</div>
+          <div className="m-3 text-xs text-ink-faint">{t("stats.overview.loading")}</div>
         )
       ) : (
         <div className={load.status === "loading" ? "opacity-50" : undefined}>
           {value.dbPath === null ? (
-            <div className="m-3 text-[11px] text-ink-faint">{t("stats.empty.none")}</div>
+            <div className="m-3 text-xs text-ink-faint">{t("stats.empty.none")}</div>
           ) : value.error !== null ? (
-            <div className="m-3 rounded-md border border-line bg-raised px-3 py-2 text-[11px] text-ink-mid">
+            <div className="m-3 rounded-md border border-line bg-raised px-3 py-2 text-xs text-ink-mid">
               {t("stats.error.foreign", { error: value.error })}
             </div>
           ) : (

@@ -112,7 +112,7 @@ function ChangesViewer({
         <h2 id={titleId} className="min-w-0 truncate text-sm font-semibold text-ink">
           {t("changes.header", { files, edits: cards.length })}
         </h2>
-        <span className="flex shrink-0 items-center gap-2 text-[11px]">
+        <span className="flex shrink-0 items-center gap-2 text-xs">
           {/* Add/delete colors match the DiffViewer headers below (ADR-0004). */}
           <span className="tabular-nums">
             <span className="text-signal">+{totals.added}</span>{" "}

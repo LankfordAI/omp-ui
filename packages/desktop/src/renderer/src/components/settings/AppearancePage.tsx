@@ -142,7 +142,7 @@ function ImportSection({ imported }: { imported: readonly Theme[] }) {
   return (
     <div className="mt-4 border-t border-line-soft pt-3">
       <h3 className="text-xs font-medium text-ink">{t("settings.appearance.importTitle")}</h3>
-      <p className="mt-0.5 text-[11px] leading-relaxed text-ink-faint">{t("settings.appearance.importHint")}</p>
+      <p className="mt-0.5 text-xs leading-relaxed text-ink-faint">{t("settings.appearance.importHint")}</p>
       <div className="mt-2 flex items-center gap-2">
         <Button disabled={busy} onClick={() => picker.current?.click()}>
           {busy ? t("settings.appearance.importBusy") : t("settings.appearance.importChoose")}
@@ -177,7 +177,7 @@ function ImportSection({ imported }: { imported: readonly Theme[] }) {
               count: String(result.failures.length),
             })}
           </p>
-          <ul className="mt-1 list-disc pl-4 font-mono text-[11px] text-ink-mid">
+          <ul className="mt-1 list-disc pl-4 font-mono text-xs text-ink-mid">
             {result.failures.map((failure) => (
               <li key={failure.label}>
                 {failure.kind === "contrast"
@@ -263,10 +263,10 @@ export function AppearancePage() {
         </div>
       ) : (
         <>
-          <p className="mt-2 text-[11px] leading-relaxed text-ink-faint">
+          <p className="mt-2 text-xs leading-relaxed text-ink-faint">
             {t("settings.appearance.themeModeSystemHint")}
           </p>
-          <p data-testid="theme-now-showing" className="mt-1 text-[11px] text-ink-mid">
+          <p data-testid="theme-now-showing" className="mt-1 text-xs text-ink-mid">
             {t("settings.appearance.nowShowing", { name: showing.label })}
           </p>
           <h3 className="mt-3 text-xs font-medium text-ink">{t("settings.appearance.lightTheme")}</h3>
@@ -287,7 +287,7 @@ export function AppearancePage() {
           </div>
         </>
       )}
-      <p className="mt-3 text-[11px] text-ink-faint">
+      <p className="mt-3 text-xs text-ink-faint">
         {t("settings.appearance.mintNote")}
       </p>
 
@@ -295,7 +295,7 @@ export function AppearancePage() {
 
       <div className="mt-4 border-t border-line-soft pt-3">
         <h3 className="text-xs font-medium text-ink">{t("settings.appearance.fontFamily")}</h3>
-        <p className="mt-0.5 text-[11px] leading-relaxed text-ink-faint">
+        <p className="mt-0.5 text-xs leading-relaxed text-ink-faint">
           {t("settings.appearance.fontFamilyHint")}
         </p>
         <div className="mt-2 grid grid-cols-2 gap-2">
@@ -326,7 +326,7 @@ export function AppearancePage() {
                   Aa Bb Cc 0123
                 </span>
                 <span
-                  className="mt-0.5 block truncate text-[11px] leading-4 text-ink-dim"
+                  className="mt-0.5 block truncate text-xs leading-4 text-ink-dim"
                   style={{ fontFamily: f.mono }}
                 >
                   0123456789 abcdef
@@ -341,7 +341,7 @@ export function AppearancePage() {
         <h3 className="text-xs font-medium text-ink">
           {t("settings.appearance.transcriptWidth")}
         </h3>
-        <p className="mt-0.5 text-[11px] leading-relaxed text-ink-faint">
+        <p className="mt-0.5 text-xs leading-relaxed text-ink-faint">
           {t("settings.appearance.transcriptWidthHint")}
         </p>
         <div className="mt-2 grid grid-cols-3 gap-2">
@@ -374,7 +374,7 @@ export function AppearancePage() {
 
       <div className="mt-4 border-t border-line-soft pt-3">
         <h3 className="text-xs font-medium text-ink">{t("settings.appearance.glassChrome")}</h3>
-        <p className="mt-0.5 text-[11px] leading-relaxed text-ink-faint">
+        <p className="mt-0.5 text-xs leading-relaxed text-ink-faint">
           {t("settings.appearance.glassChromeHint")}
         </p>
         <div className="mt-2 grid grid-cols-3 gap-2">
@@ -396,7 +396,7 @@ export function AppearancePage() {
                 )}
               >
                 <span className="text-xs font-medium text-ink">{t(card.label)}</span>
-                <span className="mt-1 block text-[11px] leading-4 text-ink-dim">{t(card.hint)}</span>
+                <span className="mt-1 block text-xs leading-4 text-ink-dim">{t(card.hint)}</span>
               </button>
             );
           })}

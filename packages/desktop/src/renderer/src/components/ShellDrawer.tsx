@@ -239,9 +239,9 @@ export function ShellDrawer({ tabId, visible }: { tabId: string; visible: boolea
     <div className="ambient relative flex min-h-0 flex-1 flex-col bg-surface p-2">
       {handoff !== undefined && (
         <div className="mb-2 shrink-0 rounded-md border border-line bg-raised px-2.5 py-2">
-          <p className="truncate font-mono text-[11px] text-ink">{handoff.line}</p>
+          <p className="truncate font-mono text-xs text-ink">{handoff.line}</p>
           <div className="mt-1.5 flex items-center gap-2">
-            <p className="min-w-0 flex-1 truncate text-[11px] text-ink-dim">
+            <p className="min-w-0 flex-1 truncate text-xs text-ink-dim">
               {handoff.phase === "running" ? t("shell.handoff.running") : t("shell.handoff.exited")}
             </p>
             {handoff.phase === "running" ? (

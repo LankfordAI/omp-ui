@@ -126,7 +126,7 @@ export function LiveVoiceSection({
                   { voice },
                 )}
                 className={
-                  "h-6 rounded-md border px-2 text-[11px] transition-colors duration-150 " +
+                  "h-6 rounded-md border px-2 text-xs transition-colors duration-150 " +
                   (playing === voice
                     ? "border-line-strong bg-raised text-ink"
                     : "border-line bg-transparent text-ink-mid hover:border-line-strong hover:text-ink")

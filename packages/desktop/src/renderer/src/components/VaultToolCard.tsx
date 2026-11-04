@@ -121,14 +121,14 @@ export function VaultToolCard({ item, tabId }: { item: ToolItem; tabId?: string 
       {open && hasBody && (
         <div className="space-y-2 border-t border-line-soft px-2.5 py-2 text-ink">
           {pathLine !== null && (
-            <p className="min-w-0 truncate font-mono text-[11px] text-ink-mid" title={pathLine}>
+            <p className="min-w-0 truncate font-mono text-xs text-ink-mid" title={pathLine}>
               {pathLine}
             </p>
           )}
-          {stamp !== null && <p className="break-all font-mono text-[10px] text-ink-faint">{stamp}</p>}
+          {stamp !== null && <p className="break-all font-mono text-xs text-ink-faint">{stamp}</p>}
           {preview !== null && (
             <div className="max-h-48 overflow-y-auto overflow-x-hidden rounded-md border border-line-soft bg-sunken px-2.5 py-2">
-              <Markdown text={preview} className="text-[13px]" />
+              <Markdown text={preview} className="text-sm" />
             </div>
           )}
           {diff !== null && (

@@ -81,7 +81,7 @@ function HeroFooter({ items, tabId }: { items: RenderItem[]; tabId: string }) {
             key={item.id}
             data-selectable
             className={cn(
-              "max-w-[var(--transcript-max)] text-center font-mono text-[11px]",
+              "max-w-[var(--transcript-max)] text-center font-mono text-xs",
               item.level === "error"
                 ? "text-rose"
                 : item.level === "warn"
@@ -94,12 +94,12 @@ function HeroFooter({ items, tabId }: { items: RenderItem[]; tabId: string }) {
         ) : item.kind === "marker" ? (
           <p
             key={item.id}
-            className="font-mono text-[10px] uppercase tracking-[0.12em] text-ink-faint"
+            className="font-mono text-xs uppercase tracking-[0.12em] text-ink-faint"
           >
             {item.label}
           </p>
         ) : item.kind === "command" ? (
-          <div key={item.id} className="flex max-w-[var(--transcript-max)] flex-col gap-1 font-mono text-[11px]">
+          <div key={item.id} className="flex max-w-[var(--transcript-max)] flex-col gap-1 font-mono text-xs">
             <p
               data-selectable
               className={cn(
@@ -176,10 +176,10 @@ function ModelRecoveryPicker({ tabId, failedModel }: { tabId: string; failedMode
         {t("tab.failure.chooseModel")}
       </Button>
       {open && catalog === null && (
-        <p className="self-center font-mono text-[11px] text-ink-faint">…</p>
+        <p className="self-center font-mono text-xs text-ink-faint">…</p>
       )}
       {open && catalog !== null && !catalog.discovered && (
-        <p className="self-center whitespace-pre-wrap text-[11px] text-rose">
+        <p className="self-center whitespace-pre-wrap text-xs text-rose">
           {t("tab.failure.modelCatalogFailed", { error: catalog.error ?? "" })}
         </p>
       )}
@@ -455,7 +455,7 @@ export const RpcTab = memo(function RpcTab({ tabId, active }: { tabId: string; a
       {failure && exitCode === undefined && (
         <div className="px-3 pt-2">
           <Panel tone="rose" className="animate-rise flex items-start gap-2 px-2.5 py-2">
-            <p className="min-w-0 flex-1 whitespace-pre-wrap text-[11px] leading-snug text-rose">
+            <p className="min-w-0 flex-1 whitespace-pre-wrap text-xs leading-snug text-rose">
               {failureText}
             </p>
             <CopyButton text={failureText} label={t("tab.failure.copy")} />
@@ -641,13 +641,13 @@ export const RpcTab = memo(function RpcTab({ tabId, active }: { tabId: string; a
               </Chip>
             )}
             {hibernated && (
-              <p className="text-[11px] text-ink-dim">
+              <p className="text-xs text-ink-dim">
                 {t("tab.exited.dormant")}
               </p>
             )}
             {failure && (
               <div className="flex w-full items-start gap-2">
-                <p className="min-w-0 flex-1 whitespace-pre-wrap text-left text-[11px] leading-snug text-rose">
+                <p className="min-w-0 flex-1 whitespace-pre-wrap text-left text-xs leading-snug text-rose">
                   {failureText}
                 </p>
                 <CopyButton text={failureText} label={t("tab.failure.copy")} />

@@ -174,7 +174,7 @@ export function AdvisorControl({ tabId, disabled, layout = "inline" }: { tabId: 
             aria-pressed={on}
             title={title}
             onClick={toggle}
-            className={cn(CAPSULE_SEGMENT, "shrink-0 text-[10px]", layout === "sheet" && (on ? "px-3" : "flex-1 justify-center px-3"), on ? "text-signal" : "text-ink-mid")}
+            className={cn(CAPSULE_SEGMENT, "shrink-0 text-xs", layout === "sheet" && (on ? "px-3" : "flex-1 justify-center px-3"), on ? "text-signal" : "text-ink-mid")}
           >
             {on ? (
               <>
@@ -212,7 +212,7 @@ export function AdvisorControl({ tabId, disabled, layout = "inline" }: { tabId: 
               }}
               className={cn(
                 CAPSULE_SEGMENT,
-                layout === "sheet" ? "min-w-0 flex-1 justify-center px-3 text-[11px]" : "max-w-40 text-[11px]",
+                layout === "sheet" ? "min-w-0 flex-1 justify-center px-3 text-xs" : "max-w-40 text-xs",
                 gated ? "text-ink-mid" : inherited ? "text-ink-faint" : "text-ink-mid",
               )}
             >
@@ -239,7 +239,7 @@ export function AdvisorControl({ tabId, disabled, layout = "inline" }: { tabId: 
                 title={`${t("advisor.override.label")}: ${effective}`}
                 className={cn(
                   CAPSULE_SEGMENT,
-                  "shrink-0 rounded-r-[5px] text-[11px] tabular-nums text-ink-mid",
+                  "shrink-0 rounded-r-[5px] text-xs tabular-nums text-ink-mid",
                   layout === "sheet" && "px-3",
                 )}
               >
@@ -257,7 +257,7 @@ export function AdvisorControl({ tabId, disabled, layout = "inline" }: { tabId: 
                 onClick={() => setLevelMenu((m) => !m)}
                 className={cn(
                   CAPSULE_SEGMENT,
-                  "shrink-0 rounded-r-[5px] text-[11px] tabular-nums text-iris",
+                  "shrink-0 rounded-r-[5px] text-xs tabular-nums text-iris",
                   layout === "sheet" && "px-3",
                 )}
               >
@@ -272,7 +272,7 @@ export function AdvisorControl({ tabId, disabled, layout = "inline" }: { tabId: 
                     <button
                       type="button"
                       onClick={() => setLevel("")}
-                      className="rounded px-1.5 py-0.5 text-left text-[11px] text-ink-faint hover:bg-hover"
+                      className="rounded px-1.5 py-0.5 text-left text-xs text-ink-faint hover:bg-hover"
                       title={t("composer.advisor.defaultLevel")}
                     >
                       {t("composer.advisor.defaultLevelChoice")}
@@ -284,7 +284,7 @@ export function AdvisorControl({ tabId, disabled, layout = "inline" }: { tabId: 
                       type="button"
                       onClick={() => setLevel(effort)}
                       className={cn(
-                        "rounded px-1.5 py-0.5 text-left font-mono text-[11px] hover:bg-hover",
+                        "rounded px-1.5 py-0.5 text-left font-mono text-xs hover:bg-hover",
                         effort === effectiveLevel ? "text-iris" : "text-ink-mid",
                       )}
                     >
@@ -301,7 +301,7 @@ export function AdvisorControl({ tabId, disabled, layout = "inline" }: { tabId: 
         {gated && (
           <span
             title={t("advisor.override.label")}
-            className={cn("shrink-0 rounded border px-1 py-0.5 font-mono text-[9px] uppercase tracking-wide", TONE_CHIP.neutral)}
+            className={cn("shrink-0 rounded border px-1 py-0.5 font-mono text-xs uppercase tracking-wide", TONE_CHIP.neutral)}
           >
             {t("advisor.override.badge")}
           </span>

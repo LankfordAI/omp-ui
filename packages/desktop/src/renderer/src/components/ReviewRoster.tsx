@@ -64,7 +64,7 @@ const documentsEqual = (a: ReviewDocument, b: ReviewDocument): boolean =>
   JSON.stringify(a) === JSON.stringify(b);
 
 const inputClass =
-  "w-full rounded border border-line bg-void px-2 py-1 font-mono text-[11px] text-ink outline-none focus:border-line-strong disabled:opacity-60";
+  "w-full rounded border border-line bg-void px-2 py-1 font-mono text-xs text-ink outline-none focus:border-line-strong disabled:opacity-60";
 
 export function ReviewRosterEditor({ scopeCwd, instanceId }: { scopeCwd: string | null; instanceId: string | null }) {
   const t = useT();
@@ -199,7 +199,7 @@ export function ReviewRosterEditor({ scopeCwd, instanceId }: { scopeCwd: string 
 
   return (
     <div className="flex flex-col gap-3 px-4 py-3 text-xs" data-testid="review-roster-editor">
-      <p className="text-[11px] leading-relaxed text-ink-faint">{t("review.roster.explain")}</p>
+      <p className="text-xs leading-relaxed text-ink-faint">{t("review.roster.explain")}</p>
       <div className="flex items-center gap-2">
         <Button size="xs" selected={scope === "project"} disabled={scopeCwd === null} onClick={() => setScope("project")}>
           {t("review.roster.scopeProject")}
@@ -256,7 +256,7 @@ export function ReviewRosterEditor({ scopeCwd, instanceId }: { scopeCwd: string 
             )}
           </div>
           {r.model !== null && r.model !== "" && !modelShapeOk(r.model) && (
-            <p className="text-[10px] text-rose">{t("project.settings.selectorProvider")}</p>
+            <p className="text-xs text-rose">{t("project.settings.selectorProvider")}</p>
           )}
           <div className="flex flex-wrap items-center gap-1">
             <Button
@@ -343,7 +343,7 @@ export function ReviewRosterEditor({ scopeCwd, instanceId }: { scopeCwd: string 
         </Panel>
       )}
       {result.configWarnings.length > 0 && (
-        <ul className="list-disc pl-4 text-[11px] text-copper">
+        <ul className="list-disc pl-4 text-xs text-copper">
           {result.configWarnings.map((w, i) => (
             <li key={i} className="break-words">
               {w}
@@ -356,7 +356,7 @@ export function ReviewRosterEditor({ scopeCwd, instanceId }: { scopeCwd: string 
         {result.effective.length === 0 ? (
           <p className="text-ink-faint">{t("review.roster.effectiveNone")}</p>
         ) : (
-          <ul className="mt-1 font-mono text-[10px] text-ink-mid">
+          <ul className="mt-1 font-mono text-xs text-ink-mid">
             {result.effective.map((e) => (
               <li key={`${e.sourceScope}:${e.name}`} className="break-all">
                 {e.name} · {e.enabled ? "on" : "off"} · {e.model ?? t("review.roster.followsModel")} ·{" "}

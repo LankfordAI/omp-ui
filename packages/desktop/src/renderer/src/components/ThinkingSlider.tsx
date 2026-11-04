@@ -162,7 +162,7 @@ export function ThinkingSlider({ tabId, disabled }: { tabId: string; disabled: b
       <div
         role="group"
         aria-label={t("composer.thinking.label")}
-        className="flex justify-between font-mono text-[10px] text-ink-mid"
+        className="flex justify-between font-mono text-xs text-ink-mid"
       >
         {efforts.map((effort, i) => (
           <button

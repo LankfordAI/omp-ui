@@ -54,7 +54,7 @@ export function SelectionCommentButton({
       onMouseDown={(event) => event.preventDefault()}
       onClick={onComment}
       className={cn(
-        "fixed z-40 mt-1 flex items-center gap-1 rounded-md border border-line-strong bg-overlay px-1.5 py-0.5 text-[11px] text-ink-mid shadow-float transition-colors hover:border-iris-dim hover:text-ink",
+        "fixed z-40 mt-1 flex items-center gap-1 rounded-md border border-line-strong bg-overlay px-1.5 py-0.5 text-xs text-ink-mid shadow-float transition-colors hover:border-iris-dim hover:text-ink",
         // Flip left/up past the midline, like the selection menu.
         anchor.x > window.innerWidth / 2 && "-translate-x-full",
         anchor.y > window.innerHeight / 2 && "-translate-y-full",
@@ -120,7 +120,7 @@ export function SelectionCommentPopover({
       <Panel className="edge-lit animate-rise space-y-2 p-2">
         <p
           title={anchor.quote}
-          className="truncate border-l-2 border-iris-dim/70 pl-1.5 text-[11px] italic text-ink-dim"
+          className="truncate border-l-2 border-iris-dim/70 pl-1.5 text-xs italic text-ink-dim"
         >
           {annotationQuotePreview(anchor.quote, 80)}
         </p>

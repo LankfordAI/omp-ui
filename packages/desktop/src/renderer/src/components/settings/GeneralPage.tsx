@@ -150,7 +150,7 @@ function CompactionMethodPicker({
                 {option.label}
               </span>
               {option.description !== undefined && (
-                <span className="min-w-0 flex-1 text-[11px] leading-snug text-ink-faint">
+                <span className="min-w-0 flex-1 text-xs leading-snug text-ink-faint">
                   {option.description}
                 </span>
               )}
@@ -159,7 +159,7 @@ function CompactionMethodPicker({
         })}
       </div>
       {load.status === "failed" && (
-        <p className="text-[10px] text-ink-faint">
+        <p className="text-xs text-ink-faint">
           {t("settings.general.compactionLoadFailed", { message: load.message })}
         </p>
       )}
@@ -190,7 +190,7 @@ function DictationModelPicker({
 }) {
   const t = useT();
   if (load.status === "loading") {
-    return <p className="text-[11px] text-ink-faint">{t("settings.omp.reading")}</p>;
+    return <p className="text-xs text-ink-faint">{t("settings.omp.reading")}</p>;
   }
   const { snapshot } = load;
   const options: Array<{ id: string | null; label: string; disabled?: boolean }> = [
@@ -240,7 +240,7 @@ function DictationModelPicker({
                     : "text-ink-mid hover:bg-hover/50 focus-visible:bg-hover/50 focus-visible:outline-none",
               )}
             >
-              <span className={cn("min-w-0 truncate font-mono text-[11px]", selected && "font-medium")}>
+              <span className={cn("min-w-0 truncate font-mono text-xs", selected && "font-medium")}>
                 {option.label}
               </span>
             </button>
@@ -248,10 +248,10 @@ function DictationModelPicker({
         })}
       </div>
       {snapshot.discovered && noCallable && (
-        <p className="text-[10px] text-ink-faint">{t("settings.general.dictationNoModels")}</p>
+        <p className="text-xs text-ink-faint">{t("settings.general.dictationNoModels")}</p>
       )}
       {!snapshot.discovered && (
-        <p className="text-[10px] text-ink-faint">
+        <p className="text-xs text-ink-faint">
           {t("settings.general.dictationLoadFailed", { message: snapshot.error ?? "" })}
         </p>
       )}
@@ -374,7 +374,7 @@ export function GeneralPage() {
           value={state?.localeId ?? "en"}
           options={UI_LOCALES.map((l) => ({ value: l.id, label: l.label }))}
           onChange={(value) => void setLocaleId(value)}
-          optionClassName="px-2 text-[11px]"
+          optionClassName="px-2 text-xs"
         />
       </Row>
       <Row
@@ -386,7 +386,7 @@ export function GeneralPage() {
           value={mode}
           options={sessionModeOptions}
           onChange={(value) => void setDefaultMode(value)}
-          optionClassName="px-2 text-[11px]"
+          optionClassName="px-2 text-xs"
         />
       </Row>
       <Row
@@ -398,7 +398,7 @@ export function GeneralPage() {
           value={agentMode}
           options={agentModeOptions}
           onChange={(value) => void setDefaultAgentMode(value)}
-          optionClassName="px-2 text-[11px]"
+          optionClassName="px-2 text-xs"
         />
       </Row>
       <Row
@@ -421,7 +421,7 @@ export function GeneralPage() {
           value={planFormat}
           options={PLAN_FORMAT_OPTIONS}
           onChange={(value) => void setPlanFormat(value)}
-          optionClassName="px-2 text-[11px]"
+          optionClassName="px-2 text-xs"
         />
       </Row>
       <Row
@@ -433,7 +433,7 @@ export function GeneralPage() {
           value={state?.hibernateIdleMinutes ?? 0}
           options={hibernateIdleOptions}
           onChange={(value) => void setHibernateIdleMinutes(value)}
-          optionClassName="px-2 text-[11px]"
+          optionClassName="px-2 text-xs"
         />
       </Row>
       <Row
@@ -465,7 +465,7 @@ export function GeneralPage() {
           value={state?.streamStallAbortSeconds ?? 180}
           options={stallAbortOptions}
           onChange={(value) => void setStreamStallAbortSeconds(value)}
-          optionClassName="px-2 text-[11px]"
+          optionClassName="px-2 text-xs"
         />
       </Row>
       <Row

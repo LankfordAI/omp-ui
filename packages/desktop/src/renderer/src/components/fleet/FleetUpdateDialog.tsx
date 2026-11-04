@@ -161,7 +161,7 @@ export function FleetUpdateDialog({
                     {t("fleet.update.ompUpdate")}
                   </Button>
                 </div>
-                <p className="text-[10px] text-ink-faint">
+                <p className="text-xs text-ink-faint">
                   {typedVersion !== "" && !typedExact ? (
                     <span className="text-rose">{t("fleet.update.invalidVersion")}</span>
                   ) : (

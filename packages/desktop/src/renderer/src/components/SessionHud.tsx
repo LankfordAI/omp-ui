@@ -88,7 +88,7 @@ function Segmented({
             aria-pressed={on}
             onClick={() => onChange(option.value)}
             className={cn(
-              "min-w-0 flex-1 truncate rounded px-1.5 py-0.5 text-[10px] leading-4",
+              "min-w-0 flex-1 truncate rounded px-1.5 py-0.5 text-xs leading-4",
               "transition-colors duration-150",
               on ? "bg-raised text-ink" : "text-ink-dim hover:bg-hover hover:text-ink-mid",
             )}
@@ -435,7 +435,7 @@ function LivenessBadge({
     return <StreamStallChip stallMs={stallMs} short={short} className={className} />;
   }
   return (
-    <span className={cn("flex items-center gap-1.5 text-[11px] text-ink-dim", className)} title={title}>
+    <span className={cn("flex items-center gap-1.5 text-xs text-ink-dim", className)} title={title}>
       <Dot tone={face.tone} pulse={face.pulse} />
       {label}
     </span>
@@ -469,7 +469,7 @@ function TitleRenameInput({ tabId, title, onDone }: { tabId: string; title: stri
           onDone();
         }
       }}
-      className="min-w-0 flex-1 rounded border border-line-strong bg-void px-1.5 py-0.5 font-display text-[13px] text-ink outline-none focus:border-signal-dim [app-region:no-drag]"
+      className="min-w-0 flex-1 rounded border border-line-strong bg-void px-1.5 py-0.5 font-display text-sm text-ink outline-none focus:border-signal-dim [app-region:no-drag]"
     />
   );
 }
@@ -490,7 +490,7 @@ function TitleField({ tabId, title }: { tabId: string; title: string }) {
         type="button"
         title={t("hud.session.renameTitle", { title })}
         onClick={() => setEditing(true)}
-        className="min-w-0 truncate rounded px-1 py-0.5 text-left font-display text-[13px] text-ink transition-colors hover:bg-hover [app-region:no-drag]"
+        className="min-w-0 truncate rounded px-1 py-0.5 text-left font-display text-sm text-ink transition-colors hover:bg-hover [app-region:no-drag]"
       >
         {title}
       </button>
@@ -522,10 +522,10 @@ function ContextCluster({
   return (
     <div className="flex shrink-0 items-center gap-2" title={exact}>
       <Meter fraction={fraction} marker={marker} className="titlebar-context-meter w-20" title={exact} />
-      <span className="titlebar-context-tokens hidden font-mono text-[11px] tabular-nums text-ink-mid md:inline">
+      <span className="titlebar-context-tokens hidden font-mono text-xs tabular-nums text-ink-mid md:inline">
         {compactNum(usage.tokens)} / {window > 0 ? compactNum(window) : "?"}
       </span>
-      <span className={cn("font-mono text-[11px] tabular-nums", percentTone(percent))}>
+      <span className={cn("font-mono text-xs tabular-nums", percentTone(percent))}>
         {percent.toFixed(1)}%
       </span>
     </div>
@@ -613,7 +613,7 @@ function LimitsCluster({ limits, layout = "inline" }: { limits: LimitsView; layo
           : t("hud.limits.resetsAt", { time: new Date(at).toLocaleString(localeTag()) }) +
             (stale ? "" : t("hud.limits.resetsIn", { duration: formatDuration(at - now) }));
     return (
-      <div className="titlebar-limits flex flex-col gap-1 font-mono text-[10px] tabular-nums" title={details}>
+      <div className="titlebar-limits flex flex-col gap-1 font-mono text-xs tabular-nums" title={details}>
         {limits.windows.map((window) => (
           <div key={window.id} className="flex items-baseline justify-between gap-3">
             <span className={cn("min-w-0 truncate", tone(window.percent))}>
@@ -629,10 +629,10 @@ function LimitsCluster({ limits, layout = "inline" }: { limits: LimitsView; layo
   }
   return (
     <div
-      className="titlebar-limits flex shrink-0 items-center gap-1.5 font-mono text-[10px] tabular-nums"
+      className="titlebar-limits flex shrink-0 items-center gap-1.5 font-mono text-xs tabular-nums"
       title={details}
     >
-      <span className="text-[10px] font-semibold uppercase tracking-wide text-ink-faint">
+      <span className="text-xs font-semibold uppercase tracking-wide text-ink-faint">
         {t("hud.limits.label")}
       </span>
       {limits.windows.map((window) => (
@@ -776,7 +776,7 @@ function ModeRow({
     <div className="mt-2 first:mt-0">
       <div className="mb-1 flex items-baseline justify-between gap-2" title={hint}>
         <Label>{label}</Label>
-        <span className="font-mono text-[10px] text-ink-faint">{value ?? "—"}</span>
+        <span className="font-mono text-xs text-ink-faint">{value ?? "—"}</span>
       </div>
       <Segmented value={value} options={values.map((v) => ({ value: v, label: v, title: optionHints?.[v] }))} onChange={onChange} />
     </div>
@@ -854,7 +854,7 @@ function ModesPanel({
         {/* Label and switch stay adjacent: Switch renders no visible text,
             so proximity is the only association (issue #79). */}
         <div className="flex items-center gap-2">
-          <span className="text-[11px] text-ink-mid">{t("hud.retry.autoRetry")}</span>
+          <span className="text-xs text-ink-mid">{t("hud.retry.autoRetry")}</span>
           <Switch
             on={autoRetry}
             label={t("hud.retry.autoRetry")}
@@ -949,7 +949,7 @@ function RemoteVsCodeRow({
       >
         <span className="min-w-0">
           {t("quickopen.action.openIn", { target: "VS Code" })}
-          {row.reason !== null && <span className="block text-[10px] text-ink-faint">{row.reason}</span>}
+          {row.reason !== null && <span className="block text-xs text-ink-faint">{row.reason}</span>}
         </span>
       </button>
     </>
@@ -1095,7 +1095,7 @@ function TitleMenu({
         {checked && <span aria-hidden>✓</span>}
         {label}
       </span>
-      {hotkey !== null && <span className="font-mono text-[10px] text-ink-faint">{hotkey}</span>}
+      {hotkey !== null && <span className="font-mono text-xs text-ink-faint">{hotkey}</span>}
     </button>
   );
   const anonNeedsOmp = t("hud.actions.anonymizeNeedsOmp", { version: ANONYMIZE_MIN_OMP });
@@ -1112,7 +1112,7 @@ function TitleMenu({
           aria-expanded={surface === "menu"}
           title={t("hud.menu.triggerTitle", { title })}
           onClick={toggle}
-          className="flex min-w-0 max-w-[28rem] items-center gap-1 rounded px-1 py-0.5 font-display text-[13px] text-ink transition-colors hover:bg-hover"
+          className="flex min-w-0 max-w-[28rem] items-center gap-1 rounded px-1 py-0.5 font-display text-sm text-ink transition-colors hover:bg-hover"
         >
           <span className="min-w-0 truncate">{title}</span>
           <Chevron open className="text-ink-dim" />
@@ -1279,7 +1279,7 @@ function TitleMenu({
                   >
                     <span className="min-w-0">
                       {t("hud.menu.redacted")}
-                      {!anonAvailable && <span className="block text-[10px] text-ink-faint">{anonNeedsOmp}</span>}
+                      {!anonAvailable && <span className="block text-xs text-ink-faint">{anonNeedsOmp}</span>}
                     </span>
                   </button>
                 </MenuGroup>
@@ -1425,7 +1425,7 @@ function GaugeChip({
       totalTokens: exactNum(advisor.totalTokens),
     });
     advisorReadout = (
-      <span className="flex items-center gap-1.5 font-mono text-[10px] tabular-nums" title={exact}>
+      <span className="flex items-center gap-1.5 font-mono text-xs tabular-nums" title={exact}>
         <Meter fraction={ctxWindow > 0 ? advisor.contextTokens / ctxWindow : 0} className="w-14" title={exact} />
         <span className="text-ink-dim">{percent.toFixed(1)}%</span>
         <span className="text-ink-faint">{subscribed ? t("hud.advisor.subscriptionShort") : formatCost(advisor.cost)}</span>
@@ -1444,7 +1444,7 @@ function GaugeChip({
         title={[readout?.exact, mainSpend?.title, costCap?.message].filter(Boolean).join("\n")}
         onClick={() => setOpen(!open)}
         className={cn(
-          "titlebar-gauge flex items-center gap-1.5 rounded-md border border-line px-1.5 py-0.5 font-mono text-[11px] tabular-nums transition-colors hover:bg-hover",
+          "titlebar-gauge flex items-center gap-1.5 rounded-md border border-line px-1.5 py-0.5 font-mono text-xs tabular-nums transition-colors hover:bg-hover",
           open && "bg-hover",
         )}
       >
@@ -1462,7 +1462,7 @@ function GaugeChip({
         pos &&
         createPortal(
           <div ref={panelRef} role="dialog" aria-label={t("hud.gauge.label")} className="fixed z-[70]" style={pos}>
-            <Panel className="edge-lit animate-rise max-h-[calc(100vh-3rem)] w-[22rem] overflow-y-auto p-3 text-[11px]">
+            <Panel className="edge-lit animate-rise max-h-[calc(100vh-3rem)] w-[22rem] overflow-y-auto p-3 text-xs">
               {usage && (
                 <div className={cn(GAUGE_SECTION, GAUGE_HEADER)}>
                   <Label>{t("hud.metrics.context")}</Label>
@@ -1931,7 +1931,7 @@ export function SessionHud({ tabId }: { tabId: string }) {
             <TitleField tabId={tabId} title={title ?? t("hud.session.untitled")} />
             {(usage || mainSpend || advisorStats?.available === true || notices.length > 0 || worktree || quotaEvent != null || costCap != null || usageLimitChip || limitsCluster || isPrivate) && (
               <div className="space-y-2 rounded-lg border border-line bg-raised/60 p-3">
-                {worktree && <div className="space-y-1"><div className="flex items-center justify-between gap-3"><Label>{t("hud.metrics.worktree")}</Label><span className="flex items-center gap-1"><Chip mono title={worktree.path}>⎇ {worktree.branch}</Chip><CopyButton text={worktree.branch} label={t("hud.actions.copy")} doneLabel={t("hud.actions.copied")} /></span></div><div className="flex items-center justify-between gap-2"><span className="min-w-0 truncate font-mono text-[10px] text-ink-faint" title={worktree.path}>{worktree.path}</span><CopyButton text={worktree.path} label={t("hud.actions.copy")} doneLabel={t("hud.actions.copied")} /></div></div>}
+                {worktree && <div className="space-y-1"><div className="flex items-center justify-between gap-3"><Label>{t("hud.metrics.worktree")}</Label><span className="flex items-center gap-1"><Chip mono title={worktree.path}>⎇ {worktree.branch}</Chip><CopyButton text={worktree.branch} label={t("hud.actions.copy")} doneLabel={t("hud.actions.copied")} /></span></div><div className="flex items-center justify-between gap-2"><span className="min-w-0 truncate font-mono text-xs text-ink-faint" title={worktree.path}>{worktree.path}</span><CopyButton text={worktree.path} label={t("hud.actions.copy")} doneLabel={t("hud.actions.copied")} /></div></div>}
                 {isPrivate && <div className="flex items-center justify-between gap-3"><Label>{t("hud.metrics.memory")}</Label><span className="flex items-center gap-1 text-ink-mid"><IconLock /><span title={t("session.badge.private")}>{t("hud.metrics.memoryPrivate")}</span></span></div>}
                 {usage && <div className="flex items-center justify-between gap-3"><Label>{t("hud.metrics.context")}</Label><ContextCluster usage={usage} markerTokens={markerTokens} /></div>}
                 {mainSpend && <div className="flex items-center justify-between gap-3"><Label>{t("hud.metrics.spend")}</Label><span className="font-mono text-xs tabular-nums text-ink-mid" title={mainSpend.title}>{t("hud.stats.compact", { cost: formatCost(mainSpend.cost), tokens: compactNum(mainSpend.tokens), premium: mainSpend.premium })}</span></div>}

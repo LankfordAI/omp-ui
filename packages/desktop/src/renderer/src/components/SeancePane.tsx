@@ -48,7 +48,7 @@ function FollowUpBox({
         placeholder={placeholder}
         aria-label={placeholder}
         disabled={disabled}
-        className="min-w-0 flex-1 rounded-md border border-line bg-raised px-2 py-1 text-[12px] text-ink placeholder:text-ink-faint focus:border-line-strong focus:outline-none disabled:opacity-50"
+        className="min-w-0 flex-1 rounded-md border border-line bg-raised px-2 py-1 text-xs text-ink placeholder:text-ink-faint focus:border-line-strong focus:outline-none disabled:opacity-50"
       />
       <Button type="submit" size="xs" variant="outline" disabled={disabled || draft.trim() === ""}>
         {buttonLabel}
@@ -89,11 +89,11 @@ function ConsultCard({
             pulse={AGENT_TONE[status] === "copper"}
             title={status}
           />
-          <span className="min-w-0 flex-1 truncate font-display text-[12px] text-ink">
+          <span className="min-w-0 flex-1 truncate font-display text-xs text-ink">
             {agent.label ?? agent.name ?? agent.id}
           </span>
         </button>
-        <span className="shrink-0 font-mono text-[10px] text-ink-faint">{status}</span>
+        <span className="shrink-0 font-mono text-xs text-ink-faint">{status}</span>
       </div>
       {subagentControllable(status) ? (
         <FollowUpBox
@@ -106,7 +106,7 @@ function ConsultCard({
         <div className="flex items-center gap-1.5">
           {/* omp's resolveOwnedLiveSubagent rejects steering a settled agent:
               the only way back to a saved session is a fresh consult. */}
-          <span className="min-w-0 flex-1 truncate text-[11px] text-ink-faint">
+          <span className="min-w-0 flex-1 truncate text-xs text-ink-faint">
             {t("rail.seance.settledNote")}
           </span>
           <Button size="xs" variant="outline" onClick={onAskAgain}>
@@ -149,7 +149,7 @@ export function SeancePane({ tabId }: { tabId: string }) {
     // as a requirement, and no launch control exists to dispatch through.
     return (
       <div className="px-3 py-2.5">
-        <p role="status" className="rounded-md border border-line bg-raised px-2 py-1.5 text-[11px] text-ink-mid">
+        <p role="status" className="rounded-md border border-line bg-raised px-2 py-1.5 text-xs text-ink-mid">
           {t("rail.seance.needsNewerOmp", { version: SEANCE_MIN_OMP })}
         </p>
       </div>

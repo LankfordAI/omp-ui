@@ -176,17 +176,17 @@ function IconCollapse() {
 function Row({ label, children }: { label: string; children: ReactNode }) {
   return (
     <div className="flex items-baseline gap-2 py-0.5">
-      <dt className="w-[6.5rem] shrink-0 text-[10px] uppercase tracking-[0.08em] text-ink-faint">
+      <dt className="w-[6.5rem] shrink-0 text-xs uppercase tracking-[0.08em] text-ink-faint">
         {label}
       </dt>
-      <dd className="min-w-0 flex-1 text-[11px] text-ink-mid">{children}</dd>
+      <dd className="min-w-0 flex-1 text-xs text-ink-mid">{children}</dd>
     </div>
   );
 }
 
 function Mono({ children, title }: { children: ReactNode; title?: string }) {
   return (
-    <span title={title} className="block truncate font-mono text-[11px] tabular-nums text-ink-mid">
+    <span title={title} className="block truncate font-mono text-xs tabular-nums text-ink-mid">
       {children}
     </span>
   );
@@ -269,7 +269,7 @@ function AgentsPane({ tabId }: { tabId: string }) {
                         pulse={AGENT_TONE[status] === "copper"}
                         title={status}
                       />
-                      <span className="min-w-0 flex-1 truncate font-display text-[12px] text-ink">
+                      <span className="min-w-0 flex-1 truncate font-display text-xs text-ink">
                         {agent.name ?? agent.agent ?? agent.id}
                       </span>
                     </button>
@@ -281,17 +281,17 @@ function AgentsPane({ tabId }: { tabId: string }) {
                     <SubagentControls tabId={tabId} agentId={agent.id} status={status} />
                   </div>
                   <div className="mt-0.5 flex items-baseline gap-1.5 pl-3">
-                    <span className="shrink-0 font-mono text-[10px] text-ink-faint">{status}</span>
+                    <span className="shrink-0 font-mono text-xs text-ink-faint">{status}</span>
                     {agent.completionPercent !== undefined && status === "running" && (
                       <span
-                        className="shrink-0 font-mono text-[10px] text-ink-faint"
+                        className="shrink-0 font-mono text-xs text-ink-faint"
                         title={t("rail.agents.estimateTitle")}
                       >
                         {agent.completionPercent}%
                       </span>
                     )}
                     {agent.label && (
-                      <span className="min-w-0 flex-1 truncate text-[11px] text-ink-dim" title={agent.label}>
+                      <span className="min-w-0 flex-1 truncate text-xs text-ink-dim" title={agent.label}>
                         {agent.label}
                       </span>
                     )}
@@ -303,7 +303,7 @@ function AgentsPane({ tabId }: { tabId: string }) {
         </ul>
       )}
       {notice !== null && (
-        <p className="mt-1 rounded-md border border-rose-dim/50 bg-rose-wash px-2 py-1 text-[10px] text-rose">
+        <p className="mt-1 rounded-md border border-rose-dim/50 bg-rose-wash px-2 py-1 text-xs text-rose">
           {notice}
         </p>
       )}
@@ -399,7 +399,7 @@ function VibeWorkerRow({
               pulse={worker.state === "running"}
               title={worker.killed ? t("rail.vibe.killed") : worker.state}
             />
-            <span className="min-w-0 flex-1 truncate font-display text-[12px] text-ink">
+            <span className="min-w-0 flex-1 truncate font-display text-xs text-ink">
               {worker.id}
             </span>
             <Chip mono title={t("rail.vibe.tierTitle", { cli: worker.cli })}>
@@ -407,17 +407,17 @@ function VibeWorkerRow({
             </Chip>
           </div>
           <div className="mt-0.5 flex items-baseline gap-1.5 pl-3">
-            <span className="shrink-0 font-mono text-[10px] text-ink-faint">
+            <span className="shrink-0 font-mono text-xs text-ink-faint">
               {worker.state}
               {worker.queued > 0 && ` +${worker.queued}`}
             </span>
             {worker.turns > 0 && (
-              <span className="shrink-0 font-mono text-[10px] text-ink-faint">
+              <span className="shrink-0 font-mono text-xs text-ink-faint">
                 {t("rail.vibe.turns", { count: worker.turns })}
               </span>
             )}
             {activity !== "" && (
-              <span className="min-w-0 flex-1 truncate text-[11px] text-ink-dim" title={activity}>
+              <span className="min-w-0 flex-1 truncate text-xs text-ink-dim" title={activity}>
                 {activity}
               </span>
             )}
@@ -500,20 +500,20 @@ function StatsTable({
             <tbody>
               {stats.editRejections.map(({ kind, count }) => (
                 <tr key={kind}>
-                  <td title={kind} className="py-0.5 text-[10px] uppercase tracking-[0.08em] text-ink-faint">
+                  <td title={kind} className="py-0.5 text-xs uppercase tracking-[0.08em] text-ink-faint">
                     {editErrorKindLabel(kind)}
                   </td>
-                  <td className="py-0.5 text-right font-mono text-[11px] tabular-nums text-ink-mid">
+                  <td className="py-0.5 text-right font-mono text-xs tabular-nums text-ink-mid">
                     {exactNum(count)}
                   </td>
                 </tr>
               ))}
               {stats.editRejections.length > 1 && (
                 <tr className="border-t border-line-soft">
-                  <td className="py-0.5 text-[10px] uppercase tracking-[0.08em] text-ink-faint">
+                  <td className="py-0.5 text-xs uppercase tracking-[0.08em] text-ink-faint">
                     {t("rail.stats.total")}
                   </td>
-                  <td className="py-0.5 text-right font-mono text-[11px] tabular-nums text-ink">
+                  <td className="py-0.5 text-right font-mono text-xs tabular-nums text-ink">
                     {exactNum(stats.editRejections.reduce((sum, row) => sum + row.count, 0))}
                   </td>
                 </tr>
@@ -528,13 +528,13 @@ function StatsTable({
             <tbody>
               {TOKEN_ROWS.map(({ key, labelKey }) => (
                 <tr key={key} className={key === "total" ? "border-t border-line-soft" : undefined}>
-                  <td className="py-0.5 text-[10px] uppercase tracking-[0.08em] text-ink-faint">
+                  <td className="py-0.5 text-xs uppercase tracking-[0.08em] text-ink-faint">
                     {t(labelKey)}
                   </td>
                   <td
                     title={exactNum(tokens[key])}
                     className={cn(
-                      "py-0.5 text-right font-mono text-[11px] tabular-nums",
+                      "py-0.5 text-right font-mono text-xs tabular-nums",
                       key === "total" ? "text-ink" : "text-ink-mid",
                     )}
                   >
@@ -626,14 +626,14 @@ function VoiceRecordingsSection({ tabId }: { tabId: string }) {
           // supersedes it, and supersede is never an overlap.
           return (
             <li key={clipKey} className="flex min-w-0 items-center gap-1.5 text-xs">
-              <span className="shrink-0 font-mono text-[10px] uppercase tracking-[0.08em] text-ink-faint">
+              <span className="shrink-0 font-mono text-xs uppercase tracking-[0.08em] text-ink-faint">
                 {entry.role === "user" ? t("composer.live.roleUser") : t("composer.live.roleAssistant")}
               </span>
               <Mono title={clipKey}>{entry.turn}</Mono>
               <span className="min-w-0 flex-1 truncate text-ink-dim" title={entry.modifiedAt}>
                 {relativeTime(entry.modifiedAt)}
               </span>
-              <span className="shrink-0 text-[10px] text-ink-faint">
+              <span className="shrink-0 text-xs text-ink-faint">
                 {compactNum(entry.sizeBytes)}
               </span>
               {replay?.status === "playing" ? (
@@ -892,7 +892,7 @@ function PlansPane({ tabId }: { tabId: string }) {
             >
               <Dot tone={tone} title={label} className="mt-1" />
               <span className="min-w-0 flex-1">
-                <span className="block truncate text-[12px] font-medium text-ink">
+                <span className="block truncate text-xs font-medium text-ink">
                   {plan.title}
                 </span>
                 <span className="mt-0.5 flex items-center gap-1.5">
@@ -900,7 +900,7 @@ function PlansPane({ tabId }: { tabId: string }) {
                     {label}
                   </Chip>
                   {actionable && deferred && (
-                    <span className="text-[10px] text-ink-faint">{t("rail.plans.paused")}</span>
+                    <span className="text-xs text-ink-faint">{t("rail.plans.paused")}</span>
                   )}
                 </span>
               </span>
@@ -1079,7 +1079,7 @@ function DiffsPane({ tabId }: { tabId: string }) {
           </Chip>
         )}
         <span
-          className="min-w-0 flex-1 truncate font-mono text-[10px] text-ink-faint"
+          className="min-w-0 flex-1 truncate font-mono text-xs text-ink-faint"
           title={load.repoRoot ?? undefined}
         >
           {load.repoRoot}
@@ -1088,7 +1088,7 @@ function DiffsPane({ tabId }: { tabId: string }) {
           <IconRefresh />
         </IconButton>
       </div>
-      <div className="flex items-center gap-2 px-3 pt-2 text-[11px]">
+      <div className="flex items-center gap-2 px-3 pt-2 text-xs">
         <span className="text-ink-dim">{t("diff.rail.summary", { files: files.length })}</span>
         <span className="tabular-nums">
           <span className="text-signal">+{totals.added}</span> <span className="text-rose">−{totals.removed}</span>
@@ -1234,12 +1234,12 @@ function MemberTabs({
             title={count > 0 ? t("rail.chrome.badgedTitle", { label, count }) : label}
             onClick={() => onSelect(pane)}
             className={cn(
-              "flex items-center gap-1 rounded-md px-2 py-0.5 text-[11px] transition-colors",
+              "flex items-center gap-1 rounded-md px-2 py-0.5 text-xs transition-colors",
               selected ? "bg-hover text-ink" : "text-ink-mid hover:text-ink",
             )}
           >
             {label}
-            {count > 0 && <span className="font-mono text-[10px] tabular-nums text-copper">{count > 99 ? "99+" : count}</span>}
+            {count > 0 && <span className="font-mono text-xs tabular-nums text-copper">{count > 99 ? "99+" : count}</span>}
           </button>
         );
       })}
@@ -1374,13 +1374,13 @@ export function InspectorRail({ tabId }: { tabId: string }) {
                 aria-pressed={active}
                 onClick={() => selectGroup(id)}
                 className={cn(
-                  "relative flex min-h-12 flex-col items-center justify-center gap-0.5 text-[10px] transition-colors",
+                  "relative flex min-h-12 flex-col items-center justify-center gap-0.5 text-xs transition-colors",
                   active ? "bg-raised text-ink" : "text-ink-dim",
                 )}
               >
                 <GroupIcon group={id} />
                 <span>{label}</span>
-                {count > 0 && <span className="absolute right-1.5 top-1 min-w-3.5 rounded-full bg-copper-wash px-1 text-center font-mono text-[9px] leading-3.5 text-copper">{count > 99 ? "99+" : count}</span>}
+                {count > 0 && <span className="absolute right-1.5 top-1 min-w-3.5 rounded-full bg-copper-wash px-1 text-center font-mono text-xs leading-3.5 text-copper">{count > 99 ? "99+" : count}</span>}
                 {active && <span aria-hidden className="absolute inset-x-3 bottom-0 h-0.5 rounded-full bg-ink" />}
               </button>
               );
@@ -1442,13 +1442,13 @@ export function InspectorRail({ tabId }: { tabId: string }) {
               aria-pressed={active}
               onClick={() => selectGroup(id)}
               className={cn(
-                "relative flex w-[52px] flex-col items-center gap-0.5 rounded-md px-0.5 py-1.5 text-[10px] leading-3 transition-colors",
+                "relative flex w-[52px] flex-col items-center gap-0.5 rounded-md px-0.5 py-1.5 text-xs leading-3 transition-colors",
                 active ? "bg-raised text-ink" : "text-ink-dim hover:bg-hover hover:text-ink-mid",
               )}
             >
               <GroupIcon group={id} />
               <span className="max-w-full truncate">{label}</span>
-              {count > 0 && <span className="absolute right-0.5 top-0.5 min-w-3 rounded-full bg-copper-wash px-0.5 text-center font-mono text-[9px] leading-3 text-copper">{count > 99 ? "99" : count}</span>}
+              {count > 0 && <span className="absolute right-0.5 top-0.5 min-w-3 rounded-full bg-copper-wash px-0.5 text-center font-mono text-xs leading-3 text-copper">{count > 99 ? "99" : count}</span>}
             </button>
           );
         })}

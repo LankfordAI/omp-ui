@@ -68,7 +68,7 @@ export function BuildPlanControl({
                   ? t("hud.mode.planVibeBlocked")
                   : t("hud.mode.planDescription")
             : t("hud.mode.buildDescription"),
-          className: sheet ? "flex-1 justify-center" : "text-[11px]",
+          className: sheet ? "flex-1 justify-center" : "text-xs",
           selectedClassName: alternate ? "bg-iris-wash text-iris" : "bg-hover text-ink",
           unselectedClassName: "text-ink-mid",
         };

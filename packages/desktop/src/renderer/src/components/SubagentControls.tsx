@@ -184,14 +184,14 @@ export function SubagentControls({
                   sendSteer();
                 }
               }}
-              className="w-full resize-none rounded-md border border-line bg-transparent px-1.5 py-1 text-[11px] text-ink outline-none placeholder:text-ink-faint focus:border-line-strong"
+              className="w-full resize-none rounded-md border border-line bg-transparent px-1.5 py-1 text-xs text-ink outline-none placeholder:text-ink-faint focus:border-line-strong"
             />
             <div className="mt-1 flex justify-end">
               <button
                 type="button"
                 onClick={sendSteer}
                 disabled={text.trim() === ""}
-                className="rounded-md px-1.5 py-0.5 text-[10px] uppercase tracking-[0.08em] text-ink-mid transition-colors hover:bg-hover disabled:cursor-default disabled:text-ink-faint"
+                className="rounded-md px-1.5 py-0.5 text-xs uppercase tracking-[0.08em] text-ink-mid transition-colors hover:bg-hover disabled:cursor-default disabled:text-ink-faint"
               >
                 {t("rail.agents.steerSend")}
               </button>

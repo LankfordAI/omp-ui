@@ -184,7 +184,7 @@ export function ComposerOptions({
         title={t("composer.options.title")}
         onClick={() => setOpen((o) => !o)}
         className={cn(
-          "tap-target inline-flex h-6 min-w-0 shrink items-center gap-1 border border-line px-2 text-[11px] text-ink-mid transition-colors duration-150 hover:bg-hover hover:text-ink aria-expanded:bg-hover",
+          "tap-target inline-flex h-6 min-w-0 shrink items-center gap-1 border border-line px-2 text-xs text-ink-mid transition-colors duration-150 hover:bg-hover hover:text-ink aria-expanded:bg-hover",
           showPullCap ? "rounded-l-full" : "rounded-full",
         )}
       >
@@ -252,7 +252,7 @@ export function ComposerOptions({
           }
           onClick={() => void handlePullCapClick()}
           className={cn(
-            "tap-target inline-flex h-6 shrink-0 items-center rounded-r-full border border-l-0 border-line px-2 font-mono text-[11px] tabular-nums transition-colors duration-150 hover:bg-hover disabled:pointer-events-none disabled:text-ink-dim",
+            "tap-target inline-flex h-6 shrink-0 items-center rounded-r-full border border-l-0 border-line px-2 font-mono text-xs tabular-nums transition-colors duration-150 hover:bg-hover disabled:pointer-events-none disabled:text-ink-dim",
             diverged || mergeInProgress ? "text-copper" : "text-ink-mid hover:text-ink",
           )}
         >
@@ -277,7 +277,7 @@ export function ComposerOptions({
             <>
               <OptionRow icon={<IconThinking />} label={t("composer.thinking.label")} iconStyle={{ color: levelColour }}>
                 {auto ? (
-                  <span title={autoTitle} className="truncate text-[11px] text-ink-mid">
+                  <span title={autoTitle} className="truncate text-xs text-ink-mid">
                     {t("composer.thinking.now", { level: "\u0000" })
                       .split("\u0000")
                       .map((part, i) =>
@@ -320,7 +320,7 @@ export function ComposerOptions({
                     )
                   }
                 />
-                <span aria-hidden className="text-[11px] text-ink">
+                <span aria-hidden className="text-xs text-ink">
                   {t("composer.thinking.auto")}
                 </span>
               </OptionRow>
@@ -362,7 +362,7 @@ export function ComposerOptions({
             <span
               title={t("composer.options.advisorHint")}
               className={cn(
-                "inline-flex shrink-0 items-center gap-1 rounded border px-1.5 py-px text-[10px]",
+                "inline-flex shrink-0 items-center gap-1 rounded border px-1.5 py-px text-xs",
                 TONE_CHIP.copper,
               )}
             >

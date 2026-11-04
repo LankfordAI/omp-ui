@@ -107,10 +107,10 @@ export function UpdatesPage() {
         <div className="flex items-start justify-between gap-3">
           <div className="min-w-0">
             <p className="text-xs font-medium text-ink">omp-ui</p>
-            <p className="mt-0.5 font-mono text-[11px] text-ink-mid tabular-nums">
+            <p className="mt-0.5 font-mono text-xs text-ink-mid tabular-nums">
               {appUpdate.currentVersion ?? t("settings.updates.unversionedBuild")}
             </p>
-            <p className="mt-0.5 text-[11px] text-ink-dim">
+            <p className="mt-0.5 text-xs text-ink-dim">
               {appStatusLine(appUpdate)}
             </p>
           </div>
@@ -196,10 +196,10 @@ export function UpdatesPage() {
               { value: "nightly", label: t("settings.updates.trainNightly") },
             ]}
             onChange={(value) => void setAppUpdateTrain(value as UpdateTrain)}
-            optionClassName="px-2 text-[11px]"
+            optionClassName="px-2 text-xs"
           />
         </div>
-        <p className="mt-1 text-[11px] text-ink-dim">{t("settings.updates.trainHint")}</p>
+        <p className="mt-1 text-xs text-ink-dim">{t("settings.updates.trainHint")}</p>
         <div className="mt-3 flex items-center justify-between gap-3">
           <span className="text-xs text-ink-mid">{t("settings.updates.checkOnLaunch")}</span>
           <Switch
@@ -226,10 +226,10 @@ export function UpdatesPage() {
         <div className="flex items-start justify-between gap-3">
           <div className="min-w-0">
             <p className="text-xs font-medium text-ink">{t("settings.updates.ompBinary")}</p>
-            <p className="mt-0.5 font-mono text-[11px] text-ink-mid tabular-nums">
+            <p className="mt-0.5 font-mono text-xs text-ink-mid tabular-nums">
               {ompUpdate.installedVersion ?? t("settings.updates.notInstalled")}
             </p>
-            <p className="mt-0.5 text-[11px] text-ink-dim">
+            <p className="mt-0.5 text-xs text-ink-dim">
               {ompStatusLine(ompUpdate)}
             </p>
           </div>

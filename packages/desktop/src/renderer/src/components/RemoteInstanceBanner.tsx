@@ -22,7 +22,7 @@ export function RemoteInstanceBanner({ tabId }: { tabId: string }) {
     <div className="px-3 pt-2">
       <Panel tone={reconnecting ? "neutral" : "rose"} className="animate-rise flex items-center gap-2 px-2.5 py-2">
         <Dot tone={reconnecting ? "neutral" : "rose"} pulse={reconnecting} />
-        <p className="min-w-0 flex-1 text-[11px] leading-snug text-ink-mid">
+        <p className="min-w-0 flex-1 text-xs leading-snug text-ink-mid">
           {reconnecting
             ? t("remoteinstances.banner.unreachable", { nickname: instance.nickname })
             : t("remoteinstances.banner.needsSignIn", { nickname: instance.nickname })}

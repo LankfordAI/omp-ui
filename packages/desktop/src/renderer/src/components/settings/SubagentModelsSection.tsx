@@ -161,7 +161,7 @@ export function SubagentModelsSection({
               }
               onClick={() => setScope(choice)}
               className={cn(
-                "rounded-md px-2 py-0.5 text-[11px] transition-colors",
+                "rounded-md px-2 py-0.5 text-xs transition-colors",
                 scope === choice
                   ? "bg-raised text-ink"
                   : "text-ink-faint hover:text-ink-mid disabled:pointer-events-none disabled:opacity-35",
@@ -172,11 +172,11 @@ export function SubagentModelsSection({
           ))}
         </span>
       </div>
-      <p className="mt-0.5 text-[11px] leading-relaxed text-ink-faint">
+      <p className="mt-0.5 text-xs leading-relaxed text-ink-faint">
         {t("settings.omp.subagentModelsHint")}
       </p>
       {unsupported !== null && (
-        <p className="mt-1 rounded-md border border-copper-dim/50 bg-copper-wash px-3 py-2 text-[11px] text-copper">
+        <p className="mt-1 rounded-md border border-copper-dim/50 bg-copper-wash px-3 py-2 text-xs text-copper">
           {t("settings.omp.subagentUnsupported", { reason: unsupported.reason })}
         </p>
       )}
@@ -199,7 +199,7 @@ export function SubagentModelsSection({
               : projectMap[agent];
           return (
             <div key={agent} className="flex items-center gap-3 py-1.5">
-              <span className="w-32 shrink-0 truncate font-mono text-[11px] text-ink-mid">{agent}</span>
+              <span className="w-32 shrink-0 truncate font-mono text-xs text-ink-mid">{agent}</span>
               {layerBadge(layer)}
               <button
                 type="button"
@@ -210,7 +210,7 @@ export function SubagentModelsSection({
                     ? `${agent}: ${effective}`
                     : t("settings.omp.subagentRowDefault", { agent })
                 }
-                className="ml-auto max-w-72 truncate rounded-md border border-line bg-raised px-2 py-1 font-mono text-[11px] text-ink-mid transition-colors hover:text-ink disabled:pointer-events-none disabled:opacity-35"
+                className="ml-auto max-w-72 truncate rounded-md border border-line bg-raised px-2 py-1 font-mono text-xs text-ink-mid transition-colors hover:text-ink disabled:pointer-events-none disabled:opacity-35"
               >
                 {valueLabel(
                   scopedValue,
@@ -228,7 +228,7 @@ export function SubagentModelsSection({
           {refreshing ? t("settings.omp.subagentRefreshing") : t("settings.omp.subagentRefresh")}
         </Button>
         {roster.length === 0 && (
-          <span className="text-[11px] text-ink-faint">{t("settings.omp.subagentRosterEmpty")}</span>
+          <span className="text-xs text-ink-faint">{t("settings.omp.subagentRosterEmpty")}</span>
         )}
       </div>
 

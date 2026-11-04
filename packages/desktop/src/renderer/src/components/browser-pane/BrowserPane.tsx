@@ -603,13 +603,13 @@ export function BrowserPane({ tabId, posture }: { tabId: string; posture: Browse
               }
             }}
             className={cn(
-              "h-6 w-full rounded-md border bg-surface px-2 font-mono text-[11px] text-ink outline-none",
+              "h-6 w-full rounded-md border bg-surface px-2 font-mono text-xs text-ink outline-none",
               "placeholder:text-ink-faint focus:border-line-strong disabled:text-ink-faint",
               blocked ? "border-rose" : "border-line",
             )}
           />
           {blocked && (
-            <p role="alert" className="absolute inset-x-0 top-full z-10 mt-0.5 rounded-md border border-rose bg-overlay px-2 py-1 text-[10px] leading-snug text-rose">
+            <p role="alert" className="absolute inset-x-0 top-full z-10 mt-0.5 rounded-md border border-rose bg-overlay px-2 py-1 text-xs leading-snug text-rose">
               {t("browser.toolbar.blocked")}
             </p>
           )}
@@ -617,7 +617,7 @@ export function BrowserPane({ tabId, posture }: { tabId: string; posture: Browse
         {agent !== "detached" && (
           <span
             className={cn(
-              "flex shrink-0 items-center gap-1 px-1 text-[10px]",
+              "flex shrink-0 items-center gap-1 px-1 text-xs",
               acting ? "text-copper" : "text-ink-dim",
             )}
           >
@@ -628,7 +628,7 @@ export function BrowserPane({ tabId, posture }: { tabId: string; posture: Browse
         {loopbackOnOwner && (
           <span
             title={t("browser.toolbar.loopback.tip", { machine: ownerMachine })}
-            className="flex shrink-0 items-center gap-1 rounded border border-line px-1 text-[10px] text-ink-mid"
+            className="flex shrink-0 items-center gap-1 rounded border border-line px-1 text-xs text-ink-mid"
           >
             <Dot tone="iris" />
             {t("browser.toolbar.loopback.label", { machine: ownerMachine })}
@@ -645,7 +645,7 @@ export function BrowserPane({ tabId, posture }: { tabId: string; posture: Browse
           {stampFailedAt !== 0 ? (
             <span
               role="alert"
-              className="pointer-events-none absolute right-0 top-full z-10 mt-0.5 whitespace-nowrap rounded-md border border-rose bg-overlay px-2 py-1 text-[10px] text-rose"
+              className="pointer-events-none absolute right-0 top-full z-10 mt-0.5 whitespace-nowrap rounded-md border border-rose bg-overlay px-2 py-1 text-xs text-rose"
             >
               {t("browser.clock.stampFailed")}
             </span>
@@ -653,7 +653,7 @@ export function BrowserPane({ tabId, posture }: { tabId: string; posture: Browse
             attachedAt !== 0 && (
               <span
                 role="status"
-                className="pointer-events-none absolute right-0 top-full z-10 mt-0.5 whitespace-nowrap rounded-md border border-line bg-overlay px-2 py-1 text-[10px] text-ink-mid"
+                className="pointer-events-none absolute right-0 top-full z-10 mt-0.5 whitespace-nowrap rounded-md border border-line bg-overlay px-2 py-1 text-xs text-ink-mid"
               >
                 {t("browser.toolbar.attached")}
               </span>
@@ -735,22 +735,22 @@ export function BrowserPane({ tabId, posture }: { tabId: string; posture: Browse
           onInput={onProxyInput}
         />
         {status !== null && (
-          <p className="pointer-events-none absolute inset-x-6 top-1/2 -translate-y-1/2 text-center text-[11px] leading-snug text-ink-dim">
+          <p className="pointer-events-none absolute inset-x-6 top-1/2 -translate-y-1/2 text-center text-xs leading-snug text-ink-dim">
             {status}
           </p>
         )}
         {instanceDown && (
-          <p className="pointer-events-none absolute inset-x-0 top-0 bg-overlay/85 px-3 py-1 text-center text-[10px] text-ink-mid backdrop-glass">
+          <p className="pointer-events-none absolute inset-x-0 top-0 bg-overlay/85 px-3 py-1 text-center text-xs text-ink-mid backdrop-glass">
             {t("browser.state.instanceDown")}
           </p>
         )}
         {loopbackOnOwner && !instanceDown && !picking && pickNote !== "miss" && (
-          <p className="pointer-events-none absolute inset-x-0 top-0 bg-overlay/85 px-3 py-1 text-center text-[10px] text-ink-mid backdrop-glass">
+          <p className="pointer-events-none absolute inset-x-0 top-0 bg-overlay/85 px-3 py-1 text-center text-xs text-ink-mid backdrop-glass">
             {t("browser.state.loopback", { machine: ownerMachine })}
           </p>
         )}
         {(picking || pickNote === "miss") && !instanceDown && (
-          <p className="pointer-events-none absolute inset-x-0 top-0 bg-overlay/85 px-3 py-1 text-center text-[10px] text-ink-mid backdrop-glass">
+          <p className="pointer-events-none absolute inset-x-0 top-0 bg-overlay/85 px-3 py-1 text-center text-xs text-ink-mid backdrop-glass">
             {pickNote === "miss" ? t("browser.pick.miss") : t("browser.pick.hint")}
           </p>
         )}

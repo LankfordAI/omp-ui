@@ -473,7 +473,7 @@ export function SessionRow({
             data-session-tile-title
             className={cn(
               "min-w-0 flex-1 transition-colors duration-150",
-              slim ? "truncate text-xs" : "line-clamp-2 break-words text-[13.5px] leading-snug",
+              slim ? "truncate text-xs" : "line-clamp-2 break-words text-sm leading-snug",
               missing ? "text-ink-faint" : "text-ink-mid group-hover/row:text-ink",
               selected && !missing && "text-ink",
             )}
@@ -487,7 +487,7 @@ export function SessionRow({
                     {card.icon}
                   </span>
                 )}
-                <span className="mr-1.5 rounded bg-raised px-1 font-mono text-[10px] tracking-wide text-ink-mid">
+                <span className="mr-1.5 rounded bg-raised px-1 font-mono text-xs tracking-wide text-ink-mid">
                   {card.code}
                 </span>
                 <span>{card.title}</span>
@@ -502,7 +502,7 @@ export function SessionRow({
           {when && (
             <span
               title={absoluteTime(s.cachedModified)}
-              className="shrink-0 pt-0.5 font-mono text-[10px] tabular-nums text-ink-faint"
+              className="shrink-0 pt-0.5 font-mono text-xs tabular-nums text-ink-faint"
             >
               {when}
             </span>
@@ -510,7 +510,7 @@ export function SessionRow({
         </span>
 
         {meta.length > 0 && (
-          <span className="mt-0.5 block truncate font-mono text-[10px] text-ink-faint">
+          <span className="mt-0.5 block truncate font-mono text-xs text-ink-faint">
             {meta.map((node, i) => (
               <Fragment key={i}>
                 {i > 0 ? " · " : null}
@@ -521,7 +521,7 @@ export function SessionRow({
         )}
 
         {!slim && (
-          <span className="mt-1 flex min-w-0 items-center gap-1.5 text-[10px]">
+          <span className="mt-1 flex min-w-0 items-center gap-1.5 text-xs">
             <span className={cn("inline-flex shrink-0 items-center gap-1 font-mono", face.textClass)}>
               {t(face.labelKey)}
             </span>
@@ -562,9 +562,9 @@ export function SessionRow({
         {quote !== null && (
           <span
             title={quote.text}
-            className="mt-1.5 line-clamp-2 break-words border-l-2 border-iris-dim/60 pl-2 text-[11px] leading-snug text-ink-mid"
+            className="mt-1.5 line-clamp-2 break-words border-l-2 border-iris-dim/60 pl-2 text-xs leading-snug text-ink-mid"
           >
-            <span className="mr-1 font-mono text-[10px] uppercase text-iris">
+            <span className="mr-1 font-mono text-xs uppercase text-iris">
               {t(quote.kind === "plan" ? "sidebar.session.quotePlan" : "sidebar.session.quoteQuestion")}
             </span>
             {quote.text}

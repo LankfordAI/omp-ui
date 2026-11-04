@@ -24,7 +24,7 @@ export function VaultNotesSection({ tabId, onJump }: { tabId: string; onJump?: (
   return (
     <Section title={t("rail.vault.title")} action={notes.length > 0 ? <Chip mono>{notes.length}</Chip> : undefined}>
       {notes.length === 0 ? (
-        <p className="text-[11px] text-ink-faint">{t("rail.vault.empty")}</p>
+        <p className="text-xs text-ink-faint">{t("rail.vault.empty")}</p>
       ) : (
         <ul className="space-y-1">
           {notes.map((note) => (

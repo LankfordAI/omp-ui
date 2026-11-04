@@ -43,7 +43,7 @@ export function SettleToast() {
           <Button variant="outline" size="xs" onClick={() => void undoSettle()}>
             {t("settle.toast.undo")}
           </Button>
-          <span className="font-mono text-[10px] text-ink-faint">{undoLabel}</span>
+          <span className="font-mono text-xs text-ink-faint">{undoLabel}</span>
         </div>
       </div>
     </UpdateCard>

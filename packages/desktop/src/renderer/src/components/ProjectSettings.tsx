@@ -110,11 +110,11 @@ function PinField({
             </Button>
           </div>
           {draftError !== null ? (
-            <p className="text-[11px] leading-snug text-rose" role="alert">
+            <p className="text-xs leading-snug text-rose" role="alert">
               {draftError}
             </p>
           ) : (
-            <p className="text-[11px] text-ink-faint">{t("project.settings.emptyClears")}</p>
+            <p className="text-xs text-ink-faint">{t("project.settings.emptyClears")}</p>
           )}
         </div>
       ) : (
@@ -296,12 +296,12 @@ export function ProjectModelPins({
         {/* The pin is a model value only: while the on/off chain resolves
             off, the pin is dormant — say so, never hide it. */}
         {advisorPin !== null && advisorStartsOn === false && (
-          <p className="rounded-md border border-copper-dim/50 bg-copper-wash px-3 py-2 text-[11px] leading-snug text-copper">
+          <p className="rounded-md border border-copper-dim/50 bg-copper-wash px-3 py-2 text-xs leading-snug text-copper">
             {t("project.settings.advisorStartsOff")}
           </p>
         )}
 
-        <p className="text-[11px] leading-snug text-ink-faint">
+        <p className="text-xs leading-snug text-ink-faint">
           {t("project.settings.pinsHint")}
         </p>
       </div>
@@ -426,13 +426,13 @@ export function ProjectSettings({
     <Modal onClose={onClose} width="w-[44rem]" labelledBy="project-settings-title">
       <section>
         <header className="border-b border-line px-4 py-3.5">
-          <p className="mb-1 font-mono text-[10px] uppercase tracking-[0.16em] text-ink-faint">
+          <p className="mb-1 font-mono text-xs uppercase tracking-[0.16em] text-ink-faint">
             {t("project.settings.title")}
           </p>
           <h2 id="project-settings-title" className="font-display text-base font-semibold text-ink">
             {project.name}
           </h2>
-          <p title={project.path} className="mt-1 truncate font-mono text-[11px] text-ink-dim">
+          <p title={project.path} className="mt-1 truncate font-mono text-xs text-ink-dim">
             {project.path}
           </p>
         </header>
@@ -484,7 +484,7 @@ export function ProjectSettings({
               {/* A project dialog pins no session, so the project root is the
                   scope — no checkout to resolve through. */}
               <McpServersPanel scopeCwd={project.path} instanceId={instanceId} />
-              <p className="px-4 pt-2 text-[11px] text-ink-faint">
+              <p className="px-4 pt-2 text-xs text-ink-faint">
                 {t("project.settings.mcpHint")}
               </p>
             </section>
@@ -496,7 +496,7 @@ export function ProjectSettings({
                 {t("project.settings.skills")}
               </h3>
               <SkillsScopePanel scopeCwd={project.path} instanceId={instanceId} />
-              <p className="px-4 pt-2 text-[11px] text-ink-faint">
+              <p className="px-4 pt-2 text-xs text-ink-faint">
                 {t("project.settings.skillsHint")}
               </p>
             </section>
@@ -508,7 +508,7 @@ export function ProjectSettings({
                 {t("project.settings.tools")}
               </h3>
               <ToolsScopePanel scopeCwd={project.path} instanceId={instanceId} />
-              <p className="px-4 pt-2 text-[11px] text-ink-faint">
+              <p className="px-4 pt-2 text-xs text-ink-faint">
                 {t("project.settings.toolsHint")}
               </p>
             </section>
@@ -529,7 +529,7 @@ export function ProjectSettings({
                 {t("project.settings.advisors")}
               </h3>
               <AdvisorRosterEditor scopeCwd={project.path} instanceId={instanceId} />
-              <p className="px-4 pt-2 text-[11px] text-ink-faint">{t("project.settings.advisorsHint")}</p>
+              <p className="px-4 pt-2 text-xs text-ink-faint">{t("project.settings.advisorsHint")}</p>
             </section>
           )}
 
@@ -539,7 +539,7 @@ export function ProjectSettings({
                 {t("project.settings.reviewers")}
               </h3>
               <ReviewRosterEditor scopeCwd={project.path} instanceId={instanceId} />
-              <p className="px-4 pt-2 text-[11px] text-ink-faint">{t("project.settings.reviewersHint")}</p>
+              <p className="px-4 pt-2 text-xs text-ink-faint">{t("project.settings.reviewersHint")}</p>
             </section>
           )}
 
@@ -551,7 +551,7 @@ export function ProjectSettings({
               <div className="flex items-start justify-between gap-4">
                 <div className="min-w-0">
                   <p className="text-xs font-medium text-ink">{t("project.settings.browserClock")}</p>
-                  <p className="mt-0.5 text-[11px] leading-relaxed text-ink-faint">
+                  <p className="mt-0.5 text-xs leading-relaxed text-ink-faint">
                     {t("project.settings.browserClockHint")}
                   </p>
                 </div>

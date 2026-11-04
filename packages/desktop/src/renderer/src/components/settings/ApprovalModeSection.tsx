@@ -173,7 +173,7 @@ export function ApprovalModeSection({
               }
               onClick={() => setScope(choice)}
               className={cn(
-                "rounded-md px-2 py-0.5 text-[11px] transition-colors",
+                "rounded-md px-2 py-0.5 text-xs transition-colors",
                 scope === choice
                   ? "bg-raised text-ink"
                   : "text-ink-faint hover:text-ink-mid disabled:pointer-events-none disabled:opacity-35",
@@ -186,11 +186,11 @@ export function ApprovalModeSection({
           ))}
         </span>
       </div>
-      <p className="mt-0.5 text-[11px] leading-relaxed text-ink-faint">
+      <p className="mt-0.5 text-xs leading-relaxed text-ink-faint">
         {t("settings.omp.approvalHint")}
       </p>
       {unsupported !== null && (
-        <p className="mt-1 rounded-md border border-copper-dim/50 bg-copper-wash px-3 py-2 text-[11px] text-copper">
+        <p className="mt-1 rounded-md border border-copper-dim/50 bg-copper-wash px-3 py-2 text-xs text-copper">
           {t("settings.omp.approvalUnsupported", { reason: unsupported.reason })}
         </p>
       )}
@@ -230,7 +230,7 @@ export function ApprovalModeSection({
         </select>
       </div>
       {!askAndRemember && (
-        <p className="text-[11px] text-ink-faint">
+        <p className="text-xs text-ink-faint">
           {t("settings.omp.approvalCachedNeedsOmp", { version: ASK_AND_REMEMBER_MIN_OMP })}
         </p>
       )}
@@ -250,7 +250,7 @@ export function ApprovalModeSection({
         >
           {t("settings.omp.approvalForget")}
         </Button>
-        <span className="text-[11px] leading-snug text-ink-faint">
+        <span className="text-xs leading-snug text-ink-faint">
           {forgetTab === null
             ? t("settings.omp.approvalForgetUnavailable")
             : forgetSentFor === forgetTab

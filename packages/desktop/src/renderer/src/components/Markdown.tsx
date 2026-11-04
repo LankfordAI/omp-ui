@@ -29,15 +29,16 @@ export const ObsidianNoteLinkContext = createContext<
  */
 
 /**
- * A real scale (issue #28): h1/h2 rise clearly above the 15px body, h3 holds
- * the body size in semibold, h4+ recede. The extra top margin (roughly double
- * the block gap) is what makes sections chunk; `first:mt-0` keeps a heading
- * that opens the answer flush.
+ * A real scale (issue #28, retuned for the five-step app-wide scale of
+ * issue #1042): h1 rises one step above the 16px body; h2/h3 hold the body
+ * size and rise by weight alone; h4+ recede a step. The extra top margin
+ * (roughly double the block gap) is what makes sections chunk; `first:mt-0`
+ * keeps a heading that opens the answer flush.
  */
 const HEADING_CLASS: Record<number, string> = {
   1: "text-xl mt-5 first:mt-0",
-  2: "text-[17px] mt-4 first:mt-0",
-  3: "text-[15px] mt-3 first:mt-0",
+  2: "text-base mt-4 first:mt-0",
+  3: "text-base mt-3 first:mt-0",
   4: "text-sm mt-3 first:mt-0",
   5: "text-sm mt-3 first:mt-0",
   6: "text-sm mt-3 first:mt-0",
@@ -345,13 +346,13 @@ function CodeHeader({
   const t = useT();
   return (
     <div className="flex items-center justify-between border-b border-line-soft px-2 py-0.5">
-      <span className="font-mono text-[10px] lowercase text-ink-dim">{label}</span>
+      <span className="font-mono text-xs lowercase text-ink-dim">{label}</span>
       <span className="flex items-center gap-1">
         {toggle !== undefined && (
           <button
             type="button"
             onClick={toggle.onClick}
-            className="font-mono text-[10px] text-ink-dim transition-colors duration-150 hover:text-ink"
+            className="font-mono text-xs text-ink-dim transition-colors duration-150 hover:text-ink"
           >
             {toggle.label}
           </button>
@@ -379,7 +380,7 @@ function CodePre({
   return (
     <pre
       data-selectable
-      className="overflow-x-auto px-3 py-2 font-mono text-[12.5px] leading-[1.6] text-ink"
+      className="overflow-x-auto px-3 py-2 font-mono text-sm leading-[1.6] text-ink"
     >
       {tokens
         ? tokens.map((line, i) => (
@@ -481,7 +482,7 @@ function CodeBlock({
             // transcript parity with the plan surface's callout. `truncate`
             // keeps it one line; the title carries the full detail.
             <p
-              className="flex items-baseline gap-1.5 border-b border-line-soft px-2 py-0.5 text-[10px] leading-snug text-copper"
+              className="flex items-baseline gap-1.5 border-b border-line-soft px-2 py-0.5 text-xs leading-snug text-copper"
               title={t("markdown.diagram.failed.detail", { detail: diagramError })}
             >
               <strong className="shrink-0">{t("markdown.diagram.failed")}</strong>
@@ -679,14 +680,14 @@ export function Markdown({
   const blocks = useMemo(() => (planDocument ? [] : parseMarkdownCached(text)), [planDocument, text]);
   if (planDocument) {
     return (
-      <div className={cn("space-y-3 text-[15px]", className)} data-selectable>
+      <div className={cn("space-y-3 text-base", className)} data-selectable>
         <HtmlPlanBlock text={text} />
       </div>
     );
   }
   if (blocks.length === 0) return trailing ? <div className={className}>{trailing}</div> : null;
   return (
-    <div className={cn("space-y-3 text-[15px]", className)} data-selectable>
+    <div className={cn("space-y-3 text-base", className)} data-selectable>
       {blocks.map((block, i) => (
         <Block key={i} block={block} trailing={i === blocks.length - 1 ? trailing : undefined} />
       ))}

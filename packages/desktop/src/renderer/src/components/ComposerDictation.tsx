@@ -51,7 +51,7 @@ export function DictationStrip({ voice }: { voice: Dictation }) {
   const t = useT();
   if (voice.phase !== "error" || voice.error === null) return null;
   return (
-    <div className="animate-rise mt-2 flex items-start gap-2 text-[11px] text-copper">
+    <div className="animate-rise mt-2 flex items-start gap-2 text-xs text-copper">
       <svg viewBox="0 0 16 16" fill="none" strokeWidth={1.4} className="mt-px size-3.5 shrink-0">
         <path d="M8 2.5 14.5 13.5h-13z" stroke="currentColor" strokeLinejoin="round" />
         <path d="M8 7v3" stroke="currentColor" strokeLinecap="round" />

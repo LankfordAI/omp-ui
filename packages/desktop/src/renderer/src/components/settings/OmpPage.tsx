@@ -122,7 +122,7 @@ export function OmpPage({
   return (
     <div className="pb-1.5">
       {projectCwd === null && (
-        <p className="px-4 pt-3 text-[11px] text-ink-faint">
+        <p className="px-4 pt-3 text-xs text-ink-faint">
           {t("settings.omp.noSessionFocused")}
         </p>
       )}
@@ -219,7 +219,7 @@ export function OmpPage({
           <section key={group.title} className="px-4 pt-3">
             <Label>{group.title}</Label>
             {group.description !== undefined && (
-              <p className="mt-0.5 text-[11px] leading-relaxed text-ink-faint">
+              <p className="mt-0.5 text-xs leading-relaxed text-ink-faint">
                 {group.description}
               </p>
             )}
@@ -244,7 +244,7 @@ export function OmpPage({
       })}
 
       <div className="mt-1 flex flex-wrap items-center justify-between gap-3 px-4 py-3">
-        <p className="text-[11px] text-ink-faint">
+        <p className="text-xs text-ink-faint">
           {t("settings.omp.mcpNote")}
         </p>
         <div className="flex items-center gap-2">

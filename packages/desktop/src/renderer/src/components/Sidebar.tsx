@@ -137,7 +137,7 @@ function SnoozeUntilDialog({
           className={FIELD}
         />
       </label>
-      {untilMs === null && <p className="mt-2 text-[11px] text-rose">{t("dialog.snoozeUntil.past")}</p>}
+      {untilMs === null && <p className="mt-2 text-xs text-rose">{t("dialog.snoozeUntil.past")}</p>}
     </ConfirmDialog>
   );
 }
@@ -268,7 +268,7 @@ function SidebarSection({
         aria-expanded={shown}
         disabled={disabled}
         onClick={onToggle}
-        className="flex w-full shrink-0 items-center gap-1.5 px-3 pt-2 pb-1 text-left font-mono text-[10px] uppercase text-ink-faint transition-colors duration-150 hover:text-ink-mid focus-visible:text-ink focus-visible:outline-none disabled:hover:text-ink-faint"
+        className="flex w-full shrink-0 items-center gap-1.5 px-3 pt-2 pb-1 text-left font-mono text-xs uppercase text-ink-faint transition-colors duration-150 hover:text-ink-mid focus-visible:text-ink focus-visible:outline-none disabled:hover:text-ink-faint"
       >
         <Chevron open={shown} />
         {heading}
@@ -353,7 +353,7 @@ function SelectionBar({
     <footer
       role="toolbar"
       aria-label={t("sidebar.selection.label", { n: tabIds.length })}
-      className="relative shrink-0 space-y-1.5 border-t border-line bg-raised/60 px-3 py-2 text-[10px] text-ink-faint"
+      className="relative shrink-0 space-y-1.5 border-t border-line bg-raised/60 px-3 py-2 text-xs text-ink-faint"
     >
       <div className="flex items-center gap-2">
         <span className="font-mono tabular-nums text-ink-mid">{t("sidebar.selection.count", { n: tabIds.length })}</span>
@@ -735,7 +735,7 @@ export function Sidebar() {
             />
             {filtering && (
               <>
-                <span className="shrink-0 font-mono text-[10px] text-ink-dim tabular-nums">
+                <span className="shrink-0 font-mono text-xs text-ink-dim tabular-nums">
                   {lists === null
                     ? 0
                     : lists.pinned.length + lists.active.length + lists.working.length + lists.snoozed.length + lists.settled.length}
@@ -772,7 +772,7 @@ export function Sidebar() {
                     collapses, since a pin means "keep this in view". */}
                 {lists.pinned.length > 0 && (
                   <div role="group" aria-label={t("sidebar.pinned.heading", { n: lists.pinned.length })} className="space-y-1">
-                    <div className="px-1.5 pt-1 pb-0.5 font-mono text-[10px] uppercase text-ink-faint">
+                    <div className="px-1.5 pt-1 pb-0.5 font-mono text-xs uppercase text-ink-faint">
                       {t("sidebar.pinned.heading", { n: lists.pinned.length })}
                     </div>
                     {lists.pinned.map((entry) => (
@@ -1013,7 +1013,7 @@ export function Sidebar() {
           onClear={clearSelection}
         />
       ) : (
-      <footer className="flex shrink-0 items-center gap-2 border-t border-line px-3 py-2 text-[10px] text-ink-faint">
+      <footer className="flex shrink-0 items-center gap-2 border-t border-line px-3 py-2 text-xs text-ink-faint">
         <IconButton label={t("sidebar.footer.settings")} onClick={() => { openSettings(); closeCompactSurface(); }}>
           <IconGear />
         </IconButton>

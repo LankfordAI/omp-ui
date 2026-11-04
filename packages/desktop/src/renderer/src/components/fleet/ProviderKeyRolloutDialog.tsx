@@ -122,7 +122,7 @@ export function ProviderKeyRolloutDialog({ machine, onClose }: { machine: FleetM
               />
               <span className="min-w-0 flex-1">
                 <span className="block truncate text-ink">{row.label}</span>
-                <span className="block truncate font-mono text-[10px] text-ink-faint">
+                <span className="block truncate font-mono text-xs text-ink-faint">
                   {row.activeEnv}
                   {row.masked !== null && <span className="ml-2 text-ink-dim">{row.masked}</span>}
                 </span>

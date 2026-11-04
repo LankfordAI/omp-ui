@@ -81,19 +81,19 @@ export function ApprovalCard({ tabId }: { tabId: string }) {
       <div className="px-4 pt-2">
         {restrictedFolder !== null ? (
           <div data-approval-restricted>
-            <p className="text-[11px] leading-snug text-ink-mid">
+            <p className="text-xs leading-snug text-ink-mid">
               <span className="text-ink-faint">{t("dialog.approval.restricted")}: </span>
               <span data-selectable className="break-all font-mono">
                 {restrictedFolder}
               </span>
             </p>
-            <p className="mt-0.5 text-[10px] leading-snug text-ink-faint">
+            <p className="mt-0.5 text-xs leading-snug text-ink-faint">
               {t("dialog.approval.restrictedHint")}
             </p>
           </div>
         ) : (
           prompt.reason !== null && (
-            <p className="text-[11px] leading-snug text-ink-mid">
+            <p className="text-xs leading-snug text-ink-mid">
               <span className="text-ink-faint">{t("dialog.approval.reason")}: </span>
               <span data-selectable>{prompt.reason}</span>
             </p>
@@ -102,7 +102,7 @@ export function ApprovalCard({ tabId }: { tabId: string }) {
         {prompt.details.length > 0 && (
           <pre
             data-selectable
-            className="mt-2 max-h-64 overflow-auto whitespace-pre-wrap break-all rounded-md border border-line-soft bg-sunken px-2.5 py-2 font-mono text-[12px] leading-[1.55] text-ink"
+            className="mt-2 max-h-64 overflow-auto whitespace-pre-wrap break-all rounded-md border border-line-soft bg-sunken px-2.5 py-2 font-mono text-xs leading-[1.55] text-ink"
           >
             {prompt.details.join("\n")}
           </pre>
@@ -110,7 +110,7 @@ export function ApprovalCard({ tabId }: { tabId: string }) {
         {prompt.providerSafety.length > 0 && (
           <div className="mt-2">
             <Label>{t("dialog.approval.safety")}</Label>
-            <ul className="mt-1 space-y-0.5 text-[11px] leading-snug text-ink-mid">
+            <ul className="mt-1 space-y-0.5 text-xs leading-snug text-ink-mid">
               {prompt.providerSafety.map((line, i) => (
                 <li key={i} data-selectable>
                   {line}
@@ -137,7 +137,7 @@ export function ApprovalCard({ tabId }: { tabId: string }) {
               </Button>
             );
           })}
-          <span className="ml-auto flex items-center gap-1.5 text-[11px] text-ink-mid">
+          <span className="ml-auto flex items-center gap-1.5 text-xs text-ink-mid">
             <Switch
               on={always}
               onChange={(next) => setAlwaysFrame(next ? held!.frame : null)}

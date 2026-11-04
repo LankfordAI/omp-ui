@@ -1520,7 +1520,7 @@ export function Composer({
           </div>
 
           {!compact && (
-          <div className="flex items-center gap-1.5 px-2 pb-1.5 text-[11px]">
+          <div className="flex items-center gap-1.5 px-2 pb-1.5 text-xs">
             <ComposerPlusMenu
               tabId={tabId}
               disabled={unavailable}
@@ -1662,7 +1662,7 @@ export function Composer({
                 onClick={() => showCompactSurface("composer-options")}
               >
                 <IconTune className="size-4 shrink-0" />
-                <span className="truncate font-mono text-[11px]">{currentModel?.name || currentModel?.id || t("composer.model.fallback")}</span>
+                <span className="truncate font-mono text-xs">{currentModel?.name || currentModel?.id || t("composer.model.fallback")}</span>
                 <span className="sr-only">{t("composer.options.title")}</span>
               </Button>
               {queueChip && <Chip mono tone="copper" title={running ? t("composer.queue.queuedTitle") : t("composer.queue.parkedTitle")}>{queued}</Chip>}
@@ -1691,7 +1691,7 @@ export function Composer({
         </div>
 
         {pasteError !== null && (
-          <div className="animate-rise mt-2 flex items-start gap-2 text-[11px] text-copper">
+          <div className="animate-rise mt-2 flex items-start gap-2 text-xs text-copper">
             <svg viewBox="0 0 16 16" fill="none" strokeWidth={1.4} className="mt-px size-3.5 shrink-0">
               <path d="M8 2.5 14.5 13.5h-13z" stroke="currentColor" strokeLinejoin="round" />
               <path d="M8 7v3" stroke="currentColor" strokeLinecap="round" />
@@ -1706,7 +1706,7 @@ export function Composer({
         )}
 
         {modelHold !== null && (
-          <div className="animate-rise mt-2 flex items-start gap-2 text-[11px] text-copper">
+          <div className="animate-rise mt-2 flex items-start gap-2 text-xs text-copper">
             <svg viewBox="0 0 16 16" fill="none" strokeWidth={1.4} className="mt-px size-3.5 shrink-0">
               <path d="M8 2.5 14.5 13.5h-13z" stroke="currentColor" strokeLinejoin="round" />
               <path d="M8 7v3" stroke="currentColor" strokeLinecap="round" />
@@ -1731,7 +1731,7 @@ export function Composer({
             popover (issue #227): the conversion runs on send, when the popover
             is closed, and its failure must stay visible with the draft intact. */}
         {(converting || moving !== null || workspaceError !== null) && (
-          <div className="animate-rise mt-2 flex items-start gap-2 text-[11px]">
+          <div className="animate-rise mt-2 flex items-start gap-2 text-xs">
             {workspaceError !== null ? (
               <>
                 <svg viewBox="0 0 16 16" fill="none" strokeWidth={1.4} className="mt-px size-3.5 shrink-0 text-copper">

@@ -306,7 +306,7 @@ export function ConfirmDialog({
       className="flex flex-col"
     >
       <header className="shrink-0 border-b border-line px-4 py-3.5">
-        <p className={cn("mb-1 font-mono text-[10px] uppercase tracking-[0.16em]", TONE_TEXT[tone])}>
+        <p className={cn("mb-1 font-mono text-xs uppercase tracking-[0.16em]", TONE_TEXT[tone])}>
           {kicker}
         </p>
         <h2 id={titleId} className="font-display text-base font-semibold text-ink">

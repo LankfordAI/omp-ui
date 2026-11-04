@@ -25,7 +25,7 @@ export function ProjectMonogram({
   const box = "grid size-6 shrink-0 place-items-center rounded-md";
   if (icon === null) {
     return (
-      <span style={monogramColors(seed)} className={cn(box, "font-display text-[10px] font-semibold", className)}>
+      <span style={monogramColors(seed)} className={cn(box, "font-display text-xs font-semibold", className)}>
         {initials(name)}
       </span>
     );

@@ -91,7 +91,7 @@ export function QueuedMessageList({ tabId, disabled }: { tabId: string; disabled
         </section>
       )}
       {unlisted > 0 && (
-        <p className="font-mono text-[11px] text-ink-faint">{t("composer.queue.unlisted", { n: unlisted })}</p>
+        <p className="font-mono text-xs text-ink-faint">{t("composer.queue.unlisted", { n: unlisted })}</p>
       )}
     </div>
   );
@@ -102,7 +102,7 @@ function QueueRow({ raw, children }: { raw: string; children?: ReactNode }) {
   const display = queueEntryDisplayText(raw) || raw;
   return (
     <div className="flex items-start gap-2">
-      <span title={display} className="min-w-0 flex-1 line-clamp-3 whitespace-pre-wrap break-words font-mono text-[11px]">
+      <span title={display} className="min-w-0 flex-1 line-clamp-3 whitespace-pre-wrap break-words font-mono text-xs">
         {display}
       </span>
       {children}

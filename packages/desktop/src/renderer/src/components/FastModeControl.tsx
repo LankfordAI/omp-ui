@@ -110,7 +110,7 @@ export function FastModeControl({
         <div className={cn("flex min-h-11 items-center justify-between gap-2", className)}>
           <span className="flex min-w-0 flex-col">
             <span className="text-xs">{t("hud.fast.labelLong")}</span>
-            <span className="font-mono text-[10px]">{t(`hud.fast.${state}`)}</span>
+            <span className="font-mono text-xs">{t(`hud.fast.${state}`)}</span>
           </span>
           <ChoiceCapsule
             label={t("hud.fast.labelLong")}
@@ -135,7 +135,7 @@ export function FastModeControl({
       <div className={cn("flex min-h-11 items-center justify-between gap-2", className)}>
         <span className="flex min-w-0 flex-col">
           <span className="text-xs">{t("hud.fast.labelLong")}</span>
-          <span className="font-mono text-[10px]">{t(`hud.fast.${state}`)}</span>
+          <span className="font-mono text-xs">{t(`hud.fast.${state}`)}</span>
         </span>
         <Switch
           on={enabled}
@@ -159,7 +159,7 @@ export function FastModeControl({
         disabled={disabled}
         onClick={click}
         aria-label={inlineTitle}
-        className={cn(CAPSULE_SEGMENT, "text-[10px] font-mono")}
+        className={cn(CAPSULE_SEGMENT, "text-xs font-mono")}
       >
         <Dot tone={DOT_TONE[state]} />
         {t("hud.fast.label")}

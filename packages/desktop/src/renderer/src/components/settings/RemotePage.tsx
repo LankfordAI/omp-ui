@@ -74,7 +74,7 @@ function PasswordRow() {
       <div className="flex items-center gap-3">
         <div className="min-w-0 flex-1">
           <p className="text-xs font-medium text-ink">{t("settings.remote.password")}</p>
-          <p className="mt-0.5 text-[11px] leading-relaxed text-ink-faint">
+          <p className="mt-0.5 text-xs leading-relaxed text-ink-faint">
             {t("settings.remote.passwordHint")}
           </p>
         </div>
@@ -86,7 +86,7 @@ function PasswordRow() {
           )}
           {!editing && hasPassword && (
             <>
-              <span className="text-[11px] text-ink-mid">{t("settings.remote.passwordSet")}</span>
+              <span className="text-xs text-ink-mid">{t("settings.remote.passwordSet")}</span>
               <Button size="xs" variant="ghost" onClick={() => setEditing(true)}>
                 {t("settings.remote.change")}
               </Button>
@@ -157,7 +157,7 @@ export function RemotePage() {
           </p>
         </div>
         {remote.webBundleMissing && (
-          <p className="mt-1.5 text-[11px] leading-relaxed text-copper">
+          <p className="mt-1.5 text-xs leading-relaxed text-copper">
             {t("settings.remote.webBundleMissing")}
             <span className="font-mono">npm run build:web</span>
           </p>
@@ -188,11 +188,11 @@ export function RemotePage() {
                 { value: "lan", label: t("settings.remote.bindLocalNetwork") },
               ] as const}
               onChange={(value) => void setRemoteBind(value)}
-              optionClassName="px-2 text-[11px]"
+              optionClassName="px-2 text-xs"
             />
           </Row>
           {remote.bind === "lan" && (
-            <p className="pb-2.5 text-[11px] leading-relaxed text-rose">
+            <p className="pb-2.5 text-xs leading-relaxed text-rose">
               {t("settings.remote.lanWarning")}
             </p>
           )}
@@ -215,7 +215,7 @@ export function RemotePage() {
           <div className="flex items-center gap-1.5">
             <span
               data-selectable
-              className="max-w-48 truncate font-mono text-[11px] text-ink-mid"
+              className="max-w-48 truncate font-mono text-xs text-ink-mid"
               title={revealed ? remote.token : undefined}
             >
               {revealed ? remote.token : "••••••••••••"}
@@ -244,7 +244,7 @@ export function RemotePage() {
           <div className="flex items-center gap-1.5">
             <span
               data-selectable
-              className="max-w-64 truncate font-mono text-[11px] text-ink-mid"
+              className="max-w-64 truncate font-mono text-xs text-ink-mid"
               title={primaryUrl ?? undefined}
             >
               {primaryUrl ?? "—"}
@@ -260,7 +260,7 @@ export function RemotePage() {
             <div className="flex items-center gap-1.5">
               <span
                 data-selectable
-                className="max-w-64 truncate font-mono text-[11px] text-ink-mid"
+                className="max-w-64 truncate font-mono text-xs text-ink-mid"
                 title={remote.tokenUrls[0] ?? undefined}
               >
                 {remote.tokenUrls[0] ?? "—"}
@@ -280,7 +280,7 @@ export function RemotePage() {
             <p
               key={url}
               data-selectable
-              className="truncate font-mono text-[11px] text-ink-faint"
+              className="truncate font-mono text-xs text-ink-faint"
             >
               {url}
             </p>

@@ -33,10 +33,10 @@ const stepLabel: Record<FinishStep, MessageKey> = {
 };
 
 const fieldClass =
-  "mt-1.5 w-full rounded-md border border-line bg-void px-2 py-1.5 font-mono text-[11px] text-ink outline-none placeholder:text-ink-faint focus:border-line-strong";
-const labelClass = "block text-[10px] text-ink-faint";
-const quietClass = "text-[10px] leading-snug text-ink-faint";
-const copperClass = "text-[10px] leading-snug text-copper";
+  "mt-1.5 w-full rounded-md border border-line bg-void px-2 py-1.5 font-mono text-xs text-ink outline-none placeholder:text-ink-faint focus:border-line-strong";
+const labelClass = "block text-xs text-ink-faint";
+const quietClass = "text-xs leading-snug text-ink-faint";
+const copperClass = "text-xs leading-snug text-copper";
 const radioRowClass =
   "flex cursor-pointer items-start gap-2.5 rounded-md border border-line bg-raised px-3 py-2.5 text-xs text-ink-mid transition-colors hover:border-line-strong hover:text-ink has-[:checked]:border-line-strong has-[:checked]:text-ink";
 
@@ -116,7 +116,7 @@ export function FinishWorktreeDialog({ tabId }: { tabId: string }) {
             </p>
             <ul className="mt-1 space-y-0.5">
               {preview.files.slice(0, 5).map((file) => (
-                <li key={file} className="truncate font-mono text-[10px] text-copper" title={file}>
+                <li key={file} className="truncate font-mono text-xs text-copper" title={file}>
                   {file}
                 </li>
               ))}
@@ -294,7 +294,7 @@ export function FinishWorktreeDialog({ tabId }: { tabId: string }) {
               {c.discarded.slice(0, 5).map((save) => (
                 <li key={save.commit} className="flex items-center justify-between gap-2">
                   <span className="min-w-0" title={save.files.join("\n")}>
-                    <span className="block truncate font-mono text-[11px] text-ink-mid">
+                    <span className="block truncate font-mono text-xs text-ink-mid">
                       {t("finish.discarded.entry", {
                         command: save.command === "" ? save.commit.slice(0, 7) : save.command,
                         branch: save.branch,

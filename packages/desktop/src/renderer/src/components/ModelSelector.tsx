@@ -98,7 +98,7 @@ export function ModelSelector({ tabId, disabled }: { tabId: string; disabled?: b
           type="button"
           disabled
           title={copy}
-          className="flex min-w-0 max-w-72 items-center truncate px-1.5 font-mono text-[11px] text-ink-faint"
+          className="flex min-w-0 max-w-72 items-center truncate px-1.5 font-mono text-xs text-ink-faint"
         >
           {copy}
         </button>
@@ -110,7 +110,7 @@ export function ModelSelector({ tabId, disabled }: { tabId: string; disabled?: b
         disabled={locked}
         title={running ? t("composer.model.afterTurn") : (model?.id ?? t("composer.model.noModelsTitle"))}
         onClick={() => openSettings("providers")}
-        className="flex items-center px-1.5 font-mono text-[11px] text-ink-mid hover:text-ink"
+        className="flex items-center px-1.5 font-mono text-xs text-ink-mid hover:text-ink"
       >
         {model === null ? t("composer.model.none") : model.id}
       </button>
@@ -387,7 +387,7 @@ export function ModelPalette(props: ModelPaletteProps) {
           </div>
 
           {props.variant === "advisor" && (
-            <p className="border-b border-line px-3 py-1.5 text-[11px] text-ink-dim">
+            <p className="border-b border-line px-3 py-1.5 text-xs text-ink-dim">
               {t("composer.model.advisorRestart")}
             </p>
           )}
@@ -427,7 +427,7 @@ export function ModelPalette(props: ModelPaletteProps) {
                       <span className="block truncate font-display text-sm text-ink">
                         {t("composer.model.useConfigured")}
                       </span>
-                      <span className="block truncate font-mono text-[10px] text-ink-faint">
+                      <span className="block truncate font-mono text-xs text-ink-faint">
                         {props.variant === "advisor" && (props.defaultModel ?? t("composer.model.advisorUnset"))}
                       </span>
                     </span>
@@ -465,7 +465,7 @@ export function ModelPalette(props: ModelPaletteProps) {
                           ? t("composer.model.subagentSessionModel")
                           : t("composer.model.subagentOmpDefault")}
                       </span>
-                      <span className="block truncate font-mono text-[10px] text-ink-faint">
+                      <span className="block truncate font-mono text-xs text-ink-faint">
                         {isSessionRow
                           ? t("composer.model.subagentSessionModelHint")
                           : t("composer.model.subagentOmpDefaultHint")}
@@ -507,7 +507,7 @@ export function ModelPalette(props: ModelPaletteProps) {
                     </span>
                     <span className="model-palette-name min-w-0 flex-1">
                       <span className="block truncate font-display text-sm text-ink">{model.name}</span>
-                      <span className="block truncate font-mono text-[10px] text-ink-faint">{modelKey}</span>
+                      <span className="block truncate font-mono text-xs text-ink-faint">{modelKey}</span>
                     </span>
                     <span className="model-palette-chips flex shrink-0 items-center gap-1">
                       {model.reasoning === true && <Chip tone="iris">{t("composer.model.reasoning")}</Chip>}
@@ -537,7 +537,7 @@ export function ModelPalette(props: ModelPaletteProps) {
 
           <div
             className={cn(
-              "flex flex-wrap items-center gap-x-3 gap-y-0.5 border-t border-line px-3 py-1.5 text-[10px] text-ink-faint",
+              "flex flex-wrap items-center gap-x-3 gap-y-0.5 border-t border-line px-3 py-1.5 text-xs text-ink-faint",
               props.variant !== "main" && "model-palette-kbd",
             )}
           >
@@ -574,7 +574,7 @@ export function ModelPalette(props: ModelPaletteProps) {
 
           {props.projectPin !== undefined && (
             <div className="flex items-center gap-2 border-t border-line px-3 py-1.5">
-              <span className="min-w-0 flex-1 truncate text-[11px]">
+              <span className="min-w-0 flex-1 truncate text-xs">
                 <span className="text-ink-faint">{t("composer.model.projectDefault")}</span>{" "}
                 <span className={cn("font-mono", props.projectPin === null ? "text-ink-faint" : "text-ink")}>
                   {props.projectPin ?? t("composer.model.notSet")}
@@ -585,7 +585,7 @@ export function ModelPalette(props: ModelPaletteProps) {
                 type="button"
                 disabled={pinTarget === null}
                 onClick={() => props.onPinChange?.(pinTarget)}
-                className="rounded px-1.5 py-0.5 text-[10px] text-ink-mid hover:bg-hover hover:text-ink disabled:opacity-40"
+                className="rounded px-1.5 py-0.5 text-xs text-ink-mid hover:bg-hover hover:text-ink disabled:opacity-40"
               >
                 {t("composer.model.setDefault")}
               </button>
@@ -593,7 +593,7 @@ export function ModelPalette(props: ModelPaletteProps) {
                 <button
                   type="button"
                   onClick={() => props.onPinChange?.(null)}
-                  className="rounded px-1.5 py-0.5 text-[10px] text-ink-mid hover:bg-hover hover:text-ink"
+                  className="rounded px-1.5 py-0.5 text-xs text-ink-mid hover:bg-hover hover:text-ink"
                 >
                   {t("composer.model.clear")}
                 </button>

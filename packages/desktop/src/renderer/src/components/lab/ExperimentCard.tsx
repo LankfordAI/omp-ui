@@ -84,14 +84,14 @@ export function ExperimentCard({
           <Chip mono truncate title={`${record.primaryMetric} · ${record.direction}`}>
             {record.primaryMetric} · {record.direction}
           </Chip>
-          <span className="flex items-center gap-2 font-mono text-[11px] tabular-nums text-ink-mid">
+          <span className="flex items-center gap-2 font-mono text-xs tabular-nums text-ink-mid">
             {delta !== null && <span>{t("lab.card.best", { delta })}</span>}
             <span>{runs}</span>
           </span>
         </span>
       </div>
       <span
-        className="flex items-center gap-2 font-mono text-[10px] text-ink-faint"
+        className="flex items-center gap-2 font-mono text-xs text-ink-faint"
         title={dbPath}
       >
         {record.branch !== null && <span className="min-w-0 flex-1 truncate">{record.branch}</span>}
@@ -130,7 +130,7 @@ export function PendingExperimentCard({
           {experiment.metric} · {experiment.direction}
         </Chip>
         {experiment.launchedBranch !== null && (
-          <span className="min-w-0 flex-1 truncate font-mono text-[10px] text-ink-faint">{experiment.launchedBranch}</span>
+          <span className="min-w-0 flex-1 truncate font-mono text-xs text-ink-faint">{experiment.launchedBranch}</span>
         )}
       </div>
     </div>

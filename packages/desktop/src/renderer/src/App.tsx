@@ -229,10 +229,10 @@ function Welcome() {
         <dl className="compact-welcome-hints mt-2 grid grid-cols-[auto_1fr] items-center gap-x-3 gap-y-1.5 text-left">
           {HINTS.map(([action, what]) => (
             <div key={action} className="col-span-2 grid grid-cols-subgrid items-center">
-              <dt className="justify-self-end rounded border border-line bg-raised px-1.5 py-px font-mono text-[10px] leading-4 text-ink-mid">
+              <dt className="justify-self-end rounded border border-line bg-raised px-1.5 py-px font-mono text-xs leading-4 text-ink-mid">
                 {formatHotkey(effectiveChord(keybindings, action))}
               </dt>
-              <dd className="text-[11px] text-ink-faint">{t(what)}</dd>
+              <dd className="text-xs text-ink-faint">{t(what)}</dd>
             </div>
           ))}
         </dl>
@@ -518,7 +518,7 @@ export default function App() {
               <IconInspect className="size-4" />
               <span className="sr-only">{t("app.compact.inspector")}</span>
               {inspectorCount > 0 && (
-                <span aria-hidden className="absolute right-1 top-1.5 min-w-3.5 rounded-full bg-copper-wash px-1 text-center font-mono text-[9px] leading-3.5 text-copper">
+                <span aria-hidden className="absolute right-1 top-1.5 min-w-3.5 rounded-full bg-copper-wash px-1 text-center font-mono text-xs leading-3.5 text-copper">
                   {inspectorCount > 99 ? "99+" : inspectorCount}
                 </span>
               )}

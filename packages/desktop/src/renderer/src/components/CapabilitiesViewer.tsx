@@ -182,13 +182,13 @@ function Row({
         </div>
         <span
           title={entry.endpoint}
-          className="mt-0.5 block truncate font-mono text-[11px] tabular-nums text-ink-mid"
+          className="mt-0.5 block truncate font-mono text-xs tabular-nums text-ink-mid"
         >
           {entry.endpoint || "—"}
         </span>
         <span
           title={entry.sourcePath}
-          className="block truncate text-[10px] text-ink-faint"
+          className="block truncate text-xs text-ink-faint"
         >
           {entry.source} · {entry.scope}
         </span>
@@ -478,13 +478,13 @@ export function McpServersPanel({
         <div className="py-1.5">
           {result.errors.length > 0 && (
             <Panel tone="rose" className="mx-4 my-2 px-3 py-2">
-              <p className="mb-1 text-[11px] font-medium">
+              <p className="mb-1 text-xs font-medium">
                 {result.errors.length === 1
                   ? t("mcp.panel.configErrorOne")
                   : t("mcp.panel.configErrorMany", { count: result.errors.length })}
               </p>
               {result.errors.map((e) => (
-                <p key={e.path} className="truncate font-mono text-[10px]" title={e.path}>
+                <p key={e.path} className="truncate font-mono text-xs" title={e.path}>
                   {e.path}: {e.message}
                 </p>
               ))}
@@ -540,7 +540,7 @@ export function McpServersPanel({
               </ul>
               {visibleRuntimeOnly.length > 0 && (
                 <div className="mt-1.5">
-                  <p className="px-4 pt-2 pb-1 text-[10px] font-semibold uppercase tracking-[0.14em] text-ink-faint">
+                  <p className="px-4 pt-2 pb-1 text-xs font-semibold uppercase tracking-[0.14em] text-ink-faint">
                     {t("viewer.mcp.runtimeOnly")}
                   </p>
                   <ul className="divide-y divide-line-soft border-t border-line-soft">
@@ -717,7 +717,7 @@ export function SkillsScopePanel({
           )}
           {lockedBy !== null && (
             <Panel tone="copper" className="mx-4 my-2 px-3 py-2">
-              <p className="text-[11px] leading-relaxed text-ink-mid">{lockedBy}</p>
+              <p className="text-xs leading-relaxed text-ink-mid">{lockedBy}</p>
             </Panel>
           )}
           {filterable && (
@@ -735,27 +735,27 @@ export function SkillsScopePanel({
               />
             </div>
           )}
-          <p className="px-4 py-1 text-[11px] leading-relaxed text-ink-faint">
+          <p className="px-4 py-1 text-xs leading-relaxed text-ink-faint">
             {t("viewer.catalog.coverageSkills")}
           </p>
           {skills.note === "bundles-not-listed" && (
-            <p className="px-4 py-1 text-[11px] leading-relaxed text-ink-faint">
+            <p className="px-4 py-1 text-xs leading-relaxed text-ink-faint">
               {t("viewer.catalog.bundles")}
             </p>
           )}
           {skills.truncated && (
-            <p className="px-4 py-1 text-[11px] leading-relaxed text-ink-faint">
+            <p className="px-4 py-1 text-xs leading-relaxed text-ink-faint">
               {t("viewer.catalog.truncated")}
             </p>
           )}
           <details className="px-4 py-1">
-            <summary className="cursor-pointer text-[10px] text-ink-faint">
+            <summary className="cursor-pointer text-xs text-ink-faint">
               {t("viewer.catalog.roots")}
             </summary>
             <ul className="mt-1 space-y-0.5">
               {skills.roots.map((root) => (
                 <li key={root.path} className="flex items-center gap-2">
-                  <span className="truncate font-mono text-[10px] text-ink-dim" title={root.path}>
+                  <span className="truncate font-mono text-xs text-ink-dim" title={root.path}>
                     {root.path}
                   </span>
                   {!root.exists && <Chip>{t("viewer.catalog.rootMissing")}</Chip>}
@@ -783,7 +783,7 @@ export function SkillsScopePanel({
               ))}
             </ul>
           )}
-          <p className="px-4 pt-2 text-[11px] text-ink-faint">
+          <p className="px-4 pt-2 text-xs text-ink-faint">
             {scopeCwd === null ? t("mcp.footer.global") : t("mcp.footer.project")}
           </p>
         </div>
@@ -831,11 +831,11 @@ function SkillCatalogRow({
         )}
       </div>
       {skill.description.length > 0 && (
-        <p className="mt-0.5 text-[11px] leading-relaxed text-ink-mid">{skill.description}</p>
+        <p className="mt-0.5 text-xs leading-relaxed text-ink-mid">{skill.description}</p>
       )}
       <details className="mt-1">
-        <summary className="cursor-pointer text-[10px] text-ink-faint">{t("viewer.row.details")}</summary>
-        <p className="mt-0.5 truncate font-mono text-[10px] text-ink-dim" title={skill.filePath}>
+        <summary className="cursor-pointer text-xs text-ink-faint">{t("viewer.row.details")}</summary>
+        <p className="mt-0.5 truncate font-mono text-xs text-ink-dim" title={skill.filePath}>
           {skill.filePath}
         </p>
       </details>
@@ -945,7 +945,7 @@ export function ToolsScopePanel({
               {toggleError}
             </p>
           )}
-          <p className="px-4 py-1 text-[11px] leading-relaxed text-ink-faint">
+          <p className="px-4 py-1 text-xs leading-relaxed text-ink-faint">
             {t("viewer.catalog.coverageTools")}
           </p>
           {rows !== null && rows.length === 0 && (
@@ -986,7 +986,7 @@ export function ToolsScopePanel({
               ))}
             </ul>
           )}
-          <p className="px-4 pt-2 text-[11px] text-ink-faint">
+          <p className="px-4 pt-2 text-xs text-ink-faint">
             {scopeCwd === null ? t("mcp.footer.global") : t("mcp.footer.project")}
           </p>
         </div>
@@ -1006,7 +1006,7 @@ function SkillRow({ skill }: { skill: CapabilitySkill }) {
         {skill.source !== null && <Chip mono>{skill.source}</Chip>}
       </div>
       {skill.description.length > 0 && (
-        <p className="mt-0.5 text-[11px] leading-relaxed text-ink-mid">
+        <p className="mt-0.5 text-xs leading-relaxed text-ink-mid">
           {skill.description}
           {skill.descriptionTruncated && (
             <span className="text-ink-faint"> {t("viewer.row.truncated")}</span>
@@ -1014,12 +1014,12 @@ function SkillRow({ skill }: { skill: CapabilitySkill }) {
         </p>
       )}
       <details className="mt-1">
-        <summary className="cursor-pointer text-[10px] text-ink-faint">{t("viewer.row.details")}</summary>
-        <p className="mt-0.5 truncate font-mono text-[10px] text-ink-dim" title={skill.filePath}>
+        <summary className="cursor-pointer text-xs text-ink-faint">{t("viewer.row.details")}</summary>
+        <p className="mt-0.5 truncate font-mono text-xs text-ink-dim" title={skill.filePath}>
           {skill.filePath}
         </p>
         {skill.hidden === null && (
-          <p className="text-[10px] text-ink-faint">{t("viewer.skills.hiddenUnknown")}</p>
+          <p className="text-xs text-ink-faint">{t("viewer.skills.hiddenUnknown")}</p>
         )}
       </details>
     </li>
@@ -1129,7 +1129,7 @@ function ToolRow({
           {tool.mcpServerName !== null && <Chip mono>{tool.mcpServerName}</Chip>}
         </div>
         {tool.description.length > 0 && (
-          <p className="mt-0.5 text-[11px] leading-relaxed text-ink-mid">
+          <p className="mt-0.5 text-xs leading-relaxed text-ink-mid">
             {tool.description}
             {tool.descriptionTruncated && (
               <span className="text-ink-faint"> {t("viewer.row.truncated")}</span>
@@ -1137,25 +1137,25 @@ function ToolRow({
           </p>
         )}
         {ownReason && disabledReason !== null && (
-          <p className="mt-0.5 text-[10px] leading-relaxed text-ink-faint">
+          <p className="mt-0.5 text-xs leading-relaxed text-ink-faint">
             {disabledReason}
           </p>
         )}
         <details className="mt-1">
-          <summary className="cursor-pointer text-[10px] text-ink-faint">{t("viewer.row.details")}</summary>
+          <summary className="cursor-pointer text-xs text-ink-faint">{t("viewer.row.details")}</summary>
           {tool.sourcePath !== null && (
-            <p className="mt-0.5 truncate font-mono text-[10px] text-ink-dim" title={tool.sourcePath}>
+            <p className="mt-0.5 truncate font-mono text-xs text-ink-dim" title={tool.sourcePath}>
               {tool.sourcePath}
             </p>
           )}
           {tool.mcpServerName !== null && (
-            <p className="font-mono text-[10px] text-ink-dim">
+            <p className="font-mono text-xs text-ink-dim">
               {tool.mcpServerName}
               {tool.mcpToolName !== null ? ` · ${tool.mcpToolName}` : ""}
             </p>
           )}
           {access.length > 0 && (
-            <p className="text-[10px] text-ink-faint">
+            <p className="text-xs text-ink-faint">
               {t("viewer.tools.notReported", { fields: access.join(", ") })}
             </p>
           )}
@@ -1431,7 +1431,7 @@ export function CapabilitiesViewer({
         : t("viewer.tools.notEnabled");
       return (
         <>
-          <p className="text-[11px] leading-relaxed text-rose">
+          <p className="text-xs leading-relaxed text-rose">
             {t(TOOL_ERROR_KEYS[toolFeedback.status], {
               name: toolFeedback.name,
               state: wanted,
@@ -1440,7 +1440,7 @@ export function CapabilitiesViewer({
           {toolFeedback.status !== "unsupported" &&
             toolFeedback.status !== "mode-required" &&
             toolFeedback.status !== "unknown-tool" && (
-              <p className="mt-0.5 text-[10px] text-ink-faint">
+              <p className="mt-0.5 text-xs text-ink-faint">
                 {t("viewer.tools.retryHint")}
               </p>
             )}
@@ -1449,7 +1449,7 @@ export function CapabilitiesViewer({
     }
     if (toolPending !== null) {
       return (
-        <p className="text-[11px] text-ink-mid">
+        <p className="text-xs text-ink-mid">
           {t("viewer.tools.applyingNamed", { name: toolPending.name })}
         </p>
       );
@@ -1457,7 +1457,7 @@ export function CapabilitiesViewer({
     const record = roster?.toolMutation ?? null;
     if (record !== null && record.status === "applied") {
       return (
-        <p className="text-[11px] text-ink-mid">
+        <p className="text-xs text-ink-mid">
           {t("viewer.tools.applied", {
             name: record.name,
             state: record.enabled
@@ -1541,7 +1541,7 @@ export function CapabilitiesViewer({
   return (
     <Modal onClose={closeCapabilitiesViewer} width="w-[42rem]" labelledBy="capabilities-viewer-title">
       <header className="border-b border-line px-4 py-3.5">
-        <p className="mb-1 font-mono text-[10px] uppercase tracking-[0.16em] text-ink-faint">
+        <p className="mb-1 font-mono text-xs uppercase tracking-[0.16em] text-ink-faint">
           {scopeCwd === null ? t("viewer.header.globalKicker") : t("viewer.header.projectKicker")}
         </p>
         <h2 id="capabilities-viewer-title" className="font-display text-base font-semibold text-ink">
@@ -1550,18 +1550,18 @@ export function CapabilitiesViewer({
         {record !== undefined && record.title.length > 0 && (
           <p className="mt-0.5 truncate text-xs text-ink-mid">{t("viewer.header.session", { title: record.title })}</p>
         )}
-        <p title={scopeCwd ?? undefined} className="mt-1 truncate font-mono text-[11px] text-ink-dim">
+        <p title={scopeCwd ?? undefined} className="mt-1 truncate font-mono text-xs text-ink-dim">
           {scopeCwd ?? t("viewer.header.globalPath")}
         </p>
         {/* Names the directory the rows were resolved from, so a checkout's
             own tracked provider files (.cursor/mcp.json, opencode.json, …)
             differing from the project's is explainable, not mysterious. */}
         {worktree !== null && (
-          <p className="mt-0.5 truncate font-mono text-[10px] text-ink-faint" title={record?.projectCwd}>
+          <p className="mt-0.5 truncate font-mono text-xs text-ink-faint" title={record?.projectCwd}>
             ⎇ {worktree.branch}{t("mcp.header.worktree", { cwd: record?.projectCwd ?? "" })}
           </p>
         )}
-        <p className="mt-1.5 text-[11px] leading-relaxed text-ink-faint">
+        <p className="mt-1.5 text-xs leading-relaxed text-ink-faint">
           {t(tabId === undefined ? "viewer.header.coverageCatalog" : "viewer.header.coverage")}
         </p>
       </header>
@@ -1590,7 +1590,7 @@ export function CapabilitiesViewer({
                 )}
               >
                 {tab.label}
-                <span className="font-mono text-[10px] tabular-nums text-ink-faint">{count}</span>
+                <span className="font-mono text-xs tabular-nums text-ink-faint">{count}</span>
               </button>
             );
           })}
@@ -1613,12 +1613,12 @@ export function CapabilitiesViewer({
 
       {drifted && (
         <Panel tone="copper" className="mx-4 my-2 px-3 py-2">
-          <p className="text-[11px] leading-relaxed text-ink-mid">{t("viewer.banner.detached", { cwd: scopeCwd ?? t("viewer.header.globalPath") })}</p>
+          <p className="text-xs leading-relaxed text-ink-mid">{t("viewer.banner.detached", { cwd: scopeCwd ?? t("viewer.header.globalPath") })}</p>
         </Panel>
       )}
       {loadStatus === "error" && roster !== null && (
         <Panel tone="copper" className="mx-4 my-2 px-3 py-2">
-          <p className="flex items-center gap-2 text-[11px] text-ink-mid">
+          <p className="flex items-center gap-2 text-xs text-ink-mid">
             {t("viewer.banner.lastKnown")}
             <Button size="xs" onClick={refresh}>
               {t("viewer.actions.retry")}
@@ -1677,7 +1677,7 @@ export function CapabilitiesViewer({
                     ]}
                   />
                 </div>
-                <p className="px-4 py-1 text-[11px] text-ink-faint">
+                <p className="px-4 py-1 text-xs text-ink-faint">
                   {t("viewer.skills.commands", {
                     state:
                       roster.skillCommandsEnabled === true
@@ -1687,7 +1687,7 @@ export function CapabilitiesViewer({
                           : t("viewer.state.unknown"),
                   })}
                 </p>
-                <p className="px-4 py-1 text-[11px] leading-relaxed text-ink-faint">{t("viewer.skills.coverage")}</p>
+                <p className="px-4 py-1 text-xs leading-relaxed text-ink-faint">{t("viewer.skills.coverage")}</p>
                 {skillRows !== null && skillRows.length === 0 && (
                   <Empty
                     title={roster.skills.items.length === 0 ? t("viewer.empty.none") : t("viewer.empty.noMatches")}
@@ -1724,7 +1724,7 @@ export function CapabilitiesViewer({
             {toolLocks.length > 0 && (
               <Panel tone="copper" className="mx-4 my-2 px-3 py-2">
                 {toolLocks.map((reason) => (
-                  <p key={reason} className="text-[11px] leading-relaxed text-ink-mid">
+                  <p key={reason} className="text-xs leading-relaxed text-ink-mid">
                     {reason}
                   </p>
                 ))}
@@ -1754,7 +1754,7 @@ export function CapabilitiesViewer({
                     aria-label={t("viewer.tools.originFilter")}
                     value={toolOrigin}
                     onChange={(e) => setToolOrigin(e.target.value as "all" | CapabilityTool["source"])}
-                    className="h-6 rounded-md border border-line bg-raised px-1.5 text-[11px] text-ink-mid"
+                    className="h-6 rounded-md border border-line bg-raised px-1.5 text-xs text-ink-mid"
                   >
                     <option value="all">{t("viewer.tools.originAll")}</option>
                     <option value="builtin">{t("viewer.tools.originBuiltin")}</option>
@@ -1775,16 +1775,16 @@ export function CapabilitiesViewer({
                     </span>
                   )}
                 </div>
-                <p className="px-4 py-1 text-[11px] leading-relaxed text-ink-faint">
+                <p className="px-4 py-1 text-xs leading-relaxed text-ink-faint">
                   {t("viewer.tools.scope")}
                 </p>
-                <p className="px-4 py-1 text-[11px] leading-relaxed text-ink-faint">
+                <p className="px-4 py-1 text-xs leading-relaxed text-ink-faint">
                   {t("viewer.tools.registeredVsAbsent")}
                 </p>
                 {(sessionTools ?? []).some(
                   (tool) => tool.source === "mcp" || tool.mcpServerName !== null,
                 ) && (
-                  <p className="px-4 py-1 text-[11px] leading-relaxed text-ink-faint">
+                  <p className="px-4 py-1 text-xs leading-relaxed text-ink-faint">
                     {t("viewer.tools.mcpNote")}
                   </p>
                 )}
@@ -1829,7 +1829,7 @@ export function CapabilitiesViewer({
 
       {active === "mcp" && !drifted && (
         <footer className="flex items-center justify-between gap-3 border-t border-line px-4 py-3">
-          <p className="text-[11px] text-ink-faint">
+          <p className="text-xs text-ink-faint">
             {scopeCwd === null
               ? t("mcp.footer.global")
               : t("mcp.footer.project")}{" "}

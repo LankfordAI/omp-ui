@@ -147,7 +147,7 @@ export function ComposerSheet({
               )
             ) : (
               <div className="flex min-h-11 items-center justify-between gap-2 rounded-lg border border-line bg-void/35 px-3">
-                <span className="font-mono text-[10px] uppercase tracking-[0.12em] text-ink-faint">{t("composer.sheet.branch")}</span>
+                <span className="font-mono text-xs uppercase tracking-[0.12em] text-ink-faint">{t("composer.sheet.branch")}</span>
                 <span className="flex min-w-0 items-center gap-2"><BranchChip projectCwd={projectCwd} instanceId={instanceId} />{queueChip && <Chip mono tone="copper" title={running ? t("composer.queue.queuedTitle") : t("composer.queue.parkedTitle")}>{running ? t("composer.queue.queued", { n: queued }) : t("composer.queue.parked", { n: queued })}</Chip>}</span>
               </div>
             )}

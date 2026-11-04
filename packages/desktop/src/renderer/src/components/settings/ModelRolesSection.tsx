@@ -86,17 +86,17 @@ export function ModelRolesSection({
         {layerBadge(entry.layer)}
       </div>
       {entry.description !== "" && (
-        <p className="mt-0.5 text-[11px] leading-relaxed text-ink-faint">
+        <p className="mt-0.5 text-xs leading-relaxed text-ink-faint">
           {entry.description}
         </p>
       )}
-      <p className="mt-0.5 text-[11px] leading-relaxed text-ink-faint">
+      <p className="mt-0.5 text-xs leading-relaxed text-ink-faint">
         {t("settings.omp.modelRolesHint")}
       </p>
       <div className="mt-1.5 divide-y divide-line-soft">
         {OMP_MODEL_ROLE_IDS.map((role) => (
           <div key={role} className="flex items-center gap-3 py-1.5">
-            <span className="w-20 shrink-0 font-mono text-[11px] text-ink-mid">
+            <span className="w-20 shrink-0 font-mono text-xs text-ink-mid">
               {role}
             </span>
             <CommitField
@@ -126,12 +126,12 @@ export function ModelRolesSection({
         />
       </div>
       {paletteRole !== null && catalog.status === "loading" && (
-        <p className="mt-1.5 text-[11px] text-ink-faint">{t("settings.omp.modelRoleReading")}</p>
+        <p className="mt-1.5 text-xs text-ink-faint">{t("settings.omp.modelRoleReading")}</p>
       )}
       {paletteRole !== null &&
         catalog.status === "loaded" &&
         !catalog.snapshot.discovered && (
-          <p className="mt-1.5 text-[11px] text-ink-faint">
+          <p className="mt-1.5 text-xs text-ink-faint">
             {t("settings.omp.modelRoleCatalogFailed", { message: catalog.snapshot.error ?? "" })}
           </p>
         )}

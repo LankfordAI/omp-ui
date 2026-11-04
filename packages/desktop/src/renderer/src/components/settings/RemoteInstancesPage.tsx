@@ -47,7 +47,7 @@ function SecretKindCapsule({
         { value: "token", label: t("remoteinstances.field.token") },
       ] as const}
       onChange={onChange}
-      optionClassName="px-2 text-[11px]"
+      optionClassName="px-2 text-xs"
     />
   );
 }
@@ -159,7 +159,7 @@ function InstancePanel({ instance }: { instance: RemoteInstanceSummary }) {
             <p className="max-w-full min-w-0 truncate text-xs font-medium text-ink">
               {instance.nickname}
             </p>
-            <span className="shrink-0 text-[11px] text-ink-dim">
+            <span className="shrink-0 text-xs text-ink-dim">
               {t(remoteInstanceStatusKey(instance.status))}
             </span>
             {instance.version !== null && (
@@ -175,13 +175,13 @@ function InstancePanel({ instance }: { instance: RemoteInstanceSummary }) {
           </div>
           <p
             data-selectable
-            className="mt-0.5 truncate font-mono text-[11px] text-ink-faint"
+            className="mt-0.5 truncate font-mono text-xs text-ink-faint"
             title={instance.url}
           >
             {instance.url}
           </p>
           {instance.error !== null && (
-            <p className="mt-1 text-[11px] leading-relaxed text-rose">{instance.error}</p>
+            <p className="mt-1 text-xs leading-relaxed text-rose">{instance.error}</p>
           )}
         </div>
         <div className="flex shrink-0 flex-wrap items-center justify-end gap-1.5">
@@ -262,7 +262,7 @@ function GrantCeremony({ instance, onDone }: { instance: RemoteInstanceSummary; 
 
   return (
     <div className="mt-3 space-y-2 border-t border-line-soft pt-3">
-      <p className="text-[11px] leading-relaxed text-ink-faint">
+      <p className="text-xs leading-relaxed text-ink-faint">
         {t("settings.remoteinstances.grant.ceremony", { machine: instance.nickname })}
       </p>
       <div className="flex flex-wrap items-center gap-1.5">
@@ -271,7 +271,7 @@ function GrantCeremony({ instance, onDone }: { instance: RemoteInstanceSummary; 
           value={rung}
           options={RAISE_RUNGS.map((r) => ({ value: r, label: t(RUNG_LABEL[r]) }))}
           onChange={setRung}
-          optionClassName="px-2 text-[11px]"
+          optionClassName="px-2 text-xs"
         />
         <SecretKindCapsule value={secretKind} onChange={setSecretKind} />
         <SecretField
@@ -292,7 +292,7 @@ function GrantCeremony({ instance, onDone }: { instance: RemoteInstanceSummary; 
       {outcome !== null && (
         <p
           role={outcome.ok ? undefined : "alert"}
-          className={cn("text-[11px] leading-relaxed", outcome.ok ? "text-ink-mid" : "text-rose")}
+          className={cn("text-xs leading-relaxed", outcome.ok ? "text-ink-mid" : "text-rose")}
         >
           {outcome.ok
             ? t("settings.remoteinstances.grant.granted", { rung: t(RUNG_LABEL[outcome.rung]) })
@@ -322,7 +322,7 @@ function DispatcherGrantRow({ dispatcherId, record }: { dispatcherId: string; re
         <p className="truncate text-xs text-ink" title={dispatcherId}>
           {name}
         </p>
-        <p className="mt-0.5 text-[11px] leading-relaxed text-ink-faint">
+        <p className="mt-0.5 text-xs leading-relaxed text-ink-faint">
           {record.rung === undefined
             ? t("settings.remoteinstances.grant.defaulted", { rung: t(RUNG_LABEL[held]) })
             : effective === held
@@ -335,7 +335,7 @@ function DispatcherGrantRow({ dispatcherId, record }: { dispatcherId: string; re
         value={held}
         options={FLEET_RUNGS.map((rung) => ({ value: rung, label: t(RUNG_LABEL[rung]) }))}
         onChange={(rung) => void setFleetGrant(dispatcherId, rung)}
-        optionClassName="px-2 text-[11px]"
+        optionClassName="px-2 text-xs"
       />
       <Button size="xs" variant="ghost" disabled={record.rung === undefined} onClick={() => void setFleetGrant(dispatcherId, null)}>
         {t("settings.remoteinstances.grant.reset")}
@@ -382,19 +382,19 @@ function FleetAccessSection() {
           value={ceiling}
           options={FLEET_RUNGS.map((rung) => ({ value: rung, label: t(RUNG_LABEL[rung]) }))}
           onChange={(rung) => void setFleetExecCeiling(rung)}
-          optionClassName="px-2 text-[11px]"
+          optionClassName="px-2 text-xs"
         />
       </Row>
       <div className="py-2">
         <Label>{t("settings.remoteinstances.rootsTitle")}</Label>
-        <p className="mb-1.5 text-[11px] leading-relaxed text-ink-faint">{t("settings.remoteinstances.rootsHint")}</p>
+        <p className="mb-1.5 text-xs leading-relaxed text-ink-faint">{t("settings.remoteinstances.rootsHint")}</p>
         {roots.length === 0 && (
-          <p className="text-[11px] text-ink-dim">{t("settings.remoteinstances.roots.empty")}</p>
+          <p className="text-xs text-ink-dim">{t("settings.remoteinstances.roots.empty")}</p>
         )}
         <ul className="space-y-1">
           {roots.map((root) => (
             <li key={root} className="flex items-center gap-2">
-              <code className="min-w-0 flex-1 truncate font-mono text-[11px] text-ink-mid" title={root}>
+              <code className="min-w-0 flex-1 truncate font-mono text-xs text-ink-mid" title={root}>
                 {root}
               </code>
               <Button
@@ -431,7 +431,7 @@ function FleetAccessSection() {
       </div>
       <Label>{t("settings.remoteinstances.grantTitle")}</Label>
       {grants !== null && Object.keys(grants).length === 0 && (
-        <p className="py-2 text-[11px] text-ink-dim">{t("settings.remoteinstances.grant.empty")}</p>
+        <p className="py-2 text-xs text-ink-dim">{t("settings.remoteinstances.grant.empty")}</p>
       )}
       {grants !== null && Object.keys(grants).length > 0 && (
         <div className="divide-y divide-line-soft">
@@ -549,7 +549,7 @@ function AddForm() {
       )}
       <div className="flex items-center gap-3 py-2.5">
         {error !== null && (
-          <p role="alert" className="min-w-0 flex-1 text-[11px] leading-relaxed text-rose">
+          <p role="alert" className="min-w-0 flex-1 text-xs leading-relaxed text-rose">
             {error}
           </p>
         )}
@@ -571,7 +571,7 @@ export function RemoteInstancesPage() {
 
   return (
     <div className="space-y-3 px-4 py-3">
-      <p className="text-[11px] leading-relaxed text-ink-faint">{t("remoteinstances.page.intro")}</p>
+      <p className="text-xs leading-relaxed text-ink-faint">{t("remoteinstances.page.intro")}</p>
       {instances !== null && instances.length === 0 && (
         <Empty title={t("remoteinstances.empty.instances")} hint={t("remoteinstances.empty.instancesHint")} />
       )}

@@ -553,7 +553,7 @@ export function CommandPalette() {
                   )}
                 </span>
                 {action.desc && (
-                  <span className="min-w-0 max-w-[14rem] shrink-0 truncate text-[11px] text-ink-dim">
+                  <span className="min-w-0 max-w-[14rem] shrink-0 truncate text-xs text-ink-dim">
                     {action.desc}
                   </span>
                 )}
@@ -564,7 +564,7 @@ export function CommandPalette() {
         })}
       </PaletteList>
 
-      <div className="flex items-center gap-3 border-t border-line px-3.5 py-2 text-[10px] text-ink-faint">
+      <div className="flex items-center gap-3 border-t border-line px-3.5 py-2 text-xs text-ink-faint">
         <span className="font-mono">{formatHotkey("arrowup")}{formatHotkey("arrowdown")}</span>
         <span>{t("palette.footer.navigate")}</span>
         <span className="font-mono">{formatHotkey("enter")}</span>

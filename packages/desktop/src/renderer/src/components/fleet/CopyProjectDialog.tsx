@@ -127,7 +127,7 @@ export function CopyProjectDialog({ projectCwd, name }: { projectCwd: string; na
                 />
                 <span className="min-w-0 flex-1">
                   <span className="block truncate text-ink">{machine.nickname ?? machine.key}</span>
-                  <span className="block truncate font-mono text-[10px] text-ink-faint">
+                  <span className="block truncate font-mono text-xs text-ink-faint">
                     {block !== null
                       ? t(block)
                       : roots === null
@@ -166,8 +166,8 @@ export function CopyProjectDialog({ projectCwd, name }: { projectCwd: string; na
                       className="size-3.5 accent-current"
                       data-file={file.path}
                     />
-                    <span className="min-w-0 flex-1 truncate font-mono text-[11px]">{file.path}</span>
-                    <span className="shrink-0 text-[10px] text-ink-faint">{formatBytes(file.bytes)}</span>
+                    <span className="min-w-0 flex-1 truncate font-mono text-xs">{file.path}</span>
+                    <span className="shrink-0 text-xs text-ink-faint">{formatBytes(file.bytes)}</span>
                   </label>
                 </li>
               ))}
@@ -175,10 +175,10 @@ export function CopyProjectDialog({ projectCwd, name }: { projectCwd: string; na
           )}
           {preview.skipped.length > 0 && (
             <div>
-              <p className="mb-1 text-[11px] text-ink-dim">{t("copyproject.files.skipped")}</p>
+              <p className="mb-1 text-xs text-ink-dim">{t("copyproject.files.skipped")}</p>
               <ul className="max-h-32 space-y-0.5 overflow-y-auto">
                 {preview.skipped.map((skip) => (
-                  <li key={skip.path} className="flex items-center gap-2 px-1 text-[11px] text-ink-faint">
+                  <li key={skip.path} className="flex items-center gap-2 px-1 text-xs text-ink-faint">
                     <span className="min-w-0 flex-1 truncate font-mono">{skip.path}</span>
                     <Chip tone={skip.reason === "provider-key" ? "rose" : "neutral"}>
                       {t(SKIP_LABEL[skip.reason], { env: skip.envName ?? "" })}
@@ -228,9 +228,9 @@ export function CopyProjectDialog({ projectCwd, name }: { projectCwd: string; na
           <Switch on={withFiles} onChange={setWithFiles} label={t("copyproject.files.toggle")} />
           <span className="text-xs text-ink-mid">{t("copyproject.files.toggle")}</span>
         </div>
-        {withFiles && <p className="text-[11px] text-ink-faint">{t("copyproject.files.hint")}</p>}
+        {withFiles && <p className="text-xs text-ink-faint">{t("copyproject.files.hint")}</p>}
         {filesBody}
-        {remoteNote !== null && <p className="text-[11px] text-copper">{t(remoteNote)}</p>}
+        {remoteNote !== null && <p className="text-xs text-copper">{t(remoteNote)}</p>}
       </div>
     </ConfirmDialog>
   );

@@ -165,7 +165,7 @@ function PlusMenuPanel({ children }: { children: ReactNode }) {
 }
 
 function TriggerGlyph({ children }: { children: string }) {
-  return <span aria-hidden className="font-mono text-[12px] leading-none">{children}</span>;
+  return <span aria-hidden className="font-mono text-xs leading-none">{children}</span>;
 }
 
 function IconPaperclip() {

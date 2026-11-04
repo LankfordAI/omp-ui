@@ -59,7 +59,7 @@ export function KnowledgeVaultPage() {
     <div className="space-y-3 px-4 py-3">
       <div>
         <h3 className="font-display text-sm font-semibold text-ink">{t("settings.vault.title")}</h3>
-        <p className="mt-0.5 text-[11px] text-ink-faint">{t("settings.vault.hint")}</p>
+        <p className="mt-0.5 text-xs text-ink-faint">{t("settings.vault.hint")}</p>
       </div>
 
       <DetectionPanel load={load} />
@@ -94,7 +94,7 @@ export function KnowledgeVaultPage() {
                 { value: "assistant", label: t("settings.vault.noteVoiceAssistant") },
               ]}
               onChange={(v) => void setVaultNoteVoice(v)}
-              optionClassName="px-2 text-[11px]"
+              optionClassName="px-2 text-xs"
             />
           </Row>
         </>
@@ -187,10 +187,10 @@ function DetectionPanel({ load }: { load: Load<VaultDetection> }) {
           {rows.map((row) => (
             <div key={row.label}>
               <div className="flex flex-wrap items-center gap-x-2 gap-y-1">
-                <dt className="w-32 shrink-0 text-[11px] text-ink-dim">{row.label}</dt>
+                <dt className="w-32 shrink-0 text-xs text-ink-dim">{row.label}</dt>
                 <dd className="flex min-w-0 flex-1 flex-wrap items-center gap-x-2 gap-y-1 text-xs text-ink">
                   {row.detail !== undefined && (
-                    <span className="min-w-0 break-all font-mono text-[11px] text-ink-mid">{row.detail}</span>
+                    <span className="min-w-0 break-all font-mono text-xs text-ink-mid">{row.detail}</span>
                   )}
                   {row.chip !== null && (
                     <Chip tone={row.chip.tone} className="ml-auto">
@@ -199,12 +199,12 @@ function DetectionPanel({ load }: { load: Load<VaultDetection> }) {
                   )}
                 </dd>
               </div>
-              {row.hint !== undefined && <p className="mt-0.5 text-[10px] text-ink-faint">{row.hint}</p>}
+              {row.hint !== undefined && <p className="mt-0.5 text-xs text-ink-faint">{row.hint}</p>}
             </div>
           ))}
         </dl>
       )}
-      <p className="mt-2 text-[11px] text-ink-faint">{t("settings.vault.protocolPinned")}</p>
+      <p className="mt-2 text-xs text-ink-faint">{t("settings.vault.protocolPinned")}</p>
     </Panel>
   );
 }
@@ -231,7 +231,7 @@ function VaultRow({
     <Panel className="px-3 py-2.5">
       <div className="flex flex-wrap items-center gap-x-2 gap-y-1">
         <span className="text-xs font-semibold text-ink">{entry.name}</span>
-        <span className="min-w-0 break-all font-mono text-[11px] text-ink-dim">{entry.path}</span>
+        <span className="min-w-0 break-all font-mono text-xs text-ink-dim">{entry.path}</span>
         <span className="ml-auto flex shrink-0 flex-wrap items-center gap-1.5">
           <OpenInObsidianButton vaultName={entry.name} file={null} uriHandler={uriHandler} />
           <Button size="xs" variant="ghost" tone="rose" onClick={() => void removeVault(entry.name)}>
@@ -257,16 +257,16 @@ function VaultRow({
             )}
           </div>
           {row.status === "no-obsidian-dir" && (
-            <p className="mt-1 text-[11px] text-ink-faint">{t("settings.vault.noObsidianHint")}</p>
+            <p className="mt-1 text-xs text-ink-faint">{t("settings.vault.noObsidianHint")}</p>
           )}
           {row.status === "refused-root" && (
-            <p className="mt-1 text-[11px] text-ink-faint">{t("settings.vault.refusedRootHint")}</p>
+            <p className="mt-1 text-xs text-ink-faint">{t("settings.vault.refusedRootHint")}</p>
           )}
         </>
       )}
 
       <div className="mt-2.5 flex flex-wrap items-center gap-x-2 gap-y-1">
-        <label className="flex cursor-pointer items-center gap-1.5 text-[11px] text-ink-mid">
+        <label className="flex cursor-pointer items-center gap-1.5 text-xs text-ink-mid">
           <input
             type="radio"
             name="knowledge-vault-default"
@@ -276,7 +276,7 @@ function VaultRow({
           />
           {t("settings.vault.defaultWrite")}
         </label>
-        <label className="flex min-w-0 flex-1 basis-56 items-center gap-2 text-[11px] text-ink-mid">
+        <label className="flex min-w-0 flex-1 basis-56 items-center gap-2 text-xs text-ink-mid">
           <span className="shrink-0">{t("settings.vault.homeFolder")}</span>
           <CommitField
             current={entry.homeFolder}
@@ -303,9 +303,9 @@ function VaultRow({
           onChange={(next) => void setVaultWritesOutsideHome(entry.name, next)}
           label={t("settings.vault.writesOutside")}
         />
-        <span className="text-[11px] text-ink-mid">{t("settings.vault.writesOutside")}</span>
+        <span className="text-xs text-ink-mid">{t("settings.vault.writesOutside")}</span>
       </div>
-      <p className="mt-1 text-[11px] text-ink-faint">{t("settings.vault.writesOutsideHint")}</p>
+      <p className="mt-1 text-xs text-ink-faint">{t("settings.vault.writesOutsideHint")}</p>
     </Panel>
   );
 }

@@ -58,13 +58,13 @@ export function ContextFilesSection({
         <Label>{t("settings.omp.contextFiles")}</Label>
         {layerBadge(entry.layer)}
       </div>
-      <p className="mt-0.5 text-[11px] leading-relaxed text-ink-faint">
+      <p className="mt-0.5 text-xs leading-relaxed text-ink-faint">
         {t("settings.omp.contextFilesHint")}
       </p>
       <div className="mt-1.5 divide-y divide-line-soft">
         {paths.map((path) => (
           <div key={path} className="flex items-center gap-3 py-1.5">
-            <span className="min-w-0 truncate font-mono text-[11px] text-ink-mid" title={path}>
+            <span className="min-w-0 truncate font-mono text-xs text-ink-mid" title={path}>
               {path}
             </span>
             <Button

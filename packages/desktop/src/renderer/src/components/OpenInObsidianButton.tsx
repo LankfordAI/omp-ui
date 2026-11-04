@@ -130,7 +130,7 @@ export function OpenInObsidianButton({
         </Button>
       </span>
       {failedUri !== null && (
-        <span data-selectable className="max-w-full select-all break-all font-mono text-[10px] text-ink-mid">
+        <span data-selectable className="max-w-full select-all break-all font-mono text-xs text-ink-mid">
           {failedUri}
         </span>
       )}

@@ -114,7 +114,7 @@ export function KeyboardPage() {
 
   return (
     <div className="px-4 py-3">
-      <p className="text-[11px] leading-relaxed text-ink-faint">{t("settings.keyboard.intro")}</p>
+      <p className="text-xs leading-relaxed text-ink-faint">{t("settings.keyboard.intro")}</p>
 
       <ul className="mt-2 divide-y divide-line-soft">
         {KEYBINDING_ACTIONS.map(({ id, kind }) => {
@@ -141,7 +141,7 @@ export function KeyboardPage() {
                     if (live) setRecording(null);
                   }}
                   className={cn(
-                    "min-w-24 rounded-md border px-2 py-1 text-center font-mono text-[11px] transition-colors duration-150",
+                    "min-w-24 rounded-md border px-2 py-1 text-center font-mono text-xs transition-colors duration-150",
                     "focus-visible:outline-none focus-visible:border-line-strong",
                     live
                       ? "border-copper text-copper"
@@ -171,12 +171,12 @@ export function KeyboardPage() {
                 </Button>
               </div>
               {others.length > 0 && (
-                <p className="mt-1 text-[11px] text-rose">
+                <p className="mt-1 text-xs text-rose">
                   {t("settings.keyboard.conflict", { actions: others.map((a) => t(ACTION_LABEL[a])).join(", ") })}
                 </p>
               )}
               {refusal?.action === id && (
-                <p role="alert" className="mt-1 text-[11px] text-rose">
+                <p role="alert" className="mt-1 text-xs text-rose">
                   {refusal.message}
                 </p>
               )}
@@ -185,7 +185,7 @@ export function KeyboardPage() {
         })}
       </ul>
 
-      <p className="mt-3 text-[11px] leading-relaxed text-ink-faint">
+      <p className="mt-3 text-xs leading-relaxed text-ink-faint">
         {t("settings.keyboard.fixed", {
           queue: formatHotkey("mod+enter"),
           interrupt: formatHotkey("mod+shift+enter"),
@@ -206,8 +206,8 @@ export function KeyboardPage() {
           {t("settings.keyboard.resetAll")}
         </Button>
         <span className="flex-1" />
-        {conflicts.length > 0 && <span className="text-[11px] text-rose">{t("settings.keyboard.conflictsBlock")}</span>}
-        {dirty && conflicts.length === 0 && <span className="text-[11px] text-ink-faint">{t("settings.keyboard.unsaved")}</span>}
+        {conflicts.length > 0 && <span className="text-xs text-rose">{t("settings.keyboard.conflictsBlock")}</span>}
+        {dirty && conflicts.length === 0 && <span className="text-xs text-ink-faint">{t("settings.keyboard.unsaved")}</span>}
         <Button
           size="xs"
           variant="ghost"

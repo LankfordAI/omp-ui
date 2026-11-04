@@ -65,7 +65,7 @@ export function ShareLiveDialog({ tabId }: { tabId: string }) {
   return (
     <Modal onClose={close} labelledBy={titleId} width="w-[34rem]">
       <div className="border-b border-line px-5 pb-4 pt-5">
-        <h2 id={titleId} className="font-display text-lg font-semibold tracking-tight text-ink">
+        <h2 id={titleId} className="font-display text-xl font-semibold tracking-tight text-ink">
           {t("collab.dialog.title")}
         </h2>
         <p className="mt-0.5 text-xs text-ink-dim">
@@ -92,7 +92,7 @@ export function ShareLiveDialog({ tabId }: { tabId: string }) {
                 onChange={setAccess}
               />
             </div>
-            <p className="text-[11px] leading-relaxed text-ink-faint">{t("collab.dialog.hint")}</p>
+            <p className="text-xs leading-relaxed text-ink-faint">{t("collab.dialog.hint")}</p>
           </>
         ) : (
           <>
@@ -120,7 +120,7 @@ export function ShareLiveDialog({ tabId }: { tabId: string }) {
                     doneLabel={t("collab.dialog.copied")}
                   />
                 </div>
-                <p data-selectable className="truncate font-mono text-[11px] text-ink-mid">
+                <p data-selectable className="truncate font-mono text-xs text-ink-mid">
                   {controlUrl}
                 </p>
                 <PairingQr url={controlUrl} title={t("collab.dialog.scan")} caption={t("collab.dialog.controlCaption")} />
@@ -136,12 +136,12 @@ export function ShareLiveDialog({ tabId }: { tabId: string }) {
                     doneLabel={t("collab.dialog.copied")}
                   />
                 </div>
-                <p data-selectable className="truncate font-mono text-[11px] text-ink-mid">
+                <p data-selectable className="truncate font-mono text-xs text-ink-mid">
                   {viewUrl}
                 </p>
               </div>
             )}
-            <p className="text-[11px] leading-relaxed text-ink-faint">
+            <p className="text-xs leading-relaxed text-ink-faint">
               {t("collab.dialog.linkWarning")}
             </p>
           </>

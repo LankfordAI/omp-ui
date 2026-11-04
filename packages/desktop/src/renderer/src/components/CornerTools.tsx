@@ -337,10 +337,10 @@ export function CornerTools() {
               <div className="flex items-center gap-2 px-1.5 py-1.5">
                 <ProjectMonogram seed={face.seed} name={face.name} icon={face.icon} />
                 <span className="min-w-0 flex-1">
-                  <span className="block truncate text-[11px] text-ink" title={face.title}>
+                  <span className="block truncate text-xs text-ink" title={face.title}>
                     {face.name}
                   </span>
-                  <span className="block truncate font-mono text-[10px] text-ink-faint">{face.sub}</span>
+                  <span className="block truncate font-mono text-xs text-ink-faint">{face.sub}</span>
                 </span>
               </div>
               <MenuRow

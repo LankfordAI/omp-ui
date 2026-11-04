@@ -123,7 +123,7 @@ function UsageStrip({ item }: { item: AssistantItem }) {
   ];
   return (
     <div
-      className="flex flex-wrap items-center gap-x-2 gap-y-0.5 font-mono text-[10px] tabular-nums text-ink-faint transition-colors hover:text-ink-dim"
+      className="flex flex-wrap items-center gap-x-2 gap-y-0.5 font-mono text-xs tabular-nums text-ink-faint transition-colors hover:text-ink-dim"
       title={facts.filter(Boolean).join(" · ") || undefined}
     >
       {parts.map((part, i) => (
@@ -168,7 +168,7 @@ const ExchangeReceipt = memo(function ExchangeReceipt({
           tabId,
         })
       }
-      className="flex flex-wrap items-center gap-x-2 font-mono text-[10px] tabular-nums text-ink-faint transition-colors hover:text-ink-dim"
+      className="flex flex-wrap items-center gap-x-2 font-mono text-xs tabular-nums text-ink-faint transition-colors hover:text-ink-dim"
     >
       <span>{t("transcript.receipt.changedFiles", { files: changes.files })}</span>
       <span className="text-signal">+{changes.added}</span>
@@ -190,7 +190,7 @@ function ThinkingPane({ text, live }: { text: string; live: boolean }) {
     <pre
       ref={ref}
       data-selectable
-      className="mt-1 max-h-64 overflow-y-auto whitespace-pre-wrap break-words font-mono text-[12px] leading-[1.55] text-ink-dim"
+      className="mt-1 max-h-64 overflow-y-auto whitespace-pre-wrap break-words font-mono text-xs leading-[1.55] text-ink-dim"
     >
       {text}
     </pre>
@@ -264,7 +264,7 @@ function ReplyWriteBlock({ item }: { item: ToolItem }) {
     <div className="animate-rise space-y-1" data-markdown-source={text !== "" ? text : undefined}>
       {(text !== "" || caret) && <Markdown text={text} className="text-ink" trailing={caret} />}
       {item.status === "error" && item.resultText && (
-        <p data-selectable className="font-mono text-[11px] leading-snug text-rose">
+        <p data-selectable className="font-mono text-xs leading-snug text-rose">
           {item.resultText}
         </p>
       )}
@@ -506,14 +506,14 @@ function NoticeLine({ item, tabId }: { item: NoticeItem; tabId?: string }) {
     <div className="animate-rise flex justify-center">
       <div
         className={cn(
-          "flex max-w-[80%] items-center gap-1.5 rounded-2xl border px-2.5 py-1 text-[11px]",
+          "flex max-w-[80%] items-center gap-1.5 rounded-2xl border px-2.5 py-1 text-xs",
           tone === "rose" && "border-rose-dim/50 bg-rose-wash text-rose",
           tone === "copper" && "border-copper-dim/50 bg-copper-wash text-copper",
           tone === "neutral" && "border-line bg-raised text-ink-dim",
         )}
       >
         {item.source && (
-          <span className="shrink-0 font-mono text-[10px] text-ink-faint">{item.source}</span>
+          <span className="shrink-0 font-mono text-xs text-ink-faint">{item.source}</span>
         )}
         {item.mcpMount !== undefined ? (
           // The collapsed xdev mount notice (issue #848): the tool-name wall
@@ -596,12 +596,12 @@ function NoticeLine({ item, tabId }: { item: NoticeItem; tabId?: string }) {
 
 function IrcLine({ item }: { item: IrcItem }) {
   return (
-    <div className="animate-rise flex items-baseline gap-1.5 text-[11px] text-ink-dim">
+    <div className="animate-rise flex items-baseline gap-1.5 text-xs text-ink-dim">
       <Chip tone="iris" mono>
         {item.from}
       </Chip>
       <div className="min-w-0 flex-1">
-        <Markdown text={item.text} className="text-[11px]" />
+        <Markdown text={item.text} className="text-xs" />
       </div>
     </div>
   );
@@ -612,7 +612,7 @@ function FleetWakeCard({ item }: { item: FleetWakeItem }) {
   const question = item.card.kind === "question";
   return (
     <div className="animate-rise rounded-md border border-line bg-raised px-2.5 py-1.5">
-      <div className="flex flex-wrap items-baseline gap-1.5 text-[11px]">
+      <div className="flex flex-wrap items-baseline gap-1.5 text-xs">
         <Chip tone={question ? "copper" : "signal"}>
           {t(question ? "transcript.fleetWake.question" : "transcript.fleetWake.result")}
         </Chip>
@@ -620,7 +620,7 @@ function FleetWakeCard({ item }: { item: FleetWakeItem }) {
           {t("transcript.fleetWake.from", { title: item.card.title, machine: item.card.machine })}
         </span>
       </div>
-      <Markdown text={item.text} className="mt-1 text-[12px]" />
+      <Markdown text={item.text} className="mt-1 text-xs" />
     </div>
   );
 }
@@ -638,7 +638,7 @@ function MarkerRule({ item, count }: { item: MarkerItem; count: number }) {
       <span className="h-px flex-1 bg-line" />
       <span
         className={cn(
-          "shrink-0 text-[10px] uppercase tracking-[0.14em]",
+          "shrink-0 text-xs uppercase tracking-[0.14em]",
           MARKER_TONE[item.tone ?? "neutral"] ?? MARKER_TONE.neutral,
         )}
       >
@@ -679,7 +679,7 @@ export function TuiHandoffButton({ item, tabId }: { item: CommandItem; tabId?: s
   return (
     <button
       type="button"
-      className="mt-1.5 rounded border border-line px-1.5 py-0.5 text-[11px] text-ink-mid hover:text-ink"
+      className="mt-1.5 rounded border border-line px-1.5 py-0.5 text-xs text-ink-mid hover:text-ink"
       onClick={() => startTuiHandoff(tabId, commandLine(item))}
     >
       {t("transcript.command.tuiHandoff")}
@@ -694,7 +694,7 @@ export function TuiHandoffButton({ item, tabId }: { item: CommandItem; tabId?: s
  */
 function CommandRow({ item, tabId }: { item: CommandItem; tabId?: string }) {
   return (
-    <div className="animate-rise rounded border border-line-soft bg-sunken px-2 py-1.5 font-mono text-[12px] leading-[1.55]">
+    <div className="animate-rise rounded border border-line-soft bg-sunken px-2 py-1.5 font-mono text-xs leading-[1.55]">
       <div className="flex items-baseline gap-1.5">
         <span
           data-selectable
@@ -713,7 +713,7 @@ function CommandRow({ item, tabId }: { item: CommandItem; tabId?: string }) {
       {item.status === "failed" && item.error !== undefined && (
         <p
           data-selectable
-          className="mt-1 whitespace-pre-wrap break-words text-[11px] leading-snug text-rose"
+          className="mt-1 whitespace-pre-wrap break-words text-xs leading-snug text-rose"
         >
           {item.error}
         </p>
@@ -765,7 +765,7 @@ function ShellRow({ item, tabId }: { item: ShellItem; tabId?: string }) {
   const t = useT();
   const abortShellCommands = useStore((s) => s.abortShellCommands);
   return (
-    <div className="animate-rise rounded border border-line-soft bg-sunken px-2 py-1.5 font-mono text-[12px] leading-[1.55]">
+    <div className="animate-rise rounded border border-line-soft bg-sunken px-2 py-1.5 font-mono text-xs leading-[1.55]">
       <div className="flex items-baseline gap-1.5">
         <span className="shrink-0 text-ink-faint">$</span>
         <span
@@ -782,7 +782,7 @@ function ShellRow({ item, tabId }: { item: ShellItem; tabId?: string }) {
             <span className="animate-caret inline-block shrink-0 align-baseline text-signal">▍</span>
             <button
               type="button"
-              className="ml-auto shrink-0 rounded border border-line px-1.5 py-0.5 text-[11px] text-ink-mid hover:text-ink"
+              className="ml-auto shrink-0 rounded border border-line px-1.5 py-0.5 text-xs text-ink-mid hover:text-ink"
               onClick={() => void abortShellCommands(tabId)}
             >
               {t("transcript.shell.stop")}
@@ -802,16 +802,16 @@ function ShellRow({ item, tabId }: { item: ShellItem; tabId?: string }) {
       {item.status === "failed" && item.error !== undefined && (
         <p
           data-selectable
-          className="mt-1 whitespace-pre-wrap break-words text-[11px] leading-snug text-rose"
+          className="mt-1 whitespace-pre-wrap break-words text-xs leading-snug text-rose"
         >
           {item.error}
         </p>
       )}
       {item.truncated === true && (
-        <p className="mt-1 text-[11px] text-ink-faint">{t("transcript.shell.truncated")}</p>
+        <p className="mt-1 text-xs text-ink-faint">{t("transcript.shell.truncated")}</p>
       )}
       {item.shared === false && (
-        <p className="mt-1 text-[11px] text-ink-faint">{t("transcript.shell.notShared")}</p>
+        <p className="mt-1 text-xs text-ink-faint">{t("transcript.shell.notShared")}</p>
       )}
       {item.output !== undefined && item.output !== "" && (
         <pre
@@ -837,7 +837,7 @@ function BrokenRow({ error }: { error: Error }) {
       <Label className="text-rose">{t("transcript.row.broken")}</Label>
       <p
         data-selectable
-        className="mt-1 break-words font-mono text-[11px] leading-snug text-ink-mid"
+        className="mt-1 break-words font-mono text-xs leading-snug text-ink-mid"
       >
         {error.message}
       </p>
@@ -1345,7 +1345,7 @@ export function TranscriptView({
             <button
               type="button"
               onClick={loadOlder}
-              className="self-center rounded-full border border-line px-3 py-1 text-[11px] text-ink-mid transition-colors hover:text-ink"
+              className="self-center rounded-full border border-line px-3 py-1 text-xs text-ink-mid transition-colors hover:text-ink"
             >
               {t("transcript.view.showEarlier", { count: start })}
             </button>
@@ -1431,7 +1431,7 @@ export function TranscriptView({
         <button
           type="button"
           onClick={() => updateFollowing(true)}
-          className="edge-lit animate-rise absolute bottom-[calc(0.75rem+var(--transcript-bottom-inset,0px))] left-1/2 flex -translate-x-1/2 items-center gap-1.5 rounded-full border border-line-strong bg-overlay px-3 py-1 text-[11px] text-ink-mid transition-colors hover:text-ink"
+          className="edge-lit animate-rise absolute bottom-[calc(0.75rem+var(--transcript-bottom-inset,0px))] left-1/2 flex -translate-x-1/2 items-center gap-1.5 rounded-full border border-line-strong bg-overlay px-3 py-1 text-xs text-ink-mid transition-colors hover:text-ink"
         >
           <svg
             viewBox="0 0 16 16"
