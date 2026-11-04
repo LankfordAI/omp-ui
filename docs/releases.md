@@ -4,16 +4,7 @@ This guide explains what users receive from a release and how maintainers publis
 
 ## Unreleased
 
-- The sidebar's Working section now also holds sessions with a running background job, matching the row chip (#1026).
-- The composer's magic-keyword table has gained omp's fifth keyword, **chillax**, which drops thinking to the model's lowest effort for one message. It glows in the composer and colors the draft like the other four; before this, the word fired in omp without ever glowing here (#1027).
-- A bash tool card on omp 18.16 or later names the output minimizer that shrank a result and how far: a dim `Minimized: git 120.4KB → 3.2KB` under the card, the same line omp's own terminal shows (#1028).
-- **Open in VS Code** on the corner-tools card and a project's quick-open page now targets the instance holding the focused session's tab — a remote session opens its checkout over Remote-SSH instead of this computer's twin (#1036). *Open remote projects in VS Code over SSH* is on by default (amends [ADR-0083](adr/0083-remote-checkouts-open-in-local-vs-code-over-the-users-ssh.md)).
-- A **/btw** side question whose answer drafts a steering prompt now offers **inject into main session**: one click sends the draft as a steer while the tab is mid-turn, or as a new turn when it is idle, with retry on failure. Side questions now need omp 18.16 or later, which also becomes omp-ui's required omp version; older omp keeps rendering the answer as plain text (#1029).
-- **Settings → omp** has a **Composer predictions** section for omp's own terminal-UI ghost text: `composer.predictions` (omp 18.9+) and, while that reads on, `composer.predictionAlternatives` (omp 18.16+), which predicts up to four candidates instead of one. Binaries that publish no such key show no row (#1030).
-- When a missing provider credential makes omp run your prompt on a fallback model, the model chip now names the model actually running and turns copper with a tooltip saying why, until your pinned model serves again. Before, it kept naming the stale pin while turns ran elsewhere (#1032).
-- **Settings → Memory** lists `hindsight.globalScope` when your omp publishes it (omp 18.16+), and the memory overview shows whether global scope is effectively on beside the backend and scoping chips — so you can tell whether a `scope: "global"` memory will be recalled in this project (#1033).
-- Dormant sessions now show their real title in the sidebar and resume picker instead of *New session*: omp-ui gap-fills missing titles from omp's `history.db`, opened read-only for each read and never written back, so a title for a deleted session cannot leak into your registry (#1034).
-- The **Attention stack**: an agent reply that lands while a session is out of view raises a card in a digest above the main list, headed **Needs attention**, newest first. Opening the session, switching to its tab, or refocusing the window on it clears the mark; only ready and answer-waiting sessions join, and a flagged session shows once — its card, not a duplicate row. Session rows trade the status dot for an always-visible state band, and **Working** starts collapsed since waiting sessions surface as cards (#1037, #1038, #1039).
+Nothing since [v0.31.0](https://github.com/LankfordAI/omp-ui/releases/tag/v0.31.0). Add one bullet per shipped change here, citing its issue as `#N`; the release tag lifts these into Highlights.
 
 ## Choose a download
 
