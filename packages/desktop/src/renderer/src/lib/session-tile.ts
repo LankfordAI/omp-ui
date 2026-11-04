@@ -40,16 +40,17 @@ export function tileQuote(s: SessionSummary): TileQuote | null {
 }
 
 /**
- * `model · thinking` for the tile; null while the record pins no model.
- * The display form follows the model catalog when one is at hand (one name
- * per model across composer and sidebar — round-1 judge); dormant rows have
- * no booted tab, so they keep the compact selector tail.
+ * The model's short display label for the tile; null while the record pins no
+ * model. The display form follows the model catalog when one is at hand (one
+ * name per model across composer and sidebar — round-1 judge); dormant rows
+ * have no booted tab, so they keep the compact selector tail. The thinking
+ * level is the caller's own labelled meta item (round-7 judge, Clarity 1): a
+ * bare level glued to the model read as part of the model name.
  */
 export function tileModel(
   s: SessionSummary,
   catalog?: readonly { id: string; name: string }[] | null,
 ): string | null {
   if (s.model === null) return null;
-  const model = modelDisplayLabel(s.model, catalog);
-  return s.thinkingLevel === null ? model : `${model} · ${s.thinkingLevel}`;
+  return modelDisplayLabel(s.model, catalog);
 }

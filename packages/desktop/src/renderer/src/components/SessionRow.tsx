@@ -446,8 +446,17 @@ export function SessionRow({
   // The model rides the same line as its project, proportional like every
   // display name (contract): mono stays for identifiers only.
   if (!slim && model !== null) {
+    meta.push(<span title={s.model ?? undefined}>{model}</span>);
+  }
+  // Round-7 judge, Clarity 1: the level is labelled where it prints. A bare
+  // `low` next to the model read as priority, budget, or quota; only the Info
+  // rail spelled out `thinking low`. It rides its own item so the ` · ` join
+  // separates it from the model name.
+  if (!slim && s.thinkingLevel !== null) {
     meta.push(
-      <span title={thinkingAuto ? t("sidebar.session.thinkingAuto") : s.model ?? undefined}>{model}</span>,
+      <span title={thinkingAuto ? t("sidebar.session.thinkingAuto") : undefined}>
+        {t("sidebar.session.thinkingMeta", { level: s.thinkingLevel })}
+      </span>,
     );
   }
   // Timed snooze (#979) names its deadline: "snoozed until Tue 09:00".

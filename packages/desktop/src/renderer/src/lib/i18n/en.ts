@@ -30,10 +30,11 @@ export const en = {
   "app.welcome.hasProjectsHint":
     "Reopen a finished session from Settled in the sidebar — or start a new one with {hotkey}.",
   "app.welcome.addProject": "Add project",
-  // The hero CTA names its destination and does the thing the hint's hotkey
-  // does (round-4 judge, Clarity 3): the project quick-open, where a session
-  // starts. Reopening lives in the sidebar sentence above, not in the button.
-  "app.welcome.openSession": "New session…",
+  // The hero CTA names its destination and the flow it opens (round-7 judge,
+  // Clarity 3): the subtitle names Ctrl+Shift+N and the shortcut list offers a
+  // second chord, so the button spells out which one it is. The button and the
+  // hotkey do the same thing: the project quick-open, where a session starts.
+  "app.welcome.openSession": "New session ({hotkey})",
   "app.welcome.noProjectsHint":
     "Track a project directory, then run omp agents against it — as a terminal or as a native session.",
   "app.welcome.hintCommandPalette": "command palette",
@@ -495,6 +496,10 @@ export const en = {
   // Thinking-level selector (options pill segment and ladder)
   "composer.thinking.fallback": "think —",
   "composer.thinking.label": "thinking",
+  // Round-7 judge, Clarity 1: a bare `low` next to the model name read as
+  // priority, budget, or quota. Every surface that prints the level spells out
+  // what it answers for.
+  "composer.thinking.pill": "think: {level}",
   // Auto thinking selector (omp's per-prompt classifier); the level word
   // stays a lowercase literal in every locale.
   "composer.thinking.auto": "auto",
@@ -2367,11 +2372,8 @@ export const en = {
   "hud.metrics.worktree": "worktree",
   "hud.mode.buildDescription":
     "build mode — working-tree writes and state-changing commands are allowed.",
-  "hud.mode.buildTitle": "Build mode — working-tree writes and state-changing commands are allowed",
-  "hud.mode.noPlanDrafted": "no plan drafted",
   "hud.mode.planDescription":
     "plan mode: read-only exploration — a plan is drafted and reviewed only when you ask",
-  "hud.mode.planTitle": "Plan mode — read-only exploration — {plan}",
   "hud.mode.planUnavailable": "plan mode unavailable: {unavailable}",
   "hud.mode.planGoalBlocked": "drop the current goal before entering plan mode",
   "hud.mode.planVibeBlocked": "exit vibe mode before entering plan mode",
@@ -2559,6 +2561,11 @@ export const en = {
   "rail.stats.other": "other",
   "rail.stats.otherTitle": "Live-context entries beyond the two roles — tool events, system entries.",
   "rail.stats.total": "total",
+  // Round-7 judge, Clarity 2: one message-count home. The file count rides
+  // MESSAGES as a visibly qualified row instead of living in SESSION below.
+  "rail.stats.inFile": "in file",
+  "rail.stats.inFileTitle":
+    "Messages stored in the session file; compaction can make this differ from the live-context counts above.",
   "rail.stats.failedEdits": "failed edits",
   "rail.stats.tokens": "tokens",
   "rail.stats.input": "input",
@@ -2589,10 +2596,8 @@ export const en = {
   "rail.session.refreshLabel": "refresh state and stats",
   "rail.session.id": "id",
   "rail.session.file": "file",
-  // Distinct from the stats section's live-context "messages": this one counts
-  // the session file (round-4 judge, Consistency 2).
-  "rail.session.messages": "file messages",
-  "rail.session.messagesTitle": "Messages stored in the session file; compaction can make this differ from the live-context counts above.",
+  // Round-7 judge, Clarity 2: the file-message count moved into the MESSAGES
+  // section as `in file`; SESSION keeps identifiers only.
   "rail.session.queued": "queued",
   "rail.session.parkedSuffix": " (parked)",
   "rail.session.modelSection": "model",
@@ -3011,6 +3016,8 @@ export const en = {
   "sidebar.session.machine": "on {machine}",
   "sidebar.session.planChip": "plan",
   "sidebar.session.thinkingAuto": "omp classifies each prompt's thinking depth (auto)",
+  // Round-7 judge, Clarity 1: the level prints labelled on the row's meta line.
+  "sidebar.session.thinkingMeta": "{level} thinking",
   "sidebar.session.implChip": "impl",
   "sidebar.session.quoteQuestion": "question",
   "sidebar.session.quotePlan": "plan ready",

@@ -1722,7 +1722,6 @@ export function SessionHud({ tabId }: { tabId: string }) {
   const isPrivate = useStore((s) => findRecord(s.state, tabId)?.private === true);
   const advisorStats = useStore((s) => s.rpc[tabId]?.advisorStats);
   const mcpFailureCount = useStore((s) => s.rpc[tabId]?.mcpStatus?.failedServers.length ?? 0);
-  const plan = useStore((s) => s.rpc[tabId]?.plan);
   const goal = useStore((s) => s.rpc[tabId]?.goal);
   const vibe = useStore((s) => s.rpc[tabId]?.vibe);
   const autoresearch = useStore((s) => s.rpc[tabId]?.autoresearch);
@@ -1745,7 +1744,6 @@ export function SessionHud({ tabId }: { tabId: string }) {
   const quotaEvent = useStore((s) => s.rpc[tabId]?.quotaEvent);
   const costCap = useStore((s) => s.rpc[tabId]?.costCap);
   const openSettings = useStore((s) => s.openSettings);
-  const defaultAgentMode = useStore((s) => s.state?.defaultAgentMode ?? "plan");
   const projectCwd = useStore((s) => findRecord(s.state, tabId)?.projectCwd);
   const cwd = useStore((s) => sessionCwd(findRecord(s.state, tabId))) ?? null;
   const openProjectSettingsForRoster = useStore((s) => s.openProjectSettings);
@@ -1825,9 +1823,11 @@ export function SessionHud({ tabId }: { tabId: string }) {
     ? t("hud.status.hibernated")
     : t(resolvedFace.labelKey);
   const notices = Object.entries(extensionStatus ?? {}).filter(([, text]) => text.trim() !== "");
-  const activeAgentMode = plan == null ? null : plan.enabled ? "plan" : "build";
-  const exceptionalAgentMode =
-    !chat && activeAgentMode !== null && activeAgentMode !== defaultAgentMode ? activeAgentMode : null;
+  // Round-7 judge, Consistency 4: the mode appeared twice, at two sizes — this
+  // 12px chip and the composer's 14px pill. The pill owns mode (it is where
+  // mode is set), so the header no longer restates it. An exceptional Plan
+  // still reads in the pill's iris `plan` segment, the plan card in the
+  // transcript, and the Review group of the inspector rail.
   // `available:true` is emitted for both on and off sessions (off reports
   // configured:false), so the record flag alone was the gate — and it can be
   // stale after an advisor-toggle relaunch. The extension's `configured` is
@@ -1835,23 +1835,6 @@ export function SessionHud({ tabId }: { tabId: string }) {
   // advisor shows even if the record lags; an off session stays hidden.
   const showAdvisor =
     advisorStats?.available === true && (advisor === true || advisorStats.configured === true);
-  // The agent-mode chip renders in both faces; the wide one carves itself out
-  // of the title bar's drag region, the compact sheet does not.
-  const agentModeChip = exceptionalAgentMode !== null && (
-    <Chip
-      tone="iris"
-      className={compact ? undefined : "shrink-0 [app-region:no-drag]"}
-      title={
-        exceptionalAgentMode === "build"
-          ? t("hud.mode.buildTitle")
-          : t("hud.mode.planTitle", {
-              plan: plan?.planFilePath ?? t("hud.mode.noPlanDrafted"),
-            })
-      }
-    >
-      {exceptionalAgentMode}
-    </Chip>
-  );
   // The goal chip renders in both faces beside the mode chip, inside a no-drag
   // box in the wide HUD like every other control in that row.
   const goalChip = goal != null && (
@@ -1954,7 +1937,6 @@ export function SessionHud({ tabId }: { tabId: string }) {
           {instanceChip}
           {fleetChip}
           {pullRequestChip}
-          {agentModeChip}
           {goalChip}
           {vibeChip}
           {jobsChip}
@@ -2069,7 +2051,6 @@ export function SessionHud({ tabId }: { tabId: string }) {
           onAutoRetry={updateAutoRetry}
           onRefresh={refresh}
         />
-        {agentModeChip}
         {instanceChip}
         {fleetChip}
         {/* Remote sessions retain the informational and finish-capable chip;

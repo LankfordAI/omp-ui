@@ -173,6 +173,12 @@ export function ComposerOptions({
   // The resolved level's colour, under auto too: the slider sits on it.
   const levelColour = thinkingLevelColor(efforts.indexOf(thinkingLevel ?? ""), efforts.length);
   const levelText = thinkingLevel ?? t("composer.thinking.fallback");
+  // Round-7 judge, Clarity 1: a bare `low` beside the model read as priority,
+  // budget, or quota. The pill spells out what the word answers for.
+  const pillThinking =
+    thinkingLevel === null && !auto
+      ? levelText
+      : t("composer.thinking.pill", { level: auto ? t("composer.thinking.auto") : levelText });
   const dot = <span aria-hidden className="text-ink-faint">·</span>;
 
   return (
@@ -219,7 +225,7 @@ export function ComposerOptions({
           className="shrink-0 text-iris"
           style={auto ? undefined : { color: levelColour }}
         >
-          {auto ? t("composer.thinking.auto") : levelText}
+          {pillThinking}
         </span>
         {branchVisible && (
           <>

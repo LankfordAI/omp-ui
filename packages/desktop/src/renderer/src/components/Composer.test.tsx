@@ -358,7 +358,7 @@ describe("Composer auto thinking selector", () => {
     asDesktop();
     seedEfforts({ thinkingLevel: "xhigh", thinkingConfigured: "auto" });
     renderComposer();
-    expect(segment().textContent).toBe("auto");
+    expect(segment().textContent).toBe("think: auto");
     expect(segment().title).toContain("this turn: xhigh");
   });
 
@@ -366,7 +366,7 @@ describe("Composer auto thinking selector", () => {
     asDesktop();
     seedEfforts({ thinkingLevel: "medium", thinkingConfigured: null });
     renderComposer();
-    expect(segment().textContent).toBe("medium");
+    expect(segment().textContent).toBe("think: medium");
     expect(segment().title).toBe("");
   });
 

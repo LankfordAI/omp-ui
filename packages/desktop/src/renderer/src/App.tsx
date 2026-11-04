@@ -229,7 +229,7 @@ function Welcome() {
             {hasProjects ? (
               <>
                 <Button variant="solid" className="h-9 px-4" onClick={() => openProjectQuickOpen()}>
-                  {t("app.welcome.openSession")}
+                  {t("app.welcome.openSession", { hotkey: newSessionHotkey })}
                 </Button>
                 <Button variant="ghost" onClick={() => openProjectPicker()}>
                   {t("app.welcome.addProject")}
