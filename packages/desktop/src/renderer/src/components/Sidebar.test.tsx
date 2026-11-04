@@ -1451,7 +1451,7 @@ describe("Sidebar attention stack (issue #1037)", () => {
     expect(heading()).toBeNull();
   });
 
-  it("surfaces a flagged row hidden inside the collapsed Snoozed section", () => {
+  it("surfaces a flagged session with no row anywhere, card only (#1038)", () => {
     const parked = {
       ...state.projects[0]!.sessions[0]!,
       tabId: "parked",
@@ -1468,14 +1468,37 @@ describe("Sidebar attention stack (issue #1037)", () => {
     });
     act(() => useStore.getState().markUnread("parked", null));
     renderSidebar();
-    // The row itself is unreachable behind the collapsed section…
+    // The card is the session's only representation: no row in the main list,
+    // and the flagged-away-from view leaves the collapsed section with no
+    // rows of its own to hide.
+    expect(rowButton("parked")).toBeUndefined();
     const toggle = [...document.body.querySelectorAll<HTMLButtonElement>("button[aria-expanded]")].find((b) =>
       b.textContent?.startsWith("Snoozed"),
-    )!;
-    expect(toggle.getAttribute("aria-expanded")).toBe("false");
-    expect(rowButton("parked")).toBeUndefined();
-    // …while the card still heads the list.
+    );
+    expect(toggle).toBeUndefined();
     expect(cards()[0]!.textContent).toContain("parked");
+  });
+
+  it("a flagged session reads once: no duplicate main-list row while its card shows (#1038)", () => {
+    useStore.setState({ rpc: { "tab-2": rpcTabState({ status: "ready" }) } });
+    useStore.getState().markUnread("tab-2", null);
+    renderSidebar();
+    expect(cards()[0]!.textContent).toContain("Second owned session");
+    expect(rowButton("Second owned session")).toBeUndefined();
+    // The other (unflagged) session keeps its row next to the fence.
+    expect(rowButton("Owned session")).toBeDefined();
+    // Clearing the mark returns the row and retires the card.
+    act(() => useStore.getState().clearUnread("tab-2"));
+    expect(cards()).toHaveLength(0);
+    expect(rowButton("Second owned session")).toBeDefined();
+  });
+
+  it("fences the digest off from the main list below (#1039)", () => {
+    useStore.setState({ rpc: { "tab-1": rpcTabState({ status: "ready" }) } });
+    act(() => useStore.getState().markUnread("tab-1", null));
+    renderSidebar();
+    const g = heading();
+    expect(g?.className).toContain("border-line");
   });
 
   it("keeps showing cards while the search filter hides every row", () => {

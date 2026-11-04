@@ -73,6 +73,9 @@ export function buildSidebarLists(
   state: BackendState,
   query: string,
   backgroundWorkTabIds: ReadonlySet<string> = EMPTY_TAB_IDS,
+  /** Rows surfaced as attention-stack cards (#1038): suppressed from every
+   *  list while their card heads the stack, so a flagged session reads once. */
+  suppressTabIds: ReadonlySet<string> = EMPTY_TAB_IDS,
 ): SidebarLists {
   const entries: SidebarEntry[] = [];
 
@@ -140,6 +143,11 @@ export function buildSidebarLists(
   const settled: SidebarEntry[] = [];
   for (const entry of kept) {
     const s = entry.session;
+    // A flagged session reads once (#1038): the caller suppresses exactly the
+    // tabIds whose card heads the stack, so the row returns when the mark
+    // clears. Marked-but-working sessions are not in the set — no card, row
+    // stays where its state puts it.
+    if (suppressTabIds.has(s.tabId)) continue;
     // A live pinned session stays in Pinned mid-turn and snoozed: the pin is
     // the user's "keep this in view" (issue #981). Settled still wins — a pin
     // without a process files below with the rest, and returns on resume. An

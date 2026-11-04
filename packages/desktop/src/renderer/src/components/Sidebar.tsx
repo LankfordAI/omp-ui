@@ -538,10 +538,6 @@ export function Sidebar() {
     () => new Set(bgWorkKey === "" ? [] : bgWorkKey.split(",")),
     [bgWorkKey],
   );
-  const lists = useMemo(
-    () => (state === null ? null : buildSidebarLists(state, query, backgroundWorkTabIds)),
-    [state, query, backgroundWorkTabIds],
-  );
   // The attention stack (#1037): flagged sessions whose reply is still unseen.
   // Entries held by a collapsed Working/Snoozed/Settled section, or hidden by
   // the search filter, still surface here — the stack ignores the query.
@@ -553,6 +549,18 @@ export function Sidebar() {
         ? []
         : buildAttentionEntries(state, unread, (s) => deriveSidebarSessionState(s, rpcTabs[s.tabId])),
     [state, unread, rpcTabs],
+  );
+  // A session reads once (#1038): while its card heads the stack, its row is
+  // suppressed from every list below — otherwise a fresh flag looks like a
+  // second session appearing. Marked-but-working sessions hold no card and
+  // keep their row.
+  const attentionTabIds = useMemo(
+    () => new Set(attention.map((a) => a.entry.session.tabId)),
+    [attention],
+  );
+  const lists = useMemo(
+    () => (state === null ? null : buildSidebarLists(state, query, backgroundWorkTabIds, attentionTabIds)),
+    [state, query, backgroundWorkTabIds, attentionTabIds],
   );
   // The rows a Shift+click range walks, per section, in display order.
   const sectionEntries = useMemo(

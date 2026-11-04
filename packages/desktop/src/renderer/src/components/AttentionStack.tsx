@@ -24,7 +24,9 @@ export function AttentionStack({
   const openSession = useStore((st) => st.openSession);
   if (entries.length === 0) return null;
   return (
-    <div role="group" aria-label={t("sidebar.attention.heading", { n: entries.length })} className="space-y-1">
+    // Fenced like every other sidebar boundary (#1039): the rule below keeps
+    // the digest from reading as the head of the main list it sits atop.
+    <div role="group" aria-label={t("sidebar.attention.heading", { n: entries.length })} className="space-y-1 border-b border-line pb-1.5">
       <div className="px-1.5 pt-1 pb-0.5 font-mono text-[10px] uppercase text-ink-faint">
         {t("sidebar.attention.heading", { n: entries.length })}
       </div>
