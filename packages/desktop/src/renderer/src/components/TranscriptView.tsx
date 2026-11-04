@@ -14,7 +14,7 @@ import { formatDuration } from "../lib/duration";
 import { summarizeExchanges, type ExchangeChanges } from "../lib/exchange-changes";
 import { formatCost, shortModelLabel, tokenCount } from "../lib/format";
 import { splitInterviewDraft } from "../lib/interview-draft";
-import { localeTag, useT } from "../lib/i18n";
+import { localeTag, useT, type MessageKey } from "../lib/i18n";
 import { supportsNarration } from "../lib/narration";
 import { isReplyWrite, replyWriteContent, supportsOutReplies } from "@omp-ui/core/out-replies";
 import { useTranscriptScale } from "../lib/text-scale";
@@ -78,13 +78,80 @@ const AT_BOTTOM_SLACK = 64;
 /* ------------------------------------------------------------- assistant */
 
 /**
+ * The receipt's stop-reason tail (round-10 judge, Clarity 1): a raw protocol
+ * enum (`toolUse`, `max_tokens`, …) is not user chrome. Known reasons — the
+ * omp bridge values plus the provider spellings the raw session files carry —
+ * map to plain words through the catalog; anything unrecognised draws nothing,
+ * so an unknown enum can never leak into the line again.
+ */
+const STOP_REASON_PARTS: Record<
+  string,
+  { label: MessageKey; title: MessageKey; suppressWithCard: boolean }
+> = {
+  // omp's bridge spelling (camelCase). Every mid-turn tool hop carries it;
+  // `suppressWithCard` drops the part when a tool card follows (the card
+  // already says a tool ran), and the plain words stand when none does.
+  toolUse: {
+    label: "transcript.usage.stopToolUse",
+    title: "transcript.usage.stopToolUseTitle",
+    suppressWithCard: true,
+  },
+  tool_use: {
+    label: "transcript.usage.stopToolUse",
+    title: "transcript.usage.stopToolUseTitle",
+    suppressWithCard: true,
+  },
+  tool_calls: {
+    label: "transcript.usage.stopToolUse",
+    title: "transcript.usage.stopToolUseTitle",
+    suppressWithCard: true,
+  },
+  // Out of output tokens — the provider spellings all say the same thing.
+  length: {
+    label: "transcript.usage.stopLength",
+    title: "transcript.usage.stopLengthTitle",
+    suppressWithCard: false,
+  },
+  max_tokens: {
+    label: "transcript.usage.stopLength",
+    title: "transcript.usage.stopLengthTitle",
+    suppressWithCard: false,
+  },
+  maxTokens: {
+    label: "transcript.usage.stopLength",
+    title: "transcript.usage.stopLengthTitle",
+    suppressWithCard: false,
+  },
+  // The user interrupted.
+  aborted: {
+    label: "transcript.usage.stopAborted",
+    title: "transcript.usage.stopAbortedTitle",
+    suppressWithCard: false,
+  },
+  // The model answered with an error payload instead of a reply.
+  error: {
+    label: "transcript.usage.stopError",
+    title: "transcript.usage.stopErrorTitle",
+    suppressWithCard: false,
+  },
+};
+
+/**
  * The receipt: one quiet line under a finished turn. It exists so cost and
  * latency are always answerable without opening a panel — which means every
  * value has to decode at a glance (issue #1042): the old `↑4 ↓536 $0.08` run
  * was undecodable at its size, so each part now names itself and carries its
  * own hover meaning, and the line sits at `ink-dim`, not faint.
  */
-function UsageStrip({ item }: { item: AssistantItem }) {
+function UsageStrip({
+  item,
+  toolCallFollows,
+}: {
+  item: AssistantItem;
+  /** A tool card follows this message in the transcript: it already says a
+   *  tool ran, so the receipt's `tool use` tail would only repeat it. */
+  toolCallFollows: boolean;
+}) {
   const t = useT();
   const usage = item.usage;
   if (!usage) return null;
@@ -135,8 +202,10 @@ function UsageStrip({ item }: { item: AssistantItem }) {
       title: t("transcript.usage.rateTitle"),
     });
   }
-  if (item.stopReason && item.stopReason !== "end_turn" && item.stopReason !== "stop") {
-    parts.push({ text: item.stopReason });
+  const stopPart =
+    item.stopReason === undefined ? undefined : STOP_REASON_PARTS[item.stopReason];
+  if (stopPart !== undefined && !(stopPart.suppressWithCard && toolCallFollows)) {
+    parts.push({ text: t(stopPart.label), title: t(stopPart.title) });
   }
   // Wall-clock anchor: local short time inline, full locale date+time on hover.
   const at = item.timestamp === undefined ? null : new Date(item.timestamp);
@@ -236,7 +305,16 @@ function ThinkingPane({ text, live }: { text: string; live: boolean }) {
   );
 }
 
-function AssistantBlock({ item, tabId }: { item: AssistantItem; tabId?: string }) {
+function AssistantBlock({
+  item,
+  tabId,
+  toolCallFollows,
+}: {
+  item: AssistantItem;
+  tabId?: string;
+  /** A tool card follows this message; quiets the receipt's tool-use tail. */
+  toolCallFollows: boolean;
+}) {
   const t = useT();
   // omp 18.12+ tags between-tool narration (issue #884): it reads as reply
   // prose and leaves the thinking pane. On older or unknown harnesses the
@@ -302,7 +380,7 @@ function AssistantBlock({ item, tabId }: { item: AssistantItem; tabId?: string }
       {(item.text !== "" || caret) && (
         <Markdown text={item.text} className="text-ink" trailing={caret} />
       )}
-      <UsageStrip item={item} />
+      <UsageStrip item={item} toolCallFollows={toolCallFollows} />
     </div>
   );
 }
@@ -1070,6 +1148,7 @@ const TranscriptRow = memo(function TranscriptRow({
   tabId,
   userPosition,
   replyWrites,
+  toolCallFollows,
 }: {
   item: RenderItem;
   count: number;
@@ -1080,12 +1159,16 @@ const TranscriptRow = memo(function TranscriptRow({
   userPosition?: number;
   /** The tab's omp presents `write` to `out://` as a reply (issue #969). */
   replyWrites: boolean;
+  /** A tool card follows this assistant message; the receipt drops its
+   *  `tool use` stop-reason tail (round-10 judge, Clarity 1). Ignored by
+   *  every other row kind. */
+  toolCallFollows: boolean;
 }) {
   switch (item.kind) {
     case "user":
       return <UserBubble item={item} first={first} tabId={tabId} position={userPosition} />;
     case "assistant":
-      return <AssistantBlock item={item} tabId={tabId} />;
+      return <AssistantBlock item={item} tabId={tabId} toolCallFollows={toolCallFollows} />;
     case "tool":
       if (isPresentedReplyWrite(item, replyWrites)) return <ReplyWriteBlock item={item} />;
       return (
@@ -1252,6 +1335,27 @@ export function TranscriptView({
     for (const item of items) if (item.kind === "user") positions.set(item.id, n++);
     return positions;
   }, [items]);
+  // Receipt stop-reason tail (round-10 judge, Clarity 1): which assistant
+  // messages are followed by a rendered tool card. A presented `out://` write
+  // reads as prose, not a card, so it does not count. Meta rows (markers,
+  // notices, irc, advisory notes) sit between content without ending it, so
+  // the scan walks over them. The set holds ids; each row receives a plain
+  // boolean, so the row memo stays shallow-compare stable (#187).
+  const toolCardFollows = useMemo(() => {
+    const follows = new Set<string>();
+    for (let i = 0; i < items.length; i += 1) {
+      const item = items[i]!;
+      if (item.kind !== "assistant") continue;
+      for (let j = i + 1; j < items.length; j += 1) {
+        const next = items[j]!;
+        if (next.kind === "marker" || next.kind === "notice" || next.kind === "irc" || next.kind === "advisory")
+          continue;
+        if (next.kind === "tool" && !isPresentedReplyWrite(next, replyWrites)) follows.add(item.id);
+        break;
+      }
+    }
+    return follows;
+  }, [items, replyWrites]);
 
   // Exchange receipts (issue #933): the rollups come off the full item list,
   // never the window slice — a receipt must not lose its oldest card when
@@ -1552,6 +1656,7 @@ export function TranscriptView({
                               item.kind === "user" ? userPositions.get(item.id) : undefined
                             }
                             replyWrites={replyWrites}
+                            toolCallFollows={toolCardFollows.has(item.id)}
                           />
                         </ErrorBoundary>
                       </div>

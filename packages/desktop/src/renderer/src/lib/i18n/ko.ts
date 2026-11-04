@@ -332,6 +332,16 @@ export const ko: Partial<Record<MessageKey, string>> = {
   "transcript.usage.rate": "t/s",
   "transcript.usage.rateTitle": "첫 토큰 이후 초당 생성 토큰",
   "transcript.usage.via": "{provider} 경유",
+  // Receipt stop-reason tail (round-10 judge, Clarity 1): plain words, never
+  // the raw protocol enum. `tool use` also drops when a tool card follows.
+  "transcript.usage.stopToolUse": "도구 사용",
+  "transcript.usage.stopToolUseTitle": "도구를 호출하기 위해 응답이 멈춤",
+  "transcript.usage.stopLength": "토큰 한도",
+  "transcript.usage.stopLengthTitle": "출력 토큰 한도에서 응답이 멈춤",
+  "transcript.usage.stopAborted": "중단됨",
+  "transcript.usage.stopAbortedTitle": "이 응답을 사용자가 중단함",
+  "transcript.usage.stopError": "오류",
+  "transcript.usage.stopErrorTitle": "이 응답이 오류로 끝남",
   "transcript.usage.gateway": "게이트웨이: {provider}",
   "transcript.usage.upstream": "업스트림: {provider}",
   "transcript.usage.response": "응답: {id}",

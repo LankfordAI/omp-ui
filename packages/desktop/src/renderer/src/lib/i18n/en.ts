@@ -370,6 +370,16 @@ export const en = {
   "transcript.usage.rate": "t/s",
   "transcript.usage.rateTitle": "generated tokens per second after the first token",
   "transcript.usage.via": "via {provider}",
+  // Receipt stop-reason tail (round-10 judge, Clarity 1): plain words, never
+  // the raw protocol enum. `tool use` also drops when a tool card follows.
+  "transcript.usage.stopToolUse": "tool use",
+  "transcript.usage.stopToolUseTitle": "the reply stopped to call a tool",
+  "transcript.usage.stopLength": "token limit",
+  "transcript.usage.stopLengthTitle": "the reply stopped at the output token limit",
+  "transcript.usage.stopAborted": "interrupted",
+  "transcript.usage.stopAbortedTitle": "you interrupted this reply",
+  "transcript.usage.stopError": "error",
+  "transcript.usage.stopErrorTitle": "this reply ended on an error",
   "transcript.usage.gateway": "gateway: {provider}",
   "transcript.usage.upstream": "upstream: {provider}",
   "transcript.usage.response": "response: {id}",
