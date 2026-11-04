@@ -1,5 +1,5 @@
 import { ASYNC_JOBS_SNAPSHOT_VERSION, type AsyncJob, type AsyncJobsSnapshot } from "@omp-ui/core/async-jobs";
-import { describe, expect, it, vi } from "vitest";
+import { beforeEach, describe, expect, it, vi } from "vitest";
 import type {
   BackendState,
   BranchList,
@@ -429,6 +429,50 @@ describe("deriveSidebarSessionState", () => {
         undefined,
       ),
     ).toBe("ready");
+  });
+});
+
+describe("needs-attention raise on message_end (issue #1037)", () => {
+  // The out-of-view gate reads document.hasFocus()/document.hidden when a DOM
+  // exists; these tests run under node, where the predicate's missing-DOM
+  // branch treats every tab as out-of-view. Tests that need the in-view
+  // answer stub the globals explicitly.
+  beforeEach(() => {
+    h.useStore.setState({ unread: {}, activeTabId: null });
+  });
+
+  it("marks an assistant reply landing while another tab holds focus", () => {
+    h.useStore.setState({ rpc: { [h.TAB]: rpcTabState() }, activeTabId: "tab-other" });
+    h.useStore.getState().handleRpcFrame(h.TAB, {
+      type: "message_end",
+      message: { role: "assistant", content: [{ type: "text", text: " the answer " }] },
+    });
+    const mark = h.useStore.getState().unread[h.TAB];
+    expect(mark).toEqual({ atMs: expect.any(Number), snippet: "the answer" });
+    expect(JSON.parse(h.storageMap["omp-ui.unreadSessions"])).toEqual({ [h.TAB]: mark.atMs });
+  });
+
+  it("does not mark the active tab while the window is focused and visible", () => {
+    vi.stubGlobal("document", { hasFocus: () => true, hidden: false });
+    try {
+      h.useStore.setState({ rpc: { [h.TAB]: rpcTabState() }, activeTabId: h.TAB });
+      h.useStore.getState().handleRpcFrame(h.TAB, {
+        type: "message_end",
+        message: { role: "assistant", content: "seen live" },
+      });
+      expect(h.useStore.getState().unread[h.TAB]).toBeUndefined();
+    } finally {
+      vi.unstubAllGlobals();
+    }
+  });
+
+  it("never marks a user-role message_end", () => {
+    h.useStore.setState({ rpc: { [h.TAB]: rpcTabState() }, activeTabId: "tab-other" });
+    h.useStore.getState().handleRpcFrame(h.TAB, {
+      type: "message_end",
+      message: { role: "user", content: "prompt echo" },
+    });
+    expect(h.useStore.getState().unread).toEqual({});
   });
 });
 

@@ -122,11 +122,28 @@ _Avoid_: bulk mode, batch bar, multi-edit
 The sidebar's collapsible section holding every live session currently inside
 a turn (`SessionSummary.turnRunning === true`) that is not blocked on the user,
 newest open first. Always shown, reading Working (0) when idle, and sits
-directly above **Settled**. A terminal (pty) session never reports a turn
-latch, so it never leaves the main list for **Working**. A session waiting on
-a plan review or a blocking dialog (`pendingPlan` / `awaitingHumanAnswer`)
-leaves **Working** for the main list until it is answered.
+directly above **Settled**. Collapsed by default since #1037 (like
+**Settled**); the open/closed choice persists locally, and a non-empty sidebar
+search shows it expanded without changing that choice. A terminal (pty)
+session never reports a turn latch, so it never leaves the main list for
+**Working**. A session waiting on a plan review or a blocking dialog
+(`pendingPlan` / `awaitingHumanAnswer`) leaves **Working** for the main list
+until it is answered.
 _Avoid_: busy section, running section
+
+**Attention stack**:
+The sidebar's digest above the main list of sessions holding an agent reply
+the window has not seen: a boolean per-session mark, raised when an assistant
+reply arrives while the session is out of view (its tab is not both the active
+tab and inside a focused, visible window — the same gate the desktop
+notification uses) and cleared wholesale by opening the session, activating
+its tab, or refocusing the window on it. Only **ready** and answer-waiting
+sessions join the stack; a mid-turn session hides its mark until its turn
+ends, and a **Settled** session holds none. The stack hides entirely when
+empty, lists newest reply first with the row's state band and verb, and opens
+the session on click. The mark is renderer-local view state — never a count,
+never on the session record, never synced across renderers (issue #1037).
+_Avoid_: inbox, unread list, needs-you
 
 **Snoozed session**:
 An owned session the user parked through its sidebar row's context menu

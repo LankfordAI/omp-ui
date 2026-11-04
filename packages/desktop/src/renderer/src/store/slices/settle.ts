@@ -77,6 +77,9 @@ export function createSettleSlice(set: SetState, get: GetState): SettleSlice {
           try {
             if (await backend.settleSession(target.tabId)) {
               settled.push(target);
+              // A settled session holds no unread (#1037): its replies are
+              // done with, and the row leaves every attention surface.
+              get().clearUnread(target.tabId);
               // killShell detaches the drawer program first, so no shell:exit retires the handoff.
               set((s) => ({ tuiHandoff: dropTuiHandoff(s.tuiHandoff, target.tabId) }));
             } else {
@@ -141,6 +144,9 @@ export function createSettleSlice(set: SetState, get: GetState): SettleSlice {
       // event reaches every renderer of the owning host and every joiner; each
       // keeps its own undo entry, and Undo resumes through the normal path.
       if (sessions.length === 0) return;
+      // Invariant (#1037): a dead session holds no unread — the host reaped
+      // these rows, so any mark this renderer held for them is stale.
+      for (const s of sessions) get().clearUnread(s.tabId);
       const entry: SettleUndoEntry = {
         id: randomId(),
         cause: "merged",

@@ -1383,6 +1383,9 @@ export function createLifecycleSlice(
    * refused up front instead of surfacing the proxy's rejection (issue #416).
    */
   const openSession = async (tabId: string): Promise<void> => {
+    // Opening/draining a session is the wholesale clear: every unseen reply
+    // becomes seen, whether or not the tab ends up focused afterwards (#1037).
+    get().clearUnread(tabId);
     const existing = get().tabs.find((t) => t.tabId === tabId);
     if (existing) {
       // Live session → resurface its tab, never respawn (omp has no

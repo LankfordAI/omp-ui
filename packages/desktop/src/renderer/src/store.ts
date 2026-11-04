@@ -45,6 +45,10 @@ import { createSettingsSlice } from "./store/slices/settings";
 import { createSettleSlice } from "./store/slices/settle";
 import { createSessionBulkSlice } from "./store/slices/session-bulk";
 import { createSubagentControlSlice } from "./store/slices/subagent-control";
+import {
+  createUnreadSlice,
+  installUnreadViewListeners,
+} from "./store/slices/unread";
 import { createAsyncJobsSlice } from "./store/slices/async-jobs";
 import {
   browserPaneWriters,
@@ -407,6 +411,16 @@ export const useStore = create<UiStore>()((set, get, api) => {
     syncLocale(state);
     reconcilePlanGates(state);
     reconcileBridgeAvailability(state);
+    // A deleted session holds no mark (issue #1037): the registry is the
+    // truth, and only local rows ever raise, so local tabIds are the live set.
+    if (Object.keys(get().unread).length > 0) {
+      const liveTabIds = new Set<string>();
+      for (const group of state.projects) {
+        for (const session of group.sessions) liveTabIds.add(session.tabId);
+      }
+      for (const chat of state.chats) liveTabIds.add(chat.tabId);
+      get().pruneUnread(liveTabIds);
+    }
     sessionParams.reconcilePendingDialogs(state);
     rpcCommandSlice.reconcileGoals(state);
     rpcCommandSlice.reconcileAutoresearch(state);
@@ -417,6 +431,7 @@ export const useStore = create<UiStore>()((set, get, api) => {
 
   return {
     ...createViewSlice(set, get, api),
+    ...createUnreadSlice(set, get, api),
     ...createSettingsSlice(set, get, api),
     ...createUpdatesSlice(set, get, api),
     ...lifecycle,
@@ -553,6 +568,10 @@ export const useStore = create<UiStore>()((set, get, api) => {
       // takes the audio back (#810); installed beside the mic guard so the
       // first transition it sees is post-restore, same rationale.
       installLiveReplayGuards(api);
+      // The Needs-attention stack (issue #1037): returning focus or visibility
+      // to this window clears the viewed tab's mark, the same subscriber
+      // grouping as the guards above so the first event it sees is post-restore.
+      installUnreadViewListeners(get);
       // A closing or reloading renderer ends the calls whose peer it owns
       // (#968): the session host would otherwise keep a dead call open.
       window.addEventListener("pagehide", stopOwnedLiveCallsForUnload, { once: true });

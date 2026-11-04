@@ -1,4 +1,5 @@
 import type { BackendState, SessionSummary } from "@omp-ui/core/types";
+import type { UnreadMark } from "../store/slices/unread";
 import { NO_HANDOFF, resolveSessionHandoffs, type SessionHandoff } from "./session-handoffs";
 
 export interface SidebarEntry {
@@ -72,6 +73,9 @@ export function buildSidebarLists(
   state: BackendState,
   query: string,
   backgroundWorkTabIds: ReadonlySet<string> = EMPTY_TAB_IDS,
+  /** Rows surfaced as attention-stack cards (#1038): suppressed from every
+   *  list while their card heads the stack, so a flagged session reads once. */
+  suppressTabIds: ReadonlySet<string> = EMPTY_TAB_IDS,
 ): SidebarLists {
   const entries: SidebarEntry[] = [];
 
@@ -139,6 +143,11 @@ export function buildSidebarLists(
   const settled: SidebarEntry[] = [];
   for (const entry of kept) {
     const s = entry.session;
+    // A flagged session reads once (#1038): the caller suppresses exactly the
+    // tabIds whose card heads the stack, so the row returns when the mark
+    // clears. Marked-but-working sessions are not in the set — no card, row
+    // stays where its state puts it.
+    if (suppressTabIds.has(s.tabId)) continue;
     // A live pinned session stays in Pinned mid-turn and snoozed: the pin is
     // the user's "keep this in view" (issue #981). Settled still wins — a pin
     // without a process files below with the rest, and returns on resume. An
@@ -175,4 +184,60 @@ export function buildSidebarLists(
   // reordering). Stable sort: equal stamps keep open order.
   pinned.sort((a, b) => (a.session.pinnedAtMs as number) - (b.session.pinnedAtMs as number));
   return { pinned, active, working, snoozed, settled };
+}
+
+/** One attention-stack card (#1037): a flagged session, its mark, and the
+ *  derived state the filter proved it in. */
+export interface AttentionEntry {
+  entry: SidebarEntry;
+  mark: UnreadMark;
+  /** Derived sidebar state at build time; the filter guarantees one of ready/awaiting-answer. */
+  state: "ready" | "awaiting-answer";
+}
+
+/**
+ * The attention stack (issue #1037): every flagged local session whose
+ * derived state is still `ready` or `awaiting-answer` — a mark on a session
+ * that went back to work (or died) waits for the next unseen reply. Entries
+ * are built exactly like `buildSidebarLists`' local-instance branch.
+ * Remote-instance rows are structurally excluded: no frames flow
+ * cross-instance, so a remote row is never marked. The stack is unfiltered by
+ * the sidebar search query on purpose — a flagged session surfaces even while
+ * the user is filtering or a section is collapsed. `derive` is the caller's
+ * `deriveSidebarSessionState`: passed in at the call site so this lib keeps a
+ * type-only (never runtime) dependency on the store slice. Newest mark first.
+ */
+export function buildAttentionEntries(
+  state: BackendState,
+  unread: Readonly<Record<string, UnreadMark>>,
+  derive: (s: SessionSummary) => string,
+): AttentionEntry[] {
+  const out: AttentionEntry[] = [];
+  const visit = (session: SessionSummary, projectName: string | null): void => {
+    const mark = unread[session.tabId];
+    if (mark === undefined) return;
+    // `derive` answers with the wide state union; a plain inequality guard
+    // cannot narrow `string`, so map the two kept states explicitly.
+    const derived = derive(session);
+    const kept = derived === "ready" ? "ready" : derived === "awaiting-answer" ? "awaiting-answer" : null;
+    if (kept === null) return;
+    out.push({
+      entry: {
+        session,
+        instanceId: null,
+        nickname: null,
+        projectName,
+        reachable: true,
+        handoff: NO_HANDOFF,
+      },
+      mark,
+      state: kept,
+    });
+  };
+  for (const group of state.projects) {
+    for (const session of group.sessions) visit(session, group.project.name);
+  }
+  for (const session of state.chats) visit(session, null);
+  out.sort((a, b) => b.mark.atMs - a.mark.atMs);
+  return out;
 }

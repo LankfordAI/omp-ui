@@ -2886,6 +2886,9 @@ export const en = {
   "project.settings.knowledgeBroken":
     "Vault {name} is no longer registered. Pick another vault; until then the agent writes nothing to a vault.",
 
+  "sidebar.attention.heading": "Needs attention ({n})",
+  "sidebar.attention.fallback": "The agent posted a new reply.",
+
   "sidebar.status.workingLabel": "working",
   "sidebar.status.workingTitle": "Agent is working",
   "sidebar.status.answerLabel": "answer needed",
