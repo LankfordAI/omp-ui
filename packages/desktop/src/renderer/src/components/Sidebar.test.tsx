@@ -5,6 +5,7 @@ import { afterEach, beforeEach, describe, expect, it, vi } from "vitest";
 import { ASYNC_JOBS_SNAPSHOT_VERSION, type AsyncJobsSnapshot } from "@omp-ui/core/async-jobs";
 import type { BackendState, OmpUpdateState, RemoteInstanceSummary, SessionSummary } from "@omp-ui/core/types";
 import { backendState, remoteInstance, rpcTabState } from "../test/fixtures";
+import { t } from "../lib/i18n";
 import { setSettledOpen } from "../lib/sidebar-settled";
 import { setSidebarSectionOpen } from "../lib/sidebar-section-open";
 import { SIDEBAR_DEFAULT_WIDTH } from "../lib/panel-layout";
@@ -818,6 +819,8 @@ describe("Sidebar remote instances (issue #416)", () => {
   // client never mounted the tab, so no rpc[tabId] edge exists; only the
   // host's published turn level can mark the row working.
   it("marks a remote native row working from the host's turn level alone", () => {
+    // The row lives in Working, collapsed by default since #1037: open it.
+    act(() => setSidebarSectionOpen("omp-ui.sidebarWorkingOpen", true));
     const running = {
       ...remoteGroup,
       sessions: remoteGroup.sessions.map((s, i) =>
@@ -835,7 +838,9 @@ describe("Sidebar remote instances (issue #416)", () => {
     renderSidebar();
     const section = remoteRow();
     expect(section.textContent).toContain("working");
-    expect(section.querySelector('[title="Agent is working"]')).not.toBeNull();
+    // #1037: the state's hover text now rides the status band, a sibling of
+    // the row button inside the row container.
+    expect(section.parentElement!.querySelector('[title="Agent is working"]')).not.toBeNull();
   });
 
   // Issue #436: same symptom for the answer latch — the client never mounted
@@ -859,7 +864,8 @@ describe("Sidebar remote instances (issue #416)", () => {
     renderSidebar();
     const section = remoteRow();
     expect(section.textContent).toContain("answer needed");
-    expect(section.querySelector('[title="Agent is waiting for your answer"]')).not.toBeNull();
+    // #1037: same band move as the working-row case above.
+    expect(section.parentElement!.querySelector('[title="Agent is waiting for your answer"]')).not.toBeNull();
   });
 });
 
@@ -1036,7 +1042,10 @@ describe("Sidebar Working and Snoozed sections (issue #935)", () => {
     backendMock.setSnoozedSectionEnabled.mockClear();
   });
 
-  it("renders Working (n), open by default, and moves an in-turn live row into it", () => {
+  it("renders Working (n), opens on demand, and moves an in-turn live row into it", () => {
+    // #1037: Working starts collapsed now — a test that wants its rows
+    // visible must open the section itself.
+    act(() => setSidebarSectionOpen("omp-ui.sidebarWorkingOpen", true));
     useStore.setState({ state: stateWith([sess("busy", { turnRunning: true })]) });
     renderSidebar();
     const toggle = sectionToggle("Working")!;
@@ -1135,6 +1144,9 @@ describe("Sidebar Working and Snoozed sections (issue #935)", () => {
   });
 
   it("expands every section while filtering and sums all four lists in the count badge", () => {
+    // #1037: Working is collapsed by default; open it first so the collapse
+    // click below flips a known state. Snoozed is collapsed by default too.
+    act(() => setSidebarSectionOpen("omp-ui.sidebarWorkingOpen", true));
     useStore.setState({
       state: stateWith(
         [
@@ -1147,7 +1159,6 @@ describe("Sidebar Working and Snoozed sections (issue #935)", () => {
       ),
     });
     renderSidebar();
-    // Collapse Working (open by default); Snoozed is collapsed by default.
     act(() => sectionToggle("Working")!.click());
     expect(sectionToggle("Working")!.getAttribute("aria-expanded")).toBe("false");
     expect(sectionToggle("Snoozed")!.getAttribute("aria-expanded")).toBe("false");
@@ -1240,6 +1251,8 @@ describe("Sidebar Working and Snoozed sections (issue #935)", () => {
       agents: [],
       result: null,
     };
+    // #1037: Working starts collapsed; open it to see the row land inside.
+    act(() => setSidebarSectionOpen("omp-ui.sidebarWorkingOpen", true));
     useStore.setState({
       state: stateWith([sess("bgwork", { turnRunning: false })]),
       rpc: { bgwork: rpcTabState({ asyncJobs: runningSnapshot }) },
@@ -1364,5 +1377,118 @@ describe("Sidebar multi-select (issue #988)", () => {
     expect(backendMock.settleSession).toHaveBeenCalledWith("b");
     // Acting clears the selection.
     expect(selected()).toEqual([]);
+  });
+});
+
+// Issue #1037: unseen replies surface as attention-stack cards above the
+// list — even while the row itself hides in a collapsed section or behind
+// the search filter. The stack ignores the query on purpose.
+describe("Sidebar attention stack (issue #1037)", () => {
+  const heading = (): HTMLElement | null =>
+    document.body.querySelector<HTMLElement>('[role="group"][aria-label^="Needs attention"]');
+  const cards = (): HTMLButtonElement[] => [...(heading()?.querySelectorAll<HTMLButtonElement>("button") ?? [])];
+  const rowButton = (title: string): HTMLButtonElement | undefined =>
+    [...document.body.querySelectorAll<HTMLButtonElement>("button[title]")].find((b) => b.title === title);
+  const setFilter = (value: string): void => {
+    const input = document.body.querySelector<HTMLInputElement>('input[aria-label="filter sessions"]')!;
+    const setter = Object.getOwnPropertyDescriptor(HTMLInputElement.prototype, "value")!.set!;
+    act(() => {
+      setter.call(input, value);
+      input.dispatchEvent(new Event("input", { bubbles: true }));
+    });
+  };
+
+  beforeEach(() => {
+    // The global harness reset does not know about the unread slice.
+    useStore.setState({ unread: {} });
+  });
+
+  it("heads the list with Needs attention (n), newest mark first, snippet or fallback", () => {
+    // tab-2 answers from the host-published latch alone; tab-1 reads ready
+    // only through its own tab status.
+    useStore.setState({
+      state: backendState({
+        projects: [
+          {
+            ...state.projects[0]!,
+            sessions: [
+              state.projects[0]!.sessions[0]!,
+              { ...state.projects[0]!.sessions[1]!, awaitingHumanAnswer: true },
+            ],
+          },
+        ],
+      }),
+      rpc: { "tab-1": rpcTabState({ status: "ready" }) },
+    });
+    // Backdate the first mark so card order (newest first) is deterministic.
+    const now = Date.now();
+    const clock = vi.spyOn(Date, "now").mockReturnValue(now - 60_000);
+    useStore.getState().markUnread("tab-1", null);
+    clock.mockRestore();
+    useStore.getState().markUnread("tab-2", "Which DB?");
+    renderSidebar();
+    expect(heading()?.getAttribute("aria-label")).toBe("Needs attention (2)");
+    const list = cards();
+    expect(list).toHaveLength(2);
+    expect(list[0]!.textContent).toContain("Second owned session");
+    expect(list[0]!.textContent).toContain(t("sidebar.status.answerLabel"));
+    expect(list[0]!.textContent).toContain("Which DB?");
+    expect(list[1]!.textContent).toContain("Owned session");
+    // A null snippet (e.g. after a restart) falls back to the stock line.
+    expect(list[1]!.textContent).toContain(t("sidebar.attention.fallback"));
+  });
+
+  it("a card click opens the session, and clearing the mark retires the card", async () => {
+    useStore.setState({ rpc: { "tab-2": rpcTabState({ status: "ready" }) } });
+    useStore.getState().markUnread("tab-2", "Which DB?");
+    renderSidebar();
+    const card = cards()[0]!;
+    await act(async () => card.click());
+    expect(openSession).toHaveBeenCalledWith("tab-2");
+    // The mocked openSession never runs the action's own clearUnread; drive it.
+    act(() => useStore.getState().clearUnread("tab-2"));
+    expect(cards()).toHaveLength(0);
+    expect(heading()).toBeNull();
+  });
+
+  it("surfaces a flagged row hidden inside the collapsed Snoozed section", () => {
+    const parked = {
+      ...state.projects[0]!.sessions[0]!,
+      tabId: "parked",
+      title: "parked",
+      cachedTitle: "parked",
+      snoozed: true,
+    };
+    useStore.setState({
+      state: backendState({
+        projects: [{ ...state.projects[0]!, sessions: [parked] }],
+        snoozedSectionEnabled: true,
+      }),
+      rpc: { parked: rpcTabState({ status: "ready" }) },
+    });
+    act(() => useStore.getState().markUnread("parked", null));
+    renderSidebar();
+    // The row itself is unreachable behind the collapsed section…
+    const toggle = [...document.body.querySelectorAll<HTMLButtonElement>("button[aria-expanded]")].find((b) =>
+      b.textContent?.startsWith("Snoozed"),
+    )!;
+    expect(toggle.getAttribute("aria-expanded")).toBe("false");
+    expect(rowButton("parked")).toBeUndefined();
+    // …while the card still heads the list.
+    expect(cards()[0]!.textContent).toContain("parked");
+  });
+
+  it("keeps showing cards while the search filter hides every row", () => {
+    act(() => useStore.getState().markUnread("tab-1", null));
+    useStore.setState({ rpc: { "tab-1": rpcTabState({ status: "ready" }) } });
+    renderSidebar();
+    setFilter("zzz-nothing");
+    expect(rowButton("Owned session")).toBeUndefined();
+    expect(cards()[0]!.textContent).toContain("Owned session");
+  });
+
+  it("renders nothing when no session is flagged", () => {
+    renderSidebar();
+    expect(heading()).toBeNull();
   });
 });

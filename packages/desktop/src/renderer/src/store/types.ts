@@ -110,6 +110,7 @@ import type {
   LiveTurn,
 } from "@omp-ui/core/live-voice";
 import type { LiveReplayState, LiveReplayTarget } from "./slices/live-audio";
+import type { UnreadSlice } from "./slices/unread";
 import type { RailTab } from "../lib/panel-layout";
 import type { AutoresearchSnapshot, ExperimentProposal } from "@omp-ui/core/autoresearch";
 import type { ApprovalChoice, ApprovalPrompt } from "@omp-ui/core/approval";
@@ -1122,7 +1123,7 @@ export interface SettleUndoEntry {
   }>;
 }
 
-export interface UiStore extends SettingsSlice, UpdatesSlice, LabSlice, StatsSlice, FleetSlice, SeanceSlice {
+export interface UiStore extends SettingsSlice, UpdatesSlice, LabSlice, StatsSlice, FleetSlice, SeanceSlice, UnreadSlice {
   state: BackendState | null;
   tabs: TabInfo[];
   activeTabId: string | null;

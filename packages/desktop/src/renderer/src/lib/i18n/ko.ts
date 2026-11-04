@@ -2700,6 +2700,9 @@ export const ko: Partial<Record<MessageKey, string>> = {
   "project.settings.knowledgeBroken":
     "볼트 {name}이(가) 더 이상 등록되어 있지 않습니다. 다른 볼트를 고르세요. 그때까지 에이전트는 볼트에 아무것도 쓰지 않습니다.",
 
+  "sidebar.attention.heading": "주의 필요 ({n})",
+  "sidebar.attention.fallback": "에이전트가 새 답변을 게시했습니다.",
+
   "sidebar.status.workingLabel": "작업 중",
   "sidebar.status.workingTitle": "에이전트가 작업 중입니다",
   "sidebar.status.answerLabel": "답변 필요",

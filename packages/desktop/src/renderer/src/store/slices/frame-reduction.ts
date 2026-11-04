@@ -79,6 +79,7 @@ import {
   type RenderItem,
 } from "../../lib/transcript";
 import { peekTabRuntime, respData, type GetState, type StoreMachinery, type Watchers } from "./shared";
+import { firstAssistantText, unreadRaisePredicate } from "./unread";
 import {
   armLiveTimer,
   cancelLiveTimer,
@@ -578,7 +579,24 @@ export function createFrameReductionSlice(
   };
 
   const handleRpcFrame = (tabId: string, frame: object): void => {
-    
+    // Needs-attention raise (issue #1037), before any dispatch: an assistant
+    // reply landing while this tab is out of view joins the stack. Mid-turn
+    // toolUse ends raise too — harmless: the stack's state filter hides
+    // working sessions, and the final message_end re-stamps the mark.
+    if ("type" in frame && frame.type === "message_end") {
+      const message = "message" in frame ? frame.message : undefined;
+      if (
+        typeof message === "object" &&
+        message !== null &&
+        "role" in message &&
+        message.role === "assistant" &&
+        unreadRaisePredicate(tabId, get().activeTabId)
+      ) {
+        const content = "content" in message ? message.content : undefined;
+        get().markUnread(tabId, firstAssistantText(content));
+      }
+    }
+
       const type = "type" in frame ? frame.type : undefined;
       // Control frames (the grammar core's normalizeControlFrame owns: the
       // command response, ready, the extension request/response, the rpc

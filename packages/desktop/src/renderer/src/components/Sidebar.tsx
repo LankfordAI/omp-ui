@@ -14,13 +14,14 @@ import {
   resolveDesktopPanelWidths,
   resolveDockedSidebarWidth,
 } from "../lib/panel-layout";
-import { buildSidebarLists, type SidebarEntry } from "../lib/sidebar-sessions";
+import { buildAttentionEntries, buildSidebarLists, type SidebarEntry } from "../lib/sidebar-sessions";
 import { setSettledOpen, useSettledOpen } from "../lib/sidebar-settled";
 import { setSidebarSectionOpen, useSidebarSectionOpen } from "../lib/sidebar-section-open";
 import { supportsSessionMigrate } from "../lib/session-migrate";
 import { fromDateTimeLocal, snoozePresets, toDateTimeLocal, type SnoozePreset } from "../lib/snooze-until";
 import { useShallow } from "zustand/react/shallow";
-import { canSettle, findRecord, supportsBulkAction, useStore } from "../store";
+import { canSettle, deriveSidebarSessionState, findRecord, supportsBulkAction, useStore } from "../store";
+import { AttentionStack } from "./AttentionStack";
 import { SessionRow } from "./SessionRow";
 import { useSplitSlot } from "./split-slot";
 import { Button, Chevron, ConfirmDialog, Dot, Empty, IconButton, IconClose, IconFleet, IconPlus, IconSearch, Panel, ResizeHandle, Sheet } from "./ui";
@@ -449,7 +450,9 @@ export function Sidebar() {
   const openFleet = useStore((st) => st.openFleet);
   const fleetOpen = useStore((st) => st.fleet !== null);
   const settledOpen = useSettledOpen();
-  const workingOpen = useSidebarSectionOpen("omp-ui.sidebarWorkingOpen", true);
+  // Working now starts collapsed, #1037 — waiting sessions surface as
+  // attention-stack cards instead of hiding inside an expanded section.
+  const workingOpen = useSidebarSectionOpen("omp-ui.sidebarWorkingOpen", false);
   const snoozedOpen = useSidebarSectionOpen("omp-ui.sidebarSnoozedOpen", false);
 
   // Desktop collapse memory lives in the store: the toggle lives in App's
@@ -538,6 +541,18 @@ export function Sidebar() {
   const lists = useMemo(
     () => (state === null ? null : buildSidebarLists(state, query, backgroundWorkTabIds)),
     [state, query, backgroundWorkTabIds],
+  );
+  // The attention stack (#1037): flagged sessions whose reply is still unseen.
+  // Entries held by a collapsed Working/Snoozed/Settled section, or hidden by
+  // the search filter, still surface here — the stack ignores the query.
+  const unread = useStore((st) => st.unread);
+  const rpcTabs = useStore((st) => st.rpc);
+  const attention = useMemo(
+    () =>
+      state === null
+        ? []
+        : buildAttentionEntries(state, unread, (s) => deriveSidebarSessionState(s, rpcTabs[s.tabId])),
+    [state, unread, rpcTabs],
   );
   // The rows a Shift+click range walks, per section, in display order.
   const sectionEntries = useMemo(
@@ -739,8 +754,12 @@ export function Sidebar() {
           <SkeletonRows />
         ) : (
           <>
-            {lists.pinned.length > 0 || lists.active.length > 0 ? (
+            {/* The flagged-but-filtered / section-hidden case still owns the
+                scroll container (#1037): a non-empty stack renders even when
+                pinned and active are both empty. */}
+            {lists.pinned.length > 0 || lists.active.length > 0 || attention.length > 0 ? (
               <div className="min-h-0 flex-1 overflow-y-auto px-1.5 py-1">
+                <AttentionStack entries={attention} onActivate={closeCompactSurface} />
                 {/* Pinned (#981) heads the main list in pin order; it never
                     collapses, since a pin means "keep this in view". */}
                 {lists.pinned.length > 0 && (

@@ -20,6 +20,9 @@ vi.mock("../backend", () => ({
 // intentionally exercises that module-loading boundary.
 const { useStore } = await import("../store");
 const { SessionRow } = await import("./SessionRow");
+// Fixtures touch no bridge at load, so a static import is safe here.
+import { rpcTabState } from "../test/fixtures";
+import { TONE_DOT } from "./ui/tone";
 
 (globalThis as Record<string, unknown>).IS_REACT_ACT_ENVIRONMENT = true;
 
@@ -88,7 +91,7 @@ function render(
   s: SessionSummary,
   installedVersion: string | null,
   instanceNickname?: string | null,
-  storePatch?: Partial<Pick<UiStore, "tabs" | "exited" | "activeTabId">>,
+  storePatch?: Partial<Pick<UiStore, "tabs" | "exited" | "activeTabId" | "rpc">>,
   density?: "tile" | "slim",
 ): HTMLElement {
   Object.defineProperty(window, "matchMedia", {
@@ -281,5 +284,73 @@ describe("session tile (#938)", () => {
     )!;
     expect(del).not.toBeNull();
     expect(del.parentElement!.classList.contains("pointer-events-none")).toBe(true);
+  });
+});
+
+// Issue #1037: the leading Dot is gone in both densities — an always-rendered
+// status band carries the state's tone, and the verb text keeps the wording.
+describe("status band replaces the dot (#1037)", () => {
+  function unmount(): void {
+    act(() => root!.unmount());
+    root = null;
+    document.body.replaceChildren();
+  }
+
+  /** The row's left band: the only span carrying the inset-y-1.5 rail class. */
+  function band(el: HTMLElement): HTMLElement | null {
+    return [...el.querySelectorAll<HTMLElement>("span")].find((s) => s.classList.contains("inset-y-1.5")) ?? null;
+  }
+
+  /** An unselected row (no active tab), so the band shows the state's tone. */
+  function renderState(
+    patch: Partial<SessionSummary>,
+    rpcStatus: "ready" | "running" | "error",
+    density?: "tile" | "slim",
+  ): HTMLElement {
+    return render(
+      summary({ live: "live", ...patch }),
+      null,
+      null,
+      { activeTabId: null, rpc: { [TAB]: rpcTabState({ status: rpcStatus }) } },
+      density,
+    );
+  }
+
+  it("tones the band by state in ready, working, and error", () => {
+    const ready = renderState({}, "ready");
+    // ready's face tone is signal — the same class the selection override uses.
+    expect(band(ready)!.classList.contains(TONE_DOT.signal)).toBe(true);
+    unmount();
+
+    const working = renderState({}, "running");
+    expect(band(working)!.classList.contains(TONE_DOT.copper)).toBe(true);
+    unmount();
+
+    const errored = renderState({}, "error");
+    expect(band(errored)!.classList.contains(TONE_DOT.rose)).toBe(true);
+    unmount();
+  });
+
+  it("renders no dot markup in either density, and keeps the state text per density", () => {
+    for (const density of ["tile", "slim"] as const) {
+      const el = renderState({}, "running", density);
+      // The Dot's signature size class is gone from both densities.
+      expect(el.querySelector('[class*="size-1.5"]')).toBeNull();
+      // The verb text still names the state (accessibility contract).
+      expect(el.textContent).toContain(t("sidebar.status.workingLabel"));
+      // And the Dot's hover tooltip now rides the band.
+      expect(band(el)!.title).toBe(t("sidebar.status.workingTitle"));
+      unmount();
+    }
+  });
+
+  it("overrides the band to bg-signal on the selected row whatever the state", () => {
+    // render()'s default activeTabId is TAB, so this row reads selected.
+    const el = render(summary({ live: "live" }), null, null, {
+      rpc: { [TAB]: rpcTabState({ status: "running" }) },
+    });
+    const b = band(el)!;
+    expect(b.classList.contains("bg-signal")).toBe(true);
+    expect(b.classList.contains(TONE_DOT.copper)).toBe(false);
   });
 });

@@ -10,7 +10,8 @@ import { cn } from "../lib/cn";
 import { canSettle, deriveSidebarSessionState, useStore, type SidebarSessionState } from "../store";
 import { SEANCE_MIN_OMP, supportsSeance } from "../lib/seance";
 import { SESSION_DRAG_EFFECT, SESSION_DRAG_MIME } from "../lib/session-drag";
-import { Button, Chip, Dot, IconButton, IconClock, IconLock, IconPin, IconSpeaker, type Tone } from "./ui";
+import { Button, Chip, IconButton, IconClock, IconLock, IconPin, IconSpeaker, type Tone } from "./ui";
+import { TONE_DOT } from "./ui/tone";
 import type { SessionHandoff } from "../lib/session-handoffs";
 import { openPullRequest, pullRequestFace, PullRequestChip } from "./PullRequestChip";
 import { liveDisplayPhase, type LiveDisplayPhase } from "@omp-ui/core/live-voice";
@@ -430,12 +431,18 @@ export function SessionRow({
         selected || multiSelected ? "bg-raised" : "hover:bg-raised/60",
       )}
     >
-      {(selected || multiSelected) && (
-        <span
-          aria-hidden
-          className="absolute inset-y-1 left-0 w-0.5 rounded-full bg-signal"
-        />
-      )}
+      {/* The status band (#1037): always present, toned by state; a selected
+          or multi-selected row overrides it green, as the old rail did. It
+          replaces the leading Dot in both densities — the verb text spans the
+          state aloud, and the Dot's hover tooltip rides the band. */}
+      <span
+        aria-hidden
+        title={t(face.titleKey)}
+        className={cn(
+          "absolute inset-y-1.5 left-0 w-0.5 rounded-full transition-colors",
+          selected || multiSelected ? "bg-signal" : TONE_DOT[face.tone],
+        )}
+      />
 
       <button
         type="button"
@@ -462,7 +469,6 @@ export function SessionRow({
         )}
       >
         <span className="flex min-w-0 items-start gap-2">
-          {slim && <Dot tone={face.tone} pulse={face.pulse} title={t(face.titleKey)} className="mt-1.5" />}
           <span
             data-session-tile-title
             className={cn(
@@ -517,7 +523,6 @@ export function SessionRow({
         {!slim && (
           <span className="mt-1 flex min-w-0 items-center gap-1.5 text-[10px]">
             <span className={cn("inline-flex shrink-0 items-center gap-1 font-mono", face.textClass)}>
-              <Dot tone={face.tone} pulse={face.pulse} title={t(face.titleKey)} />
               {t(face.labelKey)}
             </span>
             {showPersistedStatus && s.status ? (
