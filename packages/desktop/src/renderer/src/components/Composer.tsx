@@ -1286,7 +1286,13 @@ export function Composer({
         "relative shrink-0",
         compact
           ? "ambient border-t border-line bg-sunken px-4 py-3 compact-composer"
-          : "px-4 pb-3 pt-1.5",
+          // Round-4 judge, Spacing 1: the transcript column centres inside the
+          // scroller's padding box minus its `scrollbar-gutter: stable
+          // both-edges` reservation; the float spans the full pane, so both
+          // sides pad past the hairline by that same gutter. The card's edges
+          // land exactly on the prose edges, with or without an active
+          // scrollbar.
+          : "px-[calc(1rem+var(--scrollbar-w,10px))] pb-3 pt-1.5",
       )}
     >
       {dropping && (

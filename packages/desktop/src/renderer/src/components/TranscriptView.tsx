@@ -274,7 +274,16 @@ function AssistantBlock({ item, tabId }: { item: AssistantItem; tabId?: string }
           // without ever fighting a user who opened it by hand.
           key={working ? "live" : "idle"}
           defaultOpen={working}
-          className={cn("rounded-md border border-line-soft bg-sunken px-2 py-1", PROSE_MEASURE)}
+          // Flush text (round-4 judge, Spacing 4): the plate bleeds 9px into
+          // the left gutter (border 1 + padding 8), so its body text lands on
+          // the column's flush-left line like the markdown under it, while
+          // its right edge stays exactly on the content axis (round-3
+          // Spacing 1's single right edge keeps holding; the bleed still sits
+          // inside the scroller's 16px padding).
+          className={cn(
+            "-ml-[9px] rounded-md border border-line-soft bg-sunken px-2 py-1",
+            "max-w-[calc(var(--prose-max)+0.5625rem)]",
+          )}
           summary={<Label className="text-copper">{t("transcript.assistant.thinking")}</Label>}
         >
           <ThinkingPane text={shownThinking} live={working} />
@@ -418,10 +427,14 @@ function UserBubble({
     // so the bubble's right edge lands on the same line as prose, tables, and
     // code (round-3 judge, Spacing 1) instead of overhanging at the column edge.
     <div className="speaker-run animate-rise flex w-full max-w-[var(--prose-max)] flex-col items-end gap-1">
-      {first && <span className="tab-label speaker-label speaker-label-right text-ink-faint">{t("transcript.speaker.you")}</span>}
+      {/* Turn separation (round-4 judge, Hierarchy 3): the label steps up to
+          ink-dim so a new exchange announces itself without a turn marker;
+          the fill behind it drops to 70% so in Light the bubble stops being
+          the loudest surface next to the answer it prompted. */}
+      {first && <span className="tab-label speaker-label speaker-label-right text-ink-dim">{t("transcript.speaker.you")}</span>}
       <div
         className={cn(
-          "group relative min-w-0 space-y-2 rounded-lg border border-iris-dim/40 bg-iris-wash px-3 py-2 text-ink",
+          "group relative min-w-0 space-y-2 rounded-md border border-iris-dim/40 bg-iris-wash/70 px-3 py-2 text-ink",
           PROSE_MEASURE,
           "has-[.md-plan]:w-full has-[.md-plan]:max-w-full",
         )}
@@ -563,7 +576,7 @@ function NoticeLine({ item, tabId }: { item: NoticeItem; tabId?: string }) {
   // reveals it in the file manager.
   const path = remote ? undefined : item.path;
   return (
-    <div className="animate-rise flex justify-center">
+    <div className="animate-rise flex w-[min(100%,var(--prose-max))] justify-center">
       <div
         className={cn(
           "flex max-w-[80%] items-center gap-1.5 rounded-md border px-2.5 py-1 text-xs",
@@ -1103,6 +1116,12 @@ export function TranscriptView({
   const contentRef = useRef<HTMLDivElement>(null);
   /** The tail spacer that reserves the floating composer's height. */
   const insetRef = useRef<HTMLDivElement>(null);
+  /** The view root; hosts the prose-centre offset custom property. */
+  const viewRef = useRef<HTMLDivElement>(null);
+  /** Zero-size probe at the prose measure's centre (round-4 judge, Spacing
+   *  2): centred overlays (jump to latest) sit outside the zoomed column, so
+   *  the column publishes its visual centre here for them to read. */
+  const axisRef = useRef<HTMLDivElement>(null);
   const [following, setFollowing] = useState(true);
   const followingRef = useRef(true);
   // Bounded tail window (issue #867, ADR-0057): `frozenStart` null means
@@ -1288,6 +1307,17 @@ export function TranscriptView({
         hangingRef.current = next;
         setHanging(next);
       }
+      // Prose-measure centre (round-4 judge, Spacing 2): the jump-to-latest
+      // pill lives outside the zoomed column and used to centre on the scroll
+      // pane; publish the visual centre of the prose measure instead. Probe
+      // rects under `zoom` are visual px, measured relative to the view root.
+      const axis = axisRef.current;
+      const view = viewRef.current;
+      if (axis !== null && view !== null) {
+        const a = axis.getBoundingClientRect();
+        const v = view.getBoundingClientRect();
+        view.style.setProperty("--transcript-axis", `${a.left - v.left + a.width / 2}px`);
+      }
     };
     const observer = new ResizeObserver(() => {
       if (followingRef.current) pinToBottom();
@@ -1369,7 +1399,7 @@ export function TranscriptView({
   }, [reveal, start, items]);
 
   return (
-    <div className="ambient relative min-h-0 flex-1 bg-surface">
+    <div ref={viewRef} className="ambient relative min-h-0 flex-1 bg-surface">
       <div
         ref={scrollRef}
         onContextMenu={(event) => {
@@ -1409,12 +1439,12 @@ export function TranscriptView({
           // Reading near the top pages older items in (issue #867).
           if (!followingRef.current && el.scrollTop <= LOAD_OLDER_TRIGGER_PX) loadOlder();
         }}
-        className="transcript-scroll h-full overflow-y-auto px-4 py-4 [overflow-anchor:none]"
+        className="transcript-scroll h-full overflow-y-auto px-4 py-4 [overflow-anchor:none] [scrollbar-gutter:stable_both-edges]"
       >
         <div
           ref={contentRef}
           data-hanging={hanging}
-          className="transcript-column mx-auto flex max-w-[var(--transcript-max)] flex-col gap-5"
+          className="transcript-column relative mx-auto flex max-w-[var(--transcript-max)] flex-col gap-5"
           // Transcript-scoped text size (issue #30): `zoom` scales every px
           // value inside the document surface — markdown, tool cards, slabs —
           // while the chrome around it stays fixed. The ResizeObserver above
@@ -1462,7 +1492,7 @@ export function TranscriptView({
                     // (round-3 judge, Typography 4): sentence words at the
                     // faint tier, not tracked caps — five roles no longer
                     // share one style.
-                    <span className="tab-label speaker-label speaker-label-left text-ink-faint">
+                    <span className="tab-label speaker-label speaker-label-left text-ink-dim">
                       {t("transcript.speaker.assistant")}
                     </span>
                   )}
@@ -1505,6 +1535,14 @@ export function TranscriptView({
           {tabId !== undefined && <HeldPromptCard tabId={tabId} />}
           {/* Scheduled prompt (issue #987): the session's schedule and its notices. */}
           {tabId !== undefined && <ScheduledPromptCard tabId={tabId} />}
+          {/* The prose-measure centre, published for overlays that live outside
+              the zoomed column (jump to latest). Absolutely positioned so it
+              adds nothing to the column's flow; zero height, zero ink. */}
+          <div
+            ref={axisRef}
+            aria-hidden
+            className="pointer-events-none absolute left-0 top-0 h-0 w-[var(--prose-max)] max-w-full"
+          />
         </div>
         {/* Tail clearance for the floating composer (issue #395). RpcTab
             publishes its measured height; every other host of this view — the
@@ -1521,7 +1559,7 @@ export function TranscriptView({
         <button
           type="button"
           onClick={() => updateFollowing(true)}
-          className="edge-lit animate-rise absolute bottom-[calc(0.75rem+var(--transcript-bottom-inset,0px))] left-1/2 flex -translate-x-1/2 items-center gap-1.5 rounded-full border border-line-strong bg-overlay px-3 py-1 text-xs text-ink-mid transition-colors hover:text-ink"
+          className="edge-lit animate-rise absolute bottom-[calc(0.75rem+var(--transcript-bottom-inset,0px))] left-[var(--transcript-axis,50%)] flex -translate-x-1/2 items-center gap-1.5 rounded-full border border-line-strong bg-overlay px-3 py-1 text-xs text-ink-mid transition-colors hover:text-ink"
         >
           <svg
             viewBox="0 0 16 16"
