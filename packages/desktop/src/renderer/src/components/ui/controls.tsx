@@ -670,7 +670,7 @@ export function Empty({
       {/* Display type starts at 16px; a 14px empty-state title is body
           furniture (round-2 judge, Typography 4). */}
       <p className="text-sm font-semibold text-ink-mid">{title}</p>
-      {hint && <p className="max-w-xs text-xs leading-relaxed text-ink-faint">{hint}</p>}
+      {hint && <p className="max-w-xs text-sm leading-relaxed text-ink-faint">{hint}</p>}
       {action}
     </div>
   );

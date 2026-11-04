@@ -312,13 +312,13 @@ describe("desktop floating Composer card", () => {
     seed("ready");
     renderComposer();
     const card = document.body.querySelector("textarea")!.parentElement!.parentElement!;
-    // Round-1 judge fix: the card floats over scrolling transcript text, and
-    // the 86%-alpha glass plane let that text bleed through the draft field.
-    // The card is now opaque, keeping the reading plane's tone (never the
-    // lighter plane-lit/raised rectangle — #396 lineage) with separation by
-    // elevation: border + shadow-float.
-    expect(card.className).toContain("bg-surface");
-    expect(card.className).not.toContain("glass-surface");
+    // The floating card keeps the reading plane's tone (never the lighter
+    // raised/plane-lit rectangle — #396 lineage) with separation by
+    // elevation: border + shadow-float. Whether its fill is opaque or frosted
+    // is a styling choice the round-4 owner directive owns; the class names
+    // are not pinned here.
+    expect(card.className).toContain("shadow-float");
+    expect(card.className).not.toContain("bg-raised");
     expect(card.className).not.toContain("plane-lit");
   });
 });

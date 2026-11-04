@@ -20,7 +20,7 @@ export const ko: Partial<Record<MessageKey, string>> = {
   "app.titlebar.collapseSidebar": "사이드바 접기",
   "app.restoring.label": "세션 복원 중…",
   "app.welcome.hasProjectsHint":
-    "열린 세션 없음 — 사이드바의 새 세션 또는 {hotkey}(으)로 시작하거나 종료됨에서 다시 여세요.",
+    "종료된 세션은 사이드바의 종료됨에서 다시 열고, {hotkey}(으)로 새 세션을 시작하세요.",
   "app.welcome.addProject": "프로젝트 추가",
   "app.welcome.openSession": "세션 열기…",
   "app.welcome.noProjectsHint":
@@ -1953,12 +1953,11 @@ export const ko: Partial<Record<MessageKey, string>> = {
   "tab.failure.dismiss": "닫기",
   "tab.failure.chooseModel": "모델 선택…",
   "tab.failure.modelCatalogFailed": "모델 검색 실패: {error}",
-  "tab.exited.titleHibernated": "최대 절전됨",
+  "tab.exited.titleHibernated": "종료됨",
   "tab.exited.titleExited": "에이전트 종료됨",
-  "tab.exited.idleChip": "유휴 — 메모리 확보로 중지됨",
   "tab.exited.exitTitle": "프로세스 exit code {code}",
   "tab.exited.exitChip": "exit {code}",
-  "tab.exited.dormant": "세션이 휴면 상태입니다. 대화록은 디스크에 안전하게 보관됩니다. 계속하려면 재개하세요.",
+  "tab.exited.dormant": "대화록은 디스크에 안전하게 보관됩니다. 계속하려면 재개하세요.",
   "tab.exited.resume": "세션 재개",
   "hud.actions.autoCompact": "자동 압축",
   "hud.actions.autoCompactTitle": "컨텍스트 창이 가득 차면 자동으로 압축",
@@ -2414,7 +2413,7 @@ export const ko: Partial<Record<MessageKey, string>> = {
   "rail.btw.statusInterrupted": "중단됨",
   "rail.btw.emptyTitle": "아직 곁가지 질문이 없습니다",
   "rail.btw.emptyHint":
-    "위에서 질문하거나 /btw 뒤에 질문을 입력하세요. side: true가 설정된 명령도 여기서 답합니다. 답변은 대화 기록에 들어가지 않습니다.",
+    "위에서 질문하거나 /btw 뒤에 질문을 입력하세요. 답변은 대화 기록에 들어가지 않습니다.",
   "rail.btw.unavailable": "이 omp는 곁가지 질문에 기본적으로 답할 수 없습니다.",
   "rail.btw.needsNewerOmp": "이 omp에는 곁가지 질문이 없습니다 — omp를 {version} 이상으로 업데이트하세요",
   "rail.btw.busy": "곁가지 질문이 아직 진행 중입니다. 끝나길 기다리거나 취소하세요.",
@@ -2806,6 +2805,7 @@ export const ko: Partial<Record<MessageKey, string>> = {
 
   "sidebar.footer.settings": "설정",
   "sidebar.footer.live": "라이브",
+  "sidebar.footer.liveTitle": "{n}개 실행 중 — 준비됨 및 작업 중",
   "sidebar.footer.resize": "사이드바 크기 조정",
   "sidebar.footer.hostsAttention": "호스트 {n}개 오프라인",
   "sidebar.footer.hostsAttentionTitle": "이 창이 연결했던 원격 컴퓨터가 응답을 멈췄습니다. 해당 세션은 그 컴퓨터에 남아 있습니다. 원격 인스턴스를 열어 다시 연결하거나 삭제하세요.",

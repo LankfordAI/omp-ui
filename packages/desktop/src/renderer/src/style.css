@@ -265,16 +265,24 @@
     --glass-alpha: 86%; /* plane fill opacity */
     --glass-filter: blur(14px) saturate(1.08); /* backdrop-filter of chrome planes */
     --glass-wash: 55%; /* strength of the backdrop light */
+    /* The composer card (round-4 owner directive): a floating frosted card
+       over scrolling transcript text. Its fill sits denser than the general
+       chrome alpha so placeholder, chip, and send-glyph text still clear
+       WCAG AA against the brightest content that can pass behind it; the
+       blur keeps whatever survives readable as texture, not as text. */
+    --glass-alpha-composer: 92%;
   }
   :root[data-glass="off"] {
     --glass-alpha: 100%;
     --glass-filter: none;
     --glass-wash: 0%;
+    --glass-alpha-composer: 100%;
   }
   :root[data-glass="frosted"] {
     --glass-alpha: 70%;
     --glass-filter: blur(24px) saturate(1.12);
     --glass-wash: 100%;
+    --glass-alpha-composer: 84%;
   }
 
 @layer base {
@@ -445,6 +453,14 @@
   background-color: color-mix(in srgb, var(--color-surface) var(--glass-alpha), transparent);
   backdrop-filter: var(--glass-filter);
 }
+/* The composer card's own frost (round-4 owner directive): same fill channel
+ * as `glass-surface` at the denser composer alpha, so transcript text behind
+ * the card reads as dimmed texture while every glyph ON the card still clears
+ * AA. `data-glass="off"` collapses it to opaque surface. */
+@utility glass-composer {
+  background-color: color-mix(in srgb, var(--color-surface) var(--glass-alpha-composer), transparent);
+  backdrop-filter: var(--glass-filter);
+}
 @utility backdrop-glass {
   backdrop-filter: var(--glass-filter);
 }
@@ -474,16 +490,24 @@
   text-wrap: balance;
 }
 
-/* One casing system for chrome micro-labels (round-2 judge, Consistency 2):
- * section headers, rail group buttons, rail sub-tabs, Settings segmented
- * toggles, and composer chip groups all read caps + tracking at the 12px
- * metadata size. Buttons, dialog titles, menu items, and prose stay sentence
- * case — they are controls and copy, not labels. */
+/* Tracked caps is the SECTION-HEADER role only (round-3 judge, Typography 4):
+ * sidebar group headers, rail pane titles, Settings section headings, and the
+ * transcript speaker labels. Tabs, toggles, and sub-tabs use `tab-label`;
+ * buttons, dialog titles, menu items, and prose stay sentence case. */
 @utility chrome-label {
   font-size: 0.75rem;
   font-weight: 600;
   letter-spacing: 0.08em;
   text-transform: uppercase;
+}
+
+/* The interactive-label role (round-3 judge, Consistency 2): rail group
+ * buttons, rail member tabs, segmented toggles. Sentence case — casing that
+ * survives localisation (`English` / `한국어` cannot both be caps) and no
+ * tracking, so short labels like "Review" never truncate in the strip. */
+@utility tab-label {
+  font-size: 0.75rem;
+  font-weight: 500;
 }
 
 

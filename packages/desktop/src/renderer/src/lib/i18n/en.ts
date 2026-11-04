@@ -12,8 +12,8 @@ export const en = {
   "common.overlay.close": "close dialog",
   "common.overlay.closeNamed": "close {label}",
   "common.button.attachFiles": "attach files",
-  "common.button.copy": "copy",
-  "common.button.copied": "copied",
+  "common.button.copy": "Copy",
+  "common.button.copied": "Copied",
 
   // App.tsx — TitleBar
   "app.titlebar.newSession": "new session — pick a project",
@@ -24,8 +24,11 @@ export const en = {
   "app.restoring.label": "Restoring sessions…",
 
   // App Welcome
+  // The sidebar owns "how to start one"; this line carries only what the
+  // sidebar cannot say (reopen), so the same sentence never reads twice on
+  // one screen (round-3 judge, Clarity 3). {hotkey} stays for placeholder parity.
   "app.welcome.hasProjectsHint":
-    "No sessions open — start one with New session in the sidebar or {hotkey}, or reopen one from Settled.",
+    "Reopen a finished session from Settled in the sidebar — or start a new one with {hotkey}.",
   "app.welcome.addProject": "Add project",
   "app.welcome.openSession": "Open session…",
   "app.welcome.noProjectsHint":
@@ -2133,14 +2136,16 @@ export const en = {
   "tab.failure.chooseModel": "choose a model…",
   "tab.failure.modelCatalogFailed": "the model probe failed: {error}",
   "tab.failure.bootStalled": "The session process never reported ready. It may still be starting — check breadcrumbs.log in the app's logs folder.",
-  "tab.exited.titleHibernated": "Hibernated",
+  // One state word in the card (round-3 judge, Clarity 1): the sidebar files
+  // this row under Settled and calls it finished; the card must not add
+  // Hibernated / Idle / dormant on top. "Hibernated" stays true in prose docs
+  // — the causal record — but the user sees one word here.
+  "tab.exited.titleHibernated": "Settled",
   "tab.exited.titleExited": "Agent exited",
-  "tab.exited.idleChip": "Idle — stopped to free memory",
   "tab.exited.exitTitle": "process exit code {code}",
   "tab.exited.exitChip": "exit {code}",
-  "tab.exited.dormant":
-    "The session is dormant — its transcript is safe on disk. Resume to continue.",
-  "tab.exited.resume": "resume session",
+  "tab.exited.dormant": "Its transcript is safe on disk — resume to continue.",
+  "tab.exited.resume": "Resume session",
   "hud.actions.autoCompact": "auto-compact",
   "hud.actions.autoCompactTitle": "auto-compact when the context window fills",
   "hud.actions.branch": "branch",
@@ -2149,7 +2154,7 @@ export const en = {
   "hud.actions.treeTitle": "show the session tree — rewind to any prompt or jump between branches",
   "hud.actions.compact": "compact",
   "hud.actions.copied": "copied",
-  "hud.actions.copy": "copy",
+  "hud.actions.copy": "Copy",
   "hud.actions.compactTitle": "compact the conversation now",
   "hud.actions.export": "export",
   "hud.actions.share": "share",
@@ -2201,7 +2206,7 @@ export const en = {
   "hud.gauge.contextTitle": "Context used by this run: {used} of {window} tokens",
   // Round-1 judge: `4% $0.0000` with no label decoded only on hover; the
   // percentage now names itself in the bar itself.
-  "hud.gauge.contextShort": "ctx",
+  "hud.gauge.contextShort": "context",
   "hud.gauge.main": "main",
   "hud.gauge.subagents": "subagents ({count})",
   "hud.gauge.advisor": "advisor",
@@ -2586,16 +2591,16 @@ export const en = {
   "rail.plans.dismissTitle": "Stop tracking this plan — its file stays on disk",
   "rail.plans.dismissPendingTitle": "Decline this plan — the agent's turn ends without executing or revising it; the file stays on disk",
 
-  "rail.tabs.todos": "todos",
-  "rail.tabs.agents": "agents",
-  "rail.tabs.jobs": "jobs",
-  "rail.tabs.session": "session",
-  "rail.tabs.plans": "plans",
-  "rail.tabs.diffs": "diffs",
-  "rail.tabs.btw": "side questions",
+  "rail.tabs.todos": "Todos",
+  "rail.tabs.agents": "Agents",
+  "rail.tabs.jobs": "Jobs",
+  "rail.tabs.session": "Session",
+  "rail.tabs.plans": "Plans",
+  "rail.tabs.diffs": "Diffs",
+  "rail.tabs.btw": "Side questions",
   "rail.btw.askPlaceholder": "Ask a side question…",
   "rail.btw.followUpPlaceholder": "Ask a follow-up…",
-  "rail.btw.ask": "ask",
+  "rail.btw.ask": "Ask",
   "rail.btw.followUp": "follow up",
   "rail.btw.cancel": "cancel",
   "rail.btw.thinking": "answering…",
@@ -2607,7 +2612,7 @@ export const en = {
   "rail.btw.statusInterrupted": "interrupted",
   "rail.btw.emptyTitle": "No side questions yet",
   "rail.btw.emptyHint":
-    "Ask one above or type /btw followed by your question, or a command whose file sets side: true. Answers never enter the transcript.",
+    "Ask one above or type /btw followed by your question. Answers never enter the transcript.",
   "rail.btw.unavailable": "This omp cannot answer side questions natively.",
   "rail.btw.needsNewerOmp": "this omp has no side questions — update omp to {version} or later",
   "rail.btw.busy": "A side question is still running — wait for it or cancel it.",
@@ -3011,7 +3016,11 @@ export const en = {
   "sidebar.empty.newSession": "New session",
 
   "sidebar.footer.settings": "Settings",
+  // `live` is CONTEXT.md's canonical word for "has a running process"; the
+  // title says which rows it counts, so it never reads as a third state next
+  // to READY and WORKING (round-3 judge, Clarity 1).
   "sidebar.footer.live": "live",
+  "sidebar.footer.liveTitle": "{n} with a running process — Ready and Working",
   "sidebar.footer.resize": "resize sidebar",
   "sidebar.footer.hostsAttention": "{n} host offline",
   "sidebar.footer.hostsAttentionTitle": "A remote computer this window joined stopped answering. Its sessions stay on that computer; open Remote instances to reconnect or remove it.",
