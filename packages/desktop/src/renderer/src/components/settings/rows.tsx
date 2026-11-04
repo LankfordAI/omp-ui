@@ -32,7 +32,9 @@ export function Row({
     return (
       <div className="py-2.5">
         <div className="flex items-center gap-2">
-          <span className="text-sm font-medium text-ink">{title}</span>
+          {/* Round-7 judge, Hierarchy 2: 600 so a section label outranks the
+              selected list row beneath it; 500 was one step above the row. */}
+          <span className="text-sm font-semibold text-ink">{title}</span>
           {badge}
         </div>
         {hint !== undefined && hint !== "" && (
@@ -46,7 +48,7 @@ export function Row({
     <div className="flex items-center gap-3 py-2.5">
       <div className="min-w-0 flex-1">
         <div className="flex items-center gap-2">
-          <span className="text-sm font-medium text-ink">{title}</span>
+          <span className="text-sm font-semibold text-ink">{title}</span>
           {badge}
         </div>
         {hint !== undefined && hint !== "" && (

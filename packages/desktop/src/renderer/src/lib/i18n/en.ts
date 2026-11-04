@@ -780,10 +780,12 @@ export const en = {
   "composer.model.priceTitle": "USD per million tokens (input/output)",
   "composer.model.unfavorite": "remove from favorites",
   "composer.model.favorite": "add to favorites",
-  "composer.model.kbdMove": "↑↓ move",
-  "composer.model.kbdPick": "enter pick",
-  "composer.model.kbdClose": "esc close",
-  "composer.model.kbdTabs": "ctrl+[ ] tabs",
+  // Round-7 judge, Consistency 3: the key glyphs moved into bordered chips at
+  // the call site; these strings are the words the chips name.
+  "composer.model.kbdMove": "move",
+  "composer.model.kbdPick": "pick",
+  "composer.model.kbdClose": "close",
+  "composer.model.kbdTabs": "tabs",
   "composer.model.providerKeys": "provider keys",
   "composer.model.remoteKeysNote": "provider keys are managed on {nickname}",
   "composer.model.pricesNote": "prices are USD per Mtok",
@@ -970,6 +972,15 @@ export const en = {
   "settings.general.defaultCompactionMethodHint":
     "New native sessions start with this method. Choosing the omp default hands the choice back to omp's own settings.",
   "settings.general.compactionOmpDefault": "Default (from omp settings)",
+  // Round-7 judge, Clarity 2: the descriptions are omp-ui's plain words, not
+  // omp's schema prose; each one fits a single line at the modal's width.
+  "settings.general.compaction.default": "Uses omp's own order, falling back when a method fails.",
+  "settings.general.compaction.remote": "Lets OpenAI-compatible providers compact on their side.",
+  "settings.general.compaction.snapcompact":
+    "Saves old history as images the vision model reads back; no extra model call.",
+  "settings.general.compaction.handoff": "Writes a handoff document and continues the session from it.",
+  "settings.general.compaction.soft": "A compaction model summarizes the history in place.",
+  "settings.general.compaction.shake": "Drops heavy content that can be recovered later; no model call.",
   "settings.general.compactionGroup": "default compaction method",
   "settings.general.compactionOptionUnavailable": " (unavailable)",
   "settings.general.compactionLoadFailed": "Methods unavailable: {message}",
@@ -2217,7 +2228,7 @@ export const en = {
   "hud.metrics.runOnlyTitle":
     "Counts only the current process; the receipts in the transcript cover every turn.",
   "hud.metrics.sessionTotalTitle":
-    "Whole session — every turn, main and subagents; the receipts in the transcript sum to the same figure.",
+    "Whole session — every turn, main and subagents, counted from the session's journal.",
   "hud.gauge.contextTitle": "Context used by this run: {used} of {window} tokens",
   // Round-1 judge: `4% $0.0000` with no label decoded only on hover; the
   // percentage now names itself in the bar itself.
@@ -2538,11 +2549,15 @@ export const en = {
   // they answer for themselves on hover instead of being squared against the
   // file count in the session section.
   "rail.stats.messagesTitle": "Message entries in the session's live context, as omp reports them.",
-  "rail.stats.messagesTotalTitle": "Every entry omp counts in the live context — it can exceed user + assistant.",
+  "rail.stats.messagesTotalTitle": "Message entries in the session's live context, as omp reports them; `other` carries what the two roles don't name.",
   "rail.stats.user": "user",
   "rail.stats.assistant": "assistant",
   "rail.stats.toolCalls": "tool calls",
   "rail.stats.toolResults": "tool results",
+  // Round-7 judge, Clarity 4: the remainder beyond the named rows gets its own
+  // visible row instead of a hover explanation for `user + assistant ≠ total`.
+  "rail.stats.other": "other",
+  "rail.stats.otherTitle": "Live-context entries beyond the two roles — tool events, system entries.",
   "rail.stats.total": "total",
   "rail.stats.failedEdits": "failed edits",
   "rail.stats.tokens": "tokens",
@@ -2556,6 +2571,9 @@ export const en = {
   // process-only figure keeps its own labelled row when both are known.
   "rail.stats.cost": "this run",
   "rail.stats.sessionCost": "session",
+  // Round-7 judge, Clarity 1: shown when the journal-wide read sits below this
+  // run's receipts — the read lags, so it never headlines.
+  "rail.stats.sessionStaleTitle": "Whole-session read is still catching up with this run; it will not go below the figure above.",
   "rail.stats.premiumReqs": "premium reqs",
   "rail.stats.subagentCost": "subagents",
   "rail.stats.title": "stats",

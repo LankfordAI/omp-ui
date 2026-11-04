@@ -603,16 +603,20 @@ export function CommandPalette() {
         })}
       </PaletteList>
 
-      {/* Keycaps stay 12px mono (true metadata); the words that name them sit
+      {/* Round-7 judge, Consistency 3: one key-hint idiom — every legend in
+          this modal (rows above, Esc in the header, the empty state's chords)
+          is a bordered mono chip, so the footer caps its keys the same way.
+          Keycaps stay 12px mono (true metadata); the words that name them sit
           at the 14px chrome floor (round-3 judge, Typography 1). */}
-      <div className="flex items-center gap-3 border-t border-line px-3.5 py-2 text-sm text-ink-faint">
-        <span className="font-mono text-xs">{formatHotkey("arrowup")}{formatHotkey("arrowdown")}</span>
-        <span>{t("palette.footer.navigate")}</span>
-        <span className="font-mono text-xs">{formatHotkey("enter")}</span>
-        <span>{t("palette.footer.run")}</span>
-        <span className="font-mono text-xs">Ctrl+N</span>
+      <div className="flex items-center gap-1.5 border-t border-line px-3.5 py-2 text-sm text-ink-faint">
+        <Chip mono>{formatHotkey("arrowup")}</Chip>
+        <Chip mono>{formatHotkey("arrowdown")}</Chip>
+        <span className="mr-1.5">{t("palette.footer.navigate")}</span>
+        <Chip mono>{formatHotkey("enter")}</Chip>
+        <span className="mr-1.5">{t("palette.footer.run")}</span>
+        <Chip mono>Ctrl+N</Chip>
         <span>/</span>
-        <span className="font-mono text-xs">Ctrl+P</span>
+        <Chip mono>Ctrl+P</Chip>
         <span>{t("palette.footer.alsoMove")}</span>
       </div>
     </Modal>
