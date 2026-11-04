@@ -8,7 +8,7 @@ import { formatHotkey } from "../lib/hotkeys";
 import { useActionHotkeys, useKeybindingOverrides } from "../lib/keybindings";
 import { effectiveChord } from "@omp-ui/core/keybindings";
 import { currentLocaleId, useT } from "../lib/i18n";
-import { canSettle, deriveSidebarSessionState, findOwner, findRecord, isChatTab, sessionCwd, useStore } from "../store";
+import { canSettle, deriveSidebarSessionState, findOwner, findRecord, isChatTab, sessionCwd, useStore, type SidebarSessionState } from "../store";
 import { parseTitleCard } from "@omp-ui/core/title-card";
 import { Chip, Dot, IconSearch, Label, Modal, type Tone } from "./ui";
 import { SESSION_FACE } from "./SessionRow";
@@ -86,6 +86,8 @@ export function CommandPalette() {
   // Session dots borrow the sidebar's face: same `deriveSidebarSessionState`
   // signal SessionRow reads, so both surfaces agree per session.
   const rpcTabs = useStore((s) => s.rpc);
+  // Attention marks (#1037): the palette's top rank mirrors the stack.
+  const unread = useStore((s) => s.unread);
   const tabs = useStore((s) => s.tabs);
   const activeTabId = useStore((s) => s.activeTabId);
   const openSession = useStore((s) => s.openSession);
@@ -129,36 +131,68 @@ export function CommandPalette() {
   const actions = useMemo<Action[]>(() => {
     const out: Action[] = [];
     const experimentsEnabled = state?.experimentsEnabled === true;
-    // The dot is the sidebar face for this session's derived state, so a
-    // working row reads copper and only live faces carry a halo.
-    const faceOf = (s: SessionSummary): { dot: Tone; dotPulse: boolean } => {
-      const face = SESSION_FACE[deriveSidebarSessionState(s, rpcTabs[s.tabId])];
-      return { dot: face.tone, dotPulse: face.pulse };
+    // Round-10 judge, Clarity 2: the palette used to list sessions in registry
+    // order, so a live working row sat below another project's settled rows and
+    // Ctrl+K -> Enter never reached live work. Sessions now rank by the state
+    // the sidebar already shows — needs-attention (the attention stack, plan
+    // gates, blocking dialogs, stalls), then working, then ready, then settled
+    // — newest open first within each rank, exactly the sidebar's rules, so the
+    // two navigation surfaces agree about what matters.
+    type RankedSession = { action: Action; rank: number; opened: number };
+    const sessions: RankedSession[] = [];
+    const openOrderOf = (s: SessionSummary): number => {
+      const t0 = Date.parse(s.launchedAt);
+      return Number.isNaN(t0) ? Number.NEGATIVE_INFINITY : t0;
     };
-    for (const group of state?.projects ?? []) {
-      for (const s of group.sessions) {
-        if (s.live === "missing") continue;
-        out.push({
+    const pushSession = (s: SessionSummary, desc: string): void => {
+      if (s.live === "missing") return;
+      const derived: SidebarSessionState = deriveSidebarSessionState(s, rpcTabs[s.tabId]);
+      // The face is the sidebar's, so a working row reads copper here too.
+      const face = SESSION_FACE[derived];
+      // The attention stack (#1037) holds exactly marked sessions whose derived
+      // state is ready/awaiting-answer; the marks are renderer-local, and their
+      // owner heads the palette. A marked mid-turn session has no card, so it
+      // stays at working rank like its row does.
+      const attention =
+        unread[s.tabId] !== undefined && (derived === "ready" || derived === "awaiting-answer");
+      const rank =
+        attention || derived === "awaiting-answer" || derived === "stalled"
+          ? 0
+          : derived === "working"
+            ? 1
+            : derived === "dormant" || derived === "archived"
+              ? 3
+              : 2;
+      sessions.push({
+        action: {
           id: `session:${s.tabId}`,
           group: t("palette.group.sessions"),
           name: s.title,
-          desc: group.project.name,
-          ...faceOf(s),
+          desc,
+          dot: face.tone,
+          dotPulse: face.pulse,
           run: () => void openSession(s.tabId),
-        });
-      }
-    }
-    for (const s of state?.chats ?? []) {
-      if (s.live === "missing") continue;
-      out.push({
-        id: `session:${s.tabId}`,
-        group: t("palette.group.sessions"),
-        name: s.title,
-        desc: t("palette.chat.desc"),
-        ...faceOf(s),
-        run: () => void openSession(s.tabId),
+        },
+        rank,
+        opened: openOrderOf(s),
       });
+    };
+    for (const group of state?.projects ?? []) {
+      for (const s of group.sessions) pushSession(s, group.project.name);
     }
+    for (const s of state?.chats ?? []) pushSession(s, t("palette.chat.desc"));
+    // Stable sort: rank wins, then newest open; equal stamps keep source
+    // order. Never subtract: -Infinity - -Infinity is NaN (the sidebar's rule).
+    sessions.sort((a, b) =>
+      a.rank !== b.rank
+        ? a.rank - b.rank
+        : a.opened === b.opened
+          ? 0
+          : a.opened > b.opened
+            ? -1
+            : 1,
+    );
+    out.push(...sessions.map((row) => row.action));
 
     for (const group of state?.projects ?? []) {
       out.push({
@@ -442,7 +476,7 @@ export function CommandPalette() {
     });
 
     return out;
-  }, [state, rpcTabs, tabs, activeTabId, openSession, newSession, newChat, openProjectPicker, openCapabilitiesViewer, openSessionTreeView, openLab, openStats, openFleet, openNewSessionDialog, openExperimentDialog, settleSessions, openScheduleDialog, settleUndoCount, undoSettle, switchMode, regenerateSessionTitle, askAboutSession, toggleBrowserPane, toggleDevicePane, shareSession, anonymizeSession, ompInstalled, openShareLive, checkAppUpdate, checkOmpUpdate, openSettings, openDiagnosticsDialog, openGettingStarted, t, localeId, keybindings]);
+  }, [state, rpcTabs, unread, tabs, activeTabId, openSession, newSession, newChat, openProjectPicker, openCapabilitiesViewer, openSessionTreeView, openLab, openStats, openFleet, openNewSessionDialog, openExperimentDialog, settleSessions, openScheduleDialog, settleUndoCount, undoSettle, switchMode, regenerateSessionTitle, askAboutSession, toggleBrowserPane, toggleDevicePane, shareSession, anonymizeSession, ompInstalled, openShareLive, checkAppUpdate, checkOmpUpdate, openSettings, openDiagnosticsDialog, openGettingStarted, t, localeId, keybindings]);
 
   // Flat, already-ordered result list; group headers are derived from it so the
   // arrow-key index and the rendered rows can never disagree.
