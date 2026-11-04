@@ -223,8 +223,18 @@ describe("readSessionTitles", () => {
       const stmt = db.prepare(
         "INSERT INTO session_titles (session_id, title, updated_at) VALUES (?, ?, ?)",
       );
-      for (let i = 1; i <= HISTORY_TITLE_SCAN_LIMIT + 5; i += 1) {
-        stmt.run(`s-${i}`, `Title ${i}`, i);
+      // One transaction for the whole seed: autocommit would fsync per insert,
+      // and 5k fsyncs take minutes on a slow CI disk — long enough to blow the
+      // test timeout. The read under test is unaffected by how rows land.
+      db.exec("BEGIN");
+      try {
+        for (let i = 1; i <= HISTORY_TITLE_SCAN_LIMIT + 5; i += 1) {
+          stmt.run(`s-${i}`, `Title ${i}`, i);
+        }
+        db.exec("COMMIT");
+      } catch (error) {
+        db.exec("ROLLBACK");
+        throw error;
       }
     });
     const read = readSessionTitles(envWithAgent(agent));
