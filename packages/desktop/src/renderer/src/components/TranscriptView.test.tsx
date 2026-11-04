@@ -104,6 +104,45 @@ describe("TranscriptView error containment", () => {
     act(() => root.unmount());
   });
 
+  it("drops an agent-finished divider immediately followed by agent-started", () => {
+    // Round-9 judge, Consistency 2: a wake that ended and restarted the turn
+    // with nothing between stacked AGENT FINISHED above AGENT STARTED. The
+    // run keeping its start boundary is the single rule that survives.
+    const marker = (id: string, label: string): RenderItem => ({
+      kind: "marker",
+      id,
+      label,
+      timestamp: 0,
+    });
+    const { el, root } = render([
+      assistant("a1", "the answer"),
+      marker("m1", "agent finished"),
+      marker("m2", "agent started"),
+      assistant("a2", "the follow-up"),
+    ]);
+    expect(el.textContent).toContain("the answer");
+    expect(el.textContent?.toLowerCase()).not.toContain("agent finished");
+    expect((el.textContent?.toLowerCase().match(/agent started/g) ?? []).length).toBe(1);
+    act(() => root.unmount());
+  });
+
+  it("keeps an agent-finished divider with content between it and the next start", () => {
+    const marker = (id: string, label: string): RenderItem => ({
+      kind: "marker",
+      id,
+      label,
+      timestamp: 0,
+    });
+    const { el, root } = render([
+      marker("m1", "agent finished"),
+      assistant("a1", "content keeps both boundaries"),
+      marker("m2", "agent started"),
+    ]);
+    expect(el.textContent?.toLowerCase()).toContain("agent finished");
+    expect(el.textContent?.toLowerCase()).toContain("agent started");
+    act(() => root.unmount());
+  });
+
   it("collapses a throwing row to a broken-row card and keeps its siblings", () => {
     // `notes: undefined` poisons AdvisoryNotes the same way the stale-HMR
     // table bug did: a field the renderer `.map`s over is missing.

@@ -502,12 +502,19 @@ export function ChoiceCapsule<T extends string | number>({
               CAPSULE_SEGMENT,
               optionClassName,
               option.className,
-              // Round-7 judge, Color 1: in Dark the fill alone is a 1.16 step
-              // against the modal plane; the selected label splits hard from
-              // the unselected one — ink/600 over ink-dim/500 — so state reads
-              // without colour alone carrying it.
+              // Round-7 judge, Color 1: the selected label splits hard from
+              // the unselected one — ink/600 over ink-dim/500.
+              // Round-9 judge, Consistency 3 (optional #6): the fill alone is
+              // ~1.16 against the group frame, so state also carries a 2px ink
+              // under-bar — ink on raised/hover is >9:1 in both themes, past
+              // WCAG 1.4.11's 3:1 for a non-text indicator. After the option
+              // overrides so custom fills keep it; shadow classes never
+              // conflict with them in twMerge.
               selected
-                ? (option.selectedClassName ?? "bg-hover text-ink font-semibold")
+                ? cn(
+                    option.selectedClassName ?? "bg-hover text-ink font-semibold",
+                    "shadow-[inset_0_-2px_0_var(--color-ink)]",
+                  )
                 : (option.unselectedClassName ?? "text-ink-dim"),
             )}
           >

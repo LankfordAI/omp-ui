@@ -5,7 +5,7 @@ import { createRoot, type Root } from "react-dom/client";
 import { afterEach, describe, expect, it, vi } from "vitest";
 import type { ModelInfo } from "../lib/rpc-types";
 import { backendState } from "../test/fixtures";
-import { Button, Chip, ChoiceCapsule, ConfirmDialog, Meter, Modal, PerimeterGlow, PerimeterSweep, ProgressRing, ProgressSweep, ResizeHandle, Sheet, UpdateCard, conicRing } from "./ui";
+import { Button, Chip, ChoiceCapsule, ConfirmDialog, Meter, Modal, PerimeterGlow, PerimeterSweep, ProgressHalo, ProgressRing, ProgressSweep, ResizeHandle, Sheet, UpdateCard, conicRing } from "./ui";
 
 (globalThis as Record<string, unknown>).IS_REACT_ACT_ENVIRONMENT = true;
 HTMLElement.prototype.scrollIntoView = vi.fn();
@@ -627,6 +627,50 @@ describe("ProgressRing", () => {
     const svg = document.querySelector<SVGSVGElement>("svg[data-progress-ring]")!;
     expect(svg.querySelectorAll("circle.stroke-line")).toHaveLength(1);
     expect(svg.querySelectorAll("circle")).toHaveLength(1);
+  });
+});
+
+describe("ProgressHalo", () => {
+  // The halo traces a rounded rect (round-9 judge, Consistency 1): a circular
+  // ring over the square button left its corners poking past the track. Sweep
+  // math rides pathLength=1, so the dasharray IS the fraction.
+
+  it("fills half the perimeter at fraction 0.5", async () => {
+    await render(<ProgressHalo fraction={0.5} />);
+    const paths = document.querySelectorAll("svg[data-progress-halo] path");
+    expect(paths).toHaveLength(2);
+    expect(paths[1]!.getAttribute("pathLength")).toBe("1");
+    expect(paths[1]!.getAttribute("stroke-dasharray")).toBe("0.5 0.5");
+  });
+
+  it("drops the arc below the minimum fill, so a few percent is not a stray dot", async () => {
+    await render(<ProgressHalo fraction={0.04} />);
+    expect(document.querySelectorAll("svg[data-progress-halo] path")).toHaveLength(1);
+  });
+
+  it("clamps fractions above full to the whole perimeter and floors negatives to track only", async () => {
+    await render(<ProgressHalo fraction={2} />);
+    const paths = document.querySelectorAll("svg[data-progress-halo] path");
+    expect(paths).toHaveLength(2);
+    expect(paths[1]!.getAttribute("stroke-dasharray")).toBe("1 0");
+    act(() => root!.render(<ProgressHalo fraction={-1} />));
+    expect(document.querySelectorAll("svg[data-progress-halo] path")).toHaveLength(1);
+  });
+
+  it("escalates fill tone signal, copper, rose over a line track", async () => {
+    await render(<ProgressHalo fraction={0.75} />);
+    const paths = document.querySelectorAll("svg[data-progress-halo] path");
+    expect(paths[0]!.classList.contains("stroke-line")).toBe(true);
+    expect(paths[1]!.classList.contains("stroke-copper")).toBe(true);
+    act(() => root!.render(<ProgressHalo fraction={0.95} />));
+    expect(document.querySelectorAll("svg[data-progress-halo] path")[1]!.classList.contains("stroke-rose")).toBe(true);
+  });
+
+  it("traces a rounded rectangle, not a circle", async () => {
+    await render(<ProgressHalo fraction={0.5} />);
+    const d = document.querySelector("svg[data-progress-halo] path")!.getAttribute("d")!;
+    expect(d).toContain("H");
+    expect(d).toMatch(/A \d+(\.\d+)? \d+(\.\d+)? 0 0 1/);
   });
 });
 

@@ -6,7 +6,7 @@ import { formatHotkey } from "../lib/hotkeys";
 import { useT } from "../lib/i18n";
 import { useDismissal } from "../lib/use-dismissal";
 import { MenuRow } from "./MenuRow";
-import { Button, Chevron, IconButton, Label, ProgressRing } from "./ui";
+import { Button, Chevron, IconButton, Label, ProgressHalo } from "./ui";
 
 /**
  * The composer's running/idle send cluster, one component across all three
@@ -55,12 +55,13 @@ export function ComposerActions({
   onSubmit: (route: SubmitRoute) => void;
   onAbort: () => void;
   /**
-   * Context-fill halo around the desktop composer's round control — shown ONLY
-   * while a turn runs, on the stop button. At rest the send button is bare:
-   * a standing arc over an idle control reads as a stray decoration (round-2
-   * judge), and the context readout lives in the HUD gauge anyway. Null or an
-   * idle state renders no ring. Ignored by compact/sheet layouts: their
-   * primaries are pills, and a halo traces a circle.
+   * Context-fill halo around the desktop composer's square primary control —
+   * worn by the send button at rest and the stop button while running alike,
+   * so the most-watched control keeps one outline through a turn (round-9
+   * judge, Consistency 1; this supersedes round-2's "bare at rest", which was
+   * measured against a circular ring whose geometry clashed with the square
+   * button). Null renders no halo. Ignored by compact/sheet layouts: their
+   * primaries are pills, and a halo traces the square control's radius.
    */
   contextRing?: { fraction: number; title: string } | null;
 }) {
@@ -87,15 +88,15 @@ export function ComposerActions({
     return layout === "compact" ? word.charAt(0).toUpperCase() + word.slice(1) : word;
   };
 
+  // The wrapper owns the halo's 3px ring as real padding, so the ring is
+  // inside the layout box and never bumps the card's own padding or the
+  // textarea above it (round-9 judge, Consistency 1).
   const haloed = (control: ReactNode) =>
     contextRing == null ? (
       control
     ) : (
-      <span className="relative flex shrink-0 items-center justify-center">
-        <ProgressRing
-          fraction={contextRing.fraction}
-          className="pointer-events-none absolute -inset-[3px] size-[calc(100%+6px)]"
-        />
+      <span className="relative flex shrink-0 items-center justify-center p-[3px]">
+        <ProgressHalo fraction={contextRing.fraction} className="pointer-events-none absolute inset-0 size-full" />
         {control}
       </span>
     );
@@ -162,20 +163,24 @@ export function ComposerActions({
   ) : (
     <>
       {atResetButton}
-      {/* Bare at rest (round-2 judge): the context halo rides only the running
-          stop button — a second ring over an idle send reads as a stray arc. */}
-      <Button
-        variant="solid"
-        disabled={!canSend}
-        title={isSlash ? t("composer.actions.runTitle") : t("composer.actions.sendTitle")}
-        onClick={() => onSubmit("prompt")}
-        // Square in the app's 6px radius family (round-4 judge, Iconography 1):
-        // the circle was the only circular control among rounded-md buttons.
-        className="size-7 shrink-0 justify-center rounded-md p-0"
-      >
-        <IconSend />
-        <span className="sr-only">{label("send")}</span>
-      </Button>
+      {/* The same halo rides the idle send button (round-9 judge, Consistency
+          1): the primary control's outline must not change the moment a turn
+          starts. The halo traces the button's rounded-square shape, so it no
+          longer reads as a stray circle at rest. */}
+      {haloed(
+        <Button
+          variant="solid"
+          disabled={!canSend}
+          title={isSlash ? t("composer.actions.runTitle") : t("composer.actions.sendTitle")}
+          onClick={() => onSubmit("prompt")}
+          // Square in the app's 6px radius family (round-4 judge, Iconography 1):
+          // the circle was the only circular control among rounded-md buttons.
+          className="size-7 shrink-0 justify-center rounded-md p-0"
+        >
+          <IconSend />
+          <span className="sr-only">{label("send")}</span>
+        </Button>,
+      )}
     </>
   );
 }

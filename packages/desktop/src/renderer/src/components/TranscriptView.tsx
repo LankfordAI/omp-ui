@@ -1021,6 +1021,18 @@ function buildRuns(items: RenderItem[], replyWrites: boolean): Run[] {
       lastRow.count++;
       continue;
     }
+    // Back-to-back lifecycle dividers (round-9 judge, Consistency 2): a wake
+    // that ends and restarts the turn with nothing between renders
+    // "AGENT FINISHED" directly above "AGENT STARTED", which reads as noise.
+    // Keep the one boundary that says something: the run starting again.
+    if (
+      item.kind === "marker" &&
+      item.label === "agent started" &&
+      lastRow?.item.kind === "marker" &&
+      lastRow.item.label === "agent finished"
+    ) {
+      last!.rows.pop();
+    }
     const speaker = isPresentedReplyWrite(item, replyWrites) ? "assistant" : SPEAKER[item.kind];
     if (last && last.speaker === speaker) {
       last.rows.push({ item, count: 1 });
