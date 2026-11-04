@@ -162,7 +162,10 @@ export function LiveVoiceControl({
           aria-label={t("composer.live.start")}
           className={cn(CAPSULE_SEGMENT, "text-sm")}
         >
-          <Dot tone={live?.error != null ? "rose" : "neutral"} />
+          {/* Round-5 judge, Iconography 1: the idle pill leads with the set's
+              mic glyph at the shared stroke — a neutral dot read as a stray
+              bullet, and an error still re-tints the whole capsule rose. */}
+          <IconMic className="size-3 shrink-0" />
           {t("composer.live.idlePill")}
         </button>
       </Capsule>

@@ -3,6 +3,7 @@ export {
   Chevron,
   ICON_STROKE,
   IconAdvisor,
+  IconBranch,
   IconBuildMode,
   IconClose,
   IconFast,

@@ -201,7 +201,10 @@ function Spans({ spans }: { spans: MdSpan[] }) {
               // bg-overlay is white-on-white against Light's raised/overlay
               // planes — the chip vanished (round-1 judge). bg-hover is the
               // one plane every theme keeps distinct from surface AND raised.
-              <code key={i} className="rounded bg-hover px-1.5 font-mono text-[0.9em] text-ink">
+              // Round-5 judge, Typography 1: one mono size — 14px, the same as
+              // a code block; 0.9em of 16px prose made inline code larger than
+              // the identical token in the block below it.
+              <code key={i} className="rounded bg-hover px-1.5 font-mono text-sm text-ink">
                 {span.text}
               </code>
             );

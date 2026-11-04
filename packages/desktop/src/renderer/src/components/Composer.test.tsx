@@ -3380,10 +3380,9 @@ describe("Composer options popover (issue #939)", () => {
     await act(async () => {});
     expect(panel().hidden).toBe(true);
     const branch = pillSegment("branch");
-    expect(branch?.textContent).toContain("⎇ main");
+    expect(branch?.textContent).toContain("main");
     expect(branch?.textContent).not.toContain("↓ 2");
     expect(pullCap()?.textContent).toBe("↓ 2");
-    expect(optionsTrigger().className).toContain("rounded-l-full");
   });
 
   it("omits the pull cap when behind === 0", () => {
@@ -3391,7 +3390,6 @@ describe("Composer options popover (issue #939)", () => {
     useStore.setState({ branches: { "/p": { ...gitBranches, behind: 0 } } });
     renderComposer();
     expect(pullCap()).toBeNull();
-    expect(optionsTrigger().className).toContain("rounded-full");
   });
 
   it("clicking the pull cap fast-forwards in one click without opening the options dialog", async () => {

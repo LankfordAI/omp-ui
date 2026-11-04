@@ -239,7 +239,7 @@ export function AdvisorControl({ tabId, disabled, layout = "inline" }: { tabId: 
                 title={`${t("advisor.override.label")}: ${effective}`}
                 className={cn(
                   CAPSULE_SEGMENT,
-                  "shrink-0 rounded-r-[5px] text-xs tabular-nums text-ink-mid",
+                  "shrink-0 rounded-r-md text-xs tabular-nums text-ink-mid",
                   layout === "sheet" && "px-3",
                 )}
               >
@@ -257,7 +257,7 @@ export function AdvisorControl({ tabId, disabled, layout = "inline" }: { tabId: 
                 onClick={() => setLevelMenu((m) => !m)}
                 className={cn(
                   CAPSULE_SEGMENT,
-                  "shrink-0 rounded-r-[5px] text-xs tabular-nums text-iris",
+                  "shrink-0 rounded-r-md text-xs tabular-nums text-iris",
                   layout === "sheet" && "px-3",
                 )}
               >

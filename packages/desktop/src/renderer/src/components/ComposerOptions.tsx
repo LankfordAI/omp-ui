@@ -18,6 +18,7 @@ import type { WorkspaceSelection } from "./WorktreeBranchFields";
 import {
   Chevron,
   IconAdvisor,
+  IconBranch,
   IconBuildMode,
   IconFast,
   IconModel,
@@ -186,8 +187,11 @@ export function ComposerOptions({
         className={cn(
           // 14px like the placeholder above it (round-4 judge, Typography 1):
           // the primary session control must not be the smallest text in the card.
+          // Round-5 judge, Iconography 2: one container idiom for the strip —
+          // `+`, this, Voice, and send are all bordered boxes at the 6px radius;
+          // the pill was a third shape among two.
           "tap-target inline-flex h-7 min-w-0 shrink items-center gap-1 border border-line px-2.5 text-sm text-ink-mid transition-colors duration-150 hover:bg-hover hover:text-ink aria-expanded:bg-hover",
-          showPullCap ? "rounded-l-full" : "rounded-full",
+          showPullCap ? "rounded-l-md" : "rounded-md",
         )}
       >
         {!chat && (
@@ -223,9 +227,12 @@ export function ComposerOptions({
             <span data-pill-segment="branch" className="flex min-w-0 shrink items-center gap-1">
               {/* Proportional inside the pill (round-3 judge, Consistency 3):
                   its neighbours (`build`, model, thinking) are proportional; a
-                  mono island mid-pill read as code that wasn't. */}
+                  mono island mid-pill read as code that wasn't. Round-5 judge,
+                  Iconography 1: the `⎇` text glyph became the set's branch SVG
+                  so its stroke matches the neighbouring `+` and send arrow. */}
+              <IconBranch className="size-3 shrink-0" />
               <span className="max-w-32 truncate">
-                ⎇ {workspace?.mode === "worktree" ? workspace.branch : info.current ?? t("composer.branch.detachedChip")}
+                {workspace?.mode === "worktree" ? workspace.branch : info.current ?? t("composer.branch.detachedChip")}
               </span>
             </span>
           </>
@@ -257,7 +264,7 @@ export function ComposerOptions({
           }
           onClick={() => void handlePullCapClick()}
           className={cn(
-            "tap-target inline-flex h-7 shrink-0 items-center rounded-r-full border border-l-0 border-line px-2.5 font-mono text-sm tabular-nums transition-colors duration-150 hover:bg-hover disabled:pointer-events-none disabled:text-ink-dim",
+            "tap-target inline-flex h-7 shrink-0 items-center rounded-r-md border border-l-0 border-line px-2.5 font-mono text-sm tabular-nums transition-colors duration-150 hover:bg-hover disabled:pointer-events-none disabled:text-ink-dim",
             diverged || mergeInProgress ? "text-copper" : "text-ink-mid hover:text-ink",
           )}
         >

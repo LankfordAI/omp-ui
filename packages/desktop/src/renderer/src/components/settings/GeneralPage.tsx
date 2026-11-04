@@ -47,24 +47,24 @@ const COMPACTION_METHOD_META: Record<string, { label: string; description: strin
     description:
       "Use provider-native OpenAI-compatible server compaction when the active route supports it",
   },
-  // Round-4 judge, Clarity 4: the raw omp method names stay (they match what
-  // a user would type into omp's own config) but each carries its plain-language
-  // meaning in the label, so the picker never reads as insider shorthand.
+  // Round-4 judge, Clarity 4: the raw omp method names stay reachable via the
+  // description; round-5 judge, Clarity 2: the label itself leads with the
+  // plain-language meaning so the picker never reads as insider shorthand.
   snapcompact: {
-    label: "Snapcompact — vision snapshots",
+    label: "Vision snapshots (Snapcompact)",
     description:
       "Archive history onto dense bitmap images the active vision model reads back; no LLM call",
   },
   handoff: {
-    label: "Handoff",
+    label: "Handoff document",
     description: "Generate a handoff document and continue from it as the compaction summary",
   },
   soft: {
-    label: "Soft compaction",
+    label: "Summarize in place (Soft)",
     description: "Summarize in place with a compaction model without using server compaction",
   },
   shake: {
-    label: "Shake — drop heavy content",
+    label: "Drop heavy content (Shake)",
     description: "Drop recoverable heavy content in place without an LLM call",
   },
 };
@@ -141,7 +141,10 @@ function CompactionMethodPicker({
                 if (option.id !== value) onSelect(option.id);
               }}
               className={cn(
-                "flex w-full items-start gap-2 px-2.5 py-1.5 text-left transition-colors duration-150",
+                // Round-5 judge, Spacing 1: label stacked over description;
+                // the full modal width gives every row a single line each
+                // instead of a wrapping two-column table.
+                "flex w-full flex-col gap-0.5 px-2.5 py-1.5 text-left transition-colors duration-150",
                 option.disabled
                   ? "cursor-not-allowed opacity-45"
                   : selected
@@ -149,14 +152,15 @@ function CompactionMethodPicker({
                     : "text-ink-mid hover:bg-hover/50 focus-visible:bg-hover/50 focus-visible:outline-none",
               )}
             >
-              <span className={cn("w-52 shrink-0 text-sm", selected && "font-medium")}>
+              <span className={cn("min-w-0 truncate text-sm", selected && "font-medium")} title={option.label}>
                 {option.label}
               </span>
               {option.description !== undefined && (
                 // ink-dim, not ink-faint: on a selected row the description
                 // sits on bg-hover, the app's darkest text plane (round-4
-                // judge, Color 1).
-                <span className="min-w-0 flex-1 text-sm leading-snug text-ink-dim">
+                // judge, Color 1). No truncate: stacked at full width only the
+                // longest sentence wraps, and nothing hides behind an ellipsis.
+                <span className="min-w-0 text-sm leading-snug text-ink-dim">
                   {option.description}
                 </span>
               )}

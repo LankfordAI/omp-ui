@@ -797,6 +797,22 @@ describe("NoticeLine mcpMount summary (issue #848)", () => {
     expect(el.textContent).toContain("1 MCP tool available to the agent");
     act(() => root.unmount());
   });
+
+  it("keeps only the newest mount notice when remounts stacked (round-5 judge)", () => {
+    const { el, root } = render([
+      { kind: "notice", id: "n1", text: "", level: "info", source: "xdev", mcpMount: { count: 3 } },
+      assistant("a1", "working"),
+      { kind: "notice", id: "n2", text: "", level: "info", source: "xdev", mcpMount: { count: 5 } },
+      { kind: "notice", id: "n3", text: "an unrelated notice", level: "info" },
+      { kind: "notice", id: "n4", text: "", level: "info", source: "xdev", mcpMount: { count: 170 } },
+    ]);
+    expect(el.textContent).toContain("170 MCP tools available to the agent");
+    expect(el.textContent).not.toContain("3 MCP tools");
+    expect(el.textContent).not.toContain("5 MCP tools");
+    // Other notices ride on untouched.
+    expect(el.textContent).toContain("an unrelated notice");
+    act(() => root.unmount());
+  });
 });
 
 describe("NoticeLine spend-cap stop (issue #952)", () => {

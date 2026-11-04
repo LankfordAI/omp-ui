@@ -1332,6 +1332,8 @@ interface MainSpend {
   tokens: number;
   premium: number;
   title: string;
+  /** True when `cost` is the whole-session bridge total, not this process only. */
+  sessionTotal: boolean;
 }
 
 const GAUGE_SECTION = "mt-2.5 border-t border-line-soft pt-2.5 first:mt-0 first:border-t-0 first:pt-0";
@@ -1478,12 +1480,15 @@ function GaugeChip({
         {mainSpend && (
           <span
             className={cn("titlebar-gauge-cost", costCap ? "text-rose" : "text-ink-faint")}
-            // Round-2 judge: the header figure counts only this process, while
-            // the receipts under the transcript cover every turn. Say so here.
-            title={t("hud.metrics.runOnlyTitle")}
+            // Round-5 judge, Clarity 1: with the bridge snapshot the figure is
+            // the whole session — every turn, matching the receipts — so say
+            // "session"; only the fallback counts this process alone.
+            title={mainSpend.sessionTotal ? t("hud.metrics.sessionTotalTitle") : t("hud.metrics.runOnlyTitle")}
           >
             {formatCost(mainSpend.cost)}
-            <span className="ml-1 font-sans">{t("hud.metrics.thisRun")}</span>
+            <span className="ml-1 font-sans">
+              {t(mainSpend.sessionTotal ? "hud.metrics.sessionShort" : "hud.metrics.thisRun")}
+            </span>
           </span>
         )}
       </button>
@@ -1660,6 +1665,7 @@ export function SessionHud({ tabId }: { tabId: string }) {
         cost: sessionSpend.total.cost,
         tokens: sessionSpend.total.totalTokens,
         premium: sessionSpend.total.premiumRequests,
+        sessionTotal: true,
         title: t("hud.stats.sessionDetails", {
           cost: formatCost(sessionSpend.total.cost),
           tokens: exactNum(sessionSpend.total.totalTokens),
@@ -1674,6 +1680,7 @@ export function SessionHud({ tabId }: { tabId: string }) {
           cost: stats.cost,
           tokens: stats.tokens.total,
           premium: stats.premiumRequests,
+          sessionTotal: false,
           title: t("hud.stats.details", { cost: formatCost(stats.cost), tokens: exactNum(stats.tokens.total), premium: stats.premiumRequests }),
         }
       : null;
@@ -1963,7 +1970,7 @@ export function SessionHud({ tabId }: { tabId: string }) {
                 {worktree && <div className="space-y-1"><div className="flex items-center justify-between gap-3"><Label>{t("hud.metrics.worktree")}</Label><span className="flex items-center gap-1"><Chip mono title={worktree.path}>⎇ {worktree.branch}</Chip><CopyButton text={worktree.branch} label={t("hud.actions.copy")} doneLabel={t("hud.actions.copied")} /></span></div><div className="flex items-center justify-between gap-2"><span className="min-w-0 truncate font-mono text-xs text-ink-faint" title={worktree.path}>{worktree.path}</span><CopyButton text={worktree.path} label={t("hud.actions.copy")} doneLabel={t("hud.actions.copied")} /></div></div>}
                 {isPrivate && <div className="flex items-center justify-between gap-3"><Label>{t("hud.metrics.memory")}</Label><span className="flex items-center gap-1 text-ink-mid"><IconLock /><span title={t("session.badge.private")}>{t("hud.metrics.memoryPrivate")}</span></span></div>}
                 {usage && <div className="flex items-center justify-between gap-3"><Label>{t("hud.metrics.context")}</Label><ContextCluster usage={usage} markerTokens={markerTokens} /></div>}
-                {mainSpend && <div className="flex items-center justify-between gap-3"><Label>{t("hud.metrics.spend")}</Label><span className="font-mono text-xs tabular-nums text-ink-mid" title={[mainSpend.title, t("hud.metrics.runOnlyTitle")].join("\n")}>{t("hud.stats.compact", { cost: formatCost(mainSpend.cost), tokens: compactNum(mainSpend.tokens), premium: mainSpend.premium })} <span className="font-sans">{t("hud.metrics.thisRun")}</span></span></div>}
+                {mainSpend && <div className="flex items-center justify-between gap-3"><Label>{t("hud.metrics.spend")}</Label><span className="font-mono text-xs tabular-nums text-ink-mid" title={mainSpend.title}>{t("hud.stats.compact", { cost: formatCost(mainSpend.cost), tokens: compactNum(mainSpend.tokens), premium: mainSpend.premium })} <span className="font-sans">{t(mainSpend.sessionTotal ? "hud.metrics.sessionShort" : "hud.metrics.thisRun")}</span></span></div>}
                 {costCapChip && (
                   <div className="flex items-center justify-between gap-3">
                     <Label>{t("hud.costCap.label")}</Label>

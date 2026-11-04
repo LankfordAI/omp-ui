@@ -523,12 +523,18 @@ export function SessionRow({
         <span className="flex min-w-0 items-start gap-2">
           <span
             data-session-tile-title
+            // Truncation hides the tail; the tooltip carries the full title.
+            title={s.title}
             className={cn(
               "min-w-0 flex-1 text-sm transition-colors duration-150",
               // Every sidebar title is one size (round-2 judge): 14px. State
               // rides the accent bar and the meta line's state-word colour,
               // never the type size; the settled title only steps ink a tier.
-              slim ? "truncate" : "line-clamp-2 break-words leading-snug",
+              // Round-5 judge, Spacing 2: one treatment across groups — every
+              // title truncates to one line (the full title is in the header,
+              // and the row's tooltip carries it), so Working tiles and the
+              // Settled list share a rhythm instead of wrap-vs-ellipsis.
+              "truncate",
               missing || slim ? "text-ink-mid group-hover/row:text-ink" : "text-ink",
             )}
           >

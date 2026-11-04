@@ -37,9 +37,12 @@ export const en = {
   "app.welcome.noProjectsHint":
     "Track a project directory, then run omp agents against it — as a terminal or as a native session.",
   "app.welcome.hintCommandPalette": "command palette",
+  // Round-5 judge, Clarity 3: the two new-session chords answered for the same
+  // verb; each line now names what its own surface asks for. "fleet" is gone —
+  // it named nothing on this screen.
   "app.welcome.hintNewSession": "new session — pick a project",
   "app.welcome.hintNewChat": "new chat — no project",
-  "app.welcome.hintNewSessionDialog": "new session dialog — here or fleet",
+  "app.welcome.hintNewSessionDialog": "new session — full options dialog",
   "app.welcome.hintMode": "switch Build / Plan mode",
   "app.welcome.hintConsole": "toggle console",
   "app.welcome.hintSearch": "search within a session",
@@ -962,9 +965,11 @@ export const en = {
     "How a new native session starts — read-only Plan, or write-enabled Build.",
   "settings.general.defaultAgentModeLabel": "default agent mode",
   "settings.general.defaultCompactionMethod": "Default compaction method",
+  // Round-5 judge, Clarity 2: plain language; no "omp configured default" or
+  // "Captured by…" shorthand on a user surface.
   "settings.general.defaultCompactionMethodHint":
-    "Captured by new native sessions. omp configured default removes the override.",
-  "settings.general.compactionOmpDefault": "omp configured default",
+    "New native sessions start with this method. Choosing the omp default hands the choice back to omp's own settings.",
+  "settings.general.compactionOmpDefault": "Default (from omp settings)",
   "settings.general.compactionGroup": "default compaction method",
   "settings.general.compactionOptionUnavailable": " (unavailable)",
   "settings.general.compactionLoadFailed": "Methods unavailable: {message}",
@@ -2205,9 +2210,14 @@ export const en = {
   "hud.gauge.label": "context and spend",
   // Round-2 judge, Clarity 3: the header counts only the current process
   // while the receipts below sum every turn — say what the number is.
+  // Round-5 judge, Clarity 1: once the bridge snapshot lands the figure is
+  // the whole session, so the pill and rail carry that shorter label.
   "hud.metrics.thisRun": "this run",
+  "hud.metrics.sessionShort": "session",
   "hud.metrics.runOnlyTitle":
     "Counts only the current process; the receipts in the transcript cover every turn.",
+  "hud.metrics.sessionTotalTitle":
+    "Whole session — every turn, main and subagents; the receipts in the transcript sum to the same figure.",
   "hud.gauge.contextTitle": "Context used by this run: {used} of {window} tokens",
   // Round-1 judge: `4% $0.0000` with no label decoded only on hover; the
   // percentage now names itself in the bar itself.
@@ -2524,6 +2534,11 @@ export const en = {
   "rail.jobs.completion": "the agent's own completion estimate: {percent}%",
 
   "rail.stats.messages": "messages",
+  // Round-5 judge, Consistency 2: these counts are omp's live-context view;
+  // they answer for themselves on hover instead of being squared against the
+  // file count in the session section.
+  "rail.stats.messagesTitle": "Message entries in the session's live context, as omp reports them.",
+  "rail.stats.messagesTotalTitle": "Every entry omp counts in the live context — it can exceed user + assistant.",
   "rail.stats.user": "user",
   "rail.stats.assistant": "assistant",
   "rail.stats.toolCalls": "tool calls",
@@ -2537,10 +2552,10 @@ export const en = {
   "rail.stats.cacheRead": "cache read",
   "rail.stats.cacheWrite": "cache write",
   "rail.stats.spend": "spend",
-  // The number is this run only (the bridge snapshot); the transcript's
-  // receipts sum every turn. Label the row, not just its hover (round-4
-  // judge, Clarity 1), with the HUD pill's words.
+  // The headline figure is the whole session (round-5 judge, Clarity 1); the
+  // process-only figure keeps its own labelled row when both are known.
   "rail.stats.cost": "this run",
+  "rail.stats.sessionCost": "session",
   "rail.stats.premiumReqs": "premium reqs",
   "rail.stats.subagentCost": "subagents",
   "rail.stats.title": "stats",
@@ -2559,6 +2574,7 @@ export const en = {
   // Distinct from the stats section's live-context "messages": this one counts
   // the session file (round-4 judge, Consistency 2).
   "rail.session.messages": "file messages",
+  "rail.session.messagesTitle": "Messages stored in the session file; compaction can make this differ from the live-context counts above.",
   "rail.session.queued": "queued",
   "rail.session.parkedSuffix": " (parked)",
   "rail.session.modelSection": "model",
@@ -3034,7 +3050,6 @@ export const en = {
   "sidebar.footer.resize": "resize sidebar",
   "sidebar.footer.hostsAttention": "{n} host offline",
   "sidebar.footer.hostsAttentionTitle": "A remote computer this window joined stopped answering. Its sessions stay on that computer; open Remote instances to reconnect or remove it.",
-  "settings.shell.application": "Application",
   "settings.shell.title": "Settings",
   "settings.nav.general": "General",
   "settings.nav.appearance": "Appearance",

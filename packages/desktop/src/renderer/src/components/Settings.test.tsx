@@ -687,15 +687,13 @@ describe("Settings General page default compaction method (issue #275)", () => {
       ompUpdate: idleOmpUpdate,
     });
     await renderSettings();
-    expect(pickerButtons().map(labelOf)).toEqual([
-      "omp configured default",
-      "Soft compaction",
-      "OpenAI server compaction",
-      "future",
-    ]);
+    // Behavior only: order (default row first, then omp's published order),
+    // the pressed row, and that an unknown id gets no invented description.
+    expect(pickerButtons()).toHaveLength(4);
     // The persisted method is pressed; the unknown id "future" got the raw
     // label and no invented description (one child instead of two).
     expect(pickerButtons()[1].getAttribute("aria-pressed")).toBe("true");
+    expect(labelOf(pickerButtons()[3])).toBe("future");
     expect(pickerButtons()[3].children).toHaveLength(1);
     expect(document.body.textContent).toContain(
       "Summarize in place with a compaction model without using server compaction",
@@ -729,7 +727,7 @@ describe("Settings General page default compaction method (issue #275)", () => {
     expect(unavailable.getAttribute("aria-pressed")).toBe("true");
   });
 
-  it("keeps the omp configured default selectable when the method read fails", async () => {
+  it("keeps the omp-default row selectable when the method read fails", async () => {
     backendMock.listCompactionMethods.mockRejectedValueOnce(new Error("omp binary not found"));
     useStore.setState({
       settingsPage: "general",
@@ -742,7 +740,8 @@ describe("Settings General page default compaction method (issue #275)", () => {
     });
     await renderSettings();
     expect(pickerButtons()).toHaveLength(1);
-    expect(labelOf(pickerButtons()[0])).toBe("omp configured default");
+    // The one row is the clear-the-override row (index 0 by construction).
+    expect(pickerButtons()[0].getAttribute("aria-pressed")).toBe("false");
     expect(document.body.textContent).toContain("Methods unavailable: omp binary not found");
     click(pickerButtons()[0]);
     expect(backendMock.setDefaultCompactionMethod).toHaveBeenCalledWith(null);

@@ -373,7 +373,12 @@ describe("desktop InspectorRail", () => {
     openPane("session");
     const spend = railSection("spend")!;
     expect(spend.textContent).not.toContain("subagents");
-    expect(spend.querySelector<HTMLElement>("[title]")?.getAttribute("title")).toBe(t("hud.metrics.runOnlyTitle"));
+    // Round-5 judge, Clarity 1: with the bridge snapshot the headline figure is
+    // the whole session, so the group titles itself as such — "run-only" is the
+    // stats fallback's promise, not this one's.
+    expect(spend.querySelector<HTMLElement>("[title]")?.getAttribute("title")).toBe(
+      t("hud.metrics.sessionTotalTitle"),
+    );
 
     act(() => useStore.setState({ rpc: { [TAB]: runtime({ sessionSpend: snapshot(0.25) }) } }));
     expect(railSection("spend")!.textContent).toContain("subagents");

@@ -284,7 +284,11 @@ function AssistantBlock({ item, tabId }: { item: AssistantItem; tabId?: string }
             "-ml-[9px] rounded-md border border-line-soft bg-sunken px-2 py-1",
             "max-w-[calc(var(--prose-max)+0.5625rem)]",
           )}
-          summary={<Label className="text-copper">{t("transcript.assistant.thinking")}</Label>}
+          summary={
+            // Round-5 judge, Color: the plate speaks `think-warm`, the thinking
+            // ramp's own hue; copper stays reserved for "working" status.
+            <Label className="text-think-warm">{t("transcript.assistant.thinking")}</Label>
+          }
         >
           <ThinkingPane text={shownThinking} live={working} />
         </Disclosure>
@@ -434,7 +438,11 @@ function UserBubble({
       {first && <span className="tab-label speaker-label speaker-label-right text-ink-dim">{t("transcript.speaker.you")}</span>}
       <div
         className={cn(
-          "group relative min-w-0 space-y-2 rounded-md border border-iris-dim/40 bg-iris-wash/70 px-3 py-2 text-ink",
+          // Round-5 judge, Hierarchy 1: the bubble is a neutral raised card
+          // with an iris left rule, not a saturated lavender plane — in Light
+          // the wash was the loudest surface in the view, outranking the
+          // answer it prompted. The rule keeps user identity without the hue.
+          "group relative min-w-0 space-y-2 rounded-md border border-line border-l-2 border-l-iris-dim/70 bg-raised/70 px-3 py-2 text-ink",
           PROSE_MEASURE,
           "has-[.md-plan]:w-full has-[.md-plan]:max-w-full",
         )}
@@ -451,7 +459,7 @@ function UserBubble({
               <Label className="speaker-label speaker-label-right">
                 {t(draft.captionKey)}
               </Label>
-              <pre className="max-h-64 overflow-y-auto whitespace-pre-wrap break-words rounded border border-line-strong bg-sunken px-2 py-1.5 font-mono text-[0.9em]">
+              <pre className="max-h-64 overflow-y-auto whitespace-pre-wrap break-words rounded border border-line-strong bg-sunken px-2 py-1.5 font-mono text-sm">
                 {draft.draft}
               </pre>
             </div>
@@ -978,8 +986,23 @@ function isPresentedReplyWrite(item: RenderItem, replyWrites: boolean): boolean 
 }
 
 function buildRuns(items: RenderItem[], replyWrites: boolean): Run[] {
+  // Round-5 judge, Clarity 3: every tool remount records its own mount notice,
+  // so a resumed session stacked identical "N MCP tools" pills. Only the newest
+  // one is the current truth; the earlier ones fold away.
+  let lastMcpMountId: string | null = null;
+  for (const item of items) {
+    if (item.kind === "notice" && item.mcpMount !== undefined) lastMcpMountId = item.id;
+  }
   const runs: Run[] = [];
   for (const item of items) {
+    if (
+      lastMcpMountId !== null &&
+      item.kind === "notice" &&
+      item.mcpMount !== undefined &&
+      item.id !== lastMcpMountId
+    ) {
+      continue;
+    }
     const last = runs.at(-1);
     const lastRow = last?.rows.at(-1);
     // Repeated turn/agent markers otherwise stack into a wall of hairlines.

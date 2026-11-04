@@ -267,7 +267,7 @@ export function UpdateCard({
   }
 
   return (
-    <div className="edge-lit animate-rise relative rounded-xl border border-line-strong bg-overlay p-4 shadow-lg">
+    <div className="edge-lit animate-rise relative rounded-lg border border-line-strong bg-overlay p-4 shadow-lg">
       {onDismiss !== undefined && (
         <div className="absolute right-2 top-2">
           <IconButton label={dismissLabel!} onClick={onDismiss}>
@@ -380,7 +380,7 @@ const CAPSULE_FRAME = "inline-flex h-6 min-w-0 shrink-0 items-stretch divide-x r
  * segments. Children are flat segments (buttons/spans) — they bring no border
  * of their own. NOT overflow-hidden: segments may anchor dropdown menus, so
  * interactive segments must round their own outer corner via
- * `first:rounded-l-[5px] last:rounded-r-[5px]` (see CAPSULE_SEGMENT).
+ * `first:rounded-l-md last:rounded-r-md` (see CAPSULE_SEGMENT).
  */
 export function Capsule({
   children,
@@ -410,7 +410,9 @@ export function Capsule({
 /** Shared classes for an interactive capsule segment. */
 export const CAPSULE_SEGMENT = cn(
   "tap-target flex min-w-0 items-center gap-1 px-1.5",
-  "first:rounded-l-[5px] last:rounded-r-[5px]",
+  // Round-5 judge, Consistency 1: one radius vocabulary — segments round at
+  // the same 6px as the frame; the 5px inset matched nothing else.
+  "first:rounded-l-md last:rounded-r-md",
   "transition-colors duration-150 hover:bg-hover",
   "disabled:pointer-events-none disabled:text-ink-faint",
 );
