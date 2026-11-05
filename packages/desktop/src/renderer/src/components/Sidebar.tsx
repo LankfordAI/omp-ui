@@ -220,10 +220,8 @@ function Row({
 const rowKey = (entry: SidebarEntry): string => `${entry.instanceId ?? "local"}:${entry.session.tabId}`;
 
 /** One collapsible section heading: chevron + caps label, the whole strip a
- *  toggle button. Shared by SidebarSection and the Ready group so every group
- *  header reads and behaves alike (round-2 judge). The search forces sections
- *  open, so the toggle is inert while filtering and the stored choice stays
- *  untouched (issue #935). */
+ *  toggle button. The search forces sections open, so the toggle is inert
+ *  while filtering and the stored choice stays untouched (issue #935). */
 function SectionHeading({
   heading,
   shown,
@@ -476,10 +474,6 @@ export function Sidebar() {
   const openFleet = useStore((st) => st.openFleet);
   const fleetOpen = useStore((st) => st.fleet !== null);
   const settledOpen = useSettledOpen();
-  // Ready (the main live list) collapses like its peers (round-2 judge); it
-  // starts open — a hidden live session would be dishonest.
-  const READY_KEY = "omp-ui.sidebarReadyOpen";
-  const readyOpen = useSidebarSectionOpen(READY_KEY, true);
   // Working now starts collapsed, #1037 — waiting sessions surface as
   // attention-stack cards instead of hiding inside an expanded section.
   const workingOpen = useSidebarSectionOpen("omp-ui.sidebarWorkingOpen", false);
@@ -746,13 +740,10 @@ export function Sidebar() {
   const headerButton = compact ? "size-9 rounded-md border border-line" : "size-7";
   // Round-3 judge, Hierarchy 2/8: an expanded section with zero rows is pure
   // dead chrome, so an empty Working (or Snoozed) never shows expanded no
-  // matter the stored choice. With nothing live anywhere, Settled opens by
-  // default — past sessions are the only content left to reach — without
-  // writing through to the stored choice (the same rule filtering follows).
-  const settledShown = settledOpen || filtering || !liveAnywhere;
+  // matter the stored choice. Settled stays collapsed until the user opens it.
+  const settledShown = settledOpen || filtering;
   const workingShown = (workingOpen || filtering) && (lists?.working.length ?? 0) > 0;
   const snoozedShown = (snoozedOpen || filtering) && (lists?.snoozed.length ?? 0) > 0;
-  const readyShown = readyOpen || filtering;
 
   const sidebar = (
     <aside
@@ -818,13 +809,10 @@ export function Sidebar() {
                 scroll container (#1037): a non-empty stack renders even when
                 pinned and active are both empty. */}
             {lists.pinned.length > 0 || lists.active.length > 0 || attention.length > 0 ? (
-              /* Content-height when it fits, capped at 60% so Working and
-                 Settled keep usable space (round-1 judge: ~190px of dead
-                 space sat between the last live row and WORKING because this
-                 region grew greedily). With rows present the headed sections
-                 now stack directly below; #937's bottom-docking survives in
-                 the no-live-rows branch below. */
-              <div className="min-h-0 max-h-[60%] shrink-0 overflow-y-auto px-1.5 py-1">
+              /* The main list owns the free height, so Working and Settled
+                 stay docked to the bottom edge of the sidebar whatever the
+                 row count (issue #1044, restoring #937). */
+              <div className="min-h-0 flex-1 overflow-y-auto px-1.5 py-1">
                 <AttentionStack entries={attention} onActivate={closeCompactSurface} />
                 {/* Pinned (#981) heads the main list in pin order; it never
                     collapses, since a pin means "keep this in view". */}
@@ -838,37 +826,21 @@ export function Sidebar() {
                     ))}
                   </div>
                 )}
+                {/* Active rows carry no heading (issue #1043): a live session
+                    outside Working and Settled is active by definition. */}
                 {lists.active.length > 0 && (
-                  <div
-                    role="group"
-                    aria-label={t("sidebar.ready.heading", { n: lists.active.length })}
-                    className={cn("space-y-1", lists.pinned.length > 0 && "mt-1.5 border-t border-line-soft pt-1.5")}
-                  >
-                    {/* The live group is Ready (n), collapsible with a chevron
-                        like its Working/Settled peers (round-2 judge); the
-                        choice persists in its own localStorage key. */}
-                    <SectionHeading
-                      className="-mx-1.5"
-                      heading={t("sidebar.ready.heading", { n: lists.active.length })}
-                      shown={readyShown}
-                      disabled={filtering}
-                      onToggle={() => setSidebarSectionOpen(READY_KEY, !readyOpen)}
-                    />
-                    {readyShown &&
-                      lists.active.map((entry) => (
-                        <Row key={rowKey(entry)} entry={entry} onActivate={closeCompactSurface} openSessionMenu={openSessionMenu} slim={false} section="main" selection={rowSelection} />
-                      ))}
+                  <div className={cn("space-y-1", lists.pinned.length > 0 && "mt-1.5 border-t border-line-soft pt-1.5")}>
+                    {lists.active.map((entry) => (
+                      <Row key={rowKey(entry)} entry={entry} onActivate={closeCompactSurface} openSessionMenu={openSessionMenu} slim={false} section="main" selection={rowSelection} />
+                    ))}
                   </div>
                 )}
               </div>
             ) : !filtering && !liveAnywhere ? (
-              /* One quiet line (round-3 judge, Hierarchy 2): the block used to
-                 carry title + hint + a second New session button and weigh as
-                 much as its content. The header already owns New session, the
-                 Settled section below is now expanded by default, and the main
-                 welcome panel carries the full explanation — this line only
-                 names why the list is empty. */
-              <p className="shrink-0 px-3 py-2 text-sm text-ink-faint">
+              /* One quiet line naming why the list is empty; the welcome panel
+                 carries the full explanation. It owns the free height so the
+                 headed sections stay docked to the bottom edge (issue #1044). */
+              <p className="min-h-0 flex-1 px-3 py-2 text-sm text-ink-faint">
                 {t("sidebar.empty.noLive")}
               </p>
             ) : filtering && !anyRow ? (
