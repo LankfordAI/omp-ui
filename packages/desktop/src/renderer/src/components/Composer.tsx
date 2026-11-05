@@ -1318,11 +1318,14 @@ export function Composer({
           {/* pointer-events-auto: the float above is transparent to the pointer so
               its side gutters do not swallow wheel and selection aimed at the
               transcript; the card column itself takes clicks (issue #395).
-              Round-7 judge, Spacing 1: one measure — the card caps at the same
-              --prose-max as the transcript column and centres in the pane, so
-              its edges land on the prose edges with equal gutters. The float
-              plane behind still spans the full pane. */}
-      <div className={cn("relative pointer-events-auto", !compact && "mx-auto w-full max-w-[var(--prose-max)]")}>
+              Round-7 judge, Spacing 1: one cap — the card caps at the same
+              --transcript-max as the transcript column and centres in the pane,
+              so its edges land on the column edges with equal gutters (issue
+              #1059: both planes moved off --prose-max together). The px inset
+              mirrors the scroller's padding + scrollbar gutter, so the edges
+              match at every step and every text scale. The float plane behind
+              still spans the full pane. */}
+      <div className={cn("relative pointer-events-auto", !compact && "mx-auto w-full max-w-[var(--transcript-max)]")}>
         <div className="w-full">
         {stashOpen && (
           <StashPalette

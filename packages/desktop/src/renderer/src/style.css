@@ -255,10 +255,12 @@
     --safe-right: env(safe-area-inset-right, 0px);
     --safe-bottom: env(safe-area-inset-bottom, 0px);
     --safe-left: env(safe-area-inset-left, 0px);
-    /* Transcript column measure (issue #391, round-7 judge: one measure).
-       lib/transcript-width.ts rewrites it on the root; this is the "wide"
-       first-paint value. The centred column, the composer card, and every
-       prose-shaped row share this single cap, so the pane gutters match. */
+    /* Two-tier transcript width (issue #1059). --transcript-max caps the
+       column and every chrome card that shares its axis (composer card,
+       ApprovalCard, extension dialog, skeleton) in pane pixels; --prose-max
+       keeps the readable prose measure inside it. lib/transcript-width.ts
+       rewrites both on the root; these are the "wide" first-paint values. */
+    --transcript-max: 72rem;
     --prose-max: 80ch;
     /* The classic (layout-taking) scrollbar width. The transcript column is
        centred inside the scroller's clientWidth — pane minus this gutter —

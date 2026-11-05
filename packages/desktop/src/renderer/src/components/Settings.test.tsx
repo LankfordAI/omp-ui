@@ -2595,9 +2595,15 @@ describe("Settings Appearance page transcript width and glass chrome (issues #39
     expect(card("Subtle glass chrome").getAttribute("aria-pressed")).toBe("true");
     expect(card("Off glass chrome").getAttribute("aria-pressed")).toBe("false");
 
+    click(card("Comfortable transcript width"));
+    expect(backendMock.setTranscriptWidth).toHaveBeenCalledWith("comfortable");
+    expect(document.documentElement.style.getPropertyValue("--prose-max")).toBe("70ch");
+    expect(document.documentElement.style.getPropertyValue("--transcript-max")).toBe("56rem");
+
     click(card("Full transcript width"));
     expect(backendMock.setTranscriptWidth).toHaveBeenCalledWith("full");
     expect(document.documentElement.style.getPropertyValue("--prose-max")).toBe("88ch");
+    expect(document.documentElement.style.getPropertyValue("--transcript-max")).toBe("100%");
 
     click(card("Frosted glass chrome"));
     expect(backendMock.setGlassChrome).toHaveBeenCalledWith("frosted");

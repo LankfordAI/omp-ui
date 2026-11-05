@@ -1025,7 +1025,7 @@ export const ko: Partial<Record<MessageKey, string>> = {
   "settings.appearance.fontFamilyAria": "{name} 글꼴 모음",
   "settings.appearance.transcriptWidth": "대화 기록 너비",
   "settings.appearance.transcriptWidthHint":
-    "네이티브 대화 기록과 작성기 열의 최대 너비입니다. 본문은 모든 단계에서 읽기 좋은 폭을 유지하고, 도구 카드·코드·diff는 열 전체를 사용합니다.",
+    "대화 기록 열과 작성기 카드의 최대 너비입니다. 본문은 모든 단계에서 읽기 좋은 폭을 유지하고, 도구 카드·코드·표·diff는 열 전체를 사용하며, '전체'를 선택하면 열이 패널 끝까지 늘어납니다.",
   "settings.appearance.transcriptWidthAria": "{name} 대화 기록 너비",
   "settings.appearance.widthComfortable": "편안하게",
   "settings.appearance.widthWide": "넓게",

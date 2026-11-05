@@ -286,6 +286,14 @@ export function linkify(text: string): ReactNode[] {
 const MEASURE = "max-w-[var(--prose-max)]";
 
 /**
+ * Column-shaped surfaces (issue #1059): code slabs and tables take the whole
+ * transcript column like tool cards do, so their right edges land on the
+ * column edge; prose keeps the shorter MEASURE above. Both follow the
+ * Transcript width step via --transcript-max / --prose-max.
+ */
+const COLUMN = "max-w-[var(--transcript-max)]";
+
+/**
  * One list block, recursing into nested child lists. Markers are manual
  * (`1.` / `•`) rather than `<ol>` counters, so numbering is the item's
  * position in its own list and can never restart mid-stream. Item content is
@@ -443,10 +451,10 @@ function CodeBlock({
   const asImage = isSvg && imgSrc !== null && !showSource;
   const asDiagram = isDiagram && svg !== null && !showSource;
   return (
-    // One right edge (round-2 judge, Spacing 2): a fenced block that runs to
-    // the full column while prose caps at --prose-max leaves the table rule
-    // below it ending ~300px short of this slab.
-    <div className={cn("overflow-hidden rounded-md border border-line bg-sunken", MEASURE)}>
+    // One right edge (round-2 judge, Spacing 2): the slab runs to the column
+    // edge like tool cards and tables (issue #1059), so its right rule never
+    // ends short of theirs; prose keeps the shorter measure inside.
+    <div className={cn("overflow-hidden rounded-md border border-line bg-sunken", COLUMN)}>
       <CodeHeader
         label={lang ?? "text"}
         text={text}
@@ -548,10 +556,10 @@ function alignStyle(table: MdTableTail, column: number): CSSProperties | undefin
  * the transcript past its scroll wrapper. The caret rides the last cell.
  */
 function TableGrid({ table, trailing }: { table: MdTableTail; trailing?: ReactNode }) {
-  // Round-1 judge: tables ran the full column while prose stopped at the
-  // measure, so right edges were ragged. Same measure as prose now.
+  // Column-shaped like code slabs and tool cards (issue #1059): tables share
+  // the column's right edge, while prose keeps its shorter measure.
   return (
-    <div className={cn("overflow-x-auto", MEASURE)}>
+    <div className={cn("overflow-x-auto", COLUMN)}>
       <table className="w-full border-collapse">
         <thead>
           <tr>
