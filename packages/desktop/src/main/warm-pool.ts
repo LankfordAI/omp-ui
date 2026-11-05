@@ -4,12 +4,11 @@ import * as path from "node:path";
 import {
   RpcClient,
   mintLineageDirName,
-  writeReviewOverlay,
   type OwnedSessionRecord,
   type Registry,
 } from "@omp-ui/core";
 import {
-  writeReviewRosterForSpawn,
+  writeCouncilForSpawn,
   writeRpcExtensions,
   writeRpcOverlays,
   type SubagentSpawnConfig,
@@ -273,16 +272,16 @@ export class WarmRpcPool {
         this.deps.gate(),
         this.deps.subagentSpawnConfig(),
       );
-      if (loaded.review) {
-        configOverlays.push(writeReviewOverlay(dir));
+      if (loaded.council) {
         const projectRecord = this.deps.registry.projects.find(
           (project) => project.path === plan.template.projectCwd,
         );
-        await writeReviewRosterForSpawn(
+        const overlay = writeCouncilForSpawn(
           dir,
-          this.deps.registry.getSetting("reviewRoster"),
-          projectRecord?.reviewRoster ?? null,
+          this.deps.registry.getSetting("councilRoster"),
+          projectRecord?.councilRoster ?? null,
         );
+        if (overlay !== null) configOverlays.push(overlay);
       }
       let resolveReady: () => void = () => {};
       const ready = new Promise<void>((resolve) => {

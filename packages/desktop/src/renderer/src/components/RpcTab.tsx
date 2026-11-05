@@ -20,7 +20,7 @@ import { SubagentView } from "./SubagentView";
 import { linkify } from "./Markdown";
 import { MarkdownMachineProvider } from "./MarkdownMachineProvider";
 import { MarkdownVaultProvider } from "./MarkdownVaultProvider";
-import { TranscriptView, ShareLinkRow, TuiHandoffButton } from "./TranscriptView";
+import { TranscriptView, ShareLinkRow, TuiHandoffButton, CouncilSettingsButton } from "./TranscriptView";
 import { ModelPalette } from "./ModelSelector";
 import { Button, Chip, CopyButton, Panel, ProgressSweep, Sheet } from "./ui";
 import { BrowserPane } from "./browser-pane/BrowserPane";
@@ -133,6 +133,7 @@ function HeroFooter({ items, tabId }: { items: RenderItem[]; tabId: string }) {
             {/* A refused verb can be the session's first input, which leaves
                 the hero undocked — so this surface needs the handoff too. */}
             <TuiHandoffButton item={item} tabId={tabId} />
+            <CouncilSettingsButton item={item} tabId={tabId} />
           </div>
         ) : null,
       )}

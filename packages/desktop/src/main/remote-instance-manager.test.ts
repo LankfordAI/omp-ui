@@ -50,7 +50,7 @@ function projectGroups(paths: string[]): ProjectGroup[] {
       defaultModel: null,
       defaultAdvisorModel: null,
       browserClock: false,
-      reviewRoster: null,
+      councilRoster: null,
       knowledgeHome: null,
       repositoryKey: null,
       icon: null,

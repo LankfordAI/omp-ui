@@ -104,7 +104,7 @@ function buildHarness(base: string, ompPath: string): Harness {
         defaultModel: null,
         defaultAdvisorModel: null,
         browserClock: false,
-        reviewRoster: null,
+        councilRoster: null,
         knowledgeHome: null,
       },
     ],

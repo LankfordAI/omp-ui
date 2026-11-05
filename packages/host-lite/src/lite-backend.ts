@@ -77,8 +77,7 @@ type BroadcastSettings = Omit<
   | "remotePasswordHash"
   | "remotePasswordSalt"
   | "instanceId"
-  | "reviewRoster"
-  | "reviewRosterImported"
+  | "councilRoster"
   | "chatLastModel"
   | "chatLastThinkingLevel"
   | "webhooksEnabled"
@@ -101,8 +100,7 @@ export function broadcastSettings(registry: Registry): BroadcastSettings {
     remotePasswordHash: _ph,
     remotePasswordSalt: _ps,
     instanceId: _id,
-    reviewRoster: _rr,
-    reviewRosterImported: _ri,
+    councilRoster: _cr,
     chatLastModel: _cm,
     chatLastThinkingLevel: _cl,
     webhooksEnabled: _w,
@@ -297,7 +295,7 @@ const NEVER_BROADCAST_KEYS: readonly string[] = [
   "mcpEndpointEnabled",
   "chatLastModel",
   "chatLastThinkingLevel",
-  "reviewRoster",
+  "councilRoster",
 ];
 
 /**

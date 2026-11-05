@@ -1,5 +1,7 @@
 # Code review as a batch of background subagents
 
+_Superseded by [ADR-0088](0088-council-replaces-code-review.md): /council replaces /code-review; the roster became the council (empty by default, model required, no targets, no REVIEW.yml import) and the overlay grants per-call models. Kept for the record._
+
 Resolves issue #728. Verified against omp 18.6.0.
 
 ## Decision

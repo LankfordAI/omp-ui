@@ -2,7 +2,7 @@ import * as fs from "node:fs";
 import * as path from "node:path";
 import { writeTextAtomic } from "./atomic-write";
 import { isApprovalMode } from "./approval";
-import { isReviewDocument, type ReviewDocument } from "./review-config";
+import { councilDocumentFromLegacy, isCouncilDocument, type CouncilDocument } from "./council-config";
 import { isSubagentModelMap, type SubagentModelMap } from "./subagent-model";
 import { parseProposedPlans } from "./plan";
 import { parseVaultRegistry } from "./vault-registry";
@@ -113,13 +113,11 @@ export interface RegistrySettings {
    *  off once. Later explicit windows persist the marker and are kept. */
   hibernateManualDefaultSeeded: boolean;
   /**
-   * App-wide reviewer roster for /code-review (issue #738): null = unset, so
-   * projects fall through to the default reviewer. Replaces the user-scope
-   * REVIEW.yml; the one-time import fills it from that file when first set.
+   * App-wide Council roster for /council (ADR-0088): null = unset. Members
+   * resolve project → global → empty, so with neither document set no
+   * member launches. Seeded once from the legacy `reviewRoster` key.
    */
-  reviewRoster: ReviewDocument | null;
-  /** One-time import marker (issue #738): REVIEW.yml rosters were copied into app state once. */
-  reviewRosterImported: boolean;
+  councilRoster: CouncilDocument | null;
   /** First-run checklist dismissed; fresh installs open it once on the desktop shell. */
   gettingStartedSeen: boolean;
   /** Release version whose update card the user dismissed ("Later"). */
@@ -364,13 +362,9 @@ export const SETTINGS: SettingDescriptors = {
     () => false,
     (value): value is boolean => typeof value === "boolean",
   ),
-  reviewRoster: validatedSetting<ReviewDocument | null>(
+  councilRoster: validatedSetting<CouncilDocument | null>(
     () => null,
-    (value): value is ReviewDocument | null => value === null || isReviewDocument(value),
-  ),
-  reviewRosterImported: validatedSetting(
-    () => false,
-    (value): value is boolean => typeof value === "boolean",
+    (value): value is CouncilDocument | null => value === null || isCouncilDocument(value),
   ),
   gettingStartedSeen: validatedSetting(
     () => false,
@@ -540,6 +534,14 @@ function parseSettings(raw: object | undefined): RegistrySettings {
   if (typeof legacy === "string" && legacy.length > 0) {
     if (!("audioInputDevice" in (values ?? {}))) settings.audioInputDevice = legacy;
     if (!("audioOutputDevice" in (values ?? {}))) settings.audioOutputDevice = legacy;
+  }
+  // One-time migration (ADR-0088): the legacy `reviewRoster` document seeds
+  // `councilRoster`, minus its targets. Once the new key is on disk the legacy
+  // one is ignored; it drops on the next write because buildSettings only
+  // emits SETTING_KEYS.
+  if (!("councilRoster" in (values ?? {}))) {
+    const legacyRoster = councilDocumentFromLegacy(values?.["reviewRoster"]);
+    if (legacyRoster !== null) settings.councilRoster = legacyRoster;
   }
   return settings;
 }
@@ -772,26 +774,36 @@ function parseRegistryData(raw: unknown): RegistryData | null {
   // (Issue #294 flipped the record types to required-with-null.)
   const projects = projectsValue
     .filter(isProjectRecord)
-    .map((p) => ({
-      ...p,
-      lastModel: p.lastModel ?? null,
-      lastThinkingLevel: p.lastThinkingLevel ?? null,
-      lastAdvisor: p.lastAdvisor ?? null,
-      lastAdvisorModel: p.lastAdvisorModel ?? null,
-      defaultModel: p.defaultModel ?? null,
-      defaultAdvisorModel: p.defaultAdvisorModel ?? null,
-      browserClock: p.browserClock === true,
-      // Never a validity gate (the proposedPlans rule): a malformed roster
-      // normalizes to null here so the record always survives.
-      reviewRoster: isReviewDocument(p.reviewRoster) ? p.reviewRoster : null,
-      // Like reviewRoster, malformed preferences do not invalidate the project.
-      knowledgeHome: isKnowledgeHome(p.knowledgeHome) ? p.knowledgeHome : null,
-      // Late-added like reviewRoster/knowledgeHome (#903): absent or
-      // malformed keys normalize to null; the record always survives.
-      repositoryKey: typeof p.repositoryKey === "string" ? p.repositoryKey : null,
-      // Late-added like repositoryKey (#1000): a malformed icon loads as null.
-      icon: isProjectIcon(p.icon) ? p.icon : null,
-    }));
+    .map((raw) => {
+      // The legacy `reviewRoster` key is destructured away so it is never
+      // written back; it seeds `councilRoster` once (ADR-0088).
+      const { reviewRoster: legacyRoster, ...p } = raw as ProjectRecord & { reviewRoster?: unknown };
+      return {
+        ...p,
+        lastModel: p.lastModel ?? null,
+        lastThinkingLevel: p.lastThinkingLevel ?? null,
+        lastAdvisor: p.lastAdvisor ?? null,
+        lastAdvisorModel: p.lastAdvisorModel ?? null,
+        defaultModel: p.defaultModel ?? null,
+        defaultAdvisorModel: p.defaultAdvisorModel ?? null,
+        browserClock: p.browserClock === true,
+        // Never a validity gate (the proposedPlans rule): a malformed roster
+        // normalizes to null here so the record always survives. A present
+        // councilRoster key always wins over the legacy one.
+        councilRoster: isCouncilDocument(p.councilRoster)
+          ? p.councilRoster
+          : "councilRoster" in p
+            ? null
+            : councilDocumentFromLegacy(legacyRoster),
+        // Like councilRoster, malformed preferences do not invalidate the project.
+        knowledgeHome: isKnowledgeHome(p.knowledgeHome) ? p.knowledgeHome : null,
+        // Late-added like councilRoster/knowledgeHome (#903): absent or
+        // malformed keys normalize to null; the record always survives.
+        repositoryKey: typeof p.repositoryKey === "string" ? p.repositoryKey : null,
+        // Late-added like repositoryKey (#1000): a malformed icon loads as null.
+        icon: isProjectIcon(p.icon) ? p.icon : null,
+      };
+    });
   const sessions = sessionsValue
     .filter(isOwnedSessionRecord)
     .map((s) => ({
@@ -806,7 +818,7 @@ function parseRegistryData(raw: unknown): RegistryData | null {
       // A deadline without the flag is meaningless: only a snoozed record keeps it.
       snoozedUntilMs: s.snoozed === true ? (s.snoozedUntilMs ?? null) : null,
       pinnedAtMs: s.pinnedAtMs ?? null,
-      // Never a validity gate (the reviewRoster rule): a malformed held prompt
+      // Never a validity gate (the councilRoster rule): a malformed held prompt
       // (issue #986) normalizes to null so the session always survives.
       heldPrompt: isHeldPrompt(s.heldPrompt) ? s.heldPrompt : null,
       // Same rule (issue #987): a schedule that no longer parses drops, never the session.
@@ -932,7 +944,7 @@ export class Registry {
   }
 
   /**
-   * Reads a persisted preference. `modelFavorites`, `reviewRoster` and
+   * Reads a persisted preference. `modelFavorites`, `councilRoster` and
    * `vaultRegistry` are reference-typed; callers replace, never mutate. This
    * hands out the live internal value — favorites access must go through
    * `getFavorites()`/`toggleFavorite()`. Cloning every read was rejected: hot
@@ -999,7 +1011,7 @@ export class Registry {
       defaultModel: null,
       defaultAdvisorModel: null,
       browserClock: false,
-      reviewRoster: null,
+      councilRoster: null,
       knowledgeHome: null,
       repositoryKey: null,
       icon: null,
@@ -1158,16 +1170,16 @@ export class Registry {
   }
 
   /**
-   * Replaces (or clears, with null) one project's reviewer roster (issue #738).
+   * Replaces (or clears, with null) one project's Council roster (ADR-0088).
    * Unknown project or a deep-equal value: no save — the document is an
    * object, so an Object.is seam would always look "changed".
    */
-  setProjectReviewRoster(projectPath: string, document: ReviewDocument | null): boolean {
+  setProjectCouncilRoster(projectPath: string, document: CouncilDocument | null): boolean {
     return this.#transaction((draft) => {
       const project = draft.projects.find((candidate) => candidate.path === projectPath);
       if (!project) return false;
-      if (JSON.stringify(project.reviewRoster ?? null) === JSON.stringify(document ?? null)) return false;
-      project.reviewRoster = document;
+      if (JSON.stringify(project.councilRoster ?? null) === JSON.stringify(document ?? null)) return false;
+      project.councilRoster = document;
       return true;
     });
   }
@@ -1209,7 +1221,7 @@ export class Registry {
   /**
    * Sets (or clears, with null) one project's icon (issue #1000). Unknown
    * project or an equal value: no save — the icon is an object, compared
-   * like reviewRoster.
+   * like councilRoster.
    */
   setProjectIcon(projectPath: string, icon: ProjectIcon | null): boolean {
     return this.#transaction((draft) => {

@@ -45,7 +45,7 @@ function bridgeWriters(write: (id: (typeof RPC_BRIDGE_IDS)[number]) => string): 
     asyncJobs: () => write("asyncJobs"),
     sessionSpend: () => write("sessionSpend"),
     tree: () => write("tree"),
-    review: () => write("review"),
+    council: () => write("council"),
     knowledgeVault: () => write("knowledgeVault"),
     askContext: () => write("askContext"),
     carryoverContext: () => write("carryoverContext"),
@@ -74,7 +74,7 @@ describe("writeRpcExtensions", () => {
         "/asyncJobs.ts",
         "/sessionSpend.ts",
         "/tree.ts",
-        "/review.ts",
+        "/council.ts",
         "/knowledgeVault.ts",
         "/askContext.ts",
         "/carryoverContext.ts",
@@ -94,7 +94,7 @@ describe("writeRpcExtensions", () => {
         asyncJobs: true,
         sessionSpend: true,
         tree: true,
-        review: true,
+        council: true,
         knowledgeVault: true,
         askContext: true,
         carryoverContext: true,
@@ -117,13 +117,13 @@ describe("writeRpcExtensions", () => {
     expect(autoresearch).not.toHaveBeenCalled();
   });
 
-  it("records a disabled review bridge without invoking it", () => {
-    const review = vi.fn(() => "/review.ts");
-    const writers = bridgeWriters((id) => (id === "review" ? review() : `/${id}.ts`));
+  it("records a disabled council bridge without invoking it", () => {
+    const council = vi.fn(() => "/council.ts");
+    const writers = bridgeWriters((id) => (id === "council" ? council() : `/${id}.ts`));
     const result = writeRpcExtensions(tmp(), false, writers);
-    expect(result.loaded.review).toBe(false);
-    expect(review).not.toHaveBeenCalled();
-    expect(result.paths).not.toContain("/review.ts");
+    expect(result.loaded.council).toBe(false);
+    expect(council).not.toHaveBeenCalled();
+    expect(result.paths).not.toContain("/council.ts");
   });
 });
 

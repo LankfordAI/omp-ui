@@ -492,16 +492,17 @@ every entry, and the advisor model pin is the fallback for entries with no
 `model:` of their own. Edits apply when the session relaunches.
 _Avoid_: advisor list, watchdog, advisor team, multi-advisor mode
 
-**Reviewer roster**:
-The set of reviewers omp-ui resolved from its own app state for `/code-review`
-(a per-project document, else a global one, imported once from the legacy
-`REVIEW.yml` files; with nothing set anywhere, one default entry on the session
-model). Each entry may pin a `model` selector and narrow the target kinds it
-reviews. `/code-review` launches the enabled entries as one batch of background
-subagents; results return as async-result wake turns. The roster and
-`/code-review` sit behind the Settings → Experimental flag; edits apply when the
-session relaunches.
-_Avoid_: review team, critic list, code-review agent
+**Council**:
+The 1–3 member models omp-ui asks for independent, read-only answers through
+`/council <request>`, or for a scored code review through `/council review
+[target]`. Resolved from omp-ui's own app state (a per-project document, else
+a global one; with nothing set anywhere, empty — `/council` then points at
+Project settings → Council). Each **council member** names one model; a
+member without a model is never launched. Members run as one batch of
+background subagents on omp-ui's dedicated council agent; results return as
+async-result wake turns. Behind the Settings → Experimental flag; edits apply
+when the session relaunches.
+_Avoid_: reviewer roster, review team, judge panel, code-review agent
 
 **Session parameter memory**:
 The five composer parameters — main model, main thinking level, advisor on/off,

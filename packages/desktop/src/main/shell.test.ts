@@ -142,7 +142,7 @@ function setup(opts: { spawnGate?: SpawnGate } = {}): { backend: InstanceType<ty
         defaultModel: null,
         defaultAdvisorModel: null,
         browserClock: false,
-        reviewRoster: null,
+        councilRoster: null,
         knowledgeHome: null,
         repositoryKey: null,
         icon: null,

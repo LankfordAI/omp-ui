@@ -183,6 +183,7 @@ export type SessionParamsSlice = Pick<
   | "predictWord"
   | "sendWordPredictionFeedback"
   | "runGoalCommand"
+  | "runCouncilCommand"
   | "runVibeCommand"
   | "runHiddenCommand"
   | "setTodos"
@@ -388,6 +389,19 @@ const localCommands: readonly LocalCommand[] = [
       const tab = get().tabs.find((candidate) => candidate.tabId === tabId);
       if (tab?.mode !== "rpc-ui") return false;
       get().openLab(tab.projectCwd, tab.instanceId, { tabId });
+    },
+  },
+  {
+    // The council (ADR-0088): an empty roster refuses here with a settings
+    // action, before any model turn; everything else reaches the bridge
+    // verbatim. A terminal tab's TUI and a chat (no project roster) keep the
+    // ordinary path.
+    match: /^\/council(?:\s[\s\S]*)?$/,
+    run(tabId, get, line) {
+      if (get().state?.experimentsEnabled !== true) return false;
+      const tab = get().tabs.find((candidate) => candidate.tabId === tabId);
+      if (tab?.mode !== "rpc-ui" || isChatTab(get().state, tabId)) return false;
+      return get().runCouncilCommand(tabId, line);
     },
   },
   {
@@ -2294,22 +2308,13 @@ export function createSessionParamsSlice(
     });
   };
 
-  const runSlashCommand = async (tabId: string, line: string): Promise<void> => {
-    const message = line.startsWith("/") ? line : `/${line}`;
-    const trimmed = message.trim();
-    if (trimmed === "/") return;
-    const localCommand = localCommands.find(({ match }) => match.test(trimmed));
-    if (localCommand !== undefined) {
-      const result = localCommand.run(tabId, get, trimmed);
-      if (result !== false) {
-        if (result !== undefined) await result;
-        return;
-      }
-    }
-    // A first word matching no advertised command is a literal model prompt
-    // (omp forwards it verbatim) — the user/assistant items tell that story;
-    // it gets no command row.
-    const body = trimmed.slice(1);
+  /**
+   * One slash line on omp's advertised path. A first word matching no
+   * advertised command is a literal model prompt (omp forwards it verbatim) —
+   * the user/assistant items tell that story; it gets no command row.
+   */
+  const forwardSlashCommand = async (tabId: string, message: string): Promise<void> => {
+    const body = message.trim().slice(1);
     const spaceAt = body.search(/\s/);
     const name = spaceAt === -1 ? body : body.slice(0, spaceAt);
     const args = spaceAt === -1 ? "" : body.slice(spaceAt + 1).trim();
@@ -2362,6 +2367,21 @@ export function createSessionParamsSlice(
       await m.refreshUsage(tabId);
     // `agentInvoked` absent (older runtime): stay running — prompt_result's
     // id mapping or the next agent_start settles it.
+  };
+
+  const runSlashCommand = async (tabId: string, line: string): Promise<void> => {
+    const message = line.startsWith("/") ? line : `/${line}`;
+    const trimmed = message.trim();
+    if (trimmed === "/") return;
+    const localCommand = localCommands.find(({ match }) => match.test(trimmed));
+    if (localCommand !== undefined) {
+      const result = localCommand.run(tabId, get, trimmed);
+      if (result !== false) {
+        if (result !== undefined) await result;
+        return;
+      }
+    }
+    await forwardSlashCommand(tabId, message);
   };
 
   /** Display cap for a shell row's output — same budget as slash output. */
@@ -2577,6 +2597,39 @@ export function createSessionParamsSlice(
         objective: intent.objective,
       }),
     );
+  };
+
+  /**
+   * One `/council` line (ADR-0088). An empty launchable roster refuses here,
+   * before any model turn, with a failed row that offers Council settings;
+   * everything else reaches the council bridge verbatim on the advertised
+   * path, which owns every other refusal.
+   */
+  const runCouncilCommand = async (tabId: string, line: string): Promise<void> => {
+    const message = line.startsWith("/") ? line : `/${line}`;
+    const tab = get().tabs.find((c) => c.tabId === tabId);
+    let launchable: number | null = null;
+    if (tab !== undefined) {
+      try {
+        launchable = (await backendFor(tab.instanceId).getCouncilRoster(tab.projectCwd)).members
+          .length;
+      } catch {
+        // Unknown (e.g. a remote channel refused): the bridge decides.
+        launchable = null;
+      }
+    }
+    if (launchable === 0) {
+      const body = message.slice(1).trim();
+      const at = body.search(/\s/);
+      m.appendItem(tabId, {
+        ...commandItem(at === -1 ? body : body.slice(0, at), at === -1 ? "" : body.slice(at + 1)),
+        status: "failed",
+        error: t("council.command.empty"),
+        action: "council-settings",
+      });
+      return;
+    }
+    await forwardSlashCommand(tabId, message);
   };
 
   /**
@@ -2896,6 +2949,7 @@ export function createSessionParamsSlice(
     predictWord,
     sendWordPredictionFeedback,
     runGoalCommand,
+    runCouncilCommand,
     runVibeCommand,
     runHiddenCommand,
     setTodos,

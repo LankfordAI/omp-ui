@@ -58,7 +58,7 @@ function project(override: Partial<ProjectRecord> & { path: string }): ProjectRe
     defaultModel: null,
     defaultAdvisorModel: null,
     browserClock: false,
-    reviewRoster: null,
+    councilRoster: null,
     knowledgeHome: null,
     repositoryKey: null,
     icon: null,

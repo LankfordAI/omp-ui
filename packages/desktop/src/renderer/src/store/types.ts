@@ -1878,6 +1878,11 @@ export interface UiStore extends SettingsSlice, UpdatesSlice, LabSlice, StatsSli
    * row with omp's reason. */
   runGoalCommand(tabId: string, line: string): Promise<void>;
   /**
+   * One `/council` line (ADR-0088): an empty launchable roster refuses here
+   * with a failed row carrying the Council-settings action and sends nothing;
+   * anything else, or an unreadable roster, reaches the bridge verbatim. */
+  runCouncilCommand(tabId: string, line: string): Promise<void>;
+  /**
    * One `/vibe` line as a command against the session's own vibe bridge
    * (issue #683). Never sends director prose to the model: with no usable
    * bridge it settles the row with the reason instead. Worker traffic

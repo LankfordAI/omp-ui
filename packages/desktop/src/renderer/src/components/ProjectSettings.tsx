@@ -11,7 +11,7 @@ import { AdvisorRosterEditor } from "./AdvisorRoster";
 import { ModelPalette } from "./ModelSelector";
 import { KnowledgeHomeSection } from "./KnowledgeHomeSection";
 import { ProjectIconSection } from "./ProjectIconSection";
-import { ReviewRosterEditor } from "./ReviewRoster";
+import { CouncilRosterEditor } from "./CouncilRoster";
 import { Button, Label, Modal, Switch } from "./ui";
 
 /**
@@ -346,7 +346,7 @@ export type ProjectSettingsSectionId =
   | "tools"
   | "models"
   | "advisors"
-  | "reviewers"
+  | "council"
   | "browser"
   | "knowledge"
   | "icon";
@@ -357,7 +357,7 @@ const SECTIONS: { id: ProjectSettingsSectionId; labelKey: MessageKey }[] = [
   { id: "tools", labelKey: "project.settings.tools" },
   { id: "models", labelKey: "project.settings.defaultModels" },
   { id: "advisors", labelKey: "project.settings.advisors" },
-  { id: "reviewers", labelKey: "project.settings.reviewers" },
+  { id: "council", labelKey: "project.settings.council" },
   { id: "browser", labelKey: "project.settings.browser" },
   { id: "knowledge", labelKey: "project.settings.knowledge" },
   { id: "icon", labelKey: "project.settings.icon" },
@@ -367,8 +367,8 @@ const SECTIONS: { id: ProjectSettingsSectionId; labelKey: MessageKey }[] = [
  * The per-project settings dialog (issues #281, #383, #564): one modal holding
  * a project's standing configuration — MCP servers, the skills and tools
  * catalogs at project scope, the default-model pins, the advisor roster (WATCHDOG.yml), the
- * reviewer roster (app state, issue #738, hidden unless the experiments flag
- * is on), the browser clock, the Knowledge home
+ * council roster (app state, ADR-0088, issue #1049, hidden unless the
+ * experiments flag is on), the browser clock, the Knowledge home
  * (`ProjectRecord.knowledgeHome`, stored in omp-ui's registry), and the
  * project icon (`ProjectRecord.icon`, issue #1000) — behind a nine-tab strip,
  * opened from the desktop project header and the
@@ -401,7 +401,7 @@ export function ProjectSettings({
   const tabRefs = useRef<Partial<Record<ProjectSettingsSectionId, HTMLButtonElement | null>>>({});
   const setProjectBrowserClock = useStore((s) => s.setProjectBrowserClock);
   const experimentsEnabled = useStore((s) => s.state?.experimentsEnabled === true);
-  const sections = experimentsEnabled ? SECTIONS : SECTIONS.filter((tab) => tab.id !== "reviewers");
+  const sections = experimentsEnabled ? SECTIONS : SECTIONS.filter((tab) => tab.id !== "council");
 
   // WAI-ARIA tabs: roving tabindex, arrows/Home/End move selection AND focus.
   // Mirrors CapabilitiesViewer's onTabListKeyDown (CapabilitiesViewer.tsx).
@@ -533,13 +533,13 @@ export function ProjectSettings({
             </section>
           )}
 
-          {active === "reviewers" && experimentsEnabled && (
-            <section aria-labelledby="project-settings-reviewers" className="pb-3">
-              <h3 id="project-settings-reviewers" className="px-4 pt-4 text-sm font-semibold text-ink">
-                {t("project.settings.reviewers")}
+          {active === "council" && experimentsEnabled && (
+            <section aria-labelledby="project-settings-council" className="pb-3">
+              <h3 id="project-settings-council" className="px-4 pt-4 text-sm font-semibold text-ink">
+                {t("project.settings.council")}
               </h3>
-              <ReviewRosterEditor scopeCwd={project.path} instanceId={instanceId} />
-              <p className="px-4 pt-2 text-xs text-ink-faint">{t("project.settings.reviewersHint")}</p>
+              <CouncilRosterEditor scopeCwd={project.path} instanceId={instanceId} />
+              <p className="px-4 pt-2 text-xs text-ink-faint">{t("project.settings.councilHint")}</p>
             </section>
           )}
 

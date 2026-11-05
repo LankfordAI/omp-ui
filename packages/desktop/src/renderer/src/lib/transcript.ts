@@ -199,6 +199,8 @@ export interface CommandItem {
   error?: string;
   /** Concatenated command_output text; absent until a frame arrives. */
   output?: string;
+  /** An inline action the row offers; only the empty-council refusal sets it. */
+  action?: "council-settings";
 }
 /** One "!" composer command: omp's concurrent bash RPC, no model turn. */
 export interface ShellItem {

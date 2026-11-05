@@ -166,6 +166,15 @@ export function Composer({
                 description: t(sub.key),
               })),
             },
+            {
+              ...UI_COUNCIL_COMMAND,
+              description: t("composer.slash.council"),
+              subcommands: UI_COUNCIL_SUBCOMMANDS.map((sub) => ({
+                name: sub.name,
+                ...(sub.usage === undefined ? {} : { usage: sub.usage }),
+                description: t(sub.key),
+              })),
+            },
           ]
         : []),
     ];
@@ -1915,6 +1924,24 @@ const UI_AUTORESEARCH_SUBCOMMANDS: { name: string; key: MessageKey }[] = [
   { name: "lab", key: "composer.slash.autoresearchLab" },
   { name: "off", key: "composer.slash.autoresearchOff" },
   { name: "clear", key: "composer.slash.autoresearchClear" },
+];
+
+/**
+ * The council (ADR-0088), offered as omp-ui's own row: the store refuses an
+ * empty roster with a settings action, everything else reaches the council
+ * bridge verbatim. The bridge advertises `council` itself — the owned set
+ * folds its row into this one.
+ */
+const UI_COUNCIL_COMMAND: SlashCommandInfo = {
+  name: "council",
+  description: "ask the council",
+  source: "omp-ui",
+  input: { hint: "<request> | review [target]" },
+  subcommands: [],
+};
+
+const UI_COUNCIL_SUBCOMMANDS: { name: string; usage?: string; key: MessageKey }[] = [
+  { name: "review", usage: "[pr N | REF | FROM..TO]", key: "composer.slash.councilReview" },
 ];
 
 /** Stable empties keep the per-field selectors from firing on every store tick. */
