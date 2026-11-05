@@ -4,7 +4,7 @@ This guide explains what users receive from a release and how maintainers publis
 
 ## Unreleased
 
-- The three Transcript width steps now deliver a real spread: the column and composer card cap at 896px / 1152px / pane width (Comfortable / Wide / Full) instead of ~620 / 710 / 780px, prose keeps its readable 70/80/88ch measure inside the column, and code, tables, and tool cards take the whole column. Heads-up: the default Wide step is visibly wider than before (#1059).
+Nothing since [v0.32.2](https://github.com/LankfordAI/omp-ui/releases/tag/v0.32.2). Add one bullet per shipped change here, citing its issue as `#N`; the release tag lifts these into Highlights.
 
 ## Choose a download
 
