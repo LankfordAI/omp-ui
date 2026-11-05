@@ -498,11 +498,13 @@ The 1–3 member models omp-ui asks for independent, read-only answers through
 [target]`. Resolved from omp-ui's own app state (a per-project document, else
 a global one; with nothing set anywhere, empty — `/council` then points at
 Project settings → Council). The global roster is edited on Settings →
-Experimental; a project's council overrides it. Each **council member**
+Experimental, where enabling the flag seeds an empty one from the user's own
+models; a project's council overrides it. Each **council member**
 names one model; a member without a model is never launched. Members run as
-one batch of background subagents on omp-ui's dedicated council agent; results return as
-async-result wake turns. Behind the Settings → Experimental council flag
-(`councilEnabled`); edits apply when the session relaunches.
+one batch of background subagents on omp-ui's dedicated council agent;
+results return as async-result wake turns. Behind the Settings →
+Experimental council flag (`councilEnabled`); edits apply when the session
+relaunches.
 _Avoid_: reviewer roster, review team, judge panel, code-review agent
 
 **Session parameter memory**:

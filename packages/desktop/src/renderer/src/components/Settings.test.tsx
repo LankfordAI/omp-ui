@@ -123,6 +123,14 @@ const backendMock = {
     project: null,
     effective: [],
   })),
+  setCouncilRoster: vi.fn(async (): Promise<CouncilRosterView> => ({
+    members: [],
+    instructions: null,
+    configWarnings: [],
+    global: null,
+    project: null,
+    effective: [],
+  })),
   setSnoozedSectionEnabled: vi.fn(async () => {}),
   setAutoSettleMergedPullRequests: vi.fn(async () => {}),
   setRemoteVsCodeEnabled: vi.fn(async () => {}),
@@ -969,6 +977,9 @@ describe("Settings Experimental page (issues #571 and #739)", () => {
     await renderSettings();
     expect(councilSwitch().getAttribute("aria-checked")).toBe("false");
     click(councilSwitch());
+    // The action seeds the empty global roster (#1055) before flipping the
+    // flag, so the write lands one tick after the click.
+    await act(async () => {});
     expect(backendMock.setCouncilEnabled).toHaveBeenCalledWith(true);
   });
 
@@ -980,6 +991,7 @@ describe("Settings Experimental page (issues #571 and #739)", () => {
       document.querySelector('[data-testid="council-roster-editor"]'),
     ).toBeNull();
     click(councilSwitch());
+    await act(async () => {});
     expect(backendMock.setCouncilEnabled).toHaveBeenCalledWith(true);
     // Mirror what the real backend round-trip does: state echoes the flag,
     // and the same mount re-renders with the editor under the switch.
@@ -993,6 +1005,75 @@ describe("Settings Experimental page (issues #571 and #739)", () => {
     // The empty seeded roster renders no member rows, so the editor adds no
     // switches: the page's three remain the only role="switch" nodes.
     expect(document.body.querySelectorAll('[role="switch"]')).toHaveLength(3);
+  });
+
+  it("seeds the empty global roster from favorites when the council is enabled", async () => {
+    seedExperimental();
+    useStore.setState((s) => ({
+      state: { ...s.state!, modelFavorites: ["litellm/quick"] },
+    }));
+    backendMock.readChatModels.mockResolvedValueOnce({
+      models: [
+        { provider: "litellm", id: "quick", name: "Quick" },
+        { provider: "anthropic", id: "opus", name: "Opus" },
+      ],
+      discovered: true,
+      error: null,
+    });
+    await renderSettings();
+    click(councilSwitch());
+    await act(async () => {});
+    // The favorite leads, then the remaining catalog row; one member per
+    // provider, named by the model id slug (#1055).
+    expect(backendMock.setCouncilRoster).toHaveBeenCalledWith({
+      scopeCwd: null,
+      scope: "user",
+      document: {
+        instructions: null,
+        members: [
+          { name: "quick", model: "litellm/quick", instructions: null, enabled: true },
+          { name: "opus", model: "anthropic/opus", instructions: null, enabled: true },
+        ],
+      },
+    });
+    expect(backendMock.setCouncilEnabled).toHaveBeenCalledWith(true);
+  });
+
+  it("never re-seeds an authored global roster", async () => {
+    seedExperimental();
+    backendMock.getCouncilRoster.mockResolvedValueOnce({
+      members: [],
+      instructions: null,
+      configWarnings: [],
+      global: {
+        instructions: null,
+        members: [
+          { name: "senior", model: "anthropic/opus", instructions: null, enabled: true },
+        ],
+      },
+      project: null,
+      effective: [],
+    });
+    await renderSettings();
+    click(councilSwitch());
+    await act(async () => {});
+    expect(backendMock.setCouncilRoster).not.toHaveBeenCalled();
+    expect(backendMock.setCouncilEnabled).toHaveBeenCalledWith(true);
+  });
+
+  it("enables the council when the catalog probe fails", async () => {
+    seedExperimental();
+    backendMock.readChatModels.mockResolvedValueOnce({
+      models: [],
+      discovered: false,
+      error: "omp binary not found",
+    });
+    await renderSettings();
+    click(councilSwitch());
+    await act(async () => {});
+    // Seeding is best-effort: an undiscovered catalog must not block the flag.
+    expect(backendMock.setCouncilRoster).not.toHaveBeenCalled();
+    expect(backendMock.setCouncilEnabled).toHaveBeenCalledWith(true);
   });
 
   it("no longer renders the switch on the General page", async () => {

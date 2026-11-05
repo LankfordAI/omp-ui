@@ -3,9 +3,11 @@ import {
   councilDocumentFromLegacy,
   isCouncilDocument,
   resolveCouncilRoster,
+  suggestCouncilMembers,
   validateCouncilDocument,
   type CouncilDocument,
   type CouncilMember,
+  type CouncilSuggestionModel,
 } from "./council-config";
 
 const doc = (over: Partial<CouncilDocument> = {}): CouncilDocument => ({
@@ -213,5 +215,64 @@ describe("resolveCouncilRoster", () => {
     expect(v.members.map((m) => m.name)).toEqual(["ok"]);
     expect(v.effective.map((m) => m.name)).toEqual(["ok"]);
     expect(v.configWarnings).toHaveLength(1);
+  });
+});
+
+const row = (provider: string, id: string): CouncilSuggestionModel => ({ provider, id });
+
+describe("suggestCouncilMembers", () => {
+  it("puts matched favorites first and strips a :level when matching", () => {
+    const members = suggestCouncilMembers(
+      [row("openai", "gpt-4"), row("anthropic", "claude"), row("google", "gemini")],
+      ["anthropic/claude:high"],
+    );
+    expect(members).toEqual([
+      { name: "claude", model: "anthropic/claude", instructions: null, enabled: true },
+      { name: "gpt-4", model: "openai/gpt-4", instructions: null, enabled: true },
+      { name: "gemini", model: "google/gemini", instructions: null, enabled: true },
+    ]);
+  });
+  it("skips favorites absent from the catalog", () => {
+    const members = suggestCouncilMembers([row("openai", "gpt-4")], ["litellm/gone:high", "openai/gpt-4"]);
+    expect(members.map((m) => m.model)).toEqual(["openai/gpt-4"]);
+  });
+  it("takes only the first favorite of a duplicated provider", () => {
+    const members = suggestCouncilMembers(
+      [row("openai", "gpt-4"), row("openai", "gpt-5"), row("azure", "gpt-4")],
+      ["openai/gpt-4", "openai/gpt-5"],
+    );
+    expect(members.map((m) => m.model)).toEqual(["openai/gpt-4", "azure/gpt-4"]);
+  });
+  it("caps the selection at 3 members across 4+ providers", () => {
+    const members = suggestCouncilMembers(
+      [row("a", "m1"), row("b", "m2"), row("c", "m3"), row("d", "m4"), row("e", "m5")],
+      [],
+    );
+    expect(members.map((m) => m.model)).toEqual(["a/m1", "b/m2", "c/m3"]);
+  });
+  it("returns nothing for an empty catalog", () => {
+    expect(suggestCouncilMembers([], ["openai/gpt-4"])).toEqual([]);
+  });
+  it("yields exactly one member when every row shares a provider", () => {
+    const members = suggestCouncilMembers([row("openai", "gpt-4"), row("openai", "gpt-5")], []);
+    expect(members).toEqual([{ name: "gpt-4", model: "openai/gpt-4", instructions: null, enabled: true }]);
+  });
+  it("suffixes a colliding slug with -2", () => {
+    const members = suggestCouncilMembers([row("openai", "gpt-4"), row("azure", "gpt-4")], [
+      "openai/gpt-4",
+      "azure/gpt-4",
+    ]);
+    expect(members.map((m) => m.name)).toEqual(["gpt-4", "gpt-4-2"]);
+  });
+  it("falls back to member-<n> when an id slugs to nothing", () => {
+    const members = suggestCouncilMembers([row("openai", "GPT 4"), row("azure", "🔒")], []);
+    expect(members.map((m) => m.name)).toEqual(["gpt-4", "member-2"]);
+  });
+  it("slices a slug over MAX_COUNCIL_NAME before suffixing", () => {
+    const longId = "model".repeat(6); // 30 chars; the slug is the id unchanged
+    const base = longId.slice(0, 22); // MAX_COUNCIL_NAME - 2
+    const members = suggestCouncilMembers([row("a", longId), row("b", longId)], [`a/${longId}`, `b/${longId}`]);
+    expect(members.map((m) => m.name)).toEqual([base, `${base}-2`]);
+    expect(members.every((m) => m.name.length <= 24)).toBe(true);
   });
 });

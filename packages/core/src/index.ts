@@ -386,6 +386,7 @@ export {
   councilDocumentFromLegacy,
   isCouncilDocument,
   resolveCouncilRoster,
+  suggestCouncilMembers,
   validateCouncilDocument,
   MAX_COUNCIL_MEMBERS,
   MAX_COUNCIL_NAME,
@@ -394,6 +395,7 @@ export {
   type CouncilRosterResult,
   type CouncilRosterSources,
   type CouncilRosterView,
+  type CouncilSuggestionModel,
   type CouncilWriteRequest,
   type EffectiveCouncilMember,
 } from "./council-config";

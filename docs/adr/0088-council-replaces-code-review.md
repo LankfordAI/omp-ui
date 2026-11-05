@@ -122,3 +122,10 @@ the council grants, `task.perCallModel: "on"` plus one role
   refusal reaches the user verbatim.
 - Roster edits apply on relaunch.
 - Remote-project roster channels stay unproxied, as today.
+
+**Amended 2026-11-05 (#1055):** decision 2, *Empty by default*, is amended from
+terminal-empty to seeded-on-enable for the global roster only: enabling the
+council flag with a memberless global document seeds it once from the user's
+own discovered chat models (favorites first, at most three, one per provider)
+before the flag persists. The rejection of shipped default members stands —
+every seeded member is a model already configured on the machine.

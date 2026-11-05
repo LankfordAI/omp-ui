@@ -1,4 +1,5 @@
 import { councilMemberSlug, MAX_COUNCIL_MEMBERS, MAX_COUNCIL_NAME } from "./council";
+import { parseModelRole } from "./model-role";
 
 /**
  * The Council roster behind `/council` (ADR-0088, issue #1049): roster truth
@@ -219,4 +220,73 @@ export function resolveCouncilRoster(projectPath: string | null, sources: Counci
     project: sources.project,
     effective: validated.entries.map((m) => ({ ...m, sourceScope: scope })),
   };
+}
+
+/** One catalog row, structurally compatible with CatalogModelOption. */
+export interface CouncilSuggestionModel {
+  readonly provider: string;
+  readonly id: string;
+}
+
+/**
+ * The suggested roster for #1055: when the council flag is enabled and no
+ * global document has members, the Settings slice seeds one from the user's
+ * discovered models. Favorites lead (matched on the bare `provider/id` after
+ * `parseModelRole` strips any `:level`; a favorite absent from the catalog is
+ * skipped — a member must be launchable), then the remaining catalog rows in
+ * given order. At most MAX_COUNCIL_MEMBERS are selected, one per provider.
+ */
+export function suggestCouncilMembers(
+  models: readonly CouncilSuggestionModel[],
+  favorites: readonly string[],
+): CouncilMember[] {
+  const key = (m: CouncilSuggestionModel): string => `${m.provider}/${m.id}`;
+  const byModel = new Map<string, CouncilSuggestionModel>();
+  for (const m of models) {
+    const k = key(m);
+    if (!byModel.has(k)) byModel.set(k, m);
+  }
+  // Matched favorites in favorites order first, then every remaining row in given order.
+  const candidates: CouncilSuggestionModel[] = [];
+  const picked = new Set<CouncilSuggestionModel>();
+  for (const fav of favorites) {
+    const role = parseModelRole(fav);
+    if (role === null) continue;
+    const m = byModel.get(role.model);
+    if (m !== undefined && !picked.has(m)) {
+      picked.add(m);
+      candidates.push(m);
+    }
+  }
+  for (const m of models) if (!picked.has(m)) candidates.push(m);
+
+  const members: CouncilMember[] = [];
+  const usedProviders = new Set<string>();
+  const usedNames = new Set<string>();
+  for (const m of candidates) {
+    if (members.length >= MAX_COUNCIL_MEMBERS) break;
+    if (usedProviders.has(m.provider)) continue;
+    usedProviders.add(m.provider);
+    members.push({
+      name: uniqueName(m.id, members.length + 1, usedNames),
+      model: key(m),
+      instructions: null,
+      enabled: true,
+    });
+  }
+  return members;
+}
+
+/** The member slug for a model id, de-duplicated within one selection. */
+function uniqueName(id: string, index: number, usedNames: Set<string>): string {
+  let base = councilMemberSlug(id);
+  if (base === "") base = `member-${index}`;
+  if (base.length > MAX_COUNCIL_NAME) base = base.slice(0, MAX_COUNCIL_NAME - 2);
+  let name = base;
+  for (let n = 2; usedNames.has(name); n++) {
+    // Slicing the base (not the suffixed name) keeps every candidate ≤ MAX_COUNCIL_NAME.
+    name = `${base.slice(0, MAX_COUNCIL_NAME - 2)}-${n}`;
+  }
+  usedNames.add(name);
+  return name;
 }
