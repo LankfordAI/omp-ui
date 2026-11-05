@@ -63,7 +63,9 @@ describe("writeRpcExtensions", () => {
       return `/${id}.ts`;
     });
 
-    expect(writeRpcExtensions(tmp(), true, writers)).toEqual({
+    expect(
+      writeRpcExtensions(tmp(), { autoresearchEnabled: true, councilEnabled: true }, writers),
+    ).toEqual({
       paths: [
         "/mcpStatus.ts",
         "/capabilities.ts",
@@ -112,7 +114,11 @@ describe("writeRpcExtensions", () => {
     const writers = bridgeWriters((id) =>
       id === "autoresearch" ? autoresearch() : `/${id}.ts`,
     );
-    const result = writeRpcExtensions(tmp(), false, writers);
+    const result = writeRpcExtensions(
+      tmp(),
+      { autoresearchEnabled: false, councilEnabled: true },
+      writers,
+    );
     expect(result.loaded.autoresearch).toBe(false);
     expect(autoresearch).not.toHaveBeenCalled();
   });
@@ -120,10 +126,34 @@ describe("writeRpcExtensions", () => {
   it("records a disabled council bridge without invoking it", () => {
     const council = vi.fn(() => "/council.ts");
     const writers = bridgeWriters((id) => (id === "council" ? council() : `/${id}.ts`));
-    const result = writeRpcExtensions(tmp(), false, writers);
+    const result = writeRpcExtensions(tmp(), { autoresearchEnabled: true, councilEnabled: false }, writers);
     expect(result.loaded.council).toBe(false);
     expect(council).not.toHaveBeenCalled();
     expect(result.paths).not.toContain("/council.ts");
+  });
+
+  it("loads the autoresearch bridge alone when only autoresearch is enabled", () => {
+    const council = vi.fn(() => "/council.ts");
+    const writers = bridgeWriters((id) => (id === "council" ? council() : `/${id}.ts`));
+    const result = writeRpcExtensions(tmp(), { autoresearchEnabled: true, councilEnabled: false }, writers);
+    expect(result.loaded.autoresearch).toBe(true);
+    expect(result.loaded.council).toBe(false);
+    expect(council).not.toHaveBeenCalled();
+    expect(result.paths).toContain("/autoresearch.ts");
+    expect(result.paths).not.toContain("/council.ts");
+  });
+
+  it("loads the council bridge alone when only council is enabled", () => {
+    const autoresearch = vi.fn(() => "/autoresearch.ts");
+    const writers = bridgeWriters((id) =>
+      id === "autoresearch" ? autoresearch() : `/${id}.ts`,
+    );
+    const result = writeRpcExtensions(tmp(), { autoresearchEnabled: false, councilEnabled: true }, writers);
+    expect(result.loaded.council).toBe(true);
+    expect(result.loaded.autoresearch).toBe(false);
+    expect(autoresearch).not.toHaveBeenCalled();
+    expect(result.paths).toContain("/council.ts");
+    expect(result.paths).not.toContain("/autoresearch.ts");
   });
 });
 

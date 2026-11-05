@@ -25,6 +25,8 @@ export function backendState(patch: Partial<BackendState> = {}): BackendState {
     skipDeleteConfirmation: false,
     skipTerminateConfirmation: false,
     experimentsEnabled: false,
+    autoresearchEnabled: false,
+    councilEnabled: false,
     snoozedSectionEnabled: false,
     autoSettleMergedPullRequests: true,
     remoteVsCodeEnabled: false,

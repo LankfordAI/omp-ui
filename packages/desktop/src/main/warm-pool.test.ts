@@ -248,7 +248,8 @@ describe("warmPlanKey", () => {
     advisor: false,
     thinking: null as string | null,
     advisorModel: null as string | null,
-    experimentsEnabled: false,
+    autoresearchEnabled: false,
+    councilEnabled: false,
   };
 
   it("is stable for identical input", () => {
@@ -263,9 +264,11 @@ describe("warmPlanKey", () => {
       warmPlanKey({ ...base, advisor: true }),
       warmPlanKey({ ...base, thinking: "auto" }),
       warmPlanKey({ ...base, advisorModel: "gpt" }),
-      warmPlanKey({ ...base, experimentsEnabled: true }),
+      warmPlanKey({ ...base, autoresearchEnabled: true }),
+      warmPlanKey({ ...base, councilEnabled: true }),
+      warmPlanKey({ ...base, autoresearchEnabled: true, councilEnabled: true }),
     ]);
-    expect(keys.size).toBe(7);
+    expect(keys.size).toBe(9);
   });
 
   it("separates a pinned plan from an unpinned one (#892)", () => {

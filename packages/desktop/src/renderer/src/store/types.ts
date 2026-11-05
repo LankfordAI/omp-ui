@@ -716,6 +716,10 @@ export interface SettingsSlice {
   /** Opt out of the "Stop the agent?" confirmation (issue #925). */
   setSkipTerminateConfirmation(skip: boolean): Promise<void>;
   setExperimentsEnabled(on: boolean): Promise<void>;
+  /** Autoresearch RPC bridge gate (issue #1052); default off. */
+  setAutoresearchEnabled(on: boolean): Promise<void>;
+  /** Council subsystem gate (issue #1052); default off. */
+  setCouncilEnabled(on: boolean): Promise<void>;
   /** Sidebar Snoozed section gate (issue #935); default off. */
   setSnoozedSectionEnabled(on: boolean): Promise<void>;
   /** Settle worktree sessions once their pull requests merge (issue #985); default on. */

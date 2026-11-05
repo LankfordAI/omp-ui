@@ -1083,7 +1083,13 @@ export const en = {
   // Settings → Experimental (#571, #739)
   "settings.experimental.labTitle": "Experiments lab (beta)",
   "settings.experimental.labHint":
-    "Adds the Lab, the New experiment dialog, the autoresearch chip for OMP's /autoresearch loop, and the council and /council command. Off hides those surfaces and leaves /autoresearch to OMP.",
+    "Adds the Lab, the New experiment dialog, and the /autoresearch start and lab verbs. Off hides those surfaces and leaves /autoresearch to OMP.",
+  "settings.experimental.autoresearchTitle": "Autoresearch bridge (beta)",
+  "settings.experimental.autoresearchHint":
+    "Arms new sessions with omp-ui's autoresearch bridge: the /autoresearch chip, live mode and goal for the Lab, and the propose_experiment interview tool. Off leaves OMP's own loop untouched; experiments launched from the Lab still run without the chip.",
+  "settings.experimental.councilTitle": "Council (beta)",
+  "settings.experimental.councilHint":
+    "Adds the /council command, the Council tab in project settings, and the council bridge for new sessions. The roster itself is edited per project, in that project's settings under Council.",
   "settings.experimental.footer":
     "Applies to sessions started afterwards; a running session keeps the bridges it launched with. The council itself is edited per project, in that project's settings under Council.",
 

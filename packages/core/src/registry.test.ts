@@ -95,6 +95,8 @@ describe("SETTINGS", () => {
       "skipDeleteConfirmation",
       "skipTerminateConfirmation",
       "experimentsEnabled",
+      "autoresearchEnabled",
+      "councilEnabled",
       "snoozedSectionEnabled",
       "autoSettleMergedPullRequests",
       "voiceInputEnabled",
@@ -104,6 +106,7 @@ describe("SETTINGS", () => {
       "memoryDefaultsSeeded",
       "autoThinkingDefaultSeeded",
       "hibernateManualDefaultSeeded",
+      "experimentsFlagSplitSeeded",
       "councilRoster",
       "gettingStartedSeen",
       "dismissedAppUpdateVersion",
@@ -169,6 +172,10 @@ describe("Registry.load", () => {
     // Issue #623: a fresh registry has never seen the Getting started checklist.
     expect(reg.getSetting("gettingStartedSeen")).toBe(false);
     expect(reg.getSetting("experimentsEnabled")).toBe(false);
+    // Issue #1052: the split gates default off; fresh installs are born seeded.
+    expect(reg.getSetting("autoresearchEnabled")).toBe(false);
+    expect(reg.getSetting("councilEnabled")).toBe(false);
+    expect(reg.getSetting("experimentsFlagSplitSeeded")).toBe(true);
     expect(reg.getSetting("snoozedSectionEnabled")).toBe(false);
     // Issue #647: the mic button is off, and the dictation model auto-resolves.
     expect(reg.getSetting("voiceInputEnabled")).toBe(false);
@@ -755,6 +762,68 @@ describe("Registry persistence", () => {
     expect(Registry.load(file).getSetting("hibernateIdleMinutes")).toBe(45);
   });
 
+  it("copies the legacy experiments flag into both split gates once (issue #1052)", () => {
+    const file = tmpFile();
+    fs.writeFileSync(
+      file,
+      JSON.stringify({ schemaVersion: 1, settings: { experimentsEnabled: true } }),
+    );
+    const reg = Registry.load(file);
+    expect(reg.getSetting("experimentsEnabled")).toBe(true);
+    expect(reg.getSetting("autoresearchEnabled")).toBe(true);
+    expect(reg.getSetting("councilEnabled")).toBe(true);
+    // The marker persisted with the copy.
+    const onDisk = JSON.parse(fs.readFileSync(file, "utf8")) as {
+      settings: Record<string, unknown>;
+    };
+    expect(onDisk.settings.experimentsFlagSplitSeeded).toBe(true);
+    expect(onDisk.settings.autoresearchEnabled).toBe(true);
+    expect(onDisk.settings.councilEnabled).toBe(true);
+    // A second load writes nothing.
+    const bytes = fs.readFileSync(file, "utf8");
+    Registry.load(file);
+    expect(fs.readFileSync(file, "utf8")).toBe(bytes);
+  });
+
+  it("copies an off legacy experiments flag as off (issue #1052)", () => {
+    const file = tmpFile();
+    fs.writeFileSync(
+      file,
+      JSON.stringify({ schemaVersion: 1, settings: { experimentsEnabled: false } }),
+    );
+    const reg = Registry.load(file);
+    expect(reg.getSetting("experimentsEnabled")).toBe(false);
+    expect(reg.getSetting("autoresearchEnabled")).toBe(false);
+    expect(reg.getSetting("councilEnabled")).toBe(false);
+    const onDisk = JSON.parse(fs.readFileSync(file, "utf8")) as {
+      settings: Record<string, unknown>;
+    };
+    expect(onDisk.settings.experimentsFlagSplitSeeded).toBe(true);
+  });
+
+  it("keeps explicit split-gate values once the marker is set (issue #1052)", () => {
+    const file = tmpFile();
+    fs.writeFileSync(
+      file,
+      JSON.stringify({
+        schemaVersion: 1,
+        settings: {
+          experimentsEnabled: false,
+          autoresearchEnabled: true,
+          councilEnabled: false,
+          experimentsFlagSplitSeeded: true,
+        },
+      }),
+    );
+    const bytes = fs.readFileSync(file, "utf8");
+    const reg = Registry.load(file);
+    expect(reg.getSetting("experimentsEnabled")).toBe(false);
+    expect(reg.getSetting("autoresearchEnabled")).toBe(true);
+    expect(reg.getSetting("councilEnabled")).toBe(false);
+    // Seeded already, so load writes nothing.
+    expect(fs.readFileSync(file, "utf8")).toBe(bytes);
+  });
+
   it("round-trips the stall watchdog window and falls back to 180 for anything unknown", () => {
     const file = tmpFile();
     const reg = Registry.load(file);
@@ -954,6 +1023,8 @@ describe("Registry persistence", () => {
       ["skipTerminateConfirmation", (registry) => registry.setSetting("skipTerminateConfirmation", false)],
       ["gettingStartedSeen", (registry) => registry.setSetting("gettingStartedSeen", false)],
       ["experimentsEnabled", (registry) => registry.setSetting("experimentsEnabled", false)],
+      ["autoresearchEnabled", (registry) => registry.setSetting("autoresearchEnabled", false)],
+      ["councilEnabled", (registry) => registry.setSetting("councilEnabled", false)],
       ["snoozedSectionEnabled", (registry) => registry.setSetting("snoozedSectionEnabled", false)],
       ["voiceInputEnabled", (registry) => registry.setSetting("voiceInputEnabled", false)],
       ["sttModel", (registry) => registry.setSetting("sttModel", null)],

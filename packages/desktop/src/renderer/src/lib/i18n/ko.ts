@@ -984,7 +984,13 @@ export const ko: Partial<Record<MessageKey, string>> = {
   // Settings → Experimental (이슈 #571, #739)
   "settings.experimental.labTitle": "실험실 (베타)",
   "settings.experimental.labHint":
-    "OMP의 /autoresearch 루프용 실험실, 새 실험 대화 상자, 자동 연구 칩, 그리고 카운슬과 /council 명령을 추가합니다. 끄면 해당 화면이 숨겨지고 /autoresearch는 OMP에 남겨집니다.",
+    "실험실, 새 실험 대화 상자, 그리고 /autoresearch의 start 및 lab 명령을 추가합니다. 끄면 해당 화면이 숨겨지고 /autoresearch는 OMP에 남겨집니다.",
+  "settings.experimental.autoresearchTitle": "자동 연구 브리지 (베타)",
+  "settings.experimental.autoresearchHint":
+    "새 세션에 omp-ui의 자동 연구 브리지를 장착합니다: /autoresearch 칩, 실험실용 라이브 모드와 목표, 그리고 propose_experiment 인터뷰 도구입니다. 끄면 OMP 자체 루프는 그대로 유지되며, 실험실에서 시작한 실험은 칩 없이 계속 실행됩니다.",
+  "settings.experimental.councilTitle": "카운슬 (베타)",
+  "settings.experimental.councilHint":
+    "/council 명령, 프로젝트 설정의 카운슬 탭, 그리고 새 세션용 카운슬 브리지를 추가합니다. 카운슬 자체는 각 프로젝트의 설정에서 카운슬 탭으로 편집합니다.",
   "settings.experimental.footer":
     "이후에 시작되는 세션에 적용되며, 실행 중인 세션은 시작할 때의 브리지를 그대로 유지합니다. 카운슬은 각 프로젝트의 설정에서 카운슬 탭으로 편집합니다.",
 

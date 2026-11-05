@@ -63,8 +63,8 @@ async function runLine(line: string): Promise<void> {
   await promise;
 }
 
-function seed(experimentsEnabled: boolean): void {
-  h.backendState = { ...h.stateWithRecord("sess-1"), experimentsEnabled };
+function seed(councilEnabled: boolean): void {
+  h.backendState = { ...h.stateWithRecord("sess-1"), councilEnabled };
   h.useStore.setState({
     state: h.backendState,
     tabs: [tabInfo({ tabId: h.TAB, mode: "rpc-ui", projectCwd: "/p" })],
@@ -115,7 +115,7 @@ describe("/council in a native tab (ADR-0088)", () => {
     expect(commandRows()[0]?.action).toBeUndefined();
   });
 
-  it("leaves the line to the advertised path while experiments are off", async () => {
+  it("leaves the line to the advertised path while the council flag is off", async () => {
     seed(false);
     await runLine("/council x");
     expect(getCouncilRoster).not.toHaveBeenCalled();

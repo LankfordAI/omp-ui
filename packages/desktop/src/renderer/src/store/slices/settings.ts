@@ -279,6 +279,20 @@ export const createSettingsSlice: StateCreator<UiStore, [], [], SettingsSlice> =
         get().reportError(err);
       }
     },
+    async setAutoresearchEnabled(on) {
+      try {
+        await backend.setAutoresearchEnabled(on);
+      } catch (err) {
+        get().reportError(err);
+      }
+    },
+    async setCouncilEnabled(on) {
+      try {
+        await backend.setCouncilEnabled(on);
+      } catch (err) {
+        get().reportError(err);
+      }
+    },
     async setSnoozedSectionEnabled(on) {
       try {
         await backend.setSnoozedSectionEnabled(on);

@@ -110,6 +110,8 @@ const backendMock = {
   setSkipDeleteConfirmation: vi.fn(),
   setSkipTerminateConfirmation: vi.fn(),
   setExperimentsEnabled: vi.fn(async () => {}),
+  setAutoresearchEnabled: vi.fn(async () => {}),
+  setCouncilEnabled: vi.fn(async () => {}),
   setSnoozedSectionEnabled: vi.fn(async () => {}),
   setAutoSettleMergedPullRequests: vi.fn(async () => {}),
   setRemoteVsCodeEnabled: vi.fn(async () => {}),
@@ -921,6 +923,12 @@ describe("Settings Experimental page (issues #571 and #739)", () => {
     document.querySelector(
       '[role="switch"][aria-label="Experiments lab (beta)"]',
     ) as HTMLElement;
+  const autoresearchSwitch = (): HTMLElement =>
+    document.querySelector(
+      '[role="switch"][aria-label="Autoresearch bridge (beta)"]',
+    ) as HTMLElement;
+  const councilSwitch = (): HTMLElement =>
+    document.querySelector('[role="switch"][aria-label="Council (beta)"]') as HTMLElement;
 
   it("lists Experimental in the nav", async () => {
     seedExperimental();
@@ -931,10 +939,26 @@ describe("Settings Experimental page (issues #571 and #739)", () => {
   it("shows the switch off and persists switching it on", async () => {
     seedExperimental();
     await renderSettings();
-    expect(document.body.querySelectorAll('[role="switch"]')).toHaveLength(1);
+    expect(document.body.querySelectorAll('[role="switch"]')).toHaveLength(3);
     expect(labSwitch().getAttribute("aria-checked")).toBe("false");
     click(labSwitch());
     expect(backendMock.setExperimentsEnabled).toHaveBeenCalledWith(true);
+  });
+
+  it("persists switching the autoresearch bridge on", async () => {
+    seedExperimental();
+    await renderSettings();
+    expect(autoresearchSwitch().getAttribute("aria-checked")).toBe("false");
+    click(autoresearchSwitch());
+    expect(backendMock.setAutoresearchEnabled).toHaveBeenCalledWith(true);
+  });
+
+  it("persists switching the council on", async () => {
+    seedExperimental();
+    await renderSettings();
+    expect(councilSwitch().getAttribute("aria-checked")).toBe("false");
+    click(councilSwitch());
+    expect(backendMock.setCouncilEnabled).toHaveBeenCalledWith(true);
   });
 
   it("no longer renders the switch on the General page", async () => {

@@ -801,9 +801,9 @@ describe("ProjectSettings", () => {
     expect(backendMock.setProjectDefaultAdvisorModel).not.toHaveBeenCalled();
   });
 
-  it("hides the Council tab with the experiments flag off (issue #1049)", async () => {
+  it("hides the Council tab with the council flag off (issue #1049)", async () => {
     const state = useStore.getState().state!;
-    expect(state.experimentsEnabled).toBe(false);
+    expect(state.councilEnabled).toBe(false);
     await renderDialog();
     const tabs = [...document.body.querySelectorAll<HTMLButtonElement>('[role="tab"]')];
     expect(tabs.some((tab) => tab.textContent?.includes("Council"))).toBe(false);
@@ -812,7 +812,7 @@ describe("ProjectSettings", () => {
 
   it("shows the Council tab and mounts the roster editor with the flag on", async () => {
     const state = useStore.getState().state!;
-    act(() => useStore.setState({ state: { ...state, experimentsEnabled: true } }));
+    act(() => useStore.setState({ state: { ...state, councilEnabled: true } }));
     await renderDialog();
     await act(async () => tabButton("Council").click());
     expect(tabButton("Council").getAttribute("aria-selected")).toBe("true");

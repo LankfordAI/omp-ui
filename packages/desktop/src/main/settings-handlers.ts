@@ -44,6 +44,8 @@ type SettingsHandlerChannels =
   | typeof CH.setSkipTerminateConfirmation
   | typeof CH.setGettingStartedSeen
   | typeof CH.setExperimentsEnabled
+  | typeof CH.setAutoresearchEnabled
+  | typeof CH.setCouncilEnabled
   | typeof CH.setSnoozedSectionEnabled
   | typeof CH.setAutoSettleMergedPullRequests
   | typeof CH.setRemoteVsCodeEnabled
@@ -118,6 +120,8 @@ export function registerSettingsHandlers(
     [CH.setSkipTerminateConfirmation]: (value: boolean) => commit("skipTerminateConfirmation", value),
     [CH.setGettingStartedSeen]: (value: boolean) => commit("gettingStartedSeen", value),
     [CH.setExperimentsEnabled]: (value: boolean) => commit("experimentsEnabled", value),
+    [CH.setAutoresearchEnabled]: (value: boolean) => commit("autoresearchEnabled", value),
+    [CH.setCouncilEnabled]: (value: boolean) => commit("councilEnabled", value),
     [CH.setSnoozedSectionEnabled]: (value: boolean) => commit("snoozedSectionEnabled", value),
     [CH.setAutoSettleMergedPullRequests]: (value: boolean) => commit("autoSettleMergedPullRequests", value),
     [CH.setRemoteVsCodeEnabled]: (value: boolean) => commit("remoteVsCodeEnabled", value),

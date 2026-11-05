@@ -398,7 +398,7 @@ const localCommands: readonly LocalCommand[] = [
     // ordinary path.
     match: /^\/council(?:\s[\s\S]*)?$/,
     run(tabId, get, line) {
-      if (get().state?.experimentsEnabled !== true) return false;
+      if (get().state?.councilEnabled !== true) return false;
       const tab = get().tabs.find((candidate) => candidate.tabId === tabId);
       if (tab?.mode !== "rpc-ui" || isChatTab(get().state, tabId)) return false;
       return get().runCouncilCommand(tabId, line);

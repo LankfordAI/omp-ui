@@ -401,11 +401,17 @@ const DEFAULT_RPC_BRIDGE_WRITERS: RpcBridgeWriters = {
   fleetWake: writeFleetWakeExtension,
 };
 
+/** The per-spawn bridge gates (#1052); mirrors the registry flags that arm bridges. */
+export interface RpcBridgeFlags {
+  autoresearchEnabled: boolean;
+  councilEnabled: boolean;
+}
+
 const RPC_BRIDGES: ReadonlyArray<{
   id: RpcBridgeId;
   logId: string;
   warning: string;
-  enabled: (experimentsEnabled: boolean) => boolean;
+  enabled: (flags: RpcBridgeFlags) => boolean;
 }> = [
   { id: "plan", logId: "plan", warning: "plan", enabled: () => true },
   { id: "advisorStats", logId: "advisor", warning: "advisor-stats", enabled: () => true },
@@ -413,12 +419,12 @@ const RPC_BRIDGES: ReadonlyArray<{
   { id: "capabilities", logId: "capabilities", warning: "capabilities", enabled: () => true },
   { id: "vibe", logId: "vibe", warning: "vibe", enabled: () => true },
   { id: "browserPane", logId: "browser-pane", warning: "browser-pane", enabled: () => true },
-  { id: "autoresearch", logId: "autoresearch", warning: "autoresearch", enabled: (enabled) => enabled },
+  { id: "autoresearch", logId: "autoresearch", warning: "autoresearch", enabled: (f) => f.autoresearchEnabled },
   { id: "limits", logId: "limits", warning: "limits", enabled: () => true },
   { id: "asyncJobs", logId: "async-jobs", warning: "background-jobs", enabled: () => true },
   { id: "sessionSpend", logId: "spend", warning: "session-spend", enabled: () => true },
   { id: "tree", logId: "tree", warning: "tree", enabled: () => true },
-  { id: "council", logId: "council", warning: "council", enabled: (enabled) => enabled },
+  { id: "council", logId: "council", warning: "council", enabled: (f) => f.councilEnabled },
   { id: "knowledgeVault", logId: "vault", warning: "knowledge-vault", enabled: () => true },
   { id: "askContext", logId: "ask", warning: "ask-context", enabled: () => true },
   { id: "carryoverContext", logId: "carryover", warning: "carryover-context", enabled: () => true },
@@ -433,7 +439,7 @@ export interface RpcExtensionWriteResult {
 
 export function writeRpcExtensions(
   absLineageDir: string,
-  experimentsEnabled: boolean,
+  flags: RpcBridgeFlags,
   writers: RpcBridgeWriters = DEFAULT_RPC_BRIDGE_WRITERS,
 ): RpcExtensionWriteResult {
   const paths: string[] = [];
@@ -441,7 +447,7 @@ export function writeRpcExtensions(
     RPC_BRIDGE_IDS.map((id) => [id, false]),
   ) as Record<RpcBridgeId, boolean>;
   for (const bridge of RPC_BRIDGES) {
-    if (!bridge.enabled(experimentsEnabled)) continue;
+    if (!bridge.enabled(flags)) continue;
     try {
       paths.push(writers[bridge.id](absLineageDir));
       loaded[bridge.id] = true;
