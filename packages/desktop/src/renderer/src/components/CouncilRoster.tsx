@@ -232,14 +232,16 @@ export function CouncilRosterEditor({ scopeCwd, instanceId }: { scopeCwd: string
   return (
     <div className="flex flex-col gap-3 px-4 py-3 text-xs" data-testid="council-roster-editor">
       <p className="text-xs leading-relaxed text-ink-faint">{t("council.roster.explain")}</p>
-      <div className="flex items-center gap-2">
-        <Button size="xs" selected={scope === "project"} disabled={scopeCwd === null} onClick={() => setScope("project")}>
-          {t("council.roster.scopeProject")}
-        </Button>
-        <Button size="xs" selected={scope === "user"} onClick={() => setScope("user")}>
-          {t("council.roster.scopeUser")}
-        </Button>
-      </div>
+      {scopeCwd !== null && (
+        <div className="flex items-center gap-2">
+          <Button size="xs" selected={scope === "project"} onClick={() => setScope("project")}>
+            {t("council.roster.scopeProject")}
+          </Button>
+          <Button size="xs" selected={scope === "user"} onClick={() => setScope("user")}>
+            {t("council.roster.scopeUser")}
+          </Button>
+        </div>
+      )}
       {scope === "project" && stored === null && (
         <p className="text-ink-faint">{t("council.roster.inheritGlobal")}</p>
       )}

@@ -162,7 +162,7 @@ describe("CouncilRosterEditor", () => {
     expect(readChatModels).toHaveBeenCalledTimes(1);
   });
 
-  it("shows the resolution warnings and never targets project without a cwd", async () => {
+  it("shows the resolution warnings and renders no scope buttons without a cwd", async () => {
     backendMock.getCouncilRoster.mockResolvedValueOnce(
       roster({
         configWarnings: ["duplicate slug"],
@@ -179,8 +179,17 @@ describe("CouncilRosterEditor", () => {
     await act(async () => root!.unmount());
     root = null;
     document.body.innerHTML = "";
+    // Without a cwd there is no project scope to offer: the toggle row is
+    // gone entirely (no disabled Project button), and the editor still loads
+    // and edits the global document.
     await mount(<CouncilRosterEditor scopeCwd={null} instanceId={null} />);
-    expect(btn("Project").disabled).toBe(true);
+    const scopeButtons = [...document.body.querySelectorAll<HTMLButtonElement>("button")].filter(
+      (b) => b.textContent?.trim() === "Project" || b.textContent?.trim() === "Global",
+    );
+    expect(scopeButtons).toHaveLength(0);
+    expect(document.body.textContent).toContain("/council asks each enabled member");
+    expect(document.querySelector('[data-testid="council-roster-editor"]')).not.toBeNull();
+    expect(document.body.textContent).toContain("hawk · on · anthropic/sonnet · Global");
   });
 
   it("names the inherit chain when the project scope is unset", async () => {

@@ -8,6 +8,7 @@ import type {
   AppUpdateState,
   AudioDeviceRole,
   AudioDevicesSnapshot,
+  CouncilRosterView,
   ModelCatalogSnapshot,
   JudgeModelSnapshot,
   MemoryOverview,
@@ -112,6 +113,16 @@ const backendMock = {
   setExperimentsEnabled: vi.fn(async () => {}),
   setAutoresearchEnabled: vi.fn(async () => {}),
   setCouncilEnabled: vi.fn(async () => {}),
+  // Empty roster: a mounted editor resolves its load and renders no member
+  // rows, so the page's three switches stay the only role="switch" nodes.
+  getCouncilRoster: vi.fn(async (): Promise<CouncilRosterView> => ({
+    members: [],
+    instructions: null,
+    configWarnings: [],
+    global: null,
+    project: null,
+    effective: [],
+  })),
   setSnoozedSectionEnabled: vi.fn(async () => {}),
   setAutoSettleMergedPullRequests: vi.fn(async () => {}),
   setRemoteVsCodeEnabled: vi.fn(async () => {}),
@@ -959,6 +970,29 @@ describe("Settings Experimental page (issues #571 and #739)", () => {
     expect(councilSwitch().getAttribute("aria-checked")).toBe("false");
     click(councilSwitch());
     expect(backendMock.setCouncilEnabled).toHaveBeenCalledWith(true);
+  });
+
+  it("nests the global roster editor under the council switch once council is on", async () => {
+    seedExperimental();
+    await renderSettings();
+    // Council off (the default seed): the editor is not mounted at all.
+    expect(
+      document.querySelector('[data-testid="council-roster-editor"]'),
+    ).toBeNull();
+    click(councilSwitch());
+    expect(backendMock.setCouncilEnabled).toHaveBeenCalledWith(true);
+    // Mirror what the real backend round-trip does: state echoes the flag,
+    // and the same mount re-renders with the editor under the switch.
+    await act(async () => {
+      useStore.setState((s) => ({ state: { ...s.state!, councilEnabled: true } }));
+    });
+    await act(async () => {});
+    expect(
+      document.querySelector('[data-testid="council-roster-editor"]'),
+    ).not.toBeNull();
+    // The empty seeded roster renders no member rows, so the editor adds no
+    // switches: the page's three remain the only role="switch" nodes.
+    expect(document.body.querySelectorAll('[role="switch"]')).toHaveLength(3);
   });
 
   it("no longer renders the switch on the General page", async () => {

@@ -1,5 +1,6 @@
 import { useStore } from "../../store";
 import { useT } from "../../lib/i18n";
+import { CouncilRosterEditor } from "../CouncilRoster";
 import { Switch } from "../ui";
 import { Row } from "./rows";
 
@@ -9,7 +10,10 @@ import { Row } from "./rows";
  * dialog (plus the /autoresearch start and lab verbs), `autoresearchEnabled`
  * arms the autoresearch bridge on new sessions, and `councilEnabled` gates the
  * council roster and /council command (#571, #1049). Each is the same flag the
- * spawn path and surfaces read, so there is one editor per flag.
+ * spawn path and surfaces read, so there is one editor per flag. While the
+ * council flag is on, the page also hosts the global roster editor (#1053):
+ * `scopeCwd === null` means user scope on this host, the document every
+ * project without an override falls back to.
  */
 export function ExperimentalPage() {
   const t = useT();
@@ -49,6 +53,7 @@ export function ExperimentalPage() {
           label={t("settings.experimental.councilTitle")}
         />
       </Row>
+      {state?.councilEnabled === true && <CouncilRosterEditor scopeCwd={null} instanceId={null} />}
     </div>
   );
 }

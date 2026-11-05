@@ -252,9 +252,9 @@ The **Composer predictions** section edits `composer.predictions`, allowlisted f
 
 ## Experimental
 
-One switch — **Experiments lab (beta)** — gates the whole beta surface: the Lab, the New experiment dialog, the autoresearch chip for OMP's `/autoresearch` loop ([ADR-0030](adr/0030-experiments-read-autoresearch-from-two-sources.md)), and the council and `/council` command ([#739](https://github.com/LankfordAI/omp-ui/issues/739)). There is one flag behind all four surfaces, and this page is its only editor.
+Three independent switches ([#1052](https://github.com/LankfordAI/omp-ui/issues/1052)), and this page is each flag's only editor. **Experiments lab (beta)** (`experimentsEnabled`) adds the Lab, the New experiment dialog, and the `/autoresearch` start and lab verbs. **Autoresearch bridge (beta)** (`autoresearchEnabled`) arms new sessions with the autoresearch chip for OMP's `/autoresearch` loop ([ADR-0030](adr/0030-experiments-read-autoresearch-from-two-sources.md)). **Council (beta)** (`councilEnabled`) adds the council and the `/council` command ([#739](https://github.com/LankfordAI/omp-ui/issues/739)); while it is on, the page also carries the global roster editor — members, models, shared instructions — over the app-global council document ([#1053](https://github.com/LankfordAI/omp-ui/issues/1053)). A project can override that roster in its own settings under **Council**.
 
-The flag gates the bridges at spawn: it applies to sessions started afterwards, and a running session keeps the bridges it launched with. The council itself is edited per project, in that project's settings under **Council**.
+The switches gate the bridges at spawn: they apply to sessions started afterwards, and a running session keeps the bridges it launched with.
 
 ## Advanced
 
