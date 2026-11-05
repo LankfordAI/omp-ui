@@ -18,7 +18,6 @@ import type { WorkspaceSelection } from "./WorktreeBranchFields";
 import {
   Chevron,
   IconAdvisor,
-  IconBranch,
   IconBuildMode,
   IconFast,
   IconModel,
@@ -233,12 +232,10 @@ export function ComposerOptions({
             <span data-pill-segment="branch" className="flex min-w-0 shrink items-center gap-1">
               {/* Proportional inside the pill (round-3 judge, Consistency 3):
                   its neighbours (`build`, model, thinking) are proportional; a
-                  mono island mid-pill read as code that wasn't. Round-5 judge,
-                  Iconography 1: the `⎇` text glyph became the set's branch SVG
-                  so its stroke matches the neighbouring `+` and send arrow. */}
-              <IconBranch className="size-3 shrink-0" />
+                  mono island mid-pill read as code that wasn't. The `⎇` glyph
+                  matches every other branch mark in the app (issue #1046). */}
               <span className="max-w-32 truncate">
-                {workspace?.mode === "worktree" ? workspace.branch : info.current ?? t("composer.branch.detachedChip")}
+                ⎇ {workspace?.mode === "worktree" ? workspace.branch : info.current ?? t("composer.branch.detachedChip")}
               </span>
             </span>
           </>

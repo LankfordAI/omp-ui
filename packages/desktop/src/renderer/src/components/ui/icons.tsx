@@ -201,20 +201,6 @@ export function StarIcon({ filled, className }: { filled?: boolean; className?: 
   );
 }
 
-/** Branch — the git branch mark in chrome (round-5 judge, Iconography 1):
- *  the set's 1.4px stroke replaces the `⎇` text glyph where neighbours are
- *  icons. Mono chips keep the literal; it reads as copy-target text there. */
-export function IconBranch({ className }: { className?: string }) {
-  return (
-    <svg viewBox="0 0 16 16" aria-hidden className={cn("size-3.5", className)} {...ICON_STROKE}>
-      <circle cx="5" cy="4" r="1.6" />
-      <circle cx="5" cy="12" r="1.6" />
-      <circle cx="11" cy="6" r="1.6" />
-      <path d="M5 5.6v4.8M11 7.6c0 2.2-2.4 2.4-3.7 3" />
-    </svg>
-  );
-}
-
 /** Microphone — dictation in the composer (issue #647): capsule + stem + base. */
 export function IconMic({ className }: { className?: string }) {
   return (
