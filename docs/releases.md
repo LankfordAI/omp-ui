@@ -4,13 +4,7 @@ This guide explains what users receive from a release and how maintainers publis
 
 ## Unreleased
 
-Nothing since [v0.31.0](https://github.com/LankfordAI/omp-ui/releases/tag/v0.31.0). Add one bullet per shipped change here, citing its issue as `#N`; the release tag lifts these into Highlights.
-
-- **HTML artifacts** now render flush in the transcript with no card chrome and size to their own content: the document measures itself and reports its height over a reserved `#omph<px>` fragment the host reads back and clamps, so a chart or table takes exactly the room it needs instead of a fixed frame (#1041, amends [ADR-0082](adr/0082-interactive-html-artifacts-run-in-a-locked-webview-guest.md); implements the surface direction of #994).
-- **Visual pass 1** of the UI hill-climb: every ink tier now holds WCAG AA 4.5:1 on every plane in all twelve themes (the de-emphasis tier measured 2.58:1 on Dark Modern), the type scale collapses to four steps plus display with a 12px floor, the usage receipt reads as labelled pairs instead of an undecodable glyph run, sidebar rows and section headers carry one clear hierarchy, and insider status words (`settled`, `dormant`, `unreachable`) explain themselves (#1042).
-- The sidebar's **Ready** heading is gone: live sessions sit directly under Pinned and the Attention stack, and **Working** and **Settled** dock to the sidebar's bottom edge whatever the row count — restoring the docking that v0.31.0's Attention stack had knocked loose (#1043, #1044).
-- Two visual fixes from the same hill climb's tail: pane dividers in Dark Modern drop to roughly half their contrast against the surface so region seams stop drawing the eye (#1045), and the composer's options pill branch segment uses the same `⎇` glyph as every other branch mark in the app instead of the icon round 5 introduced (#1046).
-- **Council** replaces /code-review: /council asks 1–3 member models picked in Project settings → Council for independent answers, and /council review scores a diff per member; pinned models now pass omp's per-call model gate (#1049, #1048, supersedes [ADR-0047](adr/0047-code-review-roster-via-background-subagents.md)).
+Nothing since [v0.32.0](https://github.com/LankfordAI/omp-ui/releases/tag/v0.32.0). Add one bullet per shipped change here, citing its issue as `#N`; the release tag lifts these into Highlights.
 
 ## Choose a download
 
