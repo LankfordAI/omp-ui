@@ -124,6 +124,27 @@ describe("CouncilRosterEditor", () => {
     expect(document.body.textContent).not.toContain("Pick a model for every member.");
   });
 
+  it("saves the end-of-model slug when the name is blank (#1056)", async () => {
+    await mount(<CouncilRosterEditor scopeCwd="/p" instanceId={null} />);
+    await act(async () => btn("Add member").click());
+    await typeInto(inputs("Model")[1]!, "openrouter/anthropic/claude-opus-5.5");
+    // A blank name with a launchable model is valid; the placeholder previews
+    // the name Save will persist.
+    expect(btn("Save").disabled).toBe(false);
+    expect(inputs("Member")[1]!.placeholder).toBe("claude-opus-5-5");
+    await act(async () => btn("Save").click());
+    expect(lastWrite().document!.members[1]!.name).toBe("claude-opus-5-5");
+  });
+
+  it("blocks Save when two blank names derive the same slug (#1056)", async () => {
+    await mount(<CouncilRosterEditor scopeCwd="/p" instanceId={null} />);
+    await act(async () => btn("Add member").click());
+    await typeInto(inputs("Model")[1]!, "openrouter/anthropic/gpt-4x");
+    await act(async () => btn("Add member").click());
+    await typeInto(inputs("Model")[2]!, "azure/gpt-4x");
+    expect(btn("Save").disabled).toBe(true);
+  });
+
   it("disables Add member once the council has three members", async () => {
     await mount(<CouncilRosterEditor scopeCwd="/p" instanceId={null} />);
     await act(async () => btn("Add member").click());

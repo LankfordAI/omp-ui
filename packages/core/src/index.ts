@@ -399,7 +399,14 @@ export {
   type CouncilWriteRequest,
   type EffectiveCouncilMember,
 } from "./council-config";
-export { COUNCIL_AGENT, COUNCIL_COMMAND, COUNCIL_LAUNCH_TYPE, COUNCIL_TOOL, councilMemberSlug } from "./council";
+export {
+  COUNCIL_AGENT,
+  COUNCIL_COMMAND,
+  COUNCIL_LAUNCH_TYPE,
+  COUNCIL_TOOL,
+  councilMemberSlug,
+  councilNameFromModel,
+} from "./council";
 export { councilExtensionDir, councilExtensionPath, writeCouncilExtension } from "./council-extension";
 export {
   COUNCIL_ROSTER_SNAPSHOT_VERSION,

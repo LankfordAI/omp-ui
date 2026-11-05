@@ -7,7 +7,7 @@ import type {
   ModelCatalogSnapshot,
 } from "@omp-ui/core/types";
 import { parseModelRole } from "@omp-ui/core/model-role";
-import { councilMemberSlug, MAX_COUNCIL_MEMBERS, MAX_COUNCIL_NAME } from "@omp-ui/core/council";
+import { councilMemberSlug, councilNameFromModel, MAX_COUNCIL_MEMBERS, MAX_COUNCIL_NAME } from "@omp-ui/core/council";
 import { backendFor, displayMessage } from "../backend";
 import { cn } from "../lib/cn";
 import { useT } from "../lib/i18n";
@@ -170,7 +170,11 @@ export function CouncilRosterEditor({ scopeCwd, instanceId }: { scopeCwd: string
     );
   };
 
-  const slugs = draft.members.map((m) => councilMemberSlug(m.name));
+  // A blank name is not an error when the model can derive one (#1056): the
+  // effective name is what gets slugged, saved, and checked for duplicates.
+  const nameFor = (m: CouncilMember): string =>
+    m.name.trim() !== "" ? m.name : councilNameFromModel(m.model) ?? "";
+  const slugs = draft.members.map((m) => councilMemberSlug(nameFor(m)));
   const invalid = draft.members.some(
     (m, i) =>
       slugs[i] === "" ||
@@ -194,7 +198,13 @@ export function CouncilRosterEditor({ scopeCwd, instanceId }: { scopeCwd: string
     try {
       const doc: CouncilDocument = {
         instructions: draft.instructions?.trim() ? draft.instructions : null,
-        members: draft.members.map((m) => ({ ...m, model: m.model?.trim() ? m.model.trim() : null })),
+        members: draft.members.map((m) => ({
+          // A blank name persists as the derived end-of-slug name (#1056);
+          // a duplicate derivation is already blocked by validation.
+          ...m,
+          name: m.name.trim() !== "" ? m.name.trim() : nameFor(m),
+          model: m.model?.trim() ? m.model.trim() : null,
+        })),
       };
       const clear =
         scope === "project" &&
@@ -261,7 +271,11 @@ export function CouncilRosterEditor({ scopeCwd, instanceId }: { scopeCwd: string
           <div className="flex items-center gap-2">
             <input
               className={inputClass}
-              placeholder={t("council.roster.namePlaceholder")}
+              placeholder={
+                m.name.trim() === "" && modelOk(m.model)
+                  ? councilNameFromModel(m.model) ?? t("council.roster.namePlaceholder")
+                  : t("council.roster.namePlaceholder")
+              }
               aria-label={t("council.roster.colName")}
               value={m.name}
               onChange={(e) => updateEntry(i, { name: e.target.value })}

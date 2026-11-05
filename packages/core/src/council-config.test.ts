@@ -264,15 +264,20 @@ describe("suggestCouncilMembers", () => {
     ]);
     expect(members.map((m) => m.name)).toEqual(["gpt-4", "gpt-4-2"]);
   });
+  it("dedupes names derived from the end of nested ids (#1056)", () => {
+    const members = suggestCouncilMembers([row("openrouter", "anthropic/gpt-4x"), row("azure", "gpt-4x")], []);
+    expect(members.map((m) => m.name)).toEqual(["gpt-4x", "gpt-4x-2"]);
+  });
   it("falls back to member-<n> when an id slugs to nothing", () => {
     const members = suggestCouncilMembers([row("openai", "GPT 4"), row("azure", "🔒")], []);
     expect(members.map((m) => m.name)).toEqual(["gpt-4", "member-2"]);
   });
   it("slices a slug over MAX_COUNCIL_NAME before suffixing", () => {
-    const longId = "model".repeat(6); // 30 chars; the slug is the id unchanged
-    const base = longId.slice(0, 22); // MAX_COUNCIL_NAME - 2
+    const longId = "model".repeat(6); // 30 chars; councilNameFromModel caps at 24 first
+    const first = longId.slice(0, 24); // MAX_COUNCIL_NAME
+    const base = longId.slice(0, 22); // MAX_COUNCIL_NAME - 2 before the suffix
     const members = suggestCouncilMembers([row("a", longId), row("b", longId)], [`a/${longId}`, `b/${longId}`]);
-    expect(members.map((m) => m.name)).toEqual([base, `${base}-2`]);
+    expect(members.map((m) => m.name)).toEqual([first, `${base}-2`]);
     expect(members.every((m) => m.name.length <= 24)).toBe(true);
   });
 });

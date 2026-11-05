@@ -1,4 +1,4 @@
-import { councilMemberSlug, MAX_COUNCIL_MEMBERS, MAX_COUNCIL_NAME } from "./council";
+import { councilMemberSlug, councilNameFromModel, MAX_COUNCIL_MEMBERS, MAX_COUNCIL_NAME } from "./council";
 import { parseModelRole } from "./model-role";
 
 /**
@@ -268,7 +268,7 @@ export function suggestCouncilMembers(
     if (usedProviders.has(m.provider)) continue;
     usedProviders.add(m.provider);
     members.push({
-      name: uniqueName(m.id, members.length + 1, usedNames),
+      name: uniqueName(key(m), members.length + 1, usedNames),
       model: key(m),
       instructions: null,
       enabled: true,
@@ -277,9 +277,12 @@ export function suggestCouncilMembers(
   return members;
 }
 
-/** The member slug for a model id, de-duplicated within one selection. */
-function uniqueName(id: string, index: number, usedNames: Set<string>): string {
-  let base = councilMemberSlug(id);
+/**
+ * The member name for a `provider/model` key: the end-of-slug derivation
+ * (#1056), de-duplicated within one selection.
+ */
+function uniqueName(key: string, index: number, usedNames: Set<string>): string {
+  let base = councilNameFromModel(key) ?? "";
   if (base === "") base = `member-${index}`;
   if (base.length > MAX_COUNCIL_NAME) base = base.slice(0, MAX_COUNCIL_NAME - 2);
   let name = base;
