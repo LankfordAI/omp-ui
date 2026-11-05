@@ -811,7 +811,11 @@ describe("Registry persistence", () => {
           experimentsEnabled: false,
           autoresearchEnabled: true,
           councilEnabled: false,
+          // All three one-time markers: with the other two absent, load's
+          // auto-thinking and hibernate seeds rewrite the file (#1054).
           experimentsFlagSplitSeeded: true,
+          autoThinkingDefaultSeeded: true,
+          hibernateManualDefaultSeeded: true,
         },
       }),
     );
