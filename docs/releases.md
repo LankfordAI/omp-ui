@@ -4,11 +4,7 @@ This guide explains what users receive from a release and how maintainers publis
 
 ## Unreleased
 
-Since [v0.32.0](https://github.com/LankfordAI/omp-ui/releases/tag/v0.32.0): add one bullet per shipped change here, citing its issue as `#N`; the release tag lifts these into Highlights.
-
-- **Settings → Experimental** splits its one switch into three: **Experiments lab** now gates only the Lab, the New experiment dialog and the `/autoresearch start|lab` verbs; **Autoresearch bridge** arms new sessions with the /autoresearch chip and live mode; **Council** gates /council and the council bridge. An existing install carries its old setting into all three once; a fresh install starts with all three off (#1052).
-- The global **council** roster is edited directly on Settings → Experimental under the Council switch instead of only through a project's Council tab, and turning Council on with an empty roster seeds it once from your favorite models — at most three, in favorites order, launchable ones only; no favorites means no seed (#1053, #1055, #1058).
-- A council member with a blank name takes its name from its model (`openrouter/anthropic/claude-opus-5.5` → `claude-opus-5-5`) and keeps following it when the model changes; a typed name always wins (#1056, #1057).
+Nothing since [v0.32.1](https://github.com/LankfordAI/omp-ui/releases/tag/v0.32.1). Add one bullet per shipped change here, citing its issue as `#N`; the release tag lifts these into Highlights.
 
 ## Choose a download
 
