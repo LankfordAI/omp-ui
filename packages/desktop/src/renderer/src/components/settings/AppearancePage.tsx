@@ -14,12 +14,67 @@ import {
 import { useStore } from "../../store";
 import { Button, ChoiceCapsule, Chip } from "../ui";
 
-/** Label and mini-column bar each transcript-width card paints (issue #391). */
-const WIDTH_CARDS: Record<TranscriptWidth, { label: MessageKey; bar: string }> = {
-  comfortable: { label: "settings.appearance.widthComfortable", bar: "w-1/2" },
-  wide: { label: "settings.appearance.widthWide", bar: "w-3/4" },
-  full: { label: "settings.appearance.widthFull", bar: "w-full" },
+/**
+ * Label each transcript-width card paints (issue #391). The old mini-column
+ * bar is gone: the WidthMock below now shows column cap vs prose measure
+ * honestly (issue #1059).
+ */
+const WIDTH_CARDS: Record<TranscriptWidth, { label: MessageKey }> = {
+  comfortable: { label: "settings.appearance.widthComfortable" },
+  wide: { label: "settings.appearance.widthWide" },
+  full: { label: "settings.appearance.widthFull" },
 };
+
+/** Column cap (as a share of card width) each transcript-width mock draws. */
+const WIDTH_CARD_MOCKS: Record<TranscriptWidth, number> = {
+  comfortable: 50,
+  wide: 64,
+  full: 100,
+};
+
+/**
+ * Two-plane preview for a transcript-width card (issue #1059): the bright
+ * outline is the centred column cap, the faint wash inside it is the prose
+ * measure, flush-left with the column. Stretches with the card like the old
+ * single bar did, so the mock promises only what the CSS now delivers.
+ */
+function WidthMock({ col }: { col: number }) {
+  const x = (100 - col) / 2;
+  return (
+    <svg
+      className="block h-4 w-full"
+      viewBox="0 0 100 16"
+      preserveAspectRatio="none"
+      width="100%"
+      height="16"
+      aria-hidden="true"
+      focusable="false"
+    >
+      <rect
+        x={x}
+        y={4}
+        width={col}
+        height={8}
+        rx={1.5}
+        fill="currentColor"
+        fillOpacity={0.28}
+        stroke="currentColor"
+        strokeOpacity={0.6}
+        strokeWidth={1}
+        vectorEffect="non-scaling-stroke"
+      />
+      <rect
+        x={x}
+        y={4}
+        width={col * 0.78}
+        height={8}
+        rx={1.5}
+        fill="currentColor"
+        fillOpacity={0.12}
+      />
+    </svg>
+  );
+}
 
 /** Label and one-line hint each glass-chrome card paints (issue #393). */
 const GLASS_CARDS: Record<GlassChrome, { label: MessageKey; hint: MessageKey }> = {
@@ -366,7 +421,9 @@ export function AppearancePage() {
                 )}
               >
                 <span className="text-sm font-medium text-ink">{t(card.label)}</span>
-                <span className={cn("mt-2 block h-1.5 rounded bg-line-strong", card.bar)} />
+                <span className="mt-2 block text-ink-dim">
+                  <WidthMock col={WIDTH_CARD_MOCKS[w.id]} />
+                </span>
               </button>
             );
           })}

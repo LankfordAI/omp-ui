@@ -6,6 +6,7 @@ import {
   useMemo,
   useRef,
   useState,
+  type CSSProperties,
 } from "react";
 import { backend } from "../backend";
 import { cn } from "../lib/cn";
@@ -18,6 +19,7 @@ import { localeTag, useT, type MessageKey } from "../lib/i18n";
 import { supportsNarration } from "../lib/narration";
 import { isReplyWrite, replyWriteContent, supportsOutReplies } from "@omp-ui/core/out-replies";
 import { useTranscriptScale } from "../lib/text-scale";
+import { columnCapFor, useTranscriptWidth } from "../lib/transcript-width";
 import type {
   AssistantItem,
   CommandItem,
@@ -358,9 +360,15 @@ function AssistantBlock({
           // its right edge stays exactly on the content axis (round-3
           // Spacing 1's single right edge keeps holding; the bleed still sits
           // inside the scroller's 16px padding).
+          // The plate rides the column, not the prose measure (issue #1059).
+          // No min(100%, …) wrapper: a `%` substituted through a var into
+          // calc() on max-width can go invalid-at-computed-value-time under
+          // standardized zoom, and one isn't needed — as a flex child the
+          // plate cannot outgrow its parent beyond the -9px bleed the cap
+          // already grants, so the right edge stays on the column axis.
           className={cn(
             "-ml-[9px] rounded-md border border-line-soft bg-sunken px-2 py-1",
-            "max-w-[calc(var(--prose-max)+0.5625rem)]",
+            "max-w-[calc(var(--transcript-max)+0.5625rem)]",
           )}
           chevronClassName="text-think-warm"
           summary={
@@ -508,10 +516,10 @@ function UserBubble({
   const annotations = item.annotations ?? [];
   const references = item.references ?? [];
   return (
-    // w-full max-w-prose: the whole speaker run lives inside the prose measure,
-    // so the bubble's right edge lands on the same line as prose, tables, and
-    // code (round-3 judge, Spacing 1) instead of overhanging at the column edge.
-    <div className="speaker-run animate-rise flex w-full max-w-[var(--prose-max)] flex-col items-end gap-1">
+    // The run frame hugs the column edge (issue #1059); the bubble inside
+    // keeps PROSE_MEASURE, so user prose stays within the reading measure
+    // while the right-aligned run tracks the column.
+    <div className="speaker-run animate-rise flex w-full max-w-[var(--transcript-max)] flex-col items-end gap-1">
       {/* Turn separation (round-4 judge, Hierarchy 3): the label steps up to
           ink-dim so a new exchange announces itself without a turn marker;
           the fill behind it drops to 70% so in Light the bubble stops being
@@ -1414,6 +1422,7 @@ export function TranscriptView({
       ? undefined
       : exchangeChanges.get(exchangeAnchors.tailAnchor);
   const scale = useTranscriptScale();
+  const widthStep = useTranscriptWidth();
 
   // Length alone misses streaming, which mutates the last item in place.
   const last = items.at(-1);
@@ -1614,12 +1623,19 @@ export function TranscriptView({
         <div
           ref={contentRef}
           data-hanging={hanging}
-          className="transcript-column relative mx-auto flex w-full max-w-[var(--prose-max)] flex-col gap-5"
+          className="transcript-column relative mx-auto flex w-full max-w-[var(--transcript-max)] flex-col gap-5"
           // Transcript-scoped text size (issue #30): `zoom` scales every px
           // value inside the document surface — markdown, tool cards, slabs —
           // while the chrome around it stays fixed. The ResizeObserver above
           // sees the resulting content-height change and re-pins.
-          style={{ zoom: scale }}
+          // The inline --transcript-max override divides the pane-px column
+          // cap by the zoom so the column's on-screen edge still lands on the
+          // composer card's edge at any scale (issue #1059). It shadows the
+          // root value only for this zoomed subtree; chrome consumers outside
+          // keep the raw value.
+          style={
+            { zoom: scale, "--transcript-max": columnCapFor(widthStep, scale) } as CSSProperties
+          }
         >
           {items.length === 0 && (
             <Empty title={t("transcript.empty.title")} hint={t("transcript.empty.hint")} />
@@ -1706,13 +1722,15 @@ export function TranscriptView({
           {tabId !== undefined && <HeldPromptCard tabId={tabId} />}
           {/* Scheduled prompt (issue #987): the session's schedule and its notices. */}
           {tabId !== undefined && <ScheduledPromptCard tabId={tabId} />}
-          {/* The prose-measure centre, published for overlays that live outside
+          {/* The column centre, published for overlays that live outside
               the zoomed column (jump to latest). Absolutely positioned so it
-              adds nothing to the column's flow; zero height, zero ink. */}
+              adds nothing to the column's flow; zero height, zero ink.
+              Tracks --transcript-max, not prose: the pill centres on the
+              column (issue #1059). */}
           <div
             ref={axisRef}
             aria-hidden
-            className="pointer-events-none absolute left-0 top-0 h-0 w-[var(--prose-max)] max-w-full"
+            className="pointer-events-none absolute left-0 top-0 h-0 w-[var(--transcript-max)] max-w-full"
           />
         </div>
         {/* Tail clearance for the floating composer (issue #395). RpcTab

@@ -1129,7 +1129,7 @@ export const en = {
   "settings.appearance.fontFamilyAria": "{name} font family",
   "settings.appearance.transcriptWidth": "Transcript width",
   "settings.appearance.transcriptWidthHint":
-    "How wide the native transcript and composer column may grow. Prose keeps a readable measure at every step; tool cards, code, and diffs take the whole column.",
+    "How wide the transcript column and composer card may grow. Prose keeps a readable measure at every step; tool cards, code, tables, and diffs take the whole column — and Full lets the column take the pane.",
   "settings.appearance.transcriptWidthAria": "{name} transcript width",
   "settings.appearance.widthComfortable": "Comfortable",
   "settings.appearance.widthWide": "Wide",

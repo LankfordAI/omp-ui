@@ -2,30 +2,46 @@ import { useSyncExternalStore } from "react";
 import type { TranscriptWidth } from "@omp-ui/core/types";
 
 /**
- * Transcript column width steps (issue #391).
+ * Transcript column width steps (issue #391; two-tier spread, issue #1059).
  *
  * The store syncs the persisted `transcriptWidth` setting from the backend and
- * this module repoints one CSS custom property on the document root:
- * `--prose-max` caps the centred transcript column, and with it every surface
- * that shares its axis — prose paragraphs, the composer card, the transcript
- * skeleton, the hero column, and the extension dialog card (issue #26's rule —
- * the measure scales with the step instead of staying frozen at 70ch).
- * Round-7 judge, Spacing 1: the column used to ride a wider box than its own
- * content and left-align inside it, so the pane gutters came out 38px vs
- * 338px. One measure on one box centres everything.
+ * this module repoints two CSS custom properties on the document root:
+ * `--transcript-max` caps the centred transcript column and every chrome card
+ * that shares its axis — the composer card, ApprovalCard, the extension
+ * dialog card, and the transcript skeleton — while `--prose-max` keeps the
+ * readable prose measure inside the column (issue #26's rule). Before #1059 a
+ * single `ch` property served both planes, so the three steps differed by
+ * ~150px total, "Full" left 300px gutters, and `ch` resolved per-consumer
+ * against each element's own font. Column and chrome now speak pane pixels
+ * (rem/%), prose keeps `ch`.
  */
 
 export interface TranscriptWidthStep {
   id: TranscriptWidth;
-  /** CSS length for --prose-max (issue #26's readable measure). */
+  /** CSS length for --prose-max (issue #26's readable measure, ch). */
   proseMax: string;
+  /** CSS length for --transcript-max (column + chrome cards, pane px). */
+  transcriptMax: string;
 }
 
 export const TRANSCRIPT_WIDTHS: readonly TranscriptWidthStep[] = [
-  { id: "comfortable", proseMax: "70ch" },
-  { id: "wide", proseMax: "80ch" },
-  { id: "full", proseMax: "88ch" },
+  { id: "comfortable", proseMax: "70ch", transcriptMax: "56rem" },
+  { id: "wide", proseMax: "80ch", transcriptMax: "72rem" },
+  { id: "full", proseMax: "88ch", transcriptMax: "100%" },
 ];
+
+/**
+ * The column cap as seen from inside the zoomed document surface. rem
+ * lengths multiply by standardized CSS zoom, so divide up front to land on
+ * transcriptMax chrome pixels and keep the composer card's edges aligned at
+ * any text scale. `100%` resolves against the parent layout box, which zoom
+ * does not scale — dividing a percentage would be wrong.
+ */
+export function columnCapFor(step: TranscriptWidthStep, scale: number): string {
+  return step.transcriptMax === "100%"
+    ? "100%"
+    : `calc(${step.transcriptMax} / ${scale})`;
+}
 
 export const DEFAULT_TRANSCRIPT_WIDTH_ID: TranscriptWidth = "wide";
 
@@ -58,6 +74,7 @@ export function applyTranscriptWidth(step: TranscriptWidthStep): void {
   if (typeof document !== "undefined") {
     const root = document.documentElement;
     root.style.setProperty("--prose-max", step.proseMax);
+    root.style.setProperty("--transcript-max", step.transcriptMax);
   }
 
   try {

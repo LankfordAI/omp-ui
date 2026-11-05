@@ -33,7 +33,7 @@ const NO_ITEMS: never[] = [];
 
 /** Boot placeholder — an empty pane reads as a hang, three bars read as work.
  *  `centered` anchors the bars just above the mid-pane composer, aligned to
- *  its card (same px-4 outer gutter + --prose-max column as Composer
+ *  its card (same px-4 outer gutter + --transcript-max column as Composer
  *  and TranscriptView). */
 function TranscriptSkeleton({ centered = false }: { centered?: boolean }) {
   const bars = [0.62, 0.9, 0.44].map((width, i) => (
@@ -46,7 +46,7 @@ function TranscriptSkeleton({ centered = false }: { centered?: boolean }) {
   if (centered) {
     return (
       <div className="animate-rise flex min-h-0 flex-1 flex-col justify-end px-4 pb-6">
-        <div className="mx-auto flex w-full max-w-[var(--prose-max)] flex-col gap-3">{bars}</div>
+        <div className="mx-auto flex w-full max-w-[var(--transcript-max)] flex-col gap-3">{bars}</div>
       </div>
     );
   }
@@ -502,11 +502,15 @@ export const RpcTab = memo(function RpcTab({ tabId, active }: { tabId: string; a
                 {active && <PlanReview tabId={tabId} dictationActive={dictationActive} />}
                 {/* The approval card rides along for the same reason (issue
                     #681): a session blocked behind the subagent view must
-                    stay answerable. */}
-                {active && <ApprovalCard tabId={tabId} />}
-                {/* No composer here (issue #421): the card keeps its own
-                    free-text field for editor/input frames. */}
-                <ExtensionDialogHost tabId={tabId} composerVisible={false} />
+                    stay answerable. The inset mirrors the scroller's padding
+                    + scrollbar gutters so both cards land on the subagent
+                    column's edges at Full (issue #1059). */}
+                <div className="px-[calc(1rem+var(--scrollbar-w,10px))]">
+                  {active && <ApprovalCard tabId={tabId} />}
+                  {/* No composer here (issue #421): the card keeps its own
+                      free-text field for editor/input frames. */}
+                  <ExtensionDialogHost tabId={tabId} composerVisible={false} />
+                </div>
               </>
             ) : (
               <>
@@ -568,11 +572,20 @@ export const RpcTab = memo(function RpcTab({ tabId, active }: { tabId: string; a
                     floating && "pointer-events-none absolute inset-x-0 bottom-3 z-10",
                   )}
                 >
-                  <ApprovalCard tabId={tabId} />
-                  <ExtensionDialogHost
-                    tabId={tabId}
-                    composerVisible={!compact && !(planReviewOpen && active)}
-                  />
+                  {/* The approval and dialog cards ride the composer float's
+                      mirrored inset (issue #1059): their `max-w-[var(--transcript-max)]`
+                      resolves inside this padding box, so at Full (100%) they
+                      land on the column's edges instead of overflowing the
+                      un-padded inset-x-0 plane by the scroller's padding and
+                      scrollbar gutters. The bottom-sheet variant is fixed to
+                      the viewport and never sees this box. */}
+                  <div className="px-[calc(1rem+var(--scrollbar-w,10px))]">
+                    <ApprovalCard tabId={tabId} />
+                    <ExtensionDialogHost
+                      tabId={tabId}
+                      composerVisible={!compact && !(planReviewOpen && active)}
+                    />
+                  </div>
                   {/* While the review owns the column, its send-it-back input is
                       the only free-text control: the composer is hidden — not
                       unmounted, so any half-typed draft survives — for the
