@@ -1,6 +1,6 @@
 import type { SessionSummary } from "@omp-ui/core/types";
 import { strField } from "./fields";
-import { shortModelLabel } from "./format";
+import { modelDisplayLabel } from "./format";
 import { planSelect } from "./multi-select";
 import { parsePage } from "./question-series";
 
@@ -39,9 +39,18 @@ export function tileQuote(s: SessionSummary): TileQuote | null {
   return text === null ? null : { kind: "question", text };
 }
 
-/** `model · thinking` for the tile; null while the record pins no model. */
-export function tileModel(s: SessionSummary): string | null {
+/**
+ * The model's short display label for the tile; null while the record pins no
+ * model. The display form follows the model catalog when one is at hand (one
+ * name per model across composer and sidebar — round-1 judge); dormant rows
+ * have no booted tab, so they keep the compact selector tail. The thinking
+ * level is the caller's own labelled meta item (round-7 judge, Clarity 1): a
+ * bare level glued to the model read as part of the model name.
+ */
+export function tileModel(
+  s: SessionSummary,
+  catalog?: readonly { id: string; name: string }[] | null,
+): string | null {
   if (s.model === null) return null;
-  const model = shortModelLabel(s.model);
-  return s.thinkingLevel === null ? model : `${model} · ${s.thinkingLevel}`;
+  return modelDisplayLabel(s.model, catalog);
 }

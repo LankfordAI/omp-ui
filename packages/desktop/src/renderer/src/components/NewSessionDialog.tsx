@@ -35,9 +35,9 @@ import { WorktreeBranchFields } from "./WorktreeBranchFields";
  */
 
 const FIELD =
-  "mt-1.5 w-full rounded-md border border-line bg-void px-2 py-1.5 font-mono text-[11px] text-ink outline-none placeholder:text-ink-faint focus:border-line-strong";
-const LABEL = "block text-[10px] text-ink-faint";
-const HINT = "mt-1.5 text-[10px] leading-snug text-ink-faint";
+  "mt-1.5 w-full rounded-md border border-line bg-void px-2 py-1.5 font-mono text-xs text-ink outline-none placeholder:text-ink-faint focus:border-line-strong";
+const LABEL = "block text-xs text-ink-faint";
+const HINT = "mt-1.5 text-xs leading-snug text-ink-faint";
 
 /** One registered project on one ready machine: a possible reference target. */
 interface ProjectOption {
@@ -474,7 +474,7 @@ export function NewSessionDialog() {
               onClick={() => void submit(true)}
             >
               {t("dialog.newsession.background")}
-              <span className="ml-1.5 font-mono text-[10px] opacity-70">{formatHotkey(backgroundChord)}</span>
+              <span className="ml-1.5 font-mono text-xs opacity-70">{formatHotkey(backgroundChord)}</span>
             </Button>
           )}
           <Button variant="solid" tone="signal" disabled={!canSubmit} onClick={() => void submit()}>
@@ -617,14 +617,14 @@ export function NewSessionDialog() {
                     />
                   ) : (
                     <div>
-                      <label htmlFor="newsession-existing" className="block text-[10px] text-ink-faint">
+                      <label htmlFor="newsession-existing" className="block text-xs text-ink-faint">
                         {t("dialog.worktree.existingBranch")}
                       </label>
                       <select
                         id="newsession-existing"
                         value={existingBranch}
                         onChange={(event) => setExistingBranch(event.target.value)}
-                        className="mt-1.5 w-full rounded-md border border-line bg-void px-2 py-1.5 font-mono text-[11px] text-ink outline-none focus:border-line-strong"
+                        className="mt-1.5 w-full rounded-md border border-line bg-void px-2 py-1.5 font-mono text-xs text-ink outline-none focus:border-line-strong"
                       >
                         {otherBranches.map((name) => (
                           <option key={name} value={name}>
@@ -632,7 +632,7 @@ export function NewSessionDialog() {
                           </option>
                         ))}
                       </select>
-                      <p className="mt-1.5 text-[10px] leading-snug text-ink-faint">
+                      <p className="mt-1.5 text-xs leading-snug text-ink-faint">
                         {t("dialog.worktree.existingHint")}
                       </p>
                     </div>
@@ -722,14 +722,14 @@ export function NewSessionDialog() {
                   onChange={setRunOn}
                 />
                 {runOn === "auto" && (
-                  <label className="flex items-center gap-1.5 text-[11px] text-ink-mid">
+                  <label className="flex items-center gap-1.5 text-xs text-ink-mid">
                     {t("dialog.newsession.copies")}
                     <select
                       aria-label={t("dialog.newsession.copies")}
                       value={autoCopies}
                       disabled={busy}
                       onChange={(event) => setAutoCopies(Number(event.target.value))}
-                      className="h-6 rounded-md border border-line bg-raised px-1.5 text-[11px] text-ink-mid"
+                      className="h-6 rounded-md border border-line bg-raised px-1.5 text-xs text-ink-mid"
                     >
                       {Array.from({ length: FLEET_BATCH_MAX }, (_, i) => i + 1).map((n) => (
                         <option key={n} value={n}>
@@ -762,7 +762,7 @@ export function NewSessionDialog() {
                             className="size-3.5 accent-current"
                           />
                           <span className="truncate">{name}</span>
-                          <span className="min-w-0 truncate font-mono text-[10px] text-ink-faint">{c.project.path}</span>
+                          <span className="min-w-0 truncate font-mono text-xs text-ink-faint">{c.project.path}</span>
                         </label>
                         {count > 0 && (
                           <span className="flex shrink-0 items-center gap-1" aria-label={t("dialog.newsession.copiesFor", { machine: name })}>
@@ -773,7 +773,7 @@ export function NewSessionDialog() {
                             >
                               <span aria-hidden className="text-xs">−</span>
                             </IconButton>
-                            <span className="w-4 text-center font-mono text-[11px] tabular-nums text-ink">{count}</span>
+                            <span className="w-4 text-center font-mono text-xs tabular-nums text-ink">{count}</span>
                             <IconButton
                               label={t("dialog.newsession.more", { machine: name })}
                               disabled={busy || chosenTotal >= FLEET_BATCH_MAX}
@@ -826,7 +826,7 @@ export function NewSessionDialog() {
               </div>
             </div>
 
-            {commitsDiffer && <p className="text-[11px] leading-relaxed text-copper">{t("dialog.newsession.commitsDiffer")}</p>}
+            {commitsDiffer && <p className="text-xs leading-relaxed text-copper">{t("dialog.newsession.commitsDiffer")}</p>}
 
             <div>
               <label htmlFor="newsession-title" className={LABEL}>
@@ -863,7 +863,7 @@ export function NewSessionDialog() {
             </div>
 
             {unsettled.length > 0 && (
-              <ul className="space-y-1 text-[11px] leading-relaxed">
+              <ul className="space-y-1 text-xs leading-relaxed">
                 {unsettled.map((o) => {
                   const machine = machines.find((m) => m.key === o.machineKey);
                   return (

@@ -207,7 +207,7 @@ export function Sheet({
             </div>
           )}
           <div className="flex min-h-11 items-center gap-3 px-[max(1rem,var(--safe-left))] pr-[max(0.5rem,var(--safe-right))]">
-            <h2 className="min-w-0 flex-1 truncate font-display text-sm font-semibold text-ink">{label}</h2>
+            <h2 className="min-w-0 flex-1 truncate text-sm font-semibold text-ink">{label}</h2>
             <IconButton label={t("common.overlay.closeNamed", { label })} onClick={onClose} className="size-11">
               <IconClose />
             </IconButton>
@@ -258,7 +258,7 @@ export function Modal({
         aria-labelledby={labelledBy}
         tabIndex={-1}
         className={cn(
-          "ambient edge-lit animate-rise relative max-h-[min(80dvh,var(--app-viewport-height,80dvh))] max-w-[calc(100vw-2rem)] overflow-hidden rounded-xl border border-line-strong glass-overlay",
+          "ambient edge-lit animate-rise relative max-h-[min(80dvh,var(--app-viewport-height,80dvh))] max-w-[calc(100vw-2rem)] overflow-hidden rounded-lg border border-line-strong glass-overlay",
           width,
           className,
           mobile === "fullscreen" ? "compact-modal-fullscreen" : "compact-modal-dialog",
@@ -306,10 +306,10 @@ export function ConfirmDialog({
       className="flex flex-col"
     >
       <header className="shrink-0 border-b border-line px-4 py-3.5">
-        <p className={cn("mb-1 font-mono text-[10px] uppercase tracking-[0.16em]", TONE_TEXT[tone])}>
+        <p className={cn("mb-1 font-mono text-xs uppercase tracking-[0.16em]", TONE_TEXT[tone])}>
           {kicker}
         </p>
-        <h2 id={titleId} className="font-display text-base font-semibold text-ink">
+        <h2 id={titleId} className="text-base font-semibold text-ink">
           {title}
         </h2>
       </header>

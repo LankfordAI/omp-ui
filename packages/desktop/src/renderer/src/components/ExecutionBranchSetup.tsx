@@ -240,7 +240,7 @@ export function ExecutionBranchSetup({
   const t = useT();
   return (
     <fieldset className="mt-5 border-t border-line pt-4">
-      <legend className="text-[11px] font-medium text-ink">{t("branch.setup.gitBranch")}</legend>
+      <legend className="text-xs font-medium text-ink">{t("branch.setup.gitBranch")}</legend>
       <div className="mt-2 grid grid-cols-3 rounded-lg border border-line bg-void/40 p-1">
         {(
           [
@@ -258,7 +258,7 @@ export function ExecutionBranchSetup({
               aria-pressed={active}
               onClick={() => branch.selectChoice(option.id)}
               className={cn(
-                "rounded-md px-2 py-1.5 text-[10px] font-medium transition-colors",
+                "rounded-md px-2 py-1.5 text-xs font-medium transition-colors",
                 active ? "bg-overlay text-ink edge-lit" : "text-ink-faint hover:text-ink-mid",
               )}
             >
@@ -271,26 +271,26 @@ export function ExecutionBranchSetup({
       <div className="mt-2.5 rounded-lg border border-line bg-raised/70 p-3">
         {branch.branchChoice === "current" && (
           <div>
-            <span className="block text-[10px] text-ink-faint">{t("branch.setup.implementOn")}</span>
+            <span className="block text-xs text-ink-faint">{t("branch.setup.implementOn")}</span>
             <span className="mt-1 block truncate font-mono text-xs text-ink" title={branch.currentBranch ?? t("branch.setup.detachedHead")}>
               {branch.currentBranch ?? t("branch.setup.detachedHead")}
             </span>
-            <p className="mt-1.5 text-[10px] leading-relaxed text-ink-faint">{t("branch.setup.noCheckoutHint")}</p>
+            <p className="mt-1.5 text-xs leading-relaxed text-ink-faint">{t("branch.setup.noCheckoutHint")}</p>
           </div>
         )}
 
         {branch.branchChoice === "new" && (
           <div>
-            <label htmlFor="plan-new-branch" className="block text-[10px] text-ink-faint">{t("branch.setup.createAndSwitch")}</label>
+            <label htmlFor="plan-new-branch" className="block text-xs text-ink-faint">{t("branch.setup.createAndSwitch")}</label>
             <input
               id="plan-new-branch"
               value={branch.newName}
               placeholder={t("branch.setup.namePlaceholder")}
               aria-label={t("branch.setup.nameLabel")}
               onChange={(e) => branch.onNewNameChange(e.target.value)}
-              className="mt-1.5 w-full rounded-md border border-line bg-void px-2 py-1.5 font-mono text-[11px] text-ink outline-none placeholder:text-ink-faint focus:border-line-strong"
+              className="mt-1.5 w-full rounded-md border border-line bg-void px-2 py-1.5 font-mono text-xs text-ink outline-none placeholder:text-ink-faint focus:border-line-strong"
             />
-            <p className="mt-1.5 text-[10px] leading-relaxed text-ink-faint">{t("branch.setup.uncommittedHint")}</p>
+            <p className="mt-1.5 text-xs leading-relaxed text-ink-faint">{t("branch.setup.uncommittedHint")}</p>
           </div>
         )}
 
@@ -301,7 +301,7 @@ export function ExecutionBranchSetup({
               placeholder={t("branch.setup.filterPlaceholder")}
               aria-label={t("branch.setup.filterLabel")}
               onChange={(e) => branch.onBranchFilterChange(e.target.value)}
-              className="w-full rounded-md border border-line bg-void px-2 py-1.5 font-mono text-[11px] text-ink outline-none placeholder:text-ink-faint focus:border-line-strong"
+              className="w-full rounded-md border border-line bg-void px-2 py-1.5 font-mono text-xs text-ink outline-none placeholder:text-ink-faint focus:border-line-strong"
             />
             <div className="mt-1.5 flex max-h-36 flex-col overflow-y-auto">
               {branch.branches
@@ -313,7 +313,7 @@ export function ExecutionBranchSetup({
                     disabled={b === branch.currentBranch}
                     onClick={() => branch.selectExisting(b)}
                     className={cn(
-                      "flex items-center gap-2 rounded px-1.5 py-1 text-left font-mono text-[11px] hover:bg-hover",
+                      "flex items-center gap-2 rounded px-1.5 py-1 text-left font-mono text-xs hover:bg-hover",
                       "disabled:pointer-events-none",
                       b === branch.currentBranch ? "text-iris" : "text-ink-mid",
                       b === branch.existingName && "bg-hover text-ink",
@@ -321,7 +321,7 @@ export function ExecutionBranchSetup({
                   >
                     <span className={cn("size-1 rounded-full", b === branch.existingName ? "bg-ink-mid" : "bg-line-strong")} />
                     <span className="truncate">{b}</span>
-                    {b === branch.currentBranch && <span className="ml-auto font-sans text-[9px] text-ink-faint">{t("branch.setup.current")}</span>}
+                    {b === branch.currentBranch && <span className="ml-auto font-sans text-xs text-ink-faint">{t("branch.setup.current")}</span>}
                   </button>
                 ))}
             </div>
@@ -331,7 +331,7 @@ export function ExecutionBranchSetup({
 
       {branch.confirmBusy && (
         <div className="mt-2 rounded-lg border border-copper-dim/50 bg-copper-wash px-3 py-2.5">
-          <p className="text-[11px] leading-snug text-copper">
+          <p className="text-xs leading-snug text-copper">
             {t("branch.setup.busyWarning", { title: branch.busyTitle ?? "" })}
           </p>
           <div className="mt-2 flex gap-1.5">
@@ -345,7 +345,7 @@ export function ExecutionBranchSetup({
         </div>
       )}
 
-      {branch.branchError !== null && <p className="mt-2 text-[11px] leading-snug text-rose">{branch.branchError}</p>}
+      {branch.branchError !== null && <p className="mt-2 text-xs leading-snug text-rose">{branch.branchError}</p>}
     </fieldset>
   );
 }

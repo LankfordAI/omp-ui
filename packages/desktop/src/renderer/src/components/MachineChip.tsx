@@ -59,7 +59,7 @@ export function MachineChip({
         aria-label={t("composer.machine.label")}
         title={t("composer.machine.title")}
         onClick={() => setOpen((v) => !v)}
-        className="inline-flex h-6 min-w-0 items-center gap-1 rounded-md border border-line px-1.5 font-mono text-[10px] leading-4 text-ink-mid transition-colors duration-150 hover:bg-hover hover:text-ink disabled:pointer-events-none disabled:text-ink-dim"
+        className="inline-flex h-6 min-w-0 items-center gap-1 rounded-md border border-line px-1.5 font-mono text-xs leading-4 text-ink-mid transition-colors duration-150 hover:bg-hover hover:text-ink disabled:pointer-events-none disabled:text-ink-dim"
       >
         <svg viewBox="0 0 16 16" aria-hidden className="size-3.5">
           <rect x="2" y="3" width="12" height="8" rx="1" {...ICON_STROKE} />
@@ -95,7 +95,7 @@ export function MachineChip({
                   if (!current) onPick(m);
                 }}
                 className={cn(
-                  "flex flex-col rounded px-1.5 py-0.5 text-left font-mono text-[11px] hover:bg-hover",
+                  "flex flex-col rounded px-1.5 py-0.5 text-left font-mono text-xs hover:bg-hover",
                   // No pointer-events-none: the disabled row carries its hint
                   // as a tooltip, which hover must still reach.
                   "disabled:text-ink-dim disabled:hover:bg-transparent",
@@ -105,7 +105,7 @@ export function MachineChip({
                 <span className="truncate">
                   {m.instanceId === null ? local : (nicknames.get(m.instanceId) ?? m.instanceId)}
                 </span>
-                {showPath && <span className="truncate text-[10px] text-ink-faint">{m.projectCwd}</span>}
+                {showPath && <span className="truncate text-xs text-ink-faint">{m.projectCwd}</span>}
               </button>
             );
           })}

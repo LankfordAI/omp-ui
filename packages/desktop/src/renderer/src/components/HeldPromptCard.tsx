@@ -42,7 +42,7 @@ export function HeldPromptCard({ tabId }: { tabId: string }) {
   ].filter((part) => part !== null);
   return (
     <div data-held-prompt className="animate-rise rounded-md border border-copper-dim/60 bg-raised px-2.5 py-1.5">
-      <div className="flex flex-wrap items-center gap-1.5 text-[11px]">
+      <div className="flex flex-wrap items-center gap-1.5 text-xs">
         <Chip tone="copper">{t("transcript.heldPrompt.label")}</Chip>
         <span className="min-w-0 flex-1 truncate text-ink-mid">{status}</span>
         {!sent && (
@@ -57,11 +57,11 @@ export function HeldPromptCard({ tabId }: { tabId: string }) {
         )}
       </div>
       {held.preview !== "" && (
-        <p className="mt-1 line-clamp-3 whitespace-pre-wrap text-[12px] text-ink">{held.preview}</p>
+        <p className="mt-1 line-clamp-3 whitespace-pre-wrap text-xs text-ink">{held.preview}</p>
       )}
-      {attachments.length > 0 && <p className="mt-0.5 text-[11px] text-ink-dim">{attachments.join(" · ")}</p>}
+      {attachments.length > 0 && <p className="mt-0.5 text-xs text-ink-dim">{attachments.join(" · ")}</p>}
       {held.attempts > 0 && !sent && (
-        <p className="mt-0.5 text-[11px] text-ink-dim">{t("transcript.heldPrompt.attempts", { count: held.attempts })}</p>
+        <p className="mt-0.5 text-xs text-ink-dim">{t("transcript.heldPrompt.attempts", { count: held.attempts })}</p>
       )}
     </div>
   );

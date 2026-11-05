@@ -199,7 +199,7 @@ export function SubagentModelsControl({ tabId }: { tabId: string }) {
         aria-expanded={open}
         title={t("rail.agents.modelsLabel")}
         onClick={() => setOpen((value) => !value)}
-        className="inline-flex h-6 shrink-0 items-center gap-1 rounded-md border border-line bg-transparent px-1.5 text-[11px] font-medium text-ink-mid transition-colors hover:border-line-strong hover:text-ink"
+        className="inline-flex h-6 shrink-0 items-center gap-1 rounded-md border border-line bg-transparent px-1.5 text-xs font-medium text-ink-mid transition-colors hover:border-line-strong hover:text-ink"
       >
         <IconTune className="size-3" />
         <span>{t("rail.agents.modelsButton")}</span>
@@ -219,25 +219,25 @@ export function SubagentModelsControl({ tabId }: { tabId: string }) {
               maxHeight: geometry?.maxHeight,
             }}
           >
-            <p className="text-[11px] font-medium text-ink">{t("rail.agents.modelsTitle")}</p>
-            <p className="mt-0.5 text-[10px] leading-relaxed text-ink-faint">
+            <p className="text-xs font-medium text-ink">{t("rail.agents.modelsTitle")}</p>
+            <p className="mt-0.5 text-xs leading-relaxed text-ink-faint">
               {sessionModels === null
                 ? inheritByDefault
                   ? t("rail.agents.modelsUmbrella")
                   : t("rail.agents.modelsNoUmbrella")
                 : t("rail.agents.modelsExplicit")}
             </p>
-            <p className="mt-0.5 text-[10px] leading-relaxed text-ink-faint">
+            <p className="mt-0.5 text-xs leading-relaxed text-ink-faint">
               {t("rail.agents.modelsTiming")}
             </p>
             {error !== null && (
-              <p className="mt-1 rounded-md border border-rose-dim/50 bg-rose-wash px-2 py-1 text-[10px] text-rose">
+              <p className="mt-1 rounded-md border border-rose-dim/50 bg-rose-wash px-2 py-1 text-xs text-rose">
                 {error}
               </p>
             )}
             <div className="mt-1.5 divide-y divide-line-soft">
               {roster.length === 0 && (
-                <p className="py-1.5 text-[10px] text-ink-faint">{t("rail.agents.modelsEmpty")}</p>
+                <p className="py-1.5 text-xs text-ink-faint">{t("rail.agents.modelsEmpty")}</p>
               )}
               {roster.map((agent) => {
                 const sessionValue =
@@ -253,7 +253,7 @@ export function SubagentModelsControl({ tabId }: { tabId: string }) {
                         : "default";
                 return (
                   <div key={agent} className="flex items-center gap-1.5 py-1">
-                    <span className="w-24 shrink-0 truncate font-mono text-[10px] text-ink-mid">
+                    <span className="w-24 shrink-0 truncate font-mono text-xs text-ink-mid">
                       {agent}
                     </span>
                     {layer === "session" && <Chip tone="signal">{t("rail.agents.modelsLayerSession")}</Chip>}
@@ -267,7 +267,7 @@ export function SubagentModelsControl({ tabId }: { tabId: string }) {
                     <button
                       type="button"
                       onClick={() => setPaletteAgent(agent)}
-                      className="ml-auto max-w-32 truncate rounded-md border border-line bg-hover px-1.5 py-0.5 font-mono text-[10px] text-ink-mid transition-colors hover:text-ink"
+                      className="ml-auto max-w-32 truncate rounded-md border border-line bg-hover px-1.5 py-0.5 font-mono text-xs text-ink-mid transition-colors hover:text-ink"
                     >
                       {sessionValue === undefined
                         ? t("rail.agents.modelsDefault")
@@ -282,7 +282,7 @@ export function SubagentModelsControl({ tabId }: { tabId: string }) {
             <button
               type="button"
               onClick={refreshRoster}
-              className="mt-1.5 text-[10px] text-ink-faint transition-colors hover:text-ink-mid"
+              className="mt-1.5 text-xs text-ink-faint transition-colors hover:text-ink-mid"
             >
               {t("rail.agents.modelsRefresh")}
             </button>

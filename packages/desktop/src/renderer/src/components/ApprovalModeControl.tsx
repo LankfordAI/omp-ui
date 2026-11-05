@@ -76,7 +76,7 @@ export function ApprovalModeControl({
       title={t("hud.approval.chipTitle", { mode })}
       className={cn("h-6", className)}
     >
-      <span className="px-1.5 font-mono text-[10px]">{mode}</span>
+      <span className="px-1.5 font-mono text-xs">{mode}</span>
     </Capsule>
   );
 }
@@ -126,7 +126,7 @@ function ApprovalSheet({
       <div className="flex items-center justify-between gap-2">
         <Label>{t("hud.approval.labelLong")}</Label>
         {mode === null && effective !== null && (
-          <span className="font-mono text-[10px] text-ink-faint">
+          <span className="font-mono text-xs text-ink-faint">
             {t("hud.approval.effective", { mode: effective })}
           </span>
         )}
@@ -152,7 +152,7 @@ function ApprovalSheet({
               }
               onClick={() => onPick(choice)}
               className={cn(
-                "min-w-0 flex-1 truncate rounded px-1.5 py-0.5 text-[10px] leading-4",
+                "min-w-0 flex-1 truncate rounded px-1.5 py-0.5 text-xs leading-4",
                 "transition-colors duration-150",
                 choice === mode
                   ? "bg-raised text-ink"
@@ -164,7 +164,7 @@ function ApprovalSheet({
           );
         })}
       </div>
-      <p className="mt-1 text-[10px] leading-snug text-ink-faint">
+      <p className="mt-1 text-xs leading-snug text-ink-faint">
         {t("hud.approval.relaunchHint")}
         {" "}
         {isPty ? t("hud.approval.ptyHint") : t("hud.approval.subagentHint")}

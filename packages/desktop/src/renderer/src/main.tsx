@@ -14,12 +14,12 @@ function AppCrash({ error }: { error: Error }) {
   const t = useT();
   return (
     <div className="flex h-screen flex-col items-center justify-center gap-3 bg-void px-8 font-sans text-ink">
-      <h1 className="font-display text-base font-semibold">{t("app.crash.title")}</h1>
+      <h1 className="text-base font-semibold">{t("app.crash.title")}</h1>
       <p className="max-w-lg text-center text-sm text-ink-mid">{t("app.crash.body")}</p>
       <p className="max-w-lg text-center text-xs text-ink-faint">{t("app.crash.diagnostics")}</p>
       <pre
         data-selectable
-        className="max-h-48 max-w-2xl overflow-auto whitespace-pre-wrap break-words rounded border border-line bg-sunken px-3 py-2 font-mono text-[11px] leading-snug text-rose"
+        className="max-h-48 max-w-2xl overflow-auto whitespace-pre-wrap break-words rounded border border-line bg-sunken px-3 py-2 font-mono text-xs leading-snug text-rose"
       >
         {error.stack ?? error.message}
       </pre>

@@ -294,7 +294,7 @@ export function DiffViewer(props: DiffViewerProps) {
   const header = (
     <>
           {/* Top row: the name gets the full width; counts pin right. */}
-          <span className="flex w-full min-w-0 items-baseline gap-2 font-mono text-[11px]" title={path}>
+          <span className="flex w-full min-w-0 items-baseline gap-2 font-mono text-xs" title={path}>
             {/* Dirname yields under pressure; the basename is what identifies
                 the file at a glance. Only a basename wider than the whole row
                 clips (max-w-full + truncate), never into its siblings. */}
@@ -314,7 +314,7 @@ export function DiffViewer(props: DiffViewerProps) {
             {renamedFrom !== undefined && (
               <>
                 <Chip>{t("diff.op.rename")}</Chip>
-                <span className="min-w-0 truncate font-mono text-[10px] text-ink-faint" title={renamedFrom}>
+                <span className="min-w-0 truncate font-mono text-xs text-ink-faint" title={renamedFrom}>
                   {t("diff.viewer.renamedFrom", { path: renamedFrom })}
                 </span>
               </>
@@ -360,7 +360,7 @@ export function DiffViewer(props: DiffViewerProps) {
       {open && expandable && (
         // The toggle sits outside the horizontal scroller so a wide diff cannot
         // push it off-screen; only the rows themselves pan sideways.
-        <div ref={scrollerRef} className="overflow-x-auto font-mono text-[12px] leading-[1.5]">
+        <div ref={scrollerRef} className="overflow-x-auto font-mono text-xs leading-[1.5]">
           {split ? (
             // Split: two half-width columns per line, no `w-max` — the
             // columns share the scrollport 50/50 instead of sizing to the

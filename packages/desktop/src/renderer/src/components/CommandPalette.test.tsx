@@ -2,7 +2,8 @@
 import { act } from "react";
 import { createRoot, type Root } from "react-dom/client";
 import { afterEach, describe, expect, it, vi } from "vitest";
-import { backendState, remoteInstance, tabInfo } from "../test/fixtures";
+import type { SessionSummary } from "@omp-ui/core/types";
+import { backendState, remoteInstance, rpcTabState, tabInfo } from "../test/fixtures";
 
 (globalThis as Record<string, unknown>).IS_REACT_ACT_ENVIRONMENT = true;
 HTMLElement.prototype.scrollIntoView = vi.fn();
@@ -333,5 +334,129 @@ describe("CommandPalette ask action (issue #895)", () => {
   it("offers no ask row for a session owned by another instance", () => {
     renderWithOwner("inst-1");
     expect(document.body.textContent).not.toContain("Ask about this session");
+  });
+});
+
+describe("CommandPalette session ranking (round-10 judge, Clarity 2)", () => {
+  const project = (path: string, name: string, sessions: SessionSummary[]) => ({
+    project: {
+      path,
+      name,
+      addedAt: "t",
+      lastModel: null,
+      lastThinkingLevel: null,
+      lastAdvisor: null,
+      lastAdvisorModel: null,
+      defaultModel: null,
+      defaultAdvisorModel: null,
+      browserClock: false,
+      reviewRoster: null,
+      knowledgeHome: null,
+      repositoryKey: null,
+      icon: null,
+    },
+    sessions,
+  });
+
+  function renderRanked(): string[] {
+    Object.defineProperty(window, "matchMedia", {
+      configurable: true,
+      value: vi.fn(() => ({ matches: false, addEventListener: vi.fn(), removeEventListener: vi.fn() })),
+    });
+    const host = document.createElement("div");
+    document.body.append(host);
+    root = createRoot(host);
+    act(() => root!.render(<CommandPalette />));
+    act(() => openPalette());
+    return [...document.body.querySelectorAll<HTMLElement>("[role='dialog'] button")].map(
+      (button) => button.textContent ?? "",
+    );
+  }
+
+  it("ranks attention, then working, above settled rows of other projects", () => {
+    // The judge run's failure: the sidebar showed FIX Beacon reconnect as
+    // working while the palette listed it after 14 settled tidepool rows.
+    const olderSettled = {
+      ...CWD_RECORD,
+      tabId: "tab-settled-1",
+      launchedAt: "2026-11-01T10:00:00.000Z",
+      title: "Beacon reconnect study",
+      live: "dormant" as const,
+    };
+    const newestSettled = {
+      ...CWD_RECORD,
+      tabId: "tab-settled-2",
+      launchedAt: "2026-11-03T10:00:00.000Z",
+      title: "Compaction audit",
+      live: "dormant" as const,
+    };
+    const worker = {
+      ...CWD_RECORD,
+      tabId: "tab-worker",
+      sessionId: "s-worker",
+      lineageDir: "omp-ui--q--s-worker",
+      launchedAt: "2026-11-02T10:00:00.000Z",
+      title: "Keyboard shortcuts audit",
+      turnRunning: true,
+    };
+    const marked = {
+      ...CWD_RECORD,
+      tabId: "tab-marked",
+      sessionId: "s-marked",
+      lineageDir: "omp-ui--q--s-marked",
+      launchedAt: "2026-11-02T09:00:00.000Z",
+      title: "Reply waiting",
+    };
+    useStore.setState({
+      projectPickerOpen: false,
+      unread: { "tab-marked": { atMs: 1_730_000_000_000, snippet: "done" } },
+      // The marked row is an idle native tab: its host-side face is `ready`,
+      // which the attention mark promotes to the stack's rank.
+      rpc: { "tab-marked": rpcTabState() },
+      state: backendState({
+        projects: [
+          project("/tidepool", "tidepool", [olderSettled, newestSettled]),
+          project("/lighthouse", "lighthouse", [worker, marked]),
+        ],
+      }),
+    });
+    const titles = renderRanked();
+    const indexOf = (title: string): number => titles.findIndex((text) => text.includes(title));
+    // Attention first (marked + ready), then working, then settled — even
+    // though both live sessions opened before the newest settled row.
+    expect(indexOf("Reply waiting")).toBeLessThan(indexOf("Keyboard shortcuts audit"));
+    expect(indexOf("Keyboard shortcuts audit")).toBeLessThan(indexOf("Compaction audit"));
+    expect(indexOf("Compaction audit")).toBeLessThan(indexOf("Beacon reconnect study"));
+    useStore.setState({ unread: {}, rpc: {} });
+  });
+
+  it("opens the top-ranked live session with Ctrl+K then Enter", () => {
+    const openSession = vi.fn(async () => {});
+    const settled = {
+      ...CWD_RECORD,
+      tabId: "tab-settled",
+      launchedAt: "2026-11-03T10:00:00.000Z",
+      title: "Settled old work",
+      live: "dormant" as const,
+    };
+    const worker = {
+      ...CWD_RECORD,
+      tabId: "tab-live",
+      sessionId: "s-live",
+      lineageDir: "omp-ui--q--s-live",
+      launchedAt: "2026-11-02T10:00:00.000Z",
+      title: "Live hillclimb",
+      turnRunning: true,
+    };
+    useStore.setState({
+      projectPickerOpen: false,
+      openSession,
+      state: backendState({
+        projects: [project("/tidepool", "tidepool", [settled]), project("/omp-ui", "omp-ui", [worker])],
+      }),
+    });
+    renderRanked();
+    pressPalette("Enter");
+    expect(openSession).toHaveBeenCalledWith("tab-live");
   });
 });

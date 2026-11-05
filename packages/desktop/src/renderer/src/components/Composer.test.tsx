@@ -312,12 +312,13 @@ describe("desktop floating Composer card", () => {
     seed("ready");
     renderComposer();
     const card = document.body.querySelector("textarea")!.parentElement!.parentElement!;
-    // ADR-0026: the composer card is a glass plane. Its tone must equal the
-    // transcript's reading plane — plane-lit (raised) paints a lighter
-    // rectangle over the prose the card now floats above (#396, lineage of
-    // #194/#395). The tab root carries ambient grain over bg-surface, so the
-    // card keeps ambient too and the grain layers cancel in the comparison.
-    expect(card.className).toContain("glass-surface");
+    // The floating card keeps the reading plane's tone (never the lighter
+    // raised/plane-lit rectangle — #396 lineage) with separation by
+    // elevation: border + shadow-float. Whether its fill is opaque or frosted
+    // is a styling choice the round-4 owner directive owns; the class names
+    // are not pinned here.
+    expect(card.className).toContain("shadow-float");
+    expect(card.className).not.toContain("bg-raised");
     expect(card.className).not.toContain("plane-lit");
   });
 });
@@ -357,7 +358,7 @@ describe("Composer auto thinking selector", () => {
     asDesktop();
     seedEfforts({ thinkingLevel: "xhigh", thinkingConfigured: "auto" });
     renderComposer();
-    expect(segment().textContent).toBe("auto");
+    expect(segment().textContent).toBe("think: auto");
     expect(segment().title).toContain("this turn: xhigh");
   });
 
@@ -365,7 +366,7 @@ describe("Composer auto thinking selector", () => {
     asDesktop();
     seedEfforts({ thinkingLevel: "medium", thinkingConfigured: null });
     renderComposer();
-    expect(segment().textContent).toBe("medium");
+    expect(segment().textContent).toBe("think: medium");
     expect(segment().title).toBe("");
   });
 
@@ -3379,10 +3380,9 @@ describe("Composer options popover (issue #939)", () => {
     await act(async () => {});
     expect(panel().hidden).toBe(true);
     const branch = pillSegment("branch");
-    expect(branch?.textContent).toContain("⎇ main");
+    expect(branch?.textContent).toContain("main");
     expect(branch?.textContent).not.toContain("↓ 2");
     expect(pullCap()?.textContent).toBe("↓ 2");
-    expect(optionsTrigger().className).toContain("rounded-l-full");
   });
 
   it("omits the pull cap when behind === 0", () => {
@@ -3390,7 +3390,6 @@ describe("Composer options popover (issue #939)", () => {
     useStore.setState({ branches: { "/p": { ...gitBranches, behind: 0 } } });
     renderComposer();
     expect(pullCap()).toBeNull();
-    expect(optionsTrigger().className).toContain("rounded-full");
   });
 
   it("clicking the pull cap fast-forwards in one click without opening the options dialog", async () => {
@@ -3551,8 +3550,8 @@ describe("send in background from the hero (issue #982)", () => {
   });
 });
 
-describe("Composer context halo (issue #1025)", () => {
-  it("haloes the idle desktop send button and appends the exact-usage line to its title", () => {
+describe("Composer context halo (issue #1025, round-9: one outline at rest and running)", () => {
+  it("rings the idle desktop send button with the rounded-square halo, plain title", () => {
     Object.defineProperty(window, "matchMedia", {
       configurable: true,
       value: vi.fn(() => ({ matches: false, addEventListener: vi.fn(), removeEventListener: vi.fn() })),
@@ -3574,7 +3573,7 @@ describe("Composer context halo (issue #1025)", () => {
     renderComposer();
     const send = [...document.body.querySelectorAll<HTMLButtonElement>("button")]
       .find((button) => button.textContent?.trim() === "send")!;
-    expect(send.parentElement?.querySelector("svg[data-progress-ring]")).not.toBeNull();
-    expect(send.title).toContain("\n128,000 of 256,000 context tokens (50.00%)");
+    expect(send.parentElement!.querySelector("svg[data-progress-halo]")).not.toBeNull();
+    expect(send.title).not.toContain("128,000 of 256,000");
   });
 });

@@ -413,7 +413,7 @@ export function ExtensionDialogHost({
       "animate-rise shrink-0",
       compact
         ? "fixed inset-x-0 bottom-0 z-50 flex max-h-[min(70dvh,var(--app-viewport-height,70dvh))] flex-col border-t border-line bg-raised pb-[var(--safe-bottom)]"
-        : "pointer-events-auto mx-auto mb-2 w-full max-w-[var(--transcript-max)] rounded-xl border border-line ambient glass-surface shadow-float",
+        : "pointer-events-auto mx-auto mb-2 w-full max-w-[var(--prose-max)] rounded-md border border-line ambient glass-surface shadow-float",
     )}>
       <div className={cn("px-4 pt-3", compact && "sticky top-0 z-10 shrink-0 bg-raised pb-3")}>
         {series !== null && series.total > 1 && (
@@ -426,7 +426,7 @@ export function ExtensionDialogHost({
         )}
         <div className="flex items-start gap-2">
           <Dot tone="signal" pulse className="mt-1.5" title={t("dialog.extension.waiting")} />
-          <h2 className="min-w-0 flex-1 whitespace-pre-wrap break-words font-display text-sm leading-snug text-ink">
+          <h2 className="min-w-0 flex-1 whitespace-pre-wrap break-words text-sm leading-snug text-ink">
             {reviewEntry !== undefined ? reviewEntry.title : displayTitle}
           </h2>
           {reviewEntry !== undefined && <Chip tone="signal">{t("dialog.extension.answered")}</Chip>}
@@ -460,7 +460,7 @@ export function ExtensionDialogHost({
                       <span
                         aria-hidden
                         className={cn(
-                          "mt-px grid size-3.5 shrink-0 place-items-center border text-[9px] leading-none",
+                          "mt-px grid size-3.5 shrink-0 place-items-center border text-xs leading-none",
                           reviewEntry.multi ? "rounded-sm" : "rounded-full",
                           chosen
                             ? "border-signal-dim bg-signal-wash text-signal"
@@ -483,7 +483,7 @@ export function ExtensionDialogHost({
               </div>
             )}
             {reviewEntry.answer.length > 0 && reviewEntry.options.length === 0 && (
-              <p className="whitespace-pre-wrap break-words rounded-md border border-line bg-void px-2 py-1.5 font-mono text-[11px] text-ink">
+              <p className="whitespace-pre-wrap break-words rounded-md border border-line bg-void px-2 py-1.5 font-mono text-xs text-ink">
                 {reviewEntry.answer[0]}
               </p>
             )}
@@ -493,7 +493,7 @@ export function ExtensionDialogHost({
                 (o) => o.label === reviewEntry.answer[0] || o.value === reviewEntry.answer[0],
               ) && <p className="mt-2 text-xs text-ink-dim">{reviewEntry.answer[0]}</p>}
             <div className="flex items-center justify-between pt-2">
-              <span className="text-[10px] text-ink-faint">{t("dialog.extension.reviewFinal")}</span>
+              <span className="text-xs text-ink-faint">{t("dialog.extension.reviewFinal")}</span>
               <Button variant="outline" size="xs" onClick={() => dispatch({ type: "review", page: null })}>
                 {t("dialog.extension.backToQuestion", { n: series.current })}
               </Button>
@@ -548,7 +548,7 @@ export function ExtensionDialogHost({
                         <span
                           aria-hidden
                           className={cn(
-                            "mt-px grid size-3.5 shrink-0 place-items-center rounded-sm border text-[9px] leading-none",
+                            "mt-px grid size-3.5 shrink-0 place-items-center rounded-sm border text-xs leading-none",
                             isPicked
                               ? "border-signal-dim bg-signal-wash text-signal"
                               : "border-line text-transparent",
@@ -578,7 +578,7 @@ export function ExtensionDialogHost({
                           {other ? t("dialog.extension.other") : option.label}
                         </span>
                         {option.description && (
-                          <span className="mt-0.5 block whitespace-pre-wrap break-words text-[11px] leading-snug text-ink-faint">
+                          <span className="mt-0.5 block whitespace-pre-wrap break-words text-xs leading-snug text-ink-faint">
                             {option.description}
                           </span>
                         )}
@@ -587,7 +587,7 @@ export function ExtensionDialogHost({
                   );
                 })}
                 <div className="flex items-center justify-between pt-2">
-                  <span className="text-[10px] text-ink-faint">
+                  <span className="text-xs text-ink-faint">
                     {plan.doneValue !== null
                       ? t("dialog.extension.multiHint")
                       : t("dialog.extension.singleHint")}
@@ -619,7 +619,7 @@ export function ExtensionDialogHost({
                     and "Enter your response:") — the header shows line one, the
                     rest lands here, in either answer surface. */}
                 {method === "editor" && rawTitle.includes("\n") && (
-                  <p className="mb-2 whitespace-pre-wrap break-words font-mono text-[11px] leading-relaxed text-ink-faint">
+                  <p className="mb-2 whitespace-pre-wrap break-words font-mono text-xs leading-relaxed text-ink-faint">
                     {rawTitle.split("\n").slice(1).join("\n").trim()}
                   </p>
                 )}
@@ -679,7 +679,7 @@ export function ExtensionDialogHost({
                   </form>
                 ) : (
                   <div className="flex items-center justify-between pt-2">
-                    <span className="text-[10px] text-ink-faint">
+                    <span className="text-xs text-ink-faint">
                       {t("dialog.extension.answerInComposer")}
                     </span>
                     <Button variant="ghost" size="xs" onClick={cancel}>
@@ -724,7 +724,7 @@ function SeriesRail({
     return (
       <div className="mb-2 flex items-center gap-2">
         <Meter fraction={state.current / state.total} className="w-24" title={label} />
-        <span className="font-mono text-[10px] text-ink-faint">{label}</span>
+        <span className="font-mono text-xs text-ink-faint">{label}</span>
       </div>
     );
   }
@@ -770,7 +770,7 @@ function SeriesRail({
           );
         })}
       </ol>
-      <span className="ml-auto font-mono text-[10px] text-ink-faint">{label}</span>
+      <span className="ml-auto font-mono text-xs text-ink-faint">{label}</span>
     </div>
   );
 }

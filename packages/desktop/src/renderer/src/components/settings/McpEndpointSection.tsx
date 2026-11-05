@@ -51,7 +51,7 @@ function ScopeCapsule({ value, onChange }: { value: McpScope; onChange: (scope: 
         { value: "send", label: t(SCOPE_LABEL.send) },
       ] as const}
       onChange={onChange}
-      optionClassName="px-2 text-[11px]"
+      optionClassName="tab-label px-2"
     />
   );
 }
@@ -61,17 +61,17 @@ function TokenReveal({ reveal, url, onDone }: { reveal: McpTokenReveal; url: str
   const t = useT();
   return (
     <Panel tone="copper" className="px-4 py-3">
-      <p className="text-xs font-medium text-ink">{t("settings.mcpEndpoint.reveal.title", { name: reveal.client.name })}</p>
-      <p className="mt-0.5 text-[11px] leading-relaxed text-ink-faint">{t("settings.mcpEndpoint.reveal.once")}</p>
+      <p className="text-sm font-medium text-ink">{t("settings.mcpEndpoint.reveal.title", { name: reveal.client.name })}</p>
+      <p className="mt-0.5 text-sm leading-relaxed text-ink-faint">{t("settings.mcpEndpoint.reveal.once")}</p>
       <div className="mt-2 flex items-center gap-1.5">
-        <span data-selectable data-testid="mcp-token" className="min-w-0 flex-1 truncate font-mono text-[11px] text-ink">
+        <span data-selectable data-testid="mcp-token" className="min-w-0 flex-1 truncate font-mono text-xs text-ink">
           {reveal.token}
         </span>
         <CopyButton text={reveal.token} />
       </div>
       {url !== null && (
         <div className="mt-2 flex items-center gap-1.5">
-          <p className="min-w-0 flex-1 text-[11px] leading-relaxed text-ink-mid">{t("settings.mcpEndpoint.reveal.config")}</p>
+          <p className="min-w-0 flex-1 text-sm leading-relaxed text-ink-mid">{t("settings.mcpEndpoint.reveal.config")}</p>
           <CopyButton
             text={mcpClientConfig(url, reveal.token)}
             label={t("settings.mcpEndpoint.copyUrl")}
@@ -155,7 +155,7 @@ function CreateForm({ onCreated }: { onCreated: (reveal: McpTokenReveal) => void
       </Row>
       <div className="flex items-center gap-3 py-2.5">
         {error !== null && (
-          <p role="alert" className="min-w-0 flex-1 text-[11px] leading-relaxed text-rose">
+          <p role="alert" className="min-w-0 flex-1 text-sm leading-relaxed text-rose">
             {error}
           </p>
         )}
@@ -196,8 +196,8 @@ function ClientPanel({
     <Panel className="px-4 py-3">
       <div className="flex items-start gap-3">
         <div className="min-w-0 flex-1">
-          <p className="truncate text-xs font-medium text-ink">{client.name}</p>
-          <p className="mt-0.5 text-[11px] text-ink-faint">
+          <p className="truncate text-sm font-medium text-ink">{client.name}</p>
+          <p className="mt-0.5 text-xs text-ink-faint">
             {client.ratePerHour === null
               ? t("settings.mcpEndpoint.rate.none")
               : t("settings.mcpEndpoint.rate.perHour", { count: client.ratePerHour })}
@@ -213,7 +213,7 @@ function ClientPanel({
         <ScopeCapsule value={client.scope} onChange={(scope) => void updateMcpClient(client.id, { scope })} />
       </div>
       {error !== null && (
-        <p role="alert" className="mt-1.5 text-[11px] leading-relaxed text-rose">
+        <p role="alert" className="mt-1.5 text-sm leading-relaxed text-rose">
           {error}
         </p>
       )}
@@ -264,11 +264,11 @@ function CallLog() {
         )}
       </div>
       {newestFirst.length === 0 ? (
-        <p className="mt-1 text-[11px] text-ink-faint">{t("settings.mcpEndpoint.calls.empty")}</p>
+        <p className="mt-1 text-xs text-ink-faint">{t("settings.mcpEndpoint.calls.empty")}</p>
       ) : (
         <ul className="mt-1 divide-y divide-line-soft" data-testid="mcp-calls">
           {newestFirst.map((c) => (
-            <li key={c.id} className="py-1.5 text-[11px]">
+            <li key={c.id} className="py-1.5 text-xs">
               <p className="truncate text-ink">
                 <span className="text-ink-faint">{new Date(c.at).toLocaleString(localeTag())}</span>
                 {` · ${c.clientName} · `}
@@ -300,14 +300,14 @@ export function McpEndpointSection() {
   return (
     <section className="space-y-3 border-t border-line-soft pt-3" aria-label={t("settings.mcpEndpoint.title")}>
       <Label>{t("settings.mcpEndpoint.title")}</Label>
-      <p className="text-[11px] leading-relaxed text-ink-faint">{t("settings.mcpEndpoint.intro")}</p>
-      <p className="text-[11px] leading-relaxed text-copper">{t("settings.mcpEndpoint.warning")}</p>
+      <p className="text-sm leading-relaxed text-ink-faint">{t("settings.mcpEndpoint.intro")}</p>
+      <p className="text-sm leading-relaxed text-copper">{t("settings.mcpEndpoint.warning")}</p>
       <div className="divide-y divide-line-soft">
         <Row title={t("settings.mcpEndpoint.accept")} hint={t("settings.mcpEndpoint.acceptHint")}>
           <Switch on={mcp.enabled} onChange={(next) => void setMcpEndpointEnabled(next)} label={t("settings.mcpEndpoint.accept")} />
         </Row>
         <Row title={t("settings.mcpEndpoint.url")} hint={t("settings.mcpEndpoint.urlHint")}>
-          <span data-selectable className="max-w-64 truncate font-mono text-[11px] text-ink-mid" title={url ?? undefined}>
+          <span data-selectable className="max-w-64 truncate font-mono text-xs text-ink-mid" title={url ?? undefined}>
             {url ?? "—"}
           </span>
         </Row>

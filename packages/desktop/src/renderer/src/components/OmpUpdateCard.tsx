@@ -86,7 +86,7 @@ export function OmpUpdateCard() {
           )}
         </div>
         {progress !== null && (
-          <p className="mt-1.5 text-[11px] tabular-nums text-ink-dim">{progress}%</p>
+          <p className="mt-1.5 text-xs tabular-nums text-ink-dim">{progress}%</p>
         )}
       </>
     );

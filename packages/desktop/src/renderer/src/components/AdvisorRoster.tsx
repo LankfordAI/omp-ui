@@ -78,7 +78,7 @@ export function AdvisorRosterView({
   if (stats?.available !== true) return null;
   const off = !stats.configured;
   return (
-    <div className="flex flex-col gap-2 text-[11px]" data-testid="advisor-roster-view">
+    <div className="flex flex-col gap-2 text-xs" data-testid="advisor-roster-view">
       <div className="flex items-center justify-between gap-2">
         <Label>{t("advisor.roster.title")}</Label>
         {onEdit && (
@@ -108,7 +108,7 @@ export function AdvisorRosterView({
       )}
       {stats.advisors.length > 0 && (
         <table className="w-full text-left">
-          <thead className="text-[10px] uppercase tracking-wide text-ink-faint">
+          <thead className="text-xs uppercase tracking-wide text-ink-faint">
             <tr>
               <th className="font-medium">{t("advisor.roster.colName")}</th>
               <th className="font-medium">{t("advisor.roster.colModel")}</th>
@@ -132,7 +132,7 @@ export function AdvisorRosterView({
                       <Chip tone={st.tone}>{t(st.key)}</Chip>
                       {mutates && <Chip tone="rose">{t("advisor.roster.canChangeFiles")}</Chip>}
                     </div>
-                    <div className="mt-0.5 break-words font-mono text-[10px] text-ink-faint">
+                    <div className="mt-0.5 break-words font-mono text-xs text-ink-faint">
                       {file ? file.tools.join(", ") || "—" : "—"}
                     </div>
                   </td>
@@ -140,7 +140,7 @@ export function AdvisorRosterView({
                   <td className="py-1 pr-2 text-right font-mono tabular-nums text-ink-mid">{pct.toFixed(1)}%</td>
                   <td className="py-1 text-right font-mono tabular-nums text-ink-mid">
                     <div>{stats.subscription && row.cost === 0 ? t("hud.advisor.subscriptionShort") : formatCost(row.cost)}</div>
-                    <div className="text-[10px] text-ink-faint">{compactNum(row.totalTokens)} tok</div>
+                    <div className="text-xs text-ink-faint">{compactNum(row.totalTokens)} tok</div>
                   </td>
                 </tr>
               );
@@ -148,7 +148,7 @@ export function AdvisorRosterView({
           </tbody>
         </table>
       )}
-      <p className="text-[10px] text-ink-faint">{t("advisor.roster.viewFooter")}</p>
+      <p className="text-xs text-ink-faint">{t("advisor.roster.viewFooter")}</p>
     </div>
   );
 }
@@ -165,7 +165,7 @@ function modelShapeOk(value: string): boolean {
 }
 
 const inputClass =
-  "w-full rounded border border-line bg-void px-2 py-1 font-mono text-[11px] text-ink outline-none focus:border-line-strong disabled:opacity-60";
+  "w-full rounded border border-line bg-void px-2 py-1 font-mono text-xs text-ink outline-none focus:border-line-strong disabled:opacity-60";
 
 export function AdvisorRosterEditor({ scopeCwd, instanceId }: { scopeCwd: string | null; instanceId: string | null }) {
   const t = useT();
@@ -268,7 +268,7 @@ export function AdvisorRosterEditor({ scopeCwd, instanceId }: { scopeCwd: string
 
   return (
     <div className="flex flex-col gap-3 px-4 py-3 text-xs" data-testid="advisor-roster-editor">
-      <p className="text-[11px] leading-relaxed text-ink-faint">{t("advisor.roster.explain")}</p>
+      <p className="text-xs leading-relaxed text-ink-faint">{t("advisor.roster.explain")}</p>
       <div className="flex items-center gap-2">
         <Button size="xs" selected={scope === "project"} disabled={scopeCwd === null} onClick={() => setScope("project")}>
           {t("advisor.roster.scopeProject")}
@@ -276,7 +276,7 @@ export function AdvisorRosterEditor({ scopeCwd, instanceId }: { scopeCwd: string
         <Button size="xs" selected={scope === "user"} onClick={() => setScope("user")}>
           {t("advisor.roster.scopeUser")}
         </Button>
-        <span className="min-w-0 truncate font-mono text-[10px] text-ink-dim" title={view.path}>
+        <span className="min-w-0 truncate font-mono text-xs text-ink-dim" title={view.path}>
           {view.path}
         </span>
       </div>
@@ -294,7 +294,7 @@ export function AdvisorRosterEditor({ scopeCwd, instanceId }: { scopeCwd: string
         </Panel>
       )}
       {view.notices.length > 0 && (
-        <ul className="list-disc pl-4 text-[11px] text-ink-faint">
+        <ul className="list-disc pl-4 text-xs text-ink-faint">
           {view.notices.map((n, i) => (
             <li key={i}>{n}</li>
           ))}
@@ -310,7 +310,7 @@ export function AdvisorRosterEditor({ scopeCwd, instanceId }: { scopeCwd: string
           value={draft.instructions ?? ""}
           onChange={(e) => update({ instructions: e.target.value === "" ? null : e.target.value })}
         />
-        <label className="mt-1 flex items-center gap-2 text-[11px] text-ink-mid">
+        <label className="mt-1 flex items-center gap-2 text-xs text-ink-mid">
           {t("advisor.roster.maxNotes")}
           <input
             type="number"
@@ -360,7 +360,7 @@ export function AdvisorRosterEditor({ scopeCwd, instanceId }: { scopeCwd: string
             )}
           </div>
           {a.model !== null && a.model !== "" && !modelShapeOk(a.model) && (
-            <p className="text-[10px] text-rose">{t("project.settings.selectorProvider")}</p>
+            <p className="text-xs text-rose">{t("project.settings.selectorProvider")}</p>
           )}
           <div className="flex flex-wrap items-center gap-1">
             <Button
@@ -395,7 +395,7 @@ export function AdvisorRosterEditor({ scopeCwd, instanceId }: { scopeCwd: string
             value={a.instructions ?? ""}
             onChange={(e) => updateEntry(i, { instructions: e.target.value === "" ? null : e.target.value })}
           />
-          <label className="flex items-center gap-2 text-[11px] text-ink-mid">
+          <label className="flex items-center gap-2 text-xs text-ink-mid">
             {t("advisor.roster.maxNotes")}
             <input
               type="number"
@@ -452,9 +452,9 @@ export function AdvisorRosterEditor({ scopeCwd, instanceId }: { scopeCwd: string
       )}
 
       {result.otherFiles.length > 0 && (
-        <div className="text-[11px] text-ink-faint">
+        <div className="text-xs text-ink-faint">
           <p>{t("advisor.roster.otherFiles")}</p>
-          <ul className="font-mono text-[10px]">
+          <ul className="font-mono text-xs">
             {result.otherFiles.map((f) => (
               <li key={f} className="break-all">
                 {f}
@@ -464,7 +464,7 @@ export function AdvisorRosterEditor({ scopeCwd, instanceId }: { scopeCwd: string
         </div>
       )}
       {result.warnings.length > 0 && (
-        <ul className="list-disc pl-4 text-[11px] text-copper">
+        <ul className="list-disc pl-4 text-xs text-copper">
           {result.warnings.map((w, i) => (
             <li key={i} className="break-words">
               {w}
@@ -477,7 +477,7 @@ export function AdvisorRosterEditor({ scopeCwd, instanceId }: { scopeCwd: string
         {result.effective.length === 0 ? (
           <p className="text-ink-faint">{t("advisor.roster.effectiveNone")}</p>
         ) : (
-          <ul className="mt-1 font-mono text-[10px] text-ink-mid">
+          <ul className="mt-1 font-mono text-xs text-ink-mid">
             {result.effective.map((e) => (
               <li key={e.slug} className="break-all">
                 {e.name} · {e.enabled ? "on" : "off"} · {e.model ?? t("advisor.roster.followsModel")} · {e.tools.join(",") || "—"} · {e.sourcePath}

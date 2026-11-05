@@ -13,9 +13,9 @@ import { Button, ChoiceCapsule, ConfirmDialog } from "./ui";
 const GOAL_CHAR_LIMIT = 4096;
 
 const FIELD =
-  "mt-1.5 w-full rounded-md border border-line bg-void px-2 py-1.5 font-mono text-[11px] text-ink outline-none placeholder:text-ink-faint focus:border-line-strong";
-const LABEL = "block text-[10px] text-ink-faint";
-const HINT = "mt-1.5 text-[10px] leading-snug text-ink-faint";
+  "mt-1.5 w-full rounded-md border border-line bg-void px-2 py-1.5 font-mono text-xs text-ink outline-none placeholder:text-ink-faint focus:border-line-strong";
+const LABEL = "block text-xs text-ink-faint";
+const HINT = "mt-1.5 text-xs leading-snug text-ink-faint";
 
 /** One-per-line textarea → trimmed, non-empty entries. */
 const lines = (text: string): string[] =>
@@ -222,7 +222,7 @@ export function NewExperimentDialog({
             data-modal-initial-focus
           />
           {attempted && goalMissing && (
-            <p className="mt-1.5 text-[10px] leading-snug text-rose">{t("experiment.dialog.goalRequired")}</p>
+            <p className="mt-1.5 text-xs leading-snug text-rose">{t("experiment.dialog.goalRequired")}</p>
           )}
         </div>
 
@@ -239,9 +239,9 @@ export function NewExperimentDialog({
               className={FIELD}
             />
             {metricInvalid ? (
-              <p className="mt-1.5 text-[10px] leading-snug text-rose">{t("experiment.dialog.metricInvalid")}</p>
+              <p className="mt-1.5 text-xs leading-snug text-rose">{t("experiment.dialog.metricInvalid")}</p>
             ) : attempted && metricMissing ? (
-              <p className="mt-1.5 text-[10px] leading-snug text-rose">{t("experiment.dialog.metricRequired")}</p>
+              <p className="mt-1.5 text-xs leading-snug text-rose">{t("experiment.dialog.metricRequired")}</p>
             ) : (
               <p className={HINT}>{t("experiment.dialog.metricHint")}</p>
             )}
@@ -314,7 +314,7 @@ export function NewExperimentDialog({
               {t("experiment.dialog.brief")}{" "}
               <span className="text-ink-faint/70">· {t("experiment.dialog.briefHint")}</span>
             </span>
-            <pre className="mt-1.5 max-h-32 overflow-y-auto whitespace-pre-wrap rounded-md border border-line bg-void px-2 py-1.5 font-mono text-[11px] text-ink-mid">
+            <pre className="mt-1.5 max-h-32 overflow-y-auto whitespace-pre-wrap rounded-md border border-line bg-void px-2 py-1.5 font-mono text-xs text-ink-mid">
               {brief}
             </pre>
           </div>
@@ -343,7 +343,7 @@ export function NewExperimentDialog({
               disabled={models.length === 0}
               title={pickedModel === null ? t("plan.review.sessionDefault") : `${pickedModel.provider}/${pickedModel.id}`}
               onClick={() => setPickingModel(true)}
-              className="mt-1.5 flex w-full items-center justify-between gap-2 rounded-md border border-line bg-void px-2 py-1.5 text-left font-mono text-[11px] text-ink hover:border-line-strong disabled:cursor-default disabled:text-ink-faint"
+              className="mt-1.5 flex w-full items-center justify-between gap-2 rounded-md border border-line bg-void px-2 py-1.5 text-left font-mono text-xs text-ink hover:border-line-strong disabled:cursor-default disabled:text-ink-faint"
             >
               {pickedModel === null ? t("plan.review.sessionDefault") : pickedModel.name || pickedModel.id}
             </button>
@@ -367,9 +367,9 @@ export function NewExperimentDialog({
               />
             </>
           ) : repo === "none" ? (
-            <p className="mt-1.5 text-[10px] leading-snug text-copper">{t("experiment.dialog.whereNone")}</p>
+            <p className="mt-1.5 text-xs leading-snug text-copper">{t("experiment.dialog.whereNone")}</p>
           ) : (
-            <p className="mt-1.5 text-[10px] leading-snug text-rose">{t("experiment.dialog.whereJj")}</p>
+            <p className="mt-1.5 text-xs leading-snug text-rose">{t("experiment.dialog.whereJj")}</p>
           )}
         </div>
 

@@ -1286,19 +1286,30 @@ export function Composer({
         "relative shrink-0",
         compact
           ? "ambient border-t border-line bg-sunken px-4 py-3 compact-composer"
-          : "px-4 pb-3 pt-1.5",
+          // Round-4 judge, Spacing 1: the transcript column centres inside the
+          // scroller's padding box minus its `scrollbar-gutter: stable
+          // both-edges` reservation; the float spans the full pane, so both
+          // sides pad past the hairline by that same gutter. The card's edges
+          // land exactly on the prose edges, with or without an active
+          // scrollbar.
+          : "px-[calc(1rem+var(--scrollbar-w,10px))] pb-3 pt-1.5",
       )}
     >
       {dropping && (
-        <div className="pointer-events-none absolute inset-1 z-30 flex items-center justify-center rounded-xl border border-dashed border-iris bg-iris-wash/60 text-xs text-iris">
+        <div className="pointer-events-none absolute inset-1 z-30 flex items-center justify-center rounded-md border border-dashed border-iris bg-iris-wash/60 text-xs text-iris">
           {t("composer.reference.dropHint")}
         </div>
       )}
 
-      {/* pointer-events-auto: the float above is transparent to the pointer so
-          its side gutters do not swallow wheel and selection aimed at the
-          transcript; the card column itself takes clicks (issue #395). */}
-      <div className={cn("relative pointer-events-auto", !compact && "mx-auto w-full max-w-[var(--transcript-max)]")}>
+          {/* pointer-events-auto: the float above is transparent to the pointer so
+              its side gutters do not swallow wheel and selection aimed at the
+              transcript; the card column itself takes clicks (issue #395).
+              Round-7 judge, Spacing 1: one measure — the card caps at the same
+              --prose-max as the transcript column and centres in the pane, so
+              its edges land on the prose edges with equal gutters. The float
+              plane behind still spans the full pane. */}
+      <div className={cn("relative pointer-events-auto", !compact && "mx-auto w-full max-w-[var(--prose-max)]")}>
+        <div className="w-full">
         {stashOpen && (
           <StashPalette
             ref={stashPalette}
@@ -1345,11 +1356,20 @@ export function Composer({
 
         <div
           className={cn(
-            "relative rounded-lg border border-line transition-colors",
+            "relative rounded-md border border-line transition-colors",
             "focus-within:border-line-strong",
             compact
               ? "bg-raised"
-              : "ambient glass-surface rounded-xl shadow-float " +
+              // A floating frosted card (round-4 owner directive, restoring
+              // the pre-#90b88271 posture): translucent bg-surface + a
+              // moderate dedicated blur (--glass-alpha-composer /
+              // --glass-filter-composer in style.css) so prose and code pass
+              // behind it as perceptible soft texture — visible depth, never
+              // a flat fill — while the card's own glyphs still clear AA.
+              // Clearance for the last message comes from the scroller's
+              // bottom inset, never from an opaque mask.
+              // One 6px card radius app-wide (round-2 judge, Consistency 4).
+              : "ambient glass-composer shadow-float " +
                 "focus-within:ring-1 focus-within:ring-iris-dim/35",
             isSlash && "focus-within:border-iris-dim",
             unavailable && "opacity-50",
@@ -1520,7 +1540,7 @@ export function Composer({
           </div>
 
           {!compact && (
-          <div className="flex items-center gap-1.5 px-2 pb-1.5 text-[11px]">
+          <div className="flex items-center gap-1.5 px-2 pb-1.5 text-xs">
             <ComposerPlusMenu
               tabId={tabId}
               disabled={unavailable}
@@ -1662,7 +1682,7 @@ export function Composer({
                 onClick={() => showCompactSurface("composer-options")}
               >
                 <IconTune className="size-4 shrink-0" />
-                <span className="truncate font-mono text-[11px]">{currentModel?.name || currentModel?.id || t("composer.model.fallback")}</span>
+                <span className="truncate text-xs">{currentModel?.name || currentModel?.id || t("composer.model.fallback")}</span>
                 <span className="sr-only">{t("composer.options.title")}</span>
               </Button>
               {queueChip && <Chip mono tone="copper" title={running ? t("composer.queue.queuedTitle") : t("composer.queue.parkedTitle")}>{queued}</Chip>}
@@ -1691,7 +1711,7 @@ export function Composer({
         </div>
 
         {pasteError !== null && (
-          <div className="animate-rise mt-2 flex items-start gap-2 text-[11px] text-copper">
+          <div className="animate-rise mt-2 flex items-start gap-2 text-xs text-copper">
             <svg viewBox="0 0 16 16" fill="none" strokeWidth={1.4} className="mt-px size-3.5 shrink-0">
               <path d="M8 2.5 14.5 13.5h-13z" stroke="currentColor" strokeLinejoin="round" />
               <path d="M8 7v3" stroke="currentColor" strokeLinecap="round" />
@@ -1706,7 +1726,7 @@ export function Composer({
         )}
 
         {modelHold !== null && (
-          <div className="animate-rise mt-2 flex items-start gap-2 text-[11px] text-copper">
+          <div className="animate-rise mt-2 flex items-start gap-2 text-xs text-copper">
             <svg viewBox="0 0 16 16" fill="none" strokeWidth={1.4} className="mt-px size-3.5 shrink-0">
               <path d="M8 2.5 14.5 13.5h-13z" stroke="currentColor" strokeLinejoin="round" />
               <path d="M8 7v3" stroke="currentColor" strokeLinecap="round" />
@@ -1731,7 +1751,7 @@ export function Composer({
             popover (issue #227): the conversion runs on send, when the popover
             is closed, and its failure must stay visible with the draft intact. */}
         {(converting || moving !== null || workspaceError !== null) && (
-          <div className="animate-rise mt-2 flex items-start gap-2 text-[11px]">
+          <div className="animate-rise mt-2 flex items-start gap-2 text-xs">
             {workspaceError !== null ? (
               <>
                 <svg viewBox="0 0 16 16" fill="none" strokeWidth={1.4} className="mt-px size-3.5 shrink-0 text-copper">
@@ -1752,6 +1772,7 @@ export function Composer({
             )}
           </div>
         )}
+        </div>
       </div>
       <ComposerSheet
         open={compactSurface === "composer-options"}

@@ -83,7 +83,7 @@ export function CarryAuthDialog({ onClose }: { onClose: () => void }) {
     >
       <div className="space-y-4">
         <div>
-          <p className="text-xs text-ink-dim">{t("dialog.carryAuth.routeLabel")}</p>
+          <p className="text-sm text-ink-dim">{t("dialog.carryAuth.routeLabel")}</p>
           <ChoiceCapsule
             label={t("dialog.carryAuth.routeLabel")}
             value={action}
@@ -94,6 +94,7 @@ export function CarryAuthDialog({ onClose }: { onClose: () => void }) {
               { value: "import-file", label: t("dialog.carryAuth.importFile") },
             ]}
             onChange={(value) => setAction(value as CarryAction)}
+            optionClassName="tab-label px-2"
           />
         </div>
         {(action === "to-instance" || action === "from-instance") && (
@@ -106,11 +107,12 @@ export function CarryAuthDialog({ onClose }: { onClose: () => void }) {
                 value={instanceId ?? joined[0]!.id}
                 options={joined.map((instance) => ({ value: instance.id, label: instance.nickname }))}
                 onChange={(value) => setInstanceId(String(value))}
+                optionClassName="tab-label px-2"
               />
             )}
           </div>
         )}
-        <p className="text-xs leading-relaxed text-ink-faint">
+        <p className="text-sm leading-relaxed text-ink-faint">
           {action === "save-file" || action === "import-file"
             ? t("dialog.carryAuth.hintFile")
             : t("dialog.carryAuth.hintInstance")}

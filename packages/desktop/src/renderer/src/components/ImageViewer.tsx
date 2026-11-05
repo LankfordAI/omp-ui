@@ -98,10 +98,10 @@ export function ImageViewer({
       className="flex max-h-[min(92dvh,var(--app-viewport-height,92dvh))] flex-col"
     >
       <header className="flex shrink-0 items-center gap-2 border-b border-line px-3 py-2">
-        <h2 id={titleId} className="font-display text-xs font-semibold text-ink">
+        <h2 id={titleId} className="text-xs font-semibold text-ink">
           {t("image.viewer.heading", { n: index + 1, count: images.length })}
         </h2>
-        <span className="min-w-0 truncate font-mono text-[10px] text-ink-faint">
+        <span className="min-w-0 truncate font-mono text-xs text-ink-faint">
           {[
             failed
               ? t("image.viewer.failed")
@@ -142,7 +142,7 @@ export function ImageViewer({
           label={actual ? t("image.viewer.fit") : t("image.viewer.actual")}
           onClick={() => setActual((v) => !v)}
         >
-          <span className="font-mono text-[10px]">{actual ? "1:1" : "fit"}</span>
+          <span className="font-mono text-xs">{actual ? "1:1" : "fit"}</span>
         </IconButton>
         {/* Modal's own close button appears only under the compact shell's
             899px rule, so this one stands down there or the two would overlap. */}

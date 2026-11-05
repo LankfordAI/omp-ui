@@ -166,7 +166,7 @@ export function GettingStarted() {
             )}
           </span>
           {progress !== null && (
-            <span className="text-[11px] tabular-nums text-ink-dim">
+            <span className="text-xs tabular-nums text-ink-dim">
               {t("app.gettingstarted.downloading", { percent: progress })}
             </span>
           )}
@@ -200,7 +200,7 @@ export function GettingStarted() {
   return (
     <Modal onClose={dismiss} width="w-[34rem]" labelledBy={titleId}>
       <div className="border-b border-line px-5 pb-4 pt-5">
-        <h2 id={titleId} className="font-display text-lg font-semibold tracking-tight text-ink">
+        <h2 id={titleId} className="font-display text-xl font-semibold tracking-tight text-ink">
           {t("app.gettingstarted.title")}
         </h2>
         <p className="mt-0.5 text-xs text-ink-dim">{t("app.gettingstarted.subtitle")}</p>

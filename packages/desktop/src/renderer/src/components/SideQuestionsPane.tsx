@@ -60,7 +60,7 @@ const STATUS_LABEL_KEY: Record<
   interrupted: "rail.btw.statusInterrupted",
 };
 
-const ANSWER_CLASS = "text-[12px] leading-relaxed text-ink-mid";
+const ANSWER_CLASS = "text-xs leading-relaxed text-ink-mid";
 
 function AskBox({
   placeholder,
@@ -90,7 +90,7 @@ function AskBox({
         placeholder={placeholder}
         aria-label={placeholder}
         disabled={disabled}
-        className="min-w-0 flex-1 rounded-md border border-line bg-raised px-2 py-1 text-[12px] text-ink placeholder:text-ink-faint focus:border-line-strong focus:outline-none disabled:opacity-50"
+        className="min-w-0 flex-1 rounded-md border border-line bg-raised px-2 py-1 text-xs text-ink placeholder:text-ink-faint focus:border-line-strong focus:outline-none disabled:opacity-50"
       />
       <Button type="submit" size="xs" variant="outline" disabled={disabled || draft.trim() === ""}>
         {buttonLabel}
@@ -178,7 +178,7 @@ function InjectBlock({
     <div className="space-y-1">
       <div
         className={cn(
-          "rounded-r border-l-2 bg-sunken px-2 py-1.5 font-mono text-[11px] leading-relaxed",
+          "rounded-r border-l-2 bg-sunken px-2 py-1.5 font-mono text-xs leading-relaxed",
           mark === "injected" ? "border-signal-dim text-ink-mid" : "border-copper-dim/60 text-ink-mid",
         )}
       >
@@ -191,7 +191,7 @@ function InjectBlock({
       {(mark !== undefined || (sendable && text !== "")) && (
         <div className="space-y-0.5">
           {mark === "injected" ? (
-            <span className="text-[11px] text-signal">{`\u2197 ${t("rail.btw.injected")}`}</span>
+            <span className="text-xs text-signal">{`\u2197 ${t("rail.btw.injected")}`}</span>
           ) : mark === "sending" ? (
             <Button size="xs" variant="outline" disabled>
               {t("rail.btw.injecting")}
@@ -202,7 +202,7 @@ function InjectBlock({
             </Button>
           )}
           {failed && (
-            <p role="alert" className="text-[11px] text-rose">
+            <p role="alert" className="text-xs text-rose">
               {t("rail.btw.injectFailed")}
             </p>
           )}
@@ -273,14 +273,14 @@ function TopicCard({
         onClick={onToggle}
         className="flex w-full flex-col gap-1 px-2 py-1.5 text-left hover:bg-hover"
       >
-        <span className="text-[12px] leading-snug text-ink">{title ?? topic.question}</span>
+        <span className="text-xs leading-snug text-ink">{title ?? topic.question}</span>
         <span className="flex flex-wrap items-center gap-1.5">
           <Chip tone={STATUS_TONE[topic.status]}>{label}</Chip>
-          <span className="text-[10px] text-ink-faint">
+          <span className="text-xs text-ink-faint">
             {relativeTime(new Date(topic.updatedAt).toISOString())}
           </span>
           {topic.turns.length > 1 && (
-            <span className="text-[10px] text-ink-faint">
+            <span className="text-xs text-ink-faint">
               {t("rail.btw.turnCount", { count: topic.turns.length })}
             </span>
           )}
@@ -290,7 +290,7 @@ function TopicCard({
         <div className="space-y-2.5 border-t border-line-soft px-2 py-2">
           {topic.turns.map((turn, index) => (
             <div key={index} className="space-y-1">
-              {index > 0 && <p className="text-[12px] font-medium leading-snug text-ink">{turn.question}</p>}
+              {index > 0 && <p className="text-xs font-medium leading-snug text-ink">{turn.question}</p>}
               {turn.images !== undefined && turn.images.length > 0 && <TurnImages images={turn.images} />}
               {turn.answer !== "" &&
                 renderAnswer(turn.answer, {
@@ -303,10 +303,10 @@ function TopicCard({
                   sendable: index === topic.turns.length - 1 && turn.status === "complete",
                 })}
               {turn.status === "running" && turn.answer === "" && (
-                <p className="text-[11px] text-ink-faint">{t("rail.btw.thinking")}</p>
+                <p className="text-xs text-ink-faint">{t("rail.btw.thinking")}</p>
               )}
               {turn.error !== undefined && (
-                <p role="alert" className="text-[11px] text-rose">
+                <p role="alert" className="text-xs text-rose">
                   {turn.error}
                 </p>
               )}
@@ -377,7 +377,7 @@ export function SideQuestionsPane({ tabId }: { tabId: string }) {
       </div>
 
       {unavailable && (
-        <p role="status" className="rounded-md border border-line bg-raised px-2 py-1.5 text-[11px] text-ink-mid">
+        <p role="status" className="rounded-md border border-line bg-raised px-2 py-1.5 text-xs text-ink-mid">
           {/* A runtime-reported reason outranks everything; with the version
               gate closed the message names the required version, otherwise
               the generic line. */}
@@ -388,7 +388,7 @@ export function SideQuestionsPane({ tabId }: { tabId: string }) {
         </p>
       )}
       {snapshot?.busy !== undefined && (
-        <p role="status" className="rounded-md border border-copper-dim/50 bg-copper-wash px-2 py-1.5 text-[11px] text-copper">
+        <p role="status" className="rounded-md border border-copper-dim/50 bg-copper-wash px-2 py-1.5 text-xs text-copper">
           {snapshot.busy}
         </p>
       )}
@@ -396,13 +396,13 @@ export function SideQuestionsPane({ tabId }: { tabId: string }) {
       {active !== null && (
         <div className="space-y-1.5 rounded-md border border-copper-dim/50 bg-raised px-2 py-1.5" aria-live="polite">
           <div className="flex items-start gap-1.5">
-            <span className="min-w-0 flex-1 text-[12px] leading-snug text-ink">{activeTitle ?? active.question}</span>
+            <span className="min-w-0 flex-1 text-xs leading-snug text-ink">{activeTitle ?? active.question}</span>
             <Button size="xs" variant="outline" tone="rose" onClick={() => void cancelSideQuestion(tabId)}>
               {t("rail.btw.cancel")}
             </Button>
           </div>
           {active.answer === "" ? (
-            <p className="text-[11px] text-ink-faint">{t("rail.btw.thinking")}</p>
+            <p className="text-xs text-ink-faint">{t("rail.btw.thinking")}</p>
           ) : (
             renderAnswer(active.answer, {
               tabId,

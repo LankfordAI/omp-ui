@@ -26,6 +26,11 @@ const PUA = /[\uE000-\uF8FF\u{F0000}-\u{FFFFD}\u{100000}-\u{10FFFD}]/gu;
 const CARD = /^(\S+?) ([A-Z][A-Z0-9]{1,9}): (\S.*)$/;
 
 const EMOJI_PRESENTATION = /\p{Emoji_Presentation}/u;
+/** An emoji-presentation sequence without Emoji_Presentation of its own: a
+ *  text-presentation base (♻ U+267B, ✂ U+2702, ⚙ U+2699, …) forced to emoji
+ *  by VS16. omp emits those in title cards too; without this the row would
+ *  render the raw `♻️ REFACTOR: …` string while sibling cards chip. */
+const EMOJI_WITH_VS16 = /\p{Emoji}\uFE0F/u;
 const PUA_TEST = /[\uE000-\uF8FF\u{F0000}-\u{FFFFD}\u{100000}-\u{10FFFD}]/u;
 
 /**
@@ -41,7 +46,12 @@ export function parseTitleCard(raw: string): TitleCard | null {
   // The first token of a real card is always an icon, never a plain ASCII
   // word — this kills false positives like "HTTP: a primer". A short code
   // alone is never a card.
-  if (!EMOJI_PRESENTATION.test(iconToken) && !PUA_TEST.test(iconToken)) return null;
+  if (
+    !EMOJI_PRESENTATION.test(iconToken) &&
+    !EMOJI_WITH_VS16.test(iconToken) &&
+    !PUA_TEST.test(iconToken)
+  )
+    return null;
   const icon = iconToken.replace(PUA, "");
   return {
     icon: icon === "" ? null : icon,

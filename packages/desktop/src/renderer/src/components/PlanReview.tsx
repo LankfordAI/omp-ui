@@ -97,7 +97,7 @@ const KEYWORD_ROWS: ReadonlyArray<{ keyword: StagedKeyword; hintKey: MessageKey 
 /** A magic keyword painted with its own gradient, as the composer paints it (static phase). */
 function KeywordLabel({ keyword }: { keyword: StagedKeyword }) {
   return (
-    <span className="font-mono text-[11px] font-medium" aria-label={keyword}>
+    <span className="font-mono text-xs font-medium" aria-label={keyword}>
       {keywordColors(keyword, 0).map((color, i) => (
         <span key={i} aria-hidden style={{ color }}>
           {keyword[i]}
@@ -133,7 +133,7 @@ function DispatchSummary({
   return (
     <div className={cn("min-w-0", className)}>
       <Label>{t("plan.review.dispatchReady")}</Label>
-      <p className="mt-0.5 truncate text-[11px] text-ink-dim">
+      <p className="mt-0.5 truncate text-xs text-ink-dim">
         {contextLabel}
         {model !== null && <>{" · "}{model.name || model.id}</>}
         {tierRole != null && <>{" · "}{tierRole}</>}
@@ -625,7 +625,7 @@ export function PlanReview({
         // footer stays visible and the plan/setup panes scroll internally. A
         // block child would render at natural height and overflow-hidden would
         // clip the footer away.
-        "animate-rise mx-auto mb-2 flex w-full flex-col overflow-hidden rounded-xl border border-line ambient plane-lit shadow-float",
+        "animate-rise mx-auto mb-2 flex w-full flex-col overflow-hidden rounded-md border border-line ambient plane-lit shadow-float",
         fill
           ? "min-h-0 flex-1" // issue #277: owns the chat-history slot, uncapped
           : "shrink-0",
@@ -650,10 +650,10 @@ export function PlanReview({
                     : t("plan.review.stepSetup")
                 : t("plan.review.ready")}
             </Label>
-            <h2 id="plan-review-title" className="mt-1 truncate font-display text-base font-medium text-ink" title={request.title}>
+            <h2 id="plan-review-title" className="mt-1 truncate text-base font-semibold text-ink" title={request.title}>
               {request.title}
             </h2>
-            <p className="plan-review-artifact mt-0.5 truncate font-mono text-[10px] text-ink-faint">
+            <p className="plan-review-artifact mt-0.5 truncate font-mono text-xs text-ink-faint">
               {request.planFilePath}
             </p>
           </div>
@@ -750,7 +750,7 @@ export function PlanReview({
                   <p className="mt-1 text-xs text-ink-dim">{t("plan.review.refineHint")}</p>
                 </div>
                 <div className="flex shrink-0 items-center gap-1.5">
-                  <span className="text-[10px] text-ink-faint">{t("plan.review.refineKeys")}</span>
+                  <span className="text-xs text-ink-faint">{t("plan.review.refineKeys")}</span>
                   <AttachmentButton disabled={false} label={t("common.button.attachFiles")} onClick={() => filePicker.current?.click()} />
                 </div>
               </div>
@@ -834,7 +834,7 @@ export function PlanReview({
                   onChange={(event) => void pickFiles(event)}
                 />
               </div>
-              {pasteError && <p className="mt-1 text-[11px] text-rose">{pasteError}</p>}
+              {pasteError && <p className="mt-1 text-xs text-rose">{pasteError}</p>}
             </div>
             )}
           </section>
@@ -848,7 +848,7 @@ export function PlanReview({
             </div>
 
             <fieldset>
-              <legend className="text-[11px] font-medium text-ink">{t("plan.review.session")}</legend>
+              <legend className="text-xs font-medium text-ink">{t("plan.review.session")}</legend>
               <div className="mt-2 space-y-1.5">
                 {CONTEXTS.map((option, index) => {
                   const active = context === option.id;
@@ -905,9 +905,9 @@ export function PlanReview({
                       <span className="min-w-0 flex-1">
                         <span className="flex items-center justify-between gap-2">
                           <span className="text-xs font-medium text-ink">{t(option.labelKey)}</span>
-                          <span className="font-mono text-[9px] uppercase tracking-wider text-ink-faint">0{index + 1}</span>
+                          <span className="font-mono text-xs uppercase tracking-wider text-ink-faint">0{index + 1}</span>
                         </span>
-                        <span className="mt-0.5 block text-[11px] leading-snug text-ink-faint">
+                        <span className="mt-0.5 block text-xs leading-snug text-ink-faint">
                           {option.id === "fresh" && sourceWorktree !== null
                             ? t("plan.context.freshWorktreeHint")
                             : option.id === "worktree" && sourceWorktree !== null
@@ -922,16 +922,16 @@ export function PlanReview({
             </fieldset>
 
             <fieldset className="mt-5 border-t border-line pt-4">
-              <legend className="text-[11px] font-medium text-ink">{t("plan.review.model")}</legend>
-              <p className="mt-1 text-[10px] leading-relaxed text-ink-faint">{t("plan.review.modelHint")}</p>
+              <legend className="text-xs font-medium text-ink">{t("plan.review.model")}</legend>
+              <p className="mt-1 text-xs leading-relaxed text-ink-faint">{t("plan.review.modelHint")}</p>
 
-              <span className="mt-3 block text-[10px] text-ink-faint">{t("plan.review.modelLabel")}</span>
+              <span className="mt-3 block text-xs text-ink-faint">{t("plan.review.modelLabel")}</span>
               {availableModels.length === 0 ? (
                 <button
                   type="button"
                   disabled
                   title={t("plan.review.noModels")}
-                  className="mt-1 flex w-full items-center justify-between gap-2 rounded-md border border-line bg-void px-2 py-1.5 font-mono text-[11px] text-ink hover:border-line-strong"
+                  className="mt-1 flex w-full items-center justify-between gap-2 rounded-md border border-line bg-void px-2 py-1.5 font-mono text-xs text-ink hover:border-line-strong"
                 >
                   {stagedModel === null ? t("plan.review.sessionDefault") : stagedModel.name || stagedModel.id}
                 </button>
@@ -944,7 +944,7 @@ export function PlanReview({
                       : `${stagedModel.provider}/${stagedModel.id}`
                   }
                   onClick={() => setPickingModel(true)}
-                  className="mt-1 flex w-full items-center justify-between gap-2 rounded-md border border-line bg-void px-2 py-1.5 font-mono text-[11px] text-ink hover:border-line-strong"
+                  className="mt-1 flex w-full items-center justify-between gap-2 rounded-md border border-line bg-void px-2 py-1.5 font-mono text-xs text-ink hover:border-line-strong"
                 >
                   {stagedModel === null ? t("plan.review.sessionDefault") : stagedModel.name || stagedModel.id}
                 </button>
@@ -952,13 +952,13 @@ export function PlanReview({
 
               {mainEfforts.length > 0 && (
                 <>
-                  <span className="mt-3 block text-[10px] text-ink-faint">{t("plan.review.thinking")}</span>
+                  <span className="mt-3 block text-xs text-ink-faint">{t("plan.review.thinking")}</span>
                   <span ref={mainLevelAnchor} className="relative flex">
                     <button
                       type="button"
                       title={t("plan.review.thinkingTitle")}
                       onClick={() => setLevelMenu((m) => (m === "main" ? null : "main"))}
-                      className="mt-1 flex w-full items-center justify-between gap-2 rounded-md border border-line bg-void px-2 py-1.5 font-mono text-[11px] text-ink hover:border-line-strong"
+                      className="mt-1 flex w-full items-center justify-between gap-2 rounded-md border border-line bg-void px-2 py-1.5 font-mono text-xs text-ink hover:border-line-strong"
                     >
                       {stagedThinking ?? t("plan.review.thinkFallback")}
                     </button>
@@ -978,7 +978,7 @@ export function PlanReview({
                             setStagedThinking("auto");
                           }}
                           className={cn(
-                            "rounded px-1.5 py-0.5 text-left font-mono text-[11px] hover:bg-hover",
+                            "rounded px-1.5 py-0.5 text-left font-mono text-xs hover:bg-hover",
                             stagedThinking === "auto" ? "text-iris" : "text-ink-mid",
                           )}
                         >
@@ -993,7 +993,7 @@ export function PlanReview({
                               setStagedThinking(effort);
                             }}
                             className={cn(
-                              "rounded px-1.5 py-0.5 text-left font-mono text-[11px] hover:bg-hover",
+                              "rounded px-1.5 py-0.5 text-left font-mono text-xs hover:bg-hover",
                               effort === stagedThinking ? "text-iris" : "text-ink-mid",
                             )}
                           >
@@ -1008,8 +1008,8 @@ export function PlanReview({
 
               <div className="mt-3 flex items-start justify-between gap-3">
                 <div className="min-w-0">
-                  <span className="block text-[11px] font-medium text-ink">{t("plan.review.advisor")}</span>
-                  <span className="mt-0.5 block text-[10px] leading-snug text-ink-faint">{t("plan.review.advisorHint")}</span>
+                  <span className="block text-xs font-medium text-ink">{t("plan.review.advisor")}</span>
+                  <span className="mt-0.5 block text-xs leading-snug text-ink-faint">{t("plan.review.advisorHint")}</span>
                 </div>
                 <Switch on={stagedAdvisor} onChange={setStagedAdvisor} label={t("plan.review.advisorSwitch")} />
               </div>
@@ -1017,10 +1017,10 @@ export function PlanReview({
               {/* Gated provenance stays visible with the advisor off — worded
                   as applying if it is enabled (issue #372). */}
               {gatedAdvisor && (
-                <p className="mt-2 flex items-start gap-1.5 rounded-md border border-line bg-raised px-2.5 py-2 text-[10px] leading-snug text-ink-mid">
+                <p className="mt-2 flex items-start gap-1.5 rounded-md border border-line bg-raised px-2.5 py-2 text-xs leading-snug text-ink-mid">
                   <span
                     title={t("advisor.override.label")}
-                    className={cn("mt-px shrink-0 rounded border px-1 font-mono text-[9px] uppercase tracking-wide", TONE_CHIP.neutral)}
+                    className={cn("mt-px shrink-0 rounded border px-1 font-mono text-xs uppercase tracking-wide", TONE_CHIP.neutral)}
                   >
                     {t("advisor.override.badge")}
                   </span>
@@ -1034,7 +1034,7 @@ export function PlanReview({
 
               {stagedAdvisor && (
                 <>
-                  <span className="mt-3 block text-[10px] text-ink-faint">{t("plan.review.advisorModel")}</span>
+                  <span className="mt-3 block text-xs text-ink-faint">{t("plan.review.advisorModel")}</span>
                   <button
                     type="button"
                     disabled={gatedAdvisor || availableModels.length === 0}
@@ -1049,7 +1049,7 @@ export function PlanReview({
                       if (gatedAdvisor) return;
                       setPickingAdvisorModel(true);
                     }}
-                    className="mt-1 flex w-full items-center justify-between gap-2 rounded-md border border-line bg-void px-2 py-1.5 font-mono text-[11px] text-ink hover:border-line-strong"
+                    className="mt-1 flex w-full items-center justify-between gap-2 rounded-md border border-line bg-void px-2 py-1.5 font-mono text-xs text-ink hover:border-line-strong"
                   >
                     {effectiveAdvisor === null
                       ? t("plan.review.ompDefault")
@@ -1060,13 +1060,13 @@ export function PlanReview({
 
               {stagedAdvisor && gatedAdvisor && advisorSplit !== null && advisorSplit.level !== undefined && (
                 <>
-                  <span className="mt-3 block text-[10px] text-ink-faint">{t("plan.review.advisorThinking")}</span>
+                  <span className="mt-3 block text-xs text-ink-faint">{t("plan.review.advisorThinking")}</span>
                   <span ref={advisorLevelAnchor} className="relative flex">
                     <button
                       type="button"
                       disabled
                       title={`${t("advisor.override.label")}: ${effectiveAdvisor}`}
-                      className="mt-1 flex w-full items-center justify-between gap-2 rounded-md border border-line bg-void px-2 py-1.5 font-mono text-[11px] text-ink"
+                      className="mt-1 flex w-full items-center justify-between gap-2 rounded-md border border-line bg-void px-2 py-1.5 font-mono text-xs text-ink"
                     >
                       {advisorSplit.level}
                     </button>
@@ -1076,13 +1076,13 @@ export function PlanReview({
 
               {stagedAdvisor && !gatedAdvisor && advisorSplit !== null && advisorEfforts.length > 0 && (
                 <>
-                  <span className="mt-3 block text-[10px] text-ink-faint">{t("plan.review.advisorThinking")}</span>
+                  <span className="mt-3 block text-xs text-ink-faint">{t("plan.review.advisorThinking")}</span>
                   <span ref={advisorLevelAnchor} className="relative flex">
                     <button
                       type="button"
                       title={t("plan.review.advisorThinkingTitle")}
                       onClick={() => setLevelMenu((m) => (m === "advisor" ? null : "advisor"))}
-                      className="mt-1 flex w-full items-center justify-between gap-2 rounded-md border border-line bg-void px-2 py-1.5 font-mono text-[11px] text-ink hover:border-line-strong"
+                      className="mt-1 flex w-full items-center justify-between gap-2 rounded-md border border-line bg-void px-2 py-1.5 font-mono text-xs text-ink hover:border-line-strong"
                     >
                       {advisorSplit?.level ?? t("plan.review.thinkFallback")}
                     </button>
@@ -1098,7 +1098,7 @@ export function PlanReview({
                               setLevelMenu(null);
                               setStagedAdvisorModel(advisorSplit!.model);
                             }}
-                            className="rounded px-1.5 py-0.5 text-left text-[11px] text-ink-faint hover:bg-hover"
+                            className="rounded px-1.5 py-0.5 text-left text-xs text-ink-faint hover:bg-hover"
                             title={t("plan.review.advisorDefaultThinking")}
                           >
                             {t("plan.review.defaultLevel")}
@@ -1115,7 +1115,7 @@ export function PlanReview({
                               setStagedAdvisorModel(`${advisorSplit!.model}:${effort}`);
                             }}
                             className={cn(
-                              "rounded px-1.5 py-0.5 text-left font-mono text-[11px] hover:bg-hover",
+                              "rounded px-1.5 py-0.5 text-left font-mono text-xs hover:bg-hover",
                               effort === advisorSplit?.level ? "text-iris" : "text-ink-mid",
                             )}
                           >
@@ -1134,10 +1134,10 @@ export function PlanReview({
             )}
             {sourceWorktree !== null && context !== "worktree" && (
               <fieldset className="mt-5 border-t border-line pt-4">
-                <legend className="text-[11px] font-medium text-ink">
+                <legend className="text-xs font-medium text-ink">
                   {t("plan.review.lockedWorktreeBranch")}
                 </legend>
-                <p className="mt-1 text-[10px] leading-relaxed text-ink-faint">
+                <p className="mt-1 text-xs leading-relaxed text-ink-faint">
                   {t("plan.review.lockedWorktreeHint")}
                 </p>
                 <div className="mt-3 rounded-lg border border-line bg-raised/70 p-3">
@@ -1149,11 +1149,11 @@ export function PlanReview({
             )}
             {context === "worktree" && worktreeSel !== null && projectCwd !== undefined && (
               <fieldset className="mt-5 border-t border-line pt-4">
-                <legend className="text-[11px] font-medium text-ink">{t("plan.review.worktree")}</legend>
+                <legend className="text-xs font-medium text-ink">{t("plan.review.worktree")}</legend>
                 {reusingWorktree && sourceWorktree !== null ? (
-                  <p className="mt-1 text-[10px] leading-relaxed text-ink-faint">{t("plan.review.worktreeReuse")}</p>
+                  <p className="mt-1 text-xs leading-relaxed text-ink-faint">{t("plan.review.worktreeReuse")}</p>
                 ) : (
-                  <p className="mt-1 text-[10px] leading-relaxed text-ink-faint">{t("plan.review.worktreeDedicated")}</p>
+                  <p className="mt-1 text-xs leading-relaxed text-ink-faint">{t("plan.review.worktreeDedicated")}</p>
                 )}
                 <div className="mt-3 rounded-lg border border-line bg-raised/70 p-3">
                   <WorktreeBranchFields
@@ -1190,7 +1190,7 @@ export function PlanReview({
                     idPrefix="plan-worktree"
                   />
                   {reusingWorktree && sourceWorktree !== null && (
-                    <p className="mt-2 truncate font-mono text-[10px] text-ink-faint" title={sourceWorktree.path}>
+                    <p className="mt-2 truncate font-mono text-xs text-ink-faint" title={sourceWorktree.path}>
                       {sourceWorktree.path}
                     </p>
                   )}
@@ -1199,14 +1199,14 @@ export function PlanReview({
             )}
 
             <fieldset className="mt-5 border-t border-line pt-4">
-              <legend className="text-[11px] font-medium text-ink">{t("plan.review.magicKeywords")}</legend>
-              <p className="mt-1 text-[10px] leading-relaxed text-ink-faint">{t("plan.review.magicKeywordsHint")}</p>
+              <legend className="text-xs font-medium text-ink">{t("plan.review.magicKeywords")}</legend>
+              <p className="mt-1 text-xs leading-relaxed text-ink-faint">{t("plan.review.magicKeywordsHint")}</p>
               <div className="mt-3 space-y-3">
                 {KEYWORD_ROWS.map(({ keyword, hintKey }) => (
                   <div key={keyword} className="flex items-start justify-between gap-3">
                     <div className="min-w-0">
                       <KeywordLabel keyword={keyword} />
-                      <span className="mt-0.5 block text-[10px] leading-snug text-ink-faint">
+                      <span className="mt-0.5 block text-xs leading-snug text-ink-faint">
                         {t(hintKey, { keyword })}
                       </span>
                     </div>
@@ -1221,8 +1221,8 @@ export function PlanReview({
                 ))}
                 <div className="flex items-start justify-between gap-3">
                   <div className="min-w-0">
-                    <span className="block text-[11px] font-medium text-ink">{t("plan.review.runAsGoal")}</span>
-                    <span className="mt-0.5 block text-[10px] leading-snug text-ink-faint">
+                    <span className="block text-xs font-medium text-ink">{t("plan.review.runAsGoal")}</span>
+                    <span className="mt-0.5 block text-xs leading-snug text-ink-faint">
                       {t("plan.review.runAsGoalHint")}
                     </span>
                   </div>
@@ -1240,8 +1240,8 @@ export function PlanReview({
             {advisorConfigured && (
               <div className="mt-5 flex items-start justify-between gap-3 border-t border-line pt-4">
                 <div className="min-w-0">
-                  <span className="block text-[11px] font-medium text-ink">{t("plan.review.addressAdvisor")}</span>
-                  <span className="mt-0.5 block text-[10px] leading-snug text-ink-faint">{t("plan.review.addressAdvisorHint")}</span>
+                  <span className="block text-xs font-medium text-ink">{t("plan.review.addressAdvisor")}</span>
+                  <span className="mt-0.5 block text-xs leading-snug text-ink-faint">{t("plan.review.addressAdvisorHint")}</span>
                 </div>
                 <Switch
                   on={addressAdvisor}
@@ -1333,7 +1333,7 @@ export function PlanReview({
                       title={t("plan.review.tierHint")}
                       onClick={() => pickTier(tier)}
                       className={cn(
-                        "shrink-0 rounded-md border px-2 py-1 font-mono text-[10px] transition-colors",
+                        "shrink-0 rounded-md border px-2 py-1 font-mono text-xs transition-colors",
                         active
                           ? "border-iris-dim bg-iris-wash text-iris"
                           : "border-line text-ink-mid hover:border-line-strong hover:text-ink",

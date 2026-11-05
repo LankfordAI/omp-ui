@@ -266,7 +266,7 @@ export function DirectoryPicker({ mode, instanceId, banner, onClose, onSubmit }:
   return (
     <Modal onClose={onClose} width="w-[34rem]">
       {banner !== null && (
-        <p className="border-b border-line px-3.5 py-2 text-[11px] text-ink-dim">{banner}</p>
+        <p className="border-b border-line px-3.5 py-2 text-xs text-ink-dim">{banner}</p>
       )}
       <PaletteSearchHeader>
         <svg viewBox="0 0 16 16" aria-hidden className="size-4 shrink-0 text-ink-dim">
@@ -347,7 +347,7 @@ export function DirectoryPicker({ mode, instanceId, banner, onClose, onSubmit }:
 
       <div className="border-t border-line px-3.5 py-2">
         <div className="flex items-center gap-3">
-          <p className="min-w-0 flex-1 truncate text-[11px] text-ink-dim">
+          <p className="min-w-0 flex-1 truncate text-xs text-ink-dim">
             {t(copy.willAdd)}{" "}
             <span className="font-mono text-ink-mid">{resolvedPath || "—"}</span>
           </p>
@@ -360,7 +360,7 @@ export function DirectoryPicker({ mode, instanceId, banner, onClose, onSubmit }:
             {t(copy.add)}
           </Button>
         </div>
-        <div className="mt-1.5 flex flex-wrap items-center gap-x-3 gap-y-1 text-[10px] text-ink-faint">
+        <div className="mt-1.5 flex flex-wrap items-center gap-x-3 gap-y-1 text-xs text-ink-faint">
           <span className="font-mono">{formatHotkey("arrowup")}{formatHotkey("arrowdown")}</span>
           <span>{t("project.picker.navigate")}</span>
           <span className="font-mono">{formatHotkey("enter")}</span>

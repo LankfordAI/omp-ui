@@ -53,7 +53,7 @@ export function PlanCard({ item }: { item: PlanItem }) {
             </div>
           </Disclosure>
         ) : (
-          <p data-selectable className="font-mono text-[11px] text-ink-faint">
+          <p data-selectable className="font-mono text-xs text-ink-faint">
             {item.planFilePath}
           </p>
         )}

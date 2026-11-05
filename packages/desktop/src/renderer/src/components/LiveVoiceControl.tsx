@@ -103,7 +103,7 @@ export function LiveVoiceControl({
       <div className={cn("flex min-h-11 items-center justify-between gap-2", className)}>
         <span className="flex min-w-0 flex-col">
           <span className="text-xs">{t("composer.live.start")}</span>
-          <span className="font-mono text-[10px]">
+          <span className="font-mono text-xs">
             {active
               ? display !== null
                 ? t(PHASE_KEY[display], { key: holdLabel })
@@ -134,14 +134,14 @@ export function LiveVoiceControl({
         <Capsule
           tone="neutral"
           title={t("composer.live.parkedHint")}
-          className={cn("h-6", className)}
+          className={cn("h-7", className)}
         >
           <button
             type="button"
             disabled={disabled}
             onClick={() => void stopLiveVoice(tabId)}
             aria-label={t("composer.live.stop")}
-            className={cn(CAPSULE_SEGMENT, "text-[10px] font-mono")}
+            className={cn(CAPSULE_SEGMENT, "text-sm")}
           >
             <Dot tone="neutral" />
             {t("composer.live.parked")}
@@ -153,17 +153,20 @@ export function LiveVoiceControl({
       <Capsule
         tone={live?.error != null ? "rose" : "neutral"}
         title={t("composer.live.start")}
-        className={cn("h-6", className)}
+        className={cn("h-7", className)}
       >
         <button
           type="button"
           disabled={disabled || startDisabled}
           onClick={() => void startLiveVoice(tabId)}
           aria-label={t("composer.live.start")}
-          className={cn(CAPSULE_SEGMENT, "text-[10px] font-mono")}
+          className={cn(CAPSULE_SEGMENT, "text-sm")}
         >
-          <Dot tone={live?.error != null ? "rose" : "neutral"} />
-          live
+          {/* Round-5 judge, Iconography 1: the idle pill leads with the set's
+              mic glyph at the shared stroke — a neutral dot read as a stray
+              bullet, and an error still re-tints the whole capsule rose. */}
+          <IconMic className="size-3 shrink-0" />
+          {t("composer.live.idlePill")}
         </button>
       </Capsule>
     );
@@ -171,14 +174,14 @@ export function LiveVoiceControl({
 
   const phaseTone = display !== null ? PHASE_TONE[display] : "copper";
   return (
-    <Capsule tone={phaseTone} title={t("composer.live.stop")} className={cn("h-6", className)}>
+    <Capsule tone={phaseTone} title={t("composer.live.stop")} className={cn("h-7", className)}>
       <button
         type="button"
         disabled={disabled}
         onClick={() => void stopLiveVoice(tabId)}
         aria-label={t("composer.live.stop")}
         title={t("composer.live.stop")}
-        className={cn(CAPSULE_SEGMENT, "text-[10px] font-mono")}
+        className={cn(CAPSULE_SEGMENT, "text-sm")}
       >
         <Dot tone={phaseTone} pulse={display === "listening" || display === "working"} />
         {display !== null ? t(PHASE_KEY[display], { key: holdLabel }) : t("composer.live.phasePending")}

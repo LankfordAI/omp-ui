@@ -60,10 +60,10 @@ export function KnowledgeHomeSection({ project, instanceId }: { project: Project
 
   return (
     <section aria-labelledby="project-settings-knowledge" className="px-4 py-4">
-      <h3 id="project-settings-knowledge" className="mb-1 font-display text-sm font-semibold text-ink">
+      <h3 id="project-settings-knowledge" className="mb-1 text-sm font-semibold text-ink">
         {t("project.settings.knowledgeHome")}
       </h3>
-      <p className="text-[11px] leading-relaxed text-ink-faint">{t("project.settings.knowledgeHint")}</p>
+      <p className="text-xs leading-relaxed text-ink-faint">{t("project.settings.knowledgeHint")}</p>
 
       {load.status === "error" && <p className={cn("mt-2", ROSE_LINE)}>{load.message}</p>}
 
@@ -86,7 +86,7 @@ export function KnowledgeHomeSection({ project, instanceId }: { project: Project
                 title={needsVault && noVault ? t("project.settings.knowledgeNeedsVault") : undefined}
                 onClick={() => pickKind(kind)}
                 className={cn(
-                  "rounded-md px-2 py-0.5 text-[11px] transition-colors",
+                  "rounded-md px-2 py-0.5 text-xs transition-colors",
                   checked
                     ? "bg-raised text-ink"
                     : "text-ink-faint hover:text-ink-mid disabled:cursor-not-allowed disabled:opacity-35",
@@ -106,7 +106,7 @@ export function KnowledgeHomeSection({ project, instanceId }: { project: Project
         )}
       </div>
 
-      {current === null && <p className="mt-2 text-[11px] text-ink-dim">{t("project.settings.knowledgeNotSet")}</p>}
+      {current === null && <p className="mt-2 text-xs text-ink-dim">{t("project.settings.knowledgeNotSet")}</p>}
 
       {names !== null && (names.length >= 2 || brokenPin !== null) && (
         <select

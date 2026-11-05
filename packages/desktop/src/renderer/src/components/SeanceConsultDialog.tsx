@@ -12,8 +12,8 @@ import { ModelPalette } from "./ModelSelector";
 import { Button, ConfirmDialog } from "./ui";
 
 const FIELD =
-  "mt-1.5 w-full rounded-md border border-line bg-void px-2 py-1.5 font-mono text-[11px] text-ink outline-none placeholder:text-ink-faint focus:border-line-strong";
-const LABEL = "block text-[10px] text-ink-faint";
+  "mt-1.5 w-full rounded-md border border-line bg-void px-2 py-1.5 font-mono text-xs text-ink outline-none placeholder:text-ink-faint focus:border-line-strong";
+const LABEL = "block text-xs text-ink-faint";
 
 /** Stable empty list so the palette does not resubscribe on every store tick. */
 const EMPTY_MODELS: ModelInfo[] = [];
@@ -224,11 +224,11 @@ export function SeanceConsultDialog() {
           />
           <div className="mt-1.5 max-h-44 overflow-y-auto rounded-md border border-line bg-void">
             {groups.length === 0 ? (
-              <p className="px-2 py-2 text-[10px] text-ink-faint">{t("transcript.findbar.noMatches")}</p>
+              <p className="px-2 py-2 text-xs text-ink-faint">{t("transcript.findbar.noMatches")}</p>
             ) : (
               groups.map((group) => (
                 <div key={group.key}>
-                  <p className="sticky top-0 truncate bg-raised px-2 py-1 font-mono text-[9px] uppercase tracking-[0.12em] text-ink-faint">
+                  <p className="sticky top-0 truncate bg-raised px-2 py-1 chrome-label text-ink-faint">
                     {group.name} <span className="normal-case tracking-normal">{group.path}</span>
                   </p>
                   {group.rows.map((session) => (
@@ -240,15 +240,15 @@ export function SeanceConsultDialog() {
                         setChosen(session);
                         setQuery(session.title);
                       }}
-                      className={`flex w-full items-baseline gap-2 px-2 py-1.5 text-left text-[11px] hover:bg-hover disabled:cursor-default ${
+                      className={`flex w-full items-baseline gap-2 px-2 py-1.5 text-left text-xs hover:bg-hover disabled:cursor-default ${
                         chosen?.tabId === session.tabId ? "bg-hover" : ""
                       }`}
                     >
                       <span className="min-w-0 flex-1 truncate text-ink">{session.title}</span>
-                      <span className="shrink-0 font-mono text-[10px] text-ink-faint">
+                      <span className="shrink-0 font-mono text-xs text-ink-faint">
                         {relativeTime(session.cachedModified)}
                       </span>
-                      <span className="shrink-0 font-mono text-[10px] text-ink-faint">
+                      <span className="shrink-0 font-mono text-xs text-ink-faint">
                         {t(LIVE_LABEL[session.live])}
                       </span>
                     </button>
@@ -267,7 +267,7 @@ export function SeanceConsultDialog() {
               disabled={!enabled || models.length === 0}
               title={gateTitle ?? (modelOverride ?? t("seance.dialog.modelSaved"))}
               onClick={() => setPickingModel(true)}
-              className="flex min-w-0 flex-1 items-center justify-between gap-2 rounded-md border border-line bg-void px-2 py-1.5 text-left font-mono text-[11px] text-ink hover:border-line-strong disabled:cursor-default disabled:text-ink-faint"
+              className="flex min-w-0 flex-1 items-center justify-between gap-2 rounded-md border border-line bg-void px-2 py-1.5 text-left font-mono text-xs text-ink hover:border-line-strong disabled:cursor-default disabled:text-ink-faint"
             >
               <span className="truncate">{modelOverride ?? t("seance.dialog.modelSaved")}</span>
             </button>

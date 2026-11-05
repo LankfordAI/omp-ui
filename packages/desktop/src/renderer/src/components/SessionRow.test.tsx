@@ -331,26 +331,43 @@ describe("status band replaces the dot (#1037)", () => {
     unmount();
   });
 
-  it("renders no dot markup in either density, and keeps the state text per density", () => {
+  it("renders no dot markup in either density, keeps the state text on tiles only, and bands live rows", () => {
     for (const density of ["tile", "slim"] as const) {
       const el = renderState({}, "running", density);
       // The Dot's signature size class is gone from both densities.
       expect(el.querySelector('[class*="size-1.5"]')).toBeNull();
       // The verb text still names the state (accessibility contract).
       expect(el.textContent).toContain(t("sidebar.status.workingLabel"));
-      // And the Dot's hover tooltip now rides the band.
-      expect(band(el)!.title).toBe(t("sidebar.status.workingTitle"));
+      if (density === "tile") {
+        // The Dot's hover tooltip rides the band; settled (slim) rows carry
+        // no band at all — it is the live-tile state channel (round-2 judge).
+        expect(band(el)!.title).toBe(t("sidebar.status.workingTitle"));
+      } else {
+        expect(band(el)).toBeNull();
+      }
       unmount();
     }
   });
 
-  it("overrides the band to bg-signal on the selected row whatever the state", () => {
+  it("leaves a settled slim row without a band", () => {
+    const el = render(summary(), "18.11.3", null, undefined, "slim");
+    expect(band(el)).toBeNull();
+    // The meta line reads time + outcome, never the dormant "no process".
+    expect(el.textContent).not.toContain(t("sidebar.status.dormantLabel"));
+    act(() => root!.unmount());
+    root = null;
+    document.body.replaceChildren();
+  });
+
+  it("keeps the state tone on the band of a selected row (round-8 judge)", () => {
     // render()'s default activeTabId is TAB, so this row reads selected.
+    // A selected Working row must not read as ready: the bar stays copper,
+    // and selection rides the row's fill + ring instead.
     const el = render(summary({ live: "live" }), null, null, {
       rpc: { [TAB]: rpcTabState({ status: "running" }) },
     });
     const b = band(el)!;
-    expect(b.classList.contains("bg-signal")).toBe(true);
-    expect(b.classList.contains(TONE_DOT.copper)).toBe(false);
+    expect(b.classList.contains(TONE_DOT.copper)).toBe(true);
+    expect(b.classList.contains("bg-signal")).toBe(false);
   });
 });

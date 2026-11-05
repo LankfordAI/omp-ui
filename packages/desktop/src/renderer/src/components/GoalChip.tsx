@@ -115,10 +115,10 @@ export function GoalChip({
       {open && pos && createPortal(
         <div ref={panelRef} className="fixed z-[70]" style={pos}>
           <Panel className="edge-lit animate-rise w-[18rem] p-2.5">
-            <p className="max-h-40 overflow-y-auto whitespace-pre-wrap text-[12px] text-ink">
+            <p className="max-h-40 overflow-y-auto whitespace-pre-wrap text-xs text-ink">
               {goal.objective}
             </p>
-            <div className="mt-2 space-y-0.5 font-mono text-[10px] text-ink-faint">
+            <div className="mt-2 space-y-0.5 font-mono text-xs text-ink-faint">
               {detailLines.map((line) => (
                 <div key={line}>{line}</div>
               ))}

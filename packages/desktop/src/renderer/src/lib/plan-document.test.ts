@@ -307,7 +307,9 @@ describe("preparePlanDocument guardrails", () => {
     const source =
       "<html><head><style>:root,body,p{color:#fff;background:transparent}</style></head>" +
       '<body style="color: white; background: transparent"><p>Readable</p></body></html>';
-    const { doc: prepared } = await preparePlanDocument(source, resolveTheme("graphite"));
+    const graphiteTheme = resolveTheme("graphite");
+    const lightTheme = resolveTheme("light");
+    const { doc: prepared } = await preparePlanDocument(source, graphiteTheme);
     const graphite = guardrailCss(prepared);
     expect(prepared.indexOf("color:#fff")).toBeLessThan(prepared.indexOf(MARKER));
     // The theme canvas and ink must be declared with !important for BOTH
@@ -321,18 +323,25 @@ describe("preparePlanDocument guardrails", () => {
       const from = hit.index ?? 0;
       return css.slice(from + hit[0].length, css.indexOf("}", from));
     };
+    // The hexes are the themes' own ink/canvas tokens (issue #1042 retunes
+    // the palette between rounds; the guardrail contract is "the active
+    // theme's ink over canvas", never one frozen literal).
+    const graphiteInk = graphiteTheme.tokens["--color-ink"];
+    const graphiteCanvas = graphiteTheme.tokens["--color-surface"];
     for (const sel of [":root", "body"]) {
       const graphiteRule = rulesFor(graphite, sel);
       expect(graphiteRule, sel).toContain("color-scheme: dark !important");
-      expect(graphiteRule, sel).toContain("color: #e8ecf1 !important");
-      expect(graphiteRule, sel).toContain("background-color: #14171b !important");
+      expect(graphiteRule, sel).toContain(`color: ${graphiteInk} !important`);
+      expect(graphiteRule, sel).toContain(`background-color: ${graphiteCanvas} !important`);
     }
-    const { doc: light } = await preparePlanDocument(source, resolveTheme("light"));
+    const { doc: light } = await preparePlanDocument(source, lightTheme);
     for (const sel of [":root", "body"]) {
       const lightRule = rulesFor(guardrailCss(light), sel);
       expect(lightRule, sel).toContain("color-scheme: light !important");
-      expect(lightRule, sel).toContain("color: #12161b !important");
-      expect(lightRule, sel).toContain("background-color: #fafbfc !important");
+      expect(lightRule, sel).toContain(`color: ${lightTheme.tokens["--color-ink"]} !important`);
+      expect(lightRule, sel).toContain(
+        `background-color: ${lightTheme.tokens["--color-surface"]} !important`,
+      );
     }
     expect(guardrailCss(light)).toContain(`html :where(*:not(svg, svg *)) {
   max-width: 100% !important;
@@ -347,16 +356,18 @@ describe("preparePlanDocument guardrails", () => {
     const source =
       "<html><head><style>pre{background:#f1f5f9;color:#000}code{background:#e8edf3}</style></head>" +
       "<body><p>inline <code>chip</code></p><pre><code>x = 1</code></pre></body></html>";
-    const { doc: prepared } = await preparePlanDocument(source, resolveTheme("graphite"));
+    const graphiteTheme = resolveTheme("graphite");
+    const { doc: prepared } = await preparePlanDocument(source, graphiteTheme);
     const css = guardrailCss(prepared);
 
-    expect(css).toContain(`background-color: #1a1e23 !important;`);
-    expect(css).toContain(`color: #e8ecf1 !important;`);
+    // Token-derived (issue #1042 retunes the palette between rounds).
+    expect(css).toContain(`background-color: ${graphiteTheme.tokens["--color-raised"]} !important;`);
+    expect(css).toContain(`color: ${graphiteTheme.tokens["--color-ink"]} !important;`);
     expect(css).toContain(`color-scheme: dark !important;`);
     expect(css).toContain(`white-space: pre-wrap !important;`);
     // Same specificity and !important tier as the universal rule: the plane
     // holds only because it sits later in the sheet.
-    expect(prepared.indexOf("background-color: #1a1e23 !important")).toBeGreaterThan(
+    expect(prepared.indexOf(`background-color: ${graphiteTheme.tokens["--color-raised"]} !important`)).toBeGreaterThan(
       prepared.indexOf("background-color: transparent !important"),
     );
     expect(css).toContain(`code {
@@ -372,13 +383,15 @@ pre code {`);
 
   it("follows light themes with a light code plane", async () => {
     const source = "<html><head></head><body><pre><code>x</code></pre></body></html>";
-    const { doc: prepared } = await preparePlanDocument(source, resolveTheme("light"));
+    const lightTheme = resolveTheme("light");
+    const { doc: prepared } = await preparePlanDocument(source, lightTheme);
     const css = guardrailCss(prepared);
 
-    expect(css).toContain(`background-color: #ffffff !important;`);
-    expect(css).toContain(`color: #12161b !important;`);
+    // Token-derived (issue #1042 retunes the palette between rounds).
+    expect(css).toContain(`background-color: ${lightTheme.tokens["--color-raised"]} !important;`);
+    expect(css).toContain(`color: ${lightTheme.tokens["--color-ink"]} !important;`);
     expect(css).toContain(`color-scheme: light !important;`);
-    expect(css).toContain(`background-color: #e6ebf0 !important;`);
+    expect(css).toContain(`background-color: ${lightTheme.tokens["--color-hover"]} !important;`);
   });
 
   it("contains fixed content-box layouts without erasing authored padding or borders", async () => {
@@ -466,6 +479,8 @@ a:active {
   it("constrains oversized media, paints SVG text with theme ink, and washes hand-drawn fills on dark only", async () => {
     const source =
       '<html><head></head><body><img width="2400" height="1200" alt="a"><svg width="2400" height="800"><circle cx="30" cy="30" r="20" fill="red"/><text x="0" y="20" fill="white">Plan</text></svg></body></html>';
+    // No theme argument: the default theme (graphite) paints the guardrail.
+    const graphiteTheme = resolveTheme(DEFAULT_THEME_ID);
     const { doc: prepared } = await preparePlanDocument(source);
     const css = guardrailCss(prepared);
 
@@ -497,7 +512,7 @@ svg {
   height: auto !important;
 }`);
     expect(css).toContain(`svg text {
-  fill: #e8ecf1 !important;
+  fill: ${graphiteTheme.tokens["--color-ink"]} !important;
 }`);
     expect(css).not.toMatch(/svg\s+(?:circle|ellipse|line|path|polygon|polyline|rect)\s*{/);
     // Hand-drawn shape fills become washes on a dark canvas (issue #384):

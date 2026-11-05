@@ -99,7 +99,7 @@ export function JobWidgetGlance({ widget }: { widget: AsyncJobWidget }) {
   const meter = spark === null ? (widget.blocks.find(isJobWidgetBlock("meter")) ?? null) : null;
   if (figure === null && spark === null && meter === null) return null;
   return (
-    <div data-job-widget-glance title={widget.title} className="mt-1 flex min-w-0 items-center gap-1.5 pl-3 text-[10px]">
+    <div data-job-widget-glance title={widget.title} className="mt-1 flex min-w-0 items-center gap-1.5 pl-3 text-xs">
       {figure !== null && <WidgetFigure figure={figure} />}
       {spark !== null && (
         <JobSparkline values={spark.values.slice(-JOB_WIDGET_GLANCE_POINTS)} min={spark.min} max={spark.max}
@@ -116,7 +116,7 @@ export function JobWidgetGlance({ widget }: { widget: AsyncJobWidget }) {
 
 function BlockHead({ label, value }: { label: string; value?: string }) {
   return (
-    <div className="flex items-baseline justify-between gap-2 text-[10px]">
+    <div className="flex items-baseline justify-between gap-2 text-xs">
       <span className="truncate text-ink-faint">{label}</span>
       {value !== undefined && <span className="shrink-0 font-mono text-ink-mid">{value}</span>}
     </div>
@@ -139,7 +139,7 @@ function WidgetBlock({ block }: { block: AsyncJobWidgetBlock }) {
           <BlockHead label={block.label} />
           <ul className="space-y-0.5">
             {block.items.map((item, i) => (
-              <li key={i} className="grid grid-cols-[minmax(0,6rem)_1fr_auto] items-center gap-1.5 text-[10px]">
+              <li key={i} className="grid grid-cols-[minmax(0,6rem)_1fr_auto] items-center gap-1.5 text-xs">
                 <span className="truncate text-ink-dim" title={item.label}>{item.label}</span>
                 <WidgetBar fraction={item.value / block.max} tone={JOB_WIDGET_TONE[item.tone ?? "accent"]} />
                 <span className="font-mono text-ink-mid">{item.text}</span>
@@ -157,7 +157,7 @@ function WidgetBlock({ block }: { block: AsyncJobWidgetBlock }) {
       );
     case "stat":
       return (
-        <dl className="flex flex-wrap gap-x-3 gap-y-0.5 text-[10px]">
+        <dl className="flex flex-wrap gap-x-3 gap-y-0.5 text-xs">
           {block.items.map((item, i) => (
             <div key={i} className="flex items-baseline gap-1">
               <dt className="text-ink-faint">{item.label}</dt>
@@ -178,7 +178,7 @@ function WidgetBlock({ block }: { block: AsyncJobWidgetBlock }) {
           <ul className="flex flex-wrap gap-1">
             {block.items.map((item, i) => (
               <li key={i} title={`${item.label}: ${item.text}`}
-                className="flex max-w-full items-center gap-1 rounded border border-line px-1 text-[10px]">
+                className="flex max-w-full items-center gap-1 rounded border border-line px-1 text-xs">
                 <Dot tone={JOB_WIDGET_TONE[item.tone]} />
                 <span className="truncate text-ink-dim">{item.label}</span>
                 <span className="truncate font-mono text-ink-mid">{item.text}</span>
@@ -188,7 +188,7 @@ function WidgetBlock({ block }: { block: AsyncJobWidgetBlock }) {
         </div>
       );
     case "text":
-      return <p className="whitespace-pre-wrap break-words text-[10px] text-ink-mid">{block.text}</p>;
+      return <p className="whitespace-pre-wrap break-words text-xs text-ink-mid">{block.text}</p>;
   }
 }
 
@@ -196,7 +196,7 @@ function WidgetBlock({ block }: { block: AsyncJobWidgetBlock }) {
 export function JobWidgetBlocks({ widget }: { widget: AsyncJobWidget }) {
   return (
     <section data-job-widget aria-label={widget.title} className="mt-1 space-y-1.5 pl-3">
-      <h4 className="text-[10px] uppercase tracking-[0.08em] text-ink-faint">{widget.title}</h4>
+      <h4 className="chrome-label text-ink-faint">{widget.title}</h4>
       {widget.blocks.map((block, index) => (
         <WidgetBlock key={`${index}-${block.kind}`} block={block} />
       ))}

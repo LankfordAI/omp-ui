@@ -31,7 +31,7 @@ export function AudioDevicePicker({
 }) {
   const t = useT();
   if (load.status === "loading") {
-    return <p className="text-[11px] text-ink-faint">{t("settings.omp.reading")}</p>;
+    return <p className="text-xs text-ink-faint">{t("settings.omp.reading")}</p>;
   }
   const { snapshot } = load;
   const roleLabel: Record<AudioDeviceRole, string> = {
@@ -43,7 +43,7 @@ export function AudioDevicePicker({
       <div className="flex min-w-0 flex-col gap-2">
         {(["input", "output"] as const).map((role) => (
           <div key={role} className="flex min-w-0 flex-col gap-1">
-            <p className="text-[10px] uppercase tracking-wide text-ink-faint">
+            <p className="chrome-label text-ink-faint">
               {roleLabel[role]}
             </p>
             <div
@@ -57,7 +57,7 @@ export function AudioDevicePicker({
                 disabled
                 className="flex w-full cursor-not-allowed items-center gap-2 px-2.5 py-1.5 text-left opacity-45"
               >
-                <span className="min-w-0 truncate text-xs font-medium">
+                <span className="min-w-0 truncate text-sm font-medium">
                   {t("settings.general.audioDeviceSystemDefault")}
                 </span>
               </button>
@@ -65,7 +65,7 @@ export function AudioDevicePicker({
           </div>
         ))}
         {snapshot.error !== null && (
-          <p className="text-[10px] text-ink-faint">
+          <p className="text-xs text-ink-faint">
             {t("settings.general.dictationLoadFailed", { message: snapshot.error })}
           </p>
         )}
@@ -107,7 +107,7 @@ export function AudioDevicePicker({
         }
         return (
           <div key={role} className="flex min-w-0 flex-col gap-1">
-            <p className="text-[10px] uppercase tracking-wide text-ink-faint">{roleLabel[role]}</p>
+            <p className="chrome-label text-ink-faint">{roleLabel[role]}</p>
             <div
               role="group"
               aria-label={roleLabel[role]}
@@ -134,7 +134,7 @@ export function AudioDevicePicker({
                       {option.label}
                     </span>
                     {option.chip !== null && (
-                      <span className="shrink-0 rounded bg-raised px-1.5 py-0.5 text-[9px] uppercase tracking-wide text-ink-faint">
+                      <span className="shrink-0 rounded bg-raised px-1.5 py-0.5 chrome-label text-ink-faint">
                         {option.chip}
                       </span>
                     )}

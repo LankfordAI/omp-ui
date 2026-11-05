@@ -90,7 +90,7 @@ export function Lab({ view }: { view: LabView }) {
             if (picked === undefined) openLab(null, null);
             else openLab(picked.group.project.path, picked.instanceId);
           }}
-          className="h-6 max-w-[16rem] rounded-md border border-line bg-raised px-1.5 text-[11px] text-ink-mid"
+          className="h-6 max-w-[16rem] rounded-md border border-line bg-raised px-1.5 text-xs text-ink-mid"
         >
           <option value="">{t("lab.header.allProjects")}</option>
           {all.map((p) => (
@@ -149,9 +149,9 @@ function ProjectExperimentsSection({ project }: { project: ScopedProject }) {
   return (
     <section className="flex flex-col gap-3">
       <div className="flex items-baseline gap-2">
-        <h2 className="font-display text-sm font-semibold">{project.label}</h2>
-        <span className="min-w-0 flex-1 truncate font-mono text-[10px] text-ink-faint">{group.project.path}</span>
-        {cache?.load === "loading" && <span className="text-[10px] text-ink-faint">{t("lab.overview.loading")}</span>}
+        <h2 className="text-sm font-semibold">{project.label}</h2>
+        <span className="min-w-0 flex-1 truncate font-mono text-xs text-ink-faint">{group.project.path}</span>
+        {cache?.load === "loading" && <span className="text-xs text-ink-faint">{t("lab.overview.loading")}</span>}
       </div>
       {unsupported && <p className="text-xs text-ink-faint">{t("lab.overview.unsupportedHost")}</p>}
       {!unsupported && cache?.error !== null && cache?.error !== undefined && (

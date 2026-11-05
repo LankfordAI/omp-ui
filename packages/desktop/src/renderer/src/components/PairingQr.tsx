@@ -43,7 +43,7 @@ export function PairingQr({ url, title, caption }: { url: string; title: string;
       />
       <div className="min-w-0">
         <Label>{title}</Label>
-        <p className="mt-1 text-[11px] leading-relaxed text-ink-faint">{caption}</p>
+        <p className="mt-1 text-xs leading-relaxed text-ink-faint">{caption}</p>
       </div>
     </Panel>
   );

@@ -84,11 +84,11 @@ export function TodoPanel({ tabId }: { tabId: string }) {
         return (
           <section key={pi}>
             <div className="mb-1 flex items-baseline gap-2">
-              <h3 className="min-w-0 flex-1 truncate font-display text-[12px] text-ink">
+              <h3 className="min-w-0 flex-1 truncate text-xs text-ink">
                 {phase.phase ?? t("todo.panel.phase", { n: pi + 1 })}
               </h3>
               <span
-                className="shrink-0 font-mono text-[10px] tabular-nums text-ink-faint"
+                className="shrink-0 font-mono text-xs tabular-nums text-ink-faint"
                 title={progress}
               >
                 {done}/{tasks.length}
@@ -113,7 +113,7 @@ export function TodoPanel({ tabId }: { tabId: string }) {
                       <TaskGlyph status={task.status} />
                       <span
                         className={cn(
-                          "min-w-0 flex-1 text-[11px] leading-snug",
+                          "min-w-0 flex-1 text-xs leading-snug",
                           task.status === "completed"
                             ? "text-ink-faint line-through"
                             : task.status === "in_progress"

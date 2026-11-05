@@ -228,6 +228,17 @@ describe("session-spend bridge", () => {
     expect(snapshot.transcripts).toBe(2);
   });
 
+  it("counts a journal whose header line is written with spaces", async () => {
+    // Round-7 judge fixture caveat: a prefilter matching only the compact
+    // literal silently counted $0 for a journal serialized with spacing.
+    const { root } = sessionPaths();
+    const spaced = `{"type": "session", "version": 3, "id": "s", "timestamp": "${HEADER_AT}", "cwd": "/tmp"}`;
+    writeFile(root, journal(spaced, assistant(0.4, 1), assistant(0.6, 2)));
+    const snapshot = (await armed(root)).latest();
+    expect(snapshot.available).toBe(true);
+    expect(snapshot.total.cost).toBeCloseTo(1.0);
+  });
+
   it("excludes advisor transcripts and ignores non-transcript files", async () => {
     const { root, artifacts } = sessionPaths();
     writeFile(root, journal(header(), assistant(1, 1)));

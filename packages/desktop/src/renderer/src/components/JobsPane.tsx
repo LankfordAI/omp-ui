@@ -122,10 +122,10 @@ export function JobsPane({ tabId }: { tabId: string }) {
           <ul className="space-y-1">{runningRows.map(renderRow)}</ul>
         )}
         {!snapshot.canCancel && snapshot.running.length > 0 && (
-          <p className="mt-1 text-[10px] text-ink-faint">{t("rail.jobs.noCancel")}</p>
+          <p className="mt-1 text-xs text-ink-faint">{t("rail.jobs.noCancel")}</p>
         )}
         {error !== null && (
-          <p className="mt-1 rounded-md border border-rose-dim/50 bg-rose-wash px-2 py-1 text-[10px] text-rose">
+          <p className="mt-1 rounded-md border border-rose-dim/50 bg-rose-wash px-2 py-1 text-xs text-rose">
             {error}
           </p>
         )}
@@ -142,8 +142,8 @@ export function JobsPane({ tabId }: { tabId: string }) {
 function Field({ label, children }: { label: string; children: ReactNode }) {
   return (
     <div>
-      <dt className="text-[10px] uppercase tracking-[0.08em] text-ink-faint">{label}</dt>
-      <dd className="whitespace-pre-wrap break-all font-mono text-[11px] text-ink-mid">{children}</dd>
+      <dt className="chrome-label text-ink-faint">{label}</dt>
+      <dd className="whitespace-pre-wrap break-all font-mono text-xs text-ink-mid">{children}</dd>
     </div>
   );
 }
@@ -187,8 +187,8 @@ function JobRow({
             className="flex min-w-0 flex-1 items-center gap-1.5 text-left"
           >
             <Dot tone={AGENT_TONE[job.status] ?? "neutral"} pulse={running} title={job.status} />
-            <span className="shrink-0 font-mono text-[11px] text-ink">{job.id}</span>
-            <span className="min-w-0 flex-1 truncate text-[11px] text-ink-dim" title={job.label}>{job.intent ?? job.label}</span>
+            <span className="shrink-0 font-mono text-xs text-ink">{job.id}</span>
+            <span className="min-w-0 flex-1 truncate text-xs text-ink-dim" title={job.label}>{job.intent ?? job.label}</span>
           </button>
           <Chip mono>{job.type}</Chip>
           {agent !== null && (
@@ -208,24 +208,24 @@ function JobRow({
           )}
         </div>
         {job.caption !== null && (
-          <p data-job-caption className="mt-0.5 truncate pl-3 text-[10px] text-ink-faint" title={job.caption}>
+          <p data-job-caption className="mt-0.5 truncate pl-3 text-xs text-ink-faint" title={job.caption}>
             {job.caption}
           </p>
         )}
-        <div className="mt-0.5 flex items-baseline gap-1.5 pl-3 font-mono text-[10px] text-ink-faint">
+        <div className="mt-0.5 flex items-baseline gap-1.5 pl-3 font-mono text-xs text-ink-faint">
           <span>{job.status}</span>
           {job.exitCode !== null && <span>{t("rail.jobs.exit", { code: job.exitCode })}</span>}
           <span>{formatDuration((job.endTime ?? now) - job.startTime)}</span>
           {completion !== null && <CompletionRing percent={completion} />}
         </div>
         {stage !== null && (
-          <p data-job-stage className="mt-0.5 truncate pl-3 text-[10px] text-ink-mid" title={stage}>
+          <p data-job-stage className="mt-0.5 truncate pl-3 text-xs text-ink-mid" title={stage}>
             {stage}
           </p>
         )}
         {widget !== null && <JobWidgetGlance widget={widget} />}
         {open && widget !== null && <JobWidgetBlocks widget={widget} />}
-        {open && !canInspect && <p className="mt-1 pl-3 text-[10px] text-ink-faint">{t("rail.jobs.noInspect")}</p>}
+        {open && !canInspect && <p className="mt-1 pl-3 text-xs text-ink-faint">{t("rail.jobs.noInspect")}</p>}
         {open && canInspect && (
           <dl className="mt-1 space-y-1 pl-3">
             {job.command !== null && <Field label={t("rail.jobs.command")}>{job.command}</Field>}
@@ -235,7 +235,7 @@ function JobRow({
               {job.outputTail === "" && !job.outputTruncated ? (
                 <span className="text-ink-faint">{t("rail.jobs.noOutput")}</span>
               ) : (
-                <pre className="max-h-48 overflow-auto whitespace-pre-wrap break-all rounded bg-sunken p-1.5 text-[10px]">
+                <pre className="max-h-48 overflow-auto whitespace-pre-wrap break-all rounded bg-sunken p-1.5 text-xs">
                   {job.outputTruncated ? `${t("rail.jobs.outputTruncated")}\n` : ""}
                   {job.outputTail}
                 </pre>

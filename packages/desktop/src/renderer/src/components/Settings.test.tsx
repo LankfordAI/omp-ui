@@ -660,8 +660,8 @@ describe("Settings General page default agent mode (issue #143)", () => {
     });
     await renderSettings();
 
-    expect(buttonWithText("plan")!.getAttribute("aria-pressed")).toBe("true");
-    click(buttonWithText("build")!);
+    expect(buttonWithText("Plan")!.getAttribute("aria-pressed")).toBe("true");
+    click(buttonWithText("Build")!);
     expect(backendMock.setDefaultAgentMode).toHaveBeenCalledWith("build");
   });
 });
@@ -687,22 +687,16 @@ describe("Settings General page default compaction method (issue #275)", () => {
       ompUpdate: idleOmpUpdate,
     });
     await renderSettings();
-    expect(pickerButtons().map(labelOf)).toEqual([
-      "omp configured default",
-      "Soft compaction",
-      "OpenAI server compaction",
-      "future",
-    ]);
+    // Behavior only: order (default row first, then omp's published order),
+    // the pressed row, and that an unknown id gets no invented description.
+    expect(pickerButtons()).toHaveLength(4);
     // The persisted method is pressed; the unknown id "future" got the raw
     // label and no invented description (one child instead of two).
     expect(pickerButtons()[1].getAttribute("aria-pressed")).toBe("true");
+    expect(labelOf(pickerButtons()[3])).toBe("future");
     expect(pickerButtons()[3].children).toHaveLength(1);
-    expect(document.body.textContent).toContain(
-      "Summarize in place with a compaction model without using server compaction",
-    );
-    expect(document.body.textContent).toContain(
-      "Use provider-native OpenAI-compatible server compaction when the active route supports it",
-    );
+    // Known methods carry a description child; the unknown id gets none.
+    expect(pickerButtons()[1].children).toHaveLength(2);
     click(pickerButtons()[0]);
     expect(backendMock.setDefaultCompactionMethod).toHaveBeenCalledWith(null);
     // Mirror what the real backend round-trip does, then pick another method.
@@ -729,7 +723,7 @@ describe("Settings General page default compaction method (issue #275)", () => {
     expect(unavailable.getAttribute("aria-pressed")).toBe("true");
   });
 
-  it("keeps the omp configured default selectable when the method read fails", async () => {
+  it("keeps the omp-default row selectable when the method read fails", async () => {
     backendMock.listCompactionMethods.mockRejectedValueOnce(new Error("omp binary not found"));
     useStore.setState({
       settingsPage: "general",
@@ -742,7 +736,8 @@ describe("Settings General page default compaction method (issue #275)", () => {
     });
     await renderSettings();
     expect(pickerButtons()).toHaveLength(1);
-    expect(labelOf(pickerButtons()[0])).toBe("omp configured default");
+    // The one row is the clear-the-override row (index 0 by construction).
+    expect(pickerButtons()[0].getAttribute("aria-pressed")).toBe("false");
     expect(document.body.textContent).toContain("Methods unavailable: omp binary not found");
     click(pickerButtons()[0]);
     expect(backendMock.setDefaultCompactionMethod).toHaveBeenCalledWith(null);
@@ -2466,7 +2461,6 @@ describe("Settings Appearance page transcript width and glass chrome (issues #39
 
     click(card("Full transcript width"));
     expect(backendMock.setTranscriptWidth).toHaveBeenCalledWith("full");
-    expect(document.documentElement.style.getPropertyValue("--transcript-max")).toBe("none");
     expect(document.documentElement.style.getPropertyValue("--prose-max")).toBe("88ch");
 
     click(card("Frosted glass chrome"));

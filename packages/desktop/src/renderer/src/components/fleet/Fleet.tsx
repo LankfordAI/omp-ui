@@ -190,7 +190,7 @@ function MachineRow({
   // ADR-0066: the maintenance chip reads the last job we started here, if any.
   const maintenance = machine.maintenance;
   return (
-    <li className="flex flex-wrap items-center gap-x-3 gap-y-1 py-1.5 text-[11px]" data-machine-key={machine.key}>
+    <li className="flex flex-wrap items-center gap-x-3 gap-y-1 py-1.5 text-xs" data-machine-key={machine.key}>
       <span className="flex min-w-0 items-center gap-1.5">
         <Dot tone={face.tone} title={t(face.labelKey)} />
         <span className="truncate text-xs text-ink">{name}</span>
@@ -317,7 +317,7 @@ function MachineRow({
         value={machine.preference}
         options={PLACEMENT_PREFERENCES.map((pref) => ({ value: pref, label: t(PREFERENCE_LABEL[pref]) }))}
         onChange={(pref) => void setFleetPlacement(machine.key, pref)}
-        className="text-[11px]"
+        className="text-xs"
       />
     </li>
   );
@@ -364,7 +364,7 @@ function UpdateAllProgress({ run }: { run: FleetUpdateAllRun }) {
   const settled = run.finishedAt !== null;
   return (
     <div data-update-all-run={settled ? "finished" : "running"} className="mb-2 rounded-md border border-line bg-raised px-3 py-2">
-      <p className="mb-1 text-[11px] text-ink-mid">
+      <p className="mb-1 text-xs text-ink-mid">
         {settled ? t("fleet.updateAll.finished") : t("fleet.updateAll.running")}
       </p>
       <ul className="divide-y divide-line-soft">
@@ -375,7 +375,7 @@ function UpdateAllProgress({ run }: { run: FleetUpdateAllRun }) {
               key={member.machineKey}
               data-update-all-member={member.machineKey}
               data-update-all-state={member.state}
-              className="flex flex-wrap items-center gap-x-2 gap-y-1 py-1 text-[11px]"
+              className="flex flex-wrap items-center gap-x-2 gap-y-1 py-1 text-xs"
             >
               <span className="truncate text-xs text-ink">{member.nickname ?? member.machineKey}</span>
               <Chip tone={face.tone}>
@@ -468,10 +468,10 @@ function MachinesSection() {
     >
       {view.updateAll !== null && <UpdateAllProgress run={view.updateAll} />}
       {view.error !== null && (
-        <p className="mb-1.5 rounded-md border border-line bg-raised px-3 py-2 text-[11px] text-ink-mid">{view.error}</p>
+        <p className="mb-1.5 rounded-md border border-line bg-raised px-3 py-2 text-xs text-ink-mid">{view.error}</p>
       )}
       {view.machines === null ? (
-        view.loading && <p className="text-[11px] text-ink-faint">{t("fleet.machine.loading")}</p>
+        view.loading && <p className="text-xs text-ink-faint">{t("fleet.machine.loading")}</p>
       ) : (
         <ul className="divide-y divide-line-soft">
           {view.machines.map((machine) => (
@@ -500,7 +500,7 @@ function PendingRow({ pending }: { pending: FleetPendingDispatch }) {
   const dismissFleetDispatch = useStore((s) => s.dismissFleetDispatch);
   const machine = pending.nickname ?? t("fleet.machine.thisComputer");
   return (
-    <li className="flex items-center gap-3 py-1.5 text-[11px]" data-dispatch-id={pending.dispatchId}>
+    <li className="flex items-center gap-3 py-1.5 text-xs" data-dispatch-id={pending.dispatchId}>
       <span className="min-w-0 flex-1">
         <span className="block truncate text-xs text-ink">{pending.title}</span>
         <span className="block truncate text-ink-faint" title={pending.message}>
@@ -546,7 +546,7 @@ function DispatchRow({ row, state }: { row: FleetRow; state: SidebarSessionState
   const face = SESSION_FACE[state];
   const requestedBy = summary.fleet.requestedBy;
   return (
-    <li className="flex items-center gap-3 py-1 text-[11px]" data-tab-id={summary.tabId}>
+    <li className="flex items-center gap-3 py-1 text-xs" data-tab-id={summary.tabId}>
       <Dot tone={face.tone} pulse={face.pulse} title={t(face.titleKey)} />
       <span className="w-28 shrink-0 truncate text-ink-mid">{row.nickname ?? t("fleet.machine.thisComputer")}</span>
       <span className="min-w-0 flex-1">
@@ -585,7 +585,7 @@ function DispatchGroup({ batchId, rows }: { batchId: string | null; rows: FleetR
   return (
     <div className="py-1" data-batch-id={batchId ?? undefined}>
       {batchId !== null && (
-        <div className="flex items-center gap-2 py-0.5 text-[11px]">
+        <div className="flex items-center gap-2 py-0.5 text-xs">
           <span className="min-w-0 flex-1 truncate font-medium text-ink">{rows[0]!.summary.title}</span>
           {[...counts].map(([state, count]) => (
             <span key={state} className={SESSION_FACE[state].textClass}>
@@ -632,7 +632,7 @@ function DispatchesSection() {
   return (
     <Section title={t("fleet.section.dispatches")}>
       {groups.length === 0 ? (
-        <p className="text-[11px] text-ink-faint">{t("fleet.dispatches.empty")}</p>
+        <p className="text-xs text-ink-faint">{t("fleet.dispatches.empty")}</p>
       ) : (
         groups.map(([key, group]) => <DispatchGroup key={key} batchId={group.batchId} rows={group.rows} />)
       )}
@@ -658,7 +658,7 @@ function AuditSection() {
         {rows.map((entry, index) => (
           <li
             key={`${entry.at}-${index}`}
-            className="flex flex-wrap items-baseline gap-x-2 py-1 text-[11px]"
+            className="flex flex-wrap items-baseline gap-x-2 py-1 text-xs"
             data-audit-index={index}
           >
             <span className={`shrink-0 font-medium ${entry.accepted ? "text-ink-mid" : "text-rose"}`}>
@@ -691,7 +691,7 @@ function TerminalsSection() {
     <Section title={t("fleet.section.terminals")}>
       <ul className="divide-y divide-line-soft">
         {terminals.map((ft) => (
-          <li key={ft.terminalId} className="flex items-center gap-2 py-1.5 text-[11px]" data-fleet-terminal-row={ft.terminalId}>
+          <li key={ft.terminalId} className="flex items-center gap-2 py-1.5 text-xs" data-fleet-terminal-row={ft.terminalId}>
             <Dot tone={ft.exitCode === null ? "signal" : "neutral"} />
             <span className="min-w-0 flex-1 truncate text-xs text-ink">{t("fleet.terminal.title", { machine: ft.nickname })}</span>
             <span className="shrink-0 font-mono tabular-nums text-ink-dim">

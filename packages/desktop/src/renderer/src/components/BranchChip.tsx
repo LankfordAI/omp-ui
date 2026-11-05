@@ -558,7 +558,7 @@ export function BranchChip({
                 })
         }
         onClick={toggleMenu}
-        className="tap-target inline-flex h-6 min-w-0 items-center gap-1 rounded-md border border-line px-1.5 font-mono text-[10px] leading-4 text-ink-mid transition-colors duration-150 hover:bg-hover hover:text-ink"
+        className="tap-target inline-flex h-6 min-w-0 items-center gap-1 rounded-md border border-line px-1.5 font-mono text-xs leading-4 text-ink-mid transition-colors duration-150 hover:bg-hover hover:text-ink"
       >
         <svg viewBox="0 0 16 16" aria-hidden className="size-3.5">
           <circle cx="5" cy="4" r="1.6" {...ICON_STROKE} />
@@ -600,7 +600,7 @@ export function BranchChip({
         >
           {confirm !== null ? (
             <>
-              <div className="px-1.5 py-1 text-[11px] leading-snug text-copper">
+              <div className="px-1.5 py-1 text-xs leading-snug text-copper">
                 {confirm.kind === "pull"
                   ? t("composer.branch.confirmPull", { title: busyTitle! })
                   : confirm.kind === "push"
@@ -664,9 +664,9 @@ export function BranchChip({
                     void attempt(name.trim(), true);
                   }
                 }}
-                className="mx-1 mb-1 rounded border border-line bg-void px-1.5 py-1 font-mono text-[11px] text-ink outline-none placeholder:text-ink-faint focus:border-line-strong"
+                className="mx-1 mb-1 rounded border border-line bg-void px-1.5 py-1 font-mono text-xs text-ink outline-none placeholder:text-ink-faint focus:border-line-strong"
               />
-              <span className="px-1.5 pb-1 text-[10px] text-ink-faint">
+              <span className="px-1.5 pb-1 text-xs text-ink-faint">
                 {t("composer.branch.createHint")}
               </span>
               <div className="flex gap-1.5 px-1.5 pb-0.5">
@@ -723,7 +723,7 @@ export function BranchChip({
                 }
                 idPrefix="composer-worktree"
               />
-              <span className="px-1.5 pb-1 text-[10px] text-ink-faint">
+              <span className="px-1.5 pb-1 text-xs text-ink-faint">
                 {t("composer.branch.worktreeHint")}
               </span>
               <div className="flex gap-1.5 px-1.5 pb-0.5">
@@ -751,7 +751,7 @@ export function BranchChip({
                     closeMenu();
                     openFinishWorktree(finishTabId);
                   }}
-                  className="rounded px-1.5 py-0.5 text-left font-mono text-[11px] text-ink-mid hover:bg-hover hover:text-ink"
+                  className="rounded px-1.5 py-0.5 text-left font-mono text-xs text-ink-mid hover:bg-hover hover:text-ink"
                 >
                   {t("composer.branch.finishWorktree")}
                 </button>
@@ -761,7 +761,7 @@ export function BranchChip({
                   type="button"
                   disabled={!pullEnabled}
                   onClick={() => void attemptPull()}
-                  className="rounded px-1.5 py-0.5 text-left font-mono text-[11px] text-ink hover:bg-hover disabled:pointer-events-none disabled:text-ink-dim"
+                  className="rounded px-1.5 py-0.5 text-left font-mono text-xs text-ink hover:bg-hover disabled:pointer-events-none disabled:text-ink-dim"
                 >
                   {pulling ? t("composer.branch.pulling") : t("composer.branch.pull", { commits: commits(behind) })}
                 </button>
@@ -777,7 +777,7 @@ export function BranchChip({
                   onClick={() => {
                     if (current !== null) void attemptPush(current);
                   }}
-                  className="rounded px-1.5 py-0.5 text-left font-mono text-[11px] text-ink hover:bg-hover disabled:pointer-events-none disabled:text-ink-dim"
+                  className="rounded px-1.5 py-0.5 text-left font-mono text-xs text-ink hover:bg-hover disabled:pointer-events-none disabled:text-ink-dim"
                 >
                   {pushing
                     ? t("composer.branch.pushing")
@@ -789,7 +789,7 @@ export function BranchChip({
                   type="button"
                   disabled={!publishEnabled}
                   onClick={() => void attemptPublish()}
-                  className="rounded px-1.5 py-0.5 text-left font-mono text-[11px] text-ink hover:bg-hover disabled:pointer-events-none disabled:text-ink-dim"
+                  className="rounded px-1.5 py-0.5 text-left font-mono text-xs text-ink hover:bg-hover disabled:pointer-events-none disabled:text-ink-dim"
                 >
                   {t("composer.branch.publish", { branch: current, remote: defaultRemote })}
                 </button>
@@ -798,7 +798,7 @@ export function BranchChip({
                 <button
                   type="button"
                   onClick={() => void openPullRequest()}
-                  className="rounded px-1.5 py-0.5 text-left font-mono text-[11px] text-ink hover:bg-hover disabled:pointer-events-none disabled:text-ink-dim"
+                  className="rounded px-1.5 py-0.5 text-left font-mono text-xs text-ink hover:bg-hover disabled:pointer-events-none disabled:text-ink-dim"
                 >
                   {t("composer.branch.pullRequest")}
                 </button>
@@ -809,7 +809,7 @@ export function BranchChip({
                   role="menuitem"
                   disabled={refreshing || pulling || pushing}
                   onClick={() => void attemptResolve()}
-                  className="rounded px-1.5 py-0.5 text-left font-mono text-[11px] text-ink hover:bg-hover disabled:pointer-events-none disabled:text-ink-dim"
+                  className="rounded px-1.5 py-0.5 text-left font-mono text-xs text-ink hover:bg-hover disabled:pointer-events-none disabled:text-ink-dim"
                 >
                   {resolveTrigger.kind === "diverged"
                     ? t("composer.branch.resolveDiverged", { upstream: resolveTrigger.upstream })
@@ -819,7 +819,7 @@ export function BranchChip({
               {note !== null && (
                 <div
                   className={cn(
-                    "px-1.5 py-1 text-[10px] leading-snug",
+                    "px-1.5 py-1 text-xs leading-snug",
                     note.tone === "copper" ? "text-copper" : "text-ink-faint",
                   )}
                 >
@@ -832,7 +832,7 @@ export function BranchChip({
                   setMode("create");
                   setError(null);
                 }}
-                className="rounded px-1.5 py-0.5 text-left font-mono text-[11px] text-ink-mid hover:bg-hover"
+                className="rounded px-1.5 py-0.5 text-left font-mono text-xs text-ink-mid hover:bg-hover"
               >
                 {t("composer.branch.newBranch")}
               </button>
@@ -842,7 +842,7 @@ export function BranchChip({
                   disabled={worktreeLocked}
                   onClick={pickCheckout}
                   className={cn(
-                    "rounded px-1.5 py-0.5 text-left font-mono text-[11px] hover:bg-hover",
+                    "rounded px-1.5 py-0.5 text-left font-mono text-xs hover:bg-hover",
                     "disabled:pointer-events-none disabled:text-ink-dim",
                   )}
                 >
@@ -860,7 +860,7 @@ export function BranchChip({
                   }
                   onClick={enterWorktree}
                   className={cn(
-                    "rounded px-1.5 py-0.5 text-left font-mono text-[11px] hover:bg-hover",
+                    "rounded px-1.5 py-0.5 text-left font-mono text-xs hover:bg-hover",
                     // No pointer-events-none: the disabled state carries its
                     // hint as a tooltip, which hover must still reach.
                     "disabled:text-ink-dim disabled:hover:bg-transparent",
@@ -882,7 +882,7 @@ export function BranchChip({
                     void attempt(filtered[0]!, false);
                   }
                 }}
-                className="mx-1 mb-1 rounded border border-line bg-void px-1.5 py-1 font-mono text-[11px] text-ink outline-none placeholder:text-ink-faint focus:border-line-strong"
+                className="mx-1 mb-1 rounded border border-line bg-void px-1.5 py-1 font-mono text-xs text-ink outline-none placeholder:text-ink-faint focus:border-line-strong"
               />
               <div className="flex max-h-64 flex-col overflow-y-auto">
                 {filtered.map((branch) => (
@@ -892,7 +892,7 @@ export function BranchChip({
                     disabled={branch === current}
                     onClick={() => void attempt(branch, false)}
                     className={cn(
-                      "rounded px-1.5 py-0.5 text-left font-mono text-[11px] hover:bg-hover",
+                      "rounded px-1.5 py-0.5 text-left font-mono text-xs hover:bg-hover",
                       "disabled:pointer-events-none",
                       branch === current ? "text-iris" : "text-ink-mid",
                     )}
@@ -901,7 +901,7 @@ export function BranchChip({
                   </button>
                 ))}
                 {filtered.length === 0 && (
-                  <span className="px-1.5 py-0.5 font-mono text-[11px] text-ink-faint">
+                  <span className="px-1.5 py-0.5 font-mono text-xs text-ink-faint">
                     {t("composer.branch.noMatches")}
                   </span>
                 )}
@@ -911,15 +911,15 @@ export function BranchChip({
           {/* A background fetch that failed is not worth interrupting anyone
               for — it surfaces here, quietly, only once the popover is open. */}
           {fetching && (
-            <div className="px-1.5 py-1 text-[10px] text-ink-faint">{t("composer.branch.refreshing")}</div>
+            <div className="px-1.5 py-1 text-xs text-ink-faint">{t("composer.branch.refreshing")}</div>
           )}
           {info.upstreamRefreshError !== null && !fetching && (
-            <div className="break-words px-1.5 py-1 text-[10px] leading-snug text-rose">
+            <div className="break-words px-1.5 py-1 text-xs leading-snug text-rose">
               {info.upstreamRefreshError}
             </div>
           )}
           {displayedError !== null && (
-            <div className="break-words px-1.5 py-1 text-[11px] text-rose">{displayedError}</div>
+            <div className="break-words px-1.5 py-1 text-xs text-rose">{displayedError}</div>
           )}
         </div>
       )}

@@ -45,7 +45,7 @@ export function ModelRail({
             aria-pressed={on}
             onClick={() => onTabChange(provider)}
             className={cn(
-              "truncate px-1.5 py-1 font-mono text-[10px] transition-colors",
+              "truncate px-1.5 py-1 font-mono text-xs transition-colors",
               on
                 ? "border-r-2 border-signal bg-raised text-ink"
                 : "text-ink-faint hover:bg-hover hover:text-ink-mid",

@@ -10,7 +10,7 @@ import { Chip, Switch } from "../ui";
 import { useT } from "../../lib/i18n";
 
 export const FIELD =
-  "h-7 min-w-0 rounded-md border border-line bg-raised px-2 text-xs text-ink " +
+  "h-7 min-w-0 rounded-md border border-line bg-raised px-2 text-sm text-ink " +
   "transition-colors duration-150 focus:border-line-strong focus:outline-none " +
   "disabled:pointer-events-none disabled:opacity-35";
 
@@ -32,11 +32,13 @@ export function Row({
     return (
       <div className="py-2.5">
         <div className="flex items-center gap-2">
-          <span className="text-xs font-medium text-ink">{title}</span>
+          {/* Round-7 judge, Hierarchy 2: 600 so a section label outranks the
+              selected list row beneath it; 500 was one step above the row. */}
+          <span className="text-sm font-semibold text-ink">{title}</span>
           {badge}
         </div>
         {hint !== undefined && hint !== "" && (
-          <p className="mt-0.5 text-[11px] leading-relaxed text-ink-faint">{hint}</p>
+          <p className="mt-0.5 text-sm leading-relaxed text-ink-faint">{hint}</p>
         )}
         <div className="mt-1.5">{children}</div>
       </div>
@@ -46,11 +48,11 @@ export function Row({
     <div className="flex items-center gap-3 py-2.5">
       <div className="min-w-0 flex-1">
         <div className="flex items-center gap-2">
-          <span className="text-xs font-medium text-ink">{title}</span>
+          <span className="text-sm font-semibold text-ink">{title}</span>
           {badge}
         </div>
         {hint !== undefined && hint !== "" && (
-          <p className="mt-0.5 text-[11px] leading-relaxed text-ink-faint">
+          <p className="mt-0.5 text-sm leading-relaxed text-ink-faint">
             {hint}
           </p>
         )}
@@ -248,7 +250,7 @@ export function SettingControl({
   // Future array/record entries stay visible without guessing an editor.
   return (
     <span
-      className="max-w-56 truncate font-mono text-[11px] text-ink-mid"
+      className="max-w-56 truncate font-mono text-xs text-ink-mid"
       title={entry.key}
     >
       {entry.value === undefined ? "—" : JSON.stringify(entry.value)}

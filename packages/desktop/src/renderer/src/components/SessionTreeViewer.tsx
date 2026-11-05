@@ -182,7 +182,7 @@ export function SessionTreeViewer(): JSX.Element | null {
                   </span>
                   {row.id === leafId && <Chip tone="signal">{t("session.tree.current")}</Chip>}
                   {active && row.id !== leafId && (
-                    <span className="shrink-0 text-[10px] text-ink-mid">
+                    <span className="shrink-0 text-xs text-ink-mid">
                       {t("session.tree.active")}
                     </span>
                   )}

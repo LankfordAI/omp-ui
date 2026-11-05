@@ -127,7 +127,7 @@ export function WorktreeChip({
               </div>
               <div className="flex items-center justify-between gap-2 px-2.5 py-1.5">
                 <span
-                  className="min-w-0 truncate font-mono text-[10px] text-ink-faint"
+                  className="min-w-0 truncate font-mono text-xs text-ink-faint"
                   title={worktree.path}
                 >
                   {worktree.path}
@@ -135,7 +135,7 @@ export function WorktreeChip({
                 <CopyButton text={worktree.path} label={t("worktree.actions.copy")} doneLabel={t("worktree.actions.copied")} />
               </div>
               {worktree.base !== null && (
-                <p className="px-2.5 pb-1.5 text-[10px] text-ink-faint" title={worktree.base}>
+                <p className="px-2.5 pb-1.5 text-xs text-ink-faint" title={worktree.base}>
                   {t("worktree.details.cutFrom", { base: shortBase(worktree.base) })}
                 </p>
               )}
@@ -164,7 +164,7 @@ export function WorktreeChip({
                 </>
               )}
               {displayedError !== null && (
-                <p role="alert" className="px-2.5 py-1.5 text-[10px] leading-relaxed text-rose">
+                <p role="alert" className="px-2.5 py-1.5 text-xs leading-relaxed text-rose">
                   {displayedError}
                 </p>
               )}

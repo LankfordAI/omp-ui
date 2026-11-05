@@ -41,7 +41,7 @@ export function SubagentView({
           type="button"
           aria-label={t("transcript.subagent.backToMain")}
           onClick={() => closeSubagent(tabId)}
-          className="shrink-0 rounded-md px-1.5 py-0.5 text-[10px] uppercase tracking-[0.08em] text-ink-faint transition-colors hover:bg-hover hover:text-ink-mid"
+          className="shrink-0 rounded-md px-1.5 py-0.5 text-xs uppercase tracking-[0.08em] text-ink-faint transition-colors hover:bg-hover hover:text-ink-mid"
         >
           {t("transcript.subagent.back")}
         </button>
@@ -51,7 +51,7 @@ export function SubagentView({
           title={status}
         />
         <span
-          className="min-w-0 truncate font-display text-[13px] text-ink"
+          className="min-w-0 truncate text-sm text-ink"
           title={name}
         >
           {name}
@@ -61,12 +61,12 @@ export function SubagentView({
             {live.agent}
           </Chip>
         )}
-        <span className="shrink-0 font-mono text-[10px] text-ink-faint">
+        <span className="shrink-0 font-mono text-xs text-ink-faint">
           {status}
         </span>
         {live?.completionPercent !== undefined && status === "running" && (
           <span
-            className="shrink-0 font-mono text-[10px] text-ink-faint"
+            className="shrink-0 font-mono text-xs text-ink-faint"
             title={t("transcript.subagent.estimateTitle")}
           >
             {live.completionPercent}%
@@ -74,7 +74,7 @@ export function SubagentView({
         )}
         {live?.label && (
           <span
-            className="min-w-0 flex-1 truncate text-[11px] text-ink-faint"
+            className="min-w-0 flex-1 truncate text-xs text-ink-faint"
             title={live.label}
           >
             {live.label}
@@ -83,20 +83,20 @@ export function SubagentView({
         {controllable ? (
           <span className="ml-auto flex shrink-0 items-center gap-1.5">
             {notice !== null && (
-              <span className="max-w-64 truncate text-[10px] text-rose" title={notice}>
+              <span className="max-w-64 truncate text-xs text-rose" title={notice}>
                 {notice}
               </span>
             )}
             <SubagentControls tabId={tabId} agentId={agentKey} status={status} />
           </span>
         ) : (
-          <span className="ml-auto shrink-0 font-mono text-[10px] uppercase tracking-[0.08em] text-ink-faint">
+          <span className="ml-auto shrink-0 font-mono text-xs uppercase tracking-[0.08em] text-ink-faint">
             {t("transcript.subagent.readOnly")}
           </span>
         )}
       </div>
       {items.length === 0 ? (
-        <p className="px-4 py-3 text-[11px] text-ink-faint">
+        <p className="px-4 py-3 text-xs text-ink-faint">
           {t("transcript.subagent.empty")}
         </p>
       ) : (

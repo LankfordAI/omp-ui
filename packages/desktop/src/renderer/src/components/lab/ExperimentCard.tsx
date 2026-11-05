@@ -69,7 +69,7 @@ export function ExperimentCard({
     >
       <div className="flex items-start justify-between gap-2">
         <span className="min-w-0 flex-1">
-          <span className="block truncate font-display text-sm font-semibold">{record.name}</span>
+          <span className="block truncate text-sm font-semibold">{record.name}</span>
           {record.goal !== null && record.goal !== "" && (
             <span className="mt-0.5 line-clamp-2 block text-xs leading-relaxed text-ink-mid">{record.goal}</span>
           )}
@@ -84,14 +84,14 @@ export function ExperimentCard({
           <Chip mono truncate title={`${record.primaryMetric} · ${record.direction}`}>
             {record.primaryMetric} · {record.direction}
           </Chip>
-          <span className="flex items-center gap-2 font-mono text-[11px] tabular-nums text-ink-mid">
+          <span className="flex items-center gap-2 font-mono text-xs tabular-nums text-ink-mid">
             {delta !== null && <span>{t("lab.card.best", { delta })}</span>}
             <span>{runs}</span>
           </span>
         </span>
       </div>
       <span
-        className="flex items-center gap-2 font-mono text-[10px] text-ink-faint"
+        className="flex items-center gap-2 font-mono text-xs text-ink-faint"
         title={dbPath}
       >
         {record.branch !== null && <span className="min-w-0 flex-1 truncate">{record.branch}</span>}
@@ -120,7 +120,7 @@ export function PendingExperimentCard({
     <div className={CARD_CLASS}>
       <div className="flex items-start justify-between gap-2">
         <span className="min-w-0 flex-1">
-          <span className="block truncate font-display text-sm font-semibold">{title}</span>
+          <span className="block truncate text-sm font-semibold">{title}</span>
           <span className="mt-0.5 line-clamp-2 block text-xs leading-relaxed text-ink-mid">{experiment.goal}</span>
         </span>
         <Chip tone="copper">{t("lab.overview.settingUp")}</Chip>
@@ -130,7 +130,7 @@ export function PendingExperimentCard({
           {experiment.metric} · {experiment.direction}
         </Chip>
         {experiment.launchedBranch !== null && (
-          <span className="min-w-0 flex-1 truncate font-mono text-[10px] text-ink-faint">{experiment.launchedBranch}</span>
+          <span className="min-w-0 flex-1 truncate font-mono text-xs text-ink-faint">{experiment.launchedBranch}</span>
         )}
       </div>
     </div>

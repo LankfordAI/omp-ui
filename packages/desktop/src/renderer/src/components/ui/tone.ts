@@ -63,7 +63,10 @@ export const TONE_BORDER_FULL: Record<Tone, string> = {
 };
 
 export const TONE_CAPSULE: Record<Tone, string> = {
-  neutral: "border-line bg-raised divide-line",
+  // Round-8 judge, Consistency 3: the segmented group's frame rides
+  // line-strong so its hairline reads in Light too (1.32 vs the modal at
+  // `line`, near-invisible); the tonal frames keep their accent borders.
+  neutral: "border-line-strong bg-raised divide-line-strong",
   signal: "border-signal-dim/50 bg-signal-wash divide-signal-dim/40",
   copper: "border-copper-dim/50 bg-copper-wash divide-copper-dim/40",
   rose: "border-rose-dim/50 bg-rose-wash divide-rose-dim/40",

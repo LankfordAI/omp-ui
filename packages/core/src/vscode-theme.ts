@@ -374,8 +374,8 @@ export function mapVsCodeTheme(doc: VsCodeThemeDocument, label: string): ThemeSo
     return readable(onSurface, raised, ink, min);
   };
   const inkMid = tier(["descriptionForeground", "sideBar.foreground"], 0.72, 4.5);
-  const inkDim = tier(["tab.inactiveForeground", "editorLineNumber.foreground"], 0.55, 3);
-  const inkFaint = tier(["disabledForeground", "editorLineNumber.foreground"], 0.42, 2);
+  const inkDim = tier(["tab.inactiveForeground", "editorLineNumber.foreground"], 0.55, 4.5);
+  const inkFaint = tier(["disabledForeground", "editorLineNumber.foreground"], 0.42, 4.5);
 
   const ansi = TERMINAL_DEFAULTS[scheme];
   const termColour = (slot: string): string =>

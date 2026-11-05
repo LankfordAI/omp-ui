@@ -43,7 +43,7 @@ export function AnnotationChips({
           // Index-keyed: the list is append/remove-only and has no stable id.
           key={i}
           title={annotationTitle(annotation)}
-          className="flex min-w-0 max-w-full items-start gap-1 rounded border border-iris-dim/50 bg-iris-wash px-1.5 py-1 text-left text-[11px] leading-4 text-ink"
+          className="flex min-w-0 max-w-full items-start gap-1 rounded border border-iris-dim/50 bg-iris-wash px-1.5 py-1 text-left text-xs leading-4 text-ink"
         >
           <div className="min-w-0 max-w-[28rem]">
             <p className="truncate border-l-2 border-iris-dim/70 pl-1.5 italic text-ink-dim">

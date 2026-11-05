@@ -434,7 +434,7 @@ export const TerminalTab = memo(function TerminalTab({ tabId, active }: { tabId:
         <div
           className={cn(
             "animate-rise absolute bottom-3 left-1/2 z-20 flex -translate-x-1/2 items-center gap-2",
-            "max-w-[80%] rounded-full border px-3 py-1 text-[11px] backdrop-glass",
+            "max-w-[80%] rounded-full border px-3 py-1 text-xs backdrop-glass",
             note.bad
               ? "border-rose-dim/50 bg-rose-wash text-rose"
               : "border-signal-dim/50 bg-signal-wash text-signal",
@@ -454,7 +454,7 @@ export const TerminalTab = memo(function TerminalTab({ tabId, active }: { tabId:
       )}
       {exitCode !== undefined && (
         <div className="absolute inset-0 z-10 flex flex-col items-center justify-center gap-3 bg-void/85 backdrop-glass">
-          <p className="font-display text-sm text-ink-mid">
+          <p className="text-sm text-ink-mid">
             {t("terminal.tab.exited")}{" "}
             <span className="font-mono tabular-nums text-rose">
               {t("terminal.tab.exitedCode", { code: exitCode })}

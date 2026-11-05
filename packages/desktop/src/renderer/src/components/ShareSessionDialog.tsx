@@ -75,7 +75,7 @@ export function ShareSessionDialog({ tabId }: { tabId: string }) {
   return (
     <Modal onClose={cancel} labelledBy={titleId} width="w-[32rem]">
       <div className="border-b border-line px-5 pb-4 pt-5">
-        <h2 id={titleId} className="font-display text-lg font-semibold tracking-tight text-ink">
+        <h2 id={titleId} className="font-display text-xl font-semibold tracking-tight text-ink">
           {t("dialog.share.title")}
         </h2>
         <p className="mt-0.5 text-xs text-ink-dim">{t("dialog.share.intro")}</p>

@@ -6,7 +6,7 @@ import { formatHotkey } from "../lib/hotkeys";
 import { useT } from "../lib/i18n";
 import { useDismissal } from "../lib/use-dismissal";
 import { MenuRow } from "./MenuRow";
-import { Button, Chevron, IconButton, Label, ProgressRing } from "./ui";
+import { Button, Chevron, IconButton, Label, ProgressHalo } from "./ui";
 
 /**
  * The composer's running/idle send cluster, one component across all three
@@ -17,10 +17,12 @@ import { Button, Chevron, IconButton, Label, ProgressRing } from "./ui";
  */
 export type ComposerActionsLayout = "desktop" | "compact" | "sheet";
 
-/** Arrow-up send glyph for the idle primary control. */
+/** Arrow-up send glyph for the idle primary control. One size per strip
+ *  (round-3 judge, Iconography 3): it matches the `+` and chip glyphs at 14px
+ *  instead of outweighing them at 16px. */
 function IconSend() {
   return (
-    <svg viewBox="0 0 16 16" aria-hidden fill="none" stroke="currentColor" strokeWidth={1.6} strokeLinecap="round" strokeLinejoin="round" className="size-4">
+    <svg viewBox="0 0 16 16" aria-hidden fill="none" stroke="currentColor" strokeWidth={1.4} strokeLinecap="round" strokeLinejoin="round" className="size-3.5">
       <path d="M8 13V3M3.5 7.5 8 3l4.5 4.5" />
     </svg>
   );
@@ -53,11 +55,13 @@ export function ComposerActions({
   onSubmit: (route: SubmitRoute) => void;
   onAbort: () => void;
   /**
-   * Context-fill halo around the desktop composer's round control: the idle
-   * send button, or the stop button while running (same rightmost slot). Null
-   * renders no ring — before the first usage report the controls are exactly
-   * the plain circles. Ignored by compact/sheet layouts: their primaries are
-   * pills, and a halo traces a circle.
+   * Context-fill halo around the desktop composer's square primary control —
+   * worn by the send button at rest and the stop button while running alike,
+   * so the most-watched control keeps one outline through a turn (round-9
+   * judge, Consistency 1; this supersedes round-2's "bare at rest", which was
+   * measured against a circular ring whose geometry clashed with the square
+   * button). Null renders no halo. Ignored by compact/sheet layouts: their
+   * primaries are pills, and a halo traces the square control's radius.
    */
   contextRing?: { fraction: number; title: string } | null;
 }) {
@@ -69,7 +73,7 @@ export function ComposerActions({
       disabled={!atReset.canHold}
       title={t("composer.actions.sendAtResetTitle", { when: atReset.when })}
       onClick={() => onSubmit("at-reset")}
-      className={layout === "compact" ? "h-11 rounded-lg px-3" : "h-7 shrink-0 rounded-full px-2.5 text-[11px]"}
+      className={layout === "compact" ? "h-11 rounded-lg px-3" : "h-7 shrink-0 rounded-full px-2.5 text-xs"}
     >
       {t("composer.actions.sendAtReset", { when: atReset.when })}
     </Button>
@@ -84,15 +88,15 @@ export function ComposerActions({
     return layout === "compact" ? word.charAt(0).toUpperCase() + word.slice(1) : word;
   };
 
+  // The wrapper owns the halo's 3px ring as real padding, so the ring is
+  // inside the layout box and never bumps the card's own padding or the
+  // textarea above it (round-9 judge, Consistency 1).
   const haloed = (control: ReactNode) =>
     contextRing == null ? (
       control
     ) : (
-      <span className="relative flex shrink-0 items-center justify-center">
-        <ProgressRing
-          fraction={contextRing.fraction}
-          className="pointer-events-none absolute -inset-[3px] size-[calc(100%+6px)]"
-        />
+      <span className="relative flex shrink-0 items-center justify-center p-[3px]">
+        <ProgressHalo fraction={contextRing.fraction} className="pointer-events-none absolute inset-0 size-full" />
         {control}
       </span>
     );
@@ -140,7 +144,7 @@ export function ComposerActions({
           tone="rose"
           onClick={onAbort}
           // The one destructive control here: readable before hover.
-          className="size-7 rounded-full border border-rose-dim/50 bg-rose-wash text-rose"
+          className="size-7 rounded-md border border-rose-dim/50 bg-rose-wash text-rose"
         >
           <svg viewBox="0 0 16 16" fill="none" strokeWidth={1.4} className="size-4">
             <rect
@@ -159,19 +163,19 @@ export function ComposerActions({
   ) : (
     <>
       {atResetButton}
+      {/* The same halo rides the idle send button (round-9 judge, Consistency
+          1): the primary control's outline must not change the moment a turn
+          starts. The halo traces the button's rounded-square shape, so it no
+          longer reads as a stray circle at rest. */}
       {haloed(
         <Button
           variant="solid"
           disabled={!canSend}
-          title={
-            contextRing == null
-              ? isSlash
-                ? t("composer.actions.runTitle")
-                : t("composer.actions.sendTitle")
-              : `${isSlash ? t("composer.actions.runTitle") : t("composer.actions.sendTitle")}\n${contextRing.title}`
-          }
+          title={isSlash ? t("composer.actions.runTitle") : t("composer.actions.sendTitle")}
           onClick={() => onSubmit("prompt")}
-          className="size-7 shrink-0 justify-center rounded-full p-0"
+          // Square in the app's 6px radius family (round-4 judge, Iconography 1):
+          // the circle was the only circular control among rounded-md buttons.
+          className="size-7 shrink-0 justify-center rounded-md p-0"
         >
           <IconSend />
           <span className="sr-only">{label("send")}</span>

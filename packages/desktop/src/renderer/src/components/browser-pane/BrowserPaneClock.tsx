@@ -28,7 +28,7 @@ export function BrowserPaneClock() {
     <time
       dateTime={now.toISOString()}
       aria-label={t("browser.clock.label")}
-      className="flex h-5 shrink-0 items-center justify-center gap-4 bg-void text-[11px] font-semibold tabular-nums text-ink"
+      className="flex h-5 shrink-0 items-center justify-center gap-4 bg-void text-xs font-semibold tabular-nums text-ink"
     >
       <span>{date}</span>
       <span>{time}</span>

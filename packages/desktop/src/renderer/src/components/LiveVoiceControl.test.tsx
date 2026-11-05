@@ -2,6 +2,7 @@
 import { act } from "react";
 import { createRoot, type Root } from "react-dom/client";
 import { afterEach, beforeEach, describe, expect, it, vi } from "vitest";
+import { t } from "../lib/i18n";
 import { rpcTabState } from "../test/fixtures";
 import type { LiveSnapshot } from "@omp-ui/core/live-voice";
 
@@ -69,7 +70,9 @@ describe("LiveVoiceControl (issue #778)", () => {
   it("idle renders the live capsule and a click starts", () => {
     seed(null);
     const host = render();
-    expect(host.textContent).toContain("live");
+    // The pill word comes from the catalog (round-2 vocabulary:
+    // it names the voice toggle, not a session state).
+    expect(host.textContent).toContain(t("composer.live.idlePill"));
     expect(document.querySelector("button")).not.toBeNull();
     act(() => button("start live voice")!.click());
     expect(startLiveVoice).toHaveBeenCalledWith(TAB);
@@ -139,7 +142,9 @@ describe("LiveVoiceControl (issue #778)", () => {
   it("a session error shows in the idle capsule and starts remain available", () => {
     seed({ phase: "listening", levels: null, turns: [], ended: true, error: "stream dropped", connectionId: null });
     const host = render();
-    expect(host.textContent).toContain("live");
+    // The pill word comes from the catalog (round-2 vocabulary:
+    // it names the voice toggle, not a session state).
+    expect(host.textContent).toContain(t("composer.live.idlePill"));
     act(() => button("start live voice")!.click());
     expect(startLiveVoice).toHaveBeenCalledWith(TAB);
   });
@@ -166,7 +171,9 @@ describe("LiveVoiceControl (issue #778)", () => {
     // in both states regardless.
     seed(null);
     const host = render();
-    expect(host.textContent).toContain("live");
+    // The pill word comes from the catalog (round-2 vocabulary:
+    // it names the voice toggle, not a session state).
+    expect(host.textContent).toContain(t("composer.live.idlePill"));
   });
 
   it.each(["inline", "sheet"] as const)("blocks only a new start in %s layout", (layout) => {

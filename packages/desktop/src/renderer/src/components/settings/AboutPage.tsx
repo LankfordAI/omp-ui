@@ -26,9 +26,9 @@ export function AboutPage({ load }: { load: Load }) {
             key={label}
             className="col-span-2 grid grid-cols-subgrid items-baseline"
           >
-            <dt className="text-[11px] text-ink-faint">{label}</dt>
+            <dt className="text-sm text-ink-faint">{label}</dt>
             <dd
-              className="min-w-0 truncate font-mono text-[11px] text-ink-mid"
+              className="min-w-0 truncate font-mono text-xs text-ink-mid"
               title={value}
             >
               {value}

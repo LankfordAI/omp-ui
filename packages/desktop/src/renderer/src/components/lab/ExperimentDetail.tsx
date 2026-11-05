@@ -51,7 +51,7 @@ function PathList({ label, paths }: { label: string; paths: readonly string[] })
   if (paths.length === 0) return null;
   return (
     <Field label={label}>
-      <ul className="flex flex-col gap-px font-mono text-[11px]">
+      <ul className="flex flex-col gap-px font-mono text-xs">
         {paths.map((path) => (
           <li key={path} className="truncate" title={path}>
             {path}
@@ -157,14 +157,14 @@ export function ExperimentDetail({ target }: { target: Target }) {
       <header className="flex flex-col gap-3">
         <div className="flex items-start justify-between gap-3">
           <div className="min-w-0 flex-1">
-            <h2 className="truncate font-display text-lg font-semibold">{record.name}</h2>
+            <h2 className="truncate font-display text-xl font-semibold">{record.name}</h2>
             {record.goal !== null && record.goal !== "" && (
               <p className="mt-1 text-sm leading-relaxed text-ink-mid">{record.goal}</p>
             )}
           </div>
           <StateChip state={state} />
         </div>
-        <div className="flex flex-wrap items-center gap-2 font-mono text-[11px] text-ink-mid">
+        <div className="flex flex-wrap items-center gap-2 font-mono text-xs text-ink-mid">
           <Chip mono title={record.metricUnit === "" ? undefined : record.metricUnit}>
             {record.primaryMetric} · {record.direction}
           </Chip>
@@ -186,7 +186,7 @@ export function ExperimentDetail({ target }: { target: Target }) {
           <div className="grid gap-3 sm:grid-cols-2 lg:grid-cols-4">
             {record.preferredCommand !== null && (
               <Field label={t("lab.detail.command")}>
-                <code className="block truncate font-mono text-[11px]" title={record.preferredCommand}>
+                <code className="block truncate font-mono text-xs" title={record.preferredCommand}>
                   {record.preferredCommand}
                 </code>
               </Field>
@@ -228,7 +228,7 @@ export function ExperimentDetail({ target }: { target: Target }) {
       <section className="flex flex-col gap-2">
         <div className="flex items-center gap-2">
           <Label>{t("lab.detail.runs")}</Label>
-          {detail?.load === "loading" && <span className="text-[10px] text-ink-faint">{t("lab.detail.loading")}</span>}
+          {detail?.load === "loading" && <span className="text-xs text-ink-faint">{t("lab.detail.loading")}</span>}
         </div>
         {runError !== null && <p className="text-xs text-rose">{runError}</p>}
         {runs.length === 0 && runError === null && detail?.load !== "loading" && (
@@ -285,7 +285,7 @@ export function ExperimentDetail({ target }: { target: Target }) {
       {record.notes !== "" && (
         <section className="flex flex-col gap-2">
           <Label>{t("lab.detail.notes")}</Label>
-          <Markdown text={record.notes} className="text-[13px]" />
+          <Markdown text={record.notes} className="text-sm" />
         </section>
       )}
     </div>
@@ -344,7 +344,7 @@ function RunRows({
         </td>
         <td className="px-2 py-1.5 font-mono tabular-nums text-ink-mid">
           {run.id}
-          {isBaseline && <span className="ml-1 text-[10px] text-ink-faint">{t("lab.detail.baseline")}</span>}
+          {isBaseline && <span className="ml-1 text-xs text-ink-faint">{t("lab.detail.baseline")}</span>}
         </td>
         <td className="px-2 py-1.5">
           <span className="flex flex-wrap items-center gap-1">
@@ -365,7 +365,7 @@ function RunRows({
               {run.metric}
               {unit !== "" && <span className="ml-0.5 text-ink-faint">{unit}</span>}
               {baseline !== null && !isBaseline && (
-                <span className="ml-1.5 text-[10px] text-ink-mid">{deltaLabel(baseline.metric, run.metric)}</span>
+                <span className="ml-1.5 text-xs text-ink-mid">{deltaLabel(baseline.metric, run.metric)}</span>
               )}
             </>
           )}
@@ -388,7 +388,7 @@ function RunRows({
           <td colSpan={6} className="px-2 pb-3 pt-1">
             <div className="flex flex-col gap-3">
               <Field label={t("lab.detail.command")}>
-                <code className="block break-all font-mono text-[11px]">{run.command}</code>
+                <code className="block break-all font-mono text-xs">{run.command}</code>
               </Field>
               {details.map(([label, value]) => (
                 <Field key={label} label={label}>
@@ -403,14 +403,14 @@ function RunRows({
                     ) : (
                       <Button size="xs" onClick={onHideLog}>{t("lab.detail.hideLog")}</Button>
                     )}
-                    {log?.load === "loading" && <span className="text-[10px] text-ink-faint">{t("lab.detail.logLoading")}</span>}
+                    {log?.load === "loading" && <span className="text-xs text-ink-faint">{t("lab.detail.logLoading")}</span>}
                     {log?.load === "ready" && log.truncated && (
-                      <span className="text-[10px] text-ink-faint">{t("lab.detail.logTruncated")}</span>
+                      <span className="text-xs text-ink-faint">{t("lab.detail.logTruncated")}</span>
                     )}
                   </div>
                   {log?.load === "error" && <p className="text-xs text-rose">{log.error}</p>}
                   {log?.load === "ready" && (
-                    <pre className="max-h-96 overflow-auto rounded-md border border-line bg-void p-2 font-mono text-[11px] leading-relaxed text-ink-mid" data-selectable>
+                    <pre className="max-h-96 overflow-auto rounded-md border border-line bg-void p-2 font-mono text-xs leading-relaxed text-ink-mid" data-selectable>
                       {log.text}
                     </pre>
                   )}
@@ -426,7 +426,7 @@ function RunRows({
 
 function PathCell({ paths }: { paths: readonly string[] }) {
   return (
-    <ul className="flex flex-col gap-px font-mono text-[11px]">
+    <ul className="flex flex-col gap-px font-mono text-xs">
       {paths.map((path) => (
         <li key={path} className="break-all">
           {path}

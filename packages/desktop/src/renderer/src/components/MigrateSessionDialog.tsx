@@ -122,7 +122,7 @@ export function MigrateSessionDialog({
           <div className="mt-1.5 flex items-center gap-2">
             <span
               data-selectable
-              className="min-w-0 flex-1 truncate rounded-md border border-line bg-void px-2 py-1.5 font-mono text-[11px] text-ink"
+              className="min-w-0 flex-1 truncate rounded-md border border-line bg-void px-2 py-1.5 font-mono text-xs text-ink"
             >
               {directory ?? t("dialog.migrate.directoryNone")}
             </span>

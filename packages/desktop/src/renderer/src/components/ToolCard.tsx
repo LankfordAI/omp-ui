@@ -184,7 +184,7 @@ function ReadResultSlab({
       ref={ref}
       data-selectable
       className={cn(
-        "overflow-auto whitespace-pre-wrap break-words rounded border border-line-soft bg-sunken px-2 py-1.5 font-mono text-[12px] leading-[1.55] text-ink",
+        "overflow-auto whitespace-pre-wrap break-words rounded border border-line-soft bg-sunken px-2 py-1.5 font-mono text-xs leading-[1.55] text-ink",
         className,
       )}
     >
@@ -238,7 +238,7 @@ export function Slab({
       data-selectable
       className={cn(
         "overflow-auto whitespace-pre-wrap break-words rounded border border-line-soft bg-sunken px-2 py-1.5",
-        "font-mono text-[12px] leading-[1.55]",
+        "font-mono text-xs leading-[1.55]",
         tone === "rose" ? "text-rose" : "text-ink",
         className,
       )}
@@ -266,7 +266,7 @@ function CodeSlab({ code, lang, pin, className }: { code: string; lang?: string;
       ref={ref}
       data-selectable
       className={cn(
-        "max-h-64 overflow-auto whitespace-pre-wrap break-words rounded border border-line-soft bg-sunken px-2 py-1.5 font-mono text-[12px] leading-[1.55] text-ink",
+        "max-h-64 overflow-auto whitespace-pre-wrap break-words rounded border border-line-soft bg-sunken px-2 py-1.5 font-mono text-xs leading-[1.55] text-ink",
         className,
       )}
     >
@@ -341,7 +341,7 @@ function IncrementalCodeSlab({
       ref={ref}
       data-selectable
       className={cn(
-        "max-h-64 overflow-auto whitespace-pre-wrap break-words rounded border border-line-soft bg-sunken px-2 py-1.5 font-mono text-[12px] leading-[1.55] text-ink",
+        "max-h-64 overflow-auto whitespace-pre-wrap break-words rounded border border-line-soft bg-sunken px-2 py-1.5 font-mono text-xs leading-[1.55] text-ink",
         className,
       )}
     >
@@ -360,7 +360,7 @@ function PathChip({ value }: { value: string }) {
     <span
       title={value}
       data-selectable
-      className="flex min-w-0 items-baseline rounded bg-sunken px-1.5 py-0.5 font-mono text-[11px]"
+      className="flex min-w-0 items-baseline rounded bg-sunken px-1.5 py-0.5 font-mono text-xs"
     >
       {/* Dirname yields first; the basename identifies the target. A basename
           wider than the whole chip (a jq selector suffix, a long URL query)
@@ -439,7 +439,7 @@ function ToolArgs({ name, args }: { name: string; args: unknown }) {
   return (
     <div className="space-y-1">
       {scalars.length > 0 && (
-        <dl className="grid grid-cols-[auto_minmax(0,1fr)] gap-x-2 gap-y-0.5 text-[11px]">
+        <dl className="grid grid-cols-[auto_minmax(0,1fr)] gap-x-2 gap-y-0.5 text-xs">
           {scalars.map(([key, value]) => (
             <div key={key} className="contents">
               <dt className="font-mono text-ink-faint">{key}</dt>
@@ -593,7 +593,7 @@ export function AdvisoryNotes({ notes }: { notes: AdvisorNote[] }) {
             </div>
             <Markdown
               text={note.note}
-              className={cn("text-[13px]", tone === "neutral" ? "text-ink-dim" : "text-ink-mid")}
+              className={cn("text-sm", tone === "neutral" ? "text-ink-dim" : "text-ink-mid")}
             />
           </div>
         );
@@ -701,7 +701,7 @@ export function ToolCard({ item, tabId }: { item: ToolItem; tabId?: string }) {
           {headline}
         </span>
         {duration && (
-          <span className="shrink-0 font-mono text-[10px] tabular-nums text-ink-faint">
+          <span className="shrink-0 font-mono text-xs tabular-nums text-ink-faint">
             {duration}
           </span>
         )}
@@ -769,7 +769,7 @@ export function ToolCard({ item, tabId }: { item: ToolItem; tabId?: string }) {
           {hasDiff && item.diff && <DiffViewer rows={item.diff} path={item.path} op={item.op} defaultOpen />}
 
           {item.minimized && (
-            <div className="font-mono text-[10px] tabular-nums text-ink-faint">
+            <div className="font-mono text-xs tabular-nums text-ink-faint">
               {t("transcript.tool.minimized", {
                 filter: item.minimized.filter,
                 before: formatBytes(item.minimized.inputBytes),
@@ -783,7 +783,7 @@ export function ToolCard({ item, tabId }: { item: ToolItem; tabId?: string }) {
             (longOutput ? (
               <Disclosure
                 summary={
-                  <span className="text-[11px]">
+                  <span className="text-xs">
                     {t("transcript.tool.showOutput", { lines: resultLines })}
                   </span>
                 }
@@ -834,7 +834,7 @@ export function ToolCard({ item, tabId }: { item: ToolItem; tabId?: string }) {
                       />
                     </button>
                     {caption && (
-                      <span className="font-mono text-[10px] text-ink-faint">{caption}</span>
+                      <span className="font-mono text-xs text-ink-faint">{caption}</span>
                     )}
                   </div>
                 );

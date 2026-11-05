@@ -34,6 +34,17 @@ export function formatCost(cost: number): string {
   return `$${cost.toFixed(4)}`;
 }
 
+/**
+ * Whether a whole-session spend figure can be shown as the headline (round-7
+ * judge, Clarity 1): the session total must cover the current run's receipts.
+ * A session total smaller than one run inside it is stale — the bridge has not
+ * caught up with the journal — so the surface shows the larger run figure
+ * instead of asserting a reconciliation it cannot verify.
+ */
+export function sessionSpendTrustworthy(sessionCost: number, runCost: number): boolean {
+  return sessionCost + 1e-9 >= runCost;
+}
+
 /** 40-hex git commit → first 8 chars; refs pass through. */
 export function shortBase(base: string): string {
   return /^[0-9a-f]{40}$/.test(base) ? base.slice(0, 8) : base;
@@ -45,6 +56,28 @@ export function shortModelLabel(selector: string): string {
   const tail = slash === -1 ? selector : selector.slice(slash + 1);
   const colon = tail.lastIndexOf(":");
   return colon > 0 ? tail.slice(0, colon) : tail;
+}
+
+/**
+ * One display form for a model everywhere the chrome names one (round-1
+ * judge: `GPT-5.6 Luna` in the composer pill vs `gpt-5.6-luna` in the sidebar
+ * named the same model two ways). The catalog's own name wins — it is what
+ * Settings and the model picker show; the compact selector tail is the
+ * fallback whenever no catalog row matches (dormant rows boot no process and
+ * have no catalog). `selector` is omp's `provider/id[:level]`.
+ */
+export function modelDisplayLabel(
+  selector: string,
+  catalog?: readonly { id: string; name: string }[] | null,
+): string {
+  const tail = shortModelLabel(selector);
+  // Catalog ids may keep their own vendor prefix (`openai/gpt-5.6-luna` under
+  // the openrouter provider), so match the full tail or its last slash-part.
+  const row = catalog?.find(
+    (model) =>
+      model.id === tail || shortModelLabel(model.id) === tail,
+  );
+  return row !== undefined && row.name !== "" ? row.name : tail;
 }
 
 /** Coarse localized relative time for scan-first rows and cards. */

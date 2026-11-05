@@ -400,7 +400,7 @@ export function AppFeedback(): JSX.Element | null {
     >
       <div className="space-y-3">
         {copy.target !== null && (
-          <p className="truncate font-display text-sm font-medium text-ink">
+          <p className="truncate text-sm font-medium text-ink">
             {copy.target}
           </p>
         )}

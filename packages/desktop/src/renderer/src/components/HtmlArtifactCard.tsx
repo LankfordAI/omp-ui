@@ -119,7 +119,7 @@ function ArtifactViewer({ html, title, onClose }: { html: string; title: string;
     >
       <header className="flex shrink-0 items-center gap-2 border-b border-line px-3 py-2">
         <ArtifactGlyph className="text-ink-dim" />
-        <h2 id={titleId} className="min-w-0 flex-1 truncate font-display text-xs font-semibold text-ink">
+        <h2 id={titleId} className="min-w-0 flex-1 truncate text-xs font-semibold text-ink">
           {title}
         </h2>
         <IconButton label={t("common.overlay.close")} onClick={onClose}>
