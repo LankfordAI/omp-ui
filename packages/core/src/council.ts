@@ -2,10 +2,12 @@
  * The Council wire contract (ADR-0088): constants shared by the generated
  * council extension, the main-process spawn writers, and the renderer's
  * roster editor and composer, plus the text blocks handed to the council
- * members. Pure strings with zero imports — the renderer reads this module
- * through the `@omp-ui/core/council` subpath, and the generated extension
- * source interpolates these values instead of copying them.
+ * members. The renderer reads this module through the `@omp-ui/core/council`
+ * subpath, and the generated extension source interpolates these values
+ * instead of copying them.
  */
+
+import { parseModelRole } from "./model-role";
 
 /** The command the user types; `omp-ui_council` carries the namespace. */
 export const COUNCIL_COMMAND = "council";
@@ -28,6 +30,23 @@ export const MAX_COUNCIL_NAME = 24;
 /** Slugs are the roster key: lowercase alphanumerics and inner hyphens. */
 export function councilMemberSlug(name: string): string {
   return name.toLowerCase().replace(/[^a-z0-9-]+/g, "-").replace(/^-+|-+$/g, "");
+}
+
+/**
+ * Name for a member whose name field is blank: the model selector's last
+ * path segment, minus a thinking level, slugged (#1056). null when nothing
+ * launchable is named.
+ */
+export function councilNameFromModel(model: string | null): string | null {
+  if (model === null || model.trim() === "") return null;
+  // parseModelRole strips a trailing `:level` only when the tail is a bare
+  // level word, so OpenRouter's `model:exacto` keeps its colon (#1056).
+  const role = parseModelRole(model);
+  if (role === null) return null;
+  const bare = role.model;
+  const segment = bare.slice(bare.lastIndexOf("/") + 1);
+  const slug = councilMemberSlug(segment).slice(0, MAX_COUNCIL_NAME);
+  return slug === "" ? null : slug;
 }
 
 export const COUNCIL_USAGE =

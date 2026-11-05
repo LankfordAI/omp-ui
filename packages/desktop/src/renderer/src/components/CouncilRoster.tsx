@@ -7,7 +7,7 @@ import type {
   ModelCatalogSnapshot,
 } from "@omp-ui/core/types";
 import { parseModelRole } from "@omp-ui/core/model-role";
-import { councilMemberSlug, MAX_COUNCIL_MEMBERS, MAX_COUNCIL_NAME } from "@omp-ui/core/council";
+import { councilMemberSlug, councilNameFromModel, MAX_COUNCIL_MEMBERS, MAX_COUNCIL_NAME } from "@omp-ui/core/council";
 import { backendFor, displayMessage } from "../backend";
 import { cn } from "../lib/cn";
 import { useT } from "../lib/i18n";
@@ -94,18 +94,19 @@ export function CouncilRosterEditor({ scopeCwd, instanceId }: { scopeCwd: string
     [load, scope],
   );
 
-  // What the editor seeds from: the scope's own document, else what the
-  // resolution chain currently shows (global or empty) — editing it creates
-  // the override. Memoized on the load: a fresh object per render would
-  // re-seed the draft under the user's keystrokes.
+  // What the editor seeds from: the scope's own document, else the global
+  // document it inherits (editing it creates the override), else empty. The
+  // fallback reads the stored document, not `effective` — effective carries
+  // #1057's derived names, and copying those into a new override would pin
+  // what should keep following each member's model. Memoized on the load: a
+  // fresh object per render would re-seed the draft under the user's
+  // keystrokes.
   const seed = useMemo((): CouncilDocument | null => {
     if (load.status !== "loaded") return null;
     const own = scope === "project" ? load.result.project : load.result.global;
     if (own !== null) return structuredClone(own);
-    return {
-      instructions: load.result.instructions,
-      members: load.result.effective.map(({ sourceScope: _unused, ...m }) => m),
-    };
+    if (load.result.global !== null) return structuredClone(load.result.global);
+    return { instructions: null, members: [] };
   }, [load, scope]);
 
   // Seed the draft from the loaded state whenever the view (not the draft) changes.
@@ -170,13 +171,16 @@ export function CouncilRosterEditor({ scopeCwd, instanceId }: { scopeCwd: string
     );
   };
 
-  const slugs = draft.members.map((m) => councilMemberSlug(m.name));
+  // A blank name is never an error (#1057): it stays blank in storage and the
+  // validator derives it from the model, suffixing any collision. Only a
+  // hand-typed name is checked here — pattern, length, and duplicates against
+  // another hand-typed name; every member still needs a launchable model.
+  const typedSlugs = draft.members.map((m) => (m.name.trim() === "" ? null : councilMemberSlug(m.name)));
   const invalid = draft.members.some(
     (m, i) =>
-      slugs[i] === "" ||
-      slugs[i]!.length > MAX_COUNCIL_NAME ||
-      slugs.indexOf(slugs[i]!) !== i ||
-      !modelOk(m.model),
+      !modelOk(m.model) ||
+      (typedSlugs[i] !== null &&
+        (typedSlugs[i] === "" || typedSlugs[i]!.length > MAX_COUNCIL_NAME || typedSlugs.indexOf(typedSlugs[i]) !== i)),
   );
   const full = draft.members.length >= MAX_COUNCIL_MEMBERS;
   const paletteModels = instanceId === null
@@ -194,7 +198,13 @@ export function CouncilRosterEditor({ scopeCwd, instanceId }: { scopeCwd: string
     try {
       const doc: CouncilDocument = {
         instructions: draft.instructions?.trim() ? draft.instructions : null,
-        members: draft.members.map((m) => ({ ...m, model: m.model?.trim() ? m.model.trim() : null })),
+        members: draft.members.map((m) => ({
+          // A blank name stays blank (#1057): the validator derives it from
+          // the member's current model, so switching models renames the member.
+          ...m,
+          name: m.name.trim(),
+          model: m.model?.trim() ? m.model.trim() : null,
+        })),
       };
       const clear =
         scope === "project" &&
@@ -232,14 +242,16 @@ export function CouncilRosterEditor({ scopeCwd, instanceId }: { scopeCwd: string
   return (
     <div className="flex flex-col gap-3 px-4 py-3 text-xs" data-testid="council-roster-editor">
       <p className="text-xs leading-relaxed text-ink-faint">{t("council.roster.explain")}</p>
-      <div className="flex items-center gap-2">
-        <Button size="xs" selected={scope === "project"} disabled={scopeCwd === null} onClick={() => setScope("project")}>
-          {t("council.roster.scopeProject")}
-        </Button>
-        <Button size="xs" selected={scope === "user"} onClick={() => setScope("user")}>
-          {t("council.roster.scopeUser")}
-        </Button>
-      </div>
+      {scopeCwd !== null && (
+        <div className="flex items-center gap-2">
+          <Button size="xs" selected={scope === "project"} onClick={() => setScope("project")}>
+            {t("council.roster.scopeProject")}
+          </Button>
+          <Button size="xs" selected={scope === "user"} onClick={() => setScope("user")}>
+            {t("council.roster.scopeUser")}
+          </Button>
+        </div>
+      )}
       {scope === "project" && stored === null && (
         <p className="text-ink-faint">{t("council.roster.inheritGlobal")}</p>
       )}
@@ -259,7 +271,11 @@ export function CouncilRosterEditor({ scopeCwd, instanceId }: { scopeCwd: string
           <div className="flex items-center gap-2">
             <input
               className={inputClass}
-              placeholder={t("council.roster.namePlaceholder")}
+              placeholder={
+                m.name.trim() === "" && modelOk(m.model)
+                  ? councilNameFromModel(m.model) ?? t("council.roster.namePlaceholder")
+                  : t("council.roster.namePlaceholder")
+              }
               aria-label={t("council.roster.colName")}
               value={m.name}
               onChange={(e) => updateEntry(i, { name: e.target.value })}

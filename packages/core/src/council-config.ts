@@ -1,4 +1,5 @@
-import { councilMemberSlug, MAX_COUNCIL_MEMBERS, MAX_COUNCIL_NAME } from "./council";
+import { councilMemberSlug, councilNameFromModel, MAX_COUNCIL_MEMBERS, MAX_COUNCIL_NAME } from "./council";
+import { parseModelRole } from "./model-role";
 
 /**
  * The Council roster behind `/council` (ADR-0088, issue #1049): roster truth
@@ -13,6 +14,8 @@ import { councilMemberSlug, MAX_COUNCIL_MEMBERS, MAX_COUNCIL_NAME } from "./coun
 export { MAX_COUNCIL_MEMBERS, MAX_COUNCIL_NAME } from "./council";
 
 export interface CouncilMember {
+  /** "" = follow the model (#1057): validation derives the entry name from
+   *  `model` live, so switching models renames the member. A typed name pins. */
   readonly name: string;
   /** null only in migrated legacy data; such a member is never launched. */
   readonly model: string | null;
@@ -123,7 +126,10 @@ interface ValidatedCouncil extends CouncilRosterResult {
 /**
  * The shared validator: a bad entry is a warning naming `sourceLabel`, never a
  * broken launch. Entry order is preserved; the launch set takes the first
- * MAX_COUNCIL_MEMBERS enabled entries that have a model.
+ * MAX_COUNCIL_MEMBERS enabled entries that have a model. A blank name derives
+ * from the member's current model at this seam (#1057), so storage keeps it
+ * blank and switching models renames the member; a derived collision suffixes
+ * `-2` instead of dropping the entry.
  */
 function validateEntries(doc: CouncilDocument, sourceLabel: string): ValidatedCouncil {
   const warnings: string[] = [];
@@ -138,7 +144,9 @@ function validateEntries(doc: CouncilDocument, sourceLabel: string): ValidatedCo
   }
   for (const m of list) {
     const label = `${sourceLabel}: member "${m.name}"`;
-    const slug = councilMemberSlug(m.name);
+    const explicit = m.name.trim() !== "";
+    // Blank names derive from the current model here, never at save (#1057).
+    let slug = explicit ? councilMemberSlug(m.name) : councilNameFromModel(m.model) ?? "";
     if (slug === "" || !SLUG_PATTERN.test(slug)) {
       warnings.push(`${label}: name must slug to [a-z][a-z0-9-]* — entry dropped`);
       continue;
@@ -148,8 +156,14 @@ function validateEntries(doc: CouncilDocument, sourceLabel: string): ValidatedCo
       continue;
     }
     if (seen.has(slug)) {
-      warnings.push(`${label}: duplicates another entry (slug "${slug}") — entry dropped`);
-      continue;
+      if (explicit) {
+        warnings.push(`${label}: duplicates another entry (slug "${slug}") — entry dropped`);
+        continue;
+      }
+      // A derived collision renames instead of dropping: the member still
+      // means "follow my model", and only a hand-typed name can truly clash.
+      const base = slug.slice(0, MAX_COUNCIL_NAME - 2);
+      for (let n = 2; seen.has(slug); n++) slug = `${base}-${n}`;
     }
     seen.add(slug);
     if (over(m.instructions) || over(m.model) || over(m.name)) {
@@ -219,4 +233,52 @@ export function resolveCouncilRoster(projectPath: string | null, sources: Counci
     project: sources.project,
     effective: validated.entries.map((m) => ({ ...m, sourceScope: scope })),
   };
+}
+
+/** One catalog row, structurally compatible with CatalogModelOption. */
+export interface CouncilSuggestionModel {
+  readonly provider: string;
+  readonly id: string;
+}
+
+/**
+ * The suggested roster for #1055: when the council flag is enabled and no
+ * global document has members, the Settings slice seeds one from the user's
+ * FAVORITE models (#1058) — matched on the bare `provider/id` after
+ * `parseModelRole` strips any `:level`; a favorite absent from the discovered
+ * catalog is skipped, since a member must be launchable. Favorites are
+ * explicit picks, so they keep their order and may share a provider; at most
+ * MAX_COUNCIL_MEMBERS seed, and an uncurated user gets no fallback — `/council`
+ * points at settings instead of being charged to arbitrary catalog models.
+ * Every member is seeded with a blank name (#1057) so it keeps following its
+ * model; the validator derives the display name.
+ */
+export function suggestCouncilMembers(
+  models: readonly CouncilSuggestionModel[],
+  favorites: readonly string[],
+): CouncilMember[] {
+  const key = (m: CouncilSuggestionModel): string => `${m.provider}/${m.id}`;
+  const byModel = new Map<string, CouncilSuggestionModel>();
+  for (const m of models) {
+    const k = key(m);
+    if (!byModel.has(k)) byModel.set(k, m);
+  }
+  // Favorites in favorites order, nothing else (#1058).
+  const members: CouncilMember[] = [];
+  const picked = new Set<string>();
+  for (const fav of favorites) {
+    if (members.length >= MAX_COUNCIL_MEMBERS) break;
+    const role = parseModelRole(fav);
+    if (role === null) continue;
+    const m = byModel.get(role.model);
+    if (m === undefined || picked.has(role.model)) continue;
+    picked.add(role.model);
+    members.push({
+      name: "",
+      model: key(m),
+      instructions: null,
+      enabled: true,
+    });
+  }
+  return members;
 }

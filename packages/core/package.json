@@ -17,6 +17,7 @@
     "./advisor-stats": "./src/advisor-stats.ts",
     "./watchdog": "./src/watchdog.ts",
     "./council": "./src/council.ts",
+    "./council-config": "./src/council-config.ts",
     "./async-jobs": "./src/async-jobs.ts",
     "./session-spend": "./src/session-spend.ts",
     "./limits": "./src/limits.ts",

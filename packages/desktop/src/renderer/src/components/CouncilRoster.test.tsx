@@ -8,11 +8,13 @@ import type { CouncilRosterView, CouncilWriteRequest, ModelCatalogSnapshot } fro
 HTMLElement.prototype.scrollIntoView = vi.fn();
 
 const hawk = { name: "hawk", model: "anthropic/sonnet", instructions: null, enabled: true };
+// A realistic view: effective members only ever exist when some scope's
+// document exists — the editor's override seed reads that stored document.
 const roster = (over: Partial<CouncilRosterView> = {}): CouncilRosterView => ({
   members: [hawk],
   instructions: null,
   configWarnings: [],
-  global: null,
+  global: { instructions: null, members: [hawk] },
   project: null,
   effective: [{ ...hawk, sourceScope: "user" }],
   ...over,
@@ -124,6 +126,37 @@ describe("CouncilRosterEditor", () => {
     expect(document.body.textContent).not.toContain("Pick a model for every member.");
   });
 
+  it("persists a blank name so the member keeps following its model (#1057)", async () => {
+    await mount(<CouncilRosterEditor scopeCwd="/p" instanceId={null} />);
+    await act(async () => btn("Add member").click());
+    await typeInto(inputs("Model")[1]!, "openrouter/anthropic/claude-opus-5.5");
+    // A blank name with a launchable model is valid; the placeholder previews
+    // the derived name, but Save stores it blank so the name re-derives when
+    // the model changes.
+    expect(btn("Save").disabled).toBe(false);
+    expect(inputs("Member")[1]!.placeholder).toBe("claude-opus-5-5");
+    await act(async () => btn("Save").click());
+    expect(lastWrite().document!.members[1]!.name).toBe("");
+  });
+
+  it("allows Save when two blank names derive the same slug (#1057)", async () => {
+    await mount(<CouncilRosterEditor scopeCwd="/p" instanceId={null} />);
+    await act(async () => btn("Add member").click());
+    await typeInto(inputs("Model")[1]!, "openrouter/anthropic/gpt-4x");
+    await act(async () => btn("Add member").click());
+    await typeInto(inputs("Model")[2]!, "azure/gpt-4x");
+    // Derived collisions are the validator's job (it suffixes -2), not a block.
+    expect(btn("Save").disabled).toBe(false);
+  });
+
+  it("blocks Save when two explicit names collide", async () => {
+    await mount(<CouncilRosterEditor scopeCwd="/p" instanceId={null} />);
+    await act(async () => btn("Add member").click());
+    await typeInto(inputs("Member")[1]!, "hawk");
+    await typeInto(inputs("Model")[1]!, "openai/gpt-5");
+    expect(btn("Save").disabled).toBe(true);
+  });
+
   it("disables Add member once the council has three members", async () => {
     await mount(<CouncilRosterEditor scopeCwd="/p" instanceId={null} />);
     await act(async () => btn("Add member").click());
@@ -162,7 +195,7 @@ describe("CouncilRosterEditor", () => {
     expect(readChatModels).toHaveBeenCalledTimes(1);
   });
 
-  it("shows the resolution warnings and never targets project without a cwd", async () => {
+  it("shows the resolution warnings and renders no scope buttons without a cwd", async () => {
     backendMock.getCouncilRoster.mockResolvedValueOnce(
       roster({
         configWarnings: ["duplicate slug"],
@@ -179,8 +212,17 @@ describe("CouncilRosterEditor", () => {
     await act(async () => root!.unmount());
     root = null;
     document.body.innerHTML = "";
+    // Without a cwd there is no project scope to offer: the toggle row is
+    // gone entirely (no disabled Project button), and the editor still loads
+    // and edits the global document.
     await mount(<CouncilRosterEditor scopeCwd={null} instanceId={null} />);
-    expect(btn("Project").disabled).toBe(true);
+    const scopeButtons = [...document.body.querySelectorAll<HTMLButtonElement>("button")].filter(
+      (b) => b.textContent?.trim() === "Project" || b.textContent?.trim() === "Global",
+    );
+    expect(scopeButtons).toHaveLength(0);
+    expect(document.body.textContent).toContain("/council asks each enabled member");
+    expect(document.querySelector('[data-testid="council-roster-editor"]')).not.toBeNull();
+    expect(document.body.textContent).toContain("hawk · on · anthropic/sonnet · Global");
   });
 
   it("names the inherit chain when the project scope is unset", async () => {

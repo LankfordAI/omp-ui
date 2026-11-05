@@ -554,8 +554,11 @@ overlay, and snapshot files in a reused lineage dir are removed. Preparation
 is never fatal: on failure the snapshot is removed, so the bridge refuses with
 a restart hint. Roster edits therefore apply on relaunch. Project settings →
 Council edits the project or global document over `council:roster` and
-`council:roster:set`; for a local project its *Pick…* palette reads omp's chat
-catalog, so no live session is needed. Those channels stay unproxied for
+`council:roster:set`; Settings → Experimental hosts the same editor for the
+global document (#1053), and enabling the council flag seeds a memberless
+global roster over those same channels before the flag flips (#1055); for a
+local project its *Pick…* palette reads omp's chat catalog, so no live
+session is needed. Those channels stay unproxied for
 remote projects.
 
 In a native, non-chat tab with experiments on, the composer intercepts

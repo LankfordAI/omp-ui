@@ -3,9 +3,11 @@ import {
   councilDocumentFromLegacy,
   isCouncilDocument,
   resolveCouncilRoster,
+  suggestCouncilMembers,
   validateCouncilDocument,
   type CouncilDocument,
   type CouncilMember,
+  type CouncilSuggestionModel,
 } from "./council-config";
 
 const doc = (over: Partial<CouncilDocument> = {}): CouncilDocument => ({
@@ -42,6 +44,38 @@ describe("validateCouncilDocument", () => {
       'the global council: member "---": name must slug to [a-z][a-z0-9-]* — entry dropped',
       'the global council: member "X": duplicates another entry (slug "x") — entry dropped',
     ]);
+  });
+  it("derives a blank name from the member's model with no warning (#1057)", () => {
+    const r = validateCouncilDocument(
+      doc({ members: [entry("", { model: "openrouter/anthropic/claude-opus-5.5" })] }),
+      "the global council",
+    );
+    expect(r.members).toEqual([entry("claude-opus-5-5", { model: "openrouter/anthropic/claude-opus-5.5" })]);
+    expect(r.configWarnings).toEqual([]);
+  });
+  it("drops a blank-named entry whose model derives no name (#1057)", () => {
+    const r = validateCouncilDocument(doc({ members: [entry("", { model: null }), entry("", { model: "litellm/🔒" })] }), "g");
+    expect(r.members).toEqual([]);
+    expect(r.configWarnings).toEqual([
+      'g: member "": name must slug to [a-z][a-z0-9-]* — entry dropped',
+      'g: member "": name must slug to [a-z][a-z0-9-]* — entry dropped',
+    ]);
+  });
+  it("suffixes -2 when two blank names derive the same slug (#1057)", () => {
+    const r = validateCouncilDocument(
+      doc({ members: [entry("", { model: "openrouter/anthropic/gpt-4x" }), entry("", { model: "azure/gpt-4x" })] }),
+      "g",
+    );
+    expect(r.members.map((m) => m.name)).toEqual(["gpt-4x", "gpt-4x-2"]);
+    expect(r.configWarnings).toEqual([]);
+  });
+  it("suffixes -2 when a derived name collides with an earlier typed name (#1057)", () => {
+    const r = validateCouncilDocument(
+      doc({ members: [entry("hawk"), entry("", { model: "azure/hawk" })] }),
+      "g",
+    );
+    expect(r.members.map((m) => m.name)).toEqual(["hawk", "hawk-2"]);
+    expect(r.configWarnings).toEqual([]);
   });
   it("drops an entry whose slug is over 24 characters", () => {
     const long = "a".repeat(25);
@@ -213,5 +247,48 @@ describe("resolveCouncilRoster", () => {
     expect(v.members.map((m) => m.name)).toEqual(["ok"]);
     expect(v.effective.map((m) => m.name)).toEqual(["ok"]);
     expect(v.configWarnings).toHaveLength(1);
+  });
+});
+
+const row = (provider: string, id: string): CouncilSuggestionModel => ({ provider, id });
+
+describe("suggestCouncilMembers", () => {
+  it("seeds matched favorites in favorites order, stripping a :level when matching", () => {
+    const members = suggestCouncilMembers(
+      [row("openai", "gpt-4"), row("anthropic", "claude"), row("google", "gemini")],
+      ["anthropic/claude:high", "google/gemini"],
+    );
+    expect(members).toEqual([
+      { name: "", model: "anthropic/claude", instructions: null, enabled: true },
+      { name: "", model: "google/gemini", instructions: null, enabled: true },
+    ]);
+  });
+  it("skips favorites absent from the catalog", () => {
+    const members = suggestCouncilMembers([row("openai", "gpt-4")], ["litellm/gone:high", "openai/gpt-4"]);
+    expect(members.map((m) => m.model)).toEqual(["openai/gpt-4"]);
+  });
+  it("keeps two favorites sharing a provider (#1058)", () => {
+    const members = suggestCouncilMembers(
+      [row("openai", "gpt-4"), row("openai", "gpt-5")],
+      ["openai/gpt-4", "openai/gpt-5"],
+    );
+    expect(members.map((m) => m.model)).toEqual(["openai/gpt-4", "openai/gpt-5"]);
+  });
+  it("caps the selection at 3 favorites", () => {
+    const members = suggestCouncilMembers(
+      [row("a", "m1"), row("b", "m2"), row("c", "m3"), row("d", "m4")],
+      ["a/m1", "b/m2", "c/m3", "d/m4"],
+    );
+    expect(members.map((m) => m.model)).toEqual(["a/m1", "b/m2", "c/m3"]);
+  });
+  it("never falls back to uncataloged picks: no favorites seeds nothing (#1058)", () => {
+    expect(suggestCouncilMembers([row("openai", "gpt-4"), row("anthropic", "claude")], [])).toEqual([]);
+  });
+  it("returns nothing for an empty catalog", () => {
+    expect(suggestCouncilMembers([], ["openai/gpt-4"])).toEqual([]);
+  });
+  it("deduplicates the same model favorited twice", () => {
+    const members = suggestCouncilMembers([row("openai", "gpt-4")], ["openai/gpt-4", "openai/gpt-4:high"]);
+    expect(members.map((m) => m.model)).toEqual(["openai/gpt-4"]);
   });
 });
