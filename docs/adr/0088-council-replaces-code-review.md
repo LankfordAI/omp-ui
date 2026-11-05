@@ -126,9 +126,9 @@ the council grants, `task.perCallModel: "on"` plus one role
 **Amended 2026-11-05 (#1055):** decision 2, *Empty by default*, is amended from
 terminal-empty to seeded-on-enable for the global roster only: enabling the
 council flag with a memberless global document seeds it once from the user's
-own discovered chat models (favorites first, at most three, one per provider)
-before the flag persists. The rejection of shipped default members stands —
-every seeded member is a model already configured on the machine.
+own favorite chat models (in favorites order, at most three, no catalog
+fallback — Refs #1058) before the flag persists. The rejection of shipped
+default members stands — every seeded member is a model the user chose.
 
 **Amended 2026-11-05 (#1057):** decision 3's member `name` becomes optional: a
 blank name is stored as-is, and the launch/display name derives from the

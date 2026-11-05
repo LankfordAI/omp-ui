@@ -94,7 +94,7 @@ export const createSettingsSlice: StateCreator<UiStore, [], [], SettingsSlice> =
 
   /**
    * #1055: enabling the council with no authored global roster seeds one from
-   * the user's own discovered models, so the flag flip alone yields a working
+   * the user's favorite models (#1058), so the flag flip alone yields a working
    * `/council`. An existing global document is never touched; every failure
    * (undiscovered catalog, write rejection) is swallowed — the flag must still
    * flip on, and `/council` keeps its own refuse path.

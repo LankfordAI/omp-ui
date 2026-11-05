@@ -1023,17 +1023,14 @@ describe("Settings Experimental page (issues #571 and #739)", () => {
     await renderSettings();
     click(councilSwitch());
     await act(async () => {});
-    // The favorite leads, then the remaining catalog row; one member per
-    // provider, with blank names so each follows its model (#1057).
+    // Only the favorite seeds (#1058): no catalog fallback, and the name is
+    // blank so the member follows its model (#1057).
     expect(backendMock.setCouncilRoster).toHaveBeenCalledWith({
       scopeCwd: null,
       scope: "user",
       document: {
         instructions: null,
-        members: [
-          { name: "", model: "litellm/quick", instructions: null, enabled: true },
-          { name: "", model: "anthropic/opus", instructions: null, enabled: true },
-        ],
+        members: [{ name: "", model: "litellm/quick", instructions: null, enabled: true }],
       },
     });
     expect(backendMock.setCouncilEnabled).toHaveBeenCalledWith(true);

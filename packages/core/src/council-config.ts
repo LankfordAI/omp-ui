@@ -244,10 +244,12 @@ export interface CouncilSuggestionModel {
 /**
  * The suggested roster for #1055: when the council flag is enabled and no
  * global document has members, the Settings slice seeds one from the user's
- * discovered models. Favorites lead (matched on the bare `provider/id` after
- * `parseModelRole` strips any `:level`; a favorite absent from the catalog is
- * skipped — a member must be launchable), then the remaining catalog rows in
- * given order. At most MAX_COUNCIL_MEMBERS are selected, one per provider.
+ * FAVORITE models (#1058) — matched on the bare `provider/id` after
+ * `parseModelRole` strips any `:level`; a favorite absent from the discovered
+ * catalog is skipped, since a member must be launchable. Favorites are
+ * explicit picks, so they keep their order and may share a provider; at most
+ * MAX_COUNCIL_MEMBERS seed, and an uncurated user gets no fallback — `/council`
+ * points at settings instead of being charged to arbitrary catalog models.
  * Every member is seeded with a blank name (#1057) so it keeps following its
  * model; the validator derives the display name.
  */
@@ -261,26 +263,16 @@ export function suggestCouncilMembers(
     const k = key(m);
     if (!byModel.has(k)) byModel.set(k, m);
   }
-  // Matched favorites in favorites order first, then every remaining row in given order.
-  const candidates: CouncilSuggestionModel[] = [];
-  const picked = new Set<CouncilSuggestionModel>();
+  // Favorites in favorites order, nothing else (#1058).
+  const members: CouncilMember[] = [];
+  const picked = new Set<string>();
   for (const fav of favorites) {
+    if (members.length >= MAX_COUNCIL_MEMBERS) break;
     const role = parseModelRole(fav);
     if (role === null) continue;
     const m = byModel.get(role.model);
-    if (m !== undefined && !picked.has(m)) {
-      picked.add(m);
-      candidates.push(m);
-    }
-  }
-  for (const m of models) if (!picked.has(m)) candidates.push(m);
-
-  const members: CouncilMember[] = [];
-  const usedProviders = new Set<string>();
-  for (const m of candidates) {
-    if (members.length >= MAX_COUNCIL_MEMBERS) break;
-    if (usedProviders.has(m.provider)) continue;
-    usedProviders.add(m.provider);
+    if (m === undefined || picked.has(role.model)) continue;
+    picked.add(role.model);
     members.push({
       name: "",
       model: key(m),
