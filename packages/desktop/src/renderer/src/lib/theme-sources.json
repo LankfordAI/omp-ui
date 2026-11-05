@@ -69,7 +69,7 @@
       "--color-raised": "#252526",
       "--color-overlay": "#2d2d30",
       "--color-hover": "#37373d",
-      "--color-line": "#41414a",
+      "--color-line": "#333336",
       "--color-line-soft": "#242424",
       "--color-line-strong": "#4f4f59",
       "--color-ink": "#e9e9e9",

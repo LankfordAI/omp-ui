@@ -2822,7 +2822,6 @@ export const ko: Partial<Record<MessageKey, string>> = {
   "sidebar.newSession": "새 세션 — 프로젝트 선택",
   "sidebar.settled.heading": "종료됨 ({n})",
   "sidebar.working.heading": "작업 중 ({n})",
-  "sidebar.ready.heading": "준비됨 ({n})",
   "sidebar.pinned.heading": "고정됨 ({n})",
   "sidebar.snoozed.heading": "보류됨 ({n})",
   "sidebar.session.chat": "채팅",

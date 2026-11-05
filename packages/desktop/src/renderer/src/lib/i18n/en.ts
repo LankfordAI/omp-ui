@@ -3065,9 +3065,6 @@ export const en = {
   "sidebar.newSession": "new session — pick a project",
   "sidebar.settled.heading": "Settled ({n})",
   "sidebar.working.heading": "Working ({n})",
-  // The live list renamed from "Active" (round-2 judge, Clarity 1): the
-  // rows say ready; the header must use the same word for the same state.
-  "sidebar.ready.heading": "Ready ({n})",
   "sidebar.pinned.heading": "Pinned ({n})",
   "sidebar.snoozed.heading": "Snoozed ({n})",
   "sidebar.session.chat": "chat",

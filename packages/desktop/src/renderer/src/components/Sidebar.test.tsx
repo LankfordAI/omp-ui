@@ -585,9 +585,9 @@ describe("Sidebar session list", () => {
     expect(
       [...document.body.querySelectorAll<HTMLButtonElement>("button")].some((b) => b.textContent === "New session"),
     ).toBe(false);
-    // With nothing live anywhere, Settled opens by default (the stored choice
-    // is untouched): the dormant rows are the only content left to reach.
-    expect(rowButton("Second owned session")).toBeDefined();
+    // Settled stays collapsed until the user opens it, even with nothing live.
+    expect(settledToggle()!.getAttribute("aria-expanded")).toBe("false");
+    expect(rowButton("Second owned session")).toBeUndefined();
 
     act(() => button("new session — pick a project").click());
     expect(useStore.getState().projectQuickOpen).not.toBeNull();
