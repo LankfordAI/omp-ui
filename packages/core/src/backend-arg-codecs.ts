@@ -83,7 +83,7 @@ import type {
   WatchdogDocument,
   WatchdogWriteRequest,
 } from "./types";
-import type { ReviewDocument, ReviewReviewer, ReviewTargetKind, ReviewWriteRequest } from "./review-config";
+import type { CouncilDocument, CouncilMember, CouncilWriteRequest } from "./council-config";
 import type { LiveHistoryTurn } from "./live-voice";
 import { isSubagentModelMap, type SubagentModelMap } from "./subagent-model";
 import { parseWebhookInput, parseWebhookPatch, type WebhookInput, type WebhookPatch } from "./webhook";
@@ -475,45 +475,43 @@ export const watchdogWriteCodec: ArgCodec<WatchdogWriteRequest> = {
   },
 };
 
-const reviewText: ArgCodec<string> = codec("a string of at most 64 KiB", (v) => typeof v === "string" && v.length <= 65_536);
-const reviewTargetKindCodec: ArgCodec<ReviewTargetKind> = oneOf("local", "commit", "pr");
-const reviewEntryCodec: ArgCodec<ReviewReviewer> = {
-  expected: "a REVIEW roster entry",
+const councilText: ArgCodec<string> = codec("a string of at most 64 KiB", (v) => typeof v === "string" && v.length <= 65_536);
+const councilMemberCodec: ArgCodec<CouncilMember> = {
+  expected: "a Council roster member",
   decode(value, path) {
     const f = record().decode(value, path);
-    exactKeys(f, ["name", "model", "instructions", "targets", "enabled"], path);
+    exactKeys(f, ["name", "model", "instructions", "enabled"], path);
     return {
-      name: reviewText.decode(f["name"], `${path}.name`),
-      model: nullable(reviewText).decode(f["model"], `${path}.model`),
-      instructions: nullable(reviewText).decode(f["instructions"], `${path}.instructions`),
-      targets: nullable(arrayOf(reviewTargetKindCodec)).decode(f["targets"], `${path}.targets`),
+      name: councilText.decode(f["name"], `${path}.name`),
+      model: nullable(councilText).decode(f["model"], `${path}.model`),
+      instructions: nullable(councilText).decode(f["instructions"], `${path}.instructions`),
       enabled: bool().decode(f["enabled"], `${path}.enabled`),
     };
   },
 };
-const reviewDocumentCodec: ArgCodec<ReviewDocument> = {
-  expected: "a REVIEW document",
+const councilDocumentCodec: ArgCodec<CouncilDocument> = {
+  expected: "a Council document",
   decode(value, path) {
     const f = record().decode(value, path);
-    exactKeys(f, ["instructions", "reviewers"], path);
-    const reviewers = arrayOf(reviewEntryCodec).decode(f["reviewers"], `${path}.reviewers`);
-    if (reviewers.length > 64) fail(`${path}.reviewers`, "at most 64 entries");
+    exactKeys(f, ["instructions", "members"], path);
+    const members = arrayOf(councilMemberCodec).decode(f["members"], `${path}.members`);
+    if (members.length > 64) fail(`${path}.members`, "at most 64 entries");
     return {
-      instructions: nullable(reviewText).decode(f["instructions"], `${path}.instructions`),
-      reviewers,
+      instructions: nullable(councilText).decode(f["instructions"], `${path}.instructions`),
+      members,
     };
   },
 };
-/** One app-state roster save (ADR-0047 as amended by #738): null document clears the scope. */
-export const reviewWriteCodec: ArgCodec<ReviewWriteRequest> = {
-  expected: "a review roster write request",
+/** One app-state Council roster save (ADR-0088): null document clears the scope. */
+export const councilWriteCodec: ArgCodec<CouncilWriteRequest> = {
+  expected: "a Council roster write request",
   decode(value, path) {
     const f = record().decode(value, path);
     exactKeys(f, ["scopeCwd", "scope", "document"], path);
     return {
       scopeCwd: nullable(str()).decode(f["scopeCwd"], `${path}.scopeCwd`),
       scope: oneOf("user", "project").decode(f["scope"], `${path}.scope`),
-      document: nullable(reviewDocumentCodec).decode(f["document"], `${path}.document`),
+      document: nullable(councilDocumentCodec).decode(f["document"], `${path}.document`),
     };
   },
 };

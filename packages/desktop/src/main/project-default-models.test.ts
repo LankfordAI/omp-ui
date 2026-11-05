@@ -61,7 +61,7 @@ function setup(): { registryFile: string } {
         defaultModel: null,
         defaultAdvisorModel: null,
         browserClock: false,
-        reviewRoster: null,
+        councilRoster: null,
         knowledgeHome: null,
         repositoryKey: null,
         icon: null,

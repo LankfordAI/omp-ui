@@ -104,8 +104,7 @@ describe("SETTINGS", () => {
       "memoryDefaultsSeeded",
       "autoThinkingDefaultSeeded",
       "hibernateManualDefaultSeeded",
-      "reviewRoster",
-      "reviewRosterImported",
+      "councilRoster",
       "gettingStartedSeen",
       "dismissedAppUpdateVersion",
       "dismissedOmpUpdateVersion",
@@ -639,6 +638,62 @@ describe("Registry persistence", () => {
     expect(Registry.load(junk).getSetting("audioOutputDevice")).toBeNull();
   });
 
+  it("migrates a legacy reviewRoster into councilRoster once, dropping targets (ADR-0088)", () => {
+    const legacy = {
+      instructions: "Be terse.",
+      reviewers: [
+        { name: "sec", model: "p/m", instructions: null, targets: ["pr"], enabled: true },
+        { name: "old", model: null, instructions: "look", targets: null, enabled: false },
+      ],
+    };
+    const migrated = {
+      instructions: "Be terse.",
+      members: [
+        { name: "sec", model: "p/m", instructions: null, enabled: true },
+        { name: "old", model: null, instructions: "look", enabled: false },
+      ],
+    };
+    const file = tmpFile();
+    fs.writeFileSync(
+      file,
+      JSON.stringify({
+        schemaVersion: 1,
+        settings: { reviewRoster: legacy, reviewRosterImported: true },
+        projects: [
+          { path: "/proj-a", name: "a", addedAt: "t", reviewRoster: legacy },
+          // A present councilRoster wins over the legacy key, even when null.
+          { path: "/proj-b", name: "b", addedAt: "t", councilRoster: null, reviewRoster: legacy },
+        ],
+        sessions: [],
+      }),
+    );
+    const reg = Registry.load(file);
+    expect(reg.getSetting("councilRoster")).toEqual(migrated);
+    expect(reg.projects[0]!.councilRoster).toEqual(migrated);
+    expect(reg.projects[1]!.councilRoster).toBeNull();
+    for (const project of reg.projects) expect(project).not.toHaveProperty("reviewRoster");
+
+    // After any write the legacy keys are gone and the migrated values persist.
+    reg.setSetting("themeId", "after-council-migration");
+    expect(fs.readFileSync(file, "utf8")).not.toContain("reviewRoster");
+    const reloaded = Registry.load(file);
+    expect(reloaded.getSetting("councilRoster")).toEqual(migrated);
+    expect(reloaded.projects[0]!.councilRoster).toEqual(migrated);
+    expect(reloaded.projects[1]!.councilRoster).toBeNull();
+
+    // A settings-level councilRoster: null is never overwritten either.
+    const cleared = tmpFile();
+    fs.writeFileSync(
+      cleared,
+      JSON.stringify({ schemaVersion: 1, settings: { councilRoster: null, reviewRoster: legacy } }),
+    );
+    const clearedReg = Registry.load(cleared);
+    expect(clearedReg.getSetting("councilRoster")).toBeNull();
+    clearedReg.setSetting("themeId", "after-council-migration");
+    expect(fs.readFileSync(cleared, "utf8")).not.toContain("reviewRoster");
+    expect(Registry.load(cleared).getSetting("councilRoster")).toBeNull();
+  });
+
   it("round-trips the plan format and falls back to html for anything unknown", () => {
     const file = tmpFile();
     const reg = Registry.load(file);
@@ -1122,7 +1177,7 @@ describe("Registry mutations", () => {
       defaultModel: null,
       defaultAdvisorModel: null,
       browserClock: false,
-      reviewRoster: null,
+      councilRoster: null,
       knowledgeHome: null,
       repositoryKey: null,
       icon: null,

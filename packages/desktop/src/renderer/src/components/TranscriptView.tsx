@@ -861,6 +861,29 @@ export function TuiHandoffButton({ item, tabId }: { item: CommandItem; tabId?: s
 }
 
 /**
+ * The empty-council refusal's way out (ADR-0088): opens the tab's Project
+ * settings on the Council section. Both command surfaces render it, like
+ * the TUI handoff; absent on every other row and outside a tab.
+ */
+export function CouncilSettingsButton({ item, tabId }: { item: CommandItem; tabId?: string }) {
+  const t = useT();
+  const tab = useStore((s) =>
+    tabId === undefined ? undefined : s.tabs.find((c) => c.tabId === tabId),
+  );
+  const openProjectSettings = useStore((s) => s.openProjectSettings);
+  if (item.action !== "council-settings" || tab === undefined) return null;
+  return (
+    <button
+      type="button"
+      className="mt-1.5 rounded border border-line px-1.5 py-0.5 text-xs text-ink-mid hover:text-ink"
+      onClick={() => openProjectSettings(tab.projectCwd, tab.instanceId, "council")}
+    >
+      {t("council.command.openSettings")}
+    </button>
+  );
+}
+
+/**
  * One slash command as the user ran it: the literal line in a mono slab, plus
  * the smallest status affix that answers "did it finish?". `agent` gets no
  * affix — the agent turn it invoked renders right below and speaks for itself.
@@ -906,6 +929,7 @@ function CommandRow({ item, tabId }: { item: CommandItem; tabId?: string }) {
       )}
       <ShareLinkRow item={item} />
       <TuiHandoffButton item={item} tabId={tabId} />
+      <CouncilSettingsButton item={item} tabId={tabId} />
     </div>
   );
 }

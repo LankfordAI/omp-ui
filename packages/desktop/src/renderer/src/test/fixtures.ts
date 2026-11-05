@@ -113,7 +113,7 @@ export function remoteOwnedState(tabId: string, instanceId: string): BackendStat
               defaultModel: null,
               defaultAdvisorModel: null,
               browserClock: false,
-              reviewRoster: null,
+              councilRoster: null,
               knowledgeHome: null,
               repositoryKey: null,
               icon: null,

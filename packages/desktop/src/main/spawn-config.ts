@@ -9,7 +9,10 @@ import {
   resolveSubagentOverlayEntries,
   rebindSessionCwd,
   unarchiveSession,
-  type ReviewDocument,
+  type CouncilDocument,
+  councilRosterSnapshotPath,
+  removeLineageArtifact,
+  resolveCouncilRoster,
   readOmpCompactionMethods,
   type OmpCompactionMethods,
   getOmpAgentDir,
@@ -38,8 +41,9 @@ import {
   writeAsyncJobsExtension,
   writeSessionSpendExtension,
   writePlanExtension,
-  writeReviewExtension,
-  writeReviewRosterSnapshot,
+  writeCouncilExtension,
+  writeCouncilOverlay,
+  writeCouncilRosterSnapshot,
   writeTreeExtension,
   writeSubagentModelOverlay,
   writePrivateGuardExtension,
@@ -365,7 +369,7 @@ export const RPC_BRIDGE_IDS = [
   "asyncJobs",
   "sessionSpend",
   "tree",
-  "review",
+  "council",
   "knowledgeVault",
   "askContext",
   "carryoverContext",
@@ -388,7 +392,7 @@ const DEFAULT_RPC_BRIDGE_WRITERS: RpcBridgeWriters = {
   asyncJobs: writeAsyncJobsExtension,
   sessionSpend: writeSessionSpendExtension,
   tree: writeTreeExtension,
-  review: writeReviewExtension,
+  council: writeCouncilExtension,
   knowledgeVault: writeKnowledgeVaultExtension,
   askContext: writeAskContextExtension,
   carryoverContext: writeCarryoverContextExtension,
@@ -414,7 +418,7 @@ const RPC_BRIDGES: ReadonlyArray<{
   { id: "asyncJobs", logId: "async-jobs", warning: "background-jobs", enabled: () => true },
   { id: "sessionSpend", logId: "spend", warning: "session-spend", enabled: () => true },
   { id: "tree", logId: "tree", warning: "tree", enabled: () => true },
-  { id: "review", logId: "review", warning: "code-review", enabled: (enabled) => enabled },
+  { id: "council", logId: "council", warning: "council", enabled: (enabled) => enabled },
   { id: "knowledgeVault", logId: "vault", warning: "knowledge-vault", enabled: () => true },
   { id: "askContext", logId: "ask", warning: "ask-context", enabled: () => true },
   { id: "carryoverContext", logId: "carryover", warning: "carryover-context", enabled: () => true },
@@ -449,19 +453,28 @@ export function writeRpcExtensions(
 }
 
 /**
- * Snapshots the resolved app-state roster for the code-review bridge
- * (ADR-0047 as amended by issue #738). Never fatal: without a snapshot the
- * bridge refuses with a restart hint instead of launching a guessed roster.
+ * Resolves the council once for a spawn (ADR-0088): writes the snapshot the bridge launches and
+ * returns the --config overlay that turns per-call models on and grants exactly the launched
+ * members' models. Legacy code-review artifacts in a reused lineage dir are removed.
+ * Never fatal: on failure the snapshot is removed (the bridge then refuses with a restart hint)
+ * and null is returned.
  */
-export async function writeReviewRosterForSpawn(
+export function writeCouncilForSpawn(
   absLineageDir: string,
-  global: ReviewDocument | null,
-  project: ReviewDocument | null,
-): Promise<void> {
+  global: CouncilDocument | null,
+  project: CouncilDocument | null,
+): string | null {
+  for (const legacy of ["omp-ui-code-review.ts", "omp-ui-review.yml", "omp-ui-review-roster.json"]) {
+    removeLineageArtifact(path.join(absLineageDir, legacy));
+  }
   try {
-    await writeReviewRosterSnapshot(absLineageDir, global, project);
+    const roster = resolveCouncilRoster(project === null ? null : "project", { global, project });
+    writeCouncilRosterSnapshot(absLineageDir, roster);
+    return writeCouncilOverlay(absLineageDir, roster.members.map((m) => m.model!));
   } catch (err) {
-    console.warn("[review] could not snapshot the reviewer roster:", err);
+    removeLineageArtifact(councilRosterSnapshotPath(absLineageDir));
+    console.warn("[council] could not prepare the council:", err);
+    return null;
   }
 }
 

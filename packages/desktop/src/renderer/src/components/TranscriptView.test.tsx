@@ -1379,7 +1379,7 @@ describe("rewind affordances (issue #680)", () => {
       streamStalled: false,
     };
     useStore.setState({
-      state: { ...backendState(), projects: [{ project: { path: "/p", name: "p", addedAt: "t", lastModel: null, lastThinkingLevel: null, lastAdvisor: null, lastAdvisorModel: null, defaultModel: null, defaultAdvisorModel: null, browserClock: false, reviewRoster: null, knowledgeHome: null, repositoryKey: null, icon: null }, sessions: [record] }] },
+      state: { ...backendState(), projects: [{ project: { path: "/p", name: "p", addedAt: "t", lastModel: null, lastThinkingLevel: null, lastAdvisor: null, lastAdvisorModel: null, defaultModel: null, defaultAdvisorModel: null, browserClock: false, councilRoster: null, knowledgeHome: null, repositoryKey: null, icon: null }, sessions: [record] }] },
       rpc: { [TAB]: rpcTabState({ status }) },
     });
   }
@@ -1404,7 +1404,7 @@ describe("rewind affordances (issue #680)", () => {
         ...backendState(),
         projects: [
           {
-            project: { path: "/p", name: "p", addedAt: "t", lastModel: null, lastThinkingLevel: null, lastAdvisor: null, lastAdvisorModel: null, defaultModel: null, defaultAdvisorModel: null, browserClock: false, reviewRoster: null, knowledgeHome: null, repositoryKey: null, icon: null },
+            project: { path: "/p", name: "p", addedAt: "t", lastModel: null, lastThinkingLevel: null, lastAdvisor: null, lastAdvisorModel: null, defaultModel: null, defaultAdvisorModel: null, browserClock: false, councilRoster: null, knowledgeHome: null, repositoryKey: null, icon: null },
             sessions: [{ ...useStore.getState().state!.projects[0]!.sessions[0]!, live: "dormant" }],
           },
         ],

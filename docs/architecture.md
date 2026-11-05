@@ -269,6 +269,7 @@ A native session's composer accepts the same slash commands as the terminal TUI.
 | `/btw <question>`, `/btw` | Never forwarded as prose: OMP's `/btw` is still TUI-only (`handleTui`, no `handle`), so a forwarded line would become a normal model turn and pollute the transcript ([#682](https://github.com/LankfordAI/omp-ui/issues/682)). In a native tab the composer dispatches OMP's native `btw` command and opens the Side questions pane, adding no transcript row; bare `/btw` opens the pane ([#775](https://github.com/LankfordAI/omp-ui/issues/775)). An omp below 18.6.3 (or an unobserved version) dispatches nothing and the pane shows itself unavailable. Terminal tabs keep forwarding the line to OMP's own TUI. |
 | `/<file command with side: true>` | Never forwarded as a prompt in a native tab (omp ≥ 18.13.0 runs these as `/btw` only in its TUI). The generated side-commands bridge publishes the live session's side set and renders the line with omp's own `renderFileSlashCommand`. The composer sends the result through native `btw`, opens the Side questions pane, and titles the topic with the typed command ([#955](https://github.com/LankfordAI/omp-ui/issues/955)). |
 | `/autoresearch start` | Bare `start` opens the New experiment dialog for the session's project; `start <text>` starts the experiment interview in this session with the text as the rough description ([#567](https://github.com/LankfordAI/omp-ui/issues/567), [ADR-0032](adr/0032-experiments-configured-in-conversation.md)). `/autoresearch lab` opens the Lab, likewise never forwarded. Every other `/autoresearch…` form — bare, a goal, `off`, `clear` — forwards verbatim: it is OMP's own extension command, which dispatches over rpc-ui without a dialog ([ADR-0030](adr/0030-experiments-read-autoresearch-from-two-sources.md)). |
+| `/council …` | Experiments on, native, non-chat tab: the composer reads the effective council and, when no member can launch, appends a failed row with an Open council settings action and sends nothing; otherwise the line reaches the council bridge verbatim ([ADR-0088](adr/0088-council-replaces-code-review.md)). |
 | Any other advertised command | Forwards as a `prompt` frame with the command acknowledgement lifecycle below. |
 | Unknown `/word` | Forwards as a literal model prompt. No command row appears; OMP starts a real agent turn. |
 
@@ -446,8 +447,8 @@ writes `omp-ui-autoresearch.ts` into the lineage dir and never sends the arm
 command, so `propose_experiment` is never registered and no snapshot is ever
 published; the renderer hides every Lab and New experiment entry point and
 `/autoresearch start|lab` fall through to OMP verbatim. The flag covers the
-code-review roster subsystem too: the bridge, its overlay, its roster
-snapshot, and the Settings → Reviewers tab ([#739](https://github.com/LankfordAI/omp-ui/issues/739)).
+council subsystem too: the bridge package, its overlay, its roster snapshot,
+and the Project settings → Council tab ([#739](https://github.com/LankfordAI/omp-ui/issues/739)).
 
 Live mode, goal, and tool activity come from another per-lineage generated
 extension. The pure wire contract is
@@ -516,32 +517,77 @@ Advisor enablement and model selection are session state. Core writes a per-line
 
 A dev/test spawn gate ([#371](https://github.com/LankfordAI/omp-ui/issues/371), [#372](https://github.com/LankfordAI/omp-ui/issues/372)) puts the gate on the same contracts: the gate's model and advisor selectors go into the same `--model` argument and `omp-ui-advisor.yml`/`omp-ui-model.yml` overlays, and the renderer displays them as read-only `DEV/TEST` choices in the composer chips and PlanReview's implementation setup whenever `spawnGate` is present in app state. The gate is display-only downstream of spawn resolution: the on/off switch and model pickers keep editing the registry record, which the gate never rewrites — so an ungated relaunch and a running gated instance disagree only in the overlay, which is exactly the point of the seam.
 
-### Code review
+### Council
 
-`/code-review` and the model-callable `omp-ui_code_review` tool ride a
-per-lineage generated extension passed with `-e`, plus a small `--config`
-overlay restating `async.enabled`/`task.batch` so a global opt-out
-cannot disable review under rpc-ui ([#728](https://github.com/LankfordAI/omp-ui/issues/728),
-[ADR-0047](adr/0047-code-review-roster-via-background-subagents.md)). The
-subsystem sits behind the app-global `experimentsEnabled` flag: with the flag
-off an rpc spawn writes neither the extension nor the overlay nor the snapshot,
-and Settings hides the Reviewers tab (#739). Main
-snapshots the resolved roster (project → global → default, `resolveReviewRoster`,
-the same resolution Settings shows) into `omp-ui-review-roster.json` in the
-lineage dir on every rpc spawn; the bridge reads only that snapshot, filters
-reviewers by `targets`, resolves
-the target once with async, cancellable `git`/`gh` probes to concrete commit
-ids (refusing empty targets), and never spawns anything itself: no extension
-ctx in omp exposes `callTool`. It composes one `task` batch invocation and hands it
-to the session model through `pi.sendMessage` with `deliverAs: "nextTurn",
-triggerTurn: true`, inert-fenced. The model makes the batch call; reviewers
-run as background subagents (their steering, cancellation, and the
-hibernation veto are plain subagent behavior, ADR-0045) and results arrive as
-`async-result` wake turns. Rpc-only: PTY tabs neither load the bridge nor
-take the overlay. Reviewers never edit files or post to GitHub; the playbook
-in every `tasks[].task` owns the output contract: one findings format, the
-`no findings.` terminator, and a `review incomplete:` notice for a blocked review
-or drifted PR head.
+`/council` and the model-callable `omp-ui_council` tool ride a per-lineage
+extension package directory, `omp-ui-council/` in the lineage dir, passed with
+`-e <dir>` ([#1049](https://github.com/LankfordAI/omp-ui/issues/1049),
+[ADR-0088](adr/0088-council-replaces-code-review.md)). Its `package.json`
+declares the bridge entry `omp-ui-council.ts` through `omp.extensions`, and
+`agents/omp-ui-council.md` is the dedicated, read-only council agent: omp
+discovers `agents/*.md` for explicit `--extension` directory roots, so the
+agent loads with the bridge and nowhere else. The subsystem sits behind the
+app-global `experimentsEnabled` flag: with the flag off an rpc spawn writes
+neither the package nor the overlay nor the snapshot, and Project settings
+hides the Council tab (#739). Rpc-only: PTY tabs neither load the bridge nor
+take the overlay.
+
+Main resolves the council once per rpc spawn (`writeCouncilForSpawn`).
+`resolveCouncilRoster` takes the project document, else the global one, else
+nothing: the council is empty by default, with no shipped member and no
+session-model fallback. The launch set is the first three enabled members that
+name a model; validation warns about every other enabled member, and a stored
+member without a model (migrated legacy data) is listed but never launched.
+Main writes the launch set to `omp-ui-council-roster.json` and returns the
+`omp-ui-council.yml` `--config` overlay, pushed after the rpc overlays:
+`async.enabled: true`, `task.batch: true`, `task.perCallModel: "on"`, and one
+`modelRoles."omp-ui-council-N"` chat role per launched member, each the
+member's selector verbatim. omp approves a per-call model only when a chat
+role in an operator layer names it, and objects deep-merge across layers, so
+the overlay grants exactly the members' models while the user's own roles
+survive. The overlay never writes `task.agentModelOverrides`, and the member
+agent's name never appears there, so the subagent overlay's `{"task": "*"}`
+umbrella (ADR-0031) cannot conflict with the pins. The old review bridge,
+overlay, and snapshot files in a reused lineage dir are removed. Preparation
+is never fatal: on failure the snapshot is removed, so the bridge refuses with
+a restart hint. Roster edits therefore apply on relaunch. Project settings →
+Council edits the project or global document over `council:roster` and
+`council:roster:set`; for a local project its *Pick…* palette reads omp's chat
+catalog, so no live session is needed. Those channels stay unproxied for
+remote projects.
+
+In a native, non-chat tab with experiments on, the composer intercepts
+`/council` before any model turn: it reads the effective council and, when no
+member can launch, appends a failed command row whose *Open council settings*
+action opens Project settings → Council, and sends nothing. When the roster
+read fails (an unproxied remote channel), the line forwards and the bridge
+decides. The bridge reads only the snapshot: a missing snapshot refuses with a
+restart hint, and an empty one points at Project settings → Council.
+
+`/council <request>` is ask mode; `/council review [pr <n> | <ref> |
+<from>..<to>]` is review mode, and any other text after `review` is an ask.
+Review mode requires a git checkout and resolves the target once with async,
+cancellable `git`/`gh` probes to concrete commit ids (refusing empty targets;
+PR review requires `gh`). The bridge never spawns anything itself: no
+extension ctx in omp exposes `callTool`. It composes one `task` batch with one
+item per member — name `council-<member>`, agent `omp-ui-council`, the
+member's model, and the mode's playbook followed by the member's instructions
+and the diff target or request — and hands it to the session model through
+`pi.sendMessage` with `deliverAs: "nextTurn", triggerTurn: true`,
+inert-fenced. If the batch call fails, the model reports omp's error verbatim
+and never retries without a member or with a different model. Members run as
+background subagents (their steering, cancellation, and the hibernation veto
+are plain subagent behavior, ADR-0045) and results arrive as `async-result`
+wake turns, which the session model summarizes per member: agreement,
+disagreement, and next steps. Members never edit files or post to GitHub. The
+ask playbook asks for `POSITION:`, `REASONING:`, `RISKS:`, and `CONFIDENCE:`
+lines. The review playbook owns the review contract: one findings format, the
+`no findings.` terminator, a `review incomplete:` notice for a blocked review
+or drifted PR head, and a final `SCORE: <0-10>/10` line (or `SCORE: none`).
+The session model tabulates each member's score per review round, never
+inventing one; it may fix findings within the reviewed scope and start a fresh
+round, up to three, and puts the table in an open pull request's description
+under `## Council review`, never as a comment.
 
 ### Rewind and the session tree
 
@@ -738,7 +784,7 @@ Each current record is indexed once below. Superseding records remain linked bec
 | [The web-search provider list is read from omp's model catalog](adr/0035-web-search-provider-list-read-from-omp-model-catalog.md) | Enumerate web-search providers from `omp models --kind search --json` under a pristine environment — designed JSON, offline, credential-free — keeping ADR-0027's closed-list contract and synthetic-reason degradation. |
 | [Generated bridges read omp settings through its config registry](adr/0036-generated-bridges-read-omp-settings-through-its-config-registry.md) | Read the effective value with a literal dynamic import of omp's config registry and `lookup(id).get(session.settings)` — layered, live, read-only — because 18.3.2's `Settings` has no string-key `get` and every alternative either writes or guesses. |
 | [Goal mode via omp's native rpc goal command](adr/0046-goal-mode-via-native-rpc-goal-command.md) | Drive goals through omp's rpc `goal` command, `get_state.goal`, and `goal_updated` (omp 18.4.11+, no fallback); budgets at creation only; continuation is omp's own, armed by a per-spawn `goal.continuationModes` overlay that follows the user's `"interactive"` setting; the HUD chip opens pause/resume/drop controls. |
-| [Code review as a batch of background subagents](adr/0047-code-review-roster-via-background-subagents.md) | `/code-review` composes one `task` batch from the app-state reviewer roster (issue #738 amended storage: per-project/global registry documents, one-time `REVIEW.yml` import) and hands it to the model via `pi.sendMessage` (`triggerTurn`) — no extension can spawn; reviewers are `task` items with per-item model pins, results return as `async-result` wakes; rpc-only, guarded by an idempotent `async`/`task.batch` overlay. |
+| [Code review as a batch of background subagents](adr/0047-code-review-roster-via-background-subagents.md) | `/code-review` composes one `task` batch from the app-state reviewer roster (issue #738 amended storage: per-project/global registry documents, one-time `REVIEW.yml` import) and hands it to the model via `pi.sendMessage` (`triggerTurn`) — no extension can spawn; reviewers are `task` items with per-item model pins, results return as `async-result` wakes; rpc-only, guarded by an idempotent `async`/`task.batch` overlay — superseded by [ADR-0088](adr/0088-council-replaces-code-review.md). |
 | [Knowledge vault host tools and the Home folder boundary](adr/0048-knowledge-vault-host-tools-and-home-folder-boundary.md) | Ten essential vault host tools answered in main write, rename, delete and merge stamped, indexed notes inside a vault's Home folder; exact-path read tokens gate every mutation, plan mode does not, and omp's reserved vault:// protocol is pinned off. |
 | [Live voice audio history beyond omp's exposure](adr/0049-live-voice-audio-history-beyond-omp-s-exposure.md) | Recordings are addressed by `v1/<sessionId>/<connectionId>/<role>/<turn>` refs into omp-ui-owned per-lineage storage; omp ≤ 18.8.6 exposes no output audio anywhere, so every reference honestly answers `unavailable` until a future omp supplies bytes. |
 | [Live voice parks with vendored instructions](adr/0050-live-voice-park-resume-with-vendored-instructions.md) | Leaving a tab closes its live call (armed intent kept, recap folded, answers stored) and returning reopens with `live_start` instructions; omp's `instructions` field replaces its default prompt wholesale, so omp-ui vendors the 18.8.6 base verbatim and appends recap/pending sections. |
@@ -767,3 +813,4 @@ Each current record is indexed once below. Superseding records remain linked bec
 | [Session references ride the prompt text as a leading block](adr/0085-session-references-ride-the-prompt-text.md) | Session references ([#984](https://github.com/LankfordAI/omp-ui/issues/984)): a dropped sidebar row or `@`-palette pick becomes a chip; on send a leading `<session references>` block (fixed seance hint line, then title/session/machine/path per session) precedes the annotations block, and the transcript derivation parses it back into chips. The tab-routed `session:reference` channel resolves the owner's `os.hostname()` and fresh transcript path, because omp's seance resolver finds a bare id only in the caller's own session dir; references are same-instance only and drop on any host-changing move |
 | [The device pane streams the emulator's gRPC screen and drives agent-device through a host tool](adr/0086-device-pane-streams-emulator-grpc-and-drives-agent-device-through-a-host-tool.md) | Device pane ([#1006](https://github.com/LankfordAI/omp-ui/issues/1006)): main binds one Android emulator per live rpc tab, streams `streamScreenshot` RGBA capped at a 1280-pixel long edge, JPEG-encodes it at quality 80 with `nativeImage` (about 2.3 ms at 576×1280) onto the existing lossy frame transport, and sends input over `streamInputEvent`; the agent drives the same emulator through the essential `omp-ui_device` host tool, which runs the pinned `agent-device` CLI with the serial and session fixed, off by default behind `deviceAgentAccess` and never on webhook or MCP sessions. Rejected: ffmpeg/H.264, emulator WebRTC, scrcpy, an MCP config write, a generated `registerTool` bridge, and utilityProcess encoding |
 | [Live voice goes half-duplex: the speaker yields while the mic is open](adr/0087-live-voice-speaker-yields-to-the-microphone.md) | Half-duplex speaker gate ([#1024](https://github.com/LankfordAI/omp-ui/issues/1024)): while `LivePeer.setMicEnabled` has the mic transmitting (a hold, or the 800 ms release tail) the renderer pauses the call's own `<audio>` playback, so the realtime server's input VAD never hears its own answer through the speakers and truncates it mid-sentence; the close resumes only if playback was running when the hold began, and genuine barge-in over the wire is unchanged |
+| [Council replaces code review with a roster of pinned member models](adr/0088-council-replaces-code-review.md) | Council ([#1049](https://github.com/LankfordAI/omp-ui/issues/1049)): /council asks 1-3 pinned member models through one task batch on a dedicated omp-ui-council agent shipped in a per-lineage extension package; a --config overlay turns task.perCallModel on and grants exactly the members' models; empty by default. |

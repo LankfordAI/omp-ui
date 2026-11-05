@@ -37,8 +37,7 @@ interface RegistrySettings {
   memoryDefaultsSeeded: boolean;
   autoThinkingDefaultSeeded: boolean;
   hibernateManualDefaultSeeded: boolean;
-  reviewRoster: unknown;
-  reviewRosterImported: boolean;
+  councilRoster: unknown;
   gettingStartedSeen: boolean;
   dismissedAppUpdateVersion: string | null;
   dismissedOmpUpdateVersion: string | null;
@@ -157,8 +156,7 @@ export function seedRegistry(file: string, patch: RegistrySeedPatch = {}): void 
     voiceInputEnabled: false,
     sttModel: null,
     memoryDefaultsSeeded: false,
-    reviewRoster: null,
-    reviewRosterImported: true,
+    councilRoster: null,
     // Default false: the boot seed (issue #623) flips it for registries that
     // already carry projects or sessions, exactly like an upgrade does.
     gettingStartedSeen: false,

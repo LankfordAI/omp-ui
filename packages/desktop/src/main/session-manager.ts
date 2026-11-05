@@ -93,7 +93,6 @@ import {
   spawnOmp,
   writeImageToScratch,
   writeSubagentModelOverlay,
-  writeReviewOverlay,
   MAX_IMAGE_BYTES,
   type ConsoleProgram,
   type DeleteSessionPreview,
@@ -189,7 +188,7 @@ import { HeldPromptScheduler } from "./held-prompt-scheduler";
 import { ScheduledPromptRunner } from "./scheduled-prompt-runner";
 import {
   prepareResumeRecord,
-  writeReviewRosterForSpawn,
+  writeCouncilForSpawn,
   writeRpcExtensions,
   writeRpcOverlays,
   writeSessionModelOverlay,
@@ -1719,25 +1718,21 @@ export class SessionManager {
     if (record.worktree !== null) {
       await linkProjectOmpDir(record.projectCwd, record.worktree.path);
     }
-    // The roster is app state now (issue #738): the project record's document
-    // (null = global/default), resolved at snapshot time. Worktrees no longer
-    // matter — there is no project file to reach through the link. Every rpc
-    // launch (fresh, resume, restart) refreshes it.
-    if (bridgeLoaded.review) {
-      // The reviewer roster needs the batch task tool and async job delivery
-      // even when the user's global config turned either off (ADR-0047);
-      // restating omp's rpc defaults is idempotent. Written only while the
-      // experiments flag loaded the bridge — flag off leaves no review
-      // artifact in the lineage dir.
-      configOverlays.push(writeReviewOverlay(absLineageDir));
+    // The council is app state (ADR-0088): the project record's document
+    // (null = global), resolved at snapshot time. Every rpc launch (fresh,
+    // resume, restart) refreshes the snapshot and its overlay. Written only
+    // while the experiments flag loaded the bridge — flag off leaves no
+    // council artifact in the lineage dir.
+    if (bridgeLoaded.council) {
       const projectRecord = this.deps.registry.projects.find(
         (project) => project.path === record.projectCwd,
       );
-      await writeReviewRosterForSpawn(
+      const overlay = writeCouncilForSpawn(
         absLineageDir,
-        this.deps.registry.getSetting("reviewRoster"),
-        projectRecord?.reviewRoster ?? null,
+        this.deps.registry.getSetting("councilRoster"),
+        projectRecord?.councilRoster ?? null,
       );
+      if (overlay !== null) configOverlays.push(overlay);
     }
     // One-shot watcher (issue #718): when the runtime rejects the delta
     // negotiation — or echoes full mode — the spawn streams full snapshots

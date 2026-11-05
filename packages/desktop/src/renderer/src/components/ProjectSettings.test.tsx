@@ -28,13 +28,13 @@ const backendMock = {
   setProjectBrowserClock: vi.fn(async () => {}),
   setProjectKnowledgeHome: vi.fn<(projectPath: string, home: ProjectRecord["knowledgeHome"]) => Promise<void>>(async () => {}),
   vaultNames: vi.fn(async () => [] as string[]),
-  getReviewRoster: vi.fn(async () => ({
-    reviewers: [{ name: "code-reviewer", model: null, instructions: null, targets: null, enabled: true }],
+  getCouncilRoster: vi.fn(async () => ({
+    members: [],
     instructions: null,
     configWarnings: [],
     global: null,
     project: null,
-    effective: [{ name: "code-reviewer", model: null, instructions: null, targets: null, enabled: true, sourceScope: "user" as const }],
+    effective: [],
   })),
   remoteInstanceRequest: vi.fn(),
   remoteInstanceNotify: vi.fn(),
@@ -116,7 +116,7 @@ const liveSessionState = backendState({
         defaultModel: null,
         defaultAdvisorModel: null,
         browserClock: false,
-        reviewRoster: null,
+        councilRoster: null,
         knowledgeHome: null,
         repositoryKey: null,
         icon: null,
@@ -137,7 +137,7 @@ const project: ProjectRecord = {
   defaultModel: "pin/main",
   defaultAdvisorModel: "pin/advisor:high",
   browserClock: false,
-  reviewRoster: null,
+  councilRoster: null,
   knowledgeHome: null,
   repositoryKey: null,
   icon: null,
@@ -685,7 +685,7 @@ describe("ProjectSettings", () => {
     useStore.setState({
       state: backendState({
         defaultAdvisor: false,
-        projects: [{ project: { ...project, defaultAdvisorModel: null, browserClock: false, reviewRoster: null }, sessions: [] }],
+        projects: [{ project: { ...project, defaultAdvisorModel: null, browserClock: false, councilRoster: null }, sessions: [] }],
       }),
     });
     await renderDialog();
@@ -801,22 +801,23 @@ describe("ProjectSettings", () => {
     expect(backendMock.setProjectDefaultAdvisorModel).not.toHaveBeenCalled();
   });
 
-  it("hides the Reviewers tab with the experiments flag off (issue #739)", async () => {
+  it("hides the Council tab with the experiments flag off (issue #1049)", async () => {
     const state = useStore.getState().state!;
     expect(state.experimentsEnabled).toBe(false);
     await renderDialog();
     const tabs = [...document.body.querySelectorAll<HTMLButtonElement>('[role="tab"]')];
-    expect(tabs.some((tab) => tab.textContent?.includes("Reviewers"))).toBe(false);
-    expect(backendMock.getReviewRoster).not.toHaveBeenCalled();
+    expect(tabs.some((tab) => tab.textContent?.includes("Council"))).toBe(false);
+    expect(backendMock.getCouncilRoster).not.toHaveBeenCalled();
   });
 
-  it("shows the Reviewers tab and mounts the roster editor with the flag on", async () => {
+  it("shows the Council tab and mounts the roster editor with the flag on", async () => {
     const state = useStore.getState().state!;
     act(() => useStore.setState({ state: { ...state, experimentsEnabled: true } }));
     await renderDialog();
-    await act(async () => tabButton("Reviewers").click());
-    expect(tabButton("Reviewers").getAttribute("aria-selected")).toBe("true");
-    expect(backendMock.getReviewRoster).toHaveBeenCalledWith(PROJECT);
-    expect(document.body.textContent).toContain("Add reviewer");
+    await act(async () => tabButton("Council").click());
+    expect(tabButton("Council").getAttribute("aria-selected")).toBe("true");
+    expect(backendMock.getCouncilRoster).toHaveBeenCalledWith(PROJECT);
+    expect(document.body.textContent).toContain("Add member");
+    expect(document.body.textContent).toContain("No members — /council asks you to add some first.");
   });
 });

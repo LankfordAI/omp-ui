@@ -6,7 +6,7 @@ import { Row } from "./rows";
 /**
  * Settings → Experimental: the app-global beta surface. One switch gates the
  * Lab, the New experiment dialog, the autoresearch bridge, and the
- * code-review roster and /code-review command (#571, #739) — the same
+ * council roster and /council command (#571, #1049) — the same
  * `experimentsEnabled` the spawn path reads, so there is one flag and this is
  * its only editor.
  */

@@ -1,12 +1,13 @@
 import { useEffect, useMemo, useRef, useState } from "react";
 import type {
-  ReviewDocument,
-  ReviewReviewer,
-  ReviewRosterView,
-  ReviewTargetKind,
+  CouncilDocument,
+  CouncilMember,
+  CouncilRosterView,
+  CouncilWriteRequest,
+  ModelCatalogSnapshot,
 } from "@omp-ui/core/types";
 import { parseModelRole } from "@omp-ui/core/model-role";
-import { reviewerSlug } from "@omp-ui/core/review";
+import { councilMemberSlug, MAX_COUNCIL_MEMBERS, MAX_COUNCIL_NAME } from "@omp-ui/core/council";
 import { backendFor, displayMessage } from "../backend";
 import { cn } from "../lib/cn";
 import { useT } from "../lib/i18n";
@@ -16,19 +17,22 @@ import { ModelPalette } from "./ModelSelector";
 import { Button, Label, Panel, Switch } from "./ui";
 
 /**
- * The reviewer roster (issue #728, ADR-0047 as amended by issue #738).
- * `ReviewRosterEditor` edits app state — this project's `reviewRoster`, or the
- * global one — and applies on session relaunch: `/code-review` launches the
- * enabled entries as background review agents, so running sessions keep the
- * roster they were launched with.
+ * The Council roster (ADR-0088, issue #1049). `CouncilRosterEditor` edits app
+ * state — this project's `councilRoster`, or the global one — and applies on
+ * session relaunch: `/council` asks the first MAX_COUNCIL_MEMBERS enabled
+ * members, each pinned to its own model, so running sessions keep the council
+ * they were launched with. Every member needs a model; nothing falls back to
+ * the session model.
  */
 
-type Load = { status: "loading" } | { status: "loaded"; result: ReviewRosterView } | { status: "error"; message: string };
-type ReviewScope = "user" | "project";
+type Load = { status: "loading" } | { status: "loaded"; result: CouncilRosterView } | { status: "error"; message: string };
+type CouncilScope = CouncilWriteRequest["scope"];
+type ChatCatalogLoad =
+  | { status: "idle" }
+  | { status: "loading" }
+  | { status: "loaded"; snapshot: ModelCatalogSnapshot };
 
-const TARGET_KINDS: readonly ReviewTargetKind[] = ["local", "commit", "pr"];
-
-function useRosterLoad(scopeCwd: string | null, instanceId: string | null): [Load, (r: ReviewRosterView) => void, () => void] {
+function useRosterLoad(scopeCwd: string | null, instanceId: string | null): [Load, (r: CouncilRosterView) => void, () => void] {
   const [load, setLoad] = useState<Load>({ status: "loading" });
   const [retry, setRetry] = useState(0);
   const gen = useRef(0);
@@ -36,7 +40,7 @@ function useRosterLoad(scopeCwd: string | null, instanceId: string | null): [Loa
     const mine = ++gen.current;
     setLoad({ status: "loading" });
     backendFor(instanceId)
-      .getReviewRoster(scopeCwd)
+      .getCouncilRoster(scopeCwd)
       .then(
         (result) => {
           if (gen.current === mine) setLoad({ status: "loaded", result });
@@ -51,34 +55,38 @@ function useRosterLoad(scopeCwd: string | null, instanceId: string | null): [Loa
 
 const EMPTY_MODELS: ModelInfo[] = [];
 
-function blankEntry(): ReviewReviewer {
-  return { name: "", model: null, instructions: null, targets: null, enabled: true };
+function blankEntry(): CouncilMember {
+  return { name: "", model: null, instructions: null, enabled: true };
 }
 
-function modelShapeOk(value: string): boolean {
+/** A launchable model selector: present and shaped `provider/id[:level]`. */
+function modelOk(value: string | null): boolean {
+  if (value === null) return false;
   const parsed = parseModelRole(value);
   return parsed !== null && parsed.model !== "";
 }
 
-const documentsEqual = (a: ReviewDocument, b: ReviewDocument): boolean =>
+const documentsEqual = (a: CouncilDocument, b: CouncilDocument): boolean =>
   JSON.stringify(a) === JSON.stringify(b);
 
 const inputClass =
   "w-full rounded border border-line bg-void px-2 py-1 font-mono text-xs text-ink outline-none focus:border-line-strong disabled:opacity-60";
 
-export function ReviewRosterEditor({ scopeCwd, instanceId }: { scopeCwd: string | null; instanceId: string | null }) {
+export function CouncilRosterEditor({ scopeCwd, instanceId }: { scopeCwd: string | null; instanceId: string | null }) {
   const t = useT();
-  const [scope, setScope] = useState<ReviewScope>(scopeCwd === null ? "user" : "project");
+  const [scope, setScope] = useState<CouncilScope>(scopeCwd === null ? "user" : "project");
   const [load, setLoad, reload] = useRosterLoad(scopeCwd, instanceId);
-  const [draft, setDraft] = useState<ReviewDocument | null>(null);
+  const [draft, setDraft] = useState<CouncilDocument | null>(null);
   const [dirty, setDirty] = useState(false);
   const [error, setError] = useState<string | null>(null);
   const [saved, setSaved] = useState(false);
   const [saving, setSaving] = useState(false);
   const [pickIndex, setPickIndex] = useState<number | null>(null);
+  const [catalog, setCatalog] = useState<ChatCatalogLoad>({ status: "idle" });
   const state = useStore((s) => s.state);
   const rpc = useStore((s) => s.rpc);
   const restartSession = useStore((s) => s.restartSession);
+  const readChatModels = useStore((s) => s.readChatModels);
 
   // The document the edited scope holds in app state; null = unset.
   const stored = useMemo(
@@ -87,16 +95,16 @@ export function ReviewRosterEditor({ scopeCwd, instanceId }: { scopeCwd: string 
   );
 
   // What the editor seeds from: the scope's own document, else what the
-  // resolution chain currently shows (global or default) — editing it creates
+  // resolution chain currently shows (global or empty) — editing it creates
   // the override. Memoized on the load: a fresh object per render would
   // re-seed the draft under the user's keystrokes.
-  const seed = useMemo(() => {
+  const seed = useMemo((): CouncilDocument | null => {
     if (load.status !== "loaded") return null;
     const own = scope === "project" ? load.result.project : load.result.global;
     if (own !== null) return structuredClone(own);
     return {
       instructions: load.result.instructions,
-      reviewers: load.result.effective.map(({ sourceScope: _unused, ...r }) => r),
+      members: load.result.effective.map(({ sourceScope: _unused, ...m }) => m),
     };
   }, [load, scope]);
 
@@ -108,10 +116,11 @@ export function ReviewRosterEditor({ scopeCwd, instanceId }: { scopeCwd: string 
     } else setDraft(null);
   }, [seed]);
 
-  const models = useMemo(() => {
-    if (scopeCwd === null) return EMPTY_MODELS;
-    const groups = instanceId === null ? state?.projects : findInstance(state, instanceId)?.projects;
-    const group = groups?.find((g) => g.project.path === scopeCwd);
+  // A remote project's picker lists a live session's catalog (the remote's
+  // omp, not this host's); a local project reads omp's chat catalog on demand.
+  const liveModels = useMemo(() => {
+    if (instanceId === null || scopeCwd === null) return EMPTY_MODELS;
+    const group = findInstance(state, instanceId)?.projects.find((g) => g.project.path === scopeCwd);
     for (const session of group?.sessions ?? []) {
       if (session.live !== "live") continue;
       const list = rpc[session.tabId]?.availableModels;
@@ -127,13 +136,13 @@ export function ReviewRosterEditor({ scopeCwd, instanceId }: { scopeCwd: string 
     return (group?.sessions ?? []).filter((s) => s.live === "live" && s.mode === "rpc-ui");
   }, [state, scopeCwd, instanceId]);
 
-  if (load.status === "loading") return <p className="px-4 py-3 text-xs text-ink-faint">{t("review.roster.loading")}</p>;
+  if (load.status === "loading") return <p className="px-4 py-3 text-xs text-ink-faint">{t("council.roster.loading")}</p>;
   if (load.status === "error") {
     return (
       <div className="px-4 py-3 text-xs">
         <p className="text-rose">{load.message}</p>
         <Button size="xs" onClick={reload}>
-          {t("review.roster.reload")}
+          {t("council.roster.reload")}
         </Button>
       </div>
     );
@@ -141,34 +150,57 @@ export function ReviewRosterEditor({ scopeCwd, instanceId }: { scopeCwd: string 
   const result = load.result;
   if (seed === null || draft === null) return null;
 
-  const update = (patch: Partial<ReviewDocument>): void => {
+  const update = (patch: Partial<CouncilDocument>): void => {
     setDraft({ ...draft, ...patch });
     setDirty(true);
     setSaved(false);
   };
-  const updateEntry = (i: number, patch: Partial<ReviewReviewer>): void =>
-    update({ reviewers: draft.reviewers.map((r, j) => (j === i ? { ...r, ...patch } : r)) });
+  const updateEntry = (i: number, patch: Partial<CouncilMember>): void =>
+    update({ members: draft.members.map((m, j) => (j === i ? { ...m, ...patch } : m)) });
 
-  const slugs = draft.reviewers.map((r) => reviewerSlug(r.name));
-  const invalid =
-    draft.reviewers.some((r, i) => r.name.trim() === "" || slugs.indexOf(slugs[i]!) !== i || (r.model !== null && r.model !== "" && !modelShapeOk(r.model)));
+  /** Opens the picker; a local project probes omp's chat catalog once per mount. */
+  const pick = (i: number): void => {
+    setPickIndex(i);
+    if (instanceId !== null || catalog.status !== "idle") return;
+    setCatalog({ status: "loading" });
+    readChatModels().then(
+      (snapshot) => setCatalog({ status: "loaded", snapshot }),
+      (err: unknown) =>
+        setCatalog({ status: "loaded", snapshot: { models: [], discovered: false, error: displayMessage(err) } }),
+    );
+  };
+
+  const slugs = draft.members.map((m) => councilMemberSlug(m.name));
+  const invalid = draft.members.some(
+    (m, i) =>
+      slugs[i] === "" ||
+      slugs[i]!.length > MAX_COUNCIL_NAME ||
+      slugs.indexOf(slugs[i]!) !== i ||
+      !modelOk(m.model),
+  );
+  const full = draft.members.length >= MAX_COUNCIL_MEMBERS;
+  const paletteModels = instanceId === null
+    ? catalog.status === "loaded" && catalog.snapshot.discovered
+      ? catalog.snapshot.models
+      : null
+    : liveModels;
 
   // The whole document (or null to clear the scope); a project draft identical
-  // to the global document is a clear — the same roster either way, and the
+  // to the global document is a clear — the same council either way, and the
   // chain stays readable.
   const save = async (): Promise<void> => {
     setSaving(true);
     setError(null);
     try {
-      const doc: ReviewDocument = {
+      const doc: CouncilDocument = {
         instructions: draft.instructions?.trim() ? draft.instructions : null,
-        reviewers: draft.reviewers.map((r) => ({ ...r, model: r.model?.trim() ? r.model.trim() : null })),
+        members: draft.members.map((m) => ({ ...m, model: m.model?.trim() ? m.model.trim() : null })),
       };
       const clear =
         scope === "project" &&
         result.global !== null &&
         documentsEqual(doc, result.global);
-      const next = await backendFor(instanceId).setReviewRoster({
+      const next = await backendFor(instanceId).setCouncilRoster({
         scopeCwd: scope === "project" ? scopeCwd : null,
         scope,
         document: clear ? null : doc,
@@ -182,12 +214,12 @@ export function ReviewRosterEditor({ scopeCwd, instanceId }: { scopeCwd: string 
     }
   };
 
-  /** Drops the project override so the global roster (or default) applies again. */
+  /** Drops the project override so the global council (or none) applies again. */
   const clearOverride = async (): Promise<void> => {
     setSaving(true);
     setError(null);
     try {
-      const next = await backendFor(instanceId).setReviewRoster({ scopeCwd, scope: "project", document: null });
+      const next = await backendFor(instanceId).setCouncilRoster({ scopeCwd, scope: "project", document: null });
       setLoad(next);
       setSaved(true);
     } catch (err) {
@@ -198,101 +230,82 @@ export function ReviewRosterEditor({ scopeCwd, instanceId }: { scopeCwd: string 
   };
 
   return (
-    <div className="flex flex-col gap-3 px-4 py-3 text-xs" data-testid="review-roster-editor">
-      <p className="text-xs leading-relaxed text-ink-faint">{t("review.roster.explain")}</p>
+    <div className="flex flex-col gap-3 px-4 py-3 text-xs" data-testid="council-roster-editor">
+      <p className="text-xs leading-relaxed text-ink-faint">{t("council.roster.explain")}</p>
       <div className="flex items-center gap-2">
         <Button size="xs" selected={scope === "project"} disabled={scopeCwd === null} onClick={() => setScope("project")}>
-          {t("review.roster.scopeProject")}
+          {t("council.roster.scopeProject")}
         </Button>
         <Button size="xs" selected={scope === "user"} onClick={() => setScope("user")}>
-          {t("review.roster.scopeUser")}
+          {t("council.roster.scopeUser")}
         </Button>
       </div>
       {scope === "project" && stored === null && (
-        <p className="text-ink-faint">{t("review.roster.inheritGlobal")}</p>
+        <p className="text-ink-faint">{t("council.roster.inheritGlobal")}</p>
       )}
 
       <div>
-        <Label>{t("review.roster.sharedInstructions")}</Label>
+        <Label>{t("council.roster.sharedInstructions")}</Label>
         <textarea
           className={cn(inputClass, "mt-1 h-16")}
-          aria-label={t("review.roster.sharedInstructions")}
+          aria-label={t("council.roster.sharedInstructions")}
           value={draft.instructions ?? ""}
           onChange={(e) => update({ instructions: e.target.value === "" ? null : e.target.value })}
         />
       </div>
 
-      {draft.reviewers.map((r, i) => (
+      {draft.members.map((m, i) => (
         <Panel key={i} className="flex flex-col gap-2 p-2.5">
           <div className="flex items-center gap-2">
             <input
               className={inputClass}
-              placeholder={t("review.roster.namePlaceholder")}
-              aria-label={t("review.roster.colName")}
-              value={r.name}
+              placeholder={t("council.roster.namePlaceholder")}
+              aria-label={t("council.roster.colName")}
+              value={m.name}
               onChange={(e) => updateEntry(i, { name: e.target.value })}
             />
             <Switch
-              on={r.enabled}
-              label={t("review.roster.enabled")}
+              on={m.enabled}
+              label={t("council.roster.enabled")}
               onChange={(next) => updateEntry(i, { enabled: next })}
             />
-            <Button size="xs" variant="ghost" tone="rose" onClick={() => update({ reviewers: draft.reviewers.filter((_, j) => j !== i) })}>
-              {t("review.roster.remove")}
+            <Button size="xs" variant="ghost" tone="rose" onClick={() => update({ members: draft.members.filter((_, j) => j !== i) })}>
+              {t("council.roster.remove")}
             </Button>
           </div>
           <div className="flex items-center gap-2">
             <input
               className={inputClass}
-              placeholder={t("review.roster.modelPlaceholder")}
-              aria-label={t("review.roster.colModel")}
-              value={r.model ?? ""}
+              placeholder={t("council.roster.modelPlaceholder")}
+              aria-label={t("council.roster.colModel")}
+              value={m.model ?? ""}
               onChange={(e) => updateEntry(i, { model: e.target.value === "" ? null : e.target.value })}
             />
-            {models.length > 0 && (
-              <Button size="xs" onClick={() => setPickIndex(i)}>
-                {t("review.roster.pick")}
+            {(instanceId === null || liveModels.length > 0) && (
+              <Button size="xs" onClick={() => pick(i)}>
+                {t("council.roster.pick")}
               </Button>
             )}
           </div>
-          {r.model !== null && r.model !== "" && !modelShapeOk(r.model) && (
-            <p className="text-xs text-rose">{t("project.settings.selectorProvider")}</p>
-          )}
-          <div className="flex flex-wrap items-center gap-1">
-            <Button
-              size="xs"
-              selected={r.targets === null}
-              onClick={() => updateEntry(i, { targets: r.targets === null ? [...TARGET_KINDS] : null })}
-            >
-              {t("review.roster.targetsAll")}
-            </Button>
-            {r.targets !== null &&
-              TARGET_KINDS.map((kind) => (
-                <Button
-                  key={kind}
-                  size="xs"
-                  selected={r.targets!.includes(kind)}
-                  onClick={() =>
-                    updateEntry(i, { targets: r.targets!.includes(kind) ? r.targets!.filter((x) => x !== kind) : [...r.targets!, kind] })
-                  }
-                >
-                  {kind}
-                </Button>
-              ))}
-          </div>
+          {!modelOk(m.model) && <p className="text-xs text-rose">{t("council.roster.modelRequired")}</p>}
           <textarea
             className={cn(inputClass, "h-14")}
-            aria-label={t("review.roster.instructions")}
-            placeholder={t("review.roster.instructions")}
-            value={r.instructions ?? ""}
+            aria-label={t("council.roster.instructions")}
+            placeholder={t("council.roster.instructions")}
+            value={m.instructions ?? ""}
             onChange={(e) => updateEntry(i, { instructions: e.target.value === "" ? null : e.target.value })}
           />
         </Panel>
       ))}
 
       <div className="flex items-center gap-2">
-        <Button size="xs" onClick={() => update({ reviewers: [...draft.reviewers, blankEntry()] })}>
-          {t("review.roster.add")}
+        <Button
+          size="xs"
+          disabled={full}
+          title={full ? t("council.roster.full") : undefined}
+          onClick={() => update({ members: [...draft.members, blankEntry()] })}
+        >
+          {t("council.roster.add")}
         </Button>
         <span className="flex-1" />
         {scope === "project" && stored !== null && (
@@ -303,7 +316,7 @@ export function ReviewRosterEditor({ scopeCwd, instanceId }: { scopeCwd: string 
             disabled={saving}
             onClick={() => void clearOverride()}
           >
-            {t("review.roster.clearOverride")}
+            {t("council.roster.clearOverride")}
           </Button>
         )}
         <Button
@@ -315,28 +328,28 @@ export function ReviewRosterEditor({ scopeCwd, instanceId }: { scopeCwd: string 
             setError(null);
           }}
         >
-          {t("review.roster.discard")}
+          {t("council.roster.discard")}
         </Button>
         <Button size="xs" variant="solid" disabled={!dirty || invalid || saving} onClick={() => void save()}>
-          {t("review.roster.save")}
+          {t("council.roster.save")}
         </Button>
       </div>
       {error !== null && (
         <div className="flex items-center gap-2 text-rose">
           <span className="break-words">{error}</span>
           <Button size="xs" onClick={reload}>
-            {t("review.roster.reload")}
+            {t("council.roster.reload")}
           </Button>
         </div>
       )}
       {saved && (
         <Panel className="p-2">
-          <p>{t("review.roster.applyOnRelaunch")}</p>
+          <p>{t("council.roster.applyOnRelaunch")}</p>
           {liveSessions.map((s) => (
             <div key={s.tabId} className="mt-1 flex items-center justify-between gap-2">
               <span className="truncate">{s.title}</span>
               <Button size="xs" onClick={() => void restartSession(s.tabId)}>
-                {t("review.roster.restart")}
+                {t("council.roster.restart")}
               </Button>
             </div>
           ))}
@@ -352,27 +365,34 @@ export function ReviewRosterEditor({ scopeCwd, instanceId }: { scopeCwd: string 
         </ul>
       )}
       <div>
-        <Label>{t("review.roster.effective")}</Label>
+        <Label>{t("council.roster.effective")}</Label>
         {result.effective.length === 0 ? (
-          <p className="text-ink-faint">{t("review.roster.effectiveNone")}</p>
+          <p className="text-ink-faint">{t("council.roster.effectiveNone")}</p>
         ) : (
           <ul className="mt-1 font-mono text-xs text-ink-mid">
             {result.effective.map((e) => (
               <li key={`${e.sourceScope}:${e.name}`} className="break-all">
-                {e.name} · {e.enabled ? "on" : "off"} · {e.model ?? t("review.roster.followsModel")} ·{" "}
-                {e.targets !== null ? e.targets.join(",") : t("review.roster.targetsAll")} ·{" "}
-                {e.sourceScope === "project" ? t("review.roster.scopeProject") : t("review.roster.scopeUser")}
+                {e.name} · {e.enabled ? "on" : "off"} · {e.model ?? t("council.roster.noModel")} ·{" "}
+                {e.sourceScope === "project" ? t("council.roster.scopeProject") : t("council.roster.scopeUser")}
               </li>
             ))}
           </ul>
         )}
       </div>
 
-      {pickIndex !== null && (
+      {pickIndex !== null && instanceId === null && catalog.status === "loading" && (
+        <p className="text-ink-faint">{t("council.roster.catalogLoading")}</p>
+      )}
+      {pickIndex !== null && instanceId === null && catalog.status === "loaded" && !catalog.snapshot.discovered && (
+        <p className="text-ink-faint">
+          {t("settings.omp.modelRoleCatalogFailed", { message: catalog.snapshot.error ?? "" })}
+        </p>
+      )}
+      {pickIndex !== null && paletteModels !== null && (
         <ModelPalette
           variant="subagent"
-          models={models}
-          current={draft.reviewers[pickIndex]?.model ?? null}
+          models={paletteModels}
+          current={draft.members[pickIndex]?.model ?? null}
           allowInherit={false}
           instanceId={instanceId}
           onClose={() => setPickIndex(null)}

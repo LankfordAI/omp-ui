@@ -10,7 +10,7 @@ import type { SubagentModelMap } from "./subagent-model";
 import type { ProjectConfigMapRead, ProjectConfigRead, ProjectConfigValue } from "./project-config-writer";
 import type { SkillOrigin } from "./omp-capability-keys";
 import type { RegistrySettings } from "./registry";
-import type { ReviewDocument } from "./review-config";
+import type { CouncilDocument } from "./council-config";
 import type { SessionExperiment } from "./experiment-types";
 import type { VaultAction } from "./vault-shared";
 import type { FleetModelChoice, FleetPendingDispatch, FleetProvenance, FleetSpawnSpec, FleetTerminalRecord } from "./fleet";
@@ -199,13 +199,13 @@ export interface ProjectRecord {
    */
   browserClock: boolean;
   /**
-   * This project's reviewer roster for /code-review (issue #738, ADR-0047 as
-   * amended): null = unset, so the global roster (then the default reviewer)
-   * applies. Legacy registries without the field are normalized to null at
-   * parse time; a present value must pass the structural guard or loads as
-   * null — the record always survives.
+   * This project's Council roster for /council (ADR-0088): null = unset, so
+   * the global roster applies (then no members). Legacy registries without
+   * the field are normalized to null at parse time, or seeded once from the
+   * legacy `reviewRoster` key; a present value must pass the structural guard
+   * or loads as null — the record always survives.
    */
-  reviewRoster: ReviewDocument | null;
+  councilRoster: CouncilDocument | null;
   /** Machine-local knowledge preference; absent or malformed legacy values load as null. */
   knowledgeHome: KnowledgeHome | null;
   /**
@@ -779,8 +779,7 @@ type BackendBroadcastSettings = Omit<
   | "remotePasswordHash"
   | "remotePasswordSalt"
   | "instanceId"
-  | "reviewRoster"
-  | "reviewRosterImported"
+  | "councilRoster"
   | "chatLastModel"
   | "chatLastThinkingLevel"
   | "webhooksEnabled"
@@ -1907,14 +1906,12 @@ export type AuthCarryResult = { ok: true; message: string | null } | { ok: false
 
 export type { OmpBackend } from "./backend-channels";
 
-// The reviewer roster shapes (issue #728, ADR-0047 as amended by #738),
-// re-exported for the renderer's type-only import (ADR-0002); erased at
-// compile time.
+// The Council roster shapes (ADR-0088), re-exported for the renderer's
+// type-only import (ADR-0002); erased at compile time.
 export type {
-  EffectiveReviewer,
-  ReviewDocument,
-  ReviewReviewer,
-  ReviewRosterView,
-  ReviewTargetKind,
-  ReviewWriteRequest,
-} from "./review-config";
+  CouncilDocument,
+  CouncilMember,
+  CouncilRosterView,
+  CouncilWriteRequest,
+  EffectiveCouncilMember,
+} from "./council-config";

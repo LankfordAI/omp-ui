@@ -383,36 +383,31 @@ export {
 export { getScopedCapabilities, setScopedCapability } from "./capability-catalog";
 export { getWatchdogRoster, setWatchdogRoster } from "./watchdog-config";
 export {
-  isReviewDocument,
-  parseReviewDocument,
-  resolveReviewRoster,
-  validateReviewDocument,
-  DEFAULT_REVIEWER,
-  type EffectiveReviewer,
-  type ReviewDocument,
-  type ReviewRosterResult,
-  type ReviewRosterSources,
-  type ReviewRosterView,
-  type ReviewReviewer,
-  type ReviewTargetKind,
-  type ReviewWriteRequest,
-} from "./review-config";
+  councilDocumentFromLegacy,
+  isCouncilDocument,
+  resolveCouncilRoster,
+  validateCouncilDocument,
+  MAX_COUNCIL_MEMBERS,
+  MAX_COUNCIL_NAME,
+  type CouncilDocument,
+  type CouncilMember,
+  type CouncilRosterResult,
+  type CouncilRosterSources,
+  type CouncilRosterView,
+  type CouncilWriteRequest,
+  type EffectiveCouncilMember,
+} from "./council-config";
+export { COUNCIL_AGENT, COUNCIL_COMMAND, COUNCIL_LAUNCH_TYPE, COUNCIL_TOOL, councilMemberSlug } from "./council";
+export { councilExtensionDir, councilExtensionPath, writeCouncilExtension } from "./council-extension";
 export {
-  REVIEW_FILE_NAMES,
-  importReviewRosters,
-  type ReviewImportOutcome,
-  type ReviewImportProject,
-  type ReviewImportRegistry,
-} from "./review-config-import";
-export { CODE_REVIEW_COMMAND, CODE_REVIEW_TOOL } from "./review";
-export { reviewExtensionPath, writeReviewExtension } from "./review-extension";
-export {
-  REVIEW_ROSTER_SNAPSHOT_VERSION,
-  reviewRosterSnapshotPath,
-  writeReviewRosterSnapshot,
-  type ReviewRosterSnapshot,
-} from "./review-roster-snapshot";
-export { reviewOverlayPath, writeReviewOverlay } from "./review-overlay";
+  COUNCIL_ROSTER_SNAPSHOT_VERSION,
+  councilRosterSnapshotPath,
+  writeCouncilRosterSnapshot,
+  type CouncilRosterSnapshot,
+  type CouncilRosterSnapshotEntry,
+} from "./council-roster-snapshot";
+export { councilOverlayPath, writeCouncilOverlay } from "./council-overlay";
+export { removeLineageArtifact } from "./lineage-artifact";
 export {
   captureLoginShellKeys,
   maskKey,

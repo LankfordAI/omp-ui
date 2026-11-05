@@ -252,9 +252,9 @@ The **Composer predictions** section edits `composer.predictions`, allowlisted f
 
 ## Experimental
 
-One switch — **Experiments lab (beta)** — gates the whole beta surface: the Lab, the New experiment dialog, the autoresearch chip for OMP's `/autoresearch` loop ([ADR-0030](adr/0030-experiments-read-autoresearch-from-two-sources.md)), and the code-review roster and `/code-review` command ([#739](https://github.com/LankfordAI/omp-ui/issues/739)). There is one flag behind all four surfaces, and this page is its only editor.
+One switch — **Experiments lab (beta)** — gates the whole beta surface: the Lab, the New experiment dialog, the autoresearch chip for OMP's `/autoresearch` loop ([ADR-0030](adr/0030-experiments-read-autoresearch-from-two-sources.md)), and the council and `/council` command ([#739](https://github.com/LankfordAI/omp-ui/issues/739)). There is one flag behind all four surfaces, and this page is its only editor.
 
-The flag gates the bridges at spawn: it applies to sessions started afterwards, and a running session keeps the bridges it launched with. The reviewer roster itself is edited per project, in that project's settings under **Reviewers**.
+The flag gates the bridges at spawn: it applies to sessions started afterwards, and a running session keeps the bridges it launched with. The council itself is edited per project, in that project's settings under **Council**.
 
 ## Advanced
 

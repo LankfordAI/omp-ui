@@ -90,7 +90,7 @@ import type {
 import type { LiveAudioEntry, LiveAudioLoad, LiveHistoryEntry, LiveHistoryTurn } from "./live-voice";
 import type { SubagentModelMap } from "./subagent-model";
 import type { KeybindingOverrides } from "./keybindings";
-import type { ReviewRosterView, ReviewWriteRequest } from "./review-config";
+import type { CouncilRosterView, CouncilWriteRequest } from "./council-config";
 import type { SessionCapabilitiesResult, SetSessionToolEnabledResult } from "./capabilities";
 import type { CollabAccess, CollabTabSnapshot, CollabTabState } from "./collab";
 import type {
@@ -189,7 +189,7 @@ import {
   remoteInstancePatchCodec,
   rpcFrameCodec,
   scopedCapabilityMutationCodec,
-  reviewWriteCodec,
+  councilWriteCodec,
   watchdogWriteCodec,
   sessionModeCodec,
   spawnRequestCodec,
@@ -1676,23 +1676,23 @@ export const BACKEND_CHANNELS = {
     ...request<[req: WatchdogWriteRequest], WatchdogRosterResult>([watchdogWriteCodec]),
   },
   /**
-   * The reviewer roster (ADR-0047 as amended by issue #738): the app-state
-   * documents resolved for `scopeCwd` (null = global scope only) through the
-   * project → global → default chain. Reads only; never rejects on bad
-   * content — invalid entries surface as warnings.
+   * The Council roster (ADR-0088): the app-state documents resolved for
+   * `scopeCwd` (null = global scope only) through the project → global →
+   * empty chain. Reads only; never rejects on bad content — invalid entries
+   * surface as warnings.
    */
-  getReviewRoster: {
-    channel: "review:roster",
-    ...request<[scopeCwd: string | null], ReviewRosterView>([nullable(str())]),
+  getCouncilRoster: {
+    channel: "council:roster",
+    ...request<[scopeCwd: string | null], CouncilRosterView>([nullable(str())]),
   },
   /**
-   * Replaces one scope's roster document in app state (null clears it).
+   * Replaces one scope's Council document in app state (null clears it).
    * Unknown project on "project" scope rejects. Answers with the refreshed
    * view; running sessions apply it on relaunch.
    */
-  setReviewRoster: {
-    channel: "review:roster:set",
-    ...request<[req: ReviewWriteRequest], ReviewRosterView>([reviewWriteCodec]),
+  setCouncilRoster: {
+    channel: "council:roster:set",
+    ...request<[req: CouncilWriteRequest], CouncilRosterView>([councilWriteCodec]),
   },
   /**
    * Session-local enable/disable of one registered tool in a pinned live

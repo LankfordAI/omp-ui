@@ -280,7 +280,7 @@ function setup(opts: { mode?: "pty" | "rpc-ui"; project?: string; projectName?: 
         defaultModel: null,
         defaultAdvisorModel: null,
         browserClock: false,
-        reviewRoster: null,
+        councilRoster: null,
         knowledgeHome: opts.knowledgeHome ?? null,
         repositoryKey: null,
         icon: null,
@@ -1589,55 +1589,63 @@ describe("goal continuation overlay (ADR-0046)", () => {
   });
 });
 
-describe("reviewer roster snapshot (issue #738)", () => {
-  it("snapshots the project document resolved over the global one at spawn", async () => {
+describe("council snapshot (ADR-0088)", () => {
+  const freshRpc = (manager: SessionManager): Promise<{ tabId: string }> =>
+    manager.spawn({ origin: "new", worktree: null, projectCwd: PROJECT, mode: "rpc-ui", advisor: false, cols: 80, rows: 24 });
+  const lineageOf = (registry: Core.Registry, sessionsRoot: string, tabId: string): string =>
+    path.join(sessionsRoot, registry.sessions.find((session) => session.tabId === tabId)!.lineageDir);
+  const spawnedOverlays = (): string[] =>
+    (RpcClientMock.mock.calls.at(-1)?.[0] as { configOverlays?: string[] } | undefined)?.configOverlays ?? [];
+
+  it("launches an empty council when no scope holds a document", async () => {
     const { manager, registry, sessionsRoot } = setup({ mode: "rpc-ui" });
     registry.setSetting("experimentsEnabled", true);
-    registry.setSetting("reviewRoster", {
+    const { tabId } = await freshRpc(manager);
+    const dir = lineageOf(registry, sessionsRoot, tabId);
+    const snapshot = JSON.parse(fs.readFileSync(Core.councilRosterSnapshotPath(dir), "utf8"));
+    expect(snapshot).toEqual({ version: 1, instructions: null, members: [], configWarnings: [] });
+    const overlay = Core.councilOverlayPath(dir);
+    expect(spawnedOverlays()).toContain(overlay);
+    expect(fs.readFileSync(overlay, "utf8")).not.toContain("modelRoles");
+  });
+
+  it("snapshots and grants the project document over the global one at spawn", async () => {
+    const { manager, registry, sessionsRoot } = setup({ mode: "rpc-ui" });
+    registry.setSetting("experimentsEnabled", true);
+    registry.setSetting("councilRoster", {
       instructions: "shared",
-      reviewers: [{ name: "global-one", model: null, instructions: null, targets: null, enabled: true }],
+      members: [{ name: "global-one", model: "g/global", instructions: null, enabled: true }],
     });
-    registry.setProjectReviewRoster(PROJECT, {
+    registry.setProjectCouncilRoster(PROJECT, {
       instructions: null,
-      reviewers: [
-        { name: "proj-one", model: "a/b", instructions: null, targets: null, enabled: true },
-        { name: "sleeper", model: null, instructions: null, targets: null, enabled: false },
+      members: [
+        { name: "proj-one", model: "a/b", instructions: "check auth", enabled: true },
+        { name: "sleeper", model: "c/d", instructions: null, enabled: false },
       ],
     });
-    const { tabId } = await manager.spawn({ origin: "new", worktree: null, projectCwd: PROJECT, mode: "rpc-ui", advisor: false, cols: 80, rows: 24 });
-    const record = registry.sessions.find((session) => session.tabId === tabId)!;
-    const snapshot = JSON.parse(
-      fs.readFileSync(Core.reviewRosterSnapshotPath(path.join(sessionsRoot, record.lineageDir)), "utf8"),
-    );
+    const { tabId } = await freshRpc(manager);
+    const dir = lineageOf(registry, sessionsRoot, tabId);
+    const snapshot = JSON.parse(fs.readFileSync(Core.councilRosterSnapshotPath(dir), "utf8"));
+    // The project document wins; only enabled members ride the launch set.
     expect(snapshot.version).toBe(1);
-    // The project document wins; only enabled entries ride the launch set.
     expect(snapshot.instructions).toBeNull();
-    expect(snapshot.reviewers.map((r: { name: string; model: string | null }) => [r.name, r.model])).toEqual([
-      ["proj-one", "a/b"],
-    ]);
+    expect(snapshot.members).toEqual([{ name: "proj-one", model: "a/b", instructions: "check auth" }]);
+    const overlay = Core.councilOverlayPath(dir);
+    expect(spawnedOverlays()).toContain(overlay);
+    const text = fs.readFileSync(overlay, "utf8");
+    expect(text).toContain('modelRoles:\n  "omp-ui-council-1": "a/b"\n');
+    expect(text).not.toContain("omp-ui-council-2");
+    expect(text).not.toContain("g/global");
+    expect(text).not.toContain("c/d");
   });
 
-  it("snapshots the default roster when no scope names one", async () => {
+  it("writes neither the snapshot nor the overlay with the experiments flag off", async () => {
     const { manager, registry, sessionsRoot } = setup({ mode: "rpc-ui" });
-    registry.setSetting("experimentsEnabled", true);
-    const { tabId } = await manager.spawn({ origin: "new", worktree: null, projectCwd: PROJECT, mode: "rpc-ui", advisor: false, cols: 80, rows: 24 });
-    const record = registry.sessions.find((session) => session.tabId === tabId)!;
-    const snapshot = JSON.parse(
-      fs.readFileSync(Core.reviewRosterSnapshotPath(path.join(sessionsRoot, record.lineageDir)), "utf8"),
-    );
-    expect(snapshot.reviewers).toEqual([
-      { name: "code-reviewer", model: null, instructions: null, targets: null },
-    ]);
-    expect(snapshot.instructions).toBeNull();
-  });
-
-  it("writes no snapshot with the experiments flag off (issue #739)", async () => {
-    const { manager, registry, sessionsRoot } = setup({ mode: "rpc-ui" });
-    const { tabId } = await manager.spawn({ origin: "new", worktree: null, projectCwd: PROJECT, mode: "rpc-ui", advisor: false, cols: 80, rows: 24 });
-    const record = registry.sessions.find((session) => session.tabId === tabId)!;
-    const dir = path.join(sessionsRoot, record.lineageDir);
-    expect(fs.existsSync(Core.reviewRosterSnapshotPath(dir))).toBe(false);
-    expect(fs.existsSync(Core.reviewOverlayPath(dir))).toBe(false);
+    const { tabId } = await freshRpc(manager);
+    const dir = lineageOf(registry, sessionsRoot, tabId);
+    expect(fs.existsSync(Core.councilRosterSnapshotPath(dir))).toBe(false);
+    expect(fs.existsSync(Core.councilOverlayPath(dir))).toBe(false);
+    expect(spawnedOverlays()).not.toContain(Core.councilOverlayPath(dir));
   });
 });
 

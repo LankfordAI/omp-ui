@@ -99,7 +99,7 @@ function setup(opts: { materialized: boolean; defaultAgentMode?: "plan" | "build
         defaultModel: null,
         defaultAdvisorModel: null,
         browserClock: false,
-        reviewRoster: null,
+        councilRoster: null,
         knowledgeHome: null,
         repositoryKey: null,
         icon: null,

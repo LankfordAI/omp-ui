@@ -260,14 +260,14 @@ const VALID_ARGS = {
   clearMcpCalls: [],
   setScopedCapability: [{ scopeCwd: null, kind: "tool", tool: "bash", enabled: true }],
   getWatchdogRoster: [null],
-  getReviewRoster: [null],
-  setReviewRoster: [
+  getCouncilRoster: [null],
+  setCouncilRoster: [
     {
       scopeCwd: null,
       scope: "user",
       document: {
         instructions: null,
-        reviewers: [{ name: "code-reviewer", model: null, instructions: null, targets: null, enabled: true }],
+        members: [{ name: "a", model: "p/m", instructions: null, enabled: true }],
       },
     },
   ],
