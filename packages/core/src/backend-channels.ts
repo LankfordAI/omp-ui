@@ -531,9 +531,19 @@ export const BACKEND_CHANNELS = {
     channel: "settings:setGettingStartedSeen",
     ...request<[seen: boolean], void>([bool()]),
   },
-  /** Global feature flag for the Experiments Lab and autoresearch bridge. */
+  /** Global feature flag for the Experiments lab surfaces. */
   setExperimentsEnabled: {
     channel: "settings:setExperimentsEnabled",
+    ...request<[on: boolean], void>([bool()]),
+  },
+  /** Autoresearch RPC bridge gate, applied at spawn (#1052); default off. */
+  setAutoresearchEnabled: {
+    channel: "settings:setAutoresearchEnabled",
+    ...request<[on: boolean], void>([bool()]),
+  },
+  /** Council subsystem gate (#1052); default off. */
+  setCouncilEnabled: {
+    channel: "settings:setCouncilEnabled",
     ...request<[on: boolean], void>([bool()]),
   },
   /** Sidebar Snoozed section and Snooze/Unsnooze action (issue #935); default off. */

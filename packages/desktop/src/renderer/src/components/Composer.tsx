@@ -122,6 +122,7 @@ export function Composer({
     return { fraction: readout.fraction, title: readout.exact };
   }, [contextUsage, t]);
   const experimentsEnabled = useStore((s) => s.state?.experimentsEnabled === true);
+  const councilEnabled = useStore((s) => s.state?.councilEnabled === true);
   // A chat has no plan mode and no project for autoresearch to key on (#894).
   const chat = useStore((s) => isChatTab(s.state, tabId));
   // UI_PLAN_COMMAND is the palette's one canonical plan entry: omp's own
@@ -166,6 +167,10 @@ export function Composer({
                 description: t(sub.key),
               })),
             },
+          ]
+        : []),
+      ...(councilEnabled && !chat
+        ? [
             {
               ...UI_COUNCIL_COMMAND,
               description: t("composer.slash.council"),
@@ -197,7 +202,7 @@ export function Composer({
           !owned.has(c.name),
       ),
     ];
-  }, [chat, commands, experimentsEnabled, localeId, t]);
+  }, [chat, commands, councilEnabled, experimentsEnabled, localeId, t]);
   const queued = useStore((s) => {
     const session = s.rpc[tabId]?.session;
     return session ? queueChipCount(session) : 0;

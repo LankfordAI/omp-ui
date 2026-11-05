@@ -642,7 +642,7 @@ describe("MCP runtime status bridge", () => {
     // rides before the mode command so its restore reads a settled mode slot,
     // then the capabilities arm follows,
     // the browser-pane endpoint. The autoresearch arm (issue #559) follows the
-    // pane endpoint only while experimentsEnabled is on (off by default).
+    // pane endpoint only while autoresearchEnabled is on (off by default).
     const messages = armMessages(options?.initialCommands);
     expect(messages).toEqual([
       Core.mcpRuntimeStatusMessage(),
@@ -653,9 +653,9 @@ describe("MCP runtime status bridge", () => {
     ]);
   });
 
-  it("arms the autoresearch bridge only when experimentsEnabled is on", async () => {
+  it("arms the autoresearch bridge only when autoresearchEnabled is on", async () => {
     const { manager, registry } = setup({ mode: "rpc-ui" });
-    registry.setSetting("experimentsEnabled", true);
+    registry.setSetting("autoresearchEnabled", true);
     await manager.spawn({
       origin: "new",
       projectCwd: PROJECT,
@@ -673,6 +673,30 @@ describe("MCP runtime status bridge", () => {
     // set, and the bridge file rides into `extensions` with it.
     expect(messages?.at(-1)).toBe(Core.autoresearchArmMessage());
     expect(options?.extensions).toContainEqual(
+      expect.stringMatching(/omp-ui-autoresearch\.ts$/),
+    );
+  });
+
+  it("skips the autoresearch arm with experimentsEnabled on but autoresearchEnabled off", async () => {
+    const { manager, registry } = setup({ mode: "rpc-ui" });
+    registry.setSetting("experimentsEnabled", true);
+    await manager.spawn({
+      origin: "new",
+      projectCwd: PROJECT,
+      mode: "rpc-ui",
+      advisor: false,
+      cols: 80,
+      rows: 24,
+      worktree: null,
+      planMode: false,
+    });
+
+    const options = RpcClientMock.mock.calls.at(-1)?.[0];
+    const messages = armMessages(options?.initialCommands);
+    // The lab flag alone no longer arms the bridge: only autoresearchEnabled
+    // does, so the off-case assertions hold even with experimentsEnabled on.
+    expect(messages).not.toContain(Core.autoresearchArmMessage());
+    expect(options?.extensions).not.toContainEqual(
       expect.stringMatching(/omp-ui-autoresearch\.ts$/),
     );
   });
@@ -1599,7 +1623,7 @@ describe("council snapshot (ADR-0088)", () => {
 
   it("launches an empty council when no scope holds a document", async () => {
     const { manager, registry, sessionsRoot } = setup({ mode: "rpc-ui" });
-    registry.setSetting("experimentsEnabled", true);
+    registry.setSetting("councilEnabled", true);
     const { tabId } = await freshRpc(manager);
     const dir = lineageOf(registry, sessionsRoot, tabId);
     const snapshot = JSON.parse(fs.readFileSync(Core.councilRosterSnapshotPath(dir), "utf8"));
@@ -1611,7 +1635,7 @@ describe("council snapshot (ADR-0088)", () => {
 
   it("snapshots and grants the project document over the global one at spawn", async () => {
     const { manager, registry, sessionsRoot } = setup({ mode: "rpc-ui" });
-    registry.setSetting("experimentsEnabled", true);
+    registry.setSetting("councilEnabled", true);
     registry.setSetting("councilRoster", {
       instructions: "shared",
       members: [{ name: "global-one", model: "g/global", instructions: null, enabled: true }],
@@ -1639,10 +1663,23 @@ describe("council snapshot (ADR-0088)", () => {
     expect(text).not.toContain("c/d");
   });
 
-  it("writes neither the snapshot nor the overlay with the experiments flag off", async () => {
+  it("writes neither the snapshot nor the overlay with the council flag off", async () => {
     const { manager, registry, sessionsRoot } = setup({ mode: "rpc-ui" });
     const { tabId } = await freshRpc(manager);
     const dir = lineageOf(registry, sessionsRoot, tabId);
+    expect(fs.existsSync(Core.councilRosterSnapshotPath(dir))).toBe(false);
+    expect(fs.existsSync(Core.councilOverlayPath(dir))).toBe(false);
+    expect(spawnedOverlays()).not.toContain(Core.councilOverlayPath(dir));
+  });
+
+  it("writes no council artifact while councilEnabled is off even with experimentsEnabled and autoresearchEnabled on", async () => {
+    const { manager, registry, sessionsRoot } = setup({ mode: "rpc-ui" });
+    registry.setSetting("experimentsEnabled", true);
+    registry.setSetting("autoresearchEnabled", true);
+    const { tabId } = await freshRpc(manager);
+    const dir = lineageOf(registry, sessionsRoot, tabId);
+    // The sibling flags no longer gate the council subsystem: only
+    // councilEnabled does, so the off-case assertions hold with them on.
     expect(fs.existsSync(Core.councilRosterSnapshotPath(dir))).toBe(false);
     expect(fs.existsSync(Core.councilOverlayPath(dir))).toBe(false);
     expect(spawnedOverlays()).not.toContain(Core.councilOverlayPath(dir));

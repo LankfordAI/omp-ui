@@ -1073,7 +1073,8 @@ export class SessionManager {
           advisor: req.advisor,
           thinking: thinkingSeed,
           advisorModel: req.advisorModel ?? null,
-          experimentsEnabled: this.deps.registry.getSetting("experimentsEnabled"),
+          autoresearchEnabled: this.deps.registry.getSetting("autoresearchEnabled"),
+          councilEnabled: this.deps.registry.getSetting("councilEnabled"),
         });
         const slot = eligible ? this.warmPool.reserve(planKey) : null;
         if (
@@ -1199,7 +1200,8 @@ export class SessionManager {
             advisor: req.advisor,
             thinking: record.thinkingLevel,
             advisorModel: record.advisorModel,
-            experimentsEnabled: this.deps.registry.getSetting("experimentsEnabled"),
+            autoresearchEnabled: this.deps.registry.getSetting("autoresearchEnabled"),
+            councilEnabled: this.deps.registry.getSetting("councilEnabled"),
           }),
           ompPath,
           template: sanitizeWarmTemplate(record),
@@ -1447,10 +1449,10 @@ export class SessionManager {
   ): Promise<{ tabId: string }> {
     const absLineageDir = path.join(this.deps.getSessionsRoot(), record.lineageDir);
     const entry = createRpcLiveEntry(record);
-    const { paths: extensions, loaded: bridgeLoaded } = writeRpcExtensions(
-      absLineageDir,
-      this.deps.registry.getSetting("experimentsEnabled"),
-    );
+    const { paths: extensions, loaded: bridgeLoaded } = writeRpcExtensions(absLineageDir, {
+      autoresearchEnabled: this.deps.registry.getSetting("autoresearchEnabled"),
+      councilEnabled: this.deps.registry.getSetting("councilEnabled"),
+    });
     entry.planBridgeLoaded = bridgeLoaded.plan;
     entry.advisorStatsBridgeLoaded = bridgeLoaded.advisorStats;
     entry.capabilitiesBridgeLoaded = bridgeLoaded.capabilities;
@@ -1721,7 +1723,7 @@ export class SessionManager {
     // The council is app state (ADR-0088): the project record's document
     // (null = global), resolved at snapshot time. Every rpc launch (fresh,
     // resume, restart) refreshes the snapshot and its overlay. Written only
-    // while the experiments flag loaded the bridge — flag off leaves no
+    // while the council flag loaded the bridge — flag off leaves no
     // council artifact in the lineage dir.
     if (bridgeLoaded.council) {
       const projectRecord = this.deps.registry.projects.find(

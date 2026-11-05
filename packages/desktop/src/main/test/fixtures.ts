@@ -28,6 +28,9 @@ interface RegistrySettings {
   skipDeleteConfirmation: boolean;
   skipTerminateConfirmation: boolean;
   experimentsEnabled: boolean;
+  autoresearchEnabled: boolean;
+  councilEnabled: boolean;
+  experimentsFlagSplitSeeded: boolean;
   snoozedSectionEnabled: boolean;
   autoSettleMergedPullRequests: boolean;
   remoteVsCodeEnabled: boolean;
@@ -149,6 +152,11 @@ export function seedRegistry(file: string, patch: RegistrySeedPatch = {}): void 
     skipDeleteConfirmation: false,
     skipTerminateConfirmation: false,
     experimentsEnabled: false,
+    autoresearchEnabled: false,
+    councilEnabled: false,
+    // Default true so seeds exercise post-migration registries; tests
+    // wanting the pre-split shape set it false via the patch.
+    experimentsFlagSplitSeeded: true,
     snoozedSectionEnabled: false,
     autoSettleMergedPullRequests: true,
     remoteVsCodeEnabled: false,

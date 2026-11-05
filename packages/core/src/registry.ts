@@ -88,8 +88,12 @@ export interface RegistrySettings {
   skipDeleteConfirmation: boolean;
   /** Opt out of the confirmation before settling a session mid-turn (issues #925, #1005); default off. */
   skipTerminateConfirmation: boolean;
-  /** Global feature flag for the Experiments Lab + autoresearch bridge (issue #571); default off. */
+  /** Global feature flag for the Experiments lab surfaces (#571, #1052); default off. */
   experimentsEnabled: boolean;
+  /** Autoresearch bridge gate (#1052); default off. */
+  autoresearchEnabled: boolean;
+  /** Council subsystem gate (#1052); default off. */
+  councilEnabled: boolean;
   /** Sidebar Snoozed section and Snooze/Unsnooze action (issue #935); default off. */
   snoozedSectionEnabled: boolean;
   /** Settle a worktree session once every pull request linked to it is
@@ -112,6 +116,8 @@ export interface RegistrySettings {
    *  old always-on idle window; the first load on a new build forces it to
    *  off once. Later explicit windows persist the marker and are kept. */
   hibernateManualDefaultSeeded: boolean;
+  /** One-time migration marker (#1052): the single experiments flag was split once. */
+  experimentsFlagSplitSeeded: boolean;
   /**
    * App-wide Council roster for /council (ADR-0088): null = unset. Members
    * resolve project → global → empty, so with neither document set no
@@ -323,6 +329,14 @@ export const SETTINGS: SettingDescriptors = {
     () => false,
     (value): value is boolean => typeof value === "boolean",
   ),
+  autoresearchEnabled: validatedSetting(
+    () => false,
+    (value): value is boolean => typeof value === "boolean",
+  ),
+  councilEnabled: validatedSetting(
+    () => false,
+    (value): value is boolean => typeof value === "boolean",
+  ),
   snoozedSectionEnabled: validatedSetting(
     () => false,
     (value): value is boolean => typeof value === "boolean",
@@ -359,6 +373,10 @@ export const SETTINGS: SettingDescriptors = {
     (value): value is boolean => typeof value === "boolean",
   ),
   hibernateManualDefaultSeeded: validatedSetting(
+    () => false,
+    (value): value is boolean => typeof value === "boolean",
+  ),
+  experimentsFlagSplitSeeded: validatedSetting(
     () => false,
     (value): value is boolean => typeof value === "boolean",
   ),
@@ -555,6 +573,7 @@ function emptyRegistry(): RegistryData {
       ...buildSettings((key) => SETTINGS[key].fallback()),
       autoThinkingDefaultSeeded: true,
       hibernateManualDefaultSeeded: true,
+      experimentsFlagSplitSeeded: true,
     },
     projects: [],
     sessions: [],
@@ -894,6 +913,21 @@ function seedHibernateManualDefault(file: string, data: RegistryData): void {
 }
 
 /**
+ * One-time split (issue #1052): the single `experimentsEnabled` flag gated
+ * both the lab surfaces and the autoresearch bridge, so legacy registries
+ * carry no value for the new per-subsystem gates. Copy the old flag into
+ * both once and mark the registry seeded; later explicit values persist the
+ * marker and are never revisited.
+ */
+function seedExperimentsFlagSplit(file: string, data: RegistryData): void {
+  if (data.settings.experimentsFlagSplitSeeded) return;
+  data.settings.experimentsFlagSplitSeeded = true;
+  data.settings.autoresearchEnabled = data.settings.experimentsEnabled;
+  data.settings.councilEnabled = data.settings.experimentsEnabled;
+  writeRegistry(file, data);
+}
+
+/**
  * omp-ui's own state (projects + owned sessions), persisted as JSON.
  * Records are per lineage (one per spawned process); `sessionId: null` is
  * valid at every layer — a session can live minutes or forever without a file.
@@ -924,6 +958,7 @@ export class Registry {
     if (data) {
       seedAutoThinkingDefault(file, data);
       seedHibernateManualDefault(file, data);
+      seedExperimentsFlagSplit(file, data);
       return new Registry(file, data);
     }
     // Corrupt (or unknown schemaVersion): quarantine and start empty.

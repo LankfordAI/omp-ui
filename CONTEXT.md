@@ -500,8 +500,8 @@ a global one; with nothing set anywhere, empty — `/council` then points at
 Project settings → Council). Each **council member** names one model; a
 member without a model is never launched. Members run as one batch of
 background subagents on omp-ui's dedicated council agent; results return as
-async-result wake turns. Behind the Settings → Experimental flag; edits apply
-when the session relaunches.
+async-result wake turns. Behind the Settings → Experimental council flag
+(`councilEnabled`); edits apply when the session relaunches.
 _Avoid_: reviewer roster, review team, judge panel, code-review agent
 
 **Session parameter memory**:

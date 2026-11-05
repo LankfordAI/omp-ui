@@ -441,14 +441,16 @@ runs, and the record. omp-ui stores no experiment of its own and writes nothing
 OMP owns ([ADR-0030](adr/0030-experiments-read-autoresearch-from-two-sources.md),
 issue #559); it reads from two sources, because no single seam carries the state.
 
-The whole subsystem sits behind the app-global `experimentsEnabled` flag
+The autoresearch bridge sits behind the `autoresearchEnabled` flag
 (Settings → Experimental, default off). With the flag off the spawn path never
 writes `omp-ui-autoresearch.ts` into the lineage dir and never sends the arm
 command, so `propose_experiment` is never registered and no snapshot is ever
-published; the renderer hides every Lab and New experiment entry point and
-`/autoresearch start|lab` fall through to OMP verbatim. The flag covers the
-council subsystem too: the bridge package, its overlay, its roster snapshot,
-and the Project settings → Council tab ([#739](https://github.com/LankfordAI/omp-ui/issues/739)).
+published. The Lab surfaces sit behind a separate app-global
+`experimentsEnabled` flag (also default off): with it off the renderer hides
+every Lab and New experiment entry point and `/autoresearch start|lab` fall
+through to OMP verbatim. The council subsystem has its own `councilEnabled`
+flag: the bridge package, its overlay, its roster snapshot, and the Project
+settings → Council tab ([#739](https://github.com/LankfordAI/omp-ui/issues/739)).
 
 Live mode, goal, and tool activity come from another per-lineage generated
 extension. The pure wire contract is
@@ -527,9 +529,9 @@ declares the bridge entry `omp-ui-council.ts` through `omp.extensions`, and
 `agents/omp-ui-council.md` is the dedicated, read-only council agent: omp
 discovers `agents/*.md` for explicit `--extension` directory roots, so the
 agent loads with the bridge and nowhere else. The subsystem sits behind the
-app-global `experimentsEnabled` flag: with the flag off an rpc spawn writes
-neither the package nor the overlay nor the snapshot, and Project settings
-hides the Council tab (#739). Rpc-only: PTY tabs neither load the bridge nor
+`councilEnabled` flag (Settings → Experimental, default off): with the flag off
+an rpc spawn writes neither the package nor the overlay nor the snapshot, and
+Project settings hides the Council tab (#739). Rpc-only: PTY tabs neither load the bridge nor
 take the overlay.
 
 Main resolves the council once per rpc spawn (`writeCouncilForSpawn`).

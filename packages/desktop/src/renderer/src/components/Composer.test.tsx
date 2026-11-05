@@ -1674,8 +1674,8 @@ describe("Composer BuildPlanControl", () => {
   it("offers omp's autoresearch family once, as omp-ui's own row with its four verbs", () => {
     seed("ready");
     // omp advertises `autoresearch` itself and its hidden arming command; with
-    // the experiments flag on, the palette shows omp-ui's one row (ADR-0030),
-    // never a second for the same action.
+    // the Lab flag on, the palette shows omp-ui's one row (ADR-0030), never a
+    // second for the same action.
     useStore.setState({
       state: { ...state, experimentsEnabled: true },
       rpc: {
@@ -1700,7 +1700,7 @@ describe("Composer BuildPlanControl", () => {
     expect(labels.filter((l) => /^\/autoresearch (start|lab|off|clear):/.test(l))).toHaveLength(4);
   });
 
-  it("leaves the autoresearch row to omp while the experiments flag is off", () => {
+  it("leaves the autoresearch row to omp while the Lab flag is off", () => {
     seed("ready");
     useStore.setState({
       rpc: {
@@ -1723,6 +1723,49 @@ describe("Composer BuildPlanControl", () => {
     expect(labels.filter((l) => l.startsWith("/autoresearch"))).toEqual([
       "/autoresearch: omp's own",
     ]);
+  });
+
+  it("keeps the council row out of the palette while the council flag is off, even with the other flags on", () => {
+    seed("ready");
+    // The council gate is its own switch: Lab and autoresearch on don't offer
+    // omp-ui's council row; only omp's advertised one remains.
+    useStore.setState({
+      state: { ...state, experimentsEnabled: true, autoresearchEnabled: true, councilEnabled: false },
+      rpc: {
+        [TAB]: {
+          ...useStore.getState().rpc[TAB]!,
+          commands: [{ name: "council", description: "omp's own", source: "extension" }],
+        },
+      },
+    });
+    renderComposer();
+    typeDraft("/council");
+    const labels = [...document.body.querySelectorAll<HTMLButtonElement>("button")]
+      .map((b) => b.getAttribute("aria-label") ?? "")
+      .filter((label) => label.startsWith("/"));
+    expect(labels.filter((l) => l.startsWith("/council"))).toEqual(["/council: omp's own"]);
+  });
+
+  it("offers omp-ui's council row with its review verb once the council flag is on", () => {
+    seed("ready");
+    useStore.setState({
+      state: { ...state, councilEnabled: true },
+      rpc: {
+        [TAB]: {
+          ...useStore.getState().rpc[TAB]!,
+          commands: [{ name: "council", description: "omp's own", source: "extension" }],
+        },
+      },
+    });
+    renderComposer();
+    typeDraft("/council");
+    const labels = [...document.body.querySelectorAll<HTMLButtonElement>("button")]
+      .map((b) => b.getAttribute("aria-label") ?? "")
+      .filter((label) => label.startsWith("/"));
+    expect(labels.filter((l) => l.startsWith("/council:"))).toEqual([
+      "/council: ask the council: each member model answers independently",
+    ]);
+    expect(labels.filter((l) => l.startsWith("/council review:"))).toHaveLength(1);
   });
 
   it("completes the guided-goal draft with its argument", () => {

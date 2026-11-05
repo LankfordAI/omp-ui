@@ -72,7 +72,8 @@ export function warmPlanKey(input: {
   /** The record's advisor-model pin: it rides an overlay file in the dir, so a
    * slot built for one pin is never adoptable by a spawn with another (#892). */
   advisorModel: string | null;
-  experimentsEnabled: boolean;
+  autoresearchEnabled: boolean;
+  councilEnabled: boolean;
 }): string {
   return JSON.stringify([
     input.ompPath,
@@ -80,7 +81,8 @@ export function warmPlanKey(input: {
     input.advisor,
     input.thinking,
     input.advisorModel,
-    input.experimentsEnabled,
+    input.autoresearchEnabled,
+    input.councilEnabled,
   ]);
 }
 
@@ -263,8 +265,10 @@ export class WarmRpcPool {
     try {
       fs.rmSync(dir, { recursive: true, force: true });
       fs.mkdirSync(dir, { recursive: true });
-      const experimentsEnabled = this.deps.registry.getSetting("experimentsEnabled");
-      const { paths: extensions, loaded } = writeRpcExtensions(dir, experimentsEnabled);
+      const { paths: extensions, loaded } = writeRpcExtensions(dir, {
+        autoresearchEnabled: this.deps.registry.getSetting("autoresearchEnabled"),
+        councilEnabled: this.deps.registry.getSetting("councilEnabled"),
+      });
       const configOverlays = await writeRpcOverlays(
         plan.template,
         dir,

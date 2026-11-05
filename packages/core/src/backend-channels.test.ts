@@ -200,6 +200,8 @@ const VALID_ARGS = {
   setDesktopNotifications: [true],
   setHtmlArtifactScripts: [true],
   setExperimentsEnabled: [true],
+  setAutoresearchEnabled: [true],
+  setCouncilEnabled: [true],
   setSnoozedSectionEnabled: [true],
   setRemoteVsCodeEnabled: [true],
   setDeviceAgentAccess: [true],

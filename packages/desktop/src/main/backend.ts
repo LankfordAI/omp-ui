@@ -2689,6 +2689,8 @@ export class MainBackend {
       fontFamilyId: this.registry.getSetting("fontFamilyId"),
       transcriptWidth: this.registry.getSetting("transcriptWidth"),
       experimentsEnabled: this.registry.getSetting("experimentsEnabled"),
+      autoresearchEnabled: this.registry.getSetting("autoresearchEnabled"),
+      councilEnabled: this.registry.getSetting("councilEnabled"),
       snoozedSectionEnabled: this.registry.getSetting("snoozedSectionEnabled"),
       autoSettleMergedPullRequests: this.registry.getSetting("autoSettleMergedPullRequests"),
       remoteVsCodeEnabled: this.registry.getSetting("remoteVsCodeEnabled"),

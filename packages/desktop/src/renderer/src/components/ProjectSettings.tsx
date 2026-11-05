@@ -368,7 +368,7 @@ const SECTIONS: { id: ProjectSettingsSectionId; labelKey: MessageKey }[] = [
  * a project's standing configuration — MCP servers, the skills and tools
  * catalogs at project scope, the default-model pins, the advisor roster (WATCHDOG.yml), the
  * council roster (app state, ADR-0088, issue #1049, hidden unless the
- * experiments flag is on), the browser clock, the Knowledge home
+ * council flag is on), the browser clock, the Knowledge home
  * (`ProjectRecord.knowledgeHome`, stored in omp-ui's registry), and the
  * project icon (`ProjectRecord.icon`, issue #1000) — behind a nine-tab strip,
  * opened from the desktop project header and the
@@ -400,8 +400,8 @@ export function ProjectSettings({
   const [active, setActive] = useState<ProjectSettingsSectionId>(initialSection ?? "mcp");
   const tabRefs = useRef<Partial<Record<ProjectSettingsSectionId, HTMLButtonElement | null>>>({});
   const setProjectBrowserClock = useStore((s) => s.setProjectBrowserClock);
-  const experimentsEnabled = useStore((s) => s.state?.experimentsEnabled === true);
-  const sections = experimentsEnabled ? SECTIONS : SECTIONS.filter((tab) => tab.id !== "council");
+  const councilEnabled = useStore((s) => s.state?.councilEnabled === true);
+  const sections = councilEnabled ? SECTIONS : SECTIONS.filter((tab) => tab.id !== "council");
 
   // WAI-ARIA tabs: roving tabindex, arrows/Home/End move selection AND focus.
   // Mirrors CapabilitiesViewer's onTabListKeyDown (CapabilitiesViewer.tsx).
@@ -533,7 +533,7 @@ export function ProjectSettings({
             </section>
           )}
 
-          {active === "council" && experimentsEnabled && (
+          {active === "council" && councilEnabled && (
             <section aria-labelledby="project-settings-council" className="pb-3">
               <h3 id="project-settings-council" className="px-4 pt-4 text-sm font-semibold text-ink">
                 {t("project.settings.council")}
