@@ -361,13 +361,14 @@ function AssistantBlock({
           // Spacing 1's single right edge keeps holding; the bleed still sits
           // inside the scroller's 16px padding).
           // The plate rides the column, not the prose measure (issue #1059).
-          // min(100%, …) is load-bearing: under standardized zoom a `%`
-          // substituted through a var into calc() on max-width can go
-          // invalid-at-computed-value-time, and the min re-caps the plate
-          // against the parent in that case.
+          // No min(100%, …) wrapper: a `%` substituted through a var into
+          // calc() on max-width can go invalid-at-computed-value-time under
+          // standardized zoom, and one isn't needed — as a flex child the
+          // plate cannot outgrow its parent beyond the -9px bleed the cap
+          // already grants, so the right edge stays on the column axis.
           className={cn(
             "-ml-[9px] rounded-md border border-line-soft bg-sunken px-2 py-1",
-            "max-w-[min(100%,calc(var(--transcript-max)+0.5625rem))]",
+            "max-w-[calc(var(--transcript-max)+0.5625rem)]",
           )}
           chevronClassName="text-think-warm"
           summary={
