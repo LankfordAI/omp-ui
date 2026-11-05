@@ -500,7 +500,7 @@ a global one; with nothing set anywhere, empty — `/council` then points at
 Project settings → Council). The global roster is edited on Settings →
 Experimental, where enabling the flag seeds an empty one from the user's own
 models; a project's council overrides it. Each **council member**
-names one model, or leaves its name blank to derive one from the end of the
+names one model, or leaves its name blank to follow the end of the
 model slug; a member without a model is never launched. Members run as
 one batch of background subagents on omp-ui's dedicated council agent;
 results return as async-result wake turns. Behind the Settings →

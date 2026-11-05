@@ -8,11 +8,13 @@ import type { CouncilRosterView, CouncilWriteRequest, ModelCatalogSnapshot } fro
 HTMLElement.prototype.scrollIntoView = vi.fn();
 
 const hawk = { name: "hawk", model: "anthropic/sonnet", instructions: null, enabled: true };
+// A realistic view: effective members only ever exist when some scope's
+// document exists — the editor's override seed reads that stored document.
 const roster = (over: Partial<CouncilRosterView> = {}): CouncilRosterView => ({
   members: [hawk],
   instructions: null,
   configWarnings: [],
-  global: null,
+  global: { instructions: null, members: [hawk] },
   project: null,
   effective: [{ ...hawk, sourceScope: "user" }],
   ...over,
@@ -124,24 +126,34 @@ describe("CouncilRosterEditor", () => {
     expect(document.body.textContent).not.toContain("Pick a model for every member.");
   });
 
-  it("saves the end-of-model slug when the name is blank (#1056)", async () => {
+  it("persists a blank name so the member keeps following its model (#1057)", async () => {
     await mount(<CouncilRosterEditor scopeCwd="/p" instanceId={null} />);
     await act(async () => btn("Add member").click());
     await typeInto(inputs("Model")[1]!, "openrouter/anthropic/claude-opus-5.5");
     // A blank name with a launchable model is valid; the placeholder previews
-    // the name Save will persist.
+    // the derived name, but Save stores it blank so the name re-derives when
+    // the model changes.
     expect(btn("Save").disabled).toBe(false);
     expect(inputs("Member")[1]!.placeholder).toBe("claude-opus-5-5");
     await act(async () => btn("Save").click());
-    expect(lastWrite().document!.members[1]!.name).toBe("claude-opus-5-5");
+    expect(lastWrite().document!.members[1]!.name).toBe("");
   });
 
-  it("blocks Save when two blank names derive the same slug (#1056)", async () => {
+  it("allows Save when two blank names derive the same slug (#1057)", async () => {
     await mount(<CouncilRosterEditor scopeCwd="/p" instanceId={null} />);
     await act(async () => btn("Add member").click());
     await typeInto(inputs("Model")[1]!, "openrouter/anthropic/gpt-4x");
     await act(async () => btn("Add member").click());
     await typeInto(inputs("Model")[2]!, "azure/gpt-4x");
+    // Derived collisions are the validator's job (it suffixes -2), not a block.
+    expect(btn("Save").disabled).toBe(false);
+  });
+
+  it("blocks Save when two explicit names collide", async () => {
+    await mount(<CouncilRosterEditor scopeCwd="/p" instanceId={null} />);
+    await act(async () => btn("Add member").click());
+    await typeInto(inputs("Member")[1]!, "hawk");
+    await typeInto(inputs("Model")[1]!, "openai/gpt-5");
     expect(btn("Save").disabled).toBe(true);
   });
 

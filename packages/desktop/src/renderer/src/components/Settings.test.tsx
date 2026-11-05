@@ -1024,15 +1024,15 @@ describe("Settings Experimental page (issues #571 and #739)", () => {
     click(councilSwitch());
     await act(async () => {});
     // The favorite leads, then the remaining catalog row; one member per
-    // provider, named by the model id slug (#1055).
+    // provider, with blank names so each follows its model (#1057).
     expect(backendMock.setCouncilRoster).toHaveBeenCalledWith({
       scopeCwd: null,
       scope: "user",
       document: {
         instructions: null,
         members: [
-          { name: "quick", model: "litellm/quick", instructions: null, enabled: true },
-          { name: "opus", model: "anthropic/opus", instructions: null, enabled: true },
+          { name: "", model: "litellm/quick", instructions: null, enabled: true },
+          { name: "", model: "anthropic/opus", instructions: null, enabled: true },
         ],
       },
     });

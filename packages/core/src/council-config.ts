@@ -14,6 +14,8 @@ import { parseModelRole } from "./model-role";
 export { MAX_COUNCIL_MEMBERS, MAX_COUNCIL_NAME } from "./council";
 
 export interface CouncilMember {
+  /** "" = follow the model (#1057): validation derives the entry name from
+   *  `model` live, so switching models renames the member. A typed name pins. */
   readonly name: string;
   /** null only in migrated legacy data; such a member is never launched. */
   readonly model: string | null;
@@ -124,7 +126,10 @@ interface ValidatedCouncil extends CouncilRosterResult {
 /**
  * The shared validator: a bad entry is a warning naming `sourceLabel`, never a
  * broken launch. Entry order is preserved; the launch set takes the first
- * MAX_COUNCIL_MEMBERS enabled entries that have a model.
+ * MAX_COUNCIL_MEMBERS enabled entries that have a model. A blank name derives
+ * from the member's current model at this seam (#1057), so storage keeps it
+ * blank and switching models renames the member; a derived collision suffixes
+ * `-2` instead of dropping the entry.
  */
 function validateEntries(doc: CouncilDocument, sourceLabel: string): ValidatedCouncil {
   const warnings: string[] = [];
@@ -139,7 +144,9 @@ function validateEntries(doc: CouncilDocument, sourceLabel: string): ValidatedCo
   }
   for (const m of list) {
     const label = `${sourceLabel}: member "${m.name}"`;
-    const slug = councilMemberSlug(m.name);
+    const explicit = m.name.trim() !== "";
+    // Blank names derive from the current model here, never at save (#1057).
+    let slug = explicit ? councilMemberSlug(m.name) : councilNameFromModel(m.model) ?? "";
     if (slug === "" || !SLUG_PATTERN.test(slug)) {
       warnings.push(`${label}: name must slug to [a-z][a-z0-9-]* — entry dropped`);
       continue;
@@ -149,8 +156,14 @@ function validateEntries(doc: CouncilDocument, sourceLabel: string): ValidatedCo
       continue;
     }
     if (seen.has(slug)) {
-      warnings.push(`${label}: duplicates another entry (slug "${slug}") — entry dropped`);
-      continue;
+      if (explicit) {
+        warnings.push(`${label}: duplicates another entry (slug "${slug}") — entry dropped`);
+        continue;
+      }
+      // A derived collision renames instead of dropping: the member still
+      // means "follow my model", and only a hand-typed name can truly clash.
+      const base = slug.slice(0, MAX_COUNCIL_NAME - 2);
+      for (let n = 2; seen.has(slug); n++) slug = `${base}-${n}`;
     }
     seen.add(slug);
     if (over(m.instructions) || over(m.model) || over(m.name)) {
@@ -235,6 +248,8 @@ export interface CouncilSuggestionModel {
  * `parseModelRole` strips any `:level`; a favorite absent from the catalog is
  * skipped — a member must be launchable), then the remaining catalog rows in
  * given order. At most MAX_COUNCIL_MEMBERS are selected, one per provider.
+ * Every member is seeded with a blank name (#1057) so it keeps following its
+ * model; the validator derives the display name.
  */
 export function suggestCouncilMembers(
   models: readonly CouncilSuggestionModel[],
@@ -262,34 +277,16 @@ export function suggestCouncilMembers(
 
   const members: CouncilMember[] = [];
   const usedProviders = new Set<string>();
-  const usedNames = new Set<string>();
   for (const m of candidates) {
     if (members.length >= MAX_COUNCIL_MEMBERS) break;
     if (usedProviders.has(m.provider)) continue;
     usedProviders.add(m.provider);
     members.push({
-      name: uniqueName(key(m), members.length + 1, usedNames),
+      name: "",
       model: key(m),
       instructions: null,
       enabled: true,
     });
   }
   return members;
-}
-
-/**
- * The member name for a `provider/model` key: the end-of-slug derivation
- * (#1056), de-duplicated within one selection.
- */
-function uniqueName(key: string, index: number, usedNames: Set<string>): string {
-  let base = councilNameFromModel(key) ?? "";
-  if (base === "") base = `member-${index}`;
-  if (base.length > MAX_COUNCIL_NAME) base = base.slice(0, MAX_COUNCIL_NAME - 2);
-  let name = base;
-  for (let n = 2; usedNames.has(name); n++) {
-    // Slicing the base (not the suffixed name) keeps every candidate ≤ MAX_COUNCIL_NAME.
-    name = `${base.slice(0, MAX_COUNCIL_NAME - 2)}-${n}`;
-  }
-  usedNames.add(name);
-  return name;
 }

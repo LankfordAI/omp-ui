@@ -94,18 +94,19 @@ export function CouncilRosterEditor({ scopeCwd, instanceId }: { scopeCwd: string
     [load, scope],
   );
 
-  // What the editor seeds from: the scope's own document, else what the
-  // resolution chain currently shows (global or empty) — editing it creates
-  // the override. Memoized on the load: a fresh object per render would
-  // re-seed the draft under the user's keystrokes.
+  // What the editor seeds from: the scope's own document, else the global
+  // document it inherits (editing it creates the override), else empty. The
+  // fallback reads the stored document, not `effective` — effective carries
+  // #1057's derived names, and copying those into a new override would pin
+  // what should keep following each member's model. Memoized on the load: a
+  // fresh object per render would re-seed the draft under the user's
+  // keystrokes.
   const seed = useMemo((): CouncilDocument | null => {
     if (load.status !== "loaded") return null;
     const own = scope === "project" ? load.result.project : load.result.global;
     if (own !== null) return structuredClone(own);
-    return {
-      instructions: load.result.instructions,
-      members: load.result.effective.map(({ sourceScope: _unused, ...m }) => m),
-    };
+    if (load.result.global !== null) return structuredClone(load.result.global);
+    return { instructions: null, members: [] };
   }, [load, scope]);
 
   // Seed the draft from the loaded state whenever the view (not the draft) changes.
@@ -170,17 +171,16 @@ export function CouncilRosterEditor({ scopeCwd, instanceId }: { scopeCwd: string
     );
   };
 
-  // A blank name is not an error when the model can derive one (#1056): the
-  // effective name is what gets slugged, saved, and checked for duplicates.
-  const nameFor = (m: CouncilMember): string =>
-    m.name.trim() !== "" ? m.name : councilNameFromModel(m.model) ?? "";
-  const slugs = draft.members.map((m) => councilMemberSlug(nameFor(m)));
+  // A blank name is never an error (#1057): it stays blank in storage and the
+  // validator derives it from the model, suffixing any collision. Only a
+  // hand-typed name is checked here — pattern, length, and duplicates against
+  // another hand-typed name; every member still needs a launchable model.
+  const typedSlugs = draft.members.map((m) => (m.name.trim() === "" ? null : councilMemberSlug(m.name)));
   const invalid = draft.members.some(
     (m, i) =>
-      slugs[i] === "" ||
-      slugs[i]!.length > MAX_COUNCIL_NAME ||
-      slugs.indexOf(slugs[i]!) !== i ||
-      !modelOk(m.model),
+      !modelOk(m.model) ||
+      (typedSlugs[i] !== null &&
+        (typedSlugs[i] === "" || typedSlugs[i]!.length > MAX_COUNCIL_NAME || typedSlugs.indexOf(typedSlugs[i]) !== i)),
   );
   const full = draft.members.length >= MAX_COUNCIL_MEMBERS;
   const paletteModels = instanceId === null
@@ -199,10 +199,10 @@ export function CouncilRosterEditor({ scopeCwd, instanceId }: { scopeCwd: string
       const doc: CouncilDocument = {
         instructions: draft.instructions?.trim() ? draft.instructions : null,
         members: draft.members.map((m) => ({
-          // A blank name persists as the derived end-of-slug name (#1056);
-          // a duplicate derivation is already blocked by validation.
+          // A blank name stays blank (#1057): the validator derives it from
+          // the member's current model, so switching models renames the member.
           ...m,
-          name: m.name.trim() !== "" ? m.name.trim() : nameFor(m),
+          name: m.name.trim(),
           model: m.model?.trim() ? m.model.trim() : null,
         })),
       };

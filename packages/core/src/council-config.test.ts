@@ -45,6 +45,38 @@ describe("validateCouncilDocument", () => {
       'the global council: member "X": duplicates another entry (slug "x") — entry dropped',
     ]);
   });
+  it("derives a blank name from the member's model with no warning (#1057)", () => {
+    const r = validateCouncilDocument(
+      doc({ members: [entry("", { model: "openrouter/anthropic/claude-opus-5.5" })] }),
+      "the global council",
+    );
+    expect(r.members).toEqual([entry("claude-opus-5-5", { model: "openrouter/anthropic/claude-opus-5.5" })]);
+    expect(r.configWarnings).toEqual([]);
+  });
+  it("drops a blank-named entry whose model derives no name (#1057)", () => {
+    const r = validateCouncilDocument(doc({ members: [entry("", { model: null }), entry("", { model: "litellm/🔒" })] }), "g");
+    expect(r.members).toEqual([]);
+    expect(r.configWarnings).toEqual([
+      'g: member "": name must slug to [a-z][a-z0-9-]* — entry dropped',
+      'g: member "": name must slug to [a-z][a-z0-9-]* — entry dropped',
+    ]);
+  });
+  it("suffixes -2 when two blank names derive the same slug (#1057)", () => {
+    const r = validateCouncilDocument(
+      doc({ members: [entry("", { model: "openrouter/anthropic/gpt-4x" }), entry("", { model: "azure/gpt-4x" })] }),
+      "g",
+    );
+    expect(r.members.map((m) => m.name)).toEqual(["gpt-4x", "gpt-4x-2"]);
+    expect(r.configWarnings).toEqual([]);
+  });
+  it("suffixes -2 when a derived name collides with an earlier typed name (#1057)", () => {
+    const r = validateCouncilDocument(
+      doc({ members: [entry("hawk"), entry("", { model: "azure/hawk" })] }),
+      "g",
+    );
+    expect(r.members.map((m) => m.name)).toEqual(["hawk", "hawk-2"]);
+    expect(r.configWarnings).toEqual([]);
+  });
   it("drops an entry whose slug is over 24 characters", () => {
     const long = "a".repeat(25);
     const r = validateCouncilDocument(doc({ members: [entry(long), entry("b".repeat(24))] }), "g");
@@ -227,9 +259,9 @@ describe("suggestCouncilMembers", () => {
       ["anthropic/claude:high"],
     );
     expect(members).toEqual([
-      { name: "claude", model: "anthropic/claude", instructions: null, enabled: true },
-      { name: "gpt-4", model: "openai/gpt-4", instructions: null, enabled: true },
-      { name: "gemini", model: "google/gemini", instructions: null, enabled: true },
+      { name: "", model: "anthropic/claude", instructions: null, enabled: true },
+      { name: "", model: "openai/gpt-4", instructions: null, enabled: true },
+      { name: "", model: "google/gemini", instructions: null, enabled: true },
     ]);
   });
   it("skips favorites absent from the catalog", () => {
@@ -255,29 +287,6 @@ describe("suggestCouncilMembers", () => {
   });
   it("yields exactly one member when every row shares a provider", () => {
     const members = suggestCouncilMembers([row("openai", "gpt-4"), row("openai", "gpt-5")], []);
-    expect(members).toEqual([{ name: "gpt-4", model: "openai/gpt-4", instructions: null, enabled: true }]);
-  });
-  it("suffixes a colliding slug with -2", () => {
-    const members = suggestCouncilMembers([row("openai", "gpt-4"), row("azure", "gpt-4")], [
-      "openai/gpt-4",
-      "azure/gpt-4",
-    ]);
-    expect(members.map((m) => m.name)).toEqual(["gpt-4", "gpt-4-2"]);
-  });
-  it("dedupes names derived from the end of nested ids (#1056)", () => {
-    const members = suggestCouncilMembers([row("openrouter", "anthropic/gpt-4x"), row("azure", "gpt-4x")], []);
-    expect(members.map((m) => m.name)).toEqual(["gpt-4x", "gpt-4x-2"]);
-  });
-  it("falls back to member-<n> when an id slugs to nothing", () => {
-    const members = suggestCouncilMembers([row("openai", "GPT 4"), row("azure", "🔒")], []);
-    expect(members.map((m) => m.name)).toEqual(["gpt-4", "member-2"]);
-  });
-  it("slices a slug over MAX_COUNCIL_NAME before suffixing", () => {
-    const longId = "model".repeat(6); // 30 chars; councilNameFromModel caps at 24 first
-    const first = longId.slice(0, 24); // MAX_COUNCIL_NAME
-    const base = longId.slice(0, 22); // MAX_COUNCIL_NAME - 2 before the suffix
-    const members = suggestCouncilMembers([row("a", longId), row("b", longId)], [`a/${longId}`, `b/${longId}`]);
-    expect(members.map((m) => m.name)).toEqual([first, `${base}-2`]);
-    expect(members.every((m) => m.name.length <= 24)).toBe(true);
+    expect(members).toEqual([{ name: "", model: "openai/gpt-4", instructions: null, enabled: true }]);
   });
 });

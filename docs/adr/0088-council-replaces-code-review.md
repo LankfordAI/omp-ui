@@ -129,3 +129,9 @@ council flag with a memberless global document seeds it once from the user's
 own discovered chat models (favorites first, at most three, one per provider)
 before the flag persists. The rejection of shipped default members stands —
 every seeded member is a model already configured on the machine.
+
+**Amended 2026-11-05 (#1057):** decision 3's member `name` becomes optional: a
+blank name is stored as-is, and the launch/display name derives from the
+current model at validation time (the end of the model slug, suffixed on a
+collision), so swapping a member's model renames the member automatically. An
+explicit name still pins.
