@@ -14,6 +14,7 @@ import { Modal } from "./ui";
 import { AboutPage } from "./settings/AboutPage";
 import { AdvancedPage } from "./settings/AdvancedPage";
 import { AppearancePage } from "./settings/AppearancePage";
+import { CouncilFooter, CouncilPage } from "./settings/CouncilPage";
 import { ExperimentalFooter, ExperimentalPage } from "./settings/ExperimentalPage";
 import { GeneralFooter, GeneralPage } from "./settings/GeneralPage";
 import { KeyboardPage } from "./settings/KeyboardPage";
@@ -117,6 +118,12 @@ const PAGES: ReadonlyArray<{
       />
     ),
     footer: OmpFooter,
+  },
+  {
+    id: "council",
+    labelKey: "settings.nav.council",
+    render: () => <CouncilPage />,
+    footer: CouncilFooter,
   },
   {
     id: "experimental",

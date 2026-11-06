@@ -269,7 +269,7 @@ A native session's composer accepts the same slash commands as the terminal TUI.
 | `/btw <question>`, `/btw` | Never forwarded as prose: OMP's `/btw` is still TUI-only (`handleTui`, no `handle`), so a forwarded line would become a normal model turn and pollute the transcript ([#682](https://github.com/LankfordAI/omp-ui/issues/682)). In a native tab the composer dispatches OMP's native `btw` command and opens the Side questions pane, adding no transcript row; bare `/btw` opens the pane ([#775](https://github.com/LankfordAI/omp-ui/issues/775)). An omp below 18.6.3 (or an unobserved version) dispatches nothing and the pane shows itself unavailable. Terminal tabs keep forwarding the line to OMP's own TUI. |
 | `/<file command with side: true>` | Never forwarded as a prompt in a native tab (omp ≥ 18.13.0 runs these as `/btw` only in its TUI). The generated side-commands bridge publishes the live session's side set and renders the line with omp's own `renderFileSlashCommand`. The composer sends the result through native `btw`, opens the Side questions pane, and titles the topic with the typed command ([#955](https://github.com/LankfordAI/omp-ui/issues/955)). |
 | `/autoresearch start` | Bare `start` opens the New experiment dialog for the session's project; `start <text>` starts the experiment interview in this session with the text as the rough description ([#567](https://github.com/LankfordAI/omp-ui/issues/567), [ADR-0032](adr/0032-experiments-configured-in-conversation.md)). `/autoresearch lab` opens the Lab, likewise never forwarded. Every other `/autoresearch…` form — bare, a goal, `off`, `clear` — forwards verbatim: it is OMP's own extension command, which dispatches over rpc-ui without a dialog ([ADR-0030](adr/0030-experiments-read-autoresearch-from-two-sources.md)). |
-| `/council …` | Experiments on, native, non-chat tab: the composer reads the effective council and, when no member can launch, appends a failed row with an Open council settings action and sends nothing; otherwise the line reaches the council bridge verbatim ([ADR-0088](adr/0088-council-replaces-code-review.md)). |
+| `/council …` | Council on (default), native, non-chat tab: the composer reads the effective council and, when no member can launch, appends a failed row with an Open council settings action and sends nothing; otherwise the line reaches the council bridge verbatim ([ADR-0088](adr/0088-council-replaces-code-review.md)). |
 | Any other advertised command | Forwards as a `prompt` frame with the command acknowledgement lifecycle below. |
 | Unknown `/word` | Forwards as a literal model prompt. No command row appears; OMP starts a real agent turn. |
 
@@ -448,8 +448,9 @@ command, so `propose_experiment` is never registered and no snapshot is ever
 published. The Lab surfaces sit behind a separate app-global
 `experimentsEnabled` flag (also default off): with it off the renderer hides
 every Lab and New experiment entry point and `/autoresearch start|lab` fall
-through to OMP verbatim. The council subsystem has its own `councilEnabled`
-flag: the bridge package, its overlay, its roster snapshot, and the Project
+through to OMP verbatim. The council subsystem keeps its own `councilEnabled`
+flag — no longer an Experimental gate: default on, edited on Settings → Council
+— over the bridge package, its overlay, its roster snapshot, and the Project
 settings → Council tab ([#739](https://github.com/LankfordAI/omp-ui/issues/739)).
 
 Live mode, goal, and tool activity come from another per-lineage generated
@@ -528,10 +529,13 @@ extension package directory, `omp-ui-council/` in the lineage dir, passed with
 declares the bridge entry `omp-ui-council.ts` through `omp.extensions`, and
 `agents/omp-ui-council.md` is the dedicated, read-only council agent: omp
 discovers `agents/*.md` for explicit `--extension` directory roots, so the
-agent loads with the bridge and nowhere else. The subsystem sits behind the
-`councilEnabled` flag (Settings → Experimental, default off): with the flag off
-an rpc spawn writes neither the package nor the overlay nor the snapshot, and
-Project settings hides the Council tab (#739). Rpc-only: PTY tabs neither load the bridge nor
+agent loads with the bridge and nowhere else. The subsystem sits behind its
+own `councilEnabled` flag (Settings → Council, default on since the subsystem
+graduated from Experimental): with the flag off an rpc spawn writes neither
+the package nor the overlay nor the snapshot, and Project settings hides the
+Council tab (#739). PTY-tab support is explicitly deferred — it needs
+`spawnOmp` extensions plumbing plus a proof that the omp TUI surfaces async
+task results back to the model — so PTY tabs neither load the bridge nor
 take the overlay.
 
 Main resolves the council once per rpc spawn (`writeCouncilForSpawn`).
@@ -544,7 +548,12 @@ Main writes the launch set to `omp-ui-council-roster.json` and returns the
 `omp-ui-council.yml` `--config` overlay, pushed after the rpc overlays:
 `async.enabled: true`, `task.batch: true`, `task.perCallModel: "on"`, and one
 `modelRoles."omp-ui-council-N"` chat role per launched member, each the
-member's selector verbatim. omp approves a per-call model only when a chat
+member's selector verbatim. When no member resolves, no overlay is written at
+all — an empty council carries no council config change; the snapshot and the
+bridge package are still written, so `/council` answers with its refusal
+pointer rather than a restart hint. A warm spawn slot built before the boot
+seed (below) carries an empty-council snapshot until relaunch; no extra
+plumbing is spent to refresh it. omp approves a per-call model only when a chat
 role in an operator layer names it, and objects deep-merge across layers, so
 the overlay grants exactly the members' models while the user's own roles
 survive. The overlay never writes `task.agentModelOverrides`, and the member
@@ -554,18 +563,23 @@ overlay, and snapshot files in a reused lineage dir are removed. Preparation
 is never fatal: on failure the snapshot is removed, so the bridge refuses with
 a restart hint. Roster edits therefore apply on relaunch. Project settings →
 Council edits the project or global document over `council:roster` and
-`council:roster:set`; Settings → Experimental hosts the same editor for the
-global document (#1053), and enabling the council flag seeds a memberless
-global roster over those same channels before the flag flips (#1055); for a
-local project its *Pick…* palette reads omp's chat catalog, so no live
-session is needed. Those channels stay unproxied for
-remote projects.
+`council:roster:set`; Settings → Council hosts the same editor for the
+global document (#1053). Seeding lives in main (`seedCouncilRosterIfUnset`,
+#1055): at boot, after the shell-key capture, gated on `councilEnabled`, and
+awaited in the settings enable handler before the flag commits. It writes over
+those same channels only for a never-authored (null) global document — a
+deliberately saved empty roster is never re-seeded; for a local project the
+*Pick…* palette reads omp's chat catalog, so no live session is needed.
+`council:roster` and `council:roster:set` are proxied to the owning remote
+instance: a user-scope write through the proxy edits the owner's global roster,
+the same model as `watchdog:roster:set`. `settings:setCouncilEnabled` stays
+unproxied, so a joined instance's Council tab follows the local flag.
 
-In a native, non-chat tab with experiments on, the composer intercepts
+In a native, non-chat tab with the council on, the composer intercepts
 `/council` before any model turn: it reads the effective council and, when no
 member can launch, appends a failed command row whose *Open council settings*
 action opens Project settings → Council, and sends nothing. When the roster
-read fails (an unproxied remote channel), the line forwards and the bridge
+read fails (a proxy round-trip to a remote owner), the line forwards and the bridge
 decides. The bridge reads only the snapshot: a missing snapshot refuses with a
 restart hint, and an empty one points at Project settings → Council.
 

@@ -167,3 +167,16 @@ describe("fleet channels (issue #899)", () => {
     expect(REMOTE_PROXY_CHANNELS.has("fleet:send")).toBe(true);
   });
 });
+
+describe("council roster channels (issue #1049)", () => {
+  it("proxies the roster read and write to the instance that owns the registry", () => {
+    for (const channel of ["council:roster", "council:roster:set"]) {
+      expect(REMOTE_PROXY_CHANNELS.has(channel), channel).toBe(true);
+    }
+  });
+
+  it("never proxies the council enable setting to a joined instance", () => {
+    // Settings stay app-local, like every other settings:* channel.
+    expect(REMOTE_PROXY_CHANNELS.has("settings:setCouncilEnabled")).toBe(false);
+  });
+});

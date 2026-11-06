@@ -135,3 +135,43 @@ blank name is stored as-is, and the launch/display name derives from the
 current model at validation time (the end of the model slug, suffixed on a
 collision), so swapping a member's model renames the member automatically. An
 explicit name still pins.
+
+## Amended 2026-11-05 (graduation)
+
+Decision 11, *Same gate*, is superseded: the council no longer rides
+`experimentsEnabled`. It now reads its own `councilEnabled` flag with the
+default **on**, edited on Settings → Council. Existing installs flip on once
+through a force-on migration marker, `councilDefaultOnSeeded`: a persisted
+`councilEnabled: false` is indistinguishable from an explicit refusal to turn
+the council on, so the migration cannot simply default the flag and must record
+that it has run.
+
+Recorded drift: decisions 9 and 11 already said `experimentsEnabled` while the
+code had moved to the separate `councilEnabled` flag in #1052 (three
+independent switches on Settings → Experimental). The prose was stale; this
+amendment records that the drift was resolved there, not here.
+
+The #1055 seeding trigger moves from the renderer's flag-flip to main:
+`seedCouncilRosterIfUnset` runs at boot after the shell-key capture, gated on
+`councilEnabled`, and is awaited in the settings enable handler before the flag
+commits. The null-document rule stands with it — a global roster document that
+exists, including one deliberately saved empty, is never re-seeded; only a
+never-authored (null) document is.
+
+Consequences amended:
+
+- The `task.perCallModel` overlay rides only when at least one member launches.
+  An empty resolved roster writes no council `--config` overlay at all; the
+  roster snapshot and the bridge package are still written, so `/council`
+  answers with its refusal pointer instead of a restart hint. The original
+  sentence's "while experiments are on" is likewise superseded by
+  `councilEnabled`.
+- Remote-project roster channels are now **proxied** to the owning instance,
+  replacing "Remote-project roster channels stay unproxied, as today." A
+  user-scope write through the proxy edits the owner's global roster, the same
+  model as `watchdog:roster:set`. `settings:setCouncilEnabled` stays unproxied,
+  so a joined instance's Council tab follows the local flag.
+- PTY-tab support is explicitly deferred. It needs `spawnOmp` extensions
+  plumbing (the terminal spawn path passes no extension roots) and a proof that
+  the omp TUI surfaces async task results back to the model; until both exist,
+  council is rpc-only.

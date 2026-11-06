@@ -773,6 +773,7 @@ type BackendBroadcastSettings = Omit<
   | "autoThinkingDefaultSeeded"
   | "hibernateManualDefaultSeeded"
   | "experimentsFlagSplitSeeded"
+  | "councilDefaultOnSeeded"
   | "remoteEnabled"
   | "remoteBind"
   | "remotePort"

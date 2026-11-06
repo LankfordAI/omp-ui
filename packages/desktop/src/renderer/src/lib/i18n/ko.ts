@@ -981,6 +981,13 @@ export const ko: Partial<Record<MessageKey, string>> = {
   "settings.general.transcriptTextSizeLabel": "대화록 글자 크기",
   "settings.general.footnote": "기본 세션 및 에이전트 모드는 새 세션에 적용되고, 나머지는 즉시 적용됩니다.",
 
+  // Settings → Council (이슈 #1049)
+  "settings.council.title": "카운슬",
+  "settings.council.hint":
+    "/council 명령과 새 세션용 카운슬 브리지를 추가하고 세션별 모델 역할을 부여합니다. 프로젝트는 자체 설정의 카운슬 탭에서 전역 로스터를 재정의할 수 있습니다.",
+  "settings.council.footer":
+    "이후에 시작되는 세션에 적용되며, 실행 중인 세션은 시작할 때의 카운슬을 그대로 유지합니다.",
+
   // Settings → Experimental (이슈 #571, #739)
   "settings.experimental.labTitle": "실험실 (베타)",
   "settings.experimental.labHint":
@@ -988,9 +995,6 @@ export const ko: Partial<Record<MessageKey, string>> = {
   "settings.experimental.autoresearchTitle": "자동 연구 브리지 (베타)",
   "settings.experimental.autoresearchHint":
     "새 세션에 omp-ui의 자동 연구 브리지를 장착합니다: /autoresearch 칩, 실험실용 라이브 모드와 목표, 그리고 propose_experiment 인터뷰 도구입니다. 끄면 OMP 자체 루프는 그대로 유지되며, 실험실에서 시작한 실험은 칩 없이 계속 실행됩니다.",
-  "settings.experimental.councilTitle": "카운슬 (베타)",
-  "settings.experimental.councilHint":
-    "/council 명령, 새 세션용 카운슬 브리지, 그리고 이 페이지의 전역 로스터 편집기를 추가합니다. 프로젝트는 자체 설정의 카운슬 탭에서 전역 로스터를 재정의할 수 있습니다.",
   "settings.experimental.footer":
     "이후에 시작되는 세션에 적용되며, 실행 중인 세션은 시작할 때의 브리지를 그대로 유지합니다.",
 
@@ -2861,6 +2865,7 @@ export const ko: Partial<Record<MessageKey, string>> = {
   "settings.nav.memory": "메모리",
   "settings.nav.knowledgeVault": "지식 볼트",
   "settings.nav.omp": "omp",
+  "settings.nav.council": "카운슬",
   "settings.nav.experimental": "실험",
   "settings.nav.advanced": "고급",
   "settings.nav.about": "정보",

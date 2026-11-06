@@ -1628,9 +1628,11 @@ describe("council snapshot (ADR-0088)", () => {
     const dir = lineageOf(registry, sessionsRoot, tabId);
     const snapshot = JSON.parse(fs.readFileSync(Core.councilRosterSnapshotPath(dir), "utf8"));
     expect(snapshot).toEqual({ version: 1, instructions: null, members: [], configWarnings: [] });
+    // No member can launch, so the bridge refuses before any task call and no
+    // per-call-model overlay rides the spawn at all.
     const overlay = Core.councilOverlayPath(dir);
-    expect(spawnedOverlays()).toContain(overlay);
-    expect(fs.readFileSync(overlay, "utf8")).not.toContain("modelRoles");
+    expect(spawnedOverlays()).not.toContain(overlay);
+    expect(fs.existsSync(overlay)).toBe(false);
   });
 
   it("snapshots and grants the project document over the global one at spawn", async () => {

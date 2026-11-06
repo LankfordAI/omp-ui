@@ -33,6 +33,7 @@ import {
   readWebSearchProviders,
   readJudgeModels,
   readModelCatalog,
+  suggestCouncilMembers,
   readBranchDiff,
   readInstalledOmpVersion,
   ompPinActive,
@@ -1101,6 +1102,7 @@ export class MainBackend {
               .supported,
           onAppUpdateTrainChanged: () => this.appUpdater.onTrainChanged(),
           onFleetLadderChanged: () => this.fleetServer.enforceLadder(),
+          seedCouncilRoster: () => this.seedCouncilRosterIfUnset(),
         }),
         ...registerVaultHandlers({
           registry: this.registry,
@@ -2057,6 +2059,36 @@ export class MainBackend {
       },
       () => {},
     );
+  }
+
+  /**
+   * Council graduation seeding (amends #1055): when the global council document
+   * has never been authored (`null`, not a deliberate empty save), seed it once
+   * from the user's favorite chat models. No flag check here: the boot caller
+   * gates on `councilEnabled` (see isCouncilEnabled), the enable handler calls
+   * it deliberately before flipping the flag. Every failure (undiscovered
+   * catalog, no favorites, no favorite matches the catalog) writes nothing and
+   * retries next boot — the #1058 no-catalog-fallback rule stands.
+   */
+  seedCouncilRosterIfUnset(): Promise<void> {
+    if (this.registry.getSetting("councilRoster") !== null) return Promise.resolve();
+    return readModelCatalog({ ompPath: this.ompPath }).then(
+      (catalog) => {
+        if (!catalog.discovered) return;
+        const members = suggestCouncilMembers(catalog.models, this.registry.getFavorites());
+        if (members.length === 0) return;
+        // Re-read: a roster authored during the catalog round trip wins.
+        if (this.registry.getSetting("councilRoster") !== null) return;
+        this.registry.setSetting("councilRoster", { instructions: null, members });
+        void this.broadcast();
+      },
+      () => {},
+    );
+  }
+
+  /** Boot-gate accessor: index.ts cannot reach the private registry. */
+  isCouncilEnabled(): boolean {
+    return this.registry.getSetting("councilEnabled");
   }
 
   /**

@@ -31,6 +31,7 @@ interface RegistrySettings {
   autoresearchEnabled: boolean;
   councilEnabled: boolean;
   experimentsFlagSplitSeeded: boolean;
+  councilDefaultOnSeeded: boolean;
   snoozedSectionEnabled: boolean;
   autoSettleMergedPullRequests: boolean;
   remoteVsCodeEnabled: boolean;
@@ -157,6 +158,9 @@ export function seedRegistry(file: string, patch: RegistrySeedPatch = {}): void 
     // Default true so seeds exercise post-migration registries; tests
     // wanting the pre-split shape set it false via the patch.
     experimentsFlagSplitSeeded: true,
+    // Default true so seeds exercise post-graduation registries; councilEnabled
+    // above now models an explicit opt-out rather than the legacy off default.
+    councilDefaultOnSeeded: true,
     snoozedSectionEnabled: false,
     autoSettleMergedPullRequests: true,
     remoteVsCodeEnabled: false,

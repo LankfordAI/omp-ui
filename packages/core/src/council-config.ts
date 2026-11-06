@@ -242,16 +242,18 @@ export interface CouncilSuggestionModel {
 }
 
 /**
- * The suggested roster for #1055: when the council flag is enabled and no
- * global document has members, the Settings slice seeds one from the user's
- * FAVORITE models (#1058) — matched on the bare `provider/id` after
+ * The suggested roster for #1055: when the council is enabled and the global
+ * document was never authored, main seeds one from the user's FAVORITE models
+ * (#1058) — at boot while `councilEnabled` is on, and again when the enable
+ * handler flips it on — matched on the bare `provider/id` after
  * `parseModelRole` strips any `:level`; a favorite absent from the discovered
  * catalog is skipped, since a member must be launchable. Favorites are
  * explicit picks, so they keep their order and may share a provider; at most
  * MAX_COUNCIL_MEMBERS seed, and an uncurated user gets no fallback — `/council`
  * points at settings instead of being charged to arbitrary catalog models.
- * Every member is seeded with a blank name (#1057) so it keeps following its
- * model; the validator derives the display name.
+ * A roster document that exists (even a deliberately saved empty one) is never
+ * re-seeded. Every member is seeded with a blank name (#1057) so it keeps
+ * following its model; the validator derives the display name.
  */
 export function suggestCouncilMembers(
   models: readonly CouncilSuggestionModel[],

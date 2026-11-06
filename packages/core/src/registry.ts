@@ -92,7 +92,7 @@ export interface RegistrySettings {
   experimentsEnabled: boolean;
   /** Autoresearch bridge gate (#1052); default off. */
   autoresearchEnabled: boolean;
-  /** Council subsystem gate (#1052); default off. */
+  /** Council subsystem gate (#1052); default on since graduation. */
   councilEnabled: boolean;
   /** Sidebar Snoozed section and Snooze/Unsnooze action (issue #935); default off. */
   snoozedSectionEnabled: boolean;
@@ -118,6 +118,9 @@ export interface RegistrySettings {
   hibernateManualDefaultSeeded: boolean;
   /** One-time migration marker (#1052): the single experiments flag was split once. */
   experimentsFlagSplitSeeded: boolean;
+  /** One-time seed marker (graduation): legacy registries persisted the old off
+   *  default; the first load on a new build flips council on once. */
+  councilDefaultOnSeeded: boolean;
   /**
    * App-wide Council roster for /council (ADR-0088): null = unset. Members
    * resolve project → global → empty, so with neither document set no
@@ -334,7 +337,7 @@ export const SETTINGS: SettingDescriptors = {
     (value): value is boolean => typeof value === "boolean",
   ),
   councilEnabled: validatedSetting(
-    () => false,
+    () => true,
     (value): value is boolean => typeof value === "boolean",
   ),
   snoozedSectionEnabled: validatedSetting(
@@ -377,6 +380,10 @@ export const SETTINGS: SettingDescriptors = {
     (value): value is boolean => typeof value === "boolean",
   ),
   experimentsFlagSplitSeeded: validatedSetting(
+    () => false,
+    (value): value is boolean => typeof value === "boolean",
+  ),
+  councilDefaultOnSeeded: validatedSetting(
     () => false,
     (value): value is boolean => typeof value === "boolean",
   ),
@@ -574,6 +581,7 @@ function emptyRegistry(): RegistryData {
       autoThinkingDefaultSeeded: true,
       hibernateManualDefaultSeeded: true,
       experimentsFlagSplitSeeded: true,
+      councilDefaultOnSeeded: true,
     },
     projects: [],
     sessions: [],
@@ -916,14 +924,28 @@ function seedHibernateManualDefault(file: string, data: RegistryData): void {
  * One-time split (issue #1052): the single `experimentsEnabled` flag gated
  * both the lab surfaces and the autoresearch bridge, so legacy registries
  * carry no value for the new per-subsystem gates. Copy the old flag into
- * both once and mark the registry seeded; later explicit values persist the
- * marker and are never revisited.
+ * autoresearch once and mark the registry seeded; later explicit values
+ * persist the marker and are never revisited. The council value is owned by
+ * `seedCouncilDefaultOn`.
  */
 function seedExperimentsFlagSplit(file: string, data: RegistryData): void {
   if (data.settings.experimentsFlagSplitSeeded) return;
   data.settings.experimentsFlagSplitSeeded = true;
   data.settings.autoresearchEnabled = data.settings.experimentsEnabled;
-  data.settings.councilEnabled = data.settings.experimentsEnabled;
+  writeRegistry(file, data);
+}
+
+/**
+ * One-time default flip (council graduation): legacy registries persisted the
+ * old off default for `councilEnabled` (the settings object is always written
+ * in full), so a bare `false` cannot be told apart from an explicit one. Flip
+ * it to on once and mark the registry seeded; a later explicit off persists
+ * the marker and is never revisited. Same shape as #923's hibernate seed.
+ */
+function seedCouncilDefaultOn(file: string, data: RegistryData): void {
+  if (data.settings.councilDefaultOnSeeded) return;
+  data.settings.councilDefaultOnSeeded = true;
+  data.settings.councilEnabled = true;
   writeRegistry(file, data);
 }
 
@@ -959,6 +981,7 @@ export class Registry {
       seedAutoThinkingDefault(file, data);
       seedHibernateManualDefault(file, data);
       seedExperimentsFlagSplit(file, data);
+      seedCouncilDefaultOn(file, data);
       return new Registry(file, data);
     }
     // Corrupt (or unknown schemaVersion): quarantine and start empty.
