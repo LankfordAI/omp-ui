@@ -106,7 +106,7 @@ OMP's JSONL files are authoritative for session identity, transcript content, ti
 - **Compaction method overlay.** The app default seeds only fresh native `OwnedSessionRecord` values. At each later native process spawn, core reads supported methods from the installed OMP binary's pristine `compaction.methodOrder` and the effective fallback order for the session working directory. SessionManager writes a per-lineage overlay that promotes the captured method and preserves those fallbacks. Unsupported or unreadable captures remove the overlay and defer to OMP. Terminal-origin sessions keep a null capture and never receive this overlay.
 - **Subagent model overlay ([ADR-0031](adr/0031-subagent-model-selection-via-config-layers.md)).** A per-lineage `--config` overlay carries the session's `task.agentModelOverrides` choices: the session's own map, or — while it has none and the app preference is on — a `"*"` (inherit-the-session-model) entry for every agent in the registry roster. Unlike the advisor overlay, OMP re-reads this file before every subagent spawn, so `session:setSubagentModels` rewrites it in place and the change is live with no relaunch. The Global and Project layers of the same record are edited through the settings allowlist (replace-not-merge) and the project config writer's third-level map API (one entry at a time); the agent roster is refreshed on demand via `omp agents unpack`, never on the spawn path. A `"*"` entry resolves through `modelRoles.default`, so the session's `omp-ui-model.yml` overlay is passed on every spawn (an empty mapping when nothing is pinned) and rewritten in place on every `session:setModel` change; inheriting subagents follow the session's current model with no relaunch ([#881](https://github.com/LankfordAI/omp-ui/issues/881)).
 - **Model hold ([#932](https://github.com/LankfordAI/omp-ui/issues/932), [#970](https://github.com/LankfordAI/omp-ui/issues/970)).** A live native session whose pinned model it could not boot on is *held*: main refuses turn-starting commands with the hold's notice until a `set_model` succeeds, and the record keeps the pin for the next spawn. Two reasons raise it. `unreachable`: the pinned model's models.yml endpoint failed a pre-spawn TCP probe, so omp-ui booted unpinned. `not-found`: omp ≥ 18.14 resolves a provider-qualified selector only by exact id or alias, so a stale `modelRoles.default` pin boots on omp's own fallback and prints `Default model <sel> not found. Using <fallback>` on stderr before `ready`; the client's stderr line seam raises the hold, and main then runs one bare `--model` boot (`readModelSelectorError`) to capture omp's `Did you mean …?` suggestions for the notice. A `--model` selector omp rejects (dev/test gate, recovery pick) exits 1 before `ready` instead; its exit tail carries `failedModel`, so the tab's failure surface offers the recovery picker, exactly as for a resume whose transcript model is gone (#774). A stale `task.agentModelOverrides` entry fails only that subagent at spawn ("No model selected"); the Agents pane's subagent model popover marks a session entry the live catalog does not list as *not found*.
-- **Worktree pin overlay ([#833](https://github.com/LankfordAI/omp-ui/issues/833)).** omp-ui owns worktree lifecycle, so every spawn writes a per-lineage `--config` overlay pinning `worktree.onStart: off` and `worktree.onExit: keep` — a user's global omp config can never nest an omp-ui-invisible worktree inside an omp-ui checkout or delete one under a live session. There is no settings row: no "on" state is honest here.
+- **Worktree pin overlay ([#833](https://github.com/LankfordAI/omp-ui/issues/833)).** Both terminal and native session spawns write a per-lineage `--config` overlay pinning `worktree.onStart: off` and `worktree.onExit: keep`. This prevents OMP's automatic session worktree creation and exit-time removal. It does not disable task isolation, explicit checkout commands, or ovnfs discovery. There is no settings row for these two pins. See the ovnfs verification below for the boundary of this protection.
 - **Private session overlay ([#852](https://github.com/LankfordAI/omp-ui/issues/852), [ADR-0055](adr/0055-private-sessions-quiet-overlay-plus-bridge-not-config-write.md)).** A session flagged `private` gets a per-lineage `--config` overlay pinning `autolearn.enabled: false` and `mnemopi.autoRetain: false` — the two automatic memory-write channels — and native spawns arm a generated bridge that drops `memory_edit`, `retain`, `learn`, and `manage_skill` from the live tool roster. The overlay deliberately never names `mnemopi.autoRecall` or `memory.backend`: private means write-quiet, not read-quiet. The flag is per record, never a project default or last-used state; branches inherit it.
 - **out:// reply overlay ([#969](https://github.com/LankfordAI/omp-ui/issues/969)).** omp 18.14 lets the agent reply mid-turn by writing to `out://`, gated by `out.enabled`, which omp resolves on only in its interactive TUI. Every rpc-ui spawn on omp ≥ 18.14 (`OUT_REPLIES_MIN_OMP`, read from `omp --version`) writes a per-lineage `--config` overlay (`omp-ui-out.yml`) pinning `out.enabled: true` unless a global or project config layer names the key, following ADR-0038. Older or unknown versions and user-configured values remove the artifact. The transcript presents a `write` to `out://` as assistant prose (core's `isReplyWrite`, ported from omp's TUI) and a bash result's `details.replies` as prose after its card. The gate is not registered against `MIN_SUPPORTED_OMP`, because an older omp has no `out://` scheme and keeps the plain cards.
 
@@ -124,6 +124,80 @@ PTY hangup, then SIGKILL after a 2 s grace on Unix, because a shell that
 ignores SIGHUP would otherwise outlive the session that owned it.
 
 See [Session storage and encoding](session-encoding.md) for the verified JSONL, title-slot, artifacts, root-resolution, and archive formats. Directory encoding is diagnostic only. Code must read the JSONL header instead of reconstructing a project path from a directory name.
+
+### ovnfs and worktree authority
+
+Verification of [#1071](https://github.com/LankfordAI/omp-ui/issues/1071) on
+2026-11-06 chose the issue's **branch (b)**: ovnfs checkouts can be created
+outside omp-ui's worktree lifecycle. Runtime suppression is **not implemented**;
+the policy needs its own ADR. [ADR-0018](adr/0018-worktree-checkouts-in-app-data.md)
+defines app-data Git worktree sessions, not ownership of daemon-managed mounts.
+
+`writeSessionOverlays` in `packages/desktop/src/main/spawn-config.ts` supplies
+the worktree pins to terminal spawns and, through `writeRpcOverlays`, native
+spawns. Both start the parent process at `record.worktree?.path ??
+record.projectCwd`. Neither writes `ovnfs.path` or `isolation.backend`.
+
+The verified managed binary was `omp/18.17.0`, SHA-256
+`a4ce6001ab1012ca835f4184d675437531bd1ac477a7ba8424ed0b5476e9e4cb`.
+Its embedded `task/settings.ts`, `task/structured-subagent.ts`, `task/ovnfs.ts`,
+and `ovnfs/daemon.ts` establish these two arms:
+
+- **No executable found.** `ovnfsCommand` tries the configured nonblank
+  `ovnfs.path`, otherwise `ovnfs` on PATH. When it finds neither, an isolated
+  task with `isolation.backend: auto` uses the native isolation factory with
+  the backend left unspecified, so the PAL still selects it. Tasks without
+  isolation keep the shared checkout; discovery does not enable
+  `task.isolation.enabled`.
+- **Executable found.** An allowed isolated task using `auto` selects the
+  ovnfs factory independently of `worktree.onStart` and `worktree.onExit`.
+  It calls `ovnfs --json start`, requires admin protocol 5, sends daemon
+  `new { dir, name }`, and runs the child at the returned checkout path.
+  The shared isolation runner still captures patches and applies them to
+  the parent checkout when requested. Cleanup sends daemon `rm`; a failure
+  leaves the `.omp-ovnfs-checkout.json` sidecar for `omp worktree clear` to
+  retry. Search discovery separately calls `ovnfs --json status` and falls
+  back to native search if daemon discovery or the request fails.
+
+The verification machine had no `ovnfs` on PATH and no configured
+`ovnfs.path`. Only the **no-ovnfs arm was live-exercised**. A disposable Git
+project with a linked parent checkout ran the installed task tool twice,
+without an overlay and with the actual `writeWorktreeOverlay` output. A
+temporary extension supplied a deterministic child edit and final-message
+events instead of model inference; the installed runtime performed checkout
+creation, patch capture/application, and cleanup. Both runs applied identical
+file bytes and identical patch bytes, SHA-256
+`b0feccc34111ad93026c2309a4605c6d64b5eda5babe2625e772d38941565013`.
+Both removed the native child checkout, preserved the parent's `probe-session`
+branch and `git worktree list --porcelain` output, and left the project
+checkout untouched. The overlay remains exactly
+`worktree:\n  onStart: off\n  onExit: keep\n`.
+The with-ovnfs arm is source/strings evidence from that binary, not a live
+mount test or a claim of compatibility with later OMP releases.
+
+An isolated subagent's scratch checkout is not an omp-ui worktree session;
+its patch-return lifecycle already belongs to OMP. The authority gap is
+broader: the binary's `ovnfs.path` description says discovery also adds
+guidance to use ovnfs checkouts instead of Git worktrees or copies. Those
+daemon paths do not enter `OwnedSessionRecord.worktree`. Sidebar project
+identity, diffs, and Finish worktree keep using the recorded parent checkout,
+and `reclaimCheckouts` accepts only recorded checkouts in the canonical
+app-data project slot. These mechanisms do not adopt, finish, or reclaim
+an agent-created ovnfs mount. Source inspection does not prove data loss or
+Git compatibility inside a real mount, so safe coexistence is not certified.
+
+**Proposed overlay change, gated on an ADR.** If the policy chooses
+suppression, extend the existing per-lineage session overlay with
+`ovnfs.path` naming an absolute lineage-local path guaranteed not to be
+executable. Keep `isolation.backend: auto` and the existing worktree pins,
+so native backend selection stays unchanged. A blank `ovnfs.path` is not
+an off switch: it falls back to PATH. Pinning only a native isolation backend
+would bypass ovnfs for isolated tasks but leave its general guidance and
+search discovery enabled. The ADR must choose suppression versus supported
+coexistence and define the cross-platform non-executable-path mechanism;
+no sentinel or policy pin is written today. Issue #1071 remains open at this
+gate rather than closing on an untested with-ovnfs assumption.
+
 
 ## Feature seams
 
