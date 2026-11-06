@@ -13,7 +13,7 @@ import { requestTranscriptReveal } from "../lib/transcript-reveal";
 // Statically imported even though the module is mocked: vi.mock hoists above
 // imports, so this binding is the mock, not the window.ompBackend reader.
 import { backend } from "../backend";
-import { t } from "../lib/i18n";
+import { applyLocale, resolveLocale, t } from "../lib/i18n";
 import { backendState, remoteOwnedState, rpcTabState, tabInfo } from "../test/fixtures";
 import { useStore } from "../store";
 import { TranscriptView, type FindState } from "./TranscriptView";
@@ -1856,6 +1856,52 @@ describe("exchange receipts (issue #933)", () => {
       root.render(<TranscriptView items={[...items, assistant("a2", "working")]} />);
     });
     expect(el.querySelector('[data-item-id="a1:receipt"]')).toBe(before);
+    act(() => root.unmount());
+  });
+});
+
+describe("shell truncation provenance", () => {
+  afterEach(() => applyLocale(resolveLocale("en")));
+
+  it.each(["en", "ko"])("renders upstream counts and units in %s without a generic duplicate", (locale) => {
+    applyLocale(resolveLocale(locale));
+    const { el, root } = render([{
+      kind: "shell", id: "shell-provenance", command: "seq 1 200000", status: "done",
+      output: "retained output", truncated: true,
+      truncation: {
+        elidedLines: 123, elidedBytes: 2048,
+        columnTruncatedLines: 7, columnMax: 1024,
+        columnDroppedBytes: 4096, columnTruncatedRange: { first: 2, last: 8 },
+      },
+    }]);
+    const text = el.textContent!;
+    expect(text).toContain(t("transcript.shell.elidedLines", { count: 123 }));
+    expect(text).toContain(t("transcript.shell.elidedBytes", { bytes: "2.0KB" }));
+    expect(text).toContain(t("transcript.shell.columnLines", { count: 7 }));
+    expect(text).toContain(t("transcript.shell.columnMax", { count: 1024 }));
+    expect(text).toContain(t("transcript.shell.columnRange", { first: 2, last: 8 }));
+    expect(text).toContain(t("transcript.shell.columnBytes", { bytes: "4.0KB" }));
+    expect(text).not.toContain(t("transcript.shell.truncated"));
+    expect(el.querySelector("pre")?.textContent).toBe("retained output");
+    act(() => root.unmount());
+  });
+
+  it("distinguishes legacy upstream truncation from the local display cap", () => {
+    const { el, root } = render([{
+      kind: "shell", id: "shell-legacy", command: "legacy", status: "done",
+      output: "prefix", truncated: true, localDroppedChars: 256,
+    }]);
+    expect(el.textContent).toContain(t("transcript.shell.truncated"));
+    expect(el.textContent).toContain(t("transcript.shell.localTruncated", { count: 256 }));
+    act(() => root.unmount());
+  });
+
+  it("leaves untouched legacy output undecorated", () => {
+    const { el, root } = render([{
+      kind: "shell", id: "shell-untouched", command: "echo hello", status: "done", output: "hello",
+    }]);
+    expect(el.querySelector("p")).toBeNull();
+    expect(el.querySelector("pre")?.textContent).toBe("hello");
     act(() => root.unmount());
   });
 });

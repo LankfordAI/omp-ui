@@ -11,6 +11,7 @@ import type { SessionReference } from "@omp-ui/core/types";
 import { FLEET_WAKE_CUSTOM_TYPE, parseFleetWakeCard, type FleetWakeCard } from "@omp-ui/core/fleet-wake";
 import { toolResultReplies } from "@omp-ui/core/out-replies";
 import { parseBashMinimized, type BashMinimized } from "@omp-ui/core/bash-minimized";
+import { parseBashTruncation, type BashTruncation } from "@omp-ui/core/bash-truncation";
 
 export interface AdvisorNote {
   note: string;
@@ -214,6 +215,10 @@ export interface ShellItem {
   /** Absent on a cancelled run — omp omits exitCode there. */
   exitCode?: number;
   truncated?: boolean;
+  /** omp's own output cuts; absent on older or untruncated responses. */
+  truncation?: BashTruncation;
+  /** UTF-16 code units dropped by omp-ui's separate display cap, never upstream bytes. */
+  localDroppedChars?: number;
   /** omp's failure text when status === "failed". */
   error?: string;
   /** False only from a recorded excludeFromContext entry (omp-ui never sends it). */
@@ -278,6 +283,23 @@ export function commandItem(name: string, args: string): CommandItem {
 
 export function shellItem(command: string): ShellItem {
   return { kind: "shell", id: `shell-${++counter}`, command, status: "running", timestamp: Date.now() };
+}
+/** Keep omp's head/tail preview intact; disclose only our separate legacy display cut. */
+export function shellOutputFields(result: unknown): Pick<ShellItem, "output" | "truncated" | "truncation" | "localDroppedChars"> {
+  const output = strField(result, "output") ?? "";
+  const truncated = boolField(result, "truncated") === true;
+  const truncation = parseBashTruncation(result);
+  const localCap = 64 * 1024;
+  if (truncated || truncation !== undefined || output.length <= localCap) {
+    return { output, truncated, ...(truncation ? { truncation } : {}) };
+  }
+  // String.length counts UTF-16 code units. Avoid leaving half of a surrogate pair.
+  const last = output.charCodeAt(localCap - 1);
+  const next = output.charCodeAt(localCap);
+  const end = last >= 0xd800 && last <= 0xdbff && next >= 0xdc00 && next <= 0xdfff
+    ? localCap - 1
+    : localCap;
+  return { output: output.slice(0, end), truncated, localDroppedChars: output.length - end };
 }
 
 /**
@@ -1237,9 +1259,8 @@ export function historyToItems(messages: unknown[]): RenderItem[] {
         id: `shell-${++counter}`,
         command: str(raw.command) ?? "",
         status: raw.cancelled === true ? "cancelled" : "done",
-        output: str(raw.output) ?? "",
+        ...shellOutputFields(raw),
         exitCode: numField(raw, "exitCode"),
-        truncated: raw.truncated === true,
         shared: raw.excludeFromContext !== true,
         timestamp: numField(raw, "timestamp"),
       });

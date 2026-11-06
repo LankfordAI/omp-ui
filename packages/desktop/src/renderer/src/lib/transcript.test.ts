@@ -1460,6 +1460,75 @@ describe("historyToItems", () => {
     expect(item).toMatchObject({ kind: "shell", shared: false });
   });
 
+  it("preserves raw bash truncation provenance without cutting omp's preview again", () => {
+    const output = `${"head\n".repeat(14 * 1024)}[…100ln elided…]\ntail-marker`;
+    const truncation = {
+      elidedBytes: 123456,
+      elidedLines: 100,
+      columnDroppedBytes: 4096,
+      columnTruncatedLines: 3,
+      columnTruncatedRange: { first: 2, last: 11 },
+      columnMax: 1024,
+    };
+    const row = historyToItems([{ role: "bashExecution", command: "verbose-command", output, truncated: true, ...truncation }])[0];
+    if (row?.kind !== "shell") throw new Error("expected a shell item");
+    expect(row.output).toBe(output);
+    expect(row.truncation).toEqual(truncation);
+    expect(row.localDroppedChars).toBeUndefined();
+  });
+
+  it("restores the actual persisted OutputMeta subset without inventing column counts", () => {
+    const output = "head\n[…100ln elided…]\ntail";
+    const row = historyToItems([{
+      role: "bashExecution", command: "verbose-command", output, truncated: true,
+      meta: {
+        truncation: { direction: "middle", truncatedBy: "middle", elidedBytes: 123456, elidedLines: 100, artifactId: "hidden" },
+        limits: { columnTruncated: { maxColumn: 1024, unit: "bytes", lines: { first: 2, last: 11 }, artifactId: "hidden" } },
+      },
+    }])[0];
+    if (row?.kind !== "shell") throw new Error("expected a shell item");
+    expect(row.truncation).toEqual({
+      elidedBytes: 123456, elidedLines: 100,
+      columnTruncatedRange: { first: 2, last: 11 }, columnMax: 1024,
+    });
+    expect(row.output).toBe(output);
+    expect(row.localDroppedChars).toBeUndefined();
+  });
+
+  it("preserves column-only previews despite truncated false", () => {
+    const output = "x".repeat(70 * 1024);
+    const row = historyToItems([{
+      role: "bashExecution", output, truncated: false,
+      meta: { limits: { columnTruncated: { maxColumn: 1024, unit: "bytes", lines: { first: 2, last: 11 } } } },
+    }])[0];
+    if (row?.kind !== "shell") throw new Error("expected a shell item");
+    expect(row).toMatchObject({ output, truncated: false, truncation: { columnMax: 1024, columnTruncatedRange: { first: 2, last: 11 } } });
+    expect(row.localDroppedChars).toBeUndefined();
+  });
+
+  it.each([
+    {},
+    { elidedBytes: "100", columnTruncatedRange: { first: 2, last: 1 } },
+    { elidedBytes: 0, elidedLines: 0, columnDroppedBytes: 0, columnTruncatedLines: 0, columnMax: 0 },
+    { meta: { truncation: "invalid", limits: { columnTruncated: [] } } },
+  ])("does not invent provenance for old, malformed, or zero-only history", (fields) => {
+    const row = historyToItems([{ role: "bashExecution", output: "old preview", truncated: true, ...fields }])[0];
+    if (row?.kind !== "shell") throw new Error("expected a shell item");
+    expect(row.output).toBe("old preview");
+    expect(row.truncation).toBeUndefined();
+    expect(row.localDroppedChars).toBeUndefined();
+  });
+
+  it("discloses a local history cut in UTF-16 units without splitting a surrogate pair", () => {
+    const output = `${"x".repeat(64 * 1024 - 1)}😀tail`;
+    const row = historyToItems([{ role: "bashExecution", output }])[0];
+    if (row?.kind !== "shell") throw new Error("expected a shell item");
+    expect(row.output).toBe("x".repeat(64 * 1024 - 1));
+    expect(row.localDroppedChars).toBe(6);
+    expect(row.truncation).toBeUndefined();
+    expect(row.truncated).toBe(false);
+  });
+
   it("restores a failed edit's errorKind on backfill (issue #953)", () => {
     const items = historyToItems([
       { role: "assistant", content: [{ type: "toolCall", id: "e2", name: "edit", arguments: {} }] },
