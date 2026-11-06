@@ -42,9 +42,9 @@ const ompPath = resolveOmpBinary();
 
 /**
  * The keyword ids the resolved binary itself publishes as `magicKeywords.*`
- * settings. Version floors are dishonest here — chillax landed on omp main
- * after the 18.16.0 tag, so only the binary's own published settings tell us
- * which expectations apply. Null when no binary exists or the probe fails.
+ * settings. Version floors are dishonest here — chillax ships from 18.17.0 and
+ * older binaries predate it, so only the binary's own published settings tell
+ * us which expectations apply. Null when no binary exists or the probe fails.
  */
 function publishedKeywordIds(): ReadonlySet<string> | null {
   if (ompPath === null) return null;
@@ -413,9 +413,9 @@ describe.skipIf(ompPath === null)("magic keywords on the real runtime", () => {
     );
     const rows = JSON.parse(published) as Array<Record<string, unknown>>;
     // Relaxed only in one direction: port rows this binary doesn't publish
-    // (chillax postdates every released binary's `magicKeywords.*` keys) are
-    // not demanded of it. A live row the port lacks still fails — extra rows
-    // never pass — so a binary that gains chillax gets strict coverage here.
+    // (only binaries older than 18.17.0 lack `magicKeywords.chillax`) are not
+    // demanded of it. A live row the port lacks still fails — extra rows
+    // never pass — so a chillax binary gets strict coverage here.
     expect(rows.map((row) => ({
       id: row.id,
       word: row.word,

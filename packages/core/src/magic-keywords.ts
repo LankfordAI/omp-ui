@@ -11,8 +11,9 @@
  *
  * Ported from omp 18.3.2 `packages/tui/src/prompt/{markdown-prose,magic-keywords}.ts`
  * and `packages/coding-agent/src/modes/magic-keywords.ts`. Five keywords: chillax
- * is ported from omp main, where it landed after the 18.16.0 tag — no released
- * binary publishes it yet — and whose table also grew the optional lightness ramp.
+ * comes from a later omp than the rest of the port — it shipped in 18.17.0,
+ * the first release whose binary publishes `magicKeywords.chillax` — and whose
+ * table also grew the optional lightness ramp.
  *
  * Pure: zero imports, no DOM, no Node. Shared by the main process (file blocks,
  * one-shots) and the renderer (paint); colours live in the renderer.
@@ -35,7 +36,7 @@ export interface MagicKeywordSpec {
   readonly requires: readonly string[];
 }
 
-/** omp's MAGIC_KEYWORDS (18.3.2 plus post-18.16 chillax), in omp's notice-push order. */
+/** omp's MAGIC_KEYWORDS (18.3.2 plus chillax, released in 18.17.0), in omp's notice-push order. */
 export const MAGIC_KEYWORDS = [
   { id: "ultrathink", word: "ultrathink", hue: [0, 330], requires: [] },
   // Cyan darkening into deep blue.

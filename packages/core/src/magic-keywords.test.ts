@@ -118,7 +118,7 @@ describe("magicKeywordSegments", () => {
 });
 
 describe("the keyword table", () => {
-  it("mirrors omp's five rows — 18.3.2 plus post-18.16 chillax — in notice-push order", () => {
+  it("mirrors omp's five rows — 18.3.2 plus chillax from 18.17.0 — in notice-push order", () => {
     expect(MAGIC_KEYWORDS.map((k) => k.id)).toEqual([
       "ultrathink",
       "chillax",
@@ -263,9 +263,9 @@ describe("parity with the live omp binary — skipped when there is none", () =>
     const known = ["magicKeywords.enabled", ...MAGIC_KEYWORDS.map((k) => `magicKeywords.${k.id}`)];
     // The direction that must always hold: an omp keyword the port lacks fails here.
     expect(published.filter((key) => !known.includes(key))).toEqual([]);
-    // chillax landed on omp main after the 18.16.0 tag, so no version gate is
-    // honest — the binary's own published keys gate the strict comparison,
-    // which engages automatically once a chillax binary exists.
+    // Binaries older than 18.17.0 do not publish magicKeywords.chillax, so no
+    // version gate is honest — the binary's own published keys gate the strict
+    // comparison, which engages automatically on any chillax binary.
     if (published.includes("magicKeywords.chillax")) expect(published).toEqual([...known].sort());
   }, 30_000);
 });
