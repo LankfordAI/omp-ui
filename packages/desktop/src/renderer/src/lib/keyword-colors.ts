@@ -2,7 +2,8 @@
  * The composer's magic-keyword colours — the character shimmer and the border
  * ring painted for each keyword. Matching, the keyword table, and its hue
  * endpoints come from `@omp-ui/core/magic-keywords` (the port of omp 18.3.2
- * plus post-18.16 chillax); this module only turns a keyword's ramps into CSS.
+ * plus chillax, released in 18.17.0); this module only turns a keyword's ramps
+ * into CSS.
  *
  * The gradient is the only signal the user gets that a keyword armed, so the
  * ramps are sampled continuously from omp's endpoints: omp's terminal editor

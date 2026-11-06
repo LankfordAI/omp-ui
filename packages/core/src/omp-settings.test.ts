@@ -818,6 +818,60 @@ describe("writeOmpSetting", () => {
     expect(seen).toEqual(["config", "set", "providers.openaiLiveSteering", "true", "--json"]);
   });
 
+  it("admits task.workerThreads to the write boundary (#1067)", async () => {
+    let seen: readonly string[] = [];
+    await writeOmpSetting(
+      { ompPath: OMP, key: "task.workerThreads", value: 0 },
+      async (args) => {
+        seen = args;
+        return "";
+      },
+    );
+    expect(seen).toEqual(["config", "set", "task.workerThreads", "0", "--json"]);
+  });
+
+  it("admits textVerbosity to the write boundary (#1063)", async () => {
+    let seen: readonly string[] = [];
+    await writeOmpSetting(
+      { ompPath: OMP, key: "textVerbosity", value: "medium" },
+      async (args) => {
+        seen = args;
+        return "";
+      },
+    );
+    expect(seen).toEqual(["config", "set", "textVerbosity", "medium", "--json"]);
+  });
+
+  it("admits providers.openaiResponsesWebsockets to the write boundary (#1068)", async () => {
+    let seen: readonly string[] = [];
+    await writeOmpSetting(
+      { ompPath: OMP, key: "providers.openaiResponsesWebsockets", value: true },
+      async (args) => {
+        seen = args;
+        return "";
+      },
+    );
+    expect(seen).toEqual([
+      "config",
+      "set",
+      "providers.openaiResponsesWebsockets",
+      "true",
+      "--json",
+    ]);
+  });
+
+  it("admits edit.mode to the write boundary (#1069)", async () => {
+    let seen: readonly string[] = [];
+    await writeOmpSetting(
+      { ompPath: OMP, key: "edit.mode", value: "none" },
+      async (args) => {
+        seen = args;
+        return "";
+      },
+    );
+    expect(seen).toEqual(["config", "set", "edit.mode", "none", "--json"]);
+  });
+
   it("admits both composer prediction keys to the write boundary (#1030)", async () => {
     let seen: readonly string[] = [];
     await writeOmpSetting(

@@ -11,7 +11,7 @@ import {
 import { arrField, strField } from "../lib/fields";
 import { editErrorKindLabel } from "../lib/edit-rejections";
 import type { ThemedToken } from "shiki/core";
-import { useT, type MessageKey } from "../lib/i18n";
+import { localeTag, useT, type MessageKey } from "../lib/i18n";
 import type { AdvisorNote, RecordedTaskFile, ToolItem } from "../lib/transcript";
 import { isPlanArtifactPath } from "@omp-ui/core/plan";
 import { useStore } from "../store";
@@ -602,6 +602,36 @@ export function AdvisoryNotes({ notes }: { notes: AdvisorNote[] }) {
   );
 }
 
+/** Tool-result metadata is distinct from RPC shell-row provenance. Keep the output notice intact. */
+function ToolTruncationFacts({ item }: { item: ToolItem }) {
+  const t = useT();
+  const metadata = item.toolTruncation;
+  if (!metadata) return null;
+  const facts: string[] = [];
+  const elision = metadata.truncation;
+  if (elision) {
+    const lines = elision.elidedLines === undefined ? undefined : t("transcript.tool.elidedLines", {
+      count: elision.elidedLines.toLocaleString(localeTag()),
+    });
+    const bytes = elision.elidedBytes === undefined ? undefined : formatBytes(elision.elidedBytes);
+    const magnitude = lines && bytes ? `${lines} (${bytes})` : lines ?? bytes;
+    const directionKeys = {
+      // Upstream direction names the retained window, not the elided side.
+      head: "transcript.tool.tailElided",
+      tail: "transcript.tool.headElided",
+      middle: "transcript.tool.middleElided",
+    } as const;
+    facts.push(t(directionKeys[elision.direction], { magnitude: magnitude ?? t("transcript.tool.outputTruncated") }));
+  }
+  const columns = metadata.columnTruncated;
+  if (columns) {
+    const limit = columns.maxColumn.toLocaleString(localeTag());
+    facts.push(t("transcript.tool.columnCut", { limit }));
+    if (columns.unit) facts.push(t(columns.unit === "bytes" ? "transcript.tool.columnBytes" : "transcript.tool.columnChars"));
+  }
+  return <div className="font-mono text-xs tabular-nums text-ink-faint">{facts.join(" · ")}</div>;
+}
+
 /* ---------------------------------------------------------------- card */
 
 /** Stable no-op selector for mounts without a tab (SubagentView): the hook
@@ -670,6 +700,7 @@ export function ToolCard({ item, tabId }: { item: ToolItem; tabId?: string }) {
   const hasBody =
     item.args !== undefined ||
     item.resultText !== undefined ||
+    item.toolTruncation !== undefined ||
     (item.images?.length ?? 0) > 0 ||
     hasDiff ||
     item.partialText !== undefined ||
@@ -728,6 +759,22 @@ export function ToolCard({ item, tabId }: { item: ToolItem; tabId?: string }) {
       {item.status === "running" && (
         <ProgressSweep tone="copper" paused={streamStallMs !== undefined} />
       )}
+      {item.name === "web_search" && (item.providerFailures?.length ?? 0) > 0 && (
+        <div className="flex min-w-0 flex-wrap gap-1.5 px-2.5 pb-2">
+          {item.providerFailures!.map((failure, index) => (
+            <Chip key={`${failure.provider}-${index}`} tone="rose" className="min-w-0 max-w-full whitespace-normal">
+              <span className="min-w-0 [overflow-wrap:anywhere]">
+                {t(
+                  failure.status === undefined
+                    ? "transcript.tool.providerFailure"
+                    : "transcript.tool.providerFailureStatus",
+                  { label: failure.label, reason: failure.reason, status: failure.status ?? "" },
+                )}
+              </span>
+            </Chip>
+          ))}
+        </div>
+      )}
       {open && hasBody && (
         <div className="space-y-2 border-t border-line-soft px-2.5 py-2">
           <ToolArgs name={item.name} args={item.args} />
@@ -777,6 +824,8 @@ export function ToolCard({ item, tabId }: { item: ToolItem; tabId?: string }) {
               })}
             </div>
           )}
+
+          <ToolTruncationFacts item={item} />
 
           {item.resultText !== undefined &&
             item.resultText !== "" &&

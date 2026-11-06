@@ -306,6 +306,18 @@ export const OMP_SETTING_GROUPS: ReadonlyArray<OmpSettingGroup> = [
       // into the streaming response over the Codex WebSocket; a lane that
       // rejects it (unsupported_native_inflight_message) falls back to a turn.
       "providers.openaiLiveSteering",
+      // omp 18.17.0 (issue #1063): enum low|medium|high whose default flipped
+      // to low and now applies to Codex too; medium restores the answer length
+      // sessions had before the flip. The options ride in from
+      // `omp config list` via parseEnumOptions, so no option plumbing here.
+      "textVerbosity",
+      // omp 18.17.0 (issue #1068): off by default. On, catalog-supported
+      // standard Responses models run over WebSockets with HTTP/SSE fallback.
+      // Transport only — not openaiLiveSteering's mid-response steering above;
+      // the distinction and the sessions-started-afterwards timing live in
+      // OmpPage.tsx's row hint, because omp's own description cannot be
+      // edited to carry them.
+      "providers.openaiResponsesWebsockets",
     ],
   },
   {
@@ -319,6 +331,15 @@ export const OMP_SETTING_GROUPS: ReadonlyArray<OmpSettingGroup> = [
       // `omp config list` via parseEnumOptions, so no option plumbing here.
       "title.icons",
     ],
+  },
+  {
+    // omp 18.17.0 (issue #1069): edit dialect, including none, which removes
+    // only edit and force-enables bash even when bash.enabled is off.
+    // Options ride in from `omp config list` via parseEnumOptions, so older
+    // binaries keep their own option set. OmpPage.tsx's row hint carries the
+    // safety, degraded diff receipts, and sessions-started-afterwards caveats.
+    title: "Tools",
+    keys: ["edit.mode"],
   },
   {
     // Python for the eval tool (#671). An omp that publishes neither key
@@ -346,8 +367,12 @@ export const OMP_SETTING_GROUPS: ReadonlyArray<OmpSettingGroup> = [
     // omp 18.14 (issue #975): off by default. On, a task call may name each
     // item's assignment by `taskFile` (absolute path or local:// URL, ≤4 MiB)
     // instead of inline `task`; omp records the file's SHA-256 on the result.
+    // omp 18.17.0 (issue #1067) adds `task.workerThreads`: it caps the worker
+    // THREADS subagents fan out onto, not concurrent subagents, and 0 keeps
+    // every subagent on the main thread — semantics OmpPage.tsx's row hint
+    // carries verbatim, because omp's own description cannot be edited.
     title: "Subagents",
-    keys: ["task.file"],
+    keys: ["task.file", "task.workerThreads"],
   },
   GIT_SETTING_GROUP,
 ];

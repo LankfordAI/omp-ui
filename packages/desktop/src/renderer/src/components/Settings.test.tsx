@@ -1110,6 +1110,89 @@ describe("Settings omp Providers group (issues #178 and #179)", () => {
     );
   });
 
+  it("renders the textVerbosity row from omp's published enum options (#1063)", async () => {
+    seedOmp({
+      ...emptyOmpSettings,
+      entries: [
+        {
+          key: "textVerbosity",
+          type: "enum",
+          description: "Verbosity of text responses",
+          value: "low",
+          globalValue: undefined,
+          options: ["low", "medium", "high"],
+          layer: "default",
+        },
+        ...timeouts,
+      ],
+    });
+    await renderSettings();
+
+    const select = document.querySelector<HTMLSelectElement>(
+      'select[aria-label="textVerbosity"]',
+    )!;
+    expect([...select.options].map((option) => option.value)).toEqual([
+      "low",
+      "medium",
+      "high",
+    ]);
+    // The row's hint is omp-ui's copy, not the installed binary's wording:
+    // it must name the flipped default and the restart timing.
+    expect(document.body.textContent).toContain("flipped the default to low");
+    expect(document.body.textContent).toContain(
+      "sessions started afterwards",
+    );
+    await act(async () => {
+      select.value = "medium";
+      select.dispatchEvent(new Event("change", { bubbles: true }));
+    });
+    expect(backendMock.writeOmpSetting).toHaveBeenCalledWith(
+      "textVerbosity",
+      "medium",
+    );
+  });
+
+  it("renders the Responses WebSockets switch with omp-ui's load-bearing copy (#1068)", async () => {
+    seedOmp({
+      ...emptyOmpSettings,
+      entries: [
+        {
+          key: "providers.openaiResponsesWebsockets",
+          type: "boolean",
+          description:
+            "Opt in for catalog-supported standard Responses models; model or request false disables it",
+          value: false,
+          globalValue: undefined,
+          options: null,
+          layer: "default",
+        },
+        ...timeouts,
+      ],
+    });
+    await renderSettings();
+
+    const toggle = document.querySelector<HTMLElement>(
+      'button[role="switch"][aria-label="providers.openaiResponsesWebsockets"]',
+    )!;
+    expect(toggle.getAttribute("aria-checked")).toBe("false");
+    // The hint is omp-ui's copy, not the installed binary's wording: it must
+    // distinguish transport from the openaiLiveSteering row above and carry
+    // the restart timing.
+    expect(document.body.textContent).toContain("not live steering");
+    expect(document.body.textContent).toContain(
+      "falling back to HTTP/SSE automatically",
+    );
+    expect(document.body.textContent).toContain(
+      "sessions started afterwards",
+    );
+
+    click(toggle);
+    expect(backendMock.writeOmpSetting).toHaveBeenCalledWith(
+      "providers.openaiResponsesWebsockets",
+      true,
+    );
+  });
+
   it("omits the routing row when omp does not publish the key", async () => {
     seedOmp({ ...emptyOmpSettings, entries: timeouts });
     await renderSettings();
@@ -1120,6 +1203,10 @@ describe("Settings omp Providers group (issues #178 and #179)", () => {
     ).toBeNull();
     expect(document.body.textContent).not.toContain(
       "providers.openrouterVariant",
+    );
+    expect(document.body.textContent).not.toContain("textVerbosity");
+    expect(document.body.textContent).not.toContain(
+      "providers.openaiResponsesWebsockets",
     );
   });
 
@@ -1137,6 +1224,173 @@ describe("Settings omp Providers group (issues #178 and #179)", () => {
     expect(viewer?.scopeCwd).toBeNull();
     expect(viewer?.section).toBe("mcp");
     expect(useStore.getState().settingsPage).toBeNull();
+  });
+});
+
+describe("Settings omp Tools group (issue #1069)", () => {
+  function seedTools(options: string[] | null): void {
+    backendMock.readOmpSettings.mockResolvedValue({
+      ...emptyOmpSettings,
+      entries: options === null ? [] : [{
+        key: "edit.mode",
+        type: "enum",
+        description: "Edit tool dialect",
+        value: options[0],
+        globalValue: undefined,
+        options,
+        layer: "default",
+      }],
+    });
+    useStore.setState({
+      settingsPage: "omp",
+      state: backendState(),
+      tabs: [],
+      activeTabId: null,
+      appUpdate: appUpdateState({}),
+      ompUpdate: idleOmpUpdate,
+    });
+  }
+
+  const field = (): HTMLSelectElement =>
+    document.querySelector<HTMLSelectElement>('select[aria-label="edit.mode"]')!;
+
+  it("renders published choices with the safety and receipt caveats", async () => {
+    seedTools(["hashline", "none"]);
+    await renderSettings();
+
+    expect([...field().options].map((option) => option.value)).toEqual([
+      "hashline", "none",
+    ]);
+    for (const phrase of [
+      "none removes only the edit tool",
+      "bash stays available and is force-enabled even when bash.enabled is off",
+      "not a read-only or safety mode",
+      "whole-file rewrites via write carry no structured diff",
+      "change receipts and diff cards degrade",
+      "review depends on later repository diffs",
+      "sessions started afterwards",
+    ]) {
+      expect(document.body.textContent).toContain(phrase);
+    }
+    await act(async () => {
+      field().value = "none";
+      field().dispatchEvent(new Event("change", { bubbles: true }));
+    });
+    expect(backendMock.writeOmpSetting).toHaveBeenCalledWith("edit.mode", "none");
+  });
+
+  it("does not invent none for an older binary's published option set", async () => {
+    seedTools(["hashline", "patch"]);
+    await renderSettings();
+    expect([...field().options].map((option) => option.value)).toEqual([
+      "hashline", "patch",
+    ]);
+  });
+
+  it("omits edit.mode when the binary does not publish it", async () => {
+    seedTools(null);
+    await renderSettings();
+    expect(field()).toBeNull();
+    expect(document.body.textContent).not.toContain("edit.mode");
+  });
+});
+
+describe("Settings omp Subagents group (issue #1067)", () => {
+  const taskFileEntry = (): OmpSettingsSnapshot["entries"][number] => ({
+    key: "task.file",
+    type: "boolean",
+    description: "Let the task tool read subagent instructions from a file",
+    value: false,
+    globalValue: undefined,
+    options: null,
+    layer: "default",
+  });
+
+  function seedSubagents(workerThreadsEntry: boolean): void {
+    const entries = [taskFileEntry()];
+    if (workerThreadsEntry) {
+      entries.push({
+        key: "task.workerThreads",
+        type: "number",
+        description: "Maximum worker threads for subagents",
+        value: 4,
+        globalValue: undefined,
+        options: null,
+        layer: "default",
+      });
+    }
+    backendMock.readOmpSettings.mockResolvedValue({
+      ...emptyOmpSettings,
+      entries,
+    });
+    useStore.setState({
+      settingsPage: "omp",
+      state: backendState(),
+      tabs: [],
+      activeTabId: null,
+      appUpdate: appUpdateState({}),
+      ompUpdate: idleOmpUpdate,
+    });
+  }
+
+  const field = (): HTMLInputElement =>
+    document.querySelector<HTMLInputElement>(
+      'input[aria-label="task.workerThreads"]',
+    )!;
+
+  async function commitNumber(value: string): Promise<void> {
+    const setter = Object.getOwnPropertyDescriptor(
+      HTMLInputElement.prototype,
+      "value",
+    )!.set!;
+    await act(async () => {
+      setter.call(field(), value);
+      field().dispatchEvent(new Event("input", { bubbles: true }));
+    });
+    await act(async () => {
+      field().dispatchEvent(
+        new KeyboardEvent("keydown", {
+          key: "Enter",
+          bubbles: true,
+          cancelable: true,
+        }),
+      );
+    });
+  }
+
+  it("renders the workerThreads row with omp-ui's load-bearing copy (#1067)", async () => {
+    seedSubagents(true);
+    await renderSettings();
+
+    expect(field().value).toBe("4");
+    // The hint is omp-ui's copy, not the installed binary's wording: it must
+    // say the row caps worker THREADS (not concurrent agents) and that 0 is
+    // main-thread-only, with the restart timing.
+    expect(document.body.textContent).toContain("worker THREADS");
+    expect(document.body.textContent).toContain(
+      "not how many subagents may run at once",
+    );
+    expect(document.body.textContent).toContain(
+      "does not mean unlimited",
+    );
+    expect(document.body.textContent).toContain(
+      "sessions started afterwards",
+    );
+
+    await commitNumber("0");
+    expect(backendMock.writeOmpSetting).toHaveBeenCalledWith(
+      "task.workerThreads",
+      0,
+    );
+  });
+
+  it("omits the workerThreads row when omp predates the key (#1067)", async () => {
+    seedSubagents(false);
+    await renderSettings();
+    expect(field()).toBeNull();
+    expect(document.body.textContent).not.toContain("task.workerThreads");
+    // The group itself survives on task.file alone.
+    expect(document.body.textContent).toContain("task.file");
   });
 });
 

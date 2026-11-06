@@ -1,6 +1,6 @@
 import * as fs from "node:fs";
 import * as path from "node:path";
-import { afterEach, describe, expect, it } from "vitest";
+import { afterEach, describe, expect, it, vi } from "vitest";
 import type { FetchLike } from "./fetch";
 import {
   checkOmpUpdate,
@@ -9,11 +9,16 @@ import {
   MIN_SUPPORTED_OMP,
   OMP_RELEASE_BASE,
   ompAssetName,
+  ompManagerManifestPath,
+  stampOmpManager,
   parseOmpVersion,
   readInstalledOmpVersion,
 } from "./omp-update";
 import { compareVersions } from "./semver";
 import { LOGOUT_ACCOUNTS_MIN_OMP } from "./provider-accounts";
+
+// Keep real filesystem behavior while permitting deterministic read failures.
+vi.mock("node:fs", async (importOriginal) => ({ ...(await importOriginal<typeof fs>()) }));
 
 const tmpDirs: string[] = [];
 function mkTmp(): string {
@@ -22,6 +27,7 @@ function mkTmp(): string {
   return dir;
 }
 afterEach(() => {
+  vi.restoreAllMocks();
   for (const dir of tmpDirs.splice(0)) fs.rmSync(dir, { recursive: true, force: true });
 });
 
@@ -31,6 +37,92 @@ afterEach(() => {
 describe("MIN_SUPPORTED_OMP harness floor", () => {
   it("is at or above LOGOUT_ACCOUNTS_MIN_OMP", () => {
     expect(compareVersions(MIN_SUPPORTED_OMP, LOGOUT_ACCOUNTS_MIN_OMP)).toBeGreaterThanOrEqual(0);
+  });
+});
+
+describe("stampOmpManager", () => {
+  function managedBinary(): string {
+    const root = mkTmp();
+    fs.mkdirSync(path.join(root, "bin"));
+    const bin = path.join(root, "bin", "omp");
+    fs.writeFileSync(bin, "#!/bin/sh\n");
+    return bin;
+  }
+
+  it("writes the ownership manifest at the root containing bin/", () => {
+    const bin = managedBinary();
+    const root = path.dirname(path.dirname(bin));
+    expect(ompManagerManifestPath(bin)).toBe(path.join(root, "manager.json"));
+    expect(stampOmpManager(bin, { pinned: false })).toBe(true);
+    expect(JSON.parse(fs.readFileSync(path.join(root, "manager.json"), "utf8"))).toEqual({
+      manager: "omp-ui",
+      name: "omp-ui",
+    });
+  });
+
+  it.each([
+    '{"manager":"omp-ui","name":"omp-ui"}\n',
+    '{\n  "manager": "omp-ui",\n  "name": "My managed omp",\n  "extra": true\n}\n',
+    '{"manager":"omp-ui"}',
+  ])("leaves an existing own manifest byte-for-byte unchanged: %s", (body) => {
+    const bin = managedBinary();
+    const file = ompManagerManifestPath(bin);
+    fs.writeFileSync(file, body);
+    expect(stampOmpManager(bin, { pinned: false })).toBe(true);
+    expect(stampOmpManager(bin, { pinned: false })).toBe(true);
+    expect(fs.readFileSync(file, "utf8")).toBe(body);
+  });
+
+  it("preserves a foreign manifest and reports the ownership conflict", () => {
+    const bin = managedBinary();
+    const file = ompManagerManifestPath(bin);
+    const body = '{"manager":"other","name":"Another installer"}\n';
+    fs.writeFileSync(file, body);
+    expect(() => stampOmpManager(bin, { pinned: false })).toThrow(/ownership conflict.*managed by other/);
+    expect(fs.readFileSync(file, "utf8")).toBe(body);
+  });
+
+  it.each(["", "{broken", "null", "[]", "{}", '{"manager":null}', '{"manager":""}'])(
+    "does not replace an invalid manifest: %s",
+    (body) => {
+      const bin = managedBinary();
+      const file = ompManagerManifestPath(bin);
+      fs.writeFileSync(file, body);
+      expect(() => stampOmpManager(bin, { pinned: false })).toThrow();
+      expect(fs.readFileSync(file, "utf8")).toBe(body);
+    },
+  );
+
+  it("preserves an unreadable manifest and surfaces the read error", () => {
+    const bin = managedBinary();
+    const file = ompManagerManifestPath(bin);
+    const body = '{"manager":"other"}';
+    fs.writeFileSync(file, body);
+    const denied = Object.assign(new Error("permission denied"), { code: "EACCES" });
+    vi.spyOn(fs, "readFileSync").mockImplementationOnce(() => { throw denied; });
+    expect(() => stampOmpManager(bin, { pinned: false })).toThrow(denied);
+    expect(fs.readFileSync(file, "utf8")).toBe(body);
+  });
+
+  it("never overwrites a manifest created between reading and stamping", () => {
+    const bin = managedBinary();
+    const file = ompManagerManifestPath(bin);
+    const body = '{"manager":"other"}';
+    vi.spyOn(fs, "readFileSync").mockImplementationOnce(() => {
+      fs.writeFileSync(file, body);
+      throw Object.assign(new Error("not found"), { code: "ENOENT" });
+    });
+    expect(() => stampOmpManager(bin, { pinned: false })).toThrow(/EEXIST/);
+    expect(fs.readFileSync(file, "utf8")).toBe(body);
+  });
+
+  it("never writes under an OMP_UI_OMP_PATH pin or without a binary", () => {
+    const bin = managedBinary();
+    expect(stampOmpManager(bin, { pinned: true })).toBe(false);
+    expect(fs.existsSync(ompManagerManifestPath(bin))).toBe(false);
+    const missing = path.join(mkTmp(), "bin", "omp");
+    expect(stampOmpManager(missing, { pinned: false })).toBe(false);
+    expect(fs.existsSync(ompManagerManifestPath(missing))).toBe(false);
   });
 });
 

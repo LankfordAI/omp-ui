@@ -55,11 +55,13 @@ interface MadeUpdater {
   updater: OmpUpdater;
   dismissed: { value: string | null };
   onApplied: Mock<(version: string) => void>;
+  stamped: string[];
 }
 
 function makeUpdater(overrides: Partial<OmpUpdaterDeps> = {}): MadeUpdater {
   const dismissed = { value: null as string | null };
   const onApplied = vi.fn<(version: string) => void>();
+  const stamped: string[] = [];
   const updater = new OmpUpdater({
     getDismissed: () => dismissed.value,
     setDismissed: (v) => {
@@ -72,13 +74,37 @@ function makeUpdater(overrides: Partial<OmpUpdaterDeps> = {}): MadeUpdater {
     autoUpgrade: () => true,
     fetchImpl: registryFetch({ version: "19.1.0" }),
     runner: async () => "omp/19.0.0",
+    targetPath: "/managed/bin/omp",
+    stampManager: (p) => stamped.push(p),
     ...overrides,
   });
-  return { updater, dismissed, onApplied };
+  return { updater, dismissed, onApplied, stamped };
 }
 
 beforeEach(() => {
   sent.length = 0;
+});
+
+describe("OmpUpdater install ownership (issue #1062)", () => {
+  it("stamps the managed binary on check and after an install", async () => {
+    const target = path.join(mkTmp(), "bin", "omp");
+    const { updater, stamped } = makeUpdater({
+      installPath: null,
+      targetPath: target,
+      downloadFetchImpl: streamFetch([Buffer.from("#!/bin/sh\n")]),
+    });
+    await updater.checkNow(false);
+    expect(stamped).toEqual([target]);
+    await updater.download();
+    expect(updater.state.status).toBe("installed");
+    expect(stamped).toEqual([target, target]);
+  });
+
+  it("never stamps while OMP_UI_OMP_PATH pins an external binary", async () => {
+    const { updater, stamped } = makeUpdater({ installPath: null, pinActive: () => true });
+    await updater.checkNow(true);
+    expect(stamped).toEqual([]);
+  });
 });
 
 describe("OmpUpdater.checkNow", () => {

@@ -11,6 +11,9 @@ import type { SessionReference } from "@omp-ui/core/types";
 import { FLEET_WAKE_CUSTOM_TYPE, parseFleetWakeCard, type FleetWakeCard } from "@omp-ui/core/fleet-wake";
 import { toolResultReplies } from "@omp-ui/core/out-replies";
 import { parseBashMinimized, type BashMinimized } from "@omp-ui/core/bash-minimized";
+import { parseBashTruncation, type BashTruncation } from "@omp-ui/core/bash-truncation";
+import { parseBashToolTruncation, type BashToolTruncation } from "@omp-ui/core/bash-tool-truncation";
+import { parseWebSearchFailures, type WebSearchProviderFailure } from "@omp-ui/core/web-search-failures";
 
 export interface AdvisorNote {
   note: string;
@@ -112,6 +115,10 @@ export interface ToolItem {
   /** bash result `details.meta.minimized` (omp 18.16.0): provenance for output the minimizer rewrote;
    *  absent on older sessions and whenever the payload passed through untouched. */
   minimized?: BashMinimized;
+  /** Tool-result middle elision and column cuts; recovery notices remain in the output text. */
+  toolTruncation?: BashToolTruncation;
+  /** web_search provider diagnostics decorate the result without changing its verdict. */
+  providerFailures?: WebSearchProviderFailure[];
   notes?: AdvisorNote[];
   /** omp-ui vault host tool result details (issue #767): the card and the rail's Vault notes read it. */
   vault?: VaultToolDetails;
@@ -214,6 +221,10 @@ export interface ShellItem {
   /** Absent on a cancelled run — omp omits exitCode there. */
   exitCode?: number;
   truncated?: boolean;
+  /** omp's own output cuts; absent on older or untruncated responses. */
+  truncation?: BashTruncation;
+  /** UTF-16 code units dropped by omp-ui's separate display cap, never upstream bytes. */
+  localDroppedChars?: number;
   /** omp's failure text when status === "failed". */
   error?: string;
   /** False only from a recorded excludeFromContext entry (omp-ui never sends it). */
@@ -278,6 +289,23 @@ export function commandItem(name: string, args: string): CommandItem {
 
 export function shellItem(command: string): ShellItem {
   return { kind: "shell", id: `shell-${++counter}`, command, status: "running", timestamp: Date.now() };
+}
+/** Keep omp's head/tail preview intact; disclose only our separate legacy display cut. */
+export function shellOutputFields(result: unknown): Pick<ShellItem, "output" | "truncated" | "truncation" | "localDroppedChars"> {
+  const output = strField(result, "output") ?? "";
+  const truncated = boolField(result, "truncated") === true;
+  const truncation = parseBashTruncation(result);
+  const localCap = 64 * 1024;
+  if (truncated || truncation !== undefined || output.length <= localCap) {
+    return { output, truncated, ...(truncation ? { truncation } : {}) };
+  }
+  // String.length counts UTF-16 code units. Avoid leaving half of a surrogate pair.
+  const last = output.charCodeAt(localCap - 1);
+  const next = output.charCodeAt(localCap);
+  const end = last >= 0xd800 && last <= 0xdbff && next >= 0xdc00 && next <= 0xdfff
+    ? localCap - 1
+    : localCap;
+  return { output: output.slice(0, end), truncated, localDroppedChars: output.length - end };
 }
 
 /**
@@ -588,6 +616,16 @@ function repliesField(details: unknown): Pick<ToolItem, "replies"> {
 function minimizedField(details: unknown): { minimized?: BashMinimized } {
   const m = parseBashMinimized(details);
   return m ? { minimized: m } : {};
+}
+
+function toolTruncationField(details: unknown): { toolTruncation?: BashToolTruncation } {
+  const toolTruncation = parseBashToolTruncation(details);
+  return toolTruncation ? { toolTruncation } : {};
+}
+
+function providerFailuresField(name: string | undefined, details: unknown): Pick<ToolItem, "providerFailures"> {
+  const providerFailures = name === "web_search" ? parseWebSearchFailures(details) : undefined;
+  return providerFailures ? { providerFailures } : {};
 }
 
 /** Port of omp's isAdvisorCard — render from details.notes, never the XML. */
@@ -1000,14 +1038,16 @@ export function reduceEvent(items: RenderItem[], event: unknown): RenderItem[] {
       // A `> out://` write streams its reply on an update whose text is still
       // empty (issue #969), so a reply alone is progress worth keeping.
       const replies = repliesField(partial?.details);
+      const toolTruncation = toolTruncationField(partial?.details);
       // Status stays `running` — an update is progress, never completion.
-      if (!partialText && replies.replies === undefined) return items;
+      if (!partialText && replies.replies === undefined && toolTruncation.toolTruncation === undefined) return items;
       return replaceAt(items, idx, {
         ...item,
         ...(partialText ? { partialText } : {}),
         ...taskFilesField(partial?.details),
         ...replies,
         ...minimizedField(partial?.details),
+        ...toolTruncation,
       });
     }
 
@@ -1017,6 +1057,10 @@ export function reduceEvent(items: RenderItem[], event: unknown): RenderItem[] {
       const details = result && isObj(result.details) ? result.details : null;
       const diffText = details && typeof details.diff === "string" ? details.diff : undefined;
       const notes = result ? notesFromDetails(result.details) : [];
+      const idx = toolCallId
+        ? items.findIndex((i) => i.kind === "tool" && i.toolCallId === toolCallId)
+        : -1;
+      const item = idx === -1 ? null : kindAt(items, idx, "tool");
       const patch = {
         status: (event.isError === true ? "error" : "done") as ToolItem["status"],
         resultText: result ? textFromContent(result.content) : undefined,
@@ -1028,10 +1072,9 @@ export function reduceEvent(items: RenderItem[], event: unknown): RenderItem[] {
         ...taskFilesField(details),
         ...repliesField(details),
         ...minimizedField(details),
+        toolTruncation: toolTruncationField(details).toolTruncation,
+        ...providerFailuresField(item?.name ?? str(event.toolName), details),
       };
-      const idx = toolCallId
-        ? items.findIndex((i) => i.kind === "tool" && i.toolCallId === toolCallId)
-        : -1;
       if (idx === -1) {
         const id = toolCallId ?? `tool-${++counter}`;
         return [
@@ -1046,7 +1089,6 @@ export function reduceEvent(items: RenderItem[], event: unknown): RenderItem[] {
           },
         ];
       }
-      const item = kindAt(items, idx, "tool");
       if (item === null) return items;
       return replaceAt(items, idx, { ...item, ...patch });
     }
@@ -1237,9 +1279,8 @@ export function historyToItems(messages: unknown[]): RenderItem[] {
         id: `shell-${++counter}`,
         command: str(raw.command) ?? "",
         status: raw.cancelled === true ? "cancelled" : "done",
-        output: str(raw.output) ?? "",
+        ...shellOutputFields(raw),
         exitCode: numField(raw, "exitCode"),
-        truncated: raw.truncated === true,
         shared: raw.excludeFromContext !== true,
         timestamp: numField(raw, "timestamp"),
       });
@@ -1266,6 +1307,8 @@ export function historyToItems(messages: unknown[]): RenderItem[] {
         ...taskFilesField(details),
         ...repliesField(details),
         ...minimizedField(details),
+        ...toolTruncationField(details),
+        ...providerFailuresField(item.name, details),
       };
     }
   }

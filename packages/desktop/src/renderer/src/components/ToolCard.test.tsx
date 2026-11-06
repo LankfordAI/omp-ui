@@ -4,6 +4,8 @@ vi.mock("../backend", () => ({ backend: { setWindowChrome: vi.fn(async () => {})
 import { act } from "react";
 import { createRoot, type Root } from "react-dom/client";
 import type { ToolItem } from "../lib/transcript";
+import { applyLocale, resolveLocale } from "../lib/i18n";
+import { formatBytes } from "../lib/format";
 // The spread keeps the real cap constants, resolveLang, and the incremental
 // eligibility predicate; both hooks are stubbed so no wasm/dynamic grammar
 // loads run under jsdom. The incremental stub mirrors the real hook's
@@ -622,5 +624,196 @@ describe("ToolCard bash minimizer provenance", () => {
     );
     expect(el.textContent).not.toContain("Minimized");
     act(() => root.unmount());
+  });
+});
+
+describe("ToolCard tool-result truncation", () => {
+  it("keeps a truncation-only update accessible after collapsing and expanding", () => {
+    const { el, root } = renderCard(tool({
+      name: "bash", status: "running", args: undefined,
+      toolTruncation: { truncation: { direction: "middle", truncatedBy: "middle", elidedLines: 40 } },
+    }));
+    const header = el.querySelector("button")!;
+    expect(el.textContent).toContain("Middle elided: 40 lines");
+    act(() => header.click());
+    expect(el.textContent).not.toContain("Middle elided: 40 lines");
+    act(() => header.click());
+    expect(el.textContent).toContain("Middle elided: 40 lines");
+    act(() => root.unmount());
+  });
+
+  it("shows middle elision and column limits without removing recovery instructions", () => {
+    const notice = "[Some lines truncated. Use artifact://a1:raw:17 to recover.]";
+    const { el, root } = renderCard(tool({
+      name: "bash",
+      resultText: notice,
+      minimized: { filter: "git", inputBytes: 123_290, outputBytes: 3_277 },
+      toolTruncation: {
+        truncation: { direction: "middle", truncatedBy: "middle", elidedLines: 4120, elidedBytes: 319488 },
+        columnTruncated: { maxColumn: 2000, unit: "bytes" },
+      },
+    }));
+    expect(el.textContent).toContain(`Middle elided: 4,120 lines (${formatBytes(319488)})`);
+    expect(el.textContent).toContain("Column cut: maxColumn 2,000 · UTF-8 bytes per line");
+    expect(el.textContent).toContain("Minimized: git 120.4KB → 3.2KB");
+    expect(el.textContent).toContain(notice);
+    act(() => root.unmount());
+  });
+
+  it.each([
+    ["head", "Tail elided"],
+    ["tail", "Head elided"],
+  ] as const)("labels the omitted side when omp retained the %s", (direction, label) => {
+    const { el, root } = renderCard(tool({
+      name: "bash",
+      resultText: "preview",
+      toolTruncation: { truncation: { direction, truncatedBy: "bytes", elidedBytes: 2048 } },
+    }));
+    expect(el.textContent).toContain(`${label}: ${formatBytes(2048)}`);
+    expect(el.textContent).not.toContain("Column cut");
+    act(() => root.unmount());
+  });
+
+  it.each([
+    [undefined, "Column cut: maxColumn 80"],
+    ["chars", "Column cut: maxColumn 80 · UTF-16 characters per line"],
+  ] as const)("does not invent a byte unit for %s column metadata", (unit, expected) => {
+    const { el, root } = renderCard(tool({
+      name: "bash",
+      resultText: "preview",
+      toolTruncation: { columnTruncated: { maxColumn: 80, ...(unit ? { unit } : {}) } },
+    }));
+    expect(el.textContent).toContain(expected);
+    expect(el.textContent).not.toContain("UTF-8");
+    expect(el.textContent).not.toContain("elided");
+    act(() => root.unmount());
+  });
+  it("renders truncation facts in Korean", () => {
+    applyLocale(resolveLocale("ko"));
+    try {
+      const { el, root } = renderCard(tool({
+        name: "bash",
+        resultText: "preview",
+        toolTruncation: {
+          truncation: { direction: "middle", truncatedBy: "middle", elidedLines: 4120 },
+          columnTruncated: { maxColumn: 80, unit: "bytes" },
+        },
+      }));
+      expect(el.textContent).toContain("중간 생략: 4,120줄");
+      expect(el.textContent).toContain("열 잘림: maxColumn 80 · 줄당 UTF-8 바이트");
+      act(() => root.unmount());
+    } finally {
+      applyLocale(resolveLocale("en"));
+    }
+  });
+
+
+  it("adds no truncation facts without metadata", () => {
+    const { el, root } = renderCard(tool({ name: "bash", resultText: "original output" }));
+    expect(el.textContent).not.toContain("elided");
+    expect(el.textContent).not.toContain("Column cut");
+    act(() => root.unmount());
+  });
+});
+
+describe("ToolCard web-search provider failures", () => {
+  it("keeps fallback failures visible with a successful check and collapsed body/output", () => {
+    const reason = `request failed: ${"x".repeat(200)}`;
+    const { el, root } = renderCard(tool({
+      name: "web_search",
+      resultText: Array.from({ length: 13 }, (_, i) => `result ${i}`).join("\n"),
+      providerFailures: [{ provider: "exa", label: "Exa", reason, status: 429 }],
+    }));
+    const expected = `Exa — ${reason} (status 429)`;
+    const header = el.querySelector("button")!;
+    expect(header.querySelector("svg.text-signal")).not.toBeNull();
+    expect(header.textContent).not.toContain("error");
+    expect(el.querySelector("pre")).toBeNull();
+    expect(el.textContent).toContain(expected);
+    const chip = [...el.querySelectorAll("span.text-rose")].find((span) => span.textContent === expected)!;
+    expect(chip).toBeDefined();
+    expect(chip.classList.contains("max-w-full")).toBe(true);
+    expect(chip.classList.contains("whitespace-normal")).toBe(true);
+    expect(chip.firstElementChild?.classList.contains("[overflow-wrap:anywhere]")).toBe(true);
+
+    act(() => header.click());
+    expect(el.textContent).toContain("show output · 13 lines");
+    expect(el.querySelector("pre")).toBeNull();
+    expect(el.textContent).toContain(expected);
+    act(() => header.click());
+    expect(el.textContent).not.toContain("show output");
+    expect(el.textContent).toContain(expected);
+    act(() => root.unmount());
+  });
+
+  it("preserves the all-failed error verdict and shows each provider's reason", () => {
+    const { el, root } = renderCard(tool({
+      name: "web_search",
+      status: "error",
+      resultText: "All providers failed",
+      providerFailures: [
+        { provider: "exa", label: "Exa", reason: "rate limited", status: 429 },
+        { provider: "brave", label: "Brave", reason: "credential missing" },
+      ],
+    }));
+    const header = el.querySelector("button")!;
+    expect(header.textContent).toContain("error");
+    expect(header.querySelector("svg.text-signal")).toBeNull();
+    expect(el.textContent).toContain("Exa — rate limited (status 429)");
+    expect(el.textContent).toContain("Brave — credential missing");
+    expect(el.querySelector("pre.text-rose")?.textContent).toBe("All providers failed");
+    act(() => root.unmount());
+  });
+
+  it.each([
+    [undefined, "Exa — empty response"],
+    [204, "Exa — empty response (status 204)"],
+  ] as const)("renders a failure with status %s without reclassifying success", (status, expected) => {
+    const { el, root } = renderCard(tool({
+      name: "web_search",
+      providerFailures: [{ provider: "exa", label: "Exa", reason: "empty response", ...(status === undefined ? {} : { status }) }],
+    }));
+    expect(el.textContent).toContain(expected);
+    expect(el.querySelector("button svg.text-signal")).not.toBeNull();
+    if (status === undefined) expect(el.textContent).not.toContain("(status");
+    act(() => root.unmount());
+  });
+
+  it.each([undefined, []])("leaves legacy searches without failure metadata unchanged (%s)", (providerFailures) => {
+    const { el, root } = renderCard(tool({ name: "web_search", resultText: "Search results", providerFailures }));
+    expect(el.querySelector("span.text-rose")).toBeNull();
+    expect(el.querySelector("button svg.text-signal")).not.toBeNull();
+    expect(el.textContent).toContain("Search results");
+    act(() => root.unmount());
+  });
+
+  it("does not decorate other tools with provider failures", () => {
+    const { el, root } = renderCard(tool({
+      name: "bash",
+      providerFailures: [{ provider: "exa", label: "Exa", reason: "unavailable" }],
+    }));
+    expect(el.textContent).not.toContain("Exa");
+    expect(el.querySelector("span.text-rose")).toBeNull();
+    act(() => root.unmount());
+  });
+
+  it("localizes the status suffix in Korean without translating provider reasons", () => {
+    applyLocale(resolveLocale("ko"));
+    try {
+      const { el, root } = renderCard(tool({
+        name: "web_search",
+        providerFailures: [
+          { provider: "exa", label: "Exa", reason: "empty response", status: 204 },
+          { provider: "brave", label: "Brave", reason: "credential missing" },
+        ],
+      }));
+      expect(el.textContent).toContain("Exa — empty response (상태 204)");
+      expect(el.textContent).toContain("Brave — credential missing");
+      expect(el.textContent).not.toContain("(status");
+      expect(el.querySelector("button svg.text-signal")).not.toBeNull();
+      act(() => root.unmount());
+    } finally {
+      applyLocale(resolveLocale("en"));
+    }
   });
 });

@@ -119,7 +119,7 @@ export const TOOL_ENABLED_KEYS: readonly ToolGate[] = [
   { tool: "tts", key: "speechgen.enabled" },
 ];
 
-/** Every `skills.*` key omp 18.4.0 publishes, in omp's schema order. */
+/** The `skills.*` keys through omp 18.17, in omp's schema order. */
 export const SKILLS_SETTING_KEYS: readonly string[] = [
   "skills.registryUrl",
   "skills.enabled",
@@ -133,6 +133,7 @@ export const SKILLS_SETTING_KEYS: readonly string[] = [
   "skills.enableAgentsProject",
   "skills.customDirectories",
   "skills.ignoredSkills",
+  "skills.manualSkills",
   "skills.includeSkills",
 ];
 

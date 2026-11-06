@@ -924,6 +924,68 @@ describe("FleetServer.updateMember (fleet remote version update)", () => {
     expect(onOmpApplied).toHaveBeenCalledWith("18.13.1");
   });
 
+  it.each(["foreign", "invalid", "unreadable"] as const)(
+    "reports the installed binary and refreshes it despite a %s manifest",
+    async (manifestKind) => {
+      openFull(A.instanceId);
+      const targetPath = path.join(base, "bin", "omp");
+      const manifestPath = path.join(base, "manager.json");
+      const manifest = manifestKind === "foreign" ? '{"manager":"other"}\n' : "{broken";
+      fs.mkdirSync(path.dirname(targetPath), { recursive: true });
+      fs.writeFileSync(targetPath, "previous binary");
+      if (manifestKind === "unreadable") {
+        fs.mkdirSync(manifestPath);
+        fs.writeFileSync(path.join(manifestPath, "keep"), "untouched");
+      } else {
+        fs.writeFileSync(manifestPath, manifest);
+      }
+      updateStubs.managedOmpPath.mockReturnValue(targetPath);
+      updateStubs.readInstalledOmpVersion.mockResolvedValue("18.12.0");
+      updateStubs.downloadOmp.mockImplementation(async (opts: { targetPath: string; shouldCommit?: () => void }) => {
+        opts.shouldCommit?.();
+        fs.writeFileSync(opts.targetPath, "updated binary");
+      });
+      const s = server();
+      const ack = await s.updateMember(updateReq({ action: "stage", version: "18.13.1" }));
+      if (ack.status !== "accepted" || !("jobId" in ack)) throw new Error(JSON.stringify(ack));
+      const poll = await s.updatePoll({ requester: A, jobId: ack.jobId, waitMs: 5_000 });
+      expect(poll).toMatchObject({
+        status: "accepted",
+        state: "succeeded",
+        detail: expect.stringContaining(`omp 18.12.0 → 18.13.1 at ${targetPath}; warning: could not write manager.json: `),
+      });
+      if (poll.status !== "accepted") throw new Error(JSON.stringify(poll));
+      if (manifestKind === "foreign") expect(poll.detail).toContain("ownership conflict");
+      expect(fs.readFileSync(targetPath, "utf8")).toBe("updated binary");
+      expect(onOmpApplied).toHaveBeenCalledExactlyOnceWith("18.13.1");
+      expect(s.auditEntries().at(-1)).toMatchObject({
+        action: "update",
+        accepted: true,
+        detail: `omp succeeded: ${poll.detail}`,
+      });
+      if (manifestKind === "unreadable") {
+        expect(fs.readdirSync(manifestPath)).toEqual(["keep"]);
+        expect(fs.readFileSync(path.join(manifestPath, "keep"), "utf8")).toBe("untouched");
+      } else {
+        expect(fs.readFileSync(manifestPath, "utf8")).toBe(manifest);
+      }
+    },
+  );
+
+  it("still fails an omp download without refreshing the installed binary", async () => {
+    openFull(A.instanceId);
+    updateStubs.downloadOmp.mockRejectedValue(new Error("download rejected"));
+    const s = server();
+    const ack = await s.updateMember(updateReq({ action: "stage", version: "18.13.1" }));
+    if (ack.status !== "accepted" || !("jobId" in ack)) throw new Error(JSON.stringify(ack));
+    expect(await s.updatePoll({ requester: A, jobId: ack.jobId, waitMs: 5_000 })).toMatchObject({
+      status: "accepted",
+      state: "failed",
+      detail: "download rejected",
+    });
+    expect(onOmpApplied).not.toHaveBeenCalled();
+  });
+
   it("answers app/check from the updater state without any network call", async () => {
     openFull(A.instanceId);
     appState = appStateOf({ status: "downloaded", latestVersion: "0.32.0", installOnQuit: true, format: "rpm" });

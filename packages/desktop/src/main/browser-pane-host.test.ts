@@ -317,43 +317,141 @@ describe("BrowserPaneHost sink registry (U2)", () => {
     });
   });
 
-  it("re-asserts its own metrics 250 ms after an agent viewport override settles", async () => {
+  it.each(["Emulation.setDeviceMetricsOverride", "Emulation.clearDeviceMetricsOverride"])(
+    "starts restoring immediately after %s and waits for completion before the reply deadline",
+    async (method) => {
+      vi.useFakeTimers();
+      const h = harness();
+      await h.host.ensureEndpoint("t1");
+      await h.host.ensure("t1");
+      await flush();
+      const pane = h.panes[0]!.pane;
+      const setContentSize = vi.mocked(pane.setContentSize);
+      const sendCommand = vi.mocked(pane.debugger.sendCommand);
+      const normal = sendCommand.getMockImplementation()!;
+      let resolveOverride!: (value: unknown) => void;
+      const override = new Promise<unknown>((resolve) => { resolveOverride = resolve; });
+      sendCommand.mockImplementation((command, params, sessionId) => command === "Emulation.setDeviceMetricsOverride"
+        ? override : normal(command, params, sessionId));
+      setContentSize.mockClear();
+      sendCommand.mockClear();
+      const timersBefore = vi.getTimerCount();
+      const replied = vi.fn();
+      const pending = Promise.resolve(h.listeners[0]!.deps.onCommandSettled(method, {})).then(replied);
+
+      // No timer or microtask has run: the host already issued clear-then-set.
+      expect(setContentSize).toHaveBeenCalledExactlyOnceWith(1280, 800);
+      expect(sendCommand.mock.calls).toEqual([
+        ["Emulation.clearDeviceMetricsOverride"],
+        ["Emulation.setDeviceMetricsOverride", { width: 1280, height: 800, deviceScaleFactor: 1, mobile: false }],
+      ]);
+      vi.advanceTimersByTime(999);
+      await flush();
+      expect(replied).not.toHaveBeenCalled();
+
+      resolveOverride({});
+      await pending;
+      expect(replied).toHaveBeenCalledOnce();
+      expect(vi.getTimerCount()).toBe(timersBefore);
+      h.host.disposeAll();
+    },
+  );
+
+  it.each(["Emulation.setDeviceMetricsOverride", "Emulation.clearDeviceMetricsOverride"])(
+    "releases the reply after 1000 ms when restoring after %s never resolves",
+    async (method) => {
+      vi.useFakeTimers();
+      const h = harness();
+      await h.host.ensureEndpoint("t1");
+      await h.host.ensure("t1");
+      await flush();
+      const pane = h.panes[0]!.pane;
+      const sendCommand = vi.mocked(pane.debugger.sendCommand);
+      const normal = sendCommand.getMockImplementation()!;
+      const override = new Promise<unknown>(() => {});
+      sendCommand.mockImplementation((command, params, sessionId) => command === "Emulation.setDeviceMetricsOverride"
+        ? override : normal(command, params, sessionId));
+      sendCommand.mockClear();
+      const timersBefore = vi.getTimerCount();
+      const replied = vi.fn();
+      const pending = Promise.resolve(h.listeners[0]!.deps.onCommandSettled(method, {})).then(replied);
+      expect(sendCommand).toHaveBeenLastCalledWith("Emulation.setDeviceMetricsOverride", {
+        width: 1280, height: 800, deviceScaleFactor: 1, mobile: false,
+      });
+      vi.advanceTimersByTime(999);
+      await flush();
+      expect(replied).not.toHaveBeenCalled();
+      vi.advanceTimersByTime(1);
+      await pending;
+      expect(replied).toHaveBeenCalledOnce();
+      expect(vi.getTimerCount()).toBe(timersBefore);
+      h.host.disposeAll();
+    },
+  );
+
+  it.each(["Emulation.setDeviceMetricsOverride", "Emulation.clearDeviceMetricsOverride"])(
+    "keeps the delayed fallback after pre-commit %s when commit arrives before the timer",
+    async (method) => {
+      vi.useFakeTimers();
+      const h = harness({ autoCommit: false });
+      await h.host.ensureEndpoint("t1");
+      await h.host.ensure("t1");
+      await flush();
+      const fake = h.panes[0]!;
+      const setContentSize = vi.mocked(fake.pane.setContentSize);
+      const sendCommand = vi.mocked(fake.pane.debugger.sendCommand);
+      setContentSize.mockClear();
+      sendCommand.mockClear();
+      await h.listeners[0]!.deps.onCommandSettled(method, {});
+      expect(setContentSize).not.toHaveBeenCalled();
+      expect(sendCommand).not.toHaveBeenCalled();
+
+      vi.advanceTimersByTime(100);
+      fake.emit("did-navigate");
+      await flush();
+      expect(setContentSize).toHaveBeenCalledExactlyOnceWith(1280, 800);
+      expect(sendCommand).toHaveBeenLastCalledWith("Emulation.setDeviceMetricsOverride", {
+        width: 1280, height: 800, deviceScaleFactor: 1, mobile: false,
+      });
+      setContentSize.mockClear();
+      sendCommand.mockClear();
+      vi.advanceTimersByTime(149);
+      expect(setContentSize).not.toHaveBeenCalled();
+      expect(sendCommand).not.toHaveBeenCalled();
+      vi.advanceTimersByTime(1);
+      await flush();
+      expect(setContentSize).toHaveBeenCalledExactlyOnceWith(1280, 800);
+      expect(sendCommand.mock.calls).toEqual([
+        ["Emulation.clearDeviceMetricsOverride"],
+        ["Emulation.setDeviceMetricsOverride", { width: 1280, height: 800, deviceScaleFactor: 1, mobile: false }],
+      ]);
+      h.host.disposeAll();
+    },
+  );
+
+  it("sizes the pre-commit fallback without sending an override until commit", async () => {
     vi.useFakeTimers();
-    const h = harness();
+    const h = harness({ autoCommit: false });
     await h.host.ensureEndpoint("t1");
     await h.host.ensure("t1");
-    const pane = h.panes[0]!.pane;
-    const setContentSize = vi.mocked(pane.setContentSize);
-    const sendCommand = vi.mocked(pane.debugger.sendCommand);
-    const sizes = setContentSize.mock.calls.length;
-    const overrides = sendCommand.mock.calls.length;
-    const deps = h.listeners[0]!.deps;
-    // The send-time hook derives agent state only; it no longer re-pins.
-    deps.onCommand("Emulation.clearDeviceMetricsOverride");
+    await flush();
+    const fake = h.panes[0]!;
+    const setContentSize = vi.mocked(fake.pane.setContentSize);
+    const sendCommand = vi.mocked(fake.pane.debugger.sendCommand);
+    setContentSize.mockClear();
+    sendCommand.mockClear();
+    await h.listeners[0]!.deps.onCommandSettled("Emulation.setDeviceMetricsOverride", {});
     vi.advanceTimersByTime(250);
-    expect(setContentSize).toHaveBeenCalledTimes(sizes);
-    expect(sendCommand).toHaveBeenCalledTimes(overrides);
-
-    deps.onCommandSettled("Emulation.clearDeviceMetricsOverride", {});
-    vi.advanceTimersByTime(249);
-    expect(setContentSize).toHaveBeenCalledTimes(sizes);
-    vi.advanceTimersByTime(1);
-    expect(setContentSize).toHaveBeenCalledTimes(sizes + 1);
-    expect(setContentSize).toHaveBeenLastCalledWith(1280, 800);
-    // Clear, then set: the clear is what makes Chromium accept the otherwise-identical override again.
-    expect(sendCommand).toHaveBeenCalledTimes(overrides + 2);
-    expect(sendCommand).toHaveBeenNthCalledWith(overrides + 1, "Emulation.clearDeviceMetricsOverride");
-    expect(sendCommand).toHaveBeenLastCalledWith("Emulation.setDeviceMetricsOverride", {
-      width: 1280,
-      height: 800,
-      deviceScaleFactor: 1,
-      mobile: false,
-    });
-    const clearOrder = sendCommand.mock.invocationCallOrder[overrides]!;
-    const setOrder = sendCommand.mock.invocationCallOrder[overrides + 1]!;
-    expect(clearOrder).toBeLessThan(setOrder);
-    // The bridge override command itself never marks the agent as acting.
-    expect(h.states().every((s) => s.agent !== "acting")).toBe(true);
+    await flush();
+    expect(setContentSize).toHaveBeenCalledExactlyOnceWith(1280, 800);
+    expect(sendCommand).not.toHaveBeenCalled();
+    fake.emit("did-navigate");
+    await flush();
+    expect(sendCommand.mock.calls).toEqual([
+      ["Emulation.clearDeviceMetricsOverride"],
+      ["Emulation.setDeviceMetricsOverride", { width: 1280, height: 800, deviceScaleFactor: 1, mobile: false }],
+    ]);
+    h.host.disposeAll();
   });
 
   it("re-pins after an agent screenshot that touches emulation, not after a plain one", async () => {

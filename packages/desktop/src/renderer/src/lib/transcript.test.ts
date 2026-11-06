@@ -28,6 +28,61 @@ function tool(items: RenderItem[], toolCallId: string): ToolItem | undefined {
   return items.find((i): i is ToolItem => i.kind === "tool" && i.toolCallId === toolCallId);
 }
 
+describe("web_search provider failures", () => {
+  const failures = [
+    { provider: "exa", label: "Exa", reason: "No sources", status: 204 },
+    { provider: "brave", label: "Brave", reason: "Unavailable" },
+  ];
+
+  function project(details: unknown, isError: boolean, name = "web_search") {
+    const content = [{ type: "text", text: isError ? "All providers failed" : "Fallback sources" }];
+    const live = reduceEvent([], {
+      type: "tool_execution_end", toolCallId: "search", toolName: name, isError,
+      result: { content, details },
+    });
+    const history = historyToItems([
+      { role: "assistant", content: [{ type: "toolCall", id: "search", name, arguments: {} }] },
+      { role: "toolResult", toolCallId: "search", toolName: name, isError, content, details },
+    ]);
+    return [tool(live, "search")!, tool(history, "search")!];
+  }
+
+  it.each([false, true])("preserves verdict with diagnostics, isError=%s", (isError) => {
+    for (const item of project({ failures }, isError)) {
+      expect(item).toMatchObject({
+        providerFailures: failures,
+        status: isError ? "error" : "done",
+        resultText: isError ? "All providers failed" : "Fallback sources",
+      });
+    }
+  });
+
+  it("uses the matched search card when completion omits the tool name", () => {
+    const started = reduceEvent([], { type: "tool_execution_start", toolCallId: "search", toolName: "web_search" });
+    const ended = reduceEvent(started, {
+      type: "tool_execution_end", toolCallId: "search",
+      result: { content: [{ type: "text", text: "Fallback sources" }], details: { failures } },
+    });
+    expect(tool(ended, "search")).toMatchObject({ name: "web_search", status: "done", providerFailures: failures });
+  });
+
+  it.each([undefined, {}, { failures: "foreign" }, { failures: [null, { reason: "bad" }] }])(
+    "keeps legacy and malformed results undecorated %j", (details) => {
+      for (const item of project(details, false)) {
+        expect(item.status).toBe("done");
+        expect("providerFailures" in item).toBe(false);
+      }
+    },
+  );
+
+  it("does not interpret another tool's failures as search diagnostics", () => {
+    for (const item of project({ failures }, true, "bash")) {
+      expect(item.status).toBe("error");
+      expect("providerFailures" in item).toBe(false);
+    }
+  });
+});
+
 const RESOLVED_DIRECTORY_TEXT =
   "Check @packages/desktop/src/renderer/src\n\n" +
   '<file path="packages/desktop/src/renderer/src">\ncomponents/\nlib/\n</file>';
@@ -1460,6 +1515,75 @@ describe("historyToItems", () => {
     expect(item).toMatchObject({ kind: "shell", shared: false });
   });
 
+  it("preserves raw bash truncation provenance without cutting omp's preview again", () => {
+    const output = `${"head\n".repeat(14 * 1024)}[…100ln elided…]\ntail-marker`;
+    const truncation = {
+      elidedBytes: 123456,
+      elidedLines: 100,
+      columnDroppedBytes: 4096,
+      columnTruncatedLines: 3,
+      columnTruncatedRange: { first: 2, last: 11 },
+      columnMax: 1024,
+    };
+    const row = historyToItems([{ role: "bashExecution", command: "verbose-command", output, truncated: true, ...truncation }])[0];
+    if (row?.kind !== "shell") throw new Error("expected a shell item");
+    expect(row.output).toBe(output);
+    expect(row.truncation).toEqual(truncation);
+    expect(row.localDroppedChars).toBeUndefined();
+  });
+
+  it("restores the actual persisted OutputMeta subset without inventing column counts", () => {
+    const output = "head\n[…100ln elided…]\ntail";
+    const row = historyToItems([{
+      role: "bashExecution", command: "verbose-command", output, truncated: true,
+      meta: {
+        truncation: { direction: "middle", truncatedBy: "middle", elidedBytes: 123456, elidedLines: 100, artifactId: "hidden" },
+        limits: { columnTruncated: { maxColumn: 1024, unit: "bytes", lines: { first: 2, last: 11 }, artifactId: "hidden" } },
+      },
+    }])[0];
+    if (row?.kind !== "shell") throw new Error("expected a shell item");
+    expect(row.truncation).toEqual({
+      elidedBytes: 123456, elidedLines: 100,
+      columnTruncatedRange: { first: 2, last: 11 }, columnMax: 1024,
+    });
+    expect(row.output).toBe(output);
+    expect(row.localDroppedChars).toBeUndefined();
+  });
+
+  it("preserves column-only previews despite truncated false", () => {
+    const output = "x".repeat(70 * 1024);
+    const row = historyToItems([{
+      role: "bashExecution", output, truncated: false,
+      meta: { limits: { columnTruncated: { maxColumn: 1024, unit: "bytes", lines: { first: 2, last: 11 } } } },
+    }])[0];
+    if (row?.kind !== "shell") throw new Error("expected a shell item");
+    expect(row).toMatchObject({ output, truncated: false, truncation: { columnMax: 1024, columnTruncatedRange: { first: 2, last: 11 } } });
+    expect(row.localDroppedChars).toBeUndefined();
+  });
+
+  it.each([
+    {},
+    { elidedBytes: "100", columnTruncatedRange: { first: 2, last: 1 } },
+    { elidedBytes: 0, elidedLines: 0, columnDroppedBytes: 0, columnTruncatedLines: 0, columnMax: 0 },
+    { meta: { truncation: "invalid", limits: { columnTruncated: [] } } },
+  ])("does not invent provenance for old, malformed, or zero-only history", (fields) => {
+    const row = historyToItems([{ role: "bashExecution", output: "old preview", truncated: true, ...fields }])[0];
+    if (row?.kind !== "shell") throw new Error("expected a shell item");
+    expect(row.output).toBe("old preview");
+    expect(row.truncation).toBeUndefined();
+    expect(row.localDroppedChars).toBeUndefined();
+  });
+
+  it("discloses a local history cut in UTF-16 units without splitting a surrogate pair", () => {
+    const output = `${"x".repeat(64 * 1024 - 1)}😀tail`;
+    const row = historyToItems([{ role: "bashExecution", output }])[0];
+    if (row?.kind !== "shell") throw new Error("expected a shell item");
+    expect(row.output).toBe("x".repeat(64 * 1024 - 1));
+    expect(row.localDroppedChars).toBe(6);
+    expect(row.truncation).toBeUndefined();
+    expect(row.truncated).toBe(false);
+  });
+
   it("restores a failed edit's errorKind on backfill (issue #953)", () => {
     const items = historyToItems([
       { role: "assistant", content: [{ type: "toolCall", id: "e2", name: "edit", arguments: {} }] },
@@ -2025,4 +2149,107 @@ describe("task file details (issue #975)", () => {
       taskFiles: [{ index: 0, path: "/tmp/brief.md", sha256: sha }],
     });
   });
+});
+
+describe.each(["update", "end", "history"] as const)("tool truncation %s projection (issue #1065)", (source) => {
+  const truncation = {
+    direction: "middle",
+    truncatedBy: "middle",
+    elidedBytes: 312000,
+    elidedLines: 4120,
+    headRange: { start: 1, end: 10 },
+    tailRange: { start: 4131, end: 4140 },
+  };
+  const columnTruncated = {
+    maxColumn: 768,
+    unit: "bytes",
+    lines: { first: 5, last: 9 },
+    rawByteCap: 4096,
+  };
+  const output = "head\n[Some lines truncated to 768 bytes. Use artifact://result:raw:5-9 to read complete lines.]\ntail";
+
+  function project(details: unknown, text = output): ToolItem | undefined {
+    const content = [{ type: "text", text }];
+    if (source === "history") {
+      return tool(historyToItems([
+        { role: "assistant", content: [{ type: "toolCall", id: "cut", name: "bash", arguments: {} }] },
+        { role: "toolResult", toolCallId: "cut", content, details },
+      ]), "cut");
+    }
+    const started = reduceEvent([], { type: "tool_execution_start", toolCallId: "cut", toolName: "bash" });
+    return tool(reduceEvent(started, source === "update"
+      ? { type: "tool_execution_update", toolCallId: "cut", partialResult: { content, details } }
+      : { type: "tool_execution_end", toolCallId: "cut", result: { content, details } }), "cut");
+  }
+
+  it("keeps both metadata branches and leaves the recovery notice identical", () => {
+    const item = project({
+      meta: {
+        truncation: { ...truncation, artifactId: "not-for-display" },
+        limits: { columnTruncated },
+        minimized: { filter: "grep", inputBytes: 500000, outputBytes: 1000 },
+      },
+    });
+    expect(item?.toolTruncation).toEqual({ truncation, columnTruncated });
+    expect(item?.minimized).toEqual({ filter: "grep", inputBytes: 500000, outputBytes: 1000 });
+    expect(source === "update" ? item?.partialText : item?.resultText).toBe(output);
+    expect(item?.status).toBe(source === "update" ? "running" : "done");
+  });
+
+  it("projects middle elision even when the column metadata is malformed", () => {
+    expect(project({ meta: { truncation, limits: { columnTruncated: { maxColumn: "768" } } } })?.toolTruncation)
+      .toEqual({ truncation });
+  });
+
+  it("projects column limits even when middle-elision metadata is malformed", () => {
+    expect(project({ meta: { truncation: { direction: "sideways" }, limits: { columnTruncated } } })?.toolTruncation)
+      .toEqual({ columnTruncated });
+  });
+
+  it.each([
+    undefined,
+    null,
+    { wallTimeMs: 5 },
+    { meta: {} },
+    { meta: { truncation: [], limits: { columnTruncated: "invalid" } } },
+    { meta: { truncation: { direction: "middle", truncatedBy: "unknown" }, limits: { columnTruncated: { maxColumn: "768" } } } },
+    { truncated: true, outputBytes: 1000, outputLines: 50, columnMax: 768 },
+  ])("omits toolTruncation for absent or deviant details %j", (details) => {
+    const item = project(details);
+    expect(item).toBeDefined();
+    expect(item?.toolTruncation).toBeUndefined();
+    expect(source === "update" ? item?.partialText : item?.resultText).toBe(output);
+  });
+
+  it("retains metadata when output text is empty", () => {
+    const item = project({ meta: { truncation, limits: { columnTruncated } } }, "");
+    expect(item?.toolTruncation).toEqual({ truncation, columnTruncated });
+  });
+});
+
+describe("tool truncation settlement", () => {
+  const preview = { direction: "middle", truncatedBy: "middle", elidedLines: 40 };
+
+  it.each([undefined, { meta: { truncation: { ...preview, elidedLines: 2 } } }])(
+    "replaces preview facts with the final result %j", (details) => {
+      const started = reduceEvent([], { type: "tool_execution_start", toolCallId: "cut", toolName: "bash" });
+      const running = reduceEvent(started, {
+        type: "tool_execution_update", toolCallId: "cut",
+        partialResult: { details: { meta: { truncation: preview } } },
+      });
+      const updated = reduceEvent(running, {
+        type: "tool_execution_update", toolCallId: "cut",
+        partialResult: { content: [{ type: "text", text: "still running" }] },
+      });
+      expect(tool(updated, "cut")?.toolTruncation).toEqual({ truncation: preview });
+      const ended = reduceEvent(updated, {
+        type: "tool_execution_end", toolCallId: "cut",
+        result: { content: [{ type: "text", text: "final output" }], details },
+      });
+      expect(tool(ended, "cut")?.toolTruncation).toEqual(
+        details ? { truncation: { ...preview, elidedLines: 2 } } : undefined,
+      );
+      expect(tool(ended, "cut")?.status).toBe("done");
+    },
+  );
 });

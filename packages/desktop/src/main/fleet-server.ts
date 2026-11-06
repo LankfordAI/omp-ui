@@ -56,6 +56,7 @@ import {
   fetchLatestOmpVersion,
   managedOmpPath,
   readInstalledOmpVersion,
+  stampOmpManager,
 } from "@omp-ui/core";
 import { passwordSessionCredential, tokenMatches, verifyRemotePassword } from "@omp-ui/server";
 import { FleetDetachedExecs } from "./fleet-detached-exec";
@@ -451,7 +452,15 @@ export class FleetServer {
           shouldCommit: ctx.shouldCommit,
           onProgress: (percent) => ctx.report({ percent, phase: "downloading" }),
         });
-        return { detail: `omp ${from ?? "none"} → ${version} at ${targetPath}` };
+        // The binary is already installed. A manifest failure must not turn
+        // that into a failed install or prevent onOmpApplied from refreshing it.
+        let detail = `omp ${from ?? "none"} → ${version} at ${targetPath}`;
+        try {
+          stampOmpManager(targetPath, { pinned: false });
+        } catch (err) {
+          detail += `; warning: could not write manager.json: ${messageOf(err)}`;
+        }
+        return { detail };
       });
       if (outcome.status === "refused") {
         this.#audit("update", req.requester, gate.rung, false, `omp ${req.action}`, null);

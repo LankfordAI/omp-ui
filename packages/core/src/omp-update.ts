@@ -1,4 +1,5 @@
-import { existsSync } from "node:fs";
+import { existsSync, mkdirSync, readFileSync, writeFileSync } from "node:fs";
+import path from "node:path";
 import { execFile } from "node:child_process";
 import { downloadFileAtomically } from "./download";
 import { defaultFetch, type DownloadFetchLike, type FetchLike } from "./fetch";
@@ -30,6 +31,53 @@ export function ompPinActive(
 ): boolean {
   const pinned = env.OMP_UI_OMP_PATH;
   return pinned !== undefined && exists(pinned);
+}
+
+/** Ownership manifest omp's `canSelfUpdate()` reads two levels above its binary. */
+export const OMP_MANAGER_MANIFEST = { manager: "omp-ui", name: "omp-ui" } as const;
+
+/** `<root>/manager.json` for a binary at `<root>/bin/omp`. */
+export function ompManagerManifestPath(binaryPath: string): string {
+  return path.join(path.dirname(path.dirname(binaryPath)), "manager.json");
+}
+
+/**
+ * Declares omp-ui ownership of the managed install so omp (≥18.16) refuses
+ * both `update.auto` and `omp update` against it (issue #1062). Never writes
+ * under a pin: OMP_UI_OMP_PATH names a directory omp-ui does not own. Only
+ * stamps a root whose binary exists; idempotent for an existing omp-ui
+ * manifest. Foreign, invalid, or unreadable manifests are left untouched and
+ * throw; returns true when ownership is established.
+ */
+export function stampOmpManager(
+  binaryPath: string,
+  opts: { pinned?: boolean; exists?: (p: string) => boolean } = {},
+): boolean {
+  const pinned = opts.pinned ?? ompPinActive();
+  const exists = opts.exists ?? existsSync;
+  if (pinned || !exists(binaryPath)) return false;
+  const file = ompManagerManifestPath(binaryPath);
+  let source: string;
+  try {
+    source = readFileSync(file, "utf8");
+  } catch (err) {
+    if ((err as NodeJS.ErrnoException).code !== "ENOENT") throw err;
+    mkdirSync(path.dirname(file), { recursive: true });
+    // Never overwrite a manifest another owner created after our read.
+    writeFileSync(file, `${JSON.stringify(OMP_MANAGER_MANIFEST)}\n`, { flag: "wx" });
+    return true;
+  }
+  const manifest: unknown = JSON.parse(source);
+  if (
+    manifest === null || typeof manifest !== "object" ||
+    !("manager" in manifest) || typeof manifest.manager !== "string" || manifest.manager.length === 0
+  ) {
+    throw new Error(`invalid omp ownership manifest at ${file}`);
+  }
+  if (manifest.manager !== OMP_MANAGER_MANIFEST.manager) {
+    throw new Error(`omp ownership conflict at ${file}: managed by ${manifest.manager}`);
+  }
+  return true;
 }
 
 /** Extracts `omp/<X.Y.Z>` (the shape of `omp --version`) from output. */

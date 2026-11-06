@@ -131,6 +131,7 @@ export {
   toolResultReplies,
 } from "./out-replies";
 export { parseBashMinimized, type BashMinimized } from "./bash-minimized";
+export { parseBashTruncation, type BashTruncation } from "./bash-truncation";
 export {
   CHAT_DIR_RE,
   chatDirPath,

@@ -13,7 +13,7 @@ import { cn } from "../lib/cn";
 import { copyFallback } from "../lib/clipboard";
 import { formatDuration } from "../lib/duration";
 import { summarizeExchanges, type ExchangeChanges } from "../lib/exchange-changes";
-import { formatCost, shortModelLabel, tokenCount } from "../lib/format";
+import { formatBytes, formatCost, shortModelLabel, tokenCount } from "../lib/format";
 import { splitInterviewDraft } from "../lib/interview-draft";
 import { localeTag, useT, type MessageKey } from "../lib/i18n";
 import { supportsNarration } from "../lib/narration";
@@ -974,6 +974,26 @@ export function ShareLinkRow({ item }: { item: CommandItem }) {
 function ShellRow({ item, tabId }: { item: ShellItem; tabId?: string }) {
   const t = useT();
   const abortShellCommands = useStore((s) => s.abortShellCommands);
+  const provenance = item.truncation;
+  const facts: string[] = [];
+  if (provenance?.elidedLines) {
+    facts.push(t("transcript.shell.elidedLines", { count: provenance.elidedLines }));
+  }
+  if (provenance?.elidedBytes) {
+    facts.push(t("transcript.shell.elidedBytes", { bytes: formatBytes(provenance.elidedBytes) }));
+  }
+  if (provenance?.columnTruncatedLines) {
+    facts.push(t("transcript.shell.columnLines", { count: provenance.columnTruncatedLines }));
+  }
+  if (provenance?.columnMax) {
+    facts.push(t("transcript.shell.columnMax", { count: provenance.columnMax }));
+  }
+  if (provenance?.columnTruncatedRange) {
+    facts.push(t("transcript.shell.columnRange", provenance.columnTruncatedRange));
+  }
+  if (provenance?.columnDroppedBytes) {
+    facts.push(t("transcript.shell.columnBytes", { bytes: formatBytes(provenance.columnDroppedBytes) }));
+  }
   return (
     <div
       className={cn(
@@ -1022,8 +1042,15 @@ function ShellRow({ item, tabId }: { item: ShellItem; tabId?: string }) {
           {item.error}
         </p>
       )}
-      {item.truncated === true && (
+      {facts.length > 0 ? (
+        <p className="mt-1 text-xs tabular-nums text-ink-faint">{facts.join(" · ")}</p>
+      ) : item.truncated === true ? (
         <p className="mt-1 text-xs text-ink-faint">{t("transcript.shell.truncated")}</p>
+      ) : null}
+      {!!item.localDroppedChars && (
+        <p className="mt-1 text-xs tabular-nums text-ink-faint">
+          {t("transcript.shell.localTruncated", { count: item.localDroppedChars })}
+        </p>
       )}
       {item.shared === false && (
         <p className="mt-1 text-xs text-ink-faint">{t("transcript.shell.notShared")}</p>

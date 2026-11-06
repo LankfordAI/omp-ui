@@ -1,6 +1,7 @@
 import * as fs from "node:fs/promises";
 import * as os from "node:os";
 import * as path from "node:path";
+import { Minimatch } from "minimatch";
 import { CAPABILITY_DESCRIPTION_LIMIT } from "./capabilities";
 import {
   CUSTOM_SKILLS_PRIORITY,
@@ -346,6 +347,19 @@ async function skillsAtScope(
   const agentDir = getOmpAgentDir(env);
   const ignoredPatterns = stringsOf(settings, "skills.ignoredSkills");
   const includePatterns = stringsOf(settings, "skills.includeSkills");
+  // omp 18.17 uses Bun.Glob against both raw and collision-qualified names.
+  // Catalog entries keep the raw frontmatter name, including literal ~N.
+  const manualGlobs: Minimatch[] = [];
+  for (const pattern of stringsOf(settings, "skills.manualSkills")) {
+    try {
+      manualGlobs.push(new Minimatch(pattern, { dot: true, nocomment: true }));
+    } catch (error) {
+      console.warn(
+        "[capability-catalog] Ignoring rejected skills.manualSkills pattern; manual visibility may be incomplete",
+        error,
+      );
+    }
+  }
   const customDirectories = stringsOf(settings, "skills.customDirectories").map((dir) =>
     expandTilde(dir, home),
   );
@@ -428,7 +442,12 @@ async function skillsAtScope(
       // A symlink to the loaded winner is the SAME file listed twice; omp
       // skips it silently (its realpath set), and so does the catalog.
       if (winner !== undefined && winner.realPath === realPath) continue;
-      items.push({ ...found, ignored, shadowedBy: isWinner || winner === undefined ? null : winner.label });
+      items.push({
+        ...found,
+        hidden: manualGlobs.some((glob) => glob.match(found.name)) ? true : found.hidden,
+        ignored,
+        shadowedBy: isWinner || winner === undefined ? null : winner.label,
+      });
     }
   }
 

@@ -222,7 +222,7 @@ async function replayFixture(): Promise<Replay> {
   const session = createBridgeSession<number>({
     debugger: debug,
     onCommand: (method) => forwarded.push(method),
-    onCommandSettled: (method) => settled.push(method),
+    onCommandSettled: (method) => { settled.push(method); },
     send: (client, frame) => {
       let frames = out.get(client);
       if (frames === undefined) {
@@ -580,7 +580,7 @@ describe("createBridgeSession ownership", () => {
     expect(out[2]).toEqual({ method: "Runtime.consoleAPICalled", params: { type: "log" }, sessionId: "S1" });
   });
 
-  it("reports a forwarded command as settled after Electron answers, with its params, and also when it fails", async () => {
+  it("awaits settlement after Electron answers, with its params, and also reports failed commands", async () => {
     const out: BridgeFrame[] = [];
     const sent: string[] = [];
     const settled: Array<[string, object]> = [];
@@ -589,6 +589,10 @@ describe("createBridgeSession ownership", () => {
     const electronBusy = new Promise<void>((resolve) => {
       reached = resolve;
     });
+    let releaseSettlement!: () => void;
+    let reachedSettlement!: () => void;
+    const settlementBusy = new Promise<void>((resolve) => { reachedSettlement = resolve; });
+    const settlement = new Promise<void>((resolve) => { releaseSettlement = resolve; });
     const debug = new StubDebugger(async (method) => {
       if (method === "Page.captureScreenshot") {
         reached();
@@ -602,7 +606,12 @@ describe("createBridgeSession ownership", () => {
     const session = createBridgeSession<string>({
       debugger: debug,
       onCommand: (method) => sent.push(method),
-      onCommandSettled: (method, params) => settled.push([method, params]),
+      onCommandSettled: (method, params) => {
+        settled.push([method, params]);
+        if (method !== "Page.captureScreenshot") return;
+        reachedSettlement();
+        return settlement;
+      },
       send: (_c, frame) => out.push(frame),
       close: () => {},
     });
@@ -617,13 +626,33 @@ describe("createBridgeSession ownership", () => {
     expect(sent).toEqual(["Page.captureScreenshot"]);
     expect(settled).toEqual([]);
     release();
-    await pending;
+    await settlementBusy;
+    for (let i = 0; i < 30; i += 1) await Promise.resolve();
     expect(settled).toEqual([["Page.captureScreenshot", params]]);
+    expect(out).toEqual([]);
+    releaseSettlement();
+    await pending;
     expect(out.at(-1)).toEqual({ id: 1, sessionId: "S1", result: { data: "" } });
 
     await session.handleClientMessage("a", JSON.stringify({ id: 2, method: "Page.bogus", sessionId: "S1" }));
     expect(out.at(-1)).toMatchObject({ id: 2, error: { code: -32000 } });
     expect(settled.at(-1)).toEqual(["Page.bogus", {}]);
+  });
+
+  it("returns a rejecting settlement callback as the command's CDP error", async () => {
+    const out: BridgeFrame[] = [];
+    const session = createBridgeSession<string>({
+      debugger: new StubDebugger(async () => ({ data: "image" })),
+      onCommand: () => {},
+      onCommandSettled: async () => { throw new Error("restoration failed"); },
+      send: (_client, frame) => out.push(frame),
+      close: () => {},
+    });
+    session.addClient("a");
+    await session.handleClientMessage("a", JSON.stringify({
+      id: 9, method: "Page.captureScreenshot", params: { captureBeyondViewport: false }, sessionId: "S1",
+    }));
+    expect(out).toEqual([{ id: 9, sessionId: "S1", error: { code: -32000, message: "restoration failed" } }]);
   });
 });
 

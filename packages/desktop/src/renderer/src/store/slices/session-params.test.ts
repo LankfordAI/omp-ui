@@ -9,7 +9,7 @@ import {
 } from "@omp-ui/core/live-voice";
 import { emptySessionRuntime } from "../../lib/rpc-types";
 import { backendState, remoteOwnedState, rpcTabState, tabInfo } from "../../test/fixtures";
-import type { RenderItem } from "../../lib/transcript";
+import { historyToItems, type RenderItem } from "../../lib/transcript";
 import { h } from "../../test/store-harness";
 import { createMachinery, peekTabRuntime, resetTabRuntimesForTests, stopOwnedLiveCallsForUnload } from "./shared";
 import { installLiveVoiceParkResumeGuard } from "./view";
@@ -3121,16 +3121,114 @@ describe("runShellCommand (issue #678)", () => {
     expect(h.useStore.getState().rpc[h.TAB]!.failure).toBeUndefined();
   });
 
-  it("caps a huge output with the head-preserving truncation note", async () => {
+  it("discloses the local cap and applies it identically on history backfill", async () => {
+    const output = "x".repeat(70 * 1024);
     const promise = h.useStore.getState().runShellCommand(h.TAB, "seq 1 100000");
-    h.respond(h.TAB, h.sent[0]!.cmd, { exitCode: 0, output: "x".repeat(70 * 1024) });
+    h.respond(h.TAB, h.sent[0]!.cmd, { exitCode: 0, output });
     await promise;
     await h.flushMicrotasks();
     const row = h.useStore.getState().rpc[h.TAB]!.items.at(-1)!;
     if (row.kind !== "shell") throw new Error("expected a shell item");
-    expect(row).toMatchObject({ status: "done" });
-    expect(row.output!.length).toBeLessThan(66 * 1024);
-    expect(row).toMatchObject({ output: expect.stringContaining("… output truncated") });
+    expect(row).toMatchObject({
+      status: "done",
+      output: output.slice(0, 64 * 1024),
+      localDroppedChars: 6 * 1024,
+      truncated: false,
+    });
+    expect(row.truncation).toBeUndefined();
+    const history = historyToItems([{ role: "bashExecution", command: row.command, exitCode: 0, output }])[0];
+    expect(history).toMatchObject({ output: row.output, localDroppedChars: row.localDroppedChars });
+  });
+
+  it("preserves all six RPC provenance fields and omp's entire head/tail preview", async () => {
+    const output = `${"head\n".repeat(14 * 1024)}[…100ln elided…]\ntail-marker`;
+    const truncation = {
+      elidedBytes: 123456,
+      elidedLines: 100,
+      columnDroppedBytes: 4096,
+      columnTruncatedLines: 3,
+      columnTruncatedRange: { first: 2, last: 11 },
+      columnMax: 1024,
+    };
+    const promise = h.useStore.getState().runShellCommand(h.TAB, "verbose-command");
+    h.respond(h.TAB, h.sent[0]!.cmd, { exitCode: 0, output, truncated: true, ...truncation });
+    await promise;
+    await h.flushMicrotasks();
+    const row = h.useStore.getState().rpc[h.TAB]!.items.at(-1)!;
+    if (row.kind !== "shell") throw new Error("expected a shell item");
+    expect(row).toMatchObject({ status: "done", output, truncated: true, truncation });
+    expect(row.localDroppedChars).toBeUndefined();
+    const history = historyToItems([{ role: "bashExecution", command: row.command, exitCode: 0, output, truncated: true, ...truncation }])[0];
+    expect(history).toMatchObject({ output: row.output, truncation: row.truncation });
+  });
+
+  it("settles column-only cuts even when omp's overall truncated flag is false", async () => {
+    const output = "x".repeat(70 * 1024);
+    const promise = h.useStore.getState().runShellCommand(h.TAB, "wide-lines");
+    h.respond(h.TAB, h.sent[0]!.cmd, {
+      output, truncated: false, columnDroppedBytes: 2048, columnTruncatedLines: 2, columnMax: 1024,
+    });
+    await promise;
+    await h.flushMicrotasks();
+    const row = h.useStore.getState().rpc[h.TAB]!.items.at(-1)!;
+    if (row.kind !== "shell") throw new Error("expected a shell item");
+    expect(row).toMatchObject({ output, truncated: false, truncation: { columnDroppedBytes: 2048, columnTruncatedLines: 2, columnMax: 1024 } });
+    expect(row.localDroppedChars).toBeUndefined();
+  });
+
+  it("keeps old truncated responses intact without inventing new provenance", async () => {
+    const output = `${"x".repeat(70 * 1024)}tail-marker`;
+    const promise = h.useStore.getState().runShellCommand(h.TAB, "old-omp-command");
+    h.respond(h.TAB, h.sent[0]!.cmd, { output, truncated: true });
+    await promise;
+    await h.flushMicrotasks();
+    const row = h.useStore.getState().rpc[h.TAB]!.items.at(-1)!;
+    if (row.kind !== "shell") throw new Error("expected a shell item");
+    expect(row.output).toBe(output);
+    expect(row.truncation).toBeUndefined();
+    expect(row.localDroppedChars).toBeUndefined();
+  });
+
+  it("matches real persisted metadata for the provenance upstream retains", async () => {
+    const output = `${"head\n".repeat(14 * 1024)}[…100ln elided…]\ntail-marker`;
+    const truncation = {
+      elidedBytes: 123456, elidedLines: 100,
+      columnMax: 1024, columnTruncatedRange: { first: 2, last: 11 },
+    };
+    const promise = h.useStore.getState().runShellCommand(h.TAB, "verbose-command");
+    h.respond(h.TAB, h.sent[0]!.cmd, { output, truncated: true, ...truncation });
+    await promise;
+    await h.flushMicrotasks();
+    const live = h.useStore.getState().rpc[h.TAB]!.items.at(-1)!;
+    if (live.kind !== "shell") throw new Error("expected a shell item");
+    const history = historyToItems([{
+      role: "bashExecution", output, truncated: true,
+      meta: {
+        truncation: { direction: "middle", elidedBytes: 123456, elidedLines: 100 },
+        limits: { columnTruncated: { maxColumn: 1024, unit: "bytes", lines: { first: 2, last: 11 } } },
+      },
+    }])[0];
+    if (history?.kind !== "shell") throw new Error("expected a shell item");
+    expect(history.truncation).toEqual(live.truncation);
+    expect(history.truncation).toEqual(truncation);
+    expect(history.output).toBe(live.output);
+    expect(history.localDroppedChars).toBeUndefined();
+    expect(live.localDroppedChars).toBeUndefined();
+  });
+
+  it.each([
+    { elidedBytes: "123", columnTruncatedRange: [2, 11] },
+    { elidedBytes: 0, elidedLines: 0, columnDroppedBytes: 0, columnTruncatedLines: 0, columnMax: 0 },
+  ])("does not decorate malformed or zero-only response provenance", async (fields) => {
+    const promise = h.useStore.getState().runShellCommand(h.TAB, "echo hello");
+    h.respond(h.TAB, h.sent[0]!.cmd, { output: "hello\n", exitCode: 0, ...fields });
+    await promise;
+    await h.flushMicrotasks();
+    const row = h.useStore.getState().rpc[h.TAB]!.items.at(-1)!;
+    if (row.kind !== "shell") throw new Error("expected a shell item");
+    expect(row.output).toBe("hello\n");
+    expect(row.truncation).toBeUndefined();
+    expect(row.localDroppedChars).toBeUndefined();
   });
 
   it("never titles the session and stays quiet on busy", async () => {

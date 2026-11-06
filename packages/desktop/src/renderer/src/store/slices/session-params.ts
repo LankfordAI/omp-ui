@@ -50,6 +50,7 @@ import {
   markerItem,
   noticeItem,
   shellItem,
+  shellOutputFields,
   type CommandItem,
   type ShellItem,
 } from "../../lib/transcript";
@@ -2384,9 +2385,6 @@ export function createSessionParamsSlice(
     await forwardSlashCommand(tabId, message);
   };
 
-  /** Display cap for a shell row's output — same budget as slash output. */
-  const SHELL_OUTPUT_CAP = 64 * 1024;
-
   /**
    * One "!" composer draft as omp's concurrent bash RPC (issue #678): no
    * model turn — the shell row settles from the command's own completion
@@ -2411,15 +2409,10 @@ export function createSessionParamsSlice(
       // rejections here are omp failures and process abandonment.
       const resp = await get().rpcCommand(tabId, { type: "bash", command }, { quiet: true });
       const data = respData(resp);
-      const raw = strField(data, "output") ?? "";
       settle({
         status: boolField(data, "cancelled") === true ? "cancelled" : "done",
-        output:
-          raw.length <= SHELL_OUTPUT_CAP
-            ? raw
-            : `${raw.slice(0, SHELL_OUTPUT_CAP)}\n… output truncated`,
+        ...shellOutputFields(data),
         exitCode: numField(data, "exitCode"),
-        truncated: boolField(data, "truncated") === true,
       });
       void m.refreshUsage(tabId);
     } catch (err) {

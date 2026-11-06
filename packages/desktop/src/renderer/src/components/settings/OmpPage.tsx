@@ -31,7 +31,18 @@ import { ContextFilesSection } from "./ContextFilesSection";
 import { LiveVoiceSection } from "./LiveVoiceSection";
 import { StatusLineSection } from "./StatusLineSection";
 import { ComposerPredictionSection } from "./ComposerPredictionSection";
-import { useT } from "../../lib/i18n";
+import { useT, type MessageKey } from "../../lib/i18n";
+
+// Localized hints that replace omp's own description for rows whose copy the
+// UI must state regardless of the installed binary's wording (#1063).
+const ROW_HINT_KEYS: Partial<Record<string, MessageKey>> = {
+  textVerbosity: "settings.omp.rowHint.textVerbosity",
+  "task.workerThreads": "settings.omp.rowHint.task.workerThreads",
+  "edit.mode": "settings.omp.rowHint.edit.mode",
+  // omp's own description cannot say this is transport, not live steering.
+  "providers.openaiResponsesWebsockets":
+    "settings.omp.rowHint.providers.openaiResponsesWebsockets",
+};
 
 export function OmpPage({
   load,
@@ -228,7 +239,11 @@ export function OmpPage({
                 <Row
                   key={entry.key}
                   title={entry.key}
-                  hint={entry.description}
+                  hint={
+                    ROW_HINT_KEYS[entry.key] !== undefined
+                      ? t(ROW_HINT_KEYS[entry.key]!)
+                      : entry.description
+                  }
                   badge={layerBadge(entry.layer)}
                 >
                   <SettingControl
