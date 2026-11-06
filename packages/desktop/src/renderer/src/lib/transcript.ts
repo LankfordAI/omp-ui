@@ -12,6 +12,7 @@ import { FLEET_WAKE_CUSTOM_TYPE, parseFleetWakeCard, type FleetWakeCard } from "
 import { toolResultReplies } from "@omp-ui/core/out-replies";
 import { parseBashMinimized, type BashMinimized } from "@omp-ui/core/bash-minimized";
 import { parseBashTruncation, type BashTruncation } from "@omp-ui/core/bash-truncation";
+import { parseBashToolTruncation, type BashToolTruncation } from "@omp-ui/core/bash-tool-truncation";
 
 export interface AdvisorNote {
   note: string;
@@ -113,6 +114,8 @@ export interface ToolItem {
   /** bash result `details.meta.minimized` (omp 18.16.0): provenance for output the minimizer rewrote;
    *  absent on older sessions and whenever the payload passed through untouched. */
   minimized?: BashMinimized;
+  /** Tool-result middle elision and column cuts; recovery notices remain in the output text. */
+  toolTruncation?: BashToolTruncation;
   notes?: AdvisorNote[];
   /** omp-ui vault host tool result details (issue #767): the card and the rail's Vault notes read it. */
   vault?: VaultToolDetails;
@@ -612,6 +615,11 @@ function minimizedField(details: unknown): { minimized?: BashMinimized } {
   return m ? { minimized: m } : {};
 }
 
+function toolTruncationField(details: unknown): { toolTruncation?: BashToolTruncation } {
+  const toolTruncation = parseBashToolTruncation(details);
+  return toolTruncation ? { toolTruncation } : {};
+}
+
 /** Port of omp's isAdvisorCard — render from details.notes, never the XML. */
 export function isAdvisorMessage(message: Record<string, unknown>): boolean {
   return message.role === "custom" && message.customType === "advisor";
@@ -1022,14 +1030,16 @@ export function reduceEvent(items: RenderItem[], event: unknown): RenderItem[] {
       // A `> out://` write streams its reply on an update whose text is still
       // empty (issue #969), so a reply alone is progress worth keeping.
       const replies = repliesField(partial?.details);
+      const toolTruncation = toolTruncationField(partial?.details);
       // Status stays `running` — an update is progress, never completion.
-      if (!partialText && replies.replies === undefined) return items;
+      if (!partialText && replies.replies === undefined && toolTruncation.toolTruncation === undefined) return items;
       return replaceAt(items, idx, {
         ...item,
         ...(partialText ? { partialText } : {}),
         ...taskFilesField(partial?.details),
         ...replies,
         ...minimizedField(partial?.details),
+        ...toolTruncation,
       });
     }
 
@@ -1050,6 +1060,7 @@ export function reduceEvent(items: RenderItem[], event: unknown): RenderItem[] {
         ...taskFilesField(details),
         ...repliesField(details),
         ...minimizedField(details),
+        ...toolTruncationField(details),
       };
       const idx = toolCallId
         ? items.findIndex((i) => i.kind === "tool" && i.toolCallId === toolCallId)
@@ -1287,6 +1298,7 @@ export function historyToItems(messages: unknown[]): RenderItem[] {
         ...taskFilesField(details),
         ...repliesField(details),
         ...minimizedField(details),
+        ...toolTruncationField(details),
       };
     }
   }

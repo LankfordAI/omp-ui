@@ -11,7 +11,7 @@ import {
 import { arrField, strField } from "../lib/fields";
 import { editErrorKindLabel } from "../lib/edit-rejections";
 import type { ThemedToken } from "shiki/core";
-import { useT, type MessageKey } from "../lib/i18n";
+import { localeTag, useT, type MessageKey } from "../lib/i18n";
 import type { AdvisorNote, RecordedTaskFile, ToolItem } from "../lib/transcript";
 import { isPlanArtifactPath } from "@omp-ui/core/plan";
 import { useStore } from "../store";
@@ -602,6 +602,36 @@ export function AdvisoryNotes({ notes }: { notes: AdvisorNote[] }) {
   );
 }
 
+/** Tool-result metadata is distinct from RPC shell-row provenance. Keep the output notice intact. */
+function ToolTruncationFacts({ item }: { item: ToolItem }) {
+  const t = useT();
+  const metadata = item.toolTruncation;
+  if (!metadata) return null;
+  const facts: string[] = [];
+  const elision = metadata.truncation;
+  if (elision) {
+    const lines = elision.elidedLines === undefined ? undefined : t("transcript.tool.elidedLines", {
+      count: elision.elidedLines.toLocaleString(localeTag()),
+    });
+    const bytes = elision.elidedBytes === undefined ? undefined : formatBytes(elision.elidedBytes);
+    const magnitude = lines && bytes ? `${lines} (${bytes})` : lines ?? bytes;
+    const directionKeys = {
+      // Upstream direction names the retained window, not the elided side.
+      head: "transcript.tool.tailElided",
+      tail: "transcript.tool.headElided",
+      middle: "transcript.tool.middleElided",
+    } as const;
+    facts.push(t(directionKeys[elision.direction], { magnitude: magnitude ?? t("transcript.tool.outputTruncated") }));
+  }
+  const columns = metadata.columnTruncated;
+  if (columns) {
+    const limit = columns.maxColumn.toLocaleString(localeTag());
+    facts.push(t("transcript.tool.columnCut", { limit }));
+    if (columns.unit) facts.push(t(columns.unit === "bytes" ? "transcript.tool.columnBytes" : "transcript.tool.columnChars"));
+  }
+  return <div className="font-mono text-xs tabular-nums text-ink-faint">{facts.join(" · ")}</div>;
+}
+
 /* ---------------------------------------------------------------- card */
 
 /** Stable no-op selector for mounts without a tab (SubagentView): the hook
@@ -777,6 +807,8 @@ export function ToolCard({ item, tabId }: { item: ToolItem; tabId?: string }) {
               })}
             </div>
           )}
+
+          <ToolTruncationFacts item={item} />
 
           {item.resultText !== undefined &&
             item.resultText !== "" &&

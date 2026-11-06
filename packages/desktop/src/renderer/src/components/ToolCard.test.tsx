@@ -4,6 +4,8 @@ vi.mock("../backend", () => ({ backend: { setWindowChrome: vi.fn(async () => {})
 import { act } from "react";
 import { createRoot, type Root } from "react-dom/client";
 import type { ToolItem } from "../lib/transcript";
+import { applyLocale, resolveLocale } from "../lib/i18n";
+import { formatBytes } from "../lib/format";
 // The spread keeps the real cap constants, resolveLang, and the incremental
 // eligibility predicate; both hooks are stubbed so no wasm/dynamic grammar
 // loads run under jsdom. The incremental stub mirrors the real hook's
@@ -621,6 +623,81 @@ describe("ToolCard bash minimizer provenance", () => {
       tool({ name: "bash", args: { command: "git log" }, resultText: "raw" }),
     );
     expect(el.textContent).not.toContain("Minimized");
+    act(() => root.unmount());
+  });
+});
+
+describe("ToolCard tool-result truncation", () => {
+  it("shows middle elision and column limits without removing recovery instructions", () => {
+    const notice = "[Some lines truncated. Use artifact://a1:raw:17 to recover.]";
+    const { el, root } = renderCard(tool({
+      name: "bash",
+      resultText: notice,
+      minimized: { filter: "git", inputBytes: 123_290, outputBytes: 3_277 },
+      toolTruncation: {
+        truncation: { direction: "middle", truncatedBy: "middle", elidedLines: 4120, elidedBytes: 319488 },
+        columnTruncated: { maxColumn: 2000, unit: "bytes" },
+      },
+    }));
+    expect(el.textContent).toContain(`Middle elided: 4,120 lines (${formatBytes(319488)})`);
+    expect(el.textContent).toContain("Column cut: maxColumn 2,000 · UTF-8 bytes per line");
+    expect(el.textContent).toContain("Minimized: git 120.4KB → 3.2KB");
+    expect(el.textContent).toContain(notice);
+    act(() => root.unmount());
+  });
+
+  it.each([
+    ["head", "Tail elided"],
+    ["tail", "Head elided"],
+  ] as const)("labels the omitted side when omp retained the %s", (direction, label) => {
+    const { el, root } = renderCard(tool({
+      name: "bash",
+      resultText: "preview",
+      toolTruncation: { truncation: { direction, truncatedBy: "bytes", elidedBytes: 2048 } },
+    }));
+    expect(el.textContent).toContain(`${label}: ${formatBytes(2048)}`);
+    expect(el.textContent).not.toContain("Column cut");
+    act(() => root.unmount());
+  });
+
+  it.each([
+    [undefined, "Column cut: maxColumn 80"],
+    ["chars", "Column cut: maxColumn 80 · UTF-16 characters per line"],
+  ] as const)("does not invent a byte unit for %s column metadata", (unit, expected) => {
+    const { el, root } = renderCard(tool({
+      name: "bash",
+      resultText: "preview",
+      toolTruncation: { columnTruncated: { maxColumn: 80, ...(unit ? { unit } : {}) } },
+    }));
+    expect(el.textContent).toContain(expected);
+    expect(el.textContent).not.toContain("UTF-8");
+    expect(el.textContent).not.toContain("elided");
+    act(() => root.unmount());
+  });
+  it("renders truncation facts in Korean", () => {
+    applyLocale(resolveLocale("ko"));
+    try {
+      const { el, root } = renderCard(tool({
+        name: "bash",
+        resultText: "preview",
+        toolTruncation: {
+          truncation: { direction: "middle", truncatedBy: "middle", elidedLines: 4120 },
+          columnTruncated: { maxColumn: 80, unit: "bytes" },
+        },
+      }));
+      expect(el.textContent).toContain("중간 생략: 4,120줄");
+      expect(el.textContent).toContain("열 잘림: maxColumn 80 · 줄당 UTF-8 바이트");
+      act(() => root.unmount());
+    } finally {
+      applyLocale(resolveLocale("en"));
+    }
+  });
+
+
+  it("adds no truncation facts without metadata", () => {
+    const { el, root } = renderCard(tool({ name: "bash", resultText: "original output" }));
+    expect(el.textContent).not.toContain("elided");
+    expect(el.textContent).not.toContain("Column cut");
     act(() => root.unmount());
   });
 });

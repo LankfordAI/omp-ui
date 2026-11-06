@@ -2095,3 +2095,80 @@ describe("task file details (issue #975)", () => {
     });
   });
 });
+
+describe.each(["update", "end", "history"] as const)("tool truncation %s projection (issue #1065)", (source) => {
+  const truncation = {
+    direction: "middle",
+    truncatedBy: "middle",
+    elidedBytes: 312000,
+    elidedLines: 4120,
+    headRange: { start: 1, end: 10 },
+    tailRange: { start: 4131, end: 4140 },
+  };
+  const columnTruncated = {
+    maxColumn: 768,
+    unit: "bytes",
+    lines: { first: 5, last: 9 },
+    rawByteCap: 4096,
+  };
+  const output = "head\n[Some lines truncated to 768 bytes. Use artifact://result:raw:5-9 to read complete lines.]\ntail";
+
+  function project(details: unknown, text = output): ToolItem | undefined {
+    const content = [{ type: "text", text }];
+    if (source === "history") {
+      return tool(historyToItems([
+        { role: "assistant", content: [{ type: "toolCall", id: "cut", name: "bash", arguments: {} }] },
+        { role: "toolResult", toolCallId: "cut", content, details },
+      ]), "cut");
+    }
+    const started = reduceEvent([], { type: "tool_execution_start", toolCallId: "cut", toolName: "bash" });
+    return tool(reduceEvent(started, source === "update"
+      ? { type: "tool_execution_update", toolCallId: "cut", partialResult: { content, details } }
+      : { type: "tool_execution_end", toolCallId: "cut", result: { content, details } }), "cut");
+  }
+
+  it("keeps both metadata branches and leaves the recovery notice identical", () => {
+    const item = project({
+      meta: {
+        truncation: { ...truncation, artifactId: "not-for-display" },
+        limits: { columnTruncated },
+        minimized: { filter: "grep", inputBytes: 500000, outputBytes: 1000 },
+      },
+    });
+    expect(item?.toolTruncation).toEqual({ truncation, columnTruncated });
+    expect(item?.minimized).toEqual({ filter: "grep", inputBytes: 500000, outputBytes: 1000 });
+    expect(source === "update" ? item?.partialText : item?.resultText).toBe(output);
+    expect(item?.status).toBe(source === "update" ? "running" : "done");
+  });
+
+  it("projects middle elision even when the column metadata is malformed", () => {
+    expect(project({ meta: { truncation, limits: { columnTruncated: { maxColumn: "768" } } } })?.toolTruncation)
+      .toEqual({ truncation });
+  });
+
+  it("projects column limits even when middle-elision metadata is malformed", () => {
+    expect(project({ meta: { truncation: { direction: "sideways" }, limits: { columnTruncated } } })?.toolTruncation)
+      .toEqual({ columnTruncated });
+  });
+
+  it.each([
+    undefined,
+    null,
+    { wallTimeMs: 5 },
+    { meta: {} },
+    { meta: { truncation: [], limits: { columnTruncated: "invalid" } } },
+    { meta: { truncation: { direction: "middle", truncatedBy: "unknown" }, limits: { columnTruncated: { maxColumn: "768" } } } },
+    { truncated: true, outputBytes: 1000, outputLines: 50, columnMax: 768 },
+  ])("omits toolTruncation for absent or deviant details %j", (details) => {
+    const item = project(details);
+    expect(item).toBeDefined();
+    expect(item?.toolTruncation).toBeUndefined();
+    expect("toolTruncation" in item!).toBe(false);
+    expect(source === "update" ? item?.partialText : item?.resultText).toBe(output);
+  });
+
+  it("retains metadata when output text is empty", () => {
+    const item = project({ meta: { truncation, limits: { columnTruncated } } }, "");
+    expect(item?.toolTruncation).toEqual({ truncation, columnTruncated });
+  });
+});
