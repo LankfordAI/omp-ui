@@ -264,9 +264,11 @@ through a **loopback CDP bridge** the main process hosts:
   before it segfaults the GPU process); every commit also re-forces
   `setZoomFactor(target)` because
   the origin's persisted zoom level at commit, which would otherwise silently
-  replace the page's density. The host re-asserts through a 250 ms debounce
-  after any such command has been
-  answered and after any decrease in CDP clients. The pane's own input is scaled
+  replace the page's density. Viewport commands restore pane metrics before
+  the bridge replies (#1072): omp 18.17 applies `browser.open({ viewport })`
+  to CDP-attached pages after upstream #18160, and the old debounce exposed
+  the agent's dimensions for 250 ms. Screenshot restoration and decreases in
+  CDP clients still use the 250 ms debounce. The pane's own input is scaled
   from CSS to window DIPs by the host; CDP input is CSS and needs nothing. CDP
   screenshot clips are DIP and Chromium scales them by the widget dsf only, so
   the bridge scales a `Page.captureScreenshot` clip by the page zoom and turns a

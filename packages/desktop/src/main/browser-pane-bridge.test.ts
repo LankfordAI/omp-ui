@@ -222,7 +222,7 @@ async function replayFixture(): Promise<Replay> {
   const session = createBridgeSession<number>({
     debugger: debug,
     onCommand: (method) => forwarded.push(method),
-    onCommandSettled: (method) => settled.push(method),
+    onCommandSettled: (method) => { settled.push(method); },
     send: (client, frame) => {
       let frames = out.get(client);
       if (frames === undefined) {
@@ -602,7 +602,7 @@ describe("createBridgeSession ownership", () => {
     const session = createBridgeSession<string>({
       debugger: debug,
       onCommand: (method) => sent.push(method),
-      onCommandSettled: (method, params) => settled.push([method, params]),
+      onCommandSettled: (method, params) => { settled.push([method, params]); },
       send: (_c, frame) => out.push(frame),
       close: () => {},
     });

@@ -317,45 +317,6 @@ describe("BrowserPaneHost sink registry (U2)", () => {
     });
   });
 
-  it("re-asserts its own metrics 250 ms after an agent viewport override settles", async () => {
-    vi.useFakeTimers();
-    const h = harness();
-    await h.host.ensureEndpoint("t1");
-    await h.host.ensure("t1");
-    const pane = h.panes[0]!.pane;
-    const setContentSize = vi.mocked(pane.setContentSize);
-    const sendCommand = vi.mocked(pane.debugger.sendCommand);
-    const sizes = setContentSize.mock.calls.length;
-    const overrides = sendCommand.mock.calls.length;
-    const deps = h.listeners[0]!.deps;
-    // The send-time hook derives agent state only; it no longer re-pins.
-    deps.onCommand("Emulation.clearDeviceMetricsOverride");
-    vi.advanceTimersByTime(250);
-    expect(setContentSize).toHaveBeenCalledTimes(sizes);
-    expect(sendCommand).toHaveBeenCalledTimes(overrides);
-
-    deps.onCommandSettled("Emulation.clearDeviceMetricsOverride", {});
-    vi.advanceTimersByTime(249);
-    expect(setContentSize).toHaveBeenCalledTimes(sizes);
-    vi.advanceTimersByTime(1);
-    expect(setContentSize).toHaveBeenCalledTimes(sizes + 1);
-    expect(setContentSize).toHaveBeenLastCalledWith(1280, 800);
-    // Clear, then set: the clear is what makes Chromium accept the otherwise-identical override again.
-    expect(sendCommand).toHaveBeenCalledTimes(overrides + 2);
-    expect(sendCommand).toHaveBeenNthCalledWith(overrides + 1, "Emulation.clearDeviceMetricsOverride");
-    expect(sendCommand).toHaveBeenLastCalledWith("Emulation.setDeviceMetricsOverride", {
-      width: 1280,
-      height: 800,
-      deviceScaleFactor: 1,
-      mobile: false,
-    });
-    const clearOrder = sendCommand.mock.invocationCallOrder[overrides]!;
-    const setOrder = sendCommand.mock.invocationCallOrder[overrides + 1]!;
-    expect(clearOrder).toBeLessThan(setOrder);
-    // The bridge override command itself never marks the agent as acting.
-    expect(h.states().every((s) => s.agent !== "acting")).toBe(true);
-  });
-
   it("re-pins after an agent screenshot that touches emulation, not after a plain one", async () => {
     vi.useFakeTimers();
     const h = harness();

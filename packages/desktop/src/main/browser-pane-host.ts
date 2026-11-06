@@ -859,8 +859,15 @@ export class BrowserPaneHost {
     }
   }
 
-  private onCommandSettled(entry: PaneEntry, method: string, params: object): void {
-    if (clobbersMetrics(method, params)) this.scheduleMetricsReassert(entry);
+  private onCommandSettled(entry: PaneEntry, method: string, params: object): void | Promise<void> {
+    if (!clobbersMetrics(method, params)) return;
+    // #1072: omp >=18.17 applies browser.open's viewport on CDP attach (upstream
+    // #18160). Restore pane geometry before the reply, not 250 ms after open.
+    if (/^Emulation\.(set|clear)DeviceMetricsOverride$/.test(method)) {
+      const pane = entry.pane;
+      if (pane !== null && !pane.isDestroyed() && entry.documentCommitted) return this.applyMetrics(entry, pane);
+    }
+    this.scheduleMetricsReassert(entry);
   }
 
   /**
@@ -937,7 +944,7 @@ export class BrowserPaneHost {
    * The #653 loss follows this surface resize itself, so a size-changing apply
    * ends with one inert page-side redraw that re-arms the dropped canvas layer.
    */
-  private applyMetrics(entry: PaneEntry, pane: PaneContents): void {
+  private async applyMetrics(entry: PaneEntry, pane: PaneContents): Promise<void> {
     const { width, height } = windowSize(entry);
     const lastWindow = entry.lastWindowSize;
     const resized = lastWindow !== null && (lastWindow.width !== width || lastWindow.height !== height);
@@ -958,7 +965,7 @@ export class BrowserPaneHost {
     // default.
     const needsClear = last === null || (last.width === width && last.height === height);
     if (needsClear) void pane.debugger.sendCommand("Emulation.clearDeviceMetricsOverride").catch(() => {});
-    void pane.debugger
+    return pane.debugger
       .sendCommand("Emulation.setDeviceMetricsOverride", { width, height, deviceScaleFactor: 1, mobile: false })
       .then(() => {
         if (this.entries.get(entry.tabId) !== entry || entry.pane !== pane || pane.isDestroyed() ||

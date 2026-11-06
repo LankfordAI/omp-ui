@@ -34,8 +34,8 @@ export interface BridgeListenerDeps {
   onClientCount: (n: number) => void;
   /** Every client command the bridge forwards to Electron (agent-state derivation). */
   onCommand: (method: string) => void;
-  /** The same command once Electron has answered it (resolved or rejected), with the params the client sent. */
-  onCommandSettled: (method: string, params: object) => void;
+  /** Runs after Electron answers; awaited before replying so pane geometry can be restored. */
+  onCommandSettled: (method: string, params: object) => void | Promise<void>;
   /**
    * Rewrites a successful `Page.captureScreenshot` result before the client
    * sees it (the browser clock stamp). A throw becomes the command's CDP error.
@@ -122,8 +122,8 @@ export interface BridgeFrame {
 export interface BridgeSessionDeps<T> {
   debugger: PaneDebugger;
   onCommand: (method: string) => void;
-  /** The same command once Electron has answered it (resolved or rejected), with the params the client sent. */
-  onCommandSettled: (method: string, params: object) => void;
+  /** Runs after Electron answers; awaited before replying so pane geometry can be restored. */
+  onCommandSettled: (method: string, params: object) => void | Promise<void>;
   /**
    * Rewrites a successful `Page.captureScreenshot` result before the client
    * sees it (the browser clock stamp). A throw becomes the command's CDP error.
@@ -253,7 +253,7 @@ export function createBridgeSession<T>(deps: BridgeSessionDeps<T>): BridgeSessio
     try {
       return await cmd(method, params, sessionId);
     } finally {
-      deps.onCommandSettled(method, params);
+      await deps.onCommandSettled(method, params);
     }
   }
 

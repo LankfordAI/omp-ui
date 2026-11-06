@@ -269,6 +269,8 @@ Verification runs boot the app headless. `dev:headless` maps no window and takes
 
 The browser-pane smoke's `resize-canvas` step (#653) gates hard on GPU runners: a window surface resize drops an unchanged accelerated canvas from composited frames and no host-side emulation command restores it, so the host ends every size-changing apply with one inert page-side redraw of the page's 2D canvases, and the step fails when the marker is missing from the streamed frame after a resize. Software raster never loses the layer, so the step passes vacuously there. A stalled capture or a page-side pixel loss still fails the run. To inspect the raw state after a resize, run `npm run smoke:browser-pane --workspace @omp-ui/desktop -- --once --dsf=1.5 --size=1514x1337` and read the `resize-canvas` row of the summary.
 
+The browser-pane smoke's `metrics-open-viewport` and `metrics-clear-viewport` steps read actual Chromium geometry immediately after each viewport-command reply, without waiting for the reassert debounce (#1072, omp 18.17 upstream #18160). Both must already report the pane's CSS size and density; an agent's open-time viewport must not govern the pane until a timer fires.
+
 To verify the Getting started checklist's first-launch gates, a throwaway registry is not enough: the binary row reads `resolveOmpBinary()`, whose PATH scan finds the managed copy whenever the run is launched from a shell inside the packaged app (that PATH starts with `~/.local/share/omp-ui/bin`), and the provider row additionally sees ambient env, the login shell's rc exports, and subscription accounts. Simulate a virgin machine by clearing the environment:
 
 ```bash

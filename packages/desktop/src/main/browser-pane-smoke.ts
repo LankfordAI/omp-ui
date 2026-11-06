@@ -682,6 +682,24 @@ async function runMetricsClobberSteps(reader: PageReader): Promise<void> {
   const rasterGot = await readMetrics();
   recordStep("metrics-raster", pinned(rasterGot), { ...rasterGot, want }, null);
 
+  // #1072: omp >=18.17 sets the viewport at browser.open time (upstream
+  // #18160). The reply must expose pane geometry, not the agent's dimensions
+  // for the next 250 ms. Read before any settle delay, including at dsf 1.
+  for (const method of ["Emulation.setDeviceMetricsOverride", "Emulation.clearDeviceMetricsOverride"]) {
+    const params = method === "Emulation.setDeviceMetricsOverride"
+      ? { width: Math.max(1, Math.floor(flags.size.width / 2)), height: Math.max(1, Math.floor(flags.size.height / 2)), deviceScaleFactor: 1, mobile: false }
+      : {};
+    await reader.client.call(method, params, reader.sessionId);
+    const immediate = await reader.eval<number[]>("[innerWidth, innerHeight, devicePixelRatio]");
+    recordStep(
+      method === "Emulation.setDeviceMetricsOverride" ? "metrics-open-viewport" : "metrics-clear-viewport",
+      immediate[0] === want.inner[0] && immediate[1] === want.inner[1] && immediate[2] === wantDsf,
+      { immediate, want: [...want.inner, wantDsf] },
+      null,
+    );
+    await sleep(METRICS_SETTLE_MS);
+  }
+
   const clobbers: Array<[string, string, object]> = [
     [
       "metrics-agent-viewport",
