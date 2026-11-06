@@ -308,13 +308,7 @@ export class PlanPreflightController implements FrameObserver {
     });
     // The delivered request is the ORIGINAL frame with only its title's JSON
     // enriched by main's hash — the fan-out sees the same frame shape the
-    // child authored. Execution tiers (issue #886) ride the rebuild: re-parse
-    // the claimed title so a lossy rebuild can never silently drop them.
-    const parsed = parsePlanReviewTitle(
-      typeof (held.originalFrame as Record<string, unknown>).title === "string"
-        ? ((held.originalFrame as Record<string, unknown>).title as string)
-        : "",
-    );
+    // child authored.
     const original = held.originalFrame as Record<string, unknown>;
     const enriched = {
       ...original,
@@ -324,7 +318,6 @@ export class PlanPreflightController implements FrameObserver {
         planAbsPath: held.planAbsPath,
         sourceHash,
         ...(held.represented === true ? { represented: true } : {}),
-        ...(parsed?.tiers ? { tiers: parsed.tiers } : {}),
       })}`,
     };
     this.settle(held);
