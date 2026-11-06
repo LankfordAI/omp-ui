@@ -1110,6 +1110,48 @@ describe("Settings omp Providers group (issues #178 and #179)", () => {
     );
   });
 
+  it("renders the textVerbosity row from omp's published enum options (#1063)", async () => {
+    seedOmp({
+      ...emptyOmpSettings,
+      entries: [
+        {
+          key: "textVerbosity",
+          type: "enum",
+          description: "Verbosity of text responses",
+          value: "low",
+          globalValue: undefined,
+          options: ["low", "medium", "high"],
+          layer: "default",
+        },
+        ...timeouts,
+      ],
+    });
+    await renderSettings();
+
+    const select = document.querySelector<HTMLSelectElement>(
+      'select[aria-label="textVerbosity"]',
+    )!;
+    expect([...select.options].map((option) => option.value)).toEqual([
+      "low",
+      "medium",
+      "high",
+    ]);
+    // The row's hint is omp-ui's copy, not the installed binary's wording:
+    // it must name the flipped default and the restart timing.
+    expect(document.body.textContent).toContain("flipped the default to low");
+    expect(document.body.textContent).toContain(
+      "sessions started afterwards",
+    );
+    await act(async () => {
+      select.value = "medium";
+      select.dispatchEvent(new Event("change", { bubbles: true }));
+    });
+    expect(backendMock.writeOmpSetting).toHaveBeenCalledWith(
+      "textVerbosity",
+      "medium",
+    );
+  });
+
   it("omits the routing row when omp does not publish the key", async () => {
     seedOmp({ ...emptyOmpSettings, entries: timeouts });
     await renderSettings();
@@ -1121,6 +1163,7 @@ describe("Settings omp Providers group (issues #178 and #179)", () => {
     expect(document.body.textContent).not.toContain(
       "providers.openrouterVariant",
     );
+    expect(document.body.textContent).not.toContain("textVerbosity");
   });
 
   it("opens the global capabilities viewer without a focused session", async () => {

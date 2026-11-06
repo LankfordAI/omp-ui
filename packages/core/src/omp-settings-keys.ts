@@ -306,6 +306,11 @@ export const OMP_SETTING_GROUPS: ReadonlyArray<OmpSettingGroup> = [
       // into the streaming response over the Codex WebSocket; a lane that
       // rejects it (unsupported_native_inflight_message) falls back to a turn.
       "providers.openaiLiveSteering",
+      // omp 18.17.0 (issue #1063): enum low|medium|high whose default flipped
+      // to low and now applies to Codex too; medium restores the answer length
+      // sessions had before the flip. The options ride in from
+      // `omp config list` via parseEnumOptions, so no option plumbing here.
+      "textVerbosity",
     ],
   },
   {

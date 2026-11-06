@@ -1672,6 +1672,9 @@ export const en = {
     "focus a session tab first — the viewer pins to it",
   "settings.omp.sessionCapabilities": "Session capabilities",
   "settings.omp.globalMcpServers": "Global MCP servers…",
+  // OmpPage.tsx Providers group (#1063)
+  "settings.omp.rowHint.textVerbosity":
+    "How long omp's written answers run. omp 18.17 flipped the default to low, and it now applies to Codex too — shorter answers that finish sooner. medium restores the previous answer length. Changes apply to sessions started afterwards.",
   "settings.omp.footerIntro": "Writes go to omp's global config (",
   "settings.omp.footerProjectPrefix": "); a project's ",
   "settings.omp.footerStillWins": " still wins and is shown as ",

@@ -1515,6 +1515,7 @@ export const ko: Partial<Record<MessageKey, string>> = {
   "settings.omp.mcpFocusFirst": "먼저 세션 탭에 포커스를 두세요. 기능 창이 해당 세션에 고정됩니다",
   "settings.omp.sessionCapabilities": "세션 기능",
   "settings.omp.globalMcpServers": "Global MCP server…",
+  "settings.omp.rowHint.textVerbosity": "omp가 쓰는 응답의 길이입니다. omp 18.17부터 기본값이 low로 바뀌었고 Codex에도 적용됩니다 — 더 짧게 더 빨리 끝납니다. medium으로 되돌리면 이전 응답 길이를 회복합니다. 변경 사항은 이후에 시작되는 세션부터 적용됩니다.",
   "settings.omp.footerIntro": "변경 사항은 omp global config에 기록됩니다(",
   "settings.omp.footerProjectPrefix": "). 프로젝트의 ",
   "settings.omp.footerStillWins": "이(가) 계속 우선하며 다음으로 표시됩니다: ",

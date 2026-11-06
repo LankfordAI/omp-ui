@@ -4,7 +4,7 @@ This guide explains what users receive from a release and how maintainers publis
 
 ## Unreleased
 
-Nothing since [v0.32.2](https://github.com/LankfordAI/omp-ui/releases/tag/v0.32.2). Add one bullet per shipped change here, citing its issue as `#N`; the release tag lifts these into Highlights.
+- **Settings → omp → Providers** now has a row for **textVerbosity**, how long OMP's written answers run. OMP 18.17 flipped the default to **low** and started applying it to Codex too, so every session gets shorter answers without you choosing it; pick **medium** on this row to restore the previous length. The choice applies to sessions started afterwards (#1063).
 
 ## Choose a download
 

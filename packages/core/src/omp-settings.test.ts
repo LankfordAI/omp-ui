@@ -818,6 +818,18 @@ describe("writeOmpSetting", () => {
     expect(seen).toEqual(["config", "set", "providers.openaiLiveSteering", "true", "--json"]);
   });
 
+  it("admits textVerbosity to the write boundary (#1063)", async () => {
+    let seen: readonly string[] = [];
+    await writeOmpSetting(
+      { ompPath: OMP, key: "textVerbosity", value: "medium" },
+      async (args) => {
+        seen = args;
+        return "";
+      },
+    );
+    expect(seen).toEqual(["config", "set", "textVerbosity", "medium", "--json"]);
+  });
+
   it("admits both composer prediction keys to the write boundary (#1030)", async () => {
     let seen: readonly string[] = [];
     await writeOmpSetting(
