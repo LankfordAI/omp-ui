@@ -818,6 +818,18 @@ describe("writeOmpSetting", () => {
     expect(seen).toEqual(["config", "set", "providers.openaiLiveSteering", "true", "--json"]);
   });
 
+  it("admits task.workerThreads to the write boundary (#1067)", async () => {
+    let seen: readonly string[] = [];
+    await writeOmpSetting(
+      { ompPath: OMP, key: "task.workerThreads", value: 0 },
+      async (args) => {
+        seen = args;
+        return "";
+      },
+    );
+    expect(seen).toEqual(["config", "set", "task.workerThreads", "0", "--json"]);
+  });
+
   it("admits textVerbosity to the write boundary (#1063)", async () => {
     let seen: readonly string[] = [];
     await writeOmpSetting(

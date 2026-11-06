@@ -351,8 +351,12 @@ export const OMP_SETTING_GROUPS: ReadonlyArray<OmpSettingGroup> = [
     // omp 18.14 (issue #975): off by default. On, a task call may name each
     // item's assignment by `taskFile` (absolute path or local:// URL, ≤4 MiB)
     // instead of inline `task`; omp records the file's SHA-256 on the result.
+    // omp 18.17.0 (issue #1067) adds `task.workerThreads`: it caps the worker
+    // THREADS subagents fan out onto, not concurrent subagents, and 0 keeps
+    // every subagent on the main thread — semantics OmpPage.tsx's row hint
+    // carries verbatim, because omp's own description cannot be edited.
     title: "Subagents",
-    keys: ["task.file"],
+    keys: ["task.file", "task.workerThreads"],
   },
   GIT_SETTING_GROUP,
 ];

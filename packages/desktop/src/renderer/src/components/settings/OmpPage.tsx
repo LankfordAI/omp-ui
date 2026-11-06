@@ -37,6 +37,7 @@ import { useT, type MessageKey } from "../../lib/i18n";
 // UI must state regardless of the installed binary's wording (#1063).
 const ROW_HINT_KEYS: Partial<Record<string, MessageKey>> = {
   textVerbosity: "settings.omp.rowHint.textVerbosity",
+  "task.workerThreads": "settings.omp.rowHint.task.workerThreads",
 };
 
 export function OmpPage({

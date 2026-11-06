@@ -5,6 +5,7 @@ This guide explains what users receive from a release and how maintainers publis
 ## Unreleased
 
 - **Settings → omp → Providers** now has a row for **textVerbosity**, how long OMP's written answers run. OMP 18.17 flipped the default to **low** and started applying it to Codex too, so every session gets shorter answers without you choosing it; pick **medium** on this row to restore the previous length. The choice applies to sessions started afterwards (#1063).
+- **Settings → omp → Subagents** now has a row for **task.workerThreads**, how many worker threads OMP 18.17 fans subagents out onto (default 4). It caps worker threads, not concurrent subagents — up to 8 stay on the main thread and a worker joins at 9 — and **0** keeps every subagent on the main thread, the documented troubleshooting lever when worker routing disturbs your machine. Applies to sessions started afterwards (#1067).
 
 ## Choose a download
 

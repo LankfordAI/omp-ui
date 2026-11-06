@@ -1675,6 +1675,8 @@ export const en = {
   // OmpPage.tsx Providers group (#1063)
   "settings.omp.rowHint.textVerbosity":
     "How long omp's written answers run. omp 18.17 flipped the default to low, and it now applies to Codex too — shorter answers that finish sooner. medium restores the previous answer length. Changes apply to sessions started afterwards.",
+  "settings.omp.rowHint.task.workerThreads":
+    "Caps the worker THREADS subagents run on (default 4), not how many subagents may run at once. Up to 8 concurrent subagents stay on the main thread; a worker joins at 9 and one more at each doubling (18, 36, 72). 0 keeps every subagent on the main thread — it does not mean unlimited. Changes apply to sessions started afterwards.",
   "settings.omp.footerIntro": "Writes go to omp's global config (",
   "settings.omp.footerProjectPrefix": "); a project's ",
   "settings.omp.footerStillWins": " still wins and is shown as ",

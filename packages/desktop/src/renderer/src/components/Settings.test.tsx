@@ -1183,6 +1183,105 @@ describe("Settings omp Providers group (issues #178 and #179)", () => {
   });
 });
 
+describe("Settings omp Subagents group (issue #1067)", () => {
+  const taskFileEntry = (): OmpSettingsSnapshot["entries"][number] => ({
+    key: "task.file",
+    type: "boolean",
+    description: "Let the task tool read subagent instructions from a file",
+    value: false,
+    globalValue: undefined,
+    options: null,
+    layer: "default",
+  });
+
+  function seedSubagents(workerThreadsEntry: boolean): void {
+    const entries = [taskFileEntry()];
+    if (workerThreadsEntry) {
+      entries.push({
+        key: "task.workerThreads",
+        type: "number",
+        description: "Maximum worker threads for subagents",
+        value: 4,
+        globalValue: undefined,
+        options: null,
+        layer: "default",
+      });
+    }
+    backendMock.readOmpSettings.mockResolvedValue({
+      ...emptyOmpSettings,
+      entries,
+    });
+    useStore.setState({
+      settingsPage: "omp",
+      state: backendState(),
+      tabs: [],
+      activeTabId: null,
+      appUpdate: appUpdateState({}),
+      ompUpdate: idleOmpUpdate,
+    });
+  }
+
+  const field = (): HTMLInputElement =>
+    document.querySelector<HTMLInputElement>(
+      'input[aria-label="task.workerThreads"]',
+    )!;
+
+  async function commitNumber(value: string): Promise<void> {
+    const setter = Object.getOwnPropertyDescriptor(
+      HTMLInputElement.prototype,
+      "value",
+    )!.set!;
+    await act(async () => {
+      setter.call(field(), value);
+      field().dispatchEvent(new Event("input", { bubbles: true }));
+    });
+    await act(async () => {
+      field().dispatchEvent(
+        new KeyboardEvent("keydown", {
+          key: "Enter",
+          bubbles: true,
+          cancelable: true,
+        }),
+      );
+    });
+  }
+
+  it("renders the workerThreads row with omp-ui's load-bearing copy (#1067)", async () => {
+    seedSubagents(true);
+    await renderSettings();
+
+    expect(field().value).toBe("4");
+    // The hint is omp-ui's copy, not the installed binary's wording: it must
+    // say the row caps worker THREADS (not concurrent agents) and that 0 is
+    // main-thread-only, with the restart timing.
+    expect(document.body.textContent).toContain("worker THREADS");
+    expect(document.body.textContent).toContain(
+      "not how many subagents may run at once",
+    );
+    expect(document.body.textContent).toContain(
+      "does not mean unlimited",
+    );
+    expect(document.body.textContent).toContain(
+      "sessions started afterwards",
+    );
+
+    await commitNumber("0");
+    expect(backendMock.writeOmpSetting).toHaveBeenCalledWith(
+      "task.workerThreads",
+      0,
+    );
+  });
+
+  it("omits the workerThreads row when omp predates the key (#1067)", async () => {
+    seedSubagents(false);
+    await renderSettings();
+    expect(field()).toBeNull();
+    expect(document.body.textContent).not.toContain("task.workerThreads");
+    // The group itself survives on task.file alone.
+    expect(document.body.textContent).toContain("task.file");
+  });
+});
+
 describe("Settings omp Live voice group (issue #802)", () => {
   function seedOmp(snapshot: OmpSettingsSnapshot): void {
     backendMock.readOmpSettings.mockResolvedValue(snapshot);
