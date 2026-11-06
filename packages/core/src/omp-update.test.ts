@@ -9,6 +9,8 @@ import {
   MIN_SUPPORTED_OMP,
   OMP_RELEASE_BASE,
   ompAssetName,
+  ompManagerManifestPath,
+  stampOmpManager,
   parseOmpVersion,
   readInstalledOmpVersion,
 } from "./omp-update";
@@ -31,6 +33,45 @@ afterEach(() => {
 describe("MIN_SUPPORTED_OMP harness floor", () => {
   it("is at or above LOGOUT_ACCOUNTS_MIN_OMP", () => {
     expect(compareVersions(MIN_SUPPORTED_OMP, LOGOUT_ACCOUNTS_MIN_OMP)).toBeGreaterThanOrEqual(0);
+  });
+});
+
+describe("stampOmpManager", () => {
+  function managedBinary(): string {
+    const root = mkTmp();
+    fs.mkdirSync(path.join(root, "bin"));
+    const bin = path.join(root, "bin", "omp");
+    fs.writeFileSync(bin, "#!/bin/sh\n");
+    return bin;
+  }
+
+  it("writes the ownership manifest at the root containing bin/", () => {
+    const bin = managedBinary();
+    const root = path.dirname(path.dirname(bin));
+    expect(ompManagerManifestPath(bin)).toBe(path.join(root, "manager.json"));
+    expect(stampOmpManager(bin, { pinned: false })).toBe(true);
+    expect(JSON.parse(fs.readFileSync(path.join(root, "manager.json"), "utf8"))).toEqual({
+      manager: "omp-ui",
+      name: "omp-ui",
+    });
+  });
+
+  it("repairs a foreign manifest and is idempotent", () => {
+    const bin = managedBinary();
+    const file = ompManagerManifestPath(bin);
+    fs.writeFileSync(file, '{"manager":"other"}');
+    stampOmpManager(bin, { pinned: false });
+    stampOmpManager(bin, { pinned: false });
+    expect(JSON.parse(fs.readFileSync(file, "utf8"))).toEqual({ manager: "omp-ui", name: "omp-ui" });
+  });
+
+  it("never writes under an OMP_UI_OMP_PATH pin or without a binary", () => {
+    const bin = managedBinary();
+    expect(stampOmpManager(bin, { pinned: true })).toBe(false);
+    expect(fs.existsSync(ompManagerManifestPath(bin))).toBe(false);
+    const missing = path.join(mkTmp(), "bin", "omp");
+    expect(stampOmpManager(missing, { pinned: false })).toBe(false);
+    expect(fs.existsSync(ompManagerManifestPath(missing))).toBe(false);
   });
 });
 

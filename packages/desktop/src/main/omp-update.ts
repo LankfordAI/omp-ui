@@ -5,6 +5,7 @@ import {
   managedOmpPath,
   MIN_SUPPORTED_OMP,
   ompPinActive,
+  stampOmpManager,
   type DownloadFetchLike,
   type FetchLike,
   type OmpUpdateState,
@@ -37,6 +38,8 @@ export interface OmpUpdaterDeps extends UpdateControllerDeps<OmpUpdateState> {
    *  managed copy (paths.ts resolveOmpBinary), so installing into the managed
    *  path would be silently ignored and must never happen automatically. */
   pinActive?: () => boolean; // tests; default: core's ompPinActive env check
+  /** Writes manager.json beside the managed bin/ (tests); default core's stampOmpManager. */
+  stampManager?: (binaryPath: string, opts: { pinned: boolean }) => unknown;
 }
 
 export class OmpUpdater extends UpdateController<OmpUpdateState> {
@@ -75,6 +78,8 @@ export class OmpUpdater extends UpdateController<OmpUpdateState> {
     // and the Settings row falls back to its "not installed" placeholder.
     const facts = { installPath: info.installPath, installedVersion: info.installedVersion };
     const pinned = (this.deps.pinActive ?? ompPinActive)();
+    // First run against an install that predates the stamp (issue #1062).
+    this.stampOwnership(this.deps.targetPath ?? managedOmpPath(), pinned);
     this.reapDismissed(info.installedVersion);
     if (info.error !== null || info.latestVersion === null) {
       // Offline/registry unreachable: quiet in the background, answered manually.
@@ -158,6 +163,7 @@ export class OmpUpdater extends UpdateController<OmpUpdateState> {
       });
       return;
     }
+    this.stampOwnership(target, (this.deps.pinActive ?? ompPinActive)());
     this.deps.onApplied(version);
     this.reapDismissed(version);
     this.set({
@@ -167,6 +173,16 @@ export class OmpUpdater extends UpdateController<OmpUpdateState> {
       belowMinimum: compareVersions(version, MIN_SUPPORTED_OMP) < 0,
       progress: null,
     });
+  }
+
+  /** manager.json beside the managed bin/ stops omp self-updating it; never under a pin. */
+  private stampOwnership(target: string, pinned: boolean): void {
+    if (pinned) return;
+    try {
+      (this.deps.stampManager ?? stampOmpManager)(target, { pinned });
+    } catch (e) {
+      console.warn(`[omp-update] could not write manager.json: ${e instanceof Error ? e.message : String(e)}`);
+    }
   }
 
   /**

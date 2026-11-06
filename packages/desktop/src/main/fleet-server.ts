@@ -56,6 +56,7 @@ import {
   fetchLatestOmpVersion,
   managedOmpPath,
   readInstalledOmpVersion,
+  stampOmpManager,
 } from "@omp-ui/core";
 import { passwordSessionCredential, tokenMatches, verifyRemotePassword } from "@omp-ui/server";
 import { FleetDetachedExecs } from "./fleet-detached-exec";
@@ -451,6 +452,8 @@ export class FleetServer {
           shouldCommit: ctx.shouldCommit,
           onProgress: (percent) => ctx.report({ percent, phase: "downloading" }),
         });
+        // The stage refuses under a pin above, so this root is always ours (issue #1062).
+        stampOmpManager(targetPath, { pinned: false });
         return { detail: `omp ${from ?? "none"} → ${version} at ${targetPath}` };
       });
       if (outcome.status === "refused") {

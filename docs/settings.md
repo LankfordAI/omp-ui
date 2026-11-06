@@ -72,6 +72,7 @@ Linux AppImage and macOS are the supported desktop packages. Windows remains a p
 - An installed omp update does not replace a running session's process. New sessions and restarted sessions use the new binary on their next spawn.
 - Dismissing an offer hides only that omp version. **Re-offer** clears the dismissal and checks again. A dismissal never sticks below the required version: while the installed omp is older than omp-ui requires, the card returns every launch.
 - **Auto-upgrade** controls what the launch check does below that required version (the harness floor, currently omp 18.16.0): with it on, omp-ui downloads and installs the latest omp automatically; with it off, the card offers the upgrade and waits. A binary pinned with `OMP_UI_OMP_PATH` is never replaced automatically either way.
+- omp-ui owns the managed install: it writes `manager.json` (`{"manager":"omp-ui","name":"omp-ui"}`) at the install root that contains `bin/` (`~/.local/share/omp-ui/manager.json`; `%LOCALAPPDATA%\omp-ui\manager.json` on Windows) on install and on every check. omp 18.16+ then refuses both its `update.auto` background updater and `omp update` against that binary, even from an interactive PTY tab where the managed `bin/` is first on `PATH`; updates go through this card or a fleet stage. omp-ui never writes `manager.json` next to a binary pinned with `OMP_UI_OMP_PATH`, so an interactive omp launched against a pinned install can still self-update it if you enable `update.auto` there.
 
 ## Remote access
 

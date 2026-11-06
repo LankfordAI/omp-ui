@@ -1,4 +1,5 @@
-import { existsSync } from "node:fs";
+import { existsSync, mkdirSync, readFileSync, writeFileSync } from "node:fs";
+import path from "node:path";
 import { execFile } from "node:child_process";
 import { downloadFileAtomically } from "./download";
 import { defaultFetch, type DownloadFetchLike, type FetchLike } from "./fetch";
@@ -30,6 +31,40 @@ export function ompPinActive(
 ): boolean {
   const pinned = env.OMP_UI_OMP_PATH;
   return pinned !== undefined && exists(pinned);
+}
+
+/** Ownership manifest omp's `canSelfUpdate()` reads two levels above its binary. */
+export const OMP_MANAGER_MANIFEST = { manager: "omp-ui", name: "omp-ui" } as const;
+
+/** `<root>/manager.json` for a binary at `<root>/bin/omp`. */
+export function ompManagerManifestPath(binaryPath: string): string {
+  return path.join(path.dirname(path.dirname(binaryPath)), "manager.json");
+}
+
+/**
+ * Declares omp-ui ownership of the managed install so omp (≥18.16) refuses
+ * both `update.auto` and `omp update` against it (issue #1062). Never writes
+ * under a pin: OMP_UI_OMP_PATH names a directory omp-ui does not own. Only
+ * stamps a root whose binary exists; idempotent. Returns true when the
+ * manifest is in place afterwards.
+ */
+export function stampOmpManager(
+  binaryPath: string,
+  opts: { pinned?: boolean; exists?: (p: string) => boolean } = {},
+): boolean {
+  const pinned = opts.pinned ?? ompPinActive();
+  const exists = opts.exists ?? existsSync;
+  if (pinned || !exists(binaryPath)) return false;
+  const file = ompManagerManifestPath(binaryPath);
+  const body = `${JSON.stringify(OMP_MANAGER_MANIFEST)}\n`;
+  try {
+    if (readFileSync(file, "utf8") === body) return true;
+  } catch {
+    // absent or unreadable: (re)write below
+  }
+  mkdirSync(path.dirname(file), { recursive: true });
+  writeFileSync(file, body);
+  return true;
 }
 
 /** Extracts `omp/<X.Y.Z>` (the shape of `omp --version`) from output. */
