@@ -34,6 +34,8 @@ describe("the mirror tables agree with their contract", () => {
     if (stdout === null) return;
     const published = new Set(Object.keys(JSON.parse(stdout) as Record<string, unknown>));
     for (const key of [...TOOL_SETTING_KEYS, ...SKILLS_SETTING_KEYS]) {
+      // Added in 18.17; older supported binaries do not publish this key.
+      if (key === "skills.manualSkills" && !published.has(key)) continue;
       expect(published.has(key), `omp no longer publishes ${key}`).toBe(true);
     }
   }, 30_000);

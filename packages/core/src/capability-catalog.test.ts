@@ -207,6 +207,37 @@ describe("getScopedCapabilities — skills catalog", () => {
     });
   });
 
+  it.each([
+    ["*slack*", "slack-send", "", true],
+    ["*slack*", "slack-send", "hide: false", true],
+    ["*slack*", "slack-send", "disableModelInvocation: false", true],
+    ["*slack*", "deploy", "", null],
+    ["*slack*", "deploy", "hide: false", false],
+    ["*slack*", "deploy", "hide: true", true],
+    ["*slack*", "deploy", "disableModelInvocation: true", true],
+    ["*slack*", "deploy", "hide: false\ndisableModelInvocation: true", true],
+    ["{slack,deploy}-[ab]?", "deploy-a1", "", true],
+    ["{slack,deploy}-[ab]?", "deploy-c1", "", null],
+    ["!deploy", "slack-send", "", true],
+    ["slack-send", "slack-send~2", "", null],
+    ["slack-send~2", "slack-send~2", "", true],
+    ["**/SKILL.md", "slack-send", "", null],
+  ])("derives manual visibility for %s against raw name %s and %s", async (pattern, name, fields, hidden) => {
+    const f = fixture();
+    // The directory is deliberately not the frontmatter name. Catalog names
+    // are raw, before upstream's collision namespace and ~N qualification.
+    const file = mkSkill(path.join(f.agent, "skills"), "different-directory", `name: ${name}\n${fields}`);
+    await withHome(f.home, async () => {
+      const result = await getScopedCapabilities(null, "/bin/omp", f.env, fakeRunner({
+        global: configMap({ "skills.manualSkills": entry([pattern], "array") }),
+      }, null));
+      if (result.skills.status !== "available") throw new Error("catalog unavailable");
+      expect(result.skills.items.find((item) => item.filePath === file)).toMatchObject({
+        name, hidden, ignored: false, gateEnabled: true, disabledInFile: false,
+      });
+    });
+  });
+
   it("skips project roots at global scope", async () => {
     const f = fixture();
     fs.mkdirSync(path.join(f.cwd, ".omp", "skills"), { recursive: true });

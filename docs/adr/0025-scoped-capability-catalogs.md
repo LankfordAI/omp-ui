@@ -53,6 +53,12 @@ palette's "Capabilities for this session".
   revoked. A disabled or ignored higher-precedency root shadows nothing:
   omp dedupes names *after* source gates, and the catalog reproduces that,
   so shadowed rows stay visible and labeled.
+- Since omp 18.17, `skills.manualSkills` glob matches force a catalog row's
+  `hidden` state to true without disabling or ignoring it. The catalog matches
+  raw frontmatter names, which upstream preserves alongside collision-qualified
+  names, not directory names or file paths. Non-matches retain the frontmatter
+  true/false/unknown state. This adds no manual-skills editor, and binaries
+  without the setting retain frontmatter-only visibility.
 - The global ignore list is a read-modify-write of `skills.ignoredSkills`
   (one spawn-wide window; last full-array write wins, and the refreshed rows
   re-state disk truth). The row's title text says so rather than hiding it.
