@@ -349,9 +349,17 @@ async function skillsAtScope(
   const includePatterns = stringsOf(settings, "skills.includeSkills");
   // omp 18.17 uses Bun.Glob against both raw and collision-qualified names.
   // Catalog entries keep the raw frontmatter name, including literal ~N.
-  const manualGlobs = stringsOf(settings, "skills.manualSkills").map(
-    (pattern) => new Minimatch(pattern, { dot: true, nocomment: true }),
-  );
+  const manualGlobs: Minimatch[] = [];
+  for (const pattern of stringsOf(settings, "skills.manualSkills")) {
+    try {
+      manualGlobs.push(new Minimatch(pattern, { dot: true, nocomment: true }));
+    } catch (error) {
+      console.warn(
+        "[capability-catalog] Ignoring rejected skills.manualSkills pattern; manual visibility may be incomplete",
+        error,
+      );
+    }
+  }
   const customDirectories = stringsOf(settings, "skills.customDirectories").map((dir) =>
     expandTilde(dir, home),
   );

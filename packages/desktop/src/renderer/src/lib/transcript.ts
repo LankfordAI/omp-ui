@@ -1057,6 +1057,10 @@ export function reduceEvent(items: RenderItem[], event: unknown): RenderItem[] {
       const details = result && isObj(result.details) ? result.details : null;
       const diffText = details && typeof details.diff === "string" ? details.diff : undefined;
       const notes = result ? notesFromDetails(result.details) : [];
+      const idx = toolCallId
+        ? items.findIndex((i) => i.kind === "tool" && i.toolCallId === toolCallId)
+        : -1;
+      const item = idx === -1 ? null : kindAt(items, idx, "tool");
       const patch = {
         status: (event.isError === true ? "error" : "done") as ToolItem["status"],
         resultText: result ? textFromContent(result.content) : undefined,
@@ -1068,12 +1072,9 @@ export function reduceEvent(items: RenderItem[], event: unknown): RenderItem[] {
         ...taskFilesField(details),
         ...repliesField(details),
         ...minimizedField(details),
-        ...toolTruncationField(details),
-        ...providerFailuresField(str(event.toolName), details),
+        toolTruncation: toolTruncationField(details).toolTruncation,
+        ...providerFailuresField(item?.name ?? str(event.toolName), details),
       };
-      const idx = toolCallId
-        ? items.findIndex((i) => i.kind === "tool" && i.toolCallId === toolCallId)
-        : -1;
       if (idx === -1) {
         const id = toolCallId ?? `tool-${++counter}`;
         return [
@@ -1088,7 +1089,6 @@ export function reduceEvent(items: RenderItem[], event: unknown): RenderItem[] {
           },
         ];
       }
-      const item = kindAt(items, idx, "tool");
       if (item === null) return items;
       return replaceAt(items, idx, { ...item, ...patch });
     }

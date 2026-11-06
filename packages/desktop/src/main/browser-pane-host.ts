@@ -61,6 +61,8 @@ function clobbersMetrics(method: string, params: object): boolean {
 }
 /** How long after the last clobbering agent command the host re-asserts its own geometry. */
 const METRICS_REASSERT_MS = 250;
+/** A stalled host override must not indefinitely hold the agent's CDP reply. */
+const METRICS_RESTORE_TIMEOUT_MS = 1000;
 /** #653: an inert page-side redraw of every light-DOM 2D canvas. A surface resize
  * drops an unchanged accelerated canvas layer from composited frames and no
  * host-side command re-arms its texture; any content write does. Self-draw
@@ -865,7 +867,14 @@ export class BrowserPaneHost {
     // #18160). Restore pane geometry before the reply, not 250 ms after open.
     if (/^Emulation\.(set|clear)DeviceMetricsOverride$/.test(method)) {
       const pane = entry.pane;
-      if (pane !== null && !pane.isDestroyed() && entry.documentCommitted) return this.applyMetrics(entry, pane);
+      if (pane !== null && !pane.isDestroyed() && entry.documentCommitted) {
+        const metrics = this.applyMetrics(entry, pane);
+        let timer: NodeJS.Timeout | undefined;
+        return Promise.race([
+          metrics,
+          new Promise<void>((resolve) => { timer = setTimeout(resolve, METRICS_RESTORE_TIMEOUT_MS); }),
+        ]).finally(() => clearTimeout(timer));
+      }
     }
     this.scheduleMetricsReassert(entry);
   }

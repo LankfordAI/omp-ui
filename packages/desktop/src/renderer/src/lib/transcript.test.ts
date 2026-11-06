@@ -57,6 +57,15 @@ describe("web_search provider failures", () => {
     }
   });
 
+  it("uses the matched search card when completion omits the tool name", () => {
+    const started = reduceEvent([], { type: "tool_execution_start", toolCallId: "search", toolName: "web_search" });
+    const ended = reduceEvent(started, {
+      type: "tool_execution_end", toolCallId: "search",
+      result: { content: [{ type: "text", text: "Fallback sources" }], details: { failures } },
+    });
+    expect(tool(ended, "search")).toMatchObject({ name: "web_search", status: "done", providerFailures: failures });
+  });
+
   it.each([undefined, {}, { failures: "foreign" }, { failures: [null, { reason: "bad" }] }])(
     "keeps legacy and malformed results undecorated %j", (details) => {
       for (const item of project(details, false)) {
@@ -2209,7 +2218,6 @@ describe.each(["update", "end", "history"] as const)("tool truncation %s project
     const item = project(details);
     expect(item).toBeDefined();
     expect(item?.toolTruncation).toBeUndefined();
-    expect("toolTruncation" in item!).toBe(false);
     expect(source === "update" ? item?.partialText : item?.resultText).toBe(output);
   });
 
@@ -2217,4 +2225,31 @@ describe.each(["update", "end", "history"] as const)("tool truncation %s project
     const item = project({ meta: { truncation, limits: { columnTruncated } } }, "");
     expect(item?.toolTruncation).toEqual({ truncation, columnTruncated });
   });
+});
+
+describe("tool truncation settlement", () => {
+  const preview = { direction: "middle", truncatedBy: "middle", elidedLines: 40 };
+
+  it.each([undefined, { meta: { truncation: { ...preview, elidedLines: 2 } } }])(
+    "replaces preview facts with the final result %j", (details) => {
+      const started = reduceEvent([], { type: "tool_execution_start", toolCallId: "cut", toolName: "bash" });
+      const running = reduceEvent(started, {
+        type: "tool_execution_update", toolCallId: "cut",
+        partialResult: { details: { meta: { truncation: preview } } },
+      });
+      const updated = reduceEvent(running, {
+        type: "tool_execution_update", toolCallId: "cut",
+        partialResult: { content: [{ type: "text", text: "still running" }] },
+      });
+      expect(tool(updated, "cut")?.toolTruncation).toEqual({ truncation: preview });
+      const ended = reduceEvent(updated, {
+        type: "tool_execution_end", toolCallId: "cut",
+        result: { content: [{ type: "text", text: "final output" }], details },
+      });
+      expect(tool(ended, "cut")?.toolTruncation).toEqual(
+        details ? { truncation: { ...preview, elidedLines: 2 } } : undefined,
+      );
+      expect(tool(ended, "cut")?.status).toBe("done");
+    },
+  );
 });

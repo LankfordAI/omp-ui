@@ -628,6 +628,20 @@ describe("ToolCard bash minimizer provenance", () => {
 });
 
 describe("ToolCard tool-result truncation", () => {
+  it("keeps a truncation-only update accessible after collapsing and expanding", () => {
+    const { el, root } = renderCard(tool({
+      name: "bash", status: "running", args: undefined,
+      toolTruncation: { truncation: { direction: "middle", truncatedBy: "middle", elidedLines: 40 } },
+    }));
+    const header = el.querySelector("button")!;
+    expect(el.textContent).toContain("Middle elided: 40 lines");
+    act(() => header.click());
+    expect(el.textContent).not.toContain("Middle elided: 40 lines");
+    act(() => header.click());
+    expect(el.textContent).toContain("Middle elided: 40 lines");
+    act(() => root.unmount());
+  });
+
   it("shows middle elision and column limits without removing recovery instructions", () => {
     const notice = "[Some lines truncated. Use artifact://a1:raw:17 to recover.]";
     const { el, root } = renderCard(tool({

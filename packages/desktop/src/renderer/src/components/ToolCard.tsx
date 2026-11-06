@@ -700,6 +700,7 @@ export function ToolCard({ item, tabId }: { item: ToolItem; tabId?: string }) {
   const hasBody =
     item.args !== undefined ||
     item.resultText !== undefined ||
+    item.toolTruncation !== undefined ||
     (item.images?.length ?? 0) > 0 ||
     hasDiff ||
     item.partialText !== undefined ||

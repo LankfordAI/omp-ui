@@ -8,6 +8,10 @@ This guide explains what users receive from a release and how maintainers publis
 - **Settings → omp → Subagents** now has a row for **task.workerThreads**, how many worker threads OMP 18.17 fans subagents out onto (default 4). It caps worker threads, not concurrent subagents — up to 8 stay on the main thread and a worker joins at 9 — and **0** keeps every subagent on the main thread, the documented troubleshooting lever when worker routing disturbs your machine. Applies to sessions started afterwards (#1067).
 - **Settings → omp → Providers** now has a row for **providers.openaiResponsesWebsockets**, OMP 18.17's opt-in for running catalog-supported standard Responses models over WebSockets instead of HTTP/SSE, with automatic fallback when a connection fails. It is transport only — the live-steering row above stays separate — and turning it on applies to sessions started afterwards (#1068).
 - **Settings → omp → Tools** now exposes **edit.mode** using the installed binary's enum options. OMP 18.17's `none` removes only the edit tool and force-enables bash even when `bash.enabled` is off. It is not a read-only or safety mode. Whole-file rewrites via `write` carry no structured diff, so change receipts and diff cards degrade and review depends on later repository diffs. Applies to sessions started afterwards (#1069).
+- Managed OMP ownership stamps preserve another installer's `manager.json` and report conflicts instead of overwriting it. Fleet updates still refresh and report an installed binary if ownership stamping fails, with the failure retained as a warning (#1062).
+- Tool-result truncation facts remain expandable even without output text, and final results replace or clear preview facts. Web-search fallback diagnostics survive completions that omit the tool name (#1065, #1066).
+- Browser viewport commands restore pane geometry immediately, with a one-second wait limit so stalled restoration cannot hold an agent's reply indefinitely (#1072).
+- Manual-skill catalogs skip invalid glob patterns with a warning while retaining valid matches (#1074).
 
 ## Choose a download
 
@@ -96,6 +100,8 @@ After migration, updates use the supported in-place AppImage path. The skipped b
 omp-ui updates its managed `omp` binary separately from the desktop application. It checks the npm registry at launch when that check is enabled, or on demand from `Check for omp updates`. A missing binary offers `Install`; an older binary offers `Update now`.
 
 An optional update never downloads without that click. The one exception is the harness floor: when the installed binary is older than the version omp-ui requires (`MIN_SUPPORTED_OMP`, 18.16.0), the launch check downloads and installs the latest release automatically — the feature set the UI promises simply does not exist below it. **Auto-upgrade** on Settings → Updates opts out, and a binary pinned with `OMP_UI_OMP_PATH` is never touched. omp-ui downloads to a temporary path, verifies that the candidate runs as `omp --version`, and atomically replaces the managed copy. A failure leaves the previous binary in place. Live sessions keep the binary they already started with; only new sessions use the installed version. The omp and omp-ui launch checks have separate switches.
+
+The managed-install root's `manager.json` declares omp-ui ownership so OMP 18.16 and newer refuse their own automatic and manual self-update paths (#1062). Pins are never stamped. An existing manifest naming a different installer, or one that cannot be read or parsed safely, is preserved and reported rather than overwritten. If a fleet download has already replaced the binary, a subsequent stamping failure is a warning on the successful installation; the owning host still refreshes its binary state.
 
 ### Nightly builds
 

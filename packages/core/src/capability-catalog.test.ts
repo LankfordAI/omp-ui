@@ -1,7 +1,7 @@
 import * as fs from "node:fs";
 import * as os from "node:os";
 import * as path from "node:path";
-import { afterEach, describe, expect, it } from "vitest";
+import { afterEach, describe, expect, it, vi } from "vitest";
 import {
   getScopedCapabilities,
   matchSkillGlob,
@@ -236,6 +236,40 @@ describe("getScopedCapabilities — skills catalog", () => {
         name, hidden, ignored: false, gateEnabled: true, disabledInFile: false,
       });
     });
+  });
+
+  it("skips rejected manual patterns, preserves valid matches, and warns about incomplete visibility", async () => {
+    const f = fixture();
+    for (const name of ["slack-send", "deploy", "visible", "unknown"]) {
+      mkSkill(path.join(f.agent, "skills"), name, `name: ${name}\n${name === "unknown" ? "" : "hide: false"}`);
+    }
+    // Minimatch rejects patterns over its 64 KiB limit. A rejected pattern
+    // between valid ones must not discard either valid matcher or the catalog.
+    const warn = vi.spyOn(console, "warn").mockImplementation(() => {});
+    try {
+      await withHome(f.home, async () => {
+        const result = await getScopedCapabilities(null, "/bin/omp", f.env, fakeRunner({
+          global: configMap({
+            "skills.manualSkills": entry(["*slack*", "x".repeat(64 * 1024 + 1), "deploy"], "array"),
+          }),
+        }, null));
+        if (result.skills.status !== "available") throw new Error("catalog unavailable");
+        expect(Object.fromEntries(result.skills.items.map((item) => [item.name, item.hidden]))).toEqual({
+          "slack-send": true,
+          deploy: true,
+          visible: false,
+          unknown: null,
+        });
+        expect(result.tools.status).toBe("available");
+        expect(warn).toHaveBeenCalledTimes(1);
+        expect(warn).toHaveBeenCalledWith(
+          expect.stringContaining("manual visibility may be incomplete"),
+          expect.any(TypeError),
+        );
+      });
+    } finally {
+      warn.mockRestore();
+    }
   });
 
   it("skips project roots at global scope", async () => {

@@ -452,9 +452,15 @@ export class FleetServer {
           shouldCommit: ctx.shouldCommit,
           onProgress: (percent) => ctx.report({ percent, phase: "downloading" }),
         });
-        // The stage refuses under a pin above, so this root is always ours (issue #1062).
-        stampOmpManager(targetPath, { pinned: false });
-        return { detail: `omp ${from ?? "none"} → ${version} at ${targetPath}` };
+        // The binary is already installed. A manifest failure must not turn
+        // that into a failed install or prevent onOmpApplied from refreshing it.
+        let detail = `omp ${from ?? "none"} → ${version} at ${targetPath}`;
+        try {
+          stampOmpManager(targetPath, { pinned: false });
+        } catch (err) {
+          detail += `; warning: could not write manager.json: ${messageOf(err)}`;
+        }
+        return { detail };
       });
       if (outcome.status === "refused") {
         this.#audit("update", req.requester, gate.rung, false, `omp ${req.action}`, null);

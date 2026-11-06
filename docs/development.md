@@ -67,6 +67,8 @@ The subagent-model live proof inherits the local omp parent model. That model
 must be served by its configured provider; a provider rejection prevents the
 first task spawn regardless of the subagent pin (issue #744).
 
+The worker-thread proof cancels every worker-hosted task and observes its nested bash job settle through the bridge. After bulk cancellation it checks all twenty original job statuses with a test-only larger `getAsyncJobTree` read: OMP's ten-row recent list is sorted by job start time, so it cannot retain the entire cancelled tree. Production retention stays unchanged. A separate post-cancellation transcript and usage append must produce fresh spend frames with exact usage deltas, proving polling survived cancellation.
+
 ## Workspace commands
 
 Use npm's workspace flag for a focused task. These commands match the scripts in `packages/desktop/package.json`:
@@ -270,6 +272,8 @@ Verification runs boot the app headless. `dev:headless` maps no window and takes
 The browser-pane smoke's `resize-canvas` step (#653) gates hard on GPU runners: a window surface resize drops an unchanged accelerated canvas from composited frames and no host-side emulation command restores it, so the host ends every size-changing apply with one inert page-side redraw of the page's 2D canvases, and the step fails when the marker is missing from the streamed frame after a resize. Software raster never loses the layer, so the step passes vacuously there. A stalled capture or a page-side pixel loss still fails the run. To inspect the raw state after a resize, run `npm run smoke:browser-pane --workspace @omp-ui/desktop -- --once --dsf=1.5 --size=1514x1337` and read the `resize-canvas` row of the summary.
 
 The browser-pane smoke's `metrics-open-viewport` and `metrics-clear-viewport` steps read actual Chromium geometry immediately after each viewport-command reply, without waiting for the reassert debounce (#1072, omp 18.17 upstream #18160). Both must already report the pane's CSS size and density; an agent's open-time viewport must not govern the pane until a timer fires.
+
+Viewport replies wait at most one second for host metrics restoration. Unit regressions cover a stalled debugger command, deferred/rejecting bridge settlement, and the delayed pre-commit fallback; the live metrics steps cover normal Chromium restoration before reply.
 
 To verify the Getting started checklist's first-launch gates, a throwaway registry is not enough: the binary row reads `resolveOmpBinary()`, whose PATH scan finds the managed copy whenever the run is launched from a shell inside the packaged app (that PATH starts with `~/.local/share/omp-ui/bin`), and the provider row additionally sees ambient env, the login shell's rc exports, and subscription accounts. Simulate a virgin machine by clearing the environment:
 

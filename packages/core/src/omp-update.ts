@@ -45,8 +45,9 @@ export function ompManagerManifestPath(binaryPath: string): string {
  * Declares omp-ui ownership of the managed install so omp (≥18.16) refuses
  * both `update.auto` and `omp update` against it (issue #1062). Never writes
  * under a pin: OMP_UI_OMP_PATH names a directory omp-ui does not own. Only
- * stamps a root whose binary exists; idempotent. Returns true when the
- * manifest is in place afterwards.
+ * stamps a root whose binary exists; idempotent for an existing omp-ui
+ * manifest. Foreign, invalid, or unreadable manifests are left untouched and
+ * throw; returns true when ownership is established.
  */
 export function stampOmpManager(
   binaryPath: string,
@@ -56,14 +57,26 @@ export function stampOmpManager(
   const exists = opts.exists ?? existsSync;
   if (pinned || !exists(binaryPath)) return false;
   const file = ompManagerManifestPath(binaryPath);
-  const body = `${JSON.stringify(OMP_MANAGER_MANIFEST)}\n`;
+  let source: string;
   try {
-    if (readFileSync(file, "utf8") === body) return true;
-  } catch {
-    // absent or unreadable: (re)write below
+    source = readFileSync(file, "utf8");
+  } catch (err) {
+    if ((err as NodeJS.ErrnoException).code !== "ENOENT") throw err;
+    mkdirSync(path.dirname(file), { recursive: true });
+    // Never overwrite a manifest another owner created after our read.
+    writeFileSync(file, `${JSON.stringify(OMP_MANAGER_MANIFEST)}\n`, { flag: "wx" });
+    return true;
   }
-  mkdirSync(path.dirname(file), { recursive: true });
-  writeFileSync(file, body);
+  const manifest: unknown = JSON.parse(source);
+  if (
+    manifest === null || typeof manifest !== "object" ||
+    !("manager" in manifest) || typeof manifest.manager !== "string" || manifest.manager.length === 0
+  ) {
+    throw new Error(`invalid omp ownership manifest at ${file}`);
+  }
+  if (manifest.manager !== OMP_MANAGER_MANIFEST.manager) {
+    throw new Error(`omp ownership conflict at ${file}: managed by ${manifest.manager}`);
+  }
   return true;
 }
 

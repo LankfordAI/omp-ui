@@ -29,6 +29,7 @@ import {
   parseSessionSpendSnapshot,
   sessionSpendArmMessage,
   type SessionSpendSnapshot,
+  type SpendTotals,
 } from "@omp-ui/core/session-spend";
 
 /**
@@ -292,12 +293,27 @@ async function scriptedProvider(): Promise<ScriptedProvider> {
 const PLACEMENT_EXTENSION = (logFile: string): string => `import * as nodeFs from "node:fs";
 import { isMainThread } from "node:worker_threads";
 const LOG = ${JSON.stringify(logFile)};
-export default function (pi: { pi?: { AgentSession?: { prototype?: Record<string, unknown> } } }) {
+interface ProbeSession {
+  sessionManager?: { getSessionFile?: () => unknown };
+  getAsyncJobTree?: (options: { recentLimit: number }) => unknown;
+}
+export default function (pi: {
+  pi?: { AgentSession?: { prototype?: Record<string, unknown> } };
+  registerCommand: (name: string, command: { handler: () => void }) => void;
+}) {
+  let root: ProbeSession | undefined;
+  pi.registerCommand("omp-ui-worker-terminal-jobs", {
+    handler: () => {
+      if (root?.getAsyncJobTree === undefined) throw new Error("worker job oracle has no root");
+      nodeFs.writeFileSync(LOG + ".jobs", JSON.stringify(root.getAsyncJobTree({ recentLimit: ${FANOUT * 2} })));
+    },
+  });
   const prototype = pi.pi?.AgentSession?.prototype;
   const original = prototype?.prompt;
   if (prototype === undefined || typeof original !== "function") return;
   const call = original as (this: unknown, ...args: unknown[]) => unknown;
-  prototype.prompt = function (this: { sessionManager?: { getSessionFile?: () => unknown } }, ...args: unknown[]): unknown {
+  prototype.prompt = function (this: ProbeSession, ...args: unknown[]): unknown {
+    root ??= this;
     try {
       const file = this.sessionManager?.getSessionFile?.() ?? null;
       nodeFs.appendFileSync(LOG, JSON.stringify({ main: isMainThread, file }) + "\\n");
@@ -308,6 +324,21 @@ export default function (pi: { pi?: { AgentSession?: { prototype?: Record<string
   };
 }
 `;
+
+/** Preserve the runtime environment, but never let a caller select real user config. */
+function workerEnvironment(home: string, inherited: NodeJS.ProcessEnv): NodeJS.ProcessEnv {
+  const env: NodeJS.ProcessEnv = {
+    ...inherited,
+    HOME: home,
+    USERPROFILE: home,
+    XDG_CONFIG_HOME: path.join(home, ".config"),
+    XDG_DATA_HOME: path.join(home, ".local", "share"),
+  };
+  for (const key of ["HOMEDRIVE", "HOMEPATH", "OMP_PROFILE", "PI_PROFILE", "PI_CONFIG_DIR", "PI_CODING_AGENT_DIR"]) {
+    delete env[key];
+  }
+  return env;
+}
 
 function spawnScope(baseUrl: string, mainThreadOnly: boolean): Scope {
   const base = fs.mkdtempSync(path.join(os.tmpdir(), "omp-ui-workers-live-"));
@@ -335,12 +366,6 @@ function spawnScope(baseUrl: string, mainThreadOnly: boolean): Scope {
   const placement = path.join(lineage, "omp-ui-placement-probe.ts");
   fs.writeFileSync(placement, PLACEMENT_EXTENSION(placementLog));
 
-  const env: NodeJS.ProcessEnv = {
-    ...process.env,
-    HOME: home,
-    XDG_CONFIG_HOME: path.join(home, ".config"),
-    XDG_DATA_HOME: path.join(home, ".local", "share"),
-  };
   const frames: Frame[] = [];
   const { promise: exited, resolve: markExited } = Promise.withResolvers<void>();
   const client = new RpcClient({
@@ -351,7 +376,9 @@ function spawnScope(baseUrl: string, mainThreadOnly: boolean): Scope {
     configOverlays: overlays,
     extensions: [writeAsyncJobsExtension(lineage), writeSessionSpendExtension(lineage), placement],
     spawnProcess: (bin, args, extra) => {
-      const proc = spawn(bin, args, { stdio: ["pipe", "pipe", "pipe"], env: { ...extra, ...env } });
+      // RpcClient's extra environment already includes the caller's profile
+      // overrides: strip them after that merge, not before it.
+      const proc = spawn(bin, args, { stdio: ["pipe", "pipe", "pipe"], env: workerEnvironment(home, extra) });
       return {
         stdin: proc.stdin,
         stdout: proc.stdout,
@@ -557,6 +584,7 @@ async function runArm(baseUrl: string, mainThreadOnly: boolean, targets: string[
       "a placement record for every subagent",
     );
     const workerHosted = AGENT_IDS.filter((id) => placed.get(id) === false);
+    if (!mainThreadOnly) expect(workerHosted.length, "no subagent ran off the main thread").toBeGreaterThan(0);
     console.info(
       `[#1070] task.workerThreads ${mainThreadOnly ? "0" : "default"}: ${workerHosted.length}/${FANOUT} subagents worker-hosted` +
         (workerHosted.length === 0 ? "" : ` (${workerHosted.join(", ")})`),
@@ -618,7 +646,7 @@ async function runArm(baseUrl: string, mainThreadOnly: boolean, targets: string[
           return recent.length === 2 &&
             recent.every((job) => job.status === "cancelled") &&
             !snapshot.running.some((job) => settledIds.includes(job.id))
-            ? true
+            ? recent
             : undefined;
         },
         60_000,
@@ -637,14 +665,110 @@ async function runArm(baseUrl: string, mainThreadOnly: boolean, targets: string[
       "no running jobs after kill all",
     );
     expect(settled.recent.filter((job) => job.status !== "cancelled")).toEqual([]);
+    // OMP sorts recent jobs by startTime, not endTime, before taking ten.
+    // Verify every original terminal status via the same public tree API
+    // with a fixture-only larger read; production bridge retention stays ten.
+    await request(scope, { type: "prompt", message: "/omp-ui-worker-terminal-jobs" });
+    const terminal = JSON.parse(fs.readFileSync(`${scope.placementLog}.jobs`, "utf8")) as {
+      running: Array<{ id: string; status: string }>;
+      recent: Array<{ id: string; status: string }>;
+    };
+    expect(terminal.running).toEqual([]);
+    expect(terminal.recent.map(({ id, status }) => ({ id, status })).sort((a, b) => a.id.localeCompare(b.id))).toEqual(
+      busy.running.map(({ id }) => ({ id, status: "cancelled" })).sort((a, b) => a.id.localeCompare(b.id)),
+    );
     await waitFor(
       () => (AGENT_IDS.every((id) => framesOf(id, "subagent_lifecycle").length === 2) ? true : undefined),
       60_000,
       "a closing lifecycle frame for every subagent",
     );
-    const spendAfter = latest(scope, SESSION_SPEND_STATUS_KEY, parseSessionSpendSnapshot)!;
-    expect(spendAfter.transcripts).toBe(FANOUT);
-    expect(spendAfter.subagents.totalTokens).toBe(spend.subagents.totalTokens);
+    // The old snapshot alone cannot prove polling survived cancellation. Add
+    // a separate valid transcript only after settlement, then require a NEW
+    // spend frame and the exact usage delta; do not re-arm the bridge.
+    const beforeProbe = latest(scope, SESSION_SPEND_STATUS_KEY, parseSessionSpendSnapshot)!;
+    expect(beforeProbe.transcripts).toBe(FANOUT);
+    expect(beforeProbe.subagents.totalTokens).toBe(spend.subagents.totalTokens);
+    const addedSpend: SpendTotals = {
+      cost: 0.125,
+      input: 17,
+      output: 7,
+      reasoning: 3,
+      cacheRead: 5,
+      cacheWrite: 2,
+      totalTokens: 31,
+      premiumRequests: 1,
+      requests: 1,
+    };
+    const timestamp = "2026-01-01T00:00:00.000Z";
+    const spendProbeFrom = scope.frames.length;
+    const spendProbeFile = path.join(artifactsDir, "PostCancelSpend.jsonl");
+    fs.writeFileSync(
+      spendProbeFile,
+      `${JSON.stringify({
+        type: "session",
+        version: 3,
+        id: "post-cancel-spend",
+        timestamp,
+        cwd: path.join(scope.base, "proj"),
+      })}\n`,
+      { flag: "wx" },
+    );
+    // First observe the new header, so the baseline has polled all settled
+    // transcripts too (aborted turns may persist zero-token usage records).
+    const probeBaseline = await waitFor(
+      () => {
+        const snapshot = latest(scope, SESSION_SPEND_STATUS_KEY, parseSessionSpendSnapshot, spendProbeFrom);
+        return snapshot !== undefined && snapshot.revision > beforeProbe.revision && snapshot.transcripts === FANOUT + 1
+          ? snapshot
+          : undefined;
+      },
+      60_000,
+      "a new spend frame discovering the post-cancellation transcript",
+    );
+    expect(probeBaseline.subagents.totalTokens).toBe(spend.subagents.totalTokens);
+    const spendUsageFrom = scope.frames.length;
+    fs.appendFileSync(
+      spendProbeFile,
+      `${JSON.stringify({
+        type: "message",
+        id: "post-cancel-usage",
+        parentId: null,
+        timestamp,
+        message: {
+          role: "assistant",
+          content: [],
+          usage: {
+            input: addedSpend.input,
+            output: addedSpend.output,
+            cacheRead: addedSpend.cacheRead,
+            cacheWrite: addedSpend.cacheWrite,
+            totalTokens: addedSpend.totalTokens,
+            reasoningTokens: addedSpend.reasoning,
+            premiumRequests: addedSpend.premiumRequests,
+            cost: { input: 0, output: 0, cacheRead: 0, cacheWrite: 0, total: addedSpend.cost },
+          },
+        },
+      })}\n`,
+    );
+    const spendAfter = await waitFor(
+      () => {
+        const snapshot = latest(scope, SESSION_SPEND_STATUS_KEY, parseSessionSpendSnapshot, spendUsageFrom);
+        return snapshot !== undefined &&
+          snapshot.revision > probeBaseline.revision &&
+          snapshot.transcripts === FANOUT + 1 &&
+          snapshot.subagents.requests === probeBaseline.subagents.requests + addedSpend.requests
+          ? snapshot
+          : undefined;
+      },
+      60_000,
+      "a new spend frame counting the post-cancellation transcript and usage",
+    );
+    expect(spendAfter.available, `spend bridge unavailable after cancellation: ${spendAfter.unavailable}`).toBe(true);
+    expect(spendAfter.sessionFile).toBe(spend.sessionFile);
+    for (const key of Object.keys(addedSpend) as Array<keyof SpendTotals>) {
+      expect(spendAfter.subagents[key] - probeBaseline.subagents[key], `post-cancellation ${key} delta`).toBe(addedSpend[key]);
+      expect(spendAfter.total[key]).toBe(spendAfter.main[key] + spendAfter.subagents[key]);
+    }
 
     // Per subagent: its lifecycle in order, and the set of event types it
     // streamed. Event ORDER is not compared: a bash job's
@@ -690,6 +814,33 @@ afterEach(async () => {
     await provider.close();
     provider = null;
   }
+});
+
+describe("worker live-test environment", () => {
+  it("pins both home variables and clears profile overrides after inheriting the runtime environment", () => {
+    const home = path.resolve("fixture-home");
+    const inherited = {
+      HOME: path.resolve("real-home"),
+      USERPROFILE: path.resolve("real-home"),
+      HOMEDRIVE: "Z:",
+      HOMEPATH: "\\real-home",
+      OMP_PROFILE: "work",
+      PI_PROFILE: "legacy",
+      PI_CONFIG_DIR: ".custom-omp",
+      PI_CODING_AGENT_DIR: path.resolve("real-agent"),
+      XDG_CONFIG_HOME: path.resolve("real-config"),
+      XDG_DATA_HOME: path.resolve("real-data"),
+      PATH: path.resolve("runtime", "bin"),
+    };
+    expect(workerEnvironment(home, inherited)).toEqual({
+      HOME: home,
+      USERPROFILE: home,
+      XDG_CONFIG_HOME: path.join(home, ".config"),
+      XDG_DATA_HOME: path.join(home, ".local", "share"),
+      PATH: inherited.PATH,
+    });
+    expect(inherited.OMP_PROFILE).toBe("work");
+  });
 });
 
 describe.skipIf(ompPath === null)("bridges across worker-thread subagents (real omp)", () => {
