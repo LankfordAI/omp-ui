@@ -2669,7 +2669,6 @@ export const ko: Partial<Record<MessageKey, string>> = {
   "notice.merge.syncConflicts": "{source} 동기화가 {path}에서 {count}개 파일 충돌로 중단되었습니다 — 워크트리에서 해결한 뒤 git merge --continue를 실행하고 다시 마무리하세요",
   "notice.merge.landed": "{branch}을(를) {destination}에 병합했습니다({commits})",
   "notice.finish.switchSkippedBusy": "프로젝트 체크아웃이 기존 브랜치에 그대로 남았습니다 — “{title}” 세션이 그곳에서 턴을 진행 중입니다. 작업은 {destination}에 있습니다",
-  "notice.finish.settleSkipped": "세션이 정렬 상태로 넘어가지 않았습니다 — 끝나면 직접 중지하세요",
   "notice.discarded.restored": "omp가 {commit}(으)로 저장한 변경을 {path}에 복원했습니다",
   "notice.discarded.restoredUnstaged": "omp가 {commit}(으)로 저장한 변경을 {path}에 모두 unstaged 상태로 복원했습니다 — git이 staged 구분을 다시 만들 수 없었습니다",
   "notice.discarded.conflicts": "omp가 {commit}(으)로 저장한 변경 복원이 {path}에서 {count}개 파일 충돌로 중단되었습니다 — 워크트리에서 해결하세요. 저장본은 refs/omp/discarded에 남아 있습니다",

@@ -211,6 +211,8 @@ function seed(branch: string = BRANCH): void {
     rpc: {},
     exited: {},
     consoleOpen: {},
+    // A staged settle confirmation (#1061) must never leak into the next test.
+    lifecycleConfirmation: null,
     finishWorktreeTab: TAB,
   });
 }
@@ -1054,6 +1056,9 @@ describe("FinishWorktreeDialog", () => {
       expect(useStore.getState().finishWorktreeTab).toBe(TAB);
       expect(document.body.textContent).toContain("merged 2 commits into main");
       expect(pushRow()).toBeDefined();
+      // Landing alone never reaps: the session stays live until the row is
+      // dismissed (issue #1061).
+      expect(backendMock.settleSession).not.toHaveBeenCalled();
       // The row is inert: the finish already ran, so the footer offers only
       // dismissal, never a second merge.
       expect(doneButton().textContent).toBe("done");
@@ -1275,6 +1280,8 @@ describe("FinishWorktreeDialog", () => {
       expect(useStore.getState().finishWorktreeTab).toBeNull();
       expect(document.body.querySelector('[role="alertdialog"]')).toBeNull();
       expect(backendMock.pushBranch).not.toHaveBeenCalled();
+      // Dismissing without sharing still ends the finish: one settle (#1061).
+      expect(backendMock.settleSession).toHaveBeenCalledTimes(1);
     });
 
     it("confirms before sharing a branch a mid-turn session holds, then honours the answer", async () => {
@@ -1307,9 +1314,11 @@ describe("FinishWorktreeDialog", () => {
     });
   });
 
-  // The returning auto-settle (#924, #923's reversal note): a finish whose
-  // outcome is a landed merge settles the session; every other path does not.
-  describe("merged finish settles the session (issue #924)", () => {
+  // Issue #1061 re-times #924: a landed merge no longer settles the session
+  // when it lands. The finish ends on the done row, and dismissing that row —
+  // footer button, Escape, or backdrop — is what settles, through the shared
+  // store action (settleSessions), which rides the same session:settle channel.
+  describe("the done row's dismissal completes the finish (#1061)", () => {
     /** Finish with the dialog's own defaults: merge & return into `main`. */
     const finish = async (): Promise<void> => {
       await openDialog();
@@ -1319,23 +1328,92 @@ describe("FinishWorktreeDialog", () => {
       });
     };
 
-    const notices = (): Array<{ text: string; level?: string }> => {
-      const items = useStore.getState().rpc[TAB]?.items ?? [];
-      return items.filter((item) => item.kind === "notice");
+    /** The done phase's footer holds one button: the dialog's own dismissal. */
+    const doneButton = (): HTMLButtonElement => {
+      const buttons = [...document.body.querySelectorAll<HTMLButtonElement>("footer button")];
+      expect(buttons.length).toBe(1);
+      return buttons[0]!;
     };
 
-    it("settles once after a merged finish, before the done row renders", async () => {
+    const pushRow = (): HTMLButtonElement | undefined =>
+      buttonByText("push main — 2 commits to origin/main");
+
+    const pressEscape = (): void => {
+      act(() => {
+        document.dispatchEvent(new KeyboardEvent("keydown", { key: "Escape", bubbles: true }));
+      });
+    };
+
+    const pressBackdrop = (): void => {
+      const overlay = document.querySelector("[data-overlay-root]");
+      expect(overlay).not.toBeNull();
+      act(() => {
+        overlay!.dispatchEvent(new Event("pointerdown", { bubbles: true }));
+      });
+    };
+
+    it("leaves the session live while the done row shows", async () => {
       await finish();
+
+      // The work landed, but sharing is still undecided: the settle waits for
+      // the row's dismissal (#1061), so nothing has reaped yet.
+      expect(useStore.getState().finishWorktreeTab).toBe(TAB);
+      expect(document.body.textContent).toContain("merged 2 commits into main");
+      expect(backendMock.settleSession).not.toHaveBeenCalled();
+    });
+
+    it("settles once from the done button, after the release", async () => {
+      await finish();
+
+      act(() => doneButton().click());
+      await act(async () => {
+        await flushMicrotasks();
+      });
 
       expect(backendMock.settleSession).toHaveBeenCalledTimes(1);
       expect(backendMock.settleSession).toHaveBeenCalledWith(TAB);
-      // The settle rides after the release on the same run; the done row of
-      // issue #414 still renders over the settled session.
+      // The release rode the run; the settle rides the dismissal, so it lands
+      // strictly after — and only once per mount.
       expect(backendMock.releaseWorktree.mock.invocationCallOrder[0]!).toBeLessThan(
         backendMock.settleSession.mock.invocationCallOrder[0]!,
       );
-      expect(useStore.getState().finishWorktreeTab).toBe(TAB);
-      expect(document.body.textContent).toContain("merged 2 commits into main");
+      expect(useStore.getState().finishWorktreeTab).toBeNull();
+      expect(document.body.querySelector('[role="alertdialog"]')).toBeNull();
+    });
+
+    it("settles from the backdrop, and later dismissals are no-ops", async () => {
+      await finish();
+
+      pressBackdrop();
+      await act(async () => {
+        await flushMicrotasks();
+      });
+      expect(backendMock.settleSession).toHaveBeenCalledTimes(1);
+      expect(useStore.getState().finishWorktreeTab).toBeNull();
+
+      // The dialog is gone with its listeners and the latch holds: a stray
+      // Escape or outside pointerdown can never queue a second reap.
+      act(() => {
+        document.dispatchEvent(new KeyboardEvent("keydown", { key: "Escape", bubbles: true }));
+        document.body.dispatchEvent(new Event("pointerdown", { bubbles: true }));
+      });
+      await act(async () => {
+        await flushMicrotasks();
+      });
+      expect(backendMock.settleSession).toHaveBeenCalledTimes(1);
+    });
+
+    it("settles from Escape on the done row", async () => {
+      await finish();
+
+      pressEscape();
+      await act(async () => {
+        await flushMicrotasks();
+      });
+
+      expect(useStore.getState().finishWorktreeTab).toBeNull();
+      expect(backendMock.settleSession).toHaveBeenCalledTimes(1);
+      expect(backendMock.settleSession).toHaveBeenCalledWith(TAB);
     });
 
     it("settles an already-merged finish that skipped the merge", async () => {
@@ -1346,8 +1424,13 @@ describe("FinishWorktreeDialog", () => {
         await flushMicrotasks();
       });
 
+      // No merge ran, so there is no done row to dismiss: this close IS the
+      // finish's completion and settles inside the run (issue #1061).
       expect(backendMock.mergeWorktreeBranch).not.toHaveBeenCalled();
       expect(backendMock.settleSession).toHaveBeenCalledTimes(1);
+      expect(backendMock.settleSession).toHaveBeenCalledWith(TAB);
+      expect(useStore.getState().finishWorktreeTab).toBeNull();
+      expect(document.body.querySelector('[role="alertdialog"]')).toBeNull();
     });
 
     it("never settles a keep finish, even with the work already merged earlier", async () => {
@@ -1375,6 +1458,26 @@ describe("FinishWorktreeDialog", () => {
       expect(backendMock.settleSession).not.toHaveBeenCalled();
     });
 
+    it("closes a conflict-stopped run without settling", async () => {
+      backendMock.mergeWorktreeBranch.mockResolvedValue({
+        kind: "conflicts",
+        destination: "main",
+        commits: 0,
+        files: ["src/a.ts"],
+        conflictsLeftIn: "project",
+      });
+      await finish();
+
+      act(() => buttonByText("Cancel")!.click());
+      await act(async () => {
+        await flushMicrotasks();
+      });
+
+      // Nothing landed, so the finish's dismissal is just a cancel (#1061).
+      expect(useStore.getState().finishWorktreeTab).toBeNull();
+      expect(backendMock.settleSession).not.toHaveBeenCalled();
+    });
+
     it("never settles when the release failed (null)", async () => {
       backendMock.releaseWorktree.mockRejectedValueOnce(new Error("release failed"));
       await finish();
@@ -1384,33 +1487,98 @@ describe("FinishWorktreeDialog", () => {
       expect(useStore.getState().finishWorktreeTab).toBe(TAB);
     });
 
-    it("a skipped settle warns on the transcript while the done row still shows", async () => {
-      backendMock.settleSession.mockResolvedValueOnce(false);
-      await openDialog();
-      useStore.setState({ rpc: { [TAB]: rpcTabState() } });
-      act(() => primaryButton().click());
+    it("confirms a mid-turn dismissal through the shared settle instead of reaping", async () => {
+      await finish();
+      // A successor started under the done row: dismissing must not interrupt
+      // its turn silently — the slice stages the standard confirm (#1005).
+      useStore.setState({ rpc: { [TAB]: rpcTabState({ status: "running" }) } });
+
+      act(() => doneButton().click());
       await act(async () => {
         await flushMicrotasks();
       });
 
-      expect(useStore.getState().finishWorktreeTab).toBe(TAB);
-      expect(document.body.textContent).toContain("merged 2 commits into main");
-      const settleNotice = notices().find((item) => item.text.includes("did not settle"));
-      expect(settleNotice).toBeDefined();
-      expect(settleNotice!.level).toBe("warn");
+      // The dialog closed, but no reap left the backend.
+      expect(useStore.getState().finishWorktreeTab).toBeNull();
+      expect(backendMock.settleSession).not.toHaveBeenCalled();
+      expect(useStore.getState().lifecycleConfirmation).toMatchObject({
+        kind: "settle-running",
+        tabIds: [TAB],
+      });
     });
 
-    it("a rejected settle leaves the done row intact", async () => {
-      backendMock.settleSession.mockRejectedValueOnce(new Error("transport down"));
+    it("refuses dismissal while the run is working", async () => {
+      let finishRelease!: (value: WorktreeReleaseResult) => void;
+      backendMock.releaseWorktree.mockReturnValue(
+        new Promise<WorktreeReleaseResult>((resolve) => {
+          finishRelease = resolve;
+        }),
+      );
       await openDialog();
-      act(() => primaryButton().click());
+      act(() => primaryButton().click()); // merge & return
       await act(async () => {
         await flushMicrotasks();
       });
 
-      // The finish landed; a failed settle reads as a notice, never a half-done merge.
+      // Mid-release the run owns the session: dismissing would orphan it.
+      pressEscape();
+      pressBackdrop();
+      await act(async () => {
+        await flushMicrotasks();
+      });
       expect(useStore.getState().finishWorktreeTab).toBe(TAB);
+      expect(document.body.querySelector('[role="alertdialog"]')).not.toBeNull();
+      expect(backendMock.settleSession).not.toHaveBeenCalled();
+
+      await act(async () => {
+        finishRelease(releaseResult);
+        await flushMicrotasks();
+      });
       expect(document.body.textContent).toContain("merged 2 commits into main");
+
+      act(() => doneButton().click());
+      await act(async () => {
+        await flushMicrotasks();
+      });
+      expect(backendMock.settleSession).toHaveBeenCalledTimes(1);
+    });
+
+    it("refuses dismissal while a done-row push is in flight, then settles on the next", async () => {
+      let finishPush!: (value: PushResult) => void;
+      backendMock.pushBranch.mockReturnValue(
+        new Promise<PushResult>((resolve) => {
+          finishPush = resolve;
+        }),
+      );
+      await finish();
+
+      act(() => pushRow()!.click());
+      await act(async () => {
+        await flushMicrotasks();
+      });
+      expect(backendMock.pushBranch).toHaveBeenCalledWith("/p", "main");
+
+      // The share is half-done: the row refuses every dismissal (R5).
+      act(() => doneButton().click());
+      pressBackdrop();
+      await act(async () => {
+        await flushMicrotasks();
+      });
+      expect(useStore.getState().finishWorktreeTab).toBe(TAB);
+      expect(backendMock.settleSession).not.toHaveBeenCalled();
+
+      await act(async () => {
+        finishPush({ kind: "pushed", remote: "origin", upstreamRef: "origin/main", commits: 2 });
+        await flushMicrotasks();
+      });
+      pressEscape();
+      await act(async () => {
+        await flushMicrotasks();
+      });
+
+      expect(useStore.getState().finishWorktreeTab).toBeNull();
+      expect(backendMock.settleSession).toHaveBeenCalledTimes(1);
+      expect(backendMock.settleSession).toHaveBeenCalledWith(TAB);
     });
   });
 

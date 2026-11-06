@@ -19,8 +19,10 @@ import { NEW_BRANCH_SENTINEL } from "./WorktreeBranchFields";
  * git command in the worktree discarded them (omp 18.14, issue #973) are
  * listed with a restore action that re-applies one into the checkout. A
  * merged finish ends on the done row instead of closing: the work is landed,
- * and sharing it with the remote stays an explicit step. Supersedes the merge
- * rows the two chips used to carry inline.
+ * sharing it with the remote stays an explicit step, and the session stays
+ * live under the row until it is dismissed — dismissal settles through the
+ * shared settle action (issue #1061). Supersedes the merge rows the two
+ * chips used to carry inline.
  */
 
 const stepLabel: Record<FinishStep, MessageKey> = {
@@ -226,12 +228,20 @@ export function FinishWorktreeDialog({ tabId }: { tabId: string }) {
           // The finish already happened; the only thing left to decide is
           // whether the landed branch goes to the remote, and that row is in
           // the body, not the footer (issue #414).
-          <Button variant="solid" disabled={c.resolutionBusy} onClick={c.close}>
+          <Button
+            variant="solid"
+            disabled={c.resolutionBusy || c.pushState.s === "busy"}
+            onClick={c.close}
+          >
             {t("finish.primary.done")}
           </Button>
         ) : (
           <>
-            <Button variant="ghost" disabled={c.resolutionBusy} onClick={c.close}>
+            <Button
+              variant="ghost"
+              disabled={c.resolutionBusy || working || c.phase.s === "loading"}
+              onClick={c.close}
+            >
               {t("common.dialog.cancel")}
             </Button>
             <Button

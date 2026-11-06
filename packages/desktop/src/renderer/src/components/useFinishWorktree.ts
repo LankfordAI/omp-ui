@@ -26,9 +26,11 @@ import { isMintedWorktreeBranch, worktreeBranchPrefix } from "@omp-ui/core/workt
  * any local branch, or a new branch cut from a chosen start point), how it
  * lands (merge commit vs keep branch, with an optional rename), and whether
  * the session returns to the project checkout — run in that order against
- * main. A merged merge-back ends on the done phase: the work is landed
- * locally, and publishing or pushing it stays an explicit separate step.
- * Presentation-free, the way useMergeBack was: the dialog renders this.
+ * main. A merged merge-back ends on the done phase with the session still
+ * live: the work is landed locally, publishing or pushing it stays an
+ * explicit separate step, and dismissing that done row is what settles the
+ * session — through the shared settle path (issue #1061). Presentation-free,
+ * the way useMergeBack was: the dialog renders this.
  */
 
 export type FinishOutcome = "merge" | "keep";
@@ -187,7 +189,7 @@ export function useFinishWorktree(tabId: string): FinishController {
   const createBranch = useStore((s) => s.createBranch);
   const mergeWorktreeBranch = useStore((s) => s.mergeWorktreeBranch);
   const releaseWorktreeSession = useStore((s) => s.releaseWorktreeSession);
-  const settleFinishedSession = useStore((s) => s.settleFinishedSession);
+  const settleSessions = useStore((s) => s.settleSessions);
   const syncWorktreeSession = useStore((s) => s.syncWorktreeSession);
   const renameWorktreeSessionBranch = useStore((s) => s.renameWorktreeSessionBranch);
   const listDiscardedChanges = useStore((s) => s.listDiscardedChanges);
@@ -442,8 +444,29 @@ export function useFinishWorktree(tabId: string): FinishController {
           }
         : null;
 
+  // Internal closes must never dismiss a dialog another tab already reopened:
+  // only the tab that still owns the panel may close it.
+  const closeOwnDialog = (): void => {
+    if (useStore.getState().finishWorktreeTab === tabId) closeFinishWorktree();
+  };
+
+  // Latched per mount: App keys the dialog by tab, so one dismissal = one settle.
+  const finishSettled = useRef(false);
+
   const close = (): void => {
-    if (!resolutionPending.current) closeFinishWorktree();
+    if (resolutionPending.current) return;
+    // The run owns the session while it moves refs, releases the worktree, or
+    // pushes: dismissing now would orphan it mid-flight (R5).
+    if (phase.s === "working" || pushState.s === "busy") return;
+    const completesFinish = phase.s === "done";
+    closeFinishWorktree();
+    // The done row's dismissal is where a merged finish ends: the work landed,
+    // sharing was decided. Settle through the shared path so a mid-turn
+    // successor earns the standard confirm and the reap carries undo (#980).
+    if (completesFinish && !finishSettled.current) {
+      finishSettled.current = true;
+      void settleSessions([tabId]);
+    }
   };
 
   const resolveWithAgent = async (): Promise<void> => {
@@ -569,7 +592,7 @@ export function useFinishWorktree(tabId: string): FinishController {
         }
       }
       const accepted = await resolveWorktreeMerge(tabId, dispatch.trigger, dispatch.route);
-      if (accepted) closeFinishWorktree();
+      if (accepted) closeOwnDialog();
       else setResolutionError(t("finish.resolution.failed"));
     } catch (error) {
       setResolutionError(`${t("finish.resolution.failed")} ${errorMessage(error)}`);
@@ -728,21 +751,12 @@ export function useFinishWorktree(tabId: string): FinishController {
         );
       }
     }
-    // Merged finish settles the session (#924, #923's returning auto-settle):
-    // the thread's job is done, its work landed. Fires after any
-    // release/relaunch completed (the per-tab op chain orders them), reaps
-    // the successor, never a replacement. Push needs no process, so the done
-    // row stays live below.
-    if (outcome === "merge") {
-      const settled = await settleFinishedSession(tabId);
-      if (!settled) {
-        appendNotice(tabId, t("notice.finish.settleSkipped"), "warn");
-      }
-    }
     // 5. Landed, but not shared (issue #414): a merge that moved commits
     // stops on the done row, where publishing or pushing `destination` is one
-    // deliberate click rather than a side effect of finishing. Every other
-    // outcome — keep, rename-only, already-merged — closes as it always did.
+    // deliberate click rather than a side effect of finishing. The session
+    // stays live under the done row; dismissing it settles (issue #1061).
+    // Every other outcome — keep, rename-only, already-merged — closes as it
+    // always did.
     if (mergeResult !== null && mergeResult.kind === "merged") {
       setPushState({ s: "idle" });
       setPrUnavailable(false);
@@ -755,7 +769,10 @@ export function useFinishWorktree(tabId: string): FinishController {
       });
       return;
     }
-    closeFinishWorktree();
+    // Already-merged return: there is no done row, so this close IS the finish's
+    // completion — settle now, on the shared path (issue #1061 re-timed).
+    if (outcome === "merge") void settleSessions([tabId]);
+    closeOwnDialog();
   };
 
   const sync = async (): Promise<void> => {
@@ -779,7 +796,7 @@ export function useFinishWorktree(tabId: string): FinishController {
       );
       // The dialog has done its job; the work moves to the checkout, where
       // the session owning the change resolves it (issue #387).
-      closeFinishWorktree();
+      closeOwnDialog();
       return;
     }
     fetchStatus();
@@ -809,7 +826,7 @@ export function useFinishWorktree(tabId: string): FinishController {
         t("notice.discarded.conflicts", { commit: short, count: result.files.length, path }),
         "warn",
       );
-      closeFinishWorktree();
+      closeOwnDialog();
       return;
     }
     appendNotice(
