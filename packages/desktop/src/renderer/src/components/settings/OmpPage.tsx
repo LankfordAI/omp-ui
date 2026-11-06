@@ -38,6 +38,9 @@ import { useT, type MessageKey } from "../../lib/i18n";
 const ROW_HINT_KEYS: Partial<Record<string, MessageKey>> = {
   textVerbosity: "settings.omp.rowHint.textVerbosity",
   "task.workerThreads": "settings.omp.rowHint.task.workerThreads",
+  // omp's own description cannot say this is transport, not live steering.
+  "providers.openaiResponsesWebsockets":
+    "settings.omp.rowHint.providers.openaiResponsesWebsockets",
 };
 
 export function OmpPage({

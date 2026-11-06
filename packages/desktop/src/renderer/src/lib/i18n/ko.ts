@@ -1525,6 +1525,7 @@ export const ko: Partial<Record<MessageKey, string>> = {
   "settings.omp.globalMcpServers": "Global MCP server…",
   "settings.omp.rowHint.textVerbosity": "omp가 쓰는 응답의 길이입니다. omp 18.17부터 기본값이 low로 바뀌었고 Codex에도 적용됩니다 — 더 짧게 더 빨리 끝납니다. medium으로 되돌리면 이전 응답 길이를 회복합니다. 변경 사항은 이후에 시작되는 세션부터 적용됩니다.",
   "settings.omp.rowHint.task.workerThreads": "subagent가 실행되는 worker 스레드 수를 제한합니다(기본값 4). 동시에 실행되는 subagent 수가 아닙니다. 최대 8개의 동시 subagent는 메인 스레드에 남고, 9개부터 worker가 하나 추가되며 그 수가 두 배가 될 때마다(18, 36, 72) 하나씩 늘릅니다. 0은 모든 subagent를 메인 스레드에 남깁니다 — 무제한을 뜻하지 않습니다. 변경 사항은 이후에 시작되는 세션부터 적용됩니다.",
+  "settings.omp.rowHint.providers.openaiResponsesWebsockets": "카탈로그에서 지원되는 standard Responses 트래픽을 HTTP/SSE 대신 WebSocket으로 전송하며, 연결이 실패하면 자동으로 HTTP/SSE로 되돌립니다. 이는 전송(TRANSPORT)에만 관한 설정이며, live steering과는 다른 별개의 행입니다. false로 설정한 모델이나 요청에는 영향이 없습니다. 변경 사항은 이후에 시작되는 세션부터 적용됩니다.",
   "settings.omp.footerIntro": "변경 사항은 omp global config에 기록됩니다(",
   "settings.omp.footerProjectPrefix": "). 프로젝트의 ",
   "settings.omp.footerStillWins": "이(가) 계속 우선하며 다음으로 표시됩니다: ",

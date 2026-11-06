@@ -311,6 +311,13 @@ export const OMP_SETTING_GROUPS: ReadonlyArray<OmpSettingGroup> = [
       // sessions had before the flip. The options ride in from
       // `omp config list` via parseEnumOptions, so no option plumbing here.
       "textVerbosity",
+      // omp 18.17.0 (issue #1068): off by default. On, catalog-supported
+      // standard Responses models run over WebSockets with HTTP/SSE fallback.
+      // Transport only — not openaiLiveSteering's mid-response steering above;
+      // the distinction and the sessions-started-afterwards timing live in
+      // OmpPage.tsx's row hint, because omp's own description cannot be
+      // edited to carry them.
+      "providers.openaiResponsesWebsockets",
     ],
   },
   {

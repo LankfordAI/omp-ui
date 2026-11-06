@@ -842,6 +842,24 @@ describe("writeOmpSetting", () => {
     expect(seen).toEqual(["config", "set", "textVerbosity", "medium", "--json"]);
   });
 
+  it("admits providers.openaiResponsesWebsockets to the write boundary (#1068)", async () => {
+    let seen: readonly string[] = [];
+    await writeOmpSetting(
+      { ompPath: OMP, key: "providers.openaiResponsesWebsockets", value: true },
+      async (args) => {
+        seen = args;
+        return "";
+      },
+    );
+    expect(seen).toEqual([
+      "config",
+      "set",
+      "providers.openaiResponsesWebsockets",
+      "true",
+      "--json",
+    ]);
+  });
+
   it("admits both composer prediction keys to the write boundary (#1030)", async () => {
     let seen: readonly string[] = [];
     await writeOmpSetting(

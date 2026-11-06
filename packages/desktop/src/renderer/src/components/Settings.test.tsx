@@ -1152,6 +1152,47 @@ describe("Settings omp Providers group (issues #178 and #179)", () => {
     );
   });
 
+  it("renders the Responses WebSockets switch with omp-ui's load-bearing copy (#1068)", async () => {
+    seedOmp({
+      ...emptyOmpSettings,
+      entries: [
+        {
+          key: "providers.openaiResponsesWebsockets",
+          type: "boolean",
+          description:
+            "Opt in for catalog-supported standard Responses models; model or request false disables it",
+          value: false,
+          globalValue: undefined,
+          options: null,
+          layer: "default",
+        },
+        ...timeouts,
+      ],
+    });
+    await renderSettings();
+
+    const toggle = document.querySelector<HTMLElement>(
+      'button[role="switch"][aria-label="providers.openaiResponsesWebsockets"]',
+    )!;
+    expect(toggle.getAttribute("aria-checked")).toBe("false");
+    // The hint is omp-ui's copy, not the installed binary's wording: it must
+    // distinguish transport from the openaiLiveSteering row above and carry
+    // the restart timing.
+    expect(document.body.textContent).toContain("not live steering");
+    expect(document.body.textContent).toContain(
+      "falling back to HTTP/SSE automatically",
+    );
+    expect(document.body.textContent).toContain(
+      "sessions started afterwards",
+    );
+
+    click(toggle);
+    expect(backendMock.writeOmpSetting).toHaveBeenCalledWith(
+      "providers.openaiResponsesWebsockets",
+      true,
+    );
+  });
+
   it("omits the routing row when omp does not publish the key", async () => {
     seedOmp({ ...emptyOmpSettings, entries: timeouts });
     await renderSettings();
@@ -1164,6 +1205,9 @@ describe("Settings omp Providers group (issues #178 and #179)", () => {
       "providers.openrouterVariant",
     );
     expect(document.body.textContent).not.toContain("textVerbosity");
+    expect(document.body.textContent).not.toContain(
+      "providers.openaiResponsesWebsockets",
+    );
   });
 
   it("opens the global capabilities viewer without a focused session", async () => {
