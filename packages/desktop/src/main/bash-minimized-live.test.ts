@@ -1,7 +1,7 @@
 import * as fs from "node:fs";
 import * as os from "node:os";
 import * as path from "node:path";
-import { spawn } from "node:child_process";
+import { execFileSync, spawn } from "node:child_process";
 import { createServer } from "node:http";
 import { afterEach, beforeAll, describe, expect, it } from "vitest";
 import { RpcClient, compareVersions, readInstalledOmpVersion, resolveOmpBinary } from "@omp-ui/core";
@@ -18,8 +18,15 @@ import { parseBashMinimized, type BashMinimized } from "@omp-ui/core/bash-minimi
  *
  * A scripted loopback provider (the async-jobs-live.test.ts pattern) makes
  * the bash call deterministic without billing a real model: completion 0
- * emits one bash tool call whose command prints ~240 KB of repetitive lines,
- * completion 0's follow-up streams a closing sentence and ends the turn.
+ * emits one bash tool call, completion 0's follow-up streams a closing
+ * sentence and ends the turn.
+ *
+ * The command is `git log --stat` on a seeded repo, not generic filler: as of
+ * omp 18.17 the shell minimizer rewrites only recognized command families
+ * (probed against the binary — `yes … | head -n 4000` and `seq 1 100000` come
+ * back with a truncation notice and no `meta.minimized`, even with
+ * `shellMinimizer.legacyFilters: true`), so a repetitive-output pipe is no
+ * longer a minimizer trigger. The seeded repo drives the real `git` filter.
  *
  * Skips without an omp binary, and per test below omp 18.16.0.
  */
@@ -48,17 +55,51 @@ tools:
   approvalMode: yolo
 `;
 
-/** ~240 KB of repetitive lines, enough for any minimizer threshold. */
-const MARKER = "minimize-probe repetitive filler line for the bash output minimizer";
+/**
+ * The minimized bash call. Recognized command families are what omp's shell
+ * minimizer rewrites — as of 18.17 its filters key on the command, not the
+ * output shape: `yes … | head -n 4000` and `seq 1 100000` come back with a
+ * truncation notice and no `meta.minimized`, even with
+ * `shellMinimizer.legacyFilters: true`. `git log --stat` over the seeded repo
+ * below drives the real `git` filter (probed on 18.17.0: ~4.9 KB in, 710 B out).
+ */
 const TOOL_CALL = {
   index: 0,
   id: "call_minimize",
   type: "function",
   function: {
     name: "bash",
-    arguments: JSON.stringify({ command: `yes ${MARKER} | head -n 4000`, i: "emit a huge repetitive output" }),
+    arguments: JSON.stringify({ command: "git log --stat", i: "show the history" }),
   },
 };
+
+/**
+ * Seeds `project` with commits of repetitive module churn so `git log --stat`
+ * returns enough lines for the git filter to rewrite. The env hermeticBase
+ * hands the spawn pins GIT_CONFIG_GLOBAL/SYSTEM at an empty file, and seeding
+ * pins them too: a developer's identity, `log.date`, `log` alias, or hooks
+ * never touch the fixture or the minimized output.
+ */
+function seedGitRepo(base: string, project: string): void {
+  const emptyConfig = path.join(base, "gitconfig-empty");
+  const git = (...args: string[]): void => {
+    execFileSync("git", ["-c", "user.email=min@live", "-c", "user.name=minimize-probe", ...args], {
+      cwd: project,
+      env: { ...process.env, GIT_CONFIG_GLOBAL: emptyConfig, GIT_CONFIG_SYSTEM: emptyConfig },
+      stdio: "ignore",
+    });
+  };
+  git("init", "-q");
+  for (let commit = 0; commit < 20; commit++) {
+    const body = Array.from(
+      { length: 30 },
+      (_, line) => `minimize-probe module churn line ${commit}-${line}`,
+    ).join("\n");
+    fs.writeFileSync(path.join(project, `mod_${commit % 7}.js`), `${body}\n`);
+    git("add", "-A");
+    git("commit", "-qm", `adjust module ${commit % 7} revision ${commit}`);
+  }
+}
 
 interface Frame {
   type: string;
@@ -155,13 +196,20 @@ async function scriptedProvider(): Promise<ScriptedProvider> {
   };
 }
 
-/** A temp base holding a hermetic HOME (scripted model, yolo bash) and its env. */
+/**
+ * A temp base holding a hermetic HOME (scripted model, yolo bash) and its env.
+ * The env also pins git at an empty global/system config: `git log --stat` is
+ * the minimized command itself, so a developer's `log.date`, `log` alias, or
+ * pager settings must not reshape its output out from under the byte counts.
+ */
 function hermeticBase(baseUrl: string): { base: string; env: NodeJS.ProcessEnv } {
   const base = fs.mkdtempSync(path.join(os.tmpdir(), "omp-ui-bash-minimized-live-"));
   const home = path.join(base, "home");
   fs.mkdirSync(path.join(home, ".omp", "agent"), { recursive: true });
   fs.writeFileSync(path.join(home, ".omp", "agent", "models.yml"), MODELS_YML(baseUrl));
   fs.writeFileSync(path.join(home, ".omp", "agent", "config.yml"), CONFIG_YML);
+  const emptyConfig = path.join(base, "gitconfig-empty");
+  fs.writeFileSync(emptyConfig, "");
   return {
     base,
     env: {
@@ -169,6 +217,8 @@ function hermeticBase(baseUrl: string): { base: string; env: NodeJS.ProcessEnv }
       HOME: home,
       XDG_CONFIG_HOME: path.join(home, ".config"),
       XDG_DATA_HOME: path.join(home, ".local", "share"),
+      GIT_CONFIG_GLOBAL: emptyConfig,
+      GIT_CONFIG_SYSTEM: emptyConfig,
     },
   };
 }
@@ -179,6 +229,7 @@ function spawnScope(base: string, env: NodeJS.ProcessEnv): Scope {
   const lineage = path.join(base, "lin");
   fs.mkdirSync(lineage, { recursive: true });
   fs.mkdirSync(project, { recursive: true });
+  seedGitRepo(base, project);
   const frames: Frame[] = [];
   let markExited!: () => void;
   const exited = new Promise<void>((resolve) => {

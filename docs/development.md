@@ -67,6 +67,18 @@ The subagent-model live proof inherits the local omp parent model. That model
 must be served by its configured provider; a provider rejection prevents the
 first task spawn regardless of the subagent pin (issue #744).
 
+Three live proofs pin their hermetic scope against omp 18.17 runtime behavior
+(issue #1051). The bash minimizer proof drives `git log --stat` over a seeded
+repo because as of 18.17 the shell minimizer rewrites only recognized command
+families; generic repetitive output arrives truncated with no
+`meta.minimized`. The spend-cap proof seeds its transcript's model in the
+scope's own `models.yml`: a resume whose last assistant model no longer
+resolves exits with `SessionModelRestoreError` before taking any prompt. The
+magic-keyword proofs pin `compaction.enabled: false` — against their
+unreachable probe model, auto-compaction enters `auto_compaction_start` and
+never consumes the next prompt, and omp-ui's stall watchdog deliberately
+treats that frame as legitimate quiet.
+
 The worker-thread proof cancels every worker-hosted task and observes its nested bash job settle through the bridge. After bulk cancellation it checks all twenty original job statuses with a test-only larger `getAsyncJobTree` read: OMP's ten-row recent list is sorted by job start time, so it cannot retain the entire cancelled tree. Production retention stays unchanged. A separate post-cancellation transcript and usage append must produce fresh spend frames with exact usage deltas, proving polling survived cancellation.
 
 ## Workspace commands

@@ -12,6 +12,12 @@ import { RpcClient, resolveOmpBinary } from "@omp-ui/core";
  * transcript already spent $1.00, the `--config` overlay caps the session at
  * $0.50, so omp refuses the prompt before any model request.
  *
+ * The seeded transcript must name a model the hermetic HOME can restore: as
+ * of omp 18.17 a resume whose last assistant model no longer resolves dies
+ * with `SessionModelRestoreError` (exit 1) before any prompt is taken, so the
+ * scope ships its own unreachable loopback provider and seeds a reply from
+ * it. No provider is ever called — the cost gate refuses before the request.
+ *
  * The contract omp-ui reads: omp's own `cost-gate` error notice arrives
  * first, then a `prompt_result` with `error.code: "cost_cap"` (not
  * retryable), and no agent turn starts.
@@ -22,6 +28,28 @@ import { RpcClient, resolveOmpBinary } from "@omp-ui/core";
 const ompPath = resolveOmpBinary();
 const PROMPT_ID = "capped";
 const SESSION_ID = "019faa64-fdcd-7000-acfd-0123456789c1";
+
+/** The seeded reply's model: declared in this scope's HOME so 18.17 can restore it. */
+const SEEDED_MODEL = { provider: "capprobe", model: "inert" } as const;
+
+/** Unreachable loopback endpoint: nothing here is ever billed, never contacted. */
+const MODELS_YML = `providers:
+  capprobe:
+    baseUrl: http://127.0.0.1:9/v1
+    api: openai-completions
+    apiKey: none
+    models:
+      - id: inert
+        name: inert
+        contextWindow: 4096
+        maxTokens: 128
+`;
+
+const CONFIG_YML = `startup:
+  checkUpdate: false
+retry:
+  enabled: false
+`;
 
 interface Frame {
   type: string;
@@ -87,8 +115,8 @@ function assistantEntry(id: string, parentId: string, text: string, total: numbe
       role: "assistant",
       content: [{ type: "text", text }],
       api: "openai-completions",
-      provider: "openai",
-      model: "gpt-4o-mini",
+      provider: SEEDED_MODEL.provider,
+      model: SEEDED_MODEL.model,
       usage: {
         input: 10,
         output: 5,
@@ -110,7 +138,9 @@ function spawnScope(): Scope {
   const home = path.join(base, "home");
   fs.mkdirSync(project, { recursive: true });
   fs.mkdirSync(lineage, { recursive: true });
-  fs.mkdirSync(home, { recursive: true });
+  fs.mkdirSync(path.join(home, ".omp", "agent"), { recursive: true });
+  fs.writeFileSync(path.join(home, ".omp", "agent", "models.yml"), MODELS_YML);
+  fs.writeFileSync(path.join(home, ".omp", "agent", "config.yml"), CONFIG_YML);
   seedTranscript(lineage, SESSION_ID, [
     userEntry("a1b2c3d4", null, "hello"),
     assistantEntry("e5f6a7b8", "a1b2c3d4", "hi there", 1),

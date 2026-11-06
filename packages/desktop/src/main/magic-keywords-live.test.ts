@@ -89,6 +89,14 @@ const CONFIG_YML = `startup:
   checkUpdate: false
 retry:
   enabled: false
+# Auto-compaction must stay off: the matrix prompts ride an unreachable
+# model on a 4096-token window, so once history crosses the threshold omp
+# enters auto_compaction_start against a provider that can never answer and
+# stops consuming further prompts (reproduced on 18.17.0: the corpus' second
+# abort_and_prompt parks behind it indefinitely). Keyword firing is what this
+# file proves; compaction is scope noise, pinned like retry above.
+compaction:
+  enabled: false
 `;
 
 /** A prompt carrying every keyword this binary knows, each in matchable standalone prose. */
