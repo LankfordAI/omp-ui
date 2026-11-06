@@ -393,8 +393,14 @@ if (!app.requestSingleInstanceLock()) {
     // never ~/.zshrc — so keys the user exported from their shell are invisible
     // and omp's model catalog collapses to the providers needing no auth. Void-
     // fired: sessions spawn on user action, long after this settles, and the
-    // stored keys are already applied synchronously in the constructor.
-    void be.captureShellKeys();
+    // stored keys are already applied synchronously in the constructor. The
+    // council chain after it: seeding reads the model catalog, which is only
+    // trustworthy once the recovered keys have landed, and only runs while the
+    // council experiment is on.
+    void be
+      .captureShellKeys()
+      .then(() => (be.isCouncilEnabled() ? be.seedCouncilRosterIfUnset() : undefined))
+      .catch(() => {});
     // The fresh-spawn gate consults the subscription account cache, so prime
     // it at boot the same way the shell keys are (issue #368).
     void be.refreshProviderOAuth();

@@ -541,7 +541,7 @@ export const BACKEND_CHANNELS = {
     channel: "settings:setAutoresearchEnabled",
     ...request<[on: boolean], void>([bool()]),
   },
-  /** Council subsystem gate (#1052); default off. */
+  /** Council subsystem gate (#1052); default on since graduation. */
   setCouncilEnabled: {
     channel: "settings:setCouncilEnabled",
     ...request<[on: boolean], void>([bool()]),

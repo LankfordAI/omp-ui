@@ -1,4 +1,3 @@
-import { suggestCouncilMembers } from "@omp-ui/core/council-config";
 import { compactionSettingsFromEntries } from "@omp-ui/core/compaction-threshold";
 import type { StateCreator } from "zustand";
 import { backend } from "../../backend";
@@ -90,27 +89,6 @@ export const createSettingsSlice: StateCreator<UiStore, [], [], SettingsSlice> =
     const message = err instanceof Error ? err.message : String(err);
     if (message === "remote connection lost") return;
     get().reportError(message);
-  };
-
-  /**
-   * #1055: enabling the council with no authored global roster seeds one from
-   * the user's favorite models (#1058), so the flag flip alone yields a working
-   * `/council`. An existing global document is never touched; every failure
-   * (undiscovered catalog, write rejection) is swallowed — the flag must still
-   * flip on, and `/council` keeps its own refuse path.
-   */
-  const seedGlobalCouncilIfEmpty = async (): Promise<void> => {
-    try {
-      const view = await backend.getCouncilRoster(null);
-      if (view.global !== null && view.global.members.length > 0) return;
-      const catalog = await backend.readChatModels();
-      if (!catalog.discovered || catalog.models.length === 0) return;
-      const members = suggestCouncilMembers(catalog.models, get().state?.modelFavorites ?? []);
-      if (members.length === 0) return;
-      await backend.setCouncilRoster({ scopeCwd: null, scope: "user", document: { instructions: null, members } });
-    } catch {
-      // Seeding is best-effort: turning the flag on must not depend on it.
-    }
   };
 
   return {
@@ -309,9 +287,6 @@ export const createSettingsSlice: StateCreator<UiStore, [], [], SettingsSlice> =
       }
     },
     async setCouncilEnabled(on) {
-      // Seed first (issue #1055): the editor rendered after the flag flips
-      // should already show the suggested roster.
-      if (on) await seedGlobalCouncilIfEmpty();
       try {
         await backend.setCouncilEnabled(on);
       } catch (err) {

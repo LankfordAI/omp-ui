@@ -10,6 +10,7 @@ import {
   rebindSessionCwd,
   unarchiveSession,
   type CouncilDocument,
+  councilOverlayPath,
   councilRosterSnapshotPath,
   removeLineageArtifact,
   resolveCouncilRoster,
@@ -462,6 +463,7 @@ export function writeRpcExtensions(
  * Resolves the council once for a spawn (ADR-0088): writes the snapshot the bridge launches and
  * returns the --config overlay that turns per-call models on and grants exactly the launched
  * members' models. Legacy code-review artifacts in a reused lineage dir are removed.
+ * Returns null and writes no overlay when no member can launch (the snapshot is still written).
  * Never fatal: on failure the snapshot is removed (the bridge then refuses with a restart hint)
  * and null is returned.
  */
@@ -476,6 +478,13 @@ export function writeCouncilForSpawn(
   try {
     const roster = resolveCouncilRoster(project === null ? null : "project", { global, project });
     writeCouncilRosterSnapshot(absLineageDir, roster);
+    if (roster.members.length === 0) {
+      // No member can launch: the bridge refuses before any task call, so the
+      // per-call-model grant has no honest reason to ride. Drop a stale overlay
+      // from a reused lineage dir and leave the session config untouched.
+      removeLineageArtifact(councilOverlayPath(absLineageDir));
+      return null;
+    }
     return writeCouncilOverlay(absLineageDir, roster.members.map((m) => m.model!));
   } catch (err) {
     removeLineageArtifact(councilRosterSnapshotPath(absLineageDir));

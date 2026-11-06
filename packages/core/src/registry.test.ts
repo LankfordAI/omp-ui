@@ -107,6 +107,7 @@ describe("SETTINGS", () => {
       "autoThinkingDefaultSeeded",
       "hibernateManualDefaultSeeded",
       "experimentsFlagSplitSeeded",
+      "councilDefaultOnSeeded",
       "councilRoster",
       "gettingStartedSeen",
       "dismissedAppUpdateVersion",
@@ -174,8 +175,10 @@ describe("Registry.load", () => {
     expect(reg.getSetting("experimentsEnabled")).toBe(false);
     // Issue #1052: the split gates default off; fresh installs are born seeded.
     expect(reg.getSetting("autoresearchEnabled")).toBe(false);
-    expect(reg.getSetting("councilEnabled")).toBe(false);
+    // Council graduation: the gate defaults on; fresh installs are born seeded.
+    expect(reg.getSetting("councilEnabled")).toBe(true);
     expect(reg.getSetting("experimentsFlagSplitSeeded")).toBe(true);
+    expect(reg.getSetting("councilDefaultOnSeeded")).toBe(true);
     expect(reg.getSetting("snoozedSectionEnabled")).toBe(false);
     // Issue #647: the mic button is off, and the dictation model auto-resolves.
     expect(reg.getSetting("voiceInputEnabled")).toBe(false);
@@ -762,7 +765,7 @@ describe("Registry persistence", () => {
     expect(Registry.load(file).getSetting("hibernateIdleMinutes")).toBe(45);
   });
 
-  it("copies the legacy experiments flag into both split gates once (issue #1052)", () => {
+  it("copies the legacy experiments flag into the autoresearch gate once (issue #1052)", () => {
     const file = tmpFile();
     fs.writeFileSync(
       file,
@@ -771,12 +774,14 @@ describe("Registry persistence", () => {
     const reg = Registry.load(file);
     expect(reg.getSetting("experimentsEnabled")).toBe(true);
     expect(reg.getSetting("autoresearchEnabled")).toBe(true);
+    // Council graduation: the council gate lands on via its own seed, not the split.
     expect(reg.getSetting("councilEnabled")).toBe(true);
-    // The marker persisted with the copy.
+    // The markers persisted with the flips.
     const onDisk = JSON.parse(fs.readFileSync(file, "utf8")) as {
       settings: Record<string, unknown>;
     };
     expect(onDisk.settings.experimentsFlagSplitSeeded).toBe(true);
+    expect(onDisk.settings.councilDefaultOnSeeded).toBe(true);
     expect(onDisk.settings.autoresearchEnabled).toBe(true);
     expect(onDisk.settings.councilEnabled).toBe(true);
     // A second load writes nothing.
@@ -785,7 +790,7 @@ describe("Registry persistence", () => {
     expect(fs.readFileSync(file, "utf8")).toBe(bytes);
   });
 
-  it("copies an off legacy experiments flag as off (issue #1052)", () => {
+  it("copies an off legacy experiments flag as off but still lands council on once (issue #1052)", () => {
     const file = tmpFile();
     fs.writeFileSync(
       file,
@@ -794,14 +799,16 @@ describe("Registry persistence", () => {
     const reg = Registry.load(file);
     expect(reg.getSetting("experimentsEnabled")).toBe(false);
     expect(reg.getSetting("autoresearchEnabled")).toBe(false);
-    expect(reg.getSetting("councilEnabled")).toBe(false);
+    // Council graduation force-flips the gate on once regardless of the old flag.
+    expect(reg.getSetting("councilEnabled")).toBe(true);
     const onDisk = JSON.parse(fs.readFileSync(file, "utf8")) as {
       settings: Record<string, unknown>;
     };
     expect(onDisk.settings.experimentsFlagSplitSeeded).toBe(true);
+    expect(onDisk.settings.councilDefaultOnSeeded).toBe(true);
   });
 
-  it("keeps explicit split-gate values once the marker is set (issue #1052)", () => {
+  it("keeps explicit split-gate values once the markers are set (issue #1052)", () => {
     const file = tmpFile();
     fs.writeFileSync(
       file,
@@ -811,9 +818,10 @@ describe("Registry persistence", () => {
           experimentsEnabled: false,
           autoresearchEnabled: true,
           councilEnabled: false,
-          // All three one-time markers: with the other two absent, load's
+          // All four one-time markers: with the others absent, load's
           // auto-thinking and hibernate seeds rewrite the file (#1054).
           experimentsFlagSplitSeeded: true,
+          councilDefaultOnSeeded: true,
           autoThinkingDefaultSeeded: true,
           hibernateManualDefaultSeeded: true,
         },
@@ -826,6 +834,48 @@ describe("Registry persistence", () => {
     expect(reg.getSetting("councilEnabled")).toBe(false);
     // Seeded already, so load writes nothing.
     expect(fs.readFileSync(file, "utf8")).toBe(bytes);
+  });
+
+  it("flips the legacy off council default on once (council graduation)", () => {
+    const file = tmpFile();
+    fs.writeFileSync(
+      file,
+      JSON.stringify({ schemaVersion: 1, settings: { councilEnabled: false } }),
+    );
+    expect(Registry.load(file).getSetting("councilEnabled")).toBe(true);
+    // The marker persisted with the flip.
+    const onDisk = JSON.parse(fs.readFileSync(file, "utf8")) as {
+      settings: Record<string, unknown>;
+    };
+    expect(onDisk.settings.councilDefaultOnSeeded).toBe(true);
+    expect(onDisk.settings.councilEnabled).toBe(true);
+    // A second load writes nothing.
+    const bytes = fs.readFileSync(file, "utf8");
+    Registry.load(file);
+    expect(fs.readFileSync(file, "utf8")).toBe(bytes);
+  });
+
+  it("keeps council off once the graduation marker is set", () => {
+    const file = tmpFile();
+    fs.writeFileSync(
+      file,
+      JSON.stringify({
+        schemaVersion: 1,
+        settings: {
+          councilEnabled: false,
+          councilDefaultOnSeeded: true,
+          experimentsFlagSplitSeeded: true,
+          autoThinkingDefaultSeeded: true,
+          hibernateManualDefaultSeeded: true,
+        },
+      }),
+    );
+    const reg = Registry.load(file);
+    expect(reg.getSetting("councilEnabled")).toBe(false);
+    // An explicit off after graduation persists across loads.
+    reg.setSetting("councilEnabled", true);
+    reg.setSetting("councilEnabled", false);
+    expect(Registry.load(file).getSetting("councilEnabled")).toBe(false);
   });
 
   it("round-trips the stall watchdog window and falls back to 180 for anything unknown", () => {
@@ -1028,7 +1078,7 @@ describe("Registry persistence", () => {
       ["gettingStartedSeen", (registry) => registry.setSetting("gettingStartedSeen", false)],
       ["experimentsEnabled", (registry) => registry.setSetting("experimentsEnabled", false)],
       ["autoresearchEnabled", (registry) => registry.setSetting("autoresearchEnabled", false)],
-      ["councilEnabled", (registry) => registry.setSetting("councilEnabled", false)],
+      ["councilEnabled", (registry) => registry.setSetting("councilEnabled", true)],
       ["snoozedSectionEnabled", (registry) => registry.setSetting("snoozedSectionEnabled", false)],
       ["voiceInputEnabled", (registry) => registry.setSetting("voiceInputEnabled", false)],
       ["sttModel", (registry) => registry.setSetting("sttModel", null)],

@@ -201,6 +201,9 @@ const PROJECT_PROXY_CHANNELS: readonly string[] = [
   "capabilities:scoped:set",
   "watchdog:roster",
   "watchdog:roster:set",
+  // Council graduated from experimental; the roster rides the same owner-registry model as watchdog.
+  "council:roster",
+  "council:roster:set",
   "project-files:list",
   "file-mentions:resolve",
   // The Lab reads a joined instance's experiments from that instance's own

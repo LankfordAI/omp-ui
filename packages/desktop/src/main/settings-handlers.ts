@@ -80,6 +80,8 @@ interface SettingsHandlerDependencies {
   onAppUpdateTrainChanged: () => Promise<void>;
   /** Exec switch or ceiling moved: revoke detached execs that lost Full control (issue #905). */
   onFleetLadderChanged: () => void;
+  /** Council graduation (amends #1055): seed the global roster from favorites. */
+  seedCouncilRoster: () => Promise<void>;
 }
 
 export function registerSettingsHandlers(
@@ -121,7 +123,12 @@ export function registerSettingsHandlers(
     [CH.setGettingStartedSeen]: (value: boolean) => commit("gettingStartedSeen", value),
     [CH.setExperimentsEnabled]: (value: boolean) => commit("experimentsEnabled", value),
     [CH.setAutoresearchEnabled]: (value: boolean) => commit("autoresearchEnabled", value),
-    [CH.setCouncilEnabled]: (value: boolean) => commit("councilEnabled", value),
+    // Seed before committing so the editor rendered after the flip shows the
+    // roster (#1055 ordering preserved).
+    [CH.setCouncilEnabled]: async (value: boolean) => {
+      if (value) await deps.seedCouncilRoster();
+      await commit("councilEnabled", value);
+    },
     [CH.setSnoozedSectionEnabled]: (value: boolean) => commit("snoozedSectionEnabled", value),
     [CH.setAutoSettleMergedPullRequests]: (value: boolean) => commit("autoSettleMergedPullRequests", value),
     [CH.setRemoteVsCodeEnabled]: (value: boolean) => commit("remoteVsCodeEnabled", value),

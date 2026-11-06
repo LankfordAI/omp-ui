@@ -659,6 +659,7 @@ export type SettingsPage =
   | "memory"
   | "knowledge-vault"
   | "omp"
+  | "council"
   | "experimental"
   | "advanced"
   | "about";
@@ -718,7 +719,8 @@ export interface SettingsSlice {
   setExperimentsEnabled(on: boolean): Promise<void>;
   /** Autoresearch RPC bridge gate (issue #1052); default off. */
   setAutoresearchEnabled(on: boolean): Promise<void>;
-  /** Council subsystem gate (issue #1052); default off. */
+  /** Council subsystem gate (issue #1052); default on; enabling seeds an
+   * authored-empty global roster from favorites (main owns the seed). */
   setCouncilEnabled(on: boolean): Promise<void>;
   /** Sidebar Snoozed section gate (issue #935); default off. */
   setSnoozedSectionEnabled(on: boolean): Promise<void>;

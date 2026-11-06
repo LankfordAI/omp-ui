@@ -1080,6 +1080,13 @@ export const en = {
   "settings.general.footnote":
     "Default session and agent modes apply to new sessions; everything else applies immediately.",
 
+  // Settings → Council (#1049)
+  "settings.council.title": "Council",
+  "settings.council.hint":
+    "Adds the /council command and the council bridge for new sessions, and grants per-session model roles. A project can override the global roster in its own settings under Council.",
+  "settings.council.footer":
+    "Applies to sessions started afterwards; a running session keeps the council it launched with.",
+
   // Settings → Experimental (#571, #739)
   "settings.experimental.labTitle": "Experiments lab (beta)",
   "settings.experimental.labHint":
@@ -1087,9 +1094,6 @@ export const en = {
   "settings.experimental.autoresearchTitle": "Autoresearch bridge (beta)",
   "settings.experimental.autoresearchHint":
     "Arms new sessions with omp-ui's autoresearch bridge: the /autoresearch chip, live mode and goal for the Lab, and the propose_experiment interview tool. Off leaves OMP's own loop untouched; experiments launched from the Lab still run without the chip.",
-  "settings.experimental.councilTitle": "Council (beta)",
-  "settings.experimental.councilHint":
-    "Adds the /council command, the council bridge for new sessions, and this page's global roster editor. A project can override the global roster in its own settings under Council.",
   "settings.experimental.footer":
     "Applies to sessions started afterwards; a running session keeps the bridges it launched with.",
 
@@ -3110,6 +3114,7 @@ export const en = {
   "settings.nav.memory": "Memory",
   "settings.nav.knowledgeVault": "Knowledge vault",
   "settings.nav.omp": "omp",
+  "settings.nav.council": "Council",
   "settings.nav.experimental": "Experimental",
   "settings.nav.advanced": "Advanced",
   "settings.nav.about": "About",

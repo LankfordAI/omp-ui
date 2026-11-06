@@ -114,7 +114,7 @@ const backendMock = {
   setAutoresearchEnabled: vi.fn(async () => {}),
   setCouncilEnabled: vi.fn(async () => {}),
   // Empty roster: a mounted editor resolves its load and renders no member
-  // rows, so the page's three switches stay the only role="switch" nodes.
+  // rows, so the council page's switch stays the only role="switch" node.
   getCouncilRoster: vi.fn(async (): Promise<CouncilRosterView> => ({
     members: [],
     instructions: null,
@@ -946,8 +946,6 @@ describe("Settings Experimental page (issues #571 and #739)", () => {
     document.querySelector(
       '[role="switch"][aria-label="Autoresearch bridge (beta)"]',
     ) as HTMLElement;
-  const councilSwitch = (): HTMLElement =>
-    document.querySelector('[role="switch"][aria-label="Council (beta)"]') as HTMLElement;
 
   it("lists Experimental in the nav", async () => {
     seedExperimental();
@@ -958,7 +956,7 @@ describe("Settings Experimental page (issues #571 and #739)", () => {
   it("shows the switch off and persists switching it on", async () => {
     seedExperimental();
     await renderSettings();
-    expect(document.body.querySelectorAll('[role="switch"]')).toHaveLength(3);
+    expect(document.body.querySelectorAll('[role="switch"]')).toHaveLength(2);
     expect(labSwitch().getAttribute("aria-checked")).toBe("false");
     click(labSwitch());
     expect(backendMock.setExperimentsEnabled).toHaveBeenCalledWith(true);
@@ -972,107 +970,6 @@ describe("Settings Experimental page (issues #571 and #739)", () => {
     expect(backendMock.setAutoresearchEnabled).toHaveBeenCalledWith(true);
   });
 
-  it("persists switching the council on", async () => {
-    seedExperimental();
-    await renderSettings();
-    expect(councilSwitch().getAttribute("aria-checked")).toBe("false");
-    click(councilSwitch());
-    // The action seeds the empty global roster (#1055) before flipping the
-    // flag, so the write lands one tick after the click.
-    await act(async () => {});
-    expect(backendMock.setCouncilEnabled).toHaveBeenCalledWith(true);
-  });
-
-  it("nests the global roster editor under the council switch once council is on", async () => {
-    seedExperimental();
-    await renderSettings();
-    // Council off (the default seed): the editor is not mounted at all.
-    expect(
-      document.querySelector('[data-testid="council-roster-editor"]'),
-    ).toBeNull();
-    click(councilSwitch());
-    await act(async () => {});
-    expect(backendMock.setCouncilEnabled).toHaveBeenCalledWith(true);
-    // Mirror what the real backend round-trip does: state echoes the flag,
-    // and the same mount re-renders with the editor under the switch.
-    await act(async () => {
-      useStore.setState((s) => ({ state: { ...s.state!, councilEnabled: true } }));
-    });
-    await act(async () => {});
-    expect(
-      document.querySelector('[data-testid="council-roster-editor"]'),
-    ).not.toBeNull();
-    // The empty seeded roster renders no member rows, so the editor adds no
-    // switches: the page's three remain the only role="switch" nodes.
-    expect(document.body.querySelectorAll('[role="switch"]')).toHaveLength(3);
-  });
-
-  it("seeds the empty global roster from favorites when the council is enabled", async () => {
-    seedExperimental();
-    useStore.setState((s) => ({
-      state: { ...s.state!, modelFavorites: ["litellm/quick"] },
-    }));
-    backendMock.readChatModels.mockResolvedValueOnce({
-      models: [
-        { provider: "litellm", id: "quick", name: "Quick" },
-        { provider: "anthropic", id: "opus", name: "Opus" },
-      ],
-      discovered: true,
-      error: null,
-    });
-    await renderSettings();
-    click(councilSwitch());
-    await act(async () => {});
-    // Only the favorite seeds (#1058): no catalog fallback, and the name is
-    // blank so the member follows its model (#1057).
-    expect(backendMock.setCouncilRoster).toHaveBeenCalledWith({
-      scopeCwd: null,
-      scope: "user",
-      document: {
-        instructions: null,
-        members: [{ name: "", model: "litellm/quick", instructions: null, enabled: true }],
-      },
-    });
-    expect(backendMock.setCouncilEnabled).toHaveBeenCalledWith(true);
-  });
-
-  it("never re-seeds an authored global roster", async () => {
-    seedExperimental();
-    backendMock.getCouncilRoster.mockResolvedValueOnce({
-      members: [],
-      instructions: null,
-      configWarnings: [],
-      global: {
-        instructions: null,
-        members: [
-          { name: "senior", model: "anthropic/opus", instructions: null, enabled: true },
-        ],
-      },
-      project: null,
-      effective: [],
-    });
-    await renderSettings();
-    click(councilSwitch());
-    await act(async () => {});
-    expect(backendMock.setCouncilRoster).not.toHaveBeenCalled();
-    expect(backendMock.setCouncilEnabled).toHaveBeenCalledWith(true);
-  });
-
-  it("enables the council when the catalog probe fails", async () => {
-    seedExperimental();
-    backendMock.readChatModels.mockResolvedValueOnce({
-      models: [],
-      discovered: false,
-      error: "omp binary not found",
-    });
-    await renderSettings();
-    click(councilSwitch());
-    await act(async () => {});
-    // Seeding is best-effort: an undiscovered catalog must not block the flag.
-    expect(backendMock.setCouncilRoster).not.toHaveBeenCalled();
-    expect(backendMock.setCouncilEnabled).toHaveBeenCalledWith(true);
-  });
-
   it("no longer renders the switch on the General page", async () => {
     useStore.setState({
       settingsPage: "general",
@@ -1084,6 +981,59 @@ describe("Settings Experimental page (issues #571 and #739)", () => {
     });
     await renderSettings();
     expect(labSwitch()).toBeNull();
+  });
+});
+
+describe("Settings Council page (issue #1049)", () => {
+  const seedCouncil = (): void => {
+    useStore.setState({
+      settingsPage: "council",
+      state: backendState(),
+      tabs: [],
+      activeTabId: null,
+      appUpdate: appUpdateState({}),
+      ompUpdate: idleOmpUpdate,
+    });
+  };
+
+  const councilSwitch = (): HTMLElement =>
+    document.querySelector('[role="switch"][aria-label="Council"]') as HTMLElement;
+
+  it("lists Council in the nav", async () => {
+    seedCouncil();
+    await renderSettings();
+    expect(buttonWithText("Council")).not.toBeNull();
+  });
+
+  it("persists switching the council on", async () => {
+    seedCouncil();
+    await renderSettings();
+    expect(councilSwitch().getAttribute("aria-checked")).toBe("false");
+    click(councilSwitch());
+    expect(backendMock.setCouncilEnabled).toHaveBeenCalledWith(true);
+  });
+
+  it("nests the global roster editor under the council switch once council is on", async () => {
+    seedCouncil();
+    await renderSettings();
+    // Council off (the fixture seed): the editor is not mounted at all.
+    expect(
+      document.querySelector('[data-testid="council-roster-editor"]'),
+    ).toBeNull();
+    click(councilSwitch());
+    expect(backendMock.setCouncilEnabled).toHaveBeenCalledWith(true);
+    // Mirror what the real backend round-trip does: state echoes the flag,
+    // and the same mount re-renders with the editor under the switch.
+    await act(async () => {
+      useStore.setState((s) => ({ state: { ...s.state!, councilEnabled: true } }));
+    });
+    await act(async () => {});
+    expect(
+      document.querySelector('[data-testid="council-roster-editor"]'),
+    ).not.toBeNull();
+    // The empty roster renders no member rows, so the editor adds no
+    // switches: the page's one remains the only role="switch" node.
+    expect(document.body.querySelectorAll('[role="switch"]')).toHaveLength(1);
   });
 });
 
@@ -1795,6 +1745,7 @@ describe("Settings page footer dispatch (issue #300)", () => {
     { page: "memory", marker: "Memory configuration applies to sessions started after the change" },
     { page: "knowledge-vault", marker: null },
     { page: "omp", marker: "omp binds model roles and the advisor at process start" },
+    { page: "council", marker: "a running session keeps the council it launched with" },
     { page: "experimental", marker: "Applies to sessions started afterwards" },
     { page: "about", marker: null },
   ];

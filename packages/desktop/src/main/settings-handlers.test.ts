@@ -1,0 +1,78 @@
+import * as fs from "node:fs";
+import * as os from "node:os";
+import * as path from "node:path";
+import { describe, expect, it, vi } from "vitest";
+import { CH, Registry } from "@omp-ui/core";
+import { registerSettingsHandlers } from "./settings-handlers";
+
+/**
+ * The council enable handler's ordering (amends #1055): the roster seed must
+ * complete before `councilEnabled` commits, so the editor rendered after the
+ * flag flip already shows the seeded roster.
+ */
+
+function setup(seedCouncilRoster: () => Promise<void>) {
+  const dir = fs.mkdtempSync(path.join(os.tmpdir(), "omp-ui-sethandlers-"));
+  const registry = Registry.load(path.join(dir, "registry.json"));
+  // Explicitly off: the test must not depend on the shipped default.
+  registry.setSetting("councilEnabled", false);
+  const order: string[] = [];
+  const handlers = registerSettingsHandlers({
+    registry,
+    broadcast: async () => {},
+    supportedCompactionMethods: async () => [],
+    onAppUpdateTrainChanged: async () => {},
+    onFleetLadderChanged: () => {},
+    seedCouncilRoster: async () => {
+      order.push("seed");
+      await seedCouncilRoster();
+    },
+  });
+  return { dir, registry, order, handlers };
+}
+
+describe("setCouncilEnabled", () => {
+  it("awaits the roster seed before committing the flag on", async () => {
+    let releaseSeed!: () => void;
+    const seedGate = new Promise<void>((resolve) => {
+      releaseSeed = resolve;
+    });
+    const { dir, registry, order, handlers } = setup(async () => {
+      await seedGate;
+      order.push("seed-done");
+    });
+    try {
+      const flipping = handlers[CH.setCouncilEnabled](true);
+      // Still pending: the flag must not commit while the seed is in flight.
+      expect(registry.getSetting("councilEnabled")).toBe(false);
+      releaseSeed();
+      await flipping;
+      expect(order).toEqual(["seed", "seed-done"]);
+      expect(registry.getSetting("councilEnabled")).toBe(true);
+    } finally {
+      fs.rmSync(dir, { recursive: true, force: true });
+    }
+  });
+
+  it("does not seed when turning the flag off", async () => {
+    const seedCouncilRoster = vi.fn(async () => {});
+    const dir = fs.mkdtempSync(path.join(os.tmpdir(), "omp-ui-sethandlers-"));
+    try {
+      const registry = Registry.load(path.join(dir, "registry.json"));
+      registry.setSetting("councilEnabled", true);
+      const handlers = registerSettingsHandlers({
+        registry,
+        broadcast: async () => {},
+        supportedCompactionMethods: async () => [],
+        onAppUpdateTrainChanged: async () => {},
+        onFleetLadderChanged: () => {},
+        seedCouncilRoster: seedCouncilRoster,
+      });
+      await handlers[CH.setCouncilEnabled](false);
+      expect(seedCouncilRoster).not.toHaveBeenCalled();
+      expect(registry.getSetting("councilEnabled")).toBe(false);
+    } finally {
+      fs.rmSync(dir, { recursive: true, force: true });
+    }
+  });
+});
