@@ -1496,12 +1496,6 @@ export interface UiStore extends SettingsSlice, UpdatesSlice, LabSlice, StatsSli
     opts: WorktreeReleaseOptions,
   ): Promise<WorktreeReleaseResult | null>;
   /**
-   * Settles the session after its merged finish lands (issue #924). True =
-   * settled or already dormant; false = skipped (survived reap or replaced
-   * process), already reported as a transcript notice. Never throws.
-   */
-  settleFinishedSession(tabId: string): Promise<boolean>;
-  /**
    * Settle (issues #980, #1005): reaps each eligible session through the
    * tab-routed `session:settle` and clears its snooze, so the row files to
    * Settled. A row mid-turn first stages one `settle-running` confirmation for
