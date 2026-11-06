@@ -28,6 +28,52 @@ function tool(items: RenderItem[], toolCallId: string): ToolItem | undefined {
   return items.find((i): i is ToolItem => i.kind === "tool" && i.toolCallId === toolCallId);
 }
 
+describe("web_search provider failures", () => {
+  const failures = [
+    { provider: "exa", label: "Exa", reason: "No sources", status: 204 },
+    { provider: "brave", label: "Brave", reason: "Unavailable" },
+  ];
+
+  function project(details: unknown, isError: boolean, name = "web_search") {
+    const content = [{ type: "text", text: isError ? "All providers failed" : "Fallback sources" }];
+    const live = reduceEvent([], {
+      type: "tool_execution_end", toolCallId: "search", toolName: name, isError,
+      result: { content, details },
+    });
+    const history = historyToItems([
+      { role: "assistant", content: [{ type: "toolCall", id: "search", name, arguments: {} }] },
+      { role: "toolResult", toolCallId: "search", toolName: name, isError, content, details },
+    ]);
+    return [tool(live, "search")!, tool(history, "search")!];
+  }
+
+  it.each([false, true])("preserves verdict with diagnostics, isError=%s", (isError) => {
+    for (const item of project({ failures }, isError)) {
+      expect(item).toMatchObject({
+        providerFailures: failures,
+        status: isError ? "error" : "done",
+        resultText: isError ? "All providers failed" : "Fallback sources",
+      });
+    }
+  });
+
+  it.each([undefined, {}, { failures: "foreign" }, { failures: [null, { reason: "bad" }] }])(
+    "keeps legacy and malformed results undecorated %j", (details) => {
+      for (const item of project(details, false)) {
+        expect(item.status).toBe("done");
+        expect("providerFailures" in item).toBe(false);
+      }
+    },
+  );
+
+  it("does not interpret another tool's failures as search diagnostics", () => {
+    for (const item of project({ failures }, true, "bash")) {
+      expect(item.status).toBe("error");
+      expect("providerFailures" in item).toBe(false);
+    }
+  });
+});
+
 const RESOLVED_DIRECTORY_TEXT =
   "Check @packages/desktop/src/renderer/src\n\n" +
   '<file path="packages/desktop/src/renderer/src">\ncomponents/\nlib/\n</file>';

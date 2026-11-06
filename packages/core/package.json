@@ -54,6 +54,7 @@
     "./bash-minimized": "./src/bash-minimized.ts",
     "./bash-truncation": "./src/bash-truncation.ts",
     "./bash-tool-truncation": "./src/bash-tool-truncation.ts",
+    "./web-search-failures": "./src/web-search-failures.ts",
     "./session-command": "./src/session-command.ts",
     "./session-tree": "./src/session-tree.ts",
     "./side-questions": "./src/side-questions.ts",

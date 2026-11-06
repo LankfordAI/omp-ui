@@ -758,6 +758,22 @@ export function ToolCard({ item, tabId }: { item: ToolItem; tabId?: string }) {
       {item.status === "running" && (
         <ProgressSweep tone="copper" paused={streamStallMs !== undefined} />
       )}
+      {item.name === "web_search" && (item.providerFailures?.length ?? 0) > 0 && (
+        <div className="flex min-w-0 flex-wrap gap-1.5 px-2.5 pb-2">
+          {item.providerFailures!.map((failure, index) => (
+            <Chip key={`${failure.provider}-${index}`} tone="rose" className="min-w-0 max-w-full whitespace-normal">
+              <span className="min-w-0 [overflow-wrap:anywhere]">
+                {t(
+                  failure.status === undefined
+                    ? "transcript.tool.providerFailure"
+                    : "transcript.tool.providerFailureStatus",
+                  { label: failure.label, reason: failure.reason, status: failure.status ?? "" },
+                )}
+              </span>
+            </Chip>
+          ))}
+        </div>
+      )}
       {open && hasBody && (
         <div className="space-y-2 border-t border-line-soft px-2.5 py-2">
           <ToolArgs name={item.name} args={item.args} />

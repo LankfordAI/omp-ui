@@ -701,3 +701,105 @@ describe("ToolCard tool-result truncation", () => {
     act(() => root.unmount());
   });
 });
+
+describe("ToolCard web-search provider failures", () => {
+  it("keeps fallback failures visible with a successful check and collapsed body/output", () => {
+    const reason = `request failed: ${"x".repeat(200)}`;
+    const { el, root } = renderCard(tool({
+      name: "web_search",
+      resultText: Array.from({ length: 13 }, (_, i) => `result ${i}`).join("\n"),
+      providerFailures: [{ provider: "exa", label: "Exa", reason, status: 429 }],
+    }));
+    const expected = `Exa — ${reason} (status 429)`;
+    const header = el.querySelector("button")!;
+    expect(header.querySelector("svg.text-signal")).not.toBeNull();
+    expect(header.textContent).not.toContain("error");
+    expect(el.querySelector("pre")).toBeNull();
+    expect(el.textContent).toContain(expected);
+    const chip = [...el.querySelectorAll("span.text-rose")].find((span) => span.textContent === expected)!;
+    expect(chip).toBeDefined();
+    expect(chip.classList.contains("max-w-full")).toBe(true);
+    expect(chip.classList.contains("whitespace-normal")).toBe(true);
+    expect(chip.firstElementChild?.classList.contains("[overflow-wrap:anywhere]")).toBe(true);
+
+    act(() => header.click());
+    expect(el.textContent).toContain("show output · 13 lines");
+    expect(el.querySelector("pre")).toBeNull();
+    expect(el.textContent).toContain(expected);
+    act(() => header.click());
+    expect(el.textContent).not.toContain("show output");
+    expect(el.textContent).toContain(expected);
+    act(() => root.unmount());
+  });
+
+  it("preserves the all-failed error verdict and shows each provider's reason", () => {
+    const { el, root } = renderCard(tool({
+      name: "web_search",
+      status: "error",
+      resultText: "All providers failed",
+      providerFailures: [
+        { provider: "exa", label: "Exa", reason: "rate limited", status: 429 },
+        { provider: "brave", label: "Brave", reason: "credential missing" },
+      ],
+    }));
+    const header = el.querySelector("button")!;
+    expect(header.textContent).toContain("error");
+    expect(header.querySelector("svg.text-signal")).toBeNull();
+    expect(el.textContent).toContain("Exa — rate limited (status 429)");
+    expect(el.textContent).toContain("Brave — credential missing");
+    expect(el.querySelector("pre.text-rose")?.textContent).toBe("All providers failed");
+    act(() => root.unmount());
+  });
+
+  it.each([
+    [undefined, "Exa — empty response"],
+    [204, "Exa — empty response (status 204)"],
+  ] as const)("renders a failure with status %s without reclassifying success", (status, expected) => {
+    const { el, root } = renderCard(tool({
+      name: "web_search",
+      providerFailures: [{ provider: "exa", label: "Exa", reason: "empty response", ...(status === undefined ? {} : { status }) }],
+    }));
+    expect(el.textContent).toContain(expected);
+    expect(el.querySelector("button svg.text-signal")).not.toBeNull();
+    if (status === undefined) expect(el.textContent).not.toContain("(status");
+    act(() => root.unmount());
+  });
+
+  it.each([undefined, []])("leaves legacy searches without failure metadata unchanged (%s)", (providerFailures) => {
+    const { el, root } = renderCard(tool({ name: "web_search", resultText: "Search results", providerFailures }));
+    expect(el.querySelector("span.text-rose")).toBeNull();
+    expect(el.querySelector("button svg.text-signal")).not.toBeNull();
+    expect(el.textContent).toContain("Search results");
+    act(() => root.unmount());
+  });
+
+  it("does not decorate other tools with provider failures", () => {
+    const { el, root } = renderCard(tool({
+      name: "bash",
+      providerFailures: [{ provider: "exa", label: "Exa", reason: "unavailable" }],
+    }));
+    expect(el.textContent).not.toContain("Exa");
+    expect(el.querySelector("span.text-rose")).toBeNull();
+    act(() => root.unmount());
+  });
+
+  it("localizes the status suffix in Korean without translating provider reasons", () => {
+    applyLocale(resolveLocale("ko"));
+    try {
+      const { el, root } = renderCard(tool({
+        name: "web_search",
+        providerFailures: [
+          { provider: "exa", label: "Exa", reason: "empty response", status: 204 },
+          { provider: "brave", label: "Brave", reason: "credential missing" },
+        ],
+      }));
+      expect(el.textContent).toContain("Exa — empty response (상태 204)");
+      expect(el.textContent).toContain("Brave — credential missing");
+      expect(el.textContent).not.toContain("(status");
+      expect(el.querySelector("button svg.text-signal")).not.toBeNull();
+      act(() => root.unmount());
+    } finally {
+      applyLocale(resolveLocale("en"));
+    }
+  });
+});

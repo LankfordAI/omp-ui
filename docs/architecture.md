@@ -363,6 +363,16 @@ no decoration and needs no version gate. Output notices and their recovery
 selectors remain untouched. This tool-result metadata is distinct from the
 RPC `BashResult` fields used by shell rows, including RPC's `columnMax` name.
 
+`web_search` cards project `details.failures` through the renderer-safe
+`parseWebSearchFailures` parser in live results and history
+([#1066](https://github.com/LankfordAI/omp-ui/issues/1066)). Each valid provider
+failure adds a rose chip with its label, reason, and optional status, including
+204 for an answer without sources. Reasons are flattened and capped at 240
+characters defensively. Missing metadata and malformed entries add nothing,
+without a version gate. Chips remain visible when output is collapsed. Failures
+never change the result verdict: a successful fallback keeps its success check;
+an all-failed result keeps its error status and exposes the provider diagnoses.
+
 #### Shell commands in native sessions
 
 A composer draft whose trimmed text starts with `!` is OMP's shell command, not a prompt ([#678](https://github.com/LankfordAI/omp-ui/issues/678)): the composer dispatches the concurrent `{ type: "bash", command }` RPC directly — no model turn, no `@`-resolution, no images — and appends one shell render item at submit. The item settles only from the command's completion response, correlated by id: `cancelled: true` settles it `cancelled` (OMP omits `exitCode` there), otherwise it settles `done` with the output (capped at 64 KiB head-preserving, like slash output) and exit code; a non-zero exit is the command's outcome, not a dispatch failure. An RPC failure or process abandonment settles the row `failed`/`cancelled` respectively; the dispatch is quiet, so a failed command never paints the session-level banner. A stop control on a running row sends `abort_bash`, which cancels every bash running in that process — OMP offers no per-command abort — and each affected row settles from its own response. The output enters the model's context through OMP's own `bashExecution` session entry, and `historyToItems` maps those entries back to shell rows on resume. `cd` inside one command does not persist to the next: the rpc path carries no session-cwd transition. Terminal (PTY) tabs keep the TUI's own `!`/`!!` handling, including its cwd tracking.

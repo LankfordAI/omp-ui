@@ -13,6 +13,7 @@ import { toolResultReplies } from "@omp-ui/core/out-replies";
 import { parseBashMinimized, type BashMinimized } from "@omp-ui/core/bash-minimized";
 import { parseBashTruncation, type BashTruncation } from "@omp-ui/core/bash-truncation";
 import { parseBashToolTruncation, type BashToolTruncation } from "@omp-ui/core/bash-tool-truncation";
+import { parseWebSearchFailures, type WebSearchProviderFailure } from "@omp-ui/core/web-search-failures";
 
 export interface AdvisorNote {
   note: string;
@@ -116,6 +117,8 @@ export interface ToolItem {
   minimized?: BashMinimized;
   /** Tool-result middle elision and column cuts; recovery notices remain in the output text. */
   toolTruncation?: BashToolTruncation;
+  /** web_search provider diagnostics decorate the result without changing its verdict. */
+  providerFailures?: WebSearchProviderFailure[];
   notes?: AdvisorNote[];
   /** omp-ui vault host tool result details (issue #767): the card and the rail's Vault notes read it. */
   vault?: VaultToolDetails;
@@ -620,6 +623,11 @@ function toolTruncationField(details: unknown): { toolTruncation?: BashToolTrunc
   return toolTruncation ? { toolTruncation } : {};
 }
 
+function providerFailuresField(name: string | undefined, details: unknown): Pick<ToolItem, "providerFailures"> {
+  const providerFailures = name === "web_search" ? parseWebSearchFailures(details) : undefined;
+  return providerFailures ? { providerFailures } : {};
+}
+
 /** Port of omp's isAdvisorCard — render from details.notes, never the XML. */
 export function isAdvisorMessage(message: Record<string, unknown>): boolean {
   return message.role === "custom" && message.customType === "advisor";
@@ -1061,6 +1069,7 @@ export function reduceEvent(items: RenderItem[], event: unknown): RenderItem[] {
         ...repliesField(details),
         ...minimizedField(details),
         ...toolTruncationField(details),
+        ...providerFailuresField(str(event.toolName), details),
       };
       const idx = toolCallId
         ? items.findIndex((i) => i.kind === "tool" && i.toolCallId === toolCallId)
@@ -1299,6 +1308,7 @@ export function historyToItems(messages: unknown[]): RenderItem[] {
         ...repliesField(details),
         ...minimizedField(details),
         ...toolTruncationField(details),
+        ...providerFailuresField(item.name, details),
       };
     }
   }
