@@ -1227,6 +1227,74 @@ describe("Settings omp Providers group (issues #178 and #179)", () => {
   });
 });
 
+describe("Settings omp Tools group (issue #1069)", () => {
+  function seedTools(options: string[] | null): void {
+    backendMock.readOmpSettings.mockResolvedValue({
+      ...emptyOmpSettings,
+      entries: options === null ? [] : [{
+        key: "edit.mode",
+        type: "enum",
+        description: "Edit tool dialect",
+        value: options[0],
+        globalValue: undefined,
+        options,
+        layer: "default",
+      }],
+    });
+    useStore.setState({
+      settingsPage: "omp",
+      state: backendState(),
+      tabs: [],
+      activeTabId: null,
+      appUpdate: appUpdateState({}),
+      ompUpdate: idleOmpUpdate,
+    });
+  }
+
+  const field = (): HTMLSelectElement =>
+    document.querySelector<HTMLSelectElement>('select[aria-label="edit.mode"]')!;
+
+  it("renders published choices with the safety and receipt caveats", async () => {
+    seedTools(["hashline", "none"]);
+    await renderSettings();
+
+    expect([...field().options].map((option) => option.value)).toEqual([
+      "hashline", "none",
+    ]);
+    for (const phrase of [
+      "none removes only the edit tool",
+      "bash stays available and is force-enabled even when bash.enabled is off",
+      "not a read-only or safety mode",
+      "whole-file rewrites via write carry no structured diff",
+      "change receipts and diff cards degrade",
+      "review depends on later repository diffs",
+      "sessions started afterwards",
+    ]) {
+      expect(document.body.textContent).toContain(phrase);
+    }
+    await act(async () => {
+      field().value = "none";
+      field().dispatchEvent(new Event("change", { bubbles: true }));
+    });
+    expect(backendMock.writeOmpSetting).toHaveBeenCalledWith("edit.mode", "none");
+  });
+
+  it("does not invent none for an older binary's published option set", async () => {
+    seedTools(["hashline", "patch"]);
+    await renderSettings();
+    expect([...field().options].map((option) => option.value)).toEqual([
+      "hashline", "patch",
+    ]);
+  });
+
+  it("omits edit.mode when the binary does not publish it", async () => {
+    seedTools(null);
+    await renderSettings();
+    expect(field()).toBeNull();
+    expect(document.body.textContent).not.toContain("edit.mode");
+  });
+});
+
 describe("Settings omp Subagents group (issue #1067)", () => {
   const taskFileEntry = (): OmpSettingsSnapshot["entries"][number] => ({
     key: "task.file",

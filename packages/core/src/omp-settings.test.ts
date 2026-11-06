@@ -860,6 +860,18 @@ describe("writeOmpSetting", () => {
     ]);
   });
 
+  it("admits edit.mode to the write boundary (#1069)", async () => {
+    let seen: readonly string[] = [];
+    await writeOmpSetting(
+      { ompPath: OMP, key: "edit.mode", value: "none" },
+      async (args) => {
+        seen = args;
+        return "";
+      },
+    );
+    expect(seen).toEqual(["config", "set", "edit.mode", "none", "--json"]);
+  });
+
   it("admits both composer prediction keys to the write boundary (#1030)", async () => {
     let seen: readonly string[] = [];
     await writeOmpSetting(

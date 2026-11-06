@@ -1687,6 +1687,8 @@ export const en = {
     "Caps the worker THREADS subagents run on (default 4), not how many subagents may run at once. Up to 8 concurrent subagents stay on the main thread; a worker joins at 9 and one more at each doubling (18, 36, 72). 0 keeps every subagent on the main thread — it does not mean unlimited. Changes apply to sessions started afterwards.",
   "settings.omp.rowHint.providers.openaiResponsesWebsockets":
     "Sends catalog-supported standard Responses traffic over WebSockets instead of HTTP/SSE, falling back to HTTP/SSE automatically when a connection fails. This is TRANSPORT only — it is not live steering, which stays on its own row. A model or request that sets it false is unaffected. Changes apply to sessions started afterwards.",
+  "settings.omp.rowHint.edit.mode":
+    "Selects the edit tool's dialect. none removes only the edit tool; bash stays available and is force-enabled even when bash.enabled is off. This is not a read-only or safety mode. With none, whole-file rewrites via write carry no structured diff, so change receipts and diff cards degrade; review depends on later repository diffs. Changes apply to sessions started afterwards.",
   "settings.omp.footerIntro": "Writes go to omp's global config (",
   "settings.omp.footerProjectPrefix": "); a project's ",
   "settings.omp.footerStillWins": " still wins and is shown as ",

@@ -333,6 +333,15 @@ export const OMP_SETTING_GROUPS: ReadonlyArray<OmpSettingGroup> = [
     ],
   },
   {
+    // omp 18.17.0 (issue #1069): edit dialect, including none, which removes
+    // only edit and force-enables bash even when bash.enabled is off.
+    // Options ride in from `omp config list` via parseEnumOptions, so older
+    // binaries keep their own option set. OmpPage.tsx's row hint carries the
+    // safety, degraded diff receipts, and sessions-started-afterwards caveats.
+    title: "Tools",
+    keys: ["edit.mode"],
+  },
+  {
     // Python for the eval tool (#671). An omp that publishes neither key
     // renders no section — readOmpSettings' per-key rule already covers it.
     title: "Python",
