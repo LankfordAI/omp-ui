@@ -1059,7 +1059,10 @@ export function Sidebar() {
         /* Container-queried labels (issue #1042): at a readable sidebar width the
            gear and fleet glyphs carry words instead of tooltip-only affordances;
            below it they stay icon-only. */
-        <footer className="@container flex shrink-0 items-center gap-2 border-t border-line px-3 py-2 text-xs text-ink-faint">
+        /* Wrapping row (#1079): when the items don't fit, the ml-auto count
+           cluster drops whole to a second line instead of breaking mid-text
+           or clipping at the aside edge. Tighter line gap keeps it one band. */
+        <footer className="@container flex shrink-0 flex-wrap items-center gap-x-2 gap-y-1 border-t border-line px-3 py-2 text-xs text-ink-faint">
         <IconButton
           label={t("sidebar.footer.settings")}
           onClick={() => {
@@ -1092,19 +1095,24 @@ export function Sidebar() {
             tone="rose"
             title={t("sidebar.footer.hostsAttentionTitle")}
             onClick={() => { openSettings("remote-instances"); closeCompactSurface(); }}
+            /* The one elastic item in the footer (#1079): `cn` appends this
+               last so tailwind-merge drops Button's base shrink-0. Full text
+               already rides in the title tooltip. */
+            className="min-w-0 max-w-full shrink"
           >
-            {t("sidebar.footer.hostsAttention", { n: unreachable })}
+            <span className="truncate">{t("sidebar.footer.hostsAttention", { n: unreachable })}</span>
           </Button>
         )}
         {totalLive > 0 && (
-          <span className="ml-auto flex items-center gap-1.5" title={t("sidebar.footer.liveTitle", { n: totalLive })}>
+          <span className="ml-auto flex shrink-0 items-center gap-1.5 whitespace-nowrap" title={t("sidebar.footer.liveTitle", { n: totalLive })}>
             <Dot tone="signal" />
             {/* Proportional tabular (round-3 judge, Consistency 3): the footer
                 number reads like every other meta count, not like code. The
-                words are the section headings' own (round-4 judge, Clarity 2). */}
-            <span className="tabular-nums">{t("sidebar.footer.readyCount", { n: totalLive - workingLive })}</span>
+                words are the section headings' own (round-4 judge, Clarity 2).
+                nowrap (#1079): a count is one unit; it moves lines, never wraps. */}
+            <span className="tabular-nums whitespace-nowrap">{t("sidebar.footer.readyCount", { n: totalLive - workingLive })}</span>
             {workingLive > 0 && (
-              <span className="tabular-nums">{t("sidebar.footer.workingCount", { n: workingLive })}</span>
+              <span className="tabular-nums whitespace-nowrap">{t("sidebar.footer.workingCount", { n: workingLive })}</span>
             )}
           </span>
         )}
