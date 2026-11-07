@@ -1,6 +1,9 @@
 # Private sessions ride a quiet overlay plus a roster bridge, never a config write
 
 > **Status:** Accepted, 2026-10-13 ([#852](https://github.com/LankfordAI/omp-ui/issues/852)).
+> Amended 2026-11-07 for the Hindsight passive channel
+> ([#1094](https://github.com/LankfordAI/omp-ui/issues/1094)) — see
+> "Amendment: the Hindsight channel needs a child-env pin too".
 
 A **private session** (CONTEXT.md) must never write to the memory system
 while staying fully normal otherwise: transcript persists, recall still
@@ -63,12 +66,14 @@ record state and nothing else.**
   default and never enters last-used spawn state; a fork copies the source
   record's flag.
 - `packages/core/src/private-overlay.ts` writes `omp-ui-private.yml`
-  (`autolearn.enabled: false`, `mnemopi.autoRetain: false`) into the lineage
-  dir from the record flag; a false flag removes the artifact, so an
-  ordinary session inherits omp's config untouched. `writeSessionOverlays`
-  collects it, covering both argv builders and every resume identically.
-  The file never names `mnemopi.autoRecall` or `memory.backend` — absence
-  keeps recall alive; a live test asserts both halves.
+  (`autolearn.enabled: false`, `mnemopi.autoRetain: false`, and since #1094
+  `hindsight.autoRetain: false`) into the lineage dir from the record flag;
+  a false flag removes the artifact, so an ordinary session inherits omp's
+  config untouched. `writeSessionOverlays` collects it, covering both argv
+  builders and every resume identically. The file never names
+  `mnemopi.autoRecall`, `hindsight.autoRecall`, or `memory.backend` /
+  `hindsight.apiUrl` — absence keeps recall alive and the user's chosen
+  backend in place; a live test asserts both halves.
 - `packages/core/src/private-guard-extension.ts` is the generated bridge:
   the `/omp-ui-private` command binds the first prompting root (prompt
   prototype, ADR-0008), reads the enabled roster, filters the four write
@@ -83,6 +88,61 @@ record state and nothing else.**
   pin). PTY sessions get the passive overlay only — no tool removal —
   because their tool roster lives in an embedded TUI omp-ui does not
   command; the issue records this accepted gap.
+
+## Amendment: the Hindsight channel needs a child-env pin too (#1094, 2026-11-07)
+
+Hindsight adds a third passive write channel: `hindsight.autoRetain`
+(default true) subscribes to `agent_end`, and
+`maybeRetainOnAgentEnd` ships the transcript to the configured server on the
+`hindsight.retainEveryNTurns` cadence. Removing the four explicit tools does
+not touch it — it is not a tool path — and the original overlay simply never
+named the key. Private sessions could therefore submit transcripts at the
+configured cadence; the original report observed enabled runtime state,
+not an actual private transcript upload.
+
+Two facts from the installed runtime change the shape of the fix:
+
+- The overlay still works at the settings layer: with `hindsight.autoRetain`
+  pinned false in `omp-ui-private.yml`, the live session resolves the gate
+  off even when the project layer pins it true, while
+  `hindsight.autoRecall` and `memory.backend` stay untouched (the same
+  write-quiet, recall-enabled boundary as Mnemopi).
+- The key is **environment-backed**: upstream's handle reads
+  `HINDSIGHT_AUTO_RETAIN` with no config fallback, and a set env var
+  outranks every settings layer including this overlay. On a machine where
+  the user exported it true, the overlay alone loses — so a per-spawn
+  overlay cannot be the whole pin for this one channel.
+
+**Decision:** private spawns pin `HINDSIGHT_AUTO_RETAIN=false` in the child
+environment, beside the overlay. `privateChildEnv(pin)` (core) returns the
+one-key env for a private record and nothing for an ordinary one;
+`RpcClientOpts.childEnv` and `spawnOmp`'s matching option merge it over the
+sanitized base env at spawn only. It is child-scoped by construction:
+omp-ui's own `process.env` is never mutated, an ordinary session's spawn
+carries no key and keeps honoring the user's exported value, and the warm
+pool can never serve a private spawn (reservation excludes private records
+and its template resets the flag), so the cold boot is the only site that
+needs it. Both argv builders pass it, so native and PTY, new and resume all
+carry the pin from the record — same "derived every launch" rule as the
+overlay.
+
+**Outbox boundary.** Explicit-tool memories queued before a private session
+starts remain upstream outbox state, eligible for omp's own startup drain.
+This change suppresses new automatic transcript retention; it does not
+delete or suppress delivery of previously queued memories. PTY sessions
+still have the explicit-tool limitation described above. Old-outbox
+delivery is distinct from retaining the current private transcript.
+
+Verified against the installed binary with a controlled loopback Hindsight
+sink (`packages/desktop/src/main/hindsight-retention-live.test.ts`): an
+ordinary session with the env exported true posts its transcript at
+`retainEveryNTurns: 1`; a private spawn of the same scope posts **nothing**
+— across `agent_end` and across SIGTERM — while its recall request still
+arrives; and the control scope (overlay written, env exported true, pin
+removed) retains exactly as the trap predicts, proving the sink sees
+submissions and that the child-env pin — not the overlay alone — is what
+keeps the private scope silent. The settings-layer half and the env outrank
+ride in `private-guard-live.test.ts`'s probe pair.
 
 ## Amends / relates
 

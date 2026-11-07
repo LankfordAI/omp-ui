@@ -59,6 +59,7 @@ import {
   knowledgeVaultArmMessage,
   knowledgeVaultGuidance,
   mcpRuntimeStatusMessage,
+  privateChildEnv,
   privateGuardArmMessage,
   MAX_DOCUMENT_BATCH_BYTES,
   readScratchDocument,
@@ -1428,6 +1429,10 @@ export class SessionManager {
       rows: req.rows,
       advisor: record.advisor,
       configOverlays: writeSessionOverlays(record, absLineageDir, this.gate, this.subagentSpawnConfig()),
+      // #1094: the overlay's hindsight.autoRetain pin loses to an exported
+      // HINDSIGHT_AUTO_RETAIN=true (upstream's env handle outranks config
+      // layers), so the private spawn pins it off in its own environment.
+      childEnv: privateChildEnv(record.private),
     });
     const entry = createPtyLiveEntry(record, ptyHandle);
     this.live.set(record.tabId, entry);
@@ -1926,6 +1931,11 @@ export class SessionManager {
             ...(autoThinking ? { thinking: "auto" } : {}),
             advisor: record.advisor,
             configOverlays,
+            // #1094: same child-env pin as the PTY builder — a private
+            // session's HINDSIGHT_AUTO_RETAIN=false rides this spawn only.
+            // The warm slot can never carry it (private spawns are excluded
+            // from reservation), so only the cold boot needs it.
+            childEnv: privateChildEnv(record.private),
             extensions,
             initialCommands,
             onInputFrame: sinks.onInputFrame,

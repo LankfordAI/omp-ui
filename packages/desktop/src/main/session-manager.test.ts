@@ -7726,14 +7726,18 @@ describe("host tools and host URIs (issue #688, ADR-0043)", () => {
         configOverlays?: string[];
         extensions?: string[];
         initialCommands?: Array<Record<string, unknown>>;
+        childEnv?: NodeJS.ProcessEnv;
       };
       const pins = (options.configOverlays ?? []).filter(
         (file) => path.basename(file) === "omp-ui-private.yml",
       );
       expect(pins).toHaveLength(1);
       expect(fs.readFileSync(pins[0]!, "utf8")).toBe(
-        "autolearn:\n  enabled: false\nmnemopi:\n  autoRetain: false\n",
+        "autolearn:\n  enabled: false\nmnemopi:\n  autoRetain: false\nhindsight:\n  autoRetain: false\n",
       );
+      // #1094: the overlay alone loses to an exported HINDSIGHT_AUTO_RETAIN,
+      // so the rpc spawn carries the child-env pin beside it.
+      expect(options.childEnv).toEqual({ HINDSIGHT_AUTO_RETAIN: "false" });
       expect(options.extensions).toContainEqual(
         expect.stringMatching(/omp-ui-private-guard\.ts$/),
       );
@@ -7757,14 +7761,51 @@ describe("host tools and host URIs (issue #688, ADR-0043)", () => {
       const options = RpcClientMock.mock.calls.at(-1)?.[0] as {
         configOverlays?: string[];
         initialCommands?: Array<Record<string, unknown>>;
+        childEnv?: NodeJS.ProcessEnv | undefined;
       };
       expect(
         (options.configOverlays ?? []).filter(
           (file) => path.basename(file) === "omp-ui-private.yml",
         ),
       ).toEqual([]);
+      // #1094: the env pin is private-only — an ordinary spawn keeps the
+      // user's own HINDSIGHT_AUTO_RETAIN.
+      expect(options.childEnv).toBeUndefined();
       const messages = (options.initialCommands ?? []).map((command) => command.message);
       expect(messages).not.toContain(Core.privateGuardArmMessage());
+    });
+
+    it("pins the child env on the PTY builder too — new and resume alike (#1094)", async () => {
+      const { manager, registry } = setup({ mode: "pty" });
+      registry.updateSession(TAB, { private: true });
+
+      await manager.spawn({
+        origin: "new", projectCwd: PROJECT, mode: "pty", advisor: false,
+        cols: 80, rows: 24, worktree: null, private: true,
+      });
+      expect(spawnCalls.at(-1)?.childEnv).toEqual({ HINDSIGHT_AUTO_RETAIN: "false" });
+
+      await manager.spawn({ origin: "resume", resumeTabId: TAB, cols: 80, rows: 24 });
+      expect(spawnCalls.at(-1)?.childEnv).toEqual({ HINDSIGHT_AUTO_RETAIN: "false" });
+    });
+
+    it("pins the child env on an rpc-ui resume (#1094)", async () => {
+      const { manager, registry } = setup({ mode: "rpc-ui" });
+      registry.updateSession(TAB, { private: true });
+
+      await manager.spawn({ origin: "resume", resumeTabId: TAB, cols: 80, rows: 24 });
+
+      const options = RpcClientMock.mock.calls.at(-1)?.[0] as { childEnv?: NodeJS.ProcessEnv };
+      expect(options.childEnv).toEqual({ HINDSIGHT_AUTO_RETAIN: "false" });
+    });
+
+    it("leaves an ordinary PTY spawn's env unpinned (#1094)", async () => {
+      const { manager } = setup({ mode: "pty" });
+      await manager.spawn({
+        origin: "new", projectCwd: PROJECT, mode: "pty", advisor: false,
+        cols: 80, rows: 24, worktree: null,
+      });
+      expect(spawnCalls.at(-1)?.childEnv).toBeUndefined();
     });
 
     it("copies the flag to a fork", async () => {

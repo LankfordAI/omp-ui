@@ -55,7 +55,7 @@ interface Harness {
 }
 
 const lineageDirs: string[] = [];
-function harness(opts: { resumeSessionId?: string; ompPath?: string; initialCommands?: object[]; bare?: boolean; model?: string; thinking?: string; advisor?: boolean } = {}): Harness {
+function harness(opts: { resumeSessionId?: string; ompPath?: string; initialCommands?: object[]; bare?: boolean; model?: string; thinking?: string; advisor?: boolean; childEnv?: NodeJS.ProcessEnv } = {}): Harness {
   const fake = fakeProc();
   const frames: unknown[] = [];
   const errors: string[] = [];
@@ -74,6 +74,7 @@ function harness(opts: { resumeSessionId?: string; ompPath?: string; initialComm
     advisor: opts.advisor,
     initialCommands: opts.initialCommands,
     bare: opts.bare,
+    childEnv: opts.childEnv,
     onFrame: (f) => frames.push(f),
     onExit: (c) => exits.push(c),
     onError: (m) => errors.push(m),
@@ -116,6 +117,27 @@ describe("RpcClient spawn", () => {
       h.lineageDir,
     ]);
     expect(h.spawnEnv.PATH?.startsWith(`/opt/bun/bin`)).toBe(true);
+  });
+
+  it("merges the private session's child-env pin over the base env (#1094)", () => {
+    // The overlay alone loses to an exported HINDSIGHT_AUTO_RETAIN=true:
+    // upstream's env-backed handle outranks every config layer, so the pin
+    // must reach the child environment at spawn.
+    const h = harness({ childEnv: { HINDSIGHT_AUTO_RETAIN: "false" } });
+    expect(h.spawnEnv.HINDSIGHT_AUTO_RETAIN).toBe("false");
+  });
+
+  it("adds no HINDSIGHT_AUTO_RETAIN of its own for an ordinary spawn", () => {
+    // Hermetic either way: a developer's own exported value rides the base
+    // env untouched, and with nothing exported the key is simply absent.
+    const saved = process.env.HINDSIGHT_AUTO_RETAIN;
+    delete process.env.HINDSIGHT_AUTO_RETAIN;
+    try {
+      const h = harness();
+      expect("HINDSIGHT_AUTO_RETAIN" in h.spawnEnv).toBe(false);
+    } finally {
+      if (saved !== undefined) process.env.HINDSIGHT_AUTO_RETAIN = saved;
+    }
   });
 
   it("appends --resume when a session id is given", () => {

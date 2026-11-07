@@ -169,10 +169,15 @@ _Avoid_: favorite session, starred session, sticky session
 **Private session**:
 An owned session pinned write-quiet against the memory system: its spawns
 carry a per-lineage `--config` overlay (ADR-0055) pinning `autolearn.enabled:
-false` and `mnemopi.autoRetain: false`, and native sessions arm a generated
-bridge that removes the memory-write tools (`memory_edit`, `retain`, `learn`,
-`manage_skill`) from the live roster. Recall stays alive — private means
-write-quiet, not read-quiet — and omp-ui never writes the global omp config.
+false`, `mnemopi.autoRetain: false`, and `hindsight.autoRetain: false`, and
+pin `HINDSIGHT_AUTO_RETAIN=false` in the child environment — that variable
+outranks every config layer upstream, so the overlay alone would lose to an
+exported true — while native sessions arm a generated bridge that removes
+the memory-write tools (`memory_edit`, `retain`, `learn`, `manage_skill`)
+from the live roster. Recall stays alive — private means write-quiet, not
+read-quiet — and omp-ui never writes the global omp config. Memories already
+queued in Hindsight's outbox before the pin belong to omp's own startup
+drain; the private flag suppresses new submissions, never deletes old ones.
 The flag is a property of the record, never a project default and never part
 of a project's last-used spawn state; a branch of a private session is
 private.

@@ -121,7 +121,12 @@ export { approvalOverlayPath, writeApprovalOverlay } from "./approval-overlay";
 export { worktreeOverlayPath, writeWorktreeOverlay } from "./worktree-overlay";
 export { modelOverlayPath, writeDefaultModelOverlay } from "./model-overlay";
 export { gitGuardOverlayPath, writeGitGuardOverlay } from "./git-guard-overlay";
-export { privateOverlayPath, writePrivateOverlay } from "./private-overlay";
+export {
+  HINDSIGHT_AUTO_RETAIN_ENV,
+  privateChildEnv,
+  privateOverlayPath,
+  writePrivateOverlay,
+} from "./private-overlay";
 export { outRepliesOverlayPath, writeOutRepliesOverlay } from "./out-replies-overlay";
 export {
   OUT_REPLIES_MIN_OMP,

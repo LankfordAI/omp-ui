@@ -135,6 +135,47 @@ describe("ompTuiArgs", () => {
   });
 });
 
+describe("spawnOmp env", () => {
+  const base = {
+    id: "tab-1",
+    cwd: "/proj",
+    ompPath: "/bin/omp",
+    cols: 80,
+    rows: 24,
+  } as const;
+
+  function spawnOmpEnv(opts: Omit<Parameters<typeof spawnOmp>[0], "lineageDir">): NodeJS.ProcessEnv {
+    const lineageDir = fs.mkdtempSync(path.join(os.tmpdir(), "pty-lineage-"));
+    dirs.push(lineageDir);
+    spawnOmp({ ...opts, lineageDir });
+    // node-pty's spawn(file, args, options); the options carry env. The mock
+    // is untyped, so this shape is the documented IPty spawn options.
+    const options = ptySpawn.mock.lastCall![2] as { env: NodeJS.ProcessEnv };
+    return options.env;
+  }
+
+  it("merges the private session's child-env pin over the base env (#1094)", () => {
+    const env = spawnOmpEnv({ ...base, childEnv: { HINDSIGHT_AUTO_RETAIN: "false" } });
+    expect(env.HINDSIGHT_AUTO_RETAIN).toBe("false");
+    // The regular spawn environment still rides underneath the pin.
+    expect(env.COLORTERM).toBe("truecolor");
+    expect(env.PATH?.startsWith("/bin")).toBe(true);
+  });
+
+  it("leaves the env unpinned for an ordinary spawn", () => {
+    // Hermetic: with any developer-exported value hidden, an ordinary spawn
+    // carries no HINDSIGHT_AUTO_RETAIN of its own.
+    const saved = process.env.HINDSIGHT_AUTO_RETAIN;
+    delete process.env.HINDSIGHT_AUTO_RETAIN;
+    try {
+      const env = spawnOmpEnv({ ...base });
+      expect("HINDSIGHT_AUTO_RETAIN" in env).toBe(false);
+    } finally {
+      if (saved !== undefined) process.env.HINDSIGHT_AUTO_RETAIN = saved;
+    }
+  });
+});
+
 describe("normalizePtyKillSignal", () => {
   it("drops Unix signals for ConPTY termination", () => {
     expect(normalizePtyKillSignal("SIGKILL", "win32")).toBeUndefined();

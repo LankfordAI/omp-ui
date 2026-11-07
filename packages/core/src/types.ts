@@ -522,8 +522,11 @@ export interface OwnedSessionRecord {
   proposedPlans: ProposedPlan[];
   /** True pins the session write-quiet against the memory system (issue #852):
    *  recall reads, nothing writes. Enforced per-spawn by the omp-ui-private.yml
-   *  overlay (passive retain/autolearn channels) and, in rpc-ui, the
-   *  private-guard bridge (learn/retain/manage_skill/memory_edit tools).
+   *  overlay (the passive autolearn/Mnemopi/Hindsight retain channels, #1094),
+   *  a spawn-scoped HINDSIGHT_AUTO_RETAIN=false child-env pin (that variable
+   *  outranks every config layer, so the overlay alone is not enough for the
+   *  Hindsight channel), and, in rpc-ui, the private-guard bridge
+   *  (learn/retain/manage_skill/memory_edit tools).
    *  Post-dates schema-1: absent normalizes to false. */
   private: boolean;
   /** True for a Chat (CONTEXT.md): an owned session with no Project, run in a
