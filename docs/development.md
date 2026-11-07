@@ -193,6 +193,21 @@ tighter loop, run only affected tests from `packages/desktop`:
 npx vitest run --changed
 ```
 
+Every Git fixture must give each repository it initializes its own
+repository-local `user.name`/`user.email` before any commit — including a
+nested repository created inside another fixture repo. A freshly initialized
+repo reads only its own config plus the developer's global identity, so the
+outer repo's fixture identity does not reach it; a global identity makes the
+missing config invisible locally while clean CI (no global config) fails with
+`Author identity unknown` before the assertions run (#1080). The hermetic check
+for this is to run the suite with an empty Git config:
+
+```bash
+H=$(mktemp -d) && env -i HOME=$H PATH=$PATH TMPDIR=/tmp \
+  GIT_CONFIG_GLOBAL=/dev/null GIT_CONFIG_SYSTEM=/dev/null \
+npm test --workspace @omp-ui/core
+```
+
 The desktop `test` script does not run the process-backed live proofs
 (`src/main/**/*-live.test.ts`, real omp spawns); run them on demand with
 `npm run test:live --workspace @omp-ui/desktop`. Renderer `.live.test.tsx`

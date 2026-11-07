@@ -663,6 +663,11 @@ describe("readMergeBackStatus", () => {
     const nested = path.join(dir, "v");
     fs.mkdirSync(nested);
     await git(nested, ["init", "-q"]);
+    // A freshly initialized repo is its own repository: `dir`'s fixture identity
+    // does not reach it, so the inner commit needs one of its own. A developer's
+    // global git config hides this; clean CI has none (issue #1080).
+    await git(nested, ["config", "user.email", "test@example.com"]);
+    await git(nested, ["config", "user.name", "test"]);
     fs.writeFileSync(path.join(nested, "inner.txt"), "inner\n");
     await git(nested, ["add", "."]);
     await git(nested, ["commit", "-q", "-m", "inner"]);
