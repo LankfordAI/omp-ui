@@ -110,8 +110,30 @@ function commandLaunchesForeignSession(words: ShellWord[]): boolean {
   }
   if (launchAt === -1) return false;
   const args = words.slice(launchAt + 1);
-  for (const arg of args) {
+  // After a bare `--`, option parsing is over: every later word is prompt
+  // text, so nothing there waives (`omp -- --version go` starts a session).
+  let afterDashDash = false;
+  for (let k = 0; k < args.length; k++) {
+    const arg = args[k]!;
+    if (arg.text === "--" && !arg.quoted) {
+      afterDashDash = true;
+      continue;
+    }
+    if (afterDashDash) continue;
     if (NO_SESSION_ARGUMENTS[arg.text] === true) return false;
+    // A bare flag (no `=`) may take the next word as its value, and a VALUE
+    // never waives the notice: `omp --system-prompt '--print' 'go'` starts a
+    // session — that quoted text is prompt material, not a flag. The matcher
+    // does not know which flags take values, so it assumes any bare flag may;
+    // the consumed word is only ever exempted from waiving, never executed
+    // here. A word is a value when it is quoted (bash quoting means the
+    // author wrote data) or does not look like a flag; an unquoted `-x`
+    // stays a flag candidate — verified against omp 18.17, which answers
+    // `omp --advisor --version` with its version.
+    if (arg.text.startsWith("-") && !arg.text.includes("=")) {
+      const next = args[k + 1];
+      if (next !== undefined && (next.quoted || !next.text.startsWith("-"))) k += 1;
+    }
   }
   // A subcommand position only exists before any flag: `omp --model x config`
   // reads "config" as a flag value, not a subcommand.
@@ -139,8 +161,11 @@ interface ShellFrame {
  * starts or resumes a session, with issue #1075's exclusions applied per
  * launch. Quotes, backticks and `$(…)` interiors are tracked — a launch
  * inside `$(…)` still executes, quoted prose does not. `#` comments end at
- * their newline, heredoc bodies are skipped line-wise, and a redirect's
- * operand word never opens a command position (`> omp` truncates a file).
+ * their newline, heredoc bodies (`<<`, `<<-`, `<<<`, any spacing, delimiters
+ * consumed strictly in opening order) are skipped line-wise, arithmetic
+ * (`((…))`, `$((…))`) is evaluated and never scanned as commands, and a
+ * redirect's operand word never opens a command position (`> omp` truncates
+ * a file).
  */
 export function launchesBareOmpSession(command: string): boolean {
   const n = command.length;
@@ -196,19 +221,17 @@ export function launchesBareOmpSession(command: string): boolean {
   /** Read this frame's heredoc bodies line by line until each delimiter lands. */
   const consumeHeredocs = (frame: ShellFrame) => {
     while (i < n && frame.heredocs.length > 0) {
+      // Strict opening order: the body currently open always belongs to the
+      // earliest unterminated `<<`; a line matching a LATER delimiter is
+      // just body text (bash's own "wanted `B'" warning proves the pairing).
+      const pending = frame.heredocs[0]!;
       let end = command.indexOf("\n", i);
       const atEof = end === -1;
       if (atEof) end = n;
       const line = command.slice(i, end);
       i = atEof ? n : end + 1;
-      for (let k = 0; k < frame.heredocs.length; k++) {
-        const pending = frame.heredocs[k]!;
-        const candidate = pending.dash ? line.replace(/^\t+/, "") : line;
-        if (candidate === pending.delim) {
-          frame.heredocs.splice(k, 1);
-          break;
-        }
-      }
+      const candidate = pending.dash ? line.replace(/^\t+/, "") : line;
+      if (candidate === pending.delim) frame.heredocs.shift();
     }
   };
 
@@ -227,6 +250,23 @@ export function launchesBareOmpSession(command: string): boolean {
       i += 1;
     }
     return out;
+  };
+
+  /**
+   * Consume one balanced parenthesis group whose two opening `(` are already
+   * read. Used for `((…))` and `$((…))`: arithmetic is evaluated, never
+   * executed as commands, so its contents are inert — not even scanned (a
+   * nested `$()` inside arithmetic would be missed; that exotic shape keeps
+   * the silent bias rather than re-opening the parser here).
+   */
+  const skipBalancedArithmetic = (): void => {
+    let depth = 2;
+    while (i < n && depth > 0) {
+      const c = command[i]!;
+      if (c === "(") depth += 1;
+      else if (c === ")") depth -= 1;
+      i += 1;
+    }
   };
 
   let i = 0;
@@ -275,6 +315,12 @@ export function launchesBareOmpSession(command: string): boolean {
         continue;
       }
       if (i >= n) break;
+      if (command[i] === "$" && command[i + 1] === "(" && command[i + 2] === "(") {
+        // Quoted `$((…))` still evaluates arithmetic: inert, never a command.
+        i += 3;
+        skipBalancedArithmetic();
+        continue;
+      }
       // A substitution opens inside the quoted word: its body is code, and
       // the outer command's first word was data — only a launch INSIDE the
       // substitution can warn from here.
@@ -335,13 +381,24 @@ export function launchesBareOmpSession(command: string): boolean {
       continue;
     }
     if (ch === "$" && command[i + 1] === "(") {
+      // `$((…))` arithmetic evaluates; its words are variables, not commands.
+      if (command[i + 2] === "(") {
+        i += 3;
+        skipBalancedArithmetic();
+        continue;
+      }
       openFrame(")");
       i += 2;
       continue;
     }
     if (ch === "(") {
-      // Subshell groups and `((…))` arithmetic both close with `)`; either
-      // way their contents are scanned as commands in their own frame.
+      // `((…))` arithmetic evaluates; its words are variables, not commands.
+      // A plain `(` opens a subshell group whose contents stay scanned.
+      if (command[i + 1] === "(") {
+        i += 2;
+        skipBalancedArithmetic();
+        continue;
+      }
       openFrame(")");
       i += 1;
       continue;
@@ -363,18 +420,20 @@ export function launchesBareOmpSession(command: string): boolean {
       if (isHeredoc) {
         if (command[i + 2] === "<") {
           // Here-string: its whole token is data, never a command position.
+          // Bash allows blanks between `<<<` and the word (`<<< foo`).
           i += 3;
+          while (i < n && /[ \t]/.test(command[i]!)) i += 1;
           readToken();
           continue;
         }
         // Heredoc: record the delimiter; the body is skipped after the line.
+        // Bash reads the word right after `<<` or `<<-`, blanks and tabs
+        // between allowed (`cat << EOF` is a real heredoc with delimiter
+        // EOF); the word itself still stops at the first blank.
         i += 2;
         const dash = command[i] === "-";
-        if (dash) {
-          i += 1;
-          // `<<-` separates itself from the delimiter with tabs/spaces.
-          while (i < n && /[ \t]/.test(command[i]!)) i += 1;
-        }
+        if (dash) i += 1;
+        while (i < n && /[ \t]/.test(command[i]!)) i += 1;
         const delim = readToken();
         if (delim !== "") frame.heredocs.push({ delim, dash });
         continue;

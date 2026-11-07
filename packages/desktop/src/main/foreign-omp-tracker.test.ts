@@ -99,10 +99,16 @@ describe("launchesBareOmpSession: prose, quotes, and data (#1075)", () => {
     "mkdir -p omp && tar xf bundle.tgz -C omp",
     'cp notes.md "my omp ideas.md"',
     "ls -la omp",
-    // Heredoc bodies never reach a command position.
+    // Heredoc bodies never reach a command position — with any spacing
+    // before the delimiter, and for here-strings too.
     "cat > /tmp/x <<'EOF'\nomp is nice\nsecond line\nEOF\necho done",
     'gh issue create --body "$(cat <<EOF\nthe agent runs omp by hand\nEOF\n)"',
     "python3 - <<PY\nprint('omp 18.17')\nPY",
+    "cat << EOF\nomp is prose\nEOF\n",
+    "cat <<  EOF\nomp double space\nEOF\necho done",
+    "cat <<-\tEOF\n\tomp tab delim\n\tEOF\necho done",
+    "grep -q x <<< 'omp prose' && echo ok",
+    "grep -q <<< omp",
     // Comments end the parse for their line.
     "# omp would orphan a child here\necho ok",
     "echo hi # run omp instead if needed",
@@ -157,12 +163,57 @@ describe("launchesBareOmpSession: probe-vs-launch boundaries (#1075)", () => {
     expect(launchesBareOmpSession("omp config list --json")).toBe(false);
   });
 
-  it("survives unbalanced quotes and unfinished syntax without throwing", () => {
-    expect(() => launchesBareOmpSession('git commit -m "omp 18.13 unterminated')).not.toThrow();
+  it("keeps an unterminated quoted word as data, not a launch", () => {
     expect(launchesBareOmpSession('git commit -m "omp 18.13 unterminated')).toBe(false);
     expect(launchesBareOmpSession("echo $(omp")).toBe(true); // the launch still executes
-    expect(() => launchesBareOmpSession("cat <<'EOF\nnever closed omp line")).not.toThrow();
     expect(launchesBareOmpSession("cat <<'EOF\nnever closed omp line")).toBe(false);
+  });
+
+  it("treats a flag's value as data: quoted look-alikes never waive", () => {
+    expect(launchesBareOmpSession("omp --system-prompt '--help' 'go'")).toBe(true);
+    expect(launchesBareOmpSession("omp --system-prompt '--print' 'go'")).toBe(true);
+    expect(launchesBareOmpSession("omp --append-system-prompt 'use --no-session' go")).toBe(true);
+    expect(launchesBareOmpSession('omp --model x --system-prompt "--version"')).toBe(true);
+    // An unquoted flag-shaped word after a flag is ambiguous: boolean flags
+    // do not consume it (omp answers `omp --advisor --version` with its
+    // version — verified against 18.17), value-taking flags do. The matcher
+    // does not hold omp's flag table, so it keeps the #1075 bias: treat it
+    // as a flag and waive rather than risk re-learning-to-ignore warnings.
+    expect(launchesBareOmpSession("omp --advisor --version")).toBe(false);
+    expect(launchesBareOmpSession("omp --system-prompt --help go")).toBe(false);
+    // `--` ends option parsing: everything after it is prompt text, and
+    // nothing there waives (omp starts a real session for `omp -- --advisor`).
+    expect(launchesBareOmpSession("omp -- --version go")).toBe(true);
+    expect(launchesBareOmpSession("omp -- --no-session go")).toBe(true);
+    expect(launchesBareOmpSession('omp --model x -p "ask"')).toBe(false);
+  });
+
+  it("never reads an arithmetic variable as a launch", () => {
+    expect(launchesBareOmpSession("echo $(( omp + 1 ))")).toBe(false);
+    expect(launchesBareOmpSession('echo "$(( omp + 1 ))"')).toBe(false);
+    expect(launchesBareOmpSession("if (( omp > 0 )); then echo set; fi")).toBe(false);
+    // A real launch beside arithmetic still counts.
+    expect(launchesBareOmpSession("x=$(( omp + 1 )) && omp go")).toBe(true);
+    // Arithmetic swallowing stops at its own balanced close.
+    expect(launchesBareOmpSession("echo $(( 1 + (2 * 3) )); omp go")).toBe(true);
+  });
+
+  it("consumes multiple heredoc bodies in opening order", () => {
+    // Two heredocs on one line: bodies pair with delimiters in opening
+    // order, so the `A` line mid-way is B's BODY text, not a command.
+    expect(
+      launchesBareOmpSession("cat <<A <<B\nfirst body omp here\nA\nsecond body omp there\nB\necho done"),
+    ).toBe(false);
+    // A later delimiter's line cannot close the earlier heredoc: after A
+    // closes, `B` is prose inside B's body.
+    expect(
+      launchesBareOmpSession("cat <<A <<B\none omp two\nB\nomp\nA\necho done"),
+    ).toBe(false);
+    // Real launches survive the same shape: a spaced pair with a launch
+    // after both bodies closed.
+    expect(
+      launchesBareOmpSession("cat << EOF1 << EOF2\nbody omp x\nEOF1\nbody omp y\nEOF2\nomp go"),
+    ).toBe(true);
   });
 
   it("joins escaped characters and line continuations into one command word", () => {
