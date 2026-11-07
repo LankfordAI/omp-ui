@@ -21,6 +21,9 @@ import { ForeignOmpTracker } from "./foreign-omp-tracker";
  * - A second launch under the same live process adds no second notice.
  * - A commit whose message says `omp` lands for real (the message comes back
  *   from `git log`); silent — #1075's largest false-positive group.
+ * - `omp --model zzz/nope --system-prompt '--help' 'go'` exits 0 on the
+ *   real binary — bash erased the quoting, omp took `--help` as its flag and
+ *   never resolved the model, so no session ran; silent.
  *
  * A scripted loopback provider (the async-jobs-live.test.ts pattern) drives
  * the bash calls deterministically without billing a real model. Skips
@@ -30,6 +33,7 @@ import { ForeignOmpTracker } from "./foreign-omp-tracker";
 const ompPath = resolveOmpBinary();
 const VERSION_MARK = "vprobe-mark";
 const LAUNCH_MARK = "launchprobe";
+const HELP_MARK = "helpprobe";
 const COMMIT_MARK = "trackerprobe commit done";
 
 interface Frame {
@@ -391,6 +395,31 @@ describe.skipIf(ompPath === null)("foreign omp tracker on the real runtime (#107
       await prompt(scope, "commit-it");
       const out = await awaitToolOutput(scope, "commit-it");
       expect(out).toContain(COMMIT_MARK);
+      expect(foreignNotices(scope)).toHaveLength(0);
+    },
+    240_000,
+  );
+
+  it(
+    "a quoted help word behind a flag prints help on the real binary and stays silent",
+    async () => {
+      provider = await scriptedProvider([
+        {
+          sentinel: "quoted-help",
+          command: `omp --model zzz/nope --system-prompt '--help' 'go' > /dev/null 2>&1; echo ${HELP_MARK} $?`,
+        },
+      ]);
+      const { base, env } = hermeticBase(provider.baseUrl);
+      const scope = spawnScope(base, env);
+      scopes.push(scope);
+      await ready(scope);
+
+      // Bash erases the quoting before argv, so the real omp takes `--help`
+      // as its flag: exit 0 without ever resolving the bogus model — no
+      // session ran, and the tracker says nothing.
+      await prompt(scope, "quoted-help");
+      const out = await awaitToolOutput(scope, "quoted-help");
+      expect(out).toContain(`${HELP_MARK} 0`);
       expect(foreignNotices(scope)).toHaveLength(0);
     },
     240_000,

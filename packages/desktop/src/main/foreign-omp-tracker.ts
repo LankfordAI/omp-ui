@@ -25,18 +25,23 @@ const NON_SESSION_SUBCOMMANDS: Record<string, true> = { config: true, models: tr
 
 /**
  * Arguments that make an `omp` invocation a probe or a run that leaves no
- * session behind: version/help probes, `--no-session` one-shots, and print
- * mode (`-p`/`--print`), which processes a prompt and exits (issue #1075).
+ * session behind: version probes, `--no-session` one-shots, and print mode
+ * (`-p`/`--print`), which processes a prompt and exits (issue #1075).
  */
 const NO_SESSION_ARGUMENTS: Record<string, true> = {
   "--version": true,
   "-v": true,
-  "--help": true,
-  "-h": true,
   "--no-session": true,
   "--print": true,
   "-p": true,
 };
+
+/**
+ * omp's help interception. Separate from NO_SESSION_ARGUMENTS because it
+ * wins from every position the real binary was checked at — even quoted and
+ * even after `--` — where the other waivers stop at `--`.
+ */
+const HELP_ARGUMENTS: Record<string, true> = { "--help": true, "-h": true };
 
 /** Shell words that run the command after them; `omp` hides behind them. */
 const COMMAND_WRAPPERS: Record<string, true> = {
@@ -110,30 +115,31 @@ function commandLaunchesForeignSession(words: ShellWord[]): boolean {
   }
   if (launchAt === -1) return false;
   const args = words.slice(launchAt + 1);
-  // After a bare `--`, option parsing is over: every later word is prompt
-  // text, so nothing there waives (`omp -- --version go` starts a session).
+  // Waiver semantics verified against the real omp 18.17 binary:
+  // - Bash erases quoting before argv, so a separate word equal to
+  //   `--help`/`-h` reaches oclif as the help flag from ANY position — even
+  //   quoted (`omp --system-prompt '--help' 'go'` prints help, exit 0) and
+  //   even after `--`. Only the inline `--system-prompt=--help` form binds
+  //   it as a value (verified: model resolution, no help); tokens carrying
+  //   `=` are never exact matches here.
+  // - After a bare `--`, option parsing is over (`omp -- --version go`
+  //   reaches model resolution, never printing a version), so non-help
+  //   arguments there are prompt text and do not waive.
+  // - The other waivers fire on any separate word, even one a string flag
+  //   would consume as its value: `omp --system-prompt '-v' 'go'` really
+  //   does resolve the model (verified — `-v` was eaten as a value), yet the
+  //   matcher waives. It holds no flag table, and over-silence on that shape
+  //   keeps the notice trustworthy, which is #1075's whole point.
   let afterDashDash = false;
-  for (let k = 0; k < args.length; k++) {
-    const arg = args[k]!;
+  for (const arg of args) {
     if (arg.text === "--" && !arg.quoted) {
       afterDashDash = true;
       continue;
     }
-    if (afterDashDash) continue;
-    if (NO_SESSION_ARGUMENTS[arg.text] === true) return false;
-    // A bare flag (no `=`) may take the next word as its value, and a VALUE
-    // never waives the notice: `omp --system-prompt '--print' 'go'` starts a
-    // session — that quoted text is prompt material, not a flag. The matcher
-    // does not know which flags take values, so it assumes any bare flag may;
-    // the consumed word is only ever exempted from waiving, never executed
-    // here. A word is a value when it is quoted (bash quoting means the
-    // author wrote data) or does not look like a flag; an unquoted `-x`
-    // stays a flag candidate — verified against omp 18.17, which answers
-    // `omp --advisor --version` with its version.
-    if (arg.text.startsWith("-") && !arg.text.includes("=")) {
-      const next = args[k + 1];
-      if (next !== undefined && (next.quoted || !next.text.startsWith("-"))) k += 1;
-    }
+    // Exact whole-word match, so the inline `--system-prompt=--help` value
+    // form (which oclif really binds as a value) is never mistaken for it.
+    if (HELP_ARGUMENTS[arg.text] === true) return false;
+    if (!afterDashDash && NO_SESSION_ARGUMENTS[arg.text] === true) return false;
   }
   // A subcommand position only exists before any flag: `omp --model x config`
   // reads "config" as a flag value, not a subcommand.
@@ -447,7 +453,13 @@ export function launchesBareOmpSession(command: string): boolean {
     i += 1;
   }
   endCommand();
-  while (frames.length > 1) closeFrame();
+  // Unclosed syntax at EOF — an open `(`/`$(`/backtick frame or an open
+  // quote — is a parse error: bash rejects the WHOLE command before anything
+  // executes (`echo $(omp` launches nothing). Silence bias per #1075: when
+  // the parse never completed, no launch is claimed. An unterminated
+  // heredoc body does not count; bash still feeds it to the command at EOF.
+  const syntaxIncomplete = frames.length > 1 || frames.some((f) => f.quote !== null);
+  if (syntaxIncomplete) return false;
 
   return commands.some(commandLaunchesForeignSession);
 }

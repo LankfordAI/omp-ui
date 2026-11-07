@@ -163,26 +163,43 @@ describe("launchesBareOmpSession: probe-vs-launch boundaries (#1075)", () => {
     expect(launchesBareOmpSession("omp config list --json")).toBe(false);
   });
 
-  it("keeps an unterminated quoted word as data, not a launch", () => {
+  it("stays silent when the syntax never closes — bash runs nothing", () => {
+    // An unclosed quote or substitution is a parse error: bash rejects the
+    // whole command before executing any of it, so no launch happens.
     expect(launchesBareOmpSession('git commit -m "omp 18.13 unterminated')).toBe(false);
-    expect(launchesBareOmpSession("echo $(omp")).toBe(true); // the launch still executes
+    expect(launchesBareOmpSession("echo $(omp")).toBe(false);
+    expect(launchesBareOmpSession("x=`omp resume")).toBe(false);
     expect(launchesBareOmpSession("cat <<'EOF\nnever closed omp line")).toBe(false);
+    // The balanced forms of the same shapes DO execute, and are asserted
+    // where they warn: `out=$(omp 'summarize') && echo $out` and
+    // ``x=`omp resume` `` (see the substitution case above).
+    expect(launchesBareOmpSession("echo $(omp)")).toBe(true);
   });
 
-  it("treats a flag's value as data: quoted look-alikes never waive", () => {
-    expect(launchesBareOmpSession("omp --system-prompt '--help' 'go'")).toBe(true);
-    expect(launchesBareOmpSession("omp --system-prompt '--print' 'go'")).toBe(true);
-    expect(launchesBareOmpSession("omp --append-system-prompt 'use --no-session' go")).toBe(true);
-    expect(launchesBareOmpSession('omp --model x --system-prompt "--version"')).toBe(true);
-    // An unquoted flag-shaped word after a flag is ambiguous: boolean flags
-    // do not consume it (omp answers `omp --advisor --version` with its
-    // version — verified against 18.17), value-taking flags do. The matcher
-    // does not hold omp's flag table, so it keeps the #1075 bias: treat it
-    // as a flag and waive rather than risk re-learning-to-ignore warnings.
+  it("waives on a separate help word even when quoted", () => {
+    // Bash erases quoting before argv: these reach omp as the help flag and
+    // print help, exit 0 — verified against the real 18.17 binary.
+    expect(launchesBareOmpSession("omp --model zzz/nope --system-prompt '--help' 'go'")).toBe(false);
+    expect(launchesBareOmpSession('omp --model zzz/nope --system-prompt "--help" \'go\'')).toBe(false);
+    expect(launchesBareOmpSession("omp --model zzz/nope --system-prompt -h 'go'")).toBe(false);
+    expect(launchesBareOmpSession("omp -- --help")).toBe(false);
+    // The inline `=` form really binds a value — the same command without it
+    // reaches model resolution (session-start attempt), verified on the
+    // binary: only this shape warns.
+    expect(launchesBareOmpSession("omp --model zzz/nope --system-prompt=--help 'go'")).toBe(true);
+  });
+
+  it("waives on a separate print/version word in any slot; `--` ends waivers", () => {
+    // A separate no-session word waives regardless of whether a string flag
+    // would consume it (no flag table; #1075 silence bias).
+    expect(launchesBareOmpSession("omp --system-prompt '--print' 'go'")).toBe(false);
+    expect(launchesBareOmpSession('omp --model x --system-prompt "--version"')).toBe(false);
     expect(launchesBareOmpSession("omp --advisor --version")).toBe(false);
-    expect(launchesBareOmpSession("omp --system-prompt --help go")).toBe(false);
-    // `--` ends option parsing: everything after it is prompt text, and
-    // nothing there waives (omp starts a real session for `omp -- --advisor`).
+    // But a multi-word value is data, not the flag itself.
+    expect(launchesBareOmpSession("omp --append-system-prompt 'use --no-session' go")).toBe(true);
+    // After `--`, option parsing is over: `omp -- --version go` reaches model
+    // resolution on the binary — a session start, so it warns. Help is the
+    // exception: oclif intercepts `--help` even after `--`.
     expect(launchesBareOmpSession("omp -- --version go")).toBe(true);
     expect(launchesBareOmpSession("omp -- --no-session go")).toBe(true);
     expect(launchesBareOmpSession('omp --model x -p "ask"')).toBe(false);
