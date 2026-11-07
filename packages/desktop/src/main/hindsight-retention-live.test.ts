@@ -249,18 +249,20 @@ async function spawnScope(fixture: Fixture, hits: SinkHit[], opts: { privateSess
     configOverlays: overlay === null ? [] : [overlay],
     childEnv: privateChildEnv(opts.pin),
     spawnProcess: (bin, args, extra) => {
+      const env: NodeJS.ProcessEnv = {
+        ...extra,
+        HOME: home,
+        XDG_CONFIG_HOME: path.join(home, ".config"),
+        XDG_DATA_HOME: path.join(home, ".local", "share"),
+      };
+      // Keep the production-computed retention gate, but never inherit a
+      // real Hindsight destination, token, or other setting override.
+      for (const key of Object.keys(env)) {
+        if (key.startsWith("HINDSIGHT_") && key !== HINDSIGHT_AUTO_RETAIN_ENV) delete env[key];
+      }
       const proc = spawn(bin, args, {
         stdio: ["pipe", "pipe", "pipe"],
-        env: {
-          // `extra` is the client-computed spawn env: ompChildEnv of the
-          // (stubbed-export) process env, with the child pin layered over it
-          // when opts.pin. Touching the gate here would mask whether that
-          // merge actually works — this harness only scopes HOME/XDG.
-          ...extra,
-          HOME: home,
-          XDG_CONFIG_HOME: path.join(home, ".config"),
-          XDG_DATA_HOME: path.join(home, ".local", "share"),
-        },
+        env,
       });
       return {
         stdin: proc.stdin,
