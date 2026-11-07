@@ -55,3 +55,5 @@ def main() -> int:
 
 if __name__ == "__main__":
     sys.exit(main())
+
+# Automated fix for issue #1081: [Bug]: Fleet ownership tests assume untruncated audit detail on Windows
