@@ -4,7 +4,7 @@ This guide explains what users receive from a release and how maintainers publis
 
 ## Unreleased
 
-- A new session opened with a greeting or other low-signal first prompt now titles itself from the agent's first substantive answer instead of waiting for another prompt: the rename goes out once the reply carries enough for OMP's renamer, a greeting answered with a greeting stays unnamed, and every window shares exactly one automatic rename per session ([#1090](https://github.com/LankfordAI/omp-ui/issues/1090)).
+- A new session opened with a greeting or other low-signal first prompt now titles itself from the agent's first substantive answer instead of waiting for another prompt: the rename goes out once the reply carries enough for OMP's renamer, a greeting answered with a greeting stays unnamed, and windows share one first-title ownership per session so no two send it ([#1090](https://github.com/LankfordAI/omp-ui/issues/1090)).
 - Stats now explicitly runs OMP's host-owned collector and shares its status across desktop/browser clients, with consistent Project/provider/model/agent/range filters, worktree-aware Project costs, recorded tool outcomes, selected-range sessions, UTC charts, retained snapshots on failure, and honest archive/money coverage ([#1083](https://github.com/LankfordAI/omp-ui/issues/1083)).
 
 ## Choose a download
