@@ -780,8 +780,9 @@ thinking/reply words cross omp's own reading-depth bar — a greeting answered
 with a greeting stays unnamed (issue #1090). Because renderers reduce the same
 frames independently, every first-shot route wins one atomic claim in the
 owning instance's main process before dispatching, and only the winner carries
-the retry ladder — one automatic rename per session across every window, from
-whichever route reaches it first. For a session seeded from an approved plan,
+the retry ladder — shared first-title ownership across every window, so two of
+them never send the rename, from whichever route claims it first. For a session
+seeded from an approved plan,
 the plan titles it from the record's `planTitle`, never the seed text that
 carried the plan. One shot per session: a declined generation retries at later
 turn ends, then leaves the row prompt-titled until a manual path names it. The

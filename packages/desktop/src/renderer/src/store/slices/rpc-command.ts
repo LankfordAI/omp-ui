@@ -30,6 +30,7 @@ import {
   RpcCommandTimeoutError,
   dropPlanHandoff,
   isLateAckCommand,
+  peekTabRuntime,
   respData,
   clearRewindPrefill,
   type GetState,
@@ -1080,7 +1081,7 @@ export function createRpcCommandSlice(
         // shot belonged to the old process — retire without touching the new
         // slot's fresh first-title state (including its own pending claim).
         const current = get().rpc[tabId];
-        if (!current || m.runtime(tabId) !== runtime) return;
+        if (!current || peekTabRuntime(tabId) !== runtime) return;
         m.patchRuntime(tabId, { titleClaimInFlight: undefined });
         // Mid-flight manual rename, or an earlier fire from this renderer that
         // already won: never clobber an owned/latched copy.
@@ -1103,7 +1104,7 @@ export function createRpcCommandSlice(
         // is spent unarbitrated, and the still-live arm retries at a later
         // turn end once the command path works again.
         console.warn("[session-rename] first-title claim failed:", err);
-        if (get().rpc[tabId] && m.runtime(tabId) === runtime)
+        if (peekTabRuntime(tabId) === runtime)
           m.patchRuntime(tabId, { titleClaimInFlight: undefined });
       });
   };
