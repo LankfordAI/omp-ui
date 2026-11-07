@@ -4,11 +4,14 @@ import { generatedRootBindingSource } from "./generated-extension-source";
 
 /**
  * A private session (issue #852) writes nothing into the memory system. The
- * two *passive* channels close through the omp-ui-private.yml overlay; the
- * four *active* ones are plain model tools with no `<tool>.enabled` config
- * key (probed against the omp binary: the full key list contains none of
- * them), so the only per-session way to close them is the runtime apply path
- * the plan bridge already uses for its read-only toggle: read the live
+ * three *passive* channels close through the omp-ui-private.yml overlay —
+ * autolearn, Mnemopi retain, and since #1094 Hindsight's agent_end retain
+ * (which additionally needs the HINDSIGHT_AUTO_RETAIN child-env pin, see
+ * private-overlay.ts, because its env handle outranks every config layer);
+ * the four *active* ones are plain model tools with no `<tool>.enabled`
+ * config key (probed against the omp binary: the full key list contains none
+ * of them), so the only per-session way to close them is the runtime apply
+ * path the plan bridge already uses for its read-only toggle: read the live
  * roster, hand omp the roster minus the write tools through
  * `setActiveToolPresentation` (else `setActiveToolsByName`).
  *

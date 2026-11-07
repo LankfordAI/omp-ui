@@ -88,6 +88,14 @@ export function spawnOmp(opts: {
   advisor?: boolean;
   /** Extra `--config` overlays — the advisor-model pin (see advisor-overlay.ts). */
   configOverlays?: string[];
+  /**
+   * Spawn-scoped environment pins merged OVER the sanitized base env at
+   * spawn (#1094), symmetric with `RpcClientOpts.childEnv`: a private
+   * session's PTY child carries `HINDSIGHT_AUTO_RETAIN=false` so the
+   * env-backed setting handle cannot outrank the quiet overlay. Child-scoped
+   * only — omp-ui's own environment and ordinary spawns are untouched.
+   */
+  childEnv?: NodeJS.ProcessEnv;
 }): PtyHandle {
   const args = ["--cwd", opts.cwd, "--session-dir", opts.lineageDir];
   if (opts.restoreSessionId) args.push(`--restore=${opts.restoreSessionId}`);
@@ -105,7 +113,7 @@ export function spawnOmp(opts: {
     cols: opts.cols,
     rows: opts.rows,
     cwd: opts.cwd,
-    env: Object.assign(ompChildEnv(opts.ompPath), XTERM_ENV),
+    env: Object.assign(ompChildEnv(opts.ompPath), XTERM_ENV, opts.childEnv),
     encoding: null, // raw Buffers, not decoded strings
   });
 

@@ -1,12 +1,14 @@
 import * as fs from "node:fs";
 import * as os from "node:os";
 import * as path from "node:path";
-import { spawn } from "node:child_process";
-import { afterEach, describe, expect, it } from "vitest";
+import { execFileSync, spawn } from "node:child_process";
+import { afterEach, describe, expect, it, vi } from "vitest";
 import {
+  HINDSIGHT_AUTO_RETAIN_ENV,
   PRIVATE_DISABLED_TOOLS,
   RpcClient,
   capabilitiesMessage,
+  privateChildEnv,
   privateGuardArmMessage,
   resolveOmpBinary,
   writeCapabilitiesExtension,
@@ -20,19 +22,26 @@ import {
 } from "@omp-ui/core/capabilities";
 
 /**
- * Live proof for private sessions (issue #852) against the real
+ * Live proof for private sessions (issues #852, #1094) against the real
  * `omp --mode=rpc-ui` binary — the same skip-when-no-binary discipline as
  * capability-control-live.test.ts.
  *
- * Two claims, both read back from inside a real session — never from
+ * Three claims, all read back from inside a real session — never from
  * `omp config get`, which ignores `--config` and would prove nothing:
  *
- * 1. The overlay outranks the user's own project config: with both keys
- *    pinned TRUE at the project layer, a private spawn's effective settings
- *    read false for autolearn.enabled and mnemopi.autoRetain while
- *    mnemopi.autoRecall — deliberately unlisted — stays true, and an
- *    ordinary spawn of the same project reads all three true.
- * 2. The guard's arm command removes the memory-WRITE tools from the live
+ * 1. The overlay outranks the user's own project config: with the passive
+ *    write keys pinned TRUE at the project layer, a private spawn's
+ *    effective settings read false for autolearn.enabled,
+ *    mnemopi.autoRetain, and (since #1094) hindsight.autoRetain while the
+ *    recall keys — deliberately unlisted — stay true, and an ordinary spawn
+ *    of the same project reads them all true.
+ * 2. The child-env pin outranks an exported HINDSIGHT_AUTO_RETAIN=true:
+ *    upstream's env-backed handle beats every config layer, so with the
+ *    variable set both scopes need the spawn-scoped pin — and only the
+ *    private spawn carries it; the ordinary sibling still resolves true.
+ *    (Transcript-level proof that this gate is the live retain path lives in
+ *    hindsight-retention-live.test.ts against a local sink.)
+ * 3. The guard's arm command removes the memory-WRITE tools from the live
  *    roster, proved pairwise: an ordinary spawn and a private spawn of the
  *    identical hermetic scope publish their rosters through the real
  *    capabilities bridge, and the enabled-set difference is exactly the
@@ -48,11 +57,34 @@ import {
 
 const ompPath = resolveOmpBinary();
 
-/** Both write channels pinned true by the USER's project layer: the proof
- *  shows the private overlay outranks the user's config, not omp's defaults. */
-const PROJECT_MEMORY_ON = "autolearn:\n  enabled: true\nmnemopi:\n  autoRetain: true\n";
+/** All three passive write channels pinned true by the USER's project layer
+ *  (issue #1094 adds the Hindsight gate): the proof shows the private overlay
+ *  outranks the user's config, not omp's defaults. */
+const PROJECT_MEMORY_ON =
+  "autolearn:\n  enabled: true\nmnemopi:\n  autoRetain: true\nhindsight:\n  autoRetain: true\n";
 
-/** Publishes the runtime's effective truth for the three memory settings. */
+/** True when the resolved binary publishes `hindsight.autoRetain` at all;
+ *  older binaries predate the key, so the hindsight half of the probe reads
+ *  "unset" there and those assertions are skipped (same probe discipline as
+ *  magic-keywords-live's published-key check). */
+function binaryPublishesHindsightAutoRetain(): boolean {
+  if (ompPath === null) return false;
+  try {
+    const out = execFileSync(ompPath, ["config", "list", "--json"], {
+      timeout: 15_000,
+      maxBuffer: 4 * 1024 * 1024,
+      stdio: ["ignore", "pipe", "ignore"],
+    }).toString();
+    return Object.keys(JSON.parse(out) as Record<string, unknown>).includes("hindsight.autoRetain");
+  } catch {
+    return false;
+  }
+}
+
+const hindsightKeysLive = binaryPublishesHindsightAutoRetain();
+
+/** Publishes the runtime's effective truth for the passive memory settings —
+ *  the two #852 channels plus the #1094 Hindsight gate and both recall keys. */
 const CONFIG_PROBE_EXT = `
 let lookup = null;
 // @ts-expect-error -- literal specifier resolved by omp's extension loader (ADR-0036)
@@ -91,6 +123,8 @@ export default function (pi) {
         autolearn: read("autolearn.enabled"),
         retain: read("mnemopi.autoRetain"),
         recall: read("mnemopi.autoRecall"),
+        hindsightAutoRetain: read("hindsight.autoRetain"),
+        hindsightAutoRecall: read("hindsight.autoRecall"),
       }));
     },
   });
@@ -130,7 +164,14 @@ interface Scope {
   exited: Promise<void>;
 }
 
-function spawnScope(opts: { privateSession: boolean; projectConfig?: string }): Scope {
+function spawnScope(opts: {
+  privateSession: boolean;
+  projectConfig?: string;
+  /** Simulates the user having exported HINDSIGHT_AUTO_RETAIN=true. */
+  exportedAutoRetain?: boolean;
+}): Scope {
+  if (opts.exportedAutoRetain === true) vi.stubEnv(HINDSIGHT_AUTO_RETAIN_ENV, "true");
+  else vi.unstubAllEnvs();
   const base = fs.mkdtempSync(path.join(os.tmpdir(), "omp-ui-privlive-"));
   const project = path.join(base, "proj");
   const lineage = path.join(base, "lin");
@@ -153,17 +194,26 @@ function spawnScope(opts: { privateSession: boolean; projectConfig?: string }): 
   const exited = new Promise<void>((resolve) => {
     markExited = resolve;
   });
-  const env = {
+  const env: NodeJS.ProcessEnv = {
     ...process.env,
     HOME: home,
     XDG_CONFIG_HOME: path.join(home, ".config"),
     XDG_DATA_HOME: path.join(home, ".local", "share"),
   };
+  // The retention gate must NOT ride this overlay layer: it belongs to the
+  // client-computed `extra` (ompChildEnv base + child pin), exactly like a
+  // real spawn. Re-spreading our own process.env here would silently undo
+  // the private childEnv pin and prove nothing.
+  delete env[HINDSIGHT_AUTO_RETAIN_ENV];
   const client = new RpcClient({
     cwd: project,
     lineageDir: lineage,
     ompPath: ompPath!,
     configOverlays: overlay === null ? [] : [overlay],
+    // Production parity: the session manager passes privateChildEnv(record.private)
+    // on both spawn builders; this harness carries it for both modes so the
+    // ordinary/private pair differ ONLY by the record flag.
+    childEnv: privateChildEnv(opts.privateSession),
     extensions: [capExt, guardExt, probeExt],
     ...(opts.privateSession
       ? { initialCommands: [{ type: "prompt", message: privateGuardArmMessage() }] }
@@ -206,6 +256,8 @@ interface ProbePublish {
   autolearn: string;
   retain: string;
   recall: string;
+  hindsightAutoRetain: string;
+  hindsightAutoRecall: string;
 }
 
 async function probeSettings(scope: Scope): Promise<ProbePublish> {
@@ -246,6 +298,7 @@ function userMessagesAfter(scope: Scope, from: number): Frame[] {
 
 const disposers: (() => Promise<void>)[] = [];
 afterEach(async () => {
+  vi.unstubAllEnvs();
   for (const dispose of disposers.splice(0)) await dispose();
 });
 
@@ -275,6 +328,13 @@ describe.skipIf(ompPath === null)("private sessions on the real runtime", () => 
     // Recall is deliberately unlisted: with the project layer silent on it,
     // omp's default keeps a private session able to remember.
     expect(published.recall).toBe("true");
+    if (hindsightKeysLive) {
+      // #1094: the third passive channel — Hindsight's agent_end transcript
+      // retention — is pinned off by the same overlay, while its recall key
+      // stays where the user left it.
+      expect(published.hindsightAutoRetain).toBe("false");
+      expect(published.hindsightAutoRecall).toBe("true");
+    }
     // The overlay file itself never names the read-side switches — absence
     // is the design (ADR-0055: only the write channels are pinned).
     const overlayText = fs.readFileSync(scope.overlay!, "utf8");
@@ -289,8 +349,31 @@ describe.skipIf(ompPath === null)("private sessions on the real runtime", () => 
     expect(published.autolearn).toBe("true");
     expect(published.retain).toBe("true");
     expect(published.recall).toBe("true");
+    if (hindsightKeysLive) {
+      // The project layer pins hindsight.autoRetain true; an ordinary
+      // session keeps it — the private pin never leaks across records.
+      expect(published.hindsightAutoRetain).toBe("true");
+    }
     // A non-private spawn lays no overlay artifact at all.
     expect(scope.overlay).toBeNull();
+  });
+
+  it("the child-env pin outranks an exported HINDSIGHT_AUTO_RETAIN=true", { timeout: 300_000 }, async () => {
+    // The issue's stated trap: upstream's env-backed handle beats EVERY
+    // config layer, so on a machine with the variable exported true the
+    // overlay alone would lose. Both scopes run with the export present;
+    // only the private record carries the child-env pin (spawnScope passes
+    // privateChildEnv(record.private) exactly like the session manager).
+    const guarded = track(spawnScope({ privateSession: true, exportedAutoRetain: true }));
+    const baseline = track(spawnScope({ privateSession: false, exportedAutoRetain: true }));
+    if (hindsightKeysLive) {
+      const published = await probeSettings(guarded);
+      expect(published.hindsightAutoRetain).toBe("false");
+      // The ordinary sibling of the same export keeps its true — the pin is
+      // child-scoped, never a global mutation.
+      const ordinary = await probeSettings(baseline);
+      expect(ordinary.hindsightAutoRetain).toBe("true");
+    }
   });
 
   it("the arm removes exactly the registered write tools, pairwise", { timeout: 300_000 }, async () => {

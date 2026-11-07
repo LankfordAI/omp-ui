@@ -43,6 +43,15 @@ export interface RpcClientOpts {
   advisor?: boolean;
   /** Extra `--config` overlays — the advisor-model pin (see advisor-overlay.ts). */
   configOverlays?: string[];
+  /**
+   * Spawn-scoped environment pins merged OVER the sanitized base env at
+   * spawn (#1094). Used by private sessions to pin `HINDSIGHT_AUTO_RETAIN`
+   * off for this child only — upstream's env-backed setting handle outranks
+   * every `--config` layer, so the overlay alone loses to an exported true.
+   * Never a mutation of omp-ui's own `process.env`; ordinary spawns pass
+   * nothing and keep the user's value.
+   */
+  childEnv?: NodeJS.ProcessEnv;
   /** Extra `-e` extensions — the plan-mode driver (see plan-extension.ts). */
   extensions?: string[];
   /** Commands sent once, immediately after protocol negotiation and before ready is forwarded. */
@@ -177,6 +186,7 @@ export class RpcClient {
       args.push("--no-session", "--no-tools", "--no-extensions", "--no-lsp", "--no-skills", "--no-rules");
     }
     const env = ompChildEnv(opts.ompPath);
+    if (opts.childEnv !== undefined) Object.assign(env, opts.childEnv);
     const spawnProcess = opts.spawnProcess ?? defaultSpawn;
     this.#proc = spawnProcess(opts.ompPath, args, env);
     this.#proc.stdout.on("data", (chunk: Buffer) => this.#onStdout(chunk));

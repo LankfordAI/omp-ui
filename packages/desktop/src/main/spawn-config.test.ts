@@ -244,7 +244,7 @@ describe("writeSessionOverlays private pin (issue #852)", () => {
       expect(overlays.filter((overlay) => overlay === file)).toEqual([file]);
       expect(overlays.at(-1)).toBe(file);
       expect(fs.readFileSync(file, "utf8")).toBe(
-        "autolearn:\n  enabled: false\nmnemopi:\n  autoRetain: false\n",
+        "autolearn:\n  enabled: false\nmnemopi:\n  autoRetain: false\nhindsight:\n  autoRetain: false\n",
       );
     }
   });

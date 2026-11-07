@@ -5,6 +5,7 @@ This guide explains what users receive from a release and how maintainers publis
 ## Unreleased
 
 - Stats now explicitly runs OMP's host-owned collector and shares its status across desktop/browser clients, with consistent Project/provider/model/agent/range filters, worktree-aware Project costs, recorded tool outcomes, selected-range sessions, UTC charts, retained snapshots on failure, and honest archive/money coverage ([#1083](https://github.com/LankfordAI/omp-ui/issues/1083)).
+- A private session is now quiet against Hindsight as well: the per-session overlay also pins `hindsight.autoRetain` off, and the spawn pins `HINDSIGHT_AUTO_RETAIN=false` in the child environment so an exported value can't outrank it — a live proof against a local sink shows ordinary sessions still retain at the cadence while a private transcript is never submitted (new spawns and resumes, native and terminal alike). Recall and the selected backend are untouched; memories already queued in Hindsight's outbox remain OMP's own startup-drain behavior ([#1094](https://github.com/LankfordAI/omp-ui/issues/1094), [ADR-0055](adr/0055-private-sessions-quiet-overlay-plus-bridge-not-config-write.md)).
 
 ## Choose a download
 
