@@ -40,6 +40,7 @@ interface Frame {
   type?: unknown;
   id?: unknown;
   success?: unknown;
+  status?: unknown;
   toolCallId?: unknown;
   result?: unknown;
 }
@@ -281,7 +282,15 @@ afterEach(async () => {
 });
 
 let sequence = 0;
-/** Sends one prompt and waits for its correlated response. */
+/**
+ * Sends one prompt and waits for the owning TURN to complete: first the
+ * ack `response` (emitted at acceptance, before the agent even starts),
+ * then the correlated `prompt_result` — omp's real turn boundary. Sending
+ * the next scripted prompt after only the ack races the prior turn and omp
+ * answers busy (`success: false`); awaiting the settled result makes the
+ * sequence deterministic. Failures keep both frames' payloads in the
+ * message so a regression reads as omp's own rejection, not a bare false.
+ */
 async function prompt(scope: Scope, message: string): Promise<void> {
   sequence += 1;
   const id = `foreign-omp-live-${sequence}`;
@@ -289,9 +298,15 @@ async function prompt(scope: Scope, message: string): Promise<void> {
   const response = await pollUntil(
     () => scope.frames.find((f) => f.type === "response" && f.id === id),
     30_000,
-    `the response to prompt ${id}`,
+    `the ack response to prompt ${id}`,
   );
-  expect(response.success).toBe(true);
+  expect(response.success, `ack response for ${id}: ${JSON.stringify(response)}`).toBe(true);
+  const settled = await pollUntil(
+    () => scope.frames.find((f) => f.type === "prompt_result" && f.id === id),
+    120_000,
+    `the prompt_result completing turn ${id}`,
+  );
+  expect(settled.status, `prompt_result for ${id}: ${JSON.stringify(settled)}`).toBe("completed");
 }
 
 async function ready(scope: Scope): Promise<void> {
@@ -352,25 +367,23 @@ describe.skipIf(ompPath === null)("foreign omp tracker on the real runtime (#107
 
       // Launch. Real omp refuses the bogus model, so the word reached
       // command position and a session run started; the tracker saw that
-      // same real tool_execution_start and warned exactly once.
+      // same real tool_execution_start and warned exactly once. No poll or
+      // sleep: the observer runs synchronously per frame, so the completed
+      // turn's frames already passed through it.
       await prompt(scope, "run-a-child-agent");
       const launchOut = await awaitToolOutput(scope, "run-a-child-agent");
       expect(launchOut).toContain("zzz/nope");
       expect(launchOut).toContain(LAUNCH_MARK);
-      const notices = await pollUntil(
-        () => (foreignNotices(scope).length >= 1 ? foreignNotices(scope) : undefined),
-        10_000,
-        "the foreign-omp warn notice",
-      );
+      const notices = foreignNotices(scope);
       expect(notices).toHaveLength(1);
       expect(notices[0]).toMatchObject({ type: "omp_ui_notice", level: "warn" });
 
-      // A second launch under the SAME live process: once per live process
-      // still holds on real frames.
+      // A second launch under the SAME live process, started only after the
+      // first turn's prompt_result settled: once per live process still
+      // holds on real frames.
       await prompt(scope, "run-it-again");
       const secondOut = await awaitToolOutput(scope, "run-it-again");
       expect(secondOut).toContain(`${LAUNCH_MARK}2`);
-      await sleep(500);
       expect(foreignNotices(scope)).toHaveLength(1);
     },
     240_000,
