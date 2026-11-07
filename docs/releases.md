@@ -4,6 +4,7 @@ This guide explains what users receive from a release and how maintainers publis
 
 ## Unreleased
 
+- Settings → Memory now explains the omp 18.18.0 Hindsight durable outbox: queued means persisted under `<agentDir>/hindsight-outbox/` (token-free, secret-redacted), accepted is not yet ingested, retries resume in a later session for the same API URL and bank, and refused, malformed, or seven-day-stale events quarantine for 30 days — warn notices remain the only status surface ([#1092](https://github.com/LankfordAI/omp-ui/issues/1092)).
 - Stats now explicitly runs OMP's host-owned collector and shares its status across desktop/browser clients, with consistent Project/provider/model/agent/range filters, worktree-aware Project costs, recorded tool outcomes, selected-range sessions, UTC charts, retained snapshots on failure, and honest archive/money coverage ([#1083](https://github.com/LankfordAI/omp-ui/issues/1083)).
 
 ## Choose a download
