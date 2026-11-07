@@ -53,6 +53,8 @@ const statusFixture = (overrides: Partial<MergeBackStatus> = {}): MergeBackStatu
   ahead: 2,
   behind: 1,
   worktreeDirty: false,
+  // The project checkout's working tree holds nothing the merge needs (#1050).
+  destinationDirtyFiles: [],
   destinationUpstream: "origin/main",
   destinationAhead: 2,
   preview: { kind: "clean" },
@@ -526,6 +528,119 @@ describe("FinishWorktreeDialog", () => {
     expect(primary.textContent).toBe("merge");
   });
 
+  it("blocks the merge and names the overlapping files when the project checkout is dirty on them (issue #1050)", async () => {
+    backendMock.getMergeBackStatus.mockResolvedValue(
+      statusFixture({ destinationDirtyFiles: ["packages/desktop/src/renderer/src/lib/i18n/en.ts", "src/b.ts"] }),
+    );
+    await openDialog();
+
+    // The refusal explanation, and the exact files git would overwrite.
+    expect(document.body.textContent).toContain(
+      "the project checkout has uncommitted changes to files this merge would overwrite — commit or stash them in the project checkout first",
+    );
+    expect(document.body.textContent).toContain("packages/desktop/src/renderer/src/lib/i18n/en.ts");
+    // The preview no longer claims the doomed merge is safe.
+    expect(document.body.textContent).not.toContain("no conflicts predicted");
+
+    const mergeRadio = outcomeRadios()[0]!;
+    expect(mergeRadio.disabled).toBe(true);
+    expect(mergeRadio.checked).toBe(true); // still selected; it just cannot run
+    const primary = primaryButton();
+    expect(primary.disabled).toBe(true);
+
+    // The merge radio keeps its explanation as a tooltip.
+    const row = mergeRadio.closest("label") as HTMLLabelElement;
+    expect(row.title).toContain("uncommitted changes to files this merge would overwrite");
+  });
+
+  it("leaves keep-and-return open while the merge is blocked by the dirty destination (issue #1050)", async () => {
+    backendMock.getMergeBackStatus.mockResolvedValue(
+      statusFixture({ destinationDirtyFiles: ["one.txt"] }),
+    );
+    await openDialog();
+
+    await clickInput(outcomeRadios()[1]!); // keep the branch
+    const primary = primaryButton();
+    expect(primary.disabled).toBe(false);
+    expect(primary.textContent).toBe("return, keep branch");
+  });
+
+  it("never blocks a scratch merge on the project checkout's dirty overlap (issue #1050)", async () => {
+    // The status read in new-branch mode describes the START point: main,
+    // held by the dirty project checkout. The merge itself runs in a scratch
+    // worktree, so it touches none of those files.
+    backendMock.getMergeBackStatus.mockResolvedValue(
+      statusFixture({ destinationDirtyFiles: ["one.txt"] }),
+    );
+    await openDialog();
+
+    await selectInto(destinationSelect(), "__new__");
+    await act(async () => {
+      await flushMicrotasks();
+    });
+    await typeInto(newBranchNameInput(), "release/next");
+    await act(async () => {
+      await flushMicrotasks();
+    });
+
+    const mergeRadio = outcomeRadios()[0]!;
+    expect(mergeRadio.disabled).toBe(false);
+    expect(document.body.textContent).not.toContain(
+      "the project checkout has uncommitted changes to files this merge would overwrite",
+    );
+    const primary = primaryButton();
+    expect(primary.disabled).toBe(false);
+    expect(primary.textContent).toBe("merge & return");
+  });
+
+  it("presents an unreadable destination working tree as unknown, not certified clean (issue #1050)", async () => {
+    backendMock.getMergeBackStatus.mockResolvedValue(
+      statusFixture({ destinationDirtyFiles: null }),
+    );
+    await openDialog();
+
+    expect(document.body.textContent).toContain(
+      "the project checkout's working tree could not be read — the merge may still stop there; commit or stash local edits to be sure",
+    );
+    // Unknown must never sign the doomed-merge claim.
+    expect(document.body.textContent).not.toContain("no conflicts predicted");
+    // It warns without blocking: refusing every merge over an unreadable tree
+    // would deny valid ones, and git's own guard stays the authority.
+    expect(outcomeRadios()[0]!.disabled).toBe(false);
+    expect(primaryButton().disabled).toBe(false);
+  });
+
+  it("keeps unrelated project-checkout dirt invisible: clean preview, merge stays open (issue #1050)", async () => {
+    backendMock.getMergeBackStatus.mockResolvedValue(
+      statusFixture({ destinationDirtyFiles: [] }),
+    );
+    await openDialog();
+
+    expect(document.body.textContent).toContain("no conflicts predicted");
+    expect(outcomeRadios()[0]!.disabled).toBe(false);
+    expect(primaryButton().disabled).toBe(false);
+  });
+
+  it("strips the IPC wrapper from a merge refusal shown in the dialog (issue #1050)", async () => {
+    // What ipcRenderer.invoke delivers for main throwing on branch:mergeBack.
+    backendMock.mergeWorktreeBranch.mockRejectedValue(
+      new Error(
+        "Error invoking remote method 'branch:mergeBack': Error: error: Your local changes to the following files would be overwritten by merge:\n\tsrc/b.ts\nPlease commit your changes or stash them before you merge.\nAborting",
+      ),
+    );
+    await openDialog();
+
+    act(() => primaryButton().click());
+    await act(async () => {
+      await flushMicrotasks();
+    });
+
+    const alert = document.querySelector('[role="alert"]');
+    expect(alert).not.toBeNull();
+    expect(alert!.textContent).toContain("Your local changes to the following files would be overwritten by merge");
+    expect(alert!.textContent).not.toContain("Error invoking remote method");
+  });
+
   it("shows the preview conflicts, and a conflicting sync closes the dialog with a warn notice", async () => {
     backendMock.getMergeBackStatus.mockResolvedValue(
       statusFixture({ preview: { kind: "conflicts", files: ["src/a.ts", "src/b.ts"] } }),
@@ -971,6 +1086,24 @@ describe("FinishWorktreeDialog", () => {
         expect(document.querySelector('[role="alert"]')!.textContent).toContain("The agent did not accept");
         expect(useStore.getState().finishWorktreeTab).toBe(TAB);
         expect(resolutionButton()!.disabled).toBe(false);
+        expectNoFinishEffects();
+      });
+
+      it("offers no dispatch at the predicted-conflict preview while the project checkout overlaps dirty (issue #1050)", async () => {
+        // The merge-tree probe predicts conflicts, but the project checkout
+        // also holds uncommitted edits on files the branch changes: starting
+        // the real merge would die in git's preflight before any conflict.
+        backendMock.getMergeBackStatus.mockResolvedValue(
+          previewStatus({ destinationDirtyFiles: ["src/a.ts"] }),
+        );
+        await openDialog();
+
+        expect(resolutionButton()).toBeUndefined();
+        expect(document.body.textContent).toContain(
+          "the project checkout has uncommitted changes to files this merge would overwrite",
+        );
+        act(() => primaryButton().click());
+        expect(backendMock.mergeWorktreeBranch).not.toHaveBeenCalled();
         expectNoFinishEffects();
       });
 

@@ -472,6 +472,7 @@ describe("merge-back (issue #272)", () => {
       ahead: 3,
       behind: 1,
       worktreeDirty: false,
+      destinationDirtyFiles: [],
       // The destination's own push facts ride the same snapshot (#414).
       destinationUpstream: "origin/main",
       destinationAhead: 1,

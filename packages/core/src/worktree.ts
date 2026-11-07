@@ -595,8 +595,111 @@ export async function previewMerge(
 }
 
 /**
+ * Uncommitted entries of the checkout at `cwd` — staged edits, unstaged edits
+ * and untracked files alike — parsed from NUL-separated porcelain v1, so no
+ * quoting or pathname ambiguity. A rename/copy entry carries its original
+ * path in the record right after it, and both sides are kept: a staged local
+ * rename collides with a branch edit on either name — git refuses overwriting
+ * the renamed file when the merge rewrites the old one. `collapsed` marks the
+ * directory-form untracked records (`dir/`) git does not descend into — under
+ * `--untracked-files=all` that is a nested repository, and nothing else; see
+ * {@link readDestinationDirtyOverlap} for why they match exactly only. Throws
+ * with git's failure: "could not read" is never answered as "clean".
+ */
+interface UncommittedEntry {
+  path: string;
+  collapsed: boolean;
+}
+
+async function readUncommittedPaths(cwd: string): Promise<UncommittedEntry[]> {
+  const out = await git(cwd, ["status", "--porcelain=v1", "-z", "--untracked-files=all"]);
+  const records = out.split("\0").filter((record) => record !== "");
+  const entries = new Map<string, boolean>();
+  for (let i = 0; i < records.length; i++) {
+    const record = records[i]!;
+    // Every entry is "XY path": the two status codes and a space, always.
+    const raw = record.slice(3);
+    entries.set(raw.replace(/\/$/, ""), raw.endsWith("/"));
+    const xy = record.slice(0, 2);
+    if (xy[0] === "R" || xy[0] === "C") {
+      i++;
+      const original = records[i];
+      if (original !== undefined) entries.set(original.replace(/\/$/, ""), false);
+    }
+  }
+  return [...entries].map(([path, collapsed]) => ({ path, collapsed }));
+}
+
+/** True when two repo-relative paths are equal or one is a directory
+ *  ancestor of the other — `dir` vs `dir/file`, never siblings. */
+function pathCollides(a: string, b: string): boolean {
+  return a === b || a.startsWith(`${b}/`) || b.startsWith(`${a}/`);
+}
+
+/**
+ * The uncommitted destination-checkout paths the merge of `branch` into
+ * `destination` would be blocked on (issue #1050), covering the refusal
+ * classes this read can predict:
+ * - an exact path the merge rewrites;
+ * - a file/directory collision — dirty file `dir/file.txt` against a branch
+ *   file at `dir`, or dirty file `dir` against branch files under `dir/`
+ *   (git aborts both, and pathCollides draws the component boundary so
+ *   siblings `dir/one` vs `dir/two` stay unrelated);
+ * - a branch rename: the diff runs `--no-renames`, so F→G lists BOTH paths —
+ *   git refuses over an unstaged edit to F even though the rename's new name
+ *   is G.
+ * One exception: a collapsed untracked record (`dir/` under `-uall` — git
+ * refused to descend, i.e. a nested repository) matches EXACTLY only. Git
+ * merges branch files inside such a directory into it (proven against real
+ * git), and refuses only when the branch brings a FILE named `dir` itself;
+ * treating that record as an ancestor set would block merges git completes.
+ * The three-dot diff compares against the merge base, so dirty work the
+ * branch never touches stays out — unrelated dirt must never block. This is
+ * a prediction of the classes above, not a proof of every refusal git can
+ * raise; git's own working-tree guard stays the authority. Reports the DIRTY
+ * paths (what the user must commit or stash). null when either read fails —
+ * "unknown", never "clean". Sorted.
+ */
+async function readDestinationDirtyOverlap(
+  projectCwd: string,
+  destination: string,
+  branch: string,
+): Promise<string[] | null> {
+  let dirty: UncommittedEntry[];
+  try {
+    // `-uall` lists untracked files one by one instead of collapsing whole
+    // directories, which exact matching would over-report against siblings.
+    dirty = await readUncommittedPaths(projectCwd);
+  } catch {
+    return null;
+  }
+  if (dirty.length === 0) return [];
+  let changed: string[];
+  try {
+    changed = (
+      await git(
+        projectCwd,
+        ["diff", "--name-only", "--no-renames", "-z", `${destination}...${branch}`],
+      )
+    )
+      .split("\0")
+      .filter((rel) => rel !== "");
+  } catch {
+    return null;
+  }
+  const hits = new Set<string>();
+  for (const entry of dirty) {
+    const collides = entry.collapsed
+      ? changed.includes(entry.path)
+      : changed.some((file) => pathCollides(entry.path, file));
+    if (collides) hits.add(entry.path);
+  }
+  return [...hits].sort();
+}
+
+/**
  * Merge-back feasibility for one CHOSEN destination (issues #272, #385,
- * #387, #388). Never throws: an unreadable repo resolves to
+ * #387, #388, #1050). Never throws: an unreadable repo resolves to
  * all-false/zero with `destinationExists: false`. The caller selects the
  * destination — the finish dialog passes the user's pick; the default
  * suggestion comes from resolveMergeDestination(base).
@@ -626,6 +729,7 @@ export async function readMergeBackStatus(
       ahead: 0,
       behind: 0,
       worktreeDirty,
+      destinationDirtyFiles: null,
       ...NO_PUSH_FACTS,
       preview: { kind: "unknown" },
     };
@@ -646,6 +750,13 @@ export async function readMergeBackStatus(
   const preview: MergePreview = alreadyMerged
     ? { kind: "clean" }
     : await previewMerge(projectCwd, destination, branch);
+  // The working-tree overlap that would make git refuse the merge (issue
+  // #1050) exists only where the merge will run in a live tree: the project
+  // checkout. An already-merged branch merges nothing, so nothing can collide.
+  const destinationDirtyFiles =
+    !alreadyMerged && destinationCheckout === "project"
+      ? await readDestinationDirtyOverlap(projectCwd, destination, branch)
+      : null;
   return {
     destination,
     destinationExists,
@@ -656,6 +767,7 @@ export async function readMergeBackStatus(
     ahead,
     behind,
     worktreeDirty,
+    destinationDirtyFiles,
     ...destinationFacts,
     preview,
   };
@@ -800,6 +912,18 @@ export async function mergeWorktreeBranch(
     throw new Error(`${destination} is checked out in another worktree — pick another destination`);
   }
   if (checkout === "project") {
+    // Refuse before git does (issue #1050): the finish dialog's preflight can
+    // go stale between its read and this call, and git's own refusal carries
+    // the whole strategy transcript. Same overlap the dialog named; naming it
+    // here keeps a late dirty edit from ever reaching `git merge`. An
+    // unreadable working tree (null) stays git's call — its guard protects the
+    // files either way, and nothing here discards anything.
+    const overlap = await readDestinationDirtyOverlap(projectCwd, destination, branch);
+    if (overlap !== null && overlap.length > 0) {
+      throw new Error(
+        `the project checkout has uncommitted changes to files this merge would overwrite: ${overlap.join(", ")} — commit or stash them in the project checkout first`,
+      );
+    }
     const result = await mergeInto(projectCwd, branch, destination);
     return {
       ...result,

@@ -1,5 +1,6 @@
 import { useEffect, useState } from "react";
 import type { MergeBackStatus } from "@omp-ui/core/types";
+import { displayMessage } from "../backend";
 import type { BulkDeleteConfirmation, DeleteConfirmation } from "../store";
 import { findOwner, findRecord, runningSessionTitleOnCheckout, skipConfirmationCovers, useStore } from "../store";
 import { projectKey } from "../lib/project-key";
@@ -92,12 +93,16 @@ export function DeleteSessionDialog({
   const destination =
     mergeStatus?.destination ?? (base !== null ? shortBase(base) : (defaultBranch ?? ""));
   const onProjectCheckout = mergeStatus?.destinationCheckout === "project";
+  // Uncommitted project-checkout edits to files the merge would overwrite:
+  // git refuses over them, so the merge row says why instead of clicking
+  // into the refusal (issue #1050).
+  const destinationDirty = (mergeStatus?.destinationDirtyFiles?.length ?? 0) > 0;
   const mergeEnabled =
     mergeStatus !== null &&
     mergeStatus.destinationExists &&
     mergeStatus.branchExists &&
     mergeStatus.destinationCheckout !== "other" &&
-    !(onProjectCheckout && (mergeStatus.mergeInProgress || busyTitle !== null)) &&
+    !(onProjectCheckout && (mergeStatus.mergeInProgress || busyTitle !== null || destinationDirty)) &&
     !mergeStatus.alreadyMerged;
   const mergeTitle =
     mergeStatus === null
@@ -112,11 +117,13 @@ export function DeleteSessionDialog({
               ? t("dialog.delete.baseGone")
               : onProjectCheckout && mergeStatus.mergeInProgress
                 ? t("dialog.delete.mergeInProgress")
-                : mergeStatus.alreadyMerged
-                  ? t("dialog.delete.alreadyMerged", { destination: mergeStatus.destination })
-                  : !mergeStatus.branchExists
-                    ? t("dialog.delete.branchGone")
-                    : undefined;
+                : destinationDirty
+                  ? t("dialog.delete.destinationDirty")
+                  : mergeStatus.alreadyMerged
+                    ? t("dialog.delete.alreadyMerged", { destination: mergeStatus.destination })
+                    : !mergeStatus.branchExists
+                      ? t("dialog.delete.branchGone")
+                      : undefined;
 
   const handleConfirm = async (): Promise<void> => {
     if (mergeFirst) {
@@ -142,7 +149,8 @@ export function DeleteSessionDialog({
           void confirmDeleteSession(skipFuture);
         }
       } catch (err) {
-        setMergeError(err instanceof Error ? err.message : String(err));
+        // The IPC wrapper must never reach the row (#16, #674, #1050).
+        setMergeError(displayMessage(err));
       } finally {
         setMerging(false);
       }

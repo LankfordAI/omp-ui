@@ -298,6 +298,7 @@ describe("readMergeBackStatus", () => {
       ahead: 2,
       behind: 0,
       worktreeDirty: false,
+      destinationDirtyFiles: [],
       destinationUpstream: null,
       destinationAhead: null,
       preview: { kind: "clean" },
@@ -417,6 +418,7 @@ describe("readMergeBackStatus", () => {
       ahead: 0,
       behind: 0,
       worktreeDirty: false,
+      destinationDirtyFiles: null,
       destinationUpstream: null,
       destinationAhead: null,
       preview: { kind: "unknown" },
@@ -448,6 +450,7 @@ describe("readMergeBackStatus", () => {
       ahead: 0,
       behind: 0,
       worktreeDirty: null,
+      destinationDirtyFiles: null,
       destinationUpstream: null,
       destinationAhead: null,
       preview: { kind: "unknown" },
@@ -519,6 +522,213 @@ describe("readMergeBackStatus", () => {
     // origin/main still lacks all three: main's own commit, the branch's, and
     // the merge commit that joined them.
     expect([after.destinationUpstream, after.destinationAhead]).toEqual(["origin/main", 3]);
+  });
+
+  it("names the destination's uncommitted overlap that git would refuse to overwrite (issue #1050)", async () => {
+    const dir = await tmpRepo();
+    const branch = mint();
+    const wt = path.join(dir, "wt", "checkout");
+    await addWorktree(dir, wt, branch, "main");
+    await commitFile(wt, "tracked.txt", "branch side\n", "branch edit");
+    await commitFile(wt, "new-file.txt", "from the branch\n", "branch adds");
+    // The project checkout edits the same tracked file (unstaged) and owns an
+    // untracked file at the path the branch adds.
+    fs.writeFileSync(path.join(dir, "tracked.txt"), "local edit\n");
+    fs.writeFileSync(path.join(dir, "new-file.txt"), "mine\n");
+    const status = await readMergeBackStatus(dir, branch, "main", wt);
+    // The ref-level preview stays clean: the refusal is a working-tree fact.
+    expect(status.preview).toEqual({ kind: "clean" });
+    expect(status.destinationDirtyFiles).toEqual(["new-file.txt", "tracked.txt"]);
+  });
+
+  it("counts a staged destination edit in the overlap (issue #1050)", async () => {
+    const dir = await tmpRepo();
+    const branch = mint();
+    const wt = path.join(dir, "wt", "checkout");
+    await addWorktree(dir, wt, branch, "main");
+    await commitFile(wt, "one.txt", "branch side\n", "branch edit");
+    fs.writeFileSync(path.join(dir, "one.txt"), "staged local\n");
+    await git(dir, ["add", "one.txt"]);
+    const status = await readMergeBackStatus(dir, branch, "main", wt);
+    expect(status.destinationDirtyFiles).toEqual(["one.txt"]);
+  });
+
+  it("keeps unrelated dirty work out of the overlap (issue #1050)", async () => {
+    const dir = await tmpRepo();
+    const branch = mint();
+    const wt = path.join(dir, "wt", "checkout");
+    await addWorktree(dir, wt, branch, "main");
+    await commitFile(wt, "one.txt", "branch side\n", "branch edit");
+    // Dirty in the project checkout, but the branch never touches these.
+    fs.writeFileSync(path.join(dir, ".seed"), "local seed edit\n");
+    fs.writeFileSync(path.join(dir, "scratch.txt"), "untracked scratch\n");
+    const status = await readMergeBackStatus(dir, branch, "main", wt);
+    expect(status.destinationDirtyFiles).toEqual([]);
+  });
+
+  it("lists an untracked file inside a fresh branch directory only on exact collision (issue #1050)", async () => {
+    const dir = await tmpRepo();
+    const branch = mint();
+    const wt = path.join(dir, "wt", "checkout");
+    await addWorktree(dir, wt, branch, "main");
+    fs.mkdirSync(path.join(wt, "fresh"));
+    await commitFile(wt, "fresh/landed.txt", "from the branch\n", "branch adds fresh/landed.txt");
+    // An untracked sibling in the same directory is NOT a collision: git
+    // merges fine. The exact path is.
+    fs.mkdirSync(path.join(dir, "fresh"));
+    fs.writeFileSync(path.join(dir, "fresh/sibling.txt"), "mine\n");
+    expect((await readMergeBackStatus(dir, branch, "main", wt)).destinationDirtyFiles).toEqual([]);
+    fs.writeFileSync(path.join(dir, "fresh/landed.txt"), "mine\n");
+    expect((await readMergeBackStatus(dir, branch, "main", wt)).destinationDirtyFiles).toEqual([
+      "fresh/landed.txt",
+    ]);
+  });
+
+  it("counts a destination edit at a branch-rename's old path (issue #1050)", async () => {
+    const dir = await tmpRepo();
+    // F must exist on main for the rename to rewrite it; then the branch
+    // renames F -> G: `git diff main...branch` with rename detection lists
+    // only G, but git refuses the merge over a local edit to F — the old
+    // path still participates.
+    await commitFile(dir, "F.txt", "seed content\n", "add F");
+    const branch = mint();
+    const wt = path.join(dir, "wt", "checkout");
+    await addWorktree(dir, wt, branch, "main");
+    await git(wt, ["mv", "F.txt", "G.txt"]);
+    await git(wt, ["commit", "-q", "-m", "rename F to G"]);
+    fs.writeFileSync(path.join(dir, "F.txt"), "local edit\n");
+    expect((await readMergeBackStatus(dir, branch, "main", wt)).destinationDirtyFiles).toEqual([
+      "F.txt",
+    ]);
+    // The unstaged case is enough; the guard refuses on the same read.
+    await expect(
+      mergeWorktreeBranch(dir, branch, "main", { scratchRoot: path.join(dir, "scratch") }),
+    ).rejects.toThrow(/F\.txt[\s\S]*commit or stash/);
+    expect(fs.readFileSync(path.join(dir, "F.txt"), "utf8")).toBe("local edit\n");
+  });
+
+  it("counts a file/directory collision in either direction (issue #1050)", async () => {
+    const dir = await tmpRepo();
+    const branch = mint();
+    const wt = path.join(dir, "wt", "checkout");
+    await addWorktree(dir, wt, branch, "main");
+    // Branch introduces the FILE `dir`; the checkout owns untracked `dir/file.txt`.
+    fs.writeFileSync(path.join(wt, "dir"), "branch file at dir\n");
+    await git(wt, ["add", "dir"]);
+    await git(wt, ["commit", "-q", "-m", "add file dir"]);
+    fs.mkdirSync(path.join(dir, "dir"));
+    fs.writeFileSync(path.join(dir, "dir/file.txt"), "mine\n");
+    // The dirty path is what the user must move: the untracked file itself.
+    expect((await readMergeBackStatus(dir, branch, "main", wt)).destinationDirtyFiles).toEqual([
+      "dir/file.txt",
+    ]);
+    await expect(
+      mergeWorktreeBranch(dir, branch, "main", { scratchRoot: path.join(dir, "scratch") }),
+    ).rejects.toThrow(/dir\/file\.txt[\s\S]*commit or stash/);
+
+    // Reverse direction on a fresh pair: branch adds `deep/file.txt`, the
+    // checkout owns an untracked FILE at `deep`.
+    const dir2 = await tmpRepo();
+    const branch2 = mint();
+    const wt2 = path.join(dir2, "wt", "checkout");
+    await addWorktree(dir2, wt2, branch2, "main");
+    fs.mkdirSync(path.join(wt2, "deep"));
+    await commitFile(wt2, "deep/file.txt", "branch\n", "add deep/file.txt");
+    fs.writeFileSync(path.join(dir2, "deep"), "mine as file\n");
+    expect((await readMergeBackStatus(dir2, branch2, "main", wt2)).destinationDirtyFiles).toEqual([
+      "deep",
+    ]);
+  });
+
+  it("keeps sibling paths under a shared directory unrelated (issue #1050)", async () => {
+    // The collision test is component-bounded: `dir` vs `dir/one` collides,
+    // `dir/one` vs `dir/two` never does.
+    const dir = await tmpRepo();
+    const branch = mint();
+    const wt = path.join(dir, "wt", "checkout");
+    await addWorktree(dir, wt, branch, "main");
+    fs.mkdirSync(path.join(wt, "nest"));
+    await commitFile(wt, "nest/one.txt", "branch\n", "add nest/one.txt");
+    fs.mkdirSync(path.join(dir, "nest"));
+    fs.writeFileSync(path.join(dir, "nest/two.txt"), "mine\n");
+    expect((await readMergeBackStatus(dir, branch, "main", wt)).destinationDirtyFiles).toEqual([]);
+  });
+
+  it("does not block merges into a collapsed untracked directory (issue #1050)", async () => {
+    // A nested repository is the one record `-uall` still collapses (`v/`).
+    // git merges branch files INSIDE it and refuses only a branch FILE named
+    // `v` itself, so the collapsed entry must match exactly, never as an
+    // ancestor set.
+    const dir = await tmpRepo();
+    const nested = path.join(dir, "v");
+    fs.mkdirSync(nested);
+    await git(nested, ["init", "-q"]);
+    fs.writeFileSync(path.join(nested, "inner.txt"), "inner\n");
+    await git(nested, ["add", "."]);
+    await git(nested, ["commit", "-q", "-m", "inner"]);
+    const branch = mint();
+    const wt = path.join(dir, "wt", "checkout");
+    await addWorktree(dir, wt, branch, "main");
+    fs.mkdirSync(path.join(wt, "v"));
+    await commitFile(wt, "v/x.txt", "from the branch\n", "add v/x.txt");
+
+    const inside = await readMergeBackStatus(dir, branch, "main", wt);
+    expect(inside.destinationDirtyFiles).toEqual([]);
+    const merged = await mergeWorktreeBranch(dir, branch, "main", {
+      scratchRoot: path.join(dir, "scratch"),
+    });
+    expect(merged.kind).toBe("merged");
+
+    // Same nested repo still collapsed as `?? v/`; a second branch brings a
+    // FILE named exactly `v` — git aborts that merge, and the collapsed entry
+    // matches on its exact name.
+    await git(dir, ["reset", "-q", "--hard", "HEAD~1"]);
+    const branch2 = mint();
+    const wt2 = path.join(dir, "wt", "two");
+    await addWorktree(dir, wt2, branch2, "main");
+    fs.writeFileSync(path.join(wt2, "v"), "branch file named v\n");
+    await git(wt2, ["add", "v"]);
+    await git(wt2, ["commit", "-q", "-m", "add file v"]);
+    const atName = await readMergeBackStatus(dir, branch2, "main", wt2);
+    expect(atName.destinationDirtyFiles).toEqual(["v"]);
+    await expect(
+      mergeWorktreeBranch(dir, branch2, "main", { scratchRoot: path.join(dir, "scratch") }),
+    ).rejects.toThrow(/v — commit or stash/);
+    // The nested repo still stands untouched.
+    expect(fs.readFileSync(path.join(nested, "inner.txt"), "utf8")).toBe("inner\n");
+  });
+
+  it("reports no destination overlap when the merge would not run in the project checkout (issue #1050)", async () => {
+    const dir = await tmpRepo();
+    const branch = mint();
+    const wt = path.join(dir, "wt", "checkout");
+    await addWorktree(dir, wt, branch, "main");
+    await commitFile(wt, "one.txt", "branch side\n", "branch edit");
+    fs.writeFileSync(path.join(dir, "one.txt"), "local edit\n");
+    // Held by another worktree: the merge runs nowhere near this working tree.
+    await git(dir, ["worktree", "add", "-q", "-b", "held", path.join(dir, "wt", "held"), "main"]);
+    const held = await readMergeBackStatus(dir, branch, "held", wt);
+    expect(held.destinationCheckout).toBe("other");
+    expect(held.destinationDirtyFiles).toBeNull();
+    // Checked out nowhere: the merge runs in a scratch worktree.
+    await git(dir, ["branch", "loose", "main"]);
+    const loose = await readMergeBackStatus(dir, branch, "loose", wt);
+    expect(loose.destinationCheckout).toBe("none");
+    expect(loose.destinationDirtyFiles).toBeNull();
+  });
+
+  it("reports no destination overlap once the work is already in (issue #1050)", async () => {
+    const dir = await tmpRepo();
+    const branch = mint();
+    const wt = path.join(dir, "wt", "checkout");
+    await addWorktree(dir, wt, branch, "main");
+    await commitFile(wt, "one.txt", "branch side\n", "branch edit");
+    await git(dir, ["merge", "-q", "--no-ff", "-m", "fold", branch]);
+    fs.writeFileSync(path.join(dir, "one.txt"), "local edit\n");
+    const status = await readMergeBackStatus(dir, branch, "main", wt);
+    expect(status.alreadyMerged).toBe(true);
+    // Nothing left to merge: nothing can be overwritten.
+    expect(status.destinationDirtyFiles).toBeNull();
   });
 });
 
@@ -692,6 +902,62 @@ describe("mergeWorktreeBranch", () => {
     );
   });
 
+  it("refuses in the project checkout before git does, naming the overlapping files (issue #1050)", async () => {
+    const dir = await tmpRepo();
+    const branch = mint();
+    const wt = path.join(dir, "wt", "checkout");
+    await addWorktree(dir, wt, branch, "main");
+    await commitFile(wt, "one.txt", "branch side\n", "branch edit");
+    // The status preflight said clean; the file went dirty between the read
+    // and this call. The guard reads the working tree fresh at merge time.
+    fs.writeFileSync(path.join(dir, "one.txt"), "late local edit\n");
+    const before = (await git(dir, ["rev-parse", "main"])).trim();
+
+    await expect(
+      mergeWorktreeBranch(dir, branch, "main", { scratchRoot: path.join(dir, "scratch") }),
+    ).rejects.toThrow(/one\.txt[\s\S]*commit or stash/);
+
+    // Nothing moved and nothing was discarded: the edit stands untouched.
+    expect((await git(dir, ["rev-parse", "main"])).trim()).toBe(before);
+    expect(fs.readFileSync(path.join(dir, "one.txt"), "utf8")).toBe("late local edit\n");
+  });
+
+  it("still merges with the project checkout dirty on unrelated files (issue #1050)", async () => {
+    const dir = await tmpRepo();
+    const branch = mint();
+    const wt = path.join(dir, "wt", "checkout");
+    await addWorktree(dir, wt, branch, "main");
+    await commitFile(wt, "one.txt", "branch side\n", "branch edit");
+    fs.writeFileSync(path.join(dir, ".seed"), "unrelated local edit\n");
+    fs.writeFileSync(path.join(dir, "scratch.txt"), "untracked, untouched by the branch\n");
+
+    const result = await mergeWorktreeBranch(dir, branch, "main", {
+      scratchRoot: path.join(dir, "scratch"),
+    });
+
+    expect(result.kind).toBe("merged");
+    expect(fs.readFileSync(path.join(dir, ".seed"), "utf8")).toBe("unrelated local edit\n");
+  });
+
+  it("merges in a scratch worktree despite a dirty project checkout (issue #1050)", async () => {
+    const dir = await tmpRepo();
+    const branch = mint();
+    const wt = path.join(dir, "wt", "checkout");
+    await addWorktree(dir, wt, branch, "main");
+    await commitFile(wt, "one.txt", "branch side\n", "branch edit");
+    await git(dir, ["branch", "loose", "main"]);
+    // The same path is dirty in the project checkout — irrelevant: the merge
+    // runs against `loose` in a scratch worktree, not this working tree.
+    fs.writeFileSync(path.join(dir, "one.txt"), "local edit\n");
+
+    const result = await mergeWorktreeBranch(dir, branch, "loose", {
+      scratchRoot: path.join(dir, "scratch"),
+    });
+
+    expect(result.kind).toBe("merged");
+    expect(fs.readFileSync(path.join(dir, "one.txt"), "utf8")).toBe("local edit\n");
+  });
+
   it("creates a two-parent merge commit when the histories have diverged", async () => {
     const dir = await tmpRepo();
     const branch = mint();
@@ -845,21 +1111,6 @@ describe("mergeWorktreeBranch", () => {
     await expect(
       mergeWorktreeBranch(dir, branch, "held", { scratchRoot: path.join(dir, "scratch") }),
     ).rejects.toThrow(/checked out in another worktree — pick another destination/);
-  });
-
-  it("rejects with git's message when a dirty file would be overwritten", async () => {
-    const dir = await tmpRepo();
-    const branch = mint();
-    const wt = path.join(dir, "wt", "checkout");
-    await addWorktree(dir, wt, branch, "main");
-    await commitFile(wt, "dirty.txt", "committed in branch\n", "dirty");
-    const before = (await git(dir, ["rev-parse", "main"])).trim();
-    fs.writeFileSync(path.join(dir, "dirty.txt"), "local edit\n");
-    await expect(
-      mergeWorktreeBranch(dir, branch, "main", { scratchRoot: path.join(dir, "scratch") }),
-    ).rejects.toThrow(/would be overwritten/);
-    expect(fs.readFileSync(path.join(dir, "dirty.txt"), "utf8")).toBe("local edit\n");
-    expect((await git(dir, ["rev-parse", "main"])).trim()).toBe(before);
   });
 
   it("lands under the repo's own commit-msg hook when commits cite issues bare", async () => {

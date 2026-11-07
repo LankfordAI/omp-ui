@@ -9,6 +9,7 @@ import type {
 import { releaseNoticeLevel, releaseNoticeText } from "../lib/format";
 import { t } from "../lib/i18n";
 import { projectKey } from "../lib/project-key";
+import { displayMessage } from "../backend";
 import type { GitResolutionTrigger } from "../lib/git-resolution-prompt";
 import { worktreeMergeResolutionState } from "../lib/worktree-merge-resolution";
 import {
@@ -100,6 +101,15 @@ export interface FinishController {
   returnSession: boolean;
   /** Status for the effective destination (newBranch.from while newBranch is set). */
   status: MergeBackStatus | null;
+  /**
+   * Uncommitted files in the project checkout that the branch also changes —
+   * exactly what `git merge` would refuse to overwrite (issue #1050). Null
+   * when no merge would run in the project checkout (new branch, or the
+   * destination held nowhere/elsewhere) or the working tree is unreadable;
+   * [] when nothing overlaps. Non-empty blocks the merge outcome until the
+   * user commits or stashes those files in the project checkout.
+   */
+  destinationDirtyFiles: string[] | null;
   phase: FinishPhase;
   resolution: FinishResolution | null;
   resolutionBusy: boolean;
@@ -151,9 +161,6 @@ export interface FinishController {
   /** null disables the primary button. */
   primaryLabel: string | null;
 }
-
-const errorMessage = (error: unknown): string =>
-  error instanceof Error ? error.message : String(error);
 
 /** The plural helper every landed-commit line shares. */
 export const commitsText = (count: number): string =>
@@ -348,6 +355,19 @@ export function useFinishWorktree(tabId: string): FinishController {
     (newBranch !== null || status?.destinationCheckout === "none")
       ? switchCandidate
       : null;
+  // The destination-checkout overlap (issue #1050): the files git would
+  // refuse to overwrite when the merge runs in the project checkout itself.
+  // null means no live tree is at stake — a scratch merge (new branch, or a
+  // destination held nowhere/elsewhere) never touches the project's working
+  // tree, so the overlap never gates it. The list pairs with the primary
+  // gate below; `git merge` stays the final word on any late edit, and core
+  // refuses the same overlap before git ever sees the strategy transcript.
+  const destinationDirtyFiles =
+    newBranch === null && status !== null && status.destinationCheckout === "project"
+      ? status.destinationDirtyFiles
+      : null;
+  const destinationDirty = destinationDirtyFiles !== null && destinationDirtyFiles.length > 0;
+
   // The project busy guard: switching moves a mid-turn session's files.
   const checkoutBlockedByBusy = checkoutTarget !== null && busyTitle !== null;
 
@@ -376,7 +396,7 @@ export function useFinishWorktree(tabId: string): FinishController {
         if (seq !== statusSeq.current) return;
         setStatusLoading(false);
         setStatus(null);
-        setPhase((prev) => prev.s === "conflict" ? prev : { s: "error", message: errorMessage(error) });
+        setPhase((prev) => prev.s === "conflict" ? prev : { s: "error", message: displayMessage(error) });
       });
   };
 
@@ -392,7 +412,12 @@ export function useFinishWorktree(tabId: string): FinishController {
   // project — exactly where a dispatch can start the real merge and leave a
   // stopped one for the agent. A scratch merge (new branch, or a destination
   // checked out nowhere or elsewhere) never reaches this arm: its conflicts
-  // auto-abort, so the sync story there stays #387's.
+  // auto-abort, so the sync story there stays #387's. The dirty overlap
+  // (#1050) suppresses this arm too — dispatching would start the very merge
+  // git refuses to begin over uncommitted files; the overlap row above is
+  // the instruction until the user commits or stashes. The arm for an
+  // already-stopped merge stays open regardless: resolving a running merge is
+  // never blocked by this (#727).
   const previewConflict =
     resolutionRoute !== null && projectCwd !== undefined && worktreeBranch !== null &&
     outcome === "merge" && newBranch === null &&
@@ -400,6 +425,7 @@ export function useFinishWorktree(tabId: string): FinishController {
     status !== null && !status.mergeInProgress && !status.alreadyMerged &&
     status.destinationCheckout === "project" &&
     status.preview.kind === "conflicts" &&
+    !destinationDirty &&
     (branchInfo?.mergeInProgress ?? false) === false;
   const resolution: FinishResolution | null = resolutionBusy
     ? resolutionAttempt
@@ -503,7 +529,7 @@ export function useFinishWorktree(tabId: string): FinishController {
         try {
           result = await mergeWorktreeBranch(cwd, mergeBranch, mergeTarget, instanceId);
         } catch (error) {
-          setPhase({ s: "error", message: errorMessage(error) });
+          setPhase({ s: "error", message: displayMessage(error) });
           return;
         }
         if (result.kind === "conflicts" && result.conflictsLeftIn === "project") {
@@ -595,7 +621,7 @@ export function useFinishWorktree(tabId: string): FinishController {
       if (accepted) closeOwnDialog();
       else setResolutionError(t("finish.resolution.failed"));
     } catch (error) {
-      setResolutionError(`${t("finish.resolution.failed")} ${errorMessage(error)}`);
+      setResolutionError(`${t("finish.resolution.failed")} ${displayMessage(error)}`);
     } finally {
       resolutionPending.current = false;
       setResolutionBusy(false);
@@ -638,7 +664,7 @@ export function useFinishWorktree(tabId: string): FinishController {
       try {
         await createBranch(cwd, name, newBranch.from, instanceId);
       } catch (error) {
-        setPhase({ s: "error", message: errorMessage(error) });
+        setPhase({ s: "error", message: displayMessage(error) });
         return;
       }
       target = name;
@@ -669,7 +695,7 @@ export function useFinishWorktree(tabId: string): FinishController {
       try {
         result = await mergeWorktreeBranch(cwd, branch, target, instanceId);
       } catch (error) {
-        setPhase({ s: "error", message: errorMessage(error) });
+        setPhase({ s: "error", message: displayMessage(error) });
         return;
       }
       if (result.kind === "conflicts") {
@@ -862,7 +888,7 @@ export function useFinishWorktree(tabId: string): FinishController {
       setPushState({ s: "settled", result });
     } catch (error) {
       // Only a transport failure throws here; git's refusals arrive as kinds.
-      setPushState({ s: "failed", message: errorMessage(error) });
+      setPushState({ s: "failed", message: displayMessage(error) });
     }
   };
 
@@ -910,12 +936,15 @@ export function useFinishWorktree(tabId: string): FinishController {
 
   // The merge radio's blockers are destination-checkout-specific: a scratch
   // merge is immune to a mid-merge or busy PROJECT checkout, and the new
-  // branch never lives in any checkout before the merge.
+  // branch never lives in any checkout before the merge. The dirty overlap
+  // (#1050) joins them only for a merge that runs in the project checkout:
+  // enabling the button would hand git a refusal it already predicted.
   const mergeBlocked =
     newBranch === null &&
     status !== null &&
     (status.destinationCheckout === "other" ||
-      (status.destinationCheckout === "project" && status.mergeInProgress));
+      (status.destinationCheckout === "project" &&
+        (status.mergeInProgress || destinationDirty)));
 
   const renaming = rename.trim() !== "" && rename.trim() !== (worktreeBranch ?? "");
 
@@ -945,6 +974,7 @@ export function useFinishWorktree(tabId: string): FinishController {
     rename,
     returnSession,
     status,
+    destinationDirtyFiles,
     phase,
     resolution,
     resolutionBusy,

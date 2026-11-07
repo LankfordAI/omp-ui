@@ -159,6 +159,8 @@ const defaultMergeBackStatus: MergeBackStatus = {
   ahead: 1,
   behind: 0,
   worktreeDirty: false,
+  // A healthy destination checkout has nothing waiting in its working tree (#1050).
+  destinationDirtyFiles: [],
   // The done row's push facts (issue #414): main one commit ahead of origin/main.
   destinationUpstream: "origin/main",
   destinationAhead: 1,

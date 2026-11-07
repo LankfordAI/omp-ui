@@ -276,6 +276,8 @@ export interface MergeBackStatus {
   behind: number;
   /** User-owned uncommitted or untracked changes in the worktree checkout (the generated project `.omp` link excluded, issue #417); null when no path was given or it is unreadable. */
   worktreeDirty: boolean | null;
+  /** Uncommitted paths in the destination's own checkout that the merge of the branch would be blocked on (issue #1050): exact paths the branch rewrites, plus file/directory collisions (`dir` against `dir/file`, either direction) and branch renames (both sides count). Covers staged edits, unstaged edits and untracked files; dirty work the branch never touches stays out. A prediction of the refusal classes this read can see, not a proof of every refusal git can raise — git's own guard is the authority. Sorted, [] when nothing overlaps. null when a merge would not run in the project checkout (destination held elsewhere or nowhere, or nothing left to merge) or the working tree could not be read — "unknown", never "clean". */
+  destinationDirtyFiles: string[] | null;
   /** Destination vs its own upstream, from stored refs — the finish dialog's done-row push count.
    *  Null upstream when the destination has no configured/unresolvable upstream; null ahead
    *  when the count could not be read. Never a fetch (issue #414). */

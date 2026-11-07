@@ -1201,7 +1201,12 @@ base by default, any local branch, or a new branch cut from a chosen start
 point; how it lands — one merge commit, whose message records the folded
 commits' subjects and the issues they close, or the branch kept, optionally
 renamed; and whether the session returns to the project checkout or stays
-in its worktree. It previews the merge with `git merge-tree`, runs merges
+in its worktree. It previews the merge with `git merge-tree`, reads the
+destination's own working tree when that holds it — uncommitted files there
+that the merge would overwrite or collide with (renamed paths included) block
+the merge until they are committed or stashed in the project checkout, while
+dirty work the branch never touches never blocks; an unreadable tree says so
+as unknown rather than certifying the merge clean (issue #1050) — runs merges
 into a destination checked out nowhere in a scratch worktree under the
 worktrees root, and offers to sync predicted conflicts into the worktree
 for its owning session to resolve. Scratch conflicts are aborted. A stopped

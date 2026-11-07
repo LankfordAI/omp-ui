@@ -195,6 +195,8 @@ const mergeableStatus: MergeBackStatus = {
   ahead: 3,
   behind: 0,
   worktreeDirty: false,
+  // The destination checkout's working tree holds nothing the merge needs (#1050).
+  destinationDirtyFiles: [],
   // The destination tracks origin/main and sits one commit beyond it (#414).
   destinationUpstream: "origin/main",
   destinationAhead: 1,
@@ -461,6 +463,13 @@ describe("DeleteSessionDialog", () => {
         title: "a merge is already in progress in the project",
       },
       { status: { ...mergeableStatus, alreadyMerged: true }, title: "already in main" },
+      {
+        // Uncommitted project-checkout edits on files the merge would
+        // overwrite: git refuses over them (#1050).
+        status: { ...mergeableStatus, destinationDirtyFiles: ["src/a.ts"] },
+        title:
+          "the project checkout has uncommitted changes to files this merge would overwrite — commit or stash them first",
+      },
     ];
     for (const { status, title } of cases) {
       backendMock.getMergeBackStatus.mockReset().mockResolvedValue(status);

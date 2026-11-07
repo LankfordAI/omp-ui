@@ -80,12 +80,14 @@ export function FinishWorktreeDialog({ tabId }: { tabId: string }) {
     c.newBranch !== null ? c.newBranch.name.trim() : (c.destination ?? "");
   // The merge radio's blockers mirror the controller's primary gate — a
   // scratch merge (new branch included) is immune to the project checkout's
-  // mid-merge, and only an "other"-held destination refuses outright.
+  // mid-merge, and only an "other"-held destination refuses outright. The
+  // dirty overlap (#1050) blocks exactly as the controller's gate does.
   const mergeBlocked =
     status !== null &&
     c.newBranch === null &&
     (status.destinationCheckout === "other" ||
-      (status.destinationCheckout === "project" && status.mergeInProgress));
+      (status.destinationCheckout === "project" &&
+        (status.mergeInProgress || (c.destinationDirtyFiles?.length ?? 0) > 0)));
 
   const working = c.phase.s === "working";
   const blockerTab = c.resolution?.blockedByTabId ?? null;
@@ -107,9 +109,42 @@ export function FinishWorktreeDialog({ tabId }: { tabId: string }) {
         <p className={quietClass}>{t("finish.dialog.alreadyIn", { branch, destination: targetName })}</p>
       );
     const preview = status.preview;
+    // The working-tree overlap (issue #1050): the ref-level preview below is
+    // blind to these files, and git refuses the merge on them before any
+    // strategy runs. They take the row over — "no conflicts predicted"
+    // beside a merge that cannot start is exactly what this issue reported.
+    // A null list inside THIS scope — a merge that would really run in the
+    // project checkout — means the read FAILED: unknown, which says so
+    // plainly instead of signing the preview as certified-clean. Outside it
+    // (new branch, or a start point held nowhere) the null means "no live
+    // tree at stake", never unknown. git's own guard stays the authority.
+    const overlapVisible = c.newBranch === null && status.destinationCheckout === "project";
+    const destinationDirty = overlapVisible ? (c.destinationDirtyFiles ?? []) : [];
+    const destinationDirtyUnknown =
+      overlapVisible && status.destinationDirtyFiles === null;
     return (
       <>
-        {preview.kind === "clean" && <p className={quietClass}>{t("finish.dialog.previewClean")}</p>}
+        {destinationDirty.length > 0 && (
+          <>
+            <p className={copperClass}>{t("finish.dialog.destinationDirty")}</p>
+            <ul className="mt-1 space-y-0.5">
+              {destinationDirty.slice(0, 5).map((file) => (
+                <li key={file} className="truncate font-mono text-xs text-copper" title={file}>
+                  {file}
+                </li>
+              ))}
+              {destinationDirty.length > 5 && (
+                <li className={quietClass}>{t("dialog.delete.more", { n: destinationDirty.length - 5 })}</li>
+              )}
+            </ul>
+          </>
+        )}
+        {destinationDirtyUnknown && (
+          <p className={copperClass}>{t("finish.dialog.destinationDirtyUnknown")}</p>
+        )}
+        {preview.kind === "clean" && destinationDirty.length === 0 && !destinationDirtyUnknown && (
+          <p className={quietClass}>{t("finish.dialog.previewClean")}</p>
+        )}
         {preview.kind === "unknown" && <p className={quietClass}>{t("finish.dialog.previewUnknown")}</p>}
         {preview.kind === "conflicts" && (
           <>
@@ -414,7 +449,9 @@ export function FinishWorktreeDialog({ tabId }: { tabId: string }) {
                     status.destinationCheckout === "project" &&
                     status.mergeInProgress
                   ? t("branch.merge.inProgress")
-                  : undefined
+                  : (c.destinationDirtyFiles?.length ?? 0) > 0
+                    ? t("finish.dialog.destinationDirty")
+                    : undefined
             }
           >
             <input
