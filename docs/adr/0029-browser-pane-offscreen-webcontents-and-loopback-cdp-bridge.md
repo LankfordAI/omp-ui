@@ -388,9 +388,10 @@ through a **loopback CDP bridge** the main process hosts:
   `browser` global with `app.cdp_url`, its adoption of the existing page target,
   disconnect-only `tab.close`, and the extension API's `registerCommand`,
   `sendCustomMessage` and session events. omp's `tab.click` hang against every
-  CDP target is worked around in the hidden message (`tab.run` + `page.click`),
-  not fixed here — since omp 18.16 the sentence itself is version-gated; see
-  the "Amendment — the click workaround is version-gated" below.
+  CDP target was worked around in the hidden message (`tab.run` + `page.click`)
+  while it was live; omp 18.16 fixed it upstream and the re-proof on this exact
+  endpoint retired the sentence — see "Amendment — the click workaround is
+  version-gated" and its retirement amendment below.
 - **Three implementation deviations were explicitly ratified.** Browser
   translation keys use the existing three-segment catalog convention
   (`browser.toolbar.blocked`, `browser.split.resize`). Root
@@ -439,3 +440,45 @@ comment: the single-shared-page machinery (`Target.createTarget` alias,
 ownership (#15975, #16133) because there is only ever one page to own; and no
 client-side timeout exists in the pane to simplify — the bridge forwards CDP
 commands unbounded.
+
+## Amendment — the click workaround is retired; the shared-page machinery stands (#1031, omp 18.17)
+
+The re-proof this issue deferred was run against this bridge's real tokened
+endpoint with the managed **omp 18.17.0** binary (which carries every 18.16/18.17
+relay fix), driven through sessions spawned by a `dev:headless --pane` instance.
+
+Retired, with proof: the *"tab.click hangs against this endpoint"* sentence and
+the whole version gate around it (`packages/core/src/browser-pane-relay.ts`,
+`BROWSER_PANE_INSTRUCTION_PARTS` back to a 2-tuple). On this endpoint
+`tab.click(sel)` fired `click` (button 0, detail 1), `{ button: "right" }`
+fired `contextmenu` with `button/buttons === 2` plus `auxclick` and no phantom
+left click, and `{ count: 2 }` produced `detail === 2` and a `dblclick`. Relay
+waits now run to their own timeout instead of dying at 20 s: a 30 s element
+resolved at ~29.9 s with `{ timeout: 45000 }`, a 25 s blocking `evaluate`
+returned at ~25.0 s, and a 25 s-throttled `goto` completed at ~25.1 s — the
+pane's own client-side timeouts are gone because none ever existed (the bridge
+forwards unbounded). A cancelled gesture releases what it held: with the page
+burning its main thread mid-drag, the 8 s op timeout aborted `tab.drag()` and
+the page still received `mouseup` with `buttons === 0`.
+
+Kept deliberately: the single-shared-page machinery (`Target.createTarget`
+alias, `fakeClose`, socket-only `Browser.close`, own-target filtering) is host
+behavior, not a workaround, and every lifecycle proof passed *with* it in place.
+Per-agent tab ownership coexists with it — a subagent's `browser.close({ all: true })`
+released exactly its own tab ("Released 1 managed tab") while a second concurrent
+CDP client parked mid-`evaluate` on the same endpoint resolved normally and the
+parent's handle still evaluated and clicked afterward; `fakeClose`'s per-client
+illusion is what makes that possible. Two honest constraints stay documented,
+stated as host-lifetime facts: **Settle** stops the live process and disposes
+the tab's pane entry (other process-stop paths dispose it too), so a later
+process resume mints a fresh tokened endpoint and the URL an agent memorized
+before the dispose stops answering (`/new` inside one live process keeps
+re-arming through the retained listener); and `persist: true` cannot preserve a
+pane page the host has disposed — destroying it under a live client surfaces
+`Target closed`, not #17768's named detach/reattach wording (that path is the
+relay Chrome mode, which this bridge is not). A page restored
+under the same listener re-arms the same endpoint. The direct wait helpers are
+bounded by omp's browser-tool 300 s cap, but every CDP command still answers
+inside the relay's own per-command budget: an unanswered command names itself
+(`Runtime.evaluate timed out`, `tab.evaluate()` with its tab) at that ~60 s
+protocol edge and the pane survives it.

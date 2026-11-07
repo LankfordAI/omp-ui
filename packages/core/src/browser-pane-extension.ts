@@ -5,12 +5,8 @@ import {
   BROWSER_PANE_ENDPOINT_PATTERN,
   BROWSER_PANE_INSTRUCTION_PARTS,
 } from "./browser-pane";
-import { BROWSER_PANE_RELAY_FIXES_MIN_OMP } from "./browser-pane-relay";
 import { writeLineageArtifact } from "./lineage-artifact";
-import {
-  generatedOmpVersionAtLeastSource,
-  generatedRootBindingSource,
-} from "./generated-extension-source";
+import { generatedRootBindingSource } from "./generated-extension-source";
 
 /**
  * The agent learns the browser pane's endpoint (#519, ADR-0029) from this
@@ -43,8 +39,7 @@ function extensionSource(): string {
 
 const COMMAND = ${JSON.stringify(BROWSER_PANE_COMMAND)};
 const CUSTOM_TYPE = ${JSON.stringify(BROWSER_PANE_CUSTOM_TYPE)};
-const INSTRUCTION_PARTS: readonly [string, string, string, string] = ${JSON.stringify(BROWSER_PANE_INSTRUCTION_PARTS)};
-const RELAY_FIXES_MIN_OMP = ${JSON.stringify(BROWSER_PANE_RELAY_FIXES_MIN_OMP)};
+const INSTRUCTION_PARTS: readonly [string, string] = ${JSON.stringify(BROWSER_PANE_INSTRUCTION_PARTS)};
 const ENDPOINT_RE = new RegExp(${JSON.stringify(BROWSER_PANE_ENDPOINT_PATTERN)});
 
 /** The slice of omp's AgentSession this extension drives. */
@@ -61,7 +56,7 @@ interface PaneUi {
 }
 
 interface PaneExtensionApi {
-  pi?: { AgentSession?: { prototype?: Record<string, unknown> }; VERSION?: unknown };
+  pi?: { AgentSession?: { prototype?: Record<string, unknown> } };
   registerCommand: (
     name: string,
     options: {
@@ -84,10 +79,6 @@ export default function (pi: PaneExtensionApi) {
   let warnedUnavailable = false;
   let ui: PaneUi | null = null;
   ${generatedRootBindingSource("PaneSession")}
-  // True when the running omp carries the relay click fixes (issue #1031);
-  // unknown, garbage, or hardening-throwing VERSION → false, keeping the
-  // workaround sentence.
-  ${generatedOmpVersionAtLeastSource("relayFixes", BROWSER_PANE_RELAY_FIXES_MIN_OMP)}
 
   try {
     const prototype = pi.pi?.AgentSession?.prototype;
@@ -119,14 +110,7 @@ export default function (pi: PaneExtensionApi) {
       return;
     }
     try {
-      // One probe per delivery: omit the workaround sentence only when the
-      // running omp carries the relay click fixes (issue #1031).
-      const content =
-        INSTRUCTION_PARTS[0] +
-        target +
-        INSTRUCTION_PARTS[1] +
-        (relayFixes() ? "" : INSTRUCTION_PARTS[2]) +
-        INSTRUCTION_PARTS[3];
+      const content = INSTRUCTION_PARTS[0] + target + INSTRUCTION_PARTS[1];
       await active.sendCustomMessage(
         {
           customType: CUSTOM_TYPE,

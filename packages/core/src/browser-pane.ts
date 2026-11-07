@@ -252,36 +252,30 @@ export function parseBrowserPaneSetArgs(args: string): { cdpUrl: string } | null
   return { cdpUrl };
 }
 
-/** The pre-18.16 workaround sentence; omitted only at omp >= 18.16.0 (issue #1031). */
-export const BROWSER_PANE_CLICK_WORKAROUND_SENTENCE =
-  " tab.click hangs against this endpoint; click with tab.run(async ({ page }) => page.click(selector)).";
-
 /**
  * The hidden message the agent receives (#530, plus the direct-tools-first
- * routing policy of #561), split around the endpoint and around the pre-18.16
- * click workaround (issue #1031) so the generated extension interpolates the
- * same text and can drop parts[2] on patched omp. Joined in order they are the
- * legacy full text byte-for-byte.
+ * routing policy of #561), split around the endpoint so the generated
+ * extension interpolates the same text from both sides of the channel.
+ *
+ * Issue #1031 retired the old "tab.click hangs against this endpoint; click
+ * with tab.run(…)" workaround sentence and the version gate that dropped it:
+ * re-proven obsolete on a live pane endpoint with omp 18.17 — `tab.click(sel)`
+ * fires the plain click, `{ button: "right" }` fires contextmenu, and
+ * `{ count: 2 }` fires dblclick (upstream `#17778`/`#17767`, shipped at omp
+ * 18.16.0). 18.16.0 is also `MIN_SUPPORTED_OMP`: below the floor the update
+ * manager treats it as a requirement violation and installs a supported
+ * binary (omp-update.ts; auto-upgrade is on by default), so no harness omp-ui
+ * supports needs the sentence. The delivered text is byte-identical to what
+ * the retired gate emitted for every binary that could run sessions.
  */
-export const BROWSER_PANE_INSTRUCTION_PARTS: readonly [string, string, string, string] = [
+export const BROWSER_PANE_INSTRUCTION_PARTS: readonly [string, string] = [
   '[omp-ui browser pane] This session has a browser pane the user sees live beside the transcript. It is available when the task requires browser interaction. Prefer the most direct interface: use read/search for repository files and static web content, and use installed CLIs or APIs with existing credentials for structured service work. Do not open a service console or begin interactive sign-in when an authenticated local CLI or API can complete the task. Use the browser pane for rendered UI, client-side JavaScript, browser state, browser-only authentication, or when the user explicitly asks to see or interact with a page. If a preferred CLI or API reports that browser authentication is required, use the pane for that authentication and then return to the CLI or API. To drive it from the eval kernel:\n  const tab = await browser.open({ name: "pane", url: "<http or https URL>", app: { cdp_url: "',
-  '" } });\nThe endpoint has exactly one page: every name you open shares it and its `url` navigates it. The user can click and type in the same page at any time, so observe before you act.',
-  BROWSER_PANE_CLICK_WORKAROUND_SENTENCE,
-  " tab.close only disconnects; the page stays open for the user; a pane you opened collapses on its own once you disconnect. Only http and https URLs load. This supersedes any earlier omp-ui browser pane endpoint.",
+  '" } });\nThe endpoint has exactly one page: every name you open shares it and its `url` navigates it. The user can click and type in the same page at any time, so observe before you act. tab.close only disconnects; the page stays open for the user; a pane you opened collapses on its own once you disconnect. Only http and https URLs load. This supersedes any earlier omp-ui browser pane endpoint.',
 ];
 
-/**
- * The legacy full instruction text, including the pre-18.16 click workaround.
- * Version-aware composition lives in browser-pane-relay.ts.
- */
+/** The hidden message body: the two parts joined around the endpoint. */
 export function browserPaneInstruction(cdpUrl: string): string {
-  return (
-    BROWSER_PANE_INSTRUCTION_PARTS[0] +
-    cdpUrl +
-    BROWSER_PANE_INSTRUCTION_PARTS[1] +
-    BROWSER_PANE_INSTRUCTION_PARTS[2] +
-    BROWSER_PANE_INSTRUCTION_PARTS[3]
-  );
+  return BROWSER_PANE_INSTRUCTION_PARTS[0] + cdpUrl + BROWSER_PANE_INSTRUCTION_PARTS[1];
 }
 
 /** Encoded formats a clock stamp accepts and returns (CDP's three screenshot formats). */

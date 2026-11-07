@@ -207,7 +207,6 @@ export * from "./event-filter";
 export * from "./host-bridge";
 export * from "./html-artifact";
 export * from "./browser-pane";
-export * from "./browser-pane-relay";
 export * from "./device-pane";
 export * from "./device-profiles";
 export * from "./android-sdk";
