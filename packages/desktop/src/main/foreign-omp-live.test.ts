@@ -4,11 +4,13 @@ import * as path from "node:path";
 import { spawn } from "node:child_process";
 import { createServer } from "node:http";
 import { afterEach, describe, expect, it } from "vitest";
-import { CH, RpcClient, resolveOmpBinary, type RpcFrame } from "@omp-ui/core";
+import { CH, RpcClient, resolveOmpBinary, type FleetToolAccess, type RpcFrame } from "@omp-ui/core";
 import { ForeignOmpTracker } from "./foreign-omp-tracker";
+import { createRpcLiveEntry } from "./live-entry";
+import { ownedSessionRecord } from "./test/fixtures";
 
 /**
- * Real-runtime proof for the foreign-omp tracker (issues #1022, #1075): each
+ * Real-runtime proof for the foreign-omp tracker (issues #1022, #1075, #1076): each
  * scripted bash command runs as a REAL `omp` bash tool call inside a real
  * owned rpc-ui session — one command per prompt, because parallel tool calls
  * in one completion execute back-to-back and would race the silence checks.
@@ -17,7 +19,9 @@ import { ForeignOmpTracker } from "./foreign-omp-tracker";
  *
  * - `omp --version` prints its version through the tool result; silent.
  * - `omp --model zzz/nope …` fails through real omp's model resolution in
- *   the tool output AND warns exactly once.
+ *   the tool output AND warns exactly once, with the setting advice (the
+ *   session has no fleet tools). The same launch under a granted live entry
+ *   (#1076) warns with the fleet-tool advice and never names the setting.
  * - A second launch under the same live process adds no second notice.
  * - A commit whose message says `omp` lands for real (the message comes back
  *   from `git log`); silent — #1075's largest false-positive group.
@@ -211,7 +215,7 @@ interface Scope {
   exited: Promise<void>;
 }
 
-function spawnScope(base: string, env: NodeJS.ProcessEnv): Scope {
+function spawnScope(base: string, env: NodeJS.ProcessEnv, access: FleetToolAccess = "setting-off"): Scope {
   const project = path.join(base, "proj");
   const lineage = path.join(base, "lin");
   fs.mkdirSync(lineage, { recursive: true });
@@ -219,12 +223,14 @@ function spawnScope(base: string, env: NodeJS.ProcessEnv): Scope {
   const frames: Frame[] = [];
   const notices: RpcFrame[] = [];
   // The observer under proof, fed exactly what the owning main process feeds
-  // it: every parsed rpc frame of this live session.
+  // it: every parsed rpc frame of this live session, plus the live entry whose
+  // fleet access stands in for the spawn gate's (#1076).
   const tracker = new ForeignOmpTracker({
     send: (channel, ...args) => {
       if (channel === CH.onRpcFrame) notices.push(args[1] as RpcFrame);
     },
   });
+  const liveEntry = createRpcLiveEntry(ownedSessionRecord(), access);
   let markExited!: () => void;
   const exited = new Promise<void>((resolve) => {
     markExited = resolve;
@@ -251,7 +257,7 @@ function spawnScope(base: string, env: NodeJS.ProcessEnv): Scope {
     },
     onFrame: (frame) => {
       frames.push(frame as Frame);
-      tracker.onFrame("live-tab", frame);
+      tracker.onFrame("live-tab", frame, liveEntry);
     },
     onExit: () => {
       tracker.onExit("live-tab");
@@ -377,6 +383,8 @@ describe.skipIf(ompPath === null)("foreign omp tracker on the real runtime (#107
       const notices = foreignNotices(scope);
       expect(notices).toHaveLength(1);
       expect(notices[0]).toMatchObject({ type: "omp_ui_notice", level: "warn" });
+      // #1076: this session has no fleet tools, so the honest advice is the setting.
+      expect(String((notices[0] as Record<string, unknown>).message)).toContain("Let agents dispatch fleet work");
 
       // A second launch under the SAME live process, started only after the
       // first turn's prompt_result settled: once per live process still
@@ -385,6 +393,33 @@ describe.skipIf(ompPath === null)("foreign omp tracker on the real runtime (#107
       const secondOut = await awaitToolOutput(scope, "run-it-again");
       expect(secondOut).toContain(`${LAUNCH_MARK}2`);
       expect(foreignNotices(scope)).toHaveLength(1);
+    },
+    240_000,
+  );
+
+  it(
+    "a launch in a granted session names the fleet tools, never the setting (#1076)",
+    async () => {
+      provider = await scriptedProvider([
+        { sentinel: "launch-in-granted", command: `omp --model zzz/nope 'go' 2>&1; echo ${LAUNCH_MARK}3 $?` },
+      ]);
+      const { base, env } = hermeticBase(provider.baseUrl);
+      // The live entry carries the same access the spawn gate would have
+      // computed for a chat or an enabled ordinary session.
+      const scope = spawnScope(base, env, "granted");
+      scopes.push(scope);
+      await ready(scope);
+
+      await prompt(scope, "launch-in-granted");
+      const out = await awaitToolOutput(scope, "launch-in-granted");
+      expect(out).toContain("zzz/nope");
+      expect(out).toContain(`${LAUNCH_MARK}3`);
+      const notices = foreignNotices(scope);
+      expect(notices).toHaveLength(1);
+      const message = String((notices[0] as Record<string, unknown>).message);
+      expect(message).toContain("already has the fleet tools");
+      expect(message).toContain("omp-ui_fleet_dispatch");
+      expect(message).not.toContain("Let agents dispatch fleet work");
     },
     240_000,
   );

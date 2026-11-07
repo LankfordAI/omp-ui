@@ -1,5 +1,6 @@
-import { CH, type RpcFrame } from "@omp-ui/core";
+import { CH, type FleetToolAccess, type RpcFrame } from "@omp-ui/core";
 import type { FrameObserver } from "./frame-observer";
+import type { LiveEntry } from "./live-entry";
 
 /**
  * A bare `omp` launch inside an owned session's bash command (issue #1022):
@@ -468,6 +469,59 @@ export interface ForeignOmpTrackerDeps {
   send: (channel: string, ...args: unknown[]) => void;
 }
 
+/** The orphan symptom, common to every guidance branch below (issue #1022). */
+const ORPHAN_SYMPTOM =
+  "This session launched a bare `omp` child. That child is invisible to omp-ui " +
+  "(ADR-0003): it spends money untracked, appears in no sidebar row, and no one " +
+  "answers its prompts. ";
+
+/**
+ * What to do about it, per the session's actual fleet-tool access (issue #1076).
+ * The advice names the route that really exists for THIS session — decided by
+ * the one `fleetToolAccess` rule the spawn gate itself uses — never a setting
+ * trip that cannot help: a chat already carries the tools whatever the setting
+ * says (#945), and a dispatched or outside-sender session is refused them on
+ * purpose, so no toggle changes it.
+ */
+function guidance(access: FleetToolAccess): string {
+  switch (access) {
+    case "granted":
+      // A chat, or an ordinary session with the setting already on: the tools
+      // are HERE; pointing at Settings would send the user to a switch that is
+      // already doing its job (or one chats ignore).
+      return (
+        "This session already has the fleet tools (`omp-ui_fleet_machines`, " +
+        "`omp-ui_fleet_dispatch`): use them to start sessions omp-ui can see, " +
+        "wake and manage instead of spawning `omp` by hand."
+      );
+    case "setting-off":
+      // The only case where the setting is the honest fix.
+      return (
+        "To give an agent sessions omp-ui can see, wake and manage, enable " +
+        "Settings → Remote instances → “Let agents dispatch fleet work” and use " +
+        "the fleet tools instead of spawning `omp` by hand."
+      );
+    case "agent-recursion":
+      // ADR-0061's no-recursion gate: no toggle opens this. The supported move
+      // is to hand the need back up the dispatch chain.
+      return (
+        "This session was dispatched by another agent, so omp-ui deliberately " +
+        "withholds the fleet tools from it — no setting changes that (ADR-0061). " +
+        "Work that needs its own agent session belongs in your reply: say what " +
+        "needs dispatching and let the dispatching session (or the user) start it."
+      );
+    case "external-sender":
+      // ADR-0075 / ADR-0080: an outside sender's session, tools refused on
+      // purpose; the honest route is a human-started session.
+      return (
+        "This session was started by a webhook or an MCP client, so omp-ui " +
+        "deliberately withholds the fleet tools from it — no setting changes " +
+        "that (ADR-0075, ADR-0080). Work that needs its own agent session has " +
+        "to be asked of the user in a session they start here."
+      );
+  }
+}
+
 /**
  * Notices an agent launching a bare `omp` from inside its own session
  * (issue #1022). ADR-0003 keeps foreign sessions invisible to omp-ui — this
@@ -476,7 +530,9 @@ export interface ForeignOmpTrackerDeps {
  * silent" option: one warn notice on the OWNING session's transcript, naming
  * the orphaned-session symptom and the supported route (fleet dispatch).
  * Issue #1075 narrowed the trigger to real session-starting launches so the
- * notice keeps its meaning.
+ * notice keeps its meaning; issue #1076 tailored the guidance to this
+ * session's actual fleet-tool access instead of always sending the user to a
+ * setting that chats ignore and dispatched sessions are refused outright.
  */
 export class ForeignOmpTracker implements FrameObserver {
   /** Tabs already warned for the CURRENT live process; cleared on every exit. */
@@ -484,7 +540,8 @@ export class ForeignOmpTracker implements FrameObserver {
 
   constructor(private readonly deps: ForeignOmpTrackerDeps) {}
 
-  onFrame(tabId: string, frame: RpcFrame): void {
+  onFrame(tabId: string, frame: RpcFrame, entry: LiveEntry): void {
+    if (entry.kind !== "rpc-ui") return;
     if (frame.type !== "tool_execution_start" || frame.toolName !== "bash") return;
     const args = frame.args;
     if (typeof args !== "object" || args === null) return;
@@ -497,12 +554,7 @@ export class ForeignOmpTracker implements FrameObserver {
       level: "warn",
       source: "omp-ui",
       reason: "foreign-omp-launch",
-      message:
-        `This session launched a bare \`omp\` child. That child is invisible to omp-ui ` +
-        `(ADR-0003): it spends money untracked, appears in no sidebar row, and no one ` +
-        `answers its prompts. To give an agent sessions omp-ui can see, wake and manage, ` +
-        `enable Settings → Remote instances → “Let agents dispatch fleet work” and use ` +
-        `the fleet tools instead of spawning omp by hand.`,
+      message: ORPHAN_SYMPTOM + guidance(entry.fleetToolAccess),
     });
   }
 

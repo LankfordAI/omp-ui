@@ -1,5 +1,6 @@
 import type {
   CapabilitySnapshot,
+  FleetToolAccess,
   ModelHold,
   OwnedSessionRecord,
   PtyHandle,
@@ -28,6 +29,13 @@ export interface PtyLiveEntry extends LiveEntryBase {
 export interface RpcLiveEntry extends LiveEntryBase {
   readonly kind: "rpc-ui";
   rpc: RpcClient | null;
+  /**
+   * This process's fleet-tool capability, computed once at spawn from the one
+   * `fleetToolAccess` rule — the same value the `set_host_tools` gate sends —
+   * so the foreign-`omp` notice (#1076) tells the truth about what this
+   * session can do without re-deriving the gate.
+   */
+  readonly fleetToolAccess: FleetToolAccess;
   /** Latest capability snapshot the bridge published; null until the first valid frame. */
   capabilities: CapabilitySnapshot | null;
   /** True when this spawn successfully wrote (and armed) the capabilities bridge. */
@@ -80,11 +88,12 @@ export function wirePtyData(
   entry.detachPtyData = pty.onData(send);
 }
 
-export function createRpcLiveEntry(record: OwnedSessionRecord): RpcLiveEntry {
+export function createRpcLiveEntry(record: OwnedSessionRecord, fleetToolAccess: FleetToolAccess): RpcLiveEntry {
   return {
     ...createLiveEntryBase(record),
     kind: "rpc-ui",
     rpc: null,
+    fleetToolAccess,
     capabilities: null,
     capabilitiesBridgeLoaded: false,
     planBridgeLoaded: false,

@@ -14,6 +14,7 @@ This guide explains what users receive from a release and how maintainers publis
 - Browser viewport commands restore pane geometry immediately, with a one-second wait limit so stalled restoration cannot hold an agent's reply indefinitely (#1072).
 - Manual-skill catalogs skip invalid glob patterns with a warning while retaining valid matches (#1074).
 - The "launched a bare `omp` child" warning now fires only on real session launches: the word `omp` in a command position, starting or resuming a session. Mentions inside commit messages, quotes, and heredocs, `omp --version`/`--help` probes, the `config`/`models`/`token` subcommands, and `--no-session`/print runs stay silent (#1075).
+- The "launched a bare `omp` child" warning now advises from what the session actually has instead of always sending you to *Let agents dispatch fleet work*: a chat — which always carries the fleet tools — and any session that already has them are told to use the fleet tools, an ordinary session without them still gets the setting route, and an agent-dispatched or webhook-/MCP-started session is told honestly that omp-ui withholds the tools on purpose and no setting flips that (#1076).
 
 ## Choose a download
 

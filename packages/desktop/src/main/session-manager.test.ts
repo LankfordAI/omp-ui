@@ -5394,6 +5394,76 @@ describe("foreign omp launch notice (#1022)", () => {
     expect(notices[0]).toMatchObject({ type: "omp_ui_notice", level: "warn", reason: "foreign-omp-launch" });
   });
 
+  // #1076: the advice rides the session's ACTUAL fleet-tool access — the same
+  // `fleetToolAccess` rule the `set_host_tools` gate registers from — not a
+  // blanket trip to a setting chats ignore and dispatched sessions can't flip.
+  const launchAndNoticeMessage = async (
+    manager: SessionManager,
+    sent: { channel: string; args: unknown[] }[],
+  ): Promise<string> => {
+    const rpc = rpcInstances.at(-1)!;
+    rpc.frame({ type: "agent_start" });
+    rpc.frame({ type: "tool_execution_start", toolCallId: "t1", toolName: "bash", args: { command: "omp 'go'" } });
+    const notices = foreignNotices(sent);
+    expect(notices).toHaveLength(1);
+    return String((notices[0] as Record<string, unknown>).message);
+  };
+
+  it("a chat with the setting off is sent to the tools it already has, not the setting (#1076)", async () => {
+    const { manager, sent } = setup({ mode: "rpc-ui" });
+    await manager.spawn({ origin: "new", chat: true, mode: "rpc-ui", advisor: false, cols: 80, rows: 24 });
+
+    const message = await launchAndNoticeMessage(manager, sent);
+    expect(message).toContain("already has the fleet tools");
+    expect(message).not.toContain("Let agents dispatch fleet work");
+  });
+
+  it("an ordinary session with the setting on is sent to the tools, not the setting (#1076)", async () => {
+    const { manager, registry, sent } = setup({ mode: "rpc-ui" });
+    registry.setSetting("fleetAgentDispatch", true);
+    await resumeRpc(manager);
+
+    const message = await launchAndNoticeMessage(manager, sent);
+    expect(message).toContain("already has the fleet tools");
+    expect(message).not.toContain("Let agents dispatch fleet work");
+  });
+
+  it("an ordinary session with the setting off is sent to the setting (#1076)", async () => {
+    const { manager, sent } = setup({ mode: "rpc-ui" });
+    await resumeRpc(manager);
+
+    const message = await launchAndNoticeMessage(manager, sent);
+    expect(message).toContain("Settings → Remote instances → “Let agents dispatch fleet work”");
+  });
+
+  it("an agent-dispatched session gets honest no-recursion advice even with the setting on (#1076)", async () => {
+    const { manager, registry, sent } = setup({ mode: "rpc-ui" });
+    registry.setSetting("fleetAgentDispatch", true);
+    registry.updateSession(TAB, {
+      fleet: { dispatchId: "d-1076", batchId: null, dispatchedAt: "2026-11-06T00:00:00.000Z", requestedBy: { instanceId: "inst-a", label: "host-a", kind: "agent", sourceTabId: "src" } },
+    } as Partial<Core.OwnedSessionRecord>);
+    await resumeRpc(manager);
+
+    const message = await launchAndNoticeMessage(manager, sent);
+    expect(message).toContain("dispatched by another agent");
+    expect(message).toContain("ADR-0061");
+    expect(message).not.toContain("Let agents dispatch fleet work");
+  });
+
+  it.each(["webhook", "mcp"] as const)("a %s-started session gets honest outside-sender advice even with the setting on (#1076)", async (kind) => {
+    const { manager, registry, sent } = setup({ mode: "rpc-ui" });
+    registry.setSetting("fleetAgentDispatch", true);
+    registry.updateSession(TAB, {
+      fleet: { dispatchId: "d-1076", batchId: null, dispatchedAt: "2026-11-06T00:00:00.000Z", requestedBy: { instanceId: "inst-a", label: "host-a", kind, sourceTabId: null } },
+    } as Partial<Core.OwnedSessionRecord>);
+    await resumeRpc(manager);
+
+    const message = await launchAndNoticeMessage(manager, sent);
+    expect(message).toContain("webhook or an MCP client");
+    expect(message).toContain("ADR-0075");
+    expect(message).not.toContain("Let agents dispatch fleet work");
+  });
+
   it("stays silent for ordinary bash commands", async () => {
     const { manager, sent } = setup({ mode: "rpc-ui" });
     await resumeRpc(manager);

@@ -157,6 +157,53 @@ export interface FleetRequester {
   sourceTabId: string | null;
 }
 
+/**
+ * The agent-facing fleet-tool capability of one session — the single
+ * authoritative rule (issue #1076), so no surface re-derives its own boolean.
+ * `session-manager`'s spawn gate registers the fleet host tools exactly when
+ * this is `"granted"`, and the foreign-`omp` launch notice (issues #1022,
+ * #1076) tailors its advice to WHY a session does or does not carry them.
+ */
+export type FleetToolAccess =
+  /** Registered: chats always carry the tools (#945); otherwise the setting is on and nothing withholds them (ADR-0048). */
+  | "granted"
+  /** Ordinary human-started session with the setting off (ADR-0048): turning on Settings → Remote instances helps here. */
+  | "setting-off"
+  /** Agent-dispatched: the no-recursion gate withholds the tools whatever the setting says (ADR-0061). */
+  | "agent-recursion"
+  /** Webhook- or MCP-started: an outside sender never gets them, whatever the setting says (ADR-0075, ADR-0080). */
+  | "external-sender";
+
+/** The inputs `fleetToolAccess` decides from — exactly what the spawn gate reads. */
+export interface FleetToolAccessInput {
+  /** True for a Chat record: a chat always carries the fleet tools (#945). */
+  chat: boolean;
+  /** The `fleetAgentDispatch` setting as read at this spawn (ADR-0048). */
+  agentDispatchEnabled: boolean;
+  /** `record.fleet?.requestedBy.kind ?? null`: how this session was started; null for a human one. */
+  requestedByKind: FleetRequester["kind"] | null;
+}
+
+/**
+ * The authoritative fleet-tool capability for one spawn (issue #1076). A chat
+ * is granted before provenance is consulted — a chat is never dispatched
+ * (#945). Otherwise an agent-dispatched session is refused by the no-recursion
+ * gate and a webhook-/MCP-started one by its outside sender, both regardless
+ * of the setting: those are deliberate refusals, not a switch to flip. Only
+ * an ordinary human session follows the setting.
+ */
+export function fleetToolAccess(input: FleetToolAccessInput): FleetToolAccess {
+  if (input.chat) return "granted";
+  if (input.requestedByKind === "agent") return "agent-recursion";
+  if (input.requestedByKind === "webhook" || input.requestedByKind === "mcp") return "external-sender";
+  return input.agentDispatchEnabled ? "granted" : "setting-off";
+}
+
+/** True exactly when the fleet host tools register for this access. */
+export function fleetToolsRegistered(access: FleetToolAccess): boolean {
+  return access === "granted";
+}
+
 /** Rides NewRpcSpawnRequest.fleet; validated by parseFleetSpawnSpec. */
 export interface FleetSpawnSpec {
   dispatchId: string;

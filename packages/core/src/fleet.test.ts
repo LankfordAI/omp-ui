@@ -12,7 +12,9 @@ import {
   fleetMemberAddress,
   fleetOsLabel,
   fleetChoiceText,
+  fleetToolAccess,
   fleetToolDispatchRequest,
+  fleetToolsRegistered,
   fleetToolExecPollRequest,
   fleetToolExecRequest,
   fleetToolUpdateRequest,
@@ -90,6 +92,24 @@ function report(patch: Partial<FleetHostReport> = {}): FleetHostReport {
 function candidate(machineKey: string, patch: Partial<PlacementCandidate> = {}, reportPatch: Partial<FleetHostReport> = {}): PlacementCandidate {
   return { machineKey, projectCwd: `/${machineKey}/proj`, weight: 50, report: report(reportPatch), receivedAt: NOW, ...patch };
 }
+
+describe("fleetToolAccess (#1076)", () => {
+  it.each([
+    ["a chat with the setting off", { chat: true, agentDispatchEnabled: false, requestedByKind: null }, "granted"],
+    ["a chat with the setting on", { chat: true, agentDispatchEnabled: true, requestedByKind: null }, "granted"],
+    ["an ordinary session with the setting on", { chat: false, agentDispatchEnabled: true, requestedByKind: null }, "granted"],
+    ["an ordinary session with the setting off", { chat: false, agentDispatchEnabled: false, requestedByKind: null }, "setting-off"],
+    ["an agent-dispatched session with the setting on", { chat: false, agentDispatchEnabled: true, requestedByKind: "agent" }, "agent-recursion"],
+    ["an agent-dispatched session with the setting off", { chat: false, agentDispatchEnabled: false, requestedByKind: "agent" }, "agent-recursion"],
+    ["a webhook-started session with the setting on", { chat: false, agentDispatchEnabled: true, requestedByKind: "webhook" }, "external-sender"],
+    ["an MCP-started session with the setting on", { chat: false, agentDispatchEnabled: true, requestedByKind: "mcp" }, "external-sender"],
+    ["a user-dispatched session with the setting on", { chat: false, agentDispatchEnabled: true, requestedByKind: "user" }, "granted"],
+    ["a user-dispatched session with the setting off", { chat: false, agentDispatchEnabled: false, requestedByKind: "user" }, "setting-off"],
+  ] as const)("registers for %s exactly when granted", (_label, input, expected) => {
+    expect(fleetToolAccess(input)).toBe(expected);
+    expect(fleetToolsRegistered(fleetToolAccess(input))).toBe(expected === "granted");
+  });
+});
 
 describe("placementScore", () => {
   it("scores an eligible report as weight * cores * idle CPU * free memory", () => {

@@ -1,9 +1,16 @@
 import { describe, expect, it } from "vitest";
-import { CH, type RpcFrame } from "@omp-ui/core";
+import { CH, type FleetToolAccess, type RpcFrame } from "@omp-ui/core";
 import { ForeignOmpTracker, launchesBareOmpSession } from "./foreign-omp-tracker";
+import { createRpcLiveEntry } from "./live-entry";
+import { ownedSessionRecord } from "./test/fixtures";
 
 function bash(command: string): RpcFrame {
   return { type: "tool_execution_start", toolCallId: "t1", toolName: "bash", args: { command } } as RpcFrame;
+}
+
+/** The live entry the manager hands the observer: one rpc-ui spawn with this fleet access. */
+function entry(access: FleetToolAccess) {
+  return createRpcLiveEntry(ownedSessionRecord(), access);
 }
 
 function makeTracker(): { tracker: ForeignOmpTracker; notices: Record<string, unknown>[] } {
@@ -19,7 +26,7 @@ function makeTracker(): { tracker: ForeignOmpTracker; notices: Record<string, un
 describe("ForeignOmpTracker (#1022)", () => {
   it("posts one warn notice for a bare omp launch", () => {
     const { tracker, notices } = makeTracker();
-    tracker.onFrame("tab", bash("OMP_SESSION_LOG=x omp 'hi' && echo done"));
+    tracker.onFrame("tab", bash("OMP_SESSION_LOG=x omp 'hi' && echo done"), entry("setting-off"));
     expect(notices).toHaveLength(1);
     expect(notices[0]).toMatchObject({ type: "omp_ui_notice", level: "warn", reason: "foreign-omp-launch" });
     expect(String(notices[0]!.message)).toContain("invisible to omp-ui");
@@ -28,11 +35,11 @@ describe("ForeignOmpTracker (#1022)", () => {
 
   it("warns once per live process, and again after the process dies", () => {
     const { tracker, notices } = makeTracker();
-    tracker.onFrame("tab", bash("omp run"));
-    tracker.onFrame("tab", bash("omp run --again"));
+    tracker.onFrame("tab", bash("omp run"), entry("setting-off"));
+    tracker.onFrame("tab", bash("omp run --again"), entry("setting-off"));
     expect(notices).toHaveLength(1);
     tracker.onExit("tab");
-    tracker.onFrame("tab", bash("omp run"));
+    tracker.onFrame("tab", bash("omp run"), entry("setting-off"));
     expect(notices).toHaveLength(2);
   });
 
@@ -44,17 +51,59 @@ describe("ForeignOmpTracker (#1022)", () => {
       "cat /opt/omp-ui/bin/notes.md",
       "/usr/local/bin/omp --version",
     ]) {
-      tracker.onFrame("tab", bash(command));
+      tracker.onFrame("tab", bash(command), entry("setting-off"));
     }
     expect(notices).toHaveLength(0);
   });
 
   it("ignores non-bash tools and frames without a usable command", () => {
     const { tracker, notices } = makeTracker();
-    tracker.onFrame("tab", { type: "tool_execution_start", toolCallId: "t1", toolName: "exec", args: { command: "omp" } } as RpcFrame);
-    tracker.onFrame("tab", { type: "tool_execution_start", toolCallId: "t1", toolName: "bash", args: null } as RpcFrame);
-    tracker.onFrame("tab", { type: "turn_start" } as RpcFrame);
+    tracker.onFrame("tab", { type: "tool_execution_start", toolCallId: "t1", toolName: "exec", args: { command: "omp" } } as RpcFrame, entry("setting-off"));
+    tracker.onFrame("tab", { type: "tool_execution_start", toolCallId: "t1", toolName: "bash", args: null } as RpcFrame, entry("setting-off"));
+    tracker.onFrame("tab", { type: "turn_start" } as RpcFrame, entry("setting-off"));
     expect(notices).toHaveLength(0);
+  });
+});
+
+describe("ForeignOmpTracker guidance follows fleet access (#1076)", () => {
+  const messageFor = (access: FleetToolAccess): string => {
+    const { tracker, notices } = makeTracker();
+    tracker.onFrame("tab", bash("omp 'go'"), entry(access));
+    expect(notices).toHaveLength(1);
+    return String(notices[0]!.message);
+  };
+
+  it("a session that already has the tools is sent to the tools, never the setting", () => {
+    const message = messageFor("granted");
+    expect(message).toContain("already has the fleet tools");
+    expect(message).toContain("omp-ui_fleet_dispatch");
+    expect(message).not.toContain("Let agents dispatch fleet work");
+    expect(message).not.toContain("Settings");
+  });
+
+  it("an ordinary session with the setting off is sent to the setting", () => {
+    const message = messageFor("setting-off");
+    expect(message).toContain("Settings → Remote instances → “Let agents dispatch fleet work”");
+  });
+
+  it("an agent-dispatched session gets the honest no-recursion advice, not the setting", () => {
+    const message = messageFor("agent-recursion");
+    expect(message).toContain("dispatched by another agent");
+    expect(message).toContain("ADR-0061");
+    expect(message).not.toContain("Let agents dispatch fleet work");
+  });
+
+  it("a webhook- or MCP-started session gets the honest outside-sender advice, not the setting", () => {
+    const message = messageFor("external-sender");
+    expect(message).toContain("webhook or an MCP client");
+    expect(message).toContain("ADR-0075");
+    expect(message).not.toContain("Let agents dispatch fleet work");
+  });
+
+  it("the orphan symptom rides every branch", () => {
+    for (const access of ["granted", "setting-off", "agent-recursion", "external-sender"] as const) {
+      expect(messageFor(access)).toContain("invisible to omp-ui");
+    }
   });
 });
 

@@ -41,6 +41,8 @@ import {
   eventFilterEchoIsDelta,
   EVENT_FILTER_COMMAND_ID,
   isObject,
+  fleetToolAccess,
+  fleetToolsRegistered,
   setEventFilterCommand,
   setHostToolsCommand,
   setHostUriSchemesCommand,
@@ -1448,7 +1450,16 @@ export class SessionManager {
     warmHandoff: { slot: WarmSlot; planKey: string } | null = null,
   ): Promise<{ tabId: string }> {
     const absLineageDir = path.join(this.deps.getSessionsRoot(), record.lineageDir);
-    const entry = createRpcLiveEntry(record);
+    // The one fleet-tool capability read for this process: the `set_host_tools`
+    // gate below registers the fleet tools exactly on it, and the live entry
+    // carries it so the foreign-`omp` notice (#1076) advises from what this
+    // session actually has — never a re-derived boolean that can drift.
+    const fleetAccess = fleetToolAccess({
+      chat: record.chat,
+      agentDispatchEnabled: this.deps.registry.getSetting("fleetAgentDispatch"),
+      requestedByKind: record.fleet?.requestedBy.kind ?? null,
+    });
+    const entry = createRpcLiveEntry(record, fleetAccess);
     const { paths: extensions, loaded: bridgeLoaded } = writeRpcExtensions(absLineageDir, {
       autoresearchEnabled: this.deps.registry.getSetting("autoresearchEnabled"),
       councilEnabled: this.deps.registry.getSetting("councilEnabled"),
@@ -1633,16 +1644,13 @@ export class SessionManager {
       // follows the user's setting at each spawn/resume (ADR-0048); an
       // agent-dispatched session never gets them (no recursion, ADR-0061; a
       // chat is never dispatched), and neither does a webhook- or MCP-started
-      // one — its prompt comes from an outside sender (ADR-0075, ADR-0080). exec/project/update
-      // inherit this gate plus each owner node's grant ladder (#901, ADR-0062).
+      // one — its prompt comes from an outside sender (ADR-0075, ADR-0080).
+      // `fleetToolAccess` above is the one rule that decides this (#1076);
+      // exec/project/update inherit this gate plus each owner node's grant
+      // ladder (#901, ADR-0062).
       setHostToolsCommand({
         vault: vaults.vaults.length > 0,
-        fleet:
-          record.chat ||
-          (this.deps.registry.getSetting("fleetAgentDispatch") &&
-            record.fleet?.requestedBy.kind !== "agent" &&
-            record.fleet?.requestedBy.kind !== "webhook" &&
-            record.fleet?.requestedBy.kind !== "mcp"),
+        fleet: fleetToolsRegistered(fleetAccess),
         device:
           this.deps.registry.getSetting("deviceAgentAccess") &&
           record.fleet?.requestedBy.kind !== "webhook" &&
