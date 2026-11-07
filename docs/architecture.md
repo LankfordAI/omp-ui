@@ -132,6 +132,9 @@ Verification of [#1071](https://github.com/LankfordAI/omp-ui/issues/1071) on
 outside omp-ui's worktree lifecycle. Runtime suppression is **not implemented**;
 the policy needs its own ADR. [ADR-0018](adr/0018-worktree-checkouts-in-app-data.md)
 defines app-data Git worktree sessions, not ownership of daemon-managed mounts.
+Both arms — with and without a reachable `ovnfs` — are now live-exercised by
+the permanent proof `packages/desktop/src/main/ovnfs-isolation-live.test.ts`
+(see below); the issue stays open at the same ADR gate.
 
 `writeSessionOverlays` in `packages/desktop/src/main/spawn-config.ts` supplies
 the worktree pins to terminal spawns and, through `writeRpcOverlays`, native
@@ -159,32 +162,48 @@ and `ovnfs/daemon.ts` establish these two arms:
   retry. Search discovery separately calls `ovnfs --json status` and falls
   back to native search if daemon discovery or the request fails.
 
-The verification machine had no `ovnfs` on PATH and no configured
-`ovnfs.path`. Only the **no-ovnfs arm was live-exercised**. A disposable Git
-project with a linked parent checkout ran the installed task tool twice,
-without an overlay and with the actual `writeWorktreeOverlay` output. A
-temporary extension supplied a deterministic child edit and final-message
-events instead of model inference; the installed runtime performed checkout
-creation, patch capture/application, and cleanup. Both runs applied identical
-file bytes and identical patch bytes, SHA-256
-`b0feccc34111ad93026c2309a4605c6d64b5eda5babe2625e772d38941565013`.
-Both removed the native child checkout, preserved the parent's `probe-session`
-branch and `git worktree list --porcelain` output, and left the project
-checkout untouched. The overlay remains exactly
-`worktree:\n  onStart: off\n  onExit: keep\n`.
-The with-ovnfs arm is source/strings evidence from that binary, not a live
-mount test or a claim of compatibility with later OMP releases.
-
 An isolated subagent's scratch checkout is not an omp-ui worktree session;
 its patch-return lifecycle already belongs to OMP. The authority gap is
-broader: the binary's `ovnfs.path` description says discovery also adds
-guidance to use ovnfs checkouts instead of Git worktrees or copies. Those
-daemon paths do not enter `OwnedSessionRecord.worktree`. Sidebar project
-identity, diffs, and Finish worktree keep using the recorded parent checkout,
-and `reclaimCheckouts` accepts only recorded checkouts in the canonical
-app-data project slot. These mechanisms do not adopt, finish, or reclaim
-an agent-created ovnfs mount. Source inspection does not prove data loss or
-Git compatibility inside a real mount, so safe coexistence is not certified.
+broader, and the live proof below confirmed each piece of it on a real
+mount rather than from binary strings:
+
+- **The directive is the widest surface.** With `ovnfs` merely reachable on
+  the child's PATH — the worktree pins in force, `task.isolation.enabled`
+  left at OMP's default false, no task ever spawned — the provider request
+  body carries OMP's separate-checkout system-prompt directive verbatim:
+  agents are told they MUST open an ovnfs checkout "not `git worktree add`,
+  `git clone` or `cp -r`". With the same overlays and every ovnfs-bearing
+  PATH directory stripped, the directive is absent. So discovery alone moves
+  every agent off git worktrees, with no isolation opt-in anywhere.
+- **The daemon checkout stays outside omp-ui.** A real isolated task under a
+  live FUSE mount (ovnfs v0.1.1, admin protocol 5) ran its child below the
+  configured mount, captured the child edit, and applied it to the parent as
+  an ordinary tracked-file modification; `git worktree list --porcelain`
+  never changed, so the checkout never registered as a git worktree. While
+  the parent lives the checkout is retained (keepAlive) with its
+  `.omp-ovnfs-checkout.json` sidecar; after the parent is stopped — SIGTERM
+  then SIGKILL, the Settle shape — both still survive: no omp-ui surface
+  adopts, finishes, or reclaims them. `reclaimCheckouts` refuses paths
+  outside the canonical app-data slot, and an ovnfs mount's source deleted
+  out from under a live checkout degrades to silent no-op diff/apply, not an
+  error — nothing downstream notices.
+- **The native fallback stays byte-identical.** With no ovnfs reachable, the
+  same overlays produce the same parent-visible result through the native
+  backend, start no daemon (its scoped state root is never created), and
+  leave the prompt pre-18.17.
+
+`packages/desktop/src/main/ovnfs-isolation-live.test.ts` re-runs all three
+arms against `omp --mode=rpc-ui` with a scripted loopback provider, under
+`OVNFS_STATE`/`OVNFS_MOUNT` scoped to its temp base. It skips cleanly with
+no omp binary, below 18.17.0, or without a usable ovnfs (`$OMP_UI_OVNFS_BIN`
+or PATH; a daemon that cannot mount skips only the with-ovnfs arms), so CI —
+where no ovnfs exists — never runs them. These observations are certificates
+for omp/18.17.0 plus ovnfs v0.1.1, not for later releases.
+
+Data loss inside a real mount is still **not** demonstrated: within one
+checkout's own lifecycle the patch round-trip was byte-correct here. The gap
+is ownership and visibility — which checkout an agent used, who lists it, and
+who cleans it up — not corruption.
 
 **Proposed overlay change, gated on an ADR.** If the policy chooses
 suppression, extend the existing per-lineage session overlay with
@@ -193,10 +212,17 @@ executable. Keep `isolation.backend: auto` and the existing worktree pins,
 so native backend selection stays unchanged. A blank `ovnfs.path` is not
 an off switch: it falls back to PATH. Pinning only a native isolation backend
 would bypass ovnfs for isolated tasks but leave its general guidance and
-search discovery enabled. The ADR must choose suppression versus supported
-coexistence and define the cross-platform non-executable-path mechanism;
-no sentinel or policy pin is written today. Issue #1071 remains open at this
-gate rather than closing on an untested with-ovnfs assumption.
+search discovery enabled. The mechanism was live-probed once against the
+same binary (probe since removed): a nonblank `ovnfs.path` no executable can
+resolve to suppresses discovery completely even with `ovnfs` on PATH — the
+directive is absent, the isolated task takes the native backend, and no
+daemon state is created. The cross-platform guarantee still needs the ADR:
+Linux/POSIX accepts any nonblank path, Windows resolution differs, and the
+pin must stay below the user's own configured value in OMP's layer order.
+The ADR must choose suppression versus supported coexistence; no sentinel or
+policy pin is written today. Issue #1071 remains open at this gate: the
+with-ovnfs arm is now live-certified, but the issue's expected behavior is a
+policy decision, not evidence.
 
 
 ## Feature seams
