@@ -1,3 +1,5 @@
+import { arrField, field, strField } from "./fields";
+
 /**
  * Session auto-titling gates for rpc-ui tabs.
  *
@@ -32,7 +34,12 @@
  * a resumed or user-named session must never be handed to the generator.
  * Latching a shot onto a greeting is the other thing worth avoiding, which
  * is what the low-signal filter below gates — mirroring omp's own
- * `isLowSignalTitleInput` deferral.
+ * `isLowSignalTitleInput` deferral. A prompt that filter declines does not lose
+ * the title opportunity either (issue #1090): the renderer that sent it holds an
+ * assistant-context deferral, and spends the same `/rename` shot once the
+ * assistant has produced enough thinking or reply for omp's digest to read —
+ * omp's own `DEFERRED_TITLE_MIN_WORDS` rule, so a greeting answered with a
+ * greeting still stays unnamed.
  *
  * The fourth route is the replan refresh (issue #804): a `todo` `op:"init"`
  * frame means the work took a new shape, so `refreshAutoTitle` re-dispatches
@@ -103,4 +110,43 @@ export function isLowSignalTitleInput(message: string): boolean {
 export function isUntitled(title: string | null | undefined): boolean {
   const trimmed = title?.trim();
   return !trimmed || trimmed.toLowerCase() === "new session";
+}
+
+/**
+ * Thinking + reply words the assistant-context deferral (issue #1090) waits
+ * for before spending its one deferred `/rename` — port of omp's
+ * `DEFERRED_TITLE_MIN_WORDS` (`agent-session.ts`, v18.18.0), so "meaningful"
+ * means here what it means in the TUI: a greeting answered with a greeting
+ * never crosses it, a reply that actually reads the task does.
+ */
+export const DEFERRED_TITLE_MIN_WORDS = 40;
+
+/** Whitespace-separated word count of one digest-visible string run. */
+const WORD_RUN = /\S+/g;
+
+/**
+ * Words of assistant thinking/reply omp's title digest can read on this
+ * settled assistant `message_end` — the port of omp's `titleContextWordCount`
+ * (`session/messages.ts`, v18.18.0). Tool calls alone contribute nothing (the
+ * same invisibility `carriesTitleDigest` gates the live-voice shot on), and an
+ * aborted or errored tail is worth zero: the deferral never counts a turn that
+ * produced no real answer.
+ */
+export function titleContextWords(message: unknown): number {
+  const stop = strField(message, "stopReason");
+  if (stop === "aborted" || stop === "error") return 0;
+  const content = field(message, "content");
+  if (typeof content === "string") return content.match(WORD_RUN)?.length ?? 0;
+  let words = 0;
+  for (const block of arrField(message, "content")) {
+    const kind = strField(block, "type");
+    const text =
+      kind === "text"
+        ? strField(block, "text")
+        : kind === "thinking"
+          ? strField(block, "thinking")
+          : undefined;
+    if (text !== undefined) words += text.match(WORD_RUN)?.length ?? 0;
+  }
+  return words;
 }

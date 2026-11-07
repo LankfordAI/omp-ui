@@ -193,6 +193,27 @@ export interface TabRuntime {
    */
   delegatedTitlePending?: boolean;
   /**
+   * The first prompt was declined by the low-signal gate and this renderer
+   * sent it (issue #1090): the shot defers to assistant context, counting
+   * digest-visible thinking/reply words across turns until
+   * `DEFERRED_TITLE_MIN_WORDS` is reached and one `/rename` goes out.
+   * Renderer-only like `replanTitleAt` — only the renderer that sent the
+   * prompt holds it, so other renderers viewing the same tab never
+   * duplicate the dispatch; a lost flag costs at most no title until the
+   * next substantive prompt. Cleared when the shot is spent or superseded
+   * (a substantive arm, a manual rename, a rebuilt runtime).
+   */
+  deferredTitle?: { words: number };
+  /**
+   * This renderer's first-title claim for the tab is in flight (issue #1090):
+   * every first-shot trigger shares one claim, so a second trigger that fires
+   * before the round trip answers must not send a rival of its own — its
+   * denial would latch the session closed and cancel the pending win. Cleared
+   * only when the claim fails without an answer (the arm stays live for a
+   * later turn end); a rebuilt runtime starts fresh without one.
+   */
+  titleClaimInFlight?: boolean;
+  /**
    * Epoch ms of the last replan auto-title refresh this tab fired (issue
    * #804). Renderer-only like `lastFrameAt`: losing it across a reload
    * costs at most one duplicate refresh, which is idempotent work.

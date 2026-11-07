@@ -9575,3 +9575,66 @@ describe("fleet wake and fleet send (issues #957, #959)", () => {
     });
   });
 });
+
+// Issue #1090: renderers reduce the same frames independently and latch only
+// their own copy, so first-title ownership is one atomic per-tab claim here —
+// every first-shot dispatch route must win it before spending `/rename`. These
+// tests exercise the arbiter directly; the renderer store tests cover who
+// calls it when, including both race orderings.
+describe("first-title claim (issue #1090)", () => {
+  it("grants the first claim and denies every later one — whichever route arrives first", async () => {
+    const { manager } = setup({ mode: "rpc-ui" });
+    await resume(manager);
+    // One claim, one winner: the ordering that reaches main first owns the
+    // shot whether it came from the early arm or the deferred context — the
+    // two routes are indistinguishable to the arbiter by design.
+    expect(manager.claimFirstTitle(TAB)).toBe(true);
+    expect(manager.claimFirstTitle(TAB)).toBe(false);
+    expect(manager.claimFirstTitle(TAB)).toBe(false);
+  });
+
+  it("refuses a stale tabId without holding state", async () => {
+    const { manager } = setup({ mode: "rpc-ui" });
+    await resume(manager);
+    // A stale renderer must not allocate ownership for an id this host has no
+    // session for (and certainly not spend a model request on it).
+    expect(manager.claimFirstTitle("tab-gone")).toBe(false);
+    // And the refusal is not a one-way door: the real tab still claims.
+    expect(manager.claimFirstTitle(TAB)).toBe(true);
+  });
+
+  it("a title that landed first — typed from any window, or by the generator — refuses the claim", async () => {
+    const { manager, registry } = setup({ mode: "rpc-ui" });
+    await resume(manager);
+    registry.updateSession(TAB, { cachedTitle: "Renamed from another window" });
+    expect(manager.claimFirstTitle(TAB)).toBe(false);
+  });
+
+  it("a PTY session's claim is refused — omp titles those itself", async () => {
+    const { manager } = setup();
+    await resume(manager);
+    expect(manager.claimFirstTitle(TAB)).toBe(false);
+  });
+
+  it("a process exit releases the claim for the successor", async () => {
+    const { manager } = setup({ mode: "rpc-ui" });
+    await resume(manager);
+    expect(manager.claimFirstTitle(TAB)).toBe(true);
+    rpcInstances.at(-1)!.exit(0);
+    await Promise.resolve();
+    expect(manager.claimFirstTitle(TAB)).toBe(true);
+  });
+
+  it("delete releases the claim", async () => {
+    const { manager } = setup({ mode: "rpc-ui" });
+    await resume(manager);
+    expect(manager.claimFirstTitle(TAB)).toBe(true);
+    // The fake rpc proc answers SIGTERM with its exit edge (same idiom as
+    // the kill-and-reap tests): delete waits on it.
+    const rpc = rpcInstances.at(-1)!;
+    rpc.kill.mockImplementation(() => rpc.exit(0));
+    await manager.deleteSession(TAB, false);
+    // The record is gone with it: no re-grant, and no entry left behind.
+    expect(manager.claimFirstTitle(TAB)).toBe(false);
+  });
+});

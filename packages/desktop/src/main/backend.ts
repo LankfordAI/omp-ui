@@ -1194,6 +1194,10 @@ export class MainBackend {
           this.registry.updateSession(tabId, { autoTitled });
           void this.broadcast();
         },
+        // First-title ownership (issue #1090): one atomic claim per tab that
+        // every first-title dispatch route must win before dispatching; the
+        // session manager also releases it on process exit and delete.
+        [CH.claimFirstTitle]: (tabId: string) => this.sessions.claimFirstTitle(tabId),
         [CH.setSessionSnoozed]: (tabId: string, snoozed: boolean, untilMs?: number | null) => {
           this.registry.updateSession(tabId, {
             snoozed,

@@ -1,5 +1,5 @@
 import { describe, expect, it } from "vitest";
-import { isLowSignalTitleInput, isUntitled } from "./session-title";
+import { isLowSignalTitleInput, isUntitled, titleContextWords } from "./session-title";
 
 describe("isLowSignalTitleInput", () => {
   it("defers on bare greetings and acks", () => {
@@ -32,6 +32,34 @@ describe("isLowSignalTitleInput", () => {
 
   it("ignores paired XML blocks when judging signal", () => {
     expect(isLowSignalTitleInput("hey <details>refactor the parser</details>")).toBe(true);
+  });
+});
+
+describe("titleContextWords", () => {
+  const words = (n: number, at = 0): string =>
+    Array.from({ length: n }, (_, i) => `w${i + at}`).join(" ");
+
+  it("counts thinking and reply text; tool calls contribute nothing", () => {
+    expect(titleContextWords({ content: [{ type: "text", text: words(5) }] })).toBe(5);
+    expect(titleContextWords({ content: [{ type: "thinking", thinking: words(3) }] })).toBe(3);
+    expect(
+      titleContextWords({
+        content: [
+          { type: "thinking", thinking: words(2) },
+          { type: "text", text: words(4, 2) },
+          { type: "toolCall", id: "t1", name: "read", arguments: {} },
+        ],
+      }),
+    ).toBe(6);
+    expect(titleContextWords({ content: "two words" })).toBe(2);
+  });
+
+  it("an aborted or errored tail is worth zero, and empty content nothing", () => {
+    const big = [{ type: "text", text: words(50) }];
+    expect(titleContextWords({ content: big, stopReason: "aborted" })).toBe(0);
+    expect(titleContextWords({ content: big, stopReason: "error" })).toBe(0);
+    expect(titleContextWords({ content: [] })).toBe(0);
+    expect(titleContextWords({})).toBe(0);
   });
 });
 

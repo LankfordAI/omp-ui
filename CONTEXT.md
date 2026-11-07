@@ -768,13 +768,20 @@ whose digest has something to read — with the turn end as its safety net
 omp-ui keeps only the gates: a session whose record already carries a title is
 latched out at prompt time — a `set_session_name` write is user-sourced, and
 omp refuses every later "auto" title once a "user" one exists — and a greeting
-defers rather than latching the one shot. For a session seeded from an
-approved plan, the plan titles it from the record's `planTitle`, never the
-seed text that carried the plan. One shot per session: a declined generation
-retries at later turn ends, then leaves the row prompt-titled until a manual
-path names it. The title reaches the UI through the watcher, like every other
-engine-side session-file change; the engine's settlement notice is the visible
-signal.
+defers rather than latching the one shot. A prompt the low-signal filter
+declines defers to assistant context, not to the next human message: the
+renderer that sent it spends the same `/rename` once the assistant's counted
+thinking/reply words cross omp's own reading-depth bar — a greeting answered
+with a greeting stays unnamed (issue #1090). Because renderers reduce the same
+frames independently, every first-shot route wins one atomic claim in the
+owning instance's main process before dispatching, and only the winner carries
+the retry ladder — one automatic rename per session across every window, from
+whichever route reaches it first. For a session seeded from an approved plan,
+the plan titles it from the record's `planTitle`, never the seed text that
+carried the plan. One shot per session: a declined generation retries at later
+turn ends, then leaves the row prompt-titled until a manual path names it. The
+title reaches the UI through the watcher, like every other engine-side
+session-file change; the engine's settlement notice is the visible signal.
 _Avoid_: session name generation, summary, label, two-phase titling
 
 **Re-titling**:

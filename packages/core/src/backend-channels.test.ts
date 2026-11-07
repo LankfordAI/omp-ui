@@ -293,6 +293,7 @@ const VALID_ARGS = {
   setSessionApprovalMode: ["tab-1", null],
   setSessionModel: ["tab-1", null, null],
   setSessionAutoTitled: ["tab-1", true],
+  claimFirstTitle: ["tab-1"],
   setSessionSnoozed: ["tab-1", true],
   setSessionPinned: ["tab-1", true],
   setSessionAutoSettleOnMerge: ["tab-1", null],

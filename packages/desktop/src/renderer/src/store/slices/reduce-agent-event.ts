@@ -5,6 +5,7 @@ import { modelStreamCheckpointLabel } from "@omp-ui/core/stream-activity";
 import { OMP_ERROR_FLAG_USAGE_LIMIT } from "@omp-ui/core/held-prompt";
 import { formatDuration } from "../../lib/duration";
 import { arrField, boolField, field, numField, strField } from "../../lib/fields";
+import { DEFERRED_TITLE_MIN_WORDS, titleContextWords } from "../../lib/session-title";
 import { noticeItem, textFromContent, type NoticeItem } from "../../lib/transcript";
 import type { LastTurnMeta, RpcTabState } from "../types";
 import type { TabRuntime } from "./shared";
@@ -62,6 +63,7 @@ type AfterCommitEffect =
   | { phase: "after-commit"; type: "rename-session" }
   | { phase: "after-commit"; type: "dispatch-early-title" }
   | { phase: "after-commit"; type: "arm-delegated-title"; prompt: string }
+  | { phase: "after-commit"; type: "fire-deferred-title" }
   | { phase: "after-commit"; type: "refresh-auto-title" }
   | {
       phase: "after-commit";
@@ -407,6 +409,27 @@ export function reduceAgentEvent(
       ) {
         runtimePatch.delegatedTitlePending = false;
         effects.push({ phase: "after-commit", type: "dispatch-early-title" });
+      }
+      // The assistant-context deferral (issue #1090): the first prompt was
+      // declined by the low-signal gate, so digest-visible thinking/reply
+      // words accumulate across turns — an aborted or errored message counts
+      // nothing — and the one deferred shot goes out when the running total
+      // reaches omp's own threshold. `!tab.initialPrompt` keeps a live arm
+      // (a later substantive prompt, incl. a second declined-then-armed one)
+      // owning the shot; `!hasRenamed` covers a manual rename mid-turn.
+      const deferred = runtime.deferredTitle;
+      if (
+        deferred !== undefined &&
+        !tab.initialPrompt &&
+        !tab.hasRenamed
+      ) {
+        const words = deferred.words + titleContextWords(message);
+        if (words >= DEFERRED_TITLE_MIN_WORDS) {
+          runtimePatch.deferredTitle = undefined;
+          effects.push({ phase: "after-commit", type: "fire-deferred-title" });
+        } else {
+          runtimePatch.deferredTitle = { words };
+        }
       }
     }
     if (

@@ -4,6 +4,7 @@ import type { NoticeItem } from "../../lib/transcript";
 import { emptySessionRuntime } from "../../lib/rpc-types";
 import { rpcTabState } from "../../test/fixtures";
 import { h } from "../../test/store-harness";
+import { peekTabRuntime } from "./shared";
 import type { StoreMachinery, TabRuntime } from "./shared";
 import type { SessionCommand } from "@omp-ui/core/session-command";
 import type { RpcTabState } from "../types";
@@ -1354,10 +1355,12 @@ describe("auto-titling dispatch (issue #788)", () => {
     expect(h.useStore.getState().rpc[h.TAB]!.titleAttempt).toBeNull();
   });
 
-  it("defers on a greeting, then titles from the next real prompt", async () => {
+  it("defers on a greeting: neither the shot nor the deferral spends early, and the next real prompt still titles", async () => {
     h.useStore.getState().setInitialPrompt(h.TAB, "hi!");
     expect(h.useStore.getState().rpc[h.TAB]!.initialPrompt).toBeNull();
     expect(h.useStore.getState().rpc[h.TAB]!.hasRenamed).toBe(false);
+    // The decline holds an assistant-context deferral (issue #1090), not an arm.
+    expect(peekTabRuntime(h.TAB)!.deferredTitle).toEqual({ words: 0 });
 
     // agent_end on the greeting turn must not spend the one shot.
     h.useStore.getState().handleRpcFrame(h.TAB, { type: "agent_end" });
@@ -1367,6 +1370,8 @@ describe("auto-titling dispatch (issue #788)", () => {
     h.useStore
       .getState()
       .setInitialPrompt(h.TAB, "Add pagination to the sessions list");
+    // A substantive arm owns the one shot: the deferral retires with it.
+    expect(peekTabRuntime(h.TAB)!.deferredTitle).toBeUndefined();
     h.useStore.getState().handleRpcFrame(h.TAB, { type: "agent_end" });
     await h.flushMicrotasks();
     expect(
@@ -1518,6 +1523,434 @@ describe("auto-titling dispatch (issue #788)", () => {
     await h.flushMicrotasks();
     expect(renames()).toHaveLength(0);
     warn.mockRestore();
+  });
+});
+
+describe("assistant-context Auto-title deferral (issue #1090)", () => {
+  beforeEach(() => {
+    h.backendState = h.stateWithRecord("sess-1");
+    h.useStore.setState({
+      state: h.backendState,
+      rpc: { [h.TAB]: rpcTabState({ status: "running" }) },
+    });
+    h.sent.length = 0;
+    // Fake-main default: this renderer alone exists, so every claim is free.
+    // The cross-renderer suite below swaps in a one-winner slot.
+    h.mockBackend.claimFirstTitle.mockImplementation(async () => true);
+  });
+
+  const renames = (): Array<Record<string, unknown>> =>
+    h.sent.filter(
+      (s) => s.cmd.type === "prompt" && String(s.cmd.message) === "/rename",
+    );
+
+  /** `n` whitespace-separated words — digest-visible filler for counting. */
+  const words = (n: number): string =>
+    Array.from({ length: n }, (_, i) => `w${i}`).join(" ");
+
+  const assistantEnd = (content: unknown, stopReason?: string): void => {
+    h.useStore.getState().handleRpcFrame(h.TAB, {
+      type: "message_end",
+      message: { role: "assistant", content, ...(stopReason ? { stopReason } : {}) },
+    });
+  };
+
+  const deferredWords = (): number | undefined =>
+    peekTabRuntime(h.TAB)?.deferredTitle?.words;
+
+  it("titles from meaningful assistant context without another human prompt", async () => {
+    h.useStore.getState().setInitialPrompt(h.TAB, "hi!");
+
+    // Below the threshold: thinking alone doesn't fire yet (it does count).
+    assistantEnd([{ type: "thinking", thinking: words(20) }]);
+    await h.flushMicrotasks();
+    expect(renames()).toHaveLength(0);
+    expect(deferredWords()).toBe(20);
+
+    // A turn end mid-deferral spends nothing: no arm, no attempt.
+    h.useStore.getState().handleRpcFrame(h.TAB, { type: "agent_end" });
+    await h.flushMicrotasks();
+    expect(renames()).toHaveLength(0);
+    expect(h.useStore.getState().rpc[h.TAB]!.titleAttempt).toBeNull();
+
+    // Crossing the threshold on reply text spends the one deferred shot.
+    assistantEnd([{ type: "text", text: words(21) }]);
+    await h.flushMicrotasks();
+    expect(renames()).toHaveLength(1);
+    expect(h.useStore.getState().rpc[h.TAB]!.hasRenamed).toBe(true);
+    expect(h.useStore.getState().rpc[h.TAB]!.titleAttempt).toMatchObject({ n: 1 });
+    expect(peekTabRuntime(h.TAB)!.deferredTitle).toBeUndefined();
+
+    // One shot per session: later context can't spend a second deferral, and
+    // the parked attempt inside its floor re-dispatches nothing.
+    assistantEnd([{ type: "text", text: words(60) }]);
+    h.useStore.getState().handleRpcFrame(h.TAB, { type: "agent_end" });
+    await h.flushMicrotasks();
+    expect(renames()).toHaveLength(1);
+  });
+
+  it("accumulates across turns and counts an aborted or errored tail as nothing", async () => {
+    h.useStore.getState().setInitialPrompt(h.TAB, "42");
+
+    for (const stopReason of ["aborted", "error"]) {
+      assistantEnd([{ type: "text", text: words(50) }], stopReason);
+      await h.flushMicrotasks();
+      expect(deferredWords()).toBe(0);
+    }
+    expect(renames()).toHaveLength(0);
+
+    assistantEnd([{ type: "thinking", thinking: words(30) }]);
+    await h.flushMicrotasks();
+    expect(deferredWords()).toBe(30);
+    expect(renames()).toHaveLength(0);
+
+    assistantEnd([{ type: "text", text: words(12) }]);
+    await h.flushMicrotasks();
+    expect(renames()).toHaveLength(1);
+  });
+
+  it("a greeting answered with a greeting stays unnamed, with no unbounded attempts", async () => {
+    h.useStore.getState().setInitialPrompt(h.TAB, "hi!");
+    for (let turn = 0; turn < 3; turn++) {
+      assistantEnd([{ type: "text", text: "Hey! What can I help you with today?" }]);
+      h.useStore.getState().handleRpcFrame(h.TAB, { type: "agent_end" });
+      await h.flushMicrotasks();
+    }
+    expect(renames()).toHaveLength(0);
+    expect(h.useStore.getState().rpc[h.TAB]!.titleAttempt).toBeNull();
+    expect(h.useStore.getState().rpc[h.TAB]!.hasRenamed).toBe(false);
+    // The deferral lingers, counting, for a later substantive prompt or context.
+    expect(deferredWords()).toBeGreaterThan(0);
+  });
+
+  it("a second declined prompt keeps the counted context", async () => {
+    h.useStore.getState().setInitialPrompt(h.TAB, "hi!");
+    assistantEnd([{ type: "thinking", thinking: words(20) }]);
+    await h.flushMicrotasks();
+    expect(deferredWords()).toBe(20);
+
+    h.useStore.getState().setInitialPrompt(h.TAB, "okay thanks");
+    expect(deferredWords()).toBe(20);
+    expect(h.useStore.getState().rpc[h.TAB]!.initialPrompt).toBeNull();
+
+    assistantEnd([{ type: "thinking", thinking: words(20) }]);
+    await h.flushMicrotasks();
+    expect(renames()).toHaveLength(1);
+  });
+
+  it("a manual rename during the deferral retires it", async () => {
+    h.useStore.getState().setInitialPrompt(h.TAB, "hi!");
+    assistantEnd([{ type: "thinking", thinking: words(10) }]);
+    await h.flushMicrotasks();
+    expect(deferredWords()).toBe(10);
+
+    const manual = h.useStore.getState().renameSessionTo(h.TAB, "My name");
+    for (const { tabId, cmd } of h.sent.splice(0)) h.respond(tabId, cmd, {});
+    await manual;
+    expect(peekTabRuntime(h.TAB)!.deferredTitle).toBeUndefined();
+
+    assistantEnd([{ type: "text", text: words(60) }]);
+    h.useStore.getState().handleRpcFrame(h.TAB, { type: "agent_end" });
+    await h.flushMicrotasks();
+    expect(renames()).toHaveLength(0);
+  });
+
+  it("costs a title that landed mid-deferral nothing and just latches", async () => {
+    h.useStore.getState().setInitialPrompt(h.TAB, "hi!");
+    // A watcher-hydrated (or manual) title lands between decline and context.
+    const titled = structuredClone(h.backendState);
+    titled.projects[0]!.sessions[0]!.title = "Named mid-flight";
+    h.backendState = titled;
+    h.useStore.setState({ state: titled });
+
+    assistantEnd([{ type: "thinking", thinking: words(60) }]);
+    await h.flushMicrotasks();
+    expect(renames()).toHaveLength(0);
+    expect(h.useStore.getState().rpc[h.TAB]!.hasRenamed).toBe(true);
+    expect(h.useStore.getState().rpc[h.TAB]!.titleAttempt).toBeNull();
+  });
+
+  it("a renderer that never sent the declined prompt never spends the deferral", async () => {
+    // The deferral is the sender's renderer-local state; a second renderer
+    // viewing the same tab holds no deferral, so its assistant `message_end`
+    // reductions dispatch nothing (the #803 live-voice dedupe shape).
+    assistantEnd([{ type: "text", text: words(60) }]);
+    h.useStore.getState().handleRpcFrame(h.TAB, { type: "agent_end" });
+    await h.flushMicrotasks();
+    expect(renames()).toHaveLength(0);
+    expect(peekTabRuntime(h.TAB)?.deferredTitle).toBeUndefined();
+  });
+
+  it("never defers for a resumed or user-named session", async () => {
+    const named = structuredClone(h.backendState);
+    named.projects[0]!.sessions[0]!.title = "My Named Session";
+    h.backendState = named;
+    h.useStore.setState({ state: named });
+
+    h.useStore.getState().setInitialPrompt(h.TAB, "hi!");
+    expect(h.useStore.getState().rpc[h.TAB]!.hasRenamed).toBe(true);
+    // The named-record gate returns before any runtime slot is taken.
+    expect(peekTabRuntime(h.TAB)?.deferredTitle).toBeUndefined();
+
+    assistantEnd([{ type: "text", text: words(60) }]);
+    await h.flushMicrotasks();
+    expect(renames()).toHaveLength(0);
+  });
+
+  // The multi-renderer guarantee is main's one atomic per-tab claim, not the
+  // local flag: two independent store evaluations (two renderers of the same
+  // tab) share one fake backend, and that fake holds the slot exactly as
+  // `SessionManager.claimFirstTitle` does. Both orderings matter — the
+  // deferred context reaching the arbiter first and the substantive early arm
+  // reaching it first must each end with exactly one `/rename`.
+  describe("cross-renderer first-title arbitration (issue #1090)", () => {
+    /** The fake main's slot: the first claim takes it, every later one loses. */
+    const slot = new Set<string>();
+
+    /** Fresh store module evaluation = fresh renderer; the runtime peek is
+     *  the same evaluation's, so each renderer owns its own deferral state. */
+    const freshRenderer = async (): Promise<{
+      store: typeof h.useStore;
+      deferredWords: () => number | undefined;
+    }> => {
+      // Dynamic import is the module-boundary test itself: a second renderer
+      // IS a second store/shared-module evaluation (same convention as the
+      // #811 suite in store.test.ts) — a static import would peek the first
+      // renderer's runtime map and collapse the two into one.
+      vi.resetModules();
+      const { useStore: fresh } = await import("../../store");
+      const { peekTabRuntime: peek } = await import("./shared");
+      await fresh.getState().init();
+      h.sent.length = 0;
+      fresh.setState({
+        state: h.backendState,
+        rpc: { [h.TAB]: rpcTabState({ status: "running" }) },
+      });
+      return { store: fresh, deferredWords: () => peek(h.TAB)?.deferredTitle?.words };
+    };
+
+    const assistantEnd = (store: typeof h.useStore, text: string): void => {
+      store.getState().handleRpcFrame(h.TAB, {
+        type: "message_end",
+        message: { role: "assistant", content: [{ type: "text", text }] },
+      });
+    };
+    const wordy = (n: number): string =>
+      Array.from({ length: n }, (_, i) => `w${i}`).join(" ");
+    const renames = (): Array<Record<string, unknown>> =>
+      h.sent.filter(
+        (s) => s.cmd.type === "prompt" && String(s.cmd.message) === "/rename",
+      );
+    const userCommit = (store: typeof h.useStore): void => {
+      store.getState().handleRpcFrame(h.TAB, {
+        type: "message_start",
+        message: { role: "user" },
+      });
+    };
+
+    beforeEach(() => {
+      slot.clear();
+      h.backendState = h.stateWithRecord("sess-1");
+      h.sent.length = 0;
+      // Fake main porting `SessionManager.claimFirstTitle`'s semantics: a
+      // titled record (hydrated from any window's typed name) refuses, then
+      // the one-winner slot decides. Stale/native checks are the real arbiter's
+      // own (covered in session-manager.test.ts); here every tab is native.
+      h.mockBackend.claimFirstTitle.mockImplementation(async (tabId: string) => {
+        const record = h.backendState.projects[0]?.sessions.find((s) => s.tabId === tabId);
+        const title = record?.title.trim();
+        if (title !== undefined && title !== "" && title.toLowerCase() !== "new session")
+          return false;
+        if (slot.has(tabId)) return false;
+        slot.add(tabId);
+        return true;
+      });
+    });
+
+    afterEach(() => {
+      // Leave the shared mock in the grant-by-default shape for suites that
+      // run after this one and hold no slot.
+      h.mockBackend.claimFirstTitle.mockImplementation(async () => true);
+    });
+
+    /** Settle every send recorded so far against one renderer's machinery. */
+    const settleAgainst = async (renderer: {
+      store: typeof h.useStore;
+    }): Promise<void> => {
+      for (let wave = 0; wave < 3; wave++) {
+        await h.flushMicrotasks();
+        for (const { tabId, cmd } of h.sent) {
+          renderer.store.getState().handleRpcFrame(tabId, {
+            type: "response",
+            id: cmd.id,
+            command: cmd.type,
+            success: true,
+            data: {},
+          });
+        }
+      }
+    };
+
+    it("early-arm-first: B's substantive commit wins the claim; A's deferred fire retires denied", async () => {
+      const a = await freshRenderer();
+      const b = await freshRenderer();
+
+      // A sent the declined low-signal first prompt; B then sends the
+      // substantive one. B's user commit fires the first claim, so B's early
+      // route (issue #795 timing) wins the shot at the arbiter.
+      a.store.getState().setInitialPrompt(h.TAB, "hi!");
+      expect(a.deferredWords()).toBe(0);
+      b.store.getState().setInitialPrompt(h.TAB, "Add pagination to the sessions list");
+      for (const r of [a, b]) userCommit(r.store);
+      await h.flushMicrotasks();
+      expect(renames()).toHaveLength(1);
+
+      // The assistant reply now crosses A's threshold: A's deferred fire
+      // races the same claim, is denied by B's ownership, and retires.
+      for (const r of [a, b]) {
+        assistantEnd(r.store, wordy(60));
+        await h.flushMicrotasks();
+      }
+      expect(renames()).toHaveLength(1);
+      expect(a.deferredWords()).toBeUndefined();
+      expect(a.store.getState().rpc[h.TAB]!.titleAttempt).toBeNull();
+
+      // B's declined generation keeps its ladder; a later turn end past the
+      // floor re-dispatches from B alone — retries ride `dispatchTitle` under
+      // the winner's ownership, never a second claim.
+      b.store.setState({
+        rpc: {
+          ...b.store.getState().rpc,
+          [h.TAB]: {
+            ...b.store.getState().rpc[h.TAB]!,
+            titleAttempt: { at: Date.now() - 20_000, n: 1 },
+          },
+        },
+      });
+      for (const r of [a, b]) {
+        r.store.getState().handleRpcFrame(h.TAB, { type: "agent_end" });
+        await h.flushMicrotasks();
+      }
+      expect(renames()).toHaveLength(2);
+      expect(a.store.getState().rpc[h.TAB]!.titleAttempt).toBeNull();
+
+      // Settle every dispatch through its own sender's machinery.
+      await settleAgainst(b);
+      await settleAgainst(a);
+    });
+
+    it("deferred-first: A wins the claim from assistant context; B's later early route retires denied", async () => {
+      const a = await freshRenderer();
+      const b = await freshRenderer();
+
+      // The parent's counterexample ordering: A's deferred fire claims FIRST —
+      // before B's substantive prompt ever reaches its commit.
+      a.store.getState().setInitialPrompt(h.TAB, "hi!");
+      assistantEnd(a.store, wordy(60));
+      // No flush between the claim dispatch and B's arm + commit: A's claim
+      // call is already at the arbiter when B's early route races it.
+      b.store.getState().setInitialPrompt(h.TAB, "Add pagination to the sessions list");
+      userCommit(b.store);
+      await h.flushMicrotasks();
+
+      // Exactly one `/rename` — A's deferred shot. B's denied early route
+      // latches its own copy closed with no attempt and dispatches nothing.
+      expect(renames()).toHaveLength(1);
+      expect(a.store.getState().rpc[h.TAB]!.hasRenamed).toBe(true);
+      expect(a.store.getState().rpc[h.TAB]!.titleAttempt).toMatchObject({ n: 1 });
+      expect(b.store.getState().rpc[h.TAB]!.hasRenamed).toBe(true);
+      expect(b.store.getState().rpc[h.TAB]!.titleAttempt).toBeNull();
+
+      // A owns the ladder: a declined first generation re-dispatches from A's
+      // turn ends only, past the floor — B adds nothing.
+      h.sent.length = 0;
+      a.store.setState({
+        rpc: {
+          ...a.store.getState().rpc,
+          [h.TAB]: {
+            ...a.store.getState().rpc[h.TAB]!,
+            titleAttempt: { at: Date.now() - 20_000, n: 1 },
+          },
+        },
+      });
+      for (const r of [a, b]) {
+        r.store.getState().handleRpcFrame(h.TAB, { type: "agent_end" });
+        await h.flushMicrotasks();
+      }
+      expect(renames()).toHaveLength(1);
+      await settleAgainst(a);
+    });
+
+    it("two renderers holding deferrals spend exactly one deferred shot through the shared claim", async () => {
+      const a = await freshRenderer();
+      const b = await freshRenderer();
+
+      // Each renderer sent a declined prompt (e.g. a re-open second client):
+      // both hold local deferrals — the local flag alone cannot dedupe these.
+      a.store.getState().setInitialPrompt(h.TAB, "hi!");
+      b.store.getState().setInitialPrompt(h.TAB, "hello");
+
+      for (const r of [a, b]) {
+        assistantEnd(r.store, wordy(60));
+        await h.flushMicrotasks();
+      }
+      expect(renames()).toHaveLength(1);
+
+      // Both copies latch closed — neither fires again — but only the winner
+      // owns the attempt and therefore the bounded retry ladder. The loser
+      // retires with no attempt, no notice, and no second dispatch.
+      expect([a, b].every((r) => r.store.getState().rpc[h.TAB]!.hasRenamed)).toBe(true);
+      const owned = [a, b].filter(
+        (r) => r.store.getState().rpc[h.TAB]?.titleAttempt?.n === 1,
+      );
+      const denied = [a, b].filter(
+        (r) => r.store.getState().rpc[h.TAB]!.titleAttempt === null,
+      );
+      expect(owned).toHaveLength(1);
+      expect(denied).toHaveLength(1);
+      expect(denied[0]!.deferredWords()).toBeUndefined();
+
+      // The loser's later turn ends add nothing: only the owner re-dispatches.
+      owned[0]!.store.setState({
+        rpc: {
+          ...owned[0]!.store.getState().rpc,
+          [h.TAB]: {
+            ...owned[0]!.store.getState().rpc[h.TAB]!,
+            titleAttempt: { at: Date.now() - 20_000, n: 1 },
+          },
+        },
+      });
+      for (const r of [a, b]) {
+        r.store.getState().handleRpcFrame(h.TAB, { type: "agent_end" });
+        await h.flushMicrotasks();
+      }
+      expect(renames()).toHaveLength(2);
+    });
+
+    it("a manual rename in any renderer retires other renderers' deferrals", async () => {
+      const a = await freshRenderer();
+      const b = await freshRenderer();
+      a.store.getState().setInitialPrompt(h.TAB, "hi!");
+      b.store.getState().setInitialPrompt(h.TAB, "hello");
+
+      const manual = b.store.getState().renameSessionTo(h.TAB, "My name");
+      // The pending command lives in B's own machinery copy: only B's frames
+      // can settle it (h.respond would drive the first renderer's).
+      await settleAgainst(b);
+      await manual;
+
+      // The watcher hydrates the typed name into every renderer's state, as
+      // the real app does from the session file.
+      const titled = structuredClone(h.backendState);
+      titled.projects[0]!.sessions[0]!.title = "My name";
+      h.backendState = titled;
+      a.store.setState({ state: titled });
+
+      assistantEnd(a.store, wordy(60));
+      await h.flushMicrotasks();
+      expect(renames()).toHaveLength(0);
+      expect(a.deferredWords()).toBeUndefined();
+    });
   });
 });
 

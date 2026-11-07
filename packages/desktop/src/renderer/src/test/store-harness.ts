@@ -202,6 +202,10 @@ const mockBackend = {
   setSessionAdvisor: vi.fn(),
   setSessionModel: vi.fn(async () => {}),
   setSessionAutoTitled: vi.fn(async () => {}),
+  // First-title ownership (issue #1090): the shared fake main grants every
+  // claim by default; tests that arbitrate override the mock, exactly as they
+  // override `rpcSend`-adjacent behaviour elsewhere in this mock.
+  claimFirstTitle: vi.fn<(_tabId: string) => Promise<boolean>>(async () => true),
   setSessionSnoozed: vi.fn(async () => {}),
   setSessionPinned: vi.fn(async () => {}),
   setSessionAutoSettleOnMerge: vi.fn(async () => {}),

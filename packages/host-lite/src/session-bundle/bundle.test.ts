@@ -155,6 +155,7 @@ describe("session bundle", () => {
         "deleteSession",
         "deleteSessionPreview",
         "sessionTranscriptPath",
+        "claimFirstTitle",
         "answerPlanReview",
         "toggleFavorite",
       ]) {
@@ -164,6 +165,15 @@ describe("session bundle", () => {
         const target = lite.notify[CH[ch] as string] ?? lite.handlers[CH[ch] as string];
         expect(target, ch).toBeTypeOf("function");
       }
+
+      // The first-title claim (issue #1090) is the REAL manager's arbiter,
+      // not a stub: a joined renderer of a host-lite-owned session races here
+      // and gets the one-winner semantics — untitled tab grants once, then
+      // denies; a tab this host never owned is refused outright.
+      const claim = lite.handlers[CH.claimFirstTitle as string] as (tabId: string) => boolean;
+      expect(claim("tab-1")).toBe(true);
+      expect(claim("tab-1")).toBe(false);
+      expect(claim("tab-gone")).toBe(false);
 
       // Physically-impossible-without-a-window channels: absent, not denied.
       for (const ch of [
