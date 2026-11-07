@@ -958,11 +958,6 @@ describe("FleetServer.updateMember (fleet remote version update)", () => {
       if (manifestKind === "foreign") expect(poll.detail).toContain("ownership conflict");
       expect(fs.readFileSync(targetPath, "utf8")).toBe("updated binary");
       expect(onOmpApplied).toHaveBeenCalledExactlyOnceWith("18.13.1");
-      expect(s.auditEntries().at(-1)).toMatchObject({
-        action: "update",
-        accepted: true,
-        detail: `omp succeeded: ${poll.detail}`,
-      });
       if (manifestKind === "unreadable") {
         expect(fs.readdirSync(manifestPath)).toEqual(["keep"]);
         expect(fs.readFileSync(path.join(manifestPath, "keep"), "utf8")).toBe("untouched");

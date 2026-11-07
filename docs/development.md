@@ -208,6 +208,12 @@ H=$(mktemp -d) && env -i HOME=$H PATH=$PATH TMPDIR=/tmp \
 npm test --workspace @omp-ui/core
 ```
 
+Fleet audit summaries cap `detail` at 200 characters; the maintenance poll
+retains the complete result. Ownership-update tests should prove installation,
+refresh, warning delivery, and manifest preservation through that result, not
+equate the audit summary with it. Windows temporary paths can cross the cap
+even when the same fixture stays below it on Linux (#1081).
+
 The desktop `test` script does not run the process-backed live proofs
 (`src/main/**/*-live.test.ts`, real omp spawns); run them on demand with
 `npm run test:live --workspace @omp-ui/desktop`. Renderer `.live.test.tsx`
