@@ -4,6 +4,7 @@ This guide explains what users receive from a release and how maintainers publis
 
 ## Unreleased
 
+- The native transcript now honors provider replay resets: when a replacement attempt streams over an abandoned one (`message_update` `start`), the abandoned text and thinking clear, previews that never executed are retracted, and calls whose execution genuinely started — background work included — keep their identity and lifecycle; later calls reuse content indexes without inheriting abandoned preview state, identically in full-snapshot and delta event modes ([#1089](https://github.com/LankfordAI/omp-ui/issues/1089)).
 - Stats now explicitly runs OMP's host-owned collector and shares its status across desktop/browser clients, with consistent Project/provider/model/agent/range filters, worktree-aware Project costs, recorded tool outcomes, selected-range sessions, UTC charts, retained snapshots on failure, and honest archive/money coverage ([#1083](https://github.com/LankfordAI/omp-ui/issues/1083)).
 
 ## Choose a download
