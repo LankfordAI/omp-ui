@@ -13,45 +13,47 @@ import {
 } from "@omp-ui/core";
 
 /**
- * The ovnfs arm of omp 18.17's task isolation against the REAL
- * `omp --mode=rpc-ui`, with a REAL ovnfs daemon and mount (issue #1071).
- * 18.17 auto-enables ovnfs whenever its binary is found (`ovnfs.path`, else
- * `ovnfs` on PATH): an allowed isolated task with `isolation.backend: auto`
- * then runs in a daemon-managed checkout instead of a native clone, and
- * omp-ui's worktree pins (`worktree.onStart: off`, `worktree.onExit: keep`)
- * do not gate that choice. This file is the live certificate for what #1071
- * asked to verify:
+ * ADR-0089 (issue #1071): omp 18.17 turns ovnfs on by itself whenever its
+ * binary is discoverable (`ovnfs.path`, else `ovnfs` on PATH), and omp-ui's
+ * per-lineage worktree overlay now pins `ovnfs.path` at the lineage directory
+ * itself — a directory no platform can execute — so an owned session never
+ * discovers it. This file proves that suppression against the REAL
+ * `omp --mode=rpc-ui` and a REAL ovnfs binary/daemon — assertions are runtime
+ * outcomes, never prompt text or embedded source strings:
  *
- * - ovnfs arm: the isolated subagent really runs below the daemon mount (its
- *   own bash `$PWD`, captured as data into the applied patch, sits under
- *   `OVNFS_MOUNT`), omp's isolation runner still captures the child edit and
- *   applies it to the parent checkout, and the provider sees omp inject the
- *   separate-checkout system-prompt directive from discovery alone — a
- *   dedicated case runs the plain session overlays with
- *   `task.isolation.enabled` at OMP's default false, so no task can even be
- *   isolated there — telling every agent to use daemon checkouts instead of
- *   `git worktree add`/`git clone`/`cp -r`. The retained checkout and its
- *   `.omp-ovnfs-checkout.json` sidecar outlive a settled parent on both
- *   ends: no omp-ui surface adopts or reclaims them;
- * - native arm: with no ovnfs reachable on the child's PATH, the identical
- *   overlays and task produce the identical parent-visible result through the
- *   native backend, the directive is absent from the prompt, and the ovnfs
- *   state root is never even created — the fallback stays the pre-18.17 path;
- * - both arms: the real `writeWorktreeOverlay` bytes are in force and the
- *   parent's `git worktree list --porcelain` never changes, so an agent-side
- *   ovnfs checkout never registers as a git worktree omp-ui would adopt.
+ * - suppression arm: with the pin in place and `ovnfs` reachable on the
+ *   child's PATH, an allowed isolated task runs OUTSIDE any ovnfs mount, its
+ *   patch still lands in the parent checkout as an ordinary tracked-file
+ *   modification, the parent's `git worktree list --porcelain` never changes,
+ *   and the ovnfs state/mount roots scoped to this temp base are never even
+ *   created — the daemon was never started;
+ * - precedence arm: discovery succeeds through the USER's global agent config
+ *   (`ovnfs.path` naming the real binary) while every ovnfs-bearing PATH
+ *   directory is stripped, so the per-lineage overlay is the only thing that
+ *   can suppress it — and it does;
+ * - control arm: with every ovnfs-bearing PATH directory stripped (a genuine
+ *   no-ovnfs machine), the identical task produces the byte-identical parent
+ *   outcome through the same native fallback — the suppression pin changes
+ *   nothing where discovery had nothing to find.
+ *
+ * Non-vacuity: with the `ovnfs.path` line removed from the production writer,
+ * all three cases fail (verified during development, not shipped) — every arm
+ * observes real discovery, not a machine where ovnfs could not have run.
  *
  * Everything ovnfs touches is scoped to the temp base: `OVNFS_STATE`/
- * `OVNFS_MOUNT` (the daemon's own env overrides) keep its state and mount
- * under this scope, so no user `~/.local/state/ovnfs` or `~/checkouts` is
- * used and no global config is written. The ovnfs binary is never installed
- * by this test: it must already exist at `$OMP_UI_OVNFS_BIN` or on PATH. The
- * whole file skips cleanly when it (or the omp binary) is missing, so CI —
- * where no ovnfs exists — is unaffected.
+ * `OVNFS_MOUNT` (the daemon's own env overrides) point under the scope, so no
+ * user state root or checkout mount is ever used and no global config is
+ * written. The ovnfs binary is never installed here: it must already exist at
+ * `$OMP_UI_OVNFS_BIN` or on PATH, and an `ovnfs` that cannot actually serve a
+ * checkout skips every case here — including the control, whose contract is
+ * exactly "suppressed-with-ovnfs-reachable result == no-ovnfs result", so it
+ * only means something on a machine where ovnfs would otherwise have run.
+ * Without any ovnfs the whole file skips, so CI — where none exists — is
+ * unaffected.
  *
  * Real timers throughout: the awaited actors are OS processes (omp, the
- * ovnfs daemon), so fake clocks cannot drive them; every wait polls an
- * observed condition, never a guessed duration.
+ * daemon), so fake clocks cannot drive them; every wait polls an observed
+ * condition, never a guessed duration.
  */
 
 const ompPath = resolveOmpBinary();
@@ -88,6 +90,62 @@ function findOvnfsBinary(): string | null {
 
 const ovnfsPath = findOvnfsBinary();
 
+/** Dirs on the inherited PATH that hold an executable `ovnfs`. */
+function pathDirsWithOvnfs(): Set<string> {
+  const found = new Set<string>();
+  for (const dir of (process.env.PATH ?? "").split(path.delimiter)) {
+    if (dir === "") continue;
+    try {
+      fs.accessSync(path.join(dir, "ovnfs"), fs.constants.X_OK);
+      found.add(dir);
+    } catch {
+      // No ovnfs in this dir.
+    }
+  }
+  return found;
+}
+
+/**
+ * Whether a reachable ovnfs can actually serve here: an installed binary that
+ * cannot mount would fall back to native on its own, so a suppressed result
+ * from it would prove nothing. Starts one throwaway daemon under its own temp
+ * state/mount and requires the mount root to exist; stopped and removed again
+ * either way, so nothing outside the temp dir is touched.
+ */
+function probeOvnfsDaemon(): boolean {
+  if (ovnfsPath === null) return false;
+  const base = fs.mkdtempSync(path.join(os.tmpdir(), "omp-ui-ovnfs-cap-"));
+  const env: NodeJS.ProcessEnv = {
+    ...process.env,
+    OVNFS_STATE: path.join(base, "state"),
+    OVNFS_MOUNT: path.join(base, "mount"),
+  };
+  try {
+    const start = spawnSync(ovnfsPath, ["--json", "start"], { encoding: "utf8", env, timeout: 30_000 });
+    if (start.status !== 0) return false;
+    let status: Record<string, unknown> | null = null;
+    try {
+      status = JSON.parse(start.stdout) as Record<string, unknown>;
+    } catch {
+      return false;
+    }
+    // A live mount root is the serve evidence: whatever frontend the platform
+    // picks (FUSE, NFS, WinFsp), a daemon that cannot present checkouts leaves
+    // it absent.
+    return (
+      status.version === 5 && typeof status.mount === "string" && status.mount !== "" && fs.existsSync(status.mount)
+    );
+  } catch {
+    return false;
+  } finally {
+    spawnSync(ovnfsPath, ["stop"], { encoding: "utf8", env, timeout: 15_000 });
+    for (const target of liveMountsUnder(base)) {
+      spawnSync("fusermount3", ["-u", "-z", target], { encoding: "utf8", timeout: 10_000 });
+      spawnSync("fusermount", ["-u", "-z", target], { encoding: "utf8", timeout: 10_000 });
+    }
+    fs.rmSync(base, { recursive: true, force: true, maxRetries: 5, retryDelay: 100 });
+  }
+}
 const MODELS_YML = (baseUrl: string): string => `providers:
   probe:
     baseUrl: ${baseUrl}
@@ -108,21 +166,17 @@ tools:
   approvalMode: yolo
 `;
 
-/** Isolation is opt-in per install; this overlay is the arm's only elevation. */
+/** Isolation is opt-in per install; this overlay is the harness's only elevation. */
 const ISOLATION_OVERLAY = "task:\n  isolation:\n    enabled: true\n";
-
-/** A prompt that earns a plain `ok` from the script: one turn, no tool call. */
-const PLAIN_PROMPT = "PLAIN-TURN-NO-TOOLS";
 
 interface Frame {
   type: string;
-  id?: string;
-  success?: boolean;
 }
 
 interface Scope {
   base: string;
   project: string;
+  ompWorktrees: string;
   ovnfsState: string;
   ovnfsMount: string;
   frames: Frame[];
@@ -166,7 +220,7 @@ const TASK_CALL = {
     name: "task",
     arguments: JSON.stringify({
       i: "isolation probe",
-      context: "Live ovnfs isolation probe.",
+      context: "Live ovnfs suppression probe.",
       tasks: [
         {
           name: "Isoprobe",
@@ -181,9 +235,11 @@ const TASK_CALL = {
 };
 
 /**
- * The subagent's one bash call. `$PWD` is stamped INTO the written file, so
+ * The subagent's one bash call. `$PWD` is stamped INTO the tracked file, so
  * the patch omp applies back to the parent carries — as data observed from
- * the real shell — the exact directory the child ran in.
+ * the real child shell — the exact directory the child ran in. That is the
+ * backend oracle: under an ovnfs checkout the stamp sits below the daemon
+ * mount, under the native fallback it sits in omp's own worktree slot.
  */
 const BASH_CALL = {
   index: 0,
@@ -210,8 +266,6 @@ function messageText(content: unknown): string {
 
 interface ScriptedProvider {
   baseUrl: string;
-  /** Every request body received, verbatim: the system-prompt oracle. */
-  bodies: string[];
   close(): Promise<void>;
 }
 
@@ -223,7 +277,6 @@ interface ScriptedProvider {
  * - anything else (the root's post-tool turn) answers `ok` and stops.
  */
 async function scriptedProvider(): Promise<ScriptedProvider> {
-  const bodies: string[] = [];
   const server = createServer((request, response) => {
     if (request.method !== "POST" || request.url !== "/v1/chat/completions") {
       response.writeHead(404).end();
@@ -235,7 +288,6 @@ async function scriptedProvider(): Promise<ScriptedProvider> {
       let messages: unknown[] = [];
       try {
         const body: unknown = JSON.parse(Buffer.concat(parts).toString("utf8"));
-        bodies.push(Buffer.concat(parts).toString("utf8"));
         if (body !== null && typeof body === "object" && "messages" in body && Array.isArray(body.messages)) {
           messages = body.messages;
         }
@@ -259,7 +311,9 @@ async function scriptedProvider(): Promise<ScriptedProvider> {
       }
       if (agent) {
         response.end(
-          chunk({ role: "assistant", tool_calls: [BASH_CALL] }, null) + chunk({}, "tool_calls") + "data: [DONE]\n\n",
+          chunk({ role: "assistant", tool_calls: [BASH_CALL] }, null) +
+            chunk({}, "tool_calls") +
+            "data: [DONE]\n\n",
         );
         return;
       }
@@ -280,7 +334,6 @@ async function scriptedProvider(): Promise<ScriptedProvider> {
   if (address === null || typeof address === "string") throw new Error("no loopback provider port");
   return {
     baseUrl: `http://127.0.0.1:${address.port}/v1`,
-    bodies,
     close: () => {
       const closed = Promise.withResolvers<void>();
       server.closeAllConnections();
@@ -289,7 +342,6 @@ async function scriptedProvider(): Promise<ScriptedProvider> {
     },
   };
 }
-
 /** One git fact, read hermetically against the scope's temp HOME. */
 function gitIn(repoDir: string, base: string, args: readonly string[]): string {
   const home = path.join(base, "home");
@@ -311,72 +363,42 @@ function gitIn(repoDir: string, base: string, args: readonly string[]): string {
   return run.stdout;
 }
 
-/** Dirs on the inherited PATH that hold an executable `ovnfs`. */
-function pathDirsWithOvnfs(): Set<string> {
-  const found = new Set<string>();
-  for (const dir of (process.env.PATH ?? "").split(path.delimiter)) {
-    if (dir === "") continue;
-    try {
-      fs.accessSync(path.join(dir, "ovnfs"), fs.constants.X_OK);
-      found.add(dir);
-    } catch {
-      // No ovnfs in this dir.
-    }
-  }
-  return found;
+interface ScopeOptions {
+  /** Strip every ovnfs-bearing PATH dir: the genuine no-ovnfs machine. */
+  hideOvnfs: boolean;
+  /** Write `ovnfs.path` = the real binary into the scope's GLOBAL agent layer. */
+  globalOvnfsPin: boolean;
+}
+
+interface Scope extends ScopeOptions {
+  base: string;
+  project: string;
+  ompWorktrees: string;
+  ovnfsState: string;
+  ovnfsMount: string;
+  frames: Frame[];
+  client: RpcClient;
+  exited: Promise<void>;
 }
 
 /**
- * Whether a daemon can actually mount here: an installed binary still needs
- * working FUSE, and a container without it must skip the ovnfs arm instead of
- * failing it. Starts one throwaway daemon under its own temp state/mount and
- * stops it again; nothing outside the temp dir is touched.
+ * One hermetic scope: a git project, a lineage dir carrying the REAL
+ * `writeWorktreeOverlay` output (the suppression pin included) plus the
+ * isolation opt-in, an ovnfs state/mount pair that lives only under this temp
+ * base, and the arm's PATH. The armed arm prepends a bin dir holding a
+ * symlinked `ovnfs`, so discovery has a real binary to find; the hidden arm
+ * strips EVERY directory that holds one.
  */
-function probeOvnfsDaemon(): boolean {
-  if (ovnfsPath === null) return false;
-  const base = fs.mkdtempSync(path.join(os.tmpdir(), "omp-ui-ovnfs-cap-"));
-  try {
-    const env: NodeJS.ProcessEnv = {
-      ...process.env,
-      OVNFS_STATE: path.join(base, "state"),
-      OVNFS_MOUNT: path.join(base, "mount"),
-    };
-    const start = spawnSync(ovnfsPath, ["--json", "start"], { encoding: "utf8", env, timeout: 30_000 });
-    if (start.status !== 0) return false;
-    let status: Record<string, unknown> | null = null;
-    try {
-      status = JSON.parse(start.stdout) as Record<string, unknown>;
-    } catch {
-      return false;
-    }
-    spawnSync(ovnfsPath, ["stop"], { encoding: "utf8", env, timeout: 15_000 });
-    return status.version === 5;
-  } catch {
-    return false;
-  } finally {
-    fs.rmSync(base, { recursive: true, force: true, maxRetries: 5, retryDelay: 100 });
-  }
-}
-
-/** `"ovnfs"`: the binary is reachable on the child's PATH; `"native"`: not. */
-type Backend = "ovnfs" | "native";
-
-/**
- * One hermetic scope: a git project, a lineage dir carrying the REAL omp-ui
- * worktree overlay (plus, for the isolation cases, the isolation opt-in), an
- * ovnfs state/mount pair that lives only under this temp base, and a PATH
- * whose first entry (the arm's bin dir with the symlinked `ovnfs`) decides
- * which backend omp's `auto` picks. The native arm strips every directory
- * holding the located binary from PATH, so it stays the no-ovnfs arm even on
- * a machine that has one.
- */
-function buildScope(provider: ScriptedProvider, backend: Backend, isolation = true): Scope {
+function buildScope(provider: ScriptedProvider, options: ScopeOptions): Scope {
   const base = fs.mkdtempSync(path.join(os.tmpdir(), "omp-ui-ovnfs-live-"));
   const home = path.join(base, "home");
-  const agentDir = path.join(home, ".omp", "agent");
+  const agentDir = path.join(base, "home", ".omp", "agent");
   fs.mkdirSync(agentDir, { recursive: true });
   fs.writeFileSync(path.join(agentDir, "models.yml"), MODELS_YML(provider.baseUrl));
-  fs.writeFileSync(path.join(agentDir, "config.yml"), CONFIG_YML);
+  fs.writeFileSync(
+    path.join(agentDir, "config.yml"),
+    options.globalOvnfsPin ? `${CONFIG_YML}ovnfs:\n  path: ${JSON.stringify(ovnfsPath!)}\n` : CONFIG_YML,
+  );
 
   const project = path.join(base, "proj");
   const lineage = path.join(base, "lin");
@@ -393,26 +415,21 @@ function buildScope(provider: ScriptedProvider, backend: Backend, isolation = tr
   gitIn(project, base, ["commit", "-q", "-m", "init"]);
   gitIn(project, base, ["branch", "probe-session"]);
 
-  if (backend === "ovnfs") {
+  if (!options.hideOvnfs) {
     fs.symlinkSync(ovnfsPath!, path.join(childBin, "ovnfs"));
   }
-  // The arm's PATH decides which factory omp's `auto` resolves. The native
-  // arm strips EVERY directory that holds an executable ovnfs — not just the
-  // located one — so it stays a genuine no-ovnfs machine even here.
   const ovnfsDirs = pathDirsWithOvnfs();
   const inheritedPath = (process.env.PATH ?? "").split(path.delimiter);
-  const armPath =
-    backend === "ovnfs" ? [childBin, ...inheritedPath] : inheritedPath.filter((dir) => !ovnfsDirs.has(dir));
+  const armPath = options.hideOvnfs
+    ? inheritedPath.filter((dir) => !ovnfsDirs.has(dir))
+    : [childBin, ...inheritedPath];
 
-  // Exactly what a real spawn carries: the omp-ui worktree pins, plus (for
-  // the isolation cases) the isolation opt-in as a second --config overlay.
+  // Exactly what a real spawn carries: the omp-ui worktree + ovnfs pins from
+  // the production writer, plus the isolation opt-in as a second overlay.
   const worktreeOverlay = writeWorktreeOverlay(lineage);
-  const overlays = [worktreeOverlay];
-  if (isolation) {
-    const isolationOverlay = path.join(lineage, "omp-ui-isolation-probe.yml");
-    fs.writeFileSync(isolationOverlay, ISOLATION_OVERLAY);
-    overlays.push(isolationOverlay);
-  }
+  const isolationOverlay = path.join(lineage, "omp-ui-isolation-probe.yml");
+  fs.writeFileSync(isolationOverlay, ISOLATION_OVERLAY);
+  const overlays = [worktreeOverlay, isolationOverlay];
 
   const frames: Frame[] = [];
   const { promise: exited, resolve: markExited } = Promise.withResolvers<void>();
@@ -436,7 +453,14 @@ function buildScope(provider: ScriptedProvider, backend: Backend, isolation = tr
         OVNFS_MOUNT: ovnfsMount,
         PATH: armPath.join(path.delimiter),
       };
-      for (const key of ["HOMEDRIVE", "HOMEPATH", "OMP_PROFILE", "PI_PROFILE", "PI_CONFIG_DIR", "PI_CODING_AGENT_DIR"]) {
+      for (const key of [
+        "HOMEDRIVE",
+        "HOMEPATH",
+        "OMP_PROFILE",
+        "PI_PROFILE",
+        "PI_CONFIG_DIR",
+        "PI_CODING_AGENT_DIR",
+      ]) {
         delete env[key];
       }
       const proc = spawn(bin, args, { stdio: ["pipe", "pipe", "pipe"], env });
@@ -453,25 +477,17 @@ function buildScope(provider: ScriptedProvider, backend: Backend, isolation = tr
     onExit: () => markExited(),
     onError: (m) => process.stderr.write(`rpc error: ${m}\n`),
   });
-  return { base, project, ovnfsState, ovnfsMount, frames, client, exited };
-}
-
-/** Sidecar dirs (`omp worktree clear`'s retry markers) under this scope. */
-function sidecarDirs(scope: Scope): string[] {
-  const found: string[] = [];
-  const walk = (dir: string): void => {
-    for (const entry of fs.readdirSync(dir, { withFileTypes: true })) {
-      const full = path.join(dir, entry.name);
-      if (entry.isDirectory()) walk(full);
-      else if (entry.name === ".omp-ovnfs-checkout.json") found.push(dir);
-    }
+  return {
+    ...options,
+    base,
+    project,
+    ompWorktrees: path.join(base, "omp-worktrees"),
+    ovnfsState,
+    ovnfsMount,
+    frames,
+    client,
+    exited,
   };
-  try {
-    walk(path.join(scope.base, "omp-worktrees"));
-  } catch {
-    // No omp worktree dir at all: no sidecars.
-  }
-  return found;
 }
 
 /** FUSE mountpoints (native overlays) still live anywhere under the base. */
@@ -495,17 +511,16 @@ async function stopScope(scope: Scope): Promise<void> {
   scope.client.kill();
   const exitedNow = await Promise.race([scope.exited.then(() => true), sleep(8_000).then(() => false)]);
   if (!exitedNow) scope.client.kill("SIGKILL");
+  // Defensive: suppression means no daemon should own this state root, so a
+  // stop is a no-op there; a killed native arm can still leave its overlay
+  // mounted, and rmdir returns EBUSY until every mountpoint is released.
   if (ovnfsPath !== null) {
-    // Tear down only this scope's daemon; the env selects its state root.
     spawnSync(ovnfsPath, ["stop"], {
       encoding: "utf8",
       env: { ...process.env, OVNFS_STATE: scope.ovnfsState, OVNFS_MOUNT: scope.ovnfsMount },
       timeout: 15_000,
     });
   }
-  // A killed parent can leave its native overlay mounted (issue #17644's
-  // shape): release every mountpoint under the base before removing it, or
-  // rmdir returns EBUSY and the scope leaks.
   for (const target of liveMountsUnder(scope.base)) {
     spawnSync("fusermount3", ["-u", "-z", target], { encoding: "utf8", timeout: 10_000 });
     spawnSync("fusermount", ["-u", "-z", target], { encoding: "utf8", timeout: 10_000 });
@@ -514,7 +529,6 @@ async function stopScope(scope: Scope): Promise<void> {
   fs.rmSync(scope.base, { recursive: true, force: true, maxRetries: 5, retryDelay: 100 });
 }
 
-let requestSequence = 0;
 async function ready(scope: Scope): Promise<void> {
   await waitFor(
     () => (scope.frames.some((frame) => frame.type === "ready") ? true : undefined),
@@ -523,24 +537,18 @@ async function ready(scope: Scope): Promise<void> {
   );
 }
 
-/** `ovnfs --json status` for this scope's state root; null when none answers. */
-function ovnfsStatus(scope: Scope): Record<string, unknown> | null {
-  if (ovnfsPath === null) return null;
-  const run = spawnSync(ovnfsPath, ["--json", "status"], {
-    encoding: "utf8",
-    env: { ...process.env, OVNFS_STATE: scope.ovnfsState, OVNFS_MOUNT: scope.ovnfsMount },
-    timeout: 15_000,
-  });
-  if (run.status !== 0) return null;
-  try {
-    return JSON.parse(run.stdout) as Record<string, unknown>;
-  } catch {
-    return null;
-  }
+let requestSequence = 0;
+
+/** The applied parent file's facts: raw bytes plus the child cwd it stamps. */
+interface Applied {
+  text: string;
+  childCwd: string;
+  /** The applied bytes with this scope's identity removed, for cross-arm compare. */
+  normalized: string;
 }
 
-/** Drive the one isolated task to its applied stamp and return the child cwd. */
-async function runIsolatedTask(scope: Scope): Promise<string> {
+/** Drive the one isolated task to its applied stamp in the parent checkout. */
+async function runIsolatedTask(scope: Scope): Promise<Applied> {
   requestSequence += 1;
   scope.client.send({ type: "prompt", message: ROOT_PROMPT, id: `ovnfs-live-p${requestSequence}` } as never);
   const probePath = path.join(scope.project, "src", "file.txt");
@@ -549,24 +557,63 @@ async function runIsolatedTask(scope: Scope): Promise<string> {
     180_000,
     "the isolated task's cwd stamp to be applied into the parent checkout",
   );
-  const stamped = /^cwd=(.+)$/m.exec(fs.readFileSync(probePath, "utf8"));
-  return path.resolve(stamped![1]!);
+  const text = fs.readFileSync(probePath, "utf8");
+  const stamped = /^cwd=(.+)$/m.exec(text);
+  if (stamped === null) throw new Error(`unreachable: probe lost its stamp: ${text}`);
+  return {
+    text,
+    childCwd: path.resolve(stamped[1]!),
+    // Both arms live in their own temp base and omp mints a random slot name
+    // per isolation; only that identity differs when the outcome matches.
+    normalized: text.replace(scope.base, "<base>").replace(/omp-worktrees[/\\][^/\\"'\s]+/g, "omp-worktrees/<slot>"),
+  };
 }
 
-/**
- * Whether any request body carries omp's separate-checkout directive. Its
- * opening line, verbatim from the system prompt omp/18.17.0 sends when its
- * ovnfs discovery succeeds: discovery ALONE (no isolation overlay needed)
- * instructs every agent to open daemon checkouts instead of git worktrees.
- */
-function bodyDirectsOvnfs(provider: ScriptedProvider): boolean {
-  return provider.bodies.some((body) =>
-    body.includes("MUST use an ovnfs checkout, not `git worktree add`, `git clone` or `cp -r`"),
+/** The parent's git-visible state, with this scope's identity removed. */
+function gitStateNormalized(scope: Scope): string {
+  return (
+    gitIn(scope.project, scope.base, ["status", "--porcelain"])
+      .concat("----\n")
+      .concat(gitIn(scope.project, scope.base, ["worktree", "list", "--porcelain"]))
+      // Two runs live in two fresh repos: paths and commit SHAs are per-scope
+      // identity (independent init commits), never part of the outcome.
+      .replace(scope.base, "<base>")
+      .replace(/[0-9a-f]{40}/g, "<sha>")
   );
 }
 
+/** What one full probe run leaves behind, for the cross-arm comparison. */
+interface ProbeOutcome {
+  applied: Applied;
+  gitState: string;
+  ovnfsMount: string;
+  daemonStateExists: boolean;
+}
+
+/**
+ * A self-contained run: build, boot, drive the isolated task, collect the
+ * parent's outcome, and tear the scope down even on failure. Used by the
+ * comparison case, which must hold two runs' results side by side rather than
+ * leave one in the shared afterEach slot.
+ */
+async function runProbe(provider: ScriptedProvider, options: ScopeOptions): Promise<ProbeOutcome> {
+  const probeScope = buildScope(provider, options);
+  try {
+    await ready(probeScope);
+    const applied = await runIsolatedTask(probeScope);
+    return {
+      applied,
+      gitState: gitStateNormalized(probeScope),
+      ovnfsMount: probeScope.ovnfsMount,
+      daemonStateExists: fs.existsSync(probeScope.ovnfsState),
+    };
+  } finally {
+    await stopScope(probeScope);
+  }
+}
+
 let scope: Scope | null = null;
-/** Memoized FUSE capability probe for the ovnfs arm; measured once per run. */
+/** Memoized daemon capability probe for the reachable arms; measured once. */
 let daemonMounts: boolean | null = null;
 afterEach(async () => {
   if (scope !== null) {
@@ -576,144 +623,111 @@ afterEach(async () => {
 });
 
 describe.skipIf(ompPath === null || ovnfsPath === null)(
-  "ovnfs task isolation against the real runtime (issue #1071)",
+  "ADR-0089 ovnfs suppression against the real runtime (issue #1071)",
   () => {
     let version: string | null = null;
     beforeAll(async () => {
       version = await readInstalledOmpVersion(ompPath!);
     });
-    const needsOvnfsAuto = (ctx: { skip: (note?: string) => void }): void => {
+    const needsSuppressionTarget = (ctx: { skip: (note?: string) => void }): void => {
       if (version === null || compareVersions(version, OVNFS_AUTO_FLOOR) < 0) {
         ctx.skip(`omp ${version ?? "unknown"} predates ovnfs auto-enable (${OVNFS_AUTO_FLOOR})`);
       }
+      // A reachable binary that cannot mount would fall back on its own, so a
+      // suppressed result would prove nothing without a working daemon.
+      if (daemonMounts === null) daemonMounts = probeOvnfsDaemon();
+      if (!daemonMounts) ctx.skip("the reachable ovnfs cannot serve FUSE here");
     };
 
     it(
-      "runs the isolated task below a live ovnfs mount and applies its patch to the parent",
+      "suppresses a reachable ovnfs: native isolation, patch applied, no daemon state",
       { timeout: 240_000 },
       async (ctx) => {
-        needsOvnfsAuto(ctx);
-        // A reachable binary still cannot serve without working FUSE; a
-        // confined machine skips this arm rather than failing it.
-        if (daemonMounts === null) daemonMounts = probeOvnfsDaemon();
-        if (!daemonMounts) ctx.skip("the ovnfs daemon cannot mount on this machine");
+        needsSuppressionTarget(ctx);
         const provider = await scriptedProvider();
         try {
-          scope = buildScope(provider, "ovnfs");
+          scope = buildScope(provider, { hideOvnfs: false, globalOvnfsPin: false });
           await ready(scope);
           const worktreesBefore = gitIn(scope.project, scope.base, ["worktree", "list", "--porcelain"]);
 
-          const childCwd = await runIsolatedTask(scope);
+          const applied = await runIsolatedTask(scope);
 
-          // The child really ran below the daemon mount: its shell's own $PWD
-          // sits under this scope's OVNFS_MOUNT.
-          const mountRoot = path.resolve(scope.ovnfsMount);
-          expect(childCwd.startsWith(mountRoot + path.sep)).toBe(true);
+          // The child ran in omp's native slot, not below any ovnfs mount.
+          expect(applied.childCwd.startsWith(path.resolve(scope.ovnfsMount) + path.sep)).toBe(false);
+          expect(applied.childCwd.startsWith(path.resolve(scope.ompWorktrees) + path.sep)).toBe(true);
 
-          // The daemon that served it speaks omp's required admin protocol,
-          // and while the parent session lives the checkout is RETAINED (the
-          // keepAlive path): the sidecar `omp worktree clear` retries from is
-          // present and the daemon still lists the checkout. Values observed
-          // on omp/18.17.0 + ovnfs v0.1.1; a change here moves the boundary
-          // this file certifies, so it must fail loudly.
-          const whileLive = ovnfsStatus(scope);
-          expect(whileLive?.version).toBe(5);
-          expect(Number(whileLive?.checkouts)).toBeGreaterThanOrEqual(1);
-          expect(sidecarDirs(scope)).toHaveLength(1);
-
-          // Settle the parent the way omp-ui's Settle does (SIGTERM, then
-          // SIGKILL past the grace). A clean omp exit releases nothing on
-          // this path either: the daemon keeps the checkout registered and
-          // the sidecar survives — no omp-ui surface adopts or reclaims it.
-          // The 2 s grace waits for an ABSENCE of change, so no poll applies.
-          scope.client.kill();
-          const exitedNow = await Promise.race([scope.exited.then(() => true), sleep(8_000).then(() => false)]);
-          if (!exitedNow) scope.client.kill("SIGKILL");
-          await sleep(2_000);
-          expect(sidecarDirs(scope)).toHaveLength(1);
-          expect(Number(ovnfsStatus(scope)?.checkouts)).toBeGreaterThanOrEqual(1);
-
-          // omp-ui's git-visible authority surfaces are unchanged: the daemon
-          // checkout never registered as a git worktree of the parent (no new
-          // `worktree list` entry ever appeared), the applied stamp shows up
-          // as an ordinary dirty tracked file, and the project checkout is
-          // still on its own branch.
-          expect(gitIn(scope.project, scope.base, ["worktree", "list", "--porcelain"])).toBe(worktreesBefore);
+          // The patch still reached the parent as an ordinary tracked-file
+          // change, and no daemon was ever started: its scoped roots do not
+          // exist, so nothing was mounted, captured, or left to reclaim.
           expect(gitIn(scope.project, scope.base, ["status", "--porcelain"]).trim()).toBe("M src/file.txt");
-          expect(gitIn(scope.project, scope.base, ["branch", "--show-current"]).trim()).toBe("main");
-
-          // The general separate-checkout guidance is live: the provider saw
-          // omp's system prompt ORDER the agent to open ovnfs checkouts
-          // instead of `git worktree add`/`git clone`/`cp -r`. This fires
-          // from discovery alone — it is the authority gap's widest surface,
-          // wider than the isolated-task selection this arm also proves.
-          expect(bodyDirectsOvnfs(provider)).toBe(true);
-        } finally {
-          await provider.close();
-        }
-      },
-    );
-
-    it(
-      "injects the separate-checkout directive from discovery alone, with no isolation overlay",
-      { timeout: 120_000 },
-      async (ctx) => {
-        needsOvnfsAuto(ctx);
-        if (daemonMounts === null) daemonMounts = probeOvnfsDaemon();
-        if (!daemonMounts) ctx.skip("the ovnfs daemon cannot mount on this machine");
-        const provider = await scriptedProvider();
-        try {
-          // The overlay set an ordinary omp-ui session gets: the worktree
-          // pins and nothing else. task.isolation.enabled stays at omp's
-          // default (false), so no isolated task can run here at all.
-          scope = buildScope(provider, "ovnfs", false);
-          await ready(scope);
-          requestSequence += 1;
-          scope.client.send({ type: "prompt", message: PLAIN_PROMPT, id: `ovnfs-live-p${requestSequence}` } as never);
-          await waitFor(() => (provider.bodies.length > 0 ? true : undefined), 60_000, "the scripted turn's request");
-
-          expect(bodyDirectsOvnfs(provider)).toBe(true);
-          // Discovery changed the prompt without touching git or starting a
-          // checkout: no daemon state exists yet.
-          expect(fs.existsSync(scope.ovnfsState)).toBe(false);
-        } finally {
-          await provider.close();
-        }
-      },
-    );
-
-    it(
-      "keeps the native fallback identical when no ovnfs is reachable and starts no daemon",
-      { timeout: 240_000 },
-      async (ctx) => {
-        needsOvnfsAuto(ctx);
-        const provider = await scriptedProvider();
-        try {
-          scope = buildScope(provider, "native");
-          await ready(scope);
-          const worktreesBefore = gitIn(scope.project, scope.base, ["worktree", "list", "--porcelain"]);
-
-          const childCwd = await runIsolatedTask(scope);
-
-          // Same parent-visible result, but through the native backend: the
-          // child cwd is neither the parent checkout nor anything under an
-          // ovnfs mount (the isolation clone lives under OMP_WORKTREE_DIR).
-          expect(childCwd.startsWith(path.resolve(scope.ovnfsMount) + path.sep)).toBe(false);
-          expect(childCwd).not.toBe(path.resolve(scope.project));
-          expect(gitIn(scope.project, scope.base, ["status", "--porcelain"]).trim()).toBe("M src/file.txt");
-
-          // The daemon was never consulted: its scoped state root does not
-          // even exist, so discovery found nothing and fell back.
           expect(fs.existsSync(scope.ovnfsState)).toBe(false);
           expect(fs.existsSync(scope.ovnfsMount)).toBe(false);
 
+          // omp-ui's git-visible authority is untouched: the isolation slot is
+          // not a registered git worktree, so the parent's worktree list never
+          // changed and the checkout stayed on its own branch.
           expect(gitIn(scope.project, scope.base, ["worktree", "list", "--porcelain"])).toBe(worktreesBefore);
-          // The fallback's system prompt is the pre-18.17 one: with no ovnfs
-          // reachable, the separate-checkout directive is absent, so agents
-          // keep omp-ui's worktree conventions untouched.
-          expect(bodyDirectsOvnfs(provider)).toBe(false);
+          expect(gitIn(scope.project, scope.base, ["branch", "--show-current"]).trim()).toBe("main");
         } finally {
           await provider.close();
+        }
+      },
+    );
+
+    it(
+      "outranks a user's global ovnfs.path naming the real binary: PATH alone finds nothing",
+      { timeout: 240_000 },
+      async (ctx) => {
+        needsSuppressionTarget(ctx);
+        const provider = await scriptedProvider();
+        try {
+          // The hardest case ADR-0089 must survive: discovery succeeds through
+          // the user's own global agent config, not PATH. hideOvnfs strips
+          // every ovnfs-bearing PATH dir, so a PATH walk finds nothing and the
+          // ONLY thing that could enable ovnfs here is that global layer —
+          // which the per-lineage `--config` overlay must outrank.
+          scope = buildScope(provider, { hideOvnfs: true, globalOvnfsPin: true });
+          await ready(scope);
+
+          const applied = await runIsolatedTask(scope);
+          expect(applied.childCwd.startsWith(path.resolve(scope.ovnfsMount) + path.sep)).toBe(false);
+          expect(applied.childCwd.startsWith(path.resolve(scope.ompWorktrees) + path.sep)).toBe(true);
+          expect(fs.existsSync(scope.ovnfsState)).toBe(false);
+          expect(fs.existsSync(scope.ovnfsMount)).toBe(false);
+        } finally {
+          await provider.close();
+        }
+      },
+    );
+
+    it(
+      "leaves the no-ovnfs fallback byte-identical: same patch, same git state",
+      { timeout: 480_000 },
+      async (ctx) => {
+        needsSuppressionTarget(ctx);
+        // One run with ovnfs reachable but pinned off, one with it unfindable:
+        // the suppression must be behavior-neutral where discovery would have
+        // found nothing anyway. Both scopes live inside this case only.
+        const armedProvider = await scriptedProvider();
+        let suppressed: ProbeOutcome;
+        try {
+          suppressed = await runProbe(armedProvider, { hideOvnfs: false, globalOvnfsPin: false });
+        } finally {
+          await armedProvider.close();
+        }
+        expect(suppressed.daemonStateExists).toBe(false);
+
+        const plainProvider = await scriptedProvider();
+        try {
+          const plain = await runProbe(plainProvider, { hideOvnfs: true, globalOvnfsPin: false });
+          expect(plain.applied.childCwd.startsWith(path.resolve(plain.ovnfsMount) + path.sep)).toBe(false);
+          expect(plain.daemonStateExists).toBe(false);
+          // Same applied bytes and same git-visible state as the suppressed
+          // run: the pin changes nothing where discovery had nothing to find.
+          expect(plain.applied.normalized).toBe(suppressed.applied.normalized);
+          expect(plain.gitState).toBe(suppressed.gitState);
+        } finally {
+          await plainProvider.close();
         }
       },
     );

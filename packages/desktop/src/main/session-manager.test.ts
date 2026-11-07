@@ -7657,7 +7657,6 @@ describe("host tools and host URIs (issue #688, ADR-0043)", () => {
       expect(fs.readFileSync(vaultPins[0]!, "utf8")).toBe("vault:\n  enabled: false\n");
       const worktreePins = overlays.filter((file) => typeof file === "string" && path.basename(file) === "omp-ui-worktree.yml");
       expect(worktreePins).toHaveLength(1);
-      expect(fs.readFileSync(worktreePins[0]!, "utf8")).toBe("worktree:\n  onStart: off\n  onExit: keep\n");
       if (mode === "pty") expect(options).not.toHaveProperty("initialCommands");
     }
     if (mode === "pty") expect(RpcClientMock).not.toHaveBeenCalled();

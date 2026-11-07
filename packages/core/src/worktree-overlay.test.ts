@@ -17,25 +17,37 @@ function tmp(): string {
 }
 
 describe("writeWorktreeOverlay", () => {
-  it("creates a lineage overlay that pins omp's worktree keys off", () => {
+  it("pins omp's worktree keys off and ovnfs.path at the lineage directory", () => {
     const lineageDir = path.join(tmp(), "lineage");
     const file = writeWorktreeOverlay(lineageDir);
     expect(file).toBe(path.join(lineageDir, "omp-ui-worktree.yml"));
     expect(worktreeOverlayPath(lineageDir)).toBe(file);
-    const text = fs.readFileSync(file, "utf8");
-    expect(text).toBe("worktree:\n  onStart: off\n  onExit: keep\n");
-    expect(yaml.load(text)).toEqual({ worktree: { onStart: "off", onExit: "keep" } });
+    // The pinned path is the lineage dir itself: no separate sentinel object
+    // to create, reclaim, or keep in sync — the artifact writer's own
+    // directory precondition is the non-executable guarantee, and a
+    // directory is not an executable on any platform.
+    expect(yaml.load(fs.readFileSync(file, "utf8"))).toEqual({
+      worktree: { onStart: "off", onExit: "keep" },
+      ovnfs: { path: path.resolve(lineageDir) },
+    });
+    // The same write created that directory (it holds this overlay), so the
+    // pinned path exists as a directory by construction, for a fresh lineage.
+    expect(fs.statSync(path.resolve(lineageDir)).isDirectory()).toBe(true);
   });
 
-  it("rewrites a stale overlay enabling omp's worktree keys on every launch", () => {
+  it("rewrites a stale overlay on every launch, keeping all three pins", () => {
     const lineageDir = tmp();
     const file = path.join(lineageDir, "omp-ui-worktree.yml");
     fs.writeFileSync(file, "worktree:\n  onStart: create\n  onExit: remove\n");
     expect(writeWorktreeOverlay(lineageDir)).toBe(file);
     expect(yaml.load(fs.readFileSync(file, "utf8"))).toEqual({
       worktree: { onStart: "off", onExit: "keep" },
+      ovnfs: { path: path.resolve(lineageDir) },
     });
     expect(writeWorktreeOverlay(lineageDir)).toBe(file);
-    expect(fs.readFileSync(file, "utf8")).toBe("worktree:\n  onStart: off\n  onExit: keep\n");
+    expect(yaml.load(fs.readFileSync(file, "utf8"))).toEqual({
+      worktree: { onStart: "off", onExit: "keep" },
+      ovnfs: { path: path.resolve(lineageDir) },
+    });
   });
 });
