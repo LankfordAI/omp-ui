@@ -2253,3 +2253,153 @@ describe("tool truncation settlement", () => {
     },
   );
 });
+
+// Provider replay resets (issue #1089): `assistantMessageEvent.type === "start"`
+// is the boundary where a replacement attempt abandons the previous one. The
+// reducer must clear the abandoned text/thinking, retract previews that never
+// executed, keep cards whose execution genuinely started (including work that
+// parks as background), let later calls reuse content indexes cleanly, and do
+// all of it identically in full-snapshot and delta event modes.
+describe("provider replay reset (issue #1089)", () => {
+  const frame = (type: string, fields: Record<string, unknown> = {}) => ({
+    type: "message_update",
+    assistantMessageEvent: { type, ...fields },
+  });
+  const startWith = (message: Record<string, unknown> = { role: "assistant", content: [] }) => ({
+    type: "message_update",
+    assistantMessageEvent: { type: "start", message },
+  });
+
+  /** The issue's reproduction, delta shape: full frames carry `partial` on every update. */
+  function replayAbandonedAttempt(withPartial: boolean): RenderItem[] {
+    const partialAt = (text: string, toolArgs?: Record<string, unknown>) =>
+      withPartial
+        ? {
+            partial: {
+              role: "assistant",
+              content: [
+                { type: "text", text },
+                ...(toolArgs
+                  ? [{ type: "toolCall", id: "abandoned", name: "bash", arguments: toolArgs }]
+                  : []),
+              ],
+            },
+          }
+        : {};
+    let items = reduceEvent([], { type: "message_start", message: { role: "assistant", content: [] } });
+    items = reduceEvent(items, frame("text_delta", { contentIndex: 0, delta: "Abandoned attempt. ", ...partialAt("Abandoned attempt. ") }));
+    items = reduceEvent(
+      items,
+      frame("toolcall_start", {
+        contentIndex: 1,
+        ...(withPartial
+          ? partialAt("Abandoned attempt. ", {})
+          : { block: { type: "toolCall", id: "abandoned", name: "bash", arguments: {} } }),
+      }),
+    );
+    items = reduceEvent(
+      items,
+      frame("toolcall_delta", {
+        contentIndex: 1,
+        delta: '{"command":"echo old"}',
+        ...partialAt("Abandoned attempt. ", { command: "echo old" }),
+      }),
+    );
+    // No tool_execution_start: the preview never ran. The provider replays.
+    items = reduceEvent(items, startWith());
+    items = reduceEvent(items, frame("text_delta", { contentIndex: 0, delta: "Replacement attempt." }));
+    return items;
+  }
+
+  for (const mode of ["delta", "full"] as const) {
+    const withPartial = mode === "full";
+    it(`resets text and retracts the unexecuted preview (${mode} mode)`, () => {
+      const items = replayAbandonedAttempt(withPartial);
+      expect(assistant(items)).toMatchObject({ text: "Replacement attempt.", streaming: true });
+      expect(items.filter((i) => i.kind === "tool")).toHaveLength(0);
+    });
+  }
+
+  it("retracts abandoned thinking and narration with the text", () => {
+    let items = reduceEvent([], { type: "message_start", message: { role: "assistant", content: [] } });
+    items = reduceEvent(items, frame("thinking_delta", { contentIndex: 0, delta: "old thoughts" }));
+    items = reduceEvent(items, frame("text_delta", { contentIndex: 0, delta: "old prose" }));
+    items = reduceEvent(items, startWith());
+    expect(assistant(items)).toMatchObject({ text: "", thinking: "", narration: "", streaming: true });
+    items = reduceEvent(items, frame("text_delta", { contentIndex: 0, delta: "new" }));
+    expect(assistant(items)).toMatchObject({ text: "new", thinking: "" });
+  });
+
+  it("never trusts the snapshot a start carries — its streamed content is not trustworthy", () => {
+    let items = reduceEvent([], { type: "message_start", message: { role: "assistant", content: [] } });
+    items = reduceEvent(items, frame("text_delta", { contentIndex: 0, delta: "streamed" }));
+    // The cloned partial may hold MORE than what streamed before the start was
+    // consumed; adopting it would resurrect abandoned text.
+    items = reduceEvent(
+      items,
+      { type: "message_update", assistantMessageEvent: { type: "start", contentIndex: 0, message: { role: "assistant", content: [{ type: "text", text: "untrusted snapshot" }] } } },
+    );
+    expect(assistant(items)).toMatchObject({ text: "", thinking: "" });
+  });
+
+  it("keeps cards whose execution started through a replay, with identity and lifecycle", () => {
+    let items = reduceEvent([], { type: "message_start", message: { role: "assistant", content: [] } });
+    items = reduceEvent(items, frame("toolcall_start", { contentIndex: 0, block: { type: "toolCall", id: "bg1", name: "bash", arguments: {} } }));
+    items = reduceEvent(items, { type: "tool_execution_start", toolCallId: "bg1", toolName: "bash", args: { command: "sleep 60" } });
+    // Execution ended (a job parked as background settles its card at return);
+    // the replay must not touch this card either way.
+    items = reduceEvent(items, startWith());
+    expect(tool(items, "bg1")).toMatchObject({ status: "running", executionStarted: true });
+    items = reduceEvent(items, frame("toolcall_start", { contentIndex: 0, block: { type: "toolCall", id: "abandoned", name: "write", arguments: {} } }));
+    items = reduceEvent(items, startWith());
+    expect(tool(items, "bg1")).toMatchObject({ status: "running" });
+    expect(tool(items, "abandoned")).toBeUndefined();
+  });
+
+  it("keeps a settled card ahead of the streaming assistant through a replay", () => {
+    let items = reduceEvent([], { type: "message_start", message: { role: "assistant", content: [] } });
+    items = reduceEvent(items, frame("toolcall_start", { contentIndex: 0, block: { type: "toolCall", id: "e1", name: "edit", arguments: {} } }));
+    items = reduceEvent(items, { type: "tool_execution_start", toolCallId: "e1", toolName: "edit" });
+    items = reduceEvent(items, { type: "tool_execution_end", toolCallId: "e1", result: { content: [{ type: "text", text: "ok" }] } });
+    // message_end settles the assistant; a fresh message replays after it.
+    items = reduceEvent(items, { type: "message_end", message: { role: "assistant", content: [{ type: "text", text: "first" }] } });
+    items = reduceEvent(items, { type: "message_start", message: { role: "assistant", content: [] } });
+    items = reduceEvent(items, startWith());
+    expect(tool(items, "e1")).toMatchObject({ status: "done", executionStarted: true });
+  });
+
+  it("lets a later call reuse the content index without inheriting the abandoned preview", () => {
+    let items = reduceEvent([], { type: "message_start", message: { role: "assistant", content: [] } });
+    items = reduceEvent(items, frame("toolcall_start", { contentIndex: 1, block: { type: "toolCall", id: "abandoned", name: "bash", arguments: {} } }));
+    items = reduceEvent(items, frame("toolcall_delta", { contentIndex: 1, delta: '{"command":"echo old"}' }));
+    // No reset frame at all — the replacement attempt starts via message_start
+    // (the shape some runtimes take): the stranded preview must not absorb it.
+    items = reduceEvent(items, { type: "message_end", message: { role: "assistant", content: [] } });
+    items = reduceEvent(items, { type: "message_start", message: { role: "assistant", content: [] } });
+    items = reduceEvent(items, frame("toolcall_start", { contentIndex: 1, block: { type: "toolCall", id: "fresh", name: "write", arguments: {} } }));
+    expect(tool(items, "fresh")).toMatchObject({ name: "write", argsStreaming: true });
+    expect(tool(items, "abandoned")).toMatchObject({ status: "running", argsStreaming: true });
+    expect(items.filter((i) => i.kind === "tool")).toHaveLength(2);
+  });
+
+  it("an ordinary initial stream start opens the assistant without resetting history", () => {
+    let items = reduceEvent([], { type: "message_end", message: { role: "user", content: [{ type: "text", text: "go" }] } });
+    // No message_start (a client joined between the frames): `start` is the
+    // stream opening; the earlier user item stands.
+    items = reduceEvent(items, startWith());
+    items = reduceEvent(items, frame("text_delta", { contentIndex: 0, delta: "working" }));
+    expect(items.filter((i) => i.kind === "assistant")).toHaveLength(1);
+    expect(assistant(items)).toMatchObject({ text: "working", streaming: true });
+  });
+
+  it("argsStreaming false is not execution: a card settled only by toolcall_end is still retractable by a replay", () => {
+    // toolcall_end clears argsStreaming BEFORE tool_execution_start; a preview
+    // whose args completed but never ran must still retract.
+    let items = reduceEvent([], { type: "message_start", message: { role: "assistant", content: [] } });
+    items = reduceEvent(items, frame("toolcall_start", { contentIndex: 0, block: { type: "toolCall", id: "p1", name: "bash", arguments: {} } }));
+    items = reduceEvent(items, frame("toolcall_end", { contentIndex: 0, toolCall: { type: "toolCall", id: "p1", name: "bash", arguments: { command: "echo old" } } }));
+    expect(tool(items, "p1")).toMatchObject({ argsStreaming: false, status: "running" });
+    items = reduceEvent(items, startWith());
+    expect(tool(items, "p1")).toBeUndefined();
+  });
+});

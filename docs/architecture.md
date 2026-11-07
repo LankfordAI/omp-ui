@@ -314,6 +314,21 @@ Tab bodies are `memo` components (`RpcTab`, `TerminalTab`) and `App` must not
 subscribe to a whole per-tab slice: a hidden tab must not pay for an `App`
 re-render it has no props in.
 
+A provider replay replaces an abandoned assistant attempt mid-stream, and its
+boundary is `message_update.assistantMessageEvent.type === "start"` (issue
+#1089): the reducer clears the streaming item's text/thinking/narration (never
+adopting the snapshot a `start` carries — upstream empties it for exactly this
+reason) and retracts the running tool previews trailing it whose execution
+never started. Execution state is the explicit `ToolItem.executionStarted`
+flag set by `tool_execution_start`, never `argsStreaming === false`:
+`toolcall_end` clears that flag before execution begins, so inferring from it
+would retract genuinely executing and background-parked calls, which keep
+identity and lifecycle through the replay. Tool-call correlation by
+`streamIndex` is positional within the current streaming message, so a later
+call reuses its content index without inheriting an abandoned preview's state;
+an ordinary initial `start` (no streaming item yet) simply opens the assistant,
+identically in full and delta event modes.
+
 ### MCP configuration, runtime status, and OAuth recovery
 
 MCP configuration resolution stays in transport-agnostic core and returns only a redacted effective view: credentials, headers, auth and OAuth blocks, source errors, and URL secrets never reach a renderer. Resolution and writes are keyed on the working tree whose project-scope config decides, which for a worktree session is its checkout rather than the project root; the checkout carries a `.omp` symlink to the project's own directory so OMP resolves the project's config there and a write lands on the project's real file (issue #325). A live native session's connection truth comes from OMP's `mcp:connection-status` event bus through a third per-lineage generated extension. That extension reduces raw events to server names plus `auth` or `connection` failure kinds and publishes the snapshot over OMP's existing `setStatus` frame. `MainBackend` forwards the ordinary rpc frame, so Electron and remote-browser renderers derive the same transcript notice, Session HUD badge, and manager-row state without a new backend channel or session-file entry.

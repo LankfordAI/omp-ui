@@ -124,6 +124,17 @@ export interface ToolItem {
   vault?: VaultToolDetails;
   /** Model is still generating this call's args — no tool_execution_start yet (issue #97). */
   argsStreaming?: boolean;
+  /**
+   * `tool_execution_start` has arrived: the call genuinely runs (or ran) —
+   * including work that parks as a background job. Deliberately distinct from
+   * `argsStreaming === false`: `toolcall_end` clears that flag while
+   * `tool_execution_start` is still pending, so only this lifecycle fact
+   * separates an abandoned preview from real work when a provider replay
+   * retracts previews (issue #1089). Set once at execution start and kept
+   * after the card settles — replay retraction only ever removes running
+   * cards, so the flag needs no clearing.
+   */
+  executionStarted?: boolean;
   /** assistantMessageEvent.contentIndex, correlating stream deltas within one message. */
   streamIndex?: number;
   /** Accumulated raw args JSON while streaming in delta mode (issue #718);
@@ -808,13 +819,19 @@ function reduceToolcallStream(
   if (block === null && fragment === null) return items;
   const callId = str(block?.id) ?? "";
   // A settled or cancelled card never matches — contentIndex only correlates
-  // within the currently streaming assistant message.
+  // within the currently streaming assistant message. "Within" is enforced by
+  // position (issue #1089): a preview abandoned before execution and left
+  // stranded ahead of the newest streaming assistant must not absorb this
+  // message's call at the same content index. Without a streaming assistant
+  // (joined mid-stream), the correlation stays positional-tail as before.
+  const after = lastStreamingAssistant(items);
   const idx = items.findIndex(
-    (i) =>
+    (i, position) =>
       i.kind === "tool" &&
       i.status === "running" &&
       i.argsStreaming === true &&
-      i.streamIndex === contentIndex,
+      i.streamIndex === contentIndex &&
+      (after === -1 || position > after),
   );
   if (idx === -1) {
     return [
@@ -895,6 +912,38 @@ export function reduceEvent(items: RenderItem[], event: unknown): RenderItem[] {
       if (!ame) return items;
       const type = str(ame.type);
       const delta = str(ame.delta) ?? str(ame.text) ?? "";
+      if (type === "start") {
+        // Provider replay boundary (issue #1089): a replacement attempt streams
+        // over the abandoned one, and its `start` is the only frame that says
+        // so. Scope the reset to the current streaming assistant — mirror of
+        // upstream's `#restartAssistantStream`: clear the abandoned attempt's
+        // text/thinking (never trust the snapshot a start carries; it may hold
+        // more than streamed), and retract this message's previews that never
+        // executed — no result frame will ever settle them. Cards whose
+        // execution actually started (including work parked as background) keep
+        // identity and lifecycle; `argsStreaming === false` is NOT that proof,
+        // only `executionStarted` is. With no streaming item this doubles as
+        // the ordinary stream start, so both event modes behave the same.
+        const idx = lastStreamingAssistant(items);
+        if (idx === -1) {
+          return [...items, { kind: "assistant", id: `assistant-${++counter}`, text: "", thinking: "", narration: "", streaming: true }];
+        }
+        const item = kindAt(items, idx, "assistant");
+        if (item === null) return items;
+        // Previews belonging to this message trail its streaming item; cards
+        // ahead of it belong to earlier messages and are left alone.
+        const scoped = items.filter(
+          (candidate, i) =>
+            !(
+              i > idx &&
+              candidate.kind === "tool" &&
+              candidate.status === "running" &&
+              candidate.executionStarted !== true
+            ),
+        );
+        scoped[idx] = { ...item, text: "", thinking: "", narration: "" };
+        return scoped;
+      }
       if (type === "text_delta") {
         const idx = lastStreamingAssistant(items);
         if (idx === -1) {
@@ -1008,6 +1057,7 @@ export function reduceEvent(items: RenderItem[], event: unknown): RenderItem[] {
           status: "running",
           intent: str(event.intent) ?? item.intent,
           argsStreaming: false,
+          executionStarted: true,
         });
       }
       return [
@@ -1020,6 +1070,7 @@ export function reduceEvent(items: RenderItem[], event: unknown): RenderItem[] {
           args: event.args,
           status: "running",
           intent: str(event.intent),
+          executionStarted: true,
           timestamp: Date.now(),
         },
       ];
