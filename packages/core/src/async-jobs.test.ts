@@ -58,7 +58,7 @@ function legacyRecent(): Record<string, unknown> {
 }
 
 function snapshot(overrides: Record<string, unknown> = {}): Record<string, unknown> {
-  return {
+  const record: Record<string, unknown> = {
     version: ASYNC_JOBS_SNAPSHOT_VERSION,
     processKey: "omp-ui-mc0abcd-xyz",
     revision: 3,
@@ -66,6 +66,7 @@ function snapshot(overrides: Record<string, unknown> = {}): Record<string, unkno
     unavailable: null,
     canInspect: true,
     canCancel: true,
+    canCancelNested: true,
     running: [job()],
     recent: [
       job({
@@ -82,6 +83,13 @@ function snapshot(overrides: Record<string, unknown> = {}): Record<string, unkno
     result: null,
     ...overrides,
   };
+  // A pre-v5 bridge never wrote canCancelNested (the hybrid rule): strip it for
+  // every legacy version unless the test asks for it explicitly.
+  const version = record.version;
+  if (version !== ASYNC_JOBS_SNAPSHOT_VERSION && overrides.canCancelNested === undefined) {
+    delete record.canCancelNested;
+  }
+  return record;
 }
 
 function publish(overrides: Record<string, unknown> = {}): string {
@@ -91,6 +99,11 @@ function publish(overrides: Record<string, unknown> = {}): string {
 /** The #868 envelope shape: version 2, tree keys, legacy jobs. */
 function snapshotV2(overrides: Record<string, unknown> = {}): Record<string, unknown> {
   return snapshot({ version: 2, running: [legacyJob()], recent: [legacyRecent()], ...overrides });
+}
+
+/** The pre-#1077 (v4) envelope shape: current jobs, no canCancelNested key. */
+function snapshotV4(overrides: Record<string, unknown> = {}): Record<string, unknown> {
+  return snapshot({ version: 4, ...overrides });
 }
 
 /** The pre-#868 envelope shape: version 1, no tree keys at all. */
@@ -141,6 +154,17 @@ describe("parseAsyncJobsSnapshot", () => {
     expect(parsed!.agents).toEqual([]);
     expect(parsed!.running).toHaveLength(1);
     expect(parsed!.running[0]!.widget).toBeNull();
+  });
+
+  it("parses a v5 bridge's nested-cancel capability", () => {
+    expect(parseAsyncJobsSnapshot(publish({ canCancelNested: true }))!.canCancelNested).toBe(true);
+    expect(parseAsyncJobsSnapshot(publish({ canCancelNested: false }))!.canCancelNested).toBe(false);
+  });
+
+  it("maps a pre-v5 envelope to canCancelNested false (issue #1077)", () => {
+    expect(parseAsyncJobsSnapshot(JSON.stringify(snapshotV4()))!.canCancelNested).toBe(false);
+    expect(parseAsyncJobsSnapshot(JSON.stringify(snapshotV2({ rootId: "root" })))!.canCancelNested).toBe(false);
+    expect(parseAsyncJobsSnapshot(JSON.stringify(snapshotV1()))!.canCancelNested).toBe(false);
   });
 
   it("parses a v4 job's purpose and caption", () => {
@@ -240,7 +264,10 @@ describe("parseAsyncJobsSnapshot", () => {
     ["an agent with a numeric parentId", publish({ agents: [{ id: "a-1", parentId: 2 }] })],
     ["an agent with an empty id", publish({ agents: [{ id: "", parentId: null }] })],
     ["a v1 hybrid carrying v2 tree keys", JSON.stringify({ ...snapshotV2(), version: 1 })],
-    ["version 5", publish({ version: 5 })],
+    ["version 6", publish({ version: 6 })],
+    ["a v4 hybrid carrying the v5 canCancelNested key", JSON.stringify({ ...snapshotV4(), canCancelNested: true })],
+    ["a v5 envelope without canCancelNested", (() => { const bare = snapshot(); delete bare.canCancelNested; return JSON.stringify(bare); })()],
+    ["a v5 canCancelNested of the wrong type", publish({ canCancelNested: "yes" })],
     ["invalid JSON", "{not json"],
     ["undefined", undefined as unknown as string],
   ])("rejects %s", (_name, text) => {

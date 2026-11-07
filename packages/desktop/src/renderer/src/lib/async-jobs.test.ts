@@ -12,6 +12,7 @@ function snapshot(overrides: Partial<AsyncJobsSnapshot> = {}): AsyncJobsSnapshot
     unavailable: null,
     canInspect: true,
     canCancel: true,
+    canCancelNested: false,
     running: [],
     recent: [],
     rootId: null,

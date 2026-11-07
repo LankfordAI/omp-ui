@@ -79,7 +79,7 @@ unreachable probe model, auto-compaction enters `auto_compaction_start` and
 never consumes the next prompt, and omp-ui's stall watchdog deliberately
 treats that frame as legitimate quiet.
 
-The worker-thread proof cancels every worker-hosted task and observes its nested bash job settle through the bridge. After bulk cancellation it checks all twenty original job statuses with a test-only larger `getAsyncJobTree` read: OMP's ten-row recent list is sorted by job start time, so it cannot retain the entire cancelled tree. Production retention stays unchanged. A separate post-cancellation transcript and usage append must produce fresh spend frames with exact usage deltas, proving polling survived cancellation.
+The worker-thread proof kills a subagent's own nested bash job first and requires that kill to succeed through the bridge's owner-scoped route (issue #1077), with the owning task row still running when the result lands; it then cancels every worker-hosted task and observes whatever nested jobs remain settle through the bridge. After bulk cancellation it checks all twenty original job statuses with a test-only larger `getAsyncJobTree` read: OMP's ten-row recent list is sorted by job start time, so it cannot retain the entire cancelled tree. Production retention stays unchanged. A separate post-cancellation transcript and usage append must produce fresh spend frames with exact usage deltas, proving polling survived cancellation.
 
 ## Workspace commands
 

@@ -262,6 +262,7 @@ describe("deriveSidebarSessionState", () => {
       unavailable: null,
       canInspect: true,
       canCancel: true,
+      canCancelNested: false,
       running,
       recent: [],
       rootId: null,

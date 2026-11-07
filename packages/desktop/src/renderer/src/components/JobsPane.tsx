@@ -74,6 +74,11 @@ export function JobsPane({ tabId }: { tabId: string }) {
   const recentRows = buildAsyncJobRows(snapshot.recent, [], snapshot.agents, snapshot.rootId);
   const renderRow = ({ job, depth }: AsyncJobRow) => {
     const agentId = job.agentId;
+    // #1077: a subagent-owned row only kills through the bridge's owner-scoped
+    // route. Match the bridge's rule exactly — no rootId (the flat snapshot
+    // path, or a pre-v5 payload) means every listed job is the root's own.
+    const nested =
+      snapshot.rootId !== null && job.ownerId !== null && job.ownerId !== snapshot.rootId;
     return (
       <JobRow
         key={job.id}
@@ -81,7 +86,7 @@ export function JobsPane({ tabId }: { tabId: string }) {
         depth={depth}
         now={now}
         canInspect={snapshot.canInspect}
-        canCancel={snapshot.canCancel}
+        canCancel={snapshot.canCancel && (!nested || snapshot.canCancelNested)}
         busy={pending !== null}
         agent={
           agentId !== null && known.has(agentId)

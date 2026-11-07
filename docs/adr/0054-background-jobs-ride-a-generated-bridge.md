@@ -119,3 +119,57 @@ Decision:
 - The byte rungs drop captions before they drop widgets; the purpose stays.
 - The Jobs pane names a row by `intent`, falling back to `label`, and keeps the
   label as the hover title; the caption is a muted line under the row header.
+
+## Addendum (issue #1077): the v5 envelope carries the nested-cancel capability
+
+Re-verified against `omp/18.17.0`. The bug: since #868 the Jobs pane nests a
+subagent's own jobs under its task row and put a Kill button on every running
+row. A kill aimed at such a nested row could never land — the pane showed
+`Could not cancel background job bg_N.` forever.
+
+- `AgentSession.cancelAsyncJob(id)` is root-owner-only. In the binary it is
+  `Qme(manager, this.agentId, id)`: it looks the job up, then refuses when
+  `job.ownerId !== agentId`, so a subagent-owned job is always refused for the
+  root session.
+- The refusal sits *above* the manager, not inside it. `Qme` ends in
+  `manager.cancel(id, { ownerId: job.ownerId })` — an owner-guarded verb that
+  takes any owner. omp itself cancels other sessions' jobs through exactly this
+  call (its security-scan and workpool code pass their own agent id), and on
+  the worker-thread layout (`task.workerThreads`, #1070) a worker session's
+  `asyncJobManager` is a proxy to the one main-thread manager omp hands every
+  spawn. So the root's public `asyncJobManager.cancel(id, { ownerId })` cancels
+  exactly one subagent-owned job — the job named — and never its owner.
+- The v2 tree still lists those jobs, which is why the row renders at all.
+
+Decision:
+
+- Cancellation gets two routes, each aimed only at what it can reach: a job the
+  root owns goes through `cancelAsyncJob` (unchanged); a subagent-owned job
+  goes through `asyncJobManager.cancel(id, { ownerId })` with that row's own
+  `ownerId`. Never the owning task job as a stand-in — cancelling the owner
+  would silently reap siblings the user did not ask to kill.
+- The envelope becomes `version: 5` with one snapshot-level boolean,
+  `canCancelNested`: the manager's `cancel` is reachable, so a nested row may
+  offer Kill. Presence of the method decides it, per finding 3. v1–v4 payloads
+  parse to `canCancelNested: false` — an older bridge never cancelled a nested
+  job — and a pre-v5 envelope carrying the key is malformed, the hybrid rule.
+- A kill for a nested row that arrived at a bridge without the route fails with
+  its own sentence naming the owning task, instead of the generic refusal;
+  `kill all` cancels rows deepest-owner-depth first — a grandchild before its
+  nested parent task, a bash job before its owning task at every level — so
+  every row it stops reports its own cancellation rather than dying silently
+  under an owner at any tree level. The walk is over the published agent
+  roster; a malformed roster cycle keeps the walked depth instead of hanging.
+- The Jobs pane hides Kill on a subagent-owned row unless both `canCancel` and
+  `canCancelNested` hold, and the store's `killAsyncJob` refuses such a request
+  outright, so a stale render can never send a doomed prompt. Root-job
+  cancellation, `kill all`, and the nested tree layout are unchanged.
+
+## Consequences of #1077
+
+- A Kill on a nested row now cancels one job: the subagent keeps running with
+  its remaining jobs, which is what the row claims. Cancelling the owner remains
+  the way to stop the whole subtree.
+- `canCancel` still means "this build cancels at all"; the nested capability is
+  separate so an old pane against a new bridge (or vice versa) degrades to no
+  button, never a button that lies.

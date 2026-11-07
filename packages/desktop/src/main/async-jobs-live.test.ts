@@ -282,6 +282,9 @@ describe.skipIf(ompPath === null)("async-jobs bridge live (real omp)", () => {
       );
       expect(first.available, `bridge unavailable: ${first.unavailable}`).toBe(true);
       expect(first.canCancel, "cancelAsyncJob missing on this binary").toBe(true);
+      // #1077: the manager's owner-scoped cancel rides the same asyncJobManager
+      // getter every bridge read uses; a tree-capable binary reports it.
+      expect(first.canCancelNested, "asyncJobManager.cancel missing on this binary").toBe(true);
       const processKey = first.processKey;
       // #868: a non-null rootId can only come from getAsyncJobTree — the
       // owner-scoped snapshot path publishes rootId null. The empty roster is

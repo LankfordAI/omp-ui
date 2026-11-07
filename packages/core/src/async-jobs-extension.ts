@@ -154,6 +154,9 @@ interface Collected {
   unavailable: string | null;
   canInspect: boolean;
   canCancel: boolean;
+  /** The job manager's owner-scoped cancel is reachable: a subagent-owned row
+   *  may be cancelled through its own owner (issue #1077). */
+  canCancelNested: boolean;
   running: CollectedJob[];
   recent: CollectedJob[];
   /** getAsyncJobTree's rootId; null on the flat snapshot path. */
@@ -379,6 +382,26 @@ function managedJob(manager: Record<string, unknown> | null, id: string): Record
   }
 }
 
+/** omp's AsyncJobManager.cancel(id, { ownerId }) — the owner-guarded verb
+ *  cancelAsyncJob routes through internally. Called with the job's OWN owner
+ *  it cancels exactly that one job, whichever session spawned it (issue #1077);
+ *  this is how omp's own security-scan and workpool code cancels its jobs. The
+ *  root session holds the same manager a subagent registers into (omp hands
+ *  every spawn the parent's manager, proxied across a worker thread), so the
+ *  bridge reaches it through the public asyncJobManager getter. */
+function managerCancel(
+  manager: Record<string, unknown> | null,
+  id: string,
+  ownerId: string | null,
+): boolean {
+  if (manager === null || typeof manager.cancel !== "function" || ownerId === null) return false;
+  try {
+    return (manager.cancel as (jobId: string, options: { ownerId: string }) => unknown).call(manager, id, { ownerId }) === true;
+  } catch {
+    return false;
+  }
+}
+
 function managerWidget(manager: Record<string, unknown> | null, job: Record<string, unknown> | null): unknown {
   const widgets = manager === null ? null : asRecord(manager.widgets);
   if (widgets === null || job === null || typeof widgets.view !== "function") return undefined;
@@ -462,7 +485,7 @@ export default function (pi: ExtensionApi) {
   }
 
   function unavailable(reason: string): Collected {
-    return { available: false, unavailable: reason, canInspect: false, canCancel: false, running: [], recent: [], rootId: null, agents: [] };
+    return { available: false, unavailable: reason, canInspect: false, canCancel: false, canCancelNested: false, running: [], recent: [], rootId: null, agents: [] };
   }
 
   function collectJob(raw: unknown, root: JobsSession, canInspect: boolean, manager: Record<string, unknown> | null): CollectedJob | null {
@@ -538,6 +561,10 @@ export default function (pi: ExtensionApi) {
     const canInspect = typeof root.inspectAsyncJob === "function";
     const canCancel = typeof root.cancelAsyncJob === "function";
     const manager = jobManager(root);
+    // cancelAsyncJob refuses a job the root does not own; the owner-guarded
+    // manager verb behind it reaches every job when called with that job's
+    // own owner (issue #1077). Presence, not version string, decides it.
+    const canCancelNested = manager !== null && typeof manager.cancel === "function";
     const source = hasTree ? "getAsyncJobTree" : "getAsyncJobSnapshot";
     let raw: unknown;
     try {
@@ -570,7 +597,7 @@ export default function (pi: ExtensionApi) {
       }
     }
     const rootId = hasTree && typeof record.rootId === "string" ? record.rootId : null;
-    return { available: true, unavailable: null, canInspect, canCancel, running: read(record.running), recent: read(record.recent), rootId, agents };
+    return { available: true, unavailable: null, canInspect, canCancel, canCancelNested, running: read(record.running), recent: read(record.recent), rootId, agents };
   }
 
   function shape(job: CollectedJob, tailChars: number, widgets: boolean, captions: boolean): Record<string, unknown> {
@@ -604,6 +631,7 @@ export default function (pi: ExtensionApi) {
       unavailable: c.unavailable,
       canInspect: c.canInspect,
       canCancel: c.canCancel,
+      canCancelNested: c.canCancelNested,
       running: c.running.map((job) => shape(job, tailChars, widgets, captions)),
       recent: c.recent.map((job) => shape(job, tailChars, widgets, captions)),
       rootId: c.rootId,
@@ -664,10 +692,38 @@ export default function (pi: ExtensionApi) {
     const root = rootSession;
     if (!current.available || root === null) return fail(current.unavailable ?? "background jobs are unavailable");
     if (!current.canCancel) return fail("this omp build cannot cancel background jobs (needs omp 18.4.9 or later)");
-    const cancel = (id: string): boolean =>
-      (root.cancelAsyncJob as (jobId: string) => unknown).call(root, id) === true;
+    const manager = jobManager(root);
+    // omp's cancelAsyncJob only reaches jobs the ROOT session owns directly; a
+    // subagent-owned job is cancelled through the owner-guarded manager verb
+    // with its own owner, which cancels exactly that one job and never its
+    // owner (issue #1077). A row neither route can serve reports honestly.
+    const ownedByRoot = (job: CollectedJob): boolean =>
+      current.rootId === null || job.ownerId === null || job.ownerId === current.rootId;
+    const cancelJob = (job: CollectedJob): boolean =>
+      ownedByRoot(job)
+        ? (root.cancelAsyncJob as (jobId: string) => unknown).call(root, job.id) === true
+        : current.canCancelNested && managerCancel(manager, job.id, job.ownerId);
     if (request.jobId === null) {
-      const cancelled = current.running.filter((job) => cancel(job.id)).map((job) => job.id);
+      // Kill-all: deepest rows first — children before their owning task at
+      // every tree level, so a grandchild is not reaped silently under its
+      // nested parent either. Every stopped row reports its own cancellation.
+      const ownerDepth = (job: CollectedJob): number => {
+        if (ownedByRoot(job)) return 0;
+        let depth = 1;
+        const seen = new Set<string>();
+        let parentId: string | null | undefined = job.ownerId;
+        while (parentId !== null && parentId !== undefined && parentId !== current.rootId) {
+          if (seen.has(parentId)) break; // malformed roster cycle: keep walked depth
+          seen.add(parentId);
+          const parent: CollectedAgent | undefined = current.agents.find((agent) => agent.id === parentId);
+          if (parent === undefined) break;
+          depth += 1;
+          parentId = parent.parentId;
+        }
+        return depth;
+      };
+      const ordered = [...current.running].sort((a, b) => ownerDepth(b) - ownerDepth(a));
+      const cancelled = ordered.filter((job) => cancelJob(job)).map((job) => job.id);
       return {
         requestId: request.requestId,
         ok: true,
@@ -684,7 +740,12 @@ export default function (pi: ExtensionApi) {
     if (target.startTime !== request.startTime) {
       return fail("Background job " + jobId + " already finished; a newer job now uses that id.");
     }
-    return cancel(jobId)
+    if (!ownedByRoot(target) && !current.canCancelNested) {
+      return fail(
+        "Background job " + jobId + " belongs to a subagent; this bridge cannot cancel it. Cancel the owning task job instead.",
+      );
+    }
+    return cancelJob(target)
       ? { requestId: request.requestId, ok: true, cancelled: [jobId], text: "Cancelled background job " + jobId + "." }
       : fail("Could not cancel background job " + jobId + ".");
   }

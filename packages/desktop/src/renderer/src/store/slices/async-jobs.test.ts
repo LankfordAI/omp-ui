@@ -21,6 +21,7 @@ function snapshot(overrides: Partial<AsyncJobsSnapshot> = {}): AsyncJobsSnapshot
     unavailable: null,
     canInspect: true,
     canCancel: true,
+    canCancelNested: false,
     running: [],
     recent: [],
     rootId: null,
@@ -160,6 +161,65 @@ describe("killAsyncJob (issue #835)", () => {
     await h.useStore.getState().killAsyncJob(h.TAB, { id: "bg_1", startTime: 1 });
     expect(h.sent).toEqual([]);
     expect(runtime()?.asyncJobsKill).toBeNull();
+  });
+
+  // Issue #1077: the pane hides Kill on a subagent-owned row without the
+  // owner-scoped route; the slice is the second gate, so a stale render can
+  // never send a request THIS snapshot says omp would refuse.
+  const nestedRunning = [
+    {
+      id: "bg_7",
+      type: "bash",
+      status: "running" as const,
+      label: "sleep 600",
+      command: null,
+      cwd: null,
+      startTime: 1,
+      endTime: null,
+      agentId: null,
+      ownerId: "Probe0",
+      pids: [],
+      exitCode: null,
+      outputTail: "",
+      outputTruncated: false,
+      widget: null,
+      completionPercent: null,
+      stage: null,
+      intent: null,
+      caption: null,
+    },
+  ];
+
+  it("sends nothing for a subagent-owned row without canCancelNested", async () => {
+    setTab({
+      asyncJobs: snapshot({ rootId: "root", running: nestedRunning }),
+    });
+    await h.useStore.getState().killAsyncJob(h.TAB, { id: "bg_7", startTime: 1 });
+    expect(h.sent).toEqual([]);
+    expect(runtime()?.asyncJobsKill).toBeNull();
+  });
+
+  it("sends the nested kill once canCancelNested is true", async () => {
+    setTab({
+      asyncJobs: snapshot({ canCancelNested: true, rootId: "root", running: nestedRunning }),
+    });
+    const promise = h.useStore.getState().killAsyncJob(h.TAB, { id: "bg_7", startTime: 1 });
+    expect(prompts()).toHaveLength(1);
+    h.respond(h.TAB, h.sent.find(({ cmd }) => cmd.type === "prompt")!.cmd, {});
+    await promise;
+  });
+
+  it("still kills an unowned row on a tree snapshot without canCancelNested", async () => {
+    setTab({
+      asyncJobs: snapshot({
+        rootId: "root",
+        running: [{ ...nestedRunning[0]!, id: "bg_8", ownerId: null }],
+      }),
+    });
+    const promise = h.useStore.getState().killAsyncJob(h.TAB, { id: "bg_8", startTime: 1 });
+    expect(prompts()).toHaveLength(1);
+    h.respond(h.TAB, h.sent.find(({ cmd }) => cmd.type === "prompt")!.cmd, {});
+    await promise;
   });
 
   it("sends nothing while a kill is pending", async () => {

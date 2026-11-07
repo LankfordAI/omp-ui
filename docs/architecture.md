@@ -488,9 +488,14 @@ Kill rides the same command as `/omp-ui-async-jobs kill <json>` with no
 its streaming check, so a kill works mid-turn. The request carries the
 publisher's `processKey` and the target job's `startTime` — omp reuses `bg_N`
 ids after eviction — and the outcome returns on the next snapshot's `result`,
-correlated by `requestId`. Degradation is by method presence: a missing
-`cancelAsyncJob` clears `canCancel`, and the renderer's Jobs pane and HUD
-jobs chip follow it; the chip also shows the freshest widget's figure. Task
+correlated by `requestId`. Cancellation takes two routes (issue #1077): a job
+the root session owns goes through `cancelAsyncJob`; a subagent-owned job goes
+through the job manager's owner-guarded cancel with that row's own owner, which
+cancels exactly that job and never its owning task. Degradation is by method
+presence: a missing `cancelAsyncJob` clears `canCancel`, and one without the
+manager's `cancel` clears the v5 `canCancelNested`, so a nested row renders no
+Kill the pane cannot honour; the HUD jobs chip follows `canCancel`; the chip
+also shows the freshest widget's figure. Task
 jobs already on the Agents roster are excluded from
 the badge count (omp's own rule). Named `bash` services are
 daemon-supervised and never enter the job manager; they stay outside this

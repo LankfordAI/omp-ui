@@ -1956,7 +1956,7 @@ describe("SessionHud background-jobs chip (issue #835)", () => {
   it("renders no chip at count zero", () => {
     seedJobs({
       version: ASYNC_JOBS_SNAPSHOT_VERSION, rootId: null, agents: [], processKey: "p", revision: 1, available: true, unavailable: null,
-      canInspect: true, canCancel: true, running: [], recent: [], result: null,
+      canInspect: true, canCancel: true, canCancelNested: false, running: [], recent: [], result: null,
     });
     const host = renderWide();
     expect(host.querySelector('button[aria-label^="jobs"]')).toBeNull();
@@ -1971,7 +1971,7 @@ describe("SessionHud background-jobs chip (issue #835)", () => {
           subagents: [{ id: "agent-1", name: "worker", status: "working" }],
           asyncJobs: {
             version: ASYNC_JOBS_SNAPSHOT_VERSION, rootId: null, agents: [], processKey: "p", revision: 1, available: true, unavailable: null,
-            canInspect: true, canCancel: true, result: null, recent: [],
+            canInspect: true, canCancel: true, canCancelNested: false, result: null, recent: [],
             running: [
               job({ id: "bg_1" }),
               job({ id: "bg_2" }),
@@ -1990,7 +1990,7 @@ describe("SessionHud background-jobs chip (issue #835)", () => {
   it("clicking opens the inspector on the Jobs pane", () => {
     seedJobs({
       version: ASYNC_JOBS_SNAPSHOT_VERSION, rootId: null, agents: [], processKey: "p", revision: 1, available: true, unavailable: null,
-      canInspect: true, canCancel: true, recent: [], result: null,
+      canInspect: true, canCancel: true, canCancelNested: false, recent: [], result: null,
       running: [job()],
     });
     const host = renderWide();
@@ -2010,7 +2010,7 @@ describe("SessionHud background-jobs chip (issue #835)", () => {
     });
     seedJobs({
       version: ASYNC_JOBS_SNAPSHOT_VERSION, rootId: null, agents: [], processKey: "p", revision: 1, available: true, unavailable: null,
-      canInspect: true, canCancel: true, recent: [], result: null,
+      canInspect: true, canCancel: true, canCancelNested: false, recent: [], result: null,
       running: [
         job({ id: "bg_1", widget: widget("111", 5) }),
         job({ id: "bg_2", widget: widget("222", 9) }),
@@ -2031,7 +2031,7 @@ describe("SessionHud background-jobs chip (issue #835)", () => {
     useStore.setState({ hibernated: {} });
     seedJobs({
       version: ASYNC_JOBS_SNAPSHOT_VERSION, rootId: null, agents: [], processKey: "p", revision: 1, available: true, unavailable: null,
-      canInspect: true, canCancel: true, recent: [], result: null,
+      canInspect: true, canCancel: true, canCancelNested: false, recent: [], result: null,
       running: [job()],
     });
     let host = renderWide();
@@ -2041,7 +2041,7 @@ describe("SessionHud background-jobs chip (issue #835)", () => {
     act(() => root!.unmount());
     seedJobs({
       version: ASYNC_JOBS_SNAPSHOT_VERSION, rootId: null, agents: [], processKey: "p", revision: 1, available: true, unavailable: null,
-      canInspect: true, canCancel: true,
+      canInspect: true, canCancel: true, canCancelNested: false,
       running: [],
       recent: [job({ status: "completed", exitCode: 0 })],
       result: null,

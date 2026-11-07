@@ -8,7 +8,9 @@
 // frame carries (verified on omp/18.8.9: get_state only says
 // hasPendingAsyncWork). The bridge reads AgentSession.getAsyncJobTree /
 // getAsyncJobSnapshot / inspectAsyncJob and cancels through cancelAsyncJob —
-// the same calls omp's own `/jobs` and `/jobs kill` make.
+// the same calls omp's own `/jobs` and `/jobs kill` make. cancelAsyncJob only
+// reaches jobs the root session owns directly; a subagent-owned job goes
+// through the owner-scoped manager verb instead (issue #1077).
 
 /** setStatus key the generated bridge publishes on. Routed, never rendered raw. */
 export const ASYNC_JOBS_STATUS_KEY = "omp-ui:async-jobs";
@@ -166,12 +168,14 @@ export interface AsyncJobAgent {
   parentId: string | null;
 }
 
-/** The published envelope version (issues #868, #954, #1017). The bridge
+/** The published envelope version (issues #868, #954, #1017, #1077). The bridge
  *  interpolates this constant so publisher and parser can never drift; v1–v3
  *  payloads — written by an older omp-ui's bridge against the same session —
- *  parse to v4 with null intent and caption, v1/v2 also with null widget,
- *  completionPercent, and stage (v1 also flat: no tree). */
-export const ASYNC_JOBS_SNAPSHOT_VERSION = 4;
+ *  parse to v5 with null intent and caption, v1/v2 also with null widget,
+ *  completionPercent, and stage (v1 also flat: no tree), and every pre-v5
+ *  payload reads `canCancelNested: false` — an older bridge never cancelled a
+ *  subagent-owned job. */
+export const ASYNC_JOBS_SNAPSHOT_VERSION = 5;
 
 export interface AsyncJobsSnapshot {
   version: typeof ASYNC_JOBS_SNAPSHOT_VERSION;
@@ -181,8 +185,13 @@ export interface AsyncJobsSnapshot {
   unavailable: string | null;
   /** inspectAsyncJob exists: command/cwd/pids/exit/output are populated. */
   canInspect: boolean;
-  /** cancelAsyncJob exists: kill affordances may render. */
+  /** cancelAsyncJob exists: kill affordances may render. It only reaches jobs
+   *  the root session owns directly; nested rows follow `canCancelNested`. */
   canCancel: boolean;
+  /** The job manager's owner-scoped cancel is reachable (issue #1077): a row
+   *  owned by a subagent may offer Kill, cancelled through its own owner.
+   *  False on v1–v4 payloads — an older bridge never cancels nested jobs. */
+  canCancelNested: boolean;
   running: AsyncJob[];
   recent: AsyncJob[];
   /** getAsyncJobTree's rootId: the session-root agent id. null on v1
@@ -205,7 +214,7 @@ export function asyncJobsKillMessage(request: AsyncJobsKillRequest): string {
   return `/${ASYNC_JOBS_COMMAND} ${ASYNC_JOBS_KILL_ARG} ${JSON.stringify(request)}`;
 }
 
-type WireVersion = 1 | 2 | 3 | typeof ASYNC_JOBS_SNAPSHOT_VERSION;
+type WireVersion = 1 | 2 | 3 | 4 | typeof ASYNC_JOBS_SNAPSHOT_VERSION;
 
 function asObject(value: unknown): Record<string, unknown> | null {
   return value === null || typeof value !== "object" || Array.isArray(value)
@@ -411,8 +420,8 @@ function readJob(value: unknown, version: WireVersion): AsyncJob | null {
   const { intent, caption } = record;
   let purpose: string | null = null;
   let line: string | null = null;
-  if (version === ASYNC_JOBS_SNAPSHOT_VERSION) {
-    // v4 states both keys, as v3 does its own.
+  if (version >= 4) {
+    // v4+ states both keys, as v3 does its own.
     if (!("intent" in record) || !("caption" in record)) return null;
     if (intent !== null) {
       if (!isJobText(intent)) return null;
@@ -503,17 +512,33 @@ export function parseAsyncJobsSnapshot(text: string | undefined): AsyncJobsSnaps
   if (parsed === null || typeof parsed !== "object" || Array.isArray(parsed)) return null;
   const record = parsed as Record<string, unknown>;
   // v1 (before the jobs tree, issue #868), v2 (before live widgets, issue
-  // #954), and v3 (before purpose and caption, issue #1017) are stale bridges:
-  // legal on the wire of an older publish, mapped to v4 with null missing
-  // fields — v1 also flat — so the pane renders today's list.
+  // #954), v3 (before purpose and caption, issue #1017), and v4 (before the
+  // nested-kill capability, issue #1077) are stale bridges: legal on the wire
+  // of an older publish, mapped to v5 with null missing fields — v1 also flat,
+  // pre-v5 also canCancelNested false — so the pane renders today's list.
   const version = record.version;
-  if (version !== 1 && version !== 2 && version !== 3 && version !== ASYNC_JOBS_SNAPSHOT_VERSION) return null;
+  if (
+    version !== 1 && version !== 2 && version !== 3 && version !== 4 &&
+    version !== ASYNC_JOBS_SNAPSHOT_VERSION
+  ) {
+    return null;
+  }
   const { processKey, revision, available, unavailable, canInspect, canCancel } = record;
   if (typeof processKey !== "string" || processKey === "") return null;
   if (typeof revision !== "number" || !Number.isInteger(revision) || revision < 1) return null;
   if (typeof available !== "boolean") return null;
   if (!(unavailable === null || typeof unavailable === "string")) return null;
   if (typeof canInspect !== "boolean" || typeof canCancel !== "boolean") return null;
+  // v5 states canCancelNested the way v2 states rootId: a pre-v5 envelope is
+  // an older bridge that never cancels nested jobs; one carrying the key is a
+  // half-written hybrid. A v5 envelope must state it, as every v5 key does.
+  let canCancelNested = false;
+  if (version === ASYNC_JOBS_SNAPSHOT_VERSION) {
+    if (typeof record.canCancelNested !== "boolean") return null;
+    canCancelNested = record.canCancelNested;
+  } else if (record.canCancelNested !== undefined) {
+    return null;
+  }
   const running = readJobs(record.running, version);
   const recent = readJobs(record.recent, version);
   const result = readResult(record.result);
@@ -539,6 +564,7 @@ export function parseAsyncJobsSnapshot(text: string | undefined): AsyncJobsSnaps
     unavailable: unavailable as string | null,
     canInspect,
     canCancel,
+    canCancelNested,
     running,
     recent,
     rootId,

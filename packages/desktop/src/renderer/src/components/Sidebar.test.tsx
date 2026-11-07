@@ -1230,6 +1230,7 @@ describe("Sidebar Working and Snoozed sections (issue #935)", () => {
       unavailable: null,
       canInspect: true,
       canCancel: true,
+      canCancelNested: false,
       running: [
         {
           id: "bg_1",

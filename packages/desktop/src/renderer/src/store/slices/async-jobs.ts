@@ -74,6 +74,20 @@ export function createAsyncJobsSlice(get: GetState, m: StoreMachinery): AsyncJob
     const snapshot = tab?.asyncJobs ?? null;
     if (tab === undefined || snapshot === null || !snapshot.available || !snapshot.canCancel) return;
     if (tab.asyncJobsKill !== null) return;
+    // #1077: a subagent-owned row only kills through the bridge's owner-scoped
+    // route. The pane hides that Kill, but a stale render must not send a
+    // request THIS snapshot says would be refused.
+    if (job !== null && !snapshot.canCancelNested) {
+      const target = snapshot.running.find((entry) => entry.id === job.id);
+      if (
+        target !== undefined &&
+        snapshot.rootId !== null &&
+        target.ownerId !== null &&
+        target.ownerId !== snapshot.rootId
+      ) {
+        return;
+      }
+    }
     const requestId = randomId();
     m.patchRpc(tabId, {
       asyncJobsKill: { requestId, jobId: job?.id ?? null },

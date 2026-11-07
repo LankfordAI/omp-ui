@@ -60,10 +60,11 @@ import {
  *   main-thread root instance ever publishes, and the job manager a worker
  *   session registers into is a proxy to the main thread's, so the root's
  *   getAsyncJobTree already lists worker-owned jobs;
- * - a kill aimed at a subagent's own bash job fails in BOTH arms:
- *   cancelAsyncJob only cancels jobs the root owns directly (issue #1077).
- *   Cancelling the owning task job reaps the nested job instead. The test
- *   compares the nested result across arms and does not pin its value;
+ * - a kill aimed at a subagent's own bash job SUCCEEDS in BOTH arms through
+ *   the bridge's owner-scoped cancel (issue #1077): it cancels exactly that one
+ *   job, and the owning task row keeps running until its own kill. Cancelling
+ *   the owning task job still reaps whatever nested jobs remain. The test
+ *   compares the nested result across arms after normalizing the racing bg id;
  * - `bg_N` ids and the order of one subagent's events race in BOTH arms, so
  *   the comparison keys bash jobs by owner and compares event-type sets.
  *
@@ -622,14 +623,27 @@ async function runArm(baseUrl: string, mainThreadOnly: boolean, targets: string[
       expect(framesOf(id, "subagent_event").length, `${id} streamed no subagent_event`).toBeGreaterThan(0);
     }
 
-    // 5. Cancel and settle. A kill aimed straight at a subagent's own bash job
-    // is compared across arms, not pinned (see the header); cancelling the
-    // owning task job settles both of the subagent's jobs.
+    // 5. Cancel and settle (issue #1077). A kill aimed straight at a
+    // subagent's own bash job cancels exactly that one job through the
+    // bridge's owner-scoped route: the owning task row is still running when
+    // the result lands, and its own kill reaps what remains. bg ids race
+    // across arms, so cancelled ids normalize to `bash:<owner>`.
     const chosen = targets ?? workerHosted;
     const processKey = busy.processKey;
+    const bashOwner = new Map(bashes.map((job) => [job.id, job.ownerId!]));
+    const normalizeCancelled = (result: AsyncJobsKillResult): string[] =>
+      [...result.cancelled].map((id) => (bashOwner.has(id) ? `bash:${bashOwner.get(id)}` : id)).sort();
     const nestedTarget = bashOf.get(chosen[0]!)!;
-    const nestedRaw = killResult(await kill(scope, processKey, "nested", nestedTarget));
-    const nestedKill = { ...nestedRaw, text: nestedRaw.text.replaceAll(nestedTarget.id, "<bash job>") };
+    const nestedAnswered = await kill(scope, processKey, "nested", nestedTarget);
+    const nestedRaw = killResult(nestedAnswered);
+    expect(nestedRaw.ok, `nested kill failed: ${nestedRaw.text}`).toBe(true);
+    expect(normalizeCancelled(nestedRaw)).toEqual([`bash:${chosen[0]}`]);
+    // The owner-directed kill must never take the owning task with it.
+    expect(
+      nestedAnswered.running.some((job) => job.id === chosen[0]),
+      "the owning task job died with its nested bash job",
+    ).toBe(true);
+    const nestedKill = { ...nestedRaw, cancelled: normalizeCancelled(nestedRaw), text: nestedRaw.text.replaceAll(nestedTarget.id, "<bash job>") };
     const taskKills: AsyncJobsKillResult[] = [];
     for (const id of chosen) {
       const answered = await kill(scope, processKey, `task-${id}`, tasks.find((job) => job.id === id)!);
@@ -653,9 +667,14 @@ async function runArm(baseUrl: string, mainThreadOnly: boolean, targets: string[
         `${id} and its bash job settled as cancelled`,
       );
     }
-    const allKill = killResult(await kill(scope, processKey, "all", null));
-    expect(allKill.ok, allKill.text).toBe(true);
-    expect(allKill.cancelled).toEqual(AGENT_IDS.filter((id) => !chosen.includes(id)).sort());
+    const allKillRaw = killResult(await kill(scope, processKey, "all", null));
+    expect(allKillRaw.ok, allKillRaw.text).toBe(true);
+    // Kill-all now cancels every running row on its own — each still-running
+    // subagent's task AND its bash job report their own cancellation, children
+    // before owners (issue #1077).
+    const remaining = AGENT_IDS.filter((id) => !chosen.includes(id));
+    expect(normalizeCancelled(allKillRaw)).toEqual(remaining.flatMap((id) => [id, `bash:${id}`]).sort());
+    const allKill = { ...allKillRaw, cancelled: normalizeCancelled(allKillRaw) };
     const settled = await waitFor(
       () => {
         const snapshot = latest(scope, ASYNC_JOBS_STATUS_KEY, parseAsyncJobsSnapshot);

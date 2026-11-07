@@ -1,6 +1,7 @@
 // @vitest-environment jsdom
 import type { BranchDiff } from "@omp-ui/core/types";
 import type { LiveAudioEntry } from "@omp-ui/core/live-voice";
+import { ASYNC_JOBS_SNAPSHOT_VERSION } from "@omp-ui/core/async-jobs";
 import { act } from "react";
 import { createRoot, type Root } from "react-dom/client";
 import { afterEach, beforeEach, describe, expect, it, vi } from "vitest";
@@ -1241,6 +1242,67 @@ describe("Jobs pane (issue #835)", () => {
         (b) => b.textContent?.trim() === "kill" || b.textContent?.trim() === "kill all",
       ),
     ).toBe(false);
+  });
+
+  // Issue #1077: a subagent-owned row is cancellable only through the bridge's
+  // owner-scoped route; without it the row shows no Kill that can never land.
+  const nestedTree = (canCancelNested: boolean): Record<string, unknown> => ({
+    version: ASYNC_JOBS_SNAPSHOT_VERSION,
+    running: [
+      {
+        ...runningJob,
+        id: "Probe0",
+        type: "task",
+        agentId: "Probe0",
+        ownerId: "root",
+        widget: null,
+        completionPercent: null,
+        stage: null,
+        intent: null,
+        caption: null,
+      },
+      { ...runningJob, id: "bg_7", ownerId: "Probe0", widget: null, completionPercent: null, stage: null, intent: null, caption: null },
+    ],
+    rootId: "root",
+    agents: [{ id: "Probe0", parentId: "root" }],
+    recent: [],
+    canCancelNested,
+  });
+  const killButtons = (): HTMLButtonElement[] =>
+    [...document.body.querySelectorAll<HTMLButtonElement>("button")].filter(
+      (b) => b.textContent?.trim() === "kill",
+    );
+
+  it("a nested row without canCancelNested shows no Kill; its root-owned task still does", () => {
+    publishJobs(nestedTree(false));
+    renderRail();
+    openPane("jobs");
+    expect(killButtons()).toHaveLength(1);
+    expect(killButtons()[0]!.title).toBe("cancel background job Probe0");
+  });
+
+  it("a nested row with canCancelNested offers Kill that rides the bridge", async () => {
+    publishJobs(nestedTree(true));
+    renderRail();
+    openPane("jobs");
+    expect(killButtons()).toHaveLength(2);
+    const nested = killButtons().find((b) => b.title === "cancel background job bg_7")!;
+    await act(async () => nested.click());
+    const frames = killFrames();
+    expect(frames).toHaveLength(1);
+    const request = JSON.parse(frames[0]!.message.slice("/omp-ui-async-jobs kill ".length));
+    expect(request).toMatchObject({ jobId: "bg_7", startTime: 1_000 });
+  });
+
+  it("kill all stays for a nested tree whose rows the owner route covers", () => {
+    publishJobs(nestedTree(true));
+    renderRail();
+    openPane("jobs");
+    expect(
+      [...document.body.querySelectorAll<HTMLButtonElement>("button")].some(
+        (b) => b.textContent?.trim() === "kill all",
+      ),
+    ).toBe(true);
   });
 
   it("kill buttons are disabled while a kill is pending", async () => {

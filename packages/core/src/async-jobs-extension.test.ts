@@ -483,6 +483,181 @@ describe("writeAsyncJobsExtension", () => {
     expect(harness.latest().result?.text).toContain('No running background job with id "bg_5"');
   });
 
+  // Issue #1077: cancelAsyncJob is root-owner-only; a subagent-owned row goes
+  // through the manager's owner-guarded cancel with that job's own owner.
+  /** A tree with a root bash job, a task row for agent a-1, and a-1's own bash. */
+  function nestedHarness(
+    api: { managerCancel?: unknown; cancelAsyncJob?: (id: string) => boolean },
+  ): JobsHarness {
+    return executableExtension({
+      getAsyncJobTree: () => ({
+        running: [
+          rawJob({ id: "Probe0", type: "task", agentId: "Probe0", ownerId: "root" }),
+          rawJob({ id: "bg_1", ownerId: "Probe0", command: "sleep 600", startTime: 2_000 }),
+        ],
+        recent: [],
+        rootId: "root",
+        agents: [{ id: "Probe0", parentId: "root" }],
+      }),
+      cancelAsyncJob: api.cancelAsyncJob ?? (() => false),
+      asyncJobManager:
+        api.managerCancel === undefined
+          ? { getJob: () => null }
+          : { getJob: () => null, cancel: api.managerCancel },
+    });
+  }
+
+  it("v5 publishes canCancelNested from the manager's cancel presence", async () => {
+    const withCancel = nestedHarness({ managerCancel: () => true });
+    await bindRoot(withCancel);
+    await withCancel.arm();
+    expect(withCancel.latest().canCancel).toBe(true);
+    expect(withCancel.latest().canCancelNested).toBe(true);
+
+    const withoutCancel = nestedHarness({});
+    await bindRoot(withoutCancel);
+    await withoutCancel.arm();
+    expect(withoutCancel.latest().canCancelNested).toBe(false);
+  });
+
+  it("a nested kill goes through the manager cancel with the job's own owner", async () => {
+    const calls: Array<{ id: string; ownerId: unknown }> = [];
+    const harness = nestedHarness({
+      managerCancel: (id: string, options: { ownerId: string }) => {
+        calls.push({ id, ownerId: options.ownerId });
+        return true;
+      },
+    });
+    await bindRoot(harness);
+    await harness.arm();
+    const processKey = harness.latest().processKey;
+    await harness.invoke(
+      `kill ${JSON.stringify({ requestId: "n1", processKey, jobId: "bg_1", startTime: 2_000 })}`,
+    );
+    expect(calls).toEqual([{ id: "bg_1", ownerId: "Probe0" }]);
+    expect(harness.latest().result).toEqual({
+      requestId: "n1",
+      ok: true,
+      cancelled: ["bg_1"],
+      text: "Cancelled background job bg_1.",
+    });
+  });
+
+  it("a nested kill with no owner-scoped cancel route fails honestly and touches nothing", async () => {
+    const asRoot: string[] = [];
+    const harness = nestedHarness({
+      cancelAsyncJob: (id: string) => {
+        asRoot.push(id);
+        return true;
+      },
+    });
+    await bindRoot(harness);
+    await harness.arm();
+    const processKey = harness.latest().processKey;
+    await harness.invoke(
+      `kill ${JSON.stringify({ requestId: "n2", processKey, jobId: "bg_1", startTime: 2_000 })}`,
+    );
+    // The root verb is never aimed at a job the root cannot cancel, and the
+    // owning task job is untouched.
+    expect(asRoot).toEqual([]);
+    const result = harness.latest().result!;
+    expect(result.ok).toBe(false);
+    expect(result.cancelled).toEqual([]);
+    expect(result.text).toContain("belongs to a subagent");
+  });
+
+  it("kill all orders a grandchild before its nested owner before the root task", async () => {
+    // Three levels: root -> Probe0 (task) -> deep (task) -> bg_9 (bash). The
+    // two-level root-vs-nested split would put both tasks ahead of bg_9 and
+    // could reap it under an owner; depth ordering must cancel bg_9, then the
+    // nested task, then anything shallower.
+    const asRoot: string[] = [];
+    const nestedCalls: string[] = [];
+    const harness = executableExtension({
+      getAsyncJobTree: () => ({
+        running: [
+          rawJob({ id: "Probe0", type: "task", agentId: "Probe0", ownerId: "root" }),
+          rawJob({ id: "deep", type: "task", agentId: "deep", ownerId: "Probe0", startTime: 3_000 }),
+          rawJob({ id: "bg_9", ownerId: "deep", command: "sleep 900", startTime: 4_000 }),
+        ],
+        recent: [],
+        rootId: "root",
+        agents: [
+          { id: "Probe0", parentId: "root" },
+          { id: "deep", parentId: "Probe0" },
+        ],
+      }),
+      cancelAsyncJob: (id: string) => {
+        asRoot.push(id);
+        return true;
+      },
+      asyncJobManager: {
+        getJob: () => null,
+        cancel: (id: string) => {
+          nestedCalls.push(id);
+          return true;
+        },
+      },
+    });
+    await bindRoot(harness);
+    await harness.arm();
+    const processKey = harness.latest().processKey;
+    await harness.invoke(
+      `kill ${JSON.stringify({ requestId: "d1", processKey, jobId: null, startTime: null })}`,
+    );
+    expect(nestedCalls).toEqual(["bg_9", "deep"]);
+    expect(asRoot).toEqual(["Probe0"]);
+    const result = harness.latest().result!;
+    expect(result).toMatchObject({ requestId: "d1", ok: true });
+    expect(result.cancelled).toEqual(["bg_9", "deep", "Probe0"]);
+  });
+
+  it("kill all cancels nested jobs before their owning task row", async () => {
+    const asRoot: string[] = [];
+    const nestedCalls: string[] = [];
+    const harness = nestedHarness({
+      cancelAsyncJob: (id: string) => {
+        asRoot.push(id);
+        return true;
+      },
+      managerCancel: (id: string) => {
+        nestedCalls.push(id);
+        return true;
+      },
+    });
+    await bindRoot(harness);
+    await harness.arm();
+    const processKey = harness.latest().processKey;
+    await harness.invoke(
+      `kill ${JSON.stringify({ requestId: "n3", processKey, jobId: null, startTime: null })}`,
+    );
+    expect(nestedCalls).toEqual(["bg_1"]);
+    expect(asRoot).toEqual(["Probe0"]);
+    const result = harness.latest().result!;
+    expect(result).toMatchObject({ requestId: "n3", ok: true });
+    // Both rows report their own cancellation; the nested order is the gate.
+    expect(result.cancelled).toEqual(["bg_1", "Probe0"]);
+  });
+
+  it("a root-owned kill on the tree path still rides cancelAsyncJob", async () => {
+    const asRoot: string[] = [];
+    const harness = nestedHarness({
+      cancelAsyncJob: (id: string) => {
+        asRoot.push(id);
+        return true;
+      },
+      managerCancel: () => true,
+    });
+    await bindRoot(harness);
+    await harness.arm();
+    const processKey = harness.latest().processKey;
+    await harness.invoke(
+      `kill ${JSON.stringify({ requestId: "n4", processKey, jobId: "Probe0", startTime: 1_000 })}`,
+    );
+    expect(asRoot).toEqual(["Probe0"]);
+    expect(harness.latest().result?.ok).toBe(true);
+  });
+
   it("unsupported or malformed args throw instead of faking a result", async () => {
     const harness = executableExtension({
       getAsyncJobSnapshot: () => ({ running: [], recent: [], delivery: null }),
