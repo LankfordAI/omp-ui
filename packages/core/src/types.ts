@@ -1723,6 +1723,73 @@ export interface MemoryOverview {
   error: string | null;
 }
 
+/** The intended OMP writer target, including before the database exists. */
+export interface StatsSourceInfo {
+  profile: string | null;
+  databasePath: string;
+  sessionsRoot: string;
+  archiveRoot: string;
+}
+
+export interface StatsQuery {
+  rangeDays: 7 | 30 | null;
+  projectKey: string | null;
+  provider: string | null;
+  model: { provider: string; id: string } | null;
+  agentType: string | null;
+}
+
+export type StatsSyncMode = "if-stale" | "force";
+export type StatsSyncPhase = "running" | "stopping" | "succeeded" | "failed" | "cancelled";
+export interface StatsSyncRun {
+  id: string;
+  phase: StatsSyncPhase;
+  startedAt: number;
+  finishedAt: number | null;
+  error: string | null;
+  exitCode: number | null;
+}
+export interface StatsSyncState {
+  source: StatsSourceInfo | null;
+  sourceError: string | null;
+  run: StatsSyncRun | null;
+  lastSuccessfulSyncAt: number | null;
+}
+
+export type StatsProjectIdentity =
+  | { key: string; kind: "project"; path: string; name: string }
+  | { key: string; kind: "unregistered"; cwd: string }
+  | { key: "chat"; kind: "chat" }
+  | { key: "unattributed"; kind: "unattributed" };
+
+export interface StatsToolRow {
+  name: string;
+  calls: number;
+  completed: number;
+  errors: number;
+  noRecordedOutcome: number;
+  errorRate: number | null;
+}
+
+export interface StatsAgentRow {
+  agentType: string;
+  requests: number;
+  totalTokens: number;
+  cost: number;
+  toolCalls: number | null;
+}
+
+export interface StatsCoverage {
+  latestRequestAt: number | null;
+  indexedFiles: number | null;
+  sourceRootMismatch: boolean;
+  ownedSessionsRoot: string;
+  archiveOnlyFiles: number | null;
+  warnings: ("tools-unavailable" | "tool-outcomes-unavailable" | "indexed-files-unavailable" | "archive-coverage-unknown")[];
+}
+
+export type StatsDataState = "ready" | "missing" | "invalid-source" | "incompatible" | "locked" | "corrupt" | "error";
+
 /** One cross-session total over omp's stats.db (ADR-0037, issue #668). */
 export interface StatsTotals {
   requests: number;
@@ -1738,6 +1805,8 @@ export interface StatsTotals {
   /** Epoch ms of the first/last recorded request; null when the range is empty. */
   firstTs: number | null;
   lastTs: number | null;
+  /** Null means the database has no tool-call capability. */
+  toolCalls: number | null;
 }
 
 /** One UTC-day aggregate point for the Stats view's bars. */
@@ -1760,17 +1829,20 @@ export interface StatsModelRow {
   cost: number;
 }
 
-/** Per-project (folder) usage inside a Stats range, requests-descending by default. */
+/** Canonically attributed selected-window usage. */
 export interface StatsProjectRow {
-  folder: string;
+  identity: StatsProjectIdentity;
   requests: number;
   totalTokens: number;
   cost: number;
+  toolCalls: number | null;
 }
 
-/** One session's whole-life aggregate from omp's stats.db. */
+/** One stored source transcript's selected-window usage. */
 export interface StatsSessionRow {
   sessionFile: string;
+  title: string | null;
+  identity: StatsProjectIdentity;
   requests: number;
   startedAt: number;
   endedAt: number;
@@ -1778,11 +1850,24 @@ export interface StatsSessionRow {
   cost: number;
   unpricedRequests: number;
   models: string[];
-  toolCalls: number;
+  toolCalls: number | null;
 }
 
-/** One read of omp's stats.db; `dbPath` null = omp has not recorded stats yet. */
+/** One consistent read-only database snapshot, independent of collection state. */
 export interface StatsOverview {
+  query: StatsQuery;
+  snapshotAt: number;
+  source: StatsSourceInfo | null;
+  databasePresent: boolean;
+  dataState: StatsDataState;
+  capabilities: { tools: boolean; toolOutcomes: boolean; agentTypes: boolean };
+  facets: {
+    projects: StatsProjectIdentity[];
+    providers: string[];
+    models: { provider: string; id: string }[];
+    agentTypes: string[];
+  };
+  coverage: StatsCoverage;
   dbPath: string | null;
   /** Foreign/corrupt/locked file — a state, not a rejection (ADR-0017). */
   error: string | null;
@@ -1793,6 +1878,8 @@ export interface StatsOverview {
   models: StatsModelRow[];
   projects: StatsProjectRow[];
   sessions: StatsSessionRow[];
+  tools: StatsToolRow[];
+  agents: StatsAgentRow[];
 }
 
 /** One file inside a diagnostics bundle section (issue #413). */

@@ -308,6 +308,45 @@ The browser-pane smoke's `metrics-open-viewport` and `metrics-clear-viewport` st
 
 Viewport replies wait at most one second for host metrics restoration. Unit regressions cover a stalled debugger command, deferred/rejecting bridge settlement, and the delayed pre-commit fallback; the live metrics steps cover normal Chromium restoration before reply.
 
+#### Stats managed-collector proof
+
+Run the isolated, no-model-call proof against the executable selected by the
+same `resolveOmpBinary()` path as the application:
+
+```bash
+npm run test:live --workspace @omp-ui/desktop -- src/main/stats-collector-live.test.ts
+```
+
+The suite uses disposable home/config/data/profile trees and seeded JSONL only;
+it never inherits provider credentials, opens the user's database, launches the
+OMP dashboard, or restores an archive. It requires actual code-0 child closure
+and the intended readable database, checks default/named/XDG/custom-agent/dotenv
+source targeting and legacy cursor migration, then verifies exact request,
+token, cost, agent, fork-deduplication, and tool-outcome amounts. Unchanged runs
+must not duplicate usage; late empty/error outcomes update the retained tool
+owner without adding calls. Transcript/archive hashes must remain unchanged
+apart from the fixture's explicit appends. A separate controllable subprocess
+proves TERM-resistant reaping and host single-flight retention.
+
+The verified OMP 18.17.0 collector produces message rollup version `2` with
+trigger version `4`; the reader deliberately retains its supported version-`3`
+guard and uses raw fallback. The proof records observed schema metadata rather
+than requiring a particular executable version or treating summary output as
+completion. A tool-result-only collection can update outcomes while reporting
+zero newly processed request entries.
+
+For a rendered proof, use the isolated headless launch and direct workspace
+`--pane` command below, with seeded Projects/owned lineages and a pinned resolved
+binary. Open Stats through the command palette in both clients; exercise range,
+Project, paired provider/model and agent filters, tool sorting, UTC chart labels,
+narrow light/dark layouts, source/coverage caveats, and collection failure with
+retained figures. Concurrent clients must observe one host run; browser reload
+must recover it. Use a separate disposable database transaction to hold a writer
+lock when exercising indeterminate indexing and nonzero-exit retention, then
+roll it back. Keep collection freshness distinct from latest recorded usage.
+
+#### First-launch and served-client checks
+
 To verify the Getting started checklist's first-launch gates, a throwaway registry is not enough: the binary row reads `resolveOmpBinary()`, whose PATH scan finds the managed copy whenever the run is launched from a shell inside the packaged app (that PATH starts with `~/.local/share/omp-ui/bin`), and the provider row additionally sees ambient env, the login shell's rc exports, and subscription accounts. Simulate a virgin machine by clearing the environment:
 
 ```bash

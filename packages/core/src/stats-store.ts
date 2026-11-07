@@ -1,13 +1,23 @@
 import * as fs from "node:fs";
-import * as os from "node:os";
 import * as path from "node:path";
-import { DatabaseSync, type SQLOutputValue } from "node:sqlite";
-import { resolveProfile } from "./paths";
+import { DatabaseSync, type SQLInputValue, type SQLOutputValue } from "node:sqlite";
+import {
+  resolveOwnedStatsAttribution,
+  resolveStatsAttributions,
+  statsProjectIdentity,
+  type StatsAttribution,
+  type StatsReadContext,
+} from "./stats-attribution";
 import type {
+  StatsAgentRow,
+  StatsDataState,
   StatsModelRow,
   StatsOverview,
+  StatsProjectIdentity,
   StatsProjectRow,
+  StatsQuery,
   StatsSessionRow,
+  StatsSourceInfo,
   StatsTotals,
 } from "./types";
 
@@ -27,65 +37,6 @@ const DAY_MS = 86_400_000;
 /** The `meta.rollup_version` value omp 18.4.0's rollup layout carries. */
 const ROLLUP_VERSION = "3";
 
-/**
- * omp's stats.db candidates, most likely first; existence-gated like
- * getSessionsRoot. Port of omp's `rootSubdir("stats.db", "data")` resolution:
- * an existence-gated `$XDG_DATA_HOME/omp[/profiles/<p>]` base falling back to
- * the config root (`~/.omp[/profiles/<p>]`, name from `PI_CONFIG_DIR`), plus
- * a `<agentDir>/stats.db` variant when `PI_CODING_AGENT_DIR` is set (default
- * profile only — omp's own special case). Call lazily: the XDG branch is
- * existence-gated and can flip while the app runs. Never throws.
- */
-export function statsDbCandidates(
-  env: NodeJS.ProcessEnv = process.env,
-  platform: NodeJS.Platform = process.platform,
-  home: string = os.homedir(),
-): string[] {
-  const pathApi = platform === "win32" ? path.win32 : path;
-  const profile = resolveProfile(env);
-  const configName = env.PI_CONFIG_DIR || ".omp"; // directory NAME under $HOME
-  const candidates: string[] = [];
-  if (platform === "linux" || platform === "darwin") {
-    const xdg = env.XDG_DATA_HOME;
-    if (xdg) {
-      // Like getSessionsRoot: the XDG base only counts when it ALREADY EXISTS.
-      const dir = profile
-        ? pathApi.join(xdg, "omp", "profiles", profile)
-        : pathApi.join(xdg, "omp");
-      try {
-        if (fs.existsSync(dir)) candidates.push(pathApi.join(dir, "stats.db"));
-      } catch {
-        // fall through to the config root
-      }
-    }
-  }
-  const configRoot = profile
-    ? pathApi.join(home, configName, "profiles", profile)
-    : pathApi.join(home, configName);
-  candidates.push(pathApi.join(configRoot, "stats.db"));
-  // PI_CODING_AGENT_DIR applies only to the DEFAULT profile (ignored when a
-  // named profile is active), mirroring omp's agentDir special case.
-  if (!profile && env.PI_CODING_AGENT_DIR) {
-    candidates.push(pathApi.join(pathApi.resolve(env.PI_CODING_AGENT_DIR), "stats.db"));
-  }
-  return [...new Set(candidates)];
-}
-
-/** First existing candidate; null when omp has not recorded stats yet. Never throws. */
-export function statsDbPath(
-  env: NodeJS.ProcessEnv = process.env,
-  platform: NodeJS.Platform = process.platform,
-  home: string = os.homedir(),
-): string | null {
-  for (const candidate of statsDbCandidates(env, platform, home)) {
-    try {
-      if (fs.existsSync(candidate)) return candidate;
-    } catch {
-      // keep probing
-    }
-  }
-  return null;
-}
 
 /** Numeric column → number; sqlite hands back a bigint for integers past 2^53. */
 function int(value: SQLOutputValue | undefined): number | null {
@@ -103,12 +54,7 @@ function text(value: SQLOutputValue | undefined): string {
   return typeof value === "string" ? value : "";
 }
 
-/** omp's schema probe: a file without `messages` is a state, not a throw. */
-const SCHEMA_PROBE_SQL =
-  "SELECT 1 FROM sqlite_master WHERE type = 'table' AND name = 'messages' LIMIT 1";
-
 const TABLES_SQL = "SELECT name FROM sqlite_master WHERE type = 'table'";
-const COLUMNS_SQL = "PRAGMA table_info(messages)";
 const ROLLUP_VERSION_SQL = "SELECT value FROM meta WHERE key = 'rollup_version'";
 
 /** The aggregate names every message-side arm emits, in UNION order. */
@@ -144,9 +90,13 @@ function unpricedCase(e: string, cols: Set<string>): string {
   return `CASE WHEN ${e}total_tokens > 0 AND ${e}cost_total = 0 AND (${priced}) THEN 1 ELSE 0 END`;
 }
 
-/** The `agent_type` dimension select entry; 18.3+ only, else omp's own default. */
+/** Missing historical dimensions remain unknown, never guessed as main. */
 function agentTypeSelect(e: string, cols: Set<string>): string {
-  return cols.has("agent_type") ? `${e}agent_type` : `'main' AS agent_type`;
+  return `${agentExpression(e, cols)} AS agent_type`;
+}
+
+function agentExpression(e: string, cols: Set<string>): string {
+  return cols.has("agent_type") ? `COALESCE(NULLIF(${e}agent_type, ''), 'unknown')` : "'unknown'";
 }
 
 /**
@@ -181,7 +131,7 @@ function rawGroupBy(e: string, cols: Set<string>): string {
 
 interface InnerQuery {
   sql: string;
-  params: number[];
+  params: SQLInputValue[];
 }
 
 /**
@@ -263,88 +213,56 @@ function modelsSql(inner: string): string {
   );
 }
 
-function projectsSql(inner: string): string {
-  return outerSelect(
-    "f.folder AS folder, SUM(f.requests) AS requests, SUM(f.total_tokens) AS total_tokens, " +
-      "TOTAL(f.cost_total) AS cost",
-    " GROUP BY f.folder ORDER BY requests DESC",
-    inner,
-  );
+type Row = Record<string, SQLOutputValue>;
+const UNATTRIBUTED: StatsAttribution = { identity: { key: "unattributed", kind: "unattributed" }, title: null };
+const REQUIRED_MESSAGES = [
+  "session_file", "model", "provider", "folder", "timestamp", "duration", "stop_reason",
+  "input_tokens", "output_tokens", "cache_read_tokens", "cache_write_tokens", "total_tokens", "cost_total",
+];
+const REQUIRED_TOOLS = ["session_file", "tool_name", "model", "provider", "timestamp"];
+
+function all(db: DatabaseSync, sql: string, params: SQLInputValue[] = []): Row[] {
+  return db.prepare(sql).all(...params) as Row[];
 }
 
-/**
- * The session side of the port: whole-life rows, clean `session_rollup` rows
- * UNION dirty files recomputed live; raw mode is one messages scan. The
- * cutoff filters on `ended_at` — sessions are whole-range rows.
- */
-function sessionsQuery(
-  cols: Set<string>,
-  tables: Set<string>,
-  rollups: boolean,
-  cutoff: number | null,
-): InnerQuery {
-  const toolCalls = (e: string): string =>
-    tables.has("tool_calls")
-      ? `(SELECT COUNT(*) FROM tool_calls tc WHERE tc.session_file = ${e}session_file) AS tool_calls`
-      : "0 AS tool_calls";
-  const scan = (e: string): string =>
-    `${e}session_file, COUNT(*) AS requests, MIN(${e}timestamp) AS started_at, ` +
-    `MAX(${e}timestamp + COALESCE(${e}duration, 0)) AS ended_at, ` +
-    `SUM(${e}total_tokens) AS total_tokens, TOTAL(${e}cost_total) AS cost_total, ` +
-    `SUM(${unpricedCase(e, cols)}) AS unpriced, GROUP_CONCAT(DISTINCT ${e}model) AS models, ` +
-    toolCalls(e);
-  let sql: string;
-  if (rollups) {
-    sql =
-      "SELECT session_file, requests, started_at, ended_at, total_tokens, cost_total, unpriced, models, tool_calls " +
-      "FROM session_rollup WHERE session_file NOT IN (SELECT session_file FROM session_dirty)" +
-      " UNION ALL " +
-      `SELECT ${scan("m.")} FROM session_dirty d JOIN messages m ON m.session_file = d.session_file` +
-      " GROUP BY m.session_file";
-  } else {
-    // The correlation needs the table name: a bare session_file would resolve
-    // to the subquery's own tc.session_file and count every row.
-    sql = `SELECT ${scan("messages.")} FROM messages GROUP BY messages.session_file`;
-  }
-  const where = cutoff === null ? "" : " WHERE f.ended_at >= ?";
-  return {
-    sql: `SELECT f.session_file, f.requests, f.started_at, f.ended_at, f.total_tokens, f.cost_total, ` +
-      `f.unpriced, f.models, f.tool_calls FROM (${sql}) f${where} ORDER BY f.ended_at DESC`,
-    params: cutoff === null ? [] : [cutoff],
-  };
+function columns(db: DatabaseSync, table: string): Set<string> {
+  // Table names are internal constants, never query input.
+  return new Set(all(db, `PRAGMA table_info(${table})`).map((row) => text(row.name)));
+}
+
+function hasColumns(cols: Set<string>, required: readonly string[]): boolean {
+  return required.every((column) => cols.has(column));
 }
 
 function emptyTotals(): StatsTotals {
   return {
-    requests: 0,
-    failed: 0,
-    inputTokens: 0,
-    outputTokens: 0,
-    cacheReadTokens: 0,
-    cacheWriteTokens: 0,
-    totalTokens: 0,
-    premiumRequests: 0,
-    cost: 0,
-    unpricedRequests: 0,
-    firstTs: null,
-    lastTs: null,
+    requests: 0, failed: 0, inputTokens: 0, outputTokens: 0, cacheReadTokens: 0,
+    cacheWriteTokens: 0, totalTokens: 0, premiumRequests: 0, cost: 0,
+    unpricedRequests: 0, firstTs: null, lastTs: null, toolCalls: null,
   };
 }
 
-function emptyOverview(dbPath: string | null, error: string | null): StatsOverview {
+export function emptyStatsOverview(
+  query: StatsQuery,
+  source: StatsSourceInfo | null,
+  error: string | null,
+  dataState: StatsDataState = "missing",
+): StatsOverview {
   return {
-    dbPath,
-    error,
-    rollups: false,
-    totals: emptyTotals(),
-    days: [],
-    models: [],
-    projects: [],
-    sessions: [],
+    query: { ...query, model: query.model === null ? null : { ...query.model } },
+    snapshotAt: Date.now(), source: source === null ? null : { ...source },
+    databasePresent: false, dataState, dbPath: source?.databasePath ?? null, error,
+    rollups: false, totals: emptyTotals(), days: [], models: [], projects: [], sessions: [],
+    tools: [], agents: [], capabilities: { tools: false, toolOutcomes: false, agentTypes: false },
+    facets: { projects: [], providers: [], models: [], agentTypes: [] },
+    coverage: {
+      latestRequestAt: null, indexedFiles: null, sourceRootMismatch: false,
+      ownedSessionsRoot: "", archiveOnlyFiles: null, warnings: [],
+    },
   };
 }
 
-function toTotals(row: Record<string, SQLOutputValue> | undefined): StatsTotals {
+function toTotals(row: Row | undefined): StatsTotals {
   const totals = emptyTotals();
   if (row === undefined) return totals;
   totals.requests = num(row.requests);
@@ -362,104 +280,284 @@ function toTotals(row: Record<string, SQLOutputValue> | undefined): StatsTotals 
   return totals;
 }
 
-function toSessionRow(row: Record<string, SQLOutputValue>): StatsSessionRow {
-  const models = text(row.models);
-  return {
-    sessionFile: text(row.session_file),
-    requests: num(row.requests),
-    startedAt: num(row.started_at),
-    endedAt: num(row.ended_at),
-    totalTokens: num(row.total_tokens),
-    cost: num(row.cost_total),
-    unpricedRequests: num(row.unpriced),
-    models: models === "" ? [] : models.split(",").filter((model) => model !== ""),
-    toolCalls: num(row.tool_calls),
-  };
+function canonicalPath(value: string): string {
+  const api = /^[a-z]:[\\/]|^\\\\/i.test(value) ? path.win32 : path;
+  const normalized = api.resolve(value);
+  const root = api.parse(normalized).root;
+  const trimmed = normalized.length > root.length ? normalized.replace(/[\\/]+$/, "") : normalized;
+  return api === path.win32 ? trimmed.toLowerCase() : trimmed;
+}
+
+/** Root transcripts only: artifact subtrees are not independent sessions. */
+async function archiveActiveFiles(context: StatsReadContext): Promise<string[] | null> {
+  try {
+    const root = context.source.archiveRoot;
+    if (!root || !context.source.sessionsRoot) return null;
+    if (!(await fs.promises.stat(context.source.sessionsRoot)).isDirectory()) return null;
+    const dirs = await fs.promises.readdir(root, { withFileTypes: true });
+    const files: string[] = [];
+    for (const dir of dirs) {
+      if (!dir.isDirectory()) continue;
+      const entries = await fs.promises.readdir(path.join(root, dir.name), { withFileTypes: true });
+      for (const entry of entries) {
+        if (entry.isFile() && entry.name.endsWith(".jsonl.gz")) {
+          files.push(canonicalPath(path.join(context.source.sessionsRoot, dir.name, entry.name.slice(0, -3))));
+        }
+      }
+    }
+    return files;
+  } catch {
+    return null;
+  }
+}
+
+function sessionFiles(db: DatabaseSync, tools: boolean): string[] {
+  return all(db, "SELECT DISTINCT session_file FROM messages" +
+    (tools ? " UNION SELECT DISTINCT session_file FROM tool_calls" : ""))
+    .map((row) => text(row.session_file));
+}
+
+/** Only key discovery precedes filesystem work; none of these rows is returned as usage. */
+function preparationFiles(databasePath: string): string[] {
+  const db = new DatabaseSync(databasePath, { readOnly: true });
+  try {
+    try {
+      return sessionFiles(db, true);
+    } catch (error) {
+      // Optional tool storage can be absent or lack its historical key column.
+      // Capability/schema decisions are made again inside the actual snapshot.
+      if (!/no such table: tool_calls|no such column: session_file/i.test(error instanceof Error ? error.message : String(error))) throw error;
+      return sessionFiles(db, false);
+    }
+  } finally {
+    db.close();
+  }
+}
+
+/** Identical predicates apply independently to requests and invocations. */
+function rowFilter(
+  query: StatsQuery,
+  cols: Set<string>,
+  cutoff: number | null,
+  selectedFiles: string[] | null,
+): InnerQuery {
+  const clauses: string[] = [];
+  const params: SQLInputValue[] = [];
+  if (cutoff !== null) { clauses.push("timestamp >= ?"); params.push(cutoff); }
+  if (query.provider !== null) { clauses.push("provider = ?"); params.push(query.provider); }
+  if (query.model !== null) {
+    clauses.push("provider = ? AND model = ?");
+    params.push(query.model.provider, query.model.id);
+  }
+  if (query.agentType !== null) { clauses.push(`${agentExpression("", cols)} = ?`); params.push(query.agentType); }
+  if (selectedFiles !== null) {
+    clauses.push("session_file IN (SELECT value FROM json_each(?))");
+    params.push(JSON.stringify(selectedFiles));
+  }
+  return { sql: clauses.length === 0 ? "" : ` WHERE ${clauses.join(" AND ")}`, params };
+}
+
+function filteredMessages(cols: Set<string>, rollups: boolean, cutoff: number | null, query: StatsQuery, filter: InnerQuery): InnerQuery {
+  if (query.projectKey !== null) {
+    return {
+      sql: `SELECT (timestamp / ${HOUR_MS}) * ${HOUR_MS} AS bucket, model, provider, folder, ` +
+        `${agentTypeSelect("", cols)}, ${rawAgg("", cols)} FROM messages${filter.sql}${rawGroupBy("", cols)}`,
+      params: filter.params,
+    };
+  }
+  const inner = messageInner(cols, rollups, cutoff);
+  const dimensions = rowFilter(query, cols, null, null);
+  return { sql: `SELECT * FROM (${inner.sql}) f${dimensions.sql}`, params: [...inner.params, ...dimensions.params] };
+}
+
+function sqliteDataState(error: unknown): StatsDataState {
+  const detail = error instanceof Error ? error.message : String(error);
+  if (/locked|busy/i.test(detail)) return "locked";
+  if (/malformed|not a database|corrupt/i.test(detail)) return "corrupt";
+  if (/no such (table|column)/i.test(detail)) return "incompatible";
+  return "error";
 }
 
 /**
- * The cross-session Stats view payload for one range; `rangeDays` null = all
- * time. NEVER throws: no DB → `dbPath: null`; a foreign or unreadable file
- * lands in `error` with empty sections (like readCheckoutExperiments).
- * `dbPathOverride` exists for tests only.
+ * Transcript/header I/O finishes before BEGIN. Every returned SQL value, including
+ * schema capabilities and global facets, then comes from one read-only snapshot.
+ * New writer keys discovered there use only the synchronous owned-registry resolver.
  */
-export async function readStatsOverview(
-  rangeDays: number | null,
-  env: NodeJS.ProcessEnv = process.env,
-  dbPathOverride?: string | null,
-): Promise<StatsOverview> {
-  const cutoff =
-    rangeDays === null
-      ? null
-      : Math.floor((Date.now() - rangeDays * DAY_MS) / HOUR_MS) * HOUR_MS;
-  const dbPath = dbPathOverride === undefined ? statsDbPath(env) : dbPathOverride;
-  if (dbPath === null) return emptyOverview(null, null);
+export async function readStatsOverview(query: StatsQuery, context: StatsReadContext): Promise<StatsOverview> {
+  const snapshotAt = Date.now();
+  const cutoff = query.rangeDays === null ? null : Math.floor((snapshotAt - query.rangeDays * DAY_MS) / HOUR_MS) * HOUR_MS;
+  const overview = emptyStatsOverview(query, context.source, null);
+  overview.snapshotAt = snapshotAt;
+  overview.coverage.ownedSessionsRoot = context.ownedSessionsRoot;
+  overview.coverage.sourceRootMismatch = canonicalPath(context.source.sessionsRoot) !== canonicalPath(context.ownedSessionsRoot);
   let db: DatabaseSync | undefined;
+  let transaction = false;
   try {
-    const opened = new DatabaseSync(dbPath, { readOnly: true });
-    db = opened;
-    if (opened.prepare(SCHEMA_PROBE_SQL).get() === undefined) {
-      return emptyOverview(dbPath, "not an omp stats database");
+    try {
+      await fs.promises.stat(context.source.databasePath);
+    } catch (error) {
+      if ((error as NodeJS.ErrnoException).code === "ENOENT") return overview;
+      throw error;
     }
-    const tables = new Set(
-      (opened.prepare(TABLES_SQL).all() as Record<string, SQLOutputValue>[]).map((row) =>
-        text(row.name),
-      ),
-    );
-    const cols = new Set(
-      (opened.prepare(COLUMNS_SQL).all() as Record<string, SQLOutputValue>[]).map((row) =>
-        text(row.name),
-      ),
-    );
-    const rollups =
-      ["message_rollup", "rollup_dirty", "session_rollup", "session_dirty"].every((name) =>
-        tables.has(name),
-      ) &&
-      tables.has("meta") &&
-      text((opened.prepare(ROLLUP_VERSION_SQL).get() as Record<string, SQLOutputValue> | undefined)?.value) ===
-        ROLLUP_VERSION;
-    const messages = messageInner(cols, rollups, cutoff);
-    const overview = emptyOverview(dbPath, null);
-    overview.rollups = rollups;
-    overview.totals = toTotals(
-      opened.prepare(totalsSql(messages.sql)).get(...messages.params) as
-        | Record<string, SQLOutputValue>
-        | undefined,
-    );
-    const all = (sql: string, params: number[]): Record<string, SQLOutputValue>[] =>
-      opened.prepare(sql).all(...params) as Record<string, SQLOutputValue>[];
-    overview.days = all(daysSql(messages.sql), messages.params).map((row) => ({
-      ts: num(row.ts),
-      requests: num(row.requests),
-      failed: num(row.failed),
-      totalTokens: num(row.total_tokens),
-      cost: num(row.cost),
+    overview.databasePresent = true;
+    const files = preparationFiles(context.source.databasePath);
+    const [attributions, archives] = await Promise.all([
+      resolveStatsAttributions(files, context), archiveActiveFiles(context),
+    ]);
+    db = new DatabaseSync(context.source.databasePath, { readOnly: true });
+    db.exec("BEGIN");
+    transaction = true;
+    const tables = new Set(all(db, TABLES_SQL).map((row) => text(row.name)));
+    const cols = columns(db, "messages");
+    if (!tables.has("messages") || !hasColumns(cols, REQUIRED_MESSAGES)) {
+      overview.dataState = "incompatible";
+      overview.error = "not a compatible omp stats database";
+      return overview;
+    }
+    const toolCols = tables.has("tool_calls") ? columns(db, "tool_calls") : new Set<string>();
+    const tools = hasColumns(toolCols, REQUIRED_TOOLS);
+    const outcomes = tools && hasColumns(toolCols, ["result_chars", "is_error"]);
+    overview.capabilities = { tools, toolOutcomes: outcomes, agentTypes: cols.has("agent_type") || (tools && toolCols.has("agent_type")) };
+    if (!tools) overview.coverage.warnings.push("tools-unavailable");
+    else if (!outcomes) overview.coverage.warnings.push("tool-outcomes-unavailable");
+    const snapshotFiles = sessionFiles(db, tools);
+    for (const file of snapshotFiles) {
+      if (!attributions.has(file)) attributions.set(file, resolveOwnedStatsAttribution(file, context) ?? UNATTRIBUTED);
+    }
+    const identities = new Map<string, StatsProjectIdentity>();
+    for (const project of context.projects) {
+      const identity = statsProjectIdentity(project);
+      identities.set(identity.key, identity);
+    }
+    for (const file of snapshotFiles) {
+      const attribution = attributions.get(file) ?? UNATTRIBUTED;
+      identities.set(attribution.identity.key, attribution.identity);
+    }
+    overview.facets.projects = [...identities.values()].sort((a, b) => a.key.localeCompare(b.key));
+    const selectedFiles = query.projectKey === null ? null : snapshotFiles.filter((file) => attributions.get(file)?.identity.key === query.projectKey);
+    const messageFilter = rowFilter(query, cols, cutoff, selectedFiles);
+    const toolFilter = rowFilter(query, toolCols, cutoff, selectedFiles);
+    // Keep the supported v3 message layout guarded; actual v2 writers scan raw.
+    overview.rollups = query.projectKey === null && cols.has("agent_type") &&
+      ["message_rollup", "rollup_dirty", "session_rollup", "session_dirty", "meta"].every((table) => tables.has(table)) &&
+      text((db.prepare(ROLLUP_VERSION_SQL).get() as Row | undefined)?.value) === ROLLUP_VERSION &&
+      hasColumns(columns(db, "message_rollup"), ROLLUP_COLUMNS) && columns(db, "rollup_dirty").has("bucket");
+    const messages = filteredMessages(cols, overview.rollups, cutoff, query, messageFilter);
+    overview.totals = toTotals(db.prepare(totalsSql(messages.sql)).get(...messages.params) as Row | undefined);
+    overview.days = all(db, daysSql(messages.sql), messages.params).map((row) => ({
+      ts: num(row.ts), requests: num(row.requests), failed: num(row.failed), totalTokens: num(row.total_tokens), cost: num(row.cost),
     }));
-    overview.models = all(modelsSql(messages.sql), messages.params).map(
-      (row): StatsModelRow => ({
-        model: text(row.model),
-        provider: text(row.provider),
-        requests: num(row.requests),
-        failed: num(row.failed),
-        totalTokens: num(row.total_tokens),
-        premiumRequests: num(row.premium_requests),
-        cost: num(row.cost),
-      }),
-    );
-    overview.projects = all(projectsSql(messages.sql), messages.params).map(
-      (row): StatsProjectRow => ({
-        folder: text(row.folder),
-        requests: num(row.requests),
-        totalTokens: num(row.total_tokens),
-        cost: num(row.cost),
-      }),
-    );
-    const sessions = sessionsQuery(cols, tables, rollups, cutoff);
-    overview.sessions = all(sessions.sql, sessions.params).map(toSessionRow);
+    overview.models = all(db, modelsSql(messages.sql), messages.params).map((row): StatsModelRow => ({
+      model: text(row.model), provider: text(row.provider), requests: num(row.requests), failed: num(row.failed),
+      totalTokens: num(row.total_tokens), premiumRequests: num(row.premium_requests), cost: num(row.cost),
+    }));
+    const sessions = new Map<string, StatsSessionRow>();
+    const session = (file: string): StatsSessionRow => {
+      let value = sessions.get(file);
+      if (value === undefined) {
+        const attribution = attributions.get(file) ?? UNATTRIBUTED;
+        value = { sessionFile: file, ...attribution, requests: 0, startedAt: 0, endedAt: 0,
+          totalTokens: 0, cost: 0, unpricedRequests: 0, models: [], toolCalls: tools ? 0 : null };
+        sessions.set(file, value);
+      }
+      return value;
+    };
+    for (const row of all(db,
+      `SELECT session_file, COUNT(*) AS requests, MIN(timestamp) AS started_at, ` +
+      `MAX(timestamp + COALESCE(duration, 0)) AS ended_at, SUM(total_tokens) AS total_tokens, ` +
+      `TOTAL(cost_total) AS cost_total, SUM(${unpricedCase("", cols)}) AS unpriced, ` +
+      `json_group_array(DISTINCT model) AS models FROM messages${messageFilter.sql} GROUP BY session_file`, messageFilter.params)) {
+      Object.assign(session(text(row.session_file)), {
+        requests: num(row.requests), startedAt: num(row.started_at), endedAt: num(row.ended_at),
+        totalTokens: num(row.total_tokens), cost: num(row.cost_total), unpricedRequests: num(row.unpriced),
+        models: JSON.parse(text(row.models)) as string[],
+      });
+    }
+    const agents = new Map<string, StatsAgentRow>();
+    const agent = (name: string): StatsAgentRow => {
+      let value = agents.get(name);
+      if (value === undefined) {
+        value = { agentType: name, requests: 0, totalTokens: 0, cost: 0, toolCalls: tools ? 0 : null };
+        agents.set(name, value);
+      }
+      return value;
+    };
+    for (const row of all(db, outerSelect(
+      "COALESCE(NULLIF(f.agent_type, ''), 'unknown') AS agent_type, SUM(requests) AS requests, SUM(total_tokens) AS total_tokens, TOTAL(cost_total) AS cost",
+      " GROUP BY 1", messages.sql), messages.params)) {
+      Object.assign(agent(text(row.agent_type)), { requests: num(row.requests), totalTokens: num(row.total_tokens), cost: num(row.cost) });
+    }
+    if (tools) {
+      const completed = outcomes ? "result_chars IS NOT NULL AND is_error IN (0, 1)" : "0";
+      overview.tools = all(db, `SELECT tool_name, COUNT(*) AS calls, ` +
+        `SUM(CASE WHEN ${completed} THEN 1 ELSE 0 END) AS completed, ` +
+        `SUM(CASE WHEN ${outcomes ? `(${completed}) AND is_error = 1` : "0"} THEN 1 ELSE 0 END) AS errors ` +
+        `FROM tool_calls${toolFilter.sql} GROUP BY tool_name ORDER BY calls DESC, tool_name`, toolFilter.params).map((row) => {
+        const calls = num(row.calls), done = num(row.completed), errors = num(row.errors);
+        return { name: text(row.tool_name), calls, completed: done, errors, noRecordedOutcome: calls - done, errorRate: done === 0 ? null : errors / done };
+      });
+      overview.totals.toolCalls = overview.tools.reduce((sum, tool) => sum + tool.calls, 0);
+      for (const row of all(db, `SELECT session_file, COUNT(*) AS calls, MIN(timestamp) AS first_ts, MAX(timestamp) AS last_ts ` +
+        `FROM tool_calls${toolFilter.sql} GROUP BY session_file`, toolFilter.params)) {
+        const value = session(text(row.session_file));
+        value.toolCalls = num(row.calls);
+        value.startedAt = value.requests === 0 ? num(row.first_ts) : Math.min(value.startedAt, num(row.first_ts));
+        value.endedAt = Math.max(value.endedAt, num(row.last_ts));
+      }
+      for (const row of all(db, `SELECT ${agentTypeSelect("", toolCols)}, COUNT(*) AS calls FROM tool_calls${toolFilter.sql} GROUP BY 1`, toolFilter.params)) {
+        agent(text(row.agent_type)).toolCalls = num(row.calls);
+      }
+    }
+    overview.sessions = [...sessions.values()].sort((a, b) => b.endedAt - a.endedAt || a.sessionFile.localeCompare(b.sessionFile));
+    overview.agents = [...agents.values()].sort((a, b) => b.requests - a.requests || a.agentType.localeCompare(b.agentType));
+    const projects = new Map<string, StatsProjectRow>();
+    for (const value of overview.sessions) {
+      let project = projects.get(value.identity.key);
+      if (project === undefined) {
+        project = { identity: value.identity, requests: 0, totalTokens: 0, cost: 0, toolCalls: tools ? 0 : null };
+        projects.set(value.identity.key, project);
+      }
+      project.requests += value.requests;
+      project.totalTokens += value.totalTokens;
+      project.cost += value.cost;
+      if (project.toolCalls !== null) project.toolCalls += value.toolCalls ?? 0;
+    }
+    overview.projects = [...projects.values()].sort((a, b) => b.requests - a.requests || a.identity.key.localeCompare(b.identity.key));
+    const dimensions = all(db, `SELECT DISTINCT provider, model, ${agentTypeSelect("", cols)} FROM messages` +
+      (tools ? ` UNION SELECT DISTINCT provider, model, ${agentTypeSelect("", toolCols)} FROM tool_calls` : ""));
+    overview.facets.providers = [...new Set(dimensions.map((row) => text(row.provider)))].sort();
+    const models = new Map<string, { provider: string; id: string }>();
+    for (const row of dimensions) {
+      const model = { provider: text(row.provider), id: text(row.model) };
+      models.set(JSON.stringify([model.provider, model.id]), model);
+    }
+    overview.facets.models = [...models.values()].sort((a, b) => a.provider.localeCompare(b.provider) || a.id.localeCompare(b.id));
+    overview.facets.agentTypes = [...new Set(dimensions.map((row) => text(row.agent_type)))].sort();
+    overview.coverage.latestRequestAt = int((db.prepare("SELECT MAX(timestamp) AS latest FROM messages").get() as Row).latest);
+    if (tables.has("file_offsets") && columns(db, "file_offsets").has("session_file")) {
+      const indexed = all(db, "SELECT session_file FROM file_offsets");
+      overview.coverage.indexedFiles = indexed.length;
+      const active = new Set(indexed.map((row) => {
+        const file = text(row.session_file);
+        return canonicalPath(path.isAbsolute(file) || path.win32.isAbsolute(file) ? file : path.join(context.source.sessionsRoot, file));
+      }));
+      if (archives !== null) overview.coverage.archiveOnlyFiles = archives.filter((file) => !active.has(file)).length;
+    }
+    if (overview.coverage.indexedFiles === null) overview.coverage.warnings.push("indexed-files-unavailable");
+    if (overview.coverage.archiveOnlyFiles === null) overview.coverage.warnings.push("archive-coverage-unknown");
+    overview.dataState = "ready";
     return overview;
   } catch (error) {
-    return emptyOverview(dbPath, error instanceof Error ? error.message : String(error));
+    const failed = emptyStatsOverview(query, context.source, error instanceof Error ? error.message : String(error), sqliteDataState(error));
+    failed.snapshotAt = snapshotAt;
+    failed.databasePresent = overview.databasePresent;
+    failed.coverage = overview.coverage;
+    return failed;
   } finally {
-    db?.close();
+    try {
+      if (transaction) db?.exec("ROLLBACK");
+    } finally {
+      db?.close();
+    }
   }
 }

@@ -1891,9 +1891,14 @@ itself. Closing the dialog is `revise`, not a deferral.
 _Avoid_: experiment draft, auto-configure, wizard step
 
 **Stats view**:
-The global cross-session usage surface — totals, per-day and per-model
-rollups, Projects, and per-session cost — read from omp's stats database,
-opened from the command palette. It takes the main pane in place of the
-tabs and is deliberately not a **Tab**: it is not a view onto a session.
-Reads only; the database belongs to omp.
+The host-local, active-profile cross-session usage surface — recorded API cost,
+tokens, requests, recorded tools and outcomes, agent types, Projects, and sessions
+in the selected range — opened from the command palette. It takes the main pane
+in place of the tabs and is deliberately not a **Tab**: it is not a view onto a
+session. It includes all activity OMP has recorded, not only owned sessions.
+Opening stale Stats and Refresh request one host-owned OMP collection shared by
+desktop and browser clients; overview queries remain read-only and OMP is the
+sole database writer. Owned worktree and nested agent usage belongs to its
+registered Project; Chats stay separate. Archive-only transcripts never indexed
+by OMP are excluded. Recorded cost is not invoice or subscription spend.
 _Avoid_: stats tab, usage dashboard, analytics page

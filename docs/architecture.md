@@ -63,6 +63,51 @@ There is one renderer implementation under [`packages/desktop/src/renderer/src`]
 The diagnostic bundle ([`core/src/diagnostics.ts`](../packages/core/src/diagnostics.ts)) is the feature-seam example for redaction: callers hand the collector the raw settings object, and the scrub that replaces `remoteToken`/`remotePasswordHash`/`remotePasswordSalt` with presence booleans lives inside the collector, not in any caller — a new call site cannot forget it. The bundle's own `manifest.json` states the policy and lists every section with byte counts, so a recipient sees what the file holds.
 
 
+## Stats collection and read-only snapshots
+
+The existing Stats view ([#1083](https://github.com/LankfordAI/omp-ui/issues/1083),
+[ADR-0037](adr/0037-stats-view-reads-omp-stats-db-read-only.md)) reads host-local
+usage for the active OMP profile, including activity outside omp-ui. One
+`MainBackend`-owned core `StatsCollector` explicitly invokes the currently
+resolved OMP executable with `stats --summary`. Opening Stats requests collection
+when the last attempt is at least 60 seconds old; Refresh bypasses that cooldown,
+never the single-flight guard. Closing or reloading either renderer does not
+cancel the child. Shutdown starts TERM synchronously, escalates to KILL, and
+retains the slot until actual closure; success also requires a read-only probe
+of the intended database. Collection status is ephemeral host state, separate
+from latest recorded request time.
+
+`stats-source.ts` mirrors the verified writer's profile, directory-only dotenv,
+custom-agent, and existence-gated XDG selection from a neutral home cwd. It
+returns the intended target even before creation; it never selects a stale
+alternate database. `stats-store.ts` opens only read-only SQLite connections and
+collects aggregates, facets, and metadata in one read transaction after bounded
+header preparation. Supported version-3 message rollups remain an optimization;
+the verified OMP 18.17.0 version-2 layout takes raw fallback. Project-scoped and
+per-file amounts use selected-window raw rows, with requests and tools aggregated
+independently to avoid multiplying money or tokens.
+
+`stats-attribution.ts` uses exact registry lineage ownership and `projectCwd`,
+then confined bounded session headers, never decoded folder labels. Deleted
+worktrees and nested agents retain their registered Project identity; Chats,
+unregistered cwd groups, and unattributed rows remain distinct. Attribution
+follows OMP's retained first-writer fork record, not immutable billing provenance.
+The same strict `stats:overview`, `stats:sync`, and `stats:syncStatus` request
+channels serve desktop and browser clients and preserve the instance-proxy seam;
+there is no joined-host picker or fleet summation, and host-lite's table stays
+intentionally limited.
+
+OMP alone writes `stats.db`. No second ledger, transcript watcher, archive
+restoration, repricing, or live-HUD receipts are added. Collection scans active
+transcripts and retains already indexed history, excluding never-indexed gzip
+archives. Coverage reports unknown states and owned-root mismatches rather than
+claiming lifetime completeness. Costs are recorded/estimated USD usage, not
+invoices or subscription charges. Tool error rates divide errors by recorded
+outcomes only; missing outcomes do not mean running, and skipped non-executions
+can carry non-error outcomes. All five filters apply to every breakdown, including
+sessions in the selected range; day buckets and chart labels are UTC. Failed
+reads or collection retain useful data with its original selection/source label.
+
 ## Process and isolation invariants
 
 - omp-ui must remain single-instance for each application data directory. Electron acquires `requestSingleInstanceLock()` before creating the backend. A second launch focuses the existing window and exits. OMP has no cross-process session lock, so two application instances could otherwise resume and write the same JSONL session.

@@ -43,6 +43,9 @@ import {
   mergeWorktreeBranch,
   readMemoryOverview,
   readStatsOverview,
+  emptyStatsOverview,
+  resolveStatsSource,
+  StatsCollector,
   readSessionTitles,
   type SessionTitlesRead,
   readModelsFileModelProviders,
@@ -173,6 +176,10 @@ import {
   type RemoteInstanceInput,
   type RemoteInstancePatch,
   type RpcFrame,
+  type StatsOverview,
+  type StatsQuery,
+  type StatsSyncMode,
+  type StatsSourceInfo,
   isApprovalMode,
   type ApprovalMode,
   type ServiceTier,
@@ -251,6 +258,14 @@ export class MainBackend {
   readonly #broadcastWaiters = new Set<() => void>();
   private readonly registry: Registry;
   private ompPath = resolveOmpBinary();
+  /** A neutral cwd keeps the app checkout's dotenv out of global Stats. */
+  private readonly statsCwd = os.homedir();
+  /** One host-owned run, shared by the desktop and every remote client. */
+  private readonly statsCollector = new StatsCollector({
+    getOmpPath: () => this.ompPath,
+    getEnv: () => process.env,
+    cwd: this.statsCwd,
+  });
   readonly sessions: SessionManager;
   /** The one plan verification service (§4): owned here, injected downward. */
   private readonly planVerifier: PlanVerifier;
@@ -850,6 +865,28 @@ export class MainBackend {
     return getArchiveRoot(this.sessionsRoot);
   }
 
+  private statsOverview(query: StatsQuery): Promise<StatsOverview> {
+    let source: StatsSourceInfo;
+    try {
+      source = resolveStatsSource({ env: process.env, cwd: this.statsCwd });
+    } catch (error) {
+      return Promise.resolve(emptyStatsOverview(
+        query,
+        null,
+        error instanceof Error ? error.message : "Invalid Stats source",
+        "invalid-source",
+      ));
+    }
+    const ownedSessionsRoot = this.sessionsRoot;
+    return readStatsOverview(query, {
+      source,
+      projects: this.registry.projects,
+      sessions: this.registry.sessions,
+      ownedSessionsRoot,
+      ownedArchiveRoot: getArchiveRoot(ownedSessionsRoot),
+    });
+  }
+
   /** The roots a vault may never be or sit inside (#758); userData is the registry's folder, as in SessionManager's guard. */
   private vaultRootGuard(): RootGuard {
     return {
@@ -1336,9 +1373,11 @@ export class MainBackend {
         // getBranchDiff: it touches no registry/BackendState field and never
         // calls broadcast().
         [CH.memoryOverview]: (projectCwd: string) => readMemoryOverview(projectCwd),
-        // The stats overview is the same kind of stateless core read (ADR-0037):
-        // omp owns the DB, omp-ui only reads it.
-        [CH.statsOverview]: (rangeDays: number | null) => readStatsOverview(rangeDays),
+        // Attribution comes from the owning host's registry/root snapshots,
+        // never renderer-supplied paths or project metadata.
+        [CH.statsOverview]: (query: StatsQuery) => this.statsOverview(query),
+        [CH.statsSync]: (mode: StatsSyncMode) => this.statsCollector.start(mode),
+        [CH.statsSyncStatus]: () => this.statsCollector.status(),
         [CH.autoresearchOverview]: (projectCwd: string) =>
           readProjectExperiments(this.registry.sessions, projectCwd),
         [CH.autoresearchExperiment]: (projectCwd: string, tabId: string | null, experimentId: number) =>
@@ -2366,13 +2405,14 @@ export class MainBackend {
   }
 
   /**
-   * Releases every launch-time resource. The returned promise settles once every project git probe
-   * still in flight has finished — the gitdir probes (#503) and the repository-key/HEAD probes with
-   * the registry writes that follow them (#909). A spawned `git` holds its cwd locked until it
-   * exits, so a teardown that removes that directory cannot return before the child does. Quit
-   * ignores the promise — the process is going away either way.
+   * Releases every launch-time resource. Cancellation begins synchronously;
+   * the returned promise outwaits the Stats child and every in-flight project
+   * git probe, including the registry writes that follow them (#503, #909).
+   * Children hold their cwd until reaped, so teardown must not remove their
+   * directories early. Quit ignores the promise.
    */
   killAll(): Promise<void> {
+    const statsSettled = this.statsCollector.dispose();
     this.desktopPaneStopped = true;
     this.resetDesktopPaneStream();
     this.notifier.dispose();
@@ -2388,7 +2428,7 @@ export class MainBackend {
     this.fleetTerminals.dispose();
     this.remoteInstances.stop();
     void this.remote.stop();
-    return Promise.allSettled([headsSettled, ...this.projectProbes]).then(() => undefined);
+    return Promise.allSettled([statsSettled, headsSettled, ...this.projectProbes]).then(() => undefined);
   }
 
   /**

@@ -9,6 +9,7 @@ import {
   managedOmpDir,
   managedOmpPath,
   mintLineageDirName,
+  normalizeProfileName,
   ompBinaryName,
   resolveOmpBinary,
   resolveProfile,
@@ -119,6 +120,25 @@ describe("resolveProfile", () => {
     expect(resolveProfile({ OMP_PROFILE: "a".repeat(65) })).toBeUndefined();
     expect(resolveProfile({ OMP_PROFILE: "valid-name.1_2" })).toBe("valid-name.1_2");
   });
+  it("normalizes whitespace and the explicit default sentinel", () => {
+    for (const value of [undefined, "", "  ", "default", " default "]) {
+      expect(normalizeProfileName(value)).toBeUndefined();
+      expect(resolveProfile({ OMP_PROFILE: value })).toBeUndefined();
+    }
+    expect(normalizeProfileName(" work ")).toBe("work");
+    expect(resolveProfile({ OMP_PROFILE: " work " })).toBe("work");
+    expect(getSessionsRoot({ OMP_PROFILE: " default " })).toBe(
+      path.join(home, ".omp", "agent", "sessions"),
+    );
+  });
+
+  it.each([".", "..", "work.", "Default", "WORK", "con.txt", "com0", "lpt9.bak", "../work", "a".repeat(65)])(
+    "strictly rejects %s while shared resolution remains safe",
+    (value) => {
+      expect(() => normalizeProfileName(value)).toThrow("Invalid OMP profile");
+      expect(resolveProfile({ OMP_PROFILE: value, PI_PROFILE: "valid" })).toBeUndefined();
+    },
+  );
 });
 
 describe("lineage dir names", () => {

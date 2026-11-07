@@ -59,6 +59,7 @@ import type {
   SessionMode,
   SessionReference,
   SttModelSnapshot,
+  StatsQuery,
   TranscriptWidth,
   UpdateTrain,
   VaultNoteVoice,
@@ -961,20 +962,13 @@ export interface LabSlice {
   startNewSegment(tabId: string): Promise<void>;
 }
 
-/**
- * The Stats main-pane surface (CONTEXT.md "Stats view"): the range it reads.
- * `null` on the store means the surface is closed; any tab activation
- * through `focusOn` closes it (issue #668).
- */
-export interface StatsView {
-  /** null = all time; 7 / 30 = the range presets. */
-  rangeDays: number | null;
-}
+/** The Stats main-pane selection. Tab activation through `focusOn` closes it. */
+export type StatsView = StatsQuery;
 
 export interface StatsSlice {
   stats: StatsView | null;
-  openStats(rangeDays?: number | null): void;
-  setStatsRange(rangeDays: number | null): void;
+  openStats(query?: StatsQuery): void;
+  setStatsQuery(query: StatsQuery): void;
   closeStats(): void;
 }
 

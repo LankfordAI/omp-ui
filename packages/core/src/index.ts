@@ -314,7 +314,15 @@ export {
   readExperimentLogPath,
   readExperimentRuns,
 } from "./autoresearch-store";
-export { readStatsOverview, statsDbCandidates, statsDbPath } from "./stats-store";
+export { readStatsOverview, emptyStatsOverview } from "./stats-store";
+export { resolveStatsSource } from "./stats-source";
+export { StatsCollector, type StatsCollectorDependencies } from "./stats-collector";
+export {
+  resolveStatsAttributions,
+  resolveOwnedStatsAttribution,
+  type StatsAttribution,
+  type StatsReadContext,
+} from "./stats-attribution";
 export {
   formatModelRole,
   getOmpAgentDir,
