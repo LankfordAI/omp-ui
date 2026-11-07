@@ -235,9 +235,11 @@ export const REMOTE_PROXY_CHANNELS: ReadonlySet<string> = new Set<string>([
   "favorites:toggle",
   // The Knowledge tab of a joined project lists that host's vault names (#759); names only, no path, and no other vault:* channel crosses.
   "vault:names",
-  // Cross-session stats follow the owning instance (#668): the stats DB is
-  // that host's own ~/.omp/stats.db, read by that instance's core.
+  // Cross-session stats and collection follow the owning instance (#1083):
+  // every client observes that host's source and single shared collector.
   "stats:overview",
+  "stats:sync",
+  "stats:syncStatus",
   // Fleet placement reads each member's resources and projects (issue #899).
   // fleet:dispatch / fleet:machines orchestrate in the acting app's main and
   // never reach a joined instance.

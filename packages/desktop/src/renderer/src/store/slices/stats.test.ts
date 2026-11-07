@@ -1,50 +1,54 @@
-// Stats slice tests (issue #668): the Stats view's open/set-range/close
-// transitions, and focusOn's coordination with it.
 import { describe, expect, it } from "vitest";
+import type { StatsQuery } from "@omp-ui/core/types";
 import { h } from "../../test/store-harness";
 import { focusOn } from "./view";
 
+const ALL: StatsQuery = { rangeDays: null, projectKey: null, provider: null, model: null, agentType: null };
+const FILTERED: StatsQuery = {
+  rangeDays: 7,
+  projectKey: "project:/work/app",
+  provider: "anthropic",
+  model: { provider: "anthropic", id: "claude" },
+  agentType: "task",
+};
+
 describe("Stats view slice", () => {
-  it("opens closed", () => {
+  it("starts closed and defaults every filter to all", () => {
     expect(h.useStore.getState().stats).toBeNull();
-  });
-
-  it("openStats opens with all time by default and an explicit range", () => {
     h.useStore.getState().openStats();
-    expect(h.useStore.getState().stats).toEqual({ rangeDays: null });
-    h.useStore.getState().openStats(30);
-    expect(h.useStore.getState().stats).toEqual({ rangeDays: 30 });
+    expect(h.useStore.getState().stats).toEqual(ALL);
   });
 
-  it("setStatsRange only mutates an open surface", () => {
-    h.useStore.getState().setStatsRange(7);
-    expect(h.useStore.getState().stats).toBeNull();
-    h.useStore.getState().openStats(30);
-    h.useStore.getState().setStatsRange(7);
-    expect(h.useStore.getState().stats).toEqual({ rangeDays: 7 });
-    h.useStore.getState().setStatsRange(null);
-    expect(h.useStore.getState().stats).toEqual({ rangeDays: null });
-  });
-
-  it("closeStats closes", () => {
-    h.useStore.getState().openStats(7);
+  it("opens and replaces the whole query without retaining old filters", () => {
+    h.useStore.getState().openStats(FILTERED);
+    expect(h.useStore.getState().stats).toEqual(FILTERED);
+    h.useStore.getState().setStatsQuery({ ...ALL, rangeDays: 30 });
+    expect(h.useStore.getState().stats).toEqual({ ...ALL, rangeDays: 30 });
     h.useStore.getState().closeStats();
+    h.useStore.getState().setStatsQuery(FILTERED);
     expect(h.useStore.getState().stats).toBeNull();
+    h.useStore.getState().openStats();
+    expect(h.useStore.getState().stats).toEqual(ALL);
   });
 
-  it("openStats closes the Fleet view: the main pane shows one surface", () => {
+  it("copies caller-owned paired model selections", () => {
+    const query: StatsQuery = { ...FILTERED, model: { provider: "anthropic", id: "original" } };
+    h.useStore.getState().openStats(query);
+    query.model!.id = "mutated";
+    expect(h.useStore.getState().stats?.model?.id).toBe("original");
+    h.useStore.getState().setStatsQuery(query);
+    query.model!.id = "changed again";
+    expect(h.useStore.getState().stats?.model?.id).toBe("mutated");
+  });
+
+  it("closes Fleet and its terminal when taking the main pane", () => {
     h.useStore.setState({ fleet: { machines: null, audit: null, updateAll: null, loading: false, error: null } });
     h.useStore.getState().openStats();
     expect(h.useStore.getState().fleet).toBeNull();
+    expect(h.useStore.getState().fleetTerminal).toBeNull();
   });
 
-  it("focusOn closes the Stats view like the Lab", () => {
-    expect(focusOn(h.TAB)).toEqual({
-      activeTabId: h.TAB,
-      lab: null,
-      stats: null,
-      fleet: null,
-      fleetTerminal: null,
-    });
+  it("focusOn closes Stats like the other main-pane surfaces", () => {
+    expect(focusOn(h.TAB)).toEqual({ activeTabId: h.TAB, lab: null, stats: null, fleet: null, fleetTerminal: null });
   });
 });

@@ -4,7 +4,7 @@ This guide explains what users receive from a release and how maintainers publis
 
 ## Unreleased
 
-Nothing since [v0.33.0](https://github.com/LankfordAI/omp-ui/releases/tag/v0.33.0). Add one bullet per shipped change here before cutting the next tag.
+- Stats now explicitly runs OMP's host-owned collector and shares its status across desktop/browser clients, with consistent Project/provider/model/agent/range filters, worktree-aware Project costs, recorded tool outcomes, selected-range sessions, UTC charts, retained snapshots on failure, and honest archive/money coverage ([#1083](https://github.com/LankfordAI/omp-ui/issues/1083)).
 
 ## Choose a download
 

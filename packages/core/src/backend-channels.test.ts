@@ -14,7 +14,7 @@ import {
   type OmpBackend,
   type RequestChannel,
 } from "./backend-channels";
-import type { MergeBackStatus, SpawnRequest } from "./types";
+import type { MergeBackStatus, SpawnRequest, StatsOverview, StatsQuery, StatsSyncMode, StatsSyncState } from "./types";
 
 type SpecChannel<Kind extends BackendChannelSpec[keyof BackendChannelSpec]["kind"]> = {
   [Method in keyof BackendChannelSpec]: BackendChannelSpec[Method]["kind"] extends Kind
@@ -49,6 +49,14 @@ const spawnRequest: SpawnRequest = {
   cols: 120,
   rows: 40,
   worktree: null,
+};
+
+const statsQuery: StatsQuery = {
+  rangeDays: null,
+  projectKey: null,
+  provider: null,
+  model: null,
+  agentType: null,
 };
 
 const VALID_ARGS = {
@@ -320,7 +328,9 @@ const VALID_ARGS = {
   sessionReference: ["tab-1"],
   setSessionToolEnabled: ["tab-1", "proc-1", "sess-1", "web search", true],
   startProviderOAuth: ["openai-codex"],
-  statsOverview: [7],
+  statsOverview: [statsQuery],
+  statsSync: ["if-stale"],
+  statsSyncStatus: [],
   suggestBranchName: ["/project", "plan"],
   refreshAgentRoster: [],
   setProjectSubagentModel: ["/project", "scout", null],
@@ -537,6 +547,9 @@ describe("BACKEND_CHANNELS", () => {
         worktreePath: string | null,
       ) => MergeBackStatus | Promise<MergeBackStatus>
     >();
+    expectTypeOf<OmpBackend["statsOverview"]>().toEqualTypeOf<(query: StatsQuery) => Promise<StatsOverview>>();
+    expectTypeOf<OmpBackend["statsSync"]>().toEqualTypeOf<(mode: StatsSyncMode) => Promise<StatsSyncState>>();
+    expectTypeOf<OmpBackend["statsSyncStatus"]>().toEqualTypeOf<() => Promise<StatsSyncState>>();
   });
 
   it("marks only the pane frames as lossy", () => {
@@ -564,6 +577,70 @@ describe("makeBackendClient", () => {
         expect(records.at(-1)).toEqual({ channel: descriptor.channel, args });
       }
     }
+  });
+});
+
+describe("Stats request contracts", () => {
+  it.each([null, 7, 30] as const)("accepts a complete query with range %s", async (rangeDays) => {
+    const { table, calls } = recordingTable();
+    const query: StatsQuery = {
+      rangeDays,
+      projectKey: "project:/work/project",
+      provider: "provider",
+      model: { provider: "provider", id: "model" },
+      agentType: "scout",
+    };
+    await dispatchRequest(table, CH.statsOverview, [query]);
+    expect(calls).toEqual([{ channel: CH.statsOverview, args: [query] }]);
+  });
+
+  it.each([
+    [7, "argument 0"],
+    [null, "argument 0"],
+    [[], "argument 0"],
+    [{ ...statsQuery, rangeDays: 14 }, "argument 0.rangeDays"],
+    [{ ...statsQuery, rangeDays: "7" }, "argument 0.rangeDays"],
+    [{ ...statsQuery, projectKey: 1 }, "argument 0.projectKey"],
+    [{ ...statsQuery, provider: false }, "argument 0.provider"],
+    [{ ...statsQuery, model: "provider/model" }, "argument 0.model"],
+    [{ ...statsQuery, model: { id: "model" } }, "argument 0.model.provider"],
+    [{ ...statsQuery, model: { provider: "provider" } }, "argument 0.model.id"],
+    [{ ...statsQuery, model: { provider: "provider", id: 1 } }, "argument 0.model.id"],
+    [{ ...statsQuery, model: { provider: "provider", id: "model", extra: "do-not-echo" } }, "argument 0.model"],
+    [{ ...statsQuery, agentType: [] }, "argument 0.agentType"],
+    [{ ...statsQuery, source: "do-not-echo" }, "argument 0"],
+  ] as const)("rejects malformed queries before database access", async (query, path) => {
+    const { table, calls } = recordingTable();
+    await expect(dispatchRequest(table, CH.statsOverview, [query])).rejects.toThrow(path);
+    expect(calls).toHaveLength(0);
+    await expect(dispatchRequest(table, CH.statsOverview, [query])).rejects.not.toThrow("do-not-echo");
+  });
+
+  it.each(Object.keys(statsQuery))("requires the %s field even when unfiltered", async (field) => {
+    const query: Record<string, unknown> = { ...statsQuery };
+    delete query[field];
+    const { table, calls } = recordingTable();
+    await expect(dispatchRequest(table, CH.statsOverview, [query])).rejects.toThrow(`argument 0.${field}`);
+    expect(calls).toHaveLength(0);
+  });
+
+  it.each([
+    [CH.statsSync, [], "argument 0"],
+    [CH.statsSync, [null], "argument 0"],
+    [CH.statsSync, ["refresh"], "argument 0"],
+    [CH.statsSync, ["force", "extra"], "expected at most 1"],
+    [CH.statsSyncStatus, ["extra"], "expected at most 0"],
+    [CH.statsOverview, [statsQuery, "extra"], "expected at most 1"],
+  ] as const)("rejects unsupported sync modes and argument positions", async (channel, args, path) => {
+    const { table, calls } = recordingTable();
+    await expect(dispatchRequest(table, channel, [...args])).rejects.toThrow(path);
+    expect(calls).toHaveLength(0);
+  });
+
+  it.each(["if-stale", "force"] as const)("accepts the %s collection mode", async (mode) => {
+    const { table, calls } = recordingTable();
+    await dispatchRequest(table, CH.statsSync, [mode]);
+    expect(calls).toEqual([{ channel: CH.statsSync, args: [mode] }]);
   });
 });
 

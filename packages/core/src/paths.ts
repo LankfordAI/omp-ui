@@ -4,9 +4,25 @@ import * as os from "node:os";
 import * as path from "node:path";
 import { slugifyProjectName } from "./worktree-branch";
 
-// Ported from @oh-my-pi/pi-utils src/dirs.ts (v17.1.8): profile validation.
+// Ported from @oh-my-pi/pi-utils src/dirs.ts (v18.17.0): profile validation.
 const PROFILE_NAME_RE = /^[a-z0-9][a-z0-9._-]{0,63}$/;
 const WINDOWS_RESERVED_BASENAME_RE = /^(?:CON|PRN|AUX|NUL|COM[0-9]|LPT[0-9])(?:\..*)?$/i;
+
+/** Strict profile validation used by OMP's CLI before selecting a source. */
+export function normalizeProfileName(profile: string | undefined): string | undefined {
+  const normalized = profile?.trim();
+  if (!normalized || normalized === "default") return undefined;
+  if (
+    normalized === "." ||
+    normalized === ".." ||
+    normalized.endsWith(".") ||
+    !PROFILE_NAME_RE.test(normalized) ||
+    WINDOWS_RESERVED_BASENAME_RE.test(normalized)
+  ) {
+    throw new Error("Invalid OMP profile name.");
+  }
+  return normalized;
+}
 
 /**
  * Mirrors omp's readProfileFromEnvSafe: OMP_PROFILE wins over PI_PROFILE when
@@ -14,10 +30,11 @@ const WINDOWS_RESERVED_BASENAME_RE = /^(?:CON|PRN|AUX|NUL|COM[0-9]|LPT[0-9])(?:\
  * invalid names resolve to undefined. Never throws.
  */
 export function resolveProfile(env: NodeJS.ProcessEnv = process.env): string | undefined {
-  const raw = env.OMP_PROFILE !== undefined ? env.OMP_PROFILE : env.PI_PROFILE;
-  if (raw === undefined || raw === "") return undefined;
-  if (!PROFILE_NAME_RE.test(raw) || WINDOWS_RESERVED_BASENAME_RE.test(raw)) return undefined;
-  return raw;
+  try {
+    return normalizeProfileName(env.OMP_PROFILE !== undefined ? env.OMP_PROFILE : env.PI_PROFILE);
+  } catch {
+    return undefined;
+  }
 }
 
 /**

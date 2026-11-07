@@ -75,6 +75,9 @@ import type {
   SpawnAnswer,
   SpawnRequest,
   StatsOverview,
+  StatsQuery,
+  StatsSyncMode,
+  StatsSyncState,
   SttModelSnapshot,
   SttTranscribeRequest,
   SttTranscribeResult,
@@ -176,10 +179,12 @@ import {
   imageAttachmentCodec,
   knowledgeHomeCodec,
   liveHistoryTurnCodec,
+  lit,
   mcpSetEnabledRequestCodec,
   nullable,
   num,
   ompSettingValueCodec,
+  objectOf,
   oneOf,
   planFormatCodec,
   projectOpenTargetCodec,
@@ -237,6 +242,21 @@ import type { WebhookInput, WebhookPatch, WebhookSecretReveal, WebhooksState } f
 import type { ThemeMode } from "./theme";
 import type { VsCodeImportResult, VsCodeThemeFileInput } from "./vscode-theme";
 import type { McpClientInput, McpClientPatch, McpEndpointState, McpTokenReveal } from "./mcp-endpoint";
+
+const sevenDaysCodec = lit(7);
+const thirtyDaysCodec = lit(30);
+const statsQueryCodec = objectOf<StatsQuery>({
+  rangeDays: nullable({
+    expected: "7 or 30",
+    decode(value, path) {
+      return (value === 7 ? sevenDaysCodec : thirtyDaysCodec).decode(value, path);
+    },
+  }),
+  projectKey: nullable(str()),
+  provider: nullable(str()),
+  model: nullable(objectOf({ provider: str(), id: str() })),
+  agentType: nullable(str()),
+});
 
 declare const CHANNEL_ARGS: unique symbol;
 
@@ -1353,13 +1373,23 @@ export const BACKEND_CHANNELS = {
     >([str(), nullable(str()), num(), num()]),
   },
   /**
-   * Cross-session usage read from omp's stats.db (ADR-0037, issue #668).
-   * `rangeDays` null = all time. Never rejects — a missing or foreign DB
-   * lands in `.dbPath` / `.error` like memoryOverview.
+   * Cross-session usage from the owning host's selected OMP stats source.
+   * Reads are independent of collection; unavailable sources and databases
+   * return explicit data states rather than rejecting.
    */
   statsOverview: {
     channel: "stats:overview",
-    ...request<[rangeDays: number | null], StatsOverview>([nullable(num())]),
+    ...request<[query: StatsQuery], StatsOverview>([statsQueryCodec]),
+  },
+  /** Starts or observes the owning host's single shared collection run. */
+  statsSync: {
+    channel: "stats:sync",
+    ...request<[mode: StatsSyncMode], StatsSyncState>([oneOf("if-stale", "force")]),
+  },
+  /** Observes collection without cancelling it when a client disconnects. */
+  statsSyncStatus: {
+    channel: "stats:syncStatus",
+    ...request<[], StatsSyncState>([]),
   },
   /**
    * Fleet dispatch (issue #899, ADR-0061). This host's resources and

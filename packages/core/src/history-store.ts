@@ -39,8 +39,8 @@ export interface SessionTitlesRead {
 }
 
 /**
- * omp's history.db candidates, most likely first; existence-gated like
- * statsDbCandidates. Per upstream dirs.ts `getHistoryDbPath`, history.db
+ * omp's history.db candidates, most likely first. Per upstream dirs.ts
+ * `getHistoryDbPath`, history.db
  * lives in the AGENT dir (`~/.omp[/profiles/<p>]/agent/history.db`, name from
  * `PI_CONFIG_DIR`) unless the XDG migration moved it: an existence-gated
  * `$XDG_DATA_HOME/omp[/profiles/<p>]` base (Linux/macOS, default profile only)
