@@ -5385,9 +5385,9 @@ describe("foreign omp launch notice (#1022)", () => {
     const rpc = rpcInstances[0]!;
 
     rpc.frame({ type: "agent_start" });
-    rpc.frame({ type: "tool_execution_start", toolCallId: "t1", toolName: "bash", args: { command: "OMP_SESSION_LOG=/tmp/x omp --print 'hi' && echo done" } });
+    rpc.frame({ type: "tool_execution_start", toolCallId: "t1", toolName: "bash", args: { command: "OMP_SESSION_LOG=/tmp/x omp 'hi' && echo done" } });
     rpc.frame({ type: "tool_execution_end", toolCallId: "t1" });
-    rpc.frame({ type: "tool_execution_start", toolCallId: "t2", toolName: "bash", args: { command: "omp --print again" } });
+    rpc.frame({ type: "tool_execution_start", toolCallId: "t2", toolName: "bash", args: { command: "omp again" } });
 
     const notices = foreignNotices(sent);
     expect(notices).toHaveLength(1);

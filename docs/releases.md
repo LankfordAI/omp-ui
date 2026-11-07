@@ -13,6 +13,7 @@ This guide explains what users receive from a release and how maintainers publis
 - Tool-result truncation facts remain expandable even without output text, and final results replace or clear preview facts. Web-search fallback diagnostics survive completions that omit the tool name (#1065, #1066).
 - Browser viewport commands restore pane geometry immediately, with a one-second wait limit so stalled restoration cannot hold an agent's reply indefinitely (#1072).
 - Manual-skill catalogs skip invalid glob patterns with a warning while retaining valid matches (#1074).
+- The "launched a bare `omp` child" warning now fires only on real session launches: the word `omp` in a command position, starting or resuming a session. Mentions inside commit messages, quotes, and heredocs, `omp --version`/`--help` probes, the `config`/`models`/`token` subcommands, and `--no-session`/print runs stay silent (#1075).
 
 ## Choose a download
 
