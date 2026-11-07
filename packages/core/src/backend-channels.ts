@@ -1100,6 +1100,26 @@ export const BACKEND_CHANNELS = {
     channel: "session:setAutoTitled",
     ...request<[tabId: string, autoTitled: boolean], void>([str(), bool()]),
   },
+  /**
+   * Atomic first-title ownership for one tab (issue #1090). Every renderer's
+   * first-title dispatch route — the substantive early arm, the live-voice
+   * delegation, the assistant-context deferral, the turn-end safety net —
+   * claims this slot in the owning instance's main process immediately before
+   * spending `/rename`, and only the winner dispatches. Renderers reduce the
+   * same frames independently and each latches only its own copy, so local
+   * state cannot decide who owns the shot; the grant is first-come-first-served
+   * at the arbiter. Granted only while no renderer's first shot owns the tab
+   * and the registry still records the session as untitled — a typed name
+   * from any window retires the race at the arbiter. The winner's renderer
+   * alone carries the bounded retry ladder. The slot releases when the tab's
+   * process exits or the tab is deleted, so a successor gets its own chance;
+   * main holds it in memory only — losing it (main restart) costs at most one
+   * idempotent duplicate dispatch, never a title.
+   */
+  claimFirstTitle: {
+    channel: "session:claimFirstTitle",
+    ...request<[tabId: string], boolean>([str()]),
+  },
   /** Parks a session in the sidebar's Snoozed section, or returns it (issue #935).
    *  `untilMs` (issue #979) is the epoch-ms deadline at which the owning host's
    *  main process unsnoozes it; absent or null snoozes indefinitely. Ignored

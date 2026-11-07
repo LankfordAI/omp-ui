@@ -768,6 +768,8 @@ export class SessionManager {
     if (this.live.get(tabId) === entry) {
       this.live.delete(tabId);
       this.turns.clear(tabId);
+      // A successor process gets its own first-title chance (issue #1090).
+      this.firstTitleShots.delete(tabId);
       for (const obs of this.frameObservers) obs.onExit(tabId);
       this.collab.noteLiveChange();
       this.deps.attention?.sessionExit(tabId);
@@ -2074,6 +2076,37 @@ export class SessionManager {
     return entry?.kind === "rpc-ui" ? entry.modelHold : null;
   }
 
+  /** Tabs with a first-title shot owner (issue #1090); see `claimFirstTitle`. */
+  private readonly firstTitleShots = new Set<string>();
+
+  /**
+   * Atomic first-title ownership (issue #1090): tabs whose first auto-title
+   * shot already has an owner. Renderers are independent reducers of the same
+   * frames and latch only their own copy, so every first-title dispatch route
+   * — early arm, live-voice delegation, assistant-context deferral, turn-end
+   * safety net — claims here immediately before spending `/rename`, and only
+   * the winner dispatches; the loser's renderer retires silently and the
+   * owner's bounded retry ladder carries any decline. Granted only for a
+   * real, native, still-untitled session: an absent record (stale tabId), a
+   * PTY session (omp titles those itself), or a title any window typed first
+   * all refuse rather than hold state. A title landing through omp's own path
+   * while the race runs is harmless — every renderer re-reads the record
+   * before dispatch and spends nothing on a titled session. Memory-only: an
+   * exit or delete releases the slot so a successor gets its own chance, and
+   * losing the whole table (main restart) costs at most one idempotent
+   * duplicate dispatch, never a title.
+   */
+  claimFirstTitle(tabId: string): boolean {
+    const record = this.deps.registry.sessions.find((s) => s.tabId === tabId);
+    if (!record || record.mode !== "rpc-ui") return false;
+    const title = record.cachedTitle?.trim();
+    if (title !== "" && title !== undefined && title.toLowerCase() !== "new session")
+      return false;
+    if (this.firstTitleShots.has(tabId)) return false;
+    this.firstTitleShots.add(tabId);
+    return true;
+  }
+
   /** Hands every staged fleet wake to the parent: arms on a live native process, else resumes it (§2.1). */
   flushFleetWakes(tabId: string): void {
     const access = this.deps.fleetWake?.();
@@ -3213,6 +3246,8 @@ export class SessionManager {
     if (!record) return;
     const entry = this.live.get(tabId);
     if (entry) await this.killAndReap(tabId, entry);
+    // The tab is gone; its first-title ownership (issue #1090) dies with it.
+    this.firstTitleShots.delete(tabId);
     this.stallWatchdog.dispose(tabId);
     this.hibernation.dispose(tabId);
     this.toolControl.dispose(tabId);

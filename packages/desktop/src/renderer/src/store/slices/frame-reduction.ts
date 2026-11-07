@@ -490,6 +490,9 @@ export function createFrameReductionSlice(
       case "arm-delegated-title":
         get().armDelegatedTitle(tabId, effect.prompt);
         return;
+      case "fire-deferred-title":
+        get().fireDeferredTitle(tabId);
+        return;
       case "append-transcript-item":
         m.appendItem(tabId, effect.item);
         return;

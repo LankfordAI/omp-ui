@@ -1590,6 +1590,11 @@ export interface UiStore extends SettingsSlice, UpdatesSlice, LabSlice, StatsSli
    *  then the shot waits for the first assistant `message_end` whose text
    *  or thinking omp's title digest can read. */
   armDelegatedTitle(tabId: string, prompt: string): void;
+  /** The assistant-context deferred shot (issue #1090): no-op unless this
+   *  renderer holds the deferral's low-signal decline and the session is
+   *  still unarmed/unlatched when the counted assistant context crossed
+   *  the threshold; spends the one shot through the shared `fireTitleShot`. */
+  fireDeferredTitle(tabId: string): void;
   renameSession(tabId: string): void;
   /** The replan refresh (issue #804): re-dispatch the bare `/rename` after a
    *  `todo init` when the title is still an omp-ui-generated auto-title;

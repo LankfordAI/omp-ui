@@ -312,6 +312,9 @@ export function createSessionBundle(input: LiteSessionBundleDependencies): LiteS
       input.registry.updateSession(tabId, { autoTitled });
       void broadcast();
     },
+    // First-title ownership (issue #1090): the same atomic claim desktop
+    // main answers — joined renderers of a host-lite-owned session race here.
+    [CH.claimFirstTitle]: (tabId: string) => manager.claimFirstTitle(tabId),
     // The snooze deadline's wake clock is the index slice's service (the
     // desktop backend's snoozeClock): the flag/deadline persists here so the
     // owner's sidebar stays honest; nothing fires a live-process wake until

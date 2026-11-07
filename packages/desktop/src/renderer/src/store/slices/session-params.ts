@@ -2271,8 +2271,12 @@ export function createSessionParamsSlice(
     const resp = await m.runCommand(tabId, { type: "set_session_name", name });
     if (resp === null) return;
     // A user-chosen name is final — the auto-titler must not overwrite it.
-    // Clearing the attempt retires any in-flight retry budget (issue #791).
+    // Clearing the attempt retires any in-flight retry budget (issue #791),
+    // and an assistant-context deferral dies here too (issue #1090): locally
+    // latched, and in every other renderer at the first-title claim, whose
+    // grant refuses once the registry carries this name.
     m.patchRpc(tabId, { hasRenamed: true, initialPrompt: null, titleAttempt: null });
+    m.patchRuntime(tabId, { deferredTitle: undefined });
     // omp-ui's mirror of omp's `titleSource === "user"` gate: a typed name
     // also clears the auto-title marker, so replans stop refreshing (issue #804).
     void backend.setSessionAutoTitled(tabId, false);

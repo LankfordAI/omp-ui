@@ -57,6 +57,7 @@ export type RpcCommandSlice = Pick<
   | "setInitialPrompt"
   | "dispatchEarlyTitle"
   | "armDelegatedTitle"
+  | "fireDeferredTitle"
   | "renameSession"
   | "refreshAutoTitle"
   | "setSessionToolEnabled"
@@ -959,12 +960,30 @@ export function createRpcCommandSlice(
     // A greeting or bare ack would latch permanently — defer to the next
     // prompt instead (same policy as omp's own titling). The deferral also
     // avoids a pointless engine call: omp's generator gates its digest,
-    // but the latch here would already be set by then.
-    if (isLowSignalTitleInput(prompt)) return false;
+    // but the latch here would already be set by then. A declined prompt
+    // does not lose the opportunity outright (issue #1090): this renderer —
+    // the one that sent the prompt, and the only one that arms — holds an
+    // assistant-context deferral, so a useful reply can still title the
+    // session without waiting for another human prompt. An existing
+    // deferral keeps its word count; re-declining restarts nothing.
+    if (isLowSignalTitleInput(prompt)) {
+      // `patchRuntime` refuses to invent an owner, and a first prompt can
+      // arrive before any frame has taken the runtime slot — take it first,
+      // same ensure pattern `bumpCapabilitiesGeneration` uses.
+      if (m.runtime(tabId).deferredTitle === undefined)
+        m.patchRuntime(tabId, { deferredTitle: { words: 0 } });
+      return false;
+    }
     // The shot rides the message's commit to omp's history: the reducer
     // calls `dispatchEarlyTitle` at the user `message_start` the turn
     // admits (issue #795); the first untitled `agent_end` stays the safety
-    // net if that frame never arrived.
+    // net if that frame never arrived. A substantive arm owns the one shot,
+    // so any assistant-context deferral retires with it (issue #1090) —
+    // otherwise the early dispatch and the deferred fire could each spend a
+    // request before the latch closed. Cross-renderer ownership is settled
+    // at dispatch time by `fireTitleShot`'s single atomic claim, not here:
+    // the #795 trigger itself stays local.
+    m.patchRuntime(tabId, { deferredTitle: undefined });
     m.patchRpc(tabId, { initialPrompt: prompt });
     return true;
   };
@@ -1023,19 +1042,70 @@ export function createRpcCommandSlice(
       });
   };
 
-  // The one shot, from either trigger: latch it closed and, while the
-  // record is still untitled, spend it. The record is re-read here so a
-  // title that landed between trigger and fire (plan branch, watcher
-  // hydration) is never paid for twice.
+  // The one shot, from any trigger (early arm, delegated arm, deferred
+  // context, turn-end safety net): first win the tab's atomic first-title
+  // claim in the owning instance's main process (issue #1090). Renderers
+  // reduce the same frames independently and latch only their own copy, so
+  // this single arbiter decides which renderer spends `/rename`: denied —
+  // another renderer already owns this session's first title — latch closed
+  // with no attempt and retire in silence; the winner alone carries the
+  // bounded retry ladder. The titled short-circuit runs before claiming so a
+  // dispatch that never happens never holds the slot. After the round trip,
+  // re-validate: a relaunch replaced this runtime object (a stale shot must
+  // not name a successor), a manual rename or fresh local arm latched this
+  // copy, and a watcher-hydrated title may have landed in between — each is
+  // a cost-free retire. Retries from the ladder do NOT come here: they ride
+  // `dispatchTitle` directly under the winner's ownership.
   const fireTitleShot = (tabId: string): void => {
+    const latch = (attempt: { at: number; n: number } | null): void => {
+      m.patchRpc(tabId, { hasRenamed: true, initialPrompt: null, titleAttempt: attempt });
+      m.patchRuntime(tabId, { deferredTitle: undefined });
+    };
     const record = findRecord(get().state, tabId);
-    const titled = !isUntitled(record?.title);
-    m.patchRpc(tabId, {
-      hasRenamed: true,
-      initialPrompt: null,
-      titleAttempt: titled ? null : { at: Date.now(), n: 1 },
-    });
-    if (!titled) dispatchTitle(tabId, record);
+    if (!isUntitled(record?.title)) {
+      latch(null);
+      return;
+    }
+    const runtime = m.runtime(tabId);
+    // One claim at a time per renderer: two triggers of the same tab (the
+    // early commit and a threshold crossing, or an early commit and the turn
+    // end) must not send rivals whose denial would latch over the pending
+    // win. The in-flight claim carries them all.
+    if (runtime.titleClaimInFlight === true) return;
+    m.patchRuntime(tabId, { titleClaimInFlight: true });
+    void backend
+      .claimFirstTitle(tabId)
+      .then((owned) => {
+        // A relaunch replaced this runtime while the claim was in flight: the
+        // shot belonged to the old process — retire without touching the new
+        // slot's fresh first-title state (including its own pending claim).
+        const current = get().rpc[tabId];
+        if (!current || m.runtime(tabId) !== runtime) return;
+        m.patchRuntime(tabId, { titleClaimInFlight: undefined });
+        // Mid-flight manual rename, or an earlier fire from this renderer that
+        // already won: never clobber an owned/latched copy.
+        if (current.hasRenamed) return;
+        if (!owned) {
+          latch(null);
+          return;
+        }
+        const fresh = findRecord(get().state, tabId);
+        if (!isUntitled(fresh?.title)) {
+          latch(null);
+          return;
+        }
+        latch({ at: Date.now(), n: 1 });
+        dispatchTitle(tabId, fresh);
+      })
+      .catch((err: unknown) => {
+        // The claim never reached main: clear only this renderer's own marker
+        // (never a successor runtime's), and leave the arm untouched — no shot
+        // is spent unarbitrated, and the still-live arm retries at a later
+        // turn end once the command path works again.
+        console.warn("[session-rename] first-title claim failed:", err);
+        if (get().rpc[tabId] && m.runtime(tabId) === runtime)
+          m.patchRuntime(tabId, { titleClaimInFlight: undefined });
+      });
   };
 
   // The prompt-commit trigger (issue #795): the reducer calls this when a
@@ -1047,6 +1117,19 @@ export function createRpcCommandSlice(
   const dispatchEarlyTitle = (tabId: string): void => {
     const tab = get().rpc[tabId];
     if (!tab || !tab.initialPrompt || tab.hasRenamed) return;
+    fireTitleShot(tabId);
+  };
+
+  // The assistant-context deferred shot (issue #1090): the reducer hands over
+  // when digest-visible thinking/reply words cross DEFERRED_TITLE_MIN_WORDS
+  // after a low-signal-declined first prompt. The local gates are the cheap
+  // filter — a live arm or this renderer's own latch is a no-op; every other
+  // renderer races only at `fireTitleShot`'s single atomic claim, where the
+  // owning instance's main process picks one winner and the losers retire
+  // silently. A substantive prompt or a manual rename still names the session.
+  const fireDeferredTitle = (tabId: string): void => {
+    const tab = get().rpc[tabId];
+    if (!tab || tab.initialPrompt || tab.hasRenamed) return;
     fireTitleShot(tabId);
   };
 
@@ -1342,6 +1425,7 @@ export function createRpcCommandSlice(
     setInitialPrompt,
     dispatchEarlyTitle,
     armDelegatedTitle,
+    fireDeferredTitle,
     renameSession,
     refreshAutoTitle,
     setSessionToolEnabled,

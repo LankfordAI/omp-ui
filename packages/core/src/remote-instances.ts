@@ -80,6 +80,9 @@ export interface RemoteInstanceRecord {
 export const TAB_ROUTED_REQUESTS: ReadonlySet<string> = new Set<string>([
   "session:hibernatePlanSource",
   "session:settle",
+  // The first-title claim belongs to the tab's owning instance (issue #1090):
+  // a second client viewing a remote tab claims through the join, at the owner.
+  "session:claimFirstTitle",
   "session:switchMode",
   "session:deletePreview",
   "session:delete",
