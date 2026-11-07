@@ -104,6 +104,10 @@ export interface ToolItem {
   op?: string;
   /** bash details.wallTimeMs. */
   wallTimeMs?: number;
+  /** bash details.cwd (omp 18.18.0): the directory the command actually ran in — an explicit
+   *  `cwd` arg or a leading `cd` the executor hoisted. Absent on older results and whenever
+   *  the command ran in the session cwd; the card never invents one (issue #1093). */
+  cwd?: string;
   /** edit details.errorKind (omp 18.13.0+): why omp refused a failed edit; the card shows it only on error. */
   errorKind?: string;
   /** task details.results[]/progress[] (omp 18.14 `task.file`): the file each item read its
@@ -581,8 +585,21 @@ function assistantMeta(message: Record<string, unknown>): Partial<AssistantItem>
   };
 }
 
+/**
+ * A valid execution directory from `details.cwd` (omp 18.18.0) or an explicit
+ * `args.cwd`: a non-blank string, or nothing. Absent or malformed metadata
+ * never yields an invented path, and old results simply carry none (issue #1093).
+ */
+export function cwdText(obj: unknown): string | undefined {
+  const cwd = strField(obj, "cwd");
+  return cwd !== undefined && cwd.trim().length > 0 ? cwd : undefined;
+}
+
 /** Per-tool `result.details`: edit/write carry `path`/`op` (a failed edit `errorKind`), read hides it under meta.source. */
-function detailFacts(details: unknown): Pick<ToolItem, "path" | "op" | "wallTimeMs" | "errorKind"> {
+function detailFacts(
+  details: unknown,
+): Pick<ToolItem, "path" | "op" | "wallTimeMs" | "errorKind"> & { cwd?: string } {
+  const cwd = cwdText(details);
   return {
     path:
       strField(details, "path") ??
@@ -590,6 +607,7 @@ function detailFacts(details: unknown): Pick<ToolItem, "path" | "op" | "wallTime
     op: strField(details, "op"),
     wallTimeMs: numField(details, "wallTimeMs"),
     errorKind: strField(details, "errorKind"),
+    ...(cwd !== undefined ? { cwd } : {}),
   };
 }
 
@@ -1090,11 +1108,18 @@ export function reduceEvent(items: RenderItem[], event: unknown): RenderItem[] {
       // empty (issue #969), so a reply alone is progress worth keeping.
       const replies = repliesField(partial?.details);
       const toolTruncation = toolTruncationField(partial?.details);
+      // omp 18.18.0 streams the execution directory on the details snapshot;
+      // a frame that newly names where the command runs is progress even with
+      // no text, reply, or truncation (issue #1093). A repeat of the directory
+      // already carried adds nothing, so heartbeats stay identity-cheap.
+      const cwd = cwdText(partial?.details);
+      const cwdProgress = cwd !== undefined && cwd !== item.cwd;
       // Status stays `running` — an update is progress, never completion.
-      if (!partialText && replies.replies === undefined && toolTruncation.toolTruncation === undefined) return items;
+      if (!partialText && replies.replies === undefined && toolTruncation.toolTruncation === undefined && !cwdProgress) return items;
       return replaceAt(items, idx, {
         ...item,
         ...(partialText ? { partialText } : {}),
+        ...(cwd !== undefined ? { cwd } : {}),
         ...taskFilesField(partial?.details),
         ...replies,
         ...minimizedField(partial?.details),

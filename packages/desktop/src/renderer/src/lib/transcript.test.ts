@@ -686,6 +686,84 @@ describe("reduceEvent tool executions", () => {
   });
 });
 
+describe("bash execution directory (issue #1093)", () => {
+  it("projects details.cwd from a settled bash result", () => {
+    const items = reduceEvent([], {
+      type: "tool_execution_end",
+      toolCallId: "c1",
+      toolName: "bash",
+      result: { content: [], details: { cwd: "/repo/packages/core", wallTimeMs: 5 } },
+    });
+    expect(tool(items, "c1")?.cwd).toBe("/repo/packages/core");
+  });
+
+  it("projects a metadata-only update: a bare cwd frame is progress", () => {
+    let items: RenderItem[] = [];
+    items = reduceEvent(items, {
+      type: "tool_execution_start",
+      toolCallId: "c2",
+      toolName: "bash",
+      args: { command: "pwd", cwd: "/other" },
+    });
+    const before = items;
+    // The 18.18 guard: the frame carries no text, no replies, no truncation —
+    // only the resolved directory. It must not be swallowed by the early-out.
+    items = reduceEvent(items, {
+      type: "tool_execution_update",
+      toolCallId: "c2",
+      partialResult: { content: [], details: { cwd: "/other" } },
+    });
+    expect(items).not.toBe(before);
+    expect(tool(items, "c2")).toMatchObject({ cwd: "/other", status: "running" });
+    // A repeat of the same directory adds nothing.
+    expect(reduceEvent(items, {
+      type: "tool_execution_update",
+      toolCallId: "c2",
+      partialResult: { content: [], details: { cwd: "/other" } },
+    })).toBe(items);
+  });
+
+  it("leaves cwd absent for malformed or missing metadata, never invented", () => {
+    const blank = reduceEvent([], {
+      type: "tool_execution_end",
+      toolCallId: "c3",
+      toolName: "bash",
+      result: { content: [], details: { cwd: "   " } },
+    });
+    expect("cwd" in tool(blank, "c3")!).toBe(false);
+    const wrongType = reduceEvent([], {
+      type: "tool_execution_end",
+      toolCallId: "c4",
+      toolName: "bash",
+      result: { content: [], details: { cwd: 42 } },
+    });
+    expect("cwd" in tool(wrongType, "c4")!).toBe(false);
+    const noDetails = reduceEvent([], {
+      type: "tool_execution_end",
+      toolCallId: "c5",
+      toolName: "bash",
+      result: { content: [] },
+    });
+    expect("cwd" in tool(noDetails, "c5")!).toBe(false);
+  });
+
+  it("carries cwd through historyToItems like the live stream does", () => {
+    const items = historyToItems([
+      {
+        role: "assistant",
+        content: [{ type: "toolCall", id: "h1", name: "bash", arguments: { command: "pwd" } }],
+      },
+      {
+        role: "toolResult",
+        toolCallId: "h1",
+        content: [{ type: "text", text: "/other" }],
+        details: { cwd: "/other", cdSeparator: ";" },
+      },
+    ]);
+    expect(tool(items, "h1")?.cwd).toBe("/other");
+  });
+});
+
 describe("run-end tool settlement", () => {
   it("agent_end cancels tools still running and appends the finished marker", () => {
     let items: RenderItem[] = [];

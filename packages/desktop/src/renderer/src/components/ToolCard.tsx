@@ -13,6 +13,7 @@ import { editErrorKindLabel } from "../lib/edit-rejections";
 import type { ThemedToken } from "shiki/core";
 import { localeTag, useT, type MessageKey } from "../lib/i18n";
 import type { AdvisorNote, RecordedTaskFile, ToolItem } from "../lib/transcript";
+import { cwdText } from "../lib/transcript";
 import { isPlanArtifactPath } from "@omp-ui/core/plan";
 import { useStore } from "../store";
 import { DiffViewer, OpChip } from "./DiffViewer";
@@ -678,6 +679,17 @@ export function ToolCard({ item, tabId }: { item: ToolItem; tabId?: string }) {
     [item.name, item.args, item.taskFiles],
   );
   const kind = glyphFor(item.name);
+  // Where the command ran (issue #1093): prefer the directory omp resolved —
+  // an explicit `cwd` arg or a `cd` it hoisted — over the bare request, and
+  // label an args-only fallback as requested so the card never claims omp
+  // confirmed it. The command slab stays exactly the model's text: no
+  // reconstructed `cd` prefix, so an original `cd dir && …` is never doubled.
+  const execDir = useMemo(() => {
+    if (kind !== "bash") return null;
+    if (item.cwd !== undefined) return { cwd: item.cwd, resolved: true } as const;
+    const requested = cwdText(item.args);
+    return requested !== undefined ? { cwd: requested, resolved: false } as const : null;
+  }, [kind, item.cwd, item.args]);
   const resultLang = kind === "read" ? langFromPath(item.path ?? pathFromArgs(item.args)) : undefined;
   // Read bodies stream with the same header+gutter shape as the settled result;
   // until the header line arrives we cannot tell read output from prose.
@@ -704,6 +716,7 @@ export function ToolCard({ item, tabId }: { item: ToolItem; tabId?: string }) {
     (item.images?.length ?? 0) > 0 ||
     hasDiff ||
     item.partialText !== undefined ||
+    execDir !== null ||
     draft !== null ||
     (item.notes?.length ?? 0) > 0;
 
@@ -778,6 +791,23 @@ export function ToolCard({ item, tabId }: { item: ToolItem; tabId?: string }) {
       {open && hasBody && (
         <div className="space-y-2 border-t border-line-soft px-2.5 py-2">
           <ToolArgs name={item.name} args={item.args} />
+
+          {execDir && (
+            <div className="flex min-w-0 items-baseline gap-1.5 font-mono text-xs">
+              <Label>{t(execDir.resolved ? "transcript.tool.cwd" : "transcript.tool.cwdRequested")}</Label>
+              {/* Wraps instead of clipping: the directory must stay readable,
+                  and `[overflow-wrap:anywhere]` inside the card's min-w-0 body
+                  keeps even a single long segment from growing the page. */}
+              <span
+                data-selectable
+                title={execDir.cwd}
+                className="min-w-0 text-ink-mid [overflow-wrap:anywhere]"
+              >
+                {execDir.cwd}
+              </span>
+            </div>
+          )}
+
           {taskFiles.length > 0 && <TaskFiles rows={taskFiles} />}
 
           {(item.path || item.op) && !hasDiff && (

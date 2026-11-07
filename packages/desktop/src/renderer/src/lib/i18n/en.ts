@@ -442,6 +442,8 @@ export const en = {
   "transcript.tool.streaming": "streaming",
   "transcript.tool.showOutput": "show output · {lines} lines",
   "transcript.tool.minimized": "Minimized: {filter} {before} → {after}",
+  "transcript.tool.cwd": "cwd",
+  "transcript.tool.cwdRequested": "cwd (requested)",
   "transcript.tool.providerFailure": "{label} — {reason}",
   "transcript.tool.providerFailureStatus": "{label} — {reason} (status {status})",
   "transcript.tool.headElided": "Head elided: {magnitude}",

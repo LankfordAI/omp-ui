@@ -401,6 +401,8 @@ export const ko: Partial<Record<MessageKey, string>> = {
   "transcript.tool.streaming": "스트리밍 중",
   "transcript.tool.showOutput": "출력 보기 · {lines}줄",
   "transcript.tool.minimized": "축소됨: {filter} {before} → {after}",
+  "transcript.tool.cwd": "cwd",
+  "transcript.tool.cwdRequested": "cwd (요청됨)",
   "transcript.tool.providerFailure": "{label} — {reason}",
   "transcript.tool.providerFailureStatus": "{label} — {reason} (상태 {status})",
   "transcript.tool.headElided": "앞부분 생략: {magnitude}",

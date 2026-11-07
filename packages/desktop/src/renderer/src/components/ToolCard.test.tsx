@@ -627,6 +627,109 @@ describe("ToolCard bash minimizer provenance", () => {
   });
 });
 
+describe("ToolCard bash execution directory (issue #1093)", () => {
+  it("shows the resolved directory omp reported beside the untouched command", () => {
+    const { el, root } = renderCard(
+      tool({
+        name: "bash",
+        args: { command: "pwd" },
+        cwd: "/repo/packages/core",
+        resultText: "/repo/packages/core",
+      }),
+    );
+    expect(el.textContent).toContain("cwd");
+    expect(el.textContent).toContain("/repo/packages/core");
+    expect(el.textContent).not.toContain("requested");
+    // The slab keeps the model's raw command; no reconstructed `cd` prefix.
+    const slab = el.querySelector("pre")!;
+    expect(slab.textContent).toBe("pwd");
+    act(() => root.unmount());
+  });
+
+  it("labels an args-only directory as requested, not resolved", () => {
+    const { el, root } = renderCard(
+      tool({ name: "bash", args: { command: "pwd", cwd: "/other" }, resultText: "/other" }),
+    );
+    expect(el.textContent).toContain("cwd (requested)");
+    expect(el.textContent).toContain("/other");
+    act(() => root.unmount());
+  });
+
+  it("prefers the resolved directory over the request when omp reports both", () => {
+    const { el, root } = renderCard(
+      tool({
+        name: "bash",
+        args: { command: "pwd", cwd: "/requested" },
+        cwd: "/resolved/deeper",
+        resultText: "/resolved/deeper",
+      }),
+    );
+    expect(el.textContent).toContain("cwd");
+    expect(el.textContent).not.toContain("requested");
+    expect(el.textContent).toContain("/resolved/deeper");
+    expect(el.textContent).not.toContain("/requested");
+    act(() => root.unmount());
+  });
+
+  it("never duplicates a hoisted cd onto a command that already carries one", () => {
+    const { el, root } = renderCard(
+      tool({
+        name: "bash",
+        args: { command: "cd /other && pwd" },
+        cwd: "/other",
+        resultText: "/other",
+      }),
+    );
+    const slab = el.querySelector("pre")!;
+    expect(slab.textContent).toBe("cd /other && pwd");
+    // The directory appears once, as its own row — not woven into the command.
+    expect(el.textContent.match(/\/other/g)!.length).toBeGreaterThanOrEqual(2);
+    expect(slab.textContent.match(/cd /g)!.length).toBe(1);
+    act(() => root.unmount());
+  });
+
+  it("shows no directory row for older results without cwd metadata", () => {
+    const { el, root } = renderCard(
+      tool({ name: "bash", args: { command: "git log" }, resultText: "raw" }),
+    );
+    expect(el.textContent).not.toContain("cwd");
+    act(() => root.unmount());
+  });
+
+  it("invents nothing from a malformed args cwd", () => {
+    const { el, root } = renderCard(
+      tool({ name: "bash", args: { command: "git log", cwd: "   " }, resultText: "raw" }),
+    );
+    expect(el.textContent).not.toContain("cwd");
+    act(() => root.unmount());
+  });
+
+  it("renders a running card whose only content is the streamed directory", () => {
+    const { el, root } = renderCard(
+      tool({ name: "bash", args: undefined, status: "running", cwd: "/work/tree" }),
+    );
+    // A metadata-only update on an args-less card still earns a body: the
+    // disclosure chevron exists and the row is reachable after expansion.
+    const header = el.querySelector("button")!;
+    if (!el.textContent!.includes("/work/tree")) act(() => header.click());
+    expect(el.textContent).toContain("/work/tree");
+    act(() => root.unmount());
+  });
+
+  it("labels the requested directory in Korean", () => {
+    applyLocale(resolveLocale("ko"));
+    try {
+      const { el, root } = renderCard(
+        tool({ name: "bash", args: { command: "pwd", cwd: "/other" }, resultText: "/other" }),
+      );
+      expect(el.textContent).toContain("cwd (요청됨)");
+      act(() => root.unmount());
+    } finally {
+      applyLocale(resolveLocale("en"));
+    }
+  });
+});
+
 describe("ToolCard tool-result truncation", () => {
   it("keeps a truncation-only update accessible after collapsing and expanding", () => {
     const { el, root } = renderCard(tool({
