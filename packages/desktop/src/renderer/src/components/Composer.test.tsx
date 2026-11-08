@@ -73,6 +73,7 @@ const backendMock = {
   })),
   getAdvisorDefaults: vi.fn(async () => ({ enabled: false, model: null })),
   setProjectDefaultModel: vi.fn(async () => {}),
+  setSessionModel: vi.fn(async () => {}),
   setProjectDefaultAdvisorModel: vi.fn(async () => {}),
   setSessionAdvisor: vi.fn(async () => {}),
   convertToWorktree: vi.fn(async () => {}),
@@ -87,6 +88,7 @@ Object.assign(window, { ompBackend: backendMock });
 const { useStore } = await import("../store");
 const { Composer } = await import("./Composer");
 const { RpcTab } = await import("./RpcTab");
+const realSetThinkingLevel = useStore.getState().setThinkingLevel;
 
 const IMAGE_ONE = { type: "image" as const, data: "one", mimeType: "image/png" };
 const IMAGE_TWO = { type: "image" as const, data: "two", mimeType: "image/jpeg" };
@@ -149,7 +151,7 @@ function seed(status: "starting" | "ready" | "running", dead = false): void {
 
 function renderComposer(): void {
   const host = document.createElement("div"); document.body.append(host); root = createRoot(host);
-  act(() => root!.render(<Composer tabId={TAB} />));
+  act(() => root!.render(<Composer tabId={TAB} active />));
 }
 
 function renderRpcTab(): void {
@@ -284,21 +286,21 @@ describe("compact Composer", () => {
     expect(abortAndPrompt).toHaveBeenCalledWith(TAB, "replace turn", [], [], [], []);
   });
 
-  it("marks the active effort and plan state in the options sheet", () => {
+  it("shows the selected thinking level and session mode in the options sheet", () => {
     seed("ready");
     useStore.setState((s) => ({
       rpc: { [TAB]: { ...s.rpc[TAB]!, model: { ...s.rpc[TAB]!.model!, thinking: { efforts: ["low", "medium", "high"] } } } },
     }));
     renderComposer();
-    act(() => document.body.querySelector<HTMLButtonElement>('button[title="prompt options"]')!.click());
-    const byText = (text: string) => [...document.body.querySelectorAll<HTMLButtonElement>("button")].find((button) => button.textContent?.trim() === text)!;
-    expect(byText("medium").getAttribute("aria-pressed")).toBe("true");
-    expect(byText("low").getAttribute("aria-pressed")).toBe("false");
-    expect(byText("high").getAttribute("aria-pressed")).toBe("false");
-    expect(modeSegment("plan").getAttribute("aria-pressed")).toBe("false");
-    const sheet = document.body.querySelector<HTMLElement>('[aria-label="prompt options"]')!;
-    expect(sheet.querySelector(".prompt-options")).not.toBeNull();
-    expect(sheet.querySelector(".w-full")?.textContent).toContain("advisor");
+    openOptions();
+    const sheet = document.body.querySelector<HTMLElement>('[role="dialog"][aria-label="prompt options"]:not([hidden])')!;
+    const thinking = sheet.querySelector('[role="group"][aria-label="thinking"]')!;
+    const selected = [...thinking.querySelectorAll<HTMLButtonElement>('button[aria-pressed="true"]')];
+    expect(selected.map((button) => button.textContent)).toEqual(["medium"]);
+    expect(sheet.querySelector('button[role="switch"][aria-label="auto"]')!.getAttribute("aria-checked")).toBe("false");
+    const modes = [...sheet.querySelectorAll<HTMLButtonElement>('[role="group"][aria-label="session mode"] button')];
+    expect(modes.find((button) => button.textContent === "build")!.getAttribute("aria-pressed")).toBe("true");
+    expect(modes.find((button) => button.textContent === "plan")!.getAttribute("aria-pressed")).toBe("false");
   });
 
   it("loops the copper ring around the compact input box while busy", () => {
@@ -309,6 +311,162 @@ describe("compact Composer", () => {
     const ring = box.querySelector<HTMLElement>("[data-perimeter-sweep]")!;
     expect(ring).not.toBeNull();
     expect(ring.classList.contains("text-copper")).toBe(true);
+  });
+});
+
+describe("compact Composer options ownership", () => {
+  const BACKGROUND = "tab-compose-background";
+  type UnavailableReason = "starting" | "settled" | "disconnected";
+
+  function seedComposers(): void {
+    seed("ready");
+    useStore.setState((s) => ({
+      activeTabId: TAB,
+      state: {
+        ...s.state!,
+        projects: s.state!.projects.map((group) => ({
+          ...group,
+          sessions: [
+            ...group.sessions,
+            { ...group.sessions[0]!, tabId: BACKGROUND, sessionId: "background-session", title: "Background" },
+          ],
+        })),
+      },
+      rpc: {
+        [TAB]: {
+          ...s.rpc[TAB]!,
+          model: { ...s.rpc[TAB]!.model!, thinking: { efforts: ["low", "medium", "high"] } },
+        },
+        [BACKGROUND]: rpcTabState({
+          model: { id: "background-model", name: "Background Model", provider: "test", thinking: { efforts: ["low", "medium", "high"] } },
+          session: { ...emptySessionRuntime(), thinkingLevel: "low" },
+          hasRenamed: true,
+        }),
+      },
+      setThinkingLevel: realSetThinkingLevel,
+    }));
+  }
+
+  function renderComposers(displayed = TAB): void {
+    if (!root) {
+      const host = document.createElement("div");
+      document.body.append(host);
+      root = createRoot(host);
+    }
+    act(() => root!.render(
+      <>
+        {[TAB, BACKGROUND].map((tabId) => (
+          <div key={tabId} data-composer-tab={tabId} style={{ display: tabId === displayed ? undefined : "none" }}>
+            <Composer tabId={tabId} active={tabId === displayed} />
+          </div>
+        ))}
+      </>,
+    ));
+  }
+
+  function openDisplayedOptions(tabId = TAB): void {
+    const trigger = document.querySelector<HTMLButtonElement>(`[data-composer-tab="${tabId}"] button[title="prompt options"]`)!;
+    act(() => trigger.click());
+  }
+
+  function dialogs(): HTMLElement[] {
+    return [...document.querySelectorAll<HTMLElement>('[role="dialog"][aria-label="prompt options"]')]
+      .filter((dialog) => !dialog.closest("[hidden]"));
+  }
+
+  function makeUnavailable(tabId: string, reason: UnavailableReason): void {
+    act(() => useStore.setState((s) => {
+      if (reason === "starting") {
+        return { rpc: { ...s.rpc, [tabId]: { ...s.rpc[tabId]!, status: "starting" as const } } };
+      }
+      const group = s.state!.projects[0]!;
+      const record = group.sessions.find((session) => session.tabId === tabId)!;
+      return {
+        state: {
+          ...s.state!,
+          projects: [{
+            ...group,
+            sessions: reason === "settled"
+              ? group.sessions.map((session) => session.tabId === tabId ? { ...session, live: "dormant" as const } : session)
+              : group.sessions.filter((session) => session.tabId !== tabId),
+          }],
+          ...(reason === "disconnected" ? {
+            remoteInstances: [remoteInstance({
+              status: "unreachable",
+              projects: [{ ...group, sessions: [record] }],
+            })],
+          } : {}),
+        },
+      };
+    }));
+  }
+
+  it("opens exactly one displayed-session dialog with an inactive ready composer mounted", () => {
+    seedComposers();
+    renderComposers();
+    openDisplayedOptions();
+    expect(dialogs()).toHaveLength(1);
+    expect(dialogs()[0]!.querySelector('button[title="model-x"]')).not.toBeNull();
+    expect(dialogs()[0]!.querySelector('button[title="background-model"]')).toBeNull();
+  });
+
+  it.each<UnavailableReason>(["starting", "settled", "disconnected"])(
+    "does not let an inactive %s composer dismiss the displayed options",
+    (reason) => {
+      seedComposers();
+      renderComposers();
+      openDisplayedOptions();
+      const displayedDialog = dialogs()[0]!;
+      makeUnavailable(BACKGROUND, reason);
+      expect(dialogs()).toEqual([displayedDialog]);
+      expect(useStore.getState().compactSurface).toBe("composer-options");
+      expect(displayedDialog.querySelector('button[title="model-x"]')).not.toBeNull();
+    },
+  );
+
+  it.each<UnavailableReason>(["starting", "settled", "disconnected"])(
+    "closes its own sheet when the displayed composer becomes %s",
+    (reason) => {
+      seedComposers();
+      renderComposers();
+      openDisplayedOptions();
+      makeUnavailable(TAB, reason);
+      expect(dialogs()).toHaveLength(0);
+      expect(useStore.getState().compactSurface).toBeNull();
+    },
+  );
+
+  it("applies options mutations only to the displayed tab across two mounted composers", async () => {
+    seedComposers();
+    renderComposers();
+    openDisplayedOptions();
+
+    async function chooseLevel(level: string): Promise<void> {
+      const dialog = dialogs().at(-1)!;
+      const button = [...dialog.querySelectorAll<HTMLButtonElement>("button")]
+        .find((candidate) => candidate.textContent === level)!;
+      await act(async () => {
+        button.click();
+        const [tabId, command] = backendMock.rpcSend.mock.calls.at(-1)! as [string, Record<string, unknown>];
+        useStore.getState().handleRpcFrame(tabId, {
+          type: "response", id: command.id, command: command.type, success: true, data: {},
+        });
+      });
+    }
+
+    await chooseLevel("high");
+    expect(useStore.getState().rpc[TAB]!.session.thinkingLevel).toBe("high");
+    expect(useStore.getState().rpc[BACKGROUND]!.session.thinkingLevel).toBe("low");
+    expect(backendMock.setSessionModel).toHaveBeenLastCalledWith(TAB, "test/model-x", "high");
+
+    act(() => useStore.getState().closeCompactSurface());
+    act(() => useStore.setState({ activeTabId: BACKGROUND }));
+    renderComposers(BACKGROUND);
+    openDisplayedOptions(BACKGROUND);
+    await chooseLevel("medium");
+    expect(useStore.getState().rpc[BACKGROUND]!.session.thinkingLevel).toBe("medium");
+    expect(useStore.getState().rpc[TAB]!.session.thinkingLevel).toBe("high");
+    expect(backendMock.setSessionModel).toHaveBeenLastCalledWith(BACKGROUND, "test/background-model", "medium");
   });
 });
 
@@ -2148,7 +2306,7 @@ describe("Composer onPrompt", () => {
 
   function renderWithPrompt(spy: () => void): void {
     const host = document.createElement("div"); document.body.append(host); root = createRoot(host);
-    act(() => root!.render(<Composer tabId={TAB} onPrompt={spy} />));
+    act(() => root!.render(<Composer tabId={TAB} active onPrompt={spy} />));
   }
 
   it("fires once for a plain draft", async () => {
@@ -2757,9 +2915,8 @@ describe("worktree conversion through the branch chip (issue #227)", () => {
     mergeInProgress: false, upstreamFetchedAt: null, upstreamRefreshError: null, defaultRemote: "origin",
   };
 
-  // The worktree section lives in the non-compact action row, but the global
-  // matchMedia stub reports the compact shell — override it the way the
-  // relaunch handoff test does.
+  // Most cases use the desktop row. The compact regression renders the full
+  // tab so workspace availability cannot accidentally depend on hero layout.
   beforeEach(() => {
     Object.defineProperty(window, "matchMedia", {
       configurable: true,
@@ -2774,7 +2931,7 @@ describe("worktree conversion through the branch chip (issue #227)", () => {
 
   function renderUnprompted(): void {
     const host = document.createElement("div"); document.body.append(host); root = createRoot(host);
-    act(() => root!.render(<Composer tabId={TAB} unprompted />));
+    act(() => root!.render(<Composer tabId={TAB} active unprompted />));
   }
 
   // The + and pill triggers precede the chip in the DOM; scope to the Workspace group.
@@ -2806,6 +2963,31 @@ describe("worktree conversion through the branch chip (issue #227)", () => {
     // A successful conversion resets the selection; the chip reads the checkout's branch again.
     expect(chipTrigger().textContent).toContain("main");
     expect(chipTrigger().textContent).not.toContain("worktree");
+  });
+
+  it("prepares a worktree from compact options before the first exchange", async () => {
+    Object.defineProperty(window, "matchMedia", {
+      configurable: true,
+      value: vi.fn(() => ({ matches: true, addEventListener: vi.fn(), removeEventListener: vi.fn() })),
+    });
+    const host = document.createElement("div");
+    document.body.append(host);
+    root = createRoot(host);
+    act(() => root!.render(<RpcTab tabId={TAB} active />));
+    act(() => document.querySelector<HTMLButtonElement>('button[title="prompt options"]')!.click());
+    const sheet = document.querySelector<HTMLElement>('[data-overlay-root] [role="dialog"][aria-label="prompt options"]')!;
+    act(() => sheet.querySelector<HTMLButtonElement>('section[aria-label="workspace"] button[aria-expanded]')!.click());
+    await flush();
+    const worktree = [...sheet.querySelectorAll<HTMLButtonElement>("button")]
+      .find((button) => button.textContent?.trim() === "worktree…")!;
+    act(() => worktree.click());
+    await flush();
+    act(() => sheet.querySelector<HTMLButtonElement>('button[aria-label="close prompt options"]')!.click());
+    const box = typeDraft("hello from compact");
+    await act(async () => { press(box, "Enter"); });
+    await flush();
+    expect(backendMock.convertToWorktree).toHaveBeenCalledWith(TAB, expect.stringMatching(/^p\/main\/[0-9a-f]{8}$/), "main", null);
+    expect(sendPrompt).toHaveBeenCalledWith(TAB, "hello from compact", "prompt", [], [], [], []);
   });
 
   it("a conversion failure keeps the draft and shows the error", async () => {
@@ -3429,7 +3611,7 @@ describe("Composer machine chip (issue #936)", () => {
 
   function renderUnprompted(): void {
     const host = document.createElement("div"); document.body.append(host); root = createRoot(host);
-    act(() => root!.render(<Composer tabId={TAB} unprompted />));
+    act(() => root!.render(<Composer tabId={TAB} active unprompted />));
   }
 
   const machineChip = (): HTMLButtonElement | null =>
@@ -3700,7 +3882,7 @@ describe("send in background from the hero (issue #982)", () => {
 
   function renderHero(): void {
     const host = document.createElement("div"); document.body.append(host); root = createRoot(host);
-    act(() => root!.render(<Composer tabId={TAB} unprompted />));
+    act(() => root!.render(<Composer tabId={TAB} active unprompted />));
   }
 
   beforeEach(() => {

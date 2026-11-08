@@ -45,6 +45,7 @@ import { ComposerActions } from "./ComposerActions";
 import { ComposerOptions } from "./ComposerOptions";
 import { ComposerPlusMenu } from "./ComposerPlusMenu";
 import { ComposerSheet } from "./ComposerSheet";
+import type { BranchChipExternalRequest } from "./BranchChip";
 import { answerPendingQuestion, freeTextTarget } from "./ExtensionDialogHost";
 import { MentionPalette, type MentionPaletteHandle, type MentionSession } from "./MentionPalette";
 import { LiveVoiceControl } from "./LiveVoiceControl";
@@ -53,7 +54,7 @@ import type { CheckoutEntry } from "../lib/repository-members";
 import { SlashPalette, type SlashPaletteHandle } from "./SlashPalette";
 import type { WorkspaceSelection } from "./WorktreeBranchFields";
 import { QueuedMessageList } from "./QueuedMessageList";
-import { AttachmentButton, Button, Chevron, Chip, IconButton, IconClose, IconTune, Label, PerimeterGlow, PerimeterSweep } from "./ui";
+import { AttachmentButton, Button, Chevron, Chip, IconButton, IconClose, Label, PerimeterGlow, PerimeterSweep } from "./ui";
 import { DictationControl, DictationStrip } from "./ComposerDictation";
 import { useDictation } from "../lib/use-dictation";
 import { useDictationHotkey } from "../lib/use-dictation-hotkey";
@@ -84,18 +85,21 @@ const COUNTER_AT = 400;
 
 export function Composer({
   tabId,
+  active,
   onPrompt,
   unprompted = false,
   liveVoiceVisible = true,
   onDictationActiveChange,
 }: {
   tabId: string;
+  /** Only the shown composer may present or dismiss app-wide options. */
+  active: boolean;
   /** Fires when a non-slash draft is submitted on any route — the first one docks the hero. */
   onPrompt?: () => void;
   /**
-   * True only while the session sits at its empty-transcript hero (issues
-   * #225, #227): the branch chip's worktree section is offered, and the first
-   * send may convert the session to a worktree before the prompt goes out.
+   * True before the first exchange in either layout (issues #225, #227):
+   * the branch chip offers workspace preparation, and the first send may
+   * convert the session to a worktree before the prompt goes out.
    */
   unprompted?: boolean;
   /** Review owns the live controls while the composer draft stays mounted. */
@@ -213,7 +217,6 @@ export function Composer({
   const owner = useStore((s) => findOwner(s.state, tabId));
   const record = owner?.record;
   const dead = record?.live !== "live";
-  const currentModel = useStore((s) => s.rpc[tabId]?.model ?? null);
   // #932: booted without its pinned model; main refuses prompts until a pick.
   const modelHold = useStore((s) => findOwner(s.state, tabId)?.record.modelHold ?? null);
   // Send at reset (issue #986): the provider's next reset while the session is
@@ -253,6 +256,7 @@ export function Composer({
   const compactSurface = useStore((s) => s.compactSurface);
   const showCompactSurface = useStore((s) => s.showCompactSurface);
   const closeCompactSurface = useStore((s) => s.closeCompactSurface);
+  const [compactBranchRequest, setCompactBranchRequest] = useState<BranchChipExternalRequest | null>(null);
   const cwd = sessionCwd(record);
   // The owning remote instance (issue #416): project-scoped reads go to that
   // host, and while it is not joined the composer is as inert as a dead tab —
@@ -272,7 +276,7 @@ export function Composer({
 
   // The finish-worktree offer (issues #385–#389): this tab for any worktree
   // session — a null base no longer withholds it, the dialog falls back to
-  // the default branch. Undefined for plain sessions and the sheet instance.
+  // the default branch. Undefined for plain sessions.
   const finishTabId = record?.worktree != null ? tabId : undefined;
 
   const sendPrompt = useStore((s) => s.sendPrompt);
@@ -617,8 +621,8 @@ export function Composer({
   }, [animateKeywords]);
 
   useEffect(() => {
-    if (unavailable && compactSurface === "composer-options") closeCompactSurface();
-  }, [unavailable, compactSurface, closeCompactSurface]);
+    if (active && unavailable && compactSurface === "composer-options") closeCompactSurface();
+  }, [active, unavailable, compactSurface, closeCompactSurface]);
   // The browser pane's hand-back (issue #519): its screenshot joins the image
   // draft and its URL the text, drained once so a re-render cannot add them
   // twice. The transcript's Comment action (issue #983) and every restore
@@ -1287,6 +1291,31 @@ export function Composer({
       ? { when: formatSnoozeUntil(resetAtMs, new Date(resetNow), localeTag()), canHold: canSend && modelHold === null }
       : null;
   const lines = text === "" ? 0 : text.split("\n").length;
+  const optionsControl = (
+    <ComposerOptions
+      tabId={tabId}
+      disabled={unavailable}
+      chat={chat}
+      projectCwd={cwd}
+      instanceId={instanceId}
+      workspace={offerWorkspace ? workspace : undefined}
+      onWorkspaceChange={offerWorkspace ? handleWorkspaceChange : undefined}
+      workspaceDisabled={unavailable || converting}
+      onCreateWorktree={offerWorkspace ? createWorktreeNow : undefined}
+      finishTabId={finishTabId}
+      offerMachine={offerMachine}
+      machineDisabled={unavailable || converting || moving !== null}
+      onPickMachine={(member) => void moveToMember(member)}
+      onModeSelected={() => box.current?.focus({ preventScroll: true })}
+      compact={compact ? {
+        open: active && compactSurface === "composer-options",
+        onOpen: (request) => {
+          setCompactBranchRequest(request ?? null);
+          showCompactSurface("composer-options");
+        },
+      } : undefined}
+    />
+  );
 
   return (
     <div
@@ -1585,22 +1614,7 @@ export function Composer({
               stash={draftEmpty ? "pick" : "stash"}
               onStash={() => void stashOrPick()}
             />
-            <ComposerOptions
-              tabId={tabId}
-              disabled={unavailable}
-              chat={chat}
-              projectCwd={cwd}
-              instanceId={instanceId}
-              workspace={offerWorkspace ? workspace : undefined}
-              onWorkspaceChange={offerWorkspace ? handleWorkspaceChange : undefined}
-              workspaceDisabled={unavailable || converting}
-              onCreateWorktree={offerWorkspace ? createWorktreeNow : undefined}
-              finishTabId={finishTabId}
-              offerMachine={offerMachine}
-              machineDisabled={unavailable || converting || moving !== null}
-              onPickMachine={(member) => void moveToMember(member)}
-              onModeSelected={() => box.current?.focus({ preventScroll: true })}
-            />
+            {optionsControl}
             {queueChip && !queueListed && (
               <Chip
                 mono
@@ -1705,17 +1719,7 @@ export function Composer({
                   ) : null}
                 </span>
               )}
-              <Button
-                variant="ghost"
-                title={t("composer.options.title")}
-                className="h-11 min-w-0 flex-1 justify-start gap-2 px-2 text-ink-mid"
-                disabled={unavailable}
-                onClick={() => showCompactSurface("composer-options")}
-              >
-                <IconTune className="size-4 shrink-0" />
-                <span className="truncate text-xs">{currentModel?.name || currentModel?.id || t("composer.model.fallback")}</span>
-                <span className="sr-only">{t("composer.options.title")}</span>
-              </Button>
+              {optionsControl}
               {queueChip && <Chip mono tone="copper" title={running ? t("composer.queue.queuedTitle") : t("composer.queue.parkedTitle")}>{queued}</Chip>}
               <ComposerActions
                 layout="compact"
@@ -1818,11 +1822,20 @@ export function Composer({
         </div>
       </div>
       <ComposerSheet
-        open={compactSurface === "composer-options"}
+        open={active && compact && compactSurface === "composer-options"}
         onClose={closeCompactSurface}
         tabId={tabId}
         projectCwd={cwd}
         unavailable={unavailable}
+        workspace={offerWorkspace ? workspace : undefined}
+        onWorkspaceChange={offerWorkspace ? handleWorkspaceChange : undefined}
+        workspaceDisabled={unavailable || converting}
+        onCreateWorktree={offerWorkspace ? createWorktreeNow : undefined}
+        finishTabId={finishTabId}
+        offerMachine={offerMachine}
+        machineDisabled={unavailable || converting || moving !== null}
+        onPickMachine={(member) => void moveToMember(member)}
+        branchRequest={compactBranchRequest}
         liveVoiceVisible={liveVoiceVisible}
         canSend={canSend}
         onSubmit={(route) => void submit(route)}

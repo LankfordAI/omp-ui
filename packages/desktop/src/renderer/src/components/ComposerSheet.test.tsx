@@ -38,11 +38,15 @@ const OFF_REPO: BranchList = {
 
 const backendMock = {
   listBranches: vi.fn(async (): Promise<BranchList> => OFF_REPO),
+  getAdvisorDefaults: vi.fn(async () => ({ enabled: false, model: null })),
+  setSessionModel: vi.fn(async () => {}),
+  rpcSend: vi.fn(),
 };
 Object.assign(window, { ompBackend: backendMock });
 // Dynamic import is required because store.ts captures window.ompBackend at module evaluation.
 const { useStore } = await import("../store");
 const { ComposerSheet } = await import("./ComposerSheet");
+const realSetThinkingLevel = useStore.getState().setThinkingLevel;
 
 const TAB = "tab-sheet";
 const state = backendState({
@@ -215,53 +219,59 @@ describe("ComposerSheet", () => {
     expect(document.querySelector('[role="dialog"]')).toBeNull();
   });
 
-  it("opens with the model, the effort grid, and the session section", () => {
+  it("opens with the selected model, thinking level, and parked queue count", () => {
     seed("ready");
     render(true);
     const dialog = document.querySelector('[role="dialog"]')!;
-    expect(dialog).not.toBeNull();
-    expect(dialog.textContent).toContain("model & effort");
-    expect(dialog.textContent).toContain("model-x");
-    for (const effort of ["low", "medium", "high"]) {
-      expect(dialog.textContent).toContain(effort);
-    }
-    expect(dialog.textContent).toContain("session");
-    expect(dialog.textContent).toContain("branch");
-    // Idle, so the parked items are labeled parked, not queued.
+    expect(dialog.querySelector('button[title="model-x"]')).not.toBeNull();
+    const thinking = dialog.querySelector('[role="group"][aria-label="thinking"]')!;
+    expect([...thinking.querySelectorAll('button[aria-pressed="true"]')].map((button) => button.textContent))
+      .toEqual(["medium"]);
     expect(dialog.textContent).toContain("parked: 2");
   });
 
-  it("clicking an effort fires the set_thinking_level path through the store", async () => {
+  it("selects automatic thinking and commits a manual level with the sheet slider keyboard controls", async () => {
     seed("ready");
+    useStore.setState({ setThinkingLevel: realSetThinkingLevel });
     render(true);
-    const effort = buttonByText("high");
-    await act(async () => effort.click());
-    expect(setThinkingLevel).toHaveBeenCalledWith(TAB, "high");
-  });
+    const dialog = document.querySelector('[role="dialog"]')!;
+    const auto = dialog.querySelector<HTMLButtonElement>('button[role="switch"][aria-label="auto"]')!;
+    const thinking = dialog.querySelector('[role="group"][aria-label="thinking"]')!;
+    const ticks = [...thinking.querySelectorAll<HTMLButtonElement>("button")];
 
-  it("renders auto above the ladder and dispatches level auto", async () => {
-    seed("ready");
-    render(true);
-    const auto = buttonByText("auto");
-    const buttons = [...document.body.querySelectorAll<HTMLButtonElement>("button")];
-    expect(buttons.indexOf(auto)).toBeLessThan(buttons.indexOf(buttonByText("low")));
-    await act(async () => auto.click());
-    expect(setThinkingLevel).toHaveBeenCalledWith(TAB, "auto");
-  });
+    async function change(action: () => void): Promise<void> {
+      await act(async () => {
+        action();
+        const [tabId, command] = backendMock.rpcSend.mock.calls.at(-1)! as [string, Record<string, unknown>];
+        useStore.getState().handleRpcFrame(tabId, {
+          type: "response", id: command.id, command: command.type, success: true, data: {},
+        });
+      });
+    }
 
-  it("marks auto selected and the resolved effort unselected while configured auto", () => {
-    seed("ready");
-    useStore.setState((s) => ({
-      rpc: {
-        [TAB]: {
-          ...s.rpc[TAB]!,
-          session: { ...s.rpc[TAB]!.session, thinkingLevel: "medium", thinkingConfigured: "auto" },
-        },
-      },
-    }));
-    render(true);
-    expect(buttonByText("auto").getAttribute("aria-pressed")).toBe("true");
-    expect(buttonByText("medium").getAttribute("aria-pressed")).toBe("false");
+    expect(auto.getAttribute("aria-checked")).toBe("false");
+    await change(() => auto.click());
+    expect(useStore.getState().rpc[TAB]!.session.thinkingConfigured).toBe("auto");
+    expect(useStore.getState().rpc[TAB]!.session.thinkingLevel).toBe("medium");
+    expect(auto.getAttribute("aria-checked")).toBe("true");
+    expect(ticks.every((tick) => tick.getAttribute("aria-pressed") === "false")).toBe(true);
+    expect(backendMock.setSessionModel).toHaveBeenLastCalledWith(TAB, "test/model-x", "auto");
+
+    await change(() => auto.click());
+    expect(useStore.getState().rpc[TAB]!.session.thinkingConfigured).toBeNull();
+    expect(ticks.find((tick) => tick.textContent === "medium")!.getAttribute("aria-pressed")).toBe("true");
+    expect(backendMock.setSessionModel).toHaveBeenLastCalledWith(TAB, "test/model-x", "medium");
+
+    await change(() => auto.click());
+    await change(() => ticks.find((tick) => tick.textContent === "medium")!.dispatchEvent(
+      new KeyboardEvent("keydown", { key: "End", bubbles: true, cancelable: true }),
+    ));
+    expect(useStore.getState().rpc[TAB]!.session.thinkingConfigured).toBeNull();
+    expect(useStore.getState().rpc[TAB]!.session.thinkingLevel).toBe("high");
+    expect(auto.getAttribute("aria-checked")).toBe("false");
+    expect(ticks.find((tick) => tick.textContent === "high")!.getAttribute("aria-pressed")).toBe("true");
+    expect(document.activeElement).toBe(ticks.find((tick) => tick.textContent === "high"));
+    expect(backendMock.setSessionModel).toHaveBeenLastCalledWith(TAB, "test/model-x", "high");
   });
 
   it("hides the while-running section while idle", () => {
@@ -306,11 +316,12 @@ describe("ComposerSheet", () => {
       },
     }));
     render(true);
-    expect(document.body.textContent).toContain("on — provider declined");
+    expect(document.body.textContent).toContain(t("hud.fast.declined"));
     const sw = document.querySelector<HTMLButtonElement>(
       `button[role="switch"][aria-label="fast mode"]`,
     )!;
     expect(sw).not.toBeNull();
+    expect(sw.title).toBe(t("hud.fast.declinedTitle"));
     expect(sw.getAttribute("aria-checked")).toBe("true");
     await act(async () => sw.click());
     expect(setFastMode).toHaveBeenCalledWith(TAB, false);
@@ -318,6 +329,9 @@ describe("ComposerSheet", () => {
 
   it("the fast mode switch on an off session sends enable", async () => {
     seed("ready");
+    useStore.setState((s) => ({
+      rpc: { [TAB]: { ...s.rpc[TAB]!, model: { ...s.rpc[TAB]!.model!, provider: "openai" } } },
+    }));
     render(true);
     const sw = document.querySelector<HTMLButtonElement>(
       `button[role="switch"][aria-label="fast mode"]`,
@@ -328,30 +342,10 @@ describe("ComposerSheet", () => {
     expect(setFastMode).toHaveBeenCalledWith(TAB, true);
   });
 
-  // Placement rule (issue #689): exactly one fast control per sheet — the
-  // model/effort section while the gate is open, the session section while
-  // it is closed. Two switches with one accessible name is the defect.
+  // A sheet must never present duplicate controls for the same fast setting.
   const fastSwitches = (): HTMLButtonElement[] =>
     [...document.body.querySelectorAll<HTMLButtonElement>('button[role="switch"][aria-label="fast mode"]')];
 
-  it("rides the model/effort section on a family-backed model, quiet state", () => {
-    seed("ready");
-    useStore.setState((s) => ({
-      rpc: { [TAB]: { ...s.rpc[TAB]!, model: { ...s.rpc[TAB]!.model!, provider: "openai" } } },
-    }));
-    render(true);
-    const switches = fastSwitches();
-    expect(switches).toHaveLength(1);
-    expect(switches[0]!.closest("section")!.textContent).toContain("model & effort");
-  });
-
-  it("keeps the always-available session-section row on an unsupported quiet model", () => {
-    seed("ready");
-    render(true);
-    const switches = fastSwitches();
-    expect(switches).toHaveLength(1);
-    expect(switches[0]!.closest("section")!.textContent).toContain("session");
-  });
 
   it("keeps the fast mode switch for an OpenAI model without service tiers", () => {
     seed("ready");
@@ -467,13 +461,6 @@ describe("ComposerSheet live voice gate (issue #968)", () => {
     peerMocks.available = false;
   });
 
-  it("rides the model/effort section on a client that can open a peer", () => {
-    seedLiveCapable();
-    render(true);
-    const sw = liveSwitch();
-    expect(sw).not.toBeNull();
-    expect(sw!.closest("section")!.textContent).toContain("model & effort");
-  });
 
   it("is absent on a client that cannot open a peer", () => {
     peerMocks.available = false;

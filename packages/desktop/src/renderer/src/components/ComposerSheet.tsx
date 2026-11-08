@@ -1,29 +1,23 @@
-import { modelFastTier } from "../lib/rpc-types";
-import type { SubmitRoute } from "./Composer";
 import { useT } from "../lib/i18n";
-import { queueChipCount, queueChipView } from "../lib/queue-chip";
-import { findOwner, isChatTab, useStore } from "../store";
-import { AdvisorControl } from "./AdvisorControl";
-import { BranchChip } from "./BranchChip";
-import { ComposerActions } from "./ComposerActions";
-import { ModelSelector } from "./ModelSelector";
-import { BuildPlanControl } from "./BuildPlanControl";
-import { QueuedMessageList } from "./QueuedMessageList";
-import { FastModeControl } from "./FastModeControl";
-import { LiveVoiceControl } from "./LiveVoiceControl";
-import { NATIVE_LIVE_MIN_OMP, supportsNativeLive } from "../lib/live-voice";
 import { canOpenLivePeer } from "../lib/live-peer";
-import { Button, Chip, Label, Sheet } from "./ui";
-
-/** Stable empty so the per-field selector doesn't fire on every store tick. */
-const NO_EFFORTS: never[] = [];
+import { NATIVE_LIVE_MIN_OMP, supportsNativeLive } from "../lib/live-voice";
+import { queueChipCount, queueChipView } from "../lib/queue-chip";
+import type { CheckoutEntry } from "../lib/repository-members";
+import { findOwner, isChatTab, useStore } from "../store";
+import type { BranchChipExternalRequest } from "./BranchChip";
+import type { SubmitRoute } from "./Composer";
+import { ComposerActions } from "./ComposerActions";
+import { ComposerOptionsContent } from "./ComposerOptionsContent";
+import { LiveVoiceControl } from "./LiveVoiceControl";
+import { QueuedMessageList } from "./QueuedMessageList";
+import type { WorkspaceSelection } from "./WorktreeBranchFields";
+import { Button, Chip, Sheet } from "./ui";
 
 /**
- * The compact prompt-options bottom sheet (issue #299): the model/effort,
- * session, and while-running controls that the compact composer row opens.
- * Store-aware on `tabId` — the same idiom as ModelSelector, AdvisorControl,
- * and BuildPlanControl — so the parent passes only draft-dependent and
- * surface state.
+ * The compact options container: the same Model / Session / Workspace body
+ * as the desktop popover, with queue, live voice, stash, and submit actions.
+ * Store-aware on `tabId`; only draft and pending-workspace state comes from
+ * the composer.
  */
 export function ComposerSheet({
   open,
@@ -36,6 +30,15 @@ export function ComposerSheet({
   onSubmit,
   stash,
   onStash,
+  workspace,
+  onWorkspaceChange,
+  workspaceDisabled = unavailable,
+  onCreateWorktree,
+  finishTabId,
+  offerMachine = false,
+  machineDisabled = unavailable,
+  onPickMachine,
+  branchRequest,
 }: {
   open: boolean;
   onClose: () => void;
@@ -48,6 +51,17 @@ export function ComposerSheet({
   /** Draft stash (issue #989): "stash" parks the draft, "pick" opens the picker. */
   stash: "stash" | "pick";
   onStash: () => void;
+  workspace?: WorkspaceSelection;
+  onWorkspaceChange?: (
+    next: WorkspaceSelection | ((prev: WorkspaceSelection) => WorkspaceSelection),
+  ) => void;
+  workspaceDisabled?: boolean;
+  onCreateWorktree?: () => Promise<boolean>;
+  finishTabId?: string;
+  offerMachine?: boolean;
+  machineDisabled?: boolean;
+  onPickMachine?: (member: CheckoutEntry) => void;
+  branchRequest?: BranchChipExternalRequest | null;
 }) {
   const t = useT();
   const status = useStore((s) => s.rpc[tabId]?.status);
@@ -56,14 +70,6 @@ export function ComposerSheet({
     return session ? queueChipCount(session) : 0;
   });
   const queueListed = useStore((s) => s.rpc[tabId]?.session.queuedMessages != null);
-  const efforts = useStore((s) => s.rpc[tabId]?.model?.thinking?.efforts ?? NO_EFFORTS);
-  const thinkingLevel = useStore((s) => s.rpc[tabId]?.session.thinkingLevel ?? null);
-  const thinkingConfigured = useStore(
-    (s) => s.rpc[tabId]?.session.thinkingConfigured ?? null,
-  );
-  const model = useStore((s) => s.rpc[tabId]?.model ?? null);
-  const fastEnabled = useStore((s) => s.rpc[tabId]?.session.fastModeEnabled ?? false);
-  const fastActive = useStore((s) => s.rpc[tabId]?.session.fastModeActive ?? false);
   // Live voice gates on the omp version, like the inline rows (issue #778),
   // and on this client carrying the call's peer (issue #968): a remote web
   // client or a joined remote-instance tab runs the peer here and signals
@@ -77,12 +83,6 @@ export function ComposerSheet({
     const v = s.rpc[tabId]?.capabilities?.ompVersion ?? null;
     return v !== null && !supportsNativeLive(v);
   });
-  // One fast control per sheet: the gate's yes puts it in the model/effort
-  // section beside the pills it belongs to (issue #689); its no keeps #677's
-  // always-available row in the session section, so the affordance is never
-  // hidden — and the sheet never carries two switches with one label.
-  const fastVisible = modelFastTier(model) !== null || fastEnabled || fastActive;
-  const setThinkingLevel = useStore((s) => s.setThinkingLevel);
   const abortAgent = useStore((s) => s.abortAgent);
   const instanceId = useStore((s) => findOwner(s.state, tabId)?.instanceId ?? null);
   // A chat is Build-only and has no repo (#894): no mode control, no branch row.
@@ -92,72 +92,50 @@ export function ComposerSheet({
 
   return (
     <Sheet open={open} placement="bottom" label={t("composer.options.title")} onClose={onClose}>
-      <div className="prompt-options space-y-5 px-[max(1rem,var(--safe-left))] py-4 pr-[max(1rem,var(--safe-right))]">
-        <section className="rounded-xl border border-line bg-raised/60 p-3">
-          <Label>{t("composer.sheet.modelEffort")}</Label>
-          <div className="mt-2 flex min-h-11 items-center rounded-lg border border-line bg-void/35 px-2">
-            <ModelSelector tabId={tabId} disabled={unavailable} />
-          </div>
-          {efforts.length > 0 && (
-            <div className="mt-2 grid grid-cols-[repeat(auto-fit,minmax(5rem,1fr))] gap-2">
-              {/* omp's automatic selector rides above the ladder — same row
-                  styling, and the effort rows un-highlight while it is on:
-                  under auto the resolved level is not the user's choice. */}
-              <Button disabled={unavailable} selected={thinkingConfigured === "auto"} tone="iris" onClick={() => void setThinkingLevel(tabId, "auto")} className="min-h-11 min-w-0 justify-center px-2 font-mono" title={t("composer.thinking.autoTitle", { level: thinkingLevel ?? "—" })}>{t("composer.thinking.auto")}</Button>
-              {efforts.map((effort) => <Button key={effort} disabled={unavailable} selected={thinkingConfigured !== "auto" && effort === thinkingLevel} tone="iris" onClick={() => void setThinkingLevel(tabId, effort)} className="min-h-11 min-w-0 justify-center px-2 font-mono">{effort}</Button>)}
-            </div>
-          )}
-          {fastVisible && (
-            <div className="mt-2 flex min-h-11 items-center justify-between gap-2 rounded-lg border border-line bg-void/35 px-3">
-              <FastModeControl tabId={tabId} layout="sheet" disabled={unavailable} className="w-full" />
-            </div>
-          )}
-          {/* The row stays mounted, inert, with the required version in the
-              wrapper's title when the version gate closes it (floor plan §6).
-              A client that cannot open a peer (no WebRTC or microphone,
-              issue #968) keeps hiding the row: a newer omp would not help. */}
-          {liveVoiceVisible && (liveSupported ? (
-            <div className="mt-2 flex min-h-11 items-center justify-between gap-2 rounded-lg border border-line bg-void/35 px-3">
-              <LiveVoiceControl tabId={tabId} layout="sheet" disabled={unavailable} className="w-full" />
-            </div>
-          ) : liveGateBlocked ? (
-            <div
-              className="mt-2 flex min-h-11 items-center justify-between gap-2 rounded-lg border border-line bg-void/35 px-3"
-              title={t("composer.live.needsNewerOmp", { version: NATIVE_LIVE_MIN_OMP })}
-            >
-              <LiveVoiceControl tabId={tabId} layout="sheet" disabled startDisabled className="w-full" />
-            </div>
-          ) : null)}
-        </section>
-        <section className="rounded-xl border border-line bg-raised/60 p-3">
-          <Label>{t("composer.sheet.session")}</Label>
-          <div className="mt-2 space-y-2">
-            <AdvisorControl tabId={tabId} disabled={unavailable} layout="sheet" />
-            {!chat && <BuildPlanControl tabId={tabId} layout="sheet" disabled={unavailable} className="min-h-11" />}
-            {!fastVisible && (
-              <div className="flex min-h-11 items-center justify-between gap-2 rounded-lg border border-line bg-void/35 px-3">
-                <FastModeControl tabId={tabId} layout="sheet" disabled={unavailable} className="w-full" />
+      <div className="prompt-options space-y-4 px-[max(1rem,var(--safe-left))] py-4 pr-[max(1rem,var(--safe-right))]">
+        <div className="rounded-md border border-line bg-raised/60 p-1">
+          <ComposerOptionsContent
+            compact
+            tabId={tabId}
+            disabled={unavailable}
+            chat={chat}
+            projectCwd={projectCwd}
+            instanceId={instanceId}
+            workspace={workspace}
+            onWorkspaceChange={onWorkspaceChange}
+            workspaceDisabled={workspaceDisabled}
+            onCreateWorktree={onCreateWorktree}
+            finishTabId={finishTabId}
+            offerMachine={offerMachine}
+            machineDisabled={machineDisabled}
+            onPickMachine={onPickMachine}
+            branchRequest={branchRequest}
+            onModeSelected={onClose}
+            modelExtras={liveVoiceVisible && (liveSupported ? (
+              <div className="flex min-h-11 items-center px-2 py-1.5">
+                <LiveVoiceControl tabId={tabId} layout="sheet" disabled={unavailable} className="w-full" />
               </div>
-            )}
-            {chat ? (
-              queueChip && (
-                <div className="flex min-h-11 items-center justify-between gap-2 rounded-lg border border-line bg-void/35 px-3">
+            ) : liveGateBlocked ? (
+              // Keep the version-blocked control mounted with its upgrade hint.
+              // A client without a microphone still hides it: newer omp cannot help.
+              <div className="flex min-h-11 items-center px-2 py-1.5" title={t("composer.live.needsNewerOmp", { version: NATIVE_LIVE_MIN_OMP })}>
+                <LiveVoiceControl tabId={tabId} layout="sheet" disabled startDisabled className="w-full" />
+              </div>
+            ) : null)}
+            sessionExtras={queueChip && (
+              <div className="space-y-2 px-2 py-1.5">
+                <div className="flex min-h-11 items-center">
                   <Chip mono tone="copper" title={running ? t("composer.queue.queuedTitle") : t("composer.queue.parkedTitle")}>{running ? t("composer.queue.queued", { n: queued }) : t("composer.queue.parked", { n: queued })}</Chip>
                 </div>
-              )
-            ) : (
-              <div className="flex min-h-11 items-center justify-between gap-2 rounded-lg border border-line bg-void/35 px-3">
-                <span className="font-mono text-xs uppercase tracking-[0.12em] text-ink-faint">{t("composer.sheet.branch")}</span>
-                <span className="flex min-w-0 items-center gap-2"><BranchChip projectCwd={projectCwd} instanceId={instanceId} />{queueChip && <Chip mono tone="copper" title={running ? t("composer.queue.queuedTitle") : t("composer.queue.parkedTitle")}>{running ? t("composer.queue.queued", { n: queued }) : t("composer.queue.parked", { n: queued })}</Chip>}</span>
+                {queueListed && (
+                  <div className="rounded-md border border-line bg-void/35 p-3">
+                    <QueuedMessageList tabId={tabId} disabled={unavailable} />
+                  </div>
+                )}
               </div>
             )}
-            {queueChip && queueListed && (
-              <div className="rounded-lg border border-line bg-void/35 p-3">
-                <QueuedMessageList tabId={tabId} disabled={unavailable} />
-              </div>
-            )}
-          </div>
-        </section>
+          />
+        </div>
         <Button disabled={unavailable} onClick={onStash} className="min-h-11 w-full justify-center">
           {stash === "pick" ? t("composer.stash.open") : t("composer.stash.stash")}
         </Button>

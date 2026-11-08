@@ -164,7 +164,7 @@ export function AdvisorControl({ tabId, disabled, layout = "inline" }: { tabId: 
           tone={on ? "signal" : "neutral"}
           className={cn(
             "font-mono",
-            layout === "sheet" && "h-11 min-w-0 flex-1",
+            layout === "sheet" && "h-auto min-h-11 min-w-0 flex-1 flex-wrap",
             layout === "inline" && "min-w-0 shrink",
           )}
         >
@@ -248,7 +248,7 @@ export function AdvisorControl({ tabId, disabled, layout = "inline" }: { tabId: 
             </span>
           )}
           {on && !gated && effectiveModelSelector !== null && efforts.length > 0 && (
-            <span ref={levelAnchor} className="relative flex">
+            <span ref={levelAnchor} className={cn("relative flex", layout === "sheet" && levelMenu && "contents")}>
               <button
                 type="button"
                 disabled={disabled}
@@ -264,7 +264,10 @@ export function AdvisorControl({ tabId, disabled, layout = "inline" }: { tabId: 
                 {effectiveLevel ?? t("composer.thinking.fallback")}
               </button>
               {levelMenu && (
-                <div className="animate-rise edge-lit absolute bottom-full left-0 z-20 mb-1 flex w-32 flex-col rounded-md border border-line-strong bg-overlay p-1">
+                <div className={cn(
+                  "animate-rise edge-lit z-20 flex flex-col rounded-md border border-line-strong bg-overlay p-1",
+                  layout === "sheet" ? "mt-1 w-full basis-full" : "absolute bottom-full left-0 mb-1 w-32",
+                )}>
                   <span className="px-1.5 pb-1 pt-0.5">
                     <Label>{t("composer.advisor.thinkingLabel")}</Label>
                   </span>

@@ -279,16 +279,16 @@ export const RpcTab = memo(function RpcTab({ tabId, active }: { tabId: string; a
     return () => window.clearTimeout(timer);
   }, [tabId, status, flagBootStall]);
 
-  // Boot shares the hero geometry: the composer is centered from the first
-  // skeleton frame, so nothing moves when the session turns ready.
-  const centered =
-    !compact &&
+  // Workspace preparation is a pre-exchange capability, not a desktop hero
+  // feature: compact sessions keep the same branch and machine actions.
+  const unprompted =
     exitCode === undefined &&
     !prompted &&
     !holding &&
     (status === "starting" || status === "ready") &&
-    preExchange(items) &&
-    !paneColumn;
+    preExchange(items);
+  // Boot shares the hero geometry on desktop only.
+  const centered = !compact && unprompted && !paneColumn;
   const hero = centered && status === "ready";
   /**
    * The composer floats over the transcript instead of sitting under it
@@ -597,8 +597,9 @@ export const RpcTab = memo(function RpcTab({ tabId, active }: { tabId: string; a
                   >
                     <Composer
                       tabId={tabId}
+                      active={active && !planReviewOpen}
                       onPrompt={() => setPrompted(true)}
-                      unprompted={centered}
+                      unprompted={unprompted}
                       liveVoiceVisible={!(planReviewOpen && active)}
                       onDictationActiveChange={setDictationActive}
                     />

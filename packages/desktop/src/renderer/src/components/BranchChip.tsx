@@ -78,15 +78,18 @@ export function BranchChip({
   onCreateWorktree,
   finishTabId,
   externalRequest,
+  layout = "inline",
 }: {
   projectCwd?: string;
   /** The remote instance owning the checkout (issue #416); null for this host. */
   instanceId?: string | null;
+  /** Sheet menus expand in the scroller instead of floating above the chip. */
+  layout?: "inline" | "sheet";
   /**
    * The composer's pending-workspace selection (issue #227), offered only
    * while the session is unprompted and has no worktree of its own. Absent
-   * (the default) the popover is the branch menu alone — the compact sheet
-   * instance, and every prompted or worktree session.
+   * (the default) the popover is the branch menu alone, for prompted or
+   * worktree sessions.
    */
   workspace?: WorkspaceSelection;
   /**
@@ -109,8 +112,7 @@ export function BranchChip({
   /**
    * The tab whose Finish worktree dialog this session's worktree belongs to
    * (issues #385–#389): the Composer passes its own tab for worktree
-   * sessions; absent (the default) the popover is the branch menu alone —
-   * every plain session and the compact sheet instance.
+   * sessions; absent (the default) the popover is the branch menu alone.
    */
   finishTabId?: string;
   externalRequest?: BranchChipExternalRequest | null;
@@ -537,7 +539,7 @@ export function BranchChip({
   const displayedError = error;
 
   return (
-    <span ref={rootRef} className="relative flex min-w-0">
+    <span ref={rootRef} className={cn("relative flex min-w-0", layout === "sheet" && "w-full flex-wrap [&_button]:min-h-11")}>
       <button
         ref={triggerRef}
         type="button"
@@ -594,8 +596,9 @@ export function BranchChip({
         <div
           aria-busy={refreshing || pulling || pushing}
           className={cn(
-            "animate-rise edge-lit absolute bottom-full left-0 z-20 mb-1 flex flex-col rounded-md border border-line-strong bg-overlay p-1",
-            mode === "worktree" ? "w-72" : "w-60",
+            "animate-rise edge-lit z-20 flex flex-col rounded-md border border-line-strong bg-overlay p-1",
+            layout === "sheet" ? "mt-1 w-full basis-full" : "absolute bottom-full left-0 mb-1",
+            layout === "inline" && (mode === "worktree" ? "w-72" : "w-60"),
           )}
         >
           {confirm !== null ? (

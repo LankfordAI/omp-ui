@@ -17,11 +17,13 @@ export function MachineChip({
   tabId,
   disabled,
   onPick,
+  layout = "inline",
 }: {
   tabId: string;
   disabled: boolean;
   /** Called with the picked member; the composer owns the move. */
   onPick: (member: CheckoutEntry) => void;
+  layout?: "inline" | "sheet";
 }) {
   const t = useT();
   const state = useStore((s) => s.state);
@@ -50,7 +52,7 @@ export function MachineChip({
   const local = t("quickopen.host.local");
 
   return (
-    <span ref={rootRef} className="relative flex min-w-0">
+    <span ref={rootRef} className={cn("relative flex min-w-0", layout === "sheet" && "w-full flex-wrap [&_button]:min-h-11")}>
       <button
         ref={triggerRef}
         type="button"
@@ -74,7 +76,10 @@ export function MachineChip({
         <div
           role="menu"
           aria-label={t("composer.machine.label")}
-          className="animate-rise edge-lit absolute bottom-full left-0 z-20 mb-1 flex w-60 flex-col rounded-md border border-line-strong bg-overlay p-1"
+          className={cn(
+            "animate-rise edge-lit z-20 flex flex-col rounded-md border border-line-strong bg-overlay p-1",
+            layout === "sheet" ? "mt-1 w-full basis-full" : "absolute bottom-full left-0 mb-1 w-60",
+          )}
         >
           {members.map((m) => {
             const current = m.instanceId === instanceId && m.projectCwd === projectCwd;

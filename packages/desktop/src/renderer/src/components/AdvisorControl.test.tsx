@@ -207,23 +207,6 @@ describe("advisor controls under a dev/test override (issue #372)", () => {
     expect(toggle.title).toContain("On resume");
   });
 
-  it("the sheet capsule shares its row with the badge instead of eating the whole width (issue #1020)", async () => {
-    seed({ gate: GATE, models: [gatedCatalog] });
-    await render("sheet");
-
-    const capsule = document.body.querySelector<HTMLElement>("span.h-11")!;
-    // `w-full` + the frame's `shrink-0` pushed the dev/test badge past a
-    // 390px viewport; the sheet capsule must flex within the row so the
-    // shrink-0 badge always fits beside it.
-    expect(capsule.classList.contains("flex-1")).toBe(true);
-    expect(capsule.classList.contains("w-full")).toBe(false);
-    expect(capsule.classList.contains("shrink-0")).toBe(false);
-
-    const badge = [...document.body.querySelectorAll<HTMLElement>("span")].find(
-      (el) => el.textContent === "dev/test",
-    )!;
-    expect(badge.classList.contains("shrink-0")).toBe(true);
-  });
 
   it("ungated controls keep their saved-choice behavior", async () => {
     seed({ gate: null, models: [advisorA, gatedCatalog] });

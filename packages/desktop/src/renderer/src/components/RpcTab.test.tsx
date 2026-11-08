@@ -346,7 +346,7 @@ describe("RpcTab plan-review takeover (issue #277)", () => {
     expect(box.value).toBe("my draft");
   });
 
-  it("removes live controls from an already-open options sheet during takeover and restores them on defer without losing the draft", async () => {
+  it("hides composer options during review takeover and restores them on defer without losing the draft", async () => {
     Object.defineProperty(window, "matchMedia", {
       configurable: true,
       value: vi.fn(() => ({ matches: true, addEventListener: vi.fn(), removeEventListener: vi.fn() })),
@@ -409,8 +409,7 @@ describe("RpcTab plan-review takeover (issue #277)", () => {
     })));
 
     expect(dock()).not.toBeNull();
-    expect(sheet.isConnected).toBe(true);
-    expect(sheet.querySelector('button[aria-label="start live voice"]')).toBeNull();
+    expect(document.body.querySelector('[role="dialog"][aria-label="prompt options"]')).toBeNull();
     expect(document.body.querySelectorAll('button[aria-label="start live voice"]')).toHaveLength(1);
     expect(dock()!.querySelector('button[aria-label="start live voice"]')).not.toBeNull();
     expect(composerBox()).toBe(box);
@@ -422,10 +421,11 @@ describe("RpcTab plan-review takeover (issue #277)", () => {
     )!;
     await act(async () => defer.click());
     expect(dock()).toBeNull();
-    expect(sheet.isConnected).toBe(true);
+    const restoredSheet = document.body.querySelector<HTMLElement>('[role="dialog"][aria-label="prompt options"]')!;
+    expect(restoredSheet).not.toBeNull();
     expect(composerBox()).toBe(box);
     expect(box.value).toBe("draft before review");
-    const restoredStart = sheet.querySelector<HTMLButtonElement>('button[aria-label="start live voice"]')!;
+    const restoredStart = restoredSheet.querySelector<HTMLButtonElement>('button[aria-label="start live voice"]')!;
     expect(restoredStart).not.toBeNull();
     expect(restoredStart.disabled).toBe(false);
     await act(async () => restoredStart.click());
