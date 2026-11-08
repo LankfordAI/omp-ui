@@ -2887,8 +2887,6 @@ export const ko: Partial<Record<MessageKey, string>> = {
   "sidebar.footer.workingCount": "작업 중 {n}",
   "sidebar.footer.liveTitle": "라이브 세션: 프로세스가 실행 중인 세션 {n}개 — 준비됨 및 작업 중",
   "sidebar.footer.resize": "사이드바 크기 조정",
-  "sidebar.footer.hostsAttention": "호스트 {n}개 오프라인",
-  "sidebar.footer.hostsAttentionTitle": "이 창이 연결했던 원격 컴퓨터가 응답을 멈췄습니다. 해당 세션은 그 컴퓨터에 남아 있습니다. 원격 인스턴스를 열어 다시 연결하거나 삭제하세요.",
   "settings.shell.title": "설정",
   "settings.nav.general": "일반",
   "settings.nav.appearance": "모양",

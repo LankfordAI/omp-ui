@@ -4,7 +4,7 @@ This guide explains what users receive from a release and how maintainers publis
 
 ## Unreleased
 
-Nothing since [v0.34.1](https://github.com/LankfordAI/omp-ui/releases/tag/v0.34.1). Add one bullet per shipped change here before the next release.
+- **Quieter sidebar footer** ([#1113](https://github.com/LankfordAI/omp-ui/issues/1113)): removed the offline-host warning. Settings, Fleet, and ready/working counts remain; connectivity status and recovery stay in Fleet and Settings.
 
 ## Choose a download
 

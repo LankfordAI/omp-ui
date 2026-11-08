@@ -608,16 +608,6 @@ describe("Sidebar session list", () => {
     expect(openMenuItems()).toEqual([]);
   });
 
-  it("opens Remote instances from the footer's unreachable chip", () => {
-    useStore.setState({ state: withRemote({ status: "unreachable", error: "connection lost" }) });
-    renderSidebar();
-    const chip = [...document.body.querySelectorAll<HTMLButtonElement>("footer button")].find(
-      (b) => b.textContent === t("sidebar.footer.hostsAttention", { n: 1 }),
-    )!;
-    act(() => chip.click());
-    expect(useStore.getState().settingsPage).toBe("remote-instances");
-  });
-
   it("renders no aside while the desktop sidebar is collapsed", () => {
     useStore.setState({ sidebarCollapsed: true });
     renderSidebar();

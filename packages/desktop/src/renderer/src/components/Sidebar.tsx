@@ -716,9 +716,6 @@ export function Sidebar() {
     return { totalLive: live, workingLive: working };
   }, [state, backgroundWorkTabIds]);
   const hasInstances = instances.some((i) => i.status !== "self");
-  const unreachable = instances.filter(
-    (i) => i.status !== "self" && i.status !== "joined" && i.status !== "connecting",
-  ).length;
 
   // Collapse hides the docked sidebar (desktop and the compact shell's docked
   // posture); the sessions sheet ignores it.
@@ -1097,21 +1094,6 @@ export function Sidebar() {
             <IconFleet />
             <span className="hidden whitespace-nowrap @[17rem]:inline">{t("fleet.sidebar.open")}</span>
           </IconButton>
-        )}
-        {unreachable > 0 && (
-          <Button
-            size="xs"
-            variant="ghost"
-            tone="rose"
-            title={t("sidebar.footer.hostsAttentionTitle")}
-            onClick={() => { openSettings("remote-instances"); closeCompactSurface(); }}
-            /* The one elastic item in the footer (#1079): `cn` appends this
-               last so tailwind-merge drops Button's base shrink-0. Full text
-               already rides in the title tooltip. */
-            className="min-w-0 max-w-full shrink"
-          >
-            <span className="truncate">{t("sidebar.footer.hostsAttention", { n: unreachable })}</span>
-          </Button>
         )}
         {totalLive > 0 && (
           <span className="ml-auto flex shrink-0 items-center gap-1.5 whitespace-nowrap" title={t("sidebar.footer.liveTitle", { n: totalLive })}>

@@ -137,7 +137,7 @@ Webhooks let an outside event start a session: each webhook is an endpoint `POST
 
 ## Remote instances
 
-Remote instances joins other omp-ui apps that have remote access enabled, so their sessions appear in this app's sidebar list with a nickname on each row and their projects appear in the project quick-open. A joined instance grants this app full control of that host's sessions and files. See [Remote instances](remote-instances.md) for what crosses, what does not, and how reconnection works. While any saved instance is unreachable, needs sign-in, or is incompatible, the sidebar footer shows an **N unreachable** chip that opens this page.
+Remote instances joins other omp-ui apps that have remote access enabled, so their sessions appear in this app's sidebar list with a nickname on each row and their projects appear in the project quick-open. A joined instance grants this app full control of that host's sessions and files. See [Remote instances](remote-instances.md) for what crosses, what does not, and how reconnection works. Check connectivity status in Fleet or on this page; the sidebar footer does not show an offline-host warning.
 
 The **Join** form takes:
 

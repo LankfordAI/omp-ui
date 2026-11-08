@@ -3141,8 +3141,6 @@ export const en = {
   "sidebar.footer.workingCount": "{n} working",
   "sidebar.footer.liveTitle": "Live sessions: {n} with a running process — Ready and Working",
   "sidebar.footer.resize": "resize sidebar",
-  "sidebar.footer.hostsAttention": "{n} host offline",
-  "sidebar.footer.hostsAttentionTitle": "A remote computer this window joined stopped answering. Its sessions stay on that computer; open Remote instances to reconnect or remove it.",
   "settings.shell.title": "Settings",
   "settings.nav.general": "General",
   "settings.nav.appearance": "Appearance",

@@ -88,9 +88,10 @@ nickname on its row, exactly ADR-0063 (c)'s rule; opening, steering, and
 terminating still run on the owner.
 
 **(f) Unreachable instances dim, and recovery lives in Settings.** Sessions of
-an instance that is not joined render dimmed with no context menu, and the
-footer shows an "N unreachable" chip that opens Settings → Remote instances,
-where Reconnect and Refresh state live.
+an instance that is not joined render dimmed with no context menu. Recovery
+lives in Settings → Remote instances, where Reconnect and Refresh state live.
+The footer's original "N unreachable" chip was removed by [#1113](https://github.com/LankfordAI/omp-ui/issues/1113);
+connectivity status remains in Fleet and Settings, not the sidebar footer.
 
 ## Consequences
 
