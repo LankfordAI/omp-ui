@@ -63,6 +63,57 @@ There is one renderer implementation under [`packages/desktop/src/renderer/src`]
 The diagnostic bundle ([`core/src/diagnostics.ts`](../packages/core/src/diagnostics.ts)) is the feature-seam example for redaction: callers hand the collector the raw settings object, and the scrub that replaces `remoteToken`/`remotePasswordHash`/`remotePasswordSalt` with presence booleans lives inside the collector, not in any caller — a new call site cannot forget it. The bundle's own `manifest.json` states the policy and lists every section with byte counts, so a recipient sees what the file holds.
 
 
+## Android client
+
+The standalone `android/` Kotlin app ([#1100](https://github.com/LankfordAI/omp-ui/issues/1100))
+loads the existing remote renderer in a guarded WebView. `MainActivity` owns
+connection chrome, Android lifecycle/insets, document pickers, and fold
+observations; `HostPolicy` owns endpoint and origin checks. All OMP operations
+still cross the browser WebSocket adapter into the host's existing backend.
+The Android project has no Electron dependency and creates no session backend.
+
+An exact-origin, top-frame document-start script installs
+`window.__ompAndroidViewport = { bookSplitX: null }`. Native WindowManager
+updates set a vertical separating fold's right edge in CSS pixels and dispatch
+`omp-android-viewport`; flat/horizontal/absent folds clear it. This is one-way
+visual data, never a callable Java interface. The shell handles configuration
+changes without recreating the WebView; actual process/renderer loss reloads
+the sanitized origin rather than trying to restore DOM from WebView history.
+
+`lib/android-shell.ts` isolates origin-local view recovery under
+`omp-ui.androidView.v1`, bounded drafts under `omp-ui.androidDrafts.v1`, and
+unconfirmed plain-text submissions under `omp-ui.androidPending.v1`. Draft and
+pending stores each retain at most 16 entries of at most 32,768 characters.
+Submission text is retained before composer clear; accepted handoff retires
+only its pending ID. Recovery is an explicit append into the current draft,
+never a replay. WebStorage disk commits are asynchronous: a sudden stop can
+restore an older snapshot, so this is not exactly-once delivery.
+The existing view schema and restoration path are reused, but Android only
+reattaches authoritative live tabs, never calls spawn/resume during recovery.
+Browser sessionStorage and the Electron update-version gate are unchanged.
+Attachments, transcript content, and credentials never enter these snapshots.
+While reading, `TranscriptView` captures a mounted visible block and compensates
+its viewport offset only on width changes (#1101); resize scroll echoes cannot
+overwrite that pre-reflow anchor. Follow mode and non-Android scrolling keep
+their existing policies. Anchors are not persisted across process death.
+
+Native Back dispatches a cancelable, exact-origin/top-frame `omp-android-back`,
+not Escape. `lib/android-back.ts` selects only the topmost visible registered
+surface; surfaces whose close would answer an agent or settle a session block
+Back instead. Unhandled Back uses trusted native history or the connection
+panel. `HostWebViewClient` clears credential-form history at the login boundary,
+preserves HTML POST `/login` failures only for 400/401/429, and keeps foreign
+main-frame admission separate from the HTTPS subresource allowance. Resource
+redirect visibility remains limited by WebView; this is not an egress firewall.
+
+Explicit local-data removal is all-host, not per-host: cookies are global to
+the app's WebView profile. `LocalDataClearer` persists pending intent, destroys
+the current WebView, blocks reconnection, and uses the supported
+`WebStorageCompat.deleteBrowsingData` completion callback before reporting
+success. Pending deletion survives recreation/process death; unsupported
+providers preserve data and require an update. Normal host switching does not
+clear cookies or origin-local recovery.
+
 ## Stats collection and read-only snapshots
 
 The existing Stats view ([#1083](https://github.com/LankfordAI/omp-ui/issues/1083),

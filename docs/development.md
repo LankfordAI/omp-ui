@@ -236,6 +236,79 @@ npm run package:win --workspace @omp-ui/desktop
 
 Packaging runs the full desktop build first. macOS release signing and notarization require the release credentials described in [Releases](releases.md). The Windows script always passes `--x64`.
 
+## Android app
+
+`android/` is a standalone Kotlin/Gradle project, outside the npm workspaces
+([#1100](https://github.com/LankfordAI/omp-ui/issues/1100)). It loads the host's
+remote web bundle; it neither embeds Electron nor runs omp on the phone. Build
+and run a host from this checkout as well: older published hosts do not contain
+the Android draft/view recovery and reading-position changes.
+
+Use JDK 21, Android SDK platform 36 and build-tools 36.0.0. Set `JAVA_HOME` to
+the JDK (not a runtime-only installation) and `ANDROID_HOME` to the SDK. The
+wrapper pins Gradle 8.13 with its distribution SHA-256; the project pins AGP
+8.13.2 and Kotlin 2.1.20.
+
+```bash
+"$ANDROID_HOME/cmdline-tools/latest/bin/sdkmanager" "platforms;android-36" "build-tools;36.0.0"
+cd android
+./gradlew --no-daemon :app:assembleDebug :app:testDebugUnitTest :app:lintDebug
+```
+
+On Windows use `gradlew.bat`. The debug-signed APK is
+`android/app/build/outputs/apk/debug/app-debug.apk`, version 0.1.0, application
+ID `ai.lankford.ompui.android`. It requires Android 10/API 29 or newer and an
+updated Android System WebView with document-start JavaScript support. This is
+a locally built APK, not an asset in the desktop release/update feeds.
+
+From the repository root, install on the explicitly selected device:
+
+```bash
+"$ANDROID_HOME/platform-tools/adb" -s DEVICE_SERIAL install -r android/app/build/outputs/apk/debug/app-debug.apk
+```
+
+For instrumentation, unlock the selected emulator first, then run
+`ANDROID_SERIAL=DEVICE_SERIAL ./gradlew --no-daemon :app:connectedDebugAndroidTest`
+from `android/`. `ShellLifecycleTest` exercises recreation, durable cookies and
+web storage, configuration callbacks, connection-panel retention, and native
+Back. `HostPolicyTest` covers endpoint/origin rejection and fold geometry.
+
+`ShellConnectionTest` covers actual HTML login failures and corrected sign-in,
+post-login Back without credential replay, HTTP/HTTPS POST receiver silence,
+host switching, canceled/confirmed all-origin deletion, and persisted pending
+deletion. The unsupported-deletion case skips when the current provider supports
+the deletion feature; a passing current-provider run does not exercise that
+older-provider branch.
+
+For a real UI proof, start the host using `dev:headless` as described below,
+forward its remote port with `adb -s DEVICE_SERIAL reverse tcp:PORT tcp:PORT`,
+and connect the Android app to `http://localhost:PORT`. Debug builds expose the
+WebView through `adb forward tcp:LOCAL_PORT localabstract:webview_devtools_remote_PID`;
+release builds disable WebView debugging. Use real fold/unfold and acceleration
+sensor commands on a hinge-capable AVD, not two independent flat profiles.
+With the disposable API 36 foldable used for #1100, host GLES with Vulkan off
+(`-no-window -gpu host -feature -Vulkan`) avoided a bundled SwiftShader crash.
+Dismiss the emulator's keyguard before lifecycle tests. Apply density overrides
+after the physical display switch has settled, not immediately after `emu fold`.
+
+The live proof covered cover/inner transitions with an open keyboard, portrait
+and landscape rotation, the same mounted reading block, selected session and
+Unicode draft, process-restart text recovery, a system-picked PNG attachment,
+and saved blob-download bytes. Physical Samsung Fold 8 posture reporting still
+needs a hardware check; the emulator did not publish a non-null book split.
+The app remains width-adaptive when native folding features are absent.
+
+The hardening proof also exercised the real host's wrong-password correction
+and HTTP 429 lockout page, physical Back during a held turn, all-host deletion
+and sign-in removal, and a new incrementally streamed turn after actual app
+process restart. The host's omp PID stayed unchanged. An unacknowledged handoff
+was held by pausing only that disposable omp child; after its pending text
+reached the WebView journal, the app was force-stopped and reconnected. The text
+remained separate until explicit recovery, with no automatic model request.
+Do not mistake `localStorage.getItem()` for a disk-commit barrier: an immediate
+force-stop restored an older draft snapshot in a separate run. Recovery is
+best-effort, and `ActivityScenario.recreate()` alone is not process-death proof.
+
 ## Workspace layout
 
 | Path | Responsibility | Main entries and tests |
@@ -243,6 +316,7 @@ Packaging runs the full desktop build first. macOS release signing and notarizat
 | `packages/core` | Plain Node and TypeScript for OMP-facing behavior, including PTYs, rpc-ui framing, session files, settings, updates, and shared backend types. It must not import Electron or a transport. | Public exports start at `src/index.ts`. Tests live beside source as `src/**/*.test.ts`, including `src/rpc/*.test.ts`. |
 | `packages/desktop` | Electron shell, backend orchestration, preload bridge, React renderer, remote web entry, and packaging configuration. | Main process: `src/main/index.ts`. Preload: `src/preload/index.ts`. Desktop renderer: `src/renderer/index.html` and `src/renderer/src/main.tsx`. Browser renderer: `src/web/index.html` and `src/web/main.web.tsx`. Tests are colocated as `*.test.ts` and `*.test.tsx`. |
 | `packages/server` | Node HTTP and WebSocket transport that serves the browser bundle and exposes the same typed backend used by the desktop renderer. | Public server entry: `src/index.ts`. Tests live beside source as `src/*.test.ts`. |
+| `android` | Installable Kotlin/WebView client using the existing host-served renderer; no npm workspace or second backend. | `app/src/main/java/ai/lankford/ompui/android/MainActivity.kt`; policy unit tests in `app/src/test`, lifecycle tests in `app/src/androidTest`. |
 
 The desktop and browser entries load the same renderer. Electron reaches the backend through the sandboxed preload and IPC. The browser entry installs the WebSocket backend before it imports renderer code. See [Architecture](architecture.md) and [ADR-0002](adr/0002-transport-agnostic-core.md) for the boundary and its rationale.
 

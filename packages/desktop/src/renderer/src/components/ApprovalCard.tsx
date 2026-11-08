@@ -1,6 +1,7 @@
-import { useEffect, useState } from "react";
+import { useEffect, useRef, useState } from "react";
 import type { ApprovalPrompt } from "@omp-ui/core/approval";
 import { useT } from "../lib/i18n";
+import { useAndroidBack } from "../lib/android-back";
 import { useStore } from "../store";
 import { Button, Chip, Label, Switch } from "./ui";
 
@@ -32,6 +33,8 @@ export function ApprovalCard({ tabId }: { tabId: string }) {
   // The switch belongs to one held frame: a new approval starts un-remembered
   // without an effect, because the held frame object is stable per hold.
   const [alwaysFrame, setAlwaysFrame] = useState<unknown>(null);
+  const root = useRef<HTMLDivElement>(null);
+  useAndroidBack({ open: prompt !== null, refs: root, kind: "blocker", onBack: "block" });
 
   useEffect(() => {
     if (prompt === null) return;
@@ -64,6 +67,7 @@ export function ApprovalCard({ tabId }: { tabId: string }) {
   const restrictedFolder = prompt.restrictedFolder;
   return (
     <div
+      ref={root}
       role="dialog"
       aria-modal="false"
       aria-label={t("dialog.approval.title")}

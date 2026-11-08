@@ -20,6 +20,7 @@ import {
   type DesktopViewStateV1,
 } from "../../lib/desktop-view-state";
 import { IS_ELECTRON } from "../../lib/platform";
+import { androidViewStorage, isAndroidShell } from "../../lib/android-shell";
 import {
   BROWSER_PANE_DEFAULT_WIDTH,
   DEVICE_PANE_DEFAULT_WIDTH,
@@ -189,6 +190,23 @@ export async function restoreSavedTabs(
   for (const tabId of saved.tabIds) {
     const record = findRecord(get().state, tabId);
     if (record === undefined || record.live === "missing") continue;
+    if (!IS_ELECTRON && isAndroidShell()) {
+      // The host owns process lifetime. Android recovery only reattaches views;
+      // even an id saved while live may have settled while this app was gone.
+      const owner = findOwner(get().state, tabId);
+      if (owner?.record.live !== "live") continue;
+      const instance = findInstance(get().state, owner.instanceId);
+      if (instance !== undefined && instance.status !== "joined") continue;
+      const record = owner.record;
+      set((state) => ({
+        tabs: [
+          ...state.tabs.filter((tab) => tab.tabId !== tabId),
+          { tabId, mode: record.mode, projectCwd: record.projectCwd, hidden: false, instanceId: owner.instanceId },
+        ],
+      }));
+      restored.push(tabId);
+      continue;
+    }
     await get().openSession(tabId);
     if (get().tabs.some((tab) => tab.tabId === tabId)) restored.push(tabId);
   }
@@ -203,15 +221,15 @@ export async function restoreSavedTabs(
 
 /** Restores the saved view after initialization's combined backend commit. */
 export async function restoreDesktopView(api: StoreApi<UiStore>): Promise<void> {
-  // Platform split (issue #890): a browser client keeps its tab list in per-tab
-  // sessionStorage and restores without the desktop version gate; Electron keeps
-  // localStorage plus the #99 gate untouched.
-  const storage = IS_ELECTRON ? desktopViewStorage() : sessionViewStorage();
+  // Android survives process loss, browsers retain per-tab reload semantics,
+  // and Electron keeps the desktop update/version gate unchanged.
+  const android = !IS_ELECTRON && isAndroidShell();
+  const storage = IS_ELECTRON ? desktopViewStorage() : android ? androidViewStorage() : sessionViewStorage();
   if (storage === null) return;
   const saved = loadDesktopView(storage);
   // Panel widths are cross-tab preferences: a browser client still takes them from
   // the localStorage blob when one exists, falling back to its own snapshot.
-  const widthStorage = IS_ELECTRON ? null : desktopViewStorage();
+  const widthStorage = IS_ELECTRON || android ? null : desktopViewStorage();
   const widths = widthStorage === null ? saved : (loadDesktopView(widthStorage) ?? saved);
   const currentVersion = api.getState().appUpdate.currentVersion;
   if (widths !== null) {
@@ -234,7 +252,7 @@ export async function restoreDesktopView(api: StoreApi<UiStore>): Promise<void> 
       api.setState({ restoringTabs: false });
     }
   }
-  if (currentVersion !== null) {
+  if (currentVersion !== null || android) {
     saveDesktopView(storage, projectDesktopView(api.getState(), currentVersion));
   }
 }
@@ -261,8 +279,9 @@ export function installDesktopViewPersistence(api: StoreApi<UiStore>): void {
       return;
     }
     const version = state.appUpdate.currentVersion;
-    const storage = IS_ELECTRON ? desktopViewStorage() : sessionViewStorage();
-    if (storage === null || version === null) return;
+    const android = !IS_ELECTRON && isAndroidShell();
+    const storage = IS_ELECTRON ? desktopViewStorage() : android ? androidViewStorage() : sessionViewStorage();
+    if (storage === null || (version === null && !android)) return;
     saveDesktopView(storage, projectDesktopView(state, version));
   });
 }

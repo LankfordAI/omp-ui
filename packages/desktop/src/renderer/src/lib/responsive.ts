@@ -1,4 +1,5 @@
 import { useEffect, useState } from "react";
+import { isAndroidShell } from "./android-shell";
 
 export const COMPACT_SHELL_QUERY = "(max-width: 899px)";
 /** Compact shell with room for the sidebar beside the transcript (foldable inner screen, small tablet). Implies compact. */
@@ -61,7 +62,12 @@ type SegmentedWindow = Window & { viewport?: { segments?: readonly { left: numbe
  * segment's width, so a hinge mask stays under the sidebar.
  */
 function bookSplitX(): number | null {
-  if (typeof window === "undefined" || typeof window.matchMedia !== "function") return null;
+  if (typeof window === "undefined") return null;
+  if (isAndroidShell()) {
+    const split = window.__ompAndroidViewport?.bookSplitX;
+    return typeof split === "number" && Number.isFinite(split) && split > 0 ? split : null;
+  }
+  if (typeof window.matchMedia !== "function") return null;
   if (!window.matchMedia(BOOK_POSTURE_QUERY).matches) return null;
   const segments = (window as SegmentedWindow).viewport?.segments;
   if (segments == null || segments.length !== 2) return null;
@@ -72,15 +78,19 @@ export function useBookSplitX(): number | null {
   const [x, setX] = useState(bookSplitX);
 
   useEffect(() => {
-    if (typeof window.matchMedia !== "function") return;
+    if (typeof window === "undefined") return;
     const update = () => setX(bookSplitX());
     update();
-    const unlisten = listen(window.matchMedia(BOOK_POSTURE_QUERY), update);
+    const unlisten = typeof window.matchMedia === "function"
+      ? listen(window.matchMedia(BOOK_POSTURE_QUERY), update)
+      : () => {};
     // Segment geometry changes on rotation without a media change.
     window.addEventListener("resize", update);
+    window.addEventListener("omp-android-viewport", update);
     return () => {
       unlisten();
       window.removeEventListener("resize", update);
+      window.removeEventListener("omp-android-viewport", update);
     };
   }, []);
 

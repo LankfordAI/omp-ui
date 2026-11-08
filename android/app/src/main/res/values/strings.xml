@@ -1,0 +1,13 @@
+<?xml version="1.0" encoding="utf-8"?>
+<resources>
+    <string name="app_name">omp-ui</string>
+    <string name="clear_saved_hosts">Clear saved hosts and sign-ins</string>
+    <string name="clear_saved_hosts_title">Clear this app’s saved hosts and sign-ins?</string>
+    <string name="clear_saved_hosts_confirmation">This closes the current view and clears ALL host cookies, sign-ins, origin-local drafts and view storage, cached web data, and the remembered host address in this app. This applies to every host, not only the current host. Host-owned sessions and processes are not deleted or stopped. This cannot be undone.</string>
+    <string name="clear_saved_hosts_confirm">Clear all local data</string>
+    <string name="clear_saved_hosts_cancel">Keep local data</string>
+    <string name="clear_saved_hosts_pending">Clearing all saved hosts and sign-ins… Reconnect is disabled until deletion is complete.</string>
+    <string name="clear_saved_hosts_complete">All saved host addresses, host cookies, and local drafts and view storage in this app were cleared. Connect to sign in again. Host sessions are unchanged.</string>
+    <string name="clear_saved_hosts_unsupported">Update Android System WebView or Chrome to clear all local data safely. This provider does not support confirmed browsing-data deletion. No local data or remembered host address has been removed.</string>
+    <string name="clear_saved_hosts_failed">Local-data removal did not complete. Update Android System WebView or Chrome and try Clear saved hosts and sign-ins again. Reconnect remains disabled to prevent old data from being restored.</string>
+</resources>

@@ -3,6 +3,7 @@ import { cn } from "../lib/cn";
 import { useCompactShell } from "../lib/responsive";
 import { field, strField } from "../lib/fields";
 import { useT } from "../lib/i18n";
+import { useAndroidBack } from "../lib/android-back";
 import { OTHER_OPTION, planSelect, readOptions, togglePick } from "../lib/multi-select";
 import {
   isAnswered,
@@ -193,6 +194,8 @@ export function ExtensionDialogHost({
   const queue = useStore((s) => s.rpc[tabId]?.extensionQueue) ?? [];
   const answerExtension = useStore((s) => s.answerExtension);
   const current = queue[0];
+  const root = useRef<HTMLDivElement>(null);
+  useAndroidBack({ open: current !== undefined, refs: root, kind: "blocker", onBack: "block" });
 
   const [dialog, dispatch] = useReducer(
     reduceExtensionDialog,
@@ -409,7 +412,7 @@ export function ExtensionDialogHost({
   }
 
   return (
-    <div role={compact ? "dialog" : undefined} aria-modal={compact ? "false" : undefined} className={cn(
+    <div ref={root} role={compact ? "dialog" : undefined} aria-modal={compact ? "false" : undefined} className={cn(
       "animate-rise shrink-0",
       compact
         ? "fixed inset-x-0 bottom-0 z-50 flex max-h-[min(70dvh,var(--app-viewport-height,70dvh))] flex-col border-t border-line bg-raised pb-[var(--safe-bottom)]"

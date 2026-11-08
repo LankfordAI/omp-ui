@@ -19,6 +19,7 @@ import { backend, backendFor, displayMessage } from "../backend";
 import { cn } from "../lib/cn";
 import { currentLocaleId, localeTag, useT, type MessageKey } from "../lib/i18n";
 import { useCompactShell } from "../lib/responsive";
+import { useComposerText } from "../lib/android-shell";
 import { keywordPalette, SHIMMER_PERIOD_MS } from "../lib/keyword-colors";
 import { MAGIC_KEYWORDS, magicKeywordSegments, type MagicKeyword } from "@omp-ui/core/magic-keywords";
 import { firingKeywords } from "../lib/magic-keyword-gate";
@@ -287,7 +288,13 @@ export function Composer({
   const referenceSession = useStore((s) => s.referenceSession);
   const appendNotice = useStore((s) => s.appendNotice);
 
-  const [text, setText] = useState("");
+  const [text, setText, {
+    pendingText: unconfirmedText,
+    recoveryInserted,
+    recover: recoverUnconfirmedText,
+    dismiss: dismissUnconfirmedText,
+    beginSubmission,
+  }] = useComposerText(tabId);
   /**
    * The slash draft (text after `/`) whose palette the user dismissed. Scoped
    * to the exact draft, not a bare boolean or the word: Escape on `/todo` must
@@ -792,6 +799,8 @@ export function Composer({
       if (atReset) {
         if (!(await holdPrompt(tabId, message, resetAtMs!, payload, docRefs, annotations, references))) return;
       }
+      // Retain text before clearing; only the host's accepted handoff retires it.
+      const completeSubmission = atReset || message.startsWith("/") ? null : beginSubmission(draftText);
       recall.current = null;
       setText("");
       clearDraft();
@@ -832,6 +841,7 @@ export function Composer({
         route === "interrupt"
           ? await abortAndPrompt(tabId, message, payload, docRefs, annotations, references)
           : await sendPrompt(tabId, message, route, payload, docRefs, annotations, references);
+      completeSubmission?.(accepted);
       if (!accepted) {
         // Refused or rejected (runCommand already reported why): the draft
         // comes back — the send-in-background keep-draft shape — unless the
@@ -845,6 +855,7 @@ export function Composer({
     },
     [
       text,
+      beginSubmission,
       images,
       documents,
       annotations,
@@ -906,6 +917,7 @@ export function Composer({
         ? { mint: { branch: workspace.branch, baseRef: workspace.baseRef, baseBranch: workspace.baseBranch } }
         : null;
     if (message !== "" && history.current[history.current.length - 1] !== message) history.current.push(message);
+    const completeSubmission = beginSubmission(draft.text);
     recall.current = null;
     setText("");
     clearDraft();
@@ -930,6 +942,7 @@ export function Composer({
       // A worktree spawn throws git's stderr: the composer's inline strip owns it.
       setWorkspaceError(err instanceof Error ? err.message : String(err));
     }
+    completeSubmission?.(landed !== null);
     if (landed === null) {
       // Never landed (already reported) or refused: the draft comes back.
       setText((current) => (current === "" ? draft.text : current));
@@ -956,6 +969,7 @@ export function Composer({
     }
   }, [
     text,
+    beginSubmission,
     images,
     documents,
     annotations,
@@ -1726,6 +1740,18 @@ export function Composer({
             onChange={(event) => void pickFiles(event)}
           />
         </div>
+
+        {unconfirmedText !== null && (
+          <div role="status" className="mt-2 flex flex-wrap items-center gap-2 text-xs text-copper">
+            <span className="min-w-0 flex-1 break-words" data-selectable>{t("composer.android.unconfirmed")}</span>
+            <Button variant="ghost" size="xs" disabled={recoveryInserted} onClick={recoverUnconfirmedText}>
+              {t("composer.android.recoverText")}
+            </Button>
+            <Button variant="ghost" size="xs" onClick={dismissUnconfirmedText}>
+              {t("composer.android.dismissUnconfirmed")}
+            </Button>
+          </div>
+        )}
 
         {pasteError !== null && (
           <div className="animate-rise mt-2 flex items-start gap-2 text-xs text-copper">

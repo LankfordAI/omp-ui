@@ -1,0 +1,11 @@
+<?xml version="1.0" encoding="utf-8"?>
+<resources>
+    <item name="host_address" type="id" />
+    <item name="connect_host" type="id" />
+    <item name="remote_webview" type="id" />
+    <item name="connection_panel" type="id" />
+    <item name="connection_menu" type="id" />
+    <item name="clear_saved_hosts" type="id" />
+    <item name="connection_message" type="id" />
+    <item name="resume_current_view" type="id" />
+</resources>

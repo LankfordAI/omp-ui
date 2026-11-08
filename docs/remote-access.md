@@ -33,6 +33,70 @@ The HTTP and WebSocket server is embedded in the Electron main process. It start
 
 A browser view survives being backgrounded — a phone locking or opening the camera/file picker kills its WebSockets, and the page reconnects on its own within seconds, keeping its open tabs and composer draft. Terminal output produced while the link was dead is not replayed; the terminal repaints with the next bytes.
 
+## Android app client
+
+The installable Android app lives in `android/`; see [build and installation](development.md#android-app).
+Use a host built from the same checkout so its served renderer includes Android
+recovery. On the phone, enter the host's root HTTP/HTTPS address or pairing link,
+then use the host's existing sign-in page. Only the origin is remembered by the
+connection form; credentials remain in the WebView's private cookie storage.
+For NetBird, use the host's private IP/DNS name and the host's local-network bind.
+Plain LAN HTTP is still unencrypted; a NetBird tunnel protects only traffic
+actually carried through it. TLS certificate errors are never bypassed.
+
+The cover display uses the compact shell's sessions sheet. The unfolded inner
+display docks the sidebar when the available viewport is 600–899 px wide and at
+least 600 px tall; landscape can use the desktop-width layout. The keyboard can
+temporarily reduce the available height below the docked threshold. Folding and
+rotation retain the WebView, selected tab, draft, and mounted reading block.
+Book posture uses native fold information when the device supplies it.
+
+After Android kills the process, reconnect using the remembered origin: valid
+cookies, the selected still-live tab, and plain-text drafts can recover. Recovery
+never resumes a settled session or starts another omp process. Each host origin
+retains at most 16 drafts and 16 unconfirmed submission entries, each limited to
+32,768 characters; longer text remains memory-only. An accepted handoff removes
+its unconfirmed entry without deleting a newer draft. If delivery was not
+confirmed before the app stopped, **add unconfirmed text** explicitly copies it
+into the current draft; nothing is automatically resent. Check the transcript
+first: the host might already have received it.
+
+WebStorage recovery is best-effort, not an exactly-once or durable-send guarantee.
+An abrupt stop before a disk commit can restore an older snapshot. Unsent
+attachments and the process-death transcript scroll position are not restored.
+App data is excluded from cloud backup and device transfer.
+
+**Connection** opens a native panel without destroying the current host view.
+Connecting to another host asks before replacing that view and preserves saved
+data. Native Back closes the keyboard or one safe renderer surface first. It
+does not synthesize Escape, answer agent decisions, settle sessions, or abort a
+running turn. Otherwise it navigates trusted host history or opens Connection.
+Credential-form history is cleared at the sign-in boundary, so Back cannot
+revisit a login POST. Wrong-password and lockout HTML stays on the host's sign-in
+page rather than being replaced by a native connection error.
+
+**Clear saved hosts and sign-ins** asks before closing the current view and
+removing **all hosts'** cookies/sign-ins, local drafts/view storage, cached web
+data, and the remembered address. Host-owned sessions and processes are unchanged.
+Reconnect remains disabled until deletion completes, including after app
+recreation. If the WebView provider cannot confirm complete browsing-data
+deletion, the app preserves the data and asks for a provider update.
+
+Attachments use Android's document picker; host/blob downloads use the
+save-document picker, capped at 64 MiB. Only user-initiated external HTTP(S) GET
+navigation opens outside the host WebView. Direct foreign main-frame POSTs are
+blocked separately from the broader HTTPS subresource allowance. WebView does
+not expose every resource redirect destination or POST body: this is not an
+egress firewall, and the trusted host must not redirect credential POSTs to
+other origins. File, content, intent, and JavaScript navigation are refused.
+No callable Java bridge is exposed to transcript frames.
+
+The shell does not provide background push notifications or native microphone
+capture; it requests no notification, microphone, camera, or broad-storage
+permissions. Web content permissions are denied rather than silently granting
+native access. Secure-context browser microphone availability alone is not a
+promise of voice support in this app.
+
 ## Authentication
 
 ### Password sign-in

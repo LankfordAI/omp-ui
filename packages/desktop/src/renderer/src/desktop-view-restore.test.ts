@@ -2,6 +2,7 @@
 import { afterEach, beforeEach, describe, expect, it, vi } from "vitest";
 import type { AppUpdateState, BackendState, OmpUpdateState, RemoteState } from "@omp-ui/core/types";
 import { DESKTOP_VIEW_STORAGE_KEY, type DesktopViewStateV1 } from "./lib/desktop-view-state";
+import { ANDROID_VIEW_STORAGE_KEY } from "./lib/android-shell";
 import { backendState as makeBackendState, rpcTabState, tabInfo } from "./test/fixtures";
 // The whole desktop suite below asserts the Electron path (localStorage + the
 // #99 version gate); jsdom's UA reports IS_ELECTRON false, so pin it via the
@@ -259,6 +260,7 @@ beforeEach(() => {
   window.localStorage.clear();
   window.sessionStorage.clear();
   platformMocks.electron = true;
+  delete window.__ompAndroidViewport;
   appUpdate = { ...idleAppUpdate, currentVersion: "1.1.0" };
   mockBackend.spawnSession.mockImplementation(
     async (req: { resumeTabId: string }) => ({ tabId: req.resumeTabId }),
@@ -267,6 +269,7 @@ beforeEach(() => {
 
 afterEach(() => {
   vi.restoreAllMocks();
+  delete window.__ompAndroidViewport;
 });
 
 describe("desktop view restore across an AppImage update relaunch (issue #99)", () => {
@@ -550,5 +553,103 @@ describe("browser view restore without the version gate (issue #890)", () => {
     await store.useStore.getState().init();
     expect(mockBackend.spawnSession).not.toHaveBeenCalled();
     expect(store.useStore.getState().tabs).toEqual([]);
+  });
+});
+
+describe("Android process recovery", () => {
+  beforeEach(() => {
+    platformMocks.electron = false;
+    window.__ompAndroidViewport = { bookSplitX: null };
+    appUpdate = { ...idleAppUpdate, currentVersion: "1.0.0" };
+  });
+
+  const liveState = (): BackendState => ({
+    ...backendState,
+    projects: backendState.projects.map((group) => ({
+      ...group,
+      sessions: group.sessions.map((record) => record.tabId === "missing-1"
+        ? record
+        : { ...record, live: "live" as const }),
+    })),
+  });
+
+  it("reattaches selected live tabs on same-version process restart without spawning", async () => {
+    const first = await freshStore();
+    mockBackend.getState.mockResolvedValueOnce(liveState());
+    await first.useStore.getState().init();
+    first.useStore.setState({
+      tabs: [
+        tabInfo({ tabId: "pty-1", mode: "pty", projectCwd: "/p/a" }),
+        tabInfo({ tabId: "rpc-1", mode: "rpc-ui", projectCwd: "/p/b" }),
+      ],
+      activeTabId: "rpc-1",
+    });
+    expect(JSON.parse(window.localStorage.getItem(ANDROID_VIEW_STORAGE_KEY)!)).toMatchObject({
+      tabIds: ["pty-1", "rpc-1"], activeTabId: "rpc-1", appVersion: "1.0.0",
+    });
+    // A killed WebView loses its page/tab sessionStorage, not origin-local storage.
+    window.sessionStorage.clear();
+    const second = await freshStore();
+    mockBackend.getState.mockResolvedValueOnce(liveState());
+    await second.useStore.getState().init();
+    expect(second.useStore.getState().tabs.map((tab) => tab.tabId)).toEqual(["pty-1", "rpc-1"]);
+    expect(second.useStore.getState().activeTabId).toBe("rpc-1");
+    expect(mockBackend.spawnSession).not.toHaveBeenCalled();
+    expect(window.localStorage.getItem(DESKTOP_VIEW_STORAGE_KEY)).toBeNull();
+    expect(readSession()).toBeNull();
+  });
+
+  it("never resumes a tab settled while Android was gone and falls back to a live tab", async () => {
+    window.localStorage.setItem(ANDROID_VIEW_STORAGE_KEY, SEED_JSON);
+    // Only the PTY remains live; rpc-1 settled while the app was stopped.
+    const state = liveState();
+    state.projects = state.projects.map((group) => ({
+      ...group,
+      sessions: group.sessions.map((record) => record.tabId === "rpc-1"
+        ? { ...record, live: "dormant" as const }
+        : record),
+    }));
+    mockBackend.getState.mockResolvedValueOnce(state);
+    const store = await freshStore();
+    await store.useStore.getState().init();
+    expect(store.useStore.getState().tabs.map((tab) => tab.tabId)).toEqual(["pty-1"]);
+    expect(store.useStore.getState().activeTabId).toBe("pty-1");
+    expect(mockBackend.spawnSession).not.toHaveBeenCalled();
+    expect(JSON.parse(window.localStorage.getItem(ANDROID_VIEW_STORAGE_KEY)!).tabIds).toEqual(["pty-1"]);
+  });
+
+  it("does not write snapshots for RPC traffic and tolerates an unavailable host version", async () => {
+    appUpdate = { ...idleAppUpdate, currentVersion: null };
+    mockBackend.getState.mockResolvedValueOnce(liveState());
+    window.localStorage.setItem(ANDROID_VIEW_STORAGE_KEY, SEED_JSON);
+    const store = await freshStore();
+    await store.useStore.getState().init();
+    expect(store.useStore.getState().activeTabId).toBe("rpc-1");
+    const write = vi.spyOn(Storage.prototype, "setItem");
+    store.useStore.setState({ rpc: { "rpc-1": rpcTabState() } });
+    expect(write).not.toHaveBeenCalled();
+    store.useStore.getState().focusTab("pty-1");
+    expect(write).toHaveBeenCalledWith(ANDROID_VIEW_STORAGE_KEY, expect.any(String));
+  });
+
+  it("ignores desktop/browser snapshots and corrupt Android snapshots", async () => {
+    seedSnapshot();
+    seedSession();
+    window.localStorage.setItem(ANDROID_VIEW_STORAGE_KEY, "{broken");
+    const store = await freshStore();
+    await store.useStore.getState().init();
+    expect(store.useStore.getState().tabs).toEqual([]);
+    expect(mockBackend.spawnSession).not.toHaveBeenCalled();
+    expect(window.localStorage.getItem(DESKTOP_VIEW_STORAGE_KEY)).toBe(SEED_JSON);
+    expect(window.sessionStorage.getItem(DESKTOP_VIEW_STORAGE_KEY)).toBe(SEED_JSON);
+  });
+
+  it("ordinary browser tabs do not read Android recovery state", async () => {
+    delete window.__ompAndroidViewport;
+    window.localStorage.setItem(ANDROID_VIEW_STORAGE_KEY, SEED_JSON);
+    const store = await freshStore();
+    await store.useStore.getState().init();
+    expect(store.useStore.getState().tabs).toEqual([]);
+    expect(mockBackend.spawnSession).not.toHaveBeenCalled();
   });
 });

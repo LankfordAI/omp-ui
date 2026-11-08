@@ -111,14 +111,13 @@ describe("useDismissal", () => {
     expect(onEscape).toHaveBeenCalledTimes(1);
   });
 
-  it("registers no keydown listener at all when onEscape is omitted", () => {
-    const add = vi.spyOn(window, "addEventListener");
-    try {
-      mount(true, { onClose: () => {} });
-      expect(add.mock.calls.map(([type]) => type)).toEqual(["pointerdown"]);
-    } finally {
-      add.mockRestore();
-    }
+  it("leaves ordinary Escape untouched when onEscape is omitted", () => {
+    const onClose = vi.fn();
+    mount(true, { onClose });
+    const event = new KeyboardEvent("keydown", { key: "Escape", bubbles: true, cancelable: true });
+    window.dispatchEvent(event);
+    expect(event.defaultPrevented).toBe(false);
+    expect(onClose).not.toHaveBeenCalled();
   });
 
   it("toggling open to false removes both listeners; further events are no-ops", () => {

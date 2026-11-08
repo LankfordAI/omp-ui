@@ -95,6 +95,16 @@ afterEach(() => {
 });
 
 describe("ApprovalCard (issue #681)", () => {
+  it("blocks Android Back without denying or answering the held frame", () => {
+    render(PROMPT);
+    const event = new Event("omp-android-back", { cancelable: true });
+    act(() => { window.dispatchEvent(event); });
+    expect(event.defaultPrevented).toBe(true);
+    expect(rpcSend).not.toHaveBeenCalled();
+    expect(useStore.getState().rpc[TAB]!.approvalPrompt?.frame).toEqual(FRAME);
+    expect(document.querySelector("[data-approval-card]")).not.toBeNull();
+  });
+
   it("renders the frame's parts", () => {
     render(PROMPT);
     const card = document.querySelector("[data-approval-card]")!;

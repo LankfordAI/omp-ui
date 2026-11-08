@@ -3,6 +3,7 @@ import { parseModelRole } from "@omp-ui/core/model-role";
 import { isHtmlPlanPath } from "@omp-ui/core/plan";
 import { branchNameFromPlanPath } from "../lib/branch-name";
 import { cn } from "../lib/cn";
+import { useAndroidBack } from "../lib/android-back";
 import { copyFallback } from "../lib/clipboard";
 import { normalizeAnnotationQuote } from "../lib/annotations";
 import { useT, type MessageKey } from "../lib/i18n";
@@ -176,6 +177,8 @@ export function PlanReview({
   dictationActive?: boolean;
 }) {
   const review = useStore((s) => s.rpc[tabId]?.planReview);
+  const backRoot = useRef<HTMLDivElement>(null);
+  useAndroidBack({ open: review != null, refs: backRoot, kind: "blocker", onBack: "block" });
   const planText = useStore((s) => s.rpc[tabId]?.planText);
   /** Present only when the session planned in html format and the file read. */
   const planHtml = useStore((s) => s.rpc[tabId]?.planHtml ?? null);
@@ -581,6 +584,7 @@ export function PlanReview({
   return (
     <>
     <div
+      ref={backRoot}
       role="region"
       aria-labelledby="plan-review-title"
       className={cn(

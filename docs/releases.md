@@ -4,7 +4,11 @@ This guide explains what users receive from a release and how maintainers publis
 
 ## Unreleased
 
-Nothing since [v0.34.0](https://github.com/LankfordAI/omp-ui/releases/tag/v0.34.0). Add one bullet per shipped change here before the next tag; the release-notes generator lifts these into Highlights.
+- Add an installable Kotlin/WebView Android client with host sign-in, cover/inner fold continuity, native document pickers, and live-tab/plain-text draft recovery. The APK builds locally from `android/`; desktop release assets are unchanged ([#1100](https://github.com/LankfordAI/omp-ui/issues/1100)).
+- Keep the same mounted transcript reading block when folding or rotation changes text width in the Android app, without changing streaming follow mode or desktop/browser scrolling ([#1101](https://github.com/LankfordAI/omp-ui/issues/1101)).
+- Make Android Back dismiss only safe visible surfaces, never answer agent prompts or abort a turn; clear credential-form history so post-login Back retains the mounted host view ([#1102](https://github.com/LankfordAI/omp-ui/issues/1102), [#1107](https://github.com/LankfordAI/omp-ui/issues/1107)).
+- Keep wrong-password and lockout HTML usable in the Android sign-in page and block direct foreign main-frame POSTs without removing HTTPS subresource support ([#1103](https://github.com/LankfordAI/omp-ui/issues/1103), [#1104](https://github.com/LankfordAI/omp-ui/issues/1104)).
+- Offer bounded unconfirmed prompt text for explicit recovery without automatic replay; add confirmed all-host saved-data/sign-in removal that waits for provider completion ([#1105](https://github.com/LankfordAI/omp-ui/issues/1105), [#1106](https://github.com/LankfordAI/omp-ui/issues/1106)).
 
 ## Choose a download
 

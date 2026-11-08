@@ -243,6 +243,39 @@ describe("TranscriptView follow mode", () => {
     act(() => root.unmount());
   });
 
+  it("keeps the same Android paragraph offset when folding reflows earlier text", () => {
+    window.__ompAndroidViewport = { bookSplitX: null };
+    const hitTest = Object.getOwnPropertyDescriptor(document, "elementFromPoint");
+    const { el, root, scroller } = renderPinned([assistant("a1", "reading paragraph")], 1800, 500);
+    let width = 400;
+    let paragraphTop = 280;
+    const paragraph = el.querySelector("p")!;
+    Object.defineProperty(scroller, "clientWidth", { configurable: true, get: () => width });
+    scroller.getBoundingClientRect = () => new DOMRect(0, 0, width, 500);
+    paragraph.getBoundingClientRect = () => new DOMRect(0, paragraphTop - scroller.scrollTop, width, 80);
+    Object.defineProperty(document, "elementFromPoint", { configurable: true, value: () => paragraph });
+    try {
+      scrollTo(scroller, 300);
+      expect(paragraph.getBoundingClientRect().top).toBe(-20);
+      width = 700;
+      paragraphTop = 480;
+      act(() => { resizeCallback!({} as never, {} as never); });
+      expect(scroller.scrollTop).toBe(500);
+      expect(paragraph.getBoundingClientRect().top).toBe(-20);
+      width = 320;
+      paragraphTop = 200;
+      act(() => { resizeCallback!({} as never, {} as never); });
+      expect(scroller.scrollTop).toBe(220);
+      expect(paragraph.getBoundingClientRect().top).toBe(-20);
+      expect(el.textContent).toContain("jump to latest");
+    } finally {
+      if (hitTest) Object.defineProperty(document, "elementFromPoint", hitTest);
+      else delete (document as Partial<Document>).elementFromPoint;
+      delete window.__ompAndroidViewport;
+      act(() => root.unmount());
+    }
+  });
+
   it("scrolling back to the bottom resumes follow", () => {
     const three = [assistant("a1", "one"), assistant("a2", "two"), assistant("a3", "three")];
     const { el, root, scroller } = renderPinned(three, 1800, 500);

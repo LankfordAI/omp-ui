@@ -134,6 +134,18 @@ afterEach(() => {
 });
 
 describe("NewExperimentDialog", () => {
+  it("blocks Android Back on an agent proposal without revising or launching it", async () => {
+    await render("git", { proposalTabId: "held" });
+    const event = new Event("omp-android-back", { cancelable: true });
+    act(() => { window.dispatchEvent(event); });
+    expect(event.defaultPrevented).toBe(true);
+    expect(backendMock.rpcSend).not.toHaveBeenCalled();
+    expect(backendMock.spawnSession).not.toHaveBeenCalled();
+    expect(useStore.getState().rpc.held!.experimentProposal?.frame).toEqual(PROPOSAL_FRAME);
+    expect(useStore.getState().experimentDialog?.proposalTabId).toBe("held");
+    expect(document.querySelector('[role="alertdialog"]')).not.toBeNull();
+  });
+
   it("prefills a minted autoresearch branch from the goal in a git checkout", async () => {
     await render("git");
     await fillRequired();

@@ -21,7 +21,7 @@ both native transcript tabs and terminal tabs for your coding work.
   and proposed plans, and review project branch changes in Diffs.
 
 - Turn on optional remote access to reach the same app and live sessions from
-  a browser or phone.
+  a browser or the installable Android app, including foldable cover and inner displays.
 
 - Join other omp-ui apps — desktop instances or the headless `omp-ui-lite`
   fleet member ([#1010](https://github.com/LankfordAI/omp-ui/issues/1010), a
@@ -57,6 +57,15 @@ Download the unsigned x64 `setup.exe` from the
 [latest release](https://github.com/LankfordAI/omp-ui/releases/latest) and run
 it. If SmartScreen warns about the unknown publisher, select **More info**,
 then **Run anyway**. Do not disable SmartScreen or Defender.
+
+### Android
+
+Build the Kotlin/WebView APK from [`android/`](android/) using the
+[Android development instructions](docs/development.md#android-app), then
+connect it to your host's [remote access](docs/remote-access.md#android-app-client).
+Requires Android 10 or newer and an updated System WebView. Build the host from
+this checkout too; Android recovery lives in its shared renderer. The APK is
+not yet published in the desktop release assets.
 
 See [Getting started](docs/getting-started.md) for checksums, platform details,
 first launch, and uninstall instructions.

@@ -1,4 +1,5 @@
 import { useEffect, useRef, type RefObject } from "react";
+import { useAndroidBack } from "./android-back";
 
 /**
  * Window-level dismissal for a single surface (issue #298).
@@ -9,6 +10,8 @@ import { useEffect, useRef, type RefObject } from "react";
  * to the trigger via `restoreFocus`. When `onEscape` is omitted the hook
  * registers no keydown listener at all: a surface that never had Escape
  * dismissal keeps not having it.
+ * Android Back uses only the visual `onClose`, never `onEscape`. The shared
+ * Back owner closes one topmost visible surface and ignores hidden tabs.
  *
  * Callbacks are read from a latest-ref on every event, so passing fresh
  * closures with per-render state does not re-subscribe the listeners — only
@@ -46,6 +49,16 @@ export function useDismissal(options: DismissalOptions): void {
   const { open, exemptSelector } = options;
   const latest = useRef(options);
   latest.current = options;
+
+  useAndroidBack({
+    open,
+    refs: options.refs,
+    kind: "popover",
+    onBack: () => {
+      latest.current.onClose();
+      latest.current.restoreFocus?.();
+    },
+  });
 
   useEffect(() => {
     if (!open) return;

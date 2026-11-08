@@ -11,6 +11,7 @@ import {
 import { backend } from "../backend";
 import { cn } from "../lib/cn";
 import { copyFallback } from "../lib/clipboard";
+import { isAndroidShell } from "../lib/android-shell";
 import { formatDuration } from "../lib/duration";
 import { summarizeExchanges, type ExchangeChanges } from "../lib/exchange-changes";
 import { formatBytes, formatCost, shortModelLabel, tokenCount } from "../lib/format";
@@ -1319,6 +1320,7 @@ export function TranscriptView({
   const visible = useMemo(() => (start === 0 ? items : items.slice(start)), [items, start]);
   /** Distance from the bottom captured by loadOlder, restored after its commit. */
   const olderAnchorRef = useRef<number | null>(null);
+  const readingAnchorRef = useRef<{ element: Element; offset: number; width: number } | null>(null);
   const [reveal, setReveal] = useState<{ id: string; seq: number } | null>(null);
   const revealSeqRef = useRef(0);
   const handledRevealRef = useRef(0);
@@ -1345,11 +1347,30 @@ export function TranscriptView({
     canComment && menu === null && comment === null,
   );
 
+  function captureReadingAnchor() {
+    const el = scrollRef.current;
+    if (!isAndroidShell() || followingRef.current || !el || olderAnchorRef.current !== null) return;
+    const width = el.clientWidth;
+    // A resize's scroll echo must not replace the pre-reflow reading anchor.
+    if (width === 0 || (readingAnchorRef.current !== null && readingAnchorRef.current.width !== width)) return;
+    const rect = el.getBoundingClientRect();
+    for (let inset = 2; inset <= 34; inset += 16) {
+      const hit = el.ownerDocument.elementFromPoint?.(rect.left + rect.width / 2, rect.top + Math.min(inset, rect.height - 1));
+      const block = hit?.closest("p,pre,h1,h2,h3,h4,h5,h6,li,td,blockquote,[data-item-id]");
+      if (!block || !el.contains(block) || (inset < 34 && block.matches("[data-item-id]"))) continue;
+      readingAnchorRef.current = { element: block, offset: block.getBoundingClientRect().top - rect.top, width };
+      return;
+    }
+    readingAnchorRef.current = null;
+  }
+
   function updateFollowing(value: boolean) {
     followingRef.current = value;
     setFollowing(value);
-    if (value) setFrozenStart(null);
-    else setFrozenStart((current) => current ?? startRef.current);
+    if (value) {
+      readingAnchorRef.current = null;
+      setFrozenStart(null);
+    } else setFrozenStart((current) => current ?? startRef.current);
   }
 
   /** Widens the window by one step above the oldest rendered row, holding the
@@ -1464,9 +1485,9 @@ export function TranscriptView({
         : 0;
 
   // Follow mode is exited only by a deliberate upward user scroll; content
-  // growth and resizes never exit it because they fire no scroll events and
-  // scroll anchoring is disabled (`[overflow-anchor:none]` on the container is
-  // load-bearing). A synchronous clamp (never `scrollIntoView`) is deliberate:
+  // growth and resizes never exit it because scroll anchoring is disabled.
+  // Android restores a mounted reading block only when width changes (#1101).
+  // A synchronous clamp is deliberate:
   // it cannot race Chromium's native scroll anchoring back and forth a few
   // pixels, so a streaming tail stays glued to the bottom instead of bobbing.
   useLayoutEffect(() => {
@@ -1488,8 +1509,8 @@ export function TranscriptView({
   }, [start]);
 
   // Re-pin on layout changes that bypass `items`: tool-card expansion,
-  // markdown/image re-layout, window resize. When not following the callback
-  // does nothing, so the viewport stays put exactly as before.
+  // markdown/image re-layout, window resize. Android reading preserves its
+  // block across width changes; height-only growth keeps the existing policy.
   useEffect(() => {
     const el = scrollRef.current;
     const content = contentRef.current;
@@ -1527,6 +1548,20 @@ export function TranscriptView({
     };
     const observer = new ResizeObserver(() => {
       if (followingRef.current) pinToBottom();
+      else {
+        const anchor = readingAnchorRef.current;
+        const width = el.clientWidth;
+        if (anchor !== null && width > 0 && width !== anchor.width && olderAnchorRef.current === null) {
+          if (anchor.element.isConnected && el.contains(anchor.element)) {
+            const rect = anchor.element.getBoundingClientRect();
+            const offset = Math.max(anchor.offset, 1 - rect.height);
+            el.scrollTop += rect.top - el.getBoundingClientRect().top - offset;
+            lastScrollTopRef.current = el.scrollTop;
+            anchor.width = width;
+            anchor.offset = offset;
+          } else readingAnchorRef.current = null;
+        }
+      }
       measureHanging();
     });
     // Measure once synchronously so the first paint already hangs or stacks.
@@ -1644,6 +1679,7 @@ export function TranscriptView({
           // Downward scroll not yet at the bottom: leave the mode unchanged.
           // Reading near the top pages older items in (issue #867).
           if (!followingRef.current && el.scrollTop <= LOAD_OLDER_TRIGGER_PX) loadOlder();
+          captureReadingAnchor();
         }}
         className="transcript-scroll h-full overflow-y-auto px-4 py-4 [overflow-anchor:none] [scrollbar-gutter:stable_both-edges]"
       >

@@ -100,6 +100,17 @@ describe("reduceExtensionDialog", () => {
 });
 
 describe("compact ExtensionDialogHost", () => {
+  it.each(["confirm", "select", "input", "editor"])("blocks Android Back without cancelling or answering %s", (method) => {
+    const frame = { id: "held", method, title: "Keep this decision", options: ["Alpha"] };
+    renderRequest(frame);
+    const event = new Event("omp-android-back", { cancelable: true });
+    act(() => { window.dispatchEvent(event); });
+    expect(event.defaultPrevented).toBe(true);
+    expect(rpcSend).not.toHaveBeenCalled();
+    expect(useStore.getState().rpc[TAB]!.extensionQueue).toEqual([frame]);
+    expect(document.body.textContent).toContain("Keep this decision");
+  });
+
   it("answers confirm and select with their unchanged payloads", () => {
     renderRequest({ id: "c", method: "confirm", title: "Confirm?" });
     const button = (text: string) => [...document.body.querySelectorAll<HTMLButtonElement>("button")].find((candidate) => candidate.textContent?.trim() === text)!;

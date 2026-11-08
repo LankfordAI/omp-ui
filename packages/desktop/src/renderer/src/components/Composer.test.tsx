@@ -14,6 +14,7 @@ import { markerItem, noticeItem } from "../lib/transcript";
 import { withAttachmentRoutingContext } from "../lib/attachment-routing";
 import { withDocumentContext } from "../lib/document-context";
 import { SESSION_DRAG_MIME } from "../lib/session-drag";
+import { loadAndroidDraft } from "../lib/android-shell";
 
 const clipboardImageMock = vi.hoisted(() => ({
   hasClipboardImage: vi.fn(() => false),
@@ -244,6 +245,20 @@ afterEach(() => {
 });
 
 describe("compact Composer", () => {
+  it("Android Back never aborts a focused running composer or submits its draft", () => {
+    seed("running"); renderComposer();
+    const textarea = typeDraft("keep this running draft");
+    textarea.focus();
+    const event = new Event("omp-android-back", { cancelable: true });
+    act(() => { window.dispatchEvent(event); });
+    expect(textarea.value).toBe("keep this running draft");
+    expect(document.activeElement).toBe(textarea);
+    expect(useStore.getState().rpc[TAB]!.status).toBe("running");
+    expect(abortAgent).not.toHaveBeenCalled();
+    expect(abortAndPrompt).not.toHaveBeenCalled();
+    expect(sendPrompt).not.toHaveBeenCalled();
+  });
+
   it("sends the idle draft through prompt, clears, and refocuses", async () => {
     seed("ready"); renderComposer();
     const textarea = typeDraft("mobile sentinel");
@@ -294,6 +309,146 @@ describe("compact Composer", () => {
     const ring = box.querySelector<HTMLElement>("[data-perimeter-sweep]")!;
     expect(ring).not.toBeNull();
     expect(ring.classList.contains("text-copper")).toBe(true);
+  });
+});
+
+describe("Android composer process recovery", () => {
+  beforeEach(() => {
+    window.localStorage.clear();
+    window.__ompAndroidViewport = { bookSplitX: null };
+  });
+  afterEach(() => {
+    delete window.__ompAndroidViewport;
+    window.localStorage.clear();
+  });
+
+  function restartComposer(): void {
+    act(() => root!.unmount());
+    root = null;
+    document.body.replaceChildren();
+    renderComposer();
+  }
+
+  it("restores the tab's unsent text but never its image/document bytes", async () => {
+    seed("ready");
+    renderComposer();
+    clipboardImageMock.readImageFiles.mockResolvedValueOnce({
+      images: [{ ...IMAGE_ONE, data: "private-image-bytes" }], rejected: [],
+    });
+    await act(async () => choose(imagePicker(), [new File(["image"], "private.png", { type: "image/png" })], "private.png"));
+    act(() => useStore.getState().queueComposerDocument(TAB, {
+      type: "document", name: "private.pdf", mimeType: "application/pdf", data: "private-document-bytes",
+    }, ""));
+    typeDraft("unsent recovery text\n한국어");
+    expect(loadAndroidDraft(TAB)).toBe("unsent recovery text\n한국어");
+    expect(loadAndroidDraft("another-tab")).toBe("");
+    const stored = Array.from({ length: window.localStorage.length }, (_, i) =>
+      window.localStorage.getItem(window.localStorage.key(i)!) ?? "").join("");
+    expect(stored).not.toContain("private-image-bytes");
+    expect(stored).not.toContain("private-document-bytes");
+    restartComposer();
+    expect(document.body.querySelector<HTMLTextAreaElement>("textarea")!.value).toBe("unsent recovery text\n한국어");
+    expect(document.body.querySelectorAll("img")).toHaveLength(0);
+    expect(document.body.textContent).not.toContain("private.pdf");
+  });
+
+  it("clears sent or discarded text before a new process can recover it", async () => {
+    seed("ready"); renderComposer();
+    typeDraft("send only once");
+    const send = [...document.body.querySelectorAll<HTMLButtonElement>("button")].find((button) => button.textContent === "Send")!;
+    await act(async () => send.click());
+    expect(sendPrompt).toHaveBeenCalledWith(TAB, "send only once", "prompt", [], [], [], []);
+    expect(loadAndroidDraft(TAB)).toBe("");
+    restartComposer();
+    expect(document.body.querySelector<HTMLTextAreaElement>("textarea")!.value).toBe("");
+    typeDraft("discard me");
+    typeDraft("");
+    restartComposer();
+    expect(document.body.querySelector<HTMLTextAreaElement>("textarea")!.value).toBe("");
+  });
+
+  it("recovers a rejected send's restored text", async () => {
+    seed("ready"); renderComposer();
+    typeDraft("rejected but not lost");
+    sendPrompt.mockResolvedValueOnce(false);
+    const send = [...document.body.querySelectorAll<HTMLButtonElement>("button")].find((button) => button.textContent === "Send")!;
+    await act(async () => send.click());
+    restartComposer();
+    expect(document.body.querySelector<HTMLTextAreaElement>("textarea")!.value).toBe("rejected but not lost");
+  });
+
+  it("offers interrupted submission text for manual recovery without replaying it", async () => {
+    seed("ready"); renderComposer();
+    const handoff = Promise.withResolvers<boolean>();
+    sendPrompt.mockReturnValueOnce(handoff.promise);
+    typeDraft("delivery was not confirmed");
+    const send = [...document.body.querySelectorAll<HTMLButtonElement>("button")].find((button) => button.textContent === "Send")!;
+    act(() => send.click());
+    expect(document.body.querySelector<HTMLTextAreaElement>("textarea")!.value).toBe("");
+    restartComposer();
+    expect(sendPrompt).toHaveBeenCalledTimes(1);
+    expect(document.body.textContent).toContain("unconfirmed delivery");
+    typeDraft("new draft");
+    const recover = [...document.body.querySelectorAll<HTMLButtonElement>("button")].find((button) => button.textContent === "add unconfirmed text")!;
+    act(() => recover.click());
+    expect(document.body.querySelector<HTMLTextAreaElement>("textarea")!.value).toBe("new draft\n\ndelivery was not confirmed");
+    expect(sendPrompt).toHaveBeenCalledTimes(1);
+    await act(async () => handoff.resolve(true));
+    restartComposer();
+    expect(document.body.querySelector<HTMLTextAreaElement>("textarea")!.value).toBe("new draft\n\ndelivery was not confirmed");
+  });
+
+  it("an accepted handoff cannot delete a newer draft typed while waiting", async () => {
+    seed("ready"); renderComposer();
+    const handoff = Promise.withResolvers<boolean>();
+    sendPrompt.mockReturnValueOnce(handoff.promise);
+    typeDraft("accepted prompt");
+    const send = [...document.body.querySelectorAll<HTMLButtonElement>("button")].find((button) => button.textContent === "Send")!;
+    act(() => send.click());
+    typeDraft("new unsent draft");
+    await act(async () => handoff.resolve(true));
+    restartComposer();
+    expect(document.body.querySelector<HTMLTextAreaElement>("textarea")!.value).toBe("new unsent draft");
+    expect(document.body.textContent).not.toContain("unconfirmed delivery");
+  });
+
+  it("keeps the mounted composer draft through native fold/rotation events", () => {
+    let compact = true;
+    const listeners = new Set<(event: MediaQueryListEvent) => void>();
+    Object.defineProperty(window, "matchMedia", {
+      configurable: true,
+      value: vi.fn(() => ({
+        get matches() { return compact; },
+        addEventListener: (_: string, listener: (event: MediaQueryListEvent) => void) => listeners.add(listener),
+        removeEventListener: (_: string, listener: (event: MediaQueryListEvent) => void) => listeners.delete(listener),
+      })),
+    });
+    seed("ready"); renderComposer();
+    const textarea = typeDraft("keep writing while folding");
+    act(() => {
+      window.__ompAndroidViewport = { bookSplitX: 410.5 };
+      window.dispatchEvent(new Event("omp-android-viewport"));
+      window.dispatchEvent(new Event("resize"));
+      compact = false;
+      listeners.forEach((listener) => listener({ matches: false } as MediaQueryListEvent));
+      window.__ompAndroidViewport = { bookSplitX: null };
+      window.dispatchEvent(new Event("omp-android-viewport"));
+    });
+    expect(document.body.querySelector<HTMLTextAreaElement>("textarea")!.value).toBe("keep writing while folding");
+    act(() => {
+      compact = true;
+      listeners.forEach((listener) => listener({ matches: true } as MediaQueryListEvent));
+    });
+    expect(document.body.querySelector("textarea")).toBe(textarea);
+    expect(textarea.value).toBe("keep writing while folding");
+  });
+
+  it("does not recover Android drafts into an ordinary browser composer", () => {
+    seed("ready"); renderComposer();
+    typeDraft("Android only");
+    delete window.__ompAndroidViewport;
+    restartComposer();
+    expect(document.body.querySelector<HTMLTextAreaElement>("textarea")!.value).toBe("");
   });
 });
 

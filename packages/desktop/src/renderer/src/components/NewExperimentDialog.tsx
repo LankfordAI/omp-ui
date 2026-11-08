@@ -177,6 +177,7 @@ export function NewExperimentDialog({
       title={t("experiment.dialog.title", { name: projectName })}
       tone="iris"
       onClose={close}
+      androidBack={proposalTabId === null ? "dismiss" : "block"}
       width="w-[28rem]"
       actions={
         <>

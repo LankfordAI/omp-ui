@@ -257,6 +257,7 @@ export function FinishWorktreeDialog({ tabId }: { tabId: string }) {
       title={t("finish.dialog.title", { branch })}
       tone="neutral"
       onClose={c.close}
+      androidBack={done ? "block" : "dismiss"}
       width="w-[30rem]"
       actions={
         done ? (

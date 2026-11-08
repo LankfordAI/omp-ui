@@ -40,6 +40,7 @@ import { Sidebar } from "./components/Sidebar";
 import { TerminalTab } from "./components/TerminalTab";
 import { Button, Chevron, IconButton, IconInspect, IconPlus } from "./components/ui";
 import { cn } from "./lib/cn";
+import { AndroidBackTab } from "./lib/android-back";
 import { formatHotkey } from "./lib/hotkeys";
 import { useActionHotkeys, useKeybindingLabel, useKeybindingOverrides } from "./lib/keybindings";
 import { effectiveChord, type KeybindingActionId } from "@omp-ui/core/keybindings";
@@ -580,11 +581,13 @@ export default function App() {
                   className="absolute inset-0"
                   style={{ display: shown ? "block" : "none" }}
                 >
+                  <AndroidBackTab.Provider value={t.tabId}>
                   {t.mode === "rpc-ui" ? (
                     <RpcTab tabId={t.tabId} active={shown} />
                   ) : (
                     <TerminalTab tabId={t.tabId} active={shown} />
                   )}
+                  </AndroidBackTab.Provider>
                 </div>
               );
             })}

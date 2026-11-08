@@ -73,6 +73,19 @@ describe("ImageViewer", () => {
     expect(dialog()).toBeNull();
   });
 
+  it("Android Back closes the viewer and leaves no disposed Back consumer", async () => {
+    await mount();
+    act(() => openImageViewer([{ src: PNG, mimeType: "image/png", label: "x" }], 0));
+    const event = new Event("omp-android-back", { cancelable: true });
+    act(() => { window.dispatchEvent(event); });
+    expect(event.defaultPrevented).toBe(true);
+    expect(dialog()).toBeNull();
+    expect(img()).toBeNull();
+    const next = new Event("omp-android-back", { cancelable: true });
+    window.dispatchEvent(next);
+    expect(next.defaultPrevented).toBe(false);
+  });
+
   it("Escape closes the viewer and unmounts the portal", async () => {
     await mount();
     act(() => openImageViewer([{ src: PNG, mimeType: "image/png", label: "x" }], 0));

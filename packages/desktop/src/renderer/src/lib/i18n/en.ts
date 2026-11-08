@@ -584,6 +584,9 @@ export const en = {
   // Inline status/error strips
   "composer.error.dismissPaste": "dismiss paste warning",
   "composer.error.dismissWorktree": "dismiss worktree error",
+  "composer.android.unconfirmed": "A previous submission has unconfirmed delivery. Check the transcript before sending its text again; attachments are not recovered.",
+  "composer.android.recoverText": "add unconfirmed text",
+  "composer.android.dismissUnconfirmed": "dismiss recovery",
   // Dictation (issue #647): the composer's speech-to-text path.
   "composer.dictation.start": "dictate a message (hold {key})",
   "composer.dictation.stop": "stop recording and transcribe",

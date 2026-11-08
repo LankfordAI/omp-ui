@@ -21,6 +21,8 @@ afterEach(() => {
   document.documentElement.style.removeProperty("--app-viewport-height");
   vi.restoreAllMocks();
   delete (window as { viewport?: unknown }).viewport;
+  delete window.__ompAndroidViewport;
+  vi.unstubAllGlobals();
 });
 
 describe("responsive viewport hooks", () => {
@@ -92,5 +94,60 @@ describe("responsive viewport hooks", () => {
     expect(values.at(-1)).toBe(369);
     act(() => { book = false; listeners.forEach((listener) => listener({ matches: false } as MediaQueryListEvent)); });
     expect(values.at(-1)).toBeNull();
+  });
+
+  it("prefers native CSS geometry and explicit null over browser segments", () => {
+    const listeners = new Set<(event: MediaQueryListEvent) => void>();
+    vi.stubGlobal("matchMedia", vi.fn(() => ({
+      matches: true,
+      addEventListener: (_: string, listener: (event: MediaQueryListEvent) => void) => listeners.add(listener),
+      removeEventListener: (_: string, listener: (event: MediaQueryListEvent) => void) => listeners.delete(listener),
+    })));
+    Object.defineProperty(window, "viewport", { configurable: true, value: { segments: [{ left: 0 }, { left: 369 }] } });
+    window.__ompAndroidViewport = { bookSplitX: 412.5 };
+    const values: (number | null)[] = [];
+    function Probe() { values.push(useBookSplitX()); return null; }
+    mount(createElement(Probe));
+    expect(values.at(-1)).toBe(412.5);
+    act(() => {
+      window.__ompAndroidViewport = { bookSplitX: null };
+      window.dispatchEvent(new Event("omp-android-viewport"));
+    });
+    expect(values.at(-1)).toBeNull();
+    act(() => listeners.forEach((listener) => listener({ matches: true } as MediaQueryListEvent)));
+    expect(values.at(-1)).toBeNull();
+    act(() => {
+      delete window.__ompAndroidViewport;
+      window.dispatchEvent(new Event("resize"));
+    });
+    expect(values.at(-1)).toBe(369);
+  });
+
+  it("tracks native posture without matchMedia and cleans up both window listeners", () => {
+    vi.stubGlobal("matchMedia", undefined);
+    window.__ompAndroidViewport = { bookSplitX: null };
+    const values: (number | null)[] = [];
+    const remove = vi.spyOn(window, "removeEventListener");
+    function Probe() { values.push(useBookSplitX()); return null; }
+    mount(createElement(Probe));
+    for (const value of [480, Number.NaN, Number.POSITIVE_INFINITY, -2, 0, 320.25]) {
+      act(() => {
+        window.__ompAndroidViewport = { bookSplitX: value };
+        window.dispatchEvent(new Event("omp-android-viewport"));
+      });
+      expect(values.at(-1)).toBe(Number.isFinite(value) && value > 0 ? value : null);
+    }
+    act(() => {
+      window.__ompAndroidViewport = { bookSplitX: 250 };
+      window.dispatchEvent(new Event("resize"));
+    });
+    expect(values.at(-1)).toBe(250);
+    act(() => root!.unmount());
+    root = null;
+    expect(remove).toHaveBeenCalledWith("omp-android-viewport", expect.any(Function));
+    expect(remove).toHaveBeenCalledWith("resize", expect.any(Function));
+    const renders = values.length;
+    act(() => window.dispatchEvent(new Event("omp-android-viewport")));
+    expect(values).toHaveLength(renders);
   });
 });

@@ -1485,6 +1485,17 @@ describe("FinishWorktreeDialog", () => {
       });
     };
 
+    it("blocks Android Back on the done row without settling or aborting the session", async () => {
+      await finish();
+      const event = new Event("omp-android-back", { cancelable: true });
+      act(() => { window.dispatchEvent(event); });
+      expect(event.defaultPrevented).toBe(true);
+      expect(useStore.getState().finishWorktreeTab).toBe(TAB);
+      expect(document.body.textContent).toContain("merged 2 commits into main");
+      expect(backendMock.settleSession).not.toHaveBeenCalled();
+      expect(abortAgentMock).not.toHaveBeenCalled();
+    });
+
     it("leaves the session live while the done row shows", async () => {
       await finish();
 

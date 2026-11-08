@@ -2,6 +2,7 @@ import { useEffect, useId, useRef, type PointerEvent as ReactPointerEvent, type 
 import { createPortal } from "react-dom";
 import { useT } from "../../lib/i18n";
 import { cn } from "../../lib/cn";
+import { AndroidBackOwner, useAndroidBack } from "../../lib/android-back";
 import { IconButton } from "./controls";
 import { IconClose } from "./icons";
 import { TONE_TEXT, type Tone } from "./tone";
@@ -28,6 +29,8 @@ export function useOverlay(
   open: boolean,
   onClose?: () => void,
   restoreFocusTo?: RestoreFocusTo,
+  androidBack: "dismiss" | "block" = "dismiss",
+  overlayLayer: 60 | 70 = 70,
 ) {
   const root = useRef<HTMLDivElement>(null);
   const token = useRef(Symbol("overlay"));
@@ -37,6 +40,13 @@ export function useOverlay(
   const restore = useRef(restoreFocusTo);
   close.current = onClose;
   restore.current = restoreFocusTo;
+  const backOwner = useAndroidBack({
+    open,
+    refs: root,
+    kind: "overlay",
+    overlayLayer,
+    onBack: androidBack === "block" || onClose === undefined ? "block" : () => close.current?.(),
+  });
 
   useEffect(() => {
     if (!open) return;
@@ -108,7 +118,7 @@ export function useOverlay(
       (restore.current?.() ?? switchedComposer ?? trigger.current)?.focus({ preventScroll: true });
     };
   }, [open]);
-  return root;
+  return { root, backOwner };
 }
 
 const SHEET_POSITION: Record<"left" | "right" | "bottom", string> = {
@@ -136,7 +146,7 @@ export function Sheet({
   restoreFocusTo?: RestoreFocusTo;
   children: ReactNode;
 }) {
-  const root = useOverlay(open, onClose, restoreFocusTo);
+  const { root, backOwner } = useOverlay(open, onClose, restoreFocusTo, "dismiss", 60);
   const t = useT();
   // Bottom-sheet swipe-to-dismiss. The drag lives on the handle/header only,
   // so the body keeps native scrolling; transforms are written straight to the
@@ -178,6 +188,7 @@ export function Sheet({
   };
 
   return createPortal(
+    <AndroidBackOwner.Provider value={backOwner}>
     <div data-overlay-root className="fixed inset-0 z-[60]" onPointerDown={(e) => e.target === e.currentTarget && onClose()}>
       <div className="animate-scrim pointer-events-none absolute inset-0 bg-void/65 backdrop-glass" aria-hidden />
       <section
@@ -217,7 +228,8 @@ export function Sheet({
           {children}
         </div>
       </section>
-    </div>,
+    </div>
+    </AndroidBackOwner.Provider>,
     document.body,
   );
 }
@@ -232,10 +244,13 @@ export function Modal({
   role = "dialog",
   labelledBy,
   className,
+  androidBack = "dismiss",
 }: {
   children: ReactNode;
   onClose?: () => void;
   restoreFocusTo?: RestoreFocusTo;
+  /** Block when closing this dialog would answer an agent decision. Escape is unchanged. */
+  androidBack?: "dismiss" | "block";
   width?: string;
   mobile?: "fullscreen" | "dialog";
   role?: "dialog" | "alertdialog";
@@ -243,9 +258,10 @@ export function Modal({
   /** Layout additions for the inner content box (e.g. a bounded column). */
   className?: string;
 }) {
-  const root = useOverlay(true, onClose, restoreFocusTo);
+  const { root, backOwner } = useOverlay(true, onClose, restoreFocusTo, androidBack);
   const t = useT();
   return createPortal(
+    <AndroidBackOwner.Provider value={backOwner}>
     <div
       data-overlay-root
       className="fixed inset-0 z-[70] flex items-center justify-center bg-void/70 backdrop-glass"
@@ -271,7 +287,8 @@ export function Modal({
         )}
         {children}
       </div>
-    </div>,
+    </div>
+    </AndroidBackOwner.Provider>,
     document.body,
   );
 }
@@ -285,6 +302,7 @@ export function ConfirmDialog({
   actions,
   onClose,
   width,
+  androidBack,
 }: {
   kicker: ReactNode;
   title: ReactNode;
@@ -292,6 +310,7 @@ export function ConfirmDialog({
   children: ReactNode;
   actions: ReactNode;
   onClose: () => void;
+  androidBack?: "dismiss" | "block";
   width?: string;
 }) {
   const titleId = useId();
@@ -301,6 +320,7 @@ export function ConfirmDialog({
       role="alertdialog"
       labelledBy={titleId}
       onClose={onClose}
+      androidBack={androidBack}
       width={width}
       mobile="dialog"
       className="flex flex-col"

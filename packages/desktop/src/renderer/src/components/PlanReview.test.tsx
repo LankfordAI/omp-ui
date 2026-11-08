@@ -428,6 +428,19 @@ afterEach(() => {
 });
 
 describe("PlanReview git branch section (issue #25)", () => {
+  it("blocks Android Back without executing, refining, or cancelling the held plan", () => {
+    const held = useStore.getState().rpc[TAB]!.planReview;
+    render();
+    const event = new Event("omp-android-back", { cancelable: true });
+    act(() => { window.dispatchEvent(event); });
+    expect(event.defaultPrevented).toBe(true);
+    expect(useStore.getState().rpc[TAB]!.planReview).toBe(held);
+    expect(host!.querySelector('[aria-labelledby="plan-review-title"]')).not.toBeNull();
+    expect(backendMock.rpcSend).not.toHaveBeenCalled();
+    expect(backendMock.answerPlanReview).not.toHaveBeenCalled();
+    expect(backendMock.spawnSession).not.toHaveBeenCalled();
+  });
+
   it("renders no git branch section off-git", () => {
     useStore.setState({
       branches: {
