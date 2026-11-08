@@ -1,11 +1,16 @@
 <?xml version="1.0" encoding="utf-8"?>
 <resources>
     <style name="Theme.OmpUi" parent="android:style/Theme.Material.NoActionBar">
+        <!-- WebView uses this flag for prefers-color-scheme; native controls keep the dark parent. -->
+        <item name="android:isLightTheme">@bool/system_is_light_theme</item>
         <item name="android:fontFamily">sans</item>
         <item name="android:colorAccent">#8FC3E0</item>
         <item name="android:windowBackground">#101820</item>
-        <item name="android:statusBarColor">#101820</item>
-        <item name="android:navigationBarColor">#101820</item>
+        <item name="android:statusBarColor">@android:color/transparent</item>
+        <item name="android:navigationBarColor">@android:color/transparent</item>
+        <item name="android:navigationBarDividerColor">@android:color/transparent</item>
+        <item name="android:enforceStatusBarContrast">false</item>
+        <item name="android:enforceNavigationBarContrast">false</item>
         <item name="android:windowLightStatusBar">false</item>
         <item name="android:windowLightNavigationBar">false</item>
         <item name="android:windowActionModeOverlay">true</item>

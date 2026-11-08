@@ -50,7 +50,25 @@ class ShellConnectionTest {
                 await { js(scenario, "document.querySelector('#login-error')?.textContent") == "\"Enter a password\"" }
                 assertHostVisible(scenario)
                 submitPassword(scenario, "correct")
-                await { js(scenario, "!!document.querySelector('#signed-in')") == "true" }
+                val signedInUrl = "${host.origin}/signed-in"
+                await {
+                    val done = CountDownLatch(1)
+                    var probing = false
+                    var ready = false
+                    scenario.onActivity { activity ->
+                        val view = activity.findViewById<WebView>(R.id.remote_webview)
+                        if (view != null && view.url == signedInUrl && view.progress == 100) {
+                            probing = true
+                            view.evaluateJavascript("document.readyState === 'complete' && !!document.querySelector('#signed-in')") { value ->
+                                ready = value == "true"
+                                done.countDown()
+                            }
+                        }
+                    }
+                    // Navigation can cancel a probe's callback; retry inside the existing
+                    // state deadline rather than failing the stable-document JS helper.
+                    probing && done.await(250, TimeUnit.MILLISECONDS) && ready
+                }
                 assertHostVisible(scenario)
                 scenario.onActivity { assertSame(original, it.findViewById(R.id.remote_webview)) }
                 assertTrue(host.requests.any { it.target == "/login" && it.method == "POST" && it.body == "password=correct" })
