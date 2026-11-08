@@ -363,9 +363,11 @@ describe("readStatsOverview", () => {
 
   it("handles thousands of project files via JSON membership rather than variable placeholders", async () => {
     const { db, context } = fixture();
+    db.exec("BEGIN");
     for (let index = 0; index < 1_100; index++) {
       message(db, path.join(context.ownedSessionsRoot, context.sessions[0]!.lineageDir, `nested-${index}.jsonl`), `entry-${index}`);
     }
+    db.exec("COMMIT");
     db.close();
     const stats = await readStatsOverview({ ...QUERY, projectKey: attribution.statsProjectIdentity(context.projects[0]!).key }, context);
     expect(stats.error).toBeNull();
