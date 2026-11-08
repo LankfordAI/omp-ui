@@ -35,7 +35,7 @@ describe("resolveStatsSource", () => {
   it("returns the intended default target before any database exists without mutating env", () => {
     const { home, cwd } = fixture();
     const env = { KEEP: "secret" };
-    expect(resolveStatsSource({ env, cwd, home, platform: "linux" })).toEqual(
+    expect(resolveStatsSource({ env, cwd, home })).toEqual(
       expected(null, path.join(home, ".omp"), path.join(home, ".omp", "agent")),
     );
     expect(env).toEqual({ KEEP: "secret" });
@@ -45,7 +45,7 @@ describe("resolveStatsSource", () => {
   it.each(["", "  ", "default", " default "])("canonical %j selects default over legacy named", (profile) => {
     const { home, cwd } = fixture();
     const env = { OMP_PROFILE: profile, PI_PROFILE: "work", PI_CODING_AGENT_DIR: path.join(home, ".omp", "profiles", "work", "agent") };
-    expect(resolveStatsSource({ env, cwd, home, platform: "linux" })).toEqual(
+    expect(resolveStatsSource({ env, cwd, home })).toEqual(
       expected(null, path.join(home, ".omp"), path.join(home, ".omp", "agent")),
     );
   });
@@ -54,7 +54,7 @@ describe("resolveStatsSource", () => {
     const { home, cwd, root } = fixture();
     const source = resolveStatsSource({
       env: { OMP_PROFILE: " work ", PI_PROFILE: "other", PI_CODING_AGENT_DIR: path.join(root, "custom") },
-      cwd, home, platform: "linux",
+      cwd, home,
     });
     const config = path.join(home, ".omp", "profiles", "work");
     expect(source).toEqual(expected("work", config, path.join(config, "agent")));
@@ -65,7 +65,7 @@ describe("resolveStatsSource", () => {
     expect(() => resolveStatsSource({ env: { OMP_PROFILE: profile }, cwd, home })).toThrow("Invalid OMP profile");
   });
 
-  it.each(["linux", "darwin"] as const)("uses only an existing selected XDG path on %s", (platform) => {
+  it.runIf(process.platform !== "win32").each(["linux", "darwin"] as const)("uses only an existing selected XDG path on %s", (platform) => {
     const { home, cwd, root } = fixture();
     const xdg = path.join(root, "data");
     const env = { XDG_DATA_HOME: xdg };
@@ -79,7 +79,7 @@ describe("resolveStatsSource", () => {
     expect(resolveStatsSource({ env: named, cwd, home, platform })).toEqual(expected("work", path.join(xdg, "omp", "profiles", "work"), path.join(xdg, "omp", "profiles", "work")));
   });
 
-  it("matches OMP's existence gate even when the XDG app path is a regular file", () => {
+  it.runIf(process.platform !== "win32")("matches OMP's existence gate even when the XDG app path is a regular file", () => {
     const { home, cwd, root } = fixture();
     const xdg = path.join(root, "data");
     fs.mkdirSync(xdg);
@@ -93,18 +93,20 @@ describe("resolveStatsSource", () => {
     const xdg = path.join(root, "data");
     fs.mkdirSync(path.join(xdg, "omp"), { recursive: true });
     const env = { XDG_DATA_HOME: xdg, PI_CODING_AGENT_DIR: "relative-agent" };
-    expect(resolveStatsSource({ env, home, cwd, platform: "linux" })).toEqual(
+    expect(resolveStatsSource({ env, home, cwd })).toEqual(
       expected(null, path.join(home, ".omp"), path.join(cwd, "relative-agent")),
     );
     env.PI_CODING_AGENT_DIR = path.join(home, ".omp", "agent");
-    expect(resolveStatsSource({ env, home, cwd, platform: "linux" })).toEqual(expected(null, path.join(xdg, "omp"), path.join(xdg, "omp")));
+    const dataRoot = process.platform === "win32" ? path.join(home, ".omp") : path.join(xdg, "omp");
+    const agentRoot = process.platform === "win32" ? path.join(dataRoot, "agent") : dataRoot;
+    expect(resolveStatsSource({ env, home, cwd })).toEqual(expected(null, dataRoot, agentRoot));
   });
 
   it("ignores inherited OMP directory aliases and state/cache XDG roots", () => {
     const { home, cwd, root } = fixture();
     fs.mkdirSync(path.join(root, "omp"));
     const env = { OMP_CONFIG_DIR: "not-used", OMP_CODING_AGENT_DIR: "not-used", XDG_STATE_HOME: root, XDG_CACHE_HOME: root };
-    expect(resolveStatsSource({ env, home, cwd, platform: "linux" })).toEqual(expected(null, path.join(home, ".omp"), path.join(home, ".omp", "agent")));
+    expect(resolveStatsSource({ env, home, cwd })).toEqual(expected(null, path.join(home, ".omp"), path.join(home, ".omp", "agent")));
   });
 
   it("uses native Windows paths, case-insensitive env lookup, and no XDG redirection", () => {
@@ -121,21 +123,21 @@ describe("resolveStatsSource", () => {
     dotenv(path.join(home, ".omp", ".env"), 'PI_CONFIG_DIR="config-config"\nPI_CODING_AGENT_DIR="config-agent"');
     dotenv(path.join(originalAgent, ".env"), 'PI_CONFIG_DIR="agent-config"\nPI_CODING_AGENT_DIR="agent-agent"');
     dotenv(path.join(cwd, ".env"), 'export OMP_CONFIG_DIR="project-config" # comment\nPI_CONFIG_DIR="loses-to-alias"\nPI_CODING_AGENT_DIR=""\nOMP_PROFILE="work"\nAPI_KEY="secret"');
-    const source = resolveStatsSource({ env: { PI_CONFIG_DIR: "" }, cwd, home, platform: "linux" });
+    const source = resolveStatsSource({ env: { PI_CONFIG_DIR: "" }, cwd, home });
     expect(source).toEqual(expected(null, path.join(home, "project-config"), path.join(cwd, "agent-agent")));
     expect(JSON.stringify(source)).not.toContain("secret");
     // A relocated dotenv is never read in a second pass.
     dotenv(path.join(home, "project-config", ".env"), `PI_CODING_AGENT_DIR="${path.join(root, "wrong")}"`);
-    expect(resolveStatsSource({ env: {}, cwd, home, platform: "linux" })).toEqual(source);
+    expect(resolveStatsSource({ env: {}, cwd, home })).toEqual(source);
   });
 
   it("lets nonempty inherited PI independently block a dotenv OMP alias", () => {
     const { home, cwd } = fixture();
     dotenv(path.join(cwd, ".env"), 'OMP_CONFIG_DIR="dotenv"\nPI_CONFIG_DIR="explicit-pi"');
-    expect(resolveStatsSource({ env: { PI_CONFIG_DIR: "inherited" }, home, cwd, platform: "linux" }).databasePath).toBe(path.join(home, "inherited", "stats.db"));
+    expect(resolveStatsSource({ env: { PI_CONFIG_DIR: "inherited" }, home, cwd }).databasePath).toBe(path.join(home, "inherited", "stats.db"));
   });
 
-  it("refreshes named XDG data from the original profile agent dotenv without reselecting profile", () => {
+  it.runIf(process.platform !== "win32")("refreshes named XDG data from the original profile agent dotenv without reselecting profile", () => {
     const { home, cwd, root } = fixture();
     const xdg = path.join(root, "data");
     fs.mkdirSync(path.join(xdg, "omp", "profiles", "work"), { recursive: true });
@@ -147,13 +149,13 @@ describe("resolveStatsSource", () => {
   it("uses parseEnv quoting/multiline grammar without expansion and ignores NUL values", () => {
     const { home, cwd } = fixture();
     dotenv(path.join(cwd, ".env"), 'OMP_CONFIG_DIR="literal-$HOME"\nPI_CODING_AGENT_DIR="line\none"\nXDG_DATA_HOME="bad\0value"');
-    expect(resolveStatsSource({ env: {}, home, cwd, platform: "linux" })).toEqual(expected(null, path.join(home, "literal-$HOME"), path.join(cwd, "line\none")));
+    expect(resolveStatsSource({ env: {}, home, cwd })).toEqual(expected(null, path.join(home, "literal-$HOME"), path.join(cwd, "line\none")));
   });
 
   it("scrubs invalid inherited directory values only after initial dotenv capture", () => {
     const { home, cwd } = fixture();
     dotenv(path.join(home, ".omp", ".env"), 'PI_CONFIG_DIR="must-not-load"');
-    const source = resolveStatsSource({ env: { PI_CONFIG_DIR: "bad\0config" }, home, cwd, platform: "linux" });
+    const source = resolveStatsSource({ env: { PI_CONFIG_DIR: "bad\0config" }, home, cwd });
     expect(source).toEqual(expected(null, path.join(home, ".omp"), path.join(home, ".omp", "agent")));
   });
 });

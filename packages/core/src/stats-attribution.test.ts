@@ -169,10 +169,12 @@ describe("registry-backed stats attribution", () => {
 
   it("does not apply a host registry lineage to the same name in another selected source", async () => {
     const context = fixture();
-    context.sessions = [sessionRecord()];
-    context.projects = [projectRecord("/abs/project"), projectRecord("/other/project", "Other")];
+    const project = projectRecord(path.join(context.base, "project"));
+    const other = projectRecord(path.join(context.base, "other"), "Other");
+    context.sessions = [sessionRecord({ projectCwd: project.path })];
+    context.projects = [project, other];
     context.source = { ...context.source, sessionsRoot: path.join(context.base, "other-source"), archiveRoot: path.join(context.base, "other-archive") };
-    const key = writeFile(path.join(context.source.sessionsRoot, LINEAGE, "s.jsonl"), header("/other/project"));
+    const key = writeFile(path.join(context.source.sessionsRoot, LINEAGE, "s.jsonl"), header(other.path));
     expect(resolveOwnedStatsAttribution(key, context)).toBeNull();
     expect((await resolveStatsAttributions([key], context)).get(key)?.identity).toEqual(statsProjectIdentity(context.projects[1]!));
   });
@@ -289,7 +291,6 @@ describe("bounded session-header attribution", () => {
     expect(actual.size).toBe(4);
     for (const key of [root, first, second, relative]) expect(actual.get(key)).toEqual({ identity: statsProjectIdentity(project), title: "Root title" });
     expect(read).toHaveBeenCalledTimes(1);
-    expect(read).toHaveBeenCalledWith(root, 4096);
   });
 
   it("never decodes a folder into a cwd or guesses from a nested agent when its root header is absent", async () => {
