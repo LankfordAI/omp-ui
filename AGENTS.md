@@ -14,16 +14,16 @@ Instructions for coding agents working in this repository.
 - `packages/core` is plain Node/TS with **zero Electron imports**
   (ADR-0002). `packages/desktop` is the Electron shell. Never introduce an
   Electron dependency into `core`.
-- Never request upstream changes in OMP: do not open issues, PRs, or
-  feature requests against the upstream OMP repository. Where OMP's
-  current state constrains this UI, work around it inside `omp-ui` where
-  possible; if no workaround exists, surface the constraint to the user.
-- Filing anything on another project's tracker (Chromium, Electron, ...) is a
-  user decision: never open an upstream issue, bug report, PR, or feature
-  request — on a web page or through any CLI or API — without the user's
-  explicit confirmation of that exact filing. When a plan prescribes an
-  upstream request, deliver the draft and ask; do not treat the plan as the
-  confirmation.
+- Open upstream issues, bug reports, PRs, or feature requests — including
+  against OMP, Chromium, Electron, or any other project — only when the user
+  explicitly asks for or confirms that specific filing. An explicit request
+  is authorization; do not ask for redundant confirmation. Never initiate a
+  filing on your own, whether through a web page, CLI, or API. A plan that
+  prescribes an upstream request is not authorization: deliver the draft and
+  ask unless the user has already explicitly requested that filing. Where
+  OMP's current state constrains this UI and no upstream filing has been
+  requested, work around it inside `omp-ui` where possible; otherwise surface
+  the constraint to the user.
 - A verification run that boots the app uses `npm run dev:headless`
   (`docs/development.md`, "Verification runs"): it maps no window and takes no
   focus. Never launch the visible app (`npm run dev`) for a check unless the user
