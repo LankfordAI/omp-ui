@@ -249,6 +249,15 @@ the JDK (not a runtime-only installation) and `ANDROID_HOME` to the SDK. The
 wrapper pins Gradle 8.13 with its distribution SHA-256; the project pins AGP
 8.13.2 and Kotlin 2.1.20.
 
+The APK launcher uses the existing `packages/desktop/build/icon.png` wordmark
+([#1118](https://github.com/LankfordAI/omp-ui/issues/1118)). Gradle's
+`syncLauncherIcon` task stages that file under
+`app/build/generated/res/launcherIcon/drawable-nodpi/omp_ui_icon.png` before
+`preBuild`, for both debug and release. Android builds need neither Node nor
+Chromium to package it. The adaptive icon uses the matching opaque tile color
+and an 18 dp foreground inset so launcher masks do not clip the wordmark.
+To change the artwork, update the shared PNG rather than adding an Android copy.
+
 ```bash
 "$ANDROID_HOME/cmdline-tools/latest/bin/sdkmanager" "platforms;android-36" "build-tools;36.0.0"
 cd android

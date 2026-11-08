@@ -1,0 +1,5 @@
+<?xml version="1.0" encoding="utf-8"?>
+<resources>
+    <!-- Match the shared desktop icon tile so launcher masks have an opaque backdrop. -->
+    <color name="launcher_background">#0e1013</color>
+</resources>

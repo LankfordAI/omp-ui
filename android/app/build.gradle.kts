@@ -3,6 +3,15 @@ plugins {
     id("org.jetbrains.kotlin.android")
 }
 
+val launcherIconResources = tasks.register<Sync>("syncLauncherIcon") {
+    from(rootProject.file("../packages/desktop/build/icon.png")) {
+        into("drawable-nodpi")
+        rename { "omp_ui_icon.png" }
+    }
+    into(layout.buildDirectory.dir("generated/res/launcherIcon"))
+}
+tasks.named("preBuild").configure { dependsOn(launcherIconResources) }
+
 val releaseVersion = providers.gradleProperty("releaseVersion")
 val appVersion = releaseVersion.orElse("0.1.0").get()
 val versionParts = Regex("(0|[1-9][0-9]*)\\.(0|[1-9][0-9]*)\\.(0|[1-9][0-9]*)").matchEntire(appVersion)
@@ -27,6 +36,7 @@ android {
         testInstrumentationRunner = "androidx.test.runner.AndroidJUnitRunner"
     }
     buildFeatures { buildConfig = true }
+    sourceSets.getByName("main").res.srcDir(launcherIconResources)
     signingConfigs {
         create("release") {
             releaseKeystore.orNull?.let { storeFile = file(it) }
