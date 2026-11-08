@@ -27,6 +27,7 @@ export default tseslint.config(
       "packages/desktop/scripts/**/*.{mjs,cjs}",
       "packages/host-lite/scripts/**/*.mjs",
       "scripts/**/*.mjs",
+      "android/scripts/**/*.mjs",
     ],
     languageOptions: { globals: { ...globals.node } },
   },

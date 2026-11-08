@@ -4,15 +4,17 @@ This guide explains what users receive from a release and how maintainers publis
 
 ## Unreleased
 
-- Add an installable Kotlin/WebView Android client with host sign-in, cover/inner fold continuity, native document pickers, and live-tab/plain-text draft recovery. The APK builds locally from `android/`; desktop release assets are unchanged ([#1100](https://github.com/LankfordAI/omp-ui/issues/1100)).
+- Add an installable Kotlin/WebView Android client with host sign-in, cover/inner fold continuity, native document pickers, and live-tab/plain-text draft recovery ([#1100](https://github.com/LankfordAI/omp-ui/issues/1100)).
 - Keep the same mounted transcript reading block when folding or rotation changes text width in the Android app, without changing streaming follow mode or desktop/browser scrolling ([#1101](https://github.com/LankfordAI/omp-ui/issues/1101)).
 - Make Android Back dismiss only safe visible surfaces, never answer agent prompts or abort a turn; clear credential-form history so post-login Back retains the mounted host view ([#1102](https://github.com/LankfordAI/omp-ui/issues/1102), [#1107](https://github.com/LankfordAI/omp-ui/issues/1107)).
 - Keep wrong-password and lockout HTML usable in the Android sign-in page and block direct foreign main-frame POSTs without removing HTTPS subresource support ([#1103](https://github.com/LankfordAI/omp-ui/issues/1103), [#1104](https://github.com/LankfordAI/omp-ui/issues/1104)).
 - Offer bounded unconfirmed prompt text for explicit recovery without automatic replay; add confirmed all-host saved-data/sign-in removal that waits for provider completion ([#1105](https://github.com/LankfordAI/omp-ui/issues/1105), [#1106](https://github.com/LankfordAI/omp-ui/issues/1106)).
+- Remove the Android app's persistent host-address bar; put **Host connection…** in sessions navigation while keeping native connection recovery and the mounted host view ([#1108](https://github.com/LankfordAI/omp-ui/issues/1108)).
+- Publish a release-signed Android APK with stable GitHub releases, verify its pinned signing identity and tag version, and include it in release checksums. Android pull-request CI builds, tests, and lints without signing secrets ([#1109](https://github.com/LankfordAI/omp-ui/issues/1109)).
 
 ## Choose a download
 
-A release has exactly four distributable files. Replace `<version>` with the tag version without its leading `v`.
+A stable release has exactly five distributable files. Replace `<version>` with the tag version without its leading `v`.
 
 | Platform | Status | File | Use |
 |---|---|---|---|
@@ -20,6 +22,7 @@ A release has exactly four distributable files. Replace `<version>` with the tag
 | Windows x64 | Unsigned preview | `omp-ui-<version>-windows-preview-x64-setup.exe` | Per-user NSIS installer |
 | macOS Apple Silicon | Supported | `omp-ui-<version>-mac-arm64.dmg` | Install omp-ui |
 | macOS Apple Silicon | Supported | `omp-ui-<version>-mac-arm64.zip` | Squirrel.Mac update payload |
+| Android | Signed preview, Android 10+ | `omp-ui-<version>-android.apk` | Install manually on an Android device |
 
 The macOS packages are Developer ID signed and notarized. [Issue #124](https://github.com/LankfordAI/omp-ui/issues/124) closed with that acceptance verified — notarized tagged artifacts and a physical-Mac self-update — so macOS is a supported release platform. Intel Macs are not supported: the Intel build was dropped in [issue #908](https://github.com/LankfordAI/omp-ui/issues/908). On an Intel Mac, electron-updater skips arm64 files, so the update check finds no ZIP it can install and reports an error; it never installs the Apple Silicon build.
 
@@ -35,17 +38,65 @@ The installer verifies the AppImage against `SHA256SUMS.txt`, writes it to `~/.l
 
 ## Understand the release files
 
-The four distributables ship with six supporting files, plus three headless fleet member files, for 13 release assets in total:
+The five distributables ship with six supporting files, plus three headless fleet member files, for 14 stable release assets in total:
 
 - `latest-linux.yml` names the AppImage and supplies its SHA-512 update metadata. The AppImage blockmap is embedded, so Linux does not publish a separate blockmap file.
 - `latest.yml` names the Windows installer and supplies its SHA-512 update metadata.
 - `omp-ui-<version>-windows-preview-x64-setup.exe.blockmap` supports the NSIS differential download.
 - `latest-mac.yml` names the Apple Silicon DMG and ZIP, with their sizes and SHA-512 digests. The ZIP is the Squirrel.Mac update payload.
-- `SHA256SUMS.txt` contains one SHA-256 line for each of the four distributables.
+- `SHA256SUMS.txt` contains one SHA-256 line for each of the five distributables, including the APK.
 - `SHA256SUMS-macos-arm64.txt` covers the DMG and ZIP. The workflow creates it during platform verification, then creates the combined manifest after all platforms finish.
 - `omp-ui-lite-linux-x64` is the headless fleet member's single-file binary and `omp-ui-lite-linux-x64.sha256` its checksum; `host-lite-node-pty-linux-x64.tgz` unpacks node-pty and its runtime externals adjacent to the binary. These stay out of the update-manifest lanes; `packages/host-lite/packaging/install.sh` downloads exactly these names (see [issue #1010](https://github.com/LankfordAI/omp-ui/issues/1010)).
 
 The SHA-256 manifests and update metadata detect corrupt or substituted bytes. They do not establish publisher identity. macOS gets publisher identity from Developer ID signing and notarization. The Windows preview has no equivalent trusted Authenticode signature yet.
+
+### Android APK distribution and signing
+
+Download `omp-ui-<version>-android.apk` from a stable GitHub Release, check its
+`SHA256SUMS.txt` entry, and allow installation from the downloading app when
+Android asks. Later release APKs install over the existing release-signed app
+without clearing its sign-in or saved host data. A debug-signed installation
+cannot be upgraded to this different signing identity: moving from development
+builds requires a one-time uninstall/reinstall, which removes local app data.
+No workflow or installer uninstalls it automatically.
+
+The APK uses the desktop tag's stable `major.minor.patch` version. Android's
+`versionCode` is `major * 1,000,000 + minor * 1,000 + patch + 1`; major is limited
+to 0–2099 and minor/patch to 0–999, keeping codes ordered and within Play's
+2,100,000,000 limit. Prerelease/build-suffix versions are refused. Publishing
+an APK with every stable tag does not require users to reinstall for hosted-UI
+changes: those arrive on reload or reconnect. Android has no in-app APK updater,
+and the APK never enters Electron's `latest*.yml` feeds. Nightly remains
+desktop-only.
+
+The Android release lane requires these repository settings:
+
+| Setting | Type | Purpose |
+|---|---|---|
+| `ANDROID_KEYSTORE_BASE64` | Actions secret | Base64-encoded PKCS12 release keystore |
+| `ANDROID_KEYSTORE_PASSWORD` | Actions secret | Store/key password; alias is `omp-ui-android` |
+| `ANDROID_SIGNING_CERT_SHA256` | Repository variable | Pinned public certificate digest: 64 hexadecimal characters, without separators |
+
+Release builds fail without the key, password, or explicit version. The workflow
+decodes the key to an owner-only runner-temporary file, disables Gradle caching
+for the signing lane, and removes the key on exit. `android/scripts/verify-release.mjs`
+runs `apksigner verify` and checks the signer against the pinned digest, the
+application ID, version name/code, and absence of the debuggable manifest flag
+before the canonical APK can be uploaded. Pull-request jobs receive no signing
+secrets and build the debug variant on a GitHub-hosted runner.
+
+Keep a recoverable offline backup of the encrypted keystore **and its password**
+in trusted backup/password-manager storage before public distribution. GitHub
+secret values cannot be downloaded as a recovery mechanism. Do not generate a
+replacement key for each release, commit credentials, or print them in CI logs.
+
+For eventual Play Store distribution, keep application ID
+`ai.lankford.ompui.android` and enroll the existing app-signing key in
+[Play App Signing](https://developer.android.com/studio/publish/app-signing),
+then use a separate upload key for Play submissions. This preserves signing
+continuity between GitHub APKs and Play installs; Play uses Android App Bundles
+(`.aab`) rather than the manually installed APK. No Play upload is configured yet.
+
 
 ### Language assets
 
@@ -118,6 +169,9 @@ The release body lists the changes since the previous nightly: each issue or
 pull request the range's first-parent commit subjects cite, with its title, or
 the commit subjects themselves when no cited number resolves (issue #922).
 
+This rolling release does not include an Android APK; Android publication is
+currently limited to stable tags and uses the same persistent release certificate.
+
 The `nightly` release carries the update feeds a stable release carries —
 `latest-linux.yml`, `latest.yml`, `latest-mac.yml`, and the NSIS blockmap — so
 the nightly train's in-app check and staged installs work end to end; the
@@ -137,7 +191,7 @@ matching tag for the rolling `nightly` release.
 
 The [release workflow](../.github/workflows/release.yml) runs for every pushed `v*` tag. The [electron-builder configuration](../packages/desktop/electron-builder.yml) defines the platform targets and the explicit Windows and macOS names. `packaging/install.sh` defines the AppImage name expected by the supported Linux installer.
 
-The tag is the release version. Each platform job strips its leading `v`, compares the result with `packages/desktop/package.json`, and runs the workspace-scoped `npm version <version> --no-git-tag-version` only when they differ. Running from the repository root updates the workspace package and its root lockfile entry together in that job's checkout. The workflow does not create another tag, commit the stamped files, or push them back to the source branch.
+The tag is the release version. Each desktop platform job strips its leading `v`, compares the result with `packages/desktop/package.json`, and runs the workspace-scoped `npm version <version> --no-git-tag-version` only when they differ. Running from the repository root updates the workspace package and its root lockfile entry together in that job's checkout. Android instead reads the version from `-PreleaseVersion=<version>` without rewriting its Gradle source. The workflow does not create another tag, commit the stamped files, or push them back to the source branch.
 
 The jobs run in this order:
 
@@ -146,8 +200,9 @@ The jobs run in this order:
 3. `release-notes` checks out the full history, resolves the previous tag with `git describe --tags --match "v*" --abbrev=0 <tag>^` (the `v*` match keeps the rolling `nightly` tag of issue #480 out of the range math), lists the PRs merged between the two tags, groups commits by the issue or PR their subjects reference, lifts the tag's `## Unreleased` bullets into `## Highlights`, and writes the result into the draft. The summary sentence counts keyed entries plus reference-free commits (issue #784), so it matches the row count under What's Changed even when commit subjects omit issue refs. A failure of this job never blocks publishing: a published release with no notes beats a finished release stranded in draft, where the updater cannot see it.
 4. `package-macos` builds the Apple Silicon package on a `macos-15` runner; there is no Intel build (issue #908). The job installs dependencies, runs the `node-pty` smoke, stamps the version, and packages one DMG and one ZIP from the shipped `node-pty` prebuild without rebuilding it. Packaging uses the Developer ID certificate from `CSC_LINK` and `CSC_KEY_PASSWORD`. The release command disables electron-builder's built-in one-attempt notarization. A retrying `notarytool` script then submits the DMG with the Apple credentials, staples the app and DMG, and rebuilds the ZIP around the stapled app. Stapling retries transient ticket-lookup failures with the same backoff schedule (issue #856). Verification requires one thin app and `prebuilds/darwin-arm64/pty.node`, a valid Developer ID signature from `APPLE_TEAM_ID`, Gatekeeper acceptance, and a valid app staple. The validation step retries transient ticket-lookup failures with the same backoff schedule as stapling (#879). The job then uploads its DMG, ZIP, and `SHA256SUMS-macos-arm64.txt` directly into the draft; the macOS Preview and Nightly workflows call the same reusable workflow without a `release_tag` and receive the files as a `macos-package-arm64` artifact instead.
 5. `test-windows` runs the core and desktop Windows test suites; `ci.yml` runs on Linux only — the self-hosted runner for same-repo events, a GitHub-hosted `ubuntu-latest` runner for fork pull requests (issue #626) — so these are the project's only Windows test coverage. `release-windows` runs beside it: it installs dependencies, runs the `node-pty` smoke against the `win32-x64` prebuild, stamps the version, and packages NSIS with certificate discovery disabled. No MSVC toolchain is installed and nothing is rebuilt. Verification requires the unpacked app, x64 native modules, and ConPTY support files. The job then requires exactly one installer, its matching blockmap, and a `latest.yml` that names the installer and contains SHA-512 metadata before uploading all three. It performs no Authenticode signing; this is the unsigned preview accepted by [ADR-0015](adr/0015-unsigned-windows-nsis-preview.md).
-6. `release-manifest` depends on successful Linux, macOS, Windows, and `test-windows` jobs, and waits for `release-notes` to finish without gating on its result. It downloads exactly one AppImage, one DMG, one ZIP, and one Windows installer. It rejects duplicate or missing names, writes the sorted four-line `SHA256SUMS.txt`, and uploads it. It then calculates SHA-512 and size for both macOS files, writes `latest-mac.yml`, and uploads the feed. Before publishing it warns in the run log when the draft's body is still empty.
-7. The manifest job downloads the three published update metadata files and checks their SHA-512 fields and expected distributable names. It also requires the tag version in `latest-mac.yml`. A release is complete only after this boundary check succeeds, after which the job publishes the draft (`gh release edit <tag> --draft=false`) and verifies `isDraft` is false. Until that moment the release is invisible to `releases/latest` and the releases Atom feed, so application updates and `packaging/install.sh` resolve the last completed release rather than the one still building.
+6. `release-android` uses a GitHub-hosted Ubuntu runner, JDK 21, SDK platform 36, and build-tools 36.0.0. It runs verifier regressions, builds/signs the release variant, runs release unit tests and lint, and verifies the signature, pinned certificate, package ID, non-debuggable manifest, and tag version before uploading `omp-ui-<version>-android.apk` into the draft.
+7. `release-manifest` depends on successful Linux, macOS, Windows, Android, and `test-windows` jobs, and waits for `release-notes` to finish without gating on its result. It downloads exactly one AppImage, one DMG, one ZIP, one Windows installer, and one Android APK. It rejects missing or duplicate artifact names, writes the sorted five-line `SHA256SUMS.txt`, and uploads it. It then calculates SHA-512 and size for both macOS files, writes `latest-mac.yml`, and uploads the feed. Before publishing it warns in the run log when the draft's body is still empty.
+8. The manifest job downloads the three published update metadata files and checks their SHA-512 fields and expected distributable names. It also requires the tag version in `latest-mac.yml`. A release is complete only after this boundary check succeeds, after which the job publishes the draft (`gh release edit <tag> --draft=false`) and verifies `isDraft` is false. Until that moment the release is invisible to `releases/latest` and the releases Atom feed, so application updates and `packaging/install.sh` resolve the last completed release rather than the one still building.
 
 Do not rename release files by hand. The updater, installer, workflow assertions, and checksum generation all depend on the names above.
 

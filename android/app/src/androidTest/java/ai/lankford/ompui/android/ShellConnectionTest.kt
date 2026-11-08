@@ -158,10 +158,10 @@ class ShellConnectionTest {
             ActivityScenario.launch(MainActivity::class.java).use { scenario ->
                 connect(scenario, host.origin)
                 storeDraftAndCookie(scenario, "keep me", "shell-cancel")
+                openConnection(scenario)
                 var original: WebView? = null
                 scenario.onActivity {
                     original = it.findViewById(R.id.remote_webview)
-                    it.findViewById<Button>(R.id.connection_menu).performClick()
                     it.findViewById<Button>(R.id.clear_saved_hosts).performClick()
                 }
                 clickDialog(R.string.clear_saved_hosts_cancel)
@@ -184,10 +184,10 @@ class ShellConnectionTest {
                 scenario.onActivity { supportsClear = WebViewFeature.isFeatureSupported(WebViewFeature.DELETE_BROWSING_DATA) }
                 assumeFalse("Requires a real older provider without DELETE_BROWSING_DATA", supportsClear)
                 storeDraftAndCookie(scenario, "must remain", "shell-unsupported")
+                openConnection(scenario)
                 var original: WebView? = null
                 scenario.onActivity {
                     original = it.findViewById(R.id.remote_webview)
-                    it.findViewById<Button>(R.id.connection_menu).performClick()
                     it.findViewById<Button>(R.id.clear_saved_hosts).performClick()
                 }
                 clickDialog(R.string.clear_saved_hosts_confirm)
@@ -248,8 +248,8 @@ class ShellConnectionTest {
                     storeDraftAndCookie(scenario, "erase first", "shell-clear-first")
                     switchHost(scenario, second.origin)
                     storeDraftAndCookie(scenario, "erase second", "shell-clear-second")
+                    openConnection(scenario)
                     scenario.onActivity {
-                        it.findViewById<Button>(R.id.connection_menu).performClick()
                         it.findViewById<Button>(R.id.clear_saved_hosts).performClick()
                     }
                     clickDialog(R.string.clear_saved_hosts_confirm)
@@ -324,13 +324,18 @@ class ShellConnectionTest {
     }
 
     private fun switchHost(scenario: ActivityScenario<MainActivity>, origin: String) {
+        openConnection(scenario)
         scenario.onActivity {
-            it.findViewById<Button>(R.id.connection_menu).performClick()
             it.findViewById<EditText>(R.id.host_address).setText(origin)
             it.findViewById<Button>(R.id.connect_host).performClick()
         }
         clickDialogText("Connect")
         await { js(scenario, "window.ready === true && location.origin === ${JSONObject.quote(origin)}") == "true" }
+    }
+
+    private fun openConnection(scenario: ActivityScenario<MainActivity>) {
+        scenario.onActivity { it.onBackPressedDispatcher.onBackPressed() }
+        await { connectionVisible(scenario) }
     }
 
     private fun assertHostVisible(scenario: ActivityScenario<MainActivity>) {

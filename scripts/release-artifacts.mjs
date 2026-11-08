@@ -8,6 +8,7 @@ const PLATFORM_KINDS = {
   linux: ["appimage"],
   mac: ["dmg", "zip"],
   win: ["nsis"],
+  android: ["apk"],
 };
 
 function compareNames(left, right) {
@@ -36,6 +37,9 @@ function classify(file, target) {
 
   for (const arch of target.arches) {
     const escapedArch = escapeRegExp(arch);
+    if (target.platform === "android" && arch === "universal" && file.name === `omp-ui-${target.version}-android.apk`) {
+      return { arch, kind: "apk" };
+    }
     if (target.platform === "mac") {
       const match = file.name.match(
         new RegExp(`^omp-ui-${version}-mac-${escapedArch}\\.(dmg|zip)$`),
@@ -96,6 +100,9 @@ function assertTarget(target) {
   }
   if (new Set(target.arches).size !== target.arches.length) {
     throw new Error("Target arches contain duplicates");
+  }
+  if (target.platform === "android" && (target.arches.length !== 1 || target.arches[0] !== "universal")) {
+    throw new Error("Android releases require exactly one universal APK");
   }
 }
 

@@ -3131,6 +3131,7 @@ export const en = {
   "sidebar.empty.noLive": "No sessions running",
 
   "sidebar.footer.settings": "Settings",
+  "sidebar.footer.hostConnection": "Host connection…",
   // The footer stopped counting under a coined umbrella word (round-4 judge,
   // Clarity 2): it reads in the same words as the section headings above it —
   // ready and working — and hides entirely at zero, so no lonely "0 live"

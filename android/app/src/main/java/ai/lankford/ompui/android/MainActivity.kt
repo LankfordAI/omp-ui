@@ -56,7 +56,6 @@ import java.io.ByteArrayInputStream
 class MainActivity : ComponentActivity() {
     private lateinit var root: LinearLayout
     private lateinit var content: FrameLayout
-    private lateinit var title: TextView
     private lateinit var progress: ProgressBar
     private lateinit var connection: ScrollView
     private lateinit var address: EditText
@@ -140,14 +139,6 @@ class MainActivity : ComponentActivity() {
             setBackgroundColor(BACKGROUND)
             isSaveEnabled = false
         }
-        val bar = LinearLayout(this).apply {
-            gravity = Gravity.CENTER_VERTICAL
-            setPadding(dp(12), 0, dp(4), 0)
-        }
-        title = text("omp-ui", 14).apply { maxLines = 1; ellipsize = android.text.TextUtils.TruncateAt.MIDDLE }
-        bar.addView(title, LinearLayout.LayoutParams(0, dp(48), 1f).apply { gravity = Gravity.CENTER_VERTICAL })
-        bar.addView(button("Connection") { showConnection() }.apply { id = R.id.connection_menu })
-        root.addView(bar)
         progress = ProgressBar(this, null, android.R.attr.progressBarStyleHorizontal).apply {
             max = 100
             visibility = View.GONE
@@ -261,7 +252,6 @@ class MainActivity : ComponentActivity() {
         closeWebView()
         trustedOrigin = endpoint.origin
         preferences.edit().putString("origin", endpoint.origin).apply()
-        title.text = endpoint.origin
         failed = false
         formMessage.text = "Sign in on the host's existing page. Only its address is remembered."
         formMessage.setTextColor(FOREGROUND)
@@ -340,6 +330,11 @@ class MainActivity : ComponentActivity() {
         override fun shouldOverrideUrlLoading(view: WebView, request: WebResourceRequest): Boolean {
             val url = request.url.toString()
             if (view !== webView || clearingData) return true
+            if (url == "omp-ui://host-connection") {
+                if (request.isForMainFrame && request.hasGesture() && request.method == "GET" &&
+                    HostPolicy.isTrusted(view.url, trustedOrigin)) showConnection()
+                return true
+            }
             if (HostPolicy.isTrusted(url, trustedOrigin)) return false
             if (HostPolicy.opensExternally(url, request.isForMainFrame, request.hasGesture(), request.method)) openExternal(url)
             return true
@@ -357,7 +352,7 @@ class MainActivity : ComponentActivity() {
             if (view !== webView) return
             if (!HostPolicy.isTrusted(url, trustedOrigin)) {
                 view.stopLoading()
-                showFailure("Navigation outside the connected host was blocked. Use Connection to choose another host.")
+                showFailure("Navigation outside the connected host was blocked. Choose another host below.")
             }
         }
 
@@ -506,7 +501,6 @@ class MainActivity : ComponentActivity() {
         closeWebView()
         trustedOrigin = null
         failed = false
-        title.text = getString(R.string.app_name)
         connection.visibility = View.VISIBLE
         resume.visibility = View.GONE
         progress.visibility = View.GONE

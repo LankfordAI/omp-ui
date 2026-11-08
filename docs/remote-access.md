@@ -37,7 +37,8 @@ A browser view survives being backgrounded — a phone locking or opening the ca
 
 The installable Android app lives in `android/`; see [build and installation](development.md#android-app).
 Use a host built from the same checkout so its served renderer includes Android
-recovery. On the phone, enter the host's root HTTP/HTTPS address or pairing link,
+recovery and **Host connection…** navigation. On the phone, enter the host's root
+HTTP/HTTPS address or pairing link,
 then use the host's existing sign-in page. Only the origin is remembered by the
 connection form; credentials remain in the WebView's private cookie storage.
 For NetBird, use the host's private IP/DNS name and the host's local-network bind.
@@ -66,11 +67,15 @@ An abrupt stop before a disk commit can restore an older snapshot. Unsent
 attachments and the process-death transcript scroll position are not restored.
 App data is excluded from cloud backup and device transfer.
 
-**Connection** opens a native panel without destroying the current host view.
-Connecting to another host asks before replacing that view and preserves saved
-data. Native Back closes the keyboard or one safe renderer surface first. It
-does not synthesize Escape, answer agent decisions, settle sessions, or abort a
-running turn. Otherwise it navigates trusted host history or opens Connection.
+The connected app has no separate native host-address bar. Open **Host connection…**
+beside Settings in the sessions navigation (the hamburger menu on a narrow screen)
+to show the native panel without destroying the current host view. **Return to
+current view** or Android Back dismisses it. Connecting to another host asks before
+replacing that view and preserves saved data. Native Back closes the keyboard or
+one safe renderer surface first. It does not synthesize Escape, answer agent
+decisions, settle sessions, or abort a running turn. Otherwise it navigates trusted
+host history or opens the connection panel. A host load failure opens that panel
+directly, so recovery does not depend on a working renderer menu.
 Credential-form history is cleared at the sign-in boundary, so Back cannot
 revisit a login POST. Wrong-password and lockout HTML stays on the host's sign-in
 page rather than being replaced by a native connection error.

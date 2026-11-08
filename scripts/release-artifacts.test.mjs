@@ -43,6 +43,10 @@ const fixtures = {
       "omp-ui-1.2.3-windows-preview-ia32-setup.exe",
     ],
   },
+  android: {
+    target: { platform: "android", version, arches: ["universal"] },
+    names: ["omp-ui-1.2.3-android.apk"],
+  },
 };
 
 function metadata(names) {
@@ -73,6 +77,9 @@ for (const [platform, fixture] of Object.entries(fixtures)) {
         ],
         path: fixture.names[0],
       });
+    } else if (platform === "android") {
+      assert.deepEqual(new Set(plan.artifacts.map(({ kind }) => kind)), new Set(["apk"]));
+      assert.equal(plan.latestMac, null);
     } else {
       assert.deepEqual(new Set(plan.artifacts.map(({ kind }) => kind)), new Set(["nsis"]));
     }
@@ -100,6 +107,14 @@ test("rejects duplicate artifacts for an architecture", () => {
     () => planReleaseManifest(files, fixture.target),
     /Duplicate linux appimage artifact for x64/,
   );
+});
+
+test("Android checksum inputs exclude debug, stale-version, and desktop artifacts", () => {
+  const fixture = fixtures.android;
+  const files = metadata([...fixture.names, "app-debug.apk", "omp-ui-1.2.2-android.apk", "omp-ui-1.2.3-x64.AppImage"]);
+  assert.deepEqual(planReleaseManifest(files, fixture.target).checksumInputs, fixture.names);
+  assert.throws(() => planReleaseManifest(files.slice(1), fixture.target), /Missing android artifacts/);
+  assert.throws(() => planReleaseManifest(files, { ...fixture.target, arches: ["x64"] }), /universal APK/);
 });
 
 async function writeFixture(t, fixture) {

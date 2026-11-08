@@ -47,7 +47,7 @@ class ShellLifecycleTest {
                     val html = """
                         <!doctype html><html><head><meta name="viewport" content="width=device-width,initial-scale=1">
                         <script>window.markerAtStart = !!window.__ompAndroidViewport;</script></head>
-                        <body><textarea id="draft"></textarea><script>
+                        <body><a id="host-connection" href="omp-ui://host-connection" style="display:block;padding:16px">Host connection…</a><textarea id="draft"></textarea><script>
                         document.querySelector('#draft').value = localStorage.getItem('shell-test-draft') || '';
                         window.ready = true;
                         </script></body></html>
@@ -105,7 +105,14 @@ class ShellLifecycleTest {
                     orientation = Configuration.ORIENTATION_LANDSCAPE
                 })
                 assertSame(original, activity.findViewById(R.id.remote_webview))
-                activity.findViewById<Button>(R.id.connection_menu).performClick()
+            }
+            tap(scenario, "#host-connection")
+            await {
+                var showing = false
+                scenario.onActivity { showing = it.findViewById<View>(R.id.connection_panel).visibility == View.VISIBLE }
+                showing
+            }
+            scenario.onActivity { activity ->
                 assertSame(original, activity.findViewById(R.id.remote_webview))
                 assertEquals(View.VISIBLE, activity.findViewById<View>(R.id.connection_panel).visibility)
                 activity.onBackPressedDispatcher.onBackPressed()
@@ -113,6 +120,34 @@ class ShellLifecycleTest {
             }
             assertEquals("\"unsaved DOM\"", js(scenario, "document.querySelector('#draft').value"))
             assertEquals("null", js(scenario, "window.__ompAndroidViewport.bookSplitX"))
+        }
+    }
+
+    @Test fun embeddedFrameCannotOpenHostConnection() {
+        ActivityScenario.launch(MainActivity::class.java).use { scenario ->
+            connect(scenario)
+            js(scenario, """
+                window.childLinkTapped = false;
+                const frame = document.createElement('iframe');
+                frame.id = 'host-frame';
+                frame.width = '300'; frame.height = '100';
+                document.body.appendChild(frame);
+                frame.contentDocument.body.innerHTML = '<a href="omp-ui://host-connection" style="position:fixed;inset:0">Host connection</a>';
+                frame.contentDocument.querySelector('a').addEventListener('click', () => { window.childLinkTapped = true; });
+            """.trimIndent())
+            tap(scenario, "#host-frame")
+            await { js(scenario, "window.childLinkTapped") == "true" }
+            InstrumentationRegistry.getInstrumentation().waitForIdleSync()
+            scenario.onActivity {
+                assertEquals(View.GONE, it.findViewById<View>(R.id.connection_panel).visibility)
+                assertEquals("$origin/", it.findViewById<WebView>(R.id.remote_webview).url)
+            }
+            tap(scenario, "#host-connection")
+            await {
+                var showing = false
+                scenario.onActivity { showing = it.findViewById<View>(R.id.connection_panel).visibility == View.VISIBLE }
+                showing
+            }
         }
     }
 
@@ -166,28 +201,7 @@ class ShellLifecycleTest {
                 document.body.appendChild(navigate);
                 navigate.focus();
             """.trimIndent())
-            // A DOM focus is not native WebView focus; activate with a real touch instead.
-            val point = org.json.JSONObject(js(scenario, """
-                (() => {
-                  const rect = document.querySelector('#history-navigation').getBoundingClientRect();
-                  return {x: rect.left + rect.width / 2, y: rect.top + rect.height / 2, width: innerWidth};
-                })()
-            """.trimIndent()))
-            val screen = IntArray(2)
-            var scale = 1f
-            scenario.onActivity {
-                val view = it.findViewById<WebView>(R.id.remote_webview)
-                view.getLocationOnScreen(screen)
-                scale = (view.width / point.getDouble("width")).toFloat()
-            }
-            val x = screen[0] + point.getDouble("x").toFloat() * scale
-            val y = screen[1] + point.getDouble("y").toFloat() * scale
-            val down = SystemClock.uptimeMillis()
-            for (action in listOf(MotionEvent.ACTION_DOWN, MotionEvent.ACTION_UP)) {
-                val event = MotionEvent.obtain(down, SystemClock.uptimeMillis(), action, x, y, 0)
-                InstrumentationRegistry.getInstrumentation().sendPointerSync(event)
-                event.recycle()
-            }
+            tap(scenario, "#history-navigation")
             await { js(scenario, "location.pathname") == "\"/current\"" }
             await {
                 var ready = false
@@ -200,6 +214,30 @@ class ShellLifecycleTest {
             scenario.onActivity { it.onBackPressedDispatcher.onBackPressed() }
             await { js(scenario, "location.pathname") == "\"/previous\"" }
             scenario.onActivity { assertEquals(View.GONE, it.findViewById<View>(R.id.connection_panel).visibility) }
+        }
+    }
+
+    private fun tap(scenario: ActivityScenario<MainActivity>, selector: String) {
+        val point = org.json.JSONObject(js(scenario, """
+            (() => {
+              const rect = document.querySelector(${org.json.JSONObject.quote(selector)}).getBoundingClientRect();
+              return {x: rect.left + rect.width / 2, y: rect.top + rect.height / 2, width: innerWidth};
+            })()
+        """.trimIndent()))
+        val screen = IntArray(2)
+        var scale = 1f
+        scenario.onActivity {
+            val view = it.findViewById<WebView>(R.id.remote_webview)
+            view.getLocationOnScreen(screen)
+            scale = (view.width / point.getDouble("width")).toFloat()
+        }
+        val x = screen[0] + point.getDouble("x").toFloat() * scale
+        val y = screen[1] + point.getDouble("y").toFloat() * scale
+        val down = SystemClock.uptimeMillis()
+        for (action in listOf(MotionEvent.ACTION_DOWN, MotionEvent.ACTION_UP)) {
+            val event = MotionEvent.obtain(down, SystemClock.uptimeMillis(), action, x, y, 0)
+            InstrumentationRegistry.getInstrumentation().sendPointerSync(event)
+            event.recycle()
         }
     }
 

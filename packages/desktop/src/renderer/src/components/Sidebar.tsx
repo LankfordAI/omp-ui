@@ -2,6 +2,7 @@ import { useEffect, useMemo, useRef, useState, type MouseEvent as ReactMouseEven
 import { createPortal } from "react-dom";
 import type { SessionSummary } from "@omp-ui/core/types";
 import { backgroundWorkInFlight } from "../lib/async-jobs";
+import { isAndroidShell } from "../lib/android-shell";
 import { useT } from "../lib/i18n";
 import { cn } from "../lib/cn";
 import { formatHotkey, isTypingTarget } from "../lib/hotkeys";
@@ -1063,6 +1064,15 @@ export function Sidebar() {
            cluster drops whole to a second line instead of breaking mid-text
            or clipping at the aside edge. Tighter line gap keeps it one band. */
         <footer className="@container flex shrink-0 flex-wrap items-center gap-x-2 gap-y-1 border-t border-line px-3 py-2 text-xs text-ink-faint">
+        {isAndroidShell() && (
+          <a
+            href="omp-ui://host-connection"
+            onClick={closeCompactSurface}
+            className="flex min-h-11 w-full items-center rounded-md px-1 text-sm text-ink-mid hover:bg-hover hover:text-ink focus-visible:outline focus-visible:outline-2 focus-visible:outline-copper"
+          >
+            {t("sidebar.footer.hostConnection")}
+          </a>
+        )}
         <IconButton
           label={t("sidebar.footer.settings")}
           onClick={() => {

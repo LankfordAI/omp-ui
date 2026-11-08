@@ -258,14 +258,36 @@ cd android
 On Windows use `gradlew.bat`. The debug-signed APK is
 `android/app/build/outputs/apk/debug/app-debug.apk`, version 0.1.0, application
 ID `ai.lankford.ompui.android`. It requires Android 10/API 29 or newer and an
-updated Android System WebView with document-start JavaScript support. This is
-a locally built APK, not an asset in the desktop release/update feeds.
+updated Android System WebView with document-start JavaScript support. This debug
+APK is local-only; stable GitHub releases ship a separately release-signed APK
+as described in [Android distribution](releases.md#android-apk-distribution-and-signing).
 
 From the repository root, install on the explicitly selected device:
 
 ```bash
 "$ANDROID_HOME/platform-tools/adb" -s DEVICE_SERIAL install -r android/app/build/outputs/apk/debug/app-debug.apk
 ```
+
+CI's `android-check` job runs these debug build/unit/lint tasks and the Android
+release-verifier regression tests on pushes to `main` and all pull requests,
+including forks, on a GitHub-hosted runner with no signing secrets.
+
+For a signed release build on Linux/macOS, set `ANDROID_KEYSTORE_PATH` and
+`ANDROID_KEYSTORE_PASSWORD` securely (no shell tracing), then from the repository
+root run:
+
+```bash
+./android/gradlew -p android --no-daemon --no-configuration-cache \
+  -PreleaseVersion=0.34.0 :app:assembleRelease :app:testReleaseUnitTest :app:lintRelease
+node android/scripts/verify-release.mjs \
+  android/app/build/outputs/apk/release/app-release.apk 0.34.0 CERTIFICATE_SHA256
+```
+
+Use the intended stable release version and the pinned 64-hex public certificate
+digest. The keystore alias is `omp-ui-android`, with the same store/key password.
+Release tasks refuse missing signing credentials or a missing/invalid version;
+debug builds do not require either. The release workflow stages the verified APK
+as `omp-ui-<version>-android.apk` and keeps it out of Electron update feeds.
 
 For instrumentation, unlock the selected emulator first, then run
 `ANDROID_SERIAL=DEVICE_SERIAL ./gradlew --no-daemon :app:connectedDebugAndroidTest`
@@ -284,8 +306,13 @@ For a real UI proof, start the host using `dev:headless` as described below,
 forward its remote port with `adb -s DEVICE_SERIAL reverse tcp:PORT tcp:PORT`,
 and connect the Android app to `http://localhost:PORT`. Debug builds expose the
 WebView through `adb forward tcp:LOCAL_PORT localabstract:webview_devtools_remote_PID`;
-release builds disable WebView debugging. Use real fold/unfold and acceleration
-sensor commands on a hinge-capable AVD, not two independent flat profiles.
+release builds explicitly request debugging disabled and have no debuggable
+manifest flag. Debug/userdebug Android images can override this: WebView 124's
+[provider](https://github.com/chromium/chromium/blob/124.0.6367.219/android_webview/glue/java/src/com/android/webview/chromium/SharedStatics.java)
+ignores disable requests on debug Android builds, so an emulator with
+`ro.debuggable=1` is not proof that a release APK enables debugging on a production
+device. Use a production Android build for that runtime security check. Use real
+fold/unfold and acceleration sensor commands on a hinge-capable AVD, not two independent flat profiles.
 With the disposable API 36 foldable used for #1100, host GLES with Vulkan off
 (`-no-window -gpu host -feature -Vulkan`) avoided a bundled SwiftShader crash.
 Dismiss the emulator's keyguard before lifecycle tests. Apply density overrides

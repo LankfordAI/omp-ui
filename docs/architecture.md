@@ -80,6 +80,14 @@ visual data, never a callable Java interface. The shell handles configuration
 changes without recreating the WebView; actual process/renderer loss reloads
 the sanitized origin rather than trying to restore DOM from WebView history.
 
+The connected WebView has no native host bar ([#1108](https://github.com/LankfordAI/omp-ui/issues/1108)).
+Android-only **Host connection…** navigation beside Settings links to
+`omp-ui://host-connection`. The shell consumes that exact URL only for a
+user-gestured GET in the main frame of its current trusted host view; other
+requests to it are blocked. This opens the native panel without navigating or
+destroying the WebView and exposes no JavaScript-to-Java interface. Native Back
+and main-frame load errors retain their independent connection-panel paths.
+
 `lib/android-shell.ts` isolates origin-local view recovery under
 `omp-ui.androidView.v1`, bounded drafts under `omp-ui.androidDrafts.v1`, and
 unconfirmed plain-text submissions under `omp-ui.androidPending.v1`. Draft and

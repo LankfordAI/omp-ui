@@ -2882,6 +2882,7 @@ export const ko: Partial<Record<MessageKey, string>> = {
   "sidebar.empty.noLive": "실행 중인 세션 없음",
 
   "sidebar.footer.settings": "설정",
+  "sidebar.footer.hostConnection": "호스트 연결…",
   "sidebar.footer.readyCount": "준비됨 {n}",
   "sidebar.footer.workingCount": "작업 중 {n}",
   "sidebar.footer.liveTitle": "라이브 세션: 프로세스가 실행 중인 세션 {n}개 — 준비됨 및 작업 중",
