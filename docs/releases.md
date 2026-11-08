@@ -4,14 +4,7 @@ This guide explains what users receive from a release and how maintainers publis
 
 ## Unreleased
 
-- Add an installable Kotlin/WebView Android client with host sign-in, cover/inner fold continuity, native document pickers, and live-tab/plain-text draft recovery ([#1100](https://github.com/LankfordAI/omp-ui/issues/1100)).
-- Keep the same mounted transcript reading block when folding or rotation changes text width in the Android app, without changing streaming follow mode or desktop/browser scrolling ([#1101](https://github.com/LankfordAI/omp-ui/issues/1101)).
-- Make Android Back dismiss only safe visible surfaces, never answer agent prompts or abort a turn; clear credential-form history so post-login Back retains the mounted host view ([#1102](https://github.com/LankfordAI/omp-ui/issues/1102), [#1107](https://github.com/LankfordAI/omp-ui/issues/1107)).
-- Keep wrong-password and lockout HTML usable in the Android sign-in page and block direct foreign main-frame POSTs without removing HTTPS subresource support ([#1103](https://github.com/LankfordAI/omp-ui/issues/1103), [#1104](https://github.com/LankfordAI/omp-ui/issues/1104)).
-- Offer bounded unconfirmed prompt text for explicit recovery without automatic replay; add confirmed all-host saved-data/sign-in removal that waits for provider completion ([#1105](https://github.com/LankfordAI/omp-ui/issues/1105), [#1106](https://github.com/LankfordAI/omp-ui/issues/1106)).
-- Remove the Android app's persistent host-address bar; put **Host connection…** in sessions navigation while keeping native connection recovery and the mounted host view ([#1108](https://github.com/LankfordAI/omp-ui/issues/1108)).
-- Publish a release-signed Android APK with stable GitHub releases, verify its pinned signing identity and tag version, and include it in release checksums. Android pull-request CI builds, tests, and lints without signing secrets ([#1109](https://github.com/LankfordAI/omp-ui/issues/1109)).
-- Report foreground app activity once per UTC hour and model/provider request aggregates after each hour closes, retaining installation identity, opt-out behavior, and pending daily retry checkpoints across upgrades ([#1110](https://github.com/LankfordAI/omp-ui/issues/1110)).
+Nothing since [v0.34.1](https://github.com/LankfordAI/omp-ui/releases/tag/v0.34.1). Add one bullet per shipped change here before the next release.
 
 ## Choose a download
 
