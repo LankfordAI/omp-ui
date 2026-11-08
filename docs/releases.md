@@ -192,6 +192,8 @@ matching tag for the rolling `nightly` release.
 
 The [release workflow](../.github/workflows/release.yml) runs for every pushed `v*` tag. The [electron-builder configuration](../packages/desktop/electron-builder.yml) defines the platform targets and the explicit Windows and macOS names. `packaging/install.sh` defines the AppImage name expected by the supported Linux installer.
 
+Before tagging, run `npm run lint && npm run typecheck && npm test` from the project root. ESLint excludes generated Android Gradle build output (`android/**/build/**`), including test-report JavaScript, while continuing to check authored verification scripts under `android/scripts/`.
+
 The tag is the release version. Each desktop platform job strips its leading `v`, compares the result with `packages/desktop/package.json`, and runs the workspace-scoped `npm version <version> --no-git-tag-version` only when they differ. Running from the repository root updates the workspace package and its root lockfile entry together in that job's checkout. Android instead reads the version from `-PreleaseVersion=<version>` without rewriting its Gradle source. The workflow does not create another tag, commit the stamped files, or push them back to the source branch.
 
 The jobs run in this order:
