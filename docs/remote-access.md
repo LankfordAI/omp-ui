@@ -52,6 +52,22 @@ temporarily reduce the available height below the docked threshold. Folding and
 rotation retain the WebView, selected tab, draft, and mounted reading block.
 Book posture uses native fold information when the device supplies it.
 
+The status and navigation bars automatically follow the current hosted theme's
+canvas (`--color-void`), including fixed themes, imported themes, and **Follow
+system** changes. Icon contrast follows the actual canvas color, not the
+theme's name. Pages without the token, such as sign-in, use an opaque body/root
+background. There is no separate Android theme preference. Native connection,
+failure, and data-clearing panels retain their original `#101820` background
+and light icons; while a host view is hidden behind a panel, its latest color
+is cached and applied when you return.
+
+This native integration requires a rebuilt/reinstalled APK containing #1115;
+updating only the hosted renderer cannot change an older APK's system bars.
+After installing that APK, future hosted fixed/imported themes and **Follow
+system** changes need no reinstall. The WebView provider must support both
+document-start scripts (`DOCUMENT_START_SCRIPT`) and WebMessage listeners
+(`WEB_MESSAGE_LISTENER`); update Android System WebView if either is unavailable.
+
 After Android kills the process, reconnect using the remembered origin: valid
 cookies, the selected still-live tab, and plain-text drafts can recover. Recovery
 never resumes a settled session or starts another omp process. Each host origin

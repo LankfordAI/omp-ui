@@ -7,6 +7,7 @@ import android.content.Intent
 import android.content.res.Configuration
 import android.graphics.Color
 import android.graphics.Typeface
+import android.graphics.drawable.ColorDrawable
 import android.net.Uri
 import android.net.http.SslError
 import android.os.Bundle
@@ -39,12 +40,14 @@ import android.widget.Toast
 import androidx.activity.ComponentActivity
 import androidx.activity.OnBackPressedCallback
 import androidx.activity.result.contract.ActivityResultContracts
+import androidx.core.graphics.ColorUtils
 import androidx.core.view.ViewCompat
 import androidx.core.view.WindowCompat
 import androidx.core.view.WindowInsetsCompat
 import androidx.lifecycle.Lifecycle
 import androidx.lifecycle.lifecycleScope
 import androidx.lifecycle.repeatOnLifecycle
+import androidx.webkit.WebMessageCompat
 import androidx.webkit.WebViewCompat
 import androidx.webkit.WebViewFeature
 import androidx.window.layout.FoldingFeature
@@ -66,6 +69,7 @@ class MainActivity : ComponentActivity() {
     private lateinit var downloads: WebDownloads
     @Volatile private var webView: WebView? = null
     @Volatile private var trustedOrigin: String? = null
+    private var hostBackground: Int? = null
     private var fold: FoldingFeature? = null
     private var failed = false
     private var pendingFiles: ValueCallback<Array<Uri>>? = null
@@ -155,6 +159,26 @@ class MainActivity : ComponentActivity() {
             insets
         }
         ViewCompat.requestApplyInsets(root)
+        refreshSystemBars()
+    }
+
+    private fun refreshSystemBars() {
+        val background = if (connection.visibility == View.VISIBLE || webView == null || failed || clearingData) {
+            BACKGROUND
+        } else hostBackground ?: BACKGROUND
+        applyChromeBackground(background)
+    }
+
+    private fun applyChromeBackground(color: Int) {
+        val opaqueColor = ColorUtils.setAlphaComponent(color, 255)
+        root.setBackgroundColor(opaqueColor)
+        window.setBackgroundDrawable(ColorDrawable(opaqueColor))
+        val luminance = ColorUtils.calculateLuminance(opaqueColor)
+        val darkIcons = (luminance + 0.05) / 0.05 >= 1.05 / (luminance + 0.05)
+        WindowCompat.getInsetsController(window, root).apply {
+            isAppearanceLightStatusBars = darkIcons
+            isAppearanceLightNavigationBars = darkIcons
+        }
     }
 
     private fun buildConnectionForm() {
@@ -244,8 +268,10 @@ class MainActivity : ComponentActivity() {
 
     private fun connect(endpoint: HostEndpoint) {
         if (clearingData) return
-        if (!WebViewFeature.isFeatureSupported(WebViewFeature.DOCUMENT_START_SCRIPT)) {
-            formMessage.text = "Update Android System WebView or Chrome, then try again. This app requires document-start script support for safe host-scoped recovery and folding."
+        if (!WebViewFeature.isFeatureSupported(WebViewFeature.DOCUMENT_START_SCRIPT) ||
+            !WebViewFeature.isFeatureSupported(WebViewFeature.WEB_MESSAGE_LISTENER)) {
+            showConnection()
+            formMessage.text = "Update Android System WebView or Chrome, then try again. This app requires document-start script and web-message listener support for safe host-scoped recovery, folding, and system-bar colors."
             return
         }
         publishViewport(clear = true)
@@ -286,6 +312,18 @@ class MainActivity : ComponentActivity() {
         }
         CookieManager.getInstance().setAcceptCookie(true)
         CookieManager.getInstance().setAcceptThirdPartyCookies(this, false)
+        WebViewCompat.addWebMessageListener(this, "__ompAndroidChrome", setOf(origin)) { view, message, sourceOrigin, isMainFrame, _ ->
+            if (!isMainFrame || view !== webView || origin != trustedOrigin ||
+                !HostPolicy.isTrusted(sourceOrigin.toString(), origin) || !HostPolicy.isTrusted(view.url, origin) ||
+                clearingData || failed || message.type != WebMessageCompat.TYPE_STRING) return@addWebMessageListener
+            val value = message.data ?: return@addWebMessageListener
+            if (value.length != 7 || !CHROME_COLOR.matches(value)) return@addWebMessageListener
+            val color = Color.parseColor(value)
+            if (color == hostBackground) return@addWebMessageListener
+            hostBackground = color
+            view.setBackgroundColor(color)
+            refreshSystemBars()
+        }
         WebViewCompat.addDocumentStartJavaScript(this, ShellScripts.documentStart(origin), setOf(origin))
         webViewClient = HostWebViewClient()
         webChromeClient = object : WebChromeClient() {
@@ -454,6 +492,7 @@ class MainActivity : ComponentActivity() {
         webView?.visibility = View.INVISIBLE
         resume.visibility = if (webView != null && !failed) View.VISIBLE else View.GONE
         address.setText(trustedOrigin ?: preferences.getString("origin", ""))
+        refreshSystemBars()
     }
 
     private fun hideConnection() {
@@ -465,6 +504,7 @@ class MainActivity : ComponentActivity() {
         webView?.visibility = View.VISIBLE
         webView?.requestFocus()
         publishViewport()
+        refreshSystemBars()
     }
 
     private fun showFailure(message: String) {
@@ -510,6 +550,7 @@ class MainActivity : ComponentActivity() {
         clearData.isEnabled = false
         formMessage.setText(R.string.clear_saved_hosts_pending)
         formMessage.setTextColor(FOREGROUND)
+        refreshSystemBars()
     }
 
     private fun finishDataClearing() {
@@ -527,12 +568,19 @@ class MainActivity : ComponentActivity() {
         pendingFiles = null
         fileOrigin = null
         if (::downloads.isInitialized) downloads.cancel(clearPage = !rendererGone)
-        val view = webView ?: return
+        val view = webView
         webView = null
-        content.removeView(view)
-        if (!rendererGone) view.stopLoading()
-        view.removeAllViews()
-        view.destroy()
+        hostBackground = null
+        if (view != null) {
+            content.removeView(view)
+            if (!rendererGone) {
+                WebViewCompat.removeWebMessageListener(view, "__ompAndroidChrome")
+                view.stopLoading()
+            }
+            view.removeAllViews()
+            view.destroy()
+        }
+        refreshSystemBars()
     }
 
     private fun openExternal(url: String) {
@@ -546,6 +594,7 @@ class MainActivity : ComponentActivity() {
         super.onConfigurationChanged(newConfig)
         ViewCompat.requestApplyInsets(root)
         webView?.post { publishViewport() }
+        refreshSystemBars()
     }
 
     override fun onSaveInstanceState(outState: Bundle) {
@@ -554,7 +603,24 @@ class MainActivity : ComponentActivity() {
         super.onSaveInstanceState(outState)
     }
 
-    override fun onResume() { super.onResume(); webView?.onResume(); webView?.post { publishViewport() } }
+    override fun onResume() {
+        super.onResume()
+        webView?.onResume()
+        refreshSystemBars()
+        val view = webView ?: return
+        val origin = trustedOrigin ?: return
+        view.post {
+            if (view !== webView || origin != trustedOrigin || clearingData || failed ||
+                !HostPolicy.isTrusted(view.url, origin)) return@post
+            publishViewport()
+            view.evaluateJavascript("""
+                (() => {
+                  if (window !== window.top || location.origin !== ${org.json.JSONObject.quote(origin)}) return;
+                  window.dispatchEvent(new Event('omp-android-chrome'));
+                })();
+            """.trimIndent(), null)
+        }
+    }
     override fun onPause() { webView?.onPause(); CookieManager.getInstance().flush(); super.onPause() }
     override fun onDestroy() { closeWebView(); if (::downloads.isInitialized) downloads.close(); super.onDestroy() }
 
@@ -575,6 +641,7 @@ class MainActivity : ComponentActivity() {
     private fun dp(value: Int) = (value * resources.displayMetrics.density + 0.5f).toInt()
 
     companion object {
+        private val CHROME_COLOR = Regex("#[0-9a-fA-F]{6}")
         private val BACKGROUND = Color.rgb(16, 24, 32)
         private val FOREGROUND = Color.rgb(238, 243, 247)
         private val MUTED = Color.rgb(163, 180, 192)

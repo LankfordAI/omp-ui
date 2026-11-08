@@ -80,13 +80,41 @@ visual data, never a callable Java interface. The shell handles configuration
 changes without recreating the WebView; actual process/renderer loss reloads
 the sanitized origin rather than trying to restore DOM from WebView history.
 
+System bars are transparent; the connected native root/window inset backplates
+and WebView backing consume the document's effective opaque `--color-void`
+([#1115](https://github.com/LankfordAI/omp-ui/issues/1115)), falling back to an
+opaque body/root background when that token is unavailable. Both status-bar and
+navigation-bar icon appearance flags derive from contrast against that color,
+not a theme name or Android dark-mode setting. Native connection, failure, and
+data-clearing surfaces keep `#101820` with light icons. A retained hidden host
+can update its cached color without recoloring the native panel; returning to
+that host applies its latest color.
+
+The native form retains its fixed dark Material parent and explicit colors, but
+`android:isLightTheme` resolves from day/night boolean resources. WebView uses
+that attribute for `prefers-color-scheme`; it must follow the OS so the existing
+renderer can implement **Follow system** on the retained view. This does not
+select a hosted palette or enable algorithmic darkening.
+
+The provider must support both `DOCUMENT_START_SCRIPT` and
+`WEB_MESSAGE_LISTENER`. Before installing the document-start script, native
+registers the four-argument WebMessage listener `__ompAndroidChrome` with only
+`setOf(origin)` allowed. This is a color-only visual channel: native checks the
+exact source origin, current WebView identity, and main-frame status, accepts
+only a string matching `#[0-9a-fA-F]{6}`, and sends no replies. It is not a
+general Java host interface and grants no session, credential, navigation, or
+backend operations. The script retains its exact-origin/top-frame gate and
+`__ompAndroidViewport` marker; viewport/fold delivery remains one-way native to
+document, separate from this document-to-native color channel.
+
 The connected WebView has no native host bar ([#1108](https://github.com/LankfordAI/omp-ui/issues/1108)).
 Android-only **Host connection…** navigation beside Settings links to
 `omp-ui://host-connection`. The shell consumes that exact URL only for a
 user-gestured GET in the main frame of its current trusted host view; other
 requests to it are blocked. This opens the native panel without navigating or
-destroying the WebView and exposes no JavaScript-to-Java interface. Native Back
-and main-frame load errors retain their independent connection-panel paths.
+destroying the WebView; this URL route uses navigation policy rather than a
+callable Java interface. Native Back and main-frame load errors retain their
+independent connection-panel paths.
 
 `lib/android-shell.ts` isolates origin-local view recovery under
 `omp-ui.androidView.v1`, bounded drafts under `omp-ui.androidDrafts.v1`, and

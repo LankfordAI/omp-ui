@@ -258,7 +258,8 @@ cd android
 On Windows use `gradlew.bat`. The debug-signed APK is
 `android/app/build/outputs/apk/debug/app-debug.apk`, version 0.1.0, application
 ID `ai.lankford.ompui.android`. It requires Android 10/API 29 or newer and an
-updated Android System WebView with document-start JavaScript support. This debug
+updated Android System WebView supporting both `DOCUMENT_START_SCRIPT` and
+`WEB_MESSAGE_LISTENER`; document-start support alone is insufficient. This debug
 APK is local-only; stable GitHub releases ship a separately release-signed APK
 as described in [Android distribution](releases.md#android-apk-distribution-and-signing).
 
@@ -301,6 +302,133 @@ host switching, canceled/confirmed all-origin deletion, and persisted pending
 deletion. The unsupported-deletion case skips when the current provider supports
 the deletion feature; a passing current-provider run does not exercise that
 older-provider branch.
+
+The OS-scheme test uses the real UI mode service. Some API 29 Google APIs images
+lock night mode against the ordinary shell UID; those images require a disposable
+`userdebug` emulator with verified `su 0` access. The test checks that prerequisite
+explicitly and restores the original night setting. Unlocked images use the
+ordinary shell command; no production root access or test hook is involved.
+
+`ShellThemeTest` covers five system-bar behavior groups for #1115:
+
+- Root-canvas changes update native chrome while preserving the live WebView,
+  draft, selection, and scroll position.
+- The connection panel retains native background/light icons and returning to
+  the retained host applies its latest canvas, including changes while hidden.
+- Only the current trusted main frame can change chrome: reject foreign origins,
+  child frames, stale views, non-string messages, and strings other than exact
+  six-digit `#RRGGBB`; the channel has no replies or general Java host interface.
+- Token-free sign-in navigation, activity recreation, and HTTP failure use the
+  visible surface's chrome; recreation derives the document color again.
+- Real OS night-mode changes reach the retained WebView's media query, update
+  native colors/icons, preserve its draft/selection, and leave the connection
+  panel blue in both schemes. The setting is restored after the test.
+
+Run the focused suite from `android/` on an unlocked selected device:
+
+```bash
+ANDROID_SERIAL=DEVICE_SERIAL ./gradlew --no-daemon :app:connectedDebugAndroidTest \
+  -Pandroid.testInstrumentationRunnerArguments.class=ai.lankford.ompui.android.ShellThemeTest
+```
+
+### Required system-bar device matrix (#1115)
+
+The following is the repeatable verification procedure. The recorded #1115 run
+appears below it; earlier recovery/hardening proofs cover their own stated changes.
+Instrumentation does not replace full-device screenshots: WebView/CDP screenshots
+omit native system bars.
+
+1. Rebuild and install the APK above, and run the host from this checkout.
+   Updating only the hosted renderer does not add native system-bar support to
+   an older APK. Once installed, later hosted themes require no APK reinstall.
+   Record APK/host revisions, device serial, API level, WebView provider/version,
+   and support for both required provider features with each result.
+2. Exercise API **29, 35, and 36**, each with **gesture** and **three-button**
+   navigation. Select the navigation mode in Android Settings (do not infer it
+   from the API level). For each of these six configurations, use fixed dark,
+   fixed light, saturated-color, and imported themes, plus **Follow system**
+   while changing the Android system appearance in both directions. Record the
+   effective document canvas RGB and both light-status-bar/light-navigation-bar
+   appearance flags from the existing window/instrumentation state; light-bar
+   flags mean dark icons. They must follow contrast, not the theme label.
+3. Capture the entire device for each case, including both bars, from the
+   repository root (substitute the serial and a distinct descriptive filename):
+
+   ```bash
+   adb -s DEVICE_SERIAL exec-out screencap -p > /tmp/api29-gesture-dark.png
+   ```
+
+   Inspect/sample flat inset backplate pixels away from icons, gesture handles,
+   navigation buttons, and antialiased edges. Their RGB must exactly match the
+   opaque document canvas, with no navigation scrim or divider. Confirm readable
+   icon contrast on both bars and retain screenshots and flag observations;
+   do not treat a matching CSS value or WebView-only image as native proof.
+
+4. On the API 36 foldable, repeat cover/inner fold transitions, portrait and
+   landscape rotation, and IME open/close with a selected tab and unsent Unicode
+   draft. Check bar/backplate color, both icon flags, unchanged retained WebView,
+   draft, selection, and reading position. Reuse the real fold/rotation setup
+   below; separate flat AVDs are not a fold-transition proof.
+5. Open **Host connection…**, change the retained host's theme while its WebView
+   is hidden, and return. The native panel must remain `#101820` with light icons;
+   return must apply the latest cached host color without replacing the WebView.
+   Check failure and data-clearing panels use the same native appearance. Switch
+   hosts, navigate through token-free sign-in, and recreate the activity: no old
+   host color may leak to a native panel or replacement view, and a restored host
+   must derive its canvas again. Keep the draft/selection/scroll assertions in
+   the retained-view cases; recreation is not a promise of DOM preservation.
+6. Record pass/fail and any unavailable configuration explicitly for every matrix
+   cell. A passing API 36 gesture run is not evidence for API 29, API 35, or
+   three-button navigation. Do not mark this matrix verified until those results
+   and full-device captures exist.
+
+### System-bar proof recorded 2026-11-08 (#1115)
+
+The debug build, Android unit tests, and lint passed with JDK 21.0.13 and SDK 36.
+The complete instrumentation suite passed on API 29, 35, and 36: 19 passed and
+one existing older-provider-only deletion case skipped on each. All three
+disposable AVDs used standalone Chromium WebView 156.0.8078.47, including real
+document-start scripts, WebMessages, binary-message rejection, and browsing-data
+deletion. The new OS-scheme regression failed against the prior fixed-dark APK
+before passing with the day/night `android:isLightTheme` resource.
+
+| API / disposable AVD | Gesture navigation | Three-button navigation |
+| --- | --- | --- |
+| 29 / Pixel 3 | Six cases passed | Six cases passed |
+| 35 / Pixel 5 | Six cases passed | Six cases passed |
+| 36 / Pixel Fold | Six cases passed, inner display | Six cases passed, cover display |
+
+Each cell includes Graphite (`#0a0b0d`), Light (`#e8ecf0`), Solarized Light
+(`#e6e0cd`), the imported Native Canvas Proof palette (`#192d42`), and real
+OS-light/OS-dark transitions with Solarized Light/imported picks. Thirty-six
+full-device screenshots and measured RGB/appearance records were retained in
+the verification run's `proof/` directory. Six unobstructed top/bottom pixels
+and three navigation-boundary pixels matched the effective canvas exactly in
+every case. Both window icon-appearance flags requested dark icons for the two
+light canvases and light icons for the dark canvases; screenshots confirmed the
+visible polarity. Fixed/imported/OS transitions retained the same document,
+composer node, unsent Unicode draft, and selection within each configuration.
+Changing Android's navigation mode itself recreated the activity; that is not
+claimed as a retained-WebView transition.
+
+The real two-host proof also covered native-panel return after a hidden host
+theme change, distinct host colors, an unreachable-host failure, ordinary reload,
+all-host clearing, and actual app process restart with recovered draft/selected
+tab and rederived canvas. Native panels stayed `#101820` with light icons, and
+their body pixels were identical across OS light/dark schemes. Physical fold/
+unfold and acceleration-sensor rotations retained the document, draft, selection,
+and selected tab. Keyboard-open/closed screenshots in both inner orientations
+and on the cover showed the composer above the IME without a new bottom strip;
+Android sometimes hid the keyboard during display/rotation changes, so it was
+explicitly reopened for the settled-layout checks.
+
+**Platform limits:** the API 36 inner display's three-button **Launcher taskbar**
+is a separate system-owned window; its Graphite-case background measured
+`#111318`, not the app's `#0a0b0d`. The cover-display three-button cases have no
+tablet taskbar and matched exactly. The app does not recolor that taskbar or the
+keyboard. The foldable AVD still published a null book split; physical Samsung
+fold posture/cutout behavior remains a hardware check, not an inferred result.
+
 
 For a real UI proof, start the host using `dev:headless` as described below,
 forward its remote port with `adb -s DEVICE_SERIAL reverse tcp:PORT tcp:PORT`,
