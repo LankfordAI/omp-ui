@@ -36,6 +36,7 @@ interface RegistrySettings {
   autoSettleMergedPullRequests: boolean;
   remoteVsCodeEnabled: boolean;
   deviceAgentAccess: boolean;
+  telemetryModelsEnabled: boolean;
   voiceInputEnabled: boolean;
   sttModel: string | null;
   memoryDefaultsSeeded: boolean;
@@ -165,6 +166,7 @@ export function seedRegistry(file: string, patch: RegistrySeedPatch = {}): void 
     autoSettleMergedPullRequests: true,
     remoteVsCodeEnabled: false,
     deviceAgentAccess: false,
+    telemetryModelsEnabled: true,
     voiceInputEnabled: false,
     sttModel: null,
     memoryDefaultsSeeded: false,

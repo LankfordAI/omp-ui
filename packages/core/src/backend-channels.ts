@@ -523,6 +523,10 @@ export const BACKEND_CHANNELS = {
     channel: "settings:setDeviceAgentAccess",
     ...request<[on: boolean], void>([bool()]),
   },
+  setTelemetryModelsEnabled: {
+    channel: "settings:setTelemetryModelsEnabled",
+    ...request<[on: boolean], void>([bool()]),
+  },
   setDefaultAdvisor: {
     channel: "settings:setDefaultAdvisor",
     ...request<[on: boolean], void>([bool()]),

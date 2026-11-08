@@ -961,6 +961,15 @@ export const ko: Partial<Record<MessageKey, string>> = {
   "settings.general.htmlArtifactScripts": "HTML 아티팩트에서 스크립트 실행",
   "settings.general.htmlArtifactScriptsHint":
     "에이전트가 대화록에 인라인으로 렌더링하는 인터랙티브 문서의 스크립트를 네트워크, 저장소, 팝업, 폼, 이동 없이 샌드박스에서 실행합니다. 끄면 모든 아티팩트를 정적 문서로 표시합니다. 원격 브라우저 클라이언트에서는 항상 정적으로 표시됩니다.",
+  "settings.general.telemetryTitle": "개인정보 / 사용 통계",
+  "settings.general.telemetryDisclosure":
+    "패키징된 앱은 기본 일일 활동을 PostHog 미국 서버로 자동 보고하며, 앱 내에서 끌 수 없습니다. 보고에는 무작위 설치 ID, 앱 버전, OS 계열, 아키텍처, 릴리스 채널이 포함됩니다. 아래 모델/제공자 사용량 공유는 기본적으로 켜져 있으며 끌 수 있습니다. 내용, 경로, 인증 정보는 전송하지 않으며, 알 수 없거나 비공개인 모델/제공자 식별자는 custom/other로 분류합니다. 공유 시작 전이나 꺼져 있던 기간의 모델 사용 기록은 소급 전송하지 않습니다. 개발 환경에서는 사용 통계 전송이 비활성화되며, OMP Telemetry 내보내기와 별개입니다.",
+  "settings.general.telemetryApp": "기본 앱 활동 (필수)",
+  "settings.general.telemetryAppHint":
+    "데스크톱 창이 전면에 있는 날에 UTC 기준 하루 한 번 활동 이벤트를 자동 전송합니다. 백그라운드 프로세스 실행 시간이나 정확한 사람 수를 집계하는 것은 아닙니다.",
+  "settings.general.telemetryModels": "일일 모델/제공자 사용량 공유",
+  "settings.general.telemetryModelsHint":
+    "기본적으로 켜져 있으며 끄면 공유를 거부할 수 있습니다. UTC 기준 하루가 끝난 뒤 공개 모델/제공자별 요청 수를 전송합니다. 꺼도 기본 앱 활동 보고는 계속됩니다.",
   "settings.general.deviceAgentAccess": "에이전트의 기기 사용 허용",
   "settings.general.deviceAgentAccessHint":
     "이 변경 후 시작하거나 재개한 세션에 omp-ui_device 도구를 제공합니다. 이 도구는 기기 패널의 Android 에뮬레이터를 조작합니다. Android SDK(adb 및 emulator)가 필요합니다.",

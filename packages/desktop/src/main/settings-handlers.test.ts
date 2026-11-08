@@ -23,6 +23,7 @@ function setup(seedCouncilRoster: () => Promise<void>) {
     supportedCompactionMethods: async () => [],
     onAppUpdateTrainChanged: async () => {},
     onFleetLadderChanged: () => {},
+    onTelemetryChanged: () => {},
     seedCouncilRoster: async () => {
       order.push("seed");
       await seedCouncilRoster();
@@ -66,11 +67,40 @@ describe("setCouncilEnabled", () => {
         supportedCompactionMethods: async () => [],
         onAppUpdateTrainChanged: async () => {},
         onFleetLadderChanged: () => {},
+        onTelemetryChanged: () => {},
         seedCouncilRoster: seedCouncilRoster,
       });
       await handlers[CH.setCouncilEnabled](false);
       expect(seedCouncilRoster).not.toHaveBeenCalled();
       expect(registry.getSetting("councilEnabled")).toBe(false);
+    } finally {
+      fs.rmSync(dir, { recursive: true, force: true });
+    }
+  });
+});
+
+describe("model usage telemetry consent", () => {
+  it("persists consent and revokes reporting synchronously before broadcasting", async () => {
+    const dir = fs.mkdtempSync(path.join(os.tmpdir(), "omp-ui-consent-"));
+    try {
+      const registry = Registry.load(path.join(dir, "registry.json"));
+      const order: string[] = [];
+      const handlers = registerSettingsHandlers({
+        registry,
+        broadcast: async () => { order.push("broadcast"); },
+        supportedCompactionMethods: async () => [],
+        onAppUpdateTrainChanged: async () => {},
+        onFleetLadderChanged: () => {},
+        onTelemetryChanged: () => { order.push(`consent:${registry.getSetting("telemetryModelsEnabled")}`); },
+        seedCouncilRoster: async () => {},
+      });
+      const enabling = handlers[CH.setTelemetryModelsEnabled](true);
+      expect(order).toEqual(["consent:true", "broadcast"]);
+      await enabling;
+      const disabling = handlers[CH.setTelemetryModelsEnabled](false);
+      expect(order).toEqual(["consent:true", "broadcast", "consent:false", "broadcast"]);
+      await disabling;
+      expect(Registry.load(path.join(dir, "registry.json")).getSetting("telemetryModelsEnabled")).toBe(false);
     } finally {
       fs.rmSync(dir, { recursive: true, force: true });
     }

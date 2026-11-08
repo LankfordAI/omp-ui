@@ -338,6 +338,7 @@ export function GeneralPage() {
   const setDesktopNotifications = useStore((s) => s.setDesktopNotifications);
   const setHtmlArtifactScripts = useStore((s) => s.setHtmlArtifactScripts);
   const setDeviceAgentAccess = useStore((s) => s.setDeviceAgentAccess);
+  const setTelemetryModelsEnabled = useStore((s) => s.setTelemetryModelsEnabled);
   const setDefaultAdvisor = useStore((s) => s.setDefaultAdvisor);
   const setDefaultAutoThinking = useStore((s) => s.setDefaultAutoThinking);
   const setSubagentModelInheritByDefault = useStore((s) => s.setSubagentModelInheritByDefault);
@@ -651,6 +652,24 @@ export function GeneralPage() {
           ))}
         </select>
       </Row>
+      <section className="py-4" aria-labelledby="usage-telemetry-heading">
+        <h3 id="usage-telemetry-heading" className="text-sm font-medium text-ink">
+          {t("settings.general.telemetryTitle")}
+        </h3>
+        <p className="mt-2 text-sm leading-relaxed text-ink-dim">
+          {t("settings.general.telemetryDisclosure")}
+        </p>
+        <Row title={t("settings.general.telemetryApp")} hint={t("settings.general.telemetryAppHint")}>
+          {null}
+        </Row>
+        <Row title={t("settings.general.telemetryModels")} hint={t("settings.general.telemetryModelsHint")}>
+          <Switch
+            on={state?.telemetryModelsEnabled ?? true}
+            onChange={(next) => void setTelemetryModelsEnabled(next)}
+            label={t("settings.general.telemetryModels")}
+          />
+        </Row>
+      </section>
     </div>
   );
 }

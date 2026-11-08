@@ -43,6 +43,8 @@ import {
   mergeWorktreeBranch,
   readMemoryOverview,
   readStatsOverview,
+  readTelemetryModelUsage,
+  type TelemetryModelUsageRow,
   emptyStatsOverview,
   resolveStatsSource,
   StatsCollector,
@@ -246,6 +248,7 @@ import { resolveAgentDeviceBin } from "./agent-device-bin";
 import { TransferState } from "./transfer-state";
 import { SnoozeClock } from "./snooze-clock";
 import { PullRequestPoller } from "./pull-request-poller";
+import { UsageTelemetry } from "./usage-telemetry";
 
 /** A Fleet result's summary read races this window, the same bound as the status tool's summary race. */
 const FLEET_CHILD_SUMMARY_TIMEOUT_MS = 5_000;
@@ -266,6 +269,7 @@ export class MainBackend {
     getEnv: () => process.env,
     cwd: this.statsCwd,
   });
+  private readonly usageTelemetry: UsageTelemetry;
   readonly sessions: SessionManager;
   /** The one plan verification service (§4): owned here, injected downward. */
   private readonly planVerifier: PlanVerifier;
@@ -426,6 +430,14 @@ export class MainBackend {
     this.historyEnv = opts.historyEnv ?? process.env;
     this.appVersion = opts.appVersion ?? app.getVersion();
     this.registry = Registry.load(registryFile);
+    this.usageTelemetry = new UsageTelemetry({
+      enabled: app.isPackaged,
+      ledgerFile: path.join(path.dirname(registryFile), "usage-telemetry.json"),
+      appVersion: this.appVersion,
+      modelUsageEnabled: () => this.registry.getSetting("telemetryModelsEnabled"),
+      isActive: () => !this.win.isDestroyed() && this.win.isFocused(),
+      readModels: (since, until) => this.telemetryModels(since, until),
+    });
     // Applied in the constructor, not at boot: spawn() must never be reachable
     // with a keyless environment, and the login-shell capture (boot, async) only
     // ever adds to what is already installed here.
@@ -556,7 +568,10 @@ export class MainBackend {
       // The unit-test fake windows carry only the sink surface: unfocused.
       isFocused: () => typeof win.isFocused === "function" && !win.isDestroyed() && win.isFocused(),
     });
-    if (typeof win.on === "function") win.on("focus", () => this.pullRequests.onFocus());
+    if (typeof win.on === "function") win.on("focus", () => {
+      this.pullRequests.onFocus();
+      void this.usageTelemetry.poll();
+    });
     // Probe the window's true page dpr when the shell loads (and reloads) and
     // whenever the display geometry could have changed (#557). Every hook is
     // guarded: the unit-test fake windows carry only the sink surface.
@@ -829,6 +844,7 @@ export class MainBackend {
     // Pull request links (#985): one gh call per repository, now and on a
     // focus-dependent cadence. Never throws; a missing or logged-out gh only logs.
     this.pullRequests.start();
+    this.usageTelemetry.start();
   }
 
   /** Read the window's real page devicePixelRatio; screen.scaleFactor lies under Wayland fractional scaling (#557). */
@@ -886,6 +902,25 @@ export class MainBackend {
       ownedArchiveRoot: getArchiveRoot(ownedSessionsRoot),
     });
   }
+  /** Daily closed-day snapshots only; reuse the host's single OMP Stats writer. */
+  private telemetryModels(since: number, until: number): Promise<TelemetryModelUsageRow[] | null> {
+    const sessions = this.registry.sessions;
+    if (sessions.length === 0) return Promise.resolve([]);
+    const status = this.statsCollector.status();
+    if (!status.source || status.lastSuccessfulSyncAt === null || status.lastSuccessfulSyncAt < until) {
+      this.statsCollector.start("if-stale");
+      return Promise.resolve(null);
+    }
+    const ownedSessionsRoot = this.sessionsRoot;
+    return readTelemetryModelUsage({
+      source: status.source,
+      projects: this.registry.projects,
+      sessions,
+      ownedSessionsRoot,
+      ownedArchiveRoot: getArchiveRoot(ownedSessionsRoot),
+    }, since, until);
+  }
+
 
   /** The roots a vault may never be or sit inside (#758); userData is the registry's folder, as in SessionManager's guard. */
   private vaultRootGuard(): RootGuard {
@@ -1140,6 +1175,7 @@ export class MainBackend {
           onAppUpdateTrainChanged: () => this.appUpdater.onTrainChanged(),
           onFleetLadderChanged: () => this.fleetServer.enforceLadder(),
           seedCouncilRoster: () => this.seedCouncilRosterIfUnset(),
+          onTelemetryChanged: () => this.usageTelemetry.syncConsent(),
         }),
         ...registerVaultHandlers({
           registry: this.registry,
@@ -2417,6 +2453,7 @@ export class MainBackend {
    */
   killAll(): Promise<void> {
     const statsSettled = this.statsCollector.dispose();
+    this.usageTelemetry.dispose();
     this.desktopPaneStopped = true;
     this.resetDesktopPaneStream();
     this.notifier.dispose();
@@ -2747,6 +2784,7 @@ export class MainBackend {
       advisorAutoReply: this.registry.getSetting("advisorAutoReply"),
       stallAutoContinue: this.registry.getSetting("stallAutoContinue"),
       desktopNotifications: this.registry.getSetting("desktopNotifications"),
+      telemetryModelsEnabled: this.registry.getSetting("telemetryModelsEnabled"),
       htmlArtifactScripts: this.registry.getSetting("htmlArtifactScripts"),
       deviceAgentAccess: this.registry.getSetting("deviceAgentAccess"),
       defaultAdvisor: this.registry.getSetting("defaultAdvisor"),

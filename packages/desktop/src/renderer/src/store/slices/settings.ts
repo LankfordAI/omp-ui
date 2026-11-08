@@ -232,6 +232,14 @@ export const createSettingsSlice: StateCreator<UiStore, [], [], SettingsSlice> =
       }
     },
 
+    async setTelemetryModelsEnabled(on) {
+      try {
+        await backend.setTelemetryModelsEnabled(on);
+      } catch (err) {
+        get().reportError(err);
+      }
+    },
+
     async setDefaultAdvisor(on) {
       try {
         await backend.setDefaultAdvisor(on);

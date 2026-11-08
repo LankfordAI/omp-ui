@@ -557,3 +557,5 @@ export {
   type RpcSinks,
   type RpcSpawnFn,
 } from "./rpc/client";
+export { readTelemetryModelUsage, type TelemetryModelUsageRow } from "./telemetry-stats";
+export { telemetryModelDimensions } from "./telemetry-models";

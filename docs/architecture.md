@@ -108,6 +108,39 @@ can carry non-error outcomes. All five filters apply to every breakdown, includi
 sessions in the selected range; day buckets and chart labels are UTC. Failed
 reads or collection retain useful data with its original selection/source label.
 
+## Usage telemetry
+
+[`UsageTelemetry`](../packages/desktop/src/main/usage-telemetry.ts) is owned once by
+`MainBackend` ([#1097](https://github.com/LankfordAI/omp-ui/issues/1097)). Basic
+activity reporting is automatic in packaged builds: there is no opt-out registry
+setting, backend channel, or UI switch. `telemetryModelsEnabled` defaults on, with
+an opt-out switch; an explicitly stored false remains false. Preference commits
+synchronously cancel revoked model delivery before the state broadcast.
+Unpackaged builds do not create identities, collect, or report.
+
+The main process reports foreground desktop activity once per UTC day and freezes
+model/provider request aggregates after each UTC day closes. It shares the existing
+`StatsCollector`; [`telemetry-stats.ts`](../packages/core/src/telemetry-stats.ts) reads
+only the intended database in a read-only transaction, applies absolute time bounds
+from the first enabled run, and admits only exact registered active/archive lineages through
+`resolveOwnedStatsAttribution`. Project/cwd/header resemblance never admits data.
+Missing or failed collection does not turn into claimed usage; unavailable reads
+leave the checkpoint in place. Closed-day snapshots describe recorded data at
+collection time, not lifetime completeness or late-index corrections.
+
+Only sanitized aggregate fields cross the network boundary. Exact membership in a
+bundled public models.dev snapshot controls identifiers; user-defined catalogs and
+unknown names cannot leak deployment names through public-looking prefixes. A
+private atomic ledger beside the registry persists the random installation ID,
+the model-sharing start time, frozen report UUIDs, and delivery checkpoints before sending to
+PostHog's capture API. Retries retain UUIDs/timestamps; successful reports advance
+their checkpoints. Switching model sharing off drops only the optional queue; the
+installation ID and required activity reporting remain intact.
+Requests have a five-second deadline and never gate app startup or session work.
+No renderer SDK, autocapture, person profiles, or GeoIP enrichment is used. See
+[Settings](settings.md#usage-telemetry-privacy-and-coverage) for the fields, coverage,
+privacy policy, and maintainer dashboard configuration.
+
 ## Process and isolation invariants
 
 - omp-ui must remain single-instance for each application data directory. Electron acquires `requestSingleInstanceLock()` before creating the backend. A second launch focuses the existing window and exits. OMP has no cross-process session lock, so two application instances could otherwise resume and write the same JSONL session.

@@ -223,6 +223,7 @@ const mockBackend = {
   setAutoSettleMergedPullRequests: vi.fn(async () => {}),
   setRemoteVsCodeEnabled: vi.fn(async () => {}),
   setDeviceAgentAccess: vi.fn(async () => {}),
+  setTelemetryModelsEnabled: vi.fn(async () => {}),
   setSessionSubagentModels: vi.fn(async () => {}),
   setSessionApprovalMode: vi.fn(async () => {}),
   setSessionServiceTier: vi.fn(async () => {}),

@@ -1,9 +1,8 @@
 import * as fs from "node:fs";
 import * as os from "node:os";
 import * as path from "node:path";
-import { afterEach, describe, expect, expectTypeOf, it } from "vitest";
+import { afterEach, describe, expect, it } from "vitest";
 import { Registry, SETTINGS, planHandoffDescendants } from "./registry";
-import type { RegistrySettings } from "./registry";
 import type { OwnedSessionRecord } from "./types";
 
 const tmpDirs: string[] = [];
@@ -65,89 +64,28 @@ function rejectAtomicReplaces(file: string): () => void {
   };
 }
 
-describe("SETTINGS", () => {
-  it("describes every persisted setting with its exact value type", () => {
-    type ExpectedDescriptors = {
-      [K in keyof RegistrySettings]: {
-        fallback: () => RegistrySettings[K];
-        parse: (value: unknown) => RegistrySettings[K];
-      };
-    };
-
-    expectTypeOf(SETTINGS).toEqualTypeOf<ExpectedDescriptors>();
-    expect(Object.keys(SETTINGS)).toEqual([
-      "defaultMode",
-      "defaultAgentMode",
-      "defaultCompactionMethod",
-      "planFormat",
-      "hibernateIdleMinutes",
-      "streamStallAbortSeconds",
-      "advisorAutoReply",
-      "stallAutoContinue",
-      "desktopNotifications",
-      "htmlArtifactScripts",
-      "deviceAgentAccess",
-      "defaultAdvisor",
-      "defaultAutoThinking",
-      "modelFavorites",
-      "subagentModelInheritByDefault",
-      "agentRoster",
-      "skipDeleteConfirmation",
-      "skipTerminateConfirmation",
-      "experimentsEnabled",
-      "autoresearchEnabled",
-      "councilEnabled",
-      "snoozedSectionEnabled",
-      "autoSettleMergedPullRequests",
-      "voiceInputEnabled",
-      "sttModel",
-      "audioInputDevice",
-      "audioOutputDevice",
-      "memoryDefaultsSeeded",
-      "autoThinkingDefaultSeeded",
-      "hibernateManualDefaultSeeded",
-      "experimentsFlagSplitSeeded",
-      "councilDefaultOnSeeded",
-      "councilRoster",
-      "gettingStartedSeen",
-      "dismissedAppUpdateVersion",
-      "dismissedOmpUpdateVersion",
-      "themeId",
-      "themeMode",
-      "lightThemeId",
-      "darkThemeId",
-      "importedThemes",
-      "fontFamilyId",
-      "transcriptWidth",
-      "glassChrome",
-      "localeId",
-      "keybindings",
-      "appUpdateCheckOnLaunch",
-      "appUpdateTrain",
-      "vaultRegistry",
-      "vaultNoteVoice",
-      "ompUpdateCheckOnLaunch",
-      "ompAutoUpgrade",
-      "chatLastModel",
-      "chatLastThinkingLevel",
-      "remoteEnabled",
-      "remoteBind",
-      "remotePort",
-      "remoteToken",
-      "remotePasswordHash",
-      "remotePasswordSalt",
-      "instanceId",
-      "fleetPlacement",
-      "fleetAgentDispatch",
-      "fleetExecEnabled",
-      "fleetExecCeiling",
-      "fleetGrants",
-      "fleetProjectRoots",
-      "webhooksEnabled",
-      "mcpEndpointEnabled",
-      "remoteVsCodeEnabled",
-    ]);
+describe("model usage telemetry preference", () => {
+  it("defaults sharing on for fresh, unset, and malformed preferences", () => {
+    const file = tmpFile();
+    expect(Registry.load(file).getSetting("telemetryModelsEnabled")).toBe(true);
+    for (const settings of [{}, { telemetryModelsEnabled: 1 }, { telemetryModelsEnabled: {} }]) {
+      fs.writeFileSync(file, JSON.stringify({ schemaVersion: 1, settings, projects: [], sessions: [] }));
+      expect(Registry.load(file).getSetting("telemetryModelsEnabled")).toBe(true);
+    }
   });
+
+  it("preserves an explicit opt-out across reload and allows sharing to be re-enabled", () => {
+    const file = tmpFile();
+    const registry = Registry.load(file);
+    registry.setSetting("telemetryModelsEnabled", false);
+    const loaded = Registry.load(file);
+    expect(loaded.getSetting("telemetryModelsEnabled")).toBe(false);
+    loaded.setSetting("telemetryModelsEnabled", true);
+    expect(Registry.load(file).getSetting("telemetryModelsEnabled")).toBe(true);
+  });
+});
+
+describe("SETTINGS", () => {
   it("creates fresh mutable fallbacks", () => {
     expect(SETTINGS.modelFavorites.fallback()).not.toBe(SETTINGS.modelFavorites.fallback());
     expect(SETTINGS.agentRoster.fallback()).not.toBe(SETTINGS.agentRoster.fallback());

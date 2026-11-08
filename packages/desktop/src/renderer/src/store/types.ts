@@ -711,6 +711,7 @@ export interface SettingsSlice {
   setHtmlArtifactScripts(on: boolean): Promise<void>;
   /** Gives new and resumed sessions the omp-ui_device tool (issue #1006); default off. */
   setDeviceAgentAccess(on: boolean): Promise<void>;
+  setTelemetryModelsEnabled(on: boolean): Promise<void>;
   setDefaultAdvisor(on: boolean): Promise<void>;
   setDefaultAutoThinking(on: boolean): Promise<void>;
   setSubagentModelInheritByDefault(on: boolean): Promise<void>;

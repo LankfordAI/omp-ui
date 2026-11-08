@@ -37,6 +37,7 @@ type SettingsHandlerChannels =
   | typeof CH.setDesktopNotifications
   | typeof CH.setHtmlArtifactScripts
   | typeof CH.setDeviceAgentAccess
+  | typeof CH.setTelemetryModelsEnabled
   | typeof CH.setDefaultAdvisor
   | typeof CH.setDefaultAutoThinking
   | typeof CH.setSubagentModelInheritByDefault
@@ -80,6 +81,8 @@ interface SettingsHandlerDependencies {
   onAppUpdateTrainChanged: () => Promise<void>;
   /** Exec switch or ceiling moved: revoke detached execs that lost Full control (issue #905). */
   onFleetLadderChanged: () => void;
+  /** Sharing preference changed: synchronously cancel revoked delivery before broadcasting. */
+  onTelemetryChanged: () => void;
   /** Council graduation (amends #1055): seed the global roster from favorites. */
   seedCouncilRoster: () => Promise<void>;
 }
@@ -114,6 +117,11 @@ export function registerSettingsHandlers(
     [CH.setDesktopNotifications]: (value: boolean) => commit("desktopNotifications", value),
     [CH.setHtmlArtifactScripts]: (value: boolean) => commit("htmlArtifactScripts", value),
     [CH.setDeviceAgentAccess]: (value: boolean) => commit("deviceAgentAccess", value),
+    [CH.setTelemetryModelsEnabled]: async (value: boolean) => {
+      deps.registry.setSetting("telemetryModelsEnabled", value);
+      deps.onTelemetryChanged();
+      await deps.broadcast();
+    },
     [CH.setDefaultAdvisor]: (value: boolean) => commit("defaultAdvisor", value),
     [CH.setDefaultAutoThinking]: (value: boolean) => commit("defaultAutoThinking", value),
     [CH.setSubagentModelInheritByDefault]: (value: boolean) =>

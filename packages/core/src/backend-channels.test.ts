@@ -213,6 +213,7 @@ const VALID_ARGS = {
   setSnoozedSectionEnabled: [true],
   setRemoteVsCodeEnabled: [true],
   setDeviceAgentAccess: [true],
+  setTelemetryModelsEnabled: [false],
   setAutoSettleMergedPullRequests: [false],
   setFontFamilyId: ["mono"],
   setGettingStartedSeen: [true],
