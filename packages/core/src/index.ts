@@ -119,6 +119,7 @@ export * from "./carryover-bridge";
 export { advisorOverlayPath, writeAdvisorOverlay } from "./advisor-overlay";
 export { approvalOverlayPath, writeApprovalOverlay } from "./approval-overlay";
 export { worktreeOverlayPath, writeWorktreeOverlay } from "./worktree-overlay";
+export { writeTitleOverlay } from "./title-overlay";
 export { modelOverlayPath, writeDefaultModelOverlay } from "./model-overlay";
 export { gitGuardOverlayPath, writeGitGuardOverlay } from "./git-guard-overlay";
 export {

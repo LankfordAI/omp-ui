@@ -54,6 +54,7 @@ import {
   writeChatOverlay,
   writeVaultOverlay,
   writeWorktreeOverlay,
+  writeTitleOverlay,
   writeOutRepliesOverlay,
 } from "@omp-ui/core";
 import { NO_GATE, type SpawnGate } from "./spawn-gate";
@@ -137,6 +138,11 @@ export function writeSessionOverlays(
     overlays.push(writeWorktreeOverlay(absLineageDir));
   } catch (err) {
     console.warn("[worktree] could not write the overlay:", err);
+  }
+  try {
+    overlays.push(writeTitleOverlay(absLineageDir));
+  } catch (err) {
+    console.warn("[title] could not write the overlay:", err);
   }
   try {
     const overlay = writeApprovalOverlay(absLineageDir, record.approvalMode);

@@ -262,6 +262,14 @@ This page is a schema-driven view over omp-ui's curated allowlist of omp configu
 
 Every chat model-role row carries a **browse…** button beside its text field (issue #797). Its list comes from the installed binary's `omp models --kind chat` catalog — the same ADR-0027 lineage as the judge row — probed app-wide, so it works with no session focused. A pick stores the bare `provider/id` and drops any `:level` thinking suffix on that role; the text field stays for suffixes and for values outside the catalog, and picking **omp default** unsets the role. The session's Auto-title follows the `tiny` / `commit` / `smol` chain before falling back to the session model, so naming `tiny` here is the supported way to choose the title model — useful when the session model itself rejects omp's title fork.
 
+omp-ui sessions use plain generated titles: a per-session overlay pins
+`title.icons: boring`, disabling both emoji and short codes, even when global
+or project omp configuration enables cards. The Display section therefore
+does not offer `title.icons`. Existing stored titles are unchanged and legacy
+cards still display without their emoji. The policy applies when a session
+is launched or resumed; an already-running process needs a relaunch.
+([#1114](https://github.com/LankfordAI/omp-ui/issues/1114))
+
 The **judge** row binds `modelRoles.judge`, the model-kind role omp 18.4.0 uses for structured judgment (issue #669). Its **browse…** list comes from the installed binary's `omp models --kind judge` catalog — never a curated omp-ui list ([ADR-0027](adr/0027-web-search-provider-list-discovered-from-omp.md) lineage). The value is an opaque provider/model selector: unlike the chat roles it takes no thinking-level suffix, so a trailing `:word` is part of the model id and is round-tripped verbatim. Leaving the field blank unsets the role and lets omp resolve its built-in judge chain; the per-kind retry chains (`retry.fallbackChains.judge`) stay config-file-only.
 
 The web-search provider order is not on this page: it is edited on **Providers**, beside the credentials it depends on.

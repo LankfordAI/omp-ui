@@ -788,6 +788,12 @@ carried the plan. One shot per session: a declined generation retries at later
 turn ends, then leaves the row prompt-titled until a manual path names it. The
 title reaches the UI through the watcher, like every other engine-side
 session-file change; the engine's settlement notice is the visible signal.
+Every owned session pins `title.icons: boring` through a per-lineage config
+overlay, so new generated titles and `/rename` results have neither an emoji
+nor a short code (issue #1114). The pin applies on launch and resume, without
+editing global or project omp configuration. Existing stored titles are not
+rewritten; chrome continues to hide their legacy emoji. An already-running
+process keeps its prior title formatting until relaunched.
 _Avoid_: session name generation, summary, label, two-phase titling
 
 **Re-titling**:

@@ -52,9 +52,9 @@ import { arrField, field, strField } from "./fields";
  * auto-title off for rpc-ui (`noTitle || mode === "rpc" || "rpc-ui" ||
  * "acp"`), so the `message_start` dispatch above remains our whole timing
  * story; omp's title-starts-at-reply-begin change (its #803) is TUI-only.
- * What 18.8.7+ did change is the string itself — card titles arrive as
- * `${icon} ${code}: ${title}` inside it, which title-card.ts splits at
- * render time.
+ * Legacy card titles carry `${icon} ${code}: ${title}` inside the string;
+ * title-card.ts still splits those at render time. New spawns pin
+ * `title.icons: boring` for plain titles (issue #1114).
  */
 
 /**
