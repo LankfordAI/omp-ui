@@ -86,6 +86,8 @@ application ID, version name/code, and absence of the debuggable manifest flag
 before the canonical APK can be uploaded. Pull-request jobs receive no signing
 secrets and build the debug variant on a GitHub-hosted runner.
 
+Both Android workflows explicitly select `platform-tools` for SDK setup, then install platform 36 and build-tools 36.0.0. Do not restore the setup action's default `tools` package: that retired SDK package is no longer available.
+
 Keep a recoverable offline backup of the encrypted keystore **and its password**
 in trusted backup/password-manager storage before public distribution. GitHub
 secret values cannot be downloaded as a recovery mechanism. Do not generate a
