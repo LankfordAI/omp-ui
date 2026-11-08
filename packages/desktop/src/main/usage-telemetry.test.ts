@@ -69,25 +69,30 @@ describe("UsageTelemetry required activity and optional model usage", () => {
     expect(h.batches).toEqual([]);
   });
 
-  it("automatically counts foreground days with optional sharing off, once across focus, concurrent polls, and restarts", async () => {
+  it("counts foreground hours once across focus, concurrent polls, restarts, and clock rollback", async () => {
     const h = harness();
     h.reporter.start();
     await Promise.all([h.reporter.poll(), h.reporter.poll(), h.reporter.poll()]);
     const first = h.batches[0]![0]!;
-    expect(h.batches.flat().map((event) => event.properties.date)).toEqual(["2026-11-07"]);
+    h.setNow("2026-11-07T12:59:59Z");
+    await h.reporter.poll();
     h.reporter.dispose();
     const restarted = h.create();
     restarted.start();
     await restarted.poll();
-    expect(h.batches.flat()).toHaveLength(1);
-    h.setNow("2026-11-08T12:00:00Z");
+    expect(h.batches.flat().map((event) => event.timestamp)).toEqual(["2026-11-07T12:00:00.000Z"]);
+    h.setNow("2026-11-07T13:00:00Z");
     h.setActive(false);
     await restarted.poll();
     expect(h.batches.flat()).toHaveLength(1);
     h.setActive(true);
     await restarted.poll();
-    expect(h.batches.flat().map((event) => [event.distinct_id, event.properties.date])).toEqual([
-      [first.distinct_id, "2026-11-07"], [first.distinct_id, "2026-11-08"],
+    h.setNow("2026-11-07T12:30:00Z");
+    await restarted.poll();
+    h.setNow("2026-11-07T13:30:00Z");
+    await restarted.poll();
+    expect(h.batches.flat().map((event) => [event.distinct_id, event.timestamp])).toEqual([
+      [first.distinct_id, "2026-11-07T12:00:00.000Z"], [first.distinct_id, "2026-11-07T13:00:00.000Z"],
     ]);
     expect(h.readModels).not.toHaveBeenCalled();
   });
@@ -112,13 +117,18 @@ describe("UsageTelemetry required activity and optional model usage", () => {
     expect(JSON.parse(fs.readFileSync(h.deps.ledgerFile, "utf8")).app.pending).toBe(null);
   });
 
-  it("reports only closed post-consent model days, coalesces private names, and never re-exports a snapshot", async () => {
+  it("reports closed post-consent hours separately, coalesces private names, and never re-exports a snapshot", async () => {
     const h = harness();
+    h.setNow("2026-11-07T12:30:00Z");
     h.readModels.mockResolvedValue([
-      { date: "2026-11-07", provider: "openai", model: "gpt-4o", requests: 7 },
-      { date: "2026-11-07", provider: "openai", model: "private-deployment-A", requests: 3 },
-      { date: "2026-11-07", provider: "openai", model: "private-deployment-B", requests: 4 },
-      { date: "2026-11-07", provider: "internal-company-route", model: "gpt-4o", requests: 2 },
+      { hour: "2026-11-07T12:00:00.000Z", provider: "openai", model: "gpt-4o", requests: 7 },
+      { hour: "2026-11-07T12:00:00.000Z", provider: "openai", model: "private-deployment-A", requests: 3 },
+      { hour: "2026-11-07T12:00:00.000Z", provider: "openai", model: "private-deployment-B", requests: 4 },
+      { hour: "2026-11-07T12:00:00.000Z", provider: "internal-company-route", model: "gpt-4o", requests: 2 },
+      { hour: "2026-11-07T14:00:00.000Z", provider: "openai", model: "gpt-4o", requests: 5 },
+      { hour: "2026-11-07T11:00:00.000Z", provider: "openai", model: "gpt-4o", requests: 99 },
+      { hour: "2026-11-07T15:00:00.000Z", provider: "openai", model: "gpt-4o", requests: 99 },
+      { hour: "2026-11-07T13:15:00.000Z", provider: "openai", model: "gpt-4o", requests: 99 },
     ]);
     h.setActive(false);
     h.setModelUsageEnabled(true);
@@ -126,16 +136,20 @@ describe("UsageTelemetry required activity and optional model usage", () => {
     await h.reporter.poll();
     expect(h.readModels).not.toHaveBeenCalled();
     expect(h.batches).toEqual([]);
-    h.setNow("2026-11-08T01:00:00Z");
+    h.setNow("2026-11-07T15:01:00Z");
     await h.reporter.poll();
     expect(h.readModels).toHaveBeenCalledExactlyOnceWith(
-      Date.parse("2026-11-07T12:00:00Z"), Date.parse("2026-11-08T00:00:00Z"),
+      Date.parse("2026-11-07T12:30:00Z"), Date.parse("2026-11-07T15:00:00Z"),
     );
     const events = h.batches.flat();
-    expect(events.map((event) => [event.event, event.properties.provider, event.properties.model, event.properties.requests])).toEqual([
-      ["model_usage_daily", "openai", "gpt-4o", 7],
-      ["model_usage_daily", "openai", "custom/other", 7],
-      ["model_usage_daily", "custom/other", "custom/other", 2],
+    expect(events.map((event) => [event.event, event.properties.hour, event.properties.provider, event.properties.model, event.properties.requests])).toEqual([
+      ["model_usage_hourly", "2026-11-07T12:00:00.000Z", "openai", "gpt-4o", 7],
+      ["model_usage_hourly", "2026-11-07T12:00:00.000Z", "openai", "custom/other", 7],
+      ["model_usage_hourly", "2026-11-07T12:00:00.000Z", "custom/other", "custom/other", 2],
+      ["model_usage_hourly", "2026-11-07T14:00:00.000Z", "openai", "gpt-4o", 5],
+    ]);
+    expect(events.map((event) => event.timestamp)).toEqual([
+      "2026-11-07T12:30:00.000Z", "2026-11-07T12:30:00.000Z", "2026-11-07T12:30:00.000Z", "2026-11-07T14:00:00.000Z",
     ]);
     const serialized = JSON.stringify(events);
     expect(serialized).not.toContain("private-deployment");
@@ -157,7 +171,7 @@ describe("UsageTelemetry required activity and optional model usage", () => {
     h.readModels.mockResolvedValue(null);
     h.reporter.start();
     await h.reporter.poll();
-    h.setNow("2026-11-08T01:00:00Z");
+    h.setNow("2026-11-07T13:01:00Z");
     await h.reporter.poll();
     expect(JSON.parse(fs.readFileSync(h.deps.ledgerFile, "utf8")).models.through).toBe(Date.parse("2026-11-07T12:00:00Z"));
     const installationId = JSON.parse(fs.readFileSync(h.deps.ledgerFile, "utf8")).installationId;
@@ -171,10 +185,10 @@ describe("UsageTelemetry required activity and optional model usage", () => {
     h.reporter.syncConsent();
     await h.reporter.poll();
     h.readModels.mockResolvedValue([]);
-    h.setNow("2026-11-10T01:00:00Z");
+    h.setNow("2026-11-09T14:01:00Z");
     await h.reporter.poll();
     expect(h.readModels).toHaveBeenLastCalledWith(
-      Date.parse("2026-11-09T13:00:00Z"), Date.parse("2026-11-10T00:00:00Z"),
+      Date.parse("2026-11-09T13:00:00Z"), Date.parse("2026-11-09T14:00:00Z"),
     );
     expect(h.batches).toEqual([]);
   });
@@ -187,11 +201,11 @@ describe("UsageTelemetry required activity and optional model usage", () => {
     h.setModelUsageEnabled(true);
     h.reporter.start();
     await h.reporter.poll();
-    h.setNow("2026-11-08T01:00:00Z");
+    h.setNow("2026-11-07T13:01:00Z");
     const running = h.reporter.poll();
     h.setModelUsageEnabled(false);
     h.reporter.syncConsent();
-    snapshot.resolve([{ date: "2026-11-07", provider: "openai", model: "gpt-4o", requests: 9 }]);
+    snapshot.resolve([{ hour: "2026-11-07T12:00:00.000Z", provider: "openai", model: "gpt-4o", requests: 9 }]);
     await running;
     expect(h.batches).toEqual([]);
     expect(JSON.parse(fs.readFileSync(h.deps.ledgerFile, "utf8")).models).toBe(null);
@@ -210,11 +224,11 @@ describe("UsageTelemetry required activity and optional model usage", () => {
     }) });
     h.setActive(false);
     h.setModelUsageEnabled(true);
-    h.readModels.mockResolvedValue([{ date: "2026-11-07", provider: "openai", model: "gpt-4o", requests: 3 }]);
+    h.readModels.mockResolvedValue([{ hour: "2026-11-07T12:00:00.000Z", provider: "openai", model: "gpt-4o", requests: 3 }]);
     h.reporter.start();
     await h.reporter.poll();
     const installationId = JSON.parse(fs.readFileSync(h.deps.ledgerFile, "utf8")).installationId;
-    h.setNow("2026-11-08T01:00:00Z");
+    h.setNow("2026-11-07T13:01:00Z");
     const running = h.reporter.poll();
     await started.promise;
     expect(signal?.aborted).toBe(false);
@@ -238,13 +252,111 @@ describe("UsageTelemetry required activity and optional model usage", () => {
     h.setModelUsageEnabled(false);
     h.reporter.syncConsent();
     await h.reporter.poll();
-    h.setNow("2026-11-08T12:00:00Z");
+    h.setNow("2026-11-07T13:00:00Z");
     await h.reporter.poll();
-    expect(h.batches.flat().map((event) => [event.event, event.distinct_id, event.properties.date])).toEqual([
-      ["app_active", installationId, "2026-11-07"],
-      ["app_active", installationId, "2026-11-08"],
+    expect(h.batches.flat().map((event) => [event.event, event.distinct_id, event.timestamp])).toEqual([
+      ["app_active", installationId, "2026-11-07T12:00:00.000Z"],
+      ["app_active", installationId, "2026-11-07T13:00:00.000Z"],
     ]);
     expect(h.readModels).not.toHaveBeenCalled();
+  });
+
+  it("migrates daily checkpoints without replaying acknowledged requests or resetting identity", async () => {
+    const h = harness();
+    const installationId = "11111111-1111-4111-8111-111111111111";
+    h.setModelUsageEnabled(true);
+    fs.writeFileSync(h.deps.ledgerFile, JSON.stringify({
+      version: 1, installationId, app: { lastDay: "2026-11-07", pending: null },
+      models: { since: Date.parse("2026-11-06T15:30:00Z"), through: Date.parse("2026-11-07T00:00:00Z"), pending: null },
+    }));
+    h.readModels.mockResolvedValue([{ hour: "2026-11-07T11:00:00.000Z", provider: "openai", model: "gpt-4o", requests: 2 }]);
+    h.reporter.start();
+    await h.reporter.poll();
+    expect(h.readModels).toHaveBeenCalledExactlyOnceWith(Date.parse("2026-11-07T00:00:00Z"), Date.parse("2026-11-07T12:00:00Z"));
+    expect(h.batches.flat().map((event) => [event.event, event.distinct_id, event.properties.requests])).toEqual([
+      ["app_active", installationId, undefined], ["model_usage_hourly", installationId, 2],
+    ]);
+    h.reporter.dispose();
+    const restarted = h.create();
+    restarted.start();
+    await restarted.poll();
+    expect(h.batches.flat()).toHaveLength(2);
+    expect(h.readModels).toHaveBeenCalledTimes(1);
+    const ledger = JSON.parse(fs.readFileSync(h.deps.ledgerFile, "utf8"));
+    expect(ledger.version).toBe(2);
+    expect(ledger.installationId).toBe(installationId);
+    expect(ledger.models.since).toBe(Date.parse("2026-11-06T15:30:00Z"));
+  });
+
+  it("finishes frozen daily retries with unchanged identities before continuing from their checkpoint hourly", async () => {
+    const sent: Event[][] = [];
+    let dailyAttempts = 0;
+    const h = harness({ fetchImpl: vi.fn<typeof fetch>(async (_url, init) => {
+      const batch: Event[] = JSON.parse(init!.body as string).batch;
+      sent.push(batch);
+      const failed = batch[0]!.event === "model_usage_daily" && dailyAttempts++ === 0;
+      return new Response("", { status: failed ? 503 : 200 });
+    }) });
+    h.setActive(false);
+    h.setModelUsageEnabled(true);
+    const installationId = "11111111-1111-4111-8111-111111111111";
+    const activityId = "22222222-2222-4222-8222-222222222222";
+    const modelId = "33333333-3333-4333-8333-333333333333";
+    fs.writeFileSync(h.deps.ledgerFile, JSON.stringify({
+      version: 1, installationId,
+      app: { lastDay: "2026-11-05", pending: { uuid: activityId, date: "2026-11-06", timestamp: Date.parse("2026-11-06T22:15:00Z") } },
+      models: {
+        since: Date.parse("2026-11-06T15:30:00Z"), through: Date.parse("2026-11-06T15:30:00Z"),
+        pending: { until: Date.parse("2026-11-07T00:00:00Z"), rows: [
+          { uuid: modelId, date: "2026-11-06", provider: "openai", model: "gpt-4o", requests: 8, privatePath: "/never/upload" },
+        ] },
+      },
+    }));
+    h.reporter.start();
+    await h.reporter.poll();
+    expect(sent[0]![0]).toMatchObject({ uuid: activityId, distinct_id: installationId, timestamp: "2026-11-06T22:15:00.000Z" });
+    expect(h.readModels).not.toHaveBeenCalled();
+    h.reporter.dispose();
+    const restarted = h.create();
+    restarted.start();
+    await restarted.poll();
+    expect(sent[2]).toEqual(sent[1]);
+    expect(sent[2]![0]).toMatchObject({
+      event: "model_usage_daily", uuid: modelId, distinct_id: installationId, timestamp: "2026-11-06T15:30:00.000Z",
+      properties: { date: "2026-11-06", requests: 8 },
+    });
+    expect(sent[2]![0]!.properties).not.toHaveProperty("hour");
+    expect(JSON.stringify(sent)).not.toContain("/never/upload");
+    h.readModels.mockResolvedValue([{ hour: "2026-11-07T11:00:00.000Z", provider: "openai", model: "gpt-4o", requests: 3 }]);
+    await restarted.poll();
+    expect(h.readModels).toHaveBeenCalledExactlyOnceWith(Date.parse("2026-11-07T00:00:00Z"), Date.parse("2026-11-07T12:00:00Z"));
+    expect(sent[3]![0]).toMatchObject({ event: "model_usage_hourly", distinct_id: installationId, properties: { hour: "2026-11-07T11:00:00.000Z", requests: 3 } });
+    await restarted.poll();
+    expect(sent.map((batch) => batch[0]!.event)).toEqual(["app_active", "model_usage_daily", "model_usage_daily", "model_usage_hourly"]);
+  });
+
+  it("retries an hourly model snapshot unchanged across restart without collecting it twice", async () => {
+    const payloads: string[] = [];
+    const h = harness({ fetchImpl: vi.fn<typeof fetch>(async (_url, init) => {
+      payloads.push(init!.body as string);
+      return new Response("", { status: payloads.length === 1 ? 503 : 200 });
+    }) });
+    h.setActive(false);
+    h.setModelUsageEnabled(true);
+    h.readModels.mockResolvedValue([{ hour: "2026-11-07T12:00:00.000Z", provider: "openai", model: "gpt-4o", requests: 4 }]);
+    h.reporter.start();
+    await h.reporter.poll();
+    h.setNow("2026-11-07T13:01:00Z");
+    await h.reporter.poll();
+    h.reporter.dispose();
+    const restarted = h.create();
+    restarted.start();
+    await restarted.poll();
+    await restarted.poll();
+    expect(payloads).toHaveLength(2);
+    expect(payloads[1]).toBe(payloads[0]);
+    expect(JSON.parse(payloads[1]!).batch[0]).toMatchObject({ event: "model_usage_hourly", properties: { hour: "2026-11-07T12:00:00.000Z", requests: 4 } });
+    expect(h.readModels).toHaveBeenCalledTimes(1);
   });
 
   it("bounds an unresponsive request instead of holding shutdown or app operation", async () => {

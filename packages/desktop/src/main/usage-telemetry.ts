@@ -6,7 +6,8 @@ import { telemetryModelDimensions, type TelemetryModelUsageRow } from "@omp-ui/c
 // Public, write-only project token, deliberately embedded in the shipped app.
 const PROJECT_TOKEN = "phc_m8Jz47vWuxxeWrD65An6cW8rsE9tvoYfxsBsxbnVMzXY";
 const INGESTION_URL = "https://us.i.posthog.com/batch/";
-const DAY_MS = 86_400_000;
+const HOUR_MS = 3_600_000;
+const DAY_MS = 24 * HOUR_MS;
 const POLL_MS = 60_000;
 const REQUEST_TIMEOUT_MS = 5_000;
 const BATCH_SIZE = 100;
@@ -17,17 +18,27 @@ interface ActivityReport {
   date: string;
   timestamp: number;
 }
-interface ModelReport extends TelemetryModelUsageRow {
+interface ModelReport {
   uuid: string;
+  bucket: string;
+  provider: string;
+  model: string;
+  requests: number;
+}
+interface ModelSnapshot {
+  /** Daily only while draining a frozen pre-upgrade snapshot. */
+  cadence: "daily" | "hourly";
+  until: number;
+  rows: ModelReport[];
 }
 interface TelemetryLedger {
-  version: 1;
+  version: 2;
   installationId: string;
-  app: { lastDay: string | null; pending: ActivityReport | null };
+  app: { lastHour: number | null; pending: ActivityReport | null };
   models: {
     since: number;
     through: number;
-    pending: { until: number; rows: ModelReport[] } | null;
+    pending: ModelSnapshot | null;
   } | null;
 }
 
@@ -51,6 +62,14 @@ export interface UsageTelemetryDependencies {
 function day(timestamp: number): string {
   return new Date(timestamp).toISOString().slice(0, 10);
 }
+function hour(timestamp: number): number {
+  return Math.floor(timestamp / HOUR_MS) * HOUR_MS;
+}
+function isHour(value: unknown): value is string {
+  if (typeof value !== "string" || !/^\d{4}-\d{2}-\d{2}T\d{2}:00:00\.000Z$/.test(value)) return false;
+  const timestamp = Date.parse(value);
+  return Number.isFinite(timestamp) && new Date(timestamp).toISOString() === value;
+}
 function isDay(value: unknown): value is string {
   return typeof value === "string" && /^\d{4}-\d{2}-\d{2}$/.test(value) &&
     Number.isFinite(Date.parse(value)) && day(Date.parse(value)) === value;
@@ -67,26 +86,33 @@ function object(value: unknown): Record<string, unknown> | null {
 }
 
 /** Parse only the private ledger schema. Never replay arbitrary persisted event properties. */
-function readLedger(file: string): TelemetryLedger | null {
+function readLedger(file: string): { ledger: TelemetryLedger; migrated: boolean } | null {
   try {
     if (fs.statSync(file).size > 4 * 1024 * 1024) return null;
     const raw = object(JSON.parse(fs.readFileSync(file, "utf8")));
-    if (!raw || raw.version !== 1 || !isUuid(raw.installationId)) return null;
+    if (!raw || (raw.version !== 1 && raw.version !== 2) || !isUuid(raw.installationId)) return null;
+    const migrated = raw.version === 1;
     const ledger: TelemetryLedger = {
-      version: 1, installationId: raw.installationId,
-      app: { lastDay: null, pending: null }, models: null,
+      version: 2, installationId: raw.installationId,
+      app: { lastHour: null, pending: null }, models: null,
     };
     if (raw.app !== null) {
       const app = object(raw.app);
-      if (!app || (app.lastDay !== null && !isDay(app.lastDay))) return null;
-      let pending: ActivityReport | null = null;
+      if (!app) return null;
+      if (migrated) {
+        if (app.lastDay !== null && !isDay(app.lastDay)) return null;
+        // A daily checkpoint has no hour. Start hourly activity on the next
+        // foreground observation; never invent historical hourly heartbeats.
+      } else {
+        if (app.lastHour !== null && (!isTime(app.lastHour) || app.lastHour % HOUR_MS !== 0)) return null;
+        ledger.app.lastHour = app.lastHour as number | null;
+      }
       if (app.pending !== null) {
         const report = object(app.pending);
         if (!report || !isUuid(report.uuid) || !isDay(report.date) || !isTime(report.timestamp) ||
           day(report.timestamp) !== report.date) return null;
-        pending = { uuid: report.uuid, date: report.date, timestamp: report.timestamp };
+        ledger.app.pending = { uuid: report.uuid, date: report.date, timestamp: report.timestamp };
       }
-      ledger.app = { lastDay: app.lastDay, pending };
     }
     if (raw.models !== null) {
       const models = object(raw.models);
@@ -94,23 +120,31 @@ function readLedger(file: string): TelemetryLedger | null {
       ledger.models = { since: models.since, through: models.through, pending: null };
       if (models.pending !== null) {
         const pending = object(models.pending);
-        if (!pending || !isTime(pending.until) || pending.until <= models.through ||
-          pending.until % DAY_MS !== 0 || !Array.isArray(pending.rows)) return null;
+        if (!pending) return null;
+        const cadence = migrated ? "daily" : pending.cadence;
+        if (cadence !== "daily" && cadence !== "hourly") return null;
+        const interval = cadence === "daily" ? DAY_MS : HOUR_MS;
+        if (!isTime(pending.until) || pending.until <= models.through ||
+          pending.until % interval !== 0 || !Array.isArray(pending.rows)) return null;
         const rows: ModelReport[] = [];
         for (const value of pending.rows) {
           const row = object(value);
-          if (!row || !isUuid(row.uuid) || !isDay(row.date) || typeof row.provider !== "string" ||
-            typeof row.model !== "string" || typeof row.requests !== "number" ||
-            !Number.isSafeInteger(row.requests) || row.requests <= 0 ||
-            row.date < day(models.through) || Date.parse(row.date) >= pending.until) return null;
+          if (!row) return null;
+          const bucket = migrated ? row.date : row.bucket;
+          if (typeof bucket !== "string" || !isUuid(row.uuid) ||
+            !(cadence === "daily" ? isDay(bucket) : isHour(bucket)) ||
+            typeof row.provider !== "string" || typeof row.model !== "string" ||
+            typeof row.requests !== "number" || !Number.isSafeInteger(row.requests) || row.requests <= 0 ||
+            Date.parse(bucket) < Math.floor(models.through / interval) * interval ||
+            Date.parse(bucket) >= pending.until) return null;
           const dimensions = telemetryModelDimensions(row.provider, row.model);
           if (dimensions.provider !== row.provider || dimensions.model !== row.model) return null;
-          rows.push({ uuid: row.uuid, date: row.date, ...dimensions, requests: row.requests });
+          rows.push({ uuid: row.uuid, bucket, ...dimensions, requests: row.requests });
         }
-        ledger.models.pending = { until: pending.until, rows };
+        ledger.models.pending = { cadence, until: pending.until, rows };
       }
     }
-    return ledger;
+    return { ledger, migrated };
   } catch {
     // A missing/corrupt ledger starts fresh; optional model history is never backfilled.
     return null;
@@ -154,12 +188,14 @@ export class UsageTelemetry {
     const modelsEnabled = this.deps.modelUsageEnabled();
     if (!this.loaded) {
       this.loaded = true;
-      this.ledger = readLedger(this.deps.ledgerFile);
+      const restored = readLedger(this.deps.ledgerFile);
+      this.ledger = restored?.ledger ?? null;
+      this.dirty = restored?.migrated ?? false;
     }
     const now = this.now();
     if (!this.ledger) {
       this.ledger = {
-        version: 1, installationId: randomUUID(), app: { lastDay: null, pending: null },
+        version: 2, installationId: randomUUID(), app: { lastHour: null, pending: null },
         models: modelsEnabled ? { since: now, through: now, pending: null } : null,
       };
       this.dirty = true;
@@ -248,9 +284,9 @@ export class UsageTelemetry {
     const ledger = this.ledger!;
     const app = ledger.app;
     const now = this.now();
-    const today = day(now);
-    if (!app.pending && app.lastDay !== today && this.deps.isActive()) {
-      app.pending = { uuid: randomUUID(), date: today, timestamp: now };
+    const currentHour = hour(now);
+    if (!app.pending && (app.lastHour === null || app.lastHour < currentHour) && this.deps.isActive()) {
+      app.pending = { uuid: randomUUID(), date: day(now), timestamp: now };
       this.dirty = true;
     }
     if (app.pending) {
@@ -264,7 +300,7 @@ export class UsageTelemetry {
       }], generation);
       if (!this.current(generation)) return;
       if (accepted) {
-        app.lastDay = report.date;
+        app.lastHour = hour(report.timestamp);
         app.pending = null;
         this.dirty = true;
         this.save();
@@ -273,21 +309,21 @@ export class UsageTelemetry {
     if (!this.current(generation)) return;
     const models = ledger.models;
     if (!models) return;
-    const until = Math.floor(this.now() / DAY_MS) * DAY_MS;
+    const until = hour(this.now());
     if (!models.pending && models.through < until) {
       const rows = await this.deps.readModels(models.through, until);
       if (!this.current(generation) || rows === null) return;
       const grouped = new Map<string, ModelReport>();
       for (const row of rows) {
-        if (!isDay(row.date) || row.date < day(models.through) || Date.parse(row.date) >= until ||
+        if (!isHour(row.hour) || Date.parse(row.hour) < hour(models.through) || Date.parse(row.hour) >= until ||
           !Number.isSafeInteger(row.requests) || row.requests <= 0) continue;
         const dimensions = telemetryModelDimensions(row.provider, row.model);
-        const key = JSON.stringify([row.date, dimensions.provider, dimensions.model]);
+        const key = JSON.stringify([row.hour, dimensions.provider, dimensions.model]);
         const previous = grouped.get(key);
         if (previous) previous.requests += row.requests;
-        else grouped.set(key, { uuid: randomUUID(), date: row.date, ...dimensions, requests: row.requests });
+        else grouped.set(key, { uuid: randomUUID(), bucket: row.hour, ...dimensions, requests: row.requests });
       }
-      models.pending = { until, rows: [...grouped.values()] };
+      models.pending = { cadence: "hourly", until, rows: [...grouped.values()] };
       this.dirty = true;
       this.save();
     }
@@ -297,11 +333,14 @@ export class UsageTelemetry {
       const rows = pending.rows.slice(0, BATCH_SIZE);
       const accepted = await this.send(rows.map((row) => ({
         uuid: row.uuid,
-        event: "model_usage_daily",
+        event: pending.cadence === "daily" ? "model_usage_daily" : "model_usage_hourly",
         distinct_id: ledger.installationId,
-        timestamp: new Date(Math.max(Date.parse(row.date), models.since)).toISOString(),
+        timestamp: new Date(Math.max(Date.parse(row.bucket), models.since)).toISOString(),
         properties: {
-          ...this.commonProperties, date: row.date, provider: row.provider, model: row.model, requests: row.requests,
+          ...this.commonProperties,
+          date: row.bucket.slice(0, 10),
+          ...(pending.cadence === "hourly" ? { hour: row.bucket } : {}),
+          provider: row.provider, model: row.model, requests: row.requests,
         },
       })), generation);
       if (!accepted || !this.current(generation)) return;

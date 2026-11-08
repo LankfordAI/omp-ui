@@ -177,15 +177,19 @@ an opt-out switch; an explicitly stored false remains false. Preference commits
 synchronously cancel revoked model delivery before the state broadcast.
 Unpackaged builds do not create identities, collect, or report.
 
-The main process reports foreground desktop activity once per UTC day and freezes
-model/provider request aggregates after each UTC day closes. It shares the existing
+The main process reports foreground desktop activity once per UTC hour and freezes
+public model/provider request aggregates after each UTC hour closes. The existing
+poll runs every minute; Stats freshness can delay delivery, and later launches
+catch up on eligible completed hours without backfilling historical activity heartbeats.
+It shares the existing
 `StatsCollector`; [`telemetry-stats.ts`](../packages/core/src/telemetry-stats.ts) reads
-only the intended database in a read-only transaction, applies absolute time bounds
+only the intended database in a read-only transaction, applies half-open absolute time bounds
 from the first enabled run, and admits only exact registered active/archive lineages through
 `resolveOwnedStatsAttribution`. Project/cwd/header resemblance never admits data.
 Missing or failed collection does not turn into claimed usage; unavailable reads
-leave the checkpoint in place. Closed-day snapshots describe recorded data at
-collection time, not lifetime completeness or late-index corrections.
+leave the checkpoint in place. Closed-hour snapshots describe recorded data at
+collection time, not lifetime completeness or late-index corrections: like the former
+daily snapshots, they can miss requests indexed after a snapshot is frozen.
 
 Only sanitized aggregate fields cross the network boundary. Exact membership in a
 bundled public models.dev snapshot controls identifiers; user-defined catalogs and
@@ -196,6 +200,22 @@ PostHog's capture API. Retries retain UUIDs/timestamps; successful reports advan
 their checkpoints. Switching model sharing off drops only the optional queue; the
 installation ID and required activity reporting remain intact.
 Requests have a five-second deadline and never gate app startup or session work.
+
+`model_usage_hourly` events retain the UTC `date` property (`YYYY-MM-DD`) and add
+`hour`, a canonical UTC hour ISO string (`YYYY-MM-DDTHH:00:00.000Z`). Their event
+timestamp is `max(hour start, consent start)`. `app_active` retains `date` and an
+event timestamp within the observed foreground hour. Model history before sharing
+starts or while disabled is never backfilled. Upgrades preserve the identity and
+checkpoints and drain already-frozen `model_usage_daily` reports before hourly
+collection, without re-querying acknowledged historical requests. Historical daily
+and new hourly reports represent non-overlapping workload; sum `requests` across
+both event names to combine it, rather than counting aggregate events.
+
+Maintainer dashboards use Trends **Unique users** (distinct installations), grouped
+hourly/daily or over 7-day/30-day windows; model workload uses summed `requests`.
+The default overview's pageviews, screens, and session duration are not supplied.
+Exclude synthetic `telemetry_setup_check` events from adoption charts.
+
 No renderer SDK, autocapture, person profiles, or GeoIP enrichment is used. See
 [Settings](settings.md#usage-telemetry-privacy-and-coverage) for the fields, coverage,
 privacy policy, and maintainer dashboard configuration.

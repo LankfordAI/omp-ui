@@ -902,7 +902,7 @@ export class MainBackend {
       ownedArchiveRoot: getArchiveRoot(ownedSessionsRoot),
     });
   }
-  /** Daily closed-day snapshots only; reuse the host's single OMP Stats writer. */
+  /** Hourly closed-hour snapshots only; reuse the host's single OMP Stats writer. */
   private telemetryModels(since: number, until: number): Promise<TelemetryModelUsageRow[] | null> {
     const sessions = this.registry.sessions;
     if (sessions.length === 0) return Promise.resolve([]);

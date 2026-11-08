@@ -3,7 +3,7 @@ import { DatabaseSync } from "node:sqlite";
 import { resolveOwnedStatsAttribution, type StatsReadContext } from "./stats-attribution";
 
 export interface TelemetryModelUsageRow {
-  date: string;
+  hour: string;
   provider: string;
   model: string;
   requests: number;
@@ -35,8 +35,8 @@ async function databaseHeader(databasePath: string): Promise<"ready" | "missing"
 }
 
 /**
- * Local-only recorded request counts, not telemetry-ready identifiers. The host
- * must sanitize dimensions before transport. This never collects or launches OMP.
+ * Local-only recorded request counts per canonical UTC ISO hour, not telemetry-ready
+ * identifiers. The host must sanitize dimensions before transport. This never collects or launches OMP.
  *
  * Registry ownership is the sole admission rule, including archived/nested keys
  * even after transcripts disappear. Project/folder/header resemblance is not
@@ -68,13 +68,13 @@ export async function readTelemetryModelUsage(
     // rollups which discard that dimension. SQL applies both absolute bounds;
     // unixepoch without 'localtime' groups UTC, including pre-epoch timestamps.
     const groups = db.prepare(
-      "SELECT session_file, strftime('%Y-%m-%d', timestamp / 1000.0, 'unixepoch') AS date, " +
+      "SELECT session_file, strftime('%Y-%m-%dT%H:00:00.000Z', timestamp / 1000.0, 'unixepoch') AS hour, " +
       "CASE WHEN instr(provider, char(0)) = 0 THEN provider ELSE '' END AS provider, " +
       "CASE WHEN instr(model, char(0)) = 0 THEN model ELSE '' END AS model, COUNT(*) AS requests FROM messages " +
       // node:sqlite decodes TEXT through a NUL-terminated boundary. Reject bad
       // file keys and bucket malformed dimensions before decoding public prefixes.
       "WHERE timestamp >= ? AND timestamp < ? AND instr(session_file, char(0)) = 0 " +
-      "GROUP BY session_file, date, provider, model",
+      "GROUP BY session_file, hour, provider, model",
     ).iterate(sinceMs, untilMs);
     const owned = new Map<string, boolean>();
     const totals = new Map<string, TelemetryModelUsageRow>();
@@ -86,22 +86,22 @@ export async function readTelemetryModelUsage(
         owned.set(group.session_file, include);
       }
       if (!include) continue;
-      if (typeof group.date !== "string" || typeof group.provider !== "string" ||
+      if (typeof group.hour !== "string" || typeof group.provider !== "string" ||
         typeof group.model !== "string" || typeof group.requests !== "number" ||
         !Number.isSafeInteger(group.requests) || group.requests < 1) return null;
-      const key = JSON.stringify([group.date, group.provider, group.model]);
+      const key = JSON.stringify([group.hour, group.provider, group.model]);
       const existing = totals.get(key);
       if (existing) {
         existing.requests += group.requests;
         if (!Number.isSafeInteger(existing.requests)) return null;
       } else {
         totals.set(key, {
-          date: group.date, provider: group.provider, model: group.model, requests: group.requests,
+          hour: group.hour, provider: group.provider, model: group.model, requests: group.requests,
         });
       }
     }
     return [...totals.values()].sort((a, b) =>
-      a.date.localeCompare(b.date) || a.provider.localeCompare(b.provider) || a.model.localeCompare(b.model),
+      a.hour.localeCompare(b.hour) || a.provider.localeCompare(b.provider) || a.model.localeCompare(b.model),
     );
   } catch {
     // Locked, incompatible, corrupt and unavailable must never look like zero use.

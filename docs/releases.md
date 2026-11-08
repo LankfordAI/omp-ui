@@ -11,6 +11,7 @@ This guide explains what users receive from a release and how maintainers publis
 - Offer bounded unconfirmed prompt text for explicit recovery without automatic replay; add confirmed all-host saved-data/sign-in removal that waits for provider completion ([#1105](https://github.com/LankfordAI/omp-ui/issues/1105), [#1106](https://github.com/LankfordAI/omp-ui/issues/1106)).
 - Remove the Android app's persistent host-address bar; put **Host connection…** in sessions navigation while keeping native connection recovery and the mounted host view ([#1108](https://github.com/LankfordAI/omp-ui/issues/1108)).
 - Publish a release-signed Android APK with stable GitHub releases, verify its pinned signing identity and tag version, and include it in release checksums. Android pull-request CI builds, tests, and lints without signing secrets ([#1109](https://github.com/LankfordAI/omp-ui/issues/1109)).
+- Report foreground app activity once per UTC hour and model/provider request aggregates after each hour closes, retaining installation identity, opt-out behavior, and pending daily retry checkpoints across upgrades ([#1110](https://github.com/LankfordAI/omp-ui/issues/1110)).
 
 ## Choose a download
 

@@ -1052,13 +1052,13 @@ export const en = {
     "Interactive documents the agent renders inline in the transcript run their scripts sandboxed, with no network, storage, popups, forms, or navigation. Off shows every artifact as a static document. Remote browser clients always show artifacts static.",
   "settings.general.telemetryTitle": "Privacy / Usage telemetry",
   "settings.general.telemetryDisclosure":
-    "Packaged builds automatically report basic daily activity to PostHog US; there is no in-app opt-out. Reports use a random installation ID, app version, OS family, architecture, and release channel. Model/provider usage below is on by default and can be switched off. No content, paths, or credentials are sent; unknown or private model/provider identifiers are bucketed as custom/other. Model history from before sharing starts or while it is off is never backfilled. Telemetry is disabled in development and is separate from OMP Telemetry export.",
+    "Packaged builds automatically report basic hourly activity to PostHog US; there is no in-app opt-out. Reports use a random installation ID, app version, OS family, architecture, and release channel. Model/provider usage below is on by default and can be switched off. No content, paths, or credentials are sent; unknown or private model/provider identifiers are bucketed as custom/other. Model history from before sharing starts or while it is off is never backfilled. Telemetry is disabled in development and is separate from OMP Telemetry export.",
   "settings.general.telemetryApp": "Basic app activity (required)",
   "settings.general.telemetryAppHint":
-    "Automatically sends one activity event per UTC day while the desktop window is foregrounded. This is not a count of background-process uptime or exact people.",
-  "settings.general.telemetryModels": "Share daily model/provider usage",
+    "Automatically sends one activity event per UTC hour while the desktop window is foregrounded, without backfilling past activity. This is not a count of background-process uptime or exact people.",
+  "settings.general.telemetryModels": "Share hourly model/provider usage",
   "settings.general.telemetryModelsHint":
-    "On by default; switch off to opt out. Sends public model/provider request counts after each UTC day closes. Turning this off does not stop basic app activity reporting.",
+    "On by default; switch off to opt out. Sends public model/provider request aggregates after each UTC hour closes. Checks run every minute; Stats freshness can delay delivery, and later launches catch up. Turning this off does not stop basic app activity reporting.",
   "settings.general.deviceAgentAccess": "Agents can use devices",
   "settings.general.deviceAgentAccessHint":
     "Gives sessions started or resumed after this change the omp-ui_device tool, which drives the Android emulator in the device pane. Needs the Android SDK (adb and emulator).",

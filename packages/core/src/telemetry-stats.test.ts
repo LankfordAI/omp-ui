@@ -8,6 +8,7 @@ import { readTelemetryModelUsage } from "./telemetry-stats";
 import type { OwnedSessionRecord, ProjectRecord } from "./types";
 import { telemetryModelDimensions } from "./telemetry-models";
 
+const HOUR = 3_600_000;
 const DAY = 86_400_000;
 const START = Date.UTC(2026, 10, 7);
 const LINEAGE = "omp-ui--project--11111111-2222-3333-4444-555555555555";
@@ -75,7 +76,7 @@ afterEach(() => {
 });
 
 describe("readTelemetryModelUsage", () => {
-  it("counts recorded messages at inclusive/exclusive absolute bounds and groups by UTC day", async () => {
+  it("counts recorded messages at inclusive/exclusive absolute bounds and groups by UTC hour", async () => {
     const { db, context, file } = fixture();
     message(db, file, "before", START - 1);
     message(db, file, "at-since", START);
@@ -88,20 +89,51 @@ describe("readTelemetryModelUsage", () => {
     db.prepare("UPDATE messages SET stop_reason = 'error' WHERE entry_id = 'at-since'").run();
     message(db, file, "other-route", START, "anthropic", "private-deployment");
     expect(await readTelemetryModelUsage(context, START, START + 2 * DAY)).toEqual([
-      { date: "2026-11-07", provider: "anthropic", model: "private-deployment", requests: 1 },
-      { date: "2026-11-07", provider: "openai", model: "gpt-4o", requests: 2 },
-      { date: "2026-11-08", provider: "openai", model: "gpt-4o", requests: 2 },
+      { hour: "2026-11-07T00:00:00.000Z", provider: "anthropic", model: "private-deployment", requests: 1 },
+      { hour: "2026-11-07T00:00:00.000Z", provider: "openai", model: "gpt-4o", requests: 1 },
+      { hour: "2026-11-07T23:00:00.000Z", provider: "openai", model: "gpt-4o", requests: 1 },
+      { hour: "2026-11-08T06:00:00.000Z", provider: "openai", model: "gpt-4o", requests: 1 },
+      { hour: "2026-11-08T23:00:00.000Z", provider: "openai", model: "gpt-4o", requests: 1 },
     ]);
     expect(await readTelemetryModelUsage(context, START, START)).toEqual([]);
   });
 
-  it("uses UTC day boundaries on either side of the Unix epoch", async () => {
+  it("uses UTC hour boundaries on either side of the Unix epoch", async () => {
     const { db, context, file } = fixture();
     message(db, file, "negative", -1);
     message(db, file, "epoch", 0);
     expect(await readTelemetryModelUsage(context, -1, 1)).toEqual([
-      { date: "1969-12-31", provider: "openai", model: "gpt-4o", requests: 1 },
-      { date: "1970-01-01", provider: "openai", model: "gpt-4o", requests: 1 },
+      { hour: "1969-12-31T23:00:00.000Z", provider: "openai", model: "gpt-4o", requests: 1 },
+      { hour: "1970-01-01T00:00:00.000Z", provider: "openai", model: "gpt-4o", requests: 1 },
+    ]);
+  });
+
+  it("keeps adjacent same-day hours separate across a multi-hour catch-up window", async () => {
+    const { db, context, file } = fixture();
+    message(db, file, "first", START);
+    message(db, file, "first-last-ms", START + HOUR - 1);
+    message(db, file, "second", START + HOUR);
+    message(db, `${LINEAGE}/root/subagents/worker.jsonl`, "second-worker", START + HOUR + 1);
+    message(db, file, "third", START + 2 * HOUR);
+    message(db, file, "next-window", START + 3 * HOUR);
+    message(db, path.join(context.ownedSessionsRoot, `${LINEAGE}-unrelated`, "root.jsonl"), "foreign", START + HOUR);
+    expect(await readTelemetryModelUsage(context, START, START + 3 * HOUR)).toEqual([
+      { hour: "2026-11-07T00:00:00.000Z", provider: "openai", model: "gpt-4o", requests: 2 },
+      { hour: "2026-11-07T01:00:00.000Z", provider: "openai", model: "gpt-4o", requests: 2 },
+      { hour: "2026-11-07T02:00:00.000Z", provider: "openai", model: "gpt-4o", requests: 1 },
+    ]);
+  });
+
+  it("excludes requests before consent and at the upper boundary within the same hour", async () => {
+    const { db, context, file } = fixture();
+    const since = START + 20 * 60_000;
+    const until = START + 40 * 60_000;
+    message(db, file, "before-consent", since - 1);
+    message(db, file, "at-consent", since);
+    message(db, file, "last-consented-ms", until - 1);
+    message(db, file, "at-until", until);
+    expect(await readTelemetryModelUsage(context, since, until)).toEqual([
+      { hour: "2026-11-07T00:00:00.000Z", provider: "openai", model: "gpt-4o", requests: 2 },
     ]);
   });
 
@@ -136,7 +168,7 @@ describe("readTelemetryModelUsage", () => {
     // Accepted transcripts deliberately never exist: registry ownership survives
     // archive/missing files and does not fall back to reading a matching cwd.
     expect(await readTelemetryModelUsage(context, START, START + DAY)).toEqual([
-      { date: "2026-11-07", provider: "openai", model: "gpt-4o", requests: accepted.length },
+      { hour: "2026-11-07T00:00:00.000Z", provider: "openai", model: "gpt-4o", requests: accepted.length },
     ]);
   });
 
@@ -146,7 +178,7 @@ describe("readTelemetryModelUsage", () => {
     message(db, file, "absolute");
     message(db, `../sessions-lookalike/${LINEAGE}/session.jsonl`, "escape");
     expect(await readTelemetryModelUsage(context, START, START + DAY)).toEqual([
-      { date: "2026-11-07", provider: "openai", model: "gpt-4o", requests: 2 },
+      { hour: "2026-11-07T00:00:00.000Z", provider: "openai", model: "gpt-4o", requests: 2 },
     ]);
   });
 
@@ -179,7 +211,7 @@ describe("readTelemetryModelUsage", () => {
     const result = await readTelemetryModelUsage(context, START, START + DAY);
     vi.restoreAllMocks();
     expect(wrote).toBe(true);
-    expect(result).toEqual([{ date: "2026-11-07", provider: "openai", model: "gpt-4o", requests: 1 }]);
+    expect(result).toEqual([{ hour: "2026-11-07T00:00:00.000Z", provider: "openai", model: "gpt-4o", requests: 1 }]);
     expect(db.prepare("SELECT COUNT(*) AS count FROM messages").get()?.count).toBe(2);
   });
 
@@ -192,7 +224,7 @@ describe("readTelemetryModelUsage", () => {
     message(db, file, "uncommitted");
     try {
       expect(await readTelemetryModelUsage(context, START, START + DAY)).toEqual([
-        { date: "2026-11-07", provider: "openai", model: "gpt-4o", requests: 1 },
+        { hour: "2026-11-07T00:00:00.000Z", provider: "openai", model: "gpt-4o", requests: 1 },
       ]);
       expect(db.prepare("SELECT sql FROM sqlite_master ORDER BY name").all()).toEqual(schema);
       expect(fs.readFileSync(context.source.databasePath)).toEqual(bytes);
