@@ -14,6 +14,8 @@ Native session/tool identities are main-reported facts, nullable when unknown at
 
 Keep is idempotent for the main-trusted source. Accepted data and reference grants survive source/project removal; only unkept drafts and unfinished captures follow source cleanup. Independent tombstones prevent deleted associations from returning, including after an initially unknown native session ID materializes. Unknown schemas, foreign owners, corruption and unsafe storage paths report Unavailable instead of resetting the store. Logical retained payload plus metadata is capped at 256 MiB per artifact and 1 GiB globally, without claiming that SQLite pages/WAL have those physical bounds.
 
+Storage checks enforce regular files, no symlinks or extra file hard links, stable filesystem identity, and native UID ownership where available. POSIX also requires exact owner-only directory/file modes (0700/0600). Windows uses inherited user-profile ACLs; its emulated stat mode bits cannot establish POSIX permissions and are not used for that check.
+
 ## Human publication and session-mediated refresh
 
 Model tools stage documents and captures only. Keep, compatible code acceptance, capture Apply, discard and deletion are human backend operations. Compatible acceptance checks the exact declared protocol/state/dataset contract and current code base, then retains current working data, including edits made after the proposal's reference. Stale or incompatible proposals cannot replace the accepted artifact; Keep as new remains independent.

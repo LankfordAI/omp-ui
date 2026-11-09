@@ -162,7 +162,10 @@ export class ArtifactStore {
   }
   private checkPrivate(location: string, directory: boolean): void {
     const s = fs.lstatSync(location);
-    if (s.isSymbolicLink() || (directory ? !s.isDirectory() : !s.isFile()) || (process.getuid && s.uid !== process.getuid()) || (s.mode & 0o7777) !== (directory ? 0o700 : 0o600) || (!directory && s.nlink !== 1)) throw new ArtifactError("unavailable", "Artifact storage is not private, owned regular storage");
+    // Windows exposes emulated mode bits, not its inherited user-profile ACLs.
+    // Keep structural and identity checks on every platform; enforce POSIX permissions only on POSIX.
+    const unsafeMode = process.platform !== "win32" && (s.mode & 0o7777) !== (directory ? 0o700 : 0o600);
+    if (s.isSymbolicLink() || (directory ? !s.isDirectory() : !s.isFile()) || (process.getuid && s.uid !== process.getuid()) || unsafeMode || (!directory && s.nlink !== 1)) throw new ArtifactError("unavailable", "Artifact storage is not private, owned regular storage");
   }
   private checkSidecars(): void {
     for (const suffix of ["-wal", "-shm", "-journal"]) {

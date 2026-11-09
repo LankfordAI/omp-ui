@@ -207,6 +207,15 @@ describe("ArtifactStore retained authority and integrity", () => {
 });
 
 describe("ArtifactStore security and lease", () => {
+  it.runIf(process.platform !== "win32")("refuses non-private POSIX directories and database files", () => {
+    const directory = root();
+    fs.chmodSync(directory, 0o755);
+    expect(() => open(directory)).toThrow(/private/);
+    fs.chmodSync(directory, 0o700);
+    fs.writeFileSync(path.join(directory, "library.sqlite"), "", { mode: 0o600 });
+    fs.chmodSync(path.join(directory, "library.sqlite"), 0o644);
+    expect(() => open(directory)).toThrow(/private/);
+  });
   it("refuses symlink roots/files, foreign owners/versions, and corrupt payload bytes", () => {
     const directory = root(); const target = root(); const link = path.join(directory, "link"); fs.symlinkSync(target, link); expect(() => open(link)).toThrow(/symlink/);
     const linkedDbRoot = root(); fs.writeFileSync(path.join(target, "foreign"), "", { mode: 0o600 }); fs.symlinkSync(path.join(target, "foreign"), path.join(linkedDbRoot, "library.sqlite")); expect(() => open(linkedDbRoot)).toThrow();
