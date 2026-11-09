@@ -224,7 +224,9 @@ bundled public models.dev snapshot controls identifiers; user-defined catalogs a
 unknown names cannot leak deployment names through public-looking prefixes. A
 private atomic ledger beside the registry persists the random installation ID,
 the model-sharing start time, frozen report UUIDs, and delivery checkpoints before sending to
-PostHog's capture API. Retries retain UUIDs/timestamps; successful reports advance
+PostHog's capture API. Pending report rows carry optional token fields; legacy frozen rows
+drain without them and the ledger version stays 2 so the installation identity survives
+upgrades. Retries retain UUIDs/timestamps; successful reports advance
 their checkpoints. Switching model sharing off drops only the optional queue; the
 installation ID and required activity reporting remain intact.
 Requests have a five-second deadline and never gate app startup or session work.
@@ -240,7 +242,10 @@ and new hourly reports represent non-overlapping workload; sum `requests` across
 both event names to combine it, rather than counting aggregate events.
 
 Maintainer dashboards use Trends **Unique users** (distinct installations), grouped
-hourly/daily or over 7-day/30-day windows; model workload uses summed `requests`.
+hourly/daily or over 7-day/30-day windows; model workload uses summed `total_tokens`
+(per-model `input_tokens`/`output_tokens`) with `requests` as the denominator. Events
+emitted before token reporting shipped carry no token properties, so token sums only
+cover hours after rollout.
 The default overview's pageviews, screens, and session duration are not supplied.
 Exclude synthetic `telemetry_setup_check` events from adoption charts.
 
