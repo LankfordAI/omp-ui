@@ -26,6 +26,7 @@
     "smoke:pty": "node scripts/smoke-node-pty.cjs",
     "smoke:browser-pane": "electron-vite build && electron out/main/browser-pane-smoke.js",
     "smoke:plan-verifier": "electron-vite build && electron out/main/plan-verifier-smoke.js",
+    "smoke:artifact-library": "electron-vite build && electron out/main/artifact-library-smoke.js",
     "smoke:knowledge-vault": "electron-vite build && node scripts/electron-node.cjs out/main/knowledge-vault-smoke.js",
     "icon": "node scripts/render-icon.mjs",
     "themes:generate": "node scripts/generate-theme-css.mjs",

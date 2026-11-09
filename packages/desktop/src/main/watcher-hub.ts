@@ -19,6 +19,8 @@ export interface WatcherHubDeps {
   registry: Registry;
   getSessionsRoot: () => string;
   broadcast: () => Promise<void>;
+  /** An actual transcript header was observed, not a fabricated session identity. */
+  onSessionObserved?: (tabId: string, sessionId: string) => void;
 }
 
 /**
@@ -103,6 +105,7 @@ export class WatcherHub {
       if (modified !== record.cachedModified) patch.cachedModified = modified;
       if (Object.keys(patch).length > 0) {
         this.deps.registry.updateSession(tabId, patch);
+        if (typeof patch.sessionId === "string") this.deps.onSessionObserved?.(tabId, patch.sessionId);
         this.broadcastPatch(
           patch.sessionId !== undefined || patch.cachedTitle !== undefined,
         );

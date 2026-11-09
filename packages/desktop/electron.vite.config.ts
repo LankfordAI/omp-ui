@@ -19,6 +19,7 @@ export default defineConfig({
           "browser-pane-smoke": resolve("src/main/browser-pane-smoke.ts"),
           "knowledge-vault-smoke": resolve("src/main/knowledge-vault-smoke.ts"),
           "plan-verifier-smoke": resolve("src/main/plan-verifier-smoke.ts"),
+          "artifact-library-smoke": resolve("src/main/artifact-library-smoke.ts"),
         },
         external: ["bufferutil", "utf-8-validate"],
         // Shared chunks sit beside index.js, not in chunks/: modules resolving
@@ -28,7 +29,26 @@ export default defineConfig({
       },
     },
   },
-  preload: { build: { externalizeDeps: { exclude: ["@omp-ui/core"] } } },
+  preload: {
+    plugins: [{
+      name: "self-contained-sandbox-preloads",
+      generateBundle(_options, bundle) {
+        for (const output of Object.values(bundle)) {
+          if (output.type === "chunk" && !output.isEntry) throw new Error(`Sandbox preloads cannot load local chunks: ${output.fileName}`);
+        }
+      },
+    }],
+    build: {
+      externalizeDeps: { exclude: ["@omp-ui/core"] },
+      rollupOptions: {
+        input: {
+          index: resolve("src/preload/index.ts"),
+          "artifact-runtime": resolve("src/preload/artifact-runtime.ts"),
+        },
+        output: { format: "cjs", entryFileNames: "[name].js" },
+      },
+    },
+  },
   renderer: {
     plugins: [react(), tailwindcss()],
     build: {

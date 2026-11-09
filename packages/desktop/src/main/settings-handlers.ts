@@ -36,6 +36,7 @@ type SettingsHandlerChannels =
   | typeof CH.setStallAutoContinue
   | typeof CH.setDesktopNotifications
   | typeof CH.setHtmlArtifactScripts
+  | typeof CH.setArtifactLibraryEnabled
   | typeof CH.setDeviceAgentAccess
   | typeof CH.setTelemetryModelsEnabled
   | typeof CH.setDefaultAdvisor
@@ -83,6 +84,8 @@ interface SettingsHandlerDependencies {
   onFleetLadderChanged: () => void;
   /** Sharing preference changed: synchronously cancel revoked delivery before broadcasting. */
   onTelemetryChanged: () => void;
+  /** Revoke synchronously; roster reconciliation must not delay authoritative state. */
+  onArtifactLibraryChanged?: (enabled: boolean) => void;
   /** Council graduation (amends #1055): seed the global roster from favorites. */
   seedCouncilRoster: () => Promise<void>;
 }
@@ -116,6 +119,11 @@ export function registerSettingsHandlers(
     [CH.setStallAutoContinue]: (value: boolean) => commit("stallAutoContinue", value),
     [CH.setDesktopNotifications]: (value: boolean) => commit("desktopNotifications", value),
     [CH.setHtmlArtifactScripts]: (value: boolean) => commit("htmlArtifactScripts", value),
+    [CH.setArtifactLibraryEnabled]: async (value: boolean) => {
+      deps.registry.setSetting("artifactLibraryEnabled", value);
+      try { deps.onArtifactLibraryChanged?.(value); }
+      finally { await deps.broadcast(); }
+    },
     [CH.setDeviceAgentAccess]: (value: boolean) => commit("deviceAgentAccess", value),
     [CH.setTelemetryModelsEnabled]: async (value: boolean) => {
       deps.registry.setSetting("telemetryModelsEnabled", value);

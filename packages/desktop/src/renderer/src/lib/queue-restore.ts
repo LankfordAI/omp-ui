@@ -3,6 +3,8 @@
 // `abort_and_restore_queue` / `remove_queued_message` payloads. No React, no
 // store — the slice composes them.
 import type { ImageAttachment, SessionReference } from "@omp-ui/core/types";
+import type { ArtifactReference } from "@omp-ui/core/artifacts";
+import { splitArtifactReferenceContext } from "@omp-ui/core/artifact-references";
 import { splitAnnotationContext, type Annotation } from "./annotations";
 import { splitSessionReferenceContext } from "./session-references";
 import { stripTrailingAttachmentRoutingContext } from "./attachment-routing";
@@ -28,13 +30,15 @@ export function splitQueuedWireText(raw: string): {
   documents: DocumentRef[];
   annotations: Annotation[];
   references: SessionReference[];
+  artifactReferences: ArtifactReference[];
 } {
   const { text: docless, documents } = splitDocumentContext(
     stripTrailingAttachmentRoutingContext(raw),
   );
   const { text: unreferenced, references } = splitSessionReferenceContext(docless);
-  const { text: prose, annotations } = splitAnnotationContext(unreferenced);
-  return { text: splitResolvedMentionContext(prose).text, documents, annotations, references };
+  const { text: artifactless, references: artifactReferences } = splitArtifactReferenceContext(unreferenced);
+  const { text: prose, annotations } = splitAnnotationContext(artifactless);
+  return { text: splitResolvedMentionContext(prose).text, documents, annotations, references, artifactReferences };
 }
 
 /** Projects a bare `ImageContent[]` — what `remove_queued_message` returns —

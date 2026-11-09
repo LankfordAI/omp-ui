@@ -43,6 +43,8 @@ export interface HeldPromptSchedulerDeps {
   busy: (tabId: string) => boolean;
   /** The normal prompt path (`rpcSend`), so observers and the model hold see it. */
   send: (tabId: string, cmd: RpcFrame) => void;
+  /** Synchronous send-time authority check; rejection leaves the exact held payload unsent. */
+  admitPayload?: (tabId: string, text: string) => void;
   resume: (tabId: string) => Promise<unknown>;
   /** The limits bridge's pull command, for a prompt whose reset is unknown. */
   refreshLimits: (tabId: string) => void;
@@ -102,6 +104,8 @@ function isPayload(value: unknown): value is Payload {
 export class HeldPromptScheduler implements FrameObserver {
   private readonly tabs = new Map<string, TabState>();
   private readonly resumeAt = new Map<string, number>();
+  /** Admission failures wait for an explicit sync (for example a gate change), not timer or frame retries. */
+  private readonly admissionBlocked = new Map<string, string>();
   private timer: NodeJS.Timeout | undefined;
   private disposed = false;
 
@@ -140,9 +144,27 @@ export class HeldPromptScheduler implements FrameObserver {
     this.deps.broadcast();
   }
 
+  private admit(record: OwnedSessionRecord, payload: Payload): boolean {
+    const held = record.heldPrompt;
+    if (held === null) return false;
+    try {
+      this.deps.admitPayload?.(record.tabId, payload.text);
+    } catch (err: unknown) {
+      const error = err instanceof Error ? err.message : String(err);
+      this.admissionBlocked.set(record.tabId, held.id);
+      this.resumeAt.delete(record.tabId);
+      if (held.error !== error) this.patch(record.tabId, { ...held, error });
+      return false;
+    }
+    this.admissionBlocked.delete(record.tabId);
+    if (held.error !== null) this.patch(record.tabId, { ...held, error: null });
+    return true;
+  }
+
   /** Drops the held prompt and its artifact. */
   private clear(record: OwnedSessionRecord): void {
     fs.rmSync(this.artifact(record), { force: true });
+    this.admissionBlocked.delete(record.tabId);
     const state = this.tabs.get(record.tabId);
     if (state !== undefined) state.inFlight = null;
     this.patch(record.tabId, null);
@@ -176,7 +198,7 @@ export class HeldPromptScheduler implements FrameObserver {
       attempts: 0,
       error: null,
     });
-    this.sync();
+    this.syncPending(false);
   }
 
   /** Drops the held prompt and returns it for the draft; null when nothing was held. */
@@ -186,14 +208,19 @@ export class HeldPromptScheduler implements FrameObserver {
     if (record.heldPrompt.sentAtMs !== null) throw new Error("the held prompt was already sent; wait for its turn to end");
     const payload = this.readPayload(record);
     this.clear(record);
-    this.sync();
+    this.syncPending(false);
     return payload === null ? null : { text: payload.text, images: payload.images };
   }
 
-  /** Sends the held prompt as soon as the session can take it. */
+  /** Sends the held prompt as soon as the session can take it, subject to current payload admission. */
   sendNow(tabId: string): void {
     const record = this.record(tabId);
     if (record?.heldPrompt == null || record.heldPrompt.sentAtMs !== null) return;
+    const payload = this.readPayload(record);
+    if (payload !== null && !this.admit(record, payload)) {
+      this.syncPending(false);
+      return;
+    }
     this.resumeAt.delete(tabId);
     this.patch(tabId, { ...record.heldPrompt, sendAtMs: Date.now(), error: null });
     this.sync();
@@ -209,6 +236,10 @@ export class HeldPromptScheduler implements FrameObserver {
       return null;
     const payload = this.readPayload(record);
     if (payload === null) return null;
+    if (!this.admit(record, payload)) {
+      this.syncPending(false);
+      return null;
+    }
     this.state(record.tabId).inFlight = held.id;
     return this.command(payload);
   }
@@ -222,8 +253,12 @@ export class HeldPromptScheduler implements FrameObserver {
     };
   }
 
-  /** Fires every due prompt the session can take now, then re-arms for the next deadline. */
+  /** Retries payload admission after an authority change, fires due prompts, then re-arms deadlines. */
   sync(): void {
+    this.syncPending(true);
+  }
+
+  private syncPending(retryAdmission: boolean): void {
     if (this.disposed) return;
     clearTimeout(this.timer);
     this.timer = undefined;
@@ -239,6 +274,11 @@ export class HeldPromptScheduler implements FrameObserver {
         if (!this.deps.isLive(record.tabId)) this.clear(record);
         continue;
       }
+      if (this.admissionBlocked.get(record.tabId) === held.id) {
+        if (!retryAdmission) continue;
+        const payload = this.readPayload(record);
+        if (payload !== null && !this.admit(record, payload)) continue;
+      }
       if (held.sendAtMs === null) continue;
       if (held.sendAtMs > now) {
         next = next === null ? held.sendAtMs : Math.min(next, held.sendAtMs);
@@ -246,7 +286,8 @@ export class HeldPromptScheduler implements FrameObserver {
       }
       if (!this.fire(record, held, now)) next = next === null ? now + MAX_WAIT_MS : Math.min(next, now + MAX_WAIT_MS);
     }
-    if (next !== null) this.timer = setTimeout(() => this.sync(), Math.max(0, Math.min(next - now, MAX_WAIT_MS)));
+    if (next !== null)
+      this.timer = setTimeout(() => this.syncPending(false), Math.max(0, Math.min(next - now, MAX_WAIT_MS)));
   }
 
   /** One due prompt. False when the session cannot take it yet and the sync should retry. */
@@ -256,14 +297,15 @@ export class HeldPromptScheduler implements FrameObserver {
     // In flight on a live or starting process: its ack decides. A spawn that
     // died before it went live leaves the latch behind, dropped here.
     if (state.inFlight === held.id && (this.deps.isLive(tabId) || this.deps.busy(tabId))) return true;
+    const payload = this.readPayload(record);
+    if (payload === null) {
+      this.patch(tabId, { ...held, sendAtMs: null, error: "the held prompt's saved text is missing" });
+      return true;
+    }
+    if (!this.admit(record, payload)) return true;
     state.inFlight = null;
     if (this.deps.isLive(tabId)) {
       if (!state.ready || !this.deps.canSendNow(tabId)) return false;
-      const payload = this.readPayload(record);
-      if (payload === null) {
-        this.patch(tabId, { ...held, sendAtMs: null, error: "the held prompt's saved text is missing" });
-        return true;
-      }
       state.inFlight = held.id;
       this.deps.send(tabId, this.command(payload));
       return true;
@@ -299,7 +341,7 @@ export class HeldPromptScheduler implements FrameObserver {
     if (control?.kind === "ready") {
       state.ready = true;
       // A prompt that fell due while the process booted goes out now.
-      this.sync();
+      this.syncPending(false);
       return;
     }
     if (frame.type === "agent_start") {
@@ -334,12 +376,12 @@ export class HeldPromptScheduler implements FrameObserver {
     if (record === undefined || held === null || held.sentAtMs === null) {
       // A turn that just ended leaves the session idle: a due prompt that
       // waited for it can go out now.
-      this.sync();
+      this.syncPending(false);
       return;
     }
     if (!state.failedOnLimit) {
       this.clear(record);
-      this.sync();
+      this.syncPending(false);
       return;
     }
     this.patch(tabId, { ...held, sendAtMs: null, sentAtMs: null, attempts: held.attempts + 1, error: null });
@@ -359,7 +401,7 @@ export class HeldPromptScheduler implements FrameObserver {
     const reset = usageResetMs(state.limits, true, Date.now());
     if (reset === null) return;
     this.patch(tabId, { ...held, sendAtMs: reset + HELD_PROMPT_MARGIN_MS });
-    this.sync();
+    this.syncPending(false);
   }
 
   onExit(tabId: string): void {
@@ -380,6 +422,7 @@ export class HeldPromptScheduler implements FrameObserver {
   dispose(tabId: string): void {
     this.tabs.delete(tabId);
     this.resumeAt.delete(tabId);
+    this.admissionBlocked.delete(tabId);
   }
 
   disposeAll(): void {
@@ -387,5 +430,6 @@ export class HeldPromptScheduler implements FrameObserver {
     clearTimeout(this.timer);
     this.timer = undefined;
     this.tabs.clear();
+    this.admissionBlocked.clear();
   }
 }

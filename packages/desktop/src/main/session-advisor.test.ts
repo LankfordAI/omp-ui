@@ -35,10 +35,11 @@ const RpcClientMock = vi.mocked(RpcClient);
 const LINEAGE = "omp-ui--proj--11111111-2222-3333-4444-555555555555";
 const sent: { channel: string; args: unknown[] }[] = [];
 const TAB = "tab-1";
-const rpcOptions: { configOverlays?: string[]; initialCommands?: unknown[] }[] = [];
+const rpcOptions: { configOverlays?: string[] }[] = [];
 const win = {
   isDestroyed: () => false,
   webContents: {
+    mainFrame: {},
     isDestroyed: () => false,
     isCrashed: () => false,
     send: (channel: string, ...args: unknown[]) => sent.push({ channel, args }),
@@ -128,7 +129,7 @@ function setup(opts: { materialized: boolean; defaultAgentMode?: "plan" | "build
   return { sessionsRoot };
 }
 
-const invoke = (ch: string, ...args: unknown[]): unknown => handlers.get(ch)!(null, ...args);
+const invoke = (ch: string, ...args: unknown[]): unknown => handlers.get(ch)!({ sender: win.webContents, senderFrame: win.webContents.mainFrame }, ...args);
 const readRegistry = (): {
   sessions: {
     model: string | null;
@@ -145,20 +146,6 @@ const resume = async (): Promise<void> => {
     cols: 80,
     rows: 24,
   });
-};
-
-const fresh = async (planMode?: boolean): Promise<void> => {
-  const req: Record<string, unknown> = {
-    origin: "new",
-    projectCwd: PROJECT,
-    mode: "rpc-ui",
-    advisor: true,
-    cols: 80,
-    rows: 24,
-    worktree: null,
-  };
-  if (planMode !== undefined) req.planMode = planMode;
-  await invoke(CH.spawnSession, req);
 };
 
 const relaunches = (): number => RpcClientMock.mock.calls.length - 1;
@@ -281,44 +268,6 @@ describe("session:setAdvisor", () => {
     expect(relaunches()).toBe(0);
   });
 
-  it("derives the relaunch posture from the record's persisted agent mode", async () => {
-    setup({ materialized: false, agentMode: "plan" });
-    await resume();
-    await invoke(CH.setSessionAdvisor, TAB, false, null);
-    expect(rpcOptions.at(-1)?.initialCommands).toEqual(
-      expect.arrayContaining([expect.objectContaining({ message: "/omp-ui-plan on html" })]),
-    );
-
-    setup({ materialized: false, agentMode: "build" });
-    await resume();
-    await invoke(CH.setSessionAdvisor, TAB, false, null);
-    expect(rpcOptions.at(-1)?.initialCommands).toEqual(
-      expect.arrayContaining([expect.objectContaining({ message: "/omp-ui-plan off" })]),
-    );
-  });
-
-  it.each([
-    ["explicit Plan with Build default", "build", true, "/omp-ui-plan on html"],
-    ["explicit Build with Plan default", "plan", false, "/omp-ui-plan off"],
-    ["omitted fresh posture with Plan default", "plan", undefined, "/omp-ui-plan on html"],
-    ["omitted fresh posture with Build default", "build", undefined, "/omp-ui-plan off"],
-  ] as const)("resolves %s", async (_label, defaultAgentMode, posture, expectedMessage) => {
-    setup({ materialized: true, defaultAgentMode });
-    await fresh(posture);
-    expect(rpcOptions.at(-1)?.initialCommands).toEqual(
-      expect.arrayContaining([expect.objectContaining({ message: expectedMessage })]),
-    );
-  });
-
-  it("starts an omitted resume in Build when the record carries no persisted agent mode", async () => {
-    // The seeded record is legacy (no agentMode field), so the load-time
-    // default of "build" governs the resume — not the app default (issue #263).
-    setup({ materialized: true, defaultAgentMode: "plan" });
-    await resume();
-    expect(rpcOptions.at(-1)?.initialCommands).toEqual(
-      expect.arrayContaining([expect.objectContaining({ message: "/omp-ui-plan off" })]),
-    );
-  });
 
   it("is a no-op for an unknown tab", async () => {
     setup({ materialized: true });

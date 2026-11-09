@@ -154,6 +154,14 @@ import type {
   ProjectCopyPreview,
   ProjectCopyResult,
 } from "./fleet";
+import type {
+  ArtifactAcceptRevisionRequest, ArtifactApplyCaptureRequest, ArtifactDeleteRequest,
+  ArtifactDescribeRequest, ArtifactDescription, ArtifactKeepRequest, ArtifactLibraryChanged,
+  ArtifactListRequest, ArtifactListResult, ArtifactPartResult, ArtifactPrepareRefreshRequest,
+  ArtifactReadRequest, ArtifactRecord, ArtifactReference, ArtifactReferenceRequest,
+  ArtifactRefreshRequest, ArtifactResolveSourceRequest, ArtifactSourceLookup,
+} from "./artifacts";
+import { artifactFailure, serializeArtifactFailure } from "./artifacts";
 import { PLAN_DISMISS, PLAN_EXECUTE, PLAN_REFINE, type PlanAnswerResult, type PlanReviewVerdict } from "./plan";
 import {
   agentModeCodec,
@@ -235,6 +243,9 @@ import {
   webhookPatchCodec,
   mcpClientInputCodec,
   mcpClientPatchCodec,
+  artifactListCodec, artifactDescribeCodec, artifactReadCodec, artifactSourceCodec,
+  artifactKeepCodec, artifactAcceptCodec, artifactReferenceCodec, artifactRefreshCodec,
+  artifactApplyCodec, artifactDiscardCodec, artifactDeleteCodec,
 } from "./backend-arg-codecs";
 import type { HeldPromptPayload, HeldPromptRequest } from "./held-prompt";
 import type { ScheduledPromptRequest } from "./scheduled-prompt";
@@ -314,6 +325,18 @@ function lossyEvent<Args extends unknown[]>(): EventChannel<Args> {
  */
 export const BACKEND_CHANNELS = {
   getState: { channel: "state:get", ...request<[], BackendState>([]) },
+  artifactList: { channel: "artifacts:list", ...request<[input: ArtifactListRequest], ArtifactListResult>([artifactListCodec]) },
+  artifactDescribe: { channel: "artifacts:describe", ...request<[input: ArtifactDescribeRequest], ArtifactDescription>([artifactDescribeCodec]) },
+  artifactReadPart: { channel: "artifacts:readPart", ...request<[input: ArtifactReadRequest], ArtifactPartResult>([artifactReadCodec]) },
+  artifactResolveSource: { channel: "artifacts:resolveSource", ...request<[input: ArtifactResolveSourceRequest], ArtifactSourceLookup>([artifactSourceCodec]) },
+  artifactKeep: { channel: "artifacts:keep", ...request<[input: ArtifactKeepRequest], ArtifactRecord>([artifactKeepCodec]) },
+  artifactAcceptRevision: { channel: "artifacts:acceptRevision", ...request<[input: ArtifactAcceptRevisionRequest], ArtifactRecord>([artifactAcceptCodec]) },
+  artifactReference: { channel: "artifacts:reference", ...request<[input: ArtifactReferenceRequest], ArtifactReference>([artifactReferenceCodec]) },
+  artifactPrepareRefresh: { channel: "artifacts:prepareRefresh", ...request<[input: Omit<ArtifactPrepareRefreshRequest, "sessionId" | "includeData">], {request: ArtifactRefreshRequest; reference: ArtifactReference; text: string}>([artifactRefreshCodec]) },
+  artifactApplyCapture: { channel: "artifacts:applyCapture", ...request<[input: ArtifactApplyCaptureRequest], ArtifactRecord>([artifactApplyCodec]) },
+  artifactDiscardDraft: { channel: "artifacts:discardDraft", ...request<[input: {draftId: string}], void>([artifactDiscardCodec]) },
+  artifactDelete: { channel: "artifacts:delete", ...request<[input: ArtifactDeleteRequest], void>([artifactDeleteCodec]) },
+  onArtifactLibraryChanged: {channel: "artifacts:changed", ...event<[change: ArtifactLibraryChanged]>()},
   /**
    * Registers a directory as a project. `path` may be ~-prefixed or absolute;
    * the backend expands, resolves, and validates it is an existing directory,
@@ -516,6 +539,10 @@ export const BACKEND_CHANNELS = {
   /** Interactive HTML artifacts run their scripts (issue #994); default on. */
   setHtmlArtifactScripts: {
     channel: "settings:setHtmlArtifactScripts",
+    ...request<[on: boolean], void>([bool()]),
+  },
+  setArtifactLibraryEnabled: {
+    channel: "settings:setArtifactLibraryEnabled",
     ...request<[on: boolean], void>([bool()]),
   },
   /** The agent may drive the bound emulator through omp-ui_device (issue #1006); default off. */
@@ -2446,9 +2473,12 @@ export function dispatchRequest(
     channel
   ]!;
   try {
-    return Promise.resolve(handler(...decodeArgs(channel, args, codecs)));
+    const result = Promise.resolve(handler(...decodeArgs(channel, args, codecs)));
+    if (!channel.startsWith("artifacts:")) return result;
+    return result.catch(error => { throw serializeArtifactFailure(error); });
   } catch (err) {
-    return Promise.reject(err);
+    return Promise.reject(channel.startsWith("artifacts:") ? serializeArtifactFailure(err,
+      err instanceof Error && err.message.startsWith(`invalid arguments for ${channel}:`) ? "unsupported-contract" : "unavailable") : err);
   }
 }
 
@@ -2489,9 +2519,14 @@ export function makeBackendClient(transport: BackendTransport): OmpBackend {
 
   for (const [method, descriptor] of Object.entries(BACKEND_CHANNELS)) {
     switch (descriptor.kind) {
-      case "request":
-        client[method] = (...args) => transport.request<never[], never>(descriptor.channel, args);
+      case "request": {
+        const artifact = descriptor.channel.startsWith("artifacts:");
+        client[method] = (...args) => {
+          const result = transport.request<never[], never>(descriptor.channel, args);
+          return artifact ? result.catch(error => Promise.reject(artifactFailure(error) ?? error)) : result;
+        };
         break;
+      }
       case "notify":
         client[method] = (...args) => transport.notify(descriptor.channel, args);
         break;

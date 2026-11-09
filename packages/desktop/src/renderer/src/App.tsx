@@ -28,6 +28,7 @@ import { Lab } from "./components/lab/Lab";
 import { Stats } from "./components/stats/Stats";
 import { Fleet } from "./components/fleet/Fleet";
 import { FleetTerminalView } from "./components/fleet/FleetTerminalView";
+import { Artifacts } from "./components/artifacts/Artifacts";
 import { ProjectSettings } from "./components/ProjectSettings";
 import { OmpUpdateCard } from "./components/OmpUpdateCard";
 import { SettleToast } from "./components/SettleToast";
@@ -126,6 +127,7 @@ function TitleBar() {
   const toggleSidebarCollapsed = useStore((s) => s.toggleSidebarCollapsed);
   const openProjectQuickOpen = useStore((s) => s.openProjectQuickOpen);
   const activeTab = tabs.find((t) => t.tabId === activeTabId);
+  const artifactsOpen = useStore((s) => s.artifacts !== null);
 
   return (
     <header
@@ -154,7 +156,7 @@ function TitleBar() {
         )}
       </div>
 
-      {activeTab?.mode === "rpc-ui" ? (
+      {artifactsOpen ? <span className="min-w-0 flex-1 truncate px-3 text-sm text-ink-dim">{t("artifacts.title")}</span> : activeTab?.mode === "rpc-ui" ? (
         <SessionHud tabId={activeTab.tabId} />
       ) : (
         <>
@@ -169,7 +171,7 @@ function TitleBar() {
 
       {/* The focused project's toolbox, parked left of the caption-button
           inset (issue #1021); it carves its own no-drag box. */}
-      <CornerTools />
+      {!artifactsOpen && <CornerTools />}
 
       {IS_ELECTRON && OVERLAY_INSET > 0 && (
         <div className="h-full shrink-0" style={{ width: OVERLAY_INSET }} />
@@ -305,6 +307,8 @@ export default function App() {
   const stats = useStore((s) => s.stats);
   const fleetOpen = useStore((s) => s.fleet !== null);
   const fleetTerminal = useStore((s) => s.fleetTerminal);
+  const artifacts = useStore((s) => s.artifacts);
+  const artifactLibraryEnabled = useStore((s) => s.state?.artifactLibraryEnabled === true);
   const fleetTerminals = useStore((s) => s.state?.fleetTerminals ?? EMPTY_FLEET_TERMINALS);
   // A shown terminal that was closed (here or in another window) leaves the pane to the tabs.
   const shownFleetTerminal = fleetTerminals.some((ft) => ft.terminalId === fleetTerminal) ? fleetTerminal : null;
@@ -368,6 +372,10 @@ export default function App() {
     if (s.lab !== null) s.closeLab();
     if (s.experimentDialog !== null) s.closeExperimentDialog();
   }, [experimentsEnabled]);
+
+  useEffect(() => {
+    if (!artifactLibraryEnabled && useStore.getState().artifacts !== null) useStore.getState().closeArtifacts();
+  }, [artifactLibraryEnabled]);
 
   // App shortcuts, each on its effective chord (issue #998: rebindable in
   // Settings → Keyboard; defaults in core/keybindings.ts).
@@ -491,11 +499,12 @@ export default function App() {
   }, []);
 
   useEffect(() => {
+    if (artifacts !== null) { closeCompactSurface(); return; }
     const tab = activeTabId === null ? undefined : useStore.getState().rpc[activeTabId];
     if (compact && tab?.browserPane.open) showCompactSurface("browser-pane");
     else if (compact && tab?.devicePane.open) showCompactSurface("device-pane");
     else closeCompactSurface();
-  }, [activeTabId, compact, closeCompactSurface, showCompactSurface]);
+  }, [activeTabId, artifacts, compact, closeCompactSurface, showCompactSurface]);
 
   // The docked posture shows the sidebar beside the transcript; a sessions
   // sheet left open from the narrower posture would duplicate it.
@@ -508,7 +517,9 @@ export default function App() {
   // The Lab takes the main pane whole (issue #559): the tabs stay mounted
   // underneath, hidden, exactly as a background tab is.
   const compactTitle =
-    stats !== null
+    artifacts !== null
+      ? t("artifacts.title")
+      : stats !== null
       ? t("stats.header.title")
       : fleetOpen
         ? t("fleet.header.title")
@@ -546,7 +557,7 @@ export default function App() {
               <button type="button" className="max-w-[calc(100%-4rem)] truncate px-2 py-2 text-center text-sm font-semibold [app-region:no-drag]" onClick={() => showCompactSurface("sessions")}>{compactTitle}</button>
             )}
           </span>
-          {activeTab?.mode === "rpc-ui" ? (
+          {artifacts === null && lab === null && stats === null && !fleetOpen && shownFleetTerminal === null && activeTab?.mode === "rpc-ui" ? (
             <Button variant="ghost" className="relative h-11 min-w-11 justify-center px-2 text-ink-mid [app-region:no-drag]" onClick={() => showCompactSurface("inspector")}>
               <IconInspect className="size-4" />
               <span className="sr-only">{t("app.compact.inspector")}</span>
@@ -573,7 +584,7 @@ export default function App() {
              * with it and the session becomes unrecoverable in place.
              */}
             {tabs.map((t) => {
-              const shown = lab === null && stats === null && !fleetOpen && shownFleetTerminal === null && t.tabId === activeTabId && !t.hidden;
+              const shown = artifacts === null && lab === null && stats === null && !fleetOpen && shownFleetTerminal === null && t.tabId === activeTabId && !t.hidden;
               return (
                 <div
                   key={t.tabId}
@@ -591,16 +602,17 @@ export default function App() {
                 </div>
               );
             })}
+            {artifacts !== null && artifactLibraryEnabled && <Artifacts />}
             {lab !== null && experimentsEnabled && <Lab view={lab} />}
             {stats !== null && <Stats />}
             {fleetOpen && <Fleet />}
             {/* Every open fleet terminal stays mounted, hidden with `display`, so Back to Fleet keeps its scrollback (#991). */}
             {fleetTerminals.map((ft) => (
-              <div key={ft.terminalId} className="absolute inset-0" style={{ display: !fleetOpen && ft.terminalId === shownFleetTerminal ? "block" : "none" }}>
+              <div key={ft.terminalId} className="absolute inset-0" style={{ display: artifacts === null && !fleetOpen && ft.terminalId === shownFleetTerminal ? "block" : "none" }}>
                 <FleetTerminalView terminal={ft} />
               </div>
             ))}
-            {visibleTabs.length === 0 && (lab === null || !experimentsEnabled) && stats === null && !fleetOpen && shownFleetTerminal === null && (restoringTabs ? <RestoringSessions /> : <Welcome />)}
+            {visibleTabs.length === 0 && artifacts === null && (lab === null || !experimentsEnabled) && stats === null && !fleetOpen && shownFleetTerminal === null && (restoringTabs ? <RestoringSessions /> : <Welcome />)}
           </div>
         </div>
       </div>

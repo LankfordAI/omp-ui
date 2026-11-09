@@ -2,6 +2,8 @@
 // and every per-session parameter command — model, advisor, modes, retry,
 // compaction, plan, todos, refreshes, subagent drill-down.
 import type { ApprovalMode, BackendState, ImageAttachment, ServiceTier, SessionReference } from "@omp-ui/core/types";
+import type { ArtifactReference } from "@omp-ui/core/artifacts";
+import { withArtifactReferenceContext } from "@omp-ui/core/artifact-references";
 import { ADVISOR_STATS_COMMAND } from "@omp-ui/core/advisor-stats";
 import { LIMITS_COMMAND } from "@omp-ui/core/limits";
 import { SESSION_SPEND_COMMAND } from "@omp-ui/core/session-spend";
@@ -617,10 +619,11 @@ export function createSessionParamsSlice(
     annotations: readonly Annotation[] | undefined,
     references: readonly SessionReference[] | undefined,
     imageFiles: readonly string[] | undefined,
+    artifactReferences: readonly ArtifactReference[] | undefined,
   ): string =>
     withAttachmentRoutingContext(
       withDocumentContext(
-        withSessionReferenceContext(withAnnotationContext(message, annotations ?? []), references ?? []),
+        withSessionReferenceContext(withArtifactReferenceContext(withAnnotationContext(message, annotations ?? []), artifactReferences ?? []), references ?? []),
         docRefs ?? [],
       ),
       images?.length ?? 0,
@@ -634,6 +637,24 @@ export function createSessionParamsSlice(
   const ownedReferences = (tabId: string, refs: readonly SessionReference[]): DraftSessionReference[] => {
     const instanceId = findOwner(get().state, tabId)?.instanceId ?? null;
     return refs.map((ref) => ({ ...ref, instanceId }));
+  };
+
+  const restoreArtifactReferences = (tabId: string, references: readonly ArtifactReference[]): void => {
+    const instanceId = findOwner(get().state, tabId)?.instanceId ?? null;
+    if (!get().restoreArtifactReferences(tabId, references.map(reference => ({ ...reference, instanceId })))) {
+      // A target changed owner while the host withdrew this prompt. Preserve
+      // the exact reference block as recoverable draft prose, never discard it.
+      if (references.length > 0) get().queueComposerText(tabId, withArtifactReferenceContext("", references));
+    }
+  };
+  const admitArtifactReferences = (tabId: string, references: readonly ArtifactReference[] | undefined): boolean => {
+    if (!references?.length) return true;
+    if (get().state?.artifactLibraryEnabled !== true) {
+      get().appendNotice(tabId, t("artifacts.reference.disabled"), "warn");
+      return false;
+    }
+    try { withArtifactReferenceContext("", references); return true; }
+    catch (error) { get().reportError(error); return false; }
   };
 
   /**
@@ -664,8 +685,10 @@ export function createSessionParamsSlice(
     docRefs?: DocumentRef[],
     annotations?: Annotation[],
     references?: SessionReference[],
+    artifactReferences?: ArtifactReference[],
   ): Promise<boolean> => {
     if (!m.acceptsCommands(tabId)) return false;
+    if (!admitArtifactReferences(tabId, artifactReferences)) return false;
     if (route === "advisor_reply" || route === "stall_continue") {
       // omp-ui's own prompt (a late-review answer, a stall continue): it
       // must not title the session and must not re-arm either loop guard —
@@ -691,11 +714,12 @@ export function createSessionParamsSlice(
         ? "followUp"
         : "steer";
     const imageFiles = images?.length ? await materializeImages(tabId, images) : undefined;
-    const wireMessage = promptWireText(message, images, docRefs, annotations, references, imageFiles);
+    const wireMessage = promptWireText(message, images, docRefs, annotations, references, imageFiles, artifactReferences);
     const cmd = { type: "prompt" as const, message: wireMessage, streamingBehavior };
     // `images` is omitted entirely when empty: omp's own client sends no key
     // rather than an empty array, and every byte here is on one JSON line.
     const response = await m.runCommand(tabId, images?.length ? { ...cmd, images } : cmd);
+    if (response !== null) get().clearArtifactReferences(tabId, artifactReferences ?? []);
     // The early title shot does NOT ride the ack: the ack pre-dates omp
     // committing the user message to history, so `/rename` dispatched here
     // finds an empty digest and declines (issue #795). The reducer fires it
@@ -722,10 +746,11 @@ export function createSessionParamsSlice(
       // Staging rides the existing composerQueue drain — the identical
       // plumbing rewind's edit-resend uses and the browser pane's hand-back.
       for (const entry of [...restored.steering, ...restored.followUp]) {
-        const { text, documents, annotations, references } = splitQueuedWireText(entry.text);
+        const { text, documents, annotations, references, artifactReferences } = splitQueuedWireText(entry.text);
         if (text !== "") get().queueComposerText(tabId, text);
         get().queueComposerAnnotations(tabId, annotations);
         get().queueComposerReferences(tabId, ownedReferences(tabId, references));
+        restoreArtifactReferences(tabId, artifactReferences);
         for (const image of entry.images)
           get().queueComposerAttachment(tabId, image, "");
         // Path-only re-attach: zero re-upload; a swept scratch file fails at
@@ -754,21 +779,24 @@ export function createSessionParamsSlice(
     docRefs?: DocumentRef[],
     annotations?: Annotation[],
     references?: SessionReference[],
+    artifactReferences?: ArtifactReference[],
   ): Promise<boolean> => {
     if (!m.acceptsCommands(tabId)) return false;
+    if (!admitArtifactReferences(tabId, artifactReferences)) return false;
     set((state) => ({ handedOffFor: dropPlanHandoff(state.handedOffFor, tabId) }));
     get().setInitialPrompt(tabId, message);
     advisorReplyWatcher.reset(tabId);
     stallContinueWatcher.reset(tabId);
     const type = "abort_and_prompt";
     const imageFiles = images?.length ? await materializeImages(tabId, images) : undefined;
-    const wireMessage = promptWireText(message, images, docRefs, annotations, references, imageFiles);
+    const wireMessage = promptWireText(message, images, docRefs, annotations, references, imageFiles, artifactReferences);
     // The title shot rides the user message's `message_start` in the
     // reducer, same as `sendPrompt` (issue #795).
     const response = await m.runCommand(
       tabId,
       images?.length ? { type, message: wireMessage, images } : { type, message: wireMessage },
     );
+    if (response !== null) get().clearArtifactReferences(tabId, artifactReferences ?? []);
     return response !== null;
   };
 
@@ -898,12 +926,14 @@ export function createSessionParamsSlice(
     docRefs: DocumentRef[] = [],
     annotations: Annotation[] = [],
     references: SessionReference[] = [],
+    artifactReferences: ArtifactReference[] = [],
   ): Promise<boolean> => {
+    if (!admitArtifactReferences(tabId, artifactReferences)) return false;
     // Send at reset (issue #986): the owning host keeps the prompt — tab-routed,
     // so a remote session's prompt waits on its host — and sends it with the
     // same wire text sendPrompt would have built.
     const imageFiles = images.length ? await materializeImages(tabId, images) : undefined;
-    const text = promptWireText(message, images, docRefs, annotations, references, imageFiles);
+    const text = promptWireText(message, images, docRefs, annotations, references, imageFiles, artifactReferences);
     try {
       await backend.holdPrompt(tabId, {
         text,
@@ -912,6 +942,7 @@ export function createSessionParamsSlice(
         documents: docRefs.map((doc) => doc.path),
         resetAtMs,
       });
+      get().clearArtifactReferences(tabId, artifactReferences);
       return true;
     } catch (err) {
       get().reportError(err);
@@ -924,10 +955,11 @@ export function createSessionParamsSlice(
       if (payload === null) return;
       // Back into the draft by the queue-restore path (#776): prose, then the
       // documents its block names, then the images.
-      const { text, documents, annotations, references } = splitQueuedWireText(payload.text);
+      const { text, documents, annotations, references, artifactReferences } = splitQueuedWireText(payload.text);
       if (text !== "") get().queueComposerText(tabId, text);
       get().queueComposerAnnotations(tabId, annotations);
       get().queueComposerReferences(tabId, ownedReferences(tabId, references));
+      restoreArtifactReferences(tabId, artifactReferences);
       for (const image of payload.images) get().queueComposerAttachment(tabId, image, "");
       for (const doc of documents)
         get().queueComposerDocument(tabId, { type: "document", mimeType: DOCUMENT_MIME, name: doc.name, path: doc.path }, "");
@@ -1131,6 +1163,9 @@ export function createSessionParamsSlice(
     message: string,
     queue: "steering" | "followUp",
   ): Promise<void> => {
+    const restoringArtifacts = splitQueuedWireText(message).artifactReferences;
+    const instanceId = findOwner(get().state, tabId)?.instanceId ?? null;
+    if (restoringArtifacts.length > 0 && !get().canRestoreArtifactReferences(tabId, restoringArtifacts.map(reference => ({ ...reference, instanceId })))) return;
     // Loud: a user action. A rejection (older runtime) surfaces as the
     // command failure and nothing else is sent — the same discipline as
     // promoteQueuedMessage, never a fallback verb (issue #776).
@@ -1143,10 +1178,11 @@ export function createSessionParamsSlice(
       void get().refreshState(tabId);
       return;
     }
-    const { text, documents, annotations, references } = splitQueuedWireText(message);
+    const { text, documents, annotations, references, artifactReferences } = splitQueuedWireText(message);
     if (text !== "") get().queueComposerText(tabId, text);
     get().queueComposerAnnotations(tabId, annotations);
     get().queueComposerReferences(tabId, ownedReferences(tabId, references));
+    restoreArtifactReferences(tabId, artifactReferences);
     for (const image of projectImages(arrField(data, "images")))
       get().queueComposerAttachment(tabId, image, "");
     for (const doc of documents)
@@ -2070,6 +2106,7 @@ export function createSessionParamsSlice(
       documents: clicked.documents ?? [],
       annotations: clicked.annotations ?? [],
       references: clicked.references ?? [],
+      artifactReferences: clicked.artifactReferences ?? [],
     });
     get().stageLifecycleConfirmation({
       kind: "rewind",
@@ -2201,6 +2238,7 @@ export function createSessionParamsSlice(
         if (source.text !== "") get().queueComposerText(tabId, source.text);
         get().queueComposerAnnotations(tabId, source.annotations ?? []);
         get().queueComposerReferences(tabId, ownedReferences(tabId, source.references ?? []));
+        restoreArtifactReferences(tabId, source.artifactReferences ?? []);
         for (const image of source.images)
           void get().queueComposerAttachment(tabId, { type: "image", ...image }, "");
         // Path-only re-attach: zero re-upload; a swept file fails at send

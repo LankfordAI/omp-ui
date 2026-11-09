@@ -44,6 +44,7 @@ const sent: { channel: string; args: unknown[] }[] = [];
 const win = {
   isDestroyed: () => false,
   webContents: {
+    mainFrame: {},
     isDestroyed: () => false,
     isCrashed: () => false,
     send: (channel: string, ...args: unknown[]) => sent.push({ channel, args }),
@@ -171,7 +172,7 @@ function setup(opts: { spawnGate?: SpawnGate } = {}): { backend: InstanceType<ty
   return { backend };
 }
 
-const invoke = (ch: string, ...args: unknown[]): unknown => handlers.get(ch)!(null, ...args);
+const invoke = (ch: string, ...args: unknown[]): unknown => handlers.get(ch)!({ sender: win.webContents, senderFrame: win.webContents.mainFrame }, ...args);
 
 beforeEach(() => {
   if (base) fs.rmSync(base, { recursive: true, force: true });

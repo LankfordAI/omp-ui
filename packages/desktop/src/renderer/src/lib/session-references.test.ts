@@ -72,6 +72,7 @@ describe("prompt derivation with references", () => {
       documents: [{ name: "spec.pdf", path: "/tmp/spec.pdf" }],
       annotations: [{ quote: "q", comment: "c" }],
       references: [REF],
+      artifactReferences: [],
     });
   });
 });

@@ -6,6 +6,7 @@ import { appUpdateEnabledForBuild } from "./app-update-policy";
 import { openExternalSafe } from "./open-external";
 import { setupSpellcheck } from "./spellcheck";
 import { installHtmlArtifactGuard } from "./html-artifact-guard";
+import { ArtifactGuestBroker } from "./artifact-guest-broker";
 import {
   fitWindowBounds,
   loadWindowState,
@@ -86,6 +87,9 @@ if (!app.requestSingleInstanceLock()) {
   // the closure is set once whenReady has a window (see whenReady below).
   let flushWindowState: (() => void) | null = null;
   let stopFdWatchdog: (() => void) | null = null;
+  let artifactBroker: ArtifactGuestBroker | null = null;
+  let artifactDrainStarted = false;
+  let artifactDrainComplete = false;
 
   // The userData path is pinned above, so the log dir and the breadcrumb sink
   // can exist before whenReady — process-error hooks registered here still
@@ -227,7 +231,6 @@ if (!app.requestSingleInstanceLock()) {
         webviewTag: true,
       },
     });
-    installHtmlArtifactGuard(win.webContents);
     breadcrumbs.record("window-created", { detail: `state=${savedWindowState ? "restored" : "fresh"}` });
 
     let revealed = false;
@@ -384,6 +387,12 @@ if (!app.requestSingleInstanceLock()) {
       breadcrumbs,
     });
     backend = be;
+    artifactBroker = new ArtifactGuestBroker({
+      root: win.webContents,
+      service: () => be.artifacts,
+      preloadPath: join(__dirname, "../preload/artifact-runtime.js"),
+    });
+    installHtmlArtifactGuard(win.webContents, artifactBroker);
     stopFdWatchdog = startFdWatchdog({ logDir });
     be.registerIpc();
     void be.hydrateAll();
@@ -443,6 +452,17 @@ if (!app.requestSingleInstanceLock()) {
   app.on("before-quit", (e) => {
     if (!confirmQuitIfLive()) {
       e.preventDefault();
+      return;
+    }
+    if (artifactBroker && !artifactDrainComplete) {
+      e.preventDefault();
+      if (!artifactDrainStarted) {
+        artifactDrainStarted = true;
+        void artifactBroker.dispose().then(() => {
+          artifactDrainComplete = true;
+          app.quit();
+        });
+      }
       return;
     }
     // Persist the window geometry while the app is still alive; the sync,

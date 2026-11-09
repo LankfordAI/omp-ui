@@ -1,5 +1,6 @@
 import type { OmpBackend } from "@omp-ui/core/types";
 import { makeBackendClient } from "@omp-ui/core/backend-channels";
+import { artifactFailure } from "@omp-ui/core/artifacts";
 import { createDesktopPaneFrameReceiver, type DesktopPaneMedia } from "./lib/browser-pane-desktop-stream";
 
 // The only module touching window.ompBackend (ADR-0002) — components import
@@ -50,6 +51,8 @@ export function backendFor(instanceId: string | null): OmpBackend {
 
 /** ipcRenderer.invoke wraps main-process errors — unwrap for display (#16 precedent). */
 export function displayMessage(err: unknown): string {
+  const failure = artifactFailure(err);
+  if (failure !== null) return failure.message;
   const raw = err instanceof Error ? err.message : String(err);
   return raw.replace(/^Error invoking remote method '[^']*': (?:Error: )?/, "");
 }

@@ -1,3 +1,5 @@
+import { randomUUID } from "node:crypto";
+import type { HostToolOptions } from "@omp-ui/core/host-bridge";
 import type {
   CapabilitySnapshot,
   FleetToolAccess,
@@ -29,13 +31,18 @@ export interface PtyLiveEntry extends LiveEntryBase {
 export interface RpcLiveEntry extends LiveEntryBase {
   readonly kind: "rpc-ui";
   rpc: RpcClient | null;
+  /** Main-issued draft provenance identity, never an OMP answer correlation id. */
+  readonly runtimeKey: string;
+  /** Captured registration membership; hot updates change only artifacts. */
+  hostToolOptions: HostToolOptions | null;
+  hostToolsReady: boolean;
+  artifactHostToolsEpoch: number;
+  artifactAuthoringError: string | null;
   /**
-   * This process's fleet-tool capability, computed once at spawn from the one
-   * `fleetToolAccess` rule — the same value the `set_host_tools` gate sends —
-   * so the foreign-`omp` notice (#1076) tells the truth about what this
-   * session can do without re-deriving the gate.
+   * This process's fleet-tool capability, captured on its actual protocol-ready
+   * rail. Hot artifact updates retain this membership rather than re-deriving it.
    */
-  readonly fleetToolAccess: FleetToolAccess;
+  fleetToolAccess: FleetToolAccess;
   /** Latest capability snapshot the bridge published; null until the first valid frame. */
   capabilities: CapabilitySnapshot | null;
   /** True when this spawn successfully wrote (and armed) the capabilities bridge. */
@@ -93,6 +100,11 @@ export function createRpcLiveEntry(record: OwnedSessionRecord, fleetToolAccess: 
     ...createLiveEntryBase(record),
     kind: "rpc-ui",
     rpc: null,
+    runtimeKey: randomUUID(),
+    hostToolOptions: null,
+    hostToolsReady: false,
+    artifactHostToolsEpoch: -1,
+    artifactAuthoringError: null,
     fleetToolAccess,
     capabilities: null,
     capabilitiesBridgeLoaded: false,

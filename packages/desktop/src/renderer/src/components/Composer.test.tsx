@@ -15,6 +15,10 @@ import { withAttachmentRoutingContext } from "../lib/attachment-routing";
 import { withDocumentContext } from "../lib/document-context";
 import { SESSION_DRAG_MIME } from "../lib/session-drag";
 import { loadAndroidDraft } from "../lib/android-shell";
+import type { ArtifactRecord, DraftArtifactReference } from "@omp-ui/core/artifacts";
+import { ARTIFACT_DRAG_MIME } from "../lib/artifact-drag";
+import { MAX_ARTIFACT_REFERENCES } from "@omp-ui/core/artifact-references";
+import { stashDraft, takeStashedDraft } from "../lib/draft-stash";
 
 const clipboardImageMock = vi.hoisted(() => ({
   hasClipboardImage: vi.fn(() => false),
@@ -82,6 +86,8 @@ const backendMock = {
   transcribeAudio: vi.fn(async () => ({ text: "dictated words" })),
   readDocument: vi.fn(async (): Promise<string> => "UERGLWJ5dGVz"),
   attachDocument: vi.fn(async (): Promise<string[]> => ["/remote/tmp/omp-ui-attach/new.pdf"]),
+  artifactList: vi.fn(async (): Promise<{ artifacts: ArtifactRecord[]; nextCursor: string | null }> => ({ artifacts: [], nextCursor: null })),
+  artifactReference: vi.fn<() => Promise<DraftArtifactReference>>(),
 };
 Object.assign(window, { ompBackend: backendMock });
 // Dynamic import is required because store.ts captures window.ompBackend at module evaluation.
@@ -117,6 +123,7 @@ const state = backendState({
 function seed(status: "starting" | "ready" | "running", dead = false): void {
   useStore.setState({
     advisorDefaults: {},
+    artifactDrafts: {}, artifactDraftText: {},
     state,
     exited: dead ? { [TAB]: 0 } : {},
     branches: {
@@ -266,7 +273,7 @@ describe("compact Composer", () => {
     const textarea = typeDraft("mobile sentinel");
     const send = [...document.body.querySelectorAll<HTMLButtonElement>("button")].find((button) => button.textContent === "Send")!;
     await act(async () => send.click());
-    expect(sendPrompt).toHaveBeenCalledWith(TAB, "mobile sentinel", "prompt", [], [], [], []);
+    expect(sendPrompt).toHaveBeenCalledWith(TAB, "mobile sentinel", "prompt", [], [], [], [], []);
     expect(textarea.value).toBe("");
     expect(document.activeElement).toBe(textarea);
   });
@@ -279,11 +286,11 @@ describe("compact Composer", () => {
     expect(byText("Abort")).toBeDefined();
     act(() => document.body.querySelector<HTMLButtonElement>('button[title="prompt options"]')!.click());
     await act(async () => byText("Queue").click());
-    expect(sendPrompt).toHaveBeenCalledWith(TAB, "running draft", "follow_up", [], [], [], []);
+    expect(sendPrompt).toHaveBeenCalledWith(TAB, "running draft", "follow_up", [], [], [], [], []);
 
     typeDraft("replace turn");
     await act(async () => byText("Interrupt-and-send").click());
-    expect(abortAndPrompt).toHaveBeenCalledWith(TAB, "replace turn", [], [], [], []);
+    expect(abortAndPrompt).toHaveBeenCalledWith(TAB, "replace turn", [], [], [], [], []);
   });
 
   it("shows the selected thinking level and session mode in the options sheet", () => {
@@ -515,7 +522,7 @@ describe("Android composer process recovery", () => {
     typeDraft("send only once");
     const send = [...document.body.querySelectorAll<HTMLButtonElement>("button")].find((button) => button.textContent === "Send")!;
     await act(async () => send.click());
-    expect(sendPrompt).toHaveBeenCalledWith(TAB, "send only once", "prompt", [], [], [], []);
+    expect(sendPrompt).toHaveBeenCalledWith(TAB, "send only once", "prompt", [], [], [], [], []);
     expect(loadAndroidDraft(TAB)).toBe("");
     restartComposer();
     expect(document.body.querySelector<HTMLTextAreaElement>("textarea")!.value).toBe("");
@@ -1028,7 +1035,7 @@ describe("Composer attachment picker", () => {
     });
 
     expect(clipboardImageMock.readImageFiles).toHaveBeenCalledWith([first, second]);
-    expect(sendPrompt).toHaveBeenCalledWith(TAB, "compare these", "prompt", [IMAGE_ONE, IMAGE_TWO], [], [], []);
+    expect(sendPrompt).toHaveBeenCalledWith(TAB, "compare these", "prompt", [IMAGE_ONE, IMAGE_TWO], [], [], [], []);
   });
 
   it("resets the input immediately so the same image can be selected again", async () => {
@@ -1076,7 +1083,7 @@ describe("Composer attachment picker", () => {
         .find((button) => button.textContent === "Send")!
         .click();
     });
-    expect(sendPrompt).toHaveBeenCalledWith(TAB, "continue without it", "prompt", [], [], [], []);
+    expect(sendPrompt).toHaveBeenCalledWith(TAB, "continue without it", "prompt", [], [], [], [], []);
   });
 
 });
@@ -1097,12 +1104,12 @@ describe("Composer annotation chips (issue #983)", () => {
 
     sendPrompt.mockResolvedValueOnce(false);
     await act(async () => sendButton().click());
-    expect(sendPrompt).toHaveBeenCalledWith(TAB, "", "prompt", [], [], [ANNOTATION], []);
+    expect(sendPrompt).toHaveBeenCalledWith(TAB, "", "prompt", [], [], [ANNOTATION], [], []);
     // Rejected: the chip comes back for another try.
     expect(chipGroup()?.textContent).toContain("add jitter here");
 
     await act(async () => sendButton().click());
-    expect(sendPrompt).toHaveBeenLastCalledWith(TAB, "", "prompt", [], [], [ANNOTATION], []);
+    expect(sendPrompt).toHaveBeenLastCalledWith(TAB, "", "prompt", [], [], [ANNOTATION], [], []);
     expect(chipGroup()).toBeNull();
   });
 
@@ -1147,7 +1154,7 @@ describe("Composer session references (issue #984)", () => {
     act(() => useStore.getState().queueComposerReferences(TAB, [REF]));
     expect(referenceGroup()?.textContent).toContain("Deploy fix");
     await act(async () => sendButton().click());
-    expect(sendPrompt).toHaveBeenCalledWith(TAB, "", "prompt", [], [], [], [REF]);
+    expect(sendPrompt).toHaveBeenCalledWith(TAB, "", "prompt", [], [], [], [REF], []);
     expect(referenceGroup()).toBeNull();
   });
 
@@ -2225,7 +2232,7 @@ describe("Composer shell dispatch (issue #678)", () => {
     press(textarea, "Enter");
     await act(async () => {});
     expect(runShellCommand).not.toHaveBeenCalled();
-    expect(sendPrompt).toHaveBeenCalledWith(TAB, "look at this !", "prompt", [], [], [], []);
+    expect(sendPrompt).toHaveBeenCalledWith(TAB, "look at this !", "prompt", [], [], [], [], []);
   });
 });
 
@@ -2959,7 +2966,7 @@ describe("worktree conversion through the branch chip (issue #227)", () => {
     await flush();
     expect(backendMock.convertToWorktree).toHaveBeenCalledTimes(1);
     expect(backendMock.convertToWorktree).toHaveBeenCalledWith(TAB, expect.stringMatching(/^p\/main\/[0-9a-f]{8}$/), "main", null);
-    expect(sendPrompt).toHaveBeenCalledWith(TAB, "hello", "prompt", [], [], [], []);
+    expect(sendPrompt).toHaveBeenCalledWith(TAB, "hello", "prompt", [], [], [], [], []);
     // A successful conversion resets the selection; the chip reads the checkout's branch again.
     expect(chipTrigger().textContent).toContain("main");
     expect(chipTrigger().textContent).not.toContain("worktree");
@@ -2987,7 +2994,7 @@ describe("worktree conversion through the branch chip (issue #227)", () => {
     await act(async () => { press(box, "Enter"); });
     await flush();
     expect(backendMock.convertToWorktree).toHaveBeenCalledWith(TAB, expect.stringMatching(/^p\/main\/[0-9a-f]{8}$/), "main", null);
-    expect(sendPrompt).toHaveBeenCalledWith(TAB, "hello from compact", "prompt", [], [], [], []);
+    expect(sendPrompt).toHaveBeenCalledWith(TAB, "hello from compact", "prompt", [], [], [], [], []);
   });
 
   it("a conversion failure keeps the draft and shows the error", async () => {
@@ -3158,7 +3165,7 @@ describe("Composer answers pending questions (desktop, issue #421)", () => {
     renderRpcTab();
     const box = typeDraft("hello");
     press(box, "Enter");
-    expect(sendPrompt).toHaveBeenCalledWith(TAB, "hello", "prompt", [], [], [], []);
+    expect(sendPrompt).toHaveBeenCalledWith(TAB, "hello", "prompt", [], [], [], [], []);
     expect(answerFrames()).toHaveLength(0);
   });
 
@@ -3172,7 +3179,7 @@ describe("Composer answers pending questions (desktop, issue #421)", () => {
     expect(answerFrames()).toHaveLength(0);
     typeDraft("abort this");
     act(() => box.dispatchEvent(new KeyboardEvent("keydown", { key: "Enter", metaKey: true, shiftKey: true, bubbles: true, cancelable: true })));
-    expect(abortAndPrompt).toHaveBeenCalledWith(TAB, "abort this", [], [], [], []);
+    expect(abortAndPrompt).toHaveBeenCalledWith(TAB, "abort this", [], [], [], [], []);
     expect(answerFrames()).toHaveLength(0);
   });
 
@@ -3194,7 +3201,7 @@ describe("Composer answers pending questions (desktop, issue #421)", () => {
     renderRpcTab();
     const box = typeDraft("compact steer");
     press(box, "Enter");
-    expect(sendPrompt).toHaveBeenCalledWith(TAB, "compact steer", "prompt", [], [], [], []);
+    expect(sendPrompt).toHaveBeenCalledWith(TAB, "compact steer", "prompt", [], [], [], [], []);
     expect(answerFrames()).toHaveLength(0);
   });
 });
@@ -3955,5 +3962,176 @@ describe("Composer context halo (issue #1025, round-9: one outline at rest and r
       .find((button) => button.textContent?.trim() === "send")!;
     expect(send.parentElement!.querySelector("svg[data-progress-halo]")).not.toBeNull();
     expect(send.title).not.toContain("128,000 of 256,000");
+  });
+});
+
+describe("Composer artifact references", () => {
+  const REF: DraftArtifactReference = {
+    version: 1, referenceId: "00000000-0000-4000-8000-000000000001", ownerInstanceId: "00000000-0000-4000-8000-000000000002",
+    artifactId: "00000000-0000-4000-8000-000000000003", codeRevisionId: "00000000-0000-4000-8000-000000000004", dataSnapshotId: "00000000-0000-4000-8000-000000000005",
+    title: "Kept budget", machine: "desktop", snapshotAt: "2026-11-09T06:00:00.000Z", includeData: false, instanceId: null,
+    manifestUri: "omp-ui://artifacts/reference/00000000-0000-4000-8000-000000000001/manifest", definitionUri: "omp-ui://artifacts/reference/00000000-0000-4000-8000-000000000001/definition",
+  };
+  const ACCEPTED: ArtifactRecord = { artifactId: REF.artifactId, ownerInstanceId: REF.ownerInstanceId, title: REF.title, managed: true, currentCodeRevisionId: REF.codeRevisionId, currentDataSnapshotId: REF.dataSnapshotId, generation: 1, keptAt: REF.snapshotAt, createdAt: REF.snapshotAt, updatedAt: REF.snapshotAt, originContext: { kind: "chat" }, sourceDraftId: REF.referenceId, origin: { ownerInstanceId: REF.ownerInstanceId, lineageDir: "saved-lineage", sessionId: null, runtimeKey: null, toolCallId: null, sourceHash: "a".repeat(64), createdAt: REF.snapshotAt } };
+  const listArtifacts = backendMock.artifactList;
+  const makeReference = backendMock.artifactReference;
+  const stashChord = (box: HTMLTextAreaElement): void => {
+    box.dispatchEvent(new KeyboardEvent("keydown", { key: "s", ctrlKey: true, altKey: true, bubbles: true, cancelable: true }));
+  };
+  const stashRow = (text: string): HTMLElement | undefined =>
+    [...document.body.querySelectorAll<HTMLElement>('[data-stash-palette] [role="option"]')].find(row => row.textContent?.includes(text));
+  const grant = (n: number): DraftArtifactReference => {
+    const referenceId = `00000000-0000-4000-8000-${String(n).padStart(12, "0")}`;
+    return { ...REF, referenceId, manifestUri: `omp-ui://artifacts/reference/${referenceId}/manifest`, definitionUri: `omp-ui://artifacts/reference/${referenceId}/definition` };
+  };
+  beforeEach(() => {
+    seed("ready");
+    listArtifacts.mockResolvedValue({ artifacts: [], nextCursor: null });
+    makeReference.mockResolvedValue(REF);
+    useStore.setState({ state: { ...state, artifactLibraryEnabled: true }, activeTabId: TAB });
+    useStore.getState().attachArtifactReference(TAB, REF);
+  });
+  it("turns an accepted-artifact @ row into a definition-only grant without sending", async () => {
+    useStore.getState().clearArtifactReferences(TAB);
+    listArtifacts.mockResolvedValue({ artifacts: [ACCEPTED], nextCursor: null });
+    renderComposer();
+    const box = typeDraft("compare @Kept");
+    await act(async () => {});
+    const row = document.body.querySelector<HTMLButtonElement>("button[data-mention-artifact]")!;
+    await act(async () => row.click());
+    expect(makeReference).toHaveBeenCalledWith({ targetTabId: TAB, artifactId: REF.artifactId, codeRevisionId: REF.codeRevisionId, dataSnapshotId: REF.dataSnapshotId, includeData: false });
+    expect(box.value).toBe("compare ");
+    expect(useStore.getState().artifactDrafts[TAB]).toEqual([REF]);
+    expect(sendPrompt).not.toHaveBeenCalled();
+  });
+  it("uses the artifact drag MIME only to request a definition-only grant", async () => {
+    useStore.getState().clearArtifactReferences(TAB);
+    renderComposer();
+    const drop = new Event("drop", { bubbles: true, cancelable: true });
+    const payload = JSON.stringify({ artifactId: REF.artifactId, codeRevisionId: REF.codeRevisionId, dataSnapshotId: REF.dataSnapshotId, instanceId: null });
+    Object.assign(drop, { dataTransfer: { types: [ARTIFACT_DRAG_MIME], getData: (type: string) => type === ARTIFACT_DRAG_MIME ? payload : "", dropEffect: "none" } });
+    await act(async () => document.body.querySelector("textarea")!.dispatchEvent(drop));
+    expect(makeReference).toHaveBeenCalledWith({ targetTabId: TAB, artifactId: REF.artifactId, codeRevisionId: REF.codeRevisionId, dataSnapshotId: REF.dataSnapshotId, includeData: false });
+    expect(useStore.getState().artifactDrafts[TAB]).toEqual([REF]);
+    expect(sendPrompt).not.toHaveBeenCalled();
+  });
+  it("sends a reference-only prompt through the final references argument and retains refusals", async () => {
+    renderComposer();
+    sendPrompt.mockResolvedValueOnce(false);
+    const send = [...document.body.querySelectorAll<HTMLButtonElement>("button")].find(button => button.textContent?.trim().toLowerCase() === "send")!;
+    expect(send.disabled).toBe(false);
+    await act(async () => send.click());
+    expect(sendPrompt).toHaveBeenCalledWith(TAB, "", "prompt", [], [], [], [], [REF]);
+    expect(useStore.getState().artifactDrafts[TAB]).toEqual([REF]);
+  });
+  it("keeps disabled-feature chips and prose until the user removes them", async () => {
+    useStore.setState({ state: { ...state, artifactLibraryEnabled: false } });
+    renderComposer();
+    const box = typeDraft("keep this draft");
+    await act(async () => { press(box, "Enter"); });
+    expect(sendPrompt).not.toHaveBeenCalled();
+    expect(box.value).toBe("keep this draft");
+    expect(useStore.getState().artifactDrafts[TAB]).toEqual([REF]);
+    const remove = document.body.querySelector<HTMLButtonElement>('button[aria-label="' + t("artifacts.reference.remove", { title: REF.title }) + '"]')!;
+    act(() => remove.click());
+    expect(useStore.getState().artifactDrafts[TAB]).toEqual([]);
+  });
+  it.each([true, false])("never consumes artifact references for shell or slash commands with the gate %s", async (artifactLibraryEnabled) => {
+    const shell = vi.fn(async () => {});
+    const slash = vi.fn(async () => {});
+    useStore.setState({ runShellCommand: shell, runSlashCommand: slash, state: { ...state, artifactLibraryEnabled } });
+    renderComposer();
+    const box = typeDraft("!echo hello");
+    await act(async () => { press(box, "Enter"); });
+    expect(shell).toHaveBeenCalledWith(TAB, "echo hello");
+    expect(useStore.getState().artifactDrafts[TAB]).toEqual([REF]);
+    typeDraft("/compact");
+    await act(async () => { press(box, "Enter"); });
+    expect(slash).toHaveBeenCalledWith(TAB, "/compact");
+    expect(useStore.getState().artifactDrafts[TAB]).toEqual([REF]);
+    expect(sendPrompt).not.toHaveBeenCalled();
+    expect(abortAndPrompt).not.toHaveBeenCalled();
+    expect(makeReference).not.toHaveBeenCalled();
+  });
+  it("answers extensions without consuming artifact references even while the feature is off", async () => {
+    Object.defineProperty(window, "matchMedia", { configurable: true, value: vi.fn(() => ({ matches: false, addEventListener: vi.fn(), removeEventListener: vi.fn() })) });
+    useStore.setState(current => ({ state: { ...state, artifactLibraryEnabled: false }, rpc: { ...current.rpc, [TAB]: { ...current.rpc[TAB]!, extensionQueue: [{ id: "artifact-question", method: "editor", title: "Answer" }] } } }));
+    renderRpcTab();
+    const box = typeDraft("answer only");
+    await act(async () => { press(box, "Enter"); });
+    expect(sendPrompt).not.toHaveBeenCalled();
+    expect(backendMock.rpcSend).toHaveBeenCalledWith(TAB, { type: "extension_ui_response", id: "artifact-question", value: "answer only" });
+    expect(useStore.getState().artifactDrafts[TAB]).toEqual([REF]);
+  });
+  it("sends a reference-only draft as a prompt rather than an empty extension answer", async () => {
+    Object.defineProperty(window, "matchMedia", { configurable: true, value: vi.fn(() => ({ matches: false, addEventListener: vi.fn(), removeEventListener: vi.fn() })) });
+    useStore.setState(current => ({ rpc: { ...current.rpc, [TAB]: { ...current.rpc[TAB]!, extensionQueue: [{ id: "artifact-question", method: "editor", title: "Answer" }] } } }));
+    renderRpcTab();
+    const box = document.body.querySelector<HTMLTextAreaElement>("textarea")!;
+    await act(async () => { press(box, "Enter"); });
+    expect(sendPrompt).toHaveBeenCalledWith(TAB, "", "prompt", [], [], [], [], [REF]);
+    expect(backendMock.rpcSend).not.toHaveBeenCalledWith(TAB, expect.objectContaining({ type: "extension_ui_response" }));
+    expect(useStore.getState().rpc[TAB]!.extensionQueue).toEqual([{ id: "artifact-question", method: "editor", title: "Answer" }]);
+  });
+  it("refuses a foreign artifact drag without replacing existing consent chips", async () => {
+    renderComposer();
+    const drop = new Event("drop", { bubbles: true, cancelable: true });
+    const payload = JSON.stringify({ artifactId: REF.artifactId, codeRevisionId: REF.codeRevisionId, dataSnapshotId: REF.dataSnapshotId, instanceId: REF.ownerInstanceId });
+    Object.assign(drop, { dataTransfer: { types: [ARTIFACT_DRAG_MIME], getData: (type: string) => type === ARTIFACT_DRAG_MIME ? payload : "", dropEffect: "none" } });
+    await act(async () => document.body.querySelector("textarea")!.dispatchEvent(drop));
+    expect(makeReference).not.toHaveBeenCalled();
+    expect(sendPrompt).not.toHaveBeenCalled();
+    expect(useStore.getState().artifactDrafts[TAB]).toEqual([REF]);
+  });
+  it("appends a refresh suggestion without overwriting prose or sending", async () => {
+    renderComposer();
+    const box = typeDraft("My existing draft");
+    await act(async () => { useStore.getState().attachArtifactReference(TAB, REF, "Refresh the accepted dataset"); });
+    expect(box.value).toBe("My existing draft\n\nRefresh the accepted dataset");
+    expect(sendPrompt).not.toHaveBeenCalled();
+  });
+  it("parks and restores artifact chips with a stashed draft", async () => {
+    renderComposer();
+    const box = typeDraft("stashed artifact request");
+    const stash = () => box.dispatchEvent(new KeyboardEvent("keydown", { key: "s", ctrlKey: true, altKey: true, bubbles: true, cancelable: true }));
+    await act(async () => { stash(); });
+    expect(useStore.getState().artifactDrafts[TAB]).toEqual([]);
+    expect(box.value).toBe("");
+    act(() => { stash(); });
+    const row = [...document.body.querySelectorAll<HTMLElement>('[data-stash-palette] [role="option"]')].find(entry => entry.textContent?.includes("stashed artifact request"))!;
+    await act(async () => row.querySelector<HTMLButtonElement>("button")!.click());
+    expect(useStore.getState().artifactDrafts[TAB]).toEqual([REF]);
+    expect(box.value).toBe("stashed artifact request");
+  });
+  it("restores exact same-version grants from a stash without merging their consent", async () => {
+    const prepared = grant(20);
+    const second = { ...prepared, includeData: true, dataUri: `omp-ui://artifacts/reference/${prepared.referenceId}/state` };
+    await stashDraft({ text: "separate artifact grants", images: [], documents: [], annotations: [], artifactReferences: [REF, second] });
+    useStore.getState().clearArtifactReferences(TAB);
+    renderComposer();
+    const box = document.body.querySelector<HTMLTextAreaElement>("textarea")!;
+    act(() => stashChord(box));
+    await act(async () => stashRow("separate artifact grants")!.querySelector<HTMLButtonElement>("button")!.click());
+    expect(box.value).toBe("separate artifact grants");
+    expect(useStore.getState().artifactDrafts[TAB]).toEqual([REF, second]);
+    expect(sendPrompt).not.toHaveBeenCalled();
+  });
+  it.each(["foreign", "over-limit"] as const)("keeps a %s artifact stash available instead of consuming it", async (reason) => {
+    const artifactReferences = reason === "foreign"
+      ? [{ ...REF, instanceId: REF.ownerInstanceId }]
+      : Array.from({ length: MAX_ARTIFACT_REFERENCES + 1 }, (_, n) => grant(n + 30));
+    const text = `preserved ${reason} artifact stash`;
+    const draft = await stashDraft({ text, images: [], documents: [], annotations: [], artifactReferences });
+    useStore.getState().clearArtifactReferences(TAB);
+    renderComposer();
+    const box = document.body.querySelector<HTMLTextAreaElement>("textarea")!;
+    act(() => stashChord(box));
+    await act(async () => stashRow(text)!.querySelector<HTMLButtonElement>("button")!.click());
+    expect(box.value).toBe("");
+    expect(useStore.getState().artifactDrafts[TAB]).toBeUndefined();
+    expect(sendPrompt).not.toHaveBeenCalled();
+    act(() => stashChord(box));
+    expect(stashRow(text)).toBeDefined();
+    await act(async () => { expect(await takeStashedDraft(draft.id)).toEqual(draft); });
   });
 });

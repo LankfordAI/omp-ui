@@ -1,5 +1,6 @@
 import { app, session, type WebContents, type WebPreferences } from "electron";
 import { HTML_ARTIFACT_PARTITION, isHtmlArtifactRequestAllowed } from "@omp-ui/core";
+import type { ArtifactGuestBroker } from "./artifact-guest-broker";
 
 /*
  * The network boundary under an interactive HTML artifact (issue #994,
@@ -16,10 +17,10 @@ import { HTML_ARTIFACT_PARTITION, isHtmlArtifactRequestAllowed } from "@omp-ui/c
  * 2. A webRequest filter that cancels every request but data:/blob:/about:.
  * 3. Every permission denied (camera, microphone, notifications, ...), and
  *    downloads cancelled.
- * 4. The attach itself: only a guest on this partition may attach, with no
- *    preload, node, nested webviews, or dialogs, and only once the proxy is
- *    in force. Every guest is confined the moment it is created: no
- *    navigation off its document, no windows.
+ * 4. The attach itself: only the locked partition, no node, nested webviews,
+ *    renderer preloads/arguments, or dialogs. A main-bound one-use ticket alone
+ *    grants the packaged minimal runtime preload. Every guest is confined at
+ *    creation: no navigation off its document, no windows.
  */
 
 /** A proxy address nothing listens on; port 9 is the discard port. */
@@ -28,6 +29,7 @@ const DEAD_PROXY = "http://127.0.0.1:9";
 /** The guest preferences an admitted artifact attaches with, whatever the renderer asked for. */
 export const ARTIFACT_GUEST_PREFERENCES: Readonly<WebPreferences> = {
   preload: undefined,
+  additionalArguments: [],
   nodeIntegration: false,
   nodeIntegrationInSubFrames: false,
   nodeIntegrationInWorker: false,
@@ -94,7 +96,7 @@ function confineGuest(guest: WebContents): void {
  * Installs the guard: the partition lockdown and guest confinement once per
  * app, and the attach gate on the app window that hosts the transcript.
  */
-export function installHtmlArtifactGuard(host: WebContents): void {
+export function installHtmlArtifactGuard(host: WebContents, broker?: ArtifactGuestBroker): void {
   if (!installed) {
     installed = true;
     lockArtifactSession();
@@ -107,9 +109,14 @@ export function installHtmlArtifactGuard(host: WebContents): void {
       event.preventDefault();
       return;
     }
-    // Electron reads this object back after the event: the renderer's
-    // requested preferences never reach the guest.
-    delete (webPreferences as Record<string, unknown>).preloadURL;
-    Object.assign(webPreferences, ARTIFACT_GUEST_PREFERENCES);
+    const runtime = broker?.admit(params);
+    if (!runtime && broker?.isSurfaceDocument(params.src ?? "")) {
+      event.preventDefault();
+      return;
+    }
+    // Rebuild, rather than merge: no renderer preference, preloadURL, argument,
+    // session, or future Electron preference is inherited by a managed guest.
+    for (const key of Object.keys(webPreferences)) delete (webPreferences as Record<string, unknown>)[key];
+    Object.assign(webPreferences, ARTIFACT_GUEST_PREFERENCES, runtime ?? {});
   });
 }

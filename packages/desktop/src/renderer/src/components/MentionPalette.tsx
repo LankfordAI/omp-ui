@@ -6,6 +6,7 @@ import { fuzzyMatch, highlightRuns } from "../lib/fuzzy";
 import { deriveDirs } from "../lib/mentions";
 import { Chip, Label } from "./ui";
 import { PaletteList, usePaletteNav } from "./palette";
+import type { ArtifactRecord } from "@omp-ui/core/artifacts";
 
 /**
  * Inline file picker above the composer, opened by an `@`-word at the caret —
@@ -33,6 +34,7 @@ export interface MentionSession {
 }
 
 const NO_SESSIONS: readonly MentionSession[] = [];
+const NO_ARTIFACTS: readonly ArtifactRecord[] = [];
 /** Session rows shown at most above the files. */
 const MAX_SESSION_ROWS = 8;
 
@@ -47,7 +49,7 @@ type Row =
       score?: number;
     }
   | {
-      kind: "session";
+      kind: "session" | "artifact";
       tabId: string;
       /** The session title, displayed and matched like a path. */
       path: string;
@@ -61,6 +63,8 @@ export function MentionPalette({
   files,
   truncated,
   sessions = NO_SESSIONS,
+  artifacts = NO_ARTIFACTS,
+  onPickArtifact,
   onPick,
   onPickSession,
   onClose,
@@ -74,6 +78,8 @@ export function MentionPalette({
   truncated: boolean;
   /** Sessions this one may reference (issue #984), newest first; listed above the files. */
   sessions?: readonly MentionSession[];
+  artifacts?: readonly ArtifactRecord[];
+  onPickArtifact?(artifactId: string): void;
   onPick(relPath: string): void;
   /** A session row was picked: the composer swaps the @-word for a reference chip. */
   onPickSession?(tabId: string): void;
@@ -94,11 +100,17 @@ export function MentionPalette({
         sessionRows.push({ kind: "session", tabId: session.tabId, path: session.title, isDir: false, hits: hit.hits, score: hit.score });
     }
     if (query !== "") sessionRows.sort((a, b) => (b.score ?? 0) - (a.score ?? 0));
+    const artifactRows: Row[] = [];
+    for (const artifact of artifacts) {
+      const hit = query === "" ? { hits: [] as number[], score: 0 } : fuzzyMatch(artifact.title, query);
+      if (hit !== null) artifactRows.push({ kind: "artifact", tabId: artifact.artifactId, path: artifact.title, isDir: false, hits: hit.hits, score: hit.score });
+    }
+    if (query !== "") artifactRows.sort((a, b) => (b.score ?? 0) - (a.score ?? 0));
     const all: Row[] = [
       ...files.map((path) => ({ kind: "file" as const, path, isDir: false, hits: [] as number[] })),
       ...deriveDirs(files).map((path) => ({ kind: "file" as const, path, isDir: true, hits: [] as number[] })),
     ];
-    const leading = sessionRows.slice(0, MAX_SESSION_ROWS);
+    const leading = [...artifactRows.slice(0, MAX_SESSION_ROWS), ...sessionRows.slice(0, MAX_SESSION_ROWS)];
     // An empty query lists in listed order — ranking zeroes would only shuffle.
     if (query === "") return [...leading, ...all.slice(0, MAX_ROWS)];
     const scored: { row: Row; score: number }[] = [];
@@ -113,10 +125,11 @@ export function MentionPalette({
     }
     scored.sort((a, b) => b.score - a.score || a.row.path.localeCompare(b.row.path));
     return [...leading, ...scored.slice(0, MAX_ROWS).map((s) => s.row)];
-  }, [files, sessions, query]);
+  }, [files, sessions, artifacts, query]);
 
   const pickRow = (row: Row): void => {
     if (row.kind === "session") onPickSession?.(row.tabId);
+    else if (row.kind === "artifact") onPickArtifact?.(row.tabId);
     else onPick(pickPath(row));
   };
 
@@ -143,21 +156,22 @@ export function MentionPalette({
     );
   }
 
-  const sessionCount = rows.findIndex((row) => row.kind !== "session");
+  const sessionCount = rows.findIndex((row) => row.kind === "file");
   const firstFile = sessionCount === -1 ? rows.length : sessionCount;
   return (
     <PaletteList className={cn(shell, "max-h-[min(18rem,calc(var(--app-viewport-height,100dvh)*0.45))] py-1")}>
       {rows.map((row, i) => (
-        <Fragment key={row.kind === "session" ? `session:${row.tabId}` : row.path}>
-          {i === 0 && firstFile > 0 && (
+        <Fragment key={row.kind === "file" ? row.path : `${row.kind}:${row.tabId}`}>
+          {row.kind !== "file" && (i === 0 || rows[i - 1]!.kind !== row.kind) && (
             <div className="px-3 pb-0.5 pt-1">
-              <Label>{t("composer.mention.sessions")}</Label>
+              <Label>{t(row.kind === "artifact" ? "composer.mention.artifacts" : "composer.mention.sessions")}</Label>
             </div>
           )}
           {i === firstFile && firstFile > 0 && <div className="my-1 border-t border-line" />}
           <button
             type="button"
             data-mention-session={row.kind === "session" ? row.tabId : undefined}
+            data-mention-artifact={row.kind === "artifact" ? row.tabId : undefined}
             ref={i === active ? activeRef : null}
             // Keep the caret in the textarea: a blur would tear the palette down.
             onMouseDown={(e) => e.preventDefault()}

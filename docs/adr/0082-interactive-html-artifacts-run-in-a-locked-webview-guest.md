@@ -110,3 +110,21 @@ it to [`HTML_ARTIFACT_MIN_HEIGHT`, `HTML_ARTIFACT_MAX_HEIGHT`]; the agent's
 requested height stays the initial hint and the static fallback, which is the
 only height a scripts-off or browser-client view can have. The guest boundary
 is unchanged: same partition, same request filter, same CSP.
+
+## Amendment — scoped managed state, default-off (2026-11-09, issue #1121)
+
+[ADR-0090](0090-session-authored-artifact-library-and-scoped-data.md) permits
+one narrow exception to the no-preload rule: a script-enabled managed artifact
+whose exact document and single-use ticket were issued by main may receive the
+self-contained `artifact-runtime.js` preload. Hello binds the actual guest/root
+main frame, locked session, document, owner and gate epoch. Only load and CAS
+manual-state patching are exposed; human Keep/accept/Apply/delete, raw IPC,
+Node, files, credentials, networking and session tools are absent.
+
+Every other boundary in this ADR remains, including dead-proxy loopback and
+WebRTC denial. Plain documents still receive no preload. Scripts-off and browser
+documents stay static; HTML plan frames remain script-free. Saved structured
+data belongs to a separate app-registry-owned SQLite library, not DOM storage
+or arbitrary JavaScript closures, and turning the experiment off revokes access
+without deleting it.
+

@@ -233,6 +233,8 @@ import { windowStatePath } from "./window-state";
 import { NO_BREADCRUMBS, type BreadcrumbSink } from "./breadcrumbs";
 import { readExperimentDetail, readProjectExperiments, readRunLog } from "./experiments";
 import { registerSettingsHandlers } from "./settings-handlers";
+import { ArtifactService } from "./artifact-service";
+import { registerArtifactHandlers } from "./artifact-handlers";
 import { registerSttHandlers } from "./stt-handlers";
 import { registerAudioHandlers } from "./audio-handlers";
 import { applyAudioDevice, execPactlRunner } from "./audio-devices";
@@ -271,6 +273,7 @@ export class MainBackend {
   });
   private readonly usageTelemetry: UsageTelemetry;
   readonly sessions: SessionManager;
+  readonly artifacts: ArtifactService;
   /** The one plan verification service (§4): owned here, injected downward. */
   private readonly planVerifier: PlanVerifier;
   /** Stamps the browser clock onto agent screenshots (see CONTEXT.md "Browser clock"). */
@@ -411,6 +414,8 @@ export class MainBackend {
       worktreesRoot?: string;
       /** Where chat scratch dirs live; defaults beside the registry. */
       chatsRoot?: string;
+      /** Isolated artifact library root for deterministic/runtime proofs. */
+      artifactsRoot?: string;
       /** Dev/test model pins forced on every spawn this instance makes. */
       spawnGate?: SpawnGate;
       /** Process owner override for focused main-process tests. */
@@ -430,6 +435,7 @@ export class MainBackend {
     this.historyEnv = opts.historyEnv ?? process.env;
     this.appVersion = opts.appVersion ?? app.getVersion();
     this.registry = Registry.load(registryFile);
+    if (this.registry.getSetting("instanceId") === "") this.registry.setSetting("instanceId", randomUUID());
     this.usageTelemetry = new UsageTelemetry({
       enabled: app.isPackaged,
       ledgerFile: path.join(path.dirname(registryFile), "usage-telemetry.json"),
@@ -488,11 +494,53 @@ export class MainBackend {
       updateSession: (tabId, patch) => this.registry.updateSession(tabId, patch),
       broadcast: () => void this.broadcast(),
     });
+    this.artifacts = new ArtifactService({
+      registryFile,
+      artifactsRoot: opts.artifactsRoot,
+      ownerInstanceId: () => this.registry.getSetting("instanceId"),
+      enabled: () => this.registry.getSetting("artifactLibraryEnabled"),
+      scriptsEnabled: () => this.registry.getSetting("htmlArtifactScripts"),
+      sources: () => this.registry.sessions.map(session => ({lineageDir: path.resolve(this.sessionsRoot, session.lineageDir), sessionId: session.sessionId})),
+      resolveTarget: (tabId) => {
+        const record = this.registry.sessions.find(session => session.tabId === tabId);
+        if (record === undefined) {
+          const owner = this.remoteInstances?.ownerOf(tabId);
+          if (owner == null) return null;
+          return {ownerInstanceId: owner, lineageDir: "", sessionId: null, runtimeKey: null, native: true,
+            machine: this.remoteInstances.summaries().find(instance => instance.id === owner)?.nickname ?? owner};
+        }
+        return {
+          ownerInstanceId: this.registry.getSetting("instanceId"),
+          lineageDir: path.resolve(this.sessionsRoot, record.lineageDir),
+          archiveLineageDir: path.resolve(this.archiveRoot, record.lineageDir),
+          sessionId: record.sessionId,
+          runtimeKey: this.sessions?.artifactRuntimeKey?.(tabId) ?? null,
+          native: record.mode === "rpc-ui",
+          machine: this.fleetLabel,
+          originContext: record.chat ? {kind: "chat" as const} : {
+            kind: "project" as const,
+            label: this.registry.projects.find(project => project.path === record.projectCwd)?.name ?? path.basename(record.projectCwd),
+            path: record.projectCwd,
+          },
+          artifactsAvailable: this.sessions?.artifactAuthoringAvailable?.(tabId) ?? false,
+          artifactError: this.sessions?.artifactAuthoringError?.(tabId) ?? null,
+        };
+      },
+      sourceTarget: (source) => {
+        const record = this.registry.sessions.find(session =>
+          path.resolve(this.sessionsRoot, session.lineageDir) === source.lineageDir &&
+          session.sessionId !== null && session.sessionId === source.sessionId);
+        return record === undefined ? null : {tabId: record.tabId, sessionId: record.sessionId!, toolCallId: source.toolCallId};
+      },
+      sourcePath: (tabId) => this.sessions.transcriptPath(tabId),
+      onChanged: (change) => this.send(CH.onArtifactLibraryChanged, change),
+    });
     this.sessions =
       opts.sessions ??
       new SessionManager({
         registry: this.registry,
         registryFile,
+        artifacts: this.artifacts,
         providerKeys: this.providerKeys,
         hasOAuthProvider: () => this.providerOAuth.hasModelAccount(),
         hasConfiguredModelsFileProvider: () => readModelsFileModelProviders().length > 0,
@@ -682,8 +730,6 @@ export class MainBackend {
         this.send(CH.onRemoteState, state);
       },
     });
-    // A stable identity so a joiner can recognise this app as itself (issue #416).
-    if (this.registry.getSetting("instanceId") === "") this.registry.setSetting("instanceId", randomUUID());
     // A registry that already carries a life — projects or sessions — is not a
     // first install; seed the Getting started checklist as seen so the upgrade
     // never pops it (issue #623).
@@ -1076,6 +1122,12 @@ export class MainBackend {
           if (this.sessions.hasLiveInProject(projectPath)) {
             throw new Error("project has live sessions — settle them first");
           }
+          const lineages = new Set<string>();
+          for (const session of this.registry.sessions) {
+            if (session.projectCwd !== projectPath || lineages.has(session.lineageDir)) continue;
+            this.artifacts.dropDraftsForLineage(path.resolve(this.sessionsRoot, session.lineageDir));
+            lineages.add(session.lineageDir);
+          }
           this.sessions.stopProjectWatchers(projectPath);
           this.headWatchers.stop(projectPath);
           const sessions = this.registry.sessions;
@@ -1176,7 +1228,13 @@ export class MainBackend {
           onFleetLadderChanged: () => this.fleetServer.enforceLadder(),
           seedCouncilRoster: () => this.seedCouncilRosterIfUnset(),
           onTelemetryChanged: () => this.usageTelemetry.syncConsent(),
+          onArtifactLibraryChanged: (enabled) => {
+            this.artifacts.setEnabled(enabled);
+            void this.sessions.syncArtifactHostTools(enabled).catch(error =>
+              console.warn("[artifacts] host tool reconciliation failed:", error));
+          },
         }),
+        ...registerArtifactHandlers(this.artifacts),
         ...registerVaultHandlers({
           registry: this.registry,
           broadcast: () => this.broadcast(),
@@ -1861,14 +1919,19 @@ export class MainBackend {
     };
     const desktopTable: ChannelTable = { request: table.request, notify };
     for (const channel of Object.keys(desktopTable.request)) {
-      ipcMain.handle(channel, (_event, ...args: unknown[]) =>
-        dispatchRequest(desktopTable, channel, args),
-      );
+      ipcMain.handle(channel, (event, ...args: unknown[]) => {
+        const root = this.win.webContents;
+        if (this.win.isDestroyed() || root.isDestroyed() || event.sender !== root || event.senderFrame == null || event.senderFrame !== root.mainFrame)
+          throw new Error("backend requests require the app root main frame");
+        return dispatchRequest(desktopTable, channel, args);
+      });
     }
     for (const channel of Object.keys(desktopTable.notify)) {
-      ipcMain.on(channel, (_event, ...args: unknown[]) =>
-        dispatchNotify(desktopTable, channel, args),
-      );
+      ipcMain.on(channel, (event, ...args: unknown[]) => {
+        const root = this.win.webContents;
+        if (this.win.isDestroyed() || root.isDestroyed() || event.sender !== root || event.senderFrame == null || event.senderFrame !== root.mainFrame) return;
+        dispatchNotify(desktopTable, channel, args);
+      });
     }
     ipcMain.on(DESKTOP_PANE_PORT_REQUEST, (event) => {
       const wc = this.win.webContents;
@@ -2464,6 +2527,7 @@ export class MainBackend {
     this.pullRequests.dispose();
     this.transfers.dispose();
     this.sessions.killAll();
+    this.artifacts.close();
     const headsSettled = this.headWatchers.disposeAll();
     this.fleetServer.dispose();
     this.fleetTerminals.dispose();
@@ -2786,6 +2850,7 @@ export class MainBackend {
       desktopNotifications: this.registry.getSetting("desktopNotifications"),
       telemetryModelsEnabled: this.registry.getSetting("telemetryModelsEnabled"),
       htmlArtifactScripts: this.registry.getSetting("htmlArtifactScripts"),
+      artifactLibraryEnabled: this.registry.getSetting("artifactLibraryEnabled"),
       deviceAgentAccess: this.registry.getSetting("deviceAgentAccess"),
       defaultAdvisor: this.registry.getSetting("defaultAdvisor"),
       defaultAutoThinking: this.registry.getSetting("defaultAutoThinking"),

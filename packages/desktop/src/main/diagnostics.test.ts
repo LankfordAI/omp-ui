@@ -34,7 +34,7 @@ const { createBreadcrumbRing } = await import("./breadcrumbs");
 
 const win = {
   isDestroyed: () => false,
-  webContents: { isDestroyed: () => false, isCrashed: () => false, send: () => {} },
+  webContents: { mainFrame: {}, isDestroyed: () => false, isCrashed: () => false, send: () => {} },
 };
 
 const inflateRawP = promisify(inflateRaw);
@@ -79,7 +79,7 @@ async function unzipEntry(zipPath: string, wanted: string): Promise<string> {
 }
 
 const invoke = (ch: string, ...args: unknown[]): Promise<unknown> =>
-  Promise.resolve(handlers.get(ch)!(null, ...args));
+  Promise.resolve(handlers.get(ch)!({ sender: win.webContents, senderFrame: win.webContents.mainFrame }, ...args));
 
 function makeBackend(): void {
   new MainBackend(win as never, registryFile, {

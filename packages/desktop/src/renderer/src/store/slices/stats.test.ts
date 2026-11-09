@@ -49,6 +49,6 @@ describe("Stats view slice", () => {
   });
 
   it("focusOn closes Stats like the other main-pane surfaces", () => {
-    expect(focusOn(h.TAB)).toEqual({ activeTabId: h.TAB, lab: null, stats: null, fleet: null, fleetTerminal: null });
+    expect(focusOn(h.TAB)).toEqual({ activeTabId: h.TAB, lab: null, stats: null, fleet: null, fleetTerminal: null, artifacts: null });
   });
 });

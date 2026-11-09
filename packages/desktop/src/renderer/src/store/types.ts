@@ -73,6 +73,9 @@ import type {
 } from "@omp-ui/core/types";
 import type { Annotation } from "../lib/annotations";
 import type { DraftSessionReference } from "../lib/session-references";
+import type { ArtifactReference, DraftArtifactReference } from "@omp-ui/core/artifacts";
+import type { ArtifactReferencesSlice } from "./slices/artifact-references";
+import type { ArtifactsSlice } from "./slices/artifacts";
 import type { DocumentRef } from "../lib/document-context";
 import type {
   BrowserPaneFrameHeader,
@@ -684,6 +687,7 @@ export type CompactionMethodsLoad =
   | { status: "failed"; message: string };
 
 export interface SettingsSlice {
+  setArtifactLibraryEnabled(on: boolean): Promise<void>;
   /** The settings modal's open page, or null while closed. */
   settingsPage: SettingsPage | null;
   remote: RemoteState;
@@ -1128,7 +1132,7 @@ export interface SettleUndoEntry {
   }>;
 }
 
-export interface UiStore extends SettingsSlice, UpdatesSlice, LabSlice, StatsSlice, FleetSlice, SeanceSlice, UnreadSlice {
+export interface UiStore extends SettingsSlice, UpdatesSlice, LabSlice, StatsSlice, FleetSlice, SeanceSlice, UnreadSlice, ArtifactReferencesSlice, ArtifactsSlice {
   state: BackendState | null;
   tabs: TabInfo[];
   activeTabId: string | null;
@@ -1378,7 +1382,7 @@ export interface UiStore extends SettingsSlice, UpdatesSlice, LabSlice, StatsSli
     opts?: { private?: boolean; planMode?: boolean; background?: boolean },
   ): Promise<string | null>;
   /** Spawns a fresh Chat (local only) and lands its tab; resolves its tabId, or null when it never landed. */
-  newChat(opts?: { private?: boolean; askSource?: { tabId: string; title: string } }): Promise<string | null>;
+  newChat(opts?: { private?: boolean; background?: boolean; askSource?: { tabId: string; title: string } }): Promise<string | null>;
   /** "Ask about this session" (#895): a fresh Chat with the source's summary pinned. Local sources only. */
   askAboutSession(sourceTabId: string): Promise<void>;
   /**
@@ -1419,6 +1423,7 @@ export interface UiStore extends SettingsSlice, UpdatesSlice, LabSlice, StatsSli
       annotations?: Annotation[];
       /** The hero background send's session references (issue #984). */
       references?: SessionReference[];
+      artifactReferences?: ArtifactReference[];
       title?: string | null;
       planMode?: boolean;
       worktree?:
@@ -1461,6 +1466,7 @@ export interface UiStore extends SettingsSlice, UpdatesSlice, LabSlice, StatsSli
       annotations: Annotation[];
       /** Carried only when the target is the same instance (ADR-0085). */
       references: DraftSessionReference[];
+      artifactReferences?: DraftArtifactReference[];
     },
   ): Promise<string | null>;
   openNewSessionDialog(seed?: {
@@ -1474,7 +1480,7 @@ export interface UiStore extends SettingsSlice, UpdatesSlice, LabSlice, StatsSli
   closeProjectQuickOpen(): void;
   openFinishWorktree(tabId: string): void;
   closeFinishWorktree(): void;
-  openSession(tabId: string): Promise<void>;
+  openSession(tabId: string, opts?: { activate?: boolean }): Promise<void>;
   focusTab(tabId: string): void;
   hideTab(tabId: string): void;
   switchMode(tabId: string, mode: SessionMode): Promise<void>;
@@ -1616,6 +1622,7 @@ export interface UiStore extends SettingsSlice, UpdatesSlice, LabSlice, StatsSli
     docRefs?: DocumentRef[],
     annotations?: Annotation[],
     references?: SessionReference[],
+    artifactReferences?: ArtifactReference[],
   ): Promise<boolean>;
   abortAgent(tabId: string): Promise<void>;
   /** Interrupt-and-replace; false when refused or rejected, like sendPrompt. */
@@ -1626,6 +1633,7 @@ export interface UiStore extends SettingsSlice, UpdatesSlice, LabSlice, StatsSli
     docRefs?: DocumentRef[],
     annotations?: Annotation[],
     references?: SessionReference[],
+    artifactReferences?: ArtifactReference[],
   ): Promise<boolean>;
   loadAdvisorDefaults(projectCwd: string, instanceId?: string | null): Promise<void>;
   setSessionAdvisor(
@@ -1656,6 +1664,7 @@ export interface UiStore extends SettingsSlice, UpdatesSlice, LabSlice, StatsSli
     docRefs?: DocumentRef[],
     annotations?: Annotation[],
     references?: SessionReference[],
+    artifactReferences?: ArtifactReference[],
   ): Promise<boolean>;
   /** Drops the held prompt and restores it into the composer draft (issue #986). */
   cancelHeldPrompt(tabId: string): Promise<void>;

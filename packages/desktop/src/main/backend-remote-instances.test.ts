@@ -24,7 +24,7 @@ vi.mock("electron", () => ({
 
 const win = {
   isDestroyed: () => false,
-  webContents: { isDestroyed: () => false, isCrashed: () => false, send: () => {} },
+  webContents: { mainFrame: {}, isDestroyed: () => false, isCrashed: () => false, send: () => {} },
 };
 
 let base: string;
@@ -42,7 +42,7 @@ function boot(): MainBackend {
 function invoke(channel: string, ...args: unknown[]): Promise<unknown> {
   const fn = handlers.get(channel);
   if (!fn) throw new Error(`no handler registered for ${channel}`);
-  return Promise.resolve(fn(null, ...args));
+  return Promise.resolve().then(() => fn({sender: win.webContents, senderFrame: win.webContents.mainFrame}, ...args));
 }
 
 beforeEach(() => {

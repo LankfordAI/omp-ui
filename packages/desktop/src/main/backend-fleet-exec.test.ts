@@ -26,7 +26,7 @@ vi.mock("electron", () => ({
 
 const win = {
   isDestroyed: () => false,
-  webContents: { isDestroyed: () => false, isCrashed: () => false, send: () => {} },
+  webContents: { mainFrame: {}, isDestroyed: () => false, isCrashed: () => false, send: () => {} },
 };
 
 const TOKEN = "member-join-token-0123456789";
@@ -47,7 +47,7 @@ function boot(): MainBackend {
 function invoke<T = unknown>(channel: string, ...args: unknown[]): Promise<T> {
   const fn = handlers.get(channel);
   if (!fn) throw new Error(`no handler registered for ${channel}`);
-  return Promise.resolve(fn(null, ...args)) as Promise<T>;
+  return Promise.resolve().then(() => fn({sender: win.webContents, senderFrame: win.webContents.mainFrame}, ...args)) as Promise<T>;
 }
 
 const exec = (command: string) => invoke<{ status: string; reason?: string; exitCode?: number; stdout?: string }>(CH.fleetExec, { requester: MANAGER, command, cwd: null, timeoutMs: 2_000 });

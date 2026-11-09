@@ -1,3 +1,6 @@
+export * from "./artifacts";
+export * from "./artifact-references";
+export { ArtifactStore } from "./artifact-store";
 export * from "./paths";
 export { browseDirectories, expandHomePath, resolveProjectPath } from "./dir-browse";
 export { readBranchDiff } from "./branch-diff";

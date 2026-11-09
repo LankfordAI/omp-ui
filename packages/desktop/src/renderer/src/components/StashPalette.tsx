@@ -75,8 +75,8 @@ export function StashPalette({
         <span className="ml-auto text-xs text-ink-faint">{t("composer.stash.keys")}</span>
       </div>
       {drafts.map((draft, i) => {
-        const preview = draft.text.trim().split("\n")[0] ?? "";
-        const attached = draft.images.length + draft.documents.length + draft.annotations.length;
+        const preview = draft.text.trim().split("\n")[0] || draft.artifactReferences?.map(reference => `@ ${reference.title}`).join(", ") || draft.references?.map(reference => `@ ${reference.title}`).join(", ") || "";
+        const attached = draft.images.length + draft.documents.length + draft.annotations.length + (draft.references?.length ?? 0) + (draft.artifactReferences?.length ?? 0);
         return (
           <div
             key={draft.id}

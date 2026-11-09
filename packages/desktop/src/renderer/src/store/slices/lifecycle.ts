@@ -36,6 +36,7 @@ import { planSeedInfo, planSeedText } from "../../lib/plan-seed";
 import { composeCarryoverContext } from "../../lib/carryover-context";
 import type { Annotation } from "../../lib/annotations";
 import type { DraftSessionReference } from "../../lib/session-references";
+import type { ArtifactReference, DraftArtifactReference } from "@omp-ui/core/artifacts";
 import type { DocumentRef } from "../../lib/document-context";
 import { noticeItem, settleRunningItems, type AdvisorNote } from "../../lib/transcript";
 import { t } from "../../lib/i18n";
@@ -397,6 +398,7 @@ export function createLifecycleSlice(
       );
     }
     if (result.deleted.length === 0) return false;
+    for (const id of result.deleted) get().clearArtifactReferences(id);
     dropTabs(result.deleted, "the session was deleted");
     return true;
   };
@@ -1036,7 +1038,7 @@ export function createLifecycleSlice(
   };
 
   const newChat = async (
-    opts: { private?: boolean; askSource?: { tabId: string; title: string } } = {},
+    opts: { private?: boolean; background?: boolean; askSource?: { tabId: string; title: string } } = {},
   ): Promise<string | null> => {
     const request: SpawnRequest = {
       origin: "new",
@@ -1063,7 +1065,7 @@ export function createLifecycleSlice(
       set((s) => ({
         state,
         tabs: [...s.tabs, { tabId, mode: "rpc-ui", projectCwd: rec.projectCwd, hidden: false, instanceId: null }],
-        ...focusOn(tabId),
+        ...(opts.background === true ? {} : focusOn(tabId)),
         exited: dropExited(s.exited, tabId),
       }));
     });
@@ -1201,6 +1203,7 @@ export function createLifecycleSlice(
       documents?: DocumentAttachment[];
       annotations?: Annotation[];
       references?: SessionReference[];
+      artifactReferences?: ArtifactReference[];
       title?: string | null;
       planMode?: boolean;
       worktree?:
@@ -1235,6 +1238,7 @@ export function createLifecycleSlice(
       documents?: DocumentAttachment[];
       annotations?: Annotation[];
       references?: SessionReference[];
+      artifactReferences?: ArtifactReference[];
       title?: string | null;
     },
     background: boolean,
@@ -1244,13 +1248,16 @@ export function createLifecycleSlice(
     const documents = opts.documents ?? [];
     const annotations = opts.annotations ?? [];
     const references = opts.references ?? [];
+    const artifactReferences = opts.artifactReferences ?? [];
+    const instanceId = findOwner(get().state, tabId)?.instanceId ?? get().tabs.find(tab => tab.tabId === tabId)?.instanceId ?? null;
+    for (const reference of artifactReferences) get().attachArtifactReference(tabId, { ...reference, instanceId });
     // No prompt: quick-launch behaviour — the tab alone is the whole ask.
     if (
       prompt === "" &&
       images.length === 0 &&
       documents.length === 0 &&
       annotations.length === 0 &&
-      references.length === 0
+      references.length === 0 && artifactReferences.length === 0
     )
       return;
     /** The seed did not go out; `notice` puts the warn on the new tab itself. */
@@ -1281,7 +1288,7 @@ export function createLifecycleSlice(
         return;
       }
     }
-    const accepted = await get().sendPrompt(tabId, prompt, "prompt", images, docRefs, annotations, references);
+    const accepted = await get().sendPrompt(tabId, prompt, "prompt", images, docRefs, annotations, references, artifactReferences);
     if (!accepted) notSent(true);
   };
 
@@ -1323,6 +1330,7 @@ export function createLifecycleSlice(
       documents: DocumentAttachment[];
       annotations: Annotation[];
       references: DraftSessionReference[];
+      artifactReferences?: DraftArtifactReference[];
     },
   ): Promise<string | null> => {
     const owner = findOwner(get().state, tabId);
@@ -1337,6 +1345,13 @@ export function createLifecycleSlice(
     ) {
       return null;
     }
+    const artifactReferences = draft.artifactReferences ?? get().artifactDrafts[tabId] ?? [];
+    const foreignReference = artifactReferences.find(ref => ref.instanceId !== target.instanceId);
+    if (foreignReference !== undefined) {
+      get().appendNotice(tabId, t("artifacts.reference.wrongMachine", { machine: foreignReference.machine }), "warn");
+      return null;
+    }
+    if (get().artifactDrafts[tabId] === undefined && artifactReferences.length > 0 && !get().restoreArtifactReferences(tabId, artifactReferences)) return null;
     const next = await newSession(target.projectCwd, undefined, target.instanceId, {
       private: owner.record.private,
       planMode: owner.record.agentMode === "plan",
@@ -1346,6 +1361,12 @@ export function createLifecycleSlice(
     // bootRpcTab resets the slot (freshRpcTabState has no composerQueue), so
     // a draft queued before boot would be wiped.
     await m.pollUntilSettled(next);
+    // Re-read after both creation and boot. The handoff routes attachments
+    // accepted during the deletion await to the target, or refuses a foreign
+    // owner before accepting it; no accepted late chip dies with the source.
+    const releaseReferenceMove = get().beginArtifactReferenceMove(tabId, next);
+    if (releaseReferenceMove === null) { get().focusTab(tabId); return null; }
+    try {
     get().queueComposerText(next, draft.text);
     get().queueComposerAnnotations(next, draft.annotations);
     // A reference names a path on its owner's machine (ADR-0085): it carries
@@ -1372,6 +1393,7 @@ export function createLifecycleSlice(
     }
     // Re-read: a source that materialized meanwhile keeps its transcript.
     if (findRecord(get().state, tabId)?.sessionId === null) await eraseSession(tabId);
+    } finally { releaseReferenceMove(); }
     return next;
   };
 
@@ -1381,10 +1403,10 @@ export function createLifecycleSlice(
    * instance that is not joined cannot resume anything, so the attempt is
    * refused up front instead of surfacing the proxy's rejection (issue #416).
    */
-  const openSession = async (tabId: string): Promise<void> => {
+  const openSession = async (tabId: string, opts: { activate?: boolean } = {}): Promise<void> => {
     // Opening/draining a session is the wholesale clear: every unseen reply
     // becomes seen, whether or not the tab ends up focused afterwards (#1037).
-    get().clearUnread(tabId);
+    if (opts.activate !== false) get().clearUnread(tabId);
     const existing = get().tabs.find((t) => t.tabId === tabId);
     if (existing) {
       // Live session → resurface its tab, never respawn (omp has no
@@ -1393,7 +1415,7 @@ export function createLifecycleSlice(
         tabs: s.tabs.map((t) =>
           t.tabId === tabId ? { ...t, hidden: false } : t,
         ),
-        ...focusOn(tabId),
+        ...(opts.activate === false ? {} : focusOn(tabId)),
       }));
       return;
     }
@@ -1425,7 +1447,7 @@ export function createLifecycleSlice(
             instanceId,
           },
         ],
-        ...focusOn(tabId),
+        ...(opts.activate === false ? {} : focusOn(tabId)),
         exited: dropExited(s.exited, tabId),
         hibernated: dropHibernated(s.hibernated, tabId),
       }));
@@ -1895,6 +1917,7 @@ export function createLifecycleSlice(
       }),
     );
     if (deleted.length > 0) dropTabs([...new Set(deleted)], "the session was deleted");
+    for (const id of deleted) get().clearArtifactReferences(id);
     const order = rows.flatMap((r) => [r.tabId, ...r.cascade.map((d) => d.tabId)]);
     const notice = bulkFailureNotice(failures, order);
     if (notice !== null) get().reportError(notice);

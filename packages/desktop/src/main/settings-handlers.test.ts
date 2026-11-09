@@ -106,3 +106,29 @@ describe("model usage telemetry consent", () => {
     }
   });
 });
+
+describe("artifact library gate ordering", () => {
+  it("persists and revokes before broadcasting even when reconciliation fails", async () => {
+    const dir = fs.mkdtempSync(path.join(os.tmpdir(), "omp-ui-artifact-gate-"));
+    try {
+      const registry = Registry.load(path.join(dir, "registry.json"));
+      registry.setSetting("artifactLibraryEnabled", true);
+      let admitted = true;
+      const observed: boolean[] = [];
+      const handlers = registerSettingsHandlers({
+        registry,
+        broadcast: async () => { observed.push(admitted); },
+        supportedCompactionMethods: async () => [],
+        onAppUpdateTrainChanged: async () => {},
+        onFleetLadderChanged: () => {}, onTelemetryChanged: () => {}, seedCouncilRoster: async () => {},
+        onArtifactLibraryChanged: () => {
+          admitted = registry.getSetting("artifactLibraryEnabled");
+          throw new Error("failed roster update");
+        },
+      });
+      await expect(handlers[CH.setArtifactLibraryEnabled](false)).rejects.toThrow("failed roster update");
+      expect(observed).toEqual([false]);
+      expect(Registry.load(path.join(dir, "registry.json")).getSetting("artifactLibraryEnabled")).toBe(false);
+    } finally { fs.rmSync(dir, {recursive: true, force: true}); }
+  });
+});

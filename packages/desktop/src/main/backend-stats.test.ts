@@ -57,7 +57,7 @@ vi.mock("@omp-ui/core", async (importOriginal) => ({
 
 const win = {
   isDestroyed: () => false,
-  webContents: { isDestroyed: () => false, isCrashed: () => false, send: () => {} },
+  webContents: { mainFrame: {}, isDestroyed: () => false, isCrashed: () => false, send: () => {} },
 };
 const query: StatsQuery = {
   rangeDays: 7,
@@ -86,7 +86,7 @@ function boot(): MainBackend {
 function invoke(channel: string, ...args: unknown[]): Promise<unknown> {
   const handler = ipc.get(channel);
   if (!handler) throw new Error(`missing IPC handler: ${channel}`);
-  return Promise.resolve(handler(null, ...args));
+  return Promise.resolve().then(() => handler({sender: win.webContents, senderFrame: win.webContents.mainFrame}, ...args));
 }
 
 beforeEach(() => {

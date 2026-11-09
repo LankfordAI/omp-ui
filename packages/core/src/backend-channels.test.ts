@@ -60,6 +60,18 @@ const statsQuery: StatsQuery = {
 };
 
 const VALID_ARGS = {
+  setArtifactLibraryEnabled: [false],
+  artifactList: [{}],
+  artifactDescribe: [{artifactId: "10000000-0000-4000-8000-000000000001"}],
+  artifactReadPart: [{artifactId: "10000000-0000-4000-8000-000000000001", codeRevisionId: "10000000-0000-4000-8000-000000000002", dataSnapshotId: "10000000-0000-4000-8000-000000000003", part: "definition", offset: 0, limit: 16384}],
+  artifactResolveSource: [{tabId: "tab-1", sessionId: "10000000-0000-4000-8000-000000000004", toolCallId: "native-call", sourceHash: "a".repeat(64)}],
+  artifactKeep: [{draftId: "10000000-0000-4000-8000-000000000005", title: "Saved document"}],
+  artifactAcceptRevision: [{draftId: "10000000-0000-4000-8000-000000000005", expectedCodeRevisionId: "10000000-0000-4000-8000-000000000002"}],
+  artifactReference: [{targetTabId: "tab-1", artifactId: "10000000-0000-4000-8000-000000000001", codeRevisionId: "10000000-0000-4000-8000-000000000002", dataSnapshotId: "10000000-0000-4000-8000-000000000003", includeData: false}],
+  artifactPrepareRefresh: [{targetTabId: "tab-1", artifactId: "10000000-0000-4000-8000-000000000001", codeRevisionId: "10000000-0000-4000-8000-000000000002", dataSnapshotId: "10000000-0000-4000-8000-000000000003", datasetIds: ["rows"]}],
+  artifactApplyCapture: [{captureId: "10000000-0000-4000-8000-000000000006", expectedCodeRevisionId: "10000000-0000-4000-8000-000000000002", expectedDatasetHeads: {rows: "10000000-0000-4000-8000-000000000007"}}],
+  artifactDiscardDraft: [{draftId: "10000000-0000-4000-8000-000000000005"}],
+  artifactDelete: [{artifactId: "10000000-0000-4000-8000-000000000001", expectedGeneration: 1}],
   addProject: ["/project"],
   addRemoteInstance: [{ url: "http://127.0.0.1:4678", nickname: "", secret: { kind: "token", value: "tok" } }],
   anonymizeSession: ["tab-1"],

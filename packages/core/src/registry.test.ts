@@ -64,6 +64,21 @@ function rejectAtomicReplaces(file: string): () => void {
   };
 }
 
+describe("artifact library opt-in", () => {
+  it("keeps fresh, missing, and malformed values disabled without creating artifact storage", () => {
+    const file = tmpFile();
+    expect(Registry.load(file).getSetting("artifactLibraryEnabled")).toBe(false);
+    for (const value of [undefined, "true", 1, {}, null]) {
+      fs.writeFileSync(file, JSON.stringify({schemaVersion: 1, settings: {artifactLibraryEnabled: value}, projects: [], sessions: []}));
+      expect(Registry.load(file).getSetting("artifactLibraryEnabled")).toBe(false);
+      expect(fs.existsSync(path.join(path.dirname(file), "artifacts"))).toBe(false);
+    }
+    const registry = Registry.load(file);
+    registry.setSetting("artifactLibraryEnabled", true);
+    expect(Registry.load(file).getSetting("artifactLibraryEnabled")).toBe(true);
+  });
+});
+
 describe("model usage telemetry preference", () => {
   it("defaults sharing on for fresh, unset, and malformed preferences", () => {
     const file = tmpFile();

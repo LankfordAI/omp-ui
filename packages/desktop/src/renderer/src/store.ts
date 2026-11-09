@@ -30,6 +30,8 @@ import { createFrameReductionSlice } from "./store/slices/frame-reduction";
 import { createStatsSlice } from "./store/slices/stats";
 import { createFleetSlice } from "./store/slices/fleet";
 import { createLabSlice } from "./store/slices/lab";
+import { createArtifactsSlice } from "./store/slices/artifacts";
+import { createArtifactReferencesSlice } from "./store/slices/artifact-references";
 import {
   createLiveAudioSlice,
   installLiveReplayGuards,
@@ -447,6 +449,8 @@ export const useStore = create<UiStore>()((set, get, api) => {
     ...lab,
     ...stats,
     ...fleet,
+    ...createArtifactsSlice(set, get),
+    ...createArtifactReferencesSlice(set, get),
     ...collab,
     ...sideQuestions,
     ...migrate,
@@ -482,6 +486,10 @@ export const useStore = create<UiStore>()((set, get, api) => {
       if (initialized) return;
       initialized = true;
       backend.onStateChanged(applyAuthoritativeState);
+      backend.onArtifactLibraryChanged((event) => {
+        if (event.kind === "disabled") get().closeArtifacts();
+        get().invalidateArtifactLibrary();
+      });
       // #498: the checkout moved outside this client — a remote transport
       // checkout executing on its owner, a host-side release switch, or a git
       // command in a terminal. Re-read local refs only; upstream freshness stays

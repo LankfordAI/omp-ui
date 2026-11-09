@@ -54,8 +54,8 @@ export interface RpcClientOpts {
   childEnv?: NodeJS.ProcessEnv;
   /** Extra `-e` extensions — the plan-mode driver (see plan-extension.ts). */
   extensions?: string[];
-  /** Commands sent once, immediately after protocol negotiation and before ready is forwarded. */
-  initialCommands?: object[];
+  /** Commands resolved once on the command rail, after negotiation and before ready is forwarded. */
+  initialCommands?: object[] | (() => object[]);
   /**
    * Warm-pool boot mode (issue #908 perf): the child spawns but the client
    * consumes NOTHING on the wire — no `negotiate_protocol`, no
@@ -136,10 +136,11 @@ export class RpcClient {
   readonly #reassembler: RpcChunkReassembler;
   /** The live observer set; `arm()` swaps the inert warm-boot one for it. */
   #sinks: RpcSinks;
-  /** Non-null while deferred: reassembled frames park here until `arm()` replays them. */
+  /** Non-null until both adopted and ready: boot frames replay only after the command rail. */
   #deferred: RpcFrame[] | null;
-  /** Deferred boot saw ready: `arm()` must negotiate before the command rail. */
-  #needsNegotiate = false;
+  #armed: boolean;
+  /** Cold or adopted commands; factories stay unevaluated until ready and armed. */
+  #initialCommands: RpcClientOpts["initialCommands"];
   /** Exit-edge observers that fire regardless of arm state (warm-pool invalidation). */
   readonly #deathWatchers: Array<(code: number | null) => void> = [];
   /** stderr line observers; registration replays every complete line still in the tail. */
@@ -159,6 +160,8 @@ export class RpcClient {
     // spawnOmp makes (pty.ts).
     fs.mkdirSync(opts.lineageDir, { recursive: true });
     this.#opts = opts;
+    this.#initialCommands = opts.initialCommands;
+    this.#armed = !opts.deferArm;
     if (opts.deferArm) {
       this.#sinks = { onFrame: () => {}, onExit: () => {}, onError: () => {} };
       this.#deferred = [];
@@ -227,7 +230,7 @@ export class RpcClient {
 
   /** True once `arm()` has swapped in real sinks (always true for non-deferred clients). */
   get armed(): boolean {
-    return this.#deferred === null;
+    return this.#armed;
   }
 
   get dead(): boolean {
@@ -252,61 +255,76 @@ export class RpcClient {
   }
 
   /**
-   * Completes a deferred warm boot: swap in the session's observer set, flush
-   * every initial command, then replay the frames that parked between ready
-   * and arming (boot-time `extension_ui_request`s included — they still need
-   * an answer). Callers must have installed their identity fences first.
+   * Completes a deferred warm boot: swap in the session's observer set and
+   * resolve its command rail after negotiation, then replay parked frames
+   * (boot-time `extension_ui_request`s included — they still need an answer).
+   * Arming before ready holds the rail until ready; factories observe the
+   * latest state at that edge. Callers must install identity fences first.
    */
-  arm(sinks: RpcSinks, initialCommands?: object[]): void {
+  arm(sinks: RpcSinks, initialCommands?: RpcClientOpts["initialCommands"]): void {
     if (this.#dead) throw new Error("cannot arm a dead rpc-ui client");
-    if (this.#deferred === null) throw new Error("rpc-ui client is already armed");
+    if (this.#armed) throw new Error("rpc-ui client is already armed");
     this.#sinks = sinks;
-    if (this.#needsNegotiate) {
-      this.#needsNegotiate = false;
-      this.send({ type: "negotiate_protocol", protocolVersion: 2 });
-    }
-    for (const command of initialCommands ?? []) this.send(command);
-    const parked = this.#deferred;
+    this.#initialCommands = initialCommands;
+    this.#armed = true;
+    if (this.#readySeen) this.#flushDeferred();
+  }
+
+  #flushDeferred(): boolean {
+    const parked = this.#deferred!;
     this.#deferred = null;
+    if (!this.#startCommandRail()) return false;
     // Replay keeps the input-order contract: the answerer sees every parked
     // frame (boot-time extension_ui_requests need answers) before it forwards.
     for (const frame of parked) {
       this.#sinks.onInputFrame?.(frame);
       this.#deliver(frame);
     }
+    return true;
+  }
+
+  #startCommandRail(): boolean {
+    this.send({ type: "negotiate_protocol", protocolVersion: 2 });
+    const initialCommands = this.#initialCommands;
+    this.#initialCommands = undefined;
+    try {
+      const commands = typeof initialCommands === "function" ? initialCommands() : initialCommands;
+      for (const command of commands ?? []) this.send(command);
+      return !this.#dead;
+    } catch (err: unknown) {
+      this.#fatal(`failed to prepare initial rpc-ui commands: ${err instanceof Error ? err.message : String(err)}`);
+      return false;
+    }
   }
 
   #onFrame(frame: RpcFrame): void {
-    // The input-order hook fires before the ready interception and before
-    // forwarding, so a main-process answerer sees every frame first.
-    if (this.#deferred === null) this.#sinks.onInputFrame?.(frame);
+    const parked = this.#deferred;
+    if (parked !== null) {
+      // Even an adopted child stays parked until ready: boot-time request
+      // answerers must not write ahead of negotiation and the command rail.
+      parked.push(frame);
+      if (parked.length > MAX_PARKED_FRAMES) {
+        this.#fatal("deferred rpc-ui client parked too many frames");
+        return;
+      }
+    } else {
+      // Input hooks run before forwarding, including for the ready frame.
+      this.#sinks.onInputFrame?.(frame);
+    }
     if (!this.#readySeen && isReadyFrame(frame)) {
       this.#readySeen = true;
       clearTimeout(this.#readyTimer);
       const max = frame.maxFrameBytes;
       if (typeof max === "number" && Number.isInteger(max) && max > 0) this.#maxFrameBytes = max;
-      // Transport concern — the renderer never sees this. A live client
-      // negotiates on the ready edge and rides its initialCommands; a
-      // deferred warm boot consumes no bytes at all until `arm()` (see the
-      // deferArm doc), so the adopted child replays the cold-spawn sequence.
-      if (this.#deferred === null) {
-        this.send({ type: "negotiate_protocol", protocolVersion: 2 });
-        for (const command of this.#opts.initialCommands ?? []) this.send(command);
-      } else {
-        this.#needsNegotiate = true;
+      if (this.#armed) {
+        if (parked !== null ? !this.#flushDeferred() : !this.#startCommandRail()) return;
       }
       this.#opts.onBootReady?.();
+      if (this.#dead) return;
     }
-    if (this.#deferred !== null) {
-      // Parked: a deferred client forwards nothing until armed. The ceiling
-      // is hygiene only — the pool arms or kills long before this.
-      this.#deferred.push(frame);
-      if (this.#deferred.length > MAX_PARKED_FRAMES) {
-        this.#fatal("deferred rpc-ui client parked too many frames");
-      }
-      return;
-    }
-    this.#deliver(frame);
+    // arm() may have replayed this very frame from onBootReady; a frame
+    // that entered the parked queue never also takes the live delivery tail.
+    if (parked === null) this.#deliver(frame);
   }
 
   /** The forwarding tail shared by live delivery and post-arm replay (ready itself is forwarded too; the renderer ignores it). */

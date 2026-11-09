@@ -1,3 +1,5 @@
+import { normalizeArtifactAuthoringSpec, type ManagedArtifactSpec } from "./artifacts";
+
 // Interactive HTML artifacts (issue #994, ADR-0082). Pure — no `node:` or
 // Electron imports — because three places speak this one contract: main's
 // HostBridge validates the `omp-ui_render_html` call, main's webview guard
@@ -55,6 +57,7 @@ export interface HtmlArtifactArgs {
   title: string;
   html: string;
   height: number;
+  artifact?: ManagedArtifactSpec;
 }
 
 const encoder = new TextEncoder();
@@ -82,6 +85,7 @@ export function parseHtmlArtifactArgs(
     return { ok: false, reason: "arguments must be an object with title and html" };
   }
   const record = raw as Record<string, unknown>;
+  for (const key of Object.keys(record)) if (!["title", "html", "height", "artifact"].includes(key)) return { ok: false, reason: `Unknown field: ${key}` };
   const title = typeof record.title === "string" ? record.title.trim() : "";
   if (title === "") return { ok: false, reason: "title must be a non-empty string" };
   if (title.length > HTML_ARTIFACT_TITLE_MAX) {
@@ -96,7 +100,11 @@ export function parseHtmlArtifactArgs(
       reason: `html is ${bytes} bytes; the limit is ${HTML_ARTIFACT_MAX_BYTES} bytes (inline your data, drop unused libraries)`,
     };
   }
-  return { ok: true, args: { title, html, height: clampHeight(record.height) } };
+  if (record.artifact !== undefined) {
+    try { normalizeArtifactAuthoringSpec(record.artifact, { recordedAt: "1970-01-01T00:00:00.000Z", captureSessionId: null, captureToolCallId: null }); }
+    catch (error) { return { ok: false, reason: error instanceof Error ? error.message : "Invalid managed artifact contract" }; }
+  }
+  return { ok: true, args: { title, html, height: clampHeight(record.height), ...(record.artifact !== undefined ? { artifact: record.artifact as ManagedArtifactSpec } : {}) } };
 }
 
 /** The tool's answer to the model. Setting-free on purpose: the machine that

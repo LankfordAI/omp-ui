@@ -12,6 +12,10 @@ omp-ui lists only **owned sessions**. These are sessions launched by omp-ui, inc
 
 A **lineage** is the initial session plus any sessions that the same spawned process switches to in-process. They share one pinned lineage directory. This boundary matters when you delete: omp-ui removes the whole lineage directory from both the active and archive session roots, including every transcript and artifact in it.
 
+Kept artifacts in the experimental [Artifacts library](#artifacts-experimental)
+are not lineage files: deleting a source session or unregistering its project
+does not delete their accepted code, saved inputs or dataset history.
+
 omp-ui offers two ways to use an owned session:
 
 - **Native mode** uses the rpc-ui protocol. It has a native transcript, composer, Session HUD, inspector rail, Plan mode, attachments, and a session console.
@@ -163,6 +167,85 @@ A prompt row also offers **fork from here** on omp 18.4.11+ ([#717](https://gith
 Type `!` at the start of a native composer draft to run a shell command through the session without spending a model turn: `!git status` executes immediately, its output lands in the transcript as its own row and in the model's context, and a non-zero exit shows on the row. While a command runs its row offers a **stop** control, which cancels every shell command running in that session. Commands run in the session's working tree; `cd` inside one command does not carry over to the next. The embedded TUI in terminal tabs keeps its own `!` handling, including cwd tracking.
 
 To copy terminal output, select it with the mouse, right-click the selection, and choose **Copy**; terminal tabs offer the same menu. When a program captures the mouse, such as vim or OMP's TUI, hold `Shift` while dragging to select on Linux and Windows.
+
+## Artifacts (experimental)
+
+Enable **Artifact library (experimental)** under **Settings → Experimental**.
+It is off by default and separate from **Run scripts in HTML artifacts**.
+Enabling it updates already-live native sessions without sending a model prompt.
+
+### Keep and reopen
+
+Ask for an artifact in an ordinary native session, or keep one that emerges
+from the discussion. A completed owning transcript artifact offers **Keep**;
+the sidebar and command palette then open **Artifacts** as a full main pane.
+There is no New artifact wizard or separate authoring session.
+
+Keep retains the accepted document independently of its source. Repeating it
+opens the same kept identity. A managed artifact uses an explicit save API for
+checks, notes, inputs and manual rows; **Saved** means main acknowledged a
+durable write. **Not saved** leaves the previous acknowledged state intact.
+HTML without that contract remains document-only: arbitrary JavaScript state
+is not saved automatically.
+
+The library shows kept status, Project/Chat origin, immutable code/data history,
+pending draft candidates, and **Data & sources**. Source links target the exact
+available creation session; a removed source remains noninteractive provenance.
+Closing or restarting retains acknowledged data. A second viewer or older
+version is read-only. External code/data changes leave the loaded view intact
+with an explicit Reload notice rather than replacing inputs beneath you.
+
+### Reference and revise in a session
+
+Choose **Reference in session**, use **@ → Artifacts**, or drag a catalog entry
+onto a native composer. Choose an existing session on the owning host: its
+draft text is preserved and a removable, version-specific chip is added.
+Nothing is sent automatically, including when that session needs to resume.
+
+**Include saved data snapshot** is off by default. Without it, the reference
+permits definition and source/schema metadata, not state or dataset values.
+HTML itself can contain sensitive bundled content, so inspect what you share.
+The prompt carries a small descriptor; the agent reads exact content in bounded
+pages only when needed. An old reference never follows later saves or refreshes.
+
+Discuss changes in that ordinary session. The proposal stays a draft candidate
+until you choose **Accept revision** or **Keep as new** on the completed source
+card. Compatible acceptance keeps current working data, including changes made
+after the reference. A stale code base or changed declared data contract cannot
+replace the existing artifact; keep it independently or discuss a new candidate.
+
+### Refresh data explicitly
+
+**Refresh data in session** selects datasets and an existing same-owner native
+session, or explicitly creates an unseeded ordinary session in the retained
+origin project or a new Chat. It appends a reference and editable request to
+that draft; you decide when to send. Existing Plan mode and tool permissions
+remain in force.
+
+The session repeats the recorded import/query/extraction with its existing
+access. A successful capture is staged, not applied. Review source/method,
+reported and host-recorded dates, sizes and paged before/after values, then
+choose **Apply captured data**. Only the selected datasets change: saved manual
+inputs, untouched datasets and historical references do not move. A failed or
+interrupted capture retains the last good snapshot and its capture dates. A turn
+that reports no capture remains **Awaiting a capture**, not a successful refresh.
+
+Provenance is agent-reported, not a verified lineage guarantee. Recipes contain
+connection names and instructions, never credentials. Guest code gets no
+networking, files, session tools, refresh scheduler or command execution API.
+
+### Disable or delete
+
+Turning the experiment off closes library/managed surfaces and refuses new
+operations, but keeps stored data and draft chips. Referenced prompts, including
+held prompts, cannot be delivered until you re-enable it or remove references.
+Already-sent OMP context cannot be retracted. Re-enable to reopen the same store.
+
+**Delete** explicitly removes that artifact's code/data history and revokes its
+references. Session/project deletion does not perform this action. Authenticated
+browser clients use the same host library with static, script-free documents;
+joined-instance libraries are not copied or proxied. Use Artifacts on the
+artifact's owning host.
 
 ## Plan mode and review
 

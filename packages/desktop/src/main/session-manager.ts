@@ -44,7 +44,6 @@ import {
   fleetToolAccess,
   fleetToolsRegistered,
   setEventFilterCommand,
-  setHostToolsCommand,
   setHostUriSchemesCommand,
   autoresearchArmMessage,
   vibeArmMessage,
@@ -180,6 +179,9 @@ import type { FleetWakeLedgerAccess } from "./fleet-wake";
 import { HibernationTracker } from "./hibernation-tracker";
 import { CapabilityControlTracker } from "./capability-control-tracker";
 import { HostBridge } from "./host-bridge";
+import type { ArtifactService } from "./artifact-service";
+import { ArtifactHostTools } from "./artifact-host-tools";
+import { parseArtifactPromptReferences } from "@omp-ui/core/artifact-references";
 import { PlanGateTracker, type PlanGate } from "./plan-gate-tracker";
 import { PlanPreflightController } from "./plan-preflight";
 import { readConfinedPlanFile } from "./plan-file";
@@ -266,6 +268,8 @@ export interface SessionManagerDependencies {
   registry: Registry;
   registryFile: string;
   providerKeys: ProviderKeys;
+  /** Optional so Lite and focused session tests retain their existing capability set. */
+  artifacts?: ArtifactService;
   /**
    * A catalogued provider sign-in with at least one account counts as a
    * model provider for the fresh-spawn gate (issue #368); the desktop backend
@@ -379,6 +383,14 @@ export class SessionManager {
   private readonly vaultProjects = new Map<string, VaultProjectIdentity>();
   /** The main-process answerer for host tool/URI frames (issue #688, ADR-0043). */
   private readonly hostBridge: HostBridge;
+  private readonly artifactHostTools = new ArtifactHostTools({
+    enabled: () => this.deps.registry.getSetting("artifactLibraryEnabled"),
+    current: (tabId) => {
+      const entry = this.live.get(tabId);
+      return entry?.kind === "rpc-ui" ? entry : null;
+    },
+    error: (tabId, message) => this.deps.send(CH.onRpcFrame, tabId, {type: "omp_ui_error", message}),
+  });
   /** One in-flight execute re-check per tab (§6: atomic settle reservation). */
   private readonly planAnswerReservations = new Set<string>();
   private readonly frameObservers: FrameObserver[] = [];
@@ -443,6 +455,15 @@ export class SessionManager {
       registry: deps.registry,
       getSessionsRoot: () => deps.getSessionsRoot(),
       broadcast: () => deps.broadcast(),
+      onSessionObserved: (tabId, sessionId) => {
+        const entry = this.live.get(tabId);
+        if (entry?.kind !== "rpc-ui") return;
+        try {
+          deps.artifacts?.observeSource({lineageDir: path.resolve(deps.getSessionsRoot(), entry.record.lineageDir), runtimeKey: entry.runtimeKey, sessionId});
+        } catch (error) {
+          deps.send(CH.onRpcFrame, tabId, {type: "omp_ui_error", message: `Artifact provenance could not adopt the observed source: ${String(error)}`});
+        }
+      },
     });
     this.viewTracker = new ViewTracker();
     this.hibernation = new HibernationTracker({
@@ -499,6 +520,7 @@ export class SessionManager {
     });
     const fleet = deps.fleet;
     this.hostBridge = new HostBridge({
+      artifacts: deps.artifacts,
       readPlanFile: (root, absPath) => readConfinedPlanFile(root, absPath),
       planSnapshot: (tabId, absPath) => this.planSnapshotFor(tabId, absPath),
       planRoot: (tabId) => {
@@ -617,6 +639,7 @@ export class SessionManager {
       },
       isLive: (tabId) => this.live.has(tabId),
       busy: (tabId) => this.pendingOp(tabId) !== undefined,
+      admitPayload: (tabId, text) => this.admitArtifactPrompt(tabId, text, false),
       send: (tabId, cmd) => this.rpcSend(tabId, cmd),
       resume: (tabId) => this.spawn({ origin: "resume", resumeTabId: tabId, cols: 80, rows: 24 }),
       refreshLimits: (tabId) =>
@@ -707,6 +730,39 @@ export class SessionManager {
     return this.live.has(tabId);
   }
 
+  artifactRuntimeKey(tabId: string): string | null {
+    const entry = this.live.get(tabId);
+    return entry?.kind === "rpc-ui" ? entry.runtimeKey : null;
+  }
+
+  artifactAuthoringAvailable(tabId: string): boolean {
+    const entry = this.live.get(tabId);
+    return entry?.kind === "rpc-ui" && entry.hostToolsReady &&
+      entry.hostToolOptions?.artifacts === true &&
+      entry.artifactHostToolsEpoch === this.artifactHostTools.currentEpoch &&
+      entry.artifactAuthoringError === null && this.deps.registry.getSetting("artifactLibraryEnabled");
+  }
+
+  artifactAuthoringError(tabId: string): string | null {
+    const entry = this.live.get(tabId);
+    return entry?.kind === "rpc-ui" ? entry.artifactAuthoringError : null;
+  }
+
+  syncArtifactHostTools(enabled: boolean): Promise<void> {
+    const settled = this.artifactHostTools.sync(enabled);
+    this.heldPrompts.sync();
+    return settled;
+  }
+
+  private admitArtifactPrompt(tabId: string, text: string, bindRefresh = true): void {
+    if (this.deps.artifacts === undefined) {
+      if (parseArtifactPromptReferences(text).length > 0)
+        throw new Error("Enable the artifact library experiment or remove the reference");
+      return;
+    }
+    this.deps.artifacts.admitPrompt({tabId, text, bindRefresh});
+  }
+
   hasLiveInProject(projectCwd: string): boolean {
     for (const entry of this.live.values()) {
       if (entry.record.projectCwd === projectCwd) return true;
@@ -724,6 +780,7 @@ export class SessionManager {
   }
 
   killAll(): void {
+    this.artifactHostTools.close();
     // A quit is not a session death: announcing these exits would mark every
     // tab exited in a still-attached renderer and persist an empty desktop
     // view, so the update relaunch would restore nothing (issue #99).
@@ -765,6 +822,11 @@ export class SessionManager {
 
   private handleExit(tabId: string, entry: LiveEntry, exitCode: number): void {
     entry.markExited();
+    if (entry.kind === "rpc-ui") this.artifactHostTools.forget(entry);
+    if (entry.kind === "rpc-ui" && this.live.get(tabId) === entry) {
+      try { this.deps.artifacts?.sourceExited({lineageDir: path.resolve(this.deps.getSessionsRoot(), entry.record.lineageDir), runtimeKey: entry.runtimeKey}); }
+      catch (error) { this.deps.send(CH.onRpcFrame, tabId, {type: "omp_ui_error", message: `Could not record interrupted artifact refresh: ${String(error)}`}); }
+    }
     if (this.live.get(tabId) === entry) {
       this.live.delete(tabId);
       this.turns.clear(tabId);
@@ -1261,6 +1323,14 @@ export class SessionManager {
             (session) => session.tabId === tabId,
           );
           if (freshRecord) {
+            let artifactCleaned = true;
+            try { this.deps.artifacts?.dropDraftsForLineage(path.resolve(this.deps.getSessionsRoot(), freshRecord.lineageDir)); }
+            catch (error) {
+              artifactCleaned = false;
+              fail("clean spawned artifact sources", error);
+              try { this.watcherHub.start(freshRecord); } catch (restoreError) { fail("restore retained source watcher", restoreError); }
+            }
+            if (artifactCleaned) {
             try {
               this.deps.registry.removeSession(tabId);
             } catch (error) {
@@ -1284,6 +1354,7 @@ export class SessionManager {
               } catch (error) {
                 fail("remove spawned chat dir", error);
               }
+            }
             }
           }
           if (
@@ -1642,28 +1713,8 @@ export class SessionManager {
     // message snapshot from message_update frames when it honours this.
     // Riding initialCommands puts it before the first turn on fresh spawn
     // and hibernate-resume alike — the ADR-0043 registration guarantee.
-    initialCommands.push(
-      setEventFilterCommand(),
-      setHostUriSchemesCommand(),
-      // The fleet tools (machines/dispatch/status/exec/project/exec_poll/update).
-      // A chat always carries them (#945): it has no project of its own, so
-      // starting work in projects is what it is for. Every other session
-      // follows the user's setting at each spawn/resume (ADR-0048); an
-      // agent-dispatched session never gets them (no recursion, ADR-0061; a
-      // chat is never dispatched), and neither does a webhook- or MCP-started
-      // one — its prompt comes from an outside sender (ADR-0075, ADR-0080).
-      // `fleetToolAccess` above is the one rule that decides this (#1076);
-      // exec/project/update inherit this gate plus each owner node's grant
-      // ladder (#901, ADR-0062).
-      setHostToolsCommand({
-        vault: vaults.vaults.length > 0,
-        fleet: fleetToolsRegistered(fleetAccess),
-        device:
-          this.deps.registry.getSetting("deviceAgentAccess") &&
-          record.fleet?.requestedBy.kind !== "webhook" &&
-          record.fleet?.requestedBy.kind !== "mcp",
-      }),
-    );
+    const registrationIndex = initialCommands.length;
+    initialCommands.push(setEventFilterCommand(), setHostUriSchemesCommand());
     // The issue #774 recovery pick: `--model` forces the boot but never
     // rewrites the transcript, so the same initialCommands rail restates the
     // model through `set_model` — the entry it appends is what a later
@@ -1718,13 +1769,8 @@ export class SessionManager {
     // The overlay drops only the model; the record keeps it for the next spawn.
     const modelHold = await this.probeModelHold(record, modelOverride);
     entry.modelHold = modelHold;
-    // A held prompt that is due rides last (issue #986): the session resumed
-    // for it, or for anything else once its reset passed. Never while held.
-    const heldCommand = this.heldPrompts.initialCommand(record, modelHold !== null);
-    if (heldCommand !== null) initialCommands.push(heldCommand);
-    // A due scheduled prompt rides after it (issue #987), leaving plan mode
-    // first when this spawn boots in it. Never while held.
-    initialCommands.push(...this.scheduledPrompts.initialCommands(record, modelHold !== null, planMode && bridgeLoaded.plan));
+    // Stateful admission and tool membership resolve at the actual ready/arm
+    // rail, after asynchronous overlay/model and warm adoption work.
     const configOverlays = await writeRpcOverlays(
       modelHold === null ? record : { ...record, model: null },
       absLineageDir,
@@ -1779,6 +1825,10 @@ export class SessionManager {
       onFrame: (frame) => {
         if (this.live.get(record.tabId) === entry) this.hostBridge.noteFrame(record.tabId, frame);
         const control = normalizeControlFrame(frame);
+        if (this.live.get(record.tabId) === entry) {
+          this.artifactHostTools.observe(entry, frame);
+          if (frame.type === "ready") this.artifactHostTools.ready(entry);
+        }
         if (
           !eventFilterWarned &&
           control?.kind === "response" &&
@@ -1919,6 +1969,33 @@ export class SessionManager {
         adopted = null;
       }
     }
+    const commandsAtReady = (): object[] => {
+      const current = this.deps.registry.sessions.find(session => session.tabId === record.tabId);
+      if (current === undefined || this.live.get(record.tabId) !== entry)
+        throw new Error("session was replaced or deleted before protocol readiness");
+      entry.fleetToolAccess = fleetToolAccess({
+        chat: current.chat,
+        agentDispatchEnabled: this.deps.registry.getSetting("fleetAgentDispatch"),
+        requestedByKind: current.fleet?.requestedBy.kind ?? null,
+      });
+      const commands = [...initialCommands];
+      const tools = this.artifactHostTools.initial(entry, {
+        vault: this.deps.registry.getSetting("vaultRegistry").vaults.length > 0,
+        fleet: fleetToolsRegistered(entry.fleetToolAccess),
+        device: this.deps.registry.getSetting("deviceAgentAccess") &&
+          current.fleet?.requestedBy.kind !== "webhook" && current.fleet?.requestedBy.kind !== "mcp",
+        artifacts: this.deps.artifacts !== undefined && this.deps.registry.getSetting("artifactLibraryEnabled"),
+      });
+      commands.splice(registrationIndex + 2, 0, tools);
+      const held = this.heldPrompts.initialCommand(current, entry.modelHold !== null);
+      if (held !== null) commands.push(held);
+      commands.push(...this.scheduledPrompts.initialCommands(current, entry.modelHold !== null, planMode && bridgeLoaded.plan));
+      for (const command of commands) {
+        if (isObject(command) && MODEL_HOLD_COMMANDS.has(String(command.type)) && typeof command.message === "string")
+          this.admitArtifactPrompt(record.tabId, command.message);
+      }
+      return commands;
+    };
     const rpc =
       adopted !== null
         ? adopted.client
@@ -1939,7 +2016,7 @@ export class SessionManager {
             // from reservation), so only the cold boot needs it.
             childEnv: privateChildEnv(record.private),
             extensions,
-            initialCommands,
+            initialCommands: commandsAtReady,
             onInputFrame: sinks.onInputFrame,
             onFrame: sinks.onFrame,
             onExit: sinks.onExit,
@@ -1953,7 +2030,7 @@ export class SessionManager {
     // the real command rail, and the replay of every buffered boot frame fire
     // synchronously inside `arm`; each sink fences on
     // `this.live.get(tabId) === entry` plus the wired `entry.rpc`.
-    adopted?.client.arm(sinks, initialCommands);
+    adopted?.client.arm(sinks, commandsAtReady);
     await this.deps.broadcast();
     return { tabId: record.tabId };
   }
@@ -3030,7 +3107,22 @@ export class SessionManager {
     return false;
   }
 
+  private refuseArtifactPrompt(tabId: string, cmd: RpcFrame, error: unknown): void {
+    const frame: RpcFrame = {type: "response", id: cmd.id, command: cmd.type, success: false,
+      error: error instanceof Error ? error.message : String(error)};
+    const entry = this.live.get(tabId);
+    if (entry?.kind === "rpc-ui") this.deliverFrame(tabId, frame, entry);
+    else this.deps.send(CH.onRpcFrame, tabId, frame);
+  }
+
   rpcSend(tabId: string, cmd: RpcFrame): void {
+    if (MODEL_HOLD_COMMANDS.has(String(cmd.type)) && typeof cmd.message === "string") {
+      try { this.admitArtifactPrompt(tabId, cmd.message, false); }
+      catch (error) {
+        this.refuseArtifactPrompt(tabId, cmd, error);
+        return;
+      }
+    }
     // §6: a response aimed at a frame main holds, or at a PENDING HTML gate,
     // is consumed here — only the acknowledged answer path may settle those.
     // Markdown gates and all other extension traffic pass through unchanged.
@@ -3069,7 +3161,12 @@ export class SessionManager {
     switch (entry.kind) {
       case "rpc-ui":
         if (entry.modelHold !== null && this.holdModelCommand(tabId, entry, cmd)) return;
-        entry.rpc?.send(cmd);
+        if (entry.rpc === null) return;
+        if (MODEL_HOLD_COMMANDS.has(String(cmd.type)) && typeof cmd.message === "string") {
+          try { this.admitArtifactPrompt(tabId, cmd.message); }
+          catch (error) { this.refuseArtifactPrompt(tabId, cmd, error); return; }
+        }
+        entry.rpc.send(cmd);
         return;
       case "pty":
         return;
@@ -3246,6 +3343,8 @@ export class SessionManager {
     if (!record) return;
     const entry = this.live.get(tabId);
     if (entry) await this.killAndReap(tabId, entry);
+    // Fail before irreversible lineage deletion; accepted artifacts are independent.
+    this.deps.artifacts?.dropDraftsForLineage(path.resolve(this.deps.getSessionsRoot(), record.lineageDir));
     // The tab is gone; its first-title ownership (issue #1090) dies with it.
     this.firstTitleShots.delete(tabId);
     this.stallWatchdog.dispose(tabId);

@@ -77,7 +77,7 @@ let wc: EventEmitter & {
   isCrashed: () => boolean;
   send: Mock;
 };
-const invoke = (channel: string, ...args: unknown[]): unknown => state.handlers.get(channel)!(null, ...args);
+const invoke = (channel: string, ...args: unknown[]): unknown => state.handlers.get(channel)!({sender: wc, senderFrame: wc.mainFrame}, ...args);
 const requestPort = (event = { sender: wc, senderFrame: wc.mainFrame }): void => {
   state.handlers.get(DESKTOP_PANE_PORT_REQUEST)!(event);
 };
@@ -115,6 +115,23 @@ afterEach(async () => {
 });
 
 describe("desktop pane port integration", () => {
+  it("refuses generic requests and ignores generic notifications from foreign or child frames", async () => {
+    const setter = state.handlers.get(CH.setHtmlArtifactScripts)!;
+    const notify = state.handlers.get(CH.browserPaneSubscribe)!;
+    for (const event of [
+      {sender: Object.assign(new EventEmitter(), wc), senderFrame: wc.mainFrame},
+      {sender: wc, senderFrame: {postMessage: vi.fn()}},
+      {sender: wc, senderFrame: null},
+    ]) {
+      expect(() => setter(event, false)).toThrow("root main frame");
+      notify(event, "local", "forged-client", true);
+    }
+    expect(state.subscribe).not.toHaveBeenCalled();
+    await setter({sender: wc, senderFrame: wc.mainFrame}, false);
+    const disk = JSON.parse(fs.readFileSync(path.join(base, "registry.json"), "utf8")) as {settings: {htmlArtifactScripts: boolean}};
+    expect(disk.settings.htmlArtifactScripts).toBe(false);
+  });
+
   it("accepts only the app main frame and preserves the remote-instance JPEG route", () => {
     requestPort({ sender: Object.assign(new EventEmitter(), wc), senderFrame: wc.mainFrame });
     requestPort({ sender: wc, senderFrame: { postMessage: vi.fn() } });

@@ -181,6 +181,8 @@ const mockBackend = {
   reportStallCap: vi.fn(),
   onRpcFrame: vi.fn(),
   onStateChanged: vi.fn(),
+  onArtifactLibraryChanged: vi.fn(),
+  setArtifactLibraryEnabled: vi.fn(async () => {}),
   onBranchChanged: vi.fn(),
   onPtyData: vi.fn(),
   onPtyExit: vi.fn(),

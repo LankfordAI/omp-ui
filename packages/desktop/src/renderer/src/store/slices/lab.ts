@@ -18,7 +18,7 @@ import { linkedExperiment } from "../../lib/experiment-link";
 import { t } from "../../lib/i18n";
 import { projectKey, splitProjectKey } from "../../lib/project-key";
 import { dropExited, type GetState, type SetState, type StoreMachinery } from "./shared";
-import { findRecord, focusOn } from "./view";
+import { bumpNavigationGeneration, findRecord, focusOn } from "./view";
 import type { ExperimentsCache, LabSlice, LabView, NewExperimentSpec } from "../types";
 
 export interface LabDeps {
@@ -183,6 +183,7 @@ export function createLabSlice(
 
   const openLab: LabSlice["openLab"] = (projectCwd = null, instanceId = null, focus) => {
     if (get().state?.experimentsEnabled !== true) return;
+    bumpNavigationGeneration();
     let view: LabView = { projectCwd, instanceId, experiment: null };
     if (focus !== undefined) {
       const tab = get().tabs.find((candidate) => candidate.tabId === focus.tabId);
@@ -205,13 +206,14 @@ export function createLabSlice(
         };
       }
     }
-    set({ lab: view, fleet: null, fleetTerminal: null });
+    set({ lab: view, fleet: null, fleetTerminal: null, stats: null, artifacts: null });
     if (view.projectCwd !== null) void loadExperiments(view.projectCwd, view.instanceId);
     if (view.experiment !== null) void loadExperimentDetail(view.experiment);
     if (refreshTimer === null) refreshTimer = window.setInterval(refresh, LAB_REFRESH_MS);
   };
 
   const closeLab = (): void => {
+    bumpNavigationGeneration();
     set({ lab: null });
     stopRefresh();
   };
@@ -290,12 +292,18 @@ export function createLabSlice(
     experiments: {},
     openLab,
     openLabExperiment(target) {
+      if (get().state?.experimentsEnabled !== true) return;
+      bumpNavigationGeneration();
       // A detail opened from an overview keeps that overview's scope behind it.
       set((s) => ({
         lab:
           s.lab === null
             ? { projectCwd: target.projectCwd, instanceId: target.instanceId, experiment: target }
             : { ...s.lab, experiment: target },
+        artifacts: null,
+        stats: null,
+        fleet: null,
+        fleetTerminal: null,
       }));
       void loadExperimentDetail(target);
       if (refreshTimer === null) refreshTimer = window.setInterval(refresh, LAB_REFRESH_MS);

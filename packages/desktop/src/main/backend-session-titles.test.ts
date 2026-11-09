@@ -52,6 +52,7 @@ vi.mock("@omp-ui/core", async (importOriginal) => {
 const win = {
   isDestroyed: () => false,
   webContents: {
+    mainFrame: {},
     isDestroyed: () => false,
     isCrashed: () => false,
     send: () => {},
@@ -63,7 +64,7 @@ let agentDir = "";
 let registryFile = "";
 
 const invoke = (ch: string, ...args: unknown[]): Promise<unknown> =>
-  Promise.resolve(handlers.get(ch)!(null, ...args));
+  Promise.resolve().then(() => handlers.get(ch)!({sender: win.webContents, senderFrame: win.webContents.mainFrame}, ...args));
 
 /** Port of session-index.ts (omp ≥18.3.0): the only table core's probe needs. */
 const SESSION_TITLES_DDL = `

@@ -120,6 +120,7 @@ export function CommandPalette() {
   const openExperimentDialog = useStore((s) => s.openExperimentDialog);
   const openStats = useStore((s) => s.openStats);
   const openFleet = useStore((s) => s.openFleet);
+  const openArtifacts = useStore((s) => s.openArtifacts);
   const openNewSessionDialog = useStore((s) => s.openNewSessionDialog);
   const t = useT();
   const localeId = currentLocaleId();
@@ -256,6 +257,7 @@ export function CommandPalette() {
         run: () => openLab(null, null),
       });
     }
+    if (state?.artifactLibraryEnabled === true) out.push({ id: "app:artifacts", group: t("palette.group.app"), name: t("artifacts.title"), desc: t("artifacts.paletteHint"), run: () => openArtifacts() });
     out.push({
       id: "app:stats",
       group: t("palette.group.app"),
@@ -476,7 +478,7 @@ export function CommandPalette() {
     });
 
     return out;
-  }, [state, rpcTabs, unread, tabs, activeTabId, openSession, newSession, newChat, openProjectPicker, openCapabilitiesViewer, openSessionTreeView, openLab, openStats, openFleet, openNewSessionDialog, openExperimentDialog, settleSessions, openScheduleDialog, settleUndoCount, undoSettle, switchMode, regenerateSessionTitle, askAboutSession, toggleBrowserPane, toggleDevicePane, shareSession, anonymizeSession, ompInstalled, openShareLive, checkAppUpdate, checkOmpUpdate, openSettings, openDiagnosticsDialog, openGettingStarted, t, localeId, keybindings]);
+  }, [state, rpcTabs, unread, tabs, activeTabId, openSession, newSession, newChat, openProjectPicker, openCapabilitiesViewer, openSessionTreeView, openLab, openStats, openFleet, openArtifacts, openNewSessionDialog, openExperimentDialog, settleSessions, openScheduleDialog, settleUndoCount, undoSettle, switchMode, regenerateSessionTitle, askAboutSession, toggleBrowserPane, toggleDevicePane, shareSession, anonymizeSession, ompInstalled, openShareLive, checkAppUpdate, checkOmpUpdate, openSettings, openDiagnosticsDialog, openGettingStarted, t, localeId, keybindings]);
 
   // Flat, already-ordered result list; group headers are derived from it so the
   // arrow-key index and the rendered rows can never disagree.
