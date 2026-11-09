@@ -249,7 +249,7 @@ cover hours after rollout.
 The default overview's pageviews, screens, and session duration are not supplied.
 Exclude synthetic `telemetry_setup_check` events from adoption charts.
 
-No renderer SDK, autocapture, person profiles, or GeoIP enrichment is used. See
+No renderer SDK, autocapture, or person profiles are used. See
 [Settings](settings.md#usage-telemetry-privacy-and-coverage) for the fields, coverage,
 privacy policy, and maintainer dashboard configuration.
 

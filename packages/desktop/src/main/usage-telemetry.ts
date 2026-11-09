@@ -191,7 +191,6 @@ export class UsageTelemetry {
       arch: process.arch,
       release_channel: deps.appVersion.includes("-nightly.") ? "nightly" : "stable",
       $process_person_profile: false,
-      $geoip_disable: true,
     };
   }
 

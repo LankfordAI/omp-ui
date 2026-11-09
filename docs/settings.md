@@ -28,7 +28,7 @@ The pages below follow the order in the app. Pay attention to the timing notes. 
 | Voice input | Adds a microphone button to every native-transcript composer ([ADR-0034](adr/0034-dictation-captured-in-renderer-transcribed-in-main.md)) and lets you hold `R` anywhere outside a text field to dictate. Recordings are transcribed by the provider named by the dictation model below and inserted into the draft at the caret — never sent. Off hides the button everywhere, including remote web clients, and disables the hold-`R` key. | Immediately, in every composer. |
 | Dictation model | Which speech-to-text model transcribes recordings. Rows come from the installed omp's STT catalog (`omp models --kind stt`), never a curated list ([ADR-0027](adr/0027-web-search-provider-list-discovered-from-omp.md)); each shows whether a stored provider key makes it callable. Auto resolves at call time to the first callable model. | The next recording. |
 | Transcript text size | Changes text in native transcripts without scaling the rest of the app. | Immediately. |
-| Basic app activity (required) | Automatic in packaged builds, with no in-app opt-out. Sends one `app_active` event per UTC hour when the desktop window is foregrounded, with a random installation ID, app version, OS family, architecture, and stable/nightly build channel, to PostHog US Cloud. | Hourly foreground use; development builds never report. Historical activity heartbeats are never backfilled. |
+| Basic app activity (required) | Automatic in packaged builds, with no in-app opt-out. Sends one `app_active` event per UTC hour when the desktop window is foregrounded, with a random installation ID, app version, OS family, architecture, and stable/nightly build channel, to PostHog US Cloud. Country is derived from the connecting IP; the raw address is discarded. | Hourly foreground use; development builds never report. Historical activity heartbeats are never backfilled. |
 | Share hourly model/provider usage | On by default, with an opt-out switch. Sends hourly recorded request and non-cached token aggregates by public provider route and model, plus installation/build/platform metadata, for omp-ui-owned session lineages only. An explicitly saved off value remains off. | Preference changes apply immediately; reports are sent after each UTC hour closes. Turning this off does not stop basic activity reporting. |
 
 ### Usage telemetry privacy and coverage
@@ -47,7 +47,7 @@ Upgrades preserve the installation identity and existing checkpoints, and drain 
 
 If an acknowledgement is lost, [PostHog deduplicates](https://posthog.com/docs/data/events#event-deduplication) retries by the unchanged event UUID, name, timestamp, and installation ID. This merge is eventual: a dashboard can briefly show duplicates before PostHog merges them.
 
-Every event disables person-profile processing and requests no GeoIP enrichment. The maintainer must also configure PostHog to discard IP addresses and disable GeoIP enrichment: the provider necessarily receives the connecting IP to accept HTTPS. These are pseudonymous usage reports, not a claim of complete anonymity. Required activity reporting and the optional model-sharing control are separate from OMP's **Telemetry export**, which controls its own `OTEL_*` destinations. The absence of an in-app opt-out does not establish a legal basis for analytics collection; distribution-specific consent and privacy obligations still need to be assessed.
+Every event disables person-profile processing. The provider resolves country from the connecting IP (GeoIP enrichment), and the project is configured to discard client IP addresses after that enrichment, so raw IPs are not stored with new events: the provider necessarily receives the connecting IP to accept HTTPS. These are pseudonymous usage reports, not a claim of complete anonymity. Required activity reporting and the optional model-sharing control are separate from OMP's **Telemetry export**, which controls its own `OTEL_*` destinations. The absence of an in-app opt-out does not establish a legal basis for analytics collection; distribution-specific consent and privacy obligations still need to be assessed.
 
 For the maintainer's Product Analytics dashboard:
 
@@ -57,6 +57,7 @@ For the maintainer's Product Analytics dashboard:
 - `app_active` keeps its UTC `date` property and uses an event timestamp within the observed foreground hour. There is no historical activity heartbeat backfill.
 - The default overview's pageviews, screens, and session duration are still not supplied; use the event-based Trends above instead.
 - `telemetry_setup_check` is a synthetic integration-verification event, not app activity or model usage; exclude it from adoption charts.
+- Break down `app_active` **Unique users** by `$geoip_country_code` for user geography; use `app_active`, not the consent-gated model events. Events sent before GeoIP capture shipped permanently carry no country — never read its absence as "not in a country".
 
 ## Appearance
 
