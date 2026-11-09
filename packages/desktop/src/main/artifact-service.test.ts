@@ -3,9 +3,10 @@ import * as os from "node:os";
 import * as path from "node:path";
 import { randomUUID } from "node:crypto";
 import { afterEach, describe, expect, it } from "vitest";
-import { withArtifactReferenceContext, type ArtifactJson, type ArtifactLibraryChanged, type ArtifactRecord, type ArtifactReference } from "@omp-ui/core";
+import { parseHtmlArtifactArgs, withArtifactReferenceContext, type ArtifactJson, type ArtifactLibraryChanged, type ArtifactRecord, type ArtifactReference } from "@omp-ui/core";
 import { ArtifactService, type ArtifactTarget } from "./artifact-service";
 import { artifactSourceHash } from "./artifact-source";
+import { readArtifactDatasetFile } from "./artifact-dataset-file";
 import { HostBridge } from "./host-bridge";
 
 const cleanups: (() => void)[] = [];
@@ -16,16 +17,18 @@ const REFRESH_RUNTIME_KEY = "44444444-4444-4444-8444-444444444444";
 afterEach(() => { for (const cleanup of cleanups.splice(0).reverse()) cleanup(); });
 function fixture(initiallyEnabled = true) {
   const root = fs.mkdtempSync(path.join(os.tmpdir(), "artifact-service-"));
-  const owner = randomUUID(); let enabled = initiallyEnabled;
+  const owner = randomUUID(); let enabled = initiallyEnabled; let currentOwner: string = owner;
   const lineageDir = path.join(root, "lineage"); fs.mkdirSync(lineageDir);
   let target: ArtifactTarget = { ownerInstanceId: owner, lineageDir, sessionId: SESSION_ID, runtimeKey: RUNTIME_KEY, native: true, originContext: { kind: "chat" } };
   const events: ArtifactLibraryChanged[] = [];
-  const options = { registryFile: path.join(root, "registry.json"), artifactsRoot: path.join(root, "artifacts"), ownerInstanceId: () => owner,
-    enabled: () => enabled, scriptsEnabled: () => true, resolveTarget: () => target, sourcePath: async () => path.join(lineageDir, "session.jsonl"),
+  let sourcePath: (tabId: string) => Promise<string | null> = async () => path.join(lineageDir, "session.jsonl");
+  const options = { registryFile: path.join(root, "registry.json"), artifactsRoot: path.join(root, "artifacts"), ownerInstanceId: () => currentOwner,
+    enabled: () => enabled, scriptsEnabled: () => true, resolveTarget: () => target, sourcePath: (tabId: string) => sourcePath(tabId),
     sources: () => [{ lineageDir }], onChanged: (event: ArtifactLibraryChanged) => events.push(event) };
   let service = new ArtifactService(options);
   cleanups.push(() => { service.close(); fs.rmSync(root, { recursive: true, force: true }); });
   return { root, owner, lineageDir, events, get service() { return service; }, get target() { return target; }, setTarget(next: ArtifactTarget) { target = next; },
+    setOwner(next: string) { currentOwner = next; }, setSourcePath(next: (tabId: string) => Promise<string | null>) { sourcePath = next; },
     setEnabled(on: boolean) { enabled = on; service.setEnabled(on); }, restart() { service.close(); service = new ArtifactService(options); } };
 }
 function dataset(value: ArtifactJson = [1, 2]) {
@@ -37,12 +40,36 @@ function dataset(value: ArtifactJson = [1, 2]) {
 function args(value: ArtifactJson = [1, 2]) {
   return { title: "Rows", html: "<main>Rows</main>", artifact: { protocolVersion: 1, stateSchema: "view-v1", initialState: { selected: 1 }, datasets: [dataset(value)] } };
 }
-function keep(f: { service: ArtifactService }, value: ArtifactJson = [1, 2]) {
-  const draft = f.service.stageRender({ tabId: "tab", toolCallId: randomUUID(), args: args(value) });
+async function keep(f: { service: ArtifactService }, value: ArtifactJson = [1, 2]) {
+  const draft = await f.service.stageRender({ tabId: "tab", toolCallId: randomUUID(), args: args(value) });
   return f.service.keep({ draftId: draft.draftId, title: "My rows" });
 }
 function versions(record: ArtifactRecord) { return { artifactId: record.artifactId, codeRevisionId: record.currentCodeRevisionId, dataSnapshotId: record.currentDataSnapshotId }; }
 function wire(reference: ArtifactReference, text = "Use this context") { return withArtifactReferenceContext(text, [reference]); }
+function fileArgs(valueFile = "local://rows.json") {
+  const rendered = args(); const { value: _value, ...definition } = rendered.artifact.datasets[0]!;
+  return { ...rendered, artifact: { ...rendered.artifact, datasets: [{ ...definition, valueFile }] } };
+}
+function nativeTranscript(f: { lineageDir: string; target: ArtifactTarget }): string {
+  const stem = `2026-11-09T00-00-00-000Z_${f.target.sessionId}`;
+  const file = path.join(f.lineageDir, `${stem}.jsonl`);
+  fs.mkdirSync(path.join(f.lineageDir, stem, "local"), { recursive: true });
+  fs.writeFileSync(file, `${JSON.stringify({ type: "session", id: f.target.sessionId })}\n`);
+  return file;
+}
+async function materialize(raw: unknown, localRoot: string, context: { signal: AbortSignal; authorize(): void }) {
+  const parsed = parseHtmlArtifactArgs(raw); if (!parsed.ok) throw new Error(parsed.reason);
+  const artifact = parsed.args.artifact; if (artifact === undefined) return raw;
+  const datasets = [];
+  for (const dataset of artifact.datasets) {
+    if (typeof dataset.valueFile === "string") {
+      const { valueFile, ...inline } = dataset;
+      const value = await readArtifactDatasetFile(localRoot, valueFile, context);
+      datasets.push({ ...inline, value });
+    } else datasets.push(dataset);
+  }
+  return { ...raw as Record<string, unknown>, artifact: { ...artifact, datasets } };
+}
 
 describe("main-owned artifact authority", () => {
   it("creates no storage while disabled; legacy HTML still answers without artifact details", async () => {
@@ -53,6 +80,7 @@ describe("main-owned artifact authority", () => {
     const sent: unknown[] = [];
     const bridge = new HostBridge({ readPlanFile: async () => ({ ok: false, reason: "unreadable" }), planSnapshot: () => null,
       planRoot: () => f.lineageDir, notify: () => "posted", capabilitySessionId: () => null, log: () => {}, artifacts: f.service });
+    bridge.route("tab", { type: "message_start", message: { role: "assistant", content: [{ type: "toolCall", id: "native-id", name: "omp-ui_render_html", arguments: {} }] } }, frame => sent.push(frame));
     bridge.route("tab", { type: "host_tool_call", id: "answer-id", toolCallId: "native-id", toolName: "omp-ui_render_html", arguments: { title: "Plain", html: "<b>plain</b>" } }, frame => sent.push(frame));
     await Promise.resolve();
     expect(sent[0]).toMatchObject({ id: "answer-id", type: "host_tool_result" });
@@ -64,12 +92,13 @@ describe("main-owned artifact authority", () => {
     const f = fixture(); const sent: unknown[] = [];
     const bridge = new HostBridge({ readPlanFile: async () => ({ ok: false, reason: "unreadable" }), planSnapshot: () => null,
       planRoot: () => f.lineageDir, notify: () => "posted", capabilitySessionId: () => null, log: () => {}, artifacts: f.service });
+    bridge.route("tab", { type: "message_start", message: { role: "assistant", content: [{ type: "toolCall", id: "native-tool-id", name: "omp-ui_render_html", arguments: {} }] } }, frame => sent.push(frame));
     bridge.route("tab", { type: "host_tool_call", id: "transport-answer-id", toolCallId: "native-tool-id", toolName: "omp-ui_render_html", arguments: args() }, frame => sent.push(frame));
     await Promise.resolve();
     const result = sent[0] as { result: { details: { artifactDraft: { draftId: string; sourceHash: string } } } };
     const draft = result.result.details.artifactDraft;
     expect(await f.service.resolveSource({ tabId: "tab", sessionId: f.target.sessionId, toolCallId: "native-tool-id", ...draft })).toMatchObject({ status: "draft", draft: { source: { toolCallId: "native-tool-id" } } });
-    const absent = f.service.stageRender({ tabId: "tab", toolCallId: null, args: { ...args(), title: "Missing ID" } });
+    const absent = await f.service.stageRender({ tabId: "tab", toolCallId: null, args: { ...args(), title: "Missing ID" } });
     expect(absent.source.toolCallId).toBeNull();
     const loaded = f.service.resolveSurface({ draftId: absent.draftId });
     expect(loaded.datasets.rows!.provenance).toMatchObject({ captureToolCallId: null, captureSessionId: SESSION_ID, trust: "agent-reported" });
@@ -78,7 +107,7 @@ describe("main-owned artifact authority", () => {
 
   it("Keeps idempotently and resolves retained source associations after Keep and explicit deletion", async () => {
     const f = fixture(); const rendered = args();
-    const draft = f.service.stageRender({ tabId: "tab", toolCallId: "tool", args: rendered });
+    const draft = await f.service.stageRender({ tabId: "tab", toolCallId: "tool", args: rendered });
     const kept = f.service.keep({ draftId: draft.draftId, title: "Accepted" });
     expect(f.service.keep({ draftId: draft.draftId, title: "Different title" })).toEqual(kept);
     const source = { tabId: "tab", sessionId: f.target.sessionId, toolCallId: "tool", sourceHash: artifactSourceHash(rendered), draftId: draft.draftId };
@@ -87,9 +116,9 @@ describe("main-owned artifact authority", () => {
     expect(await f.service.resolveSource(source)).toEqual({ status: "deleted", artifactId: kept.artifactId });
   });
 
-  it("retains pre-Keep acknowledged edits, rejects stale draft CAS and fences disabled commits", () => {
+  it("retains pre-Keep acknowledged edits, rejects stale draft CAS and fences disabled commits", async () => {
     const f = fixture();
-    const draft = f.service.stageRender({ tabId: "tab", toolCallId: "draft", args: args() });
+    const draft = await f.service.stageRender({ tabId: "tab", toolCallId: "draft", args: args() });
     const surface = f.service.resolveSurface({ draftId: draft.draftId });
     const receipt = f.service.saveBoundState(surface.binding, { expectedStateRevision: 0, set: { selected: 2 } }, () => {});
     expect(receipt.stateRevision).toBe(1);
@@ -105,8 +134,8 @@ describe("main-owned artifact authority", () => {
     expect(f.service.resolveSurface(versions(kept)).state).toEqual({ selected: 2 });
   });
 
-  it("uses exact immutable read grants across restart, preserves consent, and pages multibyte text", () => {
-    const f = fixture(); const kept = keep(f, "한🙂".repeat(30_000));
+  it("uses exact immutable read grants across restart, preserves consent, and pages multibyte text", async () => {
+    const f = fixture(); const kept = await keep(f, "한🙂".repeat(30_000));
     const reference = f.service.reference({ targetTabId: "tab", ...versions(kept), includeData: true });
     const definitionOnly = f.service.reference({ targetTabId: "tab", ...versions(kept), includeData: false });
     f.service.admitPrompt({ tabId: "tab", text: wire(reference) });
@@ -124,8 +153,8 @@ describe("main-owned artifact authority", () => {
     expect(() => f.service.reference({ targetTabId: "tab", ...versions(kept), includeData: true })).toThrow("machine");
   });
 
-  it("binds refresh only on actual send, supports unmaterialized targets, and applies only human-authorized data", () => {
-    const f = fixture(); const kept = keep(f);
+  it("binds refresh only on actual send, supports unmaterialized targets, and applies only human-authorized data", async () => {
+    const f = fixture(); const kept = await keep(f);
     f.setTarget({ ...f.target, sessionId: null, runtimeKey: REFRESH_RUNTIME_KEY });
     const refresh = f.service.prepareRefresh({ targetTabId: "tab", ...versions(kept), datasetIds: ["rows"] });
     expect(refresh.request.sessionId).toBeNull();
@@ -139,23 +168,23 @@ describe("main-owned artifact authority", () => {
     expect(() => f.service.applyCapture({ captureId: capture.captureId, expectedCodeRevisionId: kept.currentCodeRevisionId, expectedDatasetHeads: capture.expectedDatasetHeads })).toThrow();
   });
 
-  it("retains current working data when accepting a compatible revision and rejects stale candidates", () => {
-    const f = fixture(); const kept = keep(f);
+  it("retains current working data when accepting a compatible revision and rejects stale candidates", async () => {
+    const f = fixture(); const kept = await keep(f);
     const reference = f.service.reference({ targetTabId: "tab", ...versions(kept), includeData: true });
-    const candidate = f.service.stageRender({ tabId: "tab", toolCallId: "revision", args: { ...args([99]), html: "<main>Revised</main>", artifact: { ...args([99]).artifact, basedOn: { referenceId: reference.referenceId } } } });
+    const candidate = await f.service.stageRender({ tabId: "tab", toolCallId: "revision", args: { ...args([99]), html: "<main>Revised</main>", artifact: { ...args([99]).artifact, basedOn: { referenceId: reference.referenceId } } } });
     const surface = f.service.resolveSurface(versions(kept));
     const receipt = f.service.saveBoundState(surface.binding, { expectedStateRevision: surface.stateRevision, set: { selected: 7 } }, () => {});
     const revised = f.service.acceptRevision({ draftId: candidate.draftId, expectedCodeRevisionId: kept.currentCodeRevisionId });
     expect(revised.currentDataSnapshotId).toBe(receipt.dataSnapshotId);
     expect(f.service.resolveSurface(versions(revised)).state.selected).toBe(7);
     expect(f.service.resolveSurface(versions(revised)).datasets.rows!.value).toEqual([1, 2]);
-    const stale = f.service.stageRender({ tabId: "tab", toolCallId: "stale", args: { ...args(), artifact: { ...args().artifact, basedOn: { referenceId: reference.referenceId } } } });
+    const stale = await f.service.stageRender({ tabId: "tab", toolCallId: "stale", args: { ...args(), artifact: { ...args().artifact, basedOn: { referenceId: reference.referenceId } } } });
     expect(() => f.service.acceptRevision({ draftId: stale.draftId, expectedCodeRevisionId: revised.currentCodeRevisionId })).toThrow();
   });
 
-  it("cleans existing drafts while disabled without deleting accepted histories or creating absent stores", () => {
-    const f = fixture(); const kept = keep(f);
-    const discarded = f.service.stageRender({ tabId: "tab", toolCallId: "unkept", args: { title: "Plain draft", html: "<p>plain</p>" } });
+  it("cleans existing drafts while disabled without deleting accepted histories or creating absent stores", async () => {
+    const f = fixture(); const kept = await keep(f);
+    const discarded = await f.service.stageRender({ tabId: "tab", toolCallId: "unkept", args: { title: "Plain draft", html: "<p>plain</p>" } });
     f.setEnabled(false); f.service.dropDraftsForLineage(f.lineageDir); f.setEnabled(true);
     expect(f.service.describe({ artifactId: kept.artifactId }).artifact.artifactId).toBe(kept.artifactId);
     expect(() => f.service.resolveSurface({ draftId: discarded.draftId })).toThrow();
@@ -176,9 +205,95 @@ describe("main-owned artifact authority", () => {
     await expect(f.service.resolveSource({ tabId: "tab", sessionId: f.target.sessionId, toolCallId: "native-historic", sourceHash: artifactSourceHash({ ...authored, html: "forged" }) })).rejects.toThrow("arguments");
   });
 
+  it("requires main materialization and an existing native transcript for file references", async () => {
+    const f = fixture();
+    await expect(f.service.stageRender({ tabId: "tab", toolCallId: "no-materializer", args: fileArgs() })).rejects.toThrow("materialization");
+    f.setSourcePath(async () => null);
+    await expect(f.service.stageRender({ tabId: "tab", toolCallId: "no-transcript", args: fileArgs(),
+      materialize: async () => args() })).rejects.toMatchObject({ code: "source-missing" });
+    expect(fs.existsSync(path.join(f.root, "artifacts"))).toBe(false);
+  });
+
+  it("keys durable imported values by raw identity and never rereads them after Keep and reopen", async () => {
+    const f = fixture(); const transcript = nativeTranscript(f); f.setSourcePath(async () => transcript); const rendered = fileArgs(); let importedFile = "";
+    const draft = await f.service.stageRender({ tabId: "tab", toolCallId: "native-file-import", args: rendered,
+      materialize: async (raw, localRoot, context) => {
+        fs.mkdirSync(localRoot, { recursive: true }); importedFile = path.join(localRoot, "rows.json");
+        fs.writeFileSync(importedFile, JSON.stringify([1, 2]));
+        return materialize(raw, localRoot, context);
+      } });
+    expect(draft.source.sourceHash).toBe(artifactSourceHash(rendered));
+    expect(draft.source.sourceHash).not.toBe(artifactSourceHash(args()));
+    expect(f.service.resolveSurface({ draftId: draft.draftId }).datasets.rows!.value).toEqual([1, 2]);
+    const kept = f.service.keep({ draftId: draft.draftId, title: "Imported rows" });
+    let sourceReads = 0; f.setSourcePath(async () => { sourceReads++; return transcript; });
+    const source = { tabId: "tab", sessionId: f.target.sessionId, toolCallId: "native-file-import", sourceHash: draft.source.sourceHash, draftId: draft.draftId };
+    f.restart(); fs.writeFileSync(importedFile, JSON.stringify([99]));
+    const { draftId: _draftId, ...rawSource } = source;
+    expect(await f.service.resolveSource(rawSource)).toMatchObject({ status: "kept", artifact: { artifactId: kept.artifactId } });
+    expect(await f.service.resolveSource(source)).toMatchObject({ status: "kept", artifact: { artifactId: kept.artifactId } });
+    expect(f.service.resolveSurface(versions(kept)).datasets.rows!.value).toEqual([1, 2]);
+    fs.rmSync(importedFile); fs.rmSync(transcript); f.restart();
+    expect(await f.service.resolveSource(source)).toMatchObject({ status: "kept", artifact: { artifactId: kept.artifactId } });
+    expect(f.service.resolveSurface(versions(kept)).datasets.rows!.value).toEqual([1, 2]);
+    expect(sourceReads).toBe(0);
+  });
+
+  it("validates depth across the resolved envelope before creating storage", async () => {
+    const f = fixture(); const transcript = nativeTranscript(f); f.setSourcePath(async () => transcript); let deep: ArtifactJson = "leaf";
+    for (let depth = 0; depth < 70; depth++) deep = { nested: deep };
+    await expect(f.service.stageRender({ tabId: "tab", toolCallId: "deep-file", args: fileArgs(),
+      materialize: async () => args(deep) })).rejects.toThrow(/depth/i);
+    expect(fs.existsSync(path.join(f.root, "artifacts"))).toBe(false);
+  });
+
+  it("applies the aggregate limit to mixed inline and materialized datasets", async () => {
+    const f = fixture(); const transcript = nativeTranscript(f); f.setSourcePath(async () => transcript); const size = 7 * 1024 * 1024;
+    const inline = [0, 1, 2, 3].map(index => ({ ...dataset("x".repeat(size)), id: `inline${index}` }));
+    const rendered = fileArgs(); const mixed = { ...rendered, artifact: { ...rendered.artifact, datasets: [...inline, rendered.artifact.datasets[0]!] } };
+    await expect(f.service.stageRender({ tabId: "tab", toolCallId: "mixed-file", args: mixed,
+      materialize: async (raw, localRoot, context) => {
+        fs.mkdirSync(localRoot, { recursive: true }); fs.writeFileSync(path.join(localRoot, "rows.json"), JSON.stringify("y".repeat(size)));
+        return materialize(raw, localRoot, context);
+      } })).rejects.toThrow(/total/i);
+    expect(fs.existsSync(path.join(f.root, "artifacts"))).toBe(false);
+  });
+
+  it("does not reconstruct a missing file-backed association from transcript history", async () => {
+    const f = fixture(); const authored = fileArgs();
+    const file = path.join(f.lineageDir, "session.jsonl");
+    fs.writeFileSync(file, [
+      { type: "session", id: f.target.sessionId },
+      { type: "message", timestamp: "2026-11-09T01:00:00.000Z", message: { role: "assistant", content: [{ type: "toolCall", id: "native-file-backed", name: "omp-ui_render_html", arguments: authored }] } },
+      { type: "message", message: { role: "toolResult", toolCallId: "native-file-backed", toolName: "omp-ui_render_html", isError: false, content: [] } },
+    ].map(row => JSON.stringify(row)).join("\n"));
+    const request = { tabId: "tab", sessionId: f.target.sessionId, toolCallId: "native-file-backed", sourceHash: artifactSourceHash(authored) };
+    await expect(f.service.resolveSource(request)).rejects.toMatchObject({ code: "source-missing" });
+    expect(f.service.list().artifacts).toEqual([]);
+  });
+
+  it.each(["target", "gate", "off-on", "owner", "availability", "request", "cancel"] as const)("creates no storage when %s authority changes during file admission", async (race) => {
+    const f = fixture(); let admitted = true; let materialized = false;
+    const waiting = Promise.withResolvers<string | null>();
+    f.setSourcePath(() => waiting.promise);
+    const pending = f.service.stageRender({ tabId: "tab", toolCallId: "file-race", args: fileArgs(),
+      materialize: async () => { materialized = true; return args(); }, authorizeRequest: () => { if (!admitted) throw new Error("request cancelled"); } });
+    if (race === "target") f.setTarget({ ...f.target, sessionId: REFRESH_SESSION_ID });
+    if (race === "gate") f.setEnabled(false);
+    if (race === "off-on") { f.setEnabled(false); f.setEnabled(true); }
+    if (race === "owner") f.setOwner(randomUUID());
+    if (race === "availability") f.setTarget({ ...f.target, artifactsAvailable: false, artifactError: "registration lost" });
+    if (race === "request") admitted = false;
+    if (race === "cancel") f.service.close();
+    waiting.resolve(path.join(f.lineageDir, "session.jsonl"));
+    await expect(pending).rejects.toThrow();
+    expect(materialized).toBe(false);
+    expect(fs.existsSync(path.join(f.root, "artifacts"))).toBe(false);
+  });
+
   it("materializes initially-null native IDs only from an observed same-runtime header, including after Keep", async () => {
     const f = fixture(); f.setTarget({ ...f.target, sessionId: null });
-    const draft = f.service.stageRender({ tabId: "tab", toolCallId: null, args: args() });
+    const draft = await f.service.stageRender({ tabId: "tab", toolCallId: null, args: args() });
     const kept = f.service.keep({ draftId: draft.draftId, title: "Early Keep" });
     expect(kept.origin.sessionId).toBeNull();
     f.setTarget({ ...f.target, sessionId: REFRESH_SESSION_ID });
@@ -188,12 +303,12 @@ describe("main-owned artifact authority", () => {
     expect(await f.service.resolveSource({ tabId: "tab", sessionId: REFRESH_SESSION_ID, toolCallId: null, draftId: draft.draftId, sourceHash: draft.source.sourceHash })).toMatchObject({ status: "kept", artifact: { artifactId: kept.artifactId } });
   });
 
-  it("reconciles registry membership rather than file presence and retains accepted orphan histories", () => {
+  it("reconciles registry membership rather than file presence and retains accepted orphan histories", async () => {
     const f = fixture();
-    const activeWithoutFile = f.service.stageRender({ tabId: "tab", toolCallId: "active", args: { title: "Active", html: "active" } });
+    const activeWithoutFile = await f.service.stageRender({ tabId: "tab", toolCallId: "active", args: { title: "Active", html: "active" } });
     f.setTarget({ ...f.target, lineageDir: path.join(f.root, "deleted-lineage"), sessionId: REFRESH_SESSION_ID });
-    const unkept = f.service.stageRender({ tabId: "tab", toolCallId: "deleted-draft", args: { title: "Unkept", html: "unkept" } });
-    const accepted = keep(f);
+    const unkept = await f.service.stageRender({ tabId: "tab", toolCallId: "deleted-draft", args: { title: "Unkept", html: "unkept" } });
+    const accepted = await keep(f);
     f.setTarget({ ...f.target, lineageDir: f.lineageDir, sessionId: SESSION_ID });
     f.restart();
     expect(f.service.resolveSurface({ draftId: activeWithoutFile.draftId }).html).toBe("active");
@@ -203,8 +318,8 @@ describe("main-owned artifact authority", () => {
 });
 
 describe("refresh failure and dormant admission", () => {
-  it("preflights dormant drafts without binding, then records destination-bound failure without moving accepted data", () => {
-    const f = fixture(); const kept = keep(f);
+  it("preflights dormant drafts without binding, then records destination-bound failure without moving accepted data", async () => {
+    const f = fixture(); const kept = await keep(f);
     f.setTarget({...f.target, runtimeKey: null});
     const prepared = f.service.prepareRefresh({targetTabId: "tab", ...versions(kept), datasetIds: ["rows"]});
     const text = wire(prepared.reference, prepared.text);
@@ -221,8 +336,8 @@ describe("refresh failure and dormant admission", () => {
     expect(current.refreshRequests[0]).toMatchObject({status: "failed", failure: {message: "File unavailable"}});
     expect(current.snapshot.datasets[0]?.provenance.capturedAt).toBe("2026-11-08T00:00:00.000Z");
   });
-  it("rejects forged owner descriptors and records known interrupted captures without treating an empty turn as success", () => {
-    const f = fixture(); const kept = keep(f);
+  it("rejects forged owner descriptors and records known interrupted captures without treating an empty turn as success", async () => {
+    const f = fixture(); const kept = await keep(f);
     const prepared = f.service.prepareRefresh({targetTabId: "tab", ...versions(kept), datasetIds: ["rows"]});
     expect(() => f.service.admitPrompt({tabId: "tab", text: wire({...prepared.reference, ownerInstanceId: randomUUID()}, prepared.text)})).toThrow("immutable grant");
     f.service.admitPrompt({tabId: "tab", text: wire(prepared.reference, prepared.text)});
@@ -233,10 +348,10 @@ describe("refresh failure and dormant admission", () => {
 });
 
 describe("kept surface independence", () => {
-  it("revokes removed draft surfaces but preserves a kept writer when its source is deleted", () => {
-    const f = fixture(); const record = keep(f);
+  it("revokes removed draft surfaces but preserves a kept writer when its source is deleted", async () => {
+    const f = fixture(); const record = await keep(f);
     const kept = f.service.resolveSurface(versions(record));
-    const draft = f.service.stageRender({tabId: "tab", toolCallId: "unkept-surface", args: args()});
+    const draft = await f.service.stageRender({tabId: "tab", toolCallId: "unkept-surface", args: args()});
     const changes: ArtifactLibraryChanged[] = [];
     f.service.onSurfaceInvalidated(change => changes.push(change));
     f.service.dropDraftsForLineage(f.lineageDir);

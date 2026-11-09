@@ -87,3 +87,20 @@ Resolves issue #688. Verified against omp 18.4.3.
 - A stuck answerer is bounded: the watchdog's answer is generic and carries
   the request id, so a late real answer is impossible (the pending entry is
   gone) and the model is told the truth — omp-ui could not answer in time.
+
+## Amendment: direct artifact admission (2026-11-09, issue #1127)
+
+`omp-ui_render_html` requires positive membership in the owning assistant's
+direct tool calls. HostBridge records that membership at `onInputFrame` in
+input order, before forwarding events. The matching call must already be known
+when the host request arrives, with the same tool-call ID and tool name. A
+missing, ambiguous or nested call fails closed. Later transcript reads, tool
+results and wrapper arguments cannot supply admission after the fact.
+
+This rejects renders hidden inside `eval`, `task`, `multi_tool_use` and
+`write xd://...` instead of returning success for a document the native
+transcript cannot present. It does not remove existing orphan rows. Admission
+uses the existing main-owned request fence, pending map, cancellation and
+watchdog, so rejection and asynchronous dataset import still have one result
+owner. A cancelled, timed-out or replaced request cannot stage a late artifact
+or send a second answer.

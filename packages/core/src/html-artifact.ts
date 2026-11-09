@@ -1,4 +1,4 @@
-import { normalizeArtifactAuthoringSpec, type ManagedArtifactSpec } from "./artifacts";
+import { validateArtifactAuthoringSpec, type ManagedArtifactAuthoringSpec } from "./artifacts";
 
 // Interactive HTML artifacts (issue #994, ADR-0082). Pure — no `node:` or
 // Electron imports — because three places speak this one contract: main's
@@ -57,7 +57,7 @@ export interface HtmlArtifactArgs {
   title: string;
   html: string;
   height: number;
-  artifact?: ManagedArtifactSpec;
+  artifact?: ManagedArtifactAuthoringSpec;
 }
 
 const encoder = new TextEncoder();
@@ -101,10 +101,10 @@ export function parseHtmlArtifactArgs(
     };
   }
   if (record.artifact !== undefined) {
-    try { normalizeArtifactAuthoringSpec(record.artifact, { recordedAt: "1970-01-01T00:00:00.000Z", captureSessionId: null, captureToolCallId: null }); }
+    try { validateArtifactAuthoringSpec(record.artifact); }
     catch (error) { return { ok: false, reason: error instanceof Error ? error.message : "Invalid managed artifact contract" }; }
   }
-  return { ok: true, args: { title, html, height: clampHeight(record.height), ...(record.artifact !== undefined ? { artifact: record.artifact as ManagedArtifactSpec } : {}) } };
+  return { ok: true, args: { title, html, height: clampHeight(record.height), ...(record.artifact !== undefined ? { artifact: record.artifact as ManagedArtifactAuthoringSpec } : {}) } };
 }
 
 /** The tool's answer to the model. Setting-free on purpose: the machine that

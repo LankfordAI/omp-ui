@@ -13,6 +13,10 @@ import {
   parseHtmlArtifactArgs,
 } from "./html-artifact";
 
+function fileArtifact(valueFile: unknown = "local://datasets/rows.json") {
+  return { protocolVersion: 1, stateSchema: "view-v1", initialState: {}, datasets: [{ id: "rows", title: "Rows", schema: "rows-v1", valueFile, provenance: { source: { kind: "file", label: "Rows", locator: "local://datasets/rows.json" }, method: { kind: "import", description: "Read rows" }, refresh: { kind: "manual", requiredSources: ["local://datasets/rows.json"] } } }] };
+}
+
 describe("parseHtmlArtifactArgs", () => {
   it("accepts a titled document and clamps the height into bounds", () => {
     expect(parseHtmlArtifactArgs({ title: "  Chart ", html: "<p>x</p>" })).toEqual({
@@ -23,6 +27,19 @@ describe("parseHtmlArtifactArgs", () => {
     expect(short.ok && short.args.height).toBe(HTML_ARTIFACT_MIN_HEIGHT);
     const tall = parseHtmlArtifactArgs({ title: "t", html: "x", height: 99_999 });
     expect(tall.ok && tall.args.height).toBe(HTML_ARTIFACT_MAX_HEIGHT);
+  });
+
+  it("accepts unresolved file-backed datasets without materializing placeholder values", () => {
+    const artifact = fileArtifact();
+    expect(parseHtmlArtifactArgs({ title: "Chart", html: "<p>x</p>", artifact })).toEqual({ ok: true, args: { title: "Chart", html: "<p>x</p>", height: HTML_ARTIFACT_DEFAULT_HEIGHT, artifact } });
+    expect(artifact.datasets[0]).not.toHaveProperty("value");
+  });
+
+  it("refuses invalid file paths and datasets with both value sources", () => {
+    expect(parseHtmlArtifactArgs({ title: "Chart", html: "x", artifact: fileArtifact("local://../rows.json") }).ok).toBe(false);
+    const artifact = fileArtifact();
+    const withBoth = { ...artifact, datasets: [{ ...artifact.datasets[0]!, value: null }] };
+    expect(parseHtmlArtifactArgs({ title: "Chart", html: "x", artifact: withBoth }).ok).toBe(false);
   });
 
   it.each([

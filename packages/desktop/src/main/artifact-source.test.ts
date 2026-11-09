@@ -32,6 +32,13 @@ describe("historical artifact source authority", () => {
     await expect(readHistoricalArtifactSource(failed)).rejects.toThrow(/successful/i);
   });
 
+  it("keys raw file references independently of their materialized values", () => {
+    const raw = { title: "Rows", html: "<p>rows</p>", artifact: { datasets: [{ id: "rows", valueFile: "local://rows.json" }] } };
+    const materialized = { title: "Rows", html: "<p>rows</p>", artifact: { datasets: [{ id: "rows", value: [1, 2] }] } };
+    expect(artifactSourceHash(raw)).not.toBe(artifactSourceHash(materialized));
+    expect(artifactSourceHash({ artifact: raw.artifact, html: raw.html, title: raw.title })).toBe(artifactSourceHash(raw));
+  });
+
   it.each([false, true])("streams a target over 8 MiB after an oversized unrelated record (gzip=%s)", async (gzip) => {
     const args = { title: "Large managed inputs", html: "<b>large</b>", managed: { datasets: ["a".repeat(5 * 1024 * 1024), "b".repeat(5 * 1024 * 1024)] } };
     const source = fixture(args);

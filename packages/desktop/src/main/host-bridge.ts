@@ -76,6 +76,7 @@ import {
 } from "@omp-ui/core";
 import type { ConfinedPlanRead } from "./plan-file";
 import type { ArtifactService } from "./artifact-service";
+import { readArtifactDatasetFile } from "./artifact-dataset-file";
 
 /**
  * omp 18.6.1 has no host-tool timer of its own: a request settles on a result,
@@ -175,12 +176,17 @@ export class HostBridge {
   private readonly vaultTokens = new Map<string, Map<string, string>>();
   private readonly vaultWrites = new Map<string, number>();
   private readonly vaultCalls = new Map<string, Partial<Record<VaultAction, number>>>();
+  private readonly artifactCalls = new Map<string, Map<string, string>>();
+  private readonly consumedArtifactCalls = new Map<string, Set<string>>();
 
   constructor(private readonly deps: HostBridgeDeps) {}
 
   /** Captures per-tab answer context from a frame BEFORE it is delivered or claimed. */
   noteFrame(tabId: string, frame: RpcFrame): void {
-    if (frame.type === "turn_start") this.vaultWrites.delete(tabId);
+    if (frame.type === "turn_start") {
+      this.vaultWrites.delete(tabId);
+      this.resetArtifactCalls(tabId);
+    }
     if (frame.type === "response" && typeof frame.id === "string") {
       // A rejected registration means the model never sees the tool/scheme —
       // surface it once per spawn instead of letting the silence read as
@@ -206,6 +212,7 @@ export class HostBridge {
       const retained = this.deps.capabilitySessionId(tabId);
       if (observed !== null && retained !== null && retained !== observed) {
         this.planPaths.delete(tabId);
+        this.resetArtifactCalls(tabId);
       }
       return;
     }
@@ -241,6 +248,7 @@ export class HostBridge {
     this.vaultTokens.delete(tabId);
     this.vaultWrites.delete(tabId);
     this.vaultCalls.delete(tabId);
+    this.resetArtifactCalls(tabId);
   }
 
   /** The ids already answered on this tab — the renderer fence's source. */
@@ -265,6 +273,7 @@ export class HostBridge {
    * carries the renderer fence this bridge feeds.
    */
   route(tabId: string, frame: RpcFrame, send: (frame: RpcFrame) => void): boolean {
+    this.observeArtifactCalls(tabId, frame);
     const toolCall = parseHostToolCall(frame);
     if (toolCall !== null) {
       this.track(tabId, toolCall.id, send, (message) => hostToolErrorResult(toolCall.id, message));
@@ -283,6 +292,60 @@ export class HostBridge {
       return true;
     }
     return false;
+  }
+
+  private resetArtifactCalls(tabId: string): void {
+    this.artifactCalls.delete(tabId);
+    this.consumedArtifactCalls.delete(tabId);
+  }
+
+  /** Only model-visible assistant blocks establish a transcript card identity. */
+  private observeArtifactCalls(tabId: string, frame: RpcFrame): void {
+    if (frame.type === "turn_start") this.resetArtifactCalls(tabId);
+    if (frame.type === "session_info_update" || frame.type === "config_update") {
+      const retained = this.deps.capabilitySessionId(tabId);
+      if (typeof frame.sessionId === "string" && retained !== null && retained !== frame.sessionId) {
+        this.resetArtifactCalls(tabId);
+      }
+    }
+    const remember = (raw: unknown): void => {
+      if (!isArgumentRecord(raw) || raw.type !== "toolCall" || typeof raw.id !== "string" || raw.id === "" ||
+          (raw.name !== HTML_ARTIFACT_TOOL_NAME && raw.name !== ARTIFACT_CAPTURE_TOOL_NAME)) return;
+      const identity = JSON.stringify([raw.id, raw.name]);
+      if (this.consumedArtifactCalls.get(tabId)?.has(identity)) return;
+      let calls = this.artifactCalls.get(tabId);
+      if (calls === undefined) {
+        calls = new Map();
+        this.artifactCalls.set(tabId, calls);
+      }
+      calls.set(raw.id, raw.name);
+    };
+    if (frame.type === "message_start" || frame.type === "message_end") {
+      const message = frame.message;
+      if (!isArgumentRecord(message) || message.role !== "assistant" || !Array.isArray(message.content)) return;
+      for (const block of message.content) remember(block);
+    } else if (frame.type === "message_update") {
+      const event = frame.assistantMessageEvent;
+      if (!isArgumentRecord(event) || typeof event.contentIndex !== "number" || event.contentIndex < 0) return;
+      if (event.type !== "toolcall_start" && event.type !== "toolcall_delta" && event.type !== "toolcall_end") return;
+      const partial = isArgumentRecord(event.partial) ? event.partial : null;
+      const content = Array.isArray(partial?.content) ? partial.content : [];
+      remember(event.type === "toolcall_end" && isArgumentRecord(event.toolCall)
+        ? event.toolCall
+        : content[event.contentIndex] ?? (event.type === "toolcall_start" ? event.block : undefined));
+    }
+  }
+
+  private consumeArtifactCall(tabId: string, call: HostToolCall): boolean {
+    if (call.toolCallId === null || this.artifactCalls.get(tabId)?.get(call.toolCallId) !== call.toolName) return false;
+    this.artifactCalls.get(tabId)!.delete(call.toolCallId);
+    let consumed = this.consumedArtifactCalls.get(tabId);
+    if (consumed === undefined) {
+      consumed = new Set();
+      this.consumedArtifactCalls.set(tabId, consumed);
+    }
+    consumed.add(JSON.stringify([call.toolCallId, call.toolName]));
+    return true;
   }
 
   /**
@@ -350,6 +413,13 @@ export class HostBridge {
     call: HostToolCall,
     send: (frame: RpcFrame) => void,
   ): Promise<void> {
+    if ((call.toolName === HTML_ARTIFACT_TOOL_NAME || call.toolName === ARTIFACT_CAPTURE_TOOL_NAME) &&
+        !this.consumeArtifactCall(tabId, call)) {
+      const label = call.toolName === HTML_ARTIFACT_TOOL_NAME ? "render_html" : "artifact_capture";
+      this.answer(call.id, hostToolErrorResult(call.id,
+        `${label} refused: call ${call.toolName} directly as its own tool call; calls from eval or subagents get no transcript card and cannot be kept.`), send);
+      return;
+    }
     if (call.toolName.startsWith("omp-ui_vault_")) {
       const action = vaultAction(call.toolName);
       if (action === null) {
@@ -389,6 +459,7 @@ export class HostBridge {
       return;
     }
     if (call.toolName === HTML_ARTIFACT_TOOL_NAME) {
+      const pending = this.pending.get(call.id);
       const parsed = parseHtmlArtifactArgs(call.args);
       if (!parsed.ok) {
         this.answer(call.id, hostToolErrorResult(call.id, `render_html refused: ${parsed.reason}`), send);
@@ -396,7 +467,12 @@ export class HostBridge {
       }
       try {
         if (this.deps.artifacts?.enabled) {
-          const draft = this.deps.artifacts.stageRender({ tabId, toolCallId: call.toolCallId, args: call.args });
+          const authorizeRequest = (): void => {
+            if (pending === undefined || this.pending.get(call.id) !== pending) throw new Error("Artifact request is no longer pending");
+          };
+          const draft = await this.deps.artifacts.stageRender({ tabId, toolCallId: call.toolCallId, args: call.args,
+            materialize: (args, localRoot, context) => this.materializeRenderArgs(args, localRoot, context), authorizeRequest });
+          if (pending === undefined || this.pending.get(call.id) !== pending) return;
           this.answer(call.id, hostToolResult(call.id, [{ type: "text", text: htmlArtifactResultText(parsed.args) }],
             { artifactDraft: { version: 1, draftId: draft.draftId, sourceHash: draft.source.sourceHash } }), send);
         } else if (call.args !== null && typeof call.args === "object" && "artifact" in call.args) {
@@ -405,6 +481,7 @@ export class HostBridge {
           this.answer(call.id, hostToolTextResult(call.id, htmlArtifactResultText(parsed.args)), send);
         }
       } catch (error) {
+        if (pending === undefined || this.pending.get(call.id) !== pending) return;
         this.answer(call.id, hostToolErrorResult(call.id, `render_html refused: ${error instanceof Error ? error.message : "unavailable"}`), send);
       }
       return;
@@ -430,6 +507,26 @@ export class HostBridge {
       return;
     }
     this.answer(call.id, hostToolTextResult(call.id, text), send);
+  }
+
+  private async materializeRenderArgs(
+    args: unknown,
+    localRoot: string,
+    context: { signal: AbortSignal; authorize(): void },
+  ): Promise<unknown> {
+    const parsed = parseHtmlArtifactArgs(args);
+    if (!parsed.ok) throw new Error(parsed.reason);
+    const artifact = parsed.args.artifact;
+    if (artifact === undefined) return args;
+    const datasets = [];
+    for (const dataset of artifact.datasets) {
+      if (typeof dataset.valueFile === "string") {
+        const { valueFile, ...inline } = dataset;
+        const value = await readArtifactDatasetFile(localRoot, valueFile, context);
+        datasets.push({ ...inline, value });
+      } else datasets.push(dataset);
+    }
+    return { ...args as Record<string, unknown>, artifact: { ...artifact, datasets } };
   }
 
   private async answerFleet(

@@ -5,13 +5,14 @@ import {
   ArtifactError, ArtifactStore, ARTIFACT_LIMITS, assertArtifactUuid,
   parseHtmlArtifactArgs, validateArtifactJson, normalizeArtifactAuthoringSpec, validateArtifactDatasets,
   type ArtifactJson, type ArtifactJsonObject, type ArtifactSource, type ArtifactDatasetInput, type ArtifactProvenance,
-  type ManagedArtifactSpec, type ArtifactListRequest, type ArtifactDescribeRequest, type ArtifactOriginContext,
+  type ManagedArtifactSpec, type HtmlArtifactArgs, type ArtifactListRequest, type ArtifactDescribeRequest, type ArtifactOriginContext,
   type ArtifactReadRequest, type ArtifactKeepRequest, type ArtifactAcceptRevisionRequest,
   type ArtifactReferenceRequest, type ArtifactPrepareRefreshRequest, type ArtifactApplyCaptureRequest,
   type ArtifactDeleteRequest, type ArtifactResolveSourceRequest, type ArtifactLibraryChanged,
 } from "@omp-ui/core";
 import { parseArtifactReferenceUri, parseArtifactPromptReferences } from "@omp-ui/core";
 import { artifactSourceHash, readHistoricalArtifactSource } from "./artifact-source";
+import { resolveArtifactLocalRoot } from "./artifact-dataset-file";
 
 import type { ArtifactCaptureOutcome } from "@omp-ui/core/artifacts";
 export interface ArtifactTarget {
@@ -105,11 +106,13 @@ export class ArtifactService {
   private targetKey(target: ArtifactTarget): string {
     return JSON.stringify([target.ownerInstanceId, target.lineageDir, target.sessionId, target.runtimeKey]);
   }
-  private authorizer(tabId: string, target: ArtifactTarget, epoch: number): () => void {
+  private authorizer(tabId: string, target: ArtifactTarget, epoch: number, managed = false): () => void {
     const key = this.targetKey(target);
     return () => {
       this.assertEnabled();
-      if (this.revision !== epoch || this.targetKey(this.target(tabId)) !== key) throw new ArtifactError("conflict", "Artifact source session changed");
+      const current = this.target(tabId);
+      if (this.revision !== epoch || this.targetKey(current) !== key) throw new ArtifactError("conflict", "Artifact source session changed");
+      if (managed && current.artifactsAvailable === false) throw new ArtifactError("unavailable", current.artifactError ?? "Artifact host tool registration is unavailable");
     };
   }
   private run<T>(authorize: () => void, action: () => T): T {
@@ -144,29 +147,49 @@ export class ArtifactService {
     validateArtifactDatasets(datasets);
     return datasets;
   }
-  stageRender(request: { tabId: string; toolCallId: string | null; args: unknown }) {
+  async stageRender(request: {
+    tabId: string; toolCallId: string | null; args: unknown;
+    materialize?: (args: unknown, localRoot: string, context: { signal: AbortSignal; authorize(): void }) => Promise<unknown>;
+    authorizeRequest?: () => void;
+  }) {
     const target = this.target(request.tabId); const epoch = this.epoch;
     if (target.artifactsAvailable === false && request.args !== null && typeof request.args === "object" && "artifact" in request.args) throw new ArtifactError("unavailable", target.artifactError ?? "Artifact host tool registration is unavailable");
+    const source = this.source(target, request.toolCallId, request.args);
     const parsed = parseHtmlArtifactArgs(request.args);
     if (!parsed.ok) throw new ArtifactError("unsupported-contract", parsed.reason);
-    const source = this.source(target, request.toolCallId, request.args);
-    return this.stageDocument(request.tabId, target, epoch, request.args, source);
+    const serviceAuthorize = this.authorizer(request.tabId, target, epoch, parsed.args.artifact !== undefined);
+    const authorize = () => { request.authorizeRequest?.(); serviceAuthorize(); };
+    const fileBacked = parsed.args.artifact?.datasets.some(dataset => "valueFile" in dataset) ?? false;
+    if (!fileBacked) return this.stageDocument(request.tabId, target, epoch, parsed.args, source, authorize);
+    if (request.materialize === undefined) throw new ArtifactError("unavailable", "File-backed dataset materialization is unavailable");
+    if (target.sessionId === null) throw new ArtifactError("source-missing", "File-backed datasets require a materialized native session");
+    const cancellation = new AbortController(); this.sourceReads.add(cancellation);
+    try {
+      authorize();
+      const transcriptPath = await this.options.sourcePath(request.tabId); authorize();
+      if (transcriptPath === null) throw new ArtifactError("source-missing", "Saved source session is unavailable");
+      const localRoot = await resolveArtifactLocalRoot({ transcriptPath, sessionId: target.sessionId,
+        lineageDir: target.lineageDir, archiveLineageDir: target.archiveLineageDir }); authorize();
+      const resolvedArgs = await request.materialize(request.args, localRoot, { signal: cancellation.signal, authorize }); authorize();
+      const resolved = parseHtmlArtifactArgs(resolvedArgs);
+      if (!resolved.ok) throw new ArtifactError("unsupported-contract", resolved.reason);
+      return this.stageDocument(request.tabId, target, epoch, resolved.args, source, authorize);
+    } finally { this.sourceReads.delete(cancellation); }
   }
-  private stageDocument(tabId: string, target: ArtifactTarget, epoch: number, args: unknown, source: ArtifactSource) {
+  private stageDocument(tabId: string, target: ArtifactTarget, epoch: number, args: HtmlArtifactArgs, source: ArtifactSource,
+    authorize = this.authorizer(tabId, target, epoch)) {
     const originContext = target.originContext;
     if (originContext === undefined) throw new ArtifactError("source-missing", "Owning session origin is unavailable");
-    const parsed = parseHtmlArtifactArgs(args);
-    if (!parsed.ok) throw new ArtifactError("unsupported-contract", parsed.reason);
-    const raw = args as Record<string, unknown>;
-    for (const key of Object.keys(raw)) if (!["title", "html", "height", "artifact"].includes(key)) throw new ArtifactError("unsupported-contract", `Unknown render field: ${key}`);
     let managed: ManagedArtifactSpec | undefined;
-    if (raw.artifact !== undefined) {
-      managed = normalizeArtifactAuthoringSpec(raw.artifact, { recordedAt: source.createdAt,
+    if (args.artifact !== undefined) {
+      managed = normalizeArtifactAuthoringSpec(args.artifact, { recordedAt: source.createdAt,
         captureSessionId: source.sessionId, captureToolCallId: source.toolCallId });
-      if (managed.basedOn !== undefined) this.requireGrant(target, managed.basedOn.referenceId);
     }
-    if (target.sessionId !== null && target.runtimeKey !== null) this.run(this.authorizer(tabId, target, epoch), () => this.storage().adoptSourceSession({ lineageDir: target.lineageDir, runtimeKey: target.runtimeKey!, sessionId: target.sessionId! }));
-    const draft = this.run(this.authorizer(tabId, target, epoch), () => this.storage().stageDocument({ title: parsed.args.title, html: parsed.args.html, source, originContext, ...(managed ? { managed } : {}) }));
+    const draft = this.run(authorize, () => {
+      if (managed?.basedOn !== undefined) this.requireGrant(target, managed.basedOn.referenceId);
+      if (target.sessionId !== null && target.runtimeKey !== null) this.storage().adoptSourceSession({ lineageDir: target.lineageDir, runtimeKey: target.runtimeKey, sessionId: target.sessionId });
+      return this.storage().stageDocument({ title: args.title, html: args.html, source, originContext, ...(managed ? { managed } : {}) });
+    });
     this.publish([], "changed");
     return draft;
   }
@@ -238,7 +261,10 @@ export class ArtifactService {
       throw new ArtifactError("source-missing", "Saved artifact source could not be read");
     } finally { this.sourceReads.delete(cancellation); }
     authorize();
-    const draft = this.stageDocument(request.tabId, target, epoch, historical.args, { ...source, createdAt: historical.timestamp ?? source.createdAt });
+    const parsed = parseHtmlArtifactArgs(historical.args);
+    if (!parsed.ok) throw new ArtifactError("unsupported-contract", parsed.reason);
+    if (parsed.args.artifact?.datasets.some(dataset => "valueFile" in dataset)) throw new ArtifactError("source-missing", "File-backed artifact source cannot be reconstructed");
+    const draft = this.stageDocument(request.tabId, target, epoch, parsed.args, { ...source, createdAt: historical.timestamp ?? source.createdAt }, authorize);
     return this.storage().lookupSource({ source: draft.source });
   }
   list(request: ArtifactListRequest = {}) { return this.storage().list(request); }

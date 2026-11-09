@@ -1,11 +1,14 @@
 import * as fs from "node:fs";
 import * as os from "node:os";
 import * as path from "node:path";
-import { createHash } from "node:crypto";
+import { createHash, randomUUID } from "node:crypto";
 import { describe, expect, it, vi, afterEach } from "vitest";
 import { FLEET_TOOLS, LOCAL_MACHINE_KEY, PLAN_REVIEW_SENTINEL, PLAN_STATUS_KEY, parseVaultDetails, type FleetDispatchRequest, type FleetDispatchResult, type FleetMachine, type FleetRung, type ObsidianListEntry, type OwnedSessionRecord, type RpcFrame, type SessionsResourceDeps, type VaultRegistry, type VaultToolDetails } from "@omp-ui/core";
 import { HostBridge, HOST_ANSWER_WATCHDOG_MS, type FleetBridgeDeps, type HostBridgeDeps, type VaultBridgeDeps, type VaultTabContext } from "./host-bridge";
 import type { ConfinedPlanRead } from "./plan-file";
+import { ArtifactService } from "./artifact-service";
+import { withArtifactReferenceContext, type ArtifactJson } from "@omp-ui/core";
+import { artifactSourceHash } from "./artifact-source";
 
 const PLAN_ABS = "/sessions/lineage/plan-abc-plan.md";
 
@@ -22,6 +25,10 @@ function reviewFrame(planAbsPath: string | null): RpcFrame {
 
 function toolCallFrame(id: string, toolName: string, args: unknown): RpcFrame {
   return { type: "host_tool_call", id, toolCallId: `tc-${id}`, toolName, arguments: args };
+}
+
+function assistantToolFrame(id = "tc-h1", name = "omp-ui_render_html", type = "message_start"): RpcFrame {
+  return { type, message: { role: "assistant", content: [{ type: "toolCall", id, name, arguments: {} }] } };
 }
 
 function uriRequestFrame(id: string, url: string, operation: "read" | "write" = "read"): RpcFrame {
@@ -147,6 +154,7 @@ describe("HostBridge.notify", () => {
 describe("HostBridge render_html (issue #994)", () => {
   it("answers a valid artifact exactly once with a success result omp accepts", async () => {
     const f = fixture();
+    f.bridge.route("t1", assistantToolFrame(), f.send);
     f.bridge.route("t1", toolCallFrame("h1", "omp-ui_render_html", { title: "Chart", html: "<canvas></canvas>" }), f.send);
     await settled();
     expect(f.sent).toHaveLength(1);
@@ -157,11 +165,244 @@ describe("HostBridge render_html (issue #994)", () => {
 
   it("refuses an artifact the card would not show, telling the model why", async () => {
     const f = fixture();
+    f.bridge.route("t1", assistantToolFrame(), f.send);
     f.bridge.route("t1", toolCallFrame("h1", "omp-ui_render_html", { title: "Chart" }), f.send);
     await settled();
     expect(f.sent).toHaveLength(1);
     expect(f.sent[0]).toMatchObject({ type: "host_tool_result", id: "h1", isError: true });
     expect(JSON.stringify(f.sent[0])).toContain("html must be a non-empty string");
+  });
+});
+
+const artifactCleanups: (() => void)[] = [];
+afterEach(() => { for (const cleanup of artifactCleanups.splice(0)) cleanup(); });
+
+function artifactFixture(enabled = true) {
+  const root = fs.mkdtempSync(path.join(os.tmpdir(), "host-artifact-"));
+  const owner = randomUUID();
+  const sessionId = randomUUID();
+  const runtimeKey = randomUUID();
+  let sourcePath: string | null = null;
+  const service = new ArtifactService({ registryFile: path.join(root, "registry.json"), ownerInstanceId: () => owner,
+    enabled: () => enabled, sourcePath: async () => sourcePath,
+    resolveTarget: () => ({ ownerInstanceId: owner, lineageDir: root, sessionId, runtimeKey, native: true, originContext: { kind: "chat" } }) });
+  const stageRender = vi.spyOn(service, "stageRender");
+  const stageCapture = vi.spyOn(service, "stageCapture");
+  let retainedSession: string | null = sessionId;
+  const bridge = new HostBridge({ ...fixtureDeps(), artifacts: service, capabilitySessionId: () => retainedSession });
+  const sent: RpcFrame[] = [];
+  const send = (frame: RpcFrame): void => { sent.push(frame); };
+  artifactCleanups.push(() => { bridge.forget("t1"); service.close(); fs.rmSync(root, { recursive: true, force: true }); });
+  return { root, service, stageRender, stageCapture, bridge, sent, send,
+    setSourcePath: (file: string): void => { sourcePath = file; },
+    setSession: (id: string | null): void => { retainedSession = id; }, sessionId };
+}
+
+function bridgeDataset(value: ArtifactJson = [1, 2]) {
+  return { id: "rows", title: "Rows", schema: "rows-v1", value, provenance: {
+    source: { kind: "file", label: "Report" }, method: { kind: "import", description: "Read report" },
+    capturedAt: "2026-11-08T00:00:00.000Z", refresh: { kind: "session", instructions: "Read report", requiredSources: [] },
+  } };
+}
+
+describe("artifact direct-call admission", () => {
+  const args = { title: "Chart", html: "<p>Chart</p>" };
+  const refusal = "render_html refused: call omp-ui_render_html directly as its own tool call; calls from eval or subagents get no transcript card and cannot be kept.";
+
+  it.each([true, false])("refuses unobserved malformed render before parsing or storage, enabled=%s", async enabled => {
+    const f = artifactFixture(enabled);
+    f.bridge.route("t1", toolCallFrame("h1", "omp-ui_render_html", {}), f.send);
+    await settled();
+    expect(f.sent).toHaveLength(1);
+    expect(f.sent[0]).toMatchObject({ isError: true });
+    expect(resultText(f.sent[0])).toBe(refusal);
+    expect(f.stageRender).not.toHaveBeenCalled();
+    expect(fs.existsSync(path.join(f.root, "artifacts"))).toBe(false);
+  });
+
+  it.each(["message_start", "message_end", "start", "partial", "end"])("admits exact direct identity from %s", async shape => {
+    const f = artifactFixture();
+    const block = { type: "toolCall", id: "tc-h1", name: "omp-ui_render_html" };
+    const observed: RpcFrame = shape.startsWith("message_") ? assistantToolFrame("tc-h1", "omp-ui_render_html", shape)
+      : { type: "message_update", assistantMessageEvent: { type: shape === "end" ? "toolcall_end" : shape === "partial" ? "toolcall_delta" : "toolcall_start", contentIndex: 1,
+        ...(shape === "end" ? { toolCall: block } : shape === "partial" ? { partial: { content: [{ type: "text" }, block] } } : { block }) } };
+    f.bridge.route("t1", observed, f.send);
+    f.bridge.route("t1", toolCallFrame("h1", "omp-ui_render_html", args), f.send);
+    await settled();
+    expect(f.sent).toHaveLength(1);
+    expect(f.sent[0]).not.toHaveProperty("isError");
+    expect(f.stageRender).toHaveBeenCalledTimes(1);
+    expect(f.sent[0]).toHaveProperty("result.details.artifactDraft.draftId");
+  });
+
+  it.each(["execution", "nested", "prefix", "wrong-id", "wrong-name", "other-tab", "non-assistant", "missing-id", "wrong-index"])("refuses %s identity without staging", async kind => {
+    const f = artifactFixture();
+    let frame = assistantToolFrame();
+    if (kind === "execution") frame = { type: "tool_execution_start", toolCallId: "tc-h1", toolName: "omp-ui_render_html" };
+    if (kind === "nested") frame = { type: "message_start", message: { role: "assistant", content: [{ type: "toolCall", id: "eval", name: "eval", arguments: { toolCall: { id: "tc-h1", name: "omp-ui_render_html" } } }] } };
+    if (kind === "prefix") frame = assistantToolFrame("tc-h1", "omp-ui_render_html_extra");
+    if (kind === "wrong-id") frame = assistantToolFrame("tc-other");
+    if (kind === "wrong-name") frame = assistantToolFrame("tc-h1", "omp-ui_artifact_capture");
+    if (kind === "non-assistant") frame = { type: "message_end", message: { role: "user", content: [{ type: "toolCall", id: "tc-h1", name: "omp-ui_render_html" }] } };
+    if (kind === "wrong-index") frame = { type: "message_update", assistantMessageEvent: { type: "toolcall_delta", contentIndex: 1, partial: { content: [{ type: "toolCall", id: "tc-h1", name: "omp-ui_render_html" }] } } };
+    f.bridge.route(kind === "other-tab" ? "t2" : "t1", frame, f.send);
+    const call = toolCallFrame("h1", "omp-ui_render_html", args);
+    if (kind === "missing-id") delete call.toolCallId;
+    f.bridge.route("t1", call, f.send);
+    await settled();
+    expect(f.sent).toHaveLength(1);
+    expect(resultText(f.sent[0])).toBe(refusal);
+    expect(f.stageRender).not.toHaveBeenCalled();
+    expect(fs.existsSync(path.join(f.root, "artifacts"))).toBe(false);
+  });
+
+  it.each(["turn", "session-info", "config", "forget"])("clears pending admission on %s", async reset => {
+    const f = artifactFixture();
+    f.bridge.route("t1", assistantToolFrame(), f.send);
+    if (reset === "forget") f.bridge.forget("t1");
+    else f.bridge.route("t1", reset === "turn" ? { type: "turn_start" } : { type: reset === "config" ? "config_update" : "session_info_update", sessionId: "changed" }, f.send);
+    f.bridge.route("t1", toolCallFrame("h1", "omp-ui_render_html", args), f.send);
+    await settled();
+    expect(f.sent).toHaveLength(1);
+    expect(resultText(f.sent[0])).toBe(refusal);
+    expect(f.stageRender).not.toHaveBeenCalled();
+  });
+
+  it("preserves admission for unchanged or initially unknown session identity", async () => {
+    const f = artifactFixture();
+    f.bridge.route("t1", assistantToolFrame(), f.send);
+    f.bridge.route("t1", { type: "session_info_update", sessionId: f.sessionId }, f.send);
+    f.setSession(null);
+    f.bridge.route("t1", { type: "config_update", sessionId: "first-observed" }, f.send);
+    f.bridge.route("t1", toolCallFrame("h1", "omp-ui_render_html", args), f.send);
+    await settled();
+    expect(f.stageRender).toHaveBeenCalledTimes(1);
+    expect(f.sent).toHaveLength(1);
+    expect(f.sent[0]).not.toHaveProperty("isError");
+  });
+
+  it("does not rearm a consumed call from whole-message or delta replay", async () => {
+    const f = artifactFixture();
+    f.bridge.route("t1", assistantToolFrame(), f.send);
+    f.bridge.route("t1", toolCallFrame("h1", "omp-ui_render_html", args), f.send);
+    await settled();
+    f.bridge.route("t1", assistantToolFrame("tc-h1", "omp-ui_render_html", "message_end"), f.send);
+    f.bridge.route("t1", { type: "message_update", assistantMessageEvent: { type: "toolcall_end", contentIndex: 0, toolCall: { type: "toolCall", id: "tc-h1", name: "omp-ui_render_html" } } }, f.send);
+    f.bridge.route("t1", { ...toolCallFrame("h2", "omp-ui_render_html", args), toolCallId: "tc-h1" }, f.send);
+    await settled();
+    expect(f.sent).toHaveLength(2);
+    expect(resultText(f.sent[1])).toBe(refusal);
+    expect(f.stageRender).toHaveBeenCalledTimes(1);
+  });
+
+  it.each(["captured", "failed"])("refuses indirect %s capture before storage", async status => {
+    const f = artifactFixture();
+    f.bridge.route("t1", toolCallFrame("h1", "omp-ui_artifact_capture", { status }), f.send);
+    await settled();
+    expect(f.sent).toHaveLength(1);
+    expect(f.sent[0]).toMatchObject({ isError: true });
+    expect(resultText(f.sent[0])).toBe("artifact_capture refused: call omp-ui_artifact_capture directly as its own tool call; calls from eval or subagents get no transcript card and cannot be kept.");
+    expect(f.stageCapture).not.toHaveBeenCalled();
+    expect(fs.existsSync(path.join(f.root, "artifacts"))).toBe(false);
+  });
+  it("materializes file-backed datasets without rewriting source arguments or inline values", async () => {
+    const f = artifactFixture();
+    const stem = `2026-11-09T00-00-00-000Z_${f.sessionId}`;
+    const transcript = path.join(f.root, `${stem}.jsonl`);
+    fs.writeFileSync(transcript, JSON.stringify({ type: "session", id: f.sessionId }) + "\n");
+    const local = path.join(f.root, stem, "local");
+    fs.mkdirSync(local, { recursive: true });
+    fs.writeFileSync(path.join(local, "rows.json"), JSON.stringify([{ value: 7 }]));
+    f.setSourcePath(transcript);
+    const { value: _value, ...metadata } = bridgeDataset();
+    const inline = { ...bridgeDataset(null), id: "inline" };
+    const authored = { ...args, artifact: { protocolVersion: 1, stateSchema: "view-v1", initialState: {},
+      datasets: [{ ...metadata, valueFile: "local://rows.json" }, inline] } };
+    const original = JSON.stringify(authored);
+    f.bridge.route("t1", assistantToolFrame(), f.send);
+    f.bridge.route("t1", toolCallFrame("h1", "omp-ui_render_html", authored), f.send);
+    const draft = await f.stageRender.mock.results[0]!.value;
+    await settled();
+    expect(f.sent).toHaveLength(1);
+    expect(f.sent[0]).not.toHaveProperty("isError");
+    expect(JSON.stringify(authored)).toBe(original);
+    expect(draft.source.sourceHash).toBe(artifactSourceHash(authored));
+    const surface = f.service.resolveSurface({ draftId: draft.draftId });
+    expect(surface.datasets.rows!.value).toEqual([{ value: 7 }]);
+    expect(surface.datasets.inline!.value).toBeNull();
+  });
+
+  it("allows a newly observed call after consumed identities reset on a new turn", async () => {
+    const f = artifactFixture();
+    f.bridge.route("t1", assistantToolFrame(), f.send);
+    f.bridge.route("t1", toolCallFrame("h1", "omp-ui_render_html", args), f.send);
+    await settled();
+    f.bridge.route("t1", { type: "turn_start" }, f.send);
+    f.bridge.route("t1", assistantToolFrame(), f.send);
+    f.bridge.route("t1", { ...toolCallFrame("h2", "omp-ui_render_html", args), toolCallId: "tc-h1" }, f.send);
+    await settled();
+    expect(f.sent).toHaveLength(2);
+    expect(f.sent.every(frame => frame.isError !== true)).toBe(true);
+    expect(f.stageRender).toHaveBeenCalledTimes(2);
+  });
+
+  it("does not consume the observed identity on an ID or name mismatch", async () => {
+    const f = artifactFixture();
+    f.bridge.route("t1", assistantToolFrame(), f.send);
+    f.bridge.route("t1", { ...toolCallFrame("wrong-name", "omp-ui_artifact_capture", {}), toolCallId: "tc-h1" }, f.send);
+    f.bridge.route("t1", toolCallFrame("wrong-id", "omp-ui_render_html", args), f.send);
+    f.bridge.route("t1", toolCallFrame("h1", "omp-ui_render_html", args), f.send);
+    await settled();
+    expect(f.sent).toHaveLength(3);
+    expect(f.sent.slice(0, 2).every(frame => frame.isError === true)).toBe(true);
+    expect(f.sent[2]).not.toHaveProperty("isError");
+    expect(f.stageRender).toHaveBeenCalledTimes(1);
+    expect(f.stageCapture).not.toHaveBeenCalled();
+  });
+
+  it.each(["cancel", "forget", "watchdog"])("revokes asynchronous staging authority after %s", async reason => {
+    vi.useFakeTimers();
+    const f = artifactFixture();
+    const blocked = deferred<void>();
+    let authorize: (() => void) | undefined;
+    f.stageRender.mockImplementation(async request => {
+      authorize = request.authorizeRequest;
+      await blocked.promise;
+      request.authorizeRequest?.();
+      throw new Error("Unexpected authorization");
+    });
+    f.bridge.route("t1", assistantToolFrame(), f.send);
+    f.bridge.route("t1", toolCallFrame("h1", "omp-ui_render_html", args), f.send);
+    expect(f.bridge.answeredIds("t1").has("h1")).toBe(true);
+    if (reason === "cancel") f.bridge.route("t1", { type: "host_tool_cancel", id: "cancel", targetId: "h1" }, f.send);
+    else if (reason === "forget") f.bridge.forget("t1");
+    else await vi.advanceTimersByTimeAsync(HOST_ANSWER_WATCHDOG_MS);
+    expect(authorize).toBeDefined();
+    expect(() => authorize!()).toThrow("no longer pending");
+    blocked.release(undefined);
+    await settled();
+    expect(f.sent).toHaveLength(reason === "watchdog" ? 1 : 0);
+    expect(fs.existsSync(path.join(f.root, "artifacts"))).toBe(false);
+  });
+
+
+  it.each(["captured", "failed"])("keeps direct %s capture behind human review", async status => {
+    const f = artifactFixture();
+    const draft = await f.service.stageRender({ tabId: "t1", toolCallId: "setup", args: { ...args, artifact: { protocolVersion: 1, stateSchema: "view-v1", initialState: {}, datasets: [bridgeDataset()] } } });
+    const kept = f.service.keep({ draftId: draft.draftId, title: "Rows" });
+    const versions = { artifactId: kept.artifactId, codeRevisionId: kept.currentCodeRevisionId, dataSnapshotId: kept.currentDataSnapshotId };
+    const refresh = f.service.prepareRefresh({ targetTabId: "t1", ...versions, datasetIds: ["rows"] });
+    f.service.admitPrompt({ tabId: "t1", text: withArtifactReferenceContext(refresh.text, [refresh.reference]) });
+    f.bridge.route("t1", assistantToolFrame("tc-h1", "omp-ui_artifact_capture"), f.send);
+    f.bridge.route("t1", toolCallFrame("h1", "omp-ui_artifact_capture", { status, refreshRequestId: refresh.request.refreshRequestId,
+      ...(status === "captured" ? { datasets: [bridgeDataset([9])] } : { message: "Source unavailable" }) }), f.send);
+    await settled();
+    expect(f.sent).toHaveLength(1);
+    expect(f.sent[0]).not.toHaveProperty("isError");
+    expect(f.sent[0]).toHaveProperty("result.details.artifactCapture.status", status);
+    expect(f.service.resolveSurface(versions).datasets.rows!.value).toEqual([1, 2]);
+    expect(f.service.describe({ artifactId: kept.artifactId }).captures).toHaveLength(status === "captured" ? 1 : 0);
+    expect(f.stageCapture).toHaveBeenCalledTimes(1);
   });
 });
 

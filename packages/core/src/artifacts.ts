@@ -45,7 +45,12 @@ export interface ArtifactProvenance {
   refresh: { kind: "session" | "manual" | "none"; instructions?: string; requiredSources: string[] };
 }
 export interface ArtifactDatasetInput { id: string; title: string; schema: string; value: ArtifactJson; provenance: ArtifactProvenance }
+export type ArtifactDatasetAuthoringInput = Omit<ArtifactDatasetInput, "value"> & (
+  | { value: ArtifactJson; valueFile?: never }
+  | { value?: never; valueFile: string }
+);
 export interface ManagedArtifactSpec { protocolVersion: 1; stateSchema: string; initialState: ArtifactJsonObject; datasets: ArtifactDatasetInput[]; basedOn?: { referenceId: string } }
+export type ManagedArtifactAuthoringSpec = Omit<ManagedArtifactSpec, "datasets"> & { datasets: ArtifactDatasetAuthoringInput[] };
 export interface ArtifactDatasetDefinition { id: string; title: string; schema: string }
 export interface ArtifactDefinition { protocolVersion: 1; stateSchema: string; datasets: ArtifactDatasetDefinition[] }
 export type ArtifactOriginContext = { kind: "project"; label: string; path: string } | { kind: "chat" };
@@ -184,6 +189,44 @@ export function validateArtifactDatasets(value: unknown): asserts value is Artif
   }
   if (total > ARTIFACT_LIMITS.activeDatasetBytes) throw new ArtifactError("over-limit", "Dataset total exceeds limit");
 }
+/** A literal local:// relative path. Resolution and filesystem confinement belong to main. */
+export function validateArtifactValueFile(value: unknown): asserts value is string {
+  string(value);
+  const prefix = "local://";
+  const path = value.startsWith(prefix) ? value.slice(prefix.length) : "";
+  if (!path || path.startsWith("/") || /^[A-Za-z]:/.test(path) || value.includes("\\") || value.includes("\0") || value.includes("?") || value.includes("#") || path.split("/").some(segment => segment === "" || segment === "." || segment === "..")) fail("valueFile must be a nonempty local:// relative path");
+}
+function validateArtifactAuthoringProvenance(value: unknown): void {
+  if (value === null || typeof value !== "object" || Array.isArray(value)) fail("Expected provenance object");
+  validateArtifactProvenance({ ...value as Record<string, unknown>, recordedAt: "1970-01-01T00:00:00.000Z", captureSessionId: null, captureToolCallId: null, trust: "agent-reported" });
+}
+function validateArtifactAuthoringDatasets(value: unknown): asserts value is ArtifactDatasetAuthoringInput[] {
+  validateArtifactJson(value);
+  if (!Array.isArray(value)) fail("Invalid datasets");
+  if (value.length > ARTIFACT_LIMITS.datasets) throw new ArtifactError("over-limit", "Too many datasets");
+  const ids = new Set<string>(); let total = 0;
+  for (const raw of value) {
+    const d = object(raw, ["id", "title", "schema", "value", "valueFile", "provenance"], ["id", "title", "schema", "provenance"]);
+    assertArtifactKey(d.id); string(d.title, ARTIFACT_LIMITS.titleChars); string(d.schema, 200);
+    if (ids.has(d.id)) fail("Duplicate dataset id"); ids.add(d.id);
+    const hasValue = Object.hasOwn(d, "value"); const hasValueFile = Object.hasOwn(d, "valueFile");
+    if (hasValue === hasValueFile) fail("Dataset requires exactly one of value or valueFile");
+    if (hasValue) { validateArtifactJson(d.value, ARTIFACT_LIMITS.datasetBytes); total += artifactUtf8Bytes(JSON.stringify(d.value)); }
+    else validateArtifactValueFile(d.valueFile);
+    validateArtifactAuthoringProvenance(d.provenance);
+  }
+  if (total > ARTIFACT_LIMITS.activeDatasetBytes) throw new ArtifactError("over-limit", "Dataset total exceeds limit");
+}
+export function validateArtifactAuthoringSpec(value: unknown): asserts value is ManagedArtifactAuthoringSpec {
+  validateArtifactJson(value);
+  const v = object(value, ["protocolVersion", "stateSchema", "initialState", "datasets", "basedOn"], ["protocolVersion", "stateSchema", "initialState", "datasets"]);
+  if (v.protocolVersion !== 1) fail("Unsupported managed artifact protocol");
+  string(v.stateSchema, 200); validateArtifactJson(v.initialState, ARTIFACT_LIMITS.stateBytes);
+  if (v.initialState === null || typeof v.initialState !== "object" || Array.isArray(v.initialState)) fail("initialState must be a JSON object");
+  for (const key of Object.keys(v.initialState)) assertArtifactKey(key);
+  validateArtifactAuthoringDatasets(v.datasets);
+  if (v.basedOn !== undefined) { const b = object(v.basedOn, ["referenceId"]); assertArtifactUuid(b.referenceId); }
+}
 export function validateManagedArtifactSpec(value: unknown): asserts value is ManagedArtifactSpec {
   validateArtifactJson(value);
   const v = object(value, ["protocolVersion", "stateSchema", "initialState", "datasets", "basedOn"], ["protocolVersion", "stateSchema", "initialState", "datasets"]);
@@ -233,6 +276,7 @@ export function normalizeArtifactAuthoringSpec(value: unknown, host: { recordedA
     if (dataset === null || typeof dataset !== "object" || Array.isArray(dataset)) fail("Expected dataset object");
     const input = dataset as Record<string, unknown>;
     if (input.provenance === null || typeof input.provenance !== "object" || Array.isArray(input.provenance)) fail("Expected provenance object");
+    if (Object.hasOwn(input, "valueFile")) fail("Unresolved valueFile cannot be persisted");
     return { ...input, provenance: { ...input.provenance, ...host, trust: "agent-reported" } };
   }) };
   validateManagedArtifactSpec(result);

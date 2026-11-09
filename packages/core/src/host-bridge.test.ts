@@ -58,6 +58,37 @@ describe("host registration definitions", () => {
     expect(capture).toMatchObject({loadMode: "essential", parameters: {additionalProperties: false, required: ["refreshRequestId", "status"], properties: {status: {enum: ["captured", "failed"]}}}});
   });
 
+  it("allows exactly one inline value or file reference for render datasets", () => {
+    const tools = hostToolsDefinition({ vault: false, fleet: false, device: false, artifacts: true });
+    const render = tools.find(tool => tool.name === HTML_ARTIFACT_TOOL_NAME)!;
+    const properties = render.parameters.properties as Record<string, Record<string, unknown>>;
+    const artifactProperties = properties.artifact.properties as Record<string, Record<string, unknown>>;
+    const dataset = artifactProperties.datasets.items as Record<string, unknown>;
+    expect(dataset.type).toBe("object");
+    expect(dataset.additionalProperties).toBe(false);
+    expect(dataset.required).toEqual(["id", "title", "schema", "provenance"]);
+    expect(dataset.oneOf).toEqual([{ required: ["value"] }, { required: ["valueFile"] }]);
+    const datasetProperties = dataset.properties as Record<string, unknown>;
+    expect(Object.keys(datasetProperties).sort()).toEqual(["id", "provenance", "schema", "title", "value", "valueFile"]);
+    expect(datasetProperties.value).toEqual({});
+    expect(datasetProperties.valueFile).toMatchObject({ type: "string" });
+  });
+
+  it("requires inline values and rejects file references for capture datasets", () => {
+    const tools = hostToolsDefinition({ vault: false, fleet: false, device: false, artifacts: true });
+    const capture = tools.find(tool => tool.name === "omp-ui_artifact_capture")!;
+    const properties = capture.parameters.properties as Record<string, Record<string, unknown>>;
+    const dataset = properties.datasets.items as Record<string, unknown>;
+    expect(dataset.type).toBe("object");
+    expect(dataset.additionalProperties).toBe(false);
+    expect(dataset.required).toEqual(["id", "title", "schema", "provenance", "value"]);
+    expect(dataset.oneOf).toBeUndefined();
+    const datasetProperties = dataset.properties as Record<string, unknown>;
+    expect(Object.keys(datasetProperties).sort()).toEqual(["id", "provenance", "schema", "title", "value"]);
+    expect(datasetProperties.value).toEqual({});
+    expect(datasetProperties.valueFile).toBeUndefined();
+  });
+
   it("builds registration commands with stable ids and unchanged notify parameters", () => {
     expect(setHostUriSchemesCommand()).toMatchObject({
       id: "omp-ui-host-uri-1",

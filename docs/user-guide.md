@@ -174,6 +174,73 @@ Enable **Artifact library (experimental)** under **Settings → Experimental**.
 It is off by default and separate from **Run scripts in HTML artifacts**.
 Enabling it updates already-live native sessions without sending a model prompt.
 
+### Author a document directly
+
+Ask the agent to invoke `omp-ui_render_html` directly as an assistant tool
+call. Do not wrap it in `eval`, `task`, `multi_tool_use` or
+`write xd://omp-ui_render_html`. Those nested calls are refused because they
+cannot produce the owning artifact card in the native transcript.
+
+A managed render can import JSON already written under that session's
+`local://` root. For example, after writing
+`[{"name":"Widget","quantity":12}]` to `local://inventory.json`, invoke
+`omp-ui_render_html` directly with:
+
+```json
+{
+  "title": "Inventory",
+  "html": "<h1>Inventory</h1><pre id='data'></pre><script>window.ompArtifact.load().then(snapshot => { document.getElementById('data').textContent = JSON.stringify(snapshot.datasets.inventory.value, null, 2); });</script>",
+  "artifact": {
+    "protocolVersion": 1,
+    "stateSchema": "inventory-state-v1",
+    "initialState": {},
+    "datasets": [{
+      "id": "inventory",
+      "title": "Inventory rows",
+      "schema": "inventory-rows-v1",
+      "valueFile": "local://inventory.json",
+      "provenance": {
+        "source": { "kind": "file", "label": "Inventory export" },
+        "method": { "kind": "import", "description": "Import the inventory JSON export" },
+        "refresh": { "kind": "manual", "requiredSources": [] }
+      }
+    }]
+  }
+}
+```
+
+Each dataset must have either `value` or `valueFile`, never both. Main imports
+the file once and retains its parsed JSON with the draft; changing or deleting
+the file later does not change the artifact. `valueFile` is only available to
+the render tool. Refresh capture tools still require inline `value`, and files
+are not applied automatically. Keep and Apply remain your decisions.
+
+Limits are 512 KiB of HTML, 1 MiB of initial state, 32 datasets, 8 MiB per
+dataset and 32 MiB of active dataset values in total. The complete managed
+envelope is bounded at 40 MiB, JSON nesting at 64 levels, and each dataset's
+provenance at 16 KiB. File imports must also fit the dataset byte limit before
+parsing; they do not bypass JSON validation or the aggregate limits.
+
+Use a literal relative `local://` path with nonempty segments; percent signs
+are literal, not URL escapes. Absolute paths, drive paths, backslashes, NUL,
+query strings, fragments, and `.` or `..` segments are rejected. Files must be
+regular files containing strict UTF-8 JSON without a BOM. Main confines the
+resolved file to this session's local directory, not the project, working tree,
+sibling session or whole lineage directory. A file that changes during import
+is refused.
+
+Import requires a known native session ID and its matching transcript in the
+owning active or archive lineage. The root is the transcript's sibling artifacts
+directory, formed by removing `.jsonl` or `.jsonl.gz`, then its `local`
+subdirectory. Both directories must already exist and cannot be symlink
+substitutes. Main does not guess another session or create a missing root.
+
+The example's script requires **Run scripts in HTML artifacts**. Browser
+clients and scripts-off views remain static; guests never gain file or network
+access. Plain HTML cards replay from transcript arguments. Managed cards use
+their retained document and data; a historical file-backed call without a
+retained payload is unavailable rather than re-importing a possibly changed file.
+
 ### Keep and reopen
 
 Ask for an artifact in an ordinary native session, or keep one that emerges

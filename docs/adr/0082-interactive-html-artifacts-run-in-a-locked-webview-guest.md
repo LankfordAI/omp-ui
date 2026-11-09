@@ -32,20 +32,26 @@ prompt-injected through tool output, so this ADR records its threat model.
   file records as a `write` call, so a card keyed on the tool name would never
   render. Essential tools appear as `toolCall { name, arguments }` and
   `toolResult { toolName }`.
-- **The arguments are the artifact.** omp persists the tool call's
+- **Plain arguments are the artifact.** omp persists the tool call's
   `arguments` in the session JSONL, `get_messages` returns them, and
-  `historyToItems` keeps them on the `ToolItem`. A reload or a joined viewer
-  re-renders the card from the transcript with nothing stored host-side.
+  `historyToItems` keeps them on the `ToolItem`. Plain documents replay from
+  those arguments. Managed documents use the retained resolved payload described
+  in [ADR-0090](0090-session-authored-artifact-library-and-scoped-data.md), not
+  a fresh read of an authoring-time dataset file.
 
 ## Decision
 
-1. **One essential host tool.** `omp-ui_render_html { title, html, height? }`
-   is registered on every rpc-ui spawn after `omp-ui_notify`
+1. **One essential host tool, called directly.**
+   `omp-ui_render_html { title, html, height?, artifact? }` is registered on
+   every rpc-ui spawn after `omp-ui_notify`
    ([ADR-0043](0043-host-tools-answer-what-the-main-process-owns.md)). Main
-   validates the arguments (non-empty title of at most 200 characters,
-   non-empty html of at most 512 KiB in UTF-8, height clamped to 120–1200 px)
-   and answers at once. A refused call is an error result with the reason, and
-   the card shows that reason instead of a document. Main keeps no state.
+   admits it only when the input-order assistant stream has already established
+   the matching direct tool call. Wrapping it in `eval`, `task`,
+   `multi_tool_use`, or `write xd://...` is refused rather than reporting an
+   invisible render. Main validates a non-empty title of at most 200 characters,
+   non-empty HTML of at most 512 KiB in UTF-8, and height clamped to 120–1200 px.
+   A refused call returns an error with the reason. Plain calls need no retained
+   state; managed calls stage their resolved document and data through ADR-0090.
 2. **Desktop runs the document in a `<webview>` guest on a locked partition.**
    `omp-ui-artifacts` is in-memory. `html-artifact-guard.ts` sets it up once:
    - It uses a fixed proxy at the discard port, with `<-loopback>` so loopback
@@ -127,4 +133,19 @@ documents stay static; HTML plan frames remain script-free. Saved structured
 data belongs to a separate app-registry-owned SQLite library, not DOM storage
 or arbitrary JavaScript closures, and turning the experiment off revokes access
 without deleting it.
+
+## Amendment: render-only file-backed datasets (2026-11-09)
+
+A managed render may declare each dataset with exactly one of inline `value`
+or `valueFile`. `valueFile` names a UTF-8 JSON file under the owning session's
+exact `local://` root. Main reads and validates it before staging the document,
+then retains the resolved JSON value, not a live file link. This is an authoring
+convenience for `omp-ui_render_html` only; capture tools still require inline
+values. It gives neither the guest nor a browser client filesystem access.
+
+Plain cards still replay from transcript arguments. Managed cards replay from
+the retained resolved payload. A missing historical managed payload containing
+`valueFile` is unavailable, never reconstructed from whatever bytes occupy that
+path later. Existing orphan transcript rows are not deleted by the new admission
+rule. The locked guest and human Keep/Apply boundaries are unchanged.
 
