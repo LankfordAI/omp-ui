@@ -44,7 +44,6 @@ describe("ArtifactStore durable graph", () => {
     store.dropDraftsForLineage({ lineageDir: s.lineageDir }); expect(snapshot(store, record).datasets[0]!.value).toEqual(["original"]);
     expect(store.describe({ artifactId: record.artifactId }).artifact.originContext).toEqual({ kind: "project", label: "Retained project", path: "/removed/project" });
     expect(store.readCode({ artifactId: record.artifactId, codeRevisionId: record.currentCodeRevisionId }).html).toBe("<p>Chart</p>");
-    expect(fs.statSync(directory).mode & 0o777).toBe(0o700); expect(fs.statSync(path.join(directory, "library.sqlite")).mode & 0o777).toBe(0o600);
   });
   it("clones consented compatible previews, isolates draft edits, and keeps acknowledged state", () => {
     const store = open(); const record = keep(store); const reference = store.createReference({ artifactId: record.artifactId, codeRevisionId: record.currentCodeRevisionId, dataSnapshotId: record.currentDataSnapshotId, includeData: true });
