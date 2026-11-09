@@ -105,6 +105,7 @@ export type LifecycleSlice = Pick<
   | "askAboutSession"
   | "newWorktreeSession"
   | "launchSession"
+  | "runArtifactRefresh"
   | "backgroundSeedFailedTabId"
   | "dismissBackgroundSeedToast"
   | "convertSessionToWorktree"
@@ -1292,6 +1293,28 @@ export function createLifecycleSlice(
     if (!accepted) notSent(true);
   };
 
+  const runArtifactRefresh: LifecycleSlice["runArtifactRefresh"] = async (request) => {
+    const tabId = request.projectCwd === null
+      ? await newChat({ background: true })
+      : await newSession(request.projectCwd, "rpc-ui", null, { background: true, planMode: true });
+    if (tabId === null) return null;
+    const { artifactId, codeRevisionId, dataSnapshotId, datasetIds } = request;
+    const prepared = await backend
+      .artifactPrepareRefresh({ targetTabId: tabId, artifactId, codeRevisionId, dataSnapshotId, datasetIds })
+      .catch(async (error: unknown) => {
+        // Never leave an empty run behind; a materialized one keeps its transcript.
+        if (findRecord(get().state, tabId)?.sessionId === null) await eraseSession(tabId);
+        throw error;
+      });
+    get().invalidateArtifactLibrary();
+    void deliverLaunchSeed(
+      tabId,
+      { prompt: prepared.text, artifactReferences: [prepared.reference], title: t("artifacts.refreshRunTitle", { title: request.title }) },
+      true,
+    ).catch((err: unknown) => get().reportError(err));
+    return tabId;
+  };
+
   /**
    * Converts an unprompted session to a worktree session (issue #225): the
    * main process mints the checkout, patches the record, and respawns in
@@ -2188,6 +2211,7 @@ export function createLifecycleSlice(
     askAboutSession,
     newWorktreeSession,
     launchSession,
+    runArtifactRefresh,
     backgroundSeedFailedTabId: null,
     dismissBackgroundSeedToast: () => set({ backgroundSeedFailedTabId: null }),
     convertSessionToWorktree,

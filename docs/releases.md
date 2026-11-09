@@ -4,7 +4,7 @@ This guide explains what users receive from a release and how maintainers publis
 
 ## Unreleased
 
-Nothing since [v0.34.4](https://github.com/LankfordAI/omp-ui/releases/tag/v0.34.4). Add one bullet per shipped change here, citing its issue as `#N`; the release tag lifts these into Highlights.
+- Refresh a kept artifact's data in one click: **Refresh now** starts a background session titled `Refresh: <artifact>` (Plan mode in the artifact's origin project, or a Chat when that project is not on this machine) and sends the request; the capture still waits for **Apply captured data**, and **View run** opens the session from the library's Data panel (#1132).
 
 ## Choose a download
 

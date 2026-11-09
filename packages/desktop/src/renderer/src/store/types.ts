@@ -1436,6 +1436,22 @@ export interface UiStore extends SettingsSlice, UpdatesSlice, LabSlice, StatsSli
       private?: boolean;
     },
   ): Promise<string | null>;
+  /**
+   * Artifact "Refresh now" (issue #1132, ADR-0091): spawns a background run
+   * (a Plan-mode session in `projectCwd`, or a Chat when null), prepares the
+   * refresh against that tab, and sends it as the first prompt. Resolves the
+   * tabId once prepared; the send follows on its own. Null when the spawn
+   * never landed (already reported). Throws when preparation fails, after
+   * erasing the empty run.
+   */
+  runArtifactRefresh(request: {
+    artifactId: string;
+    codeRevisionId: string;
+    dataSnapshotId: string;
+    datasetIds: string[];
+    title: string;
+    projectCwd: string | null;
+  }): Promise<string | null>;
   /** A background launch whose first prompt was not sent (issue #982); its
    *  toast names the session and offers to open it. Null = no toast. */
   backgroundSeedFailedTabId: string | null;

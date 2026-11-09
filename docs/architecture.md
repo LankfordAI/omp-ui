@@ -512,8 +512,11 @@ outside RPC reset state and survive dormant resume, queue restoration, stash,
 moves and rewind. Late attachments are not cleared by another send, and
 navigation generations prevent slow attachment from stealing newer focus.
 
-Refresh prepares an ordinary, unseeded destination and editable draft, never a
-seeded send or automatic connector execution. Preflight checks gate/grants and
+Refresh now spawns an ordinary background run (a Plan-mode session in the
+retained origin project, else a Chat), prepares against that tab, and sends the
+prepared request as its first prompt; adding to an existing session's draft
+sends nothing ([ADR-0091](adr/0091-artifact-refresh-now-runs-in-a-background-session.md)).
+Neither path executes connectors automatically. Preflight checks gate/grants and
 destination without binding a dormant process; actual send binds the current
 runtime/session. Captures report complete selected datasets or explicit failure.
 Human Apply rechecks code, exact schemas and selected dataset heads, retaining
@@ -1226,3 +1229,4 @@ Each current record is indexed once below. Superseding records remain linked bec
 | [Live voice goes half-duplex: the speaker yields while the mic is open](adr/0087-live-voice-speaker-yields-to-the-microphone.md) | Half-duplex speaker gate ([#1024](https://github.com/LankfordAI/omp-ui/issues/1024)): while `LivePeer.setMicEnabled` has the mic transmitting (a hold, or the 800 ms release tail) the renderer pauses the call's own `<audio>` playback, so the realtime server's input VAD never hears its own answer through the speakers and truncates it mid-sentence; the close resumes only if playback was running when the hold began, and genuine barge-in over the wire is unchanged |
 | [Council replaces code review with a roster of pinned member models](adr/0088-council-replaces-code-review.md) | Council ([#1049](https://github.com/LankfordAI/omp-ui/issues/1049)): /council asks 1-3 pinned member models through one task batch on a dedicated omp-ui-council agent shipped in a per-lineage extension package; a --config overlay turns task.perCallModel on and grants exactly the members' models; empty by default. |
 | [Session-authored artifact library and scoped data](adr/0090-session-authored-artifact-library-and-scoped-data.md) | Default-off independent SQLite retention, immutable consented references, human code/data acceptance, session-mediated refresh, and a narrowly scoped managed preload without weakening the network sandbox ([#1121](https://github.com/LankfordAI/omp-ui/issues/1121)). |
+| [Artifact Refresh now runs in a background session](adr/0091-artifact-refresh-now-runs-in-a-background-session.md) | Refresh now ([#1132](https://github.com/LankfordAI/omp-ui/issues/1132)): one click spawns an ordinary background run (Plan-mode session in the locally registered origin project, else a Build-mode Chat) titled `Refresh: <artifact>`, prepares against it and sends the request as its first prompt; captures stay staged for human Apply, the run is kept, overlapping runs rely on Apply's dataset-head check, and adding to an existing session's draft still sends nothing (amends ADR-0090). |

@@ -12,6 +12,7 @@ import { ArtifactCandidates } from "./ArtifactCandidates";
 import { ARTIFACT_DRAG_MIME } from "../../lib/artifact-drag";
 import { IS_ELECTRON } from "../../lib/platform";
 import { OVERLAY_INSET } from "../../lib/window-controls";
+import { findOwner } from "../../store/slices/view";
 
 /** Bounded pages stay metadata-only; only the selected version mounts a guest. */
 export function Artifacts() {
@@ -20,6 +21,7 @@ export function Artifacts() {
   const revision = useStore((s) => s.artifactLibraryRevision);
   const open = useStore((s) => s.openArtifacts);
   const close = useStore((s) => s.closeArtifacts);
+  const appState = useStore((s) => s.state);
   const [query, setQuery] = useState("");
   const [rows, setRows] = useState<ArtifactRecord[]>([]);
   const [cursor, setCursor] = useState<string | null>(null);
@@ -140,7 +142,7 @@ export function Artifacts() {
               {preview && <ArtifactSurface source={preview.source} html={preview.html} title={description.artifact.title} managed={description.artifact.managed} inline={true} className="min-h-0 min-w-0 flex-1" onReload={() => setPreviewReload((value) => value + 1)} onEscape={() => setExpanded(false)} />}
             </dialog>}
             {panel === "data" && <div className="shrink-0 space-y-5"><ArtifactDataSources key={`${description.code.codeRevisionId}/${description.snapshot.dataSnapshotId}`} description={description} />
-              {description.refreshRequests.filter((request) => request.status === "failed" || request.status === "interrupted" || !description.captures.some((capture) => capture.refreshRequestId === request.refreshRequestId)).map((request) => <p key={request.refreshRequestId} className="border-l-2 border-line-strong pl-3 text-sm text-ink-dim">{request.status === "failed" ? t("artifacts.captureFailed", {reason: request.failure?.message ?? ""}) : t(request.status === "interrupted" ? "artifacts.captureInterrupted" : "artifacts.awaitingCapture")}<span className="mt-1 block text-xs">{request.failure?.recordedAt ?? request.createdAt}</span></p>)}
+              {description.refreshRequests.filter((request) => request.status === "failed" || request.status === "interrupted" || !description.captures.some((capture) => capture.refreshRequestId === request.refreshRequestId)).map((request) => <p key={request.refreshRequestId} className="border-l-2 border-line-strong pl-3 text-sm text-ink-dim">{request.status === "failed" ? t("artifacts.captureFailed", {reason: request.failure?.message ?? ""}) : t(request.status === "interrupted" ? "artifacts.captureInterrupted" : "artifacts.awaitingCapture")}<span className="mt-1 block text-xs">{request.failure?.recordedAt ?? request.createdAt}</span>{findOwner(appState, request.targetTabId) !== undefined && <Button variant="ghost" onClick={() => void useStore.getState().openSession(request.targetTabId)}>{t("artifacts.viewRun")}</Button>}</p>)}
               {description.captures.map((capture) => <ArtifactCaptureCard key={capture.captureId} description={description} capture={capture} />)}
             </div>}
             {panel === "history" && <section className="shrink-0 space-y-4"><p className="text-sm text-ink-dim">{t("artifacts.historyHint")}</p><label className="block space-y-1 text-sm"><span>{t("artifacts.codeVersion")}</span><select className="max-w-full rounded border border-line bg-raised p-2" value={description.code.codeRevisionId} onChange={(event) => open({ artifactId: description.artifact.artifactId, codeRevisionId: event.target.value, dataSnapshotId: description.snapshot.dataSnapshotId })}>{description.revisions.map((code) => <option key={code.codeRevisionId} value={code.codeRevisionId}>{t("artifacts.version", { number: code.revisionNumber })} · {code.createdAt}</option>)}</select></label><label className="block space-y-1 text-sm"><span>{t("artifacts.dataVersion")}</span><select className="max-w-full rounded border border-line bg-raised p-2" value={description.snapshot.dataSnapshotId} onChange={(event) => open({ artifactId: description.artifact.artifactId, codeRevisionId: description.code.codeRevisionId, dataSnapshotId: event.target.value })}>{description.snapshots.map((snapshot) => <option key={snapshot.dataSnapshotId} value={snapshot.dataSnapshotId}>{snapshot.createdAt}</option>)}</select></label><dl className="space-y-2 break-all text-xs text-ink-dim"><dt>{t("artifacts.source")}</dt><dd>{description.code.source.sessionId}<br />{description.code.source.toolCallId}<br />{description.code.source.sourceHash}</dd></dl></section>}
@@ -148,7 +150,7 @@ export function Artifacts() {
         </main>
       </div>
     </div>
-    {description && picker && <ArtifactReferencePicker description={description} mode={picker} onClose={() => setPicker(null)} />}
+    {description && picker && <ArtifactReferencePicker description={description} mode={picker} onClose={() => setPicker(null)} onRefreshStarted={() => setPanel("data")} />}
     {deleting && description && <Modal labelledBy="artifact-delete-title" onClose={() => { if (!deleteBusy) setDeleting(false); }} width="w-[min(30rem,96vw)]"><div className="space-y-4 p-4"><h2 id="artifact-delete-title" className="text-base font-semibold">{t("artifacts.deleteTitle")}</h2><p className="text-sm text-ink-mid">{t("artifacts.deleteHint")}</p>{error && <p role="alert" className="text-sm text-rose">{error}</p>}<div className="flex flex-wrap justify-end gap-2"><Button disabled={deleteBusy} onClick={() => setDeleting(false)}>{t("artifacts.cancel")}</Button><Button disabled={deleteBusy} variant="solid" onClick={() => void remove()}>{t("artifacts.delete")}</Button></div></div></Modal>}
   </section>;
 }

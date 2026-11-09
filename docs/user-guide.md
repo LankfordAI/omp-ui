@@ -286,11 +286,13 @@ replace the existing artifact; keep it independently or discuss a new candidate.
 
 ### Refresh data explicitly
 
-**Refresh data in session** selects datasets and an existing same-owner native
-session, or explicitly creates an unseeded ordinary session in the retained
-origin project or a new Chat. It appends a reference and editable request to
-that draft; you decide when to send. Existing Plan mode and tool permissions
-remain in force.
+**Refresh data** selects datasets (all by default) and where to run. **Refresh
+now** starts a new background session titled `Refresh: <artifact>`, in Plan
+mode in the artifact's origin project or as a Chat when that project is not on
+this machine, and sends the request immediately. The library switches to Data,
+where **View run** opens that session. Choosing an existing session instead adds
+an editable request to its draft and sends nothing. The run session is
+ordinary: delete it when you no longer need its transcript.
 
 The session repeats the recorded import/query/extraction with its existing
 access. A successful capture is staged, not applied. Review source/method,

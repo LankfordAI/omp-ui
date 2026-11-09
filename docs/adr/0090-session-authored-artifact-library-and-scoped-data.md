@@ -1,6 +1,6 @@
 # Session-authored artifact library and scoped data
 
-> **Status:** Accepted, 2026-11-09 ([#1121](https://github.com/LankfordAI/omp-ui/issues/1121)). Default-off experiment.
+> **Status:** Accepted, 2026-11-09 ([#1121](https://github.com/LankfordAI/omp-ui/issues/1121)). Default-off experiment. Refresh destination amended by [ADR-0091](0091-artifact-refresh-now-runs-in-a-background-session.md).
 
 Artifacts are authored and revised in ordinary native sessions. Human Keep retains an accepted document and its structured working data in an independent main-pane library; it does not rewrite the transcript or create a special artifact session. Project and Chat are retained origin labels, not ownership or deletion boundaries. There is no standalone builder, New artifact wizard or narrow Revise commissioning form.
 
