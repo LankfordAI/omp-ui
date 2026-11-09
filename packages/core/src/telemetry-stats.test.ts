@@ -16,7 +16,8 @@ const temporaryRoots: string[] = [];
 const databases: DatabaseSync[] = [];
 
 // The same required raw-message shape as stats-store's OMP fixtures. Optional
-// rollups and tool tables are absent: this reader counts only recorded requests.
+// rollups and tool tables are absent: this reader sums recorded requests and
+// non-cached tokens only.
 const MESSAGES = `CREATE TABLE messages (
   session_file TEXT NOT NULL, entry_id TEXT NOT NULL, folder TEXT NOT NULL,
   model TEXT NOT NULL, provider TEXT NOT NULL, timestamp INTEGER NOT NULL,
@@ -59,9 +60,16 @@ function fixture(): { root: string; db: DatabaseSync; context: StatsReadContext;
   return { root, db, context, file: path.join(sessionsRoot, LINEAGE, "root.jsonl") };
 }
 
-function message(db: DatabaseSync, file: string, id: string, timestamp = START, provider = "openai", model = "gpt-4o"): void {
-  db.prepare("INSERT INTO messages (session_file, entry_id, folder, model, provider, timestamp) VALUES (?, ?, ?, ?, ?, ?)")
-    .run(file, id, "/private/stored/folder", model, provider, timestamp);
+// Distinct non-zero defaults per token column so any expectation that sums the
+// wrong column (or forgets to sum at all) fails loudly; cache tokens in
+// particular must never leak into inputTokens/outputTokens.
+function message(
+  db: DatabaseSync, file: string, id: string, timestamp = START, provider = "openai", model = "gpt-4o",
+  input = 7, cacheRead = 100, output = 3,
+): void {
+  db.prepare("INSERT INTO messages (session_file, entry_id, folder, model, provider, timestamp, " +
+    "input_tokens, cache_read_tokens, output_tokens) VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?)")
+    .run(file, id, "/private/stored/folder", model, provider, timestamp, input, cacheRead, output);
 }
 
 function close(db: DatabaseSync): void {
@@ -86,14 +94,15 @@ describe("readTelemetryModelUsage", () => {
     message(db, file, "at-until", START + 2 * DAY);
     // Zero token/cost rows and errors are still recorded request COUNT(*),
     // not selected defaults, token sums, tools, or successful-turn counts.
-    db.prepare("UPDATE messages SET stop_reason = 'error' WHERE entry_id = 'at-since'").run();
+    db.prepare("UPDATE messages SET stop_reason = 'error', input_tokens = 0, cache_read_tokens = 0, " +
+      "output_tokens = 0 WHERE entry_id = 'at-since'").run();
     message(db, file, "other-route", START, "anthropic", "private-deployment");
     expect(await readTelemetryModelUsage(context, START, START + 2 * DAY)).toEqual([
-      { hour: "2026-11-07T00:00:00.000Z", provider: "anthropic", model: "private-deployment", requests: 1 },
-      { hour: "2026-11-07T00:00:00.000Z", provider: "openai", model: "gpt-4o", requests: 1 },
-      { hour: "2026-11-07T23:00:00.000Z", provider: "openai", model: "gpt-4o", requests: 1 },
-      { hour: "2026-11-08T06:00:00.000Z", provider: "openai", model: "gpt-4o", requests: 1 },
-      { hour: "2026-11-08T23:00:00.000Z", provider: "openai", model: "gpt-4o", requests: 1 },
+      { hour: "2026-11-07T00:00:00.000Z", provider: "anthropic", model: "private-deployment", requests: 1, inputTokens: 7, outputTokens: 3 },
+      { hour: "2026-11-07T00:00:00.000Z", provider: "openai", model: "gpt-4o", requests: 1, inputTokens: 0, outputTokens: 0 },
+      { hour: "2026-11-07T23:00:00.000Z", provider: "openai", model: "gpt-4o", requests: 1, inputTokens: 7, outputTokens: 3 },
+      { hour: "2026-11-08T06:00:00.000Z", provider: "openai", model: "gpt-4o", requests: 1, inputTokens: 7, outputTokens: 3 },
+      { hour: "2026-11-08T23:00:00.000Z", provider: "openai", model: "gpt-4o", requests: 1, inputTokens: 7, outputTokens: 3 },
     ]);
     expect(await readTelemetryModelUsage(context, START, START)).toEqual([]);
   });
@@ -103,8 +112,8 @@ describe("readTelemetryModelUsage", () => {
     message(db, file, "negative", -1);
     message(db, file, "epoch", 0);
     expect(await readTelemetryModelUsage(context, -1, 1)).toEqual([
-      { hour: "1969-12-31T23:00:00.000Z", provider: "openai", model: "gpt-4o", requests: 1 },
-      { hour: "1970-01-01T00:00:00.000Z", provider: "openai", model: "gpt-4o", requests: 1 },
+      { hour: "1969-12-31T23:00:00.000Z", provider: "openai", model: "gpt-4o", requests: 1, inputTokens: 7, outputTokens: 3 },
+      { hour: "1970-01-01T00:00:00.000Z", provider: "openai", model: "gpt-4o", requests: 1, inputTokens: 7, outputTokens: 3 },
     ]);
   });
 
@@ -118,9 +127,9 @@ describe("readTelemetryModelUsage", () => {
     message(db, file, "next-window", START + 3 * HOUR);
     message(db, path.join(context.ownedSessionsRoot, `${LINEAGE}-unrelated`, "root.jsonl"), "foreign", START + HOUR);
     expect(await readTelemetryModelUsage(context, START, START + 3 * HOUR)).toEqual([
-      { hour: "2026-11-07T00:00:00.000Z", provider: "openai", model: "gpt-4o", requests: 2 },
-      { hour: "2026-11-07T01:00:00.000Z", provider: "openai", model: "gpt-4o", requests: 2 },
-      { hour: "2026-11-07T02:00:00.000Z", provider: "openai", model: "gpt-4o", requests: 1 },
+      { hour: "2026-11-07T00:00:00.000Z", provider: "openai", model: "gpt-4o", requests: 2, inputTokens: 14, outputTokens: 6 },
+      { hour: "2026-11-07T01:00:00.000Z", provider: "openai", model: "gpt-4o", requests: 2, inputTokens: 14, outputTokens: 6 },
+      { hour: "2026-11-07T02:00:00.000Z", provider: "openai", model: "gpt-4o", requests: 1, inputTokens: 7, outputTokens: 3 },
     ]);
   });
 
@@ -133,7 +142,7 @@ describe("readTelemetryModelUsage", () => {
     message(db, file, "last-consented-ms", until - 1);
     message(db, file, "at-until", until);
     expect(await readTelemetryModelUsage(context, since, until)).toEqual([
-      { hour: "2026-11-07T00:00:00.000Z", provider: "openai", model: "gpt-4o", requests: 2 },
+      { hour: "2026-11-07T00:00:00.000Z", provider: "openai", model: "gpt-4o", requests: 2, inputTokens: 14, outputTokens: 6 },
     ]);
   });
 
@@ -168,7 +177,7 @@ describe("readTelemetryModelUsage", () => {
     // Accepted transcripts deliberately never exist: registry ownership survives
     // archive/missing files and does not fall back to reading a matching cwd.
     expect(await readTelemetryModelUsage(context, START, START + DAY)).toEqual([
-      { hour: "2026-11-07T00:00:00.000Z", provider: "openai", model: "gpt-4o", requests: accepted.length },
+      { hour: "2026-11-07T00:00:00.000Z", provider: "openai", model: "gpt-4o", requests: accepted.length, inputTokens: 7 * accepted.length, outputTokens: 3 * accepted.length },
     ]);
   });
 
@@ -178,7 +187,7 @@ describe("readTelemetryModelUsage", () => {
     message(db, file, "absolute");
     message(db, `../sessions-lookalike/${LINEAGE}/session.jsonl`, "escape");
     expect(await readTelemetryModelUsage(context, START, START + DAY)).toEqual([
-      { hour: "2026-11-07T00:00:00.000Z", provider: "openai", model: "gpt-4o", requests: 2 },
+      { hour: "2026-11-07T00:00:00.000Z", provider: "openai", model: "gpt-4o", requests: 2, inputTokens: 14, outputTokens: 6 },
     ]);
   });
 
@@ -211,7 +220,7 @@ describe("readTelemetryModelUsage", () => {
     const result = await readTelemetryModelUsage(context, START, START + DAY);
     vi.restoreAllMocks();
     expect(wrote).toBe(true);
-    expect(result).toEqual([{ hour: "2026-11-07T00:00:00.000Z", provider: "openai", model: "gpt-4o", requests: 1 }]);
+    expect(result).toEqual([{ hour: "2026-11-07T00:00:00.000Z", provider: "openai", model: "gpt-4o", requests: 1, inputTokens: 7, outputTokens: 3 }]);
     expect(db.prepare("SELECT COUNT(*) AS count FROM messages").get()?.count).toBe(2);
   });
 
@@ -224,7 +233,7 @@ describe("readTelemetryModelUsage", () => {
     message(db, file, "uncommitted");
     try {
       expect(await readTelemetryModelUsage(context, START, START + DAY)).toEqual([
-        { hour: "2026-11-07T00:00:00.000Z", provider: "openai", model: "gpt-4o", requests: 1 },
+        { hour: "2026-11-07T00:00:00.000Z", provider: "openai", model: "gpt-4o", requests: 1, inputTokens: 7, outputTokens: 3 },
       ]);
       expect(db.prepare("SELECT sql FROM sqlite_master ORDER BY name").all()).toEqual(schema);
       expect(fs.readFileSync(context.source.databasePath)).toEqual(bytes);

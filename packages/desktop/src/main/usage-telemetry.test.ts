@@ -121,14 +121,14 @@ describe("UsageTelemetry required activity and optional model usage", () => {
     const h = harness();
     h.setNow("2026-11-07T12:30:00Z");
     h.readModels.mockResolvedValue([
-      { hour: "2026-11-07T12:00:00.000Z", provider: "openai", model: "gpt-4o", requests: 7 },
-      { hour: "2026-11-07T12:00:00.000Z", provider: "openai", model: "private-deployment-A", requests: 3 },
-      { hour: "2026-11-07T12:00:00.000Z", provider: "openai", model: "private-deployment-B", requests: 4 },
-      { hour: "2026-11-07T12:00:00.000Z", provider: "internal-company-route", model: "gpt-4o", requests: 2 },
-      { hour: "2026-11-07T14:00:00.000Z", provider: "openai", model: "gpt-4o", requests: 5 },
-      { hour: "2026-11-07T11:00:00.000Z", provider: "openai", model: "gpt-4o", requests: 99 },
-      { hour: "2026-11-07T15:00:00.000Z", provider: "openai", model: "gpt-4o", requests: 99 },
-      { hour: "2026-11-07T13:15:00.000Z", provider: "openai", model: "gpt-4o", requests: 99 },
+      { hour: "2026-11-07T12:00:00.000Z", provider: "openai", model: "gpt-4o", requests: 7, inputTokens: 70, outputTokens: 30 },
+      { hour: "2026-11-07T12:00:00.000Z", provider: "openai", model: "private-deployment-A", requests: 3, inputTokens: 10, outputTokens: 5 },
+      { hour: "2026-11-07T12:00:00.000Z", provider: "openai", model: "private-deployment-B", requests: 4, inputTokens: 20, outputTokens: 10 },
+      { hour: "2026-11-07T12:00:00.000Z", provider: "internal-company-route", model: "gpt-4o", requests: 2, inputTokens: 8, outputTokens: 4 },
+      { hour: "2026-11-07T14:00:00.000Z", provider: "openai", model: "gpt-4o", requests: 5, inputTokens: 50, outputTokens: 25 },
+      { hour: "2026-11-07T11:00:00.000Z", provider: "openai", model: "gpt-4o", requests: 99, inputTokens: 99, outputTokens: 99 },
+      { hour: "2026-11-07T15:00:00.000Z", provider: "openai", model: "gpt-4o", requests: 99, inputTokens: 99, outputTokens: 99 },
+      { hour: "2026-11-07T13:15:00.000Z", provider: "openai", model: "gpt-4o", requests: 99, inputTokens: 99, outputTokens: 99 },
     ]);
     h.setActive(false);
     h.setModelUsageEnabled(true);
@@ -147,6 +147,14 @@ describe("UsageTelemetry required activity and optional model usage", () => {
       ["model_usage_hourly", "2026-11-07T12:00:00.000Z", "openai", "custom/other", 7],
       ["model_usage_hourly", "2026-11-07T12:00:00.000Z", "custom/other", "custom/other", 2],
       ["model_usage_hourly", "2026-11-07T14:00:00.000Z", "openai", "gpt-4o", 5],
+    ]);
+    // Coalesced private rows merge token sums exactly like requests; total is
+    // the input+output pair computed at send time.
+    expect(events.map((event) => [event.properties.input_tokens, event.properties.output_tokens, event.properties.total_tokens])).toEqual([
+      [70, 30, 100],
+      [30, 15, 45],
+      [8, 4, 12],
+      [50, 25, 75],
     ]);
     expect(events.map((event) => event.timestamp)).toEqual([
       "2026-11-07T12:30:00.000Z", "2026-11-07T12:30:00.000Z", "2026-11-07T12:30:00.000Z", "2026-11-07T14:00:00.000Z",
@@ -207,7 +215,7 @@ describe("UsageTelemetry required activity and optional model usage", () => {
     const running = h.reporter.poll();
     h.setModelUsageEnabled(false);
     h.reporter.syncConsent();
-    snapshot.resolve([{ hour: "2026-11-07T12:00:00.000Z", provider: "openai", model: "gpt-4o", requests: 9 }]);
+    snapshot.resolve([{ hour: "2026-11-07T12:00:00.000Z", provider: "openai", model: "gpt-4o", requests: 9, inputTokens: 40, outputTokens: 20 }]);
     await running;
     expect(h.batches).toEqual([]);
     expect(JSON.parse(fs.readFileSync(h.deps.ledgerFile, "utf8")).models).toBe(null);
@@ -226,7 +234,7 @@ describe("UsageTelemetry required activity and optional model usage", () => {
     }) });
     h.setActive(false);
     h.setModelUsageEnabled(true);
-    h.readModels.mockResolvedValue([{ hour: "2026-11-07T12:00:00.000Z", provider: "openai", model: "gpt-4o", requests: 3 }]);
+    h.readModels.mockResolvedValue([{ hour: "2026-11-07T12:00:00.000Z", provider: "openai", model: "gpt-4o", requests: 3, inputTokens: 15, outputTokens: 9 }]);
     h.reporter.start();
     await h.reporter.poll();
     const installationId = JSON.parse(fs.readFileSync(h.deps.ledgerFile, "utf8")).installationId;
@@ -271,12 +279,12 @@ describe("UsageTelemetry required activity and optional model usage", () => {
       version: 1, installationId, app: { lastDay: "2026-11-07", pending: null },
       models: { since: Date.parse("2026-11-06T15:30:00Z"), through: Date.parse("2026-11-07T00:00:00Z"), pending: null },
     }));
-    h.readModels.mockResolvedValue([{ hour: "2026-11-07T11:00:00.000Z", provider: "openai", model: "gpt-4o", requests: 2 }]);
+    h.readModels.mockResolvedValue([{ hour: "2026-11-07T11:00:00.000Z", provider: "openai", model: "gpt-4o", requests: 2, inputTokens: 12, outputTokens: 6 }]);
     h.reporter.start();
     await h.reporter.poll();
     expect(h.readModels).toHaveBeenCalledExactlyOnceWith(Date.parse("2026-11-07T00:00:00Z"), Date.parse("2026-11-07T12:00:00Z"));
-    expect(h.batches.flat().map((event) => [event.event, event.distinct_id, event.properties.requests])).toEqual([
-      ["app_active", installationId, undefined], ["model_usage_hourly", installationId, 2],
+    expect(h.batches.flat().map((event) => [event.event, event.distinct_id, event.properties.requests, event.properties.total_tokens])).toEqual([
+      ["app_active", installationId, undefined, undefined], ["model_usage_hourly", installationId, 2, 18],
     ]);
     h.reporter.dispose();
     const restarted = h.create();
@@ -329,10 +337,10 @@ describe("UsageTelemetry required activity and optional model usage", () => {
     });
     expect(sent[2]![0]!.properties).not.toHaveProperty("hour");
     expect(JSON.stringify(sent)).not.toContain("/never/upload");
-    h.readModels.mockResolvedValue([{ hour: "2026-11-07T11:00:00.000Z", provider: "openai", model: "gpt-4o", requests: 3 }]);
+    h.readModels.mockResolvedValue([{ hour: "2026-11-07T11:00:00.000Z", provider: "openai", model: "gpt-4o", requests: 3, inputTokens: 9, outputTokens: 3 }]);
     await restarted.poll();
     expect(h.readModels).toHaveBeenCalledExactlyOnceWith(Date.parse("2026-11-07T00:00:00Z"), Date.parse("2026-11-07T12:00:00Z"));
-    expect(sent[3]![0]).toMatchObject({ event: "model_usage_hourly", distinct_id: installationId, properties: { hour: "2026-11-07T11:00:00.000Z", requests: 3 } });
+    expect(sent[3]![0]).toMatchObject({ event: "model_usage_hourly", distinct_id: installationId, properties: { hour: "2026-11-07T11:00:00.000Z", requests: 3, total_tokens: 12 } });
     await restarted.poll();
     expect(sent.map((batch) => batch[0]!.event)).toEqual(["app_active", "model_usage_daily", "model_usage_daily", "model_usage_hourly"]);
   });
@@ -345,7 +353,7 @@ describe("UsageTelemetry required activity and optional model usage", () => {
     }) });
     h.setActive(false);
     h.setModelUsageEnabled(true);
-    h.readModels.mockResolvedValue([{ hour: "2026-11-07T12:00:00.000Z", provider: "openai", model: "gpt-4o", requests: 4 }]);
+    h.readModels.mockResolvedValue([{ hour: "2026-11-07T12:00:00.000Z", provider: "openai", model: "gpt-4o", requests: 4, inputTokens: 16, outputTokens: 8 }]);
     h.reporter.start();
     await h.reporter.poll();
     h.setNow("2026-11-07T13:01:00Z");
@@ -357,8 +365,63 @@ describe("UsageTelemetry required activity and optional model usage", () => {
     await restarted.poll();
     expect(payloads).toHaveLength(2);
     expect(payloads[1]).toBe(payloads[0]);
-    expect(JSON.parse(payloads[1]!).batch[0]).toMatchObject({ event: "model_usage_hourly", properties: { hour: "2026-11-07T12:00:00.000Z", requests: 4 } });
+    expect(JSON.parse(payloads[1]!).batch[0]).toMatchObject({ event: "model_usage_hourly", properties: { hour: "2026-11-07T12:00:00.000Z", requests: 4, input_tokens: 16, output_tokens: 8, total_tokens: 24 } });
     expect(h.readModels).toHaveBeenCalledTimes(1);
+  });
+
+  it("drains legacy version-2 pending hourly rows without token fields and keeps the identity", async () => {
+    const h = harness();
+    h.setActive(false);
+    h.setModelUsageEnabled(true);
+    const installationId = "11111111-1111-4111-8111-111111111111";
+    const modelId = "33333333-3333-4333-8333-333333333333";
+    // Written exactly as the pre-token build persisted it: version 2, hourly
+    // pending rows with no token fields at all.
+    fs.writeFileSync(h.deps.ledgerFile, JSON.stringify({
+      version: 2, installationId, app: { lastHour: null, pending: null },
+      models: {
+        since: Date.parse("2026-11-07T00:00:00Z"), through: Date.parse("2026-11-07T12:00:00Z"),
+        pending: { cadence: "hourly", until: Date.parse("2026-11-07T13:00:00Z"), rows: [
+          { uuid: modelId, bucket: "2026-11-07T12:00:00.000Z", provider: "openai", model: "gpt-4o", requests: 6 },
+        ] },
+      },
+    }));
+    h.reporter.start();
+    await h.reporter.poll();
+    const events = h.batches.flat();
+    expect(events.map((event) => [event.event, event.uuid])).toEqual([["model_usage_hourly", modelId]]);
+    expect(events[0]!.distinct_id).toBe(installationId);
+    expect(events[0]!.properties).not.toHaveProperty("input_tokens");
+    expect(events[0]!.properties).not.toHaveProperty("output_tokens");
+    expect(events[0]!.properties).not.toHaveProperty("total_tokens");
+    expect(events[0]!.properties.requests).toBe(6);
+    const ledger = JSON.parse(fs.readFileSync(h.deps.ledgerFile, "utf8"));
+    expect(ledger.version).toBe(2);
+    expect(ledger.installationId).toBe(installationId);
+  });
+
+  it("rejects a pending row carrying only one token field instead of half-reporting", async () => {
+    vi.spyOn(console, "warn").mockImplementation(() => {});
+    const h = harness();
+    h.setActive(false);
+    h.setModelUsageEnabled(true);
+    const installationId = "11111111-1111-4111-8111-111111111111";
+    fs.writeFileSync(h.deps.ledgerFile, JSON.stringify({
+      version: 2, installationId, app: { lastHour: null, pending: null },
+      models: {
+        since: Date.parse("2026-11-07T00:00:00Z"), through: Date.parse("2026-11-07T12:00:00Z"),
+        pending: { cadence: "hourly", until: Date.parse("2026-11-07T13:00:00Z"), rows: [
+          { uuid: "33333333-3333-4333-8333-333333333333", bucket: "2026-11-07T12:00:00.000Z", provider: "openai", model: "gpt-4o", requests: 6, inputTokens: 40 },
+        ] },
+      },
+    }));
+    h.reporter.start();
+    await h.reporter.poll();
+    // A corrupt ledger starts fresh: the half-token row is never sent.
+    expect(h.batches.flat().map((event) => event.event)).toEqual([]);
+    const ledger = JSON.parse(fs.readFileSync(h.deps.ledgerFile, "utf8"));
+    expect(ledger.installationId).not.toBe(installationId);
+    expect(ledger.models.pending).toBe(null);
   });
 
   it("bounds an unresponsive request instead of holding shutdown or app operation", async () => {

@@ -7,6 +7,9 @@ export interface TelemetryModelUsageRow {
   provider: string;
   model: string;
   requests: number;
+  /** Non-cached input tokens; cache-read/cache-write columns stay local-only. */
+  inputTokens: number;
+  outputTokens: number;
 }
 
 // Match the raw-message compatibility boundary of stats-store.ts. Optional
@@ -70,7 +73,9 @@ export async function readTelemetryModelUsage(
     const groups = db.prepare(
       "SELECT session_file, strftime('%Y-%m-%dT%H:00:00.000Z', timestamp / 1000.0, 'unixepoch') AS hour, " +
       "CASE WHEN instr(provider, char(0)) = 0 THEN provider ELSE '' END AS provider, " +
-      "CASE WHEN instr(model, char(0)) = 0 THEN model ELSE '' END AS model, COUNT(*) AS requests FROM messages " +
+      "CASE WHEN instr(model, char(0)) = 0 THEN model ELSE '' END AS model, COUNT(*) AS requests, " +
+      "SUM(COALESCE(input_tokens, 0)) AS input_tokens, " +
+      "SUM(COALESCE(output_tokens, 0)) AS output_tokens FROM messages " +
       // node:sqlite decodes TEXT through a NUL-terminated boundary. Reject bad
       // file keys and bucket malformed dimensions before decoding public prefixes.
       "WHERE timestamp >= ? AND timestamp < ? AND instr(session_file, char(0)) = 0 " +
@@ -88,15 +93,24 @@ export async function readTelemetryModelUsage(
       if (!include) continue;
       if (typeof group.hour !== "string" || typeof group.provider !== "string" ||
         typeof group.model !== "string" || typeof group.requests !== "number" ||
-        !Number.isSafeInteger(group.requests) || group.requests < 1) return null;
+        !Number.isSafeInteger(group.requests) || group.requests < 1 ||
+        typeof group.input_tokens !== "number" || !Number.isSafeInteger(group.input_tokens) ||
+        group.input_tokens < 0 ||
+        typeof group.output_tokens !== "number" || !Number.isSafeInteger(group.output_tokens) ||
+        group.output_tokens < 0) return null;
       const key = JSON.stringify([group.hour, group.provider, group.model]);
       const existing = totals.get(key);
       if (existing) {
         existing.requests += group.requests;
-        if (!Number.isSafeInteger(existing.requests)) return null;
+        existing.inputTokens += group.input_tokens;
+        existing.outputTokens += group.output_tokens;
+        if (!Number.isSafeInteger(existing.requests) ||
+          !Number.isSafeInteger(existing.inputTokens) ||
+          !Number.isSafeInteger(existing.outputTokens)) return null;
       } else {
         totals.set(key, {
           hour: group.hour, provider: group.provider, model: group.model, requests: group.requests,
+          inputTokens: group.input_tokens, outputTokens: group.output_tokens,
         });
       }
     }

@@ -24,6 +24,9 @@ interface ModelReport {
   provider: string;
   model: string;
   requests: number;
+  /** Absent only on pre-upgrade frozen pending rows and drained daily reports. */
+  inputTokens?: number;
+  outputTokens?: number;
 }
 interface ModelSnapshot {
   /** Daily only while draining a frozen pre-upgrade snapshot. */
@@ -76,6 +79,9 @@ function isDay(value: unknown): value is string {
 }
 function isTime(value: unknown): value is number {
   return typeof value === "number" && Number.isSafeInteger(value) && value >= 0 && value <= 8_640_000_000_000_000;
+}
+function isTokenCount(value: unknown): value is number {
+  return typeof value === "number" && Number.isSafeInteger(value) && value >= 0;
 }
 function isUuid(value: unknown): value is string {
   return typeof value === "string" && UUID.test(value);
@@ -131,6 +137,14 @@ function readLedger(file: string): { ledger: TelemetryLedger; migrated: boolean 
           const row = object(value);
           if (!row) return null;
           const bucket = migrated ? row.date : row.bucket;
+          // Token fields ride the same version-2 ledger: legacy frozen rows have
+          // neither field (they drain without token properties); a new row has
+          // both valid. One-present-one-missing is corrupt. Version stays 2 so
+          // the installation identity survives this upgrade.
+          const inputTokens = row.inputTokens, outputTokens = row.outputTokens;
+          if ((inputTokens === undefined) !== (outputTokens === undefined)) return null;
+          const hasTokens = inputTokens !== undefined && outputTokens !== undefined;
+          if (hasTokens && (!isTokenCount(inputTokens) || !isTokenCount(outputTokens))) return null;
           if (typeof bucket !== "string" || !isUuid(row.uuid) ||
             !(cadence === "daily" ? isDay(bucket) : isHour(bucket)) ||
             typeof row.provider !== "string" || typeof row.model !== "string" ||
@@ -139,7 +153,10 @@ function readLedger(file: string): { ledger: TelemetryLedger; migrated: boolean 
             Date.parse(bucket) >= pending.until) return null;
           const dimensions = telemetryModelDimensions(row.provider, row.model);
           if (dimensions.provider !== row.provider || dimensions.model !== row.model) return null;
-          rows.push({ uuid: row.uuid, bucket, ...dimensions, requests: row.requests });
+          rows.push({
+            uuid: row.uuid, bucket, ...dimensions, requests: row.requests,
+            ...(isTokenCount(inputTokens) && isTokenCount(outputTokens) ? { inputTokens, outputTokens } : {}),
+          });
         }
         ledger.models.pending = { cadence, until: pending.until, rows };
       }
@@ -315,12 +332,22 @@ export class UsageTelemetry {
       const grouped = new Map<string, ModelReport>();
       for (const row of rows) {
         if (!isHour(row.hour) || Date.parse(row.hour) < hour(models.through) || Date.parse(row.hour) >= until ||
-          !Number.isSafeInteger(row.requests) || row.requests <= 0) continue;
+          !Number.isSafeInteger(row.requests) || row.requests <= 0 ||
+          !Number.isSafeInteger(row.inputTokens) || row.inputTokens < 0 ||
+          !Number.isSafeInteger(row.outputTokens) || row.outputTokens < 0) continue;
         const dimensions = telemetryModelDimensions(row.provider, row.model);
         const key = JSON.stringify([row.hour, dimensions.provider, dimensions.model]);
         const previous = grouped.get(key);
-        if (previous) previous.requests += row.requests;
-        else grouped.set(key, { uuid: randomUUID(), bucket: row.hour, ...dimensions, requests: row.requests });
+        if (previous) {
+          previous.requests += row.requests;
+          previous.inputTokens = (previous.inputTokens ?? 0) + row.inputTokens;
+          previous.outputTokens = (previous.outputTokens ?? 0) + row.outputTokens;
+        } else {
+          grouped.set(key, {
+            uuid: randomUUID(), bucket: row.hour, ...dimensions, requests: row.requests,
+            inputTokens: row.inputTokens, outputTokens: row.outputTokens,
+          });
+        }
       }
       models.pending = { cadence: "hourly", until, rows: [...grouped.values()] };
       this.dirty = true;
@@ -340,6 +367,13 @@ export class UsageTelemetry {
           date: row.bucket.slice(0, 10),
           ...(pending.cadence === "hourly" ? { hour: row.bucket } : {}),
           provider: row.provider, model: row.model, requests: row.requests,
+          ...(row.inputTokens !== undefined && row.outputTokens !== undefined
+            ? {
+                input_tokens: row.inputTokens,
+                output_tokens: row.outputTokens,
+                total_tokens: row.inputTokens + row.outputTokens,
+              }
+            : {}),
         },
       })), generation);
       if (!accepted || !this.current(generation)) return;
