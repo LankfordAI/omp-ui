@@ -16,6 +16,58 @@ Keep is idempotent for the main-trusted source. Accepted data and reference gran
 
 Storage checks enforce regular files, no symlinks or extra file hard links, stable filesystem identity, and native UID ownership where available. POSIX also requires exact owner-only directory/file modes (0700/0600). Windows uses inherited user-profile ACLs; its emulated stat mode bits cannot establish POSIX permissions and are not used for that check.
 
+## Direct admission and file-backed authoring
+
+Only a positively observed direct assistant call to `omp-ui_render_html` may
+stage a render. ADR-0043's input-order admission rejects nested or unproven
+calls before file access or staging. It does not remove existing orphan rows.
+
+Source identity is the SHA-256 of the original render arguments serialized as
+sorted-key JSON. Object keys sort recursively; array order and original values
+remain unchanged. Main captures this hash before the first asynchronous read,
+before title/height normalization, provenance stamps or `valueFile` resolution.
+The resolved authoring envelope is separate and never changes the transcript
+arguments or their source identity.
+
+For `omp-ui_render_html` only, each managed dataset supplies exactly one of
+inline `value` and `valueFile`. Main resolves file-backed JSON before validating
+the complete managed envelope and staging a draft. Persisted dataset contracts
+still contain `value` only. Retained drafts, kept code/data and source lookup
+use that durable resolved payload; changing or deleting the source file cannot
+change a previously staged dataset. Keep and refresh Apply remain human actions.
+
+File resolution requires a captured native session ID and its captured
+transcript path. The transcript filename must end exactly in
+`_<sessionId>.jsonl` or `_<sessionId>.jsonl.gz`, and its real path must stay
+directly inside the captured active or archive lineage. Strip that transcript
+extension and append `/local` to obtain the one permitted session-local root. A
+shared lineage, project directory, sibling session's local directory or newest
+transcript is not an alternative root. Missing paths fail; import never creates
+directories or guesses a substitute session. Symlink substitutions for the
+session-artifacts directory or its `local` directory are refused.
+
+`valueFile` is a literal relative `local://` path; percent signs are not
+decoded. Empty, absolute, drive, backslash, NUL, query, fragment, `.` and `..`
+paths are refused. Reads must stay strictly within that exact root and target a
+regular file. A target symlink that resolves inside the same root is allowed,
+but the final open uses no-follow semantics and verifies the opened file against
+the checked target. Main bounds raw bytes at 8 MiB, decodes strict UTF-8 without
+a BOM, parses JSON and applies the normal JSON depth, dataset, provenance and
+complete-envelope limits after materialization. It rechecks root confinement,
+identity and size after reading, so a replacement or growing file conflicts
+instead of staging ambiguous data.
+
+Main owns cancellation and checks the captured owner/session/runtime, gate
+epoch and host request authority throughout the read and immediately before
+staging. Cancellation, timeout, session/process replacement or disabling the
+experiment cannot publish a late draft. Import errors do not echo file content.
+
+Plain cards replay their transcript arguments. A historical managed call with
+`valueFile` and no retained resolved payload is unavailable. Main must not
+reconstruct it by reading the path again. Capture tools do not accept
+`valueFile`, and guest code receives no file-reading API.
+
+
 ## Human publication and session-mediated refresh
 
 Model tools stage documents and captures only. Keep, compatible code acceptance, capture Apply, discard and deletion are human backend operations. Compatible acceptance checks the exact declared protocol/state/dataset contract and current code base, then retains current working data, including edits made after the proposal's reference. Stale or incompatible proposals cannot replace the accepted artifact; Keep as new remains independent.

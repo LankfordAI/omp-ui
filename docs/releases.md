@@ -4,7 +4,8 @@ This guide explains what users receive from a release and how maintainers publis
 
 ## Unreleased
 
-Nothing since [v0.34.2](https://github.com/LankfordAI/omp-ui/releases/tag/v0.34.2). Add one bullet per shipped change here before the next tag; the release notes lift this section verbatim.
+- Refuse nested HTML artifact renders instead of reporting success without a visible transcript card. Invoke `omp-ui_render_html` directly from the assistant (#1127).
+- Import managed artifact datasets from session-local UTF-8 JSON files with render-only `valueFile`, retaining the resolved data for replay without giving guests filesystem access (#1128).
 
 ## Choose a download
 

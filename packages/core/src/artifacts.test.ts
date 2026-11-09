@@ -1,5 +1,5 @@
 import { describe, expect, it } from "vitest";
-import { ARTIFACT_LIMITS, ArtifactError, artifactDefinitionsCompatible, normalizeArtifactAuthoringSpec, pageArtifactText, validateArtifactDatasets, validateArtifactJson, validateArtifactProvenance, validateArtifactSource, validateManagedArtifactSpec, type ArtifactProvenance, type ManagedArtifactSpec } from "./artifacts";
+import { ARTIFACT_LIMITS, ArtifactError, artifactDefinitionsCompatible, normalizeArtifactAuthoringSpec, pageArtifactText, validateArtifactAuthoringSpec, validateArtifactDatasets, validateArtifactJson, validateArtifactProvenance, validateArtifactSource, validateArtifactValueFile, validateManagedArtifactSpec, type ArtifactProvenance, type ManagedArtifactSpec } from "./artifacts";
 import { parseHtmlArtifactArgs } from "./html-artifact";
 
 const recordedAt = "2026-11-09T00:00:00.000Z";
@@ -35,6 +35,40 @@ describe("artifact bounded contracts", () => {
     expect(() => validateArtifactDatasets([{ ...data, value: "x".repeat(ARTIFACT_LIMITS.datasetBytes) }])).toThrow(/byte limit/);
     expect(() => validateArtifactDatasets(Array.from({ length: 33 }, (_, i) => ({ ...data, id: `d${i}` })))).toThrow();
     expect(() => validateArtifactProvenance({ ...provenance(), method: { kind: "query", description: "x".repeat(ARTIFACT_LIMITS.provenanceBytes) } })).toThrow();
+  });
+  it("accepts inline, null, and file-backed authoring while persistence remains materialized-only", () => {
+    const inline = spec();
+    expect(() => validateArtifactAuthoringSpec(inline)).not.toThrow();
+    expect(() => validateArtifactAuthoringSpec({ ...inline, datasets: [{ ...inline.datasets[0]!, value: null }] })).not.toThrow();
+    const { value: _value, ...metadata } = inline.datasets[0]!;
+    const file = { ...inline, datasets: [{ ...metadata, valueFile: "local://nested/rows.json" }] };
+    expect(() => validateArtifactAuthoringSpec(file)).not.toThrow();
+    expect(file.datasets[0]).not.toHaveProperty("value");
+    expect(() => validateManagedArtifactSpec(file)).toThrow(ArtifactError);
+    expect(() => normalizeArtifactAuthoringSpec(file, { recordedAt, captureSessionId: null, captureToolCallId: null })).toThrow(/valueFile/);
+  });
+  it("requires exactly one own value source and rejects unknown dataset fields", () => {
+    const data = spec().datasets[0]!; const { value: _value, ...metadata } = data;
+    for (const dataset of [metadata, { ...metadata, value: [1], valueFile: "local://rows.json" }, { ...metadata, valueFile: "local://rows.json", ignored: true }]) {
+      expect(() => validateArtifactAuthoringSpec({ ...spec(), datasets: [dataset] })).toThrow(ArtifactError);
+    }
+  });
+  it.each(["local://rows.json", "local://nested/tables/rows.json", "local://literal/%2e%2e/%2Frows%20name.json"])("accepts literal relative value file %s", valueFile => {
+    expect(() => validateArtifactValueFile(valueFile)).not.toThrow();
+  });
+  it.each([null, "", "rows.json", "LOCAL://rows.json", "local://", "local:///rows.json", "local://C:/rows.json", "local://C:rows.json", "local://nested\\rows.json", "local://./rows.json", "local://nested/./rows.json", "local://nested/../rows.json", "local://nested//rows.json", "local://nested/", "local://rows.json?x=1", "local://rows.json#x", "local://bad\0.json"])("rejects unsafe value file %j", valueFile => {
+    expect(() => validateArtifactValueFile(valueFile)).toThrow(ArtifactError);
+  });
+  it("bounds file names, dataset counts and values using envelope-relative depth", () => {
+    expect(() => validateArtifactValueFile(`local://${"a".repeat(4088)}`)).not.toThrow();
+    expect(() => validateArtifactValueFile(`local://${"a".repeat(4089)}`)).toThrow(ArtifactError);
+    const data = spec().datasets[0]!; const { value: _value, ...metadata } = data;
+    const files = Array.from({ length: ARTIFACT_LIMITS.datasets + 1 }, (_, i) => ({ ...metadata, id: `d${i}`, valueFile: `local://d${i}.json` }));
+    expect(() => validateArtifactAuthoringSpec({ ...spec(), datasets: files })).toThrow(/Too many/);
+    expect(() => validateArtifactAuthoringSpec({ ...spec(), datasets: [{ ...data, value: "x".repeat(ARTIFACT_LIMITS.datasetBytes) }] })).toThrow(/byte limit/);
+    let nested: unknown = null; for (let i = 0; i < ARTIFACT_LIMITS.depth; i++) nested = [nested];
+    expect(() => validateArtifactJson(nested)).not.toThrow();
+    expect(() => validateArtifactAuthoringSpec({ ...spec(), initialState: { selected: nested } })).toThrow(/depth/);
   });
   it.each([
     { source: { kind: "url", label: "private", locator: "https://user:pass@example.com/data" } },

@@ -2,6 +2,7 @@ import * as fs from "node:fs";
 import * as os from "node:os";
 import * as path from "node:path";
 import { spawn } from "node:child_process";
+import { DatabaseSync } from "node:sqlite";
 import { createServer } from "node:http";
 import { Writable } from "node:stream";
 import { afterEach, describe, expect, it } from "vitest";
@@ -19,6 +20,7 @@ import {
   type RpcSinks,
 } from "@omp-ui/core";
 import { ArtifactHostTools } from "./artifact-host-tools";
+import { artifactSourceHash } from "./artifact-source";
 import { ArtifactService } from "./artifact-service";
 import { HostBridge } from "./host-bridge";
 import { createRpcLiveEntry, wireRpc, type RpcLiveEntry } from "./live-entry";
@@ -46,6 +48,8 @@ interface Scope {
   base: string;
   lineage: string;
   frames: RpcFrame[];
+  input: RpcFrame[];
+  transcript: { path: string | null };
   sent: RpcFrame[];
   wire: RpcFrame[];
   errors: string[];
@@ -166,6 +170,8 @@ async function spawnScope(deferred = false): Promise<Scope> {
   const wire: RpcFrame[] = [];
   const errors: string[] = [];
   const gate = { enabled: true, reject: false };
+  const input: RpcFrame[] = [];
+  const transcript = { path: null as string | null };
   const entry = createRpcLiveEntry(ownedSessionRecord({ tabId: TAB, mode: "rpc-ui", projectCwd: project, lineageDir: "lineage", sessionId: null }), "setting-off");
   let current: RpcLiveEntry | null = entry;
   const controller = new ArtifactHostTools({ enabled: () => gate.enabled, current: () => current, error: (_tabId, message) => errors.push(message) });
@@ -178,7 +184,7 @@ async function spawnScope(deferred = false): Promise<Scope> {
       runtimeKey: entry.runtimeKey, native: true, artifactsAvailable: entry.artifactAuthoringError === null,
       originContext: { kind: "project" as const, label: "Artifact live fixture", path: project },
     } : null,
-    sourcePath: async () => null,
+    sourcePath: async () => transcript.path,
   });
   const bridge = new HostBridge({
     readPlanFile: async () => ({ ok: false, reason: "unreadable" }),
@@ -194,6 +200,7 @@ async function spawnScope(deferred = false): Promise<Scope> {
   };
   const sinks: RpcSinks = {
     onInputFrame: (frame) => {
+      input.push(frame);
       controller.observe(entry, frame);
       bridge.route(TAB, frame, (answer) => { sent.push(answer); client.send(answer); });
     },
@@ -228,7 +235,7 @@ async function spawnScope(deferred = false): Promise<Scope> {
   wireRpc(entry, client);
   let stopped = false;
   const scope: Scope = {
-    base, lineage, frames, sent, wire, errors, client, entry, controller, artifacts, provider, gate, bootReady,
+    base, lineage, frames, input, transcript, sent, wire, errors, client, entry, controller, artifacts, provider, gate, bootReady,
     factoryCalls: () => factoryCalls,
     arm: () => client.arm(sinks, rail),
     stop: async () => {
@@ -316,6 +323,64 @@ function toolDetails(scope: Scope, toolCallId: string): Record<string, unknown> 
   return body.details as Record<string, unknown>;
 }
 
+function assistantCalls(frame: RpcFrame): Record<string, unknown>[] {
+  if ((frame.type === "message_start" || frame.type === "message_end") && isObject(frame.message) && frame.message.role === "assistant") {
+    return Array.isArray(frame.message.content) ? frame.message.content.filter(isObject) : [];
+  }
+  if (frame.type !== "message_update" || !isObject(frame.assistantMessageEvent)) return [];
+  const event = frame.assistantMessageEvent;
+  const partial = isObject(event.partial) ? event.partial : null;
+  const content = Array.isArray(partial?.content) ? partial.content : [];
+  const block = event.type === "toolcall_end" ? event.toolCall
+    : content[typeof event.contentIndex === "number" ? event.contentIndex : -1] ?? event.block;
+  return isObject(block) ? [block] : [];
+}
+
+function expectAssistantBeforeHost(scope: Scope, toolCallId: string, toolName: string): void {
+  const hostIndex = scope.input.findIndex((frame) => frame.type === "host_tool_call" && frame.toolCallId === toolCallId);
+  expect(hostIndex).toBeGreaterThan(-1);
+  const assistantIndex = scope.input.findIndex((frame) => assistantCalls(frame).some((block) =>
+    block.type === "toolCall" && block.id === toolCallId && block.name === toolName));
+  expect(assistantIndex).toBeGreaterThan(-1);
+  expect(assistantIndex).toBeLessThan(hostIndex);
+}
+
+function libraryRows(scope: Scope): { drafts: number; sources: number; captures: number } {
+  const file = path.join(scope.base, "artifacts", "library.sqlite");
+  if (!fs.existsSync(file)) return { drafts: 0, sources: 0, captures: 0 };
+  const db = new DatabaseSync(file, { readOnly: true });
+  try {
+    return {
+      drafts: Number(db.prepare("SELECT COUNT(*) AS count FROM drafts").get()!.count),
+      sources: Number(db.prepare("SELECT COUNT(*) AS count FROM sources").get()!.count),
+      captures: Number(db.prepare("SELECT COUNT(*) AS count FROM captures").get()!.count),
+    };
+  } finally { db.close(); }
+}
+
+async function nestedRefusal(scope: Scope, toolName: string, args: Record<string, unknown>, id: string): Promise<void> {
+  const before = libraryRows(scope);
+  const from = scope.input.length;
+  const calls: PlannedCall[] = [{ id, name: "eval", args: {
+    language: "js", code: `print(await tool[${JSON.stringify(toolName)}](${JSON.stringify(args)}));`,
+    title: "Exercise nested artifact admission",
+  } }];
+  scope.provider.respond = () => calls.shift() ?? null;
+  await prompt(scope, "Invoke the scripted nested artifact call.");
+  const hosts = scope.input.slice(from).filter((frame) => frame.type === "host_tool_call" && frame.toolName === toolName);
+  expect(hosts).toHaveLength(1);
+  const host = hosts[0]!;
+  expect(typeof host.toolCallId).toBe("string");
+  expect(scope.input.slice(from).flatMap(assistantCalls).some((block) => block.id === host.toolCallId)).toBe(false);
+  const answers = scope.sent.filter((frame) => frame.type === "host_tool_result" && frame.id === host.id);
+  expect(answers).toHaveLength(1);
+  expect(answers[0]).toMatchObject({ isError: true });
+  expect(JSON.stringify(answers[0])).toContain("directly");
+  expect(JSON.stringify(answers[0])).not.toContain("artifactDraft");
+  expect(JSON.stringify(answers[0])).not.toContain("artifactCapture");
+  expect(libraryRows(scope)).toEqual(before);
+}
+
 describe.skipIf(ompPath === null)("artifact library rails on the real runtime", () => {
   it.each(["cold", "warm-ready", "warm-pending"] as const)("reads the latest gate exactly once on the %s factory rail", async (mode) => {
     const scope = await spawnScope(mode !== "cold");
@@ -387,6 +452,10 @@ describe.skipIf(ompPath === null)("artifact library rails on the real runtime", 
     const state = await request(scope, { type: "get_state" });
     expect(isObject(state.data) && typeof state.data.sessionId === "string").toBe(true);
     scope.entry.record.sessionId = (state.data as Record<string, unknown>).sessionId as string;
+    expect(isObject(state.data) && typeof state.data.sessionFile === "string").toBe(true);
+    scope.transcript.path = (state.data as Record<string, unknown>).sessionFile as string;
+    expect(path.dirname(scope.transcript.path)).toBe(scope.lineage);
+    expect(scope.transcript.path.endsWith(`_${scope.entry.record.sessionId}.jsonl`)).toBe(true);
     const value = "한글😀".repeat(9_000);
     const dataset = {
       id: "rows", title: "Working rows", schema: "rows-v1", value,
@@ -397,18 +466,37 @@ describe.skipIf(ompPath === null)("artifact library rails on the real runtime", 
         refresh: { kind: "session", instructions: "Read the fixture again", requiredSources: ["Hermetic live fixture"] },
       },
     };
-    const calls: PlannedCall[] = [{ id: "native-render-call", name: HTML_ARTIFACT_TOOL_NAME, args: {
+    const renderArgs = {
       title: "Fixture chart", html: "<!doctype html><h1>Fixture chart</h1>",
       artifact: { protocolVersion: 1, stateSchema: "chart-v1", initialState: { selected: 1 }, datasets: [dataset] },
-    } }];
+    };
+    await nestedRefusal(scope, HTML_ARTIFACT_TOOL_NAME, renderArgs, "nested-managed-eval");
+    await nestedRefusal(scope, HTML_ARTIFACT_TOOL_NAME, { title: "Plain nested fixture", html: "<p>No card</p>" }, "nested-plain-eval");
+    const { value: _inlineValue, ...fileDataset } = dataset;
+    const fileArgs = { ...renderArgs, artifact: { ...renderArgs.artifact, datasets: [{ ...fileDataset, valueFile: "local://fixture-rows.json" }] } };
+    const calls: PlannedCall[] = [
+      { id: "native-dataset-write", name: "write", args: { path: "local://fixture-rows.json", content: JSON.stringify(value) } },
+      { id: "native-render-call", name: HTML_ARTIFACT_TOOL_NAME, args: fileArgs },
+    ];
     scope.provider.respond = () => calls.shift() ?? null;
     await prompt(scope, "Author the deterministic fixture artifact.");
+    expectAssistantBeforeHost(scope, "native-render-call", HTML_ARTIFACT_TOOL_NAME);
+    const localFile = path.join(scope.transcript.path.slice(0, -".jsonl".length), "local", "fixture-rows.json");
+    expect(JSON.parse(fs.readFileSync(localFile, "utf8"))).toBe(value);
+    expect(libraryRows(scope)).toEqual({ drafts: 1, sources: 1, captures: 0 });
+    const nativeRender = scope.input.find((frame) => frame.type === "host_tool_call" && frame.toolCallId === "native-render-call")!;
+    expect(nativeRender.arguments).toEqual(fileArgs);
     const details = toolDetails(scope, "native-render-call");
     expect(details).toMatchObject({ artifactDraft: { version: 1, draftId: expect.any(String), sourceHash: expect.stringMatching(/^[a-f0-9]{64}$/) } });
+    expect((details.artifactDraft as Record<string, unknown>).sourceHash).toBe(artifactSourceHash(fileArgs));
+    expect(artifactSourceHash(fileArgs)).not.toBe(artifactSourceHash(renderArgs));
     const persisted = await waitFor(() => persistedToolResult(scope, "native-render-call"), "persisted native render details");
     expect(persisted.details).toEqual(details);
     expect(scope.artifacts.list().artifacts).toEqual([]);
     const draft = details.artifactDraft as Record<string, unknown>;
+    expect(scope.artifacts.resolveSurface({ draftId: draft.draftId as string }).datasets.rows!.value).toBe(value);
+    fs.unlinkSync(localFile);
+    expect(scope.artifacts.resolveSurface({ draftId: draft.draftId as string }).datasets.rows!.value).toBe(value);
     const kept = scope.artifacts.keep({ draftId: draft.draftId as string, title: "Kept fixture chart" });
     expect(kept.origin.toolCallId).toBe("native-render-call");
     expect(kept.origin.sessionId).toBe(scope.entry.record.sessionId);
@@ -458,11 +546,15 @@ describe.skipIf(ompPath === null)("artifact library rails on the real runtime", 
     const refresh = scope.artifacts.prepareRefresh({ ...selector, datasetIds: ["rows"] });
     const refreshWire = withArtifactReferenceContext(refresh.text, [refresh.reference]);
     scope.artifacts.admitPrompt({ tabId: TAB, text: refreshWire });
+    await nestedRefusal(scope, ARTIFACT_CAPTURE_TOOL_NAME, {
+      status: "captured", refreshRequestId: refresh.request.refreshRequestId, datasets: [{ ...dataset, value: "nested must not stage" }],
+    }, "nested-capture-eval");
     const captures: PlannedCall[] = [{ id: "native-capture-call", name: ARTIFACT_CAPTURE_TOOL_NAME, args: {
       status: "captured", refreshRequestId: refresh.request.refreshRequestId, datasets: [{ ...dataset, value: "fresh fixture data" }],
     } }];
     scope.provider.respond = () => captures.shift() ?? null;
     await prompt(scope, refreshWire);
+    expectAssistantBeforeHost(scope, "native-capture-call", ARTIFACT_CAPTURE_TOOL_NAME);
     const captureDetails = toolDetails(scope, "native-capture-call");
     expect(captureDetails).toMatchObject({ artifactCapture: { version: 1, captureId: expect.any(String), refreshRequestId: refresh.request.refreshRequestId } });
     const savedCapture = await waitFor(() => persistedToolResult(scope, "native-capture-call"), "persisted native capture details");

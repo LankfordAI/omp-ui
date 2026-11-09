@@ -131,7 +131,7 @@ async function writePhase(): Promise<void> {
     source: { kind: "manual", label: "Isolated smoke fixture" }, method: { kind: "manual", description: "Local deterministic rows" }, recordedAt: now,
     captureSessionId: "a1111111-1111-4111-8111-111111111111", captureToolCallId: "render-1", trust: "agent-reported", refresh: { kind: "none", requiredSources: [] } } }];
   const managed = { protocolVersion: 1, stateSchema: "checklist-v1", initialState: { done: false, note: "" }, datasets };
-  const preview = service.stageRender({ tabId: "smoke", toolCallId: "render-preview", args: { title: "Editable before Keep", html: artifactHtml, artifact: managed } });
+  const preview = await service.stageRender({ tabId: "smoke", toolCallId: "render-preview", args: { title: "Editable before Keep", html: artifactHtml, artifact: managed } });
   const previewView = await mount({ draftId: preview.draftId });
   const previewReceipt = await previewView.guest.executeJavaScript("window.ompArtifact.saveState({expectedStateRevision:0,set:{done:true}})");
   requireProof(typeof previewReceipt.dataSnapshotId === "string", "Draft save has no durable snapshot identity");
@@ -139,7 +139,7 @@ async function writePhase(): Promise<void> {
   const previewAccepted = service.resolveSurface({ artifactId: previewKept.artifactId, codeRevisionId: previewKept.currentCodeRevisionId, dataSnapshotId: previewKept.currentDataSnapshotId });
   requireProof(previewAccepted.state.done === true, "Keep discarded the visible draft edit");
   await release(previewView.prepared); passed("actual-prekeep-draft-save-and-human-keep-retains-state");
-  const draft = service.stageRender({ tabId: "smoke", toolCallId: "render-1", args: { title: "Durable checklist", html: artifactHtml, artifact: managed } });
+  const draft = await service.stageRender({ tabId: "smoke", toolCallId: "render-1", args: { title: "Durable checklist", html: artifactHtml, artifact: managed } });
   const record = service.keep({ draftId: draft.draftId, title: "Durable checklist" });
   const source = { artifactId: record.artifactId, codeRevisionId: record.currentCodeRevisionId, dataSnapshotId: record.currentDataSnapshotId };
   const first = await mount(source);
@@ -208,7 +208,7 @@ async function writePhase(): Promise<void> {
   requireProof(second.readOnly, "Second viewer obtained the writer"); await rootRun(`window.ompArtifactHost.releaseSurface(${JSON.stringify(second.surfaceId)})`); passed("second-viewer-is-readonly");
   const reused = await rootRun(`(()=>{const view=document.createElement('webview');view.setAttribute('partition',${JSON.stringify(first.prepared.partition)});view.setAttribute('src',${JSON.stringify(first.prepared.url)});document.body.append(view);const pending=Promise.withResolvers();setTimeout(()=>{let failed;try{failed=!view.getWebContentsId()}catch{failed=true}view.remove();pending.resolve(failed)},250);return pending.promise;})()`);
   requireProof(reused, "Consumed attach ticket was reusable"); passed("actual-consumed-attach-ticket-refused");
-  const lazyDraft = service.stageRender({tabId: "smoke", toolCallId: "render-lazy", args: {title: "Lazy state access", html: "<p>State loads on explicit use</p>", artifact: managed}});
+  const lazyDraft = await service.stageRender({tabId: "smoke", toolCallId: "render-lazy", args: {title: "Lazy state access", html: "<p>State loads on explicit use</p>", artifact: managed}});
   const lazyRecord = service.keep({draftId: lazyDraft.draftId, title: "Lazy state access"});
   const lazyPrepared = await rootRun<ArtifactPreparedSurface>(`window.ompArtifactHost.prepareSurface(${JSON.stringify({artifactId: lazyRecord.artifactId, codeRevisionId: lazyRecord.currentCodeRevisionId, dataSnapshotId: lazyRecord.currentDataSnapshotId})},${JSON.stringify(theme)})`);
   const lazyAttached = once(root.webContents, "did-attach-webview");
@@ -261,7 +261,7 @@ async function writePhase(): Promise<void> {
   const liveSource = { ...source, dataSnapshotId: saved.dataSnapshotId };
   const reference: ArtifactReference = service.reference({ targetTabId: "smoke", ...liveSource, includeData: false });
   service.admitPrompt({ tabId: "smoke", text: withArtifactReferenceContext("Update code only.", [reference]) });
-  const candidate = service.stageRender({ tabId: "smoke", toolCallId: "render-2", args: { title: "Candidate", html: `<p id="accepted-code-marker">New accepted code</p>${artifactHtml}`, artifact: { ...managed, basedOn: { referenceId: reference.referenceId } } } });
+  const candidate = await service.stageRender({ tabId: "smoke", toolCallId: "render-2", args: { title: "Candidate", html: `<p id="accepted-code-marker">New accepted code</p>${artifactHtml}`, artifact: { ...managed, basedOn: { referenceId: reference.referenceId } } } });
   const accepted: ArtifactRecord = service.acceptRevision({ draftId: candidate.draftId, expectedCodeRevisionId: record.currentCodeRevisionId });
   await waitTrustedNotice(first.prepared.surfaceId, "changed");
   requireProof(await rootRun("document.getElementById('status').textContent") === "changed — Reload required", "External accepted head did not show a trusted reload notice");
