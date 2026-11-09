@@ -610,7 +610,9 @@ function DispatchesSection() {
     const rows: FleetRow[] = [];
     const collect = (sessions: SessionSummary[], nickname: string | null): void => {
       for (const summary of sessions) {
-        if (summary.fleet !== null) rows.push({ summary: summary as FleetRow["summary"], nickname });
+        if (summary.fleet != null && summary.live === "live") {
+          rows.push({ summary: summary as FleetRow["summary"], nickname });
+        }
       }
     };
     for (const group of state?.projects ?? []) collect(group.sessions, null);

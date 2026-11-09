@@ -11,7 +11,7 @@ import type {
   FleetUpdateAck,
 } from "@omp-ui/core/fleet";
 import type { ProjectGroup, ProviderKeysSnapshot, ProviderKeyStatus, SessionSummary } from "@omp-ui/core/types";
-import { backendState } from "../../test/fixtures";
+import { backendState, remoteInstance } from "../../test/fixtures";
 
 (globalThis as Record<string, unknown>).IS_REACT_ACT_ENVIRONMENT = true;
 
@@ -333,9 +333,9 @@ describe("Fleet view", () => {
       state: backendState({
         projects: [
           group([
-            session("t-a", "Batch work", provenance("d-a", "b-1", "2026-10-20T00:00:01.000Z")),
-            session("t-b", "Batch work", provenance("d-b", "b-1", "2026-10-20T00:00:02.000Z")),
-            session("t-solo", "Solo work", provenance("d-solo", null, "2026-10-20T00:00:03.000Z")),
+            { ...session("t-a", "Batch work", provenance("d-a", "b-1", "2026-10-20T00:00:01.000Z")), live: "live" },
+            { ...session("t-b", "Batch work", provenance("d-b", "b-1", "2026-10-20T00:00:02.000Z")), live: "live" },
+            { ...session("t-solo", "Solo work", provenance("d-solo", null, "2026-10-20T00:00:03.000Z")), live: "live" },
             session("t-plain", "Not dispatched", null),
           ]),
         ],
@@ -347,7 +347,9 @@ describe("Fleet view", () => {
     const batch = document.body.querySelector('[data-batch-id="b-1"]');
     expect(batch).not.toBeNull();
     expect([...batch!.querySelectorAll("[data-tab-id]")].map((row) => row.getAttribute("data-tab-id"))).toEqual(["t-b", "t-a"]);
-    expect(document.body.querySelectorAll("[data-tab-id]")).toHaveLength(3);
+    expect([...document.body.querySelectorAll("[data-tab-id]")].map((row) => row.getAttribute("data-tab-id"))).toEqual([
+      "t-solo", "t-b", "t-a",
+    ]);
     expect(document.body.querySelector('[data-tab-id="t-plain"]')).toBeNull();
 
     const held = document.body.querySelector('[data-dispatch-id="d-live"]')!;
@@ -358,6 +360,120 @@ describe("Fleet view", () => {
     expect(buttons(reloaded, "Dismiss")).toHaveLength(1);
     expect(reloaded.textContent).toContain("Retry unavailable after reload");
     expect(reloaded.textContent).toContain("Outcome unknown — resolves when box-a reconnects");
+  });
+
+  it("lists only live dispatches across local and remote snapshots, keeping completed and answer-waiting sessions", () => {
+    const legacyRemote = { ...session("mixed-legacy", "Older remote without provenance", null), live: "live" as const };
+    Reflect.deleteProperty(legacyRemote, "fleet");
+    useStore.setState({
+      fleet: { machines: [], audit: null, updateAll: null, loading: false, error: null },
+      fleetLastRequests: {},
+      lifecycleConfirmation: null,
+      rpc: {},
+      state: backendState({
+        projects: [group([
+          { ...session("mixed-working", "Working dispatch", provenance("mixed-d-working", "mixed-batch", "2026-10-20T00:00:01.000Z")), live: "live", turnRunning: true },
+          { ...session("mixed-idle", "Completed turn", provenance("mixed-d-idle", "mixed-batch", "2026-10-20T00:00:02.000Z")), live: "live", turnRunning: false, snoozed: true },
+          { ...session("mixed-solo", "Independent dispatch", provenance("mixed-d-solo", null, "2026-10-20T00:00:04.000Z")), live: "live" },
+          { ...session("mixed-plain", "Not dispatched", null), live: "live" },
+          session("mixed-dormant", "Settled newer title", provenance("mixed-d-dormant", "mixed-batch", "2026-10-20T00:00:05.000Z")),
+          { ...session("mixed-archived", "Archived", provenance("mixed-d-archived", null, "2026-10-20T00:00:06.000Z")), live: "archived" },
+          { ...session("mixed-missing", "Missing", provenance("mixed-d-missing", null, "2026-10-20T00:00:07.000Z")), live: "missing" },
+        ])],
+        remoteInstances: [remoteInstance({ projects: [group([
+          { ...session("mixed-remote-answer", "Remote answer needed", provenance("mixed-d-answer", "mixed-batch", "2026-10-20T00:00:03.000Z")), live: "live", turnRunning: true, awaitingHumanAnswer: true, pinnedAtMs: 1 },
+          session("mixed-remote-dormant", "Remote dormant", provenance("mixed-d-remote-dormant", null, "2026-10-20T00:00:08.000Z")),
+          { ...session("mixed-remote-archived", "Remote archived", provenance("mixed-d-remote-archived", null, "2026-10-20T00:00:09.000Z")), live: "archived" },
+          { ...session("mixed-remote-missing", "Remote missing", provenance("mixed-d-remote-missing", null, "2026-10-20T00:00:10.000Z")), live: "missing" },
+          legacyRemote,
+        ])] })],
+      }),
+    });
+    render();
+
+    expect([...document.body.querySelectorAll("[data-tab-id]")].map((row) => row.getAttribute("data-tab-id"))).toEqual([
+      "mixed-solo", "mixed-remote-answer", "mixed-idle", "mixed-working",
+    ]);
+    const batch = document.body.querySelector('[data-batch-id="mixed-batch"]')!;
+    expect([...batch.firstElementChild!.children].map((span) => span.textContent)).toEqual([
+      "Remote answer needed", "1 answer needed", "1 live", "1 working",
+    ]);
+    expect(document.body.querySelector('[data-tab-id="mixed-remote-answer"]')!.textContent).toContain("box-a");
+  });
+
+  it("updates mounted batches only from owner liveness and restores resumed dispatches without losing unresolved outcomes", () => {
+    const local: SessionSummary = {
+      ...session("lifecycle-local", "Local work", provenance("lifecycle-d-local", "lifecycle-batch", "2026-10-20T00:00:01.000Z")),
+      live: "live", turnRunning: true,
+    };
+    const remote: SessionSummary = {
+      ...session("lifecycle-remote", "Remote work", provenance("lifecycle-d-remote", "lifecycle-batch", "2026-10-20T00:00:02.000Z")),
+      live: "live", turnRunning: true,
+    };
+    const initial = backendState({
+      projects: [group([local])],
+      remoteInstances: [remoteInstance({ projects: [group([remote])] })],
+      fleetPending: [pending("lifecycle-unknown", "Unknown outcome")],
+    });
+    useStore.setState({
+      fleet: { machines: [], audit: null, updateAll: null, loading: false, error: null },
+      fleetLastRequests: {
+        "lifecycle-unknown": {
+          req: { targets: { kind: "auto", reference: { machineKey: "local", projectCwd: "/p" }, count: 1 }, prompt: "go", title: null, workspace: "worktree", planMode: false },
+          pick: { machineKey: "inst-1", projectCwd: "/remote/p" },
+        },
+      },
+      lifecycleConfirmation: null,
+      rpc: {},
+      state: initial,
+    });
+    render();
+    const batch = () => document.body.querySelector('[data-batch-id="lifecycle-batch"]');
+    const ids = () => [...document.body.querySelectorAll("[data-tab-id]")].map((row) => row.getAttribute("data-tab-id"));
+    const heading = () => [...batch()!.firstElementChild!.children].map((span) => span.textContent);
+    const dispatches = [...document.body.querySelectorAll("section")].find((section) => section.textContent!.includes("Dispatches"))!;
+    expect(ids()).toEqual(["lifecycle-remote", "lifecycle-local"]);
+    expect(heading()).toEqual(["Remote work", "2 working"]);
+
+    // Canceled or failed Settle leaves the owner snapshot live.
+    const stillLive = { ...initial, projects: [group([{ ...local }])] };
+    act(() => useStore.setState({ state: stillLive }));
+    expect(ids()).toEqual(["lifecycle-remote", "lifecycle-local"]);
+    expect(heading()).toEqual(["Remote work", "2 working"]);
+
+    const partial = { ...stillLive, projects: [group([{ ...local, live: "dormant" as const }])] };
+    act(() => useStore.setState({ state: partial }));
+    expect(ids()).toEqual(["lifecycle-remote"]);
+    expect(heading()).toEqual(["Remote work", "1 working"]);
+
+    const disconnected = {
+      ...partial,
+      remoteInstances: [remoteInstance({ status: "unreachable", projects: [group([{ ...remote }])] })],
+    };
+    act(() => useStore.setState({ state: disconnected }));
+    expect(ids()).toEqual(["lifecycle-remote"]);
+    expect(heading()).toEqual(["Remote work", "1 working"]);
+
+    const settled = {
+      ...partial,
+      remoteInstances: [remoteInstance({ projects: [group([{ ...remote, live: "dormant" }])] })],
+    };
+    act(() => useStore.setState({ state: settled }));
+    expect(ids()).toEqual([]);
+    expect(batch()).toBeNull();
+    expect(dispatches.isConnected).toBe(true);
+    expect(dispatches.querySelector("p")).not.toBeNull();
+    const unresolved = document.body.querySelector('[data-dispatch-id="lifecycle-unknown"]')!;
+    expect(buttons(unresolved, "Retry")).toHaveLength(1);
+    expect(buttons(unresolved, "Dismiss")).toHaveLength(1);
+
+    act(() => useStore.setState({
+      state: { ...settled, remoteInstances: [remoteInstance({ projects: [group([{ ...remote }])] })] },
+    }));
+    expect(ids()).toEqual(["lifecycle-remote"]);
+    expect(heading()).toEqual(["Remote work", "1 working"]);
+    expect(dispatches.querySelector("p")).toBeNull();
+    expect(unresolved.isConnected).toBe(true);
   });
 
   it("shows each machine's OS with its package managers on hover, and none for a member predating #905", () => {

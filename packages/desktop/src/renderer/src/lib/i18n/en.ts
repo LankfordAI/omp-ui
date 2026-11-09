@@ -3681,7 +3681,7 @@ export const en = {
   "fleet.pending.retry": "Retry",
   "fleet.pending.dismiss": "Dismiss",
   "fleet.pending.retryUnavailable": "Retry unavailable after reload",
-  "fleet.dispatches.empty": "No dispatched sessions yet.",
+  "fleet.dispatches.empty": "No unsettled dispatches.",
   "fleet.dispatches.from": "from {label}",
   "fleet.dispatches.agent": "agent",
   "fleet.dispatches.webhook": "webhook",
