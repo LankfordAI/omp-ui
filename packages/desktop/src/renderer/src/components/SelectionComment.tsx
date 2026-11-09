@@ -1,4 +1,4 @@
-import { useCallback, useEffect, useRef, useState, type KeyboardEvent, type RefObject } from "react";
+import { useCallback, useEffect, useLayoutEffect, useRef, useState, type KeyboardEvent, type RefObject } from "react";
 import { createPortal } from "react-dom";
 import {
   normalizeAnnotationComment,
@@ -18,34 +18,97 @@ export interface SelectionAnchor {
   y: number;
 }
 
-/** The selection's normalized quote and the bottom-right of its last line, or null. */
+/** Button geometry follows the drag endpoint; the editor keeps its own anchor. */
+interface SelectionButtonAnchor extends SelectionAnchor {
+  bounds: { top: number; bottom: number };
+  cursorX: number;
+  backward: boolean;
+}
+
+/** The quote, editor endpoint, and whole-selection bounds in parent coordinates. */
 export function selectionAnchor(
   sel: Selection | null,
   offset: { left: number; top: number } = { left: 0, top: 0 },
-): SelectionAnchor | null {
+): SelectionButtonAnchor | null {
   if (sel === null || sel.isCollapsed || sel.rangeCount === 0) return null;
   const quote = normalizeAnnotationQuote(sel.toString());
   if (quote === "") return null;
-  const rects = sel.getRangeAt(0).getClientRects();
-  const last = rects.length > 0 ? rects[rects.length - 1]! : sel.getRangeAt(0).getBoundingClientRect();
-  return { quote, x: last.right + offset.left, y: last.bottom + offset.top };
+  const range = sel.getRangeAt(0);
+  const bounds = range.getBoundingClientRect();
+  const rects = range.getClientRects();
+  const last = rects.length > 0 ? rects[rects.length - 1]! : bounds;
+  const first = rects.length > 0 ? rects[0]! : bounds;
+  const backward = sel.focusNode === range.startContainer && sel.focusOffset === range.startOffset;
+  return {
+    quote,
+    x: last.right + offset.left,
+    y: last.bottom + offset.top,
+    cursorX: (backward ? first.left : last.right) + offset.left,
+    backward,
+    bounds: {
+      top: bounds.top + offset.top,
+      bottom: bounds.bottom + offset.top,
+    },
+  };
 }
 
 /**
- * The floating "comment" button beside a selection (issue #983). It is a
- * plain button portaled to the body; pointerdown is swallowed so pressing it
- * never collapses the selection it comments on.
+ * The floating "comment" button outside the whole selection (#983, #1122).
+ * Pointerdown is swallowed so pressing it never collapses the selection.
  */
 export function SelectionCommentButton({
   anchor,
   onComment,
 }: {
-  anchor: SelectionAnchor;
+  anchor: SelectionButtonAnchor;
   onComment: () => void;
 }) {
   const t = useT();
+  const button = useRef<HTMLButtonElement>(null);
+  const [position, setPosition] = useState<{ left: number; top: number } | null>(null);
+  useLayoutEffect(() => {
+    const place = (): void => {
+      if (button.current === null) return;
+      const { width, height } = button.current.getBoundingClientRect();
+      const viewport = window.visualViewport;
+      const left = (viewport?.offsetLeft ?? 0) + 8;
+      const top = (viewport?.offsetTop ?? 0) + 8;
+      const right = left + (viewport?.width ?? window.innerWidth) - 16;
+      const bottom = top + (viewport?.height ?? window.innerHeight) - 16;
+      const above = anchor.bounds.top - 8 - height;
+      const below = anchor.bounds.bottom + 8;
+      // A viewport-filling selection has no safe floating slot; right-click
+      // Comment remains available rather than covering the selected text.
+      const fitsAbove = above >= top && above + height <= bottom;
+      const fitsBelow = below >= top && below + height <= bottom;
+      if (width > right - left || (!fitsAbove && !fitsBelow)) {
+        setPosition(null);
+        return;
+      }
+      // Below a forward drag, above a backward drag: closest to the cursor
+      // without covering any highlighted line. Only flip at a viewport edge.
+      const useBelow = anchor.backward ? !fitsAbove : fitsBelow;
+      setPosition({
+        left: Math.max(left, Math.min(anchor.cursorX, right - width)),
+        top: useBelow ? below : above,
+      });
+    };
+    place();
+    const observer = new ResizeObserver(place);
+    if (button.current !== null) observer.observe(button.current);
+    window.addEventListener("resize", place);
+    window.visualViewport?.addEventListener("resize", place);
+    window.visualViewport?.addEventListener("scroll", place);
+    return () => {
+      observer.disconnect();
+      window.removeEventListener("resize", place);
+      window.visualViewport?.removeEventListener("resize", place);
+      window.visualViewport?.removeEventListener("scroll", place);
+    };
+  }, [anchor]);
   return createPortal(
     <button
+      ref={button}
       type="button"
       data-selection-comment
       aria-label={t("annotation.comment.button")}
@@ -53,13 +116,8 @@ export function SelectionCommentButton({
       onPointerDown={(event) => event.preventDefault()}
       onMouseDown={(event) => event.preventDefault()}
       onClick={onComment}
-      className={cn(
-        "fixed z-40 mt-1 flex items-center gap-1 rounded-md border border-line-strong bg-overlay px-1.5 py-0.5 text-xs text-ink-mid shadow-float transition-colors hover:border-iris-dim hover:text-ink",
-        // Flip left/up past the midline, like the selection menu.
-        anchor.x > window.innerWidth / 2 && "-translate-x-full",
-        anchor.y > window.innerHeight / 2 && "-translate-y-full",
-      )}
-      style={{ left: anchor.x, top: anchor.y }}
+      className="fixed z-40 flex max-w-[calc(100vw-1rem)] items-center gap-1 rounded-md border border-line-strong bg-overlay px-1.5 py-0.5 text-xs text-ink-mid shadow-float transition-colors hover:border-iris-dim hover:text-ink"
+      style={{ left: position?.left ?? 0, top: position?.top ?? 0, visibility: position === null ? "hidden" : undefined }}
     >
       <IconPencil className="size-3" />
       {t("annotation.comment.button")}
@@ -148,17 +206,53 @@ export function SelectionCommentPopover({
   );
 }
 
+/** Share gesture gating between the transcript and the script-less plan frame. */
+function listenForSelection(doc: Document, sync: () => void, hide: () => void): () => void {
+  let selecting = false;
+  const onPointerDown = (event: PointerEvent): void => {
+    const target = event.target as Element | null;
+    if (event.button !== 0 || target?.closest?.("[data-selection-comment]")) return;
+    selecting = true;
+    hide();
+  };
+  const onSelectionChange = (): void => {
+    if (!selecting) sync();
+  };
+  const onPointerUp = (): void => {
+    if (!selecting) return;
+    selecting = false;
+    sync();
+  };
+  const cancel = (): void => {
+    selecting = false;
+    hide();
+  };
+  doc.addEventListener("pointerdown", onPointerDown, true);
+  doc.addEventListener("selectionchange", onSelectionChange);
+  doc.addEventListener("pointerup", onPointerUp, true);
+  doc.addEventListener("pointercancel", cancel, true);
+  // A drag can finish outside the plan frame that started it.
+  if (doc !== document) window.addEventListener("pointerup", onPointerUp, true);
+  return () => {
+    doc.removeEventListener("pointerdown", onPointerDown, true);
+    doc.removeEventListener("selectionchange", onSelectionChange);
+    doc.removeEventListener("pointerup", onPointerUp, true);
+    doc.removeEventListener("pointercancel", cancel, true);
+    if (doc !== document) window.removeEventListener("pointerup", onPointerUp, true);
+  };
+}
+
 /**
  * The floating comment button for selections inside `root` (issue #983):
- * tracks the document selection and offers the button while a non-empty
+ * tracks settled selections and offers the button while a non-empty
  * selection sits in a `[data-selectable]` region of the surface. `enabled`
  * false hides it (no annotation target, or a popover/menu already open).
  */
 export function useSelectionCommentButton(
   root: RefObject<HTMLElement | null>,
   enabled: boolean,
-): { anchor: SelectionAnchor | null; clear: () => void } {
-  const [anchor, setAnchor] = useState<SelectionAnchor | null>(null);
+): { anchor: SelectionButtonAnchor | null; clear: () => void } {
+  const [anchor, setAnchor] = useState<SelectionButtonAnchor | null>(null);
   useEffect(() => {
     if (!enabled) {
       setAnchor(null);
@@ -173,13 +267,13 @@ export function useSelectionCommentButton(
       }
       setAnchor(selectionAnchor(sel));
     };
-    document.addEventListener("selectionchange", sync);
     // A scroll moves the selection's rects; drop the button rather than chase it.
     const scroller = root.current;
     const hide = (): void => setAnchor(null);
+    const unbind = listenForSelection(document, sync, hide);
     scroller?.addEventListener("scroll", hide, { passive: true });
     return () => {
-      document.removeEventListener("selectionchange", sync);
+      unbind();
       scroller?.removeEventListener("scroll", hide);
     };
   }, [enabled, root]);
@@ -221,12 +315,12 @@ export function useFrameSelection(
   frame: HTMLIFrameElement | null,
   enabled: boolean,
 ): {
-  anchor: SelectionAnchor | null;
+  anchor: SelectionButtonAnchor | null;
   clear: () => void;
   menu: FrameSelectionMenu | null;
   closeMenu: () => void;
 } {
-  const [anchor, setAnchor] = useState<SelectionAnchor | null>(null);
+  const [anchor, setAnchor] = useState<SelectionButtonAnchor | null>(null);
   const [menu, setMenu] = useState<FrameSelectionMenu | null>(null);
   useEffect(() => {
     setAnchor(null);
@@ -254,11 +348,11 @@ export function useFrameSelection(
       };
       // Scrolling the plan moves the selection's rects: drop the button.
       const hide = (): void => setAnchor(null);
-      doc.addEventListener("selectionchange", sync);
+      const unbindSelection = listenForSelection(doc, sync, hide);
       doc.addEventListener("contextmenu", onContextMenu);
       doc.addEventListener("scroll", hide, { passive: true });
       unbind = () => {
-        doc.removeEventListener("selectionchange", sync);
+        unbindSelection();
         doc.removeEventListener("contextmenu", onContextMenu);
         doc.removeEventListener("scroll", hide);
       };

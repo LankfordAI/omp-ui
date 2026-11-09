@@ -65,6 +65,16 @@ parent-to-child channel. The plan CSP (`script-src 'none'`), the guardrail,
 and the main process's `will-frame-navigate` denial are unchanged; the
 transcript PlanCard and message frames keep the empty sandbox.
 
+**The selection button stays near the drag endpoint** ([#1122](https://github.com/LankfordAI/omp-ui/issues/1122)).
+It stays hidden during pointer selection, then appears with an 8px gap below
+a forward selection or above a backward selection, aligned to the cursor's
+end of the highlight. Measured button size controls viewport-edge clamping
+and opposite-side fallback; the window midline never decides placement.
+If neither side fits without covering the selection, only the floating
+button is hidden — right-click Comment remains available. Keyboard selection
+still updates the button, and scrolling dismisses it. The native transcript,
+Markdown plan review, and script-less HTML review frame share this behavior.
+
 ## Considered options
 
 - **A trailing block (rejected)** — mirrors the documents block, but the model
