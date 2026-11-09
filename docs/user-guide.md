@@ -194,6 +194,9 @@ available creation session; a removed source remains noninteractive provenance.
 Closing or restarting retains acknowledged data. A second viewer or older
 version is read-only. External code/data changes leave the loaded view intact
 with an explicit Reload notice rather than replacing inputs beneath you.
+The library preview fills the detail area below its controls and keeps a small
+minimum height, scrolling the detail area when its header leaves less room;
+**Expand** optionally opens the same artifact fullscreen.
 
 ### Reference and revise in a session
 
