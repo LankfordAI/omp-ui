@@ -546,6 +546,21 @@ The browser-pane smoke's `metrics-open-viewport` and `metrics-clear-viewport` st
 
 Viewport replies wait at most one second for host metrics restoration. Unit regressions cover a stalled debugger command, deferred/rejecting bridge settlement, and the delayed pre-commit fallback; the live metrics steps cover normal Chromium restoration before reply.
 
+#### Sidebar feature toggles
+
+The Fleet and Artifacts sidebar buttons toggle their respective views. Other
+launchers remain explicit opens, including artifact selection links. Both the
+open and dismiss branches must close the compact Sessions sheet.
+
+In an isolated headless run, click each sidebar button three times and check
+open, closed, then open again. The rendered view, store state and `aria-pressed`
+must agree. Switch Fleet → Artifacts → Fleet and check that only the requested
+feature is open and pressed. Also check Enter activation and the existing close
+controls. At 390 × 844, open Sessions, select a feature, reopen Sessions and
+select it again. Both selections must leave `compactSurface === null`, first
+with the feature open and then closed. Repeated explicit-open actions must keep
+the view open and preserve the existing artifact selection handling.
+
 #### Artifact library acceptance (#1121)
 
 The experiment remains off by default. Run the deterministic suites and both

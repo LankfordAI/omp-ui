@@ -473,8 +473,10 @@ export function Sidebar() {
   const surface = useStore((st) => st.compactSurface);
   const closeCompactSurface = useStore((st) => st.closeCompactSurface);
   const openFleet = useStore((st) => st.openFleet);
+  const closeFleet = useStore((st) => st.closeFleet);
   const fleetOpen = useStore((st) => st.fleet !== null);
   const openArtifacts = useStore((st) => st.openArtifacts);
+  const closeArtifacts = useStore((st) => st.closeArtifacts);
   const artifactsOpen = useStore((st) => st.artifacts !== null);
   const settledOpen = useSettledOpen();
   // Working now starts collapsed, #1037 — waiting sessions surface as
@@ -1084,7 +1086,11 @@ export function Sidebar() {
           <span className="hidden whitespace-nowrap @[17rem]:inline">{t("sidebar.footer.settings")}</span>
         </IconButton>
         {state?.artifactLibraryEnabled === true && (
-          <IconButton label={t("artifacts.title")} pressed={artifactsOpen} onClick={() => { openArtifacts(); closeCompactSurface(); }} className="flex size-auto h-6 w-auto items-center gap-1 px-1">
+          <IconButton label={t("artifacts.title")} pressed={artifactsOpen} onClick={() => {
+            if (artifactsOpen) closeArtifacts();
+            else openArtifacts();
+            closeCompactSurface();
+          }} className="flex size-auto h-6 w-auto items-center gap-1 px-1">
             <span aria-hidden>▤</span><span>{t("artifacts.title")}</span>
           </IconButton>
         )}
@@ -1093,7 +1099,8 @@ export function Sidebar() {
             label={t("fleet.sidebar.open")}
             pressed={fleetOpen}
             onClick={() => {
-              openFleet();
+              if (fleetOpen) closeFleet();
+              else openFleet();
               closeCompactSurface();
             }}
             className="flex size-auto h-6 w-auto items-center gap-1 px-1"
