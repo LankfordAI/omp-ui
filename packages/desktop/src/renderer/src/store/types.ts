@@ -82,6 +82,7 @@ import type {
 import type {
   DevicePaneAction,
   DeviceInventory,
+  DevicePaneFrameHeader,
   DevicePaneState,
 } from "@omp-ui/core/device-pane";
 import type { PlanReviewRequest, PlanStatus } from "@omp-ui/core/plan";
@@ -241,10 +242,13 @@ export interface BrowserPaneView {
 export interface DevicePaneView {
   open: boolean;
   fullscreen: boolean;
-  ensure: "idle" | "pending" | "available" | "not-live";
+  /** Renderer stream epoch; reconnects invalidate even a same-binding in-flight decode. */
+  streamGeneration: number;
+  ensure: "idle" | "pending" | "available" | "not-live" | "update-required";
   state: DevicePaneState | null;
   inventory: DeviceInventory | null;
-  frame: BrowserPaneFrameHeader | null;
+  /** Identity and physical size of the last frame painted for the current binding. */
+  frame: DevicePaneFrameHeader | null;
 }
 
 /**
@@ -1317,12 +1321,12 @@ export interface UiStore extends SettingsSlice, UpdatesSlice, LabSlice, StatsSli
   closeDevicePane(tabId: string): void;
   toggleDevicePane(tabId: string): void;
   setDevicePaneFullscreen(tabId: string, on: boolean): void;
-  /** Re-runs `devicePaneEnsure`; a stale answer for a rebuilt tab is dropped. */
+  /** Re-runs `devicePaneEnsure`; newer requests, pushes, and runtimes fence its state. */
   ensureDevicePane(tabId: string): Promise<void>;
   actDevicePane(tabId: string, action: DevicePaneAction): Promise<void>;
   /** A `device-pane:state` push; adopts main's `open` (agent auto-open). */
   handleDevicePaneState(tabId: string, state: DevicePaneState): void;
-  noteDevicePaneFrame(tabId: string, header: BrowserPaneFrameHeader): void;
+  noteDevicePaneFrame(tabId: string, header: DevicePaneFrameHeader): void;
   queueComposerAttachment(tabId: string, image: ImageAttachment, text: string): void;
   queueComposerDocument(tabId: string, document: DocumentAttachment, text: string): void;
   /** Queues prose with no image — the rewind's edit-and-resend prefill

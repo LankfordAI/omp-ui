@@ -7,6 +7,7 @@ This guide explains what users receive from a release and how maintainers publis
 - **Quieter sidebar footer** ([#1113](https://github.com/LankfordAI/omp-ui/issues/1113)): removed the offline-host warning. Settings, Fleet, and ready/working counts remain; connectivity status and recovery stay in Fleet and Settings.
 - **Cohesive responsive composer options** ([#1116](https://github.com/LankfordAI/omp-ui/issues/1116)): desktop and compact share the options summary, model/thinking controls, advisor restart hint, and workspace actions. Compact retains queue, voice, stash, and submit controls. Short landscape popovers scroll within the available viewport; nested menus stay reachable.
 - **Active-session mobile options** ([#1117](https://github.com/LankfordAI/omp-ui/issues/1117)): background mounted tabs no longer open duplicate options sheets or dismiss the displayed session's options when they become unavailable. Hidden composers do not leave options over a plan review.
+- **Cohesive Android device pane** ([#1009](https://github.com/LankfordAI/omp-ui/issues/1009)): explicitly create native phone, tablet and foldable AVDs from installed owner SDK images; rotate and change supported physical postures with observed state, safe input and responsive controls. Existing AVDs stay unchanged, and remote viewers and permitted agents share the owner's device.
 
 ## Choose a download
 

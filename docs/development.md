@@ -546,6 +546,116 @@ The browser-pane smoke's `metrics-open-viewport` and `metrics-clear-viewport` st
 
 Viewport replies wait at most one second for host metrics restoration. Unit regressions cover a stalled debugger command, deferred/rejecting bridge settlement, and the delayed pre-commit fallback; the live metrics steps cover normal Chromium restoration before reply.
 
+#### Device pane acceptance (#1009)
+
+Use Linux `dev:headless` for the owning app and disposable AVDs, not the
+interactive app or an AVD with user data. This recipe isolates the AVD homes,
+registry and XDG config/data while using an explicitly selected, installed SDK.
+Creation never borrows a donor, downloads an image, or rewrites an existing
+AVD. Install prerequisites deliberately with SDK Manager before starting; use
+the owner's chooser diagnostics for the exact missing packages. A working
+JDK and SDK Command-line Tools (`cmdline-tools/latest/bin/avdmanager`),
+platform-tools, emulator, complete native-ABI mobile images and usable host
+acceleration are required for Create.
+
+```bash
+# Set this to the real owner SDK, not a viewer's SDK.
+export ANDROID_HOME=/absolute/path/to/Android/Sdk
+export ANDROID_SDK_ROOT="$ANDROID_HOME"
+proof_root=$(mktemp -d /tmp/omp-ui-device-proof.XXXXXX)
+export ANDROID_USER_HOME="$proof_root/android"
+export ANDROID_EMULATOR_HOME="$ANDROID_USER_HOME"
+export ANDROID_AVD_HOME="$ANDROID_USER_HOME/avd"
+mkdir -p "$ANDROID_AVD_HOME"
+
+"$ANDROID_HOME/emulator/emulator" -version
+"$ANDROID_HOME/emulator/emulator" -accel-check
+"$ANDROID_HOME/cmdline-tools/latest/bin/avdmanager" list device
+"$ANDROID_HOME/cmdline-tools/latest/bin/sdkmanager" --list_installed
+
+OMP_UI_REGISTRY_PATH="$proof_root/registry.json" \
+XDG_CONFIG_HOME="$proof_root/config" \
+XDG_DATA_HOME="$proof_root/data" \
+OMP_UI_TEST_MODEL="openrouter/openai/gpt-6-luna:low" \
+OMP_UI_TEST_ADVISOR="openrouter/openai/gpt-6-luna:low" \
+npm run dev:headless --workspace @omp-ui/desktop -- --pane
+```
+
+Use the printed CDP port file for the actual owner renderer and the printed
+loopback pane URL for a served client. Keep SDK/AVD variables on every owner
+restart; a disposable registry does not isolate Android's AVD storage. Create
+a live rpc-ui tab and use the real chooser to create **Small Phone** (API 35),
+**Small Tablet**, **Pixel 9 Pro Fold**, and **6.7-inch Foldable** (API 36 for
+the latter three). Search/select with the keyboard, review the exact image
+package and proposed API-specific name, and explicitly confirm Create.
+Wait for the operation to clear and `phase: streaming`, `screen: active`,
+`inputReady: true`; acceptance of Create/Boot alone is not readiness. Keep
+each AVD/serial/binding UUID in the proof record. Choose names under this
+disposable AVD home and never edit LCD, hinge or posture keys to make a test
+pass. A native profile/image absent from the owner's SDK must be unavailable,
+not replaced with another profile or ABI.
+
+For input evidence, install a disposable native test APK or the app under
+development on each recorded serial, using an explicit selector:
+`"$ANDROID_HOME/platform-tools/adb" -s SERIAL install -r /absolute/path/to/probe.apk`.
+The fixture needs four distinguishable corner targets with native event
+logging, a draggable target, a real `ScrollView` with observable scroll offset,
+and an `EditText` retaining content across configuration changes. Use
+`FULL_SENSOR` orientation for the four-quadrant fixture; retain the APK,
+source, native event logs and manifest orientation policy with the proof.
+A canvas screenshot or a successful RPC alone is not native input evidence.
+
+| Slice | Required observation |
+|---|---|
+| Four devices × four quadrants | On the actual phone/tablet/book/flip, request physical 0/90/180/270. Check native model readback, fresh screenshot rotation and four distinct native corner events. Include same-size 180-degree transitions; do not infer input rotation from legacy UIAutomator XML when the independent native input viewport differs. |
+| Touch, wheel, keyboard and IME | Verify native drag coordinates and actual ScrollView deltas; on touch-only targets wheel becomes a finite bounded host swipe. Native wheel requires positive runtime axis/display evidence. Type ASCII and commit non-ASCII through Chromium CDP `Input.imeSetComposition`/`Input.insertText`; inspect the native EditText. Begin a drag or hold a key before rotation and observe the original UP/release. |
+| Book/flip and screen power | Retain a unique editor token across closed/half-open/open and physical rotations on the same serial. Observe native cover/inner dimensions and independently committed guest posture. Test only advertised postures; unsupported controls must explain why. Observe guest sleep/wake separately: inactive screen disables input and removes stale geometry; wake restores fresh input without losing text. Never require every closed foldable to sleep. |
+| Identity and lifetime | Reject old binding/revision input while accepting current text. Hold an agent lease and refuse competing UI rotate/bind. Final unsubscribe must leave zero active screenshot streams and no further encodes; hidden controls must add no encodes, and resubscribe must replay a fresh current identity with at most one stream. Close retains binding; Disconnect releases it; disposal leaves the emulator alive. Confirmed Power off affects only its captured current binding. Exercise reload, reconnect, stale confirmations and ACK/drop/bitmap cleanup with both pane channels. |
+| Remote ownership | Drive the owner through a served browser and a joined instance. Inventory/create/control use the owner's SDK, not viewer-local tools. Replay old remote input and a stale Power off confirmation after rebinding; both the old and new emulator must survive the refused confirmation. |
+| Real agent gate and parity | Spawn once with Agents can use devices off and confirm `omp-ui_device` is absent. Enable it, spawn/resume and use the real registered bridge for `profiles`, `create`, `state`, `rotate` and `posture`, not direct calls standing in for registration. Poll State after Create acceptance. Check `targets`/`use`, selector refusal, lease release and the existing webhook/MCP exclusion. `orientation auto` remains guest policy, not a physical rotate; an app-locked orientation must fail honestly rather than claim it rotated. |
+| Responsive and prerequisites | Inspect the actual owner in light/dark at nominal pane widths 300/420/900, full-column, compact 390×844 and short landscape 844×390. Reach every More action by internal scroll, keep chooser/menu inside the visual viewport, preserve 44px compact targets, and switch browser/device in their shared slot. Isolate missing SDK, command-line-tools and no-eligible-image cases; disabled Create must show owner reasons/copyable commands while existing AVDs remain selectable where prerequisites permit. |
+
+For negative prerequisites, use a separate SDK facade exposing only the
+components under test, never rename or remove the real SDK's files. To prove
+the SDK is completely absent, also launch with an isolated `HOME`: resolution
+falls back to the OS default SDK location when explicit roots are invalid.
+Record a pre/post SHA-256 for a disposable pre-existing noncatalog AVD's
+`config.ini` while booting/binding/powering it off; it must not change. Power
+off each disposable emulator explicitly before removing its proof directory:
+closing the pane or stopping the headless app intentionally does not kill it.
+Retain image `source.properties`, emulator version, SDK root, serials,
+screenshots, native logs and assertions with each run; do not commit private
+tokens or gRPC discovery credentials.
+
+**Recorded #1009 proof scope:** Linux x64 with KVM, Android emulator
+**37.2.13, build 16740729**. The installed images were
+`system-images;android-35;google_apis;x86_64` **revision 9, extension 13**;
+`system-images;android-36;google_apis;x86_64` **revision 7, extension 17**
+(`IsBaseSdk=true`); and an additional real agent-created Small Phone used
+`system-images;android-29;google_apis;x86_64` **revision 13**, with no
+`ExtensionLevel` property. Extension metadata is not a platform minor
+version. The four chooser-created devices above passed all four physical
+quadrants and native input/IME; book and flip retained text through posture
+changes. The generic API 36 flip remained Awake/active when closed; explicit
+gated-agent hardware sleep/wake proved Asleep/inactive/input-disabled and
+recovery with the same text. A noncatalog Pixel 7 AVD retained its config
+SHA-256. Real tool registration/gate, asynchronous creation, busy lease,
+original drag/key release, stale same-binding revision text and stale remote
+binding/Power off refusal were exercised. Guest `orientation auto` preserved
+physical quadrant 1; `orientation portrait` did not confirm under the native
+probe's FULL_SENSOR policy and reported failure rather than overriding it.
+
+The production host/client lifetime proof observed no encodes or active
+streams while unsubscribed, at most one stream, no hidden-rotate encode growth, fresh
+resubscribe replay and emulator survival after dispose. Actual owner UI
+inspection covered the light/dark and size matrix above. The short-landscape
+More menu, after its visual-viewport clamp fix, ended at y=382 in a 390px
+viewport; its final 44px action ended at y=377.2 and remained reachable by
+internal scrolling. Missing command-line-tools/no-image SDK facades and a
+fully absent SDK under isolated HOME produced prerequisite diagnostics.
+These are bounded functional observations, not performance benchmarks or
+Windows, macOS or Apple Silicon runtime proof.
+
 #### Stats managed-collector proof
 
 Run the isolated, no-model-call proof against the executable selected by the

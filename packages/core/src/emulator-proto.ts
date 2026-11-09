@@ -8,6 +8,40 @@
 const MAX_IMAGE_DIM = 16384;
 const RGBA8888 = 1;
 const NEVER_EXPIRE = 1;
+const MAX_PARAMETER_VALUES = 64;
+const MAX_DISPLAYS = 64;
+
+export interface EmulatorPhysicalModel {
+  target: number;
+  status: number;
+  values: number[];
+}
+
+export interface EmulatorDisplayConfiguration {
+  display: number;
+  width: number;
+  height: number;
+  dpi: number;
+  flags: number;
+}
+
+export type EmulatorNotification =
+  | { type: "posture"; posture: number }
+  | { type: "display-configurations"; displays: EmulatorDisplayConfiguration[] }
+  | { type: "display-power"; display: number; powerMode: number }
+  | { type: "unknown" };
+
+export interface EmulatorImage {
+  width: number;
+  height: number;
+  seq: number;
+  pixels: Uint8Array;
+  rotation: 0 | 1 | 2 | 3;
+  display: number;
+  foldedDisplay: { width: number; height: number; xOffset: number; yOffset: number } | null;
+  displayMode: number | null;
+  timestampUs: number;
+}
 
 class Writer {
   private bytes: number[] = [];
@@ -45,8 +79,8 @@ class Writer {
   }
 }
 
-export function encodeImageFormat(req: { width: number; height: number }): Uint8Array {
-  return new Writer().uint(1, RGBA8888).uint(3, req.width).uint(4, req.height).finish();
+export function encodeImageFormat(req: { width: number; height: number; display?: number }): Uint8Array {
+  return new Writer().uint(1, RGBA8888).uint(3, req.width).uint(4, req.height).uint(5, req.display ?? 0).finish();
 }
 
 interface Reader {
@@ -54,93 +88,265 @@ interface Reader {
   pos: number;
 }
 
-function readVarint(r: Reader): number {
+function readVarint(r: Reader): bigint {
   let result = 0n;
-  let shift = 0n;
-  for (;;) {
-    if (r.pos >= r.buf.length || shift > 63n) throw new Error("truncated varint");
+  for (let shift = 0n; shift <= 63n; shift += 7n) {
+    if (r.pos >= r.buf.length) throw new Error("truncated varint");
     const b = r.buf[r.pos++];
+    if (shift === 63n && b > 1) throw new Error("varint exceeds 64 bits");
     result |= BigInt(b & 0x7f) << shift;
-    if ((b & 0x80) === 0) break;
-    shift += 7n;
+    if ((b & 0x80) === 0) return result;
   }
-  return Number(BigInt.asUintN(64, result));
+  throw new Error("varint exceeds 64 bits");
 }
 
-/** Walks fields; calls `on` with the varint value or the length-delimited payload. */
-function forEachField(buf: Uint8Array, on: (field: number, value: number | Uint8Array) => void): void {
+function readTag(r: Reader): number {
+  const tag = readVarint(r);
+  if (tag > 0xffffffffn || tag < 8n) throw new Error("invalid protobuf tag");
+  return Number(tag);
+}
+
+function takeBytes(r: Reader, length: number): Uint8Array {
+  if (length > r.buf.length - r.pos) throw new Error("truncated field");
+  const start = r.pos;
+  r.pos += length;
+  return r.buf.subarray(start, r.pos);
+}
+
+function skipGroup(r: Reader, field: number, depth = 0): void {
+  if (depth >= 64) throw new Error("protobuf group nesting exceeds 64");
+  while (r.pos < r.buf.length) {
+    const tag = readTag(r);
+    const child = tag >>> 3;
+    const wire = tag & 7;
+    if (wire === 4) {
+      if (child !== field) throw new Error("mismatched protobuf group");
+      return;
+    }
+    readField(r, child, wire, depth + 1);
+  }
+  throw new Error("truncated protobuf group");
+}
+
+function readField(r: Reader, field: number, wire: number, depth = 0): number | Uint8Array | null {
+  switch (wire) {
+    case 0:
+      return Number(BigInt.asIntN(64, readVarint(r)));
+    case 1:
+      return takeBytes(r, 8);
+    case 2: {
+      const length = readVarint(r);
+      if (length > BigInt(r.buf.length - r.pos)) throw new Error("truncated field");
+      return takeBytes(r, Number(length));
+    }
+    case 3:
+      skipGroup(r, field, depth);
+      return null;
+    case 5:
+      return takeBytes(r, 4);
+    default:
+      throw new Error(`unsupported wire type ${wire}`);
+  }
+}
+
+/** Unknown fields, including deprecated groups, are skipped without interpreting their contents. */
+function forEachField(
+  buf: Uint8Array,
+  on: (field: number, value: number | Uint8Array, wire: number) => void,
+): void {
   const r: Reader = { buf, pos: 0 };
   while (r.pos < buf.length) {
-    const tag = readVarint(r);
+    const tag = readTag(r);
     const field = tag >>> 3;
-    switch (tag & 7) {
-      case 0:
-        on(field, readVarint(r));
-        break;
-      case 1:
-        r.pos += 8;
-        break;
-      case 2: {
-        const len = readVarint(r);
-        const end = r.pos + len;
-        if (end > buf.length) throw new Error("truncated field");
-        on(field, buf.subarray(r.pos, end));
-        r.pos = end;
-        break;
-      }
-      case 5:
-        r.pos += 4;
-        break;
-      default:
-        throw new Error(`unsupported wire type ${tag & 7}`);
-    }
-    if (r.pos > buf.length) throw new Error("truncated field");
+    const wire = tag & 7;
+    const value = readField(r, field, wire);
+    if (value !== null) on(field, value, wire);
   }
 }
 
-export function decodeImage(
-  buf: Uint8Array,
-): { width: number; height: number; seq: number; pixels: Uint8Array } | null {
-  let width = 0;
-  let height = 0;
-  let seq = 0;
-  let pixels: Uint8Array = new Uint8Array(0);
-  forEachField(buf, (field, value) => {
-    if (field === 1 && value instanceof Uint8Array) {
-      forEachField(value, (f, v) => {
-        if (f === 3 && typeof v === "number") width = v;
-        else if (f === 4 && typeof v === "number") height = v;
+function uint(value: number | Uint8Array, wire: number, max = 0xffffffff): number {
+  if (wire !== 0 || typeof value !== "number" || !Number.isSafeInteger(value) || value < 0 || value > max) {
+    throw new Error("invalid unsigned protobuf value");
+  }
+  return value;
+}
+
+function message(value: number | Uint8Array, wire: number): Uint8Array {
+  if (wire !== 2 || !(value instanceof Uint8Array)) throw new Error("invalid protobuf message");
+  return value;
+}
+
+function imageDimension(value: number): number {
+  if (value <= 0 || value > MAX_IMAGE_DIM) throw new Error(`image size out of range: ${value}`);
+  return value;
+}
+
+export function encodePhysicalModel(target: number, values?: readonly number[]): Uint8Array {
+  uint(target, 0);
+  const model = new Writer().uint(1, target);
+  if (values !== undefined) {
+    if (values.length > MAX_PARAMETER_VALUES) throw new Error("too many physical model values");
+    const packed = new Uint8Array(values.length * 4);
+    const view = new DataView(packed.buffer);
+    for (let i = 0; i < values.length; i++) {
+      view.setFloat32(i * 4, values[i], true);
+      if (!Number.isFinite(values[i]) || !Number.isFinite(view.getFloat32(i * 4, true))) {
+        throw new Error("physical model values must be finite float32");
+      }
+    }
+    model.bytesField(3, new Writer().bytesField(1, packed).finish());
+  }
+  return model.finish();
+}
+
+export function decodePhysicalModel(raw: Uint8Array): EmulatorPhysicalModel {
+  const model: EmulatorPhysicalModel = { target: 0, status: 0, values: [] };
+  forEachField(raw, (field, value, wire) => {
+    if (field === 1) model.target = uint(value, wire);
+    else if (field === 2) {
+      if (wire !== 0 || typeof value !== "number" || !Number.isInteger(value) || value < -0x80000000 || value > 0x7fffffff) {
+        throw new Error("invalid physical model status");
+      }
+      model.status = value;
+    } else if (field === 3) {
+      forEachField(message(value, wire), (parameter, data, parameterWire) => {
+        if (parameter !== 1) return;
+        if (!(data instanceof Uint8Array) || (parameterWire !== 2 && parameterWire !== 5) || data.length % 4 !== 0) {
+          throw new Error("invalid physical model float data");
+        }
+        if (model.values.length + data.length / 4 > MAX_PARAMETER_VALUES) throw new Error("too many physical model values");
+        const view = new DataView(data.buffer, data.byteOffset, data.byteLength);
+        for (let offset = 0; offset < data.length; offset += 4) {
+          const item = view.getFloat32(offset, true);
+          if (!Number.isFinite(item)) throw new Error("physical model values must be finite");
+          model.values.push(item);
+        }
       });
-    } else if (field === 4 && value instanceof Uint8Array) pixels = value;
-    else if (field === 5 && typeof value === "number") seq = value;
+    }
   });
-  if (pixels.length === 0) return null;
-  if (width <= 0 || height <= 0 || width > MAX_IMAGE_DIM || height > MAX_IMAGE_DIM) {
-    throw new Error(`image size out of range: ${width}x${height}`);
+  return model;
+}
+
+export function decodeDisplayConfigurations(raw: Uint8Array): EmulatorDisplayConfiguration[] {
+  const displays: EmulatorDisplayConfiguration[] = [];
+  forEachField(raw, (field, value, wire) => {
+    if (field !== 1) return;
+    if (displays.length >= MAX_DISPLAYS) throw new Error("too many display configurations");
+    const display: EmulatorDisplayConfiguration = { display: 0, width: 0, height: 0, dpi: 0, flags: 0 };
+    forEachField(message(value, wire), (f, v, w) => {
+      if (f === 1) display.width = uint(v, w);
+      else if (f === 2) display.height = uint(v, w);
+      else if (f === 3) display.dpi = uint(v, w);
+      else if (f === 4) display.flags = uint(v, w);
+      else if (f === 5) display.display = uint(v, w);
+    });
+    imageDimension(display.width);
+    imageDimension(display.height);
+    displays.push(display);
+  });
+  return displays;
+}
+
+export function decodeEmulatorNotification(raw: Uint8Array): EmulatorNotification {
+  let notification: EmulatorNotification = { type: "unknown" };
+  forEachField(raw, (field, value, wire) => {
+    if (field === 3) {
+      let displays: EmulatorDisplayConfiguration[] = [];
+      forEachField(message(value, wire), (f, v, w) => {
+        if (f === 1) displays = decodeDisplayConfigurations(message(v, w));
+      });
+      notification = { type: "display-configurations", displays };
+    } else if (field === 4) {
+      let posture = 0;
+      forEachField(message(value, wire), (f, v, w) => {
+        if (f === 3) posture = uint(v, w);
+      });
+      notification = { type: "posture", posture };
+    } else if (field === 11) {
+      let display = 0;
+      let powerMode = 0;
+      forEachField(message(value, wire), (f, v, w) => {
+        if (f === 1) display = uint(v, w);
+        else if (f === 2) powerMode = uint(v, w);
+      });
+      notification = { type: "display-power", display, powerMode };
+    } else if (field >= 2 && field <= 10) {
+      notification = { type: "unknown" };
+    }
+  });
+  return notification;
+}
+
+export function decodeImage(buf: Uint8Array): EmulatorImage | null {
+  const image: EmulatorImage = {
+    width: 0,
+    height: 0,
+    seq: 0,
+    pixels: new Uint8Array(0),
+    rotation: 0,
+    display: 0,
+    foldedDisplay: null,
+    displayMode: null,
+    timestampUs: 0,
+  };
+  forEachField(buf, (field, value, wire) => {
+    if (field === 1) {
+      forEachField(message(value, wire), (f, v, w) => {
+        if (f === 2) {
+          forEachField(message(v, w), (rotationField, rotationValue, rotationWire) => {
+            if (rotationField === 1) image.rotation = uint(rotationValue, rotationWire, 3) as 0 | 1 | 2 | 3;
+          });
+        } else if (f === 3) image.width = uint(v, w);
+        else if (f === 4) image.height = uint(v, w);
+        else if (f === 5) image.display = uint(v, w);
+        else if (f === 7) {
+          const folded = { width: 0, height: 0, xOffset: 0, yOffset: 0 };
+          forEachField(message(v, w), (ff, fv, fw) => {
+            if (ff === 1) folded.width = uint(fv, fw);
+            else if (ff === 2) folded.height = uint(fv, fw);
+            else if (ff === 3) folded.xOffset = uint(fv, fw);
+            else if (ff === 4) folded.yOffset = uint(fv, fw);
+          });
+          imageDimension(folded.width);
+          imageDimension(folded.height);
+          if (folded.xOffset + folded.width > MAX_IMAGE_DIM || folded.yOffset + folded.height > MAX_IMAGE_DIM) {
+            throw new Error("folded display region out of range");
+          }
+          image.foldedDisplay = folded;
+        } else if (f === 8) image.displayMode = uint(v, w);
+      });
+    } else if (field === 4) image.pixels = message(value, wire);
+    else if (field === 5) image.seq = uint(value, wire);
+    else if (field === 6) image.timestampUs = uint(value, wire, Number.MAX_SAFE_INTEGER);
+  });
+  if (image.pixels.length === 0) return null;
+  imageDimension(image.width);
+  imageDimension(image.height);
+  if (image.pixels.length !== image.width * image.height * 4) {
+    throw new Error(`image byte length ${image.pixels.length} != ${image.width}x${image.height}x4`);
   }
-  if (pixels.length !== width * height * 4) {
-    throw new Error(`image byte length ${pixels.length} != ${width}x${height}x4`);
-  }
-  return { width, height, seq, pixels };
+  return image;
 }
 
 export function encodeTouchInput(
   touches: Array<{ x: number; y: number; id: number; pressure: number }>,
+  display = 0,
 ): Uint8Array {
   const event = new Writer();
   for (const t of touches) {
     const touch = new Writer().uint(1, t.x).uint(2, t.y).uint(3, t.id).uint(4, t.pressure).uint(7, NEVER_EXPIRE);
     event.bytesField(1, touch.finish());
   }
-  return new Writer().bytesField(2, event.finish()).finish();
+  return new Writer().bytesField(2, event.uint(2, display).finish()).finish();
 }
 
-export function encodeMouseInput(x: number, y: number, buttons: number): Uint8Array {
-  return new Writer().bytesField(3, new Writer().uint(1, x).uint(2, y).uint(3, buttons).finish()).finish();
+export function encodeMouseInput(x: number, y: number, buttons: number, display = 0): Uint8Array {
+  const event = new Writer().uint(1, x).uint(2, y).uint(3, buttons).uint(4, display).finish();
+  return new Writer().bytesField(3, event).finish();
 }
 
-export function encodeWheelInput(dx: number, dy: number): Uint8Array {
-  return new Writer().bytesField(6, new Writer().uint(1, dx).uint(2, dy).finish()).finish();
+export function encodeWheelInput(dx: number, dy: number, display = 0): Uint8Array {
+  return new Writer().bytesField(6, new Writer().uint(1, dx).uint(2, dy).uint(3, display).finish()).finish();
 }
 
 export function encodeKeyInput(ev: { eventType: 0 | 1 | 2; key?: string; text?: string }): Uint8Array {
@@ -194,6 +400,12 @@ export class GrpcMessageParser {
       this.skip(5);
       this.onMessage(this.take(len));
     }
+  }
+
+  /** Verify that a completed response did not end midway through a frame. */
+  end(): void {
+    if (this.failed) throw this.failed;
+    if (this.total !== 0) this.fail("truncated gRPC frame");
   }
 
   private peekByte(i: number): number {

@@ -30,7 +30,7 @@ export function DevicePaneSplit({ tabId }: { tabId: string }) {
      
       className={cn(
         "relative flex shrink-0 flex-col border-l border-line",
-        !resizing && "transition-[width] duration-200 ease-out-quint",
+        !resizing && "transition-[width] duration-200 ease-out-quint motion-reduce:transition-none",
       )}
       style={{ width: displayedWidth }}
     >
@@ -48,7 +48,7 @@ export function DevicePaneSplit({ tabId }: { tabId: string }) {
         }}
         onDraggingChange={setResizing}
       />
-      <DevicePane tabId={tabId} posture="split" />
+      <DevicePane tabId={tabId} placement="split" />
     </aside>
   );
 }

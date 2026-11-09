@@ -197,7 +197,7 @@ function runtime(patch: Partial<RpcTabState> = {}): RpcTabState {
     capabilitiesLoad: "idle",
     advisorReply: true,
     browserPane: { open: false, fullscreen: false, agentOpened: false, ensure: "idle", unavailableReason: null, state: null, frame: null },
-    devicePane: { open: false, fullscreen: false, ensure: "idle", state: null, inventory: null, frame: null },
+    devicePane: { open: false, fullscreen: false, ensure: "idle", state: null, inventory: null, frame: null, streamGeneration: 0 },
     ...patch,
   };
 }

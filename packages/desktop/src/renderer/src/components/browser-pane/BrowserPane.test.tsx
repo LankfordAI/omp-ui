@@ -2,9 +2,10 @@
 import { act } from "react";
 import { createRoot, type Root } from "react-dom/client";
 import { afterEach, beforeEach, describe, expect, it, vi } from "vitest";
-import type { BrowserPaneFrameHeader, BrowserPanePickResult } from "@omp-ui/core/browser-pane";
+import { decodeBrowserPaneFrame, type BrowserPaneFrameHeader, type BrowserPanePickResult } from "@omp-ui/core/browser-pane";
 import type { ProjectGroup, SessionSummary } from "@omp-ui/core/types";
 import { backendState, remoteInstance, rpcTabState } from "../../test/fixtures";
+import { createFramePainter } from "../../lib/browser-pane-frame";
 
 (globalThis as Record<string, unknown>).IS_REACT_ACT_ENVIRONMENT = true;
 
@@ -27,12 +28,12 @@ vi.mock("../../lib/platform", () => ({
 // jsdom has no 2d context or createImageBitmap; the painter's own contract is
 // covered by the frame lib. Here it only answers "which frame is on screen".
 vi.mock("../../lib/browser-pane-frame", () => ({
-  createFramePainter: () => ({
+  createFramePainter: vi.fn(() => ({
     write() {},
     jpeg: async () => new Uint8Array([0xff, 0xd8]),
     header: () => mocks.header,
     dispose() {},
-  }),
+  })),
   cropFrame: mocks.cropFrame,
 }));
 
@@ -209,6 +210,14 @@ afterEach(() => {
   act(() => root?.unmount());
   root = null;
   document.body.innerHTML = "";
+});
+
+describe("BrowserPane JPEG frame decoding", () => {
+  it.each([null, "joined"] as const)("passes the browser wire decoder for owner %s", (owner) => {
+    seed(owner);
+    render();
+    expect(createFramePainter).toHaveBeenCalledExactlyOnceWith(canvas(), expect.any(Function), decodeBrowserPaneFrame);
+  });
 });
 
 describe("BrowserPane while the owning instance is down (issue #416)", () => {

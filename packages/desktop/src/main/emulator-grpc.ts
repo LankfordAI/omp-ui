@@ -8,13 +8,20 @@ import {
   DISCOVERY_FILE_PATTERN,
   GrpcMessageParser,
   androidChildEnv,
+  decodeDisplayConfigurations,
+  decodeEmulatorNotification,
+  decodePhysicalModel,
   emulatorDiscoveryDirs,
   encodeClipData,
   encodeImageFormat,
+  encodePhysicalModel,
   encodeVmRunState,
   grpcFrame,
   parseDiscoveryIni,
   type AndroidSdkPaths,
+  type EmulatorDisplayConfiguration,
+  type EmulatorNotification,
+  type EmulatorPhysicalModel,
 } from "@omp-ui/core";
 
 /**
@@ -193,6 +200,13 @@ function grpcMessage(raw: unknown): string {
   }
 }
 
+export class GrpcStatusError extends Error {
+  constructor(rpc: string, readonly status: number, message = "") {
+    super(`${rpc}: grpc-status ${status}${message ? ` (${message})` : ""}`);
+    this.name = "GrpcStatusError";
+  }
+}
+
 /**
  * One HTTP/2 connection to an emulator's EmulatorController service. Calls
  * made before the connection settles wait for it; a refused IPv4 loopback
@@ -226,7 +240,7 @@ export class EmulatorGrpcClient {
   }
 
   streamScreenshot(
-    format: { width: number; height: number },
+    format: { width: number; height: number; display?: number },
     onMessage: (raw: Uint8Array) => void,
     signal: AbortSignal,
   ): Promise<void> {
@@ -234,7 +248,7 @@ export class EmulatorGrpcClient {
   }
 
   /** The raw Image message; 5 s timeout. */
-  async getScreenshot(format: { width: number; height: number }, signal?: AbortSignal): Promise<Uint8Array> {
+  async getScreenshot(format: { width: number; height: number; display?: number }, signal?: AbortSignal): Promise<Uint8Array> {
     let message = null as Uint8Array | null;
     await this.call(
       "getScreenshot",
@@ -248,20 +262,27 @@ export class EmulatorGrpcClient {
     return message;
   }
 
-  /** One client-streaming streamInputEvent; reopened on the next send if the stream ended. */
-  openInput(): { send(inputEvent: Uint8Array): void; close(): void } {
+  /**
+   * One client-streaming streamInputEvent, reopened on the next send if it ended.
+   * Guards run once immediately before writing, including queued input; omit for forced releases.
+   */
+  openInput(): { send(inputEvent: Uint8Array, isCurrent?: () => boolean): void; close(): void } {
     let stream: http2.ClientHttp2Stream | null = null;
     let opening = false;
     let closed = false;
-    const queue: Uint8Array[] = [];
+    const queue: Array<{ inputEvent: Uint8Array; isCurrent?: () => boolean }> = [];
     const writable = (s: http2.ClientHttp2Stream | null): s is http2.ClientHttp2Stream =>
       s !== null && !s.closed && !s.destroyed && s.writable;
+    const write = (s: http2.ClientHttp2Stream, inputEvent: Uint8Array, isCurrent?: () => boolean) => {
+      if (isCurrent === undefined || isCurrent()) s.write(grpcFrame(inputEvent));
+    };
     const open = () => {
       if (opening) return;
       opening = true;
-      this.openStream("streamInputEvent").then(
+      this.ready.then((session) => closed ? null : this.request("streamInputEvent", session)).then(
         (s) => {
           opening = false;
+          if (s === null) return;
           if (closed) {
             s.close(http2.constants.NGHTTP2_CANCEL);
             return;
@@ -270,7 +291,8 @@ export class EmulatorGrpcClient {
           this.watch("streamInputEvent", s, () => {}).catch(() => {}).finally(() => {
             if (stream === s) stream = null;
           });
-          for (const ev of queue.splice(0)) s.write(grpcFrame(ev));
+          for (const ev of queue) write(s, ev.inputEvent, ev.isCurrent);
+          queue.length = 0;
         },
         () => {
           opening = false;
@@ -279,13 +301,13 @@ export class EmulatorGrpcClient {
       );
     };
     return {
-      send: (inputEvent) => {
+      send: (inputEvent, isCurrent) => {
         if (closed) return;
         if (writable(stream)) {
-          stream.write(grpcFrame(inputEvent));
+          write(stream, inputEvent, isCurrent);
           return;
         }
-        if (queue.length < INPUT_QUEUE_MAX) queue.push(inputEvent);
+        if (queue.length < INPUT_QUEUE_MAX) queue.push({ inputEvent, isCurrent });
         open();
       },
       close: () => {
@@ -303,6 +325,36 @@ export class EmulatorGrpcClient {
 
   async setVmState(state: number): Promise<void> {
     await this.call("setVmState", encodeVmRunState(state), () => {}, { timeoutMs: UNARY_TIMEOUT_MS, rejectOnAbort: true });
+  }
+
+  async getPhysicalModel(target: number, signal?: AbortSignal): Promise<EmulatorPhysicalModel> {
+    let model: EmulatorPhysicalModel | undefined;
+    await this.call("getPhysicalModel", encodePhysicalModel(target), (raw) => {
+      model = decodePhysicalModel(raw);
+    }, { signal, timeoutMs: UNARY_TIMEOUT_MS, rejectOnAbort: true });
+    if (model === undefined) throw new Error("getPhysicalModel: empty response");
+    return model;
+  }
+
+  async setPhysicalModel(target: number, values: readonly number[], signal?: AbortSignal): Promise<void> {
+    await this.call("setPhysicalModel", encodePhysicalModel(target, values), () => {}, {
+      signal, timeoutMs: UNARY_TIMEOUT_MS, rejectOnAbort: true,
+    });
+  }
+
+  streamNotification(onMessage: (notification: EmulatorNotification) => void, signal: AbortSignal): Promise<void> {
+    return this.call("streamNotification", new Uint8Array(0), (raw) => {
+      onMessage(decodeEmulatorNotification(raw));
+    }, { signal });
+  }
+
+  async getDisplayConfigurations(signal?: AbortSignal): Promise<EmulatorDisplayConfiguration[]> {
+    let displays: EmulatorDisplayConfiguration[] | undefined;
+    await this.call("getDisplayConfigurations", new Uint8Array(0), (raw) => {
+      displays = decodeDisplayConfigurations(raw);
+    }, { signal, timeoutMs: UNARY_TIMEOUT_MS, rejectOnAbort: true });
+    if (displays === undefined) throw new Error("getDisplayConfigurations: empty response");
+    return displays;
   }
 
   onError(cb: (err: Error) => void): () => void {
@@ -351,8 +403,7 @@ export class EmulatorGrpcClient {
     for (const cb of [...this.errorListeners]) cb(err);
   }
 
-  private async openStream(rpc: string): Promise<http2.ClientHttp2Stream> {
-    const session = await this.ready;
+  private request(rpc: string, session: http2.ClientHttp2Session): http2.ClientHttp2Stream {
     if (this.closed) throw new Error(`${rpc}: emulator gRPC client closed`);
     const headers: http2.OutgoingHttpHeaders = {
       ":method": "POST",
@@ -369,86 +420,113 @@ export class EmulatorGrpcClient {
    * An abort resolves (the caller stopped it) unless `rejectOnAbort`; a
    * timeout always rejects.
    */
-  private async call(
+  private call(
     rpc: string,
     body: Uint8Array,
     onMessage: (m: Uint8Array) => void,
     opts: { signal?: AbortSignal; timeoutMs?: number; rejectOnAbort?: boolean },
   ): Promise<void> {
+    const { promise, resolve, reject } = Promise.withResolvers<void>();
     const { signal } = opts;
-    if (signal?.aborted) {
-      if (opts.rejectOnAbort) throw new Error(`${rpc}: aborted`);
-      return;
-    }
-    const stream = await this.openStream(rpc);
-    let timedOut = false;
-    const cancel = () => {
-      if (!stream.closed) stream.close(http2.constants.NGHTTP2_CANCEL);
-    };
-    const timer =
-      opts.timeoutMs === undefined
-        ? undefined
-        : setTimeout(() => {
-            timedOut = true;
-            cancel();
-          }, opts.timeoutMs);
-    signal?.addEventListener("abort", cancel, { once: true });
-    if (signal?.aborted) cancel();
-    stream.end(grpcFrame(body));
-    try {
-      await this.watch(rpc, stream, onMessage);
-    } catch (err) {
-      if (timedOut) throw new Error(`${rpc}: timed out after ${opts.timeoutMs} ms`, { cause: err });
-      if (signal?.aborted && !opts.rejectOnAbort) return;
-      throw err;
-    } finally {
+    let stream: http2.ClientHttp2Stream | null = null;
+    let settled = false;
+    let stopped = false;
+    let stopError: Error | undefined;
+    let timer: NodeJS.Timeout | undefined;
+    const finish = (err?: unknown) => {
+      if (settled) return;
+      settled = true;
       clearTimeout(timer);
-      signal?.removeEventListener("abort", cancel);
+      signal?.removeEventListener("abort", abort);
+      const failure = stopped ? stopError : err;
+      if (failure === undefined) resolve();
+      else reject(failure);
+    };
+    const stop = (err?: Error) => {
+      if (settled || stopped) return;
+      stopped = true;
+      stopError = err;
+      if (stream === null) finish();
+      else stream.close(http2.constants.NGHTTP2_CANCEL);
+    };
+    const abort = () => stop(opts.rejectOnAbort ? new Error(`${rpc}: aborted`) : undefined);
+    signal?.addEventListener("abort", abort, { once: true });
+    if (signal?.aborted) abort();
+    if (!settled && opts.timeoutMs !== undefined) {
+      timer = setTimeout(() => stop(new Error(`${rpc}: timed out after ${opts.timeoutMs} ms`)), opts.timeoutMs);
     }
+    if (!settled) {
+      void this.ready.then((session) => {
+        if (settled) return;
+        stream = this.request(rpc, session);
+        this.watch(rpc, stream, onMessage).then(() => finish(), finish);
+        stream.end(grpcFrame(body));
+      }).catch(finish);
+    }
+    return promise;
   }
 
   private watch(rpc: string, stream: http2.ClientHttp2Stream, onMessage: (m: Uint8Array) => void): Promise<void> {
     const { promise, resolve, reject } = Promise.withResolvers<void>();
-    let settled = false;
-    let status: string | undefined;
+    let status: number | undefined;
     let message = "";
-    const finish = (err?: Error) => {
-      if (settled) return;
-      settled = true;
-      if (err === undefined) resolve();
-      else reject(err);
-    };
+    let failure: Error | undefined;
     const parser = new GrpcMessageParser(MAX_MESSAGE_BYTES, onMessage);
+    const fail = (err: Error) => {
+      failure ??= err;
+      if (!stream.closed) stream.close(http2.constants.NGHTTP2_CANCEL);
+    };
     const readStatus = (headers: http2.IncomingHttpHeaders) => {
       const raw = headers["grpc-status"];
       if (raw === undefined) return;
-      status = String(raw);
+      if (typeof raw !== "string" || !/^(?:0|[1-9]\d*)$/.test(raw) || Number(raw) > 16) {
+        fail(new Error(`${rpc}: invalid grpc-status`));
+        return;
+      }
+      status = Number(raw);
       message = grpcMessage(headers["grpc-message"]);
     };
-    stream.on("response", (headers) => {
+    const response = (headers: http2.IncomingHttpHeaders) => {
       const httpStatus = headers[":status"];
-      if (httpStatus !== undefined && httpStatus !== 200) {
-        finish(new Error(`${rpc}: HTTP ${httpStatus}`));
-        stream.close(http2.constants.NGHTTP2_CANCEL);
+      if (httpStatus !== undefined && Number(httpStatus) !== 200) {
+        fail(new Error(`${rpc}: HTTP ${httpStatus}`));
         return;
       }
       readStatus(headers);
-    });
-    stream.on("trailers", readStatus);
-    stream.on("data", (chunk: Buffer) => {
+    };
+    const data = (chunk: Buffer) => {
       try {
         parser.push(chunk);
       } catch (err) {
-        finish(new Error(`${rpc}: ${err instanceof Error ? err.message : String(err)}`));
-        stream.close(http2.constants.NGHTTP2_CANCEL);
+        fail(new Error(`${rpc}: ${err instanceof Error ? err.message : String(err)}`, { cause: err }));
       }
-    });
-    stream.on("error", (err) => finish(new Error(`${rpc}: ${err.message}`)));
-    stream.on("close", () => {
-      if (status === undefined) finish(new Error(`${rpc}: stream closed without grpc-status`));
-      else if (status !== "0") finish(new Error(`${rpc}: grpc-status ${status}${message ? ` (${message})` : ""}`));
-      else finish();
-    });
+    };
+    const error = (err: Error) => {
+      failure ??= new Error(`${rpc}: ${err.message}`, { cause: err });
+    };
+    const close = () => {
+      if (failure === undefined && status === 0) {
+        try {
+          parser.end();
+        } catch (err) {
+          failure = new Error(`${rpc}: ${err instanceof Error ? err.message : String(err)}`, { cause: err });
+        }
+      }
+      stream.off("response", response);
+      stream.off("trailers", readStatus);
+      stream.off("data", data);
+      stream.off("error", error);
+      stream.off("close", close);
+      if (failure !== undefined) reject(failure);
+      else if (status === undefined) reject(new Error(`${rpc}: stream closed without grpc-status`));
+      else if (status !== 0) reject(new GrpcStatusError(rpc, status, message));
+      else resolve();
+    };
+    stream.on("response", response);
+    stream.on("trailers", readStatus);
+    stream.on("data", data);
+    stream.on("error", error);
+    stream.on("close", close);
     return promise;
   }
 }

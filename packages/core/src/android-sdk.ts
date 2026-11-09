@@ -2,7 +2,8 @@ import { statSync } from "node:fs";
 import { homedir, tmpdir as osTmpdir } from "node:os";
 import path from "node:path";
 import { withoutAppImageRuntime } from "./appimage-env";
-import { DEVICE_AVD_PATTERN, type DeviceSdkStatus } from "./device-pane";
+import { DEVICE_AVD_PATTERN, type DeviceInventory, type DeviceSdkStatus, type DeviceSystemImage } from "./device-pane";
+import { nativeAndroidAbi } from "./device-profiles";
 
 export interface AndroidSdkProbeDeps {
   platform?: NodeJS.Platform;
@@ -15,7 +16,7 @@ export interface AndroidSdkPaths {
   sdkRoot: string;
   adb: string;
   emulator: string | null;
-  /** Provisioning only (create-avd); existing-AVD use works without it, so status never reports it. */
+  /** Provisioning only; existing AVDs remain usable when command-line tools are absent. */
   avdmanager: string | null;
 }
 
@@ -81,10 +82,75 @@ export function androidSdkStatus(paths: AndroidSdkPaths | null): DeviceSdkStatus
   return { status: "ready", sdkRoot: paths.sdkRoot };
 }
 
-/** `<home>/.android/avd/<avdName>.avd/config.ini`; the file `avdmanager create avd` writes. */
-export function avdConfigPath(home: string, avdName: string, platform: NodeJS.Platform = process.platform): string {
+/** Owner-machine creation readiness. This describes setup only; it never installs or downloads anything. */
+export function androidCreationReadiness(
+  paths: AndroidSdkPaths | null,
+  arch: string,
+  images: readonly DeviceSystemImage[],
+): DeviceInventory["creation"] {
+  const abi = nativeAndroidAbi(arch);
+  const sdkRoot = paths?.sdkRoot ?? null;
+  if (abi === null) {
+    return {
+      available: false,
+      reason: `Native Android emulator creation is unsupported on owner architecture "${arch}".`,
+      sdkRoot,
+      installCommand: null,
+    };
+  }
+  const packages: string[] = [];
+  if (!paths) packages.push("platform-tools");
+  if (!paths?.emulator) packages.push("emulator");
+  if (!paths?.avdmanager) packages.push("cmdline-tools;latest");
+  const hasImage = images.some((image) => image.abi === abi);
+  if (!hasImage) packages.push(`system-images;android-35;google_apis;${abi}`);
+  const installCommand = packages.length > 0 ? `sdkmanager ${packages.map((name) => `"${name}"`).join(" ")}` : null;
+  const reason = !paths
+    ? "The Android SDK and platform-tools are missing on the owner machine."
+    : !paths.emulator
+      ? "The Android emulator is missing from the owner Android SDK."
+      : !paths.avdmanager
+        ? "Android SDK Command-line Tools (avdmanager) are missing on the owner machine."
+        : !hasImage
+          ? `No complete installed ${abi} mobile system image is available on the owner machine.`
+          : null;
+  return { available: reason === null, reason, sdkRoot, installCommand };
+}
+
+/** Matches the Android tools' environment overrides; arguments stay explicit for deterministic callers. */
+export function resolveAndroidAvdHome(
+  env: NodeJS.ProcessEnv,
+  home: string,
+  platform: NodeJS.Platform = process.platform,
+): string {
   const p = pathFor(platform);
-  return p.join(home, ".android", "avd", `${avdName}.avd`, "config.ini");
+  if (env.ANDROID_AVD_HOME) return p.normalize(env.ANDROID_AVD_HOME);
+  const userHome = env.ANDROID_EMULATOR_HOME || env.ANDROID_USER_HOME ||
+    p.join(env.ANDROID_SDK_HOME || home, ".android");
+  return p.join(userHome, "avd");
+}
+
+/** Root AVD metadata points to its real content directory, which may be outside the AVD home. */
+export function resolveAvdConfigPath(
+  avd: string,
+  metadata: string,
+  avdHome: string,
+  platform: NodeJS.Platform = process.platform,
+): string {
+  if (!AVD_RE.test(avd) || avd === "." || avd === "..") throw new Error("Invalid AVD name");
+  const p = pathFor(platform);
+  const values = parseDiscoveryIni(metadata);
+  const absolute = values.get("path");
+  if (absolute) {
+    if (!p.isAbsolute(absolute)) throw new Error("AVD metadata path must be absolute");
+    return p.join(absolute, "config.ini");
+  }
+  const relative = values.get("path.rel");
+  if (relative) {
+    if (p.isAbsolute(relative)) throw new Error("AVD metadata path.rel must be relative");
+    return p.join(p.dirname(avdHome), relative, "config.ini");
+  }
+  return p.join(avdHome, `${avd}.avd`, "config.ini");
 }
 
 /** Prepends platform-tools and emulator dirs; sets ANDROID_HOME. Base env is withoutAppImageRuntime(). */

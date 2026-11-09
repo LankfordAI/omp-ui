@@ -1,15 +1,19 @@
 import { describe, expect, it } from "vitest";
 import {
   androidChildEnv,
+  androidCreationReadiness,
   androidSdkStatus,
-  avdConfigPath,
   emulatorDiscoveryDirs,
   parseAdbDevices,
   parseAvdList,
   parseDiscoveryIni,
   parseWmSize,
+  resolveAndroidAvdHome,
   resolveAndroidSdk,
+  resolveAvdConfigPath,
+  type AndroidSdkPaths,
 } from "./android-sdk";
+import type { DeviceSystemImage } from "./device-pane";
 
 const filesIn = (files: string[]) => (p: string) => files.includes(p);
 
@@ -63,10 +67,99 @@ describe("resolveAndroidSdk", () => {
   });
 });
 
-describe("avdConfigPath", () => {
-  it("joins under ~/.android/avd", () => {
-    expect(avdConfigPath("/h", "pixel_11_pro_xl", "linux")).toBe("/h/.android/avd/pixel_11_pro_xl.avd/config.ini");
-    expect(avdConfigPath("C:\\U", "a.b", "win32")).toBe("C:\\U\\.android\\avd\\a.b.avd\\config.ini");
+describe("androidCreationReadiness", () => {
+  const paths: AndroidSdkPaths = {
+    sdkRoot: "/sdk", adb: "/sdk/platform-tools/adb", emulator: "/sdk/emulator/emulator",
+    avdmanager: "/sdk/cmdline-tools/latest/bin/avdmanager",
+  };
+  const nativeImage: DeviceSystemImage = {
+    packageId: "system-images;android-35;google_apis;x86_64", api: 35,
+    abi: "x86_64", tag: "google_apis", label: "API 35 Google APIs",
+  };
+
+  it("reports creation ready only with SDK tools and a complete native image", () => {
+    expect(androidCreationReadiness(paths, "x64", [nativeImage])).toEqual({
+      available: true, reason: null, sdkRoot: "/sdk", installCommand: null,
+    });
+  });
+
+  it("keeps existing-AVD SDK readiness independent of avdmanager creation readiness", () => {
+    const existingOnly = { ...paths, avdmanager: null };
+    expect(androidSdkStatus(existingOnly)).toEqual({ status: "ready", sdkRoot: "/sdk" });
+    expect(androidCreationReadiness(existingOnly, "x64", [nativeImage])).toEqual({
+      available: false, reason: expect.stringContaining("avdmanager"), sdkRoot: "/sdk",
+      installCommand: 'sdkmanager "cmdline-tools;latest"',
+    });
+  });
+
+  it("describes missing owner setup without downloading or suggesting an opposite ABI", () => {
+    const missing = androidCreationReadiness(null, "arm64", []);
+    expect(missing.available).toBe(false);
+    expect(missing.reason).toContain("owner machine");
+    expect(missing.sdkRoot).toBeNull();
+    expect(missing.installCommand).toContain('"platform-tools"');
+    expect(missing.installCommand).toContain('"emulator"');
+    expect(missing.installCommand).toContain('"cmdline-tools;latest"');
+    expect(missing.installCommand).toContain('"system-images;android-35;google_apis;arm64-v8a"');
+    expect(missing.installCommand).not.toContain("x86_64");
+    const noEmulator = androidCreationReadiness({ ...paths, emulator: null }, "x64", [nativeImage]);
+    expect(noEmulator.reason).toContain("emulator");
+    expect(noEmulator.installCommand).toBe('sdkmanager "emulator"');
+  });
+
+  it("rejects missing images, opposite-ABI-only images and unsupported host architectures", () => {
+    const noImages = androidCreationReadiness(paths, "x64", []);
+    expect(noImages.available).toBe(false);
+    expect(noImages.reason).toContain("complete installed x86_64");
+    expect(noImages.installCommand).toBe('sdkmanager "system-images;android-35;google_apis;x86_64"');
+    const oppositeOnly = androidCreationReadiness(paths, "arm64", [nativeImage]);
+    expect(oppositeOnly.available).toBe(false);
+    expect(oppositeOnly.installCommand).toContain("arm64-v8a");
+    const unsupported = androidCreationReadiness(paths, "ia32", [nativeImage]);
+    expect(unsupported).toEqual({
+      available: false, reason: expect.stringContaining('"ia32"'), sdkRoot: "/sdk", installCommand: null,
+    });
+  });
+});
+
+describe("resolveAndroidAvdHome", () => {
+  it("honors owner AVD, emulator and user home overrides rather than assuming ~/.android/avd", () => {
+    const env = {
+      ANDROID_AVD_HOME: "/disk/avds", ANDROID_EMULATOR_HOME: "/emulator", ANDROID_USER_HOME: "/user",
+      ANDROID_SDK_HOME: "/legacy",
+    };
+    expect(resolveAndroidAvdHome(env, "/h", "linux")).toBe("/disk/avds");
+    expect(resolveAndroidAvdHome({ ...env, ANDROID_AVD_HOME: "" }, "/h", "linux")).toBe("/emulator/avd");
+    expect(resolveAndroidAvdHome({ ANDROID_USER_HOME: "/user", ANDROID_SDK_HOME: "/legacy" }, "/h", "linux")).toBe("/user/avd");
+    expect(resolveAndroidAvdHome({ ANDROID_SDK_HOME: "/legacy" }, "/h", "linux")).toBe("/legacy/.android/avd");
+    expect(resolveAndroidAvdHome({}, "/h", "linux")).toBe("/h/.android/avd");
+    expect(resolveAndroidAvdHome({ ANDROID_AVD_HOME: "C:\\AVDs" }, "C:\\U", "win32")).toBe("C:\\AVDs");
+  });
+});
+
+describe("resolveAvdConfigPath", () => {
+  it("uses the actual absolute metadata content path, including paths containing spaces", () => {
+    const metadata = "avd.ini.encoding=UTF-8\npath=/other disk/Android devices/fold.avd\npath.rel=avd/stale.avd\n";
+    expect(resolveAvdConfigPath("fold", metadata, "/custom/avds", "linux")).toBe("/other disk/Android devices/fold.avd/config.ini");
+    expect(resolveAvdConfigPath("fold", "path=C:\\Android Devices\\fold.avd\r\n", "C:\\avds", "win32")).toBe("C:\\Android Devices\\fold.avd\\config.ini");
+  });
+
+  it("resolves path.rel against the AVD home's parent, never against the SDK root", () => {
+    expect(resolveAvdConfigPath("fold", "path.rel=avd/relocated.avd\n", "/h/.android/avd", "linux")).toBe("/h/.android/avd/relocated.avd/config.ini");
+    expect(resolveAvdConfigPath("fold", "path.rel=devices/relocated.avd\n", "/custom/avds", "linux")).toBe("/custom/devices/relocated.avd/config.ini");
+    expect(resolveAvdConfigPath("fold", "path.rel=avd\\fold.avd\r\n", "C:\\Android\\avd", "win32")).toBe("C:\\Android\\avd\\fold.avd\\config.ini");
+  });
+
+  it("uses the resolved AVD home only when metadata does not redirect the content directory", () => {
+    expect(resolveAvdConfigPath("a.b", "avd.ini.encoding=UTF-8\n", "/mounted/avds", "linux")).toBe("/mounted/avds/a.b.avd/config.ini");
+    expect(resolveAvdConfigPath("a.b", "", "C:\\AVDs", "win32")).toBe("C:\\AVDs\\a.b.avd\\config.ini");
+  });
+
+  it("rejects malformed metadata paths instead of patching an unrelated default location", () => {
+    expect(() => resolveAvdConfigPath("fold", "path=relative/fold.avd\n", "/avds", "linux")).toThrow("absolute");
+    expect(() => resolveAvdConfigPath("fold", "path.rel=/absolute/fold.avd\n", "/avds", "linux")).toThrow("relative");
+    expect(() => resolveAvdConfigPath("../escape", "", "/avds", "linux")).toThrow("Invalid AVD name");
+    expect(() => resolveAvdConfigPath("..", "", "/avds", "linux")).toThrow("Invalid AVD name");
   });
 });
 

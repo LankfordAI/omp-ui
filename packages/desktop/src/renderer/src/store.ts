@@ -300,7 +300,13 @@ export const useStore = create<UiStore>()((set, get, api) => {
         dropped.push(tab.tabId);
         continue;
       }
-      if (inst.status !== "joined") continue;
+      if (inst.status !== "joined") {
+        // Device requests and decodes belong to the joined owner lifetime,
+        // not the retained tab. Invalidate before React can coalesce down/rejoin.
+        if (findInstance(s.state, inst.id)?.status === "joined")
+          m.invalidateDevicePane(tab.tabId);
+        continue;
+      }
       const record = inst.projects
         .flatMap((g) => g.sessions)
         .find((r) => r.tabId === tab.tabId);

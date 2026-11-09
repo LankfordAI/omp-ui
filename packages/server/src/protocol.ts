@@ -190,7 +190,7 @@ export interface FrameDelivery {
   payload: Uint8Array;
 }
 
-/** The existing eight-byte pane header is carried unchanged inside payload. */
+/** Pane payload bytes are opaque: browser and versioned device headers are carried unchanged. */
 export function decodeFrameDelivery(
   buf: Uint8Array,
 ): FrameDelivery | null {

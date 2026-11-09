@@ -447,13 +447,21 @@ _Avoid_: timestamp overlay, watermark, system tray clock
 
 **Device pane**:
 A live Android emulator inside an rpc-ui tab that the user and the agent
-share. The owning main process binds one emulator per tab, can provision an
-AVD from a bundled device profile when a pick names one that does not exist
-yet, streams its screen to every view as frames, takes the user's touches and
-keys, and gives the agent the same emulator through the `omp-ui_device` host
-tool when Agents can use devices is on. It takes the same split beside the native transcript as
-the **Browser pane**; only one of the two is open in a tab. Closing it only
-stops the stream; the emulator keeps running until powered off.
+share. The owning main process binds one existing emulator per tab or explicitly
+creates a new Android Virtual Device (AVD) from a native profile and installed
+system image in the owner's Android SDK. Browsing profiles never creates an
+AVD; choosing an existing AVD boots and binds it without rewriting it. The
+catalog covers phones, tablets, and native book, flip, and fold-out hardware;
+old fixed-panel labels are screen-size references, not OEM foldable identities.
+The pane streams the screen and accepts touches and keys when input is ready.
+The agent shares the binding through `omp-ui_device` when Agents can use
+devices is on. **Placement** is the pane's split, whole-column, or compact-sheet
+layout; **physical rotation** and **posture** describe the emulator hardware,
+not shell placement or the guest app's orientation policy. Supported postures
+come from runtime capabilities, not the profile name. The pane occupies the
+same slot as the **Browser pane**; only one is open in a tab. Closing the pane
+retains its binding and emulator; Disconnect releases the binding without
+stopping the emulator; confirmed Power off stops the currently bound emulator.
 _Avoid_: simulator panel, device tab, emulator window, device hub
 
 **Session HUD**:
