@@ -4,7 +4,7 @@ This guide explains what users receive from a release and how maintainers publis
 
 ## Unreleased
 
-Nothing since [v0.34.5](https://github.com/LankfordAI/omp-ui/releases/tag/v0.34.5). Add one bullet per shipped change here, citing its issue as `#N`; the release tag lifts these into Highlights.
+- Fixed native turns failing before inference with Artifacts enabled on the observed OpenRouter Responses route. Capture now advertises a flat schema while the host retains its status-dependent validation and human Apply gate. #1135
 
 ## Choose a download
 

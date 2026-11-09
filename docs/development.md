@@ -604,6 +604,28 @@ hot roster reconciliation, persisted native render/capture details, Keep/Apply,
 immutable data consent, and complete Unicode paging. Missing/skipped new runtime
 obligations are not passing release evidence.
 
+The loopback fixture simulates the reported OpenRouter Responses root-schema
+restriction on its existing Chat Completions endpoint. It rejects own root
+`oneOf`, `anyOf` or `allOf` on advertised omp-ui host tools with HTTP 400 before
+the scripted responder runs, without inspecting nested schemas. Its greeting
+case requires an actual assistant reply, not only registration or turn-end
+acknowledgements. This is not an OpenRouter Responses integration test.
+External acceptance uses separate isolated headless runs pinned to
+`openrouter/anthropic/claude-opus-5.5` and `anthropic/claude-opus-5-5` with
+Artifacts enabled and the advisor disabled. On the built-in OpenRouter
+Responses route, check a completed greeting, hot disable/re-enable with a
+correlated roster update and another greeting, then direct managed render,
+real Keep, Refresh now, direct capture and human Apply. Accepted data must
+stay unchanged until Apply. Do not substitute routes or relax null validation.
+Record unavailable external checks separately from hermetic passing evidence.
+
+For [#1135](https://github.com/LankfordAI/omp-ui/issues/1135), both pinned
+provider runs passed on OMP 18.18.4. The OpenRouter run completed greetings
+before and after acknowledged hot re-registration, then direct render,
+Keep, Refresh now, capture and Apply with manual fixture data changing from
+`[1,2]` to `[3,4]` only after Apply. The focused core, desktop service/bridge
+and serial real-OMP suites passed 25, 170 and 10 tests respectively.
+
 For the full application scenario, use distinct disposable registry parents,
 `XDG_CONFIG_HOME`, `XDG_DATA_HOME` and `PI_CODING_AGENT_DIR` with existing isolated
 session roots, then the pinned `dev:headless -- --pane` launcher. Do not use the
