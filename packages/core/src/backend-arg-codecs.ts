@@ -92,6 +92,13 @@ import { parseWebhookInput, parseWebhookPatch, type WebhookInput, type WebhookPa
 import { VSCODE_THEME_FILE_BYTES_MAX, type VsCodeThemeFileInput } from "./vscode-theme";
 import { keybindingOverridesError, type KeybindingOverrides } from "./keybindings";
 import { parseMcpClientInput, parseMcpClientPatch, type McpClientInput, type McpClientPatch } from "./mcp-endpoint";
+import { assertArtifactKey, assertArtifactUuid } from "./artifacts";
+import type {
+  ArtifactAcceptRevisionRequest, ArtifactApplyCaptureRequest, ArtifactDeleteRequest,
+  ArtifactDescribeRequest, ArtifactKeepRequest, ArtifactListRequest,
+  ArtifactPrepareRefreshRequest, ArtifactReadRequest, ArtifactReferenceRequest,
+  ArtifactResolveSourceRequest,
+} from "./artifacts";
 
 export interface ArgCodec<T> {
   readonly expected: string;
@@ -238,6 +245,63 @@ export function record(): ArgCodec<Record<string, unknown>> {
   return codec("a plain object", isPlainRecord);
 }
 
+
+const artifactUuidCodec: ArgCodec<string> = {
+  expected: "an artifact UUID",
+  decode(value) { assertArtifactUuid(value); return value; },
+};
+const artifactKeyCodec: ArgCodec<string> = {
+  expected: "an artifact data key",
+  decode(value) { assertArtifactKey(value); return value; },
+};
+const artifactOffsetCodec = codec<number>("a nonnegative byte offset", value => Number.isSafeInteger(value) && (value as number) >= 0);
+const artifactLimitCodec = codec<number>("a page limit from 4 to 65536", value => Number.isSafeInteger(value) && (value as number) >= 4 && (value as number) <= 65536);
+const artifactHeadsCodec: ArgCodec<Record<string, string>> = {
+  expected: "dataset keys mapped to immutable dataset UUIDs",
+  decode(value, path) {
+    const fields = record().decode(value, path);
+    if (Object.keys(fields).length > 32) fail(path, "at most 32 dataset heads");
+    for (const [key, head] of Object.entries(fields)) {
+      artifactKeyCodec.decode(key, path);
+      artifactUuidCodec.decode(head, `${path}.${key}`);
+    }
+    return fields as Record<string, string>;
+  },
+};
+export const artifactListCodec = objectOf<ArtifactListRequest>({
+  cursor: optional(shortStr(200)),
+  limit: optional(codec<number>("an integer from 1 to 50", value => Number.isSafeInteger(value) && (value as number) >= 1 && (value as number) <= 50)),
+  query: optional(shortStr(200)),
+});
+export const artifactDescribeCodec = objectOf<ArtifactDescribeRequest>({
+  artifactId: artifactUuidCodec, codeRevisionId: optional(artifactUuidCodec), dataSnapshotId: optional(artifactUuidCodec),
+});
+export const artifactReadCodec = objectOf<ArtifactReadRequest>({
+  artifactId: artifactUuidCodec, codeRevisionId: artifactUuidCodec, dataSnapshotId: artifactUuidCodec,
+  part: oneOf("definition", "state", "dataset"), datasetId: optional(artifactKeyCodec),
+  captureId: optional(artifactUuidCodec),
+  offset: optional(artifactOffsetCodec), limit: optional(artifactLimitCodec),
+});
+export const artifactSourceCodec = objectOf<ArtifactResolveSourceRequest>({
+  tabId: shortStr(200), sessionId: nullable(artifactUuidCodec), toolCallId: nullable(shortStr(200)),
+  sourceHash: codec<string>("a SHA256 digest", value => typeof value === "string" && /^[a-f0-9]{64}$/.test(value)),
+  draftId: optional(artifactUuidCodec),
+});
+export const artifactKeepCodec = objectOf<ArtifactKeepRequest>({draftId: artifactUuidCodec, title: shortStr(200)});
+export const artifactAcceptCodec = objectOf<ArtifactAcceptRevisionRequest>({draftId: artifactUuidCodec, expectedCodeRevisionId: artifactUuidCodec});
+export const artifactReferenceCodec = objectOf<ArtifactReferenceRequest>({
+  targetTabId: shortStr(200), artifactId: artifactUuidCodec, codeRevisionId: artifactUuidCodec,
+  dataSnapshotId: artifactUuidCodec, includeData: bool(),
+});
+export const artifactRefreshCodec = objectOf<Omit<ArtifactPrepareRefreshRequest, "sessionId" | "includeData">>({
+  targetTabId: shortStr(200), artifactId: artifactUuidCodec, codeRevisionId: artifactUuidCodec,
+  dataSnapshotId: artifactUuidCodec, datasetIds: arrayOf(artifactKeyCodec),
+});
+export const artifactApplyCodec = objectOf<ArtifactApplyCaptureRequest>({
+  captureId: artifactUuidCodec, expectedCodeRevisionId: artifactUuidCodec, expectedDatasetHeads: artifactHeadsCodec,
+});
+export const artifactDiscardCodec = objectOf<{draftId: string}>({draftId: artifactUuidCodec});
+export const artifactDeleteCodec = objectOf<ArtifactDeleteRequest>({artifactId: artifactUuidCodec, expectedGeneration: artifactOffsetCodec});
 export const sessionModeCodec: ArgCodec<SessionMode> = oneOf("pty", "rpc-ui");
 export const agentModeCodec: ArgCodec<AgentMode> = oneOf("plan", "build");
 export const planFormatCodec: ArgCodec<PlanFormat> = oneOf("html", "md");

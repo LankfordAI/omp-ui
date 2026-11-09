@@ -8,7 +8,7 @@ import type {
 import type { ProjectSettingsSectionId } from "../../components/ProjectSettings";
 import type { CapabilitySectionId } from "@omp-ui/core/capabilities";
 import type { StateCreator, StoreApi } from "zustand";
-import { backend } from "../../backend";
+import { backend, displayMessage } from "../../backend";
 import {
   desktopViewStorage,
   loadDesktopView,
@@ -169,6 +169,10 @@ export interface ViewSlice {
   dismissError(id: string): void;
 }
 
+let navigationGeneration = 0;
+export function bumpNavigationGeneration(): number { return ++navigationGeneration; }
+export function getNavigationGeneration(): number { return navigationGeneration; }
+
 /**
  * Moves the global focus for a tab activation. Activating a tab also closes
  * the Lab, the Stats view, the Fleet view, and a shown fleet terminal (issues
@@ -176,8 +180,9 @@ export interface ViewSlice {
  */
 export function focusOn(
   tabId: string,
-): Pick<UiStore, "activeTabId" | "lab" | "stats" | "fleet" | "fleetTerminal"> {
-  return { activeTabId: tabId, lab: null, stats: null, fleet: null, fleetTerminal: null };
+): Pick<UiStore, "activeTabId" | "lab" | "stats" | "fleet" | "fleetTerminal" | "artifacts"> {
+  bumpNavigationGeneration();
+  return { activeTabId: tabId, lab: null, stats: null, fleet: null, fleetTerminal: null, artifacts: null };
 }
 
 /** Restores resumable tabs in saved renderer order, then settles the active tab. */
@@ -443,7 +448,7 @@ export const createViewSlice: StateCreator<UiStore, [], [], ViewSlice> = (set, g
         ...s.errorNotices,
         {
           id: randomId(),
-          message: error instanceof Error ? error.message : String(error),
+          message: displayMessage(error),
         },
       ],
     }));

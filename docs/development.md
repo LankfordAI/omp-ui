@@ -530,11 +530,11 @@ The app-update controls can contact and act on real release metadata. Use them o
 
 ### Verification runs
 
-A run that boots the app in order to drive it over CDP should pin its sessions to a cheap model. Every live session that run spawns follows the parent's model when it delegates, so one unpinned session becomes a frontier-priced fan-out — and a dev-server launch is a separate app instance with its own registry, so the pins recorded by the packaged app do not apply there.
+A CDP verification run pins both model roles to an explicitly available, operator-approved selector (or an isolated hermetic provider fixture). Pins on the interactive app do not apply to a separate dev instance. Never silently substitute an unavailable model; report the missing prerequisite. Delegated work follows the run's model unless an explicit approved override applies.
 
 ```bash
-OMP_UI_TEST_MODEL="openrouter/openai/gpt-5.6-luna:low" \
-OMP_UI_TEST_ADVISOR="openrouter/openai/gpt-5.6-terra:low" \
+OMP_UI_TEST_MODEL="openrouter/openai/gpt-6.1-sol" \
+OMP_UI_TEST_ADVISOR="openrouter/openai/gpt-6.1-sol" \
 npm run dev:headless
 ```
 
@@ -545,6 +545,70 @@ The browser-pane smoke's `resize-canvas` step (#653) gates hard on GPU runners: 
 The browser-pane smoke's `metrics-open-viewport` and `metrics-clear-viewport` steps read actual Chromium geometry immediately after each viewport-command reply, without waiting for the reassert debounce (#1072, omp 18.17 upstream #18160). Both must already report the pane's CSS size and density; an agent's open-time viewport must not govern the pane until a timer fires.
 
 Viewport replies wait at most one second for host metrics restoration. Unit regressions cover a stalled debugger command, deferred/rejecting bridge settlement, and the delayed pre-commit fallback; the live metrics steps cover normal Chromium restoration before reply.
+
+#### Artifact library acceptance (#1121)
+
+The experiment remains off by default. Run the deterministic suites and both
+desktop TypeScript projects before runtime proof:
+
+```bash
+npm run lint
+npm run typecheck
+npm test
+npm run build
+npm run smoke:artifact-library --workspace @omp-ui/desktop
+npm run test:live --workspace @omp-ui/desktop
+```
+
+`artifact-library-smoke.ts` is a separate built Electron entry, excluded along
+with its output from every package file list. It selects Linux headless Ozone
+before readiness, maps no window, and writes JSON/PNG evidence under
+`packages/desktop/out/artifact-library-smoke`. It uses shipped self-contained
+CommonJS preloads, actual separate WebContents and two sequential Electron
+processes over one isolated store. It checks kernel seccomp and rejects
+`--no-sandbox`; do not weaken the sandbox to make this proof pass. A real SQLite
+trigger refusal exercises storage-write failure, not physical disk exhaustion.
+
+The proof covers pre-Keep saves, check/note/dataset/provenance restart checksums,
+root/guest/frame/ticket authority, network/loopback/WebSocket/STUN/device denial,
+rate/JSON refusal recovery, CAS, trusted save/reload status, delayed-save disable
+fencing and re-enable retention. Correlate host notices by surface ID and wait
+for the actual event: a guest receipt and root chrome cross different renderer
+processes, so their delivery order is not a synchronization contract.
+
+Use the real derived curated palette in the smoke, not hex-only stand-ins:
+registered themes include CSS Color 4 alpha values containing `/`. Palette
+admission must still reject URL functions and bound the complete generated CSS.
+Exercise Escape through the actual guest's `sendInputEvent`, await the correlated
+host notice, and verify the native dialog closes without replacing its guest.
+Parent-page CDP keyboard events alone do not prove cross-WebContents routing.
+
+`artifact-library-live.test.ts` uses real OMP and a hermetic loopback provider;
+no external API key/model is required. It exercises cold/warm factories and
+hot roster reconciliation, persisted native render/capture details, Keep/Apply,
+immutable data consent, and complete Unicode paging. Missing/skipped new runtime
+obligations are not passing release evidence.
+
+For the full application scenario, use distinct disposable registry parents,
+`XDG_CONFIG_HOME`, `XDG_DATA_HOME` and `PI_CODING_AGENT_DIR` with existing isolated
+session roots, then the pinned `dev:headless -- --pane` launcher. Do not use the
+user's live registry/sessions. Inspect off→enable without a model prompt;
+session→Keep→restart; live/dormant reference targets with retained drafts;
+compatible/stale/incompatible revisions; failed/successful refresh and human
+Apply; source/project deletion; disable/re-enable; and a second authenticated
+browser client's static document. Check actual 320px, 390px and desktop captures,
+keyboard focus, both scroll axes, source links and light/dark contrast. Stop
+the headless watcher before further source edits, and reconnect to its recorded
+CDP port after a main rebuild.
+
+Both library and transcript expansion use native dialog focus containment over
+the existing guest. Include a manual edit after capture staging but before Apply,
+then verify that Apply retains that edit. Verify historical views refuse writes,
+and that a kept viewer remains writable after its reporting session and project
+are removed. Insert generated multiline refresh drafts as one input edit; typing
+unmodified newline keys into the composer can submit separate turns instead.
+Record the actual selected CDP port from the launcher/port file, since a preferred
+port can fall back. Label hermetic model-provider fixtures explicitly in evidence.
 
 #### Device pane acceptance (#1009)
 

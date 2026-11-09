@@ -16,6 +16,7 @@ import { ASYNC_JOBS_COMMAND } from "@omp-ui/core/async-jobs";
 import { SESSION_SPEND_COMMAND } from "@omp-ui/core/session-spend";
 import { SIDE_COMMANDS_COMMAND } from "@omp-ui/core/side-commands";
 import { backend, backendFor, displayMessage } from "../backend";
+import type { ArtifactRecord } from "@omp-ui/core/artifacts";
 import { cn } from "../lib/cn";
 import { currentLocaleId, localeTag, useT, type MessageKey } from "../lib/i18n";
 import { useCompactShell } from "../lib/responsive";
@@ -39,6 +40,9 @@ import { useActionHotkeys, useKeybinding } from "../lib/keybindings";
 import { StashPalette, type StashPaletteHandle } from "./StashPalette";
 import { AnnotationChips } from "./AnnotationChips";
 import { SessionReferenceChips } from "./SessionReferenceChips";
+import { ArtifactReferenceChips } from "./ArtifactReferenceChips";
+import { useArtifactDraft } from "../lib/use-artifact-draft";
+import { ARTIFACT_DRAG_MIME, parseArtifactDrag } from "../lib/artifact-drag";
 import { SESSION_DRAG_EFFECT, SESSION_DRAG_MIME } from "../lib/session-drag";
 import { useWordGhost } from "../lib/use-word-ghost";
 import { ComposerActions } from "./ComposerActions";
@@ -299,6 +303,10 @@ export function Composer({
     dismiss: dismissUnconfirmedText,
     beginSubmission,
   }] = useComposerText(tabId);
+  const appendArtifactText = useCallback((value: string) => setText(current => current === "" ? value : `${current}\n\n${value}`), [setText]);
+  const { references: artifactReferences, dropReference: dropArtifactReference, clearReferences: clearArtifactReferences } = useArtifactDraft(tabId, appendArtifactText);
+  const artifactLibraryEnabled = useStore(state => state.state?.artifactLibraryEnabled === true);
+  const [mentionArtifacts, setMentionArtifacts] = useState<ArtifactRecord[]>([]);
   /**
    * The slash draft (text after `/`) whose palette the user dismissed. Scoped
    * to the exact draft, not a bare boolean or the word: Escape on `/todo` must
@@ -373,7 +381,7 @@ export function Composer({
         ? t("quickopen.host.local")
         : (findInstance(useStore.getState().state, member.instanceId)?.nickname ?? member.instanceId),
     );
-    const next = await moveUnpromptedSession(tabId, member, { text, images, documents, annotations, references });
+    const next = await moveUnpromptedSession(tabId, member, { text, images, documents, annotations, references, artifactReferences });
     // Success unmounts this composer with its tab; a failure keeps the draft.
     if (next === null) setMoving(null);
   };
@@ -525,6 +533,23 @@ export function Composer({
       .sort((a, b) => (b.cachedModified ?? "").localeCompare(a.cachedModified ?? ""))
       .map((s) => ({ tabId: s.tabId, title: s.title }));
   }, [mentionState, instanceId, tabId]);
+
+  useEffect(() => {
+    if (!mentionOpen || !artifactLibraryEnabled) { setMentionArtifacts([]); return; }
+    let cancelled = false;
+    void backendFor(instanceId).artifactList({ query: atQuery?.query ?? "", limit: 50 }).then(result => {
+      if (!cancelled) setMentionArtifacts(result.artifacts);
+    }, () => { if (!cancelled) setMentionArtifacts([]); });
+    return () => { cancelled = true; };
+  }, [mentionOpen, artifactLibraryEnabled, instanceId, atQuery?.query]);
+
+  const attachArtifactVersion = useCallback(async (artifact: { artifactId: string; codeRevisionId: string; dataSnapshotId: string }) => {
+    if (!artifactLibraryEnabled) return;
+    try {
+      const reference = await backendFor(instanceId).artifactReference({ targetTabId: tabId, artifactId: artifact.artifactId, codeRevisionId: artifact.codeRevisionId, dataSnapshotId: artifact.dataSnapshotId, includeData: false });
+      useStore.getState().attachArtifactReference(tabId, { ...reference, instanceId });
+    } catch (error) { useStore.getState().reportError(error); }
+  }, [tabId, instanceId, artifactLibraryEnabled]);
 
   // Grow to fit, then scroll. Height must be released before measuring, or
   // `scrollHeight` reports the previous, larger box and never shrinks back.
@@ -708,7 +733,7 @@ export function Composer({
           payload.length === 0 &&
           documents.length === 0 &&
           annotations.length === 0 &&
-          references.length === 0) ||
+          references.length === 0 && artifactReferences.length === 0) ||
         unavailable ||
         converting ||
         moving !== null
@@ -769,6 +794,10 @@ export function Composer({
           return;
         }
       }
+      if (!message.startsWith("/") && artifactReferences.length > 0 && !artifactLibraryEnabled) {
+        appendNotice(tabId, t("artifacts.reference.disabled"), "warn");
+        return;
+      }
       // A first prompt with the branch chip's worktree section set to a fresh
       // worktree converts the session before anything else happens (issue
       // #225) — the same conversion the chip's create button runs (issue #314):
@@ -801,7 +830,7 @@ export function Composer({
         }
       }
       if (atReset) {
-        if (!(await holdPrompt(tabId, message, resetAtMs!, payload, docRefs, annotations, references))) return;
+        if (!(await holdPrompt(tabId, message, resetAtMs!, payload, docRefs, annotations, references, artifactReferences))) return;
       }
       // Retain text before clearing; only the host's accepted handoff retires it.
       const completeSubmission = atReset || message.startsWith("/") ? null : beginSubmission(draftText);
@@ -843,8 +872,8 @@ export function Composer({
       if (atReset) return;
       const accepted =
         route === "interrupt"
-          ? await abortAndPrompt(tabId, message, payload, docRefs, annotations, references)
-          : await sendPrompt(tabId, message, route, payload, docRefs, annotations, references);
+          ? await abortAndPrompt(tabId, message, payload, docRefs, annotations, references, artifactReferences)
+          : await sendPrompt(tabId, message, route, payload, docRefs, annotations, references, artifactReferences);
       completeSubmission?.(accepted);
       if (!accepted) {
         // Refused or rejected (runCommand already reported why): the draft
@@ -864,6 +893,7 @@ export function Composer({
       documents,
       annotations,
       references,
+      artifactReferences, artifactLibraryEnabled, appendNotice, t,
       addImages,
       addDocuments,
       addAnnotations,
@@ -907,7 +937,7 @@ export function Composer({
         images.length === 0 &&
         documents.length === 0 &&
         annotations.length === 0 &&
-        references.length === 0) ||
+        references.length === 0 && artifactReferences.length === 0) ||
       message.startsWith("/") ||
       message.startsWith("!") ||
       unavailable ||
@@ -915,7 +945,8 @@ export function Composer({
       moving !== null
     )
       return;
-    const draft = { text, images, documents, annotations, references };
+    if (artifactReferences.length > 0 && !artifactLibraryEnabled) { appendNotice(tabId, t("artifacts.reference.disabled"), "warn"); return; }
+    const draft = { text, images, documents, annotations, references, artifactReferences };
     const worktree =
       workspace.mode === "worktree"
         ? { mint: { branch: workspace.branch, baseRef: workspace.baseRef, baseBranch: workspace.baseBranch } }
@@ -937,6 +968,7 @@ export function Composer({
         documents: draft.documents,
         annotations: draft.annotations,
         references: draft.references,
+        artifactReferences: draft.artifactReferences,
         planMode: planOn,
         worktree,
         background: true,
@@ -956,6 +988,7 @@ export function Composer({
       addReferences(draft.references);
       return;
     }
+    clearArtifactReferences(draft.artifactReferences);
     // The minted branch is checked out now: the next background ask needs its own.
     if (workspace.mode === "worktree") {
       setWorkspace((current) =>
@@ -978,6 +1011,7 @@ export function Composer({
     documents,
     annotations,
     references,
+    artifactReferences, artifactLibraryEnabled, appendNotice, t, clearArtifactReferences,
     unprompted,
     chat,
     record,
@@ -1077,7 +1111,7 @@ export function Composer({
   };
 
   const draftEmpty =
-    text === "" && images.length === 0 && documents.length === 0 && annotations.length === 0 && references.length === 0;
+    text === "" && images.length === 0 && documents.length === 0 && annotations.length === 0 && references.length === 0 && artifactReferences.length === 0;
   useEffect(() => {
     if (!draftEmpty || unavailable) setStashOpen(false);
   }, [draftEmpty, unavailable]);
@@ -1097,7 +1131,7 @@ export function Composer({
       return;
     }
     stashing.current = true;
-    const draft = { text, images, documents, annotations, references };
+    const draft = { text, images, documents, annotations, references, artifactReferences };
     recall.current = null;
     setText("");
     clearDraft();
@@ -1112,6 +1146,7 @@ export function Composer({
         ),
       );
       await stashDraft({ ...draft, documents: owned });
+      clearArtifactReferences(draft.artifactReferences);
     } catch (err) {
       setText((current) => (current === "" ? draft.text : current));
       addImages(draft.images);
@@ -1128,9 +1163,22 @@ export function Composer({
   /** Moves a stashed draft into this composer; its documents re-materialize on this tab's host at send. */
   const applyStashed = async (id: string): Promise<void> => {
     setStashOpen(false);
+    const candidate = stashed.find(draft => draft.id === id);
+    if (candidate === undefined) return;
+    const foreign = candidate.artifactReferences?.find(reference => reference.instanceId !== instanceId);
+    if (foreign !== undefined) { appendNotice(tabId, t("artifacts.reference.wrongMachine", { machine: foreign.machine }), "warn"); return; }
+    // Taking a stash is destructive. Reject a foreign or over-limit merge
+    // first, and restore exact grants rather than replacing same-version IDs.
+    if (candidate.artifactReferences?.length && !useStore.getState().canRestoreArtifactReferences(tabId, candidate.artifactReferences)) return;
     const draft = await takeStashedDraft(id).catch(() => null);
     box.current?.focus({ preventScroll: true });
     if (draft === null) return;
+    if (draft.artifactReferences?.length && !useStore.getState().restoreArtifactReferences(tabId, draft.artifactReferences)) {
+      // Ownership changed while IndexedDB removed the stash: keep the whole
+      // draft available rather than attaching another machine's grants here.
+      await stashDraft({ text: draft.text, images: draft.images, documents: draft.documents, annotations: draft.annotations, references: draft.references, artifactReferences: draft.artifactReferences }).catch(error => useStore.getState().reportError(error));
+      return;
+    }
     addImages(draft.images);
     addDocuments(draft.documents);
     addAnnotations(draft.annotations);
@@ -1279,7 +1327,7 @@ export function Composer({
   // A held session still runs slash and bash commands (/new, !ls, …); main
   // refuses any that would start a turn.
   const canSend =
-    (trimmed !== "" || images.length > 0 || documents.length > 0 || annotations.length > 0 || references.length > 0) &&
+    (trimmed !== "" || images.length > 0 || documents.length > 0 || annotations.length > 0 || references.length > 0 || artifactReferences.length > 0) &&
     !unavailable &&
     !converting &&
     moving === null &&
@@ -1323,7 +1371,7 @@ export function Composer({
       data-session-drop={dropping ? "over" : undefined}
       onDragOver={(e) => {
         // Only a sidebar session row (issue #984): files and text keep their own paths.
-        if (unavailable || !e.dataTransfer.types.includes(SESSION_DRAG_MIME)) return;
+        if (unavailable || !(e.dataTransfer.types.includes(SESSION_DRAG_MIME) || (artifactLibraryEnabled && e.dataTransfer.types.includes(ARTIFACT_DRAG_MIME)))) return;
         e.preventDefault();
         e.dataTransfer.dropEffect = SESSION_DRAG_EFFECT;
         if (!dropping) setDropping(true);
@@ -1332,6 +1380,18 @@ export function Composer({
         if (!e.currentTarget.contains(e.relatedTarget as Node | null)) setDropping(false);
       }}
       onDrop={(e) => {
+        const artifact = parseArtifactDrag(e.dataTransfer.getData(ARTIFACT_DRAG_MIME));
+        if (artifact !== null) {
+          e.preventDefault(); setDropping(false);
+          if (artifact.instanceId !== instanceId) {
+            const machine = artifact.instanceId === null ? t("fleet.machine.thisComputer") : (findInstance(useStore.getState().state, artifact.instanceId)?.nickname ?? artifact.instanceId);
+            appendNotice(tabId, t("artifacts.reference.wrongMachine", { machine }), "warn");
+            return;
+          }
+          if (!unavailable) void attachArtifactVersion(artifact);
+          box.current?.focus({ preventScroll: true });
+          return;
+        }
         const source = e.dataTransfer.getData(SESSION_DRAG_MIME);
         setDropping(false);
         if (unavailable || source === "") return;
@@ -1386,6 +1446,15 @@ export function Composer({
             files={files?.list ?? NO_FILES}
             truncated={files?.truncated ?? false}
             sessions={mentionSessions}
+            artifacts={mentionArtifacts}
+            onPickArtifact={(artifactId) => {
+              const artifact = mentionArtifacts.find(entry => entry.artifactId === artifactId);
+              if (artifact === undefined || atQuery === null) return;
+              setText(text.slice(0, atQuery.start) + text.slice(caret));
+              setCaret(atQuery.start);
+              setMentionDismissedFor(null);
+              void attachArtifactVersion({ artifactId: artifact.artifactId, codeRevisionId: artifact.currentCodeRevisionId, dataSnapshotId: artifact.currentDataSnapshotId });
+            }}
             onPick={pickMention}
             onPickSession={pickSessionMention}
             onClose={() => setMentionDismissedFor(mentionKey)}
@@ -1499,6 +1568,7 @@ export function Composer({
               </Label>
             </div>
           )}
+          {artifactReferences.length > 0 && <ArtifactReferenceChips references={artifactReferences} onRemove={dropArtifactReference} className="border-b border-line px-2 py-2" />}
           {references.length > 0 && (
             <SessionReferenceChips
               references={references}

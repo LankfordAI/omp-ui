@@ -112,6 +112,7 @@ const backendMock = {
   setSkipTerminateConfirmation: vi.fn(),
   setExperimentsEnabled: vi.fn(async () => {}),
   setAutoresearchEnabled: vi.fn(async () => {}),
+  setArtifactLibraryEnabled: vi.fn(async () => {}),
   setCouncilEnabled: vi.fn(async () => {}),
   // Empty roster: a mounted editor resolves its load and renders no member
   // rows, so the council page's switch stays the only role="switch" node.
@@ -956,7 +957,6 @@ describe("Settings Experimental page (issues #571 and #739)", () => {
   it("shows the switch off and persists switching it on", async () => {
     seedExperimental();
     await renderSettings();
-    expect(document.body.querySelectorAll('[role="switch"]')).toHaveLength(2);
     expect(labSwitch().getAttribute("aria-checked")).toBe("false");
     click(labSwitch());
     expect(backendMock.setExperimentsEnabled).toHaveBeenCalledWith(true);
@@ -968,6 +968,18 @@ describe("Settings Experimental page (issues #571 and #739)", () => {
     expect(autoresearchSwitch().getAttribute("aria-checked")).toBe("false");
     click(autoresearchSwitch());
     expect(backendMock.setAutoresearchEnabled).toHaveBeenCalledWith(true);
+  });
+
+  it("persists artifact consent without an optimistic gate flip", async () => {
+    seedExperimental();
+    await renderSettings();
+    const control = document.querySelector<HTMLElement>('[role="switch"][aria-label="Artifact library"]')!;
+    expect(control.getAttribute("aria-checked")).toBe("false");
+    click(control);
+    expect(backendMock.setArtifactLibraryEnabled).toHaveBeenCalledWith(true);
+    expect(control.getAttribute("aria-checked")).toBe("false");
+    act(() => useStore.setState({ state: backendState({ artifactLibraryEnabled: true }) }));
+    expect(control.getAttribute("aria-checked")).toBe("true");
   });
 
   it("no longer renders the switch on the General page", async () => {

@@ -48,7 +48,7 @@ type MainBackendType = InstanceType<typeof MainBackend>;
 
 const win = {
   isDestroyed: () => false,
-  webContents: { isDestroyed: () => false, isCrashed: () => false, send: () => {} },
+  webContents: { mainFrame: {}, isDestroyed: () => false, isCrashed: () => false, send: () => {} },
 };
 
 let base: string;
@@ -90,7 +90,7 @@ function persistedRoster(): CouncilDocument | null {
 }
 
 const invoke = (ch: string, ...args: unknown[]): Promise<unknown> =>
-  Promise.resolve(handlers.get(ch)!(null, ...args));
+  Promise.resolve(handlers.get(ch)!({ sender: win.webContents, senderFrame: win.webContents.mainFrame }, ...args));
 
 beforeEach(() => {
   base = fs.mkdtempSync(path.join(os.tmpdir(), "omp-ui-councilseed-"));

@@ -670,7 +670,7 @@ _Avoid_: link, mention (an `@path` file mention), attachment, citation
 **Draft stash**:
 Composer drafts parked app-wide, outside any session (issue #989).
 `Mod+Alt+S` or the `+` menu moves the whole draft — text, image
-Attachments, Document Attachments, Annotations, Session references — into it and clears the
+Attachments, Document Attachments, Annotations, Session references, Artifact references — into it and clears the
 composer; from an empty composer the same chord opens the picker, which
 moves a chosen draft into that composer. It lives in the client's own
 IndexedDB, and every stashed document carries its bytes (a path-only one is
@@ -1412,6 +1412,53 @@ in a sandboxed `<webview>` guest that has no network; with scripts off, and
 in browser clients, it shows static at the requested height. Separate from an
 HTML plan, whose frames never run scripts.
 _Avoid_: widget, embed, HTML plan (for this surface)
+
+**Kept artifact**:
+A completed **HTML artifact** explicitly retained by the human, together with
+its accepted code and structured working data, independently of its source
+**Session** and **Project**. Keep never rewrites the source transcript.
+_Avoid_: artifact session, app, widget, saved session
+
+**Artifacts**:
+The main-pane library of **Kept artifacts** belonging to this app instance.
+Project and Chat labels record origin, not ownership or deletion boundaries.
+_Avoid_: artifacts tab, project artifact store, app builder
+
+**Managed artifact**:
+An **HTML artifact** with a declared structured-data contract for saved inputs
+and captured datasets. Only acknowledged saves are durable; arbitrary
+JavaScript closure state is not captured.
+_Avoid_: automatically saved artifact, connector app
+
+**Artifact candidate**:
+A session-authored code proposal against an exact accepted artifact version.
+It changes nothing accepted until the human keeps it as a compatible revision
+or as an independent **Kept artifact**.
+_Avoid_: next accepted version (before acceptance), in-place revision
+
+**Artifact reference**:
+A version-specific read grant for one **Kept artifact**'s code and exact data
+snapshot. Its removable composer chip sends no prompt by itself, and saved-data
+consent is explicit and off by default.
+_Avoid_: attachment, session path, permission to publish
+
+**Captured dataset**:
+Structured artifact data with reported source, collection method, capture time
+and credential-free refresh instructions, separate from manually saved inputs.
+Reported provenance is not verified data lineage.
+_Avoid_: live connection, verified source, manual input
+
+**Artifact refresh**:
+An explicit request in an ordinary session to repeat selected datasets'
+recorded capture. New data is staged for human Apply; failure preserves the
+last accepted data, capture times and manual inputs.
+_Avoid_: automatic refresh, connector, background sync
+
+**Capture draft**:
+A destination-bound, unaccepted set of dataset replacements from an **Artifact
+refresh**. Reporting captured data is not the same action as applying it.
+_Avoid_: refreshed artifact (before Apply), migration
+
 
 **Knowledge vault**:
 The curated, human-readable store of decisions, lessons, and write-ups that

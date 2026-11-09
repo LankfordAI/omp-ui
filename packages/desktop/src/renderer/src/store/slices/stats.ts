@@ -1,6 +1,7 @@
 // Selection only: the mounted Stats surface owns reads and collector observation.
 import type { GetState, SetState } from "./shared";
 import type { StatsSlice } from "../types";
+import { bumpNavigationGeneration } from "./view";
 
 export function createStatsSlice(set: SetState, get: GetState): StatsSlice {
   const openStats: StatsSlice["openStats"] = (query = {
@@ -10,13 +11,15 @@ export function createStatsSlice(set: SetState, get: GetState): StatsSlice {
     model: null,
     agentType: null,
   }) => {
-    set({ stats: { ...query, model: query.model === null ? null : { ...query.model } }, fleet: null, fleetTerminal: null });
+    bumpNavigationGeneration();
+    if (get().lab !== null) get().closeLab();
+    set({ stats: { ...query, model: query.model === null ? null : { ...query.model } }, artifacts: null, fleet: null, fleetTerminal: null });
   };
   const setStatsQuery: StatsSlice["setStatsQuery"] = (query) => {
     if (get().stats !== null) {
       set({ stats: { ...query, model: query.model === null ? null : { ...query.model } } });
     }
   };
-  const closeStats = (): void => set({ stats: null });
+  const closeStats = (): void => { bumpNavigationGeneration(); set({ stats: null }); };
   return { stats: null, openStats, setStatsQuery, closeStats };
 }

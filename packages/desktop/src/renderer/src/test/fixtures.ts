@@ -16,6 +16,7 @@ export function backendState(patch: Partial<BackendState> = {}): BackendState {
     stallAutoContinue: true,
     desktopNotifications: true,
     htmlArtifactScripts: true,
+    artifactLibraryEnabled: false,
     deviceAgentAccess: false,
     telemetryModelsEnabled: true,
     subagentModelInheritByDefault: true,

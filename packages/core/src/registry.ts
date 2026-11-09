@@ -72,6 +72,8 @@ export interface RegistrySettings {
   desktopNotifications: boolean;
   /** Interactive HTML artifacts run their scripts (issue #994); off shows them static. Default on. */
   htmlArtifactScripts: boolean;
+  /** Independent session-authored artifact library (issue #1121); default off. */
+  artifactLibraryEnabled: boolean;
   /** The agent may drive the tab's bound emulator via omp-ui_device (issue #1006); default off. */
   deviceAgentAccess: boolean;
   /** Host-local public model/provider aggregates; default on, with opt-out. */
@@ -278,6 +280,10 @@ export const SETTINGS: SettingDescriptors = {
   ),
   htmlArtifactScripts: validatedSetting(
     () => true,
+    (value): value is boolean => typeof value === "boolean",
+  ),
+  artifactLibraryEnabled: validatedSetting(
+    () => false,
     (value): value is boolean => typeof value === "boolean",
   ),
   deviceAgentAccess: validatedSetting(

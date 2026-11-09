@@ -474,6 +474,8 @@ export function Sidebar() {
   const closeCompactSurface = useStore((st) => st.closeCompactSurface);
   const openFleet = useStore((st) => st.openFleet);
   const fleetOpen = useStore((st) => st.fleet !== null);
+  const openArtifacts = useStore((st) => st.openArtifacts);
+  const artifactsOpen = useStore((st) => st.artifacts !== null);
   const settledOpen = useSettledOpen();
   // Working now starts collapsed, #1037 — waiting sessions surface as
   // attention-stack cards instead of hiding inside an expanded section.
@@ -1081,6 +1083,11 @@ export function Sidebar() {
           <IconGear />
           <span className="hidden whitespace-nowrap @[17rem]:inline">{t("sidebar.footer.settings")}</span>
         </IconButton>
+        {state?.artifactLibraryEnabled === true && (
+          <IconButton label={t("artifacts.title")} pressed={artifactsOpen} onClick={() => { openArtifacts(); closeCompactSurface(); }} className="flex size-auto h-6 w-auto items-center gap-1 px-1">
+            <span aria-hidden>▤</span><span>{t("artifacts.title")}</span>
+          </IconButton>
+        )}
         {hasInstances && (
           <IconButton
             label={t("fleet.sidebar.open")}

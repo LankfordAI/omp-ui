@@ -38,6 +38,7 @@ const rpcOptions: { configOverlays?: string[] }[] = [];
 const win = {
   isDestroyed: () => false,
   webContents: {
+    mainFrame: {},
     isDestroyed: () => false,
     isCrashed: () => false,
     send: () => {},
@@ -99,7 +100,7 @@ function setup(): { sessionsRoot: string } {
   return { sessionsRoot };
 }
 
-const invoke = (ch: string, ...args: unknown[]): unknown => handlers.get(ch)!(null, ...args);
+const invoke = (ch: string, ...args: unknown[]): unknown => handlers.get(ch)!({ sender: win.webContents, senderFrame: win.webContents.mainFrame }, ...args);
 const readRegistry = (): {
   sessions: { approvalMode: string | null }[];
 } => JSON.parse(fs.readFileSync(path.join(base, "registry.json"), "utf8"));

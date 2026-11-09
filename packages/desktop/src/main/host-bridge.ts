@@ -5,6 +5,8 @@ import {
   formatFleetMachines,
   DEVICE_TOOL_NAME,
   HOST_NOTIFY_TOOL_NAME,
+  ARTIFACT_CAPTURE_TOOL_NAME,
+  type HostToolCall,
   HTML_ARTIFACT_TOOL_NAME,
   htmlArtifactResultText,
   parseHtmlArtifactArgs,
@@ -73,6 +75,7 @@ import {
   type RpcFrame,
 } from "@omp-ui/core";
 import type { ConfinedPlanRead } from "./plan-file";
+import type { ArtifactService } from "./artifact-service";
 
 /**
  * omp 18.6.1 has no host-tool timer of its own: a request settles on a result,
@@ -143,6 +146,7 @@ export interface HostBridgeDeps {
   fleet?: FleetBridgeDeps;
   /** The device host tool's answerer (#1006); absent means the device tool answers as unavailable. */
   device?: { run(tabId: string, args: unknown): Promise<{ content: HostToolContent[]; isError: boolean }> };
+  artifacts?: ArtifactService;
 }
 
 interface PendingHostAnswer {
@@ -343,7 +347,7 @@ export class HostBridge {
 
   private async answerTool(
     tabId: string,
-    call: { id: string; toolName: string; args: unknown },
+    call: HostToolCall,
     send: (frame: RpcFrame) => void,
   ): Promise<void> {
     if (call.toolName.startsWith("omp-ui_vault_")) {
@@ -369,18 +373,40 @@ export class HostBridge {
       this.answer(call.id, hostToolResult(call.id, content, {}, isError), send);
       return;
     }
+    if (call.toolName === ARTIFACT_CAPTURE_TOOL_NAME) {
+      try {
+        if (!this.deps.artifacts?.enabled) throw new Error("Artifact library is disabled");
+        const capture = this.deps.artifacts.stageCapture({ tabId, toolCallId: call.toolCallId, args: call.args });
+        const details = capture.status === "captured"
+          ? {version: 1, status: "captured", captureId: capture.captureId, artifactId: capture.artifactId, refreshRequestId: capture.refreshRequestId}
+          : {version: 1, status: "failed", artifactId: capture.artifactId, refreshRequestId: capture.refreshRequestId, message: capture.message};
+        this.answer(call.id, hostToolResult(call.id, [{type: "text", text: capture.status === "captured"
+          ? "Capture staged for human review. No accepted data was changed."
+          : `Capture failed. Last accepted data and capture dates are unchanged: ${capture.message}`}], {artifactCapture: details}), send);
+      } catch (error) {
+        this.answer(call.id, hostToolErrorResult(call.id, `artifact_capture refused: ${error instanceof Error ? error.message : "unavailable"}`), send);
+      }
+      return;
+    }
     if (call.toolName === HTML_ARTIFACT_TOOL_NAME) {
-      // The document travels in the call's own arguments, which omp persists
-      // with the session: the card renders from them on every viewer and on
-      // reload, so main validates and keeps nothing (ADR-0082).
       const parsed = parseHtmlArtifactArgs(call.args);
-      this.answer(
-        call.id,
-        parsed.ok
-          ? hostToolTextResult(call.id, htmlArtifactResultText(parsed.args))
-          : hostToolErrorResult(call.id, `render_html refused: ${parsed.reason}`),
-        send,
-      );
+      if (!parsed.ok) {
+        this.answer(call.id, hostToolErrorResult(call.id, `render_html refused: ${parsed.reason}`), send);
+        return;
+      }
+      try {
+        if (this.deps.artifacts?.enabled) {
+          const draft = this.deps.artifacts.stageRender({ tabId, toolCallId: call.toolCallId, args: call.args });
+          this.answer(call.id, hostToolResult(call.id, [{ type: "text", text: htmlArtifactResultText(parsed.args) }],
+            { artifactDraft: { version: 1, draftId: draft.draftId, sourceHash: draft.source.sourceHash } }), send);
+        } else if (call.args !== null && typeof call.args === "object" && "artifact" in call.args) {
+          this.answer(call.id, hostToolErrorResult(call.id, "render_html refused: Artifact library is disabled"), send);
+        } else {
+          this.answer(call.id, hostToolTextResult(call.id, htmlArtifactResultText(parsed.args)), send);
+        }
+      } catch (error) {
+        this.answer(call.id, hostToolErrorResult(call.id, `render_html refused: ${error instanceof Error ? error.message : "unavailable"}`), send);
+      }
       return;
     }
     if (call.toolName !== HOST_NOTIFY_TOOL_NAME) {
@@ -772,6 +798,16 @@ export class HostBridge {
         hostUriErrorResult(request.id, `the ${HOST_URI_SCHEME}:// scheme is read-only`),
         send,
       );
+      return;
+    }
+    if (request.url.startsWith("omp-ui://artifacts/")) {
+      try {
+        if (this.deps.artifacts === undefined) throw new Error("Artifact library is unavailable");
+        const content = this.deps.artifacts.readHostUri({ tabId, url: request.url });
+        this.answer(request.id, hostUriReadResult(request.id, content, "application/json"), send);
+      } catch (error) {
+        this.answer(request.id, hostUriErrorResult(request.id, error instanceof Error ? error.message : "Artifact read refused"), send);
+      }
       return;
     }
     const parsed = parseHostUrl(request.url);

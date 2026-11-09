@@ -443,6 +443,88 @@ Plan review can execute in the planning session, execute there after compaction,
 
 Every rpc-ui spawn registers the `omp-ui://` read-only URI scheme and the namespaced `omp-ui_notify` and `omp-ui_render_html` host tools through the protocol's own `set_host_uri_schemes` / `set_host_tools` commands, which ride `initialCommands` so they land before the first turn on fresh spawn and resume alike ([ADR-0043](adr/0043-host-tools-answer-what-the-main-process-owns.md)). When the Vault registry is nonempty at spawn, ten essential host tools follow those two: `omp-ui_vault_search`, `_read`, `_list`, `_create`, `_append`, `_edit`, `_link`, `_rename`, `_delete`, and `_refactor`. On every chat, and on other sessions when the user has turned on *Let agents dispatch fleet work* and the session was not itself agent-dispatched, nine fleet tools follow those: `omp-ui_fleet_machines`, `omp-ui_fleet_dispatch`, `omp-ui_fleet_status`, `omp-ui_fleet_exec`, `omp-ui_fleet_project`, `omp-ui_fleet_exec_poll`, `omp-ui_fleet_update`, `omp-ui_fleet_send`, and `omp-ui_fleet_finish` (see [Fleet dispatch](#fleet-dispatch)). When the user has turned on *Agents can use devices* (`deviceAgentAccess`, off by default) and the session was not requested by a webhook or an MCP client, the essential `omp-ui_device` tool follows last (see [Device pane](#device-pane)); like every gated host tool, a change to the setting applies at the session's next spawn or resume. The main process answers them: `omp-ui://plan` serves the plan the session last proposed from the same validated snapshot or confined lineage reader the review pane uses, `omp-ui://sessions` serves the day's owned-session index and `omp-ui://sessions/<id>/summary` one session's summary (see [Knowledge vault](#knowledge-vault)), `omp-ui_notify` posts an immediate OS notification through the desktop notifier, bypassing the attention pipeline's delay and suppression, `omp-ui_render_html` validates an **HTML artifact** and answers at once (the document is the call's own arguments, so the transcript renders it flush from the session file — a chromeless inline surface in the transcript column, in a `<webview>` guest whose partition `html-artifact-guard.ts` locks to no network, permissions, or navigation. The frame sizes itself to the document: the injected guest script rewrites its own URL fragment to `#omph<px>` with the measured content height, which crosses no origin and issues no request, surfacing to the host as a `did-navigate-in-page` event whose reported height the host clamps to the published bounds ([ADR-0082](adr/0082-interactive-html-artifacts-run-in-a-locked-webview-guest.md) and its amendment)), vault tools perform checked filesystem I/O through core, fleet tools answer through the owning app's `FleetDispatcher`, and `omp-ui_device` runs the bundled `agent-device` CLI against the tab's bound emulator through `DevicePaneHost` ([ADR-0086](adr/0086-device-pane-streams-emulator-grpc-and-drives-agent-device-through-a-host-tool.md)). Host frames arrive on the RPC client's input-order seam before delivery, so the answerer's ownership mark exists before the renderer's fallback stub can double-answer; a per-request watchdog answers a generic error if anything stalls, so an agent's host call can never hang. PTY-embedded and remote-instance processes receive no registration; their host frames reach the renderer stub, which answers a well-formed error result.
 
+### Kept artifact library
+
+The default-off `artifactLibraryEnabled` experiment is the exception to the
+spawn-only host-tool gates above ([#1121](https://github.com/LankfordAI/omp-ui/issues/1121),
+[ADR-0090](adr/0090-session-authored-artifact-library-and-scoped-data.md)). It
+extends `omp-ui_render_html` with optional `artifact` metadata and adds the
+essential, stage-only `omp-ui_artifact_capture`. `HostToolOptions` captures
+vault/fleet/device membership; hot updates change only its artifacts bit.
+Unique command IDs, process identity, desired epochs, acknowledgements and
+30-second deadlines fence registration. Cold ready and warm arm resolve a
+synchronous initial-command factory after asynchronous spawn work, using the
+latest setting and re-admitting every initial prompt at the final rail.
+
+`MainBackend` owns a lazy `ArtifactService` before `SessionManager`. The
+separate core `ArtifactStore` writes
+`<registry-parent>/artifacts/library.sqlite` through `node:sqlite`, never an
+OMP database. An off experiment creates no store; source-deletion maintenance
+may open an initialized existing store without creating one. Project and Chat
+origins are retained metadata, not library ownership/deletion boundaries.
+Source cleanup drops only unkept drafts/unfinished captures and revokes only
+those surfaces; accepted content, references and writers remain independent.
+
+SQLite WAL/FULL transactions own the committed host/PID/nonce lease, normalized
+payload graph, quotas, CAS heads, publication and reclamation. Root/files are
+private regular storage with symlink and owner checks. Immutable payloads are
+hashed; retained-snapshot integrity checks reuse verified hashes only until
+another SQLite connection commits. User edits allocate changed state-key blobs
+and reuse datasets/code. Logical retained payload plus metadata is limited to
+256 MiB per artifact and 1 GiB globally; this is not a physical SQLite/WAL size
+promise. Corruption, unknown schemas and foreign owners are refused, not reset.
+
+Main supplies source facts and stages render/capture results before answering
+the native tool call. Host answer IDs never stand in for native tool-call IDs.
+Persisted draft details are lookup descriptors, not renderer authority. Trusted
+historical import streams confined JSONL/gzip, proves the exact session header,
+canonical arguments and successful native result, and bounds target records at
+64 MiB/30 seconds while skipping oversized unrelated lines. Initially unknown
+session IDs adopt only observed same-runtime facts, including deletion tombstones.
+
+Human Keep/accept/Apply/discard/delete use typed artifact channels; generic IPC
+validates the app root WebContents and non-null root main frame before dispatch.
+Authenticated browser WebSockets retain their independent authorization path.
+Artifact failures preserve typed JSON statuses through Electron's error-message
+serialization and contextBridge rather than becoming empty successes. Library
+lists/events/backend state contain metadata only; selected content uses bounded
+UTF-8 pages.
+
+Managed desktop surfaces alone receive the self-contained sandboxed CommonJS
+artifact preload. A main-issued unique data URL and single-use 30-second ticket
+bind hello to the actual locked-session guest, root main frame, document, owner
+and gate epoch. Hello begins during preload initialization, not the first later
+API call. Every load/save checks that binding and live store lease. Only
+`load()` and CAS `saveState()` are exposed; no Node, generic IPC, networking,
+credentials, tools or human publication methods. Pre-IPC and main-side rate,
+inflight and JSON bounds are independent. One surface writes a draft/artifact;
+other/historical views are read-only. Receipts follow COMMIT, theme changes do
+not replace managed URLs, and external heads revoke the writer without swapping
+its loaded snapshot. Plain documents retain the no-preload legacy guest;
+scripts-off and browser clients use static frames.
+
+Artifact references follow session references and precede annotations on the
+wire. At most eight references/12 KiB name immutable code/data IDs and recorded
+data consent. Grants authorize paged manifest/definition/provenance reads;
+state/dataset parts require explicit immutable consent. Definition metadata
+contains contracts, not initial state/dataset values. Artifact draft chips live
+outside RPC reset state and survive dormant resume, queue restoration, stash,
+moves and rewind. Late attachments are not cleared by another send, and
+navigation generations prevent slow attachment from stealing newer focus.
+
+Refresh prepares an ordinary, unseeded destination and editable draft, never a
+seeded send or automatic connector execution. Preflight checks gate/grants and
+destination without binding a dormant process; actual send binds the current
+runtime/session. Captures report complete selected datasets or explicit failure.
+Human Apply rechecks code, exact schemas and selected dataset heads, retaining
+current manual state and untouched datasets. A no-capture turn remains awaiting;
+known process exits are interrupted. Compatible code acceptance preserves current
+working data; stale/incompatible candidates stay unaccepted. Old references never
+move. Off synchronously revokes the epoch, closes access/guests, preserves data
+and chips, and blocks renderer, held deadline/Send now/dormant and final spawn
+delivery. Roster errors cannot suppress the flag broadcast. Lite does not
+advertise the experiment; joined-instance proxy channels do not include it.
+
 ### Streaming frame cost
 
 A long native turn is dominated by `message_update` frames, and in the protocol's default full mode each one re-ships the whole accumulated assistant message — quadratic bytes per turn, which is what several live tabs pay per keystroke of streaming. Every rpc-ui spawn therefore negotiates `set_event_filter` with `messageUpdates: "delta"` (core's [`event-filter.ts`](../packages/core/src/event-filter.ts), fixed response-correlation id), riding the same `initialCommands` tail and ADR-0043 registration guarantee as the host commands, so it lands before the first turn on fresh spawn and hibernate-resume alike. In delta mode the frames carry only the fragment `delta` instead of the `partial` snapshot (measured on the managed binary: median `message_update` 10,197 B → 155 B for the same three-tab turn, 24.3 MB → 0.67 MB total). The transcript reducer in `lib/transcript.ts` adapts per frame, not per mode: a frame carrying `partial` folds the snapshot path; one carrying only `delta` accumulates — tool args stream into `ToolItem.argsText` with a tolerant best-effort parse behind the #97 live draft view. `text_end` / `thinking_end` / `toolcall_end` still carry the complete block and `message_end` carries the authoritative message content, which the reducer reconciles the accumulation against, so a dropped or mis-merged frame self-heals at message end rather than corrupting the transcript; a dev build warns when the two disagree. The same reconcile is where omp's between-tool narration lands: omp 18.12 flags thinking blocks with `narration: true`, and in delta mode that flag is visible only on the `message_end` content, so the reducer splits those blocks onto `AssistantItem.narration` there and the transcript presents them as reply text behind `supportsNarration` (issue #884). No mode flag crosses the IPC boundary, and the coalescing cap and stall watchdog key off frame fields that exist in both modes. An older runtime answers `success: false` and keeps shipping full snapshots — a complete, silent fallback the same reducer handles; the spawn logs one warning naming the fallback (issue #718).
@@ -1143,3 +1225,4 @@ Each current record is indexed once below. Superseding records remain linked bec
 | [The device pane streams the emulator's gRPC screen and drives agent-device through a host tool](adr/0086-device-pane-streams-emulator-grpc-and-drives-agent-device-through-a-host-tool.md) | Device pane ([#1006](https://github.com/LankfordAI/omp-ui/issues/1006), [#1009](https://github.com/LankfordAI/omp-ui/issues/1009)): owner-side explicit SDK-native creation and observed physical controls; exclusive bindings, reservations/leases and generation fences; native capture/input geometry and v2 binding/revision identity in a 28-byte device header; subscription-driven capped JPEG on the existing acknowledged transport. The gated `omp-ui_device` host tool uses the same inventory/actions and leased, serial-fixed agent-device commands. Historical encoder measurements are not a current performance claim. |
 | [Live voice goes half-duplex: the speaker yields while the mic is open](adr/0087-live-voice-speaker-yields-to-the-microphone.md) | Half-duplex speaker gate ([#1024](https://github.com/LankfordAI/omp-ui/issues/1024)): while `LivePeer.setMicEnabled` has the mic transmitting (a hold, or the 800 ms release tail) the renderer pauses the call's own `<audio>` playback, so the realtime server's input VAD never hears its own answer through the speakers and truncates it mid-sentence; the close resumes only if playback was running when the hold began, and genuine barge-in over the wire is unchanged |
 | [Council replaces code review with a roster of pinned member models](adr/0088-council-replaces-code-review.md) | Council ([#1049](https://github.com/LankfordAI/omp-ui/issues/1049)): /council asks 1-3 pinned member models through one task batch on a dedicated omp-ui-council agent shipped in a per-lineage extension package; a --config overlay turns task.perCallModel on and grants exactly the members' models; empty by default. |
+| [Session-authored artifact library and scoped data](adr/0090-session-authored-artifact-library-and-scoped-data.md) | Default-off independent SQLite retention, immutable consented references, human code/data acceptance, session-mediated refresh, and a narrowly scoped managed preload without weakening the network sandbox ([#1121](https://github.com/LankfordAI/omp-ui/issues/1121)). |

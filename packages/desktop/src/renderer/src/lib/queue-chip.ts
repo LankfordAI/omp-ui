@@ -4,6 +4,7 @@ import { stripTrailingAttachmentRoutingContext } from "./attachment-routing";
 import { splitDocumentContext } from "./document-context";
 import { splitResolvedMentionContext } from "./mentions";
 import { splitSessionReferenceContext } from "./session-references";
+import { splitArtifactReferenceContext } from "@omp-ui/core/artifact-references";
 import type { SessionRuntime } from "./rpc-types";
 
 /**
@@ -81,9 +82,10 @@ export function queueEntryDisplayText(raw: string): string {
   const routed = stripTrailingAttachmentRoutingContext(raw);
   const { text: docless } = splitDocumentContext(routed);
   const { text: unreferenced, references } = splitSessionReferenceContext(docless);
-  const { text: prose, annotations } = splitAnnotationContext(unreferenced);
+  const { text: artifactless, references: artifactReferences } = splitArtifactReferenceContext(unreferenced);
+  const { text: prose, annotations } = splitAnnotationContext(artifactless);
   const text = splitResolvedMentionContext(prose).text;
-  const refs = references.map((ref) => `@ ${ref.title}`);
+  const refs = [...references, ...artifactReferences].map((ref) => `@ ${ref.title}`);
   const quotes = annotations.map((annotation) => `> ${annotationQuotePreview(annotation.quote)}`);
   return [...refs, ...quotes, ...(text === "" ? [] : [text])].join("\n");
 }

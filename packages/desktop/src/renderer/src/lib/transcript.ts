@@ -2,6 +2,9 @@ import { formatDuration } from "./duration";
 import { stripAttachmentRoutingContext } from "./attachment-routing";
 import { splitAnnotationContext, type Annotation } from "./annotations";
 import { splitSessionReferenceContext } from "./session-references";
+import { splitArtifactReferenceContext } from "@omp-ui/core/artifact-references";
+import type { ArtifactReference } from "@omp-ui/core/artifacts";
+import { assertArtifactUuid } from "@omp-ui/core/artifacts";
 import { boolField, field, isObj, numField, str, strField } from "./fields";
 import { splitResolvedMentionContext } from "./mentions";
 import { splitDocumentContext, type DocumentRef } from "./document-context";
@@ -38,6 +41,7 @@ export interface UserItem {
   annotations?: Annotation[];
   /** Other sessions handed over as references, parsed back out of the leading block (ADR-0085). */
   references?: SessionReference[];
+  artifactReferences?: ArtifactReference[];
   /** Epoch ms the prompt was sent (live) or written (backfill); the catch-up digest windows off it (issue #273). */
   timestamp?: number;
 }
@@ -126,6 +130,8 @@ export interface ToolItem {
   notes?: AdvisorNote[];
   /** omp-ui vault host tool result details (issue #767): the card and the rail's Vault notes read it. */
   vault?: VaultToolDetails;
+  artifactDraft?: { version: 1; draftId: string; sourceHash: string };
+  artifactCapture?: {version: 1; status: "captured"; captureId: string; artifactId: string; refreshRequestId: string} | {version: 1; status: "failed"; artifactId: string; refreshRequestId: string; message: string};
   /** Model is still generating this call's args — no tool_execution_start yet (issue #97). */
   argsStreaming?: boolean;
   /**
@@ -149,6 +155,29 @@ export interface ToolItem {
   /** Epoch ms the card was created (live) or the carrying message was written (backfill); the catch-up digest windows off it (issue #273). */
   timestamp?: number;
 }
+
+/** Native result metadata is only a lookup descriptor, never renderer-authored artifact authority. */
+export function parseArtifactToolDetails(details: unknown): Pick<ToolItem, "artifactDraft" | "artifactCapture"> {
+  const out: Pick<ToolItem, "artifactDraft" | "artifactCapture"> = {};
+  const draft = field(details, "artifactDraft");
+  if (isObj(draft) && Object.keys(draft).length === 3 && draft.version === 1 && typeof draft.sourceHash === "string" && /^[a-f0-9]{64}$/.test(draft.sourceHash)) {
+    try { assertArtifactUuid(draft.draftId); out.artifactDraft = { version: 1, draftId: draft.draftId, sourceHash: draft.sourceHash }; } catch { /* Invalid metadata remains an ordinary tool result. */ }
+  }
+  const capture = field(details, "artifactCapture");
+  if (isObj(capture) && Object.keys(capture).length === 5 && capture.version === 1) {
+    try {
+      assertArtifactUuid(capture.artifactId); assertArtifactUuid(capture.refreshRequestId);
+      if (capture.status === "captured") {
+        assertArtifactUuid(capture.captureId);
+        out.artifactCapture = {version: 1, status: "captured", captureId: capture.captureId, artifactId: capture.artifactId, refreshRequestId: capture.refreshRequestId};
+      } else if (capture.status === "failed" && typeof capture.message === "string" && capture.message.length <= 2048) {
+        out.artifactCapture = {version: 1, status: "failed", artifactId: capture.artifactId, refreshRequestId: capture.refreshRequestId, message: capture.message};
+      }
+    } catch { /* Invalid metadata has no capture affordance. */ }
+  }
+  return out;
+}
+
 export interface AdvisoryItem {
   kind: "advisory";
   id: string;
@@ -511,7 +540,7 @@ function imagesField(content: unknown, details: unknown): Pick<ToolItem, "images
 
 export function userContentFromContent(
   content: unknown,
-): Pick<UserItem, "text" | "fileMentions" | "images" | "documents" | "annotations" | "references"> {
+): Pick<UserItem, "text" | "fileMentions" | "images" | "documents" | "annotations" | "references" | "artifactReferences"> {
   const blocks = typeof content === "string" ? [] : contentBlocks(content);
   const rawText =
     typeof content === "string"
@@ -530,7 +559,8 @@ export function userContentFromContent(
   // quoted `@path` never counts as one of the prompt's mentions.
   const { text: docless, documents } = splitDocumentContext(visibleText);
   const { text: unreferenced, references } = splitSessionReferenceContext(docless);
-  const { text: prose, annotations } = splitAnnotationContext(unreferenced);
+  const { text: artifactless, references: artifactReferences } = splitArtifactReferenceContext(unreferenced);
+  const { text: prose, annotations } = splitAnnotationContext(artifactless);
   const { text, paths } = splitResolvedMentionContext(prose);
   return {
     text,
@@ -539,6 +569,7 @@ export function userContentFromContent(
     ...(documents.length > 0 ? { documents } : {}),
     ...(annotations.length > 0 ? { annotations } : {}),
     ...(references.length > 0 ? { references } : {}),
+    ...(artifactReferences.length > 0 ? { artifactReferences } : {}),
   };
 }
 
@@ -1143,6 +1174,7 @@ export function reduceEvent(items: RenderItem[], event: unknown): RenderItem[] {
         diff: diffText ? parseOmpDiff(diffText) : undefined,
         notes: notes.length > 0 ? notes : undefined,
         vault: parseVaultDetails(details) ?? undefined,
+        ...(event.isError === true ? {} : parseArtifactToolDetails(details)),
         ...detailFacts(details),
         ...imagesField(result ? result.content : undefined, details),
         ...taskFilesField(details),
@@ -1378,6 +1410,7 @@ export function historyToItems(messages: unknown[]): RenderItem[] {
         diff: diffText ? parseOmpDiff(diffText) : undefined,
         notes: notes.length > 0 ? notes : undefined,
         vault: parseVaultDetails(details) ?? undefined,
+        ...(raw.isError === true ? {} : parseArtifactToolDetails(details)),
         ...detailFacts(details),
         ...imagesField(raw.content, details),
         ...taskFilesField(details),

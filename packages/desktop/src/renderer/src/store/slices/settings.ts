@@ -280,6 +280,13 @@ export const createSettingsSlice: StateCreator<UiStore, [], [], SettingsSlice> =
       }
     },
 
+    async setArtifactLibraryEnabled(on) {
+      try {
+        await backend.setArtifactLibraryEnabled(on);
+      } catch (err) {
+        get().reportError(err);
+      }
+    },
     async setExperimentsEnabled(on) {
       try {
         await backend.setExperimentsEnabled(on);

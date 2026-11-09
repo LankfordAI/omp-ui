@@ -109,7 +109,7 @@ export function broadcastSettings(registry: Registry): BroadcastSettings {
     mcpEndpointEnabled: _mcp,
     ...broadcast
   } = snapshot;
-  return broadcast;
+  return { ...broadcast, artifactLibraryEnabled: false };
 }
 
 export class LiteBackend implements RemoteHost {

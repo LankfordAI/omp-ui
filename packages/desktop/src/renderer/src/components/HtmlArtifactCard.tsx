@@ -1,4 +1,5 @@
-import { createElement, useEffect, useId, useMemo, useRef, useState } from "react";
+import { createElement, useEffect, useId, useLayoutEffect, useMemo, useRef, useState } from "react";
+import { createPortal } from "react-dom";
 import {
   composeHtmlArtifactDocument,
   HEIGHT_HASH_PREFIX,
@@ -9,16 +10,19 @@ import {
   htmlArtifactThemeCss,
   parseHtmlArtifactArgs,
 } from "@omp-ui/core/html-artifact";
+import { artifactCanonicalJson, validateArtifactJson, type ArtifactSourceLookup } from "@omp-ui/core/artifacts";
+import { backend, displayMessage } from "../backend";
 import { cn } from "../lib/cn";
 import { strField } from "../lib/fields";
 import { useT } from "../lib/i18n";
 import { IS_ELECTRON } from "../lib/platform";
 import type { ToolItem } from "../lib/transcript";
 import { useTheme } from "../lib/themes";
-import { useStore } from "../store";
+import { findOwner, useStore } from "../store";
 import { linkify } from "./Markdown";
 import { Slab } from "./ToolCard";
-import { ICON_STROKE, IconButton, IconClose, Modal, ProgressSweep } from "./ui";
+import { Button, ICON_STROKE, IconButton, IconClose, Modal, ProgressSweep } from "./ui";
+import { ArtifactSurface as ManagedArtifactSurface } from "./artifacts/ArtifactSurface";
 
 function ArtifactGlyph({ className }: { className?: string }) {
   return (
@@ -133,75 +137,132 @@ function ArtifactViewer({ html, title, onClose }: { html: string; title: string;
   );
 }
 
+function ArtifactActions({ item, tabId, title, onResolvedDraft, onHistorical, container }: { item: ToolItem; tabId: string; title: string; onResolvedDraft: (draftId: string | null) => void; onHistorical: (value: boolean) => void; container: HTMLElement | null }) {
+  const t = useT();
+  const enabled = useStore((s) => s.state?.artifactLibraryEnabled === true);
+  const owner = useStore((s) => findOwner(s.state, tabId));
+  const revision = useStore((s) => s.artifactLibraryRevision);
+  const [lookup, setLookup] = useState<ArtifactSourceLookup | null>(null);
+  const [error, setError] = useState<string | null>(null);
+  const [busy, setBusy] = useState(false);
+  const resolution = useRef(0);
+  const native = owner?.instanceId === null && owner.record.mode === "rpc-ui";
+  useEffect(() => {
+    let canceled = false;
+    const generation = ++resolution.current;
+    if (!enabled || !native || item.status !== "done") { onResolvedDraft(null); return; }
+    void (async () => {
+      let sourceHash = item.artifactDraft?.sourceHash;
+      if (!sourceHash) {
+        validateArtifactJson(item.args);
+        const digest = await crypto.subtle.digest("SHA-256", new TextEncoder().encode(artifactCanonicalJson(item.args)));
+        sourceHash = [...new Uint8Array(digest)].map((value) => value.toString(16).padStart(2, "0")).join("");
+      }
+      if (owner === undefined) return;
+      const next = await backend.artifactResolveSource({ tabId, sessionId: owner.record.sessionId, toolCallId: item.toolCallId || null, sourceHash, ...(item.artifactDraft ? { draftId: item.artifactDraft.draftId } : {}) });
+      if (canceled || generation !== resolution.current) return;
+      setLookup(next); setError(null);
+      if (next.status === "draft") { onHistorical(false); onResolvedDraft(next.draft.draftId); }
+      else if (next.status === "kept") onHistorical(true);
+      else { onResolvedDraft(null); onHistorical(false); }
+    })().catch((reason: unknown) => { if (!canceled && generation === resolution.current) setError(displayMessage(reason)); });
+    return () => { canceled = true; };
+  }, [enabled, native, owner, item.args, item.artifactDraft, item.status, item.toolCallId, tabId, revision, onResolvedDraft, onHistorical]);
+  const keep = async (accept: boolean): Promise<void> => {
+    if (lookup?.status !== "draft") return;
+    resolution.current++;
+    const focused = document.activeElement;
+    setBusy(true); setError(null);
+    try {
+      const draft = lookup.draft;
+      const kept = accept && lookup.candidate ? await backend.artifactAcceptRevision({ draftId: draft.draftId, expectedCodeRevisionId: lookup.candidate.expectedCodeRevisionId }) : await backend.artifactKeep({ draftId: draft.draftId, title });
+      resolution.current++;
+      if (accept && document.activeElement === focused) container?.querySelector<HTMLButtonElement>("button")?.focus();
+      // Keep the loaded guest as a revoked historical preview; never mount a second writer.
+      onHistorical(true); setLookup({status: "kept", artifact: kept});
+      useStore.getState().invalidateArtifactLibrary();
+    } catch (reason) { setError(displayMessage(reason)); }
+    finally { setBusy(false); }
+  };
+  if (!enabled) return item.args && typeof item.args === "object" && "artifact" in item.args ? <p className="mt-2 text-xs text-ink-dim">{t("artifacts.disabledHint")}</p> : null;
+  if (!native) return <p className="mt-2 text-xs text-ink-dim">{t("artifacts.foreignHint")}</p>;
+  const publishable = lookup?.status === "draft" || lookup?.status === "kept" ? lookup : null;
+  return <>
+    {container && publishable && createPortal(<>
+      <span className="text-xs text-ink-dim">{t(publishable.status === "kept" ? "artifacts.kept" : publishable.candidate ? "artifacts.draftCandidate" : "artifacts.draft")}</span>
+      <Button disabled={busy} onClick={() => { if (publishable.status === "kept") useStore.getState().openArtifacts({artifactId: publishable.artifact.artifactId}); else void keep(false); }}>{t(publishable.status === "kept" ? "artifacts.openLibrary" : publishable.draft.artifactId ? "artifacts.keepAsNew" : "artifacts.keep")}</Button>
+      {publishable.status === "draft" && publishable.candidate?.compatible && !publishable.candidate.stale && <Button disabled={busy} onClick={() => void keep(true)}>{t("artifacts.acceptRevision")}</Button>}
+    </>, container)}
+    {lookup?.status === "draft" && lookup.candidate && <div className="mt-2 space-y-1 text-xs text-ink-dim"><p>{t(lookup.candidate.stale ? "artifacts.candidateStale" : lookup.candidate.compatible ? "artifacts.contractHint" : "artifacts.candidateSchema")}</p><details><summary className="cursor-pointer">{t("artifacts.codeVersion")}</summary><pre className="max-h-40 overflow-auto whitespace-pre-wrap break-all">{JSON.stringify(lookup.candidate, null, 2)}</pre></details></div>}
+    {lookup?.status === "missing" && <p className="mt-2 text-xs text-ink-dim">{t("artifacts.sourceUnavailable")}</p>}
+    {lookup?.status === "deleted" && <p className="mt-2 text-xs text-ink-dim">{t("artifacts.wasDeleted")}</p>}
+    {error && <p role="alert" className="mt-2 text-xs text-rose">{error}</p>}
+  </>;
+}
+
 /**
  * An interactive HTML artifact (issue #994, flush posture issue #1041): the
- * document the agent passed to `omp-ui_render_html`, rendered from the tool
- * call's own arguments, so a reload or a joined viewer shows the same card
- * with nothing stored host-side. The card wears no chrome — the document sits
- * flush in the transcript flow and sizes itself: the guest stub reports its
+ * document the agent passed to `omp-ui_render_html`. Plain documents replay
+ * from arguments; managed data comes only from a main-resolved draft. The
+ * same inline managed guest expands through the native top layer, with no
+ * duplicate writer. It sizes itself: the guest stub reports its
  * content height over the `#omph` fragment channel, clamped between the core
  * bounds; before the first report the requested hint height shows. The expand
  * pill surfaces on hover only, so the artifact owns the space. While the
  * model streams the html, or when the tool refused it, the card shows status
  * and the reason instead of a document.
  */
-export function HtmlArtifactCard({ item }: { item: ToolItem }) {
+export function HtmlArtifactCard({ item, tabId }: { item: ToolItem; tabId?: string }) {
   const t = useT();
+  const titleId = useId();
   const parsed = useMemo(() => parseHtmlArtifactArgs(item.args), [item.args]);
   const [measured, setMeasured] = useState<number | null>(null);
   const [expanded, setExpanded] = useState(false);
+  const [draftId, setDraftId] = useState<string | null>(null);
+  const [historical, setHistorical] = useState(false);
+  const [actions, setActions] = useState<HTMLElement | null>(null);
+  const dialogRef = useRef<HTMLDialogElement | null>(null);
+  const visible = useStore((s) => tabId === undefined || (s.activeTabId === tabId && s.artifacts === null && s.stats === null && s.lab === null && s.fleet === null && s.fleetTerminal === null));
+  useEffect(() => { if (!visible) setExpanded(false); }, [visible]);
   const title = parsed.ok ? parsed.args.title : (strField(item.args, "title") ?? t("transcript.artifact.untitled"));
   const shown = item.status === "done" && parsed.ok ? parsed.args : null;
-  const frameHeight =
-    shown === null
-      ? 0
-      : Math.min(Math.max(measured ?? shown.height, HTML_ARTIFACT_MIN_HEIGHT), HTML_ARTIFACT_MAX_HEIGHT);
+  const managed = shown?.artifact !== undefined;
+  const frameHeight = shown === null ? 0 : Math.min(Math.max(measured ?? shown.height, HTML_ARTIFACT_MIN_HEIGHT), HTML_ARTIFACT_MAX_HEIGHT);
   const slab = shown === null && item.status !== "running" && item.resultText ? item.resultText : null;
-
-  // A new document (the agent edited the artifact) starts a fresh measurement;
-  // a theme swap recomposes and remounts the guest, which re-reports on load,
-  // so it needs no reset here.
   const html = shown?.html;
-  useEffect(() => {
-    setMeasured(null);
-  }, [html]);
-
-  return (
-    <>
-      {shown !== null && (
-        <div className="group relative animate-rise">
-          <h3 className="sr-only">{title}</h3>
-          <ArtifactSurface
-            html={shown.html}
-            title={title}
-            style={{ height: frameHeight }}
-            onMeasured={setMeasured}
-          />
-          <div className="pointer-events-none absolute inset-x-0 top-1.5 flex justify-end px-1.5">
-            <div className="pointer-events-auto flex items-center gap-1 rounded-md border border-line bg-overlay/85 px-1 py-0.5 opacity-0 backdrop-glass transition-opacity duration-150 group-hover:opacity-100 group-focus-within:opacity-100">
-              <IconButton label={t("transcript.artifact.expand")} onClick={() => setExpanded(true)}>
-                <ExpandGlyph />
-              </IconButton>
-            </div>
-          </div>
-          {expanded && (
-            <ArtifactViewer html={shown.html} title={title} onClose={() => setExpanded(false)} />
-          )}
-        </div>
-      )}
-      {item.status === "running" && (
-        <div className="flex items-center gap-2 animate-rise">
-          <span className="text-xs text-ink-faint">{t("transcript.tool.running")}</span>
-          <div className="flex-1">
-            <ProgressSweep tone="copper" />
-          </div>
-        </div>
-      )}
-      {slab !== null && (
-        <Slab className="max-h-48 animate-rise" tone={item.status === "error" ? "rose" : "neutral"}>
-          {linkify(slab)}
-        </Slab>
-      )}
-    </>
-  );
+  useEffect(() => { setMeasured(null); setDraftId(null); setHistorical(false); }, [html, item.toolCallId]);
+  useLayoutEffect(() => {
+    const dialog = dialogRef.current;
+    if (!expanded || !managed || !visible || !dialog) return;
+    const opener = document.activeElement instanceof HTMLElement ? document.activeElement : null;
+    // Native top layer escapes transcript containment without reparenting/destroying the webview.
+    dialog.showModal();
+    dialog.querySelector<HTMLButtonElement>("button[aria-label]")?.focus();
+    return () => { if (dialog.open) dialog.close(); if (opener?.isConnected) opener.focus(); };
+  }, [expanded, managed, visible]);
+  return <>
+    {shown !== null && <div className="group relative animate-rise">
+      <div style={managed && expanded ? {height: frameHeight} : undefined}>
+        {createElement(managed ? "dialog" : "div", {
+          ref: managed ? dialogRef : undefined,
+          className: managed ? expanded ? "fixed inset-3 m-0 flex h-[calc(100dvh-1.5rem)] w-[calc(100vw-1.5rem)] max-h-none max-w-none flex-col border-0 bg-void p-3 text-ink backdrop:bg-void/70" : "relative m-0 block w-full max-w-none border-0 bg-transparent p-0 text-inherit" : "relative",
+          role: managed ? expanded ? "dialog" : "presentation" : undefined,
+          "aria-modal": managed && expanded || undefined,
+          "aria-labelledby": managed && expanded ? titleId : undefined,
+          onCancel: managed ? (event: {preventDefault(): void}) => { event.preventDefault(); setExpanded(false); } : undefined,
+        }, <>
+          <h3 id={titleId} className="sr-only">{title}</h3>
+          {managed ? <ManagedArtifactSurface key="managed" html={shown.html} title={title} source={visible && draftId ? {draftId} : undefined} historical={historical} inline className={expanded ? "min-h-0 flex-1" : undefined} style={expanded ? undefined : {height: frameHeight}} onMeasured={expanded ? undefined : setMeasured} onEscape={() => setExpanded(false)} /> : <ArtifactSurface html={shown.html} title={title} style={{height: frameHeight}} onMeasured={setMeasured} />}
+          <div className="pointer-events-none absolute inset-x-0 top-1.5 flex justify-end px-1.5"><div className="pointer-events-auto flex max-w-[calc(100vw-2rem)] flex-wrap items-center gap-1 rounded-md border border-line bg-overlay/85 px-1 py-0.5 opacity-0 backdrop-glass transition-opacity duration-150 group-hover:opacity-100 group-focus-within:opacity-100">
+            <span ref={setActions} className="flex flex-wrap items-center gap-1" />
+            <IconButton label={t(managed && expanded ? "common.overlay.close" : "transcript.artifact.expand")} onClick={() => setExpanded(value => !value)}>{managed && expanded ? <IconClose /> : <ExpandGlyph />}</IconButton>
+          </div></div>
+        </>)}
+      </div>
+      {expanded && !managed && <ArtifactViewer html={shown.html} title={title} onClose={() => setExpanded(false)} />}
+      {tabId && <ArtifactActions item={item} tabId={tabId} title={title} onResolvedDraft={setDraftId} onHistorical={setHistorical} container={actions} />}
+    </div>}
+    {item.status === "running" && <div className="flex items-center gap-2 animate-rise"><span className="text-xs text-ink-faint">{t("transcript.tool.running")}</span><div className="flex-1"><ProgressSweep tone="copper" /></div></div>}
+    {slab !== null && <Slab className="max-h-48 animate-rise" tone={item.status === "error" ? "rose" : "neutral"}>{linkify(slab)}</Slab>}
+  </>;
 }

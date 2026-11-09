@@ -32,6 +32,7 @@ const sent: Array<{ channel: string; args: unknown[] }> = [];
 const win = {
   isDestroyed: () => false,
   webContents: {
+    mainFrame: {},
     isDestroyed: () => false,
     isCrashed: () => false,
     send: (channel: string, ...args: unknown[]) => sent.push({ channel, args }),
@@ -47,7 +48,7 @@ let port: number;
 function invoke(channel: string, ...args: unknown[]): Promise<unknown> {
   const fn = handlers.get(channel);
   if (!fn) throw new Error(`no handler registered for ${channel}`);
-  return Promise.resolve(fn(null, ...args));
+  return Promise.resolve(fn({ sender: win.webContents, senderFrame: win.webContents.mainFrame }, ...args));
 }
 
 /** Every remote:state push so far, newest last. */
@@ -333,7 +334,7 @@ describe("remote server lifecycle", () => {
     const ws = await connect(port, token);
 
     // broadcast() must not early-return on a destroyed window, or remote clients starve.
-    const destroyed = { isDestroyed: () => true, webContents: { isDestroyed: () => true, send: () => {} } };
+    const destroyed = { isDestroyed: () => true, webContents: { mainFrame: {}, isDestroyed: () => true, send: () => {} } };
     Object.assign(win, destroyed);
     try {
       const frame = new Promise<Record<string, unknown>>((resolve) => {
@@ -344,12 +345,13 @@ describe("remote server lifecycle", () => {
         };
         ws.once("message", onMessage);
       });
-      await invoke(CH.addProject, base);
+      ws.send(JSON.stringify({t: "req", id: 77, ch: CH.addProject, args: [base]}));
       expect((await frame).ch).toBe(CH.onStateChanged);
     } finally {
       Object.assign(win, {
         isDestroyed: () => false,
         webContents: {
+          mainFrame: {},
           isDestroyed: () => false,
           isCrashed: () => false,
           send: (channel: string, ...args: unknown[]) => sent.push({ channel, args }),

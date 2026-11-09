@@ -8,6 +8,7 @@
 import { backend, displayMessage } from "../../backend";
 import type { FleetSlice } from "../types";
 import type { GetState, SetState } from "./shared";
+import { bumpNavigationGeneration } from "./view";
 
 export function createFleetSlice(set: SetState, get: GetState): FleetSlice {
   /** Single-flight guard for the machine read: a slow round never stacks under the poll. */
@@ -33,11 +34,13 @@ export function createFleetSlice(set: SetState, get: GetState): FleetSlice {
   };
 
   const openFleet: FleetSlice["openFleet"] = () => {
+    bumpNavigationGeneration();
     const s = get();
+    set({ artifacts: null });
     // closeLab, not a bare `lab: null`: it also stops the Lab's refresh timer.
     if (s.lab !== null) s.closeLab();
     if (s.fleet === null) {
-      set({ fleet: { machines: null, audit: null, updateAll: null, loading: false, error: null }, stats: null, fleetTerminal: null });
+      set({ fleet: { machines: null, audit: null, updateAll: null, loading: false, error: null }, artifacts: null, stats: null, fleetTerminal: null });
     } else if (s.fleetTerminal !== null) {
       set({ fleetTerminal: null });
     }
@@ -46,9 +49,10 @@ export function createFleetSlice(set: SetState, get: GetState): FleetSlice {
 
   /** Shows one open fleet terminal in the main pane, in place of the tabs and the Fleet view (issue #991). */
   const showFleetTerminal: FleetSlice["showFleetTerminal"] = (terminalId) => {
+    bumpNavigationGeneration();
     const s = get();
     if (s.lab !== null) s.closeLab();
-    set({ fleetTerminal: terminalId, fleet: null, stats: null });
+    set({ fleetTerminal: terminalId, fleet: null, stats: null, artifacts: null });
   };
 
   const dispatchFleet: FleetSlice["dispatchFleet"] = async (req) => {
@@ -80,7 +84,7 @@ export function createFleetSlice(set: SetState, get: GetState): FleetSlice {
     fleet: null,
     fleetLastRequests: {},
     openFleet,
-    closeFleet: () => set({ fleet: null }),
+    closeFleet: () => { bumpNavigationGeneration(); set({ fleet: null }); },
     refreshFleet,
     dispatchFleet,
     fleetTerminal: null,

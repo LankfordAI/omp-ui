@@ -315,9 +315,9 @@ The **Council** switch (`councilEnabled`) adds the council and the `/council` co
 
 ## Experimental
 
-Two independent switches ([#1052](https://github.com/LankfordAI/omp-ui/issues/1052)), and this page is each flag's only editor. **Experiments lab (beta)** (`experimentsEnabled`) adds the Lab, the New experiment dialog, and the `/autoresearch` start and lab verbs. **Autoresearch bridge (beta)** (`autoresearchEnabled`) arms new sessions with the autoresearch chip for OMP's `/autoresearch` loop ([ADR-0030](adr/0030-experiments-read-autoresearch-from-two-sources.md)).
+Three independent switches live here. **Experiments lab (beta)** (`experimentsEnabled`) adds the Lab, New experiment dialog, and `/autoresearch` start/lab verbs. **Autoresearch bridge (beta)** (`autoresearchEnabled`) arms new sessions with the autoresearch chip for OMP's loop ([ADR-0030](adr/0030-experiments-read-autoresearch-from-two-sources.md), [#1052](https://github.com/LankfordAI/omp-ui/issues/1052)).
 
-The switches gate the bridges at spawn: they apply to sessions started afterwards, and a running session keeps the bridges it launched with.
+Those two bridge settings apply at spawn. **Artifact library (experimental)** (`artifactLibraryEnabled`, default off, [#1121](https://github.com/LankfordAI/omp-ui/issues/1121)) applies immediately: it retains artifacts/data/sources from ordinary native sessions and supports version-specific references and session-mediated refresh. Disabling revokes access without deleting saved artifacts or draft chips. Existing native sessions reconcile the artifact tool roster without a model prompt or restart; a failed registration does not undo the authoritative flag. **Run scripts in HTML artifacts** remains a separate General setting, and browser clients always show script-free artifact documents. See [Artifacts](user-guide.md#artifacts-experimental).
 
 ## Advanced
 

@@ -32,6 +32,7 @@ const sent: { channel: string; args: unknown[] }[] = [];
 const win = {
   isDestroyed: () => false,
   webContents: {
+    mainFrame: {},
     isDestroyed: () => false,
     isCrashed: () => false,
     send: (channel: string, ...args: unknown[]) => sent.push({ channel, args }),
@@ -76,7 +77,7 @@ function setup(): { registryFile: string } {
 }
 
 const invoke = (ch: string, ...args: unknown[]): Promise<unknown> =>
-  Promise.resolve(handlers.get(ch)!(null, ...args));
+  Promise.resolve(handlers.get(ch)!({ sender: win.webContents, senderFrame: win.webContents.mainFrame }, ...args));
 
 /** The project record's pin fields, read straight off disk. */
 function diskPins(registryFile: string): {

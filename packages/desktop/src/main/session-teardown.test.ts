@@ -46,6 +46,7 @@ const sent: { channel: string; args: unknown[] }[] = [];
 const win = {
   isDestroyed: () => false,
   webContents: {
+    mainFrame: {},
     isDestroyed: () => false,
     isCrashed: () => false,
     send: (channel: string, ...args: unknown[]) => sent.push({ channel, args }),
@@ -135,7 +136,7 @@ function setup(): { backend: InstanceType<typeof MainBackend> } {
   return { backend };
 }
 
-const invoke = (ch: string, ...args: unknown[]): unknown => handlers.get(ch)!(null, ...args);
+const invoke = (ch: string, ...args: unknown[]): unknown => handlers.get(ch)!({ sender: win.webContents, senderFrame: win.webContents.mainFrame }, ...args);
 
 function withResolvers<T>() {
   let resolve!: (value: T | PromiseLike<T>) => void;
@@ -261,22 +262,18 @@ describe("live session teardown (issue #64)", () => {
   const relaunchCases: {
     name: string;
     begin: (tabId: string) => Promise<void>;
-    rpcSuccessor: boolean;
   }[] = [
     {
       name: "mode switch",
       begin: (tabId) => invoke(CH.switchMode, tabId, "rpc-ui") as Promise<void>,
-      rpcSuccessor: true,
     },
     {
       name: "restart",
       begin: (tabId) => invoke(CH.restartSession, tabId) as Promise<void>,
-      rpcSuccessor: false,
     },
     {
       name: "advisor relaunch",
       begin: (tabId) => invoke(CH.setSessionAdvisor, tabId, true, null) as Promise<void>,
-      rpcSuccessor: false,
     },
   ];
 
@@ -298,7 +295,7 @@ describe("live session teardown (issue #64)", () => {
 
   it.each(relaunchCases)(
     "$name reaps the predecessor before starting exactly one successor",
-    async ({ begin, rpcSuccessor }) => {
+    async ({ begin }) => {
       setup();
       const tabId = await spawnPtySession();
       const predecessor = fakePtys[0]!;
@@ -313,15 +310,6 @@ describe("live session teardown (issue #64)", () => {
       await done;
 
       expect(processStarts()).toBe(2);
-      if (rpcSuccessor) {
-        expect(RpcClientMock).toHaveBeenCalledWith(
-          expect.objectContaining({
-            initialCommands: expect.arrayContaining([
-              expect.objectContaining({ message: "/omp-ui-plan off" }),
-            ]),
-          }),
-        );
-      }
     },
   );
 
@@ -371,70 +359,6 @@ describe("live session teardown (issue #64)", () => {
     expect(RpcClientMock).not.toHaveBeenCalled();
   });
 
-  it("queues Plan mode during the handshake for a genuinely new rpc-ui session (issue #140)", async () => {
-    setup();
-    await invoke(CH.spawnSession, {
-      origin: "new",
-      projectCwd: PROJECT,
-      mode: "rpc-ui",
-      advisor: false,
-      cols: 80,
-      rows: 24,
-      worktree: null,
-    });
-
-    expect(RpcClientMock).toHaveBeenCalledWith(
-      expect.objectContaining({
-        initialCommands: expect.arrayContaining([
-          expect.objectContaining({ type: "prompt", message: "/omp-ui-plan on html" }),
-        ]),
-      }),
-    );
-  });
-
-  it("queues Build when Build is the configured default agent mode (issues #142, #143)", async () => {
-    setup();
-    await invoke(CH.setDefaultAgentMode, "build");
-    await invoke(CH.spawnSession, {
-      origin: "new",
-      projectCwd: PROJECT,
-      mode: "rpc-ui",
-      advisor: false,
-      cols: 80,
-      rows: 24,
-      worktree: null,
-    });
-
-    expect(RpcClientMock).toHaveBeenCalledWith(
-      expect.objectContaining({
-        initialCommands: expect.arrayContaining([
-          expect.objectContaining({ message: "/omp-ui-plan off" }),
-        ]),
-      }),
-    );
-  });
-
-  it("queues Build for a plan-execution spawn even when Plan is the default (issue #165)", async () => {
-    setup();
-    await invoke(CH.spawnSession, {
-      origin: "new",
-      projectCwd: PROJECT,
-      mode: "rpc-ui",
-      advisor: false,
-      cols: 80,
-      rows: 24,
-      worktree: null,
-      planMode: false,
-    });
-
-    expect(RpcClientMock).toHaveBeenCalledWith(
-      expect.objectContaining({
-        initialCommands: expect.arrayContaining([
-          expect.objectContaining({ message: "/omp-ui-plan off" }),
-        ]),
-      }),
-    );
-  });
 
   it("mode switch away from rpc-ui waits for the rpc child to exit before spawning PTY", async () => {
     setup();

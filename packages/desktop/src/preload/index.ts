@@ -7,6 +7,7 @@ import {
   DESKTOP_PANE_WINDOW_REQUEST,
   type DesktopBackendBridge,
 } from "../browser-pane-desktop-protocol";
+import type { ArtifactHostBridge, ArtifactSurfaceNotice } from "../artifact-runtime-protocol";
 
 // contextIsolation stays enabled: listeners discard the Electron event and expose only typed data.
 const api = makeBackendClient({
@@ -19,9 +20,19 @@ const api = makeBackendClient({
 });
 
 const { onBrowserPaneFrame: _onBrowserPaneFrame, onDevicePaneFrame: _onDevicePaneFrame, ...bridge } = api;
-contextBridge.exposeInMainWorld("ompBackend", bridge satisfies DesktopBackendBridge);
-
-if (window === window.top) {
+if (process.isMainFrame && window === window.top) {
+  contextBridge.exposeInMainWorld("ompBackend", bridge satisfies DesktopBackendBridge);
+  const artifactHost: ArtifactHostBridge = {
+    prepareSurface: (source, theme) => ipcRenderer.invoke("artifact-host:prepare-surface", source, theme),
+    updateTheme: (surfaceId, theme) => ipcRenderer.invoke("artifact-host:update-theme", surfaceId, theme),
+    releaseSurface: (surfaceId) => ipcRenderer.invoke("artifact-host:release-surface", surfaceId),
+    onSurfaceNotice: (listener) => {
+      const handler = (_event: unknown, notice: ArtifactSurfaceNotice): void => listener(notice);
+      ipcRenderer.on("artifact-host:surface-notice", handler);
+      return () => ipcRenderer.removeListener("artifact-host:surface-notice", handler);
+    },
+  };
+  contextBridge.exposeInMainWorld("ompArtifactHost", artifactHost);
   window.addEventListener("message", (event) => {
     if (event.source !== window || event.data !== DESKTOP_PANE_WINDOW_REQUEST) return;
     ipcRenderer.send(DESKTOP_PANE_PORT_REQUEST);

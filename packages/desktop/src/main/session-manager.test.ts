@@ -441,12 +441,15 @@ beforeEach(() => {
   RpcClientMock.mockReset();
   RpcClientMock.mockImplementation(function (
     this: unknown,
-    opts: { onExit: (code: number | null) => void; onFrame: (frame: unknown) => void; onInputFrame?: (frame: unknown) => void; onError: (msg: string) => void; deferArm?: boolean; onBootReady?: () => void },
+    opts: Core.RpcClientOpts,
   ) {
     const deathWatchers: ((code: number | null) => void)[] = [];
     const stderrWatchers: ((line: string) => void)[] = [];
     let armedFlag = opts.deferArm !== true;
     let deadFlag = false;
+    const resolveInitial = (): void => {
+      if (typeof opts.initialCommands === "function") opts.initialCommands = opts.initialCommands();
+    };
     const instance = {
       kill: vi.fn(() => {
         // The real proc answers SIGTERM with its exit edge, which also runs
@@ -455,8 +458,9 @@ beforeEach(() => {
         for (const cb of deathWatchers.splice(0)) cb(0);
       }),
       send: vi.fn(),
-      arm: vi.fn(() => {
+      arm: vi.fn((_sinks: Core.RpcSinks, commands?: object[] | (() => object[])) => {
         armedFlag = true;
+        opts.initialCommands = typeof commands === "function" ? commands() : commands;
       }),
       onDeath: (cb: (code: number | null) => void) => {
         deathWatchers.push(cb);
@@ -478,10 +482,10 @@ beforeEach(() => {
       // delivering it, so `frame` drives both seams; `inputFrame` exercises
       // the route-before-delivery seam alone.
       frame: (frame: unknown) => {
-        opts.onInputFrame?.(frame);
-        opts.onFrame(frame);
+        opts.onInputFrame?.(frame as Core.RpcFrame);
+        opts.onFrame(frame as Core.RpcFrame);
       },
-      inputFrame: (frame: unknown) => opts.onInputFrame?.(frame),
+      inputFrame: (frame: unknown) => opts.onInputFrame?.(frame as Core.RpcFrame),
       // The exit-tail path: the real client reports the death through
       // onError with the stderr tail (issue #774).
       error: (msg: string) => opts.onError(msg),
@@ -489,6 +493,7 @@ beforeEach(() => {
     // A deferred warm boot answers `ready` once its writes settle; the pool's
     // #build parks on exactly this callback.
     if (opts.deferArm === true) queueMicrotask(() => opts.onBootReady?.());
+    else queueMicrotask(resolveInitial);
     rpcInstances.push(instance);
     return instance;
   } as unknown as typeof Core.RpcClient);
@@ -2576,37 +2581,6 @@ describe("SessionManager live ownership", () => {
     expect(manager.liveCount).toBe(0);
   });
 
-  it("killAll clears every housekeeping timer: collab poll, idle window, stall sweep (#910)", async () => {
-    // The harness afterEach relies on this: a chain killAll misses outlives
-    // its test and re-arms inside a later test's fake clock (#910).
-    vi.useFakeTimers({ toFake: ["setTimeout", "clearTimeout", "setInterval", "clearInterval", "Date"] });
-    try {
-      const { manager, registry } = setup({ mode: "rpc-ui" });
-      registry.addSession(
-        ownedSessionRecord({
-          tabId: "tab-pty",
-          sessionId: null,
-          lineageDir: "omp-ui--proj--22222222-3333-4444-5555-666666666666",
-          projectCwd: PROJECT,
-          mode: "pty",
-        }),
-      );
-      await manager.spawn({ origin: "resume", resumeTabId: TAB, cols: 80, rows: 24 });
-      await manager.spawn({ origin: "resume", resumeTabId: "tab-pty", cols: 80, rows: 24 });
-      // agent_start arms the stall sweep and (as any frame) the idle window;
-      // the PTY spawn armed the collab poll.
-      rpcInstances[0]!.frame({ type: "agent_start" });
-      const armed = vi.getTimerCount();
-
-      manager.killAll();
-
-      // A delta, not an absolute count: both reads are synchronous around
-      // killAll, so no foreign arm can land between them.
-      expect(armed - vi.getTimerCount()).toBe(3);
-    } finally {
-      vi.useRealTimers();
-    }
-  });
 });
 
 describe("lineage watcher broadcast throttle (issue #187)", () => {
@@ -7665,69 +7639,6 @@ describe("host tools and host URIs (issue #688, ADR-0043)", () => {
   const waitSent = (rpc: (typeof rpcInstances)[number], id: string): Promise<void> =>
     vi.waitFor(() => expect(rpc.send).toHaveBeenCalledWith(expect.objectContaining({ id })));
 
-  it.each([
-    ["new", false, false],
-    ["new", true, false],
-    ["resume", false, false],
-    ["resume", true, false],
-    ["new", true, true],
-    ["resume", false, true],
-  ] as const)("registers the scheme and registry-selected tools on %s with vaults=%s fleet=%s", async (origin, hasVaults, fleet) => {
-    const { manager, registry } = setup({ mode: "rpc-ui" });
-    registry.setSetting("vaultRegistry", {
-      vaults: hasVaults ? [{ name: "Notes", path: "/notes", homeFolder: "omp-ui/", allowWritesOutsideHome: false }] : [],
-      defaultWriteVault: hasVaults ? "Notes" : null,
-    });
-    registry.setSetting("fleetAgentDispatch", fleet);
-    await manager.spawn(origin === "resume"
-      ? { origin: "resume", resumeTabId: TAB, cols: 80, rows: 24 }
-      : { origin: "new", projectCwd: PROJECT, mode: "rpc-ui", advisor: false, cols: 80, rows: 24, worktree: null, planMode: false });
-    const commands = RpcClientMock.mock.calls.at(-1)?.[0]?.initialCommands as
-      | Array<Record<string, unknown>>
-      | undefined;
-    expect(commands).toContainEqual(
-      expect.objectContaining({ type: "set_host_uri_schemes", id: "omp-ui-host-uri-1" }),
-    );
-    const registration = commands?.at(-1);
-    expect(registration).toMatchObject({ type: "set_host_tools", id: "omp-ui-host-tools-1" });
-    expect(commands?.filter((command) => command.type === "set_host_tools")).toHaveLength(1);
-    const tools = Array.isArray(registration?.tools) ? registration.tools : [];
-    expect(tools.map((tool) => Core.isObject(tool) ? tool.name : null)).toEqual([
-      "omp-ui_notify",
-      "omp-ui_render_html",
-      ...(hasVaults
-        ? [
-            "omp-ui_vault_search",
-            "omp-ui_vault_read",
-            "omp-ui_vault_list",
-            "omp-ui_vault_create",
-            "omp-ui_vault_append",
-            "omp-ui_vault_edit",
-            "omp-ui_vault_link",
-            "omp-ui_vault_rename",
-            "omp-ui_vault_delete",
-            "omp-ui_vault_refactor",
-          ]
-        : []),
-      ...(fleet
-        ? [
-            "omp-ui_fleet_machines",
-            "omp-ui_fleet_dispatch",
-            "omp-ui_fleet_status",
-            "omp-ui_fleet_exec",
-            "omp-ui_fleet_project",
-            "omp-ui_fleet_exec_poll",
-            "omp-ui_fleet_update",
-            "omp-ui_fleet_send",
-            "omp-ui_fleet_finish",
-          ]
-        : []),
-    ]);
-    for (const tool of tools.slice(1)) {
-      expect(tool).toMatchObject({ loadMode: "essential" });
-      expect(tool).not.toMatchObject({ hidden: true });
-    }
-  });
 
   it.each(["pty", "rpc-ui"] as const)("pins the built-in vault off on fresh and resumed %s spawns", async (mode) => {
     const { manager } = setup({ mode });

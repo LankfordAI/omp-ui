@@ -2,6 +2,7 @@ import { useSyncExternalStore } from "react";
 import type { DocumentAttachment, ImageAttachment } from "@omp-ui/core/types";
 import type { Annotation } from "./annotations";
 import type { DraftSessionReference } from "./session-references";
+import type { DraftArtifactReference } from "@omp-ui/core/artifacts";
 import { randomId } from "./random-id";
 
 /**
@@ -32,6 +33,7 @@ export interface StashedDraft {
    * instance refuses them, like dropping a row there would.
    */
   references?: DraftSessionReference[];
+  artifactReferences?: DraftArtifactReference[];
 }
 
 export type DraftContent = Omit<StashedDraft, "id" | "stashedAt">;

@@ -55,7 +55,7 @@ interface Harness {
 }
 
 const lineageDirs: string[] = [];
-function harness(opts: { resumeSessionId?: string; ompPath?: string; initialCommands?: object[]; bare?: boolean; model?: string; thinking?: string; advisor?: boolean; childEnv?: NodeJS.ProcessEnv } = {}): Harness {
+function harness(opts: { resumeSessionId?: string; ompPath?: string; initialCommands?: object[] | (() => object[]); bare?: boolean; model?: string; thinking?: string; advisor?: boolean; childEnv?: NodeJS.ProcessEnv } = {}): Harness {
   const fake = fakeProc();
   const frames: unknown[] = [];
   const errors: string[] = [];
@@ -239,6 +239,51 @@ describe("RpcClient handshake", () => {
     expect(h.frames).toHaveLength(1);
   });
 
+  it("resolves the latest cold command snapshot once, after negotiation and before forwarding ready", async () => {
+    let snapshot = "enabled";
+    const factory = vi.fn(() => {
+      expect(h.stdinText()).toBe('{"type":"negotiate_protocol","protocolVersion":2}\n');
+      expect(h.frames).toEqual([]);
+      return [{ type: "prompt", message: snapshot }];
+    });
+    const h = harness({ initialCommands: factory });
+    expect(factory).not.toHaveBeenCalled();
+    expect(h.stdinText()).toBe("");
+    snapshot = "disabled before ready";
+    h.fake.stdout.write(readyFrame());
+    await tick();
+    expect(h.stdinText()).toBe('{"type":"prompt","message":"disabled before ready"}\n');
+    expect(factory).toHaveBeenCalledTimes(1);
+    h.fake.stdout.write(readyFrame());
+    await tick();
+    expect(factory).toHaveBeenCalledTimes(1);
+    expect(h.stdinText()).toBe("");
+  });
+
+  it.each([new Error("artifact library disabled"), "artifact library disabled"])(
+    "reports a throwing cold factory through onError and kills without forwarding ready (%s)",
+    async (error) => {
+      const factory = vi.fn((): object[] => { throw error; });
+      const h = harness({ initialCommands: factory });
+      const onDeath = vi.fn();
+      h.client.onDeath(onDeath);
+      expect(() => h.fake.stdout.write(readyFrame())).not.toThrow();
+      await tick();
+      expect(factory).toHaveBeenCalledTimes(1);
+      expect(h.errors).toEqual(["failed to prepare initial rpc-ui commands: artifact library disabled"]);
+      expect(h.fake.killed()).toBe(true);
+      expect(h.client.dead).toBe(true);
+      expect(onDeath).toHaveBeenCalledTimes(1);
+      expect(onDeath).toHaveBeenCalledWith(null);
+      expect(h.frames).toEqual([]);
+      expect(h.stdinText()).toBe('{"type":"negotiate_protocol","protocolVersion":2}\n');
+      h.fake.stdout.write(readyFrame());
+      await tick();
+      expect(factory).toHaveBeenCalledTimes(1);
+      expect(h.errors).toHaveLength(1);
+    },
+  );
+
   it("fires onInputFrame for every frame in input order, before forwarding (#688)", async () => {
     const fake = fakeProc();
     const base = fs.mkdtempSync(path.join(os.tmpdir(), "rpc-lineage-"));
@@ -299,7 +344,7 @@ describe("RpcClient deferred arm (warm pool, issue #908)", () => {
     deaths: (number | null)[];
     stdinText: () => string;
   }
-  function deferredHarness(): Deferred {
+  function deferredHarness(onBootReady?: () => void): Deferred {
     const fake = fakeProc();
     const lineageDir = fs.mkdtempSync(path.join(os.tmpdir(), "rpc-lineage-"));
     lineageDirs.push(lineageDir);
@@ -312,6 +357,7 @@ describe("RpcClient deferred arm (warm pool, issue #908)", () => {
       deferArm: true,
       onBootReady: () => {
         readyCount += 1;
+        onBootReady?.();
       },
       // Inert-while-parked sinks: the ctor swaps these for no-ops; arm()
       // replaces them wholesale, so nothing here may ever fire.
@@ -331,16 +377,18 @@ describe("RpcClient deferred arm (warm pool, issue #908)", () => {
       stdinText: () => fake.stdin.read()?.toString() ?? "",
     };
   }
-  const recorder = (): { sinks: RpcSinks; seen: string[] } => {
+  const recorder = (): { sinks: RpcSinks; seen: string[]; errors: string[] } => {
     const seen: string[] = [];
+    const errors: string[] = [];
     const typeOf = (f: unknown): string => String((f as { type?: unknown }).type);
     return {
       seen,
+      errors,
       sinks: {
         onInputFrame: (f) => seen.push(`in:${typeOf(f)}`),
         onFrame: (f) => seen.push(`fwd:${typeOf(f)}`),
         onExit: () => {},
-        onError: () => {},
+        onError: (msg) => errors.push(msg),
       },
     };
   };
@@ -378,6 +426,129 @@ describe("RpcClient deferred arm (warm pool, issue #908)", () => {
     // frame before forwarding — boot-time extension_ui_requests need answers.
     expect(rec.seen).toEqual(["in:ready", "fwd:ready", "in:extension_ui_request", "fwd:extension_ui_request"]);
     expect(d.client.armed).toBe(true);
+  });
+
+  it("resolves the latest warm snapshot exactly once on an already-ready arm", async () => {
+    const d = deferredHarness();
+    let snapshot = "enabled at boot";
+    const factory = vi.fn(() => [{ type: "set_host_tools", tools: [], snapshot }]);
+    d.fake.stdout.write(readyFrame());
+    await tick();
+    expect(factory).not.toHaveBeenCalled();
+    expect(d.stdinText()).toBe("");
+    snapshot = "disabled before adoption";
+    const rec = recorder();
+    d.client.arm(rec.sinks, factory);
+    expect(d.stdinText()).toBe(
+      '{"type":"negotiate_protocol","protocolVersion":2}\n' +
+      '{"type":"set_host_tools","tools":[],"snapshot":"disabled before adoption"}\n',
+    );
+    expect(rec.seen).toEqual(["in:ready", "fwd:ready"]);
+    d.fake.stdout.write(readyFrame());
+    await tick();
+    expect(factory).toHaveBeenCalledTimes(1);
+    expect(d.stdinText()).toBe("");
+  });
+
+  it("holds a warm factory armed before ready until the actual handshake edge", async () => {
+    const d = deferredHarness();
+    const rec = recorder();
+    let snapshot = "old";
+    const factory = vi.fn(() => [{ type: "prompt", message: snapshot }]);
+    d.client.arm(rec.sinks, factory);
+    expect(factory).not.toHaveBeenCalled();
+    expect(d.stdinText()).toBe("");
+    snapshot = "latest";
+    d.fake.stdout.write(readyFrame());
+    await tick();
+    expect(d.stdinText()).toBe(
+      '{"type":"negotiate_protocol","protocolVersion":2}\n{"type":"prompt","message":"latest"}\n',
+    );
+    expect(factory).toHaveBeenCalledTimes(1);
+    expect(rec.seen).toEqual(["in:ready", "fwd:ready"]);
+  });
+
+  it("also keeps the array rail behind ready when armed while boot is pending", async () => {
+    const d = deferredHarness();
+    d.client.arm(recorder().sinks, [{ type: "prompt", message: "array rail" }]);
+    expect(d.stdinText()).toBe("");
+    d.fake.stdout.write(readyFrame());
+    await tick();
+    expect(d.stdinText()).toBe(
+      '{"type":"negotiate_protocol","protocolVersion":2}\n{"type":"prompt","message":"array rail"}\n',
+    );
+  });
+
+  it.each([false, true])("makes a throwing warm factory fatal without an uncaught error (ready=%s)", async (ready) => {
+    const d = deferredHarness();
+    const rec = recorder();
+    if (ready) {
+      d.fake.stdout.write(readyFrame());
+      await tick();
+    }
+    const factory = vi.fn((): object[] => { throw new Error("artifact library disabled"); });
+    expect(() => d.client.arm(rec.sinks, factory)).not.toThrow();
+    if (!ready) {
+      expect(factory).not.toHaveBeenCalled();
+      expect(d.stdinText()).toBe("");
+      expect(() => d.fake.stdout.write(readyFrame())).not.toThrow();
+      await tick();
+    }
+    expect(factory).toHaveBeenCalledTimes(1);
+    expect(rec.errors).toEqual(["failed to prepare initial rpc-ui commands: artifact library disabled"]);
+    expect(rec.seen.filter((entry) => entry.startsWith("fwd:"))).toEqual([]);
+    expect(d.client.dead).toBe(true);
+    expect(d.fake.killed()).toBe(true);
+    expect(d.deaths).toEqual([null]);
+    expect(d.stdinText()).toBe('{"type":"negotiate_protocol","protocolVersion":2}\n');
+  });
+
+  it("does not forward the pending ready if adoption in onBootReady rejects its factory", async () => {
+    const rec = recorder();
+    const d: Deferred = deferredHarness(() => d.client.arm(rec.sinks, () => { throw new Error("gate changed"); }));
+    expect(() => d.fake.stdout.write(readyFrame())).not.toThrow();
+    await tick();
+    expect(rec.seen).toEqual([]);
+    expect(rec.errors).toEqual(["failed to prepare initial rpc-ui commands: gate changed"]);
+    expect(d.client.dead).toBe(true);
+  });
+
+  it("parks pre-ready boot requests after adoption so answerers cannot write before negotiation", async () => {
+    const d = deferredHarness();
+    const rec = recorder();
+    const factory = vi.fn(() => [{ type: "prompt", message: "initial rail" }]);
+    d.fake.stdout.write('{"type":"extension_ui_request","id":"boot-request"}\n');
+    await tick();
+    d.client.arm({ ...rec.sinks, onInputFrame: (frame) => {
+      rec.sinks.onInputFrame?.(frame);
+      if (frame.type === "extension_ui_request") d.client.send({ type: "extension_ui_response", id: frame.id });
+    } }, factory);
+    expect(d.client.armed).toBe(true);
+    expect(rec.seen).toEqual([]);
+    expect(factory).not.toHaveBeenCalled();
+    expect(d.stdinText()).toBe("");
+    d.fake.stdout.write(readyFrame());
+    await tick();
+    expect(d.stdinText()).toBe(
+      '{"type":"negotiate_protocol","protocolVersion":2}\n' +
+      '{"type":"prompt","message":"initial rail"}\n' +
+      '{"type":"extension_ui_response","id":"boot-request"}\n',
+    );
+    expect(factory).toHaveBeenCalledTimes(1);
+    expect(rec.seen).toEqual(["in:extension_ui_request", "fwd:extension_ui_request", "in:ready", "fwd:ready"]);
+  });
+
+  it("adopts synchronously on the warm ready edge without replaying ready or its factory twice", async () => {
+    const rec = recorder();
+    const factory = vi.fn(() => [{ type: "prompt", message: "adopted on ready" }]);
+    const d: Deferred = deferredHarness(() => d.client.arm(rec.sinks, factory));
+    d.fake.stdout.write(readyFrame());
+    await tick();
+    expect(factory).toHaveBeenCalledTimes(1);
+    expect(rec.seen).toEqual(["in:ready", "fwd:ready"]);
+    expect(d.stdinText()).toBe(
+      '{"type":"negotiate_protocol","protocolVersion":2}\n{"type":"prompt","message":"adopted on ready"}\n',
+    );
   });
 
   it("forwards live frames to the armed sinks after replay", async () => {

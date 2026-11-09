@@ -31,7 +31,7 @@ const FILE_NAME = `2026-07-29T16-18-42-427Z_${SESSION_ID}.jsonl`;
 
 const win = {
   isDestroyed: () => false,
-  webContents: { send: () => {}, on: () => {}, isDestroyed: () => false },
+  webContents: { mainFrame: {}, send: () => {}, on: () => {}, isDestroyed: () => false },
 };
 
 let base: string;
@@ -90,7 +90,7 @@ function setup(file: "active" | "archived" | "missing"): {
 }
 
 const invoke = (ch: string, ...args: unknown[]): Promise<unknown> =>
-  Promise.resolve(handlers.get(ch)!(null, ...args));
+  Promise.resolve(handlers.get(ch)!({ sender: win.webContents, senderFrame: win.webContents.mainFrame }, ...args));
 
 describe("session:transcriptPath", () => {
   it("resolves the active transcript by _<sessionId>.jsonl", async () => {

@@ -49,6 +49,8 @@ import { PlanCard } from "./PlanCard";
 import { AdvisoryNotes, ToolCard } from "./ToolCard";
 import { VaultToolCard } from "./VaultToolCard";
 import { HtmlArtifactCard } from "./HtmlArtifactCard";
+import { ArtifactReferenceChips } from "./ArtifactReferenceChips";
+import { ArtifactCaptureTranscriptCard, ArtifactCaptureFailure } from "./artifacts/ArtifactCaptureCard";
 import { VAULT_WRITE_TOOLS } from "@omp-ui/core/vault-shared";
 import { HTML_ARTIFACT_TOOL_NAME } from "@omp-ui/core/html-artifact";
 import { SelectionContextMenu } from "./SelectionContextMenu";
@@ -539,6 +541,7 @@ function UserBubble({
         data-markdown-source={item.text !== "" ? item.text : undefined}
       >
         {references.length > 0 && <SessionReferenceChips references={references} align="end" />}
+        {(item.artifactReferences?.length ?? 0) > 0 && <ArtifactReferenceChips references={item.artifactReferences!} align="end" />}
         {annotations.length > 0 && <AnnotationChips annotations={annotations} align="end" />}
         {draft === null ? (
           item.text !== "" && <Markdown text={item.text} />
@@ -1235,12 +1238,15 @@ const TranscriptRow = memo(function TranscriptRow({
         <>
           {/* The four vault write tools get their own card (issue #767); reads, search and list stay generic. */}
           {item.name === HTML_ARTIFACT_TOOL_NAME ? (
-            <HtmlArtifactCard item={item} />
+            <HtmlArtifactCard item={item} tabId={tabId} />
           ) : VAULT_WRITE_TOOLS.some((name) => name === item.name) ? (
             <VaultToolCard item={item} tabId={tabId} />
           ) : (
             <ToolCard item={item} tabId={tabId} />
           )}
+          {item.status === "done" && item.artifactCapture && tabId && (item.artifactCapture.status === "captured"
+            ? <ArtifactCaptureTranscriptCard tabId={tabId} artifactId={item.artifactCapture.artifactId} captureId={item.artifactCapture.captureId} />
+            : <ArtifactCaptureFailure message={item.artifactCapture.message} />)}
           {item.replies !== undefined && <ToolReplies replies={item.replies} />}
         </>
       );
@@ -1324,6 +1330,15 @@ export function TranscriptView({
   const [reveal, setReveal] = useState<{ id: string; seq: number } | null>(null);
   const revealSeqRef = useRef(0);
   const handledRevealRef = useRef(0);
+  const artifactSourceFocus = useStore((s) => s.artifactSourceFocus);
+  const handledArtifactSource = useRef<number | null>(null);
+  useEffect(() => {
+    if (!artifactSourceFocus || artifactSourceFocus.tabId !== tabId || artifactSourceFocus.toolCallId === null) return;
+    if (handledArtifactSource.current === artifactSourceFocus.nonce) return;
+    if (tabId === undefined || findRecord(useStore.getState().state, tabId)?.sessionId !== artifactSourceFocus.sessionId) return;
+    const target = items.find((item) => item.kind === "tool" && item.toolCallId === artifactSourceFocus.toolCallId);
+    if (target) { handledArtifactSource.current = artifactSourceFocus.nonce; setReveal({ id: target.id, seq: ++revealSeqRef.current }); }
+  }, [artifactSourceFocus, tabId, items]);
   // Whether the centred column leaves enough side slack for speaker labels
   // to hang in the gutters (issue #392). The ref guards renders on resize.
   const [hanging, setHanging] = useState(false);

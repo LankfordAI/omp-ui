@@ -38,7 +38,7 @@ const { electronKeyCipher } = await import("./key-cipher");
 
 const win = {
   isDestroyed: () => false,
-  webContents: { isDestroyed: () => false, isCrashed: () => false, send: () => {} },
+  webContents: { mainFrame: {}, isDestroyed: () => false, isCrashed: () => false, send: () => {} },
 };
 
 const KEY = "OPENROUTER_API_KEY";
@@ -63,7 +63,7 @@ function setup(): void {
 }
 
 const invoke = async (ch: string, ...args: unknown[]): Promise<unknown> =>
-  handlers.get(ch)!(null, ...args);
+  handlers.get(ch)!({ sender: win.webContents, senderFrame: win.webContents.mainFrame }, ...args);
 const snapshot = (result: unknown): ProviderKeysSnapshot => result as ProviderKeysSnapshot;
 const row = (snap: ProviderKeysSnapshot, id: string) => {
   const found = snap.providers.find((p) => p.id === id);
