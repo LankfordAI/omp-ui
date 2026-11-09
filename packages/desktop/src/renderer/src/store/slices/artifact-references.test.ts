@@ -15,6 +15,18 @@ function draftReference(n: number): DraftArtifactReference {
   const referenceId = id(100 + n);
   return { ...reference, referenceId, codeRevisionId: id(200 + n), manifestUri: `omp-ui://artifacts/reference/${referenceId}/manifest`, definitionUri: `omp-ui://artifacts/reference/${referenceId}/definition` };
 }
+/** The project at "/p" also holds the fresh "run" record main registers for a Refresh now spawn. */
+function seedRefreshRun(): void {
+  const base = { ...h.stateWithRecord("session-1"), artifactLibraryEnabled: true };
+  const project = base.projects[0]!;
+  const run = { ...project.sessions[0]!, tabId: "run", sessionId: null };
+  const state = { ...base, projects: [{ ...project, sessions: [...project.sessions, run] }] };
+  h.backendState = state;
+  // The run's runtime is already booted, so the seed's settle poll resolves at once.
+  h.useStore.setState(current => ({ state, rpc: { ...current.rpc, run: rpcTabState() }, advisorDefaults: { "/p": { enabled: false, model: null } } }));
+  h.mockBackend.spawnSession.mockResolvedValueOnce({ tabId: "run" });
+}
+const refreshRun = { artifactId: id(3), codeRevisionId: id(4), dataSnapshotId: id(5), datasetIds: ["rows"], title: "Quarter", projectCwd: "/p" };
 const identity = vi.fn(async () => ({ instanceId: id(2), version: "1" }));
 Object.assign(h.mockBackend, { getInstanceIdentity: identity });
 
@@ -151,6 +163,43 @@ describe("artifact reference drafts", () => {
     const launched = await h.useStore.getState().launchSession("/p", { prompt: "refresh", artifactReferences: [reference] });
     expect(launched).toBe("failed-seed");
     expect(h.useStore.getState().artifactDrafts["failed-seed"]).toEqual([reference]);
+    expect(h.sent.some(entry => entry.cmd.type === "prompt")).toBe(false);
+  });
+  it("Refresh now sends the prepared refresh from a background Plan-mode run without moving focus", async () => {
+    seedRefreshRun();
+    const refreshRequestId = id(22);
+    const refresh = { ...reference, referenceId: id(6), includeData: true, dataUri: `omp-ui://artifacts/reference/${id(6)}/state`, manifestUri: `omp-ui://artifacts/reference/${id(6)}/manifest`, definitionUri: `omp-ui://artifacts/reference/${id(6)}/definition` };
+    const text = `Refresh the requested datasets for this accepted artifact in this ordinary session. Collect only datasets rows.\n\n<artifact refresh>\nrefresh-request: ${refreshRequestId}\n</artifact refresh>`;
+    const prepare = vi.fn(async () => ({ request: { refreshRequestId }, reference: refresh, text }));
+    Object.assign(h.mockBackend, { artifactPrepareRefresh: prepare });
+    const revision = h.useStore.getState().artifactLibraryRevision;
+    await expect(h.useStore.getState().runArtifactRefresh(refreshRun)).resolves.toBe("run");
+    expect(h.mockBackend.spawnSession).toHaveBeenCalledWith(expect.objectContaining({ origin: "new", projectCwd: "/p", mode: "rpc-ui", planMode: true }));
+    expect(prepare).toHaveBeenCalledWith({ targetTabId: "run", artifactId: id(3), codeRevisionId: id(4), dataSnapshotId: id(5), datasetIds: ["rows"] });
+    expect(h.useStore.getState().artifactLibraryRevision).toBe(revision + 1);
+    expect(h.useStore.getState().activeTabId).toBe(h.TAB);
+    await h.flushMicrotasks();
+    const rename = h.sent.find(entry => entry.tabId === "run" && entry.cmd.type === "set_session_name")!;
+    expect(rename.cmd).toMatchObject({ name: "Refresh: Quarter" });
+    h.respond("run", rename.cmd, {});
+    await h.flushMicrotasks();
+    const prompt = h.sent.find(entry => entry.tabId === "run" && entry.cmd.type === "prompt")!;
+    const message = String(prompt.cmd.message);
+    expect(message).toContain(`refresh-request: ${refreshRequestId}`);
+    expect(message).toContain("<artifact references>");
+    expect(parseArtifactPromptReferences(message)).toEqual([expect.objectContaining({ referenceId: refresh.referenceId, includeData: true })]);
+    h.respond("run", prompt.cmd, {});
+    await h.flushMicrotasks();
+    expect(h.useStore.getState().activeTabId).toBe(h.TAB);
+    expect(h.useStore.getState().backgroundSeedFailedTabId).toBeNull();
+  });
+  it("a failed preparation erases the empty run and rethrows", async () => {
+    seedRefreshRun();
+    Object.assign(h.mockBackend, { artifactPrepareRefresh: vi.fn(async () => { throw new Error("snapshot moved"); }) });
+    await expect(h.useStore.getState().runArtifactRefresh(refreshRun)).rejects.toThrow("snapshot moved");
+    expect(h.mockBackend.deleteSession).toHaveBeenCalledWith("run", false);
+    expect(h.useStore.getState().tabs.some(tab => tab.tabId === "run")).toBe(false);
+    expect(h.useStore.getState().activeTabId).toBe(h.TAB);
     expect(h.sent.some(entry => entry.cmd.type === "prompt")).toBe(false);
   });
   it("refuses cross-machine moves before spawning and clears only truly deleted targets", async () => {

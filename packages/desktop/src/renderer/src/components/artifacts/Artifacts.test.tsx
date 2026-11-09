@@ -4,7 +4,7 @@ import { createRoot, type Root } from "react-dom/client";
 import { afterEach, beforeEach, describe, expect, it, vi } from "vitest";
 import type { ArtifactDescription, ArtifactPartResult, ArtifactProvenance, ArtifactRefreshRequest, ArtifactSource } from "@omp-ui/core/artifacts";
 import type { ArtifactSurfaceNotice } from "../../../../artifact-runtime-protocol";
-import { backendState } from "../../test/fixtures";
+import { backendState, remoteOwnedState } from "../../test/fixtures";
 
 (globalThis as Record<string, unknown>).IS_REACT_ACT_ENVIRONMENT = true;
 const backendMock = {
@@ -140,39 +140,58 @@ describe("bounded artifact reads and human consent", () => {
     expect(backendMock.artifactReference).not.toHaveBeenCalled();
   });
 
-  it("creates an explicit ordinary background Chat and appends an editable refresh without sending", async () => {
-    const newChat = vi.fn(async () => "target-tab");
+  it("Refresh now starts a background run with every dataset selected", async () => {
+    const runArtifactRefresh = vi.fn(async () => "run-tab");
     const attach = vi.fn(async () => true);
-    const previous = { newChat: useStore.getState().newChat, referenceArtifactInSession: useStore.getState().referenceArtifactInSession };
-    useStore.setState({ newChat, referenceArtifactInSession: attach });
-    backendMock.artifactPrepareRefresh.mockResolvedValue({ request: {}, reference: { referenceId: id }, text: "Editable refresh" });
+    const onRefreshStarted = vi.fn();
+    const onClose = vi.fn();
+    const previous = { runArtifactRefresh: useStore.getState().runArtifactRefresh, referenceArtifactInSession: useStore.getState().referenceArtifactInSession };
+    useStore.setState({ runArtifactRefresh, referenceArtifactInSession: attach });
     try {
-      await render(<ArtifactReferencePicker description={description} mode="refresh" onClose={() => {}} />);
-      await act(async () => { const select = document.querySelector("select")!; select.value = "new:chat"; select.dispatchEvent(new Event("change", { bubbles: true })); document.querySelector<HTMLInputElement>('input[type="checkbox"]')!.click(); });
-      await act(async () => button("Add to draft").click());
-      expect(newChat).toHaveBeenCalledWith({ background: true });
-      expect(backendMock.artifactPrepareRefresh).toHaveBeenCalledWith({ targetTabId: "target-tab", artifactId: id, codeRevisionId: code, dataSnapshotId: snapshot, datasetIds: ["quarter"] });
-      expect(attach).toHaveBeenCalledWith("target-tab", { referenceId: id }, "Editable refresh", { navigationGeneration: expect.any(Number) });
+      await render(<ArtifactReferencePicker description={description} mode="refresh" onClose={onClose} onRefreshStarted={onRefreshStarted} />);
+      expect(document.querySelector("select")!.selectedOptions[0]!.textContent).toBe("A new background Chat");
+      await act(async () => button("Refresh now").click());
+      expect(runArtifactRefresh).toHaveBeenCalledWith({ artifactId: id, codeRevisionId: code, dataSnapshotId: snapshot, datasetIds: ["quarter"], title: description.artifact.title, projectCwd: null });
+      expect(onRefreshStarted).toHaveBeenCalledOnce();
+      expect(onClose).toHaveBeenCalledOnce();
+      expect(backendMock.artifactPrepareRefresh).not.toHaveBeenCalled();
+      expect(attach).not.toHaveBeenCalled();
     } finally { useStore.setState(previous); }
   });
 
-  it("carries the original focus intent through slow explicit target creation", async () => {
-    const { promise: creation, resolve: finishCreation } = Promise.withResolvers<string>();
-    const newChat = vi.fn(() => creation);
+  it("refresh mode shows a null start as an error and stays open", async () => {
+    const runArtifactRefresh = vi.fn(async () => null);
+    const onClose = vi.fn();
+    const previous = { runArtifactRefresh: useStore.getState().runArtifactRefresh };
+    useStore.setState({ runArtifactRefresh });
+    try {
+      await render(<ArtifactReferencePicker description={description} mode="refresh" onClose={onClose} />);
+      await act(async () => button("Refresh now").click());
+      expect(document.querySelector('[role="alert"]')?.textContent).toBe("The refresh session could not start.");
+      expect(onClose).not.toHaveBeenCalled();
+    } finally { useStore.setState(previous); }
+  });
+
+  it("carries the original focus intent through a slow refresh added to an existing session's draft", async () => {
+    const existing = { ...remoteOwnedState("existing-tab", "remote").remoteInstances[0]!.projects[0]!.sessions[0]!, chat: true, title: "Existing chat" };
+    useStore.setState({ state: backendState({ artifactLibraryEnabled: true, chats: [existing] }) });
+    const { promise: preparation, resolve: finishPreparation } = Promise.withResolvers<{ request: object; reference: { referenceId: string }; text: string }>();
+    backendMock.artifactPrepareRefresh.mockReturnValue(preparation);
+    const runArtifactRefresh = vi.fn(async () => "run-tab");
     const attach = vi.fn(async () => true);
-    const previous = { newChat: useStore.getState().newChat, referenceArtifactInSession: useStore.getState().referenceArtifactInSession };
-    useStore.setState({ newChat, referenceArtifactInSession: attach });
-    backendMock.artifactPrepareRefresh.mockResolvedValue({ request: {}, reference: { referenceId: id }, text: "Editable refresh" });
+    const previous = { runArtifactRefresh: useStore.getState().runArtifactRefresh, referenceArtifactInSession: useStore.getState().referenceArtifactInSession };
+    useStore.setState({ runArtifactRefresh, referenceArtifactInSession: attach });
     try {
       await render(<ArtifactReferencePicker description={description} mode="refresh" onClose={() => {}} />);
-      await act(async () => { const select = document.querySelector("select")!; select.value = "new:chat"; select.dispatchEvent(new Event("change", { bubbles: true })); document.querySelector<HTMLInputElement>('input[type="checkbox"]')!.click(); });
+      await act(async () => { const select = document.querySelector("select")!; select.value = "existing-tab"; select.dispatchEvent(new Event("change", { bubbles: true })); });
       const initialIntent = getNavigationGeneration();
       act(() => button("Add to draft").click());
-      expect(newChat).toHaveBeenCalledWith({ background: true });
+      expect(backendMock.artifactPrepareRefresh).toHaveBeenCalledWith({ targetTabId: "existing-tab", artifactId: id, codeRevisionId: code, dataSnapshotId: snapshot, datasetIds: ["quarter"] });
       bumpNavigationGeneration();
-      await act(async () => { finishCreation("intended-tab"); });
+      await act(async () => { finishPreparation({ request: {}, reference: { referenceId: id }, text: "Editable refresh" }); });
       expect(getNavigationGeneration()).not.toBe(initialIntent);
-      expect(attach).toHaveBeenCalledWith("intended-tab", { referenceId: id }, "Editable refresh", { navigationGeneration: initialIntent });
+      expect(attach).toHaveBeenCalledWith("existing-tab", { referenceId: id }, "Editable refresh", { navigationGeneration: initialIntent });
+      expect(runArtifactRefresh).not.toHaveBeenCalled();
     } finally { useStore.setState(previous); }
   });
 
