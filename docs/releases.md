@@ -4,17 +4,7 @@ This guide explains what users receive from a release and how maintainers publis
 
 ## Unreleased
 
-- **Session-authored artifact library, experimental and off by default** ([#1121](https://github.com/LankfordAI/omp-ui/issues/1121), #1123): human Keep retains accepted documents, saved inputs, datasets and provenance independently of source sessions. The main-pane library supports immutable history, explicit same-owner composer references, candidate code acceptance and session-mediated capture review/Apply. Managed saves use a narrowly scoped guest API without weakening the locked network sandbox; browser documents stay static. Turning it off retains data and draft references. Storage validation respects Windows filesystem permissions rather than requiring POSIX mode bits.
-- **Quieter sidebar footer** ([#1113](https://github.com/LankfordAI/omp-ui/issues/1113)): removed the offline-host warning. Settings, Fleet, and ready/working counts remain; connectivity status and recovery stay in Fleet and Settings.
-- **Cohesive responsive composer options** ([#1116](https://github.com/LankfordAI/omp-ui/issues/1116)): desktop and compact share the options summary, model/thinking controls, advisor restart hint, and workspace actions. Compact retains queue, voice, stash, and submit controls. Short landscape popovers scroll within the available viewport; nested menus stay reachable.
-- **Active-session mobile options** ([#1117](https://github.com/LankfordAI/omp-ui/issues/1117)): background mounted tabs no longer open duplicate options sheets or dismiss the displayed session's options when they become unavailable. Hidden composers do not leave options over a plan review.
-- **Cohesive Android device pane** ([#1009](https://github.com/LankfordAI/omp-ui/issues/1009)): explicitly create native phone, tablet and foldable AVDs from installed owner SDK images; rotate and change supported physical postures with observed state, safe input and responsive controls. Existing AVDs stay unchanged, and remote viewers and permitted agents share the owner's device.
-- **Selection comment placement** (#1122): the comment action appears after drag release near the selection endpoint, with measured viewport-aware placement in both the native transcript and plan review.
-- **Plain generated session titles** (#1114): owned session launches and resumes use plain titles without decorative icons; existing titles are preserved.
-- **Theme-matched Android system bars** (#1115): the Android shell follows the hosted UI theme for its system bars.
-- **Shared Android launcher artwork** (#1118): the launcher icon uses the application's shared artwork.
-- **Country-level usage reporting** (#1119): PostHog derives country from the connecting IP and discards the address; privacy disclosures describe this behavior.
-- **Opt-in hourly token aggregates** (#1120): hourly model/provider usage reports include non-cached input, output, and total tokens alongside requests. Cache-token counts and costs remain local; older queued snapshots retain their original fields.
+Nothing since [v0.34.2](https://github.com/LankfordAI/omp-ui/releases/tag/v0.34.2). Add one bullet per shipped change here before the next tag; the release notes lift this section verbatim.
 
 ## Choose a download
 
