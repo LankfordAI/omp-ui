@@ -5,6 +5,8 @@ This guide explains what users receive from a release and how maintainers publis
 ## Unreleased
 
 - Refresh a kept artifact's data in one click: **Refresh now** starts a background session titled `Refresh: <artifact>` (Plan mode in the artifact's origin project, or a Chat when that project is not on this machine) and sends the request; the capture still waits for **Apply captured data**, and **View run** opens the session from the library's Data panel (#1132).
+- Toggle Fleet and Artifacts directly from their sidebar buttons; pressing the active button closes its view (#1133).
+- Keep the Fleet dispatch list focused on unsettled dispatches; settled dispatches no longer remain in the list (#1134).
 
 ## Choose a download
 
