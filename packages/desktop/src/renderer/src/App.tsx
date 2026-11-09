@@ -46,7 +46,8 @@ import { formatHotkey } from "./lib/hotkeys";
 import { useActionHotkeys, useKeybindingLabel, useKeybindingOverrides } from "./lib/keybindings";
 import { effectiveChord, type KeybindingActionId } from "@omp-ui/core/keybindings";
 import { useT, type MessageKey } from "./lib/i18n";
-import { IS_ELECTRON, IS_MAC, IS_WINDOWS } from "./lib/platform";
+import { IS_ELECTRON } from "./lib/platform";
+import { OVERLAY_INSET, TRAFFIC_LIGHT_INSET } from "./lib/window-controls";
 import { resetTranscriptScale, stepTranscriptScale } from "./lib/text-scale";
 import { useAppViewport, useCompactShell, useDockedSidebar } from "./lib/responsive";
 import { tabTitle } from "./lib/tab-title";
@@ -64,18 +65,6 @@ const HINTS: [action: KeybindingActionId, what: MessageKey][] = [
   ["textLarger", "app.welcome.hintTranscriptScale"],
 ];
 
-// The native overlay rect is composited over the strip's right end; reserve
-// its width so bar content never slides under the min/max/close buttons.
-// 138 = 3×46px Windows caption buttons. On Linux the GTK theme paints them
-// (~44px each under adwaita) and no API reports the width, so 132 is a
-// visual-fit value — if a theme draws wider buttons, adjust this one line.
-// macOS paints no overlay; its traffic lights sit top-left, so the inset
-// moves to the left edge instead.
-// Both insets are Electron-only: the remote web client (#37) serves this same
-// bundle to a browser tab, where there are no caption buttons to avoid, so
-// every use is gated on IS_ELECTRON (#122).
-const OVERLAY_INSET = IS_MAC ? 0 : IS_WINDOWS ? 138 : 132;
-const TRAFFIC_LIGHT_INSET = IS_MAC ? 78 : 0;
 /** Stable fallback so the selector never hands App a fresh array before state lands. */
 const EMPTY_FLEET_TERMINALS: FleetTerminalRecord[] = [];
 

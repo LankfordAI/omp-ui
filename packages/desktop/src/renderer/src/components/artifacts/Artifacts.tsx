@@ -10,6 +10,8 @@ import { ArtifactReferencePicker } from "./ArtifactReferencePicker";
 import { ArtifactCaptureCard } from "./ArtifactCaptureCard";
 import { ArtifactCandidates } from "./ArtifactCandidates";
 import { ARTIFACT_DRAG_MIME } from "../../lib/artifact-drag";
+import { IS_ELECTRON } from "../../lib/platform";
+import { OVERLAY_INSET } from "../../lib/window-controls";
 
 /** Bounded pages stay metadata-only; only the selected version mounts a guest. */
 export function Artifacts() {
@@ -132,8 +134,8 @@ export function Artifacts() {
             <div className="flex flex-wrap items-start gap-3"><div className="min-w-0 flex-1"><h2 className="break-words text-xl font-semibold tracking-tight">{description.artifact.title}</h2><p className="mt-1 text-xs text-ink-faint">{t(description.artifact.managed ? "artifacts.managed" : "artifacts.document")} · {t("artifacts.version", { number: description.code.revisionNumber })}</p></div><div className="flex flex-wrap gap-2"><Button onClick={() => setPicker("reference")}>{t("artifacts.reference")}</Button>{description.snapshot.datasets.length > 0 && <Button onClick={() => setPicker("refresh")}>{t("artifacts.refresh")}</Button>}<Button onClick={() => setDeleting(true)}>{t("artifacts.delete")}</Button></div></div>
             <ArtifactCandidates description={description} />
             <nav className="flex flex-wrap gap-1 border-b border-line pb-2" aria-label={t("artifacts.sections")}>{(["preview", "data", "history"] as const).map((key) => <Button key={key} aria-pressed={panel === key} variant={panel === key ? "solid" : "ghost"} onClick={() => setPanel(key)}>{t(key === "preview" ? "artifacts.preview" : key === "data" ? "artifacts.data" : "artifacts.history")}</Button>)}</nav>
-            {panel === "preview" && <dialog ref={previewRef} className={expanded ? "fixed inset-0 m-0 flex h-dvh max-h-none w-screen max-w-none flex-col border-0 bg-void p-3 text-ink" : "relative m-0 flex min-h-[24rem] w-full max-w-none flex-col border-0 bg-transparent p-0 text-inherit"} role={expanded ? "dialog" : "presentation"} aria-modal={expanded || undefined} aria-label={description.artifact.title} onCancel={(event) => { event.preventDefault(); setExpanded(false); }}>
-              <div className="mb-2 flex shrink-0 justify-end"><Button onClick={() => setExpanded((old) => !old)}>{t(expanded ? "artifacts.collapse" : "artifacts.expand")}</Button></div>
+            {panel === "preview" && <dialog ref={previewRef} className={expanded ? "fixed inset-0 m-0 flex h-dvh max-h-none w-screen max-w-none flex-col border-0 bg-void p-3 text-ink [app-region:no-drag]" : "relative m-0 flex min-h-[24rem] w-full max-w-none flex-col border-0 bg-transparent p-0 text-inherit"} role={expanded ? "dialog" : "presentation"} aria-modal={expanded || undefined} aria-label={description.artifact.title} onCancel={(event) => { event.preventDefault(); setExpanded(false); }}>
+              <div className="mb-2 flex shrink-0 justify-end" style={expanded && IS_ELECTRON && OVERLAY_INSET > 0 ? { paddingRight: OVERLAY_INSET } : undefined}><Button onClick={() => setExpanded((old) => !old)}>{t(expanded ? "artifacts.collapse" : "artifacts.expand")}</Button></div>
               {preview && <ArtifactSurface source={preview.source} html={preview.html} title={description.artifact.title} managed={description.artifact.managed} className="min-h-[24rem] flex-1" onReload={() => setPreviewReload((value) => value + 1)} onEscape={() => setExpanded(false)} />}
             </dialog>}
             {panel === "data" && <div className="space-y-5"><ArtifactDataSources key={`${description.code.codeRevisionId}/${description.snapshot.dataSnapshotId}`} description={description} />
