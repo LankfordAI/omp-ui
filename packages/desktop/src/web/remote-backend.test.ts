@@ -1,6 +1,6 @@
 import { afterEach, beforeEach, describe, expect, it, vi } from "vitest";
 import { CH } from "@omp-ui/core/backend-channels";
-import { encodeBrowserPaneFrameHeader } from "@omp-ui/core/browser-pane";
+import { decodeBrowserPaneFrame, encodeBrowserPaneFrameHeader } from "@omp-ui/core/browser-pane";
 import {
   encodeBinaryEvent,
   encodeFrameDelivery,
@@ -153,7 +153,7 @@ describe("remote backend receiver ACK", () => {
     const drawImage = vi.fn();
     const bitmap = { close: vi.fn() } as unknown as ImageBitmap;
     const canvas = { width: 0, height: 0, getContext: () => ({ drawImage }) } as unknown as HTMLCanvasElement;
-    const painter = createFramePainter(canvas, () => {}, () => decode.promise);
+    const painter = createFramePainter(canvas, () => {}, decodeBrowserPaneFrame, () => decode.promise);
     backend.onBrowserPaneFrame((_tabId, bytes) => painter.write(bytes));
     frames.message(delivery(11).buffer);
     await vi.advanceTimersByTimeAsync(0);
@@ -170,6 +170,44 @@ describe("remote backend receiver ACK", () => {
     await vi.advanceTimersByTimeAsync(0);
     expect(drawImage).toHaveBeenCalledWith(bitmap, 0, 0);
     expect(frames.sent).toEqual([{ t: "ack", id: 11 }]);
+  });
+
+  it("ACKs replaced, invalid and stale painter deliveries while another JPEG decode is held", async () => {
+    const { backend, frames } = await join();
+    const decoding = Promise.withResolvers<ImageBitmap>();
+    const decode = vi.fn(() => decoding.promise);
+    const drawImage = vi.fn();
+    const onHeader = vi.fn();
+    const bitmap = { close: vi.fn() } as unknown as ImageBitmap;
+    const canvas = { width: 0, height: 0, getContext: () => ({ drawImage }) } as unknown as HTMLCanvasElement;
+    let current = true;
+    const painter = createFramePainter(canvas, onHeader, decodeBrowserPaneFrame, decode, () => current);
+    backend.onBrowserPaneFrame((_tabId, bytes) => painter.write(bytes));
+    frames.message(delivery(31).buffer);
+    frames.message(delivery(32).buffer);
+    frames.message(delivery(33).buffer);
+    frames.message(encodeFrameDelivery(34, CH.onBrowserPaneFrame, "tab-1", new Uint8Array([0])).buffer);
+    current = false;
+    frames.message(delivery(35).buffer);
+    await vi.advanceTimersByTimeAsync(0);
+    expect(frames.sent).toHaveLength(3);
+    expect(frames.sent).toEqual(expect.arrayContaining([
+      { t: "ack", id: 32 },
+      { t: "ack", id: 34 },
+      { t: "ack", id: 35 },
+    ]));
+    expect(decode).toHaveBeenCalledTimes(1);
+    decoding.resolve(bitmap);
+    await vi.advanceTimersByTimeAsync(0);
+    expect(frames.sent).toHaveLength(5);
+    expect(frames.sent).toEqual(expect.arrayContaining([
+      { t: "ack", id: 31 },
+      { t: "ack", id: 33 },
+    ]));
+    expect(decode).toHaveBeenCalledTimes(1);
+    expect(drawImage).not.toHaveBeenCalled();
+    expect(onHeader).not.toHaveBeenCalled();
+    expect(bitmap.close).toHaveBeenCalledTimes(1);
   });
 
   it("ACKs intentional drops and waits for every listener despite another throwing", async () => {
@@ -193,7 +231,7 @@ describe("remote backend receiver ACK", () => {
     const decode = Promise.withResolvers<ImageBitmap>();
     const drawImage = vi.fn();
     const canvas = { getContext: () => ({ drawImage }) } as unknown as HTMLCanvasElement;
-    const painter = createFramePainter(canvas, () => {}, () => decode.promise);
+    const painter = createFramePainter(canvas, () => {}, decodeBrowserPaneFrame, () => decode.promise);
     backend.onBrowserPaneFrame((_tabId, bytes) => painter.write(bytes));
     frames.message(delivery(3).buffer);
     await vi.advanceTimersByTimeAsync(0);

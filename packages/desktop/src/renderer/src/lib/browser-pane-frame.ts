@@ -1,21 +1,21 @@
-import { decodeBrowserPaneFrame, type BrowserPaneFrameHeader } from "@omp-ui/core/browser-pane";
+import type { BrowserPaneFrameHeader } from "@omp-ui/core/browser-pane";
 
-/** A canvas-backed browser pane image, supplied by local media or remote JPEG frames. */
-export interface PanePainter {
+/** A canvas-backed pane image, supplied by local media or remote JPEG frames. */
+export interface PanePainter<H extends BrowserPaneFrameHeader = BrowserPaneFrameHeader> {
   /** JPEG bytes of the last frame drawn; the attach button's source. */
   jpeg(): Promise<Uint8Array | null>;
-  header(): BrowserPaneFrameHeader | null;
+  header(): H | null;
   dispose(): void;
 }
 
 /** Latest JPEG wins: while one decodes, only the newest arrival waits for the decoder. */
-export interface FramePainter extends PanePainter {
+export interface FramePainter<H extends BrowserPaneFrameHeader = BrowserPaneFrameHeader> extends PanePainter<H> {
   /** Settles after drawing or intentionally dropping this delivery. */
   write(frame: Uint8Array): Promise<void>;
 }
 
-type Decoded = { header: BrowserPaneFrameHeader; jpeg: Uint8Array };
-type Pending = { frame: Decoded; settle: () => void };
+type Decoded<H extends BrowserPaneFrameHeader> = { header: H; jpeg: Uint8Array };
+type Pending<H extends BrowserPaneFrameHeader> = { frame: Decoded<H>; settle: () => void };
 
 function decodeJpeg(jpeg: Uint8Array): Promise<ImageBitmap> {
   // A Blob over a view takes the view's bytes only, so the header-stripped
@@ -24,30 +24,34 @@ function decodeJpeg(jpeg: Uint8Array): Promise<ImageBitmap> {
   return createImageBitmap(new Blob([jpeg as Uint8Array<ArrayBuffer>], { type: "image/jpeg" }));
 }
 
-export function createFramePainter(
+export function createFramePainter<H extends BrowserPaneFrameHeader>(
   canvas: HTMLCanvasElement,
-  onHeader: (header: BrowserPaneFrameHeader) => void,
+  onHeader: (header: H) => void,
+  decodeFrame: (bytes: Uint8Array) => Decoded<H> | null,
   decode: (jpeg: Uint8Array) => Promise<ImageBitmap> = decodeJpeg,
-): FramePainter {
+  isCurrent?: (header: H) => boolean,
+): FramePainter<H> {
   const ctx = canvas.getContext("2d");
-  let inflight: Pending | null = null;
-  let parked: Pending | null = null;
-  let last: Decoded | null = null;
+  let inflight: Pending<H> | null = null;
+  let parked: Pending<H> | null = null;
+  let last: Decoded<H> | null = null;
   let disposed = false;
 
-  const paint = async (entry: Pending): Promise<void> => {
+  const paint = async (entry: Pending<H>): Promise<void> => {
     inflight = entry;
     let bitmap: ImageBitmap | null = null;
     try {
       const { frame } = entry;
-      bitmap = await decode(frame.jpeg);
-      if (disposed) return;
       const { header } = frame;
+      if (disposed || ctx === null || (isCurrent !== undefined && !isCurrent(header))) return;
+      bitmap = await decode(frame.jpeg);
+      // A decode may finish after its binding or geometry has been replaced.
+      if (disposed || (isCurrent !== undefined && !isCurrent(header))) return;
       if (canvas.width !== header.width || canvas.height !== header.height) {
         canvas.width = header.width;
         canvas.height = header.height;
       }
-      ctx?.drawImage(bitmap, 0, 0);
+      ctx.drawImage(bitmap, 0, 0);
       last = frame;
       // Clear-data recreation can reset the consumer while this painter survives
       // with the same canvas dimensions. The store suppresses unchanged metadata.
@@ -67,8 +71,13 @@ export function createFramePainter(
   return {
     write(frame) {
       if (disposed || ctx === null) return Promise.resolve();
-      const decoded = decodeBrowserPaneFrame(frame);
-      if (decoded === null) return Promise.resolve();
+      let decoded: Decoded<H> | null;
+      try {
+        decoded = decodeFrame(frame);
+        if (decoded === null || (isCurrent !== undefined && !isCurrent(decoded.header))) return Promise.resolve();
+      } catch {
+        return Promise.resolve();
+      }
       return new Promise<void>((settle) => {
         const entry = { frame: decoded, settle };
         if (inflight !== null) {

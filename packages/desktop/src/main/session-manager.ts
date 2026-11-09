@@ -2401,7 +2401,7 @@ export class SessionManager {
     if (!entry) return { status: "not-live" };
     if (entry.kind === "pty") return { status: "terminal" };
     const { state, inventory } = await this.devicePanes.ensure(tabId);
-    return { status: "available", state, inventory };
+    return { status: "available", protocolVersion: 2, state, inventory };
   }
   devicePaneAct(tabId: string, action: DevicePaneAction): Promise<DevicePaneState> {
     return this.devicePanes.act(tabId, action);

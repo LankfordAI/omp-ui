@@ -251,7 +251,7 @@ export const RpcTab = memo(function RpcTab({ tabId, active }: { tabId: string; a
   const paneColumn =
     pane?.open === true && (pane.fullscreen || !resolved.splitFits) && !compact;
   // The device pane (issue #1006) shares the split slot with the browser
-  // pane — one is open at a time — and takes the same three postures.
+  // pane — one is open at a time — and takes the same three placements.
   const device = rpc?.devicePane;
   const deviceColumn =
     device?.open === true && (device.fullscreen || !resolved.splitFits) && !compact;
@@ -531,7 +531,7 @@ export const RpcTab = memo(function RpcTab({ tabId, active }: { tabId: string; a
                       {paneColumn ? (
                         <BrowserPane tabId={tabId} posture="column" />
                       ) : (
-                        <DevicePane tabId={tabId} posture="column" />
+                        <DevicePane tabId={tabId} placement="column" />
                       )}
                     </div>
                   ) : centered ? (
@@ -634,7 +634,7 @@ export const RpcTab = memo(function RpcTab({ tabId, active }: { tabId: string; a
             onClose={() => closeDevicePane(tabId)}
           >
             <div className="flex h-[70dvh] flex-col">
-              <DevicePane tabId={tabId} posture="sheet" />
+              <DevicePane tabId={tabId} placement="sheet" />
             </div>
           </Sheet>
         )}

@@ -1,4 +1,6 @@
 import { DEVICE_AVD_PATTERN, DEVICE_SERIAL_PATTERN, DEVICE_TOOL_NAME } from "./device-pane";
+import type { EmulatorPosture, EmulatorRotation } from "./device-pane";
+import { isNativeDeviceProfile, parseDeviceSystemImagePackage } from "./device-profiles";
 import type { RpcHostToolDefinition } from "./host-bridge";
 
 /** The device pane's host tool (issue #1006): agent-device argv, with device selection fixed by omp-ui. */
@@ -8,8 +10,10 @@ export function deviceTool(): RpcHostToolDefinition {
     loadMode: "essential",
     description: [
       "Drive the Android emulator shown in this session's device pane; the user watches it live.",
-      'omp-ui verbs: ["targets"] lists emulators and AVDs; ["use", "<serial|avd>"] binds (booting an AVD if needed) this session to one.',
-      "Every other call is an agent-device command line passed as args, e.g. the loop: open <app> --foreground, snapshot -i, press @eN --settle, fill @eN <text>, screenshot, close.",
+      'omp-ui verbs: ["targets"] lists existing emulators and AVDs; ["use", "<serial|avd>"] binds one (booting an existing AVD if needed), never creates an absent AVD.',
+      '["profiles"] lists the owner machine\'s supported native profiles and installed images; ["create", "<profileId>", "<imagePackage>", "<avd>"] explicitly creates a new AVD. Creation is accepted asynchronously, not ready: poll ["state"] for its actual lifecycle, operation and readiness.',
+      '["rotate", "0|90|180|270"] physically rotates the bound emulator; ["posture", "closed|half-open|open|flipped|tent"] changes a supported physical posture. These controls do not override the guest app\'s orientation policy.',
+      "Every other call is an allowed agent-device command line passed as args, e.g. the loop: open <app> --foreground, snapshot -i, press @eN --settle, fill @eN <text>, screenshot, close. The forwarded orientation command retains its guest orientation lock/auto semantics; it is not physical rotate.",
       "A bare screenshot returns the image inline.",
       "Device selection flags (--platform, --serial, --session, etc.) are fixed by omp-ui and refused if passed.",
       "Perform UI actions through this tool rather than raw adb, so the user can watch them happen.",
@@ -27,7 +31,12 @@ export function deviceTool(): RpcHostToolDefinition {
 
 export type DeviceToolPlan =
   | { kind: "targets" }
+  | { kind: "profiles" }
   | { kind: "use"; target: { serial: string } | { avd: string } }
+  | { kind: "create"; profileId: string; imagePackage: string; avd: string }
+  | { kind: "state" }
+  | { kind: "rotate"; rotation: EmulatorRotation }
+  | { kind: "posture"; posture: EmulatorPosture }
   | { kind: "forward"; argv: string[]; screenshotOut: boolean }
   | { kind: "refused"; reason: string };
 
@@ -79,7 +88,7 @@ const FORWARD_COMMANDS: Record<string, true> = {
 const REFUSED_FLAGS = ["--serial", "--udid", "--device", "--platform", "--session", "--config", "--state-dir"];
 
 const NO_BINDING_REASON =
-  'No emulator is bound to this session. Call omp-ui_device with ["targets"] then ["use", "<serial or AVD>"].';
+  'No emulator is bound to this session. Call omp-ui_device with ["targets"] then ["use", "<serial or existing AVD>"], or explicitly ["create", "<profileId>", "<imagePackage>", "<avd>"] after ["profiles"].';
 
 const SERIAL_RE = new RegExp(DEVICE_SERIAL_PATTERN);
 const AVD_RE = new RegExp(DEVICE_AVD_PATTERN);
@@ -110,8 +119,8 @@ export function planDeviceCommand(
     if (flag !== undefined) return { kind: "refused", reason: `${flag} is fixed by omp-ui and cannot be passed.` };
   }
   const [command, ...rest] = argv as [string, ...string[]];
-  if (command === "targets") {
-    return rest.length === 0 ? { kind: "targets" } : { kind: "refused", reason: "targets takes no arguments." };
+  if (command === "targets" || command === "profiles" || command === "state") {
+    return rest.length === 0 ? { kind: command } : { kind: "refused", reason: `${command} takes no arguments.` };
   }
   if (command === "use") {
     const [target] = rest;
@@ -119,6 +128,43 @@ export function planDeviceCommand(
     if (SERIAL_RE.test(target)) return { kind: "use", target: { serial: target } };
     if (AVD_RE.test(target)) return { kind: "use", target: { avd: target } };
     return { kind: "refused", reason: `"${target}" is neither an emulator serial nor an AVD name.` };
+  }
+  if (command === "create") {
+    const [profileId, imagePackage, avd] = rest;
+    if (rest.length !== 3 || profileId === undefined || imagePackage === undefined || avd === undefined) {
+      return { kind: "refused", reason: "create takes exactly one native profile ID, installed image package ID and new AVD name." };
+    }
+    if (!isNativeDeviceProfile(profileId)) return { kind: "refused", reason: `"${profileId}" is not a supported native device profile ID. Call profiles for available profiles.` };
+    if (imagePackage.length > 256 || parseDeviceSystemImagePackage(imagePackage) === null) {
+      return { kind: "refused", reason: "create requires an exact installed mobile system-image package ID from profiles." };
+    }
+    if (!AVD_RE.test(avd) || avd === "." || avd === ".." || avd.startsWith("-")) {
+      return { kind: "refused", reason: `"${avd}" is not a valid new AVD name.` };
+    }
+    return { kind: "create", profileId, imagePackage, avd };
+  }
+  if (command === "rotate") {
+    if (rest.length === 1) {
+      switch (rest[0]) {
+        case "0": return { kind: "rotate", rotation: 0 };
+        case "90": return { kind: "rotate", rotation: 1 };
+        case "180": return { kind: "rotate", rotation: 2 };
+        case "270": return { kind: "rotate", rotation: 3 };
+      }
+    }
+    return { kind: "refused", reason: "rotate takes exactly one physical rotation: 0, 90, 180 or 270." };
+  }
+  if (command === "posture") {
+    if (rest.length === 1) {
+      switch (rest[0]) {
+        case "closed":
+        case "half-open":
+        case "open":
+        case "flipped":
+        case "tent": return { kind: "posture", posture: rest[0] };
+      }
+    }
+    return { kind: "refused", reason: "posture takes exactly one physical posture: closed, half-open, open, flipped or tent." };
   }
   if (!Object.hasOwn(FORWARD_COMMANDS, command)) return { kind: "refused", reason: `"${command}" is not an allowed agent-device command.` };
   if (binding === null) return { kind: "refused", reason: NO_BINDING_REASON };

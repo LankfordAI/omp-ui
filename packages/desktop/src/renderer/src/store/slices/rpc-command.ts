@@ -726,7 +726,10 @@ export function createRpcCommandSlice(
           ? { ...prior.browserPane, ensure: "idle", state: null }
           : freshBrowserPaneView(),
         devicePane: prior
-          ? { ...prior.devicePane, ensure: "idle", state: null }
+          ? {
+              ...prior.devicePane, ensure: "idle", state: null, inventory: null, frame: null,
+              streamGeneration: prior.devicePane.streamGeneration + 1,
+            }
           : freshDevicePaneView(),
       });
       // The tab may not exist in state yet — ensure the slot exists.

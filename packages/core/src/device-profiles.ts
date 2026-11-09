@@ -1,157 +1,197 @@
-/**
- * Curated Android device profiles for the device pane's AVD picker.
- *
- * Panel specs are from Google/Samsung Aug/Jul 2026 announcements; `density` is the nearest standard Android
- * bucket to the true ppi. The `-d` donor is what keeps `avdmanager create avd` non-interactive — without it
- * avdmanager blocks on the custom-hardware-profile prompt for devices it doesn't bundle. When an SDK update
- * ships real `pixel_11_pro_fold`/`pixel_11_pro_xl` bundled device ids, switch those three rows to the bundled
- * ids with empty geometry patches and keep only the Samsung rows custom.
- *
- * Zero imports by design: the renderer reaches this via the @omp-ui/core/device-pane subpath, which must
- * stay free of node: builtins (see browser-safe-exports.test.ts).
- */
+import type { DeviceProfileOffer, DeviceSystemImage } from "./device-pane";
 
-export interface DeviceProfile {
-  readonly id: string;
-  readonly name: string;
-  /** AVD dir name; satisfies DEVICE_AVD_PATTERN. */
-  readonly avd: string;
-  /** Bundled avdmanager device id passed to `-d`. */
-  readonly donor: string;
-  readonly width: number;
-  readonly height: number;
-  /** dpi */
-  readonly density: number;
+interface NativeDeviceProfile {
+  id: string;
+  name: string;
+  family: DeviceProfileOffer["family"];
+  minApi: number;
 }
 
-export const DEVICE_PROFILES: readonly DeviceProfile[] = [
-  {
-    id: "pixel-11-pro-fold-inner",
-    name: "Pixel 11 Pro Fold — inner",
-    avd: "pixel_11_pro_fold_inner",
-    donor: "pixel_10_pro",
-    width: 2076,
-    height: 2152,
-    density: 360,
-  },
-  {
-    id: "pixel-11-pro-fold-cover",
-    name: "Pixel 11 Pro Fold — outer",
-    avd: "pixel_11_pro_fold_cover",
-    donor: "pixel_10_pro",
-    width: 1080,
-    height: 2342,
-    density: 400,
-  },
-  {
-    id: "galaxy-z-fold-8-inner",
-    name: "Galaxy Z Fold 8 — inner",
-    avd: "galaxy_z_fold_8_inner",
-    donor: "pixel_10_pro",
-    width: 1848,
-    height: 2448,
-    density: 400,
-  },
-  {
-    id: "galaxy-z-fold-8-cover",
-    name: "Galaxy Z Fold 8 — outer",
-    avd: "galaxy_z_fold_8_cover",
-    donor: "pixel_10_pro",
-    width: 1248,
-    height: 1972,
-    density: 420,
-  },
-  {
-    id: "pixel-11-pro-xl",
-    name: "Pixel 11 Pro XL",
-    avd: "pixel_11_pro_xl",
-    donor: "pixel_10_pro",
-    width: 1344,
-    height: 2992,
-    density: 480,
-  },
+/** Native SDK hardware definitions only; panel and hinge geometry remain SDK-owned. */
+const NATIVE_DEVICE_PROFILES: readonly NativeDeviceProfile[] = [
+  { id: "small_phone", name: "Small Phone", family: "phone", minApi: 24 },
+  { id: "medium_phone", name: "Medium Phone", family: "phone", minApi: 24 },
+  { id: "pixel_9", name: "Pixel 9", family: "phone", minApi: 35 },
+  { id: "pixel_9_pro_xl", name: "Pixel 9 Pro XL", family: "phone", minApi: 35 },
+  { id: "small_tablet", name: "Small Tablet", family: "tablet", minApi: 24 },
+  { id: "medium_tablet", name: "Medium Tablet", family: "tablet", minApi: 24 },
+  { id: "pixel_tablet", name: "Pixel Tablet", family: "tablet", minApi: 33 },
+  { id: "pixel_fold", name: "Pixel Fold", family: "book", minApi: 34 },
+  { id: "pixel_9_pro_fold", name: "Pixel 9 Pro Fold", family: "book", minApi: 35 },
+  { id: "7.6in Foldable", name: "7.6-inch Foldable", family: "book", minApi: 34 },
+  { id: "6.7in Foldable", name: "6.7-inch Foldable", family: "flip", minApi: 30 },
+  { id: "8in Foldable", name: "8-inch Foldable", family: "fold-out", minApi: 34 },
 ];
 
-export function findDeviceProfileByAvd(avd: string): DeviceProfile | null {
-  return DEVICE_PROFILES.find((p) => p.avd === avd) ?? null;
+const IMAGE_TAG_PRIORITY: Record<DeviceSystemImage["tag"], number> = {
+  google_apis: 0,
+  google_apis_playstore: 1,
+  default: 2,
+};
+const REQUIRED_IMAGE_FILES = ["system.img", "vendor.img", "ramdisk.img", "kernel-ranchu"] as const;
+// Android 7.x SDK packaging predates split vendor images:
+// https://raw.githubusercontent.com/aosp-mirror/platform_development/android-7.1.2_r39/build/sdk.atree
+const REQUIRED_PRE_TREBLE_IMAGE_FILES = ["system.img", "userdata.img", "ramdisk.img", "kernel-ranchu"] as const;
+
+export function isNativeDeviceProfile(profileId: string): boolean {
+  return NATIVE_DEVICE_PROFILES.some((profile) => profile.id === profileId);
 }
 
-/**
- * Retargets an avdmanager-generated config.ini to the profile's panel: hw.lcd.{width,height,density} set in
- * place (appended when absent), hw.lcd.aspectRatio/hw.lcd.size dropped, and hw.keyboard forced to `yes` —
- * avdmanager writes `no`, which silently drops every key/text/Back/Home/Recents press. Other lines verbatim;
- * CRLF input keeps CRLF.
- */
-export function patchAvdConfig(text: string, p: DeviceProfile): string {
-  const crlf = text.includes("\r\n");
-  const eol = crlf ? "\r\n" : "\n";
-  const lines = (crlf ? text.replace(/\r\n/g, "\n") : text).split("\n");
-  const drops: Record<string, true> = { "hw.lcd.aspectRatio": true, "hw.lcd.size": true };
-  const sets: Record<string, string> = {
-    "hw.lcd.width": String(p.width),
-    "hw.lcd.height": String(p.height),
-    "hw.lcd.density": String(p.density),
-    "hw.keyboard": "yes",
+/** `avdmanager list device` IDs, not names or numeric aliases. IDs may contain spaces. */
+export function parseSdkDevices(stdout: string): Set<string> {
+  const ids = new Set<string>();
+  for (const line of stdout.split(/\r?\n/)) {
+    const match = /^\s*id:\s*\d+\s+or\s+"([^"\r\n]+)"\s*$/.exec(line);
+    if (match) ids.add(match[1]);
+  }
+  return ids;
+}
+
+/** Native guests only: unsupported host architectures never fall back to a different ABI. */
+export function nativeAndroidAbi(arch: string): DeviceSystemImage["abi"] | null {
+  if (arch === "x64") return "x86_64";
+  if (arch === "arm64") return "arm64-v8a";
+  return null;
+}
+
+/** Package API and SDK extension are independent; preserve the caller's exact package ID. */
+export function parseDeviceSystemImagePackage(packageId: string): {
+  api: number;
+  extension: number | null;
+  tag: DeviceSystemImage["tag"];
+  abi: DeviceSystemImage["abi"];
+} | null {
+  const match = /^system-images;android-([1-9]\d*)(?:-ext([1-9]\d*))?;(default|google_apis|google_apis_playstore);(x86_64|arm64-v8a)$/.exec(packageId);
+  if (!match || match[0] !== packageId) return null;
+  const api = Number(match[1]);
+  const extension = match[2] === undefined ? null : Number(match[2]);
+  if (!Number.isSafeInteger(api) || (extension !== null && !Number.isSafeInteger(extension))) return null;
+  return {
+    api,
+    extension,
+    tag: match[3] as DeviceSystemImage["tag"],
+    abi: match[4] as DeviceSystemImage["abi"],
   };
-  const out: string[] = [];
-  for (const line of lines) {
+}
+
+/** A complete installed mobile image with matching package and source.properties identities. */
+export function parseInstalledSystemImage(
+  packageId: string,
+  sourceProperties: string,
+  files: readonly string[],
+  arch: string,
+): DeviceSystemImage | null {
+  const parsed = parseDeviceSystemImagePackage(packageId);
+  if (!parsed || parsed.abi !== nativeAndroidAbi(arch)) return null;
+  const { api, extension, tag, abi } = parsed;
+  const requiredFiles = api < 26 ? REQUIRED_PRE_TREBLE_IMAGE_FILES : REQUIRED_IMAGE_FILES;
+  if (!requiredFiles.every((file) => files.includes(file))) return null;
+  const properties = new Map<string, string>();
+  for (const raw of sourceProperties.split(/\r?\n/)) {
+    const line = raw.trim();
+    if (!line || line.startsWith("#") || line.startsWith("!")) continue;
     const eq = line.indexOf("=");
-    if (eq > 0) {
-      const key = line.slice(0, eq).trim();
-      if (drops[key]) continue;
-      if (key in sets) {
-        out.push(`${key}=${sets[key]}`);
-        delete sets[key];
-        continue;
-      }
-    }
-    out.push(line);
+    if (eq > 0) properties.set(line.slice(0, eq).trim(), line.slice(eq + 1).trim());
   }
-  const appended = Object.entries(sets).map(([key, value]) => `${key}=${value}`);
-  const tail: string[] = [];
-  while (appended.length > 0 && out.length > 0 && out[out.length - 1] === "") tail.unshift(out.pop() as string);
-  out.push(...appended, ...tail);
-  return out.join(eol);
-}
-
-export interface InstalledSystemImage {
-  readonly apiLevel: number;
-  readonly tag: string;
-  readonly abi: string;
-}
-
-/**
- * Rows of `[apiDir, tag, abi]` SDK system-image directory names; rows whose apiDir is not `android-<digits>`
- * (e.g. a stray `default` folder) are skipped.
- */
-export function parseInstalledImages(rows: Iterable<readonly [string, string, string]>): InstalledSystemImage[] {
-  const out: InstalledSystemImage[] = [];
-  for (const [apiDir, tag, abi] of rows) {
-    const m = /^android-(\d+)$/.exec(apiDir);
-    if (!m || !tag || !abi) continue;
-    out.push({ apiLevel: Number(m[1]), tag, abi });
+  if (
+    properties.get("AndroidVersion.ApiLevel") !== String(api) ||
+    properties.get("SystemImage.TagId") !== tag ||
+    properties.get("SystemImage.Abi") !== abi
+  ) {
+    return null;
   }
-  return out;
+  const codeName = properties.get("AndroidVersion.CodeName");
+  if (codeName !== undefined && codeName !== "REL") return null;
+  const baseSdk = properties.get("AndroidVersion.IsBaseSdk");
+  if (extension !== null) {
+    if (properties.get("AndroidVersion.ExtensionLevel") !== String(extension) || baseSdk !== "false") return null;
+  } else if (baseSdk !== undefined && baseSdk !== "true") return null;
+  const declaredPath = properties.get("Pkg.Path");
+  if (declaredPath !== undefined && declaredPath !== packageId) return null;
+  const tagLabel = tag === "google_apis" ? "Google APIs" : tag === "google_apis_playstore" ? "Google Play" : "Android";
+  const extensionLabel = extension === null ? "" : ` · Extension ${extension}`;
+  return { packageId, api, tag, abi, label: `API ${api}${extensionLabel} · ${tagLabel} · ${abi}` };
 }
 
-/**
- * Best `system-images;<api>;<tag>;<abi>` package id for a host arch (`process.arch` as a plain string);
- * null when no image qualifies. Tags: android-tv excluded, google_apis preferred, otherwise the
- * lexicographically last remaining tag; then the highest apiLevel among surviving rows.
- */
-export function pickSystemImagePackage(images: readonly InstalledSystemImage[], arch: string): string | null {
-  const wantedAbi = arch === "arm64" ? "arm64-v8a" : "x86_64";
-  // On Apple silicon with only x86_64 images, the emulator's Rosetta support decides.
-  const otherAbi = wantedAbi === "arm64-v8a" ? "x86_64" : "arm64-v8a";
-  const tagged = images.filter((i) => i.tag !== "android-tv");
-  let tags = [...new Set(tagged.map((i) => i.tag))];
-  if (tags.includes("google_apis")) tags = ["google_apis"];
-  else if (tags.length > 1) tags = [tags.reduce((a, b) => (b > a ? b : a))];
-  const abiOk = (abi: string) => abi === wantedAbi || abi === otherAbi;
-  let rows = tagged.filter((i) => tags.includes(i.tag) && abiOk(i.abi));
-  if (rows.length === 0) return null;
-  const preferred = rows.filter((i) => i.abi === wantedAbi);
-  if (preferred.length > 0) rows = preferred;
-  const best = rows.reduce((a, b) => (b.apiLevel > a.apiLevel ? b : a));
-  return `system-images;android-${best.apiLevel};${best.tag};${best.abi}`;
+function compareImages(a: DeviceSystemImage, b: DeviceSystemImage): number {
+  return b.api - a.api || IMAGE_TAG_PRIORITY[a.tag] - IMAGE_TAG_PRIORITY[b.tag] ||
+    (a.packageId < b.packageId ? -1 : a.packageId > b.packageId ? 1 : 0);
+}
+
+/** A unique legal default; the SDK profile ID itself is never validated as an AVD name. */
+export function proposeAvdName(profileId: string, api: number, existingAvds: readonly string[]): string {
+  const normalized = profileId.replace(/[^A-Za-z0-9._-]+/g, "_");
+  const base = `omp_ui_${normalized}_api${api}`.slice(0, 128);
+  const occupied = new Set(existingAvds.map((avd) => avd.toLowerCase()));
+  let proposed = base;
+  for (let suffix = 2; occupied.has(proposed.toLowerCase()); suffix++) {
+    const tail = `_${suffix}`;
+    proposed = `${base.slice(0, 128 - tail.length)}${tail}`;
+  }
+  return proposed;
+}
+
+/** Local SDK membership and complete native images determine each visible creation offer. */
+export function createProfileOffers(
+  sdkDeviceIds: ReadonlySet<string>,
+  images: DeviceSystemImage[],
+  existingAvds: readonly string[],
+  creationReason: string | null,
+): DeviceProfileOffer[] {
+  const seen = new Set<string>();
+  const sortedImages = images.filter((image) => {
+    if (seen.has(image.packageId)) return false;
+    seen.add(image.packageId);
+    return true;
+  }).sort(compareImages);
+  return NATIVE_DEVICE_PROFILES.map((profile) => {
+    const compatible = sortedImages.filter((image) => image.api >= profile.minApi);
+    const reason = creationReason ?? (
+      !sdkDeviceIds.has(profile.id)
+        ? `The owner Android SDK does not include native device profile "${profile.id}".`
+        : compatible.length === 0
+          ? `No compatible installed system image is available (API ${profile.minApi} or newer required).`
+          : null
+    );
+    return {
+      ...profile,
+      available: reason === null,
+      reason,
+      images: compatible,
+      defaultImagePackage: compatible[0]?.packageId ?? null,
+      proposedAvd: proposeAvdName(profile.id, compatible[0]?.api ?? profile.minApi, existingAvds),
+    };
+  });
+}
+
+/** Change only the keyboard setting on a newly-created AVD; native display/hinge keys are immutable. */
+export function patchAvdKeyboard(config: string): string {
+  let found = false;
+  const patched = config.replace(/^([ \t]*hw\.keyboard[ \t]*=[ \t]*)[^\r\n]*/gm, (_line, prefix: string) => {
+    found = true;
+    return `${prefix}yes`;
+  });
+  if (found) return patched;
+  const eol = config.includes("\r\n") ? "\r\n" : "\n";
+  const trailing = /(?:\r\n|\n)+$/.exec(config)?.[0] ?? "";
+  const body = config.slice(0, config.length - trailing.length);
+  return `${body}${body ? eol : ""}hw.keyboard=yes${trailing}`;
+}
+
+/** Presentation only: these old static layouts are not native creation recipes or posture capabilities. */
+export function legacyDevicePresentation(avd: string): { friendlyName: string; layoutReference: string } | null {
+  switch (avd) {
+    case "pixel_11_pro_fold_inner":
+      return { friendlyName: "Pixel 11 Pro Fold — inner", layoutReference: "Legacy static inner layout" };
+    case "pixel_11_pro_fold_cover":
+      return { friendlyName: "Pixel 11 Pro Fold — outer", layoutReference: "Legacy static outer layout" };
+    case "galaxy_z_fold_8_inner":
+      return { friendlyName: "Galaxy Z Fold 8 — inner", layoutReference: "Legacy static inner layout" };
+    case "galaxy_z_fold_8_cover":
+      return { friendlyName: "Galaxy Z Fold 8 — outer", layoutReference: "Legacy static outer layout" };
+    case "pixel_11_pro_xl":
+      return { friendlyName: "Pixel 11 Pro XL", layoutReference: "Legacy custom phone layout" };
+    default:
+      return null;
+  }
 }

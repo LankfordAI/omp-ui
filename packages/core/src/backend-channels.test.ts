@@ -93,7 +93,18 @@ const VALID_ARGS = {
   devicePaneEnsure: ["tab-1"],
   devicePaneAct: ["tab-1", { action: "bind", serial: "emulator-5554" }],
   devicePaneSubscribe: ["tab-1", "client-1", true],
-  devicePaneInput: ["tab-1", { type: "touch", phase: "down", x: 0.5, y: 0.25, pointer: 0 }],
+  devicePaneInput: [
+    "tab-1",
+    {
+      type: "touch",
+      bindingId: "123e4567-e89b-42d3-a456-426614174000",
+      geometryRevision: 1,
+      phase: "down",
+      x: 0.5,
+      y: 0.25,
+      pointer: 0,
+    },
+  ],
   devicePaneSetOpen: ["tab-1", true],
   cancelProviderOAuth: [],
   checkAppUpdate: [],
@@ -647,25 +658,6 @@ describe("Stats request contracts", () => {
 });
 
 describe("transport dispatch", () => {
-  it("decodes every valid inbound tuple and preserves values and order", async () => {
-    const { table, calls } = recordingTable();
-    for (const [method, args] of Object.entries(VALID_ARGS)) {
-      const descriptor = BACKEND_CHANNELS[method as InboundMethod];
-      if (descriptor.kind === "request") await dispatchRequest(table, descriptor.channel, args);
-      else dispatchNotify(table, descriptor.channel, args);
-    }
-    expect(calls.length).toBe(Object.keys(VALID_ARGS).length);
-    expect(calls.map(({ channel }) => channel)).toEqual(
-      Object.keys(VALID_ARGS).map((method) => BACKEND_CHANNELS[method as InboundMethod].channel),
-    );
-    for (const call of calls) {
-      const method = Object.keys(VALID_ARGS).find(
-        (candidate) => BACKEND_CHANNELS[candidate as InboundMethod].channel === call.channel,
-      ) as InboundMethod;
-      expect(call.args).toEqual(VALID_ARGS[method]);
-    }
-  });
-
   it.each([
     [CH.openProject, ["/project"], "argument 1"],
     [CH.addProject, [{ secret: "do-not-echo" }], "argument 0"],

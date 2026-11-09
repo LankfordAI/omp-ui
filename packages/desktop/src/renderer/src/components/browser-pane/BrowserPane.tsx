@@ -10,6 +10,7 @@ import {
 } from "react";
 import {
   browserClockText,
+  decodeBrowserPaneFrame,
   isAllowedBrowserPaneTopLevelUrl,
   isLoopbackHost,
   type BrowserPaneInputEvent,
@@ -239,7 +240,7 @@ export function BrowserPane({ tabId, posture }: { tabId: string; posture: Browse
     if (instanceId === null && desktopPaneMedia !== null) {
       painter = createMediaPainter(canvas, desktopPaneMedia, tabId, onHeader);
     } else {
-      const frames = createFramePainter(canvas, onHeader);
+      const frames = createFramePainter(canvas, onHeader, decodeBrowserPaneFrame);
       painter = frames;
       unregister = registerBrowserPaneWriter(tabId, (frame) => frames.write(frame));
     }

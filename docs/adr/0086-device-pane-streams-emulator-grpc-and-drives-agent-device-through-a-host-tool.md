@@ -1,16 +1,16 @@
 # The device pane streams the emulator's gRPC screen and drives agent-device through a host tool
 
-> **Status:** Accepted, 2026-10-30 ([#1006](https://github.com/LankfordAI/omp-ui/issues/1006)). Verified against Electron 43.2.0 and agent-device 0.21.35.
+> **Status:** Accepted, 2026-10-30 ([#1006](https://github.com/LankfordAI/omp-ui/issues/1006)); amended for cohesive native creation and physical controls ([#1009](https://github.com/LankfordAI/omp-ui/issues/1009)). The original investigation used Electron 43.2.0 and agent-device 0.21.35; these are historical findings, not a cross-platform or current performance certification.
 
 The **device pane** is a live Android emulator inside an rpc-ui tab that the
 user and the agent share, the mobile twin of the browser pane
 ([ADR-0029](0029-browser-pane-offscreen-webcontents-and-loopback-cdp-bridge.md)).
 The user watches and touches the emulator's screen beside the native
 transcript; the agent installs, opens, and taps through the app it is building
-on the same emulator. v1 covers emulators only, includes remote viewers (the
+on the same emulator. It covers emulators only, includes remote viewers (the
 web client and joined instances), and keeps agent control off by default.
 
-## Findings
+## Original findings (2026-10-30)
 
 - **The emulator already serves its screen and input.** The emulator's
   `android.emulation.control.EmulatorController` gRPC service (AOSP
@@ -43,55 +43,140 @@ web client and joined instances), and keeps agent control off by default.
   `AGENT_DEVICE_ANDROID_DEVICE_ALLOWLIST`, `AGENT_DEVICE_SESSION_LOCK`, and
   `AGENT_DEVICE_NO_UPDATE_NOTIFIER`.
 
-## Decision
+## Current decision (#1009 amendment)
 
-1. **Video comes from the emulator's own gRPC stream.** Desktop main opens
-   `streamScreenshot` with `ImageFormat{RGBA8888}` sized so the long edge is
-   at most 1280 device pixels (`DEVICE_PANE_MAX_EDGE`), over a dependency-free
-   `node:http2` client and a hand-rolled protobuf subset. No extra process and
-   no ffmpeg are involved.
-2. **Main encodes JPEG, one format for every viewer.** Each frame is
-   R/B-swapped in place, encoded at quality 80 with `nativeImage`, and
-   prefixed with the browser pane's 8-byte frame header (`dsf: 1`). The frame
-   rides `device-pane:frame` on the existing lossy, acknowledged frame
-   transport: the desktop MessagePort stream and `/ws/frames` gain a channel
-   field and per-(channel, tab) keys, and nothing else changes shape. A raw
-   RGBA path to the desktop window would add a second paint path to save
-   about 2.3 ms per frame.
-3. **Pacing matches the browser pane.** Newest message wins, with at most one
-   encode per 33 ms (30 fps). The stream runs only while a view subscribes; a
-   new subscriber gets the cached frame, or one `getScreenshot` when there is
-   none, since a static screen may send no stream message.
-4. **User input is one long-lived `streamInputEvent` per binding.** Renderers
-   send touch and wheel positions as unit coordinates over the painted frame;
-   main maps them to native display pixels, so no renderer knows device
-   geometry. Keys go as W3C key values, printable ASCII as keyboard text, and
-   other text through the emulator clipboard and Ctrl+V.
-5. **Agent control is one essential host tool.** `omp-ui_device { args }`
-   ([ADR-0043](0043-host-tools-answer-what-the-main-process-owns.md)) runs
-   the pinned, bundled `agent-device` CLI as a child of `process.execPath`
-   with `ELECTRON_RUN_AS_NODE=1`, so its re-spawned daemon is Node too and
-   never a second app. Main appends `--platform android --serial <serial>
-   --session <session>`, sets the device allowlist to the bound serial,
-   refuses agent-supplied selector flags, and forwards only an allowlist of
-   commands; `targets` and `use` are omp-ui's own verbs. A bare `screenshot`
-   comes back inline as an image. A device command opens the pane when it is
-   closed (the agent never acts on a screen the user cannot see) and shows an
-   acting badge; nothing closes the pane automatically.
-6. **The tool is gated per spawn.** It is registered through `set_host_tools`
-   only when **Agents can use devices** is on (off by default) and the
-   session was not requested by a webhook or an MCP client. A change applies
-   at the next spawn or resume, the rule of
+The original gRPC/JPEG/host-tool trade-off remains. The creation, physical
+control, identity and lifecycle contracts below supersede the initial shared
+browser/device payload format and dimension-only input assumptions.
+
+1. **Create explicitly from native SDK definitions.** Running and stopped
+   AVDs remain selectable even outside the creation catalog. Create requires
+   the owning host's `avdmanager`, an available native hardware profile, an
+   exact eligible installed system-image package and a new AVD name. The
+   catalog covers small/medium phones and tablets, Pixel 9/9 Pro XL/Tablet/
+   Fold/9 Pro Fold and generic 7.6/6.7/8-inch foldables; local SDK membership
+   and profile API floors determine each offer. Images must be stable,
+   complete mobile images with matching metadata and host-native ABI.
+   Stable SDK extension packages are valid when metadata agrees; extensions
+   are not platform minor versions and `IsBaseSdk=false` alone does not mean
+   preview. API 24/25 support their older vendor-free file layout. There is
+   no preview, TV/Wear/Automotive, cross-ABI or incomplete-image fallback.
+   Default to the highest eligible installed API, propose an API-specific
+   unused name, then require image/name confirmation. Missing prerequisites
+   have owner-side reasons and copyable commands, never automatic downloads.
+   There is no donor or implicit create-on-Boot path. Native panel/hinge
+   definitions remain SDK-owned; only a newly created AVD gets a verified
+   `hw.keyboard=yes` patch. Existing AVDs are never rewritten. Legacy static
+   layout names do not assert genuine OEM hardware or folding capability.
+2. **Physical controls report observations, not intent.** Rotation selects
+   0/90/180/270 degrees through the native physical model, not CSS rotation.
+   Posture offers closed/half-open/open/flipped/tent only when actual AVD
+   hardware, native model and independent Android guest support agree.
+   Unsupported choices carry reasons. Setter success only schedules work:
+   a bounded 15-second confirmation requires physical readback and a fresh
+   native screenshot, plus committed guest state for posture. An observed
+   inactive display is valid for a posture that really sleeps; closed does
+   not imply asleep. Guest app orientation policy remains authoritative.
+   Forwarded agent-device `orientation` keeps guest lock/auto semantics and
+   is not a substitute for physical rotation. Device layout uses `placement`
+   (`split`, `column`, `sheet`), not physical `posture`; the browser's existing
+   layout API is unchanged.
+3. **Video stays on the emulator's gRPC stream.** Main requests RGBA8888
+   bounded to a 1280-pixel long edge over `node:http2` and the dependency-free
+   protobuf subset. No ffmpeg or extra encoder process is involved. Newest
+   message wins, with at most one encode per 33 ms. Main swaps R/B into a
+   reusable buffer and uses `nativeImage` JPEG quality 80 for every viewer.
+   Historical encoder timings below explain this choice, not a new latency
+   or throughput guarantee.
+4. **Native observation is independent of publication.** At most one
+   screenshot stream exists per binding, only while a view subscribes.
+   The final unsubscribe releases input, aborts capture and clears pending
+   frames, cache and capture timers; resubscribe requests a fresh screenshot
+   if no current cache exists. Hidden control/readiness work can observe
+   native screenshots without encoding any JPEG or consulting a cached JPEG.
+   Screen-off, display and posture notifications invalidate old geometry
+   immediately; a control operation does not require a viewer or paint ACK
+   to finish.
+5. **Device identity is protocol v2, not the browser payload.** State and
+   every input carry a binding UUID and positive u32 geometry revision. The
+   device header is 28 bytes: u16 width, height and density-times-100,
+   `0x4450`, 16 binding UUID bytes and a u32 revision, in network byte order.
+   The browser header remains unchanged. Decoder injection keeps one JPEG
+   painter without conflating codecs; current identity is checked before
+   decode and again before draw. Decode/drop/dispose still settles delivery
+   credit and closes bitmaps. Desktop MessagePort channel credit and paired
+   authenticated `/ws/frames` ACK envelopes are unchanged: browser/device
+   pending slots remain distinct per channel/tab, with one unacknowledged
+   image per WebSocket pair. Reconnect and state/frame reordering cannot
+   enable input until the current identity has actually been painted.
+6. **Input uses native capture and input geometry.** Unit coordinates are
+   mapped through native screenshot rotation/display identity, folded
+   region/offsets and input extents, which need not match capture extents.
+   Pixel Fold cover aliases are normalized from native hardware evidence.
+   `wm size`, frame aspect ratio and a width/height swap are not input
+   authority. All four quadrants, including same-size 180-degree changes,
+   invalidate identity as necessary; unknown geometry or an inactive guest
+   or native screen disables input. A long-lived `streamInputEvent` carries
+   W3C keys and touch; ASCII uses keyboard text, other commits clipboard
+   paste. Guards recheck binding, revision, generation, geometry, sender,
+   subscription and lease immediately before every queued write, including
+   after asynchronous clipboard work. Transitions force releases on original
+   pointer coordinates/display and held keys before replacing geometry.
+   Touch-only wheel input is a finite, bounded host-owned swipe. Native
+   wheel events require positive runtime evidence for the emulator
+   controller's own axes and matching active display geometry, not a guessed
+   mouse name or an unrelated input device.
+7. **One host owns commands and races.** A serial binds exclusively to one
+   live rpc-ui tab. AVD creation/boot reservations and forwarded-command
+   tab/serial leases survive until actual work settles; competing UI changes
+   are refused. Operation/entry generations fence late results after abort,
+   disposal or rebinding. `omp-ui_device { args }` uses the real host inventory
+   and action paths for `targets`, `profiles`, `create`, `state`, `use`,
+   `rotate` and `posture`, not a parallel mock/provisioning path. Create/Boot
+   acceptance reports a running operation, not readiness; callers poll State.
+   Other allowlisted commands run pinned bundled agent-device under
+   `process.execPath` with `ELECTRON_RUN_AS_NODE=1`, a bound-serial allowlist,
+   fixed platform/serial/session flags and a 50-second child bound. Selector
+   overrides are refused. A bare screenshot returns an inline image. Commands
+   open the pane, release user input and show acting state; nothing closes
+   it automatically.
+8. **The essential tool stays gated per spawn.** `set_host_tools` registers
+   it only when **Agents can use devices** is on (off by default) and the
+   session was not requested by a webhook or MCP client. Setting changes
+   apply at spawn/resume, following
    [ADR-0048](0048-knowledge-vault-host-tools-and-home-folder-boundary.md).
-7. **The emulator runs on the machine that owns the session and outlives the
-   pane.** Booting starts the AVD headless (`-no-window`) and detached; it
-   survives omp-ui quitting and stops only on **Power off**. One tab binds
-   one emulator, and a second tab is refused while the first holds it.
-   Hibernate, a switch to terminal mode, and quit stop the stream and
-   remember the serial; delete forgets it.
-8. **One split slot, two kinds.** The browser pane and the device pane share
-   the split beside the native transcript; opening one in a tab closes the
-   other. The inspector rail is unchanged.
+9. **Binding and emulator lifetimes are separate.** Boot starts an existing
+   AVD detached and headless (`-no-window`) after checking host acceleration.
+   It outlives pane closure, Disconnect and omp-ui disposal. Close keeps the
+   binding; Disconnect releases it; confirmed Power off alone requests
+   shutdown of the captured current binding, with stale confirmations
+   refused. Hibernate, terminal-mode switch and quit dispose host resources
+   and remember the serial; delete forgets it. A later ensure can rebind the
+   still-running emulator.
+10. **One split slot, owner-routed remote parity.** Browser and device panes
+    share the slot beside the native transcript; opening one closes the other,
+    without changing the inspector rail. Every `device-pane:*` request routes
+    to the session's owning host and state/frames mirror back. Remote viewers
+    use the owner's SDK, inventory and controls, never viewer-local tools.
+
+### Amendment evidence and limits
+
+The #1009 runtime proof exercised Linux x64/KVM, emulator 37.2.13 build
+16740729, API 35 Google APIs x86_64 revision 9/extension 13 and API 36 Google
+APIs x86_64 revision 7/extension 17, plus a real gated agent-created API 29
+Google APIs x86_64 revision 13 phone (no ExtensionLevel property). Four actual
+chooser-created phone/tablet/book/flip AVDs consumed distinct native corner
+input in all quadrants, native drag/scroll and ASCII/CDP IME commits. Book
+and flip transitions retained text on the same serial. Generic API 36 flip
+closure remained Awake; explicit hardware sleep/wake proved inactive-screen
+input gating instead. A noncatalog Pixel 7 AVD's config hash was unchanged.
+Busy leases, original drag/key releases, stale revisions/bindings and stale
+remote Power off confirmations were exercised. Production host/client
+lifetime proof observed no encodes or active streams while unsubscribed,
+at most one stream, no hidden-rotate encode growth, fresh resubscribe replay and emulator survival
+after dispose. This is not a benchmark or Windows/macOS/Apple Silicon proof.
+See [Development](../development.md#device-pane-acceptance-1009) for the
+reproducible acceptance matrix and responsive proof scope.
 
 ## Rejected options
 
@@ -118,14 +203,18 @@ web client and joined instances), and keeps agent control off by default.
   The gRPC endpoint, its token, and the serial-to-port mapping never leave
   the owning main process, and every `device-pane:*` request is tab-routed to
   the owner for a joined instance.
-- Main pays about 2.7 ms per frame at 576×1280 (swap plus encode) while a
-  view watches, and nothing while none does. `DevicePaneDiagnostics` reports
-  the encode times.
-- The Android SDK (platform-tools and emulator) is the user's to install;
-  omp-ui finds it through `ANDROID_HOME`, `ANDROID_SDK_ROOT`, or the OS
-  default and never relies on `PATH`. A missing piece is named in the pane
-  and in the tool's error.
+- Encoding is subscription-driven, not all host work: hidden control operations
+  can still make native observations without encoding. `DevicePaneDiagnostics`
+  reports encode counts/times. The original swap/encode measurements above
+  informed the transport trade-off; they are not current performance claims.
+- The Android SDK is the user's to install. Existing AVDs need platform-tools
+  and emulator; explicit Create also needs command-line tools, a native profile
+  and an eligible installed image. Discovery uses `ANDROID_HOME`,
+  `ANDROID_SDK_ROOT`, then the OS default, never `PATH`. Missing pieces are
+  named in the pane/tool; no SDK download or existing-AVD mutation is implicit.
 - The packaged app unpacks `agent-device` from the asar, because adb pushes
   its helper APKs from real files and its daemon re-spawns its own `bin`.
-- Physical devices, iOS simulators, secondary displays, recording, remote
-  device hosts, and a device tool for subagents stay out of scope.
+- Physical devices, iOS simulators, secondary-display selection, recording,
+  separate device-host services and a device tool for subagents stay out of
+  scope. Remote viewers of an owning omp-ui host are supported, not a separate
+  device-host service.

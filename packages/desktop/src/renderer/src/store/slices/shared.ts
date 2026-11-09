@@ -106,8 +106,14 @@ export interface TabRuntime {
    * discarded this runtime — is dropped.
    */
   browserPaneEnsureGeneration?: number;
-  /** The device pane ensure this tab last issued (issue #1006); same fence. */
-  devicePaneEnsureGeneration?: number;
+  /** Shared ensure/action request fence; a newer request supersedes either kind. */
+  devicePaneRequestGeneration?: number;
+  /** Inventory-only reads cannot supersede a newer owner handshake or detail read. */
+  devicePaneInventoryGeneration?: number;
+  /** A state push is newer than any request that captured an earlier sequence. */
+  devicePaneStateGeneration?: number;
+  /** Verified only for this owner lifetime; refresh may remain actionable while pending. */
+  devicePaneProtocolVersion?: 2;
   /**
    * Vibe commands awaiting their correlated result: requestId → transcript
    * command-row id (issue #683). The result rides a published snapshot, not
@@ -230,6 +236,8 @@ export interface StoreMachinery {
   syncLiveVoiceBadge(tabId: string): void;
   createTabRuntime(tabId: string): TabRuntime;
   discardTabRuntime(tabId: string): void;
+  /** Clears device-only handshake, request, and painted state on owner disconnect. */
+  invalidateDevicePane(tabId: string): void;
   bumpCompactionUsageGeneration(tabId: string): number;
   patchSession(tabId: string, patch: Partial<SessionRuntime>): void;
   /** Closes a manual compaction exactly once, from whichever path observed it. */
@@ -464,7 +472,7 @@ export function registerDevicePaneWriter(
 ): () => void {
   devicePaneWriters.set(tabId, cb);
   return () => {
-    devicePaneWriters.delete(tabId);
+    if (devicePaneWriters.get(tabId) === cb) devicePaneWriters.delete(tabId);
   };
 }
 
@@ -714,7 +722,25 @@ export function createMachinery(
     });
   };
 
+  const invalidateDevicePane = (tabId: string): void => {
+    const current = tabRuntimes.get(tabId);
+    if (current !== undefined) {
+      current.devicePaneRequestGeneration = undefined;
+      current.devicePaneInventoryGeneration = undefined;
+      current.devicePaneProtocolVersion = undefined;
+    }
+    const pane = get().rpc[tabId]?.devicePane;
+    if (pane === undefined) return;
+    patchRpc(tabId, {
+      devicePane: {
+        ...pane, ensure: "idle", state: null, inventory: null, frame: null,
+        streamGeneration: pane.streamGeneration + 1,
+      },
+    });
+  };
+
   const createTabRuntime = (tabId: string): TabRuntime => {
+    if (tabRuntimes.has(tabId)) invalidateDevicePane(tabId);
     const runtime = freshTabRuntime();
     tabRuntimes.set(tabId, runtime);
     return runtime;
@@ -765,6 +791,7 @@ export function createMachinery(
   };
 
   const discardTabRuntime = (tabId: string): void => {
+    invalidateDevicePane(tabId);
     const current = tabRuntimes.get(tabId);
     if (current === undefined) return;
     const batch = current.transcriptBatch;
@@ -1354,6 +1381,7 @@ export function createMachinery(
     syncLiveVoiceBadge,
     createTabRuntime,
     discardTabRuntime,
+    invalidateDevicePane,
     bumpCompactionUsageGeneration,
     patchSession,
     finishCompaction,

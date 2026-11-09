@@ -288,7 +288,8 @@ describe("domain argument codecs", () => {
     expect(() => decode(browserPaneNavigateCodec, { action: "back", url: "x" })).toThrow();
   });
 
-  it("decodes every device pane input arm strictly", () => {
+  it("decodes identity-fenced device input with strict bounds", () => {
+    const identity = { bindingId: "12345678-1234-4234-9234-123456789abc", geometryRevision: 1 };
     const events = [
       { type: "touch", phase: "down", x: 0, y: 1, pointer: 0 },
       { type: "touch", phase: "move", x: 0.5, y: 0.5, pointer: 9 },
@@ -297,73 +298,84 @@ describe("domain argument codecs", () => {
       { type: "key", phase: "down", key: "Enter" },
       { type: "key", phase: "up", key: "a" },
       { type: "text", text: "héllo 한" },
-      { type: "button", button: "back" },
-      { type: "button", button: "home" },
-      { type: "button", button: "recents" },
-      { type: "button", button: "power" },
+      ...["back", "home", "recents", "power"].map((button) => ({ type: "button", button })),
     ];
-    for (const event of events) expect(decode(devicePaneInputCodec, event)).toEqual(event);
-
-    expect(() => decode(devicePaneInputCodec, { type: "touch", phase: "down", x: 1.01, y: 0, pointer: 0 })).toThrow(
-      "argument 0.x",
-    );
-    expect(() => decode(devicePaneInputCodec, { type: "touch", phase: "down", x: 0, y: -0.01, pointer: 0 })).toThrow(
-      "argument 0.y",
-    );
-    expect(() =>
-      decode(devicePaneInputCodec, { type: "wheel", x: Number.NaN, y: 0, dx: 0, dy: 0 }),
-    ).toThrow("argument 0.x");
-    expect(() => decode(devicePaneInputCodec, { type: "touch", phase: "down", x: 0, y: 0, pointer: 10 })).toThrow(
-      "argument 0.pointer",
-    );
-    expect(() => decode(devicePaneInputCodec, { type: "touch", phase: "down", x: 0, y: 0, pointer: 0.5 })).toThrow(
-      "argument 0.pointer",
-    );
-    expect(() =>
-      decode(devicePaneInputCodec, { type: "touch", phase: "down", x: 0, y: 0, pointer: 0, extra: true }),
-    ).toThrow("argument 0.extra");
-    expect(() => decode(devicePaneInputCodec, { type: "touch", phase: "down", x: 0, y: 0 })).toThrow(
-      "argument 0.pointer",
-    );
-    expect(() => decode(devicePaneInputCodec, { type: "wheel", x: 0, y: 0, dx: 10_001, dy: 0 })).toThrow(
-      "argument 0.dx",
-    );
-    expect(() => decode(devicePaneInputCodec, { type: "key", phase: "down", key: "K".repeat(33) })).toThrow(
-      "argument 0.key",
-    );
-    expect(() => decode(devicePaneInputCodec, { type: "text", text: "x".repeat(1025) })).toThrow(
-      "argument 0.text",
-    );
-    expect(() => decode(devicePaneInputCodec, { type: "button", button: "menu" })).toThrow(
-      "argument 0.button",
-    );
-    expect(() => decode(devicePaneInputCodec, { type: "text", text: "a", key: "b" })).toThrow("argument 0.key");
-    expect(() => decode(devicePaneInputCodec, { type: "swipe" })).toThrow("argument 0.type");
+    for (const event of events) {
+      expect(decode(devicePaneInputCodec, { ...identity, ...event })).toEqual({ ...identity, ...event });
+      expect(() => decode(devicePaneInputCodec, event)).toThrow("argument 0.bindingId");
+      expect(() => decode(devicePaneInputCodec, { ...identity, ...event, extra: true })).toThrow("argument 0.extra");
+    }
+    const touch = { ...identity, type: "touch", phase: "down", x: 0, y: 0, pointer: 0 };
+    for (const [field, values] of Object.entries({ x: [-0.01, 1.01, NaN, Infinity], y: [-1, 2], pointer: [-1, 10, 0.5], geometryRevision: [0, -1, 0.5, 0x1_0000_0000, NaN] })) {
+      for (const value of values) expect(() => decode(devicePaneInputCodec, { ...touch, [field]: value })).toThrow(`argument 0.${field}`);
+    }
+    expect(decode(devicePaneInputCodec, { ...touch, geometryRevision: 0xffff_ffff })).toEqual({ ...touch, geometryRevision: 0xffff_ffff });
+    for (const bindingId of [null, "", "not-a-uuid", "00000000-0000-0000-0000-000000000000", "12345678-1234-4234-1234-123456789abc"]) {
+      expect(() => decode(devicePaneInputCodec, { ...touch, bindingId })).toThrow("argument 0.bindingId");
+    }
+    for (const event of [
+      { type: "wheel", x: 0, y: 0, dx: 10_001, dy: 0 },
+      { type: "key", phase: "down", key: "K".repeat(33) },
+      { type: "text", text: "x".repeat(1025) },
+      { type: "button", button: "menu" },
+      { type: "touch", phase: "down", x: 0, y: 0 },
+      { type: "swipe" },
+    ]) expect(() => decode(devicePaneInputCodec, { ...identity, ...event })).toThrow();
   });
 
-  it("decodes device pane actions with each arm's own keys", () => {
-    expect(decode(devicePaneActionCodec, { action: "bind", serial: "emulator-5554" })).toEqual({
-      action: "bind",
-      serial: "emulator-5554",
-    });
-    expect(decode(devicePaneActionCodec, { action: "boot", avd: "Pixel_8_API_35" })).toEqual({
-      action: "boot",
-      avd: "Pixel_8_API_35",
-    });
-    for (const action of ["unbind", "power-off", "refresh"]) {
-      expect(decode(devicePaneActionCodec, { action })).toEqual({ action });
+  it("decodes all v2 actions and rejects old or malformed payloads", () => {
+    const bindingId = "12345678-1234-4234-9234-123456789abc";
+    const create = { action: "create", profileId: "7.6in Foldable", imagePackage: "system-images;android-35;google_apis;x86_64", avd: "My_Fold" };
+    const actions = [
+      { action: "bind", serial: "emulator-5554" },
+      { action: "boot", avd: "Pixel_8_API_35" },
+      create,
+      ...[
+        "system-images;android-34-ext12;google_apis_playstore;x86_64",
+        "system-images;android-35-ext15;google_apis;x86_64",
+        "system-images;android-35-ext15;google_apis;arm64-v8a",
+        "system-images;android-35-ext1;default;arm64-v8a",
+      ].map((imagePackage) => ({ ...create, imagePackage })),
+      ...[0, 1, 2, 3].map((rotation) => ({ action: "rotate", bindingId, rotation })),
+      ...["closed", "half-open", "open", "flipped", "tent"].map((posture) => ({ action: "set-posture", bindingId, posture })),
+      ...["unbind", "power-off", "refresh"].map((action) => ({ action, bindingId })),
+      { action: "refresh", bindingId: null },
+    ];
+    for (const action of actions) {
+      expect(decode(devicePaneActionCodec, action)).toEqual(action);
+      expect(() => decode(devicePaneActionCodec, { ...action, extra: true })).toThrow("argument 0.extra");
     }
-    expect(() => decode(devicePaneActionCodec, { action: "bind", serial: "192.168.1.5:5555" })).toThrow(
-      "argument 0.serial",
-    );
-    expect(() => decode(devicePaneActionCodec, { action: "bind" })).toThrow("argument 0.serial");
-    expect(() => decode(devicePaneActionCodec, { action: "boot", avd: "../evil" })).toThrow("argument 0.avd");
-    expect(() => decode(devicePaneActionCodec, { action: "boot", avd: "a".repeat(129) })).toThrow(
-      "argument 0.avd",
-    );
-    expect(() => decode(devicePaneActionCodec, { action: "unbind", serial: "emulator-5554" })).toThrow(
-      "argument 0.serial",
-    );
-    expect(() => decode(devicePaneActionCodec, { action: "wipe" })).toThrow("argument 0.action");
+    for (const action of ["unbind", "power-off", "refresh"]) expect(() => decode(devicePaneActionCodec, { action })).toThrow("argument 0.bindingId");
+    for (const rotation of [-1, 4, 90, 0.5, NaN, "1"]) expect(() => decode(devicePaneActionCodec, { action: "rotate", bindingId, rotation })).toThrow("argument 0.rotation");
+    for (const action of [
+      { action: "bind", serial: "192.168.1.5:5555" },
+      { action: "bind", serial: "emulator-5554\n" },
+      { action: "boot", avd: "Pixel\n" },
+      { action: "unbind", bindingId: `${bindingId}\n` },
+      { ...create, imagePackage: `${create.imagePackage}\n` },
+      { action: "boot", avd: "../evil" },
+      { action: "boot", avd: "a".repeat(129) },
+      { action: "unbind", bindingId: null },
+      { action: "rotate", bindingId: "invalid", rotation: 0 },
+      { action: "set-posture", bindingId, posture: "half" },
+      { ...create, profileId: "" },
+      { ...create, profileId: "a".repeat(129) },
+      { ...create, profileId: "a\n" },
+      ...[
+        "system-images;android-35-ext;google_apis;x86_64",
+        "system-images;android-35-ext0;google_apis;x86_64",
+        "system-images;android-35-ext01;google_apis;x86_64",
+        "system-images;android-35-ext-1;google_apis;x86_64",
+        "system-images;android-35-ext1.5;google_apis;x86_64",
+        "system-images;android-35-ext15-ext1;google_apis;x86_64",
+        "system-images;android-9007199254740992-ext15;google_apis;x86_64",
+        "system-images;android-35-ext9007199254740992;google_apis;x86_64",
+        "system-images;android-35-ext15;google_apis;x86_64\n",
+        "system-images;android-35-ext15;google_apis;x86_64 --force",
+        `system-images;android-35-ext${"9".repeat(256)};google_apis;x86_64`,
+      ].map((imagePackage) => ({ ...create, imagePackage })),
+      { ...create, imagePackage: "system-images;android-35;google_apis;x86" },
+      { action: "wipe" },
+    ]) expect(() => decode(devicePaneActionCodec, action)).toThrow();
   });
 });

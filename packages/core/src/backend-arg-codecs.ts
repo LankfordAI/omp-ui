@@ -44,11 +44,13 @@ import type { RpcFrame } from "./rpc/codec";
 import type { BrowserPaneInputEvent, BrowserPaneNavigate } from "./browser-pane";
 import {
   DEVICE_AVD_PATTERN,
+  DEVICE_BINDING_ID_PATTERN,
   DEVICE_BUTTONS,
   DEVICE_SERIAL_PATTERN,
   type DevicePaneAction,
   type DevicePaneInputEvent,
 } from "./device-pane";
+import { parseDeviceSystemImagePackage } from "./device-profiles";
 import type { HeldPromptRequest } from "./held-prompt";
 import { parseScheduledPromptRequest, type ScheduledPromptRequest } from "./scheduled-prompt";
 import type {
@@ -680,16 +682,26 @@ const deviceAvd: ArgCodec<string> = codec(
   "an AVD name",
   (value) => typeof value === "string" && deviceAvdPattern.test(value),
 );
+const deviceBindingPattern = new RegExp(DEVICE_BINDING_ID_PATTERN);
+const deviceBinding: ArgCodec<string> = codec("a binding UUID", (value) => typeof value === "string" && deviceBindingPattern.test(value));
+const deviceRevision: ArgCodec<number> = codec("a nonzero u32 geometry revision", (value) => Number.isInteger(value) && (value as number) > 0 && (value as number) <= 0xffff_ffff);
+const deviceRotation: ArgCodec<0 | 1 | 2 | 3> = codec("a rotation quadrant", (value) => value === 0 || value === 1 || value === 2 || value === 3);
+const deviceProfileId: ArgCodec<string> = codec("a profile ID of 1–128 characters", (value) => {
+  if (typeof value !== "string" || value.length === 0 || value.length > 128) return false;
+  for (let i = 0; i < value.length; i++) {
+    const unit = value.charCodeAt(i);
+    if (unit < 0x20 || unit === 0x7f) return false;
+  }
+  return true;
+});
+const deviceImagePackage: ArgCodec<string> = codec("an installed system-image package ID", (value) => typeof value === "string" && value.length <= 256 && parseDeviceSystemImagePackage(value) !== null);
 
 /** Device pane controls (#1006): each arm carries exactly its own keys. */
 export const devicePaneActionCodec: ArgCodec<DevicePaneAction> = {
   expected: "a device pane action",
   decode(value, path) {
     const fields = record().decode(value, path);
-    const action = oneOf("bind", "boot", "unbind", "power-off", "refresh").decode(
-      fields["action"],
-      `${path}.action`,
-    );
+    const action = oneOf("bind", "boot", "create", "rotate", "set-posture", "unbind", "power-off", "refresh").decode(fields["action"], `${path}.action`);
     switch (action) {
       case "bind":
         exactKeys(fields, ["action", "serial"], path);
@@ -697,11 +709,22 @@ export const devicePaneActionCodec: ArgCodec<DevicePaneAction> = {
       case "boot":
         exactKeys(fields, ["action", "avd"], path);
         return { action, avd: deviceAvd.decode(fields["avd"], `${path}.avd`) };
+      case "create":
+        exactKeys(fields, ["action", "profileId", "imagePackage", "avd"], path);
+        return { action, profileId: deviceProfileId.decode(fields["profileId"], `${path}.profileId`), imagePackage: deviceImagePackage.decode(fields["imagePackage"], `${path}.imagePackage`), avd: deviceAvd.decode(fields["avd"], `${path}.avd`) };
+      case "rotate":
+        exactKeys(fields, ["action", "bindingId", "rotation"], path);
+        return { action, bindingId: deviceBinding.decode(fields["bindingId"], `${path}.bindingId`), rotation: deviceRotation.decode(fields["rotation"], `${path}.rotation`) };
+      case "set-posture":
+        exactKeys(fields, ["action", "bindingId", "posture"], path);
+        return { action, bindingId: deviceBinding.decode(fields["bindingId"], `${path}.bindingId`), posture: oneOf("closed", "half-open", "open", "flipped", "tent").decode(fields["posture"], `${path}.posture`) };
       case "unbind":
       case "power-off":
+        exactKeys(fields, ["action", "bindingId"], path);
+        return { action, bindingId: deviceBinding.decode(fields["bindingId"], `${path}.bindingId`) };
       case "refresh":
-        exactKeys(fields, ["action"], path);
-        return { action };
+        exactKeys(fields, ["action", "bindingId"], path);
+        return { action, bindingId: nullable(deviceBinding).decode(fields["bindingId"], `${path}.bindingId`) };
     }
   },
 };
@@ -729,10 +752,12 @@ export const devicePaneInputCodec: ArgCodec<DevicePaneInputEvent> = {
   decode(value, path) {
     const fields = record().decode(value, path);
     const type = oneOf("touch", "wheel", "key", "text", "button").decode(fields["type"], `${path}.type`);
+    const identity = { bindingId: deviceBinding.decode(fields["bindingId"], `${path}.bindingId`), geometryRevision: deviceRevision.decode(fields["geometryRevision"], `${path}.geometryRevision`) };
     switch (type) {
       case "touch":
-        exactKeys(fields, ["type", "phase", "x", "y", "pointer"], path);
+        exactKeys(fields, ["type", "bindingId", "geometryRevision", "phase", "x", "y", "pointer"], path);
         return {
+          ...identity,
           type,
           phase: oneOf("down", "move", "up").decode(fields["phase"], `${path}.phase`),
           x: deviceUnitCoord.decode(fields["x"], `${path}.x`),
@@ -740,8 +765,9 @@ export const devicePaneInputCodec: ArgCodec<DevicePaneInputEvent> = {
           pointer: devicePointer.decode(fields["pointer"], `${path}.pointer`),
         };
       case "wheel":
-        exactKeys(fields, ["type", "x", "y", "dx", "dy"], path);
+        exactKeys(fields, ["type", "bindingId", "geometryRevision", "x", "y", "dx", "dy"], path);
         return {
+          ...identity,
           type,
           x: deviceUnitCoord.decode(fields["x"], `${path}.x`),
           y: deviceUnitCoord.decode(fields["y"], `${path}.y`),
@@ -749,18 +775,19 @@ export const devicePaneInputCodec: ArgCodec<DevicePaneInputEvent> = {
           dy: deviceWheelDelta.decode(fields["dy"], `${path}.dy`),
         };
       case "key":
-        exactKeys(fields, ["type", "phase", "key"], path);
+        exactKeys(fields, ["type", "bindingId", "geometryRevision", "phase", "key"], path);
         return {
+          ...identity,
           type,
           phase: oneOf("down", "up").decode(fields["phase"], `${path}.phase`),
           key: shortStr(32).decode(fields["key"], `${path}.key`),
         };
       case "text":
-        exactKeys(fields, ["type", "text"], path);
-        return { type, text: shortStr(1024).decode(fields["text"], `${path}.text`) };
+        exactKeys(fields, ["type", "bindingId", "geometryRevision", "text"], path);
+        return { ...identity, type, text: shortStr(1024).decode(fields["text"], `${path}.text`) };
       case "button":
-        exactKeys(fields, ["type", "button"], path);
-        return { type, button: oneOf(...DEVICE_BUTTONS).decode(fields["button"], `${path}.button`) };
+        exactKeys(fields, ["type", "bindingId", "geometryRevision", "button"], path);
+        return { ...identity, type, button: oneOf(...DEVICE_BUTTONS).decode(fields["button"], `${path}.button`) };
     }
   },
 };

@@ -15,6 +15,7 @@ import type { BridgeListener } from "./browser-pane-bridge";
 import type { Attention } from "./desktop-notifier";
 import type { BreadcrumbEntry } from "./breadcrumbs";
 import { parseSpawnGate, type SpawnGate } from "./spawn-gate";
+import { HOST_ANSWER_WATCHDOG_MS } from "./host-bridge";
 import { ownedSessionRecord, seedRegistry } from "./test/fixtures";
 
 vi.mock("@omp-ui/core", async (importOriginal) => {
@@ -7365,6 +7366,90 @@ describe("session lifecycle breadcrumbs (issue #413)", () => {
     expect(crumbs[0]).toMatchObject({ tabId: TAB, mode: "rpc-ui" });
     await manager.switchMode(TAB, "rpc-ui");
     expect(kinds(crumbs)).toEqual(["session-mode"]);
+  });
+});
+
+describe("device pane lifecycle and agent access", () => {
+  it("routes only live native sessions and advertises v2 without promoting accepted creation to ready", async () => {
+    const { manager } = setup({ mode: "rpc-ui" });
+    const state: Core.DevicePaneState = {
+      serial: null, avd: "new_fold", phase: "provisioning", agent: "detached", error: null, open: true, display: null,
+      bindingId: "11111111-2222-4333-8444-555555555555", geometryRevision: 1, rotation: null, posture: null, hingeAngle: null,
+      screen: "unknown", inputReady: false,
+      capabilities: { rotation: { available: false, reason: "Connecting" }, postures: { available: false, reason: "Connecting", supported: [] } },
+      operation: { kind: "create", stage: "creating", avd: "new_fold" }, actionError: null,
+    };
+    const inventory: Core.DeviceInventory = {
+      sdk: { status: "ready", sdkRoot: "/sdk" }, targets: [], profiles: [], images: [],
+      creation: { available: true, reason: null, sdkRoot: "/sdk", installCommand: null },
+    };
+    const ensure = vi.spyOn(manager.devicePanes, "ensure").mockResolvedValue({ state, inventory });
+    await expect(manager.devicePaneEnsure("missing")).resolves.toEqual({ status: "missing-session" });
+    await expect(manager.devicePaneEnsure(TAB)).resolves.toEqual({ status: "not-live" });
+    expect(ensure).not.toHaveBeenCalled();
+
+    await resume(manager);
+    await expect(manager.devicePaneEnsure(TAB)).resolves.toEqual({ status: "available", protocolVersion: 2, state, inventory });
+    expect(ensure).toHaveBeenCalledTimes(1);
+
+    rpcInstances[0]!.exit(0);
+    await expect(manager.devicePaneEnsure(TAB)).resolves.toEqual({ status: "not-live" });
+    expect(ensure).toHaveBeenCalledTimes(1);
+  });
+
+  it("refuses terminal sessions before device discovery", async () => {
+    const { manager } = setup();
+    const ensure = vi.spyOn(manager.devicePanes, "ensure");
+    await resume(manager);
+    await expect(manager.devicePaneEnsure(TAB)).resolves.toEqual({ status: "terminal" });
+    expect(ensure).not.toHaveBeenCalled();
+  });
+
+  it.each([
+    ["setting off", false, null, false],
+    ["setting on", true, null, true],
+    ["user-dispatched", true, "user", true],
+    ["agent-dispatched", true, "agent", true],
+    ["webhook-started", true, "webhook", false],
+    ["MCP-started", true, "mcp", false],
+  ] as const)("preserves device tool registration restrictions for %s", async (_label, access, kind, expected) => {
+    const { manager, registry } = setup({ mode: "rpc-ui" });
+    registry.setSetting("deviceAgentAccess", access);
+    if (kind !== null) {
+      registry.updateSession(TAB, {
+        fleet: { dispatchId: "device-dispatch", batchId: null, dispatchedAt: "2026-11-08T00:00:00.000Z", requestedBy: { instanceId: "inst-a", label: "host-a", kind, sourceTabId: kind === "agent" ? "source-tab" : null } },
+      } as Partial<Core.OwnedSessionRecord>);
+    }
+    await resume(manager);
+    const commands = (RpcClientMock.mock.calls.at(-1)?.[0]?.initialCommands ?? []) as Array<Record<string, unknown>>;
+    const registration = commands.find((command) => command.type === "set_host_tools");
+    const tools = Array.isArray(registration?.tools) ? registration.tools : [];
+    expect(tools.some((tool: unknown) => Core.isObject(tool) && tool.name === Core.DEVICE_TOOL_NAME)).toBe(expected);
+  });
+
+  it("settles a stuck device owner command once and fences late results and renderer fallback", async () => {
+    const { manager, registry } = setup({ mode: "rpc-ui" });
+    registry.setSetting("deviceAgentAccess", true);
+    await resume(manager);
+    const rpc = rpcInstances[0]!;
+    const { promise: command, resolve: finishCommand } = Promise.withResolvers<{ content: Core.HostToolContent[]; isError: boolean }>();
+    vi.spyOn(manager.devicePanes, "runAgentCommand").mockReturnValue(command);
+    vi.useFakeTimers();
+    try {
+      rpc.inputFrame({ type: "host_tool_call", id: "device-stuck", toolCallId: "tc-device", toolName: Core.DEVICE_TOOL_NAME, arguments: { args: ["state"] } });
+      await vi.advanceTimersByTimeAsync(HOST_ANSWER_WATCHDOG_MS);
+      expect(rpc.send).toHaveBeenCalledWith(expect.objectContaining({
+        type: "host_tool_result", id: "device-stuck", isError: true,
+        result: { content: [{ type: "text", text: "omp-ui could not answer this request in time" }] },
+      }));
+
+      manager.rpcSend(TAB, { type: "host_tool_result", id: "device-stuck", isError: true, result: { content: [{ type: "text", text: "renderer fallback" }] } });
+      finishCommand({ content: [{ type: "text", text: "late owner state" }], isError: false });
+      for (let i = 0; i < 8; i += 1) await Promise.resolve();
+      expect(rpc.send.mock.calls.filter(([frame]) => frame.id === "device-stuck")).toHaveLength(1);
+    } finally {
+      vi.useRealTimers();
+    }
   });
 });
 
