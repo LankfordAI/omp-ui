@@ -322,10 +322,11 @@ describe("device owner inventory and lifecycle", () => {
   });
 
   it("creates explicitly with the exact native device ID and installed image, patching only the real metadata keyboard path", async () => {
-    const custom = "/custom/avds/new.avd/config.ini";
+    const customDirectory = path.join(path.sep, "custom", "avds", "new.avd");
+    const custom = path.join(customDirectory, "config.ini");
     let currentConfig = CONFIG;
     const h = harness({
-      read: async (file) => file.endsWith("New.ini") ? "path=/custom/avds/new.avd\n" : file === custom ? currentConfig : undefined,
+      read: async (file) => file.endsWith("New.ini") ? `path=${customDirectory}\n` : file === custom ? currentConfig : undefined,
       write: async (file, text) => { if (file === custom) currentConfig = text; },
     });
     const accepted = await h.host.act("t", { action: "create", profileId: "pixel_fold", imagePackage: IMAGE, avd: "New" });
@@ -343,7 +344,7 @@ describe("device owner inventory and lifecycle", () => {
   });
 
   it("retains the created AVD and reports repair instructions if keyboard readback fails", async () => {
-    const h = harness({ read: async (file) => file.endsWith("New.avd/config.ini") ? CONFIG : undefined });
+    const h = harness({ read: async (file) => file.endsWith(path.join("New.avd", "config.ini")) ? CONFIG : undefined });
     await h.host.act("t", { action: "create", profileId: "pixel_fold", imagePackage: IMAGE, avd: "New" });
     await vi.advanceTimersByTimeAsync(0);
     expect(h.state()).toMatchObject({ phase: "error", operation: null });
