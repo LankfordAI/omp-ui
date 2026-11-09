@@ -18,6 +18,7 @@ import { useT } from "../lib/i18n";
 import { IS_ELECTRON } from "../lib/platform";
 import type { ToolItem } from "../lib/transcript";
 import { useTheme } from "../lib/themes";
+import { OVERLAY_INSET } from "../lib/window-controls";
 import { findOwner, useStore } from "../store";
 import { linkify } from "./Markdown";
 import { Slab } from "./ToolCard";
@@ -245,7 +246,7 @@ export function HtmlArtifactCard({ item, tabId }: { item: ToolItem; tabId?: stri
       <div style={managed && expanded ? {height: frameHeight} : undefined}>
         {createElement(managed ? "dialog" : "div", {
           ref: managed ? dialogRef : undefined,
-          className: managed ? expanded ? "fixed inset-3 m-0 flex h-[calc(100dvh-1.5rem)] w-[calc(100vw-1.5rem)] max-h-none max-w-none flex-col border-0 bg-void p-3 text-ink backdrop:bg-void/70" : "relative m-0 block w-full max-w-none border-0 bg-transparent p-0 text-inherit" : "relative",
+          className: managed ? expanded ? cn("fixed inset-3 m-0 flex h-[calc(100dvh-1.5rem)] w-[calc(100vw-1.5rem)] max-h-none max-w-none flex-col border-0 bg-void p-3 text-ink backdrop:bg-void/70 [app-region:no-drag]", IS_ELECTRON && "pt-9") : "relative m-0 block w-full max-w-none border-0 bg-transparent p-0 text-inherit" : "relative",
           role: managed ? expanded ? "dialog" : "presentation" : undefined,
           "aria-modal": managed && expanded || undefined,
           "aria-labelledby": managed && expanded ? titleId : undefined,
@@ -253,7 +254,7 @@ export function HtmlArtifactCard({ item, tabId }: { item: ToolItem; tabId?: stri
         }, <>
           <h3 id={titleId} className="sr-only">{title}</h3>
           {managed ? <ManagedArtifactSurface key="managed" html={shown.html} title={title} source={visible && draftId ? {draftId} : undefined} historical={historical} inline className={expanded ? "min-h-0 flex-1" : undefined} style={expanded ? undefined : {height: frameHeight}} onMeasured={expanded ? undefined : setMeasured} onEscape={() => setExpanded(false)} /> : <ArtifactSurface html={shown.html} title={title} style={{height: frameHeight}} onMeasured={setMeasured} />}
-          <div className="pointer-events-none absolute inset-x-0 top-1.5 flex justify-end px-1.5"><div className="pointer-events-auto flex max-w-[calc(100vw-2rem)] flex-wrap items-center gap-1 rounded-md border border-line bg-overlay/85 px-1 py-0.5 opacity-0 backdrop-glass transition-opacity duration-150 group-hover:opacity-100 group-focus-within:opacity-100">
+          <div className="pointer-events-none absolute inset-x-0 top-1.5 flex justify-end px-1.5" style={managed && expanded && IS_ELECTRON && OVERLAY_INSET > 0 ? { paddingRight: OVERLAY_INSET } : undefined}><div className="pointer-events-auto flex max-w-[calc(100vw-2rem)] flex-wrap items-center gap-1 rounded-md border border-line bg-overlay/85 px-1 py-0.5 opacity-0 backdrop-glass transition-opacity duration-150 group-hover:opacity-100 group-focus-within:opacity-100">
             <span ref={setActions} className="flex flex-wrap items-center gap-1" />
             <IconButton label={t(managed && expanded ? "common.overlay.close" : "transcript.artifact.expand")} onClick={() => setExpanded(value => !value)}>{managed && expanded ? <IconClose /> : <ExpandGlyph />}</IconButton>
           </div></div>
