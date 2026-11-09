@@ -318,6 +318,32 @@ describe("main-owned artifact authority", () => {
 });
 
 describe("refresh failure and dormant admission", () => {
+  it.each([
+    { name: "captured without datasets", args: { status: "captured" } },
+    { name: "captured with a null message", args: { status: "captured", datasets: [dataset([3, 4])], message: null } },
+    { name: "failed without a message", args: { status: "failed" } },
+    { name: "failed with null datasets", args: { status: "failed", message: "File unavailable", datasets: null } },
+  ])("rejects $name without changing refresh or accepted data", async ({ args }) => {
+    const f = fixture(); const kept = await keep(f);
+    const prepared = f.service.prepareRefresh({ targetTabId: "tab", ...versions(kept), datasetIds: ["rows"] });
+    f.service.admitPrompt({ tabId: "tab", text: wire(prepared.reference, prepared.text) });
+    const baseline = f.service.describe({ artifactId: kept.artifactId });
+    const baselineSurface = f.service.resolveSurface(versions(baseline.artifact));
+    expect(baseline.refreshRequests[0]).toMatchObject({ refreshRequestId: prepared.request.refreshRequestId, bound: true, status: "awaiting" });
+
+    expect(() => f.service.stageCapture({ tabId: "tab", toolCallId: "invalid-capture", args: { ...args, refreshRequestId: prepared.request.refreshRequestId } }))
+      .toThrowError(expect.objectContaining({ code: "unsupported-contract" }));
+
+    const current = f.service.describe({ artifactId: kept.artifactId });
+    expect(current.refreshRequests).toEqual(baseline.refreshRequests);
+    expect(current.refreshRequests[0]).toMatchObject({ status: "awaiting" });
+    expect(current.captures).toEqual(baseline.captures);
+    expect(current.artifact.currentCodeRevisionId).toBe(baseline.artifact.currentCodeRevisionId);
+    expect(current.artifact.currentDataSnapshotId).toBe(baseline.artifact.currentDataSnapshotId);
+    expect(current.snapshot.datasets).toEqual(baseline.snapshot.datasets);
+    expect(f.service.resolveSurface(versions(current.artifact)).datasets).toEqual(baselineSurface.datasets);
+  });
+
   it("preflights dormant drafts without binding, then records destination-bound failure without moving accepted data", async () => {
     const f = fixture(); const kept = await keep(f);
     f.setTarget({...f.target, runtimeKey: null});

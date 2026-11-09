@@ -118,6 +118,22 @@ async function scriptedProvider(): Promise<Provider> {
         const body: unknown = JSON.parse(Buffer.concat(parts).toString("utf8"));
         if (!isObject(body)) throw new Error("expected a completion request object");
         requests.push(body);
+        // Chat Completions simulation of the reported OpenRouter Responses
+        // root-schema restriction, not an actual OpenRouter integration.
+        const rejectsRootSchema = Array.isArray(body.tools) && body.tools.some((tool: unknown) => {
+          if (!isObject(tool) || !isObject(tool.function)) return false;
+          const definition = tool.function;
+          const parameters = definition.parameters;
+          return typeof definition.name === "string" && definition.name.startsWith("omp-ui_")
+            && isObject(parameters)
+            && ["oneOf", "anyOf", "allOf"].some((keyword) => Object.hasOwn(parameters, keyword));
+        });
+        if (rejectsRootSchema) {
+          response.writeHead(400, { "Content-Type": "application/json" }).end(JSON.stringify({
+            error: { type: "invalid_request_error", message: "Root tool schema combinators are not supported by this fixture." },
+          }));
+          return;
+        }
         const call = provider.respond(body);
         response.writeHead(200, { "Content-Type": "text/event-stream", "Cache-Control": "no-cache" });
         if (call !== null) {
@@ -444,6 +460,24 @@ describe.skipIf(ompPath === null)("artifact library rails on the real runtime", 
     expect(scope.wire).toHaveLength(count);
     expect(scope.errors).toEqual([]);
     expectNoModelTurn(scope);
+  });
+
+  it("completes a greeting with artifact tools against a root-schema-rejecting provider", async () => {
+    const scope = await spawnScope();
+    await registration(scope, 0, true);
+    await prompt(scope, "hi");
+    expect(scope.provider.requests.some((body) => Array.isArray(body.tools) && body.tools.some((tool: unknown) =>
+      isObject(tool) && isObject(tool.function) && tool.function.name === ARTIFACT_CAPTURE_TOOL_NAME,
+    ))).toBe(true);
+    const assistantEnd = scope.frames.find((frame) =>
+      frame.type === "message_end" && isObject(frame.message) && frame.message.role === "assistant",
+    );
+    expect(assistantEnd).toBeDefined();
+    expect(assistantEnd!.message).toMatchObject({
+      role: "assistant",
+      content: expect.arrayContaining([{ type: "text", text: "Fixture complete." }]),
+      stopReason: "stop",
+    });
   });
 
   it("persists native render/capture details, keeps human authority, and pages consented Unicode data through real read calls", async () => {

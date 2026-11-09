@@ -49,6 +49,17 @@ describe("host registration definitions", () => {
     });
   });
 
+  it("publishes object-root host tools without provider-rejected root combinators", () => {
+    const command = setHostToolsCommand({ vault: true, fleet: true, device: true, artifacts: true });
+    expect(command.tools.find(tool => tool.name === "omp-ui_artifact_capture")).toBeDefined();
+    for (const tool of command.tools) {
+      expect(tool.parameters.type, tool.name).toBe("object");
+      for (const keyword of ["oneOf", "anyOf", "allOf"]) {
+        expect(Object.hasOwn(tool.parameters, keyword), `${tool.name}.${keyword}`).toBe(false);
+      }
+    }
+  });
+
   it("keeps legacy HTML schema unchanged off and exposes only staging authoring tools on", () => {
     const off = hostToolsDefinition();
     const on = hostToolsDefinition({ vault: false, fleet: false, device: false, artifacts: true });

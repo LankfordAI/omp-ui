@@ -456,6 +456,14 @@ Unique command IDs, process identity, desired epochs, acknowledgements and
 synchronous initial-command factory after asynchronous spawn work, using the
 latest setting and re-admitting every initial prompt at the final rail.
 
+Capture advertises a flat object schema across providers. The observed
+OpenRouter Responses route rejected its former root union before inference
+when Artifacts was enabled ([#1135](https://github.com/LankfordAI/omp-ui/issues/1135)).
+Status-dependent requirements remain in `ArtifactService.stageCapture` and the
+store: captured calls require datasets and omit message; failed calls require
+message and omit datasets. Inapplicable fields must be absent, not null.
+Nested render dataset `value`/`valueFile` exclusivity is unchanged.
+
 `MainBackend` owns a lazy `ArtifactService` before `SessionManager`. The
 separate core `ArtifactStore` writes
 `<registry-parent>/artifacts/library.sqlite` through `node:sqlite`, never an
