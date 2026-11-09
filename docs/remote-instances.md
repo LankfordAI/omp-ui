@@ -69,7 +69,19 @@ Every member decides for itself how far each dispatcher may go, on a ladder of f
 - **Title** (optional) — empty uses the prompt's first line.
 - **Prompt** — required.
 
-The dialog's local face (**This computer**) starts a session on this app, optionally sending a first prompt — which may be left empty for an idle session — once the session is ready. When the chosen machines are on different commits, the form says so; each worktree starts from its own machine's checkout, and the dispatch is not blocked. Every dispatched session is a native session in that machine's sidebar, owned and run by that machine exactly like one you started there yourself; nothing moves or copies afterwards. The machine that owns the session sends the prompt itself, so once it has accepted the dispatch, closing this app or losing the connection does not lose the prompt. The session HUD shows *Dispatched from \<computer\>*, marked *agent* when an agent dispatched it, and the Fleet view groups the dispatches made together, newest first, with **Open** and **Stop** on each.
+The dialog's local face (**This computer**) starts a session on this app, optionally sending a first prompt — which may be left empty for an idle session — once the session is ready. When the chosen machines are on different commits, the form says so; each worktree starts from its own machine's checkout, and the dispatch is not blocked. Every dispatched session is a native session in that machine's sidebar, owned and run by that machine exactly like one you started there yourself; nothing moves or copies afterwards. The machine that owns the session sends the prompt itself, so once it has accepted the dispatch, closing this app or losing the connection does not lose the prompt. The session HUD shows *Dispatched from \<computer\>*, marked *agent* when an agent dispatched it, and the Fleet view groups the dispatches made together, newest first, with **Open** and **Settle** on each.
+
+Fleet's **Dispatches** section lists only unsettled dispatches, whose owning
+machines still report live processes. Idle sessions that finished a turn and
+sessions waiting for your answer stay visible, even when snoozed or pinned.
+Settled rows disappear once the owner reports no process, not while Settle is
+pending or if it is canceled or fails. Batch counts, titles, and ordering use
+only visible members; a batch disappears when its last live member settles.
+Resume or Settle Undo brings the same dispatch back with its original identity
+and ordering timestamp. Sessions, transcripts, artifacts, worktrees, branches,
+and dispatch provenance are preserved. Disconnected members retain their
+last-known session state until they rejoin. Unknown outcomes remain separate
+under **Unresolved**, with **Retry** and **Dismiss** unchanged.
 
 ### Placement preferences
 

@@ -3415,7 +3415,7 @@ export const ko: Partial<Record<MessageKey, string>> = {
   "fleet.pending.retry": "다시 시도",
   "fleet.pending.dismiss": "닫기",
   "fleet.pending.retryUnavailable": "새로 고침 후에는 다시 시도할 수 없음",
-  "fleet.dispatches.empty": "디스패치된 세션이 아직 없습니다.",
+  "fleet.dispatches.empty": "종료 처리되지 않은 디스패치가 없습니다.",
   "fleet.dispatches.from": "보낸 곳: {label}",
   "fleet.dispatches.agent": "에이전트",
   "fleet.dispatches.webhook": "웹훅",

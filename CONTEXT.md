@@ -1631,6 +1631,9 @@ session is always rpc-ui, never a chat or a terminal session, and it stays on
 the instance that started it — a dispatch never moves or copies a running
 session. A dispatch whose remote answer was lost has an unknown outcome
 until a session with its id appears; omp-ui never retries it on its own.
+Fleet lists dispatched live sessions only while their processes are live. It
+omits them once settled and shows them again on resume without deleting their
+dispatch provenance.
 _Avoid_: job (Background job names omp's async jobs), task, run, single-machine launch
 
 **Dispatch batch**:
