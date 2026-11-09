@@ -5,6 +5,7 @@ This guide explains what users receive from a release and how maintainers publis
 ## Unreleased
 
 - Fixed native turns failing before inference with Artifacts enabled on the observed OpenRouter Responses route. Capture now advertises a flat schema while the host retains its status-dependent validation and human Apply gate. #1135
+- Fixed the artifact schema regression test's TypeScript errors so release typechecking can complete. #1136
 
 ## Choose a download
 

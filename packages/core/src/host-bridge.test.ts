@@ -50,9 +50,9 @@ describe("host registration definitions", () => {
   });
 
   it("publishes object-root host tools without provider-rejected root combinators", () => {
-    const command = setHostToolsCommand({ vault: true, fleet: true, device: true, artifacts: true });
-    expect(command.tools.find(tool => tool.name === "omp-ui_artifact_capture")).toBeDefined();
-    for (const tool of command.tools) {
+    const tools = hostToolsDefinition({ vault: true, fleet: true, device: true, artifacts: true });
+    expect(tools.find(tool => tool.name === "omp-ui_artifact_capture")).toBeDefined();
+    for (const tool of tools) {
       expect(tool.parameters.type, tool.name).toBe("object");
       for (const keyword of ["oneOf", "anyOf", "allOf"]) {
         expect(Object.hasOwn(tool.parameters, keyword), `${tool.name}.${keyword}`).toBe(false);
