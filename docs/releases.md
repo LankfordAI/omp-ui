@@ -4,6 +4,8 @@ This guide explains what users receive from a release and how maintainers publis
 
 ## Unreleased
 
+- Keep the close control of an expanded artifact, in the Artifacts library and in the transcript, clear of the native window caption buttons (#1125).
+- Fill the Artifacts library preview to the available detail height instead of leaving blank space below it (#1126).
 - Refuse nested HTML artifact renders instead of reporting success without a visible transcript card. Invoke `omp-ui_render_html` directly from the assistant (#1127).
 - Import managed artifact datasets from session-local UTF-8 JSON files with render-only `valueFile`, retaining the resolved data for replay without giving guests filesystem access (#1128).
 
