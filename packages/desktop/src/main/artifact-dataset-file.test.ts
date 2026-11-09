@@ -18,7 +18,9 @@ afterEach(async () => {
 
 /** A real lineage (and archive lineage) with the session's transcript and `local` dir. */
 function layout(where: "active" | "archive" = "active", stem = STEM) {
-  const base = fs.mkdtempSync(path.join(fs.realpathSync(os.tmpdir()), "omp-ui-dataset-file-"));
+  // realpathSync.native matches the reader's fs.promises.realpath: it expands Windows
+  // 8.3 short names (RUNNER~1) that the JS realpathSync keeps.
+  const base = fs.realpathSync.native(fs.mkdtempSync(path.join(os.tmpdir(), "omp-ui-dataset-file-")));
   dirs.push(base);
   const lineageDir = path.join(base, "sessions", "lineage");
   const archiveLineageDir = path.join(base, "archive", "lineage");
@@ -185,14 +187,17 @@ describe("readArtifactDatasetFile", () => {
     expect(await code(readArtifactDatasetFile(local, "local://grow.json", context()))).toBe("conflict");
   });
 
-  it("detects truncation, replacement and swapped roots during the read", async () => {
+  it("detects truncation during the read", async () => {
     const shrink = layout();
     const shrunk = path.join(shrink.local, "shrink.json");
     fs.writeFileSync(shrunk, "[1,2,3]");
     duringFirstRead(() => fs.truncateSync(shrunk, 2));
     expect(await code(readArtifactDatasetFile(shrink.local, "local://shrink.json", context()))).toBe("conflict");
-    vi.restoreAllMocks();
+  });
 
+  // Windows refuses these renames with EPERM while the reader holds the file
+  // open, so the race cannot happen there (issue #1131).
+  it.skipIf(process.platform === "win32")("detects replacement and swapped roots during the read", async () => {
     const replaced = layout();
     const file = path.join(replaced.local, "data.json");
     fs.writeFileSync(file, "[1]");
