@@ -154,7 +154,9 @@ describe("UsageTelemetry required activity and optional model usage", () => {
     const serialized = JSON.stringify(events);
     expect(serialized).not.toContain("private-deployment");
     expect(serialized).not.toContain("internal-company-route");
-    expect(events.every((event) => event.properties.$process_person_profile === false && event.properties.$geoip_disable === true)).toBe(true);
+    expect(events.every((event) =>
+      event.properties.$process_person_profile === false && !("$geoip_disable" in event.properties),
+    )).toBe(true);
     await h.reporter.poll();
     h.reporter.dispose();
     const restarted = h.create();
