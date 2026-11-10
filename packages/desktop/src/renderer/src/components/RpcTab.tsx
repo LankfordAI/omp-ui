@@ -6,6 +6,7 @@ import { findOwner, findRecord, useStore, type RpcFailure } from "../store";
 import { backend } from "../backend";
 import type { ModelCatalogSnapshot } from "@omp-ui/core/types";
 import { useT } from "../lib/i18n";
+import { presentArtifacts } from "../lib/artifact-placement";
 import { useLiveTalkHotkey } from "../lib/use-live-talk-hotkey";
 import { Composer } from "./Composer";
 import { ConsoleDrawer } from "./ConsoleDrawer";
@@ -241,6 +242,12 @@ export const RpcTab = memo(function RpcTab({ tabId, active }: { tabId: string; a
   // refine-submitted, gate clear — restores the transcript for free.
   const planReviewOpen = rpc?.planReview != null && rpc.planDeferred !== true;
   const items = rpc?.items ?? NO_ITEMS;
+  // HTML artifacts show with the run's final reply (issue #1141); find and the
+  // transcript both read this one display order.
+  const presentation = useMemo(
+    () => presentArtifacts(items, status === "running"),
+    [items, status],
+  );
   const viewingSubagent = rpc?.selectedSubagent ?? null;
   // The browser pane (issue #519) sits beside the transcript as a split; when
   // fullscreen — or when the width budget cannot seat the split at its
@@ -384,8 +391,8 @@ export const RpcTab = memo(function RpcTab({ tabId, active }: { tabId: string; a
   const [matchIndex, setMatchIndex] = useState(0);
   const [nonce, setNonce] = useState(0);
   const matches = useMemo(
-    () => (query.trim() === "" ? [] : findMatches(items, query)),
-    [items, query],
+    () => (query.trim() === "" ? [] : findMatches(presentation.items, query)),
+    [presentation.items, query],
   );
   const activeId = query.trim() !== "" ? matches[matchIndex] ?? null : null;
 
@@ -544,7 +551,8 @@ export const RpcTab = memo(function RpcTab({ tabId, active }: { tabId: string; a
                     <TranscriptSkeleton />
                   ) : (
                     <TranscriptView
-                      items={items}
+                      items={presentation.items}
+                      deferredArtifacts={presentation.deferred}
                       tabId={tabId}
                       find={
                         searchOpen && activeId !== null

@@ -71,11 +71,11 @@ function artifact(overrides: Partial<ToolItem> = {}): ToolItem {
   };
 }
 
-function render(item: ToolItem, tabId?: string): HTMLElement {
+function render(item: ToolItem, tabId?: string, deferred?: boolean): HTMLElement {
   const host = document.createElement("div");
   document.body.append(host);
   root = createRoot(host);
-  act(() => root!.render(<HtmlArtifactCard item={item} tabId={tabId} />));
+  act(() => root!.render(<HtmlArtifactCard item={item} tabId={tabId} deferred={deferred} />));
   return host;
 }
 
@@ -256,6 +256,12 @@ describe("HtmlArtifactCard surface", () => {
       act(() => root?.unmount());
       root = null;
     }
+  });
+
+  it("holds a deferred artifact as a one-line note with no guest", () => {
+    const host = render(artifact(), undefined, true);
+    expect(host.textContent).toContain("Chart");
+    expect(host.querySelector("webview, iframe")).toBeNull();
   });
 });
 

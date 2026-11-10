@@ -1215,6 +1215,7 @@ const TranscriptRow = memo(function TranscriptRow({
   userPosition,
   replyWrites,
   toolCallFollows,
+  artifactDeferred,
 }: {
   item: RenderItem;
   count: number;
@@ -1229,6 +1230,8 @@ const TranscriptRow = memo(function TranscriptRow({
    *  `tool use` stop-reason tail (round-10 judge, Clarity 1). Ignored by
    *  every other row kind. */
   toolCallFollows: boolean;
+  /** This done render_html card is held until the run's final reply (issue #1141). */
+  artifactDeferred: boolean;
 }) {
   switch (item.kind) {
     case "user":
@@ -1241,7 +1244,7 @@ const TranscriptRow = memo(function TranscriptRow({
         <>
           {/* The four vault write tools get their own card (issue #767); reads, search and list stay generic. */}
           {item.name === HTML_ARTIFACT_TOOL_NAME ? (
-            <HtmlArtifactCard item={item} tabId={tabId} />
+            <HtmlArtifactCard item={item} tabId={tabId} deferred={artifactDeferred} />
           ) : VAULT_WRITE_TOOLS.some((name) => name === item.name) ? (
             <VaultToolCard item={item} tabId={tabId} />
           ) : (
@@ -1296,6 +1299,7 @@ export function TranscriptView({
   items,
   tabId,
   find = null,
+  deferredArtifacts,
 }: {
   items: RenderItem[];
   /** Owns the tab's stream-stall field (issue #228); omitted for the
@@ -1304,6 +1308,9 @@ export function TranscriptView({
   /** In-session find (issue #270): matched ids, the active match, and a jump
    *  nonce. Null closes the wash without touching follow mode. */
   find?: FindState | null;
+  /** Done render_html items held at their call position until the run's
+   *  final reply (lib/artifact-placement). `items` arrive display-ordered. */
+  deferredArtifacts?: ReadonlySet<string>;
 }) {
   const t = useT();
   const scrollRef = useRef<HTMLDivElement>(null);
@@ -1778,6 +1785,7 @@ export function TranscriptView({
                             }
                             replyWrites={replyWrites}
                             toolCallFollows={toolCardFollows.has(item.id)}
+                            artifactDeferred={deferredArtifacts?.has(item.id) === true}
                           />
                         </ErrorBoundary>
                       </div>

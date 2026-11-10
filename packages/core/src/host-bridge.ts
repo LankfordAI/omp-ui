@@ -126,6 +126,7 @@ function renderHtmlTool(artifacts: boolean): RpcHostToolDefinition {
     description:
       "Show the user a self-contained interactive HTML document that sits flush in their transcript at its own content height, with no card chrome around it — like a figure in prose: a chart of results, a sortable table, a dependency graph, a small simulator. " +
       "Use it when a visual explains better than prose; never for plain text. " +
+      "Call it once your work is done, right before your final reply; the transcript shows every figure just above the run's final reply. " +
       "Call directly as its own tool call. Calls made from eval or subagents get no card and cannot be kept. For large datasets, write the JSON to local:// and pass valueFile. " +
       "Body margin is reset and the page background matches the transcript canvas. Do not add a page wrapper background, outer border, or duplicate title heading; lead with the figure. The URL fragment is reserved for height reporting — keep all document state in JS. " +
       (artifacts

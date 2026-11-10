@@ -211,9 +211,10 @@ function ArtifactActions({ item, tabId, title, onResolvedDraft, onHistorical, co
  * bounds; before the first report the requested hint height shows. The expand
  * pill surfaces on hover only, so the artifact owns the space. While the
  * model streams the html, or when the tool refused it, the card shows status
- * and the reason instead of a document.
+ * and the reason instead of a document. While `deferred`, the card shows a
+ * one-line note instead of the document, and mounts no guest and no Keep actions.
  */
-export function HtmlArtifactCard({ item, tabId }: { item: ToolItem; tabId?: string }) {
+export function HtmlArtifactCard({ item, tabId, deferred = false }: { item: ToolItem; tabId?: string; deferred?: boolean }) {
   const t = useT();
   const titleId = useId();
   const parsed = useMemo(() => parseHtmlArtifactArgs(item.args), [item.args]);
@@ -241,6 +242,14 @@ export function HtmlArtifactCard({ item, tabId }: { item: ToolItem; tabId?: stri
     dialog.querySelector<HTMLButtonElement>("button[aria-label]")?.focus();
     return () => { if (dialog.open) dialog.close(); if (opener?.isConnected) opener.focus(); };
   }, [expanded, managed, visible]);
+  if (deferred && shown !== null) {
+    return (
+      <p className="flex items-center gap-1.5 text-xs text-ink-faint animate-rise">
+        <ArtifactGlyph />
+        {t("transcript.artifact.deferred", { title })}
+      </p>
+    );
+  }
   return <>
     {shown !== null && <div className="group relative animate-rise">
       <div style={managed && expanded ? {height: frameHeight} : undefined}>
