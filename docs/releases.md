@@ -6,6 +6,8 @@ This guide explains what users receive from a release and how maintainers publis
 
 Nothing since [v0.34.6](https://github.com/LankfordAI/omp-ui/releases/tag/v0.34.6). Add one bullet per shipped change here, citing its issue as `#N`; the release tag lifts these into Highlights.
 
+- Fixed restarting `omp-ui` or rebooting the computer moving every unsettled owned session into **Settled** — settlement state now persists on disk (`settledAtMs`), so unsettled dormant sessions stay in **Pinned** or the main sidebar list across restarts and resume lazily when opened (#1137).
+
 ## Choose a download
 
 A stable release has exactly five distributable files. Replace `<version>` with the tag version without its leading `v`.
