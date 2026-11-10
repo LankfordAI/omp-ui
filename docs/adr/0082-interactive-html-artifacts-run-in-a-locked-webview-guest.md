@@ -149,3 +149,39 @@ the retained resolved payload. A missing historical managed payload containing
 path later. Existing orphan transcript rows are not deleted by the new admission
 rule. The locked guest and human Keep/Apply boundaries are unchanged.
 
+## Amendment — artifacts show with the run's final reply (2026-11-10, issue #1141)
+
+A completed `omp-ui_render_html` call no longer shows at its call position. It
+moves to directly before the first final reply after it within its segment,
+the span between user items. A final reply is a non-streaming assistant
+message with a recorded stop reason that is not a tool hop (`toolUse`,
+`tool_use`, `tool_calls`), so stop, length, error and aborted all end a run.
+With no such reply, the artifact holds its place as a one-line note while the
+tab is running. Once the segment is settled, because a user item follows or
+the tab stops running, it lands after the segment's last non-ambient item.
+Running, errored and cancelled calls never move, and a placed artifact never
+moves again.
+
+The order is display-only. The renderer computes it in
+`lib/artifact-placement.ts` over the full item list before windowing, and find
+and the transcript share the result. The session file, HostBridge, export and
+Keep are untouched. The tool description nudges the model to call it right
+before its final reply, so most runs already show in call order.
+
+Alternatives rejected:
+
+- Render immediately at the exchange tail. Rows sit inside a Fragment keyed by
+  the run key, the first item id in `buildRuns`. A tail artifact changes runs
+  as items arrive, which remounts and reloads the guest nearly every tick.
+- Group by exchange and hold on `turnActive`. That flag includes `busy`, which
+  is true for any command, so idle model changes and startup would reload the
+  chart. Holding to the exchange end also leaves it unplaced while the
+  exchange is live.
+- Group by agent started/finished markers. `historyToItems` emits no markers,
+  so order would differ after reload.
+- Place below the final reply. The prose usually refers to "the chart above",
+  and runs that already call `omp-ui_render_html` last stay unchanged when it
+  is placed above.
+- Prompt nudge only. It gives no guarantee.
+- Rewrite the session file order. The order is display-only; the stored
+  transcript and model context keep the real call order.

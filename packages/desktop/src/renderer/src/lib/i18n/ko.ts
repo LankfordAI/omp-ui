@@ -395,6 +395,7 @@ export const ko: Partial<Record<MessageKey, string>> = {
   "transcript.tool.stalled": "{duration} 동안 멈춤",
   "transcript.artifact.untitled": "HTML 아티팩트",
   "transcript.artifact.expand": "전체 보기로 확장",
+  "transcript.artifact.deferred": "“{title}” 아티팩트는 최종 답변과 함께 표시됩니다",
   "transcript.tool.stalledTitle":
     "어시스턴트 응답이 열려 있는 동안 모델 스트림 프레임(텍스트, 사고, 도구 호출 인수)이 도착하지 않았습니다. 로컬 도구 실행은 이 타이머를 초기화하지 않습니다.",
   "transcript.tool.writing": "작성 중",
