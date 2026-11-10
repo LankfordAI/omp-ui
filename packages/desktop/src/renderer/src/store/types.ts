@@ -73,7 +73,7 @@ import type {
 } from "@omp-ui/core/types";
 import type { Annotation } from "../lib/annotations";
 import type { DraftSessionReference } from "../lib/session-references";
-import type { ArtifactReference, DraftArtifactReference } from "@omp-ui/core/artifacts";
+import type { ArtifactReference, ArtifactRefreshEntry, DraftArtifactReference } from "@omp-ui/core/artifacts";
 import type { ArtifactReferencesSlice } from "./slices/artifact-references";
 import type { ArtifactsSlice } from "./slices/artifacts";
 import type { DocumentRef } from "../lib/document-context";
@@ -1132,6 +1132,19 @@ export interface SettleUndoEntry {
   }>;
 }
 
+/**
+ * The chip attachments one prompt carries (ADR-0092 collapses the old
+ * positional tail): every wire block behind prose, documents, and images —
+ * annotations (ADR-0077), session references (ADR-0085), artifact grants, and
+ * artifact refresh requests. Sent as one object so a caller names what it has.
+ */
+export interface PromptAttachments {
+  annotations?: Annotation[];
+  references?: SessionReference[];
+  artifactReferences?: ArtifactReference[];
+  refreshes?: ArtifactRefreshEntry[];
+}
+
 export interface UiStore extends SettingsSlice, UpdatesSlice, LabSlice, StatsSlice, FleetSlice, SeanceSlice, UnreadSlice, ArtifactReferencesSlice, ArtifactsSlice {
   state: BackendState | null;
   tabs: TabInfo[];
@@ -1627,18 +1640,16 @@ export interface UiStore extends SettingsSlice, UpdatesSlice, LabSlice, StatsSli
    *  `todo init` when the title is still an omp-ui-generated auto-title;
    *  no-op when any gate (marker, titled, ladder, floor) refuses. */
   refreshAutoTitle(tabId: string): void;
-  /** Sends a prompt; session `references` (ADR-0085) then `annotations`
-   *  (ADR-0077) lead the wire text. False when the tab refused it or omp
-   *  rejected it — the composer returns the draft. */
+  /** Sends a prompt; the artifact refresh block leads the wire text (ADR-0092),
+   *  then session `references` (ADR-0085) and `annotations` (ADR-0077). False
+   *  when the tab refused it or omp rejected it — the composer returns the draft. */
   sendPrompt(
     tabId: string,
     message: string,
     route?: PromptRoute,
     images?: ImageAttachment[],
     docRefs?: DocumentRef[],
-    annotations?: Annotation[],
-    references?: SessionReference[],
-    artifactReferences?: ArtifactReference[],
+    attachments?: PromptAttachments,
   ): Promise<boolean>;
   abortAgent(tabId: string): Promise<void>;
   /** Interrupt-and-replace; false when refused or rejected, like sendPrompt. */
@@ -1647,9 +1658,7 @@ export interface UiStore extends SettingsSlice, UpdatesSlice, LabSlice, StatsSli
     message: string,
     images?: ImageAttachment[],
     docRefs?: DocumentRef[],
-    annotations?: Annotation[],
-    references?: SessionReference[],
-    artifactReferences?: ArtifactReference[],
+    attachments?: PromptAttachments,
   ): Promise<boolean>;
   loadAdvisorDefaults(projectCwd: string, instanceId?: string | null): Promise<void>;
   setSessionAdvisor(
@@ -1678,9 +1687,7 @@ export interface UiStore extends SettingsSlice, UpdatesSlice, LabSlice, StatsSli
     resetAtMs: number,
     images?: ImageAttachment[],
     docRefs?: DocumentRef[],
-    annotations?: Annotation[],
-    references?: SessionReference[],
-    artifactReferences?: ArtifactReference[],
+    attachments?: PromptAttachments,
   ): Promise<boolean>;
   /** Drops the held prompt and restores it into the composer draft (issue #986). */
   cancelHeldPrompt(tabId: string): Promise<void>;

@@ -62,6 +62,8 @@ export interface ArtifactDataSnapshot { dataSnapshotId: string; artifactId: stri
 export interface ArtifactReference { version: 1; referenceId: string; ownerInstanceId: string; artifactId: string; codeRevisionId: string; dataSnapshotId: string; title: string; snapshotAt: string; includeData: boolean; machine: string; manifestUri: string; definitionUri: string; dataUri?: string; createdAt?: string }
 export type DraftArtifactReference = ArtifactReference & { instanceId: string | null };
 export interface ArtifactRefreshRequest { refreshRequestId: string; referenceId: string; artifactId: string; codeRevisionId: string; dataSnapshotId: string; datasetIds: string[]; expectedDatasetHeads: Record<string, string>; targetTabId: string; bound: boolean; lineageDir: string | null; runtimeKey: string | null; sessionId: string | null; createdAt: string; status: "awaiting" | "captured" | "failed" | "interrupted" | "applied"; failure?: {message: string; source: ArtifactSource; recordedAt: string} }
+/** A refresh request riding the prompt wire as a leading block (ADR-0092). */
+export interface ArtifactRefreshEntry { version: 1; refreshRequestId: string; artifactId: string; title: string; datasetIds: string[] }
 export interface ArtifactCaptureDraft { captureId: string; refreshRequestId: string; artifactId: string; codeRevisionId: string; datasets: ArtifactDatasetInput[]; expectedDatasetHeads: Record<string, string>; source: ArtifactSource; createdAt: string }
 export type ArtifactCaptureOutcome = (ArtifactCaptureDraft & {status: "captured"}) | {status: "failed"; refreshRequestId: string; artifactId: string; message: string};
 export interface ArtifactListRequest { cursor?: string; limit?: number; query?: string }

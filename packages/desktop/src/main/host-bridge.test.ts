@@ -7,7 +7,7 @@ import { FLEET_TOOLS, LOCAL_MACHINE_KEY, PLAN_REVIEW_SENTINEL, PLAN_STATUS_KEY, 
 import { HostBridge, HOST_ANSWER_WATCHDOG_MS, type FleetBridgeDeps, type HostBridgeDeps, type VaultBridgeDeps, type VaultTabContext } from "./host-bridge";
 import type { ConfinedPlanRead } from "./plan-file";
 import { ArtifactService } from "./artifact-service";
-import { withArtifactReferenceContext, type ArtifactJson } from "@omp-ui/core";
+import { withArtifactReferenceContext, withArtifactRefreshContext, type ArtifactJson } from "@omp-ui/core";
 import { artifactSourceHash } from "./artifact-source";
 
 const PLAN_ABS = "/sessions/lineage/plan-abc-plan.md";
@@ -392,7 +392,7 @@ describe("artifact direct-call admission", () => {
     const kept = f.service.keep({ draftId: draft.draftId, title: "Rows" });
     const versions = { artifactId: kept.artifactId, codeRevisionId: kept.currentCodeRevisionId, dataSnapshotId: kept.currentDataSnapshotId };
     const refresh = f.service.prepareRefresh({ targetTabId: "t1", ...versions, datasetIds: ["rows"] });
-    f.service.admitPrompt({ tabId: "t1", text: withArtifactReferenceContext(refresh.text, [refresh.reference]) });
+    f.service.admitPrompt({ tabId: "t1", text: withArtifactRefreshContext(withArtifactReferenceContext("Use this context", [refresh.reference]), [{ version: 1 as const, refreshRequestId: refresh.request.refreshRequestId, artifactId: refresh.request.artifactId, title: "T", datasetIds: ["rows"] }]) });
     f.bridge.route("t1", assistantToolFrame("tc-h1", "omp-ui_artifact_capture"), f.send);
     f.bridge.route("t1", toolCallFrame("h1", "omp-ui_artifact_capture", { status, refreshRequestId: refresh.request.refreshRequestId,
       ...(status === "captured" ? { datasets: [bridgeDataset([9])] } : { message: "Source unavailable" }) }), f.send);

@@ -1,6 +1,6 @@
 # Artifact Refresh now runs in a background session
 
-> **Status:** Accepted, 2026-11-09 ([#1132](https://github.com/LankfordAI/omp-ui/issues/1132)). Amends [ADR-0090](0090-session-authored-artifact-library-and-scoped-data.md) §"Human publication and session-mediated refresh".
+> **Status:** Accepted, 2026-11-09 ([#1132](https://github.com/LankfordAI/omp-ui/issues/1132)). Amends [ADR-0090](0090-session-authored-artifact-library-and-scoped-data.md) §"Human publication and session-mediated refresh". The draft-path wording of §5 and of that amendment is further amended by [ADR-0092](0092-artifact-refresh-requests-ride-the-prompt-as-a-parsed-block.md).
 
 Under ADR-0090, refreshing a kept artifact's data took several manual steps. The user picked datasets and a destination; preparation added a reference and an editable request to that session's draft; then the user opened the session and sent it. Choosing a new destination created an unseeded session that sat idle until the user found it. The common case, "fetch this data again the way you did last time", asked for more work than it needed.
 
@@ -31,3 +31,7 @@ ADR-0090 said an explicitly new destination is unseeded and that preparation sen
 - A refresh that needs no steering takes one click. The user reviews the staged capture in the library and applies it.
 - Each Refresh now leaves a session behind. Repeated refreshes accumulate sessions until the user deletes them.
 - A run in the origin project starts in Plan mode, so Plan mode's restrictions apply to the recipe's tools there. A Chat run starts in Build mode in its scratch directory, like every other Chat.
+
+## Amendment: the request is a chip, not prose (2026-11-10, issue #1139)
+
+[ADR-0092](0092-artifact-refresh-requests-ride-the-prompt-as-a-parsed-block.md) amends §5 and the §"Amendment to ADR-0090" wording: preparing against an existing session "adds an editable request" — it now adds a removable reference and a removable refresh chip, structural entries the composer renders and the user removes rather than prose whose editing could corrupt the binding the send depends on. Sending is unchanged: the chip-removed send carries no refresh block, and main's admission refuses a refresh that lost its paired grant instead of silently skipping it. The Refresh-now seed sends the same grammar as its first prompt; captures, Apply's rechecks and the kept run are untouched.

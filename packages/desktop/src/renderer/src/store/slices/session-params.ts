@@ -2,8 +2,8 @@
 // and every per-session parameter command — model, advisor, modes, retry,
 // compaction, plan, todos, refreshes, subagent drill-down.
 import type { ApprovalMode, BackendState, ImageAttachment, ServiceTier, SessionReference } from "@omp-ui/core/types";
-import type { ArtifactReference } from "@omp-ui/core/artifacts";
-import { withArtifactReferenceContext } from "@omp-ui/core/artifact-references";
+import type { ArtifactReference, ArtifactRefreshEntry } from "@omp-ui/core/artifacts";
+import { withArtifactRefreshContext, withArtifactReferenceContext } from "@omp-ui/core/artifact-references";
 import { ADVISOR_STATS_COMMAND } from "@omp-ui/core/advisor-stats";
 import { LIMITS_COMMAND } from "@omp-ui/core/limits";
 import { SESSION_SPEND_COMMAND } from "@omp-ui/core/session-spend";
@@ -117,7 +117,7 @@ import {
 import { supportsNativeLive } from "../../lib/live-voice";
 import { canOpenLivePeer, openLivePeer, type LivePeer } from "../../lib/live-peer";
 import { planReviewText } from "../../lib/plan-review-text";
-import type { CompactionOutcome, RpcTabState, UiStore, WordPredictionFeedback } from "../types";
+import type { CompactionOutcome, PromptAttachments, RpcTabState, UiStore, WordPredictionFeedback } from "../types";
 
 export type SessionParamsSlice = Pick<
   UiStore,
@@ -605,12 +605,13 @@ export function createSessionParamsSlice(
   };
 
   /**
-   * The one wire-text builder every prompt route shares: session references
-   * lead (ADR-0085), annotations follow (ADR-0077), the document block
-   * attaches to the prose (ADR-0044), and the image routing suffix stays
-   * last, preserving stripAttachmentRoutingContext's terminal round-trip.
-   * `imageFiles` are the images' scratch paths on the session's host (issue
-   * #993).
+   * The one wire-text builder every prompt route shares. Block order, outer
+   * to inner (ADR-0092): the artifact refresh block leads, then session
+   * references (ADR-0085), then artifact references, then annotation chips
+   * (ADR-0077) ahead of the prose; the document block attaches to the prose
+   * (ADR-0044) and the image routing suffix stays last, preserving
+   * stripAttachmentRoutingContext's terminal round-trip. `imageFiles` are the
+   * images' scratch paths on the session's host (issue #993).
    */
   const promptWireText = (
     message: string,
@@ -620,14 +621,24 @@ export function createSessionParamsSlice(
     references: readonly SessionReference[] | undefined,
     imageFiles: readonly string[] | undefined,
     artifactReferences: readonly ArtifactReference[] | undefined,
+    refreshes: readonly ArtifactRefreshEntry[] | undefined,
   ): string =>
-    withAttachmentRoutingContext(
-      withDocumentContext(
-        withSessionReferenceContext(withArtifactReferenceContext(withAnnotationContext(message, annotations ?? []), artifactReferences ?? []), references ?? []),
-        docRefs ?? [],
+    withArtifactRefreshContext(
+      withAttachmentRoutingContext(
+        withDocumentContext(
+          withSessionReferenceContext(
+            withArtifactReferenceContext(
+              withAnnotationContext(message, annotations ?? []),
+              artifactReferences ?? [],
+            ),
+            references ?? [],
+          ),
+          docRefs ?? [],
+        ),
+        images?.length ?? 0,
+        imageFiles,
       ),
-      images?.length ?? 0,
-      imageFiles,
+      refreshes ?? [],
     );
 
   /**
@@ -646,6 +657,22 @@ export function createSessionParamsSlice(
       // the exact reference block as recoverable draft prose, never discard it.
       if (references.length > 0) get().queueComposerText(tabId, withArtifactReferenceContext("", references));
     }
+  };
+  /**
+   * A withdrawn prompt's refresh entries return as removable chips (ADR-0092).
+   * Unlike grants there is NO prose-dump fallback: a refresh block re-wrapped
+   * into mid-message prose lands non-leading and silently unbinds at admission,
+   * so an entry that cannot come back as a chip is dropped with a visible warn.
+   * A legacy request (pre-ADR-0092 terminal form) has no restorable entry
+   * shape at all — it too can only be announced as dropped.
+   */
+  const restoreQueuedRefreshes = (
+    tabId: string,
+    refreshes: readonly ArtifactRefreshEntry[],
+    legacyRefreshRequestId: string | null,
+  ): void => {
+    if (!get().restoreArtifactRefreshes(tabId, refreshes) || legacyRefreshRequestId !== null)
+      get().appendNotice(tabId, t("artifacts.refreshRestoreDropped"), "warn");
   };
   const admitArtifactReferences = (tabId: string, references: readonly ArtifactReference[] | undefined): boolean => {
     if (!references?.length) return true;
@@ -683,11 +710,13 @@ export function createSessionParamsSlice(
     route: PromptRoute = "steer",
     images?: ImageAttachment[],
     docRefs?: DocumentRef[],
-    annotations?: Annotation[],
-    references?: SessionReference[],
-    artifactReferences?: ArtifactReference[],
+    attachments?: PromptAttachments,
   ): Promise<boolean> => {
     if (!m.acceptsCommands(tabId)) return false;
+    const annotations = attachments?.annotations;
+    const references = attachments?.references;
+    const artifactReferences = attachments?.artifactReferences;
+    const refreshes = attachments?.refreshes;
     if (!admitArtifactReferences(tabId, artifactReferences)) return false;
     if (route === "advisor_reply" || route === "stall_continue") {
       // omp-ui's own prompt (a late-review answer, a stall continue): it
@@ -714,12 +743,15 @@ export function createSessionParamsSlice(
         ? "followUp"
         : "steer";
     const imageFiles = images?.length ? await materializeImages(tabId, images) : undefined;
-    const wireMessage = promptWireText(message, images, docRefs, annotations, references, imageFiles, artifactReferences);
+    const wireMessage = promptWireText(message, images, docRefs, annotations, references, imageFiles, artifactReferences, refreshes);
     const cmd = { type: "prompt" as const, message: wireMessage, streamingBehavior };
     // `images` is omitted entirely when empty: omp's own client sends no key
     // rather than an empty array, and every byte here is on one JSON line.
     const response = await m.runCommand(tabId, images?.length ? { ...cmd, images } : cmd);
-    if (response !== null) get().clearArtifactReferences(tabId, artifactReferences ?? []);
+    if (response !== null) {
+      get().clearArtifactReferences(tabId, artifactReferences ?? []);
+      get().clearArtifactRefreshes(tabId, refreshes ?? []);
+    }
     // The early title shot does NOT ride the ack: the ack pre-dates omp
     // committing the user message to history, so `/rename` dispatched here
     // finds an empty digest and declines (issue #795). The reducer fires it
@@ -746,11 +778,12 @@ export function createSessionParamsSlice(
       // Staging rides the existing composerQueue drain — the identical
       // plumbing rewind's edit-resend uses and the browser pane's hand-back.
       for (const entry of [...restored.steering, ...restored.followUp]) {
-        const { text, documents, annotations, references, artifactReferences } = splitQueuedWireText(entry.text);
+        const { text, documents, annotations, references, artifactReferences, refreshes, legacyRefreshRequestId } = splitQueuedWireText(entry.text);
         if (text !== "") get().queueComposerText(tabId, text);
         get().queueComposerAnnotations(tabId, annotations);
         get().queueComposerReferences(tabId, ownedReferences(tabId, references));
         restoreArtifactReferences(tabId, artifactReferences);
+        restoreQueuedRefreshes(tabId, refreshes, legacyRefreshRequestId);
         for (const image of entry.images)
           get().queueComposerAttachment(tabId, image, "");
         // Path-only re-attach: zero re-upload; a swept scratch file fails at
@@ -777,11 +810,13 @@ export function createSessionParamsSlice(
     message: string,
     images?: ImageAttachment[],
     docRefs?: DocumentRef[],
-    annotations?: Annotation[],
-    references?: SessionReference[],
-    artifactReferences?: ArtifactReference[],
+    attachments?: PromptAttachments,
   ): Promise<boolean> => {
     if (!m.acceptsCommands(tabId)) return false;
+    const annotations = attachments?.annotations;
+    const references = attachments?.references;
+    const artifactReferences = attachments?.artifactReferences;
+    const refreshes = attachments?.refreshes;
     if (!admitArtifactReferences(tabId, artifactReferences)) return false;
     set((state) => ({ handedOffFor: dropPlanHandoff(state.handedOffFor, tabId) }));
     get().setInitialPrompt(tabId, message);
@@ -789,14 +824,17 @@ export function createSessionParamsSlice(
     stallContinueWatcher.reset(tabId);
     const type = "abort_and_prompt";
     const imageFiles = images?.length ? await materializeImages(tabId, images) : undefined;
-    const wireMessage = promptWireText(message, images, docRefs, annotations, references, imageFiles, artifactReferences);
+    const wireMessage = promptWireText(message, images, docRefs, annotations, references, imageFiles, artifactReferences, refreshes);
     // The title shot rides the user message's `message_start` in the
     // reducer, same as `sendPrompt` (issue #795).
     const response = await m.runCommand(
       tabId,
       images?.length ? { type, message: wireMessage, images } : { type, message: wireMessage },
     );
-    if (response !== null) get().clearArtifactReferences(tabId, artifactReferences ?? []);
+    if (response !== null) {
+      get().clearArtifactReferences(tabId, artifactReferences ?? []);
+      get().clearArtifactRefreshes(tabId, refreshes ?? []);
+    }
     return response !== null;
   };
 
@@ -924,16 +962,18 @@ export function createSessionParamsSlice(
     resetAtMs: number,
     images: ImageAttachment[] = [],
     docRefs: DocumentRef[] = [],
-    annotations: Annotation[] = [],
-    references: SessionReference[] = [],
-    artifactReferences: ArtifactReference[] = [],
+    attachments?: PromptAttachments,
   ): Promise<boolean> => {
+    const annotations = attachments?.annotations ?? [];
+    const references = attachments?.references ?? [];
+    const artifactReferences = attachments?.artifactReferences ?? [];
+    const refreshes = attachments?.refreshes ?? [];
     if (!admitArtifactReferences(tabId, artifactReferences)) return false;
     // Send at reset (issue #986): the owning host keeps the prompt — tab-routed,
     // so a remote session's prompt waits on its host — and sends it with the
     // same wire text sendPrompt would have built.
     const imageFiles = images.length ? await materializeImages(tabId, images) : undefined;
-    const text = promptWireText(message, images, docRefs, annotations, references, imageFiles, artifactReferences);
+    const text = promptWireText(message, images, docRefs, annotations, references, imageFiles, artifactReferences, refreshes);
     try {
       await backend.holdPrompt(tabId, {
         text,
@@ -943,6 +983,7 @@ export function createSessionParamsSlice(
         resetAtMs,
       });
       get().clearArtifactReferences(tabId, artifactReferences);
+      get().clearArtifactRefreshes(tabId, refreshes);
       return true;
     } catch (err) {
       get().reportError(err);
@@ -955,11 +996,12 @@ export function createSessionParamsSlice(
       if (payload === null) return;
       // Back into the draft by the queue-restore path (#776): prose, then the
       // documents its block names, then the images.
-      const { text, documents, annotations, references, artifactReferences } = splitQueuedWireText(payload.text);
+      const { text, documents, annotations, references, artifactReferences, refreshes, legacyRefreshRequestId } = splitQueuedWireText(payload.text);
       if (text !== "") get().queueComposerText(tabId, text);
       get().queueComposerAnnotations(tabId, annotations);
       get().queueComposerReferences(tabId, ownedReferences(tabId, references));
       restoreArtifactReferences(tabId, artifactReferences);
+      restoreQueuedRefreshes(tabId, refreshes, legacyRefreshRequestId);
       for (const image of payload.images) get().queueComposerAttachment(tabId, image, "");
       for (const doc of documents)
         get().queueComposerDocument(tabId, { type: "document", mimeType: DOCUMENT_MIME, name: doc.name, path: doc.path }, "");
@@ -1178,11 +1220,12 @@ export function createSessionParamsSlice(
       void get().refreshState(tabId);
       return;
     }
-    const { text, documents, annotations, references, artifactReferences } = splitQueuedWireText(message);
+    const { text, documents, annotations, references, artifactReferences, refreshes, legacyRefreshRequestId } = splitQueuedWireText(message);
     if (text !== "") get().queueComposerText(tabId, text);
     get().queueComposerAnnotations(tabId, annotations);
     get().queueComposerReferences(tabId, ownedReferences(tabId, references));
     restoreArtifactReferences(tabId, artifactReferences);
+    restoreQueuedRefreshes(tabId, refreshes, legacyRefreshRequestId);
     for (const image of projectImages(arrField(data, "images")))
       get().queueComposerAttachment(tabId, image, "");
     for (const doc of documents)
@@ -2107,6 +2150,7 @@ export function createSessionParamsSlice(
       annotations: clicked.annotations ?? [],
       references: clicked.references ?? [],
       artifactReferences: clicked.artifactReferences ?? [],
+      artifactRefreshes: clicked.artifactRefreshes ?? [],
     });
     get().stageLifecycleConfirmation({
       kind: "rewind",
@@ -2239,6 +2283,10 @@ export function createSessionParamsSlice(
         get().queueComposerAnnotations(tabId, source.annotations ?? []);
         get().queueComposerReferences(tabId, ownedReferences(tabId, source.references ?? []));
         restoreArtifactReferences(tabId, source.artifactReferences ?? []);
+        // ADR-0092's preserve invariant: a refresh entry belongs to the tab it
+        // was prepared against, and edit-and-resend replays on that same tab —
+        // so re-attaching each is legal. No prose fallback (see above).
+        for (const entry of source.artifactRefreshes ?? []) get().attachArtifactRefresh(tabId, entry);
         for (const image of source.images)
           void get().queueComposerAttachment(tabId, { type: "image", ...image }, "");
         // Path-only re-attach: zero re-upload; a swept file fails at send

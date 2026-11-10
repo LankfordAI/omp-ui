@@ -75,8 +75,11 @@ export function StashPalette({
         <span className="ml-auto text-xs text-ink-faint">{t("composer.stash.keys")}</span>
       </div>
       {drafts.map((draft, i) => {
-        const preview = draft.text.trim().split("\n")[0] || draft.artifactReferences?.map(reference => `@ ${reference.title}`).join(", ") || draft.references?.map(reference => `@ ${reference.title}`).join(", ") || "";
-        const attached = draft.images.length + draft.documents.length + draft.annotations.length + (draft.references?.length ?? 0) + (draft.artifactReferences?.length ?? 0);
+        // Refresh lines lead the preview (queue-chip vocabulary), then the text or
+        // the chip fallbacks; a refresh-only draft still previews one line.
+        const headline = draft.text.trim().split("\n")[0] || draft.artifactReferences?.map(reference => `@ ${reference.title}`).join(", ") || draft.references?.map(reference => `@ ${reference.title}`).join(", ") || "";
+        const preview = [...(draft.artifactRefreshes ?? []).map(entry => `↻ ${entry.title}`), headline].filter(line => line !== "").join(" ");
+        const attached = draft.images.length + draft.documents.length + draft.annotations.length + (draft.references?.length ?? 0) + (draft.artifactReferences?.length ?? 0) + (draft.artifactRefreshes?.length ?? 0);
         return (
           <div
             key={draft.id}

@@ -10,7 +10,7 @@ import {
   type ArtifactReferenceRequest, type ArtifactPrepareRefreshRequest, type ArtifactApplyCaptureRequest,
   type ArtifactDeleteRequest, type ArtifactResolveSourceRequest, type ArtifactLibraryChanged,
 } from "@omp-ui/core";
-import { parseArtifactReferenceUri, parseArtifactPromptReferences } from "@omp-ui/core";
+import { parseArtifactReferenceUri, parseArtifactPromptReferences, splitArtifactRefreshContext } from "@omp-ui/core";
 import { artifactSourceHash, readHistoricalArtifactSource } from "./artifact-source";
 import { resolveArtifactLocalRoot } from "./artifact-dataset-file";
 
@@ -283,8 +283,7 @@ export class ArtifactService {
     this.target(request.targetTabId);
     const refresh = this.humanMutation(store => store.prepareRefresh({ ...request, includeData: true }));
     const reference = this.storage().readReference({ referenceId: refresh.referenceId });
-    const text = `Refresh the requested datasets for this accepted artifact in this ordinary session. Read the reference manifest and exact provenance first; collect only datasets ${refresh.datasetIds.join(", ")} using their recorded recipes and report exact credential-free provenance. Stage results with omp-ui_artifact_capture; never apply or change code.\n\n<artifact refresh>\nrefresh-request: ${refresh.refreshRequestId}\n</artifact refresh>`;
-    return { request: refresh, reference, text };
+    return { request: refresh, reference };
   }
   applyCapture(request: ArtifactApplyCaptureRequest) { const value = this.humanMutation(store => store.applyCapture(request)); this.publish([value.artifactId], "changed"); return value; }
   discardDraft(request: { draftId: string }) { this.humanMutation(store => store.discardDraft(request)); this.publish([request.draftId], "changed"); }
@@ -293,10 +292,11 @@ export class ArtifactService {
     const reference = this.storage().readReference({ referenceId });
     if (reference.ownerInstanceId !== target.ownerInstanceId) throw new ArtifactError("unavailable", "Foreign artifact reference");
   }
-  /** Preflight never binds a dormant destination; only actual send rails do. */
+  /** Preflight never binds a dormant destination; only actual send rails do. ADR-0092 admits only leading refresh and reference blocks; a leading refresh without its paired grant reaches the pairing check and throws. */
   admitPrompt(request: { tabId: string; text: string; bindRefresh?: boolean }): void {
     const references = parseArtifactPromptReferences(request.text);
-    if (references.length === 0) return;
+    const refreshes = splitArtifactRefreshContext(request.text).refreshes;
+    if (references.length === 0 && refreshes.length === 0) return;
     const target = this.target(request.tabId); const epoch = this.epoch;
     const store = this.storage();
     const ids: string[] = [];
@@ -311,18 +311,16 @@ export class ArtifactService {
       }
       ids.push(actual.referenceId);
     }
-    const refreshIds = [...request.text.matchAll(/(?:^|\n)<artifact refresh>\nrefresh-request: ([0-9a-f-]+)\n<\/artifact refresh>(?=\n|$)/g)].map(match => match[1]!);
     this.run(this.authorizer(request.tabId, target, epoch), () => {
-      for (const refreshRequestId of refreshIds) {
-        assertArtifactUuid(refreshRequestId);
-        const refresh = store.readRefresh({ refreshRequestId });
+      for (const entry of refreshes) {
+        const refresh = store.readRefresh({ refreshRequestId: entry.refreshRequestId });
         if (!ids.includes(refresh.referenceId) || refresh.targetTabId !== request.tabId ||
             (refresh.bound && (refresh.lineageDir !== target.lineageDir ||
               (refresh.sessionId !== null && refresh.sessionId !== target.sessionId))))
           throw new ArtifactError("unavailable", "Refresh must carry its exact data reference and destination");
         if (request.bindRefresh !== false) {
           if (target.runtimeKey === null) throw new ArtifactError("unavailable", "Refresh delivery requires its owning native runtime");
-          store.bindRefresh({ refreshRequestId, targetTabId: request.tabId, lineageDir: target.lineageDir, runtimeKey: target.runtimeKey, sessionId: target.sessionId });
+          store.bindRefresh({ refreshRequestId: entry.refreshRequestId, targetTabId: request.tabId, lineageDir: target.lineageDir, runtimeKey: target.runtimeKey, sessionId: target.sessionId });
         }
       }
     });

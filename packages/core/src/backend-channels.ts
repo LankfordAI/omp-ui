@@ -332,7 +332,7 @@ export const BACKEND_CHANNELS = {
   artifactKeep: { channel: "artifacts:keep", ...request<[input: ArtifactKeepRequest], ArtifactRecord>([artifactKeepCodec]) },
   artifactAcceptRevision: { channel: "artifacts:acceptRevision", ...request<[input: ArtifactAcceptRevisionRequest], ArtifactRecord>([artifactAcceptCodec]) },
   artifactReference: { channel: "artifacts:reference", ...request<[input: ArtifactReferenceRequest], ArtifactReference>([artifactReferenceCodec]) },
-  artifactPrepareRefresh: { channel: "artifacts:prepareRefresh", ...request<[input: Omit<ArtifactPrepareRefreshRequest, "sessionId" | "includeData">], {request: ArtifactRefreshRequest; reference: ArtifactReference; text: string}>([artifactRefreshCodec]) },
+  artifactPrepareRefresh: { channel: "artifacts:prepareRefresh", ...request<[input: Omit<ArtifactPrepareRefreshRequest, "sessionId" | "includeData">], {request: ArtifactRefreshRequest; reference: ArtifactReference}>([artifactRefreshCodec]) },
   artifactApplyCapture: { channel: "artifacts:applyCapture", ...request<[input: ArtifactApplyCaptureRequest], ArtifactRecord>([artifactApplyCodec]) },
   artifactDiscardDraft: { channel: "artifacts:discardDraft", ...request<[input: {draftId: string}], void>([artifactDiscardCodec]) },
   artifactDelete: { channel: "artifacts:delete", ...request<[input: ArtifactDeleteRequest], void>([artifactDeleteCodec]) },

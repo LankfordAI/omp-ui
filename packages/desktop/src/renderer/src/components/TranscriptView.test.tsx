@@ -1366,57 +1366,59 @@ describe("in-session find (issue #270)", () => {
   });
 });
 
+/** A live, locally-owned rpc-ui record and runtime for `tabId`; the rewind
+ *  affordances and the artifact-library gate both read this shape. */
+function liveRpcState(status: "ready" | "running" = "ready", tabId = "tab-rewind", artifactLibraryEnabled = false): void {
+  const record = {
+    tabId,
+    sessionId: "s",
+    lineageDir: "d",
+    projectCwd: "/p",
+    launchedAt: "t",
+    mode: "rpc-ui" as const,
+    worktree: null,
+    planImplementationSource: null,
+    experiment: null,
+    fleet: null,
+    agentMode: "plan" as const,
+    compactionMethod: null,
+    approvalMode: null,
+    serviceTier: null,
+    model: null,
+    thinkingLevel: null,
+    advisor: false,
+    advisorModel: null,
+    subagentModels: null,
+    proposedPlans: [],
+    autoTitled: false,
+    snoozed: false,
+    snoozedUntilMs: null,
+    pinnedAtMs: null,
+    settledAtMs: null,
+    heldPrompt: null,
+    scheduledPrompt: null,
+    pullRequests: [],
+    autoSettleOnMerge: null,
+    private: false,
+    chat: false,
+    askSource: null,
+    cachedTitle: null,
+    cachedModified: null,
+    title: "t",
+    status: null,
+    live: "live" as const,
+    pendingPlan: null,
+    planSettle: null,
+    streamStalled: false,
+  };
+  useStore.setState({
+    state: { ...backendState({ artifactLibraryEnabled }), projects: [{ project: { path: "/p", name: "p", addedAt: "t", lastModel: null, lastThinkingLevel: null, lastAdvisor: null, lastAdvisorModel: null, defaultModel: null, defaultAdvisorModel: null, browserClock: false, councilRoster: null, knowledgeHome: null, repositoryKey: null, icon: null }, sessions: [record] }] },
+    rpc: { [tabId]: rpcTabState({ status }) },
+  });
+}
+
 describe("rewind affordances (issue #680)", () => {
   const TAB = "tab-rewind";
-
-  function liveRpcState(status: "ready" | "running" = "ready"): void {
-    const record = {
-      tabId: TAB,
-      sessionId: "s",
-      lineageDir: "d",
-      projectCwd: "/p",
-      launchedAt: "t",
-      mode: "rpc-ui" as const,
-      worktree: null,
-      planImplementationSource: null,
-      experiment: null,
-      fleet: null,
-      agentMode: "plan" as const,
-      compactionMethod: null,
-      approvalMode: null,
-      serviceTier: null,
-      model: null,
-      thinkingLevel: null,
-      advisor: false,
-      advisorModel: null,
-      subagentModels: null,
-      proposedPlans: [],
-      autoTitled: false,
-      snoozed: false,
-      snoozedUntilMs: null,
-      pinnedAtMs: null,
-      settledAtMs: null,
-      heldPrompt: null,
-      scheduledPrompt: null,
-      pullRequests: [],
-      autoSettleOnMerge: null,
-      private: false,
-      chat: false,
-      askSource: null,
-      cachedTitle: null,
-      cachedModified: null,
-      title: "t",
-      status: null,
-      live: "live" as const,
-      pendingPlan: null,
-      planSettle: null,
-      streamStalled: false,
-    };
-    useStore.setState({
-      state: { ...backendState(), projects: [{ project: { path: "/p", name: "p", addedAt: "t", lastModel: null, lastThinkingLevel: null, lastAdvisor: null, lastAdvisorModel: null, defaultModel: null, defaultAdvisorModel: null, browserClock: false, councilRoster: null, knowledgeHome: null, repositoryKey: null, icon: null }, sessions: [record] }] },
-      rpc: { [TAB]: rpcTabState({ status }) },
-    });
-  }
 
   function rewindButton(el: HTMLElement, label: string): HTMLButtonElement | undefined {
     return [...el.querySelectorAll("button")].find(
@@ -1937,5 +1939,68 @@ describe("shell truncation provenance", () => {
     expect(el.querySelector("p")).toBeNull();
     expect(el.querySelector("pre")?.textContent).toBe("hello");
     act(() => root.unmount());
+  });
+});
+
+describe("artifact refresh cards (issue #1139)", () => {
+  const TAB = "tab-refresh";
+  const entry = { version: 1 as const, refreshRequestId: "11111111-1111-4111-8111-111111111111", artifactId: "22222222-2222-4222-8222-222222222222", title: "Budget", datasetIds: ["rows", "totals"] };
+  const user = (extra: Record<string, unknown>): RenderItem => ({ kind: "user", id: "u1", text: "go", ...extra });
+
+  afterEach(() => {
+    useStore.setState({ state: null, rpc: {} });
+  });
+
+  it("renders one card row per refresh entry plus the legacy marker", () => {
+    const { el, root } = render([user({ artifactRefreshes: [entry, { ...entry, refreshRequestId: "33333333-3333-4333-8333-333333333333", title: "Roster", datasetIds: [] }] })], TAB);
+    const text = el.textContent!;
+    expect((text.match(new RegExp(t("artifacts.refreshRequested"), "g")) ?? []).length).toBe(2);
+    expect(text).toContain("Budget");
+    expect(text).toContain("Roster");
+    const datasetsLine = t("artifacts.refreshRequestedDatasets", { datasets: "rows, totals" });
+    expect(text).toContain(datasetsLine);
+    // The second entry has no datasets: only the one datasets line exists.
+    expect(text.split(datasetsLine).length - 1).toBe(1);
+    // The uuid never rides the body text.
+    expect(text).not.toContain(entry.refreshRequestId);
+    act(() => root.unmount());
+  });
+
+  it("renders a legacy marker row without datasets or link", () => {
+    liveRpcState("ready", TAB, true);
+    const { el, root } = render([user({ legacyArtifactRefresh: { refreshRequestId: entry.refreshRequestId } })], TAB);
+    expect(el.textContent).toContain(t("artifacts.refreshRequested"));
+    expect(el.textContent).not.toContain(t("artifacts.openLibrary"));
+    expect(el.querySelector(`[title*="${entry.refreshRequestId}"]`)).not.toBeNull();
+    act(() => root.unmount());
+  });
+
+  it("offers the library link only on a locally-owned rpc-ui tab with the library enabled", () => {
+    const openArtifacts = vi.fn();
+    liveRpcState("ready", TAB, true);
+    const owned = render([user({ artifactRefreshes: [entry] })], TAB);
+    expect(owned.el.textContent).toContain(t("artifacts.openLibrary"));
+    act(() => owned.root.unmount());
+
+    // Library off: no link.
+    liveRpcState("ready", TAB, false);
+    const off = render([user({ artifactRefreshes: [entry] })], TAB);
+    expect(off.el.textContent).not.toContain(t("artifacts.openLibrary"));
+    act(() => off.root.unmount());
+
+    // Foreign (remote-owned) tab: no library to open.
+    useStore.setState({ state: remoteOwnedState(TAB, "box-a"), rpc: { [TAB]: rpcTabState() } });
+    const foreign = render([user({ artifactRefreshes: [entry] })], TAB);
+    expect(foreign.el.textContent).not.toContain(t("artifacts.openLibrary"));
+    act(() => foreign.root.unmount());
+
+    // The owned link opens the artifact's Data panel.
+    liveRpcState("ready", TAB, true);
+    useStore.setState({ openArtifacts });
+    const linked = render([user({ artifactRefreshes: [entry] })], TAB);
+    const button = [...linked.el.querySelectorAll("button")].find((b) => b.textContent === t("artifacts.openLibrary"));
+    act(() => button!.click());
+    expect(openArtifacts).toHaveBeenCalledWith({ artifactId: entry.artifactId, panel: "data" });
+    act(() => linked.root.unmount());
   });
 });

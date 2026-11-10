@@ -51,6 +51,7 @@ import { VaultToolCard } from "./VaultToolCard";
 import { HtmlArtifactCard } from "./HtmlArtifactCard";
 import { ArtifactReferenceChips } from "./ArtifactReferenceChips";
 import { ArtifactCaptureTranscriptCard, ArtifactCaptureFailure } from "./artifacts/ArtifactCaptureCard";
+import { ArtifactRefreshCard } from "./artifacts/ArtifactRefreshCard";
 import { VAULT_WRITE_TOOLS } from "@omp-ui/core/vault-shared";
 import { HTML_ARTIFACT_TOOL_NAME } from "@omp-ui/core/html-artifact";
 import { SelectionContextMenu } from "./SelectionContextMenu";
@@ -542,6 +543,8 @@ function UserBubble({
       >
         {references.length > 0 && <SessionReferenceChips references={references} align="end" />}
         {(item.artifactReferences?.length ?? 0) > 0 && <ArtifactReferenceChips references={item.artifactReferences!} align="end" />}
+        {(item.artifactRefreshes?.length ?? 0) > 0 && item.artifactRefreshes!.map((entry) => <ArtifactRefreshCard key={entry.refreshRequestId} entry={entry} tabId={tabId} />)}
+        {item.legacyArtifactRefresh !== undefined && <ArtifactRefreshCard entry={item.legacyArtifactRefresh} tabId={tabId} />}
         {annotations.length > 0 && <AnnotationChips annotations={annotations} align="end" />}
         {draft === null ? (
           item.text !== "" && <Markdown text={item.text} />

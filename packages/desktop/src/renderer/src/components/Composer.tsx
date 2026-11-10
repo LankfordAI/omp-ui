@@ -41,6 +41,7 @@ import { StashPalette, type StashPaletteHandle } from "./StashPalette";
 import { AnnotationChips } from "./AnnotationChips";
 import { SessionReferenceChips } from "./SessionReferenceChips";
 import { ArtifactReferenceChips } from "./ArtifactReferenceChips";
+import { ArtifactRefreshChips } from "./ArtifactRefreshChips";
 import { useArtifactDraft } from "../lib/use-artifact-draft";
 import { ARTIFACT_DRAG_MIME, parseArtifactDrag } from "../lib/artifact-drag";
 import { SESSION_DRAG_EFFECT, SESSION_DRAG_MIME } from "../lib/session-drag";
@@ -303,8 +304,7 @@ export function Composer({
     dismiss: dismissUnconfirmedText,
     beginSubmission,
   }] = useComposerText(tabId);
-  const appendArtifactText = useCallback((value: string) => setText(current => current === "" ? value : `${current}\n\n${value}`), [setText]);
-  const { references: artifactReferences, dropReference: dropArtifactReference, clearReferences: clearArtifactReferences } = useArtifactDraft(tabId, appendArtifactText);
+  const { references: artifactReferences, dropReference: dropArtifactReference, clearReferences: clearArtifactReferences, refreshes: artifactRefreshes, dropRefresh: dropArtifactRefresh, clearRefreshes: clearArtifactRefreshes } = useArtifactDraft(tabId);
   const artifactLibraryEnabled = useStore(state => state.state?.artifactLibraryEnabled === true);
   const [mentionArtifacts, setMentionArtifacts] = useState<ArtifactRecord[]>([]);
   /**
@@ -733,7 +733,7 @@ export function Composer({
           payload.length === 0 &&
           documents.length === 0 &&
           annotations.length === 0 &&
-          references.length === 0 && artifactReferences.length === 0) ||
+          references.length === 0 && artifactReferences.length === 0 && artifactRefreshes.length === 0) ||
         unavailable ||
         converting ||
         moving !== null
@@ -794,7 +794,7 @@ export function Composer({
           return;
         }
       }
-      if (!message.startsWith("/") && artifactReferences.length > 0 && !artifactLibraryEnabled) {
+      if (!message.startsWith("/") && (artifactReferences.length > 0 || artifactRefreshes.length > 0) && !artifactLibraryEnabled) {
         appendNotice(tabId, t("artifacts.reference.disabled"), "warn");
         return;
       }
@@ -830,7 +830,7 @@ export function Composer({
         }
       }
       if (atReset) {
-        if (!(await holdPrompt(tabId, message, resetAtMs!, payload, docRefs, annotations, references, artifactReferences))) return;
+        if (!(await holdPrompt(tabId, message, resetAtMs!, payload, docRefs, { annotations, references, artifactReferences, refreshes: artifactRefreshes }))) return;
       }
       // Retain text before clearing; only the host's accepted handoff retires it.
       const completeSubmission = atReset || message.startsWith("/") ? null : beginSubmission(draftText);
@@ -872,8 +872,8 @@ export function Composer({
       if (atReset) return;
       const accepted =
         route === "interrupt"
-          ? await abortAndPrompt(tabId, message, payload, docRefs, annotations, references, artifactReferences)
-          : await sendPrompt(tabId, message, route, payload, docRefs, annotations, references, artifactReferences);
+          ? await abortAndPrompt(tabId, message, payload, docRefs, { annotations, references, artifactReferences, refreshes: artifactRefreshes })
+          : await sendPrompt(tabId, message, route, payload, docRefs, { annotations, references, artifactReferences, refreshes: artifactRefreshes });
       completeSubmission?.(accepted);
       if (!accepted) {
         // Refused or rejected (runCommand already reported why): the draft
@@ -893,7 +893,7 @@ export function Composer({
       documents,
       annotations,
       references,
-      artifactReferences, artifactLibraryEnabled, appendNotice, t,
+      artifactReferences, artifactRefreshes, artifactLibraryEnabled, appendNotice, t,
       addImages,
       addDocuments,
       addAnnotations,
@@ -937,7 +937,7 @@ export function Composer({
         images.length === 0 &&
         documents.length === 0 &&
         annotations.length === 0 &&
-        references.length === 0 && artifactReferences.length === 0) ||
+        references.length === 0 && artifactReferences.length === 0 && artifactRefreshes.length === 0) ||
       message.startsWith("/") ||
       message.startsWith("!") ||
       unavailable ||
@@ -945,7 +945,13 @@ export function Composer({
       moving !== null
     )
       return;
-    if (artifactReferences.length > 0 && !artifactLibraryEnabled) { appendNotice(tabId, t("artifacts.reference.disabled"), "warn"); return; }
+    if ((artifactReferences.length > 0 || artifactRefreshes.length > 0) && !artifactLibraryEnabled) { appendNotice(tabId, t("artifacts.reference.disabled"), "warn"); return; }
+    if (artifactRefreshes.length > 0) {
+      // A refresh request belongs to the tab it was prepared for (ADR-0092):
+      // a background session never takes it. Drop it with a visible notice.
+      appendNotice(tabId, t("artifacts.refreshMovedDropped"), "warn");
+      clearArtifactRefreshes();
+    }
     const draft = { text, images, documents, annotations, references, artifactReferences };
     const worktree =
       workspace.mode === "worktree"
@@ -1011,7 +1017,7 @@ export function Composer({
     documents,
     annotations,
     references,
-    artifactReferences, artifactLibraryEnabled, appendNotice, t, clearArtifactReferences,
+    artifactReferences, artifactRefreshes, artifactLibraryEnabled, appendNotice, t, clearArtifactReferences, clearArtifactRefreshes,
     unprompted,
     chat,
     record,
@@ -1111,7 +1117,7 @@ export function Composer({
   };
 
   const draftEmpty =
-    text === "" && images.length === 0 && documents.length === 0 && annotations.length === 0 && references.length === 0 && artifactReferences.length === 0;
+    text === "" && images.length === 0 && documents.length === 0 && annotations.length === 0 && references.length === 0 && artifactReferences.length === 0 && artifactRefreshes.length === 0;
   useEffect(() => {
     if (!draftEmpty || unavailable) setStashOpen(false);
   }, [draftEmpty, unavailable]);
@@ -1131,7 +1137,7 @@ export function Composer({
       return;
     }
     stashing.current = true;
-    const draft = { text, images, documents, annotations, references, artifactReferences };
+    const draft = { text, images, documents, annotations, references, artifactReferences, artifactRefreshes, artifactRefreshTabId: tabId };
     recall.current = null;
     setText("");
     clearDraft();
@@ -1147,6 +1153,7 @@ export function Composer({
       );
       await stashDraft({ ...draft, documents: owned });
       clearArtifactReferences(draft.artifactReferences);
+      clearArtifactRefreshes();
     } catch (err) {
       setText((current) => (current === "" ? draft.text : current));
       addImages(draft.images);
@@ -1167,6 +1174,12 @@ export function Composer({
     if (candidate === undefined) return;
     const foreign = candidate.artifactReferences?.find(reference => reference.instanceId !== instanceId);
     if (foreign !== undefined) { appendNotice(tabId, t("artifacts.reference.wrongMachine", { machine: foreign.machine }), "warn"); return; }
+    // A refresh request is bound to the tab it was prepared for (ADR-0092):
+    // it never travels with a stashed draft, so the whole draft stays put.
+    if (candidate.artifactRefreshes?.length && candidate.artifactRefreshTabId !== tabId) {
+      appendNotice(tabId, t("artifacts.refreshStashRefused"), "warn");
+      return;
+    }
     // Taking a stash is destructive. Reject a foreign or over-limit merge
     // first, and restore exact grants rather than replacing same-version IDs.
     if (candidate.artifactReferences?.length && !useStore.getState().canRestoreArtifactReferences(tabId, candidate.artifactReferences)) return;
@@ -1176,12 +1189,14 @@ export function Composer({
     if (draft.artifactReferences?.length && !useStore.getState().restoreArtifactReferences(tabId, draft.artifactReferences)) {
       // Ownership changed while IndexedDB removed the stash: keep the whole
       // draft available rather than attaching another machine's grants here.
-      await stashDraft({ text: draft.text, images: draft.images, documents: draft.documents, annotations: draft.annotations, references: draft.references, artifactReferences: draft.artifactReferences }).catch(error => useStore.getState().reportError(error));
+      await stashDraft({ text: draft.text, images: draft.images, documents: draft.documents, annotations: draft.annotations, references: draft.references, artifactReferences: draft.artifactReferences, artifactRefreshes: draft.artifactRefreshes, artifactRefreshTabId: draft.artifactRefreshTabId }).catch(error => useStore.getState().reportError(error));
       return;
     }
     addImages(draft.images);
     addDocuments(draft.documents);
     addAnnotations(draft.annotations);
+    // Same-tab restore (ADR-0092): the refresh entries ride back as chips.
+    for (const entry of draft.artifactRefreshes ?? []) useStore.getState().attachArtifactRefresh(tabId, entry);
     // A stashed reference names a path on its owner (ADR-0085): only a
     // session on that same instance can take it.
     const stashedRefs = draft.references ?? [];
@@ -1327,7 +1342,7 @@ export function Composer({
   // A held session still runs slash and bash commands (/new, !ls, …); main
   // refuses any that would start a turn.
   const canSend =
-    (trimmed !== "" || images.length > 0 || documents.length > 0 || annotations.length > 0 || references.length > 0 || artifactReferences.length > 0) &&
+    (trimmed !== "" || images.length > 0 || documents.length > 0 || annotations.length > 0 || references.length > 0 || artifactReferences.length > 0 || artifactRefreshes.length > 0) &&
     !unavailable &&
     !converting &&
     moving === null &&
@@ -1568,6 +1583,7 @@ export function Composer({
               </Label>
             </div>
           )}
+          {artifactRefreshes.length > 0 && <ArtifactRefreshChips refreshes={artifactRefreshes} onRemove={dropArtifactRefresh} disabled={unavailable} className="border-b border-line px-2 py-2" />}
           {artifactReferences.length > 0 && <ArtifactReferenceChips references={artifactReferences} onRemove={dropArtifactReference} className="border-b border-line px-2 py-2" />}
           {references.length > 0 && (
             <SessionReferenceChips

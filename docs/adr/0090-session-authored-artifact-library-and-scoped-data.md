@@ -1,6 +1,6 @@
 # Session-authored artifact library and scoped data
 
-> **Status:** Accepted, 2026-11-09 ([#1121](https://github.com/LankfordAI/omp-ui/issues/1121)). Default-off experiment. Refresh destination amended by [ADR-0091](0091-artifact-refresh-now-runs-in-a-background-session.md).
+> **Status:** Accepted, 2026-11-09 ([#1121](https://github.com/LankfordAI/omp-ui/issues/1121)). Default-off experiment. Refresh destination amended by [ADR-0091](0091-artifact-refresh-now-runs-in-a-background-session.md); refresh draft path and wire order amended by [ADR-0092](0092-artifact-refresh-requests-ride-the-prompt-as-a-parsed-block.md).
 
 Artifacts are authored and revised in ordinary native sessions. Human Keep retains an accepted document and its structured working data in an independent main-pane library; it does not rewrite the transcript or create a special artifact session. Project and Chat are retained origin labels, not ownership or deletion boundaries. There is no standalone builder, New artifact wizard or narrow Revise commissioning form.
 
@@ -105,3 +105,7 @@ Authenticated browser clients use the owning host's library with static document
 ## Verification boundary
 
 The deterministic store/reference/service/renderer suites accompany a packaged Linux headless Electron smoke and a real-OMP hermetic-provider live suite. The smoke runs actual shipped preloads/broker/guard/store across separate processes and observes network/STUN denial, authority attacks, durable checksums, write refusal, CAS and disable/reload behavior. Full application acceptance additionally exercises ordinary-session creation/Keep/reference/revision/refresh, source deletion, browser static presentation and responsive/focus/scroll behavior. Skipped or unavailable new obligations are not passing release evidence. HTML plans remain script-free and outside this experiment.
+
+## Amendment: the artifact refresh block leads the wire (2026-11-10, issue #1139)
+
+[ADR-0092](0092-artifact-refresh-requests-ride-the-prompt-as-a-parsed-block.md) amends §"Small immutable references": the wire order now leads with the artifact refresh block — artifact refresh, session references, artifact references, annotations, prose, document context and routing suffix. The refresh request is bounded by the same 12 KiB constant references use, with the same proven-leading-only strip discipline; a lookalike anywhere else in the message remains inert prose and admits nothing.

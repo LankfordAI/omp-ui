@@ -15,6 +15,7 @@ import {
   RpcClient,
   setHostUriSchemesCommand,
   withArtifactReferenceContext,
+  withArtifactRefreshContext,
   type ArtifactPartResult,
   type RpcFrame,
   type RpcSinks,
@@ -578,7 +579,7 @@ describe.skipIf(ompPath === null)("artifact library rails on the real runtime", 
     }
     expect(JSON.parse(pages.map((page) => page.text).join(""))).toBe(value);
     const refresh = scope.artifacts.prepareRefresh({ ...selector, datasetIds: ["rows"] });
-    const refreshWire = withArtifactReferenceContext(refresh.text, [refresh.reference]);
+    const refreshWire = withArtifactRefreshContext(withArtifactReferenceContext("Refresh the accepted rows.", [refresh.reference]), [{ version: 1 as const, refreshRequestId: refresh.request.refreshRequestId, artifactId: refresh.request.artifactId, title: "T", datasetIds: ["rows"] }]);
     scope.artifacts.admitPrompt({ tabId: TAB, text: refreshWire });
     await nestedRefusal(scope, ARTIFACT_CAPTURE_TOOL_NAME, {
       status: "captured", refreshRequestId: refresh.request.refreshRequestId, datasets: [{ ...dataset, value: "nested must not stage" }],

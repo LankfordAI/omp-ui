@@ -73,6 +73,8 @@ describe("prompt derivation with references", () => {
       annotations: [{ quote: "q", comment: "c" }],
       references: [REF],
       artifactReferences: [],
+      refreshes: [],
+      legacyRefreshRequestId: null,
     });
   });
 });

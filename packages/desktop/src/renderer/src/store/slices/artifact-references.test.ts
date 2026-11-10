@@ -1,6 +1,6 @@
 import { beforeEach, describe, expect, it, vi } from "vitest";
-import type { DraftArtifactReference } from "@omp-ui/core/artifacts";
-import { parseArtifactPromptReferences, withArtifactReferenceContext } from "@omp-ui/core/artifact-references";
+import type { ArtifactRefreshEntry, DraftArtifactReference } from "@omp-ui/core/artifacts";
+import { parseArtifactPromptReferences, splitArtifactRefreshContext, withArtifactRefreshContext, withArtifactReferenceContext } from "@omp-ui/core/artifact-references";
 import { h } from "../../test/store-harness";
 import { rpcTabState, tabInfo, remoteInstance } from "../../test/fixtures";
 import { withSessionReferenceContext } from "../../lib/session-references";
@@ -11,6 +11,10 @@ import { getNavigationGeneration } from "./view";
 
 const id = (n: number): string => `00000000-0000-4000-8000-${String(n).padStart(12, "0")}`;
 const reference: DraftArtifactReference = { version: 1, referenceId: id(1), ownerInstanceId: id(2), artifactId: id(3), codeRevisionId: id(4), dataSnapshotId: id(5), title: "Budget", machine: "desk-main", snapshotAt: "2026-11-09T06:00:00.000Z", includeData: false, manifestUri: `omp-ui://artifacts/reference/${id(1)}/manifest`, definitionUri: `omp-ui://artifacts/reference/${id(1)}/definition`, instanceId: null };
+/** The chip a Refresh-now preparation yields for `reference` (ADR-0092 recipe). */
+function refreshEntry(n: number, artifactId = reference.artifactId): ArtifactRefreshEntry {
+  return { version: 1, refreshRequestId: id(n), artifactId, title: reference.title, datasetIds: ["rows"] };
+}
 function draftReference(n: number): DraftArtifactReference {
   const referenceId = id(100 + n);
   return { ...reference, referenceId, codeRevisionId: id(200 + n), manifestUri: `omp-ui://artifacts/reference/${referenceId}/manifest`, definitionUri: `omp-ui://artifacts/reference/${referenceId}/definition` };
@@ -33,18 +37,21 @@ Object.assign(h.mockBackend, { getInstanceIdentity: identity });
 beforeEach(() => {
   const state = { ...h.stateWithRecord("session-1"), artifactLibraryEnabled: true };
   h.backendState = state;
-  h.useStore.setState({ state, rpc: { [h.TAB]: rpcTabState({ status: "ready" }) }, tabs: [tabInfo({ tabId: h.TAB })], activeTabId: h.TAB, artifactDrafts: {}, artifactDraftText: {} });
+  h.useStore.setState({ state, rpc: { [h.TAB]: rpcTabState({ status: "ready" }) }, tabs: [tabInfo({ tabId: h.TAB })], activeTabId: h.TAB, artifactDrafts: {}, artifactRefreshDrafts: {} });
   identity.mockResolvedValue({ instanceId: id(2), version: "1" });
 });
+
+/** The transcript notices one tab has recorded. */
+const noticeTexts = (tabId = h.TAB): string[] =>
+  (h.useStore.getState().rpc[tabId]?.items ?? []).flatMap(item => (item.kind === "notice" ? [item.text] : []));
 
 describe("artifact reference drafts", () => {
   it("replaces a duplicate version with its exact newly consented refresh grant", async () => {
     const store = h.useStore.getState();
     expect(store.attachArtifactReference(h.TAB, reference)).toBe(true);
     const refresh = { ...reference, referenceId: id(6), includeData: true, dataUri: `omp-ui://artifacts/reference/${id(6)}/state`, manifestUri: `omp-ui://artifacts/reference/${id(6)}/manifest`, definitionUri: `omp-ui://artifacts/reference/${id(6)}/definition` };
-    await expect(store.referenceArtifactInSession(h.TAB, refresh, `Refresh using ${refresh.referenceId}`)).resolves.toBe(true);
+    await expect(store.referenceArtifactInSession(h.TAB, refresh)).resolves.toBe(true);
     expect(h.useStore.getState().artifactDrafts[h.TAB]).toEqual([refresh]);
-    expect(h.useStore.getState().artifactDraftText[h.TAB]).toEqual([`Refresh using ${refresh.referenceId}`]);
     expect(reference.includeData).toBe(false);
     store.attachArtifactReference(h.TAB, { ...reference, referenceId: id(7), codeRevisionId: id(8), manifestUri: `omp-ui://artifacts/reference/${id(7)}/manifest`, definitionUri: `omp-ui://artifacts/reference/${id(7)}/definition` });
     expect(h.useStore.getState().artifactDrafts[h.TAB]).toHaveLength(2);
@@ -66,25 +73,22 @@ describe("artifact reference drafts", () => {
     h.useStore.setState({ tabs: [], rpc: {}, activeTabId: null });
     const resume = h.deferred<{ tabId: string }>();
     h.mockBackend.spawnSession.mockReturnValueOnce(resume.promise);
-    const attaching = h.useStore.getState().referenceArtifactInSession(h.TAB, reference, "Refresh the totals");
+    const attaching = h.useStore.getState().referenceArtifactInSession(h.TAB, reference);
     await h.flushMicrotasks();
     expect(h.useStore.getState().artifactDrafts[h.TAB]).toEqual([reference]);
-    expect(h.useStore.getState().artifactDraftText[h.TAB]).toEqual(["Refresh the totals"]);
     expect(h.sent).toEqual([]);
     h.useStore.getState().focusTab("newer-intent");
     resume.resolve({ tabId: h.TAB });
     await attaching;
     expect(h.useStore.getState().activeTabId).toBe("newer-intent");
     expect(h.useStore.getState().tabs.some(tab => tab.tabId === h.TAB)).toBe(true);
-    expect(h.useStore.getState().drainArtifactDraftText(h.TAB)).toEqual(["Refresh the totals"]);
   });
   it("preserves navigation that changed while a caller prepared the immutable grant", async () => {
     const navigationGeneration = getNavigationGeneration();
     h.useStore.getState().focusTab("newer-before-grant");
-    await h.useStore.getState().referenceArtifactInSession(h.TAB, reference, "Refresh without stealing focus", { navigationGeneration });
+    await h.useStore.getState().referenceArtifactInSession(h.TAB, reference, { navigationGeneration });
     expect(h.useStore.getState().activeTabId).toBe("newer-before-grant");
     expect(h.useStore.getState().artifactDrafts[h.TAB]).toEqual([reference]);
-    expect(h.useStore.getState().artifactDraftText[h.TAB]).toEqual(["Refresh without stealing focus"]);
     expect(h.sent).toEqual([]);
   });
   it("opens an existing target nonactivating and refuses a grant from a different owner", async () => {
@@ -97,7 +101,7 @@ describe("artifact reference drafts", () => {
   });
   it("successful send retires only submitted grants, including a references-only prompt", async () => {
     h.useStore.getState().attachArtifactReference(h.TAB, reference);
-    const sending = h.useStore.getState().sendPrompt(h.TAB, "", "prompt", [], [], [], [], [reference]);
+    const sending = h.useStore.getState().sendPrompt(h.TAB, "", "prompt", [], [], { artifactReferences: [reference] });
     const frame = h.sent.find(entry => entry.cmd.type === "prompt")!;
     expect(parseArtifactPromptReferences(String(frame.cmd.message))).toEqual([expect.objectContaining({ referenceId: reference.referenceId, includeData: false })]);
     const next = { ...reference, referenceId: id(10), codeRevisionId: id(11), manifestUri: `omp-ui://artifacts/reference/${id(10)}/manifest`, definitionUri: `omp-ui://artifacts/reference/${id(10)}/definition` };
@@ -109,10 +113,10 @@ describe("artifact reference drafts", () => {
   it("feature-off and rejected sends retain grants", async () => {
     h.useStore.getState().attachArtifactReference(h.TAB, reference);
     h.useStore.setState({ state: { ...h.backendState, artifactLibraryEnabled: false } });
-    await expect(h.useStore.getState().sendPrompt(h.TAB, "", "prompt", [], [], [], [], [reference])).resolves.toBe(false);
+    await expect(h.useStore.getState().sendPrompt(h.TAB, "", "prompt", [], [], { artifactReferences: [reference] })).resolves.toBe(false);
     expect(h.sent).toEqual([]);
     h.useStore.setState({ state: h.backendState });
-    const rejected = h.useStore.getState().abortAndPrompt(h.TAB, "retry", [], [], [], [], [reference]);
+    const rejected = h.useStore.getState().abortAndPrompt(h.TAB, "retry", [], [], { artifactReferences: [reference] });
     const frame = h.sent.find(entry => entry.cmd.type === "abort_and_prompt")!;
     h.respond(h.TAB, frame.cmd, "rejected", false);
     await expect(rejected).resolves.toBe(false);
@@ -120,7 +124,7 @@ describe("artifact reference drafts", () => {
   });
   it("holds exact reference wire and restores cancelled holds outside the rpc queue", async () => {
     h.useStore.getState().attachArtifactReference(h.TAB, reference);
-    await expect(h.useStore.getState().holdPrompt(h.TAB, "refresh later", 2000000000000, [], [], [], [], [reference])).resolves.toBe(true);
+    await expect(h.useStore.getState().holdPrompt(h.TAB, "refresh later", 2000000000000, [], [], { artifactReferences: [reference] })).resolves.toBe(true);
     const text = withArtifactReferenceContext("refresh later", [reference]);
     expect(h.mockBackend.holdPrompt).toHaveBeenCalledWith(h.TAB, expect.objectContaining({ text, preview: "refresh later" }));
     expect(h.useStore.getState().artifactDrafts[h.TAB]).toEqual([]);
@@ -151,9 +155,11 @@ describe("artifact reference drafts", () => {
     for (let n = 0; n < 8; n++) h.useStore.getState().attachArtifactReference(h.TAB, draftReference(n));
     const restoring = h.useStore.getState().abortAgent(h.TAB);
     const command = h.sent.find(entry => entry.cmd.type === "abort_and_restore_queue")!;
-    h.respond(h.TAB, command.cmd, { steering: [{ text: withArtifactReferenceContext("restored", [reference]), images: [] }], followUp: [], imagesDropped: false, truncated: false });
+    h.respond(h.TAB, command.cmd, { steering: [{ text: withArtifactRefreshContext(withArtifactReferenceContext("restored", [reference]), [refreshEntry(25)]), images: [] }], followUp: [], imagesDropped: false, truncated: false });
     await restoring;
     expect(h.useStore.getState().artifactDrafts[h.TAB]!.map(ref => ref.referenceId)).toContain(reference.referenceId);
+    expect(h.useStore.getState().artifactRefreshDrafts[h.TAB]).toEqual([refreshEntry(25)]);
+    expect(noticeTexts().some(text => text.includes("could not be restored"))).toBe(false);
     h.useStore.setState({ rpc: {} });
     expect(h.useStore.getState().artifactDrafts[h.TAB]).toHaveLength(9);
   });
@@ -165,12 +171,13 @@ describe("artifact reference drafts", () => {
     expect(h.useStore.getState().artifactDrafts["failed-seed"]).toEqual([reference]);
     expect(h.sent.some(entry => entry.cmd.type === "prompt")).toBe(false);
   });
-  it("Refresh now sends the prepared refresh from a background Plan-mode run without moving focus", async () => {
+  it("Refresh now seeds a leading refresh block over its paired grant with empty prose", async () => {
     seedRefreshRun();
     const refreshRequestId = id(22);
     const refresh = { ...reference, referenceId: id(6), includeData: true, dataUri: `omp-ui://artifacts/reference/${id(6)}/state`, manifestUri: `omp-ui://artifacts/reference/${id(6)}/manifest`, definitionUri: `omp-ui://artifacts/reference/${id(6)}/definition` };
-    const text = `Refresh the requested datasets for this accepted artifact in this ordinary session. Collect only datasets rows.\n\n<artifact refresh>\nrefresh-request: ${refreshRequestId}\n</artifact refresh>`;
-    const prepare = vi.fn(async () => ({ request: { refreshRequestId }, reference: refresh, text }));
+    // The prepared refresh carries no prose at all (ADR-0092): the request and
+    // the grant are the whole seed, and the wire comes from the builders.
+    const prepare = vi.fn(async () => ({ request: { refreshRequestId, artifactId: id(3), datasetIds: ["rows"] }, reference: refresh }));
     Object.assign(h.mockBackend, { artifactPrepareRefresh: prepare });
     const revision = h.useStore.getState().artifactLibraryRevision;
     await expect(h.useStore.getState().runArtifactRefresh(refreshRun)).resolves.toBe("run");
@@ -185,13 +192,18 @@ describe("artifact reference drafts", () => {
     await h.flushMicrotasks();
     const prompt = h.sent.find(entry => entry.tabId === "run" && entry.cmd.type === "prompt")!;
     const message = String(prompt.cmd.message);
-    expect(message).toContain(`refresh-request: ${refreshRequestId}`);
-    expect(message).toContain("<artifact references>");
+    expect(message.startsWith("<artifact refresh>\n")).toBe(true);
+    const peeled = splitArtifactRefreshContext(message);
+    expect(peeled.refreshes).toEqual([expect.objectContaining({ refreshRequestId, artifactId: id(3), title: "Budget", datasetIds: ["rows"] })]);
+    // The grant rides its own block and the prose is empty: no legacy sentence.
     expect(parseArtifactPromptReferences(message)).toEqual([expect.objectContaining({ referenceId: refresh.referenceId, includeData: true })]);
+    expect(peeled.text).toBe(withArtifactReferenceContext("", [refresh]));
     h.respond("run", prompt.cmd, {});
     await h.flushMicrotasks();
     expect(h.useStore.getState().activeTabId).toBe(h.TAB);
     expect(h.useStore.getState().backgroundSeedFailedTabId).toBeNull();
+    expect(h.useStore.getState().artifactDrafts.run).toEqual([]);
+    expect(h.useStore.getState().artifactRefreshDrafts.run).toEqual([]);
   });
   it("a failed preparation erases the empty run and rethrows", async () => {
     seedRefreshRun();
@@ -230,7 +242,7 @@ describe("artifact reference drafts", () => {
     const restored = h.useStore.getState().artifactDrafts[h.TAB]!;
     expect(restored).toHaveLength(9);
     expect(restored.map(ref => ref.referenceId)).toContain(reference.referenceId);
-    await expect(h.useStore.getState().sendPrompt(h.TAB, "", "prompt", [], [], [], [], restored)).resolves.toBe(false);
+    await expect(h.useStore.getState().sendPrompt(h.TAB, "", "prompt", [], [], { artifactReferences: restored })).resolves.toBe(false);
     expect(h.sent.some(entry => entry.cmd.type === "prompt")).toBe(false);
     h.useStore.getState().removeArtifactReference(h.TAB, draftReference(0).referenceId);
     expect(h.useStore.getState().artifactDrafts[h.TAB]).toHaveLength(8);
@@ -248,7 +260,7 @@ describe("artifact reference drafts", () => {
     expect(h.useStore.getState().restoreArtifactReferences(h.TAB, [restored])).toBe(true);
     expect(h.useStore.getState().artifactDrafts[h.TAB]).toEqual([reference, restored]);
     const explicit = { ...reference, referenceId: id(78), manifestUri: `omp-ui://artifacts/reference/${id(78)}/manifest`, definitionUri: `omp-ui://artifacts/reference/${id(78)}/definition` };
-    expect(h.useStore.getState().attachArtifactReference(h.TAB, explicit, "Use this newly prepared grant")).toBe(true);
+    expect(h.useStore.getState().attachArtifactReference(h.TAB, explicit)).toBe(true);
     expect(h.useStore.getState().artifactDrafts[h.TAB]).toEqual([explicit]);
   });
   it("moves compatible references attached during both spawn and deletion awaits", async () => {
@@ -257,17 +269,23 @@ describe("artifact reference drafts", () => {
     const spawn = h.deferred<{ tabId: string }>();
     h.mockBackend.spawnSession.mockReturnValueOnce(spawn.promise);
     h.mockBackend.deleteSession.mockImplementationOnce(async tabId => {
-      expect(h.useStore.getState().attachArtifactReference(h.TAB, draftReference(1), "suggested during deletion")).toBe(true);
+      expect(h.useStore.getState().attachArtifactReference(h.TAB, draftReference(1))).toBe(true);
       return { deleted: [tabId], failed: [] };
     });
     const moving = h.useStore.getState().moveUnpromptedSession(h.TAB, { projectCwd: "/q", instanceId: null }, { text: "move", images: [], documents: [], annotations: [], references: [], artifactReferences: [] });
     await h.flushMicrotasks();
-    expect(h.useStore.getState().attachArtifactReference(h.TAB, draftReference(0), "suggested during spawn")).toBe(true);
+    expect(h.useStore.getState().attachArtifactReference(h.TAB, draftReference(0))).toBe(true);
+    // A request prepared against the source tab cannot bind on the target, even
+    // one attached during the spawn await (ADR-0092): it is dropped where the
+    // rest of the draft landed, with a notice.
+    h.useStore.getState().attachArtifactRefresh(h.TAB, refreshEntry(26));
     spawn.resolve({ tabId: "fresh" });
     await expect(moving).resolves.toBe("fresh");
     expect(h.useStore.getState().artifactDrafts.fresh).toEqual([draftReference(0), draftReference(1)]);
     expect(h.useStore.getState().artifactDrafts[h.TAB]).toBeUndefined();
-    expect(h.useStore.getState().artifactDraftText.fresh).toEqual(["suggested during spawn", "suggested during deletion"]);
+    expect(h.useStore.getState().artifactRefreshDrafts.fresh).toBeUndefined();
+    expect(h.useStore.getState().artifactRefreshDrafts[h.TAB]).toBeUndefined();
+    expect(JSON.stringify(h.useStore.getState().rpc.fresh!.items)).toContain("belonged to this session's old tab");
   });
   it("refuses a move when a foreign-owner reference arrives while the target is being created", async () => {
     const base = h.stateWithRecord(null);
@@ -279,11 +297,130 @@ describe("artifact reference drafts", () => {
     const moving = h.useStore.getState().moveUnpromptedSession(h.TAB, { projectCwd: "/q", instanceId }, { text: "move", images: [], documents: [], annotations: [], references: [], artifactReferences: [] });
     await h.flushMicrotasks();
     expect(h.useStore.getState().attachArtifactReference(h.TAB, reference)).toBe(true);
+    expect(h.useStore.getState().attachArtifactRefresh(h.TAB, refreshEntry(27))).toBe(true);
     spawn.resolve({ tabId: "fresh" });
     await expect(moving).resolves.toBeNull();
     expect(h.mockBackend.deleteSession).not.toHaveBeenCalled();
+    // A refused move drops nothing: the source keeps both chips.
     expect(h.useStore.getState().artifactDrafts[h.TAB]).toEqual([reference]);
+    expect(h.useStore.getState().artifactRefreshDrafts[h.TAB]).toEqual([refreshEntry(27)]);
     expect(h.useStore.getState().activeTabId).toBe(h.TAB);
+  });
+});
+
+describe("artifact refresh drafts (ADR-0092)", () => {
+  it("a second picker click on one artifact rebinds the chip instead of stacking a second send", async () => {
+    const store = h.useStore.getState();
+    expect(store.attachArtifactRefresh(h.TAB, refreshEntry(30))).toBe(true);
+    expect(store.attachArtifactRefresh(h.TAB, refreshEntry(31))).toBe(true);
+    expect(h.useStore.getState().artifactRefreshDrafts[h.TAB]).toEqual([refreshEntry(31)]);
+    // The single chip is send-able and the wire names only the newer request.
+    h.useStore.getState().attachArtifactReference(h.TAB, reference);
+    const sending = h.useStore.getState().sendPrompt(h.TAB, "recollect", "prompt", [], [], { artifactReferences: [reference], refreshes: [refreshEntry(31)] });
+    const frame = h.sent.find(entry => entry.cmd.type === "prompt")!;
+    const message = String(frame.cmd.message);
+    expect(message).toContain(`request: ${id(31)}`);
+    expect(message).not.toContain(`request: ${id(30)}`);
+    h.respond(h.TAB, frame.cmd, {});
+    await expect(sending).resolves.toBe(true);
+    expect(h.useStore.getState().artifactRefreshDrafts[h.TAB]).toEqual([]);
+  });
+  it("keeps requests for different artifacts as separate chips and removes one by request id", () => {
+    const store = h.useStore.getState();
+    expect(store.attachArtifactRefresh(h.TAB, refreshEntry(32))).toBe(true);
+    expect(store.attachArtifactRefresh(h.TAB, refreshEntry(33, id(40)))).toBe(true);
+    expect(h.useStore.getState().artifactRefreshDrafts[h.TAB]).toHaveLength(2);
+    store.removeArtifactRefresh(h.TAB, id(32));
+    expect(h.useStore.getState().artifactRefreshDrafts[h.TAB]).toEqual([refreshEntry(33, id(40))]);
+  });
+  it("clears the whole tab or only the submitted list, matching grant semantics", () => {
+    const store = h.useStore.getState();
+    store.attachArtifactRefresh(h.TAB, refreshEntry(34));
+    store.attachArtifactRefresh(h.TAB, refreshEntry(35, id(41)));
+    store.clearArtifactRefreshes(h.TAB, [refreshEntry(34)]);
+    expect(h.useStore.getState().artifactRefreshDrafts[h.TAB]).toEqual([refreshEntry(35, id(41))]);
+    store.attachArtifactRefresh(h.TAB, refreshEntry(36));
+    store.clearArtifactRefreshes(h.TAB);
+    expect(h.useStore.getState().artifactRefreshDrafts[h.TAB]).toBeUndefined();
+  });
+  it("restores withdrawn requests as removable chips, deduped and kept past the send limit", () => {
+    const store = h.useStore.getState();
+    for (let n = 0; n < 8; n++) expect(store.attachArtifactRefresh(h.TAB, refreshEntry(50 + n, id(100 + n)))).toBe(true);
+    // The same request twice restores once; an unseen ninth one stays visible.
+    expect(store.restoreArtifactRefreshes(h.TAB, [refreshEntry(50), refreshEntry(58, id(200))])).toBe(true);
+    const drafts = h.useStore.getState().artifactRefreshDrafts[h.TAB]!;
+    expect(drafts).toHaveLength(9);
+    expect(drafts.map(entry => entry.refreshRequestId)).toEqual([id(50), ...Array.from({ length: 7 }, (_, i) => id(51 + i)), id(58)]);
+    expect(store.attachArtifactRefresh(h.TAB, refreshEntry(59, id(201)))).toBe(false);
+  });
+  it("refuses refresh chips on a non-rpc-ui tab", () => {
+    h.useStore.setState({ state: h.stateWithRecord(null), tabs: [tabInfo({ tabId: "term", mode: "pty" })], rpc: {} });
+    expect(h.useStore.getState().attachArtifactRefresh("term", refreshEntry(37))).toBe(false);
+    expect(h.useStore.getState().artifactRefreshDrafts.term).toBeUndefined();
+    expect(h.useStore.getState().restoreArtifactRefreshes("term", [refreshEntry(38)])).toBe(false);
+  });
+  it("attaches grant and request together through one draft attach", async () => {
+    const entry = refreshEntry(39);
+    await expect(h.useStore.getState().attachArtifactRefreshDraft(h.TAB, reference, entry)).resolves.toBe(true);
+    expect(h.useStore.getState().artifactDrafts[h.TAB]).toEqual([expect.objectContaining({ referenceId: reference.referenceId })]);
+    expect(h.useStore.getState().artifactRefreshDrafts[h.TAB]).toEqual([entry]);
+  });
+  it("leaves no chip and no grant when the request itself is invalid", async () => {
+    const broken = { version: 1 as const, refreshRequestId: id(42), artifactId: id(3), title: "Budget", datasetIds: [] };
+    await expect(h.useStore.getState().attachArtifactRefreshDraft(h.TAB, reference, broken)).resolves.toBe(false);
+    expect(h.useStore.getState().artifactDrafts[h.TAB]).toBeUndefined();
+    expect(h.useStore.getState().artifactRefreshDrafts[h.TAB]).toBeUndefined();
+    expect(h.errorMessages().length + noticeTexts().length).toBeGreaterThan(0);
+  });
+  it("leaves no request behind when the grant binding fails", async () => {
+    identity.mockResolvedValueOnce({ instanceId: id(9), version: "1" });
+    await expect(h.useStore.getState().attachArtifactRefreshDraft(h.TAB, reference, refreshEntry(43))).resolves.toBe(false);
+    expect(h.useStore.getState().artifactDrafts[h.TAB]).toBeUndefined();
+    expect(h.useStore.getState().artifactRefreshDrafts[h.TAB]).toBeUndefined();
+    expect(JSON.stringify(h.useStore.getState().rpc[h.TAB]!.items)).toContain("desk-main");
+  });
+  it("refuses an entry the wire builder rejects and keeps the chips already staged", () => {
+    const store = h.useStore.getState();
+    expect(store.attachArtifactRefresh(h.TAB, refreshEntry(48))).toBe(true);
+    // A request id outside the grammar never reaches the chip list (ADR-0092).
+    expect(store.attachArtifactRefresh(h.TAB, { version: 1, refreshRequestId: "not-a-uuid", artifactId: id(3), title: "Budget", datasetIds: ["rows"] })).toBe(false);
+    expect(h.useStore.getState().artifactRefreshDrafts[h.TAB]).toEqual([refreshEntry(48)]);
+    expect(store.restoreArtifactRefreshes(h.TAB, [{ version: 1, refreshRequestId: id(49), artifactId: "nope", title: "Budget", datasetIds: ["rows"] }])).toBe(false);
+    expect(h.useStore.getState().artifactRefreshDrafts[h.TAB]).toEqual([refreshEntry(48)]);
+  });
+  it("holds the refresh block leading of the reference block and restores it on cancel", async () => {
+    const entry = refreshEntry(44);
+    h.useStore.getState().attachArtifactReference(h.TAB, reference);
+    await expect(h.useStore.getState().holdPrompt(h.TAB, "later", 2000000000000, [], [], { artifactReferences: [reference], refreshes: [entry] })).resolves.toBe(true);
+    const held = (h.mockBackend.holdPrompt.mock.calls.at(-1) as unknown[] | undefined)?.[1] as { text: string };
+    expect(held.text.startsWith("<artifact refresh>\n")).toBe(true);
+    expect(splitQueuedWireText(held.text)).toMatchObject({
+      text: "later",
+      refreshes: [entry],
+      artifactReferences: [expect.objectContaining({ referenceId: reference.referenceId })],
+      legacyRefreshRequestId: null,
+    });
+    expect(h.useStore.getState().artifactRefreshDrafts[h.TAB]).toEqual([]);
+    Object.assign(h.mockBackend, { cancelHeldPrompt: vi.fn(async () => ({ text: held.text, images: [] })) });
+    await h.useStore.getState().cancelHeldPrompt(h.TAB);
+    expect(h.useStore.getState().artifactRefreshDrafts[h.TAB]).toEqual([entry]);
+    expect(noticeTexts().some(text => text.includes("could not be restored"))).toBe(false);
+  });
+  it("announces a legacy refresh request as dropped instead of restoring prose", async () => {
+    const legacy = `Refresh the requested datasets for this accepted artifact in this ordinary session. Collect only datasets rows.\n\n<artifact refresh>\nrefresh-request: ${id(45)}\n</artifact refresh>`;
+    Object.assign(h.mockBackend, { cancelHeldPrompt: vi.fn(async () => ({ text: legacy, images: [] })) });
+    await h.useStore.getState().cancelHeldPrompt(h.TAB);
+    expect(h.useStore.getState().artifactRefreshDrafts[h.TAB]).toBeUndefined();
+    expect(h.useStore.getState().rpc[h.TAB]!.composerQueue).toBeUndefined();
+    expect(noticeTexts().some(text => text.includes("could not be restored into this tab"))).toBe(true);
+  });
+  it("warns when a withdrawn request cannot return as a chip", async () => {
+    Object.assign(h.mockBackend, { cancelHeldPrompt: vi.fn(async () => ({ text: withArtifactRefreshContext("held", [refreshEntry(46)]), images: [] })) });
+    // No record and no mounted tab: the restore has nothing to bind against.
+    h.useStore.setState({ state: { ...h.backendState, projects: [] }, tabs: [] });
+    await h.useStore.getState().cancelHeldPrompt(h.TAB);
+    expect(h.useStore.getState().artifactRefreshDrafts[h.TAB]).toBeUndefined();
+    expect(noticeTexts().some(text => text.includes("could not be restored into this tab"))).toBe(true);
   });
 });
 
@@ -292,11 +429,18 @@ describe("wire/history lifecycle", () => {
     const session = { title: "Other", sessionId: "other", machine: "desk-main", path: "/saved/other.jsonl" };
     const raw = withSessionReferenceContext(withArtifactReferenceContext("compare", [reference]), [session]);
     expect(parseArtifactPromptReferences(raw)).toEqual([expect.objectContaining({ referenceId: id(1), includeData: false })]);
-    expect(splitQueuedWireText(raw)).toMatchObject({ text: "compare", references: [session], artifactReferences: [expect.objectContaining({ referenceId: id(1) })] });
+    expect(splitQueuedWireText(raw)).toMatchObject({ text: "compare", references: [session], artifactReferences: [expect.objectContaining({ referenceId: id(1) })], refreshes: [], legacyRefreshRequestId: null });
     expect(queueEntryDisplayText(raw)).toBe("@ Other\n@ Budget\ncompare");
     expect(userContentFromContent(raw)).toMatchObject({ text: "compare", artifactReferences: [expect.objectContaining({ referenceId: id(1) })] });
     expect(historyToItems([{ role: "user", content: raw }])[0]).toMatchObject({ kind: "user", text: "compare", artifactReferences: [expect.objectContaining({ referenceId: id(1) })] });
     expect(raw).toContain("<artifact references>");
+  });
+  it("peels a refresh stack in admission order and displays the request line first", () => {
+    const entry = refreshEntry(47);
+    const raw = withArtifactRefreshContext(withSessionReferenceContext(withArtifactReferenceContext("recollect", [reference]), [{ title: "Other", sessionId: "other", machine: "desk-main", path: "/saved/other.jsonl" }]), [entry]);
+    expect(splitQueuedWireText(raw)).toMatchObject({ text: "recollect", refreshes: [entry], legacyRefreshRequestId: null });
+    expect(parseArtifactPromptReferences(raw)).toEqual([expect.objectContaining({ referenceId: id(1) })]);
+    expect(queueEntryDisplayText(raw)).toBe("↻ Refresh: Budget\n@ Other\n@ Budget\nrecollect");
   });
   it("projects exact artifact details equally for live and history and never failed results", () => {
     const details = { artifactDraft: { version: 1, draftId: id(20), sourceHash: "a".repeat(64) }, artifactCapture: { version: 1, status: "captured", captureId: id(21), artifactId: id(3), refreshRequestId: id(22) } };

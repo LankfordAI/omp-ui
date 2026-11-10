@@ -3,10 +3,9 @@
 // `abort_and_restore_queue` / `remove_queued_message` payloads. No React, no
 // store — the slice composes them.
 import type { ImageAttachment, SessionReference } from "@omp-ui/core/types";
-import type { ArtifactReference } from "@omp-ui/core/artifacts";
-import { splitArtifactReferenceContext } from "@omp-ui/core/artifact-references";
-import { splitAnnotationContext, type Annotation } from "./annotations";
-import { splitSessionReferenceContext } from "./session-references";
+import type { ArtifactReference, ArtifactRefreshEntry } from "@omp-ui/core/artifacts";
+import { type Annotation } from "./annotations";
+import { splitWireBlockStack } from "./wire-blocks";
 import { stripTrailingAttachmentRoutingContext } from "./attachment-routing";
 import { splitDocumentContext, type DocumentRef } from "./document-context";
 import { boolField, field, isObj, strField } from "./fields";
@@ -14,16 +13,21 @@ import { splitResolvedMentionContext } from "./mentions";
 
 /**
  * Splits one queued wire message back into draft prose plus the documents its
- * block names, the session references its leading block names (ADR-0085), and
- * the annotations block that follows them. Mirror image of
- * `queueEntryDisplayText`'s order (queue-chip.ts): routing suffix, document
- * block, session references block, annotations block, resolved mention
- * blocks. The prose keeps its
+ * block names, everything else off `splitWireBlockStack`'s canonical order
+ * (ADR-0092): the leading artifact refresh block (ADR-0092) leads, then the
+ * session references block (ADR-0085), then artifact references (ADR-0090);
+ * after the reference peels the stack recognizes the pre-ADR-0092 legacy
+ * refresh form — its paragraph and terminal block sat INSIDE the references
+ * blocks, so it can only be matched once those come off — and annotations
+ * (ADR-0077) close the stack. Mirror image of `queueEntryDisplayText`'s order
+ * (queue-chip.ts): routing suffix, document block, the stack, resolved
+ * mention blocks. The prose keeps its
  * raw `@` tokens — `splitResolvedMentionContext` only removes the terminal
  * blocks — and images come from the response, never the text. The routing
  * suffix is stripped by construction: the restored draft gets one fresh,
  * correctly numbered suffix at send time, so per-entry handle offsets never
- * need renumbering.
+ * need renumbering. `refreshes` and `legacyRefreshRequestId` are returned raw
+ * — no legacy synthesis here; the caller restores exactly what was queued.
  */
 export function splitQueuedWireText(raw: string): {
   text: string;
@@ -31,14 +35,22 @@ export function splitQueuedWireText(raw: string): {
   annotations: Annotation[];
   references: SessionReference[];
   artifactReferences: ArtifactReference[];
+  refreshes: ArtifactRefreshEntry[];
+  legacyRefreshRequestId: string | null;
 } {
   const { text: docless, documents } = splitDocumentContext(
     stripTrailingAttachmentRoutingContext(raw),
   );
-  const { text: unreferenced, references } = splitSessionReferenceContext(docless);
-  const { text: artifactless, references: artifactReferences } = splitArtifactReferenceContext(unreferenced);
-  const { text: prose, annotations } = splitAnnotationContext(artifactless);
-  return { text: splitResolvedMentionContext(prose).text, documents, annotations, references, artifactReferences };
+  const stack = splitWireBlockStack(docless);
+  return {
+    text: splitResolvedMentionContext(stack.text).text,
+    documents,
+    annotations: stack.annotations,
+    references: stack.references,
+    artifactReferences: stack.artifactReferences,
+    refreshes: stack.refreshes,
+    legacyRefreshRequestId: stack.legacyRefreshRequestId,
+  };
 }
 
 /** Projects a bare `ImageContent[]` — what `remove_queued_message` returns —

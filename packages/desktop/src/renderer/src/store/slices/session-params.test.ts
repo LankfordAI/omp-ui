@@ -2,6 +2,19 @@
 import { beforeEach, describe, expect, it, vi } from "vitest";
 import { EXPERIMENT_PROPOSAL_SENTINEL, type ExperimentProposal } from "@omp-ui/core/autoresearch";
 import type { CapabilitySnapshot } from "@omp-ui/core/capabilities";
+import type { ArtifactReference, ArtifactRefreshEntry } from "@omp-ui/core/artifacts";
+import type { SessionReference } from "@omp-ui/core/types";
+import {
+  ARTIFACT_REFRESH_HINT,
+  parseArtifactPromptReferences,
+  splitArtifactRefreshContext,
+  withArtifactRefreshContext,
+  withArtifactReferenceContext,
+} from "@omp-ui/core/artifact-references";
+import { withAnnotationContext } from "../../lib/annotations";
+import { withAttachmentRoutingContext } from "../../lib/attachment-routing";
+import { withDocumentContext } from "../../lib/document-context";
+import { withSessionReferenceContext } from "../../lib/session-references";
 import {
   LIVE_CONNECT_TIMEOUT_MS,
   LIVE_TALK_RELEASE_TAIL_MS,
@@ -4681,5 +4694,101 @@ describe("live voice in plan review", () => {
     await parking;
     expect(tab().live).toBe(current);
     expect(h.useStore.getState().liveVoice[h.TAB]?.armed).toBe(true);
+  });
+});
+
+describe("prompt wire block order (issue #1139, ADR-0092)", () => {
+  const id = (n: number): string => `00000000-0000-4000-8000-${String(n).padStart(12, "0")}`;
+  const grant: ArtifactReference = { version: 1, referenceId: id(1), ownerInstanceId: id(2), artifactId: id(3), codeRevisionId: id(4), dataSnapshotId: id(5), title: "Budget", machine: "desk-main", snapshotAt: "2026-11-09T06:00:00.000Z", includeData: false, manifestUri: `omp-ui://artifacts/reference/${id(1)}/manifest`, definitionUri: `omp-ui://artifacts/reference/${id(1)}/definition` };
+  const entry: ArtifactRefreshEntry = { version: 1, refreshRequestId: id(6), artifactId: id(3), title: "Budget", datasetIds: ["rows"] };
+  const session: SessionReference = { title: "Other", sessionId: "other", machine: "desk-main", path: "/saved/other.jsonl" };
+  const annotation = { quote: "the total row", comment: "recount it" };
+  const DOCUMENT_BLOCK = "<attached documents>\nspec.pdf: /tmp/spec.pdf\n</attached documents>";
+
+  beforeEach(() => {
+    h.backendState = { ...h.stateWithRecord("sess-1"), artifactLibraryEnabled: true };
+    h.useStore.setState({ state: h.backendState, rpc: { [h.TAB]: rpcTabState() }, artifactDrafts: {}, artifactRefreshDrafts: {} });
+    h.sent.length = 0;
+  });
+
+  /** The pinned nesting, restated as a fixture: refresh outermost, documents
+   *  terminal on the prose, the routing suffix last. `docs` mirrors what the
+   *  call site actually passed — no docRefs, no document block. */
+  const wire = (message: string, files?: readonly string[], docs: readonly { name: string; path: string }[] = [{ name: "spec.pdf", path: "/tmp/spec.pdf" }]): string =>
+    withArtifactRefreshContext(
+      withAttachmentRoutingContext(
+        withDocumentContext(
+          withSessionReferenceContext(
+            withArtifactReferenceContext(withAnnotationContext(message, [annotation]), [grant]),
+            [session],
+          ),
+          docs,
+        ),
+        files?.length ?? 0,
+        files,
+      ),
+      [entry],
+    );
+
+  const attachments = { annotations: [annotation], references: [session], artifactReferences: [grant], refreshes: [entry] };
+
+  it("sends every block in order with the refresh block leading and the routing suffix last", async () => {
+    const sending = h.useStore.getState().sendPrompt(h.TAB, "recollect", "prompt", [{ type: "image", data: "AAA=", mimeType: "image/png" }], [{ name: "spec.pdf", path: "/tmp/spec.pdf" }], attachments);
+    await h.flushMicrotasks();
+    const frame = h.sent.find((sent) => sent.cmd.type === "prompt")!;
+    expect(frame.cmd.message).toBe(wire("recollect", ["/tmp/omp-ui-attach/png-copy"]));
+    // The leading position is what makes the block bind at admission.
+    expect(String(frame.cmd.message).startsWith(`<artifact refresh>\n${ARTIFACT_REFRESH_HINT}\n- request: ${id(6)}`)).toBe(true);
+    expect(splitArtifactRefreshContext(String(frame.cmd.message)).text).toContain(DOCUMENT_BLOCK);
+    h.respond(h.TAB, frame.cmd, {});
+    await sending;
+  });
+
+  it("wraps a refresh-only interrupt identically and keeps images as the terminal suffix", async () => {
+    const aborting = h.useStore.getState().abortAndPrompt(h.TAB, "recollect now");
+    await h.flushMicrotasks();
+    expect(h.sent[0]!.cmd).toEqual({ type: "abort_and_prompt", message: "recollect now", id: expect.anything() });
+    h.respond(h.TAB, h.sent[0]!.cmd, {});
+    await aborting;
+    h.sent.length = 0;
+    const interrupt = h.useStore.getState().abortAndPrompt(h.TAB, "recollect now", [{ type: "image", data: "AAA=", mimeType: "image/png" }], undefined, attachments);
+    await h.flushMicrotasks();
+    expect(h.sent[0]!.cmd).toMatchObject({
+      type: "abort_and_prompt",
+      message: wire("recollect now", ["/tmp/omp-ui-attach/png-copy"], []),
+    });
+    h.respond(h.TAB, h.sent[0]!.cmd, {});
+    await interrupt;
+  });
+
+  it("holds the same wire text a send would have built", async () => {
+    const held = wire("recollect later");
+    await expect(h.useStore.getState().holdPrompt(h.TAB, "recollect later", 2000000000000, [], [{ name: "spec.pdf", path: "/tmp/spec.pdf" }], attachments)).resolves.toBe(true);
+    expect(h.mockBackend.holdPrompt).toHaveBeenCalledWith(h.TAB, {
+      text: held,
+      preview: "recollect later",
+      images: [],
+      documents: ["/tmp/spec.pdf"],
+      resetAtMs: 2000000000000,
+    });
+    expect(parseArtifactPromptReferences(held)).toEqual([expect.objectContaining({ referenceId: id(1) })]);
+  });
+
+  it("retires submitted chips together and keeps both on a rejection", async () => {
+    h.useStore.getState().attachArtifactReference(h.TAB, { ...grant, instanceId: null });
+    h.useStore.getState().attachArtifactRefresh(h.TAB, entry);
+    const sending = h.useStore.getState().sendPrompt(h.TAB, "recollect", "prompt", [], [], attachments);
+    const frame = h.sent.find((sent) => sent.cmd.type === "prompt")!;
+    h.respond(h.TAB, frame.cmd, {});
+    await expect(sending).resolves.toBe(true);
+    expect(h.useStore.getState().artifactDrafts[h.TAB]).toEqual([]);
+    expect(h.useStore.getState().artifactRefreshDrafts[h.TAB]).toEqual([]);
+    h.useStore.getState().attachArtifactReference(h.TAB, { ...grant, instanceId: null });
+    h.useStore.getState().attachArtifactRefresh(h.TAB, entry);
+    const rejected = h.useStore.getState().sendPrompt(h.TAB, "recollect", "prompt", [], [], attachments);
+    h.respond(h.TAB, h.sent.at(-1)!.cmd, "rejected", false);
+    await expect(rejected).resolves.toBe(false);
+    expect(h.useStore.getState().artifactDrafts[h.TAB]).toHaveLength(1);
+    expect(h.useStore.getState().artifactRefreshDrafts[h.TAB]).toEqual([entry]);
   });
 });
