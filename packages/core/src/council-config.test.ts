@@ -124,6 +124,56 @@ describe("validateCouncilDocument", () => {
     expect(r.members.map((m) => m.name)).toEqual(["a", "b", "c"]);
     expect(r.configWarnings).toEqual([]);
   });
+  it("launches a blank-named trial entry beside a member named from its model with no warning (#1140)", () => {
+    const r = validateCouncilDocument(
+      doc({ members: [entry("a")], trial: entry("", { model: "azure/hawk" }) }),
+      "g",
+    );
+    expect(r.members.map((m) => m.name)).toEqual(["a"]);
+    expect(r.trial).toEqual(entry("hawk", { model: "azure/hawk" }));
+    expect(r.configWarnings).toEqual([]);
+  });
+  it("launches three members plus a trial entry with no cap warning (#1140)", () => {
+    const r = validateCouncilDocument(
+      doc({ members: [entry("a"), entry("b"), entry("c")], trial: entry("t") }),
+      "g",
+    );
+    expect(r.members.map((m) => m.name)).toEqual(["a", "b", "c"]);
+    expect(r.trial).toEqual(entry("t"));
+    expect(r.configWarnings).toEqual([]);
+  });
+  it("skips an enabled trial entry with no model, warning about it (#1140)", () => {
+    const r = validateCouncilDocument(
+      doc({ members: [entry("a")], trial: entry("x", { model: null }) }),
+      "g",
+    );
+    expect(r.trial).toBe(null);
+    expect(r.configWarnings).toEqual(['g: trial member "x": no model — skipped']);
+  });
+  it("skips a launchable trial entry when no council member launches (#1140)", () => {
+    const r = validateCouncilDocument(
+      doc({ members: [entry("off", { enabled: false })], trial: entry("t") }),
+      "g",
+    );
+    expect(r.trial).toBe(null);
+    expect(r.configWarnings).toEqual(['g: trial member "t": no council member launches — skipped']);
+  });
+  it("drops a typed trial name that duplicates a member's slug (#1140)", () => {
+    const r = validateCouncilDocument(
+      doc({ members: [entry("hawk")], trial: entry("hawk", { model: "azure/falcon" }) }),
+      "g",
+    );
+    expect(r.trial).toBe(null);
+    expect(r.configWarnings).toEqual(['g: trial member "hawk": duplicates another entry (slug "hawk") — entry dropped']);
+  });
+  it("suffixes -2 when a blank trial name derives a member's slug (#1140)", () => {
+    const r = validateCouncilDocument(
+      doc({ members: [entry("hawk")], trial: entry("", { model: "azure/hawk" }) }),
+      "g",
+    );
+    expect(r.trial).toEqual(entry("hawk-2", { model: "azure/hawk" }));
+    expect(r.configWarnings).toEqual([]);
+  });
 });
 
 describe("isCouncilDocument", () => {
@@ -136,6 +186,10 @@ describe("isCouncilDocument", () => {
     expect(isCouncilDocument(doc({ members: [{ name: "a" } as never] }))).toBe(false);
     expect(isCouncilDocument(doc({ members: [entry("a", { enabled: "yes" } as never)] }))).toBe(false);
     expect(isCouncilDocument(doc({ members: [entry("a", { model: 7 } as never)] }))).toBe(false);
+    expect(isCouncilDocument(doc({ trial: entry("t") }))).toBe(true);
+    expect(isCouncilDocument(doc({ trial: null }))).toBe(true);
+    expect(isCouncilDocument(doc({ trial: "x" as never }))).toBe(false);
+    expect(isCouncilDocument(doc({ trial: { name: "x" } as never }))).toBe(false);
   });
   it("tolerates extra keys", () => {
     const stored: unknown = { instructions: null, members: [{ ...entry("a"), targets: ["pr"] }], extra: 1 };
@@ -204,6 +258,8 @@ describe("resolveCouncilRoster", () => {
     expect(resolveCouncilRoster("/p", { global: null, project: null })).toEqual({
       members: [],
       effective: [],
+      trial: null,
+      effectiveTrial: null,
       instructions: null,
       configWarnings: [],
       global: null,
@@ -247,6 +303,24 @@ describe("resolveCouncilRoster", () => {
     expect(v.members.map((m) => m.name)).toEqual(["ok"]);
     expect(v.effective.map((m) => m.name)).toEqual(["ok"]);
     expect(v.configWarnings).toHaveLength(1);
+  });
+  it("a disabled trial entry stays out of the launch set but in the view (#1140)", () => {
+    const v = resolveCouncilRoster("/p", {
+      global: null,
+      project: doc({ members: [entry("a")], trial: entry("t", { enabled: false }) }),
+    });
+    expect(v.trial).toBe(null);
+    expect(v.effectiveTrial).toEqual({ ...entry("t", { enabled: false }), sourceScope: "project" });
+    expect(v.configWarnings).toEqual([]);
+  });
+  it("launches a trial entry from the winning document beside a member (#1140)", () => {
+    const v = resolveCouncilRoster(null, {
+      global: doc({ members: [entry("g")], trial: entry("", { model: "azure/hawk" }) }),
+      project: null,
+    });
+    expect(v.trial).toEqual(entry("hawk", { model: "azure/hawk" }));
+    expect(v.effectiveTrial).toEqual({ ...entry("hawk", { model: "azure/hawk" }), sourceScope: "user" });
+    expect(v.configWarnings).toEqual([]);
   });
 });
 

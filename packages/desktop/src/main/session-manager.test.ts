@@ -1633,7 +1633,7 @@ describe("council snapshot (ADR-0088)", () => {
     const { tabId } = await freshRpc(manager);
     const dir = lineageOf(registry, sessionsRoot, tabId);
     const snapshot = JSON.parse(fs.readFileSync(Core.councilRosterSnapshotPath(dir), "utf8"));
-    expect(snapshot).toEqual({ version: 1, instructions: null, members: [], configWarnings: [] });
+    expect(snapshot).toEqual({ version: 2, instructions: null, members: [], trial: null, configWarnings: [] });
     // No member can launch, so the bridge refuses before any task call and no
     // per-call-model overlay rides the spawn at all.
     const overlay = Core.councilOverlayPath(dir);
@@ -1659,7 +1659,7 @@ describe("council snapshot (ADR-0088)", () => {
     const dir = lineageOf(registry, sessionsRoot, tabId);
     const snapshot = JSON.parse(fs.readFileSync(Core.councilRosterSnapshotPath(dir), "utf8"));
     // The project document wins; only enabled members ride the launch set.
-    expect(snapshot.version).toBe(1);
+    expect(snapshot.version).toBe(2);
     expect(snapshot.instructions).toBeNull();
     expect(snapshot.members).toEqual([{ name: "proj-one", model: "a/b", instructions: "check auth" }]);
     const overlay = Core.councilOverlayPath(dir);
@@ -1669,6 +1669,26 @@ describe("council snapshot (ADR-0088)", () => {
     expect(text).not.toContain("omp-ui-council-2");
     expect(text).not.toContain("g/global");
     expect(text).not.toContain("c/d");
+  });
+
+  it("snapshots and grants a trial member beside the project council at spawn (#1140)", async () => {
+    const { manager, registry, sessionsRoot } = setup({ mode: "rpc-ui" });
+    registry.setSetting("councilEnabled", true);
+    registry.setProjectCouncilRoster(PROJECT, {
+      instructions: null,
+      members: [{ name: "proj-one", model: "a/b", instructions: null, enabled: true }],
+      trial: { name: "", model: "t/nova", instructions: null, enabled: true },
+    });
+    const { tabId } = await freshRpc(manager);
+    const dir = lineageOf(registry, sessionsRoot, tabId);
+    const snapshot = JSON.parse(fs.readFileSync(Core.councilRosterSnapshotPath(dir), "utf8"));
+    expect(snapshot.version).toBe(2);
+    expect(snapshot.members).toEqual([{ name: "proj-one", model: "a/b", instructions: null }]);
+    expect(snapshot.trial).toEqual({ name: "nova", model: "t/nova", instructions: null });
+    const overlay = Core.councilOverlayPath(dir);
+    expect(spawnedOverlays()).toContain(overlay);
+    const text = fs.readFileSync(overlay, "utf8");
+    expect(text).toContain('"omp-ui-council-1": "a/b"\n  "omp-ui-council-trial": "t/nova"\n');
   });
 
   it("writes neither the snapshot nor the overlay with the council flag off", async () => {

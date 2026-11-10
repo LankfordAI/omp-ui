@@ -17,6 +17,8 @@ const roster = (over: Partial<CouncilRosterView> = {}): CouncilRosterView => ({
   global: { instructions: null, members: [hawk] },
   project: null,
   effective: [{ ...hawk, sourceScope: "user" }],
+  trial: null,
+  effectiveTrial: null,
   ...over,
 });
 
@@ -228,5 +230,97 @@ describe("CouncilRosterEditor", () => {
   it("names the inherit chain when the project scope is unset", async () => {
     await mount(<CouncilRosterEditor scopeCwd="/p" instanceId={null} />);
     expect(document.body.textContent).toContain("the global council applies");
+  });
+
+  it("saves a trial member beside the council", async () => {
+    await mount(<CouncilRosterEditor scopeCwd="/p" instanceId={null} />);
+    const trial = document.querySelector<HTMLElement>('[data-testid="council-trial"]')!;
+    expect(trial.textContent).toContain("Trial member");
+    const addTrial = [...trial.querySelectorAll<HTMLButtonElement>("button")].find(
+      (b) => b.textContent?.trim() === "Add trial member",
+    )!;
+    await act(async () => addTrial.click());
+    // The trial row reuses the member-row labels; scope inside the trial panel.
+    const model = trial.querySelector<HTMLInputElement>('input[aria-label="Model"]')!;
+    await typeInto(model, "x/nova");
+    await act(async () => btn("Save").click());
+    const req = lastWrite();
+    expect(req.document!.trial).toEqual({ name: "", model: "x/nova", instructions: null, enabled: true });
+    expect(req.document!.members.map((m) => [m.name, m.model])).toEqual([["hawk", "anthropic/sonnet"]]);
+  });
+
+  it("sends no trial key when the trial slot is unset", async () => {
+    await mount(<CouncilRosterEditor scopeCwd={null} instanceId={null} />);
+    // Add then remove the trial slot so the draft is dirty again; an empty
+    // slot must save as an absent key, matching pre-slot documents.
+    const trial = document.querySelector<HTMLElement>('[data-testid="council-trial"]')!;
+    const addTrial = [...trial.querySelectorAll<HTMLButtonElement>("button")].find(
+      (b) => b.textContent?.trim() === "Add trial member",
+    )!;
+    await act(async () => addTrial.click());
+    const removeTrial = [...trial.querySelectorAll<HTMLButtonElement>("button")].find(
+      (b) => b.textContent?.trim() === "Remove",
+    )!;
+    await act(async () => removeTrial.click());
+    await act(async () => btn("Save").click());
+    const req = lastWrite();
+    expect(req.document).not.toBeNull();
+    expect("trial" in req.document!).toBe(false);
+  });
+
+  it("keeps Save disabled while the trial member lacks a model", async () => {
+    await mount(<CouncilRosterEditor scopeCwd="/p" instanceId={null} />);
+    const trial = document.querySelector<HTMLElement>('[data-testid="council-trial"]')!;
+    const addTrial = [...trial.querySelectorAll<HTMLButtonElement>("button")].find(
+      (b) => b.textContent?.trim() === "Add trial member",
+    )!;
+    await act(async () => addTrial.click());
+    expect(btn("Save").disabled).toBe(true);
+    await typeInto(trial.querySelector<HTMLInputElement>('input[aria-label="Model"]')!, "x/nova");
+    expect(btn("Save").disabled).toBe(false);
+  });
+
+  it("clears the project override again after adding then removing a trial member", async () => {
+    backendMock.getCouncilRoster.mockResolvedValueOnce(
+      roster({ global: { instructions: null, members: [hawk] } }),
+    );
+    await mount(<CouncilRosterEditor scopeCwd="/p" instanceId={null} />);
+    const trial = document.querySelector<HTMLElement>('[data-testid="council-trial"]')!;
+    const addTrial = [...trial.querySelectorAll<HTMLButtonElement>("button")].find(
+      (b) => b.textContent?.trim() === "Add trial member",
+    )!;
+    await act(async () => addTrial.click());
+    const remove = [...trial.querySelectorAll<HTMLButtonElement>("button")].find(
+      (b) => b.textContent?.trim() === "Remove",
+    )!;
+    await act(async () => remove.click());
+    await act(async () => btn("Save").click());
+    const req = lastWrite();
+    expect(req.scope).toBe("project");
+    expect(req.document).toBe(null);
+  });
+
+  it("still offers the trial slot when the council is at its three-member cap", async () => {
+    await mount(<CouncilRosterEditor scopeCwd="/p" instanceId={null} />);
+    await act(async () => btn("Add member").click());
+    await act(async () => btn("Add member").click());
+    expect(inputs("Member").length).toBe(3);
+    expect(btn("Add member").disabled).toBe(true);
+    const trial = document.querySelector<HTMLElement>('[data-testid="council-trial"]')!;
+    const addTrial = [...trial.querySelectorAll<HTMLButtonElement>("button")].find(
+      (b) => b.textContent?.trim() === "Add trial member",
+    )!;
+    expect(addTrial.disabled).toBe(false);
+  });
+
+  it("lists the effective trial member last in the resolved chain", async () => {
+    backendMock.getCouncilRoster.mockResolvedValueOnce(
+      roster({
+        effectiveTrial: { name: "nova", model: "x/nova", instructions: null, enabled: true, sourceScope: "user" },
+      }),
+    );
+    await mount(<CouncilRosterEditor scopeCwd="/p" instanceId={null} />);
+    expect(document.body.textContent).toContain("hawk · on · anthropic/sonnet · Global");
+    expect(document.body.textContent).toContain("nova · trial · on · x/nova · Global");
   });
 });

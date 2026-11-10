@@ -123,6 +123,8 @@ const backendMock = {
     global: null,
     project: null,
     effective: [],
+    trial: null,
+    effectiveTrial: null,
   })),
   setCouncilRoster: vi.fn(async (): Promise<CouncilRosterView> => ({
     members: [],
@@ -131,6 +133,8 @@ const backendMock = {
     global: null,
     project: null,
     effective: [],
+    trial: null,
+    effectiveTrial: null,
   })),
   setSnoozedSectionEnabled: vi.fn(async () => {}),
   setAutoSettleMergedPullRequests: vi.fn(async () => {}),

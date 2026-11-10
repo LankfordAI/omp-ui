@@ -1,5 +1,5 @@
 import * as path from "node:path";
-import type { CouncilRosterResult } from "./council-config";
+import type { CouncilMember, CouncilRosterResult } from "./council-config";
 import { writeLineageArtifact } from "./lineage-artifact";
 
 /**
@@ -9,7 +9,7 @@ import { writeLineageArtifact } from "./lineage-artifact";
  * launches exactly what Settings shows.
  */
 const SNAPSHOT_NAME = "omp-ui-council-roster.json";
-export const COUNCIL_ROSTER_SNAPSHOT_VERSION = 1;
+export const COUNCIL_ROSTER_SNAPSHOT_VERSION = 2;
 
 export interface CouncilRosterSnapshotEntry {
   readonly name: string;
@@ -21,6 +21,8 @@ export interface CouncilRosterSnapshot {
   readonly version: typeof COUNCIL_ROSTER_SNAPSHOT_VERSION;
   readonly instructions: string | null;
   readonly members: readonly CouncilRosterSnapshotEntry[];
+  /** The trial member the bridge launches in its own task call; null = none. */
+  readonly trial: CouncilRosterSnapshotEntry | null;
   readonly configWarnings: readonly string[];
 }
 
@@ -30,17 +32,21 @@ export function councilRosterSnapshotPath(lineageDir: string): string {
 
 const textOrNull = (v: string | null): string | null => (v !== null && v.trim() !== "" ? v : null);
 
+const entryOf = (m: CouncilMember): CouncilRosterSnapshotEntry | null =>
+  m.model === null ? null : { name: m.name, model: m.model, instructions: textOrNull(m.instructions) };
+
 /** Writes the launch set of an already-resolved roster (members all carry a model). */
 export function writeCouncilRosterSnapshot(lineageDir: string, roster: CouncilRosterResult): string {
   const members: CouncilRosterSnapshotEntry[] = [];
   for (const m of roster.members) {
-    if (m.model === null) continue;
-    members.push({ name: m.name, model: m.model, instructions: textOrNull(m.instructions) });
+    const entry = entryOf(m);
+    if (entry !== null) members.push(entry);
   }
   const snapshot: CouncilRosterSnapshot = {
     version: COUNCIL_ROSTER_SNAPSHOT_VERSION,
     instructions: textOrNull(roster.instructions),
     members,
+    trial: roster.trial === null ? null : entryOf(roster.trial),
     configWarnings: roster.configWarnings,
   };
   return writeLineageArtifact(lineageDir, councilRosterSnapshotPath(lineageDir), `${JSON.stringify(snapshot)}\n`);

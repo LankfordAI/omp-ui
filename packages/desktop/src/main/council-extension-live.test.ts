@@ -34,11 +34,16 @@ import { writeCouncilForSpawn } from "./spawn-config";
  *   model on that agent: no `Per-call model` or `Unknown agent` preflight
  *   error, and the member model is actually asked;
  * - without the council overlay the identical call fails preflight with
- *   `Per-call model`, so the grant is what makes the first run pass.
+ *   `Per-call model`, so the grant is what makes the first run pass;
+ * - with a trial member set, the `omp-ui-council-trial` role grants the trial
+ *   model: a second task call pinned to it runs without a preflight error and
+ *   the trial model is actually asked (issue #1140);
+ * - a trial model no models.yml defines fails only its own call: the council
+ *   call still completes, and the session never asks the unknown model.
  *
  * A scripted loopback provider (the async-jobs-live.test.ts pattern) serves
- * both models, so no real provider is ever billed: completion 0 emits the
- * member `task` call, every later completion replies `ok` and stops.
+ * every probe model, so no real provider is ever billed: completion 0 emits
+ * the scripted `task` calls, every later completion replies `ok` and stops.
  */
 
 const ompPath = resolveOmpBinary();
@@ -58,6 +63,10 @@ const MODELS_YML = (baseUrl: string): string => `providers:
         maxTokens: 128
       - id: member
         name: member
+        contextWindow: 131072
+        maxTokens: 128
+      - id: trial
+        name: trial
         contextWindow: 131072
         maxTokens: 128
 `;
@@ -91,6 +100,50 @@ const TASK_CALL = {
           name: "council-alpha",
           agent: COUNCIL_AGENT,
           model: MEMBER_MODEL,
+          task: "Reply ok.",
+          solutionSpace: "one fixed answer",
+        },
+      ],
+    }),
+  },
+};
+
+/** The second batch the bridge builds when a trial member is set. */
+const TRIAL_CALL = {
+  index: 1,
+  id: "call_trial",
+  type: "function",
+  function: {
+    name: "task",
+    arguments: JSON.stringify({
+      i: "probe",
+      context: "probe",
+      tasks: [
+        {
+          name: "council-nova",
+          agent: COUNCIL_AGENT,
+          model: "probe/trial",
+          task: "Reply ok.",
+          solutionSpace: "one fixed answer",
+        },
+      ],
+    }),
+  },
+};
+
+/** The same second batch pinned to a model no models.yml defines. */
+const GHOST_CALL = {
+  ...TRIAL_CALL,
+  function: {
+    ...TRIAL_CALL.function,
+    arguments: JSON.stringify({
+      i: "probe",
+      context: "probe",
+      tasks: [
+        {
+          name: "council-nova",
+          agent: COUNCIL_AGENT,
+          model: "probe/ghost",
           task: "Reply ok.",
           solutionSpace: "one fixed answer",
         },
@@ -154,7 +207,7 @@ interface ScriptedProvider {
   close(): Promise<void>;
 }
 
-async function scriptedProvider(): Promise<ScriptedProvider> {
+async function scriptedProvider(toolCalls: unknown[] = [TASK_CALL]): Promise<ScriptedProvider> {
   const models: string[] = [];
   const server = createServer((request, response) => {
     if (request.method !== "POST" || request.url !== "/v1/chat/completions") {
@@ -176,7 +229,7 @@ async function scriptedProvider(): Promise<ScriptedProvider> {
       response.writeHead(200, { "Content-Type": "text/event-stream", "Cache-Control": "no-cache" });
       response.end(
         (index === 0
-          ? chunk(index, model, { role: "assistant", tool_calls: [TASK_CALL] }, null) +
+          ? chunk(index, model, { role: "assistant", tool_calls: toolCalls }, null) +
             chunk(index, model, {}, "tool_calls")
           : chunk(index, model, { role: "assistant", content: "ok" }, null) + chunk(index, model, {}, "stop")) +
           "data: [DONE]\n\n",
@@ -219,7 +272,7 @@ afterEach(async () => {
  * extension package and the umbrella overlay; `withCouncilOverlay` adds the
  * council overlay after it, in main's push order.
  */
-function spawnScope(baseUrl: string, withCouncilOverlay: boolean): Scope {
+function spawnScope(baseUrl: string, withCouncilOverlay: boolean, council: CouncilDocument = COUNCIL): Scope {
   const base = fs.mkdtempSync(path.join(os.tmpdir(), "omp-ui-council-live-"));
   dirs.push(base);
   const home = path.join(base, "home");
@@ -242,8 +295,8 @@ function spawnScope(baseUrl: string, withCouncilOverlay: boolean): Scope {
   const umbrella = writeSubagentModelOverlay(lineage, { task: SUBAGENT_MODEL_INHERIT });
   if (umbrella === null) throw new Error("the umbrella subagent overlay was not written");
   // Always run: it writes the roster snapshot the bridge launches from.
-  const council = writeCouncilForSpawn(lineage, COUNCIL, null);
-  if (council === null) throw new Error("the council overlay was not written");
+  const councilOverlay = writeCouncilForSpawn(lineage, council, null);
+  if (councilOverlay === null) throw new Error("the council overlay was not written");
 
   const env: NodeJS.ProcessEnv = {
     ...process.env,
@@ -258,7 +311,7 @@ function spawnScope(baseUrl: string, withCouncilOverlay: boolean): Scope {
     lineageDir: lineage,
     ompPath: ompPath!,
     model: "probe/inert",
-    configOverlays: withCouncilOverlay ? [umbrella, council] : [umbrella],
+    configOverlays: withCouncilOverlay ? [umbrella, councilOverlay] : [umbrella],
     extensions: [writeCouncilExtension(lineage)],
     spawnProcess: (bin, args, extra) => {
       const proc = spawn(bin, args, { stdio: ["pipe", "pipe", "pipe"], env: { ...extra, ...env } });
@@ -383,6 +436,88 @@ describe.skipIf(!ompPath)("council extension (real omp)", () => {
           "the agent_end after the failed task call",
         );
         expect(scripted.models).not.toContain("member");
+      } finally {
+        await stopScope(scope);
+      }
+    },
+  );
+
+  it(
+    "the trial role grants the trial model and both task calls run",
+    { timeout: 180_000 },
+    async () => {
+      const scripted = await scriptedProvider([TASK_CALL, TRIAL_CALL]);
+      provider = scripted;
+      const scope = spawnScope(scripted.baseUrl, true, {
+        ...COUNCIL,
+        trial: { name: "nova", model: "probe/trial", instructions: null, enabled: true },
+      });
+      try {
+        await councilLoaded(scope);
+
+        const prompted = await request(scope, { type: "prompt", message: `/${COUNCIL_COMMAND} say ok` });
+        expect(prompted.success, prompted.error).toBe(true);
+        const launch = await waitFor(
+          () => scope.frames.find((f) => f.type === "message_start" && f.message?.customType === COUNCIL_LAUNCH_TYPE),
+          60_000,
+          "the council launch message in the session",
+        );
+        expect(JSON.stringify(launch.message?.content)).toContain("probe/trial");
+
+        for (const call of [TASK_CALL, TRIAL_CALL]) {
+          const ended = await waitFor(
+            () => scope.frames.find((f) => f.type === "tool_execution_end" && f.toolCallId === call.id),
+            120_000,
+            `the tool_execution_end for the ${call.id} task call`,
+          );
+          expect(ended.isError, JSON.stringify(ended.result ?? null)).toBeFalsy();
+        }
+
+        await waitFor(
+          () => (scripted.models.includes("member") && scripted.models.includes("trial") ? true : undefined),
+          120_000,
+          "completion requests for the member model and the trial model",
+        );
+      } finally {
+        await stopScope(scope);
+      }
+    },
+  );
+
+  it(
+    "an unknown trial model never reaches the provider and never fails the council call",
+    { timeout: 180_000 },
+    async () => {
+      const scripted = await scriptedProvider([TASK_CALL, GHOST_CALL]);
+      provider = scripted;
+      const scope = spawnScope(scripted.baseUrl, true, {
+        ...COUNCIL,
+        trial: { name: "nova", model: "probe/ghost", instructions: null, enabled: true },
+      });
+      try {
+        await councilLoaded(scope);
+
+        const prompted = await request(scope, { type: "prompt", message: `/${COUNCIL_COMMAND} say ok` });
+        expect(prompted.success, prompted.error).toBe(true);
+
+        const ended = await waitFor(
+          () => scope.frames.find((f) => f.type === "tool_execution_end" && f.toolCallId === TASK_CALL.id),
+          120_000,
+          "the tool_execution_end for the council task call",
+        );
+        expect(ended.isError, JSON.stringify(ended.result ?? null)).toBeFalsy();
+
+        await waitFor(
+          () => (scripted.models.includes("member") ? true : undefined),
+          120_000,
+          "a completion request for the member model",
+        );
+        await waitFor(
+          () => (scope.frames.some((f) => f.type === "agent_end") ? true : undefined),
+          120_000,
+          "the agent_end after both task calls settle",
+        );
+        expect(scripted.models).not.toContain("ghost");
       } finally {
         await stopScope(scope);
       }

@@ -525,6 +525,16 @@ Settings → Council switch (`councilEnabled`); turning it off applies to
 sessions started afterwards, and edits apply when the session relaunches.
 _Avoid_: reviewer roster, review team, judge panel, code-review agent
 
+**Trial member**:
+The one optional extra model a council document can carry beside its members,
+for comparing a new model against the council. It gets the same assignment in
+its own `task` call and is not told it is on trial. It is not a **council
+member**: the session model builds the summary, the recommendations, and every
+review decision from the council members alone, then reports where the trial
+member stands in a separate "Trial model" section. It launches only when at
+least one council member does.
+_Avoid_: fourth member, voting member, non-voting member, shadow member, candidate
+
 **Session parameter memory**:
 The five composer parameters — main model, main thinking level, advisor on/off,
 advisor model, and advisor thinking level — are remembered per project and

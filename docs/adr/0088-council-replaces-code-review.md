@@ -175,3 +175,28 @@ Consequences amended:
   plumbing (the terminal spawn path passes no extension roots) and a proof that
   the omp TUI surfaces async task results back to the model; until both exist,
   council is rpc-only.
+
+## Amended 2026-11-10 (trial member)
+
+Decision 3 gains one optional slot on the council document: `trial`, a member-shaped
+entry for a model under evaluation. Decision 4's cap is unchanged. The trial
+member is not a council member and does not count against the three.
+
+- It launches only beside at least one council member, in its own `task` call
+  with a one-item batch. omp preflights every item of a call before dispatch
+  (`omp://tools/task.md`, Flow and Errors), so a shared batch would let one
+  unavailable trial model cancel the council.
+- Decision 6 gains a role: `modelRoles."omp-ui-council-trial"` grants the trial
+  model.
+- Its assignment is identical to a council member's and never mentions the
+  trial, so the comparison is fair.
+- The launch message tells the session model to build the summary, the
+  recommendations, and the review loop from the council members alone, and to
+  report the trial member in a separate "Trial model" section. This is an
+  instruction to the session model, not isolation: the answer still reaches
+  its context.
+- The roster snapshot is version 2 and carries `trial`.
+
+Rejected: a fourth member with a flag (raises the cap and mixes two kinds of
+entry in one list), and holding the trial answer back from the session model
+(no extension context can intercept an async result).

@@ -35,6 +35,8 @@ const backendMock = {
     global: null,
     project: null,
     effective: [],
+    trial: null,
+    effectiveTrial: null,
   })),
   remoteInstanceRequest: vi.fn(),
   remoteInstanceNotify: vi.fn(),

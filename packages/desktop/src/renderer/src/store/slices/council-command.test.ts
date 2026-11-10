@@ -15,6 +15,8 @@ function view(members: CouncilMember[]): CouncilRosterView {
     global: null,
     project: null,
     effective: members.map((member) => ({ ...member, sourceScope: "project" as const })),
+    trial: null,
+    effectiveTrial: null,
   };
 }
 

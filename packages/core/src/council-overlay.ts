@@ -15,7 +15,8 @@ import { isSafeSelector } from "./subagent-model";
  * - omp grants a per-call model only when a chat role in an operator layer
  *   names it, and `--config` is such a layer: one custom role
  *   `omp-ui-council-N` per launched member grants exactly the members'
- *   models. Objects deep-merge across config layers, so the user's own
+ *   models, plus `omp-ui-council-trial` for the trial member. Objects
+ *   deep-merge across config layers, so the user's own
  *   `modelRoles` survive beside these.
  * - It never writes `task.agentModelOverrides`: the members run as the
  *   dedicated council agent, which no override names, so omp's per-call
@@ -30,14 +31,15 @@ export function councilOverlayPath(lineageDir: string): string {
 }
 
 /**
- * Writes the overlay for `models` (member selectors in launch order) and
- * returns the path to pass as `--config`. Always writes: with no members the
- * `modelRoles` block is simply omitted. A selector failing `isSafeSelector`
- * throws, because `--config` is a strict loader and one malformed line takes
- * the session down.
+ * Writes the overlay for `models` (member selectors in launch order) plus the
+ * optional `trialModel`, and returns the path to pass as `--config`: one
+ * numbered role per council member plus `omp-ui-council-trial` for the trial
+ * member. Always writes: with no members the `modelRoles` block is simply
+ * omitted. A selector failing `isSafeSelector` throws, because `--config` is a
+ * strict loader and one malformed line takes the session down.
  */
-export function writeCouncilOverlay(lineageDir: string, models: readonly string[]): string {
-  const unsafe = models.find((model) => !isSafeSelector(model));
+export function writeCouncilOverlay(lineageDir: string, models: readonly string[], trialModel: string | null): string {
+  const unsafe = [...models, ...(trialModel === null ? [] : [trialModel])].find((model) => !isSafeSelector(model));
   if (unsafe !== undefined) {
     throw new Error(`council overlay: unsafe model selector ${JSON.stringify(unsafe)}`);
   }
@@ -47,6 +49,8 @@ export function writeCouncilOverlay(lineageDir: string, models: readonly string[
     models.forEach((model, i) => {
       content += `  ${yamlQuote(`omp-ui-council-${i + 1}`)}: ${yamlQuote(model)}\n`;
     });
+    // The trial member never launches without a council member, so its grant rides only here.
+    if (trialModel !== null) content += `  ${yamlQuote("omp-ui-council-trial")}: ${yamlQuote(trialModel)}\n`;
   }
   return writeLineageArtifact(lineageDir, councilOverlayPath(lineageDir), content);
 }
