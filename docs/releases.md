@@ -6,6 +6,8 @@ This guide explains what users receive from a release and how maintainers publis
 
 Nothing since [v0.34.7](https://github.com/LankfordAI/omp-ui/releases/tag/v0.34.7). Add one bullet per shipped change here, citing its issue as `#N`; the release tag lifts these into Highlights.
 
+- Tidied the composer options popover: the advisor row now matches the other rows — a label with a dim *restarts session* hint, the advisor model and level capsule while it is on, and a switch in place of the **advisor off** button. The thinking readout sits beside its label, each slider label centres on its stop, and the selected mode segment is semibold (#1138).
+
 ## Choose a download
 
 A stable release has exactly five distributable files. Replace `<version>` with the tag version without its leading `v`.
