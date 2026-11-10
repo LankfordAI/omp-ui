@@ -330,6 +330,7 @@ const VALID_ARGS = {
   runScheduledPromptNow: ["tab-1"],
   setSessionServiceTier: ["tab-1", null],
   settleSession: ["tab-1"],
+  unsettleSession: ["tab-1"],
   setSkipDeleteConfirmation: [true],
   setSkipTerminateConfirmation: [true],
   setSttModel: [null],

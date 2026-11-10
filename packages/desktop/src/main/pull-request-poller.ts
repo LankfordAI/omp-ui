@@ -169,8 +169,8 @@ export class PullRequestPoller {
         continue;
       }
       const live = this.deps.isLive(tabId);
-      // A dormant unsnoozed row is already settled.
-      if (!live && !record.snoozed) {
+      // Already settled and unsnoozed: nothing left to settle.
+      if (!live && record.settledAtMs !== null && !record.snoozed) {
         this.pendingSettle.delete(tabId);
         continue;
       }

@@ -91,6 +91,7 @@ function todayRecord(projectCwd: string): OwnedSessionRecord {
     snoozed: false,
     snoozedUntilMs: null,
     pinnedAtMs: null,
+    settledAtMs: null,
     heldPrompt: null,
     scheduledPrompt: null,
     pullRequests: [],

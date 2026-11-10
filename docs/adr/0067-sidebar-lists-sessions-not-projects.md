@@ -132,3 +132,21 @@ frozen-order setting — #274's explicit order stays deleted. The hibernation
 last-active exemption keeps the activity key; only the sidebar order changed.
 The consequences "the session that changed last is on top" and "rows move as
 sessions work" are withdrawn.
+
+## Addendum: settled state persists across restarts and reboots (#1137, 2026-11-09)
+
+Decision (a)'s rule that every dormant session sits in **Settled** conflated
+process absence with deliberate settlement: quitting `omp-ui` on the same
+version or rebooting the machine killed child `omp` processes via `killAll()`
+and dropped every session into **Settled** on relaunch. `OwnedSessionRecord`
+now persists `settledAtMs: number | null`, stamped by the owning host only when
+a session is settled on purpose (manual **Settle**, idle hibernation, plan
+handoff, worktree finish, or merged pull request) and cleared to `null` on
+every fresh or resumed spawn. `buildSidebarLists` (`isSessionSettled`) places a
+session in **Settled** only when `settledAtMs !== null` or `live` is
+`"archived"` / `"missing"` (falling back to `live !== "live"` when
+`settledAtMs` is absent on an older remote host). Unsettled dormant sessions
+stay in the main list (or **Pinned** when pinned) across restarts and reboots
+and resume lazily when opened. Pre-upgrade records on disk without
+`settledAtMs` normalize to `Date.parse(cachedModified ?? launchedAt)` on load so
+existing dormant history remains in **Settled**.

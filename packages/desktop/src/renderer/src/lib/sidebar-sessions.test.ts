@@ -33,6 +33,7 @@ function session(tabId: string, patch: Partial<SessionSummary> = {}): SessionSum
     snoozed: false,
     snoozedUntilMs: null,
     pinnedAtMs: null,
+    settledAtMs: (patch.live ?? "live") === "live" ? null : 1_000,
     heldPrompt: null,
     scheduledPrompt: null,
     pullRequests: [],
@@ -481,5 +482,36 @@ describe("Pinned group (issue #981)", () => {
     const lists = buildSidebarLists(state, "");
     expect(lists.pinned).toEqual([]);
     expect(ids(lists.working)).toEqual(["old-host"]);
+  });
+});
+
+describe("settledAtMs persistence across restarts and reboots (issue #1137)", () => {
+  it("keeps dormant unsettled sessions in active and pinned instead of dropping them into settled", () => {
+    const state = backendState({
+      projects: [
+        group("/a", "alpha", [
+          session("restarted-active", { live: "dormant", settledAtMs: null }),
+          session("restarted-pinned", { live: "dormant", settledAtMs: null, pinnedAtMs: 1_000 }),
+          session("deliberately-settled", { live: "dormant", settledAtMs: 2_000 }),
+          session("archived-unsettled", { live: "archived", settledAtMs: null }),
+          session("missing-unsettled", { live: "missing", settledAtMs: null }),
+        ]),
+      ],
+    });
+    const lists = buildSidebarLists(state, "");
+    expect(ids(lists.pinned)).toEqual(["restarted-pinned"]);
+    expect(ids(lists.active)).toEqual(["restarted-active"]);
+    expect(ids(lists.settled)).toEqual(["deliberately-settled", "archived-unsettled", "missing-unsettled"]);
+  });
+
+  it("falls back to live !== 'live' when settledAtMs is undefined on an older remote host", () => {
+    const legacyDormant = session("legacy-dormant", { live: "dormant" }) as Partial<SessionSummary>;
+    delete legacyDormant.settledAtMs;
+    const state = backendState({
+      projects: [group("/a", "alpha", [legacyDormant as SessionSummary])],
+    });
+    const lists = buildSidebarLists(state, "");
+    expect(lists.active).toEqual([]);
+    expect(ids(lists.settled)).toEqual(["legacy-dormant"]);
   });
 });

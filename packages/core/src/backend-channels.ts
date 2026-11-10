@@ -1017,6 +1017,15 @@ export const BACKEND_CHANNELS = {
     channel: "session:settle",
     ...request<[tabId: string], boolean>([str()]),
   },
+  /**
+   * Clears the settled stamp on a dormant session without spawning a process
+   * (issue #1137): used by Settle Undo when the settled session had no running
+   * process (`wasLive === false`).
+   */
+  unsettleSession: {
+    channel: "session:unsettle",
+    ...request<[tabId: string], void>([str()]),
+  },
   switchMode: {
     channel: "session:switchMode",
     ...request<[tabId: string, mode: SessionMode], void>([str(), sessionModeCodec]),

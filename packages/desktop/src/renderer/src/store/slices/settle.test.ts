@@ -122,12 +122,12 @@ describe("settleSessions (issue #980)", () => {
     });
   });
 
-  it("re-gates at acceptance: a row that went dormant while the dialog was open is not settled", async () => {
+  it("re-gates at acceptance: a row that was already settled while the dialog was open is not settled again", async () => {
     h.useStore.setState({ state: twoSessions({ turnRunning: true }) });
     await store().settleSessions([h.TAB]);
     const id = store().lifecycleConfirmation!.id;
-    // The process exited on its own; the row is dormant and not snoozed.
-    h.useStore.setState({ state: twoSessions({ live: "dormant" }) });
+    // Another client settled the row while the dialog was open.
+    h.useStore.setState({ state: twoSessions({ live: "dormant", settledAtMs: 1_000 }) });
 
     await store().confirmLifecycleAction(id);
 
@@ -136,13 +136,23 @@ describe("settleSessions (issue #980)", () => {
     expect(store().lifecycleConfirmation).toBeNull();
   });
 
-  it("settles a dormant row only to take it out of Snoozed, and only while the section is on", async () => {
-    const state = twoSessions({ live: "dormant", snoozed: true }, { live: "dormant" });
+  it("settles an already-settled dormant row only to take it out of Snoozed, while a dormant unsettled row always settles (issue #1137)", async () => {
+    const state = twoSessions(
+      { live: "dormant", settledAtMs: 1_000, snoozed: true },
+      { live: "dormant", settledAtMs: 1_000 },
+    );
     h.useStore.setState({ state: { ...state, snoozedSectionEnabled: false } });
     await store().settleSessions([h.TAB, OTHER]);
     expect(h.mockBackend.settleSession).not.toHaveBeenCalled();
 
     h.useStore.setState({ state: { ...state, snoozedSectionEnabled: true } });
+    await store().settleSessions([h.TAB, OTHER]);
+    expect(h.mockBackend.settleSession.mock.calls).toEqual([[h.TAB]]);
+
+    h.mockBackend.settleSession.mockClear();
+    h.useStore.setState({
+      state: twoSessions({ live: "dormant", settledAtMs: null }, { live: "dormant", settledAtMs: 1_000 }),
+    });
     await store().settleSessions([h.TAB, OTHER]);
     expect(h.mockBackend.settleSession.mock.calls).toEqual([[h.TAB]]);
   });
@@ -204,5 +214,24 @@ describe("undoSettle (issue #980)", () => {
 
     expect(h.mockBackend.spawnSession).not.toHaveBeenCalled();
     expect(store().settleUndo.map((e) => e.sessions[0]!.tabId)).toEqual([h.TAB]);
+  });
+
+  it("undoes settling a dormant unsettled session via unsettleSession without spawning a process (issue #1137)", async () => {
+    h.useStore.setState({
+      state: twoSessions({ live: "dormant", settledAtMs: null }),
+    });
+    await store().settleSessions([h.TAB]);
+    expect(store().settleUndo).toHaveLength(1);
+    expect(store().settleUndo[0]!.sessions[0]!.wasLive).toBe(false);
+    // Main stamped settledAtMs on the dormant record.
+    h.useStore.setState({
+      state: twoSessions({ live: "dormant", settledAtMs: 5_000 }),
+    });
+
+    expect(store().undoSettle()).toBe(true);
+    await h.flushMicrotasks();
+
+    expect(h.mockBackend.unsettleSession).toHaveBeenCalledWith(h.TAB);
+    expect(h.mockBackend.spawnSession).not.toHaveBeenCalled();
   });
 });

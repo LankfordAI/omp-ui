@@ -234,3 +234,17 @@ card. A single button that flips between Settle and Stop with turn state was
 rejected: a turn starting while the pointer travels would turn the click into an
 unconfirmed kill. The composer's abort and the finish dialog's "Stop that turn"
 still abort a turn without ending the process.
+
+## Addendum: persisted `settledAtMs` decouples Settled from process death (#1137, 2026-11-09)
+
+`OwnedSessionRecord.settledAtMs: number | null` records when the owning host
+settled a session (`session:settle`, idle hibernation, plan handoff, worktree
+finish, or merged pull request) and clears to `null` on spawn or resume; app
+quit (`killAll`) and unexpected child exit leave `settledAtMs` untouched.
+`isSessionSettled` in `sidebar-sessions.ts` gates **Settled** (and **Pinned**
+eligibility) on `settledAtMs !== null` (plus `archived` and `missing`), so
+unsettled dormant sessions remain in **Pinned** or the main list across
+same-version restarts and OS reboots without spawning `omp` processes at boot.
+`canSettle` admits unsettled dormant rows so they can be settled by hand without
+spawning first, and `undoSettle` calls the tab-routed `session:unsettle` when
+`target.wasLive === false` to clear `settledAtMs` without launching a process.

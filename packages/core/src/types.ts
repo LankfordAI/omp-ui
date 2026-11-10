@@ -558,6 +558,12 @@ export interface OwnedSessionRecord {
    *  ordered by this stamp, exempt from Working and Snoozed. The owning host
    *  stamps it. Post-dates schema-1: absent normalizes to null. */
   pinnedAtMs: number | null;
+  /** Epoch ms when the session was settled (issue #1137) — by manual Settle,
+   *  idle hibernation, plan handoff, worktree finish, or merged pull request;
+   *  null while unsettled. Cleared on every spawn or resume. Legacy records on
+   *  disk without the field normalize to a non-null stamp at parse time so
+   *  pre-existing dormant history stays in Settled on upgrade. */
+  settledAtMs: number | null;
   /** The prompt omp-ui holds until the provider's usage window resets
    *  (issue #986); null when none. The owning host's main process sends it
    *  at `sendAtMs` through the normal prompt path. Post-dates schema-1:
@@ -598,7 +604,7 @@ export interface PullRequestLink {
 export interface AutoSettledSession {
   tabId: string;
   title: string;
-  /** Had a process: Undo resumes it. */
+  /** Had a process: Undo resumes it; when false, Undo clears `settledAtMs` via `session:unsettle`. */
   wasLive: boolean;
   /** The settle cleared this snooze; Undo puts it back. */
   snoozed: boolean;

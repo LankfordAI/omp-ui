@@ -135,6 +135,7 @@ function mount(voiceInputEnabled: boolean, ownerId: string | null = null): void 
         snoozed: false,
         snoozedUntilMs: null,
         pinnedAtMs: null,
+        settledAtMs: null,
         heldPrompt: null,
         scheduledPrompt: null,
         pullRequests: [],

@@ -1196,6 +1196,7 @@ export class SessionManager {
           snoozed: false,
           snoozedUntilMs: null,
           pinnedAtMs: null,
+          settledAtMs: null,
           heldPrompt: null,
           scheduledPrompt: null,
           pullRequests: [],
@@ -1218,6 +1219,7 @@ export class SessionManager {
       if (req.origin === "resume") {
         const patch: Partial<Omit<OwnedSessionRecord, "tabId">> = {};
         if (record.mode !== mode) patch.mode = mode;
+        if (record.settledAtMs !== null) patch.settledAtMs = null;
         if (req.advisor !== undefined && req.advisor !== record.advisor) {
           patch.advisor = req.advisor;
         }
@@ -3084,9 +3086,16 @@ export class SessionManager {
         await this.escalateOnTerminate(tabId, current);
         return this.live.get(tabId) !== current;
       }));
-    if (settled && this.deps.registry.sessions.find((s) => s.tabId === tabId)?.snoozed === true) {
-      this.deps.registry.updateSession(tabId, { snoozed: false, snoozedUntilMs: null });
-      void this.deps.broadcast();
+    if (settled) {
+      const rec = this.deps.registry.sessions.find((s) => s.tabId === tabId);
+      if (rec && (rec.settledAtMs === null || rec.snoozed === true)) {
+        this.deps.registry.updateSession(tabId, {
+          settledAtMs: rec.settledAtMs ?? Date.now(),
+          snoozed: false,
+          snoozedUntilMs: null,
+        });
+        void this.deps.broadcast();
+      }
     }
     return settled;
   }
@@ -3099,6 +3108,10 @@ export class SessionManager {
       this.devicePanes.dispose(tabId);
       this.deps.send(CH.onSessionHibernated, tabId);
       this.deps.breadcrumb?.record("session-hibernate", { tabId });
+      const rec = this.deps.registry.sessions.find((s) => s.tabId === tabId);
+      if (rec && rec.settledAtMs === null) {
+        this.deps.registry.updateSession(tabId, { settledAtMs: Date.now() });
+      }
       void this.deps.broadcast();
       return this.live.get(tabId) !== entry;
     }
@@ -3454,6 +3467,7 @@ export class SessionManager {
       snoozed: false,
       snoozedUntilMs: null,
       pinnedAtMs: null,
+      settledAtMs: null,
       heldPrompt: null,
       scheduledPrompt: null,
       pullRequests: [],

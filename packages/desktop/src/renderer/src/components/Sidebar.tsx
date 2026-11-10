@@ -14,7 +14,7 @@ import {
   resolveDesktopPanelWidths,
   resolveDockedSidebarWidth,
 } from "../lib/panel-layout";
-import { buildAttentionEntries, buildSidebarLists, type SidebarEntry } from "../lib/sidebar-sessions";
+import { buildAttentionEntries, buildSidebarLists, isSessionSettled, type SidebarEntry } from "../lib/sidebar-sessions";
 import { setSettledOpen, useSettledOpen } from "../lib/sidebar-settled";
 import { setSidebarSectionOpen, useSidebarSectionOpen } from "../lib/sidebar-section-open";
 import { supportsSessionMigrate } from "../lib/session-migrate";
@@ -206,10 +206,10 @@ function Row({
           // is on — parking a `missing` record is legitimate.
           const snooze = snoozedEnabled;
           const snoozed = s.snoozed === true;
-          // Pin (#981): a live row can pin; any pinned row can unpin, even a
-          // settled one that keeps its pin until resume.
+          // Pin (#981, #1137): any unsettled row can pin; any pinned row can
+          // unpin, even a settled one that keeps its pin until resume.
           const pinned = typeof s.pinnedAtMs === "number";
-          const pin = pinned || s.live === "live";
+          const pin = pinned || !isSessionSettled(s);
           if (!migrate && !ask && !snooze && !pin && !settle) return;
           openSessionMenu(s.tabId, event, { migrate, ask, snooze, snoozed, pin, pinned, settle });
         }}
@@ -669,16 +669,16 @@ export function Sidebar() {
     window.addEventListener("keydown", onKeyDown);
     return () => window.removeEventListener("keydown", onKeyDown);
   }, [selecting, menuOpen]);
-  // "No running sessions" fires only with no live row anywhere (pinned,
-  // active, working, or a live snoozed row); "Nothing matches" only when no
-  // row at all survives the filter. A dormant snoozed row is a row, so it
-  // counts toward anyRow even though it is not live (issue #935).
+  // "No running sessions" fires only with no unsettled row anywhere (pinned,
+  // active, working, or an unsettled snoozed row); "Nothing matches" only when
+  // no row at all survives the filter. A settled snoozed row is a row, so it
+  // counts toward anyRow even though it is settled (issues #935, #1137).
   const liveAnywhere =
     lists !== null &&
     (lists.pinned.length > 0 ||
       lists.active.length > 0 ||
       lists.working.length > 0 ||
-      lists.snoozed.some((e) => e.session.live === "live"));
+      lists.snoozed.some((e) => !isSessionSettled(e.session)));
   const anyRow =
     lists !== null &&
     (lists.pinned.length > 0 ||

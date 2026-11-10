@@ -775,6 +775,11 @@ function isOwnedSessionRecord(value: unknown): value is OwnedSessionRecord {
     // pinnedAtMs (issue #981) post-dates snoozed; absent loads as null, a
     // present value must be a finite epoch-ms number or null.
     optNullable(value, "pinnedAtMs", (v) => typeof v === "number" && Number.isFinite(v)) &&
+    // settledAtMs (issue #1137) post-dates pinnedAtMs; absent on legacy disk
+    // records normalizes to a non-null stamp at parse time so pre-upgrade
+    // dormant history stays in Settled; a present value must be a finite
+    // epoch-ms number or null.
+    optNullable(value, "settledAtMs", (v) => typeof v === "number" && Number.isFinite(v)) &&
     // autoSettleOnMerge (issue #985) post-dates schema-1; absent loads as
     // null (follow the setting), a present value must be a boolean or null.
     optNullable(value, "autoSettleOnMerge", (v) => typeof v === "boolean") &&
@@ -801,6 +806,11 @@ function isOwnedSessionRecord(value: unknown): value is OwnedSessionRecord {
  * malformed elements are dropped, not fatal — one hand-edited record must
  * not wipe the whole registry.
  */
+function legacySettledAtMs(s: Pick<OwnedSessionRecord, "cachedModified" | "launchedAt">): number {
+  const parsed = Date.parse(s.cachedModified ?? s.launchedAt);
+  return Number.isFinite(parsed) && parsed >= 0 ? parsed : 0;
+}
+
 function parseRegistryData(raw: unknown): RegistryData | null {
   if (raw === null || typeof raw !== "object") return null;
   if (!("schemaVersion" in raw) || raw.schemaVersion !== 1) return null;
@@ -857,6 +867,10 @@ function parseRegistryData(raw: unknown): RegistryData | null {
       // A deadline without the flag is meaningless: only a snoozed record keeps it.
       snoozedUntilMs: s.snoozed === true ? (s.snoozedUntilMs ?? null) : null,
       pinnedAtMs: s.pinnedAtMs ?? null,
+      settledAtMs:
+        "settledAtMs" in s && (s.settledAtMs === null || typeof s.settledAtMs === "number")
+          ? s.settledAtMs
+          : legacySettledAtMs(s),
       // Never a validity gate (the councilRoster rule): a malformed held prompt
       // (issue #986) normalizes to null so the session always survives.
       heldPrompt: isHeldPrompt(s.heldPrompt) ? s.heldPrompt : null,

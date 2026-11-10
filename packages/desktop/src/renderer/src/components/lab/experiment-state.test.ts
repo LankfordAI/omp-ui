@@ -64,6 +64,7 @@ function summary(patch: Partial<SessionSummary> = {}): SessionSummary {
  snoozed: false,
  snoozedUntilMs: null,
  pinnedAtMs: null,
+ settledAtMs: null,
  heldPrompt: null,
  scheduledPrompt: null,
  pullRequests: [],

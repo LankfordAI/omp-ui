@@ -1337,6 +1337,10 @@ export class MainBackend {
         [CH.hibernatePlanSource]: (sourceTabId: string, implementationTabId: string) =>
           this.sessions.hibernatePlanSource(sourceTabId, implementationTabId),
         [CH.settleSession]: (tabId: string) => this.sessions.settleSession(tabId),
+        [CH.unsettleSession]: (tabId: string) => {
+          this.registry.updateSession(tabId, { settledAtMs: null });
+          void this.broadcast();
+        },
         [CH.switchMode]: (tabId: string, mode: SessionMode) =>
           this.sessions.switchMode(tabId, mode),
         [CH.deleteSessionPreview]: (tabId: string) =>
@@ -2367,6 +2371,7 @@ export class MainBackend {
           snoozed: false,
           snoozedUntilMs: null,
           pinnedAtMs: null,
+          settledAtMs: null,
           heldPrompt: null,
           scheduledPrompt: null,
           pullRequests: [],

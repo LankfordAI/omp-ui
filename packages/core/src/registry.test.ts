@@ -39,6 +39,7 @@ function sessionRecord(patch: Partial<OwnedSessionRecord> = {}): OwnedSessionRec
     snoozed: false,
     snoozedUntilMs: null,
     pinnedAtMs: null,
+    settledAtMs: null,
     heldPrompt: null,
     scheduledPrompt: null,
     pullRequests: [],
@@ -463,6 +464,27 @@ describe("Registry persistence", () => {
     const reloaded = Registry.load(file);
     expect(reloaded.sessions[0]?.planImplementationSource).toEqual(source);
     expect(JSON.parse(fs.readFileSync(file, "utf8")).schemaVersion).toBe(1);
+  });
+
+  it("persists settledAtMs: null and numeric stamps across save and reload, and normalizes legacy records without settledAtMs to a non-null stamp (issue #1137)", () => {
+    const file = tmpFile();
+    const reg = Registry.load(file);
+    reg.addSession(sessionRecord({ tabId: "unsettled", settledAtMs: null }));
+    reg.addSession(sessionRecord({ tabId: "settled", settledAtMs: 1_700_000_000_000 }));
+
+    const reloaded = Registry.load(file);
+    expect(reloaded.sessions.find((s) => s.tabId === "unsettled")?.settledAtMs).toBeNull();
+    expect(reloaded.sessions.find((s) => s.tabId === "settled")?.settledAtMs).toBe(1_700_000_000_000);
+
+    // Legacy record on disk without settledAtMs normalizes to cachedModified ?? launchedAt.
+    const legacy = { ...sessionRecord({ tabId: "legacy", cachedModified: "2026-08-01T12:00:00.000Z" }) } as Record<string, unknown>;
+    delete legacy.settledAtMs;
+    fs.writeFileSync(
+      file,
+      JSON.stringify({ schemaVersion: 1, projects: [], sessions: [legacy] }),
+    );
+    const upgraded = Registry.load(file);
+    expect(upgraded.sessions[0]?.settledAtMs).toBe(Date.parse("2026-08-01T12:00:00.000Z"));
   });
 
   it("round-trips persisted experiment provenance, including a null launch branch", () => {
