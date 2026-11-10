@@ -366,6 +366,7 @@ describe("new-session entry points (issues #915/#919)", () => {
     snoozed: false,
     snoozedUntilMs: null,
     pinnedAtMs: null,
+    settledAtMs: null,
     heldPrompt: null,
     scheduledPrompt: null,
     pullRequests: [],

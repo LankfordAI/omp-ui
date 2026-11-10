@@ -7,6 +7,7 @@ import type { SessionSummary } from "@omp-ui/core/types";
 import { backend } from "../../backend";
 import { t } from "../../lib/i18n";
 import { randomId } from "../../lib/random-id";
+import { isSessionSettled } from "../../lib/sidebar-sessions";
 import type { SettleUndoEntry, UiStore } from "../types";
 import { bulkFailureNotice, failureMessage, type BulkFailure } from "./bulk-failures";
 import { findRecord } from "./view";
@@ -21,13 +22,14 @@ export type SettleSlice = Pick<
 >;
 
 /**
- * Whether a session can be settled now (issues #980, #1005). Every live
- * session can: a running turn only adds a confirmation (see settleSessions).
- * A snoozed row can always settle — it leaves Snoozed for Settled — but only
- * while the Snoozed section is on. A dormant unsnoozed row is already settled.
+ * Whether a session can be settled now (issues #980, #1005, #1137). Every live
+ * or unsettled dormant session can: a running turn only adds a confirmation
+ * (see settleSessions). A snoozed row can always settle — it leaves Snoozed
+ * for Settled — but only while the Snoozed section is on.
  */
 export function canSettle(s: SessionSummary, snoozedSectionEnabled: boolean): boolean {
   if (s.live === "live") return true;
+  if (!isSessionSettled(s)) return true;
   return snoozedSectionEnabled && s.snoozed === true;
 }
 
@@ -125,7 +127,16 @@ export function createSettleSlice(set: SetState, get: GetState): SettleSlice {
           if (target.snoozed && rec.snoozed !== true) {
             await s.setSessionSnoozed(target.tabId, true, target.snoozedUntilMs);
           }
-          if (!target.wasLive) continue;
+          if (!target.wasLive) {
+            if (rec.settledAtMs !== null) {
+              try {
+                await backend.unsettleSession(target.tabId);
+              } catch (err) {
+                get().reportError(err);
+              }
+            }
+            continue;
+          }
           // The normal resume path: a mounted (hidden) tab relaunches in
           // place; an unmounted one spawns its tab through openSession.
           if (s.tabs.some((tab) => tab.tabId === target.tabId)) await s.resumeDead(target.tabId);

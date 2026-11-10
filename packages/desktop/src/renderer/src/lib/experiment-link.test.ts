@@ -61,6 +61,7 @@ function session(patch: Partial<SessionSummary> & Pick<SessionSummary, "tabId">)
  snoozed: false,
  snoozedUntilMs: null,
  pinnedAtMs: null,
+ settledAtMs: null,
  heldPrompt: null,
  scheduledPrompt: null,
  pullRequests: [],

@@ -7271,6 +7271,39 @@ describe("merged-finish settle (issue #924)", () => {
       vi.useRealTimers();
     }
   });
+
+  it("persists settledAtMs across settle, hibernate, resume, and killAll (issue #1137)", async () => {
+    const { manager, registry } = setup({ mode: "rpc-ui" });
+    // Fresh spawn starts unsettled (settledAtMs: null).
+    expect(registry.sessions.find((s) => s.tabId === TAB)?.settledAtMs).toBeNull();
+    await resumeRpc(manager);
+    const first = rpcInstances[0]!;
+    first.kill.mockImplementation(() => first.exit(0));
+
+    const beforeSettle = Date.now();
+    await expect(manager.settleSession(TAB)).resolves.toBe(true);
+    const settledStamp = registry.sessions.find((s) => s.tabId === TAB)?.settledAtMs;
+    expect(typeof settledStamp).toBe("number");
+    expect(settledStamp!).toBeGreaterThanOrEqual(beforeSettle);
+
+    // Resuming clears settledAtMs back to null.
+    await resumeRpc(manager);
+    expect(registry.sessions.find((s) => s.tabId === TAB)?.settledAtMs).toBeNull();
+
+    // App quit (killAll) and unexpected child exit leave settledAtMs: null untouched.
+    const second = rpcInstances.at(-1)!;
+    second.kill.mockImplementation(() => second.exit(0));
+    await manager.killAll();
+    expect(registry.sessions.find((s) => s.tabId === TAB)?.settledAtMs).toBeNull();
+
+    await resumeRpc(manager);
+    rpcInstances.at(-1)!.exit(1);
+    expect(registry.sessions.find((s) => s.tabId === TAB)?.settledAtMs).toBeNull();
+
+    // Settling an already-dormant unsettled session stamps settledAtMs.
+    await expect(manager.settleSession(TAB)).resolves.toBe(true);
+    expect(typeof registry.sessions.find((s) => s.tabId === TAB)?.settledAtMs).toBe("number");
+  });
 });
 
 describe("session lifecycle breadcrumbs (issue #413)", () => {

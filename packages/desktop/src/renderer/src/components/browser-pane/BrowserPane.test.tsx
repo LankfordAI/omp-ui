@@ -94,6 +94,7 @@ const session: SessionSummary = {
  snoozed: false,
  snoozedUntilMs: null,
  pinnedAtMs: null,
+ settledAtMs: null,
  heldPrompt: null,
  scheduledPrompt: null,
  pullRequests: [],

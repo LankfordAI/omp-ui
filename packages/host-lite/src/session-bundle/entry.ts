@@ -292,6 +292,10 @@ export function createSessionBundle(input: LiteSessionBundleDependencies): LiteS
     [CH.restartSession]: (tabId: string, carryoverContext?: string) =>
       manager.restart(tabId, carryoverContext === "" ? undefined : carryoverContext),
     [CH.settleSession]: (tabId: string) => manager.settleSession(tabId),
+    [CH.unsettleSession]: (tabId: string) => {
+      input.registry.updateSession(tabId, { settledAtMs: null });
+      void broadcast();
+    },
     [CH.hibernatePlanSource]: (sourceTabId: string, implementationTabId: string) =>
       manager.hibernatePlanSource(sourceTabId, implementationTabId),
     [CH.switchMode]: (tabId: string, mode: SessionMode) => manager.switchMode(tabId, mode),

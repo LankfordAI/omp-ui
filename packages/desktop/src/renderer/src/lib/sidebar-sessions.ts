@@ -52,6 +52,21 @@ function matches(entry: SidebarEntry, q: string): boolean {
 const EMPTY_TAB_IDS: ReadonlySet<string> = new Set();
 
 /**
+ * Whether a session belongs to Settled (issue #1137):
+ * - A live session is never settled.
+ * - Archived and missing transcripts cannot run in place and always file to Settled.
+ * - On hosts that publish `settledAtMs`, a numeric stamp marks a settled session,
+ *   while `settledAtMs === null` keeps a dormant session in the active/pinned lists.
+ * - On an older remote host where `settledAtMs` is `undefined`, fall back to `s.live !== "live"`.
+ */
+export function isSessionSettled(s: SessionSummary): boolean {
+  if (s.live === "live") return false;
+  if (s.live === "archived" || s.live === "missing") return true;
+  if (s.settledAtMs !== undefined) return s.settledAtMs !== null;
+  return true;
+}
+
+/**
  * The sidebar's session lists: every local project session and chat plus
  * every non-self remote instance's sessions, filtered by `query`, sorted
  * newest open first by `launchedAt` (ties keep build order), and split into
@@ -148,11 +163,13 @@ export function buildSidebarLists(
     // clears. Marked-but-working sessions are not in the set — no card, row
     // stays where its state puts it.
     if (suppressTabIds.has(s.tabId)) continue;
-    // A live pinned session stays in Pinned mid-turn and snoozed: the pin is
-    // the user's "keep this in view" (issue #981). Settled still wins — a pin
-    // without a process files below with the rest, and returns on resume. An
-    // older remote host publishes no pinnedAtMs; absent reads as unpinned.
-    if (s.live === "live" && typeof s.pinnedAtMs === "number") {
+    // An unsettled pinned session stays in Pinned mid-turn, snoozed, and across
+    // app restarts/reboots: the pin is the user's "keep this in view" (issues
+    // #981, #1137). Settled still wins — a settled pin files below with the
+    // rest, and returns on resume. An older remote host publishes no
+    // pinnedAtMs; absent reads as unpinned.
+    const isSettled = isSessionSettled(s);
+    if (!isSettled && typeof s.pinnedAtMs === "number") {
       pinned.push(entry);
       continue;
     }
@@ -163,20 +180,21 @@ export function buildSidebarLists(
       snoozed.push(entry);
       continue;
     }
-    if (s.live !== "live") {
+    if (isSettled) {
       settled.push(entry);
       continue;
     }
     // A session blocked on the user (plan gate or blocking dialog) belongs in
     // the main list even mid-turn: Working is for sessions that need nothing
     // from the user (issue #944). Both are host-published levels, so remote rows
-    // move too. A terminal session never reports turnRunning, so it can never
-    // land in Working; an older remote host's absent latch reads the same way.
-    // Background work that outlives its dispatching turn counts exactly as the
-    // row's chip counts it (issue #851, placement fixed by issue #1026): the
-    // caller passes the local tabs whose async-jobs snapshot has a running job.
+    // move too. A terminal or dormant session never reports turnRunning, so it
+    // can never land in Working; an older remote host's absent latch reads the
+    // same way. Background work that outlives its dispatching turn counts
+    // exactly as the row's chip counts it (issue #851, placement fixed by issue
+    // #1026): the caller passes the local tabs whose async-jobs snapshot has a
+    // running job.
     const needsUser = s.pendingPlan !== null || s.awaitingHumanAnswer === true;
-    const workInFlight = s.turnRunning === true || backgroundWorkTabIds.has(s.tabId);
+    const workInFlight = s.live === "live" && (s.turnRunning === true || backgroundWorkTabIds.has(s.tabId));
     if (workInFlight && !needsUser) working.push(entry);
     else active.push(entry);
   }

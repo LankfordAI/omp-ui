@@ -115,12 +115,21 @@ describe("PullRequestPoller (issue #985)", () => {
     expect(h.settle).toHaveBeenCalledTimes(1);
   });
 
-  it("leaves a dormant unsnoozed session alone: it is already settled", async () => {
-    const rec = worktreeRecord({ pullRequests: [open] });
+  it("leaves a dormant unsnoozed session alone when it is already settled", async () => {
+    const rec = worktreeRecord({ pullRequests: [open], settledAtMs: 1_000 });
     const h = harness({ records: [rec], live: false });
     h.answer({ feature: [merged] });
     await h.poller.poll();
     expect(h.settle).not.toHaveBeenCalled();
+  });
+
+  it("settles a dormant unsettled session when its open PR merges (issue #1137)", async () => {
+    const rec = worktreeRecord({ pullRequests: [open], settledAtMs: null });
+    const h = harness({ records: [rec], live: false });
+    h.answer({ feature: [merged] });
+    await h.poller.poll();
+    expect(h.settle).toHaveBeenCalledWith("t1");
+    expect(h.announced).toEqual([[{ tabId: "t1", title: "Feature", wasLive: false, snoozed: false, snoozedUntilMs: null }]]);
   });
 
   it("keeps the last links when the forge answers none, and backs off a failing repository", async () => {

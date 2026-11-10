@@ -310,6 +310,7 @@ const mockBackend = {
   spawnSession: vi.fn(),
   hibernatePlanSource: vi.fn(async () => true),
   settleSession: vi.fn(async () => true),
+  unsettleSession: vi.fn(async () => {}),
   restartSession: vi.fn(),
   convertToWorktree: vi.fn(async () => {}),
   releaseWorktree: vi.fn(
@@ -662,6 +663,7 @@ function stateWithRecord(
             snoozed: false,
             snoozedUntilMs: null,
             pinnedAtMs: null,
+            settledAtMs: live === "live" ? null : 1_000,
             heldPrompt: null,
             scheduledPrompt: null,
             pullRequests: [],

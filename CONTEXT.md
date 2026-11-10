@@ -73,25 +73,29 @@ omp-ui or produced in-process by such a session (`/new`, `/branch`). The only
 sessions the sidebar tracks. Sessions from terminal `omp` use are invisible
 to omp-ui, even under registered projects. Its sidebar position is its open
 order (`launchedAt`, newest open first): exactly one section per session —
-the unheaded main list (live, no running turn), **Working** (live inside a
+the unheaded main list (unsettled, no running turn), **Working** (live inside a
 turn), **Snoozed** (parked via the row's context menu, only while the
-`snoozedSectionEnabled` setting is on), or **Settled** (no process, not
-snoozed). There is no manual order.
+`snoozedSectionEnabled` setting is on), or **Settled** (`settledAtMs !== null`
+or archived/missing, not snoozed). There is no manual order.
 _Avoid_: tracked session, managed session
 
 **Settled**:
-The sidebar's collapsible bottom section holding every **Owned session** with
-no process and not snoozed — dormant, hibernated, archived, and missing alike — newest open
-first. Collapsed by default; the open/closed choice persists locally,
-and a non-empty sidebar search shows it expanded without changing that choice.
-A settling session hides its tab on the way in; clicking the row resurfaces
-the tab so its exit card offers resume. **Settle** is the explicit way in
-(issue #980): the row's check action, row menu, Session HUD title menu, or
-palette (and the Fleet dispatch row) stops the process the way hibernation
-does, kills the drawer shell, and clears a snooze. It is the only manual way to
-end a session's process; a row mid-turn asks once before its turn is
-interrupted (#1005). `Mod+Z` outside a text field, or the toast's
-Undo, resumes the most recent settle made in this window during this run.
+The sidebar's collapsible bottom section holding every **Owned session** that
+was settled (`settledAtMs !== null`) or whose transcript is archived or
+missing, and not snoozed, newest open first (issue #1137). Unsettled dormant
+sessions (e.g. after quitting `omp-ui` or rebooting the machine) remain in the
+main list or **Pinned** and resume lazily when opened. Collapsed by default;
+the open/closed choice persists locally, and a non-empty sidebar search shows
+it expanded without changing that choice. A settling session hides its tab on
+the way in; clicking the row resurfaces the tab so its exit card offers resume.
+**Settle** is the explicit way in (issue #980): the row's check action, row
+menu, Session HUD title menu, or palette (and the Fleet dispatch row) stops the
+process the way hibernation does, stamps `settledAtMs`, kills the drawer shell,
+and clears a snooze. It is the only manual way to end a session's process; a
+row mid-turn asks once before its turn is interrupted (#1005). `Mod+Z` outside
+a text field, or the toast's Undo, restores the most recent settle made in this
+window during this run (resuming if it had a process, or clearing
+`settledAtMs` via `session:unsettle` if it was dormant).
 _Avoid_: archive, history, inactive list
 
 **Linked pull request**:
@@ -159,11 +163,11 @@ _Avoid_: parked session, hidden session, waiting session
 **Pinned session**:
 An owned session the user pinned through its sidebar row's context menu
 (*Pin* / *Unpin*). The record keeps the pin time (`pinnedAtMs`), stamped by the
-owning host. A live pinned session sits in the **Pinned** group at the top of
-the main list, ordered by pin time, and never moves to **Working** or
-**Snoozed**. Without a process it files to **Settled** with its pin intact and
-returns to **Pinned** on resume. Pinning is a fixed rule, not manual reordering
-(ADR-0068 addendum, #981).
+owning host. An unsettled pinned session sits in the **Pinned** group at the top
+of the main list, ordered by pin time, across app restarts and reboots, and
+never moves to **Working** or **Snoozed**. When settled (or archived/missing) it
+files to **Settled** with its pin intact and returns to **Pinned** on resume.
+Pinning is a fixed rule, not manual reordering (ADR-0068 addendum, #981, #1137).
 _Avoid_: favorite session, starred session, sticky session
 
 **Private session**:

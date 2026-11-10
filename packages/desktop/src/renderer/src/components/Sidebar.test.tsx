@@ -136,6 +136,7 @@ const state = backendState({
  snoozed: false,
  snoozedUntilMs: null,
  pinnedAtMs: null,
+ settledAtMs: null,
  heldPrompt: null,
  scheduledPrompt: null,
  pullRequests: [],
@@ -174,6 +175,7 @@ const state = backendState({
  snoozed: false,
  snoozedUntilMs: null,
  pinnedAtMs: null,
+ settledAtMs: null,
  heldPrompt: null,
  scheduledPrompt: null,
  pullRequests: [],
@@ -378,7 +380,10 @@ describe("Sidebar Ask about this session menu (issue #895)", () => {
     projects: [
       {
         ...state.projects[0]!,
-        sessions: [{ ...state.projects[0]!.sessions[0]!, ...patch }, state.projects[0]!.sessions[1]!],
+        sessions: [
+          { ...state.projects[0]!.sessions[0]!, settledAtMs: (patch.live ?? "live") === "live" ? null : 1_000, ...patch },
+          state.projects[0]!.sessions[1]!,
+        ],
       },
     ],
   });
@@ -436,12 +441,19 @@ describe("Sidebar Ask about this session menu (issue #895)", () => {
       title: "Brainstorm names",
       cachedTitle: "Brainstorm names",
     };
-    useStore.setState({ state: { ...state, chats: [{ ...chat, live: "dormant" }] } });
+    useStore.setState({ state: { ...state, chats: [{ ...chat, live: "dormant", settledAtMs: 1_000 }] } });
     renderSidebar();
     openContextMenu(row("Brainstorm names"));
     expect(itemLabels()).toEqual(["Ask about this session"]);
     act(() => openMenuItems()[0]!.click());
     expect(askAboutSession).toHaveBeenCalledWith("chat-c1");
+  });
+
+  it("offers Settle, Ask, Migrate, and Pin on an unsettled dormant row in the main list (issue #1137)", () => {
+    useStore.setState({ state: withFirst({ live: "dormant", settledAtMs: null }) });
+    renderSidebar();
+    openContextMenu(row("Owned session"));
+    expect(itemLabels()).toEqual(["Settle", "Ask about this session", "Migrate…", "Pin"]);
   });
 });
 
@@ -452,7 +464,7 @@ describe("Sidebar session list", () => {
     projects: [
       {
         ...state.projects[0]!,
-        sessions: [state.projects[0]!.sessions[0]!, { ...state.projects[0]!.sessions[1]!, live: "dormant" }],
+        sessions: [state.projects[0]!.sessions[0]!, { ...state.projects[0]!.sessions[1]!, live: "dormant", settledAtMs: 1_000 }],
       },
     ],
     chats: [
@@ -484,6 +496,7 @@ describe("Sidebar session list", () => {
                   title: "Remote session",
                   cachedTitle: "Remote session",
                   live: "dormant",
+                  settledAtMs: 1_000,
                 },
               ],
             },
@@ -573,7 +586,7 @@ describe("Sidebar session list", () => {
         projects: [
           {
             ...state.projects[0]!,
-            sessions: state.projects[0]!.sessions.map((s) => ({ ...s, live: "dormant" as const })),
+            sessions: state.projects[0]!.sessions.map((s) => ({ ...s, live: "dormant" as const, settledAtMs: 1_000 })),
           },
         ],
       }),
@@ -664,6 +677,7 @@ describe("Sidebar plan handoffs (issue #238)", () => {
  snoozed: false,
  snoozedUntilMs: null,
  pinnedAtMs: null,
+ settledAtMs: null,
  heldPrompt: null,
  scheduledPrompt: null,
  pullRequests: [],
@@ -1008,6 +1022,7 @@ describe("Sidebar Working and Snoozed sections (issue #935)", () => {
     tabId,
     title: tabId,
     cachedTitle: tabId,
+    settledAtMs: (patch.live ?? "live") === "live" ? null : 1_000,
     ...patch,
   });
   const stateWith = (sessions: SessionSummary[], patch: Partial<BackendState> = {}): BackendState =>
@@ -1283,6 +1298,7 @@ describe("Sidebar multi-select (issue #988)", () => {
     title: tabId,
     cachedTitle: tabId,
     launchedAt: `2026-08-03T00:${String(59 - minute).padStart(2, "0")}:00.000Z`,
+    settledAtMs: (patch.live ?? "live") === "live" ? null : 1_000,
     ...patch,
   });
   const rowButton = (title: string): HTMLButtonElement =>

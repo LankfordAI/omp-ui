@@ -204,6 +204,7 @@ const session = (
  snoozed: false,
  snoozedUntilMs: null,
  pinnedAtMs: null,
+ settledAtMs: 1_000,
  heldPrompt: null,
  scheduledPrompt: null,
  pullRequests: [],
