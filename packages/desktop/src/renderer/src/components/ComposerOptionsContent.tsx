@@ -5,7 +5,7 @@ import { projectKey } from "../lib/project-key";
 import { repositoryMembers, type CheckoutEntry } from "../lib/repository-members";
 import { modelFastTier } from "../lib/rpc-types";
 import { thinkingLevelColor } from "../lib/thinking-colors";
-import { findOwner, useStore } from "../store";
+import { findOwner, findRecord, useStore } from "../store";
 import { AdvisorControl } from "./AdvisorControl";
 import { BranchChip, type BranchChipExternalRequest } from "./BranchChip";
 import { BuildPlanControl } from "./BuildPlanControl";
@@ -24,7 +24,6 @@ import {
   IconThinking,
   Switch,
 } from "./ui";
-import { TONE_CHIP } from "./ui/tone";
 
 const NO_EFFORTS: never[] = [];
 
@@ -113,6 +112,7 @@ export function ComposerOptionsContent({
   const t = useT();
   const { planEnabled, thinkingLevel, efforts, auto, levelColour, fastVisible, branchVisible, machineVisible } = useComposerOptionsState(props);
   const setThinkingLevel = useStore((s) => s.setThinkingLevel);
+  const advisorOn = useStore((s) => findRecord(s.state, tabId)?.advisor ?? false);
   const autoTitle = t("composer.thinking.autoTitle", { level: thinkingLevel ?? "—" });
   const levelText = thinkingLevel ?? t("composer.thinking.fallback");
   const sheetMenus = compact || scrollable;
@@ -130,9 +130,11 @@ export function ComposerOptionsContent({
         </OptionRow>
         {efforts.length > 0 && (
           <>
+            {/* The readout sits beside the label; the right side holds only
+                the auto switch and its caption (issue #1138). */}
             <OptionRow compact={compact} icon={<IconThinking />} label={t("composer.thinking.label")} iconStyle={{ color: levelColour }}>
               {auto ? (
-                <span title={autoTitle} className="truncate text-xs text-ink-mid">
+                <span title={autoTitle} className="mr-auto min-w-0 truncate text-xs text-ink-dim">
                   {t("composer.thinking.now", { level: "\u0000" })
                     .split("\u0000")
                     .map((part, i) => i === 0 ? part : (
@@ -143,8 +145,9 @@ export function ComposerOptionsContent({
                     ))}
                 </span>
               ) : (
-                <span className="truncate transition-colors duration-300 motion-reduce:transition-none" style={{ color: levelColour }}>{levelText}</span>
+                <span className="mr-auto min-w-0 truncate transition-colors duration-300 motion-reduce:transition-none" style={{ color: levelColour }}>{levelText}</span>
               )}
+              <span aria-hidden className="shrink-0 text-xs text-ink-dim">{t("composer.thinking.auto")}</span>
               <Switch
                 on={auto}
                 label={t("composer.thinking.auto")}
@@ -152,7 +155,6 @@ export function ComposerOptionsContent({
                 disabled={disabled}
                 onChange={(next) => void setThinkingLevel(tabId, next ? "auto" : thinkingLevel !== null && efforts.includes(thinkingLevel) ? thinkingLevel : efforts[efforts.length - 1]!)}
               />
-              <span aria-hidden className="text-xs text-ink">{t("composer.thinking.auto")}</span>
             </OptionRow>
             <div className={cn("pb-1.5 pl-[30px] pr-2", compact && "py-2")}>
               <ThinkingSlider tabId={tabId} disabled={disabled} />
@@ -171,14 +173,14 @@ export function ComposerOptionsContent({
             <BuildPlanControl tabId={tabId} disabled={disabled} onSelected={onModeSelected} />
           </OptionRow>
         )}
-        <OptionRow compact={compact} icon={<IconAdvisor />} wrap={sheetMenus}>
-          <span className={cn("mr-auto flex min-w-0", sheetMenus && "w-full")}>
-            <AdvisorControl tabId={tabId} disabled={disabled} layout={sheetMenus ? "sheet" : "inline"} />
-          </span>
-          <span title={t("composer.options.advisorHint")} className={cn("inline-flex shrink-0 items-center gap-1 rounded border px-1.5 py-px text-xs", TONE_CHIP.copper)}>
+        <OptionRow compact={compact} icon={<IconAdvisor />} label={t("composer.advisor.label")}>
+          {/* A quiet hint, not a chip: nothing here is clickable. While the
+              advisor is on it drops to its icon so the model name fits. */}
+          <span title={t("composer.options.advisorHint")} className="mr-auto inline-flex shrink-0 items-center gap-1 text-ink-faint">
             <IconRefresh className="size-2.5" />
-            {t("composer.options.restarts")}
+            <span className={cn(advisorOn && "sr-only")}>{t("composer.options.restarts")}</span>
           </span>
+          <AdvisorControl tabId={tabId} disabled={disabled} layout={sheetMenus ? "sheet" : "inline"} />
         </OptionRow>
         {/* Preserve the compact sheet's always-available session toggle. */}
         {compact && !fastVisible && fastRow}
@@ -203,20 +205,19 @@ export function ComposerOptionsContent({
 }
 
 function OptionRow({
-  icon, label, children, iconStyle, compact, wrap = false,
+  icon, label, children, iconStyle, compact,
 }: {
   icon: ReactNode;
   label?: string;
   children: ReactNode;
   iconStyle?: CSSProperties;
   compact: boolean;
-  wrap?: boolean;
 }) {
   return (
     <div className={cn("flex min-w-0 items-center gap-2.5 rounded-md px-2 text-xs text-ink", compact ? "min-h-11 py-1.5" : "min-h-8")}>
       <span aria-hidden className="shrink-0 text-ink-mid transition-colors duration-300 motion-reduce:transition-none" style={iconStyle}>{icon}</span>
       {label !== undefined && <span className="shrink-0">{label}</span>}
-      <span className={cn("flex min-w-0 flex-1 items-center justify-end gap-1.5", wrap && "flex-wrap justify-start")}>{children}</span>
+      <span className="flex min-w-0 flex-1 items-center justify-end gap-1.5">{children}</span>
     </div>
   );
 }

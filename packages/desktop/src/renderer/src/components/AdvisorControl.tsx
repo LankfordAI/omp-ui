@@ -7,7 +7,7 @@ import { useDismissal } from "../lib/use-dismissal";
 import type { ModelInfo } from "../lib/rpc-types";
 import { projectKey } from "../lib/project-key";
 import { findInstance, findOwner, findRecord, useStore } from "../store";
-import { Capsule, CAPSULE_SEGMENT, Dot, Label } from "./ui";
+import { Capsule, CAPSULE_SEGMENT, Label, Switch } from "./ui";
 import { TONE_CHIP } from "./ui/tone";
 import { ModelPalette } from "./ModelSelector";
 
@@ -159,38 +159,20 @@ export function AdvisorControl({ tabId, disabled, layout = "inline" }: { tabId: 
 
   return (
     <>
-      <span className={cn("flex min-w-0 shrink items-center gap-1", layout === "sheet" && "w-full")}>
-        <Capsule
-          tone={on ? "signal" : "neutral"}
-          className={cn(
-            "font-mono",
-            layout === "sheet" && "h-auto min-h-11 min-w-0 flex-1 flex-wrap",
-            layout === "inline" && "min-w-0 shrink",
-          )}
-        >
-          <button
-            type="button"
-            disabled={disabled}
-            aria-pressed={on}
-            title={title}
-            onClick={toggle}
-            className={cn(CAPSULE_SEGMENT, "shrink-0 text-xs", layout === "sheet" && (on ? "px-3" : "flex-1 justify-center px-3"), on ? "text-signal" : "text-ink-mid")}
-          >
-            {on ? (
-              <>
-                <Dot tone="signal" />
-                {t("composer.advisor.label")}
-              </>
-            ) : (
-              t("composer.advisor.offLabel")
+      <span className={cn("flex min-w-0 shrink items-center gap-1.5", layout === "sheet" && "flex-1 justify-end")}>
+        {/* The model only matters while the advisor runs, so the capsule only
+            appears then — an always-visible dropdown for a disabled feature
+            invites setting a model that does nothing. It stays neutral: the
+            switch beside it carries the on state (issue #1138). While the gate
+            is on, the capsule is a read-only statement of what this instance
+            runs. */}
+        {on && (
+          <Capsule
+            className={cn(
+              layout === "sheet" && "h-auto min-h-11 min-w-0 flex-1 flex-wrap",
+              layout === "inline" && "min-w-0 shrink",
             )}
-          </button>
-
-          {/* The model only matters while the advisor runs, so the picker only
-              appears then — an always-visible dropdown for a disabled feature
-              invites setting a model that does nothing. While the gate is on,
-              the row is a read-only statement of what this instance runs. */}
-          {on && (
+          >
             <button
               type="button"
               disabled={disabled || gated}
@@ -222,83 +204,85 @@ export function AdvisorControl({ tabId, disabled, layout = "inline" }: { tabId: 
                   : effectiveModel?.name || effectiveModel?.id || shortModelLabel(effective)}
               </span>
             </button>
-          )}
 
-          {/* The thinking level is omp's `:level` suffix on the advisor role, so
-              it needs a running model to attach to and only makes sense when the
-              model advertises efforts. Like the model picker, choosing one is a
-              deliberate pick — every change restarts the session. While gated,
-              the gated selector's own level renders read-only even with no
-              catalog; a gated selector without a level shows no value at all,
-              so no stored/default effort is ever implied (issue #372). */}
-          {on && gated && effectiveLevel !== null && (
-            <span ref={levelAnchor} className="relative flex">
-              <button
-                type="button"
-                disabled
-                title={`${t("advisor.override.label")}: ${effective}`}
-                className={cn(
-                  CAPSULE_SEGMENT,
-                  "shrink-0 rounded-r-md text-xs tabular-nums text-ink-mid",
-                  layout === "sheet" && "px-3",
-                )}
-              >
-                {effectiveLevel}
-              </button>
-            </span>
-          )}
-          {on && !gated && effectiveModelSelector !== null && efforts.length > 0 && (
-            <span ref={levelAnchor} className={cn("relative flex", layout === "sheet" && levelMenu && "contents")}>
-              <button
-                type="button"
-                disabled={disabled}
-                aria-expanded={levelMenu}
-                title={t("composer.advisor.levelTitle", { efforts: efforts.join(", ") })}
-                onClick={() => setLevelMenu((m) => !m)}
-                className={cn(
-                  CAPSULE_SEGMENT,
-                  "shrink-0 rounded-r-md text-xs tabular-nums text-iris",
-                  layout === "sheet" && "px-3",
-                )}
-              >
-                {effectiveLevel ?? t("composer.thinking.fallback")}
-              </button>
-              {levelMenu && (
-                <div className={cn(
-                  "animate-rise edge-lit z-20 flex flex-col rounded-md border border-line-strong bg-overlay p-1",
-                  layout === "sheet" ? "mt-1 w-full basis-full" : "absolute bottom-full left-0 mb-1 w-32",
-                )}>
-                  <span className="px-1.5 pb-1 pt-0.5">
-                    <Label>{t("composer.advisor.thinkingLabel")}</Label>
-                  </span>
-                  {effectiveLevel !== null && (
-                    <button
-                      type="button"
-                      onClick={() => setLevel("")}
-                      className="rounded px-1.5 py-0.5 text-left text-xs text-ink-faint hover:bg-hover"
-                      title={t("composer.advisor.defaultLevel")}
-                    >
-                      {t("composer.advisor.defaultLevelChoice")}
-                    </button>
+            {/* The thinking level is omp's `:level` suffix on the advisor role, so
+                it needs a running model to attach to and only makes sense when the
+                model advertises efforts. Like the model picker, choosing one is a
+                deliberate pick — every change restarts the session. While gated,
+                the gated selector's own level renders read-only even with no
+                catalog; a gated selector without a level shows no value at all,
+                so no stored/default effort is ever implied (issue #372). */}
+            {gated && effectiveLevel !== null && (
+              <span ref={levelAnchor} className="relative flex">
+                <button
+                  type="button"
+                  disabled
+                  title={`${t("advisor.override.label")}: ${effective}`}
+                  className={cn(
+                    CAPSULE_SEGMENT,
+                    "shrink-0 rounded-r-md text-xs tabular-nums text-ink-mid",
+                    layout === "sheet" && "px-3",
                   )}
-                  {efforts.map((effort) => (
-                    <button
-                      key={effort}
-                      type="button"
-                      onClick={() => setLevel(effort)}
-                      className={cn(
-                        "rounded px-1.5 py-0.5 text-left font-mono text-xs hover:bg-hover",
-                        effort === effectiveLevel ? "text-iris" : "text-ink-mid",
-                      )}
-                    >
-                      {effort}
-                    </button>
-                  ))}
-                </div>
-              )}
-            </span>
-          )}
-        </Capsule>
+                >
+                  {effectiveLevel}
+                </button>
+              </span>
+            )}
+            {!gated && effectiveModelSelector !== null && efforts.length > 0 && (
+              <span ref={levelAnchor} className={cn("relative flex", layout === "sheet" && levelMenu && "contents")}>
+                <button
+                  type="button"
+                  disabled={disabled}
+                  aria-expanded={levelMenu}
+                  title={t("composer.advisor.levelTitle", { efforts: efforts.join(", ") })}
+                  onClick={() => setLevelMenu((m) => !m)}
+                  className={cn(
+                    CAPSULE_SEGMENT,
+                    "shrink-0 rounded-r-md text-xs tabular-nums text-iris",
+                    layout === "sheet" && "px-3",
+                  )}
+                >
+                  {effectiveLevel ?? t("composer.thinking.fallback")}
+                </button>
+                {levelMenu && (
+                  <div className={cn(
+                    "animate-rise edge-lit z-20 flex flex-col rounded-md border border-line-strong bg-overlay p-1",
+                    // The capsule sits at the row's right edge, so the menu
+                    // opens leftward and stays inside the popover.
+                    layout === "sheet" ? "mt-1 w-full basis-full" : "absolute bottom-full right-0 mb-1 w-32",
+                  )}>
+                    <span className="px-1.5 pb-1 pt-0.5">
+                      <Label>{t("composer.advisor.thinkingLabel")}</Label>
+                    </span>
+                    {effectiveLevel !== null && (
+                      <button
+                        type="button"
+                        onClick={() => setLevel("")}
+                        className="rounded px-1.5 py-0.5 text-left text-xs text-ink-faint hover:bg-hover"
+                        title={t("composer.advisor.defaultLevel")}
+                      >
+                        {t("composer.advisor.defaultLevelChoice")}
+                      </button>
+                    )}
+                    {efforts.map((effort) => (
+                      <button
+                        key={effort}
+                        type="button"
+                        onClick={() => setLevel(effort)}
+                        className={cn(
+                          "rounded px-1.5 py-0.5 text-left font-mono text-xs hover:bg-hover",
+                          effort === effectiveLevel ? "text-iris" : "text-ink-mid",
+                        )}
+                      >
+                        {effort}
+                      </button>
+                    ))}
+                  </div>
+                )}
+              </span>
+            )}
+          </Capsule>
+        )}
         {/* The compact source label: neutral/copper by design — this is
             instance provenance, never a user choice (issue #372). */}
         {gated && (
@@ -309,6 +293,7 @@ export function AdvisorControl({ tabId, disabled, layout = "inline" }: { tabId: 
             {t("advisor.override.badge")}
           </span>
         )}
+        <Switch on={on} label={t("composer.advisor.label")} title={title} disabled={disabled} onChange={toggle} />
       </span>
 
       {picking && !gated && (

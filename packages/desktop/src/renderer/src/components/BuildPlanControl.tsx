@@ -69,8 +69,8 @@ export function BuildPlanControl({
                   : t("hud.mode.planDescription")
             : t("hud.mode.buildDescription"),
           className: sheet ? "flex-1 justify-center" : "text-xs",
-          selectedClassName: alternate ? "bg-iris-wash text-iris" : "bg-hover text-ink",
-          unselectedClassName: "text-ink-mid",
+          selectedClassName: alternate ? "bg-iris-wash text-iris font-semibold" : "bg-hover text-ink font-semibold",
+          unselectedClassName: "text-ink-faint",
         };
       })}
       onChange={(mode) => select(mode === "plan")}

@@ -543,7 +543,7 @@ export const en = {
   "composer.options.groupWorkspace": "workspace",
   "composer.options.advisorHint": "changes restart the session",
   "composer.options.mode": "mode",
-  "composer.options.restarts": "restarts",
+  "composer.options.restarts": "restarts session",
   // Desktop composer + menu (issue #939)
   "composer.plus.label": "attach, voice, and commands",
   "composer.plus.attachHint": "images · pdf",
@@ -837,7 +837,6 @@ export const en = {
   "composer.model.clear": "Clear",
   // Advisor control
   "composer.advisor.label": "advisor",
-  "composer.advisor.offLabel": "advisor off",
   "composer.advisor.on": "advisor on",
   "composer.advisor.ompPicks": " (omp picks the model)",
   "composer.advisor.fromOmpConfig": " (from omp config)",

@@ -159,10 +159,16 @@ export function ThinkingSlider({ tabId, disabled }: { tabId: string; disabled: b
           />
         )}
       </div>
+      {/* Every label shares one grid cell and shifts to its stop, so each one
+          centres on its stop while the row keeps its in-flow height (touch
+          targets grow it). The 7px inset matches the track's. The last label
+          has 19px of room past its stop before it would leave the popover
+          (the inset, the row's padding and the popover's own), so a wider one
+          is held there instead of centred (issue #1138). */}
       <div
         role="group"
         aria-label={t("composer.thinking.label")}
-        className="flex justify-between font-mono text-xs text-ink-mid"
+        className="mx-[7px] grid font-mono text-xs text-ink-mid"
       >
         {efforts.map((effort, i) => (
           <button
@@ -176,8 +182,11 @@ export function ThinkingSlider({ tabId, disabled }: { tabId: string; disabled: b
             tabIndex={i === tabStop ? 0 : -1}
             onClick={() => commit(i)}
             onKeyDown={(e) => onTickKeyDown(e, i)}
-            className="w-11 text-center transition-colors duration-300 first:text-left last:text-right hover:text-ink disabled:text-ink-dim motion-reduce:transition-none"
-            style={i === index && !auto ? { color: thinkingLevelColor(i, n) } : undefined}
+            className="relative col-start-1 row-start-1 -translate-x-1/2 justify-self-start whitespace-nowrap transition-colors duration-300 last:translate-x-[min(-50%,calc(-100%_+_19px))] hover:text-ink disabled:text-ink-dim motion-reduce:transition-none"
+            style={{
+              left: position(i),
+              ...(i === index && !auto ? { color: thinkingLevelColor(i, n) } : undefined),
+            }}
           >
             {effort}
           </button>

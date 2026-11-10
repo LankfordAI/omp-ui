@@ -491,7 +491,7 @@ export const ko: Partial<Record<MessageKey, string>> = {
   "composer.options.groupWorkspace": "작업 공간",
   "composer.options.advisorHint": "변경하면 세션이 다시 시작됩니다",
   "composer.options.mode": "모드",
-  "composer.options.restarts": "재시작",
+  "composer.options.restarts": "세션 재시작",
   "composer.plus.label": "첨부, 음성, 명령",
   "composer.plus.attachHint": "이미지 · PDF",
   "composer.plus.dictate": "받아쓰기",
@@ -771,7 +771,6 @@ export const ko: Partial<Record<MessageKey, string>> = {
   "composer.model.clear": "지우기",
 
   "composer.advisor.label": "어드바이저",
-  "composer.advisor.offLabel": "어드바이저 꺼짐",
   "composer.advisor.on": "어드바이저 켜짐",
   "composer.advisor.ompPicks": " (omp가 모델 선택)",
   "composer.advisor.fromOmpConfig": " (omp config에서 가져옴)",

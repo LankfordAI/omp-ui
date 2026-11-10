@@ -128,6 +128,8 @@ async function render(layout?: "inline" | "sheet"): Promise<void> {
 const buttons = (): HTMLButtonElement[] => [
   ...document.body.querySelectorAll<HTMLButtonElement>("button"),
 ];
+const advisorSwitch = (): HTMLButtonElement =>
+  document.body.querySelector<HTMLButtonElement>('button[role="switch"][aria-label="advisor"]')!;
 
 afterEach(() => {
   if (root !== null) {
@@ -159,7 +161,7 @@ describe("advisor controls under a dev/test override (issue #372)", () => {
     expect(backendMock.setSessionAdvisor).not.toHaveBeenCalled();
 
     // On/off stays usable and persists the SAVED selector, never the gate.
-    const toggle = buttons().find((b) => b.getAttribute("aria-pressed") !== null)!;
+    const toggle = advisorSwitch();
     await act(async () => {
       toggle.click();
     });
@@ -192,8 +194,10 @@ describe("advisor controls under a dev/test override (issue #372)", () => {
 
     const text = document.body.textContent ?? "";
     expect(text).toContain("dev/test");
-    const toggle = buttons().find((b) => b.getAttribute("aria-pressed") !== null)!;
-    expect(toggle.getAttribute("aria-pressed")).toBe("false");
+    const toggle = advisorSwitch();
+    expect(toggle.getAttribute("aria-checked")).toBe("false");
+    // Off shows no model capsule: nothing claims a running model.
+    expect(text).not.toContain("Gaterati");
     expect(toggle.title).toContain("When the advisor is enabled");
     await act(async () => {
       toggle.click();
@@ -204,7 +208,7 @@ describe("advisor controls under a dev/test override (issue #372)", () => {
   it("a dormant record's tooltip promises the override on resume, not in place", async () => {
     seed({ gate: GATE, models: [gatedCatalog], recordPatch: { live: "dormant" } });
     await render();
-    const toggle = buttons().find((b) => b.getAttribute("aria-pressed") !== null)!;
+    const toggle = advisorSwitch();
     expect(toggle.title).toContain("On resume");
   });
 

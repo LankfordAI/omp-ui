@@ -94,12 +94,12 @@ export function IconBuildMode({ className }: { className?: string }) {
   );
 }
 
-/** Dial — the composer options popover's advisor row. */
+/** Compass — the composer options popover's advisor row. */
 export function IconAdvisor({ className }: { className?: string }) {
   return (
     <svg viewBox="0 0 16 16" aria-hidden className={cn("size-3.5", className)} {...ICON_STROKE}>
       <circle cx="8" cy="8" r="6" />
-      <path d="M8 5v3l2 1.5" />
+      <path d="M10.6 5.4 9.2 9.2 5.4 10.6 6.8 6.8z" />
     </svg>
   );
 }
