@@ -4,9 +4,7 @@ This guide explains what users receive from a release and how maintainers publis
 
 ## Unreleased
 
-- Artifact refresh requests now ride the prompt as a parsed leading block ([ADR-0092](adr/0092-artifact-refresh-requests-ride-the-prompt-as-a-parsed-block.md)): the run's first message shows a compact "Data refresh requested" card instead of the raw instruction paragraph, and choosing an existing session adds a removable refresh chip to its draft instead of editable prose. `#1139`
-- The council gains a trial member slot: a trial model answers beside the council so you can judge it, but its answer is kept out of every decision. `#1140`
-- HTML artifacts rendered during a run now show with the run's final reply instead of only mid-transcript. `#1141`
+Nothing since [v0.34.9](https://github.com/LankfordAI/omp-ui/releases/tag/v0.34.9). Add one bullet per shipped change here, citing its issue as `#N`; the release tag lifts these into Highlights.
 
 ## Choose a download
 
