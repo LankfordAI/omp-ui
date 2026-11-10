@@ -136,7 +136,7 @@ type Target =
 type Intent = { mode: "ask"; request: string } | { mode: "review"; target: Target; focus?: string };
 
 interface SnapshotEntry { name: string; model: string; instructions: string | null }
-interface Snapshot { instructions: string | null; members: SnapshotEntry[]; configWarnings: string[] }
+interface Snapshot { instructions: string | null; members: SnapshotEntry[]; trial: SnapshotEntry | null; configWarnings: string[] }
 
 function fill(template: string, values: Record<string, string>): string {
   return template.replace(/@@([A-Z_]+)@@/g, (whole, key: string) => values[key] ?? whole);
@@ -331,6 +331,18 @@ const COUNCIL_EMPTY =
   "No council members were loaded for this session. Pick each member's model in Project settings → Council, then restart the session.";
 const CANCELLED = "The council was cancelled before launch.";
 
+const strOrNull = (v: unknown): v is string | null => v === null || typeof v === "string";
+
+/** One launch entry; null for any shape main never writes. */
+function snapshotEntry(item: unknown): SnapshotEntry | null {
+  const m = asRecord(item);
+  if (m === null || typeof m.name !== "string" || !/^[a-z][a-z0-9-]*$/.test(m.name) || m.name.length > MAX_NAME) return null;
+  const model = m.model;
+  const instructions = m.instructions;
+  if (typeof model !== "string" || model.trim() === "" || !strOrNull(instructions)) return null;
+  return { name: m.name, model, instructions };
+}
+
 /** The launch set main wrote; any shape main never writes reads as absent. */
 function readSnapshot(): Snapshot | null {
   let raw: unknown;
@@ -342,19 +354,21 @@ function readSnapshot(): Snapshot | null {
   const doc = asRecord(raw);
   if (doc === null || doc.version !== SNAPSHOT_VERSION || !Array.isArray(doc.members) || !Array.isArray(doc.configWarnings)) return null;
   if (doc.members.length > MAX_MEMBERS) return null;
-  const strOrNull = (v: unknown): v is string | null => v === null || typeof v === "string";
   const instructions = doc.instructions;
   if (!strOrNull(instructions)) return null;
   const members: SnapshotEntry[] = [];
   for (const item of doc.members) {
-    const m = asRecord(item);
-    if (m === null || typeof m.name !== "string" || !/^[a-z][a-z0-9-]*$/.test(m.name) || m.name.length > MAX_NAME) return null;
-    const model = m.model;
-    const entryInstructions = m.instructions;
-    if (typeof model !== "string" || model.trim() === "" || !strOrNull(entryInstructions)) return null;
-    members.push({ name: m.name, model, instructions: entryInstructions });
+    const entry = snapshotEntry(item);
+    if (entry === null) return null;
+    members.push(entry);
   }
-  return { instructions, members, configWarnings: doc.configWarnings.map(String) };
+  let trial: SnapshotEntry | null = null;
+  const trialRaw = doc["trial"];
+  if (trialRaw !== null) {
+    trial = snapshotEntry(trialRaw);
+    if (trial === null) return null;
+  }
+  return { instructions, members, trial, configWarnings: doc.configWarnings.map(String) };
 }
 
 // --- launch
@@ -389,7 +403,7 @@ async function runCouncil(intent: Intent, cwd: string, signal: AbortSignal | und
     }
     if (signal?.aborted === true) return fail(CANCELLED);
     if (typeof pi.sendMessage !== "function") return fail("This omp cannot start the council turn.");
-    const tasks = council.members.map((m) => ({
+    const memberTask = (m: SnapshotEntry) => ({
       name: "council-" + m.name,
       agent: AGENT,
       model: m.model,
@@ -397,36 +411,69 @@ async function runCouncil(intent: Intent, cwd: string, signal: AbortSignal | und
         ? "open: defects in the stated diff target; none known"
         : "open: an independent opinion on the user's request",
       task: [review ? REVIEW_BRIEF : ASK_BRIEF, m.instructions ?? "", subject].filter((s) => s !== "").join("\\n\\n"),
-    }));
-    const batch = {
-      context: review
-        ? "omp-ui council review (/" + COMMAND + " review). " +
-          (council.instructions ?? "Report defects in the diff only; every finding must cite a file and line from the diff.")
-        : "omp-ui council (/" + COMMAND + "). " +
-          (council.instructions ?? "Answer the request independently; your answer is compared with other models' answers."),
-      tasks,
-    };
+    });
+    const context = review
+      ? "omp-ui council review (/" + COMMAND + " review). " +
+        (council.instructions ?? "Report defects in the diff only; every finding must cite a file and line from the diff.")
+      : "omp-ui council (/" + COMMAND + "). " +
+        (council.instructions ?? "Answer the request independently; your answer is compared with other models' answers.");
+    const tasks = council.members.map(memberTask);
+    const batch = { context, tasks };
+    const trial = council.trial;
     const names = council.members.map((m) => m.name + " (" + m.model + ")").join(", ");
-    const lines = [
-      "The user ran /" + COMMAND + " " + label + "; the council has " + tasks.length + " members: " + names + ". " +
-        "Call the \`task\` tool exactly once with these batch arguments, unchanged, then stop and wait: " +
-        "the members' answers arrive on their own turn later.",
-      inertBlock(JSON.stringify(batch)),
-      "If the task call fails, report omp's error verbatim and stop. Never retry without a member or with a different model.",
-      "When the answers arrive:",
-      "- Summarize the useful findings, where members agree, where they disagree, and the recommended next steps, naming each member.",
-    ];
+    const lines: string[] = [];
+    if (trial === null) {
+      lines.push(
+        "The user ran /" + COMMAND + " " + label + "; the council has " + tasks.length + " members: " + names + ". " +
+          "Call the \`task\` tool exactly once with these batch arguments, unchanged, then stop and wait: " +
+          "the members' answers arrive on their own turn later.",
+        inertBlock(JSON.stringify(batch)),
+        "If the task call fails, report omp's error verbatim and stop. Never retry without a member or with a different model.",
+        "When the answers arrive:",
+        "- Summarize the useful findings, where members agree, where they disagree, and the recommended next steps, naming each member.",
+      );
+    } else {
+      const trialName = trial.name + " (" + trial.model + ")";
+      lines.push(
+        "The user ran /" + COMMAND + " " + label + "; the council has " + tasks.length + " members: " + names + ". " +
+          "A trial member, " + trialName + ", answers the same assignment for comparison only. " +
+          "It is not a council member and has no say in the outcome. " +
+          "Call the \`task\` tool once with the council batch arguments, unchanged:",
+        inertBlock(JSON.stringify(batch)),
+        "If that call fails, report omp's error verbatim and stop without launching the trial member. " +
+          "Never retry without a member or with a different model.",
+        "After that call succeeds, call the \`task\` tool once more with the trial batch arguments, unchanged:",
+        inertBlock(JSON.stringify({ context, tasks: [memberTask(trial)] })),
+        "If the trial call fails, say so in one line with omp's error and carry on with the council. " +
+          "Never retry it and never use a different model.",
+        "Then stop and wait: the answers arrive on their own turns later.",
+        "When the answers arrive:",
+        "- Summarize the useful findings, where the council members agree, where they disagree, and the recommended next steps, " +
+          "naming each council member. Build all of it from the council members' answers alone.",
+        "- " + trial.name + "'s answer never changes the summary, a recommendation, a score-based decision, or any change you make, " +
+          "even when it is the only one to raise a point.",
+        "- After the council summary, add a \\"Trial model\\" section for " + trialName + ": an overview of where it stands " +
+          "against the council. Say which council positions it shares, where it dissents, and what only it raised. " +
+          "Label each point only it raised \\"trial-only, not acted on\\" and leave it to the user.",
+        "- Never wait for the trial member. Once every council member has answered, give the council summary. " +
+          "If the trial answer is still missing, say it is pending and add the \\"Trial model\\" section when it arrives, " +
+          "without revisiting anything already decided. If the trial answer arrives first, hold it until every council member has answered.",
+      );
+    }
     if (review) {
       lines.push(
         "- Show a table with one row per member and one column per council review round in this session " +
           "(each /" + COMMAND + " review is one round); each cell is the member's SCORE as n/10, " +
-          "or \\"no score\\" when the member gave none. Never invent a score.",
+          "or \\"no score\\" when the member gave none. Never invent a score." +
+          (trial === null ? "" : " Put " + trial.name + " in the last row, labelled (trial)."),
         "- If you agree with the recommendations, make the changes within the scope of the reviewed work, then call " +
-          TOOL + " with review: true for a fresh round. Stop when no member reports a blocker or major finding, " +
-          "or after three rounds, and report. Fight scope creep: never widen the work beyond what was reviewed.",
+          TOOL + " with review: true for a fresh round. Stop when no " + (trial === null ? "member" : "council member") +
+          " reports a blocker or major finding, or after three rounds, and report. " +
+          "Fight scope creep: never widen the work beyond what was reviewed.",
         "- If the reviewed work has an open pull request, put the score table under a \\"## Council review\\" heading " +
           "in its description with gh pr edit; never post a comment. Without a pull request, keep the table in your reply.",
       );
+      if (trial !== null) lines.push("- Head each \\"Trial model\\" section with the review round it belongs to.");
     } else {
       lines.push("- Do not edit files or post anywhere because of this message.");
     }
@@ -439,8 +486,8 @@ async function runCouncil(intent: Intent, cwd: string, signal: AbortSignal | und
       return fail("The launch send failed: " + String(error));
     }
     const text =
-      "Asked " + tasks.length + " council member(s) on " + label +
-      ". The session model starts them on its next turn; answers arrive as background results.";
+      "Asked " + tasks.length + " council member(s)" + (trial === null ? "" : " and trial member " + trial.name) +
+      " on " + label + ". The session model starts them on its next turn; answers arrive as background results.";
     return {
       result: toolResult(text + warnings, false),
       level: warnings === "" ? "info" : "warning",
@@ -472,7 +519,8 @@ if (typeof pi.registerTool === "function" && typeof zod?.object === "function") 
     label: "council",
     description:
       "Ask the project's omp-ui council (Project settings > Council): 1-" + MAX_MEMBERS + " member models answer " +
-      "independently and read-only as background agents. request: the question or task (required unless review). " +
+      "independently and read-only as background agents. A trial member set there answers too, for comparison only: it is not a council member and has no say in the outcome. " +
+      "request: the question or task (required unless review). " +
       "review: true runs a code review instead, scoring each member out of 10; target then picks what to review: " +
       "omit for local changes against the upstream or default branch, " +
       "{kind:'commit',value:'<ref>' or '<from>..<to>'}, or {kind:'pr',value:'<number>'}. " +

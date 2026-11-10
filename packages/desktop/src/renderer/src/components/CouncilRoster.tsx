@@ -20,9 +20,9 @@ import { Button, Label, Panel, Switch } from "./ui";
  * The Council roster (ADR-0088, issue #1049). `CouncilRosterEditor` edits app
  * state — this project's `councilRoster`, or the global one — and applies on
  * session relaunch: `/council` asks the first MAX_COUNCIL_MEMBERS enabled
- * members, each pinned to its own model, so running sessions keep the council
- * they were launched with. Every member needs a model; nothing falls back to
- * the session model.
+ * members plus the trial member when one is set, each pinned to its own
+ * model, so running sessions keep the council they were launched with. Every
+ * member needs a model; nothing falls back to the session model.
  */
 
 type Load = { status: "loading" } | { status: "loaded"; result: CouncilRosterView } | { status: "error"; message: string };
@@ -66,11 +66,72 @@ function modelOk(value: string | null): boolean {
   return parsed !== null && parsed.model !== "";
 }
 
-const documentsEqual = (a: CouncilDocument, b: CouncilDocument): boolean =>
-  JSON.stringify(a) === JSON.stringify(b);
+const canonical = (d: CouncilDocument): string =>
+  JSON.stringify({ instructions: d.instructions, members: d.members, trial: d.trial ?? null });
+const documentsEqual = (a: CouncilDocument, b: CouncilDocument): boolean => canonical(a) === canonical(b);
 
 const inputClass =
   "w-full rounded border border-line bg-void px-2 py-1 font-mono text-xs text-ink outline-none focus:border-line-strong disabled:opacity-60";
+
+/** One roster row: name, enabled, model (typed or picked), instructions. */
+function MemberPanel({
+  member,
+  canPick,
+  onChange,
+  onRemove,
+  onPick,
+}: {
+  member: CouncilMember;
+  canPick: boolean;
+  onChange: (patch: Partial<CouncilMember>) => void;
+  onRemove: () => void;
+  onPick: () => void;
+}) {
+  const t = useT();
+  return (
+    <Panel className="flex flex-col gap-2 p-2.5">
+      <div className="flex items-center gap-2">
+        <input
+          className={inputClass}
+          placeholder={
+            member.name.trim() === "" && modelOk(member.model)
+              ? councilNameFromModel(member.model) ?? t("council.roster.namePlaceholder")
+              : t("council.roster.namePlaceholder")
+          }
+          aria-label={t("council.roster.colName")}
+          value={member.name}
+          onChange={(e) => onChange({ name: e.target.value })}
+        />
+        <Switch on={member.enabled} label={t("council.roster.enabled")} onChange={(next) => onChange({ enabled: next })} />
+        <Button size="xs" variant="ghost" tone="rose" onClick={onRemove}>
+          {t("council.roster.remove")}
+        </Button>
+      </div>
+      <div className="flex items-center gap-2">
+        <input
+          className={inputClass}
+          placeholder={t("council.roster.modelPlaceholder")}
+          aria-label={t("council.roster.colModel")}
+          value={member.model ?? ""}
+          onChange={(e) => onChange({ model: e.target.value === "" ? null : e.target.value })}
+        />
+        {canPick && (
+          <Button size="xs" onClick={onPick}>
+            {t("council.roster.pick")}
+          </Button>
+        )}
+      </div>
+      {!modelOk(member.model) && <p className="text-xs text-rose">{t("council.roster.modelRequired")}</p>}
+      <textarea
+        className={cn(inputClass, "h-14")}
+        aria-label={t("council.roster.instructions")}
+        placeholder={t("council.roster.instructions")}
+        value={member.instructions ?? ""}
+        onChange={(e) => onChange({ instructions: e.target.value === "" ? null : e.target.value })}
+      />
+    </Panel>
+  );
+}
 
 export function CouncilRosterEditor({ scopeCwd, instanceId }: { scopeCwd: string | null; instanceId: string | null }) {
   const t = useT();
@@ -81,7 +142,7 @@ export function CouncilRosterEditor({ scopeCwd, instanceId }: { scopeCwd: string
   const [error, setError] = useState<string | null>(null);
   const [saved, setSaved] = useState(false);
   const [saving, setSaving] = useState(false);
-  const [pickIndex, setPickIndex] = useState<number | null>(null);
+  const [pickTarget, setPickTarget] = useState<number | "trial" | null>(null);
   const [catalog, setCatalog] = useState<ChatCatalogLoad>({ status: "idle" });
   const state = useStore((s) => s.state);
   const rpc = useStore((s) => s.rpc);
@@ -158,10 +219,14 @@ export function CouncilRosterEditor({ scopeCwd, instanceId }: { scopeCwd: string
   };
   const updateEntry = (i: number, patch: Partial<CouncilMember>): void =>
     update({ members: draft.members.map((m, j) => (j === i ? { ...m, ...patch } : m)) });
+  const trial = draft.trial ?? null;
+  const updateTrial = (patch: Partial<CouncilMember>): void =>
+    update({ trial: { ...(trial ?? blankEntry()), ...patch } });
+  const canPick = instanceId === null || liveModels.length > 0;
 
   /** Opens the picker; a local project probes omp's chat catalog once per mount. */
-  const pick = (i: number): void => {
-    setPickIndex(i);
+  const pick = (target: number | "trial"): void => {
+    setPickTarget(target);
     if (instanceId !== null || catalog.status !== "idle") return;
     setCatalog({ status: "loading" });
     readChatModels().then(
@@ -175,8 +240,9 @@ export function CouncilRosterEditor({ scopeCwd, instanceId }: { scopeCwd: string
   // validator derives it from the model, suffixing any collision. Only a
   // hand-typed name is checked here — pattern, length, and duplicates against
   // another hand-typed name; every member still needs a launchable model.
-  const typedSlugs = draft.members.map((m) => (m.name.trim() === "" ? null : councilMemberSlug(m.name)));
-  const invalid = draft.members.some(
+  const rows = trial === null ? draft.members : [...draft.members, trial];
+  const typedSlugs = rows.map((m) => (m.name.trim() === "" ? null : councilMemberSlug(m.name)));
+  const invalid = rows.some(
     (m, i) =>
       !modelOk(m.model) ||
       (typedSlugs[i] !== null &&
@@ -196,15 +262,19 @@ export function CouncilRosterEditor({ scopeCwd, instanceId }: { scopeCwd: string
     setSaving(true);
     setError(null);
     try {
+      const clean = (m: CouncilMember): CouncilMember => ({
+        // A blank name stays blank (#1057): the validator derives it from the
+        // member's current model, so switching models renames the member.
+        ...m,
+        name: m.name.trim(),
+        model: m.model?.trim() ? m.model.trim() : null,
+      });
       const doc: CouncilDocument = {
         instructions: draft.instructions?.trim() ? draft.instructions : null,
-        members: draft.members.map((m) => ({
-          // A blank name stays blank (#1057): the validator derives it from
-          // the member's current model, so switching models renames the member.
-          ...m,
-          name: m.name.trim(),
-          model: m.model?.trim() ? m.model.trim() : null,
-        })),
+        members: draft.members.map(clean),
+        // An empty slot is an absent key: the document then matches one saved
+        // before the slot existed, which an older joined instance still accepts.
+        ...(trial === null ? {} : { trial: clean(trial) }),
       };
       const clear =
         scope === "project" &&
@@ -267,54 +337,17 @@ export function CouncilRosterEditor({ scopeCwd, instanceId }: { scopeCwd: string
       </div>
 
       {draft.members.map((m, i) => (
-        <Panel key={i} className="flex flex-col gap-2 p-2.5">
-          <div className="flex items-center gap-2">
-            <input
-              className={inputClass}
-              placeholder={
-                m.name.trim() === "" && modelOk(m.model)
-                  ? councilNameFromModel(m.model) ?? t("council.roster.namePlaceholder")
-                  : t("council.roster.namePlaceholder")
-              }
-              aria-label={t("council.roster.colName")}
-              value={m.name}
-              onChange={(e) => updateEntry(i, { name: e.target.value })}
-            />
-            <Switch
-              on={m.enabled}
-              label={t("council.roster.enabled")}
-              onChange={(next) => updateEntry(i, { enabled: next })}
-            />
-            <Button size="xs" variant="ghost" tone="rose" onClick={() => update({ members: draft.members.filter((_, j) => j !== i) })}>
-              {t("council.roster.remove")}
-            </Button>
-          </div>
-          <div className="flex items-center gap-2">
-            <input
-              className={inputClass}
-              placeholder={t("council.roster.modelPlaceholder")}
-              aria-label={t("council.roster.colModel")}
-              value={m.model ?? ""}
-              onChange={(e) => updateEntry(i, { model: e.target.value === "" ? null : e.target.value })}
-            />
-            {(instanceId === null || liveModels.length > 0) && (
-              <Button size="xs" onClick={() => pick(i)}>
-                {t("council.roster.pick")}
-              </Button>
-            )}
-          </div>
-          {!modelOk(m.model) && <p className="text-xs text-rose">{t("council.roster.modelRequired")}</p>}
-          <textarea
-            className={cn(inputClass, "h-14")}
-            aria-label={t("council.roster.instructions")}
-            placeholder={t("council.roster.instructions")}
-            value={m.instructions ?? ""}
-            onChange={(e) => updateEntry(i, { instructions: e.target.value === "" ? null : e.target.value })}
-          />
-        </Panel>
+        <MemberPanel
+          key={i}
+          member={m}
+          canPick={canPick}
+          onChange={(patch) => updateEntry(i, patch)}
+          onRemove={() => update({ members: draft.members.filter((_, j) => j !== i) })}
+          onPick={() => pick(i)}
+        />
       ))}
 
-      <div className="flex items-center gap-2">
+      <div>
         <Button
           size="xs"
           disabled={full}
@@ -323,6 +356,29 @@ export function CouncilRosterEditor({ scopeCwd, instanceId }: { scopeCwd: string
         >
           {t("council.roster.add")}
         </Button>
+      </div>
+
+      <div className="flex flex-col gap-2" data-testid="council-trial">
+        <Label>{t("council.roster.trialTitle")}</Label>
+        <p className="text-xs leading-relaxed text-ink-faint">{t("council.roster.trialHint")}</p>
+        {trial === null ? (
+          <div>
+            <Button size="xs" onClick={() => update({ trial: blankEntry() })}>
+              {t("council.roster.trialAdd")}
+            </Button>
+          </div>
+        ) : (
+          <MemberPanel
+            member={trial}
+            canPick={canPick}
+            onChange={updateTrial}
+            onRemove={() => update({ trial: null })}
+            onPick={() => pick("trial")}
+          />
+        )}
+      </div>
+
+      <div className="flex items-center gap-2">
         <span className="flex-1" />
         {scope === "project" && stored !== null && (
           <Button
@@ -382,7 +438,7 @@ export function CouncilRosterEditor({ scopeCwd, instanceId }: { scopeCwd: string
       )}
       <div>
         <Label>{t("council.roster.effective")}</Label>
-        {result.effective.length === 0 ? (
+        {result.effective.length === 0 && result.effectiveTrial == null ? (
           <p className="text-ink-faint">{t("council.roster.effectiveNone")}</p>
         ) : (
           <ul className="mt-1 font-mono text-xs text-ink-mid">
@@ -392,30 +448,41 @@ export function CouncilRosterEditor({ scopeCwd, instanceId }: { scopeCwd: string
                 {e.sourceScope === "project" ? t("council.roster.scopeProject") : t("council.roster.scopeUser")}
               </li>
             ))}
+            {result.effectiveTrial != null && (
+              <li key="trial" className="break-all">
+                {result.effectiveTrial.name} · {t("council.roster.trialTag")} ·{" "}
+                {result.effectiveTrial.enabled ? "on" : "off"} ·{" "}
+                {result.effectiveTrial.model ?? t("council.roster.noModel")} ·{" "}
+                {result.effectiveTrial.sourceScope === "project"
+                  ? t("council.roster.scopeProject")
+                  : t("council.roster.scopeUser")}
+              </li>
+            )}
           </ul>
         )}
       </div>
 
-      {pickIndex !== null && instanceId === null && catalog.status === "loading" && (
+      {pickTarget !== null && instanceId === null && catalog.status === "loading" && (
         <p className="text-ink-faint">{t("council.roster.catalogLoading")}</p>
       )}
-      {pickIndex !== null && instanceId === null && catalog.status === "loaded" && !catalog.snapshot.discovered && (
+      {pickTarget !== null && instanceId === null && catalog.status === "loaded" && !catalog.snapshot.discovered && (
         <p className="text-ink-faint">
           {t("settings.omp.modelRoleCatalogFailed", { message: catalog.snapshot.error ?? "" })}
         </p>
       )}
-      {pickIndex !== null && paletteModels !== null && (
+      {pickTarget !== null && paletteModels !== null && (
         <ModelPalette
           variant="subagent"
           models={paletteModels}
-          current={draft.members[pickIndex]?.model ?? null}
+          current={pickTarget === "trial" ? trial?.model ?? null : draft.members[pickTarget]?.model ?? null}
           allowInherit={false}
           instanceId={instanceId}
-          onClose={() => setPickIndex(null)}
+          onClose={() => setPickTarget(null)}
           onPick={(selector) => {
-            const i = pickIndex;
-            setPickIndex(null);
-            updateEntry(i, { model: selector });
+            const target = pickTarget;
+            setPickTarget(null);
+            if (target === "trial") updateTrial({ model: selector });
+            else updateEntry(target, { model: selector });
           }}
         />
       )}

@@ -559,13 +559,13 @@ const councilDocumentCodec: ArgCodec<CouncilDocument> = {
   expected: "a Council document",
   decode(value, path) {
     const f = record().decode(value, path);
-    exactKeys(f, ["instructions", "members"], path);
+    exactKeys(f, ["instructions", "members", "trial"], path);
     const members = arrayOf(councilMemberCodec).decode(f["members"], `${path}.members`);
     if (members.length > 64) fail(`${path}.members`, "at most 64 entries");
-    return {
-      instructions: nullable(councilText).decode(f["instructions"], `${path}.instructions`),
-      members,
-    };
+    const instructions = nullable(councilText).decode(f["instructions"], `${path}.instructions`);
+    const trial = optional(nullable(councilMemberCodec)).decode(f["trial"], `${path}.trial`);
+    // An empty slot stays an absent key, matching what the editor writes.
+    return trial === undefined || trial === null ? { instructions, members } : { instructions, members, trial };
   },
 };
 /** One app-state Council roster save (ADR-0088): null document clears the scope. */

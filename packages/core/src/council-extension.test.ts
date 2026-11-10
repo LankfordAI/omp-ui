@@ -91,6 +91,7 @@ function harness(options: { sendThrows?: boolean; withoutSend?: boolean } = {}):
 const DEFAULT_COUNCIL: CouncilRosterResult = {
   instructions: "find bugs",
   members: [{ name: "sec", model: "vllm/gemma-4-31b-it", instructions: null, enabled: true }],
+  trial: null,
   configWarnings: [],
 };
 
@@ -153,12 +154,17 @@ function launchPrompt(h: Harness): string {
   return String(h.sends[0]!.message.content);
 }
 
-/** The fenced batch JSON the launch prompt carries, backreference-matched. */
-function batchJson(h: Harness): { context: string; tasks: Array<Record<string, unknown>> } {
+/** Every fenced batch JSON block the launch prompt carries, backreference-matched, in order. */
+function batchJsons(h: Harness): Array<{ context: string; tasks: Array<Record<string, unknown>> }> {
   const content = launchPrompt(h);
-  const match = /(`{3,})json\n([\s\S]*?)\n\1/.exec(content);
-  if (match === null) throw new Error("no fenced batch JSON in:\n" + content);
-  return JSON.parse(match[2]!) as { context: string; tasks: Array<Record<string, unknown>> };
+  const blocks = [...content.matchAll(/(`{3,})json\n([\s\S]*?)\n\1/g)];
+  if (blocks.length === 0) throw new Error("no fenced batch JSON in:\n" + content);
+  return blocks.map((match) => JSON.parse(match[2]!) as { context: string; tasks: Array<Record<string, unknown>> });
+}
+
+/** The first fenced batch JSON the launch prompt carries = the council batch. */
+function batchJson(h: Harness): { context: string; tasks: Array<Record<string, unknown>> } {
+  return batchJsons(h)[0]!;
 }
 
 function brief(h: Harness): string {
@@ -199,6 +205,7 @@ describe("generated council extension", () => {
           { name: "sol", model: "openai/gpt-6-sol", instructions: "Think about cost.", enabled: true },
           { name: "opus", model: "anthropic/claude-opus-5.5", instructions: null, enabled: true },
         ],
+        trial: null,
         configWarnings: [],
       });
       const note = await runCommand(h, "is the cache invalidation safe?", cwd);
@@ -227,6 +234,42 @@ describe("generated council extension", () => {
       expect(prompt).toContain("sol (openai/gpt-6-sol), opus (anthropic/claude-opus-5.5)");
       expect(prompt).toContain("Do not edit files or post anywhere because of this message.");
       expect(prompt).not.toContain("SCORE");
+      expect(prompt).not.toMatch(/trial/i);
+    });
+
+    it("a trial member rides a second batch after the council batch, blind and uncounted", async () => {
+      const h = harness();
+      const cwd = tempDir("omp-ui-council-ask-");
+      loadCouncil(h, {
+        instructions: null,
+        members: [
+          { name: "sol", model: "openai/gpt-6-sol", instructions: "Think about cost.", enabled: true },
+          { name: "opus", model: "anthropic/claude-opus-5.5", instructions: null, enabled: true },
+        ],
+        trial: { name: "nova", model: "litellm/nova", instructions: "Prefer boring designs.", enabled: true },
+        configWarnings: [],
+      });
+      const note = await runCommand(h, "which queue fits?", cwd);
+      expect(note.text.startsWith("Asked 2 council member(s) and trial member nova on (ask).")).toBe(true);
+      const blocks = batchJsons(h);
+      expect(blocks).toHaveLength(2);
+      const council = blocks[0]!;
+      expect(council.tasks.map((t) => [t.name, t.agent, t.model])).toEqual([
+        ["council-sol", COUNCIL_AGENT, "openai/gpt-6-sol"],
+        ["council-opus", COUNCIL_AGENT, "anthropic/claude-opus-5.5"],
+      ]);
+      expect(blocks[1]!.tasks).toHaveLength(1);
+      const trialTask = blocks[1]!.tasks[0]!;
+      expect([trialTask.name, trialTask.agent, trialTask.model]).toEqual(["council-nova", COUNCIL_AGENT, "litellm/nova"]);
+      expect(blocks[1]!.context).toBe(council.context);
+      expect(String(trialTask.task)).toContain("Prefer boring designs.");
+      expect(String(trialTask.task)).toMatch(/\n\n## Request\nwhich queue fits\?$/);
+      expect(String(trialTask.task)).not.toMatch(/trial/i);
+      const prompt = launchPrompt(h);
+      expect(prompt).toContain("It is not a council member");
+      expect(prompt).toContain('"Trial model" section');
+      expect(prompt).toContain("trial-only, not acted on");
+      expect(prompt).toContain("Never wait for the trial member");
     });
 
     it("the tool asks with a trimmed request and the council's shared instructions as context", async () => {
@@ -260,6 +303,30 @@ describe("generated council extension", () => {
       expect(text).toContain(`## Diff target\nReview commit ${git(repo, "rev-parse", "HEAD")} (\`HEAD\`)`);
       expect(text).not.toContain("## Request");
       expect(launchPrompt(h)).toContain(`call ${COUNCIL_TOOL} with review: true for a fresh round`);
+    });
+
+    it("a review round adds the trial batch and keeps the members' stopping rule council-only", async () => {
+      const h = harness();
+      const repo = makeRepo();
+      loadCouncil(h, {
+        instructions: null,
+        members: [{ name: "sec", model: "vllm/gemma-4-31b-it", instructions: null, enabled: true }],
+        trial: { name: "nova", model: "litellm/nova", instructions: null, enabled: true },
+        configWarnings: [],
+      });
+      const result = await runReview(h, { kind: "commit", value: "HEAD" }, repo);
+      expect(result.isError).toBeUndefined();
+      const blocks = batchJsons(h);
+      expect(blocks).toHaveLength(2);
+      expect(blocks[1]!.tasks).toHaveLength(1);
+      const trialTask = blocks[1]!.tasks[0]!;
+      expect([trialTask.name, trialTask.agent, trialTask.model]).toEqual(["council-nova", COUNCIL_AGENT, "litellm/nova"]);
+      expect(blocks[1]!.context).toBe(blocks[0]!.context);
+      expect(String(trialTask.task)).toContain("SCORE: <0-10>/10");
+      expect(String(trialTask.task)).not.toMatch(/trial/i);
+      const prompt = launchPrompt(h);
+      expect(prompt).toContain("Stop when no council member reports a blocker or major finding");
+      expect(prompt).toContain("in the last row, labelled (trial)");
     });
 
     it("a review request rides as extra focus after the diff target", async () => {
@@ -302,7 +369,7 @@ describe("generated council extension", () => {
   it("an empty council refuses with the Council settings sentence and launches nothing", async () => {
     const h = harness();
     const cwd = tempDir("omp-ui-council-empty-");
-    loadCouncil(h, { instructions: null, members: [], configWarnings: ['member "x": no model — skipped'] });
+    loadCouncil(h, { instructions: null, members: [], trial: null, configWarnings: ['member "x": no model — skipped'] });
     const note = await runCommand(h, "hello", cwd);
     expect(note).toEqual({
       text:
@@ -543,9 +610,18 @@ describe("generated council extension", () => {
     const cwd = tempDir("omp-ui-council-badsnap-");
     const member = { name: "sec", model: "m/x", instructions: null };
     const snapshot = (overrides: Record<string, unknown>): string =>
-      JSON.stringify({ version: 1, instructions: null, members: [member], configWarnings: [], ...overrides });
+      JSON.stringify({ version: 2, instructions: null, members: [member], trial: null, configWarnings: [], ...overrides });
+    const noTrialKey = (() => {
+      const { trial: _trial, ...rest } = JSON.parse(snapshot({})) as Record<string, unknown>;
+      return JSON.stringify(rest);
+    })();
     const hostile = [
-      snapshot({ version: 2 }),
+      snapshot({ version: 1 }),
+      snapshot({ version: 3 }),
+      noTrialKey,
+      snapshot({ trial: { ...member, name: "Sec" } }),
+      snapshot({ trial: { ...member, model: "" } }),
+      snapshot({ trial: 5 }),
       snapshot({ members: [member, { ...member, name: "b" }, { ...member, name: "c" }, { ...member, name: "d" }] }),
       snapshot({ members: [{ ...member, name: "Sec" }] }),
       snapshot({ members: [{ ...member, name: "a".repeat(25) }] }),
@@ -561,6 +637,24 @@ describe("generated council extension", () => {
       expect(note).toEqual({ text: expect.stringMatching(/restart the session/), level: "error" });
     }
     expect(h.sends).toHaveLength(0);
+  });
+
+  it("a snapshot with trial: null loads and launches without a trial member", async () => {
+    const h = harness();
+    const cwd = tempDir("omp-ui-council-ask-");
+    fs.writeFileSync(
+      councilRosterSnapshotPath(h.dir),
+      JSON.stringify({
+        version: 2,
+        instructions: null,
+        members: [{ name: "sec", model: "m/x", instructions: null }],
+        trial: null,
+        configWarnings: [],
+      }),
+    );
+    const note = await runCommand(h, "hello", cwd);
+    expect(note.level).toBe("info");
+    expect(launchPrompt(h)).not.toMatch(/trial/i);
   });
 
   it("review refuses outside a git checkout", async () => {

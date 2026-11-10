@@ -468,7 +468,7 @@ export function writeRpcExtensions(
 /**
  * Resolves the council once for a spawn (ADR-0088): writes the snapshot the bridge launches and
  * returns the --config overlay that turns per-call models on and grants exactly the launched
- * members' models. Legacy code-review artifacts in a reused lineage dir are removed.
+ * members' models and the trial member's. Legacy code-review artifacts in a reused lineage dir are removed.
  * Returns null and writes no overlay when no member can launch (the snapshot is still written).
  * Never fatal: on failure the snapshot is removed (the bridge then refuses with a restart hint)
  * and null is returned.
@@ -491,7 +491,7 @@ export function writeCouncilForSpawn(
       removeLineageArtifact(councilOverlayPath(absLineageDir));
       return null;
     }
-    return writeCouncilOverlay(absLineageDir, roster.members.map((m) => m.model!));
+    return writeCouncilOverlay(absLineageDir, roster.members.map((m) => m.model!), roster.trial?.model ?? null);
   } catch (err) {
     removeLineageArtifact(councilRosterSnapshotPath(absLineageDir));
     console.warn("[council] could not prepare the council:", err);

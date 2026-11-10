@@ -302,6 +302,7 @@ const VALID_ARGS = {
       document: {
         instructions: null,
         members: [{ name: "a", model: "p/m", instructions: null, enabled: true }],
+        trial: { name: "", model: "p/new", instructions: null, enabled: true },
       },
     },
   ],

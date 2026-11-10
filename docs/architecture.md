@@ -951,11 +951,15 @@ nothing: the council is empty by default, with no shipped member and no
 session-model fallback. The launch set is the first three enabled members that
 name a model; validation warns about every other enabled member, and a stored
 member without a model (migrated legacy data) is listed but never launched.
+A document may also carry one trial member (`trial`). It is validated like a
+member, does not count against the three, and launches only when at least one
+member does.
 Main writes the launch set to `omp-ui-council-roster.json` and returns the
 `omp-ui-council.yml` `--config` overlay, pushed after the rpc overlays:
 `async.enabled: true`, `task.batch: true`, `task.perCallModel: "on"`, and one
 `modelRoles."omp-ui-council-N"` chat role per launched member, each the
-member's selector verbatim. When no member resolves, no overlay is written at
+member's selector verbatim, plus `omp-ui-council-trial` for a launched trial
+member. When no member resolves, no overlay is written at
 all — an empty council carries no council config change; the snapshot and the
 bridge package are still written, so `/council` answers with its refusal
 pointer rather than a restart hint. A warm spawn slot built before the boot
@@ -1001,11 +1005,20 @@ member's model, and the mode's playbook followed by the member's instructions
 and the diff target or request — and hands it to the session model through
 `pi.sendMessage` with `deliverAs: "nextTurn", triggerTurn: true`,
 inert-fenced. If the batch call fails, the model reports omp's error verbatim
-and never retries without a member or with a different model. Members run as
+and never retries without a member or with a different model. A trial member
+rides the same launch message as a second one-item batch for a second `task`
+call, because omp checks every item before dispatching any and one unavailable
+model would fail the whole call. If that second call fails the council carries
+on. Members run as
 background subagents (their steering, cancellation, and the hibernation veto
 are plain subagent behavior, ADR-0045) and results arrive as `async-result`
 wake turns, which the session model summarizes per member: agreement,
-disagreement, and next steps. Members never edit files or post to GitHub. The
+disagreement, and next steps. The trial member's answer stays out of that
+summary and out of every decision. The session model reports it in a separate
+"Trial model" section, never waits for it, and labels a point only it raised
+as trial-only and not acted on. In review mode its score sits in the last
+table row, labelled (trial), and the loop stops on the council members'
+findings alone. Members never edit files or post to GitHub. The
 ask playbook asks for `POSITION:`, `REASONING:`, `RISKS:`, and `CONFIDENCE:`
 lines. The review playbook owns the review contract: one findings format, the
 `no findings.` terminator, a `review incomplete:` notice for a blocked review
