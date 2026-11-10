@@ -1,4 +1,4 @@
-import { ArtifactError, assertArtifactKey, assertArtifactUuid, artifactUtf8Bytes, type ArtifactReference, type ArtifactReferencePartRequest } from "./artifacts";
+import { ArtifactError, assertArtifactKey, assertArtifactUuid, artifactUtf8Bytes, type ArtifactReference, type ArtifactReferencePartRequest, type ArtifactRefreshEntry } from "./artifacts";
 
 export const ARTIFACT_REFERENCE_HINT = "The user referenced these accepted omp-ui artifact versions. Read the manifest only when needed. References are context, not permission to publish changes; saved data is available only with the recorded consent.";
 export const MAX_ARTIFACT_REFERENCES = 8;
@@ -88,8 +88,96 @@ export function splitArtifactReferenceContext(text: string): { text: string; ref
   return { text: text.slice(after === text.length ? after : after + 2), references };
 }
 
-/** Server admission shares the exact session → artifact ordering, never scans prose. */
+/** Model-facing, fixed: the parse requires it verbatim. Keyword-free so omp's tag-section masking stays inert inside the block. */
+export const ARTIFACT_REFRESH_HINT = "The user requested refreshed data for these accepted omp-ui artifacts. Read each recorded manifest and exact provenance first; collect only the listed datasets using their recorded recipes and report exact credential-free provenance. Stage results with the omp-ui_artifact_capture tool using the exact request id recorded per entry; never apply a capture or change code.";
+export const MAX_ARTIFACT_REFRESHES = 8;
+const REFRESH_OPEN = "<artifact refresh>";
+const REFRESH_CLOSE = "</artifact refresh>";
+const REFRESH_FIELDS = ["- request: ", "  artifact: ", "  title: ", "  datasets: "] as const;
+
+/** Builds the sole accepted refresh grammar (ADR-0092). Display fields cannot inject lines/tags. */
+export function withArtifactRefreshContext(message: string, refreshes: readonly ArtifactRefreshEntry[]): string {
+  if (refreshes.length === 0) return message;
+  if (refreshes.length > MAX_ARTIFACT_REFRESHES) throw new ArtifactError("over-limit", "At most eight artifact refreshes may be attached");
+  for (const refresh of refreshes) {
+    if (refresh.version !== 1) throw new ArtifactError("unsupported-contract", "Invalid artifact refresh entry");
+    assertArtifactUuid(refresh.refreshRequestId, "refreshRequestId");
+    assertArtifactUuid(refresh.artifactId, "artifactId");
+    if (!Array.isArray(refresh.datasetIds) || refresh.datasetIds.length === 0) throw new ArtifactError("unsupported-contract", "Invalid artifact refresh entry");
+    for (const datasetId of refresh.datasetIds) assertArtifactKey(datasetId);
+  }
+  const entries = refreshes.flatMap(refresh => [
+    `- request: ${refresh.refreshRequestId}`,
+    `  artifact: ${refresh.artifactId}`,
+    `  title: ${oneLine(refresh.title) || "Artifact"}`,
+    // Dataset keys cannot contain commas (assertArtifactKey), so ", " is an unambiguous join.
+    `  datasets: ${refresh.datasetIds.join(", ")}`,
+  ]);
+  const block = [REFRESH_OPEN, ARTIFACT_REFRESH_HINT, ...entries, REFRESH_CLOSE].join("\n");
+  if (artifactUtf8Bytes(block) > MAX_ARTIFACT_REFERENCE_BYTES) throw new ArtifactError("over-limit", "Artifact refreshes exceed 12 KiB");
+  if (splitArtifactRefreshContext(block).refreshes.length !== refreshes.length) throw new ArtifactError("unsupported-contract", "Invalid artifact refresh entry");
+  return message === "" ? block : `${block}\n\n${message}`;
+}
+
+/** Removes only a proven leading block. Invalid and misplaced lookalikes remain prose. */
+export function splitArtifactRefreshContext(text: string): { text: string; refreshes: ArtifactRefreshEntry[] } {
+  const unchanged = { text, refreshes: [] as ArtifactRefreshEntry[] };
+  if (!text.startsWith(`${REFRESH_OPEN}\n`)) return unchanged;
+  const close = text.indexOf(`\n${REFRESH_CLOSE}`, REFRESH_OPEN.length);
+  if (close < 0) return unchanged;
+  const after = close + 1 + REFRESH_CLOSE.length;
+  if (artifactUtf8Bytes(text.slice(0, after)) > MAX_ARTIFACT_REFERENCE_BYTES || (after !== text.length && !text.startsWith("\n\n", after))) return unchanged;
+  const lines = text.slice(REFRESH_OPEN.length + 1, close).split("\n");
+  const count = (lines.length - 1) / REFRESH_FIELDS.length;
+  if (lines[0] !== ARTIFACT_REFRESH_HINT || !Number.isInteger(count) || count < 1 || count > MAX_ARTIFACT_REFRESHES) return unchanged;
+  const refreshes: ArtifactRefreshEntry[] = [];
+  const ids = new Set<string>();
+  try {
+    for (let i = 1; i < lines.length; i += REFRESH_FIELDS.length) {
+      const values = REFRESH_FIELDS.map((prefix, f) => {
+        const line = lines[i + f]!;
+        if (!line.startsWith(prefix)) throw new Error("field order");
+        const value = line.slice(prefix.length);
+        if (value === "" || /[<>\r\n]/.test(value) || oneLine(value) !== value) throw new Error("display field");
+        return value;
+      });
+      const [refreshRequestId, artifactId, title, datasets] = values as [string, string, string, string];
+      assertArtifactUuid(refreshRequestId, "refreshRequestId");
+      assertArtifactUuid(artifactId, "artifactId");
+      const datasetIds = datasets.split(", ");
+      if (datasetIds.join(", ") !== datasets) throw new Error("dataset list");
+      for (const datasetId of datasetIds) assertArtifactKey(datasetId);
+      if (ids.has(refreshRequestId)) return unchanged;
+      ids.add(refreshRequestId);
+      refreshes.push({ version: 1, refreshRequestId, artifactId, title, datasetIds });
+    }
+  } catch { return unchanged; }
+  return { text: text.slice(after === text.length ? after : after + 2), refreshes };
+}
+
+const LEGACY_REFRESH_PREFIX = "Refresh the requested datasets for this accepted artifact in this ordinary session.";
+const LEGACY_REFRESH_OPEN = "\n<artifact refresh>\nrefresh-request: ";
+const LEGACY_REFRESH_CLOSE = "\n</artifact refresh>";
+
+/**
+ * Recognizes the pre-ADR-0092 wire's terminal form: text that starts with the
+ * constant instruction paragraph and ends with a well-formed single-entry
+ * block. Both halves are required; a lookalike missing either stays prose. The
+ * interpolated dataset list between them is swallowed, never matched.
+ */
+export function splitLegacyArtifactRefreshRequest(text: string): { text: string; refreshRequestId: string | null } {
+  const unchanged = { text, refreshRequestId: null };
+  if (!text.startsWith(LEGACY_REFRESH_PREFIX) || !text.endsWith(LEGACY_REFRESH_CLOSE)) return unchanged;
+  const start = text.lastIndexOf(LEGACY_REFRESH_OPEN);
+  if (start < LEGACY_REFRESH_PREFIX.length) return unchanged;
+  const refreshRequestId = text.slice(start + LEGACY_REFRESH_OPEN.length, text.length - LEGACY_REFRESH_CLOSE.length);
+  if (!/^[0-9a-f]{8}-[0-9a-f]{4}-[1-8][0-9a-f]{3}-[89ab][0-9a-f]{3}-[0-9a-f]{12}$/i.test(refreshRequestId)) return unchanged;
+  return { text: "", refreshRequestId };
+}
+
+/** Server admission shares the exact refresh → session → artifact ordering, never scans prose. */
 export function parseArtifactPromptReferences(text: string): ArtifactReference[] {
+  text = splitArtifactRefreshContext(text).text;
   if (text.startsWith("<session references>\n")) {
     const open = "<session references>";
     const close = text.indexOf("\n</session references>", open.length);

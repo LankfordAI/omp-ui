@@ -8,7 +8,7 @@
 // the rewind rather than guessing an id.
 
 import type { SessionReference } from "@omp-ui/core/types";
-import type { ArtifactReference } from "@omp-ui/core/artifacts";
+import type { ArtifactReference, ArtifactRefreshEntry } from "@omp-ui/core/artifacts";
 import type { Annotation } from "./annotations";
 import { strField } from "./fields";
 import { isObj } from "./fields";
@@ -28,6 +28,8 @@ export interface PromptEntry {
   /** Session references parsed out of the leading block (ADR-0085). */
   references?: SessionReference[];
   artifactReferences?: ArtifactReference[];
+  /** Refresh requests parsed out of the leading refresh block (ADR-0092). */
+  artifactRefreshes?: ArtifactRefreshEntry[];
 }
 
 /**
@@ -114,6 +116,7 @@ export function visiblePromptEntries(
       ...(content.annotations?.length ? { annotations: content.annotations } : {}),
       ...(content.references?.length ? { references: content.references } : {}),
       ...(content.artifactReferences?.length ? { artifactReferences: content.artifactReferences } : {}),
+      ...(content.artifactRefreshes?.length ? { artifactRefreshes: content.artifactRefreshes } : {}),
     });
   }
   return out;
@@ -170,6 +173,7 @@ export function entryUserPrompt(
       ...(content.annotations?.length ? { annotations: content.annotations } : {}),
       ...(content.references?.length ? { references: content.references } : {}),
       ...(content.artifactReferences?.length ? { artifactReferences: content.artifactReferences } : {}),
+      ...(content.artifactRefreshes?.length ? { artifactRefreshes: content.artifactRefreshes } : {}),
     };
   }
   return null;

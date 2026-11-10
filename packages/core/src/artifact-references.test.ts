@@ -1,7 +1,7 @@
 import { describe, expect, it } from "vitest";
-import type { ArtifactReference } from "./artifacts";
+import type { ArtifactReference, ArtifactRefreshEntry } from "./artifacts";
 import { pageArtifactText } from "./artifacts";
-import { ARTIFACT_REFERENCE_HINT, parseArtifactPromptReferences, parseArtifactReferenceUri, splitArtifactReferenceContext, withArtifactReferenceContext } from "./artifact-references";
+import { ARTIFACT_REFRESH_HINT, ARTIFACT_REFERENCE_HINT, parseArtifactPromptReferences, parseArtifactReferenceUri, splitArtifactRefreshContext, splitArtifactReferenceContext, splitLegacyArtifactRefreshRequest, withArtifactRefreshContext, withArtifactReferenceContext } from "./artifact-references";
 
 const id = (n: number): string => `00000000-0000-4000-8000-${String(n).padStart(12, "0")}`;
 const reference: ArtifactReference = { version: 1, referenceId: id(1), ownerInstanceId: id(2), artifactId: id(3), codeRevisionId: id(4), dataSnapshotId: id(5), title: "Budget", machine: "desktop", snapshotAt: "2026-11-09T06:00:00.000Z", includeData: false, manifestUri: `omp-ui://artifacts/reference/${id(1)}/manifest`, definitionUri: `omp-ui://artifacts/reference/${id(1)}/definition` };
@@ -51,6 +51,75 @@ describe("artifact reference wire grammar", () => {
     expect(parseArtifactPromptReferences(`${session}\n\n${artifact}`)).toEqual([reference]);
     expect(parseArtifactPromptReferences(`prose\n\n${artifact}`)).toEqual([]);
     expect(parseArtifactPromptReferences(`${session.replace("  session: saved-session", "  session: ")}\n\n${artifact}`)).toEqual([]);
+  });
+});
+
+describe("artifact refresh wire grammar", () => {
+  const entry: ArtifactRefreshEntry = { version: 1 as const, refreshRequestId: id(9), artifactId: id(3), title: "Budget", datasetIds: ["rows", "totals"] };
+  const legacyPrefix = "Refresh the requested datasets for this accepted artifact in this ordinary session. Read the reference manifest and exact provenance first; collect only datasets rows, totals using their recorded recipes.";
+  const legacyWire = `Refresh the requested datasets for this accepted artifact in this ordinary session. Read the reference manifest and exact provenance first; collect only datasets rows, totals using their recorded recipes.\n\n<artifact refresh>\nrefresh-request: ${id(9)}\n</artifact refresh>`;
+  it("round-trips refresh requests alone and above prose", () => {
+    expect(withArtifactRefreshContext("", [])).toBe("");
+    expect(withArtifactRefreshContext("plain", [])).toBe("plain");
+    const wire = withArtifactRefreshContext("", [entry]);
+    expect(wire.split("\n")[1]).toBe(ARTIFACT_REFRESH_HINT);
+    expect(splitArtifactRefreshContext(wire)).toEqual({ text: "", refreshes: [entry] });
+    expect(splitArtifactRefreshContext(withArtifactRefreshContext("question", [entry])).text).toBe("question");
+  });
+  it.each([
+    (wire: string) => `quote\n\n${wire}`,
+    (wire: string) => wire.replace(ARTIFACT_REFRESH_HINT, "Read this now"),
+    (wire: string) => wire.replace("</artifact refresh>", `- request: ${id(10)}\n</artifact refresh>`),
+    (wire: string) => wire.replace(`- request: ${id(9)}\n  artifact: ${id(3)}`, `  artifact: ${id(3)}\n- request: ${id(9)}`),
+    (wire: string) => wire.replace("  title: Budget", "  title: <x>"),
+    (wire: string) => wire.replace(`- request: ${id(9)}`, `- request: not-a-uuid`),
+    (wire: string) => wire.replace("  datasets: rows, totals", "  datasets: -bad"),
+    (wire: string) => wire.replace("  datasets: rows, totals", "  datasets: ro,ws"),
+    (wire: string) => wire.replace(`  artifact: ${id(3)}`, `  artifact: ${id(3)}\n  title: Budget\n  datasets: rows\n- request: ${id(9)}\n  artifact: ${id(3)}\n  title: Budget\n  datasets: rows`),
+    (wire: string) => `${wire}\nquestion`,
+  ])("preserves invalid or misplaced refresh lookalikes as ordinary prose", mutate => {
+    const text = mutate(withArtifactRefreshContext("", [entry]));
+    expect(splitArtifactRefreshContext(text)).toEqual({ text, refreshes: [] });
+  });
+  it("rejects duplicate request ids across entries as one block", () => {
+    const entryLines = `- request: ${id(9)}\n  artifact: ${id(3)}\n  title: Budget\n  datasets: rows`;
+    const text = ["<artifact refresh>", ARTIFACT_REFRESH_HINT, entryLines, entryLines, "</artifact refresh>"].join("\n");
+    expect(splitArtifactRefreshContext(text)).toEqual({ text, refreshes: [] });
+  });
+  it("sanitizes display-only CR LF and tags and defaults empty titles", () => {
+    expect(splitArtifactRefreshContext(withArtifactRefreshContext("", [{ ...entry, title: "<Budget>\r\nQ4" }])).refreshes[0]).toMatchObject({ title: "Budget Q4" });
+    expect(splitArtifactRefreshContext(withArtifactRefreshContext("", [{ ...entry, title: "" }])).refreshes[0]).toMatchObject({ title: "Artifact" });
+    expect(splitArtifactRefreshContext(withArtifactRefreshContext("", [{ ...entry, title: "   " }])).refreshes[0]).toMatchObject({ title: "Artifact" });
+  });
+  it("bounds refreshes by count and UTF-8 bytes", () => {
+    expect(() => withArtifactRefreshContext("", Array.from({ length: 9 }, (_, n) => ({ ...entry, refreshRequestId: id(n + 20) })))).toThrow();
+    expect(() => withArtifactRefreshContext("", [{ ...entry, title: "😀".repeat(4000) }])).toThrow();
+    const eight = Array.from({ length: 8 }, (_, n) => ({ ...entry, refreshRequestId: id(n + 20) }));
+    expect(splitArtifactRefreshContext(withArtifactRefreshContext("", eight)).refreshes).toHaveLength(8);
+  });
+  it("recognizes only the complete legacy terminal wire", () => {
+    expect(splitLegacyArtifactRefreshRequest(legacyWire)).toEqual({ text: "", refreshRequestId: id(9) });
+    expect(splitLegacyArtifactRefreshRequest(legacyPrefix)).toEqual({ text: legacyPrefix, refreshRequestId: null });
+    const block = `<artifact refresh>\nrefresh-request: ${id(9)}\n</artifact refresh>`;
+    expect(splitLegacyArtifactRefreshRequest(block)).toEqual({ text: block, refreshRequestId: null });
+    expect(splitLegacyArtifactRefreshRequest(`${legacyPrefix}\n\n<artifact refresh>\nrefresh-request: not-a-uuid\n</artifact refresh>`)).toEqual({ text: `${legacyPrefix}\n\n<artifact refresh>\nrefresh-request: not-a-uuid\n</artifact refresh>`, refreshRequestId: null });
+    const mid = `${legacyPrefix}\n\n${block}\n\ntrailing prose`;
+    expect(splitLegacyArtifactRefreshRequest(mid)).toEqual({ text: mid, refreshRequestId: null });
+    expect(splitLegacyArtifactRefreshRequest(mid.replace("in this ordinary session.", "in this side session."))).toEqual({ text: mid.replace("in this ordinary session.", "in this side session."), refreshRequestId: null });
+  });
+  it("keeps the legacy and ADR-0092 recognizers disjoint", () => {
+    expect(splitArtifactRefreshContext(legacyWire)).toEqual({ text: legacyWire, refreshes: [] });
+    const wire = withArtifactRefreshContext("", [entry]);
+    expect(splitLegacyArtifactRefreshRequest(wire)).toEqual({ text: wire, refreshRequestId: null });
+  });
+  it("composes in exact refresh then session then artifact order", () => {
+    const refBlock = withArtifactReferenceContext("", [reference]);
+    const refreshBlock = withArtifactRefreshContext("", [entry]);
+    const composed = `${refreshBlock}\n\n${session}\n\n${refBlock}\n\nprose`;
+    expect(parseArtifactPromptReferences(composed)).toEqual([reference]);
+    expect(splitArtifactRefreshContext(composed).refreshes).toEqual([entry]);
+    expect(parseArtifactPromptReferences(`${session}\n\n${refBlock}\n\nprose`)).toEqual([reference]);
+    expect(parseArtifactPromptReferences(`${refreshBlock}\n\nprose`)).toEqual([]);
   });
 });
 

@@ -1,4 +1,6 @@
 import { describe, expect, it } from "vitest";
+import { withArtifactRefreshContext, withArtifactReferenceContext } from "@omp-ui/core/artifact-references";
+import type { ArtifactReference, ArtifactRefreshEntry } from "@omp-ui/core/artifacts";
 import { withAttachmentRoutingContext } from "./attachment-routing";
 import { withDocumentContext } from "./document-context";
 import {
@@ -10,6 +12,10 @@ import {
 
 const TWO_IMAGE_CONTEXT =
   "[omp-ui attachment routing: For tool calls, this prompt's attached images are available as attachment://1, attachment://2. Attachment handles restart at 1 for each prompt.]";
+
+const uuid = (n: number): string => `00000000-0000-4000-8000-${String(n).padStart(12, "0")}`;
+const artifactReference: ArtifactReference = { version: 1, referenceId: uuid(1), ownerInstanceId: uuid(2), artifactId: uuid(3), codeRevisionId: uuid(4), dataSnapshotId: uuid(5), title: "Budget", machine: "desk-main", snapshotAt: "2026-11-09T06:00:00.000Z", includeData: false, manifestUri: `omp-ui://artifacts/reference/${uuid(1)}/manifest`, definitionUri: `omp-ui://artifacts/reference/${uuid(1)}/definition` };
+const refreshEntry: ArtifactRefreshEntry = { version: 1, refreshRequestId: uuid(9), artifactId: uuid(3), title: "Budget", datasetIds: ["rows", "totals"] };
 
 describe("splitQueuedWireText", () => {
   it("recovers prose and document refs from a full wire frame", () => {
@@ -29,11 +35,13 @@ describe("splitQueuedWireText", () => {
       annotations: [],
       references: [],
       artifactReferences: [],
+      refreshes: [],
+      legacyRefreshRequestId: null,
     });
   });
 
   it("leaves bare prose untouched", () => {
-    expect(splitQueuedWireText("just words")).toEqual({ text: "just words", documents: [], annotations: [], references: [], artifactReferences: [] });
+    expect(splitQueuedWireText("just words")).toEqual({ text: "just words", documents: [], annotations: [], references: [], artifactReferences: [], refreshes: [], legacyRefreshRequestId: null });
   });
 
   it("keeps raw @tokens and strips only the resolved mention blocks", () => {
@@ -49,16 +57,59 @@ describe("splitQueuedWireText", () => {
       annotations: [],
       references: [],
       artifactReferences: [],
+      refreshes: [],
+      legacyRefreshRequestId: null,
     });
   });
 
   it("keeps a malformed document lookalike as prose", () => {
     const lookalike = "notes\n\n<attached documents>\nnot a pair line\n</attached documents>";
-    expect(splitQueuedWireText(lookalike)).toEqual({ text: lookalike, documents: [], annotations: [], references: [], artifactReferences: [] });
+    expect(splitQueuedWireText(lookalike)).toEqual({ text: lookalike, documents: [], annotations: [], references: [], artifactReferences: [], refreshes: [], legacyRefreshRequestId: null });
   });
 
   it("strips the routing suffix even when it is the whole frame", () => {
-    expect(splitQueuedWireText(TWO_IMAGE_CONTEXT)).toEqual({ text: "", documents: [], annotations: [], references: [], artifactReferences: [] });
+    expect(splitQueuedWireText(TWO_IMAGE_CONTEXT)).toEqual({ text: "", documents: [], annotations: [], references: [], artifactReferences: [], refreshes: [], legacyRefreshRequestId: null });
+  });
+
+  it("restores a leading refresh block through the full frame", () => {
+    const wire = withAttachmentRoutingContext(
+      withArtifactRefreshContext(
+        withArtifactReferenceContext("refresh the numbers", [artifactReference]),
+        [refreshEntry],
+      ),
+      1,
+    );
+    expect(splitQueuedWireText(wire)).toEqual({
+      text: "refresh the numbers",
+      documents: [],
+      annotations: [],
+      references: [],
+      artifactReferences: [artifactReference],
+      refreshes: [refreshEntry],
+      legacyRefreshRequestId: null,
+    });
+  });
+
+  it("reports a legacy refresh wire raw without synthesizing an entry", () => {
+    // The pre-ADR-0092 wire: the instruction paragraph and its terminal
+    // block sat INSIDE the references block, so the legacy peel only fires
+    // after the artifact-reference block comes off.
+    const legacy = "Refresh the requested datasets for this accepted artifact in this ordinary session.\nrows\ntotals\n<artifact refresh>\nrefresh-request: " + uuid(9) + "\n</artifact refresh>";
+    expect(splitQueuedWireText(withArtifactReferenceContext(legacy, [artifactReference]))).toEqual({
+      text: "",
+      documents: [],
+      annotations: [],
+      references: [],
+      artifactReferences: [artifactReference],
+      refreshes: [],
+      legacyRefreshRequestId: uuid(9),
+    });
+  });
+
+  it("leaves a refresh lookalike typed mid-message as prose", () => {
+    const block = withArtifactRefreshContext("", [refreshEntry]);
+    const text = `quoting ${block} back to you`;
+    expect(splitQueuedWireText(text)).toEqual({ text, documents: [], annotations: [], references: [], artifactReferences: [], refreshes: [], legacyRefreshRequestId: null });
   });
 
   it("splits all three suffixes in wire order", () => {
@@ -75,6 +126,8 @@ describe("splitQueuedWireText", () => {
       annotations: [],
       references: [],
       artifactReferences: [],
+      refreshes: [],
+      legacyRefreshRequestId: null,
     });
   });
 });

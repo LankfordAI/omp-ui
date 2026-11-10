@@ -104,6 +104,17 @@ describe("current metadata with a pinned active writer", () => {
     expect(prepareSurface).toHaveBeenLastCalledWith({ artifactId: id, codeRevisionId: code, dataSnapshotId: captureId }, expect.any(Object));
   });
 
+  it("opens the Saved data panel when the store seam asks for it", async () => {
+    backendMock.artifactDescribe.mockResolvedValue(description);
+    backendMock.artifactList.mockResolvedValue({ artifacts: [], nextCursor: null });
+    backendMock.artifactReadPart.mockResolvedValue(page());
+    await act(async () => { useStore.getState().openArtifacts({ artifactId: id, panel: "data" }); });
+    await render(<Artifacts />);
+    expect(backendMock.artifactDescribe).toHaveBeenLastCalledWith({ artifactId: id });
+    const pressed = [...host.querySelectorAll("button")].filter((item) => item.getAttribute("aria-pressed") === "true");
+    expect(pressed.map((item) => item.textContent)).toEqual(["Saved data"]);
+  });
+
   it("keeps explicitly selected history pinned during invalidation and Preview reopening", async () => {
     let current = description;
     backendMock.artifactDescribe.mockImplementation(async (request: { codeRevisionId?: string; dataSnapshotId?: string }) => ({ ...current, code: { ...current.code, codeRevisionId: request.codeRevisionId ?? current.code.codeRevisionId }, snapshot: { ...current.snapshot, dataSnapshotId: request.dataSnapshotId ?? current.snapshot.dataSnapshotId } }));
@@ -145,8 +156,8 @@ describe("bounded artifact reads and human consent", () => {
     const attach = vi.fn(async () => true);
     const onRefreshStarted = vi.fn();
     const onClose = vi.fn();
-    const previous = { runArtifactRefresh: useStore.getState().runArtifactRefresh, referenceArtifactInSession: useStore.getState().referenceArtifactInSession };
-    useStore.setState({ runArtifactRefresh, referenceArtifactInSession: attach });
+    const previous = { runArtifactRefresh: useStore.getState().runArtifactRefresh, attachArtifactRefreshDraft: useStore.getState().attachArtifactRefreshDraft };
+    useStore.setState({ runArtifactRefresh, attachArtifactRefreshDraft: attach as never });
     try {
       await render(<ArtifactReferencePicker description={description} mode="refresh" onClose={onClose} onRefreshStarted={onRefreshStarted} />);
       expect(document.querySelector("select")!.selectedOptions[0]!.textContent).toBe("A new background Chat");
@@ -175,12 +186,13 @@ describe("bounded artifact reads and human consent", () => {
   it("carries the original focus intent through a slow refresh added to an existing session's draft", async () => {
     const existing = { ...remoteOwnedState("existing-tab", "remote").remoteInstances[0]!.projects[0]!.sessions[0]!, chat: true, title: "Existing chat" };
     useStore.setState({ state: backendState({ artifactLibraryEnabled: true, chats: [existing] }) });
-    const { promise: preparation, resolve: finishPreparation } = Promise.withResolvers<{ request: object; reference: { referenceId: string }; text: string }>();
+    const prepared = { request: { refreshRequestId: id, referenceId: id, artifactId: id, codeRevisionId: code, dataSnapshotId: snapshot, datasetIds: ["quarter"] }, reference: { referenceId: id, title: "Quarterly chart" } };
+    const { promise: preparation, resolve: finishPreparation } = Promise.withResolvers<typeof prepared>();
     backendMock.artifactPrepareRefresh.mockReturnValue(preparation);
     const runArtifactRefresh = vi.fn(async () => "run-tab");
     const attach = vi.fn(async () => true);
-    const previous = { runArtifactRefresh: useStore.getState().runArtifactRefresh, referenceArtifactInSession: useStore.getState().referenceArtifactInSession };
-    useStore.setState({ runArtifactRefresh, referenceArtifactInSession: attach });
+    const previous = { runArtifactRefresh: useStore.getState().runArtifactRefresh, attachArtifactRefreshDraft: useStore.getState().attachArtifactRefreshDraft };
+    useStore.setState({ runArtifactRefresh, attachArtifactRefreshDraft: attach as never });
     try {
       await render(<ArtifactReferencePicker description={description} mode="refresh" onClose={() => {}} />);
       await act(async () => { const select = document.querySelector("select")!; select.value = "existing-tab"; select.dispatchEvent(new Event("change", { bubbles: true })); });
@@ -188,9 +200,9 @@ describe("bounded artifact reads and human consent", () => {
       act(() => button("Add to draft").click());
       expect(backendMock.artifactPrepareRefresh).toHaveBeenCalledWith({ targetTabId: "existing-tab", artifactId: id, codeRevisionId: code, dataSnapshotId: snapshot, datasetIds: ["quarter"] });
       bumpNavigationGeneration();
-      await act(async () => { finishPreparation({ request: {}, reference: { referenceId: id }, text: "Editable refresh" }); });
+      await act(async () => { finishPreparation(prepared); });
       expect(getNavigationGeneration()).not.toBe(initialIntent);
-      expect(attach).toHaveBeenCalledWith("existing-tab", { referenceId: id }, "Editable refresh", { navigationGeneration: initialIntent });
+      expect(attach).toHaveBeenCalledWith("existing-tab", prepared.reference, { version: 1, refreshRequestId: id, artifactId: id, title: "Quarterly chart", datasetIds: ["quarter"] }, { navigationGeneration: initialIntent });
       expect(runArtifactRefresh).not.toHaveBeenCalled();
     } finally { useStore.setState(previous); }
   });

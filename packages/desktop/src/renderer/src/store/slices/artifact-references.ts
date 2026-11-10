@@ -1,5 +1,5 @@
-import type { ArtifactReference, DraftArtifactReference } from "@omp-ui/core/artifacts";
-import { withArtifactReferenceContext } from "@omp-ui/core/artifact-references";
+import type { ArtifactRefreshEntry, ArtifactReference, DraftArtifactReference } from "@omp-ui/core/artifacts";
+import { withArtifactRefreshContext, withArtifactReferenceContext } from "@omp-ui/core/artifact-references";
 import { t } from "../../lib/i18n";
 import { backendFor } from "../../backend";
 import { findOwner, getNavigationGeneration } from "./view";
@@ -7,15 +7,20 @@ import type { GetState, SetState } from "./shared";
 
 export interface ArtifactReferencesSlice {
   artifactDrafts: Record<string, DraftArtifactReference[]>;
-  artifactDraftText: Record<string, string[]>;
-  attachArtifactReference(tabId: string, reference: DraftArtifactReference, suggestedText?: string): boolean;
+  /** Refresh requests awaiting send, per tab (ADR-0092) — chips, never prose. */
+  artifactRefreshDrafts: Record<string, ArtifactRefreshEntry[]>;
+  attachArtifactReference(tabId: string, reference: DraftArtifactReference): boolean;
   canRestoreArtifactReferences(tabId: string, references: readonly DraftArtifactReference[]): boolean;
   restoreArtifactReferences(tabId: string, references: readonly DraftArtifactReference[]): boolean;
   beginArtifactReferenceMove(sourceTabId: string, targetTabId: string): (() => void) | null;
   removeArtifactReference(tabId: string, referenceId: string): void;
   clearArtifactReferences(tabId: string, submitted?: readonly ArtifactReference[]): void;
-  drainArtifactDraftText(tabId: string): string[];
-  referenceArtifactInSession(tabId: string, reference: ArtifactReference, suggestedText?: string, options?: { navigationGeneration?: number }): Promise<boolean>;
+  attachArtifactRefresh(tabId: string, entry: ArtifactRefreshEntry): boolean;
+  attachArtifactRefreshDraft(tabId: string, reference: ArtifactReference, entry: ArtifactRefreshEntry, options?: { navigationGeneration?: number }): Promise<boolean>;
+  removeArtifactRefresh(tabId: string, refreshRequestId: string): void;
+  clearArtifactRefreshes(tabId: string, submitted?: readonly ArtifactRefreshEntry[]): void;
+  restoreArtifactRefreshes(tabId: string, entries: readonly ArtifactRefreshEntry[]): boolean;
+  referenceArtifactInSession(tabId: string, reference: ArtifactReference, options?: { navigationGeneration?: number }): Promise<boolean>;
 }
 
 /** Draft grants are independent of rpc slots: resume/restart cannot erase consent chips. */
@@ -23,10 +28,10 @@ export function createArtifactReferencesSlice(set: SetState, get: GetState): Art
   const movingDrafts = new Map<string, string>();
   return {
     artifactDrafts: {},
-    artifactDraftText: {},
-    attachArtifactReference(tabId, reference, suggestedText) {
+    artifactRefreshDrafts: {},
+    attachArtifactReference(tabId, reference) {
       const movedTo = movingDrafts.get(tabId);
-      if (movedTo !== undefined) return get().attachArtifactReference(movedTo, reference, suggestedText);
+      if (movedTo !== undefined) return get().attachArtifactReference(movedTo, reference);
       const owner = findOwner(get().state, tabId);
       const tab = get().tabs.find(candidate => candidate.tabId === tabId);
       if ((owner?.record.mode ?? tab?.mode) !== "rpc-ui") return false;
@@ -50,10 +55,7 @@ export function createArtifactReferencesSlice(set: SetState, get: GetState): Art
       if (!replaced) next.push(reference);
       try { withArtifactReferenceContext("", next); }
       catch (error) { get().reportError(error); return false; }
-      set(state => ({
-        artifactDrafts: { ...state.artifactDrafts, [tabId]: next },
-        ...(suggestedText?.trim() ? { artifactDraftText: { ...state.artifactDraftText, [tabId]: [...(state.artifactDraftText[tabId] ?? []), suggestedText] } } : {}),
-      }));
+      set(state => ({ artifactDrafts: { ...state.artifactDrafts, [tabId]: next } }));
       return true;
     },
     canRestoreArtifactReferences(tabId, references) {
@@ -99,11 +101,13 @@ export function createArtifactReferencesSlice(set: SetState, get: GetState): Art
       }
       movingDrafts.set(sourceTabId, targetTabId);
       if (!get().restoreArtifactReferences(targetTabId, references)) { movingDrafts.delete(sourceTabId); return null; }
-      const pendingText = get().artifactDraftText[sourceTabId] ?? [];
-      if (pendingText.length > 0) set(state => {
-        const artifactDraftText = { ...state.artifactDraftText, [targetTabId]: [...(state.artifactDraftText[targetTabId] ?? []), ...pendingText] };
-        delete artifactDraftText[sourceTabId];
-        return { artifactDraftText };
+      // A refresh request is bound to the session it was prepared against
+      // (ADR-0092): a move cannot carry it, so the source's entries die with
+      // it. The caller posts `artifacts.refreshMovedDropped` on the new tab.
+      set(state => {
+        const artifactRefreshDrafts = { ...state.artifactRefreshDrafts };
+        delete artifactRefreshDrafts[sourceTabId];
+        return { artifactRefreshDrafts };
       });
       return () => { if (movingDrafts.get(sourceTabId) === targetTabId) movingDrafts.delete(sourceTabId); };
     },
@@ -115,9 +119,7 @@ export function createArtifactReferencesSlice(set: SetState, get: GetState): Art
         const artifactDrafts = { ...state.artifactDrafts };
         if (submitted === undefined) {
           delete artifactDrafts[tabId];
-          const artifactDraftText = { ...state.artifactDraftText };
-          delete artifactDraftText[tabId];
-          return { artifactDrafts, artifactDraftText };
+          return { artifactDrafts };
         }
         else {
           const ids = new Set(submitted.map(ref => ref.referenceId));
@@ -126,12 +128,76 @@ export function createArtifactReferencesSlice(set: SetState, get: GetState): Art
         return { artifactDrafts };
       });
     },
-    drainArtifactDraftText(tabId) {
-      const text = get().artifactDraftText[tabId] ?? [];
-      if (text.length) set(state => { const pending = { ...state.artifactDraftText }; delete pending[tabId]; return { artifactDraftText: pending }; });
-      return text;
+    attachArtifactRefresh(tabId, entry) {
+      const movedTo = movingDrafts.get(tabId);
+      if (movedTo !== undefined) return get().attachArtifactRefresh(movedTo, entry);
+      const owner = findOwner(get().state, tabId);
+      const tab = get().tabs.find(candidate => candidate.tabId === tabId);
+      if ((owner?.record.mode ?? tab?.mode) !== "rpc-ui") return false;
+      const current = get().artifactRefreshDrafts[tabId] ?? [];
+      // One request per artifact: a second picker click re-prepares the same
+      // chip (the newer request is the bound one), never stacks two sends for
+      // one artifact. Load-bearing — refusing would make the chip unsendable.
+      const next: ArtifactRefreshEntry[] = [];
+      let replaced = false;
+      for (const refresh of current) {
+        if (refresh.artifactId === entry.artifactId) {
+          if (!replaced) next.push(entry);
+          replaced = true;
+        } else next.push(refresh);
+      }
+      if (!replaced) next.push(entry);
+      try { withArtifactRefreshContext("", next); }
+      catch (error) { get().reportError(error); return false; }
+      set(state => ({ artifactRefreshDrafts: { ...state.artifactRefreshDrafts, [tabId]: next } }));
+      return true;
     },
-    async referenceArtifactInSession(tabId, reference, suggestedText, options) {
+    async attachArtifactRefreshDraft(tabId, reference, entry, options) {
+      // Validate the request before binding anything: a bad entry must leave
+      // the tab exactly as it was — grant included.
+      try { withArtifactRefreshContext("", [entry]); }
+      catch (error) { get().reportError(error); return false; }
+      if (!await get().referenceArtifactInSession(tabId, reference, options)) return false;
+      return get().attachArtifactRefresh(tabId, entry);
+    },
+    removeArtifactRefresh(tabId, refreshRequestId) {
+      set(state => ({ artifactRefreshDrafts: { ...state.artifactRefreshDrafts, [tabId]: (state.artifactRefreshDrafts[tabId] ?? []).filter(refresh => refresh.refreshRequestId !== refreshRequestId) } }));
+    },
+    clearArtifactRefreshes(tabId, submitted) {
+      set(state => {
+        const artifactRefreshDrafts = { ...state.artifactRefreshDrafts };
+        if (submitted === undefined) {
+          delete artifactRefreshDrafts[tabId];
+          return { artifactRefreshDrafts };
+        }
+        else {
+          const ids = new Set(submitted.map(refresh => refresh.refreshRequestId));
+          artifactRefreshDrafts[tabId] = (artifactRefreshDrafts[tabId] ?? []).filter(refresh => !ids.has(refresh.refreshRequestId));
+        }
+        return { artifactRefreshDrafts };
+      });
+    },
+    restoreArtifactRefreshes(tabId, entries) {
+      // Nothing to withdraw is nothing to restore: no chip key springs into
+      // being for a prompt that carried no request.
+      if (entries.length === 0) return true;
+      const movedTo = movingDrafts.get(tabId);
+      if (movedTo !== undefined) return get().restoreArtifactRefreshes(movedTo, entries);
+      const owner = findOwner(get().state, tabId);
+      const tab = get().tabs.find(candidate => candidate.tabId === tabId);
+      if ((owner?.record.mode ?? tab?.mode) !== "rpc-ui") return false;
+      try { for (const entry of entries) withArtifactRefreshContext("", [entry]); }
+      catch (error) { get().reportError(error); return false; }
+      const next = [...(get().artifactRefreshDrafts[tabId] ?? [])];
+      for (const entry of entries) if (!next.some(refresh => refresh.refreshRequestId === entry.refreshRequestId)) next.push(entry);
+      // Like grants, a withdrawn request comes back as a removable chip even
+      // past the send limit; an over-limit wire is refused at send, not here.
+      set(state => ({ artifactRefreshDrafts: { ...state.artifactRefreshDrafts, [tabId]: next } }));
+      try { withArtifactRefreshContext("", next); }
+      catch (error) { get().reportError(error); }
+      return true;
+    },
+    async referenceArtifactInSession(tabId, reference, options) {
       const owner = findOwner(get().state, tabId);
       if (owner === undefined || owner.record.mode !== "rpc-ui") return false;
       const navigation = options?.navigationGeneration ?? getNavigationGeneration();
@@ -140,14 +206,14 @@ export function createArtifactReferencesSlice(set: SetState, get: GetState): Art
         const current = findOwner(get().state, tabId);
         if (current === undefined || current.instanceId !== owner.instanceId || current.record.mode !== "rpc-ui") return false;
         const movedTo = movingDrafts.get(tabId);
-        if (movedTo !== undefined) return get().referenceArtifactInSession(movedTo, reference, suggestedText, options);
+        if (movedTo !== undefined) return get().referenceArtifactInSession(movedTo, reference, options);
         if (identity.instanceId !== reference.ownerInstanceId) {
           const message = t("artifacts.reference.wrongMachine", { machine: reference.machine });
           if (get().rpc[tabId] !== undefined) get().appendNotice(tabId, message, "warn");
           else get().reportError(message);
           return false;
         }
-        if (!get().attachArtifactReference(tabId, { ...reference, instanceId: owner.instanceId }, suggestedText)) return false;
+        if (!get().attachArtifactReference(tabId, { ...reference, instanceId: owner.instanceId })) return false;
         await get().openSession(tabId, { activate: false });
         const landed = findOwner(get().state, tabId);
         if (landed === undefined || landed.instanceId !== owner.instanceId) return false;

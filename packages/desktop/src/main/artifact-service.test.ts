@@ -3,7 +3,7 @@ import * as os from "node:os";
 import * as path from "node:path";
 import { randomUUID } from "node:crypto";
 import { afterEach, describe, expect, it } from "vitest";
-import { parseHtmlArtifactArgs, withArtifactReferenceContext, type ArtifactJson, type ArtifactLibraryChanged, type ArtifactRecord, type ArtifactReference } from "@omp-ui/core";
+import { parseHtmlArtifactArgs, withArtifactReferenceContext, withArtifactRefreshContext, type ArtifactJson, type ArtifactLibraryChanged, type ArtifactRecord, type ArtifactReference } from "@omp-ui/core";
 import { ArtifactService, type ArtifactTarget } from "./artifact-service";
 import { artifactSourceHash } from "./artifact-source";
 import { readArtifactDatasetFile } from "./artifact-dataset-file";
@@ -46,6 +46,9 @@ async function keep(f: { service: ArtifactService }, value: ArtifactJson = [1, 2
 }
 function versions(record: ArtifactRecord) { return { artifactId: record.artifactId, codeRevisionId: record.currentCodeRevisionId, dataSnapshotId: record.currentDataSnapshotId }; }
 function wire(reference: ArtifactReference, text = "Use this context") { return withArtifactReferenceContext(text, [reference]); }
+function refreshWire(prepared: { request: { refreshRequestId: string; artifactId: string }; reference: ArtifactReference }, text = "Use this context") {
+  return withArtifactRefreshContext(wire(prepared.reference, text), [{ version: 1 as const, refreshRequestId: prepared.request.refreshRequestId, artifactId: prepared.request.artifactId, title: "T", datasetIds: ["rows"] }]);
+}
 function fileArgs(valueFile = "local://rows.json") {
   const rendered = args(); const { value: _value, ...definition } = rendered.artifact.datasets[0]!;
   return { ...rendered, artifact: { ...rendered.artifact, datasets: [{ ...definition, valueFile }] } };
@@ -158,7 +161,7 @@ describe("main-owned artifact authority", () => {
     f.setTarget({ ...f.target, sessionId: null, runtimeKey: REFRESH_RUNTIME_KEY });
     const refresh = f.service.prepareRefresh({ targetTabId: "tab", ...versions(kept), datasetIds: ["rows"] });
     expect(refresh.request.sessionId).toBeNull();
-    f.service.admitPrompt({ tabId: "tab", text: wire(refresh.reference, refresh.text) });
+    f.service.admitPrompt({ tabId: "tab", text: refreshWire(refresh) });
     f.setTarget({ ...f.target, sessionId: REFRESH_SESSION_ID });
     const capture = f.service.stageCapture({ tabId: "tab", toolCallId: "capture-native", args: { status: "captured", refreshRequestId: refresh.request.refreshRequestId, datasets: [dataset([3, 4])] } });
     if (capture.status !== "captured") throw new Error("Expected a staged capture");
@@ -326,7 +329,7 @@ describe("refresh failure and dormant admission", () => {
   ])("rejects $name without changing refresh or accepted data", async ({ args }) => {
     const f = fixture(); const kept = await keep(f);
     const prepared = f.service.prepareRefresh({ targetTabId: "tab", ...versions(kept), datasetIds: ["rows"] });
-    f.service.admitPrompt({ tabId: "tab", text: wire(prepared.reference, prepared.text) });
+    f.service.admitPrompt({ tabId: "tab", text: refreshWire(prepared) });
     const baseline = f.service.describe({ artifactId: kept.artifactId });
     const baselineSurface = f.service.resolveSurface(versions(baseline.artifact));
     expect(baseline.refreshRequests[0]).toMatchObject({ refreshRequestId: prepared.request.refreshRequestId, bound: true, status: "awaiting" });
@@ -348,7 +351,7 @@ describe("refresh failure and dormant admission", () => {
     const f = fixture(); const kept = await keep(f);
     f.setTarget({...f.target, runtimeKey: null});
     const prepared = f.service.prepareRefresh({targetTabId: "tab", ...versions(kept), datasetIds: ["rows"]});
-    const text = wire(prepared.reference, prepared.text);
+    const text = refreshWire(prepared);
     f.service.admitPrompt({tabId: "tab", text, bindRefresh: false});
     expect(f.service.describe({artifactId: kept.artifactId}).refreshRequests[0]).toMatchObject({bound: false, status: "awaiting"});
     f.setTarget({...f.target, runtimeKey: REFRESH_RUNTIME_KEY});
@@ -365,11 +368,44 @@ describe("refresh failure and dormant admission", () => {
   it("rejects forged owner descriptors and records known interrupted captures without treating an empty turn as success", async () => {
     const f = fixture(); const kept = await keep(f);
     const prepared = f.service.prepareRefresh({targetTabId: "tab", ...versions(kept), datasetIds: ["rows"]});
-    expect(() => f.service.admitPrompt({tabId: "tab", text: wire({...prepared.reference, ownerInstanceId: randomUUID()}, prepared.text)})).toThrow("immutable grant");
-    f.service.admitPrompt({tabId: "tab", text: wire(prepared.reference, prepared.text)});
+    expect(() => f.service.admitPrompt({tabId: "tab", text: withArtifactRefreshContext(withArtifactReferenceContext("Use this context", [{...prepared.reference, ownerInstanceId: randomUUID()}]), [{ version: 1 as const, refreshRequestId: prepared.request.refreshRequestId, artifactId: prepared.request.artifactId, title: "T", datasetIds: ["rows"] }])})).toThrow("immutable grant");
+    f.service.admitPrompt({tabId: "tab", text: refreshWire(prepared)});
     f.service.sourceExited({lineageDir: f.lineageDir, runtimeKey: RUNTIME_KEY});
     expect(f.service.describe({artifactId: kept.artifactId}).refreshRequests[0]?.status).toBe("interrupted");
     expect(f.service.describe({artifactId: kept.artifactId}).artifact.currentDataSnapshotId).toBe(kept.currentDataSnapshotId);
+  });
+  it("leaves a mid-message refresh lookalike as prose and never binds it", async () => {
+    const f = fixture(); const kept = await keep(f);
+    const prepared = f.service.prepareRefresh({targetTabId: "tab", ...versions(kept), datasetIds: ["rows"]});
+    const lookalike = `Use this context\n\n<artifact refresh>\nrefresh-request: ${prepared.request.refreshRequestId}\n</artifact refresh>`;
+    expect(() => f.service.admitPrompt({tabId: "tab", text: wire(prepared.reference, lookalike)})).not.toThrow();
+    expect(f.service.describe({artifactId: kept.artifactId}).refreshRequests[0]).toMatchObject({bound: false, status: "awaiting"});
+  });
+  it("refuses a leading refresh block whose grant chip was removed", async () => {
+    const f = fixture(); const kept = await keep(f);
+    const prepared = f.service.prepareRefresh({targetTabId: "tab", ...versions(kept), datasetIds: ["rows"]});
+    expect(() => f.service.admitPrompt({tabId: "tab", text: withArtifactRefreshContext("Do the work", [{ version: 1 as const, refreshRequestId: prepared.request.refreshRequestId, artifactId: prepared.request.artifactId, title: "T", datasetIds: ["rows"] }])}))
+      .toThrowError(expect.objectContaining({code: "unavailable"}));
+    expect(f.service.describe({artifactId: kept.artifactId}).refreshRequests[0]).toMatchObject({bound: false, status: "awaiting"});
+  });
+  it("refuses a leading refresh paired only with another artifact's grant", async () => {
+    const f = fixture(); const kept = await keep(f); const other = await keep(f);
+    const prepared = f.service.prepareRefresh({targetTabId: "tab", ...versions(kept), datasetIds: ["rows"]});
+    const foreign = f.service.reference({targetTabId: "tab", ...versions(other), includeData: true});
+    expect(() => f.service.admitPrompt({tabId: "tab", text: withArtifactRefreshContext(wire(foreign), [{ version: 1 as const, refreshRequestId: prepared.request.refreshRequestId, artifactId: prepared.request.artifactId, title: "T", datasetIds: ["rows"] }])}))
+      .toThrow("exact data reference");
+    expect(f.service.describe({artifactId: kept.artifactId}).refreshRequests[0]).toMatchObject({bound: false, status: "awaiting"});
+  });
+  it("binds two leading refresh entries each paired with its own grant", async () => {
+    const f = fixture(); const first = await keep(f); const second = await keep(f, [5, 6]);
+    const a = f.service.prepareRefresh({targetTabId: "tab", ...versions(first), datasetIds: ["rows"]});
+    const b = f.service.prepareRefresh({targetTabId: "tab", ...versions(second), datasetIds: ["rows"]});
+    const text = withArtifactRefreshContext(withArtifactReferenceContext("Refresh both", [a.reference, b.reference]),
+      [{ version: 1 as const, refreshRequestId: a.request.refreshRequestId, artifactId: a.request.artifactId, title: "T", datasetIds: ["rows"] },
+        { version: 1 as const, refreshRequestId: b.request.refreshRequestId, artifactId: b.request.artifactId, title: "T", datasetIds: ["rows"] }]);
+    f.service.admitPrompt({tabId: "tab", text});
+    expect(f.service.describe({artifactId: first.artifactId}).refreshRequests[0]).toMatchObject({refreshRequestId: a.request.refreshRequestId, bound: true, status: "awaiting"});
+    expect(f.service.describe({artifactId: second.artifactId}).refreshRequests[0]).toMatchObject({refreshRequestId: b.request.refreshRequestId, bound: true, status: "awaiting"});
   });
 });
 

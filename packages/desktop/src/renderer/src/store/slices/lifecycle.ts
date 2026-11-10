@@ -36,7 +36,7 @@ import { planSeedInfo, planSeedText } from "../../lib/plan-seed";
 import { composeCarryoverContext } from "../../lib/carryover-context";
 import type { Annotation } from "../../lib/annotations";
 import type { DraftSessionReference } from "../../lib/session-references";
-import type { ArtifactReference, DraftArtifactReference } from "@omp-ui/core/artifacts";
+import type { ArtifactReference, ArtifactRefreshEntry, DraftArtifactReference } from "@omp-ui/core/artifacts";
 import type { DocumentRef } from "../../lib/document-context";
 import { noticeItem, settleRunningItems, type AdvisorNote } from "../../lib/transcript";
 import { t } from "../../lib/i18n";
@@ -399,7 +399,10 @@ export function createLifecycleSlice(
       );
     }
     if (result.deleted.length === 0) return false;
-    for (const id of result.deleted) get().clearArtifactReferences(id);
+    for (const id of result.deleted) {
+      get().clearArtifactReferences(id);
+      get().clearArtifactRefreshes(id);
+    }
     dropTabs(result.deleted, "the session was deleted");
     return true;
   };
@@ -1240,6 +1243,8 @@ export function createLifecycleSlice(
       annotations?: Annotation[];
       references?: SessionReference[];
       artifactReferences?: ArtifactReference[];
+      /** Refresh requests the seed carries (ADR-0092), prepared for this tab. */
+      artifactRefreshes?: ArtifactRefreshEntry[];
       title?: string | null;
     },
     background: boolean,
@@ -1250,15 +1255,17 @@ export function createLifecycleSlice(
     const annotations = opts.annotations ?? [];
     const references = opts.references ?? [];
     const artifactReferences = opts.artifactReferences ?? [];
+    const artifactRefreshes = opts.artifactRefreshes ?? [];
     const instanceId = findOwner(get().state, tabId)?.instanceId ?? get().tabs.find(tab => tab.tabId === tabId)?.instanceId ?? null;
     for (const reference of artifactReferences) get().attachArtifactReference(tabId, { ...reference, instanceId });
+    for (const entry of artifactRefreshes) get().attachArtifactRefresh(tabId, entry);
     // No prompt: quick-launch behaviour — the tab alone is the whole ask.
     if (
       prompt === "" &&
       images.length === 0 &&
       documents.length === 0 &&
       annotations.length === 0 &&
-      references.length === 0 && artifactReferences.length === 0
+      references.length === 0 && artifactReferences.length === 0 && artifactRefreshes.length === 0
     )
       return;
     /** The seed did not go out; `notice` puts the warn on the new tab itself. */
@@ -1289,7 +1296,7 @@ export function createLifecycleSlice(
         return;
       }
     }
-    const accepted = await get().sendPrompt(tabId, prompt, "prompt", images, docRefs, annotations, references, artifactReferences);
+    const accepted = await get().sendPrompt(tabId, prompt, "prompt", images, docRefs, { annotations, references, artifactReferences, refreshes: artifactRefreshes });
     if (!accepted) notSent(true);
   };
 
@@ -1307,9 +1314,25 @@ export function createLifecycleSlice(
         throw error;
       });
     get().invalidateArtifactLibrary();
+    // ADR-0092's entry recipe: the request carries ids, the reference title.
+    const entry: ArtifactRefreshEntry = {
+      version: 1 as const,
+      refreshRequestId: prepared.request.refreshRequestId,
+      artifactId: prepared.request.artifactId,
+      title: prepared.reference.title,
+      datasetIds: prepared.request.datasetIds,
+    };
     void deliverLaunchSeed(
       tabId,
-      { prompt: prepared.text, artifactReferences: [prepared.reference], title: t("artifacts.refreshRunTitle", { title: request.title }) },
+      {
+        // An empty prompt is intentional: the wire text comes from the block
+        // builders (refresh outermost, then the grant). A block-as-prompt
+        // would nest inside the references block and never bind at admission.
+        prompt: "",
+        artifactReferences: [prepared.reference],
+        artifactRefreshes: [entry],
+        title: t("artifacts.refreshRunTitle", { title: request.title }),
+      },
       true,
     ).catch((err: unknown) => get().reportError(err));
     return tabId;
@@ -1387,6 +1410,10 @@ export function createLifecycleSlice(
     // Re-read after both creation and boot. The handoff routes attachments
     // accepted during the deletion await to the target, or refuses a foreign
     // owner before accepting it; no accepted late chip dies with the source.
+    // A refresh request belongs to the session it was prepared against
+    // (ADR-0092): the move cannot carry it. The handoff deletes the source's
+    // chips; count them here so the sweep below can still announce the loss.
+    const hadRefreshes = (get().artifactRefreshDrafts[tabId] ?? []).length > 0;
     const releaseReferenceMove = get().beginArtifactReferenceMove(tabId, next);
     if (releaseReferenceMove === null) { get().focusTab(tabId); return null; }
     try {
@@ -1416,6 +1443,13 @@ export function createLifecycleSlice(
     }
     // Re-read: a source that materialized meanwhile keeps its transcript.
     if (findRecord(get().state, tabId)?.sessionId === null) await eraseSession(tabId);
+    // A request prepared for the source session can never bind on the target —
+    // including one attached during the deletion await, which the move map
+    // routed here. Sweep it and say so where the draft landed (ADR-0092).
+    if (hadRefreshes || get().artifactRefreshDrafts[next] !== undefined) {
+      get().clearArtifactRefreshes(next);
+      m.appendItem(next, noticeItem(t("artifacts.refreshMovedDropped"), "warn"));
+    }
     } finally { releaseReferenceMove(); }
     return next;
   };
@@ -1940,7 +1974,10 @@ export function createLifecycleSlice(
       }),
     );
     if (deleted.length > 0) dropTabs([...new Set(deleted)], "the session was deleted");
-    for (const id of deleted) get().clearArtifactReferences(id);
+    for (const id of deleted) {
+      get().clearArtifactReferences(id);
+      get().clearArtifactRefreshes(id);
+    }
     const order = rows.flatMap((r) => [r.tabId, ...r.cascade.map((d) => d.tabId)]);
     const notice = bulkFailureNotice(failures, order);
     if (notice !== null) get().reportError(notice);

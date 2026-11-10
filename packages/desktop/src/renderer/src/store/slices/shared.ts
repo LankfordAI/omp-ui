@@ -16,7 +16,7 @@ import type { LiveTurn } from "@omp-ui/core/live-voice";
 import type { LivePeer } from "../../lib/live-peer";
 import type { Annotation } from "../../lib/annotations";
 import type { SessionReference } from "@omp-ui/core/types";
-import type { ArtifactReference } from "@omp-ui/core/artifacts";
+import type { ArtifactReference, ArtifactRefreshEntry } from "@omp-ui/core/artifacts";
 import { backgroundWorkInFlight } from "../../lib/async-jobs";
 import { formatDuration } from "../../lib/duration";
 import { field, isObj } from "../../lib/fields";
@@ -568,6 +568,8 @@ export interface RewindPrefill {
   /** Session references the prompt carried (issue #984); they return as chips. */
   references?: SessionReference[];
   artifactReferences?: ArtifactReference[];
+  /** Refresh requests the prompt carried (ADR-0092); they return as chips. */
+  artifactRefreshes?: ArtifactRefreshEntry[];
 }
 
 /**

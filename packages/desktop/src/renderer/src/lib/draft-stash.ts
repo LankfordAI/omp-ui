@@ -2,7 +2,7 @@ import { useSyncExternalStore } from "react";
 import type { DocumentAttachment, ImageAttachment } from "@omp-ui/core/types";
 import type { Annotation } from "./annotations";
 import type { DraftSessionReference } from "./session-references";
-import type { DraftArtifactReference } from "@omp-ui/core/artifacts";
+import type { ArtifactRefreshEntry, DraftArtifactReference } from "@omp-ui/core/artifacts";
 import { randomId } from "./random-id";
 
 /**
@@ -34,6 +34,14 @@ export interface StashedDraft {
    */
   references?: DraftSessionReference[];
   artifactReferences?: DraftArtifactReference[];
+  /**
+   * Refresh requests prepared against one tab (ADR-0092). They belong to the
+   * session they were prepared for, so applying a draft that carries them on
+   * another tab refuses the whole draft — `artifactRefreshTabId` records which
+   * tab that was; absent means none.
+   */
+  artifactRefreshes?: ArtifactRefreshEntry[];
+  artifactRefreshTabId?: string;
 }
 
 export type DraftContent = Omit<StashedDraft, "id" | "stashedAt">;

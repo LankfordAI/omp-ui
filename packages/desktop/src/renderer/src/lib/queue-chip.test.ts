@@ -1,4 +1,6 @@
 import { describe, expect, it } from "vitest";
+import { withArtifactRefreshContext, withArtifactReferenceContext } from "@omp-ui/core/artifact-references";
+import type { ArtifactReference } from "@omp-ui/core/artifacts";
 import { withAttachmentRoutingContext } from "./attachment-routing";
 import { withDocumentContext } from "./document-context";
 import {
@@ -89,5 +91,23 @@ describe("queueEntryDisplayText", () => {
     const lookalike = withAttachmentRoutingContext("", 1);
     const text = `quoting ${lookalike} back to you\nand more`;
     expect(queueEntryDisplayText(text)).toBe(text);
+  });
+
+  it("lists refresh lines ahead of reference, quote, and prose lines", () => {
+    const uuid = (n: number): string => `00000000-0000-4000-8000-${String(n).padStart(12, "0")}`;
+    const reference: ArtifactReference = { version: 1, referenceId: uuid(1), ownerInstanceId: uuid(2), artifactId: uuid(3), codeRevisionId: uuid(4), dataSnapshotId: uuid(5), title: "Budget", machine: "desk-main", snapshotAt: "2026-11-09T06:00:00.000Z", includeData: false, manifestUri: `omp-ui://artifacts/reference/${uuid(1)}/manifest`, definitionUri: `omp-ui://artifacts/reference/${uuid(1)}/definition` };
+    const wire = withArtifactRefreshContext(
+      withArtifactReferenceContext("refresh the numbers", [reference]),
+      [{ version: 1, refreshRequestId: uuid(9), artifactId: uuid(3), title: "Budget", datasetIds: ["rows"] }, { version: 1, refreshRequestId: uuid(10), artifactId: uuid(4), title: "Roster", datasetIds: ["people"] }],
+    );
+    expect(queueEntryDisplayText(wire)).toBe("↻ Refresh: Budget\n↻ Refresh: Roster\n@ Budget\nrefresh the numbers");
+  });
+
+  it("names a legacy refresh from its single paired grant, else keeps a bare line", () => {
+    const uuid = (n: number): string => `00000000-0000-4000-8000-${String(n).padStart(12, "0")}`;
+    const reference: ArtifactReference = { version: 1, referenceId: uuid(1), ownerInstanceId: uuid(2), artifactId: uuid(3), codeRevisionId: uuid(4), dataSnapshotId: uuid(5), title: "Budget", machine: "desk-main", snapshotAt: "2026-11-09T06:00:00.000Z", includeData: false, manifestUri: `omp-ui://artifacts/reference/${uuid(1)}/manifest`, definitionUri: `omp-ui://artifacts/reference/${uuid(1)}/definition` };
+    const legacy = "Refresh the requested datasets for this accepted artifact in this ordinary session.\nrows\n<artifact refresh>\nrefresh-request: " + uuid(9) + "\n</artifact refresh>";
+    expect(queueEntryDisplayText(withArtifactReferenceContext(legacy, [reference]))).toBe("↻ Refresh: Budget\n@ Budget");
+    expect(queueEntryDisplayText(legacy)).toBe("↻ Refresh");
   });
 });

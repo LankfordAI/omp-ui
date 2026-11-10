@@ -1,10 +1,9 @@
 import { compareVersions } from "@omp-ui/core/semver";
-import { annotationQuotePreview, splitAnnotationContext } from "./annotations";
+import { annotationQuotePreview } from "./annotations";
 import { stripTrailingAttachmentRoutingContext } from "./attachment-routing";
 import { splitDocumentContext } from "./document-context";
 import { splitResolvedMentionContext } from "./mentions";
-import { splitSessionReferenceContext } from "./session-references";
-import { splitArtifactReferenceContext } from "@omp-ui/core/artifact-references";
+import { splitWireBlockStack } from "./wire-blocks";
 import type { SessionRuntime } from "./rpc-types";
 
 /**
@@ -73,19 +72,26 @@ export function queueChipCount(session: SessionRuntime): number {
 /**
  * Queue-chip text is omp-ui's wire message verbatim. Display it the way the
  * transcript does (transcript.ts userContentFromContent): routing suffix,
- * then document block, then the leading session references and annotations
- * blocks, then resolved mention blocks. Each reference shows as one
- * `@ title` line and each annotation as one `> quote` line ahead of the
- * prose. Promote still sends the RAW text — omp matches it exactly.
+ * then document block, then `splitWireBlockStack`'s canonical order
+ * (refresh → session references → artifact references → legacy refresh →
+ * annotations), then resolved mention blocks. Each refresh shows as one
+ * `↻ Refresh: title` line, each reference as one `@ title` line and each
+ * annotation as one `> quote` line ahead of the prose, refreshes first.
+ * Promote still sends the RAW text — omp matches it exactly.
  */
 export function queueEntryDisplayText(raw: string): string {
   const routed = stripTrailingAttachmentRoutingContext(raw);
   const { text: docless } = splitDocumentContext(routed);
-  const { text: unreferenced, references } = splitSessionReferenceContext(docless);
-  const { text: artifactless, references: artifactReferences } = splitArtifactReferenceContext(unreferenced);
-  const { text: prose, annotations } = splitAnnotationContext(artifactless);
-  const text = splitResolvedMentionContext(prose).text;
-  const refs = [...references, ...artifactReferences].map((ref) => `@ ${ref.title}`);
-  const quotes = annotations.map((annotation) => `> ${annotationQuotePreview(annotation.quote)}`);
-  return [...refs, ...quotes, ...(text === "" ? [] : [text])].join("\n");
+  const stack = splitWireBlockStack(docless);
+  const text = splitResolvedMentionContext(stack.text).text;
+  const pairedLegacy =
+    stack.legacyRefreshRequestId !== null && stack.artifactReferences.length === 1
+      ? stack.artifactReferences[0]!.title
+      : null;
+  const refreshLines = stack.refreshes.map((entry) => `↻ Refresh: ${entry.title}`);
+  if (pairedLegacy !== null) refreshLines.push(`↻ Refresh: ${pairedLegacy}`);
+  else if (stack.legacyRefreshRequestId !== null) refreshLines.push("↻ Refresh");
+  const refs = [...stack.references, ...stack.artifactReferences].map((ref) => `@ ${ref.title}`);
+  const quotes = stack.annotations.map((annotation) => `> ${annotationQuotePreview(annotation.quote)}`);
+  return [...refreshLines, ...refs, ...quotes, ...(text === "" ? [] : [text])].join("\n");
 }

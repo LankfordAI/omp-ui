@@ -14,6 +14,8 @@ import {
   type ToolItem,
 } from "./transcript";
 import { withDocumentContext } from "./document-context";
+import { withArtifactReferenceContext, withArtifactRefreshContext } from "@omp-ui/core/artifact-references";
+import type { ArtifactReference, ArtifactRefreshEntry } from "@omp-ui/core/artifacts";
 import { FLEET_WAKE_CUSTOM_TYPE } from "@omp-ui/core/fleet-wake";
 
 afterEach(() => {
@@ -290,6 +292,62 @@ describe("reduceEvent message lifecycle", () => {
     });
     expect(items[0]).toMatchObject({ kind: "user", text });
     expect(items[0]).not.toHaveProperty("fileMentions");
+  });
+
+  describe("artifact refresh blocks", () => {
+    const uuid = (n: number): string => `00000000-0000-4000-8000-${String(n).padStart(12, "0")}`;
+    const artifactRef: ArtifactReference = { version: 1, referenceId: uuid(2), ownerInstanceId: uuid(3), artifactId: uuid(4), codeRevisionId: uuid(5), dataSnapshotId: uuid(6), title: "Budget", machine: "desk-main", snapshotAt: "2026-11-09T06:00:00.000Z", includeData: false, manifestUri: `omp-ui://artifacts/reference/${uuid(2)}/manifest`, definitionUri: `omp-ui://artifacts/reference/${uuid(2)}/definition` };
+    const refresh: ArtifactRefreshEntry = { version: 1, refreshRequestId: uuid(7), artifactId: uuid(4), title: "Budget", datasetIds: ["rows", "totals"] };
+
+    function userPair(text: string): [RenderItem, RenderItem] {
+      const content = [{ type: "text", text }];
+      const live = reduceEvent([], { type: "message_start", message: { role: "user", content } });
+      const history = historyToItems([{ role: "user", content }]);
+      return [live[0]!, history[0]!];
+    }
+
+    it("projects the leading refresh block identically live and from history", () => {
+      const wire = withArtifactRefreshContext(withArtifactReferenceContext("refresh the numbers", [artifactRef]), [refresh]);
+      for (const item of userPair(wire)) {
+        expect(item).toMatchObject({
+          kind: "user",
+          text: "refresh the numbers",
+          artifactReferences: [artifactRef],
+          artifactRefreshes: [refresh],
+        });
+        expect(item).not.toHaveProperty("legacyArtifactRefresh");
+      }
+    });
+
+    it("synthesizes an entry for a legacy prompt with exactly one paired grant", () => {
+      const legacy = `Refresh the requested datasets for this accepted artifact in this ordinary session.\nrows\ntotals\n<artifact refresh>\nrefresh-request: ${uuid(7)}\n</artifact refresh>`;
+      for (const item of userPair(withArtifactReferenceContext(legacy, [artifactRef]))) {
+        expect(item).toMatchObject({
+          kind: "user",
+          text: "",
+          artifactReferences: [artifactRef],
+          // The grant carries the artifact id the legacy wire never named.
+          artifactRefreshes: [{ version: 1, refreshRequestId: uuid(7), artifactId: uuid(4), title: "Budget", datasetIds: [] }],
+        });
+        expect(item).not.toHaveProperty("legacyArtifactRefresh");
+      }
+    });
+
+    it("keeps an unpaired legacy prompt a display-only marker", () => {
+      const legacy = `Refresh the requested datasets for this accepted artifact in this ordinary session.\nrows\n<artifact refresh>\nrefresh-request: ${uuid(7)}\n</artifact refresh>`;
+      for (const item of userPair(legacy)) {
+        expect(item).toMatchObject({ kind: "user", text: "", legacyArtifactRefresh: { refreshRequestId: uuid(7) } });
+        expect(item).not.toHaveProperty("artifactRefreshes");
+      }
+    });
+
+    it("leaves a misplaced refresh block as prose on both sides", () => {
+      const text = `quoting ${withArtifactRefreshContext("", [refresh])} back to you`;
+      for (const item of userPair(text)) {
+        expect(item).toMatchObject({ kind: "user", text });
+        expect(item).not.toHaveProperty("artifactRefreshes");
+      }
+    });
   });
 
   it("extracts usage, model and timings from an assistant message_end", () => {

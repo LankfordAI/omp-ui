@@ -4,7 +4,7 @@ This guide explains what users receive from a release and how maintainers publis
 
 ## Unreleased
 
-Nothing since [v0.34.8](https://github.com/LankfordAI/omp-ui/releases/tag/v0.34.8). Add one bullet per shipped change here, citing its issue as `#N`; the release tag lifts these into Highlights.
+- Artifact refresh requests now ride the prompt as a parsed leading block ([ADR-0092](adr/0092-artifact-refresh-requests-ride-the-prompt-as-a-parsed-block.md)): the run's first message shows a compact "Data refresh requested" card instead of the raw instruction paragraph, and choosing an existing session adds a removable refresh chip to its draft instead of editable prose. `#1139`
 
 ## Choose a download
 

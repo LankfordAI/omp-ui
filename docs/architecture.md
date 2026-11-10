@@ -511,19 +511,31 @@ not replace managed URLs, and external heads revoke the writer without swapping
 its loaded snapshot. Plain documents retain the no-preload legacy guest;
 scripts-off and browser clients use static frames.
 
-Artifact references follow session references and precede annotations on the
-wire. At most eight references/12 KiB name immutable code/data IDs and recorded
-data consent. Grants authorize paged manifest/definition/provenance reads;
-state/dataset parts require explicit immutable consent. Definition metadata
-contains contracts, not initial state/dataset values. Artifact draft chips live
-outside RPC reset state and survive dormant resume, queue restoration, stash,
-moves and rewind. Late attachments are not cleared by another send, and
+The artifact refresh block leads the wire, ahead of session references,
+which are followed by artifact references and then annotations ([ADR-0092](adr/0092-artifact-refresh-requests-ride-the-prompt-as-a-parsed-block.md)):
+a leading `<artifact refresh>` block carries a fixed hint line plus request,
+artifact, title and dataset fields per entry (at most eight, bounded by the same
+12 KiB constant references use), and only a proven leading block strips —
+lookalikes stay prose and admit nothing. The renderer peels the whole stack
+through one helper (`splitWireBlockStack`). At most eight artifact references
+name immutable code/data IDs and recorded data consent. Grants authorize paged
+manifest/definition/provenance reads; state/dataset parts require explicit
+immutable consent. Definition metadata contains contracts, not initial
+state/dataset values. Artifact draft chips (references and refresh requests
+alike) live outside RPC reset state and survive dormant resume, queue
+restoration and same-tab rewind; cross-tab paths refuse a refresh's stash apply
+or drop it with a notice on restore, move and background ask. Late attachments
+are not cleared by another send, and
 navigation generations prevent slow attachment from stealing newer focus.
 
 Refresh now spawns an ordinary background run (a Plan-mode session in the
 retained origin project, else a Chat), prepares against that tab, and sends the
 prepared request as its first prompt; adding to an existing session's draft
-sends nothing ([ADR-0091](adr/0091-artifact-refresh-now-runs-in-a-background-session.md)).
+attaches a removable reference and refresh chip without sending anything
+([ADR-0091](adr/0091-artifact-refresh-now-runs-in-a-background-session.md),
+[ADR-0092](adr/0092-artifact-refresh-requests-ride-the-prompt-as-a-parsed-block.md)).
+The request rides the prompt as the leading `<artifact refresh>` block and the
+transcript renders it as a compact card, legacy prose prompts included.
 Neither path executes connectors automatically. Preflight checks gate/grants and
 destination without binding a dormant process; actual send binds the current
 runtime/session. Captures report complete selected datasets or explicit failure.
@@ -1238,3 +1250,4 @@ Each current record is indexed once below. Superseding records remain linked bec
 | [Council replaces code review with a roster of pinned member models](adr/0088-council-replaces-code-review.md) | Council ([#1049](https://github.com/LankfordAI/omp-ui/issues/1049)): /council asks 1-3 pinned member models through one task batch on a dedicated omp-ui-council agent shipped in a per-lineage extension package; a --config overlay turns task.perCallModel on and grants exactly the members' models; empty by default. |
 | [Session-authored artifact library and scoped data](adr/0090-session-authored-artifact-library-and-scoped-data.md) | Default-off independent SQLite retention, immutable consented references, human code/data acceptance, session-mediated refresh, and a narrowly scoped managed preload without weakening the network sandbox ([#1121](https://github.com/LankfordAI/omp-ui/issues/1121)). |
 | [Artifact Refresh now runs in a background session](adr/0091-artifact-refresh-now-runs-in-a-background-session.md) | Refresh now ([#1132](https://github.com/LankfordAI/omp-ui/issues/1132)): one click spawns an ordinary background run (Plan-mode session in the locally registered origin project, else a Build-mode Chat) titled `Refresh: <artifact>`, prepares against it and sends the request as its first prompt; captures stay staged for human Apply, the run is kept, overlapping runs rely on Apply's dataset-head check, and adding to an existing session's draft still sends nothing (amends ADR-0090). |
+| [Artifact refresh requests ride the prompt as a parsed block](adr/0092-artifact-refresh-requests-ride-the-prompt-as-a-parsed-block.md) | Refresh display ([#1139](https://github.com/LankfordAI/omp-ui/issues/1139)): the ask becomes a fourth leading grammar block (`<artifact refresh>`, fixed hint line, four fields per entry, ≤8/12 KiB, proven-leading-only strip) so the user bubble shows a compact card instead of raw prose, legacy terminal-form prompts recognized for the same card; admission narrows from regex-anywhere to that leading parse and refuses a refresh whose paired grant was chip-removed; the draft path is a removable chip, not editable prose; pending refreshes survive same-tab queue/Esc/held/rewind, refuse stash apply into another tab, and drop with a notice on restore/move/background-ask; `splitWireBlockStack` is the renderer's single owner of peel order (amends ADR-0090/0091). |

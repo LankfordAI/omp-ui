@@ -1,9 +1,8 @@
 import { formatDuration } from "./duration";
 import { stripAttachmentRoutingContext } from "./attachment-routing";
-import { splitAnnotationContext, type Annotation } from "./annotations";
-import { splitSessionReferenceContext } from "./session-references";
-import { splitArtifactReferenceContext } from "@omp-ui/core/artifact-references";
-import type { ArtifactReference } from "@omp-ui/core/artifacts";
+import { type Annotation } from "./annotations";
+import { splitWireBlockStack } from "./wire-blocks";
+import type { ArtifactReference, ArtifactRefreshEntry } from "@omp-ui/core/artifacts";
 import { assertArtifactUuid } from "@omp-ui/core/artifacts";
 import { boolField, field, isObj, numField, str, strField } from "./fields";
 import { splitResolvedMentionContext } from "./mentions";
@@ -42,6 +41,10 @@ export interface UserItem {
   /** Other sessions handed over as references, parsed back out of the leading block (ADR-0085). */
   references?: SessionReference[];
   artifactReferences?: ArtifactReference[];
+  /** Refresh requests riding the leading refresh block (ADR-0092), including legacy prompts synthesized from a paired grant. */
+  artifactRefreshes?: ArtifactRefreshEntry[];
+  /** A pre-ADR-0092 refresh request with no single paired artifact grant — display-only, no library link. */
+  legacyArtifactRefresh?: { refreshRequestId: string; title?: string };
   /** Epoch ms the prompt was sent (live) or written (backfill); the catch-up digest windows off it (issue #273). */
   timestamp?: number;
 }
@@ -540,7 +543,7 @@ function imagesField(content: unknown, details: unknown): Pick<ToolItem, "images
 
 export function userContentFromContent(
   content: unknown,
-): Pick<UserItem, "text" | "fileMentions" | "images" | "documents" | "annotations" | "references" | "artifactReferences"> {
+): Pick<UserItem, "text" | "fileMentions" | "images" | "documents" | "annotations" | "references" | "artifactReferences" | "artifactRefreshes" | "legacyArtifactRefresh"> {
   const blocks = typeof content === "string" ? [] : contentBlocks(content);
   const rawText =
     typeof content === "string"
@@ -553,23 +556,39 @@ export function userContentFromContent(
   const visibleText = stripAttachmentRoutingContext(rawText, images.length);
   // File blocks precede the document block on the wire, and the mention
   // splitter anchors its close at end-of-text — the document block must go
-  // first or the file block would never parse as terminal. The session
-  // references block leads the prompt (ADR-0085), the annotations block
-  // follows it (ADR-0077); both come off before the mention split, so a
-  // quoted `@path` never counts as one of the prompt's mentions.
+  // first or the file block would never parse as terminal. Everything else
+  // omp-ui wraps around the prose peels off `splitWireBlockStack`, whose one
+  // canonical order (ADR-0092) every surface shares; it all comes off before
+  // the mention split, so a quoted `@path` never counts as one of the
+  // prompt's mentions.
   const { text: docless, documents } = splitDocumentContext(visibleText);
-  const { text: unreferenced, references } = splitSessionReferenceContext(docless);
-  const { text: artifactless, references: artifactReferences } = splitArtifactReferenceContext(unreferenced);
-  const { text: prose, annotations } = splitAnnotationContext(artifactless);
-  const { text, paths } = splitResolvedMentionContext(prose);
+  // The canonical block order (refresh → session refs → artifact refs →
+  // legacy refresh → annotations) lives in wire-blocks.ts; every surface
+  // strips through the same stack so live and history rows can't drift.
+  const stack = splitWireBlockStack(docless);
+  const { text, paths } = splitResolvedMentionContext(stack.text);
+  // A pre-ADR-0092 refresh prompt paired with exactly one artifact
+  // reference gets the same card as the new form: the grant carries the
+  // artifact this request refreshed. Without that pairing there is nothing
+  // to link, so it stays a display-only legacy marker.
+  const refreshes = [...stack.refreshes];
+  let legacyArtifactRefresh: UserItem["legacyArtifactRefresh"];
+  if (stack.legacyRefreshRequestId !== null) {
+    const paired = stack.artifactReferences.length === 1 ? stack.artifactReferences[0]! : null;
+    if (paired !== null)
+      refreshes.push({ version: 1, refreshRequestId: stack.legacyRefreshRequestId, artifactId: paired.artifactId, title: paired.title, datasetIds: [] });
+    else legacyArtifactRefresh = { refreshRequestId: stack.legacyRefreshRequestId };
+  }
   return {
     text,
     ...(paths.length > 0 ? { fileMentions: paths } : {}),
     ...(images.length > 0 ? { images } : {}),
     ...(documents.length > 0 ? { documents } : {}),
-    ...(annotations.length > 0 ? { annotations } : {}),
-    ...(references.length > 0 ? { references } : {}),
-    ...(artifactReferences.length > 0 ? { artifactReferences } : {}),
+    ...(stack.annotations.length > 0 ? { annotations: stack.annotations } : {}),
+    ...(stack.references.length > 0 ? { references: stack.references } : {}),
+    ...(stack.artifactReferences.length > 0 ? { artifactReferences: stack.artifactReferences } : {}),
+    ...(refreshes.length > 0 ? { artifactRefreshes: refreshes } : {}),
+    ...(legacyArtifactRefresh !== undefined ? { legacyArtifactRefresh } : {}),
   };
 }
 

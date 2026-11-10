@@ -45,10 +45,17 @@ export function ArtifactReferencePicker({ description, mode = "reference", onClo
       const exact = { targetTabId: tabId, artifactId: description.artifact.artifactId, codeRevisionId: description.code.codeRevisionId, dataSnapshotId: description.snapshot.dataSnapshotId };
       if (mode === "refresh") {
         const prepared = await backend.artifactPrepareRefresh({ ...exact, datasetIds });
-        if (!await store.referenceArtifactInSession(tabId, prepared.reference, prepared.text, { navigationGeneration })) return;
+        const entry = {
+          version: 1 as const,
+          refreshRequestId: prepared.request.refreshRequestId,
+          artifactId: prepared.request.artifactId,
+          title: prepared.reference.title,
+          datasetIds: prepared.request.datasetIds,
+        };
+        if (!await store.attachArtifactRefreshDraft(tabId, prepared.reference, entry, { navigationGeneration })) return;
       } else {
         const reference = await backend.artifactReference({ ...exact, includeData });
-        if (!await store.referenceArtifactInSession(tabId, reference, undefined, { navigationGeneration })) return;
+        if (!await store.referenceArtifactInSession(tabId, reference, { navigationGeneration })) return;
       }
       onClose();
     } catch (reason) { setError(displayMessage(reason)); }

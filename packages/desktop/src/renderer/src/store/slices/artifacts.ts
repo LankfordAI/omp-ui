@@ -4,11 +4,11 @@ import { bumpNavigationGeneration, findOwner, getNavigationGeneration } from "./
 import { t } from "../../lib/i18n";
 
 export interface ArtifactsSlice {
-  artifacts: ({ artifactId: string | null; codeRevisionId?: string; dataSnapshotId?: string; captureId?: string }) | null;
+  artifacts: ({ artifactId: string | null; codeRevisionId?: string; dataSnapshotId?: string; captureId?: string; panel?: "preview" | "data" | "history" }) | null;
   artifactLibraryRevision: number;
   artifactSourceFocus: { tabId: string; sessionId: string | null; toolCallId: string | null; nonce: number } | null;
   openArtifactSource(target: { tabId: string; sessionId: string | null; toolCallId: string | null }): Promise<void>;
-  openArtifacts(selection?: ArtifactDescribeRequest & { captureId?: string }): void;
+  openArtifacts(selection?: ArtifactDescribeRequest & { captureId?: string; panel?: "preview" | "data" | "history" }): void;
   closeArtifacts(): void;
   invalidateArtifactLibrary(): void;
 }

@@ -337,11 +337,13 @@ export function Chip({
   className,
   truncate = false,
   style,
+  "aria-label": ariaLabel,
 }: {
   children: ReactNode;
   tone?: Tone;
   mono?: boolean;
   title?: string;
+  "aria-label"?: string;
   className?: string;
   /**
    * Cap the chip at its container's width and ellipsize the text instead of
@@ -359,6 +361,7 @@ export function Chip({
   return (
     <span
       title={title}
+      aria-label={ariaLabel}
       style={style}
       className={cn(
         "inline-flex items-center gap-1 rounded border px-1.5 py-px text-xs leading-4",

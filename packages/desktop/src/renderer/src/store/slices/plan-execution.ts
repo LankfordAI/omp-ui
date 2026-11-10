@@ -618,7 +618,7 @@ export function createPlanExecutionSlice(
           : `${lead} per the attached change notes.`;
       const message = represented ? `${body}\n\nThen propose it again.` : body;
       // Refine notes carry resolved scratch paths, never raw bytes (ADR-0044).
-      void get().sendPrompt(tabId, message, "steer", images, documents, annotations);
+      void get().sendPrompt(tabId, message, "steer", images, documents, { annotations });
     };
     if (review !== undefined && isHtmlPlanPath(review.planFilePath)) {
       // Refine needs the same gate identity but NOT unchanged disk bytes —
