@@ -1027,6 +1027,44 @@ describe("Sidebar Working and Snoozed sections (issue #935)", () => {
   });
   const stateWith = (sessions: SessionSummary[], patch: Partial<BackendState> = {}): BackendState =>
     backendState({ ...patch, projects: [{ project, sessions }] });
+  // Snapshot/job literals mirror lib/async-jobs.test.ts.
+  const runningSnapshot: AsyncJobsSnapshot = {
+    version: ASYNC_JOBS_SNAPSHOT_VERSION,
+    processKey: "p",
+    revision: 1,
+    available: true,
+    unavailable: null,
+    canInspect: true,
+    canCancel: true,
+    canCancelNested: false,
+    running: [
+      {
+        id: "bg_1",
+        type: "bash",
+        status: "running",
+        label: "l",
+        command: null,
+        cwd: null,
+        startTime: 0,
+        endTime: null,
+        agentId: null,
+        ownerId: null,
+        pids: [],
+        exitCode: null,
+        outputTail: "",
+        outputTruncated: false,
+        widget: null,
+        completionPercent: null,
+        stage: null,
+        intent: null,
+        caption: null,
+      },
+    ],
+    recent: [],
+    rootId: null,
+    agents: [],
+    result: null,
+  };
 
   const SNOOZED_KEY = "omp-ui.sidebarSnoozedOpen";
   const rowButton = (title: string): HTMLButtonElement | undefined =>
@@ -1225,45 +1263,8 @@ describe("Sidebar Working and Snoozed sections (issue #935)", () => {
 
   // issue #1026: a local rpc-ui row whose async-jobs bridge snapshot reports a
   // running background job belongs in Working even while its turn is idle,
-  // matching the row chip. Snapshot/job literals mirror lib/async-jobs.test.ts.
+  // matching the row chip.
   it("moves a live row with a running background job into Working (issue #1026)", () => {
-    const runningSnapshot: AsyncJobsSnapshot = {
-      version: ASYNC_JOBS_SNAPSHOT_VERSION,
-      processKey: "p",
-      revision: 1,
-      available: true,
-      unavailable: null,
-      canInspect: true,
-      canCancel: true,
-      canCancelNested: false,
-      running: [
-        {
-          id: "bg_1",
-          type: "bash",
-          status: "running",
-          label: "l",
-          command: null,
-          cwd: null,
-          startTime: 0,
-          endTime: null,
-          agentId: null,
-          ownerId: null,
-          pids: [],
-          exitCode: null,
-          outputTail: "",
-          outputTruncated: false,
-          widget: null,
-          completionPercent: null,
-          stage: null,
-          intent: null,
-          caption: null,
-        },
-      ],
-      recent: [],
-      rootId: null,
-      agents: [],
-      result: null,
-    };
     // #1037: Working starts collapsed; open it to see the row land inside.
     act(() => setSidebarSectionOpen("omp-ui.sidebarWorkingOpen", true));
     useStore.setState({
@@ -1285,6 +1286,37 @@ describe("Sidebar Working and Snoozed sections (issue #935)", () => {
     // Back in the main/active list.
     expect(rowButton("bgwork")).toBeDefined();
     expect(document.body.textContent).not.toContain(t("sidebar.empty.noLive"));
+  });
+
+  // issue #1153: a remote row the user has opened holds its own async-jobs
+  // snapshot; with a running job and an idle turn its chip reads working, so
+  // it belongs in Working too, not only local rows (#1026).
+  it("moves a mounted remote row with a running background job into Working (issue #1153)", () => {
+    act(() => setSidebarSectionOpen("omp-ui.sidebarWorkingOpen", true));
+    useStore.setState({
+      state: backendState({
+        projects: [],
+        remoteInstances: [
+          remoteInstance({
+            id: "inst-a",
+            nickname: "box-a",
+            projects: [{ project, sessions: [sess("remote-bg", { turnRunning: false })] }],
+          }),
+        ],
+      }),
+      rpc: { "remote-bg": rpcTabState({ asyncJobs: runningSnapshot }) },
+    });
+    renderSidebar();
+    expect(sectionToggle("Working")!.textContent).toBe("Working (1)");
+    expect(rowButton("remote-bg")).toBeDefined();
+
+    act(() => {
+      useStore.setState({
+        rpc: { "remote-bg": rpcTabState({ asyncJobs: { ...runningSnapshot, running: [] } }) },
+      });
+    });
+    expect(sectionToggle("Working")!.textContent).toBe("Working (0)");
+    expect(rowButton("remote-bg")).toBeDefined();
   });
 });
 
