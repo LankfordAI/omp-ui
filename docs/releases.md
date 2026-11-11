@@ -6,6 +6,16 @@ This guide explains what users receive from a release and how maintainers publis
 
 Nothing since [v0.34.9](https://github.com/LankfordAI/omp-ui/releases/tag/v0.34.9). Add one bullet per shipped change here, citing its issue as `#N`; the release tag lifts these into Highlights.
 
+- The plan review gains a **council review** action: it sends the proposed plan to the council, members review it read-only, and the planner revises it for the agreed blocker and major findings plus your notes before proposing it again (#1156).
+- Fixed the native council losing its launch state after a Settings or manifest change — each session process now freezes its council grants and bridge together and keeps its launch selection (#1155).
+- The **Jobs** pane now shows output for silent background jobs: when a shell job sends everything to one plain redirect target (`… > /tmp/run.log 2>&1`), omp-ui tails that file and labels the field `output · <path>` (POSIX hosts) (#1154).
+- Fixed a remote sidebar row with a running background job and an idle turn reading working while staying outside the **Working** section (#1153).
+- Artifact library maintenance: **Rename** kept artifacts and edit the title at Keep (#1143); retained and library size figures plus **Prune old versions**, which always spares current and referenced versions (#1144); **Dismiss** stale refresh requests, **Discard** unapplied captures, and **View run** on every request and capture (#1145); and the library now lists artifacts newest-updated first (#1151).
+- Artifact data and documents can leave the app: dataset rows offer Copy JSON and **Save JSON…** (downloads on browser clients), and **Export HTML source** saves the static scripts-off document (#1146). Contract mismatches show a field-level diff instead of raw candidate JSON (#1147).
+- Artifact data history labels each version's cause, and **Restore this version as new history** makes an older dataset version the newest one without deleting anything (#1149). Managed artifact chips in the composer gain an **Include data** toggle that mints a data grant in place after one consent prompt (#1150).
+- Artifact guests mount only while their tab is visible, defer first mounts until scrolled into view, keep a single guest while expanded, and show a reload row when a guest fails or crashes (#1152); script-bearing static artifacts show a scripts-off hint (#1148).
+- Fixed Escape from an expanded library artifact leaving keyboard focus inside the guest (#1130) and the library detail title collapsing to one character wide in a narrow pane (#1129).
+
 ## Choose a download
 
 A stable release has exactly five distributable files. Replace `<version>` with the tag version without its leading `v`.
