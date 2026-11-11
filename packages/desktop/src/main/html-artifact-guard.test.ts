@@ -1,6 +1,5 @@
 import { EventEmitter } from "node:events";
 import { describe, expect, it, vi } from "vitest";
-import { HTML_ARTIFACT_PARTITION } from "@omp-ui/core";
 import { artifactWebviewAdmitted, installHtmlArtifactGuard } from "./html-artifact-guard";
 
 // vi.mock is hoisted above the import: the guard module loads against this stub.

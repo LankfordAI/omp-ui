@@ -243,6 +243,7 @@ function isOutputFilePath(value: unknown): value is string {
     typeof value === "string" &&
     value !== "" &&
     value.length <= ASYNC_JOBS_COMMAND_CHAR_LIMIT &&
+    // eslint-disable-next-line no-control-regex -- refusing control characters is the check
     !/[\u0000-\u001f\u007f]/.test(value)
   );
 }
