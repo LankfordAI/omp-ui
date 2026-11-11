@@ -250,6 +250,7 @@ const mockBackend = {
       status: "bridge-unavailable",
     }),
   ),
+  getSessionCouncilStatus: vi.fn(async () => ({ status: "missing-session" as const })),
   // Same shape as an unbound session's answer: a harness tab has no armed
   // tool control unless a case overrides this (issue #379).
   setSessionToolEnabled: vi.fn(

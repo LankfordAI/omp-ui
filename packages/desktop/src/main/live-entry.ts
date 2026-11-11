@@ -7,6 +7,7 @@ import type {
   OwnedSessionRecord,
   PtyHandle,
   RpcClient,
+  SessionCouncilStatus,
 } from "@omp-ui/core";
 
 const NOOP_DETACH_PTY_DATA = (): void => {};
@@ -47,6 +48,8 @@ export interface RpcLiveEntry extends LiveEntryBase {
   capabilities: CapabilitySnapshot | null;
   /** True when this spawn successfully wrote (and armed) the capabilities bridge. */
   capabilitiesBridgeLoaded: boolean;
+  /** Council initialization captured for this process, never re-derived from current Settings. */
+  councilStatus: SessionCouncilStatus;
   /** False when plan mode could not be installed for this process. */
   planBridgeLoaded: boolean;
   /** False when advisor accounting could not be installed for this process. */
@@ -108,6 +111,7 @@ export function createRpcLiveEntry(record: OwnedSessionRecord, fleetToolAccess: 
     fleetToolAccess,
     capabilities: null,
     capabilitiesBridgeLoaded: false,
+    councilStatus: { status: "starting" },
     planBridgeLoaded: false,
     advisorStatsBridgeLoaded: false,
     browserPaneArmed: false,

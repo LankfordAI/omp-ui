@@ -2015,3 +2015,11 @@ export type {
   CouncilWriteRequest,
   EffectiveCouncilMember,
 } from "./council-config";
+export type {
+  CouncilInitializationStage,
+  CouncilInitializationFailure,
+  CouncilBridgeState,
+  SessionCouncilStatus,
+  CouncilRosterSnapshot,
+  CouncilRosterSnapshotEntry,
+} from "./council-roster-snapshot";

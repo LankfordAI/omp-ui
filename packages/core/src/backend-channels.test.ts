@@ -160,6 +160,7 @@ const VALID_ARGS = {
   getRemoteState: [],
   getScopedCapabilities: [null],
   getSessionCapabilities: ["tab-1"],
+  getSessionCouncilStatus: ["tab-1"],
   getState: [],
   hibernatePlanSource: ["source", "implementation"],
   listBranches: ["/project", { fetchUpstream: true }],
@@ -752,6 +753,10 @@ describe("transport dispatch", () => {
       "argument 0",
     ],
     [CH.fleetRolloutProviderKeys, ["member-1", "ANTHROPIC_API_KEY"], "argument 1"],
+    [CH.getSessionCouncilStatus, [], "argument 0"],
+    [CH.getSessionCouncilStatus, [null], "argument 0"],
+    [CH.getSessionCouncilStatus, [42], "argument 0"],
+    [CH.getSessionCouncilStatus, ["tab-1", "extra"], "expected at most 1"],
   ] as const)("rejects malformed request arguments before the handler", async (channel, args, path) => {
     const { table, calls } = recordingTable();
     await expect(dispatchRequest(table, channel, [...args])).rejects.toThrow(path);

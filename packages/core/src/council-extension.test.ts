@@ -6,8 +6,8 @@ import * as path from "node:path";
 import { afterEach, describe, expect, it } from "vitest";
 import { COUNCIL_AGENT, COUNCIL_COMMAND, COUNCIL_LAUNCH_TYPE, COUNCIL_PR_USAGE, COUNCIL_TOOL, COUNCIL_USAGE } from "./council";
 import { resolveCouncilRoster, type CouncilDocument, type CouncilRosterResult } from "./council-config";
-import { councilExtensionDir, councilExtensionPath, writeCouncilExtension } from "./council-extension";
-import { councilRosterSnapshotPath, writeCouncilRosterSnapshot } from "./council-roster-snapshot";
+import { councilExtensionPath, writeCouncilExtension } from "./council-extension";
+import { createCouncilRosterSnapshot, councilRosterSnapshotPath, writeCouncilRosterSnapshot, type CouncilBridgeState } from "./council-roster-snapshot";
 import { transpileGeneratedExtension, typecheckGeneratedExtension } from "./generated-extension-test-utils";
 
 const nodeRequire = module.createRequire(import.meta.url);
@@ -51,9 +51,13 @@ interface Harness {
   sends: Array<{ message: Record<string, unknown>; options: Record<string, unknown> }>;
 }
 
-function harness(options: { sendThrows?: boolean; withoutSend?: boolean } = {}): Harness {
+function harness(
+  options: { sendThrows?: boolean; withoutSend?: boolean; state?: CouncilBridgeState } = {},
+  council: CouncilRosterResult = DEFAULT_COUNCIL,
+): Harness {
   const dir = tempDir("omp-ui-council-ext-");
-  expect(writeCouncilExtension(dir)).toBe(councilExtensionDir(dir));
+  const state: CouncilBridgeState = options.state ?? { status: "ready", snapshot: createCouncilRosterSnapshot(council) };
+  writeCouncilExtension(dir, state);
   const file = councilExtensionPath(dir);
   typecheckGeneratedExtension(file);
   const source = fs.readFileSync(file, "utf8");
@@ -94,11 +98,6 @@ const DEFAULT_COUNCIL: CouncilRosterResult = {
   trial: null,
   configWarnings: [],
 };
-
-/** Snapshots a resolved council the way main does at spawn. */
-function loadCouncil(h: Harness, council: CouncilRosterResult = DEFAULT_COUNCIL): void {
-  writeCouncilRosterSnapshot(h.dir, council);
-}
 
 const GIT_ID = ["-c", "user.email=t@t", "-c", "user.name=t", "-c", "commit.gpgsign=false"];
 
@@ -175,31 +174,10 @@ const emptyTree = (repo: string): string =>
   childProcess.execFileSync("git", ["-C", repo, "hash-object", "-t", "tree", "--stdin"], { input: "", encoding: "utf8" }).trim();
 
 describe("generated council extension", () => {
-  it("registers the command and the namespaced tool", () => {
-    const h = harness();
-    expect(h.commands.has(COUNCIL_COMMAND)).toBe(true);
-    expect(h.tool.name).toBe(COUNCIL_TOOL);
-  });
-
-  it("writes a package omp loads as a directory root, with the council agent beside the bridge", () => {
-    const dir = tempDir("omp-ui-council-pkg-");
-    const root = writeCouncilExtension(dir);
-    expect(JSON.parse(fs.readFileSync(path.join(root, "package.json"), "utf8"))).toEqual({
-      name: "omp-ui-council",
-      private: true,
-      omp: { extensions: ["./omp-ui-council.ts"] },
-    });
-    expect(fs.existsSync(path.join(root, "omp-ui-council.ts"))).toBe(true);
-    const agent = fs.readFileSync(path.join(root, "agents", "omp-ui-council.md"), "utf8");
-    expect(agent).toMatch(/^---\nname: omp-ui-council\n[\s\S]*\ntools: read, grep, find, bash\n---\n/);
-    expect(agent).toContain("Never edit or create files");
-  });
-
   describe("ask", () => {
     it("launches one batch of council-agent items carrying each member's model and the request", async () => {
-      const h = harness();
       const cwd = tempDir("omp-ui-council-ask-"); // ask mode needs no git checkout
-      loadCouncil(h, {
+      const h = harness({}, {
         instructions: null,
         members: [
           { name: "sol", model: "openai/gpt-6-sol", instructions: "Think about cost.", enabled: true },
@@ -238,9 +216,8 @@ describe("generated council extension", () => {
     });
 
     it("a trial member rides a second batch after the council batch, blind and uncounted", async () => {
-      const h = harness();
       const cwd = tempDir("omp-ui-council-ask-");
-      loadCouncil(h, {
+      const h = harness({}, {
         instructions: null,
         members: [
           { name: "sol", model: "openai/gpt-6-sol", instructions: "Think about cost.", enabled: true },
@@ -275,7 +252,6 @@ describe("generated council extension", () => {
     it("the tool asks with a trimmed request and the council's shared instructions as context", async () => {
       const h = harness();
       const cwd = tempDir("omp-ui-council-ask-");
-      loadCouncil(h);
       const result = await runTool(h, { request: "  which queue fits?  " }, cwd);
       expect(result.isError).toBeUndefined();
       const json = batchJson(h);
@@ -288,7 +264,6 @@ describe("generated council extension", () => {
     it("launches council-agent items on the resolved diff, scored per member", async () => {
       const h = harness();
       const repo = makeRepo();
-      loadCouncil(h);
       const result = await runReview(h, { kind: "commit", value: "HEAD" }, repo);
       expect(result.isError).toBeUndefined();
       expect(result.content[0]!.text).toMatch(/^Asked 1 council member\(s\) on HEAD\. /);
@@ -306,9 +281,8 @@ describe("generated council extension", () => {
     });
 
     it("a review round adds the trial batch and keeps the members' stopping rule council-only", async () => {
-      const h = harness();
       const repo = makeRepo();
-      loadCouncil(h, {
+      const h = harness({}, {
         instructions: null,
         members: [{ name: "sec", model: "vllm/gemma-4-31b-it", instructions: null, enabled: true }],
         trial: { name: "nova", model: "litellm/nova", instructions: null, enabled: true },
@@ -332,13 +306,11 @@ describe("generated council extension", () => {
     it("a review request rides as extra focus after the diff target", async () => {
       const h = harness();
       const repo = makeRepo();
-      loadCouncil(h);
       await runTool(h, { review: true, request: " auth paths ", target: { kind: "commit", value: "HEAD" } }, repo);
       expect(brief(h)).toMatch(/## Diff target\n[\s\S]*\n\n## Focus\nauth paths$/);
     });
 
     it("launches exactly the members a resolved council holds, and its warnings ride the status", async () => {
-      const h = harness();
       const repo = makeRepo();
       const doc: CouncilDocument = {
         instructions: "Top line\nsecond",
@@ -351,7 +323,7 @@ describe("generated council extension", () => {
           { name: "e", model: "t/u", instructions: null, enabled: true },
         ],
       };
-      loadCouncil(h, resolveCouncilRoster("project", { global: null, project: doc }));
+      const h = harness({}, resolveCouncilRoster("project", { global: null, project: doc }));
       const note = await runCommand(h, "review HEAD", repo);
       expect(note.level).toBe("warning");
       expect(note.text).toMatch(/Config warnings: .*no model — skipped.*more than 3 members — skipped/);
@@ -367,16 +339,18 @@ describe("generated council extension", () => {
   });
 
   it("an empty council refuses with the Council settings sentence and launches nothing", async () => {
-    const h = harness();
     const cwd = tempDir("omp-ui-council-empty-");
-    loadCouncil(h, { instructions: null, members: [], trial: null, configWarnings: ['member "x": no model — skipped'] });
+    const h = harness({}, { instructions: null, members: [], trial: null, configWarnings: ['member "x": no model — skipped'] });
     const note = await runCommand(h, "hello", cwd);
     expect(note).toEqual({
       text:
-        "No council members were loaded for this session. Pick each member's model in Project settings → Council, " +
-        'then restart the session. Config warnings: member "x": no model — skipped',
+        "This session started without council members. Configure Settings → Council, then relaunch the session. " +
+        'No council was launched. Config warnings: member "x": no model — skipped',
       level: "error",
     });
+    const result = await runTool(h, { request: "hello" }, cwd);
+    expect(result.isError).toBe(true);
+    expect(result.content[0]!.text).toBe(note.text);
     expect(h.sends).toHaveLength(0);
   });
 
@@ -384,7 +358,6 @@ describe("generated council extension", () => {
     it("malformed arguments refuse with their usage line", async () => {
       const h = harness();
       const repo = makeRepo();
-      loadCouncil(h);
       const table: Array<[string, string]> = [
         ["", COUNCIL_USAGE],
         ["   ", COUNCIL_USAGE],
@@ -404,7 +377,6 @@ describe("generated council extension", () => {
     it("review followed by more than one word is a request", async () => {
       const h = harness();
       const cwd = tempDir("omp-ui-council-ask-");
-      loadCouncil(h);
       const note = await runCommand(h, "review the auth design", cwd);
       expect(note.text).toMatch(/^Asked 1 council member\(s\) on \(ask\)\./);
       expect(brief(h)).toMatch(/\n\n## Request\nreview the auth design$/);
@@ -413,7 +385,6 @@ describe("generated council extension", () => {
     it("bare review reviews local changes", async () => {
       const h = harness();
       const repo = makeRepo();
-      loadCouncil(h);
       const note = await runCommand(h, "review", repo);
       expect(note.text).toMatch(/^Asked 1 council member\(s\) on local changes\./);
       expect(brief(h)).toContain(`the base is the empty tree ${emptyTree(repo)}`);
@@ -422,7 +393,6 @@ describe("generated council extension", () => {
     it("shell-shaped review targets never reach git", async () => {
       const h = harness();
       const repo = makeRepo();
-      loadCouncil(h);
       for (const bad of ["`x`", "a|b", "a&&b", "-x", "..", "a..b..c"]) {
         const note = await runCommand(h, `review ${bad}`, repo);
         expect(note).toEqual({ text: COUNCIL_USAGE, level: "error" });
@@ -434,7 +404,6 @@ describe("generated council extension", () => {
   it("the tool validates request, review, and target before launching anything", async () => {
     const h = harness();
     const repo = makeRepo();
-    loadCouncil(h);
     const cases: Array<[Record<string, unknown>, string]> = [
       [{}, "request is required unless review is true"],
       [{ request: "   " }, "request is required unless review is true"],
@@ -467,7 +436,6 @@ describe("generated council extension", () => {
     it("hands members a three-dot diff that git runs", async () => {
       const h = harness();
       const { repo, work, feature } = featureRepo();
-      loadCouncil(h);
       const result = await runReview(h, { kind: "commit", value: "work..feature" }, repo);
       expect(result.isError).toBeUndefined();
       const text = brief(h);
@@ -480,7 +448,6 @@ describe("generated council extension", () => {
     it("refuses empty and unknown ranges", async () => {
       const h = harness();
       const { repo } = featureRepo();
-      loadCouncil(h);
       const backwards = await runReview(h, { kind: "commit", value: "feature..work" }, repo);
       expect(backwards.content[0]!.text).toMatch(/carries no commits/);
       const unknown = await runReview(h, { kind: "commit", value: "work..nope" }, repo);
@@ -501,7 +468,6 @@ describe("generated council extension", () => {
       git(repo, "branch", "-q", "--set-upstream-to=origin/work", "topic");
       commitFile(repo, "h.txt", "new\n");
       fs.writeFileSync(path.join(repo, "f.txt"), "edited\n");
-      loadCouncil(h);
       const result = await runReview(h, undefined, repo);
       expect(result.content[0]!.text).toMatch(/^Asked 1 council member\(s\) on local changes\./);
       const text = brief(h);
@@ -519,7 +485,6 @@ describe("generated council extension", () => {
       const parent = commitFile(repo, "o1.txt", "one\n");
       commitFile(repo, "o2.txt", "two\n");
       git(repo, "branch", "-q", "--set-upstream-to=work", "lone");
-      loadCouncil(h);
       await runReview(h, undefined, repo);
       const text = brief(h);
       expect(text).toContain(`the base is HEAD's parent ${parent}`);
@@ -531,7 +496,6 @@ describe("generated council extension", () => {
       const repo = makeRepo();
       fs.writeFileSync(path.join(repo, "s.txt"), "staged\n");
       git(repo, "add", "s.txt");
-      loadCouncil(h);
       await runReview(h, undefined, repo);
       expect(brief(h)).toContain(`the base is the empty tree ${emptyTree(repo)}`);
     });
@@ -540,7 +504,6 @@ describe("generated council extension", () => {
       const h = harness();
       const repo = makeRepo();
       addOrigin(repo);
-      loadCouncil(h);
       const clean = await runReview(h, undefined, repo);
       expect(clean.isError).toBe(true);
       expect(clean.content[0]!.text).toMatch(/^Nothing to review: no changes against the merge-base with origin\/work/);
@@ -555,7 +518,6 @@ describe("generated council extension", () => {
   it.skipIf(process.platform === "win32")("review pr asks gh once, read-only, and refuses on a gh failure", async () => {
     const h = harness();
     const repo = makeRepo();
-    loadCouncil(h);
     const bin = tempDir("omp-ui-council-gh-");
     const gh = path.join(bin, "gh");
     const head = "a".repeat(40);
@@ -582,7 +544,6 @@ describe("generated council extension", () => {
   it("a cancelled tool call launches nothing", async () => {
     const h = harness();
     const repo = makeRepo();
-    loadCouncil(h);
     const controller = new AbortController();
     controller.abort();
     const review = await runReview(h, undefined, repo, controller.signal);
@@ -594,73 +555,67 @@ describe("generated council extension", () => {
     expect(h.sends).toHaveLength(0);
   });
 
-  it("without a council snapshot refuses with a restart hint", async () => {
-    const h = harness();
-    const cwd = tempDir("omp-ui-council-nosnap-");
-    const result = await runTool(h, { request: "hello" }, cwd);
-    expect(result).toEqual({
-      content: [{ type: "text", text: "The council was not loaded for this session; restart the session to load it." }],
-      isError: true,
+  it("captures instruction text as inert data rather than executable source", async () => {
+    const instructions = 'quotes " and backticks ` ${throw new Error("not code")}\nnew line';
+    const h = harness({}, {
+      ...DEFAULT_COUNCIL,
+      instructions,
+      members: [{ ...DEFAULT_COUNCIL.members[0]!, instructions }],
     });
-    expect(h.sends).toHaveLength(0);
+    await runTool(h, { request: "hello" }, h.dir);
+    expect(batchJson(h).context).toBe("omp-ui council (/council). " + instructions);
+    expect(String(batchJson(h).tasks[0]!.task)).toContain(instructions);
   });
 
-  it("a snapshot main never writes reads as not loaded", async () => {
-    const h = harness();
-    const cwd = tempDir("omp-ui-council-badsnap-");
-    const member = { name: "sec", model: "m/x", instructions: null };
-    const snapshot = (overrides: Record<string, unknown>): string =>
-      JSON.stringify({ version: 2, instructions: null, members: [member], trial: null, configWarnings: [], ...overrides });
-    const noTrialKey = (() => {
-      const { trial: _trial, ...rest } = JSON.parse(snapshot({})) as Record<string, unknown>;
-      return JSON.stringify(rest);
-    })();
-    const hostile = [
-      snapshot({ version: 1 }),
-      snapshot({ version: 3 }),
-      noTrialKey,
-      snapshot({ trial: { ...member, name: "Sec" } }),
-      snapshot({ trial: { ...member, model: "" } }),
-      snapshot({ trial: 5 }),
-      snapshot({ members: [member, { ...member, name: "b" }, { ...member, name: "c" }, { ...member, name: "d" }] }),
-      snapshot({ members: [{ ...member, name: "Sec" }] }),
-      snapshot({ members: [{ ...member, name: "a".repeat(25) }] }),
-      snapshot({ members: [{ ...member, model: "" }] }),
-      snapshot({ members: [{ ...member, model: null }] }),
-      snapshot({ members: [{ ...member, instructions: 5 }] }),
-      snapshot({ instructions: 5 }),
-      "not json",
-    ];
-    for (const content of hostile) {
-      fs.writeFileSync(councilRosterSnapshotPath(h.dir), content);
-      const note = await runCommand(h, "hello", cwd);
-      expect(note).toEqual({ text: expect.stringMatching(/restart the session/), level: "error" });
+  it("reports initialization failures distinctly from empty on both surfaces", async () => {
+    const cwd = tempDir("omp-ui-council-unavailable-");
+    for (const stage of ["resolve", "overlay", "snapshot", "extension"] as const) {
+      const h = harness({ state: { status: "unavailable", failure: { stage, message: "permission denied" } } });
+      const result = await runTool(h, { request: "hello" }, cwd);
+      expect(result.isError).toBe(true);
+      expect(result.content[0]!.text).toContain(stage + ": permission denied");
+      expect(result.content[0]!.text).toContain("No council was launched");
+      expect(result.content[0]!.text).toContain("may not fix the cause");
+      expect(result.content[0]!.text).not.toContain("started without council members");
+      expect(await runCommand(h, "hello", cwd)).toEqual({ text: result.content[0]!.text, level: "error" });
+      expect(h.sends).toHaveLength(0);
     }
-    expect(h.sends).toHaveLength(0);
   });
 
-  it("a snapshot with trial: null loads and launches without a trial member", async () => {
-    const h = harness();
-    const cwd = tempDir("omp-ui-council-ask-");
-    fs.writeFileSync(
-      councilRosterSnapshotPath(h.dir),
-      JSON.stringify({
-        version: 2,
-        instructions: null,
-        members: [{ name: "sec", model: "m/x", instructions: null }],
-        trial: null,
-        configWarnings: [],
-      }),
-    );
-    const note = await runCommand(h, "hello", cwd);
-    expect(note.level).toBe("info");
-    expect(launchPrompt(h)).not.toMatch(/trial/i);
+  it("keeps A's exact launch set after manifest replacement and deletion while B captures B", async () => {
+    const roster = (id: string): CouncilRosterResult => ({
+      instructions: "shared-" + id,
+      members: [{ name: "member", model: "provider/" + id, instructions: "member-" + id, enabled: true }],
+      trial: { name: "trial", model: "trial/" + id, instructions: "trial-" + id, enabled: true },
+      configWarnings: [],
+    });
+    const a = harness({}, roster("a"));
+    const bSnapshot = createCouncilRosterSnapshot(roster("b"));
+    writeCouncilRosterSnapshot(a.dir, bSnapshot);
+    await runTool(a, { request: "first" }, a.dir);
+    fs.unlinkSync(councilRosterSnapshotPath(a.dir));
+    await runCommand(a, "second", a.dir);
+    for (let i = 0; i < 2; i++) {
+      const captured = { ...a, sends: [a.sends[i]!] };
+      const blocks = batchJsons(captured);
+      expect(blocks[0]!.context).toBe("omp-ui council (/council). shared-a");
+      expect(blocks[0]!.tasks[0]!.model).toBe("provider/a");
+      expect(String(blocks[0]!.tasks[0]!.task)).toContain("member-a");
+      expect(blocks[1]!.tasks[0]!.model).toBe("trial/a");
+      expect(String(blocks[1]!.tasks[0]!.task)).toContain("trial-a");
+    }
+    const b = harness({ state: { status: "ready", snapshot: bSnapshot } });
+    await runCommand(b, "third", b.dir);
+    expect(batchJson(b).context).toBe("omp-ui council (/council). shared-b");
+    expect(batchJson(b).tasks[0]!.model).toBe("provider/b");
+    expect(String(batchJson(b).tasks[0]!.task)).toContain("member-b");
+    expect(batchJsons(b)[1]!.tasks[0]!.model).toBe("trial/b");
+    expect(String(batchJsons(b)[1]!.tasks[0]!.task)).toContain("trial-b");
   });
 
   it("review refuses outside a git checkout", async () => {
     const h = harness();
     const dir = tempDir("omp-ui-council-nogit-");
-    loadCouncil(h);
     const result = await runReview(h, undefined, dir);
     expect(result.isError).toBe(true);
     expect(result.content[0]!.text).toMatch(/git checkout/);
@@ -670,7 +625,6 @@ describe("generated council extension", () => {
   it("a failed send surfaces as an error, never a fake launch", async () => {
     const h = harness({ sendThrows: true });
     const repo = makeRepo();
-    loadCouncil(h);
     const result = await runReview(h, undefined, repo);
     expect(result.isError).toBe(true);
     expect(result.content[0]!.text).toMatch(/send failed/);
@@ -679,7 +633,6 @@ describe("generated council extension", () => {
   it("without pi.sendMessage the launch reports the incapability, never a fake launch", async () => {
     const h = harness({ withoutSend: true });
     const repo = makeRepo();
-    loadCouncil(h);
     const result = await runTool(h, { request: "hello" }, repo);
     expect(result.isError).toBe(true);
     expect(result.content[0]!.text).toMatch(/cannot start/);

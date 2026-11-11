@@ -675,7 +675,7 @@ A native session's composer accepts the same slash commands as the terminal TUI.
 | `/btw <question>`, `/btw` | Never forwarded as prose: OMP's `/btw` is still TUI-only (`handleTui`, no `handle`), so a forwarded line would become a normal model turn and pollute the transcript ([#682](https://github.com/LankfordAI/omp-ui/issues/682)). In a native tab the composer dispatches OMP's native `btw` command and opens the Side questions pane, adding no transcript row; bare `/btw` opens the pane ([#775](https://github.com/LankfordAI/omp-ui/issues/775)). An omp below 18.6.3 (or an unobserved version) dispatches nothing and the pane shows itself unavailable. Terminal tabs keep forwarding the line to OMP's own TUI. |
 | `/<file command with side: true>` | Never forwarded as a prompt in a native tab (omp ≥ 18.13.0 runs these as `/btw` only in its TUI). The generated side-commands bridge publishes the live session's side set and renders the line with omp's own `renderFileSlashCommand`. The composer sends the result through native `btw`, opens the Side questions pane, and titles the topic with the typed command ([#955](https://github.com/LankfordAI/omp-ui/issues/955)). |
 | `/autoresearch start` | Bare `start` opens the New experiment dialog for the session's project; `start <text>` starts the experiment interview in this session with the text as the rough description ([#567](https://github.com/LankfordAI/omp-ui/issues/567), [ADR-0032](adr/0032-experiments-configured-in-conversation.md)). `/autoresearch lab` opens the Lab, likewise never forwarded. Every other `/autoresearch…` form — bare, a goal, `off`, `clear` — forwards verbatim: it is OMP's own extension command, which dispatches over rpc-ui without a dialog ([ADR-0030](adr/0030-experiments-read-autoresearch-from-two-sources.md)). |
-| `/council …` | Council on (default), native, non-chat tab: the composer reads the effective council and, when no member can launch, appends a failed row with an Open council settings action and sends nothing; otherwise the line reaches the council bridge verbatim ([ADR-0088](adr/0088-council-replaces-code-review.md)). |
+| `/council …` | Native, non-chat tab: the composer queries the session owner's process Council status, not current Settings. Available forwards verbatim; empty refuses with an Open council settings action and relaunch guidance; unavailable, disabled, starting, missing-session, not-live, terminal, and query failures append a failed row and send no prompt ([ADR-0088](adr/0088-council-replaces-code-review.md), [#1155](https://github.com/LankfordAI/omp-ui/issues/1155)). |
 | Any other advertised command | Forwards as a `prompt` frame with the command acknowledgement lifecycle below. |
 | Unknown `/word` | Forwards as a literal model prompt. No command row appears; OMP starts a real agent turn. |
 
@@ -979,35 +979,53 @@ Council tab (#739). PTY-tab support is explicitly deferred — it needs
 task results back to the model — so PTY tabs neither load the bridge nor
 take the overlay.
 
-Main resolves the council once per rpc spawn (`writeCouncilForSpawn`).
-`resolveCouncilRoster` takes the project document, else the global one, else
-nothing: the council is empty by default, with no shipped member and no
-session-model fallback. The launch set is the first three enabled members that
-name a model; validation warns about every other enabled member, and a stored
-member without a model (migrated legacy data) is listed but never launched.
-A document may also carry one trial member (`trial`). It is validated like a
-member, does not count against the three, and launches only when at least one
-member does.
-Main writes the launch set to `omp-ui-council-roster.json` and returns the
-`omp-ui-council.yml` `--config` overlay, pushed after the rpc overlays:
+Dedicated Council preparation owns the package, snapshot, and overlay, not the
+generic RPC bridges. Main resolves the council once per RPC process launch
+(`writeCouncilForSpawn`). `resolveCouncilRoster` takes the project document,
+else the global one, else nothing: the council is empty by default, with no
+shipped member and no session-model fallback. The launch set is the first
+three enabled members that name a model; validation warns about every other
+enabled member, and a stored member without a model (migrated legacy data) is
+listed but never launched. A document may also carry one trial member
+(`trial`). It is validated like a member, does not count against the three,
+and launches only when at least one member does.
+
+Preparation builds one coherent frozen launch snapshot, including member
+instructions, configuration warnings, and the optional trial. The overlay and
+bridge derive from that same snapshot. The bridge embeds its ready or
+unavailable launch state as inert JSON in the generated extension; it never
+reads the roster manifest at runtime. `omp-ui-council-roster.json` remains a
+version-2 manifest only for warm-slot content hashing, including instructions,
+warnings, and trial; generated TypeScript bytes are intentionally excluded
+from that hash. Warm-slot reuse compares launch content, not current bridge
+source. Each new process captures its own preparation result; neither later
+Settings edits nor another preparation in the lineage changes a running
+process's Council state.
+
+The `omp-ui-council.yml` `--config` overlay is pushed after the RPC overlays:
 `async.enabled: true`, `task.batch: true`, `task.perCallModel: "on"`, and one
 `modelRoles."omp-ui-council-N"` chat role per launched member, each the
 member's selector verbatim, plus `omp-ui-council-trial` for a launched trial
-member. When no member resolves, no overlay is written at
-all — an empty council carries no council config change; the snapshot and the
-bridge package are still written, so `/council` answers with its refusal
-pointer rather than a restart hint. A warm spawn slot built before the boot
-seed (below) carries an empty-council snapshot until relaunch; no extra
-plumbing is spent to refresh it. omp approves a per-call model only when a chat
-role in an operator layer names it, and objects deep-merge across layers, so
-the overlay grants exactly the members' models while the user's own roles
-survive. The overlay never writes `task.agentModelOverrides`, and the member
-agent's name never appears there, so the subagent overlay's `{"task": "*"}`
-umbrella (ADR-0031) cannot conflict with the pins. The old review bridge,
-overlay, and snapshot files in a reused lineage dir are removed. Preparation
-is never fatal: on failure the snapshot is removed, so the bridge refuses with
-a restart hint. Roster edits therefore apply on relaunch. Project settings →
-Council edits the project or global document over `council:roster` and
+member. An empty council writes no overlay but still gets a ready, empty
+snapshot and bridge. omp approves a per-call model only when a chat role in
+an operator layer names it, and objects deep-merge across layers, so the
+overlay grants exactly the members' models while the user's own roles survive.
+The overlay never writes `task.agentModelOverrides`, and the member agent's
+name never appears there, so the subagent overlay's `{"task": "*"}` umbrella
+(ADR-0031) cannot conflict with the pins. The old review bridge, overlay, and
+snapshot files in a reused lineage dir are removed.
+
+Preparation failures are stageful (`resolve`, `overlay`, `snapshot`, or
+`extension`) with a diagnostic message. They produce unavailable process
+status, no Council grants, and, where package generation succeeds, a
+diagnostic-only bridge embedding the failure instead of a roster. Failure to
+write that bridge leaves its extension path absent. Council failure is
+nonfatal to unrelated session work; it is not misreported as an empty council
+or reduced to a generic restart hint. There is no retry, model substitution,
+automatic restart, or hot patch. Edits apply on relaunch; an already-running
+old bridge needs one relaunch to receive this implementation (#1155).
+
+Project settings → Council edits the project or global document over `council:roster` and
 `council:roster:set`; Settings → Council hosts the same editor for the
 global document (#1053). Seeding lives in main (`seedCouncilRosterIfUnset`,
 #1055): at boot, after the shell-key capture, gated on `councilEnabled`, and
@@ -1020,13 +1038,20 @@ instance: a user-scope write through the proxy edits the owner's global roster,
 the same model as `watchdog:roster:set`. `settings:setCouncilEnabled` stays
 unproxied, so a joined instance's Council tab follows the local flag.
 
-In a native, non-chat tab with the council on, the composer intercepts
-`/council` before any model turn: it reads the effective council and, when no
-member can launch, appends a failed command row whose *Open council settings*
-action opens Project settings → Council, and sends nothing. When the roster
-read fails (a proxy round-trip to a remote owner), the line forwards and the bridge
-decides. The bridge reads only the snapshot: a missing snapshot refuses with a
-restart hint, and an empty one points at Project settings → Council.
+In a native, non-chat tab, the composer intercepts `/council` before any model
+turn and queries `getSessionCouncilStatus(tabId)` over `session:council-status`,
+routed to the tab's owning instance. It consults the live process's captured
+launch result, never current Settings or a roster disk read. Available status
+carries the member count and forwards the command unchanged. Empty status
+carries configuration warnings and appends a failed row whose *Open council
+settings* action opens Project settings → Council; the user must relaunch
+after editing. Unavailable status reports the preparation stage and message.
+Disabled, starting, missing-session, not-live, terminal, and status-query
+failures also refuse locally: no prompt is sent and no model turn starts.
+The bridge independently refuses an embedded empty or unavailable state.
+Ordinary PTY and Chat routing stays unchanged. The precise trigger of the
+reported user incident has not been established; #1155 addresses the state
+coherence and refusal boundaries without claiming a reproduced root cause.
 
 `/council <request>` is ask mode; `/council review [pr <n> | <ref> |
 <from>..<to>]` is review mode, and any other text after `review` is an ask.

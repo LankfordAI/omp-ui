@@ -6,6 +6,7 @@ import { gitGuardOverlayPath, outRepliesOverlayPath, subagentModelOverlayPath } 
 import * as Core from "@omp-ui/core";
 import {
   RPC_BRIDGE_IDS,
+  writeCouncilForSpawn,
   readGoalContinuationModesCached,
   resetGoalContinuationModesCache,
   writeRpcExtensions,
@@ -45,7 +46,6 @@ function bridgeWriters(write: (id: (typeof RPC_BRIDGE_IDS)[number]) => string): 
     asyncJobs: () => write("asyncJobs"),
     sessionSpend: () => write("sessionSpend"),
     tree: () => write("tree"),
-    council: () => write("council"),
     knowledgeVault: () => write("knowledgeVault"),
     askContext: () => write("askContext"),
     carryoverContext: () => write("carryoverContext"),
@@ -64,7 +64,7 @@ describe("writeRpcExtensions", () => {
     });
 
     expect(
-      writeRpcExtensions(tmp(), { autoresearchEnabled: true, councilEnabled: true }, writers),
+      writeRpcExtensions(tmp(), { autoresearchEnabled: true }, writers),
     ).toEqual({
       paths: [
         "/mcpStatus.ts",
@@ -76,7 +76,6 @@ describe("writeRpcExtensions", () => {
         "/asyncJobs.ts",
         "/sessionSpend.ts",
         "/tree.ts",
-        "/council.ts",
         "/knowledgeVault.ts",
         "/askContext.ts",
         "/carryoverContext.ts",
@@ -96,7 +95,6 @@ describe("writeRpcExtensions", () => {
         asyncJobs: true,
         sessionSpend: true,
         tree: true,
-        council: true,
         knowledgeVault: true,
         askContext: true,
         carryoverContext: true,
@@ -116,44 +114,184 @@ describe("writeRpcExtensions", () => {
     );
     const result = writeRpcExtensions(
       tmp(),
-      { autoresearchEnabled: false, councilEnabled: true },
+      { autoresearchEnabled: false },
       writers,
     );
     expect(result.loaded.autoresearch).toBe(false);
     expect(autoresearch).not.toHaveBeenCalled();
   });
 
-  it("records a disabled council bridge without invoking it", () => {
-    const council = vi.fn(() => "/council.ts");
-    const writers = bridgeWriters((id) => (id === "council" ? council() : `/${id}.ts`));
-    const result = writeRpcExtensions(tmp(), { autoresearchEnabled: true, councilEnabled: false }, writers);
-    expect(result.loaded.council).toBe(false);
-    expect(council).not.toHaveBeenCalled();
-    expect(result.paths).not.toContain("/council.ts");
-  });
+});
 
-  it("loads the autoresearch bridge alone when only autoresearch is enabled", () => {
-    const council = vi.fn(() => "/council.ts");
-    const writers = bridgeWriters((id) => (id === "council" ? council() : `/${id}.ts`));
-    const result = writeRpcExtensions(tmp(), { autoresearchEnabled: true, councilEnabled: false }, writers);
-    expect(result.loaded.autoresearch).toBe(true);
-    expect(result.loaded.council).toBe(false);
-    expect(council).not.toHaveBeenCalled();
-    expect(result.paths).toContain("/autoresearch.ts");
-    expect(result.paths).not.toContain("/council.ts");
+describe("writeCouncilForSpawn", () => {
+  const member = (name: string, model: string | null, enabled = true): Core.CouncilMember => ({
+    name,
+    model,
+    instructions: `instructions for ${name}`,
+    enabled,
   });
+  const global: Core.CouncilDocument = {
+    instructions: "shared instructions",
+    members: [member("global", "provider/global")],
+  };
 
-  it("loads the council bridge alone when only council is enabled", () => {
-    const autoresearch = vi.fn(() => "/autoresearch.ts");
-    const writers = bridgeWriters((id) =>
-      id === "autoresearch" ? autoresearch() : `/${id}.ts`,
+  it("uses the project launch set for exact grants, the manifest, and the completed package", () => {
+    const dir = tmp();
+    const project: Core.CouncilDocument = {
+      instructions: "project instructions",
+      members: [
+        member("disabled", "provider/disabled", false),
+        member("missing", null),
+        member("first", "provider/first"),
+        member("second", "provider/second"),
+        member("third", "provider/third"),
+        member("extra", "provider/extra"),
+      ],
+      trial: member("trial", "provider/trial"),
+    };
+    const result = writeCouncilForSpawn(dir, true, global, project);
+    expect(result.status).toBe("ready");
+    if (result.status !== "ready") throw new Error("expected ready Council");
+    expect(result.snapshot.members.map((entry) => entry.model)).toEqual([
+      "provider/first", "provider/second", "provider/third",
+    ]);
+    expect(result.snapshot.instructions).toBe("project instructions");
+    expect(result.snapshot.trial?.model).toBe("provider/trial");
+    expect(result.snapshot.configWarnings).toHaveLength(2);
+    expect(JSON.parse(fs.readFileSync(Core.councilRosterSnapshotPath(dir), "utf8"))).toEqual(result.snapshot);
+    expect(result.overlayPath).toBe(Core.councilOverlayPath(dir));
+    expect(fs.readFileSync(result.overlayPath!, "utf8")).toBe(
+      'async:\n  enabled: true\ntask:\n  batch: true\n  perCallModel: "on"\n' +
+      'modelRoles:\n  "omp-ui-council-1": "provider/first"\n' +
+      '  "omp-ui-council-2": "provider/second"\n' +
+      '  "omp-ui-council-3": "provider/third"\n' +
+      '  "omp-ui-council-trial": "provider/trial"\n',
     );
-    const result = writeRpcExtensions(tmp(), { autoresearchEnabled: false, councilEnabled: true }, writers);
-    expect(result.loaded.council).toBe(true);
-    expect(result.loaded.autoresearch).toBe(false);
-    expect(autoresearch).not.toHaveBeenCalled();
-    expect(result.paths).toContain("/council.ts");
-    expect(result.paths).not.toContain("/autoresearch.ts");
+    expect(result.extensionPath).toBe(Core.councilExtensionDir(dir));
+    const pkg = JSON.parse(fs.readFileSync(path.join(result.extensionPath, "package.json"), "utf8"));
+    for (const entry of pkg.omp.extensions as string[]) {
+      expect(fs.statSync(path.join(result.extensionPath, entry)).isFile()).toBe(true);
+    }
+    expect(fs.statSync(path.join(result.extensionPath, "agents", `${Core.COUNCIL_AGENT}.md`)).isFile()).toBe(true);
+  });
+
+  it("falls back to the global roster, then to an empty ready Council without grants", () => {
+    const dir = tmp();
+    const inherited = writeCouncilForSpawn(dir, true, global, null);
+    expect(inherited.status).toBe("ready");
+    if (inherited.status !== "ready") throw new Error("expected ready Council");
+    expect(inherited.snapshot.members.map((entry) => entry.model)).toEqual(["provider/global"]);
+    const empty = writeCouncilForSpawn(dir, true, null, null);
+    expect(empty).toMatchObject({ status: "ready", overlayPath: null, snapshot: { members: [], trial: null, configWarnings: [] } });
+    expect(fs.existsSync(Core.councilOverlayPath(dir))).toBe(false);
+    expect(JSON.parse(fs.readFileSync(Core.councilRosterSnapshotPath(dir), "utf8"))).toEqual(
+      empty.status === "ready" ? empty.snapshot : null,
+    );
+  });
+
+  it("lets an empty project override global and never grants a trial-only launch", () => {
+    const dir = tmp();
+    writeCouncilForSpawn(dir, true, global, null);
+    const result = writeCouncilForSpawn(dir, true, global, {
+      instructions: null,
+      members: [],
+      trial: member("trial", "provider/trial"),
+    });
+    expect(result).toMatchObject({ status: "ready", overlayPath: null, snapshot: { members: [], trial: null } });
+    if (result.status !== "ready") throw new Error("expected ready Council");
+    expect(result.snapshot.configWarnings).toHaveLength(1);
+    expect(fs.existsSync(Core.councilOverlayPath(dir))).toBe(false);
+  });
+
+  it("does not resolve a disabled Council and removes its stale artifacts and legacy review files", () => {
+    const dir = tmp();
+    writeCouncilForSpawn(dir, true, global, null);
+    const legacy = ["omp-ui-code-review.ts", "omp-ui-review.yml", "omp-ui-review-roster.json"];
+    for (const file of legacy) fs.writeFileSync(path.join(dir, file), "stale");
+    const unreadable: Core.CouncilDocument = {
+      get instructions(): string | null { throw new Error("disabled roster was read"); },
+      get members(): readonly Core.CouncilMember[] { throw new Error("disabled roster was read"); },
+    };
+    expect(writeCouncilForSpawn(dir, false, unreadable, unreadable)).toEqual({
+      status: "disabled", extensionPath: null, overlayPath: null,
+    });
+    for (const file of [Core.councilOverlayPath(dir), Core.councilRosterSnapshotPath(dir), Core.councilExtensionDir(dir), ...legacy.map((file) => path.join(dir, file))]) {
+      expect(fs.existsSync(file)).toBe(false);
+    }
+  });
+
+  it.each(["overlay", "snapshot", "extension"] as const)("reports a real %s write failure without passing grants or an incomplete package", (stage) => {
+    const warning = vi.spyOn(console, "warn").mockImplementation(() => {});
+    try {
+      const dir = tmp();
+      const blocked = stage === "overlay" ? Core.councilOverlayPath(dir)
+        : stage === "snapshot" ? Core.councilRosterSnapshotPath(dir)
+        : Core.councilExtensionPath(dir);
+      fs.mkdirSync(blocked, { recursive: true });
+      const result = writeCouncilForSpawn(dir, true, global, null);
+      expect(result.status).toBe("unavailable");
+      if (result.status !== "unavailable") throw new Error("expected unavailable Council");
+      expect(result.failure.stage).toBe(stage);
+      expect(result.failure.message).toContain(blocked);
+      expect(result.overlayPath).toBeNull();
+      expect(result.extensionPath).toBe(stage === "extension" ? null : Core.councilExtensionDir(dir));
+      if (stage !== "overlay") expect(fs.existsSync(Core.councilOverlayPath(dir))).toBe(false);
+      if (stage !== "snapshot") expect(fs.existsSync(Core.councilRosterSnapshotPath(dir))).toBe(false);
+      expect(warning.mock.calls[0]?.[1]).toMatchObject({ ...result.failure, cause: expect.any(Error) });
+      // A Council preparation failure is not fatal to ordinary session configuration.
+      expect(writeSessionOverlays(ownedSessionRecord(), dir)).toContain(path.join(dir, "omp-ui-model.yml"));
+    } finally {
+      warning.mockRestore();
+    }
+  });
+
+  it("preserves the original resolution cause and removes stale grants before writing diagnostics", () => {
+    const warning = vi.spyOn(console, "warn").mockImplementation(() => {});
+    try {
+      const dir = tmp();
+      writeCouncilForSpawn(dir, true, global, null);
+      const cause = new Error("roster could not be read");
+      const unreadable: Core.CouncilDocument = {
+        get instructions(): string | null { throw cause; },
+        members: [],
+      };
+      const result = writeCouncilForSpawn(dir, true, unreadable, null);
+      expect(result).toEqual({
+        status: "unavailable", extensionPath: Core.councilExtensionDir(dir), overlayPath: null,
+        failure: { stage: "resolve", message: cause.message },
+      });
+      expect(warning).toHaveBeenCalledExactlyOnceWith("[council] initialization failed:", {
+        stage: "resolve", message: cause.message, cause,
+      });
+      expect(fs.existsSync(Core.councilOverlayPath(dir))).toBe(false);
+      expect(fs.existsSync(Core.councilRosterSnapshotPath(dir))).toBe(false);
+    } finally {
+      warning.mockRestore();
+    }
+  });
+
+  it("logs a secondary diagnostic failure separately without replacing the original failure", () => {
+    const warning = vi.spyOn(console, "warn").mockImplementation(() => {});
+    try {
+      const dir = tmp();
+      fs.mkdirSync(Core.councilOverlayPath(dir));
+      fs.mkdirSync(Core.councilExtensionPath(dir), { recursive: true });
+      const result = writeCouncilForSpawn(dir, true, global, null);
+      expect(result).toMatchObject({ status: "unavailable", extensionPath: null, overlayPath: null, failure: { stage: "overlay" } });
+      if (result.status !== "unavailable") throw new Error("expected unavailable Council");
+      const original = warning.mock.calls[0]?.[1] as { cause: Error };
+      const diagnostic = warning.mock.calls[1]?.[1] as { failure: Core.CouncilInitializationFailure; cause: Error };
+      expect(warning.mock.calls.map(([message]) => message)).toEqual([
+        "[council] initialization failed:", "[council] diagnostic extension failed:",
+      ]);
+      expect(result.failure.message).toBe(original.cause.message);
+      expect(diagnostic.failure).toBe(result.failure);
+      expect(diagnostic.cause).not.toBe(original.cause);
+      expect(diagnostic.cause.message).toContain(Core.councilExtensionPath(dir));
+      expect(fs.existsSync(Core.councilRosterSnapshotPath(dir))).toBe(false);
+    } finally {
+      warning.mockRestore();
+    }
   });
 });
 

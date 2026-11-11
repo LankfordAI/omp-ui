@@ -2,8 +2,23 @@ import * as fs from "node:fs";
 import * as os from "node:os";
 import * as path from "node:path";
 import { afterEach, beforeEach, describe, expect, it, vi } from "vitest";
-import { CH, type BackendState, type InstanceIdentity } from "@omp-ui/core";
+import { CH, RpcClient, type BackendState, type InstanceIdentity } from "@omp-ui/core";
+import { mintRemoteToken, startRemoteServer, type RemoteServerHandle } from "@omp-ui/server";
 import { MainBackend } from "./backend";
+import { ownedSessionRecord, seedRegistry } from "./test/fixtures";
+
+// Only the child transport is replaced: preparation, process state, owner routing,
+// request codecs and the joined-instance socket all use their real implementations.
+vi.mock("@omp-ui/core", async (importOriginal) => {
+  const original = await importOriginal();
+  return {
+    ...(original as object),
+    RpcClient: vi.fn(),
+    resolveSessionLocation: vi.fn(async () => ({ where: "missing" })),
+    watchLineageDir: vi.fn(() => () => {}),
+    watchGitHead: vi.fn(async () => () => {}),
+  };
+});
 
 // The real MainBackend imports electron; stub the surfaces it touches (backend-broadcast.test.ts's pattern).
 const handlers = new Map<string, (e: unknown, ...args: unknown[]) => unknown>();
@@ -30,10 +45,11 @@ const win = {
 let base: string;
 let registryFile: string;
 const backends: MainBackend[] = [];
+const servers: RemoteServerHandle[] = [];
 
-function boot(): MainBackend {
+function boot(file = registryFile): MainBackend {
   handlers.clear();
-  const be = new MainBackend(win as never, registryFile, { appVersion: "1.2.3" });
+  const be = new MainBackend(win as never, file, { appVersion: "1.2.3" });
   be.registerIpc();
   backends.push(be);
   return be;
@@ -50,10 +66,15 @@ beforeEach(() => {
   process.env.PI_CODING_AGENT_DIR = path.join(base, "agent");
   delete process.env.XDG_DATA_HOME;
   registryFile = path.join(base, "registry.json");
+  vi.mocked(RpcClient).mockImplementation(function () {
+    return { send: vi.fn(), kill: vi.fn() };
+  } as unknown as typeof RpcClient);
 });
 
-afterEach(() => {
-  for (const be of backends.splice(0)) be.killAll();
+afterEach(async () => {
+  await Promise.all(servers.splice(0).map((server) => server.close()));
+  await Promise.all(backends.splice(0).map((be) => be.killAll()));
+  vi.unstubAllEnvs();
   fs.rmSync(base, { recursive: true, force: true });
 });
 
@@ -88,5 +109,65 @@ describe("remote instances wiring (issue #416)", () => {
     await expect(invoke(CH.refreshRemoteInstanceState, "nope")).rejects.toThrow(
       "unknown instance nope",
     );
+  });
+
+  it("answers Council status from the owning process, not either host's current roster", async () => {
+    const projectCwd = path.join(base, "project");
+    fs.mkdirSync(projectCwd);
+    const ompBin = path.join(base, "omp");
+    fs.writeFileSync(ompBin, "#!/bin/sh\n", { mode: 0o755 });
+    vi.stubEnv("OMP_UI_OMP_PATH", ompBin);
+    const populatedRoster = {
+      instructions: null,
+      members: [{ name: "critic", model: "openrouter/openai/gpt-6.1-sol", enabled: true, instructions: null }],
+    };
+    const ownerFile = path.join(base, "owner", "registry.json");
+    const ownerSession = ownedSessionRecord({ tabId: "owner-tab", projectCwd });
+    const project = { path: projectCwd, name: "project", addedAt: "2026-08-01T00:00:00.000Z", lastModel: null, lastThinkingLevel: null, lastAdvisor: null, lastAdvisorModel: null, defaultModel: null, defaultAdvisorModel: null, browserClock: false, councilRoster: null, knowledgeHome: null, repositoryKey: null, icon: null };
+    seedRegistry(ownerFile, {
+      settings: { councilEnabled: true, councilRoster: null, instanceId: "owner-instance" },
+      projects: [project],
+      sessions: [ownerSession],
+    });
+    fs.mkdirSync(path.join(base, "agent", "sessions", ownerSession.lineageDir), { recursive: true });
+    const owner = boot(ownerFile);
+    const ownerRequests = owner.handlers().request;
+    await ownerRequests[CH.spawnSession]({ origin: "resume", resumeTabId: "owner-tab", cols: 80, rows: 24 });
+    expect(await ownerRequests[CH.getSessionCouncilStatus]("owner-tab")).toEqual({ status: "empty", configWarnings: [] });
+
+    // A settings edit must not rewrite the already-running process's launch state.
+    await ownerRequests[CH.setCouncilRoster]({ scope: "user", scopeCwd: null, document: populatedRoster });
+    const token = mintRemoteToken();
+    const server = await startRemoteServer({
+      host: { handlers: () => owner.handlers(), addSink: (sink) => owner.addSink(sink) },
+      token,
+      bind: "localhost",
+      port: 0,
+      webRoot: "/nonexistent-web-root",
+      password: null,
+    });
+    servers.push(server);
+
+    const localSession = ownedSessionRecord({
+      tabId: "local-tab",
+      projectCwd,
+      lineageDir: "omp-ui--local--aaaaaaaa-bbbb-cccc-dddd-eeeeeeeeeeee",
+    });
+    fs.mkdirSync(path.join(base, "agent", "sessions", localSession.lineageDir), { recursive: true });
+    seedRegistry(registryFile, {
+      settings: { councilEnabled: false, councilRoster: populatedRoster, instanceId: "local-instance" },
+      projects: [project],
+      sessions: [localSession],
+    });
+    boot();
+    await invoke(CH.spawnSession, { origin: "resume", resumeTabId: "local-tab", cols: 80, rows: 24 });
+    await invoke(CH.addRemoteInstance, {
+      url: `http://127.0.0.1:${server.port}`,
+      nickname: "owner",
+      secret: { kind: "token", value: token },
+    });
+    expect(await invoke(CH.getCouncilRoster, null)).toMatchObject({ members: populatedRoster.members });
+    expect(await invoke(CH.getSessionCouncilStatus, "local-tab")).toEqual({ status: "disabled" });
+    expect(await invoke(CH.getSessionCouncilStatus, "owner-tab")).toEqual({ status: "empty", configWarnings: [] });
   });
 });

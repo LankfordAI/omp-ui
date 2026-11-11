@@ -1,7 +1,7 @@
 // Session parameter domain (decomposed for #295): prompting, slash commands,
 // and every per-session parameter command — model, advisor, modes, retry,
 // compaction, plan, todos, refreshes, subagent drill-down.
-import type { ApprovalMode, BackendState, ImageAttachment, ServiceTier, SessionReference } from "@omp-ui/core/types";
+import type { ApprovalMode, BackendState, ImageAttachment, ServiceTier, SessionCouncilStatus, SessionReference } from "@omp-ui/core/types";
 import type { ArtifactReference, ArtifactRefreshEntry } from "@omp-ui/core/artifacts";
 import { withArtifactRefreshContext, withArtifactReferenceContext } from "@omp-ui/core/artifact-references";
 import { ADVISOR_STATS_COMMAND } from "@omp-ui/core/advisor-stats";
@@ -211,8 +211,8 @@ type LocalCommandResult = false | void | Promise<void>;
 
 interface LocalCommand {
   readonly match: RegExp;
-  /** `line` is the trimmed slash line, so a family can read its own arguments. */
-  run(tabId: string, get: GetState, line: string): LocalCommandResult;
+  /** `line` is trimmed; `message` preserves the normalized original slash line. */
+  run(tabId: string, get: GetState, line: string, message: string): LocalCommandResult;
 }
 
 /** omp's dispatch answer for a command its build does not know (rpc-mode.ts). */
@@ -395,16 +395,13 @@ const localCommands: readonly LocalCommand[] = [
     },
   },
   {
-    // The council (ADR-0088): an empty roster refuses here with a settings
-    // action, before any model turn; everything else reaches the bridge
-    // verbatim. A terminal tab's TUI and a chat (no project roster) keep the
-    // ordinary path.
+    // Native project sessions use their process's captured Council state,
+    // never current Settings. Terminal tabs and Chats keep the ordinary path.
     match: /^\/council(?:\s[\s\S]*)?$/,
-    run(tabId, get, line) {
-      if (get().state?.councilEnabled !== true) return false;
+    run(tabId, get, _line, message) {
       const tab = get().tabs.find((candidate) => candidate.tabId === tabId);
       if (tab?.mode !== "rpc-ui" || isChatTab(get().state, tabId)) return false;
-      return get().runCouncilCommand(tabId, line);
+      return get().runCouncilCommand(tabId, message);
     },
   },
   {
@@ -2466,7 +2463,7 @@ export function createSessionParamsSlice(
     if (trimmed === "/") return;
     const localCommand = localCommands.find(({ match }) => match.test(trimmed));
     if (localCommand !== undefined) {
-      const result = localCommand.run(tabId, get, trimmed);
+      const result = localCommand.run(tabId, get, trimmed, message);
       if (result !== false) {
         if (result !== undefined) await result;
         return;
@@ -2682,37 +2679,67 @@ export function createSessionParamsSlice(
     );
   };
 
-  /**
-   * One `/council` line (ADR-0088). An empty launchable roster refuses here,
-   * before any model turn, with a failed row that offers Council settings;
-   * everything else reaches the council bridge verbatim on the advertised
-   * path, which owns every other refusal.
-   */
+  /** Refuse locally unless this process has a council and advertises its bridge. */
   const runCouncilCommand = async (tabId: string, line: string): Promise<void> => {
     const message = line.startsWith("/") ? line : `/${line}`;
-    const tab = get().tabs.find((c) => c.tabId === tabId);
-    let launchable: number | null = null;
-    if (tab !== undefined) {
-      try {
-        launchable = (await backendFor(tab.instanceId).getCouncilRoster(tab.projectCwd)).members
-          .length;
-      } catch {
-        // Unknown (e.g. a remote channel refused): the bridge decides.
-        launchable = null;
-      }
-    }
-    if (launchable === 0) {
-      const body = message.slice(1).trim();
+    const fail = (error: string, action?: CommandItem["action"]): void => {
+      const body = message.trim().slice(1);
       const at = body.search(/\s/);
       m.appendItem(tabId, {
-        ...commandItem(at === -1 ? body : body.slice(0, at), at === -1 ? "" : body.slice(at + 1)),
+        ...commandItem(at === -1 ? body : body.slice(0, at), at === -1 ? "" : body.slice(at + 1).trim()),
         status: "failed",
-        error: t("council.command.empty"),
-        action: "council-settings",
+        error,
+        action,
       });
+    };
+    const tab = get().tabs.find((c) => c.tabId === tabId);
+    if (tab === undefined) {
+      fail(t("council.command.missingSession"));
       return;
     }
-    await forwardSlashCommand(tabId, message);
+    let status: SessionCouncilStatus;
+    try {
+      status = await backendFor(tab.instanceId).getSessionCouncilStatus(tabId);
+    } catch (err) {
+      fail(t("council.command.queryFailed", { cause: err instanceof Error ? err.message : String(err) }));
+      return;
+    }
+    switch (status.status) {
+      case "available":
+        if (!get().rpc[tabId]?.commands.some((c) => c.name === "council" && c.source === "extension")) {
+          fail(t("council.command.missingBridge"));
+          return;
+        }
+        await forwardSlashCommand(tabId, message);
+        return;
+      case "empty":
+        fail(
+          [t("council.command.empty"), ...status.configWarnings].join("\n"),
+          "council-settings",
+        );
+        return;
+      case "unavailable":
+        fail(t("council.command.unavailable", {
+          stage: t(`council.command.stage.${status.failure.stage}`),
+          cause: status.failure.message,
+        }));
+        return;
+      case "disabled":
+        fail(t("council.command.disabled"));
+        return;
+      case "starting":
+        fail(t("council.command.starting"));
+        return;
+      case "missing-session":
+        fail(t("council.command.missingSession"));
+        return;
+      case "not-live":
+        fail(t("council.command.notLive"));
+        return;
+      case "terminal":
+        fail(t("council.command.terminal"));
+        return;
+    }
   };
 
   /**

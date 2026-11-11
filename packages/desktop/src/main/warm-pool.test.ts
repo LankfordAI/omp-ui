@@ -4,9 +4,10 @@ import * as path from "node:path";
 import { afterEach, describe, expect, it, vi } from "vitest";
 import type { RpcClient } from "@omp-ui/core";
 import { Registry } from "@omp-ui/core";
+import * as Core from "@omp-ui/core";
 import { ownedSessionRecord } from "./test/fixtures";
 import { NO_GATE, type SpawnGate } from "./spawn-gate";
-import type { SubagentSpawnConfig } from "./spawn-config";
+import { writeCouncilForSpawn, type SubagentSpawnConfig } from "./spawn-config";
 import {
   WarmRpcPool,
   hashLineageTree,
@@ -206,6 +207,57 @@ describe("WarmRpcPool lifecycle", () => {
   });
 });
 
+describe("WarmRpcPool Council preparation", () => {
+  it.each(["overlay", "snapshot", "extension"] as const)("never parks an enabled build with a real %s write failure", (stage) => {
+    const root = fs.mkdtempSync(path.join(os.tmpdir(), "warm-council-failure-"));
+    tmpDirs.push(root);
+    const projectCwd = path.join(root, "project");
+    fs.mkdirSync(projectCwd);
+    const registry = Registry.load(path.join(root, "registry.json"));
+    registry.setSetting("autoresearchEnabled", false);
+    registry.setSetting("councilEnabled", true);
+    registry.setSetting("councilRoster", {
+      instructions: null,
+      members: [{ name: "member", model: "provider/member", instructions: null, enabled: true }],
+    });
+    const template = sanitizeWarmTemplate(ownedSessionRecord({ projectCwd }));
+    const dir = path.join(root, template.lineageDir);
+    const blocked = stage === "overlay" ? Core.councilOverlayPath(dir)
+      : stage === "snapshot" ? Core.councilRosterSnapshotPath(dir)
+      : Core.councilExtensionPath(dir);
+    const resolveCouncilRoster = Core.resolveCouncilRoster;
+    const resolve = vi.spyOn(Core, "resolveCouncilRoster").mockImplementation((...args) => {
+      // Council resolution runs after the warm builder recreates its owned directory.
+      fs.mkdirSync(blocked, { recursive: true });
+      return resolveCouncilRoster(...args);
+    });
+    const warning = vi.spyOn(console, "warn").mockImplementation(() => {});
+    const pool = new WarmRpcPool({
+      registry,
+      getSessionsRoot: () => root,
+      gate: () => NO_GATE,
+      subagentSpawnConfig: () => NO_CONFIG,
+      enabled: () => true,
+    });
+    const plan = { planKey: "council-plan", ompPath: "/nonexistent/omp", template };
+    try {
+      pool.scheduleRefill(plan);
+      expect(pool.reserve(plan.planKey)).toBeNull();
+      expect(warning.mock.calls[0]?.[1]).toMatchObject({ stage, cause: expect.any(Error) });
+      expect(pool.available()).toBe(true);
+      pool.scheduleRefill(plan);
+      expect(pool.reserve(plan.planKey)).toBeNull();
+      expect(pool.available()).toBe(false);
+      if (stage !== "overlay") expect(fs.existsSync(Core.councilOverlayPath(dir))).toBe(false);
+      if (stage !== "snapshot") expect(fs.existsSync(Core.councilRosterSnapshotPath(dir))).toBe(false);
+    } finally {
+      pool.dispose();
+      warning.mockRestore();
+      resolve.mockRestore();
+    }
+  });
+});
+
 // ---------------------------------------------------------------------------
 // killWarmClient
 // ---------------------------------------------------------------------------
@@ -321,6 +373,49 @@ describe("hashLineageTree", () => {
     const base = hashLineageTree(tree({ "ext-e.ts": "processKey: 'k1'" }));
     expect(hashLineageTree(tree({ "ext-e.ts": "processKey: 'k2'" }))).toBe(base);
     expect(hashLineageTree(tree({ "other-e.ts": "processKey: 'k1'" }))).not.toBe(base);
+  });
+
+  it.each(["shared", "member", "trial"] as const)("invalidates the adoption hash for %s instructions even when grants are unchanged", (scope) => {
+    const root = tree({});
+    const document: Core.CouncilDocument = {
+      instructions: "shared instructions",
+      members: [{ name: "member", model: "provider/member", instructions: "member instructions", enabled: true }],
+      trial: { name: "trial", model: "provider/trial", instructions: "trial instructions", enabled: true },
+    };
+    expect(writeCouncilForSpawn(root, true, document, null).status).toBe("ready");
+    const originalHash = hashLineageTree(root);
+    const originalGrants = fs.readFileSync(Core.councilOverlayPath(root), "utf8");
+    const changed: Core.CouncilDocument = {
+      ...document,
+      ...(scope === "shared" ? { instructions: "changed shared instructions" } : {}),
+      ...(scope === "member" ? { members: [{ ...document.members[0]!, instructions: "changed member instructions" }] } : {}),
+      ...(scope === "trial" ? { trial: { ...document.trial!, instructions: "changed trial instructions" } } : {}),
+    };
+    expect(writeCouncilForSpawn(root, true, changed, null).status).toBe("ready");
+    expect(fs.readFileSync(Core.councilOverlayPath(root), "utf8")).toBe(originalGrants);
+    const changedHash = hashLineageTree(root);
+    expect(changedHash).not.toBe(originalHash);
+    // The manifest, not generated TypeScript byte equality, guards adoption.
+    fs.writeFileSync(Core.councilExtensionPath(root), "different generated bridge bytes");
+    expect(hashLineageTree(root)).toBe(changedHash);
+  });
+
+  it("invalidates the adoption hash when only the trial model changes", () => {
+    const root = tree({});
+    const document: Core.CouncilDocument = {
+      instructions: null,
+      members: [{ name: "member", model: "provider/member", instructions: null, enabled: true }],
+      trial: { name: "trial", model: "provider/trial-one", instructions: null, enabled: true },
+    };
+    expect(writeCouncilForSpawn(root, true, document, null).status).toBe("ready");
+    const originalHash = hashLineageTree(root);
+    expect(writeCouncilForSpawn(root, true, {
+      ...document,
+      trial: { ...document.trial!, model: "provider/trial-two" },
+    }, null).status).toBe("ready");
+    expect(hashLineageTree(root)).not.toBe(originalHash);
+    const manifest = JSON.parse(fs.readFileSync(Core.councilRosterSnapshotPath(root), "utf8"));
+    expect(manifest.trial.model).toBe("provider/trial-two");
   });
 
   it("an empty dir has a stable hash, distinct from any tree", () => {

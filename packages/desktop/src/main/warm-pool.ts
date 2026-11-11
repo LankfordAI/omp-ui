@@ -88,10 +88,10 @@ export function warmPlanKey(input: {
 
 /**
  * Deterministic digest of the plan-defining dir tree: sorted relative paths +
- * raw bytes — except the generated `-e` bridge `.ts` files, digested by name
- * only. Several embed a per-write random `processKey`, so byte equality
- * across two writes is impossible; within one app process their template
- * code is a module constant and the file set is the real identity.
+ * raw bytes, including the Council manifest that captures the embedded launch
+ * state. Generated `-e` bridge `.ts` files are digested by name only: several
+ * embed a per-write random `processKey`, so their bytes intentionally do not
+ * participate in adoption identity.
  */
 export function hashLineageTree(root: string): string {
   const h = createHash("sha256");
@@ -266,10 +266,22 @@ export class WarmRpcPool {
     try {
       fs.rmSync(dir, { recursive: true, force: true });
       fs.mkdirSync(dir, { recursive: true });
-      const { paths: extensions, loaded } = writeRpcExtensions(dir, {
+      const projectRecord = this.deps.registry.projects.find(
+        (project) => project.path === plan.template.projectCwd,
+      );
+      const council = writeCouncilForSpawn(
+        dir,
+        this.deps.registry.getSetting("councilEnabled"),
+        this.deps.registry.getSetting("councilRoster"),
+        projectRecord?.councilRoster ?? null,
+      );
+      if (council.status === "unavailable") {
+        throw new Error(`council initialization failed (${council.failure.stage}): ${council.failure.message}`);
+      }
+      const { paths: extensions } = writeRpcExtensions(dir, {
         autoresearchEnabled: this.deps.registry.getSetting("autoresearchEnabled"),
-        councilEnabled: this.deps.registry.getSetting("councilEnabled"),
       });
+      if (council.extensionPath !== null) extensions.push(council.extensionPath);
       const configOverlays = await writeRpcOverlays(
         plan.template,
         dir,
@@ -277,17 +289,7 @@ export class WarmRpcPool {
         this.deps.gate(),
         this.deps.subagentSpawnConfig(),
       );
-      if (loaded.council) {
-        const projectRecord = this.deps.registry.projects.find(
-          (project) => project.path === plan.template.projectCwd,
-        );
-        const overlay = writeCouncilForSpawn(
-          dir,
-          this.deps.registry.getSetting("councilRoster"),
-          projectRecord?.councilRoster ?? null,
-        );
-        if (overlay !== null) configOverlays.push(overlay);
-      }
+      if (council.overlayPath !== null) configOverlays.push(council.overlayPath);
       let resolveReady: () => void = () => {};
       const ready = new Promise<void>((resolve) => {
         resolveReady = resolve;

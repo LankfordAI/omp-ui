@@ -140,6 +140,7 @@ import {
   type AutoresearchSnapshot,
   type CapabilityToolMutationRequest,
   type SessionCapabilitiesResult,
+  type SessionCouncilStatus,
   type SetSessionToolEnabledResult,
   type SessionMode,
   type SubagentModelMap,
@@ -1530,6 +1531,14 @@ export class SessionManager {
     warmHandoff: { slot: WarmSlot; planKey: string } | null = null,
   ): Promise<{ tabId: string }> {
     const absLineageDir = path.join(this.deps.getSessionsRoot(), record.lineageDir);
+    const councilEnabled = this.deps.registry.getSetting("councilEnabled");
+    const globalCouncil = this.deps.registry.getSetting("councilRoster");
+    const projectCouncil = this.deps.registry.projects.find(
+      (project) => project.path === record.projectCwd,
+    )?.councilRoster ?? null;
+    // Capture and prepare before any await: later Settings edits belong only
+    // to the next process, including when this launch adopts a warm child.
+    const council = writeCouncilForSpawn(absLineageDir, councilEnabled, globalCouncil, projectCouncil);
     // The one fleet-tool capability read for this process: the `set_host_tools`
     // gate below registers the fleet tools exactly on it, and the live entry
     // carries it so the foreign-`omp` notice (#1076) advises from what this
@@ -1542,8 +1551,21 @@ export class SessionManager {
     const entry = createRpcLiveEntry(record, fleetAccess);
     const { paths: extensions, loaded: bridgeLoaded } = writeRpcExtensions(absLineageDir, {
       autoresearchEnabled: this.deps.registry.getSetting("autoresearchEnabled"),
-      councilEnabled: this.deps.registry.getSetting("councilEnabled"),
     });
+    if (council.extensionPath !== null) extensions.push(council.extensionPath);
+    switch (council.status) {
+      case "disabled":
+        entry.councilStatus = { status: "disabled" };
+        break;
+      case "unavailable":
+        entry.councilStatus = { status: "unavailable", failure: council.failure };
+        break;
+      case "ready":
+        entry.councilStatus = council.snapshot.members.length > 0
+          ? { status: "available", memberCount: council.snapshot.members.length }
+          : { status: "empty", configWarnings: council.snapshot.configWarnings };
+        break;
+    }
     entry.planBridgeLoaded = bridgeLoaded.plan;
     entry.advisorStatsBridgeLoaded = bridgeLoaded.advisorStats;
     entry.capabilitiesBridgeLoaded = bridgeLoaded.capabilities;
@@ -1780,24 +1802,9 @@ export class SessionManager {
       this.gate,
       this.subagentSpawnConfig(),
     );
+    if (council.overlayPath !== null) configOverlays.push(council.overlayPath);
     if (record.worktree !== null) {
       await linkProjectOmpDir(record.projectCwd, record.worktree.path);
-    }
-    // The council is app state (ADR-0088): the project record's document
-    // (null = global), resolved at snapshot time. Every rpc launch (fresh,
-    // resume, restart) refreshes the snapshot and its overlay. Written only
-    // while the council flag loaded the bridge — flag off leaves no
-    // council artifact in the lineage dir.
-    if (bridgeLoaded.council) {
-      const projectRecord = this.deps.registry.projects.find(
-        (project) => project.path === record.projectCwd,
-      );
-      const overlay = writeCouncilForSpawn(
-        absLineageDir,
-        this.deps.registry.getSetting("councilRoster"),
-        projectRecord?.councilRoster ?? null,
-      );
-      if (overlay !== null) configOverlays.push(overlay);
     }
     // One-shot watcher (issue #718): when the runtime rejects the delta
     // negotiation — or echoes full mode — the spawn streams full snapshots
@@ -1934,6 +1941,7 @@ export class SessionManager {
         dirMatches = false;
       }
       if (
+        council.status !== "unavailable" &&
         !slot.client.dead &&
         dirMatches &&
         gateSelector(this.gate) === null &&
@@ -2458,6 +2466,16 @@ export class SessionManager {
     if (!entry.capabilitiesBridgeLoaded) return { status: "bridge-unavailable" };
     if (entry.capabilities === null) return { status: "starting" };
     return { status: "available", snapshot: entry.capabilities };
+  }
+
+  /** The actual process's captured council state; Settings apply only on relaunch. */
+  async getSessionCouncilStatus(tabId: string): Promise<SessionCouncilStatus> {
+    const record = this.deps.registry.sessions.find((session) => session.tabId === tabId);
+    if (!record) return { status: "missing-session" };
+    const entry = this.live.get(tabId);
+    if (!entry) return { status: "not-live" };
+    if (entry.kind === "pty") return { status: "terminal" };
+    return entry.councilStatus;
   }
 
   /**

@@ -94,6 +94,7 @@ import type { LiveAudioEntry, LiveAudioLoad, LiveHistoryEntry, LiveHistoryTurn }
 import type { SubagentModelMap } from "./subagent-model";
 import type { KeybindingOverrides } from "./keybindings";
 import type { CouncilRosterView, CouncilWriteRequest } from "./council-config";
+import type { SessionCouncilStatus } from "./council-roster-snapshot";
 import type { SessionCapabilitiesResult, SetSessionToolEnabledResult } from "./capabilities";
 import type { CollabAccess, CollabTabSnapshot, CollabTabState } from "./collab";
 import type {
@@ -1741,6 +1742,11 @@ export const BACKEND_CHANNELS = {
   getSessionCapabilities: {
     channel: "session:capabilities",
     ...request<[tabId: string], SessionCapabilitiesResult>([str()]),
+  },
+  /** Council state frozen for the owning session's current process. */
+  getSessionCouncilStatus: {
+    channel: "session:council-status",
+    ...request<[tabId: string], SessionCouncilStatus>([str()]),
   },
   /**
    * The capability CATALOGS (issue #383, ADR-0025): skills and tools as
