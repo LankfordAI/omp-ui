@@ -81,8 +81,9 @@ export function isSessionSettled(s: SessionSummary): boolean {
  * `backgroundWorkTabIds` carries the tabs whose bridge snapshot reports a running
  * background job (issue #1026): like a running turn, that work needs nothing from
  * the user, so those rows join Working. The caller builds the set from its own
- * renderer state (local rpc-ui tabs only); remote rows never appear in it and keep
- * the host-published `turnRunning` level alone.
+ * renderer state: every live rpc-ui tab it holds an async-jobs snapshot for,
+ * local or remote. A remote row this renderer never mounted has no snapshot and
+ * keeps the host-published `turnRunning` level alone.
  */
 export function buildSidebarLists(
   state: BackendState,

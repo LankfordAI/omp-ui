@@ -549,9 +549,12 @@ export function Sidebar() {
   });
 
   const filtering = query.trim().length > 0;
-  // Tabs whose bridge snapshot reports a running background job (issue #1026):
-  // the same signal `deriveSidebarSessionState` calls working, so the section
-  // and the chip agree. Joined string for a stable selector; Set rebuilt per key.
+  // Tabs whose bridge snapshot reports a running background job (issues #1026,
+  // #1153): the same signal `deriveSidebarSessionState` calls working, so the
+  // section and the chip agree on every row. A remote tab this renderer has
+  // mounted holds its own rpc[tabId].asyncJobs; an unmounted one has none and
+  // keeps the host's turnRunning level alone, exactly as its chip does.
+  // Joined string for a stable selector; Set rebuilt per key.
   const bgWorkKey = useStore((st) => {
     if (st.state === null) return "";
     const ids: string[] = [];
@@ -561,6 +564,10 @@ export function Sidebar() {
     };
     for (const group of st.state.projects) for (const s of group.sessions) push(s);
     for (const s of st.state.chats) push(s);
+    for (const instance of st.state.remoteInstances) {
+      if (instance.status === "self") continue;
+      for (const group of instance.projects) for (const s of group.sessions) push(s);
+    }
     return ids.join(",");
   });
   const backgroundWorkTabIds = useMemo(
