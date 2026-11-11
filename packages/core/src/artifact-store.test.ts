@@ -258,3 +258,118 @@ describe("ArtifactStore security and lease", () => {
     expect((await Promise.all([childLine(a), childLine(b)])).sort()).toEqual(["busy", "owned"]);
   }, 20000);
 });
+
+describe("ArtifactStore human maintenance", () => {
+  it("renames with generation CAS while grants keep their immutable Keep-time titles", () => {
+    const store = open(); const record = keep(store);
+    const grant = store.createReference({ artifactId: record.artifactId, codeRevisionId: record.currentCodeRevisionId, dataSnapshotId: record.currentDataSnapshotId, includeData: true });
+    expect(grant.title).toBe("Chart");
+    expect(() => store.rename({ artifactId: record.artifactId, expectedGeneration: 99, title: "Renamed" })).toThrow(/changed/);
+    const renamed = store.rename({ artifactId: record.artifactId, expectedGeneration: record.generation, title: "Renamed" });
+    expect(renamed).toMatchObject({ title: "Renamed", generation: record.generation + 1 });
+    // The stored grant keeps its snapshot title; a descriptor built from the NEW title fails closed.
+    expect(store.readReference({ referenceId: grant.referenceId }).title).toBe("Chart");
+    expect(store.list().artifacts.find(row => row.artifactId === record.artifactId)?.title).toBe("Renamed");
+    const candidate = managed(); candidate.basedOn = { referenceId: grant.referenceId };
+    const draft = store.stageDocument({ title: "Candidate", html: "<p>x</p>", source: source(), originContext: { kind: "chat" }, managed: candidate });
+    expect(store.lookupSource({ source: draft.source, draftId: draft.draftId }).status).toBe("draft");
+    // A new grant after the rename carries the new title.
+    const next = store.createReference({ artifactId: record.artifactId, codeRevisionId: renamed.currentCodeRevisionId, dataSnapshotId: renamed.currentDataSnapshotId, includeData: false });
+    expect(next.title).toBe("Renamed");
+    // A stale delete on the shared generation still conflicts.
+    expect(() => store.deleteArtifact({ artifactId: record.artifactId, expectedGeneration: record.generation })).toThrow(/changed/);
+  });
+  it("orders the list by recency with a stable opaque cursor across equal timestamps", () => {
+    const store = open();
+    const first = keep(store, managed(), source("a")); const second = keep(store, managed(), source("b"));
+    // Equal updatedAt values must page deterministically on the id tiebreak.
+    const pageOne = store.list({ limit: 1 });
+    expect(pageOne.artifacts).toHaveLength(1); expect(pageOne.nextCursor).not.toBeNull();
+    const pageTwo = store.list({ limit: 1, cursor: pageOne.nextCursor! });
+    expect(pageTwo.artifacts.map(row => row.artifactId)).toEqual([first.artifactId === pageOne.artifacts[0]!.artifactId ? second.artifactId : first.artifactId]);
+    const merged = [...pageOne.artifacts, ...pageTwo.artifacts].map(row => row.artifactId).sort();
+    expect(merged).toEqual([first.artifactId, second.artifactId].sort());
+    // Cursors are opaque store-owned tokens: a hand-built compound token pages; junk fails bounded validation.
+    const forged = Buffer.from(`${createdAt}|${first.artifactId}`, "utf8").toString("base64url");
+    expect(() => store.list({ cursor: forged })).not.toThrow();
+    expect(() => store.list({ cursor: "!!!not-a-token|||" })).toThrow(/cursor/);
+    expect(() => store.list({ cursor: Buffer.from(`${createdAt}|not-a-uuid`, "utf8").toString("base64url") })).toThrow(/cursor id/);
+  });
+  it("discards unapplied captures, refuses applied ones, and auto-dismisses emptied requests", () => {
+    const store = open(); const original = keep(store);
+    const refresh = store.prepareRefresh({ artifactId: original.artifactId, codeRevisionId: original.currentCodeRevisionId, dataSnapshotId: original.currentDataSnapshotId, targetTabId: "tab-a", datasetIds: ["rows"] });
+    store.bindRefresh({ refreshRequestId: refresh.refreshRequestId, targetTabId: "tab-a", lineageDir: "/trusted/project", runtimeKey, sessionId });
+    const staged = store.stageCapture({ refreshRequestId: refresh.refreshRequestId, targetTabId: "tab-a", lineageDir: "/trusted/project", runtimeKey, sessionId, source: source(), datasets: [{ id: "rows", title: "Rows", schema: "rows-v1", value: [{ n: 2 }], provenance: provenance() }] });
+    expect(store.readRefresh({ refreshRequestId: refresh.refreshRequestId }).status).toBe("captured");
+    store.discardCapture({ captureId: staged.captureId });
+    // The request had zero remaining captures, so it fell through to dismissed.
+    expect(store.readRefresh({ refreshRequestId: refresh.refreshRequestId }).status).toBe("dismissed");
+    // A late re-capture for a dismissed request fails closed.
+    expect(() => store.stageCapture({ refreshRequestId: refresh.refreshRequestId, targetTabId: "tab-a", lineageDir: "/trusted/project", runtimeKey, sessionId, source: source(), datasets: [{ id: "rows", title: "Rows", schema: "rows-v1", value: [{ n: 3 }], provenance: provenance() }] })).toThrow(/dismissed/);
+    // An applied capture refuses discard.
+    const refresh2 = store.prepareRefresh({ artifactId: original.artifactId, codeRevisionId: original.currentCodeRevisionId, dataSnapshotId: original.currentDataSnapshotId, targetTabId: "tab-b", datasetIds: ["notes"] });
+    store.bindRefresh({ refreshRequestId: refresh2.refreshRequestId, targetTabId: "tab-b", lineageDir: "/trusted/project", runtimeKey, sessionId });
+    const staged2 = store.stageCapture({ refreshRequestId: refresh2.refreshRequestId, targetTabId: "tab-b", lineageDir: "/trusted/project", runtimeKey, sessionId, source: source(), datasets: [{ id: "notes", title: "Notes", schema: "notes-v1", value: ["fresh"], provenance: provenance() }] });
+    store.applyCapture({ captureId: staged2.captureId, expectedCodeRevisionId: original.currentCodeRevisionId, expectedDatasetHeads: refresh2.expectedDatasetHeads });
+    expect(() => store.discardCapture({ captureId: staged2.captureId })).toThrow(/applied/);
+  });
+  it("dismisses awaiting requests, refuses captured/applied ones, and fences late captures", () => {
+    const store = open(); const original = keep(store);
+    const refresh = store.prepareRefresh({ artifactId: original.artifactId, codeRevisionId: original.currentCodeRevisionId, dataSnapshotId: original.currentDataSnapshotId, targetTabId: "tab-a", datasetIds: ["rows"] });
+    expect(() => store.dismissRefreshRequest({ refreshRequestId: refresh.refreshRequestId })).not.toThrow();
+    expect(store.readRefresh({ refreshRequestId: refresh.refreshRequestId }).status).toBe("dismissed");
+    const live = store.prepareRefresh({ artifactId: original.artifactId, codeRevisionId: original.currentCodeRevisionId, dataSnapshotId: original.currentDataSnapshotId, targetTabId: "tab-d", datasetIds: ["notes"] });
+    store.bindRefresh({ refreshRequestId: live.refreshRequestId, targetTabId: "tab-d", lineageDir: "/trusted/project", runtimeKey, sessionId });
+    const staged = store.stageCapture({ refreshRequestId: live.refreshRequestId, targetTabId: "tab-d", lineageDir: "/trusted/project", runtimeKey, sessionId, source: source(), datasets: [{ id: "notes", title: "Notes", schema: "notes-v1", value: ["later"], provenance: provenance() }] });
+    // captured refuses dismiss; applied refuses both.
+    expect(() => store.dismissRefreshRequest({ refreshRequestId: live.refreshRequestId })).toThrow(/awaiting/);
+    const appliedRecord = store.applyCapture({ captureId: staged.captureId, expectedCodeRevisionId: original.currentCodeRevisionId, expectedDatasetHeads: live.expectedDatasetHeads });
+    expect(store.readRefresh({ refreshRequestId: live.refreshRequestId }).status).toBe("applied");
+    expect(() => store.dismissRefreshRequest({ refreshRequestId: live.refreshRequestId })).toThrow(/applied/);
+    expect(appliedRecord.generation).toBeGreaterThan(original.generation);
+  });
+  it("restores an old snapshot as a new head with cause restore and fences in-flight captures", () => {
+    const store = open(); const record = keep(store);
+    const firstHead = record.currentDataSnapshotId;
+    const edited = store.patchUserState({ artifactId: record.artifactId, expectedCodeRevisionId: record.currentCodeRevisionId, expectedDataSnapshotId: firstHead, expectedStateRevision: 0, set: { filter: "manual" } });
+    expect(snapshot(store, edited).userState.filter).toBe("manual");
+    const refresh = store.prepareRefresh({ artifactId: record.artifactId, codeRevisionId: record.currentCodeRevisionId, dataSnapshotId: edited.currentDataSnapshotId, targetTabId: "tab-a", datasetIds: ["rows"] });
+    store.bindRefresh({ refreshRequestId: refresh.refreshRequestId, targetTabId: "tab-a", lineageDir: "/trusted/project", runtimeKey, sessionId });
+    const restored = store.restoreSnapshot({ artifactId: record.artifactId, dataSnapshotId: firstHead, expectedCodeRevisionId: record.currentCodeRevisionId });
+    expect(restored.currentDataSnapshotId).not.toBe(firstHead).not.toBe(edited.currentDataSnapshotId);
+    expect(snapshot(store, restored).userState.filter).toBe("all"); // the old values won the head
+    expect(store.readSnapshot({ artifactId: record.artifactId, dataSnapshotId: firstHead }).cause).toBe("initial"); // append-only: the old snapshot stays
+    expect(store.describe({ artifactId: record.artifactId }).snapshots.find(row => row.dataSnapshotId === restored.currentDataSnapshotId)?.cause).toBe("restore");
+    // Restore minted fresh dataset heads, so the in-flight capture fails closed at staging.
+    expect(() => store.stageCapture({ refreshRequestId: refresh.refreshRequestId, targetTabId: "tab-a", lineageDir: "/trusted/project", runtimeKey, sessionId, source: source(), datasets: [{ id: "rows", title: "Rows", schema: "rows-v1", value: [{ n: 7 }], provenance: provenance() }] })).toThrow(/changed/);
+    expect(() => store.restoreSnapshot({ artifactId: record.artifactId, dataSnapshotId: randomUUID(), expectedCodeRevisionId: record.currentCodeRevisionId })).toThrow();
+  });
+  it("prunes only excluded-otherwise history and always spares every referenced version", () => {
+    const store = open(); let record = keep(store);
+    // A refresh is bound to the then-current snapshot; growing newer snapshots afterwards makes that referenced snapshot OLD, which prune must still spare.
+    const oldRefresh = store.prepareRefresh({ artifactId: record.artifactId, codeRevisionId: record.currentCodeRevisionId, dataSnapshotId: record.currentDataSnapshotId, targetTabId: "tab-a", datasetIds: ["rows"] });
+    for (let n = 0; n < 4; n++) record = store.patchUserState({ artifactId: record.artifactId, expectedCodeRevisionId: record.currentCodeRevisionId, expectedDataSnapshotId: record.currentDataSnapshotId, expectedStateRevision: record.generation - 1, set: { round: n } });
+    const grant = store.createReference({ artifactId: record.artifactId, codeRevisionId: record.currentCodeRevisionId, dataSnapshotId: record.currentDataSnapshotId, includeData: true });
+    const before = store.describe({ artifactId: record.artifactId });
+    expect(before.snapshots).toHaveLength(5);
+    const result = store.prune({ artifactId: record.artifactId, expectedGeneration: record.generation, keepRevisions: 1, keepSnapshots: 1 });
+    expect(result.removedRevisions).toBe(0); // only one revision exists; nothing deletable
+    const after = store.describe({ artifactId: record.artifactId });
+    // keepSnapshots=1 keeps the head; the old refresh-referenced snapshot and the grant snapshot survive; the three middle history snapshots go.
+    expect(result.removedSnapshots).toBe(3);
+    expect(before.snapshots.length - after.snapshots.length).toBe(result.removedSnapshots);
+    expect(after.snapshots.some(row => row.dataSnapshotId === oldRefresh.dataSnapshotId)).toBe(true);
+    expect(after.snapshots.some(row => row.dataSnapshotId === grant.dataSnapshotId)).toBe(true);
+    expect(after.snapshots.some(row => row.dataSnapshotId === after.artifact.currentDataSnapshotId)).toBe(true);
+    expect(result.freedLogicalBytes).toBeGreaterThan(0);
+    expect(() => store.prune({ artifactId: record.artifactId, expectedGeneration: 424242, keepRevisions: 1, keepSnapshots: 1 })).toThrow(/changed/);
+    expect(() => store.prune({ artifactId: record.artifactId, expectedGeneration: after.artifact.generation, keepRevisions: 0, keepSnapshots: 5 })).toThrow(/keepRevisions/);
+    // Pruning never moves heads: history-only.
+    expect(store.describe({ artifactId: record.artifactId }).artifact.currentDataSnapshotId).toBe(after.artifact.currentDataSnapshotId);
+    // The pruned-away snapshots are gone and reads of survivors still work.
+    const removed = before.snapshots.map(row => row.dataSnapshotId).filter(id => !after.snapshots.some(row => row.dataSnapshotId === id));
+    expect(removed).toHaveLength(result.removedSnapshots);
+    for (const id of removed) expect(() => store.readSnapshot({ artifactId: record.artifactId, dataSnapshotId: id })).toThrow();
+    for (const id of after.snapshots.map(row => row.dataSnapshotId)) expect(() => store.readSnapshot({ artifactId: record.artifactId, dataSnapshotId: id })).not.toThrow();
+  });
+});

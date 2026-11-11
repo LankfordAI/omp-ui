@@ -101,7 +101,23 @@ export function installHtmlArtifactGuard(host: WebContents, broker?: ArtifactGue
     installed = true;
     lockArtifactSession();
     app.on("web-contents-created", (_event, contents) => {
-      if (contents.getType() === "webview") confineGuest(contents);
+      if (contents.getType() !== "webview") return;
+      confineGuest(contents);
+      // Escape focus reclaim for every artifact-partition guest, plain ones
+      // included (#1130). A plain guest has no broker surface, so without this
+      // an Escape pressed while focus sits inside it never reaches the host,
+      // and a renderer-side focus() cannot pull native WebContents focus out
+      // of an out-of-process guest. `before-input-event` sees real user input
+      // only — guest JavaScript cannot fabricate it. Nothing else crosses: no
+      // preload, no load(), no saveState().
+      if (contents.session !== session.fromPartition(HTML_ARTIFACT_PARTITION)) return;
+      const reclaimOnEscape = (_event2: unknown, input: { type: string; key: string }): void => {
+        if (input.type !== "keyDown" || input.key !== "Escape") return;
+        const hostFrame = contents.hostWebContents;
+        if (hostFrame && !hostFrame.isDestroyed()) hostFrame.focus();
+      };
+      contents.on("before-input-event", reclaimOnEscape);
+      contents.on("destroyed", () => contents.removeListener("before-input-event", reclaimOnEscape));
     });
   }
   host.on("will-attach-webview", (event, webPreferences, params) => {

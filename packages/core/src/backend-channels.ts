@@ -160,6 +160,7 @@ import type {
   ArtifactListRequest, ArtifactListResult, ArtifactPartResult, ArtifactPrepareRefreshRequest,
   ArtifactReadRequest, ArtifactRecord, ArtifactReference, ArtifactReferenceRequest,
   ArtifactRefreshRequest, ArtifactResolveSourceRequest, ArtifactSourceLookup,
+  ArtifactRenameRequest, ArtifactDiscardCaptureRequest, ArtifactDismissRefreshRequest, ArtifactPruneRequest, ArtifactPruneResult, ArtifactRestoreSnapshotRequest, ArtifactSavePartRequest, ArtifactExportHtmlSourceRequest,
 } from "./artifacts";
 import { artifactFailure, serializeArtifactFailure } from "./artifacts";
 import { PLAN_DISMISS, PLAN_EXECUTE, PLAN_REFINE, type PlanAnswerResult, type PlanReviewVerdict } from "./plan";
@@ -246,6 +247,8 @@ import {
   artifactListCodec, artifactDescribeCodec, artifactReadCodec, artifactSourceCodec,
   artifactKeepCodec, artifactAcceptCodec, artifactReferenceCodec, artifactRefreshCodec,
   artifactApplyCodec, artifactDiscardCodec, artifactDeleteCodec,
+  artifactRenameCodec, artifactDiscardCaptureCodec, artifactDismissRefreshCodec, artifactPruneCodec, artifactRestoreCodec,
+  artifactSavePartCodec, artifactExportHtmlCodec,
 } from "./backend-arg-codecs";
 import type { HeldPromptPayload, HeldPromptRequest } from "./held-prompt";
 import type { ScheduledPromptRequest } from "./scheduled-prompt";
@@ -336,6 +339,13 @@ export const BACKEND_CHANNELS = {
   artifactApplyCapture: { channel: "artifacts:applyCapture", ...request<[input: ArtifactApplyCaptureRequest], ArtifactRecord>([artifactApplyCodec]) },
   artifactDiscardDraft: { channel: "artifacts:discardDraft", ...request<[input: {draftId: string}], void>([artifactDiscardCodec]) },
   artifactDelete: { channel: "artifacts:delete", ...request<[input: ArtifactDeleteRequest], void>([artifactDeleteCodec]) },
+  artifactRename: { channel: "artifacts:rename", ...request<[input: ArtifactRenameRequest], ArtifactRecord>([artifactRenameCodec]) },
+  artifactDiscardCapture: { channel: "artifacts:discardCapture", ...request<[input: ArtifactDiscardCaptureRequest], void>([artifactDiscardCaptureCodec]) },
+  artifactDismissRefresh: { channel: "artifacts:dismissRefresh", ...request<[input: ArtifactDismissRefreshRequest], void>([artifactDismissRefreshCodec]) },
+  artifactPrune: { channel: "artifacts:prune", ...request<[input: ArtifactPruneRequest], ArtifactPruneResult>([artifactPruneCodec]) },
+  artifactRestoreSnapshot: { channel: "artifacts:restoreSnapshot", ...request<[input: ArtifactRestoreSnapshotRequest], ArtifactRecord>([artifactRestoreCodec]) },
+  artifactSavePart: { channel: "artifacts:savePart", ...request<[input: ArtifactSavePartRequest], string | null>([artifactSavePartCodec]) },
+  artifactExportHtmlSource: { channel: "artifacts:exportHtmlSource", ...request<[input: ArtifactExportHtmlSourceRequest], string | null>([artifactExportHtmlCodec]) },
   onArtifactLibraryChanged: {channel: "artifacts:changed", ...event<[change: ArtifactLibraryChanged]>()},
   /**
    * Registers a directory as a project. `path` may be ~-prefixed or absolute;

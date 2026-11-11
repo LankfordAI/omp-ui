@@ -32,7 +32,7 @@ const description: ArtifactDescription = {
   artifact: { artifactId: id, ownerInstanceId: id, title: "Quarterly chart", managed: true, currentCodeRevisionId: code, currentDataSnapshotId: snapshot, generation: 1, keptAt: timestamp, createdAt: timestamp, updatedAt: timestamp, origin: source, originContext: { kind: "project", label: "Reports", path: "/reports" }, sourceDraftId: id },
   code: { artifactId: id, codeRevisionId: code, revisionNumber: 1, baseRevisionId: null, definition: { protocolVersion: 1, stateSchema: "state-v1", datasets: [{ id: "quarter", title: "Quarter", schema: "quarter-v1" }] }, source, createdAt: timestamp },
   snapshot: { artifactId: id, dataSnapshotId: snapshot, stateRevision: 1, cause: "initial", createdAt: timestamp, datasets: [{ id: "quarter", title: "Quarter", schema: "quarter-v1", head: "head", provenance }] },
-  revisions: [], snapshots: [], references: [], captures: [], refreshRequests: [], candidates: [], sourceTarget: null,
+  revisions: [], snapshots: [], references: [], captures: [], refreshRequests: [], candidates: [], retainedBytes: 1024, libraryBytesUsed: 4096, sourceTarget: null,
 };
 const refreshRequest: ArtifactRefreshRequest = { refreshRequestId: id, referenceId: id, artifactId: id, codeRevisionId: code, dataSnapshotId: snapshot, datasetIds: ["quarter"], expectedDatasetHeads: { quarter: "head" }, targetTabId: "target-tab", bound: true, lineageDir: "lineage", runtimeKey: id, sessionId: id, createdAt: timestamp, status: "captured" };
 function page(text = "{}", nextOffset: number | null = null, offset = 0): ArtifactPartResult { return { version: 1, referenceId: id, part: "dataset", offset, nextOffset, totalBytes: 20000, encoding: "utf-8", text }; }

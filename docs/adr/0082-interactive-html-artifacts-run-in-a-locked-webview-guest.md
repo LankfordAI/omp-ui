@@ -185,3 +185,35 @@ Alternatives rejected:
 - Prompt nudge only. It gives no guarantee.
 - Rewrite the session file order. The order is display-only; the stored
   transcript and model context keep the real call order.
+
+## Amendment — guest lifecycle and focus reclaim (2026-11-11, issues #1130, #1152, #1148)
+
+- **Escape reclaims native keyboard focus from every partition guest.** An
+  out-of-process `<webview>` retains native `WebContents` keyboard focus even
+  after the renderer collapses its overlay, so a host-side `focus()` alone
+  cannot take it back. The broker now refocuses the root `WebContents` when it
+  forwards a guest Escape notice, and the guard observes Escape on every
+  attached artifact-partition guest — plain guests included, which have no
+  broker surface — applying the same root refocus. Nothing else crosses to
+  plain guests: no preload, no `load()`, no `saveState()`. This is safe by
+  construction because `before-input-event` observes real user input only;
+  guest JavaScript cannot fabricate it.
+- **Hidden tabs release their plain guests.** Every mounted card is a guest
+  process; the app keeps background tabs mounted with `display:none`, so plain
+  surfaces now mount only while the tab is visible, keeping a sized
+  placeholder and the expand control otherwise. First mounts are deferred by
+  a one-way IntersectionObserver latch (generous root margin, latches on and
+  never off within the visible tab), and a plain expanded card mounts exactly
+  one guest — the modal viewer — not inline surface plus modal.
+- **Scroll-driven guest eviction stays rejected.** Teardown on scroll-out
+  resets measured heights against follow-mode anchoring, burns single-use
+  admission tickets and the root rate budget, and throws away interactive
+  guest state that ADR-0090 never captures.
+- **Plain guests get a trusted failure row.** `did-fail-load` and
+  `render-process-gone` replace the frame with host-owned text plus Reload —
+  the same posture as the static hint; no guest download or other capability
+  is added.
+- **The scripts-off pill span is the sole sanctioned exception to flush
+  posture.** It appears only for a non-deferred plain card whose document
+  actually contains script markup, as faint text in the existing hover pill
+  row and the expanded viewer header. Script-free documents stay fully flush.

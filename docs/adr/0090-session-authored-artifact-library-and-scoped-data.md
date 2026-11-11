@@ -109,3 +109,50 @@ The deterministic store/reference/service/renderer suites accompany a packaged L
 ## Amendment: the artifact refresh block leads the wire (2026-11-10, issue #1139)
 
 [ADR-0092](0092-artifact-refresh-requests-ride-the-prompt-as-a-parsed-block.md) amends §"Small immutable references": the wire order now leads with the artifact refresh block — artifact refresh, session references, artifact references, annotations, prose, document context and routing suffix. The refresh request is bounded by the same 12 KiB constant references use, with the same proven-leading-only strip discipline; a lookalike anywhere else in the message remains inert prose and admits nothing.
+
+## Amendment: human maintenance operations (2026-11-11, issues #1143–#1150)
+
+The library gains human-only mutations on the established Keep/Apply gate
+posture — host tools receive neither these channels nor publication
+authority: rename (`artifacts:rename`), history prune
+(`artifacts:prune`), capture discard (`artifacts:discardCapture`), refresh
+dismissal (`artifacts:dismissRefresh`), snapshot restore
+(`artifacts:restoreSnapshot`), and the save/export reads
+(`artifacts:savePart`, `artifacts:exportHtmlSource`).
+
+- **Grant titles are immutable across renames.** A rename changes only
+  `ArtifactRecord.title`. `ArtifactReference` grants keep their Keep-time
+  titles forever, because `admitPrompt` compares wire descriptors against
+  stored grants; rewriting grants would fail closed every queued, held, or
+  stashed prompt. Composer chips and transcript cards therefore show the
+  Keep-time title until re-attached; references minted after a rename carry
+  the new title. Source identity never involved the record title, so
+  replay/Keep mapping is untouched. Renames publish an empty-artifact-id
+  change event so open writer guests are not revoked — only metadata moved.
+- **`dismissed` is a terminal refresh status.** Dismissal is allowed for
+  awaiting/failed/interrupted requests and refuses applied ones; the record
+  is retained as the late-capture guard, and staging or applying against a
+  dismissed request fails closed with `conflict`. Dismissal never claims the
+  underlying agent run stopped (ADR-0091: it keeps running). Discarding a
+  capture refuses applied snapshots; unreferenced payloads return through
+  the existing gc. A captured request whose last capture is discarded
+  transitions to dismissed.
+- **Prune is explicit-human-only history deletion.** Prune removes old
+  snapshots/code revisions under an explicit command, keeping the newest
+  requested counts and, absolutely, both heads plus every version referenced
+  by a grant, an applied capture, a live (non-dismissed) refresh, or a draft
+  preview. It never moves heads and is never automatic; append-only
+  immutability otherwise stands. Restore follows the same discipline: it
+  mints a NEW head snapshot copying the target's links with cause `restore`
+  — the old snapshot stays — and fresh dataset heads, which fences in-flight
+  captures through the existing `expectedDatasetHeads` recheck.
+- **Listing orders by recency.** `list` orders by `updatedAt DESC, id DESC`
+  behind an opaque compound cursor; cursors never cross builds and are
+  validated only as bounded opaque tokens.
+- **Size display is advisory.** `retainedBytes`/`libraryBytesUsed` reuse the
+  exact quota expressions transaction enforcement already applies, labeled
+  retained (logical); shared payloads mean per-artifact figures do not sum
+  to the global figure, and warnings never disable an otherwise-valid
+  operation — transaction-time checks remain authoritative. Saved exports
+  reflect ADR-0090's no-path-replay rule: bytes always come from the store,
+  never from a historical `valueFile` path.

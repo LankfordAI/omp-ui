@@ -492,11 +492,34 @@ session IDs adopt only observed same-runtime facts, including deletion tombstone
 
 Human Keep/accept/Apply/discard/delete use typed artifact channels; generic IPC
 validates the app root WebContents and non-null root main frame before dispatch.
+Human maintenance follows the same posture: rename (record title only — grants
+keep their Keep-time titles and renames publish without artifact IDs so open
+writers survive), prune (newest-N plus every head/grant/capture/refresh/draft
+reference spared; never automatic, never moves heads), restore (copies an old
+snapshot's links into a new head with cause `restore` and fresh dataset heads,
+fencing in-flight captures through the existing head rechecks), capture discard
+and refresh dismissal (`dismissed` terminal status fails late staging/apply closed
+while the agent run itself keeps running), and save/export reads whose bytes come
+only from the store, written to a human-chosen path at 0600 or as browser-blob
+downloads. `describe`/`list` carry advisory retained/library byte figures computed
+from the same expressions `checkQuota` enforces; lists order by `updatedAt DESC,
+id DESC` behind an opaque compound cursor.
 Authenticated browser WebSockets retain their independent authorization path.
 Artifact failures preserve typed JSON statuses through Electron's error-message
 serialization and contextBridge rather than becoming empty successes. Library
 lists/events/backend state contain metadata only; selected content uses bounded
 UTF-8 pages.
+
+Plain transcript guests mount only while their tab is visible and defer their
+first mount behind a one-way IntersectionObserver latch — background tabs never
+hold guest processes — while scroll-out never evicts (measured heights, tickets
+and uncapturable guest state make teardown worse than idling). An expanded plain
+card mounts exactly one guest. Escape on any artifact-partition guest refocuses
+the root WebContents in main before the renderer restores focus to its trigger,
+because a host-side `focus()` cannot pull native keyboard focus out of an
+out-of-process guest; plain guests get the same reclaim from the guard with no
+added capabilities. Plain guests also render a host-owned failure/reload row on
+`did-fail-load`/`render-process-gone`.
 
 Managed desktop surfaces alone receive the self-contained sandboxed CommonJS
 artifact preload. A main-issued unique data URL and single-use 30-second ticket

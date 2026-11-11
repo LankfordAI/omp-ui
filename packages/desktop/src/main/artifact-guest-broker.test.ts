@@ -21,7 +21,9 @@ class Contents extends EventEmitter {
   preferences: Record<string, unknown> = {};
   sent: unknown[][] = [];
   destroyed = false;
+  focused = 0;
   isDestroyed(): boolean { return this.destroyed; }
+  focus(): void { this.focused++; }
   getURL(): string { return this.url; }
   getType(): string { return this.hostWebContents ? "webview" : "window"; }
   send(...args: unknown[]): void { this.sent.push(args); }
@@ -141,6 +143,16 @@ describe("artifact guest broker authority", () => {
     expect(f.root.sent.at(-1)).toMatchObject(["artifact-host:surface-notice", { reason: "not-saved" }]);
     await expect(f.invoke("artifact-runtime:save-state", [{ expectedStateRevision: 99, set: {} }])).rejects.toThrow("conflict");
     expect(await f.invoke("artifact-runtime:load")).toMatchObject({ stateRevision: 0 });
+  });
+  it("reclaims host WebContents focus when the guest presses Escape (#1130)", async () => {
+    const f = await fixture();
+    f.guest.emit("before-input-event", {}, { type: "keyDown", key: "a" });
+    expect(f.root.focused).toBe(0);
+    f.guest.emit("before-input-event", {}, { type: "keyUp", key: "Escape" });
+    expect(f.root.focused).toBe(0);
+    f.guest.emit("before-input-event", {}, { type: "keyDown", key: "Escape" });
+    expect(f.root.focused).toBe(1);
+    expect(f.root.sent.at(-1)).toMatchObject(["artifact-host:surface-notice", { reason: "escape", reloadRequired: false }]);
   });
   it("updates theme in place and drains accepted writes before release", async () => {
     const f = await fixture();

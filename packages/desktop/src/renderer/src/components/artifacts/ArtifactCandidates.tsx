@@ -4,6 +4,7 @@ import { backend, displayMessage } from "../../backend";
 import { useStore } from "../../store";
 import { useT } from "../../lib/i18n";
 import { Button } from "../ui";
+import { ArtifactContractDiff } from "./ArtifactContractDiff";
 
 /** Candidates remain draft metadata; review/Keep stays in the ordinary source session. */
 export function ArtifactCandidates({description}: {description: ArtifactDescription}) {
@@ -25,8 +26,9 @@ export function ArtifactCandidates({description}: {description: ArtifactDescript
     {description.candidates.map(candidate => <article key={candidate.draft.draftId} data-artifact-candidate-id={candidate.draft.draftId} className="min-w-0 space-y-2 rounded border border-line p-3">
       <div className="flex flex-wrap items-baseline justify-between gap-2"><h4 className="break-words text-sm font-medium">{candidate.draft.title}</h4><span className="text-xs text-ink-dim">{t("artifacts.draftCandidate")}</span></div>
       <p className="text-xs leading-relaxed text-ink-dim">{t(candidate.stale ? "artifacts.candidateStale" : candidate.compatible ? "artifacts.contractHint" : "artifacts.candidateSchema")}</p>
+      {candidate.stale && candidate.baseRevisionNumber !== null && <p className="break-words text-xs text-ink-dim">{t("artifacts.diffBase", { base: candidate.baseRevisionNumber, current: description.revisions[0]?.revisionNumber ?? 0 })}</p>}
       {candidate.draft.previewDataSnapshotId !== null && candidate.draft.previewDataSnapshotId !== description.artifact.currentDataSnapshotId && <p className="text-xs leading-relaxed text-ink-dim">{t("artifacts.candidateOldData")}</p>}
-      <details><summary className="cursor-pointer text-xs">{t("artifacts.schema")}</summary><pre className="max-h-48 overflow-auto whitespace-pre-wrap break-all text-xs text-ink-dim">{JSON.stringify(candidate.definition, null, 2)}</pre></details>
+      <details><summary className="cursor-pointer text-xs">{t("artifacts.contractChanges")}</summary><div className="text-xs text-ink-dim"><ArtifactContractDiff current={candidate.currentDefinition} candidate={candidate.definition} /></div></details>
       <div className="flex flex-wrap items-center gap-2">
         {candidate.sourceTarget?.sessionId ? <Button disabled={busy !== null} onClick={() => { if (candidate.sourceTarget) void useStore.getState().openArtifactSource(candidate.sourceTarget); }}>{t("artifacts.openSource")}</Button> : <span className="text-xs text-ink-dim">{t("artifacts.sourceUnavailable")}</span>}
         <Button disabled={busy !== null} onClick={() => void discard(candidate.draft.draftId)}>{t(busy === candidate.draft.draftId ? "artifacts.loading" : "artifacts.discardCandidate")}</Button>

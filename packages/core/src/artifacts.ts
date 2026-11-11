@@ -58,22 +58,22 @@ export interface ArtifactDraft { draftId: string; title: string; source: Artifac
 export interface ArtifactRecord { artifactId: string; ownerInstanceId: string; title: string; managed: boolean; currentCodeRevisionId: string; currentDataSnapshotId: string; generation: number; keptAt: string; createdAt: string; updatedAt: string; origin: ArtifactSource; originContext: ArtifactOriginContext; sourceDraftId: string }
 export interface ArtifactCodeRevision { codeRevisionId: string; artifactId: string; revisionNumber: number; baseRevisionId: string | null; html: string; definition: ArtifactDefinition | null; source: ArtifactSource; createdAt: string }
 export interface ArtifactDatasetSnapshot extends ArtifactDatasetInput { head: string }
-export interface ArtifactDataSnapshot { dataSnapshotId: string; artifactId: string; userState: ArtifactJsonObject; stateRevision: number; cause: "initial" | "user-edit" | "refresh"; datasets: ArtifactDatasetSnapshot[]; createdAt: string }
+export interface ArtifactDataSnapshot { dataSnapshotId: string; artifactId: string; userState: ArtifactJsonObject; stateRevision: number; cause: "initial" | "user-edit" | "refresh" | "restore"; datasets: ArtifactDatasetSnapshot[]; createdAt: string }
 export interface ArtifactReference { version: 1; referenceId: string; ownerInstanceId: string; artifactId: string; codeRevisionId: string; dataSnapshotId: string; title: string; snapshotAt: string; includeData: boolean; machine: string; manifestUri: string; definitionUri: string; dataUri?: string; createdAt?: string }
 export type DraftArtifactReference = ArtifactReference & { instanceId: string | null };
-export interface ArtifactRefreshRequest { refreshRequestId: string; referenceId: string; artifactId: string; codeRevisionId: string; dataSnapshotId: string; datasetIds: string[]; expectedDatasetHeads: Record<string, string>; targetTabId: string; bound: boolean; lineageDir: string | null; runtimeKey: string | null; sessionId: string | null; createdAt: string; status: "awaiting" | "captured" | "failed" | "interrupted" | "applied"; failure?: {message: string; source: ArtifactSource; recordedAt: string} }
+export interface ArtifactRefreshRequest { refreshRequestId: string; referenceId: string; artifactId: string; codeRevisionId: string; dataSnapshotId: string; datasetIds: string[]; expectedDatasetHeads: Record<string, string>; targetTabId: string; bound: boolean; lineageDir: string | null; runtimeKey: string | null; sessionId: string | null; createdAt: string; status: "awaiting" | "captured" | "failed" | "interrupted" | "applied" | "dismissed"; failure?: {message: string; source: ArtifactSource; recordedAt: string} }
 /** A refresh request riding the prompt wire as a leading block (ADR-0092). */
 export interface ArtifactRefreshEntry { version: 1; refreshRequestId: string; artifactId: string; title: string; datasetIds: string[] }
 export interface ArtifactCaptureDraft { captureId: string; refreshRequestId: string; artifactId: string; codeRevisionId: string; datasets: ArtifactDatasetInput[]; expectedDatasetHeads: Record<string, string>; source: ArtifactSource; createdAt: string }
 export type ArtifactCaptureOutcome = (ArtifactCaptureDraft & {status: "captured"}) | {status: "failed"; refreshRequestId: string; artifactId: string; message: string};
 export interface ArtifactListRequest { cursor?: string; limit?: number; query?: string }
-export interface ArtifactListResult { artifacts: ArtifactRecord[]; nextCursor: string | null }
+export interface ArtifactListResult { artifacts: ArtifactRecord[]; nextCursor: string | null; libraryBytesUsed: number }
 export interface ArtifactDescribeRequest { artifactId: string; codeRevisionId?: string; dataSnapshotId?: string }
 export interface ArtifactCaptureDescription extends Omit<ArtifactCaptureDraft, "datasets"> { appliedDataSnapshotId: string | null; datasets: Array<ArtifactDatasetDefinition & { provenance: ArtifactProvenance; valueBytes: number; currentValueBytes: number }> }
-export interface ArtifactCandidateDescription {draft: ArtifactDraft; definition: ArtifactDefinition | null; compatible: boolean; stale: boolean; expectedCodeRevisionId: string; sourceTarget?: {tabId: string; sessionId: string | null; toolCallId: string | null} | null}
-export interface ArtifactDescription { artifact: ArtifactRecord; code: Omit<ArtifactCodeRevision, "html">; snapshot: Omit<ArtifactDataSnapshot, "userState" | "datasets"> & { datasets: Array<ArtifactDatasetDefinition & { head: string; provenance: ArtifactProvenance }> }; revisions: Array<Omit<ArtifactCodeRevision, "html" | "definition">>; snapshots: Array<Pick<ArtifactDataSnapshot, "dataSnapshotId" | "createdAt">>; references: ArtifactReference[]; captures: ArtifactCaptureDescription[]; refreshRequests: ArtifactRefreshRequest[]; candidates: ArtifactCandidateDescription[]; sourceTarget?: { tabId: string; sessionId: string | null; toolCallId: string | null } | null }
+export interface ArtifactCandidateDescription {draft: ArtifactDraft; definition: ArtifactDefinition | null; compatible: boolean; stale: boolean; expectedCodeRevisionId: string; currentDefinition: ArtifactDefinition | null; baseRevisionNumber: number | null; sourceTarget?: {tabId: string; sessionId: string | null; toolCallId: string | null} | null}
+export interface ArtifactDescription { artifact: ArtifactRecord; code: Omit<ArtifactCodeRevision, "html">; snapshot: Omit<ArtifactDataSnapshot, "userState" | "datasets"> & { datasets: Array<ArtifactDatasetDefinition & { head: string; provenance: ArtifactProvenance }> }; revisions: Array<Omit<ArtifactCodeRevision, "html" | "definition">>; snapshots: Array<Pick<ArtifactDataSnapshot, "dataSnapshotId" | "createdAt" | "cause" | "stateRevision">>; references: ArtifactReference[]; captures: ArtifactCaptureDescription[]; refreshRequests: ArtifactRefreshRequest[]; candidates: ArtifactCandidateDescription[]; retainedBytes: number; libraryBytesUsed: number; sourceTarget?: { tabId: string; sessionId: string | null; toolCallId: string | null } | null }
 export interface ArtifactStageDocumentRequest { title: string; html: string; source: ArtifactSource; originContext: ArtifactOriginContext; managed?: ManagedArtifactSpec }
-export type ArtifactSourceLookup = { status: "draft"; draft: ArtifactDraft; candidate?: { expectedCodeRevisionId: string; compatible: boolean; stale: boolean; definition: ArtifactDefinition | null } } | { status: "kept"; artifact: ArtifactRecord } | { status: "deleted"; artifactId: string } | { status: "missing" };
+export type ArtifactSourceLookup = { status: "draft"; draft: ArtifactDraft; candidate?: { expectedCodeRevisionId: string; compatible: boolean; stale: boolean; definition: ArtifactDefinition | null; currentDefinition: ArtifactDefinition | null } } | { status: "kept"; artifact: ArtifactRecord } | { status: "deleted"; artifactId: string } | { status: "missing" };
 export interface ArtifactKeepRequest { draftId: string; title: string }
 export interface ArtifactAcceptRevisionRequest { draftId: string; expectedCodeRevisionId: string }
 export interface ArtifactReadRequest { artifactId: string; codeRevisionId: string; dataSnapshotId: string; part: "definition" | "state" | "dataset"; datasetId?: string; captureId?: string; offset?: number; limit?: number }
@@ -86,6 +86,15 @@ export interface ArtifactPrepareRefreshRequest extends Omit<ArtifactCreateRefere
 export interface ArtifactStageCaptureRequest { refreshRequestId: string; targetTabId: string; lineageDir: string; runtimeKey: string | null; sessionId: string | null; source: ArtifactSource; datasets: ArtifactDatasetInput[] }
 export interface ArtifactApplyCaptureRequest { captureId: string; expectedCodeRevisionId: string; expectedDatasetHeads: Record<string, string> }
 export interface ArtifactDeleteRequest { artifactId: string; expectedGeneration: number }
+export interface ArtifactDiscardCaptureRequest { captureId: string }
+export interface ArtifactDismissRefreshRequest { refreshRequestId: string }
+export interface ArtifactRenameRequest { artifactId: string; expectedGeneration: number; title: string }
+export interface ArtifactPruneRequest { artifactId: string; expectedGeneration: number; keepRevisions: number; keepSnapshots: number }
+export const ARTIFACT_PRUNE_KEEP_DEFAULTS = Object.freeze({ keepRevisions: 5, keepSnapshots: 10 });
+export interface ArtifactPruneResult { removedSnapshots: number; removedRevisions: number; freedLogicalBytes: number }
+export interface ArtifactRestoreSnapshotRequest { artifactId: string; dataSnapshotId: string; expectedCodeRevisionId: string }
+export interface ArtifactSavePartRequest { artifactId: string; codeRevisionId: string; dataSnapshotId: string; part: "dataset"; datasetId: string; captureId?: string }
+export interface ArtifactExportHtmlSourceRequest { artifactId: string; codeRevisionId: string; theme: { dark: boolean; tokens: Record<string, string> } }
 export interface ArtifactLibraryChanged { epoch: number; artifactIds: string[]; kind: "changed" | "deleted" | "disabled" }
 export interface ArtifactResolveSourceRequest { tabId: string; sessionId: string | null; toolCallId: string | null; sourceHash: string; draftId?: string }
 export interface ArtifactReferenceRequest extends ArtifactCreateReferenceRequest { targetTabId: string }
@@ -258,6 +267,44 @@ export function artifactCanonicalJson(value: ArtifactJson): string {
 export function artifactDefinitionsCompatible(left: ArtifactDefinition | null, right: ArtifactDefinition | null): boolean {
   if (!left || !right) return left === right;
   return left.protocolVersion === right.protocolVersion && artifactCanonicalJson(left.stateSchema) === artifactCanonicalJson(right.stateSchema) && left.datasets.length === right.datasets.length && left.datasets.every(a => right.datasets.some(b => a.id === b.id && artifactCanonicalJson(a.schema) === artifactCanonicalJson(b.schema)));
+}
+/**
+ * Field-level view of why two contracts differ, aligned with
+ * `artifactDefinitionsCompatible`: the diff is empty exactly when the two are
+ * compatible. Dataset titles and order never appear — they are not
+ * compatibility failures (ADR-0090).
+ */
+export interface ArtifactDefinitionDiff {
+  protocol: { current: number | null; candidate: number | null } | null;
+  stateSchema: { current: string | null; candidate: string | null } | null;
+  datasetsAdded: ArtifactDatasetDefinition[];
+  datasetsRemoved: ArtifactDatasetDefinition[];
+  datasetsChanged: Array<{ id: string; currentSchema: string; candidateSchema: string }>;
+}
+export function diffArtifactDefinitions(current: ArtifactDefinition | null, candidate: ArtifactDefinition | null): ArtifactDefinitionDiff {
+  if (current === null || candidate === null) {
+    if (current === null && candidate === null) return { protocol: null, stateSchema: null, datasetsAdded: [], datasetsRemoved: [], datasetsChanged: [] };
+    return {
+      protocol: { current: current?.protocolVersion ?? null, candidate: candidate?.protocolVersion ?? null },
+      stateSchema: { current: current?.stateSchema ?? null, candidate: candidate?.stateSchema ?? null },
+      datasetsAdded: candidate?.datasets ?? [],
+      datasetsRemoved: current?.datasets ?? [],
+      datasetsChanged: [],
+    };
+  }
+  const empty = current.datasets.filter(a => !candidate.datasets.some(b => a.id === b.id));
+  const added = candidate.datasets.filter(b => !current.datasets.some(a => a.id === b.id));
+  const changed = current.datasets.flatMap(a => {
+    const b = candidate.datasets.find(x => x.id === a.id);
+    return b && artifactCanonicalJson(a.schema) !== artifactCanonicalJson(b.schema) ? [{ id: a.id, currentSchema: a.schema, candidateSchema: b.schema }] : [];
+  });
+  return {
+    protocol: current.protocolVersion === candidate.protocolVersion ? null : { current: current.protocolVersion, candidate: candidate.protocolVersion },
+    stateSchema: artifactCanonicalJson(current.stateSchema) === artifactCanonicalJson(candidate.stateSchema) ? null : { current: current.stateSchema, candidate: candidate.stateSchema },
+    datasetsAdded: added,
+    datasetsRemoved: empty,
+    datasetsChanged: changed,
+  };
 }
 export function pageArtifactText(text: string, request: ArtifactReferencePartRequest): ArtifactPartResult {
   assertArtifactUuid(request.referenceId, "referenceId");

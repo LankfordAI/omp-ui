@@ -291,6 +291,19 @@ async function writePhase(): Promise<void> {
   requireProof(retained.state.done === true && retained.state.note === "My durable review note", "Re-enable changed the last acknowledged data");
   await release(reopened.prepared);
   passed("actual-reenable-retains-last-acknowledged-data");
+  // New human channels across real IPC: list quota figure, rename CAS, prune, and dismiss.
+  const listed = await rootRun<{ libraryBytesUsed: number }>("window.ompBackend.artifactList({})");
+  requireProof(Number.isSafeInteger(listed.libraryBytesUsed) && listed.libraryBytesUsed > 0, "Human list lost its library quota figure");
+  const renamed = await rootRun<{ title: string; generation: number }>(`window.ompBackend.artifactRename({artifactId:${JSON.stringify(accepted.artifactId)},expectedGeneration:${JSON.stringify((await service.describe({ artifactId: accepted.artifactId })).artifact.generation)},title:"Renamed across IPC"})`);
+  requireProof(renamed.title === "Renamed across IPC", "Human rename did not cross real IPC");
+  const staleRename = await rootRun<string>(`window.ompBackend.artifactRename({artifactId:${JSON.stringify(accepted.artifactId)},expectedGeneration:1,title:"Stale"}).then(()=> 'unexpected-success', error=>error.error)`);
+  requireProof(staleRename === "conflict", "Stale human rename lost its typed conflict status");
+  const pruned = await rootRun<{ removedSnapshots: number; removedRevisions: number }>(`window.ompBackend.artifactPrune({artifactId:${JSON.stringify(accepted.artifactId)},expectedGeneration:${renamed.generation},keepRevisions:5,keepSnapshots:10})`);
+  requireProof(pruned.removedSnapshots === 0 && pruned.removedRevisions === 0, "Conservative prune removed live history");
+  const refreshTarget = service.prepareRefresh({ artifactId: accepted.artifactId, codeRevisionId: accepted.currentCodeRevisionId, dataSnapshotId: accepted.currentDataSnapshotId, targetTabId: "smoke", datasetIds: ["rows"] }).request;
+  await rootRun(`window.ompBackend.artifactDismissRefresh({refreshRequestId:${JSON.stringify(refreshTarget.refreshRequestId)}})`);
+  requireProof(service.describe({ artifactId: accepted.artifactId }).refreshRequests.find(request => request.refreshRequestId === refreshTarget.refreshRequestId)?.status === "dismissed", "Dismiss did not reach the durable store");
+  passed("actual-ipc-quota-rename-cas-prune-and-dismiss-round-trips");
   results.durable = durable; passed("visible-reload-disable-status-and-old-snapshot-preserved");
 }
 async function readPhase(): Promise<void> {

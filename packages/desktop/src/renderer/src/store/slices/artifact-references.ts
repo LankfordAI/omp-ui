@@ -14,6 +14,8 @@ export interface ArtifactReferencesSlice {
   restoreArtifactReferences(tabId: string, references: readonly DraftArtifactReference[]): boolean;
   beginArtifactReferenceMove(sourceTabId: string, targetTabId: string): (() => void) | null;
   removeArtifactReference(tabId: string, referenceId: string): void;
+  /** Position-preserving swap of one draft grant for a freshly minted one (consent toggle). */
+  replaceArtifactReference(tabId: string, oldReferenceId: string, next: DraftArtifactReference): void;
   clearArtifactReferences(tabId: string, submitted?: readonly ArtifactReference[]): void;
   attachArtifactRefresh(tabId: string, entry: ArtifactRefreshEntry): boolean;
   attachArtifactRefreshDraft(tabId: string, reference: ArtifactReference, entry: ArtifactRefreshEntry, options?: { navigationGeneration?: number }): Promise<boolean>;
@@ -113,6 +115,9 @@ export function createArtifactReferencesSlice(set: SetState, get: GetState): Art
     },
     removeArtifactReference(tabId, referenceId) {
       set(state => ({ artifactDrafts: { ...state.artifactDrafts, [tabId]: (state.artifactDrafts[tabId] ?? []).filter(ref => ref.referenceId !== referenceId) } }));
+    },
+    replaceArtifactReference(tabId, oldReferenceId, next) {
+      set(state => ({ artifactDrafts: { ...state.artifactDrafts, [tabId]: (state.artifactDrafts[tabId] ?? []).map(ref => ref.referenceId === oldReferenceId ? next : ref) } }));
     },
     clearArtifactReferences(tabId, submitted) {
       set(state => {

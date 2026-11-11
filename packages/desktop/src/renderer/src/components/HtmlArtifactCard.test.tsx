@@ -207,6 +207,14 @@ describe("HtmlArtifactCard retained file-backed draft", () => {
     const keep = [...host.querySelectorAll("button")].find(button => button.textContent === "Keep");
     expect(keep).toBeDefined();
     await act(async () => { keep!.click(); });
+    // Keep is a mini-form now: the model's title prefills an editable input and
+    // artifactKeep fires only on Confirm (human authority over prompt-injectable titles).
+    const titleInput = host.querySelector<HTMLInputElement>('input[aria-label="Artifact title"]');
+    expect(titleInput?.value).toBe("Imported inventory");
+    await act(async () => {});
+    const confirm = [...host.querySelectorAll("button")].find(button => button.textContent === "Confirm");
+    expect(confirm).toBeDefined();
+    await act(async () => { confirm!.click(); });
     expect(backendMock.artifactKeep).toHaveBeenCalledWith({ draftId: draft.draftId, title: "Imported inventory" });
     expect(host.textContent).toContain("Open in library");
     expect(host.querySelector('[role="alert"]')).toBeNull();

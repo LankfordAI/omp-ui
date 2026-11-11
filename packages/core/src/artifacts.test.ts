@@ -1,5 +1,5 @@
 import { describe, expect, it } from "vitest";
-import { ARTIFACT_LIMITS, ArtifactError, artifactDefinitionsCompatible, normalizeArtifactAuthoringSpec, pageArtifactText, validateArtifactAuthoringSpec, validateArtifactDatasets, validateArtifactJson, validateArtifactProvenance, validateArtifactSource, validateArtifactValueFile, validateManagedArtifactSpec, type ArtifactProvenance, type ManagedArtifactSpec } from "./artifacts";
+import { ARTIFACT_LIMITS, ArtifactError, artifactDefinitionsCompatible, diffArtifactDefinitions, normalizeArtifactAuthoringSpec, pageArtifactText, validateArtifactAuthoringSpec, validateArtifactDatasets, validateArtifactJson, validateArtifactProvenance, validateArtifactSource, validateArtifactValueFile, validateManagedArtifactSpec, type ArtifactProvenance, type ManagedArtifactSpec } from "./artifacts";
 import { parseHtmlArtifactArgs } from "./html-artifact";
 
 const recordedAt = "2026-11-09T00:00:00.000Z";
@@ -93,5 +93,42 @@ describe("artifact bounded contracts", () => {
     expect(rebuilt).toBe(body);
     expect(() => pageArtifactText(body, { referenceId, part: "definition", offset: 1 })).toThrow(/boundary/);
     for (const limit of [0, 3, 65537, 1.1]) expect(() => pageArtifactText(body, { referenceId, part: "definition", limit })).toThrow();
+  });
+});
+
+describe("diffArtifactDefinitions", () => {
+  const def = (stateSchema: string, datasets: Array<[string, string]>, protocol: 1 = 1) => ({ protocolVersion: protocol, stateSchema, datasets: datasets.map(([id, schema]) => ({ id, title: id, schema })) });
+  it("is empty exactly when artifactDefinitionsCompatible is true", () => {
+    const cases: Array<[ReturnType<typeof def> | null, ReturnType<typeof def> | null]> = [
+      [null, null],
+      [def("v1", []), def("v1", [])],
+      [def("v1", [["a", "s1"]]), def("v1", [["a", "s1"]])],
+      [def("v1", [["a", "s1"], ["b", "s2"]]), def("v1", [["b", "s2"], ["a", "s1"]])], // order-neutral
+      [null, def("v1", [])],
+      [def("v1", []), null],
+      [def("v1", [["a", "s1"]]), def("v2", [["a", "s1"]])],
+      [def("v1", [["a", "s1"]]), def("v1", [["a", "s2"]])],
+      [def("v1", [["a", "s1"]]), def("v1", [["a", "s1"], ["b", "s2"]])],
+      [def("v1", [["a", "s1"], ["b", "s2"]]), def("v1", [["a", "s1"]])],
+    ];
+    for (const [left, right] of cases) {
+      const diff = diffArtifactDefinitions(left, right);
+      const empty = diff.protocol === null && diff.stateSchema === null && diff.datasetsAdded.length === 0 && diff.datasetsRemoved.length === 0 && diff.datasetsChanged.length === 0;
+      expect(empty).toBe(artifactDefinitionsCompatible(left, right));
+    }
+  });
+  it("never reports dataset titles or order as changes", () => {
+    const diff = diffArtifactDefinitions(def("v1", [["a", "s1"], ["b", "s2"]]), { protocolVersion: 1, stateSchema: "v1", datasets: [{ id: "b", title: "Renamed B", schema: "s2" }, { id: "a", title: "Renamed A", schema: "s1" }] });
+    expect(diff.datasetsAdded).toEqual([]);
+    expect(diff.datasetsRemoved).toEqual([]);
+    expect(diff.datasetsChanged).toEqual([]);
+  });
+  it("reports added, removed, and changed datasets with both schemas", () => {
+    const diff = diffArtifactDefinitions(def("v1", [["a", "s1"], ["gone", "g"]]), def("v2", [["a", "s1-new"], ["fresh", "f"]], 2 as unknown as 1));
+    expect(diff.protocol).toEqual({ current: 1, candidate: 2 });
+    expect(diff.stateSchema).toEqual({ current: "v1", candidate: "v2" });
+    expect(diff.datasetsAdded.map(d => d.id)).toEqual(["fresh"]);
+    expect(diff.datasetsRemoved.map(d => d.id)).toEqual(["gone"]);
+    expect(diff.datasetsChanged).toEqual([{ id: "a", currentSchema: "s1", candidateSchema: "s1-new" }]);
   });
 });

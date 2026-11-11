@@ -324,7 +324,14 @@ export class ArtifactGuestBroker {
       if (documentLoaded && mainFrame && !inPlace) this.revoke(surface, "changed");
     };
     const onInput = (_event: unknown, input: {type: string; key: string}): void => {
-      if (input.type === "keyDown" && input.key === "Escape") this.notice(surface, {surfaceId: surface.id, reason: "escape", reloadRequired: false});
+      if (input.type === "keyDown" && input.key === "Escape") {
+        this.notice(surface, {surfaceId: surface.id, reason: "escape", reloadRequired: false});
+        // An out-of-process guest keeps native WebContents keyboard focus even
+        // after the renderer collapses its overlay; only refocusing the host
+        // root takes it back (#1130). `before-input-event` sees real user
+        // input only, so guest JavaScript cannot fabricate this.
+        if (!this.root.isDestroyed()) this.root.focus();
+      }
     };
     guest.on("destroyed", gone);
     guest.on("render-process-gone", gone);
