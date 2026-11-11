@@ -20,15 +20,17 @@ class FakeContents extends EventEmitter {
   session = electron.partition;
   hostWebContents: FakeContents | undefined;
   focused = 0;
+  scripts: string[] = [];
   isDestroyed(): boolean { return false; }
   focus(): void { this.focused++; }
+  executeJavaScript(script: string): Promise<unknown> { this.scripts.push(script); return Promise.resolve(undefined); }
   getType(): string { return this.hostWebContents ? "webview" : "window"; }
   setWebRTCIPHandlingPolicy(): void {}
   setWindowOpenHandler(): void {}
 }
 
 describe("installHtmlArtifactGuard", () => {
-  it("reclaims host focus when a plain partition guest sees Escape (#1130)", () => {
+  it("reclaims host focus when a plain partition guest sees Escape (#1130)", async () => {
     electron.partition.webRequest = { onBeforeRequest: () => {} };
     (electron.partition as Record<string, unknown>).setPermissionRequestHandler = () => {};
     (electron.partition as Record<string, unknown>).setPermissionCheckHandler = () => {};
@@ -43,6 +45,11 @@ describe("installHtmlArtifactGuard", () => {
     guest.emit("before-input-event", {}, { type: "keyDown", key: "a" });
     expect(host.focused).toBe(0);
     guest.emit("before-input-event", {}, { type: "keyDown", key: "Escape" });
+    // The reclaim must blur the host frame's focused <webview> element; refocusing an unfocused root alone leaves native input with the guest.
+    expect(host.scripts.join("\n")).toContain("tagName==='WEBVIEW'");
+    expect(host.scripts.join("\n")).toContain("a.blur()");
+    // Reactivation is chained after the blur; the fake's promise resolves immediately, so one microtask flush covers it deterministically.
+    await Promise.resolve();
     expect(host.focused).toBe(1);
     const foreign = new FakeContents();
     foreign.hostWebContents = host;

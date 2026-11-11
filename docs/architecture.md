@@ -514,11 +514,12 @@ Plain transcript guests mount only while their tab is visible and defer their
 first mount behind a one-way IntersectionObserver latch — background tabs never
 hold guest processes — while scroll-out never evicts (measured heights, tickets
 and uncapturable guest state make teardown worse than idling). An expanded plain
-card mounts exactly one guest. Escape on any artifact-partition guest refocuses
-the root WebContents in main before the renderer restores focus to its trigger,
-because a host-side `focus()` cannot pull native keyboard focus out of an
-out-of-process guest; plain guests get the same reclaim from the guard with no
-added capabilities. Plain guests also render a host-owned failure/reload row on
+card mounts exactly one guest. Escape on any artifact-partition guest reclaims
+native keyboard focus in main before the renderer restores focus to its trigger:
+a host-side `focus()` alone cannot take input back, because native focus for a
+guest rides the root frame's focused `<webview>` element and `WebContents` has no
+blur API, so the guard/broker blur that element from the trusted root frame and
+then refocus the root. Plain guests also render a host-owned failure/reload row on
 `did-fail-load`/`render-process-gone`.
 
 Managed desktop surfaces alone receive the self-contained sandboxed CommonJS

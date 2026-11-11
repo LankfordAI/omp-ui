@@ -326,11 +326,19 @@ export class ArtifactGuestBroker {
     const onInput = (_event: unknown, input: {type: string; key: string}): void => {
       if (input.type === "keyDown" && input.key === "Escape") {
         this.notice(surface, {surfaceId: surface.id, reason: "escape", reloadRequired: false});
-        // An out-of-process guest keeps native WebContents keyboard focus even
-        // after the renderer collapses its overlay; only refocusing the host
-        // root takes it back (#1130). `before-input-event` sees real user
+        // An out-of-process guest keeps native keyboard focus even after the
+        // renderer collapses its overlay (#1130). Native focus for a guest is
+        // the focused <webview> element of the host frame; blur it from the
+        // trusted root frame, then reclaim focus to the root so the renderer's
+        // trigger-focus cleanup lands. `before-input-event` sees real user
         // input only, so guest JavaScript cannot fabricate this.
-        if (!this.root.isDestroyed()) this.root.focus();
+        const reclaim = (): void => { if (!this.root.isDestroyed()) this.root.focus(); };
+        try {
+          // Blur before reactivating: Chromium restores focus to the last-focused
+          // element when a WebContents regains it, so focusing first can hand
+          // input straight back to the guest.
+          this.root.executeJavaScript("(()=>{const a=document.activeElement;if(a&&a.tagName==='WEBVIEW')a.blur();})()").then(reclaim, reclaim);
+        } catch { reclaim(); }
       }
     };
     guest.on("destroyed", gone);

@@ -289,6 +289,27 @@ async function writePhase(): Promise<void> {
   const reopened = await mount({artifactId: accepted.artifactId, codeRevisionId: accepted.currentCodeRevisionId, dataSnapshotId: accepted.currentDataSnapshotId});
   const retained = await reopened.guest.executeJavaScript("window.ompArtifact.load()");
   requireProof(retained.state.done === true && retained.state.note === "My durable review note", "Re-enable changed the last acknowledged data");
+  // Escape focus reclaim (#1130): native keyboard focus for a guest lives on the
+  // host frame's focused <webview> element. Move it into the guest, drive a real
+  // Escape through the guest's WebContents, and require that the shipped guard +
+  // broker reclaim (host-frame webview blur, then root refocus) returns keyboard
+  // focus to the host. Backends that never arbitrate native focus (headless Ozone
+  // in a sandbox scope) self-report it here instead of asserting falsely.
+  const guestOwnsFocus = (): Promise<boolean> => reopened.guest.executeJavaScript("document.hasFocus()");
+  await rootRun("document.getElementById('artifact').focus()");
+  await delay(500);
+  if (!(await guestOwnsFocus())) {
+    checks.push("focus-reclaim-unavailable-under-this-display-backend");
+    console.log("SKIP focus-reclaim native focus never entered the guest under this backend");
+  } else {
+    reopened.guest.sendInputEvent({ type: "keyDown", keyCode: "Escape" });
+    reopened.guest.sendInputEvent({ type: "keyUp", keyCode: "Escape" });
+    await waitTrustedNotice(reopened.prepared.surfaceId, "escape");
+    for (let attempt = 0; attempt < 50 && (await guestOwnsFocus()); attempt++) await delay(20);
+    requireProof(!(await guestOwnsFocus()), "Guest kept native keyboard focus after the Escape reclaim");
+    requireProof(await rootRun("document.hasFocus()"), "Host root never regained native keyboard focus after the Escape reclaim");
+    passed("actual-escape-reclaims-native-keyboard-focus-from-guest");
+  }
   await release(reopened.prepared);
   passed("actual-reenable-retains-last-acknowledged-data");
   // New human channels across real IPC. These ride MainBackend's own service, whose

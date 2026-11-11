@@ -114,7 +114,19 @@ export function installHtmlArtifactGuard(host: WebContents, broker?: ArtifactGue
       const reclaimOnEscape = (_event2: unknown, input: { type: string; key: string }): void => {
         if (input.type !== "keyDown" || input.key !== "Escape") return;
         const hostFrame = contents.hostWebContents;
-        if (hostFrame && !hostFrame.isDestroyed()) hostFrame.focus();
+        if (!hostFrame || hostFrame.isDestroyed()) return;
+        // Native focus for a guest lives on the focused <webview> element of the
+        // host frame; WebContents has no blur API, and refocusing an unfocused
+        // root alone leaves the guest owning input. Blur the element from the
+        // trusted host frame, then reclaim focus to the root (live-proven on the
+        // shipped Electron under a real display server).
+        const reclaim = (): void => { if (!hostFrame.isDestroyed()) hostFrame.focus(); };
+        try {
+          // Blur before reactivating: Chromium restores focus to the last-focused
+          // element when a WebContents regains it, so focusing first can hand
+          // input straight back to the guest.
+          hostFrame.executeJavaScript("(()=>{const a=document.activeElement;if(a&&a.tagName==='WEBVIEW')a.blur();})()").then(reclaim, reclaim);
+        } catch { reclaim(); }
       };
       contents.on("before-input-event", reclaimOnEscape);
       contents.on("destroyed", () => contents.removeListener("before-input-event", reclaimOnEscape));

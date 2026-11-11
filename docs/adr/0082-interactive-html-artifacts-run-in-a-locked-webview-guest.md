@@ -189,15 +189,21 @@ Alternatives rejected:
 ## Amendment — guest lifecycle and focus reclaim (2026-11-11, issues #1130, #1152, #1148)
 
 - **Escape reclaims native keyboard focus from every partition guest.** An
-  out-of-process `<webview>` retains native `WebContents` keyboard focus even
-  after the renderer collapses its overlay, so a host-side `focus()` alone
-  cannot take it back. The broker now refocuses the root `WebContents` when it
-  forwards a guest Escape notice, and the guard observes Escape on every
-  attached artifact-partition guest — plain guests included, which have no
-  broker surface — applying the same root refocus. Nothing else crosses to
-  plain guests: no preload, no `load()`, no `saveState()`. This is safe by
-  construction because `before-input-event` observes real user input only;
-  guest JavaScript cannot fabricate it.
+  out-of-process `<webview>` retains native keyboard focus even after the
+  renderer collapses its overlay, and Electron's `WebContents` exposes no blur
+  API — nothing host-side can drop it. Native focus for a guest rides on the
+  host frame's focused `<webview>` element, so the broker (when forwarding a
+  guest Escape notice) and the guard (on every attached artifact-partition
+  guest — plain guests included, which have no broker surface) blur that
+  element from the trusted root frame, then refocus the root; the order matters
+  because Chromium restores focus to the last-focused element when a
+  WebContents reactivates. The reclaim is proven across processes by the
+  packaged smoke under a real display server; headless Ozone never arbitrates
+  native focus, and there the check self-reports as skipped rather than
+  asserting falsely. Nothing else crosses to plain guests: no preload, no
+  `load()`, no `saveState()`. This is safe by construction because
+  `before-input-event` observes real user input only; guest JavaScript cannot
+  fabricate it.
 - **Hidden tabs release their plain guests.** Every mounted card is a guest
   process; the app keeps background tabs mounted with `display:none`, so plain
   surfaces now mount only while the tab is visible, keeping a sized
