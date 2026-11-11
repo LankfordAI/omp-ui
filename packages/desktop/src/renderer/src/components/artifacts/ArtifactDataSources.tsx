@@ -4,6 +4,9 @@ import { backend, displayMessage } from "../../backend";
 import { useT } from "../../lib/i18n";
 import { Button } from "../ui";
 import { useStore } from "../../store";
+import { IS_ELECTRON } from "../../lib/platform";
+import { copyFallback } from "../../lib/clipboard";
+import { downloadBlob, readAllPart, safeDownloadName } from "../../lib/artifact-parts";
 
 export function ArtifactDataSources({ description }: { description: ArtifactDescription }) {
   const t = useT();
@@ -12,6 +15,7 @@ export function ArtifactDataSources({ description }: { description: ArtifactDesc
   const [offsets, setOffsets] = useState<number[]>([0]);
   const [page, setPage] = useState<ArtifactPartResult | null>(null);
   const [error, setError] = useState<string | null>(null);
+  const [exporting, setExporting] = useState(false);
   const offset = offsets.at(-1) ?? 0;
   const { artifact, code, snapshot } = description;
   useEffect(() => {
@@ -38,6 +42,10 @@ export function ArtifactDataSources({ description }: { description: ArtifactDesc
         <dt>{t("artifacts.refreshRecipe")}</dt><dd>{selected.provenance.refresh.kind}<p className="whitespace-pre-wrap">{selected.provenance.refresh.instructions ?? t("artifacts.noRecipe")}</p>{selected.provenance.refresh.requiredSources.map((source) => <p key={source}>{source}</p>)}</dd>
       </dl>
       {sourceSession && <Button onClick={() => void useStore.getState().openArtifactSource({ tabId: sourceSession.tabId, sessionId: sourceSession.sessionId, toolCallId: selected.provenance.captureToolCallId })}>{t("artifacts.openSource")}</Button>}
+      <div className="flex flex-wrap gap-2">
+        <Button disabled={exporting} onClick={() => { void (async () => { setExporting(true); try { const text = await readAllPart({ artifactId: artifact.artifactId, codeRevisionId: code.codeRevisionId, dataSnapshotId: snapshot.dataSnapshotId, part: "dataset", datasetId: selected.id }); navigator.clipboard ? await navigator.clipboard.writeText(text) : copyFallback(text); } catch (reason) { setError(displayMessage(reason)); } finally { setExporting(false); } })(); }}>{t("artifacts.copyJson")}</Button>
+        {IS_ELECTRON ? <Button disabled={exporting} onClick={() => { void (async () => { setExporting(true); try { await backend.artifactSavePart({ artifactId: artifact.artifactId, codeRevisionId: code.codeRevisionId, dataSnapshotId: snapshot.dataSnapshotId, part: "dataset", datasetId: selected.id }); } catch (reason) { setError(displayMessage(reason)); } finally { setExporting(false); } })(); }}>{t("artifacts.saveJson")}</Button> : <Button disabled={exporting} onClick={() => { void (async () => { setExporting(true); try { const text = await readAllPart({ artifactId: artifact.artifactId, codeRevisionId: code.codeRevisionId, dataSnapshotId: snapshot.dataSnapshotId, part: "dataset", datasetId: selected.id }); downloadBlob(safeDownloadName(selected.title, "json"), "application/json", text); } catch (reason) { setError(displayMessage(reason)); } finally { setExporting(false); } })(); }}>{t("artifacts.downloadJson")}</Button>}
+      </div>
       {selected.provenance.method.parameters && <details><summary className="cursor-pointer">{t("artifacts.parameters")}</summary><pre className="max-h-48 overflow-auto whitespace-pre-wrap break-all rounded bg-raised p-2 text-xs">{JSON.stringify(selected.provenance.method.parameters, null, 2)}</pre></details>}
     </div>}
     {error && <p role="alert" className="text-sm text-rose">{error}</p>}

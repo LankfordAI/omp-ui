@@ -4,11 +4,13 @@ import { realpath } from "node:fs/promises";
 import {
   ArtifactError, ArtifactStore, ARTIFACT_LIMITS, assertArtifactUuid,
   parseHtmlArtifactArgs, validateArtifactJson, normalizeArtifactAuthoringSpec, validateArtifactDatasets,
+  composeHtmlArtifactDocument, htmlArtifactThemeCss,
   type ArtifactJson, type ArtifactJsonObject, type ArtifactSource, type ArtifactDatasetInput, type ArtifactProvenance,
   type ManagedArtifactSpec, type HtmlArtifactArgs, type ArtifactListRequest, type ArtifactDescribeRequest, type ArtifactOriginContext,
   type ArtifactReadRequest, type ArtifactKeepRequest, type ArtifactAcceptRevisionRequest,
   type ArtifactReferenceRequest, type ArtifactPrepareRefreshRequest, type ArtifactApplyCaptureRequest,
   type ArtifactDeleteRequest, type ArtifactResolveSourceRequest, type ArtifactLibraryChanged,
+  type ArtifactRenameRequest, type ArtifactDiscardCaptureRequest, type ArtifactDismissRefreshRequest, type ArtifactPruneRequest, type ArtifactRestoreSnapshotRequest, type ArtifactSavePartRequest, type ArtifactExportHtmlSourceRequest,
 } from "@omp-ui/core";
 import { parseArtifactReferenceUri, parseArtifactPromptReferences, splitArtifactRefreshContext } from "@omp-ui/core";
 import { artifactSourceHash, readHistoricalArtifactSource } from "./artifact-source";
@@ -287,6 +289,32 @@ export class ArtifactService {
   }
   applyCapture(request: ArtifactApplyCaptureRequest) { const value = this.humanMutation(store => store.applyCapture(request)); this.publish([value.artifactId], "changed"); return value; }
   discardDraft(request: { draftId: string }) { this.humanMutation(store => store.discardDraft(request)); this.publish([request.draftId], "changed"); }
+  rename(request: ArtifactRenameRequest) { const value = this.humanMutation(store => store.rename(request)); this.publish([], "changed"); return value; }
+  discardCapture(request: ArtifactDiscardCaptureRequest) { this.humanMutation(store => store.discardCapture(request)); this.publish([], "changed"); }
+  dismissRefreshRequest(request: ArtifactDismissRefreshRequest) { this.humanMutation(store => store.dismissRefreshRequest(request)); this.publish([], "changed"); }
+  prune(request: ArtifactPruneRequest) { const value = this.humanMutation(store => store.prune(request)); this.publish([], "changed"); return value; }
+  restoreSnapshot(request: ArtifactRestoreSnapshotRequest) { const value = this.humanMutation(store => store.restoreSnapshot(request)); this.publish([request.artifactId], "changed"); return value; }
+  /** Complete dataset bytes for a human save dialog; never re-reads a historical valueFile path (ADR-0090). */
+  datasetBytes(request: ArtifactSavePartRequest): string {
+    let text = ""; let offset = 0;
+    for (;;) {
+      const page = this.storage().readPart({ artifactId: request.artifactId, codeRevisionId: request.codeRevisionId, dataSnapshotId: request.dataSnapshotId, part: "dataset", datasetId: request.datasetId, ...(request.captureId !== undefined ? { captureId: request.captureId } : {}), offset, limit: 65536 });
+      text += page.text;
+      if (page.nextOffset === null) return text;
+      if (page.nextOffset <= offset || page.totalBytes > ARTIFACT_LIMITS.datasetBytes) throw new ArtifactError("over-limit", "Dataset exceeds the export bound");
+      offset = page.nextOffset;
+    }
+  }
+  datasetName(request: ArtifactSavePartRequest): string {
+    const snapshot = this.storage().readSnapshot({ artifactId: request.artifactId, dataSnapshotId: request.dataSnapshotId });
+    return snapshot.datasets.find(dataset => dataset.id === request.datasetId)?.title ?? request.datasetId;
+  }
+  /** The exact scripts-off static composition; saved files run outside omp-ui's protections. */
+  htmlSource(request: ArtifactExportHtmlSourceRequest): { name: string; html: string } {
+    const code = this.storage().readCode({ artifactId: request.artifactId, codeRevisionId: request.codeRevisionId });
+    const record = this.storage().describe({ artifactId: request.artifactId }).artifact;
+    return { name: record.title, html: composeHtmlArtifactDocument(code.html, htmlArtifactThemeCss(request.theme.tokens, request.theme.dark), false) };
+  }
   delete(request: ArtifactDeleteRequest) { this.humanMutation(store => store.deleteArtifact(request)); this.publish([request.artifactId], "deleted"); }
   private requireGrant(target: ArtifactTarget, referenceId: string): void {
     const reference = this.storage().readReference({ referenceId });

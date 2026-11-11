@@ -101,7 +101,35 @@ export function installHtmlArtifactGuard(host: WebContents, broker?: ArtifactGue
     installed = true;
     lockArtifactSession();
     app.on("web-contents-created", (_event, contents) => {
-      if (contents.getType() === "webview") confineGuest(contents);
+      if (contents.getType() !== "webview") return;
+      confineGuest(contents);
+      // Escape focus reclaim for every artifact-partition guest, plain ones
+      // included (#1130). A plain guest has no broker surface, so without this
+      // an Escape pressed while focus sits inside it never reaches the host,
+      // and a renderer-side focus() cannot pull native WebContents focus out
+      // of an out-of-process guest. `before-input-event` sees real user input
+      // only — guest JavaScript cannot fabricate it. Nothing else crosses: no
+      // preload, no load(), no saveState().
+      if (contents.session !== session.fromPartition(HTML_ARTIFACT_PARTITION)) return;
+      const reclaimOnEscape = (_event2: unknown, input: { type: string; key: string }): void => {
+        if (input.type !== "keyDown" || input.key !== "Escape") return;
+        const hostFrame = contents.hostWebContents;
+        if (!hostFrame || hostFrame.isDestroyed()) return;
+        // Native focus for a guest lives on the focused <webview> element of the
+        // host frame; WebContents has no blur API, and refocusing an unfocused
+        // root alone leaves the guest owning input. Blur the element from the
+        // trusted host frame, then reclaim focus to the root (live-proven on the
+        // shipped Electron under a real display server).
+        const reclaim = (): void => { if (!hostFrame.isDestroyed()) hostFrame.focus(); };
+        try {
+          // Blur before reactivating: Chromium restores focus to the last-focused
+          // element when a WebContents regains it, so focusing first can hand
+          // input straight back to the guest.
+          hostFrame.executeJavaScript("(()=>{const a=document.activeElement;if(a&&a.tagName==='WEBVIEW')a.blur();})()").then(reclaim, reclaim);
+        } catch { reclaim(); }
+      };
+      contents.on("before-input-event", reclaimOnEscape);
+      contents.on("destroyed", () => contents.removeListener("before-input-event", reclaimOnEscape));
     });
   }
   host.on("will-attach-webview", (event, webPreferences, params) => {

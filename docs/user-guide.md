@@ -247,8 +247,10 @@ retained payload is unavailable rather than re-importing a possibly changed file
 
 Ask for an artifact in an ordinary native session, or keep one that emerges
 from the discussion. A completed owning transcript artifact offers **Keep**;
-the sidebar and command palette then open **Artifacts** as a full main pane.
-There is no New artifact wizard or separate authoring session.
+clicking it lets you edit the title before confirming — what you type is the
+title kept, not the model's text. The sidebar and command palette then open
+**Artifacts** as a full main pane. There is no New artifact wizard or separate
+authoring session.
 
 Keep retains the accepted document independently of its source. Repeating it
 opens the same kept identity. A managed artifact uses an explicit save API for
@@ -285,6 +287,46 @@ until you choose **Accept revision** or **Keep as new** on the completed source
 card. Compatible acceptance keeps current working data, including changes made
 after the reference. A stale code base or changed declared data contract cannot
 replace the existing artifact; keep it independently or discuss a new candidate.
+Composer chips for managed artifacts carry an **Include data** control: turning
+it on asks once with the same consent warning and mints a fresh version-specific
+chip in place (turning it off is one click). Prompts already queued or held keep
+the grant they were written with.
+
+An @-mentioned or dropped artifact never shares saved data until you say so on
+the chip or the picker; existing chips keep showing whether they carry data.
+
+### Tidy, prune, and restore
+
+**Rename** changes only the library title: composer chips and transcript cards
+keep showing the Keep-time title until you re-attach them, and references
+already made stay exactly as they were. The detail header shows the artifact's
+retained (logical) footprint and the library header its global figure; both are
+advisory — enforcement happens when an operation runs.
+
+History saves every data version: your edits, refresh applies, and restores.
+The History panel labels each data version with its cause. When a saved dataset
+went wrong, select its older version and choose **Restore this version as new
+history**: the old version becomes the newest one and manual edits since then
+are superseded but never deleted. In-flight refresh captures will need a new
+refresh. Selecting an older version alone only shows it; nothing is replaced
+until you restore.
+
+**Prune old versions** frees space by deleting history beyond the newest few
+versions. Versions a reference, capture, or pending candidate still uses are
+always kept, current versions never move, and pruning only happens when you ask
+for it. Capture cards offer **Discard** for staged captures you no longer want
+(applied ones cannot be discarded), and stale refresh rows offer **Dismiss** —
+which stops the request from appearing and refuses any late capture, but does
+not stop a run that is still going. **View run** opens the session behind any
+refresh request or capture whose session still exists.
+
+### Export documents and data
+
+Dataset rows can be copied as JSON or saved to a file you choose (desktop:
+**Save JSON…** with the system save dialog; browser clients download instead).
+**Export HTML source** saves the static, scripts-off document: the file runs in
+a normal browser tab outside omp-ui's protections, interactive behavior is not
+included, and saved state and datasets are never embedded.
 
 ### Refresh data explicitly
 

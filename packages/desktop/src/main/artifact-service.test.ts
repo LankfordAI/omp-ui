@@ -423,3 +423,27 @@ describe("kept surface independence", () => {
     expect(f.service.readBoundSurface(kept.binding).state.note).toBe("independent of source");
   });
 });
+
+describe("human maintenance and export reads", () => {
+  it("renames with publish [] , prunes without moving heads, and restores as new history", async () => {
+    const f = fixture(); const kept = await keep(f);
+    const renamed = f.service.rename({ artifactId: kept.artifactId, expectedGeneration: kept.generation, title: "Renamed" });
+    expect(renamed.title).toBe("Renamed");
+    expect(f.events.at(-1)).toMatchObject({ artifactIds: [], kind: "changed" });
+    const pruned = f.service.prune({ artifactId: kept.artifactId, expectedGeneration: renamed.generation, keepRevisions: 5, keepSnapshots: 10 });
+    expect(pruned).toMatchObject({ removedRevisions: 0 });
+    const head = f.service.describe({ artifactId: kept.artifactId }).artifact.currentDataSnapshotId;
+    expect(f.service.restoreSnapshot({ artifactId: kept.artifactId, dataSnapshotId: head, expectedCodeRevisionId: renamed.currentCodeRevisionId }).currentDataSnapshotId).not.toBe(head);
+    expect(f.events.at(-1)?.artifactIds).toEqual([kept.artifactId]);
+  });
+  it("assembles dataset bytes for save and composes the scripts-off html source", async () => {
+    const f = fixture(); const kept = await keep(f, [{ n: 1 }, { n: 2 }]);
+    const request = { ...versions(kept), part: "dataset" as const, datasetId: "rows" };
+    expect(JSON.parse(f.service.datasetBytes(request))).toEqual([{ n: 1 }, { n: 2 }]);
+    expect(f.service.datasetName(request)).toBe("Rows");
+    const composed = f.service.htmlSource({ artifactId: kept.artifactId, codeRevisionId: kept.currentCodeRevisionId, theme: { dark: false, tokens: { "--ink": "#fff" } } });
+    expect(composed.name).toBe("My rows");
+    expect(composed.html).toContain("<main>Rows</main>");
+    expect(composed.html).not.toContain("window.ompArtifact");
+  });
+});

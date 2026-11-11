@@ -289,8 +289,48 @@ async function writePhase(): Promise<void> {
   const reopened = await mount({artifactId: accepted.artifactId, codeRevisionId: accepted.currentCodeRevisionId, dataSnapshotId: accepted.currentDataSnapshotId});
   const retained = await reopened.guest.executeJavaScript("window.ompArtifact.load()");
   requireProof(retained.state.done === true && retained.state.note === "My durable review note", "Re-enable changed the last acknowledged data");
+  // Escape focus reclaim (#1130): native keyboard focus for a guest lives on the
+  // host frame's focused <webview> element. Move it into the guest, drive a real
+  // Escape through the guest's WebContents, and require that the shipped guard +
+  // broker reclaim (host-frame webview blur, then root refocus) returns keyboard
+  // focus to the host. Backends that never arbitrate native focus (headless Ozone
+  // in a sandbox scope) self-report it here instead of asserting falsely.
+  const guestOwnsFocus = (): Promise<boolean> => reopened.guest.executeJavaScript("document.hasFocus()");
+  await rootRun("document.getElementById('artifact').focus()");
+  await delay(500);
+  if (!(await guestOwnsFocus())) {
+    checks.push("focus-reclaim-unavailable-under-this-display-backend");
+    console.log("SKIP focus-reclaim native focus never entered the guest under this backend");
+  } else {
+    reopened.guest.sendInputEvent({ type: "keyDown", keyCode: "Escape" });
+    reopened.guest.sendInputEvent({ type: "keyUp", keyCode: "Escape" });
+    await waitTrustedNotice(reopened.prepared.surfaceId, "escape");
+    for (let attempt = 0; attempt < 50 && (await guestOwnsFocus()); attempt++) await delay(20);
+    requireProof(!(await guestOwnsFocus()), "Guest kept native keyboard focus after the Escape reclaim");
+    requireProof(await rootRun("document.hasFocus()"), "Host root never regained native keyboard focus after the Escape reclaim");
+    passed("actual-escape-reclaims-native-keyboard-focus-from-guest");
+  }
   await release(reopened.prepared);
   passed("actual-reenable-retains-last-acknowledged-data");
+  // New human channels across real IPC. These ride MainBackend's own service, whose
+  // store holds no session-targeted objects (success paths need registry sessions the
+  // harness resolveTarget above owns), so the packaged boundary proof here is the new
+  // result field plus typed store statuses for every new channel and codec shape.
+  const listed = await rootRun<{ libraryBytesUsed: number }>("window.ompBackend.artifactList({})");
+  requireProof(Number.isSafeInteger(listed.libraryBytesUsed) && listed.libraryBytesUsed > 0, "Human list lost its library quota figure");
+  const ghost = randomUUID();
+  for (const [name, expression] of [
+    ["rename", `(async()=>{try{await window.ompBackend.artifactRename({artifactId:${JSON.stringify(ghost)},expectedGeneration:1,title:"Ghost"});return "unexpected-success"}catch(e){return typeof e==="object"&&e!==null?String(e.error!=null?e.error:"object-without-error"):"reject:"+String(e)}})()`],
+    ["prune", `(async()=>{try{await window.ompBackend.artifactPrune({artifactId:${JSON.stringify(ghost)},expectedGeneration:1,keepRevisions:5,keepSnapshots:10});return "unexpected-success"}catch(e){return typeof e==="object"&&e!==null?String(e.error!=null?e.error:"object-without-error"):"reject:"+String(e)}})()`],
+    ["dismissRefresh", `(async()=>{try{await window.ompBackend.artifactDismissRefresh({refreshRequestId:${JSON.stringify(ghost)}});return "unexpected-success"}catch(e){return typeof e==="object"&&e!==null?String(e.error!=null?e.error:"object-without-error"):"reject:"+String(e)}})()`],
+    ["discardCapture", `(async()=>{try{await window.ompBackend.artifactDiscardCapture({captureId:${JSON.stringify(ghost)}});return "unexpected-success"}catch(e){return typeof e==="object"&&e!==null?String(e.error!=null?e.error:"object-without-error"):"reject:"+String(e)}})()`],
+    ["restoreSnapshot", `(async()=>{try{await window.ompBackend.artifactRestoreSnapshot({artifactId:${JSON.stringify(ghost)},dataSnapshotId:${JSON.stringify(ghost)},expectedCodeRevisionId:${JSON.stringify(ghost)}});return "unexpected-success"}catch(e){return typeof e==="object"&&e!==null?String(e.error!=null?e.error:"object-without-error"):"reject:"+String(e)}})()`],
+  ] as const) {
+    const status = await rootRun<string>(expression);
+    console.log(`STATUS ${name}=${status}`);
+    requireProof(status === "source-missing", `Channel ${name} lost its typed store status across real IPC: ${status}`);
+  }
+  passed("actual-ipc-quota-figure-and-new-human-channel-typed-statuses");
   results.durable = durable; passed("visible-reload-disable-status-and-old-snapshot-preserved");
 }
 async function readPhase(): Promise<void> {

@@ -4,7 +4,9 @@ import type { ArtifactService } from "./artifact-service";
 type ArtifactHandlerChannels = typeof CH.artifactList | typeof CH.artifactDescribe | typeof CH.artifactReadPart
   | typeof CH.artifactResolveSource | typeof CH.artifactKeep | typeof CH.artifactAcceptRevision
   | typeof CH.artifactReference | typeof CH.artifactPrepareRefresh | typeof CH.artifactApplyCapture
-  | typeof CH.artifactDiscardDraft | typeof CH.artifactDelete;
+  | typeof CH.artifactDiscardDraft | typeof CH.artifactDelete | typeof CH.artifactRename
+  | typeof CH.artifactDiscardCapture | typeof CH.artifactDismissRefresh | typeof CH.artifactPrune
+  | typeof CH.artifactRestoreSnapshot;
 
 /** Human backend only. Host tools deliberately receive neither these handlers nor publication authority. */
 export function registerArtifactHandlers(service: ArtifactService): Pick<RequestHandlers, ArtifactHandlerChannels> {
@@ -20,5 +22,10 @@ export function registerArtifactHandlers(service: ArtifactService): Pick<Request
     [CH.artifactApplyCapture]: async request => service.applyCapture(request),
     [CH.artifactDiscardDraft]: async request => service.discardDraft(request),
     [CH.artifactDelete]: async request => service.delete(request),
+    [CH.artifactRename]: async request => service.rename(request),
+    [CH.artifactDiscardCapture]: async request => service.discardCapture(request),
+    [CH.artifactDismissRefresh]: async request => service.dismissRefreshRequest(request),
+    [CH.artifactPrune]: async request => service.prune(request),
+    [CH.artifactRestoreSnapshot]: async request => service.restoreSnapshot(request),
   };
 }

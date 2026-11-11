@@ -95,6 +95,7 @@ import { parseMcpClientInput, parseMcpClientPatch, type McpClientInput, type Mcp
 import { assertArtifactKey, assertArtifactUuid } from "./artifacts";
 import type {
   ArtifactAcceptRevisionRequest, ArtifactApplyCaptureRequest, ArtifactDeleteRequest,
+  ArtifactRenameRequest, ArtifactPruneRequest, ArtifactRestoreSnapshotRequest, ArtifactSavePartRequest, ArtifactExportHtmlSourceRequest,
   ArtifactDescribeRequest, ArtifactKeepRequest, ArtifactListRequest,
   ArtifactPrepareRefreshRequest, ArtifactReadRequest, ArtifactReferenceRequest,
   ArtifactResolveSourceRequest,
@@ -302,6 +303,29 @@ export const artifactApplyCodec = objectOf<ArtifactApplyCaptureRequest>({
 });
 export const artifactDiscardCodec = objectOf<{draftId: string}>({draftId: artifactUuidCodec});
 export const artifactDeleteCodec = objectOf<ArtifactDeleteRequest>({artifactId: artifactUuidCodec, expectedGeneration: artifactOffsetCodec});
+export const artifactRenameCodec = objectOf<ArtifactRenameRequest>({artifactId: artifactUuidCodec, expectedGeneration: artifactOffsetCodec, title: shortStr(200)});
+export const artifactDiscardCaptureCodec = objectOf<{captureId: string}>({captureId: artifactUuidCodec});
+export const artifactDismissRefreshCodec = objectOf<{refreshRequestId: string}>({refreshRequestId: artifactUuidCodec});
+export const artifactPruneCodec = objectOf<ArtifactPruneRequest>({artifactId: artifactUuidCodec, expectedGeneration: artifactOffsetCodec, keepRevisions: artifactOffsetCodec, keepSnapshots: artifactOffsetCodec});
+export const artifactRestoreCodec = objectOf<ArtifactRestoreSnapshotRequest>({artifactId: artifactUuidCodec, dataSnapshotId: artifactUuidCodec, expectedCodeRevisionId: artifactUuidCodec});
+export const artifactSavePartCodec = objectOf<ArtifactSavePartRequest>({
+  artifactId: artifactUuidCodec, codeRevisionId: artifactUuidCodec, dataSnapshotId: artifactUuidCodec,
+  part: oneOf("dataset"), datasetId: artifactKeyCodec, captureId: optional(artifactUuidCodec),
+});
+const artifactThemeCodec: ArgCodec<{ dark: boolean; tokens: Record<string, string> }> = {
+  expected: "an artifact theme",
+  decode(value, path) {
+    const fields = record().decode(value, path);
+    if (Object.keys(fields).length !== 2 || typeof fields.dark !== "boolean") fail(path, "exactly dark plus tokens");
+    const tokens = record().decode(fields.tokens, `${path}.tokens`) as Record<string, string>;
+    if (Object.keys(tokens).length > 128) fail(`${path}.tokens`, "at most 128 tokens");
+    for (const [name, token] of Object.entries(tokens)) {
+      if (!/^--[a-z][a-z0-9-]{0,63}$/.test(name) || typeof token !== "string" || token.length > 128 || !/^[#(),.%\s\dA-Za-z+/-]+$/.test(token) || /\burl\s*\(/i.test(token)) fail(`${path}.tokens.${name}`, "a safe CSS token value");
+    }
+    return { dark: fields.dark, tokens };
+  },
+};
+export const artifactExportHtmlCodec = objectOf<ArtifactExportHtmlSourceRequest>({artifactId: artifactUuidCodec, codeRevisionId: artifactUuidCodec, theme: artifactThemeCodec});
 export const sessionModeCodec: ArgCodec<SessionMode> = oneOf("pty", "rpc-ui");
 export const agentModeCodec: ArgCodec<AgentMode> = oneOf("plan", "build");
 export const planFormatCodec: ArgCodec<PlanFormat> = oneOf("html", "md");

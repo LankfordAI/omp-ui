@@ -13,6 +13,7 @@ import {
   type ArtifactDescribeRequest, type ArtifactDraft, type ArtifactJson, type ArtifactJsonObject, type ArtifactKeepRequest,
   type ArtifactListRequest, type ArtifactListResult, type ArtifactPartResult, type ArtifactPatchDraftStateRequest, type ArtifactPatchUserStateRequest,
   type ArtifactPrepareRefreshRequest, type ArtifactReference, type ArtifactReferencePartRequest, type ArtifactRefreshRequest,
+  type ArtifactPruneRequest, type ArtifactPruneResult, type ArtifactRenameRequest, type ArtifactDiscardCaptureRequest, type ArtifactDismissRefreshRequest, type ArtifactRestoreSnapshotRequest,
   type ArtifactProvenance, type ArtifactReadRequest, type ArtifactRecord, type ArtifactSource, type ArtifactSourceLookup, type ArtifactStageCaptureRequest,
   type ArtifactStageDocumentRequest,
 } from "./artifacts";
@@ -285,9 +286,22 @@ export class ArtifactStore {
   }
   private removeObject(id: string): void { this.db.prepare("DELETE FROM objects WHERE id=?").run(id); }
   private gc(): void { this.db.exec("DELETE FROM payloads WHERE NOT EXISTS(SELECT 1 FROM payload_links WHERE payload_hash=payloads.hash)"); }
+  /** The global library footprint, the exact expression `checkQuota` enforces. */
+  private libraryBytes(): number {
+    return Number(this.db.prepare("SELECT 16384 + COALESCE((SELECT SUM(metadata_bytes) FROM objects),0) + COALESCE((SELECT SUM(metadata_bytes) FROM sources),0) + COALESCE((SELECT SUM(metadata_bytes) FROM deleted_references),0) + COALESCE((SELECT SUM(size+128) FROM payloads),0) + (SELECT COUNT(*)*128 FROM payload_links) + (SELECT COUNT(*)*128 FROM state_entries) + (SELECT COUNT(*)*256 FROM dataset_entries) AS bytes").get()?.bytes);
+  }
+  /** The single-artifact logical footprint, the exact expression `checkQuota` enforces. Shared payloads mean per-artifact figures do not sum to the global figure. */
+  private retainedBytes(artifactId: string): number {
+    assertArtifactUuid(artifactId);
+    return Number(this.db.prepare(`SELECT COALESCE((SELECT SUM(metadata_bytes) FROM objects WHERE artifact_id=?1 OR id=?1),0) +
+      COALESCE((SELECT SUM(p.size+128) FROM payloads p WHERE EXISTS(SELECT 1 FROM payload_links l JOIN objects o ON o.id=l.object_id WHERE l.payload_hash=p.hash AND (o.artifact_id=?1 OR o.id=?1))),0) +
+      (SELECT COUNT(*)*128 FROM payload_links l JOIN objects o ON o.id=l.object_id WHERE o.artifact_id=?1 OR o.id=?1) +
+      (SELECT COUNT(*)*128 FROM state_entries s JOIN objects o ON o.id=s.object_id WHERE o.artifact_id=?1 OR o.id=?1) +
+      (SELECT COUNT(*)*256 FROM dataset_entries d JOIN objects o ON o.id=d.object_id WHERE o.artifact_id=?1 OR o.id=?1) +
+      COALESCE((SELECT SUM(metadata_bytes) FROM sources WHERE artifact_id=?1),0) AS bytes`).get(artifactId)?.bytes);
+  }
   private checkQuota(): void {
-    const global = Number(this.db.prepare("SELECT 16384 + COALESCE((SELECT SUM(metadata_bytes) FROM objects),0) + COALESCE((SELECT SUM(metadata_bytes) FROM sources),0) + COALESCE((SELECT SUM(metadata_bytes) FROM deleted_references),0) + COALESCE((SELECT SUM(size+128) FROM payloads),0) + (SELECT COUNT(*)*128 FROM payload_links) + (SELECT COUNT(*)*128 FROM state_entries) + (SELECT COUNT(*)*256 FROM dataset_entries) AS bytes").get()?.bytes);
-    if (global > ARTIFACT_LIMITS.libraryBytes) throw new ArtifactError("over-limit", "Artifact library quota exceeded");
+    if (this.libraryBytes() > ARTIFACT_LIMITS.libraryBytes) throw new ArtifactError("over-limit", "Artifact library quota exceeded");
     const over = this.db.prepare(`SELECT a.id FROM artifacts a WHERE
       COALESCE((SELECT SUM(metadata_bytes) FROM objects WHERE artifact_id=a.id OR id=a.id),0) +
       COALESCE((SELECT SUM(p.size+128) FROM payloads p WHERE EXISTS(SELECT 1 FROM payload_links l JOIN objects o ON o.id=l.object_id WHERE l.payload_hash=p.hash AND (o.artifact_id=a.id OR o.id=a.id))),0) +
@@ -322,9 +336,23 @@ export class ArtifactStore {
   list(request: ArtifactListRequest = {}): ArtifactListResult {
     this.open(); const limit = request.limit ?? 50;
     if (!Number.isSafeInteger(limit) || limit < 1 || limit > 50 || (request.query !== undefined && (typeof request.query !== "string" || request.query.length > 200))) invalid("Invalid list bounds");
-    if (request.cursor !== undefined) assertArtifactUuid(request.cursor);
-    const rows = this.db.prepare("SELECT id FROM objects WHERE kind='artifact' AND (? IS NULL OR id>?) AND (? IS NULL OR instr(lower(json_extract(metadata,'$.title')),lower(?))>0) ORDER BY id LIMIT ?").all(request.cursor ?? null, request.cursor ?? null, request.query ?? null, request.query ?? null, limit + 1);
-    return { artifacts: rows.slice(0, limit).map(row => this.record(text(row.id))), nextCursor: rows.length > limit ? text(rows[limit - 1]!.id) : null };
+    // The cursor is an opaque compound token (`updatedAt|id`, base64url): rows
+    // order by recency, and equal timestamps page deterministically on the id
+    // tiebreak. Never assert a shape beyond the bound — cursors are store-owned.
+    let after: { updated: string; id: string } | null = null;
+    if (request.cursor !== undefined) {
+      if (typeof request.cursor !== "string" || !request.cursor || request.cursor.length > 200) invalid("Invalid list cursor");
+      const decoded = Buffer.from(request.cursor, "base64url").toString("utf8");
+      const at = decoded.lastIndexOf("|");
+      if (at <= 0 || at === decoded.length - 1) invalid("Invalid list cursor");
+      after = { updated: decoded.slice(0, at), id: decoded.slice(at + 1) };
+      assertArtifactUuid(after.id, "cursor id");
+    }
+    const rows = this.db.prepare(`SELECT id, json_extract(metadata,'$.updatedAt') AS updated FROM objects
+      WHERE kind='artifact' AND (? IS NULL OR updated < ? OR (updated = ? AND id > ?)) AND (? IS NULL OR instr(lower(json_extract(metadata,'$.title')),lower(?))>0)
+      ORDER BY updated DESC, id DESC LIMIT ?`).all(after?.updated ?? null, after?.updated ?? null, after?.updated ?? null, after?.id ?? null, request.query ?? null, request.query ?? null, limit + 1);
+    const encode = (updated: string, id: string): string => Buffer.from(`${updated}|${id}`, "utf8").toString("base64url");
+    return { artifacts: rows.slice(0, limit).map(row => this.record(text(row.id))), nextCursor: rows.length > limit ? encode(text(rows[limit - 1]!.updated), text(rows[limit - 1]!.id)) : null, libraryBytesUsed: this.libraryBytes() };
   }
   describe(request: ArtifactDescribeRequest): ArtifactDescription {
     const artifact = this.record(request.artifactId);
@@ -332,7 +360,7 @@ export class ArtifactStore {
     const snapshot = this.object<SnapshotMeta>(request.dataSnapshotId ?? artifact.currentDataSnapshotId, "snapshot");
     if (code.artifactId !== artifact.artifactId || snapshot.artifactId !== artifact.artifactId) missing();
     const revisions = this.db.prepare("SELECT id FROM objects WHERE kind='code' AND artifact_id=? ORDER BY json_extract(metadata,'$.revisionNumber') DESC").all(artifact.artifactId).map(row => { const { definition: _definition, ...metadata } = this.object<Omit<ArtifactCodeRevision, "html">>(text(row.id), "code"); return metadata; });
-    const snapshots = this.db.prepare("SELECT id FROM objects WHERE kind='snapshot' AND artifact_id=? ORDER BY rowid DESC").all(artifact.artifactId).map(row => { const snapshot = this.object<SnapshotMeta>(text(row.id), "snapshot"); return { dataSnapshotId: snapshot.dataSnapshotId, createdAt: snapshot.createdAt }; });
+    const snapshots = this.db.prepare("SELECT id FROM objects WHERE kind='snapshot' AND artifact_id=? ORDER BY rowid DESC").all(artifact.artifactId).map(row => { const snapshot = this.object<SnapshotMeta>(text(row.id), "snapshot"); return { dataSnapshotId: snapshot.dataSnapshotId, createdAt: snapshot.createdAt, cause: snapshot.cause, stateRevision: snapshot.stateRevision }; });
     const references = this.db.prepare("SELECT id FROM objects WHERE kind='reference' AND artifact_id=? ORDER BY rowid DESC").all(artifact.artifactId).map(row => this.readReference({ referenceId: text(row.id) }));
     const refreshRequests = this.db.prepare("SELECT id FROM objects WHERE kind='refresh' AND artifact_id=? ORDER BY rowid DESC").all(artifact.artifactId).map(row => this.readRefresh({ refreshRequestId: text(row.id) }));
     const captures = this.db.prepare("SELECT o.id,c.applied_snapshot FROM objects o JOIN captures c ON c.id=o.id WHERE o.artifact_id=? ORDER BY o.rowid DESC").all(artifact.artifactId).map(row => {
@@ -350,9 +378,9 @@ export class ArtifactStore {
       if (draft.basedOnReferenceId === null || draft.artifactId !== artifact.artifactId) throw new ArtifactError("unavailable", "Corrupt candidate association");
       const reference = this.readReference({referenceId: draft.basedOnReferenceId});
       if (reference.artifactId !== artifact.artifactId) throw new ArtifactError("unavailable", "Corrupt candidate base");
-      return {draft, definition, compatible: artifactDefinitionsCompatible(currentCode.definition, definition), stale: reference.codeRevisionId !== artifact.currentCodeRevisionId, expectedCodeRevisionId: artifact.currentCodeRevisionId};
+      return {draft, definition, compatible: artifactDefinitionsCompatible(currentCode.definition, definition), stale: reference.codeRevisionId !== artifact.currentCodeRevisionId, expectedCodeRevisionId: artifact.currentCodeRevisionId, currentDefinition: currentCode.definition ?? null, baseRevisionNumber: this.object<Omit<ArtifactCodeRevision, "html">>(reference.codeRevisionId, "code").revisionNumber};
     });
-    return { artifact, code, snapshot: { ...snapshot, datasets: snapshot.datasets.map(d => ({ ...d, provenance: this.jsonPayload<ArtifactProvenance>(snapshot.dataSnapshotId, `provenance:${d.id}`) })) }, revisions, snapshots, references, captures, refreshRequests, candidates };
+    return { artifact, code, snapshot: { ...snapshot, datasets: snapshot.datasets.map(d => ({ ...d, provenance: this.jsonPayload<ArtifactProvenance>(snapshot.dataSnapshotId, `provenance:${d.id}`) })) }, revisions, snapshots, references, captures, refreshRequests, candidates, retainedBytes: this.retainedBytes(artifact.artifactId), libraryBytesUsed: this.libraryBytes() };
   }
   lookupSource(request: { source: ArtifactSource; draftId?: string }): ArtifactSourceLookup {
     this.owner(request.source);
@@ -373,7 +401,7 @@ export class ArtifactStore {
     if (!draft.basedOnReferenceId) return { status: "draft", draft };
     const reference = this.readReference({ referenceId: draft.basedOnReferenceId });
     const artifact = this.record(reference.artifactId); const current = this.object<Omit<ArtifactCodeRevision, "html">>(artifact.currentCodeRevisionId, "code"); const metadata = this.object<DraftMeta>(draft.draftId, "draft");
-    return { status: "draft", draft, candidate: { expectedCodeRevisionId: artifact.currentCodeRevisionId, compatible: artifactDefinitionsCompatible(current.definition, metadata.definition), stale: reference.codeRevisionId !== artifact.currentCodeRevisionId, definition: metadata.definition } };
+    return { status: "draft", draft, candidate: { expectedCodeRevisionId: artifact.currentCodeRevisionId, compatible: artifactDefinitionsCompatible(current.definition, metadata.definition), stale: reference.codeRevisionId !== artifact.currentCodeRevisionId, definition: metadata.definition, currentDefinition: current.definition ?? null } };
   }
   private draft(id: string): ArtifactDraft { const { definition: _definition, datasets: _datasets, ...draft } = this.object<DraftMeta>(id, "draft"); return draft; }
   private saveDraftState(draft: DraftMeta): void {
@@ -595,6 +623,7 @@ export class ArtifactStore {
     const prepared = this.prepareDatasets(request.datasets);
     return this.mutate(() => {
       let refresh = this.readRefresh(request);
+      if (refresh.status === "dismissed") conflict("This refresh request was dismissed");
       if (!refresh.bound || refresh.targetTabId !== request.targetTabId || refresh.lineageDir !== request.lineageDir || refresh.runtimeKey !== request.runtimeKey || (refresh.sessionId !== null && refresh.sessionId !== request.sessionId)) conflict("Capture is not bound to this session");
       if (refresh.sessionId === null) { refresh = { ...refresh, sessionId: request.sessionId }; this.updateObject(refresh.refreshRequestId, refresh); }
       const record = this.record(refresh.artifactId); this.assertHeads(record, refresh.codeRevisionId);
@@ -615,6 +644,7 @@ export class ArtifactStore {
     this.object<CaptureMeta>(request.captureId, "capture"); this.verifyPayloads(request.captureId);
     return this.mutate(() => {
       const capture = this.object<CaptureMeta>(request.captureId, "capture"); const record = this.record(capture.artifactId); this.assertHeads(record, request.expectedCodeRevisionId);
+      if (this.readRefresh({refreshRequestId: capture.refreshRequestId}).status === "dismissed") conflict("This refresh request was dismissed");
       if (capture.codeRevisionId !== request.expectedCodeRevisionId || artifactCanonicalJson(capture.expectedDatasetHeads) !== artifactCanonicalJson(request.expectedDatasetHeads)) conflict("Capture acceptance fences differ from its refresh request");
       if (this.db.prepare("SELECT applied_snapshot FROM captures WHERE id=?").get(request.captureId)?.applied_snapshot) conflict("Capture has already been applied");
       const prior = this.object<SnapshotMeta>(record.currentDataSnapshotId, "snapshot");
@@ -647,6 +677,101 @@ export class ArtifactStore {
       this.putObject(codeRevisionId, "code", record.artifactId, metadata); this.db.prepare("INSERT INTO codes(id,artifact_id) VALUES(?,?)").run(codeRevisionId, record.artifactId); this.copyLinks(d.draftId, codeRevisionId, "slot IN ('html','definition')");
       this.verifyPayloads(codeRevisionId); this.verifyPayloads(record.currentDataSnapshotId);
       this.db.prepare("UPDATE sources SET artifact_id=? WHERE draft_id=?").run(record.artifactId, d.draftId); this.removeObject(d.draftId); return this.advance(record, codeRevisionId, record.currentDataSnapshotId);
+    }, request.authorize);
+  }
+  /** Metadata-only rename: `ArtifactReference` grants keep their Keep-time titles forever (ADR-0090); only the record title moves. */
+  rename(request: Authorized<ArtifactRenameRequest>): ArtifactRecord {
+    this.open(); assertArtifactUuid(request.artifactId); title(request.title);
+    if (!Number.isSafeInteger(request.expectedGeneration) || request.expectedGeneration < 1) invalid("Invalid rename generation");
+    return this.mutate(() => {
+      const record = this.record(request.artifactId);
+      if (record.generation !== request.expectedGeneration) conflict("Artifact changed before the rename");
+      const updated = { ...record, title: request.title.trim(), generation: record.generation + 1, updatedAt: now() };
+      const moved = this.db.prepare("UPDATE artifacts SET generation=? WHERE id=? AND generation=?").run(updated.generation, record.artifactId, request.expectedGeneration);
+      if (Number(moved.changes) !== 1) conflict("Artifact changed before the rename");
+      this.updateObject(record.artifactId, updated);
+      return updated;
+    }, request.authorize);
+  }
+  discardCapture(request: Authorized<ArtifactDiscardCaptureRequest>): void {
+    this.open(); assertArtifactUuid(request.captureId);
+    return this.mutate(() => {
+      const capture = this.object<CaptureMeta>(request.captureId, "capture");
+      if (this.db.prepare("SELECT applied_snapshot FROM captures WHERE id=?").get(request.captureId)?.applied_snapshot) conflict("An applied capture cannot be discarded");
+      this.removeObject(request.captureId);
+      const refresh = this.readRefresh({ refreshRequestId: capture.refreshRequestId });
+      if (refresh.status === "captured") {
+        const remaining = this.db.prepare("SELECT 1 FROM objects o JOIN captures c ON c.id=o.id JOIN refreshes r ON r.id=c.refresh_id WHERE r.id=?").get(refresh.refreshRequestId);
+        if (!remaining) this.updateObject(refresh.refreshRequestId, { ...refresh, status: "dismissed" });
+      }
+    }, request.authorize);
+  }
+  /** Human dismissal of an awaiting/failed/interrupted refresh. The underlying agent run is NOT stopped (ADR-0091); the record stays as the late-capture guard. */
+  dismissRefreshRequest(request: Authorized<ArtifactDismissRefreshRequest>): ArtifactRefreshRequest {
+    this.open(); assertArtifactUuid(request.refreshRequestId);
+    return this.mutate(() => {
+      const refresh = this.readRefresh({ refreshRequestId: request.refreshRequestId });
+      if (refresh.status === "applied") conflict("An applied refresh cannot be dismissed");
+      if (refresh.status === "dismissed") return refresh;
+      if (refresh.status !== "awaiting" && refresh.status !== "failed" && refresh.status !== "interrupted") conflict("Only an awaiting, failed, or interrupted refresh can be dismissed");
+      const { failure: _failure, ...clean } = refresh;
+      const dismissed: ArtifactRefreshRequest = { ...clean, status: "dismissed" };
+      this.updateObject(refresh.refreshRequestId, dismissed);
+      return dismissed;
+    }, request.authorize);
+  }
+  /**
+   * Human-explicit history pruning (ADR-0090 amendment): removes analyst-chosen
+   * old snapshots/code revisions only. Never automatic; heads, every referenced
+   * version, and the newest keeps survive absolutely.
+   */
+  prune(request: Authorized<ArtifactPruneRequest>): ArtifactPruneResult {
+    this.open(); assertArtifactUuid(request.artifactId);
+    if (!Number.isSafeInteger(request.expectedGeneration) || request.expectedGeneration < 1) invalid("Invalid prune generation");
+    for (const key of ["keepRevisions", "keepSnapshots"] as const) if (!Number.isSafeInteger(request[key]) || request[key] < 1 || request[key] > 50) invalid(`Invalid ${key}`);
+    return this.mutate(() => {
+      const record = this.record(request.artifactId);
+      if (record.generation !== request.expectedGeneration) conflict("Artifact changed before pruning");
+      const before = this.retainedBytes(record.artifactId);
+      const protectedIds = new Set<string>([record.currentCodeRevisionId, record.currentDataSnapshotId]);
+      for (const row of this.db.prepare(`SELECT snapshot_id AS id FROM grants WHERE artifact_id=?1
+          UNION SELECT c.applied_snapshot FROM captures c JOIN objects o ON o.id=c.id WHERE o.artifact_id=?1 AND c.applied_snapshot IS NOT NULL
+          UNION SELECT json_extract(metadata,'$.dataSnapshotId') FROM objects WHERE kind='refresh' AND artifact_id=?1 AND json_extract(metadata,'$.status')<>'dismissed'
+          UNION SELECT json_extract(metadata,'$.previewDataSnapshotId') FROM objects WHERE kind='draft' AND artifact_id=?1 AND json_extract(metadata,'$.previewDataSnapshotId') IS NOT NULL`).all(record.artifactId)) protectedIds.add(text(row.id));
+      for (const row of this.db.prepare(`SELECT code_id AS id FROM grants WHERE artifact_id=?1
+          UNION SELECT json_extract(metadata,'$.codeRevisionId') FROM objects WHERE kind='capture' AND artifact_id=?1`).all(record.artifactId)) protectedIds.add(text(row.id));
+      const snapshotRows = this.db.prepare("SELECT id FROM objects WHERE kind='snapshot' AND artifact_id=? ORDER BY rowid DESC").all(record.artifactId).map(row => text(row.id));
+      const codeRows = this.db.prepare("SELECT id FROM objects WHERE kind='code' AND artifact_id=? ORDER BY json_extract(metadata,'$.revisionNumber') DESC").all(record.artifactId).map(row => text(row.id));
+      const snapshotKeeps = new Set(snapshotRows.slice(0, request.keepSnapshots));
+      const codeKeeps = new Set(codeRows.slice(0, request.keepRevisions));
+      let removedSnapshots = 0; let removedRevisions = 0;
+      for (const id of snapshotRows) if (!protectedIds.has(id) && !snapshotKeeps.has(id)) { this.removeObject(id); removedSnapshots++; }
+      for (const id of codeRows) if (!protectedIds.has(id) && !codeKeeps.has(id)) { this.removeObject(id); removedRevisions++; }
+      const updated = { ...record, generation: record.generation + 1, updatedAt: now() };
+      const moved = this.db.prepare("UPDATE artifacts SET generation=? WHERE id=? AND generation=?").run(updated.generation, record.artifactId, request.expectedGeneration);
+      if (Number(moved.changes) !== 1) conflict("Artifact changed before pruning");
+      this.updateObject(record.artifactId, updated);
+      return { removedSnapshots, removedRevisions, freedLogicalBytes: Math.max(0, before - this.retainedBytes(record.artifactId)) };
+    }, request.authorize);
+  }
+  /** Append-only: restore copies the target's links into a NEW head snapshot with cause "restore"; the old snapshot stays. */
+  restoreSnapshot(request: Authorized<ArtifactRestoreSnapshotRequest>): ArtifactRecord {
+    this.open(); assertArtifactUuid(request.dataSnapshotId); assertArtifactUuid(request.expectedCodeRevisionId);
+    return this.mutate(() => {
+      const record = this.record(request.artifactId); this.assertHeads(record, request.expectedCodeRevisionId);
+      if (!record.managed) invalid("Document-only artifacts have no data history");
+      const target = this.object<SnapshotMeta>(request.dataSnapshotId, "snapshot");
+      if (target.artifactId !== record.artifactId) missing();
+      this.verifyPayloads(target.dataSnapshotId);
+      const id = randomUUID();
+      // A restore is a data event: mint fresh dataset heads so in-flight refresh
+      // requests (whose expectedDatasetHeads were recorded against the now
+      // superseded head) fail the existing staging/apply rechecks. Values ride
+      // copyLinks unchanged.
+      const metadata: SnapshotMeta = { ...target, dataSnapshotId: id, cause: "restore", createdAt: now(), datasets: target.datasets.map(d => ({ ...d, head: randomUUID() })) };
+      this.putObject(id, "snapshot", record.artifactId, metadata); this.db.prepare("INSERT INTO snapshots(id,artifact_id) VALUES(?,?)").run(id, record.artifactId); this.copyLinks(target.dataSnapshotId, id);
+      this.verifyPayloads(record.currentCodeRevisionId); this.verifyPayloads(id);
+      return this.advance(record, record.currentCodeRevisionId, id);
     }, request.authorize);
   }
   discardDraft(request: Authorized<{ draftId: string }>): void {

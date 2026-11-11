@@ -1584,7 +1584,7 @@ export function Composer({
             </div>
           )}
           {artifactRefreshes.length > 0 && <ArtifactRefreshChips refreshes={artifactRefreshes} onRemove={dropArtifactRefresh} disabled={unavailable} className="border-b border-line px-2 py-2" />}
-          {artifactReferences.length > 0 && <ArtifactReferenceChips references={artifactReferences} onRemove={dropArtifactReference} className="border-b border-line px-2 py-2" />}
+          {artifactReferences.length > 0 && <ArtifactReferenceChips references={artifactReferences} onRemove={dropArtifactReference} onReplace={(old, next) => useStore.getState().replaceArtifactReference(tabId, old.referenceId, next)} tabId={tabId} instanceId={instanceId} className="border-b border-line px-2 py-2" />}
           {references.length > 0 && (
             <SessionReferenceChips
               references={references}

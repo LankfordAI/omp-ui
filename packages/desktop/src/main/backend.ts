@@ -235,6 +235,8 @@ import { readExperimentDetail, readProjectExperiments, readRunLog } from "./expe
 import { registerSettingsHandlers } from "./settings-handlers";
 import { ArtifactService } from "./artifact-service";
 import { registerArtifactHandlers } from "./artifact-handlers";
+import { sanitizeExportName } from "./artifact-export";
+import type { ArtifactSavePartRequest, ArtifactExportHtmlSourceRequest } from "@omp-ui/core/artifacts";
 import { registerSttHandlers } from "./stt-handlers";
 import { registerAudioHandlers } from "./audio-handlers";
 import { applyAudioDevice, execPactlRunner } from "./audio-devices";
@@ -1235,6 +1237,21 @@ export class MainBackend {
           },
         }),
         ...registerArtifactHandlers(this.artifacts),
+        // Human-only save exports: the stored bytes go straight to a chosen path at 0600; large payloads never ride renderer strings. Cancel reports null.
+        [CH.artifactSavePart]: async (request: ArtifactSavePartRequest): Promise<string | null> => {
+          const name = sanitizeExportName(this.artifacts.datasetName(request));
+          const result = await dialog.showSaveDialog(this.win, { defaultPath: `${name}.json`, filters: [{ name: "JSON", extensions: ["json"] }] });
+          if (result.canceled || !result.filePath) return null;
+          await fs.promises.writeFile(result.filePath, Buffer.from(this.artifacts.datasetBytes(request), "utf8"), { mode: 0o600 });
+          return result.filePath;
+        },
+        [CH.artifactExportHtmlSource]: async (request: ArtifactExportHtmlSourceRequest): Promise<string | null> => {
+          const source = this.artifacts.htmlSource(request);
+          const result = await dialog.showSaveDialog(this.win, { defaultPath: `${sanitizeExportName(source.name)}.html`, filters: [{ name: "HTML", extensions: ["html"] }] });
+          if (result.canceled || !result.filePath) return null;
+          await fs.promises.writeFile(result.filePath, Buffer.from(source.html, "utf8"), { mode: 0o600 });
+          return result.filePath;
+        },
         ...registerVaultHandlers({
           registry: this.registry,
           broadcast: () => this.broadcast(),
