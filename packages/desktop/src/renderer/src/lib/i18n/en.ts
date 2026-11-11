@@ -2663,6 +2663,7 @@ export const en = {
   "rail.jobs.cwd": "directory",
   "rail.jobs.pids": "pids",
   "rail.jobs.output": "output",
+  "rail.jobs.outputFile": "output · {file}",
   "rail.jobs.noOutput": "no output yet",
   "rail.jobs.outputTruncated": "… earlier output trimmed",
   "rail.jobs.noInspect": "This omp build reports no job details — update omp to 18.4.9 or later.",

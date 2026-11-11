@@ -253,6 +253,7 @@ describe("deriveSidebarSessionState", () => {
       stage: null,
       intent: null,
       caption: null,
+      outputFile: null,
     };
     const snapshot = (running: AsyncJob[]): AsyncJobsSnapshot => ({
       version: ASYNC_JOBS_SNAPSHOT_VERSION,

@@ -236,7 +236,9 @@ function JobRow({
             {job.command !== null && <Field label={t("rail.jobs.command")}>{job.command}</Field>}
             {job.cwd !== null && <Field label={t("rail.jobs.cwd")}>{job.cwd}</Field>}
             {job.pids.length > 0 && <Field label={t("rail.jobs.pids")}>{job.pids.join(" ")}</Field>}
-            <Field label={t("rail.jobs.output")}>
+            {/* A tailed redirect target must never read as the job's own stream:
+                the path label carries the provenance (issue #1154). */}
+            <Field label={job.outputFile !== null ? t("rail.jobs.outputFile", { file: job.outputFile }) : t("rail.jobs.output")}>
               {job.outputTail === "" && !job.outputTruncated ? (
                 <span className="text-ink-faint">{t("rail.jobs.noOutput")}</span>
               ) : (

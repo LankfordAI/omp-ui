@@ -1058,6 +1058,7 @@ describe("Sidebar Working and Snoozed sections (issue #935)", () => {
         stage: null,
         intent: null,
         caption: null,
+        outputFile: null,
       },
     ],
     recent: [],
@@ -1265,6 +1266,7 @@ describe("Sidebar Working and Snoozed sections (issue #935)", () => {
   // running background job belongs in Working even while its turn is idle,
   // matching the row chip.
   it("moves a live row with a running background job into Working (issue #1026)", () => {
+
     // #1037: Working starts collapsed; open it to see the row land inside.
     act(() => setSidebarSectionOpen("omp-ui.sidebarWorkingOpen", true));
     useStore.setState({

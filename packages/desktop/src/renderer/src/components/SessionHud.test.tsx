@@ -1935,6 +1935,7 @@ describe("SessionHud background-jobs chip (issue #835)", () => {
     stage: null,
     intent: null,
     caption: null,
+    outputFile: null,
     ...overrides,
   });
   const seedJobs = (snapshot: AsyncJobsSnapshot | null): void => {

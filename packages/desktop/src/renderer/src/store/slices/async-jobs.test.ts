@@ -187,6 +187,7 @@ describe("killAsyncJob (issue #835)", () => {
       stage: null,
       intent: null,
       caption: null,
+      outputFile: null,
     },
   ];
 
