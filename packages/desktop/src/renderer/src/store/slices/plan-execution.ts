@@ -14,6 +14,7 @@ import {
   planReviewMessage,
 } from "@omp-ui/core/plan";
 import { goalOwnsSession as coreGoalOwnsSession } from "@omp-ui/core/goal";
+import { councilPlanReviewPrompt } from "@omp-ui/core/council";
 import { backend } from "../../backend";
 import { strField } from "../../lib/fields";
 import { t } from "../../lib/i18n";
@@ -54,6 +55,8 @@ export interface PlanExecutionSlice {
     options?: PlanExecutionOptions,
   ): void;
   refinePlan(tabId: string, notes?: PlanRevisionNotes): void;
+  /** Refine whose follow-up asks the planner to run a council plan review first. */
+  sendPlanToCouncil(tabId: string, notes?: PlanRevisionNotes): void;
   deferPlanReview(tabId: string): void;
   /** Declines a live gate without executing or reworking (issue #1012). */
   dismissPlanReview(tabId: string): Promise<void>;
@@ -590,14 +593,37 @@ export function createPlanExecutionSlice(
     proceed();
   };
 
-  const refinePlan = (tabId: string, notes?: PlanRevisionNotes): void => {
+  type ReviewRequest = NonNullable<RpcTabState["planReview"]>["request"];
+
+  /**
+   * Answers the gate with refine (the acknowledged path for HTML, §6; the
+   * select reply for markdown), settles the rows, then runs `after`. Refine and
+   * the council review share it: the council review is a refine whose
+   * follow-up asks the council first.
+   */
+  const answerRefine = (tabId: string, after: (review: ReviewRequest) => void): void => {
     const gate = get().rpc[tabId]?.planReview;
     if (!gate) return;
     const gateKey = planReviewGateKey(gate);
     const review = gate.request;
-    const planKey = review?.planFilePath;
-    const sendNotes = (): void => {
-      if (planKey) settlePlanReview(tabId, planKey, "refined", gateKey);
+    const settled = (): void => {
+      settlePlanReview(tabId, review.planFilePath, "refined", gateKey);
+      after(review);
+    };
+    if (isHtmlPlanPath(review.planFilePath)) {
+      // Refine needs the same gate identity but NOT unchanged disk bytes —
+      // the planner re-reads the artifact itself (§6).
+      void (async () => {
+        if (await acknowledgePlanReview(tabId, "refine")) settled();
+      })();
+      return;
+    }
+    if (!answerPlanSelect(tabId, PLAN_REFINE)) return;
+    settled();
+  };
+
+  const refinePlan = (tabId: string, notes?: PlanRevisionNotes): void => {
+    answerRefine(tabId, (review) => {
       const text = notes?.text?.trim() ?? "";
       const images = notes?.images;
       const documents = notes?.documents;
@@ -605,10 +631,10 @@ export function createPlanExecutionSlice(
       if (text === "" && !images?.length && !documents?.length && !annotations?.length) return;
       // The planner's current turn continues after the refine verdict; the
       // notes steer it live, and omp appends images after the text block.
-      const represented = review?.represented === true;
+      const represented = review.represented === true;
       // A live gate's ToolResult already named the file for the planner. A
       // re-presented one answered no tool call, so the notes must name it.
-      const lead = represented ? `Revise the plan at ${planKey}` : "Revise the plan";
+      const lead = represented ? `Revise the plan at ${review.planFilePath}` : "Revise the plan";
       // Plan annotations lead the wire text (ADR-0077), quoting the plan
       // passages the requested changes are about.
       const body = text
@@ -619,17 +645,21 @@ export function createPlanExecutionSlice(
       const message = represented ? `${body}\n\nThen propose it again.` : body;
       // Refine notes carry resolved scratch paths, never raw bytes (ADR-0044).
       void get().sendPrompt(tabId, message, "steer", images, documents, { annotations });
-    };
-    if (review !== undefined && isHtmlPlanPath(review.planFilePath)) {
-      // Refine needs the same gate identity but NOT unchanged disk bytes —
-      // the planner re-reads the artifact itself (§6).
-      void (async () => {
-        if (await acknowledgePlanReview(tabId, "refine")) sendNotes();
-      })();
-      return;
-    }
-    if (!answerPlanSelect(tabId, PLAN_REFINE)) return;
-    sendNotes();
+    });
+  };
+
+  const sendPlanToCouncil = (tabId: string, notes?: PlanRevisionNotes): void => {
+    answerRefine(tabId, (review) => {
+      const message = councilPlanReviewPrompt(review.planFilePath, {
+        text: notes?.text ?? "",
+        annotated: (notes?.annotations?.length ?? 0) > 0,
+        attached: (notes?.images?.length ?? 0) > 0 || (notes?.documents?.length ?? 0) > 0,
+      });
+      // Same wire as refine notes: resolved scratch paths, annotations lead (ADR-0044, ADR-0077).
+      void get().sendPrompt(tabId, message, "steer", notes?.images, notes?.documents, {
+        annotations: notes?.annotations,
+      });
+    });
   };
 
   const representPlan = async (
@@ -794,6 +824,7 @@ export function createPlanExecutionSlice(
     stall,
     executePlan,
     refinePlan,
+    sendPlanToCouncil,
     deferPlanReview,
     dismissPlanReview,
     showPlanReview,

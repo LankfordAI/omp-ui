@@ -867,6 +867,9 @@ export const en = {
   "plan.review.dismissTitle": "Decline this plan — the planner's turn ends without executing or revising it; the file stays on disk",
   "plan.review.backToPlan": "back to plan",
   "plan.review.sendChanges": "send changes",
+  "plan.review.council": "council review",
+  "plan.review.councilTitle":
+    "Send this plan to your {count}-model council for a read-only review. The planner then revises it if they report blockers or major issues, and proposes it again. Your change notes go with it.",
   "plan.review.ready": "plan ready",
   "plan.review.stepReview": "review plan",
   "plan.review.stepRefine": "request changes",

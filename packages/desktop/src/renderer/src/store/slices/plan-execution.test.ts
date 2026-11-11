@@ -1014,3 +1014,59 @@ describe("dismiss declines a live gate without executing or reworking (issue #10
     expect(h.sent.some((s) => s.cmd.type === "extension_ui_response")).toBe(false);
   });
 });
+
+describe("council review answers refine, then asks the planner for a council plan review", () => {
+  const prompts = () => h.sent.filter((s) => s.tabId === h.TAB && s.cmd.type === "prompt");
+  // The same gate shape as the html-gates describe above (issue #312 follow-up).
+  const htmlTab = () =>
+    rpcTabState({
+      planReview: {
+        request: {
+          title: "add auth",
+          planFilePath: "local://auth-plan.html",
+          planAbsPath: "/l/auth-plan.html",
+          sourceHash: SOURCE_HASH,
+        },
+        frame: { id: "g1" },
+      },
+    });
+
+  it("a markdown gate rides the select reply, then steers the council request with the notes", () => {
+    h.useStore.setState({ rpc: { [h.TAB]: rpcTabState() } });
+    h.useStore.getState().handleRpcFrame(h.TAB, {
+      type: "extension_ui_request",
+      id: "c1",
+      method: "select",
+      title: "omp-ui:plan-review:" + JSON.stringify({ title: "t", planFilePath: "local://p.md" }),
+    });
+    h.useStore.getState().sendPlanToCouncil(h.TAB, { text: "drop X" });
+    expect(h.sent.find((s) => s.cmd.type === "extension_ui_response")?.cmd).toMatchObject({ id: "c1", value: "refine" });
+    expect(h.useStore.getState().rpc[h.TAB]!.planReview).toBeNull();
+    const prompt = prompts()[0]!.cmd;
+    expect(prompt.streamingBehavior).toBe("steer");
+    expect(String(prompt.message)).toContain("omp-ui_council");
+    expect(String(prompt.message)).toContain("`local://p.md`");
+    expect(String(prompt.message)).toContain("drop X");
+    expect(answerPlanReview).not.toHaveBeenCalled();
+  });
+
+  it("an html gate steers only after main accepts the refine answer", async () => {
+    h.useStore.setState({ rpc: { [h.TAB]: htmlTab() } });
+    h.useStore.getState().sendPlanToCouncil(h.TAB);
+    expect(answerPlanReview).toHaveBeenCalledWith(h.TAB, "g1", "refine", SOURCE_HASH);
+    expect(prompts()).toHaveLength(0);
+    await h.flushMicrotasks();
+    const prompt = prompts()[0]!.cmd;
+    expect(prompt.streamingBehavior).toBe("steer");
+    expect(String(prompt.message)).toContain("`local://auth-plan.html`");
+  });
+
+  it("an html gate whose refine is rejected sends no council request", async () => {
+    h.useStore.setState({ rpc: { [h.TAB]: htmlTab() } });
+    answerPlanReview.mockResolvedValueOnce({ status: "rejected", reason: "stale" });
+    h.useStore.getState().sendPlanToCouncil(h.TAB);
+    await h.flushMicrotasks();
+    expect(prompts()).toHaveLength(0);
+    expect(h.useStore.getState().rpc[h.TAB]!.planReview).not.toBeNull();
+  });
+});

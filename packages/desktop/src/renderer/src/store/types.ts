@@ -1857,6 +1857,8 @@ export interface UiStore extends SettingsSlice, UpdatesSlice, LabSlice, StatsSli
     options?: PlanExecutionOptions,
   ): void;
   refinePlan(tabId: string, notes?: PlanRevisionNotes): void;
+  /** Refine whose follow-up asks the planner to run a council plan review first. */
+  sendPlanToCouncil(tabId: string, notes?: PlanRevisionNotes): void;
   acceptPlanReview(
     tabId: string,
     review: NonNullable<RpcTabState["planReview"]>,

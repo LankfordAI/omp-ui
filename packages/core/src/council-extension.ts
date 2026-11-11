@@ -5,6 +5,8 @@ import {
   COUNCIL_ASK_PLAYBOOK,
   COUNCIL_COMMAND,
   COUNCIL_LAUNCH_TYPE,
+  COUNCIL_PLAN_PATH_PATTERN,
+  COUNCIL_PLAN_PLAYBOOK,
   COUNCIL_PR_USAGE,
   COUNCIL_REVIEW_PLAYBOOK,
   COUNCIL_TOOL,
@@ -75,6 +77,8 @@ const AGENT = ${JSON.stringify(COUNCIL_AGENT)};
 const LAUNCH_TYPE = ${JSON.stringify(COUNCIL_LAUNCH_TYPE)};
 const REVIEW_BRIEF = ${JSON.stringify(COUNCIL_REVIEW_PLAYBOOK)};
 const ASK_BRIEF = ${JSON.stringify(COUNCIL_ASK_PLAYBOOK)};
+const PLAN_BRIEF = ${JSON.stringify(COUNCIL_PLAN_PLAYBOOK)};
+const PLAN_PATH_RE = new RegExp(${JSON.stringify(COUNCIL_PLAN_PATH_PATTERN)}, "i");
 const LOCAL_MERGE_BASE = ${JSON.stringify(LOCAL_MERGE_BASE_COMMANDS)};
 const LOCAL_PARENT = ${JSON.stringify(LOCAL_PARENT_COMMANDS)};
 const LOCAL_ROOT = ${JSON.stringify(LOCAL_ROOT_COMMANDS)};
@@ -131,8 +135,14 @@ type Target =
   | { kind: "range"; ref: string; from: string; to: string }
   | { kind: "pr"; number: string };
 
-/** ask: independent answers to a request; review: a scored diff review, with optional extra focus. */
-type Intent = { mode: "ask"; request: string } | { mode: "review"; target: Target; focus?: string };
+/**
+ * ask: independent answers to a request; review: a scored diff review, with optional extra focus;
+ * plan: a review of a proposed plan artifact, after which the planner revises and re-proposes it.
+ */
+type Intent =
+  | { mode: "ask"; request: string }
+  | { mode: "review"; target: Target; focus?: string }
+  | { mode: "plan"; planFilePath: string };
 
 function fill(template: string, values: Record<string, string>): string {
   return template.replace(/@@([A-Z_]+)@@/g, (whole, key: string) => values[key] ?? whole);
@@ -345,6 +355,7 @@ async function runCouncil(intent: Intent, cwd: string, signal: AbortSignal | und
   const warnings = council.configWarnings.length === 0 ? "" : " Config warnings: " + council.configWarnings.join("; ");
   if (council.members.length === 0) return fail(COUNCIL_EMPTY + warnings);
   const review = intent.mode === "review";
+  const plan = intent.mode === "plan";
   try {
     let label: string;
     let subject: string;
@@ -355,6 +366,9 @@ async function runCouncil(intent: Intent, cwd: string, signal: AbortSignal | und
       if (!resolved.ok) return fail(resolved.message);
       label = targetLabel(intent.target);
       subject = "## Diff target\\n" + resolved.brief + (intent.focus === undefined ? "" : "\\n\\n## Focus\\n" + intent.focus);
+    } else if (intent.mode === "plan") {
+      label = intent.planFilePath;
+      subject = "## Plan under review\\n" + intent.planFilePath;
     } else {
       label = "(ask)";
       subject = "## Request\\n" + intent.request;
@@ -367,24 +381,37 @@ async function runCouncil(intent: Intent, cwd: string, signal: AbortSignal | und
       model: m.model,
       solutionSpace: review
         ? "open: defects in the stated diff target; none known"
-        : "open: an independent opinion on the user's request",
-      task: [review ? REVIEW_BRIEF : ASK_BRIEF, m.instructions ?? "", subject].filter((s) => s !== "").join("\\n\\n"),
+        : plan
+          ? "open: defects in the stated plan; none known"
+          : "open: an independent opinion on the user's request",
+      task: [review ? REVIEW_BRIEF : plan ? PLAN_BRIEF : ASK_BRIEF, m.instructions ?? "", subject]
+        .filter((s) => s !== "")
+        .join("\\n\\n"),
     });
     const context = review
       ? "omp-ui council review (/" + COMMAND + " review). " +
         (council.instructions ?? "Report defects in the diff only; every finding must cite a file and line from the diff.")
-      : "omp-ui council (/" + COMMAND + "). " +
-        (council.instructions ?? "Answer the request independently; your answer is compared with other models' answers.");
+      : plan
+        ? "omp-ui council plan review. " +
+          (council.instructions ?? "Report defects in the plan only; every finding must name the plan section it concerns.")
+        : "omp-ui council (/" + COMMAND + "). " +
+          (council.instructions ?? "Answer the request independently; your answer is compared with other models' answers.");
     const tasks = council.members.map(memberTask);
     const batch = { context, tasks };
     const trial = council.trial;
     const names = council.members.map((m) => m.name + " (" + m.model + ")").join(", ");
+    const slug = label.slice("local://".length).replace(/-plan\\.(?:md|html)$/i, "");
+    const opener = plan
+      ? "The user sent the plan at \`" + label + "\` to the council"
+      : "The user ran /" + COMMAND + " " + label;
     const lines: string[] = [];
     if (trial === null) {
       lines.push(
-        "The user ran /" + COMMAND + " " + label + "; the council has " + tasks.length + " members: " + names + ". " +
-          "Call the \`task\` tool exactly once with these batch arguments, unchanged, then stop and wait: " +
-          "the members' answers arrive on their own turn later.",
+        opener + "; the council has " + tasks.length + " members: " + names + ". " +
+          "Call the \`task\` tool exactly once with these batch arguments, unchanged, then " +
+          (plan
+            ? "call the \`wait\` tool until every member has answered. Do not end your turn while a member is still running."
+            : "stop and wait: the members' answers arrive on their own turn later."),
         inertBlock(JSON.stringify(batch)),
         "If the task call fails, report omp's error verbatim and stop. Never retry without a member or with a different model.",
         "When the answers arrive:",
@@ -393,7 +420,7 @@ async function runCouncil(intent: Intent, cwd: string, signal: AbortSignal | und
     } else {
       const trialName = trial.name + " (" + trial.model + ")";
       lines.push(
-        "The user ran /" + COMMAND + " " + label + "; the council has " + tasks.length + " members: " + names + ". " +
+        opener + "; the council has " + tasks.length + " members: " + names + ". " +
           "A trial member, " + trialName + ", answers the same assignment for comparison only. " +
           "It is not a council member and has no say in the outcome. " +
           "Call the \`task\` tool once with the council batch arguments, unchanged:",
@@ -404,7 +431,7 @@ async function runCouncil(intent: Intent, cwd: string, signal: AbortSignal | und
         inertBlock(JSON.stringify({ context, tasks: [memberTask(trial)] })),
         "If the trial call fails, say so in one line with omp's error and carry on with the council. " +
           "Never retry it and never use a different model.",
-        "Then stop and wait: the answers arrive on their own turns later.",
+        plan ? "Then call the \`wait\` tool until every council member has answered." : "Then stop and wait: the answers arrive on their own turns later.",
         "When the answers arrive:",
         "- Summarize the useful findings, where the council members agree, where they disagree, and the recommended next steps, " +
           "naming each council member. Build all of it from the council members' answers alone.",
@@ -432,6 +459,18 @@ async function runCouncil(intent: Intent, cwd: string, signal: AbortSignal | und
           "in its description with gh pr edit; never post a comment. Without a pull request, keep the table in your reply.",
       );
       if (trial !== null) lines.push("- Head each \\"Trial model\\" section with the review round it belongs to.");
+    } else if (plan) {
+      lines.push(
+        "- Then revise \`" + label + "\` with your write tool: fix every blocker and major finding you agree with, " +
+          "plus any changes the user asked for with this request. Stay within the plan's scope, keep its file and format, " +
+          "and never widen the work.",
+        "- If no " + (trial === null ? "member" : "council member") + " reports a blocker or major finding and the user " +
+          "asked for no changes, leave the file unchanged.",
+        "- Either way, finish by calling your write tool to write \`" + slug + "\` as plain text to xd://propose so the user " +
+          "reviews the plan again; saying that you will propose it does not reopen the review. " +
+          "Say in one line before that whether you revised it.",
+        "- Do not implement the plan and do not edit any other file because of this message.",
+      );
     } else {
       lines.push("- Do not edit files or post anywhere because of this message.");
     }
@@ -482,7 +521,10 @@ if (typeof pi.registerTool === "function" && typeof zod?.object === "function") 
       "review: true runs a code review instead, scoring each member out of 10; target then picks what to review: " +
       "omit for local changes against the upstream or default branch, " +
       "{kind:'commit',value:'<ref>' or '<from>..<to>'}, or {kind:'pr',value:'<number>'}. " +
-      "In review mode request is optional extra focus. The council is the one loaded when the session started.",
+      "In review mode request is optional extra focus. The council is the one loaded when the session started. " +
+      "plan: a plan artifact path (local://<slug>-plan.md or -plan.html) runs a plan review instead: members review the plan " +
+      "read-only, then you revise it if they report blockers or major findings and propose it again. " +
+      "plan cannot be combined with request, review, or target.",
     parameters: zod.object({
       request: zod.string().nullable().optional(),
       review: zod.boolean().nullable().optional(),
@@ -491,6 +533,11 @@ if (typeof pi.registerTool === "function" && typeof zod?.object === "function") 
         .nullable()
         .optional()
         .describe("What to review; omit for local changes"),
+      plan: zod
+        .string()
+        .nullable()
+        .optional()
+        .describe("A plan artifact to review: local://<slug>-plan.md or -plan.html"),
     }),
     execute: async (
       _id: string,
@@ -504,6 +551,16 @@ if (typeof pi.registerTool === "function" && typeof zod?.object === "function") 
       const request = typeof p.request === "string" ? p.request.trim() : "";
       const toolCtx = asRecord(ctx);
       const cwd = typeof toolCtx?.cwd === "string" ? toolCtx.cwd : pi.cwd ?? process.cwd();
+      if (p.plan !== undefined && p.plan !== null) {
+        if (review || request !== "" || (p.target !== undefined && p.target !== null)) {
+          return toolResult("plan cannot be combined with request, review, or target", true);
+        }
+        const planFilePath = typeof p.plan === "string" ? p.plan.trim() : "";
+        if (!PLAN_PATH_RE.test(planFilePath)) {
+          return toolResult("plan must be a local://<slug>-plan.md or local://<slug>-plan.html path", true);
+        }
+        return (await runCouncil({ mode: "plan", planFilePath }, cwd, signal)).result;
+      }
       if (!review) {
         if (request === "") return toolResult("request is required unless review is true", true);
         if (p.target !== undefined && p.target !== null) return toolResult("target applies only with review: true", true);

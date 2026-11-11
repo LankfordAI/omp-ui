@@ -1087,6 +1087,27 @@ inventing one; it may fix findings within the reviewed scope and start a fresh
 round, up to three, and puts the table in an open pull request's description
 under `## Council review`, never as a comment.
 
+A third intent, the plan review (#1156), is tool-only: the bridge tool's
+`plan` argument names a plan artifact matching `COUNCIL_PLAN_PATH_PATTERN`
+(`local://<slug>-plan.md` or `.html`, shared verbatim by the renderer's
+`isCouncilPlanPath` and the generated bridge) and cannot be combined with
+`request`, `review`, or `target`. There is no `/council plan` form, because omp
+refuses an extension command mid-stream and the planner is blocked in
+`xd://propose`. The plan intent runs no git probe; each member gets
+`COUNCIL_PLAN_PLAYBOOK` (severity-ranked findings against the plan file, or
+`no findings.`) and the plan path. The launch tells the planner to call the
+`wait` tool until every member answers, because omp 18.18.7 plan mode folds no
+async result into a turn and adds a plan-mode reminder when a turn ends with
+text only. The planner then revises the plan file for the blocker and major
+findings it agrees with, plus the user's change notes, and writes the same slug
+to `xd://propose` again, revised or not. The renderer offers the action in
+`PlanReview` only when `useSessionCouncilMembers` sees the Council switch on,
+a ready or running process, the advertised extension `council` command, and
+`available` process status. The store's `sendPlanToCouncil` answers the gate
+with refine through the same path as refine (acknowledged for HTML, the select
+reply for markdown), settles the row as `refined`, and steers
+`councilPlanReviewPrompt`. No verdict value, plan record, or channel changed.
+
 ### Rewind and the session tree
 
 Rewinding a native session to an earlier prompt rides OMP's existing `branch` RPC: the renderer never rewrites the session file, and the abandoned turns stay in it as another branch. A hover chip on each user row (`packages/desktop/src/renderer/src/components/TranscriptView.tsx`) stages the action; the click is refused while the tab is streaming, because `branch` clears OMP's own prompt queue and a refused click is honest while a queued one is not ([#680](https://github.com/LankfordAI/omp-ui/issues/680)).

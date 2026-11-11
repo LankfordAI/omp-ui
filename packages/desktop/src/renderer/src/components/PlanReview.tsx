@@ -1,4 +1,5 @@
 import { useCallback, useEffect, useMemo, useRef, useState, type KeyboardEvent, type MouseEvent } from "react";
+import { isCouncilPlanPath } from "@omp-ui/core/council";
 import { parseModelRole } from "@omp-ui/core/model-role";
 import { isHtmlPlanPath } from "@omp-ui/core/plan";
 import { branchNameFromPlanPath } from "../lib/branch-name";
@@ -21,9 +22,11 @@ import { NATIVE_LIVE_MIN_OMP, supportsNativeLive } from "../lib/live-voice";
 import { useCompactShell } from "../lib/responsive";
 import type { ModelInfo } from "../lib/rpc-types";
 import { findInstance, findOwner, findRecord, useStore } from "../store";
+import type { PlanRevisionNotes } from "../store/types";
 import { useDismissal } from "../lib/use-dismissal";
 import { useImageDraft } from "../lib/use-image-draft";
 import { usePlanDispatchStaging } from "../lib/use-plan-dispatch-staging";
+import { useSessionCouncilMembers } from "../lib/use-session-council";
 import { ExecutionBranchSetup, useExecutionBranch } from "./ExecutionBranchSetup";
 import { LiveVoiceControl } from "./LiveVoiceControl";
 import { LiveVoiceStrip } from "./LiveVoiceStrip";
@@ -55,7 +58,9 @@ import { WorktreeBranchFields } from "./WorktreeBranchFields";
  * sends the agent back to revise the draft. "Not now" or the close button
  * defers the decision without answering the gate: the agent stays paused and
  * the plan stays pending in the rail's plans tab until the user returns. Both
- * defer and refine keep the working tree read-only.
+ * defer and refine keep the working tree read-only. Council review is a
+ * refine whose follow-up asks the planner to run the session's council on the
+ * plan first. It shows only when this process can launch a council.
  *
  * The plan is rendered from the file on disk rather than from the proposal
  * frame: the frame carries only the slug, and the file is the artifact the
@@ -214,10 +219,12 @@ export function PlanReview({
   const rpcStatus = useStore((s) => s.rpc[tabId]?.status);
   const exited = useStore((s) => s.exited[tabId] !== undefined);
   const advisorConfigured = useStore((s) => s.rpc[tabId]?.advisorStats?.configured === true);
+  const councilCount = useSessionCouncilMembers(tabId);
   const executePlan = useStore((s) => s.executePlan);
   const refinePlan = useStore((s) => s.refinePlan);
   const deferPlanReview = useStore((s) => s.deferPlanReview);
   const dismissPlanReview = useStore((s) => s.dismissPlanReview);
+  const sendPlanToCouncil = useStore((s) => s.sendPlanToCouncil);
   /** True after "not now": the pane is dismissed but the gate is unanswered. */
   const deferred = useStore((s) => s.rpc[tabId]?.planDeferred === true);
   const t = useT();
@@ -447,6 +454,9 @@ export function PlanReview({
 
   if (!review || deferred) return null;
   const { request } = review;
+  // The council review needs a launchable council in THIS process and an
+  // omp-shaped plan path the bridge accepts.
+  const councilMembers = councilCount !== null && isCouncilPlanPath(request.planFilePath) ? councilCount : null;
   const reusingWorktree =
     sourceWorktree !== null &&
     worktreeSel !== null &&
@@ -492,7 +502,8 @@ export function PlanReview({
         (worktreeSel.baseBranch !== null && worktreeSel.baseBranch.trim() === "")
       : branchApplies && (branch.checkingOut || branch.branchInvalid));
 
-  const refine = async () => {
+  /** Materializes the notes draft (ADR-0044); null = a PDF was refused and the draft stays intact. */
+  const draftNotes = async (): Promise<PlanRevisionNotes | undefined | null> => {
     // Materialize the PDFs before the draft is spent (ADR-0044): a refusal
     // keeps the notes draft intact, the same keep-draft shape as Composer.
     let docRefs: DocumentRef[] = [];
@@ -502,29 +513,45 @@ export function PlanReview({
         docRefs = documents.map((document, i) => ({ name: document.name, path: paths[i]! }));
       } catch (err) {
         setPasteError(displayMessage(err));
-        return;
+        return null;
       }
     }
-    const notes = {
-      text: changes,
-      images: images.length ? images : undefined,
-      documents: docRefs.length ? docRefs : undefined,
-      annotations: annotations.length ? annotations : undefined,
-    };
-    refinePlan(
-      tabId,
-      changes.trim() !== "" || images.length > 0 || docRefs.length > 0 || annotations.length > 0
-        ? notes
-        : undefined,
-    );
-    // The draft has been spent. RpcTab keeps this pane mounted for the whole
-    // life of an active tab, so refine → revised proposal never unmounts it and
-    // nothing else would ever clear these — the stale notes would reappear on
-    // the next review, re-submittable by accident (issue #113). "Not now" keeps
-    // its draft on purpose: deferring asks for no revision.
+    const any = changes.trim() !== "" || images.length > 0 || docRefs.length > 0 || annotations.length > 0;
+    return any
+      ? {
+          text: changes,
+          images: images.length ? images : undefined,
+          documents: docRefs.length ? docRefs : undefined,
+          annotations: annotations.length ? annotations : undefined,
+        }
+      : undefined;
+  };
+  // The draft has been spent. RpcTab keeps this pane mounted for the whole
+  // life of an active tab, so refine → revised proposal never unmounts it and
+  // nothing else would ever clear these — the stale notes would reappear on
+  // the next review, re-submittable by accident (issue #113). "Not now" keeps
+  // its draft on purpose: deferring asks for no revision.
+  const spendDraft = (): void => {
     setChanges("");
     clearDraft();
   };
+  const refine = async () => {
+    const notes = await draftNotes();
+    if (notes === null) return;
+    refinePlan(tabId, notes);
+    spendDraft();
+  };
+  const sendToCouncil = async () => {
+    const notes = await draftNotes();
+    if (notes === null) return;
+    sendPlanToCouncil(tabId, notes);
+    spendDraft();
+  };
+  const councilButton = councilMembers !== null && (
+    <Button title={t("plan.review.councilTitle", { count: councilMembers })} onClick={() => void sendToCouncil()}>
+      {t("plan.review.council")}
+    </Button>
+  );
   // Close (X) / "not now": defer without answering the gate with notes the
   // user did not finish writing. The plan stays pending in the plans tab.
   const dismiss = () => {
@@ -1257,6 +1284,7 @@ export function PlanReview({
               ) : compactStep === "refine" ? (
                 <>
                   <Button variant="ghost" onClick={() => setCompactStep("review")}>{t("plan.review.backToPlan")}</Button>
+                  {councilButton}
                   <Button variant="solid" tone="signal" onClick={() => void refine()}>{t("plan.review.sendChanges")}</Button>
                 </>
               ) : (
@@ -1293,6 +1321,7 @@ export function PlanReview({
               >
                 {t("plan.review.dismiss")}
               </Button>
+              {councilButton}
               <Button onClick={() => void refine()}>{t("plan.review.refine")}</Button>
               <ExecutePlanButton
                 contextLabel={contextLabel}

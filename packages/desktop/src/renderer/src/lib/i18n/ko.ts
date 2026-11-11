@@ -800,6 +800,9 @@ export const ko: Partial<Record<MessageKey, string>> = {
   "plan.review.dismissTitle": "이 플랜을 무시합니다 — 실행이나 수정 없이 에이전트의 턴이 끝나고, 파일은 디스크에 남습니다",
   "plan.review.backToPlan": "플랜으로 돌아가기",
   "plan.review.sendChanges": "변경 사항 전송",
+  "plan.review.council": "카운슬 검토",
+  "plan.review.councilTitle":
+    "이 플랜을 {count}개 모델로 구성된 카운슬에 보내 읽기 전용 검토를 받습니다. 차단 또는 주요 문제가 보고되면 플래너가 플랜을 수정한 뒤 다시 제안합니다. 작성한 변경 메모도 함께 전달됩니다.",
   "plan.review.ready": "플랜 준비됨",
   "plan.review.stepReview": "플랜 검토",
   "plan.review.stepRefine": "변경 요청",
