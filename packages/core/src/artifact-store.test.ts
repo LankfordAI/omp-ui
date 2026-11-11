@@ -336,7 +336,8 @@ describe("ArtifactStore human maintenance", () => {
     const refresh = store.prepareRefresh({ artifactId: record.artifactId, codeRevisionId: record.currentCodeRevisionId, dataSnapshotId: edited.currentDataSnapshotId, targetTabId: "tab-a", datasetIds: ["rows"] });
     store.bindRefresh({ refreshRequestId: refresh.refreshRequestId, targetTabId: "tab-a", lineageDir: "/trusted/project", runtimeKey, sessionId });
     const restored = store.restoreSnapshot({ artifactId: record.artifactId, dataSnapshotId: firstHead, expectedCodeRevisionId: record.currentCodeRevisionId });
-    expect(restored.currentDataSnapshotId).not.toBe(firstHead).not.toBe(edited.currentDataSnapshotId);
+    expect(restored.currentDataSnapshotId).not.toBe(firstHead);
+    expect(restored.currentDataSnapshotId).not.toBe(edited.currentDataSnapshotId);
     expect(snapshot(store, restored).userState.filter).toBe("all"); // the old values won the head
     expect(store.readSnapshot({ artifactId: record.artifactId, dataSnapshotId: firstHead }).cause).toBe("initial"); // append-only: the old snapshot stays
     expect(store.describe({ artifactId: record.artifactId }).snapshots.find(row => row.dataSnapshotId === restored.currentDataSnapshotId)?.cause).toBe("restore");

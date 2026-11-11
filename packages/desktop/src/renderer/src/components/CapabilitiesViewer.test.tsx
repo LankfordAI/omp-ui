@@ -115,6 +115,7 @@ const backendMock = {
   getScopedCapabilities: vi.fn(async () => emptyCatalog()),
   setScopedCapability: vi.fn(async () => emptyCatalog()),
   getSessionCapabilities: vi.fn(async () => ({ status: "missing-session" as const })),
+  getSessionCouncilStatus: vi.fn(async () => ({ status: "missing-session" as const })),
   // The viewer reaches this only through the store action; the default
   // answers like a session whose bridge cannot change tools (issue #379).
   setSessionToolEnabled: vi.fn(async () => ({ status: "bridge-unavailable" as const })),

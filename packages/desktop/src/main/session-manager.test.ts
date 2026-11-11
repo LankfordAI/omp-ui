@@ -3,6 +3,7 @@ import { execFile, execFileSync } from "node:child_process";
 import * as fs from "node:fs";
 import * as os from "node:os";
 import * as path from "node:path";
+import { setImmediate as nextTurn } from "node:timers/promises";
 import { promisify } from "node:util";
 import * as Core from "@omp-ui/core";
 import type { KeyCipher, PtyHandle } from "@omp-ui/core";
@@ -10,6 +11,7 @@ import { afterEach, beforeEach, describe, expect, it, vi, type Mock } from "vite
 import { CH } from "@omp-ui/core";
 import { SessionManager, type SessionManagerDependencies } from "./session-manager";
 import { resetGoalContinuationModesCache } from "./spawn-config";
+import * as WarmPool from "./warm-pool";
 import type { PaneContents, PaneEvent } from "./browser-pane-contents";
 import type { BridgeListener } from "./browser-pane-bridge";
 import type { Attention } from "./desktop-notifier";
@@ -32,9 +34,18 @@ vi.mock("@omp-ui/core", async (importOriginal) => {
     findObsidianList: vi.fn(),
     writeMcpStatusExtension: vi.fn(core.writeMcpStatusExtension),
     writeCapabilitiesExtension: vi.fn(core.writeCapabilitiesExtension),
+    resolveCouncilRoster: vi.fn(core.resolveCouncilRoster),
+    writeCouncilOverlay: vi.fn(core.writeCouncilOverlay),
+    writeCouncilRosterSnapshot: vi.fn(core.writeCouncilRosterSnapshot),
+    writeCouncilExtension: vi.fn(core.writeCouncilExtension),
     mintLineageDirName: vi.fn(core.mintLineageDirName),
     RpcClient: vi.fn(),
   };
+});
+
+vi.mock("./warm-pool", async (importOriginal) => {
+  const warm = await importOriginal<typeof WarmPool>();
+  return { ...warm, hashLineageTree: vi.fn(warm.hashLineageTree) };
 });
 
 const TAB = "tab-1";
@@ -49,6 +60,11 @@ const readOmpGoalContinuationModesMock = vi.mocked(Core.readOmpGoalContinuationM
 const findObsidianListMock = vi.mocked(Core.findObsidianList);
 const writeMcpStatusExtensionMock = vi.mocked(Core.writeMcpStatusExtension);
 const writeCapabilitiesExtensionMock = vi.mocked(Core.writeCapabilitiesExtension);
+const resolveCouncilRosterMock = vi.mocked(Core.resolveCouncilRoster);
+const writeCouncilOverlayMock = vi.mocked(Core.writeCouncilOverlay);
+const writeCouncilRosterSnapshotMock = vi.mocked(Core.writeCouncilRosterSnapshot);
+const writeCouncilExtensionMock = vi.mocked(Core.writeCouncilExtension);
+const hashLineageTreeMock = vi.mocked(WarmPool.hashLineageTree);
 const RpcClientMock = vi.mocked(Core.RpcClient);
 const mintLineageDirNameMock = vi.mocked(Core.mintLineageDirName);
 const execFileP = promisify(execFile);
@@ -406,6 +422,11 @@ beforeEach(() => {
   nextPtyDiesOn = "never";
   writeMcpStatusExtensionMock.mockClear();
   writeCapabilitiesExtensionMock.mockClear();
+  resolveCouncilRosterMock.mockClear();
+  writeCouncilOverlayMock.mockClear();
+  writeCouncilRosterSnapshotMock.mockClear();
+  writeCouncilExtensionMock.mockClear();
+  hashLineageTreeMock.mockClear();
   resolveSessionLocationMock.mockClear();
   mintLineageDirNameMock.mockClear();
   spawnOmpMock.mockReset();
@@ -1619,98 +1640,276 @@ describe("goal continuation overlay (ADR-0046)", () => {
   });
 });
 
-describe("council snapshot (ADR-0088)", () => {
+describe("council process state (ADR-0088, issue #1155)", () => {
   const freshRpc = (manager: SessionManager): Promise<{ tabId: string }> =>
     manager.spawn({ origin: "new", worktree: null, projectCwd: PROJECT, mode: "rpc-ui", advisor: false, cols: 80, rows: 24 });
   const lineageOf = (registry: Core.Registry, sessionsRoot: string, tabId: string): string =>
     path.join(sessionsRoot, registry.sessions.find((session) => session.tabId === tabId)!.lineageDir);
-  const spawnedOverlays = (): string[] =>
-    (RpcClientMock.mock.calls.at(-1)?.[0] as { configOverlays?: string[] } | undefined)?.configOverlays ?? [];
+  const spawnedOverlays = (): string[] => RpcClientMock.mock.calls.at(-1)?.[0].configOverlays ?? [];
+  const document = (...models: string[]): Core.CouncilDocument => ({
+    instructions: null,
+    members: models.map((model) => ({ name: "", model, instructions: null, enabled: true })),
+  });
+  const snapshotAt = (dir: string): Core.CouncilRosterSnapshot =>
+    JSON.parse(fs.readFileSync(Core.councilRosterSnapshotPath(dir), "utf8")) as Core.CouncilRosterSnapshot;
 
-  it("launches an empty council when no scope holds a document", async () => {
+  it("captures an empty council when neither scope holds a document", async () => {
     const { manager, registry, sessionsRoot } = setup({ mode: "rpc-ui" });
     registry.setSetting("councilEnabled", true);
     const { tabId } = await freshRpc(manager);
     const dir = lineageOf(registry, sessionsRoot, tabId);
-    const snapshot = JSON.parse(fs.readFileSync(Core.councilRosterSnapshotPath(dir), "utf8"));
-    expect(snapshot).toEqual({ version: 2, instructions: null, members: [], trial: null, configWarnings: [] });
-    // No member can launch, so the bridge refuses before any task call and no
-    // per-call-model overlay rides the spawn at all.
-    const overlay = Core.councilOverlayPath(dir);
-    expect(spawnedOverlays()).not.toContain(overlay);
-    expect(fs.existsSync(overlay)).toBe(false);
+    expect(snapshotAt(dir)).toEqual({ version: 2, instructions: null, members: [], trial: null, configWarnings: [] });
+    await expect(manager.getSessionCouncilStatus(tabId)).resolves.toEqual({ status: "empty", configWarnings: [] });
+    expect(spawnedOverlays()).not.toContain(Core.councilOverlayPath(dir));
+    expect(fs.existsSync(Core.councilOverlayPath(dir))).toBe(false);
   });
 
-  it("snapshots and grants the project document over the global one at spawn", async () => {
+  it("captures the project launch set over the global document and appends its overlay last", async () => {
     const { manager, registry, sessionsRoot } = setup({ mode: "rpc-ui" });
     registry.setSetting("councilEnabled", true);
-    registry.setSetting("councilRoster", {
-      instructions: "shared",
-      members: [{ name: "global-one", model: "g/global", instructions: null, enabled: true }],
-    });
+    registry.setSetting("councilRoster", document("g/global"));
     registry.setProjectCouncilRoster(PROJECT, {
       instructions: null,
       members: [
         { name: "proj-one", model: "a/b", instructions: "check auth", enabled: true },
         { name: "sleeper", model: "c/d", instructions: null, enabled: false },
+        { name: "proj-two", model: "e/f", instructions: null, enabled: true },
+        { name: "proj-three", model: "g/h", instructions: null, enabled: true },
+        { name: "over-cap", model: "i/j", instructions: null, enabled: true },
       ],
     });
     const { tabId } = await freshRpc(manager);
     const dir = lineageOf(registry, sessionsRoot, tabId);
-    const snapshot = JSON.parse(fs.readFileSync(Core.councilRosterSnapshotPath(dir), "utf8"));
-    // The project document wins; only enabled members ride the launch set.
-    expect(snapshot.version).toBe(2);
-    expect(snapshot.instructions).toBeNull();
-    expect(snapshot.members).toEqual([{ name: "proj-one", model: "a/b", instructions: "check auth" }]);
-    const overlay = Core.councilOverlayPath(dir);
-    expect(spawnedOverlays()).toContain(overlay);
-    const text = fs.readFileSync(overlay, "utf8");
-    expect(text).toContain('modelRoles:\n  "omp-ui-council-1": "a/b"\n');
-    expect(text).not.toContain("omp-ui-council-2");
-    expect(text).not.toContain("g/global");
-    expect(text).not.toContain("c/d");
+    expect(snapshotAt(dir)).toMatchObject({
+      version: 2,
+      instructions: null,
+      members: [
+        { name: "proj-one", model: "a/b", instructions: "check auth" },
+        { name: "proj-two", model: "e/f", instructions: null },
+        { name: "proj-three", model: "g/h", instructions: null },
+      ],
+    });
+    await expect(manager.getSessionCouncilStatus(tabId)).resolves.toEqual({ status: "available", memberCount: 3 });
+    expect(spawnedOverlays().at(-1)).toBe(Core.councilOverlayPath(dir));
   });
 
-  it("snapshots and grants a trial member beside the project council at spawn (#1140)", async () => {
+  it("honors a deliberately empty project override instead of the global members", async () => {
+    const { manager, registry, sessionsRoot } = setup({ mode: "rpc-ui" });
+    registry.setSetting("councilEnabled", true);
+    registry.setSetting("councilRoster", document("g/global"));
+    registry.setProjectCouncilRoster(PROJECT, document());
+    const { tabId } = await freshRpc(manager);
+    const dir = lineageOf(registry, sessionsRoot, tabId);
+    expect(snapshotAt(dir).members).toEqual([]);
+    await expect(manager.getSessionCouncilStatus(tabId)).resolves.toEqual({ status: "empty", configWarnings: [] });
+    expect(spawnedOverlays()).not.toContain(Core.councilOverlayPath(dir));
+  });
+
+  it("captures a trial member beside the council without counting it as a member", async () => {
     const { manager, registry, sessionsRoot } = setup({ mode: "rpc-ui" });
     registry.setSetting("councilEnabled", true);
     registry.setProjectCouncilRoster(PROJECT, {
-      instructions: null,
-      members: [{ name: "proj-one", model: "a/b", instructions: null, enabled: true }],
+      ...document("a/b"),
       trial: { name: "", model: "t/nova", instructions: null, enabled: true },
     });
     const { tabId } = await freshRpc(manager);
     const dir = lineageOf(registry, sessionsRoot, tabId);
-    const snapshot = JSON.parse(fs.readFileSync(Core.councilRosterSnapshotPath(dir), "utf8"));
-    expect(snapshot.version).toBe(2);
-    expect(snapshot.members).toEqual([{ name: "proj-one", model: "a/b", instructions: null }]);
-    expect(snapshot.trial).toEqual({ name: "nova", model: "t/nova", instructions: null });
-    const overlay = Core.councilOverlayPath(dir);
-    expect(spawnedOverlays()).toContain(overlay);
-    const text = fs.readFileSync(overlay, "utf8");
-    expect(text).toContain('"omp-ui-council-1": "a/b"\n  "omp-ui-council-trial": "t/nova"\n');
+    expect(snapshotAt(dir)).toMatchObject({
+      members: [{ name: "b", model: "a/b", instructions: null }],
+      trial: { name: "nova", model: "t/nova", instructions: null },
+    });
+    await expect(manager.getSessionCouncilStatus(tabId)).resolves.toEqual({ status: "available", memberCount: 1 });
+    expect(spawnedOverlays().at(-1)).toBe(Core.councilOverlayPath(dir));
   });
 
-  it("writes neither the snapshot nor the overlay with the council flag off", async () => {
+  it("reports validation warnings for an empty launch set without marking it unavailable", async () => {
     const { manager, registry, sessionsRoot } = setup({ mode: "rpc-ui" });
+    registry.setSetting("councilEnabled", true);
+    registry.setProjectCouncilRoster(PROJECT, {
+      instructions: null,
+      members: [{ name: "unset", model: null, instructions: null, enabled: true }],
+      trial: { name: "trial", model: "t/nova", instructions: null, enabled: true },
+    });
     const { tabId } = await freshRpc(manager);
     const dir = lineageOf(registry, sessionsRoot, tabId);
-    expect(fs.existsSync(Core.councilRosterSnapshotPath(dir))).toBe(false);
-    expect(fs.existsSync(Core.councilOverlayPath(dir))).toBe(false);
+    const snapshot = snapshotAt(dir);
+    expect(snapshot.members).toEqual([]);
+    expect(snapshot.trial).toBeNull();
+    expect(snapshot.configWarnings.length).toBeGreaterThan(0);
+    await expect(manager.getSessionCouncilStatus(tabId)).resolves.toEqual({ status: "empty", configWarnings: snapshot.configWarnings });
     expect(spawnedOverlays()).not.toContain(Core.councilOverlayPath(dir));
   });
 
-  it("writes no council artifact while councilEnabled is off even with experimentsEnabled and autoresearchEnabled on", async () => {
+  it.each(["empty", "replacement", "disabled"] as const)(
+    "keeps a running council when Settings become %s and captures the change only in its successor",
+    async (change) => {
+      const { manager, registry, sessionsRoot } = setup({ mode: "rpc-ui" });
+      registry.setSetting("councilEnabled", true);
+      registry.setSetting("councilRoster", document("a/original"));
+      const { tabId } = await freshRpc(manager);
+      const dir = lineageOf(registry, sessionsRoot, tabId);
+      const original = snapshotAt(dir);
+      registry.setSetting("councilRoster", change === "empty" ? document() : document("b/new", "c/second"));
+      if (change === "disabled") registry.setSetting("councilEnabled", false);
+      expect(snapshotAt(dir)).toEqual(original);
+
+      // Neither current Settings nor the on-disk warm-hash manifest owns the
+      // running process's status. Querying it must not resolve or mutate a roster.
+      fs.rmSync(Core.councilRosterSnapshotPath(dir));
+      const getSetting = vi.spyOn(registry, "getSetting");
+      const resolutions = resolveCouncilRosterMock.mock.calls.length;
+      await expect(manager.getSessionCouncilStatus(tabId)).resolves.toEqual({ status: "available", memberCount: 1 });
+      expect(getSetting).not.toHaveBeenCalled();
+      expect(resolveCouncilRosterMock).toHaveBeenCalledTimes(resolutions);
+      expect(fs.existsSync(Core.councilRosterSnapshotPath(dir))).toBe(false);
+      getSetting.mockRestore();
+
+      const predecessor = rpcInstances.at(-1)!;
+      predecessor.kill.mockImplementation(() => predecessor.exit(0));
+      await manager.restart(tabId);
+      expect(rpcInstances).toHaveLength(2);
+      if (change === "disabled") {
+        await expect(manager.getSessionCouncilStatus(tabId)).resolves.toEqual({ status: "disabled" });
+        expect(fs.existsSync(Core.councilRosterSnapshotPath(dir))).toBe(false);
+        expect(spawnedOverlays()).not.toContain(Core.councilOverlayPath(dir));
+      } else if (change === "empty") {
+        await expect(manager.getSessionCouncilStatus(tabId)).resolves.toEqual({ status: "empty", configWarnings: [] });
+        expect(snapshotAt(dir).members).toEqual([]);
+        expect(spawnedOverlays()).not.toContain(Core.councilOverlayPath(dir));
+      } else {
+        await expect(manager.getSessionCouncilStatus(tabId)).resolves.toEqual({ status: "available", memberCount: 2 });
+        expect(snapshotAt(dir).members.map((member) => member.model)).toEqual(["b/new", "c/second"]);
+      }
+    },
+  );
+
+  it("prepares once before asynchronous spawn work and retains the captured switch and scope documents", async () => {
+    const { manager, registry, sessionsRoot } = setup({
+      mode: "rpc-ui",
+      resolveModelHold: async () => {
+        registry.setSetting("councilEnabled", false);
+        registry.setSetting("councilRoster", document("g/changed"));
+        registry.setProjectCouncilRoster(PROJECT, document());
+        return null;
+      },
+    });
+    registry.setSetting("councilEnabled", true);
+    registry.setSetting("councilRoster", document("g/global"));
+    registry.setProjectCouncilRoster(PROJECT, document("p/project"));
+    registry.setSessionModel(TAB, "m/session", null);
+    await resume(manager);
+    expect(registry.getSetting("councilEnabled")).toBe(false);
+
+    const dir = lineageOf(registry, sessionsRoot, TAB);
+    expect(snapshotAt(dir).members.map((member) => member.model)).toEqual(["p/project"]);
+    await expect(manager.getSessionCouncilStatus(TAB)).resolves.toEqual({ status: "available", memberCount: 1 });
+    expect(resolveCouncilRosterMock).toHaveBeenCalledTimes(1);
+    expect(writeCouncilOverlayMock).toHaveBeenCalledTimes(1);
+    expect(writeCouncilRosterSnapshotMock).toHaveBeenCalledTimes(1);
+    expect(writeCouncilExtensionMock).toHaveBeenCalledTimes(1);
+    expect(spawnedOverlays().at(-1)).toBe(Core.councilOverlayPath(dir));
+  });
+
+  it.each(["resolve", "overlay", "snapshot", "extension"] as const)(
+    "captures a %s preparation failure without blocking unrelated session work or re-reading Settings",
+    async (stage) => {
+      const warning = vi.spyOn(console, "warn").mockImplementation(() => {});
+      try {
+        const { manager, registry, sessionsRoot } = setup({ mode: "rpc-ui" });
+        registry.setSetting("councilEnabled", true);
+        registry.setSetting("councilRoster", document("a/member"));
+        const writer = {
+          resolve: resolveCouncilRosterMock,
+          overlay: writeCouncilOverlayMock,
+          snapshot: writeCouncilRosterSnapshotMock,
+          extension: writeCouncilExtensionMock,
+        }[stage];
+        writer.mockImplementationOnce(() => { throw new Error("read-only lineage"); });
+        const { tabId } = await freshRpc(manager);
+        const dir = lineageOf(registry, sessionsRoot, tabId);
+        const failure = { status: "unavailable", failure: { stage, message: "read-only lineage" } };
+        await expect(manager.getSessionCouncilStatus(tabId)).resolves.toEqual(failure);
+        expect(manager.isLive(tabId)).toBe(true);
+        expect(RpcClientMock.mock.calls.at(-1)?.[0].extensions).toContainEqual(expect.stringMatching(/omp-ui-capabilities\.ts$/));
+        expect(spawnedOverlays()).not.toContain(Core.councilOverlayPath(dir));
+        expect(fs.existsSync(Core.councilRosterSnapshotPath(dir))).toBe(false);
+
+        registry.setSetting("councilEnabled", false);
+        registry.setSetting("councilRoster", document());
+        await expect(manager.getSessionCouncilStatus(tabId)).resolves.toEqual(failure);
+        expect(rpcInstances).toHaveLength(1);
+      } finally {
+        warning.mockRestore();
+      }
+    },
+  );
+
+  it.each([false, true])("captures disabled independently of sibling flags being %s", async (siblingsEnabled) => {
     const { manager, registry, sessionsRoot } = setup({ mode: "rpc-ui" });
-    registry.setSetting("experimentsEnabled", true);
-    registry.setSetting("autoresearchEnabled", true);
+    registry.setSetting("councilEnabled", false);
+    registry.setSetting("councilRoster", document("a/member"));
+    registry.setSetting("experimentsEnabled", siblingsEnabled);
+    registry.setSetting("autoresearchEnabled", siblingsEnabled);
     const { tabId } = await freshRpc(manager);
     const dir = lineageOf(registry, sessionsRoot, tabId);
-    // The sibling flags no longer gate the council subsystem: only
-    // councilEnabled does, so the off-case assertions hold with them on.
+    await expect(manager.getSessionCouncilStatus(tabId)).resolves.toEqual({ status: "disabled" });
     expect(fs.existsSync(Core.councilRosterSnapshotPath(dir))).toBe(false);
     expect(fs.existsSync(Core.councilOverlayPath(dir))).toBe(false);
     expect(spawnedOverlays()).not.toContain(Core.councilOverlayPath(dir));
+    expect(writeCouncilExtensionMock).not.toHaveBeenCalled();
+    registry.setSetting("councilEnabled", true);
+    await expect(manager.getSessionCouncilStatus(tabId)).resolves.toEqual({ status: "disabled" });
+  });
+
+  it("never adopts a warm child after preparation fails, even if the final directory hash matches", async () => {
+    const warning = vi.spyOn(console, "warn").mockImplementation(() => {});
+    try {
+      const { manager, registry, crumbs } = setup({ mode: "rpc-ui", warm: true });
+      registry.setSetting("councilEnabled", true);
+      registry.setSetting("councilRoster", document("a/member"));
+      const { tabId: originalTab } = await freshRpc(manager);
+      await nextTurn();
+      const slot = rpcInstances.at(-1)!;
+      const slotOptions = RpcClientMock.mock.calls.at(-1)![0];
+      expect(slotOptions.deferArm).toBe(true);
+      const matchingHash = WarmPool.hashLineageTree(slotOptions.lineageDir);
+      const constructed = RpcClientMock.mock.calls.length;
+
+      writeCouncilRosterSnapshotMock.mockImplementationOnce(() => { throw new Error("snapshot failed"); });
+      // A matching content hash is not authority to adopt a process when its
+      // council preparation failed. Exercise that independent admission gate.
+      hashLineageTreeMock.mockReturnValueOnce(matchingHash);
+      const { tabId } = await freshRpc(manager);
+
+      await expect(manager.getSessionCouncilStatus(tabId)).resolves.toEqual({
+        status: "unavailable",
+        failure: { stage: "snapshot", message: "snapshot failed" },
+      });
+      await expect(manager.getSessionCouncilStatus(originalTab)).resolves.toEqual({ status: "available", memberCount: 1 });
+      expect(slot.arm).not.toHaveBeenCalled();
+      expect(slot.kill).toHaveBeenCalledTimes(1);
+      expect(RpcClientMock.mock.calls[constructed]?.[0].deferArm).not.toBe(true);
+      expect(crumbs.some((crumb) => crumb.tabId === tabId && crumb.kind === "warm-miss")).toBe(true);
+      expect(crumbs.some((crumb) => crumb.tabId === tabId && crumb.kind === "warm-adopt")).toBe(false);
+    } finally {
+      warning.mockRestore();
+    }
+  });
+
+  it("distinguishes missing, dormant, exited, and PTY sessions without preparing council state", async () => {
+    const { manager, registry } = setup({ mode: "rpc-ui" });
+    registry.setSetting("councilEnabled", false);
+    await expect(manager.getSessionCouncilStatus("missing")).resolves.toEqual({ status: "missing-session" });
+    await expect(manager.getSessionCouncilStatus(TAB)).resolves.toEqual({ status: "not-live" });
+    expect(writeCouncilExtensionMock).not.toHaveBeenCalled();
+    await resume(manager);
+    rpcInstances.at(-1)!.exit(0);
+    await expect(manager.getSessionCouncilStatus(TAB)).resolves.toEqual({ status: "not-live" });
+
+    const terminal = setup({ mode: "pty" });
+    await resume(terminal.manager);
+    await expect(terminal.manager.getSessionCouncilStatus(TAB)).resolves.toEqual({ status: "terminal" });
+    expect(writeCouncilExtensionMock).not.toHaveBeenCalled();
   });
 });
 

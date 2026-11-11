@@ -1626,6 +1626,8 @@ export class MainBackend {
           this.sessions.restart(tabId, carryoverContext === "" ? undefined : carryoverContext),
         [CH.getSessionCapabilities]: (tabId: string) =>
           this.sessions.getSessionCapabilities(tabId),
+        [CH.getSessionCouncilStatus]: (tabId: string) =>
+          this.sessions.getSessionCouncilStatus(tabId),
         [CH.browserPaneEnsure]: (tabId: string) => this.sessions.browserPaneEnsure(tabId),
         [CH.browserPanePick]: (tabId: string, x: number, y: number) =>
           this.sessions.browserPanePick(tabId, x, y),

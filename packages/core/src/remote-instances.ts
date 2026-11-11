@@ -119,6 +119,7 @@ export const TAB_ROUTED_REQUESTS: ReadonlySet<string> = new Set<string>([
   "worktree:renameBranch",
   "session:release-worktree",
   "session:capabilities",
+  "session:council-status",
   "session:modelCatalog",
   "session:tool-enabled",
   "pty:pasteImage",

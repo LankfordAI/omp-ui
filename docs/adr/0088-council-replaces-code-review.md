@@ -200,3 +200,54 @@ member is not a council member and does not count against the three.
 Rejected: a fourth member with a flag (raises the cap and mixes two kinds of
 entry in one list), and holding the trial answer back from the session model
 (no extension context can intercept an async result).
+
+## Amended 2026-11-11 (reliable session Council state, #1155)
+
+[Issue #1155](https://github.com/LankfordAI/omp-ui/issues/1155) replaces the
+current-roster refusal assumption in decision 10 and any runtime-disk or
+generic restart-hint interpretation of the earlier amendments. The historical
+decisions and probes above remain history. The precise trigger of the reported
+user incident has not been established; this amendment does not claim a
+reproduced incident root cause.
+
+1. **One frozen launch state per process.** Dedicated Council preparation,
+   not generic RPC bridge generation, resolves project → global → empty once
+   and owns the extension package, overlay, and snapshot. One snapshot supplies
+   both the grants and the bridge's embedded inert JSON, including member
+   instructions, configuration warnings, and the optional trial. The bridge
+   never reads `omp-ui-council-roster.json` at runtime. That version-2 manifest
+   remains only for warm-slot content hashing, including instructions,
+   warnings, and trial; generated TypeScript bytes are intentionally ignored.
+   A process captures its preparation result at launch, so later Settings
+   edits or writes in the lineage cannot change its Council state.
+2. **Empty and unavailable are different.** An empty ready snapshot still
+   produces a bridge but no Council overlay. Preparation failures report a
+   stage (`resolve`, `overlay`, `snapshot`, or `extension`) and message, grant
+   no Council models, and leave unrelated session work usable. Where package
+   generation succeeds, an unavailable diagnostic bridge embeds that failure
+   rather than attempting a roster read. If extension generation itself fails,
+   no extension path is returned. Neither case is represented as empty or
+   replaced with a generic restart hint.
+3. **Slash preflight follows the owning process.** The native, non-chat
+   composer queries `getSessionCouncilStatus(tabId)` through the tab-owner-routed
+   `session:council-status` channel, not current Settings. Available status
+   carries the member count and forwards `/council` unchanged. Empty status
+   carries configuration warnings and refuses with an *Open council settings*
+   action and guidance to relaunch after editing. Unavailable reports the
+   stage and message. Disabled, starting, missing-session, not-live, terminal,
+   and query failures also append a failed command row without sending a
+   prompt or starting a model turn. The embedded bridge independently refuses
+   empty or unavailable launch state. Ordinary PTY and Chat routing is
+   unchanged; PTY Council support remains deferred.
+4. **Relaunch is a deployment boundary, not a repair loop.** An already-running
+   old bridge needs one relaunch to receive this implementation. There is no
+   hot patch, automatic restart, retry, or model substitution. Roster edits
+   still apply only on relaunch; warm reuse is based on launch content, not
+   generated extension source.
+
+Unchanged: the three-member cap, exact model selectors and grants, the
+dedicated read-only Council agent outside the subagent umbrella, and the
+optional trial's separate task call and exclusion from Council decisions.
+Project precedence, the null-global-only favorite-model seeding rules, and
+the absence of shipped defaults or session-model fallback also stand. This
+amendment changes neither seeding triggers nor the user's saved documents.

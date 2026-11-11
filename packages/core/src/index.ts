@@ -437,9 +437,14 @@ export { councilExtensionDir, councilExtensionPath, writeCouncilExtension } from
 export {
   COUNCIL_ROSTER_SNAPSHOT_VERSION,
   councilRosterSnapshotPath,
+  createCouncilRosterSnapshot,
   writeCouncilRosterSnapshot,
   type CouncilRosterSnapshot,
   type CouncilRosterSnapshotEntry,
+  type CouncilInitializationStage,
+  type CouncilInitializationFailure,
+  type CouncilBridgeState,
+  type SessionCouncilStatus,
 } from "./council-roster-snapshot";
 export { councilOverlayPath, writeCouncilOverlay } from "./council-overlay";
 export { removeLineageArtifact } from "./lineage-artifact";

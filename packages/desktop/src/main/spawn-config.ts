@@ -10,6 +10,11 @@ import {
   rebindSessionCwd,
   unarchiveSession,
   type CouncilDocument,
+  type CouncilInitializationFailure,
+  type CouncilInitializationStage,
+  type CouncilRosterSnapshot,
+  createCouncilRosterSnapshot,
+  councilExtensionDir,
   councilOverlayPath,
   councilRosterSnapshotPath,
   removeLineageArtifact,
@@ -376,7 +381,6 @@ export const RPC_BRIDGE_IDS = [
   "asyncJobs",
   "sessionSpend",
   "tree",
-  "council",
   "knowledgeVault",
   "askContext",
   "carryoverContext",
@@ -399,7 +403,6 @@ const DEFAULT_RPC_BRIDGE_WRITERS: RpcBridgeWriters = {
   asyncJobs: writeAsyncJobsExtension,
   sessionSpend: writeSessionSpendExtension,
   tree: writeTreeExtension,
-  council: writeCouncilExtension,
   knowledgeVault: writeKnowledgeVaultExtension,
   askContext: writeAskContextExtension,
   carryoverContext: writeCarryoverContextExtension,
@@ -411,7 +414,6 @@ const DEFAULT_RPC_BRIDGE_WRITERS: RpcBridgeWriters = {
 /** The per-spawn bridge gates (#1052); mirrors the registry flags that arm bridges. */
 export interface RpcBridgeFlags {
   autoresearchEnabled: boolean;
-  councilEnabled: boolean;
 }
 
 const RPC_BRIDGES: ReadonlyArray<{
@@ -431,7 +433,6 @@ const RPC_BRIDGES: ReadonlyArray<{
   { id: "asyncJobs", logId: "async-jobs", warning: "background-jobs", enabled: () => true },
   { id: "sessionSpend", logId: "spend", warning: "session-spend", enabled: () => true },
   { id: "tree", logId: "tree", warning: "tree", enabled: () => true },
-  { id: "council", logId: "council", warning: "council", enabled: (f) => f.councilEnabled },
   { id: "knowledgeVault", logId: "vault", warning: "knowledge-vault", enabled: () => true },
   { id: "askContext", logId: "ask", warning: "ask-context", enabled: () => true },
   { id: "carryoverContext", logId: "carryover", warning: "carryover-context", enabled: () => true },
@@ -465,37 +466,68 @@ export function writeRpcExtensions(
   return { paths, loaded };
 }
 
-/**
- * Resolves the council once for a spawn (ADR-0088): writes the snapshot the bridge launches and
- * returns the --config overlay that turns per-call models on and grants exactly the launched
- * members' models and the trial member's. Legacy code-review artifacts in a reused lineage dir are removed.
- * Returns null and writes no overlay when no member can launch (the snapshot is still written).
- * Never fatal: on failure the snapshot is removed (the bridge then refuses with a restart hint)
- * and null is returned.
- */
+export type CouncilSpawnResult =
+  | { status: "disabled"; extensionPath: null; overlayPath: null }
+  | { status: "ready"; extensionPath: string; overlayPath: string | null; snapshot: CouncilRosterSnapshot }
+  | { status: "unavailable"; extensionPath: string | null; overlayPath: null; failure: CouncilInitializationFailure };
+
+/** Freezes one Council launch set before writing grants, its hash manifest, and its embedded bridge. */
 export function writeCouncilForSpawn(
   absLineageDir: string,
+  enabled: boolean,
   global: CouncilDocument | null,
   project: CouncilDocument | null,
-): string | null {
+): CouncilSpawnResult {
   for (const legacy of ["omp-ui-code-review.ts", "omp-ui-review.yml", "omp-ui-review-roster.json"]) {
     removeLineageArtifact(path.join(absLineageDir, legacy));
   }
-  try {
-    const roster = resolveCouncilRoster(project === null ? null : "project", { global, project });
-    writeCouncilRosterSnapshot(absLineageDir, roster);
-    if (roster.members.length === 0) {
-      // No member can launch: the bridge refuses before any task call, so the
-      // per-call-model grant has no honest reason to ride. Drop a stale overlay
-      // from a reused lineage dir and leave the session config untouched.
-      removeLineageArtifact(councilOverlayPath(absLineageDir));
-      return null;
-    }
-    return writeCouncilOverlay(absLineageDir, roster.members.map((m) => m.model!), roster.trial?.model ?? null);
-  } catch (err) {
+  if (!enabled) {
+    removeLineageArtifact(councilOverlayPath(absLineageDir));
     removeLineageArtifact(councilRosterSnapshotPath(absLineageDir));
-    console.warn("[council] could not prepare the council:", err);
-    return null;
+    try {
+      fs.rmSync(councilExtensionDir(absLineageDir), { recursive: true, force: true });
+    } catch {
+      // An unpassed stale package cannot affect this disabled spawn.
+    }
+    return { status: "disabled", extensionPath: null, overlayPath: null };
+  }
+
+  let stage: CouncilInitializationStage = "resolve";
+  try {
+    const snapshot = createCouncilRosterSnapshot(
+      resolveCouncilRoster(project === null ? null : "project", { global, project }),
+    );
+    stage = "overlay";
+    let overlayPath: string | null = null;
+    if (snapshot.members.length === 0) {
+      removeLineageArtifact(councilOverlayPath(absLineageDir));
+    } else {
+      overlayPath = writeCouncilOverlay(
+        absLineageDir,
+        snapshot.members.map((member) => member.model),
+        snapshot.trial?.model ?? null,
+      );
+    }
+    stage = "snapshot";
+    writeCouncilRosterSnapshot(absLineageDir, snapshot);
+    stage = "extension";
+    const extensionPath = writeCouncilExtension(absLineageDir, { status: "ready", snapshot });
+    return { status: "ready", extensionPath, overlayPath, snapshot };
+  } catch (cause) {
+    const failure: CouncilInitializationFailure = {
+      stage,
+      message: cause instanceof Error ? cause.message : String(cause),
+    };
+    removeLineageArtifact(councilOverlayPath(absLineageDir));
+    removeLineageArtifact(councilRosterSnapshotPath(absLineageDir));
+    console.warn("[council] initialization failed:", { ...failure, cause });
+    let extensionPath: string | null = null;
+    try {
+      extensionPath = writeCouncilExtension(absLineageDir, { status: "unavailable", failure });
+    } catch (diagnosticCause) {
+      console.warn("[council] diagnostic extension failed:", { failure, cause: diagnosticCause });
+    }
+    return { status: "unavailable", extensionPath, overlayPath: null, failure };
   }
 }
 

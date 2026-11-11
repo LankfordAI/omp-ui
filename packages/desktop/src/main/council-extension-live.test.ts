@@ -10,11 +10,13 @@ import {
   COUNCIL_LAUNCH_TYPE,
   RpcClient,
   SUBAGENT_MODEL_INHERIT,
+  councilRosterSnapshotPath,
   resolveOmpBinary,
-  writeCouncilExtension,
+  writeAsyncJobsExtension,
   writeSubagentModelOverlay,
   type CouncilDocument,
 } from "@omp-ui/core";
+import { ASYNC_JOBS_STATUS_KEY, asyncJobsArmMessage, parseAsyncJobsSnapshot } from "@omp-ui/core/async-jobs";
 import { writeCouncilForSpawn } from "./spawn-config";
 
 /**
@@ -42,11 +44,16 @@ import { writeCouncilForSpawn } from "./spawn-config";
  *   call still completes, and the session never asks the unknown model.
  *
  * A scripted loopback provider (the async-jobs-live.test.ts pattern) serves
- * every probe model, so no real provider is ever billed: completion 0 emits
- * the scripted `task` calls, every later completion replies `ok` and stops.
+ * every probe model, so no real provider is ever billed: each scripted launch
+ * emits `task` calls, every other completion replies `ok` and stops.
  */
 
 const ompPath = resolveOmpBinary();
+
+function requiredOmpPath(): string {
+  if (ompPath === null) throw new Error("Live Council proofs require the installed OMP 18.18.7 binary; no live proof may skip.");
+  return ompPath;
+}
 
 /** The member's model: deliberately not the session model, which grants itself. */
 const MEMBER_MODEL = "probe/member";
@@ -162,10 +169,13 @@ interface Frame {
   toolCallId?: string;
   isError?: boolean;
   result?: unknown;
+  statusKey?: string;
+  statusText?: string;
 }
 
 interface Scope {
   frames: Frame[];
+  lineage: string;
   client: RpcClient;
   exited: Promise<void>;
 }
@@ -174,9 +184,7 @@ interface Scope {
 // cannot drive it, and every wait polls an observed frame, never a guessed
 // duration.
 function sleep(ms: number): Promise<void> {
-  const { promise, resolve } = Promise.withResolvers<void>();
-  setTimeout(resolve, ms);
-  return promise;
+  return new Promise((resolve) => setTimeout(resolve, ms));
 }
 
 async function waitFor<T>(probe: () => T | undefined, timeoutMs: number, what: string): Promise<T> {
@@ -207,8 +215,12 @@ interface ScriptedProvider {
   close(): Promise<void>;
 }
 
-async function scriptedProvider(toolCalls: unknown[] = [TASK_CALL]): Promise<ScriptedProvider> {
+async function scriptedProvider(
+  toolCalls: unknown[] = [TASK_CALL],
+  launchMarkers: readonly string[] = [],
+): Promise<ScriptedProvider> {
   const models: string[] = [];
+  const launched = new Set<string>();
   const server = createServer((request, response) => {
     if (request.method !== "POST" || request.url !== "/v1/chat/completions") {
       response.writeHead(404).end();
@@ -219,37 +231,45 @@ async function scriptedProvider(toolCalls: unknown[] = [TASK_CALL]): Promise<Scr
     request.on("end", () => {
       const index = models.length;
       let model = "";
+      let bodyText = "";
       try {
-        const body = JSON.parse(Buffer.concat(parts).toString("utf8")) as { model?: unknown };
+        bodyText = Buffer.concat(parts).toString("utf8");
+        const body = JSON.parse(bodyText) as { model?: unknown };
         if (typeof body.model === "string") model = body.model;
       } catch {
         // An unparseable body is recorded as "" and still answered.
       }
       models.push(model);
+      const marker = [...launchMarkers].reverse().find((value) => bodyText.includes(value));
+      const shouldLaunch = launchMarkers.length === 0
+        ? index === 0
+        : model === "inert" && marker !== undefined && !launched.has(marker);
+      if (shouldLaunch && marker !== undefined) launched.add(marker);
+      const calls = marker === undefined ? toolCalls : [{ ...TASK_CALL, id: `${TASK_CALL.id}_${marker}` }];
       response.writeHead(200, { "Content-Type": "text/event-stream", "Cache-Control": "no-cache" });
       response.end(
-        (index === 0
-          ? chunk(index, model, { role: "assistant", tool_calls: toolCalls }, null) +
+        (shouldLaunch
+          ? chunk(index, model, { role: "assistant", tool_calls: calls }, null) +
             chunk(index, model, {}, "tool_calls")
           : chunk(index, model, { role: "assistant", content: "ok" }, null) + chunk(index, model, {}, "stop")) +
           "data: [DONE]\n\n",
       );
     });
   });
-  const listening = Promise.withResolvers<void>();
-  server.once("error", listening.reject);
-  server.listen(0, "127.0.0.1", listening.resolve);
-  await listening.promise;
+  await new Promise<void>((resolve, reject) => {
+    server.once("error", reject);
+    server.listen(0, "127.0.0.1", resolve);
+  });
   const address = server.address();
   if (address === null || typeof address === "string") throw new Error("no loopback provider port");
   return {
     baseUrl: `http://127.0.0.1:${address.port}/v1`,
     models,
     close: () => {
-      const closed = Promise.withResolvers<void>();
-      server.closeAllConnections();
-      server.close((error) => (error ? closed.reject(error) : closed.resolve()));
-      return closed.promise;
+      return new Promise<void>((resolve, reject) => {
+        server.closeAllConnections();
+        server.close((error) => (error ? reject(error) : resolve()));
+      });
     },
   };
 }
@@ -272,7 +292,7 @@ afterEach(async () => {
  * extension package and the umbrella overlay; `withCouncilOverlay` adds the
  * council overlay after it, in main's push order.
  */
-function spawnScope(baseUrl: string, withCouncilOverlay: boolean, council: CouncilDocument = COUNCIL): Scope {
+function spawnScope(baseUrl: string, withCouncilOverlay: boolean, council: CouncilDocument = COUNCIL, observeJobs = false): Scope {
   const base = fs.mkdtempSync(path.join(os.tmpdir(), "omp-ui-council-live-"));
   dirs.push(base);
   const home = path.join(base, "home");
@@ -290,13 +310,14 @@ function spawnScope(baseUrl: string, withCouncilOverlay: boolean, council: Counc
   };
   git(["init", "-q"]);
   git(["add", "a.txt"]);
-  git(["-c", "user.email=t@t", "-c", "user.name=t", "commit", "-q", "-m", "seed"]);
+  git(["-c", "user.email=t@t", "-c", "user.name=t", "-c", "commit.gpgsign=false", "commit", "-q", "-m", "seed"]);
 
   const umbrella = writeSubagentModelOverlay(lineage, { task: SUBAGENT_MODEL_INHERIT });
   if (umbrella === null) throw new Error("the umbrella subagent overlay was not written");
-  // Always run: it writes the roster snapshot the bridge launches from.
-  const councilOverlay = writeCouncilForSpawn(lineage, council, null);
-  if (councilOverlay === null) throw new Error("the council overlay was not written");
+  const prepared = writeCouncilForSpawn(lineage, true, council, null);
+  if (prepared.status !== "ready" || prepared.overlayPath === null) {
+    throw new Error(`Council preparation failed: ${JSON.stringify(prepared)}`);
+  }
 
   const env: NodeJS.ProcessEnv = {
     ...process.env,
@@ -305,14 +326,15 @@ function spawnScope(baseUrl: string, withCouncilOverlay: boolean, council: Counc
     XDG_DATA_HOME: path.join(home, ".local", "share"),
   };
   const frames: Frame[] = [];
-  const { promise: exited, resolve: markExited } = Promise.withResolvers<void>();
+  let markExited!: () => void;
+  const exited = new Promise<void>((resolve) => { markExited = resolve; });
   const client = new RpcClient({
     cwd: project,
     lineageDir: lineage,
-    ompPath: ompPath!,
+    ompPath: requiredOmpPath(),
     model: "probe/inert",
-    configOverlays: withCouncilOverlay ? [umbrella, councilOverlay] : [umbrella],
-    extensions: [writeCouncilExtension(lineage)],
+    configOverlays: withCouncilOverlay ? [umbrella, prepared.overlayPath] : [umbrella],
+    extensions: [prepared.extensionPath, ...(observeJobs ? [writeAsyncJobsExtension(lineage)] : [])],
     spawnProcess: (bin, args, extra) => {
       const proc = spawn(bin, args, { stdio: ["pipe", "pipe", "pipe"], env: { ...extra, ...env } });
       return {
@@ -328,7 +350,7 @@ function spawnScope(baseUrl: string, withCouncilOverlay: boolean, council: Counc
     onExit: () => markExited(),
     onError: (m) => process.stderr.write(`rpc error: ${m}\n`),
   });
-  return { frames, client, exited };
+  return { lineage, frames, client, exited };
 }
 
 async function stopScope(scope: Scope): Promise<void> {
@@ -365,43 +387,71 @@ async function councilLoaded(scope: Scope): Promise<void> {
   );
 }
 
-describe.skipIf(!ompPath)("council extension (real omp)", () => {
+describe("council extension (real omp)", () => {
   it(
-    "/council launches the dedicated agent and the granted member model runs",
-    { timeout: 180_000 },
+    "/council freezes the original member across manifest replacement, corruption, and deletion",
+    { timeout: 420_000 },
     async () => {
-      const scripted = await scriptedProvider();
+      const markers = ["frozen-valid", "frozen-invalid", "frozen-deleted"];
+      const scripted = await scriptedProvider([TASK_CALL], markers);
       provider = scripted;
       const scope = spawnScope(scripted.baseUrl, true);
       try {
         await councilLoaded(scope);
 
-        const prompted = await request(scope, { type: "prompt", message: `/${COUNCIL_COMMAND} say ok` });
-        expect(prompted.success, prompted.error).toBe(true);
-        const launch = await waitFor(
-          () => scope.frames.find((f) => f.type === "message_start" && f.message?.customType === COUNCIL_LAUNCH_TYPE),
-          60_000,
-          "the council launch message in the session",
-        );
-        const content = JSON.stringify(launch.message?.content);
-        expect(content).toContain(COUNCIL_AGENT);
-        expect(content).toContain(MEMBER_MODEL);
-
-        const ended = await waitFor(
-          () => scope.frames.find((f) => f.type === "tool_execution_end" && f.toolCallId === TASK_CALL.id),
-          120_000,
-          "the tool_execution_end for the council task call",
-        );
-        const result = JSON.stringify(ended.result ?? null);
-        expect(ended.isError, result).toBeFalsy();
-        expect(result).not.toContain("Per-call model");
-        expect(result).not.toContain("Unknown agent");
-
-        await waitFor(
-          () => (scripted.models.includes("member") ? true : undefined),
-          120_000,
-          "a completion request for the member model",
-        );
+        const manifest = councilRosterSnapshotPath(scope.lineage);
+        for (const [index, marker] of markers.entries()) {
+          if (index === 0) {
+            fs.writeFileSync(manifest, JSON.stringify({
+              version: 2,
+              instructions: "Use the replacement instead.",
+              members: [{ name: "replacement", model: "probe/trial", instructions: null }],
+              trial: null,
+              configWarnings: [],
+            }));
+          } else if (index === 1) {
+            fs.writeFileSync(manifest, "{invalid roster");
+          } else {
+            fs.unlinkSync(manifest);
+          }
+          const frameStart = scope.frames.length;
+          const memberRequests = scripted.models.filter((model) => model === "member").length;
+          const prompted = await request(scope, { type: "prompt", message: `/${COUNCIL_COMMAND} ${marker}: say ok` });
+          expect(prompted.success, prompted.error).toBe(true);
+          const launch = await waitFor(
+            () => scope.frames.slice(frameStart).find((f) =>
+              f.type === "message_start" && f.message?.customType === COUNCIL_LAUNCH_TYPE),
+            60_000,
+            `the ${marker} council launch`,
+          );
+          const content = JSON.stringify(launch.message?.content);
+          expect(content).toContain("alpha");
+          expect(content).toContain(COUNCIL_AGENT);
+          expect(content).toContain(MEMBER_MODEL);
+          expect(content).not.toContain("replacement");
+          expect(content).not.toContain("probe/trial");
+          const ended = await waitFor(
+            () => scope.frames.slice(frameStart).find((f) =>
+              f.type === "tool_execution_end" && f.toolCallId === `${TASK_CALL.id}_${marker}`),
+            120_000,
+            `the ${marker} task outcome`,
+          );
+          const result = JSON.stringify(ended.result ?? null);
+          expect(ended.isError, result).toBeFalsy();
+          expect(result).not.toContain("Per-call model");
+          expect(result).not.toContain("Unknown agent");
+          await waitFor(
+            () => scripted.models.filter((model) => model === "member").length > memberRequests ? true : undefined,
+            120_000,
+            `the original member's ${marker} provider request`,
+          );
+          await waitFor(
+            () => scope.frames.slice(frameStart).some((f) => f.type === "agent_end") ? true : undefined,
+            60_000,
+            `the ${marker} agent turn end`,
+          );
+        }
+        expect(scripted.models).not.toContain("trial");
       } finally {
         await stopScope(scope);
       }
@@ -493,9 +543,11 @@ describe.skipIf(!ompPath)("council extension (real omp)", () => {
       const scope = spawnScope(scripted.baseUrl, true, {
         ...COUNCIL,
         trial: { name: "nova", model: "probe/ghost", instructions: null, enabled: true },
-      });
+      }, true);
       try {
         await councilLoaded(scope);
+        const armed = await request(scope, { type: "prompt", message: asyncJobsArmMessage() });
+        expect(armed.success, armed.error).toBe(true);
 
         const prompted = await request(scope, { type: "prompt", message: `/${COUNCIL_COMMAND} say ok` });
         expect(prompted.success, prompted.error).toBe(true);
@@ -506,6 +558,22 @@ describe.skipIf(!ompPath)("council extension (real omp)", () => {
           "the tool_execution_end for the council task call",
         );
         expect(ended.isError, JSON.stringify(ended.result ?? null)).toBeFalsy();
+        await waitFor(
+          () => scope.frames.find((f) => f.type === "tool_execution_end" && f.toolCallId === GHOST_CALL.id),
+          120_000,
+          "the unavailable trial task outcome",
+        );
+        // task acknowledges background dispatch before model resolution finishes.
+        // The terminal job, not that acknowledgement, owns the trial failure.
+        const failedTrial = await waitFor(
+          () => scope.frames
+            .filter((frame) => frame.type === "extension_ui_request" && frame.statusKey === ASYNC_JOBS_STATUS_KEY)
+            .flatMap((frame) => parseAsyncJobsSnapshot(frame.statusText)?.recent ?? [])
+            .find((job) => job.id === "council-nova" && job.status === "failed"),
+          120_000,
+          "the trial model resolution failure after background dispatch",
+        );
+        expect(failedTrial.outputTail).toMatch(/ghost|model/i);
 
         await waitFor(
           () => (scripted.models.includes("member") ? true : undefined),
