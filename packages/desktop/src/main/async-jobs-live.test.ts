@@ -110,6 +110,16 @@ const TOOL_CALL = {
   },
 };
 
+/** One async bash tool call for the redirect-tail proof (issue #1154). */
+function tailToolCall(index: number, id: string, command: string, intent: string): unknown {
+  return {
+    index,
+    id,
+    type: "function",
+    function: { name: "bash", arguments: JSON.stringify({ command, async: true, i: intent }) },
+  };
+}
+
 interface ScriptedProvider {
   baseUrl: string;
   /** Releases held completion `index` with a final stop chunk. */
@@ -124,7 +134,7 @@ interface ScriptedProvider {
  * Any further completion (e.g. omp's async-result delivery wake after the
  * cancel) streams one sentence and ends itself, so a wake turn can't hang.
  */
-async function scriptedProvider(): Promise<ScriptedProvider> {
+async function scriptedProvider(toolCalls: unknown[] = [TOOL_CALL]): Promise<ScriptedProvider> {
   let held = 0;
   const responses = new Map<number, ServerResponse>();
   const server = createServer((request, response) => {
@@ -141,7 +151,7 @@ async function scriptedProvider(): Promise<ScriptedProvider> {
       else
         response.end(
           (index === 0
-            ? chunk(index, { role: "assistant", tool_calls: [TOOL_CALL] }, null) + chunk(index, {}, "tool_calls")
+            ? chunk(index, { role: "assistant", tool_calls: toolCalls }, null) + chunk(index, {}, "tool_calls")
             : chunk(index, { role: "assistant", content: "done" }, null) + chunk(index, {}, "stop")) +
             "data: [DONE]\n\n",
         );
@@ -328,6 +338,90 @@ describe.skipIf(ompPath === null)("async-jobs bridge live (real omp)", () => {
       expect(answered.running.some((job) => job.id === running.id)).toBe(false);
 
       // 4. Releasing the held completion ends the turn cleanly.
+      provider.complete(1);
+      await waitFor(
+        () => (scope.frames.some((frame, i) => i >= jobFrom && frame.type === "agent_end") ? true : undefined),
+        30_000,
+        "the agent_end after the release",
+      );
+    },
+  );
+
+  it(
+    "tails a redirect target for a silent running job and a finished placeholder row (issue #1154)",
+    { timeout: 180_000 },
+    async () => {
+      const logDir = fs.mkdtempSync(path.join(os.tmpdir(), "omp-ui-jobs-tail-"));
+      const liveLog = path.join(logDir, "live.log");
+      const doneLog = path.join(logDir, "done.log");
+      provider = await scriptedProvider([
+        tailToolCall(0, "call_live", `sleep 30 > ${liveLog} 2>&1`, "start a silent probe job"),
+        tailToolCall(1, "call_done", `printf 'tick\\n' >> ${doneLog} 2>&1`, "append one tick line"),
+      ]);
+      const extDir = fs.mkdtempSync(path.join(os.tmpdir(), "omp-ui-jobs-ext-"));
+      const scope = spawnScope(provider.baseUrl, writeAsyncJobsExtension(extDir));
+      disposers.push(async () => {
+        await killScope(scope);
+        fs.rmSync(extDir, { recursive: true, force: true, maxRetries: 5, retryDelay: 100 });
+        fs.rmSync(logDir, { recursive: true, force: true, maxRetries: 5, retryDelay: 100 });
+      });
+      await waitFor(
+        () => (scope.frames.some((frame) => frame.type === "response") ? true : undefined),
+        60_000,
+        "the first rpc response",
+      );
+
+      // Arm on v6: the parse itself proves the new envelope shape round-trips.
+      const armed = await request(scope, { type: "prompt", message: asyncJobsArmMessage() });
+      expect(armed.success).toBe(true);
+      const first = await waitFor(
+        () => snapshots(scope, 0).at(-1),
+        30_000,
+        "the arm's omp-ui:async-jobs publish",
+      );
+      expect(first.available, `bridge unavailable: ${first.unavailable}`).toBe(true);
+
+      // Start both async jobs; completion 1 stays held so the turn streams.
+      const jobFrom = scope.frames.length;
+      scope.client.send({ type: "prompt", message: "go" } as never);
+
+      // Phase one: the redirected sleep captures zero PTY bytes, so the row
+      // must publish outputFile while running — the file exists from exec.
+      const running = await waitFor(
+        () =>
+          snapshots(scope, jobFrom)
+            .flatMap((snapshot) => snapshot.running)
+            .find((job) => job.outputFile === liveLog),
+        60_000,
+        "the redirected sleep job publishing outputFile while running",
+      );
+      expect(running.type).toBe("bash");
+      expect(running.command).toContain(`> ${liveLog} 2>&1`);
+
+      // Phase two: the quick printf lands in recent with omp's silent-output
+      // placeholder; the bridge replaces it with the file tail.
+      const done = await waitFor(
+        () =>
+          snapshots(scope, jobFrom)
+            .flatMap((snapshot) => snapshot.recent)
+            .find((job) => job.outputFile === doneLog && job.outputTail.includes("tick")),
+        60_000,
+        "the finished printf job publishing the file tail",
+      );
+      expect(done.status).toBe("completed");
+
+      // Clean up: kill the still-running sleep, then release the held turn.
+      const killFrom = scope.frames.length;
+      const requestId = `live-tail-kill-${Date.now()}`;
+      scope.client.send({
+        type: "prompt",
+        message: asyncJobsKillMessage({ requestId, processKey: first.processKey, jobId: running.id, startTime: running.startTime }),
+      } as never);
+      await waitFor(
+        () => snapshots(scope, killFrom).find((snapshot) => snapshot.result?.requestId === requestId),
+        30_000,
+        "the kill's result on a snapshot",
+      );
       provider.complete(1);
       await waitFor(
         () => (scope.frames.some((frame, i) => i >= jobFrom && frame.type === "agent_end") ? true : undefined),

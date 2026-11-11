@@ -23,6 +23,203 @@ export function generatedAsRecordSource(): string {
 }`;
 }
 
+/**
+ * Redirect recognition for the background-jobs bridge (issue #1154). The
+ * generated source declares `redirectTarget(rawCommand)`: the one literal
+ * file-redirect destination of a single simple bash command, or null when
+ * anything about the command makes attribution untrustworthy — pipelines,
+ * compound commands, heredocs/input redirects, substitutions, subshells,
+ * backgrounding, multiple destinations, dynamic targets. Recognition is
+ * declined wholesale in those cases so a tail is never misattributed to a
+ * file another part of the command touched. Comparisons use char codes so
+ * this fragment carries no escape sequences through the template literal.
+ */
+export function generatedRedirectScannerSource(): string {
+  return `/** One literal file-redirect destination of a simple command, or null. */
+function redirectTarget(raw: string): string | null {
+  const n = raw.length;
+  const at = (k: number): number => (k >= 0 && k < n ? raw.charCodeAt(k) : -1);
+  const isSpace = (c: number): boolean => c === 32 || c === 9; // space, tab
+  const isDigit = (c: number): boolean => c >= 48 && c <= 57;
+  // Metacharacters that end a word; any unquoted occurrence either gets
+  // consumed by the operator rules below or declines the whole command.
+  const stopsWord = (c: number): boolean =>
+    c === 32 || c === 9 || c === 10 || c === 60 || c === 62 || c === 124 || c === 38 ||
+    c === 59 || c === 40 || c === 41 || c === 36 || c === 96;
+  const badTarget = (value: string): boolean => {
+    if (value === "" || value.charCodeAt(0) === 126) return true; // empty, or tilde expansion
+    for (let k = 0; k < value.length; k++) {
+      const c = value.charCodeAt(k);
+      if (c <= 31 || c === 127) return true;
+      // Dynamic targets never resolve: expansion, command substitution, globs.
+      if (c === 36 || c === 96 || c === 42 || c === 63 || c === 91) return true;
+    }
+    return false;
+  };
+  // A single-quoted region (content fully literal) past its closing quote; -1 when unterminated.
+  const skipSingle = (from: number): number => {
+    for (let k = from + 1; k < n; k++) if (raw.charCodeAt(k) === 39) return k + 1;
+    return -1;
+  };
+  // A double-quoted region past its closing quote, honoring only backslash
+  // and quote escapes; -1 when unterminated.
+  const skipDouble = (from: number): number => {
+    for (let k = from + 1; k < n; k++) {
+      const c = raw.charCodeAt(k);
+      if (c === 92) k++;
+      else if (c === 34) return k + 1;
+    }
+    return -1;
+  };
+  // One ordinary word argument, consumed and discarded; -1 declines.
+  const skipWord = (from: number): number => {
+    let k = from;
+    for (;;) {
+      const c = at(k);
+      if (c === -1 || stopsWord(c)) return k;
+      if (c === 92) {
+        if (at(k + 1) === -1) return -1;
+        k += 2;
+        continue;
+      }
+      if (c === 39) {
+        const e = skipSingle(k);
+        if (e < 0) return -1;
+        k = e;
+        continue;
+      }
+      if (c === 34) {
+        const e = skipDouble(k);
+        if (e < 0) return -1;
+        k = e;
+        continue;
+      }
+      k++;
+    }
+  };
+  // The target word at the read position: adjacent quoted/bare segments
+  // assemble into one path until unquoted whitespace or a metacharacter.
+  // null declines the whole command (empty or dynamic target, unterminated quote).
+  const readTarget = (from: number): { text: string; end: number } | null => {
+    let k = from;
+    while (isSpace(at(k))) k++;
+    let text = "";
+    for (;;) {
+      const c = at(k);
+      if (c === -1 || stopsWord(c)) break;
+      if (c === 35 && text === "") return null; // a comment where the target belongs: empty target
+      if (c === 39) {
+        const e = skipSingle(k);
+        if (e < 0) return null;
+        text += raw.slice(k + 1, e - 1);
+        k = e;
+        continue;
+      }
+      if (c === 34) {
+        k++;
+        for (;;) {
+          const d = at(k);
+          if (d === -1) return null;
+          if (d === 92) {
+            const e = at(k + 1);
+            if (e === -1) return null;
+            text += e === 92 || e === 34 ? String.fromCharCode(e) : String.fromCharCode(92, e);
+            k += 2;
+            continue;
+          }
+          if (d === 34) {
+            k++;
+            break;
+          }
+          text += raw.charAt(k);
+          k++;
+        }
+        continue;
+      }
+      if (c === 92) {
+        const e = at(k + 1);
+        if (e === -1) return null;
+        text += String.fromCharCode(e);
+        k += 2;
+        continue;
+      }
+      text += raw.charAt(k);
+      k++;
+    }
+    return badTarget(text) ? null : { text, end: k };
+  };
+  let i = 0;
+  let target: string | null = null;
+  while (i < n) {
+    const c = raw.charCodeAt(i);
+    if (isSpace(c)) {
+      i++;
+      continue;
+    }
+    if (c === 92) {
+      if (at(i + 1) === -1) return null;
+      i += 2;
+      continue;
+    }
+    if (c === 39) {
+      const e = skipSingle(i);
+      if (e < 0) return null;
+      i = e;
+      continue;
+    }
+    if (c === 34) {
+      const e = skipDouble(i);
+      if (e < 0) return null;
+      i = e;
+      continue;
+    }
+    if (c === 35 && (i === 0 || isSpace(at(i - 1)))) {
+      while (i < n && raw.charCodeAt(i) !== 10) i++;
+      continue;
+    }
+    if (c === 38 && at(i + 1) === 62) {
+      // &> / &>> file redirect; >&N and >&- are descriptor duplication the
+      // plan declines in leading position, never a destination.
+      const next = at(i + 2);
+      if (isDigit(next) || next === 45) return null;
+      let k = i + 2;
+      if (at(k) === 62) k++;
+      if (target !== null) return null;
+      const read = readTarget(k);
+      if (read === null) return null;
+      target = read.text;
+      i = read.end;
+      continue;
+    }
+    if (c === 62) {
+      let k = i + 1;
+      if (at(k) === 38) {
+        // Descriptor duplication (>&N / >&-): consumed, never attributed.
+        k++;
+        if (at(k) === 45) k++;
+        while (isDigit(at(k))) k++;
+        i = k;
+        continue;
+      }
+      if (at(k) === 62 || at(k) === 124) k++; // append, or clobber
+      if (target !== null) return null; // a second file redirect
+      const read = readTarget(k);
+      if (read === null) return null;
+      target = read.text;
+      i = read.end;
+      continue;
+    }
+    if (c === 124 || c === 38 || c === 59 || c === 10 || c === 60 || c === 40 || c === 41 || c === 36 || c === 96) {
+      return null; // pipe, backgrounding, separator, input redirect, substitution, subshell
+    }
+    const e = skipWord(i);
+    if (e < 0) return null;
+    i = e;
+  }
+  return target;
+}`;
+}
+
 export function generatedPollTimerSource(): string {
   return `interface PollTimer {
   unref?: () => void;

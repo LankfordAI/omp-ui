@@ -1142,6 +1142,49 @@ describe("Jobs pane (issue #835)", () => {
       });
     });
   }
+  /** A v6 envelope: every job states all current keys, outputFile included. */
+  function publishJobsV6(running: Array<Record<string, unknown>>): void {
+    act(() => {
+      useStore.getState().handleRpcFrame(TAB, {
+        type: "extension_ui_request",
+        id: "frame-jobs-v6",
+        method: "setStatus",
+        statusKey: "omp-ui:async-jobs",
+        statusText: JSON.stringify({
+          version: 6,
+          processKey: "omp-ui-proc-1",
+          revision: 1,
+          available: true,
+          unavailable: null,
+          canInspect: true,
+          canCancel: true,
+          canCancelNested: true,
+          running,
+          recent: [],
+          rootId: null,
+          agents: [],
+          result: null,
+        }),
+      });
+    });
+  }
+  function v6Job(overrides: Record<string, unknown> = {}): Record<string, unknown> {
+    return {
+      ...runningJob,
+      ownerId: null,
+      widget: null,
+      completionPercent: null,
+      stage: null,
+      intent: null,
+      caption: null,
+      outputFile: null,
+      ...overrides,
+    };
+  }
+  function expandRow(label: string): void {
+    act(() => document.body.querySelector<HTMLButtonElement>(`button[aria-label="${label}"]`)!.click());
+  }
+
   function liveJob(widget: Record<string, unknown>): Record<string, unknown> {
     return {
       ...runningJob,
@@ -1202,6 +1245,34 @@ describe("Jobs pane (issue #835)", () => {
     expect(document.body.textContent).toContain("/tmp/scratch");
     expect(document.body.textContent).toContain("4242");
     expect(document.body.textContent).toContain("still sleeping");
+    // A plain capture still labels its tail bare "output" (issue #1154).
+    const labels = () => [...document.body.querySelectorAll("dt")].map((dt) => dt.textContent);
+    expect(labels()).toContain("output");
+  });
+
+  it("a tailed redirect target labels the output field with the file path (issue #1154)", () => {
+    publishJobsV6([v6Job({
+      command: "npm run smoke:artifact-library > /tmp/smoke.log 2>&1",
+      outputTail: "passing",
+      outputFile: "/tmp/smoke.log",
+    })]);
+    renderRail();
+    openPane("jobs");
+    expandRow("show details for job bg_1");
+    const labels = [...document.body.querySelectorAll("dt")].map((dt) => dt.textContent);
+    expect(labels).toContain("output · /tmp/smoke.log");
+    expect(labels).not.toContain("output");
+    expect(document.body.textContent).toContain("passing");
+  });
+
+  it("the file label carries the path even on an empty tail", () => {
+    publishJobsV6([v6Job({ outputTail: "", outputTruncated: false, outputFile: "/tmp/smoke.log" })]);
+    renderRail();
+    openPane("jobs");
+    expandRow("show details for job bg_1");
+    const labels = [...document.body.querySelectorAll("dt")].map((dt) => dt.textContent);
+    expect(labels).toContain("output · /tmp/smoke.log");
+    expect(document.body.textContent).toContain("no output yet");
   });
 
   it("kill sends the kill frame with the job's guard and settles on the result", async () => {
@@ -1261,8 +1332,9 @@ describe("Jobs pane (issue #835)", () => {
         stage: null,
         intent: null,
         caption: null,
+        outputFile: null,
       },
-      { ...runningJob, id: "bg_7", ownerId: "Probe0", widget: null, completionPercent: null, stage: null, intent: null, caption: null },
+      { ...runningJob, id: "bg_7", ownerId: "Probe0", widget: null, completionPercent: null, stage: null, intent: null, caption: null, outputFile: null },
     ],
     rootId: "root",
     agents: [{ id: "Probe0", parentId: "root" }],

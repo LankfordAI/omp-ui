@@ -2438,6 +2438,7 @@ export const ko: Partial<Record<MessageKey, string>> = {
   "rail.jobs.cwd": "디렉터리",
   "rail.jobs.pids": "PID",
   "rail.jobs.output": "출력",
+  "rail.jobs.outputFile": "출력 · {file}",
   "rail.jobs.noOutput": "아직 출력 없음",
   "rail.jobs.outputTruncated": "… 이전 출력 생략됨",
   "rail.jobs.noInspect": "이 omp 빌드는 작업 세부 정보를 보고하지 않습니다 — omp를 18.4.9 이상으로 업데이트하세요.",

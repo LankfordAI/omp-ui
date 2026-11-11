@@ -1257,6 +1257,7 @@ describe("Sidebar Working and Snoozed sections (issue #935)", () => {
           stage: null,
           intent: null,
           caption: null,
+          outputFile: null,
         },
       ],
       recent: [],

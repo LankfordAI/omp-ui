@@ -1,4 +1,6 @@
+import { execFileSync } from "node:child_process";
 import * as fs from "node:fs";
+import { createRequire } from "node:module";
 import * as os from "node:os";
 import * as path from "node:path";
 import { afterEach, describe, expect, it, vi } from "vitest";
@@ -11,6 +13,9 @@ import {
 import { asyncJobsExtensionPath, writeAsyncJobsExtension } from "./async-jobs-extension";
 import { transpileGeneratedExtension, typecheckGeneratedExtension } from "./generated-extension-test-utils";
 
+// The generated source lowers node-builtin imports to require() in CJS form,
+// so the harness serves them exactly like session-spend-extension.test.ts.
+const nodeRequire = createRequire(import.meta.url);
 const dirs: string[] = [];
 
 function tempLineage(): string {
@@ -64,7 +69,7 @@ function executableExtension(api: FakeJobApi): JobsHarness {
   const source = fs.readFileSync(file, "utf8");
   const output = transpileGeneratedExtension(source, "cjs");
   const loaded = { exports: {} as { default?: (extensionApi: unknown) => void } };
-  Function("module", "exports", output)(loaded, loaded.exports);
+  Function("module", "exports", "require", output)(loaded, loaded.exports, nodeRequire);
   const factory = loaded.exports.default;
   if (!factory) throw new Error("generated extension has no default factory");
 
@@ -905,5 +910,236 @@ describe("writeAsyncJobsExtension", () => {
     expect(snapshot.available).toBe(true);
     expect(snapshot.running).toHaveLength(600);
     for (const job of snapshot.running) expect(job).toMatchObject({ intent: "purpose", caption: null });
+  });
+});
+
+/** Redirect tailing (issue #1154): the bridge tails a detected literal
+ *  redirect target when omp captured nothing. POSIX-only: the gate, the O_NOFOLLOW
+ *  probe, and mkfifo all assume a POSIX host. */
+describe.skipIf(process.platform === "win32")("async-jobs redirect tail (issue #1154)", () => {
+  const tails: string[] = [];
+
+  /** A temp dir whose removal is registered with the outer afterEach. */
+  function tailDir(): string {
+    const dir = fs.mkdtempSync(path.join(os.tmpdir(), "omp-ui-tail-"));
+    tails.push(dir);
+    return dir;
+  }
+
+  afterEach(() => {
+    for (const dir of tails.splice(0)) fs.rmSync(dir, { recursive: true, force: true });
+  });
+
+  /** Binds a root with one silent bash job redirecting to `command`'s target. */
+  async function tailHarness(options: {
+    command: string;
+    cwd?: string | null;
+    output?: string;
+    job?: Record<string, unknown>;
+    api?: FakeJobApi;
+  }): Promise<JobsHarness> {
+    const harness = executableExtension(
+      options.api ?? {
+        getAsyncJobSnapshot: () => ({
+          running: [rawJob(options.job ?? {})],
+          recent: [],
+          delivery: null,
+        }),
+        inspectAsyncJob: () => ({
+          command: options.command,
+          cwd: options.cwd === undefined || options.cwd === null ? "" : options.cwd,
+          output: options.output ?? "",
+        }),
+      },
+    );
+    await bindRoot(harness);
+    await harness.arm();
+    return harness;
+  }
+
+  it("recognizes the motivating form and tails the growing file", async () => {
+    const dir = tailDir();
+    const file = path.join(dir, "smoke.log");
+    fs.writeFileSync(file, "line one\n");
+    const harness = await tailHarness({ command: `npm run smoke > ${file} 2>&1` });
+    const job = harness.latest().running[0]!;
+    expect(job.outputFile).toBe(file);
+    expect(job.outputTail).toBe("line one\n");
+    expect(job.outputTruncated).toBe(false);
+  });
+
+  it("accepts append, &>, quoted and escaped targets, and numeric filenames", async () => {
+    const dir = tailDir();
+    const plain = path.join(dir, "a.log");
+    const numeric = path.join(dir, "2026.log");
+    // The shell creates the target at exec time; a probed job's file exists.
+    fs.writeFileSync(plain, "1\n");
+    fs.writeFileSync(numeric, "n\n");
+    for (const [command, target] of [
+      [`sleep 1 > ${plain}`, plain],
+      [`sleep 1 >> ${plain}`, plain],
+      [`sleep 1 &> ${plain}`, plain],
+      [`sleep 1 > '${plain}'`, plain],
+      [`sleep 1 > "${plain}"`, plain],
+      [`sleep 1 > ${path.join(dir, "a\\ b.log")}`, path.join(dir, "a b.log")],
+      [`sleep 1 > ${numeric}`, numeric],
+    ] as Array<[string, string]>) {
+      if (command.includes("a\\ b")) fs.writeFileSync(path.join(dir, "a b.log"), "sp\n");
+      const harness = await tailHarness({ command });
+      expect(harness.latest().running[0]!.outputFile, command).toBe(target);
+    }
+  });
+
+  it.each([
+    ["a compound command", `sleep 1 > /tmp/a.log && sleep 2`],
+    ["a pipeline", `sleep 1 | tee /tmp/a.log > /tmp/b.log`],
+    ["two destinations", `sleep 1 > /tmp/a.log 2> /tmp/b.log`],
+    ["a here-document", `cat <<EOF > /tmp/a.log\nhi\nEOF`],
+    ["an input redirect", `cmd < /tmp/in > /tmp/a.log`],
+    ["a variable target", "sleep 1 > $LOG"],
+    ["a glob target", "sleep 1 > /tmp/*.log"],
+    ["a tilde target", "sleep 1 > ~/a.log"],
+    ["a command substitution", "sleep 1 > $(echo /tmp/a.log)"],
+    ["a quoted operator", `awk '{print > "/tmp/a.log"}' data`],
+    ["a comment redirect", `sleep 600 # > /tmp/a.log`],
+    ["backgrounding", `sleep 1 > /tmp/a.log &`],
+    ["descriptor duplication only", "sleep 1 2>&1"],
+    ["no redirect at all", "sleep 30"],
+  ])("declines %s wholesale", async (_name, command) => {
+    const harness = await tailHarness({ command });
+    const job = harness.latest().running[0]!;
+    expect(job.outputFile).toBeNull();
+    expect(job.outputTail).toBe("");
+  });
+
+  it("declines a relative target when the inspected cwd is null", async () => {
+    const harness = await tailHarness({ command: "sleep 1 > out.log", cwd: null });
+    expect(harness.latest().running[0]!.outputFile).toBeNull();
+  });
+
+  it("resolves a relative target against the inspected cwd", async () => {
+    const dir = tailDir();
+    fs.writeFileSync(path.join(dir, "out.log"), "rel\n");
+    const harness = await tailHarness({ command: "sleep 1 > out.log", cwd: dir });
+    expect(harness.latest().running[0]!).toMatchObject({
+      outputFile: path.join(dir, "out.log"),
+      outputTail: "rel\n",
+    });
+  });
+
+  it("native capture wins: non-empty output publishes no file fields", async () => {
+    const dir = tailDir();
+    const file = path.join(dir, "smoke.log");
+    fs.writeFileSync(file, "file text\n");
+    const harness = await tailHarness({ command: `sleep 1 > ${file} 2>&1`, output: "pty text" });
+    expect(harness.latest().running[0]).toMatchObject({ outputFile: null, outputTail: "pty text" });
+  });
+
+  it("gates a running row on the mtime window", async () => {
+    const dir = tailDir();
+    const file = path.join(dir, "stale.log");
+    fs.writeFileSync(file, "old\n");
+    // The job "started" well after the file was last touched: lookalike.
+    const harness = await tailHarness({ command: `sleep 1 > ${file} 2>&1`, job: { startTime: Date.now() + 60_000 } });
+    expect(harness.latest().running[0]!.outputFile).toBeNull();
+  });
+
+  it("tails a finished row whose native output is omp's placeholder, within the endTime cap", async () => {
+    const dir = tailDir();
+    const file = path.join(dir, "done.log");
+    fs.writeFileSync(file, "tick\n");
+    const finished = rawJob({ id: "bg_0", status: "completed", endTime: Date.now(), pids: [], exitCode: 0 });
+    const harness = executableExtension({
+      getAsyncJobSnapshot: () => ({ running: [], recent: [finished], delivery: null }),
+      inspectAsyncJob: () => ({ command: `printf tick > ${file} 2>&1`, cwd: "", output: "(no output, exit code 0)" }),
+    });
+    await bindRoot(harness);
+    await harness.arm();
+    expect(harness.latest().recent[0]).toMatchObject({ outputFile: file, outputTail: "tick\n" });
+    // A later unrelated overwrite is never attributed to an old job: endTime
+    // far in the past while the file's mtime is now.
+    const stale = rawJob({ id: "bg_0", status: "completed", endTime: 1_000, pids: [], exitCode: 1 });
+    const lateHarness = executableExtension({
+      getAsyncJobSnapshot: () => ({ running: [], recent: [stale], delivery: null }),
+      inspectAsyncJob: () => ({ command: `printf tick > ${file} 2>&1`, cwd: "", output: "(no output)" }),
+    });
+    await bindRoot(lateHarness);
+    await lateHarness.arm();
+    expect(lateHarness.latest().recent[0]!.outputFile).toBeNull();
+  });
+
+  it("refuses a FIFO leaf without hanging", async () => {
+    const dir = tailDir();
+    const fifo = path.join(dir, "pipe.log");
+    execFileSync("mkfifo", [fifo]);
+    const harness = await tailHarness({ command: `sleep 1 > ${fifo} 2>&1` });
+    expect(harness.latest().running[0]!.outputFile).toBeNull();
+  });
+
+  it("refuses a symlinked leaf (O_NOFOLLOW)", async () => {
+    const dir = tailDir();
+    const real = path.join(dir, "secret");
+    fs.writeFileSync(real, "content\n");
+    const link = path.join(dir, "smoke.log");
+    fs.symlinkSync(real, link);
+    const harness = await tailHarness({ command: `sleep 1 > ${link} 2>&1` });
+    expect(harness.latest().running[0]!.outputFile).toBeNull();
+  });
+
+  it("declines a binary tail (NUL in the read chunk)", async () => {
+    const dir = tailDir();
+    const file = path.join(dir, "bin.log");
+    fs.writeFileSync(file, Buffer.from([0x61, 0x00, 0x62]));
+    const harness = await tailHarness({ command: `sleep 1 > ${file} 2>&1` });
+    expect(harness.latest().running[0]!.outputFile).toBeNull();
+  });
+
+  it("normalizes CRLF and lone CR to newlines", async () => {
+    const dir = tailDir();
+    const file = path.join(dir, "bar.log");
+    fs.writeFileSync(file, "a\r\nb\rc\n");
+    const harness = await tailHarness({ command: `sleep 1 > ${file} 2>&1` });
+    expect(harness.latest().running[0]!.outputTail).toBe("a\nb\nc\n");
+  });
+
+  it("reports outputTruncated from the pre-cut even when the visible tail is under budget", async () => {
+    const dir = tailDir();
+    const file = path.join(dir, "big.log");
+    // 6 KiB of filler then a short final line: the 4 KiB EOF read cuts through
+    // the filler, the head-strip leaves ~11 visible chars, far under budget.
+    fs.writeFileSync(file, "x".repeat(6_000) + "\nshort tail\n");
+    const harness = await tailHarness({ command: `sleep 1 > ${file} 2>&1` });
+    const job = harness.latest().running[0]!;
+    expect(job.outputTail).toBe("short tail\n");
+    expect(job.outputTruncated).toBe(true);
+    expect(job.outputFile).toBe(file);
+  });
+
+  it("publishes an empty qualified file so the watched path shows before the first flush", async () => {
+    const dir = tailDir();
+    const file = path.join(dir, "quiet.log");
+    fs.writeFileSync(file, "");
+    const harness = await tailHarness({ command: `sleep 1 > ${file} 2>&1` });
+    expect(harness.latest().running[0]).toMatchObject({ outputFile: file, outputTail: "" });
+  });
+
+  it("an unchanged file costs no new frame; growth republishes; a shrink reads the new end", async () => {
+    vi.useFakeTimers();
+    const dir = tailDir();
+    const file = path.join(dir, "grow.log");
+    fs.writeFileSync(file, "one\n");
+    const harness = await tailHarness({ command: `sleep 1 > ${file} 2>&1` });
+    expect(harness.published).toHaveLength(1);
+    await vi.advanceTimersByTimeAsync(1_500);
+    expect(harness.published, "unchanged file must not publish a new frame").toHaveLength(1);
+    fs.appendFileSync(file, "two\n");
+    // The silent tick idled the chain (POLL_IDLE_MS), so the next tick is at +10 s.
+    await vi.advanceTimersByTimeAsync(10_000);
+    const grew = harness.published.at(-1)!;
+    expect(grew.running[0]!.outputTail).toBe("one\ntwo\n");
+    // The growth publish snapped the chain back to fast.
+    fs.writeFileSync(file, "e\n"); // truncate (rotation shape)
+    await vi.advanceTimersByTimeAsync(1_500);
+    expect(harness.published.at(-1)!.running[0]!.outputTail).toBe("e\n");
   });
 });

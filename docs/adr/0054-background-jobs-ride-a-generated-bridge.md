@@ -173,3 +173,86 @@ Decision:
 - `canCancel` still means "this build cancels at all"; the nested capability is
   separate so an old pane against a new bridge (or vice versa) degrades to no
   button, never a button that lies.
+
+## Addendum: v6 redirect tailing (issue #1154)
+
+omp/18.18.7 behavior, verified against the binary:
+
+- `inspectAsyncJob(id).output` is the job's `progressText` while running, fed
+  only by the shell runner's PTY-output preview callback. A command that
+  redirects everything to a file (`npm run smoke > /tmp/smoke.log 2>&1`)
+  produces zero PTY bytes, so `output` stays empty forever — omp's own `/jobs`
+  sheet is equally blind.
+- A finished redirected job does not report an empty string: the runner
+  formats silent output as `(no output, exit code 0)` (exit 0) or
+  `(no output)` (nonzero), which becomes `resultText` and therefore `output`.
+- `artifactId` cannot help: it is the truncation spill of captured bytes, and
+  a redirected job captures none.
+
+Decision (omp-ui council run of 2026-11-11): the bridge tails the redirect
+target itself. It is the only omp-ui component that runs on the host where the
+file exists, so the tail works for joined remote instances and Fleet-owned
+sessions too, where any desktop-side tailer would read the wrong filesystem.
+The envelope becomes `version: 6` with one per-job field, `outputFile`: non-null
+means `outputTail` is the tail of that file rather than the job's own stream,
+and the pane labels the field `output · <path>` so provenance is never
+inferred from silence. Pre-v6 payloads parse to `outputFile: null`; a pre-v6
+job carrying the key is malformed, the hybrid rule.
+
+Recognition scope — deliberately strict, per the council's strict fork: only a
+single simple command with exactly one literal file redirect is recognized.
+The quote-aware scanner (`generatedRedirectScannerSource`) declines the whole
+command on any unquoted `&&`, `||`, `|`, `;`, newline, `<`, `$`, backtick,
+`(`, `)`, on a second file destination, on an empty or dynamic target (`$`,
+backtick, glob metacharacters, leading `~`), and on unterminated quotes. A
+lone `&` is accepted only inside the `>&`/`N>&` descriptor duplication it
+consumes. This kills misattribution (`cmd1 > a.log && cmd2`) structurally
+instead of trusting an mtime election; "most-recently-modified wins" is
+therefore not built. Quoted operators are invisible (`awk '{print > "x"}'`),
+and an unquoted `#` comment is skipped, so decorative redirects never match.
+
+The gate: `type === "bash"`, `canInspect`, a POSIX host (Windows redirect
+grammar differs; the feature is inert on win32), and native output silent —
+empty while running, empty-or-placeholder once finished. Native capture always
+wins: when it reports bytes, the file fields stay null.
+
+The probe, each guard load-bearing:
+
+- Open first (`O_RDONLY | O_NOFOLLOW | O_NONBLOCK`), then `fstat` the opened
+  fd. The open-first order kills the stat-then-open FIFO swap that would hang
+  `readSync` on a pipe and wedge omp's event loop; `O_NOFOLLOW` refuses a
+  symlinked leaf (`ln -s ~/.ssh/id_rsa /tmp/smoke.log` reads ELOOP), closing
+  the accidental-exfiltration shape. Ancestor symlinks stay allowed.
+- `fstat.isFile()` rejects FIFOs, sockets, directories, and devices — that
+  subsumes any `/dev/` string check; resolved paths under `/proc/` or `/sys/`
+  are refused because those report as regular files with size 0.
+- An mtime window of ±2 s around the job's lifetime rejects stale lookalikes:
+  running rows require `mtime >= startTime - slack`; finished rows
+  additionally refuse `mtime > endTime + slack`, so a later unrelated
+  overwrite is never attributed to an old job.
+- The read is bounded: at most 4096 bytes from EOF via `readSync` with an
+  explicit offset, sliced to the returned count (`subarray(0, got)`), so a
+  concurrent truncate can never leak stale scratch bytes. A NUL byte anywhere
+  in the chunk declines the file as binary. The head of a mid-line cut is
+  stripped through the first newline; CRLF and lone CR normalize to LF.
+- `preTruncated` records the 4 KiB cut so `outputTruncated` stays honest even
+  when the cleaned tail falls under the char budget.
+- A (path → size, mtime, text) memo caps at 64 entries, so an unchanged file
+  costs one open+fstat per tick; a decline evicts its entry. At most 8 probes
+  happen per publish (running rows first), bounding sync fs work when many
+  silent jobs exist.
+
+Trust model: the bridge runs as the uid that wrote the file — same-user, so no
+traversal jail and no secret redaction is attempted; `O_NOFOLLOW` on the leaf
+is the whole defense. Residual risk, accepted: a probe against a file on a
+stalled NFS/sshfs mount blocks the poll tick for the duration of that open;
+the 8-probe cap bounds how many files one tick can touch, but does not bound
+the stall itself. Exact provenance (`/proc/<pid>/fd`) was ruled out for scope;
+poll cadence is unchanged — a newly created log appears within one idle tick.
+
+Consequences:
+
+- The motivating row shows its growing log tail under `output · /tmp/smoke.log`
+  while running and after completion, on every omp build with the job API.
+- A tailed file is display data only; killing, widgets, budgets, and tree
+  layout are untouched.

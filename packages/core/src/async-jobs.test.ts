@@ -31,16 +31,31 @@ function job(overrides: Record<string, unknown> = {}): Record<string, unknown> {
     stage: null,
     intent: null,
     caption: null,
+    outputFile: null,
     ...overrides,
   };
 }
 
-/** A v3 (pre-#1017) wire job: no intent or caption keys (the hybrid rule). */
+/** A v3 (pre-#1017) wire job: no intent, caption, or outputFile keys (the hybrid rule). */
 function v3Job(overrides: Record<string, unknown> = {}): Record<string, unknown> {
   const bare: Record<string, unknown> = job();
   delete bare.intent;
   delete bare.caption;
+  delete bare.outputFile;
   return { ...bare, ...overrides };
+}
+
+/** A pre-#1154 (v5) wire job: no outputFile key (the hybrid rule). Suits any
+ *  pre-v6 envelope — v4 and below never carry the key either. */
+function v5Job(overrides: Record<string, unknown> = {}): Record<string, unknown> {
+  const bare: Record<string, unknown> = job();
+  delete bare.outputFile;
+  return { ...bare, ...overrides };
+}
+
+/** A finished pre-v6 job for the recent list. */
+function v5Recent(overrides: Record<string, unknown> = {}): Record<string, unknown> {
+  return v5Job({ id: "bg_2", status: "completed", endTime: 1_761_000_010_000, pids: [], exitCode: 0, outputTail: "done", ...overrides });
 }
 
 /** A pre-#954 (v1/v2) wire job: no live-widget keys at all (the hybrid rule). */
@@ -83,13 +98,25 @@ function snapshot(overrides: Record<string, unknown> = {}): Record<string, unkno
     result: null,
     ...overrides,
   };
-  // A pre-v5 bridge never wrote canCancelNested (the hybrid rule): strip it for
-  // every legacy version unless the test asks for it explicitly.
+  // A pre-v5 bridge never wrote canCancelNested and a pre-v6 bridge never
+  // wrote outputFile (the hybrid rule): strip both for every legacy version
+  // unless the test asks for them explicitly.
   const version = record.version;
-  if (version !== ASYNC_JOBS_SNAPSHOT_VERSION && overrides.canCancelNested === undefined) {
+  if (typeof version === "number" && version < 5 && overrides.canCancelNested === undefined) {
     delete record.canCancelNested;
   }
+  if (typeof version === "number" && version < 6) {
+    for (const key of ["running", "recent"] as const) {
+      const list = record[key];
+      if (Array.isArray(list)) for (const entry of list) if (entry !== null && typeof entry === "object") delete (entry as Record<string, unknown>).outputFile;
+    }
+  }
   return record;
+}
+
+/** The pre-#1154 (v5) envelope shape: current jobs minus outputFile. */
+function snapshotV5(overrides: Record<string, unknown> = {}): Record<string, unknown> {
+  return snapshot({ version: 5, running: [v5Job()], recent: [v5Recent()], ...overrides });
 }
 
 function publish(overrides: Record<string, unknown> = {}): string {
@@ -159,6 +186,30 @@ describe("parseAsyncJobsSnapshot", () => {
   it("parses a v5 bridge's nested-cancel capability", () => {
     expect(parseAsyncJobsSnapshot(publish({ canCancelNested: true }))!.canCancelNested).toBe(true);
     expect(parseAsyncJobsSnapshot(publish({ canCancelNested: false }))!.canCancelNested).toBe(false);
+  });
+
+  it("parses a v6 job's redirect provenance, including the 1024-char boundary", () => {
+    const edge = "/t/" + "x".repeat(1021); // exactly COMMAND_CHAR_LIMIT
+    expect(edge.length).toBe(1024);
+    const parsed = parseAsyncJobsSnapshot(publish({
+      running: [job({ outputFile: "/tmp/smoke.log" }), job({ id: "bg_3", outputFile: edge })],
+    }));
+    expect(parsed!.running[0]!.outputFile).toBe("/tmp/smoke.log");
+    expect(parsed!.running[1]!.outputFile).toBe(edge);
+    expect(parseAsyncJobsSnapshot(publish({ running: [job()] }))!.running[0]!.outputFile).toBeNull();
+  });
+
+  it("maps a pre-v6 envelope to outputFile null (issue #1154)", () => {
+    expect(parseAsyncJobsSnapshot(JSON.stringify(snapshotV5()))!.running[0]!.outputFile).toBeNull();
+    expect(parseAsyncJobsSnapshot(JSON.stringify(snapshotV4()))!.running[0]!.outputFile).toBeNull();
+    expect(parseAsyncJobsSnapshot(JSON.stringify(snapshotV2({ rootId: "root" })))!.running[0]!.outputFile).toBeNull();
+    expect(parseAsyncJobsSnapshot(JSON.stringify(snapshotV1()))!.running[0]!.outputFile).toBeNull();
+  });
+
+  it("a v5 envelope keeps canCancelNested and reads outputFile null", () => {
+    const parsed = parseAsyncJobsSnapshot(JSON.stringify(snapshotV5({ canCancelNested: true })));
+    expect(parsed!.canCancelNested).toBe(true);
+    expect(parsed!.running[0]!.outputFile).toBeNull();
   });
 
   it("maps a pre-v5 envelope to canCancelNested false (issue #1077)", () => {
@@ -264,10 +315,19 @@ describe("parseAsyncJobsSnapshot", () => {
     ["an agent with a numeric parentId", publish({ agents: [{ id: "a-1", parentId: 2 }] })],
     ["an agent with an empty id", publish({ agents: [{ id: "", parentId: null }] })],
     ["a v1 hybrid carrying v2 tree keys", JSON.stringify({ ...snapshotV2(), version: 1 })],
-    ["version 6", publish({ version: 6 })],
+    ["version 7", publish({ version: 7 })],
     ["a v4 hybrid carrying the v5 canCancelNested key", JSON.stringify({ ...snapshotV4(), canCancelNested: true })],
     ["a v5 envelope without canCancelNested", (() => { const bare = snapshot(); delete bare.canCancelNested; return JSON.stringify(bare); })()],
     ["a v5 canCancelNested of the wrong type", publish({ canCancelNested: "yes" })],
+    ["a v6 job without the outputFile key", (() => { const bare = job(); delete bare.outputFile; return publish({ running: [bare] }); })()],
+    ["an empty-string outputFile", publish({ running: [job({ outputFile: "" })] })],
+    ["a control-char outputFile", publish({ running: [job({ outputFile: "/tmp/a\u0001b.log" })] })],
+    ["a newline in the outputFile", publish({ running: [job({ outputFile: "/tmp/a\nb.log" })] })],
+    ["an outputFile over 1024 chars", publish({ running: [job({ outputFile: "/t/".repeat(342) })] })],
+    ["a numeric outputFile", publish({ running: [job({ outputFile: 7 })] })],
+    // running overridden after snapshot(): its legacy strip would remove the hybrid key.
+    ["a pre-v6 job carrying the outputFile key", JSON.stringify({ ...snapshot({ version: 5, canCancelNested: true, recent: [] }), running: [v5Job({ outputFile: "/tmp/x.log" })] })],
+    ["a v4 job carrying a null outputFile key", JSON.stringify({ ...snapshot({ version: 4, recent: [] }), running: [v5Job({ outputFile: null })] })],
     ["invalid JSON", "{not json"],
     ["undefined", undefined as unknown as string],
   ])("rejects %s", (_name, text) => {
@@ -297,6 +357,7 @@ function rowJob(id: string, overrides: Partial<AsyncJob> = {}): AsyncJob {
     stage: null,
     intent: null,
     caption: null,
+    outputFile: null,
     ...overrides,
   };
 }

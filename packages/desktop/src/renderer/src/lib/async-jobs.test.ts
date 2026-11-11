@@ -43,6 +43,7 @@ function job(overrides: Partial<AsyncJob> = {}): AsyncJob {
     stage: null,
     intent: null,
     caption: null,
+    outputFile: null,
     ...overrides,
   };
 }

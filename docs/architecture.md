@@ -808,6 +808,16 @@ jobs already on the Agents roster are excluded from
 the badge count (omp's own rule). Named `bash` services are
 daemon-supervised and never enter the job manager; they stay outside this
 seam (`omp ps`).
+Since the v6 snapshot the bridge also tails a detected redirect target (issue
+#1154): a bash job whose command redirects everything to a file produces zero
+PTY bytes, so omp reports no output while running and a silent-output
+placeholder after. The bridge recognizes only a single simple command with
+exactly one literal file redirect, probes the target with open-first
+`O_NOFOLLOW`, guards it (regular file, no `/proc`//`/sys`, a ±2 s mtime window
+around the job's lifetime), and reads at most 4 KiB from EOF; the per-job
+`outputFile` names the tailed path so the pane labels the field `output · <path>`
+instead of presenting the tail as the job's own stream. POSIX hosts only, and
+captured output always wins over the tail. See the ADR's v6 addendum.
 
 ### Session spend
 

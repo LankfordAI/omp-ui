@@ -142,6 +142,10 @@ export interface AsyncJob {
   /** The `widget` role's one-line caption of a long or compound bash job (omp
    *  18.15+, issue #1017); null when not authored and on v1–v3 payloads. */
   caption: string | null;
+  /** Non-null when the bridge tails a detected redirect target instead of the
+   *  job's own stream (issue #1154): `outputTail` is then the tail of THIS
+   *  file, not captured output. Null on v1–v5 payloads. */
+  outputFile: string | null;
 }
 
 export interface AsyncJobsKillRequest {
@@ -168,14 +172,15 @@ export interface AsyncJobAgent {
   parentId: string | null;
 }
 
-/** The published envelope version (issues #868, #954, #1017, #1077). The bridge
- *  interpolates this constant so publisher and parser can never drift; v1–v3
- *  payloads — written by an older omp-ui's bridge against the same session —
- *  parse to v5 with null intent and caption, v1/v2 also with null widget,
- *  completionPercent, and stage (v1 also flat: no tree), and every pre-v5
- *  payload reads `canCancelNested: false` — an older bridge never cancelled a
- *  subagent-owned job. */
-export const ASYNC_JOBS_SNAPSHOT_VERSION = 5;
+/** The published envelope version (issues #868, #954, #1017, #1077, #1154).
+ *  The bridge interpolates this constant so publisher and parser can never
+ *  drift; v1–v3 payloads — written by an older omp-ui's bridge against the
+ *  same session — parse to v6 with null intent and caption, v1/v2 also with
+ *  null widget, completionPercent, and stage (v1 also flat: no tree), every
+ *  pre-v5 payload reads `canCancelNested: false` — an older bridge never
+ *  cancelled a subagent-owned job — and every pre-v6 payload reads
+ *  `outputFile: null` — an older bridge never tailed a redirect target. */
+export const ASYNC_JOBS_SNAPSHOT_VERSION = 6;
 
 export interface AsyncJobsSnapshot {
   version: typeof ASYNC_JOBS_SNAPSHOT_VERSION;
@@ -214,7 +219,7 @@ export function asyncJobsKillMessage(request: AsyncJobsKillRequest): string {
   return `/${ASYNC_JOBS_COMMAND} ${ASYNC_JOBS_KILL_ARG} ${JSON.stringify(request)}`;
 }
 
-type WireVersion = 1 | 2 | 3 | 4 | typeof ASYNC_JOBS_SNAPSHOT_VERSION;
+type WireVersion = 1 | 2 | 3 | 4 | 5 | typeof ASYNC_JOBS_SNAPSHOT_VERSION;
 
 function asObject(value: unknown): Record<string, unknown> | null {
   return value === null || typeof value !== "object" || Array.isArray(value)
@@ -230,6 +235,16 @@ function isFilledText(value: unknown): value is string {
 /** A non-empty intent or caption within the bridge's label clip. */
 function isJobText(value: unknown): value is string {
   return typeof value === "string" && value !== "" && value.length <= ASYNC_JOBS_LABEL_CHAR_LIMIT;
+}
+/** A redirect-target path the bridge published: non-empty, within the command
+ *  clip, and free of control characters (the pane renders it as a label). */
+function isOutputFilePath(value: unknown): value is string {
+  return (
+    typeof value === "string" &&
+    value !== "" &&
+    value.length <= ASYNC_JOBS_COMMAND_CHAR_LIMIT &&
+    !/[\u0000-\u001f\u007f]/.test(value)
+  );
 }
 function isTone(value: unknown): value is AsyncJobWidgetTone {
   return typeof value === "string" && (ASYNC_JOB_WIDGET_TONES as readonly string[]).includes(value);
@@ -369,7 +384,7 @@ function readWidget(value: unknown): AsyncJobWidget | null | undefined {
 function readJob(value: unknown, version: WireVersion): AsyncJob | null {
   if (value === null || typeof value !== "object" || Array.isArray(value)) return null;
   const record = value as Record<string, unknown>;
-  const { id, type, status, label, command, cwd, startTime, endTime, agentId, ownerId, pids, exitCode, outputTail, outputTruncated } =
+  const { id, type, status, label, command, cwd, startTime, endTime, agentId, ownerId, pids, exitCode, outputTail, outputTruncated, outputFile } =
     record;
   if (typeof id !== "string" || id === "") return null;
   if (typeof type !== "string" || type === "") return null;
@@ -434,6 +449,18 @@ function readJob(value: unknown, version: WireVersion): AsyncJob | null {
   } else if (intent !== undefined || caption !== undefined) {
     return null;
   }
+  let file: string | null = null;
+  if (version >= 6) {
+    // v6+ states the key the way v4 does intent and caption.
+    if (!("outputFile" in record)) return null;
+    if (outputFile !== null) {
+      if (!isOutputFilePath(outputFile)) return null;
+      file = outputFile;
+    }
+  } else if (outputFile !== undefined) {
+    // A pre-v6 envelope carrying the key is a half-written hybrid (the #868 rule).
+    return null;
+  }
   return {
     id,
     type,
@@ -455,6 +482,7 @@ function readJob(value: unknown, version: WireVersion): AsyncJob | null {
     stage: step,
     intent: purpose,
     caption: line,
+    outputFile: file,
   };
 }
 
@@ -512,13 +540,15 @@ export function parseAsyncJobsSnapshot(text: string | undefined): AsyncJobsSnaps
   if (parsed === null || typeof parsed !== "object" || Array.isArray(parsed)) return null;
   const record = parsed as Record<string, unknown>;
   // v1 (before the jobs tree, issue #868), v2 (before live widgets, issue
-  // #954), v3 (before purpose and caption, issue #1017), and v4 (before the
-  // nested-kill capability, issue #1077) are stale bridges: legal on the wire
-  // of an older publish, mapped to v5 with null missing fields — v1 also flat,
-  // pre-v5 also canCancelNested false — so the pane renders today's list.
+  // #954), v3 (before purpose and caption, issue #1017), v4 (before the
+  // nested-kill capability, issue #1077), and v5 (before redirect tailing,
+  // issue #1154) are stale bridges: legal on the wire of an older publish,
+  // mapped to v6 with null missing fields — v1 also flat, pre-v5 also
+  // canCancelNested false, pre-v6 also outputFile null — so the pane renders
+  // today's list.
   const version = record.version;
   if (
-    version !== 1 && version !== 2 && version !== 3 && version !== 4 &&
+    version !== 1 && version !== 2 && version !== 3 && version !== 4 && version !== 5 &&
     version !== ASYNC_JOBS_SNAPSHOT_VERSION
   ) {
     return null;
@@ -531,9 +561,9 @@ export function parseAsyncJobsSnapshot(text: string | undefined): AsyncJobsSnaps
   if (typeof canInspect !== "boolean" || typeof canCancel !== "boolean") return null;
   // v5 states canCancelNested the way v2 states rootId: a pre-v5 envelope is
   // an older bridge that never cancels nested jobs; one carrying the key is a
-  // half-written hybrid. A v5 envelope must state it, as every v5 key does.
+  // half-written hybrid. A v5+ envelope must state it, as every v5+ key does.
   let canCancelNested = false;
-  if (version === ASYNC_JOBS_SNAPSHOT_VERSION) {
+  if (version >= 5) {
     if (typeof record.canCancelNested !== "boolean") return null;
     canCancelNested = record.canCancelNested;
   } else if (record.canCancelNested !== undefined) {
