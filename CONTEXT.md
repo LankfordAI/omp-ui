@@ -511,8 +511,9 @@ _Avoid_: advisor list, watchdog, advisor team, multi-advisor mode
 
 **Council**:
 The 1–3 member models omp-ui asks for independent, read-only answers through
-`/council <request>`, or for a scored code review through `/council review
-[target]`. Resolved from omp-ui's own app state (a per-project document, else
+`/council <request>`, for a scored code review through `/council review
+[target]`, or, from a plan review, for a review of the proposed plan.
+Resolved from omp-ui's own app state (a per-project document, else
 a global one; with nothing set anywhere, empty — `/council` then points at
 Project settings → Council). The global roster is edited on Settings →
 Council, which seeds a never-authored one from the user's favorite models; a
@@ -882,6 +883,13 @@ immediately. Both keep the working tree read-only. Declining is the fourth
 outcome (issue #1012): answering the gate with *dismiss* settles the plan
 without an implementation or a revision and ends the agent's turn — unlike
 defer it resolves the gate, and plan mode stays armed with the tree read-only.
+*Council review* is a refine with a follow-up (issue #1156). When this
+session's running process can launch a council (Settings → Council on, at
+least one member, bridge loaded), the review offers it. The gate is answered
+with refine and the planner is steered to call `omp-ui_council` with the
+plan's path. Members review the plan read-only; the planner revises it when
+they report blockers or major findings, carries any change notes the user
+wrote, and proposes it again either way.
 The pending plan gate itself is owned by the main process —
 the proposal frame is recorded as the session's `pendingPlan` on its summary,
 and a verdict as `planSettle` (issue #215) — so a renderer that joins late (a

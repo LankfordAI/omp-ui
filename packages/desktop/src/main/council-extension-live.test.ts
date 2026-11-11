@@ -8,11 +8,16 @@ import {
   COUNCIL_AGENT,
   COUNCIL_COMMAND,
   COUNCIL_LAUNCH_TYPE,
+  COUNCIL_TOOL,
+  PLAN_STATUS_KEY,
   RpcClient,
   SUBAGENT_MODEL_INHERIT,
   councilRosterSnapshotPath,
+  parsePlanStatus,
+  planMessage,
   resolveOmpBinary,
   writeAsyncJobsExtension,
+  writePlanExtension,
   writeSubagentModelOverlay,
   type CouncilDocument,
 } from "@omp-ui/core";
@@ -41,7 +46,10 @@ import { writeCouncilForSpawn } from "./spawn-config";
  *   model: a second task call pinned to it runs without a preflight error and
  *   the trial model is actually asked (issue #1140);
  * - a trial model no models.yml defines fails only its own call: the council
- *   call still completes, and the session never asks the unknown model.
+ *   call still completes, and the session never asks the unknown model;
+ * - with omp-ui plan mode on, the planner can call the bridge tool with a plan
+ *   artifact, launch the pinned member with `task`, and receive the member's
+ *   answer while plan mode stays on (the council plan review).
  *
  * A scripted loopback provider (the async-jobs-live.test.ts pattern) serves
  * every probe model, so no real provider is ever billed: each scripted launch
@@ -274,6 +282,78 @@ async function scriptedProvider(
   };
 }
 
+/**
+ * The plan-review script: the planner sends the plan to the council once,
+ * then runs the launch's task batch once; the member reports no findings.
+ */
+async function planCouncilProvider(): Promise<ScriptedProvider & { bodies: Array<{ model: string; body: string }> }> {
+  const models: string[] = [];
+  const bodies: Array<{ model: string; body: string }> = [];
+  let councilSent = false;
+  let taskSent = false;
+  const server = createServer((request, response) => {
+    if (request.method !== "POST" || request.url !== "/v1/chat/completions") {
+      response.writeHead(404).end();
+      return;
+    }
+    const parts: Buffer[] = [];
+    request.on("data", (part: Buffer) => parts.push(part));
+    request.on("end", () => {
+      const index = models.length;
+      const body = Buffer.concat(parts).toString("utf8");
+      let model = "";
+      try {
+        const parsed = JSON.parse(body) as { model?: unknown };
+        if (typeof parsed.model === "string") model = parsed.model;
+      } catch {
+        // An unparseable body is recorded as "" and still answered.
+      }
+      models.push(model);
+      bodies.push({ model, body });
+      let calls: unknown[] | null = null;
+      let text = "ok";
+      if (model === "inert" && body.includes("PLANCOUNCIL") && !councilSent) {
+        councilSent = true;
+        calls = [{
+          index: 0,
+          id: "call_plan_council",
+          type: "function",
+          function: { name: COUNCIL_TOOL, arguments: JSON.stringify({ plan: "local://probe-plan.md" }) },
+        }];
+      } else if (model === "inert" && body.includes("to the council; the council has") && !taskSent) {
+        taskSent = true;
+        calls = [{ ...TASK_CALL, id: "call_plan_task" }];
+      } else if (model === "member") {
+        text = "no findings.";
+      }
+      response.writeHead(200, { "Content-Type": "text/event-stream", "Cache-Control": "no-cache" });
+      response.end(
+        (calls !== null
+          ? chunk(index, model, { role: "assistant", tool_calls: calls }, null) + chunk(index, model, {}, "tool_calls")
+          : chunk(index, model, { role: "assistant", content: text }, null) + chunk(index, model, {}, "stop")) +
+          "data: [DONE]\n\n",
+      );
+    });
+  });
+  const listening = Promise.withResolvers<void>();
+  server.once("error", listening.reject);
+  server.listen(0, "127.0.0.1", listening.resolve);
+  await listening.promise;
+  const address = server.address();
+  if (address === null || typeof address === "string") throw new Error("no loopback provider port");
+  return {
+    baseUrl: `http://127.0.0.1:${address.port}/v1`,
+    models,
+    bodies,
+    close: () => {
+      const closed = Promise.withResolvers<void>();
+      server.closeAllConnections();
+      server.close((error) => (error ? closed.reject(error) : closed.resolve()));
+      return closed.promise;
+    },
+  };
+}
+
 const dirs: string[] = [];
 let provider: ScriptedProvider | null = null;
 
@@ -292,7 +372,13 @@ afterEach(async () => {
  * extension package and the umbrella overlay; `withCouncilOverlay` adds the
  * council overlay after it, in main's push order.
  */
-function spawnScope(baseUrl: string, withCouncilOverlay: boolean, council: CouncilDocument = COUNCIL, observeJobs = false): Scope {
+function spawnScope(
+  baseUrl: string,
+  withCouncilOverlay: boolean,
+  council: CouncilDocument = COUNCIL,
+  observeJobs = false,
+  withPlan = false,
+): Scope {
   const base = fs.mkdtempSync(path.join(os.tmpdir(), "omp-ui-council-live-"));
   dirs.push(base);
   const home = path.join(base, "home");
@@ -334,7 +420,11 @@ function spawnScope(baseUrl: string, withCouncilOverlay: boolean, council: Counc
     ompPath: requiredOmpPath(),
     model: "probe/inert",
     configOverlays: withCouncilOverlay ? [umbrella, prepared.overlayPath] : [umbrella],
-    extensions: [prepared.extensionPath, ...(observeJobs ? [writeAsyncJobsExtension(lineage)] : [])],
+    extensions: [
+      prepared.extensionPath,
+      ...(observeJobs ? [writeAsyncJobsExtension(lineage)] : []),
+      ...(withPlan ? [writePlanExtension(lineage)] : []),
+    ],
     spawnProcess: (bin, args, extra) => {
       const proc = spawn(bin, args, { stdio: ["pipe", "pipe", "pipe"], env: { ...extra, ...env } });
       return {
@@ -586,6 +676,79 @@ describe("council extension (real omp)", () => {
           "the agent_end after both task calls settle",
         );
         expect(scripted.models).not.toContain("ghost");
+      } finally {
+        await stopScope(scope);
+      }
+    },
+  );
+
+  it(
+    "a plan-mode planner runs the council plan review and receives the member's answer",
+    { timeout: 240_000 },
+    async () => {
+      const scripted = await planCouncilProvider();
+      provider = scripted;
+      const scope = spawnScope(scripted.baseUrl, true, COUNCIL, false, true);
+      const planStatuses = () =>
+        scope.frames
+          .filter((f) => f.type === "extension_ui_request" && f.statusKey === PLAN_STATUS_KEY)
+          .map((f) => parsePlanStatus(f.statusText));
+      try {
+        await councilLoaded(scope);
+        const armed = await request(scope, { type: "prompt", message: planMessage(true, "md") });
+        expect(armed.success, armed.error).toBe(true);
+        await waitFor(
+          () => (planStatuses().some((s) => s?.enabled === true) ? true : undefined),
+          60_000,
+          "plan mode on",
+        );
+
+        const prompted = await request(scope, { type: "prompt", message: "PLANCOUNCIL review it" });
+        expect(prompted.success, prompted.error).toBe(true);
+
+        const council = await waitFor(
+          () => scope.frames.find((f) => f.type === "tool_execution_end" && f.toolCallId === "call_plan_council"),
+          120_000,
+          "the plan-mode omp-ui_council call outcome",
+        );
+        // A plan-mode refusal here falsifies the design premise (plan §2).
+        expect(council.isError, JSON.stringify(council.result ?? null)).toBeFalsy();
+
+        const launch = await waitFor(
+          () => scope.frames.find((f) => f.type === "message_start" && f.message?.customType === COUNCIL_LAUNCH_TYPE),
+          60_000,
+          "the council plan-review launch",
+        );
+        const content = JSON.stringify(launch.message?.content);
+        expect(content).toContain("wait");
+        expect(content).toContain("xd://propose");
+
+        const task = await waitFor(
+          () => scope.frames.find((f) => f.type === "tool_execution_end" && f.toolCallId === "call_plan_task"),
+          120_000,
+          "the plan-mode task call outcome",
+        );
+        const result = JSON.stringify(task.result ?? null);
+        expect(task.isError, result).toBeFalsy();
+        expect(result).not.toContain("Per-call model");
+        expect(result).not.toContain("Unknown agent");
+
+        await waitFor(
+          () => (scripted.models.includes("member") ? true : undefined),
+          120_000,
+          "the member's provider request",
+        );
+        await waitFor(
+          () => {
+            const firstMember = scripted.bodies.findIndex((b) => b.model === "member");
+            return scripted.bodies.slice(firstMember + 1).some((b) => b.model === "inert" && b.body.includes("no findings."))
+              ? true
+              : undefined;
+          },
+          120_000,
+          "the member's answer reaching the plan-mode planner",
+        );
+        expect(planStatuses().at(-1)?.enabled).toBe(true);
       } finally {
         await stopScope(scope);
       }

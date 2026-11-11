@@ -251,3 +251,44 @@ optional trial's separate task call and exclusion from Council decisions.
 Project precedence, the null-global-only favorite-model seeding rules, and
 the absence of shipped defaults or session-model fallback also stand. This
 amendment changes neither seeding triggers nor the user's saved documents.
+
+## Amended 2026-11-11 (plan review, #1156)
+
+The plan review gains a fifth action, *council review*, and the bridge gains a
+third intent, `plan`, beside ask and review.
+
+1. **Tool-only surface.** The bridge tool takes `plan: local://<slug>-plan.md|html`
+   (`COUNCIL_PLAN_PATH_PATTERN`); it cannot be combined with `request`,
+   `review`, or `target`. There is no `/council plan` slash form: omp refuses
+   an extension command mid-stream, and the planner is mid-turn, blocked in
+   `xd://propose`. The slash parser and usage line are unchanged.
+2. **Refine, not a new verdict.** The review answers the gate with refine
+   through the existing paths (acknowledged answer for HTML, select reply for
+   markdown), settles the plan row as `refined`, and steers the planner to
+   call `omp-ui_council` with the plan path. The refine ToolResult already
+   tells the planner to revise and propose again. The plan extension, verdict
+   channel, `PlanSettle.verdict`, and `ProposedPlan.status` are unchanged.
+3. **The bridge owns the run.** Only the generated bridge holds the process's
+   frozen roster (#1155), so members, models, and the plan playbook come from
+   it; the renderer never names a model. Members read the plan read-only and
+   report severity-ranked findings. The planner revises the plan file for the
+   blocker and major findings it agrees with, plus the user's change notes,
+   and proposes the same slug again either way. The trial member's existing
+   rules apply: a separate call, no say in the revision.
+4. **Visibility follows the process.** The action shows only when the Council
+   switch is on, the process is ready or running, it advertises the bridge's
+   extension command, its captured status is `available`, and the plan path is
+   omp-shaped. That is the `/council` preflight; current Settings never make it
+   available.
+5. **Plan-mode facts (omp 18.18.7).** Plan mode folds IRC wakes and `aside`
+   messages into context without a turn, but not background-job results, and
+   it adds a reminder when a plan-mode turn ends text-only. The launch
+   therefore tells the planner to call `wait` until every member answers. A
+   live proof (`council-extension-live.test.ts`) shows a plan-mode planner can
+   call the bridge tool and a per-call-model `task` item, and receives the
+   member's answer while plan mode stays on.
+
+Rejected: steering `/council …` as a slash command (refused mid-stream); a new
+`council` verdict in the plan extension (widens five wire and record surfaces
+for what refine plus one steer already expresses); building the member batch in
+the renderer (it has no frozen launch set and would read current Settings).

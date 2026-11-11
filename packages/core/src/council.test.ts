@@ -6,11 +6,14 @@ import {
   COUNCIL_LAUNCH_TYPE,
   COUNCIL_REVIEW_PLAYBOOK,
   COUNCIL_TOOL,
+  councilPlanReviewPrompt,
   councilMemberSlug,
   councilNameFromModel,
+  isCouncilPlanPath,
   MAX_COUNCIL_NAME,
   PR_TARGET_COMMANDS,
 } from "./council";
+import { keywordsIn } from "./magic-keywords";
 
 describe("wire constants", () => {
   it("namespace the tool, agent, and launch type but not the command", () => {
@@ -98,5 +101,42 @@ describe("ask playbook", () => {
 
   it("keeps members read-only", () => {
     expect(COUNCIL_ASK_PLAYBOOK).toContain("Read-only. Never edit or create files");
+  });
+});
+
+describe("councilPlanReviewPrompt", () => {
+  const path = "local://ultrathink-plan.html";
+  const none = { text: "", annotated: false, attached: false };
+
+  it("names the tool and the plan inertly, and carries the user's notes by precedence", () => {
+    const bare = councilPlanReviewPrompt(path, none);
+    expect(bare).toContain("omp-ui_council tool exactly once now with plan set to `local://ultrathink-plan.html`");
+    expect(keywordsIn(bare).size).toBe(0);
+    expect(councilPlanReviewPrompt(path, { text: " drop X ", annotated: true, attached: true })).toMatch(
+      /requested:\n\ndrop X$/,
+    );
+    expect(councilPlanReviewPrompt(path, { text: "", annotated: true, attached: true })).toMatch(
+      /annotated passages above\.$/,
+    );
+    expect(councilPlanReviewPrompt(path, { text: "", annotated: false, attached: true })).toMatch(
+      /attached change notes\.$/,
+    );
+  });
+});
+
+describe("isCouncilPlanPath", () => {
+  it("accepts only omp plan artifacts", () => {
+    for (const ok of ["local://a-plan.md", "local://A_b-1-plan.HTML"]) expect(isCouncilPlanPath(ok)).toBe(true);
+    for (const bad of [
+      "local://PLAN.md",
+      "local://../x-plan.md",
+      "local://a/b-plan.md",
+      "file:///a-plan.md",
+      "local://a-plan.md.bak",
+      "local://a b-plan.md",
+      "",
+    ]) {
+      expect(isCouncilPlanPath(bad)).toBe(false);
+    }
   });
 });

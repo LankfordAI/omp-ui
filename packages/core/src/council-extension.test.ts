@@ -351,7 +351,60 @@ describe("generated council extension", () => {
     const result = await runTool(h, { request: "hello" }, cwd);
     expect(result.isError).toBe(true);
     expect(result.content[0]!.text).toBe(note.text);
+    const plan = await runTool(h, { plan: "local://a-plan.md" }, cwd);
+    expect(plan).toEqual({ content: [{ type: "text", text: note.text }], isError: true });
     expect(h.sends).toHaveLength(0);
+  });
+
+  describe("plan", () => {
+    it("launches a plan review of the named artifact without git", async () => {
+      const h = harness();
+      const cwd = tempDir("omp-ui-council-plan-"); // not a git checkout
+      const result = await runTool(h, { plan: "local://auth-plan.html" }, cwd);
+      expect(result.isError).toBeUndefined();
+      expect(result.content[0]!.text.startsWith("Asked 1 council member(s) on local://auth-plan.html.")).toBe(true);
+      expect(batchJson(h).context.startsWith("omp-ui council plan review. find bugs")).toBe(true);
+      const text = brief(h);
+      expect(text).toContain("omp-ui council plan review");
+      expect(text.endsWith("\n\n## Plan under review\nlocal://auth-plan.html")).toBe(true);
+      const prompt = launchPrompt(h);
+      expect(prompt).toContain("The user sent the plan at `local://auth-plan.html` to the council");
+      expect(prompt).toContain("call the `wait` tool until every member has answered");
+      expect(prompt).toContain("write `auth` as plain text to xd://propose");
+      expect(prompt).not.toContain("SCORE");
+      expect(prompt).not.toContain("stop and wait");
+    });
+
+    it("with a trial member, the plan review adds the trial batch and waits with the wait tool", async () => {
+      const h = harness({}, { ...DEFAULT_COUNCIL, trial: { name: "nova", model: "litellm/nova", instructions: null, enabled: true } });
+      const cwd = tempDir("omp-ui-council-plan-");
+      const result = await runTool(h, { plan: "local://auth-plan.md" }, cwd);
+      expect(result.isError).toBeUndefined();
+      expect(batchJsons(h)).toHaveLength(2);
+      const prompt = launchPrompt(h);
+      expect(prompt).toContain("Then call the `wait` tool until every council member has answered.");
+      expect(prompt).toContain("If no council member reports a blocker or major finding");
+    });
+
+    it("the tool refuses malformed plan calls before launching anything", async () => {
+      const h = harness();
+      const cwd = tempDir("omp-ui-council-plan-");
+      const mustBe = "plan must be a local://<slug>-plan.md or local://<slug>-plan.html path";
+      const combined = "plan cannot be combined with request, review, or target";
+      const cases: Array<[Record<string, unknown>, string]> = [
+        [{ plan: "x" }, mustBe],
+        [{ plan: "" }, mustBe],
+        [{ plan: 3 }, mustBe],
+        [{ plan: "local://a/b-plan.md" }, mustBe],
+        [{ plan: "local://a-plan.md", review: true }, combined],
+        [{ plan: "local://a-plan.md", request: "x" }, combined],
+        [{ plan: "local://a-plan.md", target: { kind: "local" } }, combined],
+      ];
+      for (const [params, message] of cases) {
+        expect(await runTool(h, params, cwd)).toEqual({ content: [{ type: "text", text: message }], isError: true });
+      }
+      expect(h.sends).toHaveLength(0);
+    });
   });
 
   describe("command arguments", () => {

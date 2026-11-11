@@ -2,7 +2,7 @@
 import { act } from "react";
 import { createRoot, type Root } from "react-dom/client";
 import { afterEach, beforeEach, describe, expect, it, vi } from "vitest";
-import type { BranchList, ScopedCapabilitiesResult, SessionWorktree } from "@omp-ui/core/types";
+import type { BranchList, ScopedCapabilitiesResult, SessionCouncilStatus, SessionWorktree } from "@omp-ui/core/types";
 import type { ThemedToken } from "shiki/core";
 import type { PlanDiagnostic } from "@omp-ui/core/plan";
 import type { PreparedPlanState } from "../lib/plan-document";
@@ -146,6 +146,8 @@ const backendMock = {
   // scoped catalog (issue #846); a catalog that says nothing about the tool
   // leaves the switch on, matching the viewer's fallback.
   getScopedCapabilities: vi.fn(async () => emptyCatalog()),
+  // The council review asks the owning process for its frozen council state.
+  getSessionCouncilStatus: vi.fn(async (): Promise<SessionCouncilStatus> => ({ status: "missing-session" })),
 };
 Object.assign(window, { ompBackend: backendMock });
 // Dynamic imports are required: store.ts → ./backend (and lib/themes)
@@ -402,6 +404,7 @@ beforeEach(() => {
   backendMock.listBranches.mockResolvedValue(branches);
   backendMock.suggestBranchName.mockResolvedValue(null);
   backendMock.getScopedCapabilities.mockResolvedValue(emptyCatalog());
+  backendMock.getSessionCouncilStatus.mockResolvedValue({ status: "missing-session" });
   clipboardImageMock.hasClipboardImage.mockReset().mockReturnValue(false);
   clipboardImageMock.hasClipboardDocument.mockReset().mockReturnValue(false);
   clipboardImageMock.readClipboardImages.mockReset();
@@ -1375,6 +1378,85 @@ describe("PlanReview change notes (issue #113)", () => {
     await act(async () => buttonByText("not now").click());
     await act(async () => useStore.getState().showPlanReview(TAB));
     expect(notesBox().value).toBe("still thinking");
+  });
+});
+
+describe("PlanReview council review", () => {
+  const AVAILABLE: SessionCouncilStatus = { status: "available", memberCount: 2 };
+  const councilButton = (): HTMLButtonElement | undefined =>
+    [...document.body.querySelectorAll<HTMLButtonElement>("button")].find((b) => b.textContent === "council review");
+
+  function seedCouncil(options: {
+    enabled: boolean;
+    status: SessionCouncilStatus | Error;
+    bridge: boolean;
+    planFilePath?: string;
+  }): void {
+    const tab = tabState({
+      commands: options.bridge ? [{ name: "council", description: "", source: "extension" }] : [],
+    });
+    if (options.planFilePath !== undefined) tab.planReview!.request.planFilePath = options.planFilePath;
+    useStore.setState({
+      state: { ...stateWithSessions({ [TAB]: "Planning session" }), councilEnabled: options.enabled },
+      rpc: { [TAB]: tab },
+    });
+    if (options.status instanceof Error) backendMock.getSessionCouncilStatus.mockRejectedValue(options.status);
+    else backendMock.getSessionCouncilStatus.mockResolvedValue(options.status);
+  }
+
+  it.each([
+    ["the switch is off", { enabled: false, status: AVAILABLE, bridge: true }],
+    ["the process captured an empty council", { enabled: true, status: { status: "empty", configWarnings: [] }, bridge: true }],
+    ["the process launched with the council disabled", { enabled: true, status: { status: "disabled" }, bridge: true }],
+    ["the bridge command is not advertised", { enabled: true, status: AVAILABLE, bridge: false }],
+    ["the status query fails", { enabled: true, status: new Error("Unknown channel"), bridge: true }],
+    ["the plan path is not an omp plan artifact", { enabled: true, status: AVAILABLE, bridge: true, planFilePath: "local://PLAN.md" }],
+  ] as const)("is hidden when %s", async (_label, options) => {
+    seedCouncil(options as Parameters<typeof seedCouncil>[0]);
+    render();
+    await act(async () => {});
+    expect(councilButton()).toBeUndefined();
+  });
+
+  it("shows the process's member count", async () => {
+    seedCouncil({ enabled: true, status: AVAILABLE, bridge: true });
+    render();
+    await act(async () => {});
+    expect(councilButton()?.title).toContain("2-model council");
+    expect(backendMock.getSessionCouncilStatus).toHaveBeenCalledWith(TAB);
+  });
+
+  it("answers refine, steers the council request with the notes, and spends the draft", async () => {
+    seedCouncil({ enabled: true, status: AVAILABLE, bridge: true });
+    render();
+    await act(async () => {});
+    await typeIntoTextarea(notesBox(), "keep the cache");
+    await act(async () => {
+      councilButton()!.click();
+      await Promise.resolve();
+    });
+    expect(verdictFrame()?.value).toBe("refine");
+    const prompt = promptFrame();
+    expect(prompt?.streamingBehavior).toBe("steer");
+    expect(String(prompt?.message)).toContain("omp-ui_council");
+    expect(String(prompt?.message)).toContain("`local://fix-login-race-plan.md`");
+    expect(String(prompt?.message)).toContain("keep the cache");
+    // The revised proposal lands in the still-mounted pane (issue #113).
+    await act(async () => {
+      useStore.setState({ rpc: { [TAB]: tabState({ commands: [{ name: "council", description: "", source: "extension" }] }) } });
+    });
+    expect(notesBox().value).toBe("");
+  });
+
+  it("sits beside send changes in the compact refine step", async () => {
+    setCompact(true);
+    seedCouncil({ enabled: true, status: AVAILABLE, bridge: true });
+    render();
+    await act(async () => {});
+    expect(councilButton()).toBeUndefined();
+    await act(async () => buttonByText("refine").click());
+    expect(councilButton()).toBeDefined();
+    expect(buttonByText("send changes")).toBeDefined();
   });
 });
 
