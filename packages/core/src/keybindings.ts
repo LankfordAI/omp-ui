@@ -37,6 +37,7 @@ export const KEYBINDING_ACTIONS = [
   { id: "togglePlanMode", defaultChord: "mod+shift+p", kind: "press" },
   { id: "toggleConsole", defaultChord: "mod+j", kind: "press" },
   { id: "findInSession", defaultChord: "mod+f", kind: "press" },
+  { id: "modelPicker", defaultChord: "mod+shift+m", kind: "press" },
   // Ctrl+Shift+= is how many keyboards type "+", so the default also takes it.
   { id: "textLarger", defaultChord: "mod+=", kind: "press", defaultAlternates: ["mod+shift+="] },
   { id: "textSmaller", defaultChord: "mod+-", kind: "press" },

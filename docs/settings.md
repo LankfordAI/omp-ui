@@ -75,7 +75,7 @@ Glass chrome lets the sidebar, inspector rail, title bar, composer card, sheets,
 
 ## Keyboard
 
-Settings → Keyboard lists every app action you can rebind, with its current shortcut ([#998](https://github.com/LankfordAI/omp-ui/issues/998)): the command palette, new session, new chat, the New session dialog, Build / Plan, the console, find in session, transcript text size, Settings, undo settle, the draft stash, start in background, and hold to talk.
+Settings → Keyboard lists every app action you can rebind, with its current shortcut ([#998](https://github.com/LankfordAI/omp-ui/issues/998)): the command palette, new session, new chat, the New session dialog, Build / Plan, the console, find in session, transcript text size, Settings, undo settle, the draft stash, start in background, the model picker, and hold to talk.
 
 Click a shortcut, then press the new chord; `Escape` cancels. A press shortcut needs `Mod` (`Ctrl`, or `⌘` on macOS) or a function key, so a plain letter never steals typing; hold to talk takes one letter, digit, or function key with no modifiers. Chords that belong to text editing, the composer, or the window cannot be taken: `Mod+C`, `Mod+V`, `Mod+X`, `Mod+A`, `Mod+Z`, `Mod+Shift+Z`, `Mod+Y`, every `Mod+Enter` variant, `Mod+1`…`Mod+9`, `Mod+W`, `Mod+Q`, `Mod+R`, `Mod+Shift+R`, `Mod+Shift+I`, and `F11`. When two actions share a chord, both rows say so and **Save** stays disabled until you change one. **reset** returns one row to its default and **Reset all** returns every row; both still need **Save**, and **Discard** drops unsaved edits.
 

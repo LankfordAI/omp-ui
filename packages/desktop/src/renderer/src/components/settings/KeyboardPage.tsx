@@ -25,6 +25,7 @@ const ACTION_LABEL: Record<KeybindingActionId, MessageKey> = {
   togglePlanMode: "settings.keyboard.action.togglePlanMode",
   toggleConsole: "settings.keyboard.action.toggleConsole",
   findInSession: "settings.keyboard.action.findInSession",
+  modelPicker: "settings.keyboard.action.modelPicker",
   textLarger: "settings.keyboard.action.textLarger",
   textSmaller: "settings.keyboard.action.textSmaller",
   textReset: "settings.keyboard.action.textReset",

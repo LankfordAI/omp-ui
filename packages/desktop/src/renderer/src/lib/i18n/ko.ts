@@ -1089,6 +1089,7 @@ export const ko: Partial<Record<MessageKey, string>> = {
   "settings.keyboard.action.togglePlanMode": "빌드 / 계획 전환",
   "settings.keyboard.action.toggleConsole": "콘솔 표시 또는 숨기기",
   "settings.keyboard.action.findInSession": "세션에서 찾기",
+  "settings.keyboard.action.modelPicker": "모델 선택기 열기",
   "settings.keyboard.action.textLarger": "대화 기록 글자 크게",
   "settings.keyboard.action.textSmaller": "대화 기록 글자 작게",
   "settings.keyboard.action.textReset": "대화 기록 글자 크기 초기화",

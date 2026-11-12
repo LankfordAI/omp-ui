@@ -95,6 +95,8 @@ function seed(): void {
     // The quick-open tests open the overlay; reset so a stale open never
     // satisfies the next test's `not.toBeNull()` by leakage.
     projectQuickOpen: null,
+    // Same leakage guard for the model-picker request (#1157).
+    modelPickerTab: null,
   });
 }
 
@@ -132,6 +134,50 @@ const projectState = (): BackendState =>
       },
     ],
   });
+
+// Minimal record so isChatTab classifies the focused tab as a chat.
+const chatSummary = (): SessionSummary => ({
+  tabId: "chat",
+  sessionId: null,
+  lineageDir: "omp-ui--p--chat",
+  projectCwd: "/p",
+  worktree: null,
+  planImplementationSource: null,
+  experiment: null,
+  fleet: null,
+  launchedAt: "t",
+  mode: "rpc-ui",
+  compactionMethod: null,
+  approvalMode: null,
+  serviceTier: null,
+  model: null,
+  thinkingLevel: null,
+  advisor: false,
+  advisorModel: null,
+  subagentModels: null,
+  proposedPlans: [],
+  autoTitled: false,
+  snoozed: false,
+  snoozedUntilMs: null,
+  pinnedAtMs: null,
+  settledAtMs: null,
+  heldPrompt: null,
+  scheduledPrompt: null,
+  pullRequests: [],
+  autoSettleOnMerge: null,
+  private: false,
+  chat: true,
+  askSource: null,
+  cachedTitle: null,
+  cachedModified: null,
+  agentMode: "build",
+  title: "Brainstorm",
+  status: null,
+  live: "live",
+  pendingPlan: null,
+  planSettle: null,
+  streamStalled: false,
+});
 
 beforeEach(() => {
   compact = true;
@@ -341,50 +387,6 @@ describe("new-session entry points (issues #915/#919)", () => {
     });
   };
 
-  // Minimal record so isChatTab classifies the focused tab as a chat.
-  const chatSummary = (): SessionSummary => ({
-    tabId: "chat",
-    sessionId: null,
-    lineageDir: "omp-ui--p--chat",
-    projectCwd: "/p",
-    worktree: null,
-    planImplementationSource: null,
-    experiment: null,
-    fleet: null,
-    launchedAt: "t",
-    mode: "rpc-ui",
-    compactionMethod: null,
-    approvalMode: null,
-    serviceTier: null,
-    model: null,
-    thinkingLevel: null,
-    advisor: false,
-    advisorModel: null,
-    subagentModels: null,
-    proposedPlans: [],
-    autoTitled: false,
-    snoozed: false,
-    snoozedUntilMs: null,
-    pinnedAtMs: null,
-    settledAtMs: null,
-    heldPrompt: null,
-    scheduledPrompt: null,
-    pullRequests: [],
-    autoSettleOnMerge: null,
-    private: false,
-    chat: true,
-    askSource: null,
-    cachedTitle: null,
-    cachedModified: null,
-    agentMode: "build",
-    title: "Brainstorm",
-    status: null,
-    live: "live",
-    pendingPlan: null,
-    planSettle: null,
-    streamStalled: false,
-  });
-
   it("opens the project quick-open with zero tabs instead of erroring", async () => {
     useStore.setState({
       tabs: [],
@@ -550,5 +552,101 @@ describe("settled sessions leave the canvas (issue #926)", () => {
     expect(document.body.textContent).toContain(t("app.welcome.hasProjectsHint", { hotkey: "Ctrl+Shift+N" }).slice(0, 20));
     // …and the exit card never reaches it.
     expect(document.body.textContent).not.toContain("Agent exited");
+  });
+});
+
+// issue #1157: mod+shift+m asks the store to open the focused tab's model
+// picker. App refuses wherever no consuming ModelSelector is mounted and
+// visible; the request must never be set in those states.
+describe("model picker hotkey (issue #1157)", () => {
+  // The issue #926 block above ends on teardownProcess, which leaves
+  // `exited: { rpc: 0 }` behind and seed() doesn't clear it; a stale exit
+  // mark would trip the handler's exited-session refusal on every case here.
+  beforeEach(() => {
+    useStore.setState({ exited: {} });
+  });
+
+  const pressModShiftM = (): void => {
+    document.body.focus();
+    act(() => {
+      document.body.dispatchEvent(
+        new KeyboardEvent("keydown", { key: "M", ctrlKey: true, shiftKey: true, bubbles: true, cancelable: true }),
+      );
+    });
+  };
+
+  // The default picker fixture: a ready rpc-ui tab with a catalog and every
+  // refusal gate closed. Each case patches one gate back on.
+  const pickerRpc = (patch: Partial<RpcTabState> = {}): RpcTabState =>
+    runtime({ availableModels: [{ id: "m", name: "M", provider: "p" }], planReview: null, ...patch });
+
+  it("opens the picker for the focused ready rpc-ui tab", () => {
+    useStore.setState({ rpc: { rpc: pickerRpc() } });
+    renderApp();
+    pressModShiftM();
+
+    expect(useStore.getState().modelPickerTab).toBe("rpc");
+  });
+
+  it("opens the picker on a chat tab, which carries a main model (ADR-0059)", () => {
+    const chat: SessionSummary = { ...chatSummary(), tabId: "chat" };
+    useStore.setState({
+      state: backendState({ chats: [chat] }),
+      tabs: [
+        { tabId: "rpc", mode: "rpc-ui", projectCwd: "/p", hidden: false, instanceId: null },
+        { tabId: "chat", mode: "rpc-ui", projectCwd: "/p", hidden: false, instanceId: null },
+      ],
+      activeTabId: "chat",
+      rpc: { rpc: pickerRpc(), chat: pickerRpc() },
+    });
+    renderApp();
+    pressModShiftM();
+
+    expect(useStore.getState().modelPickerTab).toBe("chat");
+  });
+
+  it("refuses a focused terminal tab", () => {
+    useStore.setState({ activeTabId: "pty", rpc: { rpc: pickerRpc() } });
+    renderApp();
+    pressModShiftM();
+
+    expect(useStore.getState().modelPickerTab).toBeNull();
+  });
+
+  it("refuses while the subagent view replaces the composer (issue #421)", () => {
+    useStore.setState({ rpc: { rpc: pickerRpc({ selectedSubagent: "agent-1" }) } });
+    renderApp();
+    pressModShiftM();
+
+    expect(useStore.getState().modelPickerTab).toBeNull();
+  });
+
+  it("refuses while a plan review is open", () => {
+    useStore.setState({
+      rpc: { rpc: pickerRpc({
+        planReview: { request: { title: "Plan", planFilePath: "local://plan.md", planAbsPath: "/plan.md" }, frame: { id: "p" } },
+        planDeferred: false,
+      }) },
+    });
+    renderApp();
+    pressModShiftM();
+
+    expect(useStore.getState().modelPickerTab).toBeNull();
+  });
+
+  it("refuses when the model catalog is empty", () => {
+    useStore.setState({ rpc: { rpc: runtime({ planReview: null }) } });
+    renderApp();
+    pressModShiftM();
+
+    expect(useStore.getState().modelPickerTab).toBeNull();
+  });
+
+  it("refuses an exited session", () => {
+    useStore.setState({ exited: { rpc: 0 }, rpc: { rpc: pickerRpc() } });
+    renderApp();
+    pressModShiftM();
+
+    expect(useStore.getState().modelPickerTab).toBeNull();
   });
 });
