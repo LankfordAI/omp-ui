@@ -4,9 +4,7 @@ This guide explains what users receive from a release and how maintainers publis
 
 ## Unreleased
 
-- Ctrl+Shift+M opens the model picker for the active session (#1157).
-- Review an exact HTML plan already in a user or assistant transcript entry without asking a model to rewrite it. Plans now offers source selection, owner-side import, normal validated review, and retained failure diagnostics (#1158).
-- Sidebar sessions and Needs attention cards now lead with their project's icon or initials and name, and the session header shows the project as a coloured chip, so a session's project reads at a glance (#1159).
+Nothing since [v0.35.2](https://github.com/LankfordAI/omp-ui/releases/tag/v0.35.2). Add one bullet per shipped change here, citing its issue as `#N`; the release tag lifts these into Highlights.
 
 ## Choose a download
 
