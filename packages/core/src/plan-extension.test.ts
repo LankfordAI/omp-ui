@@ -1475,8 +1475,11 @@ describe("exact transcript plan adoption", () => {
     expect(Number.isFinite(Date.parse(sidecar.importedAt))).toBe(true);
     expect(sidecar).not.toHaveProperty("body");
     expect(sidecar).not.toHaveProperty("text");
-    expect(fs.statSync(path.join(fixture.artifactsDir, "local", name + ".html")).mode & 0o777).toBe(0o600);
-    expect(fs.statSync(path.join(fixture.artifactsDir, "local", name + ".source.json")).mode & 0o777).toBe(0o600);
+    // Windows has no POSIX permission bits to check.
+    if (process.platform !== "win32") {
+      expect(fs.statSync(path.join(fixture.artifactsDir, "local", name + ".html")).mode & 0o777).toBe(0o600);
+      expect(fs.statSync(path.join(fixture.artifactsDir, "local", name + ".source.json")).mode & 0o777).toBe(0o600);
+    }
     expect(h.reviewed()).toMatchObject({ planFilePath: `local://${name}.html`, title: selection.title, represented: true });
     expect(h.prepared).toEqual([]);
     expect(h.transcriptStatus()).toMatchObject({ busy: false, result: { status: "settled", requestId: selection.requestId } });
