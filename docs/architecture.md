@@ -437,6 +437,27 @@ A harness floor (`MIN_SUPPORTED_OMP` in `packages/core/src/harness-floor.ts`) ma
 
 OMP's rpc-ui protocol has no plan-mode command, so core generates a per-lineage extension and desktop passes it with `-e` on rpc-ui spawns. The extension uses OMP's existing extension UI frames to publish mode state and block on plan review. It also drives OMP's own write guard; the renderer does not simulate read-only mode. Plan-file reads are confined in main to the owning lineage directory. HTML plans use the sandboxed renderer path described above. An HTML proposal passes main-owned plan preflight before any review surface exists: the generated extension's `select` request is claimed at the session's frame edge, the artifact is read through the confined plan reader, and the same parse/highlight/diagram pipeline plus a real layout probe run inside a hidden, script-less Chromium verifier window. A failed or inconclusive outcome answers the agent with located diagnostics through the proposal tool result — the agent repairs the reported ranges instead of presenting a broken document — and a passed proposal carries a main-authored `sourceHash` into the gate, where an `execute` answer re-checks the artifact bytes before implementation dispatches. Every renderer surface still prepares and verifies locally as the final check of what it actually shows ([ADR-0022](adr/0022-prepared-plan-verification-in-the-renderer.md), amended by the issue #312 follow-up; see also the ADR-0023 amendment on source-range composition). The decisions and unsupported OMP method hooks are recorded in [ADR-0007](adr/0007-plan-mode-via-generated-extension.md), [ADR-0013](adr/0013-plan-mode-as-read-only-with-on-demand-gate.md), and [ADR-0014](adr/0014-html-plans-authored-directly.md).
 
+Inspector rail → Review → Plans also offers **Review from transcript…** when
+the proposed-plan list is empty ([#1158](https://github.com/LankfordAI/omp-ui/issues/1158)).
+Its opt-in picker reads `get_entries` and validates the current ancestry without
+cutting at compaction. It selects one original user or completed assistant text
+part and a whole-document or complete HTML-fence range, avoiding render-item
+identity, joined parts, and Markdown normalization. The viewing client hashes
+only the chosen original part and slice, then sends a bounded locator through
+the separately advertised `omp-ui-plan-transcript` bridge. An older host that
+does not advertise it gets no slash prompt fallback.
+
+The owning extension probes its bound root session's entry, branch, identity,
+and directory APIs. It reserves adoption before queuing, rejects busy or stale
+sources, and rechecks after mode-entry awaits. Confined exclusive writes create
+`local://transcript-<requestId>-plan.html` and an initial-provenance sidecar,
+preserving the selected UTF-8 bytes. The explicit file goes directly to the
+existing represented preflight/review path. Import starts no model turn and
+grants no approval. Canonical files remain editable for explicit refinement;
+the next gate validates their current bytes. Correlated receipts retain saved
+paths and diagnostics across renderer reload and remote reattachment, but not
+process restart. Failed imports create no pending proposal or library entry.
+
 Plan review can execute in the planning session, execute there after compaction, or seed a fresh or worktree implementation session. Only the fresh and worktree choices create a plan handoff. The source snapshot is persisted before dispatch, and the new session begins in Build mode. Failed launch, setup, or seed acknowledgement leaves the planning process untouched. After an accepted seed, main immediately reaps the validated captured source through its existing per-tab queue, deliberately cancelling remaining work without consulting idle settings or safety probes. The real observed exit owns dormant publication and browser disposal; saved transcripts, artifacts, lineage, and worktrees remain resumable. Eligible voice intent may start one new destination call only after confirmed source shutdown, guarded by the destination runtime, voice generation, visibility, and owning-host admission; source voice acknowledgements cannot delay the reap and no realtime conversation or recap transfers. Same-session and compacted choices, Refine, Not now, and ordinary Plan→Build toggles retain their existing paths (issues #165, #238, #309, #316, and #840).
 
 ### Host tools and host URIs

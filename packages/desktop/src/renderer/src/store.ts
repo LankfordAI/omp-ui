@@ -303,10 +303,12 @@ export const useStore = create<UiStore>()((set, get, api) => {
         continue;
       }
       if (inst.status !== "joined") {
-        // Device requests and decodes belong to the joined owner lifetime,
-        // not the retained tab. Invalidate before React can coalesce down/rejoin.
-        if (findInstance(s.state, inst.id)?.status === "joined")
+        // Requests belong to the joined owner lifetime, not the retained tab.
+        // Invalidate before React can coalesce a disconnect and rejoin.
+        if (findInstance(s.state, inst.id)?.status === "joined") {
           m.invalidateDevicePane(tab.tabId);
+          plan.invalidateTranscriptPlanSources(tab.tabId);
+        }
         continue;
       }
       const record = inst.projects
@@ -645,6 +647,9 @@ export const useStore = create<UiStore>()((set, get, api) => {
     dismissPlanReview: plan.dismissPlanReview,
     showPlanReview: plan.showPlanReview,
     representPlan: plan.representPlan,
+    refreshTranscriptPlanStatus: plan.refreshTranscriptPlanStatus,
+    loadTranscriptPlanSources: plan.loadTranscriptPlanSources,
+    adoptTranscriptPlan: plan.adoptTranscriptPlan,
     dismissProposedPlan: plan.dismissProposedPlan,
     loadPlanText: plan.loadPlanText,
     setPlanReadiness: plan.setPlanReadiness,

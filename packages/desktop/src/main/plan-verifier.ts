@@ -1,7 +1,8 @@
 import * as path from "node:path";
 import { pathToFileURL } from "node:url";
 import { session, BrowserWindow, type Session } from "electron";
-import { PLAN_ARTIFACT_BYTE_LIMIT, PLAN_PREPARED_BYTE_LIMIT } from "./plan-file";
+import { PLAN_PREPARED_BYTE_LIMIT } from "./plan-file";
+import { PLAN_ARTIFACT_BYTE_LIMIT } from "@omp-ui/core/plan";
 import type { PlanDiagnostic, PlanRenderResult, ThemeSource } from "@omp-ui/core";
 
 /**

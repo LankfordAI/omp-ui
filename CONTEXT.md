@@ -935,6 +935,20 @@ fine. Application failures say "omp-ui could not verify" and stop — they
 must never send the agent to rewrite valid source.
 _Avoid_: plan lint, plan validation prompt, renderer check
 
+**Review from transcript** in Inspector rail → Review → Plans is an explicit
+exact-source adoption path (issue #1158). A picker reads original entries on
+the current branch, including pre-compaction ancestors, and selects one user
+or successfully completed assistant text part and a whole-document or complete
+HTML-fence range. It does not use render-item identity, prepared DOM, joined
+parts, or Markdown-normalized text. The owning extension verifies the source,
+session, branch, hashes, idle state, and confined artifact directory, then
+creates a fresh canonical HTML file and provenance sidecar without a model turn.
+That ordinary editable file must pass the same preflight and acknowledged
+Execute hash check; import is never approval. The live process retains a
+correlated receipt, including failed diagnostics and saved-copy review, across
+picker close, renderer reload, and remote reattachment. Process restart clears
+the receipt, not successful proposed-plan records or their canonical files.
+
 **Approval card**:
 The transcript card that answers one of omp's tool-approval prompts — an
 `extension_ui_request` whose title begins `Allow tool: ` and whose options are

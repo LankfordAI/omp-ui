@@ -1,6 +1,7 @@
 import { useCallback, useEffect, useId, useRef, useState, type KeyboardEvent, type ReactNode } from "react";
 import { liveOutputSpeaking, type LiveAudioEntry } from "@omp-ui/core/live-voice";
 import type { SpendTotals } from "@omp-ui/core/session-spend";
+import { PLAN_TRANSCRIPT_COMMAND, PLAN_TRANSCRIPT_STATUS_KEY } from "@omp-ui/core/plan";
 import { backendFor } from "../backend";
 import { cn } from "../lib/cn";
 import { editErrorKindLabel } from "../lib/edit-rejections";
@@ -23,6 +24,8 @@ import type { VibeWorker, VibeWorkerState } from "@omp-ui/core/vibe";
 import { isInterruptedPlan, pendingPlanCount, proposedPlansFor } from "../lib/proposed-plans";
 import { findOwner, findRecord, sessionCwd, useStore, type RpcTabState } from "../store";
 import { DiffViewer } from "./DiffViewer";
+import { TranscriptPlanPicker } from "./TranscriptPlanPicker";
+import { transcriptPlanStatus, transcriptPlanUnavailable } from "../store/slices/plan-execution";
 import { JobsPane } from "./JobsPane";
 import { useSplitSlot } from "./split-slot";
 import { AGENT_TONE } from "../lib/agent-tone";
@@ -1005,17 +1008,21 @@ function PlansPane({ tabId }: { tabId: string }) {
   const representPlan = useStore((s) => s.representPlan);
   const dismissProposedPlan = useStore((s) => s.dismissProposedPlan);
   const [representing, setRepresenting] = useState(false);
+  const [pickerOpen, setPickerOpen] = useState(false);
+  const closePicker = useCallback(() => setPickerOpen(false), []);
+  const refreshTranscriptStatus = useStore((s) => s.refreshTranscriptPlanStatus);
+  const transcriptAdvertised = useStore((s) => s.rpc[tabId]?.commands.some((command) => command.name === PLAN_TRANSCRIPT_COMMAND) ?? false);
+  const transcriptStatusText = useStore((s) => s.rpc[tabId]?.extensionStatus[PLAN_TRANSCRIPT_STATUS_KEY]);
+  const transcriptUnavailable = useStore((s) => transcriptPlanUnavailable(s, tabId));
+  const receipt = transcriptStatusText === undefined ? null : transcriptPlanStatus(useStore.getState(), tabId)?.result ?? null;
+
+  useEffect(() => {
+    void refreshTranscriptStatus(tabId).catch(() => {});
+  }, [tabId, tabReady, transcriptAdvertised, record?.sessionId, refreshTranscriptStatus]);
 
   const records = proposedPlansFor(record);
 
-  if (records.length === 0) {
-    return (
-      <Empty
-        title={t("rail.plans.emptyTitle")}
-        hint={t("rail.plans.emptyHint")}
-      />
-    );
-  }
+  const savedCopy = receipt?.status === "failed" ? receipt.planFilePath : undefined;
 
   // Idle, no review or preflight hold or dialog open, bridge usable, no click in flight.
   const canRepresent =
@@ -1031,6 +1038,41 @@ function PlansPane({ tabId }: { tabId: string }) {
 
   return (
     <div className="space-y-2 px-3 py-2.5">
+      <div className="space-y-1.5">
+        <Button size="xs" disabled={transcriptUnavailable !== null} onClick={() => setPickerOpen(true)}>
+          {t("plan.transcript.action")}
+        </Button>
+        {transcriptUnavailable !== null && <p className="break-words text-xs text-ink-muted">{transcriptUnavailable}</p>}
+      </div>
+      {pickerOpen && <TranscriptPlanPicker tabId={tabId} onClose={closePicker} />}
+      {receipt !== null && (
+        <section aria-live="polite" className="min-w-0 space-y-2 rounded-md border border-line bg-sunken p-2 text-xs">
+          <p className={receipt.status === "failed" ? "font-medium text-rose" : "text-ink-muted"}>
+            {t(receipt.status === "failed" ? "plan.transcript.failed" : receipt.status === "captured" ? "plan.transcript.captured" : "plan.transcript.settled")}
+          </p>
+          {receipt.planFilePath && <p className="break-all font-mono text-ink-muted">{receipt.planFilePath}</p>}
+          {receipt.status === "failed" && <>
+            <p className="break-words text-ink"><span className="font-mono">{receipt.code}</span>{" · "}{receipt.message}</p>
+            {receipt.preflight?.diagnostics.map((diagnostic, index) => (
+              <div key={index} className="space-y-1 border-t border-line-soft pt-2">
+                <p className="break-words font-mono text-ink">{diagnostic.code}</p>
+                <p className="text-ink-muted">{t("plan.transcript.repair", { repair: diagnostic.repair })}</p>
+                {diagnostic.location && <p className="text-ink-muted">{t("plan.transcript.location", { line: diagnostic.location.line, column: diagnostic.location.column })}</p>}
+                <p className="whitespace-pre-wrap break-words text-ink">{diagnostic.message}</p>
+                {diagnostic.detail && <p className="whitespace-pre-wrap break-words text-ink-muted">{diagnostic.detail}</p>}
+                {diagnostic.excerpt && <pre className="max-h-40 overflow-y-auto whitespace-pre-wrap break-all rounded border border-line-soft p-2 text-ink-muted">{diagnostic.excerpt}</pre>}
+              </div>
+            ))}
+            {(receipt.preflight?.omitted ?? 0) > 0 && <p className="text-ink-faint">{t("plan.transcript.omitted", { count: receipt.preflight!.omitted! })}</p>}
+            {savedCopy && <Button size="xs" disabled={!canRepresent} onClick={() => {
+              setRepresenting(true);
+              void representPlan(tabId, savedCopy, records.find((plan) => plan.key === savedCopy)?.title ?? t("plan.transcript.defaultTitle"))
+                .finally(() => setRepresenting(false));
+            }}>{t("plan.transcript.savedCopy")}</Button>}
+          </>}
+        </section>
+      )}
+      {records.length === 0 && <Empty title={t("rail.plans.emptyTitle")} hint={t("rail.plans.emptyHint")} />}
       {records.map((plan) => {
         const actionable = plan.status === "pending" && plan.key === reviewPath;
         const interrupted = isInterruptedPlan(plan, record, reviewPath);

@@ -1,6 +1,13 @@
 // Plan-execution slice tests (moved verbatim from store.test.ts for #295).
 import { beforeEach, describe, expect, it, vi } from "vitest";
-import type { PlanAnswerResult } from "@omp-ui/core/plan";
+import {
+  PLAN_TRANSCRIPT_COMMAND,
+  PLAN_TRANSCRIPT_STATUS_KEY,
+  type PlanAnswerResult,
+  type TranscriptPlanResult,
+  type TranscriptPlanSelection,
+  type TranscriptPlanStatus,
+} from "@omp-ui/core/plan";
 import type {
   BackendState,
   PendingPlan,
@@ -8,10 +15,11 @@ import type {
 } from "@omp-ui/core/types";
 
 import { planProposalItem } from "../../lib/transcript";
-import { rpcTabState } from "../../test/fixtures";
+import { remoteOwnedState, rpcTabState, tabInfo } from "../../test/fixtures";
 import type { RpcTabState } from "../types";
 import { h } from "../../test/store-harness";
-import { peekTabRuntime } from "./shared";
+import { peekTabRuntime, resetTabRuntimesForTests } from "./shared";
+import { transcriptPlanReviewMatches, transcriptPlanStatus } from "./plan-execution";
 import { planReviewGateKey } from "./live-switch";
 
 // The shared bridge mock predates the acknowledged plan-answer channel (issue
@@ -1068,5 +1076,216 @@ describe("council review answers refine, then asks the planner for a council pla
     await h.flushMicrotasks();
     expect(prompts()).toHaveLength(0);
     expect(h.useStore.getState().rpc[h.TAB]!.planReview).not.toBeNull();
+  });
+});
+
+describe("transcript HTML adoption", () => {
+  const sessionId = "s";
+  const requestId = "12345678-1234-1234-1234-123456789abc";
+  const otherRequestId = "22345678-1234-1234-1234-123456789abc";
+  const document = "<!doctype html>\r\n<html><body>😀 &amp; exact</body></html>\r\n";
+  const planFilePath = `local://transcript-${requestId}-plan.html`;
+  const selection: TranscriptPlanSelection = {
+    version: 1, requestId, sessionId, entryId: "source", contentIndex: null,
+    start: 0, end: document.length, contentHash: SOURCE_HASH, sourceHash: SOURCE_HASH,
+    title: "Exact source",
+  };
+  const entries = {
+    entries: [{ id: "source", parentId: null, type: "message", timestamp: "2026-11-12T12:00:00Z", message: { role: "user", content: document } }],
+    leafId: "source",
+  };
+  const seed = (patch: Partial<RpcTabState> = {}) => {
+    const tab = rpcTabState();
+    h.useStore.setState({
+      state: h.stateWithRecord(sessionId),
+      rpc: { [h.TAB]: {
+        ...tab,
+        session: { ...tab.session, sessionId },
+        commands: [{ name: PLAN_TRANSCRIPT_COMMAND, description: "" }],
+        extensionStatus: { [PLAN_TRANSCRIPT_STATUS_KEY]: JSON.stringify({ version: 1, sessionId, available: true, busy: false, result: null }) },
+        ...patch,
+      } },
+    });
+  };
+  const publish = (result: TranscriptPlanResult | null, patch: Partial<TranscriptPlanStatus> = {}) => {
+    h.useStore.getState().handleRpcFrame(h.TAB, {
+      type: "extension_ui_request", id: "transcript-status", method: "setStatus",
+      statusKey: PLAN_TRANSCRIPT_STATUS_KEY,
+      statusText: JSON.stringify({ version: 1, sessionId, available: true, busy: false, result, ...patch }),
+    });
+  };
+
+  it("loads original branch sources without a prompt or mode change", async () => {
+    seed();
+    const load = h.useStore.getState().loadTranscriptPlanSources(h.TAB);
+    const read = h.sent.find(({ cmd }) => cmd.type === "get_entries")!;
+    h.respond(h.TAB, read.cmd, entries);
+    expect(await load).toEqual({ sessionId, candidates: [{
+      entryId: "source", role: "user", timestamp: "2026-11-12T12:00:00Z", contentIndex: null,
+      start: 0, end: document.length, text: document,
+    }] });
+    expect(h.sent.some(({ cmd }) => cmd.type === "prompt")).toBe(false);
+    expect(h.useStore.getState().rpc[h.TAB]?.plan).toBeNull();
+  });
+
+  it("never falls back to a prompt when the advertised command is absent", async () => {
+    seed({ commands: [] });
+    await h.useStore.getState().refreshTranscriptPlanStatus(h.TAB);
+    await expect(h.useStore.getState().loadTranscriptPlanSources(h.TAB)).rejects.toThrow();
+    await expect(h.useStore.getState().adoptTranscriptPlan(h.TAB, selection)).rejects.toThrow();
+    expect(h.sent).toHaveLength(0);
+  });
+
+  it.each(["unsupported", "malformed"])("reports %s original-entry reads without another transcript API", async (kind) => {
+    seed();
+    const load = h.useStore.getState().loadTranscriptPlanSources(h.TAB);
+    const rejection = expect(load).rejects.toThrow();
+    const read = h.sent[0]!;
+    h.respond(h.TAB, read.cmd, kind === "unsupported" ? "Unknown command" : { entries: [], leafId: "missing" }, kind !== "unsupported");
+    await rejection;
+    expect(h.sent).toHaveLength(1);
+    expect(h.useStore.getState().rpc[h.TAB]?.planReview).toBeNull();
+  });
+
+  it.each(["runtime", "session", "owner", "disconnect", "removed", "superseded"])("discards a source read after %s replacement", async (change) => {
+    seed();
+    const load = h.useStore.getState().loadTranscriptPlanSources(h.TAB);
+    const read = h.sent[0]!;
+    let newer: Promise<unknown> | null = null;
+    if (change === "runtime") resetTabRuntimesForTests();
+    if (change === "session") {
+      const tab = h.useStore.getState().rpc[h.TAB]!;
+      h.useStore.setState({ state: h.stateWithRecord("replacement"), rpc: { [h.TAB]: { ...tab, session: { ...tab.session, sessionId: "replacement" } } } });
+    }
+    if (change === "owner") h.useStore.setState({ state: remoteOwnedState(h.TAB, "new-owner") });
+    if (change === "disconnect") h.useStore.setState({ exited: { [h.TAB]: 0 } });
+    if (change === "superseded") {
+      newer = h.useStore.getState().loadTranscriptPlanSources(h.TAB);
+      h.respond(h.TAB, h.sent[1]!.cmd, entries);
+    }
+    h.respond(h.TAB, read.cmd, entries);
+    if (change === "removed") h.useStore.setState({ rpc: {} });
+    expect(await load).toBeNull();
+    if (newer) expect(await newer).toMatchObject({ sessionId });
+  });
+
+  it.each([
+    { status: "running" as const },
+    { busy: true },
+    { commandAdmissionBlocked: true },
+    { compacting: { startedAt: 1 } },
+    { extensionQueue: [{ method: "select" }] },
+    { planReview: { request: { title: "Other", planFilePath: "local://other-plan.html", planAbsPath: null }, frame: { id: "other" } } },
+  ])("refuses busy adoption and reads without sending anything: %o", async (patch) => {
+    seed(patch);
+    await expect(h.useStore.getState().loadTranscriptPlanSources(h.TAB)).rejects.toThrow();
+    await expect(h.useStore.getState().adoptTranscriptPlan(h.TAB, selection)).rejects.toThrow();
+    expect(h.sent).toHaveLength(0);
+  });
+
+  it("rechecks host availability after reading entries", async () => {
+    seed();
+    const load = h.useStore.getState().loadTranscriptPlanSources(h.TAB);
+    const rejection = expect(load).rejects.toThrow();
+    publish(null, { available: false });
+    h.respond(h.TAB, h.sent[0]!.cmd, entries);
+    await rejection;
+  });
+
+  it("submits once without awaiting the review-blocked command acknowledgement", async () => {
+    seed();
+    await h.useStore.getState().adoptTranscriptPlan(h.TAB, selection);
+    expect(h.sent).toHaveLength(1);
+    expect(h.useStore.getState().rpc[h.TAB]?.planReview).toBeNull();
+    await expect(h.useStore.getState().adoptTranscriptPlan(h.TAB, selection)).rejects.toThrow();
+    const command = h.sent[0]!;
+    h.respond(h.TAB, command.cmd, {});
+    await h.flushMicrotasks();
+    expect(h.sent).toHaveLength(1);
+  });
+
+  it("does not confuse a captured receipt, another client's request, or another gate with its own review", async () => {
+    seed();
+    await h.useStore.getState().adoptTranscriptPlan(h.TAB, selection);
+    publish({ requestId, sessionId, status: "captured", planFilePath, title: selection.title });
+    expect(transcriptPlanReviewMatches(h.useStore.getState(), h.TAB, requestId)).toBe(false);
+    const tab = h.useStore.getState().rpc[h.TAB]!;
+    h.useStore.setState({ rpc: { [h.TAB]: { ...tab, planReview: {
+      request: { title: selection.title, planFilePath, planAbsPath: "/session/local/copy.html", represented: true }, frame: { id: "real-gate" },
+    } } } });
+    expect(transcriptPlanReviewMatches(h.useStore.getState(), h.TAB, otherRequestId)).toBe(false);
+    publish({ requestId: otherRequestId, sessionId, status: "captured", planFilePath: "local://other-plan.html", title: "Other" });
+    expect(transcriptPlanReviewMatches(h.useStore.getState(), h.TAB, requestId)).toBe(false);
+    publish({ requestId, sessionId, status: "captured", planFilePath, title: selection.title });
+    expect(transcriptPlanReviewMatches(h.useStore.getState(), h.TAB, requestId)).toBe(true);
+    expect(answerPlanReview).not.toHaveBeenCalled();
+    h.respond(h.TAB, h.sent[0]!.cmd, {});
+  });
+
+  it("retains saved-path preflight diagnostics without requiring a local picker or answering a gate", () => {
+    seed();
+    const failure: TranscriptPlanResult = {
+      requestId, sessionId, status: "failed", code: "preflight", message: "Validation failed", planFilePath,
+      preflight: { status: "failed", sourceHash: SOURCE_HASH, diagnostics: [{
+        code: "HTML_PARSE_ERROR", stage: "source", repair: "source", severity: "error", message: "Invalid HTML",
+        detail: "unexpected end", excerpt: "<html>", location: { startOffset: 0, endOffset: 6, line: 1, column: 1 },
+      }] },
+    };
+    publish(failure);
+    expect(transcriptPlanStatus(h.useStore.getState(), h.TAB)?.result).toEqual(failure);
+    h.useStore.setState({ activeTabId: null });
+    expect(transcriptPlanStatus(h.useStore.getState(), h.TAB)?.result).toEqual(failure);
+    expect(transcriptPlanReviewMatches(h.useStore.getState(), h.TAB, requestId)).toBe(false);
+    expect(h.useStore.getState().rpc[h.TAB]!.planReview).toBeNull();
+    expect(h.sent.some(({ cmd }) => cmd.type === "prompt")).toBe(false);
+    expect(answerPlanReview).not.toHaveBeenCalled();
+  });
+
+  it("ignores receipts from a prior session", () => {
+    seed();
+    publish({ requestId, sessionId: "prior", status: "failed", code: "busy", message: "Old receipt" }, { sessionId: "prior" });
+    expect(transcriptPlanStatus(h.useStore.getState(), h.TAB)).toBeNull();
+    expect(transcriptPlanReviewMatches(h.useStore.getState(), h.TAB, requestId)).toBe(false);
+  });
+
+  it("refreshes host capability without creating a review or changing plan mode", async () => {
+    seed();
+    const refresh = h.useStore.getState().refreshTranscriptPlanStatus(h.TAB);
+    expect(h.sent).toHaveLength(1);
+    publish(null, { available: false, reason: "Owner capability unavailable" });
+    h.respond(h.TAB, h.sent[0]!.cmd, {});
+    await refresh;
+    expect(transcriptPlanStatus(h.useStore.getState(), h.TAB)).toMatchObject({ available: false, result: null });
+    expect(h.useStore.getState().rpc[h.TAB]).toMatchObject({ plan: null, planReview: null });
+    expect(h.useStore.getState().rpc[h.TAB]?.items).toHaveLength(0);
+    expect(answerPlanReview).not.toHaveBeenCalled();
+  });
+
+  it("invalidates a read across a real owner-down/up broadcast even when the tab runtime is retained", async () => {
+    seed();
+    // init() latches its listener per module. A static import would reuse that latch.
+    vi.resetModules();
+    const { useStore: fresh } = await import("../../store");
+    const initial = remoteOwnedState(h.TAB, "owner");
+    h.backendState = initial;
+    fresh.setState({
+      state: initial,
+      tabs: [tabInfo({ tabId: h.TAB, instanceId: "owner", mode: "rpc-ui", projectCwd: "/remote/p" })],
+      rpc: h.useStore.getState().rpc,
+      activeTabId: h.TAB,
+      // Keep the runtime deliberately. The disconnect fence must work before reboot.
+      bootRpcTab: vi.fn(async () => {}),
+    });
+    await fresh.getState().init();
+    const onState = h.mockBackend.onStateChanged.mock.calls[0]![0] as (state: BackendState) => void;
+    const response = deferred<unknown>();
+    fresh.setState({ rpcCommand: async () => response.promise });
+    const load = fresh.getState().loadTranscriptPlanSources(h.TAB);
+    onState({ ...initial, remoteInstances: initial.remoteInstances.map((instance) => ({ ...instance, status: "unreachable" })) });
+    onState(initial);
+    response.resolve({ data: entries });
+    expect(await load).toBeNull();
+    const { resetTabRuntimesForTests: resetFreshRuntimes } = await import("./shared");
+    resetFreshRuntimes();
   });
 });

@@ -91,6 +91,13 @@ renderer-local preparation and verification described here, keeps
 anything. Its fallback shows the diagnostics and escaped source but omits the
 reviewed-artifact footer, since no artifact on disk backs it.
 
+Explicit transcript adoption ([#1158](https://github.com/LankfordAI/omp-ui/issues/1158))
+does not change those frames. A separate Plans picker reads original entries,
+not rendered DOM or normalized Markdown, and the owning extension copies the
+selected source into a fresh canonical file. Only that file can enter the
+ordinary main-owned preflight and represented review gate. Displaying transcript
+HTML remains display-only and is never evidence that approval preflight passed.
+
 **Amended 2026-10-30 (#983, ADR-0077):** the review dock's presented frame is
 now `sandbox="allow-same-origin"`, the same script-less one-way channel this
 ADR's probe frame uses, so the dock can read a selection for Comment…. The

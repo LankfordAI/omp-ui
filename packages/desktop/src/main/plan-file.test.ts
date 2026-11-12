@@ -3,10 +3,8 @@ import * as fs from "node:fs";
 import * as os from "node:os";
 import * as path from "node:path";
 import { afterEach, describe, expect, it } from "vitest";
-import {
-  PLAN_ARTIFACT_BYTE_LIMIT,
-  readConfinedPlanFile,
-} from "./plan-file";
+import { PLAN_ARTIFACT_BYTE_LIMIT } from "@omp-ui/core/plan";
+import { readConfinedPlanFile } from "./plan-file";
 
 const dirs: string[] = [];
 

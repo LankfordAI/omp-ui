@@ -499,3 +499,129 @@ export function encodePlanPreflightReply(planFilePath: string, result: PlanPrefl
     current = { ...current, diagnostics: current.diagnostics.slice(0, -1), omitted } as PlanPreflightResult;
   }
 }
+
+export const PLAN_TRANSCRIPT_COMMAND = "omp-ui-plan-transcript";
+export const PLAN_TRANSCRIPT_STATUS_KEY = "omp-ui:plan-transcript";
+export const PLAN_TRANSCRIPT_STATUS_BYTE_LIMIT = 64 * 1024;
+export const PLAN_ARTIFACT_BYTE_LIMIT = 8 * 1024 * 1024;
+export const HTML_PLAN_DOCUMENT_OPEN = /^\s*(?:<!doctype|<html)/i;
+export const HTML_PLAN_DOCUMENT_CLOSE = /<\/html>\s*$/i;
+
+const HTML_PLAN_RANGE_OPEN = new RegExp(HTML_PLAN_DOCUMENT_OPEN.source.replace(/^\^/, ""), "iy");
+const HTML_PLAN_RANGE_CLOSE = new RegExp(HTML_PLAN_DOCUMENT_CLOSE.source.replace(/\\s\*\$$/, ""), "iy");
+
+/** Optional UTF16 bounds inspect an original part without copying its body. */
+export function isHtmlPlanDocument(text: string, start = 0, end = text.length): boolean {
+  if (!Number.isSafeInteger(start) || !Number.isSafeInteger(end) || start < 0 || end <= start || end > text.length) return false;
+  HTML_PLAN_RANGE_OPEN.lastIndex = start;
+  if (!HTML_PLAN_RANGE_OPEN.test(text) || HTML_PLAN_RANGE_OPEN.lastIndex > end) return false;
+  while (end > start && /\s/.test(text[end - 1]!)) end--;
+  const closer = text.lastIndexOf("<", end - 1);
+  if (closer < start) return false;
+  HTML_PLAN_RANGE_CLOSE.lastIndex = closer;
+  return HTML_PLAN_RANGE_CLOSE.test(text) && HTML_PLAN_RANGE_CLOSE.lastIndex === end;
+}
+
+export interface TranscriptPlanSelection {
+  version: 1;
+  requestId: string;
+  sessionId: string;
+  entryId: string;
+  contentIndex: number | null;
+  start: number;
+  end: number;
+  contentHash: string;
+  sourceHash: string;
+  title: string;
+}
+
+export type TranscriptPlanResult =
+  | { requestId: string; sessionId: string; status: "captured" | "settled"; planFilePath: string; title: string }
+  | { requestId: string; sessionId: string; status: "failed";
+      code: "invalid-request" | "unavailable" | "busy" | "source-changed" | "invalid-source" | "over-limit" | "write-failed" | "preflight";
+      message: string; planFilePath?: string; preflight?: PlanPreflightResult };
+
+export interface TranscriptPlanStatus {
+  version: 1;
+  sessionId: string | null;
+  available: boolean;
+  reason?: string;
+  busy: boolean;
+  result: TranscriptPlanResult | null;
+}
+
+const TRANSCRIPT_REQUEST_ID = /^[0-9a-f]{8}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{12}$/;
+const TRANSCRIPT_HASH = /^[0-9a-f]{64}$/;
+const transcriptId = (value: unknown): value is string => typeof value === "string" && value.trim().length > 0 && value.length <= 128;
+const transcriptTitle = (value: unknown): value is string => typeof value === "string" && value.length > 0 && value.length <= 200 && value.trim() === value && !/[\u0000-\u001f\u007f\u0085\u2028\u2029]/.test(value);
+const transcriptRecord = (value: unknown): value is Record<string, unknown> => value !== null && typeof value === "object" && !Array.isArray(value);
+
+/** A UTF16 boundary must not bisect a surrogate pair. */
+export function isTranscriptPlanSelectionBoundary(text: string, index: number): boolean {
+  if (!Number.isSafeInteger(index) || index < 0 || index > text.length) return false;
+  return !(index > 0 && index < text.length && text.charCodeAt(index - 1) >= 0xd800 && text.charCodeAt(index - 1) <= 0xdbff && text.charCodeAt(index) >= 0xdc00 && text.charCodeAt(index) <= 0xdfff);
+}
+
+export function isTranscriptPlanSelectionRange(text: string, start: number, end: number): boolean {
+  return end > start && isTranscriptPlanSelectionBoundary(text, start) && isTranscriptPlanSelectionBoundary(text, end);
+}
+
+export function parseTranscriptPlanSelection(value: unknown): TranscriptPlanSelection | null {
+  if (!transcriptRecord(value)) return null;
+  if (value.version !== 1 || typeof value.requestId !== "string" || !TRANSCRIPT_REQUEST_ID.test(value.requestId) ||
+      !transcriptId(value.sessionId) || !transcriptId(value.entryId) || !transcriptTitle(value.title) ||
+      !(value.contentIndex === null || (typeof value.contentIndex === "number" && Number.isSafeInteger(value.contentIndex) && value.contentIndex >= 0)) ||
+      typeof value.start !== "number" || !Number.isSafeInteger(value.start) || value.start < 0 ||
+      typeof value.end !== "number" || !Number.isSafeInteger(value.end) || value.end <= value.start ||
+      typeof value.contentHash !== "string" || !TRANSCRIPT_HASH.test(value.contentHash) ||
+      typeof value.sourceHash !== "string" || !TRANSCRIPT_HASH.test(value.sourceHash)) return null;
+  const selection: TranscriptPlanSelection = {
+    version: 1, requestId: value.requestId, sessionId: value.sessionId, entryId: value.entryId,
+    contentIndex: value.contentIndex as number | null, start: value.start, end: value.end,
+    contentHash: value.contentHash, sourceHash: value.sourceHash, title: value.title,
+  };
+  try {
+    if (new TextEncoder().encode(JSON.stringify(value)).byteLength > 4096) return null;
+  } catch { return null; }
+  return selection;
+}
+
+export function parseTranscriptPlanSelectionText(text: string): TranscriptPlanSelection | null {
+  if (text.length > 4096 || new TextEncoder().encode(text).byteLength > 4096) return null;
+  try { return parseTranscriptPlanSelection(JSON.parse(text)); } catch { return null; }
+}
+
+export function transcriptPlanMessage(selection: TranscriptPlanSelection): string {
+  return `/${PLAN_TRANSCRIPT_COMMAND} adopt ${JSON.stringify(selection)}`;
+}
+
+/** Reads only bounded metadata, never a plan body. */
+export function parseTranscriptPlanStatus(text: string | undefined): TranscriptPlanStatus | null {
+  if (!text || text.length > PLAN_TRANSCRIPT_STATUS_BYTE_LIMIT || new TextEncoder().encode(text).byteLength > PLAN_TRANSCRIPT_STATUS_BYTE_LIMIT) return null;
+  const value = parseObject(text);
+  if (!value || value.version !== 1 || !(value.sessionId === null || transcriptId(value.sessionId)) ||
+      typeof value.available !== "boolean" || typeof value.busy !== "boolean" ||
+      (value.reason !== undefined && (typeof value.reason !== "string" || value.reason.length > PLAN_MESSAGE_LIMIT))) return null;
+  if (value.sessionId === null && (value.available || value.busy || value.result !== null)) return null;
+  let result: TranscriptPlanResult | null = null;
+  if (value.result !== null) {
+    const r = value.result;
+    if (!transcriptRecord(r) || typeof r.requestId !== "string" || !TRANSCRIPT_REQUEST_ID.test(r.requestId) ||
+        !transcriptId(r.sessionId)) return null;
+    const pathOk = (path: unknown): path is string => typeof path === "string" && path.trim().length > 0 && path.length <= 4096 && !/[\r\n\u0000]/.test(path);
+    if (r.status === "captured" || r.status === "settled") {
+      if (r.sessionId !== value.sessionId || !pathOk(r.planFilePath) || !transcriptTitle(r.title)) return null;
+      result = { requestId: r.requestId, sessionId: r.sessionId, status: r.status, planFilePath: r.planFilePath, title: r.title };
+    } else if (r.status === "failed") {
+      if (!inSet(["invalid-request", "unavailable", "busy", "source-changed", "invalid-source", "over-limit", "write-failed", "preflight"] as const, r.code) ||
+          typeof r.message !== "string" || r.message.length === 0 || r.message.length > PLAN_MESSAGE_LIMIT ||
+          (r.planFilePath !== undefined && !pathOk(r.planFilePath))) return null;
+      const preflight = r.preflight === undefined ? undefined : parsePlanPreflightResult(r.preflight);
+      if (preflight === null || (preflight !== undefined && (r.code !== "preflight" || preflight.status === "passed"))) return null;
+      result = { requestId: r.requestId, sessionId: r.sessionId, status: "failed", code: r.code, message: r.message,
+        ...(r.planFilePath !== undefined ? { planFilePath: r.planFilePath as string } : {}), ...(preflight !== undefined ? { preflight } : {}) };
+    } else return null;
+  }
+  return { version: 1, sessionId: value.sessionId as string | null, available: value.available, busy: value.busy,
+    ...(value.reason !== undefined ? { reason: value.reason as string } : {}), result };
+}

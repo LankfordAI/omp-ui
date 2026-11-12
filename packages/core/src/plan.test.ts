@@ -19,6 +19,14 @@ import {
   type PlanDiagnostic,
   type PlanPreflightResult,
 } from "./plan";
+import {
+  isHtmlPlanDocument,
+  isTranscriptPlanSelectionRange,
+  parseTranscriptPlanSelection,
+  parseTranscriptPlanSelectionText,
+  parseTranscriptPlanStatus,
+  PLAN_TRANSCRIPT_STATUS_BYTE_LIMIT,
+} from "./plan";
 
 describe("planMessage", () => {
   it("builds the literal html, markdown, and off commands", () => {
@@ -435,5 +443,78 @@ describe("comparePlanDiagnostics", () => {
       [...byStage].sort(comparePlanDiagnostics).map((d) => d.code),
     ).toEqual(["CODE_MARKUP", "HTML_PARSE_ERROR", "LAYOUT_OVERFLOW", "SOURCE_CHANGED"]);
     expect(comparePlanDiagnostics(diagnostic(), diagnostic())).toBe(0);
+  });
+});
+
+describe("transcript plan contracts", () => {
+  const selection = {
+    version: 1, requestId: "12345678-1234-4234-8234-123456789abc", sessionId: "session", entryId: "entry",
+    contentIndex: null, start: 0, end: 20, contentHash: "a".repeat(64), sourceHash: "b".repeat(64), title: "Plan",
+  };
+  const receipt = { requestId: selection.requestId, sessionId: "session", status: "captured", planFilePath: "local://transcript-plan.html", title: "Plan" };
+  const status = { version: 1, sessionId: "session", available: true, busy: false, result: receipt };
+
+  it("accepts valid bounded selection metadata", () => {
+    expect(parseTranscriptPlanSelection(selection)).toEqual(selection);
+    expect(parseTranscriptPlanSelectionText(JSON.stringify(selection))).toEqual(selection);
+    expect(parseTranscriptPlanSelection({ ...selection, contentIndex: 2 })).toEqual({ ...selection, contentIndex: 2 });
+  });
+
+  it("rejects invalid identities, hashes, titles, indices and offsets", () => {
+    const patches = [{ version: 2 }, { requestId: "not-a-uuid" }, { requestId: selection.requestId.toUpperCase() }, { sessionId: "" }, { entryId: "x".repeat(129) }, { title: " Plan" }, { title: "Plan\nnext" }, { title: "x".repeat(201) }, { contentHash: "A".repeat(64) }, { sourceHash: "a".repeat(63) }, { contentIndex: -1 }, { contentIndex: 0.5 }, { start: -1 }, { start: 20 }, { end: Number.MAX_SAFE_INTEGER + 1 }, { end: 0 }];
+    for (const patch of patches) expect(parseTranscriptPlanSelection({ ...selection, ...patch })).toBeNull();
+    for (const control of ["\u0000", "\t", "\u007f", "\u0085", "\u2028", "\u2029"]) {
+      expect(parseTranscriptPlanSelection({ ...selection, title: `Plan${control}next` })).toBeNull();
+    }
+    for (const value of [null, [], true, "selection"]) expect(parseTranscriptPlanSelection(value)).toBeNull();
+  });
+
+  it("bounds untrusted request JSON by UTF8 bytes before parsing", () => {
+    expect(parseTranscriptPlanSelectionText("{" )).toBeNull();
+    expect(parseTranscriptPlanSelectionText(" ".repeat(4097))).toBeNull();
+    expect(parseTranscriptPlanSelectionText(JSON.stringify({ ...selection, extra: "😀".repeat(1000) }))).toBeNull();
+    expect(parseTranscriptPlanSelection({ ...selection, extra: "x".repeat(4096) })).toBeNull();
+  });
+
+  it("rejects ranges bisecting surrogate pairs without changing valid UTF16 offsets", () => {
+    const text = "a😀z";
+    expect(isTranscriptPlanSelectionRange(text, 1, 3)).toBe(true);
+    expect(isTranscriptPlanSelectionRange(text, 2, 3)).toBe(false);
+    expect(isTranscriptPlanSelectionRange(text, 1, 2)).toBe(false);
+    expect(isTranscriptPlanSelectionRange(text, 0, 5)).toBe(false);
+    expect(isTranscriptPlanSelectionRange(text, 0.5, 3)).toBe(false);
+  });
+
+  it("reads receipts and rejects malformed status identities and discriminants", () => {
+    expect(parseTranscriptPlanStatus(JSON.stringify(status))).toEqual(status);
+    for (const patch of [{ version: 2 }, { sessionId: "" }, { available: 1 }, { busy: "false" }, { result: undefined }, { result: { ...receipt, status: "unknown" } }, { result: { ...receipt, sessionId: "other" } }, { result: { ...receipt, requestId: "bad" } }]) {
+      expect(parseTranscriptPlanStatus(JSON.stringify({ ...status, ...patch }))).toBeNull();
+    }
+    expect(parseTranscriptPlanStatus(JSON.stringify({ version: 1, sessionId: null, available: false, busy: false, result: null }))).not.toBeNull();
+    expect(parseTranscriptPlanStatus(JSON.stringify({ ...status, sessionId: null }))).toBeNull();
+  });
+
+  it("bounds status text and messages and validates nested diagnostics", () => {
+    const failure = { requestId: selection.requestId, sessionId: "session", status: "failed", code: "preflight", message: "Invalid document", preflight: { status: "failed", sourceHash: null, diagnostics: [] } };
+    expect(parseTranscriptPlanStatus(JSON.stringify({ ...status, result: failure }))?.result).toEqual(failure);
+    for (const result of [{ ...failure, code: "unknown" }, { ...failure, message: "x".repeat(PLAN_MESSAGE_LIMIT + 1) }, { ...failure, preflight: { ...failure.preflight, diagnostics: [{ code: "INVALID" }] } }, { ...failure, preflight: { status: "passed", sourceHash: "a".repeat(64), diagnostics: [] } }]) {
+      expect(parseTranscriptPlanStatus(JSON.stringify({ ...status, result }))).toBeNull();
+    }
+    const stale = { ...failure, sessionId: "old-session", code: "source-changed", preflight: undefined };
+    expect(parseTranscriptPlanStatus(JSON.stringify({ ...status, result: stale }))?.result?.sessionId).toBe("old-session");
+    expect(parseTranscriptPlanStatus(" ".repeat(PLAN_TRANSCRIPT_STATUS_BYTE_LIMIT + 1))).toBeNull();
+    expect(parseTranscriptPlanStatus(JSON.stringify({ ...status, extra: "😀".repeat(20_000) }))).toBeNull();
+  });
+
+  it("preserves document opener and terminal html closer semantics", () => {
+    for (const text of ["<html></html>", "\r\n<!DOCTYPE html><html></html>\r\n"]) expect(isHtmlPlanDocument(text)).toBe(true);
+    for (const text of ["<div>fragment</div>", "prose <html></html>", "<html></html> prose", "<html>"]) expect(isHtmlPlanDocument(text)).toBe(false);
+    const original = "prose\r\n  <html>😀</html>\r\n```\ntrailing";
+    const start = original.indexOf("  <html>");
+    const end = original.indexOf("```");
+    expect(isHtmlPlanDocument(original, start, end)).toBe(true);
+    expect(isHtmlPlanDocument(original, start, end - 4)).toBe(false);
+    expect(isHtmlPlanDocument(original, start, original.length)).toBe(false);
+    expect(isHtmlPlanDocument(original, -1, end)).toBe(false);
   });
 });
