@@ -553,6 +553,7 @@ export interface TranscriptPlanStatus {
 const TRANSCRIPT_REQUEST_ID = /^[0-9a-f]{8}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{12}$/;
 const TRANSCRIPT_HASH = /^[0-9a-f]{64}$/;
 const transcriptId = (value: unknown): value is string => typeof value === "string" && value.trim().length > 0 && value.length <= 128;
+// eslint-disable-next-line no-control-regex -- refusing control characters is the check
 const transcriptTitle = (value: unknown): value is string => typeof value === "string" && value.length > 0 && value.length <= 200 && value.trim() === value && !/[\u0000-\u001f\u007f\u0085\u2028\u2029]/.test(value);
 const transcriptRecord = (value: unknown): value is Record<string, unknown> => value !== null && typeof value === "object" && !Array.isArray(value);
 
@@ -608,6 +609,7 @@ export function parseTranscriptPlanStatus(text: string | undefined): TranscriptP
     const r = value.result;
     if (!transcriptRecord(r) || typeof r.requestId !== "string" || !TRANSCRIPT_REQUEST_ID.test(r.requestId) ||
         !transcriptId(r.sessionId)) return null;
+    // eslint-disable-next-line no-control-regex -- refusing NUL is the check
     const pathOk = (path: unknown): path is string => typeof path === "string" && path.trim().length > 0 && path.length <= 4096 && !/[\r\n\u0000]/.test(path);
     if (r.status === "captured" || r.status === "settled") {
       if (r.sessionId !== value.sessionId || !pathOk(r.planFilePath) || !transcriptTitle(r.title)) return null;
