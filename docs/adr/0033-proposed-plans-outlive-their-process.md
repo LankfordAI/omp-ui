@@ -72,3 +72,29 @@ The consequence worth naming: dismissing spends the planner's blocked turn,
 ending it cleanly with one tool result — no model work is promised by its stop
 instruction. Defer ("not now") remains the non-answering pause that leaves the
 gate and the blocked turn open.
+
+## Amendment (2026-11-12, issue #1158)
+
+**Review from transcript…** in Inspector rail → Review → Plans imports a user
+or successfully completed assistant HTML document into this same represented
+review path. The picker follows original current-branch entries through
+compaction, retaining entry ID, original part index, and exact UTF-16 range.
+It never correlates render items or copies prepared HTML. The owning extension
+rechecks session identity, branch membership, hashes, completion, and idle state
+before exclusively creating a fresh canonical HTML file and provenance sidecar
+under that session's confined artifact directory. No model turn starts.
+
+Import creates no alternate approval path. Main still performs preflight before
+publishing a gate, Execute still rechecks canonical bytes, and only approval
+pins the reference and enables implementation. A later explicit refinement edits
+the same canonical file; its provenance records the initial source, not all
+subsequent revisions. Council review keeps its existing named-file interface.
+
+The extension retains the last request-correlated import receipt for its live
+process and republishes it on `show`. Failed preflight keeps the saved path and
+bounded diagnostics without inventing a pending proposal. Closing the picker,
+changing panes, renderer reload, and remote reattachment do not erase it;
+process restart does. **Review saved copy** uses the existing re-present command
+without re-extracting or rewriting the source. Successful proposed-plan records
+and their canonical files retain the existing disk lifecycle described above.
+

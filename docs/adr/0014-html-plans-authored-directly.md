@@ -102,3 +102,19 @@ the gate: answering execute re-reads the confined artifact and a changed
 file settles the gate as `invalidated` instead of starting implementation.
 The reference that gets pinned and executed is still exactly this file —
 preflight changes who sees it first, not what the implementer runs.
+
+## Amendment (2026-11-12, issue #1158)
+
+The canonical HTML file may also be created mechanically from an explicitly
+selected original transcript text part. Inspector rail → Review → Plans →
+**Review from transcript…** lets the user inspect a whole document or a complete
+HTML fence before importing it. The owning extension verifies the session,
+current branch, original-part hash, selected-source hash, and idle state, then
+creates a fresh `local://transcript-<requestId>-plan.html` without a model turn.
+
+The sibling `.source.json` records initial provenance, not a second plan or an
+immutable revision. The HTML is an ordinary editable canonical file. Explicit
+refinement may change it, and the next represented review validates its current
+bytes through the existing preflight and Execute hash check. Importing neither
+pins a reference nor grants approval.
+

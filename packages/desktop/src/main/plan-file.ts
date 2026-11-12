@@ -2,6 +2,14 @@ import { createHash } from "node:crypto";
 import * as fs from "node:fs";
 import * as path from "node:path";
 import { isWithin } from "@omp-ui/core";
+import { PLAN_ARTIFACT_BYTE_LIMIT } from "@omp-ui/core/plan";
+
+/** Cap on the PREPARED document the verifier will accept (32 MiB). */
+export const PLAN_PREPARED_BYTE_LIMIT = 32 * 1024 * 1024;
+
+export type ConfinedPlanRead =
+  | { ok: true; text: string; sourceHash: string; bytes: number }
+  | { ok: false; reason: "outside" | "unreadable" | "over-limit" };
 
 /**
  * The one confined plan-artifact reader (issue #312 follow-up). Both the
@@ -12,16 +20,7 @@ import { isWithin } from "@omp-ui/core";
  * never streamed). At most {@link PLAN_ARTIFACT_BYTE_LIMIT}+1 bytes are read;
  * the cap guards the verifier, not the author — exceeding it is an
  * application limitation, never an instruction to shorten the plan.
- */
-export const PLAN_ARTIFACT_BYTE_LIMIT = 8 * 1024 * 1024;
-/** Cap on the PREPARED document the verifier will accept (32 MiB). */
-export const PLAN_PREPARED_BYTE_LIMIT = 32 * 1024 * 1024;
-
-export type ConfinedPlanRead =
-  | { ok: true; text: string; sourceHash: string; bytes: number }
-  | { ok: false; reason: "outside" | "unreadable" | "over-limit" };
-
-/**
+ *
  * Read one plan artifact confined to `root` (the session's lineage dir,
  * realpath'd), returning the exact bytes' UTF-8 text and their SHA-256 hash.
  * `absPath` is also realpath'd; a path that cannot be resolved at all is

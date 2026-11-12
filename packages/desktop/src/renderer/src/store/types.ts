@@ -1,5 +1,7 @@
 import type { KeybindingOverrides } from "@omp-ui/core/keybindings";
 import type { ThemeMode } from "@omp-ui/core/theme";
+import type { TranscriptPlanSelection } from "@omp-ui/core/plan";
+import type { TranscriptPlanCandidate } from "../lib/transcript-plan-source";
 import type { VsCodeImportResult, VsCodeThemeFileInput } from "@omp-ui/core/vscode-theme";
 import type {
   FleetAuditEntry,
@@ -1890,6 +1892,12 @@ export interface UiStore extends SettingsSlice, UpdatesSlice, LabSlice, StatsSli
   showPlanReview(tabId: string): void;
   /** Re-raises the review for an interrupted plan (ADR-0033). */
   representPlan(tabId: string, planFilePath: string, title: string): Promise<void>;
+  refreshTranscriptPlanStatus(tabId: string): Promise<void>;
+  loadTranscriptPlanSources(tabId: string): Promise<{
+    sessionId: string;
+    candidates: TranscriptPlanCandidate[];
+  } | null>;
+  adoptTranscriptPlan(tabId: string, selection: TranscriptPlanSelection): Promise<void>;
   /** Stops tracking an interrupted plan; main refuses a live gate. */
   dismissProposedPlan(tabId: string, planFilePath: string): Promise<void>;
   /** PlanReview publishes its local preparation readiness here (§6 guard). */

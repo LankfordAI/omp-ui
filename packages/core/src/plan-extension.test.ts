@@ -3,9 +3,17 @@ import * as os from "node:os";
 import * as path from "node:path";
 import { createRequire } from "node:module";
 import { pathToFileURL } from "node:url";
+import { createHash, randomUUID } from "node:crypto";
 import { afterEach, describe, expect, it, vi } from "vitest";
 import {
   encodePlanPreflightReply,
+  PLAN_ARTIFACT_BYTE_LIMIT,
+  PLAN_PREFLIGHT_RESULT_PREFIX,
+  PLAN_TRANSCRIPT_COMMAND,
+  PLAN_TRANSCRIPT_STATUS_KEY,
+  parseTranscriptPlanStatus,
+  type TranscriptPlanSelection,
+  type TranscriptPlanStatus,
   PLAN_COMMAND,
   PLAN_REVIEW_SENTINEL,
   PLAN_STATUS_KEY,
@@ -144,6 +152,7 @@ interface SentMessage {
   customType: string;
   content: string;
   deliverAs: string;
+  triggerTurn?: boolean;
 }
 
 interface PlanUi {
@@ -192,11 +201,12 @@ async function loadExtension(): Promise<ExtensionFactory> {
  * class. The generated source imports only node builtins, so node's own require
  * is the whole module system it needs.
  */
-function executableExtension(): ExtensionFactory {
+function executableExtension(fsOverrides: Partial<typeof fs> = {}): ExtensionFactory {
   const file = writePlanExtension(tempLineage());
   const outputText = transpileGeneratedExtension(fs.readFileSync(file, "utf8"), "cjs");
   const loaded = { exports: {} as { default?: ExtensionFactory } };
-  Function("module", "exports", "require", outputText)(loaded, loaded.exports, nodeRequire);
+  Function("module", "exports", "require", outputText)(loaded, loaded.exports,
+    (name: string) => name === "node:fs" ? { ...fs, ...fsOverrides } : nodeRequire(name));
   const factory = loaded.exports.default;
   if (!factory) throw new Error("generated extension has no default factory");
   return factory;
@@ -225,6 +235,9 @@ function slugForPlanFile(title: string): string {
 
 interface Harness {
   run: (args: string) => Promise<void>;
+  transcript: (args: string) => Promise<void>;
+  transcriptStatus: () => TranscriptPlanStatus | null;
+  replaceManager: () => void;
   /** Fire without awaiting, to interleave two transitions. */
   dispatch: (args: string) => Promise<void>;
   /** Drive omp's propose gate through the handler the extension installed. */
@@ -253,6 +266,19 @@ interface Harness {
   fire: (event: string) => Promise<void>;
 }
 
+interface TranscriptFixture {
+  sessionId: string;
+  sessionDir: string;
+  artifactsDir: string;
+  entries: Array<{ id: string; type: string; message: { role: string; stopReason?: string; content: unknown } }>;
+  branch: unknown[];
+  streaming: boolean;
+  compacting: boolean;
+  goal?: unknown;
+  instructionHold?: Promise<void>;
+  onInstruction?: () => void;
+}
+
 function harness(
   factory: ExtensionFactory,
   options?: {
@@ -263,6 +289,7 @@ function harness(
     heldSelect?: boolean;
     /** Report vibe mode on, the way the vibe bridge's session reports it. */
     vibeEnabled?: boolean;
+    transcript?: TranscriptFixture;
   },
 ): Harness {
   const sent: SentMessage[] = [];
@@ -280,16 +307,24 @@ function harness(
 
   // A fresh class per harness: the extension patches prototype methods.
   class FakeSession {
-    isStreaming = false;
+    get isStreaming(): boolean { return options?.transcript?.streaming ?? false; }
+    get isCompacting(): boolean { return options?.transcript?.compacting ?? false; }
     sessionManager = {
       // An explicit `null` must survive: that is the omp that cannot host html plans.
-      getArtifactsDir: () =>
-        options?.artifactsDir !== undefined ? options.artifactsDir : "/tmp/omp-ui-fake-artifacts",
+      getArtifactsDir: () => options?.transcript?.artifactsDir ??
+        (options?.artifactsDir !== undefined ? options.artifactsDir : "/tmp/omp-ui-fake-artifacts"),
+      ...(options?.transcript ? {
+        getSessionDir: () => options.transcript!.sessionDir,
+        getSessionId: () => options.transcript!.sessionId,
+        getEntry: (id: string) => options.transcript!.entries.find(entry => entry.id === id),
+        getBranch: () => options.transcript!.branch,
+      } : {}),
       appendModeChange: () => undefined,
     };
     getPlanModeState(): { enabled: boolean } | undefined {
       return planState;
     }
+    getGoalModeState(): unknown { return options?.transcript?.goal; }
     getVibeModeState(): { enabled: boolean } | undefined {
       return options?.vibeEnabled === true ? { enabled: true } : undefined;
     }
@@ -333,9 +368,11 @@ function harness(
     Object.defineProperty(FakeSession.prototype, "sendCustomMessage", {
       value: async function (
         msg: { customType: string; content: string },
-        opts: { deliverAs: string },
+        opts: { deliverAs: string; triggerTurn?: boolean },
       ) {
-        sent.push({ customType: msg.customType, content: msg.content, deliverAs: opts.deliverAs });
+        sent.push({ customType: msg.customType, content: msg.content, deliverAs: opts.deliverAs, triggerTurn: opts.triggerTurn });
+        options?.transcript?.onInstruction?.();
+        if (options?.transcript?.instructionHold) await options.transcript.instructionHold;
         return false;
       },
       writable: true,
@@ -343,11 +380,11 @@ function harness(
     });
   }
 
-  let handler: ((args: string, ctx: { ui: PlanUi }) => Promise<void>) | undefined;
-  let statusText: string | undefined;
+  const handlers = new Map<string, (args: string, ctx: { ui: PlanUi }) => Promise<void>>();
+  const statuses = new Map<string, string | undefined>();
   const ui: PlanUi = {
-    setStatus: (_key, text) => {
-      statusText = text;
+    setStatus: (key, text) => {
+      statuses.set(key, text);
     },
     select: async (title, optionList) => {
       selects.push(title);
@@ -366,8 +403,8 @@ function harness(
 
   factory({
     pi: { AgentSession: { prototype: FakeSession.prototype as unknown as Record<string, unknown> } },
-    registerCommand: (_name, opts) => {
-      handler = opts.handler;
+    registerCommand: (name, opts) => {
+      handlers.set(name, opts.handler);
     },
     on: (event, fn) => {
       (listeners[event] ??= []).push(fn);
@@ -379,14 +416,18 @@ function harness(
   // from inside prompt, so this is what a real toggle does first.
   void session.prompt();
 
-  const dispatch = (args: string): Promise<void> => {
-    if (!handler) throw new Error("the extension registered no command");
+  const dispatchCommand = (name: string, args: string): Promise<void> => {
+    const handler = handlers.get(name);
+    if (!handler) throw new Error("the extension registered no command: " + name);
     return handler(args, { ui });
   };
-
+  const dispatch = (args: string) => dispatchCommand(PLAN_COMMAND, args);
   return {
     run: dispatch,
     dispatch,
+    transcript: (args) => dispatchCommand(PLAN_TRANSCRIPT_COMMAND, args),
+    transcriptStatus: () => parseTranscriptPlanStatus(statuses.get(PLAN_TRANSCRIPT_STATUS_KEY)),
+    replaceManager: () => { session.sessionManager = { ...session.sessionManager }; },
     propose: (title) => {
       if (!proposalHandler) throw new Error("no proposal handler installed");
       return proposalHandler(title);
@@ -397,7 +438,10 @@ function harness(
       const start = last.indexOf(PLAN_REVIEW_SENTINEL) + PLAN_REVIEW_SENTINEL.length;
       return JSON.parse(last.slice(start));
     },
-    status: () => (statusText === undefined ? null : JSON.parse(statusText)),
+    status: () => {
+      const text = statuses.get(PLAN_STATUS_KEY);
+      return text === undefined ? null : JSON.parse(text);
+    },
     guardArmed: () => session.getPlanModeState()?.enabled === true,
     referencePath: () => referencePath,
     prepared,
@@ -898,8 +942,8 @@ function runtimeHarness(options: RuntimeOptions = {}) {
   }
 
   const ui: PlanUi = {
-    setStatus: (_key, text) => {
-      statusText = text;
+    setStatus: (key, text) => {
+      if (key === PLAN_STATUS_KEY) statusText = text;
     },
     select: async () => undefined,
     notify: (message) => {
@@ -911,8 +955,8 @@ function runtimeHarness(options: RuntimeOptions = {}) {
     pi: {
       AgentSession: { prototype: RuntimeSession.prototype as unknown as Record<string, unknown> },
     },
-    registerCommand: (_name, opts) => {
-      handler = opts.handler;
+    registerCommand: (name, opts) => {
+      if (name === PLAN_COMMAND) handler = opts.handler;
     },
     on: (event, fn) => {
       (listeners[event] ??= []).push(fn);
@@ -1346,6 +1390,517 @@ describe("re-presenting a plan (ADR-0033)", () => {
     expect(
       h.notices.some((n) => n.includes("needs Plan mode")),
     ).toBe(true);
+    expect(h.selects).toEqual([]);
+  });
+});
+
+function transcriptFixture(content = "<!doctype html>\r\n<html><body>Exact &amp; 😀 source</body></html>\r\n"): TranscriptFixture {
+  const sessionDir = tempLineage();
+  const entries: TranscriptFixture["entries"] = [
+    { id: "earlier-identical", type: "message", message: { role: "user", content } },
+    { id: "selected-entry", type: "message", message: { role: "assistant", stopReason: "stop", content } },
+  ];
+  return {
+    sessionId: "source-session", sessionDir, artifactsDir: path.join(sessionDir, "artifacts"),
+    entries, branch: entries, streaming: false, compacting: false,
+  };
+}
+
+function transcriptSelection(fixture: TranscriptFixture, overrides: Partial<TranscriptPlanSelection> = {}): TranscriptPlanSelection {
+  const entry = fixture.entries.find(item => item.id === (overrides.entryId ?? "selected-entry"))!;
+  const index = overrides.contentIndex ?? null;
+  const content = entry.message.content;
+  const part = index === null ? content as string : (content as Array<{ text: string }>)[index]!.text;
+  const start = overrides.start ?? 0;
+  const end = overrides.end ?? part.length;
+  return {
+    version: 1, requestId: randomUUID(), sessionId: fixture.sessionId, entryId: entry.id,
+    contentIndex: index, start, end, title: "Transcript plan",
+    contentHash: createHash("sha256").update(part, "utf8").digest("hex"),
+    sourceHash: createHash("sha256").update(part.slice(start, end), "utf8").digest("hex"),
+    ...overrides,
+  };
+}
+
+function adoptTranscript(h: Harness, selection: unknown): Promise<void> {
+  return h.transcript(`adopt ${JSON.stringify(selection)}`);
+}
+
+describe("exact transcript plan adoption", () => {
+  it("advertises adoption separately and show neither enters Plan nor waits behind a review", async () => {
+    const fixture = transcriptFixture();
+    const h = harness(executableExtension(), { transcript: fixture, heldSelect: true });
+    await h.transcript("show");
+    expect(h.transcriptStatus()).toMatchObject({ available: true, busy: false, result: null, sessionId: fixture.sessionId });
+    expect(h.guardArmed()).toBe(false);
+    expect(h.sent).toEqual([]);
+    expect(fs.existsSync(fixture.artifactsDir)).toBe(false);
+    const selection = transcriptSelection(fixture);
+    const adopting = adoptTranscript(h, selection);
+    await vi.waitFor(() => expect(h.selects).toHaveLength(1));
+    await h.transcript("show");
+    expect(h.transcriptStatus()).toMatchObject({ busy: true, result: { requestId: selection.requestId, status: "captured" } });
+    h.release?.("dismiss");
+    await adopting;
+  });
+
+  it("disables only adoption when exact source APIs are absent", async () => {
+    const h = harness(executableExtension());
+    await h.transcript("show");
+    expect(h.transcriptStatus()).toMatchObject({ available: false, result: null });
+    await h.run("on md");
+    expect(h.guardArmed()).toBe(true);
+    expect(entries(h.sent)).toHaveLength(1);
+  });
+
+  it("writes the selected second occurrence as exact bytes with provenance and never chooses a newer plan", async () => {
+    const html = "  <!doctype html>\r\n<html><body>😀 &amp; &#x26;</body></html>\r\n";
+    const part = "First\r\n```html\r\n" + html + "```\r\nSecond\r\n```HTML\r\n" + html + "```\r\n";
+    const fixture = transcriptFixture(part);
+    fs.mkdirSync(path.join(fixture.artifactsDir, "local"), { recursive: true });
+    const newer = writePlanFile(fixture.artifactsDir, "newer-plan.html", 2_000_000_000);
+    const newerBytes = fs.readFileSync(newer);
+    const h = harness(executableExtension(), { transcript: fixture });
+    h.answer("dismiss");
+    const start = part.lastIndexOf(html);
+    const selection = transcriptSelection(fixture, { start, end: start + html.length, title: "Exact selected HTML" });
+    await adoptTranscript(h, { ...selection, body: "not authoritative", planFilePath: "local://newer-plan.html", slug: "newer" });
+    const name = `transcript-${selection.requestId}-plan`;
+    const captured = fs.readFileSync(path.join(fixture.artifactsDir, "local", name + ".html"));
+    expect(captured).toEqual(Buffer.from(html, "utf8"));
+    expect(createHash("sha256").update(captured).digest("hex")).toBe(selection.sourceHash);
+    expect(fs.readFileSync(newer)).toEqual(newerBytes);
+    const sidecar = JSON.parse(fs.readFileSync(path.join(fixture.artifactsDir, "local", name + ".source.json"), "utf8"));
+    expect(sidecar).toMatchObject({ ...selection, role: "assistant" });
+    expect(Number.isFinite(Date.parse(sidecar.importedAt))).toBe(true);
+    expect(sidecar).not.toHaveProperty("body");
+    expect(sidecar).not.toHaveProperty("text");
+    expect(fs.statSync(path.join(fixture.artifactsDir, "local", name + ".html")).mode & 0o777).toBe(0o600);
+    expect(fs.statSync(path.join(fixture.artifactsDir, "local", name + ".source.json")).mode & 0o777).toBe(0o600);
+    expect(h.reviewed()).toMatchObject({ planFilePath: `local://${name}.html`, title: selection.title, represented: true });
+    expect(h.prepared).toEqual([]);
+    expect(h.transcriptStatus()).toMatchObject({ busy: false, result: { status: "settled", requestId: selection.requestId } });
+    expect(h.referencePath()).toBeNull();
+    expect(h.guardArmed()).toBe(true);
+    expect(h.sent.every(message => message.triggerTurn === false)).toBe(true);
+  });
+
+  it("creates only the missing local directory and keeps an existing markdown span unchanged", async () => {
+    const fixture = transcriptFixture();
+    fs.mkdirSync(fixture.artifactsDir);
+    const h = harness(executableExtension(), { transcript: fixture });
+    await h.run("on md");
+    const before = entries(h.sent);
+    h.answer("refine");
+    await adoptTranscript(h, transcriptSelection(fixture));
+    expect(fs.statSync(path.join(fixture.artifactsDir, "local")).isDirectory()).toBe(true);
+    expect(entries(h.sent)).toEqual(before);
+    expect(h.guardArmed()).toBe(true);
+    expect(h.referencePath()).toBeNull();
+    expect(h.prepared).toEqual([]);
+  });
+
+  it("reads the original array text part index without joining non-text parts", async () => {
+    const fixture = transcriptFixture();
+    const html = fixture.entries[1]!.message.content as string;
+    fixture.entries[1]!.message.content = [{ type: "thinking", thinking: html }, { type: "text", text: "not html" }, { type: "text", text: html }];
+    const h = harness(executableExtension(), { transcript: fixture });
+    h.answer("dismiss");
+    const selection = transcriptSelection(fixture, { contentIndex: 2 });
+    await adoptTranscript(h, selection);
+    const file = path.join(fixture.artifactsDir, "local", `transcript-${selection.requestId}-plan.html`);
+    expect(fs.readFileSync(file, "utf8")).toBe(html);
+  });
+
+  it.each(["user", "assistant-toolUse"])("accepts eligible %s source messages", async (kind) => {
+    const fixture = transcriptFixture();
+    fixture.entries[1]!.message.role = kind === "user" ? "user" : "assistant";
+    fixture.entries[1]!.message.stopReason = kind === "user" ? undefined : "toolUse";
+    const h = harness(executableExtension(), { transcript: fixture });
+    h.answer("dismiss");
+    await adoptTranscript(h, transcriptSelection(fixture));
+    expect(h.selects).toHaveLength(1);
+  });
+
+  it.each(["error", "aborted", "length", "unknown"])("rejects unfinished assistant stop reason %s", async (stopReason) => {
+    const fixture = transcriptFixture();
+    fixture.entries[1]!.message.stopReason = stopReason;
+    const h = harness(executableExtension(), { transcript: fixture });
+    await adoptTranscript(h, transcriptSelection(fixture));
+    expect(h.transcriptStatus()?.result).toMatchObject({ status: "failed", code: "invalid-source" });
+    expect(h.selects).toEqual([]);
+    expect(fs.existsSync(fixture.artifactsDir)).toBe(false);
+  });
+
+  it.each(["session", "offbranch", "content-hash", "slice-hash", "range", "incomplete", "non-message", "tool", "duplicate-branch"])("rejects %s sources before writing or opening a gate", async (kind) => {
+    const fixture = transcriptFixture();
+    const selection = transcriptSelection(fixture);
+    if (kind === "session") selection.sessionId = "previous-session";
+    if (kind === "offbranch") fixture.branch = [fixture.entries[0]];
+    if (kind === "content-hash") selection.contentHash = "0".repeat(64);
+    if (kind === "slice-hash") selection.sourceHash = "0".repeat(64);
+    if (kind === "range") selection.end += 1;
+    if (kind === "incomplete") {
+      fixture.entries[1]!.message.content = "<html>not finished";
+      Object.assign(selection, transcriptSelection(fixture));
+    }
+    if (kind === "non-message") fixture.entries[1]!.type = "custom";
+    if (kind === "tool") fixture.entries[1]!.message.role = "toolResult";
+    if (kind === "duplicate-branch") fixture.branch = [...fixture.entries, fixture.entries[1]];
+    const h = harness(executableExtension(), { transcript: fixture });
+    await adoptTranscript(h, selection);
+    expect(h.transcriptStatus()?.result).toMatchObject({ status: "failed", requestId: selection.requestId });
+    expect(h.selects).toEqual([]);
+    expect(h.guardArmed()).toBe(false);
+    expect(fs.existsSync(fixture.artifactsDir)).toBe(false);
+  });
+
+  it.each(["start", "end"])("rejects a surrogate-split %s boundary even when its lossy UTF-8 hash matches", async (boundary) => {
+    const fixture = transcriptFixture("😀<html><body>ok</body></html>😀");
+    const part = fixture.entries[1]!.message.content as string;
+    const selection = transcriptSelection(fixture, boundary === "start" ? { start: 1, end: part.length - 2 } : { start: 2, end: part.length - 1 });
+    const h = harness(executableExtension(), { transcript: fixture });
+    await adoptTranscript(h, selection);
+    expect(h.transcriptStatus()?.result).toMatchObject({ status: "failed", code: "invalid-source" });
+    expect(fs.existsSync(fixture.artifactsDir)).toBe(false);
+  });
+
+  it.each(["negative-index", "fractional-offset", "empty-range", "title-newline", "title-control", "uppercase-hash", "invalid-version"])("retains an invalid-request receipt for %s", async (kind) => {
+    const fixture = transcriptFixture();
+    const selection = transcriptSelection(fixture);
+    const changed: Record<string, unknown> = { ...selection };
+    if (kind === "negative-index") changed.contentIndex = -1;
+    if (kind === "fractional-offset") changed.start = 0.5;
+    if (kind === "empty-range") changed.end = 0;
+    if (kind === "title-newline") changed.title = "two\nlines";
+    if (kind === "title-control") changed.title = "two\u0085lines";
+    if (kind === "uppercase-hash") changed.contentHash = "A".repeat(64);
+    if (kind === "invalid-version") changed.version = 2;
+    const h = harness(executableExtension(), { transcript: fixture });
+    await adoptTranscript(h, changed);
+    expect(h.transcriptStatus()?.result).toMatchObject({ status: "failed", code: "invalid-request", requestId: selection.requestId });
+    expect(h.selects).toEqual([]);
+    expect(fs.existsSync(fixture.artifactsDir)).toBe(false);
+  });
+
+  it("rejects malformed and over-limit requests without changing Plan or creating directories", async () => {
+    const fixture = transcriptFixture();
+    const h = harness(executableExtension(), { transcript: fixture });
+    await h.transcript("adopt {broken");
+    await h.transcript("adopt " + JSON.stringify({ ...transcriptSelection(fixture), padding: "😀".repeat(4096) }));
+    expect(h.notices).toHaveLength(2);
+    expect(h.guardArmed()).toBe(false);
+    expect(h.selects).toEqual([]);
+    expect(fs.existsSync(fixture.artifactsDir)).toBe(false);
+  });
+
+  it.each(["streaming", "compacting"])("synchronously refuses %s admission without queueing a future gate", async (key) => {
+    const fixture = transcriptFixture();
+    fixture[key as "streaming" | "compacting"] = true;
+    const h = harness(executableExtension(), { transcript: fixture });
+    const selection = transcriptSelection(fixture);
+    const result = adoptTranscript(h, selection);
+    expect(h.transcriptStatus()?.result).toMatchObject({ code: "busy", requestId: selection.requestId });
+    fixture.streaming = fixture.compacting = false;
+    await result;
+    expect(h.selects).toEqual([]);
+    expect(fs.existsSync(fixture.artifactsDir)).toBe(false);
+  });
+
+  it("reserves before queueing and excludes both another adoption and model proposals until settlement", async () => {
+    const fixture = transcriptFixture();
+    const hold = deferred();
+    fixture.instructionHold = hold.promise;
+    const h = harness(executableExtension(), { transcript: fixture, heldSelect: true });
+    const first = transcriptSelection(fixture);
+    const second = transcriptSelection(fixture);
+    const adopting = adoptTranscript(h, first);
+    await adoptTranscript(h, second);
+    expect(h.transcriptStatus()?.result).toMatchObject({ code: "busy", requestId: second.requestId });
+    await vi.waitFor(() => expect(entries(h.sent)).toHaveLength(1));
+    const third = transcriptSelection(fixture);
+    await adoptTranscript(h, third);
+    expect(h.transcriptStatus()?.result).toMatchObject({ code: "busy", requestId: third.requestId });
+    hold.resolve();
+    await vi.waitFor(() => expect(h.selects).toHaveLength(1));
+    await h.run("review local://existing-plan.html Existing");
+    expect(h.selects).toHaveLength(1);
+    const proposal = await h.propose("ignored");
+    expect(proposal.isError).toBe(true);
+    expect(h.selects).toHaveLength(1);
+    h.release?.("dismiss");
+    await adopting;
+    expect(h.transcriptStatus()?.busy).toBe(false);
+    expect(fs.readdirSync(path.join(fixture.artifactsDir, "local"))).toHaveLength(2);
+  });
+
+  it("rejects adoption while an existing represented review is open", async () => {
+    const fixture = transcriptFixture();
+    fs.mkdirSync(path.join(fixture.artifactsDir, "local"), { recursive: true });
+    writePlanFile(fixture.artifactsDir, "existing-plan.html", 1);
+    const h = harness(executableExtension(), { transcript: fixture, heldSelect: true });
+    await h.run("on html");
+    const reviewing = h.run("review local://existing-plan.html Existing");
+    await vi.waitFor(() => expect(h.selects).toHaveLength(1));
+    await adoptTranscript(h, transcriptSelection(fixture));
+    expect(h.transcriptStatus()?.result).toMatchObject({ code: "busy" });
+    expect(fs.readdirSync(path.join(fixture.artifactsDir, "local"))).toEqual(["existing-plan.html"]);
+    h.release?.("dismiss");
+    await reviewing;
+  });
+
+  it.each(["goal", "vibe"])("respects the existing %s mode blocker without creating a file", async (kind) => {
+    const fixture = transcriptFixture();
+    if (kind === "goal") fixture.goal = { goal: { status: "paused" } };
+    const h = harness(executableExtension(), { transcript: fixture, vibeEnabled: kind === "vibe" });
+    await adoptTranscript(h, transcriptSelection(fixture));
+    expect(h.transcriptStatus()?.result).toMatchObject({ status: "failed", code: "unavailable" });
+    expect(h.guardArmed()).toBe(false);
+    expect(h.selects).toEqual([]);
+    expect(fs.existsSync(fixture.artifactsDir)).toBe(false);
+  });
+
+  it.each(["session", "manager", "source", "role", "branch", "artifacts", "streaming", "compacting"])("rechecks %s after asynchronous Plan entry and leaves the guard armed", async (kind) => {
+    const fixture = transcriptFixture();
+    const originalArtifacts = fixture.artifactsDir;
+    const hold = deferred();
+    fixture.instructionHold = hold.promise;
+    const h = harness(executableExtension(), { transcript: fixture });
+    const adopting = adoptTranscript(h, transcriptSelection(fixture));
+    await vi.waitFor(() => expect(entries(h.sent)).toHaveLength(1));
+    if (kind === "session") fixture.sessionId = "replacement-session";
+    if (kind === "manager") h.replaceManager();
+    if (kind === "role") fixture.entries[1]!.message.role = "user";
+    if (kind === "source") fixture.entries[1]!.message.content = "<html>changed</html>";
+    if (kind === "branch") fixture.branch = [fixture.entries[0]];
+    if (kind === "artifacts") fixture.artifactsDir = path.join(fixture.sessionDir, "replacement");
+    if (kind === "streaming") fixture.streaming = true;
+    if (kind === "compacting") fixture.compacting = true;
+    hold.resolve();
+    await adopting;
+    expect(h.transcriptStatus()?.result).toMatchObject({ status: "failed" });
+    expect(h.guardArmed()).toBe(true);
+    expect(h.referencePath()).toBeNull();
+    expect(h.selects).toEqual([]);
+    expect(fs.existsSync(originalArtifacts)).toBe(false);
+    expect(fs.existsSync(fixture.artifactsDir)).toBe(false);
+  });
+
+  it.each(["stem-symlink", "local-symlink", "stem-file", "local-file", "escape", "nested-parent"])("rejects %s confinement violations without touching their targets", async (kind) => {
+    const fixture = transcriptFixture();
+    const outside = tempLineage();
+    const sentinel = path.join(outside, "keep");
+    fs.writeFileSync(sentinel, "untouched");
+    if (kind === "stem-symlink") fs.symlinkSync(outside, fixture.artifactsDir);
+    if (kind === "stem-file") fs.writeFileSync(fixture.artifactsDir, "untouched");
+    if (kind === "local-symlink" || kind === "local-file") {
+      fs.mkdirSync(fixture.artifactsDir);
+      if (kind === "local-symlink") fs.symlinkSync(outside, path.join(fixture.artifactsDir, "local"));
+      else fs.writeFileSync(path.join(fixture.artifactsDir, "local"), "untouched");
+    }
+    if (kind === "escape") fixture.artifactsDir = path.join(outside, "escaped");
+    if (kind === "nested-parent") fixture.artifactsDir = path.join(fixture.sessionDir, "missing", "nested");
+    const h = harness(executableExtension(), { transcript: fixture });
+    await adoptTranscript(h, transcriptSelection(fixture));
+    expect(h.transcriptStatus()?.result).toMatchObject({ status: "failed", code: "unavailable" });
+    expect(h.selects).toEqual([]);
+    expect(fs.readFileSync(sentinel, "utf8")).toBe("untouched");
+    expect(fs.readdirSync(outside)).toEqual(["keep"]);
+    if (kind === "nested-parent") expect(fs.existsSync(path.join(fixture.sessionDir, "missing"))).toBe(false);
+  });
+
+  it.each(["html", "sidecar", "html-symlink", "sidecar-symlink"])("never overwrites a %s collision and removes only its own partial files", async (kind) => {
+    const fixture = transcriptFixture();
+    const selection = transcriptSelection(fixture);
+    const local = path.join(fixture.artifactsDir, "local");
+    fs.mkdirSync(local, { recursive: true });
+    const name = `transcript-${selection.requestId}-plan`;
+    const collision = path.join(local, name + (kind.startsWith("html") ? ".html" : ".source.json"));
+    const outside = path.join(tempLineage(), "target");
+    fs.writeFileSync(outside, "untouched target");
+    if (kind.endsWith("symlink")) fs.symlinkSync(outside, collision);
+    else fs.writeFileSync(collision, "untouched collision");
+    const h = harness(executableExtension(), { transcript: fixture });
+    await adoptTranscript(h, selection);
+    expect(h.transcriptStatus()?.result).toMatchObject({ status: "failed", code: "write-failed" });
+    expect(fs.readdirSync(local)).toEqual([path.basename(collision)]);
+    expect(fs.readFileSync(outside, "utf8")).toBe("untouched target");
+    if (kind.endsWith("symlink")) expect(fs.lstatSync(collision).isSymbolicLink()).toBe(true);
+    else expect(fs.readFileSync(collision, "utf8")).toBe("untouched collision");
+    expect(h.selects).toEqual([]);
+    expect(h.referencePath()).toBeNull();
+    expect(h.guardArmed()).toBe(true);
+  });
+
+  it("cleans both exclusively created files when the sidecar write fails and releases admission", async () => {
+    const fixture = transcriptFixture();
+    let writes = 0;
+    const realWrite: typeof fs.writeSync = fs.writeSync;
+    const faultyWrite = ((...args: Parameters<typeof fs.writeSync>) => {
+      writes += 1;
+      if (writes === 2) throw new Error("disk full");
+      return Reflect.apply(realWrite, fs, args);
+    }) as typeof fs.writeSync;
+    const h = harness(executableExtension({ writeSync: faultyWrite }), { transcript: fixture });
+    await adoptTranscript(h, transcriptSelection(fixture));
+    expect(h.transcriptStatus()).toMatchObject({ busy: false, result: { status: "failed", code: "write-failed" } });
+    expect(fs.readdirSync(path.join(fixture.artifactsDir, "local"))).toEqual([]);
+    expect(h.selects).toEqual([]);
+    h.answer("dismiss");
+    await adoptTranscript(h, transcriptSelection(fixture));
+    expect(h.selects).toHaveLength(1);
+  });
+
+  it.each([0, 1])("enforces the UTF-8 artifact ceiling at limit + %i bytes", async (extra) => {
+    const shell = "<html></html>";
+    const fixture = transcriptFixture("<html>" + "a".repeat(PLAN_ARTIFACT_BYTE_LIMIT - Buffer.byteLength(shell) + extra) + "</html>");
+    const h = harness(executableExtension(), { transcript: fixture });
+    h.answer("dismiss");
+    const selection = transcriptSelection(fixture);
+    await adoptTranscript(h, selection);
+    if (extra === 0) {
+      expect(h.selects).toHaveLength(1);
+      expect(fs.statSync(path.join(fixture.artifactsDir, "local", `transcript-${selection.requestId}-plan.html`)).size).toBe(PLAN_ARTIFACT_BYTE_LIMIT);
+    } else {
+      expect(h.transcriptStatus()?.result).toMatchObject({ code: "over-limit" });
+      expect(fs.existsSync(fixture.artifactsDir)).toBe(false);
+      expect(h.selects).toEqual([]);
+    }
+  });
+
+  it.each(["failed", "unavailable", "malformed"])("retains %s preflight diagnostics and a saved copy without approval or pinning", async (kind) => {
+    const fixture = transcriptFixture();
+    const selection = transcriptSelection(fixture);
+    const planFilePath = `local://transcript-${selection.requestId}-plan.html`;
+    const failure = {
+      status: kind === "unavailable" ? "unavailable" as const : "failed" as const,
+      sourceHash: selection.sourceHash,
+      diagnostics: [{ code: "HTML_PARSE_ERROR" as const, stage: "source" as const, repair: "source" as const,
+        severity: "error" as const, message: "unclosed tag", location: { line: 2, column: 1, startOffset: 16, endOffset: 20 } }],
+    };
+    const h = harness(executableExtension(), { transcript: fixture });
+    h.answer(kind === "malformed" ? PLAN_PREFLIGHT_RESULT_PREFIX + "{broken" : encodePlanPreflightReply(planFilePath, failure));
+    await adoptTranscript(h, selection);
+    const result = h.transcriptStatus()?.result;
+    expect(result).toMatchObject({ status: "failed", code: "preflight", requestId: selection.requestId, planFilePath });
+    if (kind === "malformed") expect(result).toMatchObject({ preflight: { status: "unavailable", diagnostics: [{ repair: "application" }] } });
+    else expect(result).toMatchObject({ preflight: failure });
+    expect(h.referencePath()).toBeNull();
+    expect(h.status()?.approved).toBe(false);
+    expect(h.guardArmed()).toBe(true);
+    expect(fs.existsSync(path.join(fixture.artifactsDir, "local", path.basename(planFilePath)))).toBe(true);
+    expect(h.selects).toHaveLength(1);
+    expect(h.notices.length).toBeGreaterThan(0);
+    await h.transcript("show");
+    expect(h.transcriptStatus()?.result).toEqual(result);
+  });
+
+  it.each(["execute", "refine", "dismiss"])("preserves existing %s verdict effects", async (verdict) => {
+    const fixture = transcriptFixture();
+    const selection = transcriptSelection(fixture);
+    const h = harness(executableExtension(), { transcript: fixture });
+    h.answer(verdict);
+    await adoptTranscript(h, selection);
+    expect(h.transcriptStatus()).toMatchObject({ busy: false, result: { status: "settled" } });
+    expect(h.referencePath()).toBe(verdict === "execute" ? `local://transcript-${selection.requestId}-plan.html` : null);
+    expect(h.guardArmed()).toBe(verdict !== "execute");
+    expect(h.status()?.approved).toBe(verdict === "execute");
+    expect(exits(h.sent)).toHaveLength(verdict === "execute" ? 1 : 0);
+  });
+
+  it.each(["streaming", "source"])("keeps execute settled when follow-up %s activity starts during exit", async (kind) => {
+    const fixture = transcriptFixture();
+    let instructions = 0;
+    fixture.onInstruction = () => {
+      instructions += 1;
+      if (instructions !== 2) return;
+      if (kind === "streaming") fixture.streaming = true;
+      else fixture.entries[1]!.message.content = "<html>Follow-up source</html>";
+    };
+    const selection = transcriptSelection(fixture);
+    const h = harness(executableExtension(), { transcript: fixture });
+    h.answer("execute");
+    await adoptTranscript(h, selection);
+    expect(instructions).toBe(2);
+    expect(h.transcriptStatus()?.result).toMatchObject({ status: "settled", requestId: selection.requestId });
+    expect(h.referencePath()).toBe(`local://transcript-${selection.requestId}-plan.html`);
+    expect(h.status()?.approved).toBe(true);
+    expect(h.guardArmed()).toBe(false);
+  });
+
+  it("checks identity again after the gate and never pins a copied plan onto a replacement session", async () => {
+    const fixture = transcriptFixture();
+    const h = harness(executableExtension(), { transcript: fixture, heldSelect: true });
+    const adopting = adoptTranscript(h, transcriptSelection(fixture));
+    await vi.waitFor(() => expect(h.selects).toHaveLength(1));
+    fixture.sessionId = "replacement-session";
+    h.release?.("execute");
+    await adopting;
+    expect(h.referencePath()).toBeNull();
+    expect(h.status()?.approved).toBe(false);
+    expect(h.transcriptStatus()?.result).toMatchObject({ status: "failed", code: "source-changed" });
+  });
+
+  it("preserves receipts across branch and compaction events but clears them on actual identity change", async () => {
+    const fixture = transcriptFixture();
+    const h = harness(executableExtension(), { transcript: fixture });
+    h.answer("dismiss");
+    await adoptTranscript(h, transcriptSelection(fixture));
+    const result = h.transcriptStatus()?.result;
+    await h.fire("session_branch");
+    expect(h.transcriptStatus()?.result).toEqual(result);
+    await h.fire("session_compact");
+    expect(h.transcriptStatus()?.result).toEqual(result);
+    fixture.sessionId = "new-session";
+    await h.fire("session_switch");
+    expect(h.transcriptStatus()).toMatchObject({ sessionId: "new-session", result: null });
+  });
+
+  it("reports a review that closed without a verdict as failure rather than settlement", async () => {
+    const fixture = transcriptFixture();
+    const h = harness(executableExtension(), { transcript: fixture });
+    h.answer(undefined);
+    await adoptTranscript(h, transcriptSelection(fixture));
+    expect(h.transcriptStatus()).toMatchObject({ busy: false, result: { status: "failed", code: "unavailable" } });
+    expect(h.referencePath()).toBeNull();
+    expect(h.status()?.approved).toBe(false);
+    expect(h.guardArmed()).toBe(true);
+  });
+
+  it("completes short synchronous writes without changing the captured bytes", async () => {
+    const fixture = transcriptFixture();
+    const shortWrite = ((fd: number, buffer: Uint8Array, offset: number, length: number) =>
+      fs.writeSync(fd, buffer, offset, Math.min(length, 7))) as typeof fs.writeSync;
+    const h = harness(executableExtension({ writeSync: shortWrite }), { transcript: fixture });
+    const selection = transcriptSelection(fixture);
+    h.answer("dismiss");
+    await adoptTranscript(h, selection);
+    expect(h.transcriptStatus()?.result?.status).toBe("settled");
+    expect(fs.readFileSync(path.join(fixture.artifactsDir, "local", `transcript-${selection.requestId}-plan.html`), "utf8"))
+      .toBe(fixture.entries[1]!.message.content);
+  });
+
+  it("canonicalizes a symlinked session directory while keeping artifacts within its real parent", async () => {
+    const fixture = transcriptFixture();
+    const canonical = fixture.sessionDir;
+    const alias = path.join(tempLineage(), "session-link");
+    fs.symlinkSync(canonical, alias);
+    fixture.sessionDir = alias;
+    fixture.artifactsDir = path.join(alias, "artifacts");
+    const h = harness(executableExtension(), { transcript: fixture });
+    const selection = transcriptSelection(fixture);
+    h.answer("dismiss");
+    await adoptTranscript(h, selection);
+    expect(h.transcriptStatus()?.result?.status).toBe("settled");
+    expect(fs.existsSync(path.join(canonical, "artifacts", "local", `transcript-${selection.requestId}-plan.html`))).toBe(true);
+  });
+
+  it("checks the byte limit rather than the UTF-16 length for multibyte source", async () => {
+    const fixture = transcriptFixture("<html>" + "😀".repeat(PLAN_ARTIFACT_BYTE_LIMIT / 4) + "</html>");
+    const h = harness(executableExtension(), { transcript: fixture });
+    await adoptTranscript(h, transcriptSelection(fixture));
+    expect(h.transcriptStatus()?.result).toMatchObject({ status: "failed", code: "over-limit" });
+    expect(fs.existsSync(fixture.artifactsDir)).toBe(false);
     expect(h.selects).toEqual([]);
   });
 });

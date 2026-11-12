@@ -1,3 +1,5 @@
+import { HTML_PLAN_DOCUMENT_OPEN } from "@omp-ui/core/plan";
+
 /**
  * The plan body as prompt text. A fresh implementation session cannot reach the
  * planning session's `local://` artifacts, so the plan is embedded inline
@@ -10,7 +12,7 @@
  */
 export function planSeedText(planText: string | null): string | null {
   if (planText === null) return null;
-  if (!/^\s*(?:<!doctype|<html)/i.test(planText)) return planText;
+  if (!HTML_PLAN_DOCUMENT_OPEN.test(planText)) return planText;
   const stripped = planText
     .replace(/<style\b[^>]*>[\s\S]*?<\/style>/gi, "")
     .replace(/<script\b[^>]*>[\s\S]*?<\/script>/gi, "")
@@ -26,15 +28,5 @@ export function planSeedText(planText: string | null): string | null {
 
 /** The fence info string planSeedText's body deserves: html docs keep their tags. */
 export function planSeedInfo(planText: string): "markdown" | "html" {
-  return /^\s*(?:<!doctype|<html)/i.test(planText) ? "html" : "markdown";
-}
-
-/**
- * True when `text` is, in its entirety, one HTML plan document: planSeedInfo's
- * doctype/html opener at the start and `</html>` closing the end. The native
- * transcript renders such text as the plan document instead of as prose or
- * code; a fragment, or a document with prose after it, stays text.
- */
-export function isHtmlPlanDocument(text: string): boolean {
-  return planSeedInfo(text) === "html" && /<\/html>\s*$/i.test(text);
+  return HTML_PLAN_DOCUMENT_OPEN.test(planText) ? "html" : "markdown";
 }

@@ -4,7 +4,7 @@ This guide explains what users receive from a release and how maintainers publis
 
 ## Unreleased
 
-Nothing since [v0.35.0](https://github.com/LankfordAI/omp-ui/releases/tag/v0.35.0). Add one bullet per shipped change here, citing its issue as `#N`; the release tag lifts these into Highlights.
+- Review an exact HTML plan already in a user or assistant transcript entry without asking a model to rewrite it. Plans now offers source selection, owner-side import, normal validated review, and retained failure diagnostics (#1158).
 
 ## Choose a download
 

@@ -11,7 +11,7 @@ import { svgImageSrc } from "../lib/svg-block";
 import { useTheme } from "../lib/themes";
 import { bareUrlAt, isSafeHref, parseMarkdownCached, type MdBlock, type MdList, type MdSpan, type MdTableTail } from "../lib/markdown";
 import { useT } from "../lib/i18n";
-import { isHtmlPlanDocument } from "../lib/plan-seed";
+import { isHtmlPlanDocument } from "@omp-ui/core/plan";
 import { PlanDocument } from "./PlanDocumentView";
 import { CopyButton } from "./ui";
 

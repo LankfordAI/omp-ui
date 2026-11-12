@@ -12,11 +12,16 @@ import {
   PLAN_EXECUTE,
   PLAN_REFINE,
   planReviewMessage,
+  PLAN_TRANSCRIPT_COMMAND,
+  PLAN_TRANSCRIPT_STATUS_KEY,
+  parseTranscriptPlanSelection,
+  parseTranscriptPlanStatus,
+  type TranscriptPlanSelection,
 } from "@omp-ui/core/plan";
 import { goalOwnsSession as coreGoalOwnsSession } from "@omp-ui/core/goal";
 import { councilPlanReviewPrompt } from "@omp-ui/core/council";
 import { backend } from "../../backend";
-import { strField } from "../../lib/fields";
+import { arrField, field, strField } from "../../lib/fields";
 import { t } from "../../lib/i18n";
 import { AdvisorReplyWatcher } from "../../lib/advisor-reply";
 import {
@@ -33,16 +38,20 @@ import {
   StallContinueWatcher,
 } from "../../lib/stall-continue";
 import { noticeItem, type AdvisorNote } from "../../lib/transcript";
-import { findRecord } from "./view";
-import { peekTabRuntime, type GetState, type SetState, type StoreMachinery, type Watchers } from "./shared";
+import { findInstance, findOwner, findRecord } from "./view";
+import { transcriptPlanCandidates, type TranscriptPlanCandidate } from "../../lib/transcript-plan-source";
+import { peekTabRuntime, respData, type GetState, type SetState, type StoreMachinery, type Watchers } from "./shared";
 import {
   bumpLiveVoiceGeneration,
   cancelLiveSwitch,
   clearLiveTimers,
   planReviewGateKey,
 } from "./live-switch";
-import type { PlanReadiness, PlanRevisionNotes, RpcTabState } from "../types";
+import type { PlanReadiness, PlanRevisionNotes, RpcTabState, UiStore } from "../types";
 export interface PlanExecutionSlice {
+  refreshTranscriptPlanStatus(tabId: string): Promise<void>;
+  loadTranscriptPlanSources(tabId: string): Promise<{ sessionId: string; candidates: TranscriptPlanCandidate[] } | null>;
+  adoptTranscriptPlan(tabId: string, selection: TranscriptPlanSelection): Promise<void>;
   acceptPlanReview(
     tabId: string,
     review: NonNullable<RpcTabState["planReview"]>,
@@ -79,6 +88,7 @@ export interface PlanExecutionSlice {
 
 export interface PlanRuntime extends Watchers {
   reconcilePlanGates(state: BackendState): void;
+  invalidateTranscriptPlanSources(tabId: string): void;
 }
 
 export interface PlanExecutionDeps {
@@ -103,12 +113,147 @@ const COMPACTION_HELD_NOTICE =
 
 
 
+/** The published receipt belongs to the actual live session, never a prior incarnation. */
+export function transcriptPlanStatus(state: UiStore, tabId: string) {
+  const tab = state.rpc[tabId];
+  const status = parseTranscriptPlanStatus(tab?.extensionStatus[PLAN_TRANSCRIPT_STATUS_KEY]);
+  return status !== null && status.sessionId === tab?.session.sessionId &&
+    status.sessionId === findRecord(state.state, tabId)?.sessionId ? status : null;
+}
+
+/** A saved receipt alone cannot open or dismiss a review on this client. */
+export function transcriptPlanReviewMatches(state: UiStore, tabId: string, requestId: string): boolean {
+  const result = transcriptPlanStatus(state, tabId)?.result;
+  return result != null && result.requestId === requestId && result.status !== "failed" &&
+    state.rpc[tabId]?.planReview?.request.planFilePath === result.planFilePath;
+}
+
+/** Shared admission text for the picker and its always-visible Plans action. */
+export function transcriptPlanUnavailable(state: UiStore, tabId: string): string | null {
+  const owner = findOwner(state.state, tabId);
+  const tab = state.rpc[tabId];
+  if (!owner || owner.record.chat || owner.record.mode !== "rpc-ui" || owner.record.live !== "live" ||
+    (owner.instanceId !== null && findInstance(state.state, owner.instanceId)?.status !== "joined") ||
+    !tab || state.exited[tabId] !== undefined || !tab.session.sessionId ||
+    owner.record.sessionId !== tab.session.sessionId) return t("plan.transcript.liveRequired");
+  if (!tab.commands.some((command) => command.name === PLAN_TRANSCRIPT_COMMAND))
+    return t("plan.transcript.updateRequired");
+  const status = transcriptPlanStatus(state, tabId);
+  if (tab.status !== "ready" || tab.commandAdmissionBlocked || tab.session.isStreaming ||
+    tab.session.isCompacting || tab.compacting !== undefined || tab.busy || tab.planReview !== null ||
+    tab.extensionQueue.length > 0 || tab.approvalPrompt !== null || tab.experimentProposal !== null ||
+    owner.record.awaitingHumanAnswer === true || status?.busy) return t("plan.transcript.busy");
+  if (!status?.available) return status?.reason || t("plan.transcript.hostUnavailable");
+  return null;
+}
+
+// Runtime-keyed fences die with their process, including unmounted picker reads.
+const transcriptReads = new WeakMap<object, { load: number; refresh: number; pending: string | null }>();
+
+/** Also fences a hash already in flight when the owner disconnects and rejoins. */
+export function transcriptPlanSourceGeneration(tabId: string): number {
+  const runtime = peekTabRuntime(tabId);
+  return runtime === undefined ? 0 : transcriptReads.get(runtime)?.load ?? 0;
+}
+
 export function createPlanExecutionSlice(
   set: SetState,
   get: GetState,
   m: StoreMachinery,
   deps: PlanExecutionDeps,
 ): PlanExecutionSlice & PlanRuntime {
+  const transcriptRuntime = (runtime: object) => {
+    let reads = transcriptReads.get(runtime);
+    if (!reads) {
+      reads = { load: 0, refresh: 0, pending: null };
+      transcriptReads.set(runtime, reads);
+    }
+    return reads;
+  };
+  const invalidateTranscriptPlanSources = (tabId: string): void => {
+    const runtime = peekTabRuntime(tabId);
+    if (runtime) ++transcriptRuntime(runtime).load;
+  };
+  const transcriptIdentity = (tabId: string) => {
+    const state = get();
+    const owner = findOwner(state.state, tabId);
+    const tab = state.rpc[tabId];
+    if (!owner || !tab || owner.record.chat || owner.record.mode !== "rpc-ui") return null;
+    const runtime = m.runtime(tabId);
+    const sessionId = tab.session.sessionId;
+    const { instanceId } = owner;
+    const { launchedAt, lineageDir } = owner.record;
+    return {
+      runtime,
+      sessionId,
+      current: () => {
+        const state = get();
+        const now = findOwner(state.state, tabId);
+        return peekTabRuntime(tabId) === runtime && state.rpc[tabId] !== undefined &&
+          state.exited[tabId] === undefined && now !== undefined && now.instanceId === instanceId &&
+          now.record.live === "live" && now.record.launchedAt === launchedAt &&
+          now.record.lineageDir === lineageDir && now.record.sessionId === sessionId &&
+          state.rpc[tabId]?.session.sessionId === sessionId &&
+          (instanceId === null || findInstance(state.state, instanceId)?.status === "joined");
+      },
+    };
+  };
+
+  const refreshTranscriptPlanStatus = async (tabId: string): Promise<void> => {
+    const identity = transcriptIdentity(tabId);
+    const tab = get().rpc[tabId];
+    if (!identity?.current() || !tab || tab.status !== "ready" || !m.acceptsCommands(tabId) ||
+      !tab.commands.some((command) => command.name === PLAN_TRANSCRIPT_COMMAND)) return;
+    const reads = transcriptRuntime(identity.runtime);
+    const sequence = ++reads.refresh;
+    await m.runBridgeCommand(tabId, PLAN_TRANSCRIPT_COMMAND, "show", { quiet: true });
+    if (!identity.current() || reads.refresh !== sequence) return;
+  };
+
+  const loadTranscriptPlanSources = async (tabId: string) => {
+    const reason = transcriptPlanUnavailable(get(), tabId);
+    if (reason !== null || !m.acceptsCommands(tabId)) throw new Error(reason ?? t("plan.transcript.busy"));
+    const identity = transcriptIdentity(tabId);
+    if (!identity?.current() || !identity.sessionId) return null;
+    const reads = transcriptRuntime(identity.runtime);
+    const sequence = ++reads.load;
+    const current = () => identity.current() && reads.load === sequence;
+    let response: unknown;
+    try {
+      response = await get().rpcCommand(tabId, { type: "get_entries" }, { quiet: true });
+    } catch {
+      if (!current()) return null;
+      throw new Error(t("plan.transcript.entriesUnavailable"));
+    }
+    if (!current()) return null;
+    const unavailable = transcriptPlanUnavailable(get(), tabId);
+    if (unavailable !== null) throw new Error(unavailable);
+    const data = respData(response);
+    if (!Array.isArray(field(data, "entries"))) throw new Error(t("plan.transcript.entriesUnavailable"));
+    const candidates = transcriptPlanCandidates(arrField(data, "entries"), field(data, "leafId"));
+    if (candidates === null) throw new Error(t("plan.transcript.entriesInvalid"));
+    return { sessionId: identity.sessionId, candidates };
+  };
+
+  const adoptTranscriptPlan = async (tabId: string, selection: TranscriptPlanSelection): Promise<void> => {
+    const reason = transcriptPlanUnavailable(get(), tabId);
+    if (reason !== null || !m.acceptsCommands(tabId)) throw new Error(reason ?? t("plan.transcript.busy"));
+    const identity = transcriptIdentity(tabId);
+    if (!identity?.current() || selection.sessionId !== identity.sessionId ||
+      parseTranscriptPlanSelection(selection) === null) throw new Error(t("plan.transcript.sourceChanged"));
+    const reads = transcriptRuntime(identity.runtime);
+    const result = transcriptPlanStatus(get(), tabId)?.result;
+    if (reads.pending !== null && result?.requestId === reads.pending && result.status !== "captured")
+      reads.pending = null;
+    if (reads.pending !== null) throw new Error(t("plan.transcript.busy"));
+    reads.pending = selection.requestId;
+    // The extension's command acknowledgement is blocked by the real review gate.
+    // Receipts, not that acknowledgement, own completion. Never retry automatically.
+    void m.runBridgeCommand(tabId, PLAN_TRANSCRIPT_COMMAND, `adopt ${JSON.stringify(selection)}`, { quiet: false })
+      .then(() => { if (identity.current() && reads.pending === selection.requestId) reads.pending = null; })
+      .catch(() => { if (identity.current() && reads.pending === selection.requestId) reads.pending = null; });
+  };
+
   const cancelReviewSwitch = (tabId: string): void => {
     bumpLiveVoiceGeneration(tabId);
     cancelLiveSwitch(tabId);
@@ -816,6 +961,10 @@ export function createPlanExecutionSlice(
   };
 
   return {
+    refreshTranscriptPlanStatus,
+    loadTranscriptPlanSources,
+    adoptTranscriptPlan,
+    invalidateTranscriptPlanSources,
     acceptPlanReview,
     clearPlanReview,
     reconcilePlanGates,
