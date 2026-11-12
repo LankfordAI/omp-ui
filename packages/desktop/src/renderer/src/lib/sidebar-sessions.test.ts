@@ -1,10 +1,12 @@
 import type {
   PlanImplementationSource,
   ProjectGroup,
+  ProjectIcon,
   SessionSummary,
 } from "@omp-ui/core/types";
 import { describe, expect, it } from "vitest";
 import { backendState, remoteInstance } from "../test/fixtures";
+import { projectIdentitySeed } from "./repository-members";
 import { buildSidebarLists, type SidebarEntry } from "./sidebar-sessions";
 
 function session(tabId: string, patch: Partial<SessionSummary> = {}): SessionSummary {
@@ -53,7 +55,12 @@ function session(tabId: string, patch: Partial<SessionSummary> = {}): SessionSum
   };
 }
 
-function group(path: string, name: string, sessions: SessionSummary[]): ProjectGroup {
+function group(
+  path: string,
+  name: string,
+  sessions: SessionSummary[],
+  identity: { repositoryKey?: string | null; icon?: ProjectIcon | null } = {},
+): ProjectGroup {
   return {
     project: {
       path,
@@ -68,8 +75,8 @@ function group(path: string, name: string, sessions: SessionSummary[]): ProjectG
       browserClock: false,
       councilRoster: null,
       knowledgeHome: null,
-      repositoryKey: null,
-      icon: null,
+      repositoryKey: identity.repositoryKey ?? null,
+      icon: identity.icon ?? null,
     },
     sessions,
   };
@@ -153,11 +160,11 @@ describe("buildSidebarLists", () => {
     const { active } = buildSidebarLists(state, "");
 
     expect(
-      active.map(({ session: s, instanceId, nickname, projectName, reachable }) => ({
+      active.map(({ session: s, instanceId, nickname, project, reachable }) => ({
         id: s.tabId,
         instanceId,
         nickname,
-        projectName,
+        projectName: project?.name ?? null,
         reachable,
       })),
     ).toEqual([
@@ -165,6 +172,37 @@ describe("buildSidebarLists", () => {
       { id: "c", instanceId: null, nickname: null, projectName: null, reachable: true },
       { id: "r", instanceId: "inst-1", nickname: "box-a", projectName: "remote", reachable: true },
     ]);
+  });
+
+  it("faces share the quick-open identity", () => {
+    const state = backendState({
+      projects: [
+        group("/a", "alpha", [session("local")], {
+          repositoryKey: "acme/alpha",
+          icon: { source: "custom", dataUrl: "data:x" },
+        }),
+        group("/k", "keyless", [session("keyless", { projectCwd: "/k" })]),
+      ],
+      remoteInstances: [
+        remoteInstance({
+          id: "inst-1",
+          projects: [group("/r/alpha", "alpha", [session("remote")], { repositoryKey: "acme/alpha" })],
+        }),
+      ],
+    });
+
+    const { active } = buildSidebarLists(state, "");
+    const face = (id: string) => active.find((e) => e.session.tabId === id)?.project;
+
+    // One repository, one hue and one icon across machines: the remote
+    // checkout without an icon borrows its local twin's.
+    expect(face("local")).toEqual({ name: "alpha", seed: "repo:acme/alpha", icon: "data:x" });
+    expect(face("remote")).toEqual({ name: "alpha", seed: "repo:acme/alpha", icon: "data:x" });
+    expect(face("keyless")).toEqual({
+      name: "keyless",
+      seed: projectIdentitySeed({ repositoryKey: null, instanceId: null, projectCwd: "/k" }),
+      icon: null,
+    });
   });
 
   it("filters on title, plan title, project name, and nickname", () => {

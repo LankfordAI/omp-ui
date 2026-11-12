@@ -19,6 +19,8 @@ import {
   shouldRestoreDesktopView,
   type DesktopViewStateV1,
 } from "../../lib/desktop-view-state";
+import { projectFaces, type ProjectFace } from "../../lib/repository-members";
+import { projectKey } from "../../lib/project-key";
 import { IS_ELECTRON } from "../../lib/platform";
 import { androidViewStorage, isAndroidShell } from "../../lib/android-shell";
 import {
@@ -677,6 +679,14 @@ export function findOwner(
   tabId: string,
 ): SessionOwner | undefined {
   return state === null ? undefined : ownerIndex(state).get(tabId);
+}
+
+/** The tab's project face; null for a chat or an unknown tab. Stable per BackendState. */
+export function sessionProjectFace(state: BackendState | null, tabId: string): ProjectFace | null {
+  if (state === null) return null;
+  const owner = findOwner(state, tabId);
+  if (owner === undefined || owner.record.chat) return null;
+  return projectFaces(state).get(projectKey(owner.instanceId, owner.record.projectCwd)) ?? null;
 }
 
 export function findInstance(

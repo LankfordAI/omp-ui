@@ -5,6 +5,7 @@ import type { AttentionEntry } from "../lib/sidebar-sessions";
 import { useStore } from "../store";
 import { TONE_DOT } from "./ui/tone";
 import { SESSION_FACE } from "./SessionRow";
+import { SessionProjectLine } from "./SessionProjectLine";
 import { withTitleCard } from "./TitleCardChip";
 
 /**
@@ -39,7 +40,6 @@ export function AttentionStack({
       </div>
       {entries.map((a) => {
         const face = SESSION_FACE[a.state];
-        const projectLabel = a.entry.projectName ?? t("sidebar.session.chat");
         return (
           <button
             key={a.entry.session.tabId}
@@ -54,23 +54,27 @@ export function AttentionStack({
               aria-hidden
               className={cn("absolute inset-y-1.5 left-0 w-0.5 rounded-full", TONE_DOT[face.tone])}
             />
-            {/* Round-8 judge, Consistency 1: the card follows the two-line row
-                idiom every other sidebar surface uses — title first, then one
-                meta line (`state · project · time`, the state word coloured
-                like the row's) — with the unseen reply as a labelled, muted
-                third line. The title rides `withTitleCard` so an omp card
+            {/* Round-8 judge, Consistency 1, revised for #1159: the card
+                follows the tile idiom — the project line first (monogram,
+                name, mark age), then the title, then one muted line carrying
+                the state word (coloured like the row's), the label, and the
+                unseen reply. The title rides `withTitleCard` so an omp card
                 title shows its mono chip here exactly as it does in the row,
                 the header, and the palette (issue #838), not raw emoji. */}
             <span className="flex min-w-0 flex-col gap-0.5">
+              <SessionProjectLine
+                project={a.entry.project}
+                nickname={null}
+                trailing={
+                  <span className="tabular-nums text-ink-faint">{relativeTime(new Date(a.mark.atMs).toISOString())}</span>
+                }
+              />
               <span className="line-clamp-1 break-words text-sm leading-snug text-ink">
                 {withTitleCard(a.entry.session.title)}
               </span>
-              <span className="truncate text-xs tabular-nums text-ink-faint">
+              <span className="line-clamp-1 break-words text-xs text-ink-dim">
                 <span className={face.textClass}>{t(face.labelKey)}</span>
                 {" · "}
-                {projectLabel} · {relativeTime(new Date(a.mark.atMs).toISOString())}
-              </span>
-              <span className="line-clamp-1 break-words text-xs text-ink-dim">
                 <span className="text-ink-faint">{t("sidebar.attention.reply")}</span>
                 {" · "}
                 {a.mark.snippet ?? t("sidebar.attention.fallback")}

@@ -13,6 +13,8 @@ import { SESSION_DRAG_EFFECT, SESSION_DRAG_MIME } from "../lib/session-drag";
 import { Button, Chip, IconButton, IconClock, IconLock, IconPin, IconSpeaker, type Tone } from "./ui";
 import { TONE_DOT } from "./ui/tone";
 import type { SessionHandoff } from "../lib/session-handoffs";
+import type { ProjectFace } from "../lib/repository-members";
+import { SessionProjectLine } from "./SessionProjectLine";
 import { openPullRequest, pullRequestFace, PullRequestChip } from "./PullRequestChip";
 import { liveDisplayPhase, type LiveDisplayPhase } from "@omp-ui/core/live-voice";
 
@@ -220,7 +222,7 @@ export function SessionRow({
   s,
   onActivate,
   handoff,
-  projectLabel,
+  project,
   instanceNickname = null,
   onContextMenu,
   density = "tile",
@@ -232,10 +234,11 @@ export function SessionRow({
   /** Plan-handoff view of this row (issue #238): its resolved source, an
    *  orphan marker, and whether it dispatched at least one implementation. */
   handoff?: SessionHandoff;
-  /** The row's project name, or the chat label; shown after the state label. */
-  projectLabel?: string;
+  /** The row's project face; null for a chat. Tiles lead with it on the
+   *  project line; slim rows name it in the meta line. */
+  project: ProjectFace | null;
   /** Non-null on rows whose session lives on a joined remote instance; the
-   *  meta line then names that machine (#903). */
+   *  project line (tile) or meta line (slim) then names that machine (#903). */
   instanceNickname?: string | null;
   /** Right-click (or keyboard menu) on the row; Sidebar owns the portal. */
   onContextMenu?: (event: ReactMouseEvent<HTMLElement>) => void;
@@ -417,9 +420,10 @@ export function SessionRow({
       ? { label: t(EXIT_WORD[s.status] ?? "sidebar.exit.unknown"), title: t("sidebar.exit.title") }
       : null;
 
-  // The one meta line (round-2 judge): tiles used to split project and model
-  // across two lines; both densities now read a single 12px prose line. The
-  // machine stays an inline span: a `<Chip>` would break the ellipsis.
+  // The one meta line (round-2 judge): both densities read a single 12px
+  // prose line. Tiles carry project and machine on their own project line
+  // above the title; slim rows keep them here. The machine stays an inline
+  // span: a `<Chip>` would break the ellipsis.
   const meta: ReactNode[] = [];
   if (slim) {
     // A settled row reads time + outcome, never "no process" (round-2
@@ -436,15 +440,17 @@ export function SessionRow({
     if (sidebarState !== "dormant") meta.push(<span className={face.textClass}>{t(face.labelKey)}</span>);
     if (exitWord !== null) meta.push(<span title={exitWord.title}>{exitWord.label}</span>);
   }
-  if (projectLabel) meta.push(projectLabel);
+  if (slim) {
+    meta.push(project?.name ?? t("sidebar.session.chat"));
+  }
   if (s.worktree) meta.push(<span title={s.worktree.path}>⎇ {s.worktree.branch}</span>);
-  if (instanceNickname) {
+  if (slim && instanceNickname) {
     meta.push(
       <span title={t("sidebar.session.machine", { machine: instanceNickname })}>{instanceNickname}</span>,
     );
   }
-  // The model rides the same line as its project, proportional like every
-  // display name (contract): mono stays for identifiers only.
+  // The model rides the meta line, proportional like every display name
+  // (contract): mono stays for identifiers only.
   if (!slim && model !== null) {
     meta.push(<span title={s.model ?? undefined}>{model}</span>);
   }
@@ -533,7 +539,20 @@ export function SessionRow({
           missing && !strandedSettle && "cursor-default",
         )}
       >
-        <span className="flex min-w-0 items-start gap-2">
+        {!slim && (
+          <SessionProjectLine
+            project={project}
+            nickname={instanceNickname || null}
+            trailing={
+              when === "" ? undefined : (
+                <span title={absoluteTime(s.cachedModified)} className="tabular-nums text-ink-faint">
+                  {when}
+                </span>
+              )
+            }
+          />
+        )}
+        <span className={cn("flex min-w-0 items-start gap-2", !slim && "mt-0.5")}>
           <span
             data-session-tile-title
             // Truncation hides the tail; the tooltip carries the full title.
@@ -558,19 +577,13 @@ export function SessionRow({
           {clockMark}
           {lockMark}
           {voiceMark}
-          {!slim && when && (
-            <span
-              title={absoluteTime(s.cachedModified)}
-              className="shrink-0 pt-0.5 text-xs tabular-nums text-ink-faint"
-            >
-              {when}
-            </span>
-          )}
         </span>
 
-        {/* The one meta line (round-2 judge): state · exit · project · model,
-            12px prose. Handoff chips keep their own strip only when one is
-            actually present; the hover-edge marks ride the title line. */}
+        {/* The one meta line (round-2 judge): state · exit · branch · model,
+            12px prose. On tiles the project and machine moved to the project
+            line above the title; slim rows keep them here. Handoff chips keep
+            their own strip only when one is actually present; the hover-edge
+            marks ride the title line. */}
         {meta.length > 0 && (
           <span className="mt-0.5 block truncate text-xs text-ink-faint">
             {meta.map((node, i) => (

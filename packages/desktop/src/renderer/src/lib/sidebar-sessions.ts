@@ -1,5 +1,6 @@
 import type { BackendState, SessionSummary } from "@omp-ui/core/types";
 import type { UnreadMark } from "../store/slices/unread";
+import { projectFaceFor, type ProjectFace } from "./repository-members";
 import { NO_HANDOFF, resolveSessionHandoffs, type SessionHandoff } from "./session-handoffs";
 
 export interface SidebarEntry {
@@ -8,8 +9,8 @@ export interface SidebarEntry {
   instanceId: string | null;
   /** Owning instance's nickname; null = this app. */
   nickname: string | null;
-  /** Registered project name; null for a chat. */
-  projectName: string | null;
+  /** The project's face; null for a chat. */
+  project: ProjectFace | null;
   /** False while the owning instance's status is not "joined": the row dims and opens no menu. */
   reachable: boolean;
   handoff: SessionHandoff;
@@ -44,7 +45,7 @@ function matches(entry: SidebarEntry, q: string): boolean {
   return (
     entry.session.title.toLowerCase().includes(q) ||
     (typeof planTitle === "string" && planTitle.toLowerCase().includes(q)) ||
-    (entry.projectName?.toLowerCase().includes(q) ?? false) ||
+    (entry.project?.name.toLowerCase().includes(q) ?? false) ||
     (entry.nickname?.toLowerCase().includes(q) ?? false)
   );
 }
@@ -105,7 +106,7 @@ export function buildSidebarLists(
         session,
         instanceId: null,
         nickname: null,
-        projectName: group.project.name,
+        project: projectFaceFor(state, null, group.project),
         reachable: true,
         handoff: localHandoffs.get(session.tabId) ?? NO_HANDOFF,
       });
@@ -116,7 +117,7 @@ export function buildSidebarLists(
       session,
       instanceId: null,
       nickname: null,
-      projectName: null,
+      project: null,
       reachable: true,
       handoff: localHandoffs.get(session.tabId) ?? NO_HANDOFF,
     });
@@ -132,7 +133,7 @@ export function buildSidebarLists(
           session,
           instanceId: instance.id,
           nickname: instance.nickname,
-          projectName: group.project.name,
+          project: projectFaceFor(state, instance.id, group.project),
           reachable,
           handoff: handoffs.get(session.tabId) ?? NO_HANDOFF,
         });
@@ -232,7 +233,7 @@ export function buildAttentionEntries(
   derive: (s: SessionSummary) => string,
 ): AttentionEntry[] {
   const out: AttentionEntry[] = [];
-  const visit = (session: SessionSummary, projectName: string | null): void => {
+  const visit = (session: SessionSummary, project: ProjectFace | null): void => {
     const mark = unread[session.tabId];
     if (mark === undefined) return;
     // `derive` answers with the wide state union; a plain inequality guard
@@ -245,7 +246,7 @@ export function buildAttentionEntries(
         session,
         instanceId: null,
         nickname: null,
-        projectName,
+        project,
         reachable: true,
         handoff: NO_HANDOFF,
       },
@@ -254,7 +255,7 @@ export function buildAttentionEntries(
     });
   };
   for (const group of state.projects) {
-    for (const session of group.sessions) visit(session, group.project.name);
+    for (const session of group.sessions) visit(session, projectFaceFor(state, null, group.project));
   }
   for (const session of state.chats) visit(session, null);
   out.sort((a, b) => b.mark.atMs - a.mark.atMs);

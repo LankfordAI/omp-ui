@@ -6,6 +6,7 @@ import { afterEach, beforeEach, describe, expect, it, vi } from "vitest";
 import { act } from "react";
 import { createRoot, type Root } from "react-dom/client";
 import type { OmpUpdateState, SessionSummary } from "@omp-ui/core/types";
+import type { ProjectFace } from "../lib/repository-members";
 import type { TabInfo, UiStore } from "../store";
 import { t } from "../lib/i18n";
 
@@ -27,6 +28,7 @@ import { TONE_DOT } from "./ui/tone";
 (globalThis as Record<string, unknown>).IS_REACT_ACT_ENVIRONMENT = true;
 
 const TAB = "tab-row";
+const FACE: ProjectFace = { name: "Alpha", seed: "repo:x/alpha", icon: null };
 
 const idleOmpUpdate: OmpUpdateState = {
   status: "idle",
@@ -94,6 +96,7 @@ function render(
   instanceNickname?: string | null,
   storePatch?: Partial<Pick<UiStore, "tabs" | "exited" | "activeTabId" | "rpc">>,
   density?: "tile" | "slim",
+  project: ProjectFace | null = FACE,
 ): HTMLElement {
   Object.defineProperty(window, "matchMedia", {
     configurable: true,
@@ -111,7 +114,7 @@ function render(
   const host = document.createElement("div");
   document.body.append(host);
   root = createRoot(host);
-  act(() => root!.render(<SessionRow s={s} instanceNickname={instanceNickname} density={density} />));
+  act(() => root!.render(<SessionRow s={s} project={project} instanceNickname={instanceNickname} density={density} />));
   return host;
 }
 
@@ -186,6 +189,36 @@ describe("unified-view machine chip (#903)", () => {
       root = null;
       document.body.replaceChildren();
     }
+  });
+});
+
+// Issue #1159: tiles lead with the project line (monogram, name, machine,
+// age); slim Settled rows keep the project in their meta line.
+describe("project line (#1159)", () => {
+  it("puts the project line before the title on a tile and drops the project from the meta line", () => {
+    const el = render(summary({ live: "live" }), null, null, { rpc: { [TAB]: rpcTabState({ status: "ready" }) } }, "tile");
+    const line = el.querySelector("[data-session-project]")!;
+    expect(line).not.toBeNull();
+    expect(line.textContent).toContain("Alpha");
+    const title = el.querySelector("[data-session-tile-title]")!;
+    expect(line.compareDocumentPosition(title) & Node.DOCUMENT_POSITION_FOLLOWING).toBeTruthy();
+    // The meta line is the title line's next sibling.
+    const meta = title.parentElement!.nextElementSibling!;
+    expect(meta.textContent).toContain(t("sidebar.status.readyLabel"));
+    expect(meta.textContent).not.toContain("Alpha");
+  });
+
+  it("shows the chat mark and the chat word for a chat", () => {
+    const el = render(summary({ live: "live", chat: true }), null, null, undefined, "tile", null);
+    const line = el.querySelector("[data-session-project]")!;
+    expect(line.querySelector("[data-chat-mark]")).not.toBeNull();
+    expect(line.textContent).toContain(t("sidebar.session.chat"));
+  });
+
+  it("keeps the slim row's project in its meta line, with no project line", () => {
+    const el = render(summary(), null, null, undefined, "slim");
+    expect(el.querySelector("[data-session-project]")).toBeNull();
+    expect(el.textContent).toContain("Alpha");
   });
 });
 

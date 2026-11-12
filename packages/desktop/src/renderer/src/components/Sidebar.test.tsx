@@ -1481,6 +1481,8 @@ describe("Sidebar attention stack (issue #1037)", () => {
     expect(list[0]!.textContent).toContain("Second owned session");
     expect(list[0]!.textContent).toContain(t("sidebar.status.answerLabel"));
     expect(list[0]!.textContent).toContain("Which DB?");
+    // The card leads with its project line (#1159).
+    expect(list[0]!.querySelector("[data-session-project]")?.textContent).toContain(state.projects[0]!.project.name);
     expect(list[1]!.textContent).toContain("Owned session");
     // A null snippet (e.g. after a restart) falls back to the stock line.
     expect(list[1]!.textContent).toContain(t("sidebar.attention.fallback"));

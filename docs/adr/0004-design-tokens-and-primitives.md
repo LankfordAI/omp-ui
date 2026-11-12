@@ -23,8 +23,10 @@ working?" without reading a word. That property only holds while the reservation
 holds, which is why `signal` is called out above.
 
 One hue exists outside the four accents: the *project identity colour* in
-`lib/project-colors.ts`, painted only on a project's own monogram box and its
-quick-open header chip. It encodes *which repository*, never a state — it is
+`lib/project-colors.ts`, painted only on a project's own monogram box
+(quick-open rows, sidebar session rows, Needs attention cards), the
+quick-open header chip, and the Session HUD's project chip (issue #1159). It
+encodes *which repository*, never a state — it is
 identity, not decoration, and it carries none of the four accents' meanings.
 Its generation lives in that one module; no component mixes its own project
 hue. When a project has an icon (issue #1000), the monogram box paints the
