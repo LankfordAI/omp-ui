@@ -103,6 +103,7 @@ export {
   findRecord,
   isChatTab,
   runningSessionTitleOnCheckout,
+  sessionProjectFace,
   sessionCwd,
   viewedClientId,
   worktreeSharers,

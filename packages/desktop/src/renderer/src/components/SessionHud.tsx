@@ -21,10 +21,12 @@ import { localeTag, useT, type MessageKey } from "../lib/i18n";
 import { linkedExperiment } from "../lib/experiment-link";
 import { deltaLabel } from "./lab/experiment-state";
 import { projectKey } from "../lib/project-key";
+import { identityWash } from "../lib/project-colors";
+import { ProjectMonogram } from "./ProjectMonogram";
 import type { ContextUsage, SubagentInfo, UsageLimit } from "../lib/rpc-types";
 import { JOB_WIDGET_TONE, backgroundWorkInFlight, freshestWidgetJob, jobWidgetFigure, runningJobCount } from "../lib/async-jobs";
 import type { AsyncJob } from "@omp-ui/core/async-jobs";
-import { canSettle, findInstance, findOwner, findRecord, isChatTab, sessionCwd, useStore } from "../store";
+import { canSettle, findInstance, findOwner, findRecord, isChatTab, sessionCwd, sessionProjectFace, useStore } from "../store";
 import type { RpcTabState } from "../store/types";
 import type { SessionSpendSnapshot } from "@omp-ui/core/session-spend";
 import { useDismissal } from "../lib/use-dismissal";
@@ -1750,6 +1752,7 @@ export function SessionHud({ tabId }: { tabId: string }) {
   const costCap = useStore((s) => s.rpc[tabId]?.costCap);
   const openSettings = useStore((s) => s.openSettings);
   const projectCwd = useStore((s) => findRecord(s.state, tabId)?.projectCwd);
+  const projectFace = useStore((s) => sessionProjectFace(s.state, tabId));
   const cwd = useStore((s) => sessionCwd(findRecord(s.state, tabId))) ?? null;
   const openProjectSettingsForRoster = useStore((s) => s.openProjectSettings);
   const worktree = useStore((s) => findRecord(s.state, tabId)?.worktree);
@@ -1901,6 +1904,22 @@ export function SessionHud({ tabId }: { tabId: string }) {
       className={compact ? "shrink-0" : "shrink-0 [app-region:no-drag]"}
     />
   );
+  // The project chip (#1159): the session's project in its identity colour,
+  // the same seed and icon as its quick-open row and sidebar project line.
+  const projectChip = projectFace !== null && (
+    <span
+      data-session-project-chip
+      title={projectCwd}
+      style={identityWash(projectFace.seed)}
+      className={cn(
+        "inline-flex min-w-0 shrink-0 items-center gap-1.5 rounded-full border py-px pr-2 pl-0.5 text-xs font-semibold text-ink-mid",
+        compact ? "max-w-[8rem]" : "max-w-[12rem] [app-region:no-drag]",
+      )}
+    >
+      <ProjectMonogram seed={projectFace.seed} name={projectFace.name} icon={projectFace.icon} className="size-4 rounded-full text-[0.5rem]" />
+      <span className="min-w-0 truncate">{projectFace.name}</span>
+    </span>
+  );
   const instanceChip = instance !== undefined && (
     <Chip mono title={instance.url} className={compact ? undefined : "shrink-0 [app-region:no-drag]"}>
       {instance.nickname}
@@ -1939,6 +1958,7 @@ export function SessionHud({ tabId }: { tabId: string }) {
       <>
         <header className="ambient flex min-h-11 shrink-0 items-center gap-2 overflow-hidden border-b border-line bg-sunken pl-3 pr-1">
           <LivenessBadge compacting={session?.isCompacting === true || compacting} stallMs={streamStallMs} face={resolvedFace} label={label} short />
+          {projectChip}
           {instanceChip}
           {fleetChip}
           {pullRequestChip}
@@ -2040,6 +2060,7 @@ export function SessionHud({ tabId }: { tabId: string }) {
           status cluster clips here, so the gauge on the right is never cut
           off (#941). */}
       <div className="titlebar-status flex min-w-0 shrink items-center gap-2.5 overflow-hidden">
+        {projectChip}
         {/* key: an open menu closes when the HUD switches to another tab. */}
         <TitleMenu
           key={tabId}

@@ -198,6 +198,13 @@ describe("wide Session HUD", () => {
     return mountHud();
   };
 
+  it("leads the status cluster with the project chip (#1159)", () => {
+    const host = renderWide();
+    const chip = host.querySelector<HTMLElement>("[data-session-project-chip]");
+    expect(chip).not.toBeNull();
+    expect(chip!.lastElementChild!.textContent).toBe("P");
+  });
+
   it("opens the queue-modes panel from the title menu, outside the clipped HUD container (#78)", () => {
     const host = renderWide();
     openModes(host);

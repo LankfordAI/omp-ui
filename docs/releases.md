@@ -5,6 +5,7 @@ This guide explains what users receive from a release and how maintainers publis
 ## Unreleased
 
 - Review an exact HTML plan already in a user or assistant transcript entry without asking a model to rewrite it. Plans now offers source selection, owner-side import, normal validated review, and retained failure diagnostics (#1158).
+- Sidebar sessions and Needs attention cards now lead with their project's icon or initials and name, and the session header shows the project as a coloured chip, so a session's project reads at a glance (#1159).
 
 ## Choose a download
 

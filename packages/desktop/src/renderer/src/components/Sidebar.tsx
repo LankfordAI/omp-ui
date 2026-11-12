@@ -168,7 +168,6 @@ function Row({
   section: SelectionSection;
   selection: RowSelection;
 }) {
-  const t = useT();
   // Issue #888: gate the row context menu on the local binary's floor.
   const ompInstalledVersion = useStore((st) => st.ompUpdate.installedVersion);
   const snoozedEnabled = useStore((st) => st.state?.snoozedSectionEnabled === true);
@@ -180,7 +179,7 @@ function Row({
         s={entry.session}
         onActivate={onActivate}
         handoff={entry.handoff}
-        projectLabel={entry.projectName ?? t("sidebar.session.chat")}
+        project={entry.project}
         instanceNickname={entry.nickname}
         density={slim ? "slim" : "tile"}
         multiSelected={selection.selected.has(entry.session.tabId)}
@@ -195,7 +194,7 @@ function Row({
           // local rows with a saved transcript.
           if (!entry.reachable) return;
           const s = entry.session;
-          const chat = entry.projectName === null;
+          const chat = entry.project === null;
           const migrate =
             !chat &&
             s.sessionId !== null &&
