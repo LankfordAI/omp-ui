@@ -1193,6 +1193,7 @@ export const en = {
   "settings.keyboard.action.togglePlanMode": "Switch Build / Plan",
   "settings.keyboard.action.toggleConsole": "Show or hide the console",
   "settings.keyboard.action.findInSession": "Find in session",
+  "settings.keyboard.action.modelPicker": "Open the model picker",
   "settings.keyboard.action.textLarger": "Larger transcript text",
   "settings.keyboard.action.textSmaller": "Smaller transcript text",
   "settings.keyboard.action.textReset": "Reset transcript text size",

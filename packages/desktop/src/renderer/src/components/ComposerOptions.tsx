@@ -274,6 +274,7 @@ export function ComposerOptions({
       >
         <ComposerOptionsContent
           key={compactLayout ? "loader" : "popover"}
+          hotkeyOpens={!compactLayout}
           scrollable={constrained}
           tabId={tabId}
           disabled={disabled}

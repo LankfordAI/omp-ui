@@ -54,6 +54,9 @@ export interface ViewSlice {
   shareConfirmTab: string | null;
   /** The tab whose Schedule dialog is open (issue #987); null = closed. */
   scheduleDialogTab: string | null;
+  /** Non-null while the model picker hotkey asks a tab's ModelSelector to open
+   *  its palette; consumed (cleared) by that selector in the same commit. */
+  modelPickerTab: string | null;
   /** The New session dialog (one launcher for local and fleet work); null = closed. */
   newSessionDialog: {
     /** Seed project; null opens with the first registry project. */
@@ -122,6 +125,8 @@ export interface ViewSlice {
   confirmSharePrivacy(tabId: string): Promise<void>;
   openScheduleDialog(tabId: string): void;
   closeScheduleDialog(): void;
+  openModelPicker(tabId: string): void;
+  closeModelPicker(): void;
   cancelSharePrivacy(): void;
   openNewSessionDialog(seed?: {
     projectCwd?: string | null;
@@ -423,6 +428,7 @@ export const createViewSlice: StateCreator<UiStore, [], [], ViewSlice> = (set, g
   browserPaneClearDialogOpen: false,
   shareConfirmTab: null,
   scheduleDialogTab: null,
+  modelPickerTab: null,
   newSessionDialog: null,
   projectQuickOpen: null,
   finishWorktreeTab: null,
@@ -513,6 +519,12 @@ export const createViewSlice: StateCreator<UiStore, [], [], ViewSlice> = (set, g
   },
   closeScheduleDialog() {
     set({ scheduleDialogTab: null });
+  },
+  openModelPicker(tabId) {
+    set({ modelPickerTab: tabId });
+  },
+  closeModelPicker() {
+    set({ modelPickerTab: null });
   },
   openNewSessionDialog(seed) {
     set({

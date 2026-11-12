@@ -1229,6 +1229,9 @@ export interface UiStore extends SettingsSlice, UpdatesSlice, LabSlice, StatsSli
   scheduleDialogTab: string | null;
   openScheduleDialog(tabId: string): void;
   closeScheduleDialog(): void;
+  modelPickerTab: string | null;
+  openModelPicker(tabId: string): void;
+  closeModelPicker(): void;
   /** The New session dialog (one launcher for local and fleet work); null = closed. */
   newSessionDialog: {
     /** Seed project; null opens with the first registry project. */

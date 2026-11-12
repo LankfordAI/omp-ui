@@ -42,7 +42,7 @@ const EMPTY: ModelInfo[] = [];
 /** Stable empty array for favorites so the useMemo dependency is referentially stable. */
 const EMPTY_FAVORITES: string[] = [];
 
-export function ModelSelector({ tabId, disabled }: { tabId: string; disabled?: boolean }) {
+export function ModelSelector({ tabId, disabled, hotkeyOpens = true }: { tabId: string; disabled?: boolean; hotkeyOpens?: boolean }) {
   const t = useT();
   const model = useStore((s) => s.rpc[tabId]?.model ?? null);
   // #932: a held session runs on omp's fallback, which the user never chose —
@@ -84,6 +84,20 @@ export function ModelSelector({ tabId, disabled }: { tabId: string; disabled?: b
   useEffect(() => {
     if (locked) setOpen(false);
   }, [locked]);
+
+  // The model picker hotkey: the store names this tab, the request is consumed
+  // in the same pass, and only an owner instance opens. The compact "loader"
+  // copy inside ComposerOptions passes hotkeyOpens={false} so a chord never
+  // stacks two portaled palettes when the mobile sheet also mounts one; the
+  // loader still consumes, so the request never goes stale until the sheet
+  // mounts and would open it unprompted.
+  const requested = useStore((s) => s.modelPickerTab === tabId);
+  const closeModelPicker = useStore((s) => s.closeModelPicker);
+  useEffect(() => {
+    if (!requested) return;
+    closeModelPicker();
+    if (hotkeyOpens && !locked && models.length > 0) setOpen(true);
+  }, [requested, hotkeyOpens, locked, models.length, closeModelPicker]);
 
   // Either `get_available_models` failed, or omp has no authenticated provider
   // at all — the common cause of the latter is a GUI launch that inherited no

@@ -44,6 +44,9 @@ export interface ComposerOptionsContentProps {
   machineDisabled: boolean;
   onPickMachine: ((member: CheckoutEntry) => void) | undefined;
   onModeSelected: () => void;
+  /** False for ComposerOptions's compact "loader" copy: it consumes the model
+   *  picker hotkey but never opens, leaving that to the mounted sheet copy. */
+  hotkeyOpens?: boolean;
 }
 
 /** The pill and both containers use the same capability and visibility rules. */
@@ -107,7 +110,7 @@ export function ComposerOptionsContent({
   const {
     tabId, disabled, chat, projectCwd, instanceId, workspace, onWorkspaceChange,
     workspaceDisabled, onCreateWorktree, finishTabId, offerMachine,
-    machineDisabled, onPickMachine, onModeSelected,
+    machineDisabled, onPickMachine, onModeSelected, hotkeyOpens,
   } = props;
   const t = useT();
   const { planEnabled, thinkingLevel, efforts, auto, levelColour, fastVisible, branchVisible, machineVisible } = useComposerOptionsState(props);
@@ -126,7 +129,7 @@ export function ComposerOptionsContent({
     <>
       <section aria-label={t("composer.options.groupModel")} className="flex flex-col">
         <OptionRow compact={compact} icon={<IconModel />} label={t("composer.options.groupModel")}>
-          <ModelSelector tabId={tabId} disabled={disabled} />
+          <ModelSelector tabId={tabId} disabled={disabled} hotkeyOpens={hotkeyOpens} />
         </OptionRow>
         {efforts.length > 0 && (
           <>

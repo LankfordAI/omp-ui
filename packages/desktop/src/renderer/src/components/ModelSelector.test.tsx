@@ -573,3 +573,57 @@ describe("remote instance ownership (#440)", () => {
     expect(providerKeys).toBeUndefined();
   });
 });
+
+// issue #1157: the model picker hotkey lands as a store request; the selector
+// consumes it on the same pass and only its owner instance opens the palette.
+describe("hotkey-opened picker (#1157)", () => {
+  it("opens the palette when the store names this tab, consuming the request", () => {
+    mount(<ModelSelector tabId={TAB} />);
+
+    act(() => useStore.getState().openModelPicker(TAB));
+
+    expect(document.body.querySelector('[role="dialog"]')).not.toBeNull();
+    expect(useStore.getState().modelPickerTab).toBeNull();
+  });
+
+  it("consumes the request without a palette while the turn is running", () => {
+    useStore.setState({ state, rpc: { [TAB]: tabState({ status: "running" }) } });
+    mount(<ModelSelector tabId={TAB} />);
+
+    act(() => useStore.getState().openModelPicker(TAB));
+
+    expect(useStore.getState().modelPickerTab).toBeNull();
+    expect(document.body.querySelector('[role="dialog"]')).toBeNull();
+  });
+
+  it("consumes the request on an empty catalog and stays closed after the catalog lands", () => {
+    useStore.setState({ state, rpc: { [TAB]: tabState({ availableModels: [] }) } });
+    mount(<ModelSelector tabId={TAB} />);
+
+    act(() => useStore.getState().openModelPicker(TAB));
+
+    expect(useStore.getState().modelPickerTab).toBeNull();
+    expect(document.body.querySelector('[role="dialog"]')).toBeNull();
+
+    // The delayed-populate trap: the catalog arriving later must not open a
+    // palette for a request that was already consumed.
+    act(() => {
+      useStore.setState({ rpc: { [TAB]: tabState() } });
+    });
+    expect(document.body.querySelector('[role="dialog"]')).toBeNull();
+  });
+
+  it("opens exactly one palette when a hotkeyOpens={false} twin shares the tab", () => {
+    mount(
+      <>
+        <ModelSelector tabId={TAB} hotkeyOpens={false} />
+        <ModelSelector tabId={TAB} />
+      </>,
+    );
+
+    act(() => useStore.getState().openModelPicker(TAB));
+
+    expect(document.body.querySelectorAll('[role="dialog"]')).toHaveLength(1);
+    expect(useStore.getState().modelPickerTab).toBeNull();
+  });
+});

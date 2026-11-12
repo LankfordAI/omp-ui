@@ -465,6 +465,29 @@ export default function App() {
       e.preventDefault();
       openSettings();
     },
+    // Model picker in one keystroke: opens the focused rpc-ui tab's palette
+    // (the Options pill's model row) from anywhere, draft preserved — a mod
+    // combo fires mid-draft and moves no focus. Chat tabs included: a chat is
+    // an rpc-ui session with a main model (ADR-0059), and clicking the chip
+    // works there today. Refused wherever no consuming ModelSelector is
+    // mounted and visible: full-pane views and hidden tabs keep the composer
+    // mounted under display:none, the subagent view unmounts it entirely
+    // (issue #421), an open plan review hides it behind the dock, and an
+    // exited session or empty catalog has no picker to open. Setting the
+    // request in any of those states would strand it until a selector mounts.
+    modelPicker: (e) => {
+      e.preventDefault();
+      const s = useStore.getState();
+      if (artifacts !== null || lab !== null || stats !== null || fleetOpen || shownFleetTerminal !== null) return;
+      const tab = tabs.find((t) => t.tabId === activeTabId);
+      if (!tab || tab.mode !== "rpc-ui" || tab.hidden) return;
+      if (s.exited[tab.tabId] !== undefined) return;
+      const rpc = s.rpc[tab.tabId];
+      if (rpc?.selectedSubagent != null) return;
+      if (rpc?.planReview != null && rpc.planDeferred !== true) return;
+      if ((rpc?.availableModels?.length ?? 0) === 0) return;
+      s.openModelPicker(tab.tabId);
+    },
   });
 
   useEffect(() => {
