@@ -9453,7 +9453,8 @@ describe("fleet wake and fleet send (issues #957, #959)", () => {
     mode: "queue",
     ...over,
   });
-  const childSpawn = (manager: SessionManager): Promise<Core.SpawnAnswer> =>
+  const mcpRequester = (sourceTabId = "client-1"): Core.FleetRequester => ({ ...requester(sourceTabId), kind: "mcp" });
+  const childSpawn = (manager: SessionManager, requestedBy: Core.FleetRequester = requester()): Promise<Core.SpawnAnswer> =>
     manager.spawn({
       origin: "new",
       projectCwd: PROJECT,
@@ -9468,7 +9469,7 @@ describe("fleet wake and fleet send (issues #957, #959)", () => {
         batchId: null,
         title: "Fix the flake",
         prompt: "Fix it.",
-        requestedBy: requester(),
+        requestedBy,
       },
     });
   const lineageOf = (registry: Core.Registry, sessionsRoot: string, tabId: string): string =>
@@ -9683,6 +9684,71 @@ describe("fleet wake and fleet send (issues #957, #959)", () => {
     });
   });
 
+  describe("fleetStop / fleetSettle (#1164, #1165)", () => {
+    const sessionReq = (by: Core.FleetRequester = mcpRequester()): Core.FleetSessionRequest => ({ requester: by, dispatchId: DISPATCH });
+    const notices = (sent: { channel: string; args: unknown[] }[]): unknown[] =>
+      sent
+        .filter((s) => s.channel === CH.onRpcFrame)
+        .map((s) => s.args[1])
+        .filter((f) => (f as Record<string, unknown> | null)?.type === "omp_ui_notice");
+
+    it("fleetStop aborts a running turn and answers once omp acks", async () => {
+      const { manager, sent } = setup({ mode: "rpc-ui" });
+      await childSpawn(manager, mcpRequester());
+      const client = rpcInstances.at(-1)!;
+
+      client.send.mockClear();
+      await expect(manager.fleetStop(sessionReq())).resolves.toEqual({ status: "idle" });
+      expect(client.send).not.toHaveBeenCalled();
+
+      client.frame({ type: "agent_start" });
+      client.send.mockClear();
+      const outcome = manager.fleetStop(sessionReq());
+      expect(client.send).toHaveBeenCalledTimes(1);
+      const cmd = client.send.mock.calls[0]![0] as Cmd;
+      expect(cmd).toEqual({ type: "abort", id: expect.stringMatching(/^omp-ui-fleet-stop-/) });
+      client.frame({ type: "response", id: cmd.id, command: "abort", success: true });
+      await expect(outcome).resolves.toEqual({ status: "stopped" });
+      expect(notices(sent)).toEqual([expect.objectContaining({ level: "info", message: "The MCP client that started this session stopped its turn." })]);
+    });
+
+    it("fleetStop refuses a stranger and a session waiting on the user's answer, sending nothing", async () => {
+      const { manager } = setup({ mode: "rpc-ui" });
+      await childSpawn(manager, mcpRequester());
+      const client = rpcInstances.at(-1)!;
+      client.frame({ type: "agent_start" });
+      client.send.mockClear();
+      await expect(manager.fleetStop(sessionReq(mcpRequester("client-2")))).resolves.toEqual({
+        status: "refused",
+        reason: "only the MCP client that started this session can stop it",
+      });
+      client.frame({ type: "extension_ui_request", id: "q1", method: "select", title: "Pick" });
+      await expect(manager.fleetStop(sessionReq())).resolves.toEqual({
+        status: "refused",
+        reason: "the session is waiting for the user's answer; only the user can answer it",
+      });
+      expect(client.send).not.toHaveBeenCalled();
+    });
+
+    it("fleetSettle refuses mid-turn, then settles an idle child", async () => {
+      const { manager, registry } = setup({ mode: "rpc-ui" });
+      const { tabId } = await childSpawn(manager, mcpRequester());
+      const client = rpcInstances.at(-1)!;
+      client.kill.mockImplementation(() => client.exit(0));
+      client.frame({ type: "agent_start" });
+      await expect(manager.fleetSettle(sessionReq())).resolves.toEqual({
+        status: "refused",
+        reason: "the session is still working; stop it first",
+      });
+      expect(manager.isLive(tabId)).toBe(true);
+
+      client.frame({ type: "agent_end", messages: [] });
+      await expect(manager.fleetSettle(sessionReq())).resolves.toEqual({ status: "settled" });
+      expect(manager.isLive(tabId)).toBe(false);
+      expect(registry.sessions.find((s) => s.tabId === tabId)!.settledAtMs).toEqual(expect.any(Number));
+    });
+  });
+
   describe("fleetFinish (#978)", () => {
     const finishReq = (over: Partial<Core.FleetFinishRequest> = {}): Core.FleetFinishRequest => ({
       requester: requester(),
@@ -9695,7 +9761,7 @@ describe("fleet wake and fleet send (issues #957, #959)", () => {
     const branches = async (cwd: string): Promise<string[]> =>
       (await execFileP("git", ["branch", "--format=%(refname:short)"], { cwd })).stdout.split("\n").filter(Boolean).sort();
 
-    async function worktreeChild(manager: SessionManager, registry: Core.Registry) {
+    async function worktreeChild(manager: SessionManager, registry: Core.Registry, requestedBy: Core.FleetRequester = requester()) {
       const project = await gitProject(base);
       registry.addProject(project);
       const minted = "omp-ui/main/f1n15h00";
@@ -9708,7 +9774,7 @@ describe("fleet wake and fleet send (issues #957, #959)", () => {
         rows: 24,
         worktree: { mint: { branch: minted, baseRef: null, baseBranch: null } },
         planMode: false,
-        fleet: { dispatchId: DISPATCH, batchId: null, title: "Fix the flake", prompt: "Fix it.", requestedBy: requester() },
+        fleet: { dispatchId: DISPATCH, batchId: null, title: "Fix the flake", prompt: "Fix it.", requestedBy },
       });
       const rpc = rpcInstances.at(-1)!;
       rpc.kill.mockImplementation(() => rpc.exit(0));
@@ -9738,6 +9804,24 @@ describe("fleet wake and fleet send (issues #957, #959)", () => {
       expect(registry.sessions.find((s) => s.tabId === tabId)!.worktree).toEqual(wt);
       expect(fs.existsSync(wt.path)).toBe(true);
       expect(await branches(project)).toContain("fix/978-x");
+    });
+
+    it("an MCP record finishes only for its own client (#1166)", async () => {
+      const { manager, registry } = setup({ mode: "rpc-ui" });
+      const { wt } = await worktreeChild(manager, registry, mcpRequester());
+      fs.writeFileSync(path.join(wt.path, "fix.txt"), "fix\n");
+      await execFileP("git", ["add", "fix.txt"], { cwd: wt.path });
+      await execFileP("git", ["commit", "-q", "-m", "fix"], { cwd: wt.path });
+
+      // Past the owner check, the git facts refuse: the work is not landed.
+      await expect(manager.fleetFinish(finishReq({ requester: mcpRequester() }))).resolves.toMatchObject({
+        status: "refused",
+        reason: expect.stringContaining("land the work first"),
+      });
+      await expect(manager.fleetFinish(finishReq({ requester: { ...mcpRequester(), kind: "agent" } }))).resolves.toEqual({
+        status: "refused",
+        reason: "only the MCP client that started this session can finish it",
+      });
     });
 
     it("settles a landed session, removes its worktree, and deletes only the merged branches it made", async () => {

@@ -46,6 +46,9 @@ import {
   type FleetSendRequest,
   type FleetFinishOutcome,
   type FleetFinishRequest,
+  type FleetSessionRequest,
+  type FleetSettleOutcome,
+  type FleetStopOutcome,
   type FleetUpdateAck,
   type FleetUpdateMemberRequest,
   type FleetUpdatePollOutcome,
@@ -153,6 +156,10 @@ export interface FleetServerDeps {
   deliverSend: (req: FleetSendRequest) => Promise<FleetSendOutcome>;
   /** SessionManager.fleetFinish on this machine (issue #978): settle, then release an already-landed worktree. */
   deliverFinish: (req: FleetFinishRequest) => Promise<FleetFinishOutcome>;
+  /** SessionManager.fleetStop on this machine (issue #1164): abort the running turn. */
+  deliverStop: (req: FleetSessionRequest) => Promise<FleetStopOutcome>;
+  /** SessionManager.fleetSettle on this machine (issue #1165): the sidebar Settle reap. */
+  deliverSettle: (req: FleetSessionRequest) => Promise<FleetSettleOutcome>;
   /** Fans a member terminal event to this machine's socket clients (issue #991); never its own window. */
   sendToClients: (channel: string, args: unknown[]) => void;
   /** Test seams. */
@@ -307,24 +314,38 @@ export class FleetServer {
   }
 
   /**
-   * `fleet:send` (issue #959): a foreign instance needs the Dispatch rung; the
-   * own instance skips the ladder. SessionManager re-checks the dispatcher.
-   * The message text never enters the audit log.
+   * The fleet session verbs' shared gate (#959, #978, #1164, #1165): a foreign
+   * instance needs the Dispatch rung, the own instance skips the ladder, and
+   * SessionManager re-checks the requester. Message text never enters the log.
    */
-  async send(req: FleetSendRequest): Promise<FleetSendOutcome> {
+  async #sessionVerb<O extends { status: string }>(
+    action: "send" | "finish" | "stop" | "settle",
+    req: { requester: FleetRequester; dispatchId: string },
+    deliver: () => Promise<O>,
+    accepted: (outcome: O) => boolean,
+  ): Promise<O | { status: "refused"; reason: string }> {
     const own = req.requester.instanceId === this.#deps.registry.getSetting("instanceId");
     let rung: FleetRung = "dispatch";
     if (!own) {
       const gate = this.check(req.requester, "dispatch");
       if (!gate.ok) {
-        this.#audit("send", req.requester, "dispatch", false, req.dispatchId.slice(0, 8), null);
+        this.#audit(action, req.requester, "dispatch", false, req.dispatchId.slice(0, 8), null);
         return { status: "refused", reason: gate.reason };
       }
       rung = gate.rung;
     }
-    const outcome = await this.#deps.deliverSend(req);
-    this.#audit("send", req.requester, rung, outcome.status !== "refused", `${req.dispatchId.slice(0, 8)} ${outcome.status}`, null);
+    const outcome = await deliver();
+    this.#audit(action, req.requester, rung, accepted(outcome), `${req.dispatchId.slice(0, 8)} ${outcome.status}`, null);
     return outcome;
+  }
+
+  /**
+   * `fleet:send` (issue #959): a foreign instance needs the Dispatch rung; the
+   * own instance skips the ladder. SessionManager re-checks the dispatcher.
+   * The message text never enters the audit log.
+   */
+  send(req: FleetSendRequest): Promise<FleetSendOutcome> {
+    return this.#sessionVerb("send", req, () => this.#deps.deliverSend(req), (o) => o.status !== "refused");
   }
 
   /**
@@ -332,20 +353,18 @@ export class FleetServer {
    * needs the Dispatch rung, the own instance skips the ladder, and
    * SessionManager re-checks the dispatcher before touching anything.
    */
-  async finish(req: FleetFinishRequest): Promise<FleetFinishOutcome> {
-    const own = req.requester.instanceId === this.#deps.registry.getSetting("instanceId");
-    let rung: FleetRung = "dispatch";
-    if (!own) {
-      const gate = this.check(req.requester, "dispatch");
-      if (!gate.ok) {
-        this.#audit("finish", req.requester, "dispatch", false, req.dispatchId.slice(0, 8), null);
-        return { status: "refused", reason: gate.reason };
-      }
-      rung = gate.rung;
-    }
-    const outcome = await this.#deps.deliverFinish(req);
-    this.#audit("finish", req.requester, rung, outcome.status === "finished", `${req.dispatchId.slice(0, 8)} ${outcome.status}`, null);
-    return outcome;
+  finish(req: FleetFinishRequest): Promise<FleetFinishOutcome> {
+    return this.#sessionVerb("finish", req, () => this.#deps.deliverFinish(req), (o) => o.status === "finished");
+  }
+
+  /** `fleet:stop` (issue #1164): the same gate; SessionManager re-checks the requester. */
+  stop(req: FleetSessionRequest): Promise<FleetStopOutcome> {
+    return this.#sessionVerb("stop", req, () => this.#deps.deliverStop(req), (o) => o.status !== "refused");
+  }
+
+  /** `fleet:settle` (issue #1165): the same gate; SessionManager re-checks the requester. */
+  settle(req: FleetSessionRequest): Promise<FleetSettleOutcome> {
+    return this.#sessionVerb("settle", req, () => this.#deps.deliverSettle(req), (o) => o.status === "settled");
   }
 
   /**

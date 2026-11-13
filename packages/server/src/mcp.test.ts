@@ -92,6 +92,9 @@ describe("MCP endpoint route", () => {
           tool("session_status"),
           tool("start_session"),
           tool("send_to_session"),
+          expect.objectContaining({ name: "stop_session", annotations: expect.objectContaining({ destructiveHint: false }) }),
+          tool("settle_session"),
+          expect.objectContaining({ name: "finish_session", annotations: expect.objectContaining({ destructiveHint: true }) }),
         ],
       },
     });

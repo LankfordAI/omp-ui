@@ -461,6 +461,18 @@ const VALID_ARGS = {
       landedOn: "feature/x",
     },
   ],
+  fleetStop: [
+    {
+      requester: { instanceId: "instance-1", label: "workstation", kind: "mcp", sourceTabId: "client-1" },
+      dispatchId: "dispatch-1",
+    },
+  ],
+  fleetSettle: [
+    {
+      requester: { instanceId: "instance-1", label: "workstation", kind: "mcp", sourceTabId: "client-1" },
+      dispatchId: "dispatch-1",
+    },
+  ],
   fleetProviderKeys: [
     {
       requester: { instanceId: "instance-1", label: "workstation", kind: "user", sourceTabId: null },

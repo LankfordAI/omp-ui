@@ -12,7 +12,7 @@ import {
   type FleetToolSendArgs,
   type SessionSummary,
 } from "@omp-ui/core";
-import { McpEndpointService, type FleetSessionRow } from "./mcp-endpoint-service";
+import { McpEndpointService, type FleetSessionRow, type McpEndpointServiceDeps } from "./mcp-endpoint-service";
 
 const dirs: string[] = [];
 afterEach(() => {
@@ -90,7 +90,7 @@ function mcpChild(tabId: string, clientId: string, dispatchId: string): FleetSes
   });
 }
 
-function make(sessions: FleetSessionRow[] = []) {
+function make(sessions: FleetSessionRow[] = [], overrides: Partial<McpEndpointServiceDeps> = {}) {
   const dir = fs.mkdtempSync(path.join(os.tmpdir(), "omp-ui-mcp-endpoint-"));
   dirs.push(dir);
   const dispatched: Array<{ clientId: string; req: FleetDispatchRequest }> = [];
@@ -118,6 +118,11 @@ function make(sessions: FleetSessionRow[] = []) {
     },
     publish: () => {},
     now: () => clock.now,
+    nextBroadcast: async () => {},
+    stop: async () => ({ status: "stopped" }),
+    settle: async () => ({ status: "settled" }),
+    finish: async () => ({ status: "refused", reason: "fixture" }),
+    ...overrides,
   });
   return { service, dispatched, sent, clock, dir };
 }
@@ -213,5 +218,87 @@ describe("McpEndpointService", () => {
     for (let i = 0; i < MCP_GLOBAL_PER_HOUR; i++) await wide.callTool(unlimited, "start_session", { prompt: "go", project: "/work/app" }, META);
     expect((await wide.callTool(unlimited, "start_session", { prompt: "go", project: "/work/app" }, META)).isError).toBe(true);
     expect(wideDispatched).toHaveLength(MCP_GLOBAL_PER_HOUR);
+  });
+
+  it("session_status with waitMs answers after the broadcast that settles a working child", async () => {
+    const child = mcpChild("tab-c", "client", "d-c");
+    child.summary = { ...child.summary, live: "live", turnRunning: true, sessionId: null, status: null } as SessionSummary;
+    const sessions = [child];
+    let waits = 0;
+    const { service } = make(sessions, {
+      nextBroadcast: async () => {
+        waits += 1;
+        if (waits === 2) {
+          sessions[0] = { ...child, summary: { ...child.summary, turnRunning: false, sessionId: "s", status: "complete" } as SessionSummary };
+        }
+      },
+    });
+    const caller = service.authenticate(service.create({ name: "Reader", scope: "read", enabled: true, ratePerHour: 6 }).token)!;
+    const status = await service.callTool(caller, "session_status", { session: "tab-c", waitMs: 30_000 }, META);
+    expect(status.text).toContain("## Where it landed");
+    expect(waits).toBe(2);
+
+    waits = 0;
+    const { service: idle } = make([row("tab-idle", { live: "live", turnRunning: false })], {
+      nextBroadcast: async () => {
+        waits += 1;
+      },
+    });
+    const reader = idle.authenticate(idle.create({ name: "Reader", scope: "read", enabled: true, ratePerHour: 6 }).token)!;
+    expect((await idle.callTool(reader, "session_status", { session: "tab-idle", waitMs: 30_000 }, META)).isError).toBe(false);
+    expect(waits).toBe(0);
+  });
+
+  it("start_session passes model and thinking level; a malformed model is refused before dispatch", async () => {
+    const { service, dispatched } = make();
+    const caller = service.authenticate(service.create({ name: "Bot", scope: "dispatch", enabled: true, ratePerHour: null }).token)!;
+    const ok = await service.callTool(caller, "start_session", { prompt: "go", project: "/work/app", model: "openrouter/x/y", thinkingLevel: "low" }, META);
+    expect(ok.isError).toBe(false);
+    expect(dispatched[0]!.req).toMatchObject({ model: "openrouter/x/y", thinkingLevel: "low" });
+    const bad = await service.callTool(caller, "start_session", { prompt: "go", project: "/work/app", model: "nope" }, META);
+    expect(bad.isError).toBe(true);
+    expect(dispatched).toHaveLength(1);
+  });
+
+  it("stop, settle, and finish reach only this client's sessions and never spend the hourly limit", async () => {
+    const sessions: FleetSessionRow[] = [];
+    const calls: string[] = [];
+    const { service } = make(sessions, {
+      stop: async (clientId, dispatchId) => (calls.push(`stop ${clientId} ${dispatchId}`), { status: "stopped" }),
+      settle: async (clientId, dispatchId) => (calls.push(`settle ${clientId} ${dispatchId}`), { status: "settled" }),
+      finish: async (clientId, args) => (
+        calls.push(`finish ${clientId} ${args.dispatchId} ${args.landedOn}`),
+        {
+          status: "finished",
+          destination: "main",
+          worktreePath: "/wt",
+          checkoutKept: null,
+          branch: "omp-ui/x",
+          branchOutcome: "removed",
+          workingBranches: [],
+        }
+      ),
+    });
+    const mine = service.create({ name: "A", scope: "send", enabled: true, ratePerHour: 1 });
+    const other = service.create({ name: "B", scope: "send", enabled: true, ratePerHour: 6 });
+    const reader = service.create({ name: "R", scope: "read", enabled: true, ratePerHour: 6 });
+    const caller = service.authenticate(mine.token)!;
+    expect((await service.callTool(caller, "start_session", { prompt: "go", project: "/work/app" }, META)).isError).toBe(false);
+    sessions.push(mcpChild("tab-a", mine.client.id, "d-a"));
+
+    for (const tool of ["stop_session", "settle_session", "finish_session"] as const) {
+      const stranger = await service.callTool(service.authenticate(other.token)!, tool, { session: "tab-a" }, META);
+      expect(stranger.isError).toBe(true);
+      await service.callTool(service.authenticate(reader.token)!, tool, { session: "tab-a" }, META);
+      expect(service.state().calls.at(-1)).toMatchObject({ tool, outcome: "forbidden" });
+    }
+    expect(calls).toEqual([]);
+
+    expect(await service.callTool(caller, "stop_session", { session: "tab-a" }, META)).toMatchObject({ isError: false });
+    expect(await service.callTool(caller, "settle_session", { session: "tab-a" }, META)).toMatchObject({ isError: false });
+    const finished = await service.callTool(caller, "finish_session", { session: "tab-a", landedOn: "main" }, META);
+    expect(finished).toMatchObject({ isError: false });
+    expect(finished.text).toContain("finished session tab-a: its work is in main");
+    expect(calls).toEqual([`stop ${mine.client.id} d-a`, `settle ${mine.client.id} d-a`, `finish ${mine.client.id} d-a main`]);
   });
 });

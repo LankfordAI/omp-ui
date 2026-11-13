@@ -75,6 +75,8 @@ const AUDIT_ACTION_LABEL: Record<FleetAuditEntry["action"], MessageKey> = {
   update: "fleet.audit.update",
   send: "fleet.audit.send",
   finish: "fleet.audit.finish",
+  stop: "fleet.audit.stop",
+  settle: "fleet.audit.settle",
   terminal: "fleet.audit.terminal",
 };
 

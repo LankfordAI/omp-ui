@@ -20,6 +20,9 @@ import type {
   FleetExecPollOutcome,
   FleetFinishOutcome,
   FleetFinishRequest,
+  FleetSessionRequest,
+  FleetSettleOutcome,
+  FleetStopOutcome,
   FleetHostOs,
   FleetHostProject,
   FleetPackageManager,
@@ -175,12 +178,16 @@ export interface FleetProviderKeyLegs {
   install(envName: string, value: string): void;
 }
 
-/** One dispatcher's session delivery legs (`fleet:send`, `fleet:finish`). */
+/** One dispatcher's session delivery legs (`fleet:send`, `fleet:finish`, `fleet:stop`, `fleet:settle`). */
 export interface FleetSessionLegs {
   /** Stage, then deliver or resume the dispatched session (SessionManager.fleetSend). */
   deliverSend(req: FleetSendRequest): Promise<FleetSendOutcome>;
   /** Settle, then release an already-landed worktree (SessionManager.fleetFinish). */
   deliverFinish(req: FleetFinishRequest): Promise<FleetFinishOutcome>;
+  /** Abort the running turn (SessionManager.fleetStop). */
+  deliverStop(req: FleetSessionRequest): Promise<FleetStopOutcome>;
+  /** The sidebar Settle reap (SessionManager.fleetSettle). */
+  deliverSettle(req: FleetSessionRequest): Promise<FleetSettleOutcome>;
 }
 
 /** Everything `registerFleetLegs` consumes. Only `registry` and `host` are unconditional. */

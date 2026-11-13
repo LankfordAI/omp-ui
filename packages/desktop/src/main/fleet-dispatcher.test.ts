@@ -122,6 +122,8 @@ function harness(opts: {
     nextBroadcast: async () => {},
     sendLocal: async () => ({ status: "delivered" }),
     finishLocal: async () => ({ status: "refused", reason: "not wired in this fixture" }),
+    stopLocal: async () => ({ status: "refused", reason: "not wired in this fixture" }),
+    settleLocal: async () => ({ status: "refused", reason: "not wired in this fixture" }),
     readProjectCopy: async () => {
       throw new Error("not wired in this fixture");
     },
@@ -602,6 +604,45 @@ describe("FleetDispatcher wake-up, long-poll status, send (issues #957-#959)", (
     expect(seen[0]).toMatchObject({ dispatchId: "d1", landedOn: "release/9" });
     expect("landedOn" in seen[1]!).toBe(false);
   });
+
+  it.each([
+    ["stop", CH.fleetStop],
+    ["settle", CH.fleetSettle],
+  ] as const)(
+    "routes an MCP client's %s to a remote child's owner and refuses a stranger without contacting it",
+    async (verb, channel) => {
+      const h = harness({
+        local: report([project()]),
+        remotes: { r1: { report: async () => report([]) } },
+        deps: {
+          fleetSessions: async () => [
+            fleetSession("r1", "d1", {
+              fleet: {
+                dispatchId: "d1",
+                batchId: null,
+                title: "Fix the flaky test",
+                prompt: "Fix the flaky test",
+                requestedBy: { instanceId: "dispatcher", label: "desk", kind: "mcp", sourceTabId: "client-1" },
+              },
+            } as unknown as Partial<SessionSummary>),
+          ],
+        },
+      });
+      h.request.mockImplementation(async (_id, ch) => {
+        if (ch === channel) return { status: verb === "stop" ? "stopped" : "settled" };
+        throw new Error(`unexpected ${ch}`);
+      });
+      expect((await h.dispatcher[verb]("client-2", "d1")).status).toBe("refused");
+      expect(h.request).not.toHaveBeenCalled();
+      expect(await h.dispatcher[verb]("client-1", "d1")).toEqual({ status: verb === "stop" ? "stopped" : "settled" });
+      const call = h.request.mock.calls.find(([, ch]) => ch === channel)!;
+      expect(call[0]).toBe("r1");
+      expect(call[2][0]).toEqual({
+        requester: expect.objectContaining({ instanceId: "dispatcher", kind: "mcp", sourceTabId: "client-1" }),
+        dispatchId: "d1",
+      });
+    },
+  );
 });
 
 describe("FleetDispatcher fleet ladder (issue #901)", () => {
@@ -635,6 +676,8 @@ describe("FleetDispatcher fleet ladder (issue #901)", () => {
       nextBroadcast: async () => {},
       sendLocal: async () => ({ status: "delivered" }),
       finishLocal: async () => ({ status: "refused", reason: "not wired in this fixture" }),
+      stopLocal: async () => ({ status: "refused", reason: "not wired in this fixture" }),
+      settleLocal: async () => ({ status: "refused", reason: "not wired in this fixture" }),
       readProjectCopy,
       now: () => NOW,
       uuid: () => "u",
@@ -964,6 +1007,8 @@ describe("FleetDispatcher member address (issue #904)", () => {
       nextBroadcast: async () => {},
       sendLocal: async () => ({ status: "delivered" }),
       finishLocal: async () => ({ status: "refused", reason: "not wired in this fixture" }),
+      stopLocal: async () => ({ status: "refused", reason: "not wired in this fixture" }),
+      settleLocal: async () => ({ status: "refused", reason: "not wired in this fixture" }),
       readProjectCopy: async () => {
         throw new Error("not wired in this fixture");
       },
@@ -1014,6 +1059,8 @@ describe("FleetDispatcher fleet maintenance (fleet remote version update)", () =
       nextBroadcast: async () => {},
       sendLocal: async () => ({ status: "delivered" }),
       finishLocal: async () => ({ status: "refused", reason: "not wired in this fixture" }),
+      stopLocal: async () => ({ status: "refused", reason: "not wired in this fixture" }),
+      settleLocal: async () => ({ status: "refused", reason: "not wired in this fixture" }),
       readProjectCopy: async () => {
         throw new Error("not wired in this fixture");
       },
@@ -1303,6 +1350,8 @@ describe("FleetDispatcher Update all (issue #990)", () => {
       nextBroadcast: async () => {},
       sendLocal: async () => ({ status: "delivered" }),
       finishLocal: async () => ({ status: "refused", reason: "not wired in this fixture" }),
+      stopLocal: async () => ({ status: "refused", reason: "not wired in this fixture" }),
+      settleLocal: async () => ({ status: "refused", reason: "not wired in this fixture" }),
       readProjectCopy: async () => {
         throw new Error("not wired in this fixture");
       },

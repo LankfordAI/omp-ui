@@ -98,7 +98,7 @@ function toolsFor(scope: McpScope): Array<Record<string, unknown>> {
     name: t.name,
     description: t.description,
     inputSchema: t.inputSchema,
-    annotations: { readOnlyHint: t.readOnly, destructiveHint: false, openWorldHint: false },
+    annotations: { readOnlyHint: t.readOnly, destructiveHint: t.destructive, openWorldHint: false },
   }));
 }
 
@@ -204,7 +204,7 @@ async function answer(
         capabilities: { tools: { listChanged: false } },
         serverInfo: { name: "omp-ui", version: serverVersion },
         instructions:
-          "omp-ui runs omp coding-agent sessions on this computer and its joined fleet machines. List machines, projects, and sessions; start a session with a prompt; follow it with session_status. Sessions start in read-only Plan mode unless planMode is false.",
+          "omp-ui runs omp coding-agent sessions on this computer and its joined fleet machines. List machines, projects, and sessions; start a session with a prompt; follow it with session_status (waitMs waits for it); stop, settle, or finish the sessions you started. Sessions start in read-only Plan mode unless planMode is false.",
       });
       return;
     }

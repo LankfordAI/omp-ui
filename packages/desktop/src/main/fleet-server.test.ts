@@ -12,6 +12,9 @@ import {
   type FleetRung,
   type FleetSendOutcome,
   type FleetSendRequest,
+  type FleetSessionRequest,
+  type FleetSettleOutcome,
+  type FleetStopOutcome,
   type FleetUpdateMemberRequest,
   type PtyHandle,
 } from "@omp-ui/core";
@@ -120,6 +123,8 @@ let armAppUpdateOnQuit: Mock;
 let liveSessions: number;
 let pinned: boolean;
 let deliverSend: Mock<(req: FleetSendRequest) => Promise<FleetSendOutcome>>;
+let deliverStop: Mock<(req: FleetSessionRequest) => Promise<FleetStopOutcome>>;
+let deliverSettle: Mock<(req: FleetSessionRequest) => Promise<FleetSettleOutcome>>;
 
 function server(
   execGit?: ConstructorParameters<typeof FleetServer>[0]["execGit"],
@@ -148,6 +153,8 @@ function server(
     pinned: () => pinned,
     deliverSend: (req) => deliverSend(req),
     deliverFinish: async () => ({ status: "refused", reason: "not wired in this fixture" }),
+    deliverStop: (req) => deliverStop(req),
+    deliverSettle: (req) => deliverSettle(req),
     sendToClients: (channel, args) => clientEvents.push({ channel, args }),
     terminalSpawn: (opts) => fakeTerminal(opts.id),
     ...(execGit === undefined ? {} : { execGit }),
@@ -177,6 +184,8 @@ beforeEach(() => {
   liveSessions = 0;
   pinned = false;
   deliverSend = vi.fn<(req: FleetSendRequest) => Promise<FleetSendOutcome>>(async () => ({ status: "delivered" }));
+  deliverStop = vi.fn<(req: FleetSessionRequest) => Promise<FleetStopOutcome>>(async () => ({ status: "stopped" }));
+  deliverSettle = vi.fn<(req: FleetSessionRequest) => Promise<FleetSettleOutcome>>(async () => ({ status: "settled" }));
   updateStubs.checkOmpUpdate.mockReset().mockResolvedValue({
     installPath: null,
     installedVersion: null,
@@ -1205,4 +1214,25 @@ describe("FleetServer.send (issue #959)", () => {
       expect.objectContaining({ action: "send", rung: "dispatch", accepted: false, detail: "d1234567 refused" }),
     ]);
   });
+});
+
+describe("FleetServer.stop / settle (issues #1164, #1165)", () => {
+  it.each(["stop", "settle"] as const)(
+    "%s refuses a foreign instance below Dispatch, audits it, and never delivers; delivers at Dispatch",
+    async (verb) => {
+      const deliver = verb === "stop" ? deliverStop : deliverSettle;
+      const req: FleetSessionRequest = { requester: A, dispatchId: "d1234567-89ab-cdef" };
+      grant(A.instanceId, "observe");
+      const s = server();
+      expect(await s[verb](req)).toEqual({ status: "refused", reason: expect.stringContaining('"dispatch"') });
+      expect(deliver).not.toHaveBeenCalled();
+      grant(A.instanceId, "dispatch");
+      expect(await s[verb](req)).toEqual({ status: verb === "stop" ? "stopped" : "settled" });
+      expect(deliver).toHaveBeenCalledWith(req);
+      expect(s.auditEntries()).toEqual([
+        expect.objectContaining({ action: verb, rung: "dispatch", accepted: false, detail: "d1234567" }),
+        expect.objectContaining({ action: verb, rung: "dispatch", accepted: true, detail: `d1234567 ${verb === "stop" ? "stopped" : "settled"}` }),
+      ]);
+    },
+  );
 });
