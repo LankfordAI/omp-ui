@@ -7,6 +7,7 @@ import {
   parseFleetExecPollRequest,
   parseFleetSendRequest,
   parseFleetFinishRequest,
+  parseFleetSessionRequest,
   parseFleetExecRequest,
   parseFleetProjectFilesRequest,
   parseFleetProjectManageRequest,
@@ -25,6 +26,7 @@ import {
   type FleetExecPollRequest,
   type FleetSendRequest,
   type FleetFinishRequest,
+  type FleetSessionRequest,
   type FleetExecRequest,
   type FleetProjectFilesRequest,
   type FleetProjectManageRequest,
@@ -1124,6 +1126,18 @@ export const fleetFinishRequestCodec: ArgCodec<FleetFinishRequest> = {
   decode(value, path) {
     try {
       return parseFleetFinishRequest(value);
+    } catch (error) {
+      return fail(path, `${this.expected} (${(error as Error).message})`);
+    }
+  },
+};
+
+/** Fleet stop/settle (issues #1164, #1165), via the shared parser. */
+export const fleetSessionRequestCodec: ArgCodec<FleetSessionRequest> = {
+  expected: "a valid fleet session request",
+  decode(value, path) {
+    try {
+      return parseFleetSessionRequest(value);
     } catch (error) {
       return fail(path, `${this.expected} (${(error as Error).message})`);
     }

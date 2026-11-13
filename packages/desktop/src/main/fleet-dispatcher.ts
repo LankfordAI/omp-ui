@@ -17,7 +17,7 @@ import {
   choosePlacement,
   deriveFleetTitle,
   eligibleMachineCount,
-  fleetChildSettled,
+  fleetChildBusy,
   fleetRungAtLeast,
   fleetChoiceText,
   fleetMachineName,
@@ -64,6 +64,9 @@ import {
   type FleetSendRequest,
   type FleetFinishOutcome,
   type FleetFinishRequest,
+  type FleetSessionRequest,
+  type FleetSettleOutcome,
+  type FleetStopOutcome,
   type FleetRequester,
   type FleetRung,
   type FleetToolExecArgs,
@@ -145,6 +148,10 @@ export interface FleetDispatcherDeps {
   sendLocal(req: FleetSendRequest): Promise<FleetSendOutcome>;
   /** FleetServer.finish on this machine (issue #978). */
   finishLocal(req: FleetFinishRequest): Promise<FleetFinishOutcome>;
+  /** FleetServer.stop on this machine (issue #1164). */
+  stopLocal(req: FleetSessionRequest): Promise<FleetStopOutcome>;
+  /** FleetServer.settle on this machine (issue #1165). */
+  settleLocal(req: FleetSessionRequest): Promise<FleetSettleOutcome>;
   /** readProjectCopyFiles on this machine (issue #992): re-scans the checkout and reads the picked files' bytes. */
   readProjectCopy(projectCwd: string, picked: readonly string[]): Promise<ProjectCopyRead>;
   now?: () => number;
@@ -600,7 +607,7 @@ export class FleetDispatcher {
           .filter((s) => s.summary.fleet != null && matches(s.summary.fleet))
           .map((s) => {
             const state = fleetSessionState(s.summary);
-            const busy = state === "working" || ((state === "idle" || state === "dormant") && !fleetChildSettled(s.summary));
+            const busy = fleetChildBusy(s.summary);
             return { id: s.summary.fleet!.dispatchId, state: busy ? "busy" : state };
           });
         const pending = this.pending().filter(matches);
@@ -650,56 +657,93 @@ export class FleetDispatcher {
     return lines.join("\n");
   }
 
+  /** The dispatcher-side pre-check every session verb shares: the child exists and this requester started it. The owner re-checks. */
+  async #ownedChild(
+    dispatchId: string,
+    kind: "agent" | "mcp",
+    sourceId: string,
+    verb: "send to" | "finish" | "stop" | "settle",
+  ): Promise<
+    { ok: true; row: { machineKey: string; nickname: string | null }; requester: FleetRequester } | { ok: false; reason: string }
+  > {
+    const s = (await this.#deps.fleetSessions()).find((x) => x.summary.fleet?.dispatchId === dispatchId);
+    if (s === undefined) {
+      return {
+        ok: false,
+        reason: this.pending().some((p) => p.dispatchId === dispatchId)
+          ? "that dispatch's outcome is still unknown"
+          : `no dispatched session has dispatch ${dispatchId}`,
+      };
+    }
+    const requester = this.requester(kind, sourceId);
+    const by = s.summary.fleet!.requestedBy;
+    if (by.kind !== kind || by.instanceId !== requester.instanceId || by.sourceTabId !== requester.sourceTabId) {
+      return {
+        ok: false,
+        reason:
+          kind === "mcp"
+            ? `only the MCP client that started this session can ${verb} it`
+            : `only the session that dispatched this work can ${verb} it`,
+      };
+    }
+    return { ok: true, row: s, requester };
+  }
+
+  /** This computer's verbs go straight to its FleetServer; a member's ride the proxied channel inside the member-call deadline. */
+  #toOwner<O>(
+    row: { machineKey: string; nickname: string | null },
+    channel: string,
+    req: unknown,
+    local: () => Promise<O>,
+  ): Promise<O | { status: "refused"; reason: string }> {
+    if (row.machineKey === LOCAL_MACHINE_KEY) return local();
+    return this.#memberCall<O>(row.machineKey, channel, [req], fleetMachineName({ nickname: row.nickname ?? row.machineKey }));
+  }
+
   /**
    * `omp-ui_fleet_send` (issue #959): a message to a child this session
    * dispatched — or, with kind "mcp", one an MCP client started (ADR-0080);
    * then `tabId` is the client id. Pre-checked here; the owner re-checks the requester.
    */
   async send(tabId: string, args: FleetToolSendArgs, kind: "agent" | "mcp" = "agent"): Promise<FleetSendOutcome> {
-    const s = (await this.#deps.fleetSessions()).find((x) => x.summary.fleet?.dispatchId === args.dispatchId);
-    if (s === undefined) {
-      return this.pending().some((p) => p.dispatchId === args.dispatchId)
-        ? { status: "refused", reason: "that dispatch's outcome is still unknown" }
-        : { status: "refused", reason: `no dispatched session has dispatch ${args.dispatchId}` };
-    }
-    const requester = this.requester(kind, tabId);
-    const by = s.summary.fleet!.requestedBy;
-    if (by.kind !== kind || by.instanceId !== requester.instanceId || by.sourceTabId !== requester.sourceTabId) {
-      return {
-        status: "refused",
-        reason: kind === "mcp" ? "only the MCP client that started this session can send to it" : "only the session that dispatched this work can send to it",
-      };
-    }
-    const req: FleetSendRequest = { requester, dispatchId: args.dispatchId, message: args.message, mode: args.mode };
-    if (s.machineKey === LOCAL_MACHINE_KEY) return this.#deps.sendLocal(req);
-    return this.#memberCall<FleetSendOutcome>(s.machineKey, CH.fleetSend, [req], fleetMachineName({ nickname: s.nickname ?? s.machineKey }));
+    const owned = await this.#ownedChild(args.dispatchId, kind, tabId, "send to");
+    if (!owned.ok) return { status: "refused", reason: owned.reason };
+    const req: FleetSendRequest = { requester: owned.requester, dispatchId: args.dispatchId, message: args.message, mode: args.mode };
+    return this.#toOwner(owned.row, CH.fleetSend, req, () => this.#deps.sendLocal(req));
   }
 
   /**
    * `omp-ui_fleet_finish` (issue #978): clean up an already-landed worktree
-   * session this session dispatched. Pre-checked here; the owner re-checks
-   * the requester and every git fact.
+   * session this session dispatched — or, with kind "mcp", one an MCP client
+   * started (#1166). Pre-checked here; the owner re-checks the requester and
+   * every git fact.
    */
-  async finish(tabId: string, args: FleetToolFinishArgs): Promise<FleetFinishOutcome> {
-    const s = (await this.#deps.fleetSessions()).find((x) => x.summary.fleet?.dispatchId === args.dispatchId);
-    if (s === undefined) {
-      return this.pending().some((p) => p.dispatchId === args.dispatchId)
-        ? { status: "refused", reason: "that dispatch's outcome is still unknown" }
-        : { status: "refused", reason: `no dispatched session has dispatch ${args.dispatchId}` };
-    }
-    const requester = this.requester("agent", tabId);
-    const by = s.summary.fleet!.requestedBy;
-    if (by.instanceId !== requester.instanceId || by.sourceTabId !== requester.sourceTabId) {
-      return { status: "refused", reason: "only the session that dispatched this work can finish it" };
-    }
+  async finish(tabId: string, args: FleetToolFinishArgs, kind: "agent" | "mcp" = "agent"): Promise<FleetFinishOutcome> {
+    const owned = await this.#ownedChild(args.dispatchId, kind, tabId, "finish");
+    if (!owned.ok) return { status: "refused", reason: owned.reason };
     // #1013: spread-guard so an unset landedOn emits no own key on the wire.
     const req: FleetFinishRequest = {
-      requester,
+      requester: owned.requester,
       dispatchId: args.dispatchId,
       ...(args.landedOn === undefined ? {} : { landedOn: args.landedOn }),
     };
-    if (s.machineKey === LOCAL_MACHINE_KEY) return this.#deps.finishLocal(req);
-    return this.#memberCall<FleetFinishOutcome>(s.machineKey, CH.fleetFinish, [req], fleetMachineName({ nickname: s.nickname ?? s.machineKey }));
+    return this.#toOwner(owned.row, CH.fleetFinish, req, () => this.#deps.finishLocal(req));
+  }
+
+  /** MCP stop_session (#1164): the client id stands in the requester's sourceTabId, kind "mcp". */
+  async stop(clientId: string, dispatchId: string): Promise<FleetStopOutcome> {
+    const owned = await this.#ownedChild(dispatchId, "mcp", clientId, "stop");
+    if (!owned.ok) return { status: "refused", reason: owned.reason };
+    const req: FleetSessionRequest = { requester: owned.requester, dispatchId };
+    return this.#toOwner(owned.row, CH.fleetStop, req, () => this.#deps.stopLocal(req));
+  }
+
+  /** MCP settle_session (#1165). */
+  async settle(clientId: string, dispatchId: string): Promise<FleetSettleOutcome> {
+    const owned = await this.#ownedChild(dispatchId, "mcp", clientId, "settle");
+    if (!owned.ok) return { status: "refused", reason: owned.reason };
+    const req: FleetSessionRequest = { requester: owned.requester, dispatchId };
+    return this.#toOwner(owned.row, CH.fleetSettle, req, () => this.#deps.settleLocal(req));
   }
 
   /**

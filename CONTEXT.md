@@ -1192,9 +1192,10 @@ _Avoid_: hook, trigger, inbound integration
 **MCP endpoint**:
 omp-ui's own MCP server, `/mcp` on the remote-access listener, through which an
 outside app or agent (Claude Desktop, a chat bot, a script) lists machines,
-projects, and sessions, starts a session with a prompt, sends to a session it
-started, and reads a session's status and latest reply (issue #996,
-ADR-0080). Off by default behind **Settings → Remote access → MCP endpoint →
+projects, and sessions, starts a session with a prompt (optionally choosing
+its model), reads a session's status and latest reply (optionally waiting for
+it), and sends to, stops, settles, or finishes a session it started (issue
+#996, ADR-0080; #1162–#1166). Off by default behind **Settings → Remote access → MCP endpoint →
 Accept MCP clients**. Each **MCP client** has its own bearer token (shown
 once, stored only as a hash) and a scope — Read only, Dispatch, or Send —
 mirroring the Fleet access rungs. A session it starts is a Fleet dispatch
@@ -1328,7 +1329,8 @@ session sense a merged finish does settle: a run whose outcome is a landed
 merge (already-merged included) reaps the session's process and its row moves
 to Settled, regardless of the idle-hibernation setting; a keep finish leaves
 the session live (#924). The session that dispatched a worktree session can
-run the already-merged settle itself with `omp-ui_fleet_finish`: it
+run the already-merged settle itself with `omp-ui_fleet_finish` (an MCP client
+does the same for a session it started with `finish_session`): it
 settles the session and releases its worktree only when the work is
 already in its base (#978), or in the branch the finisher declares in
 `landedOn` when it landed elsewhere — a declaration the owner verifies,

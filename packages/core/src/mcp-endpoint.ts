@@ -7,6 +7,8 @@
  * live in mcp-endpoint-store.ts and the HTTP protocol in @omp-ui/server.
  */
 
+import { FLEET_STATUS_WAIT_MAX_MS, validateFleetModel, validateFleetThinkingLevel } from "./fleet";
+
 /**
  * Cumulative scopes, lowest first, mirroring the Fleet access rungs:
  * read ~ Observe, dispatch ~ Dispatch, send = dispatch plus follow-ups into
@@ -186,7 +188,10 @@ export type McpToolName =
   | "list_sessions"
   | "session_status"
   | "start_session"
-  | "send_to_session";
+  | "send_to_session"
+  | "stop_session"
+  | "settle_session"
+  | "finish_session";
 
 export interface McpToolDescriptor {
   name: McpToolName;
@@ -195,6 +200,8 @@ export interface McpToolDescriptor {
   description: string;
   inputSchema: Record<string, unknown>;
   readOnly: boolean;
+  /** MCP `destructiveHint`: the call may remove data (a worktree, branches). */
+  destructive: boolean;
 }
 
 const MACHINE_DESC = 'A machine name from list_machines: "this computer" or a joined instance\'s nickname.';
@@ -204,6 +211,7 @@ export const MCP_TOOLS: readonly McpToolDescriptor[] = [
     name: "list_machines",
     scope: "read",
     readOnly: true,
+    destructive: false,
     description:
       "List the omp-ui fleet: this computer plus every joined omp-ui instance, with status, CPU and free memory, live sessions and running turns, versions, and each ready machine's projects with their repository keys.",
     inputSchema: { type: "object", properties: {}, additionalProperties: false },
@@ -212,6 +220,7 @@ export const MCP_TOOLS: readonly McpToolDescriptor[] = [
     name: "list_projects",
     scope: "read",
     readOnly: true,
+    destructive: false,
     description:
       "List the projects on every ready fleet machine: machine, absolute path, repository key (host/owner/repo), and whether a model provider is ready there. Pass a path or repository key to start_session.",
     inputSchema: { type: "object", properties: {}, additionalProperties: false },
@@ -220,6 +229,7 @@ export const MCP_TOOLS: readonly McpToolDescriptor[] = [
     name: "list_sessions",
     scope: "read",
     readOnly: true,
+    destructive: false,
     description: `List project sessions on every fleet machine, newest first (at most ${MCP_SESSION_LIST_MAX}): session id, machine, project, title, and state (working, awaiting answer, idle, dormant). Sessions this client started are marked. Private sessions and chats are never listed.`,
     inputSchema: {
       type: "object",
@@ -234,11 +244,20 @@ export const MCP_TOOLS: readonly McpToolDescriptor[] = [
     name: "session_status",
     scope: "read",
     readOnly: true,
+    destructive: false,
     description:
-      "Report one session's state (working, awaiting answer, idle, dormant) and its latest landed reply. Poll this to follow a session you started; a session awaiting answer waits for the user in omp-ui.",
+      "Report one session's state (working, awaiting answer, idle, dormant) and its latest landed reply. Pass waitMs to wait for a working session, or one you just started, to finish or change state before answering; keep it under your client's request timeout. A session awaiting answer waits for the user in omp-ui.",
     inputSchema: {
       type: "object",
-      properties: { session: { type: "string", description: "A session id from list_sessions or start_session." } },
+      properties: {
+        session: { type: "string", description: "A session id from list_sessions or start_session." },
+        waitMs: {
+          type: "integer",
+          minimum: 0,
+          maximum: FLEET_STATUS_WAIT_MAX_MS,
+          description: `Wait up to this many milliseconds (at most ${FLEET_STATUS_WAIT_MAX_MS}). Default 0 answers at once.`,
+        },
+      },
       required: ["session"],
       additionalProperties: false,
     },
@@ -247,8 +266,9 @@ export const MCP_TOOLS: readonly McpToolDescriptor[] = [
     name: "start_session",
     scope: "dispatch",
     readOnly: false,
+    destructive: false,
     description:
-      "Start one new omp session in a project with the given prompt, running unattended. It starts in read-only Plan mode unless planMode is false; a plan ends at a plan review the user answers in omp-ui. By default it runs in a fresh worktree. Answers with the session id to pass to session_status and send_to_session.",
+      "Start one new omp session in a project with the given prompt, running unattended. It starts in read-only Plan mode unless planMode is false; a plan ends at a plan review the user answers in omp-ui. By default it runs in a fresh worktree. Answers with the session id to pass to session_status and send_to_session. Pass model and thinkingLevel to choose its main model; the owning machine refuses one it cannot run.",
     inputSchema: {
       type: "object",
       properties: {
@@ -261,6 +281,15 @@ export const MCP_TOOLS: readonly McpToolDescriptor[] = [
         title: { type: "string", description: "Session title; derived from the prompt when absent." },
         planMode: { type: "boolean", description: "False starts the session in Build mode, able to edit files. Default true." },
         workspace: { type: "string", enum: ["worktree", "checkout"], description: "worktree (default) or the project checkout." },
+        model: {
+          type: "string",
+          description: "Main model as a provider/id selector from the target machine's catalog. Omit for the project's default model.",
+        },
+        thinkingLevel: {
+          type: "string",
+          description:
+            "Main thinking level: one of the model's levels (such as low, medium, high) or auto. A level other than auto needs a model when the project has no default model.",
+        },
       },
       required: ["prompt", "project"],
       additionalProperties: false,
@@ -270,6 +299,7 @@ export const MCP_TOOLS: readonly McpToolDescriptor[] = [
     name: "send_to_session",
     scope: "send",
     readOnly: false,
+    destructive: false,
     description:
       "Send a message into a session this client started with start_session: mode queue (default) delivers it after the current turn, or starts a turn when idle; mode steer delivers it into the running turn. A session waiting for the user's answer refuses; a session that is not running resumes and receives the message first.",
     inputSchema: {
@@ -283,6 +313,51 @@ export const MCP_TOOLS: readonly McpToolDescriptor[] = [
       additionalProperties: false,
     },
   },
+  {
+    name: "stop_session",
+    scope: "send",
+    readOnly: false,
+    destructive: false,
+    description:
+      "Stop (abort) the running turn of a session this client started. The session stays live and idle; send_to_session gives it new work. A session waiting for the user's answer refuses. Never counts toward the hourly limit.",
+    inputSchema: {
+      type: "object",
+      properties: { session: { type: "string", description: "A session id start_session reported." } },
+      required: ["session"],
+      additionalProperties: false,
+    },
+  },
+  {
+    name: "settle_session",
+    scope: "send",
+    readOnly: false,
+    destructive: false,
+    description:
+      "Settle a session this client started, as the sidebar's Settle does: its process stops and it is listed under Settled; its worktree stays. Refused while it is working (stop it first) or waiting for the user's answer. send_to_session resumes it. Never counts toward the hourly limit.",
+    inputSchema: {
+      type: "object",
+      properties: { session: { type: "string", description: "A session id start_session reported." } },
+      required: ["session"],
+      additionalProperties: false,
+    },
+  },
+  {
+    name: "finish_session",
+    scope: "send",
+    readOnly: false,
+    destructive: true,
+    description:
+      "Clean up a worktree session this client started whose work already landed: settle it, remove its worktree, and delete the branches it made that are fully merged. It never merges or pushes. By default the work must be in the branch the worktree was based on; pass landedOn to name the branch it landed on instead (verified, never trusted). Refused while working, waiting for the user's answer, with uncommitted changes, or with commits the destination lacks. A session started with workspace checkout has nothing to finish; settle it. Never counts toward the hourly limit.",
+    inputSchema: {
+      type: "object",
+      properties: {
+        session: { type: "string", description: "A session id start_session reported." },
+        landedOn: { type: "string", description: "The local branch the work landed on, when it is not the worktree's base." },
+      },
+      required: ["session"],
+      additionalProperties: false,
+    },
+  },
 ];
 
 export function mcpTool(name: string): McpToolDescriptor | undefined {
@@ -292,7 +367,7 @@ export function mcpTool(name: string): McpToolDescriptor | undefined {
 export type McpToolArguments =
   | { ok: true; tool: "list_machines" | "list_projects" }
   | { ok: true; tool: "list_sessions"; machine: string | null; project: string | null }
-  | { ok: true; tool: "session_status"; session: string }
+  | { ok: true; tool: "session_status"; session: string; waitMs: number }
   | {
       ok: true;
       tool: "start_session";
@@ -302,8 +377,12 @@ export type McpToolArguments =
       title: string | null;
       planMode: boolean;
       workspace: "worktree" | "checkout";
+      model: string | null;
+      thinkingLevel: string | null;
     }
   | { ok: true; tool: "send_to_session"; session: string; message: string; mode: "queue" | "steer" }
+  | { ok: true; tool: "stop_session" | "settle_session"; session: string }
+  | { ok: true; tool: "finish_session"; session: string; landedOn: string | null }
   | { ok: false; reason: string };
 
 function refuse(reason: string): { ok: false; reason: string } {
@@ -343,13 +422,19 @@ export function parseMcpToolArguments(name: McpToolName, raw: unknown): McpToolA
       return { ok: true, tool: name, machine, project };
     }
     case "session_status": {
-      const bad = unknownArg(["session"]);
+      const bad = unknownArg(["session", "waitMs"]);
       if (bad !== null) return bad;
       if (typeof a.session !== "string" || a.session.trim() === "") return refuse("session must be a non-empty string");
-      return { ok: true, tool: name, session: a.session.trim() };
+      if (
+        a.waitMs !== undefined &&
+        (typeof a.waitMs !== "number" || !Number.isInteger(a.waitMs) || a.waitMs < 0 || a.waitMs > FLEET_STATUS_WAIT_MAX_MS)
+      ) {
+        return refuse(`waitMs must be a whole number from 0 to ${FLEET_STATUS_WAIT_MAX_MS}`);
+      }
+      return { ok: true, tool: name, session: a.session.trim(), waitMs: typeof a.waitMs === "number" ? a.waitMs : 0 };
     }
     case "start_session": {
-      const bad = unknownArg(["prompt", "project", "machine", "title", "planMode", "workspace"]);
+      const bad = unknownArg(["prompt", "project", "machine", "title", "planMode", "workspace", "model", "thinkingLevel"]);
       if (bad !== null) return bad;
       if (typeof a.prompt !== "string" || a.prompt.trim() === "") return refuse("prompt must not be blank");
       if (typeof a.project !== "string" || a.project.trim() === "") return refuse("project must be a non-empty string");
@@ -360,6 +445,14 @@ export function parseMcpToolArguments(name: McpToolName, raw: unknown): McpToolA
       if (a.workspace !== undefined && a.workspace !== "worktree" && a.workspace !== "checkout") {
         return refuse("workspace must be worktree or checkout");
       }
+      let model: string | null = null;
+      let thinkingLevel: string | null = null;
+      try {
+        if (a.model !== undefined) model = validateFleetModel(a.model);
+        if (a.thinkingLevel !== undefined) thinkingLevel = validateFleetThinkingLevel(a.thinkingLevel);
+      } catch (error) {
+        return refuse((error as Error).message);
+      }
       return {
         ok: true,
         tool: name,
@@ -369,6 +462,8 @@ export function parseMcpToolArguments(name: McpToolName, raw: unknown): McpToolA
         title: typeof a.title === "string" && a.title.trim() !== "" ? a.title : null,
         planMode: a.planMode !== false,
         workspace: a.workspace === "checkout" ? "checkout" : "worktree",
+        model,
+        thinkingLevel,
       };
     }
     case "send_to_session": {
@@ -378,6 +473,22 @@ export function parseMcpToolArguments(name: McpToolName, raw: unknown): McpToolA
       if (typeof a.message !== "string" || a.message.trim() === "") return refuse("message must not be blank");
       if (a.mode !== undefined && a.mode !== "queue" && a.mode !== "steer") return refuse("mode must be queue or steer");
       return { ok: true, tool: name, session: a.session.trim(), message: a.message, mode: a.mode === "steer" ? "steer" : "queue" };
+    }
+    case "stop_session":
+    case "settle_session": {
+      const bad = unknownArg(["session"]);
+      if (bad !== null) return bad;
+      if (typeof a.session !== "string" || a.session.trim() === "") return refuse("session must be a non-empty string");
+      return { ok: true, tool: name, session: a.session.trim() };
+    }
+    case "finish_session": {
+      const bad = unknownArg(["session", "landedOn"]);
+      if (bad !== null) return bad;
+      if (typeof a.session !== "string" || a.session.trim() === "") return refuse("session must be a non-empty string");
+      if (a.landedOn !== undefined && (typeof a.landedOn !== "string" || a.landedOn.trim() === "")) {
+        return refuse("landedOn must be a non-empty branch name");
+      }
+      return { ok: true, tool: name, session: a.session.trim(), landedOn: typeof a.landedOn === "string" ? a.landedOn.trim() : null };
     }
   }
 }

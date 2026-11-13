@@ -131,6 +131,10 @@ import {
   type FleetFinishRequest,
   type FleetFinishOutcome,
   type FleetFinishWorkingBranch,
+  type FleetRequester,
+  type FleetSessionRequest,
+  type FleetStopOutcome,
+  type FleetSettleOutcome,
   type AskSource,
   type ObsidianListEntry,
   type RpcFrame,
@@ -264,6 +268,33 @@ export interface FleetDispatcherLike {
 const AGENT_FLEET_DEADLINE_MS = 45_000;
 /** Commands that start or extend a turn: refused while the model is held (#932). */
 const MODEL_HOLD_COMMANDS: ReadonlySet<string> = new Set(["prompt", "steer", "follow_up", "abort_and_prompt"]);
+/** omp's ack window for a fleet command sent into a live child (#959, #1164). */
+const FLEET_COMMAND_ACK_MS = 15_000;
+const FLEET_STOP_COMMAND_PREFIX = "omp-ui-fleet-stop-";
+
+/**
+ * One owner rule for every fleet session verb (send, finish, stop, settle):
+ * the caller is the record's own dispatcher — an agent tab or an MCP client
+ * (ADR-0080) — kind included, so an MCP client id never stands in for a tab.
+ */
+function fleetRequesterOwns(
+  by: FleetRequester,
+  requester: FleetRequester,
+): by is FleetRequester & { kind: "agent" | "mcp" } {
+  return (
+    (by.kind === "agent" || by.kind === "mcp") &&
+    by.kind === requester.kind &&
+    by.instanceId === requester.instanceId &&
+    by.sourceTabId !== null &&
+    by.sourceTabId === requester.sourceTabId
+  );
+}
+
+function fleetOwnerRefusal(by: FleetRequester, verb: "send to" | "finish" | "stop" | "settle"): string {
+  return by.kind === "mcp"
+    ? `only the MCP client that started this session can ${verb} it`
+    : `only the session that dispatched this work can ${verb} it`;
+}
 
 export interface SessionManagerDependencies {
   registry: Registry;
@@ -419,6 +450,8 @@ export class SessionManager {
   readonly #wakeResumeAt = new Map<string, number>();
   /** Pending acks for live fleet_send prompts, keyed by command id. */
   readonly #fleetSendAcks = new Map<string, (ok: boolean) => void>();
+  /** Pending acks for fleet stop aborts (#1164), keyed by command id. */
+  readonly #fleetStopAcks = new Map<string, (ok: boolean) => void>();
   /** One `omp models` read shared by concurrent fleet spawns (#956); never cached past settle, so a new sign-in counts at the next dispatch. */
   #catalogRead: Promise<ModelCatalogSnapshot> | null = null;
   private obsidianListPending: Promise<ObsidianListEntry[]> | null = null;
@@ -1877,6 +1910,14 @@ export class SessionManager {
           this.#fleetSendAcks.get(control.id)?.(control.success === true);
           if (control.success !== true) console.warn("[fleet] sent message rejected:", record.tabId);
         }
+        // A fleet stop's ack (#1164): omp answers `abort` once the agent is idle.
+        if (
+          control?.kind === "response" &&
+          typeof control.id === "string" &&
+          control.id.startsWith(FLEET_STOP_COMMAND_PREFIX)
+        ) {
+          this.#fleetStopAcks.get(control.id)?.(control.success === true);
+        }
         if (
           control !== null &&
           control.kind === "ext_request" &&
@@ -2227,16 +2268,7 @@ export class SessionManager {
     if (record === undefined || record.fleet === null)
       return refused(`no session on this machine carries dispatch ${req.dispatchId}`);
     const by = record.fleet.requestedBy;
-    // An agent session or an MCP client (ADR-0080) may send to what it started;
-    // the kind must match too, so an MCP client id never stands in for a tab.
-    if (
-      (by.kind !== "agent" && by.kind !== "mcp") ||
-      by.kind !== req.requester.kind ||
-      by.instanceId !== req.requester.instanceId ||
-      by.sourceTabId === null ||
-      by.sourceTabId !== req.requester.sourceTabId
-    )
-      return refused(by.kind === "mcp" ? "only the MCP client that started this session can send to it" : "only the session that dispatched this work can send to it");
+    if (!fleetRequesterOwns(by, req.requester)) return refused(fleetOwnerRefusal(by, "send to"));
     if (record.mode !== "rpc-ui") return refused("the dispatched session runs in terminal mode");
     const absLineageDir = path.join(this.deps.getSessionsRoot(), record.lineageDir);
     const id = randomUUID();
@@ -2256,7 +2288,7 @@ export class SessionManager {
         message: text,
         streamingBehavior: req.mode === "steer" ? "steer" : "followUp",
       });
-      const timer = setTimeout(() => ack.resolve(null), 15_000);
+      const timer = setTimeout(() => ack.resolve(null), FLEET_COMMAND_ACK_MS);
       const answer = await ack.promise;
       clearTimeout(timer);
       this.#fleetSendAcks.delete(cmdId);
@@ -2289,13 +2321,7 @@ export class SessionManager {
     if (record === undefined || record.fleet === null)
       return refused(`no session on this machine carries dispatch ${req.dispatchId}`);
     const by = record.fleet.requestedBy;
-    if (
-      by.kind !== "agent" ||
-      by.instanceId !== req.requester.instanceId ||
-      by.sourceTabId === null ||
-      by.sourceTabId !== req.requester.sourceTabId
-    )
-      return refused("only the session that dispatched this work can finish it");
+    if (!fleetRequesterOwns(by, req.requester)) return refused(fleetOwnerRefusal(by, "finish"));
     const wt = record.worktree;
     if (wt === null) return refused("the dispatched session does not run in a worktree; there is nothing to finish");
     const tabId = record.tabId;
@@ -2352,6 +2378,66 @@ export class SessionManager {
       branchOutcome: release.branchOutcome,
       workingBranches,
     };
+  }
+
+  /**
+   * MCP stop_session on the owner (#1164): plain `abort`, the stall watchdog's
+   * verb, into the running turn. Never over the user's answer; a session with
+   * no running turn answers `idle` without sending anything.
+   */
+  async fleetStop(req: FleetSessionRequest): Promise<FleetStopOutcome> {
+    const refused = (reason: string): FleetStopOutcome => ({ status: "refused", reason });
+    const record = this.deps.registry.sessions.find((s) => s.fleet?.dispatchId === req.dispatchId);
+    if (record === undefined || record.fleet === null)
+      return refused(`no session on this machine carries dispatch ${req.dispatchId}`);
+    const by = record.fleet.requestedBy;
+    if (!fleetRequesterOwns(by, req.requester)) return refused(fleetOwnerRefusal(by, "stop"));
+    const tabId = record.tabId;
+    if (this.awaitingHumanAnswer(tabId))
+      return refused("the session is waiting for the user's answer; only the user can answer it");
+    const entry = this.live.get(tabId);
+    if (entry?.kind !== "rpc-ui" || entry.rpc === null || !this.turns.isRunning(tabId)) return { status: "idle" };
+    const cmdId = `${FLEET_STOP_COMMAND_PREFIX}${randomUUID()}`;
+    const ack = Promise.withResolvers<boolean | null>();
+    this.#fleetStopAcks.set(cmdId, ack.resolve);
+    this.rpcSend(tabId, { type: "abort", id: cmdId });
+    const timer = setTimeout(() => ack.resolve(null), FLEET_COMMAND_ACK_MS);
+    const answer = await ack.promise;
+    clearTimeout(timer);
+    this.#fleetStopAcks.delete(cmdId);
+    if (answer === false) return refused("omp rejected the stop");
+    if (answer === null) return { status: "pending" };
+    this.deps.send(CH.onRpcFrame, tabId, {
+      type: "omp_ui_notice",
+      level: "info",
+      source: "omp-ui",
+      message:
+        by.kind === "mcp"
+          ? "The MCP client that started this session stopped its turn."
+          : "The session that dispatched this work stopped its turn.",
+    });
+    return { status: "stopped" };
+  }
+
+  /**
+   * MCP settle_session on the owner (#1165): the sidebar Settle reap
+   * (`settleSession`) for a dispatched session, refused mid-turn and over the
+   * user's answer so ending work is always an explicit stop first.
+   */
+  async fleetSettle(req: FleetSessionRequest): Promise<FleetSettleOutcome> {
+    const refused = (reason: string): FleetSettleOutcome => ({ status: "refused", reason });
+    const record = this.deps.registry.sessions.find((s) => s.fleet?.dispatchId === req.dispatchId);
+    if (record === undefined || record.fleet === null)
+      return refused(`no session on this machine carries dispatch ${req.dispatchId}`);
+    const by = record.fleet.requestedBy;
+    if (!fleetRequesterOwns(by, req.requester)) return refused(fleetOwnerRefusal(by, "settle"));
+    const tabId = record.tabId;
+    if (this.pendingOp(tabId)) return refused("another operation on the session is still running");
+    if (this.turns.isRunning(tabId)) return refused("the session is still working; stop it first");
+    if (this.awaitingHumanAnswer(tabId))
+      return refused("the session is waiting for the user's answer; only the user can answer it");
+    if (!(await this.settleSession(tabId))) return refused("the session's process did not stop");
+    return { status: "settled" };
   }
 
   /** The observer fan-out + client broadcast tail of `onFrame` (§5.3). */

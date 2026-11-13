@@ -1301,7 +1301,19 @@ export interface FleetAuditEntry {
   dispatcherLabel: string;
   /** The agent's tab on the dispatcher when the call came from a tool. */
   sourceTabId: string | null;
-  action: "exec" | "exec-detached" | "manage" | "keys" | "update" | "send" | "finish" | "terminal" | "grant-raise" | "grant-set";
+  action:
+    | "exec"
+    | "exec-detached"
+    | "manage"
+    | "keys"
+    | "update"
+    | "send"
+    | "finish"
+    | "stop"
+    | "settle"
+    | "terminal"
+    | "grant-raise"
+    | "grant-set";
   /** The rung used (actions) or the literal marker for grant bookkeeping. */
   rung: FleetRung | "raise" | "set";
   accepted: boolean;
@@ -1411,6 +1423,31 @@ export function parseFleetSendRequest(value: unknown): FleetSendRequest {
   };
 }
 
+/** One lifecycle verb into a dispatched session from its own requester (#1164, #1165); the owner authorizes. */
+export interface FleetSessionRequest {
+  requester: FleetRequester;
+  dispatchId: string;
+}
+/** `pending`: abort sent, omp did not confirm within the ack window. `idle`: no running turn to stop. */
+export type FleetStopOutcome =
+  | { status: "stopped" }
+  | { status: "idle" }
+  | { status: "pending" }
+  | { status: "refused"; reason: string };
+/** `settled`: the process is gone (or already was) and the record carries settledAtMs. */
+export type FleetSettleOutcome = { status: "settled" } | { status: "refused"; reason: string };
+
+/** Strict parse of a fleet stop/settle request (codec + owner entry check). */
+export function parseFleetSessionRequest(value: unknown): FleetSessionRequest {
+  const label = "session request";
+  const req = objectValue(value, label);
+  rejectUnknownKeys(req, ["requester", "dispatchId"], label);
+  return {
+    requester: parseFleetRequester(req.requester, `${label}.requester`),
+    dispatchId: idString(req.dispatchId, `${label}.dispatchId`),
+  };
+}
+
 /** The text the child sees; the prefix is fixed so the transcript says who spoke. */
 export function fleetSendText(message: string, from: "agent" | "mcp"): string {
   return from === "mcp"
@@ -1470,6 +1507,33 @@ export function parseFleetFinishRequest(value: unknown): FleetFinishRequest {
     dispatchId: idString(req.dispatchId, `${label}.dispatchId`),
     ...landedOn,
   };
+}
+
+/** Render one fleet finish outcome (issue #978): what was removed, what stayed, and why. `label` names the session ("dispatch …" or "session …"). */
+export function fleetFinishText(label: string, outcome: FleetFinishOutcome): string {
+  if (outcome.status === "refused") return `refused — ${outcome.reason}`;
+  const branchText = (kind: string): string =>
+    ({
+      removed: "deleted",
+      "already-gone": "already gone",
+      "kept-requested": "kept",
+      "kept-unmerged": `kept: not fully in ${outcome.destination}`,
+      "kept-no-destination": "kept: no base branch to check it against",
+      "kept-refused": "kept: git refused to delete it",
+      "not-attempted": "kept: the worktree stayed",
+      "not-made-here": "kept: it existed before the worktree",
+    })[kind] ?? kind;
+  const lines = [
+    `finished ${label}: its work is in ${outcome.destination}, and the session is settled.`,
+    outcome.checkoutKept === null
+      ? `- worktree ${outcome.worktreePath}: removed`
+      : outcome.checkoutKept === "gone"
+        ? `- worktree ${outcome.worktreePath}: already gone`
+        : `- worktree ${outcome.worktreePath}: kept (${outcome.checkoutKept})`,
+    `- branch ${outcome.branch}: ${branchText(outcome.branchOutcome)}`,
+    ...outcome.workingBranches.map((b) => `- branch ${b.branch}: ${branchText(b.outcome)}`),
+  ];
+  return lines.join("\n");
 }
 
 const FLEET_PROVIDER_KEY_VALUE_MAX_BYTES = 8_192;

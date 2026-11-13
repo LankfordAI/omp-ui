@@ -105,6 +105,14 @@ export function fleetChildSettled(
   return s.sessionId !== null && s.status !== null && TERMINAL.has(s.status);
 }
 
+/** Still on its way to an answer (#958): working, or a dispatched child whose first run has not finished. */
+export function fleetChildBusy(
+  s: Pick<SessionSummary, "live" | "pendingPlan" | "awaitingHumanAnswer" | "turnRunning" | "sessionId" | "status">,
+): boolean {
+  const state = fleetSessionState(s);
+  return state === "working" || ((state === "idle" || state === "dormant") && !fleetChildSettled(s));
+}
+
 function capText(text: string): string {
   if (text.length <= FLEET_WAKE_TEXT_MAX) return text;
   let end = FLEET_WAKE_TEXT_MAX - 1; // room for the ellipsis inside the ceiling

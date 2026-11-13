@@ -259,8 +259,8 @@ export const REMOTE_PROXY_CHANNELS: ReadonlySet<string> = new Set<string>([
   // local fleet:rolloutProviderKeys orchestration stays off this list. Fleet
   // remote version update follows the same split: fleet:updateMember and
   // fleet:updatePoll are proxied; the local fleet:updateMachine is not. Fleet
-  // send (#959) and fleet finish (#978) are proxied too; the owner re-checks
-  // the dispatcher and rung. Project copy's file write (#992) is proxied and
+  // send (#959), finish (#978), stop (#1164) and settle (#1165) are proxied
+  // too; the owner re-checks the requester and rung. Project copy's file write (#992) is proxied and
   // main-to-main; its local fleet:copyProject / fleet:projectCopyPreview
   // orchestration stays off this list. Fleet terminal (#991, ADR-0084): the
   // member legs — open, renew, end, write, size — are proxied and the owner
@@ -278,6 +278,8 @@ export const REMOTE_PROXY_CHANNELS: ReadonlySet<string> = new Set<string>([
   "fleet:updatePoll",
   "fleet:send",
   "fleet:finish",
+  "fleet:stop",
+  "fleet:settle",
   "fleet:terminalOpen",
   "fleet:terminalRenew",
   "fleet:terminalEnd",

@@ -43,6 +43,9 @@ import type {
   FleetRung,
   FleetSendOutcome,
   FleetSendRequest,
+  FleetSessionRequest,
+  FleetSettleOutcome,
+  FleetStopOutcome,
   FleetTerminalEndRequest,
   FleetTerminalOpenOutcome,
   FleetTerminalOpenRequest,
@@ -339,39 +342,37 @@ export function registerFleetLegs(deps: FleetLegsDeps): FleetLegsHandle {
 
   const sessions = deps.sessions;
   if (sessions !== undefined) {
-    // `fleet:send` (#959): a foreign instance needs the Dispatch rung; the own
-    // instance skips the ladder. The message text never enters the ring.
-    request[CH.fleetSend] = async (req: FleetSendRequest): Promise<FleetSendOutcome> => {
+    // The fleet session verbs' shared gate (#959, #978, #1164, #1165), as
+    // FleetServer's: a foreign instance needs the Dispatch rung, the own
+    // instance skips the ladder. Message text never enters the ring.
+    const sessionVerb = async <O extends { status: string }>(
+      action: "send" | "finish" | "stop" | "settle",
+      req: { requester: FleetRequester; dispatchId: string },
+      deliver: () => Promise<O>,
+      accepted: (outcome: O) => boolean,
+    ): Promise<O | { status: "refused"; reason: string }> => {
       const own = req.requester.instanceId === registry.getSetting("instanceId");
       let rung: FleetRung = "dispatch";
       if (!own) {
         const gate = check(req.requester, "dispatch");
         if (!gate.ok) {
-          audit("send", req.requester, "dispatch", false, req.dispatchId.slice(0, 8), null);
+          audit(action, req.requester, "dispatch", false, req.dispatchId.slice(0, 8), null);
           return { status: "refused", reason: gate.reason };
         }
         rung = gate.rung;
       }
-      const outcome = await sessions.deliverSend(req);
-      audit("send", req.requester, rung, outcome.status !== "refused", `${req.dispatchId.slice(0, 8)} ${outcome.status}`, null);
+      const outcome = await deliver();
+      audit(action, req.requester, rung, accepted(outcome), `${req.dispatchId.slice(0, 8)} ${outcome.status}`, null);
       return outcome;
     };
-    // `fleet:finish` (#978): the same gate as send.
-    request[CH.fleetFinish] = async (req: FleetFinishRequest): Promise<FleetFinishOutcome> => {
-      const own = req.requester.instanceId === registry.getSetting("instanceId");
-      let rung: FleetRung = "dispatch";
-      if (!own) {
-        const gate = check(req.requester, "dispatch");
-        if (!gate.ok) {
-          audit("finish", req.requester, "dispatch", false, req.dispatchId.slice(0, 8), null);
-          return { status: "refused", reason: gate.reason };
-        }
-        rung = gate.rung;
-      }
-      const outcome = await sessions.deliverFinish(req);
-      audit("finish", req.requester, rung, outcome.status === "finished", `${req.dispatchId.slice(0, 8)} ${outcome.status}`, null);
-      return outcome;
-    };
+    request[CH.fleetSend] = (req: FleetSendRequest): Promise<FleetSendOutcome> =>
+      sessionVerb("send", req, () => sessions.deliverSend(req), (o) => o.status !== "refused");
+    request[CH.fleetFinish] = (req: FleetFinishRequest): Promise<FleetFinishOutcome> =>
+      sessionVerb("finish", req, () => sessions.deliverFinish(req), (o) => o.status === "finished");
+    request[CH.fleetStop] = (req: FleetSessionRequest): Promise<FleetStopOutcome> =>
+      sessionVerb("stop", req, () => sessions.deliverStop(req), (o) => o.status !== "refused");
+    request[CH.fleetSettle] = (req: FleetSessionRequest): Promise<FleetSettleOutcome> =>
+      sessionVerb("settle", req, () => sessions.deliverSettle(req), (o) => o.status === "settled");
   }
 
   const providerKeys = deps.providerKeys;

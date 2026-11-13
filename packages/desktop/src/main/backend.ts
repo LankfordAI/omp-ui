@@ -138,6 +138,7 @@ import {
   type FleetTerminalRenewRequest,
   type FleetSendRequest,
   type FleetFinishRequest,
+  type FleetSessionRequest,
   type FleetHostReport,
   type FleetUpdateRequest,
   type FleetUpdateMemberRequest,
@@ -710,6 +711,10 @@ export class MainBackend {
       summary: (machineKey, tabId) => this.fleetChildSummary(machineKey, tabId),
       dispatch: (clientId, req, dispatchOpts) => this.fleet.dispatch(req, { kind: "mcp", sourceTabId: clientId }, dispatchOpts),
       send: (clientId, args) => this.fleet.send(clientId, args, "mcp"),
+      finish: (clientId, args) => this.fleet.finish(clientId, args, "mcp"),
+      stop: (clientId, dispatchId) => this.fleet.stop(clientId, dispatchId),
+      settle: (clientId, dispatchId) => this.fleet.settle(clientId, dispatchId),
+      nextBroadcast: (timeoutMs) => this.#nextBroadcast(timeoutMs),
       publish: (state) => this.send(CH.onMcpEndpointState, state),
     });
     this.remote = new RemoteServerManager({
@@ -777,19 +782,11 @@ export class MainBackend {
       probeSsh: (host) => probeSshPort(host),
       providerKeyValue: (envName) => this.providerKeys.rolloutValue(envName),
       watchAgentDispatch: (sourceTabId, dispatches) => this.fleetWake.watch(sourceTabId, dispatches),
-      nextBroadcast: (timeoutMs) => {
-        const { promise, resolve } = Promise.withResolvers<void>();
-        const done = (): void => {
-          clearTimeout(timer);
-          this.#broadcastWaiters.delete(done);
-          resolve();
-        };
-        const timer = setTimeout(done, timeoutMs);
-        this.#broadcastWaiters.add(done);
-        return promise;
-      },
+      nextBroadcast: (timeoutMs) => this.#nextBroadcast(timeoutMs),
       sendLocal: (req) => this.fleetServer.send(req),
       finishLocal: (req) => this.fleetServer.finish(req),
+      stopLocal: (req) => this.fleetServer.stop(req),
+      settleLocal: (req) => this.fleetServer.settle(req),
       readProjectCopy: (projectCwd, picked) => readProjectCopyFiles(this.registeredProjectPath(projectCwd), picked),
     });
     // The node half of the fleet ladder (issue #901): the owner answers for
@@ -817,6 +814,8 @@ export class MainBackend {
       pinned: () => ompPinActive(),
       deliverSend: (req) => this.sessions.fleetSend(req),
       deliverFinish: (req) => this.sessions.fleetFinish(req),
+      deliverStop: (req) => this.sessions.fleetStop(req),
+      deliverSettle: (req) => this.sessions.fleetSettle(req),
       // The member's terminal bytes reach its socket clients; sendToRenderers drops them for this window.
       sendToClients: (channel, args) => this.send(channel, ...args),
     });
@@ -1752,6 +1751,10 @@ export class MainBackend {
         [CH.fleetSend]: (req: FleetSendRequest) => this.fleetServer.send(req),
         // Fleet finish (issue #978): proxied to the owner, which authorizes, re-checks the git facts, and audits.
         [CH.fleetFinish]: (req: FleetFinishRequest) => this.fleetServer.finish(req),
+        // Fleet stop (issue #1164): proxied to the owner, which authorizes, aborts, and audits.
+        [CH.fleetStop]: (req: FleetSessionRequest) => this.fleetServer.stop(req),
+        // Fleet settle (issue #1165): proxied to the owner, which authorizes, settles, and audits.
+        [CH.fleetSettle]: (req: FleetSessionRequest) => this.fleetServer.settle(req),
         [CH.fleetProviderKeys]: (req: FleetProviderKeysRequest) => this.fleetServer.providerKeys(req),
         [CH.fleetRolloutProviderKeys]: (machineKey: string, envNames: string[]) =>
           this.fleet.rolloutProviderKeys(machineKey, envNames),
@@ -3034,6 +3037,19 @@ export class MainBackend {
     // returned to this caller: `task` still carries its own rejection.
     this.broadcastChain = task.catch(() => {});
     return task;
+  }
+
+  /** Resolves after the next completed state broadcast, or after `timeoutMs`: fleet status and MCP session_status long-polls. */
+  #nextBroadcast(timeoutMs: number): Promise<void> {
+    const { promise, resolve } = Promise.withResolvers<void>();
+    const done = (): void => {
+      clearTimeout(timer);
+      this.#broadcastWaiters.delete(done);
+      resolve();
+    };
+    const timer = setTimeout(done, timeoutMs);
+    this.#broadcastWaiters.add(done);
+    return promise;
   }
 
   /** Wakes every long-poll fleet status waiter after a completed broadcast (issue #958). */

@@ -177,3 +177,33 @@ token is not kept.
 - Without HTTPS a token crosses the network in the clear; the endpoint
   inherits remote access's guidance to keep the listener on localhost or
   behind a terminator.
+
+**Amended 2026-11-13 (#1162–#1166):** the endpoint gains the lifecycle an
+always-on outside agent needs to follow and end the work it starts.
+
+- `session_status` takes `waitMs` (0–45000) and long-polls state broadcasts
+  like `omp-ui_fleet_status` (ADR-0069). "Busy" is working, or a dispatched
+  child whose first run has not finished; a plain idle session answers at once.
+- `start_session` passes `model` and `thinkingLevel` through to the dispatch
+  (#956); the owning machine resolves or refuses them. An `mcp` requester
+  never defaults to the machine's favorites.
+- Three `send`-scope verbs act only on sessions the client started:
+  `stop_session` (omp `abort` into the running turn, acknowledged within
+  15 s or answered as pending), `settle_session` (the sidebar Settle), and
+  `finish_session` (the #978 landed-worktree finish, MCP annotation
+  `destructiveHint: true`). On a joined member they ride `fleet:stop`,
+  `fleet:settle`, and the existing `fleet:finish` at the Dispatch rung, and
+  the owner audits them as `stop`, `settle`, and `finish`.
+- The owner applies one requester rule to every session verb (send, finish,
+  stop, settle): the recorded requester is an agent or an MCP client, and its
+  kind, instance, and id all match the caller's.
+- None of the verbs spends the hourly limit: they end spending rather than
+  start it.
+- All three refuse a session awaiting the user's answer: a client must never
+  answer or dismiss a gate Plan mode puts in front of the user. Settle and
+  finish also refuse mid-turn, so ending running work takes two explicit
+  calls (stop, then settle or finish).
+
+Rejected: `abort_and_restore_queue` for stop (it restores queued text into a
+window's composer, which means nothing to an outside client), and answering
+plan reviews or dialogs over MCP.

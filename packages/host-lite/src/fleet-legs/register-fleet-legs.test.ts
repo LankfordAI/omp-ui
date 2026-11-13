@@ -377,7 +377,16 @@ describe("lite member send/finish gates (issues #959, #978)", () => {
     const registry = fakeRegistry({ fleetGrants: { [MANAGER.instanceId]: { rung: "observe", label: "desk", updatedAt: "t" } } });
     const deliverSend = vi.fn(async () => ({ status: "delivered" as const }));
     const table = tableOf(
-      registerFleetLegs({ registry, host: hostSeam(), sessions: { deliverSend, deliverFinish: async () => ({ status: "refused", reason: "x" }) } }),
+      registerFleetLegs({
+        registry,
+        host: hostSeam(),
+        sessions: {
+          deliverSend,
+          deliverFinish: async () => ({ status: "refused", reason: "x" }),
+          deliverStop: async () => ({ status: "idle" }),
+          deliverSettle: async () => ({ status: "settled" }),
+        },
+      }),
     );
     const args = [{ requester: MANAGER, dispatchId: "dispatch-0001", message: "work", mode: "steer" }];
     // Observe is under Dispatch: refused before anything is staged.
@@ -395,7 +404,16 @@ describe("lite member send/finish gates (issues #959, #978)", () => {
     registry.store.instanceId = MANAGER.instanceId; // the owner addressing itself (loopback join)
     const deliverSend = vi.fn(async () => ({ status: "delivered" as const }));
     const table = tableOf(
-      registerFleetLegs({ registry, host: hostSeam(), sessions: { deliverSend, deliverFinish: async () => ({ status: "refused", reason: "x" }) } }),
+      registerFleetLegs({
+        registry,
+        host: hostSeam(),
+        sessions: {
+          deliverSend,
+          deliverFinish: async () => ({ status: "refused", reason: "x" }),
+          deliverStop: async () => ({ status: "idle" }),
+          deliverSettle: async () => ({ status: "settled" }),
+        },
+      }),
     );
     expect(await dispatchRequest(table, CH.fleetSend, [{ requester: MANAGER, dispatchId: "dispatch-0001", message: "hey", mode: "queue" }])).toEqual({
       status: "delivered",
@@ -430,7 +448,12 @@ describe("lite member channel table (absent not denied)", () => {
       host: hostSeam(),
       exec: fakeExec(),
       terminals: fakeTerminals(),
-      sessions: { deliverSend: async () => ({ status: "delivered" }), deliverFinish: async () => ({ status: "refused", reason: "x" }) },
+      sessions: {
+        deliverSend: async () => ({ status: "delivered" }),
+        deliverFinish: async () => ({ status: "refused", reason: "x" }),
+        deliverStop: async () => ({ status: "idle" }),
+        deliverSettle: async () => ({ status: "settled" }),
+      },
       providerKeys: { install: () => {} },
     });
     const channels = Object.keys(full.request);
@@ -446,7 +469,16 @@ describe("lite member channel table (absent not denied)", () => {
     ]) {
       expect(channels).not.toContain(never);
     }
-    for (const proxied of [CH.fleetExec, CH.fleetExecDetach, CH.fleetExecPoll, CH.fleetSend, CH.fleetFinish, CH.fleetProviderKeys]) {
+    for (const proxied of [
+      CH.fleetExec,
+      CH.fleetExecDetach,
+      CH.fleetExecPoll,
+      CH.fleetSend,
+      CH.fleetFinish,
+      CH.fleetStop,
+      CH.fleetSettle,
+      CH.fleetProviderKeys,
+    ]) {
       expect(channels).toContain(proxied);
     }
     expect(Object.keys(full.notify).sort()).toEqual([CH.fleetTerminalWrite, CH.fleetTerminalSize].sort());

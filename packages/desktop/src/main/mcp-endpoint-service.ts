@@ -10,7 +10,9 @@ import {
   LOCAL_MACHINE_KEY,
   MCP_GLOBAL_PER_HOUR,
   MCP_SESSION_LIST_MAX,
+  fleetChildBusy,
   fleetChoiceText,
+  fleetFinishText,
   fleetMachineName,
   fleetSessionState,
   fleetToolDispatchRequest,
@@ -24,7 +26,11 @@ import {
   type FleetDispatchRequest,
   type FleetDispatchResult,
   type FleetMachine,
+  type FleetFinishOutcome,
   type FleetSendOutcome,
+  type FleetSettleOutcome,
+  type FleetStopOutcome,
+  type FleetToolFinishArgs,
   type FleetToolSendArgs,
   type McpCall,
   type McpCallLog,
@@ -75,6 +81,13 @@ export interface McpEndpointServiceDeps {
   dispatch(clientId: string, req: FleetDispatchRequest, opts: { deadlineMs: number }): Promise<FleetDispatchResult>;
   /** FleetDispatcher.send with requester kind "mcp" and the client id. */
   send(clientId: string, args: FleetToolSendArgs): Promise<FleetSendOutcome>;
+  /** FleetDispatcher.finish with requester kind "mcp" and the client id. */
+  finish(clientId: string, args: FleetToolFinishArgs): Promise<FleetFinishOutcome>;
+  /** FleetDispatcher.stop / settle (kind "mcp"). */
+  stop(clientId: string, dispatchId: string): Promise<FleetStopOutcome>;
+  settle(clientId: string, dispatchId: string): Promise<FleetSettleOutcome>;
+  /** Resolves after the next completed state broadcast, or after timeoutMs. */
+  nextBroadcast(timeoutMs: number): Promise<void>;
   /** Pushes `mcp:state` to every client. */
   publish(state: McpEndpointState): void;
   now?: () => number;
@@ -232,11 +245,17 @@ export class McpEndpointService implements McpIntake {
       case "list_sessions":
         return this.#listSessions(client, parsed.machine, parsed.project);
       case "session_status":
-        return this.#status(parsed.session);
+        return this.#status(parsed.session, parsed.waitMs);
       case "start_session":
         return this.#start(client, parsed);
       case "send_to_session":
         return this.#sendTo(client, parsed.session, parsed.message, parsed.mode);
+      case "stop_session":
+        return this.#stop(client, parsed.session);
+      case "settle_session":
+        return this.#settle(client, parsed.session);
+      case "finish_session":
+        return this.#finish(client, parsed.session, parsed.landedOn);
     }
   }
 
@@ -291,9 +310,30 @@ export class McpEndpointService implements McpIntake {
     return (await this.#visible()).find((row) => row.summary.tabId === session);
   }
 
-  async #status(session: string): Promise<Answer> {
+  /** A session this client started, or the refusal every per-session verb answers; another client's session reads as missing. */
+  async #owned(client: McpClientRecord, session: string, verbed: string): Promise<{ dispatchId: string } | Answer> {
     const row = await this.#find(session);
+    if (row === undefined || !this.#mine(client, row.summary) || row.summary.fleet == null) {
+      return refusedAnswer(`only a session this MCP client started can be ${verbed}`, session);
+    }
+    return { dispatchId: row.summary.fleet.dispatchId };
+  }
+
+  async #status(session: string, waitMs: number): Promise<Answer> {
+    let row = await this.#find(session);
     if (row === undefined) return refusedAnswer(`no session ${session}`, session);
+    // Busy: working, or a dispatched child before its first run finished (fleet status's rule, ADR-0069);
+    // a plain idle session never waits.
+    const busy = (s: SessionSummary): boolean => (s.fleet != null ? fleetChildBusy(s) : fleetSessionState(s) === "working");
+    if (waitMs > 0 && busy(row.summary)) {
+      const deadline = this.#now() + waitMs;
+      for (let left = waitMs; left > 0 && busy(row.summary); left = deadline - this.#now()) {
+        await this.#deps.nextBroadcast(left);
+        const next = await this.#find(session);
+        if (next === undefined) return refusedAnswer(`no session ${session}`, session);
+        row = next;
+      }
+    }
     const state = fleetSessionState(row.summary);
     const head = `${row.summary.title} · ${machineLabel(row)} · ${state}`;
     if (state === "working") return { text: `${head}\n\nThe session is still working; check again later.`, outcome: "ok", target: session, message: null };
@@ -325,8 +365,8 @@ export class McpEndpointService implements McpIntake {
         count: null,
         workspace: args.workspace,
         planMode: args.planMode,
-        model: null,
-        thinkingLevel: null,
+        model: args.model,
+        thinkingLevel: args.thinkingLevel,
       },
       machines,
     );
@@ -358,20 +398,57 @@ export class McpEndpointService implements McpIntake {
 
   async #sendTo(client: McpClientRecord, session: string, message: string, mode: "queue" | "steer"): Promise<Answer> {
     if (message.length > FLEET_SEND_MAX) return refusedAnswer(`message exceeds ${FLEET_SEND_MAX} characters`, session);
-    const row = await this.#find(session);
-    if (row === undefined || !this.#mine(client, row.summary) || row.summary.fleet == null) {
-      // A session someone else started reads the same as a missing one.
-      return refusedAnswer("only a session this MCP client started can receive its messages", session);
-    }
+    const owned = await this.#owned(client, session, "sent to");
+    if ("text" in owned) return owned;
     const over = this.#spend(client);
     if (over !== null) return { text: `refused — ${over}`, outcome: "rate-limited", target: session, message: over };
-    const outcome = await this.#deps.send(client.id, { dispatchId: row.summary.fleet.dispatchId, message, mode });
+    const outcome = await this.#deps.send(client.id, { dispatchId: owned.dispatchId, message, mode });
     if (outcome.status === "refused") return refusedAnswer(outcome.reason, session);
     return {
       text: outcome.status === "delivered" ? `delivered to session ${session}` : `queued — ${outcome.detail}`,
       outcome: "ok",
       target: session,
       message: outcome.status,
+    };
+  }
+
+  async #stop(client: McpClientRecord, session: string): Promise<Answer> {
+    const owned = await this.#owned(client, session, "stopped");
+    if ("text" in owned) return owned;
+    const outcome = await this.#deps.stop(client.id, owned.dispatchId);
+    if (outcome.status === "refused") return refusedAnswer(outcome.reason, session);
+    const text =
+      outcome.status === "stopped"
+        ? `stopped the running turn of session ${session}; it is idle`
+        : outcome.status === "idle"
+          ? `session ${session} has no running turn`
+          : `asked session ${session} to stop; omp has not confirmed it yet. Check session_status.`;
+    return { text, outcome: "ok", target: session, message: outcome.status };
+  }
+
+  async #settle(client: McpClientRecord, session: string): Promise<Answer> {
+    const owned = await this.#owned(client, session, "settled");
+    if ("text" in owned) return owned;
+    const outcome = await this.#deps.settle(client.id, owned.dispatchId);
+    if (outcome.status === "refused") return refusedAnswer(outcome.reason, session);
+    return {
+      text: `settled session ${session}: its process is stopped and it is listed under Settled. send_to_session resumes it.`,
+      outcome: "ok",
+      target: session,
+      message: "settled",
+    };
+  }
+
+  async #finish(client: McpClientRecord, session: string, landedOn: string | null): Promise<Answer> {
+    const owned = await this.#owned(client, session, "finished");
+    if ("text" in owned) return owned;
+    const outcome = await this.#deps.finish(client.id, { dispatchId: owned.dispatchId, ...(landedOn === null ? {} : { landedOn }) });
+    if (outcome.status === "refused") return refusedAnswer(outcome.reason, session);
+    return {
+      text: fleetFinishText(`session ${session}`, outcome),
+      outcome: "ok",
+      target: session,
+      message: `finished into ${outcome.destination}`,
     };
   }
 }
