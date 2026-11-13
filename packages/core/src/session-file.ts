@@ -8,6 +8,8 @@ export interface SessionHead {
   cwd?: string;
   title?: string;
   created?: string;
+  /** Absolute path of the transcript this one was copied from (the header's `parentSession`). */
+  parentSession?: string;
 }
 
 interface TitleSlotEntry {
@@ -21,6 +23,7 @@ interface SessionHeaderEntry {
   cwd?: unknown;
   timestamp?: unknown;
   title?: unknown;
+  parentSession?: unknown;
 }
 
 /**
@@ -47,6 +50,7 @@ export function parseSessionPrefix(prefix: string): SessionHead {
       if (typeof entry.id === "string") head.id = entry.id;
       if (typeof entry.cwd === "string") head.cwd = entry.cwd;
       if (typeof entry.timestamp === "string") head.created = entry.timestamp;
+      if (typeof entry.parentSession === "string" && entry.parentSession !== "") head.parentSession = entry.parentSession;
       const headerTitle = typeof entry.title === "string" ? entry.title : undefined;
       const title = headerTitle ?? slotTitle;
       if (title !== undefined) head.title = title;
@@ -154,6 +158,7 @@ export async function hydrateSessionFile(filePath: string): Promise<{
   title?: string;
   cwd?: string;
   created?: string;
+  parentSession?: string;
   status: SessionStatus;
   mtime: Date;
 }> {

@@ -3441,8 +3441,8 @@ export class SessionManager {
     if (loc.where !== "active") {
       throw new Error(
         loc.where === "archived"
-          ? "unarchive the session before branching it"
-          : "this session has no transcript to branch yet",
+          ? "unarchive the session before forking it"
+          : "this session has no transcript to fork yet",
       );
     }
     const lineageDir = mintLineageDirName(source.projectCwd);

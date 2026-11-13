@@ -539,6 +539,21 @@ export type LifecycleConfirmationChoice =
   | { kind: "remove-project"; projectPath: string; instanceId: string | null }
   | { kind: "remove-remote-instance"; instanceId: string; nickname: string }
   | {
+      /** Resume a session that is not running while a fork of it runs on the
+       *  same host (CONTEXT.md **Fork**). The dialog's default opens
+       *  `forkTabId` (newest live fork); accepting replays `via` with the fork
+       *  check off. `restore` carries resumeDead's PTY restore flag. */
+      kind: "resume-forked-source";
+      tabId: string;
+      title: string;
+      forkTabId: string;
+      forkTitle: string;
+      /** Live forks beyond `forkTabId`. */
+      otherForks: number;
+      via: "open" | "resume";
+      restore: boolean;
+    }
+  | {
       /** Rewind the live tab to one user prompt via omp's in-place `branch`
        *  (issue #680). `entryId` stays valid even if the leaf moves: entries
        *  are never deleted. `laterTurns` is the dialog's count of discarded
@@ -1179,6 +1194,8 @@ export interface UiStore extends SettingsSlice, UpdatesSlice, LabSlice, StatsSli
    *  confirmation-gated action reaches it through the store. */
   stageLifecycleConfirmation(choice: LifecycleConfirmationChoice): void;
   confirmLifecycleAction(id: string): Promise<void>;
+  /** Dismisses a resume-forked-source confirmation and opens its fork instead. */
+  openForkInstead(id: string): Promise<void>;
   cancelLifecycleAction(id: string): void;
   /** Backend failures awaiting acknowledgment, oldest first (issue #373). */
   errorNotices: ErrorNotice[];
@@ -1514,13 +1531,14 @@ export interface UiStore extends SettingsSlice, UpdatesSlice, LabSlice, StatsSli
   closeProjectQuickOpen(): void;
   openFinishWorktree(tabId: string): void;
   closeFinishWorktree(): void;
-  openSession(tabId: string, opts?: { activate?: boolean }): Promise<void>;
+  /** `forkCheck: false` skips the resume-forked-source question (CONTEXT.md **Fork**). */
+  openSession(tabId: string, opts?: { activate?: boolean; forkCheck?: boolean }): Promise<void>;
   focusTab(tabId: string): void;
   hideTab(tabId: string): void;
   switchMode(tabId: string, mode: SessionMode): Promise<void>;
   /** Relaunch a dead tab. `restore` relaunches the PTY with omp --restore so
    *  the interrupted turn continues (#872); ignored for rpc-ui tabs. */
-  resumeDead(tabId: string, opts?: { restore?: boolean }): Promise<void>;
+  resumeDead(tabId: string, opts?: { restore?: boolean; forkCheck?: boolean }): Promise<void>;
   /** Relaunch a dead tab forcing `model` (issue #774's recovery resume). */
   resumeWithModel(tabId: string, model: string): Promise<void>;
   deleteSession(tabId: string): Promise<void>;
@@ -1818,7 +1836,7 @@ export interface UiStore extends SettingsSlice, UpdatesSlice, LabSlice, StatsSli
   /** Share anonymized (issue #834): shells out to the installed omp's
    *  redaction command; gated on the omp version floor, hidden below it. */
   anonymizeSession(tabId: string): Promise<void>;
-  branchSession(tabId: string): Promise<void>;
+  forkIntoNewTab(tabId: string): Promise<void>;
   /**
    * Rewinds a live native session to one user prompt in place via omp's
    * `branch` RPC (issue #680): the discarded turns stay in the session file

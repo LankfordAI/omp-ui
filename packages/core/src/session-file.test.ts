@@ -68,6 +68,12 @@ describe("parseSessionPrefix", () => {
     expect(parseSessionPrefix("")).toEqual({});
     expect(parseSessionPrefix('{"type":"message"}\n')).toEqual({});
   });
+
+  it("reads the header's parentSession and leaves it absent when the header has none", () => {
+    const forkHeader = HEADER.replace('"cwd"', '"parentSession":"/s/lineage-a/source.jsonl","cwd"');
+    expect(parseSessionPrefix(`${forkHeader}\n`).parentSession).toBe("/s/lineage-a/source.jsonl");
+    expect(parseSessionPrefix(`${HEADER}\n`)).not.toHaveProperty("parentSession");
+  });
 });
 
 describe("deriveStatusFromTail", () => {

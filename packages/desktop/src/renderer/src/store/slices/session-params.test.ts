@@ -2056,7 +2056,7 @@ describe("prompting, slash commands, and session ops", () => {
     });
   });
 
-  it("branchSession forks the transcript into a new tab and leaves the source untouched (issue #83)", async () => {
+  it("forkIntoNewTab forks the transcript into a new tab and leaves the source untouched (issue #83)", async () => {
     const forked = {
       ...h.stateWithRecord("sess-fork").projects[0]!.sessions[0]!,
       tabId: "tab-fork",
@@ -2075,7 +2075,7 @@ describe("prompting, slash commands, and session ops", () => {
       activeTabId: h.TAB,
     });
 
-    await h.useStore.getState().branchSession(h.TAB);
+    await h.useStore.getState().forkIntoNewTab(h.TAB);
 
     expect(h.mockBackend.forkSession).toHaveBeenCalledWith(h.TAB);
     // The fork opens through the normal resume path and takes focus.
@@ -2096,13 +2096,13 @@ describe("prompting, slash commands, and session ops", () => {
 
   it("a failed branch reports the backend reason and changes nothing", async () => {
     h.mockBackend.forkSession.mockRejectedValueOnce(
-      new Error("this session has no transcript to branch yet"),
+      new Error("this session has no transcript to fork yet"),
     );
     h.useStore.setState({ activeTabId: h.TAB });
 
-    await h.useStore.getState().branchSession(h.TAB);
+    await h.useStore.getState().forkIntoNewTab(h.TAB);
 
-    expect(h.errorMessages()).toEqual(["this session has no transcript to branch yet"]);
+    expect(h.errorMessages()).toEqual(["this session has no transcript to fork yet"]);
     expect(h.mockBackend.spawnSession).not.toHaveBeenCalled();
     expect(h.useStore.getState().activeTabId).toBe(h.TAB);
   });

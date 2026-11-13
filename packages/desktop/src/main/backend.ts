@@ -24,6 +24,7 @@ import {
   setWatchdogRoster,
   getOmpAgentDir,
   getSessionsRoot,
+  forkParentLineage,
   hydrateSessionFile,
   readOmpAdvisorDefaults,
   readOmpModelRole,
@@ -2834,6 +2835,8 @@ export class MainBackend {
     // error } and this `.error` is intentionally swallowed: title gap-fill is
     // best-effort, "New session" remains the floor).
     const historyTitles = readSessionTitles(this.historyEnv).titles;
+    // CONTEXT.md **Fork**: a fork's header names a file in its source's lineage dir.
+    const tabByLineage = new Map(this.registry.sessions.map((r) => [r.lineageDir, r.tabId] as const));
     // Group records by project in one pass; the old per-project filter was
     // O(projects × sessions).
     const byProject = new Map<string, OwnedSessionRecord[]>();
@@ -2853,12 +2856,12 @@ export class MainBackend {
       // writes inside are synchronous — so they run concurrently; one slow disk no
       // longer stalls the rest. Order within a group follows the registry array.
       const sessions = await Promise.all(
-        (byProject.get(project.path) ?? []).map((record) => this.summarize(record, historyTitles)),
+        (byProject.get(project.path) ?? []).map((record) => this.summarize(record, historyTitles, tabByLineage)),
       );
       groups.push({ project, sessions });
     }
     // Chats never join a project group (ADR-0059); registry order is newest first.
-    const chats = await Promise.all(chatRecords.map((record) => this.summarize(record, historyTitles)));
+    const chats = await Promise.all(chatRecords.map((record) => this.summarize(record, historyTitles, tabByLineage)));
     // Registry order is preserved as-is; the renderer sorts the sidebar by recency.
     return {
       projects: groups,
@@ -2933,7 +2936,9 @@ export class MainBackend {
     // history.db index, keyed by session id. Gap-fill only — see the fallback
     // chain below. Raw strings; title-card splitting is a renderer concern
     // (parseTitleCard at display time).
-    historyTitles: SessionTitlesRead["titles"] = {},
+    historyTitles: SessionTitlesRead["titles"],
+    // Lineage dir → tabId over the whole registry, built once per buildState.
+    tabByLineage: ReadonlyMap<string, string>,
   ): Promise<SessionSummary> {
     const loc = await resolveSessionLocation(
       this.sessionsRoot,
@@ -2953,9 +2958,13 @@ export class MainBackend {
     const awaitingHumanAnswer = this.sessions.pendingAnswer(record.tabId);
     let title = record.cachedTitle;
     let status: SessionSummary["status"] = null;
+    let forkSourceTabId: string | null = null;
     if (loc.where === "active") {
       try {
         const h = await hydrateSessionFile(loc.filePath);
+        const parentDir = forkParentLineage(h.parentSession, record.lineageDir);
+        const sourceTabId = parentDir === null ? undefined : tabByLineage.get(parentDir);
+        if (sourceTabId !== undefined && sourceTabId !== record.tabId) forkSourceTabId = sourceTabId;
         if (h.title?.trim()) title = h.title;
         status = h.status;
         const patch: Partial<Omit<OwnedSessionRecord, "tabId">> = {};
@@ -2996,6 +3005,7 @@ export class MainBackend {
       title: title?.trim() || "New session",
       status,
       live,
+      forkSourceTabId,
       pendingPlan: gate?.pending ?? null,
       planSettle: gate?.settle ?? null,
       ...(bridgeAvailability === undefined ? {} : { bridgeAvailability }),

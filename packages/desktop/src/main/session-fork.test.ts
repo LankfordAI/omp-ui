@@ -188,6 +188,20 @@ describe("sessionFork", () => {
     expect(forkRecord).toMatchObject({ thinkingLevel: "xhigh" });
   });
 
+  it("publishes the fork's source on state while the source reads as no fork", async () => {
+    setup();
+
+    const res = (await invoke(CH.forkSession, "tab-1")) as { tabId: string };
+
+    const state = (await invoke(CH.getState)) as {
+      projects: { sessions: { tabId: string; forkSourceTabId?: string | null }[] }[];
+      chats: { tabId: string; forkSourceTabId?: string | null }[];
+    };
+    const sessions = [...state.projects.flatMap((g) => g.sessions), ...state.chats];
+    expect(sessions.find((s) => s.tabId === res.tabId)?.forkSourceTabId).toBe("tab-1");
+    expect(sessions.find((s) => s.tabId === "tab-1")?.forkSourceTabId).toBeNull();
+  });
+
   it("rejects for an unknown tab", async () => {
     setup();
     await expect(invoke(CH.forkSession, "nope")).rejects.toThrow(/unknown session tab/);

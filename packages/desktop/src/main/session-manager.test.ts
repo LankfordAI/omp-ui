@@ -1516,7 +1516,7 @@ describe("session tool control (issue #379)", () => {
       }),
     );
     await pending;
-    await expect(fork).rejects.toThrow("no transcript to branch yet");
+    await expect(fork).rejects.toThrow("no transcript to fork yet");
   });
 
   describe("model overlay follows the live model (#881)", () => {

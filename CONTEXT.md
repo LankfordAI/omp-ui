@@ -79,6 +79,21 @@ turn), **Snoozed** (parked via the row's context menu, only while the
 or archived/missing, not snoozed). There is no manual order.
 _Avoid_: tracked session, managed session
 
+**Fork**:
+An **Owned session** made by *Fork into a new tab*: omp-ui copies the
+source's whole transcript into a new lineage dir, and the copy's session
+header keeps `parentSession`, the source file's path. On every state build
+the owning host maps that path's lineage dir to the source's record and
+publishes it as `forkSourceTabId`; nothing is stored on the record. A fork's
+sidebar row and Session HUD title carry a *fork* chip naming the original,
+with *Open original session*. Opening or resuming a session that is not
+running while a fork of it runs on the same host asks first: *Open fork*
+(default) or *Resume original*. Settle undo, startup tab restore, and
+artifact navigation skip that question. The session tree's *Fork from this
+prompt* continues the same tab in a new file of the same lineage dir and
+does not make a Fork.
+_Avoid_: branch (git branches; omp's in-place rewind), copy, clone
+
 **Settled**:
 The sidebar's collapsible bottom section holding every **Owned session** that
 was settled (`settledAtMs !== null`) or whose transcript is archived or

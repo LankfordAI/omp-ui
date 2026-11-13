@@ -56,7 +56,7 @@ import {
 import { disposeTabRuntime } from "./rpc-command";
 import { bulkFailureNotice, failureMessage, type BulkFailure } from "./bulk-failures";
 import { liveVoiceGeneration } from "./live-switch";
-import { findInstance, findOwner, findRecord, findWorktreeAt, focusOn } from "./view";
+import { findInstance, findOwner, findRecord, findWorktreeAt, focusOn, liveForksOf } from "./view";
 import type {
   BulkDeleteRow,
   DeleteConfirmation,
@@ -88,6 +88,7 @@ export type LifecycleSlice = Pick<
   | "bulkDeleteConfirmation"
   | "lifecycleConfirmation"
   | "confirmLifecycleAction"
+  | "openForkInstead"
   | "cancelLifecycleAction"
   | "restartSession"
   | "addProject"
@@ -1057,7 +1058,7 @@ export function createLifecycleSlice(
     };
     let landed: string | null = null;
     // Main mints the scratch cwd (ADR-0059), so the tab takes it from a fresh
-    // getState — the branchSession pattern. No refreshBranches: not a repo.
+    // getState — the forkIntoNewTab pattern. No refreshBranches: not a repo.
     const landing = backendFor(null).spawnSession(request).then(async ({ tabId }) => {
       const state = await backendFor(null).getState();
       const rec = findRecord(state, tabId);
@@ -1460,7 +1461,10 @@ export function createLifecycleSlice(
    * instance that is not joined cannot resume anything, so the attempt is
    * refused up front instead of surfacing the proxy's rejection (issue #416).
    */
-  const openSession = async (tabId: string, opts: { activate?: boolean } = {}): Promise<void> => {
+  const openSession = async (
+    tabId: string,
+    opts: { activate?: boolean; forkCheck?: boolean } = {},
+  ): Promise<void> => {
     // Opening/draining a session is the wholesale clear: every unseen reply
     // becomes seen, whether or not the tab ends up focused afterwards (#1037).
     if (opts.activate !== false) get().clearUnread(tabId);
@@ -1486,6 +1490,7 @@ export function createLifecycleSlice(
       );
       return;
     }
+    if (opts.forkCheck !== false && stageForkCheck(tabId, "open", false)) return;
     try {
       await backend.spawnSession({
         origin: "resume",
@@ -1552,6 +1557,30 @@ export function createLifecycleSlice(
   };
 
   /**
+   * Stages the fork check (CONTEXT.md **Fork**) when `tabId` is not running
+   * and a fork of it is. True = staged; the caller stops.
+   */
+  const stageForkCheck = (tabId: string, via: "open" | "resume", restore: boolean): boolean => {
+    const s = get();
+    const rec = findRecord(s.state, tabId);
+    if (rec === undefined || rec.live === "live") return false;
+    const forks = liveForksOf(s.state, tabId);
+    const fork = forks[0];
+    if (fork === undefined) return false;
+    stageLifecycleConfirmation({
+      kind: "resume-forked-source",
+      tabId,
+      title: rec.title,
+      forkTabId: fork.tabId,
+      forkTitle: fork.title,
+      otherForks: forks.length - 1,
+      via,
+      restore,
+    });
+    return true;
+  };
+
+  /**
    * The Fleet version-update gates' existence re-check: a member forgotten
    * meanwhile has nothing to receive the request. Members ride the joined
    * remote instances exactly like rollout-keys, or the open Fleet view's
@@ -1574,6 +1603,17 @@ export function createLifecycleSlice(
     if (confirmation.kind === "settle-running") {
       // Re-gated at acceptance: settleSessions re-reads every row (#1005).
       await get().settleSessions(confirmation.tabIds, { confirmed: true });
+      return;
+    }
+    if (confirmation.kind === "resume-forked-source") {
+      const rec = findRecord(get().state, confirmation.tabId);
+      if (!rec) return;
+      // Resumed elsewhere meanwhile: just resurface it.
+      if (rec.live === "live" || confirmation.via === "open") {
+        await openSession(confirmation.tabId, { forkCheck: false });
+        return;
+      }
+      await resumeDead(confirmation.tabId, { forkCheck: false, ...(confirmation.restore ? { restore: true } : {}) });
       return;
     }
     if (confirmation.kind === "switch-mode") {
@@ -1780,6 +1820,13 @@ export function createLifecycleSlice(
     }
   };
 
+  const openForkInstead = async (id: string): Promise<void> => {
+    const pending = get().lifecycleConfirmation;
+    if (!pending || pending.id !== id || pending.busy || pending.kind !== "resume-forked-source") return;
+    set({ lifecycleConfirmation: null });
+    await openSession(pending.forkTabId);
+  };
+
   const cancelLifecycleAction = (id: string): void => {
     const pending = get().lifecycleConfirmation;
     if (!pending || pending.id !== id || pending.busy) return;
@@ -1830,10 +1877,14 @@ export function createLifecycleSlice(
     }
   };
 
-  const resumeDead = async (tabId: string, opts?: { restore?: boolean }): Promise<void> => {
+  const resumeDead = async (
+    tabId: string,
+    opts?: { restore?: boolean; forkCheck?: boolean },
+  ): Promise<void> => {
     const owner = findOwner(get().state, tabId);
     if (!owner) return;
     const { record: rec } = owner;
+    if (opts?.forkCheck !== false && stageForkCheck(tabId, "resume", opts?.restore === true)) return;
     try {
       // Items survive teardown (teardownProcess settles and keeps them):
       // the digest rides the resume so a never-persisted transcript still
@@ -2222,6 +2273,7 @@ export function createLifecycleSlice(
     bulkDeleteConfirmation: null,
     lifecycleConfirmation: null,
     confirmLifecycleAction,
+    openForkInstead,
     cancelLifecycleAction,
     stageLifecycleConfirmation,
     prepareRpcRelaunch,

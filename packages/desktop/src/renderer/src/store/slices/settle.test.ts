@@ -234,4 +234,20 @@ describe("undoSettle (issue #980)", () => {
     expect(h.mockBackend.unsettleSession).toHaveBeenCalledWith(h.TAB);
     expect(h.mockBackend.spawnSession).not.toHaveBeenCalled();
   });
+
+  it("resumes a settled source directly even while its fork runs (CONTEXT.md Fork)", async () => {
+    h.useStore.setState({ state: twoSessions() });
+    await store().settleSessions([h.TAB]);
+    // OTHER is a running fork of the now-settled source.
+    h.useStore.setState({ state: twoSessions({ live: "dormant" }, { live: "live", forkSourceTabId: h.TAB }) });
+
+    expect(store().undoSettle()).toBe(true);
+    await h.flushMicrotasks();
+    await h.flushMicrotasks();
+
+    expect(store().lifecycleConfirmation).toBeNull();
+    expect(h.mockBackend.spawnSession).toHaveBeenCalledWith(
+      expect.objectContaining({ origin: "resume", resumeTabId: h.TAB }),
+    );
+  });
 });
