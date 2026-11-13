@@ -36,6 +36,7 @@ class ShellLifecycleTest {
 
     @Before fun startHost() {
         context.getSharedPreferences("connection", Context.MODE_PRIVATE).edit().clear().commit()
+        context.getSharedPreferences(SavedSignIns.FILE, Context.MODE_PRIVATE).edit().clear().commit()
         server = ServerSocket(0)
         origin = "http://localhost:${server.localPort}"
         worker.execute {
@@ -63,6 +64,7 @@ class ShellLifecycleTest {
         server.close()
         worker.shutdownNow()
         context.getSharedPreferences("connection", Context.MODE_PRIVATE).edit().clear().commit()
+        context.getSharedPreferences(SavedSignIns.FILE, Context.MODE_PRIVATE).edit().clear().commit()
     }
 
     @Test fun recreateRecoversOnlySanitizedOriginWithDurableWebStorageAndCookies() {
@@ -73,10 +75,12 @@ class ShellLifecycleTest {
                 activity.findViewById<Button>(R.id.connect_host).performClick()
             }
             waitForPage(scenario)
+            dismissSaveHostDialog(InstrumentationRegistry.getInstrumentation())
             assertEquals("true", js(scenario, "window.markerAtStart"))
             assertEquals("true", js(scenario, "typeof window.Android === 'undefined'"))
             assertEquals(origin, context.getSharedPreferences("connection", Context.MODE_PRIVATE).getString("origin", null))
             assertFalse(context.getSharedPreferences("connection", Context.MODE_PRIVATE).all.toString().contains("do-not-persist"))
+            assertFalse(context.getSharedPreferences(SavedSignIns.FILE, Context.MODE_PRIVATE).all.toString().contains("do-not-persist"))
             js(scenario, "localStorage.setItem('shell-test-draft','retained text'); document.querySelector('#draft').value = 'retained text'")
             var old: WebView? = null
             scenario.onActivity { old = it.findViewById(R.id.remote_webview) }
@@ -107,16 +111,12 @@ class ShellLifecycleTest {
                 assertSame(original, activity.findViewById(R.id.remote_webview))
             }
             tap(scenario, "#host-connection")
-            await {
-                var showing = false
-                scenario.onActivity { showing = it.findViewById<View>(R.id.connection_panel).visibility == View.VISIBLE }
-                showing
-            }
+            await { switcherVisible(scenario) }
             scenario.onActivity { activity ->
                 assertSame(original, activity.findViewById(R.id.remote_webview))
-                assertEquals(View.VISIBLE, activity.findViewById<View>(R.id.connection_panel).visibility)
+                assertEquals(View.VISIBLE, activity.findViewById<View>(R.id.host_switcher).visibility)
                 activity.onBackPressedDispatcher.onBackPressed()
-                assertEquals(View.GONE, activity.findViewById<View>(R.id.connection_panel).visibility)
+                assertEquals(View.GONE, activity.findViewById<View>(R.id.host_switcher).visibility)
             }
             assertEquals("\"unsaved DOM\"", js(scenario, "document.querySelector('#draft').value"))
             assertEquals("null", js(scenario, "window.__ompAndroidViewport.bookSplitX"))
@@ -139,15 +139,11 @@ class ShellLifecycleTest {
             await { js(scenario, "window.childLinkTapped") == "true" }
             InstrumentationRegistry.getInstrumentation().waitForIdleSync()
             scenario.onActivity {
-                assertEquals(View.GONE, it.findViewById<View>(R.id.connection_panel).visibility)
+                assertEquals(View.GONE, it.findViewById<View>(R.id.host_switcher).visibility)
                 assertEquals("$origin/", it.findViewById<WebView>(R.id.remote_webview).url)
             }
             tap(scenario, "#host-connection")
-            await {
-                var showing = false
-                scenario.onActivity { showing = it.findViewById<View>(R.id.connection_panel).visibility == View.VISIBLE }
-                showing
-            }
+            await { switcherVisible(scenario) }
         }
     }
 
@@ -247,6 +243,13 @@ class ShellLifecycleTest {
             it.findViewById<Button>(R.id.connect_host).performClick()
         }
         waitForPage(scenario)
+        dismissSaveHostDialog(InstrumentationRegistry.getInstrumentation())
+    }
+
+    private fun switcherVisible(scenario: ActivityScenario<MainActivity>): Boolean {
+        var showing = false
+        scenario.onActivity { showing = it.findViewById<View>(R.id.host_switcher).visibility == View.VISIBLE }
+        return showing
     }
 
     private fun waitForPage(scenario: ActivityScenario<MainActivity>) = await { js(scenario, "window.ready === true") == "true" }

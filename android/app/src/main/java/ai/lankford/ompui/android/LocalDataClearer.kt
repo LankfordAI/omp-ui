@@ -39,10 +39,12 @@ internal object LocalDataClearer {
                 WebStorageCompat.deleteBrowsingData(WebStorage.getInstance()) {
                     CookieManager.getInstance().flush()
                     scope.launch {
-                        val saved = withContext(Dispatchers.IO) {
-                            preferences.edit().remove("origin").remove(PENDING).commit()
+                        val cleared = withContext(Dispatchers.IO) {
+                            val signIns = SavedSignIns.clearAll(context)
+                            val saved = preferences.edit().remove("origin").remove(SavedHosts.KEY).remove(PENDING).commit()
+                            signIns && saved
                         }
-                        mutableState.value = if (saved) State.COMPLETE else State.FAILED
+                        mutableState.value = if (cleared) State.COMPLETE else State.FAILED
                     }
                 }
             } catch (_: UnsupportedOperationException) {
