@@ -5,8 +5,11 @@ import java.net.URLDecoder
 import java.net.URLEncoder
 import java.util.Locale
 
-/** The initial URL may carry a pairing token. Only origin is safe to persist or display. */
-class HostEndpoint internal constructor(val origin: String, val initialUrl: String)
+/**
+ * The initial URL may carry a pairing token. Only origin is safe to display or keep in plain
+ * preferences; a token persists only through SavedSignIns, encrypted.
+ */
+class HostEndpoint internal constructor(val origin: String, val initialUrl: String, val token: String?)
 
 object HostPolicy {
     fun endpoint(input: String): HostEndpoint {
@@ -18,24 +21,19 @@ object HostPolicy {
             "Use the host's root address, not a page or file path."
         }
         val origin = origin(uri)
-        val query = uri.rawQuery
-        val initialUrl = if (query == null) {
-            "$origin/"
-        } else {
-            require(query.startsWith("t=") && !query.contains('&') && !query.contains(';')) {
-                "Only a host pairing link (?t=…) is accepted."
-            }
-            val token = try {
-                URLDecoder.decode(query.substring(2), "UTF-8")
-            } catch (_: IllegalArgumentException) {
-                throw IllegalArgumentException("The pairing link has invalid escaping.")
-            }
-            require(token.isNotBlank() && token.length <= 2048 && token.none { it.isISOControl() }) {
-                "The pairing link needs a valid token."
-            }
-            "$origin/?t=${URLEncoder.encode(token, "UTF-8")}"
+        val query = uri.rawQuery ?: return HostEndpoint(origin, "$origin/", null)
+        require(query.startsWith("t=") && !query.contains('&') && !query.contains(';')) {
+            "Only a host pairing link (?t=…) is accepted."
         }
-        return HostEndpoint(origin, initialUrl)
+        val token = try {
+            URLDecoder.decode(query.substring(2), "UTF-8")
+        } catch (_: IllegalArgumentException) {
+            throw IllegalArgumentException("The pairing link has invalid escaping.")
+        }
+        require(token.isNotBlank() && token.length <= 2048 && token.none { it.isISOControl() }) {
+            "The pairing link needs a valid token."
+        }
+        return HostEndpoint(origin, "$origin/?t=${URLEncoder.encode(token, "UTF-8")}", token)
     }
 
     fun isTrusted(url: String?, trustedOrigin: String?): Boolean {

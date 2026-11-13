@@ -157,13 +157,17 @@ class ShellConnectionTest {
             TestHttpHost("127.0.0.1").use { second ->
                 ActivityScenario.launch(MainActivity::class.java).use { scenario ->
                     connect(scenario, first.origin)
+                    val firstView = webView(scenario)
                     storeDraftAndCookie(scenario, "first", "shell-first")
-                    switchHost(scenario, second.origin)
+                    switchHost(scenario, second.origin, newHost = true)
                     storeDraftAndCookie(scenario, "second", "shell-second")
-                    switchHost(scenario, first.origin)
+                    val firstDocuments = first.requests.count { it.target == "/" }
+                    switchHost(scenario, first.origin, newHost = false)
+                    assertSame("Switching back to a live host replaced its view", firstView, webView(scenario))
+                    assertEquals("Switching back to a live host reloaded it", firstDocuments, first.requests.count { it.target == "/" })
                     assertEquals("\"first\"", js(scenario, "document.querySelector('#draft').value"))
                     scenario.onActivity { assertTrue(CookieManager.getInstance().getCookie(first.origin).orEmpty().contains("shell-first=retained")) }
-                    switchHost(scenario, second.origin)
+                    switchHost(scenario, second.origin, newHost = false)
                     assertEquals("\"second\"", js(scenario, "document.querySelector('#draft').value"))
                     scenario.onActivity { assertTrue(CookieManager.getInstance().getCookie(second.origin).orEmpty().contains("shell-second=retained")) }
                 }
@@ -241,7 +245,8 @@ class ShellConnectionTest {
                 await {
                     var ready = false
                     scenario.onActivity { ready = it.findViewById<Button>(R.id.connect_host).isEnabled }
-                    ready && !preferences.getBoolean(LocalDataClearer.PENDING, false) && preferences.getString("origin", null) == null
+                    ready && !preferences.getBoolean(LocalDataClearer.PENDING, false) && preferences.getString("origin", null) == null &&
+                        preferences.getString(SavedHosts.KEY, null) == null
                 }
                 scenario.onActivity {
                     assertNull(it.findViewById<WebView>(R.id.remote_webview))
@@ -249,7 +254,7 @@ class ShellConnectionTest {
                     assertEquals(View.VISIBLE, it.findViewById<View>(R.id.connection_panel).visibility)
                 }
                 assertTrue("Pending deletion reconnected to the old host", host.requests.isEmpty())
-                connect(scenario, host.origin)
+                connect(scenario, host.origin, newHost = true)
                 assertEquals("null", js(scenario, "localStorage.getItem('shell-connection-draft')"))
                 assertEquals("\"\"", js(scenario, "document.querySelector('#draft').value"))
                 assertTrue(host.requests.first { it.target == "/" }.headers["cookie"].isNullOrEmpty())
@@ -264,7 +269,7 @@ class ShellConnectionTest {
                     connect(scenario, first.origin)
                     scenario.onActivity { assertTrue("Update the test device's WebView: DELETE_BROWSING_DATA is required", WebViewFeature.isFeatureSupported(WebViewFeature.DELETE_BROWSING_DATA)) }
                     storeDraftAndCookie(scenario, "erase first", "shell-clear-first")
-                    switchHost(scenario, second.origin)
+                    switchHost(scenario, second.origin, newHost = true)
                     storeDraftAndCookie(scenario, "erase second", "shell-clear-second")
                     openConnection(scenario)
                     scenario.onActivity {
@@ -289,12 +294,12 @@ class ShellConnectionTest {
                         assertTrue(CookieManager.getInstance().getCookie(second.origin).isNullOrEmpty())
                     }
                     first.requests.clear()
-                    connect(scenario, first.origin)
+                    connect(scenario, first.origin, newHost = true)
                     assertEquals("\"\"", js(scenario, "document.querySelector('#draft').value"))
                     assertEquals("null", js(scenario, "localStorage.getItem('shell-connection-draft')"))
                     assertTrue(first.requests.first { it.target == "/" }.headers["cookie"].isNullOrEmpty())
                     second.requests.clear()
-                    switchHost(scenario, second.origin)
+                    switchHost(scenario, second.origin, newHost = true)
                     assertEquals("\"\"", js(scenario, "document.querySelector('#draft').value"))
                     assertEquals("null", js(scenario, "localStorage.getItem('shell-connection-draft')"))
                     assertTrue(second.requests.first { it.target == "/" }.headers["cookie"].isNullOrEmpty())
@@ -333,22 +338,24 @@ class ShellConnectionTest {
         scenario.onActivity { CookieManager.getInstance().flush() }
     }
 
-    private fun connect(scenario: ActivityScenario<MainActivity>, origin: String) {
+    private fun connect(scenario: ActivityScenario<MainActivity>, origin: String, newHost: Boolean = true) {
         scenario.onActivity {
             it.findViewById<EditText>(R.id.host_address).setText(origin)
             it.findViewById<Button>(R.id.connect_host).performClick()
         }
         await { js(scenario, "window.ready === true && location.origin === ${JSONObject.quote(origin)}") == "true" }
+        if (newHost) dismissSaveHostDialog(instrumentation)
     }
 
-    private fun switchHost(scenario: ActivityScenario<MainActivity>, origin: String) {
+    private fun switchHost(scenario: ActivityScenario<MainActivity>, origin: String, newHost: Boolean) {
         openConnection(scenario)
-        scenario.onActivity {
-            it.findViewById<EditText>(R.id.host_address).setText(origin)
-            it.findViewById<Button>(R.id.connect_host).performClick()
-        }
-        clickDialogText("Connect")
-        await { js(scenario, "window.ready === true && location.origin === ${JSONObject.quote(origin)}") == "true" }
+        connect(scenario, origin, newHost)
+    }
+
+    private fun webView(scenario: ActivityScenario<MainActivity>): WebView {
+        var result: WebView? = null
+        scenario.onActivity { result = it.findViewById(R.id.remote_webview) }
+        return checkNotNull(result)
     }
 
     private fun openConnection(scenario: ActivityScenario<MainActivity>) {

@@ -111,8 +111,8 @@ The connected WebView has no native host bar ([#1108](https://github.com/Lankfor
 Android-only **Host connection…** navigation beside Settings links to
 `omp-ui://host-connection`. The shell consumes that exact URL only for a
 user-gestured GET in the main frame of its current trusted host view; other
-requests to it are blocked. This opens the native panel without navigating or
-destroying the WebView; this URL route uses navigation policy rather than a
+requests to it are blocked. This opens the native host switch sheet without
+navigating or destroying the WebView; this URL route uses navigation policy rather than a
 callable Java interface. Native Back and main-frame load errors retain their
 independent connection-panel paths.
 
@@ -144,11 +144,29 @@ redirect visibility remains limited by WebView; this is not an egress firewall.
 
 Explicit local-data removal is all-host, not per-host: cookies are global to
 the app's WebView profile. `LocalDataClearer` persists pending intent, destroys
-the current WebView, blocks reconnection, and uses the supported
+every retained WebView, blocks reconnection, and uses the supported
 `WebStorageCompat.deleteBrowsingData` completion callback before reporting
-success. Pending deletion survives recreation/process death; unsupported
-providers preserve data and require an update. Normal host switching does not
-clear cookies or origin-local recovery.
+success. It also deletes every saved host, every saved sign-in, and the
+Keystore sign-in key. Pending deletion survives recreation/process death;
+unsupported providers preserve data and require an update.
+
+The app saves each host's origin, with an editable name, after its first
+successful page load (at most 16 saved hosts) and keeps one WebView per visited
+host, at most 4 live; the least recently shown is destroyed and reloads its
+sanitized origin on return ([ADR-0093](adr/0093-android-app-retains-host-views-and-saves-sign-ins.md)).
+Each retained view keeps its own exact-origin policy, and only the visible one
+drives native chrome. The renderer process is shared, so a renderer crash
+reloads every retained view. Saved hosts appear in the connection panel and the
+native switch sheet; the host page never sees the list. A saved sign-in (one
+password or pairing token per host) is encrypted with a Keystore AES-GCM key
+using the origin as associated data, stored in a `v1:` format, needs no unlock
+prompt, and is used natively without cookies (`POST /login` or
+`GET /healthz?t=`); a typed password is saved only after the host accepts it,
+and a pairing token only after the host serves a page for it. A retained view
+uses its saved sign-in automatically at most once. Switching hosts does not
+clear cookies or origin-local recovery; **Remove** deletes one host's entry and
+sign-in and closes its hidden view (the visible view stays connected), while
+the all-host clear above removes everything.
 
 ## Stats collection and read-only snapshots
 

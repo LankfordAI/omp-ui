@@ -12,6 +12,8 @@ class HostPolicyTest {
         val endpoint = HostPolicy.endpoint(" HTTP://Example.COM:80/?t=pair%2Bsecret ")
         assertEquals("http://example.com", endpoint.origin)
         assertEquals("http://example.com/?t=pair%2Bsecret", endpoint.initialUrl)
+        assertEquals("pair+secret", endpoint.token)
+        assertNull(HostPolicy.endpoint("http://example.com").token)
         assertEquals("https://host.netbird.cloud:3443", HostPolicy.endpoint("https://host.netbird.cloud:3443/").origin)
         assertEquals("http://localhost:3000", HostPolicy.endpoint("http://localhost:3000").origin)
         assertEquals("http://[::1]:3000", HostPolicy.endpoint("http://[::1]:3000").origin)

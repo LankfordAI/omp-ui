@@ -7,4 +7,10 @@
     <item name="clear_saved_hosts" type="id" />
     <item name="connection_message" type="id" />
     <item name="resume_current_view" type="id" />
+    <item name="saved_hosts_list" type="id" />
+    <item name="host_switcher" type="id" />
+    <item name="host_switcher_list" type="id" />
+    <item name="manage_hosts" type="id" />
+    <item name="save_host_name" type="id" />
+    <item name="sign_in_password" type="id" />
 </resources>

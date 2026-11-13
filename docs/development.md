@@ -303,12 +303,17 @@ For instrumentation, unlock the selected emulator first, then run
 `ANDROID_SERIAL=DEVICE_SERIAL ./gradlew --no-daemon :app:connectedDebugAndroidTest`
 from `android/`. `ShellLifecycleTest` exercises recreation, durable cookies and
 web storage, configuration callbacks, connection-panel retention, and native
-Back. `HostPolicyTest` covers endpoint/origin rejection and fold geometry.
+Back. `HostPolicyTest` covers endpoint/origin rejection and fold geometry;
+`SavedHostRulesTest` covers saved-host naming, caps, and ordering, and
+`HostSignInTest` covers sign-in response classification.
 
 `ShellConnectionTest` covers actual HTML login failures and corrected sign-in,
 post-login Back without credential replay, HTTP/HTTPS POST receiver silence,
-host switching, canceled/confirmed all-origin deletion, and persisted pending
-deletion. The unsupported-deletion case skips when the current provider supports
+warm host switching between retained views (no replace dialog),
+canceled/confirmed all-origin deletion, and persisted pending
+deletion. `SavedHostsTest` covers saving a host after its first load, the
+switch sheet, saved sign-ins with one-shot auto sign-in, Remove, and the
+all-host clear of saved hosts and sign-ins. The unsupported-deletion case skips when the current provider supports
 the deletion feature; a passing current-provider run does not exercise that
 older-provider branch.
 

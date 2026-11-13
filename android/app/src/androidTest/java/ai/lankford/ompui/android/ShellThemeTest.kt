@@ -11,7 +11,6 @@ import android.os.SystemClock
 import android.view.MotionEvent
 import android.view.View
 import android.view.ViewGroup
-import android.view.inspector.WindowInspector
 import android.webkit.WebView
 import android.widget.Button
 import android.widget.EditText
@@ -102,7 +101,10 @@ class ShellThemeTest {
                 val documentRequests = host.requests.count { it.target == "/" }
 
                 tap(scenario, "#host-connection")
-                await("Host connection gesture did not open the panel") { connectionVisible(scenario) }
+                await("Host connection gesture did not open the switch sheet") { switcherVisible(scenario) }
+                assertChrome(scenario, NATIVE_BACKGROUND, false)
+                scenario.onActivity { it.findViewById<Button>(R.id.manage_hosts).performClick() }
+                await("Manage hosts did not open the panel") { connectionVisible(scenario) }
                 assertPanelChrome(scenario)
                 scenario.onActivity {
                     assertSame(original, it.findViewById(R.id.remote_webview))
@@ -110,10 +112,9 @@ class ShellThemeTest {
                 }
                 setCanvas(scenario, "#f3e9ce")
                 val expectedHiddenChrome = Chrome(Color.parseColor("#f3e9ce"), true, true)
-                val hostBackground = MainActivity::class.java.getDeclaredField("hostBackground").apply { isAccessible = true }
                 await("The hidden WebView did not cache its latest canvas") {
                     var cached: Int? = null
-                    scenario.onActivity { cached = hostBackground.get(it) as Int? }
+                    scenario.onActivity { cached = it.activeHostBackground }
                     cached == expectedHiddenChrome.background
                 }
                 assertChromeStays(scenario, NATIVE_BACKGROUND, false)
@@ -226,36 +227,30 @@ class ShellThemeTest {
                     postMainColor(scenario, "#e6eef6")
                     assertChrome(scenario, "#e6eef6", true)
 
-                    val retired = webView(scenario)
-                    tap(scenario, "#host-connection")
-                    await("Host connection panel did not open") { connectionVisible(scenario) }
+                    val hidden = webView(scenario)
+                    openPanel(scenario)
                     try {
                         scenario.onActivity { activity ->
                             activity.findViewById<EditText>(R.id.host_address).setText(second.origin)
                             activity.findViewById<Button>(R.id.connect_host).performClick()
-                            val replace = WindowInspector.getGlobalWindowViews()
-                                .mapNotNull { it.findViewById<Button>(android.R.id.button1) }
-                                .single { it.text.toString() == "Connect" }
-                            // AlertDialog queues its button listener rather than invoking it inline.
-                            // Queue real confirmation first, then hold this UI turn until the old
-                            // renderer has posted its chrome message and the following fetch. The
-                            // replacement listener runs before the queued stale message can drain.
-                            replace.performClick()
-                            retired.evaluateJavascript("""
-                                window.__ompAndroidChrome.postMessage('#faedcb');
-                                fetch('/retired-queued', {cache: 'no-store'});
-                            """.trimIndent(), null)
-                            assertTrue("The old renderer did not queue its message before replacement", oldMessageQueued.await(5, TimeUnit.SECONDS))
                         }
                         instrumentation.waitForIdleSync()
                         scenario.onActivity { activity ->
-                            assertNotSame(retired, activity.findViewById(R.id.remote_webview))
+                            assertNotSame(hidden, activity.findViewById(R.id.remote_webview))
                         }
-                        // The new HTTP response is deliberately held: a stale callback cannot be
-                        // concealed by the new document immediately overwriting its wrong color.
+                        // Warm switching retains the old view hidden and live. Its trusted chrome
+                        // messages update only its own stored background, never the visible chrome.
+                        instrumentation.runOnMainSync {
+                            hidden.evaluateJavascript("window.__ompAndroidChrome.postMessage('#faedcb'); fetch('/retired-queued', {cache: 'no-store'});", null)
+                        }
+                        assertTrue("The hidden view did not post its message", oldMessageQueued.await(5, TimeUnit.SECONDS))
+                        instrumentation.waitForIdleSync()
+                        // The new HTTP response is still held, so the new document cannot conceal
+                        // a wrong color by immediately overwriting it.
                         assertChromeStays(scenario, NATIVE_BACKGROUND, false)
                     } finally { releaseReplacement.countDown() }
                     waitForDocument(scenario, second.origin, "#draft")
+                    dismissSaveHostDialog(instrumentation)
                     assertChrome(scenario, "#eed393", true)
                     assertChromeStays(scenario, "#eed393", true)
                     assertFalse(connectionVisible(scenario))
@@ -346,8 +341,7 @@ class ShellThemeTest {
                             js(scenario, "matchMedia('(prefers-color-scheme: dark)').matches"))
                         assertRetainedDraft(scenario, original, state)
 
-                        tap(scenario, "#host-connection")
-                        await("The host connection gesture did not open the native panel") { connectionVisible(scenario) }
+                        openPanel(scenario)
                         assertPanelChrome(scenario)
                         assertChromeStays(scenario, NATIVE_BACKGROUND, false)
                         assertRetainedDraft(scenario, original, state)
@@ -441,6 +435,19 @@ class ShellThemeTest {
         return checkNotNull(result)
     }
 
+    private fun openPanel(scenario: ActivityScenario<MainActivity>) {
+        tap(scenario, "#host-connection")
+        await("Host connection gesture did not open the switch sheet") { switcherVisible(scenario) }
+        scenario.onActivity { it.findViewById<Button>(R.id.manage_hosts).performClick() }
+        await("Manage hosts did not open the panel") { connectionVisible(scenario) }
+    }
+
+    private fun switcherVisible(scenario: ActivityScenario<MainActivity>): Boolean {
+        var showing = false
+        scenario.onActivity { showing = it.findViewById<View>(R.id.host_switcher).visibility == View.VISIBLE }
+        return showing
+    }
+
     private fun connectionVisible(scenario: ActivityScenario<MainActivity>): Boolean {
         var showing = false
         scenario.onActivity { showing = it.findViewById<View>(R.id.connection_panel).visibility == View.VISIBLE }
@@ -487,6 +494,7 @@ class ShellThemeTest {
             it.findViewById<Button>(R.id.connect_host).performClick()
         }
         waitForDocument(scenario, origin, selector)
+        dismissSaveHostDialog(instrumentation)
     }
 
     private fun waitForDocument(scenario: ActivityScenario<MainActivity>, origin: String, selector: String, expectedPath: String? = null) {

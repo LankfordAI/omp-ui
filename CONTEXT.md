@@ -1647,6 +1647,16 @@ unique among joined instances, and is how every surface labels the host.
 _Avoid_: remote server (the embedded listener this app hosts), remote host
 (the `RemoteHost` seam), peer, connection
 
+**Saved host**:
+An origin the Android app saved after its first successful page load, with a
+name, shown in the switch sheet and the connection panel.
+_Avoid_: bookmark, profile, connection
+
+**Saved sign-in**:
+The one password or pairing token the Android app keeps encrypted for a
+**Saved host**, used when that host asks for sign-in.
+_Avoid_: credential cache, account
+
 **Unified project view**:
 One **Project quick-open** row per repository identity across this app and
 every joined **Remote instance**: its members are the checkouts of that
