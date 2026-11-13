@@ -219,7 +219,7 @@ export function createArtifactReferencesSlice(set: SetState, get: GetState): Art
           return false;
         }
         if (!get().attachArtifactReference(tabId, { ...reference, instanceId: owner.instanceId })) return false;
-        await get().openSession(tabId, { activate: false });
+        await get().openSession(tabId, { activate: false, forkCheck: false });
         const landed = findOwner(get().state, tabId);
         if (landed === undefined || landed.instanceId !== owner.instanceId) return false;
         if (getNavigationGeneration() === navigation && get().tabs.some(tab => tab.tabId === tabId)) get().focusTab(tabId);

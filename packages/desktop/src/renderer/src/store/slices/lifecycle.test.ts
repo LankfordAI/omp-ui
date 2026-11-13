@@ -260,6 +260,87 @@ describe("lifecycle confirmation acceptance (issue #373)", () => {
   });
 });
 
+describe("resume check for a forked original (CONTEXT.md Fork)", () => {
+  const FORK = "tab-fork";
+  /** The harness record dormant, plus a running fork of it on the same host. */
+  const forkedSource = (): BackendState => {
+    const state = h.stateWithRecord("sess-1", "dormant");
+    const base = state.projects[0]!.sessions[0]!;
+    state.projects[0]!.sessions.push({
+      ...base,
+      tabId: FORK,
+      sessionId: "sess-fork",
+      title: "Forked copy",
+      live: "live",
+      forkSourceTabId: h.TAB,
+    });
+    return state;
+  };
+  const spawnedResumes = (): string[] =>
+    h.mockBackend.spawnSession.mock.calls.map(
+      (call) => (call as unknown as [{ resumeTabId: string }])[0].resumeTabId,
+    );
+
+  it("openSession on the source stages the question instead of spawning", async () => {
+    h.useStore.setState({ state: forkedSource() });
+    await h.useStore.getState().openSession(h.TAB);
+    expect(h.useStore.getState().lifecycleConfirmation).toMatchObject({
+      kind: "resume-forked-source",
+      tabId: h.TAB,
+      forkTabId: FORK,
+      forkTitle: "Forked copy",
+      otherForks: 0,
+      via: "open",
+    });
+    expect(h.mockBackend.spawnSession).not.toHaveBeenCalled();
+  });
+
+  it("openSession with forkCheck off resumes the source directly", async () => {
+    h.useStore.setState({ state: forkedSource() });
+    await h.useStore.getState().openSession(h.TAB, { forkCheck: false });
+    expect(h.useStore.getState().lifecycleConfirmation).toBeNull();
+    expect(spawnedResumes()).toEqual([h.TAB]);
+  });
+
+  it("resumeDead on the source stages the same question", async () => {
+    h.useStore.setState({ state: forkedSource() });
+    await h.useStore.getState().resumeDead(h.TAB, { restore: true });
+    expect(h.useStore.getState().lifecycleConfirmation).toMatchObject({
+      kind: "resume-forked-source",
+      forkTabId: FORK,
+      via: "resume",
+      restore: true,
+    });
+    expect(h.mockBackend.spawnSession).not.toHaveBeenCalled();
+  });
+
+  it("Resume original spawns the source's resume", async () => {
+    h.useStore.setState({ state: forkedSource() });
+    await h.useStore.getState().openSession(h.TAB);
+    const id = h.useStore.getState().lifecycleConfirmation!.id;
+
+    await h.useStore.getState().confirmLifecycleAction(id);
+    expect(h.mockBackend.spawnSession).toHaveBeenCalledWith(
+      expect.objectContaining({ origin: "resume", resumeTabId: h.TAB }),
+    );
+    expect(h.useStore.getState().lifecycleConfirmation).toBeNull();
+  });
+
+  it("Open fork focuses the fork and never spawns the source", async () => {
+    h.useStore.setState({
+      state: forkedSource(),
+      tabs: [tabInfo({ tabId: FORK, mode: "rpc-ui", projectCwd: "/p", hidden: true })],
+    });
+    await h.useStore.getState().openSession(h.TAB);
+    const id = h.useStore.getState().lifecycleConfirmation!.id;
+
+    await h.useStore.getState().openForkInstead(id);
+    expect(h.useStore.getState().activeTabId).toBe(FORK);
+    expect(h.useStore.getState().lifecycleConfirmation).toBeNull();
+    expect(spawnedResumes()).not.toContain(h.TAB);
+  });
+});
+
 describe("switchMode confirmation (issue #373)", () => {
   it("a live switch stages the decision and reaches the backend only on acceptance", async () => {
     h.useStore.setState({ state: h.stateWithRecord("sess-1", "live") });

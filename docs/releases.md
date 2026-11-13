@@ -4,7 +4,7 @@ This guide explains what users receive from a release and how maintainers publis
 
 ## Unreleased
 
-Nothing since [v0.35.2](https://github.com/LankfordAI/omp-ui/releases/tag/v0.35.2). Add one bullet per shipped change here, citing its issue as `#N`; the release tag lifts these into Highlights.
+- Forked sessions show a *fork* chip naming their original in the sidebar and session header, the Session HUD action now reads *Fork into a new tab*, and opening a session whose fork is running asks whether you meant the fork (#1161).
 
 ## Choose a download
 

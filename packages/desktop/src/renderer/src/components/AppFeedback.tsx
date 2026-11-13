@@ -105,6 +105,22 @@ function lifecycleCopy(
         action: t("remoteinstances.action.remove"),
         target: null,
       };
+    case "resume-forked-source":
+      // CONTEXT.md **Fork**: the default is the running fork (third button).
+      return {
+        tone: "copper",
+        title: t("dialog.lifecycle.forkedSourceTitle"),
+        body:
+          confirmation.otherForks === 0
+            ? t("dialog.lifecycle.forkedSourceBody", { title: confirmation.title, fork: confirmation.forkTitle })
+            : t("dialog.lifecycle.forkedSourceBodyMany", {
+                title: confirmation.title,
+                fork: confirmation.forkTitle,
+                n: confirmation.otherForks,
+              }),
+        action: t("dialog.lifecycle.forkedSourceAction"),
+        target: null,
+      };
     case "rewind":
       // The count and the "still in the file" note in the body are the whole
       // story (issue #680): no session title — the tab is the target.
@@ -279,6 +295,7 @@ export function AppFeedback(): JSX.Element | null {
   const confirmation = useStore((s) => s.lifecycleConfirmation);
   const confirmLifecycleAction = useStore((s) => s.confirmLifecycleAction);
   const cancelLifecycleAction = useStore((s) => s.cancelLifecycleAction);
+  const openForkInstead = useStore((s) => s.openForkInstead);
   // Opt-out for the settle-running confirmation (issues #925, #1005). The host component
   // stays mounted across confirmations — ConfirmDialog is keyed, this is not —
   // so the checkbox must be cleared explicitly whenever a new decision is
@@ -359,6 +376,7 @@ export function AppFeedback(): JSX.Element | null {
   if (confirmation === null) return null;
   const copy = lifecycleCopy(t, confirmation);
   const busy = confirmation.busy;
+  const forkChoice = confirmation.kind === "resume-forked-source" ? confirmation : null;
   return (
     <ConfirmDialog
       key={confirmation.id}
@@ -375,13 +393,13 @@ export function AppFeedback(): JSX.Element | null {
           <Button
             variant="ghost"
             disabled={busy}
-            initialFocus
+            initialFocus={forkChoice === null}
             onClick={() => cancelLifecycleAction(confirmation.id)}
           >
             {t("common.dialog.cancel")}
           </Button>
           <Button
-            variant="solid"
+            variant={forkChoice === null ? "solid" : "outline"}
             tone={copy.tone}
             disabled={busy}
             onClick={() => {
@@ -395,6 +413,17 @@ export function AppFeedback(): JSX.Element | null {
           >
             {busy ? t("dialog.lifecycle.working") : copy.action}
           </Button>
+          {forkChoice !== null && (
+            <Button
+              variant="solid"
+              tone="signal"
+              disabled={busy}
+              initialFocus
+              onClick={() => void openForkInstead(forkChoice.id)}
+            >
+              {t("dialog.lifecycle.openForkAction")}
+            </Button>
+          )}
         </>
       }
     >

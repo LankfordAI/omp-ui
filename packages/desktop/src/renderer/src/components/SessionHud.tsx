@@ -26,7 +26,7 @@ import { ProjectMonogram } from "./ProjectMonogram";
 import type { ContextUsage, SubagentInfo, UsageLimit } from "../lib/rpc-types";
 import { JOB_WIDGET_TONE, backgroundWorkInFlight, freshestWidgetJob, jobWidgetFigure, runningJobCount } from "../lib/async-jobs";
 import type { AsyncJob } from "@omp-ui/core/async-jobs";
-import { canSettle, findInstance, findOwner, findRecord, isChatTab, sessionCwd, sessionProjectFace, useStore } from "../store";
+import { canSettle, findInstance, findOwner, findRecord, forkSourceOf, isChatTab, sessionCwd, sessionProjectFace, useStore } from "../store";
 import type { RpcTabState } from "../store/types";
 import type { SessionSpendSnapshot } from "@omp-ui/core/session-spend";
 import { useDismissal } from "../lib/use-dismissal";
@@ -158,7 +158,7 @@ function IconAnonymize() {
   );
 }
 
-function IconBranch() {
+function IconFork() {
   return (
     <Svg>
       <circle cx="4" cy="3.8" r="1.7" {...ICON_STROKE} />
@@ -1025,7 +1025,11 @@ function TitleMenu({
   const toggleConsole = useStore((s) => s.toggleConsole);
   const toggleBrowserPane = useStore((s) => s.toggleBrowserPane);
   const toggleDevicePane = useStore((s) => s.toggleDevicePane);
-  const branchSession = useStore((s) => s.branchSession);
+  const forkIntoNewTab = useStore((s) => s.forkIntoNewTab);
+  const openSession = useStore((s) => s.openSession);
+  // CONTEXT.md **Fork**: the original this session was forked from, on the same host.
+  const forkSource = useStore((s) => forkSourceOf(s.state, tabId));
+  const forkNote = forkSource === null ? null : t("sidebar.session.forkOf", { title: forkSource.title });
   const openSessionTreeView = useStore((s) => s.openSessionTreeView);
   const newSession = useStore((s) => s.newSession);
   const newChat = useStore((s) => s.newChat);
@@ -1126,6 +1130,11 @@ function TitleMenu({
           className="flex min-w-0 max-w-[28rem] items-center gap-1 rounded px-1 py-0.5 text-sm text-ink transition-colors hover:bg-hover"
         >
           <span className="min-w-0 truncate">{withTitleCard(title)}</span>
+          {forkNote !== null && (
+            <Chip className="shrink-0" title={forkNote}>
+              {t("sidebar.session.forkChip")}
+            </Chip>
+          )}
           <Chevron open className="text-ink-dim" />
         </button>
       )}
@@ -1173,12 +1182,23 @@ function TitleMenu({
                   <button
                     type="button"
                     role="menuitem"
-                    title={t("hud.actions.branchTitle")}
-                    onClick={act(() => void branchSession(tabId))}
+                    title={t("hud.actions.forkTitle")}
+                    onClick={act(() => void forkIntoNewTab(tabId))}
                     className={MENU_ROW}
                   >
-                    {t("hud.menu.branch")}
+                    {t("hud.menu.fork")}
                   </button>
+                  {forkSource !== null && (
+                    <button
+                      type="button"
+                      role="menuitem"
+                      title={forkNote ?? undefined}
+                      onClick={act(() => void openSession(forkSource.tabId))}
+                      className={MENU_ROW}
+                    >
+                      {t("hud.menu.openForkSource")}
+                    </button>
+                  )}
                   {/* The tree navigator needs a live process (#680). */}
                   {treeAvailable && (
                     <button
@@ -1713,7 +1733,7 @@ export function SessionHud({ tabId }: { tabId: string }) {
   const exportHtml = useStore((s) => s.exportHtml);
   const shareSession = useStore((s) => s.shareSession);
   const anonymizeSession = useStore((s) => s.anonymizeSession);
-  const branchSession = useStore((s) => s.branchSession);
+  const forkIntoNewTab = useStore((s) => s.forkIntoNewTab);
   // Share anonymized (issue #834): the floor rides the installed binary's
   // version — the same source the store action gates on.
   const anonAvailable = useStore((s) => supportsAnonymize(s.ompUpdate.installedVersion));
@@ -2022,7 +2042,7 @@ export function SessionHud({ tabId }: { tabId: string }) {
                   className={sheetAction}
                 ><IconAnonymize />{t("hud.actions.anonymize")}</Button>
                 <Button onClick={() => openCapabilitiesViewer(null, undefined, "mcp", instanceId)} className={sheetAction}><IconMcp />{t("hud.actions.capabilities")}{mcpFailureCount > 0 && <Chip tone="rose" className="ml-auto">{t("hud.actions.failureCount", { count: mcpFailureCount })}</Chip>}</Button>
-                <Button title={t("hud.actions.branchTitle")} onClick={() => void branchSession(tabId)} className={sheetAction}><IconBranch />{t("hud.actions.branch")}</Button>
+                <Button title={t("hud.actions.forkTitle")} onClick={() => void forkIntoNewTab(tabId)} className={sheetAction}><IconFork />{t("hud.actions.fork")}</Button>
                 {treeAvailable && (
                   <Button title={t("hud.actions.treeTitle")} onClick={() => openSessionTreeView(tabId)} className={sheetAction}><IconSessionTree />{t("hud.actions.tree")}</Button>
                 )}

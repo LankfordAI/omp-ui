@@ -35,7 +35,7 @@ const TAB = "tab-mobile";
 const compactSession = vi.fn(async () => "acked" as const);
 const exportHtml = vi.fn(async () => {});
 const shareSession = vi.fn(async () => {});
-const branchSession = vi.fn(async () => {});
+const forkIntoNewTab = vi.fn(async () => {});
 const newSession = vi.fn(async () => null);
 const toggleConsole = vi.fn();
 let root: Root | null = null;
@@ -132,7 +132,7 @@ beforeEach(() => {
     compactSurface: null,
     inspectorOpen: false,
     compactionSettings: {},
-    compactSession, exportHtml, shareSession, branchSession, newSession, toggleConsole,
+    compactSession, exportHtml, shareSession, forkIntoNewTab, newSession, toggleConsole,
   });
 });
 
@@ -599,7 +599,7 @@ describe("SessionHud title menu (issue #941)", () => {
       "Console",
       "Browser pane",
       "Device pane",
-      "Branch into a new tab",
+      "Fork into a new tab",
       "Session tree",
       "New session here",
       "Compact now",
@@ -638,8 +638,8 @@ describe("SessionHud title menu (issue #941)", () => {
     expect(toggleConsole).toHaveBeenCalledWith(TAB);
     fire("Browser pane");
     expect(toggleBrowserPane).toHaveBeenCalledWith(TAB);
-    fire("Branch into a new tab");
-    expect(branchSession).toHaveBeenCalledWith(TAB);
+    fire("Fork into a new tab");
+    expect(forkIntoNewTab).toHaveBeenCalledWith(TAB);
     fire("Compact now");
     expect(compactSession).toHaveBeenCalledWith(TAB);
     fire("Export HTML");
@@ -727,8 +727,26 @@ describe("SessionHud title menu (issue #941)", () => {
     });
     host = render();
     openTitleMenu(host);
-    expect(menuItem("Branch into a new tab")).toBeDefined();
+    expect(menuItem("Fork into a new tab")).toBeDefined();
     expect(menuItem("Session tree")).toBeUndefined();
+  });
+
+  it("marks a fork with a chip naming its original and opens the original from the menu", () => {
+    const openSession = vi.fn(async () => {});
+    const group = state.projects[0]!;
+    const own = group.sessions[0]!;
+    const source = { ...own, tabId: "tab-original", sessionId: "s-orig", title: "Original work", live: "dormant" as const };
+    useStore.setState({
+      openSession,
+      state: { ...state, projects: [{ ...group, sessions: [{ ...own, forkSourceTabId: source.tabId }, source] }] },
+    });
+    const host = render();
+    const forkNote = t("sidebar.session.forkOf", { title: "Original work" });
+    const trigger = host.querySelector<HTMLButtonElement>('button[aria-haspopup="menu"]')!;
+    expect(trigger.querySelector(`[title="${forkNote}"]`)?.textContent).toBe("fork");
+    openTitleMenu(host);
+    act(() => menuItem("Open original session")!.click());
+    expect(openSession).toHaveBeenCalledWith(source.tabId);
   });
 });
 
@@ -885,20 +903,20 @@ describe("compact Session HUD", () => {
     act(() => root!.render(<SessionHud tabId={TAB} />));
     const actions = [...document.body.querySelectorAll<HTMLButtonElement>("button")].find((button) => button.textContent?.includes("session actions"))!;
     act(() => actions.click());
-    for (const label of ["build", "plan", "compact", "auto-compact", "export", "share", "Capabilities", "branch", "new", "refresh", "steering", "follow-up", "interrupt", "auto-retry", "abort retry"]) {
+    for (const label of ["build", "plan", "compact", "auto-compact", "export", "share", "Capabilities", "fork", "new", "refresh", "steering", "follow-up", "interrupt", "auto-retry", "abort retry"]) {
       expect(document.body.textContent).toContain(label);
     }
     const compact = [...document.body.querySelectorAll<HTMLButtonElement>("button")].find((button) => button.textContent?.trim() === "compact")!;
     const exportButton = [...document.body.querySelectorAll<HTMLButtonElement>("button")].find((button) => button.textContent?.trim() === "export")!;
-    const branch = [...document.body.querySelectorAll<HTMLButtonElement>("button")].find((button) => button.textContent?.trim() === "branch")!;
+    const fork = [...document.body.querySelectorAll<HTMLButtonElement>("button")].find((button) => button.textContent?.trim() === "fork")!;
     const fresh = [...document.body.querySelectorAll<HTMLButtonElement>("button")].find((button) => button.textContent?.trim() === "new")!;
-    act(() => { compact.click(); exportButton.click(); branch.click(); fresh.click(); });
+    act(() => { compact.click(); exportButton.click(); fork.click(); fresh.click(); });
     const share = [...document.body.querySelectorAll<HTMLButtonElement>("button")].find((button) => button.textContent?.trim() === "share")!;
     act(() => share.click());
     expect(compactSession).toHaveBeenCalledWith(TAB);
     expect(exportHtml).toHaveBeenCalledWith(TAB);
     expect(shareSession).toHaveBeenCalledWith(TAB);
-    expect(branchSession).toHaveBeenCalledWith(TAB);
+    expect(forkIntoNewTab).toHaveBeenCalledWith(TAB);
     // #82: "new" runs the same spawn as /new and mod+shift+n, not an in-tab reset.
     expect(newSession).toHaveBeenCalledWith("/p", undefined, null);
   });

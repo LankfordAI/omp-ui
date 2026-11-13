@@ -219,7 +219,7 @@ export async function restoreSavedTabs(
       restored.push(tabId);
       continue;
     }
-    await get().openSession(tabId);
+    await get().openSession(tabId, { forkCheck: false });
     if (get().tabs.some((tab) => tab.tabId === tabId)) restored.push(tabId);
   }
 
@@ -717,6 +717,30 @@ export function worktreeSharers(
   return (state?.projects ?? []).flatMap((project) =>
     project.sessions.filter((s) => s.tabId !== tabId && s.worktree?.path === worktreePath),
   );
+}
+
+/** One host's full session set: local projects plus chats, or a remote instance's projects. */
+function hostSessions(state: BackendState, instanceId: string | null): SessionSummary[] {
+  if (instanceId === null) return [...state.projects.flatMap((g) => g.sessions), ...state.chats];
+  return findInstance(state, instanceId)?.projects.flatMap((g) => g.sessions) ?? [];
+}
+
+/** The session `tabId` was forked from (CONTEXT.md **Fork**), on the same host; null when not a fork or unresolved. */
+export function forkSourceOf(state: BackendState | null, tabId: string): SessionSummary | null {
+  const owner = findOwner(state, tabId);
+  const sourceTabId = owner?.record.forkSourceTabId ?? null;
+  if (owner === undefined || sourceTabId === null) return null;
+  const source = findOwner(state, sourceTabId);
+  return source !== undefined && source.instanceId === owner.instanceId ? source.record : null;
+}
+
+/** Running sessions forked directly from `tabId` on the same host, newest launch first. */
+export function liveForksOf(state: BackendState | null, tabId: string): SessionSummary[] {
+  const owner = findOwner(state, tabId);
+  if (state === null || owner === undefined) return [];
+  return hostSessions(state, owner.instanceId)
+    .filter((s) => s.live === "live" && s.forkSourceTabId === tabId)
+    .sort((a, b) => b.launchedAt.localeCompare(a.launchedAt));
 }
 
 /** The registered project and worktree whose checkout is at `path`, or null

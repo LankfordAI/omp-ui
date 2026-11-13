@@ -760,6 +760,15 @@ export interface SessionSummary extends OwnedSessionRecord {
    * still decodes; absent or null reads as "not held".
    */
   modelHold?: ModelHold | null;
+  /**
+   * The owned session this one was forked from (CONTEXT.md **Fork**): derived
+   * on every state build from the transcript header's `parentSession`, matched
+   * to the record on the same host whose lineage dir holds that file. Null
+   * when not a fork, when the source record is gone, or when the parent sits
+   * in this session's own lineage dir. Never persisted. Optional so an older
+   * remote host still decodes; absent reads as null.
+   */
+  forkSourceTabId?: string | null;
 }
 
 export interface ProjectGroup {

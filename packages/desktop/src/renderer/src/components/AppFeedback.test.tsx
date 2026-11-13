@@ -14,6 +14,7 @@ const backendMock = {
   switchMode: vi.fn(async () => {}),
   setSkipTerminateConfirmation: vi.fn(async () => {}),
   removeProject: vi.fn(async () => {}),
+  spawnSession: vi.fn(async () => ({ tabId: TAB })),
   fleetRolloutProviderKeys: vi.fn(
     async (): Promise<FleetProviderKeysOutcome> => ({ status: "accepted", installed: [], failed: [] }),
   ),
@@ -362,6 +363,66 @@ describe("mode-switch and project-removal dialogs", () => {
       buttonIn("Remove project").click();
     });
     expect(backendMock.removeProject).toHaveBeenCalledWith("/p");
+  });
+});
+
+describe("resume check for a forked original (CONTEXT.md Fork)", () => {
+  const FORK = "tab-fb-fork";
+  /** TAB dormant with no mounted tab; FORK, a running fork of it, mounted but hidden. */
+  function seedForked(): void {
+    useStore.setState({
+      state: backendState({
+        projects: [
+          {
+            project: PROJECT,
+            sessions: [
+              record({ live: "dormant", title: "Original" }),
+              record({ tabId: FORK, sessionId: "s-fork", title: "Forked copy", forkSourceTabId: TAB }),
+            ],
+          },
+        ],
+      }),
+      tabs: [tabInfo({ tabId: FORK, projectCwd: "/p", hidden: true })],
+      activeTabId: null,
+    });
+  }
+
+  async function stage(): Promise<void> {
+    await render();
+    await act(async () => {
+      await useStore.getState().openSession(TAB);
+    });
+    await settle();
+  }
+
+  it("offers Cancel, Resume original, and Open fork, defaulting to Open fork", async () => {
+    seedForked();
+    await stage();
+    const labels = [...dialog()!.querySelectorAll("button")].map((b) => b.textContent);
+    expect(labels).toEqual(expect.arrayContaining(["Cancel", "Resume original", "Open fork"]));
+    expect(document.activeElement?.textContent).toBe("Open fork");
+  });
+
+  it("Open fork focuses the fork without spawning the original", async () => {
+    seedForked();
+    await stage();
+    await act(async () => {
+      buttonIn("Open fork").click();
+    });
+    expect(useStore.getState().activeTabId).toBe(FORK);
+    expect(backendMock.spawnSession).not.toHaveBeenCalled();
+    expect(dialog()).toBeNull();
+  });
+
+  it("Resume original spawns the original's resume", async () => {
+    seedForked();
+    await stage();
+    await act(async () => {
+      buttonIn("Resume original").click();
+    });
+    expect(backendMock.spawnSession).toHaveBeenCalledWith(
+      expect.objectContaining({ origin: "resume", resumeTabId: TAB }),
+    );
   });
 });
 

@@ -5,7 +5,7 @@ import * as path from "node:path";
  * Full-fidelity session fork (issue #83): copies a session `.jsonl` into a new
  * lineage dir under a fresh session id, ready for `--resume`. omp's own
  * `branch` RPC rewinds to the fork point's PARENT and switches the live
- * process in place — the wrong semantics for a "branch this session" button,
+ * process in place — the wrong semantics for a "Fork into a new tab" button,
  * which must preserve the source session and keep every message, including
  * the last one. A copied file gives exactly that: entries keep their
  * id/parentId chain (self-contained per file), and the header's
@@ -53,4 +53,16 @@ export async function forkSessionFile(
   );
   await fs.promises.writeFile(forked, `${lines.join("\n")}\n`, "utf8");
   return forked;
+}
+
+/**
+ * The lineage dir NAME a transcript's `parentSession` points into, or null
+ * when there is no parent or it sits in `ownLineageDir` (the session tree's
+ * in-place "Fork from this prompt", which keeps the same tab). Only a parent
+ * in another lineage dir marks a Fork (CONTEXT.md).
+ */
+export function forkParentLineage(parentSession: string | undefined, ownLineageDir: string): string | null {
+  if (parentSession === undefined) return null;
+  const dir = path.basename(path.dirname(parentSession));
+  return dir === "" || dir === "." || dir === ownLineageDir ? null : dir;
 }

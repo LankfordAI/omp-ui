@@ -568,7 +568,7 @@ export {
   unarchiveSession,
   type SessionLocation,
 } from "./archive";
-export { forkSessionFile } from "./fork";
+export { forkParentLineage, forkSessionFile } from "./fork";
 export {
   reclaimCheckouts,
   type ReclaimCheckoutsOptions,

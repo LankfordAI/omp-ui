@@ -22,7 +22,7 @@ export function createArtifactsSlice(set: SetState, get: GetState): ArtifactsSli
       const owner = findOwner(get().state, target.tabId);
       if (owner === undefined || owner.instanceId !== null || target.sessionId === null || owner.record.sessionId !== target.sessionId) { get().reportError(new Error(t("artifacts.sourceUnavailable"))); return; }
       const navigation = bumpNavigationGeneration();
-      try { await get().openSession(target.tabId, { activate: false }); }
+      try { await get().openSession(target.tabId, { activate: false, forkCheck: false }); }
       catch (reason) { get().reportError(reason); return; }
       if (getNavigationGeneration() !== navigation) return;
       if (!get().tabs.some((tab) => tab.tabId === target.tabId) || findOwner(get().state, target.tabId)?.record.sessionId !== target.sessionId) { get().reportError(new Error(t("artifacts.sourceUnavailable"))); return; }

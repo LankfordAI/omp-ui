@@ -7,7 +7,7 @@ import { localeTag, useT, type MessageKey } from "../lib/i18n";
 import { useKeybindingLabel } from "../lib/keybindings";
 import { formatSnoozeUntil } from "../lib/snooze-until";
 import { cn } from "../lib/cn";
-import { canSettle, deriveSidebarSessionState, useStore, type SidebarSessionState } from "../store";
+import { canSettle, deriveSidebarSessionState, forkSourceOf, useStore, type SidebarSessionState } from "../store";
 import { SEANCE_MIN_OMP, supportsSeance } from "../lib/seance";
 import { SESSION_DRAG_EFFECT, SESSION_DRAG_MIME } from "../lib/session-drag";
 import { Button, Chip, IconButton, IconClock, IconLock, IconPin, IconSpeaker, type Tone } from "./ui";
@@ -218,6 +218,27 @@ function IconSeance() {
   );
 }
 
+/** A fork glyph — the row's link back to the session it was forked from (CONTEXT.md **Fork**). */
+function IconFork() {
+  return (
+    <svg
+      viewBox="0 0 16 16"
+      aria-hidden
+      className="size-3.5"
+      fill="none"
+      stroke="currentColor"
+      strokeWidth={1.4}
+      strokeLinecap="round"
+      strokeLinejoin="round"
+    >
+      <circle cx="4" cy="3.8" r="1.7" />
+      <circle cx="4" cy="12.2" r="1.7" />
+      <circle cx="11.8" cy="4.6" r="1.7" />
+      <path d="M4 5.5v5.1M10.1 4.6H8.4A4.4 4.4 0 004 9v1.4" />
+    </svg>
+  );
+}
+
 export function SessionRow({
   s,
   onActivate,
@@ -272,6 +293,8 @@ export function SessionRow({
   // version, the same source SessionHud gates anonymize on — a dormant row
   // can be consulted from any project, so no per-tab ompVersion exists here.
   const seanceAvailable = useStore((st) => supportsSeance(st.ompUpdate.installedVersion));
+  // CONTEXT.md **Fork**: the original this row was forked from, on the same host.
+  const forkSource = useStore((st) => forkSourceOf(st.state, s.tabId));
 
   // Live voice output (issue #807) plus the park/resume badges (#811): a
   // running live session speaks even when its tab is not visible, and the
@@ -319,6 +342,7 @@ export function SessionRow({
       : orphanSource !== null
         ? t("sidebar.session.implementsUnavailable", { planTitle: orphanSource.planTitle })
         : null;
+  const forkNote = forkSource === null ? null : t("sidebar.session.forkOf", { title: forkSource.title });
 
   // Issue #938: the tile's extra lines. Slim rows skip the derivations.
   const slim = density === "slim";
@@ -433,6 +457,7 @@ export function SessionRow({
     if (face.tone !== "neutral") meta.push(<span className={face.textClass}>{t(face.labelKey)}</span>);
     if (when !== "") meta.push(<span title={absoluteTime(s.cachedModified)}>{when}</span>);
     if (exitWord !== null) meta.push(<span title={exitWord.title}>{exitWord.label}</span>);
+    if (forkNote !== null) meta.push(<span title={forkNote}>{t("sidebar.session.forkChip")}</span>);
   } else {
     // A dormant record surfaced as a tile (Snoozed) is still "no process";
     // that word never prints on the meta line (round-2 judge). Every other
@@ -520,7 +545,9 @@ export function SessionRow({
         aria-current={selected ? "page" : undefined}
         data-multi-selected={multiSelected ? "true" : undefined}
         title={
-          missing && !strandedSettle ? t("sidebar.session.missingHint") : implementsNote !== null ? `${s.title} — ${implementsNote}` : s.title
+          missing && !strandedSettle
+            ? t("sidebar.session.missingHint")
+            : [s.title, implementsNote, forkNote].filter((x) => x !== null).join(" — ")
         }
         // Shift+click extends the selection: keep the browser from also
         // selecting the text between the anchor and this row (issue #988).
@@ -595,7 +622,7 @@ export function SessionRow({
           </span>
         )}
 
-        {!slim && (planMode || impl || orphanSource !== null || handoff?.hasDescendants) && (
+        {!slim && (planMode || impl || forkSource !== null || orphanSource !== null || handoff?.hasDescendants) && (
           <span className="mt-1 flex min-w-0 items-center gap-1.5 text-xs">
             {planMode && (
               <Chip tone="iris" title={t("hud.mode.planDescription")}>
@@ -603,6 +630,7 @@ export function SessionRow({
               </Chip>
             )}
             {impl && <Chip title={implementsNote ?? undefined}>{t("sidebar.session.implChip")}</Chip>}
+            {forkSource !== null && <Chip title={forkNote ?? undefined}>{t("sidebar.session.forkChip")}</Chip>}
             {orphanSource !== null && (
               <span className="shrink-0 text-ink-faint">{t("sidebar.session.sourceUnavailable")}</span>
             )}
@@ -635,6 +663,14 @@ export function SessionRow({
             onClick={() => void openSession(source.tabId)}
           >
             <IconPlan />
+          </IconButton>
+        )}
+        {forkSource !== null && (
+          <IconButton
+            label={t("sidebar.session.openForkSource")}
+            onClick={() => void openSession(forkSource.tabId)}
+          >
+            <IconFork />
           </IconButton>
         )}
         {firstPr !== undefined && (

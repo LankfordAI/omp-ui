@@ -23,7 +23,7 @@ import { IconPencil, IconRewind } from "./ui";
  * only source; the viewer never reads the transcript store itself.
  */
 
-/** The branch glyph — a prompt row you can branch from, and "navigate here". Local because the HUD owns IconBranch. */
+/** The branch glyph — a prompt row you can branch from, and "navigate here". Local because the HUD owns IconFork. */
 function IconTreeBranch() {
   return (
     <svg viewBox="0 0 16 16" aria-hidden className="size-3.5 shrink-0" {...ICON_STROKE}>

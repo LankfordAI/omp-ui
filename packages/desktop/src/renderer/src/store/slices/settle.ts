@@ -139,8 +139,8 @@ export function createSettleSlice(set: SetState, get: GetState): SettleSlice {
           }
           // The normal resume path: a mounted (hidden) tab relaunches in
           // place; an unmounted one spawns its tab through openSession.
-          if (s.tabs.some((tab) => tab.tabId === target.tabId)) await s.resumeDead(target.tabId);
-          else await s.openSession(target.tabId);
+          if (s.tabs.some((tab) => tab.tabId === target.tabId)) await s.resumeDead(target.tabId, { forkCheck: false });
+          else await s.openSession(target.tabId, { forkCheck: false });
         }
       })();
       return true;

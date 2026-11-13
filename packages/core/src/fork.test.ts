@@ -2,7 +2,7 @@ import * as fs from "node:fs";
 import * as os from "node:os";
 import * as path from "node:path";
 import { afterEach, describe, expect, it } from "vitest";
-import { forkSessionFile } from "./fork";
+import { forkParentLineage, forkSessionFile } from "./fork";
 
 const SOURCE_ID = "019faeab-cc7b-7000-8bfc-67242a2869d8";
 const FORK_ID = "019faeab-cc7b-7000-8bfc-0000000000ff";
@@ -63,5 +63,14 @@ describe("forkSessionFile", () => {
   it("refuses an unparseable line rather than shipping a corrupt fork", async () => {
     const { source, destDir } = setup([HEADER, "not json"]);
     await expect(forkSessionFile(source, destDir, FORK_ID, NOW)).rejects.toThrow();
+  });
+});
+
+describe("forkParentLineage", () => {
+  it("names the parent's lineage dir only when it differs from the session's own", () => {
+    expect(forkParentLineage("/sessions/lineage-src/a.jsonl", "lineage-fork")).toBe("lineage-src");
+    // The session tree's in-place fork keeps the same lineage dir: not a Fork.
+    expect(forkParentLineage("/sessions/lineage-fork/a.jsonl", "lineage-fork")).toBeNull();
+    expect(forkParentLineage(undefined, "lineage-fork")).toBeNull();
   });
 });

@@ -169,7 +169,7 @@ export type SessionParamsSlice = Pick<
   | "exportHtml"
   | "shareSession"
   | "anonymizeSession"
-  | "branchSession"
+  | "forkIntoNewTab"
   | "stageRewind"
   | "performRewind"
   | "performNavigate"
@@ -2042,8 +2042,8 @@ export function createSessionParamsSlice(
     }
   };
 
-  const branchSession = async (tabId: string): Promise<void> => {
-    // Full-fidelity branch (issue #83): the backend copies the transcript
+  const forkIntoNewTab = async (tabId: string): Promise<void> => {
+    // Full-fidelity fork (issue #83): the backend copies the transcript
     // into a new lineage and registers it; the source session — this tab
     // included — keeps running untouched. omp's `branch` RPC is the wrong
     // tool here: it rewinds past the last user message in place.
@@ -3042,7 +3042,7 @@ export function createSessionParamsSlice(
     exportHtml,
     shareSession,
     anonymizeSession,
-    branchSession,
+    forkIntoNewTab,
     stageRewind,
     performRewind,
     performNavigate,

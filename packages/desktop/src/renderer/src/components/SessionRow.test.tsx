@@ -22,7 +22,7 @@ vi.mock("../backend", () => ({
 const { useStore } = await import("../store");
 const { SessionRow } = await import("./SessionRow");
 // Fixtures touch no bridge at load, so a static import is safe here.
-import { rpcTabState } from "../test/fixtures";
+import { backendState, rpcTabState } from "../test/fixtures";
 import { TONE_DOT } from "./ui/tone";
 
 (globalThis as Record<string, unknown>).IS_REACT_ACT_ENVIRONMENT = true;
@@ -318,6 +318,44 @@ describe("session tile (#938)", () => {
     )!;
     expect(del).not.toBeNull();
     expect(del.parentElement!.classList.contains("pointer-events-none")).toBe(true);
+  });
+});
+
+describe("fork marker (CONTEXT.md Fork)", () => {
+  const SOURCE = "tab-source";
+  afterEach(() => useStore.setState({ state: null }));
+  const forkNote = t("sidebar.session.forkOf", { title: "Original work" });
+  function seedFork(): SessionSummary {
+    const fork = summary({ forkSourceTabId: SOURCE });
+    const source = summary({ tabId: SOURCE, sessionId: "session-src", title: "Original work" });
+    useStore.setState({
+      state: backendState({
+        projects: [
+          {
+            project: {
+              path: "/projects/one", name: "one", addedAt: "t", lastModel: null, lastThinkingLevel: null,
+              lastAdvisor: null, lastAdvisorModel: null, defaultModel: null, defaultAdvisorModel: null,
+              browserClock: false, councilRoster: null, knowledgeHome: null, repositoryKey: null, icon: null,
+            },
+            sessions: [fork, source],
+          },
+        ],
+      }),
+    });
+    return fork;
+  }
+
+  it("tiles carry a fork chip naming the original; slim rows say fork in the meta line", () => {
+    const tile = render(seedFork(), "18.11.3");
+    const chip = tile.querySelector(`[title="${forkNote}"]`);
+    expect(chip?.textContent).toBe(t("sidebar.session.forkChip"));
+    act(() => root!.unmount());
+    root = null;
+    document.body.replaceChildren();
+
+    const slim = render(seedFork(), "18.11.3", null, undefined, "slim");
+    const word = slim.querySelector(`span[title="${forkNote}"]`);
+    expect(word?.textContent).toBe(t("sidebar.session.forkChip"));
   });
 });
 
