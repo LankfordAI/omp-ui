@@ -1,0 +1,54 @@
+{
+  "electron": "43.2.0",
+  "chrome": "150.0.7871.129",
+  "headless": true,
+  "gpuBusyCounter": "/sys/class/drm/card1/device/gpu_busy_percent",
+  "gpuFeatureStatus": {
+    "2d_canvas": "disabled_software",
+    "direct_rendering_display_compositor": "disabled_off_ok",
+    "gpu_compositing": "disabled_software",
+    "multiple_raster_threads": "enabled_on",
+    "opengl": "disabled_off",
+    "rasterization": "disabled_software",
+    "raw_draw": "disabled_off_ok",
+    "skia_graphite": "disabled_off",
+    "trees_in_viz": "disabled_off",
+    "video_decode": "disabled_software",
+    "video_encode": "disabled_software",
+    "vulkan": "disabled_off",
+    "webgl": "disabled_off",
+    "webgpu": "disabled_off",
+    "webgpu_on_vk_via_gl_interop": "disabled_off",
+    "webnn": "disabled_off"
+  },
+  "secsPerSample": 3,
+  "exp4": {
+    "svgImgAnimatesVisible": true,
+    "visibleIdle": {
+      "gpuBusyMean": 10.3,
+      "gpuBusyP90": 11,
+      "cpuRenderer": 0.2,
+      "cpuGpuProcess": 0.4,
+      "cpuBrowser": 0
+    },
+    "minimized": {
+      "visibility": "visible",
+      "gpuBusyMean": 10.1,
+      "gpuBusyP90": 10,
+      "cpuRenderer": 0.2,
+      "cpuGpuProcess": 0.4,
+      "cpuBrowser": 0
+    },
+    "hidden": {
+      "visibility": "hidden",
+      "gpuBusyMean": 4.1,
+      "gpuBusyP90": 5,
+      "cpuRenderer": 0,
+      "cpuGpuProcess": 0,
+      "cpuBrowser": 0
+    },
+    "reducedMotionPageMatches": true,
+    "svgImgAnimatesUnderReducedMotion": true,
+    "stillFrameSwapStopsMotion": true
+  }
+}

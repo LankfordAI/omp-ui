@@ -1,0 +1,151 @@
+<!doctype html>
+<!-- PROTOTYPE (#1168) — throwaway; not product code. A static mimic of the app
+     shell (title bar, sidebar, transcript, composer, inspector rail) using the
+     graphite tokens and the glass utilities from style.css, with a backdrop
+     layer behind it. Query: ?bg=wash|static|animated &blur=today|plane|scene
+     &look=chrome|scrim|full &alpha=<plane alpha %> &scrim=<void scrim %>. -->
+<html>
+<head>
+<meta charset="utf-8">
+<style>
+:root {
+  --color-void: #0a0b0d; --color-sunken: #0e1013; --color-surface: #14171b;
+  --color-raised: #1a1e23; --color-overlay: #22272e; --color-hover: #2a3037;
+  --color-line: #23282f; --color-line-strong: #333a43;
+  --color-ink: #eaeef3; --color-ink-mid: #c4cedb; --color-ink-dim: #adb6c1; --color-ink-faint: #9fa5ae;
+  --color-signal: #4de0a1; --color-copper: #f2aa6a; --color-iris: #a595f9;
+  --alpha: 86%; --scrim: 0%; --blur: blur(14px) saturate(1.08);
+  color-scheme: dark;
+}
+* { box-sizing: border-box; }
+html, body { margin: 0; height: 100%; overflow: hidden; background: var(--color-void);
+  color: var(--color-ink); font: 14px/1.55 system-ui, sans-serif; }
+
+/* ---- backdrop layer */
+#backdrop { position: fixed; inset: 0; z-index: 0; overflow: hidden; }
+#backdrop img { position: absolute; inset: -40px; width: calc(100% + 80px); height: calc(100% + 80px); object-fit: cover; }
+#backdrop.wash {
+  background-color: var(--color-void);
+  background-image:
+    radial-gradient(70rem 44rem at 8% -12%, color-mix(in oklab, var(--color-overlay) 55%, transparent) 0%, transparent 70%),
+    radial-gradient(48rem 36rem at 104% 108%, color-mix(in oklab, var(--color-raised) 33%, transparent) 0%, transparent 70%);
+}
+body.blur-scene #backdrop img { filter: var(--blur); }
+#scrim { position: absolute; inset: 0; background: color-mix(in srgb, var(--color-void) var(--scrim), transparent); }
+
+/* ---- shell */
+#app { position: relative; z-index: 1; display: flex; flex-direction: column; height: 100%; }
+header { height: 36px; flex: none; display: flex; align-items: center; padding: 0 12px; gap: 8px;
+  border-bottom: 1px solid var(--color-line); font-size: 12px; color: var(--color-ink-mid); }
+.row { flex: 1; min-height: 0; display: flex; }
+aside.side { width: 260px; flex: none; border-right: 1px solid var(--color-line); padding: 10px; overflow: hidden; }
+aside.rail { width: 300px; flex: none; border-left: 1px solid var(--color-line); padding: 10px; overflow: hidden; }
+main { flex: 1; min-width: 0; position: relative; display: flex; flex-direction: column; }
+#scroll { flex: 1; overflow-y: auto; padding: 24px 0 180px; }
+.col { max-width: 760px; margin: 0 auto; padding: 0 24px; }
+.msg { margin: 0 0 18px; }
+.meta { font-size: 11.5px; color: var(--color-ink-faint); margin-bottom: 4px; }
+.user { background: var(--color-raised); border: 1px solid var(--color-line); border-radius: 6px; padding: 10px 12px; }
+pre { background: var(--color-raised); border: 1px solid var(--color-line); border-radius: 6px; padding: 10px 12px;
+  font: 12.5px/1.5 ui-monospace, monospace; color: var(--color-ink-mid); white-space: pre-wrap; margin: 8px 0; }
+.dim { color: var(--color-ink-dim); } .mid { color: var(--color-ink-mid); }
+.item { padding: 6px 8px; border-radius: 6px; font-size: 13px; color: var(--color-ink-mid); }
+.item small { display: block; color: var(--color-ink-faint); font-size: 11.5px; }
+.item.on { background: var(--color-hover); color: var(--color-ink); }
+.dot { display: inline-block; width: 7px; height: 7px; border-radius: 50%; background: var(--color-signal); margin-right: 6px; }
+.label { font-size: 11px; font-weight: 600; letter-spacing: .08em; text-transform: uppercase; color: var(--color-ink-faint); margin: 12px 8px 6px; }
+#composer { position: absolute; left: 50%; bottom: 16px; transform: translateX(-50%); width: min(760px, calc(100% - 48px));
+  min-height: 96px; border: 1px solid var(--color-line); border-radius: 6px; padding: 12px 14px; color: var(--color-ink-faint);
+  box-shadow: 0 10px 30px rgb(0 0 0 / .45); }
+
+/* ---- plane fills (chrome-* / glass-* equivalents at the prototype alpha) */
+header { background: color-mix(in srgb, var(--color-void) var(--alpha), transparent); }
+aside { background: color-mix(in srgb, var(--color-sunken) var(--alpha), transparent); }
+main { background: color-mix(in srgb, var(--color-surface) var(--alpha), transparent); }
+body.look-chrome main { background: var(--color-surface); }
+#composer { background: color-mix(in srgb, var(--color-surface) 78%, transparent); backdrop-filter: blur(8px); }
+
+/* blur=plane: every translucent plane carries its own backdrop-filter */
+body.blur-plane header, body.blur-plane aside { backdrop-filter: var(--blur); }
+body.blur-plane:not(.look-chrome) main { backdrop-filter: var(--blur); }
+</style>
+</head>
+<body>
+<div id="backdrop"><img id="scene" alt=""><div id="scrim"></div></div>
+<div id="app">
+  <header><span class="dot"></span>omp-ui · prototype #1168 <span style="flex:1"></span><span id="cfg" class="dim"></span></header>
+  <div class="row">
+    <aside class="side">
+      <div class="label">Projects</div>
+      <div class="item on"><span class="dot"></span>omp-ui<small>main · 3 live sessions</small></div>
+      <div class="item">feathernote<small>develop · 1 session</small></div>
+      <div class="item">radiance<small>idle · 2h ago</small></div>
+      <div class="label">Sessions</div>
+      <div class="item on">Theme backdrops prototype<small>working · opus</small></div>
+      <div class="item">Android host switching<small>done · 14m</small></div>
+      <div class="item">Fleet placement audit<small>awaiting answer</small></div>
+      <div class="item">Release v0.14 notes<small>dormant</small></div>
+    </aside>
+    <main>
+      <div id="scroll"><div class="col" id="col"></div></div>
+      <div id="composer">Ask, plan, or type / for commands…</div>
+    </main>
+    <aside class="rail">
+      <div class="label">Session</div>
+      <div class="item">Model<small>anthropic/claude-opus-5.5 · high</small></div>
+      <div class="item">Context<small>41.2k / 400k tokens</small></div>
+      <div class="item">Spend<small>$1.84 this session</small></div>
+      <div class="label">Changes</div>
+      <div class="item">style.css<small>+42 −3</small></div>
+      <div class="item">themes.ts<small>+18 −6</small></div>
+      <div class="item">AppearancePage.tsx<small>+120 −0</small></div>
+    </aside>
+  </div>
+</div>
+<script>
+const q = new URLSearchParams(location.search);
+const bg = q.get("bg") ?? "wash", blur = q.get("blur") ?? "today", look = q.get("look") ?? "chrome";
+document.body.classList.add(`blur-${blur}`, `look-${look}`);
+document.documentElement.style.setProperty("--alpha", `${q.get("alpha") ?? 86}%`);
+document.documentElement.style.setProperty("--scrim", `${q.get("scrim") ?? 0}%`);
+const img = document.getElementById("scene");
+if (bg === "wash") { document.getElementById("backdrop").classList.add("wash"); img.remove(); }
+else img.src = bg === "animated" ? "scene.svg" : "scene-static.svg";
+document.getElementById("cfg").textContent = `bg=${bg} blur=${blur} look=${look} alpha=${q.get("alpha") ?? 86} scrim=${q.get("scrim") ?? 0}`;
+
+const col = document.getElementById("col"), scroll = document.getElementById("scroll");
+const LOREM = "The backdrop sits behind every glass plane and the tint alpha is gated so each ink tier clears its floor over the worst pixel the scene can paint. Blurring the scene once costs one filter per frame instead of one per plane. ".split(" ");
+function para(n) { let s = ""; for (let i = 0; i < n; i++) s += LOREM[(i * 7) % LOREM.length] + " "; return s; }
+for (let i = 0; i < 14; i++) {
+  const m = document.createElement("div"); m.className = "msg";
+  if (i % 4 === 0) m.innerHTML = `<div class="meta">you · 14:${10 + i}</div><div class="user">${para(18)}</div>`;
+  else m.innerHTML = `<div class="meta">assistant · opus · 14:${10 + i}</div><p class="mid">${para(60)}</p>` +
+    (i % 3 === 0 ? `<pre>const floor = minAlpha(theme, { scrim: 0.5 });\nfor (const plane of planes) plane.alpha = Math.max(plane.alpha, floor);\n// one blur on the scene, filterless tints on chrome</pre>` : "") +
+    `<p class="dim">${para(24)}</p>`;
+  col.appendChild(m);
+}
+const live = document.createElement("p"); live.className = "mid";
+const liveMsg = document.createElement("div"); liveMsg.className = "msg";
+liveMsg.innerHTML = `<div class="meta">assistant · streaming</div>`; liveMsg.appendChild(live); col.appendChild(liveMsg);
+
+let mode = "idle", timer = null, raf = 0, w = 0;
+function stop() { clearInterval(timer); cancelAnimationFrame(raf); timer = null; }
+window.proto = {
+  phase(next) {
+    stop(); mode = next;
+    if (next === "stream") {
+      scroll.scrollTop = scroll.scrollHeight;
+      timer = setInterval(() => { live.textContent += LOREM[w++ % LOREM.length] + " "; scroll.scrollTop = scroll.scrollHeight; }, 30);
+    } else if (next === "scroll") {
+      let dir = -1;
+      const step = () => { scroll.scrollTop += dir * 6;
+        if (scroll.scrollTop <= 0) dir = 1; else if (scroll.scrollTop + scroll.clientHeight >= scroll.scrollHeight - 1) dir = -1;
+        raf = requestAnimationFrame(step); };
+      raf = requestAnimationFrame(step);
+    }
+    return mode;
+  },
+};
+</script>
+</body>
+</html>

@@ -1,0 +1,559 @@
+{
+  "electron": "43.2.0",
+  "chrome": "150.0.7871.129",
+  "headless": false,
+  "gpuBusyCounter": "/sys/class/drm/card1/device/gpu_busy_percent",
+  "gpuFeatureStatus": {
+    "2d_canvas": "disabled_software",
+    "direct_rendering_display_compositor": "disabled_off_ok",
+    "gpu_compositing": "disabled_software",
+    "multiple_raster_threads": "enabled_on",
+    "opengl": "disabled_off",
+    "rasterization": "disabled_software",
+    "raw_draw": "disabled_off_ok",
+    "skia_graphite": "disabled_off",
+    "trees_in_viz": "disabled_off",
+    "video_decode": "disabled_software",
+    "video_encode": "disabled_software",
+    "vulkan": "disabled_off",
+    "webgl": "disabled_off",
+    "webgpu": "disabled_off",
+    "webgpu_on_vk_via_gl_interop": "disabled_off",
+    "webnn": "disabled_off"
+  },
+  "secsPerSample": 8,
+  "cost": {
+    "rows": [
+      {
+        "round": 0,
+        "config": "today: wash, chrome-only",
+        "hiddenBaseline": {
+          "gpuBusyMean": 9.3,
+          "gpuBusyP90": 11,
+          "cpuRenderer": 0,
+          "cpuGpuProcess": 0,
+          "cpuBrowser": 0
+        },
+        "idle": {
+          "gpuBusyMean": 5.8,
+          "gpuBusyP90": 8,
+          "cpuRenderer": 0,
+          "cpuGpuProcess": 0,
+          "cpuBrowser": 0
+        },
+        "stream": {
+          "gpuBusyMean": 2,
+          "gpuBusyP90": 2,
+          "cpuRenderer": 0.1,
+          "cpuGpuProcess": 0.1,
+          "cpuBrowser": 0.1
+        },
+        "scroll": {
+          "gpuBusyMean": 8.5,
+          "gpuBusyP90": 9,
+          "cpuRenderer": 0.1,
+          "cpuGpuProcess": 0.2,
+          "cpuBrowser": 0.1
+        }
+      },
+      {
+        "round": 0,
+        "config": "animated, chrome-only, unblurred scene",
+        "hiddenBaseline": {
+          "gpuBusyMean": 1.9,
+          "gpuBusyP90": 3,
+          "cpuRenderer": 0,
+          "cpuGpuProcess": 0,
+          "cpuBrowser": 0
+        },
+        "idle": {
+          "gpuBusyMean": 8,
+          "gpuBusyP90": 8,
+          "cpuRenderer": 0.2,
+          "cpuGpuProcess": 0.2,
+          "cpuBrowser": 0
+        },
+        "stream": {
+          "gpuBusyMean": 8.8,
+          "gpuBusyP90": 9,
+          "cpuRenderer": 0.2,
+          "cpuGpuProcess": 0.3,
+          "cpuBrowser": 0.1
+        },
+        "scroll": {
+          "gpuBusyMean": 13.6,
+          "gpuBusyP90": 14,
+          "cpuRenderer": 0.2,
+          "cpuGpuProcess": 0.3,
+          "cpuBrowser": 0.1
+        }
+      },
+      {
+        "round": 0,
+        "config": "animated, chrome-only, blur scene once",
+        "hiddenBaseline": {
+          "gpuBusyMean": 1.9,
+          "gpuBusyP90": 3,
+          "cpuRenderer": 0,
+          "cpuGpuProcess": 0,
+          "cpuBrowser": 0
+        },
+        "idle": {
+          "gpuBusyMean": 8.9,
+          "gpuBusyP90": 9,
+          "cpuRenderer": 0.2,
+          "cpuGpuProcess": 0.3,
+          "cpuBrowser": 0.1
+        },
+        "stream": {
+          "gpuBusyMean": 9.7,
+          "gpuBusyP90": 10,
+          "cpuRenderer": 0.2,
+          "cpuGpuProcess": 0.3,
+          "cpuBrowser": 0.1
+        },
+        "scroll": {
+          "gpuBusyMean": 14.6,
+          "gpuBusyP90": 15,
+          "cpuRenderer": 0.2,
+          "cpuGpuProcess": 0.4,
+          "cpuBrowser": 0.1
+        }
+      },
+      {
+        "round": 0,
+        "config": "animated, chrome-only, blur every plane",
+        "hiddenBaseline": {
+          "gpuBusyMean": 1.8,
+          "gpuBusyP90": 3,
+          "cpuRenderer": 0,
+          "cpuGpuProcess": 0,
+          "cpuBrowser": 0
+        },
+        "idle": {
+          "gpuBusyMean": 8.9,
+          "gpuBusyP90": 9,
+          "cpuRenderer": 0.1,
+          "cpuGpuProcess": 0.3,
+          "cpuBrowser": 0
+        },
+        "stream": {
+          "gpuBusyMean": 9.7,
+          "gpuBusyP90": 10,
+          "cpuRenderer": 0.2,
+          "cpuGpuProcess": 0.3,
+          "cpuBrowser": 0.1
+        },
+        "scroll": {
+          "gpuBusyMean": 16.1,
+          "gpuBusyP90": 17,
+          "cpuRenderer": 0.2,
+          "cpuGpuProcess": 0.4,
+          "cpuBrowser": 0.1
+        }
+      },
+      {
+        "round": 0,
+        "config": "animated, full glass, blur scene once",
+        "hiddenBaseline": {
+          "gpuBusyMean": 1.9,
+          "gpuBusyP90": 3,
+          "cpuRenderer": 0,
+          "cpuGpuProcess": 0,
+          "cpuBrowser": 0
+        },
+        "idle": {
+          "gpuBusyMean": 8.9,
+          "gpuBusyP90": 9,
+          "cpuRenderer": 0.1,
+          "cpuGpuProcess": 0.3,
+          "cpuBrowser": 0
+        },
+        "stream": {
+          "gpuBusyMean": 9.7,
+          "gpuBusyP90": 10,
+          "cpuRenderer": 0.2,
+          "cpuGpuProcess": 0.3,
+          "cpuBrowser": 0.1
+        },
+        "scroll": {
+          "gpuBusyMean": 14.8,
+          "gpuBusyP90": 15,
+          "cpuRenderer": 0.2,
+          "cpuGpuProcess": 0.4,
+          "cpuBrowser": 0.1
+        }
+      },
+      {
+        "round": 0,
+        "config": "animated, full glass, blur every plane",
+        "hiddenBaseline": {
+          "gpuBusyMean": 1.9,
+          "gpuBusyP90": 3,
+          "cpuRenderer": 0,
+          "cpuGpuProcess": 0,
+          "cpuBrowser": 0
+        },
+        "idle": {
+          "gpuBusyMean": 9,
+          "gpuBusyP90": 9,
+          "cpuRenderer": 0.2,
+          "cpuGpuProcess": 0.3,
+          "cpuBrowser": 0
+        },
+        "stream": {
+          "gpuBusyMean": 10.5,
+          "gpuBusyP90": 11,
+          "cpuRenderer": 0.2,
+          "cpuGpuProcess": 0.4,
+          "cpuBrowser": 0
+        },
+        "scroll": {
+          "gpuBusyMean": 17,
+          "gpuBusyP90": 18,
+          "cpuRenderer": 0.2,
+          "cpuGpuProcess": 0.5,
+          "cpuBrowser": 0.1
+        }
+      },
+      {
+        "round": 0,
+        "config": "static, full glass, blur scene once",
+        "hiddenBaseline": {
+          "gpuBusyMean": 1.9,
+          "gpuBusyP90": 2,
+          "cpuRenderer": 0,
+          "cpuGpuProcess": 0,
+          "cpuBrowser": 0
+        },
+        "idle": {
+          "gpuBusyMean": 1.4,
+          "gpuBusyP90": 2,
+          "cpuRenderer": 0,
+          "cpuGpuProcess": 0,
+          "cpuBrowser": 0
+        },
+        "stream": {
+          "gpuBusyMean": 2,
+          "gpuBusyP90": 2,
+          "cpuRenderer": 0.1,
+          "cpuGpuProcess": 0.1,
+          "cpuBrowser": 0
+        },
+        "scroll": {
+          "gpuBusyMean": 8.8,
+          "gpuBusyP90": 9,
+          "cpuRenderer": 0.1,
+          "cpuGpuProcess": 0.2,
+          "cpuBrowser": 0.1
+        }
+      },
+      {
+        "round": 0,
+        "config": "static, full glass, blur every plane",
+        "hiddenBaseline": {
+          "gpuBusyMean": 1.8,
+          "gpuBusyP90": 2,
+          "cpuRenderer": 0,
+          "cpuGpuProcess": 0,
+          "cpuBrowser": 0
+        },
+        "idle": {
+          "gpuBusyMean": 1.5,
+          "gpuBusyP90": 2,
+          "cpuRenderer": 0,
+          "cpuGpuProcess": 0,
+          "cpuBrowser": 0
+        },
+        "stream": {
+          "gpuBusyMean": 3.9,
+          "gpuBusyP90": 4,
+          "cpuRenderer": 0.1,
+          "cpuGpuProcess": 0.1,
+          "cpuBrowser": 0
+        },
+        "scroll": {
+          "gpuBusyMean": 12.6,
+          "gpuBusyP90": 13,
+          "cpuRenderer": 0.1,
+          "cpuGpuProcess": 0.2,
+          "cpuBrowser": 0.1
+        }
+      },
+      {
+        "round": 1,
+        "config": "static, full glass, blur every plane",
+        "hiddenBaseline": {
+          "gpuBusyMean": 1.5,
+          "gpuBusyP90": 2,
+          "cpuRenderer": 0,
+          "cpuGpuProcess": 0,
+          "cpuBrowser": 0
+        },
+        "idle": {
+          "gpuBusyMean": 1.3,
+          "gpuBusyP90": 2,
+          "cpuRenderer": 0,
+          "cpuGpuProcess": 0,
+          "cpuBrowser": 0
+        },
+        "stream": {
+          "gpuBusyMean": 3.9,
+          "gpuBusyP90": 4,
+          "cpuRenderer": 0.1,
+          "cpuGpuProcess": 0.1,
+          "cpuBrowser": 0
+        },
+        "scroll": {
+          "gpuBusyMean": 12.5,
+          "gpuBusyP90": 13,
+          "cpuRenderer": 0.1,
+          "cpuGpuProcess": 0.3,
+          "cpuBrowser": 0.1
+        }
+      },
+      {
+        "round": 1,
+        "config": "static, full glass, blur scene once",
+        "hiddenBaseline": {
+          "gpuBusyMean": 1.5,
+          "gpuBusyP90": 2,
+          "cpuRenderer": 0,
+          "cpuGpuProcess": 0,
+          "cpuBrowser": 0
+        },
+        "idle": {
+          "gpuBusyMean": 1.4,
+          "gpuBusyP90": 2,
+          "cpuRenderer": 0,
+          "cpuGpuProcess": 0,
+          "cpuBrowser": 0
+        },
+        "stream": {
+          "gpuBusyMean": 2,
+          "gpuBusyP90": 2,
+          "cpuRenderer": 0.1,
+          "cpuGpuProcess": 0.1,
+          "cpuBrowser": 0
+        },
+        "scroll": {
+          "gpuBusyMean": 8.8,
+          "gpuBusyP90": 9,
+          "cpuRenderer": 0.1,
+          "cpuGpuProcess": 0.2,
+          "cpuBrowser": 0.1
+        }
+      },
+      {
+        "round": 1,
+        "config": "animated, full glass, blur every plane",
+        "hiddenBaseline": {
+          "gpuBusyMean": 2.1,
+          "gpuBusyP90": 3,
+          "cpuRenderer": 0,
+          "cpuGpuProcess": 0,
+          "cpuBrowser": 0
+        },
+        "idle": {
+          "gpuBusyMean": 9,
+          "gpuBusyP90": 9,
+          "cpuRenderer": 0.2,
+          "cpuGpuProcess": 0.3,
+          "cpuBrowser": 0.1
+        },
+        "stream": {
+          "gpuBusyMean": 10.6,
+          "gpuBusyP90": 11,
+          "cpuRenderer": 0.2,
+          "cpuGpuProcess": 0.4,
+          "cpuBrowser": 0
+        },
+        "scroll": {
+          "gpuBusyMean": 17.4,
+          "gpuBusyP90": 18,
+          "cpuRenderer": 0.2,
+          "cpuGpuProcess": 0.4,
+          "cpuBrowser": 0.1
+        }
+      },
+      {
+        "round": 1,
+        "config": "animated, full glass, blur scene once",
+        "hiddenBaseline": {
+          "gpuBusyMean": 1.7,
+          "gpuBusyP90": 3,
+          "cpuRenderer": 0,
+          "cpuGpuProcess": 0,
+          "cpuBrowser": 0
+        },
+        "idle": {
+          "gpuBusyMean": 8.9,
+          "gpuBusyP90": 9,
+          "cpuRenderer": 0.1,
+          "cpuGpuProcess": 0.3,
+          "cpuBrowser": 0
+        },
+        "stream": {
+          "gpuBusyMean": 9.9,
+          "gpuBusyP90": 10,
+          "cpuRenderer": 0.2,
+          "cpuGpuProcess": 0.3,
+          "cpuBrowser": 0.1
+        },
+        "scroll": {
+          "gpuBusyMean": 14.6,
+          "gpuBusyP90": 15,
+          "cpuRenderer": 0.2,
+          "cpuGpuProcess": 0.4,
+          "cpuBrowser": 0.1
+        }
+      },
+      {
+        "round": 1,
+        "config": "animated, chrome-only, blur every plane",
+        "hiddenBaseline": {
+          "gpuBusyMean": 2,
+          "gpuBusyP90": 3,
+          "cpuRenderer": 0,
+          "cpuGpuProcess": 0,
+          "cpuBrowser": 0
+        },
+        "idle": {
+          "gpuBusyMean": 8.8,
+          "gpuBusyP90": 9,
+          "cpuRenderer": 0.1,
+          "cpuGpuProcess": 0.3,
+          "cpuBrowser": 0
+        },
+        "stream": {
+          "gpuBusyMean": 9.6,
+          "gpuBusyP90": 10,
+          "cpuRenderer": 0.2,
+          "cpuGpuProcess": 0.4,
+          "cpuBrowser": 0.1
+        },
+        "scroll": {
+          "gpuBusyMean": 15.8,
+          "gpuBusyP90": 16,
+          "cpuRenderer": 0.2,
+          "cpuGpuProcess": 0.4,
+          "cpuBrowser": 0.1
+        }
+      },
+      {
+        "round": 1,
+        "config": "animated, chrome-only, blur scene once",
+        "hiddenBaseline": {
+          "gpuBusyMean": 1.9,
+          "gpuBusyP90": 3,
+          "cpuRenderer": 0,
+          "cpuGpuProcess": 0,
+          "cpuBrowser": 0
+        },
+        "idle": {
+          "gpuBusyMean": 9,
+          "gpuBusyP90": 9,
+          "cpuRenderer": 0.1,
+          "cpuGpuProcess": 0.3,
+          "cpuBrowser": 0
+        },
+        "stream": {
+          "gpuBusyMean": 9.8,
+          "gpuBusyP90": 10,
+          "cpuRenderer": 0.2,
+          "cpuGpuProcess": 0.3,
+          "cpuBrowser": 0.1
+        },
+        "scroll": {
+          "gpuBusyMean": 14.8,
+          "gpuBusyP90": 15,
+          "cpuRenderer": 0.2,
+          "cpuGpuProcess": 0.3,
+          "cpuBrowser": 0.1
+        }
+      },
+      {
+        "round": 1,
+        "config": "animated, chrome-only, unblurred scene",
+        "hiddenBaseline": {
+          "gpuBusyMean": 1.7,
+          "gpuBusyP90": 3,
+          "cpuRenderer": 0,
+          "cpuGpuProcess": 0,
+          "cpuBrowser": 0
+        },
+        "idle": {
+          "gpuBusyMean": 8,
+          "gpuBusyP90": 8,
+          "cpuRenderer": 0.1,
+          "cpuGpuProcess": 0.2,
+          "cpuBrowser": 0
+        },
+        "stream": {
+          "gpuBusyMean": 8.6,
+          "gpuBusyP90": 9,
+          "cpuRenderer": 0.2,
+          "cpuGpuProcess": 0.2,
+          "cpuBrowser": 0
+        },
+        "scroll": {
+          "gpuBusyMean": 13.6,
+          "gpuBusyP90": 14,
+          "cpuRenderer": 0.2,
+          "cpuGpuProcess": 0.3,
+          "cpuBrowser": 0.1
+        }
+      },
+      {
+        "round": 1,
+        "config": "today: wash, chrome-only",
+        "hiddenBaseline": {
+          "gpuBusyMean": 1.5,
+          "gpuBusyP90": 2,
+          "cpuRenderer": 0,
+          "cpuGpuProcess": 0,
+          "cpuBrowser": 0
+        },
+        "idle": {
+          "gpuBusyMean": 1.3,
+          "gpuBusyP90": 2,
+          "cpuRenderer": 0,
+          "cpuGpuProcess": 0,
+          "cpuBrowser": 0
+        },
+        "stream": {
+          "gpuBusyMean": 2,
+          "gpuBusyP90": 2,
+          "cpuRenderer": 0.1,
+          "cpuGpuProcess": 0.1,
+          "cpuBrowser": 0
+        },
+        "scroll": {
+          "gpuBusyMean": 8.4,
+          "gpuBusyP90": 9,
+          "cpuRenderer": 0.1,
+          "cpuGpuProcess": 0.2,
+          "cpuBrowser": 0.1
+        }
+      }
+    ]
+  },
+  "gpuFeatureStatusAfterRun": {
+    "2d_canvas": "enabled",
+    "direct_rendering_display_compositor": "disabled_off_ok",
+    "gpu_compositing": "enabled",
+    "multiple_raster_threads": "enabled_on",
+    "opengl": "enabled_on",
+    "rasterization": "enabled",
+    "raw_draw": "disabled_off_ok",
+    "skia_graphite": "disabled_off",
+    "trees_in_viz": "disabled_off",
+    "video_decode": "enabled",
+    "video_encode": "disabled_software",
+    "vulkan": "disabled_off",
+    "webgl": "enabled",
+    "webgpu": "enabled",
+    "webgpu_on_vk_via_gl_interop": "disabled_off",
+    "webnn": "disabled_off"
+  }
+}
