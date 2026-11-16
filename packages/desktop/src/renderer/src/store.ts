@@ -21,6 +21,7 @@ import {
   currentGlassChromeId,
   resolveGlassChrome,
 } from "./lib/glass-chrome";
+import { applyBackdropMotion, currentBackdropMotion } from "./lib/backdrop-motion";
 import { applyLocale, currentLocaleId, resolveLocale } from "./lib/i18n";
 import { createBranchesSlice } from "./store/slices/branches";
 import { createBrowserPaneSlice } from "./store/slices/browser-pane";
@@ -219,7 +220,7 @@ export const useStore = create<UiStore>()((set, get, api) => {
   const sessionBulk = createSessionBulkSlice(get);
   /**
    * Repaints the document to match the registry's theme preference and
-   * imported themes (issue #999). The registry stays authoritative;
+   * stored themes (issues #999, #1168). The registry stays authoritative;
    * lib/themes.ts keeps only a localStorage mirror so the first frame paints
    * before this runs, and skips the repaint when the effective theme is
    * unchanged.
@@ -227,7 +228,7 @@ export const useStore = create<UiStore>()((set, get, api) => {
   const syncTheme = (s: BackendState): void => {
     applyThemePreference(
       { themeMode: s.themeMode, themeId: s.themeId, lightThemeId: s.lightThemeId, darkThemeId: s.darkThemeId },
-      s.importedThemes,
+      s.storedThemes,
     );
   };
 
@@ -260,6 +261,14 @@ export const useStore = create<UiStore>()((set, get, api) => {
   const syncGlassChrome = (s: BackendState): void => {
     const g = resolveGlassChrome(s.glassChrome);
     if (g.id !== currentGlassChromeId()) applyGlassChrome(g);
+  };
+
+  /**
+   * Re-applies the registry's persisted backdropMotion (issue #1168) — the
+   * same registry-authoritative, localStorage-mirror split as syncGlassChrome.
+   */
+  const syncBackdropMotion = (s: BackendState): void => {
+    if (s.backdropMotion !== currentBackdropMotion()) applyBackdropMotion(s.backdropMotion);
   };
 
   /**
@@ -421,6 +430,7 @@ export const useStore = create<UiStore>()((set, get, api) => {
     syncFontFamily(state);
     syncTranscriptWidth(state);
     syncGlassChrome(state);
+    syncBackdropMotion(state);
     syncLocale(state);
     reconcilePlanGates(state);
     reconcileBridgeAvailability(state);

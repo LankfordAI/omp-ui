@@ -61,3 +61,10 @@ theme; removing one moves any pick that named it back to its default.
 - The renderer's localStorage mirror now holds the preference and the imported
   themes it names (`omp-ui.theme`); the legacy `omp-ui.themeId` key still seeds
   a fixed preference on the first launch after an upgrade.
+
+**Amended 2026-11-15 (#1168):** stored themes are now imported or authored.
+"Neither adds a colour control" is superseded: the seed editor picks a few seed
+colours and the host derives the rest, and every save passes this gate plus a
+rule that keeps an authored theme's signal a green. Stored ids start with
+`vscode-` or `custom-`, and the registry setting is `storedThemes`
+([ADR-0094](0094-themes-carry-backdrops-and-can-be-authored.md)).

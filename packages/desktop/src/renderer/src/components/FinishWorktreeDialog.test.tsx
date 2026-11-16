@@ -1272,7 +1272,7 @@ describe("FinishWorktreeDialog", () => {
     });
 
     it("opens the host's pull request for a pushed destination that is not the default branch", async () => {
-      const opened = vi.spyOn(window, "open").mockReturnValue(null);
+      const opened = vi.spyOn(window, "open").mockReturnValue({} as Window);
       backendMock.getMergeBackStatus.mockResolvedValue(
         statusFixture({ destination: "feature/x", destinationUpstream: "origin/feature/x" }),
       );
@@ -1313,6 +1313,58 @@ describe("FinishWorktreeDialog", () => {
         "_blank",
         "noopener,noreferrer",
       );
+      // The handoff is evidenced: the button is replaced by a quiet line.
+      expect(buttonByText("open pull request")).toBeUndefined();
+      expect(document.body.textContent).toContain(
+        "compare page for feature/x opened in your browser",
+      );
+      opened.mockRestore();
+    });
+
+    it("shows only the confirmation line when a failed pull-request attempt is retried successfully", async () => {
+      const opened = vi.spyOn(window, "open").mockReturnValue(null);
+      backendMock.getMergeBackStatus.mockResolvedValue(
+        statusFixture({ destination: "feature/x", destinationUpstream: "origin/feature/x" }),
+      );
+      await openDialog();
+      await selectInto(destinationSelect(), "feature/x");
+      await act(async () => {
+        await flushMicrotasks();
+      });
+      act(() => primaryButton().click());
+      await act(async () => {
+        await flushMicrotasks();
+      });
+      act(() => buttonByText("push feature/x — 2 commits to origin/feature/x")!.click());
+      await act(async () => {
+        await flushMicrotasks();
+      });
+
+      // First attempt: a transport failure says so in place, button survives.
+      backendMock.pullRequestUrl.mockRejectedValueOnce(new Error("transport"));
+      act(() => buttonByText("open pull request")!.click());
+      await act(async () => {
+        await flushMicrotasks();
+      });
+      expect(document.body.textContent).toContain(
+        "cannot build a pull-request URL for this remote",
+      );
+      expect(buttonByText("open pull request")).toBeDefined();
+
+      // Retry succeeds: the confirmation line replaces the button and the
+      // stale failure line is gone — never two contradictory lines.
+      opened.mockReturnValue({} as Window);
+      act(() => buttonByText("open pull request")!.click());
+      await act(async () => {
+        await flushMicrotasks();
+      });
+      expect(document.body.textContent).toContain(
+        "compare page for feature/x opened in your browser",
+      );
+      expect(document.body.textContent).not.toContain(
+        "cannot build a pull-request URL for this remote",
+      );
+      expect(buttonByText("open pull request")).toBeUndefined();
       opened.mockRestore();
     });
 

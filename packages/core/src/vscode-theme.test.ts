@@ -1,5 +1,5 @@
 import { describe, expect, it } from "vitest";
-import { deriveTheme, effectiveThemeId, parseImportedThemes, themeContrastFailures } from "./theme";
+import { deriveTheme, effectiveThemeId, parseStoredThemes, themeContrastFailures } from "./theme";
 import { importVsCodeThemeFiles, stripJsonc } from "./vscode-theme";
 
 // Shaped like VS Code's built-in Dark Modern / Dark+ pair: JSONC with line
@@ -103,7 +103,7 @@ describe("stripJsonc", () => {
   });
 });
 
-describe("parseImportedThemes", () => {
+describe("parseStoredThemes", () => {
   it("drops a stored theme that fails the contrast gate", () => {
     const good = importVsCodeThemeFiles([
       { name: "dark_modern.json", text: DARK_MODERN },
@@ -115,7 +115,7 @@ describe("parseImportedThemes", () => {
       id: "vscode-unreadable",
       tokens: { ...good.source.tokens, "--color-ink": good.source.tokens["--color-surface"] },
     };
-    expect(parseImportedThemes([good.source, unreadable, good.source]).map((t) => t.id)).toEqual([
+    expect(parseStoredThemes([good.source, unreadable, good.source]).map((t) => t.id)).toEqual([
       "vscode-dark-modern",
     ]);
   });

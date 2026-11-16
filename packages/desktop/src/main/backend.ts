@@ -205,6 +205,13 @@ import {
   type ScheduledPromptRequest,
   type RootGuard,
   type VaultDetection,
+  authoredThemeId,
+  BACKDROP_DEFAULT_BLUR,
+  BACKDROP_DEFAULT_DIM,
+  BACKDROP_IMAGE_BYTES_MAX,
+  type SaveStoredThemeResult,
+  type ThemeSource,
+  type ThemeToolArgs,
 } from "@omp-ui/core";
 import { mintRemoteToken } from "@omp-ui/server";
 import { normalizeProjectIconRaster } from "./project-icon-raster";
@@ -255,6 +262,8 @@ import { TransferState } from "./transfer-state";
 import { SnoozeClock } from "./snooze-clock";
 import { PullRequestPoller } from "./pull-request-poller";
 import { UsageTelemetry } from "./usage-telemetry";
+import { ThemeBackdropStore } from "./theme-backdrop-store";
+import { pruneThemeBackdrops, saveStoredTheme, type StoredThemeDeps } from "./stored-themes";
 
 /** A Fleet result's summary read races this window, the same bound as the status tool's summary race. */
 const FLEET_CHILD_SUMMARY_TIMEOUT_MS = 5_000;
@@ -362,6 +371,10 @@ export class MainBackend {
   private readonly worktreesRoot: string;
   /** Where chat scratch dirs live (ADR-0059); defaults beside the registry. */
   private readonly chatsRoot: string;
+  /** Backdrop asset bytes by hash (issue #1168); a sibling folder of the registry. */
+  private readonly themeBackdrops: ThemeBackdropStore;
+  /** The one stored-theme save path's deps: settings handlers and the host tool share it. */
+  private readonly storedThemeDeps: StoredThemeDeps;
   /** The parsed dev/test gate; one value feeds every spawn and the state projection. */
   private readonly spawnGate: SpawnGate;
   /** Precomputed wire projection of `spawnGate`; identical on every broadcast. */
@@ -473,6 +486,15 @@ export class MainBackend {
     this.worktreesRoot =
       opts.worktreesRoot ?? path.join(path.dirname(registryFile), "worktrees");
     this.chatsRoot = opts.chatsRoot ?? path.join(path.dirname(registryFile), "chats");
+    this.themeBackdrops = new ThemeBackdropStore(path.join(path.dirname(registryFile), "theme-backdrops"));
+    this.storedThemeDeps = {
+      registry: this.registry,
+      broadcast: () => this.broadcast(),
+      backdrops: this.themeBackdrops,
+      newId: (label) => authoredThemeId(label, randomUUID()),
+    };
+    // Startup sweep: assets orphaned by a crash between store and registry write.
+    void pruneThemeBackdrops(this.storedThemeDeps);
     // OS notifications for background sessions (issue #271). The icon path
     // mirrors index.ts's BrowserWindow icon: one main bundle, so __dirname is
     // out/main in dev and packaged alike.
@@ -490,7 +512,7 @@ export class MainBackend {
       send: (channel, ...args) => this.send(channel, ...args),
     });
     this.planVerifier = new PlanVerifier({
-      importedTheme: (id) => this.registry.getSetting("importedThemes").find((t) => t.id === id) ?? null,
+      storedTheme: (id) => this.registry.getSetting("storedThemes").find((t) => t.id === id) ?? null,
     });
     this.clockStamper = new ClockStamper();
     this.snoozeClock = new SnoozeClock({
@@ -580,6 +602,11 @@ export class MainBackend {
         // The host notify tool posts through the same notifier, bypassing the
         // attention pipeline's delay and suppression (#688).
         hostNotify: (tabId, title, message) => this.notifier.notifyNow(tabId, title, message),
+        // The theme host tool (issue #1168): main answers through the shared save path.
+        themes: {
+          save: (tabId, args) => this.saveThemeFromTool(tabId, args),
+          apply: (source) => this.applyThemeFromTool(source),
+        },
         // Lazy: the dispatcher is constructed after remoteInstances, below.
         fleet: () => this.fleet,
         // Lazy for the same reason: the wake coordinator follows the fleet server.
@@ -1235,6 +1262,7 @@ export class MainBackend {
             void this.sessions.syncArtifactHostTools(enabled).catch(error =>
               console.warn("[artifacts] host tool reconciliation failed:", error));
           },
+          themes: this.storedThemeDeps,
         }),
         ...registerArtifactHandlers(this.artifacts),
         // Human-only save exports: the stored bytes go straight to a chosen path at 0600; large payloads never ride renderer strings. Cancel reports null.
@@ -2231,6 +2259,62 @@ export class MainBackend {
   }
 
   /**
+   * Answers omp-ui_theme_save (issue #1168). A backdrop path is confined to
+   * the session's working directory by real path, and size-checked before it
+   * is read. Applying the saved theme is answered by `applyThemeFromTool`
+   * when the agent passed apply after the user agreed (#1169).
+   */
+  private async saveThemeFromTool(tabId: string, args: ThemeToolArgs): Promise<SaveStoredThemeResult> {
+    const draft = { ...(args.id === undefined ? {} : { id: args.id }), label: args.label, seeds: args.seeds };
+    if (args.backdrop === undefined) return saveStoredTheme(this.storedThemeDeps, { ...draft, backdrop: null });
+    const invalid = (message: string): SaveStoredThemeResult => ({ ok: false, reason: "invalid", message });
+    const record = this.registry.sessions.find((s) => s.tabId === tabId);
+    if (record === undefined) return invalid("the session is gone");
+    const root = record.worktree?.path ?? record.projectCwd;
+    let realRoot: string;
+    let realFile: string;
+    try {
+      realRoot = await fs.promises.realpath(root);
+      realFile = await fs.promises.realpath(path.resolve(root, args.backdrop.path));
+    } catch {
+      return invalid("backdrop.path does not exist");
+    }
+    if (realFile !== realRoot && !realFile.startsWith(realRoot + path.sep)) {
+      return invalid("backdrop.path must be inside the session's working directory");
+    }
+    const stat = await fs.promises.stat(realFile);
+    if (!stat.isFile()) return invalid("backdrop.path does not exist");
+    if (stat.size > BACKDROP_IMAGE_BYTES_MAX) return invalid("image backdrops can be at most 4 MiB");
+    const bytes = await fs.promises.readFile(realFile);
+    return saveStoredTheme(this.storedThemeDeps, {
+      ...draft,
+      backdrop: {
+        from: "bytes",
+        data: bytes.toString("base64"),
+        dim: args.backdrop.dim ?? BACKDROP_DEFAULT_DIM,
+        blur: args.backdrop.blur ?? BACKDROP_DEFAULT_BLUR,
+      },
+    });
+  }
+
+  /**
+   * Paints a theme the agent just saved (issue #1169): fixed mode takes
+   * themeId; system mode takes the slot matching the canvas lightness.
+   */
+  private async applyThemeFromTool(source: ThemeSource): Promise<boolean> {
+    const stored = this.registry.getSetting("storedThemes");
+    if (!stored.some((t) => t.id === source.id)) return false;
+    // `ThemeSource.dark` is exactly the canvas-luminance verdict (theme.ts).
+    if (this.registry.getSetting("themeMode") === "system") {
+      this.registry.setSetting(source.dark ? "darkThemeId" : "lightThemeId", source.id);
+    } else {
+      this.registry.setSetting("themeId", source.id);
+    }
+    await this.broadcast();
+    return true;
+  }
+
+  /**
    * Council graduation seeding (amends #1055): when the global council document
    * has never been authored (`null`, not a deliberate empty save), seed it once
    * from the user's favorite chat models. No flag check here: the boot caller
@@ -2894,7 +2978,9 @@ export class MainBackend {
       themeMode: this.registry.getSetting("themeMode"),
       lightThemeId: this.registry.getSetting("lightThemeId"),
       darkThemeId: this.registry.getSetting("darkThemeId"),
-      importedThemes: this.registry.getSetting("importedThemes"),
+      storedThemes: this.registry.getSetting("storedThemes"),
+      backdropMotion: this.registry.getSetting("backdropMotion"),
+      themeAgentAccess: this.registry.getSetting("themeAgentAccess"),
       fontFamilyId: this.registry.getSetting("fontFamilyId"),
       transcriptWidth: this.registry.getSetting("transcriptWidth"),
       experimentsEnabled: this.registry.getSetting("experimentsEnabled"),

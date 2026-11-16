@@ -2,7 +2,7 @@ import { compactionSettingsFromEntries } from "@omp-ui/core/compaction-threshold
 import type { StateCreator } from "zustand";
 import { backend } from "../../backend";
 import type { ThemePreference } from "@omp-ui/core/theme";
-import { applyThemePreference, currentImportedThemes, currentThemePreference } from "../../lib/themes";
+import { applyThemePreference, currentStoredThemes, currentThemePreference } from "../../lib/themes";
 import { applyFontFamily, currentFontFamilyId, resolveFontFamily } from "../../lib/font-families";
 import {
   applyTranscriptWidth,
@@ -14,6 +14,7 @@ import {
   currentGlassChromeId,
   resolveGlassChrome,
 } from "../../lib/glass-chrome";
+import { applyBackdropMotion, currentBackdropMotion } from "../../lib/backdrop-motion";
 import { applyLocale, currentLocaleId, resolveLocale } from "../../lib/i18n";
 import type { SettingsSlice, UiStore } from "../types";
 
@@ -24,12 +25,12 @@ import type { SettingsSlice, UiStore } from "../types";
  */
 async function switchTheme(patch: Partial<ThemePreference>, persist: () => Promise<void>): Promise<void> {
   const previous = currentThemePreference();
-  const imported = currentImportedThemes();
-  applyThemePreference({ ...previous, ...patch }, imported);
+  const stored = currentStoredThemes();
+  applyThemePreference({ ...previous, ...patch }, stored);
   try {
     await persist();
   } catch (err) {
-    applyThemePreference(previous, imported);
+    applyThemePreference(previous, stored);
     throw err;
   }
 }
@@ -232,6 +233,14 @@ export const createSettingsSlice: StateCreator<UiStore, [], [], SettingsSlice> =
       }
     },
 
+    async setThemeAgentAccess(on) {
+      try {
+        await backend.setThemeAgentAccess(on);
+      } catch (err) {
+        get().reportError(err);
+      }
+    },
+
     async setTelemetryModelsEnabled(on) {
       try {
         await backend.setTelemetryModelsEnabled(on);
@@ -380,9 +389,15 @@ export const createSettingsSlice: StateCreator<UiStore, [], [], SettingsSlice> =
       return await backend.importVsCodeTheme(files);
     },
 
-    async removeImportedTheme(id) {
+    async saveStoredTheme(draft) {
+      // No optimistic paint, as with the VS Code import: the host's gate
+      // decides, and saving never switches the active theme.
+      return await backend.saveStoredTheme(draft);
+    },
+
+    async removeStoredTheme(id) {
       try {
-        await backend.removeImportedTheme(id);
+        await backend.removeStoredTheme(id);
       } catch (err) {
         get().reportError(err);
       }
@@ -417,6 +432,17 @@ export const createSettingsSlice: StateCreator<UiStore, [], [], SettingsSlice> =
         await backend.setGlassChrome(level);
       } catch (err) {
         applyGlassChrome(resolveGlassChrome(previousId));
+        get().reportError(err);
+      }
+    },
+
+    async setBackdropMotion(on) {
+      const previous = currentBackdropMotion();
+      applyBackdropMotion(on);
+      try {
+        await backend.setBackdropMotion(on);
+      } catch (err) {
+        applyBackdropMotion(previous);
         get().reportError(err);
       }
     },

@@ -29,6 +29,8 @@ const THEME: Theme = {
     inserted: "#00aa00",
     deleted: "#aa0000",
   },
+  rev: "00000000",
+  backdrop: null,
 };
 
 /** Minimal ThemedToken fixture: `offset` is required by the type, unused here. */

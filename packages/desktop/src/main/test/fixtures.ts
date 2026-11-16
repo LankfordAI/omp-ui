@@ -50,7 +50,9 @@ interface RegistrySettings {
   themeMode: "fixed" | "system";
   lightThemeId: string;
   darkThemeId: string;
-  importedThemes: unknown[];
+  storedThemes: unknown[];
+  backdropMotion: boolean;
+  themeAgentAccess: boolean;
   fontFamilyId: string;
   transcriptWidth: TranscriptWidth;
   glassChrome: GlassChrome;
@@ -181,7 +183,9 @@ export function seedRegistry(file: string, patch: RegistrySeedPatch = {}): void 
     themeMode: "fixed",
     lightThemeId: "light",
     darkThemeId: "graphite",
-    importedThemes: [],
+    storedThemes: [],
+    backdropMotion: true,
+    themeAgentAccess: false,
     fontFamilyId: "default",
     transcriptWidth: "wide",
     glassChrome: "subtle",

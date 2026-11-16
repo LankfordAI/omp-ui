@@ -3,6 +3,7 @@ import type { ThemeMode } from "@omp-ui/core/theme";
 import type { TranscriptPlanSelection } from "@omp-ui/core/plan";
 import type { TranscriptPlanCandidate } from "../lib/transcript-plan-source";
 import type { VsCodeImportResult, VsCodeThemeFileInput } from "@omp-ui/core/vscode-theme";
+import type { SaveStoredThemeResult, StoredThemeDraft } from "@omp-ui/core/theme-file";
 import type {
   FleetAuditEntry,
   FleetDispatchRequest,
@@ -736,6 +737,8 @@ export interface SettingsSlice {
   setHtmlArtifactScripts(on: boolean): Promise<void>;
   /** Gives new and resumed sessions the omp-ui_device tool (issue #1006); default off. */
   setDeviceAgentAccess(on: boolean): Promise<void>;
+  /** Gives new and resumed sessions the omp-ui_theme_save tool (issue #1168); default off. */
+  setThemeAgentAccess(on: boolean): Promise<void>;
   setTelemetryModelsEnabled(on: boolean): Promise<void>;
   setDefaultAdvisor(on: boolean): Promise<void>;
   setDefaultAutoThinking(on: boolean): Promise<void>;
@@ -769,10 +772,14 @@ export interface SettingsSlice {
   setDarkThemeId(id: string): Promise<void>;
   /** Host-gated VS Code import (issue #999); resolves the gate's verdict, never rejects on a failed gate. */
   importVsCodeTheme(files: VsCodeThemeFileInput[]): Promise<VsCodeImportResult>;
-  removeImportedTheme(id: string): Promise<void>;
+  /** Host-gated save of an authored theme (issue #1168); resolves the gate's verdict, never rejects on a failed gate. */
+  saveStoredTheme(draft: StoredThemeDraft): Promise<SaveStoredThemeResult>;
+  removeStoredTheme(id: string): Promise<void>;
   setFontFamilyId(id: string): Promise<void>;
   setTranscriptWidth(width: TranscriptWidth): Promise<void>;
   setGlassChrome(level: GlassChrome): Promise<void>;
+  /** Lets a theme's scene animate (issue #1168); default on. */
+  setBackdropMotion(on: boolean): Promise<void>;
   setLocaleId(id: string): Promise<void>;
   /** Replaces the rebound app shortcuts (issue #998); rejects on a host refusal so the Keyboard page shows it. */
   setKeybindings(overrides: KeybindingOverrides): Promise<void>;

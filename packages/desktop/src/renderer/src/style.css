@@ -287,6 +287,10 @@
        blur keeps the texture reading. */
     --glass-alpha-composer: 78%;
     --glass-filter-composer: blur(8px);
+    /* The stage's own fill (issue #1168, ADR-0094): opaque without a
+       backdrop; lib/backdrop.ts sets it to 0% while one is showing, which
+       also turns every reading card on. */
+    --stage-alpha: 100%;
   }
   :root[data-glass="off"] {
     --glass-alpha: 100%;
@@ -442,22 +446,86 @@
     );
 }
 
+/* Theme backdrops (issue #1168, ADR-0094). lib/backdrop.ts writes
+ * data-backdrop and the --backdrop-* floors on <html> only once the image has
+ * decoded; unset, every expression below resolves to today's paint. The
+ * layer sits at z-index -1 inside the app root (the backdrop-wash element),
+ * which becomes a stacking context only while a backdrop shows: the layer
+ * then paints over the root's own void fill and under every plane. Until
+ * then it falls behind the root's opaque fill, so a loading image is unseen. */
+.backdrop-layer {
+  position: absolute;
+  inset: 0;
+  z-index: -1;
+  overflow: hidden;
+  pointer-events: none;
+}
+/* Blurred once here, so no plane above needs a filter (#511). The image
+ * overhangs by three blur radii so the blur never fades at the edges. */
+.backdrop-layer > img {
+  position: absolute;
+  inset: calc(var(--backdrop-blur, 0px) * -3);
+  width: calc(100% + var(--backdrop-blur, 0px) * 6);
+  height: calc(100% + var(--backdrop-blur, 0px) * 6);
+  max-width: none;
+  object-fit: cover;
+  filter: blur(var(--backdrop-blur, 0px));
+}
+.backdrop-scrim {
+  position: absolute;
+  inset: 0;
+  background-color: color-mix(in srgb, var(--color-void) var(--backdrop-dim, 0%), transparent);
+}
+/* The root wash and the stage grain give way to the backdrop while one shows. */
+:root[data-backdrop] .backdrop-wash {
+  isolation: isolate;
+  background-image: none;
+}
+:root[data-backdrop] .stage-surface.ambient,
+:root[data-backdrop] .stage-void.ambient {
+  background-image: none;
+}
+
+/* The stage is the reading plane; it turns transparent over a backdrop. */
+@utility stage-surface {
+  background-color: color-mix(in srgb, var(--color-surface) var(--stage-alpha), transparent);
+}
+@utility stage-void {
+  background-color: color-mix(in srgb, var(--color-void) var(--stage-alpha), transparent);
+}
+
+/* The reading card text sits on over a backdrop: surface at the theme's
+ * reading floor. Invisible while the stage is opaque (--stage-alpha 100%).
+ * Its ring is a spread shadow, so it adds no layout (#1059). */
+@utility reading-card {
+  --reading-card: color-mix(
+    in srgb,
+    color-mix(in srgb, var(--color-surface) var(--backdrop-floor-reading, 100%), transparent)
+      calc(100% - var(--stage-alpha)),
+    transparent
+  );
+  background-color: var(--reading-card);
+  box-shadow: 0 0 0 0.75rem var(--reading-card);
+  border-radius: 0.375rem;
+}
+
 /* Chrome planes whose backdrop is always app-owned and static carry no
  * filter: Electron re-filters every backdrop-filter plane on any damaged
  * frame (#511), and blurring a static wash is invisible anyway. Floating
  * or transient planes use either a full glass-* plane utility or the
- * filter-only backdrop-glass utility; both derive from --glass-filter. */
+ * filter-only backdrop-glass utility; both derive from --glass-filter.
+ * Opacity never drops below the theme's backdrop floor (issue #1168). */
 @utility chrome-void {
-  background-color: color-mix(in srgb, var(--color-void) var(--glass-alpha), transparent);
+  background-color: color-mix(in srgb, var(--color-void) max(var(--glass-alpha), var(--backdrop-floor-void, 0%)), transparent);
 }
 @utility chrome-sunken {
-  background-color: color-mix(in srgb, var(--color-sunken) var(--glass-alpha), transparent);
+  background-color: color-mix(in srgb, var(--color-sunken) max(var(--glass-alpha), var(--backdrop-floor-sunken, 0%)), transparent);
 }
 
 /* A glass plane at glass opacity: same token, alpha from --glass-alpha,
  * blurring only what lies behind it (never its own text — ADR-0026). */
 @utility glass-sunken {
-  background-color: color-mix(in srgb, var(--color-sunken) var(--glass-alpha), transparent);
+  background-color: color-mix(in srgb, var(--color-sunken) max(var(--glass-alpha), var(--backdrop-floor-sunken, 0%)), transparent);
   backdrop-filter: var(--glass-filter);
 }
 @utility glass-overlay {
@@ -471,7 +539,7 @@
  * grain; this utility declares no background-image, so an `ambient` site
  * composites it identically to the reading plane beneath it. */
 @utility glass-surface {
-  background-color: color-mix(in srgb, var(--color-surface) var(--glass-alpha), transparent);
+  background-color: color-mix(in srgb, var(--color-surface) max(var(--glass-alpha), var(--backdrop-floor-reading, 0%)), transparent);
   backdrop-filter: var(--glass-filter);
 }
 /* The composer card's own frost (round-4 owner directive): same fill channel
@@ -480,7 +548,7 @@
  * depth, never a flat fill — while the card's own glyphs still clear AA.
  * `data-glass="off"` collapses it to opaque surface. */
 @utility glass-composer {
-  background-color: color-mix(in srgb, var(--color-surface) var(--glass-alpha-composer), transparent);
+  background-color: color-mix(in srgb, var(--color-surface) max(var(--glass-alpha-composer), var(--backdrop-floor-reading, 0%)), transparent);
   backdrop-filter: var(--glass-filter-composer);
 }
 @utility backdrop-glass {

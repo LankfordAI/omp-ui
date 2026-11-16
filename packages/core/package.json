@@ -71,6 +71,10 @@
     "./keybindings": "./src/keybindings.ts",
     "./theme": "./src/theme.ts",
     "./vscode-theme": "./src/vscode-theme.ts",
+    "./theme-backdrop": "./src/theme-backdrop.ts",
+    "./theme-seeds": "./src/theme-seeds.ts",
+    "./theme-file": "./src/theme-file.ts",
+    "./theme-tool": "./src/theme-tool.ts",
     "./mcp-endpoint": "./src/mcp-endpoint.ts"
   },
   "scripts": {

@@ -47,11 +47,15 @@ function TranscriptSkeleton({ centered = false }: { centered?: boolean }) {
   if (centered) {
     return (
       <div className="animate-rise flex min-h-0 flex-1 flex-col justify-end px-4 pb-6">
-        <div className="mx-auto flex w-full max-w-[var(--transcript-max)] flex-col gap-3">{bars}</div>
+        <div className="reading-card mx-auto flex w-full max-w-[var(--transcript-max)] flex-col gap-3">{bars}</div>
       </div>
     );
   }
-  return <div className="animate-rise flex flex-1 flex-col gap-3 px-5 py-4">{bars}</div>;
+  return (
+    <div className="animate-rise flex flex-1 flex-col px-5 py-4">
+      <div className="reading-card flex flex-col gap-3">{bars}</div>
+    </div>
+  );
 }
 
 /** The fresh-session greeting above the centered composer. */
@@ -60,14 +64,16 @@ function HeroGreeting({ projectCwd }: { projectCwd: string | undefined }) {
   const project = projectCwd?.replace(/[\\/]+$/, "").split(/[\\/]/).pop();
   return (
     <div className="animate-rise flex min-h-0 flex-1 flex-col items-center justify-end gap-2 px-6 pb-6">
-      <h1 className="text-balance-tight text-center font-display text-2xl text-ink">
-        {project
-          ? t("rpc.hero.project", { project })
-          : t("rpc.hero.default")}
-      </h1>
-      <p className="text-sm text-ink-dim">
-        {t("rpc.hero.hint")}
-      </p>
+      <div className="reading-card flex flex-col items-center gap-2">
+        <h1 className="text-balance-tight text-center font-display text-2xl text-ink">
+          {project
+            ? t("rpc.hero.project", { project })
+            : t("rpc.hero.default")}
+        </h1>
+        <p className="text-sm text-ink-dim">
+          {t("rpc.hero.hint")}
+        </p>
+      </div>
     </div>
   );
 }
@@ -76,67 +82,71 @@ function HeroGreeting({ projectCwd }: { projectCwd: string | undefined }) {
 function HeroFooter({ items, tabId }: { items: RenderItem[]; tabId: string }) {
   return (
     <div className="flex min-h-0 flex-[0.85] flex-col items-center gap-1 overflow-y-auto px-6 pt-4">
-      {items.map((item) =>
-        item.kind === "notice" ? (
-          <p
-            key={item.id}
-            data-selectable
-            className={cn(
-              "max-w-[var(--prose-max)] text-center font-mono text-xs",
-              item.level === "error"
-                ? "text-rose"
-                : item.level === "warn"
-                  ? "text-copper"
-                  : "text-ink-faint",
-            )}
-          >
-            {item.text}
-          </p>
-        ) : item.kind === "marker" ? (
-          <p
-            key={item.id}
-            className="chrome-label text-ink-faint"
-          >
-            {item.label}
-          </p>
-        ) : item.kind === "command" ? (
-          <div key={item.id} className="flex max-w-[var(--prose-max)] flex-col gap-1 font-mono text-xs">
-            <p
-              data-selectable
-              className={cn(
-                "text-center",
-                item.status === "failed" ? "text-rose" : "text-ink-faint",
-              )}
-            >
-              {item.args === "" ? `/${item.name}` : `/${item.name} ${item.args}`}
-              {item.status === "running" && (
-                <span className="animate-caret ml-px inline-block align-baseline text-signal">▍</span>
-              )}
-              {item.status === "done" && " ✓"}
-            </p>
-            {item.status === "failed" && item.error !== undefined && (
+      {items.length > 0 && (
+        <div className="reading-card flex max-w-full flex-col items-center gap-1">
+          {items.map((item) =>
+            item.kind === "notice" ? (
               <p
+                key={item.id}
                 data-selectable
-                className="whitespace-pre-wrap break-words text-left text-rose"
+                className={cn(
+                  "max-w-[var(--prose-max)] text-center font-mono text-xs",
+                  item.level === "error"
+                    ? "text-rose"
+                    : item.level === "warn"
+                      ? "text-copper"
+                      : "text-ink-faint",
+                )}
               >
-                {item.error}
+                {item.text}
               </p>
-            )}
-            {item.output !== undefined && (
-              <pre
-                data-selectable
-                className="max-w-full overflow-auto whitespace-pre-wrap break-words text-left text-ink-mid"
+            ) : item.kind === "marker" ? (
+              <p
+                key={item.id}
+                className="chrome-label text-ink-faint"
               >
-                {linkify(item.output)}
-              </pre>
-            )}
-            <ShareLinkRow item={item} />
-            {/* A refused verb can be the session's first input, which leaves
-                the hero undocked — so this surface needs the handoff too. */}
-            <TuiHandoffButton item={item} tabId={tabId} />
-            <CouncilSettingsButton item={item} tabId={tabId} />
-          </div>
-        ) : null,
+                {item.label}
+              </p>
+            ) : item.kind === "command" ? (
+              <div key={item.id} className="flex max-w-[var(--prose-max)] flex-col gap-1 font-mono text-xs">
+                <p
+                  data-selectable
+                  className={cn(
+                    "text-center",
+                    item.status === "failed" ? "text-rose" : "text-ink-faint",
+                  )}
+                >
+                  {item.args === "" ? `/${item.name}` : `/${item.name} ${item.args}`}
+                  {item.status === "running" && (
+                    <span className="animate-caret ml-px inline-block align-baseline text-signal">▍</span>
+                  )}
+                  {item.status === "done" && " ✓"}
+                </p>
+                {item.status === "failed" && item.error !== undefined && (
+                  <p
+                    data-selectable
+                    className="whitespace-pre-wrap break-words text-left text-rose"
+                  >
+                    {item.error}
+                  </p>
+                )}
+                {item.output !== undefined && (
+                  <pre
+                    data-selectable
+                    className="max-w-full overflow-auto whitespace-pre-wrap break-words text-left text-ink-mid"
+                  >
+                    {linkify(item.output)}
+                  </pre>
+                )}
+                <ShareLinkRow item={item} />
+                {/* A refused verb can be the session's first input, which leaves
+                    the hero undocked — so this surface needs the handoff too. */}
+                <TuiHandoffButton item={item} tabId={tabId} />
+                <CouncilSettingsButton item={item} tabId={tabId} />
+              </div>
+            ) : null,
+          )}
+        </div>
       )}
     </div>
   );
@@ -424,7 +434,7 @@ export const RpcTab = memo(function RpcTab({ tabId, active }: { tabId: string; a
   }
 
   const content = (
-    <div className="ambient relative flex h-full flex-col bg-surface">
+    <div className="ambient relative flex h-full flex-col stage-surface">
       {compact && <SessionHud tabId={tabId} />}
 
       {/* The find bar (issue #270) rides the tab's top edge. While the

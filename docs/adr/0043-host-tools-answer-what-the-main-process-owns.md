@@ -104,3 +104,12 @@ uses the existing main-owned request fence, pending map, cancellation and
 watchdog, so rejection and asynchronous dataset import still have one result
 owner. A cancelled, timed-out or replaced request cannot stage a late artifact
 or send a second answer.
+
+**Amended 2026-11-15 (#1168):** `omp-ui_theme_save` joins the conditional host
+tools, gated like the device tool: registered at spawn or resume only while
+*Agents can save themes* is on, never for webhook- or MCP-requested sessions,
+and answered by main through the shared stored-theme save path. It saves a
+theme and, when the agent passed `apply` after the user agreed in its question
+tool, also applies the theme it just saved through the same main-owned
+settings write
+([ADR-0094](0094-themes-carry-backdrops-and-can-be-authored.md)).

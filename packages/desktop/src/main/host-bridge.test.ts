@@ -3,7 +3,7 @@ import * as os from "node:os";
 import * as path from "node:path";
 import { createHash, randomUUID } from "node:crypto";
 import { describe, expect, it, vi, afterEach } from "vitest";
-import { FLEET_TOOLS, LOCAL_MACHINE_KEY, PLAN_REVIEW_SENTINEL, PLAN_STATUS_KEY, parseVaultDetails, type FleetDispatchRequest, type FleetDispatchResult, type FleetMachine, type FleetRung, type ObsidianListEntry, type OwnedSessionRecord, type RpcFrame, type SessionsResourceDeps, type VaultRegistry, type VaultToolDetails } from "@omp-ui/core";
+import { FLEET_TOOLS, LOCAL_MACHINE_KEY, PLAN_REVIEW_SENTINEL, PLAN_STATUS_KEY, parseVaultDetails, type FleetDispatchRequest, type FleetDispatchResult, type FleetMachine, type FleetRung, type ObsidianListEntry, type OwnedSessionRecord, type RpcFrame, type SessionsResourceDeps, type ThemeSource, type VaultRegistry, type VaultToolDetails } from "@omp-ui/core";
 import { HostBridge, HOST_ANSWER_WATCHDOG_MS, type FleetBridgeDeps, type HostBridgeDeps, type VaultBridgeDeps, type VaultTabContext } from "./host-bridge";
 import type { ConfinedPlanRead } from "./plan-file";
 import { ArtifactService } from "./artifact-service";
@@ -450,6 +450,134 @@ describe("HostBridge device tool (issue #1006)", () => {
     expect(f.sent).toHaveLength(1);
     expect(f.sent[0]).toMatchObject({ type: "host_tool_result", id: "h1", isError: true });
     expect(JSON.stringify(f.sent[0])).toContain("device tools are unavailable");
+  });
+});
+
+describe("HostBridge theme tool (issue #1168)", () => {
+  const ARGS = { label: "Dusk", seeds: { canvas: "#1a1b26" } };
+
+  it("answers a saved theme with its id", async () => {
+    const calls: { tabId: string; args: unknown }[] = [];
+    const sent: RpcFrame[] = [];
+    const bridge = new HostBridge({
+      ...fixtureDeps(),
+      theme: {
+        save: async (tabId, args) => {
+          calls.push({ tabId, args });
+          return { ok: true, source: { id: "custom-dusk-abc123", label: args.label } as ThemeSource };
+        },
+        apply: async () => true,
+      },
+    });
+    bridge.route("t1", toolCallFrame("h1", "omp-ui_theme_save", ARGS), (frame) => sent.push(frame));
+    await settled();
+    expect(calls).toEqual([{ tabId: "t1", args: ARGS }]);
+    expect(sent).toHaveLength(1);
+    expect(sent[0]).toMatchObject({ type: "host_tool_result", id: "h1" });
+    expect(sent[0]).not.toHaveProperty("isError");
+    expect(JSON.stringify(sent[0])).toContain("custom-dusk-abc123");
+  });
+
+  it("answers a gate refusal as an error listing the failing pairing", async () => {
+    const sent: RpcFrame[] = [];
+    const bridge = new HostBridge({
+      ...fixtureDeps(),
+      theme: {
+        save: async () => ({
+          ok: false,
+          reason: "gate",
+          label: "Dusk",
+          failures: [{ kind: "contrast", label: "ink on surface", fg: "#777777", bg: "#808080", ratio: 1.05, min: 10 }],
+        }),
+        apply: async () => true,
+      },
+    });
+    bridge.route("t1", toolCallFrame("h1", "omp-ui_theme_save", ARGS), (frame) => sent.push(frame));
+    await settled();
+    expect(sent).toHaveLength(1);
+    expect(sent[0]).toMatchObject({ type: "host_tool_result", id: "h1", isError: true });
+    expect(JSON.stringify(sent[0])).toContain("ink on surface");
+  });
+
+  const SAVED = { id: "custom-dusk-abc123", label: "Dusk" } as ThemeSource;
+
+  it("applies the saved source when apply is set and reports it (#1169)", async () => {
+    const applied: ThemeSource[] = [];
+    const sent: RpcFrame[] = [];
+    const bridge = new HostBridge({
+      ...fixtureDeps(),
+      theme: {
+        save: async () => ({ ok: true, source: SAVED }),
+        apply: async (source) => {
+          applied.push(source);
+          return true;
+        },
+      },
+    });
+    bridge.route("t1", toolCallFrame("h1", "omp-ui_theme_save", { ...ARGS, apply: true }), (frame) => sent.push(frame));
+    await settled();
+    expect(applied).toEqual([SAVED]);
+    expect(sent).toHaveLength(1);
+    expect(sent[0]).not.toHaveProperty("isError");
+    expect(JSON.stringify(sent[0])).toContain("Applied: every window now paints it.");
+  });
+
+  it("never calls apply without the flag and keeps the picks-it sentence", async () => {
+    const apply = vi.fn(async () => true);
+    const sent: RpcFrame[] = [];
+    const bridge = new HostBridge({
+      ...fixtureDeps(),
+      theme: { save: async () => ({ ok: true, source: SAVED }), apply },
+    });
+    bridge.route("t1", toolCallFrame("h1", "omp-ui_theme_save", ARGS), (frame) => sent.push(frame));
+    await settled();
+    expect(apply).not.toHaveBeenCalled();
+    expect(sent).toHaveLength(1);
+    expect(JSON.stringify(sent[0])).toContain("the user picks it to apply it.");
+  });
+
+  it.each([
+    ["a rejected apply", () => Promise.reject(new Error("registry gone"))],
+    ["a false apply", () => Promise.resolve(false)],
+  ])("answers the save plus the refusal line after %s", async (_label, applyImpl) => {
+    const sent: RpcFrame[] = [];
+    const bridge = new HostBridge({
+      ...fixtureDeps(),
+      theme: { save: async () => ({ ok: true, source: SAVED }), apply: applyImpl },
+    });
+    bridge.route("t1", toolCallFrame("h1", "omp-ui_theme_save", { ...ARGS, apply: true }), (frame) => sent.push(frame));
+    await settled();
+    expect(sent).toHaveLength(1);
+    expect(sent[0]).not.toHaveProperty("isError");
+    const text = JSON.stringify(sent[0]);
+    expect(text).toContain("custom-dusk-abc123");
+    expect(text).toContain("apply refused: the theme is saved but was not applied.");
+  });
+
+  it("answers the gate error and never applies when apply is set on a refusal", async () => {
+    const apply = vi.fn(async () => true);
+    const sent: RpcFrame[] = [];
+    const bridge = new HostBridge({
+      ...fixtureDeps(),
+      theme: {
+        save: async () => ({ ok: false, reason: "gate", label: "Dusk", failures: [] }),
+        apply,
+      },
+    });
+    bridge.route("t1", toolCallFrame("h1", "omp-ui_theme_save", { ...ARGS, apply: true }), (frame) => sent.push(frame));
+    await settled();
+    expect(apply).not.toHaveBeenCalled();
+    expect(sent).toHaveLength(1);
+    expect(sent[0]).toMatchObject({ type: "host_tool_result", id: "h1", isError: true });
+  });
+
+  it("answers unavailable when no theme deps are wired", async () => {
+    const f = fixture();
+    f.bridge.route("t1", toolCallFrame("h1", "omp-ui_theme_save", ARGS), f.send);
+    await settled();
+    expect(f.sent).toHaveLength(1);
+    expect(f.sent[0]).toMatchObject({ type: "host_tool_result", id: "h1", isError: true });
+    expect(JSON.stringify(f.sent[0])).toContain("theme tools are unavailable");
   });
 });
 

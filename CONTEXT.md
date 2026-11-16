@@ -1825,17 +1825,71 @@ _Avoid_: search provider picker, search backend, engine, fallback list
 A token set covering all three consumers of the palette at once — the
 `@theme` custom properties, the xterm ITheme, and the shiki code theme —
 switched at runtime by writing CSS variables on the document root. A theme is
-either curated (shipped in `theme-sources.json`) or an **imported theme**.
-Every theme passes the same contrast gate and keeps the signal accent reserved
-for agent liveness (ADR-0004, ADR-0078); a theme is a fixed set, never a
-free-form colour picker.
+curated (shipped in `theme-sources.json`), an **imported theme**, or an
+**authored theme**, and may carry a **backdrop**. Every theme passes the same
+contrast gate and keeps the signal accent a green reserved for agent liveness
+(ADR-0004, ADR-0078, ADR-0094).
 _Avoid_: color scheme, skin, palette
+
+**Stored theme**:
+Any theme kept in the registry (`storedThemes`) rather than shipped: an
+**imported theme** (id `vscode-…`) or an **authored theme** (id `custom-…`).
+The two kinds share one cap of 24 and one host save path that runs the gate
+before anything is written (ADR-0094).
+_Avoid_: user theme, saved theme
 
 **Imported theme**:
 A theme mapped from a VS Code colour theme file the user picked (issue #999),
 stored in the registry only after it passes the curated themes' contrast gate.
 Its id starts with `vscode-`, so it never shadows a curated theme (ADR-0078).
-_Avoid_: custom theme, user theme
+_Avoid_: user theme
+
+**Authored theme**:
+A **stored theme** made from **theme seeds**: in the Settings → Appearance
+editor, from an omp-ui theme file, by duplicating another theme, or by an agent
+through `omp-ui_theme_save`. Its id starts with `custom-`, and on top of the
+contrast gate its signal accent must be a green (OKLab hue 100°–200°). The UI
+labels it with a *custom* chip; the glossary term stays "authored theme"
+(ADR-0094).
+_Avoid_: custom theme, user theme, skin
+
+**Theme seeds**:
+The few colours an author picks — canvas, ink, the four accents, the six
+syntax colours — from which every other token is derived. Only the canvas is
+required; its luminance decides dark or light, and missing seeds come from the
+graphite or light row (ADR-0094).
+_Avoid_: base colours, palette, swatches
+
+**Backdrop**:
+The picture a theme may carry behind the whole app: a still image or a
+**scene**. It is blurred once on its own layer and dimmed toward the theme's
+void; text never sits on it directly (ADR-0094).
+_Avoid_: wallpaper, background image
+
+**Scene**:
+A **backdrop** that is an SVG with CSS animation, shown only through `<img>`.
+Scenes may not carry script, `foreignObject`, SMIL animation, or references to
+other files (ADR-0094).
+_Avoid_: animated wallpaper, live background
+
+**Backdrop asset**:
+The stored bytes of a **backdrop**, addressed by their SHA-256 in
+`theme-backdrops/` beside the registry. The registry holds only the hash and
+the dim and blur; an asset no stored theme names is pruned (ADR-0094).
+_Avoid_: backdrop file, theme image
+
+**Reading card**:
+The near-solid plane text sits on while a **backdrop** is showing: the
+surface at the theme's reading floor, ringed by a spread shadow. It is
+invisible without a backdrop, because the stage under it is then opaque
+(ADR-0094).
+_Avoid_: text panel, glass card, frosted card
+
+**Backdrop motion**:
+The Settings → Appearance switch (**Animate backdrops**, on by default) that
+lets a **scene** animate. A scene still stops while the window is hidden or the
+system asks for reduced motion (ADR-0094).
+_Avoid_: animated themes, motion toggle
 
 **Theme mode**:
 Whether Settings → Appearance paints one theme always (**One theme**) or
@@ -1884,11 +1938,12 @@ _Avoid_: margin note, sidebar label, avatar
 **Glass chrome**:
 The Settings → Appearance step (Off / Subtle / Frosted) that lets chrome
 planes — title bar, sidebar, inspector rail, composer card, sheets, modals —
-composite at reduced opacity with a backdrop blur over an achromatic wash
-under the app. Text is never filtered; the transcript's reading plane and
-xterm hosts stay opaque (ADR-0026). The composer is the one glass plane with
-live content moving behind it: the transcript scrolls under the floating
-composer.
+composite at reduced opacity with a backdrop blur, over an achromatic wash
+under the app or the theme's **backdrop**. Text is never filtered; the
+transcript's reading plane and xterm hosts stay opaque, except that over a
+backdrop the transcript becomes a **reading card** (ADR-0026, ADR-0094). The
+composer is the one glass plane with live content moving behind it: the
+transcript scrolls under the floating composer.
 _Avoid_: transparency mode, acrylic, vibrancy, glassmorphism
 
 **Keybinding**:

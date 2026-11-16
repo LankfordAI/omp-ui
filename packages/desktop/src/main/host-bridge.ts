@@ -4,6 +4,12 @@ import {
   fleetToolDispatchRequest,
   formatFleetMachines,
   DEVICE_TOOL_NAME,
+  THEME_TOOL_NAME,
+  parseThemeToolArgs,
+  type SaveStoredThemeResult,
+  type ThemeGateFailure,
+  type ThemeSource,
+  type ThemeToolArgs,
   HOST_NOTIFY_TOOL_NAME,
   ARTIFACT_CAPTURE_TOOL_NAME,
   type HostToolCall,
@@ -148,7 +154,43 @@ export interface HostBridgeDeps {
   fleet?: FleetBridgeDeps;
   /** The device host tool's answerer (#1006); absent means the device tool answers as unavailable. */
   device?: { run(tabId: string, args: unknown): Promise<{ content: HostToolContent[]; isError: boolean }> };
+  /** The theme host tool's answerer (#1168); absent means the theme tool answers as unavailable. */
+  theme?: {
+    save(tabId: string, args: ThemeToolArgs): Promise<SaveStoredThemeResult>;
+    /** Paints a just-saved stored theme; false when it vanished from the registry. */
+    apply(source: ThemeSource): Promise<boolean>;
+  };
   artifacts?: ArtifactService;
+}
+
+/** One line per gate failure, in English: the agent reads it to adjust and call again (#1168). */
+function themeGateFailureLine(failure: ThemeGateFailure): string {
+  switch (failure.kind) {
+    case "contrast":
+      return `${failure.label}: ${failure.ratio.toFixed(2)}:1, needs ${failure.min}:1`;
+    case "planes":
+      return `${failure.label}: two planes are the same colour`;
+    case "signal":
+      return `Agent activity colour must be a green (its hue is ${Math.round(failure.hue)}°; 100° to 200° is allowed).`;
+  }
+}
+
+/** Outcome of this call's apply request (#1169). */
+type ThemeApplyOutcome = "none" | "applied" | "refused";
+
+/** The omp-ui_theme_save answer for one save result: success text, or an error frame. */
+function themeSaveAnswer(id: string, result: SaveStoredThemeResult, applied: ThemeApplyOutcome): RpcFrame {
+  if (result.ok) {
+    return hostToolTextResult(id,
+      `Saved theme "${result.source.label}" (id ${result.source.id}).` +
+      (applied === "applied"
+        ? " Applied: every window now paints it."
+        : applied === "refused"
+          ? " apply refused: the theme is saved but was not applied."
+          : " It is in Settings, Appearance; the user picks it to apply it."));
+  }
+  if (result.reason === "gate") return hostToolErrorResult(id, result.failures.map(themeGateFailureLine).join("\n"));
+  return hostToolErrorResult(id, `theme_save refused: ${result.message}`);
 }
 
 interface PendingHostAnswer {
@@ -485,6 +527,36 @@ export class HostBridge {
         if (pending === undefined || this.pending.get(call.id) !== pending) return;
         this.answer(call.id, hostToolErrorResult(call.id, `render_html refused: ${error instanceof Error ? error.message : "unavailable"}`), send);
       }
+      return;
+    }
+    if (call.toolName === THEME_TOOL_NAME) {
+      const pending = this.pending.get(call.id);
+      const parsed = parseThemeToolArgs(call.args);
+      if (!parsed.ok) {
+        this.answer(call.id, hostToolErrorResult(call.id, `theme_save refused: ${parsed.reason}`), send);
+        return;
+      }
+      const theme = this.deps.theme;
+      if (theme === undefined) {
+        this.answer(call.id, hostToolErrorResult(call.id, "theme tools are unavailable"), send);
+        return;
+      }
+      let frame: RpcFrame;
+      try {
+        const result = await theme.save(tabId, parsed.args);
+        // The agent's apply flag (#1169) is consented in conversation; main
+        // only paints a theme the gate just accepted. A failed apply still
+        // reports the save: the theme exists, the user can pick it by hand.
+        let applied: ThemeApplyOutcome = "none";
+        if (result.ok && parsed.args.apply === true) {
+          applied = (await theme.apply(result.source).catch(() => false)) ? "applied" : "refused";
+        }
+        frame = themeSaveAnswer(call.id, result, applied);
+      } catch (error) {
+        frame = hostToolErrorResult(call.id, `theme_save refused: ${error instanceof Error ? error.message : "unavailable"}`);
+      }
+      if (pending === undefined || this.pending.get(call.id) !== pending) return;
+      this.answer(call.id, frame, send);
       return;
     }
     if (call.toolName !== HOST_NOTIFY_TOOL_NAME) {

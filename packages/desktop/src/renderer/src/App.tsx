@@ -1,6 +1,7 @@
 import { useEffect } from "react";
 import type { FleetTerminalRecord } from "@omp-ui/core/fleet";
 import { AppFeedback } from "./components/AppFeedback";
+import { BackdropLayer } from "./components/BackdropLayer";
 import { AppUpdateCard } from "./components/AppUpdateCard";
 import { CommandPalette } from "./components/CommandPalette";
 import { ChangesViewerHost } from "./components/ChangesViewer";
@@ -178,8 +179,8 @@ function TitleBar() {
 function RestoringSessions() {
   const t = useT();
   return (
-    <div className="ambient flex h-full flex-col items-center justify-center bg-void px-5">
-      <p className="text-sm text-ink-dim">{t("app.restoring.label")}</p>
+    <div className="ambient flex h-full flex-col items-center justify-center stage-void px-5">
+      <p className="reading-card px-3 py-1.5 text-sm text-ink-dim">{t("app.restoring.label")}</p>
     </div>
   );
 }
@@ -194,13 +195,13 @@ function Welcome() {
   const newSessionHotkey = useKeybindingLabel("newSession");
 
   return (
-    <div className="ambient flex h-full flex-col items-center justify-center bg-void px-5 @container">
+    <div className="ambient flex h-full flex-col items-center justify-center stage-void px-5 @container">
       {/* The shortcut table rides beside the actions on a wide canvas (issue
           #1042); it stacks again when narrow. Real grid tracks with
           minmax(0,…) — round 1 caught flex children overflowing into each
           other ("Open session…" overlapping the Ctrl+F key column): grid +
           wrappable buttons make that structurally impossible. */}
-      <div className="animate-rise flex w-full max-w-[30rem] flex-col items-center gap-6 text-center @[44rem]:mx-auto @[44rem]:grid @[44rem]:max-w-[52rem] @[44rem]:grid-cols-[minmax(0,1fr)_minmax(17rem,max-content)] @[44rem]:items-center @[44rem]:gap-x-14 @[44rem]:gap-y-6">
+      <div className="animate-rise reading-card flex w-full max-w-[30rem] flex-col items-center gap-6 text-center @[44rem]:mx-auto @[44rem]:grid @[44rem]:max-w-[52rem] @[44rem]:grid-cols-[minmax(0,1fr)_minmax(17rem,max-content)] @[44rem]:items-center @[44rem]:gap-x-14 @[44rem]:gap-y-6">
         <div className="flex w-full min-w-0 flex-col items-center gap-5 text-center">
           <div className="flex flex-col items-center gap-1.5">
             <h1 className="font-display text-2xl font-semibold tracking-tight text-ink">omp-ui</h1>
@@ -543,6 +544,7 @@ export default function App() {
 
   return (
     <div className="relative flex h-[var(--app-viewport-height,100dvh)] flex-col overflow-hidden backdrop-wash font-sans text-ink">
+      <BackdropLayer />
       {!compact && <TitleBar />}
       {compact && (
         /*

@@ -92,6 +92,7 @@ import type { LiveHistoryTurn } from "./live-voice";
 import { isSubagentModelMap, type SubagentModelMap } from "./subagent-model";
 import { parseWebhookInput, parseWebhookPatch, type WebhookInput, type WebhookPatch } from "./webhook";
 import { VSCODE_THEME_FILE_BYTES_MAX, type VsCodeThemeFileInput } from "./vscode-theme";
+import { isStoredThemeDraft, type StoredThemeDraft } from "./theme-file";
 import { keybindingOverridesError, type KeybindingOverrides } from "./keybindings";
 import { parseMcpClientInput, parseMcpClientPatch, type McpClientInput, type McpClientPatch } from "./mcp-endpoint";
 import { assertArtifactKey, assertArtifactUuid } from "./artifacts";
@@ -354,6 +355,16 @@ export const vsCodeThemeFileCodec: ArgCodec<VsCodeThemeFileInput> = objectOf<VsC
   name: shortStr(255),
   text: shortStr(VSCODE_THEME_FILE_BYTES_MAX),
 });
+/** One authoring route's save request (issue #1168); isStoredThemeDraft bounds the backdrop payload. */
+export const storedThemeDraftCodec: ArgCodec<StoredThemeDraft> = codec<StoredThemeDraft>(
+  "a stored theme draft",
+  isStoredThemeDraft,
+);
+/** A backdrop asset's lowercase hex SHA-256 (issue #1168). */
+export const backdropHashCodec: ArgCodec<string> = codec<string>(
+  "a backdrop asset hash",
+  (value) => typeof value === "string" && /^[0-9a-f]{64}$/.test(value),
+);
 export const projectOpenTargetCodec: ArgCodec<ProjectOpenTarget> = oneOf(
   "vscode",
   "files",

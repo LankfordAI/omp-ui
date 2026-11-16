@@ -1665,7 +1665,7 @@ export function TranscriptView({
   }, [reveal, start, items]);
 
   return (
-    <div ref={viewRef} className="ambient relative min-h-0 flex-1 bg-surface">
+    <div ref={viewRef} className="ambient relative min-h-0 flex-1 stage-surface">
       <div
         ref={scrollRef}
         onContextMenu={(event) => {
@@ -1711,7 +1711,7 @@ export function TranscriptView({
         <div
           ref={contentRef}
           data-hanging={hanging}
-          className="transcript-column relative mx-auto flex w-full max-w-[var(--transcript-max)] flex-col gap-5"
+          className="transcript-column reading-card relative mx-auto flex w-full max-w-[var(--transcript-max)] flex-col gap-5"
           // Transcript-scoped text size (issue #30): `zoom` scales every px
           // value inside the document surface — markdown, tool cards, slabs —
           // while the chrome around it stays fixed. The ResizeObserver above

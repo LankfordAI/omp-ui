@@ -3,6 +3,7 @@ import * as os from "node:os";
 import * as path from "node:path";
 import { afterEach, describe, expect, it } from "vitest";
 import { Registry, SETTINGS, planHandoffDescendants } from "./registry";
+import { importVsCodeThemeFiles } from "./vscode-theme";
 import type { OwnedSessionRecord } from "./types";
 
 const tmpDirs: string[] = [];
@@ -621,6 +622,46 @@ describe("Registry persistence", () => {
     fs.writeFileSync(junk, JSON.stringify({ schemaVersion: 1, settings: { audioDevice: "" } }));
     expect(Registry.load(junk).getSetting("audioInputDevice")).toBeNull();
     expect(Registry.load(junk).getSetting("audioOutputDevice")).toBeNull();
+  });
+
+  it("migrates legacy importedThemes into storedThemes once (issue #1168)", () => {
+    const imported = importVsCodeThemeFiles([
+      {
+        name: "dark.json",
+        text: JSON.stringify({
+          name: "Legacy Dark",
+          type: "dark",
+          colors: { "editor.background": "#1E1E1E", "editor.foreground": "#D4D4D4" },
+        }),
+      },
+    ]);
+    if (!imported.ok) throw new Error("fixture failed");
+    const file = tmpFile();
+    fs.writeFileSync(
+      file,
+      JSON.stringify({ schemaVersion: 1, settings: { importedThemes: [imported.source] } }),
+    );
+    const reg = Registry.load(file);
+    expect(reg.getSetting("storedThemes")).toEqual([imported.source]);
+
+    // After any write the legacy key is gone and the migrated value persists.
+    reg.setSetting("themeId", "after-theme-migration");
+    expect(fs.readFileSync(file, "utf8")).not.toContain("importedThemes");
+    expect(Registry.load(file).getSetting("storedThemes")).toEqual([imported.source]);
+
+    // A present storedThemes wins over the legacy key, even when empty.
+    const both = tmpFile();
+    fs.writeFileSync(
+      both,
+      JSON.stringify({ schemaVersion: 1, settings: { storedThemes: [], importedThemes: [imported.source] } }),
+    );
+    expect(Registry.load(both).getSetting("storedThemes")).toEqual([]);
+  });
+
+  it("defaults backdropMotion on and themeAgentAccess off (issue #1168)", () => {
+    const reg = Registry.load(tmpFile());
+    expect(reg.getSetting("backdropMotion")).toBe(true);
+    expect(reg.getSetting("themeAgentAccess")).toBe(false);
   });
 
   it("migrates a legacy reviewRoster into councilRoster once, dropping targets (ADR-0088)", () => {
