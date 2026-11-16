@@ -485,6 +485,8 @@ export const ko: Partial<Record<MessageKey, string>> = {
   "rpc.hero.project": "{project}에서 다음으로 무엇을 할까요?",
   "rpc.hero.default": "다음으로 무엇을 할까요?",
   "rpc.hero.hint": "할 일을 설명하세요 — 먼저 계획하거나 바로 구현할 수 있습니다.",
+  "rpc.hero.chat": "무엇을 이야기할까요?",
+  "rpc.hero.chatHint": "질문하거나, 생각을 정리하거나, 프로젝트에 작업을 보내세요.",
   "composer.thinking.fallback": "think —",
   "composer.thinking.label": "thinking",
   "composer.thinking.pill": "사고: {level}",

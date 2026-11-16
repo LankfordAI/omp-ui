@@ -58,20 +58,23 @@ function TranscriptSkeleton({ centered = false }: { centered?: boolean }) {
   );
 }
 
-/** The fresh-session greeting above the centered composer. */
-function HeroGreeting({ projectCwd }: { projectCwd: string | undefined }) {
+/** The fresh-session greeting above the centered composer. A Chat has no
+ *  project and no plan mode, so it greets as a conversation. */
+function HeroGreeting({ projectCwd, chat }: { projectCwd: string | undefined; chat: boolean }) {
   const t = useT();
   const project = projectCwd?.replace(/[\\/]+$/, "").split(/[\\/]/).pop();
   return (
     <div className="animate-rise flex min-h-0 flex-1 flex-col items-center justify-end gap-2 px-6 pb-6">
       <div className="reading-card flex flex-col items-center gap-2">
         <h1 className="text-balance-tight text-center font-display text-2xl text-ink">
-          {project
-            ? t("rpc.hero.project", { project })
-            : t("rpc.hero.default")}
+          {chat
+            ? t("rpc.hero.chat")
+            : project
+              ? t("rpc.hero.project", { project })
+              : t("rpc.hero.default")}
         </h1>
         <p className="text-sm text-ink-dim">
-          {t("rpc.hero.hint")}
+          {t(chat ? "rpc.hero.chatHint" : "rpc.hero.hint")}
         </p>
       </div>
     </div>
@@ -553,7 +556,7 @@ export const RpcTab = memo(function RpcTab({ tabId, active }: { tabId: string; a
                     </div>
                   ) : centered ? (
                     hero ? (
-                      <HeroGreeting projectCwd={chat ? undefined : projectCwd} />
+                      <HeroGreeting projectCwd={chat ? undefined : projectCwd} chat={chat} />
                     ) : (
                       <TranscriptSkeleton centered />
                     )
