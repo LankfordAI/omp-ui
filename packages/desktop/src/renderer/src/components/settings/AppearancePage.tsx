@@ -1,5 +1,5 @@
-import { useRef, useState, type ChangeEvent } from "react";
-import { effectiveThemeId, storedThemeKind, type ThemeMode, type ThemeSource } from "@omp-ui/core/theme";
+import { useRef, useState, type ChangeEvent, type KeyboardEvent } from "react";
+import { effectiveThemeId, type ThemeMode, type ThemeSource } from "@omp-ui/core/theme";
 import {
   parseThemeFile,
   THEME_FILE_FORMAT,
@@ -17,16 +17,16 @@ import { cn } from "../../lib/cn";
 import { FONT_FAMILIES, resolveFontFamily } from "../../lib/font-families";
 import { GLASS_CHROME_STEPS, resolveGlassChrome } from "../../lib/glass-chrome";
 import { useT, type MessageKey } from "../../lib/i18n";
-import { resolveTheme, storedThemes, THEMES, usePrefersDarkScheme, type Theme } from "../../lib/themes";
+import { resolveTheme, usePrefersDarkScheme } from "../../lib/themes";
 import {
   TRANSCRIPT_WIDTHS,
   resolveTranscriptWidth,
 } from "../../lib/transcript-width";
 import { useStore } from "../../store";
-import { Button, ChoiceCapsule, Chip, Switch } from "../ui";
+import { Switch } from "../ui";
 import { Row } from "./rows";
-import { CURATED_SOURCES, GateFailures, SwatchStrip, ThemeEditor } from "./ThemeEditor";
-import { ThemeRepositoriesSection } from "./ThemeRepositoriesSection";
+import { CURATED_SOURCES, GateFailures, ThemeEditor } from "./ThemeEditor";
+import { ThemeWall } from "./ThemeWall";
 
 /**
  * Label each transcript-width card paints (issue #391). The old mini-column
@@ -103,76 +103,6 @@ const GLASS_CARDS: Record<GlassChrome, { label: MessageKey; hint: MessageKey }> 
   },
 };
 
-/** One theme card: label, scheme chip, and a swatch strip of that theme's planes and accents. */
-function ThemeCard({
-  theme,
-  active,
-  onPick,
-}: {
-  theme: Theme;
-  active: boolean;
-  onPick: () => void;
-}) {
-  const t = useT();
-  // A stored theme may reuse a curated theme's label (VS Code's own Dark
-  // Modern), so its accessible name says which kind it is.
-  const kind = storedThemeKind(theme.id);
-  const kindLabel =
-    theme.origin !== null
-      ? t("settings.appearance.themeFrom", { repository: theme.origin.repository })
-      : kind === "imported"
-        ? t("settings.appearance.themeImported")
-        : kind === "authored"
-          ? t("settings.appearance.themeAuthored")
-          : null;
-  const name = kindLabel !== null ? `${theme.label} (${kindLabel})` : theme.label;
-  return (
-    <button
-      type="button"
-      aria-pressed={active}
-      aria-label={t("settings.appearance.themeAria", { name })}
-      onClick={onPick}
-      className={cn(
-        "rounded-lg border p-3 text-left transition-colors duration-150",
-        active ? "border-line-strong bg-hover" : "border-line bg-raised hover:border-line-strong",
-      )}
-    >
-      <span className="flex min-w-0 items-center gap-2">
-        <span className="truncate text-sm font-medium text-ink">{theme.label}</span>
-        <Chip>{theme.dark ? t("settings.appearance.themeDark") : t("settings.appearance.themeLight")}</Chip>
-        {kindLabel !== null && <Chip>{kindLabel}</Chip>}
-        {theme.backdrop !== null && (
-          <Chip>
-            {theme.backdrop.kind === "scene"
-              ? t("settings.appearance.themeScene")
-              : t("settings.appearance.themeBackdrop")}
-          </Chip>
-        )}
-      </span>
-      <SwatchStrip theme={theme} />
-    </button>
-  );
-}
-
-/** A grid of every curated and stored theme, one of them pressed. */
-function ThemeGrid({
-  themes,
-  activeId,
-  onPick,
-}: {
-  themes: readonly Theme[];
-  activeId: string;
-  onPick: (id: string) => void;
-}) {
-  return (
-    <div className="grid grid-cols-2 gap-2">
-      {themes.map((theme) => (
-        <ThemeCard key={theme.id} theme={theme} active={theme.id === activeId} onPick={() => onPick(theme.id)} />
-      ))}
-    </div>
-  );
-}
-
 /** Reads every picked file as UTF-8, the theme first (the picker's own order). */
 async function readPicked(list: FileList): Promise<{ name: string; text: string }[]> {
   return await Promise.all([...list].map(async (file) => ({ name: file.name, text: await file.text() })));
@@ -231,24 +161,17 @@ function SaveVerdict({ result }: { result: SaveStoredThemeResult }) {
 }
 
 /**
- * Your themes (issues #999, #1168): make one from seeds, import an omp-ui
- * theme file or a VS Code theme, and edit, duplicate, export or remove the
- * stored ones. The editor replaces this section while open.
+ * The Themes tab: the theme wall, plus what it hands back up: the editor
+ * (issue #1168), the omp-ui theme file and VS Code imports (issue #999), and
+ * their verdicts. The editor replaces the wall while open; the wall stays
+ * mounted, hidden, so Show, filters and an open listing survive the edit.
  */
-function StoredSection({
-  stored,
-  sources,
-  showing,
-}: {
-  stored: readonly Theme[];
-  sources: readonly ThemeSource[];
-  showing: Theme;
-}) {
+function ThemesTab() {
   const t = useT();
+  const state = useStore((s) => s.state);
   const importVsCodeTheme = useStore((s) => s.importVsCodeTheme);
   const saveStoredTheme = useStore((s) => s.saveStoredTheme);
-  const removeStoredTheme = useStore((s) => s.removeStoredTheme);
-  const setStoredThemeMotion = useStore((s) => s.setStoredThemeMotion);
+  const prefersDark = usePrefersDarkScheme();
   const vsCodePicker = useRef<HTMLInputElement>(null);
   const filePicker = useRef<HTMLInputElement>(null);
   const [editing, setEditing] = useState<EditorInitial | null>(null);
@@ -256,6 +179,16 @@ function StoredSection({
   const [vsCodeResult, setVsCodeResult] = useState<VsCodeImportResult | null>(null);
   const [fileResult, setFileResult] = useState<SaveStoredThemeResult | null>(null);
   const [error, setError] = useState<string | null>(null);
+
+  const sources = state?.storedThemes ?? [];
+  const themeMode: ThemeMode = state?.themeMode ?? "fixed";
+  const preference = {
+    themeMode,
+    themeId: resolveTheme(state?.themeId, sources).id,
+    lightThemeId: resolveTheme(state?.lightThemeId ?? "light", sources).id,
+    darkThemeId: resolveTheme(state?.darkThemeId, sources).id,
+  };
+  const showing = resolveTheme(effectiveThemeId(preference, prefersDark), sources);
 
   const clearVerdicts = (): void => {
     setVsCodeResult(null);
@@ -317,38 +250,32 @@ function StoredSection({
     }
   };
 
-  if (editing !== null) {
-    return <ThemeEditor initial={editing} onClose={() => setEditing(null)} />;
-  }
+  const verdict = (
+    <>
+      {vsCodeResult?.ok === true && (
+        <p role="status" className="mt-2 text-sm text-ink-mid">
+          {t("settings.appearance.importSaved", { name: vsCodeResult.source.label })}
+        </p>
+      )}
+      {vsCodeResult?.ok === false && vsCodeResult.reason === "parse" && (
+        <p role="alert" className="mt-2 text-sm text-rose">
+          {t("settings.appearance.importParseFailed", { message: vsCodeResult.message })}
+        </p>
+      )}
+      {vsCodeResult?.ok === false && vsCodeResult.reason === "contrast" && (
+        <GateFailures label={vsCodeResult.label} failures={vsCodeResult.failures} />
+      )}
+      {fileResult !== null && <SaveVerdict result={fileResult} />}
+      {error !== null && (
+        <p role="alert" className="mt-2 text-sm text-rose">
+          {error}
+        </p>
+      )}
+    </>
+  );
 
   return (
-    <div className="mt-4 border-t border-line-soft pt-3">
-      <h3 className="text-base font-semibold text-ink">{t("settings.appearance.storedTitle")}</h3>
-      <p className="mt-0.5 text-sm leading-relaxed text-ink-faint">{t("settings.appearance.storedHint")}</p>
-      <div className="mt-2 flex flex-wrap items-center gap-2">
-        <Button
-          disabled={busy}
-          onClick={() =>
-            openEditor({
-              label: t("settings.appearance.editorDefaultName"),
-              // Seeds read the showing theme's raw source; the derived Theme has no syntax seeds.
-              seeds: seedsOfTheme(
-                [...CURATED_SOURCES, ...sources].find((candidate) => candidate.id === showing.id) ??
-                  CURATED_SOURCES[0]!,
-              ),
-              backdrop: null,
-            })
-          }
-        >
-          {t("settings.appearance.newTheme")}
-        </Button>
-        <Button disabled={busy} onClick={() => filePicker.current?.click()}>
-          {busy ? t("settings.appearance.importBusy") : t("settings.appearance.importFile")}
-        </Button>
-        <Button disabled={busy} onClick={() => vsCodePicker.current?.click()}>
-          {busy ? t("settings.appearance.importBusy") : t("settings.appearance.importVsCode")}
-        </Button>
-      </div>
+    <>
       <input
         ref={filePicker}
         type="file"
@@ -370,101 +297,41 @@ function StoredSection({
         data-testid="vscode-theme-picker"
         onChange={(event) => void pickVsCode(event)}
       />
-      {vsCodeResult?.ok === true && (
-        <p role="status" className="mt-2 text-sm text-ink-mid">
-          {t("settings.appearance.importSaved", { name: vsCodeResult.source.label })}
-        </p>
-      )}
-      {vsCodeResult?.ok === false && vsCodeResult.reason === "parse" && (
-        <p role="alert" className="mt-2 text-sm text-rose">
-          {t("settings.appearance.importParseFailed", { message: vsCodeResult.message })}
-        </p>
-      )}
-      {vsCodeResult?.ok === false && vsCodeResult.reason === "contrast" && (
-        <GateFailures label={vsCodeResult.label} failures={vsCodeResult.failures} />
-      )}
-      {fileResult !== null && <SaveVerdict result={fileResult} />}
-      {error !== null && (
-        <p role="alert" className="mt-2 text-sm text-rose">
-          {error}
-        </p>
-      )}
-      {stored.length > 0 && (
-        <ul className="mt-3 flex flex-col gap-1">
-          {stored.map((theme) => {
-            const authored = storedThemeKind(theme.id) === "authored";
-            // Duplicate, Edit and Export read the stored source, never the derived Theme.
-            const source = sources.find((candidate) => candidate.id === theme.id);
-            return (
-              <li key={theme.id} className="flex items-center gap-2 text-sm text-ink-mid">
-                <span className="min-w-0 flex-1 truncate">{theme.label}</span>
-                <Chip>
-                  {source?.origin !== undefined
-                    ? t("settings.appearance.themeFrom", { repository: source.origin.repository })
-                    : authored
-                      ? t("settings.appearance.themeAuthored")
-                      : t("settings.appearance.themeImported")}
-                </Chip>
-                {authored && source !== undefined && (
-                  <Button
-                    variant="ghost"
-                    aria-label={t("settings.appearance.editAria", { name: theme.label })}
-                    onClick={() => openEditor(editorInitialOf(source, source.label, source.id))}
-                  >
-                    {t("settings.appearance.edit")}
-                  </Button>
-                )}
-                {source !== undefined && (
-                  <Button
-                    variant="ghost"
-                    aria-label={t("settings.appearance.duplicateAria", { name: theme.label })}
-                    onClick={() =>
-                      openEditor(
-                        editorInitialOf(source, t("settings.appearance.duplicateName", { name: source.label })),
-                      )
-                    }
-                  >
-                    {t("settings.appearance.duplicate")}
-                  </Button>
-                )}
-                {authored && source !== undefined && (
-                  <Button
-                    variant="ghost"
-                    aria-label={t("settings.appearance.exportAria", { name: theme.label })}
-                    onClick={() => void exportTheme(source)}
-                  >
-                    {t("settings.appearance.export")}
-                  </Button>
-                )}
-                {source?.origin !== undefined && source.backdrop?.kind === "scene" && (
-                  <Switch
-                    on={source.origin.animate}
-                    onChange={(next) => void setStoredThemeMotion(source.id, next)}
-                    label={t("settings.appearance.repoAnimateAria", { name: theme.label })}
-                  />
-                )}
-                <Button
-                  variant="ghost"
-                  aria-label={t("settings.appearance.removeAria", { name: theme.label })}
-                  onClick={() => void removeStoredTheme(theme.id)}
-                >
-                  {t("settings.appearance.remove")}
-                </Button>
-              </li>
-            );
-          })}
-        </ul>
-      )}
-    </div>
+      {editing !== null && <ThemeEditor initial={editing} onClose={() => setEditing(null)} />}
+      <div hidden={editing !== null}>
+        <ThemeWall
+          sources={sources}
+          pick={preference}
+          showing={showing}
+          busy={busy}
+          verdict={verdict}
+          onNewTheme={() =>
+            openEditor({
+              label: t("settings.appearance.editorDefaultName"),
+              // Seeds read the showing theme's raw source; the derived Theme has no syntax seeds.
+              seeds: seedsOfTheme(
+                [...CURATED_SOURCES, ...sources].find((candidate) => candidate.id === showing.id) ??
+                  CURATED_SOURCES[0]!,
+              ),
+              backdrop: null,
+            })
+          }
+          onImportFile={() => filePicker.current?.click()}
+          onImportVsCode={() => vsCodePicker.current?.click()}
+          onEdit={(source) => openEditor(editorInitialOf(source, source.label, source.id))}
+          onDuplicate={(source) =>
+            openEditor(editorInitialOf(source, t("settings.appearance.duplicateName", { name: source.label })))
+          }
+          onExport={(source) => void exportTheme(source)}
+        />
+      </div>
+    </>
   );
 }
 
-export function AppearancePage() {
-  const state = useStore((s) => s.state);
-  const setThemeId = useStore((s) => s.setThemeId);
-  const setThemeMode = useStore((s) => s.setThemeMode);
-  const setLightThemeId = useStore((s) => s.setLightThemeId);
-  const setDarkThemeId = useStore((s) => s.setDarkThemeId);
+/** The Display tab: font family, transcript width, glass chrome and backdrop motion. */
+function DisplaySection() {
+  const t = useT();
   const fontFamilyId = useStore((s) => s.state?.fontFamilyId);
   const setFontFamilyId = useStore((s) => s.setFontFamilyId);
   const transcriptWidth = useStore((s) => s.state?.transcriptWidth);
@@ -473,73 +340,13 @@ export function AppearancePage() {
   const setGlassChrome = useStore((s) => s.setGlassChrome);
   const backdropMotion = useStore((s) => s.state?.backdropMotion);
   const setBackdropMotion = useStore((s) => s.setBackdropMotion);
-  const prefersDark = usePrefersDarkScheme();
-  const t = useT();
-  const storedSources = state?.storedThemes ?? [];
-  const stored = storedThemes(storedSources);
-  const allThemes = [...THEMES, ...stored];
-  const themeMode: ThemeMode = state?.themeMode ?? "fixed";
-  const preference = {
-    themeMode,
-    themeId: resolveTheme(state?.themeId, storedSources).id,
-    lightThemeId: resolveTheme(state?.lightThemeId ?? "light", storedSources).id,
-    darkThemeId: resolveTheme(state?.darkThemeId, storedSources).id,
-  };
-  const showing = resolveTheme(effectiveThemeId(preference, prefersDark), storedSources);
   const activeFamilyId = resolveFontFamily(fontFamilyId).id;
   const activeWidthId = resolveTranscriptWidth(transcriptWidth).id;
   const activeGlassId = resolveGlassChrome(glassChrome).id;
 
   return (
-    <div className="px-4 py-3">
-      <ChoiceCapsule
-        label={t("settings.appearance.themeMode")}
-        value={themeMode}
-        options={[
-          { value: "fixed", label: t("settings.appearance.themeModeFixed") },
-          { value: "system", label: t("settings.appearance.themeModeSystem") },
-        ]}
-        onChange={(mode) => void setThemeMode(mode)}
-        optionClassName="tab-label px-2"
-      />
-      {themeMode === "fixed" ? (
-        <div className="mt-3">
-          <ThemeGrid themes={allThemes} activeId={preference.themeId} onPick={(id) => void setThemeId(id)} />
-        </div>
-      ) : (
-        <>
-          <p className="mt-2 text-sm leading-relaxed text-ink-faint">
-            {t("settings.appearance.themeModeSystemHint")}
-          </p>
-          <p data-testid="theme-now-showing" className="mt-1 text-sm text-ink-mid">
-            {t("settings.appearance.nowShowing", { name: showing.label })}
-          </p>
-          <h3 className="mt-3 text-base font-semibold text-ink">{t("settings.appearance.lightTheme")}</h3>
-          <div className="mt-2" role="group" aria-label={t("settings.appearance.lightTheme")}>
-            <ThemeGrid
-              themes={allThemes}
-              activeId={preference.lightThemeId}
-              onPick={(id) => void setLightThemeId(id)}
-            />
-          </div>
-          <h3 className="mt-3 text-base font-semibold text-ink">{t("settings.appearance.darkTheme")}</h3>
-          <div className="mt-2" role="group" aria-label={t("settings.appearance.darkTheme")}>
-            <ThemeGrid
-              themes={allThemes}
-              activeId={preference.darkThemeId}
-              onPick={(id) => void setDarkThemeId(id)}
-            />
-          </div>
-        </>
-      )}
-      <p className="mt-3 text-sm text-ink-faint">
-        {t("settings.appearance.mintNote")}
-      </p>
-
-      <StoredSection stored={stored} sources={storedSources} showing={showing} />
-      <ThemeRepositoriesSection sources={storedSources} />
-
-      <div className="mt-4 border-t border-line-soft pt-3">
+    <>
+      <div className="pt-2">
         <h3 className="text-base font-semibold text-ink">{t("settings.appearance.fontFamily")}</h3>
         <p className="mt-0.5 text-sm leading-relaxed text-ink-faint">
           {t("settings.appearance.fontFamilyHint")}
@@ -662,6 +469,75 @@ export function AppearancePage() {
             label={t("settings.appearance.backdropMotion")}
           />
         </Row>
+      </div>
+    </>
+  );
+}
+
+type AppearanceTab = "themes" | "display";
+const APPEARANCE_TABS: ReadonlyArray<{ id: AppearanceTab; labelKey: MessageKey }> = [
+  { id: "themes", labelKey: "settings.appearance.tabThemes" },
+  { id: "display", labelKey: "settings.appearance.tabDisplay" },
+];
+
+export function AppearancePage() {
+  const t = useT();
+  const [tab, setTab] = useState<AppearanceTab>("themes");
+  const tabRefs = useRef<Partial<Record<AppearanceTab, HTMLButtonElement | null>>>({});
+
+  // WAI-ARIA tabs: roving tabindex, arrows/Home/End move selection AND focus
+  // (ProjectSettings.tsx onTabListKeyDown).
+  const onTabListKeyDown = (event: KeyboardEvent): void => {
+    const index = APPEARANCE_TABS.findIndex((candidate) => candidate.id === tab);
+    const count = APPEARANCE_TABS.length;
+    const target =
+      event.key === "ArrowRight" ? (index + 1) % count
+        : event.key === "ArrowLeft" ? (index + count - 1) % count
+          : event.key === "Home" ? 0
+            : event.key === "End" ? count - 1
+              : null;
+    if (target === null) return;
+    event.preventDefault();
+    const next = APPEARANCE_TABS[target]!;
+    setTab(next.id);
+    tabRefs.current[next.id]?.focus();
+  };
+
+  return (
+    <div className="px-4 pb-3">
+      <div
+        role="tablist"
+        aria-label={t("settings.appearance.tabsAria")}
+        onKeyDown={onTabListKeyDown}
+        className="-mx-4 mb-1 flex gap-1 border-b border-line px-4 py-2"
+      >
+        {APPEARANCE_TABS.map((candidate) => {
+          const selected = candidate.id === tab;
+          return (
+            <button
+              key={candidate.id}
+              ref={(node) => {
+                tabRefs.current[candidate.id] = node;
+              }}
+              type="button"
+              role="tab"
+              id={`appearance-tab-${candidate.id}`}
+              aria-selected={selected}
+              aria-controls={`appearance-panel-${candidate.id}`}
+              tabIndex={selected ? 0 : -1}
+              onClick={() => setTab(candidate.id)}
+              className={cn(
+                "rounded-md px-2.5 py-1 text-xs font-medium transition-colors",
+                selected ? "bg-hover text-ink" : "text-ink-mid hover:text-ink",
+              )}
+            >
+              {t(candidate.labelKey)}
+            </button>
+          );
+        })}
+      </div>
+      <div role="tabpanel" id={`appearance-panel-${tab}`} aria-labelledby={`appearance-tab-${tab}`}>
+        {tab === "themes" ? <ThemesTab /> : <DisplaySection />}
       </div>
     </div>
   );
