@@ -845,7 +845,7 @@ export function PlanReview({
             <fieldset>
               <legend className="text-xs font-medium text-ink">{t("plan.review.session")}</legend>
               <div className="mt-2 space-y-1.5">
-                {CONTEXTS.map((option, index) => {
+                {CONTEXTS.map((option) => {
                   const active = context === option.id;
                   return (
                     <button
@@ -898,10 +898,7 @@ export function PlanReview({
                         {active && <span className="size-1.5 rounded-full bg-ink-mid" />}
                       </span>
                       <span className="min-w-0 flex-1">
-                        <span className="flex items-center justify-between gap-2">
-                          <span className="text-xs font-medium text-ink">{t(option.labelKey)}</span>
-                          <span className="font-mono text-xs uppercase tracking-wider text-ink-faint">0{index + 1}</span>
-                        </span>
+                        <span className="block text-xs font-medium text-ink">{t(option.labelKey)}</span>
                         <span className="mt-0.5 block text-xs leading-snug text-ink-faint">
                           {option.id === "fresh" && sourceWorktree !== null
                             ? t("plan.context.freshWorktreeHint")
