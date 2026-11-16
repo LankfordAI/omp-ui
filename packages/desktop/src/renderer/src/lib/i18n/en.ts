@@ -511,6 +511,8 @@ export const en = {
   "rpc.hero.project": "What's next in {project}?",
   "rpc.hero.default": "What's next?",
   "rpc.hero.hint": "Describe it — plan first, or build straight away.",
+  "rpc.hero.chat": "What's up?",
+  "rpc.hero.chatHint": "Ask, think out loud, or send work to a project.",
   "composer.placeholder.exited": "agent exited — resume to continue",
   "composer.placeholder.restarting": "restarting advisor…",
   "composer.placeholder.running": "steer the agent…",
