@@ -5,6 +5,7 @@
 // triple hashes equal the last draft this tab produced. The per-tab draft
 // fingerprint and the three-per-tab filing cap die with the tab's process
 // through `forget`.
+import { createHash } from "node:crypto";
 import { mkdtemp, rm, unlink, writeFile } from "node:fs/promises";
 import * as os from "node:os";
 import * as path from "node:path";
@@ -12,7 +13,6 @@ import {
   ISSUE_BODY_MAX,
   duplicateSearchCommand,
   formatIssueDraftAnswer,
-  issueDraftFingerprint,
   issueRepositoryOf,
   parseDuplicateRows,
   parseIssueToolArgs,
@@ -26,6 +26,15 @@ import {
   type IssueToolArgs,
   type IssueVersionFacts,
 } from "@omp-ui/core";
+
+/**
+ * The triple a filing is bound to: the draft answer records it, and the file
+ * call must reproduce it byte for byte. Title here is the RENDERED (prefixed)
+ * title so an approval covers exactly what GitHub will show.
+ */
+function issueDraftFingerprint(title: string, repository: string, body: string): string {
+  return createHash("sha256").update(JSON.stringify([title, repository, body])).digest("hex");
+}
 
 export type IssueDraftOutcome = { ok: true; text: string } | { ok: false; reason: string };
 export type IssueFileOutcome = { ok: true; text: string } | { ok: false; reason: string };

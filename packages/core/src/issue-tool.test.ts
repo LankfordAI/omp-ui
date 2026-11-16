@@ -10,7 +10,6 @@ import {
   ISSUE_BODY_MAX,
   duplicateSearchCommand,
   formatIssueDraftAnswer,
-  issueDraftFingerprint,
   issueRepositoryOf,
   parseDuplicateRows,
   parseIssueToolArgs,
@@ -209,18 +208,10 @@ describe("renderIssueBody", () => {
   });
 });
 
-describe("issueRepositoryOf and the fingerprint", () => {
+describe("issueRepositoryOf", () => {
   it("defaults the repository", () => {
     expect(issueRepositoryOf(parseIssueToolArgs(bugArgs()).args as never)).toBe(DEFAULT_ISSUE_REPOSITORY);
     expect(issueRepositoryOf(parseIssueToolArgs(bugArgs({ repository: "other/repo" })).args as never)).toBe("other/repo");
-  });
-
-  it("fingerprints the exact (title, repository, body) triple", () => {
-    const a = issueDraftFingerprint("[Bug]: t", "r/x", "body");
-    expect(a).toBe(issueDraftFingerprint("[Bug]: t", "r/x", "body"));
-    expect(issueDraftFingerprint("[Bug]: t", "r/x", "body ")).not.toBe(a);
-    expect(issueDraftFingerprint("[Bug]: T", "r/x", "body")).not.toBe(a);
-    expect(issueDraftFingerprint("[Bug]: t", "r/y", "body")).not.toBe(a);
   });
 });
 

@@ -1,11 +1,12 @@
 // The agent's issue tools (ADR-0095): `omp-ui_issue_draft` recommends and
-// `omp-ui_issue_file` creates, and the host binds what the user approved to
-// what gets filed by fingerprinting the rendered body. Pure module mirroring
-// theme-tool.ts: definitions, strict-object schemas, a parser that refuses one
-// line naming the field, a body renderer whose headings match the repo's issue
-// templates verbatim, and the duplicate-search helpers. One flat object schema
-// per tool — no root unions (#1135); per-kind requirements live in the parser.
-import { createHash } from "node:crypto";
+// `omp-ui_issue_file` creates; the host's issue bridge binds what the user
+// approved to what gets filed by fingerprinting the rendered body. Pure module
+// mirroring theme-tool.ts — the renderer reaches it through host-bridge, so it
+// imports nothing from node (#1179): definitions, strict-object schemas, a
+// parser that refuses one line naming the field, a body renderer whose
+// headings match the repo's issue templates verbatim, and the duplicate-search
+// helpers. One flat object schema per tool — no root unions (#1135); per-kind
+// requirements live in the parser.
 import { isObject } from "./guards";
 import type { RpcHostToolDefinition } from "./host-bridge";
 
@@ -314,15 +315,6 @@ export function renderIssueBody(args: IssueToolArgs, facts: IssueVersionFacts): 
     }
   }
   return `${sections.join("\n\n")}\n`;
-}
-
-/**
- * The triple a filing is bound to: the draft answer records it, and the file
- * call must reproduce it byte for byte. Title here is the RENDERED (prefixed)
- * title so an approval covers exactly what GitHub will show.
- */
-export function issueDraftFingerprint(title: string, repository: string, body: string): string {
-  return createHash("sha256").update(JSON.stringify([title, repository, body])).digest("hex");
 }
 
 /** gh args (after "gh") searching up to the 6 longest title words; failure never blocks anything. */
