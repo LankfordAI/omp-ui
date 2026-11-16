@@ -32,6 +32,7 @@ interface RegistrySettings {
   councilEnabled: boolean;
   experimentsFlagSplitSeeded: boolean;
   councilDefaultOnSeeded: boolean;
+  themeAgentAccessDefaultOnSeeded: boolean;
   snoozedSectionEnabled: boolean;
   autoSettleMergedPullRequests: boolean;
   remoteVsCodeEnabled: boolean;
@@ -166,6 +167,9 @@ export function seedRegistry(file: string, patch: RegistrySeedPatch = {}): void 
     // Default true so seeds exercise post-graduation registries; councilEnabled
     // above now models an explicit opt-out rather than the legacy off default.
     councilDefaultOnSeeded: true,
+    // Default true so seeds exercise post-flip registries (#1177); themeAgentAccess
+    // below models an explicit opt-out rather than the legacy off default.
+    themeAgentAccessDefaultOnSeeded: true,
     snoozedSectionEnabled: false,
     autoSettleMergedPullRequests: true,
     remoteVsCodeEnabled: false,
