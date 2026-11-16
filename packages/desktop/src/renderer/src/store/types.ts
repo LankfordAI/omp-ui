@@ -5,6 +5,11 @@ import type { TranscriptPlanCandidate } from "../lib/transcript-plan-source";
 import type { VsCodeImportResult, VsCodeThemeFileInput } from "@omp-ui/core/vscode-theme";
 import type { SaveStoredThemeResult, StoredThemeDraft } from "@omp-ui/core/theme-file";
 import type {
+  RepositoryThemeInstallRequest,
+  ThemeRepositoryAddResult,
+  ThemeRepositoryListingResult,
+} from "@omp-ui/core/theme-repository-format";
+import type {
   FleetAuditEntry,
   FleetDispatchRequest,
   FleetDispatchResult,
@@ -777,6 +782,13 @@ export interface SettingsSlice {
   /** Host-gated save of an authored theme (issue #1168); resolves the gate's verdict, never rejects on a failed gate. */
   saveStoredTheme(draft: StoredThemeDraft): Promise<SaveStoredThemeResult>;
   removeStoredTheme(id: string): Promise<void>;
+  /** Theme repositories (#1178): host-validated; resolves the verdict, never rejects on a refusal. */
+  addThemeRepository(input: string): Promise<ThemeRepositoryAddResult>;
+  removeThemeRepository(repository: string): Promise<void>;
+  browseThemeRepository(repository: string, refresh: boolean): Promise<ThemeRepositoryListingResult>;
+  installRepositoryTheme(request: RepositoryThemeInstallRequest): Promise<SaveStoredThemeResult>;
+  /** Lets one installed theme's scene animate (#1178). */
+  setStoredThemeMotion(id: string, on: boolean): Promise<void>;
   setFontFamilyId(id: string): Promise<void>;
   setTranscriptWidth(width: TranscriptWidth): Promise<void>;
   setGlassChrome(level: GlassChrome): Promise<void>;

@@ -10,6 +10,30 @@ describe("isStoredTheme", () => {
     expect(isStoredTheme({ ...graphite, id: "custom-x" })).toBe(true);
     expect(isStoredTheme(graphite)).toBe(false);
   });
+
+  const origin = { repository: "o/r", path: "themes/a.json", commit: "a".repeat(40), blob: "b".repeat(40), animate: false };
+
+  it("accepts a repository origin only on an authored theme", () => {
+    expect(isStoredTheme({ ...graphite, id: "custom-x", origin })).toBe(true);
+    expect(isStoredTheme({ ...graphite, id: "vscode-x", origin })).toBe(false);
+  });
+
+  it("refuses an origin with an extra key or a bad SHA", () => {
+    expect(isStoredTheme({ ...graphite, id: "custom-x", origin: { ...origin, extra: 1 } })).toBe(false);
+    expect(isStoredTheme({ ...graphite, id: "custom-x", origin: { ...origin, commit: "HEAD" } })).toBe(false);
+    expect(isStoredTheme({ ...graphite, id: "custom-x", origin: { ...origin, path: "../a.json" } })).toBe(false);
+  });
+});
+
+describe("deriveTheme origin", () => {
+  it("carries the origin and leaves rev to the colours", () => {
+    const origin = { repository: "o/r", path: "a.json", commit: "a".repeat(40), blob: "b".repeat(40), animate: true };
+    const plain = deriveTheme({ ...graphite, id: "custom-x" });
+    const installed = deriveTheme({ ...graphite, id: "custom-x", origin });
+    expect(plain.origin).toBeNull();
+    expect(installed.origin).toEqual(origin);
+    expect(installed.rev).toBe(plain.rev);
+  });
 });
 
 describe("signalAccentFailure", () => {

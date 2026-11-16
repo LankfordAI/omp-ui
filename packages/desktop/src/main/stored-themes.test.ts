@@ -4,7 +4,13 @@ import * as os from "node:os";
 import * as path from "node:path";
 import { afterEach, describe, expect, it, vi, type Mock } from "vitest";
 import { Registry, STORED_THEMES_MAX, sourceFromDraft, type StoredThemeDraft, type ThemeSource } from "@omp-ui/core";
-import { removeStoredTheme, saveStoredTheme, type StoredThemeDeps } from "./stored-themes";
+import {
+  installStoredTheme,
+  removeStoredTheme,
+  saveStoredTheme,
+  setStoredThemeMotion,
+  type StoredThemeDeps,
+} from "./stored-themes";
 import { ThemeBackdropStore } from "./theme-backdrop-store";
 
 const dirs: string[] = [];
@@ -196,5 +202,38 @@ describe("removeStoredTheme (issue #1168)", () => {
     expect(registry.getSetting("darkThemeId")).toBe(id);
     expect(registry.getSetting("lightThemeId")).toBe(id);
     expect(broadcast).not.toHaveBeenCalled();
+  });
+});
+
+describe("repository themes (#1178)", () => {
+  const ORIGIN = { repository: "o/r", path: "a.json", commit: "a".repeat(40), blob: "b".repeat(40), animate: false };
+
+  it("an editor save of an installed theme drops its origin", async () => {
+    const { deps, registry } = setup();
+    const installed = await installStoredTheme(deps, draft(), ORIGIN);
+    if (!installed.ok) throw new Error("install failed");
+    expect(registry.getSetting("storedThemes")[0]?.origin).toEqual(ORIGIN);
+    const edited = await saveStoredTheme(deps, draft({ id: installed.source.id, label: "Edited" }));
+    expect(edited.ok).toBe(true);
+    const [row] = registry.getSetting("storedThemes");
+    expect(row?.id).toBe(installed.source.id);
+    expect(row?.origin).toBeUndefined();
+  });
+
+  it("setStoredThemeMotion changes only an origin row", async () => {
+    const { deps, registry, broadcast } = setup();
+    const installed = await installStoredTheme(deps, draft(), ORIGIN);
+    const plain = await saveStoredTheme(deps, draft({ label: "Plain" }));
+    if (!installed.ok || !plain.ok) throw new Error("save failed");
+    broadcast.mockClear();
+    const before = registry.getSetting("storedThemes");
+    await setStoredThemeMotion(deps, plain.source.id, true);
+    await setStoredThemeMotion(deps, "custom-unknown", true);
+    expect(registry.getSetting("storedThemes")).toEqual(before);
+    expect(broadcast).not.toHaveBeenCalled();
+    await setStoredThemeMotion(deps, installed.source.id, true);
+    expect(registry.getSetting("storedThemes")[0]?.origin?.animate).toBe(true);
+    expect(registry.getSetting("storedThemes")[1]?.origin).toBeUndefined();
+    expect(broadcast).toHaveBeenCalledTimes(1);
   });
 });

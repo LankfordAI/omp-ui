@@ -3,6 +3,7 @@
 // plan verifier page, and main all read it through the @omp-ui/core/theme subpath.
 import { isObject } from "./guards";
 import { isThemeBackdrop, type ThemeBackdrop } from "./theme-backdrop";
+import { isThemeOrigin, type ThemeOrigin } from "./theme-origin";
 
 /** Every `--color-*` token a theme supplies, in canonical order. */
 export const THEME_TOKEN_NAMES = [
@@ -104,6 +105,8 @@ export interface ThemeSource {
   };
   /** Present only on a stored theme that carries a backdrop. */
   backdrop?: ThemeBackdrop;
+  /** Present only on an authored theme installed from a theme repository. */
+  origin?: ThemeOrigin;
 }
 
 /** The theme a fresh install paints, and the dark pick's default. */
@@ -168,7 +171,7 @@ export function storedThemeKind(id: string): "imported" | "authored" | null {
 /** Structural check of a stored theme; contrast is the gate's job. */
 export function isStoredTheme(value: unknown): value is ThemeSource {
   if (!isObject(value)) return false;
-  const { id, label, dark, tokens, syntax, overrides, backdrop } = value;
+  const { id, label, dark, tokens, syntax, overrides, backdrop, origin } = value;
   if (typeof id !== "string" || !STORED_ID.test(id) || id.length > 64) return false;
   if (typeof label !== "string" || label.trim() === "" || label.length > LABEL_MAX) return false;
   if (typeof dark !== "boolean") return false;
@@ -178,6 +181,7 @@ export function isStoredTheme(value: unknown): value is ThemeSource {
   if (!tokenOk) return false;
   if (!exactColours(syntax, THEME_SYNTAX_SEEDS, (_key, colour) => OPAQUE_HEX.test(colour))) return false;
   if (backdrop !== undefined && !isThemeBackdrop(backdrop)) return false;
+  if (origin !== undefined && (!isThemeOrigin(origin) || storedThemeKind(id) !== "authored")) return false;
   if (overrides === undefined) return true;
   if (!isObject(overrides)) return false;
   if (Object.keys(overrides).some((key) => key !== "term" && key !== "code")) return false;
@@ -253,6 +257,8 @@ export interface Theme {
   /** Changes whenever any colour changes; consumers that cache by theme key on it. */
   rev: string;
   backdrop: ThemeBackdrop | null;
+  /** Where a repository theme came from; null for every other theme. */
+  origin: ThemeOrigin | null;
 }
 
 function parseHex(hex: string): readonly [number, number, number] {
@@ -368,6 +374,7 @@ export function deriveTheme(source: ThemeSource): Theme {
     code: deriveCode(source),
     rev: fnv1a(JSON.stringify([source.tokens, source.syntax, source.overrides ?? null])),
     backdrop: source.backdrop ?? null,
+    origin: source.origin ?? null,
   };
 }
 

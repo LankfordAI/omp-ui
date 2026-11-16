@@ -75,6 +75,8 @@ A theme can carry a **backdrop**: a PNG, JPEG, or WebP image of at most 4 MiB, o
 
 **Export** saves an authored theme as one `.json` theme file, with its backdrop embedded. **Import theme file…** reads such a file (6 MiB at most) and saves it as a new theme through the same gate. A theme file stores seeds, so duplicating an imported theme keeps its main colours but not its terminal or keyword overrides ([ADR-0094](adr/0094-themes-carry-backdrops-and-can-be-authored.md)).
 
+**Theme repositories** lets you follow themes other people publish in public GitHub repositories ([#1178](https://github.com/LankfordAI/omp-ui/issues/1178)); [`LankfordAI/omp-ui-themes`](https://github.com/LankfordAI/omp-ui-themes) is an example. Add one as `owner/repo` or its `https://github.com/owner/repo` address; at most 16 can be added, and adding one fetches nothing until its listing opens. **Browse** reads the repository at its latest commit and shows each listed theme as a card with its label, a dark or light tag, a *backdrop* or *animated backdrop* tag, and a swatch strip previewed from its colours — no backdrop is downloaded while browsing. One listing per repository is reused for five minutes; **Refresh** reads it again, though GitHub itself may answer with the previous commit for up to a minute after a push. GitHub allows 60 anonymous requests an hour per network and each fresh listing costs two, so a limit hit names the minutes until it resets. Each card offers **Install**, shows *installed* when your copy matches, or offers **Update** when the repository has changed that theme since you installed it. A theme that fails the colour checks says so and cannot be installed, and Install is disabled while your themes are full (24 at most, shared with every other stored theme); Update still works then. Every install passes the same contrast gate and signal rule as the editor, is never updated without your click, and never applies itself: pick it in the grid. An installed theme shows a *from owner/repo* tag; if it has a scene, the scene stays still until you turn on its **Animate** switch in Your themes. **Remove** on a repository keeps the themes you installed from it, and editing an installed theme detaches it into an ordinary custom theme. omp-ui contacts GitHub only when you browse, refresh, install, or update, and sends no token ([ADR-0096](adr/0096-themes-install-from-github-theme-repositories.md)).
+
 The application and Ubuntu families both use bundled Pretendard Variable after their Latin sans face for Korean chrome. Code, paths, terminal text, and other monospace content keep their selected monospace face.
 
 Transcript width chooses the column the native transcript, the composer card, and the hero column share: Comfortable (56rem), Wide (72rem, the default), or Full (uncapped). Prose keeps a readable measure at every step while tool cards, code, and diffs take the whole column. The choice applies immediately and is remembered for the next launch.
@@ -82,6 +84,27 @@ Transcript width chooses the column the native transcript, the composer card, an
 Glass chrome lets the sidebar, inspector rail, title bar, composer card, sheets, and modals show a soft backdrop through them: Off (opaque, as before), Subtle (the default; light blur), or Frosted (stronger blur; costs a little GPU). Text is never blurred and terminals, transcripts, and dialogs' reading surfaces stay opaque; over a theme's backdrop the transcript sits on a near-solid reading card ([ADR-0026](adr/0026-glass-chrome-via-backdrop-filter.md)). The choice applies immediately and is remembered for the next launch.
 
 Animate backdrops lets a theme's scene move (on by default). It costs some GPU while the window is visible, and a scene stops while the window is hidden or the system asks for reduced motion. Backdrops show beside the transcript, so a Full transcript width leaves little room for them. The choice applies immediately and is remembered for the next launch.
+
+### Publishing a theme repository
+
+Put `omp-ui-themes.json` at the repository root and one theme file per theme anywhere in the repository. Produce theme files with **Export**. The index lists each theme's path, label, seeds, and backdrop kind (`"image"`, `"scene"`, or `null`):
+
+```json
+{
+  "format": "omp-ui-theme-index",
+  "version": 1,
+  "themes": [
+    {
+      "path": "themes/dusk.json",
+      "label": "Dusk",
+      "seeds": { "canvas": "#1a1b26", "ink": "#c0caf5", "accents": { "signal": "#9ece6a" } },
+      "backdrop": "scene"
+    }
+  ]
+}
+```
+
+The index is at most 64 KiB and lists at most 48 themes. Paths are relative `.json` paths with no segment starting with `.`, each listed once; labels are 1 to 80 characters. Each theme file is at most 6 MiB, and its label, seeds, and backdrop kind must match its index entry, or omp-ui refuses to install it; an entry whose file is missing or too large is skipped with a note. omp-ui reads every file at one commit and checks it against that commit's git tree, so every commit you push is a release: users see an Update offer for each theme file whose contents changed.
 
 ## Keyboard
 

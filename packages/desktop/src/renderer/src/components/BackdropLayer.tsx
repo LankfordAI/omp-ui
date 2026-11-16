@@ -65,7 +65,9 @@ export function BackdropLayer(): ReactElement | null {
     ? null
     : draft ?? (loaded !== null && loaded.hash === hash ? loaded.asset : null);
 
-  const animate = asset !== null && asset.kind === "scene" && motion && !reducedMotion && !hidden;
+  // An installed repository theme's scene stays still until the user allows it (#1178).
+  const animate = asset !== null && asset.kind === "scene" && motion && !reducedMotion && !hidden &&
+    theme.origin?.animate !== false;
   const src = asset === null ? null : animate ? asset.url : asset.stillUrl;
 
   // Ready once this exact image has decoded; the floors and the transparent

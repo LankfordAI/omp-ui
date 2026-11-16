@@ -4,6 +4,7 @@ This guide explains what users receive from a release and how maintainers publis
 
 ## Unreleased
 
+- Settings → Appearance can add public GitHub theme repositories, browse their themes, and install or update them through the same contrast gate (#1178).
 - Forked sessions show a *fork* chip naming their original in the sidebar and session header, the Session HUD action now reads *Fork into a new tab*, and opening a session whose fork is running asks whether you meant the fork (#1161).
 
 ## Choose a download

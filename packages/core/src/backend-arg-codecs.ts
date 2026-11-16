@@ -93,6 +93,7 @@ import { isSubagentModelMap, type SubagentModelMap } from "./subagent-model";
 import { parseWebhookInput, parseWebhookPatch, type WebhookInput, type WebhookPatch } from "./webhook";
 import { VSCODE_THEME_FILE_BYTES_MAX, type VsCodeThemeFileInput } from "./vscode-theme";
 import { isStoredThemeDraft, type StoredThemeDraft } from "./theme-file";
+import { isRepositoryThemeInstallRequest, type RepositoryThemeInstallRequest } from "./theme-repository-format";
 import { keybindingOverridesError, type KeybindingOverrides } from "./keybindings";
 import { parseMcpClientInput, parseMcpClientPatch, type McpClientInput, type McpClientPatch } from "./mcp-endpoint";
 import { assertArtifactKey, assertArtifactUuid } from "./artifacts";
@@ -364,6 +365,13 @@ export const storedThemeDraftCodec: ArgCodec<StoredThemeDraft> = codec<StoredThe
 export const backdropHashCodec: ArgCodec<string> = codec<string>(
   "a backdrop asset hash",
   (value) => typeof value === "string" && /^[0-9a-f]{64}$/.test(value),
+);
+/** A theme repository as typed (#1178): owner/repo or a github.com address; the host canonicalizes it. */
+export const themeRepositoryInputCodec: ArgCodec<string> = shortStr(200);
+/** One repository theme install (#1178): canonical owner/repo, a 40-hex commit, a validated path. */
+export const repositoryThemeInstallCodec = codec<RepositoryThemeInstallRequest>(
+  "a repository theme install request",
+  isRepositoryThemeInstallRequest,
 );
 export const projectOpenTargetCodec: ArgCodec<ProjectOpenTarget> = oneOf(
   "vscode",

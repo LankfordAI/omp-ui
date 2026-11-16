@@ -31,6 +31,7 @@ const THEME: Theme = {
   },
   rev: "00000000",
   backdrop: null,
+  origin: null,
 };
 
 /** Minimal ThemedToken fixture: `offset` is required by the type, unused here. */

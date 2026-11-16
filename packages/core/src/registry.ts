@@ -29,6 +29,7 @@ import {
   type ThemeMode,
   type ThemeSource,
 } from "./theme";
+import { parseThemeRepositories } from "./theme-repository-format";
 import type {
   AgentMode,
   ApprovalMode,
@@ -154,6 +155,8 @@ export interface RegistrySettings {
   darkThemeId: string;
   /** Imported and authored themes, each already past the theme gate (issues #999, #1168). */
   storedThemes: ThemeSource[];
+  /** Canonical owner/repo theme repositories, in the order added (#1178); default []. */
+  themeRepositories: string[];
   /** Active font family id (see renderer lib/font-families.ts). */
   fontFamilyId: string;
   /** Transcript column width step (see renderer lib/transcript-width.ts); default wide (issue #391). */
@@ -455,6 +458,7 @@ export const SETTINGS: SettingDescriptors = {
     (value): value is string => typeof value === "string" && value !== "",
   ),
   storedThemes: { fallback: () => [], parse: parseStoredThemes },
+  themeRepositories: { fallback: () => [], parse: parseThemeRepositories },
   // Any non-empty string is kept as-is: font family ids are validated by the
   // renderer's own table, so registries written by newer builds remain intact.
   fontFamilyId: validatedSetting(

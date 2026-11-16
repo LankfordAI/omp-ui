@@ -6,6 +6,7 @@ import { CH, Registry } from "@omp-ui/core";
 import { registerSettingsHandlers } from "./settings-handlers";
 import type { StoredThemeDeps } from "./stored-themes";
 import { ThemeBackdropStore } from "./theme-backdrop-store";
+import { ThemeRepositoryService } from "./theme-repositories";
 
 function themes(registry: Registry, dir: string): StoredThemeDeps {
   return {
@@ -14,6 +15,10 @@ function themes(registry: Registry, dir: string): StoredThemeDeps {
     backdrops: new ThemeBackdropStore(path.join(dir, "theme-backdrops")),
     newId: () => "custom-test-000000",
   };
+}
+
+function repositories(registry: Registry, dir: string): ThemeRepositoryService {
+  return new ThemeRepositoryService({ registry, broadcast: async () => {}, themes: themes(registry, dir) });
 }
 
 /**
@@ -40,6 +45,7 @@ function setup(seedCouncilRoster: () => Promise<void>) {
       await seedCouncilRoster();
     },
     themes: themes(registry, dir),
+    themeRepositories: repositories(registry, dir),
   });
   return { dir, registry, order, handlers };
 }
@@ -82,6 +88,7 @@ describe("setCouncilEnabled", () => {
         onTelemetryChanged: () => {},
         seedCouncilRoster: seedCouncilRoster,
         themes: themes(registry, dir),
+        themeRepositories: repositories(registry, dir),
       });
       await handlers[CH.setCouncilEnabled](false);
       expect(seedCouncilRoster).not.toHaveBeenCalled();
@@ -107,6 +114,7 @@ describe("model usage telemetry consent", () => {
         onTelemetryChanged: () => { order.push(`consent:${registry.getSetting("telemetryModelsEnabled")}`); },
         seedCouncilRoster: async () => {},
         themes: themes(registry, dir),
+        themeRepositories: repositories(registry, dir),
       });
       const enabling = handlers[CH.setTelemetryModelsEnabled](true);
       expect(order).toEqual(["consent:true", "broadcast"]);
@@ -136,6 +144,7 @@ describe("artifact library gate ordering", () => {
         onAppUpdateTrainChanged: async () => {},
         onFleetLadderChanged: () => {}, onTelemetryChanged: () => {}, seedCouncilRoster: async () => {},
         themes: themes(registry, dir),
+        themeRepositories: repositories(registry, dir),
         onArtifactLibraryChanged: () => {
           admitted = registry.getSetting("artifactLibraryEnabled");
           throw new Error("failed roster update");
@@ -161,6 +170,7 @@ describe("theme backdrop reads (issue #1168)", () => {
         onAppUpdateTrainChanged: async () => {},
         onFleetLadderChanged: () => {}, onTelemetryChanged: () => {}, seedCouncilRoster: async () => {},
         themes: deps,
+        themeRepositories: new ThemeRepositoryService({ registry, broadcast: async () => {}, themes: deps }),
       });
       const svg = new TextEncoder().encode('<svg xmlns="http://www.w3.org/2000/svg"></svg>');
       const hash = await deps.backdrops.put(svg);

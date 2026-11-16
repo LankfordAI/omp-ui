@@ -132,6 +132,31 @@ function initialBackdrop(backdrop: DraftBackdrop | null): EditorBackdrop | null 
   return check.ok ? { from: "bytes", bytes, mime: check.mime, kind: check.kind } : null;
 }
 
+/** The planes and accents each swatch strip paints, in strip order. */
+const SWATCH_TOKENS = [
+  "--color-void",
+  "--color-surface",
+  "--color-raised",
+  "--color-signal",
+  "--color-copper",
+  "--color-rose",
+  "--color-iris",
+] as const;
+
+/** A strip of one theme's planes and accents: the theme grid's cards and the theme repository previews. */
+export function SwatchStrip({ theme }: { theme: Theme }) {
+  return (
+    // Inline styles are the one sanctioned exception here: these swatches
+    // paint a theme that is NOT the active one, so the live CSS tokens
+    // cannot express them.
+    <span className="mt-2 flex h-4 overflow-hidden rounded border border-line">
+      {SWATCH_TOKENS.map((token) => (
+        <span key={token} className="flex-1" style={{ background: theme.tokens[token] }} />
+      ))}
+    </span>
+  );
+}
+
 /** A fixed sample painted with the draft's own colours (the ThemeCard inline-style exception). */
 function SampleCard({ theme }: { theme: Theme }) {
   const tk = theme.tokens;

@@ -191,6 +191,8 @@ import {
   vsCodeThemeFileCodec,
   storedThemeDraftCodec,
   backdropHashCodec,
+  themeRepositoryInputCodec,
+  repositoryThemeInstallCodec,
   imageAttachmentCodec,
   knowledgeHomeCodec,
   liveHistoryTurnCodec,
@@ -264,6 +266,11 @@ import type { ThemeMode } from "./theme";
 import type { VsCodeImportResult, VsCodeThemeFileInput } from "./vscode-theme";
 import type { SaveStoredThemeResult, StoredThemeDraft } from "./theme-file";
 import type { ThemeBackdropBytes } from "./theme-backdrop";
+import type {
+  RepositoryThemeInstallRequest,
+  ThemeRepositoryAddResult,
+  ThemeRepositoryListingResult,
+} from "./theme-repository-format";
 import type { McpClientInput, McpClientPatch, McpEndpointState, McpTokenReveal } from "./mcp-endpoint";
 
 const sevenDaysCodec = lit(7);
@@ -683,6 +690,34 @@ export const BACKEND_CHANNELS = {
   readThemeBackdrop: {
     channel: "settings:readThemeBackdrop",
     ...request<[assetHash: string], ThemeBackdropBytes | null>([backdropHashCodec]),
+  },
+  /** Adds a public GitHub theme repository (#1178); fetches nothing. A refusal resolves with its message. */
+  addThemeRepository: {
+    channel: "settings:addThemeRepository",
+    ...request<[input: string], ThemeRepositoryAddResult>([themeRepositoryInputCodec]),
+  },
+  /** Drops one theme repository (#1178); themes installed from it stay. */
+  removeThemeRepository: {
+    channel: "settings:removeThemeRepository",
+    ...request<[repository: string], void>([themeRepositoryInputCodec]),
+  },
+  /** Lists an added repository's themes at its HEAD commit (#1178); cached 5 minutes unless `refresh`. */
+  browseThemeRepository: {
+    channel: "settings:browseThemeRepository",
+    ...request<[repository: string, refresh: boolean], ThemeRepositoryListingResult>([
+      themeRepositoryInputCodec,
+      bool(),
+    ]),
+  },
+  /** Installs or updates one repository theme through the stored-theme gate (#1178). */
+  installRepositoryTheme: {
+    channel: "settings:installRepositoryTheme",
+    ...request<[request: RepositoryThemeInstallRequest], SaveStoredThemeResult>([repositoryThemeInstallCodec]),
+  },
+  /** Lets one installed repository theme's scene animate (#1178). */
+  setStoredThemeMotion: {
+    channel: "settings:setStoredThemeMotion",
+    ...request<[id: string, on: boolean], void>([str(), bool()]),
   },
   /** Lets a theme's scene animate (issue #1168). */
   setBackdropMotion: { channel: "settings:setBackdropMotion", ...request<[on: boolean], void>([bool()]) },
