@@ -986,7 +986,7 @@ export const ko: Partial<Record<MessageKey, string>> = {
     "이 변경 후 시작하거나 재개한 세션에 omp-ui_device 도구를 제공합니다. 이 도구는 기기 패널의 Android 에뮬레이터를 조작합니다. Android SDK(adb 및 emulator)가 필요합니다.",
   "settings.general.themeAgentAccess": "에이전트의 테마 저장 허용",
   "settings.general.themeAgentAccessHint":
-    "이 변경 후 시작하거나 재개한 세션에 omp-ui_theme_save 도구를 제공합니다. 저장된 테마는 내 테마에 추가되며, 직접 선택하기 전까지는 적용되지 않습니다.",
+    "이 변경 후 시작하거나 재개한 세션에 omp-ui_theme_save 도구를 제공합니다. 저장된 테마는 내 테마에 추가되며, 에이전트가 테마를 적용하려면 질문에서 먼저 동의해야 합니다.",
   "settings.general.advisorAutoReply": "어드바이저 자동 답변",
   "settings.general.advisorAutoReplyHint": "턴이 끝난 뒤 도착한 어드바이저 의견에 자동으로 답합니다. 끄면 대화록에 그대로 남습니다.",
   "settings.general.defaultAdvisor": "기본 어드바이저",

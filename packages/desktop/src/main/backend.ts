@@ -210,6 +210,7 @@ import {
   BACKDROP_DEFAULT_DIM,
   BACKDROP_IMAGE_BYTES_MAX,
   type SaveStoredThemeResult,
+  type ThemeSource,
   type ThemeToolArgs,
 } from "@omp-ui/core";
 import { mintRemoteToken } from "@omp-ui/server";
@@ -602,7 +603,10 @@ export class MainBackend {
         // attention pipeline's delay and suppression (#688).
         hostNotify: (tabId, title, message) => this.notifier.notifyNow(tabId, title, message),
         // The theme host tool (issue #1168): main answers through the shared save path.
-        themes: { save: (tabId, args) => this.saveThemeFromTool(tabId, args) },
+        themes: {
+          save: (tabId, args) => this.saveThemeFromTool(tabId, args),
+          apply: (source) => this.applyThemeFromTool(source),
+        },
         // Lazy: the dispatcher is constructed after remoteInstances, below.
         fleet: () => this.fleet,
         // Lazy for the same reason: the wake coordinator follows the fleet server.
@@ -2257,7 +2261,8 @@ export class MainBackend {
   /**
    * Answers omp-ui_theme_save (issue #1168). A backdrop path is confined to
    * the session's working directory by real path, and size-checked before it
-   * is read. The theme is stored, never applied.
+   * is read. Applying the saved theme is answered by `applyThemeFromTool`
+   * when the agent passed apply after the user agreed (#1169).
    */
   private async saveThemeFromTool(tabId: string, args: ThemeToolArgs): Promise<SaveStoredThemeResult> {
     const draft = { ...(args.id === undefined ? {} : { id: args.id }), label: args.label, seeds: args.seeds };
@@ -2290,6 +2295,23 @@ export class MainBackend {
         blur: args.backdrop.blur ?? BACKDROP_DEFAULT_BLUR,
       },
     });
+  }
+
+  /**
+   * Paints a theme the agent just saved (issue #1169): fixed mode takes
+   * themeId; system mode takes the slot matching the canvas lightness.
+   */
+  private async applyThemeFromTool(source: ThemeSource): Promise<boolean> {
+    const stored = this.registry.getSetting("storedThemes");
+    if (!stored.some((t) => t.id === source.id)) return false;
+    // `ThemeSource.dark` is exactly the canvas-luminance verdict (theme.ts).
+    if (this.registry.getSetting("themeMode") === "system") {
+      this.registry.setSetting(source.dark ? "darkThemeId" : "lightThemeId", source.id);
+    } else {
+      this.registry.setSetting("themeId", source.id);
+    }
+    await this.broadcast();
+    return true;
   }
 
   /**

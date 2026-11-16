@@ -109,5 +109,7 @@ or send a second answer.
 tools, gated like the device tool: registered at spawn or resume only while
 *Agents can save themes* is on, never for webhook- or MCP-requested sessions,
 and answered by main through the shared stored-theme save path. It saves a
-theme and never applies one
+theme and, when the agent passed `apply` after the user agreed in its question
+tool, also applies the theme it just saved through the same main-owned
+settings write
 ([ADR-0094](0094-themes-carry-backdrops-and-can-be-authored.md)).

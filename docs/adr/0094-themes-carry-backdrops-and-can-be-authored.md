@@ -70,3 +70,7 @@ Stored themes are imported or authored. The sentence "neither adds a colour cont
 - A client connected straight to a lite host has no backdrop channel and paints no backdrop.
 - Dialogs and the plan review dock keep their utilities unchanged; their text was not re-measured over a backdrop.
 - A full-width transcript or a narrow window covers most of the backdrop with the reading card; the Appearance hint says so.
+
+## Amendment (2026-11-15): agents can apply
+
+The §7 sentence "The tool never activates or removes a theme: changing what every connected client looks like stays a human action." is superseded. `omp-ui_theme_save` gained an optional `apply` flag: when true and the save passes the gate, main commits the theme to the user's preference — the same registry keys and broadcast the Appearance page writes (fixed mode takes `themeId`; system mode takes the `darkThemeId`/`lightThemeId` slot matching the canvas lightness) — so every connected client repaints. The guard is conversational: the tool description requires the agent to ask the user with its question tool first and only pass `apply: true` after a yes, and the whole tool still sits behind **Agents can save themes** (default off), never reaches webhook- or MCP-started sessions, and stays absent on a lite host. Consent is advisory — main cannot verify the question happened — which is the accepted tradeoff: the apply is instantly visible and one click to undo in Appearance. Removal stays human-only: the editor and host-channel path own it, and the tool still never removes themes.
