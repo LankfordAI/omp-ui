@@ -1744,8 +1744,8 @@ describe("PlanReview model + orchestrate staging (issues #95, #96)", () => {
     await act(async () => buttonByText("Advisor A").click());
     const overlays = document.body.querySelectorAll<HTMLElement>("[data-overlay-root]");
     const palette = overlays[overlays.length - 1]!;
-    expect(palette.querySelector<HTMLButtonElement>('button[title="Favorites"]')!.getAttribute("aria-pressed")).toBe("true");
-    expect(palette.querySelector<HTMLButtonElement>('button[title="p"]')!.getAttribute("aria-pressed")).toBe("false");
+    expect(palette.querySelector<HTMLButtonElement>('button[title="Favorites"]')!.getAttribute("aria-selected")).toBe("true");
+    expect(palette.querySelector<HTMLButtonElement>('button[title="p"]')!.getAttribute("aria-selected")).toBe("false");
     await act(async () => palette.querySelector<HTMLButtonElement>('button[title="p"]')!.click());
     expect(palette.textContent).toContain("picking one restarts this session and resumes it");
 
@@ -1829,7 +1829,7 @@ describe("PlanReview model + orchestrate staging (issues #95, #96)", () => {
     expect(
       mainPalette
         .querySelector<HTMLButtonElement>('button[title="Favorites"]')!
-        .getAttribute("aria-pressed"),
+        .getAttribute("aria-selected"),
     ).toBe("true");
     expect(mainPalette.textContent).toContain("Remote Main Favorite");
     expect(mainPalette.textContent).toContain("Remote Advisor Favorite");
@@ -1843,7 +1843,7 @@ describe("PlanReview model + orchestrate staging (issues #95, #96)", () => {
     expect(
       advisorPalette
         .querySelector<HTMLButtonElement>('button[title="Favorites"]')!
-        .getAttribute("aria-pressed"),
+        .getAttribute("aria-selected"),
     ).toBe("true");
     expect(advisorPalette.textContent).toContain("Remote Main Favorite");
     expect(advisorPalette.textContent).toContain("Remote Advisor Favorite");

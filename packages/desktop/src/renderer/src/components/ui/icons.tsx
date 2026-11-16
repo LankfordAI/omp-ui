@@ -189,7 +189,7 @@ export function Chevron({ open, className }: { open: boolean; className?: string
 /** Star icon for favorites. `filled` renders a solid star; outline otherwise. */
 export function StarIcon({ filled, className }: { filled?: boolean; className?: string }) {
   return (
-    <svg viewBox="0 0 16 16" className={cn("size-3.5", className)}>
+    <svg viewBox="0 0 16 16" aria-hidden className={cn("size-3.5", className)}>
       <path
         d="M8 1.5l1.76 3.57 3.94.57-2.85 2.78.67 3.93L8 10.27 4.48 12.35l.67-3.93L2.3 5.64l3.94-.57L8 1.5z"
         fill={filled ? "currentColor" : "none"}

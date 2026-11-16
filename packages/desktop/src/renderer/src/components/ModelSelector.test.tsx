@@ -168,6 +168,41 @@ function modelButtons(): HTMLButtonElement[] {
   )];
 }
 
+const originalMatchMedia = window.matchMedia;
+
+function setCompact(matches: boolean): void {
+  Object.defineProperty(window, "matchMedia", {
+    configurable: true,
+    value: vi.fn(() => ({ matches, addEventListener: vi.fn(), removeEventListener: vi.fn() })),
+  });
+}
+
+/** Drain the overlay's rAF initial-focus handoff (ui/overlays.tsx useOverlay). */
+async function drainFrame(): Promise<void> {
+  await act(async () => new Promise<void>((resolve) => requestAnimationFrame(() => resolve())));
+}
+
+async function openPalette(): Promise<void> {
+  mount(<ModelSelector tabId={TAB} />);
+  act(() => buttonByTitle("anthropic/claude-sonnet").click());
+  await drainFrame();
+}
+
+function pressOn(target: HTMLElement, key: string, init: KeyboardEventInit = {}): KeyboardEvent {
+  const event = new KeyboardEvent("keydown", { key, bubbles: true, cancelable: true, ...init });
+  act(() => target.dispatchEvent(event));
+  return event;
+}
+
+function setQuery(value: string, caret: number): void {
+  const input = paletteInput();
+  act(() => {
+    Object.getOwnPropertyDescriptor(HTMLInputElement.prototype, "value")!.set!.call(input, value);
+    input.dispatchEvent(new Event("input", { bubbles: true }));
+    input.setSelectionRange(caret, caret);
+  });
+}
+
 beforeEach(() => {
   useStore.setState({
     state,
@@ -181,6 +216,8 @@ afterEach(() => {
   if (root) act(() => root!.unmount());
   root = null;
   document.body.replaceChildren();
+  if (originalMatchMedia === undefined) Reflect.deleteProperty(window, "matchMedia");
+  else Object.defineProperty(window, "matchMedia", { configurable: true, value: originalMatchMedia });
 });
 
 describe("ModelSelector", () => {
@@ -188,10 +225,10 @@ describe("ModelSelector", () => {
     mount(<ModelSelector tabId={TAB} />);
     const trigger = buttonByTitle("anthropic/claude-sonnet");
     act(() => trigger.click());
-    expect(buttonByTitle("Favorites").getAttribute("aria-pressed")).toBe("true");
+    expect(buttonByTitle("Favorites").getAttribute("aria-selected")).toBe("true");
 
     act(() => buttonByTitle("openai").click());
-    expect(buttonByTitle("openai").getAttribute("aria-pressed")).toBe("true");
+    expect(buttonByTitle("openai").getAttribute("aria-selected")).toBe("true");
 
     act(() =>
       window.dispatchEvent(
@@ -201,8 +238,8 @@ describe("ModelSelector", () => {
     expect(document.body.querySelector('[role="dialog"]')).toBeNull();
 
     act(() => trigger.click());
-    expect(buttonByTitle("Favorites").getAttribute("aria-pressed")).toBe("true");
-    expect(buttonByTitle("openai").getAttribute("aria-pressed")).toBe("false");
+    expect(buttonByTitle("Favorites").getAttribute("aria-selected")).toBe("true");
+    expect(buttonByTitle("openai").getAttribute("aria-selected")).toBe("false");
   });
 
   it("keeps an empty Favorites list safe and preserves provider shortcuts", () => {
@@ -216,7 +253,7 @@ describe("ModelSelector", () => {
     expect(document.body.querySelector('[role="dialog"]')).not.toBeNull();
 
     pressPalette("]", { ctrlKey: true, code: "BracketRight" });
-    expect(buttonByTitle("anthropic").getAttribute("aria-pressed")).toBe("true");
+    expect(buttonByTitle("anthropic").getAttribute("aria-selected")).toBe("true");
 
     pressPalette("n", { ctrlKey: true });
     expect(buttonByText("Claude Haiku").parentElement?.className).toContain("bg-hover");
@@ -347,8 +384,8 @@ describe("ModelPalette variants", () => {
       />,
     );
 
-    expect(buttonByTitle("Favorites").getAttribute("aria-pressed")).toBe("true");
-    expect(buttonByTitle("openai").getAttribute("aria-pressed")).toBe("false");
+    expect(buttonByTitle("Favorites").getAttribute("aria-selected")).toBe("true");
+    expect(buttonByTitle("openai").getAttribute("aria-selected")).toBe("false");
 
     act(() => buttonByTitle("openai").click());
     const favorite = document.body.querySelector<HTMLButtonElement>('button[aria-label="add to favorites"]')!;
@@ -625,5 +662,146 @@ describe("hotkey-opened picker (#1157)", () => {
 
     expect(document.body.querySelectorAll('[role="dialog"]')).toHaveLength(1);
     expect(useStore.getState().modelPickerTab).toBeNull();
+  });
+});
+
+describe("ModelPalette keyboard panes", () => {
+  it("rAF initial-focus handoff lands on the search input", async () => {
+    await openPalette();
+    expect(document.activeElement).toBe(paletteInput());
+    expect(document.activeElement).not.toBe(
+      document.body.querySelector(".compact-modal-close"),
+    );
+  });
+
+  it("hops to the rail at caret 0, wraps with arrows, and returns with ArrowRight", async () => {
+    await openPalette();
+    pressOn(paletteInput(), "ArrowLeft");
+    const favorites = buttonByTitle("Favorites");
+    expect(document.activeElement).toBe(favorites);
+    expect(favorites.getAttribute("aria-selected")).toBe("true");
+
+    pressOn(favorites, "ArrowUp"); // wraps to the last provider
+    expect(document.activeElement).toBe(buttonByTitle("openai"));
+    expect(buttonByTitle("openai").getAttribute("aria-selected")).toBe("true");
+
+    pressOn(buttonByTitle("openai"), "ArrowDown"); // wraps back to favorites
+    pressOn(buttonByTitle("Favorites"), "ArrowDown"); // anthropic
+    expect(buttonByTitle("anthropic").getAttribute("aria-selected")).toBe("true");
+    expect(document.body.textContent).toContain("Claude Haiku");
+    expect(document.body.textContent).not.toContain("GPT-5");
+
+    pressOn(buttonByTitle("anthropic"), "ArrowRight");
+    expect(document.activeElement).toBe(paletteInput());
+    expect(document.body.querySelector('[role="dialog"]')).not.toBeNull();
+  });
+
+  it("keeps ArrowLeft a caret edit mid-query, and hops at caret 0 of a non-empty query", async () => {
+    await openPalette();
+    setQuery("claude", 3);
+    const mid = pressOn(paletteInput(), "ArrowLeft");
+    expect(mid.defaultPrevented).toBe(false);
+    expect(document.activeElement).toBe(paletteInput());
+
+    setQuery("claude", 0);
+    pressOn(paletteInput(), "ArrowLeft");
+    expect(document.activeElement).toBe(buttonByTitle("Favorites"));
+  });
+
+  it("Enter on the rail returns to search without picking a model", async () => {
+    await openPalette();
+    pressOn(paletteInput(), "ArrowLeft");
+    pressOn(buttonByTitle("Favorites"), "Enter");
+    expect(document.body.querySelector('[role="dialog"]')).not.toBeNull();
+    expect(document.activeElement).toBe(paletteInput());
+  });
+
+  it("appends a printable key pressed on the rail and puts the caret at the end", async () => {
+    await openPalette();
+    pressOn(paletteInput(), "ArrowLeft");
+    pressOn(buttonByTitle("Favorites"), "x");
+    expect(document.activeElement).toBe(paletteInput());
+    expect(paletteInput().value).toBe("x");
+    expect(paletteInput().selectionStart).toBe(1);
+  });
+
+  it("leaves Space to native button activation without touching the query", async () => {
+    await openPalette();
+    pressOn(paletteInput(), "ArrowLeft");
+    const space = pressOn(buttonByTitle("Favorites"), " ");
+    expect(space.defaultPrevented).toBe(false);
+    expect(paletteInput().value).toBe("");
+    expect(document.activeElement).toBe(buttonByTitle("Favorites"));
+  });
+
+  it("reconciles selection when native Tab focus enters an unselected tab", async () => {
+    await openPalette();
+    // jsdom has no native Tab default action; focus() is the Tab-entry seam.
+    act(() => buttonByTitle("openai").focus());
+    expect(buttonByTitle("openai").getAttribute("aria-selected")).toBe("true");
+    pressOn(buttonByTitle("openai"), "ArrowDown"); // wraps to favorites
+    expect(document.activeElement).toBe(buttonByTitle("Favorites"));
+    pressOn(buttonByTitle("Favorites"), "Enter");
+    expect(document.activeElement).toBe(paletteInput());
+    expect(buttonByTitle("Favorites").getAttribute("aria-selected")).toBe("true");
+  });
+
+  it("ignores shifted arrows and composing keys on both panes", async () => {
+    await openPalette();
+    pressOn(paletteInput(), "ArrowLeft");
+    const shifted = pressOn(buttonByTitle("Favorites"), "ArrowDown", { shiftKey: true });
+    expect(shifted.defaultPrevented).toBe(false);
+    expect(buttonByTitle("Favorites").getAttribute("aria-selected")).toBe("true");
+
+    const composingEnter = pressOn(paletteInput(), "Enter", { isComposing: true });
+    expect(composingEnter.defaultPrevented).toBe(false);
+    expect(document.body.querySelector('[role="dialog"]')).not.toBeNull();
+
+    // A row has to exist to see whether the cursor moved: Ctrl+] to anthropic,
+    // one real ArrowDown to seat the cursor on row 0, then a composing
+    // ArrowDown that must leave it there.
+    pressOn(paletteInput(), "]", { ctrlKey: true, code: "BracketRight" });
+    pressOn(paletteInput(), "ArrowDown");
+    const composingDown = pressOn(paletteInput(), "ArrowDown", { isComposing: true });
+    expect(composingDown.defaultPrevented).toBe(false);
+    expect(buttonByText("Claude Haiku").parentElement?.className).toContain("bg-hover");
+  });
+
+  it("falls back to Favorites and recovers focus when a refresh drops the open provider", async () => {
+    mount(<ModelSelector tabId={TAB} />);
+    act(() => buttonByTitle("anthropic/claude-sonnet").click());
+    await drainFrame();
+    act(() => buttonByTitle("openai").click());
+    act(() => buttonByTitle("openai").focus());
+    act(() => root!.render(<ModelSelector tabId={TAB} />));
+    useStore.setState({
+      rpc: { [TAB]: tabState({ availableModels: models.filter((m) => m.provider !== "openai") }) },
+    });
+    await drainFrame();
+    expect(buttonByTitle("Favorites").getAttribute("aria-selected")).toBe("true");
+    expect(document.activeElement).toBe(paletteInput());
+    pressOn(paletteInput(), "ArrowLeft");
+    expect(document.activeElement).toBe(buttonByTitle("Favorites"));
+  });
+
+  it("returns focus to the search input after a mouse click on the rail", async () => {
+    await openPalette();
+    act(() => buttonByTitle("openai").click());
+    expect(document.activeElement).toBe(paletteInput());
+  });
+
+  it("rotates the rail axes in the compact shell", async () => {
+    setCompact(true);
+    await openPalette();
+    expect(document.body.querySelector('[role="tablist"]')?.getAttribute("aria-orientation"))
+      .toBe("horizontal");
+    pressOn(paletteInput(), "ArrowLeft");
+    pressOn(buttonByTitle("Favorites"), "ArrowRight"); // steps, does not exit
+    expect(document.activeElement).toBe(buttonByTitle("anthropic"));
+    expect(buttonByTitle("anthropic").getAttribute("aria-selected")).toBe("true");
+    pressOn(buttonByTitle("anthropic"), "ArrowLeft"); // steps back
+    expect(document.activeElement).toBe(buttonByTitle("Favorites"));
+    pressOn(buttonByTitle("Favorites"), "ArrowDown"); // returns to search
+    expect(document.activeElement).toBe(paletteInput());
   });
 });
