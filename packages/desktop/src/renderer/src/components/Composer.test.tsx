@@ -906,8 +906,8 @@ describe("Composer advisor model palette", () => {
 
     const overlays = document.body.querySelectorAll<HTMLElement>("[data-overlay-root]");
     const palette = overlays[overlays.length - 1]!;
-    expect(palette.querySelector<HTMLButtonElement>('button[title="Favorites"]')!.getAttribute("aria-pressed")).toBe("true");
-    expect(palette.querySelector<HTMLButtonElement>('button[title="p"]')!.getAttribute("aria-pressed")).toBe("false");
+    expect(palette.querySelector<HTMLButtonElement>('button[title="Favorites"]')!.getAttribute("aria-selected")).toBe("true");
+    expect(palette.querySelector<HTMLButtonElement>('button[title="p"]')!.getAttribute("aria-selected")).toBe("false");
     await act(async () => palette.querySelector<HTMLButtonElement>('button[title="p"]')!.click());
     expect(palette.textContent).toContain("use omp's configured advisor");
     expect(palette.textContent).toContain("picking one restarts this session and resumes it");

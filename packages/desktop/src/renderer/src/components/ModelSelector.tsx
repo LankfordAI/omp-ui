@@ -1,4 +1,5 @@
 import { useEffect, useMemo, useRef, useState } from "react";
+import { flushSync } from "react-dom";
 import { cn } from "../lib/cn";
 import { formatHotkey } from "../lib/hotkeys";
 import { filterModelsForTab } from "../lib/model-filter";
@@ -251,6 +252,20 @@ export function ModelPalette(props: ModelPaletteProps) {
 
   const [query, setQuery] = useState("");
   const search = useRef<HTMLInputElement | null>(null);
+  const railRef = useRef<HTMLDivElement | null>(null);
+  // Pane hop target: the rail hands focus back here; a printable key pressed
+  // on the rail appends itself so typing never dies on a tab button.
+  const returnToSearch = (append?: string) => {
+    if (append === undefined) {
+      search.current?.focus();
+      return;
+    }
+    flushSync(() => setQuery((q) => q + append));
+    const input = search.current;
+    input?.focus();
+    const end = input?.value.length ?? 0;
+    input?.setSelectionRange(end, end);
+  };
 
   const providers = useMemo(() => {
     const seen = new Set<string>();
@@ -271,6 +286,17 @@ export function ModelPalette(props: ModelPaletteProps) {
   // its current-model dot on its row, one tab click away.
   const [tab, setTab] = useState("favorites");
   const tabOrder = useMemo(() => ["favorites", ...providers], [providers]);
+
+  // A catalog refresh can drop the open tab's provider: fall back to
+  // Favorites so a selected rail button (the ArrowLeft hop target, and
+  // cycleTab's index) always exists, and recover focus if the removed
+  // button held it (unmount drops focus to body).
+  useEffect(() => {
+    if (tab !== "favorites" && !providers.includes(tab)) {
+      setTab("favorites");
+      if (document.activeElement === document.body) search.current?.focus();
+    }
+  }, [tab, providers]);
 
   useEffect(() => {
     search.current?.focus();
@@ -369,7 +395,7 @@ export function ModelPalette(props: ModelPaletteProps) {
   return (
     <Modal onClose={onClose} width="w-[40rem]">
       <div className="model-palette flex max-h-[70vh]">
-        <ModelRail activeTab={tab} onTabChange={setTab} providers={providers} />
+        <ModelRail activeTab={tab} onTabChange={setTab} providers={providers} railRef={railRef} onReturnToSearch={returnToSearch} />
         <div className="min-h-0 min-w-0 flex flex-1 flex-col">
           <div className="flex items-center gap-2 border-b border-line px-3 py-2">
             {props.variant === "advisor" ? (
@@ -379,11 +405,25 @@ export function ModelPalette(props: ModelPaletteProps) {
             )}
             <input
               ref={search}
+              data-modal-initial-focus
               value={query}
               placeholder={placeholder}
               onChange={(event) => setQuery(event.target.value)}
               onKeyDown={(event) => {
-                if (event.ctrlKey && (event.key === "]" || event.code === "BracketRight")) {
+                // Composition belongs to the IME: no hop, no row move, no
+                // pick until it settles (D6). usePaletteNav has no guard.
+                if (event.nativeEvent.isComposing) return;
+                if (
+                  event.key === "ArrowLeft" &&
+                  !event.ctrlKey && !event.metaKey && !event.altKey && !event.shiftKey &&
+                  event.currentTarget.selectionStart === 0 &&
+                  event.currentTarget.selectionEnd === 0
+                ) {
+                  // Caret at the start (or empty query): hop to the rail.
+                  // Mid-query the arrow stays a caret edit.
+                  event.preventDefault();
+                  railRef.current?.querySelector<HTMLButtonElement>('button[aria-selected="true"]')?.focus();
+                } else if (event.ctrlKey && (event.key === "]" || event.code === "BracketRight")) {
                   event.preventDefault();
                   cycleTab(true);
                 } else if (event.ctrlKey && (event.key === "[" || event.code === "BracketLeft")) {
@@ -577,6 +617,11 @@ export function ModelPalette(props: ModelPaletteProps) {
               <Chip mono>Ctrl+[</Chip>
               <Chip mono>Ctrl+]</Chip>
               {t("composer.model.kbdTabs")}
+            </span>
+            <span className="model-palette-kbd flex items-center gap-1">
+              <Chip mono>{formatHotkey("arrowleft")}</Chip>
+              <Chip mono>{formatHotkey("arrowright")}</Chip>
+              {t("composer.model.kbdPanes")}
             </span>
             {props.variant === "main" && (
               <>
