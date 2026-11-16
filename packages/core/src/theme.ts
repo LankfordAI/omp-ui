@@ -88,8 +88,9 @@ export type ThemeCodeRole = (typeof THEME_CODE_ROLES)[number];
 /**
  * One theme's raw colours: complete semantic tokens, the syntax seeds, and
  * only the terminal/code slots that must differ from the projection. Curated
- * themes live in the renderer's theme-sources.json; imported and authored
- * ones in the registry's `storedThemes`.
+ * themes live in core's theme-sources.json (re-exported as
+ * `CURATED_THEME_SOURCES`); imported and authored ones in the registry's
+ * `storedThemes`.
  */
 export interface ThemeSource {
   id: string;

@@ -1,5 +1,5 @@
 import { describe, expect, it } from "vitest";
-import themeSources from "../../desktop/src/renderer/src/lib/theme-sources.json";
+import themeSources from "./theme-sources.json";
 import type { ThemeSource } from "./theme";
 import {
   BACKDROP_IMAGE_BYTES_MAX,

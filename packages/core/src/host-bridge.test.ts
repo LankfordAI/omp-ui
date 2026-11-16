@@ -22,7 +22,7 @@ import {
 } from "./host-bridge";
 import { HTML_ARTIFACT_TOOL_NAME } from "./html-artifact";
 import { ISSUE_DRAFT_TOOL_NAME, ISSUE_FILE_TOOL_NAME } from "./issue-tool";
-import { THEME_TOOL_NAME } from "./theme-tool";
+import { THEME_LIST_TOOL_NAME, THEME_SET_TOOL_NAME, THEME_TOOL_NAME } from "./theme-tool";
 
 describe("host registration definitions", () => {
   it("registers omp-ui as a read-only immutable scheme outside the reserved set", () => {
@@ -237,29 +237,36 @@ describe("host registration definitions", () => {
     expect(hostToolsDefinition({ vault: true, fleet: true, device: false, theme: false, issues: false, artifacts: false }).map((t) => t.name)).not.toContain("omp-ui_device");
   });
 
-  it("registers omp-ui_theme_save after the device tool and before artifact capture when theme is on", () => {
+  it("registers the three theme tools after the device tool and before artifact capture when theme is on", () => {
     const names = hostToolsDefinition({ vault: false, fleet: false, device: true, theme: true, issues: false, artifacts: true }).map((t) => t.name);
     expect(names).toEqual([
       "omp-ui_notify",
       "omp-ui_render_html",
       "omp-ui_device",
       THEME_TOOL_NAME,
+      THEME_SET_TOOL_NAME,
+      THEME_LIST_TOOL_NAME,
       "omp-ui_artifact_capture",
     ]);
-    const theme = hostToolsDefinition({ vault: false, fleet: false, device: false, theme: true, issues: false, artifacts: false }).at(-1);
-    expect(theme?.name).toBe(THEME_TOOL_NAME);
-    expect(theme?.loadMode).toBe("essential");
-    expect(theme?.parameters.type).toBe("object");
-    for (const key of ["oneOf", "anyOf", "allOf"]) expect(theme?.parameters, key).not.toHaveProperty(key);
+    const theme = hostToolsDefinition({ vault: false, fleet: false, device: false, theme: true, issues: false, artifacts: false });
+    for (const tool of theme.slice(2)) {
+      expect(tool.loadMode).toBe("essential");
+      expect(tool.parameters.type).toBe("object");
+      for (const key of ["oneOf", "anyOf", "allOf"]) expect(tool.parameters, key).not.toHaveProperty(key);
+    }
     expect(hostToolsDefinition().map((t) => t.name)).not.toContain(THEME_TOOL_NAME);
+    expect(hostToolsDefinition().map((t) => t.name)).not.toContain(THEME_SET_TOOL_NAME);
+    expect(hostToolsDefinition().map((t) => t.name)).not.toContain(THEME_LIST_TOOL_NAME);
   });
 
-  it("registers the two issue tools after the theme tool and before artifact capture when issues is on, off by default", () => {
+  it("registers the two issue tools after the theme tools and before artifact capture when issues is on, off by default", () => {
     const names = hostToolsDefinition({ vault: false, fleet: false, device: false, theme: true, issues: true, artifacts: true }).map((t) => t.name);
     expect(names).toEqual([
       "omp-ui_notify",
       "omp-ui_render_html",
       THEME_TOOL_NAME,
+      THEME_SET_TOOL_NAME,
+      THEME_LIST_TOOL_NAME,
       ISSUE_DRAFT_TOOL_NAME,
       ISSUE_FILE_TOOL_NAME,
       "omp-ui_artifact_capture",

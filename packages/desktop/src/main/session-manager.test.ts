@@ -7689,7 +7689,19 @@ describe("device pane lifecycle and agent access", () => {
     const { manager, registry } = setup({
       mode: "rpc-ui",
       themes: wired
-        ? { save: async () => ({ ok: false, reason: "invalid", message: "unused" }), apply: async () => false }
+        ? {
+            save: async () => ({ ok: false, reason: "invalid", message: "unused" }),
+            apply: async () => null,
+            list: async () => ({
+              mode: "fixed" as const,
+              effectiveLabel: "Graphite",
+              scheme: "dark" as const,
+              motion: true,
+              slots: { themeId: "graphite", lightThemeId: "light", darkThemeId: "graphite" },
+              themes: [],
+            }),
+            set: async () => ({ ok: false as const, reason: "unused" }),
+          }
         : undefined,
     });
     registry.setSetting("themeAgentAccess", access);

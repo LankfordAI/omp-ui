@@ -14,7 +14,7 @@ import {
   type StreamCache,
 } from "./highlight";
 import { deriveTheme } from "@omp-ui/core/theme";
-import themeSourcesJson from "./theme-sources.json";
+import { CURATED_THEME_SOURCES } from "@omp-ui/core/theme-sources";
 import { applyTheme, DEFAULT_THEME_ID, resolveTheme, THEMES, type ThemeSource } from "./themes";
 
 // Real shiki, real HTML grammar, real runtime theme — the equivalence claim
@@ -301,7 +301,7 @@ describe("useIncrementalHighlightTokens live stream (real shiki)", () => {
 
 describe("tokenizeCode same-id recolour (issue #1168)", () => {
   it("re-tokenizes with new colours when a theme keeps its id but changes a code colour", { timeout: 30_000 }, async () => {
-    const graphite = (themeSourcesJson as readonly ThemeSource[]).find((t) => t.id === DEFAULT_THEME_ID)!;
+    const graphite = CURATED_THEME_SOURCES.find((t) => t.id === DEFAULT_THEME_ID)!;
     const base: ThemeSource = { ...graphite, id: "custom-recolour-abc123", label: "Recolour" };
     const recoloured: ThemeSource = { ...base, syntax: { ...base.syntax, string: "#ff00aa" } };
     const before = deriveTheme(base);

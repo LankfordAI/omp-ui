@@ -8,13 +8,13 @@ import { join, resolve } from "node:path";
 import { DatabaseSync } from "node:sqlite";
 import { setTimeout as delay } from "node:timers/promises";
 import { app, BrowserWindow, session, type WebContents } from "electron";
-import { deriveTheme, HTML_ARTIFACT_PARTITION, withArtifactReferenceContext, type ArtifactRecord, type ArtifactReference, type ThemeSource } from "@omp-ui/core";
+import { deriveTheme, HTML_ARTIFACT_PARTITION, withArtifactReferenceContext, type ArtifactRecord, type ArtifactReference } from "@omp-ui/core";
 import type { ArtifactPreparedSurface, ArtifactRuntimeSnapshot, ArtifactSurfaceSource } from "../artifact-runtime-protocol";
 import { ArtifactService } from "./artifact-service";
 import { ArtifactGuestBroker } from "./artifact-guest-broker";
 import { installHtmlArtifactGuard } from "./html-artifact-guard";
 import { MainBackend } from "./backend";
-import themeSources from "../renderer/src/lib/theme-sources.json";
+import { CURATED_THEME_SOURCES } from "@omp-ui/core/theme-sources";
 
 if (process.platform === "linux") {
   app.commandLine.appendSwitch("ozone-platform", "headless");
@@ -45,7 +45,7 @@ function assertGuestSandbox(guest: WebContents): void {
   requireProof(!argumentsOnWire.includes("--no-sandbox") && !argumentsOnWire.includes("--disable-seccomp-filter-sandbox"), "Guest renderer was launched with sandbox denial flags");
   requireProof(/^Seccomp:\s+2\s*$/m.test(status), "Guest renderer has no active kernel seccomp filter");
 }
-const palette = deriveTheme((themeSources as ThemeSource[])[0]!);
+const palette = deriveTheme(CURATED_THEME_SOURCES[0]!);
 const theme = {dark: palette.dark, tokens: palette.tokens};
 const rootHtml = `<!doctype html><html><body><h1>Artifact library isolated smoke</h1><div id="status" role="status">Ready</div><main id="mount"></main><script>
 window.notices=[];
