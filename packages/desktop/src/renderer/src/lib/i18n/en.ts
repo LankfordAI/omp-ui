@@ -52,8 +52,8 @@ export const en = {
   // ProjectQuickOpen — the T3-style new-thread project picker (issue #915)
   "quickopen.search.placeholder": "Search projects…",
   "quickopen.group.projects": "Projects",
-  "quickopen.noproject": "No project",
-  "quickopen.noproject.desc": "scratch chat, no repository",
+  "quickopen.noproject": "Chat",
+  "quickopen.noproject.desc": "no repository",
   "quickopen.host.local": "This computer",
   "quickopen.add": "Add project…",
   "quickopen.footer.navigate": "navigate",

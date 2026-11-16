@@ -37,8 +37,8 @@ export const ko: Partial<Record<MessageKey, string>> = {
   // ProjectQuickOpen — T3 스타일 새 스레드 프로젝트 피커 (이슈 #915)
   "quickopen.search.placeholder": "프로젝트 검색…",
   "quickopen.group.projects": "프로젝트",
-  "quickopen.noproject": "프로젝트 없음",
-  "quickopen.noproject.desc": "임시 채팅, 저장소 없음",
+  "quickopen.noproject": "채팅",
+  "quickopen.noproject.desc": "저장소 없음",
   "quickopen.host.local": "이 컴퓨터",
   "quickopen.add": "프로젝트 추가…",
   "quickopen.footer.navigate": "이동",

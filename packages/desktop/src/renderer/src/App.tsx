@@ -371,7 +371,7 @@ export default function App() {
   // Settings → Keyboard; defaults in core/keybindings.ts).
   // newSession, the keyboard twin of the sidebar's New session button:
   // always the project quick-open, chat tab included (issue #919). The
-  // quick-open orders No project first when a chat (or nothing) is focused
+  // quick-open orders the Chat row first when a chat (or nothing) is focused
   // and the focused project first otherwise, so a bare Enter still repeats
   // "another one of these".
   useActionHotkeys({
@@ -379,7 +379,7 @@ export default function App() {
       e.preventDefault();
       openProjectQuickOpen();
     },
-    // A new Chat in one keystroke (issue #962): the quick-open's No project row
+    // A new Chat in one keystroke (issue #962): the quick-open's Chat row
     // without the quick-open, from any focused tab, chat or project. A mod
     // combo, so it fires mid-draft; the draft stays with its own tab.
     newChat: (e) => {

@@ -17,11 +17,11 @@ import { PaletteEmpty, PaletteList, PaletteSearchHeader, usePaletteNav } from ".
 /**
  * The project quick-open (issues #915, #919): the New session popup. The root
  * page holds one row per repository — the #903 merge, mirrored from
- * NewSessionDialog's here face — plus No project (a chat) and the add-project
+ * NewSessionDialog's here face — plus the Chat row and the add-project
  * rows, ordered so a bare Enter repeats "another one of these" for the focused
  * tab. ArrowRight at the end of the box (or a row's trailing button) drills
  * into a page: a project page holds every project action (spawn variants, open
- * targets, Lab, settings, remove), the No project page the chat variants.
+ * targets, Lab, settings, remove), the Chat page the chat variants.
  * Backspace on an empty box walks back out — page to root, root to closed —
  * which is why the input's onKeyDown filters those chords before delegating
  * to the palette nav.
@@ -176,11 +176,11 @@ export function ProjectQuickOpen() {
       index: 0,
     };
 
-    // A focused project tab's repository leads, then No project (issue #919),
+    // A focused project tab's repository leads, then the Chat row (issue #919),
     // so a bare Enter repeats "another one of these". Keyed groups match by
     // membership, so a remote twin of the focused checkout still promotes the
     // merged row; keyless rows match on path. A focused chat, or nothing,
-    // puts No project first.
+    // puts the Chat row first.
     const leadCwd = focused !== null && !isChatTab(state, focused.tabId) ? focused.projectCwd : null;
     const lead =
       leadCwd === null
