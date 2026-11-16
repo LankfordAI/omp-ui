@@ -4,14 +4,7 @@ This guide explains what users receive from a release and how maintainers publis
 
 ## Unreleased
 
-Add one bullet per shipped change here, citing its issue as `#N`; the release tag lifts these into Highlights.
-
-- Settings → Appearance splits into **Themes** and **Display** tabs. Themes is a wall of theme cards, each a live sample of the app in that theme: click a card to apply it, or **Preview** it full screen without repainting the app; narrow the wall by source, Dark/Light and search (#1181).
-- Previewing a repository theme that is not installed yet shows its backdrop, checked like an install but never stored, and the preview header no longer sits under the window controls (#1182, #1183).
-- A Chat opens with its own hero greeting instead of the project hint that offered a plan step (#1184).
-- Prose that mentions several dollar amounts no longer renders the text between them as inline math (#1185).
-- Two or more back-to-back lookups (reads, searches, web searches, vault lookups) from one assistant message fold into one tool group card titled by counts, such as "9 files read · 2 searches"; expanding it lists each call, and each line opens that call's full card (#1186).
-- Theme backdrops show as authored, with no colour cast; the reading card and chrome stay at their contrast floors, and the Dim control is gone (#1187).
+Nothing since [v0.36.1](https://github.com/LankfordAI/omp-ui/releases/tag/v0.36.1). Add one bullet per shipped change here, citing its issue as `#N`; the release tag lifts these into Highlights.
 
 ## Choose a download
 
