@@ -1,7 +1,9 @@
 # Design tokens and UI primitives
 
 Every renderer surface draws from semantic tokens sourced in
-`packages/desktop/src/renderer/src/lib/theme-sources.json`. The committed
+`packages/core/src/theme-sources.json` (moved from the renderer when main
+needed to resolve theme ids; `@omp-ui/core/theme-sources` exports it typed).
+The committed
 `theme-default.css` projects the graphite tokens into Tailwind v4 `@theme`
 declarations for first paint (there is no `tailwind.config`), and surfaces
 compose one primitive vocabulary in
@@ -56,7 +58,7 @@ projects sharing one favicon still read as different repositories.
 
 - **Tokens only.** `neutral-*`, `zinc-*`, `gray-*`, `green-*`, `amber-*`,
   `red-*`, and raw hex are prohibited in renderer components. Literal colours
-  live in exactly one place, `renderer/src/lib/theme-sources.json`: each theme
+  live in exactly one place, `packages/core/src/theme-sources.json`: each theme
   supplies complete semantic tokens, compact syntax seeds, and only the
   exceptional terminal or code overrides needed to preserve its identity.
   `@omp-ui/core/theme` derives the renderer chrome, xterm palette, and Shiki

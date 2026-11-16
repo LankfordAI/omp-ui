@@ -3,7 +3,7 @@ import * as os from "node:os";
 import * as path from "node:path";
 import { createHash, randomUUID } from "node:crypto";
 import { describe, expect, it, vi, afterEach } from "vitest";
-import { FLEET_TOOLS, LOCAL_MACHINE_KEY, PLAN_REVIEW_SENTINEL, PLAN_STATUS_KEY, parseVaultDetails, type FleetDispatchRequest, type FleetDispatchResult, type FleetMachine, type FleetRung, type ObsidianListEntry, type OwnedSessionRecord, type RpcFrame, type SessionsResourceDeps, type ThemeSource, type VaultRegistry, type VaultToolDetails } from "@omp-ui/core";
+import { FLEET_TOOLS, LOCAL_MACHINE_KEY, PLAN_REVIEW_SENTINEL, PLAN_STATUS_KEY, parseVaultDetails, type FleetDispatchRequest, type FleetDispatchResult, type FleetMachine, type FleetRung, type ObsidianListEntry, type OwnedSessionRecord, type RpcFrame, type SessionsResourceDeps, type ThemeList, type ThemeSource, type VaultRegistry, type VaultToolDetails } from "@omp-ui/core";
 import { HostBridge, HOST_ANSWER_WATCHDOG_MS, type FleetBridgeDeps, type HostBridgeDeps, type VaultBridgeDeps, type VaultTabContext } from "./host-bridge";
 import type { ConfinedPlanRead } from "./plan-file";
 import { ArtifactService } from "./artifact-service";
@@ -456,18 +456,39 @@ describe("HostBridge device tool (issue #1006)", () => {
 describe("HostBridge theme tool (issue #1168)", () => {
   const ARGS = { label: "Dusk", seeds: { canvas: "#1a1b26" } };
 
+  // The post-write read every theme answer builds from (#1175): system mode,
+  // a dark host scheme, Dusk as the dark pick so a light write does not paint.
+  const LIST: ThemeList = {
+    mode: "system",
+    effectiveLabel: "Dusk",
+    scheme: "dark",
+    motion: true,
+    slots: { themeId: "graphite", lightThemeId: "light", darkThemeId: "custom-dusk-abc123" },
+    themes: [
+      { id: "graphite", label: "Graphite", dark: true, backdrop: false },
+      { id: "light", label: "Light", dark: false, backdrop: false },
+      { id: "custom-dusk-abc123", label: "Dusk", dark: true, backdrop: true },
+    ],
+  };
+  const themeDeps = (over: Partial<HostBridgeDeps["theme"]> = {}): NonNullable<HostBridgeDeps["theme"]> => ({
+    save: async () => ({ ok: true, source: SAVED }),
+    apply: async () => ({ slot: "themeId", painting: true }),
+    list: async () => LIST,
+    set: async () => ({ ok: true, wrote: [], modeChanged: false, motion: null, list: LIST }),
+    ...over,
+  });
+
   it("answers a saved theme with its id", async () => {
     const calls: { tabId: string; args: unknown }[] = [];
     const sent: RpcFrame[] = [];
     const bridge = new HostBridge({
       ...fixtureDeps(),
-      theme: {
+      theme: themeDeps({
         save: async (tabId, args) => {
           calls.push({ tabId, args });
           return { ok: true, source: { id: "custom-dusk-abc123", label: args.label } as ThemeSource };
         },
-        apply: async () => true,
-      },
+      }),
     });
     bridge.route("t1", toolCallFrame("h1", "omp-ui_theme_save", ARGS), (frame) => sent.push(frame));
     await settled();
@@ -482,15 +503,14 @@ describe("HostBridge theme tool (issue #1168)", () => {
     const sent: RpcFrame[] = [];
     const bridge = new HostBridge({
       ...fixtureDeps(),
-      theme: {
+      theme: themeDeps({
         save: async () => ({
           ok: false,
           reason: "gate",
           label: "Dusk",
           failures: [{ kind: "contrast", label: "ink on surface", fg: "#777777", bg: "#808080", ratio: 1.05, min: 10 }],
         }),
-        apply: async () => true,
-      },
+      }),
     });
     bridge.route("t1", toolCallFrame("h1", "omp-ui_theme_save", ARGS), (frame) => sent.push(frame));
     await settled();
@@ -501,33 +521,65 @@ describe("HostBridge theme tool (issue #1168)", () => {
 
   const SAVED = { id: "custom-dusk-abc123", label: "Dusk" } as ThemeSource;
 
-  it("applies the saved source when apply is set and reports it (#1169)", async () => {
+  it("applies the saved source when apply is set and names the fixed paint (#1169, #1176)", async () => {
     const applied: ThemeSource[] = [];
     const sent: RpcFrame[] = [];
     const bridge = new HostBridge({
       ...fixtureDeps(),
-      theme: {
+      theme: themeDeps({
         save: async () => ({ ok: true, source: SAVED }),
         apply: async (source) => {
           applied.push(source);
-          return true;
+          return { slot: "themeId", painting: true };
         },
-      },
+      }),
     });
     bridge.route("t1", toolCallFrame("h1", "omp-ui_theme_save", { ...ARGS, apply: true }), (frame) => sent.push(frame));
     await settled();
     expect(applied).toEqual([SAVED]);
     expect(sent).toHaveLength(1);
     expect(sent[0]).not.toHaveProperty("isError");
-    expect(JSON.stringify(sent[0])).toContain("Applied: every window now paints it.");
+    expect(JSON.stringify(sent[0])).toContain("Every connected client now paints it.");
   });
 
-  it("never calls apply without the flag and keeps the picks-it sentence", async () => {
-    const apply = vi.fn(async () => true);
+  it("answers a system-slot apply that does not paint honestly, never claiming every window (#1176)", async () => {
     const sent: RpcFrame[] = [];
     const bridge = new HostBridge({
       ...fixtureDeps(),
-      theme: { save: async () => ({ ok: true, source: SAVED }), apply },
+      theme: themeDeps({
+        save: async () => ({ ok: true, source: SAVED }),
+        apply: async () => ({ slot: "lightThemeId", painting: false }),
+      }),
+    });
+    bridge.route("t1", toolCallFrame("h1", "omp-ui_theme_save", { ...ARGS, apply: true }), (frame) => sent.push(frame));
+    await settled();
+    const text = JSON.stringify(sent[0]);
+    expect(text).toContain("The OS on this host is in dark mode, so windows still show Dusk");
+    expect(text).not.toContain("every window");
+  });
+
+  it("answers a system-slot apply that does paint with the matching-scheme sentence (#1176)", async () => {
+    const sent: RpcFrame[] = [];
+    const bridge = new HostBridge({
+      ...fixtureDeps(),
+      theme: themeDeps({
+        save: async () => ({ ok: true, source: SAVED }),
+        apply: async () => ({ slot: "darkThemeId", painting: true }),
+      }),
+    });
+    bridge.route("t1", toolCallFrame("h1", "omp-ui_theme_save", { ...ARGS, apply: true }), (frame) => sent.push(frame));
+    await settled();
+    expect(JSON.stringify(sent[0])).toContain(
+      "This host shows it now; clients whose OS is in the other scheme keep their matching pick.",
+    );
+  });
+
+  it("never calls apply without the flag and keeps the picks-it sentence", async () => {
+    const apply = vi.fn(async () => ({ slot: "themeId" as const, painting: true }));
+    const sent: RpcFrame[] = [];
+    const bridge = new HostBridge({
+      ...fixtureDeps(),
+      theme: themeDeps({ save: async () => ({ ok: true, source: SAVED }), apply }),
     });
     bridge.route("t1", toolCallFrame("h1", "omp-ui_theme_save", ARGS), (frame) => sent.push(frame));
     await settled();
@@ -538,12 +590,12 @@ describe("HostBridge theme tool (issue #1168)", () => {
 
   it.each([
     ["a rejected apply", () => Promise.reject(new Error("registry gone"))],
-    ["a false apply", () => Promise.resolve(false)],
+    ["a null apply", () => Promise.resolve(null)],
   ])("answers the save plus the refusal line after %s", async (_label, applyImpl) => {
     const sent: RpcFrame[] = [];
     const bridge = new HostBridge({
       ...fixtureDeps(),
-      theme: { save: async () => ({ ok: true, source: SAVED }), apply: applyImpl },
+      theme: themeDeps({ save: async () => ({ ok: true, source: SAVED }), apply: applyImpl }),
     });
     bridge.route("t1", toolCallFrame("h1", "omp-ui_theme_save", { ...ARGS, apply: true }), (frame) => sent.push(frame));
     await settled();
@@ -555,14 +607,14 @@ describe("HostBridge theme tool (issue #1168)", () => {
   });
 
   it("answers the gate error and never applies when apply is set on a refusal", async () => {
-    const apply = vi.fn(async () => true);
+    const apply = vi.fn(async () => ({ slot: "themeId" as const, painting: true }));
     const sent: RpcFrame[] = [];
     const bridge = new HostBridge({
       ...fixtureDeps(),
-      theme: {
+      theme: themeDeps({
         save: async () => ({ ok: false, reason: "gate", label: "Dusk", failures: [] }),
         apply,
-      },
+      }),
     });
     bridge.route("t1", toolCallFrame("h1", "omp-ui_theme_save", { ...ARGS, apply: true }), (frame) => sent.push(frame));
     await settled();
@@ -578,6 +630,135 @@ describe("HostBridge theme tool (issue #1168)", () => {
     expect(f.sent).toHaveLength(1);
     expect(f.sent[0]).toMatchObject({ type: "host_tool_result", id: "h1", isError: true });
     expect(JSON.stringify(f.sent[0])).toContain("theme tools are unavailable");
+  });
+
+  it.each(["omp-ui_theme_list", "omp-ui_theme_set"] as const)("answers %s unavailable with no deps", async (name) => {
+    const f = fixture();
+    // An id argument parses for both names, so the refusal comes from the seam.
+    f.bridge.route("t1", toolCallFrame("h1", name, { id: "nord" }), f.send);
+    await settled();
+    expect(JSON.stringify(f.sent[0])).toContain("theme tools are unavailable");
+  });
+});
+
+describe("HostBridge theme list/set tools (issue #1175)", () => {
+  const LIST: ThemeList = {
+    mode: "system",
+    effectiveLabel: "Dusk",
+    scheme: "dark",
+    motion: false,
+    slots: { themeId: "graphite", lightThemeId: "light", darkThemeId: "custom-dusk-abc123" },
+    themes: [
+      { id: "graphite", label: "Graphite", dark: true, backdrop: false },
+      { id: "custom-dusk-abc123", label: "Dusk", dark: true, backdrop: true },
+    ],
+  };
+  const deps = (over: Partial<NonNullable<HostBridgeDeps["theme"]>> = {}): NonNullable<HostBridgeDeps["theme"]> => ({
+    save: async () => ({ ok: false, reason: "invalid", message: "unused" }),
+    apply: async () => null,
+    list: async () => LIST,
+    set: async () => ({ ok: true, wrote: [], modeChanged: false, motion: null, list: LIST }),
+    ...over,
+  });
+
+  it("renders the list as mode line, slot lines, motion, then one line per theme", async () => {
+    const sent: RpcFrame[] = [];
+    const bridge = new HostBridge({ ...fixtureDeps(), theme: deps() });
+    bridge.route("t1", toolCallFrame("h1", "omp-ui_theme_list", {}), (frame) => sent.push(frame));
+    await settled();
+    expect(sent[0]).not.toHaveProperty("isError");
+    const text = JSON.stringify(sent[0]);
+    expect(text).toContain("Mode: system; showing Dusk (this host's OS is dark).");
+    expect(text).toContain("fixed pick: graphite — Graphite");
+    expect(text).toContain("light pick: light — light");
+    expect(text).toContain("dark pick: custom-dusk-abc123 — Dusk");
+    expect(text).toContain("Backdrop motion: off.");
+    expect(text).toContain("graphite — Graphite (dark)");
+    expect(text).toContain("custom-dusk-abc123 — Dusk (dark, backdrop)");
+  });
+
+  it("refuses an empty theme_set before touching deps and names the message", async () => {
+    const list = vi.fn(async () => LIST);
+    const sent: RpcFrame[] = [];
+    const bridge = new HostBridge({ ...fixtureDeps(), theme: deps({ list }) });
+    bridge.route("t1", toolCallFrame("h1", "omp-ui_theme_set", {}), (frame) => sent.push(frame));
+    await settled();
+    expect(list).not.toHaveBeenCalled();
+    expect(sent[0]).toMatchObject({ type: "host_tool_result", id: "h1", isError: true });
+    expect(JSON.stringify(sent[0])).toContain("theme_set refused: pass at least one of id, slot, mode, motion");
+  });
+
+  it("names an unknown field path in the refusal", async () => {
+    const sent: RpcFrame[] = [];
+    const bridge = new HostBridge({ ...fixtureDeps(), theme: deps() });
+    bridge.route("t1", toolCallFrame("h1", "omp-ui_theme_set", { idd: "nord" }), (frame) => sent.push(frame));
+    await settled();
+    expect(JSON.stringify(sent[0])).toContain("theme_set refused: unknown field idd");
+  });
+
+  it("answers a fixed-mode set with the every-client sentence and the motion line", async () => {
+    const sent: RpcFrame[] = [];
+    const bridge = new HostBridge({
+      ...fixtureDeps(),
+      theme: deps({
+        set: async () => ({ ok: true, wrote: ["themeId"], modeChanged: false, motion: true, list: LIST }),
+      }),
+    });
+    bridge.route("t1", toolCallFrame("h1", "omp-ui_theme_set", { id: "graphite", motion: true }), (frame) => sent.push(frame));
+    await settled();
+    const text = JSON.stringify(sent[0]);
+    expect(text).toContain("Wrote graphite to the fixed pick. Every connected client now paints it.");
+    expect(text).toContain("Backdrop motion is on — animated scenes cost about 7 points of GPU while the window is visible.");
+  });
+
+  it("answers a non-painting system write with the OS-scheme sentence", async () => {
+    const sent: RpcFrame[] = [];
+    const bridge = new HostBridge({
+      ...fixtureDeps(),
+      theme: deps({
+        set: async () => ({ ok: true, wrote: ["lightThemeId"], modeChanged: false, motion: null, list: LIST }),
+      }),
+    });
+    bridge.route("t1", toolCallFrame("h1", "omp-ui_theme_set", { id: "light", slot: "light" }), (frame) => sent.push(frame));
+    await settled();
+    const text = JSON.stringify(sent[0]);
+    // JSON.stringify escapes the sentence's quotes around fixed.
+    expect(text).toContain('The OS on this host is in dark mode, so windows still show Dusk; pass mode:\\"fixed\\" to paint it now.');
+  });
+
+  it("answers a painting system write with the matching-scheme sentence", async () => {
+    const sent: RpcFrame[] = [];
+    const bridge = new HostBridge({
+      ...fixtureDeps(),
+      theme: deps({
+        set: async () => ({ ok: true, wrote: ["darkThemeId"], modeChanged: false, motion: null, list: LIST }),
+      }),
+    });
+    bridge.route("t1", toolCallFrame("h1", "omp-ui_theme_set", { id: "custom-dusk-abc123" }), (frame) => sent.push(frame));
+    await settled();
+    const text = JSON.stringify(sent[0]);
+    expect(text).toContain("This host shows it now; clients whose OS is in the other scheme keep their matching pick.");
+  });
+
+  it("answers a mode flip with the showing line and a refusal verbatim", async () => {
+    const sent: RpcFrame[] = [];
+    const bridge = new HostBridge({
+      ...fixtureDeps(),
+      theme: deps({
+        set: async (args) =>
+          args.mode === "fixed"
+            ? { ok: false, reason: 'slot targets a system-mode pick; with mode fixed the theme needs no slot' }
+            : { ok: true, wrote: [], modeChanged: true, motion: null, list: LIST },
+      }),
+    });
+    bridge.route("t1", toolCallFrame("h1", "omp-ui_theme_set", { mode: "system" }), (frame) => sent.push(frame));
+    await settled();
+    expect(JSON.stringify(sent[0])).toContain(
+      "Theme mode is now system; showing Dusk.",
+    );
+    bridge.route("t1", toolCallFrame("h2", "omp-ui_theme_set", { id: "graphite", mode: "fixed", slot: "dark" }), (frame) => sent.push(frame));
+    await settled();
+    expect(JSON.stringify(sent[1])).toContain("theme_set refused: slot targets a system-mode pick");
   });
 });
 

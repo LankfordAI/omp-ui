@@ -165,6 +165,10 @@ import {
   type VaultAction,
   LIMITS_COMMAND,
   type SaveStoredThemeResult,
+  type ThemeApplyResult,
+  type ThemeList,
+  type ThemeSetArgs,
+  type ThemeSetOutcome,
   type ThemeSource,
   type ThemeToolArgs,
 } from "@omp-ui/core";
@@ -367,11 +371,13 @@ export interface SessionManagerDependencies {
   devicePane: Pick<DevicePaneHostDeps, "encodeJpeg" | "agentDeviceBin" | "stateDir">;
   /** Posts one immediate OS notification for the host notify tool (#688); absent = notifications report as disabled. */
   hostNotify?: (tabId: string, title: string | null, message: string) => string;
-  /** Answers omp-ui_theme_save through the stored-theme save path (#1168); absent = the tool is never registered. */
+  /** Answers the theme host tools (#1168, #1175); absent = the tools are never registered. */
   themes?: {
     save(tabId: string, args: ThemeToolArgs): Promise<SaveStoredThemeResult>;
-    /** Paints a just-saved stored theme; false when it vanished from the registry (#1169). */
-    apply(source: ThemeSource): Promise<boolean>;
+    /** Paints a just-saved stored theme; null when it vanished from the registry (#1169). */
+    apply(source: ThemeSource): Promise<ThemeApplyResult | null>;
+    list(): Promise<ThemeList>;
+    set(args: ThemeSetArgs): Promise<ThemeSetOutcome>;
   };
   /** Registry probe seams for the collab watcher (#686); tests fake them. */
   collabCli?: CollabCliDeps;

@@ -210,9 +210,15 @@ import {
   BACKDROP_DEFAULT_DIM,
   BACKDROP_IMAGE_BYTES_MAX,
   type SaveStoredThemeResult,
+  type ThemeApplyResult,
+  type ThemeList,
+  type ThemeSetArgs,
+  type ThemeSetOutcome,
   type ThemeSource,
   type ThemeToolArgs,
+  type ThemeWriteSlot,
 } from "@omp-ui/core";
+import { CURATED_THEME_SOURCES } from "@omp-ui/core/theme-sources";
 import { mintRemoteToken } from "@omp-ui/server";
 import { normalizeProjectIconRaster } from "./project-icon-raster";
 import { HeadWatcherHub } from "./git-head-watchers";
@@ -602,10 +608,12 @@ export class MainBackend {
         // The host notify tool posts through the same notifier, bypassing the
         // attention pipeline's delay and suppression (#688).
         hostNotify: (tabId, title, message) => this.notifier.notifyNow(tabId, title, message),
-        // The theme host tool (issue #1168): main answers through the shared save path.
+        // The theme host tools (issues #1168, #1175): main answers through the shared save path.
         themes: {
           save: (tabId, args) => this.saveThemeFromTool(tabId, args),
           apply: (source) => this.applyThemeFromTool(source),
+          list: () => Promise.resolve(this.listThemesForTool()),
+          set: (args) => this.setThemeFromTool(args),
         },
         // Lazy: the dispatcher is constructed after remoteInstances, below.
         fleet: () => this.fleet,
@@ -2298,20 +2306,116 @@ export class MainBackend {
   }
 
   /**
-   * Paints a theme the agent just saved (issue #1169): fixed mode takes
-   * themeId; system mode takes the slot matching the canvas lightness.
+   * Paints a theme the agent just saved (issue #1169) through the same commit
+   * `omp-ui_theme_set` uses: fixed mode takes themeId; system mode takes the
+   * slot matching the canvas lightness. Null when it vanished from the registry.
    */
-  private async applyThemeFromTool(source: ThemeSource): Promise<boolean> {
+  private async applyThemeFromTool(source: ThemeSource): Promise<ThemeApplyResult | null> {
     const stored = this.registry.getSetting("storedThemes");
-    if (!stored.some((t) => t.id === source.id)) return false;
+    if (!stored.some((t) => t.id === source.id)) return null;
     // `ThemeSource.dark` is exactly the canvas-luminance verdict (theme.ts).
-    if (this.registry.getSetting("themeMode") === "system") {
-      this.registry.setSetting(source.dark ? "darkThemeId" : "lightThemeId", source.id);
-    } else {
-      this.registry.setSetting("themeId", source.id);
-    }
+    const slot: ThemeWriteSlot =
+      this.registry.getSetting("themeMode") === "system" ? (source.dark ? "darkThemeId" : "lightThemeId") : "themeId";
+    this.registry.setSetting(slot, source.id);
     await this.broadcast();
-    return true;
+    return { slot, painting: source.id === this.effectiveThemeIdForTool() };
+  }
+
+  /** The id this host's windows paint under the current OS scheme (issue #1175). */
+  private effectiveThemeIdForTool(): string {
+    return effectiveThemeId(
+      {
+        themeMode: this.registry.getSetting("themeMode"),
+        themeId: this.registry.getSetting("themeId"),
+        lightThemeId: this.registry.getSetting("lightThemeId"),
+        darkThemeId: this.registry.getSetting("darkThemeId"),
+      },
+      nativeTheme.shouldUseDarkColors,
+    );
+  }
+
+  /** Curated ∪ stored rows: every id main can resolve, with its label. */
+  private themeRows(): Array<{ id: string; label: string; dark: boolean; backdrop: boolean }> {
+    return [
+      ...CURATED_THEME_SOURCES.map((t) => ({ id: t.id, label: t.label, dark: t.dark, backdrop: false })),
+      ...this.registry.getSetting("storedThemes").map((t) => ({
+        id: t.id,
+        label: t.label,
+        dark: t.dark,
+        backdrop: t.backdrop !== undefined,
+      })),
+    ];
+  }
+
+  /** The pure read behind omp-ui_theme_list (issue #1175). */
+  private listThemesForTool(): ThemeList {
+    const rows = this.themeRows();
+    const label = (id: string | null): string => (id === null ? "" : rows.find((r) => r.id === id)?.label ?? id);
+    return {
+      mode: this.registry.getSetting("themeMode"),
+      effectiveLabel: label(this.effectiveThemeIdForTool()),
+      scheme: nativeTheme.shouldUseDarkColors ? "dark" : "light",
+      motion: this.registry.getSetting("backdropMotion"),
+      slots: {
+        themeId: this.registry.getSetting("themeId"),
+        lightThemeId: this.registry.getSetting("lightThemeId"),
+        darkThemeId: this.registry.getSetting("darkThemeId"),
+      },
+      themes: rows,
+    };
+  }
+
+  /**
+   * Answers omp-ui_theme_set (issue #1175): resolve the id against curated ∪
+   * stored — never write an unresolvable one — then commit motion, mode, and
+   * the activation in one pass with a single broadcast. The slot rule keys off
+   * the new mode when both arrive. Re-reads the list so the reply is honest.
+   */
+  private async setThemeFromTool(args: ThemeSetArgs): Promise<ThemeSetOutcome> {
+    const reg = this.registry;
+    let source: { id: string; dark: boolean } | null = null;
+    if (args.id !== undefined) {
+      source =
+        CURATED_THEME_SOURCES.find((t) => t.id === args.id) ??
+        reg.getSetting("storedThemes").find((t) => t.id === args.id) ??
+        null;
+      if (source === null) {
+        const valid = this.themeRows().map((r) => `${r.id} — ${r.label}`).join(", ");
+        return { ok: false, reason: `unknown theme id ${args.id}. Valid: ${valid}` };
+      }
+    }
+    const newMode = args.mode ?? reg.getSetting("themeMode");
+    let slot: ThemeWriteSlot | null = null;
+    if (source !== null) {
+      if (newMode === "fixed") {
+        // A slot names a system pick; fixed mode has none to write.
+        if (args.slot === "light" || args.slot === "dark") {
+          return { ok: false, reason: 'slot targets a system-mode pick; with mode fixed the theme needs no slot' };
+        }
+        slot = "themeId";
+      } else if (args.slot === "light") {
+        slot = "lightThemeId";
+      } else if (args.slot === "dark") {
+        slot = "darkThemeId";
+      } else {
+        // `ThemeSource.dark` is exactly the canvas-luminance verdict (theme.ts).
+        slot = source.dark ? "darkThemeId" : "lightThemeId";
+      }
+    }
+    const wrote: ThemeWriteSlot[] = [];
+    if (args.motion !== undefined && args.motion !== reg.getSetting("backdropMotion")) {
+      reg.setSetting("backdropMotion", args.motion);
+    }
+    const modeChanged = args.mode !== undefined && args.mode !== reg.getSetting("themeMode");
+    if (modeChanged) reg.setSetting("themeMode", args.mode!);
+    if (slot !== null) {
+      reg.setSetting(slot, source!.id);
+      wrote.push(slot);
+    }
+    // One broadcast for the whole call: no intermediate paint between motion,
+    // mode, and the activation.
+    await this.broadcast();
+    return { ok: true, wrote, modeChanged, motion: args.motion ?? null, list: this.listThemesForTool() };
   }
 
   /**

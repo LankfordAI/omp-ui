@@ -1,6 +1,6 @@
 // @vitest-environment jsdom
 import { afterEach, describe, expect, it, vi } from "vitest";
-import themeSourcesJson from "./theme-sources.json";
+import { CURATED_THEME_SOURCES } from "@omp-ui/core/theme-sources";
 import {
   THEME_TOKEN_NAMES,
   deriveCode,
@@ -19,7 +19,7 @@ import {
 } from "./themes";
 
 
-const THEME_SOURCES: readonly ThemeSource[] = themeSourcesJson;
+const THEME_SOURCES: readonly ThemeSource[] = CURATED_THEME_SOURCES;
 
 describe("theme derivation", () => {
   const source: ThemeSource = { ...THEME_SOURCES[0], overrides: undefined };

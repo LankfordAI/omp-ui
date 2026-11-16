@@ -9,7 +9,7 @@
 
 import { deviceTool } from "./device-tool";
 import { issueDraftTool, issueFileTool } from "./issue-tool";
-import { themeTool } from "./theme-tool";
+import { themeListTool, themeSetTool, themeTool } from "./theme-tool";
 import {
   FLEET_BATCH_MAX,
   FLEET_COMMAND_MAX,
@@ -86,7 +86,7 @@ export function hostUriSchemeDefinition(): RpcHostUriSchemeDefinition {
 export interface HostToolOptions { vault: boolean; fleet: boolean; device: boolean; theme: boolean; issues: boolean; artifacts: boolean }
 export const ARTIFACT_CAPTURE_TOOL_NAME = "omp-ui_artifact_capture";
 
-/** Notify and render_html are always present; registered vaults enable the ten vault tools; the caller's fleet gate (every chat, or the fleet setting) enables the nine fleet tools; a session-bound device pane enables omp-ui_device; the theme agent-access setting enables omp-ui_theme_save after it; the issue agent-access setting enables omp-ui_issue_draft and omp-ui_issue_file after that; managed artifacts enable omp-ui_artifact_capture last. */
+/** Notify and render_html are always present; registered vaults enable the ten vault tools; the caller's fleet gate (every chat, or the fleet setting) enables the nine fleet tools; a session-bound device pane enables omp-ui_device; the theme agent-access setting enables omp-ui_theme_save, omp-ui_theme_set and omp-ui_theme_list after it; the issue agent-access setting enables omp-ui_issue_draft and omp-ui_issue_file after that; managed artifacts enable omp-ui_artifact_capture last. */
 export function hostToolsDefinition(
   opts: HostToolOptions = { vault: false, fleet: false, device: false, theme: false, issues: false, artifacts: false },
 ): RpcHostToolDefinition[] {
@@ -112,7 +112,7 @@ export function hostToolsDefinition(
   if (opts.vault) tools.push(...vaultTools());
   if (opts.fleet) tools.push(...fleetTools());
   if (opts.device) tools.push(deviceTool());
-  if (opts.theme) tools.push(themeTool());
+  if (opts.theme) tools.push(themeTool(), themeSetTool(), themeListTool());
   if (opts.issues) tools.push(issueDraftTool(), issueFileTool());
   if (opts.artifacts) tools.push(artifactCaptureTool());
   return tools;

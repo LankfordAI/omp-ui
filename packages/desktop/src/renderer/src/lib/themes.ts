@@ -10,14 +10,14 @@ import {
   type ThemePreference,
   type ThemeSource,
 } from "@omp-ui/core/theme";
-import themeSourcesJson from "./theme-sources.json";
+import { CURATED_THEME_SOURCES } from "@omp-ui/core/theme-sources";
 
 /**
  * Runtime themes (issues #36, #999, #1168).
  *
- * `theme-sources.json` holds the curated themes' raw colours; stored themes
- * (imported VS Code themes and authored ones) arrive from the registry already
- * past the theme gate. Both derive
+ * `@omp-ui/core`'s theme-sources table holds the curated themes' raw colours;
+ * stored themes (imported VS Code themes and authored ones) arrive from the
+ * registry already past the theme gate. Both derive
  * through `@omp-ui/core/theme`: semantic tokens drive CSS directly, while
  * xterm and shiki receive deterministic projections because neither can
  * consume CSS custom properties. The painted theme is the preference's fixed
@@ -25,15 +25,11 @@ import themeSourcesJson from "./theme-sources.json";
  * `prefers-color-scheme`.
  */
 
-// This annotation deliberately type-checks the imported JSON at the boundary:
-// missing tokens/seeds and misspelled override slots fail compilation here.
-const THEME_SOURCES: readonly ThemeSource[] = themeSourcesJson;
-
 export type { Theme, ThemeSource };
 export { DEFAULT_THEME_ID, mixHex };
 
 /** The curated themes, in grid order. */
-export const THEMES: readonly Theme[] = THEME_SOURCES.map(deriveTheme);
+export const THEMES: readonly Theme[] = CURATED_THEME_SOURCES.map(deriveTheme);
 
 /**
  * The theme applied when nothing else resolves — an unknown id, an empty

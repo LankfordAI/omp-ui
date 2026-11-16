@@ -4,14 +4,22 @@ import {
   fleetToolDispatchRequest,
   formatFleetMachines,
   DEVICE_TOOL_NAME,
+  THEME_LIST_TOOL_NAME,
+  THEME_SET_TOOL_NAME,
   THEME_TOOL_NAME,
   ISSUE_DRAFT_TOOL_NAME,
   ISSUE_FILE_TOOL_NAME,
+  parseThemeSetArgs,
   parseThemeToolArgs,
   type SaveStoredThemeResult,
+  type ThemeApplyResult,
   type ThemeGateFailure,
+  type ThemeList,
+  type ThemeSetArgs,
+  type ThemeSetOutcome,
   type ThemeSource,
   type ThemeToolArgs,
+  type ThemeWriteSlot,
   HOST_NOTIFY_TOOL_NAME,
   ARTIFACT_CAPTURE_TOOL_NAME,
   type HostToolCall,
@@ -157,11 +165,13 @@ export interface HostBridgeDeps {
   fleet?: FleetBridgeDeps;
   /** The device host tool's answerer (#1006); absent means the device tool answers as unavailable. */
   device?: { run(tabId: string, args: unknown): Promise<{ content: HostToolContent[]; isError: boolean }> };
-  /** The theme host tool's answerer (#1168); absent means the theme tool answers as unavailable. */
+  /** The theme host tools' answerers (#1168, #1175); absent means they answer as unavailable. */
   theme?: {
     save(tabId: string, args: ThemeToolArgs): Promise<SaveStoredThemeResult>;
-    /** Paints a just-saved stored theme; false when it vanished from the registry. */
-    apply(source: ThemeSource): Promise<boolean>;
+    /** Paints a just-saved stored theme; null when it vanished from the registry. */
+    apply(source: ThemeSource): Promise<ThemeApplyResult | null>;
+    list(): Promise<ThemeList>;
+    set(args: ThemeSetArgs): Promise<ThemeSetOutcome>;
   };
   /** The issue host tools' answerer (ADR-0095); absent means both answer as unavailable. */
   issues?: IssueBridgeDeps;
@@ -180,22 +190,83 @@ function themeGateFailureLine(failure: ThemeGateFailure): string {
   }
 }
 
-/** Outcome of this call's apply request (#1169). */
-type ThemeApplyOutcome = "none" | "applied" | "refused";
+/** Outcome of this call's apply request (#1169): the write plus the post-write read for an honest reply. */
+type ThemeApplyOutcome = "none" | { wrote: ThemeApplyResult; list: ThemeList } | "refused";
+
+/**
+ * What one paint actually shows, per #1176: fixed mode repaints everywhere; a
+ * system-slot write only shows when its slot is the scheme's pick. Remote
+ * clients follow their own prefers-color-scheme, which main cannot see, hence
+ * "This host" for system writes — never "every window".
+ */
+function paintSentence(list: ThemeList, slot: ThemeWriteSlot, painting: boolean): string {
+  if (slot === "themeId") return "Every connected client now paints it.";
+  if (painting) return "This host shows it now; clients whose OS is in the other scheme keep their matching pick.";
+  return `The OS on this host is in ${list.scheme} mode, so windows still show ${list.effectiveLabel}; pass mode:"fixed" to paint it now.`;
+}
 
 /** The omp-ui_theme_save answer for one save result: success text, or an error frame. */
 function themeSaveAnswer(id: string, result: SaveStoredThemeResult, applied: ThemeApplyOutcome): RpcFrame {
   if (result.ok) {
-    return hostToolTextResult(id,
-      `Saved theme "${result.source.label}" (id ${result.source.id}).` +
-      (applied === "applied"
-        ? " Applied: every window now paints it."
-        : applied === "refused"
-          ? " apply refused: the theme is saved but was not applied."
-          : " It is in Settings, Appearance; the user picks it to apply it."));
+    const applyText =
+      applied === "refused"
+        ? " apply refused: the theme is saved but was not applied."
+        : applied === "none"
+          ? " It is in Settings, Appearance; the user picks it to apply it."
+          : ` ${paintSentence(applied.list, applied.wrote.slot, applied.wrote.painting)}`;
+    return hostToolTextResult(id, `Saved theme "${result.source.label}" (id ${result.source.id}).${applyText}`);
   }
   if (result.reason === "gate") return hostToolErrorResult(id, result.failures.map(themeGateFailureLine).join("\n"));
   return hostToolErrorResult(id, `theme_save refused: ${result.message}`);
+}
+
+/** The omp-ui_theme_list body: the current appearance, then every theme on one line each. */
+function renderThemeList(list: ThemeList): string {
+  // A pre-existing pick naming an unresolvable id falls back to the raw id.
+  const slotLine = (name: string, id: string | null): string =>
+    `${name}: ${id === null ? "none" : `${id} — ${list.themes.find((theme) => theme.id === id)?.label ?? id}`}`;
+  const lines = [
+    `Mode: ${list.mode}; showing ${list.effectiveLabel} (this host's OS is ${list.scheme}).`,
+    slotLine("fixed pick", list.slots.themeId),
+    slotLine("light pick", list.slots.lightThemeId),
+    slotLine("dark pick", list.slots.darkThemeId),
+    `Backdrop motion: ${list.motion ? "on" : "off"}.`,
+    "",
+    ...list.themes.map(
+      (theme) => `${theme.id} — ${theme.label} (${theme.dark ? "dark" : "light"}${theme.backdrop ? ", backdrop" : ""})`,
+    ),
+  ];
+  return lines.join("\n");
+}
+
+/** A slot's theme label, falling back to the raw id for an unresolvable pick. */
+function themeLabel(list: ThemeList, id: string): string {
+  return list.themes.find((theme) => theme.id === id)?.label ?? id;
+}
+
+/** The motion sentence, cost included while on (the #1168 floor is honest). */
+function motionSentence(motion: boolean): string {
+  return motion
+    ? "Backdrop motion is on — animated scenes cost about 7 points of GPU while the window is visible."
+    : "Backdrop motion is off.";
+}
+
+/** The omp-ui_theme_set answer for one outcome. */
+function themeSetAnswer(id: string, outcome: ThemeSetOutcome): RpcFrame {
+  if (!outcome.ok) return hostToolErrorResult(id, `theme_set refused: ${outcome.reason}`);
+  const { list } = outcome;
+  const parts: string[] = [];
+  if (outcome.modeChanged) parts.push(`Theme mode is now ${list.mode}; showing ${list.effectiveLabel}.`);
+  for (const slot of outcome.wrote) {
+    const writtenId = list.slots[slot];
+    // A system pick paints exactly when it is the current scheme's slot.
+    const painting = slot === "themeId" || slot === (list.scheme === "dark" ? "darkThemeId" : "lightThemeId");
+    parts.push(
+      `Wrote ${writtenId ?? "none"} to the ${slot === "themeId" ? "fixed" : `${slot === "darkThemeId" ? "dark" : "light"} system`} pick. ${paintSentence(list, slot, painting)}`,
+    );
+  }
+  if (outcome.motion !== null) parts.push(motionSentence(outcome.motion));
+  return hostToolTextResult(id, parts.join("\n"));
 }
 
 interface PendingHostAnswer {
@@ -555,13 +626,42 @@ export class HostBridge {
         // reports the save: the theme exists, the user can pick it by hand.
         let applied: ThemeApplyOutcome = "none";
         if (result.ok && parsed.args.apply === true) {
-          applied = (await theme.apply(result.source).catch(() => false)) ? "applied" : "refused";
+          const wrote = await theme.apply(result.source).catch(() => null);
+          applied = wrote === null ? "refused" : { wrote, list: await theme.list() };
         }
         frame = themeSaveAnswer(call.id, result, applied);
       } catch (error) {
         frame = hostToolErrorResult(call.id, `theme_save refused: ${error instanceof Error ? error.message : "unavailable"}`);
       }
       if (pending === undefined || this.pending.get(call.id) !== pending) return;
+      this.answer(call.id, frame, send);
+      return;
+    }
+    if (call.toolName === THEME_LIST_TOOL_NAME || call.toolName === THEME_SET_TOOL_NAME) {
+      const label = call.toolName === THEME_LIST_TOOL_NAME ? "theme_list" : "theme_set";
+      let parsed: { ok: true; args: ThemeSetArgs } | null = null;
+      if (call.toolName === THEME_SET_TOOL_NAME) {
+        const result = parseThemeSetArgs(call.args);
+        if (!result.ok) {
+          this.answer(call.id, hostToolErrorResult(call.id, `theme_set refused: ${result.reason}`), send);
+          return;
+        }
+        parsed = result;
+      }
+      const theme = this.deps.theme;
+      if (theme === undefined) {
+        this.answer(call.id, hostToolErrorResult(call.id, "theme tools are unavailable"), send);
+        return;
+      }
+      let frame: RpcFrame;
+      try {
+        frame =
+          parsed === null
+            ? hostToolTextResult(call.id, renderThemeList(await theme.list()))
+            : themeSetAnswer(call.id, await theme.set(parsed.args));
+      } catch (error) {
+        frame = hostToolErrorResult(call.id, `${label} refused: ${error instanceof Error ? error.message : "unavailable"}`);
+      }
       this.answer(call.id, frame, send);
       return;
     }

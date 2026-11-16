@@ -135,6 +135,9 @@ async function commitSource(deps: StoredThemeDeps, source: ThemeSource): Promise
 export function removeStoredTheme(deps: StoredThemeDeps, id: string): Promise<void> {
   return serialized(deps, async () => {
     const reg = deps.registry;
+    // A non-stored id (curated or unknown) must change nothing at all: the
+    // pick resets below are keyed by equality with it and would repaint (#1176).
+    if (!reg.getSetting("storedThemes").some((t) => t.id === id)) return;
     reg.setSetting("storedThemes", reg.getSetting("storedThemes").filter((t) => t.id !== id));
     if (reg.getSetting("themeId") === id) reg.setSetting("themeId", DEFAULT_THEME_ID);
     if (reg.getSetting("darkThemeId") === id) reg.setSetting("darkThemeId", DEFAULT_THEME_ID);

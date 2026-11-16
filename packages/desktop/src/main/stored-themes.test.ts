@@ -182,4 +182,19 @@ describe("removeStoredTheme (issue #1168)", () => {
     expect(registry.getSetting("darkThemeId")).not.toBe(saved.source.id);
     expect(assets(backdropDir)).toEqual([]);
   });
+
+  // The raw settings:removeStoredTheme channel commits any string, so a
+  // curated id can reach here (#1176): the pick resets below key off equality
+  // with it and must not fire for an id no stored row names.
+  it.each(["nord", "no-such-theme"])("changes nothing at all for the non-stored id %s", async (id) => {
+    const { deps, registry, broadcast } = setup();
+    registry.setSetting("themeId", id);
+    registry.setSetting("darkThemeId", id);
+    registry.setSetting("lightThemeId", id);
+    await removeStoredTheme(deps, id);
+    expect(registry.getSetting("themeId")).toBe(id);
+    expect(registry.getSetting("darkThemeId")).toBe(id);
+    expect(registry.getSetting("lightThemeId")).toBe(id);
+    expect(broadcast).not.toHaveBeenCalled();
+  });
 });

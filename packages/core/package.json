@@ -75,6 +75,7 @@
     "./theme-seeds": "./src/theme-seeds.ts",
     "./theme-file": "./src/theme-file.ts",
     "./theme-tool": "./src/theme-tool.ts",
+    "./theme-sources": "./src/theme-sources.ts",
     "./mcp-endpoint": "./src/mcp-endpoint.ts"
   },
   "scripts": {

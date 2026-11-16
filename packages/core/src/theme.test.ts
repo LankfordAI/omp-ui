@@ -1,5 +1,5 @@
 import { describe, expect, it } from "vitest";
-import themeSources from "../../desktop/src/renderer/src/lib/theme-sources.json";
+import themeSources from "./theme-sources.json";
 import { deriveTheme, isStoredTheme, signalAccentFailure, themeGateFailures, type ThemeSource } from "./theme";
 
 const graphite = (themeSources as ThemeSource[]).find((theme) => theme.id === "graphite")!;

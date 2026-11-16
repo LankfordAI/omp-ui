@@ -1,7 +1,7 @@
 import { EventEmitter } from "node:events";
 import type { IpcMainInvokeEvent, WebContents } from "electron";
 import { deriveTheme } from "@omp-ui/core";
-import themeSources from "../renderer/src/lib/theme-sources.json";
+import { CURATED_THEME_SOURCES } from "@omp-ui/core/theme-sources";
 import { afterEach, describe, expect, it, vi } from "vitest";
 import { ArtifactGuestBroker, artifactDocumentIdentity, artifactThemeCss, validateArtifactPatch, type ArtifactSurfaceService, type ArtifactSurfaceResolution } from "./artifact-guest-broker";
 
@@ -11,7 +11,7 @@ vi.mock("electron", () => ({
   session: { fromPartition: () => electron.partition },
 }));
 const SOURCE = { artifactId: "11111111-1111-4111-8111-111111111111", codeRevisionId: "22222222-2222-4222-8222-222222222222", dataSnapshotId: "33333333-3333-4333-8333-333333333333" };
-const palette = deriveTheme(themeSources[0]!);
+const palette = deriveTheme(CURATED_THEME_SOURCES[0]!);
 const THEME = { dark: palette.dark, tokens: palette.tokens };
 class Contents extends EventEmitter {
   mainFrame = { url: "about:blank" };

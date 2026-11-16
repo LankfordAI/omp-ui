@@ -1,13 +1,17 @@
-// The agent's theme host tool (issue #1168, ADR-0043): an agent saves an
+// The agent's theme host tools (issue #1168, ADR-0043): an agent saves an
 // authored theme through the same gate the editor uses, and with the user's
-// yes (#1169) can apply the theme it just saved.
+// yes (#1169) can apply the theme it just saved. Issue #1175 adds the read
+// (theme_list) and the activation of any existing theme (theme_set); removal
+// stays human-only per ADR-0094's amendment.
 import { isObject } from "./guards";
 import type { RpcHostToolDefinition } from "./host-bridge";
-import { AUTHORED_THEME_ID_PREFIX, STORED_ID, THEME_SYNTAX_SEEDS } from "./theme";
+import { AUTHORED_THEME_ID_PREFIX, STORED_ID, THEME_SYNTAX_SEEDS, type ThemeMode } from "./theme";
 import { BACKDROP_BLUR_MAX, BACKDROP_DIM_MAX } from "./theme-backdrop";
 import { THEME_SEED_ACCENTS, type ThemeSeeds } from "./theme-seeds";
 
 export const THEME_TOOL_NAME = "omp-ui_theme_save";
+export const THEME_LIST_TOOL_NAME = "omp-ui_theme_list";
+export const THEME_SET_TOOL_NAME = "omp-ui_theme_set";
 
 export type ThemeToolArgs = {
   label: string;
@@ -36,7 +40,7 @@ export function themeTool(): RpcHostToolDefinition {
     name: THEME_TOOL_NAME,
     loadMode: "essential",
     description:
-      "Save a custom omp-ui theme from a few seed colours; omp-ui derives the rest and refuses a theme whose text would be hard to read. canvas is the reading background and decides dark or light. accents.signal is the agent-activity colour and must be a green. Optional backdrop.path is a PNG, JPEG, WebP or SVG file inside this session's working directory, shown behind the app; dim (0-80) darkens it and blur (0-32) softens it. By default the theme is saved and not applied. Pass apply:true only after the user has agreed in your question tool — call it first and offer to apply the theme; never apply without their yes. Applying switches the user's theme (and the system pick matching its lightness) for every connected client. Pass id to replace a theme you saved earlier. A refusal lists each failing colour pair with its ratio so you can adjust and call again.",
+      "Save a custom omp-ui theme from a few seed colours; omp-ui derives the rest and refuses a theme whose text would be hard to read. canvas is the reading background and decides dark or light. accents.signal is the agent-activity colour and must be a green. Optional backdrop.path is a PNG, JPEG, WebP or SVG file inside this session's working directory, shown behind the app; dim (0-80) darkens it and blur (0-32) softens it. By default the theme is saved and not applied. When the user asked for the theme or its application, act directly. Only when you propose a theme yourself, call your question tool first and pass apply:true on their yes. Applying switches the user's theme (and the system pick matching its lightness) for every connected client. Pass id to replace a theme you saved earlier. A refusal lists each failing colour pair with its ratio so you can adjust and call again.",
     parameters: {
       type: "object",
       additionalProperties: false,
@@ -165,6 +169,111 @@ export function parseThemeToolArgs(args: unknown): { ok: true; args: ThemeToolAr
   if (args.apply !== undefined) {
     if (typeof args.apply !== "boolean") return { ok: false, reason: "apply must be a boolean" };
     parsed.apply = args.apply;
+  }
+  return { ok: true, args: parsed };
+}
+
+/* ------------------------------------------------- list / set (issue #1175) */
+
+/** Which preference slot one write targeted. */
+export type ThemeWriteSlot = "themeId" | "darkThemeId" | "lightThemeId";
+
+/** The outcome of painting one theme id into the user's preference. */
+export interface ThemeApplyResult {
+  slot: ThemeWriteSlot;
+  /** True when the theme written is the one this host's windows paint now. */
+  painting: boolean;
+}
+
+/** Everything the theme tools answer with: the current appearance and every theme. */
+export interface ThemeList {
+  mode: ThemeMode;
+  /** The label of the theme actually painted, resolved under the OS scheme. */
+  effectiveLabel: string;
+  /** The host OS scheme, from nativeTheme.shouldUseDarkColors. */
+  scheme: "light" | "dark";
+  motion: boolean;
+  slots: { themeId: string | null; lightThemeId: string; darkThemeId: string };
+  themes: Array<{ id: string; label: string; dark: boolean; backdrop: boolean }>;
+}
+
+/** The theme_set answer: the write plus a fresh list, for an honest reply. */
+export type ThemeSetOutcome =
+  | { ok: true; wrote: ThemeWriteSlot[]; modeChanged: boolean; motion: boolean | null; list: ThemeList }
+  | { ok: false; reason: string };
+
+/** The agent's theme_set arguments (#1175); every field optional, never all absent. */
+export type ThemeSetArgs = {
+  id?: string;
+  slot?: "auto" | "light" | "dark";
+  mode?: ThemeMode;
+  motion?: boolean;
+};
+
+const SET_ID_MAX = 96;
+
+/** The curated or stored theme to activate, the slot to write, the mode, the motion. */
+export function themeSetTool(): RpcHostToolDefinition {
+  return {
+    name: THEME_SET_TOOL_NAME,
+    loadMode: "essential",
+    description:
+      "Activates an existing omp-ui theme by id (list them first with omp-ui_theme_list); refuses an unknown id by listing the valid ones instead of writing it. In fixed mode the theme becomes the app's one theme and needs no slot; in system mode pass slot \"light\" or \"dark\" to write that system pick, or leave slot at its default \"auto\" to write the pick matching the theme's canvas lightness. May also set mode (\"fixed\" or \"system\") and motion (the backdrop animation toggle) in the same call, applied atomically. Refuses slot while the effective mode is fixed. Answers name the slot written and the theme this host actually paints: in system mode a theme whose lightness mismatches the OS scheme is stored but not shown until the OS flips or you pass mode:\"fixed\". Act on the user's own request directly; call your question tool first only when you propose the change yourself.",
+    parameters: {
+      type: "object",
+      additionalProperties: false,
+      properties: {
+        id: { type: "string", minLength: 1, maxLength: SET_ID_MAX },
+        slot: { type: "string", enum: ["auto", "light", "dark"] },
+        mode: { type: "string", enum: ["fixed", "system"] },
+        motion: { type: "boolean" },
+      },
+    },
+  };
+}
+
+/** The agent's read of the current appearance and every theme (#1175). */
+export function themeListTool(): RpcHostToolDefinition {
+  return {
+    name: THEME_LIST_TOOL_NAME,
+    loadMode: "essential",
+    description:
+      "Lists the app's appearance: the theme mode, each slot's id and label, the theme now showing, backdrop motion, then every curated and stored theme as id — label (dark|light[, backdrop]). Read-only; call it before omp-ui_theme_set to learn which ids exist.",
+    parameters: { type: "object", additionalProperties: false, properties: {} },
+  };
+}
+
+/** Validates theme_set arguments; a refusal is one line naming the field. */
+export function parseThemeSetArgs(args: unknown): { ok: true; args: ThemeSetArgs } | { ok: false; reason: string } {
+  if (!isObject(args) || Array.isArray(args)) return { ok: false, reason: "arguments must be an object" };
+  const extra = unknownKey(args, ["id", "slot", "mode", "motion"], "");
+  if (extra !== null) return { ok: false, reason: extra };
+  const { id, slot, mode, motion } = args;
+  const parsed: ThemeSetArgs = {};
+  if (id !== undefined) {
+    if (typeof id !== "string" || id.trim() === "" || id.length > SET_ID_MAX) {
+      return { ok: false, reason: `id must be a theme id of 1 to ${SET_ID_MAX} characters` };
+    }
+    parsed.id = id;
+  }
+  if (slot !== undefined) {
+    if (slot !== "auto" && slot !== "light" && slot !== "dark") {
+      return { ok: false, reason: 'slot must be "auto", "light" or "dark"' };
+    }
+    parsed.slot = slot;
+  }
+  if (mode !== undefined) {
+    if (mode !== "fixed" && mode !== "system") return { ok: false, reason: 'mode must be "fixed" or "system"' };
+    parsed.mode = mode;
+  }
+  if (motion !== undefined) {
+    if (typeof motion !== "boolean") return { ok: false, reason: "motion must be a boolean" };
+    parsed.motion = motion;
+  }
+  // slot picks which system pick an id lands in; with no id there is nothing to place.
+  if (parsed.slot !== undefined && parsed.id === undefined) return { ok: false, reason: "slot needs id" };
+  if (parsed.id === undefined && parsed.mode === undefined && parsed.motion === undefined) {
+    return { ok: false, reason: "pass at least one of id, slot, mode, motion" };
   }
   return { ok: true, args: parsed };
 }

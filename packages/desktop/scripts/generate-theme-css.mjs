@@ -2,7 +2,7 @@ import { existsSync, readFileSync, writeFileSync } from "node:fs";
 import { fileURLToPath } from "node:url";
 
 const sourcePath = fileURLToPath(
-  new URL("../src/renderer/src/lib/theme-sources.json", import.meta.url),
+  new URL("../../core/src/theme-sources.json", import.meta.url),
 );
 const outputPath = fileURLToPath(
   new URL("../src/renderer/src/theme-default.css", import.meta.url),
@@ -82,7 +82,7 @@ function loadGraphiteTokens() {
 
 function render(tokens) {
   const declarations = TOKEN_KEYS.map((key) => `  ${key}: ${tokens[key]};`).join("\n");
-  return `/* Generated from lib/theme-sources.json by scripts/generate-theme-css.mjs. Do not edit. */\n@theme {\n${declarations}\n}\n`;
+  return `/* Generated from @omp-ui/core theme-sources.json by scripts/generate-theme-css.mjs. Do not edit. */\n@theme {\n${declarations}\n}\n`;
 }
 
 function main() {

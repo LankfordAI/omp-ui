@@ -28,7 +28,7 @@ function resolveCoreImport(fromFile: string, specifier: string): string | null {
   }
   if (!specifier.startsWith(".")) return null;
   const target = path.resolve(path.dirname(fromFile), specifier);
-  for (const candidate of [target, `${target}.ts`, `${target}.tsx`, path.join(target, "index.ts")]) {
+  for (const candidate of [target, `${target}.ts`, `${target}.tsx`, `${target}.json`, path.join(target, "index.ts")]) {
     if (fs.existsSync(candidate) && fs.statSync(candidate).isFile()) return candidate;
   }
   return null;

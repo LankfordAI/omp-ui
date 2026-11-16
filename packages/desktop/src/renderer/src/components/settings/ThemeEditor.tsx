@@ -20,6 +20,7 @@ import {
 } from "@omp-ui/core/theme-backdrop";
 import { sourceFromDraft, type DraftBackdrop, type SaveStoredThemeResult } from "@omp-ui/core/theme-file";
 import { seedsOfTheme, type ThemeSeedAccent, type ThemeSeeds } from "@omp-ui/core/theme-seeds";
+import { CURATED_THEME_SOURCES } from "@omp-ui/core/theme-sources";
 import { displayMessage } from "../../backend";
 import {
   backdropAssetFromBytes,
@@ -30,7 +31,6 @@ import {
 } from "../../lib/backdrop";
 import { base64ToBytes, bytesToBase64 } from "../../lib/clipboard-image";
 import { useT, type MessageKey } from "../../lib/i18n";
-import themeSourcesJson from "../../lib/theme-sources.json";
 import { setThemePreview } from "../../lib/themes";
 import { useStore } from "../../store";
 import { Button, Disclosure, Switch } from "../ui";
@@ -43,7 +43,7 @@ import { FIELD } from "./rows";
  */
 
 /** The curated themes' raw sources: "Start from" and New theme read seeds from them. */
-export const CURATED_SOURCES: readonly ThemeSource[] = themeSourcesJson;
+export const CURATED_SOURCES: readonly ThemeSource[] = CURATED_THEME_SOURCES;
 
 /** Placeholder hash for the draft theme's backdrop: the layer reads the draft asset, not the hash. */
 const DRAFT_HASH = "0".repeat(64);

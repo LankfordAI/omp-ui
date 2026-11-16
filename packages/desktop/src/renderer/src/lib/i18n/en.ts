@@ -1071,9 +1071,9 @@ export const en = {
   "settings.general.deviceAgentAccess": "Agents can use devices",
   "settings.general.deviceAgentAccessHint":
     "Gives sessions started or resumed after this change the omp-ui_device tool, which drives the Android emulator in the device pane. Needs the Android SDK (adb and emulator).",
-  "settings.general.themeAgentAccess": "Agents can save themes",
+  "settings.general.themeAgentAccess": "Agents can change themes",
   "settings.general.themeAgentAccessHint":
-    "Gives sessions started or resumed after this change the omp-ui_theme_save tool. A saved theme joins your themes, and an agent can apply one only after you agree in its question.",
+    "Gives sessions started or resumed after this change the omp-ui_theme_save, omp-ui_theme_set and omp-ui_theme_list tools. Agents can create a theme, switch the app between existing themes, change fixed/system mode, and toggle backdrop motion — every one reversible in Settings, Appearance. Agents cannot remove themes.",
   "settings.general.issueAgentAccess": "Agents can draft issues",
   "settings.general.issueAgentAccessHint":
     "Gives native-transcript sessions started or resumed after this change the omp-ui_issue_draft and omp-ui_issue_file tools, which recommend a GitHub issue in LankfordAI/omp-ui with your own gh CLI. An agent can file an issue only after you ask it to in the session; terminal tabs have no host tools.",

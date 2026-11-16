@@ -1,5 +1,5 @@
 import { describe, expect, it } from "vitest";
-import themeSources from "../../desktop/src/renderer/src/lib/theme-sources.json";
+import themeSources from "./theme-sources.json";
 import { contrastRatio, deriveTheme, themeContrastFailures, type ThemeSource } from "./theme";
 import {
   THEME_SEED_DEFAULTS,

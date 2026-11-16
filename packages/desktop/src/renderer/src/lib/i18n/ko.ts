@@ -985,9 +985,9 @@ export const ko: Partial<Record<MessageKey, string>> = {
   "settings.general.deviceAgentAccess": "에이전트의 기기 사용 허용",
   "settings.general.deviceAgentAccessHint":
     "이 변경 후 시작하거나 재개한 세션에 omp-ui_device 도구를 제공합니다. 이 도구는 기기 패널의 Android 에뮬레이터를 조작합니다. Android SDK(adb 및 emulator)가 필요합니다.",
-  "settings.general.themeAgentAccess": "에이전트의 테마 저장 허용",
+  "settings.general.themeAgentAccess": "에이전트의 테마 변경 허용",
   "settings.general.themeAgentAccessHint":
-    "이 변경 후 시작하거나 재개한 세션에 omp-ui_theme_save 도구를 제공합니다. 저장된 테마는 내 테마에 추가되며, 에이전트가 테마를 적용하려면 질문에서 먼저 동의해야 합니다.",
+    "이 변경 후 시작하거나 재개한 세션에 omp-ui_theme_save, omp-ui_theme_set, omp-ui_theme_list 도구를 제공합니다. 에이전트는 테마를 만들고, 기존 테마 간에 전환하며, 고정/시스템 모드를 변경하고, 배경 모션을 켜고 끌 수 있습니다 — 모두 설정의 외관에서 되돌릴 수 있습니다. 에이전트는 테마를 삭제할 수 없습니다.",
   "settings.general.issueAgentAccess": "에이전트의 이슈 초안 작성 허용",
   "settings.general.issueAgentAccessHint":
     "이 변경 후 시작하거나 재개한 네이티브 대화록 세션에 omp-ui_issue_draft 및 omp-ui_issue_file 도구를 제공합니다. 이 도구는 사용자의 gh CLI로 LankfordAI/omp-ui에 GitHub 이슈를 추천합니다. 에이전트는 세션에서 사용자가 요청한 후에만 이슈를 등록할 수 있으며, 터미널 탭은 호스트 도구가 없습니다.",
