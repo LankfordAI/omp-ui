@@ -27,15 +27,6 @@ import {
   type IssueVersionFacts,
 } from "@omp-ui/core";
 
-/**
- * The triple a filing is bound to: the draft answer records it, and the file
- * call must reproduce it byte for byte. Title here is the RENDERED (prefixed)
- * title so an approval covers exactly what GitHub will show.
- */
-function issueDraftFingerprint(title: string, repository: string, body: string): string {
-  return createHash("sha256").update(JSON.stringify([title, repository, body])).digest("hex");
-}
-
 export type IssueDraftOutcome = { ok: true; text: string } | { ok: false; reason: string };
 export type IssueFileOutcome = { ok: true; text: string } | { ok: false; reason: string };
 
@@ -48,6 +39,17 @@ interface DraftRecord {
 
 /** At most this many filings per tab per process (ADR-0095 runaway cap). */
 export const ISSUE_FILE_CAP_PER_TAB = 3;
+
+/**
+ * The triple a filing is bound to: the draft answer records it, and the file
+ * call must reproduce it byte for byte. Title here is the RENDERED (prefixed)
+ * title so an approval covers exactly what GitHub will show. Lives in main,
+ * not core: core's issue-tool is renderer-reachable through host-bridge and
+ * must stay free of `node:` imports.
+ */
+export function issueDraftFingerprint(title: string, repository: string, body: string): string {
+  return createHash("sha256").update(JSON.stringify([title, repository, body])).digest("hex");
+}
 
 export interface IssueBridgeDeps {
   draft(tabId: string, args: unknown): Promise<IssueDraftOutcome>;

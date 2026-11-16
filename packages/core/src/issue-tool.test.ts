@@ -1,7 +1,7 @@
 // Static contract of the issue tools (ADR-0095): schemas are strict object
 // roots without root combinators (#1135), the parser enforces per-kind
-// requirements naming the field, the renderer matches the repo templates'
-// headings verbatim, and the fingerprint binds a filing to its draft.
+// requirements naming the field, and the renderer matches the repo templates'
+// headings verbatim.
 import { describe, expect, it } from "vitest";
 import {
   BUG_TAB_MODES,
