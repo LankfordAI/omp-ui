@@ -71,6 +71,7 @@ type BroadcastSettings = Omit<
   | "autoThinkingDefaultSeeded"
   | "hibernateManualDefaultSeeded"
   | "councilDefaultOnSeeded"
+  | "themeAgentAccessDefaultOnSeeded"
   | "remoteEnabled"
   | "remoteBind"
   | "remotePort"
@@ -95,6 +96,7 @@ export function broadcastSettings(registry: Registry): BroadcastSettings {
     autoThinkingDefaultSeeded: _m2,
     hibernateManualDefaultSeeded: _m3,
     councilDefaultOnSeeded: _m4,
+    themeAgentAccessDefaultOnSeeded: _m5,
     remoteEnabled: _e,
     remoteBind: _b,
     remotePort: _p,

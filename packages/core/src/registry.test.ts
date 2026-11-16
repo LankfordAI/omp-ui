@@ -134,6 +134,7 @@ describe("Registry.load", () => {
     expect(reg.getSetting("councilEnabled")).toBe(true);
     expect(reg.getSetting("experimentsFlagSplitSeeded")).toBe(true);
     expect(reg.getSetting("councilDefaultOnSeeded")).toBe(true);
+    expect(reg.getSetting("themeAgentAccessDefaultOnSeeded")).toBe(true);
     expect(reg.getSetting("snoozedSectionEnabled")).toBe(false);
     // Issue #647: the mic button is off, and the dictation model auto-resolves.
     expect(reg.getSetting("voiceInputEnabled")).toBe(false);
@@ -658,10 +659,10 @@ describe("Registry persistence", () => {
     expect(Registry.load(both).getSetting("storedThemes")).toEqual([]);
   });
 
-  it("defaults backdropMotion on and themeAgentAccess off (issue #1168)", () => {
+  it("defaults backdropMotion and themeAgentAccess on (issues #1168, #1177)", () => {
     const reg = Registry.load(tmpFile());
     expect(reg.getSetting("backdropMotion")).toBe(true);
-    expect(reg.getSetting("themeAgentAccess")).toBe(false);
+    expect(reg.getSetting("themeAgentAccess")).toBe(true);
   });
 
   it("defaults issueAgentAccess off (ADR-0095)", () => {
@@ -839,12 +840,13 @@ describe("Registry persistence", () => {
           experimentsEnabled: false,
           autoresearchEnabled: true,
           councilEnabled: false,
-          // All four one-time markers: with the others absent, load's
+          // All five one-time markers: with the others absent, load's
           // auto-thinking and hibernate seeds rewrite the file (#1054).
           experimentsFlagSplitSeeded: true,
           councilDefaultOnSeeded: true,
           autoThinkingDefaultSeeded: true,
           hibernateManualDefaultSeeded: true,
+          themeAgentAccessDefaultOnSeeded: true,
         },
       }),
     );
@@ -897,6 +899,41 @@ describe("Registry persistence", () => {
     reg.setSetting("councilEnabled", true);
     reg.setSetting("councilEnabled", false);
     expect(Registry.load(file).getSetting("councilEnabled")).toBe(false);
+  });
+
+  it("flips the legacy off theme agent access default on once (#1177)", () => {
+    const file = tmpFile();
+    fs.writeFileSync(
+      file,
+      JSON.stringify({ schemaVersion: 1, settings: { themeAgentAccess: false } }),
+    );
+    expect(Registry.load(file).getSetting("themeAgentAccess")).toBe(true);
+    const onDisk = JSON.parse(fs.readFileSync(file, "utf8")) as {
+      settings: Record<string, unknown>;
+    };
+    expect(onDisk.settings.themeAgentAccessDefaultOnSeeded).toBe(true);
+    expect(onDisk.settings.themeAgentAccess).toBe(true);
+    // A second load writes nothing.
+    const bytes = fs.readFileSync(file, "utf8");
+    Registry.load(file);
+    expect(fs.readFileSync(file, "utf8")).toBe(bytes);
+  });
+
+  it("keeps theme agent access off once its marker is set (#1177)", () => {
+    const file = tmpFile();
+    fs.writeFileSync(
+      file,
+      JSON.stringify({
+        schemaVersion: 1,
+        settings: { themeAgentAccess: false, themeAgentAccessDefaultOnSeeded: true },
+      }),
+    );
+    const reg = Registry.load(file);
+    expect(reg.getSetting("themeAgentAccess")).toBe(false);
+    // An explicit off after the flip persists across loads.
+    reg.setSetting("themeAgentAccess", true);
+    reg.setSetting("themeAgentAccess", false);
+    expect(Registry.load(file).getSetting("themeAgentAccess")).toBe(false);
   });
 
   it("round-trips the stall watchdog window and falls back to 180 for anything unknown", () => {

@@ -75,6 +75,7 @@ const NON_BROADCAST_SETTINGS: readonly string[] = [
   "memoryDefaultsSeeded",
   "autoThinkingDefaultSeeded",
   "hibernateManualDefaultSeeded",
+  "themeAgentAccessDefaultOnSeeded",
   "remoteEnabled",
   "remoteBind",
   "remotePort",

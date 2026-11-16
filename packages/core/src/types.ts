@@ -794,6 +794,7 @@ type BackendBroadcastSettings = Omit<
   | "hibernateManualDefaultSeeded"
   | "experimentsFlagSplitSeeded"
   | "councilDefaultOnSeeded"
+  | "themeAgentAccessDefaultOnSeeded"
   | "remoteEnabled"
   | "remoteBind"
   | "remotePort"

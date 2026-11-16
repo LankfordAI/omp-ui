@@ -76,7 +76,7 @@ export interface RegistrySettings {
   artifactLibraryEnabled: boolean;
   /** The agent may drive the tab's bound emulator via omp-ui_device (issue #1006); default off. */
   deviceAgentAccess: boolean;
-  /** Registers omp-ui_theme_save on new and resumed sessions (issue #1168); default off. */
+  /** Registers omp-ui_theme_save / _list / _set on new and resumed sessions (issue #1168); default on (#1177). */
   themeAgentAccess: boolean;
   /** Registers omp-ui_issue_draft / omp-ui_issue_file on new and resumed sessions (ADR-0095); default off. */
   issueAgentAccess: boolean;
@@ -129,6 +129,9 @@ export interface RegistrySettings {
   /** One-time seed marker (graduation): legacy registries persisted the old off
    *  default; the first load on a new build flips council on once. */
   councilDefaultOnSeeded: boolean;
+  /** One-time seed marker (#1177): legacy registries persisted the old off
+   *  default; the first load on a new build flips theme agent access on once. */
+  themeAgentAccessDefaultOnSeeded: boolean;
   /**
    * App-wide Council roster for /council (ADR-0088): null = unset. Members
    * resolve project → global → empty, so with neither document set no
@@ -297,7 +300,7 @@ export const SETTINGS: SettingDescriptors = {
     (value): value is boolean => typeof value === "boolean",
   ),
   themeAgentAccess: validatedSetting(
-    () => false,
+    () => true,
     (value): value is boolean => typeof value === "boolean",
   ),
   issueAgentAccess: validatedSetting(
@@ -410,6 +413,10 @@ export const SETTINGS: SettingDescriptors = {
     (value): value is boolean => typeof value === "boolean",
   ),
   councilDefaultOnSeeded: validatedSetting(
+    () => false,
+    (value): value is boolean => typeof value === "boolean",
+  ),
+  themeAgentAccessDefaultOnSeeded: validatedSetting(
     () => false,
     (value): value is boolean => typeof value === "boolean",
   ),
@@ -618,6 +625,7 @@ function emptyRegistry(): RegistryData {
       hibernateManualDefaultSeeded: true,
       experimentsFlagSplitSeeded: true,
       councilDefaultOnSeeded: true,
+      themeAgentAccessDefaultOnSeeded: true,
     },
     projects: [],
     sessions: [],
@@ -1000,6 +1008,20 @@ function seedCouncilDefaultOn(file: string, data: RegistryData): void {
 }
 
 /**
+ * One-time default flip (#1177): legacy registries persisted the old off
+ * default for `themeAgentAccess` (the settings object is always written in
+ * full), so a bare `false` cannot be told apart from an explicit one. Flip it
+ * to on once and mark the registry seeded; a later explicit off persists the
+ * marker and is never revisited. Same shape as `seedCouncilDefaultOn`.
+ */
+function seedThemeAgentAccessDefaultOn(file: string, data: RegistryData): void {
+  if (data.settings.themeAgentAccessDefaultOnSeeded) return;
+  data.settings.themeAgentAccessDefaultOnSeeded = true;
+  data.settings.themeAgentAccess = true;
+  writeRegistry(file, data);
+}
+
+/**
  * omp-ui's own state (projects + owned sessions), persisted as JSON.
  * Records are per lineage (one per spawned process); `sessionId: null` is
  * valid at every layer — a session can live minutes or forever without a file.
@@ -1032,6 +1054,7 @@ export class Registry {
       seedHibernateManualDefault(file, data);
       seedExperimentsFlagSplit(file, data);
       seedCouncilDefaultOn(file, data);
+      seedThemeAgentAccessDefaultOn(file, data);
       return new Registry(file, data);
     }
     // Corrupt (or unknown schemaVersion): quarantine and start empty.
