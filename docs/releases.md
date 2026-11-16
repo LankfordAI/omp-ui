@@ -4,17 +4,7 @@ This guide explains what users receive from a release and how maintainers publis
 
 ## Unreleased
 
-- Settings → Appearance can add public GitHub theme repositories, browse their themes, and install or update them through the same contrast gate (#1178).
-- Forked sessions show a *fork* chip naming their original in the sidebar and session header, the Session HUD action now reads *Fork into a new tab*, and opening a session whose fork is running asks whether you meant the fork (#1161).
-- Themes can carry a **backdrop** — a still image or an animated SVG scene behind the glass chrome, with text on a reading card at the theme's contrast floor. Settings → Appearance gains a theme editor that authors a theme from a few seed colours with live preview, omp-ui theme file import/export, and **Duplicate**; every save runs the contrast gate. **Animate backdrops** (on by default) stills a scene while the window is hidden or reduced motion is asked for (#1168).
-- Agents can manage appearance through `omp-ui_theme_save`, `omp-ui_theme_list` and `omp-ui_theme_set`: save an authored theme and optionally apply it, switch between existing themes, change fixed/system mode, and toggle backdrop motion. An explicit request is consent; a change the agent proposes itself is asked first, and agents can never remove a theme. **Agents can change themes** is now on by default, and removing a theme id that is not stored no longer resets the active theme (#1169, #1175, #1176, #1177).
-- Agents can draft omp-ui GitHub issues with `omp-ui_issue_draft`, which renders the repository's issue template with your app, omp and OS facts and searches duplicates through your own `gh` CLI, and file one with `omp-ui_issue_file` only after you ask for the filing — the filed issue must match the approved draft byte for byte. Behind **Agents can draft issues** (off by default), native-transcript sessions only (#1180).
-- The MCP endpoint can follow and steer the sessions a client started: `session_status` long-polls with `waitMs`, `start_session` chooses model and thinking level, and `stop_session`, `settle_session` and `finish_session` stop the running turn, settle the session, and clean up a landed worktree session (#1162, #1163, #1164, #1165, #1166).
-- The Android app saves several hosts by name, switches between them warm without reloading, and remembers each host's sign-in encrypted with an Android Keystore key; a failed connection no longer replaces the current view (#1167).
-- The model picker's provider rail is keyboard-navigable: ArrowLeft from the start of the search field moves to the rail, arrows step providers, and Enter or typing returns to search. Compact layouts now open with focus in search instead of on the close button (#1173, #1174).
-- After **open pull request** on the finish done row, the button is replaced by a confirmation naming where the compare page opened (#1170).
-- Button labels long enough to wrap now grow the button instead of spilling past its border (#1172).
-- The quick-open's chat row now reads **Chat** instead of *No project*.
+Nothing since [v0.36.0](https://github.com/LankfordAI/omp-ui/releases/tag/v0.36.0). Add one bullet per shipped change here, citing its issue as `#N`; the release tag lifts these into Highlights.
 
 ## Choose a download
 
