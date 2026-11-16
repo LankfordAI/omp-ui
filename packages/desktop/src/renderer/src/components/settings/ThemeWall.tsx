@@ -1,0 +1,855 @@
+import { useEffect, useMemo, useRef, useState, type ReactElement, type ReactNode } from "react";
+import {
+  STORED_THEMES_MAX,
+  deriveTheme,
+  storedThemeKind,
+  themeGateFailures,
+  type ThemeGateFailure,
+  type ThemeSource,
+} from "@omp-ui/core/theme";
+import type { ThemeBackdropKind } from "@omp-ui/core/theme-backdrop";
+import { sourceFromDraft, type SaveStoredThemeResult } from "@omp-ui/core/theme-file";
+import {
+  parseThemeRepositoryRef,
+  type ThemeRepositoryEntry,
+  type ThemeRepositoryListing,
+} from "@omp-ui/core/theme-repository-format";
+import { displayMessage } from "../../backend";
+import { cn } from "../../lib/cn";
+import { useT, type MessageKey } from "../../lib/i18n";
+import { resolveTheme, storedThemes, THEMES, type Theme } from "../../lib/themes";
+import { useDismissal } from "../../lib/use-dismissal";
+import { useStore } from "../../store";
+import { Button, Chevron, ChoiceCapsule, Chip, Empty, Panel, Switch } from "../ui";
+import { FIELD } from "./rows";
+import { GateFailures } from "./ThemeEditor";
+import { ThemePreviewOverlay } from "./ThemePreviewOverlay";
+import { ThemeSpecimen } from "./ThemeSpecimen";
+
+type Translate = (key: MessageKey, vars?: Record<string, string | number>) => string;
+
+type Listing =
+  | { status: "loading" }
+  | { status: "ok"; listing: ThemeRepositoryListing }
+  | { status: "error"; message: string };
+
+/** Encoded as the Show <select> value. */
+type Show = "all" | "builtin" | "yours" | "manage" | `repo:${string}`;
+type Scheme = "any" | "dark" | "light";
+type RepoState = "installed" | "update" | "install" | "fails";
+type Slot = "fixed" | "light" | "dark";
+
+interface WallCard {
+  /** Theme id for a local card; `repo:${entry.path}` for a listing entry. */
+  key: string;
+  /** What the specimen paints: the stored/curated Theme, or one derived from index seeds. */
+  theme: Theme;
+  label: string;
+  /** The id a click applies; null when the card cannot be used (not installed, or fails the gate). */
+  applyId: string | null;
+  /** The stored source behind the card (Edit / Duplicate / Export / Animate / Remove). */
+  source: ThemeSource | null;
+  entry: ThemeRepositoryEntry | null;
+  repoState: RepoState | null;
+  failures: ThemeGateFailure[];
+  backdropKind: ThemeBackdropKind | null;
+}
+
+const NO_REPOSITORIES: readonly string[] = [];
+
+const MENU_ROW =
+  "block w-full rounded-md px-2.5 py-1.5 text-left text-sm text-ink-mid transition-colors duration-150 hover:bg-hover hover:text-ink focus-visible:bg-hover focus-visible:text-ink focus-visible:outline-none disabled:pointer-events-none disabled:text-ink-faint";
+
+function localCard(theme: Theme, source: ThemeSource | null): WallCard {
+  return {
+    key: theme.id,
+    theme,
+    label: theme.label,
+    applyId: theme.id,
+    source,
+    entry: null,
+    repoState: null,
+    failures: [],
+    backdropKind: theme.backdrop?.kind ?? null,
+  };
+}
+
+function repoCard(
+  entry: ThemeRepositoryEntry,
+  repository: string,
+  sources: readonly ThemeSource[],
+  storedById: ReadonlyMap<string, Theme>,
+): WallCard {
+  const installed =
+    sources.find((s) => s.origin?.repository === repository && s.origin.path === entry.path) ?? null;
+  const installedTheme = installed !== null ? (storedById.get(installed.id) ?? null) : null;
+  const draft = sourceFromDraft("custom-preview", entry.label, entry.seeds);
+  const failures = installedTheme === null ? themeGateFailures(draft) : [];
+  const repoState: RepoState =
+    installedTheme !== null
+      ? installed!.origin!.blob === entry.blob
+        ? "installed"
+        : "update"
+      : failures.length > 0
+        ? "fails"
+        : "install";
+  return {
+    key: `repo:${entry.path}`,
+    theme: installedTheme ?? deriveTheme(draft),
+    label: entry.label,
+    applyId: installedTheme?.id ?? null,
+    source: installedTheme !== null ? installed : null,
+    entry,
+    repoState,
+    failures,
+    backdropKind: entry.backdrop,
+  };
+}
+
+/**
+ * A stored theme may reuse a curated theme's label (VS Code's own Dark
+ * Modern), so its accessible name and chip say which kind it is.
+ */
+function kindLabel(theme: Theme, t: Translate): string | null {
+  if (theme.origin !== null) return t("settings.appearance.themeFrom", { repository: theme.origin.repository });
+  const kind = storedThemeKind(theme.id);
+  if (kind === "imported") return t("settings.appearance.themeImported");
+  if (kind === "authored") return t("settings.appearance.themeAuthored");
+  return null;
+}
+
+/**
+ * Theme repository management (#1178, ADR-0096): add a public GitHub
+ * repository, browse or remove the added ones. Adding fetches nothing until
+ * the repository is browsed.
+ */
+function RepositoryManager({ onBrowse }: { onBrowse: (repository: string) => void }) {
+  const t = useT();
+  const repositories = useStore((s) => s.state?.themeRepositories) ?? NO_REPOSITORIES;
+  const addThemeRepository = useStore((s) => s.addThemeRepository);
+  const removeThemeRepository = useStore((s) => s.removeThemeRepository);
+  const [input, setInput] = useState("");
+  const [addError, setAddError] = useState<string | null>(null);
+
+  const add = async (): Promise<void> => {
+    setAddError(null);
+    if (parseThemeRepositoryRef(input) === null) {
+      setAddError(t("settings.appearance.repoInvalid"));
+      return;
+    }
+    try {
+      const result = await addThemeRepository(input);
+      if (!result.ok) {
+        setAddError(t("settings.appearance.repoAddFailed", { message: result.message }));
+        return;
+      }
+      setInput("");
+      onBrowse(result.repository);
+    } catch (err) {
+      setAddError(t("settings.appearance.repoAddFailed", { message: displayMessage(err) }));
+    }
+  };
+
+  return (
+    <div className="mt-3">
+      <h3 className="text-base font-semibold text-ink">{t("settings.appearance.repoTitle")}</h3>
+      <p className="mt-0.5 text-sm leading-relaxed text-ink-faint">{t("settings.appearance.repoHint")}</p>
+      <form
+        className="mt-2 flex items-end gap-2"
+        onSubmit={(event) => {
+          event.preventDefault();
+          void add();
+        }}
+      >
+        <label className="flex min-w-0 flex-1 flex-col gap-1 text-sm text-ink-mid">
+          {t("settings.appearance.repoInputLabel")}
+          <input
+            type="text"
+            className={FIELD}
+            value={input}
+            maxLength={200}
+            placeholder={t("settings.appearance.repoInputPlaceholder")}
+            onChange={(event) => setInput(event.target.value)}
+          />
+        </label>
+        <Button type="submit">{t("settings.appearance.repoAdd")}</Button>
+      </form>
+      {addError !== null && (
+        <p role="alert" className="mt-2 text-sm text-rose">
+          {addError}
+        </p>
+      )}
+      {repositories.length > 0 && (
+        <ul className="mt-3 flex flex-col gap-2">
+          {repositories.map((repository) => (
+            <li key={repository} className="flex items-center gap-2 text-sm text-ink-mid">
+              <span className="min-w-0 flex-1 truncate font-mono">{repository}</span>
+              <Button
+                variant="ghost"
+                aria-label={t("settings.appearance.repoBrowseAria", { repository })}
+                onClick={() => onBrowse(repository)}
+              >
+                {t("settings.appearance.repoBrowse")}
+              </Button>
+              <Button
+                variant="ghost"
+                aria-label={t("settings.appearance.repoRemoveAria", { repository })}
+                onClick={() => void removeThemeRepository(repository)}
+              >
+                {t("settings.appearance.remove")}
+              </Button>
+            </li>
+          ))}
+        </ul>
+      )}
+    </div>
+  );
+}
+
+/**
+ * The theme wall (CONTEXT.md): one column of theme cards, each a live sample
+ * of the app in that theme. Clicking a usable card applies it; Preview opens
+ * the full-screen theme preview without applying anything. Nothing fetches
+ * unless a repository is picked under Show or refreshed (ADR-0096 §6), and
+ * installing never applies a theme.
+ */
+export function ThemeWall(props: {
+  sources: readonly ThemeSource[];
+  /** Resolved ids (resolveTheme(...).id). */
+  pick: { themeId: string; lightThemeId: string; darkThemeId: string };
+  /** The effective theme now. */
+  showing: Theme;
+  /** An import in flight: disables the New menu's items. */
+  busy: boolean;
+  /** ThemesTab's import verdicts. */
+  verdict: ReactNode;
+  onNewTheme: () => void;
+  onImportFile: () => void;
+  onImportVsCode: () => void;
+  onEdit: (source: ThemeSource) => void;
+  onDuplicate: (source: ThemeSource) => void;
+  onExport: (source: ThemeSource) => void;
+}): ReactElement {
+  const { sources, pick } = props;
+  const t = useT();
+  const themeMode = useStore((s) => s.state?.themeMode) ?? "fixed";
+  const themeRepositories = useStore((s) => s.state?.themeRepositories) ?? NO_REPOSITORIES;
+  const setThemeMode = useStore((s) => s.setThemeMode);
+  const setThemeId = useStore((s) => s.setThemeId);
+  const setLightThemeId = useStore((s) => s.setLightThemeId);
+  const setDarkThemeId = useStore((s) => s.setDarkThemeId);
+  const browseThemeRepository = useStore((s) => s.browseThemeRepository);
+  const installRepositoryTheme = useStore((s) => s.installRepositoryTheme);
+  const setStoredThemeMotion = useStore((s) => s.setStoredThemeMotion);
+  const removeStoredTheme = useStore((s) => s.removeStoredTheme);
+
+  const [show, setShow] = useState<Show>("all");
+  const [scheme, setScheme] = useState<Scheme>("any");
+  const [query, setQuery] = useState("");
+  const [expanded, setExpanded] = useState<string | null>(null);
+  const [previewKey, setPreviewKey] = useState<string | null>(null);
+  const [menuOpen, setMenuOpen] = useState(false);
+  const [listing, setListing] = useState<Listing | null>(null);
+  // The repository whose listing is wanted; a late answer for another is dropped.
+  const listingFor = useRef<string | null>(null);
+  // The install in flight, by path.
+  const [busyPath, setBusyPath] = useState<string | null>(null);
+  const [installVerdict, setInstallVerdict] = useState<SaveStoredThemeResult | null>(null);
+  const expandedRow = useRef<HTMLDivElement>(null);
+  const menuRef = useRef<HTMLDivElement>(null);
+  const menuButtonRef = useRef<HTMLDivElement>(null);
+
+  const closeMenu = (): void => setMenuOpen(false);
+  useDismissal({ open: menuOpen, refs: [menuRef, menuButtonRef], onClose: closeMenu, onEscape: closeMenu });
+
+  const openRepository = async (repository: string, refresh: boolean): Promise<void> => {
+    listingFor.current = repository;
+    setListing({ status: "loading" });
+    setInstallVerdict(null);
+    let next: Listing;
+    try {
+      const result = await browseThemeRepository(repository, refresh);
+      next = result.ok ? { status: "ok", listing: result.listing } : { status: "error", message: result.message };
+    } catch (err) {
+      next = { status: "error", message: displayMessage(err) };
+    }
+    // A late answer for a repository no longer shown is dropped.
+    if (listingFor.current === repository) setListing(next);
+  };
+
+  const changeShow = (next: Show): void => {
+    setShow(next);
+    setExpanded(null);
+    if (next.startsWith("repo:")) {
+      void openRepository(next.slice(5), false);
+    } else {
+      listingFor.current = null;
+      setListing(null);
+      setInstallVerdict(null);
+    }
+  };
+
+  // A shown repository that was removed falls back to All local. Only a
+  // removal counts: a just-added repository may be shown before the state
+  // broadcast that lists it arrives.
+  const previousRepositories = useRef(themeRepositories);
+  useEffect(() => {
+    const before = previousRepositories.current;
+    previousRepositories.current = themeRepositories;
+    if (!show.startsWith("repo:")) return;
+    const repository = show.slice(5);
+    if (before.includes(repository) && !themeRepositories.includes(repository)) changeShow("all");
+  }, [themeRepositories, show]);
+
+  useEffect(() => {
+    expandedRow.current?.scrollIntoView?.({ block: "nearest" });
+  }, [expanded]);
+
+  const stored = useMemo(() => storedThemes(sources), [sources]);
+  const storedById = useMemo(() => new Map(stored.map((theme) => [theme.id, theme])), [stored]);
+  const curatedCards = useMemo(() => THEMES.map((theme) => localCard(theme, null)), []);
+  const storedCards = stored.map((theme) => localCard(theme, sources.find((s) => s.id === theme.id) ?? null));
+  const listingCards = useMemo(
+    () =>
+      listing?.status === "ok"
+        ? listing.listing.themes.map((entry) => repoCard(entry, listing.listing.repository, sources, storedById))
+        : [],
+    [listing, sources, storedById],
+  );
+
+  const previewCard = [...curatedCards, ...storedCards, ...listingCards].find((card) => card.key === previewKey) ?? null;
+  useEffect(() => {
+    // The previewed theme was removed, or the listing changed under it.
+    if (previewKey !== null && previewCard === null) setPreviewKey(null);
+  }, [previewKey, previewCard]);
+
+  const apply = (id: string, slot: Slot): void => {
+    if (slot === "fixed") void setThemeId(id);
+    else if (slot === "light") void setLightThemeId(id);
+    else void setDarkThemeId(id);
+  };
+  /** The slot a plain card click writes: the fixed pick, or the pick matching the theme's own scheme. */
+  const clickSlot = (card: WallCard): Slot => (themeMode === "fixed" ? "fixed" : card.theme.dark ? "dark" : "light");
+  const holds = (id: string, slot: Slot): boolean =>
+    slot === "fixed" ? pick.themeId === id : slot === "light" ? pick.lightThemeId === id : pick.darkThemeId === id;
+
+  const choose = (card: WallCard): void => {
+    const slot = clickSlot(card);
+    if (card.applyId !== null && !holds(card.applyId, slot)) {
+      apply(card.applyId, slot);
+      setExpanded(card.key);
+      return;
+    }
+    // Already the pick, not installed, or failing: toggle its action row only.
+    setExpanded((current) => (current === card.key ? null : card.key));
+  };
+
+  const install = async (card: WallCard): Promise<void> => {
+    if (listing?.status !== "ok" || card.entry === null) return;
+    const path = card.entry.path;
+    setBusyPath(path);
+    setInstallVerdict(null);
+    try {
+      setInstallVerdict(
+        await installRepositoryTheme({ repository: listing.listing.repository, commit: listing.listing.commit, path }),
+      );
+    } catch (err) {
+      setInstallVerdict({ ok: false, reason: "invalid", message: displayMessage(err) });
+    } finally {
+      setBusyPath(null);
+    }
+  };
+
+  const installButton = (card: WallCard, variant?: "solid"): ReactNode => (
+    <Button
+      variant={variant}
+      disabled={busyPath !== null}
+      aria-label={t("settings.appearance.repoInstallAria", { name: card.label })}
+      onClick={() => void install(card)}
+    >
+      {t("settings.appearance.repoInstall")}
+    </Button>
+  );
+  const updateButton = (card: WallCard, variant?: "solid"): ReactNode => (
+    <Button
+      variant={variant}
+      disabled={busyPath !== null}
+      aria-label={t("settings.appearance.repoUpdateAria", { name: card.label })}
+      onClick={() => void install(card)}
+    >
+      {t("settings.appearance.repoUpdate")}
+    </Button>
+  );
+
+  /** A listing card's install status, always visible below it. */
+  const repoStatus = (card: WallCard): ReactNode => {
+    switch (card.repoState) {
+      case "installed":
+        return <Chip>{t("settings.appearance.repoInstalledChip")}</Chip>;
+      case "update":
+        return updateButton(card);
+      case "fails":
+        return (
+          <span className="text-sm text-rose">
+            {t("settings.appearance.repoGateFailed", { count: String(card.failures.length) })}
+          </span>
+        );
+      default:
+        if (sources.length >= STORED_THEMES_MAX) {
+          return (
+            <>
+              <Button disabled aria-label={t("settings.appearance.repoInstallAria", { name: card.label })}>
+                {t("settings.appearance.repoInstall")}
+              </Button>
+              <span className="text-sm text-ink-faint">{t("settings.appearance.repoFull")}</span>
+            </>
+          );
+        }
+        return installButton(card);
+    }
+  };
+
+  /** An opened card's controls; empty when the card has none. */
+  const actionRow = (card: WallCard): ReactNode[] => {
+    const row: ReactNode[] = [];
+    const id = card.applyId;
+    if (themeMode === "system" && id !== null) {
+      row.push(
+        <Button
+          key="light"
+          size="xs"
+          disabled={holds(id, "light")}
+          aria-label={t("settings.appearance.useForLightAria", { name: card.label })}
+          onClick={() => apply(id, "light")}
+        >
+          {t("settings.appearance.useForLight")}
+        </Button>,
+        <Button
+          key="dark"
+          size="xs"
+          disabled={holds(id, "dark")}
+          aria-label={t("settings.appearance.useForDarkAria", { name: card.label })}
+          onClick={() => apply(id, "dark")}
+        >
+          {t("settings.appearance.useForDark")}
+        </Button>,
+      );
+    }
+    const source = card.source;
+    if (source !== null) {
+      // Duplicate, Edit and Export read the stored source, never the derived Theme.
+      const authored = storedThemeKind(source.id) === "authored";
+      if (authored) {
+        row.push(
+          <Button
+            key="edit"
+            variant="ghost"
+            aria-label={t("settings.appearance.editAria", { name: source.label })}
+            onClick={() => props.onEdit(source)}
+          >
+            {t("settings.appearance.edit")}
+          </Button>,
+        );
+      }
+      row.push(
+        <Button
+          key="duplicate"
+          variant="ghost"
+          aria-label={t("settings.appearance.duplicateAria", { name: source.label })}
+          onClick={() => props.onDuplicate(source)}
+        >
+          {t("settings.appearance.duplicate")}
+        </Button>,
+      );
+      if (authored) {
+        row.push(
+          <Button
+            key="export"
+            variant="ghost"
+            aria-label={t("settings.appearance.exportAria", { name: source.label })}
+            onClick={() => props.onExport(source)}
+          >
+            {t("settings.appearance.export")}
+          </Button>,
+        );
+      }
+      if (source.origin !== undefined && source.backdrop?.kind === "scene") {
+        const origin = source.origin;
+        row.push(
+          <Switch
+            key="animate"
+            on={origin.animate}
+            onChange={(next) => void setStoredThemeMotion(source.id, next)}
+            label={t("settings.appearance.repoAnimateAria", { name: source.label })}
+          />,
+        );
+      }
+      row.push(
+        <Button
+          key="remove"
+          variant="ghost"
+          aria-label={t("settings.appearance.removeAria", { name: source.label })}
+          onClick={() => void removeStoredTheme(source.id)}
+        >
+          {t("settings.appearance.remove")}
+        </Button>,
+      );
+    }
+    return row;
+  };
+
+  const schemeChip = (card: WallCard): ReactNode => (
+    <Chip>{card.theme.dark ? t("settings.appearance.themeDark") : t("settings.appearance.themeLight")}</Chip>
+  );
+  // Listing cards carry no kind: the group heading names the repository, and
+  // an uninstalled entry's placeholder id would read as "custom".
+  const cardKind = (card: WallCard): string | null => (card.entry !== null ? null : kindLabel(card.theme, t));
+
+  const pickChips = (card: WallCard): ReactNode[] => {
+    const id = card.applyId;
+    if (id === null) return [];
+    const chip = (key: string, text: string) => (
+      <Chip key={key} className="border-line-strong text-ink">
+        {text}
+      </Chip>
+    );
+    if (themeMode === "fixed") return holds(id, "fixed") ? [chip("fixed", t("settings.appearance.inUseChip"))] : [];
+    const chips: ReactNode[] = [];
+    if (holds(id, "light")) chips.push(chip("light", t("settings.appearance.lightPickChip")));
+    if (holds(id, "dark")) chips.push(chip("dark", t("settings.appearance.darkPickChip")));
+    return chips;
+  };
+
+  const renderCard = (card: WallCard): ReactNode => {
+    const kind = cardKind(card);
+    const accessibleName = kind !== null ? `${card.label} (${kind})` : card.label;
+    const picks = pickChips(card);
+    const pressed = picks.length > 0;
+    const row = expanded === card.key ? actionRow(card) : [];
+    return (
+      <div
+        key={card.key}
+        data-theme-card={card.key}
+        data-testid={card.entry !== null ? "theme-repository-entry" : "theme-card"}
+        className="relative"
+      >
+        <button
+          type="button"
+          aria-pressed={pressed}
+          aria-label={t("settings.appearance.themeAria", { name: accessibleName })}
+          onClick={() => choose(card)}
+          className={cn(
+            "block w-full rounded-lg border p-2 text-left transition-colors duration-150",
+            pressed ? "border-line-strong bg-hover" : "border-line bg-raised hover:border-line-strong",
+          )}
+        >
+          <span className="flex min-w-0 flex-wrap items-center gap-1.5 pr-24">
+            <span className="truncate text-sm font-medium text-ink">{card.label}</span>
+            {schemeChip(card)}
+            {kind !== null && <Chip>{kind}</Chip>}
+            {card.backdropKind !== null && (
+              <Chip>
+                {card.backdropKind === "scene"
+                  ? t("settings.appearance.themeScene")
+                  : t("settings.appearance.themeBackdrop")}
+              </Chip>
+            )}
+            {card.repoState === "install" && <Chip>{t("settings.appearance.notInstalledChip")}</Chip>}
+            {card.repoState === "update" && <Chip>{t("settings.appearance.updateChip")}</Chip>}
+            {card.repoState === "fails" && (
+              <Chip tone="rose">
+                {t("settings.appearance.repoGateFailed", { count: String(card.failures.length) })}
+              </Chip>
+            )}
+            {picks}
+          </span>
+          <ThemeSpecimen theme={card.theme} variant="card" className="mt-2" />
+        </button>
+        <Button
+          size="xs"
+          className="absolute right-2 top-2"
+          aria-label={t("settings.appearance.previewAria", { name: card.label })}
+          onClick={() => setPreviewKey(card.key)}
+        >
+          {t("settings.appearance.preview")}
+        </Button>
+        {card.entry !== null && <div className="mt-1.5 flex flex-wrap items-center gap-2 px-1">{repoStatus(card)}</div>}
+        {row.length > 0 && (
+          <div ref={expandedRow} className="mt-1.5 flex flex-wrap items-center gap-2 px-1">
+            {row}
+          </div>
+        )}
+      </div>
+    );
+  };
+
+  const previewActions = (card: WallCard): ReactNode => {
+    if (card.repoState === "fails") return null;
+    if (card.repoState === "install") return installButton(card, "solid");
+    const id = card.applyId;
+    if (id === null) return null;
+    const use = (slot: Slot): void => {
+      apply(id, slot);
+      setPreviewKey(null);
+    };
+    return (
+      <>
+        {card.repoState === "update" && updateButton(card)}
+        {themeMode === "fixed" ? (
+          <Button variant="solid" disabled={holds(id, "fixed")} onClick={() => use("fixed")}>
+            {holds(id, "fixed") ? t("settings.appearance.inUseButton") : t("settings.appearance.useTheme")}
+          </Button>
+        ) : (
+          <>
+            <Button
+              variant="solid"
+              disabled={holds(id, "light")}
+              aria-label={t("settings.appearance.useForLightAria", { name: card.label })}
+              onClick={() => use("light")}
+            >
+              {t("settings.appearance.useForLight")}
+            </Button>
+            <Button
+              variant="solid"
+              disabled={holds(id, "dark")}
+              aria-label={t("settings.appearance.useForDarkAria", { name: card.label })}
+              onClick={() => use("dark")}
+            >
+              {t("settings.appearance.useForDark")}
+            </Button>
+          </>
+        )}
+      </>
+    );
+  };
+
+  const previewNotes = (card: WallCard): string[] => {
+    const notes: string[] = [];
+    if (card.repoState === "install" && card.entry?.backdrop != null) notes.push(t("settings.appearance.colorsOnly"));
+    if (card.theme.backdrop !== null) notes.push(t("settings.appearance.backdropStill"));
+    return notes;
+  };
+
+  // Groups by Show, each filtered by scheme and search.
+  const shownRepository = show.startsWith("repo:") ? show.slice(5) : null;
+  const groups: { title: string; cards: WallCard[] }[] =
+    show === "all"
+      ? [
+          { title: t("settings.appearance.showBuiltIn"), cards: curatedCards },
+          { title: t("settings.appearance.storedTitle"), cards: storedCards },
+        ]
+      : show === "builtin"
+        ? [{ title: t("settings.appearance.showBuiltIn"), cards: curatedCards }]
+        : show === "yours"
+          ? [{ title: t("settings.appearance.storedTitle"), cards: storedCards }]
+          : shownRepository !== null
+            ? [{ title: shownRepository, cards: listingCards }]
+            : [];
+  const needle = query.trim().toLocaleLowerCase();
+  const visibleGroups = groups
+    .map((group) => ({
+      title: group.title,
+      cards: group.cards.filter(
+        (card) =>
+          (scheme === "any" || (scheme === "dark") === card.theme.dark) &&
+          (needle === "" || card.label.toLocaleLowerCase().includes(needle)),
+      ),
+    }))
+    .filter((group) => group.cards.length > 0);
+  // A repository listing still loading or failed is not "no match".
+  const listingSettled = shownRepository === null || listing?.status === "ok";
+
+  // The shown repository stays selectable even before the broadcast that lists it.
+  const repositoryOptions =
+    shownRepository !== null && !themeRepositories.includes(shownRepository)
+      ? [...themeRepositories, shownRepository]
+      : themeRepositories;
+
+  const labelOf = (id: string): string => resolveTheme(id, sources).label;
+  const newItem = (label: string, run: () => void, autoFocus = false): ReactNode => (
+    <button
+      type="button"
+      role="menuitem"
+      autoFocus={autoFocus}
+      disabled={props.busy}
+      className={MENU_ROW}
+      onClick={() => {
+        setMenuOpen(false);
+        run();
+      }}
+    >
+      {label}
+    </button>
+  );
+
+  return (
+    <div>
+      <div className="sticky top-0 z-10 -mx-4 border-b border-line-soft bg-overlay px-4 pb-2 pt-2">
+        <div className="flex flex-wrap items-center gap-2">
+          <ChoiceCapsule
+            label={t("settings.appearance.themeMode")}
+            value={themeMode}
+            options={[
+              { value: "fixed", label: t("settings.appearance.themeModeFixed") },
+              { value: "system", label: t("settings.appearance.themeModeSystem") },
+            ]}
+            onChange={(mode) => void setThemeMode(mode)}
+            optionClassName="tab-label px-2"
+          />
+          <span className="flex-1" />
+          <span className="text-sm text-ink-mid">
+            {themeMode === "fixed"
+              ? t("settings.appearance.using", { name: labelOf(pick.themeId) })
+              : t("settings.appearance.picks", { light: labelOf(pick.lightThemeId), dark: labelOf(pick.darkThemeId) })}
+          </span>
+        </div>
+        {themeMode === "system" && (
+          <p className="mt-1 text-xs text-ink-faint">
+            {t("settings.appearance.themeModeSystemHint")}{" "}
+            <span data-testid="theme-now-showing" className="text-ink-mid">
+              {t("settings.appearance.nowShowing", { name: props.showing.label })}
+            </span>
+          </p>
+        )}
+        <div className="mt-2 flex flex-wrap items-center gap-2">
+          <select
+            aria-label={t("settings.appearance.show")}
+            className={FIELD}
+            value={show}
+            onChange={(event) => changeShow(event.target.value as Show)}
+          >
+            <option value="all">{t("settings.appearance.showAll")}</option>
+            <option value="builtin">{t("settings.appearance.showBuiltIn")}</option>
+            <option value="yours">
+              {t("settings.appearance.showYours", {
+                count: String(sources.length),
+                max: String(STORED_THEMES_MAX),
+              })}
+            </option>
+            {repositoryOptions.map((repository) => (
+              <option key={repository} value={`repo:${repository}`}>
+                {repository}
+              </option>
+            ))}
+            <option value="manage">{t("settings.appearance.showManage")}</option>
+          </select>
+          <ChoiceCapsule
+            label={t("settings.appearance.schemeFilter")}
+            value={scheme}
+            options={[
+              { value: "any", label: t("settings.appearance.schemeAny") },
+              { value: "dark", label: t("settings.appearance.schemeDark") },
+              { value: "light", label: t("settings.appearance.schemeLight") },
+            ]}
+            onChange={setScheme}
+            optionClassName="tab-label px-2"
+          />
+          <input
+            type="search"
+            aria-label={t("settings.appearance.search")}
+            placeholder={t("settings.appearance.search")}
+            className={cn(FIELD, "min-w-0 flex-1")}
+            value={query}
+            onChange={(event) => setQuery(event.target.value)}
+          />
+          <div ref={menuButtonRef} className="relative">
+            <Button selected={menuOpen} onClick={() => setMenuOpen(!menuOpen)}>
+              {t("settings.appearance.newMenu")}
+              <Chevron open={menuOpen} />
+            </Button>
+            {menuOpen && (
+              <div ref={menuRef} role="menu" className="absolute right-0 top-full z-20 mt-1">
+                <Panel className="edge-lit animate-rise w-max p-1">
+                  {newItem(t("settings.appearance.newTheme"), props.onNewTheme, true)}
+                  {newItem(t("settings.appearance.importFile"), props.onImportFile)}
+                  {newItem(t("settings.appearance.importVsCode"), props.onImportVsCode)}
+                </Panel>
+              </div>
+            )}
+          </div>
+        </div>
+      </div>
+
+      {props.verdict}
+      {installVerdict?.ok === true && (
+        <p role="status" className="mt-2 text-sm text-ink-mid">
+          {t("settings.appearance.repoInstalled", { name: installVerdict.source.label })}
+        </p>
+      )}
+      {installVerdict?.ok === false && installVerdict.reason === "gate" && (
+        <GateFailures label={installVerdict.label} failures={installVerdict.failures} />
+      )}
+      {installVerdict?.ok === false && installVerdict.reason === "invalid" && (
+        <p role="alert" className="mt-2 text-sm text-rose">
+          {t("settings.appearance.repoInstallFailed", { message: installVerdict.message })}
+        </p>
+      )}
+
+      {show === "manage" ? (
+        <RepositoryManager onBrowse={(repository) => changeShow(`repo:${repository}`)} />
+      ) : (
+        <>
+          {shownRepository !== null && listing?.status === "loading" && (
+            <p role="status" className="mt-3 text-sm text-ink-faint">
+              {t("settings.appearance.repoLoading", { repository: shownRepository })}
+            </p>
+          )}
+          {shownRepository !== null && listing?.status === "error" && (
+            <p role="alert" className="mt-3 text-sm text-rose">
+              {t("settings.appearance.repoFailed", { repository: shownRepository, message: listing.message })}
+            </p>
+          )}
+          {shownRepository !== null && listing?.status === "ok" && (
+            <div className="mt-3">
+              <div className="flex items-center gap-2 text-sm text-ink-faint">
+                <span className="min-w-0 flex-1">
+                  {t("settings.appearance.repoCommit", {
+                    count: String(listing.listing.themes.length),
+                    commit: listing.listing.commit.slice(0, 7),
+                  })}
+                </span>
+                <Button variant="ghost" onClick={() => void openRepository(shownRepository, true)}>
+                  {t("settings.appearance.repoRefresh")}
+                </Button>
+              </div>
+              {listing.listing.skipped > 0 && (
+                <p className="mt-1 text-sm text-ink-faint">
+                  {t("settings.appearance.repoSkipped", { count: String(listing.listing.skipped) })}
+                </p>
+              )}
+            </div>
+          )}
+          {visibleGroups.map((group) => (
+            <section key={group.title}>
+              <h3 className="mb-1.5 mt-3 text-sm font-semibold text-ink">{group.title}</h3>
+              <div className="flex flex-col gap-2.5">{group.cards.map(renderCard)}</div>
+            </section>
+          ))}
+          {visibleGroups.length === 0 && listingSettled && <Empty title={t("settings.appearance.noMatch")} />}
+        </>
+      )}
+
+      {show === "all" && themeRepositories.length > 0 && (
+        <p className="mt-3 text-sm text-ink-faint">{t("settings.appearance.repoAllNote")}</p>
+      )}
+      <p className="mt-3 text-sm text-ink-faint">{t("settings.appearance.mintNote")}</p>
+
+      {previewCard !== null && (
+        <ThemePreviewOverlay
+          theme={previewCard.theme}
+          title={t("settings.appearance.previewTitle", { name: previewCard.label })}
+          chips={
+            <>
+              {schemeChip(previewCard)}
+              {cardKind(previewCard) !== null && <Chip>{cardKind(previewCard)}</Chip>}
+            </>
+          }
+          notes={previewNotes(previewCard)}
+          failures={previewCard.failures}
+          actions={previewActions(previewCard)}
+          onClose={() => setPreviewKey(null)}
+        />
+      )}
+    </div>
+  );
+}

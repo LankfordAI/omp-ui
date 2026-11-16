@@ -1872,6 +1872,19 @@ updated only when the user clicks Update. Editing it detaches it into a plain
 authored theme (ADR-0096).
 _Avoid_: community theme, downloaded theme
 
+**Theme wall**:
+The Themes tab of Settings → Appearance: one column of theme cards, each a
+live sample of the app painted in that theme, narrowed by **Show** (all local,
+built-in, stored, one theme repository, or repository management). Clicking a
+card applies the theme; installing a repository theme never does.
+_Avoid_: theme gallery, theme grid, theme store
+
+**Theme preview**:
+The full-screen mockup the theme wall's **Preview** opens: the app's layout
+painted in one theme, leaving the active theme unchanged. Distinct from the
+editor's in-app preview (`setThemePreview`), which repaints the real app.
+_Avoid_: try in app, live preview
+
 **Theme seeds**:
 The few colours an author picks — canvas, ink, the four accents, the six
 syntax colours — from which every other token is derived. Only the canvas is

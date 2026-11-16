@@ -2084,6 +2084,25 @@ describe("Settings page footer dispatch (issue #300)", () => {
   });
 });
 
+const themeCard = (name: string): HTMLButtonElement =>
+  document.querySelector<HTMLButtonElement>(`button[aria-label="${name} theme"]`)!;
+const previewButton = (name: string): HTMLButtonElement =>
+  document.querySelector<HTMLButtonElement>(`button[aria-label="Preview theme ${name}"]`)!;
+const previewDialog = (name: string): HTMLElement | null =>
+  document.querySelector<HTMLElement>(`[role="dialog"][aria-label="Preview: ${name}"]`);
+const openDisplayTab = (): void => click(document.getElementById("appearance-tab-display")!);
+const chooseShow = async (value: string): Promise<void> => {
+  const select = document.querySelector<HTMLSelectElement>('select[aria-label="Show"]')!;
+  await act(async () => {
+    select.value = value;
+    select.dispatchEvent(new Event("change", { bubbles: true }));
+  });
+};
+const openNewTheme = (): void => {
+  click(buttonWithText("New")!);
+  click([...document.querySelectorAll<HTMLButtonElement>('[role="menuitem"]')].find((b) => b.textContent === "New theme")!);
+};
+
 describe("Settings Appearance page font family (issue #315)", () => {
   const seedAppearance = (fontFamilyId: string): void => {
     useStore.setState({
@@ -2104,6 +2123,7 @@ describe("Settings Appearance page font family (issue #315)", () => {
   it("shows the persisted family and persists a switch to Ubuntu", async () => {
     seedAppearance("default");
     await renderSettings();
+    openDisplayTab();
     expect(document.body.textContent).toContain("Font family");
     expect(fontCard("Default").getAttribute("aria-pressed")).toBe("true");
     expect(fontCard("Ubuntu").getAttribute("aria-pressed")).toBe("false");
@@ -2117,6 +2137,7 @@ describe("Settings Appearance page font family (issue #315)", () => {
   it("reflects a persisted ubuntu setting", async () => {
     seedAppearance("ubuntu");
     await renderSettings();
+    openDisplayTab();
     expect(fontCard("Ubuntu").getAttribute("aria-pressed")).toBe("true");
     expect(fontCard("Default").getAttribute("aria-pressed")).toBe("false");
   });
@@ -2827,6 +2848,7 @@ describe("Settings Appearance page transcript width and glass chrome (issues #39
   it("shows the persisted steps and persists switches from the cards", async () => {
     seedAppearance();
     await renderSettings();
+    openDisplayTab();
     expect(document.body.textContent).toContain("Transcript width");
     expect(document.body.textContent).toContain("Glass chrome");
     expect(card("Wide transcript width").getAttribute("aria-pressed")).toBe("true");
@@ -2855,6 +2877,7 @@ describe("Settings Appearance page transcript width and glass chrome (issues #39
       state: backendState({ transcriptWidth: "comfortable", glassChrome: "off" }),
     });
     await renderSettings();
+    openDisplayTab();
     expect(card("Comfortable transcript width").getAttribute("aria-pressed")).toBe("true");
     expect(card("Off glass chrome").getAttribute("aria-pressed")).toBe("true");
   });
@@ -2933,23 +2956,46 @@ describe("Settings Keyboard page (issue #998)", () => {
 });
 
 describe("Settings Appearance page theme mode and Your themes (issues #999, #1168)", () => {
-  const card = (label: string, within: ParentNode = document): HTMLButtonElement =>
-    within.querySelector<HTMLButtonElement>(`button[aria-label="${label}"]`)!;
-  const group = (label: string): HTMLElement => document.querySelector<HTMLElement>(`[aria-label="${label}"]`)!;
+  it("applies a clicked card to the matching pick", async () => {
+    useStore.setState({ settingsPage: "appearance", state: backendState({}) });
+    await renderSettings();
+    click(themeCard("Nord"));
+    expect(backendMock.setThemeId).toHaveBeenCalledWith("nord");
+    expect(previewDialog("Nord")).toBeNull();
 
-  it("in system mode presses the light and dark picks separately and persists each", async () => {
+    act(() => root!.unmount());
+    root = null;
+    vi.clearAllMocks();
     useStore.setState({
       settingsPage: "appearance",
-      state: backendState({ themeMode: "system", lightThemeId: "solarized-light", darkThemeId: "nord" }),
+      state: backendState({ themeMode: "system", lightThemeId: "light", darkThemeId: "graphite" }),
     });
     await renderSettings();
-    expect(card("Solarized Light theme", group("Light theme")).getAttribute("aria-pressed")).toBe("true");
-    expect(card("Nord theme", group("Dark theme")).getAttribute("aria-pressed")).toBe("true");
-    expect(card("Nord theme", group("Light theme")).getAttribute("aria-pressed")).toBe("false");
-
-    click(card("Dracula theme", group("Dark theme")));
+    click(themeCard("Dracula"));
     expect(backendMock.setDarkThemeId).toHaveBeenCalledWith("dracula");
     expect(backendMock.setLightThemeId).not.toHaveBeenCalled();
+    click(document.querySelector<HTMLButtonElement>('button[aria-label="Use Dracula for light"]')!);
+    expect(backendMock.setLightThemeId).toHaveBeenCalledWith("dracula");
+    click(themeCard("Solarized Light"));
+    expect(backendMock.setLightThemeId).toHaveBeenLastCalledWith("solarized-light");
+  });
+
+  it("previews full screen without applying; Escape closes only the preview", async () => {
+    useStore.setState({ settingsPage: "appearance", state: backendState({}) });
+    await renderSettings();
+    click(previewButton("Nord"));
+    expect(previewDialog("Nord")).not.toBeNull();
+    expect(backendMock.setThemeId).not.toHaveBeenCalled();
+    act(() => {
+      document.body.dispatchEvent(new KeyboardEvent("keydown", { key: "Escape", bubbles: true }));
+    });
+    expect(previewDialog("Nord")).toBeNull();
+    expect(useStore.getState().settingsPage).toBe("appearance");
+
+    click(previewButton("Nord"));
+    click(buttonWithText("Use this theme")!);
+    expect(backendMock.setThemeId).toHaveBeenCalledWith("nord");
+    expect(previewDialog("Nord")).toBeNull();
   });
 
   it("reports which pairings failed and leaves the theme unsaved", async () => {
@@ -2975,7 +3021,7 @@ describe("Settings Appearance page theme mode and Your themes (issues #999, #116
   const openEditor = async (): Promise<void> => {
     useStore.setState({ settingsPage: "appearance", state: backendState({}) });
     await renderSettings();
-    click(buttonWithText("New theme")!);
+    openNewTheme();
   };
   const setColour = async (label: string, hex: string): Promise<void> => {
     const input = document.querySelector<HTMLInputElement>(`input[type="color"][aria-label="${label}"]`)!;
@@ -3086,13 +3132,14 @@ describe("Settings Appearance page Theme repositories (#1178)", () => {
     backendMock.browseThemeRepository.mockResolvedValueOnce(LISTING);
     useStore.setState({ settingsPage: "appearance", state: backendState({ themeRepositories: [REPO], storedThemes }) });
     await renderSettings();
-    click(document.querySelector<HTMLButtonElement>(`button[aria-label="Browse ${REPO}"]`)!);
+    await chooseShow(`repo:${REPO}`);
     await act(async () => {});
   };
 
   it("refuses an invalid repository locally without calling the host", async () => {
     useStore.setState({ settingsPage: "appearance", state: backendState({}) });
     await renderSettings();
+    await chooseShow("manage");
     await typeRepository("not a repo");
     expect(document.body.textContent).toContain(t("settings.appearance.repoInvalid"));
     expect(backendMock.addThemeRepository).not.toHaveBeenCalled();
@@ -3103,6 +3150,7 @@ describe("Settings Appearance page Theme repositories (#1178)", () => {
     backendMock.browseThemeRepository.mockResolvedValueOnce(LISTING);
     useStore.setState({ settingsPage: "appearance", state: backendState({}) });
     await renderSettings();
+    await chooseShow("manage");
     await typeRepository("https://github.com/Owner/Themes");
     expect(backendMock.addThemeRepository).toHaveBeenCalledWith("https://github.com/Owner/Themes");
     expect(backendMock.browseThemeRepository).toHaveBeenCalledWith(REPO, false);
@@ -3113,10 +3161,12 @@ describe("Settings Appearance page Theme repositories (#1178)", () => {
     expect(document.body.textContent).toContain("4 themes at commit ccccccc");
     expect(entryCard("Fresh").querySelector('button[aria-label="Install theme Fresh"]')).not.toBeNull();
     expect(entryCard("Same").textContent).toContain("installed");
-    expect(entryCard("Same").querySelector("button")).toBeNull();
+    expect(entryCard("Same").querySelector('button[aria-label^="Install"], button[aria-label^="Update"]')).toBeNull();
     expect(entryCard("Moved").querySelector('button[aria-label="Update theme Moved"]')).not.toBeNull();
     expect(entryCard("Grey").textContent).toMatch(/Fails \d+ colour checks; cannot be installed\./);
-    expect(entryCard("Grey").querySelector("button")).toBeNull();
+    expect(entryCard("Grey").querySelector('button[aria-label^="Install"], button[aria-label^="Update"]')).toBeNull();
+    click(themeCard("Fresh"));
+    expect(backendMock.setThemeId).not.toHaveBeenCalled();
   });
 
   it("at the cap disables Install but keeps Update", async () => {
@@ -3147,6 +3197,8 @@ describe("Settings Appearance page Theme repositories (#1178)", () => {
     useStore.setState({ settingsPage: "appearance", state: backendState({ storedThemes: [scene] }) });
     await renderSettings();
     expect(document.body.textContent).toContain(`from ${REPO}`);
+    click(themeCard("Installed scene.json (from owner/themes)"));
+    expect(backendMock.setThemeId).toHaveBeenCalledWith("custom-scene");
     const animate = document.querySelector<HTMLButtonElement>(
       'button[role="switch"][aria-label="Animate the backdrop of Installed scene.json"]',
     )!;

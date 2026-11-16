@@ -35,6 +35,7 @@ import { setThemePreview } from "../../lib/themes";
 import { useStore } from "../../store";
 import { Button, Disclosure, Switch } from "../ui";
 import { FIELD } from "./rows";
+import { ThemeSpecimen } from "./ThemeSpecimen";
 
 /**
  * The seed editor (issue #1168, ADR-0094): a few colours in, a whole theme
@@ -68,7 +69,7 @@ const SYNTAX_FIELDS: ReadonlyArray<{ seed: ThemeSyntaxSeed; label: MessageKey }>
 ];
 
 /** The failing pairings, plane collapses and signal hue, one line each. */
-function GateFailureList({ failures }: { failures: readonly ThemeGateFailure[] }) {
+export function GateFailureList({ failures }: { failures: readonly ThemeGateFailure[] }) {
   const t = useT();
   return (
     <ul className="mt-1 list-disc pl-4 font-mono text-xs text-ink-mid">
@@ -130,72 +131,6 @@ function initialBackdrop(backdrop: DraftBackdrop | null): EditorBackdrop | null 
   const bytes = base64ToBytes(backdrop.data);
   const check = checkBackdropBytes(bytes);
   return check.ok ? { from: "bytes", bytes, mime: check.mime, kind: check.kind } : null;
-}
-
-/** The planes and accents each swatch strip paints, in strip order. */
-const SWATCH_TOKENS = [
-  "--color-void",
-  "--color-surface",
-  "--color-raised",
-  "--color-signal",
-  "--color-copper",
-  "--color-rose",
-  "--color-iris",
-] as const;
-
-/** A strip of one theme's planes and accents: the theme grid's cards and the theme repository previews. */
-export function SwatchStrip({ theme }: { theme: Theme }) {
-  return (
-    // Inline styles are the one sanctioned exception here: these swatches
-    // paint a theme that is NOT the active one, so the live CSS tokens
-    // cannot express them.
-    <span className="mt-2 flex h-4 overflow-hidden rounded border border-line">
-      {SWATCH_TOKENS.map((token) => (
-        <span key={token} className="flex-1" style={{ background: theme.tokens[token] }} />
-      ))}
-    </span>
-  );
-}
-
-/** A fixed sample painted with the draft's own colours (the ThemeCard inline-style exception). */
-function SampleCard({ theme }: { theme: Theme }) {
-  const tk = theme.tokens;
-  const code = theme.code;
-  return (
-    <div
-      data-testid="theme-editor-sample"
-      className="rounded-lg border p-3"
-      style={{ background: tk["--color-surface"], borderColor: tk["--color-line"] }}
-    >
-      <p className="text-sm font-medium" style={{ color: tk["--color-ink"] }}>
-        Aa Bb Cc 0123
-      </p>
-      <p className="mt-0.5 text-sm" style={{ color: tk["--color-ink-mid"] }}>
-        Aa Bb Cc 0123
-      </p>
-      <p className="mt-0.5 text-xs" style={{ color: tk["--color-ink-dim"] }}>
-        Aa Bb Cc 0123
-      </p>
-      <div className="mt-2 flex gap-1">
-        {(["--color-signal", "--color-copper", "--color-rose", "--color-iris"] as const).map((token) => (
-          <span key={token} className="h-3 flex-1 rounded-sm" style={{ background: tk[token] }} />
-        ))}
-      </div>
-      <pre
-        className="mt-2 overflow-hidden rounded px-2 py-1 font-mono text-xs"
-        style={{ background: tk["--color-sunken"], color: code.foreground }}
-      >
-        <span style={{ color: code.keyword }}>const</span>{" "}
-        <span style={{ color: code.property }}>size</span> ={" "}
-        <span style={{ color: code.function }}>measure</span>(
-        <span style={{ color: code.string }}>&quot;card&quot;</span>,{" "}
-        <span style={{ color: code.constant }}>42</span>){" "}
-        <span style={{ color: code.comment }}>{"// "}
-          <span style={{ color: code.type }}>Size</span>
-        </span>
-      </pre>
-    </div>
-  );
 }
 
 export function ThemeEditor(props: {
@@ -500,8 +435,8 @@ export function ThemeEditor(props: {
       )}
 
       <h4 className="mt-3 text-sm font-semibold text-ink">{t("settings.appearance.editorPreview")}</h4>
-      <div className="mt-1.5">
-        <SampleCard theme={draftTheme} />
+      <div data-testid="theme-editor-sample" className="mt-1.5">
+        <ThemeSpecimen theme={draftTheme} variant="card" asset={asset} />
       </div>
       <div className="mt-2 flex items-center gap-3">
         <span className="min-w-0 flex-1 text-sm text-ink-mid">
