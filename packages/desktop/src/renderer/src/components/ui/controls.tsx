@@ -78,7 +78,12 @@ export function Button({
         "disabled:pointer-events-none",
         // Round-4 judge, Typography 1: action buttons carry the same 14px as
         // the text they sit beside; 12px is reserved for metadata and keycaps.
-        size === "xs" ? "h-6 px-2 text-sm" : "h-7 px-2.5 text-sm",
+        // min-h + py, not h: labels long enough to wrap (finish-dialog
+        // push/publish rows, longer locales) then stretch the border instead
+        // of bleeding through it. px-px keeps single-line pixels exact under
+        // border-box: a text-sm line box (20px) + 1+1 padding + the border
+        // (2px) = 24 = the old h-6; min-h-7 holds sm at the old 28.
+        size === "xs" ? "min-h-6 px-2 py-px text-sm" : "min-h-7 px-2.5 py-px text-sm",
         variantClass,
         disabledClass,
         className,
