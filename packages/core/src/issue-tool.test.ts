@@ -46,6 +46,13 @@ function featureArgs(overrides: Partial<IssueToolArgs> = {}): Record<string, unk
   };
 }
 
+/** The parsed args of input the test expects to be valid; a refusal fails loudly. */
+function parsedArgs(raw: Record<string, unknown>): IssueToolArgs {
+  const parsed = parseIssueToolArgs(raw);
+  if (!parsed.ok) throw new Error(`unexpected refusal: ${parsed.reason}`);
+  return parsed.args;
+}
+
 describe("issue tool schemas", () => {
   for (const tool of [issueDraftTool(), issueFileTool()]) {
     it(`${tool.name} is an essential strict object schema without root combinators`, () => {
@@ -150,7 +157,7 @@ describe("parseIssueToolArgs", () => {
 
 describe("renderIssueBody", () => {
   it("emits the bug template's headings verbatim, in template order, with host facts once", () => {
-    const body = renderIssueBody(parseIssueToolArgs(bugArgs()).args as never, FACTS);
+    const body = renderIssueBody(parsedArgs(bugArgs()), FACTS);
     expect(body.match(/^## (.*)$/gm)).toEqual([
       "## Description",
       "## Steps to reproduce",
@@ -166,7 +173,7 @@ describe("renderIssueBody", () => {
     expect(body).toContain("Linux 7.3.3");
     // The facts block appears exactly once even when agent prose repeats versions.
     const withProse = renderIssueBody(
-      parseIssueToolArgs(bugArgs({ description: "On 0.9.9 and omp 1.2.3 it breaks." })).args as never,
+      parsedArgs(bugArgs({ description: "On 0.9.9 and omp 1.2.3 it breaks." })),
       FACTS,
     );
     expect(withProse.match(/^## omp-ui version \/ commit$/gm)).toHaveLength(1);
@@ -175,19 +182,19 @@ describe("renderIssueBody", () => {
   });
 
   it("prints unknown for a null omp version", () => {
-    const body = renderIssueBody(parseIssueToolArgs(bugArgs()).args as never, { ...FACTS, ompVersion: null });
+    const body = renderIssueBody(parsedArgs(bugArgs()), { ...FACTS, ompVersion: null });
     expect(body).toContain("## omp version\n\nunknown");
   });
 
   it("fences logs as shell only when non-empty", () => {
-    const withLogs = renderIssueBody(parseIssueToolArgs(bugArgs({ logs: "boom at 3" })).args as never, FACTS);
+    const withLogs = renderIssueBody(parsedArgs(bugArgs({ logs: "boom at 3" })), FACTS);
     expect(withLogs).toContain("## Logs / output\n\n```shell\nboom at 3\n```");
-    const blank = renderIssueBody(parseIssueToolArgs(bugArgs({ logs: "   " })).args as never, FACTS);
+    const blank = renderIssueBody(parsedArgs(bugArgs({ logs: "   " })), FACTS);
     expect(blank).not.toContain("Logs / output");
   });
 
   it("emits the feature template's headings and omits absent optionals", () => {
-    const plain = renderIssueBody(parseIssueToolArgs(featureArgs()).args as never, FACTS);
+    const plain = renderIssueBody(parsedArgs(featureArgs()), FACTS);
     expect(plain.match(/^## (.*)$/gm)).toEqual([
       "## Problem / motivation",
       "## Proposed solution",
@@ -195,7 +202,7 @@ describe("renderIssueBody", () => {
     ]);
     expect(plain).not.toContain("omp-ui version");
     const full = renderIssueBody(
-      parseIssueToolArgs(featureArgs({ alternatives: "A DR covers it", context: "see #1" })).args as never,
+      parsedArgs(featureArgs({ alternatives: "A DR covers it", context: "see #1" })),
       FACTS,
     );
     expect(full.match(/^## (.*)$/gm)).toEqual([
@@ -210,8 +217,8 @@ describe("renderIssueBody", () => {
 
 describe("issueRepositoryOf", () => {
   it("defaults the repository", () => {
-    expect(issueRepositoryOf(parseIssueToolArgs(bugArgs()).args as never)).toBe(DEFAULT_ISSUE_REPOSITORY);
-    expect(issueRepositoryOf(parseIssueToolArgs(bugArgs({ repository: "other/repo" })).args as never)).toBe("other/repo");
+    expect(issueRepositoryOf(parsedArgs(bugArgs()))).toBe(DEFAULT_ISSUE_REPOSITORY);
+    expect(issueRepositoryOf(parsedArgs(bugArgs({ repository: "other/repo" })))).toBe("other/repo");
   });
 });
 

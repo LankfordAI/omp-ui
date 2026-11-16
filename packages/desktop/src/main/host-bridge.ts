@@ -239,11 +239,6 @@ function renderThemeList(list: ThemeList): string {
   return lines.join("\n");
 }
 
-/** A slot's theme label, falling back to the raw id for an unresolvable pick. */
-function themeLabel(list: ThemeList, id: string): string {
-  return list.themes.find((theme) => theme.id === id)?.label ?? id;
-}
-
 /** The motion sentence, cost included while on (the #1168 floor is honest). */
 function motionSentence(motion: boolean): string {
   return motion

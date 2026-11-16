@@ -74,8 +74,10 @@ const SECTION_MAX = 16_000;
 export const ISSUE_BODY_MAX = 64_000;
 const REPOSITORY_PATTERN = /^[A-Za-z0-9._-]+\/[A-Za-z0-9._-]+$/;
 /** Single-line fields reject EVERY control char, newline included (fleet's CONTROL_CHARS shape). */
+// eslint-disable-next-line no-control-regex -- refusing control characters is the check
 const SINGLE_LINE_CONTROL = /[\u0000-\u001f\u007f-\u009f]/;
 /** Multi-line free text allows \n and \t but nothing else in the C0/C1 ranges. */
+// eslint-disable-next-line no-control-regex -- refusing control characters is the check
 const MULTI_LINE_CONTROL = /[\u0000-\u0008\u000b\u000c\u000e-\u001f\u007f-\u009f]/;
 /** A leading template prefix on the agent's title is stripped before re-adding. */
 const LEADING_PREFIX = /^\[(?:bug|feature)\]:\s*/i;
