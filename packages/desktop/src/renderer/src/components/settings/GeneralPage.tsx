@@ -339,6 +339,7 @@ export function GeneralPage() {
   const setHtmlArtifactScripts = useStore((s) => s.setHtmlArtifactScripts);
   const setDeviceAgentAccess = useStore((s) => s.setDeviceAgentAccess);
   const setThemeAgentAccess = useStore((s) => s.setThemeAgentAccess);
+  const setIssueAgentAccess = useStore((s) => s.setIssueAgentAccess);
   const setTelemetryModelsEnabled = useStore((s) => s.setTelemetryModelsEnabled);
   const setDefaultAdvisor = useStore((s) => s.setDefaultAdvisor);
   const setDefaultAutoThinking = useStore((s) => s.setDefaultAutoThinking);
@@ -545,6 +546,16 @@ export function GeneralPage() {
           on={state?.themeAgentAccess === true}
           onChange={(next) => void setThemeAgentAccess(next)}
           label={t("settings.general.themeAgentAccess")}
+        />
+      </Row>
+      <Row
+        title={t("settings.general.issueAgentAccess")}
+        hint={t("settings.general.issueAgentAccessHint")}
+      >
+        <Switch
+          on={state?.issueAgentAccess === true}
+          onChange={(next) => void setIssueAgentAccess(next)}
+          label={t("settings.general.issueAgentAccess")}
         />
       </Row>
       <Row

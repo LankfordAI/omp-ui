@@ -8,6 +8,7 @@
 // malformed, and a URI scheme must match `^[a-z][a-z0-9+.-]*$`.
 
 import { deviceTool } from "./device-tool";
+import { issueDraftTool, issueFileTool } from "./issue-tool";
 import { themeTool } from "./theme-tool";
 import {
   FLEET_BATCH_MAX,
@@ -82,12 +83,12 @@ export function hostUriSchemeDefinition(): RpcHostUriSchemeDefinition {
   };
 }
 
-export interface HostToolOptions { vault: boolean; fleet: boolean; device: boolean; theme: boolean; artifacts: boolean }
+export interface HostToolOptions { vault: boolean; fleet: boolean; device: boolean; theme: boolean; issues: boolean; artifacts: boolean }
 export const ARTIFACT_CAPTURE_TOOL_NAME = "omp-ui_artifact_capture";
 
-/** Notify and render_html are always present; registered vaults enable the ten vault tools; the caller's fleet gate (every chat, or the fleet setting) enables the nine fleet tools; a session-bound device pane enables omp-ui_device; the theme agent-access setting enables omp-ui_theme_save after it; managed artifacts enable omp-ui_artifact_capture last. */
+/** Notify and render_html are always present; registered vaults enable the ten vault tools; the caller's fleet gate (every chat, or the fleet setting) enables the nine fleet tools; a session-bound device pane enables omp-ui_device; the theme agent-access setting enables omp-ui_theme_save after it; the issue agent-access setting enables omp-ui_issue_draft and omp-ui_issue_file after that; managed artifacts enable omp-ui_artifact_capture last. */
 export function hostToolsDefinition(
-  opts: HostToolOptions = { vault: false, fleet: false, device: false, theme: false, artifacts: false },
+  opts: HostToolOptions = { vault: false, fleet: false, device: false, theme: false, issues: false, artifacts: false },
 ): RpcHostToolDefinition[] {
   const tools: RpcHostToolDefinition[] = [
     {
@@ -112,6 +113,7 @@ export function hostToolsDefinition(
   if (opts.fleet) tools.push(...fleetTools());
   if (opts.device) tools.push(deviceTool());
   if (opts.theme) tools.push(themeTool());
+  if (opts.issues) tools.push(issueDraftTool(), issueFileTool());
   if (opts.artifacts) tools.push(artifactCaptureTool());
   return tools;
 }
@@ -611,7 +613,7 @@ export function setHostUriSchemesCommand(id = "omp-ui-host-uri-1"): object {
 }
 
 export function setHostToolsCommand(
-  opts: HostToolOptions = { vault: false, fleet: false, device: false, theme: false, artifacts: false },
+  opts: HostToolOptions = { vault: false, fleet: false, device: false, theme: false, issues: false, artifacts: false },
   id = "omp-ui-host-tools-1",
 ): object {
   return { id, type: "set_host_tools", tools: hostToolsDefinition(opts) };

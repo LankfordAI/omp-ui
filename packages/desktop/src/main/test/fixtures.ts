@@ -53,6 +53,7 @@ interface RegistrySettings {
   storedThemes: unknown[];
   backdropMotion: boolean;
   themeAgentAccess: boolean;
+  issueAgentAccess: boolean;
   fontFamilyId: string;
   transcriptWidth: TranscriptWidth;
   glassChrome: GlassChrome;
@@ -186,6 +187,7 @@ export function seedRegistry(file: string, patch: RegistrySeedPatch = {}): void 
     storedThemes: [],
     backdropMotion: true,
     themeAgentAccess: false,
+    issueAgentAccess: false,
     fontFamilyId: "default",
     transcriptWidth: "wide",
     glassChrome: "subtle",

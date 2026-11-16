@@ -739,6 +739,8 @@ export interface SettingsSlice {
   setDeviceAgentAccess(on: boolean): Promise<void>;
   /** Gives new and resumed sessions the omp-ui_theme_save tool (issue #1168); default off. */
   setThemeAgentAccess(on: boolean): Promise<void>;
+  /** Gives new and resumed sessions the omp-ui_issue_draft / omp-ui_issue_file tools (ADR-0095); default off. */
+  setIssueAgentAccess(on: boolean): Promise<void>;
   setTelemetryModelsEnabled(on: boolean): Promise<void>;
   setDefaultAdvisor(on: boolean): Promise<void>;
   setDefaultAutoThinking(on: boolean): Promise<void>;

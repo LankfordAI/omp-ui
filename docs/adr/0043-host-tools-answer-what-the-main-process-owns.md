@@ -113,3 +113,11 @@ theme and, when the agent passed `apply` after the user agreed in its question
 tool, also applies the theme it just saved through the same main-owned
 settings write
 ([ADR-0094](0094-themes-carry-backdrops-and-can-be-authored.md)).
+
+**Amended 2026-11-16 (ADR-0095):** `omp-ui_issue_draft` and `omp-ui_issue_file`
+join the conditional host tools, gated like the theme tool: registered at spawn
+or resume only while *Agents can draft issues* is on, never for webhook- or
+MCP-requested sessions, and answered by main, which owns the user's `gh` CLI
+(the #414 rule — omp-ui holds no token). `_draft` renders and searches; `_file`
+is the only write and refuses unless it reproduces the last draft's fingerprint.
+([ADR-0095](0095-agent-drafted-issues-ride-the-users-gh.md)).

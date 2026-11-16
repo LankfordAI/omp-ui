@@ -259,6 +259,7 @@ const VALID_ARGS = {
   readThemeBackdrop: ["a".repeat(64)],
   setBackdropMotion: [false],
   setThemeAgentAccess: [true],
+  setIssueAgentAccess: [true],
   setHibernateIdleMinutes: [30],
   setMcpServerEnabled: [{ projectCwd: null, name: "github", enabled: true }],
   setOmpAutoUpgrade: [true],

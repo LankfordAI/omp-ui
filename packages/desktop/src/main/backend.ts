@@ -2981,6 +2981,7 @@ export class MainBackend {
       storedThemes: this.registry.getSetting("storedThemes"),
       backdropMotion: this.registry.getSetting("backdropMotion"),
       themeAgentAccess: this.registry.getSetting("themeAgentAccess"),
+      issueAgentAccess: this.registry.getSetting("issueAgentAccess"),
       fontFamilyId: this.registry.getSetting("fontFamilyId"),
       transcriptWidth: this.registry.getSetting("transcriptWidth"),
       experimentsEnabled: this.registry.getSetting("experimentsEnabled"),

@@ -5,6 +5,8 @@ import {
   formatFleetMachines,
   DEVICE_TOOL_NAME,
   THEME_TOOL_NAME,
+  ISSUE_DRAFT_TOOL_NAME,
+  ISSUE_FILE_TOOL_NAME,
   parseThemeToolArgs,
   type SaveStoredThemeResult,
   type ThemeGateFailure,
@@ -84,6 +86,7 @@ import {
 import type { ConfinedPlanRead } from "./plan-file";
 import type { ArtifactService } from "./artifact-service";
 import { readArtifactDatasetFile } from "./artifact-dataset-file";
+import type { IssueBridgeDeps } from "./issue-bridge";
 
 /**
  * omp 18.6.1 has no host-tool timer of its own: a request settles on a result,
@@ -160,6 +163,8 @@ export interface HostBridgeDeps {
     /** Paints a just-saved stored theme; false when it vanished from the registry. */
     apply(source: ThemeSource): Promise<boolean>;
   };
+  /** The issue host tools' answerer (ADR-0095); absent means both answer as unavailable. */
+  issues?: IssueBridgeDeps;
   artifacts?: ArtifactService;
 }
 
@@ -291,6 +296,7 @@ export class HostBridge {
     this.vaultTokens.delete(tabId);
     this.vaultWrites.delete(tabId);
     this.vaultCalls.delete(tabId);
+    this.deps.issues?.forget?.(tabId);
     this.resetArtifactCalls(tabId);
   }
 
@@ -556,6 +562,28 @@ export class HostBridge {
         frame = hostToolErrorResult(call.id, `theme_save refused: ${error instanceof Error ? error.message : "unavailable"}`);
       }
       if (pending === undefined || this.pending.get(call.id) !== pending) return;
+      this.answer(call.id, frame, send);
+      return;
+    }
+    if (call.toolName === ISSUE_DRAFT_TOOL_NAME || call.toolName === ISSUE_FILE_TOOL_NAME) {
+      const issues = this.deps.issues;
+      if (issues === undefined) {
+        this.answer(call.id, hostToolErrorResult(call.id, "issue tools are unavailable"), send);
+        return;
+      }
+      const label = call.toolName === ISSUE_DRAFT_TOOL_NAME ? "issue_draft" : "issue_file";
+      let frame: RpcFrame;
+      try {
+        const outcome =
+          call.toolName === ISSUE_DRAFT_TOOL_NAME
+            ? await issues.draft(tabId, call.args)
+            : await issues.file(tabId, call.args);
+        frame = outcome.ok
+          ? hostToolTextResult(call.id, outcome.text)
+          : hostToolErrorResult(call.id, `${label} refused: ${outcome.reason}`);
+      } catch (error) {
+        frame = hostToolErrorResult(call.id, `${label} refused: ${error instanceof Error ? error.message : "unavailable"}`);
+      }
       this.answer(call.id, frame, send);
       return;
     }

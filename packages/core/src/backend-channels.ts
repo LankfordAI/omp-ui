@@ -688,6 +688,8 @@ export const BACKEND_CHANNELS = {
   setBackdropMotion: { channel: "settings:setBackdropMotion", ...request<[on: boolean], void>([bool()]) },
   /** Registers omp-ui_theme_save on sessions started or resumed afterwards (issue #1168). */
   setThemeAgentAccess: { channel: "settings:setThemeAgentAccess", ...request<[on: boolean], void>([bool()]) },
+  /** Registers omp-ui_issue_draft / omp-ui_issue_file on sessions started or resumed afterwards (ADR-0095). */
+  setIssueAgentAccess: { channel: "settings:setIssueAgentAccess", ...request<[on: boolean], void>([bool()]) },
   setFontFamilyId: { channel: "settings:setFontFamilyId", ...request<[id: string], void>([str()]) },
   setTranscriptWidth: {
     channel: "settings:setTranscriptWidth",
