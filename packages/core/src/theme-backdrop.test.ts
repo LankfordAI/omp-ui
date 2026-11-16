@@ -19,22 +19,18 @@ const svg = (body: string): Uint8Array =>
 
 describe("backdropFloors", () => {
   it.each([
-    ["graphite", 0, { void: 81, sunken: 82, reading: 87 }],
-    ["graphite", 50, { void: 61, sunken: 63, reading: 72 }],
-    ["nord", 0, { void: 78, sunken: 81, reading: 97 }],
-    ["nord", 50, { void: 57, sunken: 61, reading: 94 }],
-    ["light", 0, { void: 88, sunken: 86, reading: 83 }],
-    ["light", 50, { void: 76, sunken: 72, reading: 68 }],
-    ["solarized-light", 0, { void: 89, sunken: 86, reading: 93 }],
-    ["solarized-light", 50, { void: 78, sunken: 73, reading: 86 }],
-  ] as const)("%s at dim %i", (id, dim, expected) => {
-    expect(backdropFloors(byId(id).tokens, dim)).toEqual(expected);
+    ["graphite", { void: 81, sunken: 82, reading: 87, overlay: 55 }],
+    ["nord", { void: 78, sunken: 81, reading: 97, overlay: 50 }],
+    ["light", { void: 88, sunken: 86, reading: 83, overlay: 50 }],
+    ["solarized-light", { void: 89, sunken: 86, reading: 93, overlay: 50 }],
+  ] as const)("%s", (id, expected) => {
+    expect(backdropFloors(byId(id).tokens)).toEqual(expected);
   });
 
   it("returns 100 for a plane whose text fails even when opaque", () => {
     const tokens = { ...byId("graphite").tokens };
     tokens["--color-sunken"] = tokens["--color-ink-faint"];
-    expect(backdropFloors(tokens, 40).sunken).toBe(100);
+    expect(backdropFloors(tokens).sunken).toBe(100);
   });
 });
 
@@ -89,15 +85,15 @@ describe("stillScene", () => {
 });
 
 describe("isThemeBackdrop", () => {
-  const valid = { assetHash: "a".repeat(64), kind: "scene", mime: "image/svg+xml", dim: 40, blur: 12 };
+  const valid = { assetHash: "a".repeat(64), kind: "scene", mime: "image/svg+xml", blur: 12 };
 
   it("accepts a well-formed reference", () => {
     expect(isThemeBackdrop(valid)).toBe(true);
   });
 
-  it("refuses a scene with a raster mime, an out-of-range dim, or an extra key", () => {
+  it("refuses a scene with a raster mime, an out-of-range blur, or an extra key", () => {
     expect(isThemeBackdrop({ ...valid, mime: "image/png" })).toBe(false);
-    expect(isThemeBackdrop({ ...valid, dim: 81 })).toBe(false);
+    expect(isThemeBackdrop({ ...valid, blur: 33 })).toBe(false);
     expect(isThemeBackdrop({ ...valid, extra: true })).toBe(false);
   });
 });

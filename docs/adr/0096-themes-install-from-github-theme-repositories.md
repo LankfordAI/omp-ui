@@ -51,3 +51,5 @@ Fetching runs in the owning desktop host's main process (`ThemeRepositoryService
 - Removing a repository keeps its installed themes; they keep their *from owner/repo* chip but get no update offer until the repository is added again.
 - A lite host serves no theme repository channels; the section shows the request's rejection.
 - Previewing a backdrop theme downloads its whole theme file (up to 6 MiB) from raw.githubusercontent.com, which is not counted against the API limit; Install downloads it again.
+
+**Amended 2026-11-16 ([#1187](https://github.com/LankfordAI/omp-ui/issues/1187)):** §12's Preview answer is the backdrop's bytes, mime and blur; dim is retired with the void scrim ([ADR-0094](0094-themes-carry-backdrops-and-can-be-authored.md)).

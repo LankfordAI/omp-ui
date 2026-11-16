@@ -4,7 +4,9 @@ This guide explains what users receive from a release and how maintainers publis
 
 ## Unreleased
 
-Nothing since [v0.36.0](https://github.com/LankfordAI/omp-ui/releases/tag/v0.36.0). Add one bullet per shipped change here, citing its issue as `#N`; the release tag lifts these into Highlights.
+Add one bullet per shipped change here, citing its issue as `#N`; the release tag lifts these into Highlights.
+
+- Theme backdrops show as authored, with no colour cast; the reading card and chrome stay at their contrast floors, and the Dim control is gone (#1187).
 
 ## Choose a download
 

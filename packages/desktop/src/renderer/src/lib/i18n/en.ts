@@ -1289,7 +1289,6 @@ export const en = {
   "settings.appearance.backdropRemove": "Remove backdrop",
   "settings.appearance.backdropTooLarge": "Cannot use that file: backdrops can be at most 4 MiB.",
   "settings.appearance.backdropRefused": "Cannot use that file: {message}",
-  "settings.appearance.backdropDim": "Dim",
   "settings.appearance.backdropBlur": "Blur",
   "settings.appearance.backdropFloorNote": "Text panels stay at least {reading}% solid; sidebar {sunken}%.",
   "settings.appearance.previewInApp": "Preview in app",

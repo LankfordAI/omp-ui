@@ -384,7 +384,7 @@ export function ThemeWall(props: {
     return {
       theme: {
         ...card.theme,
-        backdrop: { assetHash: PREVIEW_HASH, kind: loaded.asset.kind, mime: loaded.mime, dim: loaded.dim, blur: loaded.blur },
+        backdrop: { assetHash: PREVIEW_HASH, kind: loaded.asset.kind, mime: loaded.mime, blur: loaded.blur },
       },
       asset: loaded.asset,
     };

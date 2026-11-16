@@ -1895,8 +1895,8 @@ _Avoid_: base colours, palette, swatches
 
 **Backdrop**:
 The picture a theme may carry behind the whole app: a still image or a
-**scene**. It is blurred once on its own layer and dimmed toward the theme's
-void; text never sits on it directly (ADR-0094).
+**scene**. It is blurred once on its own layer and shown as authored, never
+dimmed; text never sits on it directly (ADR-0094).
 _Avoid_: wallpaper, background image
 
 **Scene**:
@@ -1908,7 +1908,7 @@ _Avoid_: animated wallpaper, live background
 **Backdrop asset**:
 The stored bytes of a **backdrop**, addressed by their SHA-256 in
 `theme-backdrops/` beside the registry. The registry holds only the hash and
-the dim and blur; an asset no stored theme names is pruned (ADR-0094).
+the blur; an asset no stored theme names is pruned (ADR-0094).
 _Avoid_: backdrop file, theme image
 
 **Reading card**:

@@ -121,7 +121,7 @@ function editorInitialOf(source: ThemeSource, label: string, id?: string): Edito
     backdrop:
       backdrop === undefined
         ? null
-        : { from: "asset", assetHash: backdrop.assetHash, dim: backdrop.dim, blur: backdrop.blur },
+        : { from: "asset", assetHash: backdrop.assetHash, blur: backdrop.blur },
   };
 }
 
@@ -136,7 +136,7 @@ async function themeFileOf(source: ThemeSource): Promise<ThemeFile> {
   if (source.backdrop !== undefined) {
     const bytes = await backend.readThemeBackdrop(source.backdrop.assetHash);
     if (bytes !== null) {
-      file.backdrop = { mime: bytes.mime, data: bytes.data, dim: source.backdrop.dim, blur: source.backdrop.blur };
+      file.backdrop = { mime: bytes.mime, data: bytes.data, blur: source.backdrop.blur };
     }
   }
   return file;

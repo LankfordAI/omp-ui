@@ -235,7 +235,7 @@ describe("repositoryThemeMismatch", () => {
   const draft = (patch: Partial<StoredThemeDraft> = {}): StoredThemeDraft => ({
     label: " Dusk ",
     seeds: { canvas: "#1A1B26" },
-    backdrop: { from: "bytes", data: scene, dim: 40, blur: 12 },
+    backdrop: { from: "bytes", data: scene, blur: 12 },
     ...patch,
   });
 
@@ -246,7 +246,7 @@ describe("repositoryThemeMismatch", () => {
   it.each([
     ["label", draft({ label: "Dawn" })],
     ["seeds", draft({ seeds: { canvas: "#1a1b27" } })],
-    ["backdrop kind", draft({ backdrop: { from: "bytes", data: png, dim: 40, blur: 12 } })],
+    ["backdrop kind", draft({ backdrop: { from: "bytes", data: png, blur: 12 } })],
     ["missing backdrop", draft({ backdrop: null })],
   ])("trips on a different %s", (_name, file) => {
     expect(repositoryThemeMismatch(indexEntry, file)).toBe(true);

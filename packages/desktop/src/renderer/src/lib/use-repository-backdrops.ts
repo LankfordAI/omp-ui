@@ -10,7 +10,7 @@ import { base64ToBytes } from "./clipboard-image";
 
 export type RepositoryBackdrop =
   | { status: "loading" }
-  | { status: "ready"; asset: BackdropAsset; mime: ThemeBackdropMime; dim: number; blur: number }
+  | { status: "ready"; asset: BackdropAsset; mime: ThemeBackdropMime; blur: number }
   | { status: "error"; message: string };
 
 /** Ready assets kept at once; past this the least recently requested one is released. */
@@ -74,8 +74,8 @@ export function useRepositoryBackdrops(
             settle(blob, { status: "error", message: result.message });
             return;
           }
-          const { mime, data, dim, blur } = result.backdrop;
-          settle(blob, { status: "ready", asset: backdropAssetFromBytes(base64ToBytes(data), mime), mime, dim, blur });
+          const { mime, data, blur } = result.backdrop;
+          settle(blob, { status: "ready", asset: backdropAssetFromBytes(base64ToBytes(data), mime), mime, blur });
         },
         (err: unknown) => {
           if (mounted.current) settle(blob, { status: "error", message: displayMessage(err) });

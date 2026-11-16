@@ -180,6 +180,6 @@ export class ThemeRepositoryService {
     if (backdrop === null || backdrop.from !== "bytes") return { ok: false, message: "the theme has no backdrop" };
     const check = checkBackdropBytes(Buffer.from(backdrop.data, "base64"));
     if (!check.ok) return { ok: false, message: check.message };
-    return { ok: true, backdrop: { mime: check.mime, data: backdrop.data, dim: backdrop.dim, blur: backdrop.blur } };
+    return { ok: true, backdrop: { mime: check.mime, data: backdrop.data, blur: backdrop.blur } };
   }
 }

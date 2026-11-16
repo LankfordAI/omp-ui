@@ -48,11 +48,11 @@ function draft(overrides: Partial<StoredThemeDraft> = {}): StoredThemeDraft {
 describe("saveStoredTheme (issue #1168)", () => {
   it("saves a valid draft and stores its backdrop bytes under their hash", async () => {
     const { deps, registry, backdropDir, broadcast } = setup();
-    const result = await saveStoredTheme(deps, draft({ backdrop: { from: "bytes", data: b64(SCENE), dim: 40, blur: 12 } }));
+    const result = await saveStoredTheme(deps, draft({ backdrop: { from: "bytes", data: b64(SCENE), blur: 12 } }));
     expect(result.ok).toBe(true);
     if (!result.ok) return;
     expect(result.source.id).toBe("custom-t1");
-    expect(result.source.backdrop).toMatchObject({ kind: "scene", mime: "image/svg+xml", dim: 40, blur: 12 });
+    expect(result.source.backdrop).toMatchObject({ kind: "scene", mime: "image/svg+xml", blur: 12 });
     expect(registry.getSetting("storedThemes").map((t) => t.id)).toEqual(["custom-t1"]);
     expect(assets(backdropDir)).toEqual([result.source.backdrop!.assetHash]);
     expect(fs.readFileSync(path.join(backdropDir, result.source.backdrop!.assetHash), "utf8")).toBe(SCENE);
@@ -63,7 +63,7 @@ describe("saveStoredTheme (issue #1168)", () => {
     const { deps, registry, backdropDir, broadcast } = setup();
     const result = await saveStoredTheme(deps, draft({
       seeds: { canvas: "#808080" },
-      backdrop: { from: "bytes", data: b64(SCENE), dim: 40, blur: 12 },
+      backdrop: { from: "bytes", data: b64(SCENE), blur: 12 },
     }));
     expect(result).toMatchObject({ ok: false, reason: "gate" });
     expect(registry.getSetting("storedThemes")).toEqual([]);
@@ -73,14 +73,14 @@ describe("saveStoredTheme (issue #1168)", () => {
 
   it("replaces an authored theme in place and prunes the asset it no longer uses", async () => {
     const { deps, registry, backdropDir } = setup();
-    const first = await saveStoredTheme(deps, draft({ label: "First", backdrop: { from: "bytes", data: b64(SCENE), dim: 40, blur: 12 } }));
+    const first = await saveStoredTheme(deps, draft({ label: "First", backdrop: { from: "bytes", data: b64(SCENE), blur: 12 } }));
     await saveStoredTheme(deps, draft({ label: "Second" }));
     if (!first.ok) throw new Error("first save failed");
     const oldHash = first.source.backdrop!.assetHash;
     const replaced = await saveStoredTheme(deps, draft({
       id: first.source.id,
       label: "First again",
-      backdrop: { from: "bytes", data: b64(OTHER_SCENE), dim: 20, blur: 4 },
+      backdrop: { from: "bytes", data: b64(OTHER_SCENE), blur: 4 },
     }));
     expect(replaced.ok).toBe(true);
     if (!replaced.ok) return;
@@ -125,7 +125,7 @@ describe("saveStoredTheme (issue #1168)", () => {
   it("refuses an asset backdrop whose hash is not stored", async () => {
     const { deps, registry } = setup();
     const result = await saveStoredTheme(deps, draft({
-      backdrop: { from: "asset", assetHash: "c".repeat(64), dim: 40, blur: 12 },
+      backdrop: { from: "asset", assetHash: "c".repeat(64), blur: 12 },
     }));
     expect(result).toMatchObject({ ok: false, reason: "invalid" });
     expect(registry.getSetting("storedThemes")).toEqual([]);
@@ -133,11 +133,11 @@ describe("saveStoredTheme (issue #1168)", () => {
 
   it("reuses a stored asset for a duplicate", async () => {
     const { deps, backdropDir } = setup();
-    const first = await saveStoredTheme(deps, draft({ backdrop: { from: "bytes", data: b64(SCENE), dim: 40, blur: 12 } }));
+    const first = await saveStoredTheme(deps, draft({ backdrop: { from: "bytes", data: b64(SCENE), blur: 12 } }));
     if (!first.ok) throw new Error("first save failed");
     const hash = first.source.backdrop!.assetHash;
-    const copy = await saveStoredTheme(deps, draft({ label: "Night copy", backdrop: { from: "asset", assetHash: hash, dim: 60, blur: 0 } }));
-    expect(copy).toMatchObject({ ok: true, source: { backdrop: { assetHash: hash, kind: "scene", dim: 60, blur: 0 } } });
+    const copy = await saveStoredTheme(deps, draft({ label: "Night copy", backdrop: { from: "asset", assetHash: hash, blur: 0 } }));
+    expect(copy).toMatchObject({ ok: true, source: { backdrop: { assetHash: hash, kind: "scene", blur: 0 } } });
     expect(assets(backdropDir)).toEqual([hash]);
   });
 
@@ -164,8 +164,8 @@ describe("saveStoredTheme (issue #1168)", () => {
       },
     } as unknown as ThemeBackdropStore;
     const saving = Promise.all([
-      saveStoredTheme(deps, draft({ label: "A", backdrop: { from: "bytes", data: b64(SCENE), dim: 40, blur: 12 } })),
-      saveStoredTheme(deps, draft({ label: "B", backdrop: { from: "bytes", data: b64(OTHER_SCENE), dim: 40, blur: 12 } })),
+      saveStoredTheme(deps, draft({ label: "A", backdrop: { from: "bytes", data: b64(SCENE), blur: 12 } })),
+      saveStoredTheme(deps, draft({ label: "B", backdrop: { from: "bytes", data: b64(OTHER_SCENE), blur: 12 } })),
     ]);
     setImmediate(held.resolve);
     const [a, b] = await saving;
@@ -178,7 +178,7 @@ describe("saveStoredTheme (issue #1168)", () => {
 describe("removeStoredTheme (issue #1168)", () => {
   it("resets picks that named the theme and prunes its asset", async () => {
     const { deps, registry, backdropDir } = setup();
-    const saved = await saveStoredTheme(deps, draft({ backdrop: { from: "bytes", data: b64(SCENE), dim: 40, blur: 12 } }));
+    const saved = await saveStoredTheme(deps, draft({ backdrop: { from: "bytes", data: b64(SCENE), blur: 12 } }));
     if (!saved.ok) throw new Error("save failed");
     registry.setSetting("themeId", saved.source.id);
     registry.setSetting("darkThemeId", saved.source.id);

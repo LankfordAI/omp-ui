@@ -3122,7 +3122,7 @@ describe("Settings Appearance page Theme repositories (#1178)", () => {
     ...sourceFromDraft(id, `Installed ${path}`, { canvas: "#16161e" }),
     origin: { repository: REPO, path, commit: "a".repeat(40), blob, animate: false },
     ...(scene
-      ? { backdrop: { assetHash: "f".repeat(64), kind: "scene" as const, mime: "image/svg+xml" as const, dim: 40, blur: 12 } }
+      ? { backdrop: { assetHash: "f".repeat(64), kind: "scene" as const, mime: "image/svg+xml" as const, blur: 12 } }
       : {}),
   });
   const INSTALLED = [installedSource("custom-same", "same.json", "2".repeat(40)), installedSource("custom-moved", "moved.json", "9".repeat(40))];
@@ -3243,7 +3243,7 @@ describe("Settings Appearance page Theme repositories (#1178)", () => {
   it("Preview downloads an uninstalled entry's backdrop once and shows it on the preview and the card", async () => {
     backendMock.previewRepositoryThemeBackdrop.mockResolvedValueOnce({
       ok: true,
-      backdrop: { mime: "image/svg+xml", data: btoa('<svg xmlns="http://www.w3.org/2000/svg"></svg>'), dim: 40, blur: 12 },
+      backdrop: { mime: "image/svg+xml", data: btoa('<svg xmlns="http://www.w3.org/2000/svg"></svg>'), blur: 12 },
     });
     await openListing(INSTALLED, SCENE_LISTING);
     await openFreshPreview();

@@ -74,8 +74,8 @@ const CHROME_PROPERTIES = [
   "--backdrop-floor-void",
   "--backdrop-floor-sunken",
   "--backdrop-floor-reading",
+  "--backdrop-floor-overlay",
   "--stage-alpha",
-  "--backdrop-dim",
   "--backdrop-blur",
 ] as const;
 
@@ -89,13 +89,13 @@ export function applyBackdropChrome(theme: Theme, ready: boolean): void {
     for (const property of CHROME_PROPERTIES) root.style.removeProperty(property);
     return;
   }
-  const floors = backdropFloors(theme.tokens, backdrop.dim);
+  const floors = backdropFloors(theme.tokens);
   root.dataset.backdrop = "";
   root.style.setProperty("--backdrop-floor-void", `${floors.void}%`);
   root.style.setProperty("--backdrop-floor-sunken", `${floors.sunken}%`);
   root.style.setProperty("--backdrop-floor-reading", `${floors.reading}%`);
+  root.style.setProperty("--backdrop-floor-overlay", `${floors.overlay}%`);
   root.style.setProperty("--stage-alpha", "0%");
-  root.style.setProperty("--backdrop-dim", `${backdrop.dim}%`);
   root.style.setProperty("--backdrop-blur", `${backdrop.blur}px`);
 }
 

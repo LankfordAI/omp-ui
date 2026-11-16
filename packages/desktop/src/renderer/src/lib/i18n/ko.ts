@@ -1189,7 +1189,6 @@ export const ko: Partial<Record<MessageKey, string>> = {
   "settings.appearance.backdropRemove": "배경 제거",
   "settings.appearance.backdropTooLarge": "이 파일은 사용할 수 없습니다: 배경은 최대 4 MiB입니다.",
   "settings.appearance.backdropRefused": "이 파일은 사용할 수 없습니다: {message}",
-  "settings.appearance.backdropDim": "어둡게",
   "settings.appearance.backdropBlur": "흐림",
   "settings.appearance.backdropFloorNote": "텍스트 패널은 최소 {reading}% 불투명하게 유지되며, 사이드바는 {sunken}%입니다.",
   "settings.appearance.previewInApp": "앱에서 미리 보기",

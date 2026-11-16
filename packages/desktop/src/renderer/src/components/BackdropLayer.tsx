@@ -6,7 +6,8 @@ import { currentThemePreview, useTheme } from "../lib/themes";
 /**
  * The theme's backdrop, painted once under the whole app (issue #1168,
  * ADR-0094). Shown only through `<img>`, so a scene runs no script and loads
- * no subresource; blurred and dimmed here so no plane above needs a filter.
+ * no subresource; blurred here so no plane above needs a filter; never
+ * dimmed, so it shows as authored (#1187).
  * A scene animates only while motion is on, the window is visible and the
  * system does not ask for reduced motion: neither signal reaches inside an
  * image, so the layer swaps in the scene's still instead.
@@ -90,7 +91,6 @@ export function BackdropLayer(): ReactElement | null {
         onLoad={() => setReadySrc(src)}
         onError={() => setReadySrc(null)}
       />
-      <div className="backdrop-scrim" />
     </div>
   );
 }

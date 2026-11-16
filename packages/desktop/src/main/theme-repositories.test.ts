@@ -39,7 +39,7 @@ function themeFile(spec: ThemeSpec): string {
     label: spec.label,
     seeds: { canvas: spec.canvas },
     ...(spec.scene === true
-      ? { backdrop: { mime: "image/svg+xml", data: Buffer.from(SCENE).toString("base64"), dim: 40, blur: 12 } }
+      ? { backdrop: { mime: "image/svg+xml", data: Buffer.from(SCENE).toString("base64"), blur: 12 } }
       : {}),
   });
 }
@@ -191,7 +191,7 @@ describe("ThemeRepositoryService (#1178)", () => {
     await service.add(REPO);
     expect(await service.previewBackdrop({ repository: REPO, commit: C1, path: "dusk.json" })).toEqual({
       ok: true,
-      backdrop: { mime: "image/svg+xml", data: Buffer.from(SCENE).toString("base64"), dim: 40, blur: 12 },
+      backdrop: { mime: "image/svg+xml", data: Buffer.from(SCENE).toString("base64"), blur: 12 },
     });
     expect(await service.previewBackdrop({ repository: REPO, commit: C1, path: "plain.json" })).toEqual({
       ok: false,
