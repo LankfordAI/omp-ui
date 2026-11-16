@@ -1,7 +1,8 @@
-// Theme preference and imported themes (issue #999). Pure — only the
-// canonical guard — because the renderer, the preload-less plan verifier
-// page, and main all read it through the @omp-ui/core/theme-preference subpath.
+// Theme preference, stored themes (issues #999, #1168) and the theme gate.
+// Pure — only the canonical guard — because the renderer, the preload-less
+// plan verifier page, and main all read it through the @omp-ui/core/theme subpath.
 import { isObject } from "./guards";
+import { isThemeBackdrop, type ThemeBackdrop } from "./theme-backdrop";
 
 /** Every `--color-*` token a theme supplies, in canonical order. */
 export const THEME_TOKEN_NAMES = [
@@ -87,8 +88,8 @@ export type ThemeCodeRole = (typeof THEME_CODE_ROLES)[number];
 /**
  * One theme's raw colours: complete semantic tokens, the syntax seeds, and
  * only the terminal/code slots that must differ from the projection. Curated
- * themes live in the renderer's theme-sources.json; imported ones in the
- * registry's `importedThemes`.
+ * themes live in the renderer's theme-sources.json; imported and authored
+ * ones in the registry's `storedThemes`.
  */
 export interface ThemeSource {
   id: string;
@@ -100,6 +101,8 @@ export interface ThemeSource {
     term?: Partial<Record<ThemeTerminalSlot, string>>;
     code?: Partial<Record<ThemeCodeRole, string>>;
   };
+  /** Present only on a stored theme that carries a backdrop. */
+  backdrop?: ThemeBackdrop;
 }
 
 /** The theme a fresh install paints, and the dark pick's default. */
@@ -113,11 +116,14 @@ export type ColorScheme = "light" | "dark";
 
 /** Ids of imported themes start here, so they never shadow a curated id. */
 export const IMPORTED_THEME_ID_PREFIX = "vscode-";
-/** Upper bound on stored imported themes; each rides every state broadcast. */
-export const IMPORTED_THEMES_MAX = 24;
+/** Ids of authored themes start here, so they never shadow a curated id. */
+export const AUTHORED_THEME_ID_PREFIX = "custom-";
+/** Upper bound on stored themes of both kinds; each rides every state broadcast. */
+export const STORED_THEMES_MAX = 24;
 const LABEL_MAX = 80;
 
-const IMPORTED_ID = /^vscode-[a-z0-9]+(?:-[a-z0-9]+)*$/;
+/** An imported (`vscode-`) or authored (`custom-`) theme id. */
+export const STORED_ID = /^(?:vscode|custom)-[a-z0-9]+(?:-[a-z0-9]+)*$/;
 const OPAQUE_HEX = /^#[0-9a-f]{6}$/i;
 const TERMINAL_HEX = /^#[0-9a-f]{6}(?:[0-9a-f]{2})?$/i;
 const CSS_RGB = /^rgb\(\d{1,3} \d{1,3} \d{1,3} \/ (?:0|1|0?\.\d+)\)$/;
@@ -146,11 +152,23 @@ function partialColours(value: unknown, keys: readonly string[], pattern: RegExp
   );
 }
 
-/** Structural check of a stored imported theme; contrast is the renderer's gate. */
-export function isImportedTheme(value: unknown): value is ThemeSource {
+/** True for an imported or authored theme id; curated ids carry neither prefix. */
+export function isStoredThemeId(id: string): boolean {
+  return storedThemeKind(id) !== null;
+}
+
+/** "imported" for vscode-, "authored" for custom-, null for a curated id. */
+export function storedThemeKind(id: string): "imported" | "authored" | null {
+  if (id.startsWith(IMPORTED_THEME_ID_PREFIX)) return "imported";
+  if (id.startsWith(AUTHORED_THEME_ID_PREFIX)) return "authored";
+  return null;
+}
+
+/** Structural check of a stored theme; contrast is the gate's job. */
+export function isStoredTheme(value: unknown): value is ThemeSource {
   if (!isObject(value)) return false;
-  const { id, label, dark, tokens, syntax, overrides } = value;
-  if (typeof id !== "string" || !IMPORTED_ID.test(id) || id.length > 64) return false;
+  const { id, label, dark, tokens, syntax, overrides, backdrop } = value;
+  if (typeof id !== "string" || !STORED_ID.test(id) || id.length > 64) return false;
   if (typeof label !== "string" || label.trim() === "" || label.length > LABEL_MAX) return false;
   if (typeof dark !== "boolean") return false;
   const tokenOk = exactColours(tokens, THEME_TOKEN_NAMES, (key, colour) =>
@@ -158,6 +176,7 @@ export function isImportedTheme(value: unknown): value is ThemeSource {
   );
   if (!tokenOk) return false;
   if (!exactColours(syntax, THEME_SYNTAX_SEEDS, (_key, colour) => OPAQUE_HEX.test(colour))) return false;
+  if (backdrop !== undefined && !isThemeBackdrop(backdrop)) return false;
   if (overrides === undefined) return true;
   if (!isObject(overrides)) return false;
   if (Object.keys(overrides).some((key) => key !== "term" && key !== "code")) return false;
@@ -168,20 +187,20 @@ export function isImportedTheme(value: unknown): value is ThemeSource {
 }
 
 /**
- * Registry read: rows that fail the structure check or the contrast gate drop
+ * Registry read: rows that fail the structure check or the theme gate drop
  * (a hand-edited registry cannot smuggle in an unreadable theme), later
  * duplicates of an id drop, and the list caps.
  */
-export function parseImportedThemes(value: unknown): ThemeSource[] {
+export function parseStoredThemes(value: unknown): ThemeSource[] {
   if (!Array.isArray(value)) return [];
   const seen = new Set<string>();
   const out: ThemeSource[] = [];
   for (const item of value) {
-    if (!isImportedTheme(item) || seen.has(item.id)) continue;
-    if (themeContrastFailures(deriveTheme(item)).length > 0) continue;
+    if (!isStoredTheme(item) || seen.has(item.id)) continue;
+    if (themeGateFailures(item).length > 0) continue;
     seen.add(item.id);
     out.push(item);
-    if (out.length === IMPORTED_THEMES_MAX) break;
+    if (out.length === STORED_THEMES_MAX) break;
   }
   return out;
 }
@@ -230,6 +249,9 @@ export interface Theme {
   term: TerminalPalette;
   /** The shiki theme colours, derived from semantic tokens and syntax seeds. */
   code: CodeTheme;
+  /** Changes whenever any colour changes; consumers that cache by theme key on it. */
+  rev: string;
+  backdrop: ThemeBackdrop | null;
 }
 
 function parseHex(hex: string): readonly [number, number, number] {
@@ -324,6 +346,16 @@ export function deriveCode(source: ThemeSource): CodeTheme {
   };
 }
 
+/** FNV-1a 32-bit as 8 lowercase hex digits. */
+function fnv1a(text: string): string {
+  let hash = 0x811c9dc5;
+  for (let i = 0; i < text.length; i++) {
+    hash ^= text.charCodeAt(i);
+    hash = Math.imul(hash, 0x01000193);
+  }
+  return (hash >>> 0).toString(16).padStart(8, "0");
+}
+
 /** Materialize the public Theme shape consumed throughout the renderer. */
 export function deriveTheme(source: ThemeSource): Theme {
   return {
@@ -333,6 +365,8 @@ export function deriveTheme(source: ThemeSource): Theme {
     tokens: source.tokens,
     term: deriveTerminal(source),
     code: deriveCode(source),
+    rev: fnv1a(JSON.stringify([source.tokens, source.syntax, source.overrides ?? null])),
+    backdrop: source.backdrop ?? null,
   };
 }
 
@@ -354,10 +388,39 @@ export function contrastRatio(a: string, b: string): number {
   return (Math.max(la, lb) + 0.05) / (Math.min(la, lb) + 0.05);
 }
 
+/** Lighten (dark theme) or darken (light theme) `colour` toward `ink` until it clears `min` on `bg`. */
+export function liftToContrast(colour: string, bg: string, ink: string, min: number): string {
+  // 0.025 steps keep the hue as long as possible; weight 0 is the ink itself,
+  // which every accepted base already clears.
+  for (let w = 1; w >= 0; w -= 0.025) {
+    const mixed = mixHex(colour, ink, Math.max(w, 0));
+    if (contrastRatio(mixed, bg) >= min) return mixed;
+  }
+  return ink;
+}
+
+/**
+ * Step `colour` off `from` when the two collapse (planes may not). A plane
+ * already at the end of its direction — a white surface asked to go lighter —
+ * steps the other way instead.
+ */
+export function separatePlane(colour: string, from: string, toward: string): string {
+  if (colour !== from) return colour;
+  const opposite = toward === "#ffffff" ? "#000000" : "#ffffff";
+  for (const target of [toward, opposite]) {
+    const nudged = mixHex(colour, target, 0.94);
+    if (nudged !== from) return nudged;
+  }
+  return mixHex(colour, opposite, 0.85);
+}
+
 /** One pairing below its floor, or two depth planes that collapse into one. */
 export type ThemeContrastFailure =
   | { kind: "contrast"; label: string; fg: string; bg: string; ratio: number; min: number }
   | { kind: "planes"; label: string; colour: string };
+
+/** A contrast failure, or an authored theme's signal accent that is not a green. */
+export type ThemeGateFailure = ThemeContrastFailure | { kind: "signal"; colour: string; hue: number };
 
 /**
  * Ink tiers descend on purpose: `ink` is reading content, `ink-faint` is the
@@ -461,6 +524,42 @@ export function themeContrastFailures(theme: Theme): ThemeContrastFailure[] {
   ];
   for (const [label, a, b] of planes) {
     if (t[a].toLowerCase() === t[b].toLowerCase()) failures.push({ kind: "planes", label, colour: t[a] });
+  }
+  return failures;
+}
+
+/* ----------------------------------------------------------- signal rule */
+
+/** OKLab hue in degrees [0, 360) and chroma of an opaque #rrggbb colour. */
+export function oklabHueChroma(hex: string): { hue: number; chroma: number } {
+  const linear = parseHex(hex).map((value) => {
+    const c = value / 255;
+    return c <= 0.04045 ? c / 12.92 : ((c + 0.055) / 1.055) ** 2.4;
+  });
+  const [r, g, b] = linear as [number, number, number];
+  // CSS Color 4: linear sRGB → LMS → OKLab.
+  const l = Math.cbrt(0.4122214708 * r + 0.5363325363 * g + 0.0514459929 * b);
+  const m = Math.cbrt(0.2119034982 * r + 0.6806995451 * g + 0.1073969566 * b);
+  const s = Math.cbrt(0.0883024619 * r + 0.2817188376 * g + 0.6299787005 * b);
+  const a = 1.9779984951 * l - 2.428592205 * m + 0.4505937099 * s;
+  const bb = 0.0259040371 * l + 0.7827717662 * m - 0.808675766 * s;
+  const hue = ((Math.atan2(bb, a) * 180) / Math.PI + 360) % 360;
+  return { hue, chroma: Math.hypot(a, bb) };
+}
+
+/** The signal accent means agent liveness, so it must read as a green (ADR-0004). */
+export function signalAccentFailure(colour: string): ThemeGateFailure | null {
+  const { hue, chroma } = oklabHueChroma(colour);
+  if (hue >= 100 && hue <= 200 && chroma >= 0.03) return null;
+  return { kind: "signal", colour, hue };
+}
+
+/** Every reason a stored theme may not be saved: contrast, plane collapse, signal. */
+export function themeGateFailures(source: ThemeSource): ThemeGateFailure[] {
+  const failures: ThemeGateFailure[] = themeContrastFailures(deriveTheme(source));
+  if (storedThemeKind(source.id) === "authored") {
+    const signal = signalAccentFailure(source.tokens["--color-signal"]);
+    if (signal !== null) failures.push(signal);
   }
   return failures;
 }

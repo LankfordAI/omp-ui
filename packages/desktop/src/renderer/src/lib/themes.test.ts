@@ -1,5 +1,5 @@
 // @vitest-environment jsdom
-import { describe, expect, it } from "vitest";
+import { afterEach, describe, expect, it, vi } from "vitest";
 import themeSourcesJson from "./theme-sources.json";
 import {
   THEME_TOKEN_NAMES,
@@ -9,7 +9,14 @@ import {
   mixHex,
   themeContrastFailures,
 } from "@omp-ui/core/theme";
-import { THEMES, type ThemeSource } from "./themes";
+import {
+  applyThemePreference,
+  currentTheme,
+  currentThemePreview,
+  setThemePreview,
+  THEMES,
+  type ThemeSource,
+} from "./themes";
 
 
 const THEME_SOURCES: readonly ThemeSource[] = themeSourcesJson;
@@ -209,5 +216,53 @@ describe("theme contrast", () => {
     // make one theme unreachable.
     const ids = THEMES.map((t) => t.id);
     expect(new Set(ids).size).toBe(ids.length);
+  });
+});
+
+describe("theme preview (issue #1168)", () => {
+  const fixed = (themeId: string) => ({ themeMode: "fixed" as const, themeId, lightThemeId: "light", darkThemeId: "graphite" });
+
+  afterEach(() => {
+    setThemePreview(null);
+    applyThemePreference(fixed("graphite"), []);
+  });
+
+  it("holds the previewed theme against preference broadcasts, then restores the persisted one", () => {
+    const light = THEMES.find((t) => t.id === "light")!;
+    const nord = THEMES.find((t) => t.id === "nord")!;
+    applyThemePreference(fixed("graphite"), []);
+    setThemePreview(light);
+    expect(currentThemePreview()).toBe(light);
+    expect(currentTheme()).toBe(light);
+
+    applyThemePreference(fixed("nord"), []);
+    expect(currentTheme()).toBe(light);
+
+    setThemePreview(null);
+    expect(currentThemePreview()).toBeNull();
+    expect(currentTheme()).toBe(nord);
+  });
+});
+
+describe("theme mirror", () => {
+  afterEach(() => {
+    window.localStorage.clear();
+    vi.resetModules();
+  });
+
+  it("still paints a stored theme from a mirror written with the legacy imported field", async () => {
+    const graphite = THEME_SOURCES.find((t) => t.id === "graphite")!;
+    const stored: ThemeSource = { ...graphite, id: "vscode-legacy-mirror", label: "Legacy mirror" };
+    window.localStorage.setItem(
+      "omp-ui.theme",
+      JSON.stringify({
+        preference: { themeMode: "fixed", themeId: stored.id, lightThemeId: "light", darkThemeId: "graphite" },
+        imported: [stored],
+      }),
+    );
+    vi.resetModules();
+    const fresh = await import("./themes");
+    expect(fresh.currentTheme().id).toBe("vscode-legacy-mirror");
+    expect(fresh.currentStoredThemes().map((t) => t.id)).toEqual(["vscode-legacy-mirror"]);
   });
 });

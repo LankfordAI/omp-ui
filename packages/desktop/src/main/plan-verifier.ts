@@ -31,8 +31,8 @@ export const PLAN_VERIFY_TOTAL_DEADLINE_MS = TOTAL_DEADLINE_MS;
 export interface PlanVerifierDeps {
   /** Test seam: swaps the real BrowserWindow page for a fake. */
   createPage?: () => Promise<VerifierPage>;
-  /** Imported themes by id (issue #999); absent = curated themes only. */
-  importedTheme?: (id: string) => ThemeSource | null;
+  /** Stored themes by id (issues #999, #1168); absent = curated themes only. */
+  storedTheme?: (id: string) => ThemeSource | null;
 }
 
 /** The page contract the queue relies on; the BrowserWindow impl wraps it. */
@@ -48,8 +48,8 @@ export interface VerifierPage {
 export interface VerifyArgs {
   html: string;
   themeId: string;
-  /** The imported theme `themeId` names (issue #999); the page knows only curated ones. */
-  importedTheme: ThemeSource | null;
+  /** The stored theme `themeId` names (issues #999, #1168); the page knows only curated ones. */
+  storedTheme: ThemeSource | null;
   preparedByteLimit: number;
 }
 
@@ -69,11 +69,11 @@ export class PlanVerifier {
   private readonly pending = new Set<Job>();
   private disposed = false;
   private readonly createPage: () => Promise<VerifierPage>;
-  private readonly importedTheme: (id: string) => ThemeSource | null;
+  private readonly storedTheme: (id: string) => ThemeSource | null;
 
   constructor(deps: PlanVerifierDeps = {}) {
     this.createPage = deps.createPage ?? (() => BrowserVerifierPage.create());
-    this.importedTheme = deps.importedTheme ?? (() => null);
+    this.storedTheme = deps.storedTheme ?? (() => null);
   }
 
   /**
@@ -106,7 +106,7 @@ export class PlanVerifier {
     const args: VerifyArgs = {
       html,
       themeId,
-      importedTheme: this.importedTheme(themeId),
+      storedTheme: this.storedTheme(themeId),
       preparedByteLimit: PLAN_PREPARED_BYTE_LIMIT,
     };
     // Executor form (not Promise.withResolvers): the node tsconfig lib is

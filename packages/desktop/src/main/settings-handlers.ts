@@ -1,11 +1,9 @@
 import {
   CH,
-  DEFAULT_LIGHT_THEME_ID,
-  DEFAULT_THEME_ID,
-  IMPORTED_THEMES_MAX,
   importVsCodeThemeFiles,
   normalizeKeybindingOverrides,
   parseFleetProjectRoots,
+  sniffBackdropMime,
   type AgentMode,
   type GlassChrome,
   type KeybindingOverrides,
@@ -16,6 +14,8 @@ import {
   type RequestHandlers,
   type RegistrySettings,
   type SessionMode,
+  type StoredThemeDraft,
+  type ThemeBackdropBytes,
   type ThemeMode,
   type VsCodeImportResult,
   type VsCodeThemeFileInput,
@@ -23,6 +23,7 @@ import {
   type UpdateTrain,
   type VaultNoteVoice,
 } from "@omp-ui/core";
+import { commitStoredTheme, removeStoredTheme, saveStoredTheme, type StoredThemeDeps } from "./stored-themes";
 
 type SettingsHandlerChannels =
   | typeof CH.setDefaultMode
@@ -58,7 +59,11 @@ type SettingsHandlerChannels =
   | typeof CH.setLightThemeId
   | typeof CH.setDarkThemeId
   | typeof CH.importVsCodeTheme
-  | typeof CH.removeImportedTheme
+  | typeof CH.saveStoredTheme
+  | typeof CH.removeStoredTheme
+  | typeof CH.readThemeBackdrop
+  | typeof CH.setBackdropMotion
+  | typeof CH.setThemeAgentAccess
   | typeof CH.setFontFamilyId
   | typeof CH.setTranscriptWidth
   | typeof CH.setGlassChrome
@@ -88,6 +93,8 @@ interface SettingsHandlerDependencies {
   onArtifactLibraryChanged?: (enabled: boolean) => void;
   /** Council graduation (amends #1055): seed the global roster from favorites. */
   seedCouncilRoster: () => Promise<void>;
+  /** The one stored-theme save path (issue #1168); the host tool reuses the same object. */
+  themes: StoredThemeDeps;
 }
 
 export function registerSettingsHandlers(
@@ -154,32 +161,28 @@ export function registerSettingsHandlers(
     [CH.setThemeMode]: (value: ThemeMode) => commit("themeMode", value),
     [CH.setLightThemeId]: (value: string) => commit("lightThemeId", value),
     [CH.setDarkThemeId]: (value: string) => commit("darkThemeId", value),
-    // The host re-runs the same mapping and gate the page previewed: a remote
-    // client cannot store a theme that fails contrast (issue #999).
+    // The host re-runs the same mapping and gate the page previewed, then
+    // stores through the shared save path: a remote client cannot store a
+    // theme that fails contrast (issues #999, #1168). A same-id re-import
+    // replaces in place.
     [CH.importVsCodeTheme]: async (files: VsCodeThemeFileInput[]): Promise<VsCodeImportResult> => {
       const result = importVsCodeThemeFiles(files);
       if (!result.ok) return result;
-      const rest = deps.registry.getSetting("importedThemes").filter((t) => t.id !== result.source.id);
-      if (rest.length >= IMPORTED_THEMES_MAX) {
-        return {
-          ok: false,
-          reason: "parse",
-          message: `at most ${IMPORTED_THEMES_MAX} imported themes can be kept; remove one first`,
-        };
-      }
-      await commit("importedThemes", [...rest, result.source]);
+      // commitStoredTheme never gates (the import already ran the contrast
+      // gate); its only refusal is the shared cap.
+      const saved = await commitStoredTheme(deps.themes, result.source);
+      if (!saved.ok && saved.reason === "invalid") return { ok: false, reason: "parse", message: saved.message };
       return result;
     },
-    // Picks naming the removed theme fall back to their defaults, so the
-    // registry never points at a theme that no longer exists.
-    [CH.removeImportedTheme]: async (id: string) => {
-      const reg = deps.registry;
-      reg.setSetting("importedThemes", reg.getSetting("importedThemes").filter((t) => t.id !== id));
-      if (reg.getSetting("themeId") === id) reg.setSetting("themeId", DEFAULT_THEME_ID);
-      if (reg.getSetting("darkThemeId") === id) reg.setSetting("darkThemeId", DEFAULT_THEME_ID);
-      if (reg.getSetting("lightThemeId") === id) reg.setSetting("lightThemeId", DEFAULT_LIGHT_THEME_ID);
-      await deps.broadcast();
+    [CH.saveStoredTheme]: (draft: StoredThemeDraft) => saveStoredTheme(deps.themes, draft),
+    [CH.removeStoredTheme]: (id: string) => removeStoredTheme(deps.themes, id),
+    [CH.readThemeBackdrop]: async (assetHash: string): Promise<ThemeBackdropBytes | null> => {
+      const bytes = await deps.themes.backdrops.read(assetHash);
+      if (bytes === null) return null;
+      return { mime: sniffBackdropMime(bytes) ?? "image/png", data: Buffer.from(bytes).toString("base64") };
     },
+    [CH.setBackdropMotion]: (value: boolean) => commit("backdropMotion", value),
+    [CH.setThemeAgentAccess]: (value: boolean) => commit("themeAgentAccess", value),
     [CH.setFontFamilyId]: (value: string) => commit("fontFamilyId", value),
     [CH.setTranscriptWidth]: (value: TranscriptWidth) => commit("transcriptWidth", value),
     [CH.setGlassChrome]: (value: GlassChrome) => commit("glassChrome", value),

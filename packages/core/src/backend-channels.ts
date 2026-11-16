@@ -189,6 +189,8 @@ import {
   glassChromeCodec,
   keybindingOverridesCodec,
   vsCodeThemeFileCodec,
+  storedThemeDraftCodec,
+  backdropHashCodec,
   imageAttachmentCodec,
   knowledgeHomeCodec,
   liveHistoryTurnCodec,
@@ -260,6 +262,8 @@ import type { ScheduledPromptRequest } from "./scheduled-prompt";
 import type { WebhookInput, WebhookPatch, WebhookSecretReveal, WebhooksState } from "./webhook";
 import type { ThemeMode } from "./theme";
 import type { VsCodeImportResult, VsCodeThemeFileInput } from "./vscode-theme";
+import type { SaveStoredThemeResult, StoredThemeDraft } from "./theme-file";
+import type { ThemeBackdropBytes } from "./theme-backdrop";
 import type { McpClientInput, McpClientPatch, McpEndpointState, McpTokenReveal } from "./mcp-endpoint";
 
 const sevenDaysCodec = lit(7);
@@ -664,8 +668,26 @@ export const BACKEND_CHANNELS = {
     channel: "settings:importVsCodeTheme",
     ...request<[files: VsCodeThemeFileInput[]], VsCodeImportResult>([arrayOf(vsCodeThemeFileCodec)]),
   },
-  /** Drops one imported theme; a pick that named it falls back to the default. */
-  removeImportedTheme: { channel: "settings:removeImportedTheme", ...request<[id: string], void>([str()]) },
+  /**
+   * Builds, gates and stores one authored theme (issue #1168): from the seed
+   * editor, a theme file, or a duplicate. A refusal resolves, never rejects,
+   * so the page can show which pairing failed.
+   */
+  saveStoredTheme: {
+    channel: "settings:saveStoredTheme",
+    ...request<[draft: StoredThemeDraft], SaveStoredThemeResult>([storedThemeDraftCodec]),
+  },
+  /** Drops one stored theme; a pick that named it falls back to the default. */
+  removeStoredTheme: { channel: "settings:removeStoredTheme", ...request<[id: string], void>([str()]) },
+  /** A stored backdrop asset's bytes as base64 (issue #1168); null when the hash is unknown. */
+  readThemeBackdrop: {
+    channel: "settings:readThemeBackdrop",
+    ...request<[assetHash: string], ThemeBackdropBytes | null>([backdropHashCodec]),
+  },
+  /** Lets a theme's scene animate (issue #1168). */
+  setBackdropMotion: { channel: "settings:setBackdropMotion", ...request<[on: boolean], void>([bool()]) },
+  /** Registers omp-ui_theme_save on sessions started or resumed afterwards (issue #1168). */
+  setThemeAgentAccess: { channel: "settings:setThemeAgentAccess", ...request<[on: boolean], void>([bool()]) },
   setFontFamilyId: { channel: "settings:setFontFamilyId", ...request<[id: string], void>([str()]) },
   setTranscriptWidth: {
     channel: "settings:setTranscriptWidth",

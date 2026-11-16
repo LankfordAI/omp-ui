@@ -4,6 +4,17 @@ import * as path from "node:path";
 import { describe, expect, it, vi } from "vitest";
 import { CH, Registry } from "@omp-ui/core";
 import { registerSettingsHandlers } from "./settings-handlers";
+import type { StoredThemeDeps } from "./stored-themes";
+import { ThemeBackdropStore } from "./theme-backdrop-store";
+
+function themes(registry: Registry, dir: string): StoredThemeDeps {
+  return {
+    registry,
+    broadcast: async () => {},
+    backdrops: new ThemeBackdropStore(path.join(dir, "theme-backdrops")),
+    newId: () => "custom-test-000000",
+  };
+}
 
 /**
  * The council enable handler's ordering (amends #1055): the roster seed must
@@ -28,6 +39,7 @@ function setup(seedCouncilRoster: () => Promise<void>) {
       order.push("seed");
       await seedCouncilRoster();
     },
+    themes: themes(registry, dir),
   });
   return { dir, registry, order, handlers };
 }
@@ -69,6 +81,7 @@ describe("setCouncilEnabled", () => {
         onFleetLadderChanged: () => {},
         onTelemetryChanged: () => {},
         seedCouncilRoster: seedCouncilRoster,
+        themes: themes(registry, dir),
       });
       await handlers[CH.setCouncilEnabled](false);
       expect(seedCouncilRoster).not.toHaveBeenCalled();
@@ -93,6 +106,7 @@ describe("model usage telemetry consent", () => {
         onFleetLadderChanged: () => {},
         onTelemetryChanged: () => { order.push(`consent:${registry.getSetting("telemetryModelsEnabled")}`); },
         seedCouncilRoster: async () => {},
+        themes: themes(registry, dir),
       });
       const enabling = handlers[CH.setTelemetryModelsEnabled](true);
       expect(order).toEqual(["consent:true", "broadcast"]);
@@ -121,6 +135,7 @@ describe("artifact library gate ordering", () => {
         supportedCompactionMethods: async () => [],
         onAppUpdateTrainChanged: async () => {},
         onFleetLadderChanged: () => {}, onTelemetryChanged: () => {}, seedCouncilRoster: async () => {},
+        themes: themes(registry, dir),
         onArtifactLibraryChanged: () => {
           admitted = registry.getSetting("artifactLibraryEnabled");
           throw new Error("failed roster update");
@@ -130,5 +145,32 @@ describe("artifact library gate ordering", () => {
       expect(observed).toEqual([false]);
       expect(Registry.load(path.join(dir, "registry.json")).getSetting("artifactLibraryEnabled")).toBe(false);
     } finally { fs.rmSync(dir, {recursive: true, force: true}); }
+  });
+});
+
+describe("theme backdrop reads (issue #1168)", () => {
+  it("answers null for an unknown hash and base64 with the sniffed mime for a stored one", async () => {
+    const dir = fs.mkdtempSync(path.join(os.tmpdir(), "omp-ui-backdrop-read-"));
+    try {
+      const registry = Registry.load(path.join(dir, "registry.json"));
+      const deps = themes(registry, dir);
+      const handlers = registerSettingsHandlers({
+        registry,
+        broadcast: async () => {},
+        supportedCompactionMethods: async () => [],
+        onAppUpdateTrainChanged: async () => {},
+        onFleetLadderChanged: () => {}, onTelemetryChanged: () => {}, seedCouncilRoster: async () => {},
+        themes: deps,
+      });
+      const svg = new TextEncoder().encode('<svg xmlns="http://www.w3.org/2000/svg"></svg>');
+      const hash = await deps.backdrops.put(svg);
+      await expect(handlers[CH.readThemeBackdrop]("0".repeat(64))).resolves.toBeNull();
+      await expect(handlers[CH.readThemeBackdrop](hash)).resolves.toEqual({
+        mime: "image/svg+xml",
+        data: Buffer.from(svg).toString("base64"),
+      });
+    } finally {
+      fs.rmSync(dir, { recursive: true, force: true });
+    }
   });
 });

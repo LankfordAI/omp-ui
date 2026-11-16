@@ -9,7 +9,7 @@
  * iframe. Diagnostics stay machine-readable and locale-independent; UI
  * localization happens at the presentation boundary, never here.
  */
-import { isImportedTheme } from "@omp-ui/core/theme";
+import { isStoredTheme } from "@omp-ui/core/theme";
 import { DEFAULT_THEME_ID, resolveTheme } from "./lib/themes";
 import { renderPlanPreflight } from "./lib/plan-verify";
 import type { PlanDiagnostic, PlanRenderResult } from "@omp-ui/core/plan";
@@ -17,7 +17,7 @@ import type { PlanDiagnostic, PlanRenderResult } from "@omp-ui/core/plan";
 interface VerifyArgs {
   html?: unknown;
   themeId?: unknown;
-  importedTheme?: unknown;
+  storedTheme?: unknown;
   preparedByteLimit?: unknown;
 }
 
@@ -38,10 +38,10 @@ function verify(raw: VerifyArgs): Promise<PlanRenderResult> {
   }
   const themeId = typeof raw.themeId === "string" ? raw.themeId : DEFAULT_THEME_ID;
   // The theme arrives EXPLICITLY from main (the effective theme id, plus the
-  // imported theme it names, issue #999); this page has no localStorage
+  // stored theme it names, issues #999, #1168); this page has no localStorage
   // dependency and no ompBackend bridge.
-  const imported = isImportedTheme(raw.importedTheme) ? [raw.importedTheme] : [];
-  const theme = resolveTheme(themeId, imported);
+  const stored = isStoredTheme(raw.storedTheme) ? [raw.storedTheme] : [];
+  const theme = resolveTheme(themeId, stored);
   const preparedByteLimit =
     typeof raw.preparedByteLimit === "number" ? raw.preparedByteLimit : undefined;
   return renderPlanPreflight(raw.html, theme, {

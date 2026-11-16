@@ -36,7 +36,7 @@ export function SubagentView({
   const controllable = subagentControllable(status);
   return (
     <div className="flex min-h-0 flex-1 flex-col">
-      <div className="flex items-center gap-2 border-b border-line-soft px-4 py-2">
+      <div className="flex items-center gap-2 border-b border-line-soft glass-surface px-4 py-2">
         <button
           type="button"
           aria-label={t("transcript.subagent.backToMain")}
@@ -96,7 +96,7 @@ export function SubagentView({
         )}
       </div>
       {items.length === 0 ? (
-        <p className="px-4 py-3 text-xs text-ink-faint">
+        <p className="reading-card mx-4 my-3 text-xs text-ink-faint">
           {t("transcript.subagent.empty")}
         </p>
       ) : (

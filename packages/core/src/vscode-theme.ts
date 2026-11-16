@@ -6,8 +6,10 @@ import {
   IMPORTED_THEME_ID_PREFIX,
   contrastRatio as contrast,
   deriveTheme,
+  liftToContrast as readable,
   mixHex,
   relativeLuminance,
+  separatePlane as distinct,
   themeContrastFailures,
   type ThemeContrastFailure,
   type ThemeSource,
@@ -166,32 +168,6 @@ export function normalizeVsCodeColour(value: string | undefined, backdrop: strin
   if (digits.length === 6) return rgb;
   const alpha = Number.parseInt(digits.slice(6, 8), 16) / 255;
   return mixHex(rgb, backdrop, alpha);
-}
-
-/** Lighten (dark theme) or darken (light theme) `colour` toward `ink` until it clears `min` on `bg`. */
-function readable(colour: string, bg: string, ink: string, min: number): string {
-  // 0.025 steps keep the hue as long as possible; weight 0 is the ink itself,
-  // which every accepted base already clears.
-  for (let w = 1; w >= 0; w -= 0.025) {
-    const mixed = mixHex(colour, ink, Math.max(w, 0));
-    if (contrast(mixed, bg) >= min) return mixed;
-  }
-  return ink;
-}
-
-/**
- * Step `colour` off `from` when the two collapse (planes may not). A plane
- * already at the end of its direction — a white surface asked to go lighter —
- * steps the other way instead.
- */
-function distinct(colour: string, from: string, toward: string): string {
-  if (colour !== from) return colour;
-  const opposite = toward === "#ffffff" ? "#000000" : "#ffffff";
-  for (const target of [toward, opposite]) {
-    const nudged = mixHex(colour, target, 0.94);
-    if (nudged !== from) return nudged;
-  }
-  return mixHex(colour, opposite, 0.85);
 }
 
 /* ------------------------------------------------------------ token scopes */

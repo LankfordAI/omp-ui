@@ -267,7 +267,7 @@ afterEach(() => {
   for (const manager of harnessManagers.splice(0)) manager.killAll();
 });
 
-function setup(opts: { mode?: "pty" | "rpc-ui"; project?: string; projectName?: string; knowledgeHome?: Core.KnowledgeHome | null; appVersion?: string; mainLog?: (line: string) => void; attention?: Attention; providerEnv?: Record<string, string>; hasOAuthProvider?: () => boolean; hasConfiguredModelsFileProvider?: () => boolean; spawnGate?: SpawnGate; planVerify?: (html: string, themeId: string, signal: AbortSignal) => Promise<Core.PlanRenderResult>; hostNotify?: (tabId: string, title: string | null, message: string) => string; vaultProject?: (displayName: string, projectCwd: string) => Promise<Core.VaultProjectIdentity>; warm?: boolean; hibernateIdleMinutes?: number; resolveModelHold?: SessionManagerDependencies["resolveModelHold"]; readModelSelectorError?: SessionManagerDependencies["readModelSelectorError"]; readModelCatalog?: SessionManagerDependencies["readModelCatalog"]; fleetWake?: SessionManagerDependencies["fleetWake"] } = {}): {
+function setup(opts: { mode?: "pty" | "rpc-ui"; project?: string; projectName?: string; knowledgeHome?: Core.KnowledgeHome | null; appVersion?: string; mainLog?: (line: string) => void; attention?: Attention; providerEnv?: Record<string, string>; hasOAuthProvider?: () => boolean; hasConfiguredModelsFileProvider?: () => boolean; spawnGate?: SpawnGate; planVerify?: (html: string, themeId: string, signal: AbortSignal) => Promise<Core.PlanRenderResult>; hostNotify?: (tabId: string, title: string | null, message: string) => string; vaultProject?: (displayName: string, projectCwd: string) => Promise<Core.VaultProjectIdentity>; warm?: boolean; hibernateIdleMinutes?: number; resolveModelHold?: SessionManagerDependencies["resolveModelHold"]; readModelSelectorError?: SessionManagerDependencies["readModelSelectorError"]; readModelCatalog?: SessionManagerDependencies["readModelCatalog"]; fleetWake?: SessionManagerDependencies["fleetWake"]; themes?: SessionManagerDependencies["themes"] } = {}): {
   manager: SessionManager;
   registry: Core.Registry;
   broadcast: Mock;
@@ -360,6 +360,7 @@ function setup(opts: { mode?: "pty" | "rpc-ui"; project?: string; projectName?: 
       entries: () => crumbs.slice(),
     },
     hostNotify: opts.hostNotify,
+    themes: opts.themes,
     appVersion: opts.appVersion,
     mainLog: opts.mainLog,
     vaultProject: opts.vaultProject,
@@ -7651,6 +7652,32 @@ describe("device pane lifecycle and agent access", () => {
     const registration = commands.find((command) => command.type === "set_host_tools");
     const tools = Array.isArray(registration?.tools) ? registration.tools : [];
     expect(tools.some((tool: unknown) => Core.isObject(tool) && tool.name === Core.DEVICE_TOOL_NAME)).toBe(expected);
+  });
+
+  it.each([
+    ["setting off", false, true, null, false],
+    ["setting on", true, true, null, true],
+    ["no theme dep", true, false, null, false],
+    ["user-dispatched", true, true, "user", true],
+    ["agent-dispatched", true, true, "agent", true],
+    ["webhook-started", true, true, "webhook", false],
+    ["MCP-started", true, true, "mcp", false],
+  ] as const)("registers the theme tool only when allowed: %s", async (_label, access, wired, kind, expected) => {
+    const { manager, registry } = setup({
+      mode: "rpc-ui",
+      themes: wired ? { save: async () => ({ ok: false, reason: "invalid", message: "unused" }) } : undefined,
+    });
+    registry.setSetting("themeAgentAccess", access);
+    if (kind !== null) {
+      registry.updateSession(TAB, {
+        fleet: { dispatchId: "theme-dispatch", batchId: null, dispatchedAt: "2026-11-15T00:00:00.000Z", requestedBy: { instanceId: "inst-a", label: "host-a", kind, sourceTabId: kind === "agent" ? "source-tab" : null } },
+      } as Partial<Core.OwnedSessionRecord>);
+    }
+    await resume(manager);
+    const commands = (RpcClientMock.mock.calls.at(-1)?.[0]?.initialCommands ?? []) as Array<Record<string, unknown>>;
+    const registration = commands.find((command) => command.type === "set_host_tools");
+    const tools = Array.isArray(registration?.tools) ? registration.tools : [];
+    expect(tools.some((tool: unknown) => Core.isObject(tool) && tool.name === Core.THEME_TOOL_NAME)).toBe(expected);
   });
 
   it("settles a stuck device owner command once and fences late results and renderer fallback", async () => {

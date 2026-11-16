@@ -3,7 +3,7 @@ import {
   DEFAULT_THEME_ID,
   deriveTheme,
   effectiveThemeId,
-  isImportedTheme,
+  isStoredTheme,
   mixHex,
   parseThemePreference,
   type Theme,
@@ -13,10 +13,11 @@ import {
 import themeSourcesJson from "./theme-sources.json";
 
 /**
- * Runtime themes (issues #36, #999).
+ * Runtime themes (issues #36, #999, #1168).
  *
- * `theme-sources.json` holds the curated themes' raw colours; imported VS Code
- * themes arrive from the registry already past the contrast gate. Both derive
+ * `theme-sources.json` holds the curated themes' raw colours; stored themes
+ * (imported VS Code themes and authored ones) arrive from the registry already
+ * past the theme gate. Both derive
  * through `@omp-ui/core/theme`: semantic tokens drive CSS directly, while
  * xterm and shiki receive deterministic projections because neither can
  * consume CSS custom properties. The painted theme is the preference's fixed
@@ -41,36 +42,36 @@ export const THEMES: readonly Theme[] = THEME_SOURCES.map(deriveTheme);
 const DEFAULT_THEME: Theme = THEMES.find((t) => t.id === DEFAULT_THEME_ID) ?? THEMES[0]!;
 
 /**
- * Derived imported themes keyed by id, kept with the serialized source they
+ * Derived stored themes keyed by id, kept with the serialized source they
  * came from. Every state broadcast structured-clones the sources, so identity
  * cannot key this: content does, which keeps the same Theme object (and so no
  * repaint, re-theme, or re-tokenize) until the theme really changes.
  */
-const importedCache = new Map<string, { json: string; theme: Theme }>();
+const storedCache = new Map<string, { json: string; theme: Theme }>();
 
-/** The imported themes as consumers read them, in import order. */
-export function importedThemes(sources: readonly ThemeSource[]): Theme[] {
+/** The stored themes as consumers read them, in registry order. */
+export function storedThemes(sources: readonly ThemeSource[]): Theme[] {
   return sources.map((source) => {
     const json = JSON.stringify(source);
-    const hit = importedCache.get(source.id);
+    const hit = storedCache.get(source.id);
     if (hit !== undefined && hit.json === json) return hit.theme;
     const theme = deriveTheme(source);
-    importedCache.set(source.id, { json, theme });
+    storedCache.set(source.id, { json, theme });
     return theme;
   });
 }
 
 /**
- * Unknown id (renamed theme, removed import, hand-edited storage) degrades,
- * never throws. Curated ids win: an imported id never shadows one, because
- * every imported id carries the `vscode-` prefix.
+ * Unknown id (renamed theme, removed stored theme, hand-edited storage)
+ * degrades, never throws. Curated ids win: a stored id never shadows one,
+ * because every stored id carries the `vscode-` or `custom-` prefix.
  */
-export function resolveTheme(id: string | undefined, imported: readonly ThemeSource[] = []): Theme {
-  return THEMES.find((t) => t.id === id) ?? importedThemes(imported).find((t) => t.id === id) ?? DEFAULT_THEME;
+export function resolveTheme(id: string | undefined, stored: readonly ThemeSource[] = []): Theme {
+  return THEMES.find((t) => t.id === id) ?? storedThemes(stored).find((t) => t.id === id) ?? DEFAULT_THEME;
 }
 
 /**
- * Mirror of the store's theme preference and imported themes. The renderer
+ * Mirror of the store's theme preference and stored themes. The renderer
  * needs the palette before the first backend round-trip resolves, so
  * localStorage — not the backend — is the boot read path. The legacy
  * `omp-ui.themeId` key still seeds a fixed preference on the first launch
@@ -79,15 +80,17 @@ export function resolveTheme(id: string | undefined, imported: readonly ThemeSou
 const KEY = "omp-ui.theme";
 const LEGACY_KEY = "omp-ui.themeId";
 
-/** What the mirror persists: the preference plus the one imported theme it may paint. */
+/** What the mirror persists: the preference plus the stored themes it may paint. */
 interface ThemeMirror {
   preference: ThemePreference;
-  imported: ThemeSource[];
+  stored: ThemeSource[];
 }
 
 let preference: ThemePreference = parseThemePreference(undefined);
-let imported: readonly ThemeSource[] = [];
+let stored: readonly ThemeSource[] = [];
 let current: Theme = DEFAULT_THEME;
+/** A theme painted over the preference until cleared (the editor's preview). */
+let preview: Theme | null = null;
 const listeners = new Set<(theme: Theme) => void>();
 
 /** The OS scheme query; null without a window or matchMedia (node tests, jsdom). */
@@ -134,10 +137,10 @@ export function applyTheme(theme: Theme): void {
 /** The mirror last written, so an unchanged broadcast writes nothing. */
 let persisted: string | null = null;
 
-/** Persist the preference and only the imported themes it names, for the next first paint. */
+/** Persist the preference and only the stored themes it names, for the next first paint. */
 function persistMirror(): void {
   const named = new Set([preference.themeId, preference.lightThemeId, preference.darkThemeId]);
-  const mirror: ThemeMirror = { preference, imported: imported.filter((t) => named.has(t.id)) };
+  const mirror: ThemeMirror = { preference, stored: stored.filter((t) => named.has(t.id)) };
   const json = JSON.stringify(mirror);
   if (json === persisted) return;
   try {
@@ -149,17 +152,45 @@ function persistMirror(): void {
 }
 
 /**
- * Adopt a theme preference and the imported themes it may name, then paint
+ * Adopt a theme preference and the stored themes it may name, then paint
  * the effective theme. The identity guard is what stops a redundant broadcast
- * from re-writing ~29 custom properties on every state change; imported
- * themes keep their identity across broadcasts until their content changes.
+ * from re-writing ~29 custom properties on every state change; stored themes
+ * keep their identity across broadcasts until their content changes. While a
+ * preview is set the preference is still adopted and mirrored, but the
+ * preview keeps the paint.
  */
-export function applyThemePreference(next: ThemePreference, nextImported: readonly ThemeSource[]): void {
+export function applyThemePreference(next: ThemePreference, nextStored: readonly ThemeSource[]): void {
   preference = next;
-  imported = nextImported;
+  stored = nextStored;
   persistMirror();
-  const theme = resolveTheme(effectiveThemeId(next, prefersDarkScheme()), nextImported);
+  if (preview !== null) return;
+  const theme = persistedTheme();
   if (theme !== current) applyTheme(theme);
+}
+
+/** The theme the persisted preference resolves to under the current OS scheme. */
+function persistedTheme(): Theme {
+  return resolveTheme(effectiveThemeId(preference, prefersDarkScheme()), stored);
+}
+
+/**
+ * Paints `theme` everywhere and holds it against broadcasts and OS scheme
+ * flips until cleared. null restores the persisted preference's theme.
+ * The mirror never stores a preview: it only ever holds the preference.
+ */
+export function setThemePreview(theme: Theme | null): void {
+  preview = theme;
+  if (theme !== null) {
+    if (theme !== current) applyTheme(theme);
+    return;
+  }
+  const restored = persistedTheme();
+  if (restored !== current) applyTheme(restored);
+}
+
+/** The theme being previewed, or null when the preference paints. */
+export function currentThemePreview(): Theme | null {
+  return preview;
 }
 
 /** The persisted preference, for the store's optimistic switch and rollback. */
@@ -167,9 +198,9 @@ export function currentThemePreference(): ThemePreference {
   return preference;
 }
 
-/** The imported themes the renderer last adopted. */
-export function currentImportedThemes(): readonly ThemeSource[] {
-  return imported;
+/** The stored themes the renderer last adopted. */
+export function currentStoredThemes(): readonly ThemeSource[] {
+  return stored;
 }
 
 /** Runs `cb` with every applied theme; returns the unsubscribe. */
@@ -204,14 +235,17 @@ function readMirror(): ThemeMirror | null {
   const raw = window.localStorage.getItem(KEY);
   persisted = raw;
   if (raw !== null) {
-    const parsed = JSON.parse(raw) as { preference?: unknown; imported?: unknown } | null;
+    const parsed = JSON.parse(raw) as { preference?: unknown; stored?: unknown; imported?: unknown } | null;
+    // A mirror written before #1168 names the field `imported`; read it so the
+    // first launch after an upgrade still paints the user's theme.
+    const rows = parsed?.stored ?? parsed?.imported;
     return {
       preference: parseThemePreference(parsed?.preference),
-      imported: Array.isArray(parsed?.imported) ? parsed.imported.filter(isImportedTheme) : [],
+      stored: Array.isArray(rows) ? rows.filter(isStoredTheme) : [],
     };
   }
   const legacy = window.localStorage.getItem(LEGACY_KEY);
-  return legacy === null ? null : { preference: parseThemePreference({ themeId: legacy }), imported: [] };
+  return legacy === null ? null : { preference: parseThemePreference({ themeId: legacy }), stored: [] };
 }
 
 // Boot from the persisted mirror so the palette is right on the first paint,
@@ -219,8 +253,8 @@ function readMirror(): ThemeMirror | null {
 try {
   // No mirror yet: adopt (and so persist) the default preference, as every
   // launch before the first broadcast has always done.
-  const mirror = readMirror() ?? { preference, imported: [] };
-  applyThemePreference(mirror.preference, mirror.imported);
+  const mirror = readMirror() ?? { preference, stored: [] };
+  applyThemePreference(mirror.preference, mirror.stored);
   // The default theme is `current` before any paint, so the guard above
   // skips it; paint once so color-scheme and data-theme are set too.
   if (current === DEFAULT_THEME) applyTheme(DEFAULT_THEME);
@@ -231,5 +265,5 @@ try {
 
 // System mode follows the OS live: a scheme flip repaints without a backend round-trip.
 schemeQuery?.addEventListener("change", () => {
-  if (preference.themeMode === "system") applyThemePreference(preference, imported);
+  if (preference.themeMode === "system") applyThemePreference(preference, stored);
 });

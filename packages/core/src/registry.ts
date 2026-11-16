@@ -25,7 +25,7 @@ import {
 import {
   DEFAULT_LIGHT_THEME_ID,
   DEFAULT_THEME_ID,
-  parseImportedThemes,
+  parseStoredThemes,
   type ThemeMode,
   type ThemeSource,
 } from "./theme";
@@ -76,6 +76,8 @@ export interface RegistrySettings {
   artifactLibraryEnabled: boolean;
   /** The agent may drive the tab's bound emulator via omp-ui_device (issue #1006); default off. */
   deviceAgentAccess: boolean;
+  /** Registers omp-ui_theme_save on new and resumed sessions (issue #1168); default off. */
+  themeAgentAccess: boolean;
   /** Host-local public model/provider aggregates; default on, with opt-out. */
   telemetryModelsEnabled: boolean;
   /** Seeds the advisor on/off for new sessions (issue #174); default off. */
@@ -145,14 +147,16 @@ export interface RegistrySettings {
   lightThemeId: string;
   /** Theme painted in system mode while the OS prefers dark (issue #999). */
   darkThemeId: string;
-  /** VS Code themes the user imported, each already past the contrast gate (issue #999). */
-  importedThemes: ThemeSource[];
+  /** Imported and authored themes, each already past the theme gate (issues #999, #1168). */
+  storedThemes: ThemeSource[];
   /** Active font family id (see renderer lib/font-families.ts). */
   fontFamilyId: string;
   /** Transcript column width step (see renderer lib/transcript-width.ts); default wide (issue #391). */
   transcriptWidth: TranscriptWidth;
   /** Chrome translucency step (see renderer lib/glass-chrome.ts); default subtle (issue #393). */
   glassChrome: GlassChrome;
+  /** Lets a theme's scene animate (issue #1168); default on. */
+  backdropMotion: boolean;
   /** Active UI locale id; the renderer resolves it against its own locale table. */
   localeId: string;
   /** Rebound app shortcuts (issue #998), action id → chord; absent actions keep their defaults. */
@@ -287,6 +291,10 @@ export const SETTINGS: SettingDescriptors = {
     (value): value is boolean => typeof value === "boolean",
   ),
   deviceAgentAccess: validatedSetting(
+    () => false,
+    (value): value is boolean => typeof value === "boolean",
+  ),
+  themeAgentAccess: validatedSetting(
     () => false,
     (value): value is boolean => typeof value === "boolean",
   ),
@@ -433,7 +441,7 @@ export const SETTINGS: SettingDescriptors = {
     () => DEFAULT_THEME_ID,
     (value): value is string => typeof value === "string" && value !== "",
   ),
-  importedThemes: { fallback: () => [], parse: parseImportedThemes },
+  storedThemes: { fallback: () => [], parse: parseStoredThemes },
   // Any non-empty string is kept as-is: font family ids are validated by the
   // renderer's own table, so registries written by newer builds remain intact.
   fontFamilyId: validatedSetting(
@@ -447,6 +455,10 @@ export const SETTINGS: SettingDescriptors = {
   glassChrome: validatedSetting<GlassChrome>(
     () => "subtle",
     (value): value is GlassChrome => value === "off" || value === "frosted",
+  ),
+  backdropMotion: validatedSetting(
+    () => true,
+    (value): value is boolean => typeof value === "boolean",
   ),
   // Any non-empty string is kept as-is: locale ids are validated by the
   // renderer's own table, so registries written by newer builds remain intact.
@@ -579,6 +591,12 @@ function parseSettings(raw: object | undefined): RegistrySettings {
   if (!("councilRoster" in (values ?? {}))) {
     const legacyRoster = councilDocumentFromLegacy(values?.["reviewRoster"]);
     if (legacyRoster !== null) settings.councilRoster = legacyRoster;
+  }
+  // One-time migration (issue #1168): imported themes widened to stored
+  // themes. The legacy key drops on the next write because buildSettings only
+  // emits SETTING_KEYS.
+  if (!("storedThemes" in (values ?? {}))) {
+    settings.storedThemes = parseStoredThemes(values?.["importedThemes"]);
   }
   return settings;
 }
