@@ -209,7 +209,7 @@ fresh scratch directory under its app-data chats root, for conversation not tied
 to a repo. The record keeps that directory as its working directory plus an
 explicit chat marker; no project record exists and the chats root can never be
 registered. Chats list in the sidebar alongside project sessions, labelled
-*chat*, and a chat starts from the **Project quick-open**'s *No project* row
+*chat*, and a chat starts from the **Project quick-open**'s *Chat* row
 or directly with `mod+shift+o`
 (chat tabs share the tab strip). Chats run in Build mode only, always carry
 the fleet tools (so a chat can start sessions in projects, Plan mode
@@ -346,11 +346,11 @@ _Avoid_: launch modal, dispatch window, new session window, launcher dialog
 **Project quick-open**:
 The popup the sidebar's New session button (or `mod+shift+n`) opens to start
 work. Its root page lists one row per project — one per repository identity
-(the **Unified project view**) — plus *No project*, *Add project…*, and one
+(the **Unified project view**) — plus the *Chat* row, *Add project…*, and one
 *Register project on {nickname}* row per joined **Remote instance**. The focused
-tab's project comes first, or *No project* when a chat (or nothing) is
+tab's project comes first, or the *Chat* row when a chat (or nothing) is
 focused, so a single Enter repeats "another one of these". Enter on a project
-row starts a session there; on *No project* it starts a **Chat**. → (caret at
+row starts a session there; on the *Chat* row it starts a **Chat**. → (caret at
 the end of the search) or the row's actions button drills into a page;
 Backspace on an empty search goes back. A merged row's subline names every
 machine holding the repository, this computer first. A project page holds
@@ -361,7 +361,7 @@ settings…, Copy project to… (this computer's checkout, while a remote
 instance is joined; see **Project copy**), and Remove project…. A new
 session starts on this computer's checkout when it has one; the **Machine
 chip** moves it to another before the
-first prompt. The *No project* page offers New chat and New private chat. The
+first prompt. The *Chat* page offers New chat and New private chat. The
 open targets are omitted for a remote project and in the compact shell: a
 compact shell is usually a phone talking to a remote omp-ui, where opening on
 the host answers a question nobody asked. The one remote open target is

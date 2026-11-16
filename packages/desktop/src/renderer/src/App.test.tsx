@@ -440,7 +440,7 @@ describe("new-session entry points (issues #915/#919)", () => {
   });
 
   it("opens the quick-open on a chat tab instead of spawning a chat inline", async () => {
-    // The quick-open orders No project first for a focused chat, so a bare
+    // The quick-open orders Chat first for a focused chat, so a bare
     // Enter there still starts another chat; the key itself never spawns.
     const chat: SessionSummary = { ...chatSummary(), tabId: "chat" };
     const newChat = vi.fn(async () => "fresh-chat");

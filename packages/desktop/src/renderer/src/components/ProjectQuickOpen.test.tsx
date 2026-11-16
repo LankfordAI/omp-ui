@@ -248,28 +248,28 @@ afterEach(() => {
 });
 
 describe("ProjectQuickOpen root rows (issues #915, #919)", () => {
-  it("leads with the focused project, then No project, then registry order, add rows last", () => {
+  it("leads with the focused project, then Chat, then registry order, add rows last", () => {
     renderQuickOpen();
     // Add rows close the list: local first, then one per joined instance
     // (the unreachable box-b gets none).
-    expect(rowLabels()).toEqual(["bravo", "No project", "alpha", "Add project…", "Register project on box-a"]);
+    expect(rowLabels()).toEqual(["bravo", "Chat", "alpha", "Add project…", "Register project on box-a"]);
     // Non-mac jsdom formats mod+N as Ctrl+N; the first nine rows carry their chord.
     const rows = rowButtons();
     expect(rows[0]!.textContent).toContain("Ctrl+1");
     expect(rows[1]!.textContent).toContain("Ctrl+2");
   });
 
-  it("puts No project first when a chat is focused", () => {
+  it("puts Chat first when a chat is focused", () => {
     renderQuickOpen({
       tabs: [tabInfo({ tabId: "c1", projectCwd: "/p", instanceId: null })],
       chats: [chatRecord("c1")],
     });
-    expect(rowLabels()).toEqual(["No project", "alpha", "bravo", "Add project…", "Register project on box-a"]);
+    expect(rowLabels()).toEqual(["Chat", "alpha", "bravo", "Add project…", "Register project on box-a"]);
   });
 
-  it("puts No project first when no tab is focused", () => {
+  it("puts Chat first when no tab is focused", () => {
     renderQuickOpen({ tabs: [] });
-    expect(rowLabels()[0]).toBe("No project");
+    expect(rowLabels()[0]).toBe("Chat");
     expect(rowLabels()[1]).toBe("alpha");
   });
 
@@ -298,7 +298,7 @@ describe("ProjectQuickOpen root rows (issues #915, #919)", () => {
     expect(useStore.getState().projectQuickOpen).toBeNull();
   });
 
-  it("Enter on the No project row runs newChat and closes", () => {
+  it("Enter on the Chat row runs newChat and closes", () => {
     const { newChat } = renderQuickOpen();
     pressQuick("ArrowDown");
     pressQuick("Enter");
@@ -542,12 +542,12 @@ describe("ProjectQuickOpen pages (issue #919)", () => {
     expect(backendMock.getProjectOpenAvailability).not.toHaveBeenCalled();
   });
 
-  it("the No project page offers New chat and New private chat", () => {
+  it("the Chat page offers New chat and New private chat", () => {
     const { newChat, seenOpen } = renderQuickOpen();
     pressQuick("ArrowDown");
     drillIn();
     expect(rowLabels()).toEqual(["New chat", "New private chat"]);
-    expect(document.body.querySelector('[role="dialog"]')!.textContent).toContain("No project");
+    expect(document.body.querySelector('[role="dialog"]')!.textContent).toContain("Chat");
     act(() => rowByLabel("New private chat")!.click());
     expect(newChat).toHaveBeenCalledExactlyOnceWith({ private: true });
     expect(seenOpen).toEqual([null]);
@@ -630,9 +630,9 @@ describe("ProjectQuickOpen identity colours", () => {
     expect(bravo).not.toBe(alpha);
   });
 
-  it("leaves the No project row's bar unpainted", () => {
+  it("leaves the Chat row's bar unpainted", () => {
     renderQuickOpen();
-    expect(leadOf("No project").style.backgroundColor).toBe("");
+    expect(leadOf("Chat").style.backgroundColor).toBe("");
   });
 
   it("washes the project page header chip and keeps the chat page chip neutral", () => {
@@ -641,7 +641,7 @@ describe("ProjectQuickOpen identity colours", () => {
     const chip = headerChip();
     expect(chip).not.toBeNull();
     expect(chip!.style.backgroundColor).not.toBe("");
-    // Back to the root's empty-query order, then down onto No project.
+    // Back to the root's empty-query order, then down onto Chat.
     act(() => labelled("back to projects")!.click());
     pressQuick("ArrowDown");
     drillIn();
