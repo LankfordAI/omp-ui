@@ -1861,8 +1861,9 @@ _Avoid_: theme store, marketplace, gallery, theme source
 
 **Theme index**:
 A theme repository's `omp-ui-themes.json`: each listed theme's file path,
-label, seeds and backdrop kind, so Browse previews it without downloading the
-theme (ADR-0096).
+label, seeds and backdrop kind, so Browse paints every card without
+downloading a theme; Preview downloads that one theme to show its backdrop
+(ADR-0096).
 _Avoid_: manifest, registry
 
 **Repository theme**:

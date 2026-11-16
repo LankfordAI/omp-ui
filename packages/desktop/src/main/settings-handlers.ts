@@ -74,6 +74,7 @@ type SettingsHandlerChannels =
   | typeof CH.removeThemeRepository
   | typeof CH.browseThemeRepository
   | typeof CH.installRepositoryTheme
+  | typeof CH.previewRepositoryThemeBackdrop
   | typeof CH.setStoredThemeMotion
   | typeof CH.setBackdropMotion
   | typeof CH.setThemeAgentAccess
@@ -202,6 +203,8 @@ export function registerSettingsHandlers(
     [CH.browseThemeRepository]: (repository: string, refresh: boolean) =>
       deps.themeRepositories.browse(repository, refresh),
     [CH.installRepositoryTheme]: (request: RepositoryThemeInstallRequest) => deps.themeRepositories.install(request),
+    [CH.previewRepositoryThemeBackdrop]: (request: RepositoryThemeInstallRequest) =>
+      deps.themeRepositories.previewBackdrop(request),
     [CH.setStoredThemeMotion]: (id: string, on: boolean) => setStoredThemeMotion(deps.themes, id, on),
     [CH.setBackdropMotion]: (value: boolean) => commit("backdropMotion", value),
     [CH.setThemeAgentAccess]: (value: boolean) => commit("themeAgentAccess", value),

@@ -433,6 +433,10 @@ export const createSettingsSlice: StateCreator<UiStore, [], [], SettingsSlice> =
       return await backend.installRepositoryTheme(request);
     },
 
+    async previewRepositoryThemeBackdrop(request) {
+      return await backend.previewRepositoryThemeBackdrop(request);
+    },
+
     async setStoredThemeMotion(id, on) {
       try {
         await backend.setStoredThemeMotion(id, on);

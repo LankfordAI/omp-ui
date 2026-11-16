@@ -3,10 +3,14 @@ import type { WebhookSecretReveal } from "@omp-ui/core/webhook";
 import type { McpTokenReveal } from "@omp-ui/core/mcp-endpoint";
 import { STORED_THEMES_MAX, type ThemeSource } from "@omp-ui/core/theme";
 import { sourceFromDraft, type SaveStoredThemeResult } from "@omp-ui/core/theme-file";
-import type { ThemeRepositoryAddResult, ThemeRepositoryListingResult } from "@omp-ui/core/theme-repository-format";
+import type {
+  RepositoryThemeBackdropResult,
+  ThemeRepositoryAddResult,
+  ThemeRepositoryListingResult,
+} from "@omp-ui/core/theme-repository-format";
 import { act } from "react";
 import { createRoot, type Root } from "react-dom/client";
-import { afterEach, describe, expect, it, vi } from "vitest";
+import { afterEach, beforeEach, describe, expect, it, vi } from "vitest";
 import type {
   AppUpdateState,
   AudioDeviceRole,
@@ -193,6 +197,9 @@ const backendMock = {
   ),
   installRepositoryTheme: vi.fn(
     async (): Promise<SaveStoredThemeResult> => ({ ok: false, reason: "invalid", message: "unmocked" }),
+  ),
+  previewRepositoryThemeBackdrop: vi.fn(
+    async (): Promise<RepositoryThemeBackdropResult> => ({ ok: false, message: "unmocked" }),
   ),
   setStoredThemeMotion: vi.fn(async () => {}),
   readThemeBackdrop: vi.fn(async () => null),
@@ -3104,6 +3111,13 @@ describe("Settings Appearance page Theme repositories (#1178)", () => {
       ],
     },
   };
+  const SCENE_LISTING: ThemeRepositoryListingResult = {
+    ok: true,
+    listing: {
+      ...LISTING.listing,
+      themes: [entry("new.json", "Fresh", "#1a1b26", "1".repeat(40), "scene"), ...LISTING.listing.themes.slice(1)],
+    },
+  };
   const installedSource = (id: string, path: string, blob: string, scene = false): ThemeSource => ({
     ...sourceFromDraft(id, `Installed ${path}`, { canvas: "#16161e" }),
     origin: { repository: REPO, path, commit: "a".repeat(40), blob, animate: false },
@@ -3128,11 +3142,30 @@ describe("Settings Appearance page Theme repositories (#1178)", () => {
     [...document.querySelectorAll<HTMLElement>('[data-testid="theme-repository-entry"]')].find((card) =>
       card.textContent?.includes(label),
     )!;
-  const openListing = async (storedThemes: ThemeSource[]): Promise<void> => {
-    backendMock.browseThemeRepository.mockResolvedValueOnce(LISTING);
+  const openListing = async (
+    storedThemes: ThemeSource[],
+    listing: ThemeRepositoryListingResult = LISTING,
+  ): Promise<void> => {
+    backendMock.browseThemeRepository.mockResolvedValueOnce(listing);
     useStore.setState({ settingsPage: "appearance", state: backendState({ themeRepositories: [REPO], storedThemes }) });
     await renderSettings();
     await chooseShow(`repo:${REPO}`);
+    await act(async () => {});
+  };
+  const createObjectURL = URL.createObjectURL;
+  const revokeObjectURL = URL.revokeObjectURL;
+  beforeEach(() => {
+    URL.createObjectURL = vi.fn(() => "blob:preview");
+    URL.revokeObjectURL = vi.fn();
+  });
+  afterEach(() => {
+    URL.createObjectURL = createObjectURL;
+    URL.revokeObjectURL = revokeObjectURL;
+  });
+  const previewDialog = (): HTMLElement | null =>
+    document.querySelector<HTMLElement>('[role="dialog"][aria-label="Preview: Fresh"]');
+  const openFreshPreview = async (): Promise<void> => {
+    click(entryCard("Fresh").querySelector<HTMLButtonElement>('button[aria-label="Preview theme Fresh"]')!);
     await act(async () => {});
   };
 
@@ -3205,6 +3238,46 @@ describe("Settings Appearance page Theme repositories (#1178)", () => {
     expect(animate.getAttribute("aria-checked")).toBe("false");
     click(animate);
     expect(backendMock.setStoredThemeMotion).toHaveBeenCalledWith("custom-scene", true);
+  });
+
+  it("Preview downloads an uninstalled entry's backdrop once and shows it on the preview and the card", async () => {
+    backendMock.previewRepositoryThemeBackdrop.mockResolvedValueOnce({
+      ok: true,
+      backdrop: { mime: "image/svg+xml", data: btoa('<svg xmlns="http://www.w3.org/2000/svg"></svg>'), dim: 40, blur: 12 },
+    });
+    await openListing(INSTALLED, SCENE_LISTING);
+    await openFreshPreview();
+    expect(backendMock.previewRepositoryThemeBackdrop).toHaveBeenCalledWith({
+      repository: REPO,
+      commit: COMMIT,
+      path: "new.json",
+    });
+    expect(previewDialog()!.querySelector('img[src="blob:preview"]')).not.toBeNull();
+    expect(entryCard("Fresh").querySelector('img[src="blob:preview"]')).not.toBeNull();
+    click(
+      [...previewDialog()!.querySelectorAll<HTMLButtonElement>("button")].find(
+        (button) => button.textContent === t("settings.appearance.previewClose"),
+      )!,
+    );
+    expect(previewDialog()).toBeNull();
+    await openFreshPreview();
+    expect(backendMock.previewRepositoryThemeBackdrop).toHaveBeenCalledTimes(1);
+  });
+
+  it("Preview names a backdrop the host refused and still paints the colours", async () => {
+    const message = "a file GitHub served does not match the repository's commit";
+    backendMock.previewRepositoryThemeBackdrop.mockResolvedValueOnce({ ok: false, message });
+    await openListing(INSTALLED, SCENE_LISTING);
+    await openFreshPreview();
+    expect(previewDialog()!.textContent).toContain(t("settings.appearance.backdropFailed", { message }));
+    expect(previewDialog()!.querySelector("img")).toBeNull();
+  });
+
+  it("Preview of an entry without a backdrop asks the host for nothing", async () => {
+    await openListing(INSTALLED);
+    await openFreshPreview();
+    expect(previewDialog()).not.toBeNull();
+    expect(backendMock.previewRepositoryThemeBackdrop).not.toHaveBeenCalled();
   });
 });
 
