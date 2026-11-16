@@ -2875,6 +2875,7 @@ export const ko: Partial<Record<MessageKey, string>> = {
   "finish.done.published": "{destination}을(를) {remote}에 publish",
   "finish.done.rejected": "{upstream}에 이 브랜치가 갖지 않은 commit이 있습니다 — 먼저 pull한 뒤 push하세요",
   "finish.done.openPr": "pull request 열기",
+  "finish.done.prOpened": "{destination}의 compare 페이지를 브라우저에서 열었습니다",
 
   // useFinishWorktree.ts — 마무리 실행의 트랜스크립트 공지
   "notice.merge.conflictProject": "{destination} 병합이 프로젝트 체크아웃에서 {count}개 파일 충돌로 중단되었습니다 — 그곳에서 해결하거나 동기화 후 다시 마무리하세요",

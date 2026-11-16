@@ -699,7 +699,12 @@ export function FinishWorktreeDialog({ tabId }: { tabId: string }) {
                     destination is not the branch the repo compares on. */}
                 {c.pushState.result.kind !== "rejected" &&
                   c.pushState.result.kind !== "failed" &&
-                  c.phase.destination !== c.defaultBranch && (
+                  c.phase.destination !== c.defaultBranch &&
+                  (c.prOpened ? (
+                    <p className={`${quietClass} [overflow-wrap:anywhere]`}>
+                      {t("finish.done.prOpened", { destination: c.phase.destination })}
+                    </p>
+                  ) : (
                     <Button
                       size="xs"
                       variant="ghost"
@@ -707,7 +712,7 @@ export function FinishWorktreeDialog({ tabId }: { tabId: string }) {
                     >
                       {t("finish.done.openPr")}
                     </Button>
-                  )}
+                  ))}
               </>
             )}
             {c.pushState.s === "failed" && (
