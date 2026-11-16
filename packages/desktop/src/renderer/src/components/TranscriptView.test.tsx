@@ -66,6 +66,31 @@ function assistant(id: string, text: string): RenderItem {
   return { kind: "assistant", id, text, thinking: "", narration: "", streaming: false };
 }
 
+/** A done tool call whose result text is `out-<id>`. */
+function tool(id: string, name: string, args: unknown, extra: Partial<ToolItem> = {}): ToolItem {
+  return { kind: "tool", id, toolCallId: id, name, args, status: "done", resultText: `out-${id}`, ...extra };
+}
+
+function wrappers(el: HTMLElement): string[] {
+  return [...el.querySelectorAll<HTMLElement>("[data-item-id]")].map((node) => node.dataset.itemId!);
+}
+
+function click(node: Element | null): void {
+  if (node === null) throw new Error("click target not found");
+  act(() => {
+    node.dispatchEvent(new MouseEvent("click", { bubbles: true }));
+  });
+}
+
+/** The group header of the group row whose first member is `id`. */
+function groupHeader(el: HTMLElement, id: string): Element | null {
+  return el.querySelector(`[data-item-id="${id}"] button`);
+}
+
+function memberLine(el: HTMLElement, id: string): HTMLElement | null {
+  return el.querySelector<HTMLElement>(`[data-group-member-id="${id}"]`);
+}
+
 function render(items: RenderItem[], tabId?: string): { el: HTMLDivElement; root: Root } {
   const el = document.createElement("div");
   document.body.appendChild(el);
@@ -1062,6 +1087,120 @@ describe("row memoization (issue #187)", () => {
   });
 });
 
+describe("tool groups (issue #1186)", () => {
+  beforeEach(() => {
+    toolCardRenders.length = 0;
+  });
+
+  it("folds back-to-back reads into one collapsed card that opens per call", () => {
+    const { el, root } = render([
+      tool("r1", "read", { path: "a.ts" }),
+      tool("r2", "read", { path: "b.ts" }),
+      tool("r3", "read", { path: "c.ts" }),
+    ]);
+    expect(wrappers(el)).toEqual(["r1"]);
+    expect(el.textContent).toContain("3 files read");
+    for (const id of ["r1", "r2", "r3"]) expect(el.textContent).not.toContain(`out-${id}`);
+
+    click(groupHeader(el, "r1"));
+    expect(el.querySelectorAll("[data-group-member-id]")).toHaveLength(3);
+    expect(el.textContent).toContain("a.ts");
+    expect(el.textContent).toContain("c.ts");
+    expect(el.textContent).not.toContain("out-r2");
+
+    click(memberLine(el, "r2")!.querySelector("button"));
+    expect(el.textContent).toContain("out-r2");
+    expect(el.textContent).not.toContain("out-r1");
+    act(() => root.unmount());
+  });
+
+  it("counts ranged reads of one file once", () => {
+    const { el, root } = render([
+      tool("r1", "read", { path: "a.ts:1-5" }),
+      tool("r2", "read", { path: "a.ts:9-20" }),
+      tool("r3", "read", { path: "b.ts" }),
+    ]);
+    expect(el.textContent).toContain("2 files read");
+    act(() => root.unmount());
+  });
+
+  it("mixes categories in first-appearance order", () => {
+    const { el, root } = render([
+      tool("r1", "read", { path: "a.ts" }),
+      tool("g1", "grep", { pattern: "x" }),
+      tool("r2", "read", { path: "b.ts" }),
+    ]);
+    expect(el.textContent).toContain("2 files read · 1 search");
+    act(() => root.unmount());
+  });
+
+  it("renders a lone lookup as a plain tool card", () => {
+    const { el, root } = render([tool("r1", "read", { path: "a.ts" })]);
+    expect(toolCardRenders).toContain("r1");
+    expect(el.textContent).not.toContain("file read");
+    act(() => root.unmount());
+  });
+
+  it("splits a run at a non-groupable tool", () => {
+    const { el, root } = render([
+      tool("r1", "read", { path: "a.ts" }),
+      tool("b1", "bash", { command: "ls" }),
+      tool("r2", "read", { path: "b.ts" }),
+    ]);
+    expect(wrappers(el)).toEqual(["r1", "b1", "r2"]);
+    expect(el.textContent).not.toContain("files read");
+    act(() => root.unmount());
+  });
+
+  it("never spans assistant messages, even text-free ones", () => {
+    const { el, root } = render([
+      assistant("a1", ""),
+      tool("r1", "read", { path: "a.ts" }),
+      assistant("a2", ""),
+      tool("r2", "read", { path: "b.ts" }),
+    ]);
+    expect(wrappers(el)).toEqual(["a1", "r1", "a2", "r2"]);
+    expect(el.textContent).not.toContain("files read");
+    act(() => root.unmount());
+  });
+
+  it("keeps a failed lookup as its own card, splitting the run", () => {
+    const { el, root } = render([
+      tool("r1", "read", { path: "a.ts" }),
+      tool("r2", "read", { path: "b.ts" }, { status: "error" }),
+      tool("r3", "read", { path: "c.ts" }),
+    ]);
+    expect(wrappers(el)).toEqual(["r1", "r2", "r3"]);
+    expect(el.querySelector('[data-item-id="r2"]')!.textContent).toContain("error");
+    act(() => root.unmount());
+  });
+
+  it("shows running state while a member runs and the summary once it settles", () => {
+    const done = tool("r1", "read", { path: "a.ts" });
+    const running = tool("r2", "read", { path: "b.ts" }, { status: "running", resultText: undefined });
+    const { el, root } = render([done, running]);
+    expect(el.textContent).toContain("running");
+    expect(el.querySelector("[data-progress-sweep]")).not.toBeNull();
+
+    act(() => root.render(<TranscriptView items={[done, { ...running, status: "done", resultText: "ok" }]} />));
+    expect(el.textContent).not.toContain("running");
+    expect(el.querySelector("[data-progress-sweep]")).toBeNull();
+    expect(el.textContent).toContain("2 files read");
+    act(() => root.unmount());
+  });
+
+  it("headlines replayed calls with their i argument", () => {
+    const { el, root } = render([
+      tool("r1", "read", { path: "a.ts", i: "Reading a" }),
+      tool("r2", "read", { path: "b.ts", i: "Reading b" }),
+    ]);
+    click(groupHeader(el, "r1"));
+    expect(memberLine(el, "r1")!.textContent).toContain("Reading a");
+    expect(memberLine(el, "r2")!.textContent).toContain("Reading b");
+    act(() => root.unmount());
+  });
+});
+
 describe("stream-stall indicator (issue #228)", () => {
   const TAB = "tab-stall";
 
@@ -1363,6 +1502,53 @@ describe("in-session find (issue #270)", () => {
     expect(el.textContent).not.toContain("jump to latest");
     expect(scrollIntoViewSpy).not.toHaveBeenCalled();
     act(() => root.unmount());
+  });
+
+  describe("matches inside a tool group (issue #1186)", () => {
+    function reads(tail: boolean): RenderItem[] {
+      const items: RenderItem[] = [
+        tool("r1", "read", { path: "a.ts" }),
+        tool("r2", "read", { path: "b.ts" }),
+        tool("r3", "read", { path: "c.ts" }),
+      ];
+      return tail ? [...items, assistant("a9", "tail")] : items;
+    }
+
+    it("opens the group and the matched member, and scrolls that member's line", () => {
+      const { el, root } = renderFind(reads(true), { ids: ["r2"], activeId: "r2", nonce: 1 });
+      expect(wrapper(el, "r1").className).toBe("find-hit find-hit-active");
+      expect(el.querySelectorAll("[data-group-member-id]")).toHaveLength(3);
+      const member = memberLine(el, "r2")!;
+      expect(member.className).toContain("find-hit-active");
+      expect(member.textContent).toContain("out-r2");
+      expect(scrollIntoViewSpy.mock.contexts.at(-1)).toBe(member);
+      expect(el.textContent).toContain("jump to latest");
+      act(() => root.unmount());
+    });
+
+    it("exits follow mode for a non-final member of the final group only", () => {
+      const mid = renderFind(reads(false), { ids: ["r2"], activeId: "r2", nonce: 1 });
+      expect(mid.el.textContent).toContain("jump to latest");
+      act(() => mid.root.unmount());
+
+      const last = renderFind(reads(false), { ids: ["r3"], activeId: "r3", nonce: 2 });
+      expect(last.el.textContent).not.toContain("jump to latest");
+      act(() => last.root.unmount());
+    });
+
+    it("re-opens a group the user collapsed on a repeat jump to the same member", () => {
+      const items = reads(true);
+      const { el, root } = renderFind(items, { ids: ["r2"], activeId: "r2", nonce: 1 });
+      click(groupHeader(el, "r1"));
+      expect(el.querySelectorAll("[data-group-member-id]")).toHaveLength(0);
+
+      act(() => {
+        root.render(<TranscriptView items={items} find={{ ids: ["r2"], activeId: "r2", nonce: 2 }} />);
+      });
+      expect(el.querySelectorAll("[data-group-member-id]")).toHaveLength(3);
+      expect(scrollIntoViewSpy).toHaveBeenCalledTimes(2);
+      act(() => root.unmount());
+    });
   });
 });
 

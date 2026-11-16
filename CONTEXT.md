@@ -254,6 +254,15 @@ file stays the source of truth, and an unknown event type adds nothing rather
 than breaking the transcript.
 _Avoid_: message, bubble, row
 
+**Tool group**:
+Two or more back-to-back read-only lookup calls (`read`, searches, web
+searches, vault lookups) from one assistant message, which the native
+transcript folds into one collapsed card titled by per-kind counts
+("9 files read · 2 searches"). Each call stays its own render item; grouping
+is presentation only. A failed, aborted, cancelled, or annotated call stays
+its own card, and a group never spans assistant messages.
+_Avoid_: batch, cluster, combined card
+
 **Narration**:
 The model's between-tool prose: omp 18.12 marks it on thinking blocks, and
 omp-ui presents it as reply text in the transcript.
