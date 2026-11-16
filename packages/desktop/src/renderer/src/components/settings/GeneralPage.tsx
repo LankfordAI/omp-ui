@@ -338,6 +338,7 @@ export function GeneralPage() {
   const setDesktopNotifications = useStore((s) => s.setDesktopNotifications);
   const setHtmlArtifactScripts = useStore((s) => s.setHtmlArtifactScripts);
   const setDeviceAgentAccess = useStore((s) => s.setDeviceAgentAccess);
+  const setThemeAgentAccess = useStore((s) => s.setThemeAgentAccess);
   const setTelemetryModelsEnabled = useStore((s) => s.setTelemetryModelsEnabled);
   const setDefaultAdvisor = useStore((s) => s.setDefaultAdvisor);
   const setDefaultAutoThinking = useStore((s) => s.setDefaultAutoThinking);
@@ -534,6 +535,16 @@ export function GeneralPage() {
           on={state?.deviceAgentAccess === true}
           onChange={(next) => void setDeviceAgentAccess(next)}
           label={t("settings.general.deviceAgentAccess")}
+        />
+      </Row>
+      <Row
+        title={t("settings.general.themeAgentAccess")}
+        hint={t("settings.general.themeAgentAccessHint")}
+      >
+        <Switch
+          on={state?.themeAgentAccess === true}
+          onChange={(next) => void setThemeAgentAccess(next)}
+          label={t("settings.general.themeAgentAccess")}
         />
       </Row>
       <Row

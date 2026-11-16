@@ -3,6 +3,13 @@ import type { GrammarState, HighlighterCore, ThemedToken, ThemeRegistrationRaw }
 import { DEFAULT_THEME_ID, resolveTheme, useTheme, type Theme } from "./themes";
 
 /**
+ * The shiki registration name for a theme. It carries `rev` as well as the id:
+ * an authored theme can be re-saved under the same id with new colours
+ * (issue #1168), and a name keyed on the id alone would keep the old palette.
+ */
+export const shikiName = (theme: Theme): string => `omp-${theme.id}-${theme.rev}`;
+
+/**
  * Syntax highlighting for transcript code blocks (issue #27).
  *
  * Everything here is lazy: the shiki core, the JS regex engine, and each
@@ -19,7 +26,7 @@ import { DEFAULT_THEME_ID, resolveTheme, useTheme, type Theme } from "./themes";
  */
 function buildShikiTheme(theme: Theme): ThemeRegistrationRaw {
   return {
-    name: `omp-${theme.id}`,
+    name: shikiName(theme),
     type: theme.dark ? "dark" : "light",
     colors: {},
     settings: [
@@ -339,7 +346,7 @@ export function createShikiStreamTokenizer(lang: string, theme: Theme): StreamSl
     ensureTheme(core, theme);
     const lines = core.codeToTokensBase(slice, {
       lang: lang as never,
-      theme: `omp-${theme.id}`,
+      theme: shikiName(theme),
       grammarState: state,
     });
     const next = core.getLastGrammarState(lines);
@@ -380,7 +387,7 @@ export function useIncrementalHighlightTokens(
       finish(null, null);
       return;
     }
-    const key = `${resolved}\u0000omp-${theme.id}`;
+    const key = `${resolved}\u0000${shikiName(theme)}`;
     const cache = cacheRef.current;
     const reuse = cache !== null && cache.key === key && code.startsWith(cache.settledSource);
     // A rebuild must not leave old-theme (or old-grammar) colors on screen:
@@ -414,10 +421,11 @@ export function useIncrementalHighlightTokens(
 }
 
 /**
- * Themes registered on the core, seeded with the one `getCore` builds it
- * with. A theme is only paid for once the user actually switches to it.
+ * Shiki names registered on the core, seeded with the one `getCore` builds it
+ * with. A theme is only paid for once the user actually switches to it; a
+ * recoloured theme registers under a new name and the old one stays loaded.
  */
-const loadedThemes = new Set<string>([DEFAULT_THEME_ID]);
+const loadedThemes = new Set<string>([shikiName(resolveTheme(DEFAULT_THEME_ID))]);
 
 let corePromise: Promise<HighlighterCore> | null = null;
 
@@ -452,9 +460,10 @@ function ensureLang(core: HighlighterCore, lang: string): Promise<void> {
 }
 /** Load a theme onto the core once, mirroring the transcript hook's bookkeeping. */
 export function ensureTheme(core: HighlighterCore, theme: Theme): void {
-  if (!loadedThemes.has(theme.id)) {
+  const name = shikiName(theme);
+  if (!loadedThemes.has(name)) {
     core.loadThemeSync(buildShikiTheme(theme));
-    loadedThemes.add(theme.id);
+    loadedThemes.add(name);
   }
 }
 
@@ -468,7 +477,7 @@ export async function tokenizeCode(
   const core = await getCore();
   await ensureLang(core, lang);
   ensureTheme(core, theme);
-  return core.codeToTokensBase(code, { lang: lang as never, theme: `omp-${theme.id}` });
+  return core.codeToTokensBase(code, { lang: lang as never, theme: shikiName(theme) });
 }
 
 /**

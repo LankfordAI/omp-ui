@@ -74,3 +74,12 @@ filterless `chrome-*` utilities; `plane-lit` loses its filter. `glass-*`
 keeps its meaning — blurred — for planes that float over moving content
 (composer card, dialogs, sheets). The Off/Subtle/Frosted knobs are
 unchanged.
+
+**Amended 2026-11-15 (#1168):** when the theme carries a backdrop, it replaces
+the wash under the app. The stage under the transcript turns transparent and
+the transcript's reading plane becomes a near-solid reading card over it;
+terminals and full-pane `bg-void` surfaces stay opaque. Plane opacity never
+drops below the theme's backdrop floor — the glass utilities take the larger of
+the glass alpha and that floor — so no text loses contrast. The backdrop is
+blurred once on its own layer; no plane gains a `backdrop-filter`
+([ADR-0094](0094-themes-carry-backdrops-and-can-be-authored.md)).

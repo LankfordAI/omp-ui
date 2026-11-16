@@ -163,6 +163,8 @@ import {
   type DiscardedChange,
   type VaultAction,
   LIMITS_COMMAND,
+  type SaveStoredThemeResult,
+  type ThemeToolArgs,
 } from "@omp-ui/core";
 import { CollabTracker } from "./collab-tracker";
 import type { Attention } from "./desktop-notifier";
@@ -362,6 +364,8 @@ export interface SessionManagerDependencies {
   devicePane: Pick<DevicePaneHostDeps, "encodeJpeg" | "agentDeviceBin" | "stateDir">;
   /** Posts one immediate OS notification for the host notify tool (#688); absent = notifications report as disabled. */
   hostNotify?: (tabId: string, title: string | null, message: string) => string;
+  /** Answers omp-ui_theme_save through the stored-theme save path (#1168); absent = the tool is never registered. */
+  themes?: { save(tabId: string, args: ThemeToolArgs): Promise<SaveStoredThemeResult> };
   /** Registry probe seams for the collab watcher (#686); tests fake them. */
   collabCli?: CollabCliDeps;
   /** The app version stamped into vault notes; backend passes app.getVersion(). */
@@ -610,6 +614,7 @@ export class SessionManager {
           resolveSessionLocation(deps.getSessionsRoot(), deps.getArchiveRoot(), lineageDir, sessionId),
         now: () => new Date(),
       },
+      theme: deps.themes,
       device: {
         run: (tabId, args) => {
           const record = deps.registry.sessions.find((session) => session.tabId === tabId);
@@ -2034,6 +2039,10 @@ export class SessionManager {
         vault: this.deps.registry.getSetting("vaultRegistry").vaults.length > 0,
         fleet: fleetToolsRegistered(entry.fleetToolAccess),
         device: this.deps.registry.getSetting("deviceAgentAccess") &&
+          current.fleet?.requestedBy.kind !== "webhook" && current.fleet?.requestedBy.kind !== "mcp",
+        // Same outside-sender exclusions as the device tool: a webhook or MCP
+        // sender must not change this app's settings (#1168).
+        theme: this.deps.registry.getSetting("themeAgentAccess") && this.deps.themes !== undefined &&
           current.fleet?.requestedBy.kind !== "webhook" && current.fleet?.requestedBy.kind !== "mcp",
         artifacts: this.deps.artifacts !== undefined && this.deps.registry.getSetting("artifactLibraryEnabled"),
       });

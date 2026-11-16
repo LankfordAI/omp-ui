@@ -28,6 +28,7 @@ import type {
 import { backendState, rpcTabState, tabInfo } from "../test/fixtures";
 import type { SettingsPage } from "../store";
 import { applyLocale, resolveLocale, t } from "../lib/i18n";
+import { currentThemePreview } from "../lib/themes";
 
 // The General page gates the audio-device row on the Electron shell (issue #855);
 // the hoisted flag lets one suite opt in while every other test keeps jsdom's
@@ -180,10 +181,14 @@ const backendMock = {
   setLightThemeId: vi.fn(async () => {}),
   setDarkThemeId: vi.fn(async () => {}),
   importVsCodeTheme: vi.fn(),
-  removeImportedTheme: vi.fn(async () => {}),
+  saveStoredTheme: vi.fn(),
+  removeStoredTheme: vi.fn(async () => {}),
+  readThemeBackdrop: vi.fn(async () => null),
   setFontFamilyId: vi.fn(async () => {}),
   setTranscriptWidth: vi.fn(async () => {}),
   setGlassChrome: vi.fn(async () => {}),
+  setBackdropMotion: vi.fn(async () => {}),
+  setThemeAgentAccess: vi.fn(async () => {}),
   setKeybindings: vi.fn(async () => {}),
   setLocaleId: vi.fn(async () => {}),
   setAppUpdateCheckOnLaunch: vi.fn(async () => {}),
@@ -2914,7 +2919,7 @@ describe("Settings Keyboard page (issue #998)", () => {
   });
 });
 
-describe("Settings Appearance page theme mode and VS Code import (issue #999)", () => {
+describe("Settings Appearance page theme mode and Your themes (issues #999, #1168)", () => {
   const card = (label: string, within: ParentNode = document): HTMLButtonElement =>
     within.querySelector<HTMLButtonElement>(`button[aria-label="${label}"]`)!;
   const group = (label: string): HTMLElement => document.querySelector<HTMLElement>(`[aria-label="${label}"]`)!;
@@ -2952,6 +2957,66 @@ describe("Settings Appearance page theme mode and VS Code import (issue #999)", 
     await vi.waitFor(() => expect(document.querySelector('[role="alert"]')?.textContent).toContain("Fog was not saved"));
     expect(backendMock.importVsCodeTheme).toHaveBeenCalledWith([{ name: "fog.json", text: '{"name":"Fog"}' }]);
     expect(document.querySelector('[role="alert"]')?.textContent).toContain("--color-ink: 1.22:1 (needs 10:1)");
+  });
+
+  const openEditor = async (): Promise<void> => {
+    useStore.setState({ settingsPage: "appearance", state: backendState({}) });
+    await renderSettings();
+    click(buttonWithText("New theme")!);
+  };
+  const setColour = async (label: string, hex: string): Promise<void> => {
+    const input = document.querySelector<HTMLInputElement>(`input[type="color"][aria-label="${label}"]`)!;
+    const setter = Object.getOwnPropertyDescriptor(HTMLInputElement.prototype, "value")!.set!;
+    await act(async () => {
+      setter.call(input, hex);
+      input.dispatchEvent(new Event("input", { bubbles: true }));
+    });
+  };
+
+  it("disables the editor's Save while the draft fails the gate", async () => {
+    await openEditor();
+    expect(buttonWithText("Save")!.disabled).toBe(false);
+    await setColour("Canvas", "#808080");
+    expect(buttonWithText("Save")!.disabled).toBe(true);
+    expect(document.querySelector('[data-testid="theme-editor-problems"]')?.textContent).toContain("--color-ink");
+  });
+
+  it("lists a signal accent that is not a green", async () => {
+    await openEditor();
+    await setColour("Agent activity (green)", "#f57d94");
+    expect(buttonWithText("Save")!.disabled).toBe(true);
+    expect(document.querySelector('[data-testid="theme-editor-problems"]')?.textContent).toContain(
+      "Agent activity colour must be a green (its hue is 9°",
+    );
+  });
+
+  it("saves the edited seeds through the host and closes the editor", async () => {
+    backendMock.saveStoredTheme.mockResolvedValueOnce({ ok: true, source: { id: "custom-my-theme-abcdef" } });
+    await openEditor();
+    await setColour("Canvas", "#1a1b26");
+    click(buttonWithText("Save")!);
+    await act(async () => {});
+    expect(backendMock.saveStoredTheme).toHaveBeenCalledTimes(1);
+    const draft = backendMock.saveStoredTheme.mock.calls[0]![0] as {
+      id?: string;
+      label: string;
+      seeds: { canvas: string };
+      backdrop: unknown;
+    };
+    expect(draft.id).toBeUndefined();
+    expect(draft.label).toBe("My theme");
+    expect(draft.seeds.canvas).toBe("#1a1b26");
+    expect(draft.backdrop).toBeNull();
+    expect(document.querySelector('[data-testid="theme-editor"]')).toBeNull();
+  });
+
+  it("clears the in-app preview when the editor unmounts", async () => {
+    await openEditor();
+    click(document.querySelector<HTMLButtonElement>('button[role="switch"][aria-label="Preview in app"]')!);
+    await vi.waitFor(() => expect(currentThemePreview()).not.toBeNull());
+    act(() => root!.unmount());
+    root = null;
+    expect(currentThemePreview()).toBeNull();
   });
 });
 

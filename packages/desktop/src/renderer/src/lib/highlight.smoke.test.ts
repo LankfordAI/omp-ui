@@ -6,13 +6,16 @@ import type { GrammarState, ThemedToken } from "shiki/core";
 import {
   advanceStreamHighlight,
   createShikiStreamTokenizer,
+  shikiName,
   tokenizeCode,
   useIncrementalHighlightTokens,
   STREAM_HIGHLIGHT_CHAR_CAP,
   type StreamAdvance,
   type StreamCache,
 } from "./highlight";
-import { applyTheme, DEFAULT_THEME_ID, resolveTheme, THEMES } from "./themes";
+import { deriveTheme } from "@omp-ui/core/theme";
+import themeSourcesJson from "./theme-sources.json";
+import { applyTheme, DEFAULT_THEME_ID, resolveTheme, THEMES, type ThemeSource } from "./themes";
 
 // Real shiki, real HTML grammar, real runtime theme — the equivalence claim
 // behind grammar-state continuation: streaming a source in pieces and
@@ -24,7 +27,7 @@ import { applyTheme, DEFAULT_THEME_ID, resolveTheme, THEMES } from "./themes";
 // incomplete grammar context could leak into later lines.
 
 const theme = resolveTheme(DEFAULT_THEME_ID);
-const KEY = `html\u0000omp-${theme.id}`;
+const KEY = `html\u0000${shikiName(theme)}`;
 
 /** Incomplete-prefix markers, ascending by offset within one block. */
 const MARKS = [
@@ -294,4 +297,25 @@ describe("useIncrementalHighlightTokens live stream (real shiki)", () => {
       if (probe.lines && flat(probe.lines) === probe.source) return;
     }
   }
+});
+
+describe("tokenizeCode same-id recolour (issue #1168)", () => {
+  it("re-tokenizes with new colours when a theme keeps its id but changes a code colour", { timeout: 30_000 }, async () => {
+    const graphite = (themeSourcesJson as readonly ThemeSource[]).find((t) => t.id === DEFAULT_THEME_ID)!;
+    const base: ThemeSource = { ...graphite, id: "custom-recolour-abc123", label: "Recolour" };
+    const recoloured: ThemeSource = { ...base, syntax: { ...base.syntax, string: "#ff00aa" } };
+    const before = deriveTheme(base);
+    const after = deriveTheme(recoloured);
+    expect(after.id).toBe(before.id);
+    expect(after.rev).not.toBe(before.rev);
+
+    const code = 'const greeting = "hello";\n';
+    const colourOf = (lines: ThemedToken[][]) =>
+      lines.flat().find((t) => t.content.includes("hello"))?.color?.toLowerCase();
+    const first = colourOf(await tokenizeCode("typescript", code, before));
+    const second = colourOf(await tokenizeCode("typescript", code, after));
+    expect(first).toBeDefined();
+    expect(second).toBeDefined();
+    expect(second).not.toBe(first);
+  });
 });

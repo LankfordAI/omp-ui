@@ -311,10 +311,10 @@ export const TerminalTab = memo(function TerminalTab({ tabId, active }: { tabId:
       setResultCount(0);
       return;
     }
-    if (lastSearchTheme.current !== theme.id) {
+    if (lastSearchTheme.current !== theme.rev) {
       search.clearDecorations();
       search.clearActiveDecoration();
-      lastSearchTheme.current = theme.id;
+      lastSearchTheme.current = theme.rev;
     }
     search.findNext(query, { caseSensitive: false, decorations: searchDecorations(theme.tokens) });
   }, [query, searchOpen, theme]);

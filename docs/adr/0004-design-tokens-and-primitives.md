@@ -86,3 +86,10 @@ projects sharing one favicon still read as different repositories.
 - Adding a primitive is cheap and expected; adding a *second* way to express an
   existing one is not. If two components need the same matcher or formatter, it
   moves to `lib/` (see `lib/fuzzy.ts`, `lib/cn.ts`).
+
+**Amended 2026-11-15 (#1168):** literal colours now also come from authored
+themes, which live in the registry beside imported ones and pass the same gate
+plus a rule that keeps their signal accent a green. A theme's backdrop is the
+one place decoration may carry hue, and a theme's scene is the one place motion
+may come from outside `style.css`; neither touches the four accents' meanings
+([ADR-0094](0094-themes-carry-backdrops-and-can-be-authored.md)).

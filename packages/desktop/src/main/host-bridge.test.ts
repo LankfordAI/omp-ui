@@ -3,7 +3,7 @@ import * as os from "node:os";
 import * as path from "node:path";
 import { createHash, randomUUID } from "node:crypto";
 import { describe, expect, it, vi, afterEach } from "vitest";
-import { FLEET_TOOLS, LOCAL_MACHINE_KEY, PLAN_REVIEW_SENTINEL, PLAN_STATUS_KEY, parseVaultDetails, type FleetDispatchRequest, type FleetDispatchResult, type FleetMachine, type FleetRung, type ObsidianListEntry, type OwnedSessionRecord, type RpcFrame, type SessionsResourceDeps, type VaultRegistry, type VaultToolDetails } from "@omp-ui/core";
+import { FLEET_TOOLS, LOCAL_MACHINE_KEY, PLAN_REVIEW_SENTINEL, PLAN_STATUS_KEY, parseVaultDetails, type FleetDispatchRequest, type FleetDispatchResult, type FleetMachine, type FleetRung, type ObsidianListEntry, type OwnedSessionRecord, type RpcFrame, type SessionsResourceDeps, type ThemeSource, type VaultRegistry, type VaultToolDetails } from "@omp-ui/core";
 import { HostBridge, HOST_ANSWER_WATCHDOG_MS, type FleetBridgeDeps, type HostBridgeDeps, type VaultBridgeDeps, type VaultTabContext } from "./host-bridge";
 import type { ConfinedPlanRead } from "./plan-file";
 import { ArtifactService } from "./artifact-service";
@@ -450,6 +450,60 @@ describe("HostBridge device tool (issue #1006)", () => {
     expect(f.sent).toHaveLength(1);
     expect(f.sent[0]).toMatchObject({ type: "host_tool_result", id: "h1", isError: true });
     expect(JSON.stringify(f.sent[0])).toContain("device tools are unavailable");
+  });
+});
+
+describe("HostBridge theme tool (issue #1168)", () => {
+  const ARGS = { label: "Dusk", seeds: { canvas: "#1a1b26" } };
+
+  it("answers a saved theme with its id", async () => {
+    const calls: { tabId: string; args: unknown }[] = [];
+    const sent: RpcFrame[] = [];
+    const bridge = new HostBridge({
+      ...fixtureDeps(),
+      theme: {
+        save: async (tabId, args) => {
+          calls.push({ tabId, args });
+          return { ok: true, source: { id: "custom-dusk-abc123", label: args.label } as ThemeSource };
+        },
+      },
+    });
+    bridge.route("t1", toolCallFrame("h1", "omp-ui_theme_save", ARGS), (frame) => sent.push(frame));
+    await settled();
+    expect(calls).toEqual([{ tabId: "t1", args: ARGS }]);
+    expect(sent).toHaveLength(1);
+    expect(sent[0]).toMatchObject({ type: "host_tool_result", id: "h1" });
+    expect(sent[0]).not.toHaveProperty("isError");
+    expect(JSON.stringify(sent[0])).toContain("custom-dusk-abc123");
+  });
+
+  it("answers a gate refusal as an error listing the failing pairing", async () => {
+    const sent: RpcFrame[] = [];
+    const bridge = new HostBridge({
+      ...fixtureDeps(),
+      theme: {
+        save: async () => ({
+          ok: false,
+          reason: "gate",
+          label: "Dusk",
+          failures: [{ kind: "contrast", label: "ink on surface", fg: "#777777", bg: "#808080", ratio: 1.05, min: 10 }],
+        }),
+      },
+    });
+    bridge.route("t1", toolCallFrame("h1", "omp-ui_theme_save", ARGS), (frame) => sent.push(frame));
+    await settled();
+    expect(sent).toHaveLength(1);
+    expect(sent[0]).toMatchObject({ type: "host_tool_result", id: "h1", isError: true });
+    expect(JSON.stringify(sent[0])).toContain("ink on surface");
+  });
+
+  it("answers unavailable when no theme deps are wired", async () => {
+    const f = fixture();
+    f.bridge.route("t1", toolCallFrame("h1", "omp-ui_theme_save", ARGS), f.send);
+    await settled();
+    expect(f.sent).toHaveLength(1);
+    expect(f.sent[0]).toMatchObject({ type: "host_tool_result", id: "h1", isError: true });
+    expect(JSON.stringify(f.sent[0])).toContain("theme tools are unavailable");
   });
 });
 
