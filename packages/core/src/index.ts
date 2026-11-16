@@ -82,6 +82,7 @@ export * from "./theme-backdrop";
 export * from "./theme-seeds";
 export * from "./theme-file";
 export * from "./theme-tool";
+export * from "./issue-tool";
 export * from "./knowledge-vault-extension";
 export * from "./ask-context";
 export * from "./fleet";

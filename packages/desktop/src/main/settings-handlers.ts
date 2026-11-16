@@ -64,6 +64,7 @@ type SettingsHandlerChannels =
   | typeof CH.readThemeBackdrop
   | typeof CH.setBackdropMotion
   | typeof CH.setThemeAgentAccess
+  | typeof CH.setIssueAgentAccess
   | typeof CH.setFontFamilyId
   | typeof CH.setTranscriptWidth
   | typeof CH.setGlassChrome
@@ -183,6 +184,7 @@ export function registerSettingsHandlers(
     },
     [CH.setBackdropMotion]: (value: boolean) => commit("backdropMotion", value),
     [CH.setThemeAgentAccess]: (value: boolean) => commit("themeAgentAccess", value),
+    [CH.setIssueAgentAccess]: (value: boolean) => commit("issueAgentAccess", value),
     [CH.setFontFamilyId]: (value: string) => commit("fontFamilyId", value),
     [CH.setTranscriptWidth]: (value: TranscriptWidth) => commit("transcriptWidth", value),
     [CH.setGlassChrome]: (value: GlassChrome) => commit("glassChrome", value),

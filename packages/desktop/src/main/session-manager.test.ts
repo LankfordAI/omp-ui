@@ -7655,6 +7655,29 @@ describe("device pane lifecycle and agent access", () => {
   });
 
   it.each([
+    ["setting off", false, null, false],
+    ["setting on", true, null, true],
+    ["user-dispatched", true, "user", true],
+    ["agent-dispatched", true, "agent", true],
+    ["webhook-started", true, "webhook", false],
+    ["MCP-started", true, "mcp", false],
+  ] as const)("preserves issue tool registration restrictions for %s (ADR-0095)", async (_label, access, kind, expected) => {
+    const { manager, registry } = setup({ mode: "rpc-ui" });
+    registry.setSetting("issueAgentAccess", access);
+    if (kind !== null) {
+      registry.updateSession(TAB, {
+        fleet: { dispatchId: "issue-dispatch", batchId: null, dispatchedAt: "2026-11-15T00:00:00.000Z", requestedBy: { instanceId: "inst-a", label: "host-a", kind, sourceTabId: kind === "agent" ? "source-tab" : null } },
+      } as Partial<Core.OwnedSessionRecord>);
+    }
+    await resume(manager);
+    const commands = (RpcClientMock.mock.calls.at(-1)?.[0]?.initialCommands ?? []) as Array<Record<string, unknown>>;
+    const registration = commands.find((command) => command.type === "set_host_tools");
+    const tools = Array.isArray(registration?.tools) ? registration.tools : [];
+    expect(tools.some((tool: unknown) => Core.isObject(tool) && tool.name === Core.ISSUE_DRAFT_TOOL_NAME)).toBe(expected);
+    expect(tools.some((tool: unknown) => Core.isObject(tool) && tool.name === Core.ISSUE_FILE_TOOL_NAME)).toBe(expected);
+  });
+
+  it.each([
     ["setting off", false, true, null, false],
     ["setting on", true, true, null, true],
     ["no theme dep", true, false, null, false],

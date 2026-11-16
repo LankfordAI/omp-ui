@@ -43,6 +43,7 @@ import {
   isObject,
   fleetToolAccess,
   fleetToolsRegistered,
+  readInstalledOmpVersion,
   setEventFilterCommand,
   setHostUriSchemesCommand,
   autoresearchArmMessage,
@@ -187,6 +188,7 @@ import type { FleetWakeLedgerAccess } from "./fleet-wake";
 import { HibernationTracker } from "./hibernation-tracker";
 import { CapabilityControlTracker } from "./capability-control-tracker";
 import { HostBridge } from "./host-bridge";
+import { IssueBridge } from "./issue-bridge";
 import type { ArtifactService } from "./artifact-service";
 import { ArtifactHostTools } from "./artifact-host-tools";
 import { parseArtifactPromptReferences } from "@omp-ui/core/artifact-references";
@@ -627,6 +629,23 @@ export class SessionManager {
           return this.devicePanes.runAgentCommand(tabId, cwd, args);
         },
       },
+      // The answerer lives for the app's lifetime (ADR-0095): the setting
+      // gates only registration, so a registered tool never answers
+      // "unavailable" when the switch was turned on after launch.
+      issues: new IssueBridge({
+        cwd: (tabId) => {
+          const record = deps.registry.sessions.find((session) => session.tabId === tabId);
+          return record === undefined ? null : record.worktree?.path ?? record.projectCwd;
+        },
+        versions: async () => {
+          const ompPath = deps.getOmpPath();
+          return {
+            appVersion: deps.appVersion ?? "unknown",
+            ompVersion: ompPath === null ? null : await readInstalledOmpVersion(ompPath),
+          };
+        },
+        log: (message) => deps.mainLog?.(message),
+      }),
       ...(fleet === undefined
         ? {}
         : {
@@ -2048,6 +2067,10 @@ export class SessionManager {
         // Same outside-sender exclusions as the device tool: a webhook or MCP
         // sender must not change this app's settings (#1168).
         theme: this.deps.registry.getSetting("themeAgentAccess") && this.deps.themes !== undefined &&
+          current.fleet?.requestedBy.kind !== "webhook" && current.fleet?.requestedBy.kind !== "mcp",
+        // Same outside-sender exclusions (#1168): a webhook or MCP sender must
+        // not make this app file issues against the user's GitHub (ADR-0095).
+        issues: this.deps.registry.getSetting("issueAgentAccess") &&
           current.fleet?.requestedBy.kind !== "webhook" && current.fleet?.requestedBy.kind !== "mcp",
         artifacts: this.deps.artifacts !== undefined && this.deps.registry.getSetting("artifactLibraryEnabled"),
       });

@@ -78,6 +78,8 @@ export interface RegistrySettings {
   deviceAgentAccess: boolean;
   /** Registers omp-ui_theme_save on new and resumed sessions (issue #1168); default off. */
   themeAgentAccess: boolean;
+  /** Registers omp-ui_issue_draft / omp-ui_issue_file on new and resumed sessions (ADR-0095); default off. */
+  issueAgentAccess: boolean;
   /** Host-local public model/provider aggregates; default on, with opt-out. */
   telemetryModelsEnabled: boolean;
   /** Seeds the advisor on/off for new sessions (issue #174); default off. */
@@ -295,6 +297,10 @@ export const SETTINGS: SettingDescriptors = {
     (value): value is boolean => typeof value === "boolean",
   ),
   themeAgentAccess: validatedSetting(
+    () => false,
+    (value): value is boolean => typeof value === "boolean",
+  ),
+  issueAgentAccess: validatedSetting(
     () => false,
     (value): value is boolean => typeof value === "boolean",
   ),

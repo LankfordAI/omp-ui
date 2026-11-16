@@ -189,6 +189,7 @@ const backendMock = {
   setGlassChrome: vi.fn(async () => {}),
   setBackdropMotion: vi.fn(async () => {}),
   setThemeAgentAccess: vi.fn(async () => {}),
+  setIssueAgentAccess: vi.fn(async () => {}),
   setKeybindings: vi.fn(async () => {}),
   setLocaleId: vi.fn(async () => {}),
   setAppUpdateCheckOnLaunch: vi.fn(async () => {}),

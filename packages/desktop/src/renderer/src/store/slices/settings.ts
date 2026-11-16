@@ -241,6 +241,14 @@ export const createSettingsSlice: StateCreator<UiStore, [], [], SettingsSlice> =
       }
     },
 
+    async setIssueAgentAccess(on) {
+      try {
+        await backend.setIssueAgentAccess(on);
+      } catch (err) {
+        get().reportError(err);
+      }
+    },
+
     async setTelemetryModelsEnabled(on) {
       try {
         await backend.setTelemetryModelsEnabled(on);

@@ -226,6 +226,7 @@ const mockBackend = {
   setRemoteVsCodeEnabled: vi.fn(async () => {}),
   setDeviceAgentAccess: vi.fn(async () => {}),
   setThemeAgentAccess: vi.fn(async () => {}),
+  setIssueAgentAccess: vi.fn(async () => {}),
   setTelemetryModelsEnabled: vi.fn(async () => {}),
   setSessionSubagentModels: vi.fn(async () => {}),
   setSessionApprovalMode: vi.fn(async () => {}),

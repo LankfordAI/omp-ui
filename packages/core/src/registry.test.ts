@@ -664,6 +664,11 @@ describe("Registry persistence", () => {
     expect(reg.getSetting("themeAgentAccess")).toBe(false);
   });
 
+  it("defaults issueAgentAccess off (ADR-0095)", () => {
+    const reg = Registry.load(tmpFile());
+    expect(reg.getSetting("issueAgentAccess")).toBe(false);
+  });
+
   it("migrates a legacy reviewRoster into councilRoster once, dropping targets (ADR-0088)", () => {
     const legacy = {
       instructions: "Be terse.",

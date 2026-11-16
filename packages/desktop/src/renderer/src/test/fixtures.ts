@@ -48,6 +48,7 @@ export function backendState(patch: Partial<BackendState> = {}): BackendState {
     glassChrome: "subtle",
     backdropMotion: true,
     themeAgentAccess: false,
+    issueAgentAccess: false,
     localeId: "en",
     keybindings: {},
     appUpdateCheckOnLaunch: true,

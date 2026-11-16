@@ -988,6 +988,9 @@ export const ko: Partial<Record<MessageKey, string>> = {
   "settings.general.themeAgentAccess": "에이전트의 테마 저장 허용",
   "settings.general.themeAgentAccessHint":
     "이 변경 후 시작하거나 재개한 세션에 omp-ui_theme_save 도구를 제공합니다. 저장된 테마는 내 테마에 추가되며, 에이전트가 테마를 적용하려면 질문에서 먼저 동의해야 합니다.",
+  "settings.general.issueAgentAccess": "에이전트의 이슈 초안 작성 허용",
+  "settings.general.issueAgentAccessHint":
+    "이 변경 후 시작하거나 재개한 네이티브 대화록 세션에 omp-ui_issue_draft 및 omp-ui_issue_file 도구를 제공합니다. 이 도구는 사용자의 gh CLI로 LankfordAI/omp-ui에 GitHub 이슈를 추천합니다. 에이전트는 세션에서 사용자가 요청한 후에만 이슈를 등록할 수 있으며, 터미널 탭은 호스트 도구가 없습니다.",
   "settings.general.advisorAutoReply": "어드바이저 자동 답변",
   "settings.general.advisorAutoReplyHint": "턴이 끝난 뒤 도착한 어드바이저 의견에 자동으로 답합니다. 끄면 대화록에 그대로 남습니다.",
   "settings.general.defaultAdvisor": "기본 어드바이저",

@@ -1074,6 +1074,9 @@ export const en = {
   "settings.general.themeAgentAccess": "Agents can save themes",
   "settings.general.themeAgentAccessHint":
     "Gives sessions started or resumed after this change the omp-ui_theme_save tool. A saved theme joins your themes, and an agent can apply one only after you agree in its question.",
+  "settings.general.issueAgentAccess": "Agents can draft issues",
+  "settings.general.issueAgentAccessHint":
+    "Gives native-transcript sessions started or resumed after this change the omp-ui_issue_draft and omp-ui_issue_file tools, which recommend a GitHub issue in LankfordAI/omp-ui with your own gh CLI. An agent can file an issue only after you ask it to in the session; terminal tabs have no host tools.",
   "settings.general.advisorAutoReply": "Advisor auto-reply",
   "settings.general.advisorAutoReplyHint":
     "An advisor comment that lands after the turn ends is answered automatically; off leaves it sitting in the transcript.",

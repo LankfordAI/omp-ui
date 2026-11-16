@@ -105,7 +105,7 @@ function todayRecord(projectCwd: string): OwnedSessionRecord {
   };
 }
 
-function spawnScope(tools: { vault: boolean; fleet: boolean; device: boolean; theme: boolean; artifacts: boolean } = { vault: true, fleet: false, device: false, theme: false, artifacts: false }): Scope {
+function spawnScope(tools: { vault: boolean; fleet: boolean; device: boolean; theme: boolean; issues: boolean; artifacts: boolean } = { vault: true, fleet: false, device: false, theme: false, issues: false, artifacts: false }): Scope {
   const base = fs.mkdtempSync(path.join(os.tmpdir(), "omp-ui-vault-live-"));
   const project = path.join(base, "proj");
   const lineage = path.join(base, "lin");
@@ -229,12 +229,12 @@ describe.skipIf(ompPath === null)("vault tools register on the real runtime", ()
     );
     expect(toolsResponse).toMatchObject({ success: true });
     expect((toolsResponse.data as { toolNames?: unknown } | undefined)?.toolNames).toEqual(
-      hostToolsDefinition({ vault: true, fleet: false, device: false, theme: false, artifacts: false }).map((t) => t.name),
+      hostToolsDefinition({ vault: true, fleet: false, device: false, theme: false, issues: false, artifacts: false }).map((t) => t.name),
     );
   }, 60_000);
 
   it("omp accepts the three fleet tools after the vault tools (issue #899)", async () => {
-    scope = spawnScope({ vault: true, fleet: true, device: false, theme: false, artifacts: false });
+    scope = spawnScope({ vault: true, fleet: true, device: false, theme: false, issues: false, artifacts: false });
     const toolsResponse = await waitFor(
       () => scope!.frames.find((f) => f.type === "response" && f.id === "omp-ui-host-tools-1"),
       25_000,
@@ -242,7 +242,7 @@ describe.skipIf(ompPath === null)("vault tools register on the real runtime", ()
     );
     expect(toolsResponse).toMatchObject({ success: true });
     const names = (toolsResponse.data as { toolNames?: unknown } | undefined)?.toolNames;
-    expect(names).toEqual(hostToolsDefinition({ vault: true, fleet: true, device: false, theme: false, artifacts: false }).map((t) => t.name));
+    expect(names).toEqual(hostToolsDefinition({ vault: true, fleet: true, device: false, theme: false, issues: false, artifacts: false }).map((t) => t.name));
     expect(names).toEqual(expect.arrayContaining([...FLEET_TOOLS]));
   }, 60_000);
 });
