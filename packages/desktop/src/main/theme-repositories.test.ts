@@ -136,6 +136,10 @@ describe("ThemeRepositoryService (#1178)", () => {
       reason: "invalid",
       message: "add the repository first",
     });
+    expect(await service.previewBackdrop({ repository: REPO, commit: C1, path: "a.json" })).toEqual({
+      ok: false,
+      message: "add the repository first",
+    });
     expect(github.calls).toEqual([]);
   });
 
@@ -168,6 +172,30 @@ describe("ThemeRepositoryService (#1178)", () => {
       ok: false,
       reason: "invalid",
       message: expect.stringContaining("does not match the repository's index"),
+    });
+    expect(await service.previewBackdrop({ repository: REPO, commit: C1, path: "dusk.json" })).toEqual({
+      ok: false,
+      message: expect.stringContaining("does not match the repository's index"),
+    });
+    expect(registry.getSetting("storedThemes")).toEqual([]);
+  });
+
+  it("previews a backdrop through the install checks and stores nothing", async () => {
+    const { registry, service, github } = setup();
+    github.commits.set(C1, {
+      files: {
+        "dusk.json": themeFile({ label: "Dusk", canvas: "#1a1b26", scene: true }),
+        "plain.json": themeFile({ label: "Plain", canvas: "#101010" }),
+      },
+    });
+    await service.add(REPO);
+    expect(await service.previewBackdrop({ repository: REPO, commit: C1, path: "dusk.json" })).toEqual({
+      ok: true,
+      backdrop: { mime: "image/svg+xml", data: Buffer.from(SCENE).toString("base64"), dim: 40, blur: 12 },
+    });
+    expect(await service.previewBackdrop({ repository: REPO, commit: C1, path: "plain.json" })).toEqual({
+      ok: false,
+      message: "the theme has no backdrop",
     });
     expect(registry.getSetting("storedThemes")).toEqual([]);
   });

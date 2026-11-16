@@ -15,10 +15,12 @@ import {
   type ThemeRepositoryListing,
 } from "@omp-ui/core/theme-repository-format";
 import { displayMessage } from "../../backend";
+import type { BackdropAsset } from "../../lib/backdrop";
 import { cn } from "../../lib/cn";
 import { useT, type MessageKey } from "../../lib/i18n";
 import { resolveTheme, storedThemes, THEMES, type Theme } from "../../lib/themes";
 import { useDismissal } from "../../lib/use-dismissal";
+import { useRepositoryBackdrops } from "../../lib/use-repository-backdrops";
 import { useStore } from "../../store";
 import { Button, Chevron, ChoiceCapsule, Chip, Empty, Panel, Switch } from "../ui";
 import { FIELD } from "./rows";
@@ -56,6 +58,8 @@ interface WallCard {
 }
 
 const NO_REPOSITORIES: readonly string[] = [];
+/** Placeholder hash for a previewed repository backdrop: the specimen reads the passed asset, not the hash. */
+const PREVIEW_HASH = "0".repeat(64);
 
 const MENU_ROW =
   "block w-full rounded-md px-2.5 py-1.5 text-left text-sm text-ink-mid transition-colors duration-150 hover:bg-hover hover:text-ink focus-visible:bg-hover focus-visible:text-ink focus-visible:outline-none disabled:pointer-events-none disabled:text-ink-faint";
@@ -242,6 +246,8 @@ export function ThemeWall(props: {
   const installRepositoryTheme = useStore((s) => s.installRepositoryTheme);
   const setStoredThemeMotion = useStore((s) => s.setStoredThemeMotion);
   const removeStoredTheme = useStore((s) => s.removeStoredTheme);
+  const previewRepositoryThemeBackdrop = useStore((s) => s.previewRepositoryThemeBackdrop);
+  const repoBackdrops = useRepositoryBackdrops(previewRepositoryThemeBackdrop);
 
   const [show, setShow] = useState<Show>("all");
   const [scheme, setScheme] = useState<Scheme>("any");
@@ -358,6 +364,30 @@ export function ThemeWall(props: {
     } finally {
       setBusyPath(null);
     }
+  };
+
+  /** Opens the theme preview; an uninstalled entry with a backdrop fetches it once (ADR-0096 §12). */
+  const openPreview = (card: WallCard): void => {
+    setPreviewKey(card.key);
+    if (listing?.status !== "ok" || card.entry === null || card.source !== null || card.entry.backdrop === null) return;
+    repoBackdrops.request(
+      { repository: listing.listing.repository, commit: listing.listing.commit, path: card.entry.path },
+      card.entry.blob,
+    );
+  };
+
+  /** What a specimen paints: an uninstalled entry gains its previewed backdrop once loaded. */
+  const specimenOf = (card: WallCard): { theme: Theme; asset?: BackdropAsset | null } => {
+    if (card.entry === null || card.source !== null) return { theme: card.theme };
+    const loaded = repoBackdrops.get(card.entry.blob);
+    if (loaded?.status !== "ready") return { theme: card.theme, asset: null };
+    return {
+      theme: {
+        ...card.theme,
+        backdrop: { assetHash: PREVIEW_HASH, kind: loaded.asset.kind, mime: loaded.mime, dim: loaded.dim, blur: loaded.blur },
+      },
+      asset: loaded.asset,
+    };
   };
 
   const installButton = (card: WallCard, variant?: "solid"): ReactNode => (
@@ -563,13 +593,13 @@ export function ThemeWall(props: {
             )}
             {picks}
           </span>
-          <ThemeSpecimen theme={card.theme} variant="card" className="mt-2" />
+          <ThemeSpecimen {...specimenOf(card)} variant="card" className="mt-2" />
         </button>
         <Button
           size="xs"
           className="absolute right-2 top-2"
           aria-label={t("settings.appearance.previewAria", { name: card.label })}
-          onClick={() => setPreviewKey(card.key)}
+          onClick={() => openPreview(card)}
         >
           {t("settings.appearance.preview")}
         </Button>
@@ -625,8 +655,10 @@ export function ThemeWall(props: {
 
   const previewNotes = (card: WallCard): string[] => {
     const notes: string[] = [];
-    if (card.repoState === "install" && card.entry?.backdrop != null) notes.push(t("settings.appearance.colorsOnly"));
-    if (card.theme.backdrop !== null) notes.push(t("settings.appearance.backdropStill"));
+    const loaded = card.entry !== null && card.source === null ? repoBackdrops.get(card.entry.blob) : undefined;
+    if (loaded?.status === "loading") notes.push(t("settings.appearance.backdropLoading"));
+    if (loaded?.status === "error") notes.push(t("settings.appearance.backdropFailed", { message: loaded.message }));
+    if (specimenOf(card).theme.backdrop !== null) notes.push(t("settings.appearance.backdropStill"));
     return notes;
   };
 
@@ -836,7 +868,7 @@ export function ThemeWall(props: {
 
       {previewCard !== null && (
         <ThemePreviewOverlay
-          theme={previewCard.theme}
+          {...specimenOf(previewCard)}
           title={t("settings.appearance.previewTitle", { name: previewCard.label })}
           chips={
             <>

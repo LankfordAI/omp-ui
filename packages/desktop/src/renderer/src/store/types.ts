@@ -5,6 +5,7 @@ import type { TranscriptPlanCandidate } from "../lib/transcript-plan-source";
 import type { VsCodeImportResult, VsCodeThemeFileInput } from "@omp-ui/core/vscode-theme";
 import type { SaveStoredThemeResult, StoredThemeDraft } from "@omp-ui/core/theme-file";
 import type {
+  RepositoryThemeBackdropResult,
   RepositoryThemeInstallRequest,
   ThemeRepositoryAddResult,
   ThemeRepositoryListingResult,
@@ -787,6 +788,8 @@ export interface SettingsSlice {
   removeThemeRepository(repository: string): Promise<void>;
   browseThemeRepository(repository: string, refresh: boolean): Promise<ThemeRepositoryListingResult>;
   installRepositoryTheme(request: RepositoryThemeInstallRequest): Promise<SaveStoredThemeResult>;
+  /** One uninstalled repository theme's backdrop for Preview (#1182); nothing is stored. */
+  previewRepositoryThemeBackdrop(request: RepositoryThemeInstallRequest): Promise<RepositoryThemeBackdropResult>;
   /** Lets one installed theme's scene animate (#1178). */
   setStoredThemeMotion(id: string, on: boolean): Promise<void>;
   setFontFamilyId(id: string): Promise<void>;

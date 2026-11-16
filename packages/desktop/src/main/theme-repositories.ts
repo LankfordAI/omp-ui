@@ -1,5 +1,6 @@
 import {
   THEME_REPOSITORIES_MAX,
+  checkBackdropBytes,
   defaultThemeRepositoryFetch,
   fetchRepositoryThemeFile,
   fetchThemeRepositoryListing,
@@ -7,9 +8,12 @@ import {
   parseThemeRepositoryRef,
   repositoryThemeMismatch,
   type Registry,
+  type RepositoryThemeBackdropResult,
   type RepositoryThemeInstallRequest,
   type SaveStoredThemeResult,
+  type StoredThemeDraft,
   type ThemeRepositoryAddResult,
+  type ThemeRepositoryEntry,
   type ThemeRepositoryFetch,
   type ThemeRepositoryListing,
   type ThemeRepositoryListingResult,
@@ -123,33 +127,59 @@ export class ThemeRepositoryService {
     return result;
   }
 
-  /** Installs (or updates in place) one theme from a pinned listing, through the stored-theme gate. */
-  async install(request: RepositoryThemeInstallRequest): Promise<SaveStoredThemeResult> {
+  /** The pinned listing's entry and its theme file, blob-checked, parsed and matched to the index. */
+  async #verifiedDraft(
+    request: RepositoryThemeInstallRequest,
+  ): Promise<
+    | { ok: true; repository: string; entry: ThemeRepositoryEntry; draft: StoredThemeDraft }
+    | { ok: false; message: string }
+  > {
     const { commit, path } = request;
     const repository = this.#listed(request.repository);
-    if (repository === null) return invalid(NOT_ADDED);
+    if (repository === null) return { ok: false, message: NOT_ADDED };
     let listing = this.#pinned.get(`${repository}@${commit}`);
     if (listing === undefined) {
       const fetched = await fetchThemeRepositoryListing(repository, commit, this.#fetch, this.#now);
-      if (!fetched.ok) return invalid(fetched.message);
+      if (!fetched.ok) return fetched;
       listing = fetched.listing;
       this.#pin(listing);
     }
     const entry = listing.themes.find((t) => t.path === path);
-    if (entry === undefined) return invalid("that theme is not in the repository's index");
+    if (entry === undefined) return { ok: false, message: "that theme is not in the repository's index" };
     const file = await fetchRepositoryThemeFile(repository, commit, entry, this.#fetch, this.#now);
-    if (!file.ok) return invalid(file.message);
+    if (!file.ok) return file;
     const parsed = parseThemeFile(file.text);
-    if (!parsed.ok) return invalid(parsed.message);
+    if (!parsed.ok) return parsed;
     if (repositoryThemeMismatch(entry, parsed.draft)) {
-      return invalid("the theme file does not match the repository's index (label, colours or backdrop differ)");
+      return {
+        ok: false,
+        message: "the theme file does not match the repository's index (label, colours or backdrop differ)",
+      };
     }
-    return installStoredTheme(this.deps.themes, parsed.draft, {
-      repository,
-      path,
-      commit,
-      blob: entry.blob,
+    return { ok: true, repository, entry, draft: parsed.draft };
+  }
+
+  /** Installs (or updates in place) one theme from a pinned listing, through the stored-theme gate. */
+  async install(request: RepositoryThemeInstallRequest): Promise<SaveStoredThemeResult> {
+    const verified = await this.#verifiedDraft(request);
+    if (!verified.ok) return invalid(verified.message);
+    return installStoredTheme(this.deps.themes, verified.draft, {
+      repository: verified.repository,
+      path: request.path,
+      commit: request.commit,
+      blob: verified.entry.blob,
       animate: false,
     });
+  }
+
+  /** One theme's backdrop for Preview (#1182): the same checks as install; nothing is stored. */
+  async previewBackdrop(request: RepositoryThemeInstallRequest): Promise<RepositoryThemeBackdropResult> {
+    const verified = await this.#verifiedDraft(request);
+    if (!verified.ok) return verified;
+    const backdrop = verified.draft.backdrop;
+    if (backdrop === null || backdrop.from !== "bytes") return { ok: false, message: "the theme has no backdrop" };
+    const check = checkBackdropBytes(Buffer.from(backdrop.data, "base64"));
+    if (!check.ok) return { ok: false, message: check.message };
+    return { ok: true, backdrop: { mime: check.mime, data: backdrop.data, dim: backdrop.dim, blur: backdrop.blur } };
   }
 }

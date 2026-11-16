@@ -2,7 +2,7 @@
 // index a repository publishes, and the shapes Browse and Install carry. Pure —
 // the renderer validates input and previews listings with it.
 import { isObject } from "./guards";
-import type { ThemeBackdropKind } from "./theme-backdrop";
+import type { ThemeBackdropKind, ThemeBackdropMime } from "./theme-backdrop";
 import { GIT_SHA, THEME_REPOSITORY_ID, isRepositoryThemePath } from "./theme-origin";
 import { isThemeSeeds, type ThemeSeeds } from "./theme-seeds";
 import { stripJsonc } from "./vscode-theme";
@@ -80,6 +80,19 @@ export interface RepositoryThemeInstallRequest {
   commit: string;
   path: string;
 }
+
+/** One repository theme's backdrop, verified host-side for Preview (#1182). Nothing is stored. */
+export interface RepositoryThemeBackdrop {
+  mime: ThemeBackdropMime;
+  /** base64, as every other binary here travels. */
+  data: string;
+  dim: number;
+  blur: number;
+}
+
+export type RepositoryThemeBackdropResult =
+  | { ok: true; backdrop: RepositoryThemeBackdrop }
+  | { ok: false; message: string };
 
 const MALFORMED = { ok: false, message: "the theme index is malformed" } as const;
 

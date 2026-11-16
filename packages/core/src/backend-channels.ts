@@ -267,6 +267,7 @@ import type { VsCodeImportResult, VsCodeThemeFileInput } from "./vscode-theme";
 import type { SaveStoredThemeResult, StoredThemeDraft } from "./theme-file";
 import type { ThemeBackdropBytes } from "./theme-backdrop";
 import type {
+  RepositoryThemeBackdropResult,
   RepositoryThemeInstallRequest,
   ThemeRepositoryAddResult,
   ThemeRepositoryListingResult,
@@ -713,6 +714,11 @@ export const BACKEND_CHANNELS = {
   installRepositoryTheme: {
     channel: "settings:installRepositoryTheme",
     ...request<[request: RepositoryThemeInstallRequest], SaveStoredThemeResult>([repositoryThemeInstallCodec]),
+  },
+  /** One uninstalled repository theme's backdrop for Preview (#1182): the install checks, nothing stored. */
+  previewRepositoryThemeBackdrop: {
+    channel: "settings:previewRepositoryThemeBackdrop",
+    ...request<[request: RepositoryThemeInstallRequest], RepositoryThemeBackdropResult>([repositoryThemeInstallCodec]),
   },
   /** Lets one installed repository theme's scene animate (#1178). */
   setStoredThemeMotion: {

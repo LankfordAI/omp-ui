@@ -2,8 +2,11 @@ import type { ReactNode } from "react";
 import { createPortal } from "react-dom";
 import type { ThemeGateFailure } from "@omp-ui/core/theme";
 import { AndroidBackOwner } from "../../lib/android-back";
+import type { BackdropAsset } from "../../lib/backdrop";
 import { useT } from "../../lib/i18n";
+import { IS_ELECTRON } from "../../lib/platform";
 import type { Theme } from "../../lib/themes";
+import { OVERLAY_INSET, TRAFFIC_LIGHT_INSET } from "../../lib/window-controls";
 import { Button, useOverlay } from "../ui";
 import { GateFailureList } from "./ThemeEditor";
 import { ThemeSpecimen } from "./ThemeSpecimen";
@@ -17,6 +20,7 @@ import { ThemeSpecimen } from "./ThemeSpecimen";
  */
 export function ThemePreviewOverlay({
   theme,
+  asset,
   title,
   chips,
   notes,
@@ -25,6 +29,8 @@ export function ThemePreviewOverlay({
   onClose,
 }: {
   theme: Theme;
+  /** undefined: the theme's stored backdrop; an asset: a repository preview's (ADR-0096 §12). */
+  asset?: BackdropAsset | null;
   title: string;
   /** Scheme and kind chips, in the current theme's paint. */
   chips: ReactNode;
@@ -47,9 +53,16 @@ export function ThemePreviewOverlay({
         aria-modal="true"
         aria-label={title}
         tabIndex={-1}
-        className="fixed inset-0 z-[80] flex flex-col bg-void"
+        className="fixed inset-0 z-[80] flex flex-col bg-void [app-region:no-drag]"
       >
-        <header className="flex shrink-0 flex-wrap items-center gap-2 border-b border-line bg-overlay px-4 py-2 text-sm">
+        <header
+          className="flex shrink-0 flex-wrap items-center gap-2 border-b border-line bg-overlay px-4 py-2 text-sm"
+          style={
+            IS_ELECTRON
+              ? { paddingLeft: TRAFFIC_LIGHT_INSET || undefined, paddingRight: OVERLAY_INSET || undefined }
+              : undefined
+          }
+        >
           <h2 className="font-semibold text-ink">{title}</h2>
           {chips}
           {notes.map((note) => (
@@ -69,7 +82,7 @@ export function ThemePreviewOverlay({
           </div>
         )}
         <div className="min-h-0 flex-1">
-          <ThemeSpecimen theme={theme} variant="full" />
+          <ThemeSpecimen theme={theme} variant="full" asset={asset} />
         </div>
       </div>
     </AndroidBackOwner.Provider>,

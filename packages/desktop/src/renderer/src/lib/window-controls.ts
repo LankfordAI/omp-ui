@@ -11,7 +11,7 @@ import { IS_MAC, IS_WINDOWS } from "./platform";
 // bundle to a browser tab, where there are no caption buttons to avoid, so
 // every use is gated on IS_ELECTRON (#122).
 // Full-window top-layer dialogs (the Artifacts library's expanded preview, an
-// expanded managed transcript artifact) sit under the same overlay and reserve
-// the same inset for their controls.
+// expanded managed transcript artifact, the theme preview) sit under the same
+// overlay and reserve the same inset for their controls.
 export const OVERLAY_INSET = IS_MAC ? 0 : IS_WINDOWS ? 138 : 132;
 export const TRAFFIC_LIGHT_INSET = IS_MAC ? 78 : 0;
