@@ -13,6 +13,8 @@ import { stripJsonc } from "./vscode-theme";
 
 export const THEME_FILE_FORMAT = "omp-ui-theme";
 export const THEME_FILE_VERSION = 1;
+/** An omp-ui theme file larger than this cannot hold a valid one (a 4 MiB backdrop as base64, plus seeds). */
+export const THEME_FILE_BYTES_MAX = 6 * 1024 * 1024;
 
 /** What every authoring route hands the host. */
 export interface StoredThemeDraft {

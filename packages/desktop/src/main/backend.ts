@@ -270,6 +270,7 @@ import { PullRequestPoller } from "./pull-request-poller";
 import { UsageTelemetry } from "./usage-telemetry";
 import { ThemeBackdropStore } from "./theme-backdrop-store";
 import { pruneThemeBackdrops, saveStoredTheme, type StoredThemeDeps } from "./stored-themes";
+import { ThemeRepositoryService } from "./theme-repositories";
 
 /** A Fleet result's summary read races this window, the same bound as the status tool's summary race. */
 const FLEET_CHILD_SUMMARY_TIMEOUT_MS = 5_000;
@@ -381,6 +382,8 @@ export class MainBackend {
   private readonly themeBackdrops: ThemeBackdropStore;
   /** The one stored-theme save path's deps: settings handlers and the host tool share it. */
   private readonly storedThemeDeps: StoredThemeDeps;
+  /** Theme repositories (#1178): owns the listing cache, so one instance per host. */
+  private readonly themeRepositories: ThemeRepositoryService;
   /** The parsed dev/test gate; one value feeds every spawn and the state projection. */
   private readonly spawnGate: SpawnGate;
   /** Precomputed wire projection of `spawnGate`; identical on every broadcast. */
@@ -499,6 +502,11 @@ export class MainBackend {
       backdrops: this.themeBackdrops,
       newId: (label) => authoredThemeId(label, randomUUID()),
     };
+    this.themeRepositories = new ThemeRepositoryService({
+      registry: this.registry,
+      broadcast: () => this.broadcast(),
+      themes: this.storedThemeDeps,
+    });
     // Startup sweep: assets orphaned by a crash between store and registry write.
     void pruneThemeBackdrops(this.storedThemeDeps);
     // OS notifications for background sessions (issue #271). The icon path
@@ -1271,6 +1279,7 @@ export class MainBackend {
               console.warn("[artifacts] host tool reconciliation failed:", error));
           },
           themes: this.storedThemeDeps,
+          themeRepositories: this.themeRepositories,
         }),
         ...registerArtifactHandlers(this.artifacts),
         // Human-only save exports: the stored bytes go straight to a chosen path at 0600; large payloads never ride renderer strings. Cancel reports null.
@@ -3083,6 +3092,7 @@ export class MainBackend {
       lightThemeId: this.registry.getSetting("lightThemeId"),
       darkThemeId: this.registry.getSetting("darkThemeId"),
       storedThemes: this.registry.getSetting("storedThemes"),
+      themeRepositories: this.registry.getSetting("themeRepositories"),
       backdropMotion: this.registry.getSetting("backdropMotion"),
       themeAgentAccess: this.registry.getSetting("themeAgentAccess"),
       issueAgentAccess: this.registry.getSetting("issueAgentAccess"),

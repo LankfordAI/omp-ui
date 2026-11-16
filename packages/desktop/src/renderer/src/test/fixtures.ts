@@ -43,6 +43,7 @@ export function backendState(patch: Partial<BackendState> = {}): BackendState {
     lightThemeId: "light",
     darkThemeId: "graphite",
     storedThemes: [],
+    themeRepositories: [],
     fontFamilyId: "default",
     transcriptWidth: "wide",
     glassChrome: "subtle",

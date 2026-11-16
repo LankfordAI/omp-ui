@@ -1,6 +1,9 @@
 // @vitest-environment jsdom
 import type { WebhookSecretReveal } from "@omp-ui/core/webhook";
 import type { McpTokenReveal } from "@omp-ui/core/mcp-endpoint";
+import { STORED_THEMES_MAX, type ThemeSource } from "@omp-ui/core/theme";
+import { sourceFromDraft, type SaveStoredThemeResult } from "@omp-ui/core/theme-file";
+import type { ThemeRepositoryAddResult, ThemeRepositoryListingResult } from "@omp-ui/core/theme-repository-format";
 import { act } from "react";
 import { createRoot, type Root } from "react-dom/client";
 import { afterEach, describe, expect, it, vi } from "vitest";
@@ -183,6 +186,15 @@ const backendMock = {
   importVsCodeTheme: vi.fn(),
   saveStoredTheme: vi.fn(),
   removeStoredTheme: vi.fn(async () => {}),
+  addThemeRepository: vi.fn(async (): Promise<ThemeRepositoryAddResult> => ({ ok: false, message: "unmocked" })),
+  removeThemeRepository: vi.fn(async () => {}),
+  browseThemeRepository: vi.fn(
+    async (): Promise<ThemeRepositoryListingResult> => ({ ok: false, message: "unmocked" }),
+  ),
+  installRepositoryTheme: vi.fn(
+    async (): Promise<SaveStoredThemeResult> => ({ ok: false, reason: "invalid", message: "unmocked" }),
+  ),
+  setStoredThemeMotion: vi.fn(async () => {}),
   readThemeBackdrop: vi.fn(async () => null),
   setFontFamilyId: vi.fn(async () => {}),
   setTranscriptWidth: vi.fn(async () => {}),
@@ -3018,6 +3030,129 @@ describe("Settings Appearance page theme mode and Your themes (issues #999, #116
     act(() => root!.unmount());
     root = null;
     expect(currentThemePreview()).toBeNull();
+  });
+});
+
+describe("Settings Appearance page Theme repositories (#1178)", () => {
+  const REPO = "owner/themes";
+  const COMMIT = "c".repeat(40);
+  const entry = (path: string, label: string, canvas: string, blob: string, backdrop: "scene" | null = null) => ({
+    path,
+    label,
+    seeds: { canvas },
+    backdrop,
+    blob,
+    size: 100,
+  });
+  const LISTING: ThemeRepositoryListingResult = {
+    ok: true,
+    listing: {
+      repository: REPO,
+      commit: COMMIT,
+      skipped: 0,
+      themes: [
+        entry("new.json", "Fresh", "#1a1b26", "1".repeat(40)),
+        entry("same.json", "Same", "#16161e", "2".repeat(40)),
+        entry("moved.json", "Moved", "#101010", "3".repeat(40)),
+        entry("grey.json", "Grey", "#808080", "4".repeat(40)),
+      ],
+    },
+  };
+  const installedSource = (id: string, path: string, blob: string, scene = false): ThemeSource => ({
+    ...sourceFromDraft(id, `Installed ${path}`, { canvas: "#16161e" }),
+    origin: { repository: REPO, path, commit: "a".repeat(40), blob, animate: false },
+    ...(scene
+      ? { backdrop: { assetHash: "f".repeat(64), kind: "scene" as const, mime: "image/svg+xml" as const, dim: 40, blur: 12 } }
+      : {}),
+  });
+  const INSTALLED = [installedSource("custom-same", "same.json", "2".repeat(40)), installedSource("custom-moved", "moved.json", "9".repeat(40))];
+
+  const typeRepository = async (text: string): Promise<void> => {
+    const input = document.querySelector<HTMLInputElement>('input[placeholder="owner/repo or https://github.com/owner/repo"]')!;
+    const setter = Object.getOwnPropertyDescriptor(HTMLInputElement.prototype, "value")!.set!;
+    await act(async () => {
+      setter.call(input, text);
+      input.dispatchEvent(new Event("input", { bubbles: true }));
+    });
+    await act(async () => {
+      input.form!.requestSubmit();
+    });
+  };
+  const entryCard = (label: string): HTMLElement =>
+    [...document.querySelectorAll<HTMLElement>('[data-testid="theme-repository-entry"]')].find((card) =>
+      card.textContent?.includes(label),
+    )!;
+  const openListing = async (storedThemes: ThemeSource[]): Promise<void> => {
+    backendMock.browseThemeRepository.mockResolvedValueOnce(LISTING);
+    useStore.setState({ settingsPage: "appearance", state: backendState({ themeRepositories: [REPO], storedThemes }) });
+    await renderSettings();
+    click(document.querySelector<HTMLButtonElement>(`button[aria-label="Browse ${REPO}"]`)!);
+    await act(async () => {});
+  };
+
+  it("refuses an invalid repository locally without calling the host", async () => {
+    useStore.setState({ settingsPage: "appearance", state: backendState({}) });
+    await renderSettings();
+    await typeRepository("not a repo");
+    expect(document.body.textContent).toContain(t("settings.appearance.repoInvalid"));
+    expect(backendMock.addThemeRepository).not.toHaveBeenCalled();
+  });
+
+  it("adds a repository and opens its listing", async () => {
+    backendMock.addThemeRepository.mockResolvedValueOnce({ ok: true, repository: REPO });
+    backendMock.browseThemeRepository.mockResolvedValueOnce(LISTING);
+    useStore.setState({ settingsPage: "appearance", state: backendState({}) });
+    await renderSettings();
+    await typeRepository("https://github.com/Owner/Themes");
+    expect(backendMock.addThemeRepository).toHaveBeenCalledWith("https://github.com/Owner/Themes");
+    expect(backendMock.browseThemeRepository).toHaveBeenCalledWith(REPO, false);
+  });
+
+  it("shows Install, installed, Update and the gate failure per entry", async () => {
+    await openListing(INSTALLED);
+    expect(document.body.textContent).toContain("4 themes at commit ccccccc");
+    expect(entryCard("Fresh").querySelector('button[aria-label="Install theme Fresh"]')).not.toBeNull();
+    expect(entryCard("Same").textContent).toContain("installed");
+    expect(entryCard("Same").querySelector("button")).toBeNull();
+    expect(entryCard("Moved").querySelector('button[aria-label="Update theme Moved"]')).not.toBeNull();
+    expect(entryCard("Grey").textContent).toMatch(/Fails \d+ colour checks; cannot be installed\./);
+    expect(entryCard("Grey").querySelector("button")).toBeNull();
+  });
+
+  it("at the cap disables Install but keeps Update", async () => {
+    const fillers = Array.from({ length: STORED_THEMES_MAX - INSTALLED.length }, (_, i) =>
+      sourceFromDraft(`custom-fill${i}`, `Fill ${i}`, { canvas: "#1a1b26" }),
+    );
+    await openListing([...INSTALLED, ...fillers]);
+    expect(entryCard("Fresh").querySelector<HTMLButtonElement>('button[aria-label="Install theme Fresh"]')!.disabled).toBe(true);
+    expect(entryCard("Fresh").textContent).toContain("Your themes are full");
+    expect(entryCard("Moved").querySelector<HTMLButtonElement>('button[aria-label="Update theme Moved"]')!.disabled).toBe(false);
+  });
+
+  it("installs through the host with the listing's commit and reports the verdict", async () => {
+    backendMock.installRepositoryTheme.mockResolvedValueOnce({
+      ok: true,
+      source: sourceFromDraft("custom-fresh-abcdef", "Fresh", { canvas: "#1a1b26" }),
+    });
+    await openListing(INSTALLED);
+    click(entryCard("Fresh").querySelector<HTMLButtonElement>('button[aria-label="Install theme Fresh"]')!);
+    await act(async () => {});
+    expect(backendMock.installRepositoryTheme).toHaveBeenCalledWith({ repository: REPO, commit: COMMIT, path: "new.json" });
+    expect(document.querySelector('[role="status"]')?.textContent).toBe("Installed Fresh.");
+    expect(backendMock.setThemeId).not.toHaveBeenCalled();
+  });
+
+  it("labels a stored repository theme by its repository and offers Animate for its scene", async () => {
+    const scene = installedSource("custom-scene", "scene.json", "5".repeat(40), true);
+    useStore.setState({ settingsPage: "appearance", state: backendState({ storedThemes: [scene] }) });
+    await renderSettings();
+    expect(document.body.textContent).toContain(`from ${REPO}`);
+    const animate = document.querySelector<HTMLButtonElement>(
+      'button[role="switch"][aria-label="Animate the backdrop of Installed scene.json"]',
+    )!;
+    expect(animate.getAttribute("aria-checked")).toBe("false");
+    click(animate);
+    expect(backendMock.setStoredThemeMotion).toHaveBeenCalledWith("custom-scene", true);
   });
 });
 

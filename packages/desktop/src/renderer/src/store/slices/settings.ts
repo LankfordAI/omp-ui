@@ -411,6 +411,36 @@ export const createSettingsSlice: StateCreator<UiStore, [], [], SettingsSlice> =
       }
     },
 
+    async addThemeRepository(input) {
+      return await backend.addThemeRepository(input);
+    },
+
+    async removeThemeRepository(repository) {
+      try {
+        await backend.removeThemeRepository(repository);
+      } catch (err) {
+        get().reportError(err);
+      }
+    },
+
+    async browseThemeRepository(repository, refresh) {
+      return await backend.browseThemeRepository(repository, refresh);
+    },
+
+    async installRepositoryTheme(request) {
+      // No optimistic state and no paint: the host's gate decides, and
+      // installing never switches the active theme.
+      return await backend.installRepositoryTheme(request);
+    },
+
+    async setStoredThemeMotion(id, on) {
+      try {
+        await backend.setStoredThemeMotion(id, on);
+      } catch (err) {
+        get().reportError(err);
+      }
+    },
+
     async setFontFamilyId(id) {
       const previousId = currentFontFamilyId();
       applyFontFamily(resolveFontFamily(id));

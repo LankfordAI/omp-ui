@@ -1846,12 +1846,31 @@ _Avoid_: user theme
 
 **Authored theme**:
 A **stored theme** made from **theme seeds**: in the Settings → Appearance
-editor, from an omp-ui theme file, by duplicating another theme, or by an agent
-through `omp-ui_theme_save`. Its id starts with `custom-`, and on top of the
-contrast gate its signal accent must be a green (OKLab hue 100°–200°). The UI
-labels it with a *custom* chip; the glossary term stays "authored theme"
-(ADR-0094).
+editor, from an omp-ui theme file, by duplicating another theme, by an agent
+through `omp-ui_theme_save`, or installed from a **theme repository**. Its id
+starts with `custom-`, and on top of the contrast gate its signal accent must
+be a green (OKLab hue 100°–200°). The UI labels it with a *custom* chip; the
+glossary term stays "authored theme" (ADR-0094).
 _Avoid_: custom theme, user theme, skin
+
+**Theme repository**:
+A public GitHub repository added under Settings → Appearance whose root
+`omp-ui-themes.json` (its **theme index**) lists themes to browse and install
+(ADR-0096).
+_Avoid_: theme store, marketplace, gallery, theme source
+
+**Theme index**:
+A theme repository's `omp-ui-themes.json`: each listed theme's file path,
+label, seeds and backdrop kind, so Browse previews it without downloading the
+theme (ADR-0096).
+_Avoid_: manifest, registry
+
+**Repository theme**:
+An **authored theme** installed from a **theme repository**. It carries its
+origin — repository, path, commit, blob, and its own *Animate* switch — and is
+updated only when the user clicks Update. Editing it detaches it into a plain
+authored theme (ADR-0096).
+_Avoid_: community theme, downloaded theme
 
 **Theme seeds**:
 The few colours an author picks — canvas, ink, the four accents, the six

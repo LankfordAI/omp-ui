@@ -10,6 +10,7 @@ import {
   type Registry,
   type SaveStoredThemeResult,
   type StoredThemeDraft,
+  type ThemeOrigin,
   type ThemeSource,
 } from "@omp-ui/core";
 import type { ThemeBackdropStore } from "./theme-backdrop-store";
@@ -60,20 +61,47 @@ export function saveStoredTheme(
   deps: StoredThemeDeps,
   draft: StoredThemeDraft,
 ): Promise<SaveStoredThemeResult> {
-  return serialized(deps, () => saveDraft(deps, draft));
+  // The editor path never carries an origin: editing an installed theme detaches it (#1178).
+  return serialized(deps, () => saveDraft(deps, draft, null));
 }
 
-async function saveDraft(deps: StoredThemeDeps, draft: StoredThemeDraft): Promise<SaveStoredThemeResult> {
+/**
+ * The theme repository route (#1178): same gate and backdrop checks; a
+ * reinstall of the same repository path replaces in place.
+ */
+export function installStoredTheme(
+  deps: StoredThemeDeps,
+  draft: StoredThemeDraft,
+  origin: ThemeOrigin,
+): Promise<SaveStoredThemeResult> {
+  return serialized(deps, () => saveDraft(deps, draft, origin));
+}
+
+async function saveDraft(
+  deps: StoredThemeDeps,
+  draft: StoredThemeDraft,
+  origin: ThemeOrigin | null,
+): Promise<SaveStoredThemeResult> {
   if (!isStoredThemeDraft(draft)) return invalid("the theme is malformed");
   const label = draft.label.trim();
   const stored = deps.registry.getSetting("storedThemes");
+  let replaceId = draft.id;
+  if (origin !== null) {
+    // An update keeps the installed theme's id (and so its picks) and its motion choice.
+    const { repository, path } = origin;
+    const installed = stored.find((t) => t.origin?.repository === repository && t.origin.path === path);
+    if (installed?.origin !== undefined) {
+      replaceId = installed.id;
+      origin = { ...origin, animate: installed.origin.animate };
+    }
+  }
   let id: string;
-  if (draft.id !== undefined) {
-    const existing = stored.find((t) => t.id === draft.id);
+  if (replaceId !== undefined) {
+    const existing = stored.find((t) => t.id === replaceId);
     if (existing === undefined || storedThemeKind(existing.id) !== "authored") {
       return invalid("only an authored theme can be replaced");
     }
-    id = draft.id;
+    id = replaceId;
   } else {
     let minted: string | null = null;
     for (let attempt = 0; attempt < NEW_ID_ATTEMPTS && minted === null; attempt++) {
@@ -84,6 +112,7 @@ async function saveDraft(deps: StoredThemeDeps, draft: StoredThemeDraft): Promis
     id = minted;
   }
   const source = sourceFromDraft(id, label, draft.seeds);
+  if (origin !== null) source.origin = origin;
   const failures = themeGateFailures(source);
   if (failures.length > 0) return { ok: false, reason: "gate", label, failures };
   const backdrop = draft.backdrop;
@@ -143,6 +172,21 @@ export function removeStoredTheme(deps: StoredThemeDeps, id: string): Promise<vo
     if (reg.getSetting("darkThemeId") === id) reg.setSetting("darkThemeId", DEFAULT_THEME_ID);
     if (reg.getSetting("lightThemeId") === id) reg.setSetting("lightThemeId", DEFAULT_LIGHT_THEME_ID);
     await pruneUnreferenced(deps);
+    await deps.broadcast();
+  });
+}
+
+/** Lets one installed repository theme's scene animate (#1178); other rows change nothing. */
+export function setStoredThemeMotion(deps: StoredThemeDeps, id: string, on: boolean): Promise<void> {
+  return serialized(deps, async () => {
+    const stored = deps.registry.getSetting("storedThemes");
+    const row = stored.find((t) => t.id === id);
+    const origin = row?.origin;
+    if (origin === undefined || origin.animate === on) return;
+    deps.registry.setSetting(
+      "storedThemes",
+      stored.map((t) => (t === row ? { ...t, origin: { ...origin, animate: on } } : t)),
+    );
     await deps.broadcast();
   });
 }

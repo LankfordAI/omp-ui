@@ -6,6 +6,7 @@ import {
   type DraftBackdrop,
   type SaveStoredThemeResult,
   type ThemeFile,
+  THEME_FILE_BYTES_MAX,
 } from "@omp-ui/core/theme-file";
 import { seedsOfTheme, type ThemeSeeds } from "@omp-ui/core/theme-seeds";
 import type { GlassChrome, TranscriptWidth } from "@omp-ui/core/types";
@@ -24,7 +25,8 @@ import {
 import { useStore } from "../../store";
 import { Button, ChoiceCapsule, Chip, Switch } from "../ui";
 import { Row } from "./rows";
-import { CURATED_SOURCES, GateFailures, ThemeEditor } from "./ThemeEditor";
+import { CURATED_SOURCES, GateFailures, SwatchStrip, ThemeEditor } from "./ThemeEditor";
+import { ThemeRepositoriesSection } from "./ThemeRepositoriesSection";
 
 /**
  * Label each transcript-width card paints (issue #391). The old mini-column
@@ -101,17 +103,6 @@ const GLASS_CARDS: Record<GlassChrome, { label: MessageKey; hint: MessageKey }> 
   },
 };
 
-/** The planes and accents each swatch strip paints, in strip order. */
-const SWATCH_TOKENS = [
-  "--color-void",
-  "--color-surface",
-  "--color-raised",
-  "--color-signal",
-  "--color-copper",
-  "--color-rose",
-  "--color-iris",
-] as const;
-
 /** One theme card: label, scheme chip, and a swatch strip of that theme's planes and accents. */
 function ThemeCard({
   theme,
@@ -127,11 +118,13 @@ function ThemeCard({
   // Modern), so its accessible name says which kind it is.
   const kind = storedThemeKind(theme.id);
   const kindLabel =
-    kind === "imported"
-      ? t("settings.appearance.themeImported")
-      : kind === "authored"
-        ? t("settings.appearance.themeAuthored")
-        : null;
+    theme.origin !== null
+      ? t("settings.appearance.themeFrom", { repository: theme.origin.repository })
+      : kind === "imported"
+        ? t("settings.appearance.themeImported")
+        : kind === "authored"
+          ? t("settings.appearance.themeAuthored")
+          : null;
   const name = kindLabel !== null ? `${theme.label} (${kindLabel})` : theme.label;
   return (
     <button
@@ -148,16 +141,15 @@ function ThemeCard({
         <span className="truncate text-sm font-medium text-ink">{theme.label}</span>
         <Chip>{theme.dark ? t("settings.appearance.themeDark") : t("settings.appearance.themeLight")}</Chip>
         {kindLabel !== null && <Chip>{kindLabel}</Chip>}
-        {theme.backdrop !== null && <Chip>{t("settings.appearance.themeBackdrop")}</Chip>}
+        {theme.backdrop !== null && (
+          <Chip>
+            {theme.backdrop.kind === "scene"
+              ? t("settings.appearance.themeScene")
+              : t("settings.appearance.themeBackdrop")}
+          </Chip>
+        )}
       </span>
-      {/* Inline styles are the one sanctioned exception here: these
-          swatches paint a theme that is NOT the active one, so the
-          live CSS tokens cannot express them. */}
-      <span className="mt-2 flex h-4 overflow-hidden rounded border border-line">
-        {SWATCH_TOKENS.map((token) => (
-          <span key={token} className="flex-1" style={{ background: theme.tokens[token] }} />
-        ))}
-      </span>
+      <SwatchStrip theme={theme} />
     </button>
   );
 }
@@ -185,9 +177,6 @@ function ThemeGrid({
 async function readPicked(list: FileList): Promise<{ name: string; text: string }[]> {
   return await Promise.all([...list].map(async (file) => ({ name: file.name, text: await file.text() })));
 }
-
-/** An omp-ui theme file larger than this cannot hold a valid one (a 4 MiB backdrop as base64, plus seeds). */
-const THEME_FILE_BYTES_MAX = 6 * 1024 * 1024;
 
 /** What the editor opens with: the seeds, label, optional id to replace, and backdrop. */
 type EditorInitial = { id?: string; label: string; seeds: Required<ThemeSeeds>; backdrop: DraftBackdrop | null };
@@ -259,6 +248,7 @@ function StoredSection({
   const importVsCodeTheme = useStore((s) => s.importVsCodeTheme);
   const saveStoredTheme = useStore((s) => s.saveStoredTheme);
   const removeStoredTheme = useStore((s) => s.removeStoredTheme);
+  const setStoredThemeMotion = useStore((s) => s.setStoredThemeMotion);
   const vsCodePicker = useRef<HTMLInputElement>(null);
   const filePicker = useRef<HTMLInputElement>(null);
   const [editing, setEditing] = useState<EditorInitial | null>(null);
@@ -409,7 +399,11 @@ function StoredSection({
               <li key={theme.id} className="flex items-center gap-2 text-sm text-ink-mid">
                 <span className="min-w-0 flex-1 truncate">{theme.label}</span>
                 <Chip>
-                  {authored ? t("settings.appearance.themeAuthored") : t("settings.appearance.themeImported")}
+                  {source?.origin !== undefined
+                    ? t("settings.appearance.themeFrom", { repository: source.origin.repository })
+                    : authored
+                      ? t("settings.appearance.themeAuthored")
+                      : t("settings.appearance.themeImported")}
                 </Chip>
                 {authored && source !== undefined && (
                   <Button
@@ -441,6 +435,13 @@ function StoredSection({
                   >
                     {t("settings.appearance.export")}
                   </Button>
+                )}
+                {source?.origin !== undefined && source.backdrop?.kind === "scene" && (
+                  <Switch
+                    on={source.origin.animate}
+                    onChange={(next) => void setStoredThemeMotion(source.id, next)}
+                    label={t("settings.appearance.repoAnimateAria", { name: theme.label })}
+                  />
                 )}
                 <Button
                   variant="ghost"
@@ -536,6 +537,7 @@ export function AppearancePage() {
       </p>
 
       <StoredSection stored={stored} sources={storedSources} showing={showing} />
+      <ThemeRepositoriesSection sources={storedSources} />
 
       <div className="mt-4 border-t border-line-soft pt-3">
         <h3 className="text-base font-semibold text-ink">{t("settings.appearance.fontFamily")}</h3>

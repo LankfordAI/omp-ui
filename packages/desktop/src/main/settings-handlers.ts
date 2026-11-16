@@ -14,6 +14,7 @@ import {
   type RequestHandlers,
   type RegistrySettings,
   type SessionMode,
+  type RepositoryThemeInstallRequest,
   type StoredThemeDraft,
   type ThemeBackdropBytes,
   type ThemeMode,
@@ -23,7 +24,14 @@ import {
   type UpdateTrain,
   type VaultNoteVoice,
 } from "@omp-ui/core";
-import { commitStoredTheme, removeStoredTheme, saveStoredTheme, type StoredThemeDeps } from "./stored-themes";
+import {
+  commitStoredTheme,
+  removeStoredTheme,
+  saveStoredTheme,
+  setStoredThemeMotion,
+  type StoredThemeDeps,
+} from "./stored-themes";
+import type { ThemeRepositoryService } from "./theme-repositories";
 
 type SettingsHandlerChannels =
   | typeof CH.setDefaultMode
@@ -62,6 +70,11 @@ type SettingsHandlerChannels =
   | typeof CH.saveStoredTheme
   | typeof CH.removeStoredTheme
   | typeof CH.readThemeBackdrop
+  | typeof CH.addThemeRepository
+  | typeof CH.removeThemeRepository
+  | typeof CH.browseThemeRepository
+  | typeof CH.installRepositoryTheme
+  | typeof CH.setStoredThemeMotion
   | typeof CH.setBackdropMotion
   | typeof CH.setThemeAgentAccess
   | typeof CH.setIssueAgentAccess
@@ -96,6 +109,8 @@ interface SettingsHandlerDependencies {
   seedCouncilRoster: () => Promise<void>;
   /** The one stored-theme save path (issue #1168); the host tool reuses the same object. */
   themes: StoredThemeDeps;
+  /** Theme repositories (#1178): the list, cached listings, and the install route. */
+  themeRepositories: ThemeRepositoryService;
 }
 
 export function registerSettingsHandlers(
@@ -182,6 +197,12 @@ export function registerSettingsHandlers(
       if (bytes === null) return null;
       return { mime: sniffBackdropMime(bytes) ?? "image/png", data: Buffer.from(bytes).toString("base64") };
     },
+    [CH.addThemeRepository]: (input: string) => deps.themeRepositories.add(input),
+    [CH.removeThemeRepository]: (repository: string) => deps.themeRepositories.remove(repository),
+    [CH.browseThemeRepository]: (repository: string, refresh: boolean) =>
+      deps.themeRepositories.browse(repository, refresh),
+    [CH.installRepositoryTheme]: (request: RepositoryThemeInstallRequest) => deps.themeRepositories.install(request),
+    [CH.setStoredThemeMotion]: (id: string, on: boolean) => setStoredThemeMotion(deps.themes, id, on),
     [CH.setBackdropMotion]: (value: boolean) => commit("backdropMotion", value),
     [CH.setThemeAgentAccess]: (value: boolean) => commit("themeAgentAccess", value),
     [CH.setIssueAgentAccess]: (value: boolean) => commit("issueAgentAccess", value),

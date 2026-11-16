@@ -52,6 +52,7 @@ interface RegistrySettings {
   lightThemeId: string;
   darkThemeId: string;
   storedThemes: unknown[];
+  themeRepositories: string[];
   backdropMotion: boolean;
   themeAgentAccess: boolean;
   issueAgentAccess: boolean;
@@ -189,6 +190,7 @@ export function seedRegistry(file: string, patch: RegistrySeedPatch = {}): void 
     lightThemeId: "light",
     darkThemeId: "graphite",
     storedThemes: [],
+    themeRepositories: [],
     backdropMotion: true,
     themeAgentAccess: false,
     issueAgentAccess: false,
