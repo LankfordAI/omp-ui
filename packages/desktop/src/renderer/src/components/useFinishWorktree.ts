@@ -8,6 +8,7 @@ import type {
 } from "@omp-ui/core/types";
 import { releaseNoticeLevel, releaseNoticeText } from "../lib/format";
 import { t } from "../lib/i18n";
+import { IS_ELECTRON } from "../lib/platform";
 import { projectKey } from "../lib/project-key";
 import { displayMessage } from "../backend";
 import type { GitResolutionTrigger } from "../lib/git-resolution-prompt";
@@ -125,6 +126,8 @@ export interface FinishController {
   defaultBranch: string | null;
   /** The remote has no web face: `openPullRequest` said so instead of opening. */
   prUnavailable: boolean;
+  /** The compare page reached a browser; the done row confirms it. */
+  prOpened: boolean;
   /** A session mid-turn in the project checkout (this tab excluded); null when none. */
   busyTitle: string | null;
   /** The branch a return would move the project checkout onto (#431); null when
@@ -232,6 +235,8 @@ export function useFinishWorktree(tabId: string): FinishController {
   const [phase, setPhase] = useState<FinishPhase>({ s: "loading" });
   const [pushState, setPushState] = useState<FinishPushState>({ s: "idle" });
   const [prUnavailable, setPrUnavailable] = useState(false);
+  /** The URL reached a browser (Electron handoff or an opened tab); the done row confirms it. */
+  const [prOpened, setPrOpened] = useState(false);
   const [resolutionBusy, setResolutionBusy] = useState(false);
   const [resolutionError, setResolutionError] = useState<string | null>(null);
   const [discarded, setDiscarded] = useState<DiscardedChange[]>([]);
@@ -587,6 +592,7 @@ export function useFinishWorktree(tabId: string): FinishController {
           ).catch(() => null);
           setPushState({ s: "idle" });
           setPrUnavailable(false);
+          setPrOpened(false);
           setPhase({
             s: "done",
             destination: result.destination,
@@ -786,6 +792,7 @@ export function useFinishWorktree(tabId: string): FinishController {
     if (mergeResult !== null && mergeResult.kind === "merged") {
       setPushState({ s: "idle" });
       setPrUnavailable(false);
+      setPrOpened(false);
       setPhase({
         s: "done",
         destination: target,
@@ -928,7 +935,14 @@ export function useFinishWorktree(tabId: string): FinishController {
         setPrUnavailable(true);
         return;
       }
-      window.open(url, "_blank", "noopener,noreferrer");
+      const openedWindow = window.open(url, "_blank", "noopener,noreferrer");
+      // Electron's setWindowOpenHandler always denies the popup after routing to
+      // openExternalSafe, so null IS the handoff there; in a plain browser or the
+      // WebView shell null means a blocker refused the tab, which is not feedback.
+      if (IS_ELECTRON || openedWindow !== null) {
+        setPrOpened(true);
+        setPrUnavailable(false);
+      }
     } catch {
       setPrUnavailable(true);
     }
@@ -985,6 +999,7 @@ export function useFinishWorktree(tabId: string): FinishController {
     defaultRemote,
     defaultBranch,
     prUnavailable,
+    prOpened,
     busyTitle,
     checkoutTarget,
     checkoutBlockedByBusy,

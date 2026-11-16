@@ -3117,6 +3117,7 @@ export const en = {
   "finish.done.published": "published {destination} to {remote}",
   "finish.done.rejected": "{upstream} has commits this branch lacks — pull first, then push",
   "finish.done.openPr": "open pull request",
+  "finish.done.prOpened": "compare page for {destination} opened in your browser",
 
   // useFinishWorktree.ts — transcript notices for the finish run.
   "notice.merge.conflictProject": "the merge of {destination} stopped on {count} file(s) in the project checkout — resolve them there, or sync and finish again",
