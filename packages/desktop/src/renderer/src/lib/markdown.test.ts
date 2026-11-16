@@ -943,6 +943,39 @@ describe("LaTeX math (issue #191)", () => {
     }
   });
 
+  it("keeps dollar amounts in prose literal (issue #1185)", () => {
+    for (const src of [
+      "for $200—the circle-dot pairs cleanly. Alt: (.300 BLK holds, ~$300, prism) if",
+      "$5–$10",
+      "from $1.50 to $2",
+      "a $x$5 b",
+    ]) {
+      expect(literalText(parseMarkdown(src))).toBe(src);
+    }
+  });
+
+  it("still parses real math after a price on the same line (issue #1185)", () => {
+    expect(parseMarkdown("costs $5, or $x$ math")[0]).toEqual({
+      kind: "p",
+      spans: [
+        { kind: "text", text: "costs $5, or " },
+        { kind: "math", text: "x" },
+        { kind: "text", text: " math" },
+      ],
+    });
+  });
+
+  it("never pairs inline dollars across a newline (issue #1185)", () => {
+    expect(literalText(parseMarkdown("a $x\ny$ b"))).toBe("a $x\ny$ b");
+    expect(parseMarkdown("$a\n$b$")[0]).toEqual({
+      kind: "p",
+      spans: [
+        { kind: "text", text: "$a\n" },
+        { kind: "math", text: "b" },
+      ],
+    });
+  });
+
   it("keeps dollar delimiters inside code spans and fences as code", () => {
     expect(parseMarkdown("`$not_math$`")[0]).toEqual({
       kind: "p",

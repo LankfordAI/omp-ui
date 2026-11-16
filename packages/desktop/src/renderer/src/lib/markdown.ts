@@ -62,6 +62,7 @@ const NOT_SPACE = /[^ \t\n]/;
 const SPACE = /[ \t\n]/;
 const WORD_CHAR = /[\p{L}\p{N}_]/u;
 const ASCII_PUNCTUATION = /^[\x21-\x2f\x3a-\x40\x5b-\x60\x7b-\x7e]$/;
+const ASCII_DIGIT = /[0-9]/;
 
 function runLength(src: string, i: number, ch: string): number {
   let n = 0;
@@ -118,18 +119,23 @@ function isEscaped(src: string, i: number): boolean {
 
 /**
  * Inline math, line-bounded like every other inline delimiter: an unescaped
- * single-dollar opener and closer, with the body starting and ending on a
- * non-whitespace character. Null otherwise, so a stray `$` stays literal and
- * a later streaming frame can reflow it once the closer arrives. A `$$` run
- * is a display delimiter and never an inline opener — display syntax in
- * prose stays literal.
+ * single-dollar opener and closer on the same line, with the body starting
+ * and ending on a non-whitespace character. A `$` followed by an ASCII digit
+ * never closes (Pandoc's tex_math_dollars rule), so prose quoting two prices
+ * — `$200 … ~$300`, `$5–$10` — stays literal instead of rendering the text
+ * between them as math. Null otherwise, so a stray `$` stays literal and a
+ * later streaming frame can reflow it once the closer arrives. A `$$` run is
+ * a display delimiter and never an inline opener — display syntax in prose
+ * stays literal.
  */
 function readMathInline(src: string, i: number): { span: MdSpan; next: number } | null {
   if (src[i] !== "$" || src[i + 1] === "$" || src[i - 1] === "$") return null;
   for (let j = i + 1; j < src.length; j++) {
-    const c = src[j] ?? "";
-    if (c === "\n" || c !== "$") continue;
+    const c = src[j];
+    if (c === "\n") return null;
+    if (c !== "$") continue;
     if (src[j + 1] === "$" || src[j - 1] === "$" || isEscaped(src, j)) continue;
+    if (ASCII_DIGIT.test(src[j + 1] ?? "")) continue;
     const body = src.slice(i + 1, j);
     if (body === "" || SPACE.test(body[0] ?? "") || SPACE.test(body[body.length - 1] ?? "")) {
       return null;
