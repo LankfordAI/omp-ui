@@ -5,7 +5,6 @@
 // line naming the field, a body renderer whose headings match the repo's issue
 // templates verbatim, and the duplicate-search helpers. One flat object schema
 // per tool — no root unions (#1135); per-kind requirements live in the parser.
-import { createHash } from "node:crypto";
 import { isObject } from "./guards";
 import type { RpcHostToolDefinition } from "./host-bridge";
 
@@ -314,15 +313,6 @@ export function renderIssueBody(args: IssueToolArgs, facts: IssueVersionFacts): 
     }
   }
   return `${sections.join("\n\n")}\n`;
-}
-
-/**
- * The triple a filing is bound to: the draft answer records it, and the file
- * call must reproduce it byte for byte. Title here is the RENDERED (prefixed)
- * title so an approval covers exactly what GitHub will show.
- */
-export function issueDraftFingerprint(title: string, repository: string, body: string): string {
-  return createHash("sha256").update(JSON.stringify([title, repository, body])).digest("hex");
 }
 
 /** gh args (after "gh") searching up to the 6 longest title words; failure never blocks anything. */

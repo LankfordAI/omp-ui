@@ -2,7 +2,7 @@
 // last draft byte-for-byte, secrets refuse before ANY gh call, failures map to
 // honest lines, and the per-tab cap resets only with the tab's process.
 import { describe, expect, it } from "vitest";
-import { IssueBridge, ISSUE_FILE_CAP_PER_TAB } from "./issue-bridge";
+import { IssueBridge, ISSUE_FILE_CAP_PER_TAB, issueDraftFingerprint } from "./issue-bridge";
 import {
   BUG_TAB_MODES,
   parseIssueToolArgs,
@@ -41,6 +41,16 @@ function bugArgs(overrides: Record<string, unknown> = {}): Record<string, unknow
     ...overrides,
   };
 }
+
+describe("issueDraftFingerprint", () => {
+  it("fingerprints the exact (title, repository, body) triple", () => {
+    const a = issueDraftFingerprint("[Bug]: t", "r/x", "body");
+    expect(a).toBe(issueDraftFingerprint("[Bug]: t", "r/x", "body"));
+    expect(issueDraftFingerprint("[Bug]: t", "r/x", "body ")).not.toBe(a);
+    expect(issueDraftFingerprint("[Bug]: T", "r/x", "body")).not.toBe(a);
+    expect(issueDraftFingerprint("[Bug]: t", "r/y", "body")).not.toBe(a);
+  });
+});
 
 function featureArgs(overrides: Record<string, unknown> = {}): Record<string, unknown> {
   return {
