@@ -27,7 +27,7 @@ afterEach(() => {
 function sceneTheme(origin: ThemeOrigin | null): ThemeSource {
   return {
     ...sourceFromDraft("custom-scene", "Scene", { canvas: "#1a1b26" }),
-    backdrop: { assetHash: "f".repeat(64), kind: "scene", mime: "image/svg+xml", dim: 40, blur: 12 },
+    backdrop: { assetHash: "f".repeat(64), kind: "scene", mime: "image/svg+xml", blur: 12 },
     ...(origin !== null ? { origin } : {}),
   };
 }

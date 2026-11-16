@@ -1,6 +1,13 @@
 import { describe, expect, it } from "vitest";
 import themeSources from "./theme-sources.json";
-import { deriveTheme, isStoredTheme, signalAccentFailure, themeGateFailures, type ThemeSource } from "./theme";
+import {
+  deriveTheme,
+  isStoredTheme,
+  parseStoredThemes,
+  signalAccentFailure,
+  themeGateFailures,
+  type ThemeSource,
+} from "./theme";
 
 const graphite = (themeSources as ThemeSource[]).find((theme) => theme.id === "graphite")!;
 
@@ -22,6 +29,14 @@ describe("isStoredTheme", () => {
     expect(isStoredTheme({ ...graphite, id: "custom-x", origin: { ...origin, extra: 1 } })).toBe(false);
     expect(isStoredTheme({ ...graphite, id: "custom-x", origin: { ...origin, commit: "HEAD" } })).toBe(false);
     expect(isStoredTheme({ ...graphite, id: "custom-x", origin: { ...origin, path: "../a.json" } })).toBe(false);
+  });
+});
+
+describe("parseStoredThemes legacy backdrop", () => {
+  it("keeps a row written with the retired dim and drops the key", () => {
+    const backdrop = { assetHash: "a".repeat(64), kind: "scene", mime: "image/svg+xml", blur: 12 } as const;
+    const [row] = parseStoredThemes([{ ...graphite, id: "custom-x", backdrop: { ...backdrop, dim: 50 } }]);
+    expect(row?.backdrop).toEqual(backdrop);
   });
 });
 

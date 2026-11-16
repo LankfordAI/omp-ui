@@ -6,7 +6,7 @@ const file: ThemeFile = {
   version: 1,
   label: "Dusk",
   seeds: { canvas: "#1a1b26", accents: { signal: "#4de0a1" } },
-  backdrop: { mime: "image/png", data: "iVBORw0KGgo=", dim: 40, blur: 12 },
+  backdrop: { mime: "image/png", data: "iVBORw0KGgo=", blur: 12 },
 };
 
 describe("parseThemeFile", () => {
@@ -17,10 +17,18 @@ describe("parseThemeFile", () => {
       draft: {
         label: "Dusk",
         seeds: file.seeds,
-        backdrop: { from: "bytes", data: "iVBORw0KGgo=", dim: 40, blur: 12 },
+        backdrop: { from: "bytes", data: "iVBORw0KGgo=", blur: 12 },
       },
     });
     expect(result.ok && "id" in result.draft).toBe(false);
+  });
+
+  it("accepts a file written with the retired dim and drops it", () => {
+    const legacy = { ...file, backdrop: { ...file.backdrop, dim: 40 } };
+    expect(parseThemeFile(JSON.stringify(legacy))).toMatchObject({
+      ok: true,
+      draft: { backdrop: { from: "bytes", data: "iVBORw0KGgo=", blur: 12 } },
+    });
   });
 
   it.each([

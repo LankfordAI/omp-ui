@@ -2,7 +2,7 @@
 // Pure — only the canonical guard — because the renderer, the preload-less
 // plan verifier page, and main all read it through the @omp-ui/core/theme subpath.
 import { isObject } from "./guards";
-import { isThemeBackdrop, type ThemeBackdrop } from "./theme-backdrop";
+import { currentThemeBackdrop, isThemeBackdrop, type ThemeBackdrop } from "./theme-backdrop";
 import { isThemeOrigin, type ThemeOrigin } from "./theme-origin";
 
 /** Every `--color-*` token a theme supplies, in canonical order. */
@@ -204,7 +204,7 @@ export function parseStoredThemes(value: unknown): ThemeSource[] {
     if (!isStoredTheme(item) || seen.has(item.id)) continue;
     if (themeGateFailures(item).length > 0) continue;
     seen.add(item.id);
-    out.push(item);
+    out.push(item.backdrop === undefined ? item : { ...item, backdrop: currentThemeBackdrop(item.backdrop) });
     if (out.length === STORED_THEMES_MAX) break;
   }
   return out;

@@ -207,7 +207,6 @@ import {
   type VaultDetection,
   authoredThemeId,
   BACKDROP_DEFAULT_BLUR,
-  BACKDROP_DEFAULT_DIM,
   BACKDROP_IMAGE_BYTES_MAX,
   type SaveStoredThemeResult,
   type ThemeApplyResult,
@@ -2308,7 +2307,6 @@ export class MainBackend {
       backdrop: {
         from: "bytes",
         data: bytes.toString("base64"),
-        dim: args.backdrop.dim ?? BACKDROP_DEFAULT_DIM,
         blur: args.backdrop.blur ?? BACKDROP_DEFAULT_BLUR,
       },
     });

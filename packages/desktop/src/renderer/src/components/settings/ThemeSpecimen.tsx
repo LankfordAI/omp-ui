@@ -49,11 +49,11 @@ function planeStyle(plane: "void" | "sunken" | "surface", floor: number | null):
 }
 
 /**
- * The backdrop's still frame, blurred once and dimmed by the void scrim:
- * style.css's .backdrop-layer / .backdrop-scrim, with this theme's values.
+ * The backdrop's still frame, blurred once: style.css's .backdrop-layer,
+ * with this theme's blur.
  * Never the animated scene: samples do not move (ADR-0094 §6, ADR-0096 §7).
  */
-function SpecimenBackdrop({ stillUrl, dim, blur }: { stillUrl: string; dim: number; blur: number }) {
+function SpecimenBackdrop({ stillUrl, blur }: { stillUrl: string; blur: number }) {
   return (
     <div className="pointer-events-none absolute inset-0 overflow-hidden">
       <img
@@ -66,10 +66,6 @@ function SpecimenBackdrop({ stillUrl, dim, blur }: { stillUrl: string; dim: numb
           height: `calc(100% + ${6 * blur}px)`,
           filter: `blur(${blur}px)`,
         }}
-      />
-      <div
-        className="absolute inset-0"
-        style={{ backgroundColor: `color-mix(in srgb, var(--color-void) ${dim}%, transparent)` }}
       />
     </div>
   );
@@ -290,10 +286,10 @@ export function ThemeSpecimen(props: {
   const { theme, variant, className } = props;
   const asset = useSpecimenAsset(theme, props.asset);
   const backdrop = asset !== null ? theme.backdrop : null;
-  const floors = backdrop !== null ? backdropFloors(theme.tokens, backdrop.dim) : null;
+  const floors = backdrop !== null ? backdropFloors(theme.tokens) : null;
   const layer =
     backdrop !== null && asset !== null ? (
-      <SpecimenBackdrop stillUrl={asset.stillUrl} dim={backdrop.dim} blur={backdrop.blur} />
+      <SpecimenBackdrop stillUrl={asset.stillUrl} blur={backdrop.blur} />
     ) : null;
 
   if (variant === "card") {

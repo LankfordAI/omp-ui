@@ -12,8 +12,6 @@ export interface ThemeBackdrop {
   assetHash: string;
   kind: ThemeBackdropKind;
   mime: ThemeBackdropMime;
-  /** 0-80: percent of the theme's void painted over the backdrop. */
-  dim: number;
   /** 0-32: px of blur applied once to the backdrop layer. */
   blur: number;
 }
@@ -26,13 +24,13 @@ export interface ThemeBackdropBytes {
 
 export const BACKDROP_IMAGE_BYTES_MAX = 4 * 1024 * 1024;
 export const BACKDROP_SCENE_BYTES_MAX = 128 * 1024;
-export const BACKDROP_DIM_MAX = 80;
 export const BACKDROP_BLUR_MAX = 32;
-export const BACKDROP_DEFAULT_DIM = 40;
 export const BACKDROP_DEFAULT_BLUR = 12;
 
 const ASSET_HASH = /^[0-9a-f]{64}$/;
-const BACKDROP_KEYS = ["assetHash", "kind", "mime", "dim", "blur"];
+const BACKDROP_KEYS = ["assetHash", "kind", "mime", "blur"];
+/** Retired with the scrim (#1187): rows and files written before carry it; readers accept and drop it. */
+export const LEGACY_DIM_KEY = "dim";
 const MIMES: readonly string[] = ["image/png", "image/jpeg", "image/webp", "image/svg+xml"];
 
 const inRange = (value: unknown, max: number): boolean =>
@@ -40,14 +38,20 @@ const inRange = (value: unknown, max: number): boolean =>
 
 export function isThemeBackdrop(value: unknown): value is ThemeBackdrop {
   if (!isObject(value) || Array.isArray(value)) return false;
-  const keys = Object.keys(value);
+  const keys = Object.keys(value).filter((key) => key !== LEGACY_DIM_KEY);
   if (keys.length !== BACKDROP_KEYS.length || !BACKDROP_KEYS.every((key) => keys.includes(key))) return false;
-  const { assetHash, kind, mime, dim, blur } = value;
+  const { assetHash, kind, mime, blur } = value;
   if (typeof assetHash !== "string" || !ASSET_HASH.test(assetHash)) return false;
   if (kind !== "image" && kind !== "scene") return false;
   if (typeof mime !== "string" || !MIMES.includes(mime)) return false;
   if ((kind === "scene") !== (mime === "image/svg+xml")) return false;
-  return inRange(dim, BACKDROP_DIM_MAX) && inRange(blur, BACKDROP_BLUR_MAX);
+  return inRange(blur, BACKDROP_BLUR_MAX);
+}
+
+/** A stored backdrop with only its current keys (drops the retired `dim`). */
+export function currentThemeBackdrop(backdrop: ThemeBackdrop): ThemeBackdrop {
+  const { assetHash, kind, mime, blur } = backdrop;
+  return { assetHash, kind, mime, blur };
 }
 
 /** What the bytes are, from their own signature (the head test `sniffIconMime` uses). GIF and ICO are null. */
@@ -106,6 +110,7 @@ export interface BackdropFloors {
   void: number;
   sunken: number;
   reading: number;
+  overlay: number;
 }
 
 type Pairing = readonly [fg: ThemeTokenName, plane: ThemeTokenName, min: number];
@@ -138,15 +143,19 @@ const READING: Pairing[] = [
   ["--color-ink-faint", "--color-raised", 4.5],
 ];
 
+/** The modal page scrim's void share: overlays.tsx's `bg-void/70` under every `glass-overlay` plane. */
+const MODAL_SCRIM = 0.7;
+
 /**
  * Lowest plane opacity, in percent 50-100, at which every text pairing on that
- * plane still clears its floor over any backdrop pixel dimmed by `dim` percent.
+ * plane still clears its floor over any backdrop pixel (pure black or white).
+ * The overlay plane (modal dialogs) is measured over those pixels under the
+ * modal's own page scrim.
  */
-export function backdropFloors(tokens: Record<ThemeTokenName, string>, dim: number): BackdropFloors {
-  const voidColour = tokens["--color-void"];
-  // The two worst backdrop pixels: pure black and pure white under the void scrim.
-  const backs = [mixHex(voidColour, "#000000", dim / 100), mixHex(voidColour, "#ffffff", dim / 100)];
-  const floor = (pairings: readonly Pairing[]): number => {
+export function backdropFloors(tokens: Record<ThemeTokenName, string>): BackdropFloors {
+  const raw = ["#000000", "#ffffff"];
+  const underModal = raw.map((pixel) => mixHex(tokens["--color-void"], pixel, MODAL_SCRIM));
+  const floor = (pairings: readonly Pairing[], backs: readonly string[]): number => {
     for (let a = 50; a <= 100; a++) {
       const clears = pairings.every(([fg, plane, min]) =>
         backs.every((back) => contrastRatio(tokens[fg], mixHex(tokens[plane], back, a / 100)) >= min),
@@ -156,8 +165,9 @@ export function backdropFloors(tokens: Record<ThemeTokenName, string>, dim: numb
     return 100;
   };
   return {
-    void: floor(onPlane("--color-void")),
-    sunken: floor(onPlane("--color-sunken")),
-    reading: floor(READING),
+    void: floor(onPlane("--color-void"), raw),
+    sunken: floor(onPlane("--color-sunken"), raw),
+    reading: floor(READING, raw),
+    overlay: floor(onPlane("--color-overlay"), underModal),
   };
 }

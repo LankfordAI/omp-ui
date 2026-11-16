@@ -471,11 +471,6 @@
   object-fit: cover;
   filter: blur(var(--backdrop-blur, 0px));
 }
-.backdrop-scrim {
-  position: absolute;
-  inset: 0;
-  background-color: color-mix(in srgb, var(--color-void) var(--backdrop-dim, 0%), transparent);
-}
 /* The root wash and the stage grain give way to the backdrop while one shows. */
 :root[data-backdrop] .backdrop-wash {
   isolation: isolate;
@@ -484,6 +479,19 @@
 :root[data-backdrop] .stage-surface.ambient,
 :root[data-backdrop] .stage-void.ambient {
   background-image: none;
+}
+/* Over a backdrop the plan-review dock (the one plane-lit user) paints
+ * opaque: its header and nested /70 sub-planes would otherwise composite
+ * over raw backdrop pixels (#1187). Same gradient, glass alpha pinned to 100%. */
+:root[data-backdrop] .plane-lit {
+  background-color: var(--color-raised);
+  background-image: linear-gradient(to bottom, var(--color-overlay), var(--color-raised) 45%);
+}
+/* Hanging speaker labels (issue #392) sit outside the reading card; over a
+ * backdrop they keep their stacked, in-flow position inside it (#1187). */
+:root[data-backdrop] .transcript-column[data-hanging="true"] .speaker-label {
+  position: static;
+  margin: 0;
 }
 
 /* The stage is the reading plane; it turns transparent over a backdrop. */
@@ -529,7 +537,7 @@
   backdrop-filter: var(--glass-filter);
 }
 @utility glass-overlay {
-  background-color: color-mix(in srgb, var(--color-overlay) var(--glass-alpha), transparent);
+  background-color: color-mix(in srgb, var(--color-overlay) max(var(--glass-alpha), var(--backdrop-floor-overlay, 0%)), transparent);
   backdrop-filter: var(--glass-filter);
 }
 

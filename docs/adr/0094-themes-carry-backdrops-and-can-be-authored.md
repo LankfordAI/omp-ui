@@ -82,3 +82,30 @@ Behind the renamed **Agents can change themes** setting (still default off, neve
 ## Amendment (2026-11-16): Agents can change themes defaults on
 
 **Agents can change themes** (`themeAgentAccess`) now defaults on ([#1177](https://github.com/LankfordAI/omp-ui/issues/1177)). Off by default meant asking an agent for a theme failed on a default install, behind a setting the user had never seen. Nothing the gate protects changed: webhook- and MCP-started sessions still never get the tools, a lite host still has none, `theme_save`/`theme_set` effects are instantly visible and one click to undo in Appearance, and removal stays human-only. Legacy registries persisted the old off value in full, so a one-time load seed (`themeAgentAccessDefaultOnSeeded`, the council graduation's shape) flips them on once; an off chosen afterwards persists. Running sessions get the tools at their next spawn or resume.
+
+## Amendment (2026-11-16): backdrops show undimmed
+
+§3's `dim` field and §4's void scrim are retired ([#1187](https://github.com/LankfordAI/omp-ui/issues/1187)). The scrim painted the theme's void over the whole backdrop at the stored dim, so no backdrop ever showed as authored: a dark or tinted cast covered it. The backdrop now paints exactly as authored, and every plane that carries text keeps a contrast-safe fill.
+
+`backdropFloors(tokens)` measures every text pairing over raw black and white pixels, which equals the old dim-0 column. The reading card and chrome planes become more opaque; no floor is lowered (§4):
+
+| Theme | void | sunken | reading | overlay |
+| --- | --- | --- | --- | --- |
+| graphite | 81 | 82 | 87 | 55 |
+| nord | 78 | 81 | 97 | 50 |
+| light | 88 | 86 | 83 | 50 |
+| solarized-light | 89 | 86 | 93 | 50 |
+
+Three text surfaces had relied on the scrim:
+
+- **Modal dialogs.** A new **overlay** floor measures the overlay plane's text over those pixels under the modal's own `bg-void/70` page scrim; `glass-overlay` takes `max(glass alpha, overlay floor)`, keeping modal text at AA.
+- **The plan review dock** paints opaque while a backdrop shows: its header and nested `/70` sub-planes would otherwise composite over raw pixels.
+- **Hanging speaker labels** stay stacked inside the reading card while a backdrop shows, instead of hanging outside its ring.
+
+This supersedes the Consequences line "Dialogs and the plan review dock keep their utilities unchanged; their text was not re-measured over a backdrop."
+
+Readers accept and drop a legacy `dim` (stored rows, theme files, drafts); writers omit it. The agent tool refuses a `dim` argument as an unknown field. Accepted consequences of the clean cutover — v0.36.0 is the only release with backdrops:
+
+- *Exports.* Every published theme file contains `dim` and keeps installing. A file exported after this change has no `dim`, and v0.36.0 refuses it as malformed.
+- *Downgrade.* After the first registry write by this build, stored backdrop rows no longer carry `dim`. A downgrade to v0.36.0 drops those themes on read (`parseStoredThemes`).
+- *Stale pages.* A v0.36.0 renderer page still open while its host updates receives broadcast rows without `dim`. Its `backdropFloors(tokens, undefined)` reaches `mixHex(…, NaN)` and throws into the root error boundary while a backdrop theme is active. A reload loads the new renderer, because the renderer is served by the host.

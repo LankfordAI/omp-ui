@@ -6,7 +6,7 @@
 import { isObject } from "./guards";
 import type { RpcHostToolDefinition } from "./host-bridge";
 import { AUTHORED_THEME_ID_PREFIX, STORED_ID, THEME_SYNTAX_SEEDS, type ThemeMode } from "./theme";
-import { BACKDROP_BLUR_MAX, BACKDROP_DIM_MAX } from "./theme-backdrop";
+import { BACKDROP_BLUR_MAX } from "./theme-backdrop";
 import { THEME_SEED_ACCENTS, type ThemeSeeds } from "./theme-seeds";
 
 export const THEME_TOOL_NAME = "omp-ui_theme_save";
@@ -17,7 +17,7 @@ export type ThemeToolArgs = {
   label: string;
   seeds: ThemeSeeds;
   id?: string;
-  backdrop?: { path: string; dim?: number; blur?: number };
+  backdrop?: { path: string; blur?: number };
   /** Paint the saved theme now; only meaningful after the user agreed in chat (#1169). */
   apply?: boolean;
 };
@@ -40,7 +40,7 @@ export function themeTool(): RpcHostToolDefinition {
     name: THEME_TOOL_NAME,
     loadMode: "essential",
     description:
-      "Save a custom omp-ui theme from a few seed colours; omp-ui derives the rest and refuses a theme whose text would be hard to read. canvas is the reading background and decides dark or light. accents.signal is the agent-activity colour and must be a green. Optional backdrop.path is a PNG, JPEG, WebP or SVG file inside this session's working directory, shown behind the app; dim (0-80) darkens it and blur (0-32) softens it. By default the theme is saved and not applied. When the user asked for the theme or its application, act directly. Only when you propose a theme yourself, call your question tool first and pass apply:true on their yes. Applying switches the user's theme (and the system pick matching its lightness) for every connected client. Pass id to replace a theme you saved earlier. A refusal lists each failing colour pair with its ratio so you can adjust and call again.",
+      "Save a custom omp-ui theme from a few seed colours; omp-ui derives the rest and refuses a theme whose text would be hard to read. canvas is the reading background and decides dark or light. accents.signal is the agent-activity colour and must be a green. Optional backdrop.path is a PNG, JPEG, WebP or SVG file inside this session's working directory, shown behind the app, shown as-is with no dimming; blur (0-32) softens it. By default the theme is saved and not applied. When the user asked for the theme or its application, act directly. Only when you propose a theme yourself, call your question tool first and pass apply:true on their yes. Applying switches the user's theme (and the system pick matching its lightness) for every connected client. Pass id to replace a theme you saved earlier. A refusal lists each failing colour pair with its ratio so you can adjust and call again.",
     parameters: {
       type: "object",
       additionalProperties: false,
@@ -65,7 +65,6 @@ export function themeTool(): RpcHostToolDefinition {
           required: ["path"],
           properties: {
             path: { type: "string", minLength: 1, maxLength: PATH_MAX },
-            dim: { type: "integer", minimum: 0, maximum: BACKDROP_DIM_MAX },
             blur: { type: "integer", minimum: 0, maximum: BACKDROP_BLUR_MAX },
           },
         },
@@ -127,18 +126,15 @@ function parseLevel(value: unknown, max: number, field: string): Parsed<number |
 
 function parseBackdrop(value: unknown): Parsed<NonNullable<ThemeToolArgs["backdrop"]>> {
   if (!isObject(value) || Array.isArray(value)) return { ok: false, reason: "backdrop must be an object" };
-  const extra = unknownKey(value, ["path", "dim", "blur"], "backdrop.");
+  const extra = unknownKey(value, ["path", "blur"], "backdrop.");
   if (extra !== null) return { ok: false, reason: extra };
   const { path } = value;
   if (typeof path !== "string" || path.trim() === "" || path.length > PATH_MAX) {
     return { ok: false, reason: "backdrop.path must be a non-empty file path" };
   }
-  const dim = parseLevel(value.dim, BACKDROP_DIM_MAX, "backdrop.dim");
-  if (!dim.ok) return dim;
   const blur = parseLevel(value.blur, BACKDROP_BLUR_MAX, "backdrop.blur");
   if (!blur.ok) return blur;
   const backdrop: NonNullable<ThemeToolArgs["backdrop"]> = { path };
-  if (dim.value !== undefined) backdrop.dim = dim.value;
   if (blur.value !== undefined) backdrop.blur = blur.value;
   return { ok: true, value: backdrop };
 }

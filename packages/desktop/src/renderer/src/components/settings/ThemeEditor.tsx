@@ -10,8 +10,6 @@ import {
 import {
   BACKDROP_BLUR_MAX,
   BACKDROP_DEFAULT_BLUR,
-  BACKDROP_DEFAULT_DIM,
-  BACKDROP_DIM_MAX,
   BACKDROP_IMAGE_BYTES_MAX,
   backdropFloors,
   checkBackdropBytes,
@@ -144,7 +142,6 @@ export function ThemeEditor(props: {
   const [label, setLabel] = useState(initial.label);
   const [seeds, setSeeds] = useState<Required<ThemeSeeds>>(initial.seeds);
   const [backdrop, setBackdrop] = useState<EditorBackdrop | null>(() => initialBackdrop(initial.backdrop));
-  const [dim, setDim] = useState(initial.backdrop?.dim ?? BACKDROP_DEFAULT_DIM);
   const [blur, setBlur] = useState(initial.backdrop?.blur ?? BACKDROP_DEFAULT_BLUR);
   const [asset, setAsset] = useState<BackdropAsset | null>(null);
   const [backdropError, setBackdropError] = useState<string | null>(null);
@@ -173,11 +170,10 @@ export function ThemeEditor(props: {
         assetHash: DRAFT_HASH,
         kind: assetKind,
         mime: assetKind === "scene" ? "image/svg+xml" : "image/png",
-        dim,
         blur,
       },
     };
-  }, [source, assetKind, dim, blur]);
+  }, [source, assetKind, blur]);
 
   // Leaving the editor (Save, Cancel, closing Settings, Escape) always restores the saved theme.
   useEffect(
@@ -259,8 +255,8 @@ export function ThemeEditor(props: {
   const draftBackdrop = (): DraftBackdrop | null => {
     if (backdrop === null) return null;
     return backdrop.from === "bytes"
-      ? { from: "bytes", data: bytesToBase64(backdrop.bytes), dim, blur }
-      : { from: "asset", assetHash: backdrop.assetHash, dim, blur };
+      ? { from: "bytes", data: bytesToBase64(backdrop.bytes), blur }
+      : { from: "asset", assetHash: backdrop.assetHash, blur };
   };
 
   const save = async (): Promise<void> => {
@@ -289,7 +285,7 @@ export function ThemeEditor(props: {
     }
   };
 
-  const floors = backdropFloors(draftTheme.tokens, dim);
+  const floors = backdropFloors(draftTheme.tokens);
   const canSave = !busy && failures.length === 0 && label.trim() !== "";
 
   return (
@@ -401,25 +397,6 @@ export function ThemeEditor(props: {
         <div className="mt-2 grid grid-cols-2 gap-3">
           <label className="flex flex-col gap-1 text-sm text-ink-mid">
             <span>
-              {t("settings.appearance.backdropDim")} <span className="font-mono text-xs text-ink-dim">{dim}%</span>
-            </span>
-            <input
-              type="range"
-              min={0}
-              max={BACKDROP_DIM_MAX}
-              step={5}
-              value={dim}
-              onChange={(event) => setDim(Number(event.target.value))}
-            />
-            <span className="text-xs leading-snug text-ink-faint">
-              {t("settings.appearance.backdropFloorNote", {
-                reading: String(floors.reading),
-                sunken: String(floors.sunken),
-              })}
-            </span>
-          </label>
-          <label className="flex flex-col gap-1 text-sm text-ink-mid">
-            <span>
               {t("settings.appearance.backdropBlur")} <span className="font-mono text-xs text-ink-dim">{blur}px</span>
             </span>
             <input
@@ -430,6 +407,12 @@ export function ThemeEditor(props: {
               value={blur}
               onChange={(event) => setBlur(Number(event.target.value))}
             />
+            <span className="text-xs leading-snug text-ink-faint">
+              {t("settings.appearance.backdropFloorNote", {
+                reading: String(floors.reading),
+                sunken: String(floors.sunken),
+              })}
+            </span>
           </label>
         </div>
       )}

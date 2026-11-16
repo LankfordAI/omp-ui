@@ -130,7 +130,7 @@ async function saveDraft(
     const check = checkBackdropBytes(bytes);
     if (!check.ok) return invalid(check.message);
     const assetHash = backdrop.from === "bytes" ? await deps.backdrops.put(bytes) : backdrop.assetHash;
-    source.backdrop = { assetHash, kind: check.kind, mime: check.mime, dim: backdrop.dim, blur: backdrop.blur };
+    source.backdrop = { assetHash, kind: check.kind, mime: check.mime, blur: backdrop.blur };
   }
   return commitSource(deps, source);
 }

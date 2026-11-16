@@ -86,7 +86,6 @@ export interface RepositoryThemeBackdrop {
   mime: ThemeBackdropMime;
   /** base64, as every other binary here travels. */
   data: string;
-  dim: number;
   blur: number;
 }
 
