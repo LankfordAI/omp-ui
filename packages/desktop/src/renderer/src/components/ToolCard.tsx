@@ -14,6 +14,7 @@ import type { ThemedToken } from "shiki/core";
 import { localeTag, useT, type MessageKey } from "../lib/i18n";
 import type { AdvisorNote, RecordedTaskFile, ToolItem } from "../lib/transcript";
 import { cwdText } from "../lib/transcript";
+import { pathFromArgs } from "../lib/tool-groups";
 import { isPlanArtifactPath } from "@omp-ui/core/plan";
 import { useStore } from "../store";
 import { DiffViewer, OpChip } from "./DiffViewer";
@@ -29,7 +30,7 @@ const ARG_VALUE_MAX = 120;
 
 /* -------------------------------------------------------------- glyphs */
 
-type GlyphKind = "read" | "write" | "bash" | "search" | "agent" | "web" | "todo" | "generic";
+export type GlyphKind = "read" | "write" | "bash" | "search" | "agent" | "web" | "todo" | "generic";
 
 const GLYPH_PATHS: Record<GlyphKind, string> = {
   read: "M4 2.5h5l3 3v8H4zM9 2.5v3h3M6 8.5h4M6 11h3",
@@ -46,7 +47,7 @@ const GLYPH_PATHS: Record<GlyphKind, string> = {
  * Tool names arrive from the agent, not from us — match on substrings so a
  * renamed or namespaced tool still lands on a sensible glyph.
  */
-function glyphFor(name: string): GlyphKind {
+export function glyphFor(name: string): GlyphKind {
   const n = name.toLowerCase();
   if (n.includes("bash") || n.includes("shell") || n.includes("exec")) return "bash";
   if (n.includes("grep") || n.includes("glob") || n.includes("search") || n.includes("find"))
@@ -60,7 +61,7 @@ function glyphFor(name: string): GlyphKind {
   return "generic";
 }
 
-function ToolGlyph({ kind }: { kind: GlyphKind }) {
+export function ToolGlyph({ kind }: { kind: GlyphKind }) {
   return (
     <svg
       viewBox="0 0 16 16"
@@ -101,10 +102,6 @@ function scalarText(value: unknown): string | null {
   if (typeof value === "number" || typeof value === "boolean") return String(value);
   if (value === null) return "null";
   return null;
-}
-
-function pathFromArgs(args: unknown): string | undefined {
-  return strField(args, "path") ?? strField(args, "file_path") ?? strField(args, "file");
 }
 
 /** The content an edit/write tool is about to apply, straight from its args. */
@@ -355,7 +352,7 @@ function IncrementalCodeSlab({
   );
 }
 
-function PathChip({ value }: { value: string }) {
+export function PathChip({ value }: { value: string }) {
   const cut = value.lastIndexOf("/") + 1;
   return (
     <span
@@ -529,7 +526,7 @@ function jsonText(value: unknown): string {
  * Returns "" rather than the tool name when nothing descriptive exists — the
  * header already renders the name, and echoing it read as "edit edit".
  */
-function argSummary(args: unknown): string {
+export function argSummary(args: unknown): string {
   const first =
     strField(args, "i") ??
     strField(args, "command") ??
@@ -637,7 +634,19 @@ function ToolTruncationFacts({ item }: { item: ToolItem }) {
 
 /** Stable no-op selector for mounts without a tab (SubagentView): the hook
  *  must stay unconditional. */
-const readNoStall = (): undefined => undefined;
+export const readNoStall = (): undefined => undefined;
+
+/** The running chip, or the stalled readout while the model stream is silent (issue #228). */
+export function RunningChip({ streamStallMs }: { streamStallMs: number | undefined }) {
+  const t = useT();
+  return streamStallMs === undefined ? (
+    <Chip tone="copper">{t("transcript.tool.running")}</Chip>
+  ) : (
+    <Chip tone="copper" mono title={t("transcript.tool.stalledTitle")}>
+      {t("transcript.tool.stalled", { duration: formatDuration(streamStallMs) })}
+    </Chip>
+  );
+}
 
 export function ToolCard({ item, tabId }: { item: ToolItem; tabId?: string }) {
   const t = useT();
@@ -750,14 +759,7 @@ export function ToolCard({ item, tabId }: { item: ToolItem; tabId?: string }) {
           </span>
         )}
         {planWrite && <Chip tone="iris">{t("transcript.tool.plan")}</Chip>}
-        {item.status === "running" &&
-          (streamStallMs === undefined ? (
-            <Chip tone="copper">{t("transcript.tool.running")}</Chip>
-          ) : (
-            <Chip tone="copper" mono title={t("transcript.tool.stalledTitle")}>
-              {t("transcript.tool.stalled", { duration: formatDuration(streamStallMs) })}
-            </Chip>
-          ))}
+        {item.status === "running" && <RunningChip streamStallMs={streamStallMs} />}
         {item.status === "error" && item.errorKind !== undefined && (
           <Chip tone="rose" title={t("transcript.tool.errorKindTitle", { kind: item.errorKind })}>
             {editErrorKindLabel(item.errorKind)}

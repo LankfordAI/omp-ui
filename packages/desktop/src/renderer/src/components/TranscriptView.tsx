@@ -34,6 +34,7 @@ import type {
   UserItem,
 } from "../lib/transcript";
 import { onTranscriptReveal } from "../lib/transcript-reveal";
+import { toolGroupCategory } from "../lib/tool-groups";
 import {
   LOAD_OLDER_TRIGGER_PX,
   TRANSCRIPT_REVEAL_CONTEXT,
@@ -47,6 +48,7 @@ import { Markdown, linkify, OpenExternalLink } from "./Markdown";
 import { openImageViewer } from "./ImageViewer";
 import { PlanCard } from "./PlanCard";
 import { AdvisoryNotes, ToolCard } from "./ToolCard";
+import { ToolGroupCard } from "./ToolGroupCard";
 import { VaultToolCard } from "./VaultToolCard";
 import { HtmlArtifactCard } from "./HtmlArtifactCard";
 import { ArtifactReferenceChips } from "./ArtifactReferenceChips";
@@ -1105,6 +1107,24 @@ function BrokenRow({ error }: { error: Error }) {
 interface Row {
   item: RenderItem;
   count: number;
+  /** ≥ 2 back-to-back eligible tool calls from one assistant message (issue #1186); the first is `item`. */
+  group?: ToolItem[];
+}
+
+/** A group row's find highlight: active when any member is the active match. */
+function groupFindClass(
+  group: readonly ToolItem[],
+  classes: ReadonlyMap<string, string> | null | undefined,
+): string | undefined {
+  if (!classes) return undefined;
+  let hit = false;
+  for (const member of group) {
+    const cls = classes.get(member.id);
+    if (cls === undefined) continue;
+    if (cls.includes("find-hit-active")) return "find-hit find-hit-active";
+    hit = true;
+  }
+  return hit ? "find-hit" : undefined;
 }
 
 interface Run {
@@ -1176,6 +1196,23 @@ function buildRuns(items: RenderItem[], replyWrites: boolean): Run[] {
       lastRow.item.label === "agent finished"
     ) {
       last!.rows.pop();
+    }
+    // Back-to-back read-only lookups fold into one tool group (issue #1186).
+    // Each assistant message opens its own run, so a group never spans messages.
+    if (
+      item.kind === "tool" &&
+      last?.speaker === "tool" &&
+      lastRow !== undefined &&
+      toolGroupCategory(item) !== null
+    ) {
+      if (lastRow.group !== undefined) {
+        lastRow.group.push(item);
+        continue;
+      }
+      if (lastRow.item.kind === "tool" && toolGroupCategory(lastRow.item) !== null) {
+        lastRow.group = [lastRow.item, item];
+        continue;
+      }
     }
     const speaker = isPresentedReplyWrite(item, replyWrites) ? "assistant" : SPEAKER[item.kind];
     if (last && last.speaker === speaker) {
@@ -1655,13 +1692,20 @@ export function TranscriptView({
       if (target !== null) break;
     }
     if (target === null) return;
+    // A grouped member scrolls its own line, not the whole group (issue #1186).
+    const member = target.querySelector(`[data-group-member-id="${CSS.escape(reveal.id)}"]`);
+    const scrollTarget = member ?? target;
     // Follow-mode contract (issue #7): a target that is not the last row
     // means the user is now reading mid-transcript — exit follow mode before
-    // scrolling so the "jump to latest" pill appears. The last row leaves
-    // the mode untouched.
+    // scrolling so the "jump to latest" pill appears. The last row (or the
+    // last member of a final group) leaves the mode untouched.
     const rows = scrollEl.querySelectorAll("[data-item-id]");
-    if (rows.length > 0 && rows[rows.length - 1] !== target) updateFollowing(false);
-    target.scrollIntoView({ block: "center" });
+    const isLastRow =
+      rows.length > 0 &&
+      rows[rows.length - 1] === target &&
+      (member === null || member.nextElementSibling === null);
+    if (rows.length > 0 && !isLastRow) updateFollowing(false);
+    scrollTarget.scrollIntoView({ block: "center" });
   }, [reveal, start, items]);
 
   return (
@@ -1770,7 +1814,26 @@ export function TranscriptView({
                       {t("transcript.speaker.assistant")}
                     </span>
                   )}
-                  {run.rows.map(({ item, count }, i) => {
+                  {run.rows.map(({ item, count, group }, i) => {
+                    if (group !== undefined) {
+                      const findInGroup = find !== null && group.some((m) => m.id === find.activeId);
+                      return (
+                        <div
+                          key={item.id}
+                          data-item-id={item.id}
+                          className={groupFindClass(group, findClassById)}
+                        >
+                          <ErrorBoundary fallback={(error) => <BrokenRow error={error} />}>
+                            <ToolGroupCard
+                              items={group}
+                              tabId={tabId}
+                              findActiveId={findInGroup ? find.activeId : undefined}
+                              findNonce={findInGroup ? find.nonce : undefined}
+                            />
+                          </ErrorBoundary>
+                        </div>
+                      );
+                    }
                     const findClass = findClassById?.get(item.id);
                     return (
                       <div key={item.id} data-item-id={item.id} className={findClass}>
