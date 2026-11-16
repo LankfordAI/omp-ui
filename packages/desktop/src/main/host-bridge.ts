@@ -8,6 +8,7 @@ import {
   parseThemeToolArgs,
   type SaveStoredThemeResult,
   type ThemeGateFailure,
+  type ThemeSource,
   type ThemeToolArgs,
   HOST_NOTIFY_TOOL_NAME,
   ARTIFACT_CAPTURE_TOOL_NAME,
@@ -154,7 +155,11 @@ export interface HostBridgeDeps {
   /** The device host tool's answerer (#1006); absent means the device tool answers as unavailable. */
   device?: { run(tabId: string, args: unknown): Promise<{ content: HostToolContent[]; isError: boolean }> };
   /** The theme host tool's answerer (#1168); absent means the theme tool answers as unavailable. */
-  theme?: { save(tabId: string, args: ThemeToolArgs): Promise<SaveStoredThemeResult> };
+  theme?: {
+    save(tabId: string, args: ThemeToolArgs): Promise<SaveStoredThemeResult>;
+    /** Paints a just-saved stored theme; false when it vanished from the registry. */
+    apply(source: ThemeSource): Promise<boolean>;
+  };
   artifacts?: ArtifactService;
 }
 
@@ -170,11 +175,19 @@ function themeGateFailureLine(failure: ThemeGateFailure): string {
   }
 }
 
+/** Outcome of this call's apply request (#1169). */
+type ThemeApplyOutcome = "none" | "applied" | "refused";
+
 /** The omp-ui_theme_save answer for one save result: success text, or an error frame. */
-function themeSaveAnswer(id: string, result: SaveStoredThemeResult): RpcFrame {
+function themeSaveAnswer(id: string, result: SaveStoredThemeResult, applied: ThemeApplyOutcome): RpcFrame {
   if (result.ok) {
     return hostToolTextResult(id,
-      `Saved theme "${result.source.label}" (id ${result.source.id}). It is in Settings, Appearance; the user picks it to apply it.`);
+      `Saved theme "${result.source.label}" (id ${result.source.id}).` +
+      (applied === "applied"
+        ? " Applied: every window now paints it."
+        : applied === "refused"
+          ? " apply refused: the theme is saved but was not applied."
+          : " It is in Settings, Appearance; the user picks it to apply it."));
   }
   if (result.reason === "gate") return hostToolErrorResult(id, result.failures.map(themeGateFailureLine).join("\n"));
   return hostToolErrorResult(id, `theme_save refused: ${result.message}`);
@@ -530,7 +543,15 @@ export class HostBridge {
       }
       let frame: RpcFrame;
       try {
-        frame = themeSaveAnswer(call.id, await theme.save(tabId, parsed.args));
+        const result = await theme.save(tabId, parsed.args);
+        // The agent's apply flag (#1169) is consented in conversation; main
+        // only paints a theme the gate just accepted. A failed apply still
+        // reports the save: the theme exists, the user can pick it by hand.
+        let applied: ThemeApplyOutcome = "none";
+        if (result.ok && parsed.args.apply === true) {
+          applied = (await theme.apply(result.source).catch(() => false)) ? "applied" : "refused";
+        }
+        frame = themeSaveAnswer(call.id, result, applied);
       } catch (error) {
         frame = hostToolErrorResult(call.id, `theme_save refused: ${error instanceof Error ? error.message : "unavailable"}`);
       }

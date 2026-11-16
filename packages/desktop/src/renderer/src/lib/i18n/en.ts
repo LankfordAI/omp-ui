@@ -1072,7 +1072,7 @@ export const en = {
     "Gives sessions started or resumed after this change the omp-ui_device tool, which drives the Android emulator in the device pane. Needs the Android SDK (adb and emulator).",
   "settings.general.themeAgentAccess": "Agents can save themes",
   "settings.general.themeAgentAccessHint":
-    "Gives sessions started or resumed after this change the omp-ui_theme_save tool. A saved theme joins your themes; it is not applied until you pick it.",
+    "Gives sessions started or resumed after this change the omp-ui_theme_save tool. A saved theme joins your themes, and an agent can apply one only after you agree in its question.",
   "settings.general.advisorAutoReply": "Advisor auto-reply",
   "settings.general.advisorAutoReplyHint":
     "An advisor comment that lands after the turn ends is answered automatically; off leaves it sitting in the transcript.",

@@ -164,6 +164,7 @@ import {
   type VaultAction,
   LIMITS_COMMAND,
   type SaveStoredThemeResult,
+  type ThemeSource,
   type ThemeToolArgs,
 } from "@omp-ui/core";
 import { CollabTracker } from "./collab-tracker";
@@ -365,7 +366,11 @@ export interface SessionManagerDependencies {
   /** Posts one immediate OS notification for the host notify tool (#688); absent = notifications report as disabled. */
   hostNotify?: (tabId: string, title: string | null, message: string) => string;
   /** Answers omp-ui_theme_save through the stored-theme save path (#1168); absent = the tool is never registered. */
-  themes?: { save(tabId: string, args: ThemeToolArgs): Promise<SaveStoredThemeResult> };
+  themes?: {
+    save(tabId: string, args: ThemeToolArgs): Promise<SaveStoredThemeResult>;
+    /** Paints a just-saved stored theme; false when it vanished from the registry (#1169). */
+    apply(source: ThemeSource): Promise<boolean>;
+  };
   /** Registry probe seams for the collab watcher (#686); tests fake them. */
   collabCli?: CollabCliDeps;
   /** The app version stamped into vault notes; backend passes app.getVersion(). */

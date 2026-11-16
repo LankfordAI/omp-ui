@@ -466,6 +466,7 @@ describe("HostBridge theme tool (issue #1168)", () => {
           calls.push({ tabId, args });
           return { ok: true, source: { id: "custom-dusk-abc123", label: args.label } as ThemeSource };
         },
+        apply: async () => true,
       },
     });
     bridge.route("t1", toolCallFrame("h1", "omp-ui_theme_save", ARGS), (frame) => sent.push(frame));
@@ -488,6 +489,7 @@ describe("HostBridge theme tool (issue #1168)", () => {
           label: "Dusk",
           failures: [{ kind: "contrast", label: "ink on surface", fg: "#777777", bg: "#808080", ratio: 1.05, min: 10 }],
         }),
+        apply: async () => true,
       },
     });
     bridge.route("t1", toolCallFrame("h1", "omp-ui_theme_save", ARGS), (frame) => sent.push(frame));
@@ -495,6 +497,78 @@ describe("HostBridge theme tool (issue #1168)", () => {
     expect(sent).toHaveLength(1);
     expect(sent[0]).toMatchObject({ type: "host_tool_result", id: "h1", isError: true });
     expect(JSON.stringify(sent[0])).toContain("ink on surface");
+  });
+
+  const SAVED = { id: "custom-dusk-abc123", label: "Dusk" } as ThemeSource;
+
+  it("applies the saved source when apply is set and reports it (#1169)", async () => {
+    const applied: ThemeSource[] = [];
+    const sent: RpcFrame[] = [];
+    const bridge = new HostBridge({
+      ...fixtureDeps(),
+      theme: {
+        save: async () => ({ ok: true, source: SAVED }),
+        apply: async (source) => {
+          applied.push(source);
+          return true;
+        },
+      },
+    });
+    bridge.route("t1", toolCallFrame("h1", "omp-ui_theme_save", { ...ARGS, apply: true }), (frame) => sent.push(frame));
+    await settled();
+    expect(applied).toEqual([SAVED]);
+    expect(sent).toHaveLength(1);
+    expect(sent[0]).not.toHaveProperty("isError");
+    expect(JSON.stringify(sent[0])).toContain("Applied: every window now paints it.");
+  });
+
+  it("never calls apply without the flag and keeps the picks-it sentence", async () => {
+    const apply = vi.fn(async () => true);
+    const sent: RpcFrame[] = [];
+    const bridge = new HostBridge({
+      ...fixtureDeps(),
+      theme: { save: async () => ({ ok: true, source: SAVED }), apply },
+    });
+    bridge.route("t1", toolCallFrame("h1", "omp-ui_theme_save", ARGS), (frame) => sent.push(frame));
+    await settled();
+    expect(apply).not.toHaveBeenCalled();
+    expect(sent).toHaveLength(1);
+    expect(JSON.stringify(sent[0])).toContain("the user picks it to apply it.");
+  });
+
+  it.each([
+    ["a rejected apply", () => Promise.reject(new Error("registry gone"))],
+    ["a false apply", () => Promise.resolve(false)],
+  ])("answers the save plus the refusal line after %s", async (_label, applyImpl) => {
+    const sent: RpcFrame[] = [];
+    const bridge = new HostBridge({
+      ...fixtureDeps(),
+      theme: { save: async () => ({ ok: true, source: SAVED }), apply: applyImpl },
+    });
+    bridge.route("t1", toolCallFrame("h1", "omp-ui_theme_save", { ...ARGS, apply: true }), (frame) => sent.push(frame));
+    await settled();
+    expect(sent).toHaveLength(1);
+    expect(sent[0]).not.toHaveProperty("isError");
+    const text = JSON.stringify(sent[0]);
+    expect(text).toContain("custom-dusk-abc123");
+    expect(text).toContain("apply refused: the theme is saved but was not applied.");
+  });
+
+  it("answers the gate error and never applies when apply is set on a refusal", async () => {
+    const apply = vi.fn(async () => true);
+    const sent: RpcFrame[] = [];
+    const bridge = new HostBridge({
+      ...fixtureDeps(),
+      theme: {
+        save: async () => ({ ok: false, reason: "gate", label: "Dusk", failures: [] }),
+        apply,
+      },
+    });
+    bridge.route("t1", toolCallFrame("h1", "omp-ui_theme_save", { ...ARGS, apply: true }), (frame) => sent.push(frame));
+    await settled();
+    expect(apply).not.toHaveBeenCalled();
+    expect(sent).toHaveLength(1);
+    expect(sent[0]).toMatchObject({ type: "host_tool_result", id: "h1", isError: true });
   });
 
   it("answers unavailable when no theme deps are wired", async () => {

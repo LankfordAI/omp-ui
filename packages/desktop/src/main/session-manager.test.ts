@@ -7665,7 +7665,9 @@ describe("device pane lifecycle and agent access", () => {
   ] as const)("registers the theme tool only when allowed: %s", async (_label, access, wired, kind, expected) => {
     const { manager, registry } = setup({
       mode: "rpc-ui",
-      themes: wired ? { save: async () => ({ ok: false, reason: "invalid", message: "unused" }) } : undefined,
+      themes: wired
+        ? { save: async () => ({ ok: false, reason: "invalid", message: "unused" }), apply: async () => false }
+        : undefined,
     });
     registry.setSetting("themeAgentAccess", access);
     if (kind !== null) {

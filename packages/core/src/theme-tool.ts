@@ -1,5 +1,6 @@
 // The agent's theme host tool (issue #1168, ADR-0043): an agent saves an
-// authored theme through the same gate the editor uses; it never applies one.
+// authored theme through the same gate the editor uses, and with the user's
+// yes (#1169) can apply the theme it just saved.
 import { isObject } from "./guards";
 import type { RpcHostToolDefinition } from "./host-bridge";
 import { AUTHORED_THEME_ID_PREFIX, STORED_ID, THEME_SYNTAX_SEEDS } from "./theme";
@@ -13,6 +14,8 @@ export type ThemeToolArgs = {
   seeds: ThemeSeeds;
   id?: string;
   backdrop?: { path: string; dim?: number; blur?: number };
+  /** Paint the saved theme now; only meaningful after the user agreed in chat (#1169). */
+  apply?: boolean;
 };
 
 const LABEL_MAX = 80;
@@ -33,7 +36,7 @@ export function themeTool(): RpcHostToolDefinition {
     name: THEME_TOOL_NAME,
     loadMode: "essential",
     description:
-      "Save a custom omp-ui theme from a few seed colours; omp-ui derives the rest and refuses a theme whose text would be hard to read. canvas is the reading background and decides dark or light. accents.signal is the agent-activity colour and must be a green. Optional backdrop.path is a PNG, JPEG, WebP or SVG file inside this session's working directory, shown behind the app; dim (0-80) darkens it and blur (0-32) softens it. The theme is added to the user's themes and is not applied: tell the user to pick it in Settings, Appearance. Pass id to replace a theme you saved earlier. A refusal lists each failing colour pair with its ratio so you can adjust and call again.",
+      "Save a custom omp-ui theme from a few seed colours; omp-ui derives the rest and refuses a theme whose text would be hard to read. canvas is the reading background and decides dark or light. accents.signal is the agent-activity colour and must be a green. Optional backdrop.path is a PNG, JPEG, WebP or SVG file inside this session's working directory, shown behind the app; dim (0-80) darkens it and blur (0-32) softens it. By default the theme is saved and not applied. Pass apply:true only after the user has agreed in your question tool — call it first and offer to apply the theme; never apply without their yes. Applying switches the user's theme (and the system pick matching its lightness) for every connected client. Pass id to replace a theme you saved earlier. A refusal lists each failing colour pair with its ratio so you can adjust and call again.",
     parameters: {
       type: "object",
       additionalProperties: false,
@@ -62,6 +65,7 @@ export function themeTool(): RpcHostToolDefinition {
             blur: { type: "integer", minimum: 0, maximum: BACKDROP_BLUR_MAX },
           },
         },
+        apply: { type: "boolean" },
       },
     },
   };
@@ -138,7 +142,7 @@ function parseBackdrop(value: unknown): Parsed<NonNullable<ThemeToolArgs["backdr
 /** Validates the agent's arguments; a refusal is one line naming the field. */
 export function parseThemeToolArgs(args: unknown): { ok: true; args: ThemeToolArgs } | { ok: false; reason: string } {
   if (!isObject(args) || Array.isArray(args)) return { ok: false, reason: "arguments must be an object" };
-  const extra = unknownKey(args, ["label", "seeds", "id", "backdrop"], "");
+  const extra = unknownKey(args, ["label", "seeds", "id", "backdrop", "apply"], "");
   if (extra !== null) return { ok: false, reason: extra };
   const { label, id } = args;
   if (typeof label !== "string" || label.trim() === "" || label.trim().length > LABEL_MAX) {
@@ -157,6 +161,10 @@ export function parseThemeToolArgs(args: unknown): { ok: true; args: ThemeToolAr
     const backdrop = parseBackdrop(args.backdrop);
     if (!backdrop.ok) return backdrop;
     parsed.backdrop = backdrop.value;
+  }
+  if (args.apply !== undefined) {
+    if (typeof args.apply !== "boolean") return { ok: false, reason: "apply must be a boolean" };
+    parsed.apply = args.apply;
   }
   return { ok: true, args: parsed };
 }
