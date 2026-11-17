@@ -1703,7 +1703,7 @@ export interface ProviderOAuthState {
  * the main process (see core/memory-store.ts) — omp exposes no runtime surface
  * for memory, so Settings → Memory reports the banks omp itself persisted.
  */
-export type MemoryBackendKind = "off" | "local" | "hindsight" | "mnemopi";
+export type MemoryBackendKind = "off" | "local" | "hindsight" | "mnemopi" | "sharpshooter";
 /** omp's `mnemopi.scoping` setting; unrecognised values fall back to "per-project". */
 export type MemoryScoping = "global" | "per-project" | "per-project-tagged";
 

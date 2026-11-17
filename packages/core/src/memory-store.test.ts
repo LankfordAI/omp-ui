@@ -208,6 +208,31 @@ describe("resolveMemoryBase / resolveGlobalBank", () => {
     expect(base.backend).toBe("mnemopi");
     expect(base.scoping).toBe("per-project");
   });
+
+  it("recognises the sharpshooter backend instead of coercing it to off (issue #1196)", () => {
+    const sharp = setup("memory:\n  backend: sharpshooter\n");
+    expect(resolveMemoryBase(sharp.project, sharp.env).backend).toBe("sharpshooter");
+  });
+
+  it("expands a leading ~ in mnemopi.dbPath to the home directory (issue #1196)", () => {
+    const { env, project } = setup(
+      "memory:\n  backend: mnemopi\nmnemopi:\n  dbPath: ~/x/mnemopi.db\n",
+    );
+    // os.homedir() consults $HOME on POSIX and %USERPROFILE% on Windows; pin
+    // both so the fake home wins on every lane, then restore.
+    const saved = { HOME: process.env.HOME, USERPROFILE: process.env.USERPROFILE };
+    const home = tmpDir();
+    process.env.HOME = home;
+    process.env.USERPROFILE = home;
+    try {
+      expect(resolveMemoryBase(project, env).baseDir).toBe(path.join(home, "x"));
+    } finally {
+      for (const [key, value] of Object.entries(saved)) {
+        if (value === undefined) delete process.env[key];
+        else process.env[key] = value;
+      }
+    }
+  });
 });
 
 describe("readLayeredConfigScalar", () => {

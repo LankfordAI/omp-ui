@@ -2,6 +2,7 @@ import * as fs from "node:fs";
 import * as os from "node:os";
 import * as path from "node:path";
 import { DatabaseSync, type SQLOutputValue } from "node:sqlite";
+import { expandHomePath } from "./dir-browse";
 import { readLayeredConfigScalar } from "./omp-config";
 import { resolveProfile } from "./paths";
 import type {
@@ -35,7 +36,13 @@ export interface MemoryBase {
   baseBank: string;
 }
 
-const BACKEND_KINDS: readonly MemoryBackendKind[] = ["off", "local", "hindsight", "mnemopi"];
+const BACKEND_KINDS: readonly MemoryBackendKind[] = [
+  "off",
+  "local",
+  "hindsight",
+  "mnemopi",
+  "sharpshooter",
+];
 const SCOPINGS: readonly MemoryScoping[] = ["global", "per-project", "per-project-tagged"];
 
 /** Coerces one SQLite column to the nullable string the overview types carry. */
@@ -106,10 +113,12 @@ export function resolveMemoryBase(
   const scoping = SCOPINGS.find((kind) => kind === scopingRaw) ?? "per-project";
   const baseBank =
     sanitizeBankName(readLayeredConfigScalar(projectCwd, "mnemopi", "bank", env)) ?? "default";
+  // omp 18.18+ expands a leading ~ in mnemopi.dbPath (upstream mnemopi/config.ts);
+  // resolve the same way, or `<cwd>/~/…` would name a nonexistent base dir (issue #1196).
   const dbPath = readLayeredConfigScalar(projectCwd, "mnemopi", "dbPath", env);
   const baseDir =
     dbPath !== undefined && dbPath !== ""
-      ? path.dirname(path.resolve(dbPath))
+      ? path.dirname(path.resolve(expandHomePath(dbPath)))
       : path.join(memoriesDir(env), "mnemopi");
   return { backend, scoping, baseDir, baseBank };
 }
