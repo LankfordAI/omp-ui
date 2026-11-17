@@ -23,7 +23,7 @@ export interface ThemeBackdropBytes {
 }
 
 export const BACKDROP_IMAGE_BYTES_MAX = 4 * 1024 * 1024;
-export const BACKDROP_SCENE_BYTES_MAX = 128 * 1024;
+export const BACKDROP_SCENE_BYTES_MAX = 4 * 1024 * 1024;
 export const BACKDROP_BLUR_MAX = 32;
 export const BACKDROP_DEFAULT_BLUR = 12;
 
@@ -85,7 +85,7 @@ export function checkBackdropBytes(bytes: Uint8Array): BackdropCheck {
     if (bytes.length > BACKDROP_IMAGE_BYTES_MAX) return { ok: false, message: "image backdrops can be at most 4 MiB" };
     return { ok: true, kind: "image", mime };
   }
-  if (bytes.length > BACKDROP_SCENE_BYTES_MAX) return { ok: false, message: "scene backdrops can be at most 128 KiB" };
+  if (bytes.length > BACKDROP_SCENE_BYTES_MAX) return { ok: false, message: "scene backdrops can be at most 4 MiB" };
   const text = new TextDecoder().decode(bytes);
   if (SCENE_ACTIVE.test(text)) {
     return { ok: false, message: "scenes cannot contain script, foreignObject or SMIL animation" };

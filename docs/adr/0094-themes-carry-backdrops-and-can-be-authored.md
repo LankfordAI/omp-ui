@@ -109,3 +109,12 @@ Readers accept and drop a legacy `dim` (stored rows, theme files, drafts); write
 - *Exports.* Every published theme file contains `dim` and keeps installing. A file exported after this change has no `dim`, and v0.36.0 refuses it as malformed.
 - *Downgrade.* After the first registry write by this build, stored backdrop rows no longer carry `dim`. A downgrade to v0.36.0 drops those themes on read (`parseStoredThemes`).
 - *Stale pages.* A v0.36.0 renderer page still open while its host updates receives broadcast rows without `dim`. Its `backdropFloors(tokens, undefined)` reaches `mixHex(…, NaN)` and throws into the root error boundary while a backdrop theme is active. A reload loads the new renderer, because the renderer is served by the host.
+
+## Amendment (2026-11-17): larger self-contained SVG scenes
+
+The SVG scene limit in §3 rises from 128 KiB to **4 MiB**, matching the existing raster-image limit. This allows full-resolution artwork and CSS animation to stay together in one self-contained scene without compressing the artwork into a small SVG budget.
+
+The backdrop reference, version-1 theme file, editor, agent interface, and asset storage remain unchanged. The existing 6 MiB theme-file limit accommodates a 4 MiB backdrop encoded as base64 plus its seeds. Script, SMIL, external-resource, contrast, blur, and motion restrictions are unchanged. Scenes still stop through `stillScene` when motion is disabled, the window is hidden, or reduced motion is requested.
+
+This is a byte-budget increase, not an image upscaler or a promise that every 4K image fits. Artwork must still be authored at an appropriate resolution and the complete SVG must fit within 4 MiB.
+

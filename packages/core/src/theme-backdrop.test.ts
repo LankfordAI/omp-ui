@@ -3,7 +3,6 @@ import themeSources from "./theme-sources.json";
 import type { ThemeSource } from "./theme";
 import {
   BACKDROP_IMAGE_BYTES_MAX,
-  BACKDROP_SCENE_BYTES_MAX,
   backdropFloors,
   checkBackdropBytes,
   isThemeBackdrop,
@@ -48,6 +47,15 @@ describe("checkBackdropBytes", () => {
     });
   });
 
+  it("accepts a 4 MiB scene and refuses one byte more", () => {
+    const scene = svg(" ".repeat(4 * 1024 * 1024 - svg("").length));
+    expect(checkBackdropBytes(scene)).toEqual({ ok: true, kind: "scene", mime: "image/svg+xml" });
+    const oversized = new Uint8Array(scene.length + 1);
+    oversized.set(scene);
+    oversized[scene.length] = 0x20;
+    expect(checkBackdropBytes(oversized).ok).toBe(false);
+  });
+
   it("accepts in-document references", () => {
     expect(checkBackdropBytes(svg('<use href="#a"/><rect fill="url(#g)"/>')).ok).toBe(true);
   });
@@ -60,7 +68,6 @@ describe("checkBackdropBytes", () => {
       bytes.set(PNG_HEAD);
       return bytes;
     })()],
-    ["oversized SVG", svg(" ".repeat(BACKDROP_SCENE_BYTES_MAX))],
     ["script", svg("<script>alert(1)</script>")],
     ["foreignObject", svg("<foreignObject/>")],
     ["SMIL", svg('<animate attributeName="x"/>')],
