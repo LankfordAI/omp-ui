@@ -5,7 +5,7 @@ import type { MessageKey } from "../lib/i18n";
 import { useT } from "../lib/i18n";
 import { relativeTime } from "../lib/format";
 import { projectKey } from "../lib/project-key";
-import { SEANCE_MIN_OMP, supportsSeance } from "../lib/seance";
+import { SEANCE_MIN_OMP, supportsSeance } from "@omp-ui/core/seance";
 import type { ModelInfo } from "../lib/rpc-types";
 import { findInstance, resolveSeanceSource, useStore } from "../store";
 import { ModelPalette } from "./ModelSelector";

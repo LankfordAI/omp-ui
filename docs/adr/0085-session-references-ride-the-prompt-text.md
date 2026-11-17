@@ -1,6 +1,8 @@
 # Session references ride the prompt text as a leading block
 
-> **Status:** Accepted, 2026-10-30 ([#984](https://github.com/LankfordAI/omp-ui/issues/984)).
+> **Status:** Accepted, 2026-10-30 ([#984](https://github.com/LankfordAI/omp-ui/issues/984));
+> amended by [#1189](https://github.com/LankfordAI/omp-ui/issues/1189) (2026-11-16):
+> the hint line is version-routed — see *Amended by #1189*.
 
 To give one session context about another, the user had to paste text across
 or ask the agent to dig through `~/.omp` for the right transcript. A
@@ -91,3 +93,27 @@ tab's own wire text are owned by that tab's instance.
   mode allows.
 - A referenced transcript later deleted or swept leaves a path that no longer
   resolves; the agent's tool call reports it.
+
+## Amended by #1189: the hint line is version-routed
+
+omp 18.20.3 removed the `seance` agent, `/seance`, and the task tool's
+`sourceSession` (upstream CHANGELOG 18.20.3, Breaking Changes) and shipped no
+subagent replacement for consulting a saved transcript. The one hint sentence
+this ADR fixed verbatim therefore became a pointer at a missing agent on every
+newer harness.
+
+**The block's second line now names the route the target harness has.** A
+prompt sent to omp ≥ 18.20.3 carries the read/archive form — `read` the
+transcript path, or `archive.session(path)` in eval (both exist there; the
+`archive.enabled` eval prelude defaults on) — and every other version keeps
+the original seance sentence byte-for-byte, so transcripts written before this
+change are unaffected and the parse stays exact-equality. Both accepted forms
+live in one closed list (`SESSION_REFERENCE_HINTS`, core); a block whose first
+line is neither stays prose, exactly as before.
+
+The Seance surfaces themselves (pane, row action, `/seance` intercept, palette
+entry) are not rewired: consulting a transcript through a *subagent* has no
+successor in 18.20.3+, and the rail pane's roster truth is the subagent
+roster. They hide whole on a removed harness (see the Seance window gate in
+`@omp-ui/core/seance`); only the routes an ordinary model turn can take
+survive, which is what this amendment puts in the hint.

@@ -167,6 +167,19 @@ describe("sidebar ghost action (Seance consult, #885)", () => {
     // Floor plan precedent: the tooltip names the version that unlocks it.
     expect(button.title).toContain("18.11.3");
   });
+
+  // Issue #1189: omp 18.20.3 removed the seance route, and no update brings it
+  // back — a disabled affordance naming a floor would only mislead.
+  it("is gone on omp that removed seance", () => {
+    for (const version of ["18.20.3", "18.22.0"]) {
+      const el = render(summary(), version);
+      expect(seanceButton(el)).toBeNull();
+      act(() => root!.unmount());
+      root = null;
+      document.body.replaceChildren();
+    }
+    expect(consultFromRow).not.toHaveBeenCalled();
+  });
 });
 
 // Unified project view (#903): rows whose session lives on a joined remote

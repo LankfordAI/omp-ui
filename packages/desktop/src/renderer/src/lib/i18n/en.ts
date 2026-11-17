@@ -3044,6 +3044,7 @@ export const en = {
   "rail.seance.settledNote": "Ask again to consult the saved session fresh",
   "rail.seance.askAgain": "ask again",
   "rail.seance.needsNewerOmp": "this omp has no seance — update omp to {version} or later",
+  "rail.seance.removedInOmp": "omp removed seance consults in {version} — nothing to launch here",
   "seance.dialog.title": "Seance consult",
   "seance.dialog.source": "Saved session to consult",
   "seance.dialog.question": "What should the consultant answer about this session?",

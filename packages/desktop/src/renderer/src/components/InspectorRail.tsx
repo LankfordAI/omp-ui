@@ -33,6 +33,7 @@ import { compactNum, exactNum, formatCost, relativeTime, sessionSpendTrustworthy
 import { contextReadout } from "../lib/context-readout";
 import { TodoPanel } from "./TodoPanel";
 import { SideQuestionsPane } from "./SideQuestionsPane";
+import { seanceRemovedFromOmp } from "@omp-ui/core/seance";
 import { SeancePane } from "./SeancePane";
 import { SubagentModelsControl } from "./SubagentModelsControl";
 import { SubagentControls, useSubagentControlNotice } from "./SubagentControls";
@@ -1515,8 +1516,17 @@ export function InspectorRail({ tabId }: { tabId: string }) {
   const record = useStore((s) => findRecord(s.state, tabId));
   const badges = inspectorBadges(runtime, record);
   const chat = record?.chat === true;
+  // omp 18.20.3 removed the `seance` agent (issue #1189): with no consult route
+  // the pane has nothing to show or launch, so it leaves the Ask group whole —
+  // same single-member collapse any other hidden member produces.
+  const seanceRemoved = seanceRemovedFromOmp(runtime?.capabilities?.ompVersion ?? null);
   const groups = GROUPS
-    .map((group) => ({ ...group, members: chat ? group.members.filter((p) => p !== "plans" && p !== "diffs") : group.members }))
+    .map((group) => ({
+      ...group,
+      members: group.members.filter(
+        (p) => !chat || (p !== "plans" && p !== "diffs"),
+      ).filter((p) => !seanceRemoved || p !== "seance"),
+    }))
     .filter((group) => group.members.length > 0);
   // groups[0] is always Work, which never empties.
   const shownGroup = groups.find(({ id }) => id === sel.group) ?? groups[0]!;

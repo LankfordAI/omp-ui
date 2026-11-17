@@ -1085,7 +1085,11 @@ export class SessionManager {
     const loc = await locate(source.lineageDir, source.sessionId);
     if (loc.where === "missing") return null;
     const summary = await renderSessionSummary(source, this.deps.registry.projects, locate);
-    return askContextText({ sessionId: source.sessionId, summary, transcriptPath: loc.filePath });
+    // The installed harness picks the deep-dive route in the pinned tail:
+    // seance below 18.20.3, read/archive on it (issue #1189).
+    const ompPath = this.deps.getOmpPath();
+    const ompVersion = ompPath === null ? null : await readInstalledOmpVersion(ompPath);
+    return askContextText({ sessionId: source.sessionId, summary, transcriptPath: loc.filePath, ompVersion });
   }
 
   /**

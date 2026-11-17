@@ -1,6 +1,26 @@
 import { ArtifactError, assertArtifactKey, assertArtifactUuid, artifactUtf8Bytes, type ArtifactReference, type ArtifactReferencePartRequest, type ArtifactRefreshEntry } from "./artifacts";
 
 export const ARTIFACT_REFERENCE_HINT = "The user referenced these accepted omp-ui artifact versions. Read the manifest only when needed. References are context, not permission to publish changes; saved data is available only with the recorded consent.";
+
+/**
+ * The fixed first line of a `<session references>` block (ADR-0085), in its
+ * seance-era form: omp 18.11.3–18.20.2 answer a consult through the bundled
+ * `seance` task agent. Saved prompts carry it verbatim, so the parsers keep
+ * accepting it after omp removed the agent (issue #1189).
+ */
+export const SESSION_REFERENCE_HINT = "The user referenced these other omp-ui sessions. Each path is that session's saved transcript on this machine as of this prompt. To consult one without resuming it, call the task tool with agent \"seance\" and sourceSession set to its path; in plan mode, read the file instead.";
+
+/**
+ * The form a prompt carries when its target harness runs omp 18.20.3 or newer,
+ * which removed the `seance` agent, `/seance`, and the task tool's
+ * `sourceSession` (upstream CHANGELOG 18.20.3). The routes it names — reading
+ * the transcript path, or `archive.session(path)` in eval — exist on those
+ * versions; both stay read-only, so the consult never wakes the source.
+ */
+export const SESSION_REFERENCE_HINT_V2 = "The user referenced these other omp-ui sessions. Each path is that session's saved transcript on this machine as of this prompt. To consult one without resuming it, read that path directly, or get its recaps and prompts with archive.session(path) in eval; never resume or modify the session itself.";
+
+/** Every accepted hint line: a block written under an older release must keep parsing. */
+export const SESSION_REFERENCE_HINTS: readonly string[] = [SESSION_REFERENCE_HINT, SESSION_REFERENCE_HINT_V2];
 export const MAX_ARTIFACT_REFERENCES = 8;
 export const MAX_ARTIFACT_REFERENCE_BYTES = 12 * 1024;
 const OPEN = "<artifact references>";
@@ -185,8 +205,7 @@ export function parseArtifactPromptReferences(text: string): ArtifactReference[]
     const after = close + 1 + "</session references>".length;
     if (after !== text.length && !text.startsWith("\n\n", after)) return [];
     const lines = text.slice(open.length + 1, close).split("\n");
-    const hint = "The user referenced these other omp-ui sessions. Each path is that session's saved transcript on this machine as of this prompt. To consult one without resuming it, call the task tool with agent \"seance\" and sourceSession set to its path; in plan mode, read the file instead.";
-    if (lines[0] !== hint || lines.length < 5 || (lines.length - 1) % 4 !== 0) return [];
+    if (!SESSION_REFERENCE_HINTS.includes(lines[0]!) || lines.length < 5 || (lines.length - 1) % 4 !== 0) return [];
     const fields = ["- title: ", "  session: ", "  machine: ", "  path: "];
     for (let i = 1; i < lines.length; i++) {
       const prefix = fields[(i - 1) % 4]!;

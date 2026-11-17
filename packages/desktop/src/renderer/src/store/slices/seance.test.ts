@@ -117,6 +117,17 @@ describe("composer /seance (issue #885)", () => {
     expect(prompts()).toEqual([]);
   });
 
+  it("on a removed omp (issue #1189) nothing launches, the hidden pane is not focused, and the line is consumed", async () => {
+    setup("rpc-ui", "18.20.3");
+    await runLine("/seance what did we decide?");
+    // The Seance pane left the rail at this version; focusing it would resurrect it.
+    expect(h.useStore.getState().railPaneFocus[h.TAB]).toBeUndefined();
+    expect(notices().join("\n")).toContain("18.20.3");
+    expect(notices().join("\n")).not.toContain("update omp");
+    expect(h.useStore.getState().seanceDialog).toBeNull();
+    expect(prompts()).toEqual([]);
+  });
+
   it("falls through to the TUI in a terminal tab", async () => {
     setup("pty");
     await runLine("/seance old-session");

@@ -9,7 +9,7 @@ import { noticeItem } from "../../lib/transcript";
 import { t } from "../../lib/i18n";
 import { parseSeanceArgs } from "../../lib/seance-args";
 import { seanceKickoff } from "../../lib/seance-kickoff";
-import { SEANCE_MIN_OMP, supportsSeance } from "../../lib/seance";
+import { seanceRemovedFromOmp, SEANCE_MAX_OMP, SEANCE_MIN_OMP, supportsSeance } from "@omp-ui/core/seance";
 import type { SessionReference, SessionSummary } from "@omp-ui/core/types";
 import type { SeanceSlice, UiStore } from "../types";
 import { dropExited, type GetState, type SetState, type StoreMachinery } from "./shared";
@@ -173,15 +173,23 @@ export function createSeanceSlice(
   const runSeanceLine: SeanceSlice["runSeanceLine"] = async (tabId, line) => {
     // Always consumed in native tabs (the localCommands entry gates tab mode):
     // forwarding `/seance …` as prose would reach the model as a literal.
-    get().focusRailPane(tabId, "seance");
-    if (!supportsSeance(get().rpc[tabId]?.capabilities?.ompVersion ?? null)) {
+    const ompVersion = get().rpc[tabId]?.capabilities?.ompVersion ?? null;
+    if (!supportsSeance(ompVersion)) {
+      // Removed harness (issue #1189): the Seance pane is hidden from the rail,
+      // so focusing it would resurrect a pane for a route omp no longer has —
+      // say so once instead. Below the old floor the pane stays and focus works.
+      const removed = seanceRemovedFromOmp(ompVersion);
+      if (!removed) get().focusRailPane(tabId, "seance");
       get().appendNotice(
         tabId,
-        t("rail.seance.needsNewerOmp", { version: SEANCE_MIN_OMP }),
+        removed
+          ? t("rail.seance.removedInOmp", { version: SEANCE_MAX_OMP })
+          : t("rail.seance.needsNewerOmp", { version: SEANCE_MIN_OMP }),
         "warn",
       );
       return;
     }
+    get().focusRailPane(tabId, "seance");
     const args = parseSeanceArgs(line.replace(/^\/seance\b/i, ""));
     if (args.error !== undefined) {
       get().appendNotice(tabId, args.error, "warn");

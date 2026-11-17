@@ -2805,6 +2805,7 @@ export const ko: Partial<Record<MessageKey, string>> = {
   "rail.seance.settledNote": "다시 물으려면 저장된 세션을 새 문의로 문의하세요",
   "rail.seance.askAgain": "다시 묻기",
   "rail.seance.needsNewerOmp": "이 omp에는 seance가 없습니다 — omp를 {version} 이상으로 업데이트하세요",
+  "rail.seance.removedInOmp": "omp {version}에서 seance 문의가 제거되었습니다 — 여기서 실행할 수 없습니다",
   "seance.dialog.title": "Seance 문의",
   "seance.dialog.source": "문의할 저장된 세션",
   "seance.dialog.question": "컨설턴트가 이 세션에 대해 답해야 할 내용은 무엇인가요?",

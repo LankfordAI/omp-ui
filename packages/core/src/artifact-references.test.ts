@@ -1,11 +1,13 @@
 import { describe, expect, it } from "vitest";
 import type { ArtifactReference, ArtifactRefreshEntry } from "./artifacts";
 import { pageArtifactText } from "./artifacts";
-import { ARTIFACT_REFRESH_HINT, ARTIFACT_REFERENCE_HINT, parseArtifactPromptReferences, parseArtifactReferenceUri, splitArtifactRefreshContext, splitArtifactReferenceContext, splitLegacyArtifactRefreshRequest, withArtifactRefreshContext, withArtifactReferenceContext } from "./artifact-references";
+import { ARTIFACT_REFRESH_HINT, ARTIFACT_REFERENCE_HINT, parseArtifactPromptReferences, parseArtifactReferenceUri, SESSION_REFERENCE_HINT, SESSION_REFERENCE_HINT_V2, splitArtifactRefreshContext, splitArtifactReferenceContext, splitLegacyArtifactRefreshRequest, withArtifactRefreshContext, withArtifactReferenceContext } from "./artifact-references";
 
 const id = (n: number): string => `00000000-0000-4000-8000-${String(n).padStart(12, "0")}`;
 const reference: ArtifactReference = { version: 1, referenceId: id(1), ownerInstanceId: id(2), artifactId: id(3), codeRevisionId: id(4), dataSnapshotId: id(5), title: "Budget", machine: "desktop", snapshotAt: "2026-11-09T06:00:00.000Z", includeData: false, manifestUri: `omp-ui://artifacts/reference/${id(1)}/manifest`, definitionUri: `omp-ui://artifacts/reference/${id(1)}/definition` };
-const session = "<session references>\nThe user referenced these other omp-ui sessions. Each path is that session's saved transcript on this machine as of this prompt. To consult one without resuming it, call the task tool with agent \"seance\" and sourceSession set to its path; in plan mode, read the file instead.\n- title: Other work\n  session: saved-session\n  machine: desktop\n  path: /saved/transcript.jsonl\n</session references>";
+const session = `<session references>\n${SESSION_REFERENCE_HINT}\n- title: Other work\n  session: saved-session\n  machine: desktop\n  path: /saved/transcript.jsonl\n</session references>`;
+// Issue #1189: the hint form written for omp 18.20.3+ admits identically.
+const sessionV2 = `<session references>\n${SESSION_REFERENCE_HINT_V2}\n- title: Other work\n  session: saved-session\n  machine: desktop\n  path: /saved/transcript.jsonl\n</session references>`;
 
 describe("artifact reference wire grammar", () => {
   it("round-trips immutable definition-only descriptors and reference-only prompts", () => {
@@ -51,6 +53,13 @@ describe("artifact reference wire grammar", () => {
     expect(parseArtifactPromptReferences(`${session}\n\n${artifact}`)).toEqual([reference]);
     expect(parseArtifactPromptReferences(`prose\n\n${artifact}`)).toEqual([]);
     expect(parseArtifactPromptReferences(`${session.replace("  session: saved-session", "  session: ")}\n\n${artifact}`)).toEqual([]);
+  });
+  it("admits both accepted session-reference hint forms (issue #1189)", () => {
+    const artifact = withArtifactReferenceContext("<annotations>\nprose", [reference]);
+    expect(parseArtifactPromptReferences(`${sessionV2}\n\n${artifact}`)).toEqual([reference]);
+    // A third, unknown hint line stays prose — the grammar is a closed set.
+    const lookalike = sessionV2.replace(SESSION_REFERENCE_HINT_V2, "Some other advice.");
+    expect(parseArtifactPromptReferences(`${lookalike}\n\n${artifact}`)).toEqual([]);
   });
 });
 

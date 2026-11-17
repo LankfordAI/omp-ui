@@ -8,7 +8,7 @@
  * draft, so the model knows what it was handed before the request about it:
  *
  *     <session references>
- *     <the fixed seance hint line>
+ *     <the fixed hint line (one accepted form)>
  *     - title: Fix the deploy pipeline
  *       session: 019faeab-…
  *       machine: austin-desktop
@@ -20,16 +20,32 @@
  * Every field is one line with `<`, `>`, CR and LF removed, so no body line
  * can close the block early. The whole block is one tag section, which omp's
  * keyword masking skips: a title containing `ultrathink` arms nothing.
+ *
+ * Two hint forms are accepted on the parse (issue #1189): the seance-era line
+ * saved prompts already carry, and the read/archive line emitted for harnesses
+ * on omp 18.20.3+, which removed the `seance` agent and `sourceSession`.
  */
+import { SESSION_REFERENCE_HINT, SESSION_REFERENCE_HINT_V2, SESSION_REFERENCE_HINTS } from "@omp-ui/core/artifact-references";
+import { seanceRemovedFromOmp } from "@omp-ui/core/seance";
 import type { SessionReference } from "@omp-ui/core/types";
 
 const BLOCK_OPEN = "<session references>";
 const BLOCK_CLOSE = "</session references>";
 
-/** Model-facing, fixed: the parse requires it verbatim. */
-export const SESSION_REFERENCE_HINT =
-  "The user referenced these other omp-ui sessions. Each path is that session's saved transcript on this machine as of this prompt. " +
-  'To consult one without resuming it, call the task tool with agent "seance" and sourceSession set to its path; in plan mode, read the file instead.';
+/** Re-exported for the wire fixtures: every accepted hint line (legacy first). */
+export { SESSION_REFERENCE_HINT, SESSION_REFERENCE_HINT_V2, SESSION_REFERENCE_HINTS };
+
+/**
+ * The hint a prompt on `ompVersion` should carry (issue #1189): only a harness
+ * positively known to have REMOVED seance (≥ 18.20.3) gets the read/archive
+ * line; every other version — window included, and an unknown harness, whose
+ * bytes must stay whatever older builds parsed — keeps the legacy line, whose
+ * plan-mode fallback (`read the file instead`) works everywhere it is sent.
+ * Saved prompts carry either form; both parse forever.
+ */
+export function sessionReferenceHint(ompVersion: string | null): string {
+  return seanceRemovedFromOmp(ompVersion) ? SESSION_REFERENCE_HINT_V2 : SESSION_REFERENCE_HINT;
+}
 
 function oneLine(value: string): string {
   return value.replace(/[\r\n]+/g, " ").replace(/[<>]/g, "").trim();
@@ -44,8 +60,17 @@ export interface DraftSessionReference extends SessionReference {
   instanceId: string | null;
 }
 
-/** Prepends the session references block; a prompt without references is unchanged. */
-export function withSessionReferenceContext(message: string, refs: readonly SessionReference[]): string {
+/**
+ * Prepends the session references block; a prompt without references is
+ * unchanged. `ompVersion` picks the hint line (issue #1189): the seance line
+ * only inside the seance window, the read/archive line on 18.20.3+ and for an
+ * unknown harness. Saved prompts keep carrying either form; both parse.
+ */
+export function withSessionReferenceContext(
+  message: string,
+  refs: readonly SessionReference[],
+  ompVersion: string | null = null,
+): string {
   if (refs.length === 0) return message;
   const entries = refs.flatMap((ref) => [
     `- title: ${oneLine(ref.title) || "New session"}`,
@@ -53,7 +78,7 @@ export function withSessionReferenceContext(message: string, refs: readonly Sess
     `  machine: ${oneLine(ref.machine)}`,
     `  path: ${ref.path.replace(/[\r\n]/g, "")}`,
   ]);
-  const block = [BLOCK_OPEN, SESSION_REFERENCE_HINT, ...entries, BLOCK_CLOSE].join("\n");
+  const block = [BLOCK_OPEN, sessionReferenceHint(ompVersion), ...entries, BLOCK_CLOSE].join("\n");
   return message === "" ? block : `${block}\n\n${message}`;
 }
 
@@ -61,7 +86,8 @@ const FIELDS = ["- title: ", "  session: ", "  machine: ", "  path: "] as const;
 
 /** The body's entries, or null when any line breaks the grammar above. */
 function parseBody(lines: readonly string[]): SessionReference[] | null {
-  if (lines[0] !== SESSION_REFERENCE_HINT || lines.length < 5 || (lines.length - 1) % 4 !== 0) return null;
+  // Either accepted hint form opens a valid block (issue #1189).
+  if (!SESSION_REFERENCE_HINTS.includes(lines[0]!) || lines.length < 5 || (lines.length - 1) % 4 !== 0) return null;
   const out: SessionReference[] = [];
   for (let i = 1; i < lines.length; i += 4) {
     const values: string[] = [];

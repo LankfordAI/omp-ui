@@ -54,13 +54,30 @@ function harness(o: { canSendMessages?: boolean } = {}) {
 // ------------------------------------------------------------------- tests
 
 describe("askContextText", () => {
-  it("carries the summary, the source session id, and the read-only seance route", () => {
-    const text = askContextText({ sessionId: SESSION_ID, summary: `  ${PINNED}\n`, transcriptPath: TRANSCRIPT });
+  it("routes the deep dive through seance inside the seance window (issue #1189)", () => {
+    const text = askContextText({ sessionId: SESSION_ID, summary: `  ${PINNED}\n`, transcriptPath: TRANSCRIPT, ompVersion: "18.20.2" });
     expect(text).toContain(`${PINNED}\n\nAnswer questions`);
     expect(text).toContain(`omp-ui://sessions/${SESSION_ID}/summary`);
     expect(text).toContain(`sourceSession "${TRANSCRIPT}"`);
     expect(text).toContain(`/seance ${SESSION_ID}`);
     expect(text.length).toBeLessThanOrEqual(ASK_CONTEXT_TEXT_MAX);
+  });
+
+  it("routes the deep dive through read/archive on omp that removed seance (issue #1189)", () => {
+    const text = askContextText({ sessionId: SESSION_ID, summary: PINNED, transcriptPath: TRANSCRIPT, ompVersion: "18.20.3" });
+    expect(text).toContain(`read its file at "${TRANSCRIPT}"`);
+    expect(text).toContain(`archive.session("${TRANSCRIPT}")`);
+    expect(text).not.toContain("seance");
+    expect(text).not.toContain("/seance");
+    expect(text).toContain(`omp-ui://sessions/${SESSION_ID}/summary`);
+    // The never-wake property holds on both routes.
+    expect(text).toContain("Never resume or modify that session");
+  });
+
+  it("takes the safe read/archive route for an unknown harness", () => {
+    const text = askContextText({ sessionId: SESSION_ID, summary: PINNED, transcriptPath: TRANSCRIPT });
+    expect(text).not.toContain("seance");
+    expect(text).toContain(`archive.session("${TRANSCRIPT}")`);
   });
 
   // Two parities so one of them lands the cut on a surrogate pair.
@@ -69,7 +86,7 @@ describe("askContextText", () => {
     ["an emoji summary", "😀".repeat(10_000)],
     ["an offset emoji summary", `a${"😀".repeat(10_000)}`],
   ])("shrinks only the summary of %s to fit the cap", (_label, summary) => {
-    const text = askContextText({ sessionId: SESSION_ID, summary, transcriptPath: TRANSCRIPT });
+    const text = askContextText({ sessionId: SESSION_ID, summary, transcriptPath: TRANSCRIPT, ompVersion: "18.20.2" });
     expect(text.length).toBeLessThanOrEqual(ASK_CONTEXT_TEXT_MAX);
     expect(text.length).toBeGreaterThan(ASK_CONTEXT_TEXT_MAX - 2);
     expect(text).toContain(`…\n\nAnswer questions about that session`);

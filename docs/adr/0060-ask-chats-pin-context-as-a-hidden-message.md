@@ -1,6 +1,8 @@
 # Ask chats pin the source session's summary as one hidden message, never a system-prompt flag
 
-> **Status:** Accepted, 2026-10-20 ([#895](https://github.com/LankfordAI/omp-ui/issues/895)).
+> **Status:** Accepted, 2026-10-20 ([#895](https://github.com/LankfordAI/omp-ui/issues/895));
+> amended by [#1189](https://github.com/LankfordAI/omp-ui/issues/1189) (2026-11-16):
+> the deep-dive tail is version-routed — see *Amended by #1189*.
 
 *Ask about this session* starts a fresh **Chat** (ADR-0059) about another
 session: the user wants to ask "what did that session decide, and why?"
@@ -122,6 +124,25 @@ and main used to pass it as `--append-system-prompt <lineage>/carryover-context.
 Why not keep the flag: omp resolves `appendSystemPrompt ?? <APPEND_SYSTEM.md
 lookup>`, so any flag value replaced the user's `APPEND_SYSTEM.md`, the same
 fault the Ask chat design avoids.
+
+## Amended by #1189: the deep-dive tail is version-routed
+
+The pinned tail this ADR composes named one route for anything the summary does
+not cover: the read-only Seance consult (`task` with `agent: "seance"` and
+`sourceSession`). omp 18.20.3 removed that agent, its slash command, and the
+`sourceSession` parameter, so on a current harness the tail sent the chat's
+model after a call that cannot exist.
+
+`askContextText` now takes the installed harness version (main reads it beside
+the transcript path — the chat spawns on this machine's binary) and routes the
+tail: inside the seance window (18.11.3 ≤ omp < 18.20.3) the sentence above
+stands unchanged; on omp ≥ 18.20.3 — and for an unknown version — the tail
+names the routes that exist there: `read` the source's transcript path, or
+`archive.session(path)` in eval (the `archive.enabled` prelude defaults on).
+Both read-only, so the never-wake property this ADR is about survives; only the
+`/seance` fallback sentence drops out of the removed harness's tail. The Ask
+chat itself does not depend on Seance — the pin already carries the summary —
+so no surface of the chat hides with the seance window closing.
 
 ## Amends / relates
 

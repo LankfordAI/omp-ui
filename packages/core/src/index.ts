@@ -105,6 +105,7 @@ export { listProjectFiles, MAX_PROJECT_FILES } from "./project-files";
 export { resolveFileMentions } from "./mention-resolve";
 export * from "./fetch";
 export * from "./download";
+export * from "./seance";
 export * from "./semver";
 export * from "./omp-update";
 export * from "./app-update";

@@ -4,7 +4,7 @@ import { createRoot, type Root } from "react-dom/client";
 import { afterEach, beforeEach, describe, expect, it, vi } from "vitest";
 import type { CapabilitySnapshot } from "@omp-ui/core/capabilities";
 import { t } from "../lib/i18n";
-import { SEANCE_MIN_OMP } from "../lib/seance";
+import { SEANCE_MIN_OMP } from "@omp-ui/core/seance";
 import { rpcTabState } from "../test/fixtures";
 
 (globalThis as Record<string, unknown>).IS_REACT_ACT_ENVIRONMENT = true;

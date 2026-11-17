@@ -353,6 +353,12 @@ running consultant while it lives; a settled one is re-asked, fresh. A **plan-mo
 tab cannot host the consultant — OMP hides the seance spawn while planning — so the
 launch moves to a fresh build-mode session in the source's project. The
 consulting transcript is OMP's own subagent hub record, never an omp-ui copy.
+omp 18.20.3 removed the agent, `/seance`, and the task tool's `sourceSession`
+(issue #1189), so every Seance surface lives only in the window 18.11.3 ≤ omp <
+18.20.3: on a newer harness the pane, the row action, the palette entry, and the
+`/seance` intercept are all absent, and a **Session reference**'s hint line names
+the replacement routes instead (`read` on the transcript path,
+`archive.session(path)` in eval).
 _Avoid_: ghost session, séance thread, resume-by-reading
 
 **New session dialog**:
@@ -722,10 +728,13 @@ ADR-0085). Drag a sidebar row onto a native composer, or pick it under the
 `@`-palette's *Sessions*; it becomes a chip in the draft. On send it leads
 the prompt as a `<session references>` block naming the session's title, id,
 owning machine, and the absolute path of its transcript there, with a hint
-that omp's `seance` task agent can read it without resuming it. Same-machine
-only: a session owned by another instance is refused, and a draft moved to
-another machine drops its references. A live session may be referenced; the
-path names its file as of the prompt.
+naming the consult route the harness has: omp's `seance` task agent inside its
+window (18.11.3–18.20.2), `read`/`archive.session` on omp 18.20.3+, which
+removed seance (issue #1189). Both hint forms parse forever, so saved prompts
+from either era still render as chips. Same-machine only: a session owned by
+another instance is refused, and a draft moved to another machine drops its
+references. A live session may be referenced; the path names its file as of
+the prompt.
 _Avoid_: link, mention (an `@path` file mention), attachment, citation
 
 **Draft stash**:

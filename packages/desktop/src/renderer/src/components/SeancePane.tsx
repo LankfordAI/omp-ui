@@ -2,7 +2,7 @@ import { useState, type FormEvent } from "react";
 import { AGENT_TONE } from "../lib/agent-tone";
 import { useT } from "../lib/i18n";
 import type { SubagentInfo } from "../lib/rpc-types";
-import { SEANCE_MIN_OMP, supportsSeance } from "../lib/seance";
+import { SEANCE_MIN_OMP, supportsSeance } from "@omp-ui/core/seance";
 import { useStore } from "../store";
 import { subagentControllable } from "./SubagentControls";
 import { Button, Dot, Empty } from "./ui";

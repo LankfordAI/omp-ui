@@ -14,7 +14,7 @@ import {
 import { withAnnotationContext } from "../../lib/annotations";
 import { withAttachmentRoutingContext } from "../../lib/attachment-routing";
 import { withDocumentContext } from "../../lib/document-context";
-import { withSessionReferenceContext } from "../../lib/session-references";
+import { SESSION_REFERENCE_HINT, SESSION_REFERENCE_HINT_V2, splitSessionReferenceContext, withSessionReferenceContext } from "../../lib/session-references";
 import {
   LIVE_CONNECT_TIMEOUT_MS,
   LIVE_TALK_RELEASE_TAIL_MS,
@@ -4840,6 +4840,42 @@ describe("prompt wire block order (issue #1139, ADR-0092)", () => {
     });
     h.respond(h.TAB, h.sent[0]!.cmd, {});
     await interrupt;
+  });
+
+  // Issue #1189: omp 18.20.3 removed the seance agent, so the reference hint
+  // must name the routes that harness has — chosen from the tab's own
+  // capabilities, since references only attach in native tabs.
+  it("names the read/archive route in the reference hint on a removed omp", async () => {
+    const removed: CapabilitySnapshot = {
+      version: 1,
+      processKey: "p",
+      sessionId: null,
+      revision: 1,
+      updatedAt: 0,
+      ompVersion: "18.21.0",
+      skillCommandsEnabled: null,
+      skills: { status: "unavailable", reason: "missing-api" },
+      tools: { status: "unavailable", reason: "missing-api" },
+      magicKeywords: { status: "available", items: [] },
+      toolControl: "unsupported",
+      toolMutation: null,
+    };
+    h.useStore.setState({ rpc: { [h.TAB]: rpcTabState({ capabilities: removed }) } });
+    const sending = h.useStore.getState().sendPrompt(h.TAB, "compare", "prompt", undefined, undefined, { references: [session] });
+    await h.flushMicrotasks();
+    const frame = h.sent.find((sent) => sent.cmd.type === "prompt")!;
+    expect(String(frame.cmd.message).startsWith(`<session references>\n${SESSION_REFERENCE_HINT_V2}\n`)).toBe(true);
+    expect(splitSessionReferenceContext(String(frame.cmd.message)).references).toEqual([session]);
+    h.respond(h.TAB, frame.cmd, {});
+    await sending;
+    // And the seance-era line inside the window, byte-stable for older builds.
+    h.sent.length = 0;
+    h.useStore.setState({ rpc: { [h.TAB]: rpcTabState({ capabilities: { ...removed, ompVersion: "18.20.2" } }) } });
+    const legacy = h.useStore.getState().sendPrompt(h.TAB, "compare", "prompt", undefined, undefined, { references: [session] });
+    await h.flushMicrotasks();
+    expect(String(h.sent[0]!.cmd.message).startsWith(`<session references>\n${SESSION_REFERENCE_HINT}\n`)).toBe(true);
+    h.respond(h.TAB, h.sent[0]!.cmd, {});
+    await legacy;
   });
 
   it("holds the same wire text a send would have built", async () => {

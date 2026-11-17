@@ -1,6 +1,7 @@
 import { describe, expect, it } from "vitest";
 import { compareVersions } from "@omp-ui/core/semver";
 import { MIN_SUPPORTED_OMP } from "@omp-ui/core/harness-floor";
+import { SEANCE_MIN_OMP } from "@omp-ui/core/seance";
 import { ANONYMIZE_MIN_OMP } from "./anonymize";
 import { ASK_AND_REMEMBER_MIN_OMP } from "./ask-and-remember";
 import { BTW_INJECT_MIN_OMP } from "./btw-inject";
@@ -8,7 +9,6 @@ import { NATIVE_LIVE_MIN_OMP } from "./live-voice";
 import { NATIVE_BTW_MIN_OMP } from "./native-btw";
 import { NATIVE_FORK_MIN_OMP } from "./session-fork";
 import { NARRATION_MIN_OMP } from "./narration";
-import { SEANCE_MIN_OMP } from "./seance";
 import { PROMOTE_QUEUED_MIN_OMP, RESTORE_QUEUE_MIN_OMP } from "./queue-chip";
 
 // The §1 invariant: MIN_SUPPORTED_OMP is the maximum of every shipped feature

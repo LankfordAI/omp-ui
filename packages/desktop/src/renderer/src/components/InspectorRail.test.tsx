@@ -1897,4 +1897,15 @@ describe("Seance rail pane (issue #885)", () => {
     act(() => button(GROUP_LABEL("ask"))!.click());
     expect(memberTab("seance")?.title).toBe(`${paneLabel("seance")} (2)`);
   });
+
+  // Issue #1189: omp 18.20.3 removed the seance agent, so the pane leaves the
+  // Ask group whole — no tab row, Side questions shown alone.
+  it("leaves the Ask group on omp that removed seance", () => {
+    useStore.setState({ rpc: { [TAB]: runtime({ capabilities: cap("18.20.3") }) } });
+    renderRail();
+    act(() => button(GROUP_LABEL("ask"))!.click());
+    expect(memberTab("seance")).toBeNull();
+    // The group collapsed to its single remaining member.
+    expect(document.body.textContent).toContain(t("rail.btw.emptyTitle"));
+  });
 });

@@ -8,7 +8,7 @@ import { useKeybindingLabel } from "../lib/keybindings";
 import { formatSnoozeUntil } from "../lib/snooze-until";
 import { cn } from "../lib/cn";
 import { canSettle, deriveSidebarSessionState, forkSourceOf, useStore, type SidebarSessionState } from "../store";
-import { SEANCE_MIN_OMP, supportsSeance } from "../lib/seance";
+import { seanceRemovedFromOmp, SEANCE_MIN_OMP, supportsSeance } from "@omp-ui/core/seance";
 import { SESSION_DRAG_EFFECT, SESSION_DRAG_MIME } from "../lib/session-drag";
 import { Button, Chip, IconButton, IconClock, IconLock, IconPin, IconSpeaker, type Tone } from "./ui";
 import { TONE_DOT } from "./ui/tone";
@@ -299,9 +299,13 @@ export function SessionRow({
   const sidebarState = useStore((st) => deriveSidebarSessionState(s, st.rpc[s.tabId]));
   const activeTabId = useStore((st) => st.activeTabId);
   const consultFromRow = useStore((st) => st.consultFromRow);
-  // Seance consult (issue #885): the floor rides the installed binary's
+  // Seance consult (issue #885): the window rides the installed binary's
   // version, the same source SessionHud gates anonymize on — a dormant row
   // can be consulted from any project, so no per-tab ompVersion exists here.
+  // omp 18.20.3 removed the route (issue #1189): the action is hidden outright
+  // there, since no update brings it back; below the floor it stays mounted
+  // disabled and names the unlocking version.
+  const seanceRemoved = useStore((st) => seanceRemovedFromOmp(st.ompUpdate.installedVersion));
   const seanceAvailable = useStore((st) => supportsSeance(st.ompUpdate.installedVersion));
   // CONTEXT.md **Fork**: the original this row was forked from, on the same host.
   const forkSource = useStore((st) => forkSourceOf(st.state, s.tabId));
@@ -709,8 +713,9 @@ export function SessionRow({
         ) : null}
         {/* Seance consult (issue #885): a read-only question about this saved
             session. Never on a live row — a running session is consulted via
-            the /seance line, not by resurrecting its transcript behind it. */}
-        {!missing && s.live !== "live" && s.sessionId !== null ? (
+            the /seance line, not by resurrecting its transcript behind it.
+            Hidden whole on omp 18.20.3+, which removed the route (#1189). */}
+        {!missing && !seanceRemoved && s.live !== "live" && s.sessionId !== null ? (
           <IconButton
             label={
               seanceAvailable
