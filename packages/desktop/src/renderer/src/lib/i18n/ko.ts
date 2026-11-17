@@ -1528,6 +1528,13 @@ export const ko: Partial<Record<MessageKey, string>> = {
   "settings.providers.oauthTerminalChip": "터미널 로그인 필요",
   "settings.providers.oauthTerminalLogin":
     "이 공급자는 로그인 시작 전 계정 위험 경고에 동의해야 하며 omp-ui는 이에 응답할 수 없습니다. 대신 터미널에서 {command}를 실행하세요.",
+  "settings.providers.oauthTerminalSignIn": "터미널에서 로그인",
+  "settings.providers.terminalLogin.title": "{provider} 터미널 로그인",
+  "settings.providers.terminalLogin.hint":
+    "omp가 여기서 계정 위험 경고에 동의할 것을 요구합니다 — 요청에 직접 입력하세요. 필요한 코드가 있으면 터미널에 붙여넣으세요. 브라우저가 열리지 않으면 터미널의 로그인 URL을 복사하여 여세요.",
+  "settings.providers.terminalLogin.exited": "로그인 종료됨",
+  "settings.providers.terminalLogin.retry": "재시도",
+  "settings.providers.terminalLogin.close": "닫기",
   "settings.providers.oauthRequiresOmp": "로그인 상태를 확인하려면 omp를 업데이트하세요",
   "settings.providers.oauthStillAuthenticated": "omp가 여전히 인증되어 있다고 보고하는 경로:",
   "settings.providers.oauthCancel": "취소",

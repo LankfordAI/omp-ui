@@ -4,6 +4,12 @@ import { withoutAppImageRuntime } from "./appimage-env";
 import { ompChildEnv } from "./omp-process";
 import { withFdSweep } from "./fd-sweep";
 import { batched } from "./pty-batch";
+import type { ConsoleProgram, OmpLoginProgram } from "./types";
+
+/** Narrows the structured console program {@link ConsoleProgram} (issue #1197). */
+export function isOmpLoginProgram(program: ConsoleProgram): program is OmpLoginProgram {
+  return typeof program === "object";
+}
 
 export interface PtyHandle {
   readonly id: string;
@@ -159,6 +165,44 @@ export function spawnShell(opts: {
  */
 export function ompTuiArgs(cwd: string, model?: string): string[] {
   return ["--cwd", cwd, "--no-session", ...(model ? ["--model", model] : [])];
+}
+
+/**
+ * Argv for `omp login <providerId>` in a PTY (issue #1197). Providers whose
+ * auth rule declares `login-warning` prompt "type yes to accept the risk"
+ * before any auth URL, which omp's rpc `login` handler rejects outright, so
+ * the sign-in only completes interactively. No `--cwd`/`--no-session`: login
+ * touches no session, and no model — login runs no turn, so the dev/test spawn
+ * gate's model selector deliberately does not reach this child.
+ */
+export function ompLoginArgs(providerId: string): string[] {
+  return ["login", providerId];
+}
+
+/**
+ * `omp login <providerId>` in a terminal (issue #1197): the interactive
+ * sign-in for risk-warning providers RPC cannot drive. The user answers omp's
+ * own risk prompt and pastes any code in the PTY; omp opens the browser
+ * itself. Same env treatment as `spawnOmpTui` (ompChildEnv + XTERM_ENV).
+ */
+export function spawnOmpLogin(opts: {
+  id: string;
+  cwd: string;
+  ompPath: string;
+  providerId: string;
+  cols: number;
+  rows: number;
+}): PtyHandle {
+  const cmd = withFdSweep(opts.ompPath, ompLoginArgs(opts.providerId));
+  const proc = pty.spawn(cmd.file, cmd.args, {
+    name: "xterm-256color",
+    cols: opts.cols,
+    rows: opts.rows,
+    cwd: opts.cwd,
+    env: Object.assign(ompChildEnv(opts.ompPath), XTERM_ENV),
+    encoding: null, // raw Buffers, same as spawnOmp
+  });
+  return adapt(opts.id, proc);
 }
 
 /**

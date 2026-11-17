@@ -23,7 +23,7 @@ afterEach(() => {
   for (const dir of dirs.splice(0)) fs.rmSync(dir, { recursive: true, force: true });
 });
 
-import { defaultShell, normalizePtyKillSignal, ompTuiArgs, ptyChunkToBuffer, spawnOmp } from "./pty";
+import { defaultShell, normalizePtyKillSignal, ompLoginArgs, ompTuiArgs, ptyChunkToBuffer, spawnOmp, spawnOmpLogin } from "./pty";
 
 function spawnOmpArgs(opts: Omit<Parameters<typeof spawnOmp>[0], "lineageDir">): string[] {
   const lineageDir = fs.mkdtempSync(path.join(os.tmpdir(), "pty-lineage-"));
@@ -173,6 +173,39 @@ describe("spawnOmp env", () => {
     } finally {
       if (saved !== undefined) process.env.HINDSIGHT_AUTO_RETAIN = saved;
     }
+  });
+});
+
+describe("spawnOmpLogin args", () => {
+  it("runs login with the provider id and nothing else (#1197)", () => {
+    expect(ompLoginArgs("google-antigravity")).toEqual(["login", "google-antigravity"]);
+  });
+
+  it("spawns through the fd sweep with the omp child env, no model", () => {
+    spawnOmpLogin({
+      id: "provider-login:google-antigravity",
+      cwd: "/home/user",
+      ompPath: "/bin/omp",
+      providerId: "google-antigravity",
+      cols: 80,
+      rows: 24,
+    });
+    const [, argv, options] = ptySpawn.mock.lastCall! as [
+      string,
+      string[],
+      { env: NodeJS.ProcessEnv; cwd: string },
+    ];
+    // Unix routes through the fd-sweep wrapper: the real argv is the tail
+    // after the omp-fd-sweep sentinel (argv[1] is the omp path itself).
+    const sweep = argv.indexOf("omp-fd-sweep");
+    const realArgv = sweep === -1 ? argv : argv.slice(sweep + 2);
+    expect(realArgv).toEqual(["login", "google-antigravity"]);
+    expect(options.cwd).toBe("/home/user");
+    // Same env treatment as the handoff TUI: ompChildEnv + the xterm colour
+    // hint; no model flag — login runs no turn (issue #1197).
+    expect(options.env.COLORTERM).toBe("truecolor");
+    expect(options.env.PATH?.startsWith("/bin")).toBe(true);
+    expect(argv.join(" ")).not.toContain("--model");
   });
 });
 

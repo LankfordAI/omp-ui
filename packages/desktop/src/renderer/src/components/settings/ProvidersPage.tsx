@@ -32,6 +32,7 @@ import { FIELD, Row, layerBadge } from "./rows";
 import { t, useT } from "../../lib/i18n";
 import { OMP_MISSING, type FooterContext, type Load } from "./types";
 import { CarryAuthDialog } from "./CarryAuthDialog";
+import { ProviderTerminalLoginDialog } from "./ProviderTerminalLoginDialog";
 
 type ProviderKeysLoad =
   | { status: "loading" }
@@ -230,6 +231,7 @@ function ProviderSignInRow({
   flow,
   flowBusy,
   onSignIn,
+  onTerminalSignIn,
   onSignOut,
   onSubmit,
   onCancel,
@@ -239,6 +241,7 @@ function ProviderSignInRow({
   /** A flow is running somewhere (this row or another) — buttons disabled. */
   flowBusy: boolean;
   onSignIn: () => void;
+  onTerminalSignIn: () => void;
   onSignOut: (credentialId: number) => void;
   onSubmit: (value: string) => void;
   onCancel: () => void;
@@ -309,6 +312,11 @@ function ProviderSignInRow({
           {!signedIn && row.requiresTerminalLogin !== true && (
             <Button size="xs" disabled={flowBusy} onClick={onSignIn}>
               {t("settings.providers.oauthSignIn")}
+            </Button>
+          )}
+          {!signedIn && row.requiresTerminalLogin === true && (
+            <Button size="xs" disabled={flowBusy} onClick={onTerminalSignIn}>
+              {t("settings.providers.oauthTerminalSignIn")}
             </Button>
           )}
           {row.credentials.map((c) => (
@@ -784,6 +792,12 @@ export function ProvidersPage({
   const [pendingSignOut, setPendingSignOut] = useState<{ rowId: string; credentialId: number } | null>(null);
   /** omp's note that other auth still applies after a removal; null when nothing remains. */
   const [stillAuthenticated, setStillAuthenticated] = useState<string | null>(null);
+  /**
+   * The risk-warning provider whose terminal sign-in dialog is open (issue
+   * #1197). One at a time — the same single-sign-in rule ProviderOAuth enforces
+   * for the RPC flow, and ShellHost keys its program per synthetic id anyway.
+   */
+  const [terminalLoginRow, setTerminalLoginRow] = useState<ProviderOAuthStatus | null>(null);
   const [writeError, setWriteError] = useState<string | null>(null);
   const gen = useRef(0);
   const oauthGen = useRef(0);
@@ -879,6 +893,20 @@ export function ProvidersPage({
     setStillAuthenticated(null);
     void startProviderOAuth(id).catch((err: unknown) =>
       setWriteError(displayMessage(err)),
+    );
+  };
+
+  /** Re-read the sign-in rows through the page's generation guard (#1197: a terminal login that exits 0 stores a credential main-side, so the rows are re-read exactly like the RPC flow's done publishes). */
+  const reReadOAuth = (): void => {
+    const g = ++oauthGen.current;
+    readProviderOAuth().then(
+      (rows) => {
+        if (g === oauthGen.current) setOauth({ status: "loaded", rows });
+      },
+      (err: unknown) => {
+        if (g === oauthGen.current)
+          setOauth({ status: "error", message: displayMessage(err) });
+      },
     );
   };
 
@@ -1061,6 +1089,12 @@ export function ProvidersPage({
                 flow={providerOAuth}
                 flowBusy={flowActive(providerOAuth) || pendingEnv !== null || pendingSignOut !== null}
                 onSignIn={() => signIn(row.id)}
+                // One dialog at a time (issue #1197): the RPC flow's single
+                // sign-in rule, kept while an RPC flow is live so neither path
+                // runs against the other.
+                onTerminalSignIn={() =>
+                  setTerminalLoginRow(flowActive(providerOAuth) ? null : row)
+                }
                 onSignOut={(credentialId) => signOut(row.id, credentialId)}
                 onSubmit={submit}
                 onCancel={() => void cancelProviderOAuth()}
@@ -1087,6 +1121,19 @@ export function ProvidersPage({
             />
           </div>
         </div>
+      )}
+      {terminalLoginRow !== null && (
+        <ProviderTerminalLoginDialog
+          providerId={terminalLoginRow.providerId}
+          label={terminalLoginRow.label}
+          onClose={() => setTerminalLoginRow(null)}
+          onSignedIn={() => {
+            // Exit 0: the credential is stored — re-read like the RPC flow's
+            // done, then dismiss the dialog.
+            setTerminalLoginRow(null);
+            reReadOAuth();
+          }}
+        />
       )}
     </div>
   );

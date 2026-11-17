@@ -2019,8 +2019,11 @@ export const BACKEND_CHANNELS = {
   },
   /**
    * Spawns the tab's console-drawer program in `cwd` — the user's login shell
-   * ($SHELL -l; COMSPEC on Windows) by default (issue #42), or omp's TUI for a
-   * handoff (issue #243). Replaces any program already running for the tab.
+   * ($SHELL -l; COMSPEC on Windows) by default (issue #42), omp's TUI for a
+   * handoff (issue #243), or `{ program: "omp-login", providerId }` for a
+   * terminal-only provider sign-in (issue #1197; main validates the id against
+   * its own login-risk roster before spawning).
+   * Replaces any program already running for the tab.
    * Rejects when the program cannot be spawned.
    */
   shellSpawn: {

@@ -1363,8 +1363,19 @@ export interface McpSetEnabledRequest {
   enabled: boolean;
 }
 
-/** Which program the tab's console-drawer PTY runs — a login shell, or an omp TUI for a handoff (issue #243). */
-export type ConsoleProgram = "shell" | "omp-tui";
+/**
+ * The console program that runs `omp login <providerId>` in the PTY: the
+ * risk-warning providers whose sign-in omp's rpc `login` refuses (issue #1197).
+ * Carries the provider id because the spawn is per-provider, unlike the plain
+ * literal programs; main validates the id against its own terminal-login roster.
+ */
+export interface OmpLoginProgram {
+  readonly program: "omp-login";
+  readonly providerId: string;
+}
+
+/** Which program the tab's console-drawer PTY runs — a login shell, an omp TUI for a handoff (issue #243), or `omp login <providerId>` for a terminal-only sign-in (issue #1197). */
+export type ConsoleProgram = "shell" | "omp-tui" | OmpLoginProgram;
 
 /** One directory candidate from browseDirectories. */
 export interface DirBrowseEntry {

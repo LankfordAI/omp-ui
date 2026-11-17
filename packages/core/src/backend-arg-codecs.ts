@@ -378,7 +378,32 @@ export const projectOpenTargetCodec: ArgCodec<ProjectOpenTarget> = oneOf(
   "files",
   "terminal",
 );
-export const consoleProgramCodec: ArgCodec<ConsoleProgram> = oneOf("shell", "omp-tui");
+/**
+ * The console-drawer program. `shell`/`omp-tui` ride as plain literals;
+ * `omp-login` is structured (issue #1197): the spawn is per-provider, so it
+ * carries the provider id — a slug-ish token with no whitespace or control
+ * characters. Main validates the id against its own terminal-login roster; the
+ * codec only rejects shapes that could never be one.
+ */
+export const consoleProgramCodec: ArgCodec<ConsoleProgram> = {
+  expected: `"shell" or "omp-tui" or { program: "omp-login", providerId }`,
+  decode(value, path) {
+    if (value === "shell" || value === "omp-tui") return value;
+    if (!isPlainRecord(value) || Object.keys(value).some((key) => key !== "program" && key !== "providerId")) {
+      fail(path, "a console program");
+    }
+    lit("omp-login").decode(value["program"], `${path}.program`);
+    const providerId = codec<string>(
+      "a provider id of at most 128 characters with no whitespace or control characters",
+      (id) =>
+        typeof id === "string"
+        && id.length > 0
+        && id.length <= 128
+        && ![...id].some((ch) => /\s/.test(ch) || (ch.codePointAt(0) ?? 0) < 0x20),
+    ).decode(value["providerId"], `${path}.providerId`);
+    return { program: "omp-login", providerId };
+  },
+};
 export const remoteBindCodec: ArgCodec<RemoteBind> = oneOf("localhost", "lan");
 /** The omp collab access levels (issue #686). */
 export const collabAccessCodec: ArgCodec<"full" | "view"> = oneOf("full", "view");

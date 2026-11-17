@@ -1,19 +1,32 @@
 import {
   CH,
+  isOmpLoginProgram,
+  spawnOmpLogin,
   spawnOmpTui,
   spawnShell,
+  terminalLoginExplanation,
   type ConsoleProgram,
   type PtyHandle,
 } from "@omp-ui/core";
+import * as os from "node:os";
 
 export interface ShellHostDependencies {
   getOmpPath: () => string | null;
   send: (channel: string, ...args: unknown[]) => void;
   /**
    * The dev/test spawn gate's model selector (docs/development.md). The handoff
-   * TUI runs real turns, so a gated app instance gates this child too.
+   * TUI runs real turns, so a gated app instance gates this child too. The
+   * `omp login` child takes no model — it runs no turn — so the gate's selector
+   * deliberately never reaches it.
    */
   getOmpModelArg?: () => string | null;
+  /**
+   * The provider ids whose sign-in must run in a terminal (omp's login-risk
+   * roster rows, issue #1197). `launch` accepts an omp-login program only for
+   * one of these, so a compromised renderer cannot steer the argv of a real
+   * omp child. Hosts without a provider catalog answer empty: no login spawn.
+   */
+  listTerminalLoginProviderIds?: () => readonly string[];
 }
 
 /**
@@ -37,6 +50,11 @@ export class ShellHost {
 
   constructor(private readonly deps: ShellHostDependencies) {}
 
+  /**
+   * Spawn or replace the tab's console program. A rejected omp-login program
+   * (provider id main's roster does not list) throws BEFORE the existing
+   * program is killed — a failed login spawn never takes down a live shell.
+   */
   launch(
     tabId: string,
     cwd: string,
@@ -44,9 +62,26 @@ export class ShellHost {
     rows: number,
     program: ConsoleProgram = "shell",
   ): void {
+    if (isOmpLoginProgram(program)) {
+      const allowed = this.deps.listTerminalLoginProviderIds?.() ?? [];
+      if (!allowed.includes(program.providerId)) {
+        throw new Error(terminalLoginExplanation(program.providerId));
+      }
+    }
     this.kill(tabId);
-    const handle =
-      program === "omp-tui"
+    const handle = isOmpLoginProgram(program)
+      ? // The login child runs in the home directory, not the renderer's cwd:
+        // it touches no project, and a web client's chosen path must not steer
+        // an omp child's working directory (issue #1197).
+        spawnOmpLogin({
+          id: tabId,
+          cwd: os.homedir(),
+          cols,
+          rows,
+          ompPath: this.requireOmpPath(),
+          providerId: program.providerId,
+        })
+      : program === "omp-tui"
         ? spawnOmpTui({
             id: tabId,
             cwd,

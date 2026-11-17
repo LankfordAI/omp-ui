@@ -1660,6 +1660,13 @@ export const en = {
   "settings.providers.oauthTerminalChip": "terminal login",
   "settings.providers.oauthTerminalLogin":
     "omp makes you accept an account-risk warning before this sign-in starts, which omp-ui cannot answer; run {command} in a terminal instead.",
+  "settings.providers.oauthTerminalSignIn": "Sign in in terminal",
+  "settings.providers.terminalLogin.title": "Sign in to {provider} in a terminal",
+  "settings.providers.terminalLogin.hint":
+    "omp asks you to accept its account-risk warning here — type the answer it asks for yourself. Paste any code it requests into the terminal. If no browser opens, copy the sign-in URL from the terminal and open it.",
+  "settings.providers.terminalLogin.exited": "login exited",
+  "settings.providers.terminalLogin.retry": "retry",
+  "settings.providers.terminalLogin.close": "close",
   "settings.providers.oauthRequiresOmp":
     "update omp to see what is signed in",
   "settings.providers.oauthStillAuthenticated":

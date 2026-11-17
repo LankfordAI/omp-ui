@@ -141,11 +141,51 @@ describe("domain argument codecs", () => {
     [agentModeCodec, ["plan", "build"]],
     [planFormatCodec, ["html", "md"]],
     [projectOpenTargetCodec, ["vscode", "files", "terminal"]],
-    [consoleProgramCodec, ["shell", "omp-tui"]],
     [remoteBindCodec, ["localhost", "lan"]],
   ] as const)("accepts every literal member and rejects another string", (codec, values) => {
     for (const value of values) expect(decode(codec, value)).toBe(value);
     expect(() => decode(codec, "invalid")).toThrow();
+  });
+
+  // consoleProgramCodec left the plain `oneOf` table when omp-login arrived
+  // (issue #1197): the structured member needs its own record validation.
+  describe("consoleProgramCodec", () => {
+    it("passes the plain literal programs through untouched", () => {
+      for (const value of ["shell", "omp-tui"] as const) {
+        expect(decode(consoleProgramCodec, value)).toBe(value);
+      }
+      expect(() => decode(consoleProgramCodec, "invalid")).toThrow();
+    });
+
+    it("accepts an omp-login record and keeps its provider id", () => {
+      const program = { program: "omp-login" as const, providerId: "google-antigravity" };
+      expect(decode(consoleProgramCodec, program)).toEqual(program);
+    });
+
+    it("rejects malformed omp-login records", () => {
+      // Not a login program at all, or the wrong literal.
+      expect(() => decode(consoleProgramCodec, { program: "shell" })).toThrow();
+      expect(() => decode(consoleProgramCodec, { program: "omp-tui", providerId: "x" })).toThrow();
+      expect(() => decode(consoleProgramCodec, { program: "login", providerId: "x" })).toThrow();
+      // Shape violations: missing fields, extras, non-objects.
+      expect(() => decode(consoleProgramCodec, { program: "omp-login" })).toThrow(
+        "argument 0.providerId",
+      );
+      expect(() => decode(consoleProgramCodec, { providerId: "x" })).toThrow();
+      expect(() =>
+        decode(consoleProgramCodec, { program: "omp-login", providerId: "x", extra: 1 }),
+      ).toThrow();
+      expect(() => decode(consoleProgramCodec, ["omp-login"])).toThrow();
+      expect(() => decode(consoleProgramCodec, "omp-login")).toThrow();
+    });
+
+    it("rejects a provider id that could never name a roster row", () => {
+      for (const providerId of ["", " ", "a b", "a\nb", "a\tb", "x".repeat(129)]) {
+        expect(() =>
+          decode(consoleProgramCodec, { program: "omp-login", providerId }),
+        ).toThrow("argument 0.providerId");
+      }
+    });
   });
 
   it("validates image attachments without copying their payload", () => {

@@ -588,6 +588,7 @@ export class MainBackend {
           this.ompPath === null ? null : readModelSelectorError({ ompPath: this.ompPath, cwd, selector }),
         readModelCatalog: () => readModelCatalog({ ompPath: this.ompPath }),
         getOmpPath: () => this.ompPath,
+        listTerminalLoginProviderIds: () => this.providerOAuth.terminalLoginProviderIds(),
         getSessionsRoot: () => this.sessionsRoot,
         getArchiveRoot: () => this.archiveRoot,
         getWorktreesRoot: () => this.worktreesRoot,

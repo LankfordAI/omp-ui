@@ -49,6 +49,44 @@ vi.mock("../lib/platform", () => ({
   IS_WINDOWS: false,
 }));
 
+// The Providers page's terminal sign-in dialog (#1197) builds a real xterm;
+// the terminal-login tests drive it through the store, so one shared mock
+// (same shape as ShellDrawer.test.tsx) keeps every other test untouched.
+vi.mock("@xterm/xterm", () => ({
+  Terminal: class TerminalMock {
+    cols = 80;
+    rows = 24;
+    options: Record<string, unknown> = {};
+    open() {}
+    loadAddon() {}
+    onData() {
+      return { dispose() {} };
+    }
+    write() {}
+    refresh() {}
+    reset() {}
+    focus() {}
+    dispose() {}
+  },
+}));
+vi.mock("@xterm/addon-fit", () => ({
+  FitAddon: class FitAddonMock {
+    fit() {}
+  },
+}));
+vi.mock("@xterm/addon-web-links", () => ({ WebLinksAddon: class WebLinksAddonMock {} }));
+vi.mock("@xterm/addon-webgl", () => ({
+  WebglAddon: class WebglAddonMock {
+    onContextLoss() {}
+    dispose() {}
+  },
+}));
+class ResizeObserverStub {
+  observe() {}
+  disconnect() {}
+}
+(globalThis as Record<string, unknown>).ResizeObserver = ResizeObserverStub;
+
 (globalThis as Record<string, unknown>).IS_REACT_ACT_ENVIRONMENT = true;
 
 const idleOmpUpdate: OmpUpdateState = {
@@ -327,6 +365,11 @@ const backendMock = {
   submitProviderOAuthInput: vi.fn(async () => {}),
   cancelProviderOAuth: vi.fn(async () => {}),
   signOutProviderOAuth: vi.fn(async (): Promise<ProviderSignOutResult> => ({ rows: [], remainingSource: null })),
+  // Console-drawer channels the terminal sign-in dialog rides (#1197).
+  shellSpawn: vi.fn(async () => {}),
+  shellWrite: vi.fn(),
+  shellResize: vi.fn(),
+  shellKill: vi.fn(),
 };
 Object.assign(window, { ompBackend: backendMock });
 
@@ -2227,6 +2270,9 @@ describe("Settings Providers page subscriptions (issue #368)", () => {
       activeTabId: null,
       appUpdate: appUpdateState({}),
       ompUpdate: idleOmpUpdate,
+      // Terminal sign-ins key their exit state by the synthetic PTY id
+      // (#1197); a previous test's exit must not close this one's dialog.
+      shellExited: {},
     });
   };
 
@@ -2343,6 +2389,79 @@ describe("Settings Providers page subscriptions (issue #368)", () => {
     expect(document.body.textContent).toContain("signed in");
     expect(document.body.textContent).not.toContain("terminal login");
     expect(buttonWithText("sign out")).not.toBeNull();
+  });
+
+  // The terminal sign-in path (issue #1197): the row's action opens the PTY
+  // dialog through the console channels; exit 0 re-reads the rows and closes.
+  const antigravityRow = (patch: Partial<ProviderOAuthStatus> = {}): ProviderOAuthStatus =>
+    oauthRow({
+      id: "google-antigravity",
+      providerId: "google-antigravity",
+      label: "Google Antigravity",
+      requiresTerminalLogin: true,
+      ...patch,
+    });
+  const LOGIN_PTY = "provider-login:google-antigravity";
+
+  it("offers terminal sign-in only on risk-warning rows (#1197)", async () => {
+    seedProviders([antigravityRow(), oauthRow()]);
+    await renderSettings();
+    expect(buttonWithText("Sign in in terminal")).not.toBeNull();
+    expect(buttonWithText("Sign in")).not.toBeNull();
+    // The plain row keeps the RPC button; the risk row has no RPC button.
+    const rows = [...document.body.querySelectorAll("div")].filter((d) =>
+      d.textContent?.includes("terminal login"),
+    );
+    expect(rows.length).toBeGreaterThan(0);
+  });
+
+  it("opens a terminal that spawns `omp login <providerId>` and refreshes on exit 0 (#1197)", async () => {
+    seedProviders([antigravityRow()]);
+    await renderSettings();
+    click(buttonWithText("Sign in in terminal")!);
+    expect(backendMock.shellSpawn).toHaveBeenCalledWith(
+      LOGIN_PTY,
+      expect.any(String),
+      expect.any(Number),
+      expect.any(Number),
+      { program: "omp-login", providerId: "google-antigravity" },
+    );
+    expect(document.body.textContent).toContain("Sign in to Google Antigravity in a terminal");
+    // omp's flow is answered by the user in the terminal, never by omp-ui.
+    expect(backendMock.shellWrite).not.toHaveBeenCalled();
+    expect(backendMock.startProviderOAuth).not.toHaveBeenCalled();
+
+    // Exit 0: re-read the rows (now signed in) and close the dialog.
+    const signedInRows = [
+      antigravityRow({ credentials: [{ ...credential, provider: "google-antigravity" }] }),
+    ];
+    backendMock.readProviderOAuth.mockResolvedValueOnce(signedInRows);
+    await act(async () => {
+      useStore.setState((s) => ({ shellExited: { ...s.shellExited, [LOGIN_PTY]: 0 } }));
+    });
+    expect(backendMock.readProviderOAuth).toHaveBeenCalledTimes(2);
+    expect(document.body.textContent).toContain("signed in");
+    expect(document.body.textContent).not.toContain("Sign in to Google Antigravity");
+    expect(backendMock.shellKill).toHaveBeenCalledWith(LOGIN_PTY);
+  });
+
+  it("keeps the output and offers retry/close on a failed exit, killing the PTY on close (#1197)", async () => {
+    seedProviders([antigravityRow()]);
+    await renderSettings();
+    click(buttonWithText("Sign in in terminal")!);
+    // Drain the spawn's own clearShellExited before staging the exit code.
+    await act(async () => {});
+    await act(async () => {
+      useStore.setState((s) => ({ shellExited: { ...s.shellExited, [LOGIN_PTY]: 1 } }));
+    });
+    expect(document.body.textContent).toContain("login exited");
+    expect(backendMock.readProviderOAuth).toHaveBeenCalledTimes(1);
+    // Retry re-spawns the same program without a fresh dialog.
+    click(buttonWithText("retry")!);
+    expect(backendMock.shellSpawn).toHaveBeenCalledTimes(2);
+    click(buttonWithText("close")!);
+    expect(document.body.textContent).not.toContain("Sign in to Google Antigravity");
+    expect(backendMock.shellKill).toHaveBeenCalledWith(LOGIN_PTY);
   });
 
   it("renders the input phase and submits the pasted redirect URL", async () => {

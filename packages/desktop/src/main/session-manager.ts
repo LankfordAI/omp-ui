@@ -338,6 +338,12 @@ export interface SessionManagerDependencies {
   /** The owner's `omp models` chat catalog for fleet model choice (#956); absent = unreadable. */
   readModelCatalog?: () => Promise<ModelCatalogSnapshot>;
   getOmpPath: () => string | null;
+  /**
+   * The provider ids whose sign-in must run in a terminal (issue #1197); the
+   * console ShellHost admits an `omp login` spawn only for one of these. Absent
+   * (a host without a provider catalog) means no login spawn is ever allowed.
+   */
+  listTerminalLoginProviderIds?: () => readonly string[];
   getSessionsRoot: () => string;
   getArchiveRoot: () => string;
   getWorktreesRoot: () => string;
@@ -494,6 +500,7 @@ export class SessionManager {
       getOmpPath: deps.getOmpPath,
       send: deps.send,
       getOmpModelArg: () => gateSelector(this.gate),
+      listTerminalLoginProviderIds: deps.listTerminalLoginProviderIds,
     });
     this.browserPanes = new BrowserPaneHost({
       send: deps.send,

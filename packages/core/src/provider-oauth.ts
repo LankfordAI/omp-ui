@@ -79,6 +79,19 @@ export class ProviderOAuth {
     }));
   }
 
+  /**
+   * The discovered provider ids whose sign-in must run in a terminal (issue
+   * #1197). Main hands this to the console ShellHost so an `omp login` spawn is
+   * admitted only for a row omp itself flagged; before the first refresh the
+   * list is static-catalog-only, which contains no risk rows — a refusal there
+   * is safe (the row UI shows the terminal command regardless).
+   */
+  terminalLoginProviderIds(): string[] {
+    return this.#specs
+      .filter((spec) => spec.requiresTerminalLogin === true)
+      .map((spec) => spec.providerId);
+  }
+
   /** Any stored credential, not discovery's broader authenticated flag, satisfies the existing spawn gate. */
   hasModelAccount(): boolean {
     for (const accounts of this.#accounts.values()) {
