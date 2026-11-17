@@ -82,6 +82,14 @@ export const PROVIDER_KEY_SPECS: readonly ProviderKeySpec[] = [
     group: "models",
     env: "SINGULARITYAPI_TECH_API_KEY",
   },
+  { id: "chutes", label: "Chutes", group: "models", env: "CHUTES_API_KEY" },
+  { id: "otari", label: "Otari", group: "models", env: "OTARI_API_KEY", hint: "api.otari.ai" },
+  // omp serves the Liquid and Nace decision models as `judge` models.
+  { id: "liquid", label: "Liquid AI (judges)", group: "models", env: "LIQUID_API_KEY", hint: "console.liquid.ai" },
+  { id: "nace", label: "Nace Drex (judges)", group: "models", env: "NACE_API_KEY", hint: "console.nace.ai" },
+  // omp reads the combined `wk-<id>.ws-<secret>` proxy token; MODAL_BASE_URL is
+  // an endpoint config, not a credential, so it stays out of the catalog.
+  { id: "modal", label: "Modal", group: "models", env: "MODAL_PROXY_TOKEN" },
   { id: "yolo-auto", label: "Yolo-Auto", group: "models", env: "YOLO_AUTO_API_KEY" },
   { id: "abliteration", label: "Abliteration", group: "models", env: "ABLITERATION_API_KEY" },
   { id: "typesafe", label: "TypeSafe Jev", group: "models", env: "TYPESAFE_API_KEY" },
@@ -91,6 +99,7 @@ export const PROVIDER_KEY_SPECS: readonly ProviderKeySpec[] = [
   { id: "perplexity", label: "Perplexity", group: "search", env: "PERPLEXITY_API_KEY" },
   { id: "firecrawl", label: "Firecrawl", group: "search", env: "FIRECRAWL_API_KEY" },
   { id: "tinyfish", label: "TinyFish", group: "search", env: "TINYFISH_API_KEY" },
+  { id: "sofya", label: "Sofya", group: "search", env: "SOFYA_API_KEY" },
 ];
 
 /** Every variable name this feature reads, in spec order (primary then alternates). */
