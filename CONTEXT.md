@@ -525,7 +525,7 @@ The status bar atop an rpc-ui tab: liveness, the session title as a menu
 button, status chips, and a gauge chip. The title menu
 holds rename and retitle, the View toggles (console, browser pane, device pane), Session
 actions (branch, session tree, new session, compact now), Share actions
-(export HTML, encrypted snapshot, redacted copy), Capabilities, queue modes and
+(export HTML, encrypted snapshot, redacted copy, share live), Capabilities, queue modes and
 retry, and refresh. The gauge chip shows context fill and whole-session spend;
 its popover holds the context meter, compact now, the auto-compact switch, the
 spend breakdown, quota windows, the advisor readout and roster, and extension

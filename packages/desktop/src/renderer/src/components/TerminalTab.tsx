@@ -79,6 +79,10 @@ export const TerminalTab = memo(function TerminalTab({ tabId, active }: { tabId:
   const font = useFontFamily();
   const exitCode = useStore((s) => s.exited[tabId]);
   const resumeDead = useStore((s) => s.resumeDead);
+  // Live-share entry (issue #686): the corner shows the share button until a
+  // room hosts, then CollabChip takes over the same slot.
+  const shareLive = useStore((s) => s.openShareLive);
+  const sharing = useStore((s) => s.collab[tabId]?.kind === "sharing");
   // #872: omp --restore continues the interrupted turn, but only once the
   // session has a materialized transcript to continue — without a session id
   // there is nothing to restore.
@@ -396,7 +400,21 @@ export const TerminalTab = memo(function TerminalTab({ tabId, active }: { tabId:
         className="absolute right-3 top-3 z-10 flex items-center gap-2"
         onMouseDown={(event) => event.preventDefault()}
       >
-        <CollabChip tabId={tabId} />
+        {sharing ? (
+          <CollabChip tabId={tabId} />
+        ) : (
+          exitCode === undefined && (
+            <Button
+              variant="outline"
+              tone="neutral"
+              className="bg-surface/90 backdrop-glass max-[899px]:h-11 max-[899px]:px-3"
+              title={t("terminal.tab.shareLiveTitle")}
+              onClick={() => shareLive(tabId)}
+            >
+              {t("terminal.tab.shareLive")}
+            </Button>
+          )
+        )}
         <Button
           variant="outline"
           tone="neutral"
