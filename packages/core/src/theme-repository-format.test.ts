@@ -1,11 +1,17 @@
 import { describe, expect, it } from "vitest";
 import {
+  EMPTY_THEME_META,
   THEME_INDEX_ENTRIES_MAX,
   THEME_REPOSITORIES_MAX,
+  effectiveThemeRepositories,
+  parseThemeDetails,
   parseThemeIndex,
+  parseThemeIndexV2,
   parseThemeRepositories,
   parseThemeRepositoryRef,
   sameThemeSeeds,
+  themeDetailsFile,
+  themeSlug,
 } from "./theme-repository-format";
 
 const entry = (path: string, label = "Dusk"): Record<string, unknown> => ({
@@ -60,8 +66,14 @@ describe("parseThemeIndex", () => {
     expect(result).toEqual({
       ok: true,
       entries: [
-        { path: "themes/dusk.json", label: "Dusk", seeds: { canvas: "#1a1b26" }, backdrop: "scene" },
-        { path: "dawn.json", label: "Dawn", seeds: { canvas: "#ffffff", accents: { signal: "#066544" } }, backdrop: null },
+        { path: "themes/dusk.json", label: "Dusk", seeds: { canvas: "#1a1b26" }, backdrop: "scene", meta: EMPTY_THEME_META },
+        {
+          path: "dawn.json",
+          label: "Dawn",
+          seeds: { canvas: "#ffffff", accents: { signal: "#066544" } },
+          backdrop: null,
+          meta: EMPTY_THEME_META,
+        },
       ],
     });
   });
@@ -102,6 +114,125 @@ describe("parseThemeIndex", () => {
     const at = Array.from({ length: THEME_INDEX_ENTRIES_MAX }, (_, i) => entry(`t${i}.json`));
     expect(parseThemeIndex(index(at)).ok).toBe(true);
     expect(parseThemeIndex(index([...at, entry("over.json")])).ok).toBe(false);
+  });
+});
+
+const indexV2 = (themes: unknown[], extra: Record<string, unknown> = {}): string =>
+  JSON.stringify({ format: "omp-ui-theme-index", version: 2, themes, ...extra });
+
+describe("parseThemeIndexV2", () => {
+  it("ignores unknown root and entry keys and reads the details", () => {
+    const result = parseThemeIndexV2(
+      indexV2(
+        [
+          {
+            ...entry("themes/dusk.json"),
+            tags: ["cool", "abstract"],
+            author: "LankfordAI",
+            description: "  Night  ",
+            added: "2026-11-17",
+            featured: true,
+            rating: 5,
+          },
+        ],
+        { generator: "tool" },
+      ),
+    );
+    expect(result).toEqual({
+      ok: true,
+      entries: [
+        {
+          path: "themes/dusk.json",
+          label: "Dusk",
+          seeds: { canvas: "#1a1b26" },
+          backdrop: null,
+          meta: { tags: ["cool", "abstract"], author: "LankfordAI", description: "Night", added: "2026-11-17", featured: true },
+        },
+      ],
+    });
+  });
+
+  it("keeps an entry whose optional fields are invalid, with their defaults", () => {
+    const result = parseThemeIndexV2(
+      indexV2([{ ...entry("a.json"), tags: "cool", author: "-bad-", description: "", added: "17/11/2026", featured: "yes" }]),
+    );
+    expect(result.ok && result.entries[0]!.meta).toEqual(EMPTY_THEME_META);
+  });
+
+  it("drops a duplicate and a seventh tag", () => {
+    const result = parseThemeIndexV2(
+      indexV2([{ ...entry("a.json"), tags: ["a", "b", "a", "c", "d", "e", "f", "g", "Bad Tag"] }]),
+    );
+    expect(result.ok && result.entries[0]!.meta.tags).toEqual(["a", "b", "c", "d", "e", "f"]);
+  });
+
+  it("fails an entry whose required field is invalid", () => {
+    expect(parseThemeIndexV2(indexV2([{ ...entry("a.json"), seeds: { canvas: "red" } }]))).toEqual({
+      ok: false,
+      message: "theme index entry 1 is invalid",
+    });
+  });
+
+  it("names a newer version and refuses version 1", () => {
+    expect(parseThemeIndexV2(JSON.stringify({ format: "omp-ui-theme-index", version: 3, themes: [] }))).toEqual({
+      ok: false,
+      message: "this theme repository needs a newer omp-ui",
+    });
+    expect(parseThemeIndexV2(index([]))).toEqual({ ok: false, message: "the theme index is malformed" });
+  });
+});
+
+const details = (patch: Record<string, unknown> = {}): string =>
+  JSON.stringify({ format: "omp-ui-theme-details", version: 1, tags: ["cool"], description: "Night", ...patch });
+
+describe("parseThemeDetails", () => {
+  it("accepts a file with and without an author", () => {
+    expect(parseThemeDetails(details())).toEqual({ ok: true, details: { tags: ["cool"], description: "Night", author: null } });
+    expect(parseThemeDetails(details({ author: "someone" }))).toMatchObject({ ok: true, details: { author: "someone" } });
+  });
+
+  it.each([
+    ["zero tags", details({ tags: [] })],
+    ["a tag failing the slug", details({ tags: ["Cool"] })],
+    ["a duplicate tag", details({ tags: ["cool", "cool"] })],
+    ["an empty description", details({ description: "   " })],
+    ["an unknown key", details({ extra: 1 })],
+    ["an invalid author", details({ author: "a b" })],
+    ["a comment", `// hi\n${details()}`],
+  ])("refuses %s", (_name, text) => {
+    expect(parseThemeDetails(text)).toEqual({ ok: false, message: "the theme details file is malformed" });
+  });
+
+  it("names another format and a newer version", () => {
+    expect(parseThemeDetails(details({ format: "omp-ui-theme" }))).toMatchObject({
+      message: "this is not an omp-ui theme details file",
+    });
+    expect(parseThemeDetails(details({ version: 2 }))).toMatchObject({ message: "this theme details file needs a newer omp-ui" });
+  });
+
+  it("round-trips themeDetailsFile output", () => {
+    for (const value of [
+      { tags: ["cool", "warm"], description: "Two", author: "LankfordAI" },
+      { tags: ["cool"], description: "One", author: null },
+    ]) {
+      expect(parseThemeDetails(themeDetailsFile(value))).toEqual({ ok: true, details: value });
+    }
+  });
+});
+
+describe("themeSlug", () => {
+  it("turns a label into a file slug", () => {
+    expect(themeSlug("Sakura Fuji (dark)")).toBe("sakura-fuji-dark");
+    expect(themeSlug("桜")).toBe("");
+    expect(themeSlug(`${"a".repeat(63)} b`)).toBe("a".repeat(63));
+  });
+});
+
+describe("effectiveThemeRepositories", () => {
+  it("puts the official repository first while enabled, once, and omits it while off", () => {
+    expect(effectiveThemeRepositories(["o/r"], true)).toEqual(["lankfordai/omp-ui-themes", "o/r"]);
+    expect(effectiveThemeRepositories(["o/r", "lankfordai/omp-ui-themes"], true)).toEqual(["o/r", "lankfordai/omp-ui-themes"]);
+    expect(effectiveThemeRepositories(["o/r"], false)).toEqual(["o/r"]);
   });
 });
 

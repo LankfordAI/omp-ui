@@ -8,7 +8,7 @@ import {
   type ThemeRepositoryFetch,
   type ThemeRepositoryResponse,
 } from "./theme-repository";
-import type { ThemeIndexEntry } from "./theme-repository-format";
+import { EMPTY_THEME_META, type ThemeIndexEntry } from "./theme-repository-format";
 
 const REPO = "owner/themes";
 const COMMIT = "c".repeat(40);
@@ -106,7 +106,9 @@ describe("fetchThemeRepositoryListing", () => {
       listing: {
         repository: REPO,
         commit: COMMIT,
-        themes: [{ ...INDEX_ENTRY, blob: gitBlobSha(encode(themeText)), size: encode(themeText).length }],
+        themes: [
+          { ...INDEX_ENTRY, meta: EMPTY_THEME_META, blob: gitBlobSha(encode(themeText)), size: encode(themeText).length },
+        ],
         skipped: 0,
       },
     });
@@ -197,6 +199,30 @@ describe("fetchThemeRepositoryListing", () => {
     });
   });
 
+  it("lists from the v2 index when the tree has both, carrying its tags", async () => {
+    const v2 = JSON.stringify({
+      format: "omp-ui-theme-index",
+      version: 2,
+      themes: [{ ...INDEX_ENTRY, tags: ["cool"], future: 1 }],
+    });
+    const { fetch, calls } = fakeFetch(
+      repository({ "omp-ui-themes.json": indexText(), "omp-ui-themes.v2.json": v2, "themes/dusk.json": themeText }),
+    );
+    const result = await fetchThemeRepositoryListing(REPO, null, fetch, () => NOW);
+    expect(result.ok && result.listing.themes.map((t) => t.meta.tags)).toEqual([["cool"]]);
+    expect(calls.map((c) => c.url)).not.toContain(rawUrl("omp-ui-themes.json"));
+  });
+
+  it("refuses a malformed v2 index rather than falling back to a valid v1", async () => {
+    const { fetch } = fakeFetch(
+      repository({ "omp-ui-themes.json": indexText(), "omp-ui-themes.v2.json": "{", "themes/dusk.json": themeText }),
+    );
+    expect(await fetchThemeRepositoryListing(REPO, null, fetch, () => NOW)).toEqual({
+      ok: false,
+      message: "the theme index is malformed",
+    });
+  });
+
   it("counts entries missing from the tree or over 6 MiB as skipped", async () => {
     const themes = [INDEX_ENTRY, { ...INDEX_ENTRY, path: "gone.json" }, { ...INDEX_ENTRY, path: "huge.json" }];
     const { fetch } = fakeFetch(
@@ -212,7 +238,12 @@ describe("fetchThemeRepositoryListing", () => {
 });
 
 describe("fetchRepositoryThemeFile", () => {
-  const listed = { ...INDEX_ENTRY, blob: gitBlobSha(encode(themeText)), size: encode(themeText).length };
+  const listed = {
+    ...INDEX_ENTRY,
+    meta: EMPTY_THEME_META,
+    blob: gitBlobSha(encode(themeText)),
+    size: encode(themeText).length,
+  };
 
   it("returns the file at the pinned commit when its blob matches", async () => {
     const { fetch } = fakeFetch({ [rawUrl("themes/dusk.json")]: { body: themeText } });
@@ -229,7 +260,13 @@ describe("fetchRepositoryThemeFile", () => {
 });
 
 describe("repositoryThemeMismatch", () => {
-  const indexEntry: ThemeIndexEntry = { path: "a.json", label: "Dusk", seeds: { canvas: "#1a1b26" }, backdrop: "scene" };
+  const indexEntry: ThemeIndexEntry = {
+    path: "a.json",
+    label: "Dusk",
+    seeds: { canvas: "#1a1b26" },
+    backdrop: "scene",
+    meta: EMPTY_THEME_META,
+  };
   const scene = Buffer.from('<svg xmlns="http://www.w3.org/2000/svg"></svg>').toString("base64");
   const png = Buffer.from([0x89, 0x50, 0x4e, 0x47, 0, 0, 0, 0]).toString("base64");
   const draft = (patch: Partial<StoredThemeDraft> = {}): StoredThemeDraft => ({

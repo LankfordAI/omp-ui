@@ -3,10 +3,11 @@ import type { WebhookSecretReveal } from "@omp-ui/core/webhook";
 import type { McpTokenReveal } from "@omp-ui/core/mcp-endpoint";
 import { STORED_THEMES_MAX, type ThemeSource } from "@omp-ui/core/theme";
 import { sourceFromDraft, type SaveStoredThemeResult } from "@omp-ui/core/theme-file";
-import type {
-  RepositoryThemeBackdropResult,
-  ThemeRepositoryAddResult,
-  ThemeRepositoryListingResult,
+import {
+  EMPTY_THEME_META,
+  type RepositoryThemeBackdropResult,
+  type ThemeRepositoryAddResult,
+  type ThemeRepositoryListingResult,
 } from "@omp-ui/core/theme-repository-format";
 import { act } from "react";
 import { createRoot, type Root } from "react-dom/client";
@@ -3246,6 +3247,7 @@ describe("Settings Appearance page Theme repositories (#1178)", () => {
     backdrop,
     blob,
     size: 100,
+    meta: EMPTY_THEME_META,
   });
   const LISTING: ThemeRepositoryListingResult = {
     ok: true,

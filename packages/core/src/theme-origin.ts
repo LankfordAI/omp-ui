@@ -6,6 +6,8 @@ import { isObject } from "./guards";
 export const THEME_REPOSITORY_ID =
   /^[a-z0-9](?:[a-z0-9-]{0,37}[a-z0-9])?\/(?!\.\.?$)(?!.*\.git$)[a-z0-9._-]{1,100}$/;
 export const GIT_SHA = /^[0-9a-f]{40}$/;
+/** The repository omp-ui bundles themes from and lists without being added (#1209). */
+export const OFFICIAL_THEME_REPOSITORY = "lankfordai/omp-ui-themes";
 /** Relative POSIX path of a .json file; no segment starts with "." (no "..", no hidden files). */
 const THEME_PATH = /^[A-Za-z0-9_-][A-Za-z0-9._-]*(?:\/[A-Za-z0-9_-][A-Za-z0-9._-]*)*\.json$/;
 const THEME_PATH_MAX = 200;
