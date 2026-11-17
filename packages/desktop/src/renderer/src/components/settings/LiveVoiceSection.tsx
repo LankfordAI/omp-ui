@@ -1,6 +1,8 @@
 import { useEffect, useState } from "react";
 import type { OmpSettingEntry, OmpSettingValue } from "@omp-ui/core/types";
 import { LIVE_VOICE_SETTING_GROUP } from "@omp-ui/core/omp-settings-keys";
+import { speechSpeedBand } from "../../lib/live-voice";
+import { useStore } from "../../store";
 import { useT } from "../../lib/i18n";
 import { Label } from "../ui";
 import { CommitField, Row, SettingControl, layerBadge } from "./rows";
@@ -142,14 +144,13 @@ export function LiveVoiceSection({
   );
 }
 
-const SPEED_MIN = 0.5;
-const SPEED_MAX = 2.5;
-
 /**
  * One local-speech-rate row (issue #836). omp clamps at synthesis time but
  * stores whatever was written, so the draft is clamped here too and the
- * config file keeps the value the user actually meant. Empty/non-finite
- * reverts, mirroring SettingControl's number rule.
+ * config file keeps the value the user actually meant. The band follows the
+ * installed omp: Phonon (18.21.0+) silently speaks outside 0.8–1.3 at the
+ * edge, so a wider saved value lies about what the user hears (issue #1198).
+ * Empty/non-finite reverts, mirroring SettingControl's number rule.
  */
 function SpeedRow({
   entry,
@@ -160,10 +161,12 @@ function SpeedRow({
   pendingKey: string | null;
   commit: (key: string, value: OmpSettingValue) => void;
 }) {
+  const installedVersion = useStore((s) => s.ompUpdate.installedVersion);
+  const { min, max } = speechSpeedBand(installedVersion);
   const onCommit = (raw: string): void => {
     const value = Number(raw);
     if (raw.trim() === "" || !Number.isFinite(value)) return;
-    commit(entry.key, Math.min(SPEED_MAX, Math.max(SPEED_MIN, value)));
+    commit(entry.key, Math.min(max, Math.max(min, value)));
   };
   return (
     <Row
