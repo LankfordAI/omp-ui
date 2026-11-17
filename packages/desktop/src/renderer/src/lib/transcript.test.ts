@@ -2740,3 +2740,93 @@ describe("parseShellFork / shellOutputFields fork (issue #1205)", () => {
     expect("fork" in shellOutputFields({ output: "hi\n" })).toBe(false);
   });
 });
+
+describe("ask answer details (issue #1203)", () => {
+  function asked(details: unknown, name = "ask") {
+    const content = [{ type: "text", text: "User answers:\n..." }];
+    const live = reduceEvent(
+      [{ kind: "tool", id: "a1", toolCallId: "ask1", name, args: { html: "<form></form>" }, status: "running" }],
+      { type: "tool_execution_end", toolCallId: "ask1", toolName: name, isError: false, result: { content, details } },
+    );
+    const history = historyToItems([
+      { role: "assistant", content: [{ type: "toolCall", id: "ask1", name, arguments: { html: "<form></form>" } }] },
+      { role: "toolResult", toolCallId: "ask1", toolName: name, isError: false, content, details },
+    ]);
+    return [tool(live, "ask1")!, tool(history, "ask1")!];
+  }
+
+  it("reads the 18.18.3+ answers/notes/timedOut shape", () => {
+    const details = {
+      answers: [
+        { name: "db", question: "Session store", answer: "SQLite" },
+        { name: "ttl", question: "Lifetime (days)", answer: 30 },
+        { name: "tags", question: "Tags", answer: ["a", "b"] },
+        { name: "skip", question: "Optional", answer: "" },
+      ],
+      notes: [{ name: "db", question: "Session store", option: "SQLite", value: "sqlite", text: "one file" }],
+      timedOut: true,
+    };
+    for (const item of asked(details)) {
+      expect(item.askFacts).toEqual({
+        answers: [
+          { name: "db", question: "Session store", answer: "SQLite" },
+          { name: "ttl", question: "Lifetime (days)", answer: "30" },
+          { name: "tags", question: "Tags", answer: ["a", "b"] },
+          { name: "skip", question: "Optional", answer: "" },
+        ],
+        notes: [{ name: "db", option: "SQLite", text: "one file" }],
+        timedOut: true,
+      });
+    }
+  });
+
+  it("normalizes the pre-18.18.3 single-question shape", () => {
+    const details = {
+      question: "Which retry?",
+      options: ["none", "backoff"],
+      multi: false,
+      selectedOptions: ["backoff"],
+      customInput: " jittered backoff ",
+      note: "keeps tests fast",
+      noteOption: "backoff",
+      timedOut: true,
+    };
+    for (const item of asked(details)) {
+      expect(item.askFacts).toEqual({
+        answers: [{ name: "", question: "Which retry?", answer: ["backoff", "jittered backoff"] }],
+        notes: [{ name: "", option: "backoff", text: "keeps tests fast" }],
+        timedOut: true,
+      });
+    }
+  });
+
+  it("normalizes the pre-18.18.3 results[] shape and folds per-question timeouts", () => {
+    const details = {
+      results: [
+        { id: "q1", question: "One?", options: [], multi: false, selectedOptions: ["yes"] },
+        { id: "q2", question: "Two?", options: [], multi: true, selectedOptions: [] },
+      ],
+    };
+    for (const item of asked(details)) {
+      expect(item.askFacts).toEqual({
+        answers: [
+          { name: "q1", question: "One?", answer: ["yes"] },
+          { name: "q2", question: "Two?", answer: [] },
+        ],
+        timedOut: false,
+      });
+    }
+  });
+
+  it.each([undefined, {}, { answers: "foreign" }, { answers: [null, { answer: "x" }] }, { results: [{ options: [] }] }])(
+    "leaves cards undecorated for malformed or questionless details %j",
+    (details) => {
+      for (const item of asked(details)) expect("askFacts" in item).toBe(false);
+    },
+  );
+
+  it("does not interpret another tool's answers as ask facts", () => {
+    const details = { answers: [{ name: "x", question: "Q", answer: "A" }] };
+    for (const item of asked(details, "web_search")) expect("askFacts" in item).toBe(false);
+  });
+});

@@ -12,7 +12,7 @@ import { arrField, strArrayField, strField } from "../lib/fields";
 import { editErrorKindLabel } from "../lib/edit-rejections";
 import type { ThemedToken } from "shiki/core";
 import { localeTag, useT, type MessageKey } from "../lib/i18n";
-import type { AdvisorNote, RecordedTaskFile, ToolItem } from "../lib/transcript";
+import type { AdvisorNote, AskFacts, RecordedTaskFile, ToolItem } from "../lib/transcript";
 import { cwdText } from "../lib/transcript";
 import { pathFromArgs } from "../lib/tool-groups";
 import { isPlanArtifactPath } from "@omp-ui/core/plan";
@@ -381,6 +381,18 @@ function ToolArgs({ name, args }: { name: string; args: unknown }) {
     args !== null && typeof args === "object" && !Array.isArray(args) ? Object.entries(args) : [];
   const argsJson = useMemo(() => jsonText(args), [args]);
 
+  // `ask` args are a whole HTML form (18.18.3+) or a question list (before):
+  // neither reads as a key/value row, so the raw payload lives only behind the
+  // all-arguments disclosure and the answered card body carries the substance
+  // (issue #1203).
+  if (name === "ask" && entries.length > 0) {
+    return (
+      <Disclosure summary={<Label>{t("transcript.tool.allArguments")}</Label>}>
+        <CodeSlab code={argsJson} lang="json" className="mt-1 max-h-48" />
+      </Disclosure>
+    );
+  }
+
   if (kind === "bash") {
     const command = strField(args, "command") ?? strField(args, "cmd");
     if (command) return <Slab className="max-h-32 text-ink">{linkify(command)}</Slab>;
@@ -556,6 +568,58 @@ function TaskStages({ rows }: { rows: TaskStageRow[] }) {
           </ol>
         </div>
       ))}
+    </div>
+  );
+}
+
+/**
+ * `ask` answered body (issue #1203): each named field's question over its
+ * submitted answer — picks as a list, multi-select arrays one row per pick,
+ * an empty or skipped field dimmed — then the notes attached to chosen options
+ * and the timeout note, mirroring omp's own renderer.
+ */
+function AskAnswers({ facts }: { facts: AskFacts }) {
+  const t = useT();
+  return (
+    <div className="space-y-2">
+      {facts.answers.map((answer, i) => {
+        const picks = Array.isArray(answer.answer) ? answer.answer : null;
+        const text = typeof answer.answer === "string" && answer.answer !== "" ? answer.answer : null;
+        return (
+          <div key={i} className="min-w-0 space-y-1">
+            <div className="text-sm text-ink">{linkify(answer.question)}</div>
+            {picks !== null && picks.length > 0 ? (
+              <ul className="space-y-0.5">
+                {picks.map((pick, n) => (
+                  <li key={n} className="flex min-w-0 items-baseline gap-1.5">
+                    <CheckGlyph />
+                    <span className="min-w-0 text-ink [overflow-wrap:anywhere]">{linkify(pick)}</span>
+                  </li>
+                ))}
+              </ul>
+            ) : text !== null ? (
+              <div className="flex min-w-0 items-baseline gap-1.5">
+                <CheckGlyph />
+                <span className="min-w-0 text-ink [overflow-wrap:anywhere]">{linkify(text)}</span>
+              </div>
+            ) : (
+              <div className="text-xs text-ink-faint">{t("transcript.tool.askNoAnswer")}</div>
+            )}
+            {(facts.notes ?? [])
+              .filter((note) => note.name === answer.name)
+              .map((note, n) => (
+                <div key={n} className="min-w-0 text-xs text-ink-dim [overflow-wrap:anywhere]">
+                  <span className="text-ink-faint">{"\u270E "}</span>
+                  {note.option.length > 0 ? `${note.option}: ` : ""}
+                  {linkify(note.text)}
+                </div>
+              ))}
+          </div>
+        );
+      })}
+      {facts.timedOut && (
+        <div className="text-xs text-ink-faint">{t("transcript.tool.askTimedOut")}</div>
+      )}
     </div>
   );
 }
@@ -815,6 +879,11 @@ export function ToolCard({ item, tabId }: { item: ToolItem; tabId?: string }) {
           </span>
         )}
         {planWrite && <Chip tone="iris">{t("transcript.tool.plan")}</Chip>}
+        {item.askFacts?.timedOut === true && (
+          <Chip tone="copper" title={t("transcript.tool.askTimedOut")}>
+            {t("transcript.tool.askTimedOutChip")}
+          </Chip>
+        )}
         {item.status === "running" && <RunningChip streamStallMs={streamStallMs} />}
         {item.status === "error" && item.errorKind !== undefined && (
           <Chip tone="rose" title={t("transcript.tool.errorKindTitle", { kind: item.errorKind })}>
@@ -849,6 +918,14 @@ export function ToolCard({ item, tabId }: { item: ToolItem; tabId?: string }) {
       {open && hasBody && (
         <div className="space-y-2 border-t border-line-soft px-2.5 py-2">
           <ToolArgs name={item.name} args={item.args} />
+
+          {/* `ask` still open: the dialog owns the interaction; say what the
+              card is waiting for instead of the form source (issue #1203). */}
+          {item.name === "ask" && item.askFacts === undefined && item.status === "running" && (
+            <div className="text-xs text-ink-faint">{t("transcript.tool.askPending")}</div>
+          )}
+
+          {item.askFacts !== undefined && <AskAnswers facts={item.askFacts} />}
 
           {execDir && (
             <div className="flex min-w-0 items-baseline gap-1.5 font-mono text-xs">
@@ -917,7 +994,11 @@ export function ToolCard({ item, tabId }: { item: ToolItem; tabId?: string }) {
 
           <ToolTruncationFacts item={item} />
 
-          {item.resultText !== undefined &&
+          {/* An answered ask's result text is omp's model-facing restatement of the
+              same answers the card body already renders; drop it, as omp's own
+              renderer does. (issue #1203) */}
+          {item.askFacts === undefined &&
+            item.resultText !== undefined &&
             item.resultText !== "" &&
             (longOutput ? (
               <Disclosure

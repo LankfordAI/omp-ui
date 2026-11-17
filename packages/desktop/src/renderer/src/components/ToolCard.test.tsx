@@ -992,3 +992,95 @@ describe("ToolCard web-search provider failures", () => {
     }
   });
 });
+
+describe("ToolCard ask answers (issue #1203)", () => {
+  const html = '<form><fieldset><legend>Session store</legend><input name="db"></fieldset></form>';
+
+  it("renders each question over its submitted answer and hides the raw form source", () => {
+    const { el, root } = renderCard(
+      tool({
+        name: "ask",
+        args: { html },
+        resultText: "User answers:\n{\n  \"db\": \"sqlite\"\n}",
+        askFacts: { answers: [{ name: "db", question: "Session store", answer: "SQLite" }], timedOut: false },
+      }),
+    );
+    const text = el.textContent ?? "";
+    expect(text).toContain("Session store");
+    expect(text).toContain("SQLite");
+    // The form markup never reads inline; it lives only behind the disclosure.
+    expect(text).not.toContain("<form>");
+    expect(text).not.toContain("fieldset");
+    expect(text).toContain("all arguments");
+    // The answered body replaces omp's model-facing restatement.
+    expect(text).not.toContain("User answers:");
+    act(() => root.unmount());
+  });
+
+  it("renders a multi-select answer as a list and marks skipped fields", () => {
+    const { el, root } = renderCard(
+      tool({
+        name: "ask",
+        args: { html },
+        askFacts: {
+          answers: [
+            { name: "tags", question: "Tags", answer: ["retry", "cache"] },
+            { name: "notes", question: "Anything else?", answer: "" },
+          ],
+          timedOut: false,
+        },
+      }),
+    );
+    const items = [...el.querySelectorAll("ul li")].map((li) => li.textContent);
+    expect(items).toEqual(["retry", "cache"]);
+    expect(el.textContent).toContain("Anything else?");
+    expect(el.textContent).toContain("(no answer)");
+    act(() => root.unmount());
+  });
+
+  it("shows option notes under their answer and a timed-out chip on the header", () => {
+    const { el, root } = renderCard(
+      tool({
+        name: "ask",
+        args: { html },
+        askFacts: {
+          answers: [{ name: "db", question: "Session store", answer: "SQLite" }],
+          notes: [{ name: "db", option: "SQLite", text: "one file, no service" }],
+          timedOut: true,
+        },
+      }),
+    );
+    const text = el.textContent ?? "";
+    expect(text).toContain("SQLite: one file, no service");
+    expect(text).toContain("timed out");
+    expect(text).toContain("auto-selected after timeout — not a user choice");
+    act(() => root.unmount());
+  });
+
+  it("a running ask waits with a pending line instead of the form source", () => {
+    const { el, root } = renderCard(
+      tool({ name: "ask", status: "running", args: { html } }),
+    );
+    expect(el.textContent).toContain("Waiting for your answer…");
+    // The form source stays behind the disclosure, never inline.
+    expect(el.textContent).not.toContain("<form>");
+    expect(el.textContent).toContain("all arguments");
+    act(() => root.unmount());
+  });
+
+  it("a legacy ask without parsed facts keeps the ordinary argument views", () => {
+    const { el, root } = renderCard(
+      tool({
+        name: "ask",
+        args: { questions: [{ id: "q1", question: "Which?", options: [{ label: "A" }] }] },
+        resultText: "User answers:\nA",
+      }),
+    );
+    // questions[] is a complex arg: the disclosure carries it, no raw row dump.
+    expect(el.textContent).toContain("all arguments");
+    expect(el.textContent).not.toContain("Which?");
+    // With no parsed facts the result text still shows.
+    expect(el.textContent).toContain("User answers:");
+    act(() => root.unmount());
+  });
+});

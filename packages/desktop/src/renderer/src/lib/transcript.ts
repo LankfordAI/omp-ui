@@ -4,7 +4,7 @@ import { type Annotation } from "./annotations";
 import { splitWireBlockStack } from "./wire-blocks";
 import type { ArtifactReference, ArtifactRefreshEntry } from "@omp-ui/core/artifacts";
 import { assertArtifactUuid } from "@omp-ui/core/artifacts";
-import { boolField, field, isObj, numField, str, strField } from "./fields";
+import { boolField, field, isObj, numField, str, strArrayField, strField } from "./fields";
 import { splitResolvedMentionContext } from "./mentions";
 import { splitDocumentContext, type DocumentRef } from "./document-context";
 import { parseOmpDiff, type DiffRow } from "./omp-diff";
@@ -78,6 +78,31 @@ export interface AssistantItem {
   /** When the turn completed — epoch ms off the assistant message. */
   timestamp?: number;
 }
+/** One question a settled `ask` call received an answer (or skipped) for. */
+export interface AskAnswerRow {
+  /** The form control's `name`; "" when the entry omitted it. */
+  name: string;
+  question: string;
+  /** Submitted answer. An array is a multi-select's picks; "" or [] is a skipped field. */
+  answer: string | string[];
+}
+
+/** A note attached to one chosen option of an answered ask question. */
+export interface AskNoteRow {
+  /** The control name it belongs to; "" when unknown. */
+  name: string;
+  option: string;
+  text: string;
+}
+
+/** `ask` result details normalized across omp versions (issue #1203). */
+export interface AskFacts {
+  answers: AskAnswerRow[];
+  notes?: AskNoteRow[];
+  /** omp's deadline submitted the form's current values, not the user's choice. */
+  timedOut: boolean;
+}
+
 /** One task item's assignment file as omp recorded it at spawn (omp 18.14 `task.file`). */
 export interface RecordedTaskFile {
   /** The item's position in `tasks[]`; 0 for the flat single-spawn shape. */
@@ -131,6 +156,10 @@ export interface ToolItem {
   toolTruncation?: BashToolTruncation;
   /** web_search provider diagnostics decorate the result without changing its verdict. */
   providerFailures?: WebSearchProviderFailure[];
+  /** `ask` submitted answers, normalized across omp versions (issue #1203): the card's
+   *  question→answer body replaces the raw html arg, so this stays present even when
+   *  `notes` is set. Undefined until the call settles (or for malformed details). */
+  askFacts?: AskFacts;
   notes?: AdvisorNote[];
   /** omp-ui vault host tool result details (issue #767): the card and the rail's Vault notes read it. */
   vault?: VaultToolDetails;
@@ -741,6 +770,67 @@ function providerFailuresField(name: string | undefined, details: unknown): Pick
   return providerFailures ? { providerFailures } : {};
 }
 
+/** Submitted value of one modern ask answer: text/number flattened, picks kept as a list. */
+function askAnswerValue(value: unknown): string | string[] {
+  if (typeof value === "string") return value;
+  if (typeof value === "number" || typeof value === "boolean") return String(value);
+  if (Array.isArray(value))
+    return value.filter((v): v is string => typeof v === "string" || typeof v === "number").map(String);
+  return "";
+}
+
+/**
+ * `ask` result details → the card's question→answer facts, across omp shapes
+ * (issue #1203): 18.18.3+ HTML forms report `{ answers: [{ name, question,
+ * answer }], notes?, timedOut? }`; older sessions answer `{ questions }` calls
+ * with one flat `{ question, selectedOptions, customInput, note?, noteOption?,
+ * timedOut? }` or a `results[]` of those. Entries without a question drop; a
+ * details object that describes no question at all (an error result, a chat
+ * redirect) yields nothing and the card stays an ordinary result.
+ */
+function askFactsField(name: string | undefined, details: unknown): Pick<ToolItem, "askFacts"> {
+  if (name !== "ask" || !isObj(details)) return {};
+  if (Array.isArray(details.answers)) {
+    const answers: AskAnswerRow[] = [];
+    for (const entry of details.answers) {
+      if (!isObj(entry)) continue;
+      const question = str(entry.question);
+      if (question === undefined) continue;
+      answers.push({ name: str(entry.name) ?? "", question, answer: askAnswerValue(entry.answer) });
+    }
+    if (answers.length === 0) return {};
+    const notes: AskNoteRow[] = [];
+    for (const entry of Array.isArray(details.notes) ? details.notes : []) {
+      if (!isObj(entry)) continue;
+      const text = str(entry.text);
+      const option = str(entry.option);
+      if (text === undefined || option === undefined) continue;
+      notes.push({ name: str(entry.name) ?? "", option, text });
+    }
+    return {
+      askFacts: { answers, ...(notes.length > 0 ? { notes } : {}), timedOut: details.timedOut === true },
+    };
+  }
+  const answers: AskAnswerRow[] = [];
+  const notes: AskNoteRow[] = [];
+  let timedOut = false;
+  // The flat single-question result and each `results[]` row carry the same fields.
+  for (const row of Array.isArray(details.results) ? details.results : [details]) {
+    if (!isObj(row)) continue;
+    const question = str(row.question);
+    if (question === undefined) continue;
+    const name = str(row.id) ?? "";
+    const picks = strArrayField(row, "selectedOptions");
+    const custom = str(row.customInput)?.trim();
+    answers.push({ name, question, answer: custom ? [...picks, custom] : picks });
+    const noteText = str(row.note);
+    if (noteText !== undefined) notes.push({ name, option: str(row.noteOption) ?? "", text: noteText });
+    if (row.timedOut === true) timedOut = true;
+  }
+  if (answers.length === 0) return {};
+  return { askFacts: { answers, ...(notes.length > 0 ? { notes } : {}), timedOut } };
+}
+
 /** Port of omp's isAdvisorCard — render from details.notes, never the XML. */
 export function isAdvisorMessage(message: Record<string, unknown>): boolean {
   return message.role === "custom" && message.customType === "advisor";
@@ -1259,6 +1349,7 @@ export function reduceEvent(items: RenderItem[], event: unknown): RenderItem[] {
         ...minimizedField(details),
         toolTruncation: toolTruncationField(details).toolTruncation,
         ...providerFailuresField(item?.name ?? str(event.toolName), details),
+        ...askFactsField(item?.name ?? str(event.toolName), details),
       };
       if (idx === -1) {
         const id = toolCallId ?? `tool-${++counter}`;
@@ -1528,6 +1619,7 @@ export function historyToItems(messages: unknown[]): RenderItem[] {
         ...minimizedField(details),
         ...toolTruncationField(details),
         ...providerFailuresField(item.name, details),
+        ...askFactsField(item.name, details),
       };
     }
   }
