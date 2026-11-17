@@ -8949,7 +8949,9 @@ describe("chat sessions (issue #894)", () => {
       const staged = Core.readAskContext(path.join(sessionsRoot, record.lineageDir));
       expect(staged).toContain("MARKER-PELICAN");
       expect(staged).toContain(`session id ${SOURCE_SID}`);
-      expect(staged).toContain(`sourceSession "${path.join(sessionsRoot, "omp-ui--proj--ask-src")}`);
+      // An unknown harness takes the read/archive deep-dive route (issue #1189).
+      expect(staged).toContain(`read its file at "${path.join(sessionsRoot, "omp-ui--proj--ask-src")}`);
+      expect(staged).not.toContain("sourceSession");
 
       const commands = commandsOf();
       expect(commands).toContainEqual(expect.objectContaining({ type: "set_session_name", name: "Ask: Source work" }));
