@@ -1640,8 +1640,23 @@ export const ko: Partial<Record<MessageKey, string>> = {
   "settings.omp.contextFiles": "컨텍스트 파일",
   "settings.omp.contextFilesHint":
     "omp가 일반 컨텍스트 파일과 함께 로드하는 추가 지침 파일입니다 (omp 18.8.8+, 프로젝트별로 해석). 편집은 global 레이어에 기록됩니다.",
-  "settings.omp.contextFilesAdd": "지침 파일 추가",
+  "settings.omp.contextFilesAdd": "설명 파일 추가",
   "settings.omp.contextFilesRemove": "제거",
+  "settings.omp.unpausedProviders": "일시중단 해제된 제공자",
+  "settings.omp.unpausedProvidersHint":
+    "omp가 일시중단한 제공자를 다시 켭니다: 로그인, 토큰 갱신, 저장된 자격 증명이 다시 작동합니다 (omp 18.19+). 각 일시중단은 다시 활성화할 때 수용하게 될 계정 위험을 명시합니다 — 수용 전에 읽어 주세요. 전역 전용: 프로젝트의 .omp/config.yml은 제공자 일시중단을 해제할 수 없습니다. 변경 사항은 이후에 시작되는 세션부터 적용됩니다.",
+  "settings.omp.unpausedProvidersProjectOverride":
+    "이 프로젝트의 .omp/config.yml에 자체 일시중단 해제 제공자 목록이 있지만 omp는 이를 무시합니다 — 전역 설정만 일시중단을 해제할 수 있습니다: {providers}",
+  "settings.omp.unpausedProvidersOn": "일시중단 해제됨",
+  "settings.omp.unpausedProvidersEnable": "활성화…",
+  "settings.omp.unpausedProvidersAccept": "위험을 수용하고 활성화",
+  "settings.omp.unpausedProvidersPause": "다시 일시중단",
+  "settings.omp.agentPrewalkAuto": "저지 판정 서브에이전트 프리워크",
+  "settings.omp.agentPrewalkAutoHint":
+    "task.agentPrewalkAuto의 에이전트별 항목 (omp 18.22+): on은 프리워크 여부를 할당마다 네이티브 저지에게 묻고 첫 편집 시 prewalk.autoTarget으로 인수인계합니다; off는 판정을 건너뜁니다; 다른 값은 모델 패턴입니다. 에이전트별 task.agentPrewalk 항목이나 에이전트의 prewalk frontmatter는 조건 없이 활성화되며 이 설정보다 우선합니다. 비워 두면 에이전트의 항목이 제거됩니다. 편집은 전역 레이어에 기록됩니다.",
+  "settings.omp.agentPrewalkAutoField": "{agent}의 프리워크 항목",
+  "settings.omp.agentPrewalkAutoEmpty":
+    "발견된 에이전트가 아직 없습니다 — 실행 중인 세션에 포커스하거나 서브에이전트 모델에서 목록을 새로고침하세요.",
   "settings.omp.approval": "도구 승인",
   "settings.omp.approvalHint":
     "어떤 omp 도구가 승인을 요청하는지 설정합니다. always-ask는 쓰기나 명령 실행 도구에, always-ask-cached(묻고 기억)는 파일 읽기에도 승인을 요구하며 파일이나 폴더를 이 세션 또는 모든 세션에 대해 기억할 수 있고, write는 명령 실행 도구에만 요구하며, yolo는 요구하지 않습니다 — 단, 제한된 폴더는 모든 모드에서 승인을 요청합니다. Global 편집은 omp config set으로 이루어지고, Project 편집은 프로젝트의 .omp/config.yml에 이 키 하나만 쓰며, Project 값을 지우면 Global로 대체됩니다. 키가 없으면 omp 기본값인 yolo입니다. 변경 사항은 이후에 시작된 세션에 적용됩니다.",

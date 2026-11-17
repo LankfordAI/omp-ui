@@ -1798,6 +1798,23 @@ export const en = {
     "Extra instruction files omp loads beside the usual context file (omp 18.8.8+), resolved per project. Edits write the global layer.",
   "settings.omp.contextFilesAdd": "add instruction file",
   "settings.omp.contextFilesRemove": "remove",
+  // UnpausedProvidersSection (#1206)
+  "settings.omp.unpausedProviders": "Unpaused providers",
+  "settings.omp.unpausedProvidersHint":
+    "Providers omp paused, turned back on: login, token refresh and stored credentials work again (omp 18.19+). Each pause names the account risk you accept by re-enabling it — read it before accepting. Global only: a project's .omp/config.yml can never unpause a provider. Changes apply to sessions started afterwards.",
+  "settings.omp.unpausedProvidersProjectOverride":
+    "This project's .omp/config.yml lists its own unpaused providers, which omp disregards — only global settings unpause: {providers}",
+  "settings.omp.unpausedProvidersOn": "unpaused",
+  "settings.omp.unpausedProvidersEnable": "enable…",
+  "settings.omp.unpausedProvidersAccept": "accept the risk and enable",
+  "settings.omp.unpausedProvidersPause": "pause again",
+  // AgentPrewalkAutoSection (#1206)
+  "settings.omp.agentPrewalkAuto": "Judge-armed subagent prewalk",
+  "settings.omp.agentPrewalkAutoHint":
+    "Per-agent entries for task.agentPrewalkAuto (omp 18.22+): on asks the native judge per assignment whether to prewalk, handing off to prewalk.autoTarget at the first edit; off skips the judgment; any other text is a model pattern. A per-agent task.agentPrewalk entry or the agent's own prewalk frontmatter arms unconditionally and beats this. Empty clears the agent's entry. Edits write the global layer.",
+  "settings.omp.agentPrewalkAutoField": "prewalk entry for {agent}",
+  "settings.omp.agentPrewalkAutoEmpty":
+    "No agents discovered yet — focus a running session or refresh the roster from Subagent models.",
   "settings.omp.approval": "Tool approval",
   "settings.omp.approvalHint":
     "Which omp tools ask for approval. always-ask gates every tool that writes or runs commands, always-ask-cached (Ask and remember) also asks before file reads and can remember a file or folder for this session or every session, write gates the ones that run commands, yolo gates none — except restricted folders, which ask in every tier. Global edits go through omp config set; Project edits write this one key into the project's .omp/config.yml, and clearing the Project value falls back to Global. An unset key means yolo — omp's own default. Changes apply to sessions started afterwards.",

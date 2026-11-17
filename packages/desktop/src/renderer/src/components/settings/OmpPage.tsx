@@ -5,6 +5,7 @@ import { Button, Empty, Label } from "../ui";
 import { Row, SettingControl, layerBadge } from "./rows";
 import { OMP_MISSING, type FooterContext, type Load } from "./types";
 import {
+  AGENT_PREWALK_AUTO_KEY,
   APPROVAL_SETTING_KEY,
   COMPOSER_PREDICTION_ALTERNATIVES_KEY,
   COMPOSER_PREDICTIONS_KEY,
@@ -19,6 +20,7 @@ import {
   TTS_LOCAL_SPEED_SETTING_KEY,
   STATUS_LINE_SEGMENT_OPTIONS_KEY,
   TOOL_APPROVAL_POLICIES_KEY,
+  UNPAUSED_PROVIDERS_KEY,
 } from "@omp-ui/core/omp-settings-keys";
 import { ModelRolesSection } from "./ModelRolesSection";
 import { SubagentModelsSection } from "./SubagentModelsSection";
@@ -31,6 +33,8 @@ import { ContextFilesSection } from "./ContextFilesSection";
 import { LiveVoiceSection } from "./LiveVoiceSection";
 import { StatusLineSection } from "./StatusLineSection";
 import { ComposerPredictionSection } from "./ComposerPredictionSection";
+import { UnpausedProvidersSection } from "./UnpausedProvidersSection";
+import { AgentPrewalkAutoSection } from "./AgentPrewalkAutoSection";
 import { useT, type MessageKey } from "../../lib/i18n";
 
 // Localized hints that replace omp's own description for rows whose copy the
@@ -195,6 +199,18 @@ export function OmpPage({
 
       <ContextFilesSection
         entry={byKey.get(CONTEXT_FILES_EXTRA_KEY)}
+        pendingKey={pendingKey}
+        commit={commit}
+      />
+
+      <UnpausedProvidersSection
+        entry={byKey.get(UNPAUSED_PROVIDERS_KEY)}
+        pendingKey={pendingKey}
+        commit={commit}
+      />
+
+      <AgentPrewalkAutoSection
+        entry={byKey.get(AGENT_PREWALK_AUTO_KEY)}
         pendingKey={pendingKey}
         commit={commit}
       />

@@ -20,6 +20,7 @@ import {
   type OmpConfigRunner,
 } from "./omp-settings";
 import {
+  AGENT_PREWALK_AUTO_KEY,
   COMPACTION_MODEL_THRESHOLD_SETTING_GROUP,
   COMPOSER_PREDICTIONS_KEY,
   COMPOSER_PREDICTION_ALTERNATIVES_KEY,
@@ -27,6 +28,7 @@ import {
   SESSION_MAX_COST_KEY,
   SESSION_WARN_COST_KEY,
   RESTRICTED_FOLDERS_KEY,
+  UNPAUSED_PROVIDERS_KEY,
 } from "./omp-settings-keys";
 
 const OMP = "/x/omp";
@@ -586,6 +588,70 @@ describe("readOmpSettings", () => {
       ),
     ).toBe(false);
   });
+
+  it("emits the #1206 keys with omp's own schema when the binary publishes them", async () => {
+    const nudges = entry("capped", "enum", "Mid-Run Todo Nudges");
+    const array = entry(["google-antigravity"], "array", "Unpaused Providers");
+    const record = entry({ scout: "on" }, "record", "per-agent prewalk");
+    const map = {
+      "todo.midRunNudges": nudges,
+      "grep.contextBefore": entry(0, "number", "Grep Context Before"),
+      "grep.contextAfter": entry(0, "number", "Grep Context After"),
+      "commit.enabled": entry(true, "boolean", "Selective commit"),
+      "mnemopi.recallRelevance": entry("off", "enum", "Recall Relevance"),
+      "mnemopi.embeddingQueryPrefix": entry(undefined, "string", "Query Prefix"),
+      "mnemopi.embeddingInputType": entry(false, "boolean", "Input Type"),
+      "task.autoParallel": entry("off", "enum", "Auto Parallel"),
+      "find.verifyModel": entry(undefined, "string", "Verify Model"),
+      "find.hitThreshold": entry(undefined, "number", "Hit Threshold"),
+      encourageEdits: entry(true, "boolean", "Encourage Edits"),
+      "disassembler.backend": entry("auto", "enum", "Disassembler"),
+      [UNPAUSED_PROVIDERS_KEY]: array,
+      [AGENT_PREWALK_AUTO_KEY]: record,
+    };
+    const snapshot = await readOmpSettings(
+      { ompPath: OMP, projectCwd: null },
+      fakeRunner({ global: map, pristine: map }, null),
+    );
+    expect(snapshot.error).toBeNull();
+    // One entry per allowlisted key — the page hides keys omp does not publish,
+    // so an omitted key here would silently drop a shipped row.
+    const keys = snapshot.entries.map((e) => e.key);
+    for (const key of Object.keys(map)) expect(keys).toContain(key);
+    expect(snapshot.entries.find((e) => e.key === UNPAUSED_PROVIDERS_KEY)).toMatchObject({
+      type: "array",
+      value: ["google-antigravity"],
+    });
+    expect(snapshot.entries.find((e) => e.key === AGENT_PREWALK_AUTO_KEY)).toMatchObject({
+      type: "record",
+      value: { scout: "on" },
+    });
+  });
+
+  it("emits nothing for the #1206 keys on an omp that predates them", async () => {
+    const snapshot = await readOmpSettings(
+      { ompPath: OMP, projectCwd: null },
+      fakeRunner({ global: {}, pristine: {} }, null),
+    );
+    for (const key of [
+      "todo.midRunNudges",
+      "grep.contextBefore",
+      "grep.contextAfter",
+      "commit.enabled",
+      "mnemopi.recallRelevance",
+      "mnemopi.embeddingQueryPrefix",
+      "mnemopi.embeddingInputType",
+      "task.autoParallel",
+      "find.verifyModel",
+      "find.hitThreshold",
+      "encourageEdits",
+      "disassembler.backend",
+      UNPAUSED_PROVIDERS_KEY,
+      AGENT_PREWALK_AUTO_KEY,
+    ]) {
+      expect(snapshot.entries.some((e) => e.key === key)).toBe(false);
+    }
+  });
 });
 
 describe("OpenRouter variant", () => {
@@ -744,6 +810,40 @@ describe("writeOmpSetting", () => {
       writeOmpSetting({ ompPath: OMP, key: "skills.someFutureKey", value: true }, run),
     ).rejects.toThrow(/refusing to write unlisted omp setting/);
     expect(run.calls).toBe(0);
+  });
+
+  it("admits the #1206 array and record keys to the write boundary", async () => {
+    // Both editors commit whole-list / whole-record writes through the same
+    // global `omp config set` path scalars use.
+    let seen: readonly string[] = [];
+    await writeOmpSetting(
+      { ompPath: OMP, key: UNPAUSED_PROVIDERS_KEY, value: ["google-antigravity"] },
+      async (args) => {
+        seen = args;
+        return "";
+      },
+    );
+    expect(seen).toEqual([
+      "config",
+      "set",
+      UNPAUSED_PROVIDERS_KEY,
+      JSON.stringify(["google-antigravity"]),
+      "--json",
+    ]);
+    await writeOmpSetting(
+      { ompPath: OMP, key: AGENT_PREWALK_AUTO_KEY, value: { scout: "on" } },
+      async (args) => {
+        seen = args;
+        return "";
+      },
+    );
+    expect(seen).toEqual([
+      "config",
+      "set",
+      AGENT_PREWALK_AUTO_KEY,
+      JSON.stringify({ scout: "on" }),
+      "--json",
+    ]);
   });
 
   it("admits telemetry.otlpExportEnabled to the write boundary", async () => {

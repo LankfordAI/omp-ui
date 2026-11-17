@@ -23,6 +23,16 @@ export const MEMORY_SETTING_GROUP: OmpSettingGroup = {
     "mnemopi.autoRecall",
     "mnemopi.autoRetain",
     "mnemopi.noEmbeddings",
+    // omp 18.20–18.22 (issue #1206): judge-gated relevance filtering of
+    // auto-recalled memories (tri-state auto|on|off, off by default), and the
+    // two asymmetric-embedder knobs — a recall-query text prefix for
+    // instruction-tuned embedders, and sending `input_type` with embedding
+    // requests. Plain rows through the generic SettingControl; upstream shows
+    // them only while the mnemopi backend is active, and the existing per-key
+    // "skip keys omp does not publish" rule covers the binary skew.
+    "mnemopi.recallRelevance",
+    "mnemopi.embeddingQueryPrefix",
+    "mnemopi.embeddingInputType",
     "autolearn.enabled",
     // omp's hindsight global-scope gate (omp 18.16.0, issue #1033): a plain
     // boolean, off by default; upstream shows it only when the hindsight
@@ -235,6 +245,61 @@ export const STATUS_LINE_SETTING_GROUP: OmpSettingGroup = {
 };
 
 /**
+ * The paused providers the user turned back on (omp 18.19+, issue #1206).
+ * Allowlisted but NOT in OMP_SETTING_GROUPS: an array renders as a read-only
+ * JSON span there (rows.tsx), so UnpausedProvidersSection owns the editable
+ * row. Global-only: omp reads only operator layers for this key
+ * (`cfgOperatorUnpausedProviders`; a project config cannot unpause a provider,
+ * verified upstream v18.22.0 `config/model-settings.ts`), and its own editor
+ * carries the same restriction (`unpausedProvidersNotProject`).
+ *
+ * The choices are the providers omp's auth rules pause (`disabled "<reason>"`
+ * in the catalog's auth stratum). `omp config list` publishes no option list
+ * for this array, so the roster is curated here the way OMP_MODEL_ROLE_IDS is:
+ * transcribed from upstream v18.22.0 `packages/catalog/src/compat/rules/auth/`
+ * with each pause reason verbatim — the reason IS the risk acceptance omp's
+ * editor makes the user read before re-enabling a provider. An id this list
+ * does not name but the stored array holds still renders (remove-only), so an
+ * omp that pauses a new provider loses no escape hatch.
+ */
+export const UNPAUSED_PROVIDERS_KEY = "auth.unpausedProviders";
+export interface PausedProviderSpec {
+  /** The auth-rule provider id — the string stored in the array. */
+  id: string;
+  label: string;
+  /** omp's own `disabled "<reason>"` text: the account risk un-pausing accepts. */
+  risk: string;
+}
+export const PAUSED_PROVIDER_SPECS: readonly PausedProviderSpec[] = [
+  {
+    id: "google-antigravity",
+    label: "Google Antigravity (Gemini, Claude, GPT-OSS)",
+    risk:
+      "Google's terms do not allow third-party sign-in and Google has suspended accounts that used it (see #18341). Use GEMINI_API_KEY (AI Studio) or google-vertex instead.",
+  },
+];
+export const UNPAUSED_PROVIDERS_SETTING_GROUP: OmpSettingGroup = {
+  title: "Unpaused providers",
+  keys: [UNPAUSED_PROVIDERS_KEY],
+};
+
+/**
+ * The per-agent judge-armed prewalk record (omp 18.22, issue #1206):
+ * agent name → `"on"`, `"off"`, or a model pattern; `"on"` arms the
+ * `prewalk.autoTarget` hand-off and the native judge decides per assignment
+ * when nothing arms unconditionally (`task.agentPrewalk` beats it).
+ * Allowlisted but NOT in OMP_SETTING_GROUPS: a record renders as a read-only
+ * JSON span there (rows.tsx) and is REPLACE-not-merge, so
+ * AgentPrewalkAutoSection owns the editable rows with the whole-record
+ * spread discipline (ADR-0031).
+ */
+export const AGENT_PREWALK_AUTO_KEY = "task.agentPrewalkAuto";
+export const AGENT_PREWALK_AUTO_SETTING_GROUP: OmpSettingGroup = {
+  title: "Judge-armed subagent prewalk",
+  keys: [AGENT_PREWALK_AUTO_KEY],
+};
+
+/**
  * Composer next-message predictions. `composer.predictions` is the master
  * (omp 18.9.0): after a completed turn omp asks the active model to predict
  * the user's next message and ghosts it in the empty composer.
@@ -335,8 +400,32 @@ export const OMP_SETTING_GROUPS: ReadonlyArray<OmpSettingGroup> = [
     // Options ride in from `omp config list` via parseEnumOptions, so older
     // binaries keep their own option set. OmpPage.tsx's row hint carries the
     // safety, degraded diff receipts, and sessions-started-afterwards caveats.
+    // omp 18.19–18.22 (issue #1206) adds the todo mid-run nudge policy (enum
+    // off|capped|backoff), grep's per-match context lines (the defaults
+    // dropped to 0 in 18.20.1, which is why the rows exist), the selective
+    // commit gate behind /commit, the disassembler backend enum
+    // (auto|ghidra|ida|none), and find's verification model override plus its
+    // verified-passage hit threshold (both unset = omp's built-in behavior).
+    // Each is a plain scalar row; keys an older binary does not publish
+    // render no row, the existing per-key skip rule.
     title: "Tools",
-    keys: ["edit.mode"],
+    keys: [
+      "edit.mode",
+      "todo.midRunNudges",
+      "grep.contextBefore",
+      "grep.contextAfter",
+      "commit.enabled",
+      "disassembler.backend",
+      "find.verifyModel",
+      "find.hitThreshold",
+    ],
+  },
+  {
+    // omp 18.20+ (issue #1206): the system prompt's rule that makes `edit`
+    // mandatory for file edits and forbids sed/perl/python edits. On by
+    // default; off omits the edit guidance entirely. A plain boolean row.
+    title: "Prompt",
+    keys: ["encourageEdits"],
   },
   {
     // Python for the eval tool (#671). An omp that publishes neither key
@@ -369,7 +458,17 @@ export const OMP_SETTING_GROUPS: ReadonlyArray<OmpSettingGroup> = [
     // every subagent on the main thread — semantics OmpPage.tsx's row hint
     // carries verbatim, because omp's own description cannot be edited.
     title: "Subagents",
-    keys: ["task.file", "task.workerThreads"],
+    keys: [
+      "task.file",
+      "task.workerThreads",
+      // omp 18.20+ (issue #1206): enum off|suggest|on — the native judge
+      // (resolved through the `judge` role) splits each new top-level prompt
+      // into concurrent parts; suggest only reports the split, on tells the
+      // agent to delegate it. Needs a native judge and the task tool;
+      // without them nothing is judged. Plain enum row; options ride in via
+      // parseEnumOptions.
+      "task.autoParallel",
+    ],
   },
   GIT_SETTING_GROUP,
 ];
@@ -388,6 +487,8 @@ export const OMP_SETTING_KEYS: readonly string[] = [
   ...COMPACTION_MODEL_THRESHOLD_SETTING_GROUP.keys,
   ...CONTEXT_FILES_SETTING_GROUP.keys,
   ...COMPOSER_PREDICTION_SETTING_GROUP.keys,
+  ...UNPAUSED_PROVIDERS_SETTING_GROUP.keys,
+  ...AGENT_PREWALK_AUTO_SETTING_GROUP.keys,
 ];
 /** modelRoles is a record edited per-role, so it is handled apart from the scalar list. */
 export const OMP_MODEL_ROLES_KEY = "modelRoles";
