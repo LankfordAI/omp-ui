@@ -6,6 +6,9 @@ import { afterEach, describe, expect, it, vi } from "vitest";
 import type { ApprovalPrompt } from "@omp-ui/core/approval";
 
 (globalThis as Record<string, unknown>).IS_REACT_ACT_ENVIRONMENT = true;
+// jsdom has no layout, hence no scrollIntoView; the card scrolls the first
+// `?` segment row into view when the detail list overflows (issue #1208).
+HTMLElement.prototype.scrollIntoView = vi.fn();
 const rpcSend = vi.fn();
 Object.assign(window, { ompBackend: { rpcSend } });
 // Dynamic import is required because store.ts captures window.ompBackend at module evaluation.
@@ -253,5 +256,49 @@ describe("ApprovalCard grants (issue #950)", () => {
     );
     expect(alwaysSwitch().getAttribute("aria-checked")).toBe("false");
     expect(button("Approve Directory: /repo/src")).toBeTruthy();
+  });
+});
+
+describe("ApprovalCard compound bash segments (issue #1208)", () => {
+  const COMPOUND_DETAILS = [
+    "Command:",
+    "  ✓ git status (allowed: git *)",
+    "  ✓ git diff (allowed: git *)",
+    "  ? rm -rf build (requires approval)",
+  ];
+
+  it("marks allowed and needs-approval rows with distinct styles", () => {
+    render({ ...PROMPT, details: COMPOUND_DETAILS });
+    const allowed = [...document.querySelectorAll('[data-approval-segment="allowed"]')];
+    const prompted = [...document.querySelectorAll('[data-approval-segment="prompted"]')];
+    expect(allowed).toHaveLength(2);
+    expect(prompted).toHaveLength(1);
+    expect(allowed[0]!.textContent).toBe("  ✓ git status (allowed: git *)");
+    expect(prompted[0]!.textContent).toBe("  ? rm -rf build (requires approval)");
+    // Distinct theme classes: signal glyph on allowed, copper on prompted.
+    expect(allowed[0]!.querySelector("span")?.classList.contains("text-signal")).toBe(true);
+    expect(prompted[0]!.querySelector("span")?.classList.contains("text-copper")).toBe(true);
+  });
+
+  it("scrolls the first needs-approval row into view", () => {
+    const scroll = vi.mocked(HTMLElement.prototype.scrollIntoView);
+    scroll.mockClear();
+    render({ ...PROMPT, details: COMPOUND_DETAILS });
+    expect(scroll).toHaveBeenCalledTimes(1);
+    expect(scroll.mock.calls[0]![0]).toEqual({ block: "nearest" });
+    // The scrolled element is the first `?` row itself.
+    expect(scroll.mock.instances[0]).toBe(document.querySelector('[data-approval-segment="prompted"]'));
+  });
+
+  it("renders a plain prompt exactly as before: one verbatim text block, no segment rows", () => {
+    const scroll = vi.mocked(HTMLElement.prototype.scrollIntoView);
+    scroll.mockClear();
+    render(PROMPT);
+    const pre = document.querySelector("[data-approval-card] pre")!;
+    expect(pre.textContent).toBe("ls -la /etc");
+    expect(pre.childNodes).toHaveLength(1);
+    expect(pre.firstChild?.nodeType).toBe(Node.TEXT_NODE);
+    expect(document.querySelector("[data-approval-segment]")).toBeNull();
+    expect(scroll).not.toHaveBeenCalled();
   });
 });

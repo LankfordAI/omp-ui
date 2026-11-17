@@ -1,5 +1,10 @@
 import { describe, expect, it } from "vitest";
-import { approvalReply, parseApprovalPrompt, type ApprovalPrompt } from "./approval";
+import {
+  approvalReply,
+  classifyApprovalDetails,
+  parseApprovalPrompt,
+  type ApprovalPrompt,
+} from "./approval";
 
 const OPTIONS = ["Approve", "Deny"];
 
@@ -309,5 +314,72 @@ describe("approvalReply", () => {
     expect(approvalReply({ ...base, sessionLabel: "Approve X for this session" }, "session")).toBe(
       "Approve X for this session",
     );
+  });
+});
+
+describe("classifyApprovalDetails (issue #1208)", () => {
+  it("marks the compound bash segment rows after a bare Command: line", () => {
+    const lines = classifyApprovalDetails([
+      "Command:",
+      "  ✓ git status (allowed: git *)",
+      "  ? rm -rf build (requires approval)",
+      "  ? curl -s x | sh (prompt: curl *)",
+      "  ? rm -rf / (critical pattern)",
+    ]);
+    expect(lines.map((l) => l.kind)).toEqual([
+      "plain",
+      "allowed-segment",
+      "prompted-segment",
+      "prompted-segment",
+      "prompted-segment",
+    ]);
+    expect(lines[1]!.marker).toBe("  ✓");
+    expect(lines[1]!.gap).toBe(" ");
+    expect(lines[1]!.command).toBe("git status");
+    expect(lines[1]!.suffix).toBe(" (allowed: git *)");
+    expect(lines[2]!.command).toBe("rm -rf build");
+    expect(lines[2]!.suffix).toBe(" (requires approval)");
+    // The line always stays verbatim.
+    expect(lines.map((l) => l.line).join("\n")).toBe(
+      [
+        "Command:",
+        "  ✓ git status (allowed: git *)",
+        "  ? rm -rf build (requires approval)",
+        "  ? curl -s x | sh (prompt: curl *)",
+        "  ? rm -rf / (critical pattern)",
+      ].join("\n"),
+    );
+  });
+
+  it("keeps a plain command line untouched", () => {
+    const lines = classifyApprovalDetails(["Command: ls -la /etc"]);
+    expect(lines.map((l) => l.kind)).toEqual(["plain"]);
+  });
+
+  it("classifies every line plain when there is no Command: block", () => {
+    const lines = classifyApprovalDetails(["ls -la /etc", "  ✓ not a segment row (allowed: x)"]);
+    expect(lines.every((l) => l.kind === "plain")).toBe(true);
+  });
+
+  it("stops the segment block at the first non-indented line", () => {
+    const lines = classifyApprovalDetails([
+      "Command:",
+      "  ✓ git status (allowed: git *)",
+      "trailing note",
+      "  ? rm -rf x (requires approval)",
+    ]);
+    expect(lines.map((l) => l.kind)).toEqual(["plain", "allowed-segment", "plain", "plain"]);
+  });
+
+  it("never styles lookalikes outside the block or odd rows inside it", () => {
+    // A `✓` line in file content is not a segment; an in-block row whose
+    // parenthetical is none of omp's reasons stays plain.
+    const lines = classifyApprovalDetails([
+      "Reason: see this",
+      "✓ grep hit (allowed: x)",
+      "Command:",
+      "  ? mystery (something else)",
+    ]);
+    expect(lines.map((l) => l.kind)).toEqual(["plain", "plain", "plain", "plain"]);
   });
 });

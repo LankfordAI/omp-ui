@@ -1,9 +1,39 @@
-import { useEffect, useRef, useState } from "react";
-import type { ApprovalPrompt } from "@omp-ui/core/approval";
+import { useEffect, useRef, useState, type ReactNode } from "react";
+import type { ApprovalDetailLine, ApprovalPrompt } from "@omp-ui/core/approval";
+import { classifyApprovalDetails } from "@omp-ui/core/approval";
 import { useT } from "../lib/i18n";
 import { useAndroidBack } from "../lib/android-back";
 import { useStore } from "../store";
 import { Button, Chip, Label, Switch } from "./ui";
+
+/**
+ * Paint one classified detail block. When no compound-bash segment rows are
+ * present the whole block stays a single text node joined by `\n` —
+ * byte-identical to the old verbatim `details.join("\n")`, so a prompt
+ * without the markers renders exactly as before. Otherwise every line gets
+ * its own row and segment rows split into colored pieces like the omp TUI:
+ * signal on `✓` with a dim command, copper on `?` with an emphasized command
+ * and reason (issue #1208).
+ */
+function renderDetailLines(lines: readonly ApprovalDetailLine[]): ReactNode {
+  if (!lines.some((entry) => entry.kind !== "plain")) {
+    return lines.map((entry) => entry.line).join("\n");
+  }
+  return lines.map((entry, index) => {
+    if (entry.kind === "plain") {
+      return <div key={index}>{entry.line}</div>;
+    }
+    const allowed = entry.kind === "allowed-segment";
+    return (
+      <div key={index} data-approval-segment={allowed ? "allowed" : "prompted"}>
+        <span className={allowed ? "text-signal" : "text-copper"}>{entry.marker}</span>
+        {entry.gap}
+        <span className={allowed ? "text-ink-dim" : "font-semibold text-ink"}>{entry.command}</span>
+        <span className={allowed ? undefined : "text-copper"}>{entry.suffix}</span>
+      </div>
+    );
+  });
+}
 
 /**
  * The approval card (issue #681, ADR-0038): the dedicated answer surface for
@@ -35,6 +65,16 @@ export function ApprovalCard({ tabId }: { tabId: string }) {
   const [alwaysFrame, setAlwaysFrame] = useState<unknown>(null);
   const root = useRef<HTMLDivElement>(null);
   useAndroidBack({ open: prompt !== null, refs: root, kind: "blocker", onBack: "block" });
+
+  // When a compound approval's detail list overflows, bring the first `?` row
+  // into view (issue #1208): everything above it is already allowed.
+  useEffect(() => {
+    if (prompt === null) return;
+    const row = root.current?.querySelector<HTMLElement>('[data-approval-segment="prompted"]');
+    if (row !== undefined && row !== null && typeof row.scrollIntoView === "function") {
+      row.scrollIntoView({ block: "nearest" });
+    }
+  }, [prompt]);
 
   useEffect(() => {
     if (prompt === null) return;
@@ -108,7 +148,7 @@ export function ApprovalCard({ tabId }: { tabId: string }) {
             data-selectable
             className="mt-2 max-h-64 overflow-auto whitespace-pre-wrap break-all rounded-md border border-line-soft bg-sunken px-2.5 py-2 font-mono text-xs leading-[1.55] text-ink"
           >
-            {prompt.details.join("\n")}
+            {renderDetailLines(classifyApprovalDetails(prompt.details))}
           </pre>
         )}
         {prompt.providerSafety.length > 0 && (

@@ -96,6 +96,81 @@ export interface ApprovalPrompt {
   grants: ApprovalGrant[];
 }
 
+// Compound bash approval segment rows (omp ≥ 18.20.1, issue #1208). When
+// `bash.allowCompoundCommands` resolves a chain segment-wise, bash's
+// formatApprovalDetails emits a bare `Command:` line followed by one indented
+// row per segment: `  ✓ <cmd> (allowed: <pattern>)` for a segment an allow
+// rule already covers, `  ? <cmd> (<reason>)` for one that still needs the
+// user (reason `requires approval`, `prompt: <pattern>`, or
+// `critical pattern`). The TUI styles exactly these rows — and only inside
+// that block, so file content elsewhere that happens to start with a marker
+// is never styled — with success on ✓ and warning on ?. Same shape here.
+const ALLOWED_SEGMENT_ROW = /^(\s*)✓(\s+)(.+)(\s+\((?:allowed: .*|\d+ allowed segments?)\))$/u;
+const PROMPTED_SEGMENT_ROW =
+  /^(\s*)\?(\s+)(.+)(\s+\((?:requires approval|prompt: .*|critical pattern)\))$/u;
+
+/** How the card should paint one formatApprovalDetails line. */
+export type ApprovalDetailKind = "plain" | "allowed-segment" | "prompted-segment";
+
+/** One classified formatApprovalDetails line. `line` stays verbatim; segment
+ *  rows additionally carry the pieces the card colors (the TUI: success on ✓,
+ *  warning on ?, dim command under ✓, bold command under ?). */
+export interface ApprovalDetailLine {
+  line: string;
+  kind: ApprovalDetailKind;
+  /** Marker glyph and the gap after it; only set on segment rows. */
+  marker?: string;
+  gap?: string;
+  /** The segment command and its trailing ` (…)` reason; segment rows only. */
+  command?: string;
+  suffix?: string;
+}
+
+/**
+ * Classify formatApprovalDetails lines for rendering: `allowed-segment` /
+ * `prompted-segment` only for rows inside the compound bash block — the
+ * indented run right after a bare `Command:` line — every other line stays
+ * `plain`. Pure presentation metadata; the lines themselves stay verbatim,
+ * and a prompt without the markers classifies all-plain.
+ */
+export function classifyApprovalDetails(details: readonly string[]): ApprovalDetailLine[] {
+  const label = details.findIndex((line) => line.startsWith("Command:"));
+  let start = 0;
+  let end = 0;
+  if (label >= 0 && details[label] === "Command:") {
+    start = label + 1;
+    end = start;
+    while (end < details.length && details[end]!.startsWith("  ")) end += 1;
+  }
+  return details.map((line, index): ApprovalDetailLine => {
+    if (index >= start && index < end) {
+      const allowed = ALLOWED_SEGMENT_ROW.exec(line);
+      if (allowed !== null) {
+        return {
+          line,
+          kind: "allowed-segment",
+          marker: `${allowed[1]}✓`,
+          gap: allowed[2]!,
+          command: allowed[3]!,
+          suffix: allowed[4]!,
+        };
+      }
+      const prompted = PROMPTED_SEGMENT_ROW.exec(line);
+      if (prompted !== null) {
+        return {
+          line,
+          kind: "prompted-segment",
+          marker: `${prompted[1]}?`,
+          gap: prompted[2]!,
+          command: prompted[3]!,
+          suffix: prompted[4]!,
+        };
+      }
+    }
+    return { line, kind: "plain" };
+  });
+}
+
 /** Mirrors ExtensionDialogHost's readOptions: an option is a bare string or
  *  an object whose label (falling back to its value) is what omp renders. */
 function optionLabel(option: unknown): string | null {
