@@ -5,7 +5,8 @@ import { spawn } from "node:child_process";
 import { afterEach, describe, expect, it } from "vitest";
 import {
   RpcClient,
-  browserPaneInstruction,
+  browserPaneInstructionFor,
+  readInstalledOmpVersion,
   resolveOmpBinary,
   writeBrowserPaneExtension,
 } from "@omp-ui/core";
@@ -154,10 +155,10 @@ describe.skipIf(ompPath === null)("browser pane handshake on the real runtime", 
 
     const paneMessages = messages.filter((m) => m.customType === BROWSER_PANE_CUSTOM_TYPE);
     expect(paneMessages).toHaveLength(1);
-    // Issue #1031: the pre-18.16 click workaround and its version gate were
-    // retired after the re-proof on a live pane endpoint with omp 18.17, so the
-    // delivered text is now the single composition for every supported binary.
-    const expected = browserPaneInstruction(ENDPOINT);
+    // Version-honest (issue #1188): the preamble names the endpoint with a
+    // string app exactly when this very binary parses >= 18.19.0, byte-identical
+    // to the legacy object-form text below the gate.
+    const expected = browserPaneInstructionFor(ENDPOINT, await readInstalledOmpVersion(ompPath!));
     expect(paneMessages[0]).toMatchObject({
       role: "custom",
       content: expected,

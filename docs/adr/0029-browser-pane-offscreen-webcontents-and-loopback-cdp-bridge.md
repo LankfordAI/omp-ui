@@ -98,8 +98,10 @@ through a **loopback CDP bridge** the main process hosts:
 - The agent learns the endpoint from a sixth generated `-e` extension,
   `omp-ui-browser-pane.ts`, armed by a hidden slash command in
   `initialCommands` at every rpc spawn. It delivers **one** hidden custom
-  message (`display: false`) naming `browser.open({ app: { cdp_url } })`, the
-  endpoint's rules, and a routing policy (#561): prefer the most direct
+  message (`display: false`) naming `browser.open({ app })` — the
+  `{ cdp_url }` object on omp 18.16–18.18, a bare CDP-URL string on omp
+  >= 18.19 (see the #1188 amendment below) — the endpoint's rules, and a
+  routing policy (#561): prefer the most direct
   interface — `read`/search for repository files and static web content,
   installed CLIs or APIs with existing credentials for structured service work
   — and reserve the pane for rendered UI, client-side JavaScript, browser
@@ -385,7 +387,9 @@ through a **loopback CDP bridge** the main process hosts:
   instances; its results do not establish sandbox behavior. The local
   lifecycle, hand-back and native-keyboard instances ran without that flag.
 - **omp is unchanged.** Everything rests on what omp exposes today: the
-  `browser` global with `app.cdp_url`, its adoption of the existing page target,
+  `browser` global with its CDP-endpoint `app` argument (the `app.cdp_url`
+  object up to omp 18.18, a bare URL string from 18.19 — see the #1188
+  amendment below), its adoption of the existing page target,
   disconnect-only `tab.close`, and the extension API's `registerCommand`,
   `sendCustomMessage` and session events. omp's `tab.click` hang against every
   CDP target was worked around in the hidden message (`tab.run` + `page.click`)
@@ -482,3 +486,31 @@ bounded by omp's browser-tool 300 s cap, but every CDP command still answers
 inside the relay's own per-command budget: an unanswered command names itself
 (`Runtime.evaluate timed out`, `tab.evaluate()` with its tab) at that ~60 s
 protocol edge and the pane survives it.
+
+## Amendment — `app` becomes a string on omp 18.19; the preamble follows the binary (#1188)
+
+omp 18.19 replaced `browser.open`'s `app` object (`{ path, cdp_url, relay, … }`)
+with one string argument — a keyword (`relay`, `tern`, `webkit`, `chromium`,
+`own`, `auto`), a CDP endpoint URL, or an executable path (upstream
+`tools/browser.ts`, `resolveBrowserKind`) — and its schema rejects an object
+outright: `browser received invalid arguments … app must be a string`. The
+preamble's `app: { cdp_url }` therefore kills the pane for the agent on every
+binary >= 18.19, while omp 18.16–18.18 accept only the object, so neither text
+can ship blind (issue #1188).
+
+The generated extension composes the hidden message per delivery from a live
+`pi.pi.VERSION` probe (`generatedOmpVersionAtLeastSource`, the same mechanism
+#1031's retired gate shipped): `app: "<cdp url>"` at >= 18.19.0
+(`BROWSER_PANE_APP_URL_MIN_OMP`, `browser-pane-app-url.ts`), the object below.
+Unknown, unparseable, or hardening-throwing VERSION keeps the object — the same
+conservative polarity as #1031, and deliberately unregistered against
+`MIN_SUPPORTED_OMP` (the out-replies polarity): on those binaries the preamble
+honestly describes what `browserSchema` parses. Below the gate the delivered
+text is byte-identical to the pre-amendment message; above it only the two
+`app` fragments change. The unit harness pins both branches through
+`pi.VERSION`, and the live handshake test expects
+`browserPaneInstructionFor(endpoint, binaryVersion)` so it passes unchanged on
+either runtime. No spawner-side gate was added: the in-extension probe resolves
+against the omp that actually loads and runs the file, so no spawn-time version
+read has to agree with the binary the extension ends up inside (pins via
+`OMP_UI_OMP_PATH`, fallback resolution).

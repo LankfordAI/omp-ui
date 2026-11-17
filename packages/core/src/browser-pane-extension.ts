@@ -1,22 +1,30 @@
 import * as path from "node:path";
 import {
+  BROWSER_PANE_APP_OBJECT_FORM,
+  BROWSER_PANE_APP_URL_FORM,
   BROWSER_PANE_COMMAND,
   BROWSER_PANE_CUSTOM_TYPE,
   BROWSER_PANE_ENDPOINT_PATTERN,
   BROWSER_PANE_INSTRUCTION_PARTS,
 } from "./browser-pane";
+import { BROWSER_PANE_APP_URL_MIN_OMP } from "./browser-pane-app-url";
 import { writeLineageArtifact } from "./lineage-artifact";
-import { generatedRootBindingSource } from "./generated-extension-source";
+import {
+  generatedOmpVersionAtLeastSource,
+  generatedRootBindingSource,
+} from "./generated-extension-source";
 
 /**
  * The agent learns the browser pane's endpoint (#519, ADR-0029) from this
  * generated extension: the spawner arms it with `/omp-ui-browser-pane set
  * <json>` in `initialCommands`, and it delivers ONE hidden custom message
- * (`display: false`) naming `browser.open({ app: { cdp_url } })`, the
- * endpoint's rules, and the direct-tools-first routing policy (#561) to the
- * root session. No prompt suffix, no system-prompt append: one short hidden
- * message once per omp process, re-queued after a compaction, branch, or
- * session switch so a rebuilt context still carries it (#530).
+ * (`display: false`) naming `browser.open({ app })` — the `{ cdp_url }` object
+ * form on omp 18.16–18.18, a bare CDP-URL string on omp >= 18.19 (issue #1188),
+ * picked from a live `pi.pi.VERSION` probe at delivery time — the endpoint's
+ * rules, and the direct-tools-first routing policy (#561) to the root session.
+ * No prompt suffix, no system-prompt append: one short hidden message once per
+ * omp process, re-queued after a compaction, branch, or session switch so a
+ * rebuilt context still carries it (#530).
  *
  * The endpoint is host-local and never reaches a renderer (#532); the owning
  * main process is the only party that ever names it, and only inside omp.
@@ -40,6 +48,8 @@ function extensionSource(): string {
 const COMMAND = ${JSON.stringify(BROWSER_PANE_COMMAND)};
 const CUSTOM_TYPE = ${JSON.stringify(BROWSER_PANE_CUSTOM_TYPE)};
 const INSTRUCTION_PARTS: readonly [string, string] = ${JSON.stringify(BROWSER_PANE_INSTRUCTION_PARTS)};
+const APP_OBJECT_FORM: readonly [string, string] = ${JSON.stringify(BROWSER_PANE_APP_OBJECT_FORM)};
+const APP_URL_FORM: readonly [string, string] = ${JSON.stringify(BROWSER_PANE_APP_URL_FORM)};
 const ENDPOINT_RE = new RegExp(${JSON.stringify(BROWSER_PANE_ENDPOINT_PATTERN)});
 
 /** The slice of omp's AgentSession this extension drives. */
@@ -56,7 +66,7 @@ interface PaneUi {
 }
 
 interface PaneExtensionApi {
-  pi?: { AgentSession?: { prototype?: Record<string, unknown> } };
+  pi?: { AgentSession?: { prototype?: Record<string, unknown> }; VERSION?: unknown };
   registerCommand: (
     name: string,
     options: {
@@ -79,6 +89,10 @@ export default function (pi: PaneExtensionApi) {
   let warnedUnavailable = false;
   let ui: PaneUi | null = null;
   ${generatedRootBindingSource("PaneSession")}
+  // True when the running omp parses \`app\` as a string (issue #1188);
+  // unknown, garbage, or hardening-throwing VERSION → false, keeping the
+  // object form every 18.16–18.18 binary accepts.
+  ${generatedOmpVersionAtLeastSource("appUrlForm", BROWSER_PANE_APP_URL_MIN_OMP)}
 
   try {
     const prototype = pi.pi?.AgentSession?.prototype;
@@ -110,7 +124,10 @@ export default function (pi: PaneExtensionApi) {
       return;
     }
     try {
-      const content = INSTRUCTION_PARTS[0] + target + INSTRUCTION_PARTS[1];
+      // One probe per delivery: the running omp picks which \`app\` form its
+      // browserSchema parses — string at >= 18.19, object below (issue #1188).
+      const app = appUrlForm() ? APP_URL_FORM : APP_OBJECT_FORM;
+      const content = INSTRUCTION_PARTS[0] + app[0] + target + app[1] + INSTRUCTION_PARTS[1];
       await active.sendCustomMessage(
         {
           customType: CUSTOM_TYPE,

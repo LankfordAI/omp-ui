@@ -6,6 +6,8 @@ This guide explains what users receive from a release and how maintainers publis
 
 Nothing since [v0.36.1](https://github.com/LankfordAI/omp-ui/releases/tag/v0.36.1). Add one bullet per shipped change here, citing its issue as `#N`; the release tag lifts these into Highlights.
 
+- The browser pane works again on omp 18.19+. omp replaced `browser.open`'s `app` object with a single string (a CDP URL, executable path, or keyword) and its schema rejects the `{ cdp_url }` object outright, so the pane's hidden endpoint message made every `browser.open` on the pane fail with `browser received invalid arguments`. The generated extension now probes the running omp's version at delivery time: `app: "<cdp url>"` on omp 18.19+, the object form on 18.16–18.18, which reject a bare string just as hard (#1188).
+
 ## Choose a download
 
 A stable release has exactly five distributable files. Replace `<version>` with the tag version without its leading `v`.
