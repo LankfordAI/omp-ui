@@ -8,6 +8,7 @@ import {
   installStoredTheme,
   removeStoredTheme,
   saveStoredTheme,
+  setOfficialThemes,
   setStoredThemeMotion,
   type StoredThemeDeps,
 } from "./stored-themes";
@@ -210,7 +211,7 @@ describe("repository themes (#1178)", () => {
 
   it("an editor save of an installed theme drops its origin", async () => {
     const { deps, registry } = setup();
-    const installed = await installStoredTheme(deps, draft(), ORIGIN);
+    const installed = await installStoredTheme(deps, draft(), ORIGIN, () => true);
     if (!installed.ok) throw new Error("install failed");
     expect(registry.getSetting("storedThemes")[0]?.origin).toEqual(ORIGIN);
     const edited = await saveStoredTheme(deps, draft({ id: installed.source.id, label: "Edited" }));
@@ -222,7 +223,7 @@ describe("repository themes (#1178)", () => {
 
   it("setStoredThemeMotion changes only an origin row", async () => {
     const { deps, registry, broadcast } = setup();
-    const installed = await installStoredTheme(deps, draft(), ORIGIN);
+    const installed = await installStoredTheme(deps, draft(), ORIGIN, () => true);
     const plain = await saveStoredTheme(deps, draft({ label: "Plain" }));
     if (!installed.ok || !plain.ok) throw new Error("save failed");
     broadcast.mockClear();
@@ -234,6 +235,17 @@ describe("repository themes (#1178)", () => {
     await setStoredThemeMotion(deps, installed.source.id, true);
     expect(registry.getSetting("storedThemes")[0]?.origin?.animate).toBe(true);
     expect(registry.getSetting("storedThemes")[1]?.origin).toBeUndefined();
+    expect(broadcast).toHaveBeenCalledTimes(1);
+  });
+});
+
+describe("setOfficialThemes (#1209)", () => {
+  it("writes the setting and broadcasts, leaving every pick alone", async () => {
+    const { deps, registry, broadcast } = setup();
+    registry.setSetting("themeId", "nord");
+    await setOfficialThemes(deps, false);
+    expect(registry.getSetting("officialThemes")).toBe(false);
+    expect(registry.getSetting("themeId")).toBe("nord");
     expect(broadcast).toHaveBeenCalledTimes(1);
   });
 });

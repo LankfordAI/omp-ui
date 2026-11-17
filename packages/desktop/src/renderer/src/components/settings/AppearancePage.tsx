@@ -26,6 +26,7 @@ import { useStore } from "../../store";
 import { Switch } from "../ui";
 import { Row } from "./rows";
 import { CURATED_SOURCES, GateFailures, ThemeEditor } from "./ThemeEditor";
+import { ThemeSharePanel } from "./ThemeSharePanel";
 import { ThemeWall } from "./ThemeWall";
 
 /**
@@ -163,8 +164,9 @@ function SaveVerdict({ result }: { result: SaveStoredThemeResult }) {
 /**
  * The Themes tab: the theme wall, plus what it hands back up: the editor
  * (issue #1168), the omp-ui theme file and VS Code imports (issue #999), and
- * their verdicts. The editor replaces the wall while open; the wall stays
- * mounted, hidden, so Show, filters and an open listing survive the edit.
+ * their verdicts. The editor or the Share panel (#1212) replaces the wall
+ * while open; the wall stays mounted, hidden, so Show, filters and an open
+ * listing survive the edit.
  */
 function ThemesTab() {
   const t = useT();
@@ -175,6 +177,7 @@ function ThemesTab() {
   const vsCodePicker = useRef<HTMLInputElement>(null);
   const filePicker = useRef<HTMLInputElement>(null);
   const [editing, setEditing] = useState<EditorInitial | null>(null);
+  const [sharingId, setSharingId] = useState<string | null>(null);
   const [busy, setBusy] = useState(false);
   const [vsCodeResult, setVsCodeResult] = useState<VsCodeImportResult | null>(null);
   const [fileResult, setFileResult] = useState<SaveStoredThemeResult | null>(null);
@@ -189,6 +192,8 @@ function ThemesTab() {
     darkThemeId: resolveTheme(state?.darkThemeId, sources).id,
   };
   const showing = resolveTheme(effectiveThemeId(preference, prefersDark), sources);
+  // Closes by itself when the theme is removed, from this window or another.
+  const sharing = sharingId === null ? null : (sources.find((s) => s.id === sharingId) ?? null);
 
   const clearVerdicts = (): void => {
     setVsCodeResult(null);
@@ -298,7 +303,10 @@ function ThemesTab() {
         onChange={(event) => void pickVsCode(event)}
       />
       {editing !== null && <ThemeEditor initial={editing} onClose={() => setEditing(null)} />}
-      <div hidden={editing !== null}>
+      {sharing !== null && (
+        <ThemeSharePanel source={sharing} themeFile={themeFileOf} onClose={() => setSharingId(null)} />
+      )}
+      <div hidden={editing !== null || sharing !== null}>
         <ThemeWall
           sources={sources}
           pick={preference}
@@ -323,6 +331,10 @@ function ThemesTab() {
             openEditor(editorInitialOf(source, t("settings.appearance.duplicateName", { name: source.label })))
           }
           onExport={(source) => void exportTheme(source)}
+          onShare={(source) => {
+            clearVerdicts();
+            setSharingId(source.id);
+          }}
         />
       </div>
     </>

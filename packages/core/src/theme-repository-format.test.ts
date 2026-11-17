@@ -1,9 +1,11 @@
 import { describe, expect, it } from "vitest";
 import {
   EMPTY_THEME_META,
+  OFFICIAL_THEME_TAGS,
   THEME_INDEX_ENTRIES_MAX,
   THEME_REPOSITORIES_MAX,
   effectiveThemeRepositories,
+  isThemeTag,
   parseThemeDetails,
   parseThemeIndex,
   parseThemeIndexV2,
@@ -225,6 +227,14 @@ describe("themeSlug", () => {
     expect(themeSlug("Sakura Fuji (dark)")).toBe("sakura-fuji-dark");
     expect(themeSlug("桜")).toBe("");
     expect(themeSlug(`${"a".repeat(63)} b`)).toBe("a".repeat(63));
+  });
+});
+
+describe("OFFICIAL_THEME_TAGS", () => {
+  it("holds valid, unique tags within the repository's vocabulary cap", () => {
+    expect(OFFICIAL_THEME_TAGS.every(isThemeTag)).toBe(true);
+    expect(new Set(OFFICIAL_THEME_TAGS).size).toBe(OFFICIAL_THEME_TAGS.length);
+    expect(OFFICIAL_THEME_TAGS.length).toBeLessThanOrEqual(40);
   });
 });
 

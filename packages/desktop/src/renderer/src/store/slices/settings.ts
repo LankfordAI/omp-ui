@@ -445,6 +445,14 @@ export const createSettingsSlice: StateCreator<UiStore, [], [], SettingsSlice> =
       }
     },
 
+    async setOfficialThemes(on) {
+      try {
+        await backend.setOfficialThemes(on);
+      } catch (err) {
+        get().reportError(err);
+      }
+    },
+
     async setFontFamilyId(id) {
       const previousId = currentFontFamilyId();
       applyFontFamily(resolveFontFamily(id));

@@ -1,6 +1,6 @@
 # Themes install from GitHub theme repositories
 
-> **Status:** Accepted, 2026-11-16 ([#1178](https://github.com/LankfordAI/omp-ui/issues/1178)). Amends [ADR-0094](0094-themes-carry-backdrops-and-can-be-authored.md): a stored authored theme may now carry an `origin`. Honors the [#414](https://github.com/LankfordAI/omp-ui/issues/414) rule: omp-ui holds no GitHub token. Amended 2026-11-16 ([#1182](https://github.com/LankfordAI/omp-ui/issues/1182)): Preview shows an uninstalled theme's backdrop (§12).
+> **Status:** Accepted, 2026-11-16 ([#1178](https://github.com/LankfordAI/omp-ui/issues/1178)). Amends [ADR-0094](0094-themes-carry-backdrops-and-can-be-authored.md): a stored authored theme may now carry an `origin`. Honors the [#414](https://github.com/LankfordAI/omp-ui/issues/414) rule: omp-ui holds no GitHub token. Amended 2026-11-16 ([#1182](https://github.com/LankfordAI/omp-ui/issues/1182)): Preview shows an uninstalled theme's backdrop (§12). Amended ([ADR-0097](0097-official-theme-repository-is-listed-by-default-and-theme-indexes-carry-details.md)): the official repository is listed by default.
 
 Themes could be exported and imported only one file at a time; there was no way to publish a set of themes or follow someone else's. Settings → Appearance gains **Theme repositories**: the user adds a public GitHub repository, browses the themes its **theme index** lists, and installs them. Every install ends in the same host save path and gate as the editor.
 
@@ -39,7 +39,7 @@ Fetching runs in the owning desktop host's main process (`ThemeRepositoryService
 - **A new `repo-` id prefix.** It would fork `storedThemeKind` and the signal rule; an origin field on authored themes is enough.
 - **An index of paths only.** Browse would have to download every theme file and backdrop to preview it.
 - **The user's `gh` token.** Public data needs none, and omp-ui holds no GitHub token (#414).
-- **A curated default repository.** The list ships empty: a default entry would read as an endorsement. `LankfordAI/omp-ui-themes` exists as a working example and test fixture, which users add themselves; making it a default later changes only the setting's fallback.
+- **A curated default repository.** The list ships empty: a default entry would read as an endorsement. `LankfordAI/omp-ui-themes` exists as a working example and test fixture, which users add themselves; making it a default later changes only the setting's fallback. Superseded by [ADR-0097](0097-official-theme-repository-is-listed-by-default-and-theme-indexes-carry-details.md): the official repository is listed (not pre-added) and can be turned off.
 - **Backdrops on every card while browsing.** A browse would download every listed theme file (up to 48 at 6 MiB each) for themes the user may never open.
 - **Custom CSS in themes.** Still rejected by ADR-0094.
 

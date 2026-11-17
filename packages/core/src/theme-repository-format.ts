@@ -24,6 +24,28 @@ export const THEME_DESCRIPTION_MAX = 160;
 export const THEME_SLUG_CHARS_MAX = 64;
 /** Image backdrops the official repository accepts; tighter than the app's 4 MiB. The tool and the Share panel both read it. */
 export const REPOSITORY_IMAGE_BYTES_MAX = 1024 * 1024;
+/**
+ * The official theme repository's tag vocabulary (its tags.json), offered by the
+ * Share panel (#1212). The repository's CI is authoritative; keep this in step.
+ */
+export const OFFICIAL_THEME_TAGS: readonly string[] = [
+  "abstract",
+  "city",
+  "cool",
+  "cozy",
+  "high-contrast",
+  "landscape",
+  "minimal",
+  "monochrome",
+  "nature",
+  "pastel",
+  "pixel-art",
+  "port",
+  "retro",
+  "seasonal",
+  "space",
+  "warm",
+];
 /** Lowercase words joined by single hyphens: tags and theme file slugs. */
 export const THEME_SLUG = /^[a-z0-9]+(?:-[a-z0-9]+)*$/;
 export const THEME_DETAILS_FORMAT = "omp-ui-theme-details";

@@ -157,6 +157,8 @@ export interface RegistrySettings {
   storedThemes: ThemeSource[];
   /** Canonical owner/repo theme repositories, in the order added (#1178); default []. */
   themeRepositories: string[];
+  /** Lists the official theme repository under Show without it being added (#1209); default on. */
+  officialThemes: boolean;
   /** Active font family id (see renderer lib/font-families.ts). */
   fontFamilyId: string;
   /** Transcript column width step (see renderer lib/transcript-width.ts); default wide (issue #391). */
@@ -459,6 +461,10 @@ export const SETTINGS: SettingDescriptors = {
   ),
   storedThemes: { fallback: () => [], parse: parseStoredThemes },
   themeRepositories: { fallback: () => [], parse: parseThemeRepositories },
+  officialThemes: validatedSetting(
+    () => true,
+    (value): value is boolean => typeof value === "boolean",
+  ),
   // Any non-empty string is kept as-is: font family ids are validated by the
   // renderer's own table, so registries written by newer builds remain intact.
   fontFamilyId: validatedSetting(

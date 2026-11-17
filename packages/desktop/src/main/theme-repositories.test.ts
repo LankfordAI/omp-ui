@@ -10,7 +10,7 @@ import {
   type ThemeRepositoryFetch,
   type ThemeRepositoryResponse,
 } from "@omp-ui/core";
-import type { StoredThemeDeps } from "./stored-themes";
+import { saveStoredTheme, setOfficialThemes, type StoredThemeDeps } from "./stored-themes";
 import { ThemeBackdropStore } from "./theme-backdrop-store";
 import { ThemeRepositoryService } from "./theme-repositories";
 
@@ -50,7 +50,10 @@ function themeFile(spec: ThemeSpec): string {
  * the index lists, otherwise it mirrors each file.
  */
 class FakeGitHub {
+  constructor(readonly repo: string = REPO) {}
   head = C1;
+  /** Awaited before serving a raw file other than the index, so a test can hold a download open. */
+  beforeTheme: (() => Promise<void>) | null = null;
   calls: string[] = [];
   commits = new Map<string, { files: Record<string, string>; index?: unknown[] }>();
 
@@ -71,10 +74,10 @@ class FakeGitHub {
       };
     };
     const notFound: ThemeRepositoryResponse = { ok: false, status: 404, headers: { get: () => null }, body: null };
-    if (url === `https://api.github.com/repos/${REPO}/commits/HEAD`) return ok(this.head);
+    if (url === `https://api.github.com/repos/${this.repo}/commits/HEAD`) return ok(this.head);
     for (const [sha, commit] of this.commits) {
       const files = { "omp-ui-themes.json": this.indexText(commit), ...commit.files };
-      if (url === `https://api.github.com/repos/${REPO}/git/trees/${sha}?recursive=1`) {
+      if (url === `https://api.github.com/repos/${this.repo}/git/trees/${sha}?recursive=1`) {
         const tree = Object.entries(files).map(([p, text]) => ({
           path: p,
           type: "blob",
@@ -84,7 +87,10 @@ class FakeGitHub {
         return ok(JSON.stringify({ sha, tree, truncated: false }));
       }
       for (const [p, text] of Object.entries(files)) {
-        if (url === `https://raw.githubusercontent.com/${REPO}/${sha}/${p}`) return ok(text);
+        if (url === `https://raw.githubusercontent.com/${this.repo}/${sha}/${p}`) {
+          if (p !== "omp-ui-themes.json" && this.beforeTheme !== null) await this.beforeTheme();
+          return ok(text);
+        }
       }
     }
     return notFound;
@@ -101,21 +107,21 @@ class FakeGitHub {
   }
 }
 
-function setup(now: () => number = () => 0) {
+function setup(now: () => number = () => 0, repo: string = REPO, themesBroadcast: () => Promise<void> = async () => {}) {
   const dir = fs.mkdtempSync(path.join(os.tmpdir(), "omp-ui-theme-repos-"));
   dirs.push(dir);
   const registry = Registry.load(path.join(dir, "registry.json"));
   let next = 0;
   const themes: StoredThemeDeps = {
     registry,
-    broadcast: async () => {},
+    broadcast: themesBroadcast,
     backdrops: new ThemeBackdropStore(path.join(dir, "theme-backdrops")),
     newId: () => `custom-t${++next}`,
   };
-  const github = new FakeGitHub();
+  const github = new FakeGitHub(repo);
   const broadcast = vi.fn(async () => {});
   const service = new ThemeRepositoryService({ registry, broadcast, themes, fetch: github.fetch, now });
-  return { registry, service, github, broadcast };
+  return { registry, service, github, broadcast, themes };
 }
 
 describe("ThemeRepositoryService (#1178)", () => {
@@ -285,5 +291,73 @@ describe("ThemeRepositoryService (#1178)", () => {
     await service.remove(REPO);
     expect(registry.getSetting("themeRepositories")).toEqual([]);
     expect(registry.getSetting("storedThemes")).toHaveLength(1);
+  });
+});
+
+describe("ThemeRepositoryService official repository (#1209)", () => {
+  const OFFICIAL = "lankfordai/omp-ui-themes";
+  const deferred = (): { promise: Promise<void>; resolve: () => void } => {
+    let resolve!: () => void;
+    const promise = new Promise<void>((r) => (resolve = r));
+    return { promise, resolve };
+  };
+
+  it("browses the official repository without it being added, only while official themes are on", async () => {
+    const { registry, service, github } = setup(() => 0, OFFICIAL);
+    github.commits.set(C1, { files: { "dusk.json": themeFile({ label: "Dusk", canvas: "#1a1b26" }) } });
+    expect(registry.getSetting("themeRepositories")).toEqual([]);
+    expect((await service.browse(OFFICIAL, false)).ok).toBe(true);
+    expect(github.calls.length).toBeGreaterThan(0);
+    registry.setSetting("officialThemes", false);
+    expect(await service.browse(OFFICIAL, true)).toEqual({ ok: false, message: "add the repository first" });
+  });
+
+  it("add and remove of the implicit official entry write nothing", async () => {
+    const { registry, service, broadcast } = setup(() => 0, OFFICIAL);
+    expect(await service.add(OFFICIAL)).toEqual({ ok: true, repository: OFFICIAL });
+    await service.remove(OFFICIAL);
+    expect(registry.getSetting("themeRepositories")).toEqual([]);
+    expect(registry.getSetting("officialThemes")).toBe(true);
+    expect(broadcast).not.toHaveBeenCalled();
+  });
+
+  it("refuses an install whose repository is removed while the theme file downloads", async () => {
+    const { registry, service, github } = setup();
+    github.commits.set(C1, { files: { "dusk.json": themeFile({ label: "Dusk", canvas: "#1a1b26" }) } });
+    await service.add(REPO);
+    await service.browse(REPO, false);
+    const hold = deferred();
+    github.beforeTheme = () => hold.promise;
+    const install = service.install({ repository: REPO, commit: C1, path: "dusk.json" });
+    await vi.waitFor(() => expect(github.calls.at(-1)).toContain("/dusk.json"));
+    await service.remove(REPO);
+    hold.resolve();
+    expect(await install).toMatchObject({ ok: false, message: "add the repository first" });
+    expect(registry.getSetting("storedThemes")).toEqual([]);
+  });
+
+  it("refuses an official install that finishes after a disable queued behind another save", async () => {
+    const saving = deferred();
+    let holdBroadcast = true;
+    const { registry, service, github, themes } = setup(() => 0, OFFICIAL, () =>
+      holdBroadcast ? saving.promise : Promise.resolve(),
+    );
+    github.commits.set(C1, { files: { "dusk.json": themeFile({ label: "Dusk", canvas: "#1a1b26" }) } });
+    await service.browse(OFFICIAL, false);
+    const download = deferred();
+    github.beforeTheme = () => download.promise;
+    const install = service.install({ repository: OFFICIAL, commit: C1, path: "dusk.json" });
+    await vi.waitFor(() => expect(github.calls.at(-1)).toContain("/dusk.json"));
+    // A save holds the queue; the disable queues behind it; then the download finishes.
+    const pending = saveStoredTheme(themes, { label: "Mine", seeds: { canvas: "#16161e" }, backdrop: null });
+    const disable = setOfficialThemes(themes, false);
+    download.resolve();
+    await new Promise((r) => setTimeout(r, 10));
+    expect(registry.getSetting("officialThemes")).toBe(true);
+    holdBroadcast = false;
+    saving.resolve();
+    await Promise.all([pending, disable]);
+    expect(await install).toMatchObject({ ok: false, message: "add the repository first" });
+    expect(registry.getSetting("storedThemes").map((t) => t.label)).toEqual(["Mine"]);
   });
 });

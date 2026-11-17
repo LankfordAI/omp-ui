@@ -28,7 +28,7 @@ import {
 import type { ThemeSeeds } from "./theme-seeds";
 
 export const TAG_VOCABULARY_MAX = 40;
-/** Equals BUNDLED_THEMES_MAX: featured themes are what omp-ui bundles. */
+/** Featured themes lead both indexes, in featured.json order. */
 export const FEATURED_MAX = 12;
 
 export interface CheckedTheme {

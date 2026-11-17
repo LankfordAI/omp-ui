@@ -725,6 +725,8 @@ export const BACKEND_CHANNELS = {
     channel: "settings:setStoredThemeMotion",
     ...request<[id: string, on: boolean], void>([str(), bool()]),
   },
+  /** Lists or hides the official theme repository (#1209). */
+  setOfficialThemes: { channel: "settings:setOfficialThemes", ...request<[on: boolean], void>([bool()]) },
   /** Lets a theme's scene animate (issue #1168). */
   setBackdropMotion: { channel: "settings:setBackdropMotion", ...request<[on: boolean], void>([bool()]) },
   /** Registers omp-ui_theme_save on sessions started or resumed afterwards (issue #1168). */

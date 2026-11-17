@@ -263,6 +263,7 @@ const VALID_ARGS = {
   installRepositoryTheme: [{ repository: "owner/repo", commit: "a".repeat(40), path: "themes/dusk.json" }],
   previewRepositoryThemeBackdrop: [{ repository: "owner/repo", commit: "a".repeat(40), path: "themes/dusk.json" }],
   setStoredThemeMotion: ["custom-x-abcdef", true],
+  setOfficialThemes: [true],
   setBackdropMotion: [false],
   setThemeAgentAccess: [true],
   setIssueAgentAccess: [true],

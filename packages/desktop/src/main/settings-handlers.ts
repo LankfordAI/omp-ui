@@ -28,6 +28,7 @@ import {
   commitStoredTheme,
   removeStoredTheme,
   saveStoredTheme,
+  setOfficialThemes,
   setStoredThemeMotion,
   type StoredThemeDeps,
 } from "./stored-themes";
@@ -76,6 +77,7 @@ type SettingsHandlerChannels =
   | typeof CH.installRepositoryTheme
   | typeof CH.previewRepositoryThemeBackdrop
   | typeof CH.setStoredThemeMotion
+  | typeof CH.setOfficialThemes
   | typeof CH.setBackdropMotion
   | typeof CH.setThemeAgentAccess
   | typeof CH.setIssueAgentAccess
@@ -206,6 +208,7 @@ export function registerSettingsHandlers(
     [CH.previewRepositoryThemeBackdrop]: (request: RepositoryThemeInstallRequest) =>
       deps.themeRepositories.previewBackdrop(request),
     [CH.setStoredThemeMotion]: (id: string, on: boolean) => setStoredThemeMotion(deps.themes, id, on),
+    [CH.setOfficialThemes]: (value: boolean) => setOfficialThemes(deps.themes, value),
     [CH.setBackdropMotion]: (value: boolean) => commit("backdropMotion", value),
     [CH.setThemeAgentAccess]: (value: boolean) => commit("themeAgentAccess", value),
     [CH.setIssueAgentAccess]: (value: boolean) => commit("issueAgentAccess", value),

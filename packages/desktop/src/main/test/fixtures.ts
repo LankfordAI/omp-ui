@@ -53,6 +53,7 @@ interface RegistrySettings {
   darkThemeId: string;
   storedThemes: unknown[];
   themeRepositories: string[];
+  officialThemes: boolean;
   backdropMotion: boolean;
   themeAgentAccess: boolean;
   issueAgentAccess: boolean;
@@ -191,6 +192,7 @@ export function seedRegistry(file: string, patch: RegistrySeedPatch = {}): void 
     darkThemeId: "graphite",
     storedThemes: [],
     themeRepositories: [],
+    officialThemes: true,
     backdropMotion: true,
     themeAgentAccess: false,
     issueAgentAccess: false,
