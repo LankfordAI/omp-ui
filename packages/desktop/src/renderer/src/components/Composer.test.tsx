@@ -2201,7 +2201,7 @@ describe("Composer shell dispatch (issue #678)", () => {
     const textarea = typeDraft("!echo hi");
     press(textarea, "Enter");
     await act(async () => {});
-    expect(runShellCommand).toHaveBeenCalledWith(TAB, "echo hi");
+    expect(runShellCommand).toHaveBeenCalledWith(TAB, "echo hi", { excludeFromContext: false });
     expect(sendPrompt).not.toHaveBeenCalled();
     expect(runSlashCommand).not.toHaveBeenCalled();
     expect(textarea.value).toBe("");
@@ -2212,8 +2212,38 @@ describe("Composer shell dispatch (issue #678)", () => {
     const textarea = typeDraft("!git status");
     press(textarea, "Enter");
     await act(async () => {});
-    expect(runShellCommand).toHaveBeenCalledWith(TAB, "git status");
+    expect(runShellCommand).toHaveBeenCalledWith(TAB, "git status", { excludeFromContext: false });
     expect(sendPrompt).not.toHaveBeenCalled();
+  });
+
+  // Issue #1195: omp's TUI treats `!!` as the exclude-from-context bash form;
+  // both bangs are stripped and the run asks for excludeFromContext (#1200).
+  it("strips both bangs of a !! draft and asks to exclude it from context", async () => {
+    seed("ready"); renderComposer();
+    const textarea = typeDraft("!!echo hi");
+    press(textarea, "Enter");
+    await act(async () => {});
+    expect(runShellCommand).toHaveBeenCalledWith(TAB, "echo hi", { excludeFromContext: true });
+    expect(sendPrompt).not.toHaveBeenCalled();
+    expect(textarea.value).toBe("");
+  });
+
+  it("sends nothing for a bare !! and still clears the draft", async () => {
+    seed("ready"); renderComposer();
+    const textarea = typeDraft("!!");
+    press(textarea, "Enter");
+    await act(async () => {});
+    expect(runShellCommand).not.toHaveBeenCalled();
+    expect(sendPrompt).not.toHaveBeenCalled();
+    expect(textarea.value).toBe("");
+  });
+
+  it("treats bang-space as the single-bang form", async () => {
+    seed("ready"); renderComposer();
+    const textarea = typeDraft("! !echo hi");
+    press(textarea, "Enter");
+    await act(async () => {});
+    expect(runShellCommand).toHaveBeenCalledWith(TAB, "!echo hi", { excludeFromContext: false });
   });
 
   it("sends nothing for a bare !", async () => {
@@ -4044,7 +4074,7 @@ describe("Composer artifact references", () => {
     renderComposer();
     const box = typeDraft("!echo hello");
     await act(async () => { press(box, "Enter"); });
-    expect(shell).toHaveBeenCalledWith(TAB, "echo hello");
+    expect(shell).toHaveBeenCalledWith(TAB, "echo hello", { excludeFromContext: false });
     expect(useStore.getState().artifactDrafts[TAB]).toEqual([REF]);
     typeDraft("/compact");
     await act(async () => { press(box, "Enter"); });

@@ -1949,8 +1949,15 @@ export interface UiStore extends SettingsSlice, UpdatesSlice, LabSlice, StatsSli
   ): void;
   runSlashCommand(tabId: string, line: string): Promise<void>;
   /** One "!" draft as omp's concurrent bash command; settles its shell row
-   *  from the response. No model turn (issue #678). */
-  runShellCommand(tabId: string, command: string): Promise<void>;
+   *  from the response. No model turn (issue #678). `excludeFromContext`
+   *  (issue #1200) asks omp to keep the run out of model context — sent only
+   *  when the process advertised the capability, refused with a notice
+   *  otherwise. */
+  runShellCommand(
+    tabId: string,
+    command: string,
+    opts?: { excludeFromContext?: boolean },
+  ): Promise<void>;
   /** omp's abort_bash: cancels every bash running in the tab's process. */
   abortShellCommands(tabId: string): Promise<void>;
   /**

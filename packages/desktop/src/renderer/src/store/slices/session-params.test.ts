@@ -3096,6 +3096,42 @@ describe("runShellCommand (issue #678)", () => {
     });
   });
 
+  // Issue #1200: `!!` maps to omp's bash excludeFromContext, sent only on the
+  // ready frame's exact capability; without it the run is refused with a
+  // notice instead of silently sharing the output.
+  it("sends excludeFromContext only when the process advertised the capability", async () => {
+    createMachinery(h.useStore.setState, h.useStore.getState, h.useStore).runtime(h.TAB)
+      .supportsBashExcludeFromContext = true;
+    const promise = h.useStore.getState().runShellCommand(h.TAB, "echo hi", { excludeFromContext: true });
+    expect(h.sent[0]!.cmd).toMatchObject({ type: "bash", command: "echo hi", excludeFromContext: true });
+    expect(h.useStore.getState().rpc[h.TAB]!.items.at(-1)).toMatchObject({
+      kind: "shell",
+      command: "echo hi",
+      shared: false,
+    });
+    h.respond(h.TAB, h.sent[0]!.cmd, { exitCode: 0, output: "hi\n" });
+    await promise;
+  });
+
+  it("refuses an excluded run with a notice when the capability is absent", async () => {
+    const appendNotice = vi.fn();
+    h.useStore.setState({ appendNotice });
+    await h.useStore.getState().runShellCommand(h.TAB, "echo hi", { excludeFromContext: true });
+    expect(appendNotice).toHaveBeenCalledWith(h.TAB, expect.stringContaining("!!"), "warn");
+    expect(h.sent).toEqual([]);
+    expect(h.useStore.getState().rpc[h.TAB]!.items.at(-1)).not.toMatchObject({ kind: "shell" });
+  });
+
+  it("never attaches excludeFromContext to a plain shared run", async () => {
+    createMachinery(h.useStore.setState, h.useStore.getState, h.useStore).runtime(h.TAB)
+      .supportsBashExcludeFromContext = true;
+    const promise = h.useStore.getState().runShellCommand(h.TAB, "echo hi");
+    expect(h.sent[0]!.cmd).toMatchObject({ type: "bash", command: "echo hi" });
+    expect(h.sent[0]!.cmd.excludeFromContext).toBeUndefined();
+    h.respond(h.TAB, h.sent[0]!.cmd, { exitCode: 0, output: "hi\n" });
+    await promise;
+  });
+
   it("settles done with the failing exit code — the command ran", async () => {
     const promise = h.useStore.getState().runShellCommand(h.TAB, "false");
     h.respond(h.TAB, h.sent[0]!.cmd, { exitCode: 3, output: "" });

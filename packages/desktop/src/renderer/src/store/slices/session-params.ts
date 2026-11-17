@@ -2477,10 +2477,24 @@ export function createSessionParamsSlice(
    * model turn — the shell row settles from the command's own completion
    * response, and omp records a bashExecution entry so the model still
    * sees the output.
+   *
+   * `excludeFromContext` (issue #1200) maps the composer's "!!" form to
+   * omp's bash field: sent only when this process's ready frame advertised
+   * the capability. Without that evidence an older omp ignores the field and
+   * shares the output, so the run is refused with a notice instead.
    */
-  const runShellCommand = async (tabId: string, command: string): Promise<void> => {
+  const runShellCommand = async (
+    tabId: string,
+    command: string,
+    opts?: { excludeFromContext?: boolean },
+  ): Promise<void> => {
     if (!m.acceptsCommands(tabId)) return;
-    const item = shellItem(command);
+    const exclude = opts?.excludeFromContext === true;
+    if (exclude && m.runtime(tabId).supportsBashExcludeFromContext !== true) {
+      get().appendNotice(tabId, t("composer.shell.excludeUnsupported"), "warn");
+      return;
+    }
+    const item = shellItem(command, exclude);
     m.appendItem(tabId, item);
     const settle = (patch: Partial<ShellItem>): void => {
       m.patchItems(tabId, (i) =>
@@ -2494,7 +2508,11 @@ export function createSessionParamsSlice(
       // sweeps), and a failed command is the row's story, not a session
       // banner. The bus never expires a bash (issue #678), so the only
       // rejections here are omp failures and process abandonment.
-      const resp = await get().rpcCommand(tabId, { type: "bash", command }, { quiet: true });
+      const resp = await get().rpcCommand(
+        tabId,
+        { type: "bash", command, ...(exclude ? { excludeFromContext: true } : {}) },
+        { quiet: true },
+      );
       const data = respData(resp);
       settle({
         status: boolField(data, "cancelled") === true ? "cancelled" : "done",

@@ -782,6 +782,29 @@ describe("rpcCommand / handleRpcFrame correlation", () => {
     expect(h.useStore.getState().rpc[h.TAB]!.status).toBe("ready");
   });
 
+  // Issue #1200: the ready frame is the process's exclude-capability evidence;
+  // boot's dispose/recreate must carry it, and a fresh ready without the field
+  // must clear a value from the previous process.
+  it("records supportsBashExcludeFromContext from the ready frame across boot", async () => {
+    const finishBoot = async (): Promise<void> => {
+      for (let wave = 0; wave < 4; wave++) {
+        await h.flushMicrotasks();
+        for (const { tabId, cmd } of h.sent.splice(0)) h.respond(tabId, cmd, {});
+      }
+    };
+    h.useStore
+      .getState()
+      .handleRpcFrame(h.TAB, { type: "ready", maxFrameBytes: 1048576, supportsBashExcludeFromContext: true });
+    await h.flushMicrotasks();
+    await finishBoot();
+    expect(peekTabRuntime(h.TAB)!.supportsBashExcludeFromContext).toBe(true);
+
+    h.useStore.getState().handleRpcFrame(h.TAB, { type: "ready", maxFrameBytes: 1048576 });
+    await h.flushMicrotasks();
+    await finishBoot();
+    expect(peekTabRuntime(h.TAB)!.supportsBashExcludeFromContext).toBe(false);
+  });
+
   it("boots an early ready frame before its renderer runtime exists", async () => {
     const earlyTab = "early-ready-tab";
     h.backendState = h.stateWithRecord(null);

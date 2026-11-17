@@ -699,6 +699,7 @@ export const en = {
   "composer.goal.needsObjective": "Give the goal an objective: /goal set OBJECTIVE.",
   "composer.goal.badBudget": "--budget needs a positive whole number of tokens, followed by the objective.",
   "composer.goal.budgetAtCreate": "A goal's budget is set when it is created: /goal --budget N OBJECTIVE.",
+  "composer.shell.excludeUnsupported": "this omp version cannot run a !! command out of model context — nothing was run",
   "composer.goal.replaceFailed": "The previous goal was dropped, but omp refused the new one: {reason}",
   "composer.goal.needsNewerOmp": "this omp has no goal commands — update omp to 18.4.11 or later",
   "composer.goal.notReady": "The session is not ready for commands yet.",

@@ -764,8 +764,13 @@ export function Composer({
         addReferences(references);
         setDismissedFor(null);
         setMentionDismissedFor(null);
-        if (message.length > 1) {
-          void runShellCommand(tabId, message.slice(1).trimStart());
+        // A leading "!!" is omp TUI's exclude-from-context bash (issue #1195):
+        // both bangs are stripped, and the run asks for excludeFromContext
+        // (refused with a notice on an omp too old for it, issue #1200).
+        const exclude = message.startsWith("!!");
+        const command = (exclude ? message.slice(2) : message.slice(1)).trimStart();
+        if (command !== "") {
+          void runShellCommand(tabId, command, { excludeFromContext: exclude });
           box.current?.focus({ preventScroll: true });
         }
         return;

@@ -709,11 +709,16 @@ export function createRpcCommandSlice(
       // restart, and the subscription re-escalates after boot (issue #63).
       const prior = get().rpc[tabId];
       const pendingNotices = m.runtime(tabId).pendingNotices;
+      // The ready frame stamps this on the runtime before calling boot (issue
+      // #1200); a re-boot's dispose/recreate must not drop it.
+      const supportsBashExcludeFromContext = m.runtime(tabId).supportsBashExcludeFromContext;
       disposeTabRuntime(tabId, "the session was relaunched", deps, m);
       // Ready can beat the spawn IPC response. The renderer-only owner must
       // exist synchronously before any command can produce another frame.
       m.createTabRuntime(tabId);
       m.patchRuntime(tabId, { pendingNotices });
+      if (supportsBashExcludeFromContext !== undefined)
+        m.patchRuntime(tabId, { supportsBashExcludeFromContext });
       const seedConfigured =
         findRecord(get().state, tabId)?.thinkingLevel === "auto" ? "auto" : null;
       m.patchRpc(tabId, {

@@ -274,7 +274,7 @@ export interface ShellItem {
   localDroppedChars?: number;
   /** omp's failure text when status === "failed". */
   error?: string;
-  /** False only from a recorded excludeFromContext entry (omp-ui never sends it). */
+  /** False for an excludeFromContext run — a recorded entry or a live "!!" row (#1200). */
   shared?: boolean;
   timestamp?: number;
 }
@@ -334,8 +334,16 @@ export function commandItem(name: string, args: string): CommandItem {
   return { kind: "command", id: `command-${++counter}`, name, args, status: "running" };
 }
 
-export function shellItem(command: string): ShellItem {
-  return { kind: "shell", id: `shell-${++counter}`, command, status: "running", timestamp: Date.now() };
+export function shellItem(command: string, excludeFromContext = false): ShellItem {
+  return {
+    kind: "shell",
+    id: `shell-${++counter}`,
+    command,
+    status: "running",
+    // A live excluded row matches the history backfill's `shared:false` (issue #1200).
+    ...(excludeFromContext ? { shared: false } : {}),
+    timestamp: Date.now(),
+  };
 }
 /** Keep omp's head/tail preview intact; disclose only our separate legacy display cut. */
 export function shellOutputFields(result: unknown): Pick<ShellItem, "output" | "truncated" | "truncation" | "localDroppedChars"> {

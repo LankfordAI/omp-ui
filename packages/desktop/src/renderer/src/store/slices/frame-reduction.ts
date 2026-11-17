@@ -611,6 +611,13 @@ export function createFrameReductionSlice(
       // bootRpcTab creates its own runtime slot, so it bypasses the ordinary
       // unknown-tab guard.
       if (control?.kind === "ready") {
+        // The process's bash exclude capability is this frame's evidence
+        // (issue #1200): stamp it on the runtime before boot — `m.runtime`
+        // creates the slot when ready beats it — and bootRpcTab carries the
+        // value across its own dispose/recreate, so a command dispatched
+        // after boot sees exactly what this omp advertises.
+        m.runtime(tabId).supportsBashExcludeFromContext =
+          control.frame.supportsBashExcludeFromContext === true;
         void get().bootRpcTab(tabId);
         return;
       }

@@ -314,6 +314,25 @@ describe("RpcClient handshake", () => {
     ]);
   });
 
+  it("records supportsBashExcludeFromContext only on exact true from the ready frame (issue #1200)", async () => {
+    const h = harness();
+    expect(h.client.supportsBashExcludeFromContext).toBe(false);
+    h.fake.stdout.write(
+      `${JSON.stringify({ type: "ready", protocolVersion: 1, supportedProtocolVersions: [1, 2], supportsBashExcludeFromContext: true })}\n`,
+    );
+    await tick();
+    expect(h.client.supportsBashExcludeFromContext).toBe(true);
+  });
+
+  it("keeps supportsBashExcludeFromContext false for a truthy non-boolean field", async () => {
+    const h = harness();
+    h.fake.stdout.write(
+      `${JSON.stringify({ type: "ready", protocolVersion: 1, supportsBashExcludeFromContext: "yes" })}\n`,
+    );
+    await tick();
+    expect(h.client.supportsBashExcludeFromContext).toBe(false);
+  });
+
   it("adopts maxFrameBytes from the ready frame", async () => {
     const h = harness();
     h.fake.stdout.write(readyFrame(64));

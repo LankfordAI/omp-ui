@@ -137,6 +137,14 @@ export interface TabRuntime {
   wordPredictionUnsupported?: boolean;
   /** Epoch ms before which `predict_word` is not re-sent after a failure (#715). */
   wordPredictionRetryAt?: number;
+  /**
+   * This process's ready frame carried `supportsBashExcludeFromContext: true`
+   * (omp ≥18.18.1). `runShellCommand` sends `excludeFromContext` only on this
+   * exact evidence; anything else means an older omp that would silently share
+   * the output (issue #1200). Stamped at the ready frame, dropped with the
+   * runtime on reboot.
+   */
+  supportsBashExcludeFromContext?: boolean;
   /** Loaded review generations and voice accounting belong to this process. */
   planReadSequence: number;
   liveReviewTextCache?: { sourceKey: string; text: string };

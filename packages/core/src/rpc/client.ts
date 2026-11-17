@@ -119,7 +119,9 @@ function defaultSpawn(ompPath: string, args: string[], env: NodeJS.ProcessEnv): 
   };
 }
 
-function isReadyFrame(frame: unknown): frame is { maxFrameBytes?: unknown } {
+function isReadyFrame(
+  frame: unknown,
+): frame is { maxFrameBytes?: unknown; supportsBashExcludeFromContext?: unknown } {
   return frame !== null && typeof frame === "object" && "type" in frame && frame.type === "ready";
 }
 
@@ -148,6 +150,8 @@ export class RpcClient {
   /** The unterminated stderr remainder awaiting its newline. */
   #stderrPartial = "";
   #maxFrameBytes = DEFAULT_MAX_FRAME_BYTES;
+  /** True only when the ready frame advertised `supportsBashExcludeFromContext` (issue #1200). */
+  #supportsBashExcludeFromContext = false;
   #pending: Buffer = Buffer.alloc(0);
   #stderrTail = "";
   #readyTimer: NodeJS.Timeout;
@@ -237,6 +241,16 @@ export class RpcClient {
     return this.#dead;
   }
 
+  /**
+   * True only after a ready frame carried `supportsBashExcludeFromContext:
+   * true` (omp ≥18.18.1). Send `excludeFromContext` on a bash command only
+   * when this is true; older runtimes ignore the field and share the output
+   * with model context (issue #1200).
+   */
+  get supportsBashExcludeFromContext(): boolean {
+    return this.#supportsBashExcludeFromContext;
+  }
+
   /** Fires on the exit edge regardless of arm state; may fire more than once, idempotent consumers only. */
   onDeath(cb: (code: number | null) => void): void {
     this.#deathWatchers.push(cb);
@@ -316,6 +330,9 @@ export class RpcClient {
       clearTimeout(this.#readyTimer);
       const max = frame.maxFrameBytes;
       if (typeof max === "number" && Number.isInteger(max) && max > 0) this.#maxFrameBytes = max;
+      // Exact `true` only: an absent or non-boolean field means an older omp
+      // would silently share excluded output (issue #1200).
+      this.#supportsBashExcludeFromContext = frame.supportsBashExcludeFromContext === true;
       if (this.#armed) {
         if (parked !== null ? !this.#flushDeferred() : !this.#startCommandRail()) return;
       }
