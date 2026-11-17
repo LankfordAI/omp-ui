@@ -30,6 +30,16 @@ export const SESSION_FACE: Record<
     titleKey: "sidebar.status.workingTitle",
     textClass: "text-copper",
   },
+  // Run open, paused on background work (issue #1204): copper like working —
+  // the run is live — but no pulse, because nothing streams right now
+  // (ADR-0004).
+  "awaiting-work": {
+    tone: "copper",
+    pulse: false,
+    labelKey: "sidebar.status.awaitingWorkLabel",
+    titleKey: "sidebar.status.awaitingWorkTitle",
+    textClass: "text-copper",
+  },
   "awaiting-answer": {
     tone: "iris",
     pulse: false,

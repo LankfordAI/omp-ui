@@ -848,6 +848,46 @@ describe("run-end tool settlement", () => {
     expect(tool(after, "t9")).toBe(settled);
   });
 
+  // Issue #1192: omp flags a loop pause inside an open run `isTerminal:
+  // false` — a continuation, queued input, or background work resumes it. The
+  // transcript must keep showing the run as live: no tool settlement, no
+  // streaming close, no "agent finished" marker. Only the terminal end lands.
+  it("non-terminal agent_end leaves running tools running and emits no marker", () => {
+    let items: RenderItem[] = [];
+    items = reduceEvent(items, {
+      type: "tool_execution_start",
+      toolCallId: "tC",
+      toolName: "task",
+    });
+    const before = items;
+    items = reduceEvent(items, { type: "agent_end", isTerminal: false, awaitingAsyncWork: true });
+    expect(items).toBe(before);
+    expect(tool(items, "tC")?.status).toBe("running");
+    expect(items.at(-1)).not.toMatchObject({ kind: "marker" });
+  });
+
+  it("non-terminal agent_end keeps a streaming assistant item streaming", () => {
+    let items = reduceEvent([], {
+      type: "message_update",
+      assistantMessageEvent: { type: "text_delta", delta: "partial" },
+    });
+    items = reduceEvent(items, { type: "agent_end", isTerminal: false });
+    expect(assistant(items)?.streaming).toBe(true);
+  });
+
+  it("the terminal end after a pause settles the run as usual", () => {
+    let items: RenderItem[] = [];
+    items = reduceEvent(items, {
+      type: "tool_execution_start",
+      toolCallId: "tD",
+      toolName: "bash",
+    });
+    items = reduceEvent(items, { type: "agent_end", isTerminal: false });
+    items = reduceEvent(items, { type: "agent_end", isTerminal: true });
+    expect(tool(items, "tD")?.status).toBe("cancelled");
+    expect(items.at(-1)).toMatchObject({ kind: "marker", label: "agent finished" });
+  });
+
   it("settleRunningItems returns the same array by identity when nothing runs", () => {
     const items = reduceEvent([], {
       type: "tool_execution_end",

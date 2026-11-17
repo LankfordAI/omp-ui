@@ -4,6 +4,7 @@ import {
   SCHEDULED_PROMPT_LATE_MS,
   SCHEDULED_PROMPT_NOTICES_MAX,
   countRunsBetween,
+  isNonTerminalAgentEnd,
   nextRunAfter,
   normalizeControlFrame,
   planMessage,
@@ -288,7 +289,7 @@ export class ScheduledPromptRunner implements FrameObserver {
       return;
     }
     // A run that just ended leaves the session idle: a due fire that waited can go out.
-    if (frame.type === "agent_end" && frame.isTerminal !== false) this.sync();
+    if (frame.type === "agent_end" && !isNonTerminalAgentEnd(frame)) this.sync();
   }
 
   private onAck(tabId: string, commandId: string, ok: boolean, error: unknown): void {

@@ -1,6 +1,8 @@
 import { randomUUID } from "node:crypto";
 
 import {
+  agentEndAwaitsAsyncWork,
+  isNonTerminalAgentEnd,
   isObject,
   normalizeControlFrame,
   type OwnedSessionRecord,
@@ -146,12 +148,20 @@ export class HibernationTracker implements FrameObserver {
         this.deps.attention?.turnStarted(tabId);
         break;
       case "agent_end": {
+        // A non-terminal end is a loop pause inside an open run (issue #1192):
+        // the latch stays set, so hibernation's mid-turn guard keeps the
+        // process warm while background work can still wake it. The pause's
+        // awaitingAsyncWork publishes as the summary's waiting level (#1204).
+        if (isNonTerminalAgentEnd(frame)) {
+          this.deps.turns.pause(tabId, agentEndAwaitsAsyncWork(frame));
+          break;
+        }
         this.deps.turns.end(tabId);
         if (rec.settleSuspendedUntil !== null) rec.settleSuspendedUntil = null;
         // Public agent_end is authoritative idle. Only a terminal end
         // announces completion; a pending plan gate or blocking answer owns
         // attention instead.
-        if (frame.isTerminal !== false && !this.deps.awaitingHumanAnswer(tabId))
+        if (!this.deps.awaitingHumanAnswer(tabId))
           this.deps.attention?.turnEnded(tabId);
         break;
       }

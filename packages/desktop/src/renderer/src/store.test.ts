@@ -229,6 +229,60 @@ describe("deriveSidebarSessionState", () => {
     ).toBe("awaiting-answer");
   });
 
+  // Issue #1204: a run open but paused with only background work able to wake
+  // it reads between working and idle. Both levels count — the host's
+  // published one (rows that never saw the frame) and this renderer's own
+  // tab flag — and a human-answer gate still outranks it.
+  it("derives awaiting-work for a run paused on background work (#1204)", () => {
+    expect(
+      h.deriveSidebarSessionState(
+        summary(),
+        rpcTabState({ status: "running", awaitingAsyncWork: true }),
+        undefined,
+      ),
+    ).toBe("awaiting-work");
+    // A row whose stream joined mid-pause: the host level carries it even
+    // when this renderer's tab never saw the frame.
+    expect(
+      h.deriveSidebarSessionState(
+        { ...summary(), turnRunning: true, turnAwaitingAsyncWork: true },
+        undefined,
+        undefined,
+      ),
+    ).toBe("awaiting-work");
+    expect(
+      h.deriveSidebarSessionState(
+        { ...summary(), turnRunning: true, turnAwaitingAsyncWork: true },
+        rpcTabState({ status: "ready" }),
+        undefined,
+      ),
+    ).toBe("awaiting-work");
+    // A host that answers with work queued instead (awaiting level off) stays
+    // plain working; and the wait never outranks a human-answer gate.
+    expect(
+      h.deriveSidebarSessionState(
+        { ...summary(), turnRunning: true },
+        rpcTabState({ status: "running" }),
+        undefined,
+      ),
+    ).toBe("working");
+    expect(
+      h.deriveSidebarSessionState(
+        { ...summary(), turnRunning: true, turnAwaitingAsyncWork: true, awaitingHumanAnswer: true },
+        rpcTabState({ status: "running", awaitingAsyncWork: true }),
+        undefined,
+      ),
+    ).toBe("awaiting-answer");
+    // The wait needs an open run: a settled tab with a stale level reads idle.
+    expect(
+      h.deriveSidebarSessionState(
+        summary(),
+        rpcTabState({ status: "ready", awaitingAsyncWork: true }),
+        undefined,
+      ),
+    ).toBe("ready");
+  });
+
   // Issue #851: background jobs outlive the dispatching turn — the bridge
   // snapshot's running rows keep the row working, and settled/absent
   // snapshots never re-arm it.

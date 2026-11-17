@@ -150,6 +150,7 @@ export function createSessionBundle(input: LiteSessionBundleDependencies): LiteS
           : "missing";
     const streamStalled = manager.isStreamStalled(record.tabId);
     const turnRunning = manager.isTurnRunning(record.tabId);
+    const turnAwaitingAsyncWork = manager.isTurnAwaitingAsyncWork(record.tabId);
     const awaitingHumanAnswer = manager.pendingAnswer(record.tabId);
     let title = record.cachedTitle;
     let status: SessionSummary["status"] = null;
@@ -186,6 +187,7 @@ export function createSessionBundle(input: LiteSessionBundleDependencies): LiteS
       ...(bridgeAvailability === undefined ? {} : { bridgeAvailability }),
       streamStalled,
       turnRunning,
+      turnAwaitingAsyncWork,
       awaitingHumanAnswer,
       pendingDialogs: manager.pendingDialogs(record.tabId),
       ...(goal === undefined ? {} : { goal }),

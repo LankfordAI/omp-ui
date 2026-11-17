@@ -1002,6 +1002,18 @@ describe("SessionHud stream-stall chip (issue #228)", () => {
     expect(host.textContent).not.toContain("stalled");
   });
 
+  // Issue #1204: a run paused with only background work able to wake it gets
+  // its own waiting readout between working and ready — copper, no pulse
+  // (nothing streams right now), while the tab stays running underneath.
+  it("shows the waiting-on-background-work label for a paused run", () => {
+    desktop();
+    seedRunning({ awaitingAsyncWork: true });
+    const host = document.createElement("div"); document.body.append(host); root = createRoot(host);
+    act(() => root!.render(<SessionHud tabId={TAB} />));
+    expect(host.textContent).toContain(t("hud.status.awaitingWork"));
+    expect(host.textContent).not.toContain(t("hud.status.running"));
+  });
+
   it("lets the compacting chip take priority over the stall chip", () => {
     desktop();
     seedRunning({

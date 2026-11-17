@@ -47,7 +47,7 @@ import {
 import { h } from "../../test/store-harness";
 import { peekTabRuntime, resetTabRuntimesForTests } from "./shared";
 import { HANDOFF_SOURCE_GRACE_MS, type LifecycleSlice } from "./lifecycle";
-import type { UiStore } from "../types";
+import type { RpcTabState, UiStore } from "../types";
 import { reduceAgentEvent } from "./reduce-agent-event";
 import type { ObservedTabRuntime } from "./reduce-agent-event";
 // The shared bridge mock predates the acknowledged plan-answer channel (issue
@@ -121,6 +121,92 @@ describe("reduceAgentEvent", () => {
 
     expect(reduced.patch).toEqual({ runtime: { lastFrameAt: 1_000 } });
     expect(reduced.transcript).toEqual({ frame, stall: null });
+  });
+
+  // Issue #1192: `isTerminal: false` marks a loop pause inside an open run.
+  // None of the end-of-run handling may fire: the tab stays "running" (Stop
+  // stays available), keywords stay live, and no title/usage/stall effect
+  // lands. The waiting level (#1204) is the only state a pause moves.
+  describe("non-terminal agent_end pauses", () => {
+    const runningTab = (): RpcTabState =>
+      rpcTabState({
+        status: "running",
+        activeTurnKeywords: ["ultrathink"],
+        lastTurn: { stopReason: "toolUse" },
+      });
+
+    it("keeps the tab running with no end-of-run effects and sets the waiting level", () => {
+      const reduced = reduceAgentEvent(runningTab(), runtime(), {
+        type: "agent_end",
+        isTerminal: false,
+        awaitingAsyncWork: true,
+      });
+
+      expect(reduced.patch.rpc).toMatchObject({ awaitingAsyncWork: true });
+      expect(reduced.patch.rpc).not.toHaveProperty("status");
+      expect(reduced.patch.rpc).not.toHaveProperty("activeTurnKeywords");
+      const endOfRun = reduced.effects.filter(
+        (effect) =>
+          effect.type === "rename-session" ||
+          effect.type === "refresh-usage" ||
+          effect.type === "refresh-branch-diff" ||
+          effect.type === "settle-browser-pane-close" ||
+          effect.type === "trigger-stall-continue",
+      );
+      expect(endOfRun).toEqual([]);
+    });
+
+    it("leaves the waiting flag off a pause queued input can also wake", () => {
+      const reduced = reduceAgentEvent(runningTab(), runtime(), {
+        type: "agent_end",
+        isTerminal: false,
+      });
+      expect(reduced.patch.rpc).toBeUndefined();
+    });
+
+    it("clears the waiting level when a later pause can no longer blame background work", () => {
+      const tab = { ...runningTab(), awaitingAsyncWork: true };
+      const reduced = reduceAgentEvent(tab, runtime(), {
+        type: "agent_end",
+        isTerminal: false,
+      });
+      expect(reduced.patch.rpc).toMatchObject({ awaitingAsyncWork: undefined });
+    });
+
+    it("keeps the stall-continue trigger keyed off the turn for a pause", () => {
+      // lastTurn says this run's loop ended on toolUse — never a stall; and
+      // even a stall-classified last turn must not auto-continue mid-run.
+      const tab = { ...runningTab(), lastTurn: { stopReason: "error", errorMessage: "boom", errorId: 0 } };
+      const reduced = reduceAgentEvent(tab, runtime(), { type: "agent_end", isTerminal: false });
+      expect(reduced.effects.some((e) => e.type === "trigger-stall-continue")).toBe(false);
+    });
+
+    it("settles exactly like the legacy wire on the terminal end", () => {
+      const tab = { ...runningTab(), awaitingAsyncWork: true };
+      const reduced = reduceAgentEvent(tab, runtime(), { type: "agent_end" });
+      expect(reduced.patch.rpc).toMatchObject({
+        status: "ready",
+        activeTurnKeywords: [],
+        awaitingAsyncWork: undefined,
+      });
+      const types = reduced.effects.map((effect) => effect.type);
+      expect(types).toContain("refresh-usage");
+      expect(types).toContain("settle-browser-pane-close");
+    });
+
+    it("agent_start clears a stale waiting level with the turn", () => {
+      const tab = { ...runningTab(), awaitingAsyncWork: true };
+      const reduced = reduceAgentEvent(tab, runtime(), { type: "agent_start" });
+      expect(reduced.patch.rpc).toMatchObject({
+        status: "running",
+        awaitingAsyncWork: undefined,
+      });
+    });
+
+    it("agent_start leaves the key absent when nothing was waiting", () => {
+      const reduced = reduceAgentEvent(runningTab(), runtime(), { type: "agent_start" });
+      expect(reduced.patch.rpc).not.toHaveProperty("awaitingAsyncWork");
+    });
   });
 
   it("persists a concrete thinking_level_changed frame (no configured field)", () => {
@@ -664,6 +750,36 @@ describe("handleRpcFrame routing", () => {
     // get_session_stats carries the HUD cost/token totals; without this the
     // boot-time snapshot (a fresh session reads $0) lingers forever.
     expect(h.sent.some((s) => s.cmd.type === "get_session_stats")).toBe(true);
+  });
+
+  // Issue #1192/#1204 end to end through the frame feed: the pause leaves the
+  // tab running (the composer's Stop stays live), publishes the waiting
+  // level, and issues none of the end-of-run commands; the terminal end
+  // settles like any pre-flag wire end.
+  it("non-terminal agent_end keeps the tab working and waits; the terminal end settles", () => {
+    h.useStore.setState({ rpc: { [h.TAB]: rpcTabState({ status: "running" }) } });
+    h.useStore.getState().handleRpcFrame(h.TAB, {
+      type: "agent_end",
+      isTerminal: false,
+      awaitingAsyncWork: true,
+    });
+    const paused = h.useStore.getState().rpc[h.TAB]!;
+    expect(paused.status).toBe("running");
+    expect(paused.awaitingAsyncWork).toBe(true);
+    // No end-of-run traffic: usage refresh and diff re-read ride only the
+    // terminal boundary (and so, in the sidebar, the run's Working placement).
+    expect(h.sent.some((s) => s.cmd.type === "get_state")).toBe(false);
+    expect(h.sent.some((s) => s.cmd.type === "get_session_stats")).toBe(false);
+
+    h.useStore.getState().handleRpcFrame(h.TAB, { type: "agent_start" });
+    const woken = h.useStore.getState().rpc[h.TAB]!;
+    expect(woken.status).toBe("running");
+    expect(woken.awaitingAsyncWork).toBeUndefined();
+
+    h.useStore.getState().handleRpcFrame(h.TAB, { type: "agent_end", isTerminal: true });
+    const done = h.useStore.getState().rpc[h.TAB]!;
+    expect(done.status).toBe("ready");
+    expect(done.awaitingAsyncWork).toBeUndefined();
   });
 
   it("agent_end bumps the session project's diff revision (issue #711)", () => {

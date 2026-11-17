@@ -319,6 +319,24 @@ describe("compact Composer", () => {
     expect(ring).not.toBeNull();
     expect(ring.classList.contains("text-copper")).toBe(true);
   });
+
+  // Issue #1204: a run paused on background work is still running — the
+  // composer keeps its Stop affordance, and pressing it sends abort (omp
+  // 18.21+ ends paused runs with it). This shell is compact: Stop is the
+  // text control, not the desktop icon button.
+  it("keeps Stop live while the run waits on background work", () => {
+    seed("running");
+    useStore.setState((s) => ({
+      rpc: { [TAB]: { ...s.rpc[TAB]!, awaitingAsyncWork: true } },
+    }));
+    renderComposer();
+    const stop = [...document.body.querySelectorAll<HTMLButtonElement>("button")].find(
+      (button) => button.textContent?.trim() === t("composer.actions.abort"),
+    );
+    expect(stop).not.toBeUndefined();
+    act(() => stop!.click());
+    expect(abortAgent).toHaveBeenCalledWith(TAB);
+  });
 });
 
 describe("compact Composer options ownership", () => {

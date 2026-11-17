@@ -325,6 +325,15 @@ export interface RpcTabState {
    */
   streamStallMs?: number;
   stallCount: number;
+  /**
+   * The open run paused with only background work able to wake it (issue
+   * #1204): set by a non-terminal `agent_end` carrying `awaitingAsyncWork`,
+   * cleared by the next `agent_start` or the run's terminal end. Rendered as
+   * the HUD's and sidebar's waiting-on-background-work state while the tab
+   * itself stays "running" — Stop must stay available (omp 18.21+'s `abort`
+   * ends paused runs). Turn-scoped: like `lastTurn`, never survives the run.
+   */
+  awaitingAsyncWork?: boolean;
   /** The turn's terminal assistant message end; drives settle target and stall classification. */
   lastTurn?: LastTurnMeta;
   /** A main-process watchdog abort notice arrived; the next agent_end feeds auto-continue (issue #254). */
@@ -490,6 +499,9 @@ export interface LastTurnMeta {
 
 export type SidebarSessionState =
   | "working"
+  /** Run open, paused: only background work (jobs, child agents, queued peer
+   *  messages) can wake it (issue #1204). Between working and idle. */
+  | "awaiting-work"
   | "awaiting-answer"
   | "stalled"
   | "ready"

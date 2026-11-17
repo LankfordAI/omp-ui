@@ -2773,6 +2773,7 @@ export const en = {
   "hud.stats.details": "{cost} · {tokens} tokens · {premium} premium requests",
   "hud.stats.sessionDetails": "{cost} · {tokens} tokens · {premium} premium requests — main {main} · subagents {subagents} ({count})",
   "hud.status.compacting": "compacting",
+  "hud.status.awaitingWork": "waiting on background work",
   "hud.status.error": "error",
   "hud.status.hibernated": "hibernated",
   "hud.status.ready": "ready",
@@ -3332,6 +3333,9 @@ export const en = {
 
   "sidebar.status.workingLabel": "working",
   "sidebar.status.workingTitle": "Agent is working",
+  "sidebar.status.awaitingWorkLabel": "waiting on work",
+  "sidebar.status.awaitingWorkTitle":
+    "Run paused — background jobs, subagents, or queued messages will resume it",
   "sidebar.status.answerLabel": "answer needed",
   "sidebar.status.answerTitle": "Agent is waiting for your answer",
   "sidebar.status.stalledLabel": "stalled",

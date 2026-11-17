@@ -1,5 +1,6 @@
 import {
   CH,
+  isNonTerminalAgentEnd,
   modelStreamCheckpointLabel,
   type Registry,
   type RpcFrame,
@@ -20,6 +21,13 @@ const STALL_WATCH_TICK_MS = 15_000;
 interface StallRecord {
   /** Start of the currently eligible model-stream silence interval. */
   silenceSince: number | null;
+  /**
+   * True while the open run sits in a loop pause (non-terminal `agent_end`,
+   * issue #1192): the model owes no stream — only a continuation, queued
+   * input, or background work will produce frames — so silence here is by
+   * design and must never read as a dead stream.
+   */
+  paused: boolean;
   /** Open local tool executions; the silence clock is suspended while > 0. */
   openToolCount: number;
   /** Label of the last model-stream checkpoint, for the abort notice. */
@@ -112,9 +120,11 @@ export class StallWatchdog implements FrameObserver {
       if (this.deps.awaitingHumanAnswer(tabId)) continue;
       // A running local tool is legitimately quiet on the provider stream —
       // a build, a test suite, a hub wait. While one is open the model owes
-      // nothing, however long it runs (issue #253).
+      // nothing, however long it runs (issue #253). A loop pause of an open
+      // run is the same by wire contract (issue #1192): aborting there would
+      // kill a run omp explicitly said goes on.
       const rec = this.records.get(tabId);
-      if (rec === undefined || rec.openToolCount > 0) continue;
+      if (rec === undefined || rec.openToolCount > 0 || rec.paused) continue;
       const silenceSince = rec.silenceSince;
       if (silenceSince === null) continue;
       const now = Date.now();
@@ -167,11 +177,20 @@ export class StallWatchdog implements FrameObserver {
       // No tool execution or eligible silence interval survives a lifecycle
       // boundary. Public agent_end is authoritative idle, and agent_start
       // waits for the first model-stream checkpoint to start a fresh clock.
+      // A non-terminal end is a loop pause of an open run (issue #1192): the
+      // stream is quiet by contract, so the clock stays down until the wake's
+      // agent_start re-arms it.
       case "agent_start":
+        rec.openToolCount = 0;
+        rec.silenceSince = null;
+        rec.checkpointLabel = null;
+        rec.paused = false;
+        return;
       case "agent_end":
         rec.openToolCount = 0;
         rec.silenceSince = null;
         rec.checkpointLabel = null;
+        rec.paused = isNonTerminalAgentEnd(frame);
         return;
       case "tool_execution_start":
         rec.openToolCount++;
@@ -223,7 +242,7 @@ export class StallWatchdog implements FrameObserver {
   private recordFor(tabId: string): StallRecord {
     let rec = this.records.get(tabId);
     if (rec === undefined) {
-      rec = { silenceSince: null, openToolCount: 0, checkpointLabel: null, abortCount: 0 };
+      rec = { silenceSince: null, paused: false, openToolCount: 0, checkpointLabel: null, abortCount: 0 };
       this.records.set(tabId, rec);
     }
     return rec;

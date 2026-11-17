@@ -3120,6 +3120,14 @@ export class SessionManager {
   }
 
   /**
+   * True while the open run is paused with only background work able to wake
+   * it (issue #1204): published on the summary as `turnAwaitingAsyncWork`.
+   */
+  isTurnAwaitingAsyncWork(tabId: string): boolean {
+    return this.turns.isAwaitingAsyncWork(tabId);
+  }
+
+  /**
    * The human-answer level published on the session summary: true while the
    * tab holds an answer the client could give now — a pending plan gate or an
    * unanswered blocking dialog. This is the guard union MINUS the plan

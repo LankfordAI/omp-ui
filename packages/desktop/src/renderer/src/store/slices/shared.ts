@@ -411,25 +411,45 @@ export function deriveSidebarSessionState(
   // the hibernation guard reads as hasPendingAsyncWork.
   const running =
     summary.turnRunning === true || backgroundWorkInFlight(rpc?.asyncJobs ?? null);
+  // The run is open but paused with only background work able to wake it
+  // (issue #1204): like `turnRunning`, the host's published level carries the
+  // truth so rows that never saw the frame agree; this renderer's own tab
+  // state covers a row whose host predates the field. The wait needs an open
+  // run — the host latch or this stream's own "running" edge — so a stale tab
+  // flag on an idle session never fakes the state.
+  const awaitingWork =
+    (running || rpc?.status === "running") &&
+    (summary.turnAwaitingAsyncWork === true || rpc?.awaitingAsyncWork === true);
   // The host's human-answer level is a published level, not a stream edge
   // (issue #436): a dialog this client never saw still waits for a person.
   // It outranks this renderer's `running` edge exactly as the local queue
   // does (a mid-turn tool approval reads awaiting-answer on the host
   // itself); error and stalled keep their precedence above it (#248).
   const awaiting = summary.awaitingHumanAnswer === true;
-  if (!rpc) return awaiting ? "awaiting-answer" : running ? "working" : "live";
+  if (!rpc)
+    return awaiting
+      ? "awaiting-answer"
+      : awaitingWork
+        ? "awaiting-work"
+        : running
+          ? "working"
+          : "live";
   if (rpc.status === "error") return "error";
   // A watchdog-aborted turn outranks awaiting-answer: the user must prompt to
   // continue the session, which also clears the queue (issue #248).
   if (summary.streamStalled) return "stalled";
+  // A person-answer gate outranks the background-work wait exactly as it
+  // outranks `working`: a paused run with an open dialog waits on the human.
   if (awaiting || rpc.planReview !== null || rpc.experimentProposal !== null || rpc.extensionQueue.length > 0)
     return "awaiting-answer";
   switch (rpc.status) {
     case "running":
-      return "working";
+      return awaitingWork ? "awaiting-work" : "working";
     case "starting":
     case "ready":
-      return running ? "working" : rpc.status;
+      // A row that joined mid-pause never saw the run's agent_start; its host
+      // level still reads waiting (#434's rule, one notch finer).
+      return awaitingWork ? "awaiting-work" : running ? "working" : rpc.status;
     default:
       return "live";
   }

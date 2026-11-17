@@ -247,6 +247,8 @@ export function createLifecycleSlice(
       streamCheckpoint: undefined,
       streamStallMs: undefined,
       activeTurnKeywords: [],
+      // The dying process's run (paused or not) dies with it (issue #1192).
+      awaitingAsyncWork: undefined,
     });
     get().clearPlanReview(tabId);
   };
@@ -279,13 +281,18 @@ export function createLifecycleSlice(
       const clearKeywords = (before?.activeTurnKeywords.length ?? 0) > 0;
       const rpc =
         before &&
-        (clearStall || clearKeywords || (settled !== undefined && settled !== before.items))
+        (clearStall || clearKeywords || (settled !== undefined && settled !== before.items) ||
+          before.awaitingAsyncWork !== undefined)
           ? {
               ...s.rpc,
               [tabId]: {
                 ...(s.rpc[tabId] ?? before),
                 ...(clearStall ? { streamStallMs: undefined } : {}),
                 ...(clearKeywords ? { activeTurnKeywords: [] } : {}),
+                // A run paused on background work ends with its process.
+                ...(before.awaitingAsyncWork !== undefined
+                  ? { awaitingAsyncWork: undefined }
+                  : {}),
                 ...(settled !== undefined && settled !== before.items
                   ? { items: settled }
                   : {}),

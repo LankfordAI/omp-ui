@@ -2547,6 +2547,7 @@ export const ko: Partial<Record<MessageKey, string>> = {
   "hud.stats.details": "{cost} · {tokens} 토큰 · 프리미엄 요청 {premium}회",
   "hud.stats.sessionDetails": "{cost} · {tokens} 토큰 · 프리미엄 요청 {premium}회 — 메인 {main} · 서브에이전트 {subagents} ({count})",
   "hud.status.compacting": "압축 중",
+  "hud.status.awaitingWork": "백그라운드 작업 대기 중",
   "hud.status.error": "오류",
   "hud.status.hibernated": "휴면 중",
   "hud.status.ready": "준비됨",
@@ -3086,6 +3087,9 @@ export const ko: Partial<Record<MessageKey, string>> = {
 
   "sidebar.status.workingLabel": "작업 중",
   "sidebar.status.workingTitle": "에이전트가 작업 중입니다",
+  "sidebar.status.awaitingWorkLabel": "작업 대기 중",
+  "sidebar.status.awaitingWorkTitle":
+    "실행이 일시 중지됨 — 백그라운드 작업, 하위 에이전트 또는 대기 중인 메시지가 재개합니다",
   "sidebar.status.answerLabel": "답변 필요",
   "sidebar.status.answerTitle": "에이전트가 답변을 기다리고 있습니다",
   "sidebar.status.stalledLabel": "중단됨",

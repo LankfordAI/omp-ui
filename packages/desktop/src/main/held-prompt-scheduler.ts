@@ -7,6 +7,7 @@ import {
   HELD_PROMPT_PREVIEW_MAX,
   LIMITS_STATUS_KEY,
   heldPromptCommandId,
+  isNonTerminalAgentEnd,
   isObject,
   isUsageLimitError,
   normalizeControlFrame,
@@ -353,7 +354,7 @@ export class HeldPromptScheduler implements FrameObserver {
       if (message?.role === "assistant") state.failedOnLimit = isUsageLimitError(message.stopReason, message.errorId);
       return;
     }
-    if (frame.type === "agent_end" && frame.isTerminal !== false) this.onTurnEnd(tabId, state);
+    if (frame.type === "agent_end" && !isNonTerminalAgentEnd(frame)) this.onTurnEnd(tabId, state);
   }
 
   private onAck(tabId: string, commandId: string, ok: boolean, error: unknown): void {

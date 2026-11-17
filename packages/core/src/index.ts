@@ -92,6 +92,7 @@ export * from "./fleet";
 export * from "./fleet-host";
 export * from "./remote-vscode";
 export * from "./fleet-wake";
+export * from "./run-end";
 export * from "./webhook";
 export * from "./keybindings";
 export { WebhookDeliveryLog, WebhookStore, WEBHOOK_STORE_UNAVAILABLE } from "./webhook-store";

@@ -3171,6 +3171,7 @@ export class MainBackend {
           : "missing";
     const streamStalled = this.sessions.isStreamStalled(record.tabId);
     const turnRunning = this.sessions.isTurnRunning(record.tabId);
+    const turnAwaitingAsyncWork = this.sessions.isTurnAwaitingAsyncWork(record.tabId);
     const awaitingHumanAnswer = this.sessions.pendingAnswer(record.tabId);
     let title = record.cachedTitle;
     let status: SessionSummary["status"] = null;
@@ -3227,6 +3228,7 @@ export class MainBackend {
       ...(bridgeAvailability === undefined ? {} : { bridgeAvailability }),
       streamStalled,
       turnRunning,
+      turnAwaitingAsyncWork,
       awaitingHumanAnswer,
       // Ephemeral like the plan gate (#555): the live child blocks; a session
       // with no process reports none.

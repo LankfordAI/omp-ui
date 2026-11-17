@@ -216,6 +216,11 @@ const STATUS: Record<
   starting: { tone: "neutral", pulse: true, labelKey: "hud.status.starting" },
   ready: { tone: "signal", pulse: false, labelKey: "hud.status.ready" },
   running: { tone: "copper", pulse: true, labelKey: "hud.status.running" },
+  // The run is open but paused; only background work can wake it (issue
+  // #1204). Copper without the pulse: work exists, the model stream does not
+  // (ADR-0004 reserves the pulse for liveness right now), matching the
+  // sidebar row's face for the same state.
+  awaitingWork: { tone: "copper", pulse: false, labelKey: "hud.status.awaitingWork" },
   error: { tone: "rose", pulse: false, labelKey: "hud.status.error" },
 };
 
@@ -1674,6 +1679,14 @@ export function SessionHud({ tabId }: { tabId: string }) {
     void setAutoRetry(tabId, next);
   };
   const status = useStore((s) => s.rpc[tabId]?.status) ?? "starting";
+  // The run is open but paused with only background work able to wake it
+  // (issue #1204): the tab's own wire-observed flag, or the owning host's
+  // published level for a stream that joined mid-pause.
+  const awaitingWork = useStore(
+    (s) =>
+      s.rpc[tabId]?.awaitingAsyncWork === true ||
+      findRecord(s.state, tabId)?.turnAwaitingAsyncWork === true,
+  );
   // Hibernation overrides the (stale) rpc status: the process is stopped on
   // purpose, not live (issue #246). Neutral, no pulse — the mint signal
   // accent is reserved for liveness (ADR-0004), matching the sidebar's
@@ -1843,9 +1856,11 @@ export function SessionHud({ tabId }: { tabId: string }) {
       : null;
   const face = hibernated
     ? null
-    : status === "ready" && backgroundWork
-      ? STATUS.running
-      : (STATUS[status] ?? STATUS.starting);
+    : awaitingWork
+      ? STATUS.awaitingWork
+      : status === "running" || (status === "ready" && backgroundWork)
+        ? STATUS.running
+        : (STATUS[status] ?? STATUS.starting);
   const resolvedFace = face ?? { ...STATUS.starting, pulse: false };
   const label = hibernated
     ? t("hud.status.hibernated")

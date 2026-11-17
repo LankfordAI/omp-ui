@@ -159,7 +159,7 @@ export function CommandPalette() {
       const rank =
         attention || derived === "awaiting-answer" || derived === "stalled"
           ? 0
-          : derived === "working"
+          : derived === "working" || derived === "awaiting-work"
             ? 1
             : derived === "dormant" || derived === "archived"
               ? 3

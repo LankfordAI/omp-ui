@@ -12,6 +12,7 @@ import { parseVaultDetails, type VaultToolDetails } from "@omp-ui/core/vault-sha
 import type { SessionReference } from "@omp-ui/core/types";
 import { FLEET_WAKE_CUSTOM_TYPE, parseFleetWakeCard, type FleetWakeCard } from "@omp-ui/core/fleet-wake";
 import { toolResultReplies } from "@omp-ui/core/out-replies";
+import { isNonTerminalAgentEnd } from "@omp-ui/core/run-end";
 import { parseBashMinimized, type BashMinimized } from "@omp-ui/core/bash-minimized";
 import { parseBashTruncation, type BashTruncation } from "@omp-ui/core/bash-truncation";
 import { parseBashToolTruncation, type BashToolTruncation } from "@omp-ui/core/bash-tool-truncation";
@@ -1238,6 +1239,11 @@ export function reduceEvent(items: RenderItem[], event: unknown): RenderItem[] {
       return [...items, markerItem("agent started", "neutral")];
     }
     case "agent_end": {
+      // A non-terminal `agent_end` is a loop pause inside an open run (issue
+      // #1192): the model stopped, but a continuation, queued input, or
+      // background work resumes it — running cards keep streaming and no
+      // "agent finished" marker lands. Only the terminal end closes the run.
+      if (isNonTerminalAgentEnd(event)) return items;
       // The terminal assistant message of the turn carries the end reason: an
       // error end aborts running cards, a user interrupt or a clean end cancels.
       const lastAssistant = [...items].reverse().find((i) => i.kind === "assistant");

@@ -1,6 +1,7 @@
 import { credentialFallbackFromFrame } from "@omp-ui/core/credential-fallback";
 import { LIVE_DELEGATION_CUSTOM_TYPE } from "@omp-ui/core/live-voice";
 import { MAGIC_KEYWORDS } from "@omp-ui/core/magic-keywords";
+import { agentEndAwaitsAsyncWork, isNonTerminalAgentEnd } from "@omp-ui/core/run-end";
 import { modelStreamCheckpointLabel } from "@omp-ui/core/stream-activity";
 import { OMP_ERROR_FLAG_USAGE_LIMIT } from "@omp-ui/core/held-prompt";
 import { formatDuration } from "../../lib/duration";
@@ -310,6 +311,9 @@ export function reduceAgentEvent(
     rpc.quotaEvent = undefined;
     rpc.costCap = undefined;
     rpc.activeTurnKeywords = [];
+    // A wake's start ends any background-work wait (issue #1204); a run that
+    // never paused never had the key set.
+    if (tab.awaitingAsyncWork !== undefined) rpc.awaitingAsyncWork = undefined;
     runtimePatch.pendingTurnKeywords = [];
     runtimePatch.keywordInputBatchStarted = false;
     // Turn-scoped live ownership clears with the turn it described (#811).
@@ -446,88 +450,105 @@ export function reduceAgentEvent(
   }
 
   if (type === "agent_end") {
-    rpc.activeTurnKeywords = [];
-    runtimePatch.pendingTurnKeywords = [];
-    runtimePatch.keywordInputBatchStarted = false;
-    hasRpcPatch = true;
-    // #811: a live-owned turn that ended while parked — or that an open
-    // call never heard a spoken request for (the orphan) — leaves its
-    // answer stranded: omp's controller silently discards appends after
-    // `live_stop`. Store it for the next start; an open call that saw a
-    // spoken request this call delivers "Agent Final Message" itself.
-    // A visibility-parked call (#811) is closed for the turn even though it heard the request.
-    const callOpen = tab.live !== undefined && tab.live !== null && !tab.live.ended;
-    const closedForTurn = !callOpen || runtime.liveParked === true;
-    if (
-      runtime.liveVoiceOwner === true &&
-      runtime.liveArmed === true &&
-      runtime.liveDelegatedTurnSeen === true &&
-      (closedForTurn || runtime.liveCallSawDelegation !== true)
-    ) {
-      effects.push({ phase: "after-commit", type: "store-live-pending-feedback", callOpen });
-    }
-    runtimePatch.liveDelegatedTurnSeen = false;
-    if (tab.status === "running") {
-      rpc.status = "ready";
-      rpc.streamStallMs = undefined;
-      hasRpcPatch = true;
-    }
-    // A still-pending delegated arm hands over to the turn end: the safety
-    // net below fires it when no assistant message carried digest text.
-    if (runtime.delegatedTitlePending === true) runtimePatch.delegatedTitlePending = false;
-    if ((tab.initialPrompt && !tab.hasRenamed) || tab.titleAttempt !== null)
-      effects.push({ phase: "after-commit", type: "rename-session" });
-    effects.push({
-      phase: "after-commit",
-      type: "refresh-usage",
-      settleQueue: true,
-    });
-    // A turn that committed mid-flight must not erase the pane's view of the
-    // session's work (issue #711): re-read the repo's diff at turn end.
-    effects.push({ phase: "after-commit", type: "refresh-branch-diff" });
-    // A symmetric close deferred by a mid-turn detach settles here: the case
-    // re-checks open + agent custody + detached, so this push is a no-op for
-    // every tab whose agent never held the pane.
-    effects.push({ phase: "after-commit", type: "settle-browser-pane-close" });
-
-    const providerStall =
-      tab.lastTurn !== undefined && isStreamStallEnd(tab.lastTurn);
-    if (providerStall) {
-      const stall = stallNotice(
-        tab,
-        {
-          errorMessage: tab.lastTurn?.errorMessage,
-          errorId: tab.lastTurn?.errorId,
-        },
-        now,
-      );
-      if (stall !== null) {
-        rpc.stallCount = stall.count;
+    // A non-terminal `agent_end` is a loop pause inside an open run (issue
+    // #1192): a continuation, queued input, or background work resumes it, so
+    // none of the end-of-run handling below fires — the tab stays "running"
+    // (Stop must stay available), keywords stay active, and no title/usage/
+    // stall effect lands. The one change is the waiting level of issue #1204:
+    // set when only background work can wake the run, cleared on a pause that
+    // queued input can also wake (the session is then parked on the person).
+    if (isNonTerminalAgentEnd(frame)) {
+      const awaiting = agentEndAwaitsAsyncWork(frame);
+      if ((tab.awaitingAsyncWork === true) !== awaiting) {
+        rpc.awaitingAsyncWork = awaiting ? true : undefined;
         hasRpcPatch = true;
+      }
+    } else {
+      rpc.activeTurnKeywords = [];
+      runtimePatch.pendingTurnKeywords = [];
+      runtimePatch.keywordInputBatchStarted = false;
+      hasRpcPatch = true;
+      // #811: a live-owned turn that ended while parked — or that an open
+      // call never heard a spoken request for (the orphan) — leaves its
+      // answer stranded: omp's controller silently discards appends after
+      // `live_stop`. Store it for the next start; an open call that saw a
+      // spoken request this call delivers "Agent Final Message" itself.
+      // A visibility-parked call (#811) is closed for the turn even though it heard the request.
+      const callOpen = tab.live !== undefined && tab.live !== null && !tab.live.ended;
+      const closedForTurn = !callOpen || runtime.liveParked === true;
+      if (
+        runtime.liveVoiceOwner === true &&
+        runtime.liveArmed === true &&
+        runtime.liveDelegatedTurnSeen === true &&
+        (closedForTurn || runtime.liveCallSawDelegation !== true)
+      ) {
+        effects.push({ phase: "after-commit", type: "store-live-pending-feedback", callOpen });
+      }
+      runtimePatch.liveDelegatedTurnSeen = false;
+      // The run's waiting level (issue #1204) closes with the run.
+      if (tab.awaitingAsyncWork !== undefined) rpc.awaitingAsyncWork = undefined;
+      if (tab.status === "running") {
+        rpc.status = "ready";
+        rpc.streamStallMs = undefined;
+        hasRpcPatch = true;
+      }
+      // A still-pending delegated arm hands over to the turn end: the safety
+      // net below fires it when no assistant message carried digest text.
+      if (runtime.delegatedTitlePending === true) runtimePatch.delegatedTitlePending = false;
+      if ((tab.initialPrompt && !tab.hasRenamed) || tab.titleAttempt !== null)
+        effects.push({ phase: "after-commit", type: "rename-session" });
+      effects.push({
+        phase: "after-commit",
+        type: "refresh-usage",
+        settleQueue: true,
+      });
+      // A turn that committed mid-flight must not erase the pane's view of the
+      // session's work (issue #711): re-read the repo's diff at turn end.
+      effects.push({ phase: "after-commit", type: "refresh-branch-diff" });
+      // A symmetric close deferred by a mid-turn detach settles here: the case
+      // re-checks open + agent custody + detached, so this push is a no-op for
+      // every tab whose agent never held the pane.
+      effects.push({ phase: "after-commit", type: "settle-browser-pane-close" });
+
+      const providerStall =
+        tab.lastTurn !== undefined && isStreamStallEnd(tab.lastTurn);
+      if (providerStall) {
+        const stall = stallNotice(
+          tab,
+          {
+            errorMessage: tab.lastTurn?.errorMessage,
+            errorId: tab.lastTurn?.errorId,
+          },
+          now,
+        );
+        if (stall !== null) {
+          rpc.stallCount = stall.count;
+          hasRpcPatch = true;
+          effects.push({
+            phase: "after-commit",
+            type: "append-transcript-item",
+            item: stall.notice,
+          });
+        }
+      }
+
+      const watchdogAbort = tab.stallAbortPending === true;
+      if (watchdogAbort) {
+        rpc.stallAbortPending = false;
+        hasRpcPatch = true;
+      }
+      if (providerStall || watchdogAbort)
         effects.push({
           phase: "after-commit",
-          type: "append-transcript-item",
-          item: stall.notice,
+          type: "trigger-stall-continue",
         });
-      }
+      else if (tab.lastTurn?.repetitionStop === true)
+        effects.push({
+          phase: "after-commit",
+          type: "trigger-stall-continue",
+          repetition: true,
+        });
     }
-
-    const watchdogAbort = tab.stallAbortPending === true;
-    if (watchdogAbort) {
-      rpc.stallAbortPending = false;
-      hasRpcPatch = true;
-    }
-    if (providerStall || watchdogAbort)
-      effects.push({
-        phase: "after-commit",
-        type: "trigger-stall-continue",
-      });
-    else if (tab.lastTurn?.repetitionStop === true)
-      effects.push({
-        phase: "after-commit",
-        type: "trigger-stall-continue",
-        repetition: true,
-      });
   }
 
   // A `todo` init is omp's own replan-refresh trigger (issue #804): the

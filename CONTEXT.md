@@ -150,6 +150,23 @@ session never reports a turn latch, so it never leaves the main list for
 until it is answered.
 _Avoid_: busy section, running section
 
+**Run**:
+One omp agent run: from its first `agent_start` to its one terminal
+`agent_end`. A model loop that stops inside a run — a continuation, queued
+input, or background work (a job result, a child agent's message, a queued
+peer message) will resume it — ends with an `agent_end` flagged
+`isTerminal: false`, so a run can span several loops and their starts and
+ends (omp 18.17+, the loop-end wire). Only the terminal end settles the run:
+a pause never closes tool cards, never marks a session ready, and never runs
+end-of-turn effects. A run paused whose only possible wake is background work
+reads **waiting on background work** — the state between working and idle in
+the sidebar row and Session HUD (`SessionSummary.turnAwaitingAsyncWork`, or
+this renderer's own tab flag), with Stop still available, because omp's
+`abort` ends paused runs from 18.21. A frame with no `isTerminal` field (an
+older omp) is terminal.
+_Avoid_: treating a loop end as the run's end, idle pause (the run is open),
+background work (the jobs themselves, not the run's state)
+
 **Attention stack**:
 The sidebar's digest above the main list of sessions holding an agent reply
 the window has not seen: a boolean per-session mark, raised when an assistant

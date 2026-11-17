@@ -715,6 +715,16 @@ export interface SessionSummary extends OwnedSessionRecord {
    */
   turnRunning?: boolean;
   /**
+   * True while the open run sits in a loop pause whose only possible resume
+   * is background work — a job result, a child agent's message, or a queued
+   * peer message (issue #1204). The owning instance sets it on a non-terminal
+   * `agent_end` with `awaitingAsyncWork` and clears it at the next
+   * `agent_start` or the run's terminal end. Ephemeral runtime state like
+   * `turnRunning`, never persisted; only true while `turnRunning` is. Optional
+   * so an older remote instance still decodes: absent reads as "not waiting".
+   */
+  turnAwaitingAsyncWork?: boolean;
+  /**
    * True while the owning instance is blocked on a human answer this client
    * could give now — a pending plan gate or an unanswered blocking dialog
    * (select / confirm / input / editor). Ephemeral runtime state like
