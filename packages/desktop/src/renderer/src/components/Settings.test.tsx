@@ -2314,6 +2314,37 @@ describe("Settings Providers page subscriptions (issue #368)", () => {
     expect(document.body.textContent).not.toContain("not signed in");
   });
 
+  it("shows the terminal command and no Sign in for a risk-warning provider (#1197)", async () => {
+    seedProviders([
+      oauthRow({
+        id: "google-antigravity",
+        providerId: "google-antigravity",
+        label: "Google Antigravity",
+        requiresTerminalLogin: true,
+      }),
+    ]);
+    await renderSettings();
+    expect(document.body.textContent).toContain("terminal login");
+    expect(document.body.textContent).toContain("omp login google-antigravity");
+    expect(buttonWithText("Sign in")).toBeNull();
+    expect(backendMock.startProviderOAuth).not.toHaveBeenCalled();
+  });
+
+  it("keeps the signed-in state over the terminal-login flag", async () => {
+    seedProviders([
+      oauthRow({
+        providerId: "google-antigravity",
+        label: "Google Antigravity",
+        credentials: [{ ...credential, provider: "google-antigravity" }],
+        requiresTerminalLogin: true,
+      }),
+    ]);
+    await renderSettings();
+    expect(document.body.textContent).toContain("signed in");
+    expect(document.body.textContent).not.toContain("terminal login");
+    expect(buttonWithText("sign out")).not.toBeNull();
+  });
+
   it("renders the input phase and submits the pasted redirect URL", async () => {
     seedProviders([oauthRow()]);
     await renderSettings();

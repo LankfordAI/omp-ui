@@ -1651,6 +1651,9 @@ export const en = {
   "settings.providers.oauthSignIn": "Sign in",
   "settings.providers.oauthSignOut": "sign out",
   "settings.providers.oauthStoredAs": "stored as {provider}",
+  "settings.providers.oauthTerminalChip": "terminal login",
+  "settings.providers.oauthTerminalLogin":
+    "omp makes you accept an account-risk warning before this sign-in starts, which omp-ui cannot answer; run {command} in a terminal instead.",
   "settings.providers.oauthRequiresOmp":
     "update omp to see what is signed in",
   "settings.providers.oauthStillAuthenticated":

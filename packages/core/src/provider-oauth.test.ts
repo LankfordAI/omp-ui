@@ -556,6 +556,65 @@ describe("login response", () => {
   });
 });
 
+describe("terminal-only login providers (issue #1197)", () => {
+  const RISKY: LoginProvider = {
+    id: "google-antigravity",
+    name: "Google Antigravity (at your own risk)",
+    available: true,
+    authenticated: false,
+  };
+
+  it("carries the flag from the roster into the published rows", async () => {
+    const h = harness({ providers: [CODEX, RISKY] });
+    const rows = await h.oauth.refresh();
+    expect(rows.find((row) => row.providerId === "google-antigravity")).toMatchObject({
+      label: "Google Antigravity",
+      requiresTerminalLogin: true,
+    });
+    expect(rows.find((row) => row.providerId === "openai-codex")).not.toHaveProperty(
+      "requiresTerminalLogin",
+    );
+  });
+
+  it("start() refuses without spawning and names the terminal command", async () => {
+    const h = harness({ providers: [CODEX, RISKY] });
+    await h.oauth.refresh();
+    const spawnsBefore = h.spawnCount();
+    expect(() => h.oauth.start("google-antigravity")).toThrow(/omp login google-antigravity/);
+    // The refusal happens before the RpcClient is constructed: only the
+    // discovery child ever spawned, and nothing was published.
+    expect(h.spawnCount()).toBe(spawnsBefore);
+    expect(h.states).toEqual([]);
+    // Retryable state: the flow slot stayed free for a normal provider.
+    expect(() => h.oauth.start("openai-codex")).not.toThrow();
+  });
+
+  it("maps omp's RPC refusal to the terminal explanation", async () => {
+    const h = harness();
+    await startAtBrowser(h);
+    h.frame({
+      type: "response",
+      command: "login",
+      success: false,
+      error:
+        "Provider 'openai-codex' requires interactive prompts which are not supported in RPC mode. Use the terminal UI to log in.",
+    });
+    await nextTick();
+    const last = h.states.at(-1) as ProviderOAuthState;
+    expect(last.phase).toBe("error");
+    expect(last.error).toContain("omp login openai-codex");
+    expect(last.error).not.toContain("RPC mode");
+  });
+
+  it("leaves an unrelated login failure's text untouched", async () => {
+    const h = harness();
+    await startAtBrowser(h);
+    h.frame({ type: "response", command: "login", success: false, error: "access denied" });
+    await nextTick();
+    expect(h.states.at(-1)).toMatchObject({ phase: "error", error: "access denied" });
+  });
+});
+
 describe("cancel", () => {
   it("during input, declines the prompt, kills the child, and goes idle", async () => {
     const h = harness();

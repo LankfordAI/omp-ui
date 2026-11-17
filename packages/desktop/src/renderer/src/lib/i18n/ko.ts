@@ -1519,6 +1519,9 @@ export const ko: Partial<Record<MessageKey, string>> = {
   "settings.providers.oauthSignIn": "로그인",
   "settings.providers.oauthSignOut": "로그아웃",
   "settings.providers.oauthStoredAs": "{provider}(으)로 저장됨",
+  "settings.providers.oauthTerminalChip": "터미널 로그인 필요",
+  "settings.providers.oauthTerminalLogin":
+    "이 공급자는 로그인 시작 전 계정 위험 경고에 동의해야 하며 omp-ui는 이에 응답할 수 없습니다. 대신 터미널에서 {command}를 실행하세요.",
   "settings.providers.oauthRequiresOmp": "로그인 상태를 확인하려면 omp를 업데이트하세요",
   "settings.providers.oauthStillAuthenticated": "omp가 여전히 인증되어 있다고 보고하는 경로:",
   "settings.providers.oauthCancel": "취소",

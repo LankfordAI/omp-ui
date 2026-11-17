@@ -23,6 +23,7 @@ import {
   OMP_MODEL_ROLES_KEY,
   OMP_TELEMETRY_EXPORT_KEY,
 } from "@omp-ui/core/omp-settings-keys";
+import { terminalLoginCommand } from "@omp-ui/core/provider-catalog";
 import { displayMessage } from "../../backend";
 import { cn } from "../../lib/cn";
 import { useStore } from "../../store";
@@ -273,6 +274,8 @@ function ProviderSignInRow({
             </span>
             {signedIn ? (
               <Chip tone="signal">{t("settings.providers.oauthSignedIn")}</Chip>
+            ) : row.requiresTerminalLogin === true ? (
+              <Chip tone="copper">{t("settings.providers.oauthTerminalChip")}</Chip>
             ) : row.accountsUnsupported ? (
               <Chip>{t("settings.providers.oauthRequiresOmp")}</Chip>
             ) : (
@@ -294,11 +297,20 @@ function ProviderSignInRow({
           ) : (
             <p className="mt-0.5 break-words font-mono text-xs text-ink-faint">{row.hint}</p>
           )}
+          {!signedIn && row.requiresTerminalLogin === true && (
+            <p className="mt-1 break-words text-sm leading-relaxed text-ink-dim">
+              {t("settings.providers.oauthTerminalLogin", {
+                command: terminalLoginCommand(row.providerId),
+              })}
+            </p>
+          )}
         </div>
         <div className="flex min-w-0 flex-wrap items-center gap-1.5">
-          <Button size="xs" disabled={flowBusy} onClick={onSignIn}>
-            {t("settings.providers.oauthSignIn")}
-          </Button>
+          {!signedIn && row.requiresTerminalLogin !== true && (
+            <Button size="xs" disabled={flowBusy} onClick={onSignIn}>
+              {t("settings.providers.oauthSignIn")}
+            </Button>
+          )}
           {row.credentials.map((c) => (
             <Button
               key={c.credentialId}

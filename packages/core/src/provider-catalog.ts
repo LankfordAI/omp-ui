@@ -112,6 +112,53 @@ export function providerSpecById(id: string): ProviderKeySpec | undefined {
   return PROVIDER_KEY_SPECS.find((spec) => spec.id === id);
 }
 
+/**
+ * omp appends this suffix to a login roster entry whose auth rule declares
+ * `login-warning` (upstream `packages/ai/src/registry/oauth/index.ts`, since
+ * v18.18.7). Such a login answers an account-risk prompt before any auth URL
+ * (`packages/ai/src/auth/oauth.ts`, the `loginRiskWarning` block), and omp's
+ * rpc `login` handler rejects a prompt that arrives before the first auth URL
+ * outright (`packages/coding-agent/src/modes/rpc/rpc-mode.ts`, the `login`
+ * case: "requires interactive prompts which are not supported in RPC mode").
+ * No host can answer it, so omp-ui never starts these sign-ins (issue #1197).
+ */
+export const OAUTH_LOGIN_RISK_NAME_SUFFIX = " (at your own risk)";
+
+/** True when a `get_login_providers` name carries omp's login-risk suffix. */
+export function oauthLoginRiskFromRosterName(name: string): boolean {
+  return name.endsWith(OAUTH_LOGIN_RISK_NAME_SUFFIX);
+}
+
+/** The exact terminal command that completes a sign-in RPC mode cannot. */
+export function terminalLoginCommand(providerId: string): string {
+  return `omp login ${providerId}`;
+}
+
+/**
+ * English explanation core emits when a login cannot run over RPC — the same
+ * reason a flagged row shows instead of a Sign in button, and the replacement
+ * for omp's raw handler text. All core-side user strings are English (the
+ * flow's other errors are omp's own English messages); the row copy around it
+ * is translated.
+ */
+export function terminalLoginExplanation(providerId: string): string {
+  return (
+    "This provider asks you to accept an account-risk warning before the sign-in starts, " +
+    `which omp cannot answer over RPC. Run \`${terminalLoginCommand(providerId)}\` in a terminal instead.`
+  );
+}
+
+/**
+ * omp's rpc `login` refusal for anything it cannot drive headlessly — the
+ * risk-warning prompt thrown before any auth URL, and secret input, both end
+ * on "which is not supported in RPC mode" (rpc-mode.ts, `login` case). The
+ * row-level detection reads the roster, so this mapping only backstops a binary
+ * whose names omp-ui cannot classify.
+ */
+export function isOmpRpcLoginBlockedError(error: string): boolean {
+  return error.includes("not supported in RPC mode");
+}
+
 /** Presentation metadata for an omp provider sign-in row. */
 export interface OAuthProviderSpec {
   /** Row key within the provider sign-in group. */
@@ -120,6 +167,11 @@ export interface OAuthProviderSpec {
   providerId: string;
   label: string;
   hint: string;
+  /**
+   * True when the roster entry carries omp's login-risk suffix: the sign-in
+   * cannot be answered over RPC and must run in a terminal (issue #1197).
+   */
+  requiresTerminalLogin?: boolean;
 }
 
 /**
@@ -156,16 +208,23 @@ export function resolveOAuthProviderSpecs(
   const specs: OAuthProviderSpec[] = [];
   for (const spec of OAUTH_PROVIDER_SPECS) {
     const provider = firstById.get(spec.providerId);
-    if (provider?.available === true) specs.push(spec);
+    if (provider?.available === true) {
+      const risk = oauthLoginRiskFromRosterName(provider.name);
+      specs.push(risk ? { ...spec, requiresTerminalLogin: true } : spec);
+    }
     firstById.delete(spec.providerId);
   }
   for (const provider of firstById.values()) {
     if (!provider.available) continue;
+    const risk = oauthLoginRiskFromRosterName(provider.name);
     specs.push({
       id: provider.id,
       providerId: provider.id,
-      label: provider.name,
+      label: risk
+        ? provider.name.slice(0, -OAUTH_LOGIN_RISK_NAME_SUFFIX.length)
+        : provider.name,
       hint: provider.id,
+      ...(risk ? { requiresTerminalLogin: true } : {}),
     });
   }
   return specs;

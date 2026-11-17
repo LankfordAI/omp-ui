@@ -1,5 +1,11 @@
 import { logoutCredential, readProviderAccounts } from "./provider-accounts";
-import { OAUTH_PROVIDER_SPECS, resolveOAuthProviderSpecs, type OAuthProviderSpec } from "./provider-catalog";
+import {
+  isOmpRpcLoginBlockedError,
+  OAUTH_PROVIDER_SPECS,
+  resolveOAuthProviderSpecs,
+  terminalLoginExplanation,
+  type OAuthProviderSpec,
+} from "./provider-catalog";
 import { RpcClient, type RpcSpawnFn } from "./rpc/client";
 import type { RpcFrame } from "./rpc/codec";
 import type { ProviderCredential, ProviderOAuthState, ProviderOAuthStatus, ProviderSignOutResult } from "./types";
@@ -69,6 +75,7 @@ export class ProviderOAuth {
       id: spec.id, providerId: spec.providerId, label: spec.label, hint: spec.hint,
       credentials: this.#accounts.get(spec.providerId) ?? [],
       accountsUnsupported: this.#accountsUnsupported,
+      ...(spec.requiresTerminalLogin === true ? { requiresTerminalLogin: true } : {}),
     }));
   }
 
@@ -162,6 +169,13 @@ export class ProviderOAuth {
     this.#assertUsable();
     const spec = this.#specs.find((entry) => entry.id === id);
     if (spec === undefined) throw new Error(`unknown sign-in provider: ${id}`);
+    // A login-risk provider's "type yes" prompt fires before any auth URL and
+    // omp's rpc login handler rejects it outright (issue #1197): never spawn a
+    // child that cannot finish. The row already shows the terminal command;
+    // this guard covers callers that reach start() without the row state.
+    if (spec.requiresTerminalLogin === true) {
+      throw new Error(terminalLoginExplanation(spec.providerId));
+    }
     if (this.#flow !== null) throw new Error("a provider sign-in is already in progress");
     const ompPath = this.deps.getOmpPath();
     if (ompPath === null) throw new Error("omp binary not found");
@@ -292,7 +306,14 @@ export class ProviderOAuth {
             this.#publish({ ...this.#state, phase: "error", prompt: null, error: `sign-in finished, but the account read failed: ${message}` });
           });
       } else {
-        this.#fail(flow, typeof f.error === "string" ? f.error : "sign-in failed");
+        // Fallback for a binary whose roster names this side cannot classify:
+        // omp's own "not supported in RPC mode" refusal (risk-warning prompt or
+        // secret input) becomes the same terminal explanation the row shows.
+        const raw = typeof f.error === "string" ? f.error : "sign-in failed";
+        this.#fail(
+          flow,
+          isOmpRpcLoginBlockedError(raw) ? terminalLoginExplanation(flow.providerId) : raw,
+        );
       }
     }
   }

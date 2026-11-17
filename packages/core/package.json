@@ -40,6 +40,7 @@
     "./omp-settings-keys": "./src/omp-settings-keys.ts",
     "./subagent-model": "./src/subagent-model.ts",
     "./web-search-order": "./src/web-search-order.ts",
+    "./provider-catalog": "./src/provider-catalog.ts",
     "./capability-catalog": "./src/capability-catalog.ts",
     "./stream-activity": "./src/stream-activity.ts",
     "./approval": "./src/approval.ts",

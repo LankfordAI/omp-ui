@@ -1677,6 +1677,13 @@ export interface ProviderOAuthStatus {
   credentials: ProviderCredential[];
   /** True when the installed omp predates get_logout_accounts: status unknown, never "not signed in". */
   accountsUnsupported: boolean;
+  /**
+   * True when omp marks this provider's login with an account-risk warning it
+   * answers only in a terminal (issue #1197): omp-ui shows the `omp login
+   * <providerId>` command instead of starting an RPC sign-in that cannot be
+   * completed.
+   */
+  requiresTerminalLogin?: boolean;
 }
 
 export interface ProviderSignOutResult {
