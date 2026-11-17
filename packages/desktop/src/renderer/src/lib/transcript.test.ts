@@ -1364,6 +1364,85 @@ describe("reduceEvent markers, notice, irc, unknowns", () => {
     expect(items[0]).toMatchObject({ kind: "irc", from: "scout", text: "found it" });
   });
 
+  // Issue #1202: omp 18.18.2+ rides a parent's steer into a subagent as a user
+  // message with `parentIrc`, and marks the matching irc_message display:false.
+  it("renders a live parentIrc steer as an irc row, not a user bubble", () => {
+    const items = reduceEvent([], {
+      type: "message_start",
+      message: {
+        role: "user",
+        content: [{ type: "text", text: '<irc from="parent" agent="Main">check the tests</irc>' }],
+        parentIrc: { from: "Main", body: "check the tests" },
+        steering: true,
+      },
+    });
+    expect(items).toHaveLength(1);
+    expect(items[0]).toMatchObject({ kind: "irc", from: "Main", text: "check the tests" });
+  });
+
+  it("drops an irc_message omp marked display:false (its steer paints the row)", () => {
+    const items = reduceEvent([], {
+      type: "irc_message",
+      message: {
+        role: "custom",
+        customType: "irc:incoming",
+        content: "[IRC `Main` → `scout`]\n\ncheck the tests",
+        display: false,
+        details: { id: "m1", from: "Main", message: "check the tests", fromParent: true },
+      },
+    });
+    expect(items).toHaveLength(0);
+  });
+
+  it("keeps irc_messages whose display is true or absent", () => {
+    let items: RenderItem[] = [];
+    for (const display of [true, undefined]) {
+      items = reduceEvent(items, {
+        type: "irc_message",
+        message: {
+          role: "custom",
+          customType: "irc:incoming",
+          ...(display === undefined ? {} : { display }),
+          details: { id: "m1", from: "scout", message: "ping" },
+        },
+      });
+    }
+    expect(items).toHaveLength(2);
+    expect(items.every((i) => i.kind === "irc")).toBe(true);
+  });
+
+  it("falls back to the user bubble when parentIrc is malformed", () => {
+    let items: RenderItem[] = [];
+    items = reduceEvent(items, {
+      type: "message_start",
+      message: {
+        role: "user",
+        content: [{ type: "text", text: "hello" }],
+        parentIrc: { from: "Main" },
+      },
+    });
+    items = reduceEvent(items, {
+      type: "message_start",
+      message: { role: "user", content: [{ type: "text", text: "plain" }] },
+    });
+    expect(items[0]).toMatchObject({ kind: "user", text: "hello" });
+    expect(items[1]).toMatchObject({ kind: "user", text: "plain" });
+  });
+
+  it("history renders a persisted parentIrc steer as an irc row and leaves plain prompts alone", () => {
+    const items = historyToItems([
+      { role: "user", content: [{ type: "text", text: "start the task" }], timestamp: 111 },
+      {
+        role: "user",
+        content: [{ type: "text", text: '<irc from="parent" agent="Main">use the boring design</irc>' }],
+        parentIrc: { from: "Main", body: "use the boring design" },
+        timestamp: 222,
+      },
+    ]);
+    expect(items[0]).toMatchObject({ kind: "user", text: "start the task", timestamp: 111 });
+    expect(items[1]).toMatchObject({ kind: "irc", from: "Main", text: "use the boring design" });
+  });
+
   it("carries notice level and source, folding omp's 'warning' onto 'warn'", () => {
     let items: RenderItem[] = [];
     items = reduceEvent(items, {

@@ -721,6 +721,24 @@ export function isAdvisorMessage(message: Record<string, unknown>): boolean {
   return message.role === "custom" && message.customType === "advisor";
 }
 
+/**
+ * The parent-agent steer omp 18.18.2+ rides as a user message carrying
+ * `parentIrc: { from, body }` (`modes/rpc/wire/content.ts`): the model-facing
+ * `content` is the `<irc from="parent">` envelope and the wire docs direct
+ * hosts to render `parentIrc` instead. Null for any message without a usable
+ * pair — an unrecognized shape keeps the ordinary user bubble. (Issue #1202.)
+ */
+function parentIrcFromMessage(
+  message: Record<string, unknown>,
+): { from: string; body: string } | null {
+  const irc = field(message, "parentIrc");
+  if (!isObj(irc)) return null;
+  const from = strField(irc, "from");
+  const body = strField(irc, "body");
+  if (from === undefined || body === undefined) return null;
+  return { from, body };
+}
+
 function notesFromDetails(details: unknown): AdvisorNote[] {
   if (!isObj(details) || !Array.isArray(details.notes)) return [];
   return details.notes
@@ -965,6 +983,12 @@ export function reduceEvent(items: RenderItem[], event: unknown): RenderItem[] {
       if (isFleetWakeMessage(message)) return appendLiveFleetWake(items, message);
       const role = str(message.role);
       if (role === "user") {
+        // A parent steer (omp 18.18.2+): render the IRC row, never the
+        // `<irc from="parent">` envelope as a user bubble (issue #1202).
+        const irc = parentIrcFromMessage(message);
+        if (irc !== null) {
+          return [...items, { kind: "irc", id: `irc-${++counter}`, from: irc.from, text: irc.body }];
+        }
         return [
           ...items,
           {
@@ -1353,6 +1377,10 @@ export function reduceEvent(items: RenderItem[], event: unknown): RenderItem[] {
     case "irc_message": {
       // The payload is a CustomMessage: `from`/`message` live under `details`.
       const message = isObj(event.message) ? event.message : null;
+      // omp marks a mid-turn parent steer's observation `display: false`: it
+      // will surface as the steering user message's `parentIrc` instead, so
+      // rendering this row too would paint the same message twice (issue #1202).
+      if (message !== null && boolField(message, "display") === false) return items;
       const details = message && isObj(message.details) ? message.details : null;
       return [
         ...items,
@@ -1394,6 +1422,14 @@ export function historyToItems(messages: unknown[]): RenderItem[] {
     }
     const role = str(raw.role);
     if (role === "user") {
+      // A persisted parent steer (omp 18.18.2+): the session file holds the
+      // `<irc from="parent">` envelope plus `parentIrc`; render the IRC row,
+      // mirroring the live path and omp's own TUI builder (issue #1202).
+      const irc = parentIrcFromMessage(raw);
+      if (irc !== null) {
+        items.push({ kind: "irc", id: `irc-${++counter}`, from: irc.from, text: irc.body });
+        continue;
+      }
       items.push({
         kind: "user",
         id: `user-${++counter}`,
