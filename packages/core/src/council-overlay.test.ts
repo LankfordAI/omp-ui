@@ -15,7 +15,7 @@ function tempDir(): string {
   return dir;
 }
 
-const BASE = 'async:\n  enabled: true\ntask:\n  batch: true\n  perCallModel: "on"\n';
+const BASE = 'async:\n  enabled: true\ntask:\n  batch: true\n  steps: false\n  perCallModel: "on"\n';
 
 describe("writeCouncilOverlay", () => {
   it("turns per-call models on without granting any role when the council is empty", () => {

@@ -161,7 +161,7 @@ describe("writeCouncilForSpawn", () => {
     expect(JSON.parse(fs.readFileSync(Core.councilRosterSnapshotPath(dir), "utf8"))).toEqual(result.snapshot);
     expect(result.overlayPath).toBe(Core.councilOverlayPath(dir));
     expect(fs.readFileSync(result.overlayPath!, "utf8")).toBe(
-      'async:\n  enabled: true\ntask:\n  batch: true\n  perCallModel: "on"\n' +
+      'async:\n  enabled: true\ntask:\n  batch: true\n  steps: false\n  perCallModel: "on"\n' +
       'modelRoles:\n  "omp-ui-council-1": "provider/first"\n' +
       '  "omp-ui-council-2": "provider/second"\n' +
       '  "omp-ui-council-3": "provider/third"\n' +

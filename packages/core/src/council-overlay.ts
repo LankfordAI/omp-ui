@@ -12,6 +12,12 @@ import { isSafeSelector } from "./subagent-model";
  * - `task.perCallModel` defaults to `off`, which rejects any task item that
  *   names a model — so a member pinned to a model could never launch. The
  *   overlay turns it `"on"` (quoted, so no YAML 1.1 loader reads a boolean).
+ * - `task.steps` (omp 18.19) replaces the schema's `task: string` with
+ *   `steps: string[]` and strips undeclared keys, and its rpc protocol default
+ *   only applies when nothing configures the key — so a user's global
+ *   `task.steps: true` would fail validation on every member item. The overlay
+ *   pins it `false`. On omp before 18.19 the key is unknown and passes through
+ *   unchanged (issue #1194).
  * - omp grants a per-call model only when a chat role in an operator layer
  *   names it, and `--config` is such a layer: one custom role
  *   `omp-ui-council-N` per launched member grants exactly the members'
@@ -43,7 +49,7 @@ export function writeCouncilOverlay(lineageDir: string, models: readonly string[
   if (unsafe !== undefined) {
     throw new Error(`council overlay: unsafe model selector ${JSON.stringify(unsafe)}`);
   }
-  let content = 'async:\n  enabled: true\ntask:\n  batch: true\n  perCallModel: "on"\n';
+  let content = 'async:\n  enabled: true\ntask:\n  batch: true\n  steps: false\n  perCallModel: "on"\n';
   if (models.length > 0) {
     content += "modelRoles:\n";
     models.forEach((model, i) => {
