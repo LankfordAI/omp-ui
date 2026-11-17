@@ -5,8 +5,9 @@ import { useT } from "../lib/i18n";
 /**
  * The terminal tab's live-share chip (issue #686): shows while this tab
  * hosts a Collab room (or a guest is waiting on the host's TUI), and opens
- * the Share-live dialog. Off-state tabs render nothing — the palette action
- * is the entry point; a permanent chip would just tax the terminal header.
+ * the Share-live dialog. Off-state tabs render nothing — TerminalTab's
+ * share-live button carries that corner until a room hosts, and this chip
+ * takes over the same slot.
  */
 export function CollabChip({ tabId }: { tabId: string }) {
   const t = useT();

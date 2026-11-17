@@ -28,10 +28,12 @@ session.
 
 Live sharing works on terminal tabs only. omp's `/collab` lives in the TUI;
 native transcript sessions do not expose it over the RPC protocol, and the
-dialog says so instead of offering a control that cannot work.
+native title menu's **Share live** row opens that explanation rather than a
+dead control.
 
-1. Open the command palette on the terminal tab and choose **Share live** (or
-   click the chip corner of the terminal when a room is already up).
+1. Click **share live** in the corner of the terminal tab, or open the command
+   palette on it and choose **Share live**. Once a room is up, the corner shows
+   the **live** chip instead; clicking it reopens this dialog.
 2. The first share on this install shows the privacy confirmation once.
 3. Choose **full** or **view-only** and start sharing. omp types `/collab` (or
    `/collab view`) into the session itself — the same keystroke channel as

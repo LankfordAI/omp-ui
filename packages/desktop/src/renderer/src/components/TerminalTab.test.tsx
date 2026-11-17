@@ -3,6 +3,7 @@ import { act, useSyncExternalStore } from "react";
 import { createRoot } from "react-dom/client";
 import type { Root } from "react-dom/client";
 import { afterEach, beforeEach, describe, expect, it, vi } from "vitest";
+import type { CollabTabView } from "../store/types";
 import { TerminalTab } from "./TerminalTab";
 
 (globalThis as Record<string, unknown>).IS_REACT_ACT_ENVIRONMENT = true;
@@ -40,13 +41,14 @@ const mocks = vi.hoisted(() => {
     // through its listener set (issue #867).
     store: {
       state: null,
-      collab: {},
+      collab: {} as Record<string, CollabTabView>,
       exited: {} as Record<string, number>,
       listeners: new Set<() => void>(),
       searchOpen: {} as Record<string, boolean>,
       ptyRedrawRevision: {} as Record<string, number>,
       closeSearch: vi.fn(),
       openSettings: vi.fn(),
+      openShareLive: vi.fn(),
       resumeDead,
     },
   };
@@ -193,6 +195,7 @@ beforeEach(() => {
   mocks.readImageFiles.mockResolvedValue({ images: [], rejected: [] });
   mocks.store.exited = {};
   mocks.store.searchOpen = {};
+  mocks.store.collab = {};
 });
 
 afterEach(() => {
@@ -398,5 +401,49 @@ describe("TerminalTab find (issue #270)", () => {
     expect(mocks.clearSelection).toHaveBeenCalled();
     expect(mocks.focus).toHaveBeenCalled();
     expect(document.body.querySelector(".find-bar")).toBeNull();
+  });
+});
+
+describe("TerminalTab share-live entry (issue #686)", () => {
+  const mount = (): void => {
+    const host = document.createElement("div");
+    document.body.append(host);
+    root = createRoot(host);
+    act(() => root!.render(<TerminalTab tabId={TAB} active />));
+  };
+  const shareButton = (): HTMLButtonElement | undefined =>
+    [...document.body.querySelectorAll<HTMLButtonElement>("button")]
+      .find((b) => b.textContent?.trim() === "share live");
+
+  it("shows a share-live button on a live terminal and opens the dialog", () => {
+    mount();
+    const button = shareButton();
+    expect(button).toBeDefined();
+    act(() => button!.click());
+    expect(mocks.store.openShareLive).toHaveBeenCalledWith(TAB);
+  });
+
+  it("hides the entry once the tab hosts a room: the chip owns the corner", () => {
+    mocks.store.collab = {
+      [TAB]: {
+        kind: "sharing",
+        state: {
+          status: "full",
+          generation: 1,
+          participants: 0,
+          relayConnected: true,
+          inputRequired: false,
+        },
+      },
+    };
+    mount();
+    expect(document.body.textContent).toContain("live");
+    expect(shareButton()).toBeUndefined();
+  });
+
+  it("shows no share entry while the process has exited", () => {
+    mocks.store.exited = { [TAB]: 1 };
+    mount();
+    expect(shareButton()).toBeUndefined();
   });
 });

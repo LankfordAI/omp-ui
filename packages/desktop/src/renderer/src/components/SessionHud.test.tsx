@@ -607,6 +607,7 @@ describe("SessionHud title menu (issue #941)", () => {
       "Settle",
       "Export HTML",
       "Publish encrypted snapshot",
+      "Share live",
       "Write redacted copy",
       "Capabilities",
       "Queue modes & retry…",
@@ -644,6 +645,17 @@ describe("SessionHud title menu (issue #941)", () => {
     expect(compactSession).toHaveBeenCalledWith(TAB);
     fire("Export HTML");
     expect(exportHtml).toHaveBeenCalledWith(TAB);
+  });
+
+  it("offers Share live in the Share group, opening the share-live dialog", () => {
+    useStore.setState({ shareLiveTab: null });
+    const host = render();
+    openTitleMenu(host);
+    const row = menuItem("Share live")!;
+    expect(row).toBeDefined();
+    expect(row.disabled).toBe(false);
+    act(() => row.click());
+    expect(useStore.getState().shareLiveTab).toBe(TAB);
   });
 
   it("renames from the first row: the input takes focus and Enter commits the trimmed name", () => {

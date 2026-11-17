@@ -1041,6 +1041,7 @@ function TitleMenu({
   const compactSession = useStore((s) => s.compactSession);
   const exportHtml = useStore((s) => s.exportHtml);
   const shareSession = useStore((s) => s.shareSession);
+  const openShareLive = useStore((s) => s.openShareLive);
   const anonymizeSession = useStore((s) => s.anonymizeSession);
   const openCapabilitiesViewer = useStore((s) => s.openCapabilitiesViewer);
   const consoleOpen = useStore((s) => s.consoleOpen[tabId] === true);
@@ -1302,6 +1303,15 @@ function TitleMenu({
                     className={MENU_ROW}
                   >
                     {t("hud.menu.publish")}
+                  </button>
+                  <button
+                    type="button"
+                    role="menuitem"
+                    title={t("hud.actions.shareLiveTitle")}
+                    onClick={act(() => openShareLive(tabId))}
+                    className={MENU_ROW}
+                  >
+                    {t("hud.menu.shareLive")}
                   </button>
                   {/* A disabled row gets no hover title (pointer-events-none), so
                       the needs-omp reason also renders as a second line (#834). */}
