@@ -390,6 +390,8 @@ export const ko: Partial<Record<MessageKey, string>> = {
   "transcript.shell.columnBytes": "omp가 열에서 {bytes} 제거",
   "transcript.shell.localTruncated": "omp-ui 표시에서 {count}자 생략",
   "transcript.shell.notShared": "출력이 모델과 공유되지 않았습니다",
+  "transcript.shell.forkStateLost": "사용 중인 세션 셸의 사본에서 실행됨 — 여기서 변경사항은 유지되지 않습니다",
+  "transcript.shell.forkJobs": "여기서 시작한 백그라운드 작업은 그 사본에 남습니다. 이후 명령의 jobs, wait, %N은 이 작업을 볼 수 없습니다",
   "transcript.row.broken": "메시지를 렌더링하지 못했습니다",
   "transcript.tool.plan": "플랜",
   "transcript.tool.running": "실행 중",

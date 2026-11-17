@@ -3170,6 +3170,51 @@ describe("runShellCommand (issue #678)", () => {
     expect(h.useStore.getState().rpc[h.TAB]!.failure).toBeUndefined();
   });
 
+  // Issue #1205: omp ≥18.21 reports BashResult.fork when the command overlapped
+  // another on the session shell and ran in a fork of it; the row carries it.
+  it("carries the fork outcome onto the row", async () => {
+    const promise = h.useStore.getState().runShellCommand(h.TAB, "export X=1");
+    h.respond(h.TAB, h.sent[0]!.cmd, {
+      exitCode: 0,
+      output: "",
+      fork: { carried: false, jobs: false },
+    });
+    await promise;
+    await h.flushMicrotasks();
+    expect(h.useStore.getState().rpc[h.TAB]!.items.at(-1)).toMatchObject({
+      kind: "shell",
+      status: "done",
+      fork: { carried: false, jobs: false },
+    });
+  });
+
+  it("carries the fork outcome even on an oversized output trimmed by the local cap", async () => {
+    const promise = h.useStore.getState().runShellCommand(h.TAB, "big-output");
+    h.respond(h.TAB, h.sent[0]!.cmd, {
+      exitCode: 0,
+      output: "x".repeat(70 * 1024),
+      fork: { carried: true, jobs: true },
+    });
+    await promise;
+    await h.flushMicrotasks();
+    expect(h.useStore.getState().rpc[h.TAB]!.items.at(-1)).toMatchObject({
+      kind: "shell",
+      status: "done",
+      fork: { carried: true, jobs: true },
+    });
+  });
+
+  it("leaves the row without a fork when the response has none (older omp)", async () => {
+    const promise = h.useStore.getState().runShellCommand(h.TAB, "echo hi");
+    h.respond(h.TAB, h.sent[0]!.cmd, { exitCode: 0, output: "hi\n" });
+    await promise;
+    await h.flushMicrotasks();
+    const last = h.useStore.getState().rpc[h.TAB]!.items.at(-1)!;
+    expect(last).toMatchObject({ kind: "shell", status: "done" });
+    if (last.kind === "shell") expect(last.fork).toBeUndefined();
+    else expect.fail("expected a shell row");
+  });
+
   it("discloses the local cap and applies it identically on history backfill", async () => {
     const output = "x".repeat(70 * 1024);
     const promise = h.useStore.getState().runShellCommand(h.TAB, "seq 1 100000");

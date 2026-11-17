@@ -277,7 +277,17 @@ export interface ShellItem {
   error?: string;
   /** False for an excludeFromContext run — a recorded entry or a live "!!" row (#1200). */
   shared?: boolean;
+  /** omp's fork outcome (≥18.18.2): the command overlapped another on the session shell and ran in a fork of it (issue #1205). */
+  fork?: ShellForkOutcome;
   timestamp?: number;
+}
+
+/** `BashResult.fork` on the RPC wire (`ShellForkOutcome`): what a forked run left behind in the session shell. */
+export interface ShellForkOutcome {
+  /** False: what the command set stayed in the fork instead of carrying back into the session's shell. */
+  carried: boolean;
+  /** True: it left background jobs running in the fork, where later commands' `jobs`/`wait`/`%N` miss them. */
+  jobs: boolean;
 }
 
 /** A Fleet result or notice omp-ui posted into the dispatching session (#957). */
@@ -346,14 +356,29 @@ export function shellItem(command: string, excludeFromContext = false): ShellIte
     timestamp: Date.now(),
   };
 }
+/**
+ * `BashResult.fork` (`ShellForkOutcome`, omp ≥18.18.2): set only when the
+ * command overlapped another on the session's persistent shell and ran in a
+ * fork of it. Both fields must be booleans; anything else — older omp, a
+ * recorded entry that never persists `fork` — reads as absent (issue #1205).
+ */
+export function parseShellFork(result: unknown): ShellForkOutcome | undefined {
+  const fork = field(result, "fork");
+  if (!isObj(fork)) return undefined;
+  const carried = boolField(fork, "carried");
+  const jobs = boolField(fork, "jobs");
+  return carried !== undefined && jobs !== undefined ? { carried, jobs } : undefined;
+}
+
 /** Keep omp's head/tail preview intact; disclose only our separate legacy display cut. */
-export function shellOutputFields(result: unknown): Pick<ShellItem, "output" | "truncated" | "truncation" | "localDroppedChars"> {
+export function shellOutputFields(result: unknown): Pick<ShellItem, "output" | "truncated" | "truncation" | "localDroppedChars" | "fork"> {
   const output = strField(result, "output") ?? "";
   const truncated = boolField(result, "truncated") === true;
   const truncation = parseBashTruncation(result);
+  const fork = parseShellFork(result);
   const localCap = 64 * 1024;
   if (truncated || truncation !== undefined || output.length <= localCap) {
-    return { output, truncated, ...(truncation ? { truncation } : {}) };
+    return { output, truncated, ...(truncation ? { truncation } : {}), ...(fork ? { fork } : {}) };
   }
   // String.length counts UTF-16 code units. Avoid leaving half of a surrogate pair.
   const last = output.charCodeAt(localCap - 1);
@@ -361,7 +386,7 @@ export function shellOutputFields(result: unknown): Pick<ShellItem, "output" | "
   const end = last >= 0xd800 && last <= 0xdbff && next >= 0xdc00 && next <= 0xdfff
     ? localCap - 1
     : localCap;
-  return { output: output.slice(0, end), truncated, localDroppedChars: output.length - end };
+  return { output: output.slice(0, end), truncated, localDroppedChars: output.length - end, ...(fork ? { fork } : {}) };
 }
 
 /**

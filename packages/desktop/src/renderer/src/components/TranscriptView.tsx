@@ -1064,6 +1064,12 @@ function ShellRow({ item, tabId }: { item: ShellItem; tabId?: string }) {
       {item.shared === false && (
         <p className="mt-1 text-xs text-ink-faint">{t("transcript.shell.notShared")}</p>
       )}
+      {item.fork !== undefined && !item.fork.carried && (
+        <p className="mt-1 text-xs text-ink-faint">{t("transcript.shell.forkStateLost")}</p>
+      )}
+      {item.fork?.jobs === true && (
+        <p className="mt-1 text-xs text-ink-faint">{t("transcript.shell.forkJobs")}</p>
+      )}
       {item.output !== undefined && item.output !== "" && (
         <pre
           data-selectable

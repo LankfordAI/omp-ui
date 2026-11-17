@@ -2128,6 +2128,59 @@ describe("shell truncation provenance", () => {
   });
 });
 
+// Issue #1205: omp ≥18.21 reports BashResult.fork when the command ran in a
+// fork of the busy session shell; the row notes what stayed behind there.
+describe("shell fork outcome notes", () => {
+  afterEach(() => applyLocale(resolveLocale("en")));
+
+  it("notes carried-back state loss when carried is false", () => {
+    const { el, root } = render([{
+      kind: "shell", id: "shell-fork-lost", command: "export X=1", status: "done", output: "",
+      fork: { carried: false, jobs: false },
+    }]);
+    expect(el.textContent).toContain(t("transcript.shell.forkStateLost"));
+    expect(el.textContent).not.toContain(t("transcript.shell.forkJobs"));
+    act(() => root.unmount());
+  });
+
+  it("notes stranded background jobs when jobs is true", () => {
+    const { el, root } = render([{
+      kind: "shell", id: "shell-fork-jobs", command: "sleep 60 &", status: "done", output: "",
+      fork: { carried: true, jobs: true },
+    }]);
+    expect(el.textContent).toContain(t("transcript.shell.forkJobs"));
+    expect(el.textContent).not.toContain(t("transcript.shell.forkStateLost"));
+    act(() => root.unmount());
+  });
+
+  it("notes both when the fork carried nothing and left jobs", () => {
+    const { el, root } = render([{
+      kind: "shell", id: "shell-fork-both", command: "cd /tmp && sleep 60 &", status: "done", output: "",
+      fork: { carried: false, jobs: true },
+    }]);
+    expect(el.textContent).toContain(t("transcript.shell.forkStateLost"));
+    expect(el.textContent).toContain(t("transcript.shell.forkJobs"));
+    act(() => root.unmount());
+  });
+
+  it("renders nothing extra for a carried fork with no jobs", () => {
+    const { el, root } = render([{
+      kind: "shell", id: "shell-fork-clean", command: "echo hi", status: "done", output: "hi",
+      fork: { carried: true, jobs: false },
+    }]);
+    expect(el.querySelector("p")).toBeNull();
+    act(() => root.unmount());
+  });
+
+  it("renders nothing extra when the row has no fork (older omp)", () => {
+    const { el, root } = render([{
+      kind: "shell", id: "shell-nofork", command: "echo hi", status: "done", output: "hi",
+    }]);
+    expect(el.querySelector("p")).toBeNull();
+    act(() => root.unmount());
+  });
+});
+
 describe("artifact refresh cards (issue #1139)", () => {
   const TAB = "tab-refresh";
   const entry = { version: 1 as const, refreshRequestId: "11111111-1111-4111-8111-111111111111", artifactId: "22222222-2222-4222-8222-222222222222", title: "Budget", datasetIds: ["rows", "totals"] };

@@ -6,9 +6,11 @@ import {
   itemSearchText,
   markerItem,
   noticeItem,
+  parseShellFork,
   preExchange,
   reduceEvent,
   settleRunningItems,
+  shellOutputFields,
   type AssistantItem,
   type RenderItem,
   type ToolItem,
@@ -2703,5 +2705,38 @@ describe("provider replay reset (issue #1089)", () => {
     expect(tool(items, "p1")).toMatchObject({ argsStreaming: false, status: "running" });
     items = reduceEvent(items, startWith());
     expect(tool(items, "p1")).toBeUndefined();
+  });
+});
+
+// Issue #1205: omp ≥18.18.2's BashResult.fork (ShellForkOutcome on the wire)
+// reaches the shell row through shellOutputFields; malformed or absent reads as none.
+describe("parseShellFork / shellOutputFields fork (issue #1205)", () => {
+  it("reads a well-formed fork outcome", () => {
+    expect(parseShellFork({ fork: { carried: false, jobs: true } })).toEqual({ carried: false, jobs: true });
+    expect(parseShellFork({ fork: { carried: true, jobs: false } })).toEqual({ carried: true, jobs: false });
+  });
+
+  it("reads absent or malformed fork as none", () => {
+    expect(parseShellFork({})).toBeUndefined();
+    expect(parseShellFork({ fork: undefined })).toBeUndefined();
+    expect(parseShellFork({ fork: "yes" })).toBeUndefined();
+    expect(parseShellFork({ fork: { carried: false } })).toBeUndefined();
+    expect(parseShellFork({ fork: { carried: "false", jobs: false } })).toBeUndefined();
+  });
+
+  it("carries fork through shellOutputFields on both the plain and the locally-capped path", () => {
+    expect(shellOutputFields({ output: "hi\n", fork: { carried: false, jobs: false } })).toMatchObject({
+      fork: { carried: false, jobs: false },
+    });
+    const capped = shellOutputFields({
+      output: "x".repeat(70 * 1024),
+      fork: { carried: true, jobs: true },
+    });
+    expect(capped.fork).toEqual({ carried: true, jobs: true });
+    expect(capped.localDroppedChars).toBeGreaterThan(0);
+  });
+
+  it("omits fork entirely for a result without one", () => {
+    expect("fork" in shellOutputFields({ output: "hi\n" })).toBe(false);
   });
 });

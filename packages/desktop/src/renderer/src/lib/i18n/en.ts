@@ -430,6 +430,8 @@ export const en = {
   "transcript.shell.columnBytes": "omp dropped {bytes} from columns",
   "transcript.shell.localTruncated": "omp-ui display omitted {count} characters",
   "transcript.shell.notShared": "output not shared with the model",
+  "transcript.shell.forkStateLost": "ran in a copy of the busy session shell — changes here won't persist",
+  "transcript.shell.forkJobs": "background jobs started here stay in that copy; later commands' jobs, wait and %N won't see them",
   "transcript.row.broken": "message failed to render",
   "transcript.tool.plan": "plan",
   "transcript.tool.running": "running",
