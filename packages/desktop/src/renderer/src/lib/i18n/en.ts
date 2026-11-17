@@ -471,6 +471,7 @@ export const en = {
   "transcript.tool.columnChars": "UTF-16 characters per line",
   "transcript.tool.allArguments": "all arguments",
   "transcript.tool.taskFile": "task file",
+  "transcript.tool.taskStages": "stages",
   "transcript.tool.taskFileShaTitle": "SHA-256 omp recorded for this file's bytes at spawn: {sha256}",
   "selection.contextmenu.copy": "Copy",
   "selection.contextmenu.copyMarkdown": "Copy as Markdown",

@@ -430,6 +430,7 @@ export const ko: Partial<Record<MessageKey, string>> = {
   "transcript.tool.columnChars": "줄당 UTF-16 문자",
   "transcript.tool.allArguments": "모든 인수",
   "transcript.tool.taskFile": "작업 파일",
+  "transcript.tool.taskStages": "단계",
   "transcript.tool.taskFileShaTitle": "생성 시 omp가 이 파일 내용에 대해 기록한 SHA-256: {sha256}",
   "selection.contextmenu.copy": "복사",
   "selection.contextmenu.copyMarkdown": "Markdown으로 복사",

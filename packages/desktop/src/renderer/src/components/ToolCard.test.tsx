@@ -604,6 +604,78 @@ describe("ToolCard task files (issue #975)", () => {
   });
 });
 
+describe("ToolCard task stages (issue #1201)", () => {
+  it("renders a flat steps spawn as one numbered ordered list", () => {
+    const { el, root } = renderCard(
+      tool({
+        name: "task",
+        status: "running",
+        args: { agent: "scout", steps: ["read the failing test", "fix the parser", "run the suite"] },
+      }),
+    );
+    const list = el.querySelector("ol");
+    expect(list).not.toBeNull();
+    expect([...list!.querySelectorAll("li")].map((li) => li.textContent)).toEqual([
+      "1read the failing test",
+      "2fix the parser",
+      "3run the suite",
+    ]);
+    expect(el.textContent).toContain("stages");
+    expect(el.textContent).toContain("scout");
+    act(() => root.unmount());
+  });
+
+  it("renders each batch item's steps under its name chip, unlabelled items as #N", () => {
+    const { el, root } = renderCard(
+      tool({
+        name: "task",
+        args: {
+          context: "shared goal",
+          tasks: [
+            { name: "Recon", agent: "scout", steps: ["map the module", "list callers"] },
+            { agent: "task", steps: ["only stage"] },
+          ],
+        },
+      }),
+    );
+    const text = el.textContent ?? "";
+    expect(text).toContain("Recon");
+    expect(text).toContain("#2");
+    expect(text).toContain("map the module");
+    expect(text).toContain("list callers");
+    expect(text).toContain("only stage");
+    act(() => root.unmount());
+  });
+
+  it("drops stage entries still streaming in as non-strings", () => {
+    const { el, root } = renderCard(
+      tool({ name: "task", status: "running", args: { agent: "task", steps: ["first stage", null] } }),
+    );
+    const items = [...el.querySelectorAll("ol li")];
+    expect(items.map((li) => li.textContent)).toEqual(["1first stage"]);
+    act(() => root.unmount());
+  });
+
+  it("a legacy task spawn renders its prompt slab exactly as before, with no stages block", () => {
+    const { el, root } = renderCard(
+      tool({ name: "task", args: { agent: "task", task: "fix the flaky retry" } }),
+    );
+    expect(el.querySelector("ol")).toBeNull();
+    expect(el.textContent).not.toContain("stages");
+    expect(el.textContent).toContain("fix the flaky retry");
+    act(() => root.unmount());
+  });
+
+  it("a call with neither task nor steps keeps the generic arguments disclosure", () => {
+    const { el, root } = renderCard(
+      tool({ name: "task", args: { tasks: [{ agent: "task" }] } }),
+    );
+    expect(el.querySelector("ol")).toBeNull();
+    expect(el.textContent).not.toContain("stages");
+    act(() => root.unmount());
+  });
+});
+
 describe("ToolCard bash minimizer provenance", () => {
   it("renders the filter and humanized byte counts when omp minimized the output", () => {
     const { el, root } = renderCard(

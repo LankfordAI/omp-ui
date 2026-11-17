@@ -288,6 +288,49 @@ describe("parseSubagents", () => {
     });
     expect(entry.status).toBe("idle");
   });
+
+  it("keeps description over task as the label for a legacy spawn", () => {
+    const [entry] = parseSubagents({
+      subagents: [{ id: "a1", description: "triage the flake", task: "full brief text" }],
+    });
+    expect(entry.label).toBe("triage the flake");
+  });
+
+  it("falls back to task when no description arrived yet (legacy shape)", () => {
+    const [entry] = parseSubagents({
+      subagents: [{ id: "a1", task: "the inline brief" }],
+    });
+    expect(entry.label).toBe("the inline brief");
+  });
+
+  it("labels a task.steps spawn from its assignment when no task rode the frame (issue #1201)", () => {
+    const [entry] = parseSubagents({
+      subagents: [
+        { id: "a1", status: "running", assignment: "## Step 1\nread tests\n## Step 2\nfix parser" },
+      ],
+    });
+    expect(entry.label).toBe("## Step 1\nread tests\n## Step 2\nfix parser");
+  });
+
+  it("prefers the clean assignment over the rendered first-step prompt task (issue #1201)", () => {
+    const [entry] = parseSubagents({
+      subagents: [
+        {
+          id: "a1",
+          task: "Complete assignment thoroughly:\n\n## Step 1\nread tests",
+          assignment: "## Step 1\nread tests",
+        },
+      ],
+    });
+    expect(entry.label).toBe("## Step 1\nread tests");
+  });
+
+  it("reads the label from nested progress when the snapshot top level carries none", () => {
+    const [entry] = parseSubagents({
+      subagents: [{ id: "a1", progress: { assignment: "## Step 1\nonly stage" } }],
+    });
+    expect(entry.label).toBe("## Step 1\nonly stage");
+  });
 });
 
 describe("parseSessionStats editRejections (issue #953)", () => {

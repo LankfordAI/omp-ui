@@ -453,7 +453,17 @@ export function parseSubagents(value: unknown): SubagentInfo[] {
       name: strField(raw, "name"),
       agent: strField(raw, "agent"),
       status: strField(raw, "status") ?? strField(progress, "status"),
-      label: strField(raw, "description") ?? strField(raw, "task"),
+      // `assignment` before `task`: for a `task.steps` spawn (omp 18.19) the
+      // snapshot's `task` is the first step's rendered prompt template, while
+      // `assignment` is every stage as one clean brief. For a plain `task`
+      // spawn omp sets both to the same text, so legacy labels are unchanged.
+      label:
+        strField(raw, "description") ??
+        strField(progress, "description") ??
+        strField(raw, "assignment") ??
+        strField(progress, "assignment") ??
+        strField(raw, "task") ??
+        strField(progress, "task"),
       completionPercent:
         percent !== undefined && Number.isFinite(percent)
           ? Math.min(100, Math.max(0, percent))

@@ -8,7 +8,7 @@ import {
   useHighlightTokens,
   useIncrementalHighlightTokens,
 } from "../lib/highlight";
-import { arrField, strField } from "../lib/fields";
+import { arrField, strArrayField, strField } from "../lib/fields";
 import { editErrorKindLabel } from "../lib/edit-rejections";
 import type { ThemedToken } from "shiki/core";
 import { localeTag, useT, type MessageKey } from "../lib/i18n";
@@ -508,6 +508,58 @@ function TaskFiles({ rows }: { rows: TaskFileRow[] }) {
   );
 }
 
+interface TaskStageRow {
+  key: number;
+  /** Batch item name (or `#N`); undefined for the flat single-spawn shape. */
+  label?: string;
+  steps: string[];
+}
+
+/**
+ * omp 18.19 `task.steps`: with the `task.steps` setting on, a spawn carries
+ * ordered stages (`steps: string[]`) instead of one inline `task`, each sent
+ * once the child delivered the previous. Rows come from the call's own args,
+ * flat or `tasks[]`; entries still streaming in as non-strings drop.
+ */
+function taskStepRows(args: unknown): TaskStageRow[] {
+  const rows: TaskStageRow[] = [];
+  // The flat shape and `tasks[]` are exclusive (omp refuses top-level steps
+  // alongside a batch); a flat spawn's stages live at the top level.
+  const flat = strArrayField(args, "steps");
+  if (flat.length > 0) rows.push({ key: -1, steps: flat });
+  arrField(args, "tasks").forEach((entry, index) => {
+    const steps = strArrayField(entry, "steps");
+    if (steps.length === 0) return;
+    const name = strField(entry, "name")?.trim();
+    rows.push({ key: index, label: name || `#${index + 1}`, steps });
+  });
+  return rows;
+}
+
+function TaskStages({ rows }: { rows: TaskStageRow[] }) {
+  const t = useT();
+  return (
+    <div className="space-y-1.5">
+      <Label>{t("transcript.tool.taskStages")}</Label>
+      {rows.map((row) => (
+        <div key={row.key} className="min-w-0 space-y-1">
+          {row.label !== undefined && <Chip tone="iris" mono>{row.label}</Chip>}
+          <ol className="space-y-1">
+            {row.steps.map((step, i) => (
+              <li key={i} className="flex min-w-0 items-start gap-1.5">
+                <span className="mt-1.5 shrink-0 font-mono text-xs tabular-nums text-ink-faint">
+                  {i + 1}
+                </span>
+                <Slab className="max-h-32 min-w-0 flex-1">{linkify(step)}</Slab>
+              </li>
+            ))}
+          </ol>
+        </div>
+      ))}
+    </div>
+  );
+}
+
 function jsonText(value: unknown): string {
   try {
     return JSON.stringify(value, null, 2) ?? String(value);
@@ -687,6 +739,10 @@ export function ToolCard({ item, tabId }: { item: ToolItem; tabId?: string }) {
     () => (glyphFor(item.name) === "agent" ? taskFileRows(item.args, item.taskFiles) : []),
     [item.name, item.args, item.taskFiles],
   );
+  const taskStages = useMemo(
+    () => (glyphFor(item.name) === "agent" ? taskStepRows(item.args) : []),
+    [item.name, item.args],
+  );
   const kind = glyphFor(item.name);
   // Where the command ran (issue #1093): prefer the directory omp resolved —
   // an explicit `cwd` arg or a `cd` it hoisted — over the bare request, and
@@ -811,6 +867,8 @@ export function ToolCard({ item, tabId }: { item: ToolItem; tabId?: string }) {
           )}
 
           {taskFiles.length > 0 && <TaskFiles rows={taskFiles} />}
+
+          {taskStages.length > 0 && <TaskStages rows={taskStages} />}
 
           {(item.path || item.op) && !hasDiff && (
             <div className="flex flex-wrap items-center gap-1.5">

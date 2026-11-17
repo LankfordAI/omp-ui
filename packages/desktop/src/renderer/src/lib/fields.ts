@@ -27,6 +27,15 @@ export function arrField(obj: unknown, key: string): unknown[] {
   return Array.isArray(value) ? value : [];
 }
 
+/**
+ * A string array field, streamed-args safe: non-string entries (values still
+ * arriving token by token, e.g. an in-flight `task.steps` element) drop rather
+ * than render as `[object Object]`.
+ */
+export function strArrayField(obj: unknown, key: string): string[] {
+  return arrField(obj, key).filter((value): value is string => typeof value === "string");
+}
+
 /** Payloads may carry objects at any depth — the one shape test for them. */
 export function isObj(value: unknown): value is Record<string, unknown> {
   return value !== null && typeof value === "object";
