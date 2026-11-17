@@ -163,7 +163,8 @@ function RepositoryManager({ onBrowse }: { onBrowse: (repository: string) => voi
   const setOfficialThemes = useStore((s) => s.setOfficialThemes);
   const addThemeRepository = useStore((s) => s.addThemeRepository);
   const removeThemeRepository = useStore((s) => s.removeThemeRepository);
-  const showOfficial = officialThemes && !repositories.includes(OFFICIAL_THEME_REPOSITORY);
+  // The official row stays in place while the switch is off (dimmed, Browse disabled), so toggling never moves the list.
+  const showOfficial = !repositories.includes(OFFICIAL_THEME_REPOSITORY);
   const [input, setInput] = useState("");
   const [addError, setAddError] = useState<string | null>(null);
 
@@ -228,11 +229,14 @@ function RepositoryManager({ onBrowse }: { onBrowse: (repository: string) => voi
       {(showOfficial || repositories.length > 0) && (
         <ul className="mt-3 flex flex-col gap-2">
           {showOfficial && (
-            <li className="flex items-center gap-2 text-sm text-ink-mid">
+            <li
+              className={cn("flex items-center gap-2 text-sm", officialThemes ? "text-ink-mid" : "text-ink-faint")}
+            >
               <span className="min-w-0 flex-1 truncate font-mono">{OFFICIAL_THEME_REPOSITORY}</span>
               <Chip>{t("settings.appearance.officialChip")}</Chip>
               <Button
                 variant="ghost"
+                disabled={!officialThemes}
                 aria-label={t("settings.appearance.repoBrowseAria", { repository: OFFICIAL_THEME_REPOSITORY })}
                 onClick={() => onBrowse(OFFICIAL_THEME_REPOSITORY)}
               >
@@ -886,7 +890,9 @@ export function ThemeWall(props: {
         <div className="mt-2 flex flex-wrap items-center gap-2">
           <select
             aria-label={t("settings.appearance.show")}
-            className={FIELD}
+            // Fixed width: a native select sizes to its longest option, so listing a repository would reflow the
+            // toolbar. 15rem fits lankfordai/omp-ui-themes; a longer added name truncates in the closed select.
+            className={cn(FIELD, "w-60 shrink-0")}
             value={show}
             onChange={(event) => changeShow(event.target.value as Show)}
           >

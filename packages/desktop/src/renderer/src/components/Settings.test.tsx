@@ -3461,6 +3461,15 @@ describe("Settings Appearance page official theme repository (#1209)", () => {
     click(document.querySelector<HTMLButtonElement>('button[role="switch"][aria-label="omp-ui themes"]')!);
     expect(backendMock.setOfficialThemes).toHaveBeenCalledWith(false);
   });
+
+  it("keeps the official row in place while off, with Browse disabled", async () => {
+    useStore.setState({ settingsPage: "appearance", state: backendState({ themeRepositories: [], officialThemes: false }) });
+    await renderSettings();
+    await chooseShow("manage");
+    const browse = document.querySelector<HTMLButtonElement>(`button[aria-label="Browse ${OFFICIAL}"]`);
+    expect(browse).not.toBeNull();
+    expect(browse!.disabled).toBe(true);
+  });
 });
 
 describe("Settings Appearance page theme wall filters, sort and paging (#1211)", () => {
