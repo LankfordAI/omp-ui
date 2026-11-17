@@ -14,7 +14,8 @@
     "test": "npm run test --workspaces --if-present",
     "test:live": "npm run test:live --workspaces --if-present",
     "typecheck": "npm run typecheck --workspaces --if-present",
-    "lint": "eslint ."
+    "lint": "eslint .",
+    "themes:build-tool": "node scripts/build-theme-tool.mjs"
   },
   "devDependencies": {
     "@eslint/js": "^10.0.1",

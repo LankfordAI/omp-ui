@@ -10,7 +10,10 @@ import { GIT_SHA } from "./theme-origin";
 import {
   THEME_INDEX_BYTES_MAX,
   THEME_INDEX_FILE,
+  THEME_INDEX_V2_BYTES_MAX,
+  THEME_INDEX_V2_FILE,
   parseThemeIndex,
+  parseThemeIndexV2,
   sameThemeSeeds,
   type ThemeIndexEntry,
   type ThemeRepositoryEntry,
@@ -184,22 +187,23 @@ export async function fetchThemeRepositoryListing(
     files.set(row.path, { sha: row.sha, size });
   }
 
-  const indexFile = files.get(THEME_INDEX_FILE);
+  // v2 (#1210) when the tree has it; a v2 that fails to parse is an error, never a fallback to v1.
+  const v2 = files.get(THEME_INDEX_V2_FILE);
+  const indexName = v2 !== undefined ? THEME_INDEX_V2_FILE : THEME_INDEX_FILE;
+  const indexFile = v2 ?? files.get(THEME_INDEX_FILE);
+  const indexMax = v2 !== undefined ? THEME_INDEX_V2_BYTES_MAX : THEME_INDEX_BYTES_MAX;
   if (indexFile === undefined) return { ok: false, message: `no ${THEME_INDEX_FILE} at the repository root` };
-  const indexRes = await get(
-    `${RAW}/${repository}/${sha}/${THEME_INDEX_FILE}`,
-    RAW_HEADERS,
-    THEME_INDEX_BYTES_MAX,
-    now,
-    fetchImpl,
-  );
+  const indexRes = await get(`${RAW}/${repository}/${sha}/${indexName}`, RAW_HEADERS, indexMax, now, fetchImpl);
   if (!indexRes.ok) {
-    if (indexRes.message === TOO_LARGE) return { ok: false, message: `${THEME_INDEX_FILE} is larger than 64 KiB` };
-    if (indexRes.message === NOT_FOUND) return { ok: false, message: `no ${THEME_INDEX_FILE} at the repository root` };
+    if (indexRes.message === TOO_LARGE) {
+      return { ok: false, message: `${indexName} is larger than ${v2 !== undefined ? "512" : "64"} KiB` };
+    }
+    if (indexRes.message === NOT_FOUND) return { ok: false, message: `no ${indexName} at the repository root` };
     return indexRes;
   }
   if (gitBlobSha(indexRes.bytes) !== indexFile.sha) return { ok: false, message: INTEGRITY };
-  const index = parseThemeIndex(decode(indexRes.bytes));
+  const indexText = decode(indexRes.bytes);
+  const index = v2 !== undefined ? parseThemeIndexV2(indexText) : parseThemeIndex(indexText);
   if (!index.ok) return index;
 
   const themes: ThemeRepositoryEntry[] = [];

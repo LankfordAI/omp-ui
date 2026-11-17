@@ -3106,6 +3106,7 @@ export class MainBackend {
       darkThemeId: this.registry.getSetting("darkThemeId"),
       storedThemes: this.registry.getSetting("storedThemes"),
       themeRepositories: this.registry.getSetting("themeRepositories"),
+      officialThemes: this.registry.getSetting("officialThemes"),
       backdropMotion: this.registry.getSetting("backdropMotion"),
       themeAgentAccess: this.registry.getSetting("themeAgentAccess"),
       issueAgentAccess: this.registry.getSetting("issueAgentAccess"),

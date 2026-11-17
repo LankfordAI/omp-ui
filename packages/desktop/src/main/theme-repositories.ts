@@ -2,6 +2,7 @@ import {
   THEME_REPOSITORIES_MAX,
   checkBackdropBytes,
   defaultThemeRepositoryFetch,
+  effectiveThemeRepositories,
   fetchRepositoryThemeFile,
   fetchThemeRepositoryListing,
   parseThemeFile,
@@ -54,11 +55,16 @@ export class ThemeRepositoryService {
     this.#now = deps.now ?? Date.now;
   }
 
-  /** Canonical id when `input` names a listed repository; null otherwise. */
+  /** Canonical id when `input` names a listed repository (added, or the official one while on); null otherwise. */
   #listed(input: string): string | null {
     const repository = parseThemeRepositoryRef(input);
     if (repository === null) return null;
-    return this.deps.registry.getSetting("themeRepositories").includes(repository) ? repository : null;
+    return this.#effective().includes(repository) ? repository : null;
+  }
+
+  #effective(): string[] {
+    const { registry } = this.deps;
+    return effectiveThemeRepositories(registry.getSetting("themeRepositories"), registry.getSetting("officialThemes"));
   }
 
   #pin(listing: ThemeRepositoryListing): void {
@@ -78,8 +84,9 @@ export class ThemeRepositoryService {
     if (repository === null) {
       return { ok: false, message: "enter a GitHub repository as owner/repo or its https://github.com address" };
     }
+    // Already listed, including the official repository while it is on: nothing to write.
+    if (this.#effective().includes(repository)) return { ok: true, repository };
     const list = this.deps.registry.getSetting("themeRepositories");
-    if (list.includes(repository)) return { ok: true, repository };
     if (list.length >= THEME_REPOSITORIES_MAX) {
       return { ok: false, message: `at most ${THEME_REPOSITORIES_MAX} theme repositories can be added; remove one first` };
     }
@@ -90,9 +97,10 @@ export class ThemeRepositoryService {
 
   /** Drops a repository and its cached listings; installed themes are local copies and stay. */
   async remove(input: string): Promise<void> {
-    const repository = this.#listed(input);
-    if (repository === null) return;
+    // Only an added repository can be removed; the implicit official entry changes nothing.
+    const repository = parseThemeRepositoryRef(input);
     const list = this.deps.registry.getSetting("themeRepositories");
+    if (repository === null || !list.includes(repository)) return;
     this.deps.registry.setSetting(
       "themeRepositories",
       list.filter((r) => r !== repository),
@@ -163,13 +171,19 @@ export class ThemeRepositoryService {
   async install(request: RepositoryThemeInstallRequest): Promise<SaveStoredThemeResult> {
     const verified = await this.#verifiedDraft(request);
     if (!verified.ok) return invalid(verified.message);
-    return installStoredTheme(this.deps.themes, verified.draft, {
-      repository: verified.repository,
-      path: request.path,
-      commit: request.commit,
-      blob: verified.entry.blob,
-      animate: false,
-    });
+    return installStoredTheme(
+      this.deps.themes,
+      verified.draft,
+      {
+        repository: verified.repository,
+        path: request.path,
+        commit: request.commit,
+        blob: verified.entry.blob,
+        animate: false,
+      },
+      // Listed when the row is written, not only when the download started (#1209).
+      () => this.#listed(verified.repository) !== null,
+    );
   }
 
   /** One theme's backdrop for Preview (#1182): the same checks as install; nothing is stored. */

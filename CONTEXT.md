@@ -1899,12 +1899,30 @@ A public GitHub repository added under Settings → Appearance whose root
 (ADR-0096).
 _Avoid_: theme store, marketplace, gallery, theme source
 
+**Official theme repository**:
+`lankfordai/omp-ui-themes`, listed under Show without being added while
+*omp-ui themes* is on. omp-ui ships none of its themes; they install like any
+**repository theme** (ADR-0097).
+_Avoid_: default repository, bundled themes, theme store, marketplace
+
 **Theme index**:
-A theme repository's `omp-ui-themes.json`: each listed theme's file path,
-label, seeds and backdrop kind, so Browse paints every card without
-downloading a theme; Preview downloads that one theme to show its backdrop
-(ADR-0096).
+A theme repository's `omp-ui-themes.json` (v1) and optionally
+`omp-ui-themes.v2.json`: each listed theme's file path, label, seeds and
+backdrop kind, so Browse paints every card without downloading a theme;
+Preview downloads that one theme to show its backdrop. v2, read when present,
+also carries **theme tags**, author, description, added date and featured
+(ADR-0096, ADR-0097).
 _Avoid_: manifest, registry
+
+**Theme tag**:
+A lowercase slug a theme index lists for a theme; the official theme
+repository takes its tags from a fixed vocabulary (ADR-0097).
+_Avoid_: category, label, keyword
+
+**Theme details file**:
+The `<slug>.details.json` beside a theme file in a theme repository: tags,
+description, optional author (ADR-0097).
+_Avoid_: sidecar, metadata file, manifest
 
 **Repository theme**:
 An **authored theme** installed from a **theme repository**. It carries its
@@ -1916,8 +1934,10 @@ _Avoid_: community theme, downloaded theme
 **Theme wall**:
 The Themes tab of Settings → Appearance: one column of theme cards, each a
 live sample of the app painted in that theme, narrowed by **Show** (all local,
-built-in, stored, one theme repository, or repository management). Clicking a
-card applies the theme; installing a repository theme never does.
+built-in, stored, one theme repository, or repository management) and
+by the scheme, backdrop and tag filters and search, sorted, and paged with
+Show more. Clicking a card applies the theme; installing a repository theme
+never does.
 _Avoid_: theme gallery, theme grid, theme store
 
 **Theme preview**:

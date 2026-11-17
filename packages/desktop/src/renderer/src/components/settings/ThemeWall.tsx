@@ -9,8 +9,12 @@ import {
 } from "@omp-ui/core/theme";
 import type { ThemeBackdropKind } from "@omp-ui/core/theme-backdrop";
 import { sourceFromDraft, type SaveStoredThemeResult } from "@omp-ui/core/theme-file";
+import { OFFICIAL_THEME_REPOSITORY } from "@omp-ui/core/theme-origin";
 import {
+  EMPTY_THEME_META,
+  effectiveThemeRepositories,
   parseThemeRepositoryRef,
+  type ThemeMeta,
   type ThemeRepositoryEntry,
   type ThemeRepositoryListing,
 } from "@omp-ui/core/theme-repository-format";
@@ -23,7 +27,7 @@ import { useDismissal } from "../../lib/use-dismissal";
 import { useRepositoryBackdrops } from "../../lib/use-repository-backdrops";
 import { useStore } from "../../store";
 import { Button, Chevron, ChoiceCapsule, Chip, Empty, Panel, Switch } from "../ui";
-import { FIELD } from "./rows";
+import { FIELD, Row } from "./rows";
 import { GateFailures } from "./ThemeEditor";
 import { ThemePreviewOverlay } from "./ThemePreviewOverlay";
 import { ThemeSpecimen } from "./ThemeSpecimen";
@@ -38,6 +42,8 @@ type Listing =
 /** Encoded as the Show <select> value. */
 type Show = "all" | "builtin" | "yours" | "manage" | `repo:${string}`;
 type Scheme = "any" | "dark" | "light";
+type BackdropFilter = "any" | "none" | "image" | "scene";
+type Sort = "default" | "newest" | "name";
 type RepoState = "installed" | "update" | "install" | "fails";
 type Slot = "fixed" | "light" | "dark";
 
@@ -51,6 +57,8 @@ interface WallCard {
   applyId: string | null;
   /** The stored source behind the card (Edit / Duplicate / Export / Animate / Remove). */
   source: ThemeSource | null;
+  /** Tags, author, description and date a repository lists (#1210). */
+  meta: ThemeMeta;
   entry: ThemeRepositoryEntry | null;
   repoState: RepoState | null;
   failures: ThemeGateFailure[];
@@ -58,6 +66,8 @@ interface WallCard {
 }
 
 const NO_REPOSITORIES: readonly string[] = [];
+/** Cards per page; Show more reveals the next page (#1211). */
+const PAGE = 24;
 /** Placeholder hash for a previewed repository backdrop: the specimen reads the passed asset, not the hash. */
 const PREVIEW_HASH = "0".repeat(64);
 
@@ -71,11 +81,28 @@ function localCard(theme: Theme, source: ThemeSource | null): WallCard {
     label: theme.label,
     applyId: theme.id,
     source,
+    meta: EMPTY_THEME_META,
     entry: null,
     repoState: null,
     failures: [],
     backdropKind: theme.backdrop?.kind ?? null,
   };
+}
+
+/**
+ * An entry's derived theme and gate verdict, cached on the entry object: entries
+ * keep their identity for a listing's life, while `sources` changes on every
+ * state broadcast (#1211).
+ */
+const entryDrafts = new WeakMap<ThemeRepositoryEntry, { theme: Theme; failures: ThemeGateFailure[] }>();
+function entryDraft(entry: ThemeRepositoryEntry): { theme: Theme; failures: ThemeGateFailure[] } {
+  let hit = entryDrafts.get(entry);
+  if (hit === undefined) {
+    const draft = sourceFromDraft("custom-preview", entry.label, entry.seeds);
+    hit = { theme: deriveTheme(draft), failures: themeGateFailures(draft) };
+    entryDrafts.set(entry, hit);
+  }
+  return hit;
 }
 
 function repoCard(
@@ -87,8 +114,8 @@ function repoCard(
   const installed =
     sources.find((s) => s.origin?.repository === repository && s.origin.path === entry.path) ?? null;
   const installedTheme = installed !== null ? (storedById.get(installed.id) ?? null) : null;
-  const draft = sourceFromDraft("custom-preview", entry.label, entry.seeds);
-  const failures = installedTheme === null ? themeGateFailures(draft) : [];
+  const drafted = installedTheme === null ? entryDraft(entry) : null;
+  const failures = drafted?.failures ?? [];
   const repoState: RepoState =
     installedTheme !== null
       ? installed!.origin!.blob === entry.blob
@@ -99,10 +126,11 @@ function repoCard(
         : "install";
   return {
     key: `repo:${entry.path}`,
-    theme: installedTheme ?? deriveTheme(draft),
+    theme: installedTheme ?? drafted!.theme,
     label: entry.label,
     applyId: installedTheme?.id ?? null,
     source: installedTheme !== null ? installed : null,
+    meta: entry.meta,
     entry,
     repoState,
     failures,
@@ -125,13 +153,18 @@ function kindLabel(theme: Theme, t: Translate): string | null {
 /**
  * Theme repository management (#1178, ADR-0096): add a public GitHub
  * repository, browse or remove the added ones. Adding fetches nothing until
- * the repository is browsed.
+ * the repository is browsed. The omp-ui themes switch (#1209, ADR-0097) lists
+ * or hides the implicit official repository entry.
  */
 function RepositoryManager({ onBrowse }: { onBrowse: (repository: string) => void }) {
   const t = useT();
   const repositories = useStore((s) => s.state?.themeRepositories) ?? NO_REPOSITORIES;
+  const officialThemes = useStore((s) => s.state?.officialThemes) ?? true;
+  const setOfficialThemes = useStore((s) => s.setOfficialThemes);
   const addThemeRepository = useStore((s) => s.addThemeRepository);
   const removeThemeRepository = useStore((s) => s.removeThemeRepository);
+  // The official row stays in place while the switch is off (dimmed, Browse disabled), so toggling never moves the list.
+  const showOfficial = !repositories.includes(OFFICIAL_THEME_REPOSITORY);
   const [input, setInput] = useState("");
   const [addError, setAddError] = useState<string | null>(null);
 
@@ -156,6 +189,16 @@ function RepositoryManager({ onBrowse }: { onBrowse: (repository: string) => voi
 
   return (
     <div className="mt-3">
+      <Row
+        title={t("settings.appearance.officialTitle")}
+        hint={t("settings.appearance.officialHint", { repository: OFFICIAL_THEME_REPOSITORY })}
+      >
+        <Switch
+          on={officialThemes}
+          onChange={(next) => void setOfficialThemes(next)}
+          label={t("settings.appearance.officialTitle")}
+        />
+      </Row>
       <h3 className="text-base font-semibold text-ink">{t("settings.appearance.repoTitle")}</h3>
       <p className="mt-0.5 text-sm leading-relaxed text-ink-faint">{t("settings.appearance.repoHint")}</p>
       <form
@@ -183,8 +226,24 @@ function RepositoryManager({ onBrowse }: { onBrowse: (repository: string) => voi
           {addError}
         </p>
       )}
-      {repositories.length > 0 && (
+      {(showOfficial || repositories.length > 0) && (
         <ul className="mt-3 flex flex-col gap-2">
+          {showOfficial && (
+            <li
+              className={cn("flex items-center gap-2 text-sm", officialThemes ? "text-ink-mid" : "text-ink-faint")}
+            >
+              <span className="min-w-0 flex-1 truncate font-mono">{OFFICIAL_THEME_REPOSITORY}</span>
+              <Chip>{t("settings.appearance.officialChip")}</Chip>
+              <Button
+                variant="ghost"
+                disabled={!officialThemes}
+                aria-label={t("settings.appearance.repoBrowseAria", { repository: OFFICIAL_THEME_REPOSITORY })}
+                onClick={() => onBrowse(OFFICIAL_THEME_REPOSITORY)}
+              >
+                {t("settings.appearance.repoBrowse")}
+              </Button>
+            </li>
+          )}
           {repositories.map((repository) => (
             <li key={repository} className="flex items-center gap-2 text-sm text-ink-mid">
               <span className="min-w-0 flex-1 truncate font-mono">{repository}</span>
@@ -233,11 +292,19 @@ export function ThemeWall(props: {
   onEdit: (source: ThemeSource) => void;
   onDuplicate: (source: ThemeSource) => void;
   onExport: (source: ThemeSource) => void;
+  /** Opens the Share panel for an authored theme (#1212). */
+  onShare: (source: ThemeSource) => void;
 }): ReactElement {
   const { sources, pick } = props;
   const t = useT();
   const themeMode = useStore((s) => s.state?.themeMode) ?? "fixed";
   const themeRepositories = useStore((s) => s.state?.themeRepositories) ?? NO_REPOSITORIES;
+  const officialThemes = useStore((s) => s.state?.officialThemes) ?? true;
+  // Added repositories plus the official one while it is on (#1209).
+  const repositories = useMemo(
+    () => effectiveThemeRepositories(themeRepositories, officialThemes),
+    [themeRepositories, officialThemes],
+  );
   const setThemeMode = useStore((s) => s.setThemeMode);
   const setThemeId = useStore((s) => s.setThemeId);
   const setLightThemeId = useStore((s) => s.setLightThemeId);
@@ -251,6 +318,10 @@ export function ThemeWall(props: {
 
   const [show, setShow] = useState<Show>("all");
   const [scheme, setScheme] = useState<Scheme>("any");
+  const [backdropFilter, setBackdropFilter] = useState<BackdropFilter>("any");
+  const [tags, setTags] = useState<readonly string[]>([]);
+  const [sort, setSort] = useState<Sort>("default");
+  const [limit, setLimit] = useState(PAGE);
   const [query, setQuery] = useState("");
   const [expanded, setExpanded] = useState<string | null>(null);
   const [previewKey, setPreviewKey] = useState<string | null>(null);
@@ -286,6 +357,8 @@ export function ThemeWall(props: {
   const changeShow = (next: Show): void => {
     setShow(next);
     setExpanded(null);
+    // Another catalogue has other tags.
+    setTags([]);
     if (next.startsWith("repo:")) {
       void openRepository(next.slice(5), false);
     } else {
@@ -298,14 +371,14 @@ export function ThemeWall(props: {
   // A shown repository that was removed falls back to All local. Only a
   // removal counts: a just-added repository may be shown before the state
   // broadcast that lists it arrives.
-  const previousRepositories = useRef(themeRepositories);
+  const previousRepositories = useRef(repositories);
   useEffect(() => {
     const before = previousRepositories.current;
-    previousRepositories.current = themeRepositories;
+    previousRepositories.current = repositories;
     if (!show.startsWith("repo:")) return;
     const repository = show.slice(5);
-    if (before.includes(repository) && !themeRepositories.includes(repository)) changeShow("all");
-  }, [themeRepositories, show]);
+    if (before.includes(repository) && !repositories.includes(repository)) changeShow("all");
+  }, [repositories, show]);
 
   useEffect(() => {
     expandedRow.current?.scrollIntoView?.({ block: "nearest" });
@@ -323,7 +396,8 @@ export function ThemeWall(props: {
     [listing, sources, storedById],
   );
 
-  const previewCard = [...curatedCards, ...storedCards, ...listingCards].find((card) => card.key === previewKey) ?? null;
+  const previewCard =
+    [...curatedCards, ...storedCards, ...listingCards].find((card) => card.key === previewKey) ?? null;
   useEffect(() => {
     // The previewed theme was removed, or the listing changed under it.
     if (previewKey !== null && previewCard === null) setPreviewKey(null);
@@ -369,7 +443,7 @@ export function ThemeWall(props: {
   /** Opens the theme preview; an uninstalled entry with a backdrop fetches it once (ADR-0096 §12). */
   const openPreview = (card: WallCard): void => {
     setPreviewKey(card.key);
-    if (listing?.status !== "ok" || card.entry === null || card.source !== null || card.entry.backdrop === null) return;
+    if (listing?.status !== "ok" || card.entry === null || card.applyId !== null || card.entry.backdrop === null) return;
     repoBackdrops.request(
       { repository: listing.listing.repository, commit: listing.listing.commit, path: card.entry.path },
       card.entry.blob,
@@ -378,7 +452,7 @@ export function ThemeWall(props: {
 
   /** What a specimen paints: an uninstalled entry gains its previewed backdrop once loaded. */
   const specimenOf = (card: WallCard): { theme: Theme; asset?: BackdropAsset | null } => {
-    if (card.entry === null || card.source !== null) return { theme: card.theme };
+    if (card.entry === null || card.applyId !== null) return { theme: card.theme };
     const loaded = repoBackdrops.get(card.entry.blob);
     if (loaded?.status !== "ready") return { theme: card.theme, asset: null };
     return {
@@ -503,6 +577,19 @@ export function ThemeWall(props: {
           </Button>,
         );
       }
+      // A theme installed from a repository is someone else's to share (#1212).
+      if (authored && source.origin === undefined) {
+        row.push(
+          <Button
+            key="share"
+            variant="ghost"
+            aria-label={t("settings.appearance.shareAria", { name: source.label })}
+            onClick={() => props.onShare(source)}
+          >
+            {t("settings.appearance.share")}
+          </Button>,
+        );
+      }
       if (source.origin !== undefined && source.backdrop?.kind === "scene") {
         const origin = source.origin;
         row.push(
@@ -584,6 +671,11 @@ export function ThemeWall(props: {
                   : t("settings.appearance.themeBackdrop")}
               </Chip>
             )}
+            {card.meta.tags.map((tag) => (
+              <Chip key={`tag:${tag}`} mono>
+                {tag}
+              </Chip>
+            ))}
             {card.repoState === "install" && <Chip>{t("settings.appearance.notInstalledChip")}</Chip>}
             {card.repoState === "update" && <Chip>{t("settings.appearance.updateChip")}</Chip>}
             {card.repoState === "fails" && (
@@ -593,6 +685,16 @@ export function ThemeWall(props: {
             )}
             {picks}
           </span>
+          {(card.meta.description !== null || card.meta.author !== null) && (
+            <span className="mt-1 block truncate text-xs text-ink-faint">
+              {[
+                card.meta.description,
+                card.meta.author !== null ? t("settings.appearance.themeBy", { author: card.meta.author }) : null,
+              ]
+                .filter((part) => part !== null)
+                .join(" · ")}
+            </span>
+          )}
           <ThemeSpecimen {...specimenOf(card)} variant="card" className="mt-2" />
         </button>
         <Button
@@ -655,47 +757,89 @@ export function ThemeWall(props: {
 
   const previewNotes = (card: WallCard): string[] => {
     const notes: string[] = [];
-    const loaded = card.entry !== null && card.source === null ? repoBackdrops.get(card.entry.blob) : undefined;
+    const loaded = card.entry !== null && card.applyId === null ? repoBackdrops.get(card.entry.blob) : undefined;
     if (loaded?.status === "loading") notes.push(t("settings.appearance.backdropLoading"));
     if (loaded?.status === "error") notes.push(t("settings.appearance.backdropFailed", { message: loaded.message }));
     if (specimenOf(card).theme.backdrop !== null) notes.push(t("settings.appearance.backdropStill"));
     return notes;
   };
 
-  // Groups by Show, each filtered by scheme and search.
+  // Groups by Show, each filtered by scheme, backdrop, tags and search, sorted, then paged.
   const shownRepository = show.startsWith("repo:") ? show.slice(5) : null;
+  const builtInGroup = { title: t("settings.appearance.showBuiltIn"), cards: curatedCards };
+  const yoursGroup = { title: t("settings.appearance.storedTitle"), cards: storedCards };
   const groups: { title: string; cards: WallCard[] }[] =
     show === "all"
-      ? [
-          { title: t("settings.appearance.showBuiltIn"), cards: curatedCards },
-          { title: t("settings.appearance.storedTitle"), cards: storedCards },
-        ]
+      ? [builtInGroup, yoursGroup]
       : show === "builtin"
-        ? [{ title: t("settings.appearance.showBuiltIn"), cards: curatedCards }]
+        ? [builtInGroup]
         : show === "yours"
-          ? [{ title: t("settings.appearance.storedTitle"), cards: storedCards }]
+          ? [yoursGroup]
           : shownRepository !== null
             ? [{ title: shownRepository, cards: listingCards }]
             : [];
+
+  // Tags available in the current groups, most used first; only these can filter.
+  const tagCounts = new Map<string, number>();
+  for (const group of groups) {
+    for (const card of group.cards) for (const tag of card.meta.tags) tagCounts.set(tag, (tagCounts.get(tag) ?? 0) + 1);
+  }
+  const availableTags = [...tagCounts].sort(([a, ca], [b, cb]) => cb - ca || a.localeCompare(b)).map(([tag]) => tag);
+  const activeTags = tags.filter((tag) => tagCounts.has(tag));
+  const activeTagsKey = activeTags.join(",");
+  const toggleTag = (tag: string): void =>
+    setTags(activeTags.includes(tag) ? activeTags.filter((x) => x !== tag) : [...activeTags, tag]);
+  const hasDates = groups.some((group) => group.cards.some((card) => card.meta.added !== null));
+  const effectiveSort: Sort = sort === "newest" && !hasDates ? "default" : sort;
+  useEffect(() => setLimit(PAGE), [show, scheme, backdropFilter, activeTagsKey, effectiveSort, query]);
+
   const needle = query.trim().toLocaleLowerCase();
-  const visibleGroups = groups
-    .map((group) => ({
-      title: group.title,
-      cards: group.cards.filter(
-        (card) =>
-          (scheme === "any" || (scheme === "dark") === card.theme.dark) &&
-          (needle === "" || card.label.toLocaleLowerCase().includes(needle)),
-      ),
-    }))
+  const matches = (card: WallCard): boolean =>
+    (scheme === "any" || (scheme === "dark") === card.theme.dark) &&
+    (backdropFilter === "any" ||
+      (backdropFilter === "none" ? card.backdropKind === null : card.backdropKind === backdropFilter)) &&
+    (activeTags.length === 0 || card.meta.tags.some((tag) => activeTags.includes(tag))) &&
+    (needle === "" ||
+      [card.label, ...card.meta.tags, card.meta.author ?? "", card.meta.description ?? ""]
+        .join(" ")
+        .toLocaleLowerCase()
+        .includes(needle));
+  const sorted = (cards: WallCard[]): WallCard[] => {
+    if (effectiveSort === "name") {
+      return [...cards].sort((a, b) => a.label.localeCompare(b.label, undefined, { sensitivity: "base" }));
+    }
+    if (effectiveSort === "newest") {
+      // Stable: undated cards keep their order, last.
+      return [...cards].sort((a, b) => {
+        if (a.meta.added === b.meta.added) return 0;
+        if (a.meta.added === null) return 1;
+        if (b.meta.added === null) return -1;
+        return a.meta.added < b.meta.added ? 1 : -1;
+      });
+    }
+    return cards;
+  };
+  const filteredGroups = groups
+    .map((group) => ({ title: group.title, cards: sorted(group.cards.filter(matches)) }))
     .filter((group) => group.cards.length > 0);
+  const matchCount = filteredGroups.reduce((sum, group) => sum + group.cards.length, 0);
+  let budget = limit;
+  const visibleGroups = filteredGroups
+    .map((group) => {
+      const cards = group.cards.slice(0, Math.max(budget, 0));
+      budget -= cards.length;
+      return { title: group.title, cards };
+    })
+    .filter((group) => group.cards.length > 0);
+  const remaining = matchCount - Math.min(limit, matchCount);
   // A repository listing still loading or failed is not "no match".
   const listingSettled = shownRepository === null || listing?.status === "ok";
 
   // The shown repository stays selectable even before the broadcast that lists it.
   const repositoryOptions =
-    shownRepository !== null && !themeRepositories.includes(shownRepository)
-      ? [...themeRepositories, shownRepository]
-      : themeRepositories;
+    shownRepository !== null && !repositories.includes(shownRepository)
+      ? [...repositories, shownRepository]
+      : repositories;
 
   const labelOf = (id: string): string => resolveTheme(id, sources).label;
   const newItem = (label: string, run: () => void, autoFocus = false): ReactNode => (
@@ -746,7 +890,9 @@ export function ThemeWall(props: {
         <div className="mt-2 flex flex-wrap items-center gap-2">
           <select
             aria-label={t("settings.appearance.show")}
-            className={FIELD}
+            // Fixed width: a native select sizes to its longest option, so listing a repository would reflow the
+            // toolbar. 15rem fits lankfordai/omp-ui-themes; a longer added name truncates in the closed select.
+            className={cn(FIELD, "w-60 shrink-0")}
             value={show}
             onChange={(event) => changeShow(event.target.value as Show)}
           >
@@ -776,6 +922,28 @@ export function ThemeWall(props: {
             onChange={setScheme}
             optionClassName="tab-label px-2"
           />
+          <ChoiceCapsule
+            label={t("settings.appearance.backdropFilter")}
+            value={backdropFilter}
+            options={[
+              { value: "any", label: t("settings.appearance.backdropAny") },
+              { value: "none", label: t("settings.appearance.backdropNone") },
+              { value: "image", label: t("settings.appearance.backdropImage") },
+              { value: "scene", label: t("settings.appearance.backdropScene") },
+            ]}
+            onChange={setBackdropFilter}
+            optionClassName="tab-label px-2"
+          />
+          <select
+            aria-label={t("settings.appearance.sort")}
+            className={FIELD}
+            value={effectiveSort}
+            onChange={(event) => setSort(event.target.value as Sort)}
+          >
+            <option value="default">{t("settings.appearance.sortDefault")}</option>
+            {hasDates && <option value="newest">{t("settings.appearance.sortNewest")}</option>}
+            <option value="name">{t("settings.appearance.sortName")}</option>
+          </select>
           <input
             type="search"
             aria-label={t("settings.appearance.search")}
@@ -800,6 +968,26 @@ export function ThemeWall(props: {
             )}
           </div>
         </div>
+        {show !== "manage" && availableTags.length > 0 && (
+          <div role="group" aria-label={t("settings.appearance.tagFilter")} className="mt-2 flex flex-wrap items-center gap-1.5">
+            {availableTags.map((tag) => (
+              <Button
+                key={tag}
+                size="xs"
+                selected={activeTags.includes(tag)}
+                aria-label={t("settings.appearance.tagAria", { tag })}
+                onClick={() => toggleTag(tag)}
+              >
+                {tag}
+              </Button>
+            ))}
+            {activeTags.length > 0 && (
+              <Button size="xs" variant="ghost" onClick={() => setTags([])}>
+                {t("settings.appearance.tagClear")}
+              </Button>
+            )}
+          </div>
+        )}
       </div>
 
       {props.verdict}
@@ -857,11 +1045,18 @@ export function ThemeWall(props: {
               <div className="flex flex-col gap-2.5">{group.cards.map(renderCard)}</div>
             </section>
           ))}
-          {visibleGroups.length === 0 && listingSettled && <Empty title={t("settings.appearance.noMatch")} />}
+          {remaining > 0 && (
+            <div className="mt-3 flex justify-center">
+              <Button onClick={() => setLimit(limit + PAGE)}>
+                {t("settings.appearance.showMore", { count: String(Math.min(PAGE, remaining)) })}
+              </Button>
+            </div>
+          )}
+          {matchCount === 0 && listingSettled && <Empty title={t("settings.appearance.noMatch")} />}
         </>
       )}
 
-      {show === "all" && themeRepositories.length > 0 && (
+      {show === "all" && repositories.length > 0 && (
         <p className="mt-3 text-sm text-ink-faint">{t("settings.appearance.repoAllNote")}</p>
       )}
       <p className="mt-3 text-sm text-ink-faint">{t("settings.appearance.mintNote")}</p>

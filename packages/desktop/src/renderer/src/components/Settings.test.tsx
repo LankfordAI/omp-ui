@@ -3,10 +3,12 @@ import type { WebhookSecretReveal } from "@omp-ui/core/webhook";
 import type { McpTokenReveal } from "@omp-ui/core/mcp-endpoint";
 import { STORED_THEMES_MAX, type ThemeSource } from "@omp-ui/core/theme";
 import { sourceFromDraft, type SaveStoredThemeResult } from "@omp-ui/core/theme-file";
-import type {
-  RepositoryThemeBackdropResult,
-  ThemeRepositoryAddResult,
-  ThemeRepositoryListingResult,
+import {
+  EMPTY_THEME_META,
+  parseThemeDetails,
+  type RepositoryThemeBackdropResult,
+  type ThemeRepositoryAddResult,
+  type ThemeRepositoryListingResult,
 } from "@omp-ui/core/theme-repository-format";
 import { act } from "react";
 import { createRoot, type Root } from "react-dom/client";
@@ -240,6 +242,7 @@ const backendMock = {
     async (): Promise<RepositoryThemeBackdropResult> => ({ ok: false, message: "unmocked" }),
   ),
   setStoredThemeMotion: vi.fn(async () => {}),
+  setOfficialThemes: vi.fn(async () => {}),
   readThemeBackdrop: vi.fn(async () => null),
   setFontFamilyId: vi.fn(async () => {}),
   setTranscriptWidth: vi.fn(async () => {}),
@@ -3246,6 +3249,7 @@ describe("Settings Appearance page Theme repositories (#1178)", () => {
     backdrop,
     blob,
     size: 100,
+    meta: EMPTY_THEME_META,
   });
   const LISTING: ThemeRepositoryListingResult = {
     ok: true,
@@ -3428,6 +3432,266 @@ describe("Settings Appearance page Theme repositories (#1178)", () => {
     await openFreshPreview();
     expect(previewDialog()).not.toBeNull();
     expect(backendMock.previewRepositoryThemeBackdrop).not.toHaveBeenCalled();
+  });
+});
+
+describe("Settings Appearance page official theme repository (#1209)", () => {
+  const OFFICIAL = "lankfordai/omp-ui-themes";
+  const showOptions = (): string[] =>
+    [...document.querySelectorAll<HTMLOptionElement>('select[aria-label="Show"] option')].map((o) => o.value);
+
+  it("lists the official repository under Show without it being added, and not while off", async () => {
+    useStore.setState({ settingsPage: "appearance", state: backendState({ themeRepositories: [] }) });
+    await renderSettings();
+    expect(showOptions()).toContain(`repo:${OFFICIAL}`);
+    act(() => root!.unmount());
+    root = null;
+    document.body.innerHTML = "";
+    useStore.setState({ settingsPage: "appearance", state: backendState({ themeRepositories: [], officialThemes: false }) });
+    await renderSettings();
+    expect(showOptions()).not.toContain(`repo:${OFFICIAL}`);
+  });
+
+  it("the Manage switch turns it off, and the official row can be browsed but not removed", async () => {
+    useStore.setState({ settingsPage: "appearance", state: backendState({ themeRepositories: [] }) });
+    await renderSettings();
+    await chooseShow("manage");
+    expect(document.querySelector(`button[aria-label="Browse ${OFFICIAL}"]`)).not.toBeNull();
+    expect(document.querySelector(`button[aria-label="Remove ${OFFICIAL}"]`)).toBeNull();
+    click(document.querySelector<HTMLButtonElement>('button[role="switch"][aria-label="omp-ui themes"]')!);
+    expect(backendMock.setOfficialThemes).toHaveBeenCalledWith(false);
+  });
+
+  it("keeps the official row in place while off, with Browse disabled", async () => {
+    useStore.setState({ settingsPage: "appearance", state: backendState({ themeRepositories: [], officialThemes: false }) });
+    await renderSettings();
+    await chooseShow("manage");
+    const browse = document.querySelector<HTMLButtonElement>(`button[aria-label="Browse ${OFFICIAL}"]`);
+    expect(browse).not.toBeNull();
+    expect(browse!.disabled).toBe(true);
+  });
+});
+
+describe("Settings Appearance page theme wall filters, sort and paging (#1211)", () => {
+  const REPO = "owner/themes";
+  const meta = (patch: Partial<typeof EMPTY_THEME_META>) => ({ ...EMPTY_THEME_META, ...patch });
+  const entry = (i: number, patch: Partial<typeof EMPTY_THEME_META> = {}, backdrop: "scene" | null = null) => ({
+    path: `t${i}.json`,
+    label: `Theme ${String(i).padStart(2, "0")}`,
+    seeds: { canvas: "#1a1b26" },
+    backdrop,
+    blob: String(i % 10).repeat(40),
+    size: 1,
+    meta: meta(patch),
+  });
+  const listingOf = (themes: ReturnType<typeof entry>[]): ThemeRepositoryListingResult => ({
+    ok: true,
+    listing: { repository: REPO, commit: "c".repeat(40), skipped: 0, themes },
+  });
+  const labels = (): string[] =>
+    [...document.querySelectorAll<HTMLElement>('[data-testid="theme-repository-entry"]')].map(
+      (card) => card.querySelector("span.truncate")!.textContent!,
+    );
+  const open = async (listing: ThemeRepositoryListingResult): Promise<void> => {
+    backendMock.browseThemeRepository.mockResolvedValueOnce(listing);
+    useStore.setState({ settingsPage: "appearance", state: backendState({ themeRepositories: [REPO], officialThemes: false }) });
+    await renderSettings();
+    await chooseShow(`repo:${REPO}`);
+    await act(async () => {});
+  };
+  const tagButton = (tag: string): HTMLButtonElement =>
+    document.querySelector<HTMLButtonElement>(`button[aria-label="Filter by tag ${tag}"]`)!;
+  const choose = async (label: string, value: string): Promise<void> => {
+    const select = document.querySelector<HTMLSelectElement>(`select[aria-label="${label}"]`)!;
+    await act(async () => {
+      select.value = value;
+      select.dispatchEvent(new Event("change", { bubbles: true }));
+    });
+  };
+  const LISTING = listingOf([
+    entry(1, { tags: ["warm"], author: "alice", description: "Sunset glow", added: "2026-01-01" }),
+    entry(2, { tags: ["cool"], author: "bob", added: "2026-03-01" }, "scene"),
+    entry(3, { tags: ["warm", "cool"], added: "2026-02-01" }),
+    entry(4, {}),
+  ]);
+
+  it("tags narrow to any pressed tag, and Clear restores every card", async () => {
+    await open(LISTING);
+    click(tagButton("warm"));
+    expect(labels()).toEqual(["Theme 01", "Theme 03"]);
+    expect(tagButton("warm").getAttribute("aria-pressed")).toBe("true");
+    click(tagButton("cool"));
+    expect(labels()).toEqual(["Theme 01", "Theme 02", "Theme 03"]);
+    click(buttonWithText("Clear tags")!);
+    expect(labels()).toHaveLength(4);
+  });
+
+  it("No backdrop hides scene entries", async () => {
+    await open(LISTING);
+    click(
+      [...document.querySelectorAll<HTMLButtonElement>('[role="group"][aria-label="Backdrop"] button')].find(
+        (b) => b.textContent === "No backdrop",
+      )!,
+    );
+    expect(labels()).toEqual(["Theme 01", "Theme 03", "Theme 04"]);
+  });
+
+  it("search matches tags and authors as well as labels", async () => {
+    await open(LISTING);
+    const search = document.querySelector<HTMLInputElement>('input[aria-label="Search themes"]')!;
+    const type = async (text: string): Promise<void> => {
+      const setter = Object.getOwnPropertyDescriptor(HTMLInputElement.prototype, "value")!.set!;
+      await act(async () => {
+        setter.call(search, text);
+        search.dispatchEvent(new Event("input", { bubbles: true }));
+      });
+    };
+    await type("bob");
+    expect(labels()).toEqual(["Theme 02"]);
+    await type("warm");
+    expect(labels()).toEqual(["Theme 01", "Theme 03"]);
+    await type("sunset");
+    expect(labels()).toEqual(["Theme 01"]);
+  });
+
+  it("sorts by Name and Newest; Newest falls back to Default order where nothing is dated", async () => {
+    await open(listingOf([entry(3, { added: "2026-02-01" }), entry(1, { added: "2026-01-01" }), entry(2, {})]));
+    await choose("Sort", "name");
+    expect(labels()).toEqual(["Theme 01", "Theme 02", "Theme 03"]);
+    await choose("Sort", "newest");
+    expect(labels()).toEqual(["Theme 03", "Theme 01", "Theme 02"]);
+    await chooseShow("builtin");
+    const sort = document.querySelector<HTMLSelectElement>('select[aria-label="Sort"]')!;
+    expect([...sort.options].map((o) => o.value)).not.toContain("newest");
+    expect(sort.value).toBe("default");
+  });
+
+  it("pages at 24 cards with a Show more button", async () => {
+    await open(listingOf(Array.from({ length: 30 }, (_, i) => entry(i + 1))));
+    expect(labels()).toHaveLength(24);
+    click(buttonWithText("Show 6 more")!);
+    expect(labels()).toHaveLength(30);
+    expect(buttonWithText("Show 6 more")).toBeNull();
+  });
+});
+
+describe("Settings Appearance page Share panel (#1212)", () => {
+  const AUTHORED = sourceFromDraft("custom-night-abcdef", "Night Owl", { canvas: "#1a1b26" });
+  const INSTALLED: ThemeSource = {
+    ...sourceFromDraft("custom-dusk-abcdef", "Dusk Repo", { canvas: "#16161e" }),
+    origin: { repository: "o/r", path: "a.json", commit: "a".repeat(40), blob: "b".repeat(40), animate: false },
+  };
+  const WITH_BACKDROP: ThemeSource = {
+    ...sourceFromDraft("custom-scene-abcdef", "Scene Night", { canvas: "#1a1b26" }),
+    backdrop: { assetHash: "f".repeat(64), kind: "scene", mime: "image/svg+xml", blur: 12 },
+  };
+  const downloads: { name: string; text: string }[] = [];
+  const createObjectURL = URL.createObjectURL;
+  const revokeObjectURL = URL.revokeObjectURL;
+  let blobs: Blob[] = [];
+  beforeEach(() => {
+    downloads.length = 0;
+    blobs = [];
+    URL.createObjectURL = vi.fn((blob: Blob) => {
+      blobs.push(blob);
+      return `blob:${blobs.length}`;
+    });
+    URL.revokeObjectURL = vi.fn();
+    vi.spyOn(HTMLAnchorElement.prototype, "click").mockImplementation(function (this: HTMLAnchorElement) {
+      downloads.push({ name: this.download, text: "" });
+    });
+  });
+  afterEach(() => {
+    URL.createObjectURL = createObjectURL;
+    URL.revokeObjectURL = revokeObjectURL;
+    vi.restoreAllMocks();
+  });
+
+  const openShare = async (source: ThemeSource, stored: ThemeSource[] = [source]): Promise<void> => {
+    useStore.setState({ settingsPage: "appearance", state: backendState({ storedThemes: stored }) });
+    await renderSettings();
+    click(themeCard(`${source.label} (custom)`));
+    click(document.querySelector<HTMLButtonElement>(`button[aria-label="Share theme ${source.label}"]`)!);
+  };
+  const panel = (): HTMLElement | null => document.querySelector<HTMLElement>('[data-testid="theme-share"]');
+  const field = (label: string): HTMLInputElement =>
+    [...panel()!.querySelectorAll<HTMLLabelElement>("label")]
+      .find((l) => l.textContent?.startsWith(label))!
+      .querySelector<HTMLInputElement>("input")!;
+  const type = async (input: HTMLInputElement, text: string): Promise<void> => {
+    const setter = Object.getOwnPropertyDescriptor(HTMLInputElement.prototype, "value")!.set!;
+    await act(async () => {
+      setter.call(input, text);
+      input.dispatchEvent(new Event("input", { bubbles: true }));
+    });
+  };
+  const fill = async (): Promise<void> => {
+    click(buttonWithText("cool")!);
+    await type(field("Description"), "  A calm night.  ");
+    click(panel()!.querySelector<HTMLInputElement>('input[type="checkbox"]')!);
+  };
+  const saveTheme = (): HTMLButtonElement => buttonWithText("Save theme file")!;
+  const saveDetails = (): HTMLButtonElement => buttonWithText("Save details file")!;
+
+  it("offers Share on an authored theme and not on one installed from a repository", async () => {
+    useStore.setState({ settingsPage: "appearance", state: backendState({ storedThemes: [AUTHORED, INSTALLED] }) });
+    await renderSettings();
+    click(themeCard("Night Owl (custom)"));
+    expect(document.querySelector('button[aria-label="Share theme Night Owl"]')).not.toBeNull();
+    click(themeCard("Dusk Repo (from o/r)"));
+    expect(document.querySelector('button[aria-label="Share theme Dusk Repo"]')).toBeNull();
+  });
+
+  it("keeps both saves disabled until the details are valid, and caps tags at six", async () => {
+    await openShare(AUTHORED);
+    expect(field("File name").value).toBe("night-owl");
+    expect(saveTheme().disabled).toBe(true);
+    await fill();
+    expect(saveTheme().disabled).toBe(false);
+    expect(saveDetails().disabled).toBe(false);
+    await type(field("File name"), "Night Owl");
+    expect(panel()!.textContent).toContain(t("settings.appearance.shareSlugInvalid"));
+    expect(saveTheme().disabled).toBe(true);
+    await type(field("File name"), "night-owl");
+    await type(field("GitHub username"), "not a user");
+    expect(panel()!.textContent).toContain(t("settings.appearance.shareAuthorInvalid"));
+    expect(saveDetails().disabled).toBe(true);
+    await type(field("GitHub username"), "");
+    for (const tag of ["warm", "minimal", "retro", "cozy", "pastel"]) click(buttonWithText(tag)!);
+    expect(buttonWithText("space")!.disabled).toBe(true);
+    expect(buttonWithText("cool")!.disabled).toBe(false);
+  });
+
+  it("Save details file downloads a details file the repository accepts", async () => {
+    await openShare(AUTHORED);
+    await fill();
+    click(saveDetails());
+    expect(downloads.map((d) => d.name)).toEqual(["night-owl.details.json"]);
+    const parsed = parseThemeDetails(await blobs[0]!.text());
+    expect(parsed).toEqual({ ok: true, details: { tags: ["cool"], description: "A calm night.", author: null } });
+  });
+
+  it("Save theme file refuses a missing backdrop and an export error, downloading nothing", async () => {
+    await openShare(WITH_BACKDROP);
+    await fill();
+    backendMock.readThemeBackdrop.mockResolvedValueOnce(null);
+    click(saveTheme());
+    await act(async () => {});
+    expect(panel()!.querySelector('[role="alert"]')?.textContent).toBe(t("settings.appearance.shareBackdropMissing"));
+    backendMock.readThemeBackdrop.mockRejectedValueOnce(new Error("no backdrop channel"));
+    click(saveTheme());
+    await act(async () => {});
+    expect(panel()!.querySelector('[role="alert"]')?.textContent).toContain("no backdrop channel");
+    expect(downloads).toEqual([]);
+  });
+
+  it("closes when the theme is removed while the panel is open", async () => {
+    await openShare(AUTHORED);
+    expect(panel()).not.toBeNull();
+    await act(async () => {
+      useStore.setState({ state: backendState({ storedThemes: [] }) });
+    });
+    expect(panel()).toBeNull();
   });
 });
 

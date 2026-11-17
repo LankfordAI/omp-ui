@@ -804,6 +804,8 @@ export interface SettingsSlice {
   previewRepositoryThemeBackdrop(request: RepositoryThemeInstallRequest): Promise<RepositoryThemeBackdropResult>;
   /** Lets one installed theme's scene animate (#1178). */
   setStoredThemeMotion(id: string, on: boolean): Promise<void>;
+  /** Lists or hides the official theme repository under Show (#1209). */
+  setOfficialThemes(on: boolean): Promise<void>;
   setFontFamilyId(id: string): Promise<void>;
   setTranscriptWidth(width: TranscriptWidth): Promise<void>;
   setGlassChrome(level: GlassChrome): Promise<void>;

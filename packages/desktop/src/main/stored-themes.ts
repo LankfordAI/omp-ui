@@ -73,8 +73,12 @@ export function installStoredTheme(
   deps: StoredThemeDeps,
   draft: StoredThemeDraft,
   origin: ThemeOrigin,
+  /** Checked when the queued save runs, so a remove or disable queued first wins (#1209). */
+  stillListed: () => boolean,
 ): Promise<SaveStoredThemeResult> {
-  return serialized(deps, () => saveDraft(deps, draft, origin));
+  return serialized(deps, () =>
+    stillListed() ? saveDraft(deps, draft, origin) : Promise.resolve(invalid("add the repository first")),
+  );
 }
 
 async function saveDraft(
@@ -187,6 +191,17 @@ export function setStoredThemeMotion(deps: StoredThemeDeps, id: string, on: bool
       "storedThemes",
       stored.map((t) => (t === row ? { ...t, origin: { ...origin, animate: on } } : t)),
     );
+    await deps.broadcast();
+  });
+}
+
+/**
+ * Lists or hides the official theme repository (#1209). Runs in the stored-theme
+ * queue, so an install of an official theme queued behind it sees the new value.
+ */
+export function setOfficialThemes(deps: StoredThemeDeps, on: boolean): Promise<void> {
+  return serialized(deps, async () => {
+    deps.registry.setSetting("officialThemes", on);
     await deps.broadcast();
   });
 }

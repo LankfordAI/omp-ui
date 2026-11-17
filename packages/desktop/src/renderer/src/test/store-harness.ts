@@ -386,6 +386,7 @@ const mockBackend = {
   installRepositoryTheme: vi.fn(async () => ({ ok: false as const, reason: "invalid" as const, message: "unmocked" })),
   previewRepositoryThemeBackdrop: vi.fn(async () => ({ ok: false as const, message: "unmocked" })),
   setStoredThemeMotion: vi.fn(async () => {}),
+  setOfficialThemes: vi.fn(async () => {}),
   readThemeBackdrop: vi.fn(async () => null),
   setFontFamilyId: vi.fn(async () => {}),
   setTranscriptWidth: vi.fn(async () => {}),
