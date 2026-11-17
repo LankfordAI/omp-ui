@@ -68,10 +68,75 @@ export interface SelectPlan {
 
 const COUNT_PREFIX = /^\((\d+) selected\)\s*/;
 
+/**
+ * omp 18.20.0 asks each field with the form text around it: the prompt title
+ * is `context\n\nquestion`, where the context is the form's own blocks joined
+ * by blank lines and the question is always a single line (`oneLine` in
+ * `html-form/data.ts`). A title with no blank line predates the format (or
+ * carries no context), so the whole thing is the question line.
+ */
+export interface DialogTitle {
+  /** The form context shown beside the question; "" when the frame carries none. */
+  context: string;
+  /** The question line, still carrying any protocol prefix (`(N selected) `). */
+  question: string;
+}
+
+const CONTEXT_SEP = "\n\n";
+
+/**
+ * Splits a 18.20.0 `context\n\nquestion` title; never rewrites older shapes.
+ * The split is only taken when the tail after the last blank line is a single
+ * line — exactly what 18.20.0's `oneLine` question guarantees — so a legacy
+ * multi-line body that happens to contain blank lines still reads line one as
+ * its header.
+ */
+export function splitDialogTitle(title: string): DialogTitle {
+  const at = title.lastIndexOf(CONTEXT_SEP);
+  if (at === -1) return { context: "", question: title };
+  const question = title.slice(at + CONTEXT_SEP.length);
+  if (question.includes("\n")) return { context: "", question: title };
+  return { context: title.slice(0, at), question };
+}
+
+/** omp's un-suffixed "Other" row label; `disambiguateDisplayLabels` may append ` (2)`. */
+export function isOtherRow(label: string): boolean {
+  const trimmed = label.trim();
+  if (trimmed === OTHER_OPTION) return true;
+  const m = /\s\((\d+)\)$/.exec(trimmed);
+  return m !== null && trimmed.slice(0, m.index) === OTHER_OPTION;
+}
+
+/**
+ * The checked option values of an 18.20.0 checkbox select frame, from its
+ * authoritative `checkedIndices` (indices into the frame's own `options`,
+ * rows past `markableCount` keep no marker). Null when the frame carries no
+ * checked set — every pre-18.20.0 shape, and every radio/single-select frame.
+ */
+export function checkedValues(frame: unknown, options: SelectOption[]): string[] | null {
+  if (frame === null || typeof frame !== "object") return null;
+  const raw = (frame as Record<string, unknown>).checkedIndices;
+  if (!Array.isArray(raw)) return null;
+  const markableRaw = (frame as Record<string, unknown>).markableCount;
+  const markable =
+    typeof markableRaw === "number" && Number.isInteger(markableRaw) && markableRaw >= 0
+      ? Math.min(markableRaw, options.length)
+      : options.length;
+  const values: string[] = [];
+  for (const index of raw) {
+    if (typeof index !== "number" || !Number.isInteger(index) || index < 0 || index >= markable)
+      continue;
+    const option = options[index];
+    if (option !== undefined && !values.includes(option.value)) values.push(option.value);
+  }
+  return values;
+}
+
 /** Classifies a select frame: single-select, or a multi-select loop frame. */
 export function planSelect(title: string, options: SelectOption[]): SelectPlan {
-  const m = COUNT_PREFIX.exec(title);
-  const base = m ? title.slice(m[0].length) : title;
+  const { question } = splitDialogTitle(title);
+  const m = COUNT_PREFIX.exec(question);
+  const base = m ? question.slice(m[0].length) : question;
   const count = m ? Number(m[1]) : null;
   const sentinel = options.find((o) => isDoneSentinel(o.label));
   return {

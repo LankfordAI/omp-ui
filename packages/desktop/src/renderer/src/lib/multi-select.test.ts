@@ -1,10 +1,13 @@
 import { describe, expect, it } from "vitest";
 import {
+  checkedValues,
   DONE_SENTINEL,
   isDoneSentinel,
+  isOtherRow,
   OTHER_OPTION,
   planSelect,
   readOptions,
+  splitDialogTitle,
   togglePick,
 } from "./multi-select";
 
@@ -141,5 +144,103 @@ describe("togglePick", () => {
 
   it("propagates the unknown state", () => {
     expect(togglePick(null, "a")).toBeNull();
+  });
+});
+
+describe("splitDialogTitle — omp 18.20.0 `context\\n\\nquestion` titles (issue #1190)", () => {
+  // requestRpcSelect's title for a checkbox group, from ask.ts promptTitle:
+  // fieldContexts text, a blank line, then the one-line question.
+  it("splits the form context from the question", () => {
+    expect(splitDialogTitle("Sessions live in memory and are lost on restart.\n\nSession store?")).toEqual({
+      context: "Sessions live in memory and are lost on restart.",
+      question: "Session store?",
+    });
+  });
+
+  it("keeps the whole title when no blank line separates a context", () => {
+    expect(splitDialogTitle("Which DB?")).toEqual({ context: "", question: "Which DB?" });
+  });
+
+  it("keeps a multi-line tail as the raw title (legacy editor body)", () => {
+    // Pre-18.20 editor titles embed their own body: "Enter your response:\n
+    // - [ ] flagged" carries no context, and its second line must stay part
+    // of the question so the card still shows it.
+    expect(splitDialogTitle("Enter your response:\n- [ ] flagged")).toEqual({
+      context: "",
+      question: "Enter your response:\n- [ ] flagged",
+    });
+  });
+
+  it("splits at the last blank line only when the tail is one line", () => {
+    // Context blocks join with blank lines; the question never contains one.
+    const title = "First block.\n\nSecond block.\n\nPick one?";
+    expect(splitDialogTitle(title)).toEqual({ context: "First block.\n\nSecond block.", question: "Pick one?" });
+  });
+});
+
+describe("planSelect — 18.20.0 context-prefixed titles (issue #1190)", () => {
+  // ask.ts multi loop frame after promptTitle: the `(N selected)` prefix sits
+  // on the question line, behind the context.
+  it("reads the count from the question line behind the context", () => {
+    const plan = planSelect(
+      "Sessions live in memory.\n\n(1 selected) Which tools?",
+      readOptions(["Alpha", "Beta", "✔ Done selecting", OTHER_OPTION]),
+    );
+    expect(plan).toMatchObject({ base: "Which tools?", count: 1, doneValue: "✔ Done selecting" });
+    expect(plan.listed.map((o) => o.label)).toEqual(["Alpha", "Beta", OTHER_OPTION]);
+  });
+});
+
+describe("isOtherRow — omp's escape-hatch row shape (issue #1190)", () => {
+  it("matches the literal and its disambiguated forms", () => {
+    expect(isOtherRow(OTHER_OPTION)).toBe(true);
+    // disambiguateDisplayLabels appends " (2)" when an option shadows it.
+    expect(isOtherRow(`${OTHER_OPTION} (2)`)).toBe(true);
+    expect(isOtherRow(`  ${OTHER_OPTION}  `)).toBe(true);
+  });
+
+  it("rejects real options", () => {
+    for (const label of ["Other", "Other (recommended)", "Alpha", `${OTHER_OPTION}ish`]) {
+      expect(isOtherRow(label)).toBe(false);
+    }
+  });
+});
+
+describe("checkedValues — 18.20.0 authoritative checkbox state (issue #1190)", () => {
+  // requestRpcSelect's checkbox frame: checkedIndices index the frame's own
+  // options rows; markableCount excludes the appended Done row.
+  const FRAME = {
+    method: "select",
+    title: "(1 selected) Which tools?",
+    options: ["Alpha", "Beta", OTHER_OPTION, "✔ Done selecting"],
+    initialIndex: 0,
+    selectionMarker: "checkbox",
+    checkedIndices: [0, 2],
+    markableCount: 3,
+  };
+
+  it("maps the checked rows onto option values, Other row included", () => {
+    expect(checkedValues(FRAME, readOptions(FRAME.options))).toEqual(["Alpha", OTHER_OPTION]);
+  });
+
+  it("ignores indices past markableCount (the Done row never counts)", () => {
+    const frame = { ...FRAME, checkedIndices: [0, 3] };
+    expect(checkedValues(frame, readOptions(FRAME.options))).toEqual(["Alpha"]);
+  });
+
+  it("skips malformed entries", () => {
+    const frame = { ...FRAME, checkedIndices: [-1, 1.5, "0", 9, 1] };
+    expect(checkedValues(frame, readOptions(FRAME.options))).toEqual(["Beta"]);
+  });
+
+  it("is null for every pre-18.20 shape (legacy reconstruction takes over)", () => {
+    expect(checkedValues({ method: "select", title: "Which tools?", options: ["Alpha"] }, readOptions(["Alpha"]))).toBeNull();
+    // Radio frames carry selectionMarker but no checked set.
+    expect(checkedValues({ method: "select", title: "Q", selectionMarker: "radio" }, [])).toBeNull();
+  });
+
+  it("defaults the markable cap to the option list when absent", () => {
+    const frame = { ...FRAME, markableCount: undefined };
+    expect(checkedValues(frame, readOptions(FRAME.options))).toEqual(["Alpha", OTHER_OPTION]);
   });
 });

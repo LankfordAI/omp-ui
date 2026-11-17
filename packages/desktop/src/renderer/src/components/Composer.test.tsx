@@ -3158,14 +3158,35 @@ describe("Composer answers pending questions (desktop, issue #421)", () => {
       .map((call) => call[1] as Record<string, unknown>)
       .filter((frame) => frame.type === "extension_ui_response");
 
-  it("answers a single select from the composer instead of prompting", () => {
+  it("routes free text through the Other row instead of cancelling the ask (issue #1190)", () => {
+    // A select reply that matches no option label resolves to no option in
+    // askChoice and cancels the whole ask — the composer never sends unlisted
+    // text as the value. First Enter answers the frame's Other row and keeps
+    // the draft; omp's follow-up input collects it on the second.
     desktop();
     seedQueue([{ id: "q", method: "select", title: "Pick?", options: ["Alpha", OTHER] }]);
     renderRpcTab();
     const box = typeDraft("forty-two");
     press(box, "Enter");
     expect(sendPrompt).not.toHaveBeenCalled();
-    expect(answerFrames()).toEqual([{ type: "extension_ui_response", id: "q", value: "forty-two" }]);
+    expect(answerFrames()).toEqual([{ type: "extension_ui_response", id: "q", value: OTHER }]);
+    expect(box.value).toBe("forty-two");
+    act(() => useStore.setState((s) => ({
+      rpc: { ...s.rpc, [TAB]: { ...s.rpc[TAB]!, extensionQueue: [{ id: "in", method: "input", title: "Pick?" }] } },
+    })));
+    press(box, "Enter");
+    expect(answerFrames()[1]).toMatchObject({ id: "in", value: "forty-two" });
+    expect(box.value).toBe("");
+  });
+
+  it("answers a select whose draft names a listed option with that option verbatim", () => {
+    desktop();
+    seedQueue([{ id: "q", method: "select", title: "Pick?", options: ["Alpha", OTHER] }]);
+    renderRpcTab();
+    const box = typeDraft("Alpha");
+    press(box, "Enter");
+    expect(sendPrompt).not.toHaveBeenCalled();
+    expect(answerFrames()).toEqual([{ type: "extension_ui_response", id: "q", value: "Alpha" }]);
     expect(box.value).toBe("");
   });
 
@@ -3175,6 +3196,14 @@ describe("Composer answers pending questions (desktop, issue #421)", () => {
     renderRpcTab();
     const box = typeDraft("forty-two");
     press(box, "Enter");
+    // The Other swap keeps the draft for the follow-up frame; collecting it
+    // there clears the box, and ↑ still finds no history — an answer is not
+    // a prompt at any step.
+    act(() => useStore.setState((s) => ({
+      rpc: { ...s.rpc, [TAB]: { ...s.rpc[TAB]!, extensionQueue: [{ id: "in", method: "input", title: "Pick?" }] } },
+    })));
+    press(box, "Enter");
+    expect(box.value).toBe("");
     press(box, "ArrowUp");
     expect(box.value).toBe("");
   });
@@ -3188,6 +3217,37 @@ describe("Composer answers pending questions (desktop, issue #421)", () => {
     expect(sendPrompt).not.toHaveBeenCalled();
     expect(answerFrames()).toEqual([{ type: "extension_ui_response", id: "ed", value: "custom answer" }]);
     expect(box.value).toBe("");
+  });
+
+  it("seeds the draft from an editor frame's prefill so the default submits (issue #1190)", () => {
+    // ask.ts askText sends ui.editor(title, field.value): the prefill is the
+    // field's current value. Where the composer owns the answer it opens on
+    // that text — a blank box would erase the model's default on submit.
+    desktop();
+    seedQueue([{ id: "ed", method: "editor", title: "Session lifetime (days)?", prefill: "30" }]);
+    renderRpcTab();
+    const box = document.body.querySelector<HTMLTextAreaElement>("textarea")!;
+    expect(box.value).toBe("30");
+    press(box, "Enter");
+    expect(sendPrompt).not.toHaveBeenCalled();
+    expect(answerFrames()).toEqual([{ type: "extension_ui_response", id: "ed", value: "30" }]);
+    expect(box.value).toBe("");
+  });
+
+  it("keeps a draft under way over an editor frame's prefill", () => {
+    // The kept-draft hand-off from an Other swap arrives with the follow-up
+    // frame: whatever the user typed wins over any prefill on that frame.
+    desktop();
+    seedQueue([{ id: "q", method: "select", title: "Pick?", options: ["Alpha", OTHER] }]);
+    renderRpcTab();
+    const box = typeDraft("my own answer");
+    press(box, "Enter");
+    act(() => useStore.setState((s) => ({
+      rpc: { ...s.rpc, [TAB]: { ...s.rpc[TAB]!, extensionQueue: [{ id: "ed", method: "editor", title: "Pick?", prefill: "30" }] } },
+    })));
+    expect(box.value).toBe("my own answer");
+    press(box, "Enter");
+    expect(answerFrames()[1]).toMatchObject({ id: "ed", value: "my own answer" });
   });
 
   it("keeps the draft on a loop frame until the editor frame answers it", () => {

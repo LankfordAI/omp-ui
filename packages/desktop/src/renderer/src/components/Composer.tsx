@@ -19,6 +19,7 @@ import { seanceRemovedFromOmp } from "@omp-ui/core/seance";
 import { backend, backendFor, displayMessage } from "../backend";
 import type { ArtifactRecord } from "@omp-ui/core/artifacts";
 import { cn } from "../lib/cn";
+import { strField } from "../lib/fields";
 import { currentLocaleId, localeTag, useT, type MessageKey } from "../lib/i18n";
 import { useCompactShell } from "../lib/responsive";
 import { useComposerText } from "../lib/android-shell";
@@ -1340,6 +1341,24 @@ export function Composer({
   // Head of the tab's pending extension dialogs — while it accepts free
   // text, this box is the question's Other field (issue #421).
   const pendingFrame = useStore((s) => s.rpc[tabId]?.extensionQueue[0]);
+  // An editor frame opens on its `prefill` — the field's current value, which
+  // omp's ask text field re-sends on every re-ask (issue #1190). Where this box
+  // owns the answer it seeds the draft with that text so Enter submits the
+  // edited default instead of a blank. A draft already under way — typed text,
+  // or one kept through the Other swap — always wins over the prefill, and a
+  // frame is seeded once: reconcile re-broadcasts carry fresh object identity
+  // for the same dialog id, and must not refill a draft the user just cleared.
+  const prefillSeedId = useRef<string | null>(null);
+  useEffect(() => {
+    if (compact || pendingFrame === undefined) return;
+    const id = strField(pendingFrame, "id");
+    if (id === undefined || id === prefillSeedId.current) return;
+    prefillSeedId.current = id;
+    const prefill = strField(pendingFrame, "prefill");
+    if (strField(pendingFrame, "method") !== "editor" || prefill === undefined || prefill === "")
+      return;
+    setText((current) => (current === "" ? prefill : current));
+  }, [compact, pendingFrame, setText]);
   const placeholder = dead
     ? t("composer.placeholder.exited")
     : relaunching

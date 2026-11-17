@@ -349,14 +349,166 @@ describe("question series rail", () => {
   });
 });
 
+describe("omp 18.18.3 / 18.20.0 ask frames (issue #1190)", () => {
+  const button = (text: string) =>
+    [...document.body.querySelectorAll<HTMLButtonElement>("button")].find(
+      (candidate) => candidate.textContent?.trim() === text,
+    );
+  const railButtons = () =>
+    [...document.body.querySelectorAll<HTMLButtonElement>("button")].filter((candidate) =>
+      candidate.getAttribute("aria-label")?.startsWith("question "),
+    );
+  const advanceFrame = (frame: unknown) =>
+    act(() => useStore.setState({ rpc: { [TAB]: runtime([frame]) } }));
+  const textAreaSetter = Object.getOwnPropertyDescriptor(HTMLTextAreaElement.prototype, "value")!.set!;
+
+  it("opens the editor on its prefill and submits the edited value", () => {
+    // ask.ts askText sends ui.editor(title, field.value): the prefill is the
+    // field's current value — blanking it would erase the model's default.
+    renderRequest({ id: "ed", method: "editor", title: "Session lifetime (days)?", prefill: "30" });
+    const field = document.body.querySelector<HTMLTextAreaElement>("textarea")!;
+    expect(field.value).toBe("30");
+    act(() => {
+      textAreaSetter.call(field, "45");
+      field.dispatchEvent(new Event("input", { bubbles: true }));
+    });
+    act(() => button("submit")!.click());
+    expect(lastFrame()).toMatchObject({ id: "ed", value: "45" });
+  });
+
+  it("shows the 18.20.0 question in the header with its form context separate", () => {
+    // promptTitle(text, question) = `${context}\n\n${question}`.
+    renderRequest({
+      id: "s",
+      method: "select",
+      title: "Sessions live in memory and are lost on restart.\n\nWhich store?",
+      options: ["SQLite", "Redis", OTHER],
+    });
+    expect(document.body.querySelector("h2")!.textContent).toBe("Which store?");
+    expect(document.body.textContent).toContain("Sessions live in memory and are lost on restart.");
+  });
+
+  it("paints checkbox state from checkedIndices, not the toggle reconstruction", () => {
+    // We answered Beta, but the frame's authoritative set says Alpha is
+    // checked — a second client toggled, or omp preselected. The frame wins.
+    renderRequest({ id: "c1", method: "select", title: "Tools?", options: ["Alpha", "Beta", OTHER] });
+    act(() => button("Beta")!.click());
+    advanceFrame({
+      id: "c2",
+      method: "select",
+      title: "(1 selected) Tools?",
+      options: ["Alpha", "Beta", DONE, OTHER],
+      initialIndex: 0,
+      selectionMarker: "checkbox",
+      checkedIndices: [0],
+      markableCount: 3,
+    });
+    const row = (label: string) =>
+      [...document.body.querySelectorAll<HTMLButtonElement>("button")].find(
+        (candidate) => candidate.textContent?.includes(label),
+      )!;
+    expect(row("Alpha").querySelector(".text-signal")).not.toBeNull();
+    expect(row("Beta").querySelector(".text-signal")).toBeNull();
+    expect(document.body.textContent).toContain("1 selected");
+  });
+
+  it("opens a radio frame on initialIndex", () => {
+    renderRequest({
+      id: "r1",
+      method: "select",
+      title: "Which store?",
+      options: ["SQLite", "Redis"],
+      initialIndex: 1,
+      selectionMarker: "radio",
+    });
+    // border-line-strong marks the open row; every row carries hover:bg-hover.
+    expect(button("Redis")!.className).toContain("border-line-strong");
+    expect(button("SQLite")!.className).not.toContain("border-line-strong");
+  });
+
+  it("shows checkbox markers on the first 18.20.0 frame, before any (N selected) prefix", () => {
+    // selectionMarker: "checkbox" is what makes a checkbox group's opening
+    // frame recognizable; the count prefix only appears once something is
+    // checked. The count chip stays hidden at zero.
+    renderRequest({
+      id: "c0",
+      method: "select",
+      title: "Tools?",
+      options: ["Alpha", "Beta", OTHER],
+      selectionMarker: "checkbox",
+      checkedIndices: [],
+      markableCount: 2,
+    });
+    // Checkbox rows prepend the ✓ marker glyph, so match rows by substring.
+    const alpha = [...document.body.querySelectorAll<HTMLButtonElement>("button")].find(
+      (candidate) => candidate.textContent?.includes("Alpha"),
+    )!;
+    expect(alpha.querySelector('[class*="rounded-sm"]')).not.toBeNull();
+    expect(document.body.textContent).not.toContain("selected");
+  });
+
+  it("answers a disambiguated Other row with its exact frame label", () => {
+    // disambiguateDisplayLabels may shadow the row as "Other (type your own) (2)";
+    // askChoice compares replies against that exact string.
+    renderRequest({ id: "s", method: "select", title: "Pick", options: ["Alpha", `${OTHER} (2)`] });
+    const otherRow = [...document.body.querySelectorAll<HTMLButtonElement>("button")].find(
+      (candidate) => candidate.textContent?.includes("Other —"),
+    )!;
+    act(() => otherRow.click());
+    expect(lastFrame()).toMatchObject({ id: "s", value: `${OTHER} (2)` });
+  });
+
+  it("degrades without a series rail when frames carry no (i/n) markers", () => {
+    // 18.18.3+ field-by-field asks send no page markers at all: consecutive
+    // fields are just consecutive frames. The rail stays absent and every
+    // question renders normally — including one whose mid-title
+    // parenthetical must never pass for a page marker.
+    renderRequest({ id: "a", method: "select", title: "Session store?", options: ["SQLite", "Redis", OTHER] });
+    expect(railButtons()).toHaveLength(0);
+    act(() => button("SQLite")!.click());
+    advanceFrame({ id: "b", method: "select", title: "Session lifetime (days)?", options: ["30", "60", OTHER] });
+    expect(railButtons()).toHaveLength(0);
+    expect(document.body.querySelector("h2")!.textContent).toBe("Session lifetime (days)?");
+  });
+
+  it("keeps a marker rail across an 18.20.0 Other follow-up input frame", () => {
+    // The follow-up is ui.input(question) — no marker, no context: the live
+    // page stays live and its dot fills when the text lands.
+    renderRequest({
+      id: "p1",
+      method: "select",
+      title: "Format? (1/2)",
+      options: ["Alpha", "Beta", OTHER],
+    });
+    act(() => button("Other — type your own…")!.click());
+    advanceFrame({ id: "in", method: "input", title: "Format?" });
+    expect(railButtons()).toHaveLength(2);
+    const field = document.body.querySelector<HTMLInputElement>("input")!;
+    const setter = Object.getOwnPropertyDescriptor(HTMLInputElement.prototype, "value")!.set!;
+    act(() => {
+      setter.call(field, "custom answer");
+      field.dispatchEvent(new Event("input", { bubbles: true }));
+    });
+    act(() => button("submit")!.click());
+    expect(lastFrame()).toMatchObject({ id: "in", value: "custom answer" });
+    advanceFrame({ id: "p2", method: "select", title: "Deliverable? (2/2)", options: ["X", "Y"] });
+    expect(document.body.textContent).toContain("Question 2 of 2");
+  });
+});
+
 describe("freeTextTarget", () => {
   it("classifies every frame shape", () => {
     expect(freeTextTarget(undefined)).toBe("none");
     expect(freeTextTarget({ method: "confirm", title: "Run it?" })).toBe("none");
     expect(freeTextTarget({ method: "select", title: "Pick", options: ["Alpha", "Beta"] })).toBe("none");
-    expect(freeTextTarget({ method: "select", title: "Pick", options: ["Alpha", OTHER] })).toBe("answer");
-    expect(freeTextTarget({ method: "select", title: "(1 selected) Which?", options: ["Alpha", OTHER] })).toBe("sentinel");
-    expect(freeTextTarget({ method: "select", title: "Which?", options: ["Alpha", DONE, OTHER] })).toBe("sentinel");
+    // Any select with an Other row answers free text through that row —
+    // single-selects included, because askChoice cancels the whole ask on a
+    // reply that matches no option label (issue #1190).
+    expect(freeTextTarget({ method: "select", title: "Pick", options: ["Alpha", OTHER] })).toBe("other");
+    expect(freeTextTarget({ method: "select", title: "(1 selected) Which?", options: ["Alpha", OTHER] })).toBe("other");
+    expect(freeTextTarget({ method: "select", title: "Which?", options: ["Alpha", DONE, OTHER] })).toBe("other");
+    // omp's label disambiguation may suffix the row; shape still matches.
+    expect(freeTextTarget({ method: "select", title: "Pick", options: ["Alpha", `${OTHER} (2)`] })).toBe("other");
     expect(freeTextTarget({ method: "editor", title: "Enter your response:" })).toBe("answer");
     expect(freeTextTarget({ method: "input", title: "Value" })).toBe("answer");
   });
@@ -368,14 +520,27 @@ describe("composer answer path (issue #421)", () => {
       (candidate) => candidate.getAttribute("aria-label") === label,
     );
 
-  it("answers a single select with the draft verbatim and records the series entry", () => {
+  it("routes unlisted free text through the Other row and collects it on the follow-up (issue #1190)", () => {
+    // A single-select never takes unlisted text outright: askChoice answers
+    // `labels.indexOf(reply)` → no option → the whole ask is cancelled. The
+    // text goes out as the frame's Other row, and omp's follow-up input
+    // frame (18.18+) collects it with a second Enter.
     renderDesktopHost([{ id: "q1", method: "select", title: "Format? (1/2)", options: ["Alpha", "Beta", OTHER] }]);
+    expect(ask("forty-two")).toBe("kept-draft");
+    expect(lastFrame()).toMatchObject({ type: "extension_ui_response", id: "q1", value: OTHER });
+    advance({ id: "in", method: "input", title: "Format? (1/2)" });
     expect(ask("forty-two")).toBe("answered");
-    expect(lastFrame()).toMatchObject({ type: "extension_ui_response", id: "q1", value: "forty-two" });
+    expect(lastFrame()).toMatchObject({ type: "extension_ui_response", id: "in", value: "forty-two" });
     advance({ id: "q2", method: "select", title: "Deliverable? (2/2)", options: ["X", "Y"] });
     act(() => dot("question 1 of 2, answered")!.click());
-    // Review lists the options with none matched and shows the text below.
+    // The follow-up's answer lands on the question page it continues.
     expect(document.body.textContent).toContain("forty-two");
+  });
+
+  it("answers a select with a draft that names a listed option verbatim", () => {
+    renderDesktopHost([{ id: "q1", method: "select", title: "Format? (1/2)", options: ["Alpha", "Beta", OTHER] }]);
+    expect(ask("Beta")).toBe("answered");
+    expect(lastFrame()).toMatchObject({ type: "extension_ui_response", id: "q1", value: "Beta" });
   });
 
   it("reconstructs the picked set through the one-step answer, then takes the sentinel on the loop frame", () => {

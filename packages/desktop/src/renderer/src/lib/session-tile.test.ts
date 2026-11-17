@@ -87,6 +87,33 @@ describe("dialogQuestion", () => {
   it("returns null for a blank title", () => {
     expect(dialogQuestion({ method: "confirm", title: "   " })).toBeNull();
   });
+
+  // ask.ts promptTitle (omp 18.20.0, issue #1190): every field's prompt is
+  // titled `context\n\nquestion`; the tile shows the question alone.
+  it("drops an 18.20.0 context prefix from a select title", () => {
+    expect(
+      dialogQuestion({
+        method: "select",
+        title: "Sessions live in memory.\n\n(2 selected) Which DB? (2/3)",
+      }),
+    ).toBe("Which DB?");
+  });
+
+  it("drops an 18.20.0 context prefix from an editor title", () => {
+    expect(dialogQuestion({ method: "editor", title: "Sessions live in memory.\n\nDescribe it" })).toBe(
+      "Describe it",
+    );
+  });
+
+  it("reads the question from an 18.20.0 input frame's context prefix", () => {
+    expect(dialogQuestion({ method: "input", title: "Some form text.\n\nSession lifetime (days)?" })).toBe(
+      "Session lifetime (days)?",
+    );
+  });
+
+  it("keeps an input title whole when it carries no context", () => {
+    expect(dialogQuestion({ method: "input", title: "Value" })).toBe("Value");
+  });
 });
 
 describe("tileQuote", () => {

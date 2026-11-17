@@ -1,7 +1,7 @@
 import type { SessionSummary } from "@omp-ui/core/types";
 import { strField } from "./fields";
 import { modelDisplayLabel } from "./format";
-import { planSelect } from "./multi-select";
+import { planSelect, splitDialogTitle } from "./multi-select";
 import { parsePage } from "./question-series";
 
 /** What a waiting session's tile quotes (issue #938). */
@@ -12,9 +12,10 @@ export interface TileQuote {
 
 /**
  * The question text a blocking dialog frame shows, derived exactly as the
- * dialog card's heading: a select loop's "(N selected)" prefix and an
- * editor's body lines are dropped, then the "(i/n)" page marker. Null for a
- * frame with no usable title.
+ * dialog card's heading: omp 18.20.0's `context\n\n` prompt prefix is
+ * dropped, then a select loop's "(N selected)" prefix and an editor or
+ * input's body lines, then the "(i/n)" page marker. Null for a frame with no
+ * usable title.
  */
 export function dialogQuestion(frame: unknown): string | null {
   const title = strField(frame, "title");
@@ -23,8 +24,8 @@ export function dialogQuestion(frame: unknown): string | null {
   const base =
     method === "select"
       ? planSelect(title, []).base
-      : method === "editor"
-        ? (title.split("\n", 1)[0] ?? "")
+      : method === "editor" || method === "input"
+        ? (splitDialogTitle(title).question.split("\n", 1)[0] ?? "")
         : title;
   const text = parsePage(base).base.trim();
   return text === "" ? null : text;

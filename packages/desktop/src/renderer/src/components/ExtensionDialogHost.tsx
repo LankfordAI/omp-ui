@@ -1,10 +1,17 @@
 import { useEffect, useMemo, useReducer, useRef } from "react";
 import { cn } from "../lib/cn";
 import { useCompactShell } from "../lib/responsive";
-import { field, strField } from "../lib/fields";
+import { field, numField, strField } from "../lib/fields";
 import { useT } from "../lib/i18n";
 import { useAndroidBack } from "../lib/android-back";
-import { OTHER_OPTION, planSelect, readOptions, togglePick } from "../lib/multi-select";
+import {
+  checkedValues,
+  isOtherRow,
+  planSelect,
+  readOptions,
+  splitDialogTitle,
+  togglePick,
+} from "../lib/multi-select";
 import {
   isAnswered,
   nextSeries,
@@ -56,24 +63,24 @@ function fromTextField(e: KeyboardEvent): boolean {
 
 /**
  * Whether the composer's draft can answer a frame as free text.
- * "answer": the text answers this frame outright — editor/input frames
- * take it verbatim, and a select answer is never validated against the
- * options (ask.ts:689), so text on a single-select frame is the answer.
- * "sentinel": a multi-select *loop* frame — raw text there would toggle
- * into the selected set (ask.ts:625-629), so the text must arrive through
- * the Other sentinel and the editor frame that follows. "none": not
+ * "answer": the text answers this frame outright — editor/input frames take
+ * it verbatim. "other": a select whose rows include omp's Other row — the
+ * text must go through that row, because `askChoice` matches a select reply
+ * against its option labels and an unlisted value resolves to no option at
+ * all, which cancels the whole ask (ask.ts: `labels.indexOf(outcome.value)`
+ * → `option` undefined → the walk returns undefined). Answering the Other
+ * row is what omp's "typed" branch accepts: it follows with an input (or,
+ * on older omp, an editor) frame that collects the text. "none": not
  * answerable from the composer at all.
  */
-export type FreeTextTarget = "answer" | "sentinel" | "none";
+export type FreeTextTarget = "answer" | "other" | "none";
 
 export function freeTextTarget(frame: unknown): FreeTextTarget {
   const method = strField(frame, "method") ?? "";
   if (method === "editor" || method === "input") return "answer";
   if (method !== "select") return "none";
   const options = readOptions(field(frame, "options"));
-  if (!options.some((o) => o.label === OTHER_OPTION)) return "none";
-  const plan = planSelect(strField(frame, "title") ?? "", options);
-  return plan.doneValue !== null ? "sentinel" : "answer";
+  return options.some((o) => isOtherRow(o.label)) ? "other" : "none";
 }
 
 /**
@@ -150,25 +157,57 @@ export function reduceExtensionDialog(
 
   if (!action.current) return { ...state, inputValue: "" };
   const title = strField(action.current, "title") ?? "";
-  const frame = parsePage(
+  const frameOptions = readOptions(field(action.current, "options"));
+  // The 18.20.0 prompt title is `context\n\nquestion`; every parse below works
+  // on the question line so context text never masquerades as the question.
+  const pageFrame = parsePage(
     action.method === "select"
       ? planSelect(title, []).base
-      : title.split("\n", 1)[0],
+      : (splitDialogTitle(title).question.split("\n", 1)[0] ?? ""),
   );
+  // Editor and input frames are the free-text legs of a question (the Other
+  // follow-up on every omp, askText's editor from 18.18) — they continue the
+  // live page rather than ending the series. 18.18.3+ asks carry no `(i/n)`
+  // marker at all, so a markerless walk simply has no rail to keep.
   const series =
-    frame.page !== null
-      ? nextSeries(state.series, frame)
-      : action.method === "editor"
+    pageFrame.page !== null
+      ? nextSeries(state.series, pageFrame)
+      : action.method === "editor" || action.method === "input"
         ? state.series
         : null;
   const common = { ...state, inputValue: "", series, reviewing: null };
-  if (action.method !== "select") return { ...common, active: 0 };
+  if (action.method !== "select") {
+    // The editor frame opens on its `prefill` — the field's current value
+    // (ask.ts askText) — so a prefilled answer submits edited, never blank.
+    return { ...common, inputValue: strField(action.current, "prefill") ?? "", active: 0 };
+  }
 
-  const parsed = planSelect(title, []);
+  const parsed = planSelect(title, frameOptions);
+  // From 18.20.0 every select frame carries the cursor it opens on
+  // (`initialIndex`): the preselected option of a radio group, or omp's
+  // checkbox cursor on a loop frame. Authoritative when present; legacy
+  // frames keep their own continuity.
+  const initial = numField(action.current, "initialIndex");
+  const opened =
+    initial !== undefined && Number.isInteger(initial) && initial >= 0 && initial < parsed.listed.length
+      ? initial
+      : null;
+  // 18.20.0 checkbox frames carry the checked set outright; the toggle
+  // reconstruction below is only needed for frames old enough to omit it.
+  const authoritative = checkedValues(action.current, frameOptions);
+  if (authoritative !== null) {
+    return {
+      ...common,
+      active: opened ?? state.active,
+      picked: authoritative,
+      loopBase: parsed.base,
+      lastSent: null,
+    };
+  }
   if (parsed.count === null || parsed.base !== state.loopBase) {
     return {
       ...common,
-      active: 0,
+      active: opened ?? 0,
       picked: parsed.count === null ? [] : null,
       loopBase: parsed.base,
       lastSent: null,
@@ -177,6 +216,7 @@ export function reduceExtensionDialog(
   const next = state.lastSent === null ? state.picked : togglePick(state.picked, state.lastSent);
   return {
     ...common,
+    active: opened ?? state.active,
     picked: next !== null && next.length === parsed.count ? next : null,
     lastSent: null,
   };
@@ -216,8 +256,12 @@ export function ExtensionDialogHost({
   const options = useMemo(() => readOptions(field(current, "options")), [current]);
 
   const plan = method === "select" ? planSelect(rawTitle, options) : null;
-  /** Multi-select is only recognizable from the loop frames omp sends. */
-  const inMultiLoop = plan !== null && plan.count !== null;
+  /** Multi-select is recognizable from the loop frames omp sends (legacy),
+   *  or — from 18.20.0 — from the frame's own checkbox selection marker,
+   *  which a group's *first* frame carries before any `(N selected)` prefix
+   *  exists. */
+  const inMultiLoop =
+    plan !== null && (plan.count !== null || strField(current, "selectionMarker") === "checkbox");
 
   // Each request gets its own draft. The pure reducer keeps multi-select and
   // question-series continuity together, without refs mutated from a state updater.
@@ -314,7 +358,10 @@ export function ExtensionDialogHost({
 
   if (!current) return null;
 
-  const title = plan ? plan.base : rawTitle;
+  // From 18.20.0 the prompt title is `context\n\nquestion`: the header shows
+  // the question, the form text around it renders separately below.
+  const dialogTitle = splitDialogTitle(rawTitle);
+  const title = plan ? plan.base : (dialogTitle.question.split("\n", 1)[0] ?? "");
   const displayTitle = dialogQuestion(current) ?? t("dialog.extension.fallbackTitle");
   const message = strField(current, "message") ?? strField(current, "label") ?? "";
   const reviewEntry =
@@ -324,27 +371,27 @@ export function ExtensionDialogHost({
   const cancel = () => answerExtension(tabId, current, { cancelled: true });
   /**
    * Answer with an option label. Only real options are recorded as pending
-   * toggles — the Done sentinel and "Other" are loop affordances, and folding
-   * them into the picked set would corrupt it.
+   * toggles — the Done sentinel and the Other row are loop affordances, and
+   * folding them into the picked set would corrupt it. omp's Other row may
+   * carry a disambiguation suffix (`Other (type your own) (2)`), so match it
+   * by shape, never by the bare literal.
    */
   function pick(value: string): void {
     if (current === undefined) return;
+    const other = plan?.listed.find((option) => option.value === value && isOtherRow(option.label));
     const entry =
-      series !== null && plan !== null && (plan.doneValue === null || value === OTHER_OPTION)
+      series !== null && plan !== null && (plan.doneValue === null || other !== undefined)
         ? {
             page: series.current,
             title: series.currentTitle,
             options: plan.listed,
-            answer:
-              value === OTHER_OPTION
-                ? []
-                : [plan.listed.find((option) => option.value === value)?.label ?? value],
+            answer: other !== undefined ? [] : [plan.listed.find((option) => option.value === value)?.label ?? value],
             multi: false,
           }
         : undefined;
     dispatch({
       type: "pick",
-      pending: value === OTHER_OPTION ? null : value,
+      pending: other === undefined ? value : null,
       entry,
     });
     answerExtension(tabId, current, { value });
@@ -370,9 +417,9 @@ export function ExtensionDialogHost({
     answerExtension(tabId, current, { value: plan.doneValue });
   }
 
-  /** Records an editor submit as the live page's free-text answer. */
-  function recordEditorAnswerWith(value: string): void {
-    if (method !== "editor" || series === null) return;
+  /** Records a free-text submit as the live page's answer. */
+  function recordFreeTextAnswer(value: string): void {
+    if ((method !== "editor" && method !== "input") || series === null) return;
     dispatch({
       type: "record",
       entry: {
@@ -386,29 +433,35 @@ export function ExtensionDialogHost({
   }
 
   /**
-   * The composer's answer path (issue #421). Editor/input frames and single
-   * selects take the text outright — a select answer is never validated
-   * against the options (ask.ts:689) — so one Enter answers through `pick()`
-   * and its series bookkeeping. A loop frame gets the Other sentinel
-   * instead (raw text there would toggle into the selected set,
-   * ask.ts:625-629) and keeps its two-step dance: the composer draft
-   * survives until the editor frame lands.
+   * The composer's answer path (issue #421). Editor/input frames take the
+   * text verbatim. A select never takes unlisted text outright: `askChoice`
+   * matches a select reply against its option labels and an unlisted value
+   * resolves to no option, which cancels the whole ask (issue #1190). Text
+   * that names a listed label goes out as that option — the same reply a
+   * click sends, so it toggles on a loop page. Anything else answers the
+   * frame's own Other row and keeps its draft: omp follows with an input
+   * frame (an editor on older builds) that collects the text with one more
+   * Enter.
    */
   function answerWithText(text: string): AnswerOutcome {
     if (current === undefined || text.trim() === "") return "not-answerable";
     const target = freeTextTarget(current);
     if (target === "none") return "not-answerable";
     if (method === "editor" || method === "input") {
-      recordEditorAnswerWith(text);
+      recordFreeTextAnswer(text);
       answerExtension(tabId, current, { value: text });
       return "answered";
     }
-    if (target === "sentinel") {
-      pick(OTHER_OPTION);
-      return "kept-draft";
+    const listed = plan?.listed ?? [];
+    const exact = listed.find((option) => option.label === text);
+    if (exact !== undefined) {
+      pick(exact.value);
+      return "answered";
     }
-    pick(text);
-    return "answered";
+    const otherRow = listed.find((option) => isOtherRow(option.label));
+    if (otherRow === undefined) return "not-answerable";
+    pick(otherRow.value);
+    return "kept-draft";
   }
 
   return (
@@ -433,9 +486,9 @@ export function ExtensionDialogHost({
             {reviewEntry !== undefined ? reviewEntry.title : displayTitle}
           </h2>
           {reviewEntry !== undefined && <Chip tone="signal">{t("dialog.extension.answered")}</Chip>}
-          {inMultiLoop && (
+          {inMultiLoop && (plan.count ?? 0) + (picked?.length ?? 0) > 0 && (
             <Chip tone="iris" mono title={t("dialog.extension.pickedTitle")}>
-              {t("dialog.extension.selected", { n: plan.count ?? 0 })}
+              {t("dialog.extension.selected", { n: plan.count ?? picked?.length ?? 0 })}
             </Chip>
           )}
           {queue.length > 1 && (
@@ -504,6 +557,13 @@ export function ExtensionDialogHost({
           </div>
         ) : (
           <>
+            {dialogTitle.context !== "" && (
+              /* 18.20.0 prompt titles are `context\n\nquestion`: the header is
+                 the question, the form text around it rides here. */
+              <p className="mb-3 whitespace-pre-wrap break-words text-xs leading-relaxed text-ink-faint">
+                {dialogTitle.context}
+              </p>
+            )}
             {message && (
               <p className="mb-3 whitespace-pre-wrap break-words text-xs leading-relaxed text-ink-mid">
                 {message}
@@ -531,7 +591,7 @@ export function ExtensionDialogHost({
                 <div className="space-y-1">
                 {plan.listed.map((option, i) => {
                   const isPicked = picked?.includes(option.value) ?? false;
-                  const other = option.label === OTHER_OPTION;
+                  const other = isOtherRow(option.label);
                   return (
                     <button
                       ref={i === 0 ? firstChoice : undefined}
@@ -619,11 +679,12 @@ export function ExtensionDialogHost({
             {(method === "input" || method === "editor") && (
               <>
                 {/* omp's editor titles carry the full prompt (ask's checkbox state
-                    and "Enter your response:") — the header shows line one, the
-                    rest lands here, in either answer surface. */}
-                {method === "editor" && rawTitle.includes("\n") && (
+                    and "Enter your response:") — the header shows line one of the
+                    question, the rest lands here, in either answer surface. The
+                    18.20.0 context already rides in its own paragraph above. */}
+                {method === "editor" && dialogTitle.question.includes("\n") && (
                   <p className="mb-2 whitespace-pre-wrap break-words font-mono text-xs leading-relaxed text-ink-faint">
-                    {rawTitle.split("\n").slice(1).join("\n").trim()}
+                    {dialogTitle.question.split("\n").slice(1).join("\n").trim()}
                   </p>
                 )}
                 {/* Where the composer is visible it holds the field and answers
@@ -633,7 +694,7 @@ export function ExtensionDialogHost({
                   <form
                     onSubmit={(e) => {
                       e.preventDefault();
-                      recordEditorAnswerWith(inputValue);
+                      recordFreeTextAnswer(inputValue);
                       answerExtension(tabId, current, { value: inputValue });
                     }}
                   >
@@ -650,7 +711,7 @@ export function ExtensionDialogHost({
                             cancel();
                           } else if (e.key === "Enter" && !e.shiftKey) {
                             e.preventDefault();
-                            recordEditorAnswerWith(inputValue);
+                            recordFreeTextAnswer(inputValue);
                             answerExtension(tabId, current, { value: inputValue });
                           }
                         }}
