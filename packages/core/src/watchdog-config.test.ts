@@ -170,6 +170,35 @@ describe("tools rule", () => {
     expect(effectiveAdvisorTools(["SEARCH"])).toEqual(["grep"]);
     expect(effectiveAdvisorTools(["NOPE"])).toEqual(["read", "grep", "glob", "recall"]);
   });
+
+  it("scopes `ida` to omp below 18.22.0 (#1199)", () => {
+    // Removed from BUILTIN_TOOL_NAMES in 18.22.0: dropped like any unknown, and an
+    // all-unknown list falls back to defaults, exactly as upstream filterAdvisorTools.
+    expect(effectiveAdvisorTools(["ida"], "18.21.9")).toEqual(["ida"]);
+    expect(effectiveAdvisorTools(["ida"], "18.22.0")).toEqual(["read", "grep", "glob", "recall"]);
+    expect(effectiveAdvisorTools(["ida"], "19.0.0")).toEqual(["read", "grep", "glob", "recall"]);
+    expect(effectiveAdvisorTools(["read", "ida"], "18.22.0")).toEqual(["read"]);
+    // Unknown version keeps it: the removal engages only on a confirmed current binary.
+    expect(effectiveAdvisorTools(["ida"], null)).toEqual(["ida"]);
+  });
+
+  it("scopes effective tools by the roster's ompVersion (#1199)", async () => {
+    write(path.join(agentDir, "WATCHDOG.yml"), "advisors:\n  - name: a\n    tools: [ida]\n");
+    const on = await getWatchdogRoster(null, env, home, "18.22.0");
+    if (on.status !== "available") throw new Error("x");
+    expect(on.ompVersion).toBe("18.22.0");
+    expect(on.effective[0]!.tools).toEqual(["read", "grep", "glob", "recall"]);
+    const off = await getWatchdogRoster(null, env, home, "18.18.7");
+    if (off.status !== "available") throw new Error("x");
+    expect(off.effective[0]!.tools).toEqual(["ida"]);
+  });
+
+  it("refuses to write `ida` for omp 18.22+ but accepts it below (#1199)", async () => {
+    const req = { scopeCwd: null, scope: "user" as const, baseHash: null, document: doc({ advisors: [entry("a", { tools: ["ida"] })] }) };
+    await expect(setWatchdogRoster(req, env, home, "18.22.0")).rejects.toThrow(/unknown tool "ida"/);
+    await setWatchdogRoster(req, env, home, "18.21.0");
+    expect(fs.readFileSync(path.join(agentDir, "WATCHDOG.yml"), "utf8")).toContain("- ida");
+  });
 });
 
 describe("serialize / parse", () => {

@@ -1649,8 +1649,22 @@ export class MainBackend {
           getScopedCapabilities(scopeCwd, this.ompPath),
         [CH.setScopedCapability]: (req: ScopedCapabilityMutation) =>
           setScopedCapability(req, this.ompPath),
-        [CH.getWatchdogRoster]: (scopeCwd: string | null) => getWatchdogRoster(scopeCwd),
-        [CH.setWatchdogRoster]: (req: WatchdogWriteRequest) => setWatchdogRoster(req),
+        // The installed omp version scopes the advisor tool list (#1199); a
+        // null binary or failed probe answers null, which keeps pre-18.22 tools.
+        [CH.getWatchdogRoster]: async (scopeCwd: string | null) =>
+          getWatchdogRoster(
+            scopeCwd,
+            process.env,
+            os.homedir(),
+            this.ompPath === null ? null : await readInstalledOmpVersion(this.ompPath),
+          ),
+        [CH.setWatchdogRoster]: async (req: WatchdogWriteRequest) =>
+          setWatchdogRoster(
+            req,
+            process.env,
+            os.homedir(),
+            this.ompPath === null ? null : await readInstalledOmpVersion(this.ompPath),
+          ),
         [CH.getCouncilRoster]: (scopeCwd: string | null) => this.councilRosterView(scopeCwd),
         [CH.setCouncilRoster]: async (req: CouncilWriteRequest) => {
           if (req.scope === "user") this.registry.setSetting("councilRoster", req.document);

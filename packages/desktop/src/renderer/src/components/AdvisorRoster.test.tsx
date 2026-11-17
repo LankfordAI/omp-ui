@@ -13,10 +13,11 @@ const empty = (): WatchdogDocument => ({ instructions: null, maxNotesPerUpdate: 
 const fileView = (scope: "user" | "project", over: Partial<WatchdogFileView> = {}): WatchdogFileView => ({
   scope, path: `/${scope}/WATCHDOG.yml`, exists: true, hash: "h1", document: empty(), blocking: [], notices: [], ...over,
 });
-const roster = (project: Partial<WatchdogFileView> = {}): WatchdogRosterResult => ({
+const roster = (project: Partial<WatchdogFileView> = {}, ompVersion: string | null = null): WatchdogRosterResult => ({
   status: "available",
   user: fileView("user"),
   project: fileView("project", project),
+  ompVersion,
   effective: [
     { name: "writer", slug: "writer", sourcePath: "/p", sourceScope: "project", model: null, tools: ["read", "write"], toolsExplicit: true, enabled: true, instructions: null, maxNotesPerUpdate: null },
   ],
@@ -119,6 +120,21 @@ describe("AdvisorRosterEditor", () => {
     await act(async () => btn("Save").click());
     expect(document.body.textContent).toContain("changed on disk");
     expect(document.body.querySelectorAll('input[aria-label="Advisor"]').length).toBe(2);
+  });
+
+  it("offers `ida` as a tool chip below omp 18.22 and hides it at or above (#1199)", async () => {
+    const withTool = (tools: string[], ompVersion: string | null) =>
+      roster({ document: { ...empty(), advisors: [{ name: "w", model: null, tools, instructions: null, enabled: null, maxNotesPerUpdate: null }] } }, ompVersion);
+    backendMock.getWatchdogRoster.mockResolvedValueOnce(withTool(["read"], "18.22.0"));
+    await mount(<AdvisorRosterEditor scopeCwd="/p" instanceId={null} />);
+    expect(btn("read")).toBeTruthy();
+    expect(btn("ida")).toBeUndefined();
+    await act(async () => root!.unmount());
+    root = null;
+    document.body.innerHTML = "";
+    backendMock.getWatchdogRoster.mockResolvedValueOnce(withTool(["read"], "18.21.9"));
+    await mount(<AdvisorRosterEditor scopeCwd="/p" instanceId={null} />);
+    expect(btn("ida")).toBeTruthy();
   });
 
   it("disables Save and editing when the file has blocking problems, and never targets project without a cwd", async () => {

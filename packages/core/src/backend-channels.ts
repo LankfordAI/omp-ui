@@ -1854,6 +1854,8 @@ export const BACKEND_CHANNELS = {
   /**
    * The advisor roster files (ADR-0039): omp's WATCHDOG.yml discovered and
    * merged for `scopeCwd` (null = user file only), plus both editable files.
+   * Effective tools are resolved against the host's installed omp version
+   * (`ompVersion` in the result; #1199: `ida` is known only below 18.22.0).
    * Reads only; a filesystem failure answers `{status:"error"}`.
    */
   getWatchdogRoster: {

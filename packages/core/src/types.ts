@@ -1248,6 +1248,8 @@ export type WatchdogRosterResult =
       status: "available";
       user: WatchdogFileView;
       project: WatchdogFileView | null;
+      /** The host's installed omp version (null = unknown), the scope the tool list was resolved against (issue #1199). */
+      ompVersion: string | null;
       effective: WatchdogEffectiveAdvisor[];
       /** Paths of files contributing file-level instructions — WATCHDOG.yml scopes with an `instructions:` value and every discovered WATCHDOG.md. */
       sharedInstructions: string[];

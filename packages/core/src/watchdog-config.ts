@@ -273,6 +273,7 @@ export async function getWatchdogRoster(
   scopeCwd: string | null,
   env: NodeJS.ProcessEnv = process.env,
   home: string = os.homedir(),
+  ompVersion: string | null = null,
 ): Promise<WatchdogRosterResult> {
   try {
     const agentDir = getOmpAgentDir(env);
@@ -298,7 +299,7 @@ export async function getWatchdogRoster(
           sourcePath: c.file,
           sourceScope: c.scope,
           model: hasText(a.model) ? a.model : null,
-          tools: effectiveAdvisorTools(a.tools),
+          tools: effectiveAdvisorTools(a.tools, ompVersion),
           toolsExplicit: a.tools !== null,
           enabled: a.enabled !== false,
           instructions: a.instructions,
@@ -314,6 +315,7 @@ export async function getWatchdogRoster(
       status: "available",
       user: fileView("user", userTarget),
       project: projectTarget === null ? null : fileView("project", projectTarget),
+      ompVersion,
       effective: [...merged.values()],
       sharedInstructions,
       otherFiles: [...candidates.map((c) => c.file), ...instructionCandidates.map((c) => c.file)]
@@ -325,7 +327,7 @@ export async function getWatchdogRoster(
   }
 }
 
-function validateRequest(req: WatchdogWriteRequest): void {
+function validateRequest(req: WatchdogWriteRequest, ompVersion: string | null): void {
   const doc = req.document;
   if (doc.advisors.length > MAX_ADVISORS) throw new Error(`at most ${MAX_ADVISORS} advisors`);
   const over = (s: string | null): boolean => s !== null && s.length > MAX_STRING;
@@ -343,7 +345,7 @@ function validateRequest(req: WatchdogWriteRequest): void {
     if (over(a.instructions) || over(a.model) || a.name.length > MAX_STRING) throw new Error(`advisor "${a.name}": text too long`);
     num(a.maxNotesPerUpdate, `advisor "${a.name}"`);
     for (const tool of a.tools ?? []) {
-      if (resolveWatchdogTool(tool) === null) throw new Error(`advisor "${a.name}": unknown tool "${tool}"`);
+      if (resolveWatchdogTool(tool, ompVersion) === null) throw new Error(`advisor "${a.name}": unknown tool "${tool}"`);
     }
   }
 }
@@ -352,8 +354,9 @@ export async function setWatchdogRoster(
   req: WatchdogWriteRequest,
   env: NodeJS.ProcessEnv = process.env,
   home: string = os.homedir(),
+  ompVersion: string | null = null,
 ): Promise<WatchdogRosterResult> {
-  validateRequest(req);
+  validateRequest(req, ompVersion);
   let target: string;
   if (req.scope === "user") target = editTarget(getOmpAgentDir(env));
   else {
@@ -371,5 +374,5 @@ export async function setWatchdogRoster(
   const text = serializeWatchdog(req.document);
   if (text === "") fs.rmSync(target, { force: true });
   else writeTextAtomic(target, text);
-  return getWatchdogRoster(req.scopeCwd, env, home);
+  return getWatchdogRoster(req.scopeCwd, env, home, ompVersion);
 }
