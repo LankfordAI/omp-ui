@@ -637,6 +637,26 @@ describe("vibe worker commands", () => {
     expect(h.snapshot().result?.text).toContain("running");
   });
 
+  // Issue #1193: from 18.21 the raw session stream reports each stopped loop
+  // as agent_pause and the run's single end as agent_end, so the roster must
+  // refresh at each pause — waiting for the run's end leaves it stale while
+  // workers keep the run open. Older omp never fires the frame, so there is
+  // nothing to double-publish.
+  it("refreshes the roster on agent_pause", async () => {
+    const h = harness();
+    const root = await armed(h);
+    await h.command({ command: "toggle", sessionId: root.id });
+    const before = h.statuses.length;
+    root.addWorker(worker({ id: "W1", state: "running" }));
+    root.fire({ type: "agent_pause", messages: [], yielded: true, awaiting: true });
+    expect(h.statuses.length).toBeGreaterThan(before);
+    expect(h.snapshot().workers.map((w) => w.id)).toContain("W1");
+    // Nothing changed: the digest gate still holds across a repeat pause.
+    const settled = h.statuses.length;
+    root.fire({ type: "agent_pause", messages: [], yielded: true, awaiting: false });
+    expect(h.statuses).toHaveLength(settled);
+  });
+
   it("invites every tool with a defined tool-call id", async () => {
     // The #864 regression: omp's tool-call preflight dereferences a cache
     // read when the id is undefined, so no bridge-initiated execute may ever

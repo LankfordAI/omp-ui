@@ -890,7 +890,10 @@ export default function (pi: ExtensionApi) {
   function onEvent(event: Record<string, unknown>): void {
     try {
       const type = event.type;
-      if (type === "tool_execution_end" || type === "agent_end") {
+      // From 18.21 the raw session stream reports each stopped loop as
+      // agent_pause and the run's single end as agent_end (issue #1193);
+      // older runtimes never fire the pause frame, so no double publish.
+      if (type === "tool_execution_end" || type === "agent_end" || type === "agent_pause") {
         publish(false);
         void refreshRows();
         ensurePolling();

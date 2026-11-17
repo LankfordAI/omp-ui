@@ -276,6 +276,23 @@ describe("autoresearch extension", () => {
     expect(h.statuses).toHaveLength(1);
   });
 
+  // Issue #1193: from 18.21 the raw session stream reports each stopped loop
+  // as agent_pause and the run's single end as agent_end, so a control entry
+  // appended by a paused loop must republish at the pause — waiting for the
+  // run's end leaves the bridge stale through fan-outs. Older omp never fires
+  // the frame, so there is nothing to double-refresh.
+  it("republishes on agent_pause like on agent_end", async () => {
+    const h = await armed();
+    h.session.entries.push(control("on", "x"));
+    h.session.fire({ type: "agent_pause", messages: [], yielded: true, awaiting: true });
+    expect(h.snapshot()).toMatchObject({ mode: "on", goal: "x" });
+    // A bare pause with nothing changed never republishes: refresh is still
+    // digest-gated.
+    const before = h.statuses.length;
+    h.session.fire({ type: "agent_pause", messages: [], yielded: true, awaiting: false });
+    expect(h.statuses).toHaveLength(before);
+  });
+
   it("records finished autoresearch tools and ignores every other tool", async () => {
     const h = await armed();
     h.session.fire({ type: "tool_execution_end", toolName: "read", isError: false });

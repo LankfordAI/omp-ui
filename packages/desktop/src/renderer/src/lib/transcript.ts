@@ -12,7 +12,7 @@ import { parseVaultDetails, type VaultToolDetails } from "@omp-ui/core/vault-sha
 import type { SessionReference } from "@omp-ui/core/types";
 import { FLEET_WAKE_CUSTOM_TYPE, parseFleetWakeCard, type FleetWakeCard } from "@omp-ui/core/fleet-wake";
 import { toolResultReplies } from "@omp-ui/core/out-replies";
-import { isNonTerminalAgentEnd } from "@omp-ui/core/run-end";
+import { isAgentPauseFrame, isNonTerminalAgentEnd } from "@omp-ui/core/run-end";
 import { parseBashMinimized, type BashMinimized } from "@omp-ui/core/bash-minimized";
 import { parseBashTruncation, type BashTruncation } from "@omp-ui/core/bash-truncation";
 import { parseBashToolTruncation, type BashToolTruncation } from "@omp-ui/core/bash-tool-truncation";
@@ -1237,6 +1237,22 @@ export function reduceEvent(items: RenderItem[], event: unknown): RenderItem[] {
         return [...items, markerItem("advisor continued the run", "copper")];
       }
       return [...items, markerItem("agent started", "neutral")];
+    }
+    // Raw-stream pause (omp 18.21+, issue #1193): the in-process session
+    // stream splits the loop end out of `agent_end` into this frame, so only
+    // raw consumers — subagent_event payloads and extension subscriptions —
+    // see it. The RPC wire reports the same pause as a non-terminal
+    // `agent_end` below. The loop's reply is complete, so its caret closes;
+    // the run stays open, so running cards keep streaming and no "agent
+    // finished" marker lands — only the run's one terminal end settles them.
+    case "agent_pause": {
+      if (!isAgentPauseFrame(event)) return items;
+      const idx = lastStreamingAssistant(items);
+      const settled =
+        idx === -1
+          ? items
+          : replaceAt(items, idx, { ...items[idx]!, streaming: false } as RenderItem);
+      return [...settled, markerItem("agent paused", "copper")];
     }
     case "agent_end": {
       // A non-terminal `agent_end` is a loop pause inside an open run (issue

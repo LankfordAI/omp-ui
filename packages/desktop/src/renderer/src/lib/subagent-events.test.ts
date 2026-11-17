@@ -54,6 +54,41 @@ describe("reduceSubagentFrame", () => {
     expect(items).toEqual([expect.objectContaining({ kind: "user", text: "scout this" })]);
   });
 
+  // Issue #1193: subagent_event payloads are raw AgentSessionEvents, so on
+  // omp 18.21+ a paused child agent sends agent_pause (not a flagged
+  // agent_end) and the run's one real end still arrives as agent_end. The
+  // buffer must stop the caret at the pause, keep cards running, and settle
+  // only on the end.
+  it("pauses then settles through a raw agent_pause / agent_end stream", () => {
+    const frame = (event: Record<string, unknown>): unknown => ({
+      type: "subagent_event",
+      payload: { id: "s1", event },
+    });
+    let items = reduceSubagentFrame([], frame({
+      type: "message_update",
+      assistantMessageEvent: { type: "text_delta", delta: "working" },
+    }));
+    items = reduceSubagentFrame(items, frame({
+      type: "tool_execution_start",
+      toolCallId: "t1",
+      toolName: "bash",
+    }));
+    items = reduceSubagentFrame(items, frame({
+      type: "agent_pause",
+      messages: [],
+      yielded: true,
+      awaiting: true,
+    }));
+    const pausedAssistant = items.find((i) => i.kind === "assistant");
+    expect(pausedAssistant).toMatchObject({ streaming: false });
+    expect(items.at(-1)).toMatchObject({ kind: "marker", label: "agent paused" });
+    expect(items.find((i) => i.kind === "tool")).toMatchObject({ status: "running" });
+
+    items = reduceSubagentFrame(items, frame({ type: "agent_end", messages: [] }));
+    expect(items.find((i) => i.kind === "tool")).toMatchObject({ status: "cancelled" });
+    expect(items.at(-1)).toMatchObject({ kind: "marker", label: "agent finished" });
+  });
+
   it("falls back to a marker for a bare status", () => {
     const items = reduceSubagentFrame([], {
       type: "subagent_lifecycle",

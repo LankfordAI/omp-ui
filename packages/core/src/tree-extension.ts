@@ -246,9 +246,13 @@ export default function (pi: ExtensionApi) {
       root.subscribe.call(root, (event: Record<string, unknown>) => {
         const type = typeof event.type === "string" ? event.type : "";
         // The tree only changes on a branch or when a turn appended entries;
-        // everything else keeps the last publish standing.
+        // everything else keeps the last publish standing. From 18.21 the raw
+        // session stream reports each stopped loop as agent_pause and the
+        // run's single end as agent_end; both belong on this list (issue
+        // #1193) — older runtimes never fire the pause frame, so no double.
         if (
           type !== "agent_end" &&
+          type !== "agent_pause" &&
           type !== "auto_compaction_end" &&
           type !== "session_branch" &&
           type !== "session_before_branch"

@@ -282,6 +282,21 @@ describe("tree extension", () => {
     expect(h.statuses.at(-1)!.revision).toBe(second.revision);
   });
 
+  // Issue #1193: from 18.21 the raw session stream reports each stopped loop
+  // as agent_pause and the run's single end as agent_end; a pause appended
+  // tree entries just like an end does, so it must republish too. (Older
+  // omp never fires the frame, so there is nothing to double-refresh.)
+  it("re-publishes on agent_pause", async () => {
+    const h = await armed();
+    const first = h.snapshot().revision;
+    h.session.entries.push(userEntry("e4", "e3", "next prompt"));
+    h.session.leafId = "e4";
+    h.session.fire({ type: "agent_pause", messages: [], yielded: true, awaiting: true });
+    const second = h.snapshot();
+    expect(second.revision).toBe(first + 1);
+    expect(second.leafId).toBe("e4");
+  });
+
   it("navigates and publishes the success result", async () => {
     const h = await armed([...LINEAR, userEntry("e5", "e2", "abandoned sibling")], "e3");
     await h.arm("navigate e5");

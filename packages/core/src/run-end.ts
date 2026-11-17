@@ -26,3 +26,16 @@ export function agentEndAwaitsAsyncWork(frame: unknown): boolean {
   if (!isNonTerminalAgentEnd(frame)) return false;
   return (frame as Record<string, unknown>).awaitingAsyncWork === true;
 }
+
+/**
+ * True on a raw `agent_pause` frame from the in-process `AgentSession` event
+ * stream (omp 18.21+): a model loop stopped while its run goes on (upstream
+ * `session/agent-session-events.ts`). The RPC wire folds the same pause into
+ * an `agent_end` flagged `isTerminal: false`, so only consumers of the raw
+ * stream — `subagent_event` payloads and in-process extension subscriptions —
+ * ever see this frame; every other reader uses `isNonTerminalAgentEnd`.
+ */
+export function isAgentPauseFrame(frame: unknown): boolean {
+  if (frame === null || typeof frame !== "object") return false;
+  return (frame as Record<string, unknown>).type === "agent_pause";
+}

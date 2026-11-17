@@ -888,6 +888,53 @@ describe("run-end tool settlement", () => {
     expect(items.at(-1)).toMatchObject({ kind: "marker", label: "agent finished" });
   });
 
+  // Issue #1193: omp 18.21+ carries the same loop pause on the raw session
+  // stream as its own `agent_pause` frame — what subagent_event payloads are.
+  // The loop's reply is complete, so its caret closes; the run stays open, so
+  // running cards keep streaming and no "agent finished" marker lands.
+  it("agent_pause closes the streaming caret but leaves running tools running", () => {
+    let items = reduceEvent([], {
+      type: "message_update",
+      assistantMessageEvent: { type: "text_delta", delta: "partial" },
+    });
+    items = reduceEvent(items, {
+      type: "tool_execution_start",
+      toolCallId: "tE",
+      toolName: "task",
+    });
+    items = reduceEvent(items, { type: "agent_pause", messages: [], yielded: true, awaiting: true });
+    expect(assistant(items)?.streaming).toBe(false);
+    expect(tool(items, "tE")?.status).toBe("running");
+    expect(items.at(-1)).toMatchObject({ kind: "marker", label: "agent paused" });
+  });
+
+  it("agent_pause with no streaming assistant only lands the marker", () => {
+    let items = reduceEvent([], { type: "tool_execution_start", toolCallId: "tF", toolName: "bash" });
+    const before = items;
+    items = reduceEvent(items, { type: "agent_pause", messages: [], yielded: false, awaiting: false });
+    expect(items.length).toBe(before.length + 1);
+    expect(items.at(-1)).toMatchObject({ kind: "marker", label: "agent paused" });
+    expect(tool(items, "tF")?.status).toBe("running");
+  });
+
+  it("the run's single agent_end after an agent_pause settles the run as usual", () => {
+    let items = reduceEvent([], {
+      type: "message_update",
+      assistantMessageEvent: { type: "text_delta", delta: "partial" },
+    });
+    items = reduceEvent(items, {
+      type: "tool_execution_start",
+      toolCallId: "tG",
+      toolName: "task",
+    });
+    items = reduceEvent(items, { type: "agent_pause", messages: [], yielded: true, awaiting: true });
+    // On 18.21+ the run's end carries no isTerminal field on the raw stream:
+    // an unflagged agent_end is terminal.
+    items = reduceEvent(items, { type: "agent_end", messages: [] });
+    expect(tool(items, "tG")?.status).toBe("cancelled");
+    expect(items.at(-1)).toMatchObject({ kind: "marker", label: "agent finished" });
+  });
+
   it("settleRunningItems returns the same array by identity when nothing runs", () => {
     const items = reduceEvent([], {
       type: "tool_execution_end",

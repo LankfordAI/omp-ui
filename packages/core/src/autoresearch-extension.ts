@@ -428,7 +428,10 @@ export default function (pi: ExtensionApi) {
         refresh(false);
         return;
       }
-      if (type === "agent_end") refresh(false);
+      // From 18.21 the raw session stream reports each stopped loop as
+      // agent_pause and the run's single end as agent_end (issue #1193);
+      // older runtimes never fire the pause frame, so no double refresh.
+      if (type === "agent_end" || type === "agent_pause") refresh(false);
     } catch {
       /* a bridge event handler must never take down the session's stream */
     }

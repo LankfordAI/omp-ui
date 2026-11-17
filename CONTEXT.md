@@ -163,7 +163,12 @@ reads **waiting on background work** — the state between working and idle in
 the sidebar row and Session HUD (`SessionSummary.turnAwaitingAsyncWork`, or
 this renderer's own tab flag), with Stop still available, because omp's
 `abort` ends paused runs from 18.21. A frame with no `isTerminal` field (an
-older omp) is terminal.
+older omp) is terminal. From 18.21 the raw in-process `AgentSession` stream
+carries a pause as its own `agent_pause` frame (`messages`, `yielded`,
+`awaiting`) and emits exactly one `agent_end` per run; the RPC wire folds the
+pause back into a flagged `agent_end` on stdout, so only raw-stream consumers —
+`subagent_event` payloads and in-process extension subscriptions — ever see the
+pause frame itself, and they read both shapes as the same pause (issue #1193).
 _Avoid_: treating a loop end as the run's end, idle pause (the run is open),
 background work (the jobs themselves, not the run's state)
 
