@@ -683,6 +683,7 @@ export const ko: Partial<Record<MessageKey, string>> = {
   "composer.sheet.modelEffort": "모델 및 노력 수준",
   "composer.sheet.session": "세션",
   "composer.sheet.branch": "브랜치",
+  "composer.shell.excludeUnsupported": "이 omp 버전은 모델 컨텍스트 밖에서 !! 명령을 실행할 수 없습니다 — 아무것도 실행되지 않았습니다",
 
   "composer.branch.commit": "커밋",
   "composer.branch.commits": "커밋",
