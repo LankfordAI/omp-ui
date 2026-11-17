@@ -13,6 +13,14 @@ const request = (id: unknown, method = "select", title?: string): RpcFrame =>
 const response = (id: string): RpcFrame =>
   ({ type: "extension_ui_response", id, value: "yes" }) as RpcFrame;
 
+const cancel = (id: string, targetId?: unknown): RpcFrame =>
+  ({
+    type: "extension_ui_request",
+    id,
+    method: "cancel",
+    ...(targetId !== undefined ? { targetId } : {}),
+  }) as RpcFrame;
+
 describe("DialogGateTracker (issue #555)", () => {
   it("tracks blocking selects in arrival order and drops them on the answer", () => {
     const gates = new DialogGateTracker();
@@ -74,5 +82,34 @@ describe("DialogGateTracker (issue #555)", () => {
     gates.onSend("t9", response("q1"));
     expect(gates.openFrames("t1").map((f) => f.id)).toEqual(["q1"]);
     expect(gates.openFrames("t9")).toEqual([]);
+  });
+
+  it("drops the targeted dialog on a cancel frame (issue #1191)", () => {
+    const gates = new DialogGateTracker();
+    gates.onFrame("t1", request("q1"));
+    gates.onFrame("t1", request("q2", "confirm"));
+    // omp settled q1 itself (abort/timeout): the cancel carries a fresh frame
+    // id and names q1 as its target. The session must stop reporting it.
+    gates.onFrame("t1", cancel("c1", "q1"));
+    expect(gates.openFrames("t1").map((f) => f.id)).toEqual(["q2"]);
+    expect(gates.hasOpen("t1")).toBe(true);
+
+    // A second answer for a settled frame stays a no-op delete.
+    gates.onSend("t1", response("q1"));
+    expect(gates.openFrames("t1").map((f) => f.id)).toEqual(["q2"]);
+  });
+
+  it("ignores cancels that name no open dialog, another tab, or no target", () => {
+    const gates = new DialogGateTracker();
+    gates.onFrame("t1", request("q1"));
+    gates.onFrame("t1", cancel("c-unknown", "zz"));
+    gates.onFrame("t2", cancel("c-other-tab", "q1"));
+    expect(gates.openFrames("t1").map((f) => f.id)).toEqual(["q1"]);
+
+    // A malformed cancel (no usable targetId) is inert too: never tracked.
+    gates.onFrame("t1", cancel("c-bad"));
+    gates.onFrame("t1", cancel("c-bad", 42));
+    expect(gates.hasOpen("t1")).toBe(true);
+    expect(gates.openFrames("t1").map((f) => f.id)).toEqual(["q1"]);
   });
 });

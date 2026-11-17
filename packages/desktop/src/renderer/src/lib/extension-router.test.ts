@@ -17,6 +17,26 @@ describe("routeExtensionRequest", () => {
     ).toEqual({ action: "open-url" });
   });
 
+  it("routes a cancel to the dialog it targets, never an auto-cancel reply", () => {
+    expect(
+      routeExtensionRequest({
+        type: "extension_ui_request",
+        id: "2",
+        method: "cancel",
+        targetId: "q1",
+      }),
+    ).toEqual({ action: "cancel", targetId: "q1" });
+  });
+
+  it("routes a cancel with no usable target as inert — never auto-cancelled (issue #1191)", () => {
+    for (const frame of [
+      { type: "extension_ui_request", id: "2", method: "cancel" },
+      { type: "extension_ui_request", id: "2", method: "cancel", targetId: 7 },
+    ]) {
+      expect(routeExtensionRequest(frame)).toEqual({ action: "cancel", targetId: null });
+    }
+  });
+
   it("auto-cancels every other method", () => {
     for (const method of [
       "notify",
@@ -24,7 +44,6 @@ describe("routeExtensionRequest", () => {
       "setWidget",
       "setTitle",
       "set_editor_text",
-      "cancel",
     ]) {
       expect(routeExtensionRequest({ type: "extension_ui_request", id: "1", method })).toEqual({
         action: "auto-cancel",

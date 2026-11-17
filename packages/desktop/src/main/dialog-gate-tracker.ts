@@ -1,6 +1,7 @@
 import {
   isBlockingDialogMethod,
   normalizeControlFrame,
+  parseExtensionDialogCancel,
   parsePlanReviewTitle,
   type RpcFrame,
 } from "@omp-ui/core";
@@ -24,6 +25,17 @@ export class DialogGateTracker implements FrameObserver {
   private readonly open = new Map<string, Map<string, RpcFrame>>();
 
   onFrame(tabId: string, frame: RpcFrame): void {
+    // A cancel names a dialog omp already settled itself (abort, timeout;
+    // issue #1191): it leaves the list here, so the published `pendingDialogs`
+    // and `awaitingHumanAnswer` drop it on the same edge. An unknown targetId
+    // is a silent no-op — including a plan-review frame, which was never in
+    // this list (its gate owns it) and stays owned there. A cancel that names
+    // no usable target is inert too: it is tracked as nothing, never answered.
+    const targetId = parseExtensionDialogCancel(frame);
+    if (targetId !== null) {
+      this.open.get(tabId)?.delete(targetId);
+      return;
+    }
     const control = normalizeControlFrame(frame);
     if (control?.kind !== "ext_request" || typeof control.id !== "string") return;
     if (!isBlockingDialogMethod(control.method)) return;

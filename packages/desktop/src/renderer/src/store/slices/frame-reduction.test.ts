@@ -1025,6 +1025,128 @@ describe("handleRpcFrame routing", () => {
     expect(h.useStore.getState().rpc[h.TAB]!.extensionQueue).toHaveLength(1);
   });
 
+  // omp settled these dialogs on its own (aborted approval, timed-out ask)
+  // and says so with a fresh-id cancel frame naming the target (issue #1191).
+  describe("extension cancel frames (issue #1191)", () => {
+    const cancelFrame = (id: string, targetId?: unknown): Record<string, unknown> => ({
+      type: "extension_ui_request",
+      id,
+      method: "cancel",
+      ...(targetId !== undefined ? { targetId } : {}),
+    });
+
+    it("drops the queued dialog the cancel targets and answers nothing", () => {
+      h.useStore.getState().handleRpcFrame(h.TAB, {
+        type: "extension_ui_request",
+        id: "d1",
+        method: "confirm",
+        title: "sure?",
+      });
+      expect(h.useStore.getState().rpc[h.TAB]!.extensionQueue).toHaveLength(1);
+      h.sent.length = 0;
+      h.useStore.getState().handleRpcFrame(h.TAB, cancelFrame("c1", "d1"));
+      const tab = h.useStore.getState().rpc[h.TAB]!;
+      expect(tab.extensionQueue).toEqual([]);
+      // No reply — omp already dropped its pending request when it sent the
+      // cancel; no marker — the card disappearing is the whole event.
+      expect(h.sent).toEqual([]);
+      expect(tab.items).toEqual([]);
+    });
+
+    it("leaves other queued dialogs untouched and keeps their order", () => {
+      h.useStore.getState().handleRpcFrame(h.TAB, {
+        type: "extension_ui_request",
+        id: "d1",
+        method: "confirm",
+        title: "first?",
+      });
+      h.useStore.getState().handleRpcFrame(h.TAB, {
+        type: "extension_ui_request",
+        id: "d2",
+        method: "select",
+        title: "second?",
+        options: ["a", "b"],
+      });
+      h.sent.length = 0;
+      h.useStore.getState().handleRpcFrame(h.TAB, cancelFrame("c1", "d1"));
+      const tab = h.useStore.getState().rpc[h.TAB]!;
+      expect(tab.extensionQueue).toEqual([
+        expect.objectContaining({ id: "d2" }),
+      ]);
+      expect(h.sent).toEqual([]);
+    });
+
+    it("dismisses the held approval card and answers nothing", () => {
+      h.useStore.getState().handleRpcFrame(h.TAB, {
+        type: "extension_ui_request",
+        id: "a1",
+        method: "select",
+        title: "Allow tool: Bash\nls -la",
+        options: ["Approve", "Deny"],
+      });
+      expect(h.useStore.getState().rpc[h.TAB]!.approvalPrompt).toMatchObject({
+        frame: { id: "a1" },
+      });
+      h.sent.length = 0;
+      h.useStore.getState().handleRpcFrame(h.TAB, cancelFrame("c1", "a1"));
+      const tab = h.useStore.getState().rpc[h.TAB]!;
+      expect(tab.approvalPrompt).toBeNull();
+      expect(h.sent).toEqual([]);
+      expect(tab.items).toEqual([]);
+    });
+
+    it("dismisses a held experiment proposal without answering or replying", () => {
+      h.useStore.setState({ tabs: [tabInfo({ tabId: h.TAB, projectCwd: "/p" })], experimentDialog: null });
+      try {
+        const frame = {
+          type: "extension_ui_request",
+          id: "prop-1",
+          method: "select",
+          title:
+            EXPERIMENT_PROPOSAL_SENTINEL +
+            JSON.stringify({
+              goal: "faster",
+              metric: "t",
+              unit: "ms",
+              direction: "lower",
+              command: null,
+              scopePaths: [],
+              offLimits: [],
+              constraints: [],
+              maxIterations: null,
+              brief: null,
+            }),
+          options: ["launch", "revise"],
+        };
+        h.useStore.getState().handleRpcFrame(h.TAB, frame);
+        expect(h.useStore.getState().rpc[h.TAB]!.experimentProposal).not.toBeNull();
+        h.sent.length = 0;
+        h.useStore.getState().handleRpcFrame(h.TAB, cancelFrame("c1", "prop-1"));
+        expect(h.useStore.getState().rpc[h.TAB]!.experimentProposal).toBeNull();
+        expect(h.sent).toEqual([]);
+      } finally {
+        h.useStore.setState({ tabs: [], experimentDialog: null });
+      }
+    });
+
+    it("ignores a cancel for an unknown target or with no usable targetId", () => {
+      h.useStore.getState().handleRpcFrame(h.TAB, {
+        type: "extension_ui_request",
+        id: "d1",
+        method: "confirm",
+        title: "sure?",
+      });
+      h.sent.length = 0;
+      h.useStore.getState().handleRpcFrame(h.TAB, cancelFrame("c1", "zz"));
+      h.useStore.getState().handleRpcFrame(h.TAB, cancelFrame("c2", 7));
+      h.useStore.getState().handleRpcFrame(h.TAB, cancelFrame("c3"));
+      const tab = h.useStore.getState().rpc[h.TAB]!;
+      expect(tab.extensionQueue).toHaveLength(1);
+      expect(h.sent).toEqual([]);
+      expect(tab.items).toEqual([]);
+    });
+  });
+
   it("routes an approval select to the approval card, never the queue (issue #681)", () => {
     h.useStore.getState().handleRpcFrame(h.TAB, {
       type: "extension_ui_request",

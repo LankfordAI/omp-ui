@@ -120,7 +120,11 @@ export { batched } from "./pty-batch";
 export * from "./session-command";
 export { settledWithin } from "./promise-utils";
 export { writeTextAtomic } from "./atomic-write";
-export { BLOCKING_DIALOG_METHODS, isBlockingDialogMethod } from "./extension-dialog";
+export {
+  BLOCKING_DIALOG_METHODS,
+  isBlockingDialogMethod,
+  parseExtensionDialogCancel,
+} from "./extension-dialog";
 export * from "./approval";
 export { escapeHtml } from "./html";
 export { watchLineageDir, type LineageEvent } from "./watcher";

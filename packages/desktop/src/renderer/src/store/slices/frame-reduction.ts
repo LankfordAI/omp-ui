@@ -882,6 +882,39 @@ export function createFrameReductionSlice(
             m.patchRpc(tabId, { extensionQueue: [...tab.extensionQueue, frame] });
             return;
           }
+          if (action.action === "cancel") {
+            // omp settled this dialog on its own — an aborted tool approval or
+            // a timed-out ask — and had already dropped its pending request
+            // when it emitted the frame (issue #1191). Dismiss whatever the
+            // targetId names: a queued dialog, a held approval, a held
+            // experiment proposal. Answer nothing and stamp no marker — there
+            // is no request left to answer, and the card disappearing is the
+            // whole event. A plan-review frame belongs to its gate (main's
+            // DialogGateTracker applies the same exclusion), so it is never
+            // dismissed here; an unknown targetId is a silent no-op. Main
+            // drops the frame from its own tracker on the same edge, so the
+            // published `pendingDialogs` and the sidebar's awaiting-answer
+            // level converge on "nothing pending".
+            const targetId = action.targetId;
+            if (targetId !== null) {
+              const queue = tab.extensionQueue.filter(
+                (q) => strField(q, "id") !== targetId,
+              );
+              if (queue.length !== tab.extensionQueue.length)
+                m.patchRpc(tabId, { extensionQueue: queue });
+              if (
+                tab.approvalPrompt !== null &&
+                strField(tab.approvalPrompt.frame, "id") === targetId
+              )
+                m.patchRpc(tabId, { approvalPrompt: null });
+              if (
+                tab.experimentProposal !== null &&
+                strField(tab.experimentProposal.frame, "id") === targetId
+              )
+                m.patchRpc(tabId, { experimentProposal: null });
+            }
+            return;
+          }
           if (action.action === "open-url") {
             const url = strField(frame, "url");
             const id = frameId;
