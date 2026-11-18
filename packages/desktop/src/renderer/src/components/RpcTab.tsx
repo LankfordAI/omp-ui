@@ -438,7 +438,7 @@ export const RpcTab = memo(function RpcTab({ tabId, active }: { tabId: string; a
 
   const content = (
     <div className="ambient relative flex h-full flex-col stage-surface">
-      {compact && <SessionHud tabId={tabId} />}
+      {compact && <SessionHud tabId={tabId} active={active} />}
 
       {/* The find bar (issue #270) rides the tab's top edge. While the
           subagent view or plan-review dock owns the surface — or the tab has
@@ -632,7 +632,7 @@ export const RpcTab = memo(function RpcTab({ tabId, active }: { tabId: string; a
           </div>
           {pane?.open === true && !paneColumn && !compact && <BrowserPaneSplit tabId={tabId} />}
           {device?.open === true && !deviceColumn && !compact && <DevicePaneSplit tabId={tabId} />}
-          <InspectorRail tabId={tabId} />
+          <InspectorRail tabId={tabId} active={active} />
         </div>
         <ConsoleDrawer tabId={tabId} />
         {compact && active && (

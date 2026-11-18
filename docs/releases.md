@@ -10,6 +10,7 @@ Changes since [v0.36.1](https://github.com/LankfordAI/omp-ui/releases/tag/v0.36.
 - omp-ui now requires omp 18.22.0: below it the launch check auto-upgrades (unless Auto-upgrade is off or `OMP_UI_OMP_PATH` pins a binary). Seance consult is gone — omp 18.20.3 removed the agent it ran on — so the rail's Ask group, the sidebar row, and `/seance` no longer offer it. Session references and Ask chats point the model at the transcript file or `archive.session(path)` instead (#1214).
 - **Share theme usage** is a new desktop setting, on by default with an opt-out. In packaged builds it shares which built-in or official repository theme is in use at most once per foreground hour. Other themes are grouped without names or files. Basic activity and model/provider sharing are unchanged (#1223).
 - The native composer formats inline code and fenced blocks as you type. Three backticks open an editable code box, Enter inside the box never sends, and copy and Send preserve the original Markdown (#1222).
+- In the compact shell, only the displayed session mounts the inspector and session-actions sheets. Hidden tabs stay mounted behind `display:none` and the sheets portal to the window body, so a background tab could previously lay its own copy over the visible session or claim the surface from a pane request (#1117).
 
 ## Choose a download
 

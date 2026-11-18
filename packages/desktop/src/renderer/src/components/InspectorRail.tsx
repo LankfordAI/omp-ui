@@ -1436,7 +1436,7 @@ function MemberTabs({
   );
 }
 
-export function InspectorRail({ tabId }: { tabId: string }) {
+export function InspectorRail({ tabId, active = true }: { tabId: string; active?: boolean }) {
   const t = useT();
   const [sel, setSel] = useState<RailSelection>(() => selection.get(tabId) ?? DEFAULT_SELECTION);
   const baseId = useId();
@@ -1485,9 +1485,14 @@ export function InspectorRail({ tabId }: { tabId: string }) {
     if (focusRequest === undefined || handledFocus.get(tabId) === focusRequest.nonce) return;
     handledFocus.set(tabId, focusRequest.nonce);
     pickPane(focusRequest.pane);
-    if (compact) showCompactSurface("inspector");
-    else setOpen(true);
-  }, [focusRequest, tabId, compact, setOpen, showCompactSurface, pickPane]);
+    // `compactSurface` is app-global: a hidden tab must never claim it — the
+    // pane's sheet would mount portaled over the displayed session (the #549
+    // browser-pane rule, issue #1117). Its remembered selection still lands
+    // in the per-tab map, so the pane is ready when the tab resurfaces.
+    if (compact) {
+      if (active) showCompactSurface("inspector");
+    } else setOpen(true);
+  }, [focusRequest, tabId, compact, active, setOpen, showCompactSurface, pickPane]);
 
   const resolvedWidths = resolveDesktopPanelWidths({
     viewportWidth,
@@ -1550,8 +1555,12 @@ export function InspectorRail({ tabId }: { tabId: string }) {
     : { id: `${baseId}-panel`, role: "tabpanel" as const, "aria-labelledby": `${baseId}-tab-${shownTab}` };
 
   if (compact) {
+    // Only the displayed session's rail may mount the app-global inspector
+    // sheet: every tab stays mounted behind `display:none`, and the sheet
+    // portals to body, so an unscoped hidden tab would overlay its own copy
+    // on the visible session and steal focus/back (issue #1117).
     return (
-      <Sheet open={surface === "inspector"} placement="right" label={t("rail.chrome.inspector")} onClose={closeCompactSurface}>
+      <Sheet open={active && surface === "inspector"} placement="right" label={t("rail.chrome.inspector")} onClose={closeCompactSurface}>
         <div className="sticky top-0 z-10 bg-sunken">
           <div className={cn("grid border-b border-line", groups.length === 4 ? "grid-cols-4" : "grid-cols-3")}>
             {groups.map(({ id, labelKey, members }) => {

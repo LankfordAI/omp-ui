@@ -1069,6 +1069,71 @@ describe("desktop InspectorRail", () => {
   });
 });
 
+// issue #1117: every tab stays mounted behind `display:none` and the compact
+// sheets portal to body, so an unscoped background rail would portal a second
+// inspector sheet over the displayed session — or claim the app-global
+// surface itself when a pane request names it.
+describe("compact inspector sheet ownership (issue #1117)", () => {
+  const BG = "tab-inspector-background";
+
+  function seedTwoTabs(): void {
+    const group = state.projects[0]!;
+    useStore.setState({
+      state: {
+        ...state,
+        projects: [{
+          ...group,
+          sessions: [...group.sessions, { ...group.sessions[0]!, tabId: BG, sessionId: "session-background", title: "Background" }],
+        }],
+      },
+      rpc: { [TAB]: runtime(), [BG]: runtime() },
+      compactSurface: null,
+      railPaneFocus: {},
+    });
+  }
+
+  function renderRails(displayed: string): void {
+    const host = document.createElement("div");
+    document.body.appendChild(host);
+    root = createRoot(host);
+    act(() =>
+      root!.render(
+        <>
+          {[TAB, BG].map((tab) => (
+            <InspectorRail key={tab} tabId={tab} active={tab === displayed} />
+          ))}
+        </>,
+      ),
+    );
+  }
+
+  it("mounts the inspector sheet only on the displayed rail", () => {
+    Object.defineProperty(window, "matchMedia", {
+      configurable: true,
+      value: vi.fn(() => ({ matches: true, addEventListener: vi.fn(), removeEventListener: vi.fn() })),
+    });
+    seedTwoTabs();
+    useStore.setState({ compactSurface: "inspector" });
+    renderRails(TAB);
+    expect(document.body.querySelectorAll('[role="dialog"][aria-label="inspector"]')).toHaveLength(1);
+  });
+
+  it("never lets a hidden tab's pane request claim the app-global sheet", () => {
+    Object.defineProperty(window, "matchMedia", {
+      configurable: true,
+      value: vi.fn(() => ({ matches: true, addEventListener: vi.fn(), removeEventListener: vi.fn() })),
+    });
+    seedTwoTabs();
+    renderRails(TAB);
+    act(() => useStore.getState().focusRailPane(BG, "diffs"));
+    expect(useStore.getState().compactSurface).toBeNull();
+    expect(document.body.querySelectorAll('[role="dialog"][aria-label="inspector"]')).toHaveLength(0);
+    act(() => useStore.getState().focusRailPane(TAB, "diffs"));
+    expect(useStore.getState().compactSurface).toBe("inspector");
+    expect(document.body.querySelectorAll('[role="dialog"][aria-label="inspector"]')).toHaveLength(1);
+  });
+});
+
 describe("Jobs pane (issue #835)", () => {
   const runningJob = {
     id: "bg_1",

@@ -958,6 +958,50 @@ describe("compact Session HUD", () => {
   });
 });
 
+// issue #1117: every tab stays mounted behind `display:none` and the compact
+// sheets portal to body, so an unscoped hidden HUD portal-lands its own
+// actions sheet over the displayed session.
+describe("compact HUD sheet ownership (issue #1117)", () => {
+  const BG = "tab-mobile-background";
+
+  function seedTwoTabs(): void {
+    const group = state.projects[0]!;
+    useStore.setState({
+      state: {
+        ...state,
+        projects: [{
+          ...group,
+          sessions: [...group.sessions, { ...group.sessions[0]!, tabId: BG, sessionId: "s-background", title: "Background" }],
+        }],
+      },
+      rpc: {
+        [TAB]: rpcTabState({ status: "ready", hasRenamed: true }),
+        [BG]: rpcTabState({ status: "ready", hasRenamed: true }),
+      },
+      compactSurface: null,
+    });
+  }
+
+  it("mounts the actions sheet only on the displayed tab", () => {
+    seedTwoTabs();
+    useStore.setState({ compactSurface: "session-actions" });
+    const host = document.createElement("div"); document.body.append(host); root = createRoot(host);
+    act(() => root!.render(
+      <>
+        {[TAB, BG].map((tabId) => (
+          <div key={tabId} style={{ display: tabId === TAB ? undefined : "none" }}>
+            <SessionHud tabId={tabId} active={tabId === TAB} />
+          </div>
+        ))}
+      </>,
+    ));
+    const sheets = [...document.body.querySelectorAll<HTMLElement>('[role="dialog"][aria-label="session actions"]')];
+    expect(sheets).toHaveLength(1);
+    expect(sheets[0]!.textContent).toContain("Mobile session");
+    expect(sheets[0]!.textContent).not.toContain("Background");
+  });
+});
+
 describe("SessionHud stream-stall chip (issue #228)", () => {
   const desktop = (): void => {
     Object.defineProperty(window, "matchMedia", {
