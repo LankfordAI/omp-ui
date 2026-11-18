@@ -1,6 +1,7 @@
-// Zero-import on purpose: the renderer bundles this file to label and group the
-// providers page, exactly like omp-settings-keys.ts. Node-only logic (reading,
-// decrypting, and resolving the values) lives in provider-keys.ts.
+// Zero Node-import on purpose: the renderer bundles this file to label and
+// group the providers page, exactly like omp-settings-keys.ts. Node-only logic
+// (reading, decrypting, and resolving the values) lives in provider-keys.ts.
+import { compareVersions } from "./semver";
 //
 // The list is transcribed from omp's own `--help` environment table (re-verified
 // against v18.11.1), which is the authority on which variable name authenticates
@@ -120,13 +121,37 @@ export function providerSpecById(id: string): ProviderKeySpec | undefined {
  * rpc `login` handler rejects a prompt that arrives before the first auth URL
  * outright (`packages/coding-agent/src/modes/rpc/rpc-mode.ts`, the `login`
  * case: "requires interactive prompts which are not supported in RPC mode").
- * No host can answer it, so omp-ui never starts these sign-ins (issue #1197).
+ * No host could answer it before omp 18.22.1, which started routing the
+ * prompt to RPC hosts (upstream #19527); older binaries still need a terminal,
+ * which is what the rows fall back to (issue #1197).
  */
 export const OAUTH_LOGIN_RISK_NAME_SUFFIX = " (at your own risk)";
 
 /** True when a `get_login_providers` name carries omp's login-risk suffix. */
 export function oauthLoginRiskFromRosterName(name: string): boolean {
   return name.endsWith(OAUTH_LOGIN_RISK_NAME_SUFFIX);
+}
+
+/**
+ * The first omp whose rpc `login` answers the risk-warning prompt for RPC
+ * hosts (upstream #19527, merged 2026-11-17): the prompt carries a
+ * `riskAcknowledgement` marker and the handler routes it as an ordinary
+ * `extension_ui_request` `input` (warning text as `title`, `placeholder:
+ * "yes"`) instead of rejecting every pre-`onAuth` prompt. Verified live on
+ * omp/18.22.2: a risk row's login emits the input frame, and an answer other
+ * than "yes" ends the login with "Login cancelled". Below this version — and
+ * for an unknown version — the prompt is unanswerable and the sign-in must run
+ * in a terminal (issue #1197).
+ */
+export const RPC_RISK_LOGIN_MIN_OMP = "18.22.1";
+
+/**
+ * True when the installed omp can drive a risk-warning sign-in over RPC.
+ * Unknown version is unsupported: an older binary rejects the prompt outright,
+ * and the terminal path always works.
+ */
+export function supportsRpcRiskLogin(ompVersion: string | null): boolean {
+  return ompVersion !== null && compareVersions(ompVersion, RPC_RISK_LOGIN_MIN_OMP) >= 0;
 }
 
 /** The exact terminal command that completes a sign-in RPC mode cannot. */
@@ -169,9 +194,12 @@ export interface OAuthProviderSpec {
   hint: string;
   /**
    * True when the roster entry carries omp's login-risk suffix: the sign-in
-   * cannot be answered over RPC and must run in a terminal (issue #1197).
+   * answers an account-risk prompt before any auth URL. On binaries below
+   * {@link RPC_RISK_LOGIN_MIN_OMP} that prompt cannot be answered over RPC and
+   * the row publishes `requiresTerminalLogin`; on newer binaries the row signs
+   * in over RPC like any other (issue #1197).
    */
-  requiresTerminalLogin?: boolean;
+  riskWarningLogin?: boolean;
 }
 
 /**
@@ -210,7 +238,7 @@ export function resolveOAuthProviderSpecs(
     const provider = firstById.get(spec.providerId);
     if (provider?.available === true) {
       const risk = oauthLoginRiskFromRosterName(provider.name);
-      specs.push(risk ? { ...spec, requiresTerminalLogin: true } : spec);
+      specs.push(risk ? { ...spec, riskWarningLogin: true } : spec);
     }
     firstById.delete(spec.providerId);
   }
@@ -224,7 +252,7 @@ export function resolveOAuthProviderSpecs(
         ? provider.name.slice(0, -OAUTH_LOGIN_RISK_NAME_SUFFIX.length)
         : provider.name,
       hint: provider.id,
-      ...(risk ? { requiresTerminalLogin: true } : {}),
+      ...(risk ? { riskWarningLogin: true } : {}),
     });
   }
   return specs;

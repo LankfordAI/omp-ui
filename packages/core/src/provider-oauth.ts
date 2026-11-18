@@ -3,9 +3,11 @@ import {
   isOmpRpcLoginBlockedError,
   OAUTH_PROVIDER_SPECS,
   resolveOAuthProviderSpecs,
+  supportsRpcRiskLogin,
   terminalLoginExplanation,
   type OAuthProviderSpec,
 } from "./provider-catalog";
+import { readInstalledOmpVersion } from "./omp-update";
 import { RpcClient, type RpcSpawnFn } from "./rpc/client";
 import type { RpcFrame } from "./rpc/codec";
 import type { ProviderCredential, ProviderOAuthState, ProviderOAuthStatus, ProviderSignOutResult } from "./types";
@@ -25,6 +27,8 @@ export interface ProviderOAuthDeps {
   /** Host-side browser launch for the open_url frame (desktop: openExternalSafe). */
   onOpenUrl?: (url: string) => void;
   spawnProcess?: RpcSpawnFn;
+  /** Reads the installed omp version once per refresh; inject for tests. */
+  readVersion?: (ompPath: string) => Promise<string | null>;
 }
 
 interface ActiveFlow {
@@ -55,6 +59,13 @@ export class ProviderOAuth {
   #state: ProviderOAuthState = IDLE_PROVIDER_OAUTH_STATE;
   #flow: ActiveFlow | null = null;
   /**
+   * The sampled version of the binary the last committed snapshot belongs to
+   * (null = unknown). Decides whether risk-warning rows keep their terminal
+   * sign-in or run over RPC (issue #1197); refreshed with every snapshot, and
+   * reset with the catalog when the binary path changes.
+   */
+  #ompVersion: string | null = null;
+  /**
    * Bumped when a flow is installed (after its child is up) and on every
    * cancel(), including a cancel that dismisses a terminal state with no
    * live child: the post-login account refresh outlives #settle, and a
@@ -75,20 +86,31 @@ export class ProviderOAuth {
       id: spec.id, providerId: spec.providerId, label: spec.label, hint: spec.hint,
       credentials: this.#accounts.get(spec.providerId) ?? [],
       accountsUnsupported: this.#accountsUnsupported,
-      ...(spec.requiresTerminalLogin === true ? { requiresTerminalLogin: true } : {}),
+      ...(this.#terminalOnly(spec) ? { requiresTerminalLogin: true } : {}),
     }));
   }
 
   /**
+   * True when this risk-warning row's sign-in still must run in a terminal:
+   * omp only started answering the account-risk prompt for RPC hosts in
+   * {@link supportsRpcRiskLogin}, and an unknown version is treated as old.
+   */
+  #terminalOnly(spec: OAuthProviderSpec): boolean {
+    return spec.riskWarningLogin === true && !supportsRpcRiskLogin(this.#ompVersion);
+  }
+
+  /**
    * The discovered provider ids whose sign-in must run in a terminal (issue
-   * #1197). Main hands this to the console ShellHost so an `omp login` spawn is
-   * admitted only for a row omp itself flagged; before the first refresh the
-   * list is static-catalog-only, which contains no risk rows — a refusal there
-   * is safe (the row UI shows the terminal command regardless).
+   * #1197) — the rows the page currently shows with "Sign in in terminal".
+   * Main hands this to the console ShellHost so an `omp login` spawn is
+   * admitted only for a row omp itself flagged and its version cannot answer
+   * over RPC; before the first refresh the list is static-catalog-only, which
+   * contains no risk rows — a refusal there is safe (the row UI shows the
+   * terminal command regardless).
    */
   terminalLoginProviderIds(): string[] {
     return this.#specs
-      .filter((spec) => spec.requiresTerminalLogin === true)
+      .filter((spec) => this.#terminalOnly(spec))
       .map((spec) => spec.providerId);
   }
 
@@ -128,10 +150,18 @@ export class ProviderOAuth {
     generation: number,
     signal: AbortSignal,
   ): Promise<ProviderOAuthStatus[]> {
-    const read = await readProviderAccounts({
-      ompPath, scratchDir: this.deps.scratchDir,
-      spawnProcess: this.deps.spawnProcess, signal,
-    });
+    const [read, version] = await Promise.all([
+      readProviderAccounts({
+        ompPath, scratchDir: this.deps.scratchDir,
+        spawnProcess: this.deps.spawnProcess, signal,
+      }),
+      // The version belongs to the same binary the roster came from: one
+      // sample per snapshot decides whether risk rows sign in over RPC or in
+      // a terminal (issue #1197). A failed read is null = old binary = terminal.
+      ompPath === null
+        ? Promise.resolve<string | null>(null)
+        : (this.deps.readVersion ?? readInstalledOmpVersion)(ompPath),
+    ]);
     if (signal.aborted || generation !== this.#refreshGeneration) return this.statuses();
     if (read === null) {
       // Transport failure: a committed roster stays authoritative for its own
@@ -142,6 +172,7 @@ export class ProviderOAuth {
         this.#accounts = new Map();
         this.#accountsUnsupported = false;
         this.#catalogPath = ompPath;
+        this.#ompVersion = version;
       }
       return this.statuses();
     }
@@ -154,6 +185,7 @@ export class ProviderOAuth {
       ]));
       this.#accountsUnsupported = !read.ok;
       this.#catalogPath = ompPath;
+      this.#ompVersion = version;
     }
     return this.statuses();
   }
@@ -183,10 +215,11 @@ export class ProviderOAuth {
     const spec = this.#specs.find((entry) => entry.id === id);
     if (spec === undefined) throw new Error(`unknown sign-in provider: ${id}`);
     // A login-risk provider's "type yes" prompt fires before any auth URL and
-    // omp's rpc login handler rejects it outright (issue #1197): never spawn a
-    // child that cannot finish. The row already shows the terminal command;
-    // this guard covers callers that reach start() without the row state.
-    if (spec.requiresTerminalLogin === true) {
+    // omp's rpc login handler rejects it on binaries older than
+    // RPC_RISK_LOGIN_MIN_OMP (issue #1197): never spawn a child that cannot
+    // finish. The row already offers the terminal sign-in; this guard covers
+    // callers that reach start() without the row state.
+    if (this.#terminalOnly(spec)) {
       throw new Error(terminalLoginExplanation(spec.providerId));
     }
     if (this.#flow !== null) throw new Error("a provider sign-in is already in progress");

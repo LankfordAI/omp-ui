@@ -347,9 +347,19 @@ function ProviderSignInRow({
 
       {mine && (flow.phase === "browser" || flow.phase === "input") && (
         <div className="mt-2 space-y-1.5">
-          <p className="break-words text-sm leading-relaxed text-ink-dim">
-            {t("settings.providers.oauthBrowser")}
-          </p>
+          {flow.url === null && flow.phase === "input" && flow.prompt !== null ? (
+            // omp's account-risk warning arrives before any auth URL (omp ≥
+            // 18.22.1 routes it to RPC hosts, issue #1197): the user must read
+            // omp's own text before typing "yes". There is no browser page yet
+            // to finish anything in, so it replaces the browser note.
+            <p className="whitespace-pre-wrap break-words text-sm leading-relaxed text-ink-dim">
+              {flow.prompt.title}
+            </p>
+          ) : (
+            <p className="break-words text-sm leading-relaxed text-ink-dim">
+              {t("settings.providers.oauthBrowser")}
+            </p>
+          )}
           {flow.instructions !== null && (
             <p className="whitespace-pre-wrap break-words text-sm leading-relaxed text-ink-faint">
               {flow.instructions}
