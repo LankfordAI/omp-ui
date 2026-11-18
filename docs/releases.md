@@ -6,6 +6,8 @@ This guide explains what users receive from a release and how maintainers publis
 
 Nothing since [v0.37.0](https://github.com/LankfordAI/omp-ui/releases/tag/v0.37.0). Add one bullet per shipped change here, citing its issue as `#N`; the release tag lifts these into Highlights.
 
+- Pasting a clipboard image or PDF into the native composer attaches it again; v0.37.0's editor swap had dropped image and PDF paste while text paste kept working (#1225).
+
 ## Choose a download
 
 A stable release has exactly five distributable files. Replace `<version>` with the tag version without its leading `v`.

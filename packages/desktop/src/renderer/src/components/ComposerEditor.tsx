@@ -236,8 +236,9 @@ function canFocus(view: EditorView): boolean {
   return true;
 }
 
+// Paste targets the caret's .cm-line, not the content root; keys target the root.
 function editableTarget(view: EditorView | null, target: EventTarget): view is EditorView {
-  return view !== null && target === view.contentDOM && !view.state.readOnly;
+  return view !== null && target instanceof Node && view.contentDOM.contains(target) && !view.state.readOnly;
 }
 
 export function ComposerEditor(props: ComposerEditorProps) {
