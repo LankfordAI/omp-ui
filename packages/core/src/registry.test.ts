@@ -121,6 +121,18 @@ describe("theme telemetry consent", () => {
     loaded.setSetting("telemetryThemesConsentId", null);
     expect(Registry.load(file).getSetting("telemetryThemesConsentId")).toBeNull();
   });
+
+  it.each([false, true])("seeds desktop sharing once and preserves opt-out (existing registry: %s)", (existing) => {
+    const file = tmpFile();
+    if (existing) fs.writeFileSync(file, JSON.stringify({ schemaVersion: 1, settings: {} }));
+    const options = { defaultThemeSharingOn: true };
+    const id = Registry.load(file, options).getSetting("telemetryThemesConsentId");
+    expect(id).toMatch(/^[0-9a-f-]{36}$/);
+    const restarted = Registry.load(file, options);
+    expect(restarted.getSetting("telemetryThemesConsentId")).toBe(id);
+    restarted.setSetting("telemetryThemesConsentId", null);
+    expect(Registry.load(file, options).getSetting("telemetryThemesConsentId")).toBeNull();
+  });
 });
 
 describe("SETTINGS", () => {

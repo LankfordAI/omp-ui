@@ -1088,7 +1088,7 @@ export const en = {
     "On by default; switch off to opt out. Sends public model/provider request and token aggregates after each UTC hour closes. Checks run every minute; Stats freshness can delay delivery, and later launches catch up. Turning this off does not stop basic app activity reporting.",
   "settings.general.telemetryThemes": "Share theme usage",
   "settings.general.telemetryThemesHint":
-    "Off by default. In packaged desktop builds, shares the built-in or official repository theme in use, at most once per foreground hour, with the same installation ID as basic activity. Other themes are grouped without names or files. Turning this off stops future theme reports without changing other telemetry.",
+    "On by default. In packaged desktop builds, shares the built-in or official repository theme in use, at most once per foreground hour, with the same installation ID as basic activity. Other themes are grouped without names or files. Turning this off stops future theme reports without changing other telemetry.",
   "settings.general.deviceAgentAccess": "Agents can use devices",
   "settings.general.deviceAgentAccessHint":
     "Gives sessions started or resumed after this change the omp-ui_device tool, which drives the Android emulator in the device pane. Needs the Android SDK (adb and emulator).",

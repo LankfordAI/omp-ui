@@ -461,7 +461,7 @@ export class MainBackend {
     this.breadcrumbs = opts.breadcrumbs ?? NO_BREADCRUMBS;
     this.historyEnv = opts.historyEnv ?? process.env;
     this.appVersion = opts.appVersion ?? app.getVersion();
-    this.registry = Registry.load(registryFile);
+    this.registry = Registry.load(registryFile, { defaultThemeSharingOn: true });
     if (this.registry.getSetting("instanceId") === "") this.registry.setSetting("instanceId", randomUUID());
     this.usageTelemetry = new UsageTelemetry({
       enabled: app.isPackaged,

@@ -220,7 +220,7 @@ reads or collection retain useful data with its original selection/source label.
 activity reporting is automatic in packaged builds: there is no opt-out registry
 setting, backend channel, or UI switch. `telemetryModelsEnabled` defaults on, with
 an opt-out switch; an explicitly stored false remains false. Theme sharing is a
-separate, desktop-only opt-in that defaults off even on upgrade. Its validated
+separate, desktop-only setting that defaults on when unset; a saved off stays off. Its validated
 v4 consent generation stays in the host registry; state broadcasts expose only
 the derived Boolean (always false in Host Lite). No remote caller or agent tool
 can change that consent. Preference commits reconcile revoked delivery
