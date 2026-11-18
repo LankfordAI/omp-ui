@@ -1100,6 +1100,41 @@ describe("Composer attachment picker", () => {
 
 });
 
+describe("Composer clipboard paste", () => {
+  // Chromium targets paste at the caret's line, not CodeMirror's content root.
+  function pasteIntoLine(clipboardData: Partial<DataTransfer>): Event {
+    const line = composerInput().querySelector<HTMLElement>(".cm-line")!;
+    // jsdom has no ClipboardEvent constructor; React only needs the type and clipboardData.
+    const event = new Event("paste", { bubbles: true, cancelable: true });
+    Object.defineProperty(event, "clipboardData", { value: clipboardData });
+    line.dispatchEvent(event);
+    return event;
+  }
+
+  it("attaches a clipboard image pasted at the caret's line", async () => {
+    clipboardImageMock.hasClipboardImage.mockReturnValue(true);
+    clipboardImageMock.readClipboardImages.mockResolvedValueOnce({ images: [IMAGE_ONE], rejected: [] });
+    seed("ready"); renderComposer();
+    const clipboardData = { types: ["Files"], items: [], files: [], getData: () => "" } as unknown as DataTransfer;
+
+    await act(async () => {
+      pasteIntoLine(clipboardData);
+      await Promise.resolve();
+    });
+
+    expect(clipboardImageMock.readClipboardImages).toHaveBeenCalledWith(clipboardData);
+    expect(document.body.querySelectorAll('img[alt^="attachment "]')).toHaveLength(1);
+
+    typeDraft("look");
+    await act(async () => {
+      [...document.body.querySelectorAll<HTMLButtonElement>("button")]
+        .find((button) => button.textContent === "Send")!
+        .click();
+    });
+    expect(sendPrompt).toHaveBeenCalledWith(TAB, "look", "prompt", [IMAGE_ONE], [], { annotations: [], references: [], artifactReferences: [], refreshes: [] });
+  });
+});
+
 describe("Composer annotation chips (issue #983)", () => {
   const ANNOTATION = { quote: "the retry loop never backs off", comment: "add jitter here" };
   const sendButton = (): HTMLButtonElement =>
