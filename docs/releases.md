@@ -4,12 +4,7 @@ This guide explains what users receive from a release and how maintainers publis
 
 ## Unreleased
 
-Nothing since [v0.37.0](https://github.com/LankfordAI/omp-ui/releases/tag/v0.37.0). Add one bullet per shipped change here, citing its issue as `#N`; the release tag lifts these into Highlights.
-
-- Pasting a clipboard image or PDF into the native composer attaches it again; v0.37.0's editor swap had dropped image and PDF paste while text paste kept working (#1225).
-- With *Let agents dispatch fleet work* on, a native session keeps its repository changes in its own checkout and dispatches another repository's change to a session in that project; the sidebar lists the sessions it dispatched under its tile as a dispatch tether, and each dispatched session links back to it with a ↳ marker and a clickable *Dispatched by* chip (#1226).
-- Every native session, chats included, now gets project scope guidance, and the guidance covers files outside every repository: the agent edits shell startup files, `~/.config`, or `/etc` only when you ask, asks before changing omp's agent folder, never edits omp-ui's or omp's own data, and lists every such change in its final reply; sessions without the fleet tools tell you what another repository needs (#1227).
-- An agent can ask to register an existing checkout or clone an https or SSH repository as a project on this computer through `omp-ui_fleet_project`; a card in the session shows what it found and, for a clone, where it will be saved, and only Allow adds the project (#1228).
+Nothing since [v0.37.1](https://github.com/LankfordAI/omp-ui/releases/tag/v0.37.1). Add one bullet per shipped change here, citing its issue as `#N`; the release tag lifts these into Highlights.
 
 ## Choose a download
 
