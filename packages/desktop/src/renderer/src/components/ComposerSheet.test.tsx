@@ -234,6 +234,12 @@ describe("ComposerSheet", () => {
     seed("ready");
     useStore.setState({ setThinkingLevel: realSetThinkingLevel });
     render(true);
+    // The sheet claims initial focus from a requestAnimationFrame once it is
+    // mounted (ui/overlays.tsx useOverlay), so that handoff is still queued
+    // when the render settles. Drain the frame — the real signal, never a
+    // guessed sleep — or it lands later and steals focus mid-assertion from
+    // this test's own focus tracking (the CapabilitiesViewer.test.tsx pattern).
+    await act(async () => new Promise<void>((resolveFrame) => requestAnimationFrame(() => resolveFrame())));
     const dialog = document.querySelector('[role="dialog"]')!;
     const auto = dialog.querySelector<HTMLButtonElement>('button[role="switch"][aria-label="auto"]')!;
     const thinking = dialog.querySelector('[role="group"][aria-label="thinking"]')!;

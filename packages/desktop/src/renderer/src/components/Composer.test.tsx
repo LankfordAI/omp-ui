@@ -7,6 +7,7 @@ import type { BranchList, RemoteInstanceSummary, ServiceTier } from "@omp-ui/cor
 import type { CapabilitySnapshot } from "@omp-ui/core/capabilities";
 import { MAGIC_KEYWORDS, type MagicKeyword } from "@omp-ui/core/magic-keywords";
 import { backendState, remoteInstance, remoteOwnedState, rpcTabState } from "../test/fixtures";
+import { composerEditorHarness } from "../test/composer-editor";
 import type { RpcTabState } from "../store";
 import { emptySessionRuntime, type SlashCommandInfo } from "../lib/rpc-types";
 import { t } from "../lib/i18n";
@@ -174,32 +175,9 @@ function renderRpcTab(): void {
   act(() => root!.render(<RpcTab tabId={TAB} active={false} />));
 }
 
-function composerInput(tabId = TAB): HTMLElement {
-  return document.querySelector<HTMLElement>(`[data-tab-id="${tabId}"] [data-composer-input]`)!;
-}
-
-function editor(input = composerInput()): EditorView {
-  return EditorView.findFromDOM(input.closest<HTMLElement>(".cm-editor")!)!;
-}
-
-function draftText(input = composerInput()): string {
-  return editor(input).state.doc.toString();
-}
-
-function selectDraft(input: HTMLElement, anchor: number): void {
-  act(() => editor(input).dispatch({ selection: { anchor } }));
-}
-
-function typeDraft(value: string): HTMLElement {
-  const input = composerInput();
-  const view = editor(input);
-  act(() => view.dispatch({
-    changes: { from: 0, to: view.state.doc.length, insert: value },
-    selection: { anchor: value.length },
-    userEvent: "input.type",
-  }));
-  return input;
-}
+// Shared ComposerEditor drivers (test/composer-editor.ts): this file is the
+// convention they came from; RpcTab.test.tsx consumes the same harness.
+const { composerInput, editor, draftText, selectDraft, typeDraft } = composerEditorHarness(TAB);
 
 function press(target: HTMLElement, key: string, modifiers: KeyboardEventInit = {}): KeyboardEvent {
   const event = new KeyboardEvent("keydown", { key, bubbles: true, cancelable: true, ...modifiers });
