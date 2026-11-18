@@ -38,6 +38,8 @@ function harness(): Harness {
     turnEnded: vi.fn<(tabId: string) => void>(),
     planProposed: vi.fn<(tabId: string, planTitle: string) => void>(),
     planSettled: vi.fn<(tabId: string) => void>(),
+    projectRequested: vi.fn<(tabId: string) => void>(),
+    projectRequestSettled: vi.fn<(tabId: string) => void>(),
     viewedChanged: vi.fn<(tabId: string) => void>(),
     sessionExit: vi.fn<(tabId: string) => void>(),
   };

@@ -123,6 +123,24 @@ export const ko: Partial<Record<MessageKey, string>> = {
   "dialog.approval.restrictedHint":
     "제한된 폴더(tools.restrictedFolders)는 yolo를 포함한 모든 승인 모드에서 승인을 요청합니다. 세션 승인이나 기억된 승인으로 대신할 수 없습니다.",
 
+  "dialog.projectRequest.registerTitle": "프로젝트 추가",
+  "dialog.projectRequest.cloneTitle": "클론하고 프로젝트 추가",
+  "dialog.projectRequest.requestedBy": "이 세션의 에이전트가 요청했습니다.",
+  "dialog.projectRequest.folder": "폴더: {path}",
+  "dialog.projectRequest.origin": "원격 저장소: {origin}",
+  "dialog.projectRequest.originNone": "원격 저장소: 없음",
+  "dialog.projectRequest.repository": "저장소: {url}",
+  "dialog.projectRequest.saveTo": "저장 위치: {path}",
+  "dialog.projectRequest.chooseFolder": "폴더 선택…",
+  "dialog.projectRequest.pickerPath": "클론을 저장할 폴더",
+  "dialog.projectRequest.pickerWillSave": "저장 위치:",
+  "dialog.projectRequest.pickerChoose": "여기에 저장",
+  "dialog.projectRequest.warning":
+    "이 프로젝트에서 시작한 세션은 사용자 계정과 프로바이더 키로 .omp 확장, 훅, 도구, MCP 서버를 실행합니다.",
+  "dialog.projectRequest.found": "발견됨: {paths}",
+  "dialog.projectRequest.allow": "허용",
+  "dialog.projectRequest.deny": "거부",
+
   "dialog.delete.kicker": "되돌릴 수 없는 작업",
   "dialog.delete.title": "“{title}”을(를) 삭제할까요?",
   "dialog.delete.merging": "병합 중…",

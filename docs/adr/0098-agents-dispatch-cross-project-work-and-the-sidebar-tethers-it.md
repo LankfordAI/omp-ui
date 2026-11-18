@@ -48,9 +48,27 @@ The arm rides ahead of `set_event_filter`, the host tool registration, and the f
 ## Consequences
 
 - Section membership and open-order sorting (ADR-0067, `launchedAt` newest first; pinned by pin time) are unchanged; a child appears both in its own section and on its parent's tether. Only tether lines use dispatch time.
-- The rule is opt-in: it arms only where *Let agents dispatch fleet work* is on and the session is not a Chat.
+- ~~The rule is opt-in: it arms only where *Let agents dispatch fleet work* is on and the session is not a Chat.~~ Superseded by the amendment below: every native session gets it.
 - One level only: an agent-dispatched session never gets the fleet tools (ADR-0061), so it reports back.
-- The other repository must be a registered omp-ui project.
+- ~~The other repository must be a registered omp-ui project.~~ Superseded by [ADR-0099](0099-agents-add-projects-on-this-computer-through-a-confirmation-card.md): the agent can ask to add it.
 - A child dispatched by a Chat on a joined instance keeps the plain chip and shows no ↳ marker.
 - When a parent is deleted, its children lose the marker and the HUD falls back to the plain chip.
-- Turning the setting off arms nothing on the next spawn; an earlier project scope message stays in the transcript, and its last paragraph covers a missing tool.
+- ~~Turning the setting off arms nothing on the next spawn~~; it now arms the `no-dispatch` text (amendment below). An earlier project scope message stays in the transcript until the content dedupe replaces it.
+
+## Amendment (2026-11-18): files outside every repository
+
+[#1227](https://github.com/LankfordAI/omp-ui/issues/1227). The council's review found that the guidance covered repository changes only, and only where the setting was on. A session could still edit shell startup files, `~/.config`, omp's agent folder (which runs in every session), or omp-ui's own data with no rule at all. Every native session now carries the guidance:
+
+| Session (fleet tool access + record) | Text |
+| --- | --- |
+| Project, `granted`, not private | *dispatch*, now also telling the agent to add an unregistered repository through `omp-ui_fleet_project` on `"this computer"` (ADR-0099) |
+| Project, `granted`, private | *report-to-user* (also: do not add projects) |
+| Project, `agent-recursion` | *report-to-parent* |
+| Project, `setting-off` or `external-sender` | new *no-dispatch*: finish your own part and tell the user what the other repository needs |
+| Chat (always `granted`) | a chat opening (*belongs to no project; edit no repository*), then *dispatch*, or *report-to-user* when private |
+
+**Outside-files paragraph.** Every role ends with one paragraph on files outside the checkout that belong to no repository or project: judge a path by its realpath; change other files only when the user's request names them or clearly needs them; ask before changing omp's agent folder; never edit omp-ui's data folder, omp's session and archive folders, or omp's auth and history databases; change root-owned files only with `sudo -n`; list every such change in the final reply; in Plan mode, put them in the plan. The paragraph is not role-free. A dispatched child cannot ask its user, so its variant allows only the files its dispatch prompt names, tells it to report the agent-folder need instead of asking, and puts the list near the start of the final reply, inside the 2,000 characters the Fleet result forwards.
+
+**Length tiers.** The paragraph names the real paths (agent dir, userData, sessions root, archive root), so the text can outgrow `PROJECT_SCOPE_TEXT_MAX` (4,000), and the bridge silently drops an arm above that cap. The text is built in three tiers and the first that fits wins: the full location with named paths; the generic location with named paths; the generic location with generic path names. The third tier measures 3,503 characters for *dispatch*, and every other role stays under 2,250.
+
+Still guidance, not a fence.

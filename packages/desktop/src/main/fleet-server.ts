@@ -15,6 +15,7 @@ import {
   FLEET_EXEC_OUTPUT_MAX,
   FLEET_EXEC_TIMEOUT_MIN_MS,
   FLEET_EXEC_TIMEOUT_MS,
+  cloneRepositoryName,
   fleetEffectiveRung,
   fleetRungAtLeast,
   fleetRungRank,
@@ -631,9 +632,8 @@ export class FleetServer {
     }
     if (url.protocol !== "https:") return { status: "refused", reason: "clone accepts https URLs only" };
     if (url.username !== "" || url.password !== "") return { status: "refused", reason: "repositoryUrl must not carry credentials" };
-    const segments = url.pathname.split("/").filter((s) => s !== "");
-    const name = (segments[segments.length - 1] ?? "").replace(/\.git$/, "").replace(/[^A-Za-z0-9._-]/g, "");
-    if (name === "" || name === "." || name === "..") return { status: "refused", reason: "repositoryUrl has no usable repository name" };
+    const name = cloneRepositoryName(url.pathname);
+    if (name === null) return { status: "refused", reason: "repositoryUrl has no usable repository name" };
     let dest: string | null = null;
     for (const root of roots) {
       const candidate = path.join(root, name);

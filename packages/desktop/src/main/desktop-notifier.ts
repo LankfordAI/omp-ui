@@ -13,7 +13,7 @@ import { CH } from "@omp-ui/core";
  * reads live state at the moment the user would see the banner.
  */
 
-export type AttentionKind = "turn-complete" | "plan-pending" | "stall-paused";
+export type AttentionKind = "turn-complete" | "plan-pending" | "stall-paused" | "project-request";
 
 /** The frame-derived attention transitions SessionManager reports. */
 export interface Attention {
@@ -25,6 +25,10 @@ export interface Attention {
   planProposed(tabId: string, planTitle: string): void;
   /** A verdict closed the tab's plan gate. */
   planSettled(tabId: string): void;
+  /** An agent's project request card opened on this tab (#1228). */
+  projectRequested(tabId: string): void;
+  /** The tab's project request settled (answer, cancel, exit). */
+  projectRequestSettled(tabId: string): void;
   /**
    * The desktop renderer's viewed-tab report named this tab: the user is
    * looking at it, so its attention is acknowledged.
@@ -71,12 +75,14 @@ const COPY: Record<"en" | "ko", {
   planPending: string; // {title} placeholder
   planPendingNoTitle: string;
   stallPaused: string;
+  projectRequest: string;
 }> = {
   en: {
     turnComplete: "Turn finished",
     planPending: "Plan review: {title}",
     planPendingNoTitle: "Plan review — answer needed",
     stallPaused: "Stall auto-continue paused — send a prompt to re-arm",
+    projectRequest: "Project request — answer needed",
   },
   // DRAFT — requires native-speaker review before release (issue #363).
   ko: {
@@ -84,6 +90,7 @@ const COPY: Record<"en" | "ko", {
     planPending: "플랜 검토: {title}",
     planPendingNoTitle: "플랜 검토 — 응답 필요",
     stallPaused: "자동 계속 실행 일시 중지 — 다시 시작하려면 프롬프트를 보내세요",
+    projectRequest: "프로젝트 요청 — 응답 필요",
   },
 };
 
@@ -110,6 +117,14 @@ export class DesktopNotifier implements Attention {
 
   planSettled(tabId: string): void {
     this.drop(tabId, "plan-pending");
+  }
+
+  projectRequested(tabId: string): void {
+    this.schedule(tabId, "project-request", null);
+  }
+
+  projectRequestSettled(tabId: string): void {
+    this.drop(tabId, "project-request");
   }
 
   viewedChanged(tabId: string): void {
@@ -286,6 +301,8 @@ export class DesktopNotifier implements Attention {
         };
       case "stall-paused":
         return { title, body: copy.stallPaused };
+      case "project-request":
+        return { title, body: copy.projectRequest };
     }
   }
 

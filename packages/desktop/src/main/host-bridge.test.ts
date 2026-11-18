@@ -3,8 +3,8 @@ import * as os from "node:os";
 import * as path from "node:path";
 import { createHash, randomUUID } from "node:crypto";
 import { describe, expect, it, vi, afterEach } from "vitest";
-import { FLEET_TOOLS, LOCAL_MACHINE_KEY, PLAN_REVIEW_SENTINEL, PLAN_STATUS_KEY, parseVaultDetails, type FleetDispatchRequest, type FleetDispatchResult, type FleetMachine, type FleetRung, type ObsidianListEntry, type OwnedSessionRecord, type RpcFrame, type SessionsResourceDeps, type ThemeList, type ThemeSource, type VaultRegistry, type VaultToolDetails } from "@omp-ui/core";
-import { HostBridge, HOST_ANSWER_WATCHDOG_MS, type FleetBridgeDeps, type HostBridgeDeps, type VaultBridgeDeps, type VaultTabContext } from "./host-bridge";
+import { FLEET_TOOLS, LOCAL_MACHINE_KEY, PLAN_REVIEW_SENTINEL, PLAN_STATUS_KEY, parseVaultDetails, type FleetDispatchRequest, type FleetDispatchResult, type FleetMachine, type FleetProjectManageOutcome, type FleetRung, type ObsidianListEntry, type OwnedSessionRecord, type RpcFrame, type SessionsResourceDeps, type ThemeList, type ThemeSource, type VaultRegistry, type VaultToolDetails } from "@omp-ui/core";
+import { HostBridge, HOST_ANSWER_WATCHDOG_MS, type FleetBridgeDeps, type HostBridgeDeps, type HostCallControl, type VaultBridgeDeps, type VaultTabContext } from "./host-bridge";
 import type { ConfinedPlanRead } from "./plan-file";
 import { ArtifactService } from "./artifact-service";
 import { withArtifactReferenceContext, withArtifactRefreshContext, type ArtifactJson } from "@omp-ui/core";
@@ -1360,6 +1360,82 @@ describe("HostBridge fleet tools (issue #899)", () => {
     for (const frame of sent) expect(frame).not.toHaveProperty("isError");
     expect(resultText(sent[0]!)).toBe("clone accepted: /srv/repos/app (HEAD abc123)");
     expect(resultText(sent[1]!)).toBe("refused — no project roots are declared on this machine");
+  });
+
+  describe("held project call control (#1228)", () => {
+    /** A projectManage dep that hands its control out and settles when the test says. */
+    const held = () => {
+      let control: HostCallControl | undefined;
+      let finish: (outcome: FleetProjectManageOutcome) => void = () => {};
+      const projectManage: FleetBridgeDeps["projectManage"] = (_tabId, _args, c) => {
+        control = c;
+        const { promise, resolve } = Promise.withResolvers<FleetProjectManageOutcome>();
+        finish = resolve;
+        return promise;
+      };
+      return { projectManage, control: () => control!, finish: (o: FleetProjectManageOutcome) => finish(o) };
+    };
+    const ARGS = { machine: "this computer", verb: "register", path: "/srv/repos/app" };
+
+    it("a suspended request gets no watchdog answer, then answers when the dep resolves", async () => {
+      vi.useFakeTimers();
+      const h = held();
+      const { bridge, sent } = fleetBridge({ projectManage: h.projectManage });
+      bridge.route("t1", toolCallFrame("p1", FLEET_TOOLS[4], ARGS), (frame) => sent.push(frame));
+      await vi.advanceTimersByTimeAsync(0);
+      h.control().suspendWatchdog();
+      await vi.advanceTimersByTimeAsync(HOST_ANSWER_WATCHDOG_MS * 3);
+      expect(sent).toEqual([]);
+      h.finish({ status: "accepted", path: "/srv/repos/app", headCommit: null });
+      await vi.advanceTimersByTimeAsync(0);
+      expect(sent).toHaveLength(1);
+      expect(resultText(sent[0]!)).toBe("register accepted: /srv/repos/app");
+    });
+
+    it("a rearmed request answers the watchdog error after the new delay and aborts the signal", async () => {
+      vi.useFakeTimers();
+      const h = held();
+      const { bridge, sent } = fleetBridge({ projectManage: h.projectManage });
+      bridge.route("t1", toolCallFrame("p1", FLEET_TOOLS[4], ARGS), (frame) => sent.push(frame));
+      await vi.advanceTimersByTimeAsync(0);
+      h.control().suspendWatchdog();
+      await vi.advanceTimersByTimeAsync(HOST_ANSWER_WATCHDOG_MS * 2);
+      h.control().rearmWatchdog(5_000);
+      await vi.advanceTimersByTimeAsync(4_999);
+      expect(sent).toEqual([]);
+      await vi.advanceTimersByTimeAsync(1);
+      expect(sent).toHaveLength(1);
+      expect(sent[0]).toMatchObject({ isError: true });
+      expect(h.control().signal.aborted).toBe(true);
+      h.finish({ status: "accepted", path: "/srv/repos/app", headCommit: null });
+      await vi.advanceTimersByTimeAsync(0);
+      expect(sent).toHaveLength(1);
+    });
+
+    it("host_tool_cancel aborts the signal, and a later resolution sends nothing", async () => {
+      const h = held();
+      const { bridge, sent } = fleetBridge({ projectManage: h.projectManage });
+      const send = (frame: RpcFrame): void => void sent.push(frame);
+      bridge.route("t1", toolCallFrame("p1", FLEET_TOOLS[4], ARGS), send);
+      await settled();
+      expect(h.control().signal.aborted).toBe(false);
+      bridge.route("t1", { type: "host_tool_cancel", id: "cancel", targetId: "p1" }, send);
+      expect(h.control().signal.aborted).toBe(true);
+      // Every control method is inert once the call settled.
+      h.control().rearmWatchdog(1);
+      h.finish({ status: "accepted", path: "/srv/repos/app", headCommit: null });
+      await settled();
+      expect(sent).toEqual([]);
+    });
+
+    it("forget aborts a held call's signal", async () => {
+      const h = held();
+      const { bridge, sent } = fleetBridge({ projectManage: h.projectManage });
+      bridge.route("t1", toolCallFrame("p1", FLEET_TOOLS[4], ARGS), (frame) => sent.push(frame));
+      await settled();
+      bridge.forget("t1");
+      expect(h.control().signal.aborted).toBe(true);
+    });
   });
 
   it("answers a detached exec start with the execId and poll instructions, never logging the command (issue #905)", async () => {

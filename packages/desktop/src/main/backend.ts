@@ -230,6 +230,7 @@ import { routeByTab } from "./remote-route";
 import { SessionManager } from "./session-manager";
 import { FleetDispatcher } from "./fleet-dispatcher";
 import { FleetServer } from "./fleet-server";
+import { LocalProjectRequests } from "./local-project-request";
 import { FleetTerminalClient } from "./fleet-terminal-client";
 import { FleetWakeCoordinator } from "./fleet-wake";
 import { probeSshPort } from "./ssh-probe";
@@ -318,6 +319,8 @@ export class MainBackend {
   private readonly fleet: FleetDispatcher;
   /** Fleet exec ladder, node side (issue #901, ADR-0062): this machine's ceiling. */
   private readonly fleetServer: FleetServer;
+  /** Card-gated project requests on this computer (#1228, ADR-0099). */
+  private readonly localProjectRequests: LocalProjectRequests;
   /** Fleet terminals this app opened on members (issue #991, ADR-0084). */
   private readonly fleetTerminals: FleetTerminalClient;
   /** Fleet result wake-up (issue #957, ADR-0069): the dispatching session's watch → stage → deliver ledger. */
@@ -808,6 +811,22 @@ export class MainBackend {
       broadcast: () => this.broadcast(),
       onMemberTerminalEvent: (instanceId, channel, args) => this.fleetTerminals.onMemberEvent(instanceId, channel, args),
     });
+    this.localProjectRequests = new LocalProjectRequests({
+      eligibility: (tabId) => this.sessions.projectRequestEligibility(tabId),
+      record: (tabId) => this.registry.sessions.find((s) => s.tabId === tabId),
+      projects: () => this.registry.projects,
+      protectedRoots: () => [
+        path.dirname(this.registryFile),
+        getOmpAgentDir(),
+        this.sessionsRoot,
+        this.archiveRoot,
+        this.chatsRoot,
+        this.worktreesRoot,
+      ],
+      homedir: () => os.homedir(),
+      ask: (tabId, prompt, signal) => this.sessions.projectRequests.request(tabId, prompt, signal),
+      addProject: (dir) => this.addProjectPath(dir),
+    });
     this.fleet = new FleetDispatcher({
       localReport: () => this.fleetHostReport(),
       spawnLocal: (req) => this.sessions.spawn(req),
@@ -837,6 +856,7 @@ export class MainBackend {
       stopLocal: (req) => this.fleetServer.stop(req),
       settleLocal: (req) => this.fleetServer.settle(req),
       readProjectCopy: (projectCwd, picked) => readProjectCopyFiles(this.registeredProjectPath(projectCwd), picked),
+      requestLocalProject: (tabId, args, control) => this.localProjectRequests.request(tabId, args, control),
     });
     // The node half of the fleet ladder (issue #901): the owner answers for
     // its own machine, so it shares the registry and log dir with everything else.
@@ -1468,6 +1488,8 @@ export class MainBackend {
           verdict: PlanReviewVerdict,
           sourceHash: string | null,
         ) => this.sessions.answerPlanReview(tabId, frameId, verdict, sourceHash),
+        [CH.answerProjectRequest]: (tabId: string, promptId: string, decision: "allow" | "deny", parent: string | null) =>
+          this.sessions.answerProjectRequest(tabId, promptId, decision, parent),
         [CH.dismissProposedPlan]: (tabId: string, planFilePath: string) =>
           this.sessions.dismissProposedPlan(tabId, planFilePath),
         [CH.getProjectOpenAvailability]: () => this.projectOpener.availability(),
@@ -3245,6 +3267,7 @@ export class MainBackend {
       // Ephemeral like the plan gate (#555): the live child blocks; a session
       // with no process reports none.
       pendingDialogs: this.sessions.pendingDialogs(record.tabId),
+      projectRequest: this.sessions.projectRequests.prompt(record.tabId),
       ...(goal === undefined ? {} : { goal }),
       ...(autoresearch === undefined ? {} : { autoresearch }),
       ...(vibe === undefined ? {} : { vibe }),

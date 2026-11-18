@@ -46,7 +46,7 @@ function commonPrefix(names: string[]): string {
 type PickerRow = { kind: "up" } | { kind: "dir"; entry: DirBrowseEntry; hits: number[] };
 
 export interface DirectoryPickerProps {
-  mode: "project" | "vault" | "folder";
+  mode: "project" | "vault" | "folder" | "clone-parent";
   /** Whose filesystem is browsed (issue #416); vault mode always passes null. */
   instanceId: string | null;
   /** Line above the input (the joined instance's "Register project on {nickname}"), or null. */
@@ -78,6 +78,12 @@ const PICKER_COPY: Record<
     pathLabel: "settings.omp.restrictedFoldersPickerPath",
     willAdd: "settings.omp.restrictedFoldersPickerWillAdd",
     add: "settings.omp.restrictedFoldersPickerAdd",
+  },
+  "clone-parent": {
+    placeholder: "~/path/to/folder",
+    pathLabel: "dialog.projectRequest.pickerPath",
+    willAdd: "dialog.projectRequest.pickerWillSave",
+    add: "dialog.projectRequest.pickerChoose",
   },
 };
 

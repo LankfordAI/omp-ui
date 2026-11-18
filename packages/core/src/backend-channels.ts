@@ -1359,6 +1359,20 @@ export const BACKEND_CHANNELS = {
     >([str(), str(), oneOf(PLAN_EXECUTE, PLAN_REFINE, PLAN_DISMISS), nullable(str())]),
   },
   /**
+   * The user's answer to a project request card (#1228, ADR-0099). Main is
+   * the only answerer of the held host call: the renderer sends a decision,
+   * never a result. A stale or duplicate answer reports "no longer pending".
+   * `parent` is the clone destination folder the user picked, or null for
+   * the proposed default; a register ignores it.
+   */
+  answerProjectRequest: {
+    channel: "project-request:answer",
+    ...request<
+      [tabId: string, promptId: string, decision: "allow" | "deny", parent: string | null],
+      { ok: true } | { ok: false; reason: string }
+    >([str(), str(), oneOf("allow", "deny"), nullable(str())]),
+  },
+  /**
    * Stops tracking an interrupted plan (ADR-0033). A no-op for a plan whose
    * review gate is live (it must be answered) or that is not pending.
    */

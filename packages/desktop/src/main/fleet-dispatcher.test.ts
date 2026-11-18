@@ -127,6 +127,7 @@ function harness(opts: {
     readProjectCopy: async () => {
       throw new Error("not wired in this fixture");
     },
+    requestLocalProject: async () => ({ status: "refused", reason: "not wired in this fixture" }),
     now: () => NOW,
     uuid: () => `id-${++ids}`,
     ...opts.deps,
@@ -654,6 +655,7 @@ describe("FleetDispatcher fleet ladder (issue #901)", () => {
     readProjectCopy: FleetDispatcherDeps["readProjectCopy"] = async () => {
       throw new Error("not wired in this fixture");
     },
+    requestLocalProject: FleetDispatcherDeps["requestLocalProject"] = async () => ({ status: "refused", reason: "not wired in this fixture" }),
   ) {
     const request = vi.fn(async (_id: string, channel: string, args: unknown[]) => {
       if (channel === CH.fleetHostReport) return report([project({ path: "/srv/app" })]);
@@ -679,6 +681,7 @@ describe("FleetDispatcher fleet ladder (issue #901)", () => {
       stopLocal: async () => ({ status: "refused", reason: "not wired in this fixture" }),
       settleLocal: async () => ({ status: "refused", reason: "not wired in this fixture" }),
       readProjectCopy,
+      requestLocalProject,
       now: () => NOW,
       uuid: () => "u",
     });
@@ -754,12 +757,23 @@ describe("FleetDispatcher fleet ladder (issue #901)", () => {
     }
   });
 
-  it("forwards project verbs and refuses them on this computer", async () => {
-    const h = ladder(async (channel) => (channel === CH.fleetProjectManage ? { status: "accepted", path: "/srv/repos/app", headCommit: null } : null));
-    expect(await h.dispatcher.projectManage("tab-1", { machine: "this computer", verb: "register", repositoryUrl: null, path: "/x" })).toMatchObject({ status: "refused" });
-    expect(await h.dispatcher.projectManage("tab-1", { machine: "box-r1", verb: "clone", repositoryUrl: "https://github.com/acme/app", path: null })).toMatchObject({
+  it("forwards project verbs to members and hands this computer's to the card-gated local request", async () => {
+    const requestLocalProject = vi.fn<FleetDispatcherDeps["requestLocalProject"]>(async () => ({ status: "accepted", path: "/x", headCommit: null }));
+    const h = ladder(
+      async (channel) => (channel === CH.fleetProjectManage ? { status: "accepted", path: "/srv/repos/app", headCommit: null } : null),
+      undefined,
+      undefined,
+      undefined,
+      requestLocalProject,
+    );
+    const control = { signal: new AbortController().signal, suspendWatchdog: () => {}, rearmWatchdog: () => {} };
+    const local = { machine: "this computer", verb: "register" as const, repositoryUrl: null, path: "/x" };
+    expect(await h.dispatcher.projectManage("tab-1", local, control)).toEqual({ status: "accepted", path: "/x", headCommit: null });
+    expect(requestLocalProject).toHaveBeenCalledWith("tab-1", local, control);
+    expect(await h.dispatcher.projectManage("tab-1", { machine: "box-r1", verb: "clone", repositoryUrl: "https://github.com/acme/app", path: null }, control)).toMatchObject({
       status: "accepted",
     });
+    expect(requestLocalProject).toHaveBeenCalledTimes(1);
     expect(h.sent(CH.fleetProjectManage)).toEqual([
       { id: "r1", args: [expect.objectContaining({ verb: "clone", repositoryUrl: "https://github.com/acme/app" })] },
     ]);
@@ -1012,6 +1026,7 @@ describe("FleetDispatcher member address (issue #904)", () => {
       readProjectCopy: async () => {
         throw new Error("not wired in this fixture");
       },
+      requestLocalProject: async () => ({ status: "refused", reason: "not wired in this fixture" }),
       now: () => NOW,
       uuid: () => "u",
     });
@@ -1064,6 +1079,7 @@ describe("FleetDispatcher fleet maintenance (fleet remote version update)", () =
       readProjectCopy: async () => {
         throw new Error("not wired in this fixture");
       },
+      requestLocalProject: async () => ({ status: "refused", reason: "not wired in this fixture" }),
       now: () => NOW,
       uuid: () => "u",
     });
@@ -1355,6 +1371,7 @@ describe("FleetDispatcher Update all (issue #990)", () => {
       readProjectCopy: async () => {
         throw new Error("not wired in this fixture");
       },
+      requestLocalProject: async () => ({ status: "refused", reason: "not wired in this fixture" }),
       now: () => NOW,
       uuid: () => "run-1",
     });
