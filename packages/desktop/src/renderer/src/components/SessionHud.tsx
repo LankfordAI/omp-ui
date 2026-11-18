@@ -1680,7 +1680,7 @@ function GaugeChip({
 
 /* ---------------------------------------------------------------- the HUD */
 
-export function SessionHud({ tabId }: { tabId: string }) {
+export function SessionHud({ tabId, active = true }: { tabId: string; active?: boolean }) {
   const t = useT();
   const setAutoRetry = useStore((s) => s.setAutoRetry);
   const [autoRetry, setAutoRetryLocal] = useState(true);
@@ -2023,7 +2023,11 @@ export function SessionHud({ tabId }: { tabId: string }) {
             <span className="sr-only">{t("hud.actions.sessionActions")}</span>
           </IconButton>
         </header>
-        <Sheet open={surface === "session-actions"} placement="bottom" label={t("hud.actions.sessionActions")} onClose={closeCompactSurface}>
+        {/* Only the displayed session's HUD may mount the app-global actions
+            sheet: hidden tabs stay mounted behind `display:none` and the sheet
+            portals to body, so an unscoped copy would overlay the visible
+            session and steal focus/back (issue #1117). */}
+        <Sheet open={active && surface === "session-actions"} placement="bottom" label={t("hud.actions.sessionActions")} onClose={closeCompactSurface}>
           <div className="space-y-4 p-4">
             <TitleField tabId={tabId} title={title ?? t("hud.session.untitled")} />
             {(usage || mainSpend || advisorStats?.available === true || notices.length > 0 || worktree || quotaEvent != null || costCap != null || usageLimitChip || limitsCluster || isPrivate) && (
