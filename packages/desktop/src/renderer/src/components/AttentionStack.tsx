@@ -7,6 +7,7 @@ import { TONE_DOT } from "./ui/tone";
 import { SESSION_FACE } from "./SessionRow";
 import { SessionProjectLine } from "./SessionProjectLine";
 import { withTitleCard } from "./TitleCardChip";
+import { DispatchTether } from "./DispatchTether";
 
 /**
  * The "Needs attention" stack (issue #1037): cards for sessions with an
@@ -40,12 +41,14 @@ export function AttentionStack({
       </div>
       {entries.map((a) => {
         const face = SESSION_FACE[a.state];
+        const { session, dispatch } = a.entry;
         return (
+          // The dispatch tether (#1226) is the card's sibling, never nested in its button.
+          <div key={session.tabId}>
           <button
-            key={a.entry.session.tabId}
             type="button"
             onClick={() => {
-              void openSession(a.entry.session.tabId);
+              void openSession(session.tabId);
               onActivate?.();
             }}
             className="relative block w-full min-w-0 rounded-md px-3 py-2 text-left transition-colors hover:bg-hover/50"
@@ -65,6 +68,15 @@ export function AttentionStack({
               <SessionProjectLine
                 project={a.entry.project}
                 nickname={null}
+                dispatchedBy={
+                  dispatch.parent === null
+                    ? null
+                    : {
+                        tabId: dispatch.parent.session.tabId,
+                        title: dispatch.parent.session.title,
+                        project: dispatch.parent.project,
+                      }
+                }
                 trailing={
                   <span className="tabular-nums text-ink-faint">{relativeTime(new Date(a.mark.atMs).toISOString())}</span>
                 }
@@ -81,6 +93,15 @@ export function AttentionStack({
               </span>
             </span>
           </button>
+          {dispatch.children.length > 0 && (
+            <DispatchTether
+              parentTabId={session.tabId}
+              parentTitle={session.title}
+              children={dispatch.children}
+              onActivate={onActivate}
+            />
+          )}
+          </div>
         );
       })}
     </div>

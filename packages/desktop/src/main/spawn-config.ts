@@ -56,6 +56,7 @@ import {
   writePrivateOverlay,
   writeSideCommandsExtension,
   writeFleetWakeExtension,
+  writeProjectScopeExtension,
   writeChatOverlay,
   writeVaultOverlay,
   writeWorktreeOverlay,
@@ -387,6 +388,7 @@ export const RPC_BRIDGE_IDS = [
   "privateGuard",
   "sideCommands",
   "fleetWake",
+  "projectScope",
 ] as const;
 export type RpcBridgeId = (typeof RPC_BRIDGE_IDS)[number];
 export type RpcBridgeWriters = Record<RpcBridgeId, (lineageDir: string) => string>;
@@ -409,6 +411,7 @@ const DEFAULT_RPC_BRIDGE_WRITERS: RpcBridgeWriters = {
   privateGuard: writePrivateGuardExtension,
   sideCommands: writeSideCommandsExtension,
   fleetWake: writeFleetWakeExtension,
+  projectScope: writeProjectScopeExtension,
 };
 
 /** The per-spawn bridge gates (#1052); mirrors the registry flags that arm bridges. */
@@ -439,6 +442,7 @@ const RPC_BRIDGES: ReadonlyArray<{
   { id: "privateGuard", logId: "private", warning: "private-guard", enabled: () => true },
   { id: "sideCommands", logId: "side-commands", warning: "side-commands", enabled: () => true },
   { id: "fleetWake", logId: "fleet-wake", warning: "fleet-wake", enabled: () => true },
+  { id: "projectScope", logId: "project-scope", warning: "project-scope", enabled: () => true },
 ];
 export interface RpcExtensionWriteResult {
   paths: string[];

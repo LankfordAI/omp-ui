@@ -88,6 +88,8 @@ Object.assign(window, { ompBackend: backendMock });
 
 const { useStore } = await import("../store");
 const { Sidebar } = await import("./Sidebar");
+const { resetDispatchTetherState } = await import("./DispatchTether");
+const { setDispatchHover } = await import("../lib/dispatch-hover");
 const originalNewSession = useStore.getState().newSession;
 const originalOpenSession = useStore.getState().openSession;
 const openSession = vi.fn(async () => {});
@@ -846,9 +848,9 @@ describe("Sidebar remote instances (issue #416)", () => {
     renderSidebar();
     const section = remoteRow();
     expect(section.textContent).toContain("working");
-    // #1037: the state's hover text now rides the status band, a sibling of
-    // the row button inside the row container.
-    expect(section.parentElement!.querySelector('[title="Agent is working"]')).not.toBeNull();
+    // #1037: the state's hover text now rides the status band inside the row
+    // container; the row button sits in its draggable inner block (#1226).
+    expect(section.closest(".group\\/row")!.querySelector('[title="Agent is working"]')).not.toBeNull();
   });
 
   // Issue #436: same symptom for the answer latch — the client never mounted
@@ -873,7 +875,7 @@ describe("Sidebar remote instances (issue #416)", () => {
     const section = remoteRow();
     expect(section.textContent).toContain("answer needed");
     // #1037: same band move as the working-row case above.
-    expect(section.parentElement!.querySelector('[title="Agent is waiting for your answer"]')).not.toBeNull();
+    expect(section.closest(".group\\/row")!.querySelector('[title="Agent is waiting for your answer"]')).not.toBeNull();
   });
 });
 
@@ -1563,5 +1565,177 @@ describe("Sidebar attention stack (issue #1037)", () => {
   it("renders nothing when no session is flagged", () => {
     renderSidebar();
     expect(heading()).toBeNull();
+  });
+});
+
+describe("Sidebar dispatch tethers (#1226)", () => {
+  const parentTab = "tab-1";
+  const otherPath = "/projects/two";
+  const project = state.projects[0]!.project;
+  const base = state.projects[0]!.sessions[0]!;
+  const child = (tabId: string, title: string, minute: number, patch: Partial<SessionSummary> = {}): SessionSummary => ({
+    ...base,
+    tabId,
+    sessionId: `sid-${tabId}`,
+    lineageDir: `omp-ui--two--${tabId}`,
+    projectCwd: otherPath,
+    launchedAt: `2026-08-03T02:${String(minute).padStart(2, "0")}:00.000Z`,
+    cachedTitle: title,
+    title,
+    fleet: {
+      dispatchId: `d-${tabId}`,
+      batchId: null,
+      dispatchedAt: `2026-08-03T02:${String(minute).padStart(2, "0")}:00.000Z`,
+      requestedBy: { instanceId: "self", label: "this computer", kind: "agent", sourceTabId: parentTab },
+    },
+    ...patch,
+  });
+  const withChildren = (children: SessionSummary[], parentPatch: Partial<SessionSummary> = {}): BackendState =>
+    backendState({
+      projects: [
+        { project, sessions: [{ ...base, ...parentPatch }, state.projects[0]!.sessions[1]!] },
+        { project: { ...project, path: otherPath, name: "Project Two" }, sessions: children },
+      ],
+    });
+  const tether = (): HTMLElement | null =>
+    document.body.querySelector<HTMLElement>('[role="group"][aria-label^="Sessions dispatched by"]');
+  const lines = (): HTMLElement[] => [...(tether()?.querySelectorAll<HTMLElement>("[data-dispatch-line]") ?? [])];
+  const tetherButton = (text: string): HTMLButtonElement | undefined =>
+    [...(tether()?.querySelectorAll<HTMLButtonElement>("button") ?? [])].find((b) => b.textContent?.includes(text));
+  const rowOf = (title: string): HTMLElement =>
+    [...document.body.querySelectorAll<HTMLElement>("[data-session-tile-title]")]
+      .find((el) => el.textContent === title)!
+      .closest<HTMLElement>(".group\\/row")!;
+
+  afterEach(() => {
+    act(() => {
+      resetDispatchTetherState();
+      setDispatchHover(null);
+    });
+  });
+
+  it("lists unsettled children under the parent tile with counts; a line opens its session", async () => {
+    useStore.setState({
+      state: withChildren([child("c-1", "Child one", 1), child("c-2", "Child two", 2, { awaitingHumanAnswer: true })]),
+      rpc: { "c-1": rpcTabState({ status: "running" }) },
+    });
+    renderSidebar();
+    const header = tether()!.querySelector("button[aria-expanded]")!;
+    expect(header.textContent).toContain(t("sidebar.dispatch.summary", { n: 2 }));
+    expect(header.textContent).toContain(t("sidebar.dispatch.needsYou", { n: 1 }));
+    expect(header.textContent).toContain(t("sidebar.dispatch.working", { n: 1 }));
+    expect(lines().map((l) => l.getAttribute("data-dispatch-line"))).toEqual(["c-1", "c-2"]);
+    // The tether hangs off the parent's tile, not the child's.
+    expect(rowOf("Owned session").contains(tether())).toBe(true);
+    await act(async () => lines()[0]!.click());
+    expect(openSession).toHaveBeenCalledWith("c-1");
+  });
+
+  it("shows four lines and a +N more that expands", () => {
+    useStore.setState({ state: withChildren([1, 2, 3, 4, 5].map((n) => child(`c-${n}`, `Child ${n}`, n))) });
+    renderSidebar();
+    expect(lines()).toHaveLength(4);
+    const more = tetherButton(t("sidebar.dispatch.more", { n: 1 }))!;
+    act(() => more.click());
+    expect(lines()).toHaveLength(5);
+  });
+
+  it("folds settled children behind +N settled", () => {
+    useStore.setState({
+      state: withChildren([child("c-1", "Child one", 1), child("c-2", "Child done", 2, { live: "dormant", settledAtMs: 1 })]),
+    });
+    renderSidebar();
+    expect(lines().map((l) => l.getAttribute("data-dispatch-line"))).toEqual(["c-1"]);
+    act(() => tetherButton(t("sidebar.dispatch.settled", { n: 1 }))!.click());
+    expect(lines().map((l) => l.getAttribute("data-dispatch-line"))).toEqual(["c-1", "c-2"]);
+    expect(tetherButton(t("sidebar.dispatch.hideSettled"))).toBeDefined();
+  });
+
+  it("collapses the lines from the header", () => {
+    useStore.setState({ state: withChildren([child("c-1", "Child one", 1)]) });
+    renderSidebar();
+    const header = tether()!.querySelector<HTMLButtonElement>("button[aria-expanded]")!;
+    act(() => header.click());
+    expect(header.getAttribute("aria-expanded")).toBe("false");
+    expect(lines()).toHaveLength(0);
+  });
+
+  it("a missing, unmounted child line does not open", async () => {
+    useStore.setState({ state: withChildren([child("c-1", "Child gone", 1, { live: "missing" })]) });
+    renderSidebar();
+    act(() => tetherButton(t("sidebar.dispatch.settled", { n: 1 }))!.click());
+    const line = lines()[0]!;
+    expect(line.tagName).toBe("SPAN");
+    await act(async () => line.click());
+    expect(openSession).not.toHaveBeenCalled();
+  });
+
+  it("keeps tether lines outside the parent's draggable, context-menu container", () => {
+    useStore.setState({ state: withChildren([child("c-1", "Child one", 1)]) });
+    renderSidebar();
+    const line = lines()[0]!;
+    expect(line.closest("[draggable]")).toBeNull();
+    const event = openContextMenu(line);
+    expect(event.defaultPrevented).toBe(false);
+    expect(openMenuItems()).toHaveLength(0);
+  });
+
+  it("marks the child row with ↳ and its hover button opens the parent and closes the surface", async () => {
+    const closeCompactSurface = vi.fn();
+    useStore.setState({ state: withChildren([child("c-1", "Child one", 1)]), closeCompactSurface });
+    renderSidebar();
+    const row = rowOf("Child one");
+    const marker = row.querySelector<HTMLElement>("[data-dispatched-by]")!;
+    expect(marker.getAttribute("aria-label")).toBe(t("sidebar.dispatch.dispatchedBy", { title: "Owned session" }));
+    const open = row.querySelector<HTMLButtonElement>(`button[aria-label="${t("sidebar.dispatch.openParent")}"]`)!;
+    await act(async () => open.click());
+    expect(openSession).toHaveBeenCalledWith(parentTab);
+    expect(closeCompactSurface).toHaveBeenCalled();
+  });
+
+  it("a flagged parent's attention card carries its tether; a flagged child's card carries the marker", () => {
+    useStore.setState({
+      state: withChildren([child("c-1", "Child one", 1)]),
+      rpc: { [parentTab]: rpcTabState({ status: "ready" }), "c-1": rpcTabState({ status: "ready" }) },
+      unread: {},
+    });
+    act(() => {
+      useStore.getState().markUnread(parentTab, null);
+      useStore.getState().markUnread("c-1", null);
+    });
+    renderSidebar();
+    const stack = document.body.querySelector<HTMLElement>('[role="group"][aria-label^="Needs attention"]')!;
+    expect(stack.querySelector('[role="group"][aria-label^="Sessions dispatched by"]')).not.toBeNull();
+    expect(stack.querySelector("button [data-dispatched-by]")).not.toBeNull();
+    // Never nested inside a card's button.
+    expect(stack.querySelector("button [data-dispatch-line]")).toBeNull();
+  });
+
+  it("a Settled (slim) parent shows no tether", () => {
+    useStore.setState({ state: withChildren([child("c-1", "Child one", 1)], { live: "dormant", settledAtMs: 1 }) });
+    act(() => setSettledOpen(true));
+    renderSidebar();
+    expect(tether()).toBeNull();
+  });
+
+  it("cross-highlights: a tether line rings the child row; the ↳ marker rings the parent and leaving re-lights the child line", () => {
+    useStore.setState({ state: withChildren([child("c-1", "Child one", 1)]) });
+    renderSidebar();
+    const hover = (el: Element, type: "mouseover" | "mouseout"): void =>
+      act(() => {
+        el.dispatchEvent(new MouseEvent(type, { bubbles: true, relatedTarget: document.body }));
+      });
+    hover(lines()[0]!, "mouseover");
+    expect(rowOf("Child one").className).toContain("ring-line-strong");
+    hover(lines()[0]!, "mouseout");
+    expect(rowOf("Child one").className).not.toContain("ring-line-strong");
+
+    const marker = rowOf("Child one").querySelector("[data-dispatched-by]")!;
+    hover(marker, "mouseover");
+    expect(rowOf("Owned session").className).toContain("ring-line-strong");
+    hover(marker, "mouseout");
+    expect(rowOf("Owned session").className).not.toContain("ring-line-strong");
+    // The pointer is still on the child row, so its own tether line lights.
+    expect(lines()[0]!.className).toContain("bg-hover");
   });
 });

@@ -5,15 +5,23 @@ import { generatedRootBindingSource } from "./generated-extension-source";
  * `display: false` custom message per armed text, deduplicated by walking the
  * current branch back to the last compaction/reset boundary. Ask chats (#895)
  * re-run delivery on session events; the restart carryover (#824, #896)
- * delivers once per arm.
+ * delivers once per arm. Project scope guidance (#1226, ADR-0098) dedupes on
+ * content, so a changed text re-pins.
  */
 
 export type HiddenContextResendEvent = "session_compact" | "session_branch" | "session_switch";
 
+/**
+ * How the dedupe walk decides the branch already holds the pin.
+ * - `customType`: any message of the customType (snapshots: Ask pin, carryover).
+ * - `content`: the LATEST message of the customType carries exactly the armed text.
+ */
+export type HiddenContextDedupe = "customType" | "content";
+
 export interface HiddenContextBridgeSpec {
   /** Slash command the spawner pushes through initialCommands. */
   command: string;
-  /** customType of the hidden message; the dedupe walk matches on it alone. */
+  /** customType of the hidden message the dedupe walk matches. */
   customType: string;
   /** Inclusive UTF-16 ceiling on the `set` payload's text. */
   textMax: number;
@@ -21,6 +29,8 @@ export interface HiddenContextBridgeSpec {
   label: string;
   /** omp session events after which delivery re-runs (the dedupe walk decides). */
   resendOn: readonly HiddenContextResendEvent[];
+  /** Absent means "customType". */
+  dedupe?: HiddenContextDedupe;
 }
 
 /** The hidden slash command a spawner pushes through initialCommands. */
@@ -41,11 +51,13 @@ const CUSTOM_TYPE = ${JSON.stringify(spec.customType)};
 const TEXT_MAX = ${spec.textMax};
 const LABEL = ${JSON.stringify(spec.label)};
 const RESEND_ON: readonly string[] = ${JSON.stringify(spec.resendOn)};
+const DEDUPE: string = ${JSON.stringify(spec.dedupe ?? "customType")};
 
 /** One entry of omp's session tree, as far as the dedupe walk reads it. */
 interface HiddenContextBranchEntry {
   type?: unknown;
   customType?: unknown;
+  content?: unknown;
 }
 
 /** The slice of omp's AgentSession this extension drives. */
@@ -101,11 +113,13 @@ export default function (pi: HiddenContextExtensionApi) {
 
   /**
    * True when the current branch, walked from its leaf back to the last
-   * compaction or reset boundary, already holds the pinned message. Matches
-   * the customType alone: the text is a snapshot, so a re-rendered copy must
-   * never stack beside the original. No getBranch reads as not pinned.
+   * compaction or reset boundary, already holds the pinned message. In
+   * "customType" mode any message of the customType counts: the text is a
+   * snapshot, so a re-rendered copy must never stack beside the original. In
+   * "content" mode only the latest such message counts, and only when it
+   * carries exactly the armed text. No getBranch reads as not pinned.
    */
-  function alreadyPinned(root: HiddenContextSession): boolean {
+  function alreadyPinned(root: HiddenContextSession, target: string): boolean {
     let branch: unknown;
     try {
       const getBranch = root.sessionManager?.getBranch;
@@ -119,7 +133,9 @@ export default function (pi: HiddenContextExtensionApi) {
       const entry = branch[i] as HiddenContextBranchEntry | null;
       if (entry === null || typeof entry !== "object") continue;
       if (entry.type === "compaction" || entry.type === "reset_boundary") return false;
-      if (entry.type === "custom_message" && entry.customType === CUSTOM_TYPE) return true;
+      if (entry.type === "custom_message" && entry.customType === CUSTOM_TYPE) {
+        return DEDUPE === "content" ? entry.content === target : true;
+      }
     }
     return false;
   }
@@ -136,7 +152,7 @@ export default function (pi: HiddenContextExtensionApi) {
       }
       return;
     }
-    if (alreadyPinned(active)) return;
+    if (alreadyPinned(active, target)) return;
     try {
       await active.sendCustomMessage(
         {

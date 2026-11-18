@@ -11,6 +11,10 @@ import {
   capabilityToolMutationMessage,
   askContextArmMessage,
   askContextText,
+  projectScopeArmMessage,
+  projectScopeGuidance,
+  type ProjectScopeRole,
+  type FleetToolAccess,
   readAskContext,
   renderSessionSummary,
   stageAskContext,
@@ -1095,6 +1099,27 @@ export class SessionManager {
     return askContextText({ sessionId: source.sessionId, summary, transcriptPath: loc.filePath });
   }
 
+  /** Project scope guidance (#1226, ADR-0098); null when this session gets none. */
+  private projectScopeArm(record: OwnedSessionRecord, access: FleetToolAccess): object | null {
+    if (record.chat) return null;
+    const role: ProjectScopeRole | null =
+      access === "granted" ? (record.private ? "report-to-user" : "dispatch")
+      : access === "agent-recursion" ? "report-to-parent"
+      : null;
+    if (role === null) return null;
+    const project = this.deps.registry.projects.find((p) => p.path === record.projectCwd);
+    return {
+      type: "prompt",
+      id: `omp-ui-initial-project-scope-${randomUUID()}`,
+      message: projectScopeArmMessage(projectScopeGuidance({
+        projectName: project?.name ?? path.basename(record.projectCwd),
+        projectCwd: record.projectCwd,
+        checkoutPath: record.worktree?.path ?? record.projectCwd,
+        role,
+      })),
+    };
+  }
+
   /**
    * The text a launching Ask chat arms: the staged artifact, else a fresh
    * render from a still-present source (a branch's new lineage dir has no
@@ -2071,6 +2096,9 @@ export class SessionManager {
         agentDispatchEnabled: this.deps.registry.getSetting("fleetAgentDispatch"),
         requestedByKind: current.fleet?.requestedBy.kind ?? null,
       });
+      // Same access value as the fleet tool registration below (#1226), read
+      // from the record as it is now, so a worktree relaunch names its checkout.
+      const scopeArm = bridgeLoaded.projectScope ? this.projectScopeArm(current, entry.fleetToolAccess) : null;
       const commands = [...initialCommands];
       const tools = this.artifactHostTools.initial(entry, {
         vault: this.deps.registry.getSetting("vaultRegistry").vaults.length > 0,
@@ -2088,6 +2116,8 @@ export class SessionManager {
         artifacts: this.deps.artifacts !== undefined && this.deps.registry.getSetting("artifactLibraryEnabled"),
       });
       commands.splice(registrationIndex + 2, 0, tools);
+      // Ahead of set_event_filter, the tool registration, and the fleet prompt.
+      if (scopeArm !== null) commands.splice(registrationIndex, 0, scopeArm);
       const held = this.heldPrompts.initialCommand(current, entry.modelHold !== null);
       if (held !== null) commands.push(held);
       commands.push(...this.scheduledPrompts.initialCommands(current, entry.modelHold !== null, planMode && bridgeLoaded.plan));

@@ -52,6 +52,7 @@ function bridgeWriters(write: (id: (typeof RPC_BRIDGE_IDS)[number]) => string): 
     privateGuard: () => write("privateGuard"),
     sideCommands: () => write("sideCommands"),
     fleetWake: () => write("fleetWake"),
+    projectScope: () => write("projectScope"),
   };
 }
 
@@ -82,6 +83,7 @@ describe("writeRpcExtensions", () => {
         "/privateGuard.ts",
         "/sideCommands.ts",
         "/fleetWake.ts",
+        "/projectScope.ts",
       ],
       loaded: {
         plan: false,
@@ -101,6 +103,7 @@ describe("writeRpcExtensions", () => {
         privateGuard: true,
         sideCommands: true,
         fleetWake: true,
+        projectScope: true,
       },
     });
     expect(warning).toHaveBeenCalledTimes(2);

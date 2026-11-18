@@ -7,6 +7,9 @@ import {
   ASK_CONTEXT_CUSTOM_TYPE,
   CARRYOVER_CONTEXT_CHAR_MAX,
   CARRYOVER_CONTEXT_CUSTOM_TYPE,
+  PROJECT_SCOPE_CUSTOM_TYPE,
+  projectScopeArmMessage,
+  writeProjectScopeExtension,
   RpcClient,
   askContextArmMessage,
   carryoverContextArmMessage,
@@ -110,10 +113,10 @@ function userEntry(id: string, parentId: string | null, text: string): object {
   };
 }
 
-function pinEntry(id: string, parentId: string, content: string): object {
+function pinEntry(id: string, parentId: string, content: string, customType = ASK_CONTEXT_CUSTOM_TYPE): object {
   return {
     type: "custom_message",
-    customType: ASK_CONTEXT_CUSTOM_TYPE,
+    customType,
     content,
     display: false,
     attribution: "agent",
@@ -295,6 +298,37 @@ describe.skipIf(ompPath === null)("Ask chat pinned context on the real runtime",
     // pinned context again, once, after the boundary.
     expect(pins(messages)).toEqual([expect.objectContaining({ content: ARM_TEXT, display: false })]);
     expect(messages.at(-1)).toMatchObject({ role: "custom", customType: ASK_CONTEXT_CUSTOM_TYPE });
+    expectQuietArm(scope);
+  });
+});
+
+describe.skipIf(ompPath === null)("Project scope guidance content dedupe on the real runtime (#1226)", () => {
+  const seeded = (sessionId: string, armText: string): SpawnOptions => ({
+    extension: writeProjectScopeExtension,
+    arm: projectScopeArmMessage(armText),
+    seed: {
+      sessionId,
+      entries: [
+        userEntry("a1b2c3d4", null, "hello"),
+        pinEntry("e5f6a7b8", "a1b2c3d4", "scope text A", PROJECT_SCOPE_CUSTOM_TYPE),
+      ],
+    },
+  });
+
+  it("re-arming with changed text adds exactly one new hidden message", { timeout: 120_000 }, async () => {
+    const scope = track(spawnScope(seeded("019faa64-fdcd-7000-acfd-0123456789ad", "scope text B")));
+    const messages = await messagesAfterArm(scope);
+    expect(pins(messages, PROJECT_SCOPE_CUSTOM_TYPE)).toEqual([
+      expect.objectContaining({ content: "scope text A" }),
+      expect.objectContaining({ content: "scope text B", display: false }),
+    ]);
+    expectQuietArm(scope);
+  });
+
+  it("re-arming with the same text adds none", { timeout: 120_000 }, async () => {
+    const scope = track(spawnScope(seeded("019faa64-fdcd-7000-acfd-0123456789ae", "scope text A")));
+    const messages = await messagesAfterArm(scope);
+    expect(pins(messages, PROJECT_SCOPE_CUSTOM_TYPE)).toEqual([expect.objectContaining({ content: "scope text A" })]);
     expectQuietArm(scope);
   });
 });

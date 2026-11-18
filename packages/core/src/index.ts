@@ -88,6 +88,7 @@ export * from "./theme-repository";
 export * from "./issue-tool";
 export * from "./knowledge-vault-extension";
 export * from "./ask-context";
+export * from "./project-scope-extension";
 export * from "./fleet";
 export * from "./fleet-host";
 export * from "./remote-vscode";

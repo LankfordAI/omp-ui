@@ -41,7 +41,8 @@ import { GoalChip } from "./GoalChip";
 import { WorktreeChip } from "./WorktreeChip";
 import { PullRequestChip } from "./PullRequestChip";
 import { Button, Chevron, Chip, CopyButton, Dot, ICON_STROKE, IconButton, IconLock, IconRefresh, IconSessionTree, Label, Meter, Panel, ProgressRing, Sheet, Switch, type Tone } from "./ui";
-import { TONE_TEXT } from "./ui/tone";
+import { TONE_BORDER_OUTLINE_HOVER, TONE_CHIP, TONE_TEXT } from "./ui/tone";
+import { resolveDispatchLinks } from "../lib/dispatched-sessions";
 
 /**
  * The instrument's status bar: one line that answers "is it alive, what is it
@@ -1751,6 +1752,10 @@ export function SessionHud({ tabId, active = true }: { tabId: string; active?: b
   const instance = useStore((s) => (instanceId === null ? undefined : findInstance(s.state, instanceId)));
   // Fleet provenance (issue #899): who dispatched this session, as a quiet chip.
   const fleetFrom = useStore((s) => findRecord(s.state, tabId)?.fleet?.requestedBy ?? null);
+  // The dispatching session (#1226, ADR-0098): the same R1–R6 resolution as the
+  // sidebar; the cached map keeps the reference stable per state.
+  const dispatcher = useStore((s) => (s.state === null ? null : resolveDispatchLinks(s.state).get(tabId)?.parent ?? null));
+  const openDispatcher = useStore((s) => s.openSession);
   const compactSession = useStore((s) => s.compactSession);
   const setAutoCompaction = useStore((s) => s.setAutoCompaction);
   const exportHtml = useStore((s) => s.exportHtml);
@@ -1970,20 +1975,37 @@ export function SessionHud({ tabId, active = true }: { tabId: string; active?: b
       {instance.nickname}
     </Chip>
   );
-  const fleetChip = fleetFrom !== null && (
-    <Chip mono className={compact ? undefined : "shrink-0 [app-region:no-drag]"}>
-      {t(
-        fleetFrom.kind === "agent"
-          ? "fleet.hud.dispatchedFromAgent"
-          : fleetFrom.kind === "webhook"
-            ? "fleet.hud.startedByWebhook"
-            : fleetFrom.kind === "mcp"
-              ? "fleet.hud.startedByMcp"
-              : "fleet.hud.dispatchedFrom",
-        { label: fleetFrom.label },
-      )}
-    </Chip>
-  );
+  const fleetChip =
+    dispatcher !== null ? (
+      <button
+        type="button"
+        title={t("fleet.hud.openDispatcher")}
+        onClick={() => void openDispatcher(dispatcher.session.tabId)}
+        className={cn(
+          "inline-flex max-w-64 shrink-0 items-center gap-1 rounded border px-1.5 py-px text-xs leading-4 transition-colors",
+          TONE_CHIP.neutral,
+          TONE_BORDER_OUTLINE_HOVER.neutral,
+          !compact && "[app-region:no-drag]",
+        )}
+      >
+        ↩ <span className="truncate">{t("fleet.hud.dispatchedBySession", { title: dispatcher.session.title })}</span>
+      </button>
+    ) : (
+      fleetFrom !== null && (
+        <Chip mono className={compact ? undefined : "shrink-0 [app-region:no-drag]"}>
+          {t(
+            fleetFrom.kind === "agent"
+              ? "fleet.hud.dispatchedFromAgent"
+              : fleetFrom.kind === "webhook"
+                ? "fleet.hud.startedByWebhook"
+                : fleetFrom.kind === "mcp"
+                  ? "fleet.hud.startedByMcp"
+                  : "fleet.hud.dispatchedFrom",
+            { label: fleetFrom.label },
+          )}
+        </Chip>
+      )
+    );
   const pullRequestChip = pullRequests !== undefined && pullRequests.length > 0 && (
     <PullRequestChip links={pullRequests} interactive className={compact ? undefined : "[app-region:no-drag]"} />
   );

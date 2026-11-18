@@ -1,4 +1,4 @@
-import { Fragment, type MouseEvent as ReactMouseEvent, type ReactNode } from "react";
+import { Fragment, useEffect, type MouseEvent as ReactMouseEvent, type ReactNode } from "react";
 import { relativeTime } from "../lib/format";
 import { tileModel, tileQuote } from "../lib/session-tile";
 import type { SessionSummary } from "@omp-ui/core/types";
@@ -9,9 +9,12 @@ import { formatSnoozeUntil } from "../lib/snooze-until";
 import { cn } from "../lib/cn";
 import { canSettle, deriveSidebarSessionState, forkSourceOf, useStore, type SidebarSessionState } from "../store";
 import { SESSION_DRAG_EFFECT, SESSION_DRAG_MIME } from "../lib/session-drag";
-import { Button, Chip, IconButton, IconClock, IconLock, IconPin, IconSpeaker, type Tone } from "./ui";
+import { Button, Chip, IconButton, IconClock, IconFleet, IconLock, IconPin, IconSpeaker, type Tone } from "./ui";
 import { TONE_DOT } from "./ui/tone";
 import type { SessionHandoff } from "../lib/session-handoffs";
+import type { SessionDispatch } from "../lib/dispatched-sessions";
+import { releaseDispatchHover, setDispatchHover, useDispatchHover } from "../lib/dispatch-hover";
+import { DispatchTether } from "./DispatchTether";
 import type { ProjectFace } from "../lib/repository-members";
 import { SessionProjectLine } from "./SessionProjectLine";
 import { openPullRequest, pullRequestFace, PullRequestChip } from "./PullRequestChip";
@@ -233,6 +236,7 @@ export function SessionRow({
   s,
   onActivate,
   handoff,
+  dispatch,
   project,
   instanceNickname = null,
   onContextMenu,
@@ -245,6 +249,9 @@ export function SessionRow({
   /** Plan-handoff view of this row (issue #238): its resolved source, an
    *  orphan marker, and whether it dispatched at least one implementation. */
   handoff?: SessionHandoff;
+  /** Dispatch tether links (#1226, ADR-0098): the tile lists the sessions its
+   *  agent dispatched; a dispatched row marks and opens its dispatcher. */
+  dispatch?: SessionDispatch;
   /** The row's project face; null for a chat. Tiles lead with it on the
    *  project line; slim rows name it in the meta line. */
   project: ProjectFace | null;
@@ -280,6 +287,15 @@ export function SessionRow({
   const activeTabId = useStore((st) => st.activeTabId);
   // CONTEXT.md **Fork**: the original this row was forked from, on the same host.
   const forkSource = useStore((st) => forkSourceOf(st.state, s.tabId));
+  // Dispatch tether cross-highlight (#1226): a tether line naming this row lights it.
+  const tetherHovered = useDispatchHover(s.tabId, "tether");
+  const dispatchParent = dispatch?.parent ?? null;
+  const hasDispatchParent = dispatchParent !== null;
+  // Unmounting releases only this row's own hover.
+  useEffect(() => {
+    if (!hasDispatchParent) return;
+    return () => releaseDispatchHover({ tabId: s.tabId, source: "row" });
+  }, [hasDispatchParent, s.tabId]);
 
   // Live voice output (issue #807) plus the park/resume badges (#811): a
   // running live session speaks even when its tab is not visible, and the
@@ -443,6 +459,13 @@ export function SessionRow({
     if (when !== "") meta.push(<span title={absoluteTime(s.cachedModified)}>{when}</span>);
     if (exitWord !== null) meta.push(<span title={exitWord.title}>{exitWord.label}</span>);
     if (forkNote !== null) meta.push(<span title={forkNote}>{t("sidebar.session.forkChip")}</span>);
+    if (dispatchParent !== null) {
+      meta.push(
+        <span title={t("sidebar.dispatch.dispatchedBy", { title: dispatchParent.session.title })}>
+          {t("sidebar.dispatch.slimMeta")}
+        </span>,
+      );
+    }
   } else {
     // A dormant record surfaced as a tile (Snoozed) is still "no process";
     // that word never prints on the meta line (round-2 judge). Every other
@@ -485,23 +508,33 @@ export function SessionRow({
   if (snoozedLabel !== null) meta.push(snoozedLabel);
   if (scheduleLabel !== null) meta.push(scheduleLabel);
 
+  const childHover = { tabId: s.tabId, source: "row" } as const;
+  const dispatchedBy =
+    dispatchParent === null
+      ? null
+      : {
+          tabId: dispatchParent.session.tabId,
+          title: dispatchParent.session.title,
+          project: dispatchParent.project,
+          // The ↳ marker lights the parent's row; leaving it restores this
+          // row's own hover, because the pointer is still on the row.
+          onHoverChange: (over: boolean) =>
+            setDispatchHover(over ? { tabId: dispatchParent.session.tabId, source: "tether" } : childHover),
+        };
+
   return (
     <div
-      onContextMenu={onContextMenu}
-      // A drag source for session references (issue #984): drop on a native
-      // composer to hand this session over. A missing row has nothing saved.
-      draggable={!missing}
-      onDragStart={(event) => {
-        event.dataTransfer.setData(SESSION_DRAG_MIME, s.tabId);
-        event.dataTransfer.effectAllowed = SESSION_DRAG_EFFECT;
-      }}
       className={cn(
         "group/row animate-slide-in relative rounded-md transition-colors duration-150",
         // The fill alone is a ~1.07:1 step in Light (white tile on the
         // sunken sidebar), so selection also carries a hairline ring —
         // legible in both themes without a second colour channel (round-3
         // judge, Hierarchy 3).
-        selected || multiSelected ? "bg-raised ring-1 ring-line-strong" : "hover:bg-raised/60",
+        selected || multiSelected
+          ? "bg-raised ring-1 ring-line-strong"
+          : tetherHovered
+            ? "bg-raised/60 ring-1 ring-line-strong"
+            : "hover:bg-raised/60",
       )}
     >
       {/* The status band (#1037): toned by state, and the state colour holds
@@ -525,6 +558,22 @@ export function SessionRow({
         />
       )}
 
+      {/* The row proper: drag source and context menu. The dispatch tether
+          renders after it as a sibling, so a tether line never drags or
+          opens this row's menu (ADR-0098). Non-positioned: the hover
+          cluster stays anchored to the outer div. */}
+      <div
+        onContextMenu={onContextMenu}
+        // A drag source for session references (issue #984): drop on a native
+        // composer to hand this session over. A missing row has nothing saved.
+        draggable={!missing}
+        onDragStart={(event) => {
+          event.dataTransfer.setData(SESSION_DRAG_MIME, s.tabId);
+          event.dataTransfer.effectAllowed = SESSION_DRAG_EFFECT;
+        }}
+        onMouseEnter={dispatchParent === null ? undefined : () => setDispatchHover(childHover)}
+        onMouseLeave={dispatchParent === null ? undefined : () => releaseDispatchHover(childHover)}
+      >
       <button
         type="button"
         aria-current={selected ? "page" : undefined}
@@ -555,6 +604,7 @@ export function SessionRow({
           <SessionProjectLine
             project={project}
             nickname={instanceNickname || null}
+            dispatchedBy={dispatchedBy}
             trailing={
               when === "" ? undefined : (
                 <span title={absoluteTime(s.cachedModified)} className="tabular-nums text-ink-faint">
@@ -658,6 +708,17 @@ export function SessionRow({
             <IconFork />
           </IconButton>
         )}
+        {dispatchParent !== null && (
+          <IconButton
+            label={t("sidebar.dispatch.openParent")}
+            onClick={() => {
+              void openSession(dispatchParent.session.tabId);
+              onActivate?.();
+            }}
+          >
+            <IconFleet />
+          </IconButton>
+        )}
         {firstPr !== undefined && (
           <IconButton
             label={t("pullRequest.chip.openNamed", { number: firstPr.number, state: t(pullRequestFace(firstPr).labelKey) })}
@@ -696,6 +757,15 @@ export function SessionRow({
           <IconTrash />
         </IconButton>
       </div>
+      </div>
+      {!slim && dispatch !== undefined && dispatch.children.length > 0 && (
+        <DispatchTether
+          parentTabId={s.tabId}
+          parentTitle={s.title}
+          children={dispatch.children}
+          onActivate={onActivate}
+        />
+      )}
     </div>
   );
 }
