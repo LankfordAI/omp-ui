@@ -37,7 +37,7 @@ import type { BreadcrumbEntry } from "./breadcrumbs";
  *    a `response` for `omp-ui-host-tools-1` — adoption is protocol-viable,
  *    not just stream-viable.
  *
- * OMP 18.18.7 must be installed; missing setup fails instead of skipping.
+ * OMP 18.22 or newer must be installed; missing setup fails instead of skipping.
  * All waits here are real-time on purpose: the awaited condition is a real OS
  * process, and a fake clock cannot make it live, speak, or exit — the
  * documented exception for platform-clock integration tests.
@@ -46,7 +46,7 @@ import type { BreadcrumbEntry } from "./breadcrumbs";
 const ompPath = resolveOmpBinary();
 
 function requiredOmpPath(): string {
-  if (ompPath === null) throw new Error("Warm Council live proofs require the installed OMP 18.18.7 binary; no live proof may skip.");
+  if (ompPath === null) throw new Error("Warm Council live proofs require OMP 18.22 or newer; no live proof may skip.");
   return ompPath;
 }
 
@@ -230,9 +230,11 @@ async function councilProvider(withTrial: boolean): Promise<{ baseUrl: string; m
     request.on("data", (part: Buffer) => parts.push(part));
     request.on("end", () => {
       const bodyText = Buffer.concat(parts).toString("utf8");
-      const body = JSON.parse(bodyText) as { model: string };
-      models.push(body.model);
-      const launch = !launched && body.model === "inert" && bodyText.includes("warm-council-probe");
+      const body = JSON.parse(bodyText) as { model: string; tools?: unknown[] };
+      // Do not count omp's tool-less provider capability probes as member turns.
+      const hasTools = (body.tools?.length ?? 0) > 0;
+      if (hasTools) models.push(body.model);
+      const launch = hasTools && !launched && body.model === "inert" && bodyText.includes("warm-council-probe");
       if (launch) launched = true;
       const chunk = (delta: Record<string, unknown>, finishReason: string | null): string =>
         `data: ${JSON.stringify({

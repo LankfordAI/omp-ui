@@ -15,7 +15,6 @@ import { VIBE_COMMAND } from "@omp-ui/core/vibe";
 import { ASYNC_JOBS_COMMAND } from "@omp-ui/core/async-jobs";
 import { SESSION_SPEND_COMMAND } from "@omp-ui/core/session-spend";
 import { SIDE_COMMANDS_COMMAND } from "@omp-ui/core/side-commands";
-import { seanceRemovedFromOmp } from "@omp-ui/core/seance";
 import { backend, backendFor, displayMessage } from "../backend";
 import type { ArtifactRecord } from "@omp-ui/core/artifacts";
 import { cn } from "../lib/cn";
@@ -137,14 +136,6 @@ export function Composer({
   const councilEnabled = useStore((s) => s.state?.councilEnabled === true);
   // A chat has no plan mode and no project for autoresearch to key on (#894).
   const chat = useStore((s) => isChatTab(s.state, tabId));
-  // omp 18.20.3 removed `/seance` and its agent (issue #1189): the palette's
-  // entry — and with it the dialog the intercept opens — goes with it, because
-  // an offer that can only fail is worse than no offer. A tab with no
-  // capabilities snapshot yet (a terminal tab) rides the installed binary,
-  // the same source the sidebar row gates on.
-  const seanceRemoved = useStore(
-    (s) => seanceRemovedFromOmp(s.rpc[tabId]?.capabilities?.ompVersion ?? s.ompUpdate.installedVersion),
-  );
   // UI_PLAN_COMMAND is the palette's one canonical plan entry: omp's own
   // `plan` is TUI-only (ADR-0007) and the extension's `omp-ui-plan` is the
   // driver the intercept rewrites to, so both are filtered out.
@@ -167,7 +158,6 @@ export function Composer({
       },
       { ...UI_GUIDED_GOAL_COMMAND, description: t("composer.slash.guidedGoal") },
       { ...UI_BTW_COMMAND, description: t("composer.slash.btw") },
-      ...(seanceRemoved ? [] : [{ ...UI_SEANCE_COMMAND, description: t("composer.slash.seance") }]),
       {
         ...UI_VIBE_COMMAND,
         description: t("composer.slash.vibe"),
@@ -222,7 +212,7 @@ export function Composer({
           !owned.has(c.name),
       ),
     ];
-  }, [chat, commands, councilEnabled, experimentsEnabled, localeId, seanceRemoved, t]);
+  }, [chat, commands, councilEnabled, experimentsEnabled, localeId, t]);
   const queued = useStore((s) => {
     const session = s.rpc[tabId]?.session;
     return session ? queueChipCount(session) : 0;
@@ -2032,19 +2022,6 @@ const UI_BTW_COMMAND: SlashCommandInfo = {
   description: "ask a side question without touching the transcript",
   source: "omp-ui",
   input: { hint: "<question>" },
-};
-
-/**
- * omp's `/seance` is TUI-only (its entry defines `handleTui` only — there is
- * no rpc verb) and absent from `get_available_commands`, so the palette would
- * never show it; the store intercepts the line in native tabs and opens the
- * Seance consult dialog there (issue #885).
- */
-const UI_SEANCE_COMMAND: SlashCommandInfo = {
-  name: "seance",
-  description: "consult a saved session without resuming it",
-  source: "omp-ui",
-  input: { hint: "[session id|path] [--model selector]" },
 };
 
 /**

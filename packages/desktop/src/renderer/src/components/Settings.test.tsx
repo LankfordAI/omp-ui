@@ -1673,11 +1673,11 @@ describe("Settings omp Live voice group (issue #802)", () => {
     expect(local!.value).toBe("1");
     expect(document.body.textContent).toContain("Live voice");
 
-    await commitSpeed("speech.speed", "1.8");
-    expect(backendMock.writeOmpSetting).toHaveBeenCalledWith("speech.speed", 1.8);
+    await commitSpeed("speech.speed", "1.2");
+    expect(backendMock.writeOmpSetting).toHaveBeenCalledWith("speech.speed", 1.2);
   });
 
-  it("clamps the typed speed to omp's 0.5–2.5 range (issue #836)", async () => {
+  it("clamps the typed speed to omp's Phonon range (issue #1198)", async () => {
     seedOmp({
       ...emptyOmpSettings,
       entries: [
@@ -1689,11 +1689,11 @@ describe("Settings omp Live voice group (issue #802)", () => {
     await renderSettings();
 
     await commitSpeed("tts.localSpeed", "9");
-    expect(backendMock.writeOmpSetting).toHaveBeenCalledWith("tts.localSpeed", 2.5);
+    expect(backendMock.writeOmpSetting).toHaveBeenCalledWith("tts.localSpeed", 1.3);
 
     backendMock.writeOmpSetting.mockClear();
     await commitSpeed("tts.localSpeed", "0.1");
-    expect(backendMock.writeOmpSetting).toHaveBeenCalledWith("tts.localSpeed", 0.5);
+    expect(backendMock.writeOmpSetting).toHaveBeenCalledWith("tts.localSpeed", 0.8);
   });
 
   it("omits only the speed rows on an omp that predates the keys (issue #836)", async () => {

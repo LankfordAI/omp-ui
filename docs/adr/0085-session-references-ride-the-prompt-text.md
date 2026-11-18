@@ -117,3 +117,9 @@ successor in 18.20.3+, and the rail pane's roster truth is the subagent
 roster. They hide whole on a removed harness (see the Seance window gate in
 `@omp-ui/core/seance`); only the routes an ordinary model turn can take
 survive, which is what this amendment puts in the hint.
+
+## Amended by #1214: one hint on send
+
+At the omp 18.22.0 floor, every new session reference sends the read/archive
+hint (`SESSION_REFERENCE_HINT_V2`). Both exact hint strings still parse, so
+older prompts carrying the Seance-era hint still render as reference chips.

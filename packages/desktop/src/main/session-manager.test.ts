@@ -8949,7 +8949,7 @@ describe("chat sessions (issue #894)", () => {
       const staged = Core.readAskContext(path.join(sessionsRoot, record.lineageDir));
       expect(staged).toContain("MARKER-PELICAN");
       expect(staged).toContain(`session id ${SOURCE_SID}`);
-      // An unknown harness takes the read/archive deep-dive route (issue #1189).
+      // The pinned context always points to the read/archive route (#1214).
       expect(staged).toContain(`read its file at "${path.join(sessionsRoot, "omp-ui--proj--ask-src")}`);
       expect(staged).not.toContain("sourceSession");
 

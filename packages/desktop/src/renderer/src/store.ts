@@ -41,7 +41,6 @@ import { createLifecycleSlice } from "./store/slices/lifecycle";
 import { createMigrateSlice } from "./store/slices/migrate";
 import { createPlanExecutionSlice } from "./store/slices/plan-execution";
 import { createRpcCommandSlice } from "./store/slices/rpc-command";
-import { createSeanceSlice } from "./store/slices/seance";
 import { createSessionParamsSlice } from "./store/slices/session-params";
 import { createSideQuestionsSlice } from "./store/slices/side-questions";
 import { createSettingsSlice } from "./store/slices/settings";
@@ -118,7 +117,6 @@ export {
   COMPACTION_USAGE_RETRY_MS,
   COMPACTION_USAGE_MAX_ATTEMPTS,
 } from "./store/slices/frame-reduction";
-export { resolveSeanceSource } from "./store/slices/seance";
 export { canSettle } from "./store/slices/settle";
 export { supportsBulkAction, type BulkAction } from "./store/slices/session-bulk";
 export {
@@ -213,7 +211,6 @@ export const useStore = create<UiStore>()((set, get, api) => {
   const sideQuestions = createSideQuestionsSlice(set, get, m);
   const migrate = createMigrateSlice(set, get);
   const subagentControl = createSubagentControlSlice(get, m);
-  const seance = createSeanceSlice(set, get, m, { resolveSpawnParams: lifecycle.resolveSpawnParams });
   const asyncJobs = createAsyncJobsSlice(get, m);
   const liveAudio = createLiveAudioSlice(get, set);
   const settle = createSettleSlice(set, get);
@@ -472,7 +469,6 @@ export const useStore = create<UiStore>()((set, get, api) => {
     ...settle,
     ...sessionBulk,
     ...subagentControl,
-    ...seance,
     ...asyncJobs,
     ...liveAudio,
     state: null,

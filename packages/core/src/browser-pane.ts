@@ -252,40 +252,30 @@ export function parseBrowserPaneSetArgs(args: string): { cdpUrl: string } | null
   return { cdpUrl };
 }
 
-/** The `app` argument around the endpoint: omp ≤ 18.18 parse only this object. */
-export const BROWSER_PANE_APP_OBJECT_FORM: readonly [string, string] = ['app: { cdp_url: "', '" } });'];
-/** The `app` argument around the endpoint: omp ≥ 18.19 accept only a string (issue #1188). */
+/** The string `app` argument around the endpoint (issue #1188). */
 export const BROWSER_PANE_APP_URL_FORM: readonly [string, string] = ['app: "', '" });'];
 
 /**
  * The hidden message the agent receives (#530, plus the direct-tools-first
  * routing policy of #561), split around the endpoint and around the `app`
- * argument so the generated extension interpolates the same text from both
- * sides of the channel and can pick the argument form the running omp parses.
+ * argument so the generated extension and core compose the same text.
  *
  * Issue #1031 retired the old "tab.click hangs against this endpoint; click
  * with tab.run(…)" workaround sentence and the version gate that dropped it:
  * re-proven obsolete on a live pane endpoint with omp 18.17 — `tab.click(sel)`
  * fires the plain click, `{ button: "right" }` fires contextmenu, and
  * `{ count: 2 }` fires dblclick (upstream `#17778`/`#17767`, shipped at omp
- * 18.16.0). 18.16.0 is also `MIN_SUPPORTED_OMP`: below the floor the update
- * manager treats it as a requirement violation and installs a supported
- * binary (omp-update.ts; auto-upgrade is on by default), so no harness omp-ui
- * supports needs the sentence. The delivered text is byte-identical to what
- * the retired gate emitted for every binary that could run sessions.
+ * 18.16.0). The supported floor is above 18.16, so no harness omp-ui
+ * supports needs the sentence.
  */
 export const BROWSER_PANE_INSTRUCTION_PARTS: readonly [string, string] = [
   '[omp-ui browser pane] This session has a browser pane the user sees live beside the transcript. It is available when the task requires browser interaction. Prefer the most direct interface: use read/search for repository files and static web content, and use installed CLIs or APIs with existing credentials for structured service work. Do not open a service console or begin interactive sign-in when an authenticated local CLI or API can complete the task. Use the browser pane for rendered UI, client-side JavaScript, browser state, browser-only authentication, or when the user explicitly asks to see or interact with a page. If a preferred CLI or API reports that browser authentication is required, use the pane for that authentication and then return to the CLI or API. To drive it from the eval kernel:\n  const tab = await browser.open({ name: "pane", url: "<http or https URL>", ',
   '\nThe endpoint has exactly one page: every name you open shares it and its `url` navigates it. The user can click and type in the same page at any time, so observe before you act. tab.close only disconnects; the page stays open for the user; a pane you opened collapses on its own once you disconnect. Only http and https URLs load. This supersedes any earlier omp-ui browser pane endpoint.',
 ];
 
-/**
- * The hidden message body with the legacy `{ cdp_url }` object argument —
- * byte-identical to the text delivered before issue #1188. The version-aware
- * composition (string `app` on omp >= 18.19) lives in browser-pane-app-url.ts.
- */
+/** The hidden message body with the CDP endpoint as a string `app` argument. */
 export function browserPaneInstruction(cdpUrl: string): string {
-  return BROWSER_PANE_INSTRUCTION_PARTS[0] + BROWSER_PANE_APP_OBJECT_FORM[0] + cdpUrl + BROWSER_PANE_APP_OBJECT_FORM[1] + BROWSER_PANE_INSTRUCTION_PARTS[1];
+  return BROWSER_PANE_INSTRUCTION_PARTS[0] + BROWSER_PANE_APP_URL_FORM[0] + cdpUrl + BROWSER_PANE_APP_URL_FORM[1] + BROWSER_PANE_INSTRUCTION_PARTS[1];
 }
 
 /** Encoded formats a clock stamp accepts and returns (CDP's three screenshot formats). */

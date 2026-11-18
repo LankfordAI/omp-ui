@@ -241,8 +241,9 @@ branch of a chat is a chat sharing its directory; deleting the last record
 that uses a directory deletes the directory. Chats are host-local: joined
 remote instances never see them (ADR-0059). An *Ask chat* is a chat started
 from another session's *Ask about this session* action: its title names the
-source, and the source's summary rides as hidden pinned context; deep dives go
-through a Seance consult, so the source is never woken (ADR-0060).
+source, and the source's summary rides as hidden pinned context. To go deeper,
+the model reads the transcript file or calls `archive.session(path)` in eval;
+neither route wakes the source (ADR-0060).
 _Avoid_: thread, conversation, scratch session, desk
 
 **Lineage**:
@@ -324,8 +325,8 @@ _Avoid_: primary colour, brand colour, green
 
 **Inspector rail**:
 The right-hand strip in an rpc-ui tab: four labelled group buttons — Work
-(Todos, Agents, Jobs), Review (Plans, Diffs), Ask (Side questions, Seance),
-Info (Session) — over eight panes. The strip is the permanent posture:
+(Todos, Agents, Jobs), Review (Plans, Diffs), Ask (Side questions),
+Info (Session) — over seven panes. The strip is the permanent posture:
 pressing a group opens its pane beside it, with a tab row for the group's
 members (a single-member group has none); re-pressing the active group (or
 the pane's close control) dismisses it. A group's badge is the sum of its
@@ -342,24 +343,6 @@ an answered topic, history kept in the session's own `btw-history/` files so it
 survives hibernation); a terminal tab's TUI keeps OMP's own `/btw`. A file
 slash command with `side: true` frontmatter is also asked as a side question.
 _Avoid_: side chat, tangent, btw thread
-
-**Seance consult**:
-A read-only consultation of a dormant **Session** through OMP's bundled `seance`
-task agent: a consultant reads the saved transcript and answers a question
-without the consulted session ever being resumed, woken, or branched. A native
-tab launches one with `/seance` (or the sidebar row's consult action) and shows
-consultants in the **Inspector rail**'s _Seance_ pane — follow-ups steer the
-running consultant while it lives; a settled one is re-asked, fresh. A **plan-mode**
-tab cannot host the consultant — OMP hides the seance spawn while planning — so the
-launch moves to a fresh build-mode session in the source's project. The
-consulting transcript is OMP's own subagent hub record, never an omp-ui copy.
-omp 18.20.3 removed the agent, `/seance`, and the task tool's `sourceSession`
-(issue #1189), so every Seance surface lives only in the window 18.11.3 ≤ omp <
-18.20.3: on a newer harness the pane, the row action, the palette entry, and the
-`/seance` intercept are all absent, and a **Session reference**'s hint line names
-the replacement routes instead (`read` on the transcript path,
-`archive.session(path)` in eval).
-_Avoid_: ghost session, séance thread, resume-by-reading
 
 **New session dialog**:
 The one form that starts work, opened from a project page in the **Project
@@ -728,13 +711,11 @@ ADR-0085). Drag a sidebar row onto a native composer, or pick it under the
 `@`-palette's *Sessions*; it becomes a chip in the draft. On send it leads
 the prompt as a `<session references>` block naming the session's title, id,
 owning machine, and the absolute path of its transcript there, with a hint
-naming the consult route the harness has: omp's `seance` task agent inside its
-window (18.11.3–18.20.2), `read`/`archive.session` on omp 18.20.3+, which
-removed seance (issue #1189). Both hint forms parse forever, so saved prompts
-from either era still render as chips. Same-machine only: a session owned by
-another instance is refused, and a draft moved to another machine drops its
-references. A live session may be referenced; the path names its file as of
-the prompt.
+to read the file or use `archive.session(path)` in eval. The seance-era line
+from older prompts still parses, so those prompts still render as chips.
+Same-machine only: a session owned by another instance is refused, and a draft
+moved to another machine drops its references. A live session may be
+referenced; the path names its file as of the prompt.
 _Avoid_: link, mention (an `@path` file mention), attachment, citation
 
 **Draft stash**:

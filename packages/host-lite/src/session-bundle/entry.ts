@@ -305,7 +305,6 @@ export function createSessionBundle(input: LiteSessionBundleDependencies): LiteS
     [CH.forkSession]: (tabId: string) => manager.forkSession(tabId),
     [CH.deleteSessionPreview]: (tabId: string) => manager.deleteSessionPreview(tabId),
     [CH.deleteSession]: (tabId: string, cascade: boolean) => manager.deleteSession(tabId, cascade),
-    [CH.sessionTranscriptPath]: (tabId: string) => manager.transcriptPath(tabId),
     [CH.setSessionModel]: (tabId: string, model: string | null, thinkingLevel: string | null) => {
       // The #932 hold guard backend.ts carries: an echo of omp's fallback must
       // never replace the pin the next spawn retries.

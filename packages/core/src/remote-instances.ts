@@ -88,7 +88,6 @@ export const TAB_ROUTED_REQUESTS: ReadonlySet<string> = new Set<string>([
   "session:deletePreview",
   "session:delete",
   "session:fork",
-  "session:transcriptPath",
   // A session reference names the owner's machine and its path there (#984).
   "session:reference",
   "session:setAdvisor",

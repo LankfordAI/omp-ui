@@ -1,7 +1,8 @@
 import * as fs from "node:fs";
 import * as os from "node:os";
 import * as path from "node:path";
-import { describe, expect, it, vi } from "vitest";
+import { gzipSync } from "node:zlib";
+import { afterEach, describe, expect, it, vi } from "vitest";
 import { ownedSessionRecord, seedRegistry } from "./test/fixtures";
 
 // The real MainBackend imports electron; stub the surfaces it touches at ipc
@@ -31,27 +32,34 @@ const FILE_NAME = `2026-07-29T16-18-42-427Z_${SESSION_ID}.jsonl`;
 
 const win = {
   isDestroyed: () => false,
-  webContents: { mainFrame: {}, send: () => {}, on: () => {}, isDestroyed: () => false },
+  webContents: { mainFrame: {}, send: () => {}, on: () => {}, isDestroyed: () => false, isCrashed: () => false },
 };
 
 let base: string;
+let backend: InstanceType<typeof MainBackend> | undefined;
+
+afterEach(async () => {
+  try {
+    await backend?.killAll();
+  } finally {
+    backend = undefined;
+    vi.unstubAllEnvs();
+    fs.rmSync(base, { recursive: true, force: true });
+  }
+});
 
 /**
- * Real registry file + real lineage dirs (ADR-0003 layout). `file`: "active"
- * writes the transcript, "archived" only a gzipped one under the archive
- * root, "missing" leaves the lineage dir empty.
+ * Real registry file and lineage directories (ADR-0003). The lazy tab shares
+ * the lineage, so a null session id must not resolve the other transcript.
  */
-function setup(file: "active" | "archived" | "missing"): {
-  sessionsRoot: string;
-  archiveRoot: string;
-} {
+function setup(file: "active" | "missing"): { sessionsRoot: string; archiveRoot: string } {
   base = fs.mkdtempSync(path.join(os.tmpdir(), "omp-ui-transcript-path-"));
   const agentDir = path.join(base, "agent");
   // Default profile, so PI_CODING_AGENT_DIR wins over the XDG branch.
-  process.env.PI_CODING_AGENT_DIR = agentDir;
-  delete process.env.XDG_DATA_HOME;
-  delete process.env.OMP_PROFILE;
-  delete process.env.PI_PROFILE;
+  vi.stubEnv("PI_CODING_AGENT_DIR", agentDir);
+  vi.stubEnv("XDG_DATA_HOME", undefined);
+  vi.stubEnv("OMP_PROFILE", undefined);
+  vi.stubEnv("PI_PROFILE", undefined);
 
   const sessionsRoot = path.join(agentDir, "sessions");
   const archiveRoot = path.join(agentDir, "archive", "sessions");
@@ -62,11 +70,6 @@ function setup(file: "active" | "archived" | "missing"): {
       path.join(activeDir, FILE_NAME),
       `${JSON.stringify({ type: "session", id: SESSION_ID, cwd: "/proj", timestamp: "2026-07-29T16:18:42.427Z" })}\n`,
     );
-  }
-  if (file === "archived") {
-    const archivedDir = path.join(archiveRoot, LINEAGE);
-    fs.mkdirSync(archivedDir, { recursive: true });
-    fs.writeFileSync(path.join(archivedDir, `${FILE_NAME}.gz`), "gz");
   }
 
   seedRegistry(path.join(base, "registry.json"), {
@@ -81,49 +84,59 @@ function setup(file: "active" | "archived" | "missing"): {
         launchedAt: "2026-07-29T16:18:42.427Z",
         mode: "rpc-ui",
       }),
+      ownedSessionRecord({ tabId: "tab-lazy", sessionId: null, lineageDir: LINEAGE }),
     ],
   });
 
   handlers.clear();
-  new MainBackend(win as never, path.join(base, "registry.json")).registerIpc();
+  backend = new MainBackend(win as never, path.join(base, "registry.json"));
+  backend.registerIpc();
   return { sessionsRoot, archiveRoot };
 }
 
-const invoke = (ch: string, ...args: unknown[]): Promise<unknown> =>
-  Promise.resolve(handlers.get(ch)!({ sender: win.webContents, senderFrame: win.webContents.mainFrame }, ...args));
+const sessionReference = (tabId: string): Promise<unknown> =>
+  Promise.resolve(
+    handlers.get(CH.sessionReference)!(
+      { sender: win.webContents, senderFrame: win.webContents.mainFrame },
+      tabId,
+    ),
+  );
 
-describe("session:transcriptPath", () => {
+describe("session:reference transcript resolution", () => {
   it("resolves the active transcript by _<sessionId>.jsonl", async () => {
     const { sessionsRoot } = setup("active");
-    await expect(invoke(CH.sessionTranscriptPath, "tab-1")).resolves.toBe(
-      path.join(sessionsRoot, LINEAGE, FILE_NAME),
-    );
+    await expect(sessionReference("tab-1")).resolves.toMatchObject({
+      sessionId: SESSION_ID,
+      path: path.join(sessionsRoot, LINEAGE, FILE_NAME),
+    });
   });
 
-  it("falls back to the gzipped archive relocation", async () => {
-    const { archiveRoot } = setup("archived");
-    await expect(invoke(CH.sessionTranscriptPath, "tab-1")).resolves.toBe(
-      path.join(archiveRoot, LINEAGE, `${FILE_NAME}.gz`),
-    );
+  it("re-resolves the transcript after omp gc relocates it to the gzipped archive", async () => {
+    const { sessionsRoot, archiveRoot } = setup("active");
+    const activePath = path.join(sessionsRoot, LINEAGE, FILE_NAME);
+    await expect(sessionReference("tab-1")).resolves.toMatchObject({ path: activePath });
+
+    const archivedDir = path.join(archiveRoot, LINEAGE);
+    const archivedPath = path.join(archivedDir, `${FILE_NAME}.gz`);
+    fs.mkdirSync(archivedDir, { recursive: true });
+    fs.writeFileSync(archivedPath, gzipSync(fs.readFileSync(activePath)));
+    fs.unlinkSync(activePath);
+
+    await expect(sessionReference("tab-1")).resolves.toMatchObject({ path: archivedPath });
   });
 
   it("returns null when the files are gone", async () => {
     setup("missing");
-    await expect(invoke(CH.sessionTranscriptPath, "tab-1")).resolves.toBeNull();
+    await expect(sessionReference("tab-1")).resolves.toBeNull();
   });
 
   it("returns null for a never-materialized session id (lazy write)", async () => {
     setup("active");
-    // A second record whose transcript never existed.
-    const registryFile = path.join(base, "registry.json");
-    const raw = JSON.parse(fs.readFileSync(registryFile, "utf8"));
-    raw.sessions.push(ownedSessionRecord({ tabId: "tab-lazy", sessionId: null }));
-    fs.writeFileSync(registryFile, JSON.stringify(raw));
-    await expect(invoke(CH.sessionTranscriptPath, "tab-lazy")).resolves.toBeNull();
+    await expect(sessionReference("tab-lazy")).resolves.toBeNull();
   });
 
   it("returns null for an unknown tab", async () => {
     setup("active");
-    await expect(invoke(CH.sessionTranscriptPath, "nope")).resolves.toBeNull();
+    await expect(sessionReference("nope")).resolves.toBeNull();
   });
 });

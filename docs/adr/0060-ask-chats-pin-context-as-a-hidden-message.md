@@ -153,3 +153,9 @@ so no surface of the chat hides with the seance window closing.
   vault bridge's generated-extension shape, adding the branch dedupe walk.
 - ADR-0003 (per-lineage session dirs) — `ask-context.md` and the generated
   bridge live in the chat's lineage dir and die with it.
+
+## Amended by #1214: one deep-dive route
+
+With the omp 18.22.0 floor, the pinned tail always points to `read` on the
+transcript path or `archive.session(path)` in eval. It no longer checks the
+harness version; neither route wakes the source session.

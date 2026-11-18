@@ -9,7 +9,6 @@ import {
   browserPaneSetMessage,
 } from "./browser-pane";
 import { browserPaneExtensionPath, writeBrowserPaneExtension } from "./browser-pane-extension";
-import { browserPaneInstructionFor } from "./browser-pane-app-url";
 import { transpileGeneratedExtension, typecheckGeneratedExtension } from "./generated-extension-test-utils";
 
 const dirs: string[] = [];
@@ -55,7 +54,7 @@ interface Harness {
 }
 
 /** Transpiles the generated file and instantiates it against a fake omp surface. */
-function harness(opts: { canSendMessages?: boolean; VERSION?: unknown } = {}): Harness {
+function harness(opts: { canSendMessages?: boolean } = {}): Harness {
   const file = writeBrowserPaneExtension(tempLineage());
   const source = fs.readFileSync(file, "utf8");
   const outputText = transpileGeneratedExtension(source, "cjs");
@@ -87,7 +86,7 @@ function harness(opts: { canSendMessages?: boolean; VERSION?: unknown } = {}): H
   }
 
   factory({
-    pi: { AgentSession: FakeAgentSession, ...(opts.VERSION === undefined ? {} : { VERSION: opts.VERSION }) },
+    pi: { AgentSession: FakeAgentSession },
     registerCommand: (name: string, options: { handler: typeof handler }): void => {
       expect(name).toBe(BROWSER_PANE_COMMAND);
       handler = options.handler;
@@ -156,25 +155,6 @@ describe("endpoint delivery", () => {
     });
     expect(opts).toEqual({ deliverAs: "nextTurn", triggerTurn: false });
     expect(h.notices).toEqual([]);
-  });
-
-  it("names the endpoint with a string app when pi.VERSION is at least 18.19.0 (issue #1188)", async () => {
-    const h = harness({ VERSION: "18.19.0" });
-    await bound(h);
-    await h.invoke(setArgs(URL_A));
-    expect(h.sent).toHaveLength(1);
-    expect(h.sent[0]!.msg.content).toBe(browserPaneInstructionFor(URL_A, "18.19.0"));
-    expect(h.sent[0]!.msg.content).toContain(`app: "${URL_A}" });`);
-    expect(h.sent[0]!.msg.content).not.toContain("cdp_url");
-  });
-
-  it("keeps the object app form when pi.VERSION is older or unknown (issue #1188)", async () => {
-    for (const version of ["18.18.7", undefined, "garbage"]) {
-      const h = harness(version === undefined ? {} : { VERSION: version });
-      await bound(h);
-      await h.invoke(setArgs(URL_A));
-      expect(h.sent.map((s) => s.msg.content)).toEqual([browserPaneInstruction(URL_A)]);
-    }
   });
 
   it("steers a streaming root instead of waiting for the next turn", async () => {

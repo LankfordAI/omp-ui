@@ -232,14 +232,13 @@ function button(label: string): HTMLButtonElement | null {
 /** Test shorthands map to the rail.tabs.* keys (round-3 judge moved member
  *  tabs to sentence case, so tests resolve labels through the catalog instead
  *  of pinning lowercase literals). */
-const PANE_KEY: Record<string, "rail.tabs.todos" | "rail.tabs.agents" | "rail.tabs.jobs" | "rail.tabs.plans" | "rail.tabs.diffs" | "rail.tabs.btw" | "rail.tabs.seance" | "rail.tabs.session"> = {
+const PANE_KEY: Record<string, "rail.tabs.todos" | "rail.tabs.agents" | "rail.tabs.jobs" | "rail.tabs.plans" | "rail.tabs.diffs" | "rail.tabs.btw" | "rail.tabs.session"> = {
   todos: "rail.tabs.todos",
   agents: "rail.tabs.agents",
   jobs: "rail.tabs.jobs",
   plans: "rail.tabs.plans",
   diffs: "rail.tabs.diffs",
   "side questions": "rail.tabs.btw",
-  seance: "rail.tabs.seance",
   session: "rail.tabs.session",
 };
 
@@ -252,7 +251,7 @@ function paneLabel(label: string): string {
 const GROUP_OF: Record<string, string> = {
   todos: "work", agents: "work", jobs: "work",
   plans: "review", diffs: "review",
-  "side questions": "ask", seance: "ask",
+  "side questions": "ask",
   session: "info",
 };
 
@@ -511,13 +510,13 @@ describe("desktop InspectorRail", () => {
 
   it("remembers group and member per tab across a tab switch", () => {
     renderRail();
-    openPane("seance");
+    openPane("agents");
     act(() => root!.render(<InspectorRail tabId="another-tab" />));
     expect(button(GROUP_LABEL("work"))?.getAttribute("aria-pressed")).toBe("true");
     expect(memberTab("todos")?.getAttribute("aria-selected")).toBe("true");
     act(() => root!.render(<InspectorRail tabId={TAB} />));
-    expect(button(GROUP_LABEL("ask"))?.getAttribute("aria-pressed")).toBe("true");
-    expect(memberTab("seance")?.getAttribute("aria-selected")).toBe("true");
+    expect(button(GROUP_LABEL("work"))?.getAttribute("aria-pressed")).toBe("true");
+    expect(memberTab("agents")?.getAttribute("aria-selected")).toBe("true");
   });
 
   it("arrow keys move the member selection", () => {
@@ -1502,11 +1501,11 @@ describe("Side questions pane (issue #775)", () => {
 
   beforeEach(() => backendMock.rpcSend.mockReset());
 
-  it("opens only its own pane from the Ask group and refreshes on mount", () => {
+  it("opens directly without member tabs and refreshes on mount", () => {
     useStore.setState({ rpc: { [TAB]: runtime({ capabilities: cap("18.14.0") }) } });
     renderRail();
     openPane("side questions");
-    expect(memberTab("side questions")?.getAttribute("aria-selected")).toBe("true");
+    expect(document.body.querySelector('[role="tablist"]')).toBeNull();
     expect(document.body.textContent).toContain(t("rail.btw.emptyTitle"));
     expect(document.body.textContent).not.toContain("First task");
     expect(btwCommands("get_btw_history")).toBe(1);
@@ -1538,8 +1537,6 @@ describe("Side questions pane (issue #775)", () => {
     });
     renderRail();
     expect(button(GROUP_LABEL("ask"))?.title).toBe(`${GROUP_LABEL("ask")} (1)`);
-    act(() => button(GROUP_LABEL("ask"))!.click());
-    expect(memberTab("side questions")?.title).toBe(`${paneLabel("side questions")} (1)`);
   });
 
   it("renders topics with status chips and expands a row into its answer", () => {
@@ -1778,12 +1775,13 @@ describe("Side questions pane (issue #775)", () => {
   });
 
   it("selects and opens the pane when another surface asks for it", () => {
+    useStore.setState({ rpc: { [TAB]: runtime({ capabilities: cap("18.14.0") }) } });
     renderRail();
     expect(button("collapse inspector")).toBeNull();
     act(() => useStore.getState().focusRailPane(TAB, "btw"));
     expect(button("collapse inspector")).not.toBeNull();
     expect(button(GROUP_LABEL("ask"))?.getAttribute("aria-pressed")).toBe("true");
-    expect(memberTab("side questions")?.getAttribute("aria-selected")).toBe("true");
+    expect(document.body.textContent).toContain(t("rail.btw.emptyTitle"));
   });
 });
 
@@ -1849,63 +1847,5 @@ describe("Voice recordings section (issue #810)", () => {
     const busy = button(t("composer.live.replayLiveBusy"));
     expect(busy).not.toBeNull();
     expect(busy?.disabled).toBe(true);
-  });
-});
-describe("Seance rail pane (issue #885)", () => {
-  // The pane's only capability read is the version gate; same shape as the
-  // Side questions helper above, kept local to this block's scope.
-  const cap = (ompVersion: string | null) => ({
-    version: 1 as const,
-    processKey: "p",
-    sessionId: null,
-    revision: 1,
-    updatedAt: 0,
-    ompVersion,
-    skillCommandsEnabled: null,
-    skills: { status: "unavailable" as const, reason: "missing-api" as const },
-    tools: { status: "unavailable" as const, reason: "missing-api" as const },
-    magicKeywords: { status: "unavailable" as const, reason: "missing-api" as const },
-    toolControl: "unsupported" as const,
-    toolMutation: null,
-  });
-
-  it("opens its own pane from the Ask group", () => {
-    useStore.setState({ rpc: { [TAB]: runtime({ capabilities: cap("18.11.3") }) } });
-    renderRail();
-    openPane("seance");
-    expect(memberTab("seance")?.getAttribute("aria-selected")).toBe("true");
-    expect(document.body.textContent).toContain(t("rail.seance.emptyTitle"));
-  });
-
-  it("badges live consults only — running and pending count, completed does not", () => {
-    useStore.setState({
-      rpc: {
-        [TAB]: runtime({
-          capabilities: cap("18.11.3"),
-          subagents: [
-            { id: "s-1", agent: "seance", label: "a", status: "running" },
-            { id: "s-2", agent: "seance", label: "b", status: "pending" },
-            { id: "s-3", agent: "seance", label: "c", status: "completed" },
-            // A regular task agent never rides the seance badge.
-            { id: "t-1", agent: "task", name: "worker", status: "running" },
-          ],
-        }),
-      },
-    });
-    renderRail();
-    expect(button(GROUP_LABEL("ask"))?.title).toBe(`${GROUP_LABEL("ask")} (2)`);
-    act(() => button(GROUP_LABEL("ask"))!.click());
-    expect(memberTab("seance")?.title).toBe(`${paneLabel("seance")} (2)`);
-  });
-
-  // Issue #1189: omp 18.20.3 removed the seance agent, so the pane leaves the
-  // Ask group whole — no tab row, Side questions shown alone.
-  it("leaves the Ask group on omp that removed seance", () => {
-    useStore.setState({ rpc: { [TAB]: runtime({ capabilities: cap("18.20.3") }) } });
-    renderRail();
-    act(() => button(GROUP_LABEL("ask"))!.click());
-    expect(memberTab("seance")).toBeNull();
-    // The group collapsed to its single remaining member.
-    expect(document.body.textContent).toContain(t("rail.btw.emptyTitle"));
   });
 });

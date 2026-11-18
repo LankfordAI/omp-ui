@@ -154,7 +154,6 @@ describe("session bundle", () => {
         "forkSession",
         "deleteSession",
         "deleteSessionPreview",
-        "sessionTranscriptPath",
         "claimFirstTitle",
         "answerPlanReview",
         "toggleFavorite",

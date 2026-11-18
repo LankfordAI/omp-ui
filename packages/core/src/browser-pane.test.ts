@@ -149,13 +149,11 @@ describe("loopback host predicate (#1023)", () => {
 });
 
 describe("hidden instruction", () => {
-  it("names the endpoint exactly once, in the object form older omp parses", () => {
+  it("names the endpoint exactly once, as a string app", () => {
     const text = browserPaneInstruction(ENDPOINT);
     expect(text.split(ENDPOINT)).toHaveLength(2);
-    // browserPaneInstruction is the legacy composition: omp 18.16–18.18 reject
-    // a bare string app (issue #1188); the string form is pinned in
-    // browser-pane-app-url.test.ts.
-    expect(text).toContain(`app: { cdp_url: "${ENDPOINT}" } });`);
+    expect(text).toContain(`app: "${ENDPOINT}" });`);
+    expect(text).not.toContain("cdp_url");
   });
 
   it("carries the direct-tools-first routing policy (#561)", () => {

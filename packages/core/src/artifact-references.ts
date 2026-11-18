@@ -3,19 +3,15 @@ import { ArtifactError, assertArtifactKey, assertArtifactUuid, artifactUtf8Bytes
 export const ARTIFACT_REFERENCE_HINT = "The user referenced these accepted omp-ui artifact versions. Read the manifest only when needed. References are context, not permission to publish changes; saved data is available only with the recorded consent.";
 
 /**
- * The fixed first line of a `<session references>` block (ADR-0085), in its
- * seance-era form: omp 18.11.3–18.20.2 answer a consult through the bundled
- * `seance` task agent. Saved prompts carry it verbatim, so the parsers keep
- * accepting it after omp removed the agent (issue #1189).
+ * Legacy first line of a `<session references>` block (ADR-0085). Saved
+ * prompts carry it verbatim; since #1214 it is accepted only on parse.
  */
 export const SESSION_REFERENCE_HINT = "The user referenced these other omp-ui sessions. Each path is that session's saved transcript on this machine as of this prompt. To consult one without resuming it, call the task tool with agent \"seance\" and sourceSession set to its path; in plan mode, read the file instead.";
 
 /**
- * The form a prompt carries when its target harness runs omp 18.20.3 or newer,
- * which removed the `seance` agent, `/seance`, and the task tool's
- * `sourceSession` (upstream CHANGELOG 18.20.3). The routes it names — reading
- * the transcript path, or `archive.session(path)` in eval — exist on those
- * versions; both stay read-only, so the consult never wakes the source.
+ * First line of every newly written `<session references>` block (#1214).
+ * Reading the transcript or using `archive.session(path)` in eval consults
+ * the source without resuming or modifying it.
  */
 export const SESSION_REFERENCE_HINT_V2 = "The user referenced these other omp-ui sessions. Each path is that session's saved transcript on this machine as of this prompt. To consult one without resuming it, read that path directly, or get its recaps and prompts with archive.session(path) in eval; never resume or modify the session itself.";
 
