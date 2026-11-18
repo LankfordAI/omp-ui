@@ -7,15 +7,24 @@ import { ProjectMonogram } from "./ProjectMonogram";
  * The session's project as its own line (prototype B): monogram, name, and
  * machine, with an optional trailing slot (the row's age). Chats show a
  * neutral chat mark; identity colour belongs to projects only (ADR-0004).
+ * `dispatchedBy` adds the non-interactive ↳ marker naming the session whose
+ * agent dispatched this one (#1226, ADR-0098).
  */
 export function SessionProjectLine({
   project,
   nickname,
   trailing,
+  dispatchedBy = null,
 }: {
   project: ProjectFace | null;
   nickname: string | null;
   trailing?: ReactNode;
+  dispatchedBy?: {
+    tabId: string;
+    title: string;
+    project: ProjectFace | null;
+    onHoverChange?: (over: boolean) => void;
+  } | null;
 }) {
   const t = useT();
   const machine = nickname ? t("sidebar.session.machine", { machine: nickname }) : null;
@@ -32,13 +41,36 @@ export function SessionProjectLine({
           {machine}
         </span>
       )}
+      {dispatchedBy !== null && (
+        <span
+          role="img"
+          data-dispatched-by={dispatchedBy.tabId}
+          aria-label={t("sidebar.dispatch.dispatchedBy", { title: dispatchedBy.title })}
+          title={t("sidebar.dispatch.dispatchedBy", { title: dispatchedBy.title })}
+          onMouseEnter={() => dispatchedBy.onHoverChange?.(true)}
+          onMouseLeave={() => dispatchedBy.onHoverChange?.(false)}
+          className="flex shrink-0 items-center gap-0.5 text-ink-faint"
+        >
+          ↳
+          {dispatchedBy.project !== null ? (
+            <ProjectMonogram
+              seed={dispatchedBy.project.seed}
+              name={dispatchedBy.project.name}
+              icon={dispatchedBy.project.icon}
+              className="size-3.5 rounded-sm text-[0.45rem]"
+            />
+          ) : (
+            <ChatMark />
+          )}
+        </span>
+      )}
       {trailing !== undefined && <span className="ml-auto shrink-0">{trailing}</span>}
     </span>
   );
 }
 
 /** A chat's stand-in for the monogram: dashed neutral box, speech glyph. */
-function ChatMark() {
+export function ChatMark() {
   return (
     <span
       data-chat-mark

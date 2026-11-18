@@ -10077,3 +10077,131 @@ describe("first-title claim (issue #1090)", () => {
     expect(manager.claimFirstTitle(TAB)).toBe(false);
   });
 });
+
+describe("project scope guidance arm (#1226)", () => {
+  type Command = Record<string, unknown>;
+  const lastCommands = (): Command[] =>
+    (RpcClientMock.mock.calls.at(-1)?.[0]?.initialCommands ?? []) as Command[];
+  const scopeArms = (commands: Command[]): Command[] =>
+    commands.filter((c) => typeof c.id === "string" && c.id.startsWith("omp-ui-initial-project-scope-"));
+  const scopeText = (arm: Command): string => {
+    const message = String(arm.message);
+    const prefix = `/${Core.PROJECT_SCOPE_COMMAND} set `;
+    expect(message.startsWith(prefix)).toBe(true);
+    return (JSON.parse(message.slice(prefix.length)) as { text: string }).text;
+  };
+  const fleetTools = (commands: Command[]): boolean => {
+    const registration = commands.find((c) => c.type === "set_host_tools");
+    const names = (Array.isArray(registration?.tools) ? registration.tools : []).map((tool: unknown) =>
+      Core.isObject(tool) ? tool.name : null,
+    );
+    return Core.FLEET_TOOLS.every((name) => names.includes(name));
+  };
+  const dispatchedBy = (kind: "agent" | "mcp"): Partial<Core.OwnedSessionRecord> => ({
+    fleet: {
+      dispatchId: "d-1226",
+      batchId: null,
+      dispatchedAt: "2026-11-18T00:00:00.000Z",
+      requestedBy: { instanceId: "inst-a", label: "host-a", kind, sourceTabId: kind === "agent" ? "parent-tab" : "mcp-client" },
+    },
+  });
+
+  it("arms dispatch text once, ahead of the event filter and the tool registration", async () => {
+    const { manager, registry } = setup({ mode: "rpc-ui" });
+    registry.setSetting("fleetAgentDispatch", true);
+    await resume(manager);
+    const commands = lastCommands();
+    const arms = scopeArms(commands);
+    expect(arms).toHaveLength(1);
+    const text = scopeText(arms[0]!);
+    expect(text).toContain(`the project "proj" at ${PROJECT}.`);
+    expect(text).toContain("omp-ui_fleet_dispatch");
+    const at = commands.indexOf(arms[0]!);
+    expect(at).toBeLessThan(commands.findIndex((c) => c.type === "set_event_filter"));
+    expect(at).toBeLessThan(commands.findIndex((c) => c.type === "set_host_tools"));
+  });
+
+  it("arms nothing with the setting off", async () => {
+    const { manager } = setup({ mode: "rpc-ui" });
+    await resume(manager);
+    expect(scopeArms(lastCommands())).toEqual([]);
+  });
+
+  it("arms nothing in a chat, which carries the fleet tools", async () => {
+    const { manager, registry } = setup({ mode: "rpc-ui" });
+    registry.setSetting("fleetAgentDispatch", true);
+    registry.addSession(
+      ownedSessionRecord({ tabId: "chat-scope", lineageDir: "omp-ui--chat--scope", projectCwd: Core.chatDirPath(path.join(base, "chats")), chat: true }),
+    );
+    await manager.spawn({ origin: "resume", resumeTabId: "chat-scope", cols: 80, rows: 24 });
+    const commands = lastCommands();
+    expect(fleetTools(commands)).toBe(true);
+    expect(scopeArms(commands)).toEqual([]);
+  });
+
+  it("gives a private session the report-to-user text", async () => {
+    const { manager, registry } = setup({ mode: "rpc-ui" });
+    registry.setSetting("fleetAgentDispatch", true);
+    registry.updateSession(TAB, { private: true });
+    await resume(manager);
+    const arms = scopeArms(lastCommands());
+    expect(arms).toHaveLength(1);
+    const text = scopeText(arms[0]!);
+    expect(text).toContain("This is a private session");
+    expect(text).not.toContain("omp-ui_fleet_dispatch");
+  });
+
+  it("gives an agent-dispatched session the report-to-parent text before its fleet prompt", async () => {
+    const { manager, registry, sessionsRoot } = setup({ mode: "rpc-ui" });
+    registry.setSetting("fleetAgentDispatch", true);
+    registry.updateSession(TAB, dispatchedBy("agent"));
+    Core.stageFleetPrompt(path.join(sessionsRoot, LINEAGE), "change the thing");
+    await resume(manager);
+    const commands = lastCommands();
+    const arms = scopeArms(commands);
+    expect(arms).toHaveLength(1);
+    const text = scopeText(arms[0]!);
+    expect(text).toContain("Another session dispatched this one");
+    expect(text).not.toContain("omp-ui_fleet_dispatch");
+    const prompt = commands.findIndex((c) => c.id === Core.fleetPromptCommandId("d-1226"));
+    expect(prompt).toBeGreaterThan(-1);
+    expect(commands.indexOf(arms[0]!)).toBeLessThan(prompt);
+  });
+
+  it("arms nothing in an MCP-started session", async () => {
+    const { manager, registry } = setup({ mode: "rpc-ui" });
+    registry.setSetting("fleetAgentDispatch", true);
+    registry.updateSession(TAB, dispatchedBy("mcp"));
+    await resume(manager);
+    expect(scopeArms(lastCommands())).toEqual([]);
+  });
+
+  it("names the worktree checkout", async () => {
+    const { manager, registry } = setup({ mode: "rpc-ui" });
+    registry.setSetting("fleetAgentDispatch", true);
+    const worktreePath = path.join(base, "wt-scope");
+    fs.mkdirSync(worktreePath);
+    registry.updateSession(TAB, { worktree: { path: worktreePath, branch: "omp-ui/scope", base: null } });
+    await resume(manager);
+    const arms = scopeArms(lastCommands());
+    expect(arms).toHaveLength(1);
+    expect(scopeText(arms[0]!)).toContain(`working in the checkout ${worktreePath}`);
+  });
+
+  it.each([
+    ["off at spawn, on at readiness", false, true],
+    ["on at spawn, off at readiness", true, false],
+  ] as const)("decides at readiness with the fleet tools: %s", async (_label, atSpawn, atReady) => {
+    const { manager, registry } = setup({ mode: "rpc-ui" });
+    registry.setSetting("fleetAgentDispatch", atSpawn);
+    const real = RpcClientMock.getMockImplementation()!;
+    RpcClientMock.mockImplementation(function (this: unknown, opts: Core.RpcClientOpts) {
+      registry.setSetting("fleetAgentDispatch", atReady);
+      return (real as unknown as (this: unknown, o: Core.RpcClientOpts) => unknown).call(this, opts);
+    } as unknown as typeof Core.RpcClient);
+    await resume(manager);
+    const commands = lastCommands();
+    expect(fleetTools(commands)).toBe(atReady);
+    expect(scopeArms(commands)).toHaveLength(atReady ? 1 : 0);
+  });
+});

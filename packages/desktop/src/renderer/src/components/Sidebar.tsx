@@ -179,6 +179,7 @@ function Row({
         s={entry.session}
         onActivate={onActivate}
         handoff={entry.handoff}
+        dispatch={entry.dispatch}
         project={entry.project}
         instanceNickname={entry.nickname}
         density={slim ? "slim" : "tile"}

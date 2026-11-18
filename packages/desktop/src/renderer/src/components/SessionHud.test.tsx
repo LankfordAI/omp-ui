@@ -2147,3 +2147,40 @@ describe("SessionHud background-jobs chip (issue #835)", () => {
     ).toBe(t("hud.status.rpcStatus", { status: t("hud.status.ready") }));
   });
 });
+describe("SessionHud dispatcher chip (#1226)", () => {
+  const me = state.projects[0]!.sessions[0]!;
+  const fleet = (sourceTabId: string) => ({
+    dispatchId: "d-1",
+    batchId: null,
+    dispatchedAt: "2026-11-18T00:00:00.000Z",
+    requestedBy: { instanceId: "self", label: "this computer", kind: "agent" as const, sourceTabId },
+  });
+  const parent = { ...me, tabId: "tab-parent", lineageDir: "lineage-parent", title: "Parent session", cachedTitle: "Parent session", fleet: null };
+  const withSessions = (sessions: (typeof me)[]): BackendState =>
+    backendState({ projects: [{ ...state.projects[0]!, sessions }] });
+  const plainChip = (host: HTMLElement): boolean =>
+    host.textContent?.includes(t("fleet.hud.dispatchedFromAgent", { label: "this computer" })) === true;
+
+  it("renders a button that opens the dispatching session", () => {
+    const openSession = vi.fn(async () => {});
+    useStore.setState({ state: withSessions([{ ...me, fleet: fleet("tab-parent") }, parent]), openSession });
+    wideMedia();
+    const host = mountHud();
+    const chip = host.querySelector<HTMLButtonElement>(`button[title="${t("fleet.hud.openDispatcher")}"]`)!;
+    expect(chip.textContent).toContain(t("fleet.hud.dispatchedBySession", { title: "Parent session" }));
+    act(() => chip.click());
+    expect(openSession).toHaveBeenCalledWith("tab-parent");
+  });
+
+  it.each([
+    ["a duplicate parent tabId", [{ ...me, fleet: fleet("tab-parent") }, parent, { ...parent }]],
+    ["a self-reference", [{ ...me, fleet: fleet(TAB) }]],
+    ["an unresolved parent", [{ ...me, fleet: fleet("tab-gone") }]],
+  ] as const)("keeps the plain chip for %s", (_label, sessions) => {
+    useStore.setState({ state: withSessions([...sessions]) });
+    wideMedia();
+    const host = mountHud();
+    expect(host.querySelector(`button[title="${t("fleet.hud.openDispatcher")}"]`)).toBeNull();
+    expect(plainChip(host)).toBe(true);
+  });
+});

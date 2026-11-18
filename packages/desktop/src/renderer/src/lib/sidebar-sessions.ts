@@ -2,6 +2,7 @@ import type { BackendState, SessionSummary } from "@omp-ui/core/types";
 import type { UnreadMark } from "../store/slices/unread";
 import { projectFaceFor, type ProjectFace } from "./repository-members";
 import { NO_HANDOFF, resolveSessionHandoffs, type SessionHandoff } from "./session-handoffs";
+import { NO_DISPATCH, resolveDispatchLinks, type SessionDispatch } from "./dispatched-sessions";
 
 export interface SidebarEntry {
   session: SessionSummary;
@@ -14,6 +15,8 @@ export interface SidebarEntry {
   /** False while the owning instance's status is not "joined": the row dims and opens no menu. */
   reachable: boolean;
   handoff: SessionHandoff;
+  /** Dispatch tether links (#1226): the dispatching session and the sessions this one dispatched. */
+  dispatch: SessionDispatch;
 }
 
 export interface SidebarLists {
@@ -95,6 +98,7 @@ export function buildSidebarLists(
   suppressTabIds: ReadonlySet<string> = EMPTY_TAB_IDS,
 ): SidebarLists {
   const entries: SidebarEntry[] = [];
+  const dispatch = resolveDispatchLinks(state);
 
   const local: SessionSummary[] = [];
   for (const group of state.projects) local.push(...group.sessions);
@@ -109,6 +113,7 @@ export function buildSidebarLists(
         project: projectFaceFor(state, null, group.project),
         reachable: true,
         handoff: localHandoffs.get(session.tabId) ?? NO_HANDOFF,
+        dispatch: dispatch.get(session.tabId) ?? NO_DISPATCH,
       });
     }
   }
@@ -120,6 +125,7 @@ export function buildSidebarLists(
       project: null,
       reachable: true,
       handoff: localHandoffs.get(session.tabId) ?? NO_HANDOFF,
+      dispatch: dispatch.get(session.tabId) ?? NO_DISPATCH,
     });
   }
 
@@ -136,6 +142,7 @@ export function buildSidebarLists(
           project: projectFaceFor(state, instance.id, group.project),
           reachable,
           handoff: handoffs.get(session.tabId) ?? NO_HANDOFF,
+          dispatch: dispatch.get(session.tabId) ?? NO_DISPATCH,
         });
       }
     }
@@ -233,6 +240,7 @@ export function buildAttentionEntries(
   derive: (s: SessionSummary) => string,
 ): AttentionEntry[] {
   const out: AttentionEntry[] = [];
+  const dispatch = resolveDispatchLinks(state);
   const visit = (session: SessionSummary, project: ProjectFace | null): void => {
     const mark = unread[session.tabId];
     if (mark === undefined) return;
@@ -249,6 +257,7 @@ export function buildAttentionEntries(
         project,
         reachable: true,
         handoff: NO_HANDOFF,
+        dispatch: dispatch.get(session.tabId) ?? NO_DISPATCH,
       },
       mark,
       state: kept,

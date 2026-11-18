@@ -1735,6 +1735,18 @@ there. A Fleet notice is the same message for a dispatched session waiting on
 the user.
 _Avoid_: callback, webhook, completion event
 
+**Dispatch tether**:
+The indented list under a dispatching session's sidebar tile or attention
+card naming the sessions its agent dispatched (ADR-0098). It repeats those
+sessions; each still sits in its own section, and links back with a ↳ marker.
+_Avoid_: subtree, sub-sessions, child list
+
+**Project scope guidance**:
+The hidden message that keeps a session's repository changes in its own
+project and sends other repositories' work to dispatched sessions, or back to
+its dispatcher or the user (ADR-0098). Guidance, not a fence.
+_Avoid_: sandbox, write guard
+
 **Fleet exec**:
 One bounded command a fleet member runs on its own shell at a dispatcher's
 request, gated by that member's grant ladder and answered with exit code plus
