@@ -7,7 +7,6 @@ import {
   useState,
   type KeyboardEvent,
 } from "react";
-import { flushSync } from "react-dom";
 import { PLAN_COMMAND } from "@omp-ui/core/plan";
 import { CAPABILITIES_COMMAND } from "@omp-ui/core/capabilities";
 import { AUTORESEARCH_COMMAND } from "@omp-ui/core/autoresearch";
@@ -27,6 +26,8 @@ import { MAGIC_KEYWORDS, magicKeywordSegments, type MagicKeyword } from "@omp-ui
 import { firingKeywords } from "../lib/magic-keyword-gate";
 import { deriveDirs, detectAtQuery, insertMention } from "../lib/mentions";
 import { composerPaintRuns } from "../lib/composer-paint";
+import { composerCodeAt, composerFenceAt, type ComposerCode } from "../lib/composer-code";
+import { ComposerEditor, type ComposerEditorHandle } from "./ComposerEditor";
 import { contextReadout } from "../lib/context-readout";
 import type { DocumentRef } from "../lib/document-context";
 import { queueChipCount, queueChipView } from "../lib/queue-chip";
@@ -83,8 +84,6 @@ export type SubmitRoute = PromptRoute | "interrupt" | "at-reset";
  * exposes all five and the old single-line input reached only the first.
  */
 
-/** Beyond this the textarea scrolls instead of growing. */
-const MAX_ROWS = 12;
 /** A counter below this is noise; above it the user is writing something long. */
 const COUNTER_AT = 400;
 
@@ -324,6 +323,7 @@ export function Composer({
   const [caret, setCaret] = useState(0);
   /** Whether the selection is collapsed — ghost completion needs a bare caret (#715). */
   const [collapsed, setCollapsed] = useState(true);
+  const [code, setCode] = useState<ComposerCode>({ inline: [], fences: [] });
   /**
    * The session's working-tree file listing for the @ picker, fetched on each
    * afterwards so a picked mention paints resolved immediately.
@@ -397,7 +397,7 @@ export function Composer({
   /** Gradient rotation ∈ [0,1); 0 is the static palette. */
   const [phase, setPhase] = useState(0);
 
-  const box = useRef<HTMLTextAreaElement | null>(null);
+  const editor = useRef<ComposerEditorHandle | null>(null);
   const filePicker = useRef<HTMLInputElement | null>(null);
   const composer = useRef<HTMLDivElement | null>(null);
   const palette = useRef<SlashPaletteHandle | null>(null);
@@ -405,8 +405,6 @@ export function Composer({
   const stashPalette = useRef<StashPaletteHandle | null>(null);
   const queueAnchor = useRef<HTMLSpanElement | null>(null);
   const queueTrigger = useRef<HTMLButtonElement | null>(null);
-  /** The highlight layer under the (transparent-text) textarea. */
-  const mirror = useRef<HTMLDivElement | null>(null);
   /** Sent messages, newest last. */
   const history = useRef<string[]>([]);
   /** Index into `history` while walking it; null when not recalling. */
@@ -429,6 +427,11 @@ export function Composer({
   }, [queueVisible]);
   const trimmed = text.trim();
   const isSlash = trimmed.startsWith("/");
+  // The non-compact composer is the Other field while a free-text dialog owns it.
+  const pendingFrame = useStore((s) => s.rpc[tabId]?.extensionQueue[0]);
+  const answering = !compact && freeTextTarget(pendingFrame) !== "none";
+  const literal = isSlash || trimmed.startsWith("!") || answering;
+  const inCode = !literal && composerCodeAt(code, caret);
   /** What the slash palette can offer for this draft; null mounts none (lib/slash-completion.ts). */
   const completion = useMemo(() => slashCompletion(text, paletteCommands), [text, paletteCommands]);
   /** The exact slash draft a dismissal applies to — `dismissedFor` compares against it. */
@@ -441,7 +444,7 @@ export function Composer({
   // argument resolves just like one in prose. It still never triggers
   // inside the command word itself: detectAtQuery requires the `@` to
   // lead its word, and `/@x` has no boundary before it.
-  const atQuery = detectAtQuery(text, caret);
+  const atQuery = inCode ? null : detectAtQuery(text, caret);
   const mentionKey = atQuery === null ? null : `${atQuery.start}:${atQuery.query}`;
   const mentionOpen = !unavailable && mentionKey !== null && mentionKey !== mentionDismissedFor;
   // omp's ghost-text word completion (issue #715): prose at the end of the
@@ -452,7 +455,7 @@ export function Composer({
     tabId,
     text,
     caret,
-    active: focused && collapsed && !unavailable && !converting && !paletteOpen && !mentionOpen,
+    active: focused && collapsed && !unavailable && !converting && !paletteOpen && !mentionOpen && !inCode,
   });
   /**
    * omp reports vision support as `model.input` containing "image". A model
@@ -551,68 +554,11 @@ export function Composer({
     } catch (error) { useStore.getState().reportError(error); }
   }, [tabId, instanceId, artifactLibraryEnabled]);
 
-  // Grow to fit, then scroll. Height must be released before measuring, or
-  // `scrollHeight` reports the previous, larger box and never shrinks back.
-  const fit = useCallback(() => {
-    const el = box.current;
-    if (el === null) return;
-    el.style.height = "auto";
-    const style = getComputedStyle(el);
-    const line = parseFloat(style.lineHeight) || 20;
-    const padding = parseFloat(style.paddingTop) + parseFloat(style.paddingBottom);
-    // `scrollHeight` covers content + padding; `height` under border-box also
-    // owes the border, which is exactly what offset/client differ by.
-    const border = el.offsetHeight - el.clientHeight;
-    const wanted = el.scrollHeight + border;
-    const desktopMax = line * MAX_ROWS + padding + border;
-    const max = compact ? Math.min(desktopMax, (window.visualViewport?.height ?? window.innerHeight) * 0.35) : desktopMax;
-    const scrollable = wanted > max;
-    el.style.height = `${Math.min(wanted, max)}px`;
-    el.style.overflowY = scrollable ? "auto" : "hidden";
-    // The instrument scrollbar (style.css ::-webkit-scrollbar, 10px classic on
-    // Linux) shrinks the box's content width when it appears, but not the
-    // mirror's — past the first divergent wrap the underline, caret, and
-    // selection drift off the visible glyphs (issue #282). Narrow the mirror
-    // to the box's live width; reading clientWidth after the overflowY change
-    // forces the reflow, so the scrollbar is already accounted for.
-    if (mirror.current !== null) {
-      mirror.current.style.width =
-        scrollable && el.clientWidth > 0 ? `${el.clientWidth}px` : "";
-      // Resizing fires no scroll event, so the mirror has to be told.
-      mirror.current.scrollTop = el.scrollTop;
-    }
-  }, [compact]);
-
-  useLayoutEffect(() => fit(), [text, fit]);
-
-  // A width change re-wraps the draft without touching `text` — window
-  // resize, zoom, the inspector rail's pane — and a fit measured for the old
-  // wrap clips the new one with overflow locked hidden: no scrollbar, no
-  // wheel. Observe the box directly (the TerminalTab/ShellDrawer pattern);
-  // the width check skips the height-only echo of our own fit, and a hidden
-  // (display:none) tab reports 0 until it resurfaces — which is itself a
-  // refit trigger, so a composer mounted hidden fits itself on first reveal.
-  useEffect(() => {
-    const el = box.current;
-    if (el === null) return;
-    let width = el.clientWidth;
-    const observer = new ResizeObserver(() => {
-      if (el.clientWidth === 0 || el.clientWidth === width) return;
-      width = el.clientWidth;
-      fit();
-    });
-    observer.observe(el);
-    return () => observer.disconnect();
-  }, [fit]);
-
   // The composer lands focused on a fresh session and whenever boot or an
   // advisor relaunch clears `unavailable`. Overlay teardown owns the separate
   // focus handoff when a new active tab was opened beneath it.
   useEffect(() => {
-    const el = box.current;
-    if (el !== null && !unavailable && document.activeElement !== el) {
-      el.focus({ preventScroll: true });
-    }
+    if (!unavailable) editor.current?.focus({ preventScroll: true });
   }, [unavailable]);
 
   // One clock drives the focused draft and the authoritative active-turn ring.
@@ -663,7 +609,7 @@ export function Composer({
     addReferences(queued.references ?? []);
     const lines = queued.text.join("\n");
     if (lines !== "") setText((prev) => (prev === "" ? lines : `${prev}\n${lines}`));
-    box.current?.focus({ preventScroll: true });
+    editor.current?.focus({ preventScroll: true });
   }, [composerQueue, tabId, drainComposerQueue, addImages, addDocuments, addAnnotations, addReferences]);
   useDismissal({
     open: queueMenu,
@@ -771,7 +717,7 @@ export function Composer({
         const command = (exclude ? message.slice(2) : message.slice(1)).trimStart();
         if (command !== "") {
           void runShellCommand(tabId, command, { excludeFromContext: exclude });
-          box.current?.focus({ preventScroll: true });
+          editor.current?.focus({ preventScroll: true });
         }
         return;
       }
@@ -795,7 +741,7 @@ export function Composer({
             addAnnotations(annotations);
             addReferences(references);
           }
-          box.current?.focus({ preventScroll: true });
+          editor.current?.focus({ preventScroll: true });
           return;
         }
       }
@@ -853,7 +799,7 @@ export function Composer({
         addAnnotations(annotations);
         addReferences(references);
         void runSlashCommand(tabId, message);
-        box.current?.focus({ preventScroll: true });
+        editor.current?.focus({ preventScroll: true });
         return;
       }
 
@@ -872,7 +818,7 @@ export function Composer({
         }
       }
 
-      box.current?.focus({ preventScroll: true });
+      editor.current?.focus({ preventScroll: true });
       // A held prompt is main's from here; the transcript's pending card shows it.
       if (atReset) return;
       const accepted =
@@ -969,7 +915,7 @@ export function Composer({
     clearDraft();
     setDismissedFor(null);
     setMentionDismissedFor(null);
-    box.current?.focus({ preventScroll: true });
+    editor.current?.focus({ preventScroll: true });
     let landed: string | null = null;
     try {
       landed = await launchSession(record.projectCwd, {
@@ -1044,18 +990,20 @@ export function Composer({
   const pick = useCallback(
     (name: string, takesArgument: boolean) => {
       if (takesArgument) {
-        setText(`/${name} `);
+        const input = editor.current;
+        const insert = `/${name} `;
+        input?.edit({ from: 0, to: input.read().text.length, insert, caret: insert.length }, { noteEdit: false });
         // Completing never dismisses: a command with subcommands opens its
         // second stage, and anything else has nothing left to list — the
         // completion hides the palette on its own.
         setDismissedFor(null);
-        box.current?.focus({ preventScroll: true });
+        input?.focus({ preventScroll: true });
         return;
       }
       setText("");
       setDismissedFor(null);
       void runSlashCommand(tabId, `/${name}`);
-      box.current?.focus({ preventScroll: true });
+      editor.current?.focus({ preventScroll: true });
     },
     [tabId, runSlashCommand],
   );
@@ -1065,12 +1013,9 @@ export function Composer({
     (relPath: string) => {
       if (atQuery === null) return;
       const next = insertMention(text, atQuery.start, caret, relPath);
-      setText(next.text);
-      setCaret(next.caret);
+      editor.current?.edit({ from: atQuery.start, to: caret, insert: next.text.slice(atQuery.start, next.caret), caret: next.caret }, { noteEdit: false });
       setMentionDismissedFor(null);
-      // The DOM caret lags the state write by a commit; restore it explicitly.
-      requestAnimationFrame(() => box.current?.setSelectionRange(next.caret, next.caret));
-      box.current?.focus({ preventScroll: true });
+      editor.current?.focus({ preventScroll: true });
     },
     [text, caret, atQuery],
   );
@@ -1079,14 +1024,12 @@ export function Composer({
   const pickSessionMention = useCallback(
     (sourceTabId: string) => {
       if (atQuery === null) return;
-      setText(text.slice(0, atQuery.start) + text.slice(caret));
-      setCaret(atQuery.start);
+      editor.current?.edit({ from: atQuery.start, to: caret, insert: "", caret: atQuery.start }, { noteEdit: false });
       setMentionDismissedFor(null);
-      requestAnimationFrame(() => box.current?.setSelectionRange(atQuery.start, atQuery.start));
-      box.current?.focus({ preventScroll: true });
+      editor.current?.focus({ preventScroll: true });
       void referenceSession(tabId, sourceTabId);
     },
-    [text, caret, atQuery, tabId, referenceSession],
+    [caret, atQuery, tabId, referenceSession],
   );
 
   /** Splices one dictated phrase at the caret like pickMention does — joined
@@ -1094,22 +1037,14 @@ export function Composer({
    *  #647, #746). A transcript landing while a slash palette is open just
    *  edits the draft. */
   const insertAtCaret = useCallback((spoken: string) => {
-    const el = box.current;
-    const draft = el?.value ?? text;
-    const at = el?.selectionStart ?? caret;
-    const before = draft.slice(0, at);
-    const after = draft.slice(at);
-    const lead = before !== "" && !/\s$/.test(before) ? " " : "";
-    const trail = after !== "" && !/^\s/.test(after) ? " " : "";
-    const caretNext = at + lead.length + spoken.length;
-    // Phrases can land back to back with no render between; a synchronous
-    // commit makes the next insert read this one's draft and caret.
-    flushSync(() => {
-      setText(before + lead + spoken + trail + after);
-      setCaret(caretNext);
-    });
-    el?.setSelectionRange(caretNext, caretNext);
-  }, [text, caret]);
+    const input = editor.current;
+    if (input === null) return;
+    // Phrases can land back to back with no React render in between.
+    const { text: draft, from: at } = input.read();
+    const lead = at > 0 && !/\s/.test(draft[at - 1]!) ? " " : "";
+    const trail = at < draft.length && !/\s/.test(draft[at]!) ? " " : "";
+    input.edit({ from: at, to: at, insert: lead + spoken + trail, caret: at + lead.length + spoken.length }, { noteEdit: false });
+  }, []);
 
   /** The `+` menu's draft triggers (issue #939): spliced at the caret like a
    *  dictated phrase, then the draft takes focus so the palette opens. */
@@ -1118,7 +1053,7 @@ export function Composer({
     setDismissedFor(null);
     setMentionDismissedFor(null);
     insertAtCaret(trigger);
-    box.current?.focus({ preventScroll: true });
+    editor.current?.focus({ preventScroll: true });
   };
 
   const draftEmpty =
@@ -1138,7 +1073,7 @@ export function Composer({
     if (unavailable || moving !== null || converting || stashing.current) return;
     if (draftEmpty) {
       setStashOpen((open) => !open);
-      box.current?.focus({ preventScroll: true });
+      editor.current?.focus({ preventScroll: true });
       return;
     }
     stashing.current = true;
@@ -1168,7 +1103,7 @@ export function Composer({
       setPasteError(t("composer.stash.failed", { reason: displayMessage(err) }));
     } finally {
       stashing.current = false;
-      box.current?.focus({ preventScroll: true });
+      editor.current?.focus({ preventScroll: true });
     }
   };
 
@@ -1189,7 +1124,7 @@ export function Composer({
     // first, and restore exact grants rather than replacing same-version IDs.
     if (candidate.artifactReferences?.length && !useStore.getState().canRestoreArtifactReferences(tabId, candidate.artifactReferences)) return;
     const draft = await takeStashedDraft(id).catch(() => null);
-    box.current?.focus({ preventScroll: true });
+    editor.current?.focus({ preventScroll: true });
     if (draft === null) return;
     if (draft.artifactReferences?.length && !useStore.getState().restoreArtifactReferences(tabId, draft.artifactReferences)) {
       // Ownership changed while IndexedDB removed the stash: keep the whole
@@ -1223,7 +1158,7 @@ export function Composer({
   const stashKey = (e: globalThis.KeyboardEvent): void => {
     // Another text field keeps the chord: only the composer's own box or a
     // non-editable focus stashes this tab's draft.
-    if (isTypingTarget(e.target) && e.target !== box.current) return;
+    if (isTypingTarget(e.target) && e.target !== editor.current?.element()) return;
     e.preventDefault();
     void stashOrPick();
   };
@@ -1232,7 +1167,7 @@ export function Composer({
   const backgroundChord = useKeybinding("sendInBackground");
 
   /** A drained take hands the caret back to the draft. */
-  const focusDraft = useCallback(() => box.current?.focus({ preventScroll: true }), []);
+  const focusDraft = useCallback(() => editor.current?.focus({ preventScroll: true }), []);
 
   const voice = useDictation({ insert: insertAtCaret, focus: focusDraft });
   useDictationHotkey(tabId, voice, liveActive);
@@ -1241,21 +1176,27 @@ export function Composer({
     onDictationActiveChange?.(dictationActive);
   }, [dictationActive, onDictationActiveChange]);
   useEffect(() => () => onDictationActiveChange?.(false), [onDictationActiveChange]);
-  /** Commits a draft the ghost produced; the DOM caret lags the state write by a commit. */
   const applyGhostDraft = (next: { text: string; caret: number }): void => {
-    setText(next.text);
-    setCaret(next.caret);
-    recall.current = null;
-    requestAnimationFrame(() => box.current?.setSelectionRange(next.caret, next.caret));
+    const input = editor.current;
+    if (input === null) return;
+    const draft = input.read().text;
+    let from = 0;
+    while (from < draft.length && draft[from] === next.text[from]) from++;
+    input.edit({ from, to: draft.length, insert: next.text.slice(from), caret: next.caret }, { noteEdit: false });
   };
-  const onKeyDown = (e: KeyboardEvent<HTMLTextAreaElement>) => {
+  const onKeyDown = (e: KeyboardEvent<HTMLElement>) => {
+    const input = editor.current;
+    if (input === null) return;
+    const { text: draft, from, to } = input.read();
+    const fence = !literal && e.key === "Enter" ? composerFenceAt(code, from) : null;
+    const enterInCode = fence !== null && to <= fence.lastLine.to;
     // The palettes get first refusal on navigation keys while one is open.
     if (paletteOpen && palette.current?.handleKey(e) === true) return;
-    if (mentionOpen && mentionPalette.current?.handleKey(e) === true) return;
+    if (!enterInCode && mentionOpen && mentionPalette.current?.handleKey(e) === true) return;
     if (stashOpen && stashPalette.current?.handleKey(e) === true) return;
-    const plain = !e.ctrlKey && !e.metaKey && !e.altKey && !e.nativeEvent.isComposing;
+    const plain = !e.ctrlKey && !e.metaKey && !e.altKey;
     if (plain && e.key.length === 1) {
-      const absorbed = wordGhost.takeProvisionalKey(e.key);
+      const absorbed = inCode ? null : wordGhost.takeProvisionalKey(e.key);
       if (absorbed !== null) {
         e.preventDefault();
         applyGhostDraft(absorbed);
@@ -1263,7 +1204,7 @@ export function Composer({
       }
     }
     if (plain && !e.shiftKey && (e.key === "Tab" || e.key === "ArrowRight")) {
-      const accepted = wordGhost.accept(e.key === "Tab");
+      const accepted = inCode ? null : wordGhost.accept(e.key === "Tab");
       if (accepted !== null) {
         e.preventDefault();
         applyGhostDraft(accepted);
@@ -1303,6 +1244,16 @@ export function Composer({
       void submit(e.shiftKey ? "interrupt" : "follow_up");
       return;
     }
+    if (e.key === "Enter" && (enterInCode || e.shiftKey)) {
+      e.preventDefault();
+      if (!e.shiftKey && from === to && fence?.close != null && from >= fence.lastLine.from) {
+        const end = fence.lastLine.to;
+        input.edit({ from: end, to: end, insert: end === draft.length ? "\n" : "", caret: end + 1 });
+      } else {
+        input.edit({ from, to, insert: "\n", caret: from + 1 });
+      }
+      return;
+    }
     if (e.key === "Enter" && !e.shiftKey) {
       e.preventDefault();
       void submit(running ? "steer" : "prompt");
@@ -1328,9 +1279,6 @@ export function Composer({
     }
   };
 
-  // Head of the tab's pending extension dialogs — while it accepts free
-  // text, this box is the question's Other field (issue #421).
-  const pendingFrame = useStore((s) => s.rpc[tabId]?.extensionQueue[0]);
   // An editor frame opens on its `prefill` — the field's current value, which
   // omp's ask text field re-sends on every re-ask (issue #1190). Where this box
   // owns the answer it seeds the draft with that text so Enter submits the
@@ -1353,7 +1301,7 @@ export function Composer({
     ? t("composer.placeholder.exited")
     : relaunching
       ? t("composer.placeholder.restarting")
-      : !compact && freeTextTarget(pendingFrame) !== "none"
+      : answering
         ? t("composer.placeholder.answer")
         : running
           ? t("composer.placeholder.running")
@@ -1392,7 +1340,7 @@ export function Composer({
       offerMachine={offerMachine}
       machineDisabled={unavailable || converting || moving !== null}
       onPickMachine={(member) => void moveToMember(member)}
-      onModeSelected={() => box.current?.focus({ preventScroll: true })}
+      onModeSelected={() => editor.current?.focus({ preventScroll: true })}
       compact={compact ? {
         open: active && compactSurface === "composer-options",
         onOpen: (request) => {
@@ -1417,7 +1365,7 @@ export function Composer({
       onDragLeave={(e) => {
         if (!e.currentTarget.contains(e.relatedTarget as Node | null)) setDropping(false);
       }}
-      onDrop={(e) => {
+      onDropCapture={(e) => {
         const artifact = parseArtifactDrag(e.dataTransfer.getData(ARTIFACT_DRAG_MIME));
         if (artifact !== null) {
           e.preventDefault(); setDropping(false);
@@ -1427,7 +1375,7 @@ export function Composer({
             return;
           }
           if (!unavailable) void attachArtifactVersion(artifact);
-          box.current?.focus({ preventScroll: true });
+          editor.current?.focus({ preventScroll: true });
           return;
         }
         const source = e.dataTransfer.getData(SESSION_DRAG_MIME);
@@ -1435,7 +1383,7 @@ export function Composer({
         if (unavailable || source === "") return;
         e.preventDefault();
         void referenceSession(tabId, source);
-        box.current?.focus({ preventScroll: true });
+        editor.current?.focus({ preventScroll: true });
       }}
       className={cn(
         "relative shrink-0",
@@ -1488,8 +1436,7 @@ export function Composer({
             onPickArtifact={(artifactId) => {
               const artifact = mentionArtifacts.find(entry => entry.artifactId === artifactId);
               if (artifact === undefined || atQuery === null) return;
-              setText(text.slice(0, atQuery.start) + text.slice(caret));
-              setCaret(atQuery.start);
+              editor.current?.edit({ from: atQuery.start, to: caret, insert: "", caret: atQuery.start }, { noteEdit: false });
               setMentionDismissedFor(null);
               void attachArtifactVersion({ artifactId: artifact.artifactId, codeRevisionId: artifact.currentCodeRevisionId, dataSnapshotId: artifact.currentDataSnapshotId });
             }}
@@ -1624,87 +1571,32 @@ export function Composer({
               className="border-b border-line px-2 pt-2 pb-1.5"
             />
           )}
-          {/* The mirror draws the glyphs; the textarea above it owns the caret,
-              selection, and every interaction. Their box metrics must stay
-              identical or the paint drifts off the text. */}
-          <div className="relative">
-            <div
-              ref={mirror}
-              aria-hidden
-              className={cn(
-                "pointer-events-none absolute inset-0 overflow-hidden",
-                "whitespace-pre-wrap break-words px-3 py-2 text-sm leading-relaxed text-ink compact-composer-text",
-                isSlash ? "font-mono" : "font-sans",
-              )}
-            >
-              {runs.map((run, i) => (
-                <span
-                  key={i}
-                  className={run.iris === true ? "text-iris" : undefined}
-                  style={run.color === undefined ? undefined : { color: run.color }}
-                >
-                  {run.text}
-                </span>
-              ))}
-              {/* omp's ghost completion (issue #715): painted only here, after
-                  the last glyph. Appending it directly would fuse it with the
-                  draft's last word (issue #853: "almo" + "st" lays out as
-                  "almost"), and break-words then moves the fused word — the
-                  user's glyphs included — to a mirror line the textarea never
-                  wraps to, drifting glyphs off the caret layer and clipping
-                  them. The U+200B is a break opportunity at zero width: the
-                  user's word never moves; only the ghost may wrap, and the
-                  mirror's overflow-hidden clips it. */}
-              {wordGhost.ghost !== null && (
-                <>
-                  {"\u200b"}
-                  <span data-word-ghost className="text-ink-faint">
-                    {wordGhost.ghost.suffix}
-                  </span>
-                </>
-              )}
-              {/* pre-wrap swallows a trailing newline; the textarea keeps its
-                  empty last line, so the mirror needs one too. */}
-              {text.endsWith("\n") && "\u200b"}
-            </div>
-            <textarea
-              ref={box}
-              data-composer-input
-              rows={1}
-              value={text}
+          <div className="composer-editor-frame" data-slash={isSlash || undefined}>
+            <ComposerEditor
+              ref={editor}
+              text={text}
               disabled={unavailable || moving !== null}
               placeholder={placeholder}
-              // The misspelling underline paints in the textarea layer even
-              // over transparent glyphs; the mirror's identical metrics keep
-              // it aligned with the visible text.
-              spellCheck
-              onChange={(e) => {
-                wordGhost.noteEdit(e.target.value, e.target.selectionStart);
-                setText(e.target.value);
-                setCaret(e.target.selectionStart);
-                setCollapsed(e.target.selectionStart === e.target.selectionEnd);
+              compact={compact}
+              literal={literal}
+              runs={runs}
+              ghostSuffix={inCode ? null : wordGhost.ghost?.suffix ?? null}
+              recall={recall.current !== null}
+              onCodeChange={setCode}
+              onEdit={(draft, from, to, noteEdit = true) => {
+                if (noteEdit) wordGhost.noteEdit(draft, from);
+                setText(draft);
+                setCaret(from);
+                setCollapsed(from === to);
                 recall.current = null;
               }}
-              onSelect={(e) => {
-                setCaret(e.currentTarget.selectionStart);
-                setCollapsed(e.currentTarget.selectionStart === e.currentTarget.selectionEnd);
+              onSelection={(from, to) => {
+                setCaret(from);
+                setCollapsed(from === to);
               }}
+              onFocusChange={setFocused}
               onKeyDown={onKeyDown}
               onPaste={(e) => void onPaste(e)}
-              onFocus={() => setFocused(true)}
-              onBlur={() => setFocused(false)}
-              onScroll={(e) => {
-                // Past MAX_ROWS the box scrolls internally; the mirror follows.
-                if (mirror.current !== null) mirror.current.scrollTop = e.currentTarget.scrollTop;
-              }}
-              className={cn(
-                "relative block w-full resize-none bg-transparent px-3 py-2 outline-none!",
-                "text-sm leading-relaxed placeholder:text-ink-faint compact-composer-text",
-                // Transparent glyphs over the mirror; the selection tint must stay
-                // translucent or it paints the highlighted text out.
-                "text-transparent caret-ink selection:bg-iris-dim/40 selection:text-transparent",
-                isSlash ? "font-mono" : "font-sans",
-              )}
             />
           </div>
 

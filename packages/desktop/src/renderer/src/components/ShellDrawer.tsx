@@ -207,8 +207,8 @@ export function ShellDrawer({ tabId, visible }: { tabId: string; visible: boolea
     if (!drawerHadFocus.current) return;
     drawerHadFocus.current = false;
     document
-      .querySelector<HTMLTextAreaElement>(
-        `[data-tab-id="${CSS.escape(tabId)}"] [data-composer-input]`,
+      .querySelector<HTMLElement>(
+        `[data-tab-id="${CSS.escape(tabId)}"] [data-composer-input]:not([disabled]):not([aria-disabled="true"])`,
       )
       ?.focus({ preventScroll: true });
   }, [visible, tabId]);

@@ -550,6 +550,72 @@
   background-color: color-mix(in srgb, var(--color-surface) max(var(--glass-alpha), var(--backdrop-floor-reading, 0%)), transparent);
   backdrop-filter: var(--glass-filter);
 }
+.composer-editor {
+  --composer-editor-max: calc(12lh + 1rem);
+  min-width: 0;
+  color: var(--color-ink);
+  font: 0.875rem/1.625 var(--font-sans);
+}
+.composer-editor-frame[data-slash] .composer-editor {
+  font-family: var(--font-mono);
+}
+.composer-editor[data-compact] {
+  --composer-editor-max: min(calc(12lh + 1rem), calc(var(--composer-editor-viewport-height, 100dvh) * 0.35));
+  font-size: 16px;
+}
+.composer-editor .cm-editor.cm-focused {
+  outline: none;
+}
+.composer-editor .cm-editor .cm-scroller {
+  max-height: var(--composer-editor-max);
+  overflow: hidden auto;
+  font: inherit;
+}
+.composer-editor .cm-editor .cm-content {
+  min-width: 0;
+  padding: 0.5rem 0.75rem;
+  caret-color: var(--color-ink);
+  overflow-wrap: anywhere;
+}
+.composer-editor .cm-content .cm-line {
+  padding: 0;
+}
+.composer-editor .cm-content ::selection {
+  background: color-mix(in srgb, var(--color-iris-dim) 40%, transparent);
+  color: inherit;
+}
+.composer-editor .cm-content .cm-placeholder,
+.composer-editor .composer-editor-ghost-text {
+  color: var(--color-ink-faint);
+}
+.composer-editor .composer-editor-inline-code,
+.composer-editor .composer-editor-code-fence {
+  background: var(--color-sunken);
+  color: var(--color-ink);
+  font-family: var(--font-mono);
+}
+.composer-editor .composer-editor-inline-code {
+  border-radius: 3px;
+}
+.composer-editor .composer-editor-code-fence {
+  min-width: 0;
+  border: 1px solid var(--color-line);
+  border-radius: 6px;
+  padding: 8px 10px;
+}
+.composer-editor .cm-line:has(.composer-editor-ghost) {
+  position: relative;
+  overflow: clip;
+}
+.composer-editor .composer-editor-ghost {
+  display: inline;
+  pointer-events: none;
+}
+.composer-editor .composer-editor-ghost-text {
+  position: absolute;
+  white-space: pre;
+}
+
 /* The composer card's own frost (round-4 owner directive): same fill channel
  * as `glass-surface` at the composer alpha, with a dedicated moderate blur so
  * code lines and paragraphs behind the card read as soft texture — visible
@@ -649,7 +715,6 @@
   .compact-composer {
     padding: 0.5rem max(0.5rem, var(--safe-right)) max(0.5rem, var(--safe-bottom)) max(0.5rem, var(--safe-left));
   }
-  .compact-composer-text { font-size: 16px !important; }
   .terminal-tab {
     padding-top: max(0.5rem, var(--safe-top));
     padding-right: max(0.5rem, var(--safe-right));

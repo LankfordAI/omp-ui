@@ -134,8 +134,14 @@ describe("Sheet", () => {
   });
 
   it("hands focus to the new tab's composer when an overlay dispatch changes tabs", async () => {
-    const oldComposer = <textarea data-composer-input />;
-    const newComposer = <textarea data-composer-input />;
+    const oldComposer = <div data-composer-input contentEditable tabIndex={0} />;
+    const newComposer = (
+      <>
+        <input data-composer-input disabled />
+        <div data-composer-input aria-disabled="true" tabIndex={0} />
+        <div data-composer-input contentEditable tabIndex={0} />
+      </>
+    );
     await render(
       <>
         <div data-tab-id="old" style={{ display: "block" }}>{oldComposer}</div>
@@ -153,7 +159,7 @@ describe("Sheet", () => {
       ),
     );
     expect(document.activeElement).toBe(
-      document.querySelector<HTMLElement>('[data-tab-id="new"] [data-composer-input]'),
+      document.querySelector<HTMLElement>('[data-tab-id="new"] [data-composer-input][contenteditable="true"]'),
     );
   });
 

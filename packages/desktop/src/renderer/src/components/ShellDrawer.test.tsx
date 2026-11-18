@@ -248,9 +248,18 @@ describe("ShellDrawer focus", () => {
   it("hands the caret to the composer when the drawer closes from the terminal", async () => {
     const tab = document.createElement("div");
     tab.dataset.tabId = mocks.TAB;
-    const composer = document.createElement("textarea");
-    composer.setAttribute("data-composer-input", "");
-    tab.append(composer);
+    const disabled = document.createElement("input");
+    disabled.dataset.composerInput = "";
+    disabled.disabled = true;
+    const ariaDisabled = document.createElement("div");
+    ariaDisabled.dataset.composerInput = "";
+    ariaDisabled.tabIndex = 0;
+    ariaDisabled.setAttribute("aria-disabled", "true");
+    const composer = document.createElement("div");
+    composer.dataset.composerInput = "";
+    composer.contentEditable = "true";
+    composer.tabIndex = 0;
+    tab.append(disabled, ariaDisabled, composer);
     document.body.appendChild(tab);
 
     await render(true);
@@ -269,8 +278,10 @@ describe("ShellDrawer focus", () => {
   it("leaves focus alone when the drawer closes without having held it", async () => {
     const tab = document.createElement("div");
     tab.dataset.tabId = mocks.TAB;
-    const composer = document.createElement("textarea");
-    composer.setAttribute("data-composer-input", "");
+    const composer = document.createElement("div");
+    composer.dataset.composerInput = "";
+    composer.contentEditable = "true";
+    composer.tabIndex = 0;
     tab.append(composer);
     document.body.appendChild(tab);
     composer.focus();

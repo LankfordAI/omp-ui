@@ -22,7 +22,7 @@ const FOLLOW_SLACK = 24;
  *
  * Issue #800: the strip is a bounded viewport over the rows, not an
  * unbounded block. The store stays a faithful mirror of omp's frames; the
- * scroll box caps at the composer textarea's discipline (grow to a ceiling,
+ * scroll box caps at the composer's discipline (grow to a ceiling,
  * then scroll) so a long conversation never drags the composer up, and it
  * carries the composer card's own background treatment so scrolled transcript
  * never paints through the text (ADR-0026: no per-component translucency).

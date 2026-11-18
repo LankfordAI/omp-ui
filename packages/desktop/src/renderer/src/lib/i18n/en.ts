@@ -523,7 +523,7 @@ export const en = {
   "transcript.vault.deleted": "Deleted",
   "transcript.vault.merged": "Merged",
   "transcript.vault.notCreated": "Not created by omp-ui",
-  // Composer textarea placeholders
+  // Composer placeholders
   "rpc.hero.project": "What's next in {project}?",
   "rpc.hero.default": "What's next?",
   "rpc.hero.hint": "Describe it — plan first, or build straight away.",

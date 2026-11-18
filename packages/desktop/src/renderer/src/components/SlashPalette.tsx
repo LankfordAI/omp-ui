@@ -166,7 +166,7 @@ export function SlashPalette({
               type="button"
               aria-label={`/${command.name} ${sub.name}: ${sub.description}`}
               ref={isActive ? activeRef : null}
-              // Keep the caret in the textarea: a blur would tear the palette down.
+              // Keep the caret in the editor when picking a row.
               onMouseDown={(e) => e.preventDefault()}
               onMouseEnter={() => setActive(self)}
               onClick={() => onPick(command, sub)}
@@ -254,7 +254,7 @@ export function SlashPalette({
                 type="button"
                 aria-label={`/${item.command.name}: ${item.command.description}`}
                 ref={isActive ? activeRef : null}
-                // Keep the caret in the textarea: a blur would tear the palette down.
+                // Keep the caret in the editor when picking a row.
                 onMouseDown={(e) => e.preventDefault()}
                 onMouseEnter={() => setActive(self)}
                 onClick={() => onPick(item.command)}

@@ -1,6 +1,7 @@
 // @vitest-environment jsdom
 import { act } from "react";
 import { createRoot, type Root } from "react-dom/client";
+import { EditorView } from "@codemirror/view";
 import { afterEach, beforeEach, describe, expect, it, vi, type Mock } from "vitest";
 import type { BranchList, RemoteInstanceSummary, ServiceTier } from "@omp-ui/core/types";
 import type { CapabilitySnapshot } from "@omp-ui/core/capabilities";
@@ -55,6 +56,13 @@ class ResizeObserverStub {
   disconnect() {}
 }
 (globalThis as Record<string, unknown>).ResizeObserver = ResizeObserverStub;
+// jsdom does not implement these browser editing and text-geometry APIs.
+Object.defineProperty(HTMLElement.prototype, "isContentEditable", {
+  configurable: true,
+  get(this: HTMLElement) { return this.closest("[contenteditable]")?.getAttribute("contenteditable") === "true"; },
+});
+Range.prototype.getClientRects = () => [] as unknown as DOMRectList;
+Range.prototype.getBoundingClientRect = () => new DOMRect();
 
 const backendMock = {
   listProjectFiles: vi.fn(async (): Promise<{ files: string[]; truncated: boolean }> => ({ files: [], truncated: false })),
@@ -157,24 +165,44 @@ function seed(status: "starting" | "ready" | "running", dead = false): void {
 }
 
 function renderComposer(): void {
-  const host = document.createElement("div"); document.body.append(host); root = createRoot(host);
+  const host = document.createElement("div"); host.dataset.tabId = TAB; document.body.append(host); root = createRoot(host);
   act(() => root!.render(<Composer tabId={TAB} active />));
 }
 
 function renderRpcTab(): void {
-  const host = document.createElement("div"); document.body.append(host); root = createRoot(host);
+  const host = document.createElement("div"); host.dataset.tabId = TAB; document.body.append(host); root = createRoot(host);
   act(() => root!.render(<RpcTab tabId={TAB} active={false} />));
 }
 
-function typeDraft(value: string): HTMLTextAreaElement {
-  const textarea = document.body.querySelector<HTMLTextAreaElement>("textarea")!;
-  const setter = Object.getOwnPropertyDescriptor(HTMLTextAreaElement.prototype, "value")!.set!;
-  act(() => { setter.call(textarea, value); textarea.dispatchEvent(new Event("input", { bubbles: true })); });
-  return textarea;
+function composerInput(tabId = TAB): HTMLElement {
+  return document.querySelector<HTMLElement>(`[data-tab-id="${tabId}"] [data-composer-input]`)!;
 }
 
-function press(target: HTMLElement, key: string): KeyboardEvent {
-  const event = new KeyboardEvent("keydown", { key, bubbles: true, cancelable: true });
+function editor(input = composerInput()): EditorView {
+  return EditorView.findFromDOM(input.closest<HTMLElement>(".cm-editor")!)!;
+}
+
+function draftText(input = composerInput()): string {
+  return editor(input).state.doc.toString();
+}
+
+function selectDraft(input: HTMLElement, anchor: number): void {
+  act(() => editor(input).dispatch({ selection: { anchor } }));
+}
+
+function typeDraft(value: string): HTMLElement {
+  const input = composerInput();
+  const view = editor(input);
+  act(() => view.dispatch({
+    changes: { from: 0, to: view.state.doc.length, insert: value },
+    selection: { anchor: value.length },
+    userEvent: "input.type",
+  }));
+  return input;
+}
+
+function press(target: HTMLElement, key: string, modifiers: KeyboardEventInit = {}): KeyboardEvent {
+  const event = new KeyboardEvent("keydown", { key, bubbles: true, cancelable: true, ...modifiers });
   act(() => target.dispatchEvent(event));
   return event;
 }
@@ -256,12 +284,12 @@ afterEach(() => {
 describe("compact Composer", () => {
   it("Android Back never aborts a focused running composer or submits its draft", () => {
     seed("running"); renderComposer();
-    const textarea = typeDraft("keep this running draft");
-    textarea.focus();
+    const input = typeDraft("keep this running draft");
+    input.focus();
     const event = new Event("omp-android-back", { cancelable: true });
     act(() => { window.dispatchEvent(event); });
-    expect(textarea.value).toBe("keep this running draft");
-    expect(document.activeElement).toBe(textarea);
+    expect(draftText(input)).toBe("keep this running draft");
+    expect(document.activeElement).toBe(input);
     expect(useStore.getState().rpc[TAB]!.status).toBe("running");
     expect(abortAgent).not.toHaveBeenCalled();
     expect(abortAndPrompt).not.toHaveBeenCalled();
@@ -270,12 +298,25 @@ describe("compact Composer", () => {
 
   it("sends the idle draft through prompt, clears, and refocuses", async () => {
     seed("ready"); renderComposer();
-    const textarea = typeDraft("mobile sentinel");
+    const input = typeDraft("mobile sentinel");
     const send = [...document.body.querySelectorAll<HTMLButtonElement>("button")].find((button) => button.textContent === "Send")!;
     await act(async () => send.click());
     expect(sendPrompt).toHaveBeenCalledWith(TAB, "mobile sentinel", "prompt", [], [], { annotations: [], references: [], artifactReferences: [], refreshes: [] });
-    expect(textarea.value).toBe("");
-    expect(document.activeElement).toBe(textarea);
+    expect(draftText(input)).toBe("");
+    expect(document.activeElement).toBe(input);
+  });
+
+  it("inserts a newline inside fenced code and sends the Markdown with Ctrl+Enter", async () => {
+    seed("ready"); renderComposer();
+    const input = typeDraft("Here is code:\n```js\nconst answer = 42;\nconsole.log(answer);\n```");
+    const cursor = draftText(input).indexOf(";") + 1;
+    selectDraft(input, cursor);
+    press(input, "Enter");
+    expect(sendPrompt).not.toHaveBeenCalled();
+    const markdown = "Here is code:\n```js\nconst answer = 42;\n\nconsole.log(answer);\n```";
+    expect(draftText(input)).toBe(markdown);
+    await act(async () => { press(input, "Enter", { ctrlKey: true }); });
+    expect(sendPrompt).toHaveBeenCalledWith(TAB, markdown, "follow_up", [], [], { annotations: [], references: [], artifactReferences: [], refreshes: [] });
   });
 
   it("keeps steer and abort primary while queue routes stay in options", async () => {
@@ -314,8 +355,7 @@ describe("compact Composer", () => {
     seed("running");
     useStore.setState((s) => ({ rpc: { [TAB]: { ...s.rpc[TAB]!, busy: true } } }));
     renderComposer();
-    const box = document.body.querySelector("textarea")!.parentElement!.parentElement!;
-    const ring = box.querySelector<HTMLElement>("[data-perimeter-sweep]")!;
+    const ring = document.body.querySelector<HTMLElement>("[data-perimeter-sweep]")!;
     expect(ring).not.toBeNull();
     expect(ring.classList.contains("text-copper")).toBe(true);
   });
@@ -381,7 +421,7 @@ describe("compact Composer options ownership", () => {
     act(() => root!.render(
       <>
         {[TAB, BACKGROUND].map((tabId) => (
-          <div key={tabId} data-composer-tab={tabId} style={{ display: tabId === displayed ? undefined : "none" }}>
+          <div key={tabId} data-tab-id={tabId} style={{ display: tabId === displayed ? undefined : "none" }}>
             <Composer tabId={tabId} active={tabId === displayed} />
           </div>
         ))}
@@ -390,7 +430,7 @@ describe("compact Composer options ownership", () => {
   }
 
   function openDisplayedOptions(tabId = TAB): void {
-    const trigger = document.querySelector<HTMLButtonElement>(`[data-composer-tab="${tabId}"] button[title="prompt options"]`)!;
+    const trigger = document.querySelector<HTMLButtonElement>(`[data-tab-id="${tabId}"] button[title="prompt options"]`)!;
     act(() => trigger.click());
   }
 
@@ -530,7 +570,7 @@ describe("Android composer process recovery", () => {
     expect(stored).not.toContain("private-image-bytes");
     expect(stored).not.toContain("private-document-bytes");
     restartComposer();
-    expect(document.body.querySelector<HTMLTextAreaElement>("textarea")!.value).toBe("unsent recovery text\n한국어");
+    expect(draftText()).toBe("unsent recovery text\n한국어");
     expect(document.body.querySelectorAll("img")).toHaveLength(0);
     expect(document.body.textContent).not.toContain("private.pdf");
   });
@@ -543,11 +583,11 @@ describe("Android composer process recovery", () => {
     expect(sendPrompt).toHaveBeenCalledWith(TAB, "send only once", "prompt", [], [], { annotations: [], references: [], artifactReferences: [], refreshes: [] });
     expect(loadAndroidDraft(TAB)).toBe("");
     restartComposer();
-    expect(document.body.querySelector<HTMLTextAreaElement>("textarea")!.value).toBe("");
+    expect(draftText()).toBe("");
     typeDraft("discard me");
     typeDraft("");
     restartComposer();
-    expect(document.body.querySelector<HTMLTextAreaElement>("textarea")!.value).toBe("");
+    expect(draftText()).toBe("");
   });
 
   it("recovers a rejected send's restored text", async () => {
@@ -557,7 +597,7 @@ describe("Android composer process recovery", () => {
     const send = [...document.body.querySelectorAll<HTMLButtonElement>("button")].find((button) => button.textContent === "Send")!;
     await act(async () => send.click());
     restartComposer();
-    expect(document.body.querySelector<HTMLTextAreaElement>("textarea")!.value).toBe("rejected but not lost");
+    expect(draftText()).toBe("rejected but not lost");
   });
 
   it("offers interrupted submission text for manual recovery without replaying it", async () => {
@@ -567,18 +607,18 @@ describe("Android composer process recovery", () => {
     typeDraft("delivery was not confirmed");
     const send = [...document.body.querySelectorAll<HTMLButtonElement>("button")].find((button) => button.textContent === "Send")!;
     act(() => send.click());
-    expect(document.body.querySelector<HTMLTextAreaElement>("textarea")!.value).toBe("");
+    expect(draftText()).toBe("");
     restartComposer();
     expect(sendPrompt).toHaveBeenCalledTimes(1);
     expect(document.body.textContent).toContain("unconfirmed delivery");
     typeDraft("new draft");
     const recover = [...document.body.querySelectorAll<HTMLButtonElement>("button")].find((button) => button.textContent === "add unconfirmed text")!;
     act(() => recover.click());
-    expect(document.body.querySelector<HTMLTextAreaElement>("textarea")!.value).toBe("new draft\n\ndelivery was not confirmed");
+    expect(draftText()).toBe("new draft\n\ndelivery was not confirmed");
     expect(sendPrompt).toHaveBeenCalledTimes(1);
     await act(async () => handoff.resolve(true));
     restartComposer();
-    expect(document.body.querySelector<HTMLTextAreaElement>("textarea")!.value).toBe("new draft\n\ndelivery was not confirmed");
+    expect(draftText()).toBe("new draft\n\ndelivery was not confirmed");
   });
 
   it("an accepted handoff cannot delete a newer draft typed while waiting", async () => {
@@ -591,7 +631,7 @@ describe("Android composer process recovery", () => {
     typeDraft("new unsent draft");
     await act(async () => handoff.resolve(true));
     restartComposer();
-    expect(document.body.querySelector<HTMLTextAreaElement>("textarea")!.value).toBe("new unsent draft");
+    expect(draftText()).toBe("new unsent draft");
     expect(document.body.textContent).not.toContain("unconfirmed delivery");
   });
 
@@ -607,7 +647,7 @@ describe("Android composer process recovery", () => {
       })),
     });
     seed("ready"); renderComposer();
-    const textarea = typeDraft("keep writing while folding");
+    const input = typeDraft("keep writing while folding");
     act(() => {
       window.__ompAndroidViewport = { bookSplitX: 410.5 };
       window.dispatchEvent(new Event("omp-android-viewport"));
@@ -617,13 +657,13 @@ describe("Android composer process recovery", () => {
       window.__ompAndroidViewport = { bookSplitX: null };
       window.dispatchEvent(new Event("omp-android-viewport"));
     });
-    expect(document.body.querySelector<HTMLTextAreaElement>("textarea")!.value).toBe("keep writing while folding");
+    expect(draftText()).toBe("keep writing while folding");
     act(() => {
       compact = true;
       listeners.forEach((listener) => listener({ matches: true } as MediaQueryListEvent));
     });
-    expect(document.body.querySelector("textarea")).toBe(textarea);
-    expect(textarea.value).toBe("keep writing while folding");
+    expect(composerInput()).toBe(input);
+    expect(draftText(input)).toBe("keep writing while folding");
   });
 
   it("does not recover Android drafts into an ordinary browser composer", () => {
@@ -631,33 +671,7 @@ describe("Android composer process recovery", () => {
     typeDraft("Android only");
     delete window.__ompAndroidViewport;
     restartComposer();
-    expect(document.body.querySelector<HTMLTextAreaElement>("textarea")!.value).toBe("");
-  });
-});
-
-describe("desktop floating Composer card", () => {
-  it("fills the floating card with the reading plane, never a raised panel", () => {
-    // matches: false → the desktop branch; compact fills the card bg-raised,
-    // so passing this assertion also proves the floating geometry was exercised.
-    Object.defineProperty(window, "matchMedia", {
-      configurable: true,
-      value: vi.fn(() => ({
-        matches: false,
-        addEventListener: vi.fn(),
-        removeEventListener: vi.fn(),
-      })),
-    });
-    seed("ready");
-    renderComposer();
-    const card = document.body.querySelector("textarea")!.parentElement!.parentElement!;
-    // The floating card keeps the reading plane's tone (never the lighter
-    // raised/plane-lit rectangle — #396 lineage) with separation by
-    // elevation: border + shadow-float. Whether its fill is opaque or frosted
-    // is a styling choice the round-4 owner directive owns; the class names
-    // are not pinned here.
-    expect(card.className).toContain("shadow-float");
-    expect(card.className).not.toContain("bg-raised");
-    expect(card.className).not.toContain("plane-lit");
+    expect(draftText()).toBe("");
   });
 });
 
@@ -871,7 +885,7 @@ describe("Composer relaunch handoff", () => {
       rpc: { ...state.rpc, [TAB]: { ...state.rpc[TAB]!, status: "starting" } },
     })));
 
-    const textarea = document.body.querySelector<HTMLTextAreaElement>("textarea")!;
+    const input = composerInput();
     const buttons = [...document.body.querySelectorAll<HTMLButtonElement>("button")];
     const model = document.body.querySelector<HTMLButtonElement>('button[title="model-x"]')!;
     const advisor = buttons.find((button) => button.title.startsWith("advisor off"))!;
@@ -879,8 +893,9 @@ describe("Composer relaunch handoff", () => {
     const plan = modeSegment("plan");
     const plus = plusTrigger();
     const send = buttons.find((button) => button.textContent?.trim() === "send")!;
-    const controls = [textarea, model, advisor, build, plan, plus, send];
+    const controls = [model, advisor, build, plan, plus, send];
     expect(controls.every((el) => el.disabled)).toBe(true);
+    expect(input.getAttribute("aria-disabled")).toBe("true");
     // The pill stays usable: the branch chip's git menu works on an unavailable session.
     expect(optionsTrigger().disabled).toBe(false);
 
@@ -888,6 +903,7 @@ describe("Composer relaunch handoff", () => {
       rpc: { ...state.rpc, [TAB]: { ...state.rpc[TAB]!, status: "ready" } },
     })));
     expect(controls.every((el) => !el.disabled)).toBe(true);
+    expect(input.getAttribute("aria-disabled")).not.toBe("true");
   });
 });
 
@@ -1160,7 +1176,7 @@ describe("Composer session references (issue #984)", () => {
     const referenceSession = vi.fn(async () => {});
     useStore.setState({ referenceSession });
     renderComposer();
-    const target = document.body.querySelector<HTMLElement>("textarea")!.closest<HTMLElement>(".shrink-0")!;
+    const target = composerInput().closest<HTMLElement>(".shrink-0")!;
     const data = new Map<string, string>([[SESSION_DRAG_MIME, OTHER]]);
     const transfer = { types: [...data.keys()], getData: (k: string) => data.get(k) ?? "", dropEffect: "none" };
     const drop = new Event("drop", { bubbles: true, cancelable: true });
@@ -1179,7 +1195,7 @@ describe("Composer session references (issue #984)", () => {
   it("accepts a row drag whose allowed operation arrives as copy (Wayland)", () => {
     seed("ready");
     renderComposer();
-    const target = document.body.querySelector<HTMLElement>("textarea")!.closest<HTMLElement>(".shrink-0")!;
+    const target = composerInput().closest<HTMLElement>(".shrink-0")!;
     // Chromium on Wayland reports any in-window drag as effectAllowed "copy";
     // a dropEffect the source does not allow makes Blink skip the drop event.
     const transfer = { types: [SESSION_DRAG_MIME], effectAllowed: "copy", dropEffect: "none", getData: () => "" };
@@ -1203,7 +1219,7 @@ describe("Composer session references (issue #984)", () => {
     expect(rows.map((row) => row.dataset.mentionSession)).toEqual([OTHER]);
     act(() => rows[0]!.click());
     expect(referenceSession).toHaveBeenCalledWith(TAB, OTHER);
-    expect(document.body.querySelector<HTMLTextAreaElement>("textarea")!.value).toBe("compare ");
+    expect(draftText()).toBe("compare ");
   });
 });
 
@@ -1224,7 +1240,7 @@ describe("Composer draft stash (issue #989)", () => {
     const box = typeDraft("half-written prompt");
     await act(async () => chord(box));
     expect(backendMock.readDocument).toHaveBeenCalledWith(TAB, DOC.path);
-    expect(box.value).toBe("");
+    expect(draftText(box)).toBe("");
     expect(document.body.textContent).not.toContain("spec.pdf");
 
     // An empty composer opens the picker instead of stashing nothing.
@@ -1235,7 +1251,7 @@ describe("Composer draft stash (issue #989)", () => {
 
     await act(async () => { press(box, "Enter"); });
     expect(document.body.querySelector("[data-stash-palette]")).toBeNull();
-    expect(box.value).toBe("half-written prompt");
+    expect(draftText(box)).toBe("half-written prompt");
     expect(document.body.textContent).toContain("spec.pdf");
 
     // The applied document carries bytes, so it materializes on this tab's host at send.
@@ -1255,7 +1271,7 @@ describe("Composer draft stash (issue #989)", () => {
     act(() => useStore.getState().queueComposerDocument(TAB, DOC, ""));
     const box = typeDraft("keep me");
     await act(async () => chord(box));
-    expect(box.value).toBe("keep me");
+    expect(draftText(box)).toBe("keep me");
     expect(document.body.textContent).toContain("spec.pdf");
     expect(document.body.textContent).toContain("could not stash the draft: document not found");
   });
@@ -1391,8 +1407,8 @@ describe("Composer dictation (issue #647)", () => {
     seed("ready");
     enableVoice();
     renderComposer();
-    const textarea = typeDraft("hello  world");
-    act(() => textarea.setSelectionRange(6, 6)); // the gap between the words
+    const input = typeDraft("hello  world");
+    selectDraft(input, 6); // the gap between the words
     const mic = micButton();
     expect(mic).toBeDefined();
     await act(async () => mic!.click());
@@ -1404,7 +1420,7 @@ describe("Composer dictation (issue #647)", () => {
     expect(backendMock.transcribeAudio).toHaveBeenCalledTimes(1);
     expect(sendPrompt).not.toHaveBeenCalled();
     // Joined with spaces against non-space neighbours: "hello dictated words world".
-    expect(textarea.value).toBe("hello dictated words world");
+    expect(draftText(input)).toBe("hello dictated words world");
   });
 
   it("Escape while recording cancels instead of aborting the turn", async () => {
@@ -1414,8 +1430,8 @@ describe("Composer dictation (issue #647)", () => {
     await act(async () => micButton()!.click());
     await settle();
     pull.fire(new Float32Array(48_000).fill(0.2));
-    const textarea = document.body.querySelector<HTMLTextAreaElement>("textarea")!;
-    press(textarea, "Escape");
+    const input = composerInput();
+    press(input, "Escape");
     await settle();
     expect(abortAgent).not.toHaveBeenCalled();
     expect(backendMock.transcribeAudio).not.toHaveBeenCalled();
@@ -1433,7 +1449,7 @@ describe("Composer dictation (issue #647)", () => {
     await act(async () => stopButton()!.click());
     await settle();
     expect(backendMock.transcribeAudio).not.toHaveBeenCalled();
-    expect(document.body.querySelector("textarea")!.value).toBe("");
+    expect(draftText()).toBe("");
   });
 
   function pushKey(
@@ -1450,15 +1466,15 @@ describe("Composer dictation (issue #647)", () => {
 
   /** Focus off the composer so bare `r` belongs to the window, not a field. */
   function unfocus(): void {
-    act(() => document.body.querySelector<HTMLTextAreaElement>("textarea")?.blur());
+    act(() => composerInput().blur());
   }
 
   it("hold R on the window records, release R transcribes at the caret (#707)", async () => {
     seed("ready");
     enableVoice();
     renderComposer();
-    const textarea = typeDraft("hello  world");
-    act(() => textarea.setSelectionRange(6, 6));
+    const input = typeDraft("hello  world");
+    selectDraft(input, 6);
     unfocus();
     pushKey(document.body, "keydown");
     await settle();
@@ -1471,7 +1487,7 @@ describe("Composer dictation (issue #647)", () => {
     await settle(); await settle();
     expect(backendMock.transcribeAudio).toHaveBeenCalledTimes(1);
     expect(sendPrompt).not.toHaveBeenCalled();
-    expect(textarea.value).toBe("hello dictated words world");
+    expect(draftText(input)).toBe("hello dictated words world");
     // The red paint leaves with the live phase.
     expect(micButton()?.classList.contains("text-rose")).toBe(false);
   });
@@ -1480,8 +1496,8 @@ describe("Composer dictation (issue #647)", () => {
     seed("ready");
     enableVoice();
     renderComposer();
-    const textarea = typeDraft("hello  world");
-    act(() => textarea.setSelectionRange(6, 6));
+    const input = typeDraft("hello  world");
+    selectDraft(input, 6);
     unfocus();
     pushKey(document.body, "keydown");
     await settle();
@@ -1494,21 +1510,21 @@ describe("Composer dictation (issue #647)", () => {
     pull.fire(new Float32Array(33_600));
     for (let i = 0; i < 5; i += 1) await settle();
     // Both replies settle back to back: the second must read the first's draft.
-    expect(textarea.value).toBe("hello first second world");
+    expect(draftText(input)).toBe("hello first second world");
     expect(stopButton()?.getAttribute("aria-pressed")).toBe("true");
-    expect(document.activeElement).not.toBe(textarea);
+    expect(document.activeElement).not.toBe(input);
     pushKey(document.body, "keyup");
     for (let i = 0; i < 5; i += 1) await settle();
-    expect(document.activeElement).toBe(textarea);
+    expect(document.activeElement).toBe(input);
     expect(sendPrompt).not.toHaveBeenCalled();
   });
 
-  it("R while the composer textarea is focused stays typing, never records (#707)", async () => {
+  it("R while the composer input is focused stays typing, never records (#707)", async () => {
     seed("ready");
     enableVoice();
     renderComposer();
-    const textarea = document.body.querySelector<HTMLTextAreaElement>("textarea")!;
-    pushKey(textarea, "keydown");
+    const input = composerInput();
+    pushKey(input, "keydown");
     await settle();
     expect(getUserMediaMock).not.toHaveBeenCalled();
     expect(backendMock.transcribeAudio).not.toHaveBeenCalled();
@@ -1660,15 +1676,10 @@ describe("Composer dictation (issue #647)", () => {
 });
 
 describe("Composer focus treatment", () => {
-  it("uses Tailwind's important outline suppression on the textarea", () => {
-    seed("ready"); renderComposer();
-    expect(document.body.querySelector("textarea")?.classList.contains("outline-none!")).toBe(true);
-  });
-
-  it("focuses the textarea on mount so a new session is ready to type", () => {
+  it("focuses the input on mount so a new session is ready to type", () => {
     seed("ready");
     renderComposer();
-    expect(document.activeElement).toBe(document.body.querySelector("textarea"));
+    expect(document.activeElement).toBe(composerInput());
   });
 
 
@@ -1679,12 +1690,12 @@ describe("Composer focus treatment", () => {
   it("focuses the box when a fresh session's boot clears its starting state (regression, #102)", () => {
     seed("starting");
     renderComposer();
-    const box = document.body.querySelector<HTMLTextAreaElement>("textarea")!;
+    const box = composerInput();
     // Boot disables the box, so the mount-time focus is a no-op.
-    expect(box.disabled).toBe(true);
+    expect(box.getAttribute("aria-disabled")).toBe("true");
     expect(document.activeElement).not.toBe(box);
     setStatus("ready");
-    expect(box.disabled).toBe(false);
+    expect(box.getAttribute("aria-disabled")).not.toBe("true");
     expect(document.activeElement).toBe(box);
   });
 
@@ -1692,10 +1703,10 @@ describe("Composer focus treatment", () => {
     seed("ready");
     useStore.setState({ rpc: {} }); // record absent: the box mounts enabled
     renderComposer();
-    const box = document.body.querySelector<HTMLTextAreaElement>("textarea")!;
+    const box = composerInput();
     expect(document.activeElement).toBe(box);
     setStatus("starting"); // bootRpcTab's synchronous patch disables the box
-    expect(box.disabled).toBe(true);
+    expect(box.getAttribute("aria-disabled")).toBe("true");
     setStatus("ready");
     expect(document.activeElement).toBe(box);
   });
@@ -1703,7 +1714,7 @@ describe("Composer focus treatment", () => {
   it("does not steal focus on status churn that leaves the box usable", () => {
     seed("ready");
     renderComposer();
-    const box = document.body.querySelector<HTMLTextAreaElement>("textarea")!;
+    const box = composerInput();
     expect(document.activeElement).toBe(box);
     // The compact shell's prompt-options control is the only action-row button
     // that survives the ready→running row swap with an empty draft — Send is
@@ -1804,7 +1815,7 @@ describe("Composer BuildPlanControl", () => {
     expect(modeSegment("plan").className).not.toContain("bg-iris-wash");
   });
 
-  it("selects Plan and reclaims the textarea caret", () => {
+  it("selects Plan and reclaims the input caret", () => {
     seed("ready");
     renderComposer();
     openOptions();
@@ -1813,7 +1824,7 @@ describe("Composer BuildPlanControl", () => {
     expect(document.activeElement).toBe(plan);
     act(() => plan.click());
     expect(setPlanMode).toHaveBeenCalledWith(TAB, true);
-    expect(document.activeElement).toBe(document.body.querySelector("textarea"));
+    expect(document.activeElement).toBe(composerInput());
     expect(optionsTrigger().getAttribute("aria-expanded")).toBe("false");
   });
 
@@ -1856,7 +1867,7 @@ describe("Composer BuildPlanControl", () => {
     expect(document.activeElement).toBe(build);
     act(() => build.click());
     expect(setPlanMode).not.toHaveBeenCalled();
-    expect(document.activeElement).toBe(document.body.querySelector("textarea"));
+    expect(document.activeElement).toBe(composerInput());
     expect(optionsTrigger().getAttribute("aria-expanded")).toBe("false");
   });
 
@@ -2006,7 +2017,7 @@ describe("Composer BuildPlanControl", () => {
     // than dispatching a bare `/goal`.
     act(() => parent.click());
     expect(runSlashCommand).not.toHaveBeenCalled();
-    expect(document.body.querySelector<HTMLTextAreaElement>("textarea")!.value).toBe("/goal ");
+    expect(draftText()).toBe("/goal ");
   });
 
   it("offers omp's autoresearch family once, as omp-ui's own row with its four verbs", () => {
@@ -2116,7 +2127,7 @@ describe("Composer BuildPlanControl", () => {
     // Its palette row takes an argument, so the pick completes the draft instead
     // of dispatching it half-written.
     act(() => row.click());
-    expect(document.body.querySelector<HTMLTextAreaElement>("textarea")!.value).toBe("/guided-goal ");
+    expect(draftText()).toBe("/guided-goal ");
   });
 
 });
@@ -2137,9 +2148,9 @@ describe("Composer slash completion (#382)", () => {
   it("completes into the subcommand stage", async () => {
     seed("ready");
     renderComposer();
-    const textarea = typeDraft("/goal");
-    press(textarea, "Tab");
-    expect(textarea.value).toBe("/goal ");
+    const input = typeDraft("/goal");
+    press(input, "Tab");
+    expect(draftText(input)).toBe("/goal ");
     // The completion opens the second stage instead of dismissing: the five
     // goal verbs in advertised order, no parent row, no guided-goal row.
     expect(slashRows()).toEqual([
@@ -2152,14 +2163,14 @@ describe("Composer slash completion (#382)", () => {
     typeDraft("/goal s");
     // Fuzzy names: set/show start with s, resume/pause merely contain it.
     expect(slashRows()).toEqual(["/goal set", "/goal show", "/goal resume", "/goal pause"]);
-    press(textarea, "Tab");
-    expect(textarea.value).toBe("/goal set ");
+    press(input, "Tab");
+    expect(draftText(input)).toBe("/goal set ");
     // `set <objective>` takes a required argument, so Tab completes; the
     // needle ("set ") matches no sibling name, so the palette steps aside.
     expect(slashRows()).toEqual([]);
     expect(runSlashCommand).not.toHaveBeenCalled();
     typeDraft("/goal set finish the migration");
-    press(textarea, "Enter");
+    press(input, "Enter");
     await act(async () => {});
     expect(runSlashCommand).toHaveBeenCalledWith(TAB, "/goal set finish the migration");
   });
@@ -2181,24 +2192,24 @@ describe("Composer slash completion (#382)", () => {
       rpc: { [TAB]: { ...useStore.getState().rpc[TAB]!, commands: [compact] } },
     });
     renderComposer();
-    const textarea = typeDraft("/compact s");
+    const input = typeDraft("/compact s");
     expect(slashRows()).toEqual(["/compact soft", "/compact snapcompact"]);
     // The argument matches no subcommand name — the regression: the palette
     // must not swallow Enter and rewrite the typed argument into a completion.
     typeDraft("/compact focus on db");
     expect(slashRows()).toEqual([]);
-    press(textarea, "Enter");
+    press(input, "Enter");
     await act(async () => {});
     expect(runSlashCommand).toHaveBeenCalledWith(TAB, "/compact focus on db");
-    expect(textarea.value).toBe("");
+    expect(draftText(input)).toBe("");
   });
 
   it("Escape dismisses the exact draft only", () => {
     seed("ready");
     renderComposer();
-    const textarea = typeDraft("/goal ");
+    const input = typeDraft("/goal ");
     expect(slashRows()).toHaveLength(5);
-    press(textarea, "Escape");
+    press(input, "Escape");
     expect(slashRows()).toEqual([]);
     expect(abortAgent).not.toHaveBeenCalled();
     typeDraft("/goal s");
@@ -2216,19 +2227,19 @@ describe("Composer shell dispatch (issue #678)", () => {
 
   it("runs a leading ! as a shell command, never a prompt", async () => {
     seed("ready"); renderComposer();
-    const textarea = typeDraft("!echo hi");
-    press(textarea, "Enter");
+    const input = typeDraft("!echo hi");
+    press(input, "Enter");
     await act(async () => {});
     expect(runShellCommand).toHaveBeenCalledWith(TAB, "echo hi", { excludeFromContext: false });
     expect(sendPrompt).not.toHaveBeenCalled();
     expect(runSlashCommand).not.toHaveBeenCalled();
-    expect(textarea.value).toBe("");
+    expect(draftText(input)).toBe("");
   });
 
   it("dispatches ! mid-stream instead of steering", async () => {
     seed("running"); renderComposer();
-    const textarea = typeDraft("!git status");
-    press(textarea, "Enter");
+    const input = typeDraft("!git status");
+    press(input, "Enter");
     await act(async () => {});
     expect(runShellCommand).toHaveBeenCalledWith(TAB, "git status", { excludeFromContext: false });
     expect(sendPrompt).not.toHaveBeenCalled();
@@ -2238,119 +2249,49 @@ describe("Composer shell dispatch (issue #678)", () => {
   // both bangs are stripped and the run asks for excludeFromContext (#1200).
   it("strips both bangs of a !! draft and asks to exclude it from context", async () => {
     seed("ready"); renderComposer();
-    const textarea = typeDraft("!!echo hi");
-    press(textarea, "Enter");
+    const input = typeDraft("!!echo hi");
+    press(input, "Enter");
     await act(async () => {});
     expect(runShellCommand).toHaveBeenCalledWith(TAB, "echo hi", { excludeFromContext: true });
     expect(sendPrompt).not.toHaveBeenCalled();
-    expect(textarea.value).toBe("");
+    expect(draftText(input)).toBe("");
   });
 
   it("sends nothing for a bare !! and still clears the draft", async () => {
     seed("ready"); renderComposer();
-    const textarea = typeDraft("!!");
-    press(textarea, "Enter");
+    const input = typeDraft("!!");
+    press(input, "Enter");
     await act(async () => {});
     expect(runShellCommand).not.toHaveBeenCalled();
     expect(sendPrompt).not.toHaveBeenCalled();
-    expect(textarea.value).toBe("");
+    expect(draftText(input)).toBe("");
   });
 
   it("treats bang-space as the single-bang form", async () => {
     seed("ready"); renderComposer();
-    const textarea = typeDraft("! !echo hi");
-    press(textarea, "Enter");
+    const input = typeDraft("! !echo hi");
+    press(input, "Enter");
     await act(async () => {});
     expect(runShellCommand).toHaveBeenCalledWith(TAB, "!echo hi", { excludeFromContext: false });
   });
 
   it("sends nothing for a bare !", async () => {
     seed("ready"); renderComposer();
-    const textarea = typeDraft("!");
-    press(textarea, "Enter");
+    const input = typeDraft("!");
+    press(input, "Enter");
     await act(async () => {});
     expect(runShellCommand).not.toHaveBeenCalled();
     expect(sendPrompt).not.toHaveBeenCalled();
-    expect(textarea.value).toBe("");
+    expect(draftText(input)).toBe("");
   });
 
   it("never triggers on a mid-line !", async () => {
     seed("ready"); renderComposer();
-    const textarea = typeDraft("look at this !");
-    press(textarea, "Enter");
+    const input = typeDraft("look at this !");
+    press(input, "Enter");
     await act(async () => {});
     expect(runShellCommand).not.toHaveBeenCalled();
     expect(sendPrompt).toHaveBeenCalledWith(TAB, "look at this !", "prompt", [], [], { annotations: [], references: [], artifactReferences: [], refreshes: [] });
-  });
-});
-
-describe("Composer width refit", () => {
-  it("re-fits when the box width changes without a text change", () => {
-    let ro: (() => void) | null = null;
-    vi.stubGlobal("ResizeObserver", class {
-      constructor(cb: ResizeObserverCallback) {
-        ro = () => cb([], this as unknown as ResizeObserver);
-      }
-      observe() {}
-      disconnect() {}
-    });
-    seed("ready"); renderComposer();
-    const el = document.body.querySelector("textarea")!;
-    // jsdom has no layout; supply the metrics fit() reads.
-    el.style.lineHeight = "20px";
-    el.style.paddingTop = "8px";
-    el.style.paddingBottom = "8px";
-    let width = 200;
-    let scroll = 3 * 20 + 16; // three rows of content
-    Object.defineProperty(el, "clientWidth", { configurable: true, get: () => width });
-    Object.defineProperty(el, "scrollHeight", { configurable: true, get: () => scroll });
-    act(() => ro!());
-    expect(el.style.height).toBe("76px");      // grows to fit
-    expect(el.style.overflowY).toBe("hidden");
-    // The same draft re-wraps far past the 12-row cap after a width change.
-    width = 100;
-    scroll = 30 * 20 + 16;
-    act(() => ro!());
-    expect(el.style.height).toBe("256px");     // 12 * 20 + 16: capped
-    expect(el.style.overflowY).toBe("auto");   // now scrollable
-  });
-
-  it("keeps the mirror's width equal to the box's live width across the scroll threshold", () => {
-    let ro: (() => void) | null = null;
-    vi.stubGlobal("ResizeObserver", class {
-      constructor(cb: ResizeObserverCallback) {
-        ro = () => cb([], this as unknown as ResizeObserver);
-      }
-      observe() {}
-      disconnect() {}
-    });
-    seed("ready"); renderComposer();
-    const el = document.body.querySelector("textarea")!;
-    const mirror = el.previousElementSibling as HTMLDivElement;
-    // jsdom has no layout; supply the metrics fit() reads.
-    el.style.lineHeight = "20px";
-    el.style.paddingTop = "8px";
-    el.style.paddingBottom = "8px";
-    let width = 200;
-    let scroll = 3 * 20 + 16; // three rows of content
-    Object.defineProperty(el, "clientWidth", { configurable: true, get: () => width });
-    Object.defineProperty(el, "scrollHeight", { configurable: true, get: () => scroll });
-    act(() => ro!());
-    expect(el.style.overflowY).toBe("hidden");
-    expect(mirror.style.width).toBe("");       // no scrollbar: full width
-    // The same draft re-wraps far past the 12-row cap after a width change.
-    width = 100;
-    scroll = 30 * 20 + 16;
-    act(() => ro!());
-    expect(el.style.overflowY).toBe("auto");
-    expect(mirror.style.width).toBe("100px");  // synced to the box's live width
-    // The box widens again and the draft re-wraps back below the cap:
-    // full width is restored.
-    width = 200;
-    scroll = 3 * 20 + 16;
-    act(() => ro!());
-    expect(el.style.overflowY).toBe("hidden");
-    expect(mirror.style.width).toBe("");
   });
 });
 
@@ -2360,7 +2301,7 @@ describe("Composer onPrompt", () => {
   });
 
   function renderWithPrompt(spy: () => void): void {
-    const host = document.createElement("div"); document.body.append(host); root = createRoot(host);
+    const host = document.createElement("div"); host.dataset.tabId = TAB; document.body.append(host); root = createRoot(host);
     act(() => root!.render(<Composer tabId={TAB} active onPrompt={spy} />));
   }
 
@@ -2405,7 +2346,7 @@ describe("RpcTab hero", () => {
     seed("ready");
     desktop(); renderRpcTab();
     expect(document.body.textContent).toContain("What's next");
-    expect(document.body.querySelector("textarea")).not.toBeNull();
+    expect(composerInput()).not.toBeNull();
     expect(document.body.textContent).not.toContain("Nothing yet");
   });
 
@@ -2455,7 +2396,7 @@ describe("RpcTab hero", () => {
     seed("starting");
     desktop(); renderRpcTab();
     expect(document.body.querySelectorAll(".animate-pulse").length).toBe(3);
-    expect(document.body.querySelector("textarea")).not.toBeNull();
+    expect(composerInput()).not.toBeNull();
     expect(document.body.textContent).not.toContain("What's next");
     // hero spacer below the composer => centered geometry
     expect(document.body.querySelector('[class*="flex-[0.85]"]')).not.toBeNull();
@@ -2719,6 +2660,8 @@ describe("Composer active-turn keyword glow (issue #726)", () => {
     nextFrame = 0;
     frames = new Map();
     vi.spyOn(Date, "now").mockImplementation(() => now);
+    // This clock measures the perimeter animator, not CodeMirror layout.
+    vi.spyOn(EditorView.prototype, "requestMeasure").mockImplementation(() => {});
     vi.stubGlobal("requestAnimationFrame", vi.fn((callback: FrameRequestCallback) => {
       frames.set(++nextFrame, callback);
       return nextFrame;
@@ -2771,9 +2714,9 @@ describe("Composer active-turn keyword glow (issue #726)", () => {
     media(compact);
     seed("ready");
     renderComposer();
-    const textarea = typeDraft("please orchestrate this");
-    press(textarea, "Enter");
-    expect(textarea.value).toBe("");
+    const input = typeDraft("please orchestrate this");
+    press(input, "Enter");
+    expect(draftText(input)).toBe("");
     expect(ringStyle()).toBeNull();
     patchRpc({ status: "running", busy, activeTurnKeywords: ["orchestrate"] });
     expect(ringStyle()).toBe(gradient(["orchestrate"]));
@@ -2853,43 +2796,32 @@ describe("Composer active-turn keyword glow (issue #726)", () => {
     expect(ringStyle()).toBeNull();
   });
 
-  it("shares one clock with the focused draft but keeps only the active ring moving after blur", () => {
+  it("shares one clock with the focused draft and keeps the active ring moving after blur", () => {
     media(false, false);
     seed("running");
     patchRpc({ activeTurnKeywords: ["orchestrate"] });
     renderComposer();
-    const textarea = typeDraft("jevify");
-    const mirror = textarea.parentElement!.querySelector<HTMLElement>("[aria-hidden]")!;
-    const colors = () => [...mirror.querySelectorAll<HTMLSpanElement>("span")].map((span) => span.style.color);
-    const staticColors = colors();
+    const input = typeDraft("jevify");
     expect(frames.size).toBe(1);
     tick(0.25);
     expect(ringStyle()).toBe(gradient(["orchestrate"], 90));
-    expect(colors()).not.toEqual(staticColors);
 
-    act(() => textarea.blur());
-    expect(colors()).toEqual(staticColors);
+    act(() => input.blur());
     expect(frames.size).toBe(1);
     tick(0.5);
     expect(ringStyle()).toBe(gradient(["orchestrate"], 180));
-    expect(colors()).toEqual(staticColors);
     expect(frames.size).toBe(1);
   });
 
-  it("pins the idle draft ring and characters to phase zero after blur", () => {
+  it("pins the idle draft ring to phase zero after blur", () => {
     media(true, false);
     seed("ready");
     renderComposer();
-    const textarea = typeDraft("orchestrate");
-    const mirror = textarea.parentElement!.querySelector<HTMLElement>("[aria-hidden]")!;
-    const colors = () => [...mirror.querySelectorAll<HTMLSpanElement>("span")].map((span) => span.style.color);
-    const staticColors = colors();
+    const input = typeDraft("orchestrate");
     tick(0.25);
     expect(ringStyle()).toBe(gradient(["orchestrate"], 90));
-    expect(colors()).not.toEqual(staticColors);
-    act(() => textarea.blur());
+    act(() => input.blur());
     expect(ringStyle()).toBe(gradient(["orchestrate"]));
-    expect(colors()).toEqual(staticColors);
     expect(frames.size).toBe(0);
   });
 
@@ -2898,10 +2830,10 @@ describe("Composer active-turn keyword glow (issue #726)", () => {
     seed("running");
     patchRpc({ activeTurnKeywords: ["orchestrate", "jevify"] });
     renderComposer();
-    const textarea = typeDraft("workflowz");
+    const input = typeDraft("workflowz");
     expect(ringStyle()).toBe(gradient(["orchestrate", "jevify"]));
     expect(frames.size).toBe(0);
-    act(() => textarea.blur());
+    act(() => input.blur());
     tick(0.5);
     expect(ringStyle()).toBe(gradient(["orchestrate", "jevify"]));
     expect(document.body.querySelector("[data-perimeter-sweep]")).toBeNull();
@@ -2943,15 +2875,15 @@ describe("Composer active-turn keyword glow (issue #726)", () => {
     seed("running");
     patchRpc({ activeTurnKeywords: ["orchestrate"] });
     renderComposer();
-    const textarea = document.body.querySelector<HTMLTextAreaElement>("textarea")!;
-    act(() => textarea.blur());
+    const input = composerInput();
+    act(() => input.blur());
     expect(frames.size).toBe(1);
     patchRpc({ status: "ready", activeTurnKeywords: [] });
     expect(frames.size).toBe(0);
     typeDraft("jevify");
     expect(frames.size).toBe(0);
     expect(ringStyle()).toBe(gradient(["jevify"]));
-    act(() => textarea.focus());
+    act(() => input.focus());
     expect(frames.size).toBe(1);
     typeDraft("plain prose");
     expect(frames.size).toBe(0);
@@ -2985,7 +2917,7 @@ describe("worktree conversion through the branch chip (issue #227)", () => {
   });
 
   function renderUnprompted(): void {
-    const host = document.createElement("div"); document.body.append(host); root = createRoot(host);
+    const host = document.createElement("div"); host.dataset.tabId = TAB; document.body.append(host); root = createRoot(host);
     act(() => root!.render(<Composer tabId={TAB} active unprompted />));
   }
 
@@ -3025,7 +2957,7 @@ describe("worktree conversion through the branch chip (issue #227)", () => {
       configurable: true,
       value: vi.fn(() => ({ matches: true, addEventListener: vi.fn(), removeEventListener: vi.fn() })),
     });
-    const host = document.createElement("div");
+    const host = document.createElement("div"); host.dataset.tabId = TAB;
     document.body.append(host);
     root = createRoot(host);
     act(() => root!.render(<RpcTab tabId={TAB} active />));
@@ -3049,11 +2981,11 @@ describe("worktree conversion through the branch chip (issue #227)", () => {
     backendMock.convertToWorktree.mockRejectedValueOnce(new Error("branch already exists"));
     renderUnprompted();
     await enterWorktreeSection();
-    const textarea = typeDraft("hello");
+    const input = typeDraft("hello");
     await act(async () => buttonByText("send").click());
     await flush();
     expect(sendPrompt).not.toHaveBeenCalled();
-    expect(textarea.value).toBe("hello");
+    expect(draftText(input)).toBe("hello");
     expect(document.body.textContent).toContain("branch already exists");
     expect(document.body.querySelector('button[aria-label="dismiss worktree error"]')).not.toBeNull();
 
@@ -3170,13 +3102,13 @@ describe("Composer answers pending questions (desktop, issue #421)", () => {
     press(box, "Enter");
     expect(sendPrompt).not.toHaveBeenCalled();
     expect(answerFrames()).toEqual([{ type: "extension_ui_response", id: "q", value: OTHER }]);
-    expect(box.value).toBe("forty-two");
+    expect(draftText(box)).toBe("forty-two");
     act(() => useStore.setState((s) => ({
       rpc: { ...s.rpc, [TAB]: { ...s.rpc[TAB]!, extensionQueue: [{ id: "in", method: "input", title: "Pick?" }] } },
     })));
     press(box, "Enter");
     expect(answerFrames()[1]).toMatchObject({ id: "in", value: "forty-two" });
-    expect(box.value).toBe("");
+    expect(draftText(box)).toBe("");
   });
 
   it("answers a select whose draft names a listed option with that option verbatim", () => {
@@ -3187,7 +3119,7 @@ describe("Composer answers pending questions (desktop, issue #421)", () => {
     press(box, "Enter");
     expect(sendPrompt).not.toHaveBeenCalled();
     expect(answerFrames()).toEqual([{ type: "extension_ui_response", id: "q", value: "Alpha" }]);
-    expect(box.value).toBe("");
+    expect(draftText(box)).toBe("");
   });
 
   it("does not push an answer into the recall history", () => {
@@ -3203,9 +3135,9 @@ describe("Composer answers pending questions (desktop, issue #421)", () => {
       rpc: { ...s.rpc, [TAB]: { ...s.rpc[TAB]!, extensionQueue: [{ id: "in", method: "input", title: "Pick?" }] } },
     })));
     press(box, "Enter");
-    expect(box.value).toBe("");
+    expect(draftText(box)).toBe("");
     press(box, "ArrowUp");
-    expect(box.value).toBe("");
+    expect(draftText(box)).toBe("");
   });
 
   it("answers an editor frame in one Enter", () => {
@@ -3216,7 +3148,7 @@ describe("Composer answers pending questions (desktop, issue #421)", () => {
     press(box, "Enter");
     expect(sendPrompt).not.toHaveBeenCalled();
     expect(answerFrames()).toEqual([{ type: "extension_ui_response", id: "ed", value: "custom answer" }]);
-    expect(box.value).toBe("");
+    expect(draftText(box)).toBe("");
   });
 
   it("seeds the draft from an editor frame's prefill so the default submits (issue #1190)", () => {
@@ -3226,12 +3158,12 @@ describe("Composer answers pending questions (desktop, issue #421)", () => {
     desktop();
     seedQueue([{ id: "ed", method: "editor", title: "Session lifetime (days)?", prefill: "30" }]);
     renderRpcTab();
-    const box = document.body.querySelector<HTMLTextAreaElement>("textarea")!;
-    expect(box.value).toBe("30");
+    const box = composerInput();
+    expect(draftText(box)).toBe("30");
     press(box, "Enter");
     expect(sendPrompt).not.toHaveBeenCalled();
     expect(answerFrames()).toEqual([{ type: "extension_ui_response", id: "ed", value: "30" }]);
-    expect(box.value).toBe("");
+    expect(draftText(box)).toBe("");
   });
 
   it("keeps a draft under way over an editor frame's prefill", () => {
@@ -3245,7 +3177,7 @@ describe("Composer answers pending questions (desktop, issue #421)", () => {
     act(() => useStore.setState((s) => ({
       rpc: { ...s.rpc, [TAB]: { ...s.rpc[TAB]!, extensionQueue: [{ id: "ed", method: "editor", title: "Pick?", prefill: "30" }] } },
     })));
-    expect(box.value).toBe("my own answer");
+    expect(draftText(box)).toBe("my own answer");
     press(box, "Enter");
     expect(answerFrames()[1]).toMatchObject({ id: "ed", value: "my own answer" });
   });
@@ -3257,13 +3189,13 @@ describe("Composer answers pending questions (desktop, issue #421)", () => {
     const box = typeDraft("a plus b");
     press(box, "Enter");
     expect(answerFrames()).toEqual([{ type: "extension_ui_response", id: "m", value: OTHER }]);
-    expect(box.value).toBe("a plus b");
+    expect(draftText(box)).toBe("a plus b");
     act(() => useStore.setState((s) => ({
       rpc: { ...s.rpc, [TAB]: { ...s.rpc[TAB]!, extensionQueue: [{ id: "ed", method: "editor", title: "Enter your response:" }] } },
     })));
     press(box, "Enter");
     expect(answerFrames()[1]).toMatchObject({ id: "ed", value: "a plus b" });
-    expect(box.value).toBe("");
+    expect(draftText(box)).toBe("");
     expect(sendPrompt).not.toHaveBeenCalled();
   });
 
@@ -3295,11 +3227,11 @@ describe("Composer answers pending questions (desktop, issue #421)", () => {
     desktop();
     seedQueue([{ id: "q", method: "select", title: "Pick?", options: ["Alpha", OTHER] }]);
     renderRpcTab();
-    expect(document.body.querySelector("textarea")!.placeholder).toContain("answer the question");
+    expect(composerInput().getAttribute("aria-placeholder")).toContain("answer the question");
     act(() => useStore.setState((s) => ({
       rpc: { ...s.rpc, [TAB]: { ...s.rpc[TAB]!, extensionQueue: [{ id: "c", method: "confirm", title: "Run it?" }] } },
     })));
-    expect(document.body.querySelector("textarea")!.placeholder).toContain("message the agent");
+    expect(composerInput().getAttribute("aria-placeholder")).toContain("message the agent");
   });
 
   it("keeps steering from the composer in the compact shell", () => {
@@ -3350,7 +3282,7 @@ describe("ghost completion (issue #715)", () => {
   }
 
   /** The draft typed, the debounce elapsed, and omp's "res" painted after it. */
-  async function showGhost(): Promise<HTMLTextAreaElement> {
+  async function showGhost(): Promise<HTMLElement> {
     renderComposer();
     const box = typeDraft(DRAFT);
     elapse(100);
@@ -3376,7 +3308,7 @@ describe("ghost completion (issue #715)", () => {
     const box = await showGhost();
     const tab = press(box, "Tab");
     expect(tab.defaultPrevented).toBe(true);
-    expect(box.value).toBe("please implement the features ");
+    expect(draftText(box)).toBe("please implement the features ");
     expect(ghostText()).toBeNull();
     expect(sendWordPredictionFeedback).toHaveBeenCalledTimes(1);
     expect(sendWordPredictionFeedback).toHaveBeenCalledWith(TAB, {
@@ -3391,7 +3323,7 @@ describe("ghost completion (issue #715)", () => {
     const box = await showGhost();
     const right = press(box, "ArrowRight");
     expect(right.defaultPrevented).toBe(true);
-    expect(box.value).toBe("please implement the features");
+    expect(draftText(box)).toBe("please implement the features");
     expect(sendWordPredictionFeedback).toHaveBeenCalledWith(TAB, {
       text: DRAFT,
       cursor: 26,
@@ -3405,7 +3337,7 @@ describe("ghost completion (issue #715)", () => {
     press(box, "Tab");
     const dot = press(box, ".");
     expect(dot.defaultPrevented).toBe(true);
-    expect(box.value).toBe("please implement the features.");
+    expect(draftText(box)).toBe("please implement the features.");
   });
 
   it("a typed space after a Tab accept is swallowed by the provisional one", async () => {
@@ -3413,7 +3345,7 @@ describe("ghost completion (issue #715)", () => {
     press(box, "Tab");
     const space = press(box, " ");
     expect(space.defaultPrevented).toBe(true);
-    expect(box.value).toBe("please implement the features ");
+    expect(draftText(box)).toBe("please implement the features ");
   });
 
   it("typing through the ghost projects the rest; diverging rejects it", async () => {
@@ -3433,30 +3365,6 @@ describe("ghost completion (issue #715)", () => {
       suggestion: "es",
       accepted: false,
     });
-  });
-
-  // jsdom lays nothing out, so assert the mechanism instead: the ZWSP that
-  // keeps the ghost from fusing with the draft's last word at the wrap edge
-  // (issue #853) sits between the last run and the ghost span.
-  it("the ghost never fuses with the draft's last word", async () => {
-    const box = await showGhost();
-    const mirror = box.parentElement!.querySelector<HTMLElement>("[aria-hidden]")!;
-    const nodes = [...mirror.childNodes];
-    const ghost = nodes.indexOf(mirror.querySelector("[data-word-ghost]")!);
-    expect(ghost).toBeGreaterThan(0);
-    expect(nodes[ghost - 1].nodeType).toBe(Node.TEXT_NODE);
-    expect(nodes[ghost - 1].textContent).toBe("\u200b");
-  });
-
-  it("leaves no zero-width space in the mirror when no ghost paints", () => {
-    renderComposer();
-    const box = typeDraft(DRAFT);
-    const mirror = box.parentElement!.querySelector<HTMLElement>("[aria-hidden]")!;
-    expect(
-      [...mirror.childNodes].some(
-        (node) => node.nodeType === Node.TEXT_NODE && node.textContent?.includes("\u200b"),
-      ),
-    ).toBe(false);
   });
 
   it("drops an answer for a draft that changed while it was in flight", async () => {
@@ -3495,7 +3403,7 @@ describe("ghost completion (issue #715)", () => {
     expect(ghostText()).toBe("re");
     const tab = press(box, "Tab");
     expect(tab.defaultPrevented).toBe(true);
-    expect(box.value).toBe("/goal set finish the feature ");
+    expect(draftText(box)).toBe("/goal set finish the feature ");
     expect(ghostText()).toBeNull();
     expect(sendWordPredictionFeedback).toHaveBeenCalledWith(TAB, {
       text: SLASH_ASK,
@@ -3585,11 +3493,7 @@ describe("ghost completion (issue #715)", () => {
   it("never asks while the caret sits before the end of the draft", () => {
     renderComposer();
     const box = typeDraft(DRAFT);
-    // React derives onSelect from document selectionchange on the focused box.
-    act(() => {
-      box.setSelectionRange(6, 6);
-      document.dispatchEvent(new Event("selectionchange"));
-    });
+    selectDraft(box, 6);
     elapse(1000);
     expect(predict).not.toHaveBeenCalled();
   });
@@ -3604,13 +3508,13 @@ describe("ghost completion (issue #715)", () => {
     expect(predict).not.toHaveBeenCalled();
     const tab = press(box, "Tab");
     expect(tab.defaultPrevented).toBe(true);
-    expect(box.value).toBe("see @src/feature.ts ");
+    expect(draftText(box)).toBe("see @src/feature.ts ");
     expect(sendWordPredictionFeedback).not.toHaveBeenCalled();
   });
 
   it("never asks while the box is unfocused", () => {
     renderComposer();
-    act(() => document.body.querySelector<HTMLTextAreaElement>("textarea")!.blur());
+    act(() => composerInput().blur());
     typeDraft(DRAFT);
     elapse(1000);
     expect(predict).not.toHaveBeenCalled();
@@ -3639,7 +3543,7 @@ describe("@-mentions on slash drafts", () => {
   }
 
   /** A ready session, a seeded file listing, and the draft typed; resolves once the listing lands. */
-  async function seedSlashMention(draft: string): Promise<HTMLTextAreaElement> {
+  async function seedSlashMention(draft: string): Promise<HTMLElement> {
     backendMock.listProjectFiles.mockResolvedValueOnce({ files: ["src/feature.ts"], truncated: false });
     seed("ready");
     renderComposer();
@@ -3661,18 +3565,18 @@ describe("@-mentions on slash drafts", () => {
     const tab = press(box, "Tab");
     expect(tab.defaultPrevented).toBe(true);
     // insertMention swaps the @-word for `@path` plus one trailing space.
-    expect(box.value).toBe("/goal set @src/feature.ts ");
+    expect(draftText(box)).toBe("/goal set @src/feature.ts ");
   });
 
   it("Enter runs the finished command line verbatim and clears the draft", async () => {
     const box = await seedSlashMention("/goal set @featu");
     press(box, "Tab");
-    expect(box.value).toBe("/goal set @src/feature.ts ");
+    expect(draftText(box)).toBe("/goal set @src/feature.ts ");
     press(box, "Enter");
     await act(async () => {});
     expect(runSlashCommand).toHaveBeenCalledWith(TAB, "/goal set @src/feature.ts");
     expect(sendPrompt).not.toHaveBeenCalled();
-    expect(box.value).toBe("");
+    expect(draftText(box)).toBe("");
   });
 
   it("leaves command-word completion untouched", async () => {
@@ -3725,7 +3629,7 @@ describe("Composer machine chip (issue #936)", () => {
   });
 
   function renderUnprompted(): void {
-    const host = document.createElement("div"); document.body.append(host); root = createRoot(host);
+    const host = document.createElement("div"); host.dataset.tabId = TAB; document.body.append(host); root = createRoot(host);
     act(() => root!.render(<Composer tabId={TAB} active unprompted />));
   }
 
@@ -3789,9 +3693,9 @@ describe("Composer + menu (issue #939)", () => {
     renderComposer();
     openPlus();
     act(() => row("commands").click());
-    const textarea = document.body.querySelector<HTMLTextAreaElement>("textarea")!;
-    expect(textarea.value).toBe("/");
-    expect(document.activeElement).toBe(textarea);
+    const input = composerInput();
+    expect(draftText(input)).toBe("/");
+    expect(document.activeElement).toBe(input);
     expect(document.body.querySelector('[role="menu"]')).toBeNull();
     const slashRows = [...document.body.querySelectorAll<HTMLButtonElement>("button")]
       .map((button) => button.getAttribute("aria-label") ?? "")
@@ -3815,13 +3719,14 @@ describe("Composer + menu (issue #939)", () => {
     backendMock.listProjectFiles.mockResolvedValueOnce({ files: ["src/feature.ts"], truncated: false });
     seed("ready");
     renderComposer();
-    const textarea = typeDraft("look at");
-    act(() => textarea.setSelectionRange(7, 7));
+    const input = typeDraft("look at");
+    selectDraft(input, 7);
     await act(async () => {});
     openPlus();
     act(() => row("mention a file").click());
     await act(async () => {});
-    expect(textarea.value).toBe("look at @");
+    expect(draftText(input)).toBe("look at @");
+    expect(editor(input).state.selection.main.head).toBe(9);
     const mentionRows = [...document.body.querySelectorAll<HTMLButtonElement>("button")]
       .filter((button) => button.getAttribute("aria-label") === null)
       .map((button) => button.textContent?.trim() ?? "");
@@ -3989,14 +3894,14 @@ describe("Composer options popover (issue #939)", () => {
 describe("send in background from the hero (issue #982)", () => {
   const launchSession = vi.fn<(projectCwd: string, opts: Record<string, unknown>) => Promise<string | null>>();
 
-  function chord(textarea: HTMLTextAreaElement): KeyboardEvent {
+  function chord(input: HTMLElement): KeyboardEvent {
     const event = new KeyboardEvent("keydown", { key: "Enter", ctrlKey: true, altKey: true, bubbles: true, cancelable: true });
-    act(() => textarea.dispatchEvent(event));
+    act(() => input.dispatchEvent(event));
     return event;
   }
 
   function renderHero(): void {
-    const host = document.createElement("div"); document.body.append(host); root = createRoot(host);
+    const host = document.createElement("div"); host.dataset.tabId = TAB; document.body.append(host); root = createRoot(host);
     act(() => root!.render(<Composer tabId={TAB} active unprompted />));
   }
 
@@ -4008,8 +3913,8 @@ describe("send in background from the hero (issue #982)", () => {
 
   it("starts a background session in this project, clears the draft, and prompts nothing here", async () => {
     renderHero();
-    const textarea = typeDraft("  look into the flaky test  ");
-    expect(chord(textarea).defaultPrevented).toBe(true);
+    const input = typeDraft("  look into the flaky test  ");
+    expect(chord(input).defaultPrevented).toBe(true);
     await act(async () => {});
 
     expect(launchSession).toHaveBeenCalledExactlyOnceWith("/p", expect.objectContaining({
@@ -4020,28 +3925,28 @@ describe("send in background from the hero (issue #982)", () => {
       background: true,
       private: false,
     }));
-    expect(textarea.value).toBe("");
-    expect(document.activeElement).toBe(textarea);
+    expect(draftText(input)).toBe("");
+    expect(document.activeElement).toBe(input);
     expect(sendPrompt).not.toHaveBeenCalled();
   });
 
   it("gives the draft back when the background spawn never lands", async () => {
     launchSession.mockResolvedValue(null);
     renderHero();
-    const textarea = typeDraft("keep me");
-    chord(textarea);
+    const input = typeDraft("keep me");
+    chord(input);
     await act(async () => {});
-    expect(textarea.value).toBe("keep me");
+    expect(draftText(input)).toBe("keep me");
   });
 
   it("is unbound past the hero: neither a launch nor a queued follow-up", async () => {
     renderComposer();
-    const textarea = typeDraft("not a follow-up");
-    expect(chord(textarea).defaultPrevented).toBe(true);
+    const input = typeDraft("not a follow-up");
+    expect(chord(input).defaultPrevented).toBe(true);
     await act(async () => {});
     expect(launchSession).not.toHaveBeenCalled();
     expect(sendPrompt).not.toHaveBeenCalled();
-    expect(textarea.value).toBe("not a follow-up");
+    expect(draftText(input)).toBe("not a follow-up");
   });
 });
 
@@ -4084,7 +3989,7 @@ describe("Composer artifact references", () => {
   const listArtifacts = backendMock.artifactList;
   const makeReference = backendMock.artifactReference;
   const REFRESH: ArtifactRefreshEntry = { version: 1, refreshRequestId: "00000000-0000-4000-8000-000000000006", artifactId: "00000000-0000-4000-8000-000000000003", title: "Kept budget", datasetIds: ["quarter"] };
-  const stashChord = (box: HTMLTextAreaElement): void => {
+  const stashChord = (box: HTMLElement): void => {
     box.dispatchEvent(new KeyboardEvent("keydown", { key: "s", ctrlKey: true, altKey: true, bubbles: true, cancelable: true }));
   };
   const stashRow = (text: string): HTMLElement | undefined =>
@@ -4109,7 +4014,7 @@ describe("Composer artifact references", () => {
     const row = document.body.querySelector<HTMLButtonElement>("button[data-mention-artifact]")!;
     await act(async () => row.click());
     expect(makeReference).toHaveBeenCalledWith({ targetTabId: TAB, artifactId: REF.artifactId, codeRevisionId: REF.codeRevisionId, dataSnapshotId: REF.dataSnapshotId, includeData: false });
-    expect(box.value).toBe("compare ");
+    expect(draftText(box)).toBe("compare ");
     expect(useStore.getState().artifactDrafts[TAB]).toEqual([REF]);
     expect(sendPrompt).not.toHaveBeenCalled();
   });
@@ -4119,7 +4024,7 @@ describe("Composer artifact references", () => {
     const drop = new Event("drop", { bubbles: true, cancelable: true });
     const payload = JSON.stringify({ artifactId: REF.artifactId, codeRevisionId: REF.codeRevisionId, dataSnapshotId: REF.dataSnapshotId, instanceId: null });
     Object.assign(drop, { dataTransfer: { types: [ARTIFACT_DRAG_MIME], getData: (type: string) => type === ARTIFACT_DRAG_MIME ? payload : "", dropEffect: "none" } });
-    await act(async () => document.body.querySelector("textarea")!.dispatchEvent(drop));
+    await act(async () => composerInput().dispatchEvent(drop));
     expect(makeReference).toHaveBeenCalledWith({ targetTabId: TAB, artifactId: REF.artifactId, codeRevisionId: REF.codeRevisionId, dataSnapshotId: REF.dataSnapshotId, includeData: false });
     expect(useStore.getState().artifactDrafts[TAB]).toEqual([REF]);
     expect(sendPrompt).not.toHaveBeenCalled();
@@ -4139,7 +4044,7 @@ describe("Composer artifact references", () => {
     const box = typeDraft("keep this draft");
     await act(async () => { press(box, "Enter"); });
     expect(sendPrompt).not.toHaveBeenCalled();
-    expect(box.value).toBe("keep this draft");
+    expect(draftText(box)).toBe("keep this draft");
     expect(useStore.getState().artifactDrafts[TAB]).toEqual([REF]);
     const remove = document.body.querySelector<HTMLButtonElement>('button[aria-label="' + t("artifacts.reference.remove", { title: REF.title }) + '"]')!;
     act(() => remove.click());
@@ -4176,7 +4081,7 @@ describe("Composer artifact references", () => {
     Object.defineProperty(window, "matchMedia", { configurable: true, value: vi.fn(() => ({ matches: false, addEventListener: vi.fn(), removeEventListener: vi.fn() })) });
     useStore.setState(current => ({ rpc: { ...current.rpc, [TAB]: { ...current.rpc[TAB]!, extensionQueue: [{ id: "artifact-question", method: "editor", title: "Answer" }] } } }));
     renderRpcTab();
-    const box = document.body.querySelector<HTMLTextAreaElement>("textarea")!;
+    const box = composerInput();
     await act(async () => { press(box, "Enter"); });
     expect(sendPrompt).toHaveBeenCalledWith(TAB, "", "prompt", [], [], { annotations: [], references: [], artifactReferences: [REF], refreshes: [] });
     expect(backendMock.rpcSend).not.toHaveBeenCalledWith(TAB, expect.objectContaining({ type: "extension_ui_response" }));
@@ -4187,7 +4092,7 @@ describe("Composer artifact references", () => {
     const drop = new Event("drop", { bubbles: true, cancelable: true });
     const payload = JSON.stringify({ artifactId: REF.artifactId, codeRevisionId: REF.codeRevisionId, dataSnapshotId: REF.dataSnapshotId, instanceId: REF.ownerInstanceId });
     Object.assign(drop, { dataTransfer: { types: [ARTIFACT_DRAG_MIME], getData: (type: string) => type === ARTIFACT_DRAG_MIME ? payload : "", dropEffect: "none" } });
-    await act(async () => document.body.querySelector("textarea")!.dispatchEvent(drop));
+    await act(async () => composerInput().dispatchEvent(drop));
     expect(makeReference).not.toHaveBeenCalled();
     expect(sendPrompt).not.toHaveBeenCalled();
     expect(useStore.getState().artifactDrafts[TAB]).toEqual([REF]);
@@ -4196,7 +4101,7 @@ describe("Composer artifact references", () => {
     renderComposer();
     const box = typeDraft("My existing draft");
     await act(async () => { useStore.getState().attachArtifactRefresh(TAB, REFRESH); });
-    expect(box.value).toBe("My existing draft");
+    expect(draftText(box)).toBe("My existing draft");
     const chip = document.body.querySelector('[aria-label="' + t("artifacts.refreshChip", { title: REFRESH.title }) + '"]')!;
     expect(chip.textContent).toContain(REFRESH.title);
     expect(chip.textContent).not.toContain(REFRESH.refreshRequestId);
@@ -4229,7 +4134,7 @@ describe("Composer artifact references", () => {
   it("drops the pending refresh with a warning when the draft launches in the background", async () => {
     const notices: Array<[string, string]> = [];
     useStore.setState({ launchSession: vi.fn(async () => "fresh"), appendNotice: (tabId: string, message: string) => { notices.push([tabId, message]); } });
-    const host = document.createElement("div"); document.body.append(host); root = createRoot(host);
+    const host = document.createElement("div"); host.dataset.tabId = TAB; document.body.append(host); root = createRoot(host);
     act(() => root!.render(<Composer tabId={TAB} active unprompted />));
     await act(async () => { useStore.getState().attachArtifactRefresh(TAB, REFRESH); });
     const box = typeDraft("background ask");
@@ -4244,12 +4149,12 @@ describe("Composer artifact references", () => {
     const stash = () => box.dispatchEvent(new KeyboardEvent("keydown", { key: "s", ctrlKey: true, altKey: true, bubbles: true, cancelable: true }));
     await act(async () => { stash(); });
     expect(useStore.getState().artifactDrafts[TAB]).toEqual([]);
-    expect(box.value).toBe("");
+    expect(draftText(box)).toBe("");
     act(() => { stash(); });
     const row = [...document.body.querySelectorAll<HTMLElement>('[data-stash-palette] [role="option"]')].find(entry => entry.textContent?.includes("stashed artifact request"))!;
     await act(async () => row.querySelector<HTMLButtonElement>("button")!.click());
     expect(useStore.getState().artifactDrafts[TAB]).toEqual([REF]);
-    expect(box.value).toBe("stashed artifact request");
+    expect(draftText(box)).toBe("stashed artifact request");
   });
   it("restores exact same-version grants from a stash without merging their consent", async () => {
     const prepared = grant(20);
@@ -4257,10 +4162,10 @@ describe("Composer artifact references", () => {
     await stashDraft({ text: "separate artifact grants", images: [], documents: [], annotations: [], artifactReferences: [REF, second] });
     useStore.getState().clearArtifactReferences(TAB);
     renderComposer();
-    const box = document.body.querySelector<HTMLTextAreaElement>("textarea")!;
+    const box = composerInput();
     act(() => stashChord(box));
     await act(async () => stashRow("separate artifact grants")!.querySelector<HTMLButtonElement>("button")!.click());
-    expect(box.value).toBe("separate artifact grants");
+    expect(draftText(box)).toBe("separate artifact grants");
     expect(useStore.getState().artifactDrafts[TAB]).toEqual([REF, second]);
     expect(sendPrompt).not.toHaveBeenCalled();
   });
@@ -4268,12 +4173,12 @@ describe("Composer artifact references", () => {
     await stashDraft({ text: "same-tab refresh draft", images: [], documents: [], annotations: [], artifactRefreshes: [REFRESH], artifactRefreshTabId: TAB });
     useStore.getState().clearArtifactReferences(TAB);
     renderComposer();
-    const box = document.body.querySelector<HTMLTextAreaElement>("textarea")!;
+    const box = composerInput();
     act(() => stashChord(box));
     const row = stashRow("same-tab refresh draft")!;
     expect(row.textContent).toContain(`↻ ${REFRESH.title}`);
     await act(async () => row.querySelector<HTMLButtonElement>("button")!.click());
-    expect(box.value).toBe("same-tab refresh draft");
+    expect(draftText(box)).toBe("same-tab refresh draft");
     expect(useStore.getState().artifactRefreshDrafts[TAB]).toEqual([REFRESH]);
     expect(sendPrompt).not.toHaveBeenCalled();
   });
@@ -4283,11 +4188,11 @@ describe("Composer artifact references", () => {
     const draft = await stashDraft({ text: "foreign-tab refresh draft", images: [], documents: [], annotations: [], artifactRefreshes: [REFRESH], artifactRefreshTabId: "tab-somewhere-else" });
     useStore.getState().clearArtifactReferences(TAB);
     renderComposer();
-    const box = document.body.querySelector<HTMLTextAreaElement>("textarea")!;
+    const box = composerInput();
     act(() => stashChord(box));
     await act(async () => stashRow("foreign-tab refresh draft")!.querySelector<HTMLButtonElement>("button")!.click());
     expect(notices).toContainEqual([TAB, t("artifacts.refreshStashRefused")]);
-    expect(box.value).toBe("");
+    expect(draftText(box)).toBe("");
     expect(useStore.getState().artifactRefreshDrafts[TAB] ?? []).toEqual([]);
     act(() => stashChord(box));
     expect(stashRow("foreign-tab refresh draft")).toBeDefined();
@@ -4301,10 +4206,10 @@ describe("Composer artifact references", () => {
     const draft = await stashDraft({ text, images: [], documents: [], annotations: [], artifactReferences });
     useStore.getState().clearArtifactReferences(TAB);
     renderComposer();
-    const box = document.body.querySelector<HTMLTextAreaElement>("textarea")!;
+    const box = composerInput();
     act(() => stashChord(box));
     await act(async () => stashRow(text)!.querySelector<HTMLButtonElement>("button")!.click());
-    expect(box.value).toBe("");
+    expect(draftText(box)).toBe("");
     expect(useStore.getState().artifactDrafts[TAB]).toBeUndefined();
     expect(sendPrompt).not.toHaveBeenCalled();
     act(() => stashChord(box));

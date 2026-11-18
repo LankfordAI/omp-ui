@@ -44,11 +44,15 @@
     "node-pty": "^1.1.0"
   },
   "devDependencies": {
+    "@codemirror/commands": "^6.11.1",
+    "@codemirror/state": "^6.7.6",
+    "@codemirror/view": "^6.43.15",
     "@fontsource-variable/bricolage-grotesque": "^5.3.0",
     "@fontsource-variable/instrument-sans": "^5.3.0",
     "@fontsource-variable/jetbrains-mono": "^5.3.0",
     "@fontsource/ubuntu": "^5.3.0",
     "@fontsource/ubuntu-mono": "^5.3.0",
+    "@lezer/markdown": "^1.8.1",
     "@shikijs/langs": "^4.4.3",
     "@tailwindcss/vite": "^4.3.3",
     "@types/node": "^26.1.2",
