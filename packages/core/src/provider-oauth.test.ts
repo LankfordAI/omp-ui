@@ -99,6 +99,8 @@ interface Harness {
   /** Answer the rpc `logout` command; defaults to a plain success. */
   setLogout: (fn: (call: { providerId: string; credentialId: number }) => LogoutAnswer) => void;
   setOmpPath: (ompPath: string | null) => void;
+  /** Change the version `--version` answers with, for a refresh that follows. */
+  setOmpVersion: (ompVersion: string | null) => void;
   spawnCount: () => number;
   discoveryCount: () => number;
   discoveryKilled: () => boolean;
@@ -112,12 +114,15 @@ const harnesses: Harness[] = [];
 function harness(opts: {
   ompPath?: string | null;
   providers?: LoginProvider[] | null;
+  /** The installed binary's version as `--version` reports it; default predates RPC risk logins (#1197). */
+  ompVersion?: string | null;
 } = {}): Harness {
   let fake = fakeProc();
   let loginFake: FakeProc | null = null;
   let discoveryFake: FakeProc | null = null;
   let providers = opts.providers === undefined ? [CODEX] : opts.providers;
   let ompPath = opts.ompPath === undefined ? "/opt/omp" : opts.ompPath;
+  let ompVersion: string | null = opts.ompVersion === undefined ? null : opts.ompVersion;
   let spawnCount = 0;
   let discoveryCount = 0;
   let holdDiscovery = false;
@@ -202,6 +207,7 @@ function harness(opts: {
       events.push(`state:${state.phase}`);
     },
     onOpenUrl: (url) => openedUrls.push(url),
+    readVersion: () => Promise.resolve(ompVersion),
     spawnProcess: (_cmd, args) => {
       spawnCount++;
       spawnArgs = args;
@@ -244,6 +250,7 @@ function harness(opts: {
     setAccounts(fn) { accountsFor = fn; },
     setLogout(fn) { logoutFor = fn; },
     setOmpPath(value) { ompPath = value; },
+    setOmpVersion(value) { ompVersion = value; },
     spawnCount: () => spawnCount,
     discoveryCount: () => discoveryCount,
     discoveryKilled: () => discoveryFake?.killed() ?? false,
@@ -564,7 +571,7 @@ describe("terminal-only login providers (issue #1197)", () => {
     authenticated: false,
   };
 
-  it("carries the flag from the roster into the published rows", async () => {
+  it("carries the flag from the roster into the published rows on an old binary", async () => {
     const h = harness({ providers: [CODEX, RISKY] });
     const rows = await h.oauth.refresh();
     expect(rows.find((row) => row.providerId === "google-antigravity")).toMatchObject({
@@ -576,9 +583,10 @@ describe("terminal-only login providers (issue #1197)", () => {
     );
   });
 
-  it("start() refuses without spawning and names the terminal command", async () => {
+  it("starts the terminal list and start() refusal only below the RPC risk gate", async () => {
     const h = harness({ providers: [CODEX, RISKY] });
     await h.oauth.refresh();
+    expect(h.oauth.terminalLoginProviderIds()).toEqual(["google-antigravity"]);
     const spawnsBefore = h.spawnCount();
     expect(() => h.oauth.start("google-antigravity")).toThrow(/omp login google-antigravity/);
     // The refusal happens before the RpcClient is constructed: only the
@@ -587,6 +595,64 @@ describe("terminal-only login providers (issue #1197)", () => {
     expect(h.states).toEqual([]);
     // Retryable state: the flow slot stayed free for a normal provider.
     expect(() => h.oauth.start("openai-codex")).not.toThrow();
+  });
+
+  it("drops the terminal flag and admits RPC sign-in on omp ≥ 18.22.1 (#1197)", async () => {
+    // Upstream #19527 routes the risk prompt to RPC hosts as a plain input.
+    const h = harness({ providers: [CODEX, RISKY], ompVersion: "18.22.2" });
+    const rows = await h.oauth.refresh();
+    expect(rows.find((row) => row.providerId === "google-antigravity")).not.toHaveProperty(
+      "requiresTerminalLogin",
+    );
+    expect(h.oauth.terminalLoginProviderIds()).toEqual([]);
+    // The row's risk label stays cleaned; the sign-in runs like any other.
+    expect(rows.find((row) => row.providerId === "google-antigravity")?.label).toBe(
+      "Google Antigravity",
+    );
+    h.oauth.start("google-antigravity");
+    h.frame(READY);
+    await nextTick();
+    expect(h.stdinLines).toContainEqual({ type: "login", providerId: "google-antigravity" });
+  });
+
+  it("answers the risk prompt as an ordinary input frame", async () => {
+    // The wire shape omp 18.22.1+ emits (verified live on 18.22.2): warning
+    // text as title, placeholder "yes", then open_url after a "yes" answer.
+    const h = harness({ providers: [CODEX, RISKY], ompVersion: "18.22.1" });
+    await h.oauth.refresh();
+    h.oauth.start("google-antigravity");
+    h.frame(READY);
+    await nextTick();
+    h.frame({
+      type: "extension_ui_request",
+      id: "r1",
+      method: "input",
+      title: "\u26a0 Antigravity CLI: use at your own risk\n\nType \"yes\" to accept the risk and continue",
+      placeholder: "yes",
+    });
+    await nextTick();
+    const last = h.states.at(-1) as ProviderOAuthState;
+    expect(last.phase).toBe("input");
+    expect(last.prompt?.placeholder).toBe("yes");
+    // The row shows the same input panel submit() uses.
+    h.oauth.submitInput("yes");
+    expect(h.stdinLines).toContainEqual({ type: "extension_ui_response", id: "r1", value: "yes" });
+    h.frame({ type: "extension_ui_request", id: "u1", method: "open_url", url: "https://example.test/auth" });
+    await nextTick();
+    expect(h.states.at(-1)).toMatchObject({ phase: "browser", url: "https://example.test/auth" });
+    expect(h.openedUrls).toEqual(["https://example.test/auth"]);
+  });
+
+  it("re-decides the terminal flag when a refresh sees an upgraded binary", async () => {
+    const h = harness({ providers: [CODEX, RISKY] });
+    await h.oauth.refresh();
+    expect(h.oauth.terminalLoginProviderIds()).toEqual(["google-antigravity"]);
+    h.setOmpVersion("18.22.1");
+    const rows = await h.oauth.refresh();
+    expect(rows.find((row) => row.providerId === "google-antigravity")).not.toHaveProperty(
+      "requiresTerminalLogin",
+    );
+    expect(h.oauth.terminalLoginProviderIds()).toEqual([]);
   });
 
   it("maps omp's RPC refusal to the terminal explanation", async () => {

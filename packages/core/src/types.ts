@@ -1702,10 +1702,11 @@ export interface ProviderOAuthStatus {
   /** True when the installed omp predates get_logout_accounts: status unknown, never "not signed in". */
   accountsUnsupported: boolean;
   /**
-   * True when omp marks this provider's login with an account-risk warning it
-   * answers only in a terminal (issue #1197): omp-ui shows the `omp login
-   * <providerId>` command instead of starting an RPC sign-in that cannot be
-   * completed.
+   * True when the installed omp answers this provider's account-risk warning
+   * only in a terminal: the row offers `omp login <providerId>` instead of an
+   * RPC sign-in that cannot be completed. On omp ≥ 18.22.1 (upstream #19527)
+   * the prompt is answerable over RPC, so risk rows never publish this and
+   * sign in like any other provider (issue #1197).
    */
   requiresTerminalLogin?: boolean;
 }

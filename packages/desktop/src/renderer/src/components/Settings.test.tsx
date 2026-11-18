@@ -2273,6 +2273,16 @@ describe("Settings Providers page subscriptions (issue #368)", () => {
       activeTabId: null,
       appUpdate: appUpdateState({}),
       ompUpdate: idleOmpUpdate,
+      // A previous test's flow phase keeps every sign-in button disabled; the
+      // rows only show their real actions from an idle flow.
+      providerOAuth: {
+        providerId: null,
+        phase: "idle",
+        url: null,
+        instructions: null,
+        prompt: null,
+        error: null,
+      },
       // Terminal sign-ins key their exit state by the synthetic PTY id
       // (#1197); a previous test's exit must not close this one's dialog.
       shellExited: {},
@@ -2377,6 +2387,49 @@ describe("Settings Providers page subscriptions (issue #368)", () => {
     expect(document.body.textContent).toContain("omp login google-antigravity");
     expect(buttonWithText("Sign in")).toBeNull();
     expect(backendMock.startProviderOAuth).not.toHaveBeenCalled();
+  });
+
+  it("signs a risk-warning row over RPC once its flag clears (#1197)", async () => {
+    // omp ≥ 18.22.1 answers the account-risk prompt over RPC (upstream
+    // #19527), so main publishes the row without requiresTerminalLogin and it
+    // gets the ordinary Sign in button — no terminal chip or command.
+    seedProviders([
+      oauthRow({ id: "google-antigravity", providerId: "google-antigravity", label: "Google Antigravity" }),
+    ]);
+    await renderSettings();
+    expect(document.body.textContent).not.toContain("terminal login");
+    expect(document.body.textContent).not.toContain("omp login google-antigravity");
+    click(buttonWithText("Sign in")!);
+    expect(backendMock.startProviderOAuth).toHaveBeenCalledWith("google-antigravity");
+  });
+
+  it("shows omp's risk warning text before the answer on a pre-browser prompt (#1197)", async () => {
+    seedProviders([
+      oauthRow({ id: "google-antigravity", providerId: "google-antigravity", label: "Google Antigravity" }),
+    ]);
+    await renderSettings();
+    click(buttonWithText("Sign in")!);
+    await act(async () => {
+      useStore.getState().replaceProviderOAuth({
+        providerId: "google-antigravity",
+        phase: "input",
+        url: null,
+        instructions: null,
+        prompt: {
+          title: "\u26a0 Antigravity CLI: use at your own risk\n\nType \"yes\" to accept the risk and continue",
+          placeholder: "yes",
+        },
+        error: null,
+      });
+    });
+    // The user must read omp's own warning, not a generic browser note.
+    expect(document.body.textContent).toContain("use at your own risk");
+    expect(document.body.textContent).not.toContain("Finish signing in in the browser");
+    // The prompt's multi-line title cannot ride an attribute selector (CSS
+    // strings reject newlines); the "yes" placeholder identifies the field.
+    const field = document.querySelector<HTMLInputElement>('input[placeholder="yes"]');
+    expect(field).not.toBeNull();
+    expect(field!.placeholder).toBe("yes");
   });
 
   it("keeps the signed-in state over the terminal-login flag", async () => {

@@ -1,9 +1,11 @@
 import { describe, expect, it } from "vitest";
 import {
   OAUTH_LOGIN_RISK_NAME_SUFFIX,
+  RPC_RISK_LOGIN_MIN_OMP,
   isOmpRpcLoginBlockedError,
   oauthLoginRiskFromRosterName,
   resolveOAuthProviderSpecs,
+  supportsRpcRiskLogin,
   terminalLoginCommand,
   terminalLoginExplanation,
   PROVIDER_ENV_NAMES,
@@ -48,22 +50,34 @@ describe("login-risk providers (issue #1197)", () => {
       roster("anthropic", "Anthropic"),
     ]);
     const agy = rows.find((row) => row.providerId === "google-antigravity");
-    expect(agy?.requiresTerminalLogin).toBe(true);
+    expect(agy?.riskWarningLogin).toBe(true);
     // The suffix is omp's warning marker, not part of the product name.
     expect(agy?.label).toBe("Google Antigravity");
-    expect(rows.find((row) => row.providerId === "anthropic")?.requiresTerminalLogin).toBeUndefined();
+    expect(rows.find((row) => row.providerId === "anthropic")?.riskWarningLogin).toBeUndefined();
   });
 
   it("flags a curated spec whose roster entry carries the suffix", () => {
     const rows = resolveOAuthProviderSpecs([
       roster("openai-codex", `ChatGPT Plus/Pro${OAUTH_LOGIN_RISK_NAME_SUFFIX}`),
     ]);
-    expect(rows[0]?.requiresTerminalLogin).toBe(true);
+    expect(rows[0]?.riskWarningLogin).toBe(true);
   });
 
   it("leaves an unmarked entry without the flag", () => {
     const rows = resolveOAuthProviderSpecs([roster("openai-codex", "ChatGPT Plus/Pro")]);
-    expect(rows[0]).not.toHaveProperty("requiresTerminalLogin");
+    expect(rows[0]).not.toHaveProperty("riskWarningLogin");
+  });
+
+  it("gates RPC risk-prompt answering at omp 18.22.1 (upstream #19527)", () => {
+    // The pin's floor: 18.22.0 rejects the pre-auth prompt, 18.22.1 emits it
+    // as an input frame (verified against both tags and live on 18.22.2).
+    expect(supportsRpcRiskLogin("18.22.0")).toBe(false);
+    expect(supportsRpcRiskLogin(RPC_RISK_LOGIN_MIN_OMP)).toBe(true);
+    expect(supportsRpcRiskLogin("18.22.2")).toBe(true);
+    expect(supportsRpcRiskLogin("19.0.0")).toBe(true);
+    // Unknown sorts to the terminal path: an older binary rejects the prompt.
+    expect(supportsRpcRiskLogin(null)).toBe(false);
+    expect(supportsRpcRiskLogin("nightly")).toBe(false);
   });
 
   it("detects the risk marker only at the name's end", () => {
