@@ -36,9 +36,9 @@ Resolves issue #685. Verified against omp 18.4.2.
 
 ## Pinned tables and drift
 
-`WATCHDOG_KNOWN_TOOLS`, default tools, the `search`→`grep` alias, discovery
-order and the serializer grammar are ported from omp 18.4.2's transpiled source
-(`bCs`, `lCt`, `Dva`, `uCt`, `zva`, `Tcn`). A renamed tool or changed
-precedence shows up as a wrong tools column, not a crash; the live smoke
-comparing `getWatchdogRoster().effective` against the live roster is the parity
-check.
+Default tools, the `search`→`grep` alias, discovery order and the serializer
+grammar are ported from omp 18.4.2's transpiled source (`bCs`, `lCt`, `Dva`,
+`uCt`, `zva`, `Tcn`). `WATCHDOG_KNOWN_TOOLS` tracks the omp 18.22.0 list (#1214).
+A renamed tool or changed precedence shows up as a wrong tools column, not a
+crash; the live smoke comparing `getWatchdogRoster().effective` against the
+live roster is the parity check.

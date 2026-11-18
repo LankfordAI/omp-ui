@@ -6,6 +6,7 @@ import type { ArtifactReference, ArtifactRefreshEntry } from "@omp-ui/core/artif
 import type { SessionReference } from "@omp-ui/core/types";
 import {
   ARTIFACT_REFRESH_HINT,
+  SESSION_REFERENCE_HINT_V2,
   parseArtifactPromptReferences,
   splitArtifactRefreshContext,
   withArtifactRefreshContext,
@@ -14,7 +15,7 @@ import {
 import { withAnnotationContext } from "../../lib/annotations";
 import { withAttachmentRoutingContext } from "../../lib/attachment-routing";
 import { withDocumentContext } from "../../lib/document-context";
-import { SESSION_REFERENCE_HINT, SESSION_REFERENCE_HINT_V2, splitSessionReferenceContext, withSessionReferenceContext } from "../../lib/session-references";
+import { splitSessionReferenceContext, withSessionReferenceContext } from "../../lib/session-references";
 import {
   LIVE_CONNECT_TIMEOUT_MS,
   LIVE_TALK_RELEASE_TAIL_MS,
@@ -4842,25 +4843,7 @@ describe("prompt wire block order (issue #1139, ADR-0092)", () => {
     await interrupt;
   });
 
-  // Issue #1189: omp 18.20.3 removed the seance agent, so the reference hint
-  // must name the routes that harness has — chosen from the tab's own
-  // capabilities, since references only attach in native tabs.
-  it("names the read/archive route in the reference hint on a removed omp", async () => {
-    const removed: CapabilitySnapshot = {
-      version: 1,
-      processKey: "p",
-      sessionId: null,
-      revision: 1,
-      updatedAt: 0,
-      ompVersion: "18.21.0",
-      skillCommandsEnabled: null,
-      skills: { status: "unavailable", reason: "missing-api" },
-      tools: { status: "unavailable", reason: "missing-api" },
-      magicKeywords: { status: "available", items: [] },
-      toolControl: "unsupported",
-      toolMutation: null,
-    };
-    h.useStore.setState({ rpc: { [h.TAB]: rpcTabState({ capabilities: removed }) } });
+  it("sends the read/archive reference hint without a capabilities snapshot", async () => {
     const sending = h.useStore.getState().sendPrompt(h.TAB, "compare", "prompt", undefined, undefined, { references: [session] });
     await h.flushMicrotasks();
     const frame = h.sent.find((sent) => sent.cmd.type === "prompt")!;
@@ -4868,14 +4851,6 @@ describe("prompt wire block order (issue #1139, ADR-0092)", () => {
     expect(splitSessionReferenceContext(String(frame.cmd.message)).references).toEqual([session]);
     h.respond(h.TAB, frame.cmd, {});
     await sending;
-    // And the seance-era line inside the window, byte-stable for older builds.
-    h.sent.length = 0;
-    h.useStore.setState({ rpc: { [h.TAB]: rpcTabState({ capabilities: { ...removed, ompVersion: "18.20.2" } }) } });
-    const legacy = h.useStore.getState().sendPrompt(h.TAB, "compare", "prompt", undefined, undefined, { references: [session] });
-    await h.flushMicrotasks();
-    expect(String(h.sent[0]!.cmd.message).startsWith(`<session references>\n${SESSION_REFERENCE_HINT}\n`)).toBe(true);
-    h.respond(h.TAB, h.sent[0]!.cmd, {});
-    await legacy;
   });
 
   it("holds the same wire text a send would have built", async () => {
@@ -4907,5 +4882,56 @@ describe("prompt wire block order (issue #1139, ADR-0092)", () => {
     await expect(rejected).resolves.toBe(false);
     expect(h.useStore.getState().artifactDrafts[h.TAB]).toHaveLength(1);
     expect(h.useStore.getState().artifactRefreshDrafts[h.TAB]).toEqual([entry]);
+  });
+});
+
+describe("referenceSession (issue #984)", () => {
+  const SOURCE = "source-tab";
+  const appendNotice = vi.fn();
+
+  /** The target tab plus one more local session to reference. */
+  function withSource(sessionId: string | null): void {
+    const state = h.stateWithRecord("sess-1", "dormant");
+    const target = state.projects[0]!.sessions[0]!;
+    state.projects[0]!.sessions.push({ ...target, tabId: SOURCE, sessionId, title: "Deploy fix" });
+    h.backendState = state;
+    h.useStore.setState({
+      state,
+      tabs: [tabInfo({ tabId: h.TAB, projectCwd: "/p" })],
+      rpc: { [h.TAB]: rpcTabState() },
+      appendNotice,
+    });
+  }
+
+  const queued = () => h.useStore.getState().rpc[h.TAB]?.composerQueue?.references;
+
+  it("queues the owner's resolved reference, tagged with the owning instance", async () => {
+    withSource("sess-ref");
+    await h.useStore.getState().referenceSession(h.TAB, SOURCE);
+    expect(h.mockBackend.sessionReference).toHaveBeenCalledWith(SOURCE);
+    expect(queued()).toEqual([
+      { sessionId: "sess-ref", title: "Deploy fix", machine: "box", path: "/s/lineage/ref.jsonl", instanceId: null },
+    ]);
+  });
+
+  it("refuses a session on another instance without asking any host", async () => {
+    withSource("sess-ref");
+    const remote = remoteOwnedState("remote-tab", "inst-1");
+    const state = { ...h.backendState, remoteInstances: remote.remoteInstances };
+    h.useStore.setState({ state });
+    await h.useStore.getState().referenceSession(h.TAB, "remote-tab");
+    expect(h.mockBackend.sessionReference).not.toHaveBeenCalled();
+    expect(queued()).toBeUndefined();
+    expect(appendNotice).toHaveBeenCalledWith(h.TAB, expect.stringContaining("box-a"), "warn");
+  });
+
+  it("refuses the session itself and one with nothing saved", async () => {
+    withSource(null);
+    await h.useStore.getState().referenceSession(h.TAB, h.TAB);
+    await h.useStore.getState().referenceSession(h.TAB, SOURCE);
+    expect(h.mockBackend.sessionReference).not.toHaveBeenCalled();
+    expect(queued()).toBeUndefined();
+    expect(appendNotice).toHaveBeenCalledWith(h.TAB, expect.stringContaining("itself"), "warn");
+    expect(appendNotice).toHaveBeenCalledWith(h.TAB, expect.stringContaining("saved transcript"), "warn");
   });
 });

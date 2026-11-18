@@ -23,7 +23,7 @@ import {
   type VibeCommandRequest,
   type VibeSubcommand,
 } from "@omp-ui/core/vibe";
-import { backend, backendFor } from "../../backend";
+import { backend, backendFor, displayMessage } from "../../backend";
 import { withAnnotationContext, type Annotation } from "../../lib/annotations";
 import { withSessionReferenceContext, type DraftSessionReference } from "../../lib/session-references";
 import { withAttachmentRoutingContext } from "../../lib/attachment-routing";
@@ -98,7 +98,7 @@ import {
   type Watchers,
 } from "./shared";
 import { rpcCommandMachinery } from "./rpc-command";
-import { findOwner, findRecord, isChatTab, sessionCwd } from "./view";
+import { findInstance, findOwner, findRecord, isChatTab, sessionCwd } from "./view";
 import type { SessionCommand } from "@omp-ui/core/session-command";
 import {
   appendLiveRecap,
@@ -127,6 +127,7 @@ export type SessionParamsSlice = Pick<
   | "answerExtension"
   | "reconcilePendingDialogs"
   | "sendPrompt"
+  | "referenceSession"
   | "abortAgent"
   | "abortAndPrompt"
   | "loadAdvisorDefaults"
@@ -349,18 +350,6 @@ const localCommands: readonly LocalCommand[] = [
       const tab = get().tabs.find((candidate) => candidate.tabId === tabId);
       if (tab?.mode !== "rpc-ui") return false;
       return get().runSideQuestionCommand(tabId, line);
-    },
-  },
-  {
-    // omp's /seance is TUI-only (handleTui, no rpc verb): over rpc the line
-    // would reach the model as literal prompt text. A native tab opens the
-    // Seance consult dialog instead (issue #885); a terminal tab's TUI keeps
-    // omp's own selector flow.
-    match: /^\/seance(?:\s[\s\S]*)?$/,
-    run(tabId, get, line) {
-      const tab = get().tabs.find((candidate) => candidate.tabId === tabId);
-      if (tab?.mode !== "rpc-ui") return false;
-      return get().runSeanceLine(tabId, line);
     },
   },
   // omp-ui's autoresearch surfaces (ADR-0030, #567): `start` is the New
@@ -611,7 +600,6 @@ export function createSessionParamsSlice(
    * images' scratch paths on the session's host (issue #993).
    */
   const promptWireText = (
-    tabId: string,
     message: string,
     images: readonly ImageAttachment[] | undefined,
     docRefs: readonly DocumentRef[] | undefined,
@@ -630,9 +618,6 @@ export function createSessionParamsSlice(
               artifactReferences ?? [],
             ),
             references ?? [],
-            // The reference hint names the consult route this harness actually
-            // has: seance below 18.20.3, read/archive on it (issue #1189).
-            get().rpc[tabId]?.capabilities?.ompVersion ?? null,
           ),
           docRefs ?? [],
         ),
@@ -641,6 +626,44 @@ export function createSessionParamsSlice(
       ),
       refreshes ?? [],
     );
+
+  const referenceSession: SessionParamsSlice["referenceSession"] = async (targetTabId, sourceTabId) => {
+    const state = get().state;
+    const target = findOwner(state, targetTabId);
+    const source = findOwner(state, sourceTabId);
+    if (target === undefined || source === undefined) return;
+    const title = source.record.title;
+    if (sourceTabId === targetTabId) {
+      get().appendNotice(targetTabId, t("composer.reference.self"), "warn");
+      return;
+    }
+    // Same-machine only (issue #984): the path names a file on the source's
+    // owner, so a target owned by any other instance could never open it.
+    if (source.instanceId !== target.instanceId) {
+      const machine =
+        source.instanceId === null
+          ? t("fleet.machine.thisComputer")
+          : (findInstance(state, source.instanceId)?.nickname ?? source.instanceId);
+      get().appendNotice(targetTabId, t("composer.reference.otherMachine", { title, machine }), "warn");
+      return;
+    }
+    if (source.record.sessionId === null) {
+      get().appendNotice(targetTabId, t("composer.reference.noTranscript", { title }), "warn");
+      return;
+    }
+    let reference: SessionReference | null;
+    try {
+      reference = await backendFor(source.instanceId).sessionReference(sourceTabId);
+    } catch (err) {
+      get().appendNotice(targetTabId, t("composer.reference.failed", { title, reason: displayMessage(err) }), "warn");
+      return;
+    }
+    if (reference === null) {
+      get().appendNotice(targetTabId, t("composer.reference.noTranscript", { title }), "warn");
+      return;
+    }
+    get().queueComposerReferences(targetTabId, [{ ...reference, instanceId: source.instanceId }]);
+  };
 
   /**
    * References parsed back out of a tab's own wire text name sessions on the
@@ -744,7 +767,7 @@ export function createSessionParamsSlice(
         ? "followUp"
         : "steer";
     const imageFiles = images?.length ? await materializeImages(tabId, images) : undefined;
-    const wireMessage = promptWireText(tabId, message, images, docRefs, annotations, references, imageFiles, artifactReferences, refreshes);
+    const wireMessage = promptWireText(message, images, docRefs, annotations, references, imageFiles, artifactReferences, refreshes);
     const cmd = { type: "prompt" as const, message: wireMessage, streamingBehavior };
     // `images` is omitted entirely when empty: omp's own client sends no key
     // rather than an empty array, and every byte here is on one JSON line.
@@ -825,7 +848,7 @@ export function createSessionParamsSlice(
     stallContinueWatcher.reset(tabId);
     const type = "abort_and_prompt";
     const imageFiles = images?.length ? await materializeImages(tabId, images) : undefined;
-    const wireMessage = promptWireText(tabId, message, images, docRefs, annotations, references, imageFiles, artifactReferences, refreshes);
+    const wireMessage = promptWireText(message, images, docRefs, annotations, references, imageFiles, artifactReferences, refreshes);
     // The title shot rides the user message's `message_start` in the
     // reducer, same as `sendPrompt` (issue #795).
     const response = await m.runCommand(
@@ -974,7 +997,7 @@ export function createSessionParamsSlice(
     // so a remote session's prompt waits on its host — and sends it with the
     // same wire text sendPrompt would have built.
     const imageFiles = images.length ? await materializeImages(tabId, images) : undefined;
-    const text = promptWireText(tabId, message, images, docRefs, annotations, references, imageFiles, artifactReferences, refreshes);
+    const text = promptWireText(message, images, docRefs, annotations, references, imageFiles, artifactReferences, refreshes);
     try {
       await backend.holdPrompt(tabId, {
         text,
@@ -3022,6 +3045,7 @@ export function createSessionParamsSlice(
     answerApprovalPrompt,
     reconcilePendingDialogs,
     sendPrompt,
+    referenceSession,
     abortAgent,
     abortAndPrompt,
     loadAdvisorDefaults,

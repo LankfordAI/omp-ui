@@ -1410,7 +1410,6 @@ export class MainBackend {
         [CH.deleteSession]: (tabId: string, cascade: boolean) =>
           this.sessions.deleteSession(tabId, cascade),
         [CH.forkSession]: (tabId: string) => this.sessions.forkSession(tabId),
-        [CH.sessionTranscriptPath]: (tabId: string) => this.sessions.transcriptPath(tabId),
         // A session reference (issue #984) names this host: the path exists only here.
         [CH.sessionReference]: async (tabId: string) => {
           const record = this.registry.sessions.find((s) => s.tabId === tabId);
@@ -1650,8 +1649,6 @@ export class MainBackend {
           getScopedCapabilities(scopeCwd, this.ompPath),
         [CH.setScopedCapability]: (req: ScopedCapabilityMutation) =>
           setScopedCapability(req, this.ompPath),
-        // The installed omp version scopes the advisor tool list (#1199); a
-        // null binary or failed probe answers null, which keeps pre-18.22 tools.
         [CH.getWatchdogRoster]: async (scopeCwd: string | null) =>
           getWatchdogRoster(
             scopeCwd,

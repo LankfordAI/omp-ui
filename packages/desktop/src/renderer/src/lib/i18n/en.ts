@@ -676,7 +676,6 @@ export const en = {
   "composer.slash.goalDrop": "remove the goal; its usage stays in the session",
   "composer.slash.guidedGoal": "the agent interviews you, then sets the goal it agrees on",
   "composer.slash.btw": "ask a side question without touching the transcript",
-  "composer.slash.seance": "consult a saved session without resuming it",
   "composer.slash.vibe": "vibe mode — this session directs worker sessions of its own",
   "composer.slash.vibeOn": "enter vibe mode (bare /vibe also toggles)",
   "composer.slash.vibeOff": "leave vibe mode and kill every worker",
@@ -3084,45 +3083,14 @@ export const en = {
   "rail.btw.injected": "injected into main session",
   "rail.btw.injecting": "sending…",
   "rail.btw.injectFailed": "The steering prompt was not sent — try again.",
-  // Seance consult (issue #885): the eighth rail pane and its dialog.
-  "rail.tabs.seance": "Seance",
-  "rail.seance.emptyTitle": "No Seance consults yet",
-  "rail.seance.emptyHint":
-    "A Seance consult asks a read-only consultant about a saved session — the session under consultation is never resumed or modified. Launch one with /seance or the button below.",
-  "rail.seance.newConsult": "new consult",
-  "rail.seance.openTranscript": "open the consulting transcript",
-  "rail.seance.followUp": "follow up",
-  "rail.seance.followUpPlaceholder": "Ask the running consultant…",
-  "rail.seance.settledNote": "Ask again to consult the saved session fresh",
-  "rail.seance.askAgain": "ask again",
-  "rail.seance.needsNewerOmp": "this omp has no seance — update omp to {version} or later",
-  "rail.seance.removedInOmp": "omp removed seance consults in {version} — nothing to launch here",
-  "seance.dialog.title": "Seance consult",
-  "seance.dialog.source": "Saved session to consult",
-  "seance.dialog.question": "What should the consultant answer about this session?",
-  "seance.dialog.modelSaved": "Use model saved with the session",
-  "seance.dialog.modelLabel": "Consultant model",
-  "seance.dialog.launch": "consult",
-  "seance.dialog.cancel": "Cancel",
-  "seance.dialog.noTranscript": "this session has no saved transcript to consult yet",
-  "seance.dialog.chatsGroup": "Chats",
-  "seance.dialog.defaultQuestion":
-    "Summarize what this session decided and why, the open questions it left, and anything that went wrong — cite transcript evidence.",
-  "seance.dialog.neverStarted":
-    "the consult session never finished starting — open it and retry",
-  "seance.dialog.planModeRedirect":
-    "plan mode cannot host the consultant (omp hides the seance spawn while planning) — running the consult in a new session instead",
   "rail.chrome.inspector": "inspector",
   "rail.chrome.resize": "resize inspector",
   "rail.chrome.collapse": "collapse inspector",
   "rail.chrome.badgedTitle": "{label} ({count})",
   // Inspector rail groups (issue #940): the strip's four labelled buttons.
-  // Capitalised single words (round-1 judge casing sweep): the lowercase forms
-  // read as a different system from the sidebar's tracked section headers,
-  // which are uppercase by design; sentence case matches every other label.
   "rail.groups.work": "Work",
   "rail.groups.review": "Review",
-  "rail.groups.ask": "Ask",
+  "rail.groups.ask": "Side questions",
   "rail.groups.info": "Info",
 
   "diff.rail.readingTitle": "Reading branch…",
@@ -3450,8 +3418,6 @@ export const en = {
   "sidebar.selection.action": "{action} ({n})",
   "sidebar.selection.retitle": "Retitle",
   "sidebar.selection.delete": "Delete…",
-  "sidebar.session.seance": "consult this saved session (read-only)",
-  "sidebar.session.seanceNeedsOmp": "this omp has no seance — update omp to {version} or later",
   "sidebar.session.resumeTitle": "resume {title}",
   "sidebar.session.resume": "Resume",
   "sidebar.session.stopDelete": "stop the agent and delete this session",

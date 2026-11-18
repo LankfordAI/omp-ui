@@ -5,7 +5,7 @@ import type { SessionReference } from "@omp-ui/core/types";
 import { withAnnotationContext } from "./annotations";
 import { withDocumentContext } from "./document-context";
 import { splitQueuedWireText } from "./queue-restore";
-import { sessionReferenceHint, splitSessionReferenceContext, withSessionReferenceContext } from "./session-references";
+import { splitSessionReferenceContext, withSessionReferenceContext } from "./session-references";
 import { userContentFromContent } from "./transcript";
 
 const REF: SessionReference = {
@@ -48,38 +48,27 @@ describe("session references wire block", () => {
     expect(keywordsIn(wire).size).toBe(0);
     expect([...keywordsIn(`${wire} ultrathink`)]).toEqual(["ultrathink"]);
   });
-});
 
-// Issue #1189: omp 18.20.3 removed the seance agent, so the hint must name a
-// route the harness actually has — while blocks saved under the old hint line
-// keep parsing forever.
-describe("hint form follows the harness (issue #1189)", () => {
-  it("emits the seance line only inside the seance window", () => {
-    expect(sessionReferenceHint("18.11.3")).toBe(SESSION_REFERENCE_HINT);
-    expect(sessionReferenceHint("18.20.2")).toBe(SESSION_REFERENCE_HINT);
-    expect(sessionReferenceHint("18.20.3")).toBe(SESSION_REFERENCE_HINT_V2);
-    expect(sessionReferenceHint("18.22.0")).toBe(SESSION_REFERENCE_HINT_V2);
-    // Unknown harness: byte-stable with every older build — only a positively
-    // known removal rewrites the wire.
-    expect(sessionReferenceHint(null)).toBe(SESSION_REFERENCE_HINT);
-  });
-
-  it("writes the v2 hint for a removed harness and none of the seance grammar", () => {
-    const wire = withSessionReferenceContext("compare", [REF], "18.21.0");
+  it("always writes the read/archive hint without Seance instructions", () => {
+    const wire = withSessionReferenceContext("compare", [REF]);
     expect(wire.startsWith(`<session references>\n${SESSION_REFERENCE_HINT_V2}\n`)).toBe(true);
     expect(wire).not.toContain("seance");
     expect(wire).not.toContain("sourceSession");
   });
 
-  it("defaults to the legacy hint line when no version is given", () => {
-    expect(withSessionReferenceContext("", [REF]).startsWith(`<session references>\n${SESSION_REFERENCE_HINT}\n`)).toBe(true);
-  });
-
-  it("parses both hint forms back into the same references", () => {
-    const legacy = withSessionReferenceContext("go", [REF]);
-    const v2 = withSessionReferenceContext("go", [REF], "18.22.0");
-    expect(splitSessionReferenceContext(legacy).references).toEqual([REF]);
-    expect(splitSessionReferenceContext(v2).references).toEqual([REF]);
+  it("parses saved prompts with the legacy Seance hint", () => {
+    const legacy = [
+      "<session references>",
+      SESSION_REFERENCE_HINT,
+      `- title: ${REF.title}`,
+      `  session: ${REF.sessionId}`,
+      `  machine: ${REF.machine}`,
+      `  path: ${REF.path}`,
+      "</session references>",
+      "",
+      "go",
+    ].join("\n");
+    expect(splitSessionReferenceContext(legacy)).toEqual({ text: "go", references: [REF] });
   });
 });
 

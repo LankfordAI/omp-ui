@@ -8,7 +8,6 @@ import { useKeybindingLabel } from "../lib/keybindings";
 import { formatSnoozeUntil } from "../lib/snooze-until";
 import { cn } from "../lib/cn";
 import { canSettle, deriveSidebarSessionState, forkSourceOf, useStore, type SidebarSessionState } from "../store";
-import { seanceRemovedFromOmp, SEANCE_MIN_OMP, supportsSeance } from "@omp-ui/core/seance";
 import { SESSION_DRAG_EFFECT, SESSION_DRAG_MIME } from "../lib/session-drag";
 import { Button, Chip, IconButton, IconClock, IconLock, IconPin, IconSpeaker, type Tone } from "./ui";
 import { TONE_DOT } from "./ui/tone";
@@ -209,25 +208,6 @@ function IconPlan() {
   );
 }
 
-/** A small ghost — the row's Seance consult action (issue #885). */
-function IconSeance() {
-  return (
-    <svg
-      viewBox="0 0 16 16"
-      aria-hidden
-      className="size-3.5"
-      fill="none"
-      stroke="currentColor"
-      strokeWidth={1.4}
-      strokeLinecap="round"
-      strokeLinejoin="round"
-    >
-      <path d="M4 13.5V7a4 4 0 018 0v6.5l-1.3-1-1.3 1-1.4-1-1.4 1-1.3-1z" />
-      <path d="M6.4 7.2v.8M9.6 7.2v.8" />
-    </svg>
-  );
-}
-
 /** A fork glyph — the row's link back to the session it was forked from (CONTEXT.md **Fork**). */
 function IconFork() {
   return (
@@ -298,15 +278,6 @@ export function SessionRow({
   const tabMounted = useStore((st) => st.tabs.some((t) => t.tabId === s.tabId));
   const sidebarState = useStore((st) => deriveSidebarSessionState(s, st.rpc[s.tabId]));
   const activeTabId = useStore((st) => st.activeTabId);
-  const consultFromRow = useStore((st) => st.consultFromRow);
-  // Seance consult (issue #885): the window rides the installed binary's
-  // version, the same source SessionHud gates anonymize on — a dormant row
-  // can be consulted from any project, so no per-tab ompVersion exists here.
-  // omp 18.20.3 removed the route (issue #1189): the action is hidden outright
-  // there, since no update brings it back; below the floor it stays mounted
-  // disabled and names the unlocking version.
-  const seanceRemoved = useStore((st) => seanceRemovedFromOmp(st.ompUpdate.installedVersion));
-  const seanceAvailable = useStore((st) => supportsSeance(st.ompUpdate.installedVersion));
   // CONTEXT.md **Fork**: the original this row was forked from, on the same host.
   const forkSource = useStore((st) => forkSourceOf(st.state, s.tabId));
 
@@ -710,23 +681,6 @@ export function SessionRow({
           >
             {t("sidebar.session.resume")}
           </Button>
-        ) : null}
-        {/* Seance consult (issue #885): a read-only question about this saved
-            session. Never on a live row — a running session is consulted via
-            the /seance line, not by resurrecting its transcript behind it.
-            Hidden whole on omp 18.20.3+, which removed the route (#1189). */}
-        {!missing && !seanceRemoved && s.live !== "live" && s.sessionId !== null ? (
-          <IconButton
-            label={
-              seanceAvailable
-                ? t("sidebar.session.seance")
-                : t("sidebar.session.seanceNeedsOmp", { version: SEANCE_MIN_OMP })
-            }
-            disabled={!seanceAvailable}
-            onClick={() => void consultFromRow(s.tabId)}
-          >
-            <IconSeance />
-          </IconButton>
         ) : null}
         <IconButton
           label={

@@ -299,7 +299,7 @@ export async function getWatchdogRoster(
           sourcePath: c.file,
           sourceScope: c.scope,
           model: hasText(a.model) ? a.model : null,
-          tools: effectiveAdvisorTools(a.tools, ompVersion),
+          tools: effectiveAdvisorTools(a.tools),
           toolsExplicit: a.tools !== null,
           enabled: a.enabled !== false,
           instructions: a.instructions,
@@ -327,7 +327,7 @@ export async function getWatchdogRoster(
   }
 }
 
-function validateRequest(req: WatchdogWriteRequest, ompVersion: string | null): void {
+function validateRequest(req: WatchdogWriteRequest): void {
   const doc = req.document;
   if (doc.advisors.length > MAX_ADVISORS) throw new Error(`at most ${MAX_ADVISORS} advisors`);
   const over = (s: string | null): boolean => s !== null && s.length > MAX_STRING;
@@ -345,7 +345,7 @@ function validateRequest(req: WatchdogWriteRequest, ompVersion: string | null): 
     if (over(a.instructions) || over(a.model) || a.name.length > MAX_STRING) throw new Error(`advisor "${a.name}": text too long`);
     num(a.maxNotesPerUpdate, `advisor "${a.name}"`);
     for (const tool of a.tools ?? []) {
-      if (resolveWatchdogTool(tool, ompVersion) === null) throw new Error(`advisor "${a.name}": unknown tool "${tool}"`);
+      if (resolveWatchdogTool(tool) === null) throw new Error(`advisor "${a.name}": unknown tool "${tool}"`);
     }
   }
 }
@@ -356,7 +356,7 @@ export async function setWatchdogRoster(
   home: string = os.homedir(),
   ompVersion: string | null = null,
 ): Promise<WatchdogRosterResult> {
-  validateRequest(req, ompVersion);
+  validateRequest(req);
   let target: string;
   if (req.scope === "user") target = editTarget(getOmpAgentDir(env));
   else {

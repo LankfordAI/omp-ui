@@ -21,31 +21,14 @@
  * can close the block early. The whole block is one tag section, which omp's
  * keyword masking skips: a title containing `ultrathink` arms nothing.
  *
- * Two hint forms are accepted on the parse (issue #1189): the seance-era line
- * saved prompts already carry, and the read/archive line emitted for harnesses
- * on omp 18.20.3+, which removed the `seance` agent and `sourceSession`.
+ * New prompts always use the read/archive hint (#1214). Parsing also accepts
+ * the legacy Seance hint so previously saved prompts keep rendering chips.
  */
-import { SESSION_REFERENCE_HINT, SESSION_REFERENCE_HINT_V2, SESSION_REFERENCE_HINTS } from "@omp-ui/core/artifact-references";
-import { seanceRemovedFromOmp } from "@omp-ui/core/seance";
+import { SESSION_REFERENCE_HINT_V2, SESSION_REFERENCE_HINTS } from "@omp-ui/core/artifact-references";
 import type { SessionReference } from "@omp-ui/core/types";
 
 const BLOCK_OPEN = "<session references>";
 const BLOCK_CLOSE = "</session references>";
-
-/** Re-exported for the wire fixtures: every accepted hint line (legacy first). */
-export { SESSION_REFERENCE_HINT, SESSION_REFERENCE_HINT_V2, SESSION_REFERENCE_HINTS };
-
-/**
- * The hint a prompt on `ompVersion` should carry (issue #1189): only a harness
- * positively known to have REMOVED seance (≥ 18.20.3) gets the read/archive
- * line; every other version — window included, and an unknown harness, whose
- * bytes must stay whatever older builds parsed — keeps the legacy line, whose
- * plan-mode fallback (`read the file instead`) works everywhere it is sent.
- * Saved prompts carry either form; both parse forever.
- */
-export function sessionReferenceHint(ompVersion: string | null): string {
-  return seanceRemovedFromOmp(ompVersion) ? SESSION_REFERENCE_HINT_V2 : SESSION_REFERENCE_HINT;
-}
 
 function oneLine(value: string): string {
   return value.replace(/[\r\n]+/g, " ").replace(/[<>]/g, "").trim();
@@ -62,14 +45,11 @@ export interface DraftSessionReference extends SessionReference {
 
 /**
  * Prepends the session references block; a prompt without references is
- * unchanged. `ompVersion` picks the hint line (issue #1189): the seance line
- * only inside the seance window, the read/archive line on 18.20.3+ and for an
- * unknown harness. Saved prompts keep carrying either form; both parse.
+ * unchanged. Saved prompts may carry either hint form; both parse.
  */
 export function withSessionReferenceContext(
   message: string,
   refs: readonly SessionReference[],
-  ompVersion: string | null = null,
 ): string {
   if (refs.length === 0) return message;
   const entries = refs.flatMap((ref) => [
@@ -78,7 +58,7 @@ export function withSessionReferenceContext(
     `  machine: ${oneLine(ref.machine)}`,
     `  path: ${ref.path.replace(/[\r\n]/g, "")}`,
   ]);
-  const block = [BLOCK_OPEN, sessionReferenceHint(ompVersion), ...entries, BLOCK_CLOSE].join("\n");
+  const block = [BLOCK_OPEN, SESSION_REFERENCE_HINT_V2, ...entries, BLOCK_CLOSE].join("\n");
   return message === "" ? block : `${block}\n\n${message}`;
 }
 

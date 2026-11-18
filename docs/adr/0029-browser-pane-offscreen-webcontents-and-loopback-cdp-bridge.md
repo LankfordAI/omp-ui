@@ -514,3 +514,8 @@ either runtime. No spawner-side gate was added: the in-extension probe resolves
 against the omp that actually loads and runs the file, so no spawn-time version
 read has to agree with the binary the extension ends up inside (pins via
 `OMP_UI_OMP_PATH`, fallback resolution).
+
+## Amended by #1214: string `app` only
+
+At the omp 18.22.0 floor, the preamble always sends `app: "<cdp url>"`.
+The old object form and the generated `VERSION` probe are gone.

@@ -9,9 +9,9 @@ import type {
 } from "@omp-ui/core/types";
 import {
   WATCHDOG_DEFAULT_TOOLS,
+  WATCHDOG_KNOWN_TOOLS,
   WATCHDOG_MUTATING_TOOLS,
   advisorSlug,
-  watchdogKnownTools,
 } from "@omp-ui/core/watchdog";
 import { parseModelRole } from "@omp-ui/core/model-role";
 import { backendFor, displayMessage } from "../backend";
@@ -373,9 +373,7 @@ export function AdvisorRosterEditor({ scopeCwd, instanceId }: { scopeCwd: string
               {t("advisor.roster.defaultTools", { tools: WATCHDOG_DEFAULT_TOOLS.join(", ") })}
             </Button>
             {a.tools !== null &&
-              // Version-scoped: omp 18.22+ drops `ida` (and any unknown) from an
-              // advisor's grants, so the roster must not offer it (#1199).
-              watchdogKnownTools(result.ompVersion).map((tool) => (
+              WATCHDOG_KNOWN_TOOLS.map((tool) => (
                 <Button
                   key={tool}
                   size="xs"

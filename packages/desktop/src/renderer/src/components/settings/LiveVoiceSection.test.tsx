@@ -92,10 +92,6 @@ beforeEach(() => {
   });
 });
 
-const setInstalledVersion = (installedVersion: string | null): void => {
-  useStore.setState((s) => ({ ompUpdate: { ...s.ompUpdate, installedVersion } }));
-};
-
 afterEach(() => {
   if (root !== null) {
     act(() => root!.unmount());
@@ -105,12 +101,11 @@ afterEach(() => {
 });
 
 describe("LiveVoiceSection speed clamp (issue #1198)", () => {
-  it("clamps writes to the Phonon band on omp ≥ 18.21.0", async () => {
-    setInstalledVersion("18.21.0");
+  it("clamps writes to the Phonon band", async () => {
     const commit = vi.fn();
     mount(commit);
     const field = speedField();
-    await typeInto(field, "2");
+    await typeInto(field, "2.0");
     await pressEnter(field);
     expect(commit).toHaveBeenCalledWith(SPEECH_SPEED_SETTING_KEY, 1.3);
     await typeInto(field, "0.2");
@@ -119,27 +114,5 @@ describe("LiveVoiceSection speed clamp (issue #1198)", () => {
     await typeInto(field, "1.1");
     await pressEnter(field);
     expect(commit).toHaveBeenLastCalledWith(SPEECH_SPEED_SETTING_KEY, 1.1);
-  });
-
-  it("keeps the wide band on older omp", async () => {
-    setInstalledVersion("18.18.7");
-    const commit = vi.fn();
-    mount(commit);
-    const field = speedField();
-    await typeInto(field, "2");
-    await pressEnter(field);
-    expect(commit).toHaveBeenCalledWith(SPEECH_SPEED_SETTING_KEY, 2);
-    await typeInto(field, "3");
-    await pressEnter(field);
-    expect(commit).toHaveBeenLastCalledWith(SPEECH_SPEED_SETTING_KEY, 2.5);
-  });
-
-  it("keeps the wide band when the installed version is unknown", async () => {
-    const commit = vi.fn();
-    mount(commit);
-    const field = speedField();
-    await typeInto(field, "2");
-    await pressEnter(field);
-    expect(commit).toHaveBeenCalledWith(SPEECH_SPEED_SETTING_KEY, 2);
   });
 });

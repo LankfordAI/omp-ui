@@ -23,7 +23,6 @@ import { NewSessionDialog } from "./components/NewSessionDialog";
 import { MigrateSessionDialog } from "./components/MigrateSessionDialog";
 import { CopyProjectDialog } from "./components/fleet/CopyProjectDialog";
 import { ProjectQuickOpen } from "./components/ProjectQuickOpen";
-import { SeanceConsultDialog } from "./components/SeanceConsultDialog";
 import { FinishWorktreeDialog } from "./components/FinishWorktreeDialog";
 import { Lab } from "./components/lab/Lab";
 import { Stats } from "./components/stats/Stats";
@@ -303,7 +302,6 @@ export default function App() {
   // A shown terminal that was closed (here or in another window) leaves the pane to the tabs.
   const shownFleetTerminal = fleetTerminals.some((ft) => ft.terminalId === fleetTerminal) ? fleetTerminal : null;
   const experimentDialog = useStore((s) => s.experimentDialog);
-  const seanceDialog = useStore((s) => s.seanceDialog);
   const experimentsEnabled = useStore((s) => s.state?.experimentsEnabled === true);
   const settingsPage = useStore((s) => s.settingsPage);
   const openSettings = useStore((s) => s.openSettings);
@@ -689,7 +687,6 @@ export default function App() {
           proposalTabId={experimentDialog.proposalTabId ?? null}
         />
       )}
-      {seanceDialog !== null && <SeanceConsultDialog />}
       {finishWorktreeTab !== null && (
         <FinishWorktreeDialog key={finishWorktreeTab} tabId={finishWorktreeTab} />
       )}

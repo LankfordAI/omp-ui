@@ -1097,59 +1097,6 @@ export interface FleetSlice {
 }
 
 /**
- * The Seance consult dialog's opener context (issue #885): where the consult
- * launches from and what the composer line prefilled. `sourceTabId` marks an
- * in-place consult — the invoking live tab hosts the consultant; without it,
- * submitting spawns a fresh consult session in `projectCwd`.
- */
-export interface SeanceDialogInit {
-  projectCwd: string;
-  instanceId: string | null;
-  sourceTabId?: string;
-  prefill?: { source?: string; model?: string };
-}
-
-/** One Seance consult launch: which session hosts it and what it consults. */
-export interface SeanceConsultTarget {
-  projectCwd: string;
-  instanceId: string | null;
-  /** Given = the consult runs in this existing live tab instead of spawning. */
-  tabId?: string;
-  /** Absolute transcript path (or verbatim selector) of the consulted session. */
-  sourceSession: string;
-  /** Human label for the kickoff's subject line. */
-  sourceLabel: string;
-  /** Read privacy of the consulted source (issue #852): a spawned consult session inherits it. */
-  private?: boolean;
-  /** The consulted source is a Chat: a spawned consult lands in a fresh chat. */
-  chat?: boolean;
-}
-
-export interface SeanceSlice {
-  seanceDialog: SeanceDialogInit | null;
-  openSeanceDialog(init: SeanceDialogInit): void;
-  closeSeanceDialog(): void;
-  /**
-   * Launches one consult: in `target.tabId` when given (readiness-gated),
-   * else spawns a fresh rpc-ui session in the source's project and prompts
-   * it after settle. The kickoff composes the single `task` call with
-   * `agent: "seance"` — omp's only seance entry point over rpc.
-   */
-  launchSeanceConsult(target: SeanceConsultTarget, question: string, model?: string | null): Promise<void>;
-  /** One composer `/seance` line in a native tab (issue #885): opens the dialog pre-filled and focuses the Seance pane. */
-  runSeanceLine(tabId: string, line: string): Promise<void>;
-  /** The sidebar row's ghost action: resolves the source transcript path, then opens the dialog defaulted to that row. */
-  consultFromRow(sourceTabId: string): Promise<void>;
-  /**
-   * Adds `sourceTabId` as a session reference chip to `targetTabId`'s
-   * composer draft (issue #984): resolves the owner's transcript path and
-   * machine name, or refuses with a notice on the target (itself, another
-   * instance's session, nothing saved yet).
-   */
-  referenceSession(targetTabId: string, sourceTabId: string): Promise<void>;
-}
-
-/**
  * One tab's live-share posture (issue #686): `off` = no host this tab (omp
  * exposes none or `/collab stop` ran), `sharing` carries the registry row's
  * state. Native tabs cannot host at all — omp's command lives in the TUI —
@@ -1200,7 +1147,9 @@ export interface PromptAttachments {
   refreshes?: ArtifactRefreshEntry[];
 }
 
-export interface UiStore extends SettingsSlice, UpdatesSlice, LabSlice, StatsSlice, FleetSlice, SeanceSlice, UnreadSlice, ArtifactReferencesSlice, ArtifactsSlice {
+export interface UiStore extends SettingsSlice, UpdatesSlice, LabSlice, StatsSlice, FleetSlice, UnreadSlice, ArtifactReferencesSlice, ArtifactsSlice {
+  /** Resolves a saved session and adds its reference chip to the target composer. */
+  referenceSession(targetTabId: string, sourceTabId: string): Promise<void>;
   state: BackendState | null;
   tabs: TabInfo[];
   activeTabId: string | null;

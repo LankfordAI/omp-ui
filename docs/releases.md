@@ -4,9 +4,10 @@ This guide explains what users receive from a release and how maintainers publis
 
 ## Unreleased
 
-Nothing since [v0.36.1](https://github.com/LankfordAI/omp-ui/releases/tag/v0.36.1). Add one bullet per shipped change here, citing its issue as `#N`; the release tag lifts these into Highlights.
+Changes since [v0.36.1](https://github.com/LankfordAI/omp-ui/releases/tag/v0.36.1). Add one bullet per shipped change here, citing its issue as `#N`; the release tag lifts these into Highlights.
 
-- The browser pane works again on omp 18.19+. omp replaced `browser.open`'s `app` object with a single string (a CDP URL, executable path, or keyword) and its schema rejects the `{ cdp_url }` object outright, so the pane's hidden endpoint message made every `browser.open` on the pane fail with `browser received invalid arguments`. The generated extension now probes the running omp's version at delivery time: `app: "<cdp url>"` on omp 18.19+, the object form on 18.16–18.18, which reject a bare string just as hard (#1188).
+- The browser pane works again on omp 18.19+. omp replaced `browser.open`'s `{ cdp_url }` object with a string, so the pane now hands the agent `app: "<cdp url>"` (#1188).
+- omp-ui now requires omp 18.22.0: below it the launch check auto-upgrades (unless Auto-upgrade is off or `OMP_UI_OMP_PATH` pins a binary). Seance consult is gone — omp 18.20.3 removed the agent it ran on — so the rail's Ask group, the sidebar row, and `/seance` no longer offer it. Session references and Ask chats point the model at the transcript file or `archive.session(path)` instead (#1214).
 
 ## Choose a download
 
@@ -145,7 +146,7 @@ After migration, updates use the supported in-place AppImage path. The skipped b
 
 omp-ui updates its managed `omp` binary separately from the desktop application. It checks the npm registry at launch when that check is enabled, or on demand from `Check for omp updates`. A missing binary offers `Install`; an older binary offers `Update now`.
 
-An optional update never downloads without that click. The one exception is the harness floor: when the installed binary is older than the version omp-ui requires (`MIN_SUPPORTED_OMP`, 18.16.0), the launch check downloads and installs the latest release automatically — the feature set the UI promises simply does not exist below it. **Auto-upgrade** on Settings → Updates opts out, and a binary pinned with `OMP_UI_OMP_PATH` is never touched. omp-ui downloads to a temporary path, verifies that the candidate runs as `omp --version`, and atomically replaces the managed copy. A failure leaves the previous binary in place. Live sessions keep the binary they already started with; only new sessions use the installed version. The omp and omp-ui launch checks have separate switches.
+An optional update never downloads without that click. The one exception is the harness floor: when the installed binary is older than the version omp-ui requires (`MIN_SUPPORTED_OMP`, 18.22.0), the launch check downloads and installs the latest release automatically. **Auto-upgrade** on Settings → Updates opts out, and a binary pinned with `OMP_UI_OMP_PATH` is never touched. omp-ui downloads to a temporary path, verifies that the candidate runs as `omp --version`, and atomically replaces the managed copy. A failure leaves the previous binary in place. Live sessions keep the binary they already started with; only new sessions use the installed version. The omp and omp-ui launch checks have separate switches.
 
 The managed-install root's `manager.json` declares omp-ui ownership so OMP 18.16 and newer refuse their own automatic and manual self-update paths (#1062). Pins are never stamped. An existing manifest naming a different installer, or one that cannot be read or parsed safely, is preserved and reported rather than overwritten. If a fleet download has already replaced the binary, a subsequent stamping failure is a warning on the successful installation; the owning host still refreshes its binary state.
 

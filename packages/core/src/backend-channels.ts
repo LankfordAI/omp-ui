@@ -1143,22 +1143,12 @@ export const BACKEND_CHANNELS = {
     ...request<[tabId: string], { tabId: string }>([str()]),
   },
   /**
-   * Absolute path of the session's transcript file, or null when it never
-   * materialized (lazy write) or its files are gone. Resolved on every call
-   * — omp gc relocates and gzips cold sessions, so cached paths dangle
-   * (ADR-0003). A gzipped archived transcript is returned unchanged: omp's
-   * session store reads it. Backs the Seance consult source picker (issue
-   * #885); the renderer never sees the sessions root itself.
-   */
-  sessionTranscriptPath: {
-    channel: "session:transcriptPath",
-    ...request<[tabId: string], string | null>([str()]),
-  },
-  /**
-   * The facts a session reference names (issue #984): session id, title, this
-   * host's name, and the transcript path resolved like `sessionTranscriptPath`.
-   * Null when the session has no saved transcript. Tab-routed, so the owning
-   * host answers with its own name and a path that exists there.
+   * The facts a session reference names (issue #984): session id, title, the
+   * owning host's name, and the absolute path of the transcript on that host.
+   * The path is resolved on every call: omp gc relocates and gzips cold
+   * sessions (ADR-0003), so cached paths dangle. An archived transcript keeps
+   * its `.jsonl.gz` path. Returns null when the session has no saved transcript.
+   * Tab-routed so the owning host answers.
    */
   sessionReference: {
     channel: "session:reference",
@@ -1856,8 +1846,7 @@ export const BACKEND_CHANNELS = {
   /**
    * The advisor roster files (ADR-0039): omp's WATCHDOG.yml discovered and
    * merged for `scopeCwd` (null = user file only), plus both editable files.
-   * Effective tools are resolved against the host's installed omp version
-   * (`ompVersion` in the result; #1199: `ida` is known only below 18.22.0).
+   * Effective tools use the current supported omp roster (18.22.0, #1214).
    * Reads only; a filesystem failure answers `{status:"error"}`.
    */
   getWatchdogRoster: {

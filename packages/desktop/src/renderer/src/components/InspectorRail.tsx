@@ -33,8 +33,6 @@ import { compactNum, exactNum, formatCost, relativeTime, sessionSpendTrustworthy
 import { contextReadout } from "../lib/context-readout";
 import { TodoPanel } from "./TodoPanel";
 import { SideQuestionsPane } from "./SideQuestionsPane";
-import { seanceRemovedFromOmp } from "@omp-ui/core/seance";
-import { SeancePane } from "./SeancePane";
 import { SubagentModelsControl } from "./SubagentModelsControl";
 import { SubagentControls, useSubagentControlNotice } from "./SubagentControls";
 import { Section } from "./RailSection";
@@ -79,7 +77,7 @@ type GroupLabelKey = "rail.groups.work" | "rail.groups.review" | "rail.groups.as
 const GROUPS: readonly { id: RailGroup; labelKey: GroupLabelKey; members: readonly RailTab[] }[] = [
   { id: "work", labelKey: "rail.groups.work", members: ["todos", "agents", "jobs"] },
   { id: "review", labelKey: "rail.groups.review", members: ["plans", "diffs"] },
-  { id: "ask", labelKey: "rail.groups.ask", members: ["btw", "seance"] },
+  { id: "ask", labelKey: "rail.groups.ask", members: ["btw"] },
   { id: "info", labelKey: "rail.groups.info", members: ["session"] },
 ];
 
@@ -142,13 +140,6 @@ function TabIcon({ tab }: { tab: RailTab }) {
         <>
           <path d="M2.8 3.2h10.4a1 1 0 0 1 1 1v5.6a1 1 0 0 1-1 1H8.2l-3 2.4v-2.4H2.8a1 1 0 0 1-1-1V4.2a1 1 0 0 1 1-1z" {...ICON_STROKE} />
           <path d="M6.6 6.2c0-.9.7-1.5 1.5-1.5s1.4.6 1.4 1.3c0 .9-1.4 1.1-1.4 2M8.1 9.4v.1" {...ICON_STROKE} />
-        </>
-      )}
-      {tab === "seance" && (
-        <>
-          {/* A ghost — omp's own /seance glyph: dome head, wavy hem, two eyes. */}
-          <path d="M3.6 12.4V7a4.4 4.4 0 0 1 8.8 0v5.4l-1.5-1.3-1.4 1.3-1.5-1.3-1.4 1.3-1.5-1.3z" {...ICON_STROKE} />
-          <path d="M6.4 6.9v.1M9.6 6.9v.1" {...ICON_STROKE} />
         </>
       )}
     </svg>
@@ -1337,7 +1328,7 @@ function DiffsPane({ tabId }: { tabId: string }) {
 /* -------------------------------------------------------------- the rail */
 
 /** Each pane's label; order is pane order within groups. */
-const TABS: { id: RailTab; labelKey: "rail.tabs.todos" | "rail.tabs.agents" | "rail.tabs.jobs" | "rail.tabs.session" | "rail.tabs.plans" | "rail.tabs.diffs" | "rail.tabs.btw" | "rail.tabs.seance" }[] = [
+const TABS: { id: RailTab; labelKey: "rail.tabs.todos" | "rail.tabs.agents" | "rail.tabs.jobs" | "rail.tabs.session" | "rail.tabs.plans" | "rail.tabs.diffs" | "rail.tabs.btw" }[] = [
   { id: "todos", labelKey: "rail.tabs.todos" },
   { id: "agents", labelKey: "rail.tabs.agents" },
   { id: "jobs", labelKey: "rail.tabs.jobs" },
@@ -1345,7 +1336,6 @@ const TABS: { id: RailTab; labelKey: "rail.tabs.todos" | "rail.tabs.agents" | "r
   { id: "plans", labelKey: "rail.tabs.plans" },
   { id: "diffs", labelKey: "rail.tabs.diffs" },
   { id: "btw", labelKey: "rail.tabs.btw" },
-  { id: "seance", labelKey: "rail.tabs.seance" },
 ];
 
 export function inspectorBadges(
@@ -1365,11 +1355,6 @@ export function inspectorBadges(
     diffs: 0,
     // Answered topics: what the user can read back.
     btw: (runtime?.sideQuestions?.topics ?? []).filter((topic) => topic.status === "complete").length,
-    // Live consults only: a settled consultant is history, not an event worth
-    // lighting the strip for (issue #885).
-    seance: (runtime?.subagents ?? []).filter(
-      (agent) => agent.agent === "seance" && (agent.status === "running" || agent.status === "pending"),
-    ).length,
   };
 }
 
@@ -1516,16 +1501,12 @@ export function InspectorRail({ tabId }: { tabId: string }) {
   const record = useStore((s) => findRecord(s.state, tabId));
   const badges = inspectorBadges(runtime, record);
   const chat = record?.chat === true;
-  // omp 18.20.3 removed the `seance` agent (issue #1189): with no consult route
-  // the pane has nothing to show or launch, so it leaves the Ask group whole —
-  // same single-member collapse any other hidden member produces.
-  const seanceRemoved = seanceRemovedFromOmp(runtime?.capabilities?.ompVersion ?? null);
   const groups = GROUPS
     .map((group) => ({
       ...group,
       members: group.members.filter(
         (p) => !chat || (p !== "plans" && p !== "diffs"),
-      ).filter((p) => !seanceRemoved || p !== "seance"),
+      ),
     }))
     .filter((group) => group.members.length > 0);
   // groups[0] is always Work, which never empties.
@@ -1559,7 +1540,6 @@ export function InspectorRail({ tabId }: { tabId: string }) {
       {shownTab === "plans" && <PlansPane tabId={tabId} />}
       {shownTab === "diffs" && <DiffsPane tabId={tabId} />}
       {shownTab === "btw" && <SideQuestionsPane tabId={tabId} />}
-      {shownTab === "seance" && <SeancePane tabId={tabId} />}
     </>
   );
   const memberTabs = shownGroup.members.length > 1 ? (

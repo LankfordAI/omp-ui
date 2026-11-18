@@ -343,7 +343,6 @@ const mockBackend = {
   })),
   deleteSessionPreview: vi.fn(async (): Promise<DeleteSessionPreview> => ({ descendants: [] })),
   forkSession: vi.fn(),
-  sessionTranscriptPath: vi.fn(async (): Promise<string | null> => "/s/lineage/transcript.jsonl"),
   sessionReference: vi.fn(async (): Promise<SessionReference | null> => ({
     sessionId: "sess-ref",
     title: "Deploy fix",

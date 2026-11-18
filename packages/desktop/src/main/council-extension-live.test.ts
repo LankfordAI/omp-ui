@@ -59,7 +59,7 @@ import { writeCouncilForSpawn } from "./spawn-config";
 const ompPath = resolveOmpBinary();
 
 function requiredOmpPath(): string {
-  if (ompPath === null) throw new Error("Live Council proofs require the installed OMP 18.18.7 binary; no live proof may skip.");
+  if (ompPath === null) throw new Error("Live Council proofs require OMP 18.22 or newer; no live proof may skip.");
   return ompPath;
 }
 

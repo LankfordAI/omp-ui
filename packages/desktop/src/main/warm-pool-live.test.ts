@@ -37,7 +37,7 @@ import type { BreadcrumbEntry } from "./breadcrumbs";
  *    a `response` for `omp-ui-host-tools-1` — adoption is protocol-viable,
  *    not just stream-viable.
  *
- * OMP 18.18.7 must be installed; missing setup fails instead of skipping.
+ * OMP 18.22 or newer must be installed; missing setup fails instead of skipping.
  * All waits here are real-time on purpose: the awaited condition is a real OS
  * process, and a fake clock cannot make it live, speak, or exit — the
  * documented exception for platform-clock integration tests.
@@ -46,7 +46,7 @@ import type { BreadcrumbEntry } from "./breadcrumbs";
 const ompPath = resolveOmpBinary();
 
 function requiredOmpPath(): string {
-  if (ompPath === null) throw new Error("Warm Council live proofs require the installed OMP 18.18.7 binary; no live proof may skip.");
+  if (ompPath === null) throw new Error("Warm Council live proofs require OMP 18.22 or newer; no live proof may skip.");
   return ompPath;
 }
 

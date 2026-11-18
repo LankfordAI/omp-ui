@@ -54,30 +54,15 @@ function harness(o: { canSendMessages?: boolean } = {}) {
 // ------------------------------------------------------------------- tests
 
 describe("askContextText", () => {
-  it("routes the deep dive through seance inside the seance window (issue #1189)", () => {
-    const text = askContextText({ sessionId: SESSION_ID, summary: `  ${PINNED}\n`, transcriptPath: TRANSCRIPT, ompVersion: "18.20.2" });
+  it("answers from the summary first and routes deep dives through read/archive", () => {
+    const text = askContextText({ sessionId: SESSION_ID, summary: `  ${PINNED}\n`, transcriptPath: TRANSCRIPT });
     expect(text).toContain(`${PINNED}\n\nAnswer questions`);
-    expect(text).toContain(`omp-ui://sessions/${SESSION_ID}/summary`);
-    expect(text).toContain(`sourceSession "${TRANSCRIPT}"`);
-    expect(text).toContain(`/seance ${SESSION_ID}`);
-    expect(text.length).toBeLessThanOrEqual(ASK_CONTEXT_TEXT_MAX);
-  });
-
-  it("routes the deep dive through read/archive on omp that removed seance (issue #1189)", () => {
-    const text = askContextText({ sessionId: SESSION_ID, summary: PINNED, transcriptPath: TRANSCRIPT, ompVersion: "18.20.3" });
     expect(text).toContain(`read its file at "${TRANSCRIPT}"`);
-    expect(text).toContain(`archive.session("${TRANSCRIPT}")`);
-    expect(text).not.toContain("seance");
-    expect(text).not.toContain("/seance");
-    expect(text).toContain(`omp-ui://sessions/${SESSION_ID}/summary`);
-    // The never-wake property holds on both routes.
+    expect(text).toContain(`archive.session("${TRANSCRIPT}") in eval`);
     expect(text).toContain("Never resume or modify that session");
-  });
-
-  it("takes the safe read/archive route for an unknown harness", () => {
-    const text = askContextText({ sessionId: SESSION_ID, summary: PINNED, transcriptPath: TRANSCRIPT });
+    expect(text).toContain(`If that path no longer resolves, read omp-ui://sessions/${SESSION_ID}/summary again.`);
     expect(text).not.toContain("seance");
-    expect(text).toContain(`archive.session("${TRANSCRIPT}")`);
+    expect(text).not.toContain("sourceSession");
   });
 
   // Two parities so one of them lands the cut on a surrogate pair.
@@ -86,11 +71,11 @@ describe("askContextText", () => {
     ["an emoji summary", "😀".repeat(10_000)],
     ["an offset emoji summary", `a${"😀".repeat(10_000)}`],
   ])("shrinks only the summary of %s to fit the cap", (_label, summary) => {
-    const text = askContextText({ sessionId: SESSION_ID, summary, transcriptPath: TRANSCRIPT, ompVersion: "18.20.2" });
+    const text = askContextText({ sessionId: SESSION_ID, summary, transcriptPath: TRANSCRIPT });
     expect(text.length).toBeLessThanOrEqual(ASK_CONTEXT_TEXT_MAX);
     expect(text.length).toBeGreaterThan(ASK_CONTEXT_TEXT_MAX - 2);
     expect(text).toContain(`…\n\nAnswer questions about that session`);
-    expect(text).toContain(`sourceSession "${TRANSCRIPT}"`);
+    expect(text).toContain(`archive.session("${TRANSCRIPT}") in eval`);
     expect(text).toContain(`session id ${SESSION_ID}`);
     // No high surrogate left without its low half.
     expect(text).not.toMatch(/[\uD800-\uDBFF](?![\uDC00-\uDFFF])/);
