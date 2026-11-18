@@ -8,6 +8,7 @@ Changes since [v0.36.1](https://github.com/LankfordAI/omp-ui/releases/tag/v0.36.
 
 - The browser pane works again on omp 18.19+. omp replaced `browser.open`'s `{ cdp_url }` object with a string, so the pane now hands the agent `app: "<cdp url>"` (#1188).
 - omp-ui now requires omp 18.22.0: below it the launch check auto-upgrades (unless Auto-upgrade is off or `OMP_UI_OMP_PATH` pins a binary). Seance consult is gone — omp 18.20.3 removed the agent it ran on — so the rail's Ask group, the sidebar row, and `/seance` no longer offer it. Session references and Ask chats point the model at the transcript file or `archive.session(path)` instead (#1214).
+- The native composer formats inline code and fenced blocks as you type. Three backticks open an editable code box, Enter inside the box never sends, and copy and Send preserve the original Markdown (#1222).
 
 ## Choose a download
 

@@ -15,7 +15,7 @@ export interface StashPaletteHandle {
 /**
  * The draft stash picker (issue #989), opened above an empty composer: the
  * stashed drafts newest first, each with a text preview and attachment
- * count. Same split as MentionPalette — the composer's textarea keeps focus
+ * count. Same split as MentionPalette — the composer keeps focus
  * and forwards its keydown through `handleKey`.
  */
 export function StashPalette({
@@ -91,7 +91,7 @@ export function StashPalette({
             <button
               type="button"
               ref={i === active ? activeRef : null}
-              // Keep the caret in the textarea: a blur would tear the picker down.
+              // Keep the caret in the editor when picking a row.
               onMouseDown={(e) => e.preventDefault()}
               onClick={() => onApply(draft)}
               className="flex min-w-0 flex-1 items-baseline gap-2 py-1 text-left"

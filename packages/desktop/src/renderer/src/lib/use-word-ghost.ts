@@ -29,13 +29,12 @@ export function wordGhostLead(text: string): number {
 
 /**
  * Host-side pre-gate; omp applies the full prose rules to what it is handed.
- * The caret must end the whole draft (not merely its line): the ghost paints
- * in the mirror only, and a ghost before a later line would re-wrap the mirror
- * and drift every following glyph off the textarea (#282). A shell command is
- * never prose. A slash draft is asked about with its command word elided,
- * because omp's gate rejects any line that starts with `/` — but while the
- * word itself is all there is, there is no prose to ask about, and the slash
- * palette owns Tab.
+ * The caret must end the whole draft (not merely its line): the composer
+ * displays predictions as an end-of-draft widget outside the source text.
+ * A shell command is never prose. A slash draft is asked about with its
+ * command word elided, because omp's gate rejects any line starting with `/`.
+ * The command word itself has no prose to ask about, and the slash palette
+ * owns Tab.
  */
 export function wordGhostCandidate(text: string, caret: number): boolean {
   if (caret !== text.length) return false;

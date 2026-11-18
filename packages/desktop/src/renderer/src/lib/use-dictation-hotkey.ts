@@ -52,7 +52,7 @@ export function useDictationHotkey(
     const onKeyDown = (e: KeyboardEvent): void => {
       const v = voiceRef.current;
       if (e.key === "Escape" && !isTypingTarget(e.target) && isVoicePhase(v.phase)) {
-        // Window-level twin of the composer textarea's Escape branch: while
+        // Window-level twin of the composer editor's Escape branch: while
         // holding R the focus sits on document.body, so that branch never runs.
         v.cancel();
         return;

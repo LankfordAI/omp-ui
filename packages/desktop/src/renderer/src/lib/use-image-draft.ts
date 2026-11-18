@@ -33,7 +33,7 @@ export interface ImageDraft {
   /** Why an Attachment was refused (over a size ceiling, unreadable). */
   pasteError: string | null;
   /** Intercepts an image or PDF paste; text pastes pass through untouched. */
-  onPaste: (e: ClipboardEvent<HTMLTextAreaElement>) => void;
+  onPaste: (e: ClipboardEvent<HTMLElement>) => void;
   /** Adds picker-selected Attachments through the same draft path as paste. */
   pickFiles: (e: ChangeEvent<HTMLInputElement>) => void;
   /** Appends ready-made image Attachments (the browser pane's hand-back) under the same size guard. */
@@ -77,7 +77,7 @@ export function useImageDraft(): ImageDraft {
    * carrying both (copying an image out of a rich editor) should still paste
    * its text.
    */
-  const onPaste = useCallback(async (e: ClipboardEvent<HTMLTextAreaElement>) => {
+  const onPaste = useCallback(async (e: ClipboardEvent<HTMLElement>) => {
     const hasImage = hasClipboardImage(e.clipboardData);
     const hasDocument = hasClipboardDocument(e.clipboardData);
     if (!hasImage && !hasDocument) return;

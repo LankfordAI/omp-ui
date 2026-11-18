@@ -113,7 +113,7 @@ export function useOverlay(
       const activeTab = visibleTab();
       const switchedComposer =
         activeTab !== tabAtOpen.current
-          ? activeTab?.querySelector<HTMLElement>("[data-composer-input]:not([disabled])") ?? null
+          ? activeTab?.querySelector<HTMLElement>('[data-composer-input]:not([disabled]):not([aria-disabled="true"])') ?? null
           : null;
       (restore.current?.() ?? switchedComposer ?? trigger.current)?.focus({ preventScroll: true });
     };

@@ -12,7 +12,7 @@ import type { ArtifactRecord } from "@omp-ui/core/artifacts";
  * Inline file picker above the composer, opened by an `@`-word at the caret —
  * SlashPalette's machinery pointed at the project file listing instead of the
  * command set. Same split: the palette owns filtering and the selection
- * cursor, and the composer's textarea forwards its keydown through
+ * cursor, and the composer forwards its keydown through
  * `handleKey`, so focus never leaves the input. Sessions this one may
  * reference (issue #984) lead the list under their own label.
  */
@@ -173,7 +173,7 @@ export function MentionPalette({
             data-mention-session={row.kind === "session" ? row.tabId : undefined}
             data-mention-artifact={row.kind === "artifact" ? row.tabId : undefined}
             ref={i === active ? activeRef : null}
-            // Keep the caret in the textarea: a blur would tear the palette down.
+            // Keep the caret in the editor when picking a row.
             onMouseDown={(e) => e.preventDefault()}
             onMouseEnter={() => setActive(i)}
             onClick={() => pickRow(row)}
