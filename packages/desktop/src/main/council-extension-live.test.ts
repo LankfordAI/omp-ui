@@ -240,18 +240,21 @@ async function scriptedProvider(
       const index = models.length;
       let model = "";
       let bodyText = "";
+      let hasTools = false;
       try {
         bodyText = Buffer.concat(parts).toString("utf8");
-        const body = JSON.parse(bodyText) as { model?: unknown };
+        const body = JSON.parse(bodyText) as { model?: unknown; tools?: unknown };
         if (typeof body.model === "string") model = body.model;
+        hasTools = Array.isArray(body.tools) && body.tools.length > 0;
       } catch {
-        // An unparseable body is recorded as "" and still answered.
+        // Unparseable requests do not count as tool-bearing turns.
       }
-      models.push(model);
+      // omp probes provider capabilities before the first tool-bearing turn.
+      if (hasTools) models.push(model);
       const marker = [...launchMarkers].reverse().find((value) => bodyText.includes(value));
-      const shouldLaunch = launchMarkers.length === 0
+      const shouldLaunch = hasTools && (launchMarkers.length === 0
         ? index === 0
-        : model === "inert" && marker !== undefined && !launched.has(marker);
+        : model === "inert" && marker !== undefined && !launched.has(marker));
       if (shouldLaunch && marker !== undefined) launched.add(marker);
       const calls = marker === undefined ? toolCalls : [{ ...TASK_CALL, id: `${TASK_CALL.id}_${marker}` }];
       response.writeHead(200, { "Content-Type": "text/event-stream", "Cache-Control": "no-cache" });

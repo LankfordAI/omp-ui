@@ -230,9 +230,11 @@ async function councilProvider(withTrial: boolean): Promise<{ baseUrl: string; m
     request.on("data", (part: Buffer) => parts.push(part));
     request.on("end", () => {
       const bodyText = Buffer.concat(parts).toString("utf8");
-      const body = JSON.parse(bodyText) as { model: string };
-      models.push(body.model);
-      const launch = !launched && body.model === "inert" && bodyText.includes("warm-council-probe");
+      const body = JSON.parse(bodyText) as { model: string; tools?: unknown[] };
+      // Do not count omp's tool-less provider capability probes as member turns.
+      const hasTools = (body.tools?.length ?? 0) > 0;
+      if (hasTools) models.push(body.model);
+      const launch = hasTools && !launched && body.model === "inert" && bodyText.includes("warm-council-probe");
       if (launch) launched = true;
       const chunk = (delta: Record<string, unknown>, finishReason: string | null): string =>
         `data: ${JSON.stringify({

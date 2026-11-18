@@ -119,6 +119,7 @@ async function scriptedProvider(): Promise<Provider> {
         const body: unknown = JSON.parse(Buffer.concat(parts).toString("utf8"));
         if (!isObject(body)) throw new Error("expected a completion request object");
         requests.push(body);
+        const hasTools = Array.isArray(body.tools) && body.tools.length > 0;
         // Chat Completions simulation of the reported OpenRouter Responses
         // root-schema restriction, not an actual OpenRouter integration.
         const rejectsRootSchema = Array.isArray(body.tools) && body.tools.some((tool: unknown) => {
@@ -135,7 +136,8 @@ async function scriptedProvider(): Promise<Provider> {
           }));
           return;
         }
-        const call = provider.respond(body);
+        // Tool-less provider probes must not consume a scripted artifact call.
+        const call = hasTools ? provider.respond(body) : null;
         response.writeHead(200, { "Content-Type": "text/event-stream", "Cache-Control": "no-cache" });
         if (call !== null) {
           response.end(chunk({ role: "assistant", tool_calls: [{
