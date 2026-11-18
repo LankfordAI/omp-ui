@@ -217,6 +217,7 @@ import {
   type ThemeToolArgs,
   type ThemeWriteSlot,
 } from "@omp-ui/core";
+import type { ThemePreference } from "@omp-ui/core/theme";
 import { CURATED_THEME_SOURCES } from "@omp-ui/core/theme-sources";
 import { mintRemoteToken } from "@omp-ui/server";
 import { normalizeProjectIconRaster } from "./project-icon-raster";
@@ -270,6 +271,7 @@ import { UsageTelemetry } from "./usage-telemetry";
 import { ThemeBackdropStore } from "./theme-backdrop-store";
 import { pruneThemeBackdrops, saveStoredTheme, type StoredThemeDeps } from "./stored-themes";
 import { ThemeRepositoryService } from "./theme-repositories";
+import { readThemeUsageSample } from "./theme-usage";
 
 /** A Fleet result's summary read races this window, the same bound as the status tool's summary race. */
 const FLEET_CHILD_SUMMARY_TIMEOUT_MS = 5_000;
@@ -466,6 +468,10 @@ export class MainBackend {
       ledgerFile: path.join(path.dirname(registryFile), "usage-telemetry.json"),
       appVersion: this.appVersion,
       modelUsageEnabled: () => this.registry.getSetting("telemetryModelsEnabled"),
+      getThemeConsentId: () => this.registry.getSetting("telemetryThemesConsentId"),
+      readThemeSample: () => readThemeUsageSample(
+        this.themePreference(), this.registry.getSetting("storedThemes"), nativeTheme.shouldUseDarkColors,
+      ),
       isActive: () => !this.win.isDestroyed() && this.win.isFocused(),
       readModels: (since, until) => this.telemetryModels(since, until),
     });
@@ -764,7 +770,7 @@ export class MainBackend {
       webhooks: this.webhooks,
       mcp: this.mcp,
       version: this.appVersion,
-      host: { handlers: () => this.handlers(), addSink: (s) => this.addSink(s) },
+      host: { handlers: () => this.handlers("remote"), addSink: (s) => this.addSink(s) },
       webRoot: opts.webRoot ?? "",
       getSettings: () => ({
         enabled: this.registry.getSetting("remoteEnabled"),
@@ -1154,10 +1160,10 @@ export class MainBackend {
     }
   }
   /**
-   * Every channel's implementation, transport-agnostic: Electron IPC binds these below and the
-   * remote WebSocket server dispatches the same table (issue #37).
+   * Electron IPC and remote WebSocket share the channel table, with desktop-only
+   * consent changes explicitly refused for remote clients.
    */
-  handlers(): ChannelTable {
+  handlers(scope: "desktop" | "remote" = "desktop"): ChannelTable {
     const table = {
       request: {
         [CH.getState]: () => this.buildState(),
@@ -1281,6 +1287,11 @@ export class MainBackend {
           themes: this.storedThemeDeps,
           themeRepositories: this.themeRepositories,
         }),
+        ...(scope === "remote" ? {
+          [CH.setTelemetryThemesEnabled]: () => {
+            throw new Error("Theme usage sharing can only be changed in the desktop app.");
+          },
+        } : {}),
         ...registerArtifactHandlers(this.artifacts),
         // Human-only save exports: the stored bytes go straight to a chosen path at 0600; large payloads never ride renderer strings. Cancel reports null.
         [CH.artifactSavePart]: async (request: ArtifactSavePartRequest): Promise<string | null> => {
@@ -2340,17 +2351,18 @@ export class MainBackend {
     return { slot, painting: source.id === this.effectiveThemeIdForTool() };
   }
 
+  private themePreference(): ThemePreference {
+    return {
+      themeMode: this.registry.getSetting("themeMode"),
+      themeId: this.registry.getSetting("themeId"),
+      lightThemeId: this.registry.getSetting("lightThemeId"),
+      darkThemeId: this.registry.getSetting("darkThemeId"),
+    };
+  }
+
   /** The id this host's windows paint under the current OS scheme (issue #1175). */
   private effectiveThemeIdForTool(): string {
-    return effectiveThemeId(
-      {
-        themeMode: this.registry.getSetting("themeMode"),
-        themeId: this.registry.getSetting("themeId"),
-        lightThemeId: this.registry.getSetting("lightThemeId"),
-        darkThemeId: this.registry.getSetting("darkThemeId"),
-      },
-      nativeTheme.shouldUseDarkColors,
-    );
+    return effectiveThemeId(this.themePreference(), nativeTheme.shouldUseDarkColors);
   }
 
   /** Curated ∪ stored rows: every id main can resolve, with its label. */
@@ -3086,6 +3098,7 @@ export class MainBackend {
       stallAutoContinue: this.registry.getSetting("stallAutoContinue"),
       desktopNotifications: this.registry.getSetting("desktopNotifications"),
       telemetryModelsEnabled: this.registry.getSetting("telemetryModelsEnabled"),
+      telemetryThemesEnabled: this.registry.getSetting("telemetryThemesConsentId") !== null,
       htmlArtifactScripts: this.registry.getSetting("htmlArtifactScripts"),
       artifactLibraryEnabled: this.registry.getSetting("artifactLibraryEnabled"),
       deviceAgentAccess: this.registry.getSetting("deviceAgentAccess"),

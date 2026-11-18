@@ -38,6 +38,7 @@ interface RegistrySettings {
   remoteVsCodeEnabled: boolean;
   deviceAgentAccess: boolean;
   telemetryModelsEnabled: boolean;
+  telemetryThemesConsentId: string | null;
   voiceInputEnabled: boolean;
   sttModel: string | null;
   memoryDefaultsSeeded: boolean;
@@ -177,6 +178,7 @@ export function seedRegistry(file: string, patch: RegistrySeedPatch = {}): void 
     remoteVsCodeEnabled: false,
     deviceAgentAccess: false,
     telemetryModelsEnabled: true,
+    telemetryThemesConsentId: null,
     voiceInputEnabled: false,
     sttModel: null,
     memoryDefaultsSeeded: false,

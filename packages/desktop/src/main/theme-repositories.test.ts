@@ -10,9 +10,11 @@ import {
   type ThemeRepositoryFetch,
   type ThemeRepositoryResponse,
 } from "@omp-ui/core";
+import { OFFICIAL_THEME_REPOSITORY } from "@omp-ui/core/theme-origin";
 import { saveStoredTheme, setOfficialThemes, type StoredThemeDeps } from "./stored-themes";
 import { ThemeBackdropStore } from "./theme-backdrop-store";
 import { ThemeRepositoryService } from "./theme-repositories";
+import { readThemeUsageSample } from "./theme-usage";
 
 const REPO = "owner/themes";
 const C1 = "1".repeat(40);
@@ -295,19 +297,51 @@ describe("ThemeRepositoryService (#1178)", () => {
 });
 
 describe("ThemeRepositoryService official repository (#1209)", () => {
-  const OFFICIAL = "lankfordai/omp-ui-themes";
+  const OFFICIAL = OFFICIAL_THEME_REPOSITORY;
   const deferred = (): { promise: Promise<void>; resolve: () => void } => {
     let resolve!: () => void;
     const promise = new Promise<void>((r) => (resolve = r));
     return { promise, resolve };
   };
 
-  it("browses the official repository without it being added, only while official themes are on", async () => {
+  it("browses and installs a new official slug without needing a catalog fetch to sample it", async () => {
     const { registry, service, github } = setup(() => 0, OFFICIAL);
-    github.commits.set(C1, { files: { "dusk.json": themeFile({ label: "Dusk", canvas: "#1a1b26" }) } });
+    const slug = "future-midnight-2";
+    const themePath = `themes/${slug}.json`;
+    const files = { [themePath]: themeFile({ label: "Midnight", canvas: "#1a1b26" }) };
+    github.commits.set(C1, { files });
     expect(registry.getSetting("themeRepositories")).toEqual([]);
     expect((await service.browse(OFFICIAL, false)).ok).toBe(true);
     expect(github.calls.length).toBeGreaterThan(0);
+    const installed = await service.install({ repository: OFFICIAL, commit: C1, path: themePath });
+    if (!installed.ok) throw new Error("official install failed");
+    const preference = {
+      themeMode: "fixed" as const,
+      themeId: installed.source.id,
+      lightThemeId: registry.getSetting("lightThemeId"),
+      darkThemeId: registry.getSetting("darkThemeId"),
+    };
+    const callsAfterInstall = github.calls.length;
+    expect(readThemeUsageSample(preference, registry.getSetting("storedThemes"), true)).toEqual({
+      themeKey: `official/${slug}`,
+      isDefault: false,
+    });
+    expect(github.calls).toHaveLength(callsAfterInstall);
+
+    const thirdParty = setup();
+    thirdParty.github.commits.set(C1, { files });
+    await thirdParty.service.add(REPO);
+    expect((await thirdParty.service.browse(REPO, false)).ok).toBe(true);
+    const thirdPartyInstall = await thirdParty.service.install({ repository: REPO, commit: C1, path: themePath });
+    if (!thirdPartyInstall.ok) throw new Error("third-party install failed");
+    expect(
+      readThemeUsageSample(
+        { ...preference, themeId: thirdPartyInstall.source.id },
+        thirdParty.registry.getSetting("storedThemes"),
+        true,
+      ),
+    ).toEqual({ themeKey: "custom/other", isDefault: false });
+
     registry.setSetting("officialThemes", false);
     expect(await service.browse(OFFICIAL, true)).toEqual({ ok: false, message: "add the repository first" });
   });

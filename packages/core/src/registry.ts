@@ -83,6 +83,8 @@ export interface RegistrySettings {
   issueAgentAccess: boolean;
   /** Host-local public model/provider aggregates; default on, with opt-out. */
   telemetryModelsEnabled: boolean;
+  /** Internal opt-in identifier for theme telemetry; null means off. Never broadcast. */
+  telemetryThemesConsentId: string | null;
   /** Seeds the advisor on/off for new sessions (issue #174); default off. */
   defaultAdvisor: boolean;
   /** Seeds omp's auto thinking selector for new sessions with no
@@ -315,6 +317,13 @@ export const SETTINGS: SettingDescriptors = {
   telemetryModelsEnabled: validatedSetting(
     () => true,
     (value): value is boolean => typeof value === "boolean",
+  ),
+  telemetryThemesConsentId: validatedSetting<string | null>(
+    () => null,
+    (value): value is string | null => value === null || (
+      typeof value === "string" && value.length === 36 &&
+      /^[0-9a-f]{8}-[0-9a-f]{4}-4[0-9a-f]{3}-[89ab][0-9a-f]{3}-[0-9a-f]{12}$/i.test(value)
+    ),
   ),
   // The app default is off (issue #174): omp config may say on, but a booted
   // app's preference wins for new sessions with no per-project memory.

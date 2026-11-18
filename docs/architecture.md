@@ -219,9 +219,13 @@ reads or collection retain useful data with its original selection/source label.
 `MainBackend` ([#1097](https://github.com/LankfordAI/omp-ui/issues/1097)). Basic
 activity reporting is automatic in packaged builds: there is no opt-out registry
 setting, backend channel, or UI switch. `telemetryModelsEnabled` defaults on, with
-an opt-out switch; an explicitly stored false remains false. Preference commits
-synchronously cancel revoked model delivery before the state broadcast.
-Unpackaged builds do not create identities, collect, or report.
+an opt-out switch; an explicitly stored false remains false. Theme sharing is a
+separate, desktop-only opt-in that defaults off even on upgrade. Its validated
+v4 consent generation stays in the host registry; state broadcasts expose only
+the derived Boolean (always false in Host Lite). No remote caller or agent tool
+can change that consent. Preference commits reconcile revoked delivery
+synchronously before the state broadcast. Unpackaged builds do not create
+identities, collect, or report.
 
 The main process reports foreground desktop activity once per UTC hour and freezes
 public model/provider request aggregates after each UTC hour closes. The existing
@@ -258,6 +262,29 @@ checkpoints and drain already-frozen `model_usage_daily` reports before hourly
 collection, without re-querying acknowledged historical requests. Historical daily
 and new hourly reports represent non-overlapping workload; sum `requests` across
 both event names to combine it, rather than counting aggregate events.
+
+`theme_usage_hourly` uses the same installation ID and common metadata as
+`app_active`. Its event timestamp is the frozen foreground observation in ISO
+UTC. Additional properties are UTC `date`, `theme_key`, and `theme_is_default`
+(whether the active slot uses its stock ID or an unresolved pick fell back).
+Main reads the saved fixed or OS-selected slot, not renderer paint or preview
+events. Exact curated IDs yield `builtin/<id>`. Verified stored origin from
+`LankfordAI/omp-ui-themes` at `themes/<slug>.json` yields `official/<slug>`;
+everything else stored is bucketed as `custom/other`. The existing publisher
+contract is a lowercase alphanumeric slug with single hyphens, up to 64
+characters. New slugs need no app or dashboard changes. Keep published filenames
+stable: label and artwork updates preserve identity, but renaming the file starts
+a different series. Do not reuse slugs for unrelated themes.
+
+The version-2 ledger has a separate theme lane: last reserved UTC hour and at
+most one pending row with its consent generation. It reserves and persists the
+hour before sending, then retries the same event across timeout or restart, even
+without focus. A retry does not sample again in that poll; missed hours and
+clock rollback never create backfill. Revocation aborts in-flight delivery and
+discards pending rows from any other consent generation, retaining the hour in
+case a request was already accepted. Re-enabling generates a fresh consent ID,
+so stale on-disk reports cannot replay. None of the local consent, registry, or
+origin identifiers are sent, and activity/model queues survive theme changes.
 
 Maintainer dashboards use Trends **Unique users** (distinct installations), grouped
 hourly/daily or over 7-day/30-day windows; model workload uses summed `total_tokens`

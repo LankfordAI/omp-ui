@@ -1000,6 +1000,9 @@ export const ko: Partial<Record<MessageKey, string>> = {
   "settings.general.telemetryModels": "시간별 모델/제공자 사용량 공유",
   "settings.general.telemetryModelsHint":
     "기본적으로 켜져 있으며 끄면 공유를 거부할 수 있습니다. UTC 기준 매시간이 끝난 뒤 공개 모델/제공자별 요청 및 토큰 집계를 전송합니다. 매분 확인하며 Stats 갱신 상태에 따라 전송이 지연될 수 있고, 다음 실행 시 밀린 보고를 전송합니다. 꺼도 기본 앱 활동 보고는 계속됩니다.",
+  "settings.general.telemetryThemes": "테마 사용 정보 공유",
+  "settings.general.telemetryThemesHint":
+    "기본적으로 꺼져 있습니다. 배포용 데스크톱 앱에서는 현재 사용 중인 기본 제공 테마 또는 공식 저장소 테마를 기본 활동 보고와 동일한 설치 ID로 공유합니다. 앱이 전면에 있는 동안 시간당 최대 한 번만 보고합니다. 그 외 테마는 이름이나 파일을 보내지 않고 하나의 그룹으로 집계합니다. 이 설정을 끄면 이후 테마 보고만 중단되며 다른 원격 측정에는 영향을 주지 않습니다.",
   "settings.general.deviceAgentAccess": "에이전트의 기기 사용 허용",
   "settings.general.deviceAgentAccessHint":
     "이 변경 후 시작하거나 재개한 세션에 omp-ui_device 도구를 제공합니다. 이 도구는 기기 패널의 Android 에뮬레이터를 조작합니다. Android SDK(adb 및 emulator)가 필요합니다.",

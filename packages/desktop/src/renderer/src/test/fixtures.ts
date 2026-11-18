@@ -19,6 +19,7 @@ export function backendState(patch: Partial<BackendState> = {}): BackendState {
     artifactLibraryEnabled: false,
     deviceAgentAccess: false,
     telemetryModelsEnabled: true,
+    telemetryThemesEnabled: false,
     subagentModelInheritByDefault: true,
   agentRoster: [],
   defaultAdvisor: false,

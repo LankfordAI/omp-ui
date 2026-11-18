@@ -2,6 +2,7 @@ import { randomUUID } from "node:crypto";
 import * as fs from "node:fs";
 import * as path from "node:path";
 import { telemetryModelDimensions, type TelemetryModelUsageRow } from "@omp-ui/core";
+import { isThemeUsageKey, type ThemeUsageSample } from "./theme-usage";
 
 // Public, write-only project token, deliberately embedded in the shipped app.
 const PROJECT_TOKEN = "phc_m8Jz47vWuxxeWrD65An6cW8rsE9tvoYfxsBsxbnVMzXY";
@@ -34,10 +35,16 @@ interface ModelSnapshot {
   until: number;
   rows: ModelReport[];
 }
+interface ThemeReport extends ThemeUsageSample {
+  uuid: string;
+  timestamp: number;
+  consentId: string;
+}
 interface TelemetryLedger {
   version: 2;
   installationId: string;
   app: { lastHour: number | null; pending: ActivityReport | null };
+  themes: { lastHour: number | null; pending: ThemeReport | null };
   models: {
     since: number;
     through: number;
@@ -51,6 +58,8 @@ export interface UsageTelemetryDependencies {
   ledgerFile: string;
   appVersion: string;
   modelUsageEnabled: () => boolean;
+  getThemeConsentId: () => string | null;
+  readThemeSample: () => ThemeUsageSample;
   /** Desktop foreground use, not background fleet/process uptime. */
   isActive: () => boolean;
   /** null means unavailable/still collecting: do not advance the checkpoint. */
@@ -92,7 +101,7 @@ function object(value: unknown): Record<string, unknown> | null {
 }
 
 /** Parse only the private ledger schema. Never replay arbitrary persisted event properties. */
-function readLedger(file: string): { ledger: TelemetryLedger; migrated: boolean } | null {
+function readLedger(file: string): { ledger: TelemetryLedger; migrated: boolean; rewriteThemes: boolean } | null {
   try {
     if (fs.statSync(file).size > 4 * 1024 * 1024) return null;
     const raw = object(JSON.parse(fs.readFileSync(file, "utf8")));
@@ -100,7 +109,7 @@ function readLedger(file: string): { ledger: TelemetryLedger; migrated: boolean 
     const migrated = raw.version === 1;
     const ledger: TelemetryLedger = {
       version: 2, installationId: raw.installationId,
-      app: { lastHour: null, pending: null }, models: null,
+      app: { lastHour: null, pending: null }, models: null, themes: { lastHour: null, pending: null },
     };
     if (raw.app !== null) {
       const app = object(raw.app);
@@ -161,20 +170,39 @@ function readLedger(file: string): { ledger: TelemetryLedger; migrated: boolean 
         ledger.models.pending = { cadence, until: pending.until, rows };
       }
     }
-    return { ledger, migrated };
+    let rewriteThemes = false;
+    if (raw.themes !== undefined) {
+      const themes = object(raw.themes);
+      const lastHour = themes?.lastHour;
+      if (isTime(lastHour) && hour(lastHour) === lastHour) ledger.themes.lastHour = lastHour;
+      else if (lastHour !== null) rewriteThemes = true;
+      if (themes?.pending !== null) {
+        const row = object(themes?.pending);
+        if (row && isUuid(row.uuid) && isUuid(row.consentId) &&
+          isTime(row.timestamp) && hour(row.timestamp) === ledger.themes.lastHour &&
+          isThemeUsageKey(row.themeKey) && typeof row.isDefault === "boolean") {
+          const { uuid, consentId, timestamp, themeKey, isDefault } = row;
+          ledger.themes.pending = { uuid, consentId, timestamp, themeKey, isDefault };
+        } else {
+          rewriteThemes = true;
+        }
+      }
+    }
+    return { ledger, migrated, rewriteThemes };
   } catch {
     // A missing/corrupt ledger starts fresh; optional model history is never backfilled.
     return null;
   }
 }
 
-/** One main-process owner, required activity and optional model usage, durable report identities. */
+/** One main-process owner for required activity and optional model and theme usage. */
 export class UsageTelemetry {
   private ledger: TelemetryLedger | null = null;
   private loaded = false;
   private dirty = false;
   private disposed = false;
   private generation = 0;
+  private themeConsentId: string | null = null;
   private timer: NodeJS.Timeout | undefined;
   private running: Promise<void> | null = null;
   private request: AbortController | null = null;
@@ -202,26 +230,38 @@ export class UsageTelemetry {
   syncConsent(): void {
     if (!this.deps.enabled || this.disposed) return;
     const modelsEnabled = this.deps.modelUsageEnabled();
+    const themeConsentId = this.deps.getThemeConsentId();
     if (!this.loaded) {
       this.loaded = true;
       const restored = readLedger(this.deps.ledgerFile);
       this.ledger = restored?.ledger ?? null;
-      this.dirty = restored?.migrated ?? false;
+      this.dirty = !!(restored?.migrated || restored?.rewriteThemes);
     }
     const now = this.now();
     if (!this.ledger) {
       this.ledger = {
         version: 2, installationId: randomUUID(), app: { lastHour: null, pending: null },
         models: modelsEnabled ? { since: now, through: now, pending: null } : null,
+        themes: { lastHour: null, pending: null },
       };
       this.dirty = true;
     }
     const ledger = this.ledger;
-    if ((ledger.models !== null) !== modelsEnabled) {
-      this.generation++;
-      this.request?.abort();
+    const modelConsentChanged = (ledger.models !== null) !== modelsEnabled;
+    const themeConsentChanged = themeConsentId !== this.themeConsentId;
+    this.themeConsentId = themeConsentId;
+    if (modelConsentChanged) {
       ledger.models = modelsEnabled ? { since: now, through: now, pending: null } : null;
       this.dirty = true;
+    }
+    if (ledger.themes.pending && ledger.themes.pending.consentId !== themeConsentId) {
+      // Keep the reserved hour: a canceled request might already have arrived.
+      ledger.themes.pending = null;
+      this.dirty = true;
+    }
+    if (modelConsentChanged || themeConsentChanged) {
+      this.generation++;
+      this.request?.abort();
     }
     // Persist the installation identity and model-sharing start time before sending.
     try { this.save(); } catch { this.warn(); }
@@ -323,6 +363,10 @@ export class UsageTelemetry {
       }
     }
     if (!this.current(generation)) return;
+    if (this.themeConsentId !== null) {
+      try { await this.runThemes(generation); } catch { this.warn(); }
+      if (!this.current(generation)) return;
+    }
     const models = ledger.models;
     if (!models) return;
     const until = hour(this.now());
@@ -384,6 +428,42 @@ export class UsageTelemetry {
     if (!this.current(generation)) return;
     models.through = pending.until;
     models.pending = null;
+    this.dirty = true;
+    this.save();
+  }
+
+  private async runThemes(generation: number): Promise<void> {
+    const consentId = this.themeConsentId;
+    if (consentId === null) return;
+    const ledger = this.ledger!;
+    const themes = ledger.themes;
+    if (!themes.pending) {
+      const timestamp = this.now();
+      if (!isTime(timestamp) || !this.deps.isActive()) return;
+      const currentHour = hour(timestamp);
+      if (themes.lastHour !== null && themes.lastHour >= currentHour) return;
+      const { themeKey, isDefault } = this.deps.readThemeSample();
+      if (!isThemeUsageKey(themeKey) || typeof isDefault !== "boolean") return;
+      themes.lastHour = currentHour;
+      themes.pending = { uuid: randomUUID(), timestamp, consentId, themeKey, isDefault };
+      this.dirty = true;
+    }
+    const report = themes.pending;
+    if (report.consentId !== consentId) return;
+    const accepted = await this.send([{
+      uuid: report.uuid,
+      event: "theme_usage_hourly",
+      distinct_id: ledger.installationId,
+      timestamp: new Date(report.timestamp).toISOString(),
+      properties: {
+        ...this.commonProperties,
+        date: day(report.timestamp),
+        theme_key: report.themeKey,
+        theme_is_default: report.isDefault,
+      },
+    }], generation);
+    if (!accepted || !this.current(generation)) return;
+    themes.pending = null;
     this.dirty = true;
     this.save();
   }

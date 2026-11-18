@@ -69,6 +69,7 @@ type BroadcastSettings = Omit<
   RegistrySettings,
   | "memoryDefaultsSeeded"
   | "autoThinkingDefaultSeeded"
+  | "telemetryThemesConsentId"
   | "hibernateManualDefaultSeeded"
   | "councilDefaultOnSeeded"
   | "themeAgentAccessDefaultOnSeeded"
@@ -94,6 +95,7 @@ export function broadcastSettings(registry: Registry): BroadcastSettings {
   const {
     memoryDefaultsSeeded: _m1,
     autoThinkingDefaultSeeded: _m2,
+    telemetryThemesConsentId: _themeConsent,
     hibernateManualDefaultSeeded: _m3,
     councilDefaultOnSeeded: _m4,
     themeAgentAccessDefaultOnSeeded: _m5,
@@ -275,11 +277,12 @@ export function mergeRegistryState(registry: Registry, base: BackendState): Back
   }));
   const merged: Partial<BackendState> = { ...base };
   // Runtime boundary against S2 payloads: BackendBroadcastSettings omits these
-  // twelve keys at the type level; strip them from the spread as well.
+  // internal keys at the type level; strip them from the spread as well.
   for (const key of NEVER_BROADCAST_KEYS) delete (merged as Record<string, unknown>)[key];
   return {
     ...(merged as BackendState),
     ...broadcastSettings(registry),
+    telemetryThemesEnabled: false,
     projects,
     modelFavorites: registry.getFavorites(),
     // A lite member is joined; it never joins anyone (the fleet is one level deep).
@@ -288,6 +291,7 @@ export function mergeRegistryState(registry: Registry, base: BackendState): Back
 }
 
 const NEVER_BROADCAST_KEYS: readonly string[] = [
+  "telemetryThemesConsentId",
   "remoteEnabled",
   "remoteBind",
   "remotePort",
@@ -313,6 +317,7 @@ export function registryOnlySessions(registry: Registry): LiteSessions {
     handlers: {},
     state: () => ({
       ...broadcastSettings(registry),
+      telemetryThemesEnabled: false,
       projects: [],
       chats: [],
       spawnGate: { model: null, advisorModel: null },

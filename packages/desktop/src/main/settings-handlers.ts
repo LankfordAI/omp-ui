@@ -1,3 +1,4 @@
+import { randomUUID } from "node:crypto";
 import {
   CH,
   importVsCodeThemeFiles,
@@ -49,6 +50,7 @@ type SettingsHandlerChannels =
   | typeof CH.setArtifactLibraryEnabled
   | typeof CH.setDeviceAgentAccess
   | typeof CH.setTelemetryModelsEnabled
+  | typeof CH.setTelemetryThemesEnabled
   | typeof CH.setDefaultAdvisor
   | typeof CH.setDefaultAutoThinking
   | typeof CH.setSubagentModelInheritByDefault
@@ -153,6 +155,12 @@ export function registerSettingsHandlers(
     [CH.setDeviceAgentAccess]: (value: boolean) => commit("deviceAgentAccess", value),
     [CH.setTelemetryModelsEnabled]: async (value: boolean) => {
       deps.registry.setSetting("telemetryModelsEnabled", value);
+      deps.onTelemetryChanged();
+      await deps.broadcast();
+    },
+    [CH.setTelemetryThemesEnabled]: async (on: boolean) => {
+      const consentId = on ? deps.registry.getSetting("telemetryThemesConsentId") ?? randomUUID() : null;
+      deps.registry.setSetting("telemetryThemesConsentId", consentId);
       deps.onTelemetryChanged();
       await deps.broadcast();
     },

@@ -245,6 +245,7 @@ const VALID_ARGS = {
   setRemoteVsCodeEnabled: [true],
   setDeviceAgentAccess: [true],
   setTelemetryModelsEnabled: [false],
+  setTelemetryThemesEnabled: [true],
   setAutoSettleMergedPullRequests: [false],
   setFontFamilyId: ["mono"],
   setGettingStartedSeen: [true],
@@ -720,6 +721,7 @@ describe("transport dispatch", () => {
       "argument 1",
     ],
     [CH.setRemotePort, [Number.POSITIVE_INFINITY], "argument 0"],
+    [CH.setTelemetryThemesEnabled, ["true"], "argument 0"],
     [CH.getState, ["secret-extra"], "expected at most 0"],
     [
       CH.exportDiagnosticsBundle,

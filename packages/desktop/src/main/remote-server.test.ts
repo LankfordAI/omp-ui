@@ -270,6 +270,39 @@ describe("remote server lifecycle", () => {
     expect(res.value).toHaveProperty("projects");
   });
 
+  it("refuses theme consent changes over the authenticated socket", async () => {
+    await invoke(CH.setTelemetryThemesEnabled, true);
+    const consent = () => JSON.parse(fs.readFileSync(registryFile, "utf8")).settings.telemetryThemesConsentId;
+    const id = consent();
+    expect(id).toEqual(expect.any(String));
+    await invoke(CH.setRemotePort, port);
+    await invoke(CH.setRemoteEnabled, true);
+    const ws = await connect(port, lastPush().token);
+    const request = (id: number, ch: string, args: unknown[]) => {
+      const reply = Promise.withResolvers<Record<string, unknown>>();
+      const onMessage = (raw: Buffer) => {
+        const frame = JSON.parse(raw.toString("utf8"));
+        if (frame.t === "res" && frame.id === id) {
+          ws.off("message", onMessage);
+          reply.resolve(frame);
+        }
+      };
+      ws.on("message", onMessage);
+      ws.send(JSON.stringify({ t: "req", id, ch, args }));
+      return reply.promise;
+    };
+    const state = await request(1, CH.getState, []);
+    expect(state.value).toHaveProperty("telemetryThemesEnabled", true);
+    expect(JSON.stringify(state)).not.toContain(id);
+    expect(await request(2, CH.setTelemetryThemesEnabled, [false])).toMatchObject({
+      ok: false, message: "Theme usage sharing can only be changed in the desktop app.",
+    });
+    expect(consent()).toBe(id);
+    await invoke(CH.setTelemetryThemesEnabled, false);
+    expect(await request(3, CH.setTelemetryThemesEnabled, [true])).toMatchObject({ ok: false });
+    expect(consent()).toBeNull();
+  });
+
   it("returns the app-update restart handshake over the remote socket", async () => {
     await invoke(CH.setRemotePort, port);
     await invoke(CH.setRemoteEnabled, true);
