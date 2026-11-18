@@ -288,6 +288,22 @@ describe("lite member owner handshake (issue #1010)", () => {
     await expect(client.request("provider:list", [])).rejects.toThrow(/unknown channel/);
   });
 
+  it("rejects theme telemetry opt-in and never exposes persisted or session-supplied consent", async () => {
+    const id = "00000000-0000-4000-8000-000000000000";
+    const base = { ...emptyState({ telemetryThemesEnabled: true }), telemetryThemesConsentId: id };
+    const instance = await boot(fakeSessions(base));
+    const client = await join(instance);
+    await expect(client.request(CH.setTelemetryThemesEnabled, [true])).rejects.toThrow(/unknown channel/);
+    expect(instance.registry.getSetting("telemetryThemesConsentId")).toBeNull();
+
+    instance.registry.setSetting("telemetryThemesConsentId", id);
+    await expect(client.request(CH.setTelemetryThemesEnabled, [false])).rejects.toThrow(/unknown channel/);
+    expect(instance.registry.getSetting("telemetryThemesConsentId")).toBe(id);
+    const state = await client.request<BackendState>(CH.getState, []);
+    expect(state.telemetryThemesEnabled).toBe(false);
+    expect(state).not.toHaveProperty("telemetryThemesConsentId");
+  });
+
   it("refuses a bad token and closes a live socket on rotation, like the desktop listener", async () => {
     const instance = await boot(fakeSessions(emptyState()));
     await expect(

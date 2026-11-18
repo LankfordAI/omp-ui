@@ -760,6 +760,7 @@ export interface SettingsSlice {
   /** Gives new and resumed sessions the omp-ui_issue_draft / omp-ui_issue_file tools (ADR-0095); default off. */
   setIssueAgentAccess(on: boolean): Promise<void>;
   setTelemetryModelsEnabled(on: boolean): Promise<void>;
+  setTelemetryThemesEnabled(on: boolean): Promise<void>;
   setDefaultAdvisor(on: boolean): Promise<void>;
   setDefaultAutoThinking(on: boolean): Promise<void>;
   setSubagentModelInheritByDefault(on: boolean): Promise<void>;

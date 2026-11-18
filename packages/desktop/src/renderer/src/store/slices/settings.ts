@@ -257,6 +257,14 @@ export const createSettingsSlice: StateCreator<UiStore, [], [], SettingsSlice> =
       }
     },
 
+    async setTelemetryThemesEnabled(on) {
+      try {
+        await backend.setTelemetryThemesEnabled(on);
+      } catch (err) {
+        get().reportError(err);
+      }
+    },
+
     async setDefaultAdvisor(on) {
       try {
         await backend.setDefaultAdvisor(on);

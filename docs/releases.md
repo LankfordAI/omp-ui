@@ -8,6 +8,7 @@ Changes since [v0.36.1](https://github.com/LankfordAI/omp-ui/releases/tag/v0.36.
 
 - The browser pane works again on omp 18.19+. omp replaced `browser.open`'s `{ cdp_url }` object with a string, so the pane now hands the agent `app: "<cdp url>"` (#1188).
 - omp-ui now requires omp 18.22.0: below it the launch check auto-upgrades (unless Auto-upgrade is off or `OMP_UI_OMP_PATH` pins a binary). Seance consult is gone — omp 18.20.3 removed the agent it ran on — so the rail's Ask group, the sidebar row, and `/seance` no longer offer it. Session references and Ask chats point the model at the transcript file or `archive.session(path)` instead (#1214).
+- **Share theme usage** is a new desktop setting, on by default with an opt-out. In packaged builds it shares which built-in or official repository theme is in use at most once per foreground hour. Other themes are grouped without names or files. Basic activity and model/provider sharing are unchanged (#1223).
 
 ## Choose a download
 

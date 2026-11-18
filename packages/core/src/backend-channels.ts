@@ -581,6 +581,10 @@ export const BACKEND_CHANNELS = {
     channel: "settings:setTelemetryModelsEnabled",
     ...request<[on: boolean], void>([bool()]),
   },
+  setTelemetryThemesEnabled: {
+    channel: "settings:setTelemetryThemesEnabled",
+    ...request<[on: boolean], void>([bool()]),
+  },
   setDefaultAdvisor: {
     channel: "settings:setDefaultAdvisor",
     ...request<[on: boolean], void>([bool()]),

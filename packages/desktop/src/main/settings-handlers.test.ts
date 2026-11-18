@@ -129,6 +129,43 @@ describe("model usage telemetry consent", () => {
   });
 });
 
+describe("theme telemetry consent", () => {
+  it("persists consent before synchronous notification and rotates the ID only after revocation", async () => {
+    const dir = fs.mkdtempSync(path.join(os.tmpdir(), "omp-ui-theme-consent-"));
+    try {
+      const file = path.join(dir, "registry.json");
+      const registry = Registry.load(file);
+      const order: Array<string | null> = [];
+      const handlers = registerSettingsHandlers({
+        registry,
+        broadcast: async () => { order.push("broadcast"); },
+        supportedCompactionMethods: async () => [],
+        onAppUpdateTrainChanged: async () => {},
+        onFleetLadderChanged: () => {},
+        onTelemetryChanged: () => { order.push(Registry.load(file).getSetting("telemetryThemesConsentId")); },
+        seedCouncilRoster: async () => {},
+        themes: themes(registry, dir),
+        themeRepositories: repositories(registry, dir),
+      });
+      const enable = handlers[CH.setTelemetryThemesEnabled](true);
+      const id = registry.getSetting("telemetryThemesConsentId");
+      expect(id).toMatch(/^[0-9a-f]{8}-[0-9a-f]{4}-4[0-9a-f]{3}-[89ab][0-9a-f]{3}-[0-9a-f]{12}$/);
+      expect(order).toEqual([id, "broadcast"]);
+      await enable;
+      await handlers[CH.setTelemetryThemesEnabled](true);
+      const disable = handlers[CH.setTelemetryThemesEnabled](false);
+      expect(order).toEqual([id, "broadcast", id, "broadcast", null, "broadcast"]);
+      await disable;
+      await handlers[CH.setTelemetryThemesEnabled](true);
+      const nextId = Registry.load(file).getSetting("telemetryThemesConsentId");
+      expect(nextId).not.toBeNull();
+      expect(nextId).not.toBe(id);
+    } finally {
+      fs.rmSync(dir, { recursive: true, force: true });
+    }
+  });
+});
+
 describe("artifact library gate ordering", () => {
   it("persists and revokes before broadcasting even when reconciliation fails", async () => {
     const dir = fs.mkdtempSync(path.join(os.tmpdir(), "omp-ui-artifact-gate-"));

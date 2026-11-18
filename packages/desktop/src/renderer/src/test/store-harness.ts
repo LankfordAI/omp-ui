@@ -228,6 +228,7 @@ const mockBackend = {
   setThemeAgentAccess: vi.fn(async () => {}),
   setIssueAgentAccess: vi.fn(async () => {}),
   setTelemetryModelsEnabled: vi.fn(async () => {}),
+  setTelemetryThemesEnabled: vi.fn(async () => {}),
   setSessionSubagentModels: vi.fn(async () => {}),
   setSessionApprovalMode: vi.fn(async () => {}),
   setSessionServiceTier: vi.fn(async () => {}),

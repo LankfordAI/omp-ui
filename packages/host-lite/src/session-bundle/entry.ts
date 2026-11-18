@@ -74,6 +74,7 @@ export type LiteSessionBundleDependencies = Omit<
 const NON_BROADCAST_SETTINGS: readonly string[] = [
   "memoryDefaultsSeeded",
   "autoThinkingDefaultSeeded",
+  "telemetryThemesConsentId",
   "hibernateManualDefaultSeeded",
   "themeAgentAccessDefaultOnSeeded",
   "remoteEnabled",
@@ -218,17 +219,16 @@ export function createSessionBundle(input: LiteSessionBundleDependencies): LiteS
       groups.push({ project, sessions });
     }
     const chats = await Promise.all(chatRecords.map((record) => summarize(record)));
-    // settingsSnapshot() returns every persisted setting; deleting the 16
-    // BackendBroadcastSettings-omit keys leaves exactly the broadcast surface.
-    // TS can not compute that subtraction, so narrow once, named:
+    // Strip internal settings from the persisted snapshot before broadcasting.
     const settings: Record<string, unknown> = { ...input.registry.settingsSnapshot() };
     for (const key of NON_BROADCAST_SETTINGS) delete settings[key];
     const broadcastSettings = settings as unknown as Omit<
       BackendState,
-      "projects" | "chats" | "spawnGate" | "remoteInstances" | "fleetPending" | "fleetTerminals"
+      "projects" | "chats" | "spawnGate" | "remoteInstances" | "fleetPending" | "fleetTerminals" | "telemetryThemesEnabled"
     >;
     return {
       ...broadcastSettings,
+      telemetryThemesEnabled: false,
       projects: groups,
       chats,
       spawnGate: spawnGateState,

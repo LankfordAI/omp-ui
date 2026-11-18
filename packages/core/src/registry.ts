@@ -1,3 +1,4 @@
+import { randomUUID } from "node:crypto";
 import * as fs from "node:fs";
 import * as path from "node:path";
 import { writeTextAtomic } from "./atomic-write";
@@ -83,6 +84,8 @@ export interface RegistrySettings {
   issueAgentAccess: boolean;
   /** Host-local public model/provider aggregates; default on, with opt-out. */
   telemetryModelsEnabled: boolean;
+  /** Internal generation for theme sharing; null means off. Never broadcast. */
+  telemetryThemesConsentId: string | null;
   /** Seeds the advisor on/off for new sessions (issue #174); default off. */
   defaultAdvisor: boolean;
   /** Seeds omp's auto thinking selector for new sessions with no
@@ -315,6 +318,13 @@ export const SETTINGS: SettingDescriptors = {
   telemetryModelsEnabled: validatedSetting(
     () => true,
     (value): value is boolean => typeof value === "boolean",
+  ),
+  telemetryThemesConsentId: validatedSetting<string | null>(
+    () => null,
+    (value): value is string | null => value === null || (
+      typeof value === "string" && value.length === 36 &&
+      /^[0-9a-f]{8}-[0-9a-f]{4}-4[0-9a-f]{3}-[89ab][0-9a-f]{3}-[0-9a-f]{12}$/i.test(value)
+    ),
   ),
   // The app default is off (issue #174): omp config may say on, but a booted
   // app's preference wins for new sessions with no per-project memory.
@@ -1045,12 +1055,20 @@ export class Registry {
     this.#data = data;
   }
 
-  static load(file: string): Registry {
+  static load(file: string, options?: { defaultThemeSharingOn?: boolean }): Registry {
+    const open = (data: RegistryData, savedSettings?: unknown): Registry => {
+      if (options?.defaultThemeSharingOn &&
+        !(savedSettings && typeof savedSettings === "object" && Object.hasOwn(savedSettings, "telemetryThemesConsentId"))) {
+        data.settings.telemetryThemesConsentId = randomUUID();
+        writeRegistry(file, data);
+      }
+      return new Registry(file, data);
+    };
     let raw: string;
     try {
       raw = fs.readFileSync(file, "utf8");
     } catch {
-      return new Registry(file, emptyRegistry());
+      return open(emptyRegistry());
     }
     let parsed: unknown;
     try {
@@ -1060,12 +1078,13 @@ export class Registry {
     }
     const data = parseRegistryData(parsed);
     if (data) {
+      const registry = open(data, parsed && typeof parsed === "object" && "settings" in parsed ? parsed.settings : undefined);
       seedAutoThinkingDefault(file, data);
       seedHibernateManualDefault(file, data);
       seedExperimentsFlagSplit(file, data);
       seedCouncilDefaultOn(file, data);
       seedThemeAgentAccessDefaultOn(file, data);
-      return new Registry(file, data);
+      return registry;
     }
     // Corrupt (or unknown schemaVersion): quarantine and start empty.
     try {
@@ -1073,7 +1092,7 @@ export class Registry {
     } catch {
       // best effort — starting empty either way
     }
-    return new Registry(file, emptyRegistry());
+    return open(emptyRegistry());
   }
 
   #transaction(mutate: (draft: RegistryData) => boolean): boolean {

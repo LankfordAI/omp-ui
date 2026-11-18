@@ -817,9 +817,12 @@ type BackendBroadcastSettings = Omit<
   | "chatLastThinkingLevel"
   | "webhooksEnabled"
   | "mcpEndpointEnabled"
+  | "telemetryThemesConsentId"
 >;
 
 export interface BackendState extends BackendBroadcastSettings {
+  /** Derived from local theme telemetry consent; never includes the consent identifier. */
+  telemetryThemesEnabled: boolean;
   projects: ProjectGroup[];
   /** This host's Chats (CONTEXT.md), in registry order (insertion, newest
    *  first). Never part of `projects`, never in RemoteInstanceSummary: chats
