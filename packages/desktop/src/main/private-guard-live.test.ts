@@ -20,6 +20,7 @@ import {
   parseCapabilitySnapshot,
   type CapabilitySnapshot,
 } from "@omp-ui/core/capabilities";
+import { writeInertLiveModel } from "./test/live-model";
 
 /**
  * Live proof for private sessions (issues #852, #1094) against the real
@@ -178,7 +179,6 @@ function spawnScope(opts: {
   const home = path.join(base, "home");
   fs.mkdirSync(project, { recursive: true });
   fs.mkdirSync(lineage, { recursive: true });
-  fs.mkdirSync(home, { recursive: true });
   fs.mkdirSync(path.join(project, ".omp"), { recursive: true });
   fs.writeFileSync(
     path.join(project, ".omp", "config.yml"),
@@ -209,6 +209,7 @@ function spawnScope(opts: {
     cwd: project,
     lineageDir: lineage,
     ompPath: ompPath!,
+    model: writeInertLiveModel(home),
     configOverlays: overlay === null ? [] : [overlay],
     // Production parity: the session manager passes privateChildEnv(record.private)
     // on both spawn builders; this harness carries it for both modes so the

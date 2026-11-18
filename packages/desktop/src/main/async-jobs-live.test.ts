@@ -44,6 +44,7 @@ const MODELS_YML = (baseUrl: string): string => `providers:
         name: inert
         contextWindow: 131072
         maxTokens: 128
+        reasoning: false
 `;
 
 const CONFIG_YML = `startup:

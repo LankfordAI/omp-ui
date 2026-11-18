@@ -3,6 +3,7 @@ import * as os from "node:os";
 import * as path from "node:path";
 import { afterEach, describe, expect, it } from "vitest";
 import { RpcClient, resolveOmpBinary } from "@omp-ui/core";
+import { writeInertLiveModel } from "./test/live-model";
 
 /**
  * Pins omp's native subagent verbs (issue #713, ADR-0045) against the REAL
@@ -52,6 +53,7 @@ describe.skipIf(!ompPath)("native subagent verbs live (real omp)", () => {
     async () => {
       const base = fs.mkdtempSync(path.join(os.tmpdir(), "omp-ui-subverbs-live-"));
       const lineage = path.join(base, "lin");
+      const home = path.join(base, "home");
       fs.mkdirSync(lineage, { recursive: true });
       const frames: Frame[] = [];
       let exited = false;
@@ -59,6 +61,12 @@ describe.skipIf(!ompPath)("native subagent verbs live (real omp)", () => {
         cwd: base,
         lineageDir: lineage,
         ompPath: ompPath!,
+        model: writeInertLiveModel(home),
+        childEnv: {
+          HOME: home,
+          XDG_CONFIG_HOME: path.join(home, ".config"),
+          XDG_DATA_HOME: path.join(home, ".local", "share"),
+        },
         onFrame: (frame) => frames.push(frame as Frame),
         onExit: () => {
           exited = true;

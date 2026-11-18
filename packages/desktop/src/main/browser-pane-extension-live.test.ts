@@ -10,6 +10,7 @@ import {
   writeBrowserPaneExtension,
 } from "@omp-ui/core";
 import { BROWSER_PANE_CUSTOM_TYPE, browserPaneSetMessage } from "@omp-ui/core/browser-pane";
+import { writeInertLiveModel } from "./test/live-model";
 
 /**
  * Runtime proof for the browser pane handshake (issue #519, ADR-0029) against
@@ -76,7 +77,6 @@ function spawnScope(): Scope {
   const lineage = path.join(base, "lin");
   const home = path.join(base, "home");
   fs.mkdirSync(lineage, { recursive: true });
-  fs.mkdirSync(home, { recursive: true });
   const paneExt = writeBrowserPaneExtension(lineage);
   const frames: Frame[] = [];
   let markExited!: () => void;
@@ -93,6 +93,7 @@ function spawnScope(): Scope {
     cwd: base,
     lineageDir: lineage,
     ompPath: ompPath!,
+    model: writeInertLiveModel(home),
     extensions: [paneExt],
     initialCommands: [{ type: "prompt", message: browserPaneSetMessage(ENDPOINT) }],
     spawnProcess: (bin, args, extra) => {

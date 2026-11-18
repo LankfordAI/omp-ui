@@ -42,6 +42,7 @@ const MODELS_YML = `providers:
         name: inert
         contextWindow: 131072
         maxTokens: 128
+        reasoning: false
 `;
 
 const CONFIG_YML = `startup:

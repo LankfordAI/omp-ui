@@ -4,6 +4,7 @@ import * as path from "node:path";
 import { spawn } from "node:child_process";
 import { afterEach, describe, expect, it } from "vitest";
 import { RpcClient, resolveOmpBinary, writeChatOverlay } from "@omp-ui/core";
+import { writeInertLiveModel } from "./test/live-model";
 
 /**
  * Live proof for the chat memory overlay (issue #894, ADR-0059) against the
@@ -94,7 +95,6 @@ function spawnScope(chat: boolean): Scope {
   const home = path.join(base, "home");
   fs.mkdirSync(path.join(project, ".omp"), { recursive: true });
   fs.mkdirSync(lineage, { recursive: true });
-  fs.mkdirSync(home, { recursive: true });
   fs.writeFileSync(path.join(project, ".omp", "config.yml"), PROJECT_SCOPING);
   const overlay = writeChatOverlay(lineage, chat);
   const probeExt = path.join(lineage, "chat-scoping-probe.ts");
@@ -114,6 +114,7 @@ function spawnScope(chat: boolean): Scope {
     cwd: project,
     lineageDir: lineage,
     ompPath: ompPath!,
+    model: writeInertLiveModel(home),
     configOverlays: overlay === null ? [] : [overlay],
     extensions: [probeExt],
     spawnProcess: (bin, args, extra) => {

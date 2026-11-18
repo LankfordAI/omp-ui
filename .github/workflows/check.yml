@@ -59,7 +59,25 @@ jobs:
       # bundled closure fails CI instead of shipping (bundle-session.mjs header).
       - name: Build the host-lite session bundle (drift gate)
         run: node packages/host-lite/scripts/bundle-session.mjs
+      # Live proofs require a real omp even on a clean runner. Keep this pin
+      # and its release checksum in sync with the supported harness floor.
+      - name: Provision OMP for live tests
+        id: live-omp
+        shell: bash
+        run: |
+          set -euo pipefail
+          version=18.22.0
+          sha256=f706b27ba845834d8f8360705a2e9ba1534f3593fa24411d41358272de33642b
+          omp="$(mktemp -d "$RUNNER_TEMP/omp-live.XXXXXX")/omp"
+          curl --fail --silent --show-error --location --retry 3 --output "$omp" \
+            "https://github.com/can1357/oh-my-pi/releases/download/v${version}/omp-linux-x64"
+          printf '%s  %s\n' "$sha256" "$omp" | sha256sum --check
+          chmod 0755 "$omp"
+          "$omp" --version
+          printf 'path=%s\n' "$omp" >> "$GITHUB_OUTPUT"
       - run: npm run test:live
+        env:
+          OMP_UI_OMP_PATH: ${{ steps.live-omp.outputs.path }}
       - run: npm run build
       - name: Smoke the browser pane under real Electron
         id: browser-pane-smoke

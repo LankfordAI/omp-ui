@@ -11,6 +11,7 @@ import {
   parseCapabilitySnapshot,
   type CapabilitySnapshot,
 } from "@omp-ui/core/capabilities";
+import { writeInertLiveModel } from "./test/live-model";
 
 /**
  * Runtime proof for session-local tool control (issue #379) against the REAL
@@ -87,7 +88,6 @@ function spawnScope(): Scope {
   const lineage = path.join(base, "lin");
   const home = path.join(base, "home");
   fs.mkdirSync(lineage, { recursive: true });
-  fs.mkdirSync(home, { recursive: true });
   const toolExt = path.join(base, "tools.ts");
   fs.writeFileSync(toolExt, THROWAWAY_TOOLS);
   const planExt = writePlanExtension(lineage);
@@ -107,6 +107,7 @@ function spawnScope(): Scope {
     cwd: base,
     lineageDir: lineage,
     ompPath: ompPath!,
+    model: writeInertLiveModel(home),
     extensions: [planExt, capExt, toolExt],
     initialCommands: [
       { type: "prompt", message: planMessage(false, "md") },

@@ -15,6 +15,7 @@ import {
   writeAskContextExtension,
   writeCarryoverContextExtension,
 } from "@omp-ui/core";
+import { writeInertLiveModel } from "./test/live-model";
 
 /**
  * Live proof for the generated hidden-context bridges (ADR-0060) against the
@@ -140,7 +141,6 @@ function spawnScope(opts: SpawnOptions): Scope {
   const home = path.join(base, "home");
   fs.mkdirSync(project, { recursive: true });
   fs.mkdirSync(lineage, { recursive: true });
-  fs.mkdirSync(home, { recursive: true });
   for (const [rel, content] of Object.entries(opts.projectFiles ?? {})) {
     const file = path.join(project, rel);
     fs.mkdirSync(path.dirname(file), { recursive: true });
@@ -160,6 +160,7 @@ function spawnScope(opts: SpawnOptions): Scope {
     cwd: project,
     lineageDir: lineage,
     ompPath: ompPath!,
+    model: writeInertLiveModel(home),
     ...(seed ? { resumeSessionId: seed.sessionId } : {}),
     extensions: [extension],
     initialCommands: [{ type: "prompt", message: opts.arm, id: ARM_ID }],

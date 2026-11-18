@@ -126,6 +126,7 @@ const MODELS_YML = (baseUrl: string, keyFile: string): string => `providers:
         name: m1
         contextWindow: 131072
         maxTokens: 128
+        reasoning: false
   keyprov:
     baseUrl: ${baseUrl}
     api: openai-completions
@@ -135,6 +136,7 @@ const MODELS_YML = (baseUrl: string, keyFile: string): string => `providers:
         name: m1
         contextWindow: 131072
         maxTokens: 128
+        reasoning: false
 `;
 
 const CONFIG_YML = (keyFile: string): string => `startup:
