@@ -96,11 +96,17 @@ const rpcInstances: {
   /** One omp stderr line, as the real client's onStderrLine reports it (#970). */
   stderr: (line: string) => void;
 }[] = [];
-/** The arm/prompt messages among a spawn's initial commands: host registration commands (#688) carry no message, and tests that assert the arm order filter them out. */
+/**
+ * The arm/prompt messages among a spawn's initial commands: host registration commands (#688) carry no message, and tests that assert the arm order filter them out.
+ * The project scope arm every native session carries (#1227) is dropped too; its own describe pins it.
+ */
 function armMessages(initialCommands: unknown): unknown[] {
   const commands = initialCommands as Array<{ message?: unknown }> | undefined;
+  const scope = `/${Core.PROJECT_SCOPE_COMMAND} `;
   return commands !== undefined
-    ? commands.map((command) => command.message).filter((message) => message !== undefined)
+    ? commands
+        .map((command) => command.message)
+        .filter((message) => message !== undefined && !(typeof message === "string" && message.startsWith(scope)))
     : [];
 }
 const watcherDisposes: Mock[] = [];
@@ -3562,6 +3568,8 @@ describe("OS attention hooks (issue #271)", () => {
       turnEnded: vi.fn(),
       planProposed: vi.fn(),
       planSettled: vi.fn(),
+      projectRequested: vi.fn(),
+      projectRequestSettled: vi.fn(),
       viewedChanged: vi.fn(),
       sessionExit: vi.fn(),
     }) as Attention;
@@ -10078,7 +10086,7 @@ describe("first-title claim (issue #1090)", () => {
   });
 });
 
-describe("project scope guidance arm (#1226)", () => {
+describe("project scope guidance arm (#1226, #1227)", () => {
   type Command = Record<string, unknown>;
   const lastCommands = (): Command[] =>
     (RpcClientMock.mock.calls.at(-1)?.[0]?.initialCommands ?? []) as Command[];
@@ -10121,13 +10129,18 @@ describe("project scope guidance arm (#1226)", () => {
     expect(at).toBeLessThan(commands.findIndex((c) => c.type === "set_host_tools"));
   });
 
-  it("arms nothing with the setting off", async () => {
+  it("arms the no-dispatch text with the setting off", async () => {
     const { manager } = setup({ mode: "rpc-ui" });
     await resume(manager);
-    expect(scopeArms(lastCommands())).toEqual([]);
+    const arms = scopeArms(lastCommands());
+    expect(arms).toHaveLength(1);
+    const text = scopeText(arms[0]!);
+    expect(text).toContain("This session cannot dispatch work to other sessions.");
+    expect(text).not.toContain("omp-ui_fleet_dispatch");
+    expect(text).toContain("Files outside your checkout");
   });
 
-  it("arms nothing in a chat, which carries the fleet tools", async () => {
+  it("arms the chat opening with the dispatch text in a chat, which carries the fleet tools", async () => {
     const { manager, registry } = setup({ mode: "rpc-ui" });
     registry.setSetting("fleetAgentDispatch", true);
     registry.addSession(
@@ -10136,7 +10149,12 @@ describe("project scope guidance arm (#1226)", () => {
     await manager.spawn({ origin: "resume", resumeTabId: "chat-scope", cols: 80, rows: 24 });
     const commands = lastCommands();
     expect(fleetTools(commands)).toBe(true);
-    expect(scopeArms(commands)).toEqual([]);
+    const arms = scopeArms(commands);
+    expect(arms).toHaveLength(1);
+    const text = scopeText(arms[0]!);
+    expect(text).toContain("belongs to no project");
+    expect(text).toContain("omp-ui_fleet_dispatch");
+    expect(text).toContain('machine "this computer"');
   });
 
   it("gives a private session the report-to-user text", async () => {
@@ -10168,12 +10186,16 @@ describe("project scope guidance arm (#1226)", () => {
     expect(commands.indexOf(arms[0]!)).toBeLessThan(prompt);
   });
 
-  it("arms nothing in an MCP-started session", async () => {
+  it("arms the no-dispatch text in an MCP-started session", async () => {
     const { manager, registry } = setup({ mode: "rpc-ui" });
     registry.setSetting("fleetAgentDispatch", true);
     registry.updateSession(TAB, dispatchedBy("mcp"));
     await resume(manager);
-    expect(scopeArms(lastCommands())).toEqual([]);
+    const arms = scopeArms(lastCommands());
+    expect(arms).toHaveLength(1);
+    const text = scopeText(arms[0]!);
+    expect(text).toContain("This session cannot dispatch work to other sessions.");
+    expect(text).not.toContain("omp-ui_fleet_dispatch");
   });
 
   it("names the worktree checkout", async () => {
@@ -10202,6 +10224,8 @@ describe("project scope guidance arm (#1226)", () => {
     await resume(manager);
     const commands = lastCommands();
     expect(fleetTools(commands)).toBe(atReady);
-    expect(scopeArms(commands)).toHaveLength(atReady ? 1 : 0);
+    const arms = scopeArms(commands);
+    expect(arms).toHaveLength(1);
+    expect(scopeText(arms[0]!).includes("omp-ui_fleet_dispatch")).toBe(atReady);
   });
 });

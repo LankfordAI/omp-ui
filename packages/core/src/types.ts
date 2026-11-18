@@ -17,6 +17,7 @@ import type { FleetModelChoice, FleetPendingDispatch, FleetProvenance, FleetSpaw
 import type { APPROVAL_MODES } from "./approval";
 import type { HeldPrompt } from "./held-prompt";
 import type { ScheduledPrompt } from "./scheduled-prompt";
+import type { ProjectRequestPrompt } from "./project-request";
 export type {
   CheckoutExperiments,
   ExperimentDetail,
@@ -40,6 +41,7 @@ export type {
   UpdateTrain,
 } from "./update-types";
 export type { SkillOrigin } from "./omp-capability-keys";
+export type { ProjectRequestPrompt } from "./project-request";
 export type SessionStatus =
   | "complete"
   | "interrupted"
@@ -742,6 +744,14 @@ export interface SessionSummary extends OwnedSessionRecord {
    * never clears a real queue on undefined.
    */
   pendingDialogs?: RpcFrame[];
+  /**
+   * The agent's project request this session is held on (#1228, ADR-0099):
+   * an add or clone on this computer waiting for the user's card answer.
+   * Ephemeral like `pendingDialogs`: main holds it in memory and it dies with
+   * the host call. Absent from an older host's summary, which a client reads
+   * as none.
+   */
+  projectRequest?: ProjectRequestPrompt | null;
   /**
    * The live session's goal state as omp last reported it (ADR-0046). omp's
    * runtime inside the child owns it; main mirrors the last value omp reported

@@ -93,6 +93,7 @@ import {
   type ProjectCopyRead,
   type ProjectCopyResult,
 } from "@omp-ui/core";
+import type { HostCallControl } from "./host-bridge";
 
 /** A joined member's report must arrive inside this window, or the member reads as an error. */
 const HOST_REPORT_TIMEOUT_MS = 4_000;
@@ -154,6 +155,8 @@ export interface FleetDispatcherDeps {
   settleLocal(req: FleetSessionRequest): Promise<FleetSettleOutcome>;
   /** readProjectCopyFiles on this machine (issue #992): re-scans the checkout and reads the picked files' bytes. */
   readProjectCopy(projectCwd: string, picked: readonly string[]): Promise<ProjectCopyRead>;
+  /** Card-gated local register/clone (#1228, ADR-0099); refusals ride the outcome. */
+  requestLocalProject(tabId: string, args: FleetToolProjectArgs, control: HostCallControl): Promise<FleetProjectManageOutcome>;
   now?: () => number;
   uuid?: () => string;
 }
@@ -791,14 +794,12 @@ export class FleetDispatcher {
     return detachedExecUpdate(answer, name);
   }
 
-  /** `omp-ui_fleet_project` (issue #901): rung-3 clone/register on a member. */
-  async projectManage(tabId: string, args: FleetToolProjectArgs): Promise<FleetProjectManageOutcome> {
+  /** `omp-ui_fleet_project` (issue #901): rung-3 clone/register on a member; on this computer, a card-gated project request (#1228, ADR-0099). */
+  async projectManage(tabId: string, args: FleetToolProjectArgs, control: HostCallControl): Promise<FleetProjectManageOutcome> {
     const machines = await this.machines();
     const resolved = fleetToolMachineKey(args.machine, machines);
     if (!resolved.ok) return { status: "refused", reason: resolved.reason };
-    if (resolved.machineKey === LOCAL_MACHINE_KEY) {
-      return { status: "refused", reason: "project manage runs on fleet members; use your own tools on this computer" };
-    }
+    if (resolved.machineKey === LOCAL_MACHINE_KEY) return this.#deps.requestLocalProject(tabId, args, control);
     const name = fleetMachineName(machines.find((m) => m.key === resolved.machineKey) ?? { nickname: resolved.machineKey });
     const requester = this.requester("agent", tabId);
     const req: FleetProjectManageRequest =

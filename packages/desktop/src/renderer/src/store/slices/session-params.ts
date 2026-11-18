@@ -124,6 +124,7 @@ export type SessionParamsSlice = Pick<
   | "advisorDefaults"
   | "acceptApprovalPrompt"
   | "answerApprovalPrompt"
+  | "answerProjectRequest"
   | "answerExtension"
   | "reconcilePendingDialogs"
   | "sendPrompt"
@@ -3043,6 +3044,11 @@ export function createSessionParamsSlice(
     answerExtension,
     acceptApprovalPrompt,
     answerApprovalPrompt,
+    answerProjectRequest: (tabId, promptId, decision, parent) =>
+      backend.answerProjectRequest(tabId, promptId, decision, parent).catch((err: unknown) => ({
+        ok: false as const,
+        reason: displayMessage(err),
+      })),
     reconcilePendingDialogs,
     sendPrompt,
     referenceSession,

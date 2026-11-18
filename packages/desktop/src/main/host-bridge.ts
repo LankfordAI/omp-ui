@@ -132,8 +132,8 @@ export interface FleetBridgeDeps {
   status(sel: { batchId: string } | { dispatchId: string }, waitMs: number): Promise<string>;
   /** One bounded command on a member (issue #901); refusals ride the outcome. */
   exec(tabId: string, args: FleetToolExecArgs): Promise<FleetExecOutcome>;
-  /** Rung-3 clone/register on a member (issue #901). */
-  projectManage(tabId: string, args: FleetToolProjectArgs): Promise<FleetProjectManageOutcome>;
+  /** Rung-3 clone/register on a member (issue #901), or a card-gated project request on this computer (#1228, ADR-0099). */
+  projectManage(tabId: string, args: FleetToolProjectArgs, control: HostCallControl): Promise<FleetProjectManageOutcome>;
   /** Starts a detached exec on a member (issue #905); refusals ride the outcome. */
   execDetach(tabId: string, args: FleetToolExecArgs): Promise<FleetDetachedExecStartOutcome>;
   /** Polls, or cancels, one detached exec this app started (issue #905). */
@@ -269,6 +269,22 @@ interface PendingHostAnswer {
   timer: NodeJS.Timeout;
   /** Builds the kind's error result: a watchdog answer must pass omp's matching result guard. */
   buildError: (message: string) => RpcFrame;
+  /** Aborted when omp stops waiting (cancel, exit) or the watchdog answers; never by a real answer. */
+  abort: AbortController;
+}
+
+/**
+ * One held host call's lifetime controls (#1228, ADR-0099): a request that
+ * waits on a human answer suspends the 60 s watchdog, then rearms it for the
+ * work that follows.
+ */
+export interface HostCallControl {
+  /** Aborts when omp stops waiting: `host_tool_cancel`, tab exit, or a watchdog answer. */
+  readonly signal: AbortSignal;
+  /** Clears the 60 s watchdog while a human answers; no-op once settled. */
+  suspendWatchdog(): void;
+  /** Arms a fresh watchdog of `ms` with the same error builder; no-op once settled. */
+  rearmWatchdog(ms: number): void;
 }
 
 /**
@@ -355,6 +371,7 @@ export class HostBridge {
       if (answer.tabId !== tabId) continue;
       clearTimeout(answer.timer);
       this.pending.delete(id);
+      answer.abort.abort();
     }
     this.answered.delete(tabId);
     this.answeredOrder.delete(tabId);
@@ -477,14 +494,49 @@ export class HostBridge {
     buildError: (message: string) => RpcFrame,
   ): void {
     this.rememberAnswered(tabId, id);
+    const entry: PendingHostAnswer = {
+      tabId,
+      timer: this.watchdog(id, send, HOST_ANSWER_WATCHDOG_MS),
+      buildError,
+      abort: new AbortController(),
+    };
+    this.pending.set(id, entry);
+  }
+
+  private watchdog(id: string, send: (frame: RpcFrame) => void, ms: number): NodeJS.Timeout {
     const timer = setTimeout(() => {
+      const answer = this.pending.get(id);
+      if (answer === undefined) return;
       this.pending.delete(id);
+      answer.abort.abort();
       // The watchdog answers on the SAME send seam as every real answer, so
       // "exactly one result" holds even when a real answerer is stuck.
-      send(buildError("omp-ui could not answer this request in time"));
-    }, HOST_ANSWER_WATCHDOG_MS);
+      send(answer.buildError("omp-ui could not answer this request in time"));
+    }, ms);
     timer.unref();
-    this.pending.set(id, { tabId, timer, buildError });
+    return timer;
+  }
+
+  /** The control for one tracked call; every method is a no-op once the entry is gone. */
+  private callControl(id: string, send: (frame: RpcFrame) => void): HostCallControl {
+    const entry = this.pending.get(id);
+    const live = (): PendingHostAnswer | undefined => {
+      const current = this.pending.get(id);
+      return current !== undefined && current === entry ? current : undefined;
+    };
+    return {
+      signal: entry?.abort.signal ?? AbortSignal.abort(),
+      suspendWatchdog: () => {
+        const current = live();
+        if (current !== undefined) clearTimeout(current.timer);
+      },
+      rearmWatchdog: (ms) => {
+        const current = live();
+        if (current === undefined) return;
+        clearTimeout(current.timer);
+        current.timer = this.watchdog(id, send, ms);
+      },
+    };
   }
 
   /** Settles a pending request with its answer frame — once, by construction: the map entry is gone first, and only the taker reaches it. */
@@ -501,6 +553,7 @@ export class HostBridge {
     if (answer === undefined) return;
     clearTimeout(answer.timer);
     this.pending.delete(id);
+    answer.abort.abort();
     // A cancelled request is NOT answered — omp already stopped waiting.
     // The ownership mark from `track` still fences the renderer stub out.
   }
@@ -824,7 +877,7 @@ export class HostBridge {
         return;
       }
       if (parsed.tool === "project") {
-        const outcome = await deps.projectManage(tabId, parsed.args);
+        const outcome = await deps.projectManage(tabId, parsed.args, this.callControl(call.id, send));
         this.deps.log(
           `omp-ui_fleet_project from ${tabId}: ${parsed.args.machine} ${parsed.args.verb} ${outcome.status}${outcome.status === "refused" ? ` (${outcome.reason})` : ""}`,
         );

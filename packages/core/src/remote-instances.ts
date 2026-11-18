@@ -109,6 +109,8 @@ export const TAB_ROUTED_REQUESTS: ReadonlySet<string> = new Set<string>([
   "session:runScheduledPromptNow",
   "plan:read",
   "plan:answer",
+  // A project request's card is answered at the session's host (#1228).
+  "project-request:answer",
   "plan:dismiss",
   "session:restart",
   "session:convert-to-worktree",

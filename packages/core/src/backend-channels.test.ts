@@ -97,6 +97,7 @@ const VALID_ARGS = {
   packChunk: ["pack-1", 0],
   packStart: ["tab-1"],
   answerPlanReview: ["tab-1", "frame-1", "execute", "0".repeat(64)],
+  answerProjectRequest: ["tab-1", "prompt-1", "allow", "/srv/repos"],
   autoresearchExperiment: ["/project", null, 1],
   autoresearchOverview: ["/project"],
   autoresearchRunLog: ["/project", "tab-1", 1, 2],
@@ -862,6 +863,17 @@ describe("transport dispatch", () => {
     expect(calls.map(({ args }) => args[2])).toEqual(["execute", "refine", "dismiss"]);
     await expect(
       dispatchRequest(table, CH.answerPlanReview, ["tab-1", "frame-1", "defer", null]),
+    ).rejects.toThrow("argument 2");
+  });
+
+  it("accepts allow and deny with a null or string parent on project-request:answer (#1228)", async () => {
+    const { table, calls } = recordingTable();
+    await dispatchRequest(table, CH.answerProjectRequest, ["tab-1", "p-1", "allow", null]);
+    await dispatchRequest(table, CH.answerProjectRequest, ["tab-1", "p-1", "allow", "/srv/repos"]);
+    await dispatchRequest(table, CH.answerProjectRequest, ["tab-1", "p-1", "deny", null]);
+    expect(calls.map(({ args }) => [args[2], args[3]])).toEqual([["allow", null], ["allow", "/srv/repos"], ["deny", null]]);
+    await expect(
+      dispatchRequest(table, CH.answerProjectRequest, ["tab-1", "p-1", "approve", null]),
     ).rejects.toThrow("argument 2");
   });
 

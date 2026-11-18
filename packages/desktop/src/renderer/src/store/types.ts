@@ -1804,6 +1804,17 @@ export interface UiStore extends SettingsSlice, UpdatesSlice, LabSlice, StatsSli
    *  approvalReply yields null: "session" without a session label, a grant scope it lacks). */
   answerApprovalPrompt(tabId: string, choice: ApprovalChoice): boolean;
   /**
+   * Answers the tab's project request card (#1228, ADR-0099). Main owns the
+   * held host call and does the work; the summary broadcast clears the card.
+   * Resolves main's verdict: `{ ok: false }` carries the reason to show.
+   */
+  answerProjectRequest(
+    tabId: string,
+    promptId: string,
+    decision: "allow" | "deny",
+    parent: string | null,
+  ): Promise<{ ok: true } | { ok: false; reason: string }>;
+  /**
    * Compacts the context. Resolves `acked` only when omp acknowledged the
    * compaction (#336), `pending` when it is still running past the response
    * budget, and `failed` when omp refused it or the process left.

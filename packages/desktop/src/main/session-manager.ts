@@ -195,12 +195,13 @@ import { DialogGateTracker } from "./dialog-gate-tracker";
 import type { FleetWakeLedgerAccess } from "./fleet-wake";
 import { HibernationTracker } from "./hibernation-tracker";
 import { CapabilityControlTracker } from "./capability-control-tracker";
-import { HostBridge } from "./host-bridge";
+import { HostBridge, type HostCallControl } from "./host-bridge";
 import { IssueBridge } from "./issue-bridge";
 import type { ArtifactService } from "./artifact-service";
 import { ArtifactHostTools } from "./artifact-host-tools";
 import { parseArtifactPromptReferences } from "@omp-ui/core/artifact-references";
 import { PlanGateTracker, type PlanGate } from "./plan-gate-tracker";
+import { ProjectRequestGate } from "./project-request-gate";
 import { PlanPreflightController } from "./plan-preflight";
 import { readConfinedPlanFile } from "./plan-file";
 import { ForeignOmpTracker } from "./foreign-omp-tracker";
@@ -266,7 +267,7 @@ export interface FleetDispatcherLike {
   ): Promise<FleetDispatchResult>;
   statusText(sel: { batchId: string } | { dispatchId: string }, waitMs: number): Promise<string>;
   exec(tabId: string, args: FleetToolExecArgs): Promise<FleetExecOutcome>;
-  projectManage(tabId: string, args: FleetToolProjectArgs): Promise<FleetProjectManageOutcome>;
+  projectManage(tabId: string, args: FleetToolProjectArgs, control: HostCallControl): Promise<FleetProjectManageOutcome>;
   execDetach(tabId: string, args: FleetToolExecArgs): Promise<FleetDetachedExecStartOutcome>;
   execPoll(tabId: string, args: FleetToolExecPollArgs): Promise<FleetExecPollOutcome>;
   /** Fleet maintenance on a member (fleet remote version update); refusals ride the answer. */
@@ -466,6 +467,8 @@ export class SessionManager {
   readonly scheduledPrompts: ScheduledPromptRunner;
   /** The open blocking dialogs per tab — the summary's `pendingDialogs` (#555). */
   private readonly dialogGates = new DialogGateTracker();
+  /** Agent project requests waiting on the user's card (#1228, ADR-0099); in memory only. */
+  readonly projectRequests: ProjectRequestGate;
   /** The omp collab local-registry watcher for terminal tabs (issue #686). */
   private readonly collab: CollabTracker;
   private readonly gate: SpawnGate;
@@ -548,6 +551,13 @@ export class SessionManager {
       broadcast: () => this.deps.broadcast(),
       attention: deps.attention,
       suspendForVerdict: (tabId) => this.hibernation.suspendForVerdict(tabId),
+    });
+    this.projectRequests = new ProjectRequestGate({
+      broadcast: () => this.deps.broadcast(),
+      attention: deps.attention,
+      onSettled: (tabId) => {
+        if (!this.awaitingHumanAnswer(tabId)) this.stallWatchdog.humanAnswered(tabId);
+      },
     });
     this.planPreflight = new PlanPreflightController({
       registry: deps.registry,
@@ -673,7 +683,7 @@ export class SessionManager {
               status: (sel, waitMs) => fleet().statusText(sel, waitMs),
               // #901: the dispatcher bounds exec/project inside the watchdog itself.
               exec: (tabId, args) => fleet().exec(tabId, args),
-              projectManage: (tabId, args) => fleet().projectManage(tabId, args),
+              projectManage: (tabId, args, control) => fleet().projectManage(tabId, args, control),
               // #905: detached exec start and poll, bounded the same way.
               execDetach: (tabId, args) => fleet().execDetach(tabId, args),
               execPoll: (tabId, args) => fleet().execPoll(tabId, args),
@@ -755,6 +765,7 @@ export class SessionManager {
       this.goals,
       this.vibes,
       this.autoresearch,
+      this.projectRequests,
       this.dialogGates,
       this.heldPrompts,
       this.scheduledPrompts,
@@ -1099,23 +1110,28 @@ export class SessionManager {
     return askContextText({ sessionId: source.sessionId, summary, transcriptPath: loc.filePath });
   }
 
-  /** Project scope guidance (#1226, ADR-0098); null when this session gets none. */
-  private projectScopeArm(record: OwnedSessionRecord, access: FleetToolAccess): object | null {
-    if (record.chat) return null;
-    const role: ProjectScopeRole | null =
-      access === "granted" ? (record.private ? "report-to-user" : "dispatch")
-      : access === "agent-recursion" ? "report-to-parent"
-      : null;
-    if (role === null) return null;
-    const project = this.deps.registry.projects.find((p) => p.path === record.projectCwd);
+  /** Project scope guidance (#1226, #1227, ADR-0098): every native session gets it. */
+  private projectScopeArm(record: OwnedSessionRecord, access: FleetToolAccess): object {
+    const role: ProjectScopeRole =
+      access === "agent-recursion" ? "report-to-parent"
+      : access === "granted" ? (record.private ? "report-to-user" : "dispatch")
+      : "no-dispatch"; // setting-off, external-sender
+    const project = record.chat ? undefined : this.deps.registry.projects.find((p) => p.path === record.projectCwd);
     return {
       type: "prompt",
       id: `omp-ui-initial-project-scope-${randomUUID()}`,
       message: projectScopeArmMessage(projectScopeGuidance({
+        kind: record.chat ? "chat" : "project",
         projectName: project?.name ?? path.basename(record.projectCwd),
         projectCwd: record.projectCwd,
         checkoutPath: record.worktree?.path ?? record.projectCwd,
         role,
+        fences: {
+          agentDir: getOmpAgentDir(),
+          userData: path.dirname(this.deps.registryFile),
+          sessionsRoot: this.deps.getSessionsRoot(),
+          archiveRoot: this.deps.getArchiveRoot(),
+        },
       })),
     };
   }
@@ -3173,7 +3189,7 @@ export class SessionManager {
    * (issue #436).
    */
   pendingAnswer(tabId: string): boolean {
-    return this.planGates.pending(tabId) || this.dialogGates.hasOpen(tabId);
+    return this.planGates.pending(tabId) || this.dialogGates.hasOpen(tabId) || this.projectRequests.pending(tabId);
   }
 
   /** The open blocking dialogs, in arrival order, for the summary (#555). */
@@ -3181,9 +3197,36 @@ export class SessionManager {
     return this.dialogGates.openFrames(tabId);
   }
 
+  /** Settles a project request card (#1228, ADR-0099); the held host call does the work. */
+  answerProjectRequest(
+    tabId: string,
+    promptId: string,
+    decision: "allow" | "deny",
+    parent: string | null,
+  ): { ok: true } | { ok: false; reason: string } {
+    return this.projectRequests.answer(tabId, promptId, decision === "allow" ? { kind: "allow", parent } : { kind: "deny" });
+  }
+
+  /**
+   * Why this tab may not raise a project request, or null when it may
+   * (#1228): a live native session with the fleet tools granted, not
+   * private, not in Plan mode. Granted already excludes agent-dispatched
+   * and webhook/MCP sessions; a chat is granted.
+   */
+  projectRequestEligibility(tabId: string): string | null {
+    const entry = this.live.get(tabId);
+    const record = this.deps.registry.sessions.find((s) => s.tabId === tabId);
+    if (entry?.kind !== "rpc-ui" || record === undefined) return "this session is not a live native session";
+    if (entry.fleetToolAccess !== "granted") return "this session cannot add projects";
+    if (record.private) return "private sessions do not add projects";
+    if (record.agentMode === "plan") return "Plan mode: describe the project in your plan instead";
+    return null;
+  }
+
   private awaitingHumanAnswer(tabId: string): boolean {
     if (this.planGates.pending(tabId)) return true;
     if (this.planPreflight.isHeld(tabId)) return true;
+    if (this.projectRequests.pending(tabId)) return true;
     return this.dialogGates.hasOpen(tabId);
   }
 

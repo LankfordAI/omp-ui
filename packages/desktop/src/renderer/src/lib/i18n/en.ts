@@ -145,6 +145,25 @@ export const en = {
   "dialog.approval.restrictedHint":
     "Restricted folders (tools.restrictedFolders) ask in every approval mode, yolo included. No session or remembered approval covers them.",
 
+  // ProjectRequestCard.tsx (#1228)
+  "dialog.projectRequest.registerTitle": "Add project",
+  "dialog.projectRequest.cloneTitle": "Clone and add project",
+  "dialog.projectRequest.requestedBy": "Requested by the agent in this session.",
+  "dialog.projectRequest.folder": "Folder: {path}",
+  "dialog.projectRequest.origin": "Origin: {origin}",
+  "dialog.projectRequest.originNone": "Origin: none",
+  "dialog.projectRequest.repository": "Repository: {url}",
+  "dialog.projectRequest.saveTo": "Save to: {path}",
+  "dialog.projectRequest.chooseFolder": "Choose folder…",
+  "dialog.projectRequest.pickerPath": "folder to save the clone in",
+  "dialog.projectRequest.pickerWillSave": "Will save in:",
+  "dialog.projectRequest.pickerChoose": "Save here",
+  "dialog.projectRequest.warning":
+    "Sessions started in this project run its .omp extensions, hooks, tools, and MCP servers with your user account and your provider keys.",
+  "dialog.projectRequest.found": "Found: {paths}",
+  "dialog.projectRequest.allow": "Allow",
+  "dialog.projectRequest.deny": "Deny",
+
   // DeleteSessionDialog.tsx
   "dialog.delete.kicker": "Irreversible action",
   "dialog.delete.title": "Delete “{title}”?",
