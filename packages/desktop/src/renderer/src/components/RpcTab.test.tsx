@@ -5,6 +5,7 @@ import { afterEach, beforeEach, describe, expect, it, vi } from "vitest";
 import { emptySessionRuntime } from "../lib/rpc-types";
 import { t } from "../lib/i18n";
 import { backendState, rpcTabState } from "../test/fixtures";
+import { composerEditorHarness } from "../test/composer-editor";
 import type { RenderItem } from "../lib/transcript";
 import type { RpcFailure } from "../store/types";
 import type { ModelCatalogSnapshot } from "@omp-ui/core/types";
@@ -103,6 +104,11 @@ const { RpcTab } = await import("./RpcTab");
 const TAB = "tab-rpctab";
 let root: Root | null = null;
 
+// Shared ComposerEditor drivers (test/composer-editor.ts): the composer draft
+// is a CodeMirror surface, not a textarea (issue #1222). Same convention
+// Composer.test.tsx uses.
+const { findComposer, composerInput, draftText, typeDraft } = composerEditorHarness(TAB);
+
 const state = backendState({
   projects: [{
     project: { path: "/p", name: "P", addedAt: "t", lastModel: null, lastThinkingLevel: null, lastAdvisor: null, lastAdvisorModel: null, defaultModel: null, defaultAdvisorModel: null, browserClock: false, councilRoster: null, knowledgeHome: null, repositoryKey: null, icon: null },
@@ -187,7 +193,10 @@ function seedPendingReview(): void {
 }
 
 function renderTab(active = false): void {
+  // App.tsx mounts every tab host with data-tab-id; the composer harness's
+  // selector (test/composer-editor.ts) resolves the draft through it.
   const host = document.createElement("div");
+  host.dataset.tabId = TAB;
   document.body.append(host);
   root = createRoot(host);
   act(() => root!.render(<RpcTab tabId={TAB} active={active} />));
@@ -248,7 +257,7 @@ describe("RpcTab subagent view", () => {
     expect(document.body.querySelector('button[aria-label="kill"]')).not.toBeNull();
     expect(document.body.textContent).not.toContain("main transcript");
     // No composer: the subagent view is not a chat surface.
-    expect(document.body.querySelector("textarea")).toBeNull();
+    expect(findComposer()).toBeNull();
   });
 
   it("returns to the main transcript and composer on exit", () => {
@@ -259,7 +268,7 @@ describe("RpcTab subagent view", () => {
     )!;
     act(() => back.click());
     expect(document.body.textContent).toContain("main transcript");
-    expect(document.body.querySelector("textarea")).not.toBeNull();
+    expect(findComposer()).not.toBeNull();
   });
 
   it("renders the main transcript when no subagent is selected", () => {
@@ -283,11 +292,7 @@ describe("RpcTab plan-review takeover (issue #277)", () => {
       '[role="region"][aria-labelledby="plan-review-title"]',
     );
 
-  /** The session composer's prompt box, keyed by its placeholder. */
-  const composerBox = () =>
-    document.body.querySelector<HTMLTextAreaElement>(
-      'textarea[placeholder^="message the agent"]',
-    );
+
 
   it("takes over the chat-history slot while the review is pending", () => {
     seedPendingReview();
@@ -296,7 +301,7 @@ describe("RpcTab plan-review takeover (issue #277)", () => {
     expect(document.body.textContent).not.toContain("main transcript");
     // The composer stays mounted but hidden: the only visible text input is
     // the dock's send-it-back box.
-    const box = composerBox();
+    const box = findComposer();
     expect(box).not.toBeNull();
   });
 
@@ -308,7 +313,7 @@ describe("RpcTab plan-review takeover (issue #277)", () => {
     expect(dock()).toBeNull();
     expect(document.body.textContent).toContain("main transcript");
     // The composer comes back with the transcript, still mounted.
-    const box = composerBox();
+    const box = findComposer();
     expect(box).not.toBeNull();
   });
 
@@ -334,16 +339,12 @@ describe("RpcTab plan-review takeover (issue #277)", () => {
   it("keeps an active tab's composer draft while the review is on screen", () => {
     seedPendingReview();
     renderTab(true);
-    const box = composerBox()!;
-    const setValue = Object.getOwnPropertyDescriptor(HTMLTextAreaElement.prototype, "value")!.set!;
-    act(() => {
-      setValue.call(box, "my draft");
-      box.dispatchEvent(new Event("input", { bubbles: true }));
-    });
+    const box = composerInput();
+    typeDraft("my draft");
     act(() => useStore.getState().deferPlanReview(TAB));
     // The same mounted node — hidden, not unmounted — still holds the draft.
     expect(box.isConnected).toBe(true);
-    expect(box.value).toBe("my draft");
+    expect(draftText(box)).toBe("my draft");
   });
 
   it("hides composer options during review takeover and restores them on defer without losing the draft", async () => {
@@ -377,11 +378,9 @@ describe("RpcTab plan-review takeover (issue #277)", () => {
       },
     }));
     renderTab(true);
-    const box = composerBox()!;
-    const setValue = Object.getOwnPropertyDescriptor(HTMLTextAreaElement.prototype, "value")!.set!;
+    const box = composerInput();
+    typeDraft("draft before review");
     act(() => {
-      setValue.call(box, "draft before review");
-      box.dispatchEvent(new Event("input", { bubbles: true }));
       document.body.querySelector<HTMLButtonElement>('button[title="prompt options"]')!.click();
     });
     const sheet = document.body.querySelector<HTMLElement>('[role="dialog"][aria-label="prompt options"]')!;
@@ -412,8 +411,8 @@ describe("RpcTab plan-review takeover (issue #277)", () => {
     expect(document.body.querySelector('[role="dialog"][aria-label="prompt options"]')).toBeNull();
     expect(document.body.querySelectorAll('button[aria-label="start live voice"]')).toHaveLength(1);
     expect(dock()!.querySelector('button[aria-label="start live voice"]')).not.toBeNull();
-    expect(composerBox()).toBe(box);
-    expect(box.value).toBe("draft before review");
+    expect(findComposer()).toBe(box);
+    expect(draftText(box)).toBe("draft before review");
     expect(start).not.toHaveBeenCalled();
 
     const defer = [...dock()!.querySelectorAll<HTMLButtonElement>("button")].find(
@@ -423,8 +422,8 @@ describe("RpcTab plan-review takeover (issue #277)", () => {
     expect(dock()).toBeNull();
     const restoredSheet = document.body.querySelector<HTMLElement>('[role="dialog"][aria-label="prompt options"]')!;
     expect(restoredSheet).not.toBeNull();
-    expect(composerBox()).toBe(box);
-    expect(box.value).toBe("draft before review");
+    expect(findComposer()).toBe(box);
+    expect(draftText(box)).toBe("draft before review");
     const restoredStart = restoredSheet.querySelector<HTMLButtonElement>('button[aria-label="start live voice"]')!;
     expect(restoredStart).not.toBeNull();
     expect(restoredStart.disabled).toBe(false);
@@ -438,7 +437,7 @@ describe("RpcTab plan-review takeover (issue #277)", () => {
     expect(dock()).toBeNull();
     expect(document.body.textContent).toContain("main transcript");
     // The inactive tab keeps its composer mounted and unhidden (draft survives).
-    const box = composerBox();
+    const box = findComposer();
     expect(box).not.toBeNull();
   });
 });
