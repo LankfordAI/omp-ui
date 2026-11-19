@@ -2586,6 +2586,8 @@ export const ko: Partial<Record<MessageKey, string>> = {
   "hud.limits.unknownReset": "초기화 시간 알 수 없음",
   "hud.limits.resetNow": "지금 초기화",
   "hud.limits.bankedResets": "저장된 rate-limit 초기화 {count}회 — /usage reset으로 사용",
+  "hud.limits.planLine": "플랜: {plan}",
+  "hud.limits.planTip": "이 한도가 적용되는 계정의 Claude 구독 플랜",
   "hud.limits.chipWait": "rate limit — 대기 중{delay}",
   "hud.limits.chipDelay": " {duration}간",
   "hud.limits.chipRotation": "credential 전환됨",

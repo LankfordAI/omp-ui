@@ -192,6 +192,10 @@ export default function (pi: ExtensionApi) {
       const report = provider === null ? null : selectReport(reports, provider);
       const resetCredits = asRecord(report?.resetCredits);
       const banked = finiteOrNull(resetCredits?.bankedCount);
+      // omp ≥ 19 names the paid plan in metadata.subscriptionPlan
+      // (usage.ts's usageSubscriptionPlan reads the same field). It belongs to
+      // the selected report only — never another account's, never inferred.
+      const plan = asRecord(report?.metadata)?.subscriptionPlan;
       ui.setStatus(
         STATUS_KEY,
         JSON.stringify({
@@ -199,6 +203,7 @@ export default function (pi: ExtensionApi) {
           provider,
           windows: windowsOf(report),
           bankedResets: banked !== null && banked > 0 ? Math.floor(banked) : 0,
+          ...(typeof plan === "string" && plan.trim() !== "" ? { subscriptionPlan: plan.trim() } : {}),
           fetchedAtMs: lastFetchAtMs,
         }),
       );

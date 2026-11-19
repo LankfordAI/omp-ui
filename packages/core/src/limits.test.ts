@@ -75,6 +75,35 @@ describe("parseLimits", () => {
     });
   });
 
+  it("carries the selected report's subscription plan and trims it", () => {
+    const view = parseLimits(
+      JSON.stringify({
+        available: true,
+        provider: "anthropic",
+        windows: [{ id: "anthropic:5h", label: "5 hour", percent: 10, resetsAtMs: null }],
+        bankedResets: 0,
+        subscriptionPlan: " Max 20x ",
+        fetchedAtMs: 5,
+      }),
+    );
+    expect(view?.subscriptionPlan).toBe("Max 20x");
+  });
+
+  it("stays quiet on a missing, blank, or non-string plan (older reports carry no metadata)", () => {
+    const base = {
+      available: true,
+      provider: "anthropic",
+      windows: [{ id: "anthropic:5h", label: "5 hour", percent: 10, resetsAtMs: null }],
+      bankedResets: 0,
+      fetchedAtMs: 5,
+    };
+    for (const plan of [undefined, "", "   ", 42, { tier: "max" }]) {
+      const view = parseLimits(JSON.stringify({ ...base, subscriptionPlan: plan }));
+      expect(view).not.toBeNull();
+      expect("subscriptionPlan" in view!).toBe(false);
+    }
+  });
+
   it("falls back to the label for a missing window id", () => {
     const view = parseLimits(
       JSON.stringify({

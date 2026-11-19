@@ -2813,6 +2813,8 @@ export const en = {
   "hud.limits.unknownReset": "reset time unknown",
   "hud.limits.resetNow": "resets now",
   "hud.limits.bankedResets": "{count} saved rate-limit reset(s) — spend with /usage reset",
+  "hud.limits.planLine": "plan: {plan}",
+  "hud.limits.planTip": "Claude subscription plan for the account these limits come from",
   "hud.limits.chipWait": "rate limit — waiting{delay}",
   "hud.limits.chipDelay": " for {duration}",
   "hud.limits.chipRotation": "credential switched",

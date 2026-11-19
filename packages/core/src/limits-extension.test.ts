@@ -20,6 +20,7 @@ interface PublishedLimits {
   provider?: string | null;
   windows?: unknown[];
   bankedResets?: number;
+  subscriptionPlan?: string;
   fetchedAtMs?: number;
 }
 
@@ -272,6 +273,100 @@ describe("generated limits extension", () => {
     await harness.flush();
     expect(harness.latest().windows).toEqual([
       { id: "5 hour", label: "5 hour", percent: 10, resetsAtMs: null },
+    ]);
+  });
+
+  it("publishes the selected report's subscription plan for every plan value", async () => {
+    for (const plan of ["Max 5x", "Max 20x", "Pro", "Team", "Enterprise"]) {
+      const harness = executableExtension({
+        model: { provider: "anthropic" },
+        fetchUsageReports: async () => [
+          {
+            provider: "anthropic",
+            limits: [{ label: "5 hour", amount: { usedFraction: 0.5 } }],
+            metadata: { subscriptionPlan: plan },
+          },
+        ],
+      });
+      const session = new harness.FakeAgentSession();
+      await harness.arm();
+      await session.prompt();
+      await harness.flush();
+      expect(harness.latest().subscriptionPlan).toBe(plan);
+    }
+  });
+
+  it("publishes no plan key for an older report without metadata", async () => {
+    const harness = executableExtension({
+      model: { provider: "anthropic" },
+      fetchUsageReports: async () => [
+        { provider: "anthropic", limits: [{ label: "5 hour", amount: { usedFraction: 0.5 } }] },
+      ],
+    });
+    const session = new harness.FakeAgentSession();
+    await harness.arm();
+    await session.prompt();
+    await harness.flush();
+    expect("subscriptionPlan" in harness.latest()).toBe(false);
+  });
+
+  it("takes the plan only from the account whose windows it shows", async () => {
+    // Two stored accounts: the freshest report has no plan; the stale one is
+    // Max 20x. The snapshot must stay quiet, never borrow the other plan.
+    const harness = executableExtension({
+      model: { provider: "anthropic" },
+      fetchUsageReports: async () => [
+        {
+          provider: "anthropic",
+          fetchedAtMs: 1_000,
+          limits: [{ label: "5 hour", amount: { usedFraction: 0.9 } }],
+          metadata: { subscriptionPlan: "Max 20x" },
+        },
+        {
+          provider: "anthropic",
+          fetchedAtMs: 2_000,
+          limits: [{ label: "5 hour", amount: { usedFraction: 0.1 } }],
+        },
+      ],
+    });
+    const session = new harness.FakeAgentSession();
+    await harness.arm();
+    await session.prompt();
+    await harness.flush();
+    expect(harness.latest().windows).toEqual([
+      { id: "5 hour", label: "5 hour", percent: 10, resetsAtMs: null },
+    ]);
+    expect("subscriptionPlan" in harness.latest()).toBe(false);
+  });
+
+  it("publishes the identity-matched account's plan when several report", async () => {
+    const harness = executableExtension({
+      model: { provider: "anthropic" },
+      oauth: { identity: () => "a@b.c" },
+      fetchUsageReports: async () => [
+        {
+          provider: "anthropic",
+          fetchedAtMs: 2_000,
+          email: "z@y.x",
+          limits: [{ label: "5 hour", amount: { usedFraction: 0.1 } }],
+          metadata: { subscriptionPlan: "Enterprise" },
+        },
+        {
+          provider: "anthropic",
+          fetchedAtMs: 1_000,
+          email: "a@b.c",
+          limits: [{ label: "5 hour", amount: { usedFraction: 0.9 } }],
+          metadata: { subscriptionPlan: "Pro" },
+        },
+      ],
+    });
+    const session = new harness.FakeAgentSession();
+    await harness.arm();
+    await session.prompt();
+    await harness.flush();
+    expect(harness.latest().subscriptionPlan).toBe("Pro");
+    expect(harness.latest().windows).toEqual([
+      { id: "5 hour", label: "5 hour", percent: 90, resetsAtMs: null },
     ]);
   });
 });

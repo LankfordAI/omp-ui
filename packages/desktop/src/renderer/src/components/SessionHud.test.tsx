@@ -1624,6 +1624,40 @@ describe("SessionHud provider quota readout (issue #673)", () => {
     expect(cluster.textContent).toContain("×2");
   });
 
+  it("shows the subscription plan beside the windows and in the tooltip", () => {
+    seedLimits({
+      available: true,
+      provider: "anthropic",
+      windows: [
+        { id: "anthropic:5h", label: "5 hour", percent: 72, resetsAtMs: Date.now() + 40 * 60_000 },
+      ],
+      bankedResets: 0,
+      subscriptionPlan: "Max 20x",
+      fetchedAtMs: Date.now() - 60_000,
+    });
+    const host = renderWide();
+    openGauge(host);
+    const cluster = document.body.querySelector<HTMLElement>(".titlebar-limits")!;
+    expect(cluster.textContent).toContain("Max 20x");
+    expect(cluster.getAttribute("title")).toContain("plan: Max 20x");
+    host.remove();
+    root = null;
+    // Without a plan the cluster stays quiet.
+    seedLimits({
+      available: true,
+      provider: "anthropic",
+      windows: [
+        { id: "anthropic:5h", label: "5 hour", percent: 72, resetsAtMs: Date.now() + 40 * 60_000 },
+      ],
+      bankedResets: 0,
+      fetchedAtMs: Date.now() - 60_000,
+    });
+    const host2 = renderWide();
+    openGauge(host2);
+    const cluster2 = document.body.querySelector<HTMLElement>(".titlebar-limits")!;
+    expect(cluster2.textContent).not.toContain("plan:");
+  });
+
   it("hides the cluster when the bridge reports unavailable", () => {
     seedLimits({
       available: false,

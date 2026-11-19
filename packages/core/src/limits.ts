@@ -44,6 +44,12 @@ export interface LimitsView {
   windows: LimitsWindow[];
   /** Banked provider rate-limit resets (Anthropic/Codex "reset credits"); 0 unknown-or-none. */
   bankedResets: number;
+  /**
+   * The selected report's paid-plan label (omp ≥ 19 publishes
+   * `metadata.subscriptionPlan`, e.g. "Max 20x"). Absent when the report
+   * carries no plan — never inferred, never borrowed from another account.
+   */
+  subscriptionPlan?: string;
   /** Wall-clock ms of the snapshot; the HUD renders staleness from this. */
   fetchedAtMs: number;
 }
@@ -74,6 +80,9 @@ export function parseLimits(text: string | undefined): LimitsView | null {
       typeof record.bankedResets === "number" && Number.isFinite(record.bankedResets)
         ? Math.max(0, Math.floor(record.bankedResets))
         : 0,
+    ...(typeof record.subscriptionPlan === "string" && record.subscriptionPlan.trim() !== ""
+      ? { subscriptionPlan: record.subscriptionPlan.trim() }
+      : {}),
     fetchedAtMs:
       typeof record.fetchedAtMs === "number" && Number.isFinite(record.fetchedAtMs)
         ? record.fetchedAtMs

@@ -591,14 +591,18 @@ function LimitsCluster({ limits, layout = "inline" }: { limits: LimitsView; layo
       }),
     )
     .join("\n");
-  const details = t("hud.limits.details", {
-    provider: limits.provider ?? "?",
-    age:
-      limits.fetchedAtMs > 0
-        ? formatDuration(Math.max(0, now - limits.fetchedAtMs))
-        : "?",
-    windows,
-  });
+  // The selected account's paid plan (omp ≥ 19); quiet label beside the
+  // windows, absent when the report names none — never inferred (#1237).
+  const plan = limits.subscriptionPlan;
+  const details =
+    t("hud.limits.details", {
+      provider: limits.provider ?? "?",
+      age:
+        limits.fetchedAtMs > 0
+          ? formatDuration(Math.max(0, now - limits.fetchedAtMs))
+          : "?",
+      windows,
+    }) + (plan === undefined ? "" : "\n" + t("hud.limits.planLine", { plan }));
   const nextReset = limits.windows
     .map((window) => window.resetsAtMs)
     .filter((at): at is number => at !== null && at > now)
@@ -618,6 +622,12 @@ function LimitsCluster({ limits, layout = "inline" }: { limits: LimitsView; layo
       ×{limits.bankedResets}
     </Chip>
   );
+  const planChip =
+    plan === undefined ? null : (
+      <span className="shrink-0 text-ink-faint" title={t("hud.limits.planTip")}>
+        {plan}
+      </span>
+    );
   if (layout === "list") {
     const resetText = (at: number | null): string =>
       at === null
@@ -637,6 +647,7 @@ function LimitsCluster({ limits, layout = "inline" }: { limits: LimitsView; layo
             <span className="shrink-0 text-ink-dim">{resetText(window.resetsAtMs)}</span>
           </div>
         ))}
+        {planChip !== null && <div className="flex justify-end">{planChip}</div>}
         {banked && <div>{banked}</div>}
       </div>
     );
@@ -662,6 +673,7 @@ function LimitsCluster({ limits, layout = "inline" }: { limits: LimitsView; layo
           {t("hud.limits.resetsIn", { duration: formatDuration(nextReset - now) })}
         </span>
       )}
+      {planChip}
       {banked}
     </div>
   );
