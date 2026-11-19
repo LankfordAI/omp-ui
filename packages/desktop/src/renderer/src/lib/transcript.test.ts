@@ -690,6 +690,52 @@ describe("reduceEvent tool executions", () => {
     expect(tool(items, "t7")?.wallTimeMs).toBe(1234);
   });
 
+  it("carries the omp 19 spill reference from details.meta.truncation (issue #1236)", () => {
+    const items = reduceEvent([], {
+      type: "tool_execution_end",
+      toolCallId: "s1",
+      toolName: "bash",
+      result: {
+        content: [],
+        details: { meta: { truncation: { artifactId: "0", elidedBytes: 4 } } },
+      },
+    });
+    expect(tool(items, "s1")?.spillRef).toEqual({ id: 0, sample: false });
+  });
+
+  it("marks a capped spill file as a head/tail sample and accepts the minimizer carrier", () => {
+    const capped = reduceEvent([], {
+      type: "tool_execution_end",
+      toolCallId: "s2",
+      toolName: "bash",
+      result: {
+        content: [],
+        details: { meta: { truncation: { artifactId: "9", artifactElidedBytes: 4096 } } },
+      },
+    });
+    expect(tool(capped, "s2")?.spillRef).toEqual({ id: 9, sample: true });
+    const minimized = reduceEvent([], {
+      type: "tool_execution_end",
+      toolCallId: "s3",
+      toolName: "bash",
+      result: {
+        content: [],
+        details: { meta: { minimized: { filter: "git", inputBytes: 10, outputBytes: 5, artifactId: "3" } } },
+      },
+    });
+    expect(tool(minimized, "s3")?.spillRef).toEqual({ id: 3, sample: false });
+  });
+
+  it("leaves spillRef absent when no carrier names a spill", () => {
+    const items = reduceEvent([], {
+      type: "tool_execution_end",
+      toolCallId: "s4",
+      toolName: "bash",
+      result: { content: [], details: { meta: { truncation: {} } } },
+    });
+    expect("spillRef" in tool(items, "s4")!).toBe(false);
+  });
+
   it("carries bash minimizer provenance from details.meta.minimized (omp 18.16.0)", () => {
     const items = reduceEvent([], {
       type: "tool_execution_end",

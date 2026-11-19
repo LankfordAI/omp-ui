@@ -3,6 +3,7 @@ import { execFile, execFileSync } from "node:child_process";
 import * as fs from "node:fs";
 import * as os from "node:os";
 import * as path from "node:path";
+import * as zlib from "node:zlib";
 import { setImmediate as nextTurn } from "node:timers/promises";
 import { promisify } from "node:util";
 import * as Core from "@omp-ui/core";
@@ -639,6 +640,75 @@ describe("restore-on-relaunch (issue #872)", () => {
 
     expect(spawnCalls.at(-1)).toMatchObject({ resumeSessionId: SESSION_ID });
     expect(spawnCalls.at(-1)?.restoreSessionId).toBeUndefined();
+  });
+});
+
+// Issue #1236: View raw output reads a spill back from the owning session's
+// transcript sibling — never a renderer-named path.
+describe("spill reads (issue #1236)", () => {
+  const SESSION_ID = "019ffc67-522c-7000-95a3-01eca0266c03";
+  const STEM = `2026-08-13T00-00-00-000Z_${SESSION_ID}`;
+
+  const seed = (sessionsRoot: string, runtimeVersion: string | null): string => {
+    fs.mkdirSync(path.join(sessionsRoot, LINEAGE, STEM, "local"), { recursive: true });
+    const lines = [`${JSON.stringify({ type: "session", id: SESSION_ID, cwd: PROJECT })}\n`];
+    if (runtimeVersion !== null) {
+      lines.push(`${JSON.stringify({ type: "model_change", id: "x", runtime: { version: runtimeVersion } })}\n`);
+    }
+    fs.writeFileSync(path.join(sessionsRoot, LINEAGE, `${STEM}.jsonl`), lines.join(""));
+    return path.join(sessionsRoot, LINEAGE, STEM, "local");
+  };
+
+  it("reads the spill file beside the session transcript", async () => {
+    const { manager, registry, sessionsRoot } = setup();
+    const local = seed(sessionsRoot, "19.0.0");
+    fs.writeFileSync(path.join(local, "4.log"), "raw bytes\n");
+    registry.updateSession(TAB, { sessionId: SESSION_ID });
+    await expect(manager.readSpill(TAB, 4)).resolves.toEqual({ status: "ok", text: "raw bytes\n", truncated: false });
+  });
+
+  it("reports a pre-19 transcript as legacy when no spill dir was ever written", async () => {
+    const { manager, registry, sessionsRoot } = setup();
+    seed(sessionsRoot, "18.22.2");
+    registry.updateSession(TAB, { sessionId: SESSION_ID });
+    await expect(manager.readSpill(TAB, 4)).resolves.toEqual({ status: "legacy" });
+  });
+
+  it("reads spills from a hybrid transcript whose head scan still shows only pre-19 runs", async () => {
+    // A v18 session resumed under 19 keeps its old runtime lines in the scan
+    // window; once omp 19 has actually written local/, the files are readable.
+    const { manager, registry, sessionsRoot } = setup();
+    const local = seed(sessionsRoot, "18.22.2");
+    fs.writeFileSync(path.join(local, "4.log"), "resumed spill\n");
+    registry.updateSession(TAB, { sessionId: SESSION_ID });
+    await expect(manager.readSpill(TAB, 4)).resolves.toEqual({ status: "ok", text: "resumed spill\n", truncated: false });
+  });
+
+  it("reports missing for an absent spill and an unmaterialized session", async () => {
+    const { manager, registry, sessionsRoot } = setup();
+    seed(sessionsRoot, "19.0.0");
+    registry.updateSession(TAB, { sessionId: SESSION_ID });
+    await expect(manager.readSpill(TAB, 404)).resolves.toEqual({ status: "missing" });
+    registry.updateSession(TAB, { sessionId: null });
+    await expect(manager.readSpill(TAB, 4)).resolves.toEqual({ status: "missing" });
+    await expect(manager.readSpill("nope", 1)).rejects.toThrow(/unknown session tab/);
+  });
+
+  it("follows a transcript omp gc relocated into the archive root", async () => {
+    const { manager, registry, sessionsRoot } = setup();
+    const archiveStem = path.join(sessionsRoot, "..", "archive", LINEAGE, STEM);
+    fs.mkdirSync(path.join(archiveStem, "local"), { recursive: true });
+    fs.writeFileSync(
+      `${archiveStem}.jsonl.gz`,
+      zlib.gzipSync(
+        `${JSON.stringify({ type: "session", id: SESSION_ID })}\n` +
+          `${JSON.stringify({ type: "model_change", id: "x", runtime: { version: "19.0.0" } })}\n`,
+      ),
+    );
+    fs.writeFileSync(path.join(archiveStem, "local", "4.log"), "archived spill\n");
+    registry.updateSession(TAB, { sessionId: SESSION_ID });
+    resolveSessionLocationMock.mockResolvedValueOnce({ where: "archived", filePath: `${archiveStem}.jsonl.gz` });
+    await expect(manager.readSpill(TAB, 4)).resolves.toEqual({ status: "ok", text: "archived spill\n", truncated: false });
   });
 });
 

@@ -130,6 +130,8 @@ export const TAB_ROUTED_REQUESTS: ReadonlySet<string> = new Set<string>([
   "session:attachImage",
   // A stashed draft re-captures a path-only document's bytes on its host (#989).
   "session:readDocument",
+  // A spill read runs where the session's files live (#1236).
+  "session:readSpill",
   "pty:pasteDocument",
   "shell:spawn",
   "browser-pane:ensure",

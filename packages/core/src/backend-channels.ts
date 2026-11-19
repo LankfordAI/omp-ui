@@ -258,7 +258,9 @@ import {
   artifactApplyCodec, artifactDiscardCodec, artifactDeleteCodec,
   artifactRenameCodec, artifactDiscardCaptureCodec, artifactDismissRefreshCodec, artifactPruneCodec, artifactRestoreCodec,
   artifactSavePartCodec, artifactExportHtmlCodec,
+  spillIdCodec,
 } from "./backend-arg-codecs";
+import type { SpillReadResult } from "./spill";
 import type { HeldPromptPayload, HeldPromptRequest } from "./held-prompt";
 import type { ScheduledPromptRequest } from "./scheduled-prompt";
 import type { WebhookInput, WebhookPatch, WebhookSecretReveal, WebhooksState } from "./webhook";
@@ -1974,6 +1976,17 @@ export const BACKEND_CHANNELS = {
   readDocument: {
     channel: "session:readDocument",
     ...request<[tabId: string, path: string], string>([str(), str()]),
+  },
+  /**
+   * Reads one session spill (`local://<id>.log`, omp 19+) back as text on the
+   * machine that owns the tab (issue #1236): a truncated or minimized card's
+   * View raw output action. The id is digits-only; main derives the path from
+   * the session's own transcript, confines the read to its real `local/` root,
+   * and caps bytes. No path ever crosses from the renderer.
+   */
+  readSpill: {
+    channel: "session:readSpill",
+    ...request<[tabId: string, spillId: number], SpillReadResult>([str(), spillIdCodec]),
   },
   /**
    * Terminal-tab twin of attachDocument: writes the scratch file on the

@@ -21,6 +21,7 @@ import { isAgentPauseFrame, isNonTerminalAgentEnd } from "@omp-ui/core/run-end";
 import { parseBashMinimized, type BashMinimized } from "@omp-ui/core/bash-minimized";
 import { parseBashTruncation, type BashTruncation } from "@omp-ui/core/bash-truncation";
 import { parseBashToolTruncation, type BashToolTruncation } from "@omp-ui/core/bash-tool-truncation";
+import { parseSpillReference, type SpillReference } from "@omp-ui/core/spill";
 import { parseWebSearchFailures, type WebSearchProviderFailure } from "@omp-ui/core/web-search-failures";
 
 export interface AdvisorNote {
@@ -159,6 +160,11 @@ export interface ToolItem {
   minimized?: BashMinimized;
   /** Tool-result middle elision and column cuts; recovery notices remain in the output text. */
   toolTruncation?: BashToolTruncation;
+  /** The omp 19 spill (`local://<id>.log`) this result's output metadata references, when any
+   *  carrier names one; the card offers View raw output only when the harness supports reading
+   *  it. Parsed from `details.meta`; a pre-19 `artifact://` id lives in the same field and the
+   *  harness gate keeps that card action-less (issue #1236). */
+  spillRef?: SpillReference;
   /** web_search provider diagnostics decorate the result without changing its verdict. */
   providerFailures?: WebSearchProviderFailure[];
   /** `ask` submitted answers, normalized across omp versions (issue #1203): the card's
@@ -788,6 +794,11 @@ function toolTruncationField(details: unknown): { toolTruncation?: BashToolTrunc
   return toolTruncation ? { toolTruncation } : {};
 }
 
+function spillField(details: unknown): { spillRef?: SpillReference } {
+  const spillRef = parseSpillReference(details);
+  return spillRef ? { spillRef } : {};
+}
+
 function providerFailuresField(name: string | undefined, details: unknown): Pick<ToolItem, "providerFailures"> {
   const providerFailures = name === "web_search" ? parseWebSearchFailures(details) : undefined;
   return providerFailures ? { providerFailures } : {};
@@ -1372,6 +1383,7 @@ export function reduceEvent(items: RenderItem[], event: unknown): RenderItem[] {
         ...taskFilesField(partial?.details),
         ...replies,
         ...minimizedField(partial?.details),
+        ...spillField(partial?.details),
         ...toolTruncation,
       });
     }
@@ -1399,6 +1411,7 @@ export function reduceEvent(items: RenderItem[], event: unknown): RenderItem[] {
         ...repliesField(details),
         ...minimizedField(details),
         toolTruncation: toolTruncationField(details).toolTruncation,
+        ...spillField(details),
         ...providerFailuresField(item?.name ?? str(event.toolName), details),
         ...askFactsField(item?.name ?? str(event.toolName), details),
       };
@@ -1674,6 +1687,7 @@ export function historyToItems(messages: unknown[]): RenderItem[] {
         ...repliesField(details),
         ...minimizedField(details),
         ...toolTruncationField(details),
+        ...spillField(details),
         ...providerFailuresField(item.name, details),
         ...askFactsField(item.name, details),
       };

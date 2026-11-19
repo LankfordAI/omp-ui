@@ -260,6 +260,8 @@ const artifactKeyCodec: ArgCodec<string> = {
   decode(value) { assertArtifactKey(value); return value; },
 };
 const artifactOffsetCodec = codec<number>("a nonnegative byte offset", value => Number.isSafeInteger(value) && (value as number) >= 0);
+/** A spill id: digits only, as `local://<id>.log` spells it. */
+export const spillIdCodec = codec<number>("a nonnegative integer spill id", value => Number.isSafeInteger(value) && (value as number) >= 0);
 const artifactLimitCodec = codec<number>("a page limit from 4 to 65536", value => Number.isSafeInteger(value) && (value as number) >= 4 && (value as number) <= 65536);
 const artifactHeadsCodec: ArgCodec<Record<string, string>> = {
   expected: "dataset keys mapped to immutable dataset UUIDs",

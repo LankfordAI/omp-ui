@@ -168,6 +168,10 @@ import {
   type DiscardedChange,
   type VaultAction,
   LIMITS_COMMAND,
+  readSpillFile,
+  spillRootForTranscript,
+  type SpillReadResult,
+  transcriptSpillCapable,
   type SaveStoredThemeResult,
   type ThemeApplyResult,
   type ThemeList,
@@ -2985,6 +2989,39 @@ export class SessionManager {
       throw new Error(`unknown session tab ${tabId}`);
     }
     return readScratchDocument(file);
+  }
+
+  /**
+   * Reads one spill (`local://<id>.log`) of a session's saved transcript back
+   * as text (issue #1236). The path is derived here — the transcript resolved
+   * fresh from the record (omp gc relocates cold sessions), the spill root its
+   * sibling `local/` — never from anything the renderer sends beyond the
+   * numeric id. A transcript whose recorded harness versions are all pre-19
+   * reports `legacy`: its raw outputs live in the unmigrated `artifact://`
+   * store and no path is guessed. Absent files report `missing`.
+   */
+  async readSpill(tabId: string, spillId: number): Promise<SpillReadResult> {
+    const record = this.deps.registry.sessions.find((s) => s.tabId === tabId);
+    if (!record) throw new Error(`unknown session tab ${tabId}`);
+    if (record.sessionId === null) return { status: "missing" };
+    const loc = await resolveSessionLocation(
+      this.deps.getSessionsRoot(),
+      this.deps.getArchiveRoot(),
+      record.lineageDir,
+      record.sessionId,
+    );
+    if (loc.where === "missing") return { status: "missing" };
+    const localRoot = spillRootForTranscript(loc.filePath);
+    if (localRoot === "") return { status: "missing" };
+    const runtime = await transcriptSpillCapable(loc.filePath);
+    if (!runtime.capable) {
+      // Only a pre-19 harness writes the sibling `local/` dir, so an empty or
+      // absent root confirms the legacy verdict; a resumed-under-19 session
+      // whose stale versions crowd the scan window still reads its spills.
+      const entries = await fs.promises.readdir(localRoot).catch(() => null);
+      if (entries === null || entries.length === 0) return { status: "legacy" };
+    }
+    return readSpillFile(localRoot, spillId);
   }
 
   async ptyPasteDocument(tabId: string, document: DocumentAttachment): Promise<void> {

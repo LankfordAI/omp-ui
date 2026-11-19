@@ -156,6 +156,16 @@ export {
   toolResultReplies,
 } from "./out-replies";
 export { parseBashMinimized, type BashMinimized } from "./bash-minimized";
+export {
+  parseSpillReference,
+  SPILL_READ_MAX_BYTES,
+  SPILL_READ_MIN_OMP,
+  supportsSpillRead,
+  type SpillReadResult,
+  type SpillReference,
+} from "./spill";
+export { spillRootForTranscript, transcriptSpillCapable } from "./spill-header";
+export { readSpillFile } from "./spill-read";
 export { parseBashTruncation, type BashTruncation } from "./bash-truncation";
 export {
   CHAT_DIR_RE,

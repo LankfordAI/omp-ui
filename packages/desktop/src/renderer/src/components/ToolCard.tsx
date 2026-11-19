@@ -16,7 +16,9 @@ import type { AdvisorNote, AskFacts, RecordedTaskFile, ToolItem } from "../lib/t
 import { cwdText } from "../lib/transcript";
 import { pathFromArgs } from "../lib/tool-groups";
 import { isPlanArtifactPath } from "@omp-ui/core/plan";
+import { supportsSpillRead } from "@omp-ui/core/spill";
 import { useStore } from "../store";
+import { RawOutputViewer } from "./RawOutputViewer";
 import { DiffViewer, OpChip } from "./DiffViewer";
 import { openImageViewer } from "./ImageViewer";
 import { linkify, Markdown } from "./Markdown";
@@ -769,6 +771,13 @@ export function ToolCard({ item, tabId }: { item: ToolItem; tabId?: string }) {
   const streamStallMs = useStore(
     tabId === undefined ? readNoStall : (s) => s.rpc[tabId]?.streamStallMs,
   );
+  // Only omp 19+ spills raw output to `local://N.log` files that a card can
+  // read back; below the gate (or before the version is known) the card keeps
+  // today's shape: the recovery notice in the text, no action (issue #1236).
+  const canReadSpill = useStore(
+    tabId === undefined ? readNoStall : (s) => supportsSpillRead(s.rpc[tabId]?.capabilities?.ompVersion ?? null),
+  );
+  const [rawOutputOpen, setRawOutputOpen] = useState(false);
   const resultLines = useMemo(
     () => (item.resultText ? item.resultText.split("\n").length : 0),
     [item.resultText],
@@ -993,6 +1002,21 @@ export function ToolCard({ item, tabId }: { item: ToolItem; tabId?: string }) {
           )}
 
           <ToolTruncationFacts item={item} />
+
+          {item.spillRef !== undefined && canReadSpill && tabId !== undefined && (
+            <>
+              <button
+                type="button"
+                onClick={() => setRawOutputOpen(true)}
+                className="block self-start border-0 bg-transparent p-0 font-mono text-xs text-iris hover:underline"
+              >
+                {t("transcript.tool.rawOutput.open")}
+              </button>
+              {rawOutputOpen && (
+                <RawOutputViewer tabId={tabId} spill={item.spillRef} onClose={() => setRawOutputOpen(false)} />
+              )}
+            </>
+          )}
 
           {/* An answered ask's result text is omp's model-facing restatement of the
               same answers the card body already renders; drop it, as omp's own

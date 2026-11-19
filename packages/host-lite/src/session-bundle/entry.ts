@@ -382,6 +382,7 @@ export function createSessionBundle(input: LiteSessionBundleDependencies): LiteS
     [CH.attachImage]: (tabId: string, image: ImageAttachment) => manager.attachImage(tabId, image),
     [CH.attachDocument]: (tabId: string, documents: DocumentAttachment[]) => manager.attachDocument(tabId, documents),
     [CH.readDocument]: (tabId: string, file: string) => manager.readDocument(tabId, file),
+    [CH.readSpill]: (tabId: string, spillId: number) => manager.readSpill(tabId, spillId),
     [CH.ptyPasteImage]: (tabId: string, image: ImageAttachment) => manager.ptyPasteImage(tabId, image),
     [CH.ptyPasteDocument]: (tabId: string, document: DocumentAttachment) =>
       manager.ptyPasteDocument(tabId, document),

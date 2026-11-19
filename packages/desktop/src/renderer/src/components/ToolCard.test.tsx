@@ -1,11 +1,18 @@
 // @vitest-environment jsdom
 import { beforeEach, describe, expect, it, vi } from "vitest";
-vi.mock("../backend", () => ({ backend: { setWindowChrome: vi.fn(async () => {}) } }));
+// The spill viewer (RawOutputViewer) shares this module; the card tests that
+// never open it still need its two names to exist on the mock.
+vi.mock("../backend", () => ({
+  backend: { setWindowChrome: vi.fn(async () => {}), readSpill: vi.fn(async () => ({ status: "missing" as const })) },
+  displayMessage: (error: unknown) => String(error),
+}));
 import { act } from "react";
 import { createRoot, type Root } from "react-dom/client";
 import type { ToolItem } from "../lib/transcript";
 import { applyLocale, resolveLocale } from "../lib/i18n";
 import { formatBytes } from "../lib/format";
+import { useStore } from "../store";
+import type { RpcTabState } from "../store/types";
 // The spread keeps the real cap constants, resolveLang, and the incremental
 // eligibility predicate; both hooks are stubbed so no wasm/dynamic grammar
 // loads run under jsdom. The incremental stub mirrors the real hook's
@@ -90,6 +97,72 @@ function renderCard(item: ToolItem): { el: HTMLDivElement; root: Root } {
 beforeEach(() => {
   highlightCalls.length = 0;
   incrementalCalls.length = 0;
+});
+
+/** Seed the tab's harness version the way a capabilities snapshot publishes it. */
+function setHarness(ompVersion: string | null): void {
+  useStore.setState((s) => ({
+    rpc: {
+      ...s.rpc,
+      [SPILL_TAB]: { ...(s.rpc[SPILL_TAB] ?? {}), capabilities: { ompVersion } } as unknown as RpcTabState,
+    },
+  }));
+}
+const SPILL_TAB = "spill-tab";
+
+describe("ToolCard View raw output (issue #1236)", () => {
+  function renderWithTab(item: ToolItem): { el: HTMLDivElement; root: Root } {
+    const el = document.createElement("div");
+    document.body.appendChild(el);
+    const root = createRoot(el);
+    act(() => {
+      root.render(<ToolCard item={item} tabId={SPILL_TAB} />);
+    });
+    return { el, root };
+  }
+
+  beforeEach(() => {
+    setHarness("19.0.0");
+  });
+
+  it("offers the action when an omp 19 result names a spill", () => {
+    const { el, root } = renderWithTab(tool({ name: "bash", resultText: "preview", spillRef: { id: 0, sample: false } }));
+    expect(el.textContent).toContain("view raw output");
+    act(() => root.unmount());
+  });
+
+  it("keeps today's card shape below the harness gate and without a tab", () => {
+    setHarness("18.22.2");
+    const gated = renderWithTab(tool({ name: "bash", resultText: "preview", spillRef: { id: 0, sample: false } }));
+    expect(gated.el.textContent).not.toContain("view raw output");
+    act(() => gated.root.unmount());
+    const noTab = renderCard(tool({ name: "bash", resultText: "preview", spillRef: { id: 0, sample: false } }));
+    expect(noTab.el.textContent).not.toContain("view raw output");
+    act(() => noTab.root.unmount());
+  });
+
+  it("stays silent when the result names no spill", () => {
+    const { el, root } = renderWithTab(tool({
+      name: "bash",
+      resultText: "preview",
+      toolTruncation: { truncation: { direction: "middle", truncatedBy: "middle", elidedBytes: 10 } },
+    }));
+    expect(el.textContent).not.toContain("view raw output");
+    act(() => root.unmount());
+  });
+
+  it("opens a read-only viewer naming the spill reference and carries the text", async () => {
+    const { el, root } = renderWithTab(tool({ name: "bash", resultText: "preview", spillRef: { id: 7, sample: false } }));
+    const action = [...el.querySelectorAll("button")].find((b) => b.textContent === "view raw output")!;
+    await act(async () => {
+      action.click();
+    });
+    const dialog = document.body.querySelector('[role="dialog"]');
+    expect(dialog?.textContent).toContain("local://7.log");
+    // The confined read answered missing (the mock); say so plainly.
+    expect(dialog?.textContent).toContain("spill file was pruned or never saved");
+    act(() => root.unmount());
+  });
 });
 
 describe("splitReadResult", () => {
