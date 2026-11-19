@@ -22,6 +22,7 @@
     "./async-notify": "./src/async-notify.ts",
     "./run-end": "./src/run-end.ts",
     "./session-spend": "./src/session-spend.ts",
+    "./composer-predictions": "./src/composer-predictions.ts",
     "./limits": "./src/limits.ts",
     "./held-prompt": "./src/held-prompt.ts",
     "./scheduled-prompt": "./src/scheduled-prompt.ts",

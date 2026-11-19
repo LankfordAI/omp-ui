@@ -56,6 +56,7 @@ function bridgeWriters(write: (id: (typeof RPC_BRIDGE_IDS)[number]) => string): 
     carryoverContext: () => write("carryoverContext"),
     privateGuard: () => write("privateGuard"),
     sideCommands: () => write("sideCommands"),
+    composerPredictions: () => write("composerPredictions"),
     fleetWake: () => write("fleetWake"),
     projectScope: () => write("projectScope"),
   };
@@ -87,6 +88,7 @@ describe("writeRpcExtensions", () => {
         "/carryoverContext.ts",
         "/privateGuard.ts",
         "/sideCommands.ts",
+        "/composerPredictions.ts",
         "/fleetWake.ts",
         "/projectScope.ts",
       ],
@@ -107,6 +109,7 @@ describe("writeRpcExtensions", () => {
         carryoverContext: true,
         privateGuard: true,
         sideCommands: true,
+        composerPredictions: true,
         fleetWake: true,
         projectScope: true,
       },

@@ -56,6 +56,7 @@ import {
   writePrivateGuardExtension,
   writePrivateOverlay,
   writeSideCommandsExtension,
+  writeComposerPredictionsExtension,
   writeFleetWakeExtension,
   writeProjectScopeExtension,
   writeChatOverlay,
@@ -404,6 +405,7 @@ export const RPC_BRIDGE_IDS = [
   "carryoverContext",
   "privateGuard",
   "sideCommands",
+  "composerPredictions",
   "fleetWake",
   "projectScope",
 ] as const;
@@ -427,6 +429,7 @@ const DEFAULT_RPC_BRIDGE_WRITERS: RpcBridgeWriters = {
   carryoverContext: writeCarryoverContextExtension,
   privateGuard: writePrivateGuardExtension,
   sideCommands: writeSideCommandsExtension,
+  composerPredictions: writeComposerPredictionsExtension,
   fleetWake: writeFleetWakeExtension,
   projectScope: writeProjectScopeExtension,
 };
@@ -458,6 +461,7 @@ const RPC_BRIDGES: ReadonlyArray<{
   { id: "carryoverContext", logId: "carryover", warning: "carryover-context", enabled: () => true },
   { id: "privateGuard", logId: "private", warning: "private-guard", enabled: () => true },
   { id: "sideCommands", logId: "side-commands", warning: "side-commands", enabled: () => true },
+  { id: "composerPredictions", logId: "composer-predictions", warning: "composer-predictions", enabled: () => true },
   { id: "fleetWake", logId: "fleet-wake", warning: "fleet-wake", enabled: () => true },
   { id: "projectScope", logId: "project-scope", warning: "project-scope", enabled: () => true },
 ];

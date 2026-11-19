@@ -225,6 +225,10 @@ export { browserPaneExtensionPath, writeBrowserPaneExtension } from "./browser-p
 export { treeExtensionPath, writeTreeExtension } from "./tree-extension";
 export { sideCommandsExtensionPath, writeSideCommandsExtension } from "./side-commands-extension";
 export {
+  composerPredictionsExtensionPath,
+  writeComposerPredictionsExtension,
+} from "./composer-predictions-extension";
+export {
   autoresearchExtensionPath,
   writeAutoresearchExtension,
 } from "./autoresearch-extension";
