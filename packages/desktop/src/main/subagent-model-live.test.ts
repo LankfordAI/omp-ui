@@ -21,8 +21,13 @@ import {
  * the parent's live model, so a `set_model` alone leaves inheriting subagents
  * on the boot model until the default-model overlay is rewritten in place.
  *
- * Requires a reachable omp and a working oauth session; both follow the #86
- * convention of skipping cleanly when the environment cannot produce them.
+ * Requires a reachable omp and a model session that can actually answer. Both
+ * follow the #86 convention of skipping cleanly when the environment cannot
+ * produce them (#744, #1229): an oauth-free or credential-poor boot still
+ * answers `get_state` and accepts prompts with `success: true`, so readiness
+ * alone proves nothing — the suite checks `get_available_models` up front and
+ * skips on the first provider-errored prompt turn instead of hanging the full
+ * spawn timeout waiting for a subagent the dead turn can never spawn.
  */
 type Frame = {
   type: string;
@@ -34,6 +39,14 @@ type Frame = {
     models?: Array<{ id?: string; provider?: string }>;
     isStreaming?: boolean;
     queuedMessageCount?: number;
+  };
+  message?: {
+    role?: string;
+    provider?: string;
+    model?: string;
+    stopReason?: string;
+    errorStatus?: number;
+    errorMessage?: string;
   };
   payload?: unknown;
 };
@@ -75,8 +88,22 @@ async function waitFor<T>(probe: () => T | undefined, timeoutMs: number, what: s
 /** Marks "the environment could not produce an oauth session" — the suite skips on this. */
 class OauthUnavailable extends Error {}
 
-function skipIfOauthUnavailable(ctx: { skip: (reason?: string) => never }, error: unknown): void {
-  if (error instanceof OauthUnavailable) ctx.skip(error.message);
+/**
+ * Marks "a model session exists but cannot answer" (#1229): the live CI
+ * evidence is a prompt turn that ends `stopReason: "error"` (402 out of
+ * credits on the credential-less runner's fallback model) while the harness
+ * waits 240 s for a subagent the dead turn never spawns. An oauth-ready boot
+ * is NOT promptable — CI proves both.
+ */
+class ModelUnavailable extends Error {}
+
+function skipIfEnvironmentUnavailable(
+  ctx: { skip: (reason?: string) => never },
+  error: unknown,
+): void {
+  if (error instanceof OauthUnavailable || error instanceof ModelUnavailable) {
+    ctx.skip(error.message);
+  }
   throw error;
 }
 
@@ -102,12 +129,49 @@ function transcriptModel(sessionFile: string): string {
   throw new Error(`no model_change line in ${sessionFile}`);
 }
 
+/**
+ * If the PARENT session transcript's LATEST assistant turn ended at the
+ * provider, its one-line summary; null otherwise (a recovered run's newest
+ * turn is healthy, so a transient failure never trips this). Reads only the
+ * top-level lineage files — subagent transcripts live in the per-session
+ * subdirectory, so a dead child never counts here (#1229: the CI runner's
+ * credit-less parent turn dies at 402 seconds after the ack, and the spawn it
+ * can never perform used to hang the full budget).
+ */
+function parentDeath(lineage: string): string | null {
+  let last: { ok: boolean; summary: string } | null = null;
+  for (const name of fs.readdirSync(lineage).filter((n) => n.endsWith(".jsonl"))) {
+    for (const line of fs.readFileSync(path.join(lineage, name), "utf8").split("\n")) {
+      if (!line.includes('"role":"assistant"')) continue;
+      try {
+        const entry = JSON.parse(line) as {
+          message?: { provider?: string; model?: string; stopReason?: string; errorMessage?: string };
+        };
+        const m = entry.message ?? {};
+        if (m.stopReason === "error") {
+          last = {
+            ok: false,
+            summary: `${String(m.provider)}/${String(m.model)}: ${String(m.errorMessage ?? "turn ended at the provider").slice(0, 200)}`,
+          };
+        } else if (m.stopReason !== undefined) {
+          last = { ok: true, summary: "" };
+        }
+      } catch {
+        // A partially flushed line is not evidence either way; keep scanning.
+      }
+    }
+  }
+  return last !== null && !last.ok ? last.summary : null;
+}
+
 interface Harness {
   client: RpcClient;
   frames: Frame[];
   exited: Promise<void>;
   /** Sends one command under a generated id and resolves its response frame. */
   command(cmd: Record<string, unknown>, timeoutMs?: number): Promise<Frame>;
+  /** Skips unless every selector names a model this session can bill against. */
+  requireModels(ctx: { skip: (reason?: string) => never }, selectors: string[]): Promise<void>;
   /** Prompts one `task` spawn and resolves the new child's transcript and model. */
   spawnOnce(ordinal: number): Promise<{ file: string; model: string }>;
   /** Waits out the task-result follow-up turn, then an idle command lane. */
@@ -149,6 +213,24 @@ async function bootHarness(base: string, lineage: string, configOverlays: string
   /** get_subagents, answered from the raw response frame. */
   const subagents = async (): Promise<NonNullable<Frame["data"]>["subagents"]> =>
     (await command({ type: "get_subagents" })).data?.subagents ?? [];
+
+  // A model session is not a promptable one: on the credential-less CI
+  // runners get_state answers and prompts ack success:true, yet every turn
+  // dies at the provider (#744 proved availability must gate before any
+  // spawn; #1229 extends the same guard to the first proof).
+  const requireModels = async (
+    ctx: { skip: (reason?: string) => never },
+    selectors: string[],
+  ): Promise<void> => {
+    const models = (await command({ type: "get_available_models" }, 60_000)).data?.models ?? [];
+    const available = new Set(models.map((model) => `${model.provider}/${model.id}`));
+    const missing = selectors
+      .map((selector) => selector.replace(/:[a-z]+$/, ""))
+      .filter((model) => !available.has(model));
+    if (missing.length > 0) {
+      ctx.skip(`${missing.join(" and ")} ${missing.length === 1 ? "is" : "are"} not available to this session`);
+    }
+  };
 
   /** Waits for rpc-ui's own state to report a genuinely idle command lane. */
   const waitUntilIdle = async (): Promise<void> => {
@@ -203,6 +285,20 @@ async function bootHarness(base: string, lineage: string, configOverlays: string
         );
         return { file: target.sessionFile, model };
       }
+      // No child has EVER spawned on this harness and the parent's turn is
+      // dead at the provider: no prompt can ever produce one, so waiting out
+      // the spawn budget tells nothing new (#1229). Once a child has spawned
+      // the environment can spawn, and any later death is a runtime failure
+      // that must fail loudly, not skip.
+      if (seenAgentIds.size === 0) {
+        const death = parentDeath(lineage);
+        if (death !== null) {
+          throw new ModelUnavailable(
+            `cannot spawn: the parent's own turn ended at the provider (${death}); ` +
+              `prompt response: ${JSON.stringify(promptResponse)}`,
+          );
+        }
+      }
       if (Date.now() - start > SPAWN_TIMEOUT_MS) {
         const lifecycle = frames.filter((frame) => frame.type.startsWith("subagent_"));
         const mainFiles = fs.readdirSync(lineage).filter((name) => name.endsWith(".jsonl"));
@@ -242,7 +338,7 @@ async function bootHarness(base: string, lineage: string, configOverlays: string
     await waitUntilIdle();
   };
 
-  return { client, frames, exited, command, spawnOnce, settleAfterTaskResult };
+  return { client, frames, exited, command, requireModels, spawnOnce, settleAfterTaskResult };
 }
 
 describe("subagent model overlay — live reload (ADR-0031)", () => {
@@ -260,6 +356,10 @@ describe("subagent model overlay — live reload (ADR-0031)", () => {
     let harness: Harness | undefined;
     try {
       harness = await bootHarness(base, lineage, [overlay]);
+      // Spawn 1 runs on the parent's own model and the proof needs to REACH
+      // the pin, so both must be billable here — the guard test 2 gained in
+      // #744, missing here, is why CI hung 240 s instead of skipping (#1229).
+      await harness.requireModels(ctx, [PIN_SELECTOR]);
       const first = await harness.spawnOnce(1);
       if (first.model === PIN_MODEL) {
         ctx.skip(`the parent model already is the pin (${PIN_MODEL})`);
@@ -276,7 +376,7 @@ describe("subagent model overlay — live reload (ADR-0031)", () => {
       expect(first.model).not.toBe(PIN_MODEL);
       expect(second.file).not.toBe(first.file);
     } catch (error) {
-      skipIfOauthUnavailable(ctx, error);
+      skipIfEnvironmentUnavailable(ctx, error);
     } finally {
       if (harness !== undefined) {
         harness.client.kill();
@@ -304,11 +404,7 @@ describe("subagent model overlay — live reload (ADR-0031)", () => {
       harness = await bootHarness(base, lineage, [modelOverlay, subagentOverlay]);
       // Both models must be reachable, or omp's no-credentials fallback turns
       // a skip into a misleading failure (#744).
-      const models = (await harness.command({ type: "get_available_models" }, 60_000)).data?.models ?? [];
-      const available = new Set(models.map((model) => `${model.provider}/${model.id}`));
-      if (!available.has(BOOT_MODEL) || !available.has(PIN_MODEL)) {
-        ctx.skip(`${BOOT_MODEL} and ${PIN_MODEL} are not both available`);
-      }
+      await harness.requireModels(ctx, [BOOT_SELECTOR, PIN_SELECTOR]);
 
       // The live model becomes the pin; omp never persists it to the role.
       const slash = PIN_MODEL.indexOf("/");
@@ -330,7 +426,7 @@ describe("subagent model overlay — live reload (ADR-0031)", () => {
       expect(second.model).toBe(PIN_MODEL);
       expect(second.file).not.toBe(first.file);
     } catch (error) {
-      skipIfOauthUnavailable(ctx, error);
+      skipIfEnvironmentUnavailable(ctx, error);
     } finally {
       if (harness !== undefined) {
         harness.client.kill();

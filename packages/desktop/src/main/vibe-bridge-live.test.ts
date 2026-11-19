@@ -53,7 +53,12 @@ type Frame = {
   id?: string;
   statusKey?: string;
   statusText?: string;
-  data?: { isStreaming?: boolean; queuedMessageCount?: number; subagents?: Array<{ id: string }> };
+  data?: {
+    isStreaming?: boolean;
+    queuedMessageCount?: number;
+    subagents?: Array<{ id: string }>;
+    models?: Array<{ id?: string; provider?: string }>;
+  };
   subagents?: Array<{ id: string }>;
 };
 
@@ -323,6 +328,24 @@ describe.skipIf(ompPath === null)("the vibe bridge on the real runtime", () => {
       );
     } catch (error) {
       ctx.skip(`no model session became ready (${String(error)}); worker spawns need one`);
+    }
+    // Ready is not billable: on a credential-less runner the boot comes up on
+    // a fallback model, the spawn below lands on it, and the worker's first
+    // turn dies at the provider within its first breath — the roster row lives
+    // shorter than a poll, so this stage became a 60 s coin flip (#1229; same
+    // #744 availability gate subagent-model-live uses).
+    const pinModel = pin.replace(/:[a-z]+$/, "");
+    scope.client.send({ type: "get_available_models", id: "vibe-models" });
+    const modelsFrame = await waitFor(
+      () => scope.frames.find((f) => f.type === "response" && f.id === "vibe-models"),
+      60_000,
+      "the available-models response",
+    );
+    const available = new Set(
+      (modelsFrame.data?.models ?? []).map((model) => `${model.provider}/${model.id}`),
+    );
+    if (!available.has(pinModel)) {
+      ctx.skip(`${pinModel} is not available to this session; worker spawns need one`);
     }
     let snapshot = await armed(scope);
 
