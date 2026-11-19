@@ -558,6 +558,9 @@ export function disposeTabRuntime(
     // Spend totals belong to the dying process's bridge; the successor's
     // bridge rescans the transcripts and republishes on the boot arm (#866).
     sessionSpend: null,
+    // Likewise the observed warming method: it describes the dead process's
+    // warmer, and the successor refreshes only if it warms again (#1238).
+    cacheWarming: null,
     // The stop belongs to the dying process; the successor's next prompt reports its own.
     costCap: null,
   });
@@ -628,6 +631,7 @@ function freshRpcTabState(
     asyncJobsKill: null,
     asyncJobsKillError: null,
     sessionSpend: null,
+    cacheWarming: null,
     capabilities: null,
     capabilitiesLoad: "idle",
     subagentControlBusy: {},

@@ -1412,6 +1412,7 @@ describe("handleRpcFrame routing", () => {
         subagents: emptySpendTotals(),
         total: { ...emptySpendTotals(), cost: 1 },
         transcripts: 0,
+        cacheWarm: emptySpendTotals(),
         ...patch,
       };
       h.useStore.getState().handleRpcFrame(h.TAB, {
@@ -1717,6 +1718,71 @@ describe("handleRpcFrame routing", () => {
       await h.flushMicrotasks();
       expect(h.useStore.getState().rpc[key]!.credentialFallback).toBeNull();
     });
+  });
+
+  // Issue #1238: the surfaces read the method off the refresh-lifecycle
+  // frames themselves; an 18.22.x frame carries none and may never flip the
+  // readout, and nothing is inferred from token counts.
+  describe("cache-warming method observation (issue #1238)", () => {
+    it("records the method a v19 refresh frame reports", () => {
+      h.useStore.getState().handleRpcFrame(h.TAB, {
+        type: "cache_warming_start",
+        phase: "idle",
+        method: "prewarm",
+        provider: "anthropic",
+        model: "claude",
+      });
+      expect(h.useStore.getState().rpc[h.TAB]!.cacheWarming).toBe("prewarm");
+      // The matching end frame carries the same method and may advance it
+      // when a later refresh switched (a refused prewarm falls back to replay).
+      h.useStore.getState().handleRpcFrame(h.TAB, {
+        type: "cache_warming_end",
+        phase: "idle",
+        method: "replay",
+        provider: "anthropic",
+        model: "claude",
+        outcome: "hit",
+      });
+      expect(h.useStore.getState().rpc[h.TAB]!.cacheWarming).toBe("replay");
+    });
+
+    it("leaves the readout untouched for a frame without a method", () => {
+      h.useStore.setState({ rpc: { [h.TAB]: rpcTabState({ cacheWarming: "prewarm" }) } });
+      // The 18.22.x wire: same frames, no method field. Neither sets nor clears.
+      h.useStore.getState().handleRpcFrame(h.TAB, {
+        type: "cache_warming_start",
+        phase: "streaming",
+        provider: "anthropic",
+        model: "claude",
+      });
+      h.useStore.getState().handleRpcFrame(h.TAB, {
+        type: "cache_warming_end",
+        phase: "streaming",
+        provider: "anthropic",
+        model: "claude",
+        outcome: "miss",
+      });
+      expect(h.useStore.getState().rpc[h.TAB]!.cacheWarming).toBe("prewarm");
+      h.useStore.setState({ rpc: { [h.TAB]: rpcTabState() } });
+      h.useStore.getState().handleRpcFrame(h.TAB, {
+        type: "cache_warming_start",
+        phase: "streaming",
+        provider: "anthropic",
+        model: "claude",
+      });
+      expect(h.useStore.getState().rpc[h.TAB]!.cacheWarming).toBeNull();
+    });
+
+    it.each(["session_info_update", "config_update"])(
+      "%s drops a method that described the predecessor session",
+      (type) => {
+        h.useStore.setState({ rpc: { [h.TAB]: rpcTabState({ cacheWarming: "prewarm" }) } });
+        h.useStore.getState().handleRpcFrame(h.TAB, { type, sessionId: "s-before" });
+        expect(h.useStore.getState().rpc[h.TAB]!.cacheWarming).toBe("prewarm");
+        h.useStore.getState().handleRpcFrame(h.TAB, { type, sessionId: "s-after" });
+        expect(h.useStore.getState().rpc[h.TAB]!.cacheWarming).toBeNull();
+      },
+    );
   });
 
   describe("MCP runtime failure state", () => {

@@ -1,6 +1,6 @@
 import { useCallback, useEffect, useId, useRef, useState, type KeyboardEvent, type ReactNode } from "react";
 import { liveOutputSpeaking, type LiveAudioEntry } from "@omp-ui/core/live-voice";
-import type { SpendTotals } from "@omp-ui/core/session-spend";
+import type { CacheWarmingMethod, SessionSpendSnapshot, SpendTotals } from "@omp-ui/core/session-spend";
 import { PLAN_TRANSCRIPT_COMMAND, PLAN_TRANSCRIPT_STATUS_KEY } from "@omp-ui/core/plan";
 import { backendFor } from "../backend";
 import { cn } from "../lib/cn";
@@ -477,6 +477,45 @@ const TOKEN_ROWS: { key: keyof TokenTotals; labelKey: "rail.stats.input" | "rail
 ];
 
 /**
+ * The quiet cache-warming breakdown (issue #1238): how the prompt cache was
+ * refreshed, and what omp's own journal attributes to those refreshes. It
+ * appears only once a warming frame has REPORTED a method — v19 frames do,
+ * an older harness's frames don't, and there today's surfaces stand
+ * unchanged. Within a v19 session both halves are unknown-safe: an
+ * unjournaled cost reads as "unknown", never as `$0.0000`. Nothing is
+ * inferred from cache-hit token counts, and the cost is an attribution of
+ * spend the total above already carries (omp journals each billed refresh as
+ * a model_usage entry), never a second charge.
+ */
+function CacheWarmingRows({
+  method,
+  warm,
+}: {
+  /** The method the newest warming frame reported; null when none did. */
+  method: CacheWarmingMethod | null;
+  /** The bridge's cache-warm subset of the session totals; null before it answers. */
+  warm: SpendTotals | null;
+}) {
+  const t = useT();
+  if (method === null) return null;
+  // A journaled refresh count is what makes the cost known: zero counts means
+  // the bridge has nothing attributed yet, not that warming was free.
+  const costKnown = warm !== null && warm.requests > 0;
+  return (
+    <>
+      <Row label={t("rail.stats.cacheWarming")} title={t("rail.stats.cacheWarmingTitle")}>
+        <Num tone="faint">{method ?? t("rail.stats.valueUnknown")}</Num>
+      </Row>
+      <Row label={t("rail.stats.warmCost")} title={t("rail.stats.warmCostTitle")}>
+        <Num tone="faint" title={costKnown ? `${warm.cost}` : undefined}>
+          {costKnown ? formatCost(warm.cost) : t("rail.stats.valueUnknown")}
+        </Num>
+      </Row>
+    </>
+  );
+}
+
+/**
  * Message counts and failed edits are context-scoped and come from get_session_stats; tokens
  * and spend read the whole-session bridge snapshot when it is available
  * (issue #866), else fall back to get_session_stats.
@@ -489,11 +528,17 @@ function StatsTable({
   stats,
   spend,
   subagentCost,
+  cacheWarm,
+  warmingMethod,
   fileMessages,
 }: {
   stats: SessionStats | null;
   spend: SpendTotals | null;
   subagentCost: number | null;
+  /** Cache-warm attribution inside `spend`; null while no session is read. */
+  cacheWarm: SpendTotals | null;
+  /** The warming method the newest frame reported; null on older harnesses. */
+  warmingMethod: CacheWarmingMethod | null;
   /** Messages stored in the session file; null while no session is read. */
   fileMessages: number | null;
 }) {
@@ -561,6 +606,12 @@ function StatsTable({
             <Row label={t("rail.stats.premiumReqs")}>
               <Num>{exactNum(premiumRequests)}</Num>
             </Row>
+          )}
+          {/* The warming breakdown rides the whole-session figure only: an
+              attribution of the total would hang off the run-only fallback
+              headline and contradict it (same rule as the split above). */}
+          {spend && sessionHeadline && (
+            <CacheWarmingRows method={warmingMethod} warm={cacheWarm} />
           )}
         </dl>
       </Section>
@@ -797,6 +848,9 @@ function SessionPane({ tabId, onJump }: { tabId: string; onJump?: () => void }) 
   const stats = useStore((s) => s.rpc[tabId]?.stats ?? null);
   const sessionSpend = useStore((s) => s.rpc[tabId]?.sessionSpend ?? null);
   const spendAvailable = sessionSpend?.available === true;
+  // The warming method the newest cache_warming_* frame reported (issue #1238);
+  // null on harnesses that send those frames without one.
+  const warmingMethod = useStore((s) => s.rpc[tabId]?.cacheWarming ?? null);
   const model = useStore((s) => s.rpc[tabId]?.model);
   const status = useStore((s) => s.rpc[tabId]?.status);
   const queueChip = queueChipView(status === "running", session?.queuedMessageCount ?? 0);
@@ -835,6 +889,8 @@ function SessionPane({ tabId, onJump }: { tabId: string; onJump?: () => void }) 
           stats={stats}
           spend={spendAvailable ? sessionSpend.total : null}
           subagentCost={spendAvailable ? sessionSpend.subagents.cost : null}
+          cacheWarm={spendAvailable ? sessionSpend.cacheWarm : null}
+          warmingMethod={warmingMethod}
           fileMessages={session?.messageCount ?? null}
         />
       ) : (

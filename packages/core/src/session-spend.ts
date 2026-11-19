@@ -33,6 +33,37 @@ export interface SpendTotals {
   requests: number;
 }
 
+/**
+ * How a prompt-cache refresh reaches the provider, as omp's
+ * `cache_warming_start`/`cache_warming_end` frames report it (omp 19; older
+ * harnesses send these frames without a method). "prewarm" is a
+ * `max_tokens: 0` pre-warm, "replay" a one-token replay cut off at its first
+ * output — the vocabularies are omp's, verified against v19.0.0
+ * `packages/coding-agent/src/session/cache-warmer.ts`.
+ */
+export type CacheWarmingMethod = "prewarm" | "replay";
+
+/** The two refresh-lifecycle frames that carry the method. */
+const CACHE_WARMING_EVENT_TYPES: Record<string, true> = {
+  cache_warming_start: true,
+  cache_warming_end: true,
+};
+
+/**
+ * The method of a `cache_warming_start`/`cache_warming_end` frame, or null
+ * for any other frame and for frames without a reported method — a 18.22.x
+ * refresh frame, or a v19 frame whose request could not be refreshed safely.
+ * Never inferred from anything but the `method` field itself.
+ */
+export function parseCacheWarmingMethod(value: unknown): CacheWarmingMethod | null {
+  if (value === null || typeof value !== "object" || Array.isArray(value)) return null;
+  const record = value as Record<string, unknown>;
+  // The hasOwn guard before the mapped value, same defense every frame
+  // parser here runs against wire strings like "constructor".
+  if (typeof record.type !== "string" || !Object.hasOwn(CACHE_WARMING_EVENT_TYPES, record.type)) return null;
+  return record.method === "prewarm" || record.method === "replay" ? record.method : null;
+}
+
 export interface SessionSpendSnapshot {
   version: 1;
   processKey: string;
@@ -49,7 +80,18 @@ export interface SessionSpendSnapshot {
   total: SpendTotals;
   /** Subagent transcripts that contributed (not ignored). */
   transcripts: number;
+  /**
+   * Billed cache-warm refreshes journaled under model_usage purpose
+   * "cache-warm" (or "cache-warm:extension-override"), main plus subagents.
+   * A subset of `total`, never an addition to it: omp journals these entries
+   * itself, so the totals above already carry their cost — this block only
+   * attributes part of it back to warming (issue #1238).
+   */
+  cacheWarm: SpendTotals;
 }
+
+/** model_usage purpose omp writes for a billed cache-warm refresh. */
+export const CACHE_WARM_PURPOSE = "cache-warm";
 
 const SPEND_TOTALS_KEYS = [
   "cost",
@@ -117,7 +159,8 @@ export function parseSessionSpendSnapshot(text: string | undefined): SessionSpen
   const main = readTotals(record.main);
   const subagents = readTotals(record.subagents);
   const total = readTotals(record.total);
-  if (main === null || subagents === null || total === null) return null;
+  const cacheWarm = readTotals(record.cacheWarm);
+  if (main === null || subagents === null || total === null || cacheWarm === null) return null;
   return {
     version: 1,
     processKey,
@@ -129,5 +172,6 @@ export function parseSessionSpendSnapshot(text: string | undefined): SessionSpen
     subagents,
     total,
     transcripts,
+    cacheWarm,
   };
 }

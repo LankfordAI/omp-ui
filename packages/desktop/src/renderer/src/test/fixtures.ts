@@ -249,6 +249,7 @@ export function rpcTabState(patch: Partial<RpcTabState> = {}): RpcTabState {
     asyncJobsKill: null,
     asyncJobsKillError: null,
     sessionSpend: null,
+    cacheWarming: null,
     capabilities: null,
     capabilitiesLoad: "idle",
     advisorReply: true,

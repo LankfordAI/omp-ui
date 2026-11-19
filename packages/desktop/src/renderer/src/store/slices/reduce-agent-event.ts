@@ -2,6 +2,7 @@ import { credentialFallbackFromFrame } from "@omp-ui/core/credential-fallback";
 import { LIVE_DELEGATION_CUSTOM_TYPE } from "@omp-ui/core/live-voice";
 import { MAGIC_KEYWORDS } from "@omp-ui/core/magic-keywords";
 import { agentEndAwaitsAsyncWork, isNonTerminalAgentEnd } from "@omp-ui/core/run-end";
+import { parseCacheWarmingMethod } from "@omp-ui/core/session-spend";
 import { modelStreamCheckpointLabel } from "@omp-ui/core/stream-activity";
 import { OMP_ERROR_FLAG_USAGE_LIMIT } from "@omp-ui/core/held-prompt";
 import { formatDuration } from "../../lib/duration";
@@ -251,6 +252,17 @@ export function reduceAgentEvent(
   const credentialFallback = credentialFallbackFromFrame(frame);
   if (credentialFallback !== null) {
     rpc.credentialFallback = credentialFallback;
+    hasRpcPatch = true;
+  }
+
+  // Cache-warming method beside the spend readout (issue #1238): the newest
+  // refresh lifecycle frame that REPORTS a method wins. v19 frames carry it;
+  // an 18.22.x frame (or a v19 frame for a request that cannot be refreshed
+  // safely) carries none, leaves this field untouched, and the surfaces stay
+  // quiet — the method is never inferred from cache-hit token counts.
+  const warmingMethod = parseCacheWarmingMethod(frame);
+  if (warmingMethod !== null && tab.cacheWarming !== warmingMethod) {
+    rpc.cacheWarming = warmingMethod;
     hasRpcPatch = true;
   }
 

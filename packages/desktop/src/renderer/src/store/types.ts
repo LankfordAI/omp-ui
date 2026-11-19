@@ -101,7 +101,7 @@ import type { PlanReviewRequest, PlanStatus } from "@omp-ui/core/plan";
 import type { ScheduledPromptRequest } from "@omp-ui/core/scheduled-prompt";
 import type { AdvisorStatsView } from "@omp-ui/core/advisor-stats";
 import type { AsyncJobsSnapshot } from "@omp-ui/core/async-jobs";
-import type { SessionSpendSnapshot } from "@omp-ui/core/session-spend";
+import type { CacheWarmingMethod, SessionSpendSnapshot } from "@omp-ui/core/session-spend";
 import type { LimitsView } from "@omp-ui/core/limits";
 import type { McpRuntimeStatus } from "@omp-ui/core/mcp-status";
 import type {
@@ -435,6 +435,15 @@ export interface RpcTabState {
    * Null until first observed; the HUD and rail fall back to `stats` then.
    */
   sessionSpend: SessionSpendSnapshot | null;
+  /**
+   * How prompt-cache warming refreshed the provider, as the newest
+   * `cache_warming_*` frame with a reported method observed it (issue #1238).
+   * omp 19 only: 18.22.x sends these frames without `method`, and nothing is
+   * ever inferred from cache-hit tokens, so older harnesses never set this.
+   * Null until such a frame arrives; cleared when the process dies because
+   * the successor's warmer may differ.
+   */
+  cacheWarming: CacheWarmingMethod | null;
   /**
    * The retry layer rotated a credential or waited on a rate window during
    * THIS turn (issue #673): set by auto_retry frames, cleared at the next

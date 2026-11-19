@@ -368,6 +368,7 @@ describe("desktop InspectorRail", () => {
       subagents: totals(subagentCost),
       total: totals(0.5 + subagentCost),
       transcripts: 2,
+      cacheWarm: totals(0),
     });
     useStore.setState({ rpc: { [TAB]: runtime({ sessionSpend: snapshot(0) }) } });
     renderRail();
@@ -385,6 +386,50 @@ describe("desktop InspectorRail", () => {
     expect(railSection("spend")!.textContent).toContain("subagents");
   });
 
+  // Issue #1238: the breakdown appears only once a warming frame reported a
+  // method (v19); a journaled cost reads unknown, never $0.0000.
+  it("shows the cache-warming breakdown only with an observed method, and unknown-safe cost (#1238)", () => {
+    const totals = (cost: number, requests: number) => ({
+      cost, input: 0, output: 0, reasoning: 0, cacheRead: 0, cacheWrite: 0, totalTokens: 10, premiumRequests: 1, requests,
+    });
+    const snapshot = (warmCost: number, warmRequests: number) => ({
+      version: 1 as const,
+      processKey: "p",
+      revision: 1,
+      available: true,
+      unavailable: null,
+      sessionFile: "/s.jsonl",
+      main: totals(0.5, 3),
+      subagents: totals(0, 0),
+      total: totals(0.5, 3),
+      transcripts: 0,
+      cacheWarm: totals(warmCost, warmRequests),
+    });
+    // No method observed (an older harness): no rows at all.
+    useStore.setState({ rpc: { [TAB]: runtime({ sessionSpend: snapshot(0.05, 2) }) } });
+    renderRail();
+    openPane("session");
+    expect(railSection("spend")!.textContent).not.toContain("cache warming");
+
+    // v19 method observed, journal attribution present.
+    act(() =>
+      useStore.setState({ rpc: { [TAB]: runtime({ sessionSpend: snapshot(0.05, 2), cacheWarming: "prewarm" }) } }),
+    );
+    let spend = railSection("spend")!;
+    expect(spend.textContent).toContain("cache warming");
+    expect(spend.textContent).toContain("prewarm");
+    expect(spend.textContent).toMatch(/warm cost\s*\$0\.0500/);
+
+    // Method observed but nothing journaled yet: unknown, never $0.0000.
+    act(() =>
+      useStore.setState({ rpc: { [TAB]: runtime({ sessionSpend: snapshot(0, 0), cacheWarming: "replay" }) } }),
+    );
+    spend = railSection("spend")!;
+    expect(spend.textContent).toContain("replay");
+    expect(spend.textContent).not.toContain("$0.0000");
+    expect(spend.textContent).toMatch(/warm cost\s*unknown/);
+  });
+
   it("leads with the run figure when the session read sits below it (round-7 judge)", () => {
     const totals = (cost: number) => ({
       cost, input: 0, output: 0, reasoning: 0, cacheRead: 0, cacheWrite: 0, totalTokens: 10, premiumRequests: 1, requests: 1,
@@ -398,6 +443,7 @@ describe("desktop InspectorRail", () => {
             version: 1 as const, processKey: "p", revision: 1, available: true, unavailable: null,
             sessionFile: "/s.jsonl",
             main: totals(0), subagents: totals(0), total: totals(0), transcripts: 1,
+            cacheWarm: totals(0),
           },
           stats: sessionStats({ cost: 0.1694 }),
         }),

@@ -705,7 +705,9 @@ export function createFrameReductionSlice(
           const session = parseSessionRuntime(frame, tab.session);
           m.patchRpc(tabId, { session });
           if (tab.session.sessionId !== null && tab.session.sessionId !== session.sessionId) {
-            m.patchRpc(tabId, { activeTurnKeywords: [] });
+            // The warming method described the predecessor's warmer (#1238);
+            // the next refresh re-observes it for this session.
+            m.patchRpc(tabId, { activeTurnKeywords: [], cacheWarming: null });
             m.patchRuntime(tabId, {
               pendingTurnKeywords: [],
               keywordInputBatchStarted: false,
@@ -722,7 +724,8 @@ export function createFrameReductionSlice(
           const session = parseSessionRuntime(frame, tab.session);
           m.patchRpc(tabId, { model, session });
           if (tab.session.sessionId !== null && tab.session.sessionId !== session.sessionId) {
-            m.patchRpc(tabId, { activeTurnKeywords: [] });
+            // Same predecessor-warmer rule as session_info_update (#1238).
+            m.patchRpc(tabId, { activeTurnKeywords: [], cacheWarming: null });
             m.patchRuntime(tabId, {
               pendingTurnKeywords: [],
               keywordInputBatchStarted: false,

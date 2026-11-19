@@ -389,6 +389,7 @@ describe("wide Session HUD", () => {
       sessionFile: "/s/root.jsonl",
       main: totals(0.1987, 308_331), subagents: totals(0.5209, 519_108), total: totals(0.7196, 827_439),
       transcripts: 2,
+      cacheWarm: { ...totals(0, 0), requests: 0 },
     };
     useStore.setState({
       rpc: {
@@ -422,6 +423,49 @@ describe("wide Session HUD", () => {
     expect(chip.textContent).toContain("$0.0886");
     expect(spend().textContent).toContain("$0.0886");
     expect(spend().textContent).not.toContain("subagents");
+  });
+
+  // Issue #1238: one quiet line in the spend popover — method from a v19
+  // warming frame, cost from the bridge's journal attribution. No method
+  // (an older harness) means no line; nothing journaled reads unknown.
+  it("shows cache-warming method and attributed cost in the spend popover (#1238)", () => {
+    const totals = (cost: number, requests = 1) => ({
+      cost, input: 0, output: 0, reasoning: 0, cacheRead: 0, cacheWrite: 0, totalTokens: 10, premiumRequests: 0, requests,
+    });
+    const sessionSpend = {
+      version: 1 as const, processKey: "omp-ui-p", revision: 1, available: true, unavailable: null,
+      sessionFile: "/s/root.jsonl",
+      main: totals(0.5), subagents: totals(0.2), total: totals(0.7),
+      transcripts: 1,
+      cacheWarm: totals(0.05, 2),
+    };
+    useStore.setState({ rpc: { [TAB]: { ...useStore.getState().rpc[TAB]!, sessionSpend } } });
+    const host = renderWide();
+    openGauge(host);
+    const spend = (): HTMLElement => document.body.querySelector<HTMLElement>(".gauge-spend")!;
+    const row = (label: string): HTMLElement | null | undefined =>
+      [...spend().querySelectorAll<HTMLElement>("*")].find((el) => el.textContent?.trim() === label)?.parentElement;
+    // Method not yet observed: no line.
+    expect(spend().textContent).not.toContain("cache warming");
+
+    act(() => useStore.setState({
+      rpc: { [TAB]: { ...useStore.getState().rpc[TAB]!, sessionSpend, cacheWarming: "prewarm" } },
+    }));
+    expect(row("cache warming")?.textContent).toContain("prewarm · $0.0500");
+
+    // Journal has attributed nothing yet: unknown, never $0.0000.
+    act(() => useStore.setState({
+      rpc: {
+        [TAB]: {
+          ...useStore.getState().rpc[TAB]!,
+          sessionSpend: { ...sessionSpend, cacheWarm: totals(0, 0) },
+          cacheWarming: "replay",
+        },
+      },
+    }));
+    const warm = row("cache warming");
+    expect(warm?.textContent).toContain("replay · unknown");
+    expect(spend().textContent).not.toContain("$0.0000");
   });
 
   it("labels the chip's spend as this-run-only and spells out the context word", () => {

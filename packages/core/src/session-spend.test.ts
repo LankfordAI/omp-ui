@@ -1,5 +1,10 @@
 import { describe, expect, it } from "vitest";
-import { emptySpendTotals, parseSessionSpendSnapshot, sessionSpendArmMessage } from "./session-spend";
+import {
+  emptySpendTotals,
+  parseCacheWarmingMethod,
+  parseSessionSpendSnapshot,
+  sessionSpendArmMessage,
+} from "./session-spend";
 
 function totals(overrides: Record<string, unknown> = {}): Record<string, unknown> {
   return {
@@ -28,6 +33,7 @@ function snapshot(overrides: Record<string, unknown> = {}): Record<string, unkno
     subagents: totals({ cost: 0.5 }),
     total: totals({ cost: 0.75 }),
     transcripts: 1,
+    cacheWarm: totals({ cost: 0.05, requests: 2 }),
     ...overrides,
   };
 }
@@ -42,6 +48,8 @@ describe("parseSessionSpendSnapshot", () => {
     expect(parsed?.subagents.cost).toBe(0.5);
     expect(parsed?.sessionFile).toBe("/tmp/sessions/root.jsonl");
     expect(parsed?.transcripts).toBe(1);
+    expect(parsed?.cacheWarm.cost).toBe(0.05);
+    expect(parsed?.cacheWarm.requests).toBe(2);
   });
 
   it("parses an unavailable snapshot with null session file", () => {
@@ -72,6 +80,8 @@ describe("parseSessionSpendSnapshot", () => {
     ["a numeric sessionFile", snapshot({ sessionFile: 3 })],
     ["a numeric unavailable", snapshot({ unavailable: 3 })],
     ["a negative transcripts count", snapshot({ transcripts: -1 })],
+    ["a missing cacheWarm block", (() => { const value = snapshot(); delete value.cacheWarm; return value; })()],
+    ["a non-object cacheWarm block", snapshot({ cacheWarm: 3 })],
   ])("rejects %s", (_label, value) => {
     expect(parse(value)).toBeNull();
   });
@@ -84,5 +94,30 @@ describe("parseSessionSpendSnapshot", () => {
 
   it("arms through the hidden command", () => {
     expect(sessionSpendArmMessage()).toBe("/omp-ui-session-spend");
+  });
+});
+
+describe("parseCacheWarmingMethod", () => {
+  it.each([
+    ["cache_warming_start", "prewarm"],
+    ["cache_warming_start", "replay"],
+    ["cache_warming_end", "prewarm"],
+    ["cache_warming_end", "replay"],
+  ])("reads %s carrying method %s", (type, method) => {
+    expect(parseCacheWarmingMethod({ type, method })).toBe(method);
+  });
+
+  // The 18.22.x wire: the same two frames, no method field — nothing may be
+  // inferred, so surfaces stay on today's behavior (issue #1238).
+  it.each([
+    ["a frame without a method", { type: "cache_warming_start", phase: "idle", provider: "p", model: "m" }],
+    ["an unrecognized method", { type: "cache_warming_end", method: "keepalive" }],
+    ["a non-refresh frame carrying a method", { type: "auto_compaction_end", method: "prewarm" }],
+    ["a null method", { type: "cache_warming_end", method: null }],
+    ["a numeric method", { type: "cache_warming_start", method: 0 }],
+    ["a non-object", "cache_warming_start"],
+    ["null", null],
+  ])("reads %s as no method", (_label, value) => {
+    expect(parseCacheWarmingMethod(value)).toBeNull();
   });
 });

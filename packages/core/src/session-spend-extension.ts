@@ -1,5 +1,6 @@
 import * as path from "node:path";
 import {
+  CACHE_WARM_PURPOSE,
   SESSION_SPEND_COMMAND,
   SESSION_SPEND_POLL_IDLE_MS,
   SESSION_SPEND_POLL_MS,
@@ -32,6 +33,12 @@ import {
  * copies keep their original timestamps). `toolResult` usage is never
  * counted — a sync task's `details.usage` re-reports its own transcript.
  * Advisor transcripts are excluded; the `adv` readout owns them.
+ *
+ * A `model_usage` entry whose purpose names a cache-warm refresh is counted
+ * into the snapshot's `cacheWarm` block as well as the regular totals: omp
+ * already includes those entries in what it journals, so the block only
+ * attributes part of the total back to warming (issue #1238) — it is never a
+ * second charge.
  */
 
 /** The extension file lives beside the transcript so it dies with the lineage. */
@@ -55,6 +62,7 @@ const STATUS_KEY = ${JSON.stringify(SESSION_SPEND_STATUS_KEY)};
 const COMMAND = ${JSON.stringify(SESSION_SPEND_COMMAND)};
 const POLL_MS = ${SESSION_SPEND_POLL_MS};
 const POLL_IDLE_MS = ${SESSION_SPEND_POLL_IDLE_MS};
+const CACHE_WARM_PURPOSE = ${JSON.stringify(CACHE_WARM_PURPOSE)};
 /** Read granularity for the incremental tail. */
 const CHUNK_BYTES = 1024 * 1024;
 /** A .jsonl with no session header this far in is not a transcript. */
@@ -109,6 +117,8 @@ interface FileTally {
   /** No session header in the first HEADER_WINDOW_BYTES. */
   ignored: boolean;
   totals: SpendTotals;
+  /** The cache-warm subset of totals: a model_usage purpose naming a warm refresh. */
+  cacheWarm: SpendTotals;
 }
 
 interface Collected {
@@ -119,6 +129,7 @@ interface Collected {
   subagents: SpendTotals;
   total: SpendTotals;
   transcripts: number;
+  cacheWarm: SpendTotals;
 }
 
 function emptyTotals(): SpendTotals {
@@ -160,7 +171,17 @@ function freshTally(ino: number): FileTally {
     headerMs: null,
     ignored: false,
     totals: emptyTotals(),
+    cacheWarm: emptyTotals(),
   };
+}
+
+/** True for the purposes omp writes for a billed cache-warm refresh,
+ *  including the extension-override spelling "cache-warm:extension-override". */
+function isCacheWarmPurpose(purpose: unknown): boolean {
+  return (
+    typeof purpose === "string" &&
+    (purpose === CACHE_WARM_PURPOSE || purpose.startsWith(CACHE_WARM_PURPOSE + ":"))
+  );
 }
 
 /** omp's own advisor-transcript test (omp/18.10.4). */
@@ -174,6 +195,19 @@ function isAdvisorTranscript(file: string): boolean {
  *  skipped every line of a spaced journal (round-7 judge fixture caveat). */
 function isSessionHeaderLine(line: string): boolean {
   return /^\\{\\s*"type"\\s*:\\s*"session"/.test(line);
+}
+
+/** Adds one usage object to a totals block; every missing field reads as 0. */
+function addUsage(target: SpendTotals, usage: Record<string, unknown>): void {
+  target.cost += amount(asRecord(usage.cost)?.total);
+  target.input += amount(usage.input);
+  target.output += amount(usage.output);
+  target.reasoning += amount(usage.reasoningTokens);
+  target.cacheRead += amount(usage.cacheRead);
+  target.cacheWrite += amount(usage.cacheWrite);
+  target.totalTokens += amount(usage.totalTokens);
+  target.premiumRequests += amount(usage.premiumRequests);
+  target.requests += 1;
 }
 
 /** Applies the counting rule to one complete journal line. */
@@ -208,16 +242,12 @@ function countLine(tally: FileTally, line: string): void {
     const at = typeof entry.timestamp === "string" ? Date.parse(entry.timestamp) : Number.NaN;
     if (Number.isFinite(at) && at < tally.headerMs) return;
   }
-  const totals = tally.totals;
-  totals.cost += amount(asRecord(usage.cost)?.total);
-  totals.input += amount(usage.input);
-  totals.output += amount(usage.output);
-  totals.reasoning += amount(usage.reasoningTokens);
-  totals.cacheRead += amount(usage.cacheRead);
-  totals.cacheWrite += amount(usage.cacheWrite);
-  totals.totalTokens += amount(usage.totalTokens);
-  totals.premiumRequests += amount(usage.premiumRequests);
-  totals.requests += 1;
+  addUsage(tally.totals, usage);
+  // omp already journals the billed refresh as this entry, so the subset
+  // attributes part of the total; it never adds a second charge.
+  if (entry.type === "model_usage" && isCacheWarmPurpose(entry.purpose)) {
+    addUsage(tally.cacheWarm, usage);
+  }
 }
 
 function consume(tally: FileTally, text: string): void {
@@ -316,6 +346,7 @@ export default function (pi: ExtensionApi) {
       subagents: emptyTotals(),
       total: emptyTotals(),
       transcripts: 0,
+      cacheWarm: emptyTotals(),
     };
   }
 
@@ -411,20 +442,23 @@ export default function (pi: ExtensionApi) {
     }
     const main = emptyTotals();
     const subagents = emptyTotals();
+    const cacheWarm = emptyTotals();
     let transcripts = 0;
     for (const [file, tally] of tallies) {
       if (file === sessionFile) {
         addTotals(main, tally.totals);
+        addTotals(cacheWarm, tally.cacheWarm);
         continue;
       }
       if (tally.ignored || tally.headerMs === null) continue;
       addTotals(subagents, tally.totals);
+      addTotals(cacheWarm, tally.cacheWarm);
       transcripts += 1;
     }
     const total = emptyTotals();
     addTotals(total, main);
     addTotals(total, subagents);
-    return { available: true, unavailable: null, sessionFile, main, subagents, total, transcripts };
+    return { available: true, unavailable: null, sessionFile, main, subagents, total, transcripts, cacheWarm };
   }
 
   function publish(force: boolean): void {

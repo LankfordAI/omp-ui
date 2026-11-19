@@ -28,7 +28,7 @@ import { JOB_WIDGET_TONE, backgroundWorkInFlight, freshestWidgetJob, jobWidgetFi
 import type { AsyncJob } from "@omp-ui/core/async-jobs";
 import { canSettle, findInstance, findOwner, findRecord, forkSourceOf, isChatTab, sessionCwd, sessionProjectFace, useStore } from "../store";
 import type { RpcTabState } from "../store/types";
-import type { SessionSpendSnapshot } from "@omp-ui/core/session-spend";
+import type { CacheWarmingMethod, SessionSpendSnapshot } from "@omp-ui/core/session-spend";
 import { useDismissal } from "../lib/use-dismissal";
 import { ConsoleToggle } from "./ConsoleDrawer";
 import { BrowserPaneToggle } from "./browser-pane/BrowserPaneToggle";
@@ -1407,6 +1407,7 @@ function GaugeChip({
   markerTokens,
   mainSpend,
   sessionSpend,
+  warmingMethod,
   limits,
   advisor,
   notices,
@@ -1422,6 +1423,9 @@ function GaugeChip({
   markerTokens: number | null;
   mainSpend: MainSpend | null;
   sessionSpend: SessionSpendSnapshot | null;
+  /** The warming method the newest cache_warming_* frame reported (issue #1238);
+   *  null on harnesses whose frames carry none — the popover then reads as today. */
+  warmingMethod: CacheWarmingMethod | null;
   /** Only when available with at least one window. */
   limits: LimitsView | null;
   /** Only when the advisor readout should show. */
@@ -1630,6 +1634,25 @@ function GaugeChip({
                       </div>
                     </>
                   )}
+                  {/* How warming refreshed the provider and what omp's journal
+                      attributes to it (issue #1238). The cost is part of the
+                      figures above — omp journals each billed refresh as a
+                      model_usage entry the bridge already sums — never an
+                      extra charge; an unjournaled cost reads as unknown, and
+                      with no reported method (an older harness) this line
+                      never appears. */}
+                  {mainSpend.sessionTotal && sessionSpend !== null && warmingMethod !== null && (
+                    <div className={cn(GAUGE_HEADER, "pl-2 text-ink-faint")} title={t("hud.gauge.cacheWarmTitle")}>
+                      <span>{t("hud.gauge.cacheWarm")}</span>
+                      <span className="font-mono tabular-nums">
+                        {warmingMethod}
+                        {" · "}
+                        {sessionSpend.cacheWarm.requests > 0
+                          ? formatCost(sessionSpend.cacheWarm.cost)
+                          : t("hud.gauge.valueUnknown")}
+                      </span>
+                    </div>
+                  )}
                 </div>
               )}
               {limits && (
@@ -1729,6 +1752,9 @@ export function SessionHud({ tabId, active = true }: { tabId: string; active?: b
   // lagging read, not a fact — fall back to the run figure rather than show
   // the pill asserting a smaller whole than its own part.
   const sessionSpend = useStore((s) => s.rpc[tabId]?.sessionSpend ?? null);
+  // How warming refreshed the provider, as the newest frame with a reported
+  // method saw it (issue #1238); null keeps the popover reading as today.
+  const warmingMethod = useStore((s) => s.rpc[tabId]?.cacheWarming ?? null);
   const sessionTotalReady =
     sessionSpend?.available === true &&
     (!stats || sessionSpendTrustworthy(sessionSpend.total.cost, stats.cost));
@@ -2194,6 +2220,7 @@ export function SessionHud({ tabId, active = true }: { tabId: string; active?: b
         markerTokens={markerTokens}
         mainSpend={mainSpend}
         sessionSpend={sessionSpend}
+        warmingMethod={warmingMethod}
         limits={limitsReady}
         advisor={showAdvisor ? advisorStats : null}
         notices={notices}

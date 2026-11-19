@@ -228,6 +228,52 @@ describe("session-spend bridge", () => {
     expect(snapshot.transcripts).toBe(2);
   });
 
+  // Issue #1238: omp journals each billed cache-warm refresh as a
+  // model_usage entry, so its cost already rides the totals — cacheWarm
+  // attributes it, never adds it.
+  function modelUsage(purpose: string | undefined, cost: number, seconds: number): string {
+    return JSON.stringify({
+      type: "model_usage",
+      id: `m${seconds}`,
+      parentId: null,
+      timestamp: at(seconds),
+      ...(purpose === undefined ? {} : { purpose }),
+      usage: usage(cost),
+    });
+  }
+
+  it("attributes cache-warm model_usage entries to a subset of the totals", async () => {
+    const { root, artifacts } = sessionPaths();
+    writeFile(
+      root,
+      journal(
+        header(),
+        assistant(1, 1),
+        modelUsage("cache-warm", 0.25, 2),
+        // The extension-override spelling is the same warming channel.
+        modelUsage("cache-warm:extension-override", 0.05, 3),
+        // A different side channel stays out of the attribution.
+        modelUsage("title", 0.1, 4),
+      ),
+    );
+    writeFile(path.join(artifacts, "A.jsonl"), journal(header(), modelUsage("cache-warm", 0.5, 1)));
+    const snapshot = (await armed(root)).latest();
+    // The totals keep counting every entry exactly once.
+    expect(snapshot.total.cost).toBeCloseTo(1.9);
+    expect(snapshot.cacheWarm.cost).toBeCloseTo(0.8);
+    expect(snapshot.cacheWarm.requests).toBe(3);
+    expect(snapshot.total.cost).toBeGreaterThan(snapshot.cacheWarm.cost);
+  });
+
+  it("publishes an empty cacheWarm block when no refresh was journaled", async () => {
+    const { root } = sessionPaths();
+    writeFile(root, journal(header(), assistant(1, 1), modelUsage(undefined, 0.5, 2)));
+    const snapshot = (await armed(root)).latest();
+    expect(snapshot.total.cost).toBeCloseTo(1.5);
+    expect(snapshot.cacheWarm.cost).toBe(0);
+    expect(snapshot.cacheWarm.requests).toBe(0);
+  });
+
   it("counts a journal whose header line is written with spaces", async () => {
     // Round-7 judge fixture caveat: a prefilter matching only the compact
     // literal silently counted $0 for a journal serialized with spacing.
