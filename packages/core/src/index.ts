@@ -147,6 +147,7 @@ export {
   writePrivateOverlay,
 } from "./private-overlay";
 export { outRepliesOverlayPath, writeOutRepliesOverlay } from "./out-replies-overlay";
+export { intentTracingOverlayPath, writeIntentTracingOverlay } from "./intent-overlay";
 export {
   OUT_REPLIES_MIN_OMP,
   isReplyWrite,

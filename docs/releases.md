@@ -7,6 +7,7 @@ This guide explains what users receive from a release and how maintainers publis
 Changes since [v0.37.1](https://github.com/LankfordAI/omp-ui/releases/tag/v0.37.1). Add one bullet per shipped change here, citing its issue as `#N`; the release tag lifts these into Highlights.
 
 - The session HUD now shows the Claude subscription plan (e.g. "Max 20x") reported by omp 19 beside the provider rate windows and in their tooltip; accounts without a reported plan stay quiet. (#1237)
+- Native tool cards keep their intent headlines on OMP 19: omp-ui boots native (`rpc-ui`) sessions with `tools.intentTracing` pinned on unless your own config layers or `PI_INTENT_TRACING` state a preference (#1231).
 
 ## Choose a download
 

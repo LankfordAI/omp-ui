@@ -2,7 +2,12 @@ import * as fs from "node:fs";
 import * as os from "node:os";
 import * as path from "node:path";
 import { afterEach, describe, expect, it, vi } from "vitest";
-import { gitGuardOverlayPath, outRepliesOverlayPath, subagentModelOverlayPath } from "@omp-ui/core";
+import {
+  gitGuardOverlayPath,
+  intentTracingOverlayPath,
+  outRepliesOverlayPath,
+  subagentModelOverlayPath,
+} from "@omp-ui/core";
 import * as Core from "@omp-ui/core";
 import {
   RPC_BRIDGE_IDS,
@@ -636,5 +641,49 @@ describe("writeRpcOverlays — out:// pin (issue #969)", () => {
     const { dir, overlays } = await spawnOverlays("18.14.0", "out:\n  enabled: false\n");
     expect(overlays).not.toContain(outRepliesOverlayPath(dir));
     expect(fs.existsSync(outRepliesOverlayPath(dir))).toBe(false);
+  });
+});
+
+describe("writeRpcOverlays — intent headline pin (issue #1231)", () => {
+  const savedAgentDir = process.env.PI_CODING_AGENT_DIR;
+  const savedIntentEnv = process.env.PI_INTENT_TRACING;
+  afterEach(() => {
+    if (savedAgentDir === undefined) delete process.env.PI_CODING_AGENT_DIR;
+    else process.env.PI_CODING_AGENT_DIR = savedAgentDir;
+    if (savedIntentEnv === undefined) delete process.env.PI_INTENT_TRACING;
+    else process.env.PI_INTENT_TRACING = savedIntentEnv;
+    resetGoalContinuationModesCache();
+  });
+  async function spawnOverlays(globalConfig?: string): Promise<{ dir: string; overlays: string[] }> {
+    const dir = tmp();
+    const agent = path.join(dir, "agent");
+    fs.mkdirSync(agent, { recursive: true });
+    if (globalConfig !== undefined) fs.writeFileSync(path.join(agent, "config.yml"), globalConfig, "utf8");
+    process.env.PI_CODING_AGENT_DIR = agent;
+    resetGoalContinuationModesCache();
+    readOmpGoalContinuationModesMock.mockResolvedValue(["interactive"]);
+    readInstalledOmpVersionMock.mockResolvedValue("19.0.0");
+    fs.writeFileSync(intentTracingOverlayPath(dir), "tools:\n  intentTracing: true\n");
+    const overlays = await writeRpcOverlays(ownedSessionRecord({ projectCwd: dir }), dir, "/bin/omp");
+    return { dir, overlays };
+  }
+
+  it("pins tools.intentTracing on when no layer or env names the key", async () => {
+    const { dir, overlays } = await spawnOverlays();
+    expect(overlays).toContain(intentTracingOverlayPath(dir));
+    expect(fs.readFileSync(intentTracingOverlayPath(dir), "utf8")).toBe("tools:\n  intentTracing: true\n");
+  });
+
+  it("leaves an explicitly configured user value to omp", async () => {
+    const { dir, overlays } = await spawnOverlays("tools:\n  intentTracing: false\n");
+    expect(overlays).not.toContain(intentTracingOverlayPath(dir));
+    expect(fs.existsSync(intentTracingOverlayPath(dir))).toBe(false);
+  });
+
+  it("drops the pin when PI_INTENT_TRACING carries the user's choice", async () => {
+    process.env.PI_INTENT_TRACING = "false";
+    const { dir, overlays } = await spawnOverlays();
+    expect(overlays).not.toContain(intentTracingOverlayPath(dir));
+    expect(fs.existsSync(intentTracingOverlayPath(dir))).toBe(false);
   });
 });

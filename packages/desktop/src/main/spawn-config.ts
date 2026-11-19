@@ -42,6 +42,7 @@ import {
   writeCarryoverContextExtension,
   writeMcpStatusExtension,
   writeGitGuardOverlay,
+  writeIntentTracingOverlay,
   writeVibeExtension,
   writeLimitsExtension,
   writeAsyncJobsExtension,
@@ -332,6 +333,22 @@ export async function writeRpcOverlays(
     if (overlay !== null) overlays.push(overlay);
   } catch (err) {
     console.warn("[out] could not write the overlay:", err);
+  }
+  // #1231: omp 19 resolved `tools.intentTracing` off in rpc-ui when no layer
+  // names the key, so tool calls reach native cards without their intent and
+  // every headline degrades to an argument summary. Pin it on unless the
+  // user's config layers name the key (an explicit value either way is
+  // theirs) or PI_INTENT_TRACING is exported — the env outranks every layer
+  // in omp, so honouring the opt-out here just keeps the lineage honest.
+  // Older omp defaults the key on; pinning true there is the status quo.
+  const intentPin = readLayeredConfigScalar(record.projectCwd, "tools", "intentTracing") === undefined
+    ? process.env.PI_INTENT_TRACING === undefined
+    : false;
+  try {
+    const overlay = writeIntentTracingOverlay(absLineageDir, intentPin ? true : null);
+    if (overlay !== null) overlays.push(overlay);
+  } catch (err) {
+    console.warn("[intent] could not write the overlay:", err);
   }
   return overlays;
 }
