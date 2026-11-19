@@ -4764,6 +4764,23 @@ describe("Composer next-message prediction ghost (issue #1239)", () => {
     expect(abortAgent).not.toHaveBeenCalled(); // Escape belonged to the list
   });
 
+  it("→ at the draft's end chooses the selected row too (upstream assist parity)", async () => {
+    await settleAndArm({ version: 1, processKey: "p", revision: 1, available: true, unavailable: null, result: null });
+    publishChoices(["Sounds good — ship it.", "Run the tests first"]);
+    const box = composerInput();
+    press(box, "Tab"); // accept choices[0]
+    press(box, "Tab"); // open the list
+    press(box, "ArrowDown");
+    expect(press(box, "ArrowRight").defaultPrevented).toBe(true);
+    expect(draftText(box)).toBe("Run the tests first");
+    expect(pickList()).toBeNull();
+    // Mid-line, Right falls through to cursor movement instead (no accept).
+    press(box, "Tab");
+    selectDraft(box, 3);
+    press(box, "ArrowRight");
+    expect(draftText(box)).toBe("Run the tests first"); // unchanged
+  });
+
   it("a mouse click on a row chooses it without stealing the caret", async () => {
     await settleAndArm({ version: 1, processKey: "p", revision: 1, available: true, unavailable: null, result: null });
     publishChoices(["Sounds good — ship it.", "Run the tests first"]);

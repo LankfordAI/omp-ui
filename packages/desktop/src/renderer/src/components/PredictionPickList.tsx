@@ -20,6 +20,7 @@ export interface PredictionPickListHandle {
 export function PredictionPickList({
   choices,
   selectedIndex,
+  caretAtEnd,
   onPick,
   onClose,
   ref,
@@ -28,6 +29,8 @@ export function PredictionPickList({
   choices: readonly string[];
   /** The row the buffer equals: where the list opens. */
   selectedIndex: number;
+  /** Caret at the draft's end: where Right chooses like Tab (upstream parity). */
+  caretAtEnd: boolean;
   /** Swap the draft to `index`; also called for the selected row (its pick closes the list). */
   onPick(index: number): void;
   onClose(): void;
@@ -50,9 +53,21 @@ export function PredictionPickList({
   useImperativeHandle(
     ref,
     () => ({
-      handleKey: (e) => nav.handleKey(e),
+      handleKey: (e) => {
+        // Upstream parity: with the list open, Right at the end of the buffer
+        // chooses like Tab does; mid-line it stays cursor movement.
+        if (e.key === "ArrowRight" && caretAtEnd) {
+          const row = choices[active];
+          if (row !== undefined) {
+            e.preventDefault();
+            onPick(active);
+            return true;
+          }
+        }
+        return nav.handleKey(e);
+      },
     }),
-    [nav],
+    [active, caretAtEnd, choices, nav, onPick],
   );
 
   const shell =

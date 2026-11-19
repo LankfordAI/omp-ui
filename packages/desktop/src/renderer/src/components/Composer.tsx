@@ -1594,6 +1594,7 @@ export function Composer({
             ref={predictionPalette}
             choices={prediction.choices}
             selectedIndex={prediction.selectedIndex}
+            caretAtEnd={collapsed && caret === text.length}
             onPick={(index) => {
               const next = prediction.pick(index);
               if (next !== null) applyGhostDraft(next);
