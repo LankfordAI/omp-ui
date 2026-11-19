@@ -556,6 +556,9 @@ export const en = {
   "composer.placeholder.modelHold": "pick a model to start… · / commands",
   "composer.placeholder.idle": "message the agent… · / commands · @ files",
   "composer.placeholder.answer": "answer the question… · or choose an option above",
+  // The `?` side-question draft (issue #1233)
+  "composer.btw.chip": "? side question",
+  "composer.btw.chipTitle": "Enter asks this as a side question — no turn, nothing in the transcript (/btw)",
   // Attachment strip
   "composer.attachment.alt": "attachment {n}",
   "composer.attachment.remove": "remove attachment {n}",

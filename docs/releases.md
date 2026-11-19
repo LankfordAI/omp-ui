@@ -10,6 +10,7 @@ Changes since [v0.37.1](https://github.com/LankfordAI/omp-ui/releases/tag/v0.37.
 - Native tool cards keep their intent headlines on OMP 19: omp-ui boots native (`rpc-ui`) sessions with `tools.intentTracing` pinned on unless your own config layers or `PI_INTENT_TRACING` state a preference (#1231).
 - Native transcript tabs no longer kill an OMP 19 child that is legitimately waiting on a restarting auth broker: the RPC ready deadline now extends (bounded, and only while the child's own stderr proves the retry window) so a broker that recovers inside OMP's startup retry budget still reaches ready ([#1230](https://github.com/LankfordAI/omp-ui/issues/1230)).
 - Native sessions on omp 19 now show how prompt-cache warming refreshed the provider (`prewarm`/`replay`) and what omp's own journal attributes to those refreshes, as a quiet line in the HUD spend popover and the rail's session stats; the cost is shown as part of the session total, never an added charge, missing figures read as unknown, and sessions on older harnesses look exactly as before. (#1238)
+- In a native tab on OMP 18.6.3 or later, a draft that starts with `?` is now a side-question draft: the composer shows a distinct "? side question" state and Enter asks it through the same native `/btw` route — no turn, no transcript row. A bare `?`, an older omp, a terminal tab, or a draft carrying attachments keeps today's behavior and sends as typed; a refused side question returns the draft and attachments untouched. (#1233)
 
 ## Choose a download
 

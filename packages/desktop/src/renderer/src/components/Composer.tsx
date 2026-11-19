@@ -65,6 +65,7 @@ import { DictationControl, DictationStrip } from "./ComposerDictation";
 import { useDictation } from "../lib/use-dictation";
 import { useDictationHotkey } from "../lib/use-dictation-hotkey";
 import { NATIVE_LIVE_MIN_OMP, supportsNativeLive } from "../lib/live-voice";
+import { btwShortcutAvailable, parseBtwShortcut } from "../lib/native-btw";
 import { canOpenLivePeer } from "../lib/live-peer";
 import { sendAtResetMs } from "../lib/send-at-reset";
 import { startVisibleInterval } from "../lib/visible-interval";
@@ -232,6 +233,19 @@ export function Composer({
   }, [resetAtMs]);
   // A native session only: a terminal tab has no prompt channel main may inject into.
   const holdsPrompts = record?.mode === "rpc-ui";
+  // The `?` shortcut's route (issue #1233): a native tab whose omp speaks the
+  // native `btw` verb, the same gate `/btw` dispatch runs through. A terminal
+  // tab's TUI answers `?` with omp's own editor; an old harness sends the
+  // draft as typed instead of rewriting it to a `/btw` line the model would
+  // read literally. Read from the store, not `record`, so the memoized result
+  // tracks the same snapshot the submit path consults at Enter.
+  const btwRoute = useStore(
+    (s) =>
+      btwShortcutAvailable(
+        findOwner(s.state, tabId)?.record.mode === "rpc-ui",
+        s.rpc[tabId]?.capabilities?.ompVersion ?? null,
+      ),
+  );
   // Live voice gates on the omp version (issue #778): 18.14.0 added the
   // `live_connect` verb (ADR-0071), unknown version hides the feature. It also
   // gates on this client carrying the call's peer (issue #968): the peer runs
@@ -288,6 +302,7 @@ export function Composer({
   const abortAndPrompt = useStore((s) => s.abortAndPrompt);
   const runSlashCommand = useStore((s) => s.runSlashCommand);
   const runShellCommand = useStore((s) => s.runShellCommand);
+  const submitSideQuestionDraft = useStore((s) => s.submitSideQuestionDraft);
   const convertSessionToWorktree = useStore((s) => s.convertSessionToWorktree);
   const moveUnpromptedSession = useStore((s) => s.moveUnpromptedSession);
   const launchSession = useStore((s) => s.launchSession);
@@ -430,6 +445,33 @@ export function Composer({
   const pendingFrame = useStore((s) => s.rpc[tabId]?.extensionQueue[0]);
   const answering = !compact && freeTextTarget(pendingFrame) !== "none";
   const literal = isSlash || trimmed.startsWith("!") || answering;
+  /**
+   * The `?` side-question draft (issue #1233): omp v19's editor treats any
+   * leading `?` as the `/btw` shortcut and colors the composer for it
+   * (`isBtwMode`, upstream input-controller.ts). Here the claim also needs
+   * the native btw route — a native tab on an omp at or above the floor — and
+   * a text-only draft: the `btw` verb carries no images, documents, or
+   * context blocks, so anything else on the draft falls back to today's
+   * behavior, a plain prompt that keeps all of it. And the question must be
+   * non-empty: a bare `?` is not claimed — it sends as ordinary text (never
+   * an empty side question), so the state never promises a route Enter will
+   * not take. Stricter than upstream's border, which claims any leading `?`.
+   */
+  const sideQuestionDraft = (() => {
+    const question = parseBtwShortcut(text);
+    if (question === null || question === "" || !btwRoute) return null;
+    if (
+      images.length > 0 ||
+      documents.length > 0 ||
+      annotations.length > 0 ||
+      references.length > 0 ||
+      artifactReferences.length > 0 ||
+      artifactRefreshes.length > 0
+    )
+      return null;
+    return question;
+  })();
+  const btwDraft = sideQuestionDraft !== null;
   const inCode = !literal && composerCodeAt(code, caret);
   /** What the slash palette can offer for this draft; null mounts none (lib/slash-completion.ts). */
   const completion = useMemo(() => slashCompletion(text, paletteCommands), [text, paletteCommands]);
@@ -685,12 +727,39 @@ export function Composer({
       )
         return;
       // #932: a held session starts no turn; the notice says why, and the
-      // draft stays. Slash and bash commands still go out.
-      if (modelHold !== null && !message.startsWith("/") && !message.startsWith("!")) return;
+      // draft stays. Slash and bash commands still go out, and so does a side
+      // question: it starts no turn on this session (#1233), like /btw today.
+      if (modelHold !== null && !message.startsWith("/") && !message.startsWith("!") && sideQuestionDraft === null) return;
       // Send at reset (issue #986) holds a prompt, never a command; the owning
-      // host keeps it, so a refusal returns before the draft clears.
+      // host keeps it, so a refusal returns before the draft clears. A side
+      // question is held-work neither: refused like a command (#1233).
       const atReset = route === "at-reset";
-      if (atReset && (resetAtMs === null || message.startsWith("/") || message.startsWith("!"))) return;
+      if (atReset && (resetAtMs === null || message.startsWith("/") || message.startsWith("!") || sideQuestionDraft !== null)) return;
+      // A leading "?" is omp v19's side-question shortcut (issue #1233): it
+      // rides the native `/btw` route, never the prompt path — no turn, no
+      // transcript row, no worktree conversion, and (upstream `#draftSkipsAsk`)
+      // it never answers a pending dialog, so this precedes that branch. The
+      // claim is already gated on the route, a non-empty question, and a
+      // text-only draft, so a refusal restores the text alone.
+      if (sideQuestionDraft !== null) {
+        // Consecutive duplicates make ↑ recall useless (every send logs).
+        if (history.current[history.current.length - 1] !== message) {
+          history.current.push(message);
+        }
+        recall.current = null;
+        setText("");
+        setDismissedFor(null);
+        setMentionDismissedFor(null);
+        editor.current?.focus({ preventScroll: true });
+        if (!(await submitSideQuestionDraft(tabId, sideQuestionDraft))) {
+          // Refused (busy, over-limit, send failure): the draft comes back
+          // unless a newer one started in the meantime — the send-refusal
+          // keep-draft shape. There are no attachments to restore: claimed
+          // drafts never carry any.
+          setText((current) => (current === "" ? message : current));
+        }
+        return;
+      }
       // A leading "!" is omp's bash command, dispatched concurrently over
       // rpc-ui with no model turn (issue #678). Like slash, it takes no
       // images and gets no @-resolution; the draft goes out verbatim. It
@@ -838,6 +907,8 @@ export function Composer({
     },
     [
       text,
+      sideQuestionDraft,
+      submitSideQuestionDraft,
       beginSubmission,
       images,
       documents,
@@ -890,6 +961,9 @@ export function Composer({
         references.length === 0 && artifactReferences.length === 0 && artifactRefreshes.length === 0) ||
       message.startsWith("/") ||
       message.startsWith("!") ||
+      // A side question belongs to this session's context (issue #1233): it
+      // rides the native btw route on Enter, never a new session's first prompt.
+      btwDraft ||
       unavailable ||
       converting ||
       moving !== null
@@ -962,6 +1036,7 @@ export function Composer({
     }
   }, [
     text,
+    btwDraft,
     beginSubmission,
     images,
     documents,
@@ -1316,7 +1391,7 @@ export function Composer({
     !unavailable &&
     !converting &&
     moving === null &&
-    (modelHold === null || isSlash || trimmed.startsWith("!"));
+    (modelHold === null || isSlash || trimmed.startsWith("!") || btwDraft);
   // Send at reset (issue #986): a prompt — never a command — for a native
   // session whose provider reports a reset ahead; its label names the reset.
   const atReset =
@@ -1485,6 +1560,10 @@ export function Composer({
               : "ambient glass-composer shadow-float " +
                 "focus-within:ring-1 focus-within:ring-iris-dim/35",
             isSlash && "focus-within:border-iris-dim",
+            // The `?` draft's border, upstream v19's colored btw-mode editor
+            // border (interactive-mode.ts updateEditorBorderColor) in the
+            // app's palette (issue #1233).
+            btwDraft && "border-signal-dim/60 focus-within:border-signal-dim",
             unavailable && "opacity-50",
           )}
         >
@@ -1615,6 +1694,12 @@ export function Composer({
               onStash={() => void stashOrPick()}
             />
             {optionsControl}
+            {/* The `?` draft's face (issue #1233): what Enter does with it. */}
+            {btwDraft && (
+              <Chip mono tone="signal" title={t("composer.btw.chipTitle")}>
+                {t("composer.btw.chip")}
+              </Chip>
+            )}
             {queueChip && !queueListed && (
               <Chip
                 mono
@@ -1720,6 +1805,12 @@ export function Composer({
                 </span>
               )}
               {optionsControl}
+              {/* The `?` draft's face (issue #1233), same chip as the desktop row. */}
+              {btwDraft && (
+                <Chip mono tone="signal" title={t("composer.btw.chipTitle")}>
+                  {t("composer.btw.chip")}
+                </Chip>
+              )}
               {queueChip && <Chip mono tone="copper" title={running ? t("composer.queue.queuedTitle") : t("composer.queue.parkedTitle")}>{queued}</Chip>}
               <ComposerActions
                 layout="compact"

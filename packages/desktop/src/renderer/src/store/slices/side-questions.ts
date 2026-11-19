@@ -24,7 +24,7 @@ import {
 } from "@omp-ui/core/side-commands";
 import { field } from "../../lib/fields";
 import { t } from "../../lib/i18n";
-import { supportsNativeBtw } from "../../lib/native-btw";
+import { NATIVE_BTW_MIN_OMP, supportsNativeBtw } from "../../lib/native-btw";
 import { randomId } from "../../lib/random-id";
 import {
   loadSideQuestionTitles,
@@ -38,6 +38,7 @@ import { respData } from "./shared";
 export type SideQuestionsSlice = Pick<
   UiStore,
   | "runSideQuestionCommand"
+  | "submitSideQuestionDraft"
   | "askSideQuestion"
   | "cancelSideQuestion"
   | "refreshSideQuestions"
@@ -136,9 +137,9 @@ export function createSideQuestionsSlice(
     question: string,
     topicId?: string,
     title?: string,
-  ): Promise<void> => {
+  ): Promise<boolean> => {
     const text = question.trim();
-    if (text === "") return;
+    if (text === "") return false;
     if (text.length > BTW_QUESTION_CHAR_LIMIT) {
       refuseSideQuestion(
         tabId,
@@ -146,7 +147,7 @@ export function createSideQuestionsSlice(
         get,
         m,
       );
-      return;
+      return false;
     }
     // An omp below the native-command floor cannot answer: silence here, the
     // pane renders the unavailable line. Checked before the busy rule so an
@@ -154,12 +155,12 @@ export function createSideQuestionsSlice(
     if (
       !supportsNativeBtw(get().rpc[tabId]?.capabilities?.ompVersion ?? null)
     )
-      return;
+      return false;
     // One at a time, no queue: refused locally for instant feedback; omp
     // enforces the same rule as the truth (its refusal surfaces as sendFailed).
     if (get().rpc[tabId]?.sideQuestions?.active != null) {
       refuseSideQuestion(tabId, t("rail.btw.busy"), get, m);
-      return;
+      return false;
     }
     const resp = await m.runCommand(
       tabId,
@@ -172,7 +173,7 @@ export function createSideQuestionsSlice(
     );
     if (resp === null) {
       refuseSideQuestion(tabId, t("rail.btw.sendFailed"), get, m);
-      return;
+      return false;
     }
     // The response record may be absent or malformed — then do nothing local;
     // the btw_record/btw_delta frames carry the truth.
@@ -192,6 +193,8 @@ export function createSideQuestionsSlice(
         ),
       });
     }
+    // The ack arrived: omp owns the run (frames carry its truth from here).
+    return true;
   };
 
   const cancelSideQuestion = async (tabId: string): Promise<void> => {
@@ -236,6 +239,38 @@ export function createSideQuestionsSlice(
       return;
     }
     await askSideQuestion(tabId, question);
+  };
+
+  /**
+   * The composer's `?` draft (issue #1233): the same native `/btw` route the
+   * slash command takes, reported so the composer can keep a refused draft —
+   * text and attachments alike — exactly where it was. A bare `?` (empty
+   * question) is no-op silence: nothing goes out, matching both omp v19 (the
+   * falsy shortcut question falls through as ordinary text; here the composer
+   * itself treats the bare sigil as ordinary text too) and `/btw`'s empty-question
+   * rule. The one refusal this route adds over `askSideQuestion` is the version
+   * racing the render: when capabilities flipped below the native floor between
+   * keystroke and Enter, the composer saw the chip, so the pane says why instead
+   * of eating the draft in silence.
+   */
+  const submitSideQuestionDraft = async (
+    tabId: string,
+    question: string,
+  ): Promise<boolean> => {
+    if (question.trim() === "") return false;
+    get().focusRailPane(tabId, "btw");
+    if (
+      !supportsNativeBtw(get().rpc[tabId]?.capabilities?.ompVersion ?? null)
+    ) {
+      refuseSideQuestion(
+        tabId,
+        t("rail.btw.needsNewerOmp", { version: NATIVE_BTW_MIN_OMP }),
+        get,
+        m,
+      );
+      return false;
+    }
+    return askSideQuestion(tabId, question);
   };
 
   const refreshSideCommands = async (tabId: string): Promise<void> => {
@@ -327,6 +362,7 @@ export function createSideQuestionsSlice(
     sideQuestionTitles: loadSideQuestionTitles(),
     sideQuestionInjects: {},
     runSideQuestionCommand,
+    submitSideQuestionDraft,
     askSideQuestion,
     cancelSideQuestion,
     refreshSideQuestions,

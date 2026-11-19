@@ -1979,8 +1979,15 @@ export interface UiStore extends SettingsSlice, UpdatesSlice, LabSlice, StatsSli
    * model as prose and appends no transcript row.
    */
   runSideQuestionCommand(tabId: string, line: string): Promise<void>;
-  /** Asks one side question, or a follow-up on `topicId`, through the bridge. */
-  askSideQuestion(tabId: string, question: string, topicId?: string, title?: string): Promise<void>;
+  /**
+   * One composer `?` draft as a side question (issue #1233): the same native
+   * route as `/btw`, focused pane first. False when nothing went out (empty
+   * question — a bare `?` is ordinary text, as in omp v19 — or a refusal:
+   * over-limit, busy, send failure) so the composer keeps the draft verbatim.
+   */
+  submitSideQuestionDraft(tabId: string, question: string): Promise<boolean>;
+  /** Asks one side question, or a follow-up on `topicId`, through the bridge. False when refused or unsent. */
+  askSideQuestion(tabId: string, question: string, topicId?: string, title?: string): Promise<boolean>;
   /** btw record id → typed side command; rpc strips omp's title (issue #955). */
   sideQuestionTitles: Readonly<Record<string, string>>;
   /** Renders a `side: true` file command through the bridge and asks the result as a side question (issue #955). */

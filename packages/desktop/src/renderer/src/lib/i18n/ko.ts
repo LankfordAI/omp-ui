@@ -507,6 +507,9 @@ export const ko: Partial<Record<MessageKey, string>> = {
   "composer.placeholder.modelHold": "시작하려면 모델을 선택하세요… · / 명령",
   "composer.placeholder.idle": "에이전트에 메시지… · / 명령 · @ 파일",
   "composer.placeholder.answer": "질문에 답변… · 또는 위에서 선택",
+  // The `?` side-question draft (issue #1233)
+  "composer.btw.chip": "? 곁가지 질문",
+  "composer.btw.chipTitle": "Enter가 이 내용을 곁가지 질문으로 묻습니다 — 턴 없음, 대화 기록에 남지 않음 (/btw)",
   "composer.attachment.alt": "첨부 파일 {n}",
   "composer.attachment.remove": "첨부 파일 {n} 제거",
   "composer.attachment.image": "이미지",
