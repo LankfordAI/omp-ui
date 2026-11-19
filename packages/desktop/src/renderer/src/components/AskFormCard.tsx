@@ -122,12 +122,21 @@ export function AskFormCard({
   );
   const fields = useRef(new Map<string, HTMLDivElement | null>());
   // Focus lands in the form's first open question when it opens, and follows
-  // every open (click-to-edit, Enter-advance, Tab). The card only mounts with
-  // an ask frame at the queue head, so mount IS the open.
+  // every open (click-to-edit, Enter-advance, Tab) — on the recommended
+  // option's row where one exists, the card's cursor rule from upstream
+  // (`#states`: cursorIndex starts at `recommended ?? 0`). The card only
+  // mounts with an ask frame at the queue head, so mount IS the open.
   useEffect(() => {
     if (state.current === null) return;
-    fields.current.get(state.current)?.querySelector<HTMLElement>("button, input")?.focus({ preventScroll: true });
-  }, [state.current]);
+    const container = fields.current.get(state.current);
+    if (!container) return;
+    const question = questions.find((q) => q.id === state.current);
+    const cursor =
+      question?.recommended === undefined
+        ? null
+        : container.querySelector<HTMLElement>(`[data-option-index="${question.recommended}"]`);
+    (cursor ?? container.querySelector<HTMLElement>("button, input"))?.focus({ preventScroll: true });
+  }, [state.current, questions]);
 
   const answeredCount = questions.filter((question) => isGiven(state.answers[question.id])).length;
   const dismiss = (): void => {
@@ -240,6 +249,7 @@ export function AskFormCard({
                         <button
                           type="button"
                           aria-pressed={checked}
+                          data-option-index={optionIndex}
                           onClick={() => activate(question, option.label)}
                           className={cn(
                             "flex w-full items-start gap-2 rounded-lg border px-2.5 py-1.5 text-left transition-colors",

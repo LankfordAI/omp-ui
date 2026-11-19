@@ -626,10 +626,16 @@ describe("multi-question ask form (issue #1234)", () => {
     expect(second).toBeDefined();
   });
 
-  it("lands focus in the first open question when the form opens", () => {
+  it("lands focus on the recommended option's row when the form opens", () => {
     renderDesktopHost([ASK_FRAME]);
-    const option = row("Postgres");
-    expect(document.activeElement).toBe(option);
+    // Upstream parks its cursor at `recommended ?? 0`; the card mirrors that
+    // with real focus (db recommends index 1 = SQLite).
+    expect(document.activeElement).toBe(row("SQLite"));
+  });
+
+  it("focuses the first row when no option is recommended", () => {
+    renderDesktopHost([{ id: "ask2", method: "ask", questions: [{ id: "q", question: "Pick?", options: ["Alpha", "Beta"] }] }]);
+    expect(document.activeElement).toBe(row("Alpha"));
   });
 
   it("advances to the next unanswered question on a single-select answer and collapses the answered one", () => {
