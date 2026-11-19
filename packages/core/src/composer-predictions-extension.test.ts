@@ -141,16 +141,26 @@ function harness(options: HarnessOptions = {}): Harness {
     },
   });
 
+  const journal = new Map<string, { parentId: string | null }>();
+  let leaf = "leaf-1";
   const manager =
     options.manager ?? {
       getSessionId: () => "sess-1",
-      getLeafId: () => "leaf-1",
+      getLeafId: () => leaf,
+      getEntry: (id: string) => journal.get(id),
+      // Upstream's own semantics: the entry parents to owner.parentId and the
+      // journal leaf advances onto it when nothing moved meanwhile — the exact
+      // move the bridge's staleness walk must see as bookkeeping, not a new
+      // message (pinned by the live proof on both tags).
       appendModelUsage: (
         entry: Record<string, unknown>,
         owner: { sessionId: string; parentId: string | null },
       ): string => {
+        const id = `usage-${journal.size + 1}`;
+        journal.set(id, { parentId: owner.parentId });
         usage.push([entry, owner]);
-        return "usage-1";
+        if (leaf === owner.parentId) leaf = id;
+        return id;
       },
     };
 
@@ -356,12 +366,50 @@ describe("composer-predictions bridge request", () => {
     await bound(h);
     await h.arm();
     await h.request("req-1");
-    await h.until(settledWith("req-1"));
+    const settled = await h.until(settledWith("req-1"));
+    // The journaled entry moved the leaf onto itself; the reply must still be
+    // offered — its own bookkeeping never reads as a new message.
+    expect(settled.result).toEqual({ requestId: "req-1", ok: true, choices: ["Sounds good."] });
     expect(h.usage).toHaveLength(1);
     const [entry, owner] = h.usage[0]!;
     expect(entry.purpose).toBe(COMPOSER_PREDICTION_USAGE_PURPOSE);
     expect(entry.usage).toEqual({ input: 10, output: 2 });
     expect(owner).toEqual({ sessionId: "sess-1", parentId: "leaf-1" });
+  });
+
+  it("a real new message after journaling still retires the reply as stale", async () => {
+    let leaf = "leaf-1";
+    const journal = new Map<string, { parentId: string | null }>();
+    const gate = deferred<{ replyText?: unknown }>();
+    const h = harness({
+      manager: {
+        getSessionId: () => "sess-1",
+        getLeafId: () => leaf,
+        getEntry: (id: string) => journal.get(id),
+        appendModelUsage: (
+          _entry: Record<string, unknown>,
+          owner: { sessionId: string; parentId: string | null },
+        ): string => {
+          const id = "usage-1";
+          journal.set(id, { parentId: owner.parentId });
+          if (leaf === owner.parentId) leaf = id;
+          return id;
+        },
+      },
+      reply: (call) => {
+        // Usage lands mid-turn, moving the leaf onto the journal entry; then
+        // the user sends a real message on top of it.
+        call.onUsage?.({ usage: { input: 1 } });
+        leaf = "user-message-2";
+        return gate.promise;
+      },
+    });
+    await bound(h);
+    await h.arm();
+    await h.request("req-1");
+    gate.resolve({ replyText: "Too late." });
+    const settled = await h.until(settledWith("req-1"));
+    expect(settled.result).toEqual({ requestId: "req-1", ok: false, reason: "stale" });
   });
 
   it("asks for up to four alternatives when the setting is on, parsed one per line", async () => {

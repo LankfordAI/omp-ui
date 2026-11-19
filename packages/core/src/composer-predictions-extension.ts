@@ -122,6 +122,7 @@ interface StatusUi {
 interface ManagerLike {
   getSessionId?: () => unknown;
   getLeafId?: () => unknown;
+  getEntry?: (id: string) => unknown;
   appendModelUsage?: (usage: Record<string, unknown>, owner: { sessionId: string; parentId: string | null }) => unknown;
 }
 
@@ -172,6 +173,14 @@ interface Inflight {
   /** True once the deadline (not a new turn) cancelled the side turn. */
   timedOut: boolean;
   timer: PollTimer;
+  /**
+   * Ids this request journaled as model_usage entries. appendModelUsage parents
+   * its entry to the request's leaf and may move the leaf onto it, so the
+   * staleness check must read that move as the bridge's own bookkeeping —
+   * upstream keys staleness on the conversation's last message for exactly
+   * this reason (its journaling rides the same journal).
+   */
+  journaled: Set<string>;
 }
 
 const PROCESS_KEY = "omp-ui-" + Date.now().toString(36) + "-" + Math.random().toString(36).slice(2);
@@ -294,10 +303,15 @@ function parseRequest(json: string): { requestId: string } | null {
   return { requestId: record.requestId };
 }
 
-function journalUsage(manager: ManagerLike | undefined, owner: { sessionId: string; parentId: string | null }, message: UsageMessage): void {
+function journalUsage(
+  manager: ManagerLike | undefined,
+  owner: { sessionId: string; parentId: string | null },
+  message: UsageMessage,
+  journaled: Set<string>,
+): void {
   if (manager === undefined || typeof manager.appendModelUsage !== "function") return;
   try {
-    manager.appendModelUsage(
+    const id = manager.appendModelUsage(
       {
         purpose: USAGE_PURPOSE,
         api: message.api,
@@ -309,10 +323,39 @@ function journalUsage(manager: ManagerLike | undefined, owner: { sessionId: stri
       },
       owner,
     );
+    if (typeof id === "string") journaled.add(id);
   } catch {
     // Usage journaling must never break the prediction — but a refusal here
     // would mean invisible spend, so keep it visibly narrow to the entry.
   }
+}
+
+/** omp's journal entry parentId for \`id\`, or null when unreadable. */
+function entryParentId(manager: ManagerLike | undefined, id: string): string | null {
+  if (manager === undefined || typeof manager.getEntry !== "function") return null;
+  try {
+    const entry = asRecord(manager.getEntry(id));
+    if (entry === null) return null;
+    const parent = entry.parentId;
+    return typeof parent === "string" || parent === null ? (parent as string | null) : null;
+  } catch {
+    return null;
+  }
+}
+
+/**
+ * The request's conversation leaf with this bridge's own bookkeeping undone:
+ * appendModelUsage parents its entry to the request's leaf and leaves it as
+ * the journal leaf when nothing had moved since, so the walk back over our own
+ * composer-prediction entries restores the point the request branched from.
+ * Any other move — a real new message — ends the walk short.
+ */
+function leafExcludingOwnJournal(manager: ManagerLike | undefined, journaled: Set<string>): string | null {
+  let leaf = managerString(manager, "getLeafId");
+  for (let guard = 0; guard < 64 && leaf !== null && journaled.has(leaf); guard++) {
+    leaf = entryParentId(manager, leaf);
+  }
+  return leaf;
 }
 
 function managerString(manager: ManagerLike | undefined, method: "getSessionId" | "getLeafId"): string | null {
@@ -394,7 +437,13 @@ function startPrediction(ctx: PredictionContext, requestId: string): void {
     result = null;
   }
   const controller = new AbortController();
-  const entry: Inflight = { requestId, controller, timedOut: false, timer: null as unknown as PollTimer };
+  const entry: Inflight = {
+    requestId,
+    controller,
+    timedOut: false,
+    timer: null as unknown as PollTimer,
+    journaled: new Set<string>(),
+  };
   entry.timer = setTimeout(() => {
     if (inflight !== entry) return;
     entry.timedOut = true;
@@ -417,17 +466,19 @@ function startPrediction(ctx: PredictionContext, requestId: string): void {
           : undefined,
       minimizeEffort: true,
       signal: controller.signal,
-      onUsage: (message: UsageMessage) => journalUsage(manager, owner, message),
+      onUsage: (message: UsageMessage) => journalUsage(manager, owner, message, entry.journaled),
     })
     .then((outcome) => {
       if (inflight !== entry) return;
       inflight = null;
       clearDeadline(entry);
       // Staleness, upstream's #isCurrent: a new message moved the leaf, the
-      // session changed underneath, or a turn is streaming again.
+      // session changed underneath, or a turn is streaming again. The leaf is
+      // read with this request's own journal entries excluded — its journaled
+      // usage is bookkeeping, not a new message.
       if (
         managerString(manager, "getSessionId") !== sessionId ||
-        managerString(manager, "getLeafId") !== leafId ||
+        leafExcludingOwnJournal(manager, entry.journaled) !== leafId ||
         session.isStreaming === true
       ) {
         failResult(requestId, "stale");
