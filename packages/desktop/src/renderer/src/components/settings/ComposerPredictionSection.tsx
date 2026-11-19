@@ -9,8 +9,12 @@ import { Row, SettingControl, layerBadge } from "./rows";
  * `composer.predictionAlternatives` (since omp 18.16.0), which drive omp's
  * own TUI composer prediction — the model's guess at your next message
  * ghosted in the empty composer, inserted on Tab/Right, never auto-sent.
- * This is NOT omp-ui's RPC word-ghost (#predict_word wire unchanged at
- * 18.16.0). The alternatives row is listed only while the master reads on,
+ * Since issue #1239 the same effective values gate omp-ui's own native-tab
+ * ghost: the composer-predictions bridge re-reads `composer.predictions`
+ * before every billed side turn, so flipping this row off reaches both the
+ * TUI and the native composer without a restart. This is still NOT omp-ui's
+ * RPC word-ghost (the `predict_word` wire is a different upstream feature).
+ * The alternatives row is listed only while the master reads on,
  * mirroring omp's own `condition: "composerPredictionsEnabled"` listing rule
  * (upstream v18.16.0 modes/settings.ts); an omp that predates the master key
  * publishes nothing, hiding the section entirely.

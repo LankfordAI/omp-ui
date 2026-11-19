@@ -560,6 +560,9 @@ export function disposeTabRuntime(
     // Spend totals belong to the dying process's bridge; the successor's
     // bridge rescans the transcripts and republishes on the boot arm (#866).
     sessionSpend: null,
+    // Likewise the prediction bridge's availability: its processKey is dead,
+    // and the successor republishes on the boot arm (#1239).
+    composerPredictions: null,
     // Likewise the observed warming method: it describes the dead process's
     // warmer, and the successor refreshes only if it warms again (#1238).
     cacheWarming: null,
@@ -634,6 +637,7 @@ function freshRpcTabState(
     asyncJobsKill: null,
     asyncJobsKillError: null,
     sessionSpend: null,
+    composerPredictions: null,
     cacheWarming: null,
     capabilities: null,
     capabilitiesLoad: "idle",
@@ -844,6 +848,10 @@ export function createRpcCommandSlice(
       // Arm the session-spend bridge (issue #866): its first scan reproduces
       // the whole-session total from the transcripts on disk.
       void get().refreshSessionSpend(tabId);
+      // Arm the composer-predictions bridge (issue #1239): one cheap shot
+      // binds its ui channel and publishes availability; every billed request
+      // comes later, only from an idle tab with an empty composer.
+      void get().refreshComposerPredictions(tabId);
       // Arm the side-commands bridge (issue #955): publishes the live
       // session's side: true file commands.
       void get().refreshSideCommands(tabId);

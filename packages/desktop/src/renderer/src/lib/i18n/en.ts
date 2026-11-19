@@ -583,6 +583,10 @@ export const en = {
   // The `?` side-question draft (issue #1233)
   "composer.btw.chip": "? side question",
   "composer.btw.chipTitle": "Enter asks this as a side question — no turn, nothing in the transcript (/btw)",
+  // The next-message prediction ghost (issue #1239)
+  "composer.predict.chip": "next message",
+  "composer.predict.chipTitle":
+    "OMP predicted what you might type next — one extra model request. Tab or → inserts it; nothing is sent. Turn off: settings → Composer predictions (composer.predictions)",
   // Attachment strip
   "composer.attachment.alt": "attachment {n}",
   "composer.attachment.remove": "remove attachment {n}",

@@ -534,6 +534,10 @@ export const ko: Partial<Record<MessageKey, string>> = {
   // The `?` side-question draft (issue #1233)
   "composer.btw.chip": "? 곁가지 질문",
   "composer.btw.chipTitle": "Enter를 누르면 이것이 곁가지 질문으로 전송됩니다 — 턴 없이, 대화 기록에도 남지 않음 (/btw)",
+  // The next-message prediction ghost (issue #1239)
+  "composer.predict.chip": "다음 메시지",
+  "composer.predict.chipTitle":
+    "OMP가 다음에 입력할 메시지를 예측했습니다 — 모델 요청이 하나 추가되었습니다. Tab 또는 → 키로 삽입되며 전송되지는 않습니다. 끄기: 설정 → Composer predictions (composer.predictions)",
   "composer.attachment.alt": "첨부 파일 {n}",
   "composer.attachment.remove": "첨부 파일 {n} 제거",
   "composer.attachment.image": "이미지",

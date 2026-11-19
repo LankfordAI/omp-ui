@@ -7,6 +7,10 @@ import { withArtifactRefreshContext, withArtifactReferenceContext } from "@omp-u
 import { ADVISOR_STATS_COMMAND } from "@omp-ui/core/advisor-stats";
 import { LIMITS_COMMAND } from "@omp-ui/core/limits";
 import { SESSION_SPEND_COMMAND } from "@omp-ui/core/session-spend";
+import {
+  COMPOSER_PREDICTIONS_COMMAND,
+  COMPOSER_PREDICTIONS_REQUEST_PREFIX,
+} from "@omp-ui/core/composer-predictions";
 import { isHtmlPlanPath, planMessage } from "@omp-ui/core/plan";
 import type { ScheduledPromptRequest } from "@omp-ui/core/scheduled-prompt";
 import { parseExperimentProposalTitle } from "@omp-ui/core/autoresearch";
@@ -197,6 +201,8 @@ export type SessionParamsSlice = Pick<
   | "refreshAdvisorStats"
   | "refreshLimits"
   | "refreshSessionSpend"
+  | "refreshComposerPredictions"
+  | "requestComposerPrediction"
   | "refreshSubagents"
   | "openSubagent"
   | "closeSubagent"
@@ -2991,6 +2997,28 @@ export function createSessionParamsSlice(
     await m.runBridgeCommand(tabId, SESSION_SPEND_COMMAND, "", { allowDuringBoot: true, quiet: true });
   };
 
+  const refreshComposerPredictions = async (tabId: string): Promise<void> => {
+    // The refreshLimits shape (issue #1239): the bridge answers over setStatus
+    // with its availability; the arm itself bills nothing.
+    await m.runBridgeCommand(tabId, COMPOSER_PREDICTIONS_COMMAND, "", {
+      allowDuringBoot: true,
+      quiet: true,
+    });
+  };
+
+  const requestComposerPrediction = async (tabId: string, requestId: string): Promise<void> => {
+    // One billed prediction request (issue #1239). Quiet like every bridge
+    // shot, and NOT allowDuringBoot: a booting session has no completed turn
+    // to predict for. The result rides the next snapshot publish correlated
+    // by requestId; the ack answers nothing.
+    await m.runBridgeCommand(
+      tabId,
+      COMPOSER_PREDICTIONS_COMMAND,
+      `${COMPOSER_PREDICTIONS_REQUEST_PREFIX}${JSON.stringify({ requestId })}`,
+      { quiet: true },
+    );
+  };
+
   const refreshSubagents = async (tabId: string): Promise<void> => {
     // Heartbeat-driven (every subagent_* frame) — quiet, or the busy sweeps
     // strobe for the lifetime of every spawned subagent.
@@ -3120,6 +3148,8 @@ export function createSessionParamsSlice(
     refreshAdvisorStats,
     refreshLimits,
     refreshSessionSpend,
+    refreshComposerPredictions,
+    requestComposerPrediction,
     refreshSubagents,
     openSubagent,
     closeSubagent,

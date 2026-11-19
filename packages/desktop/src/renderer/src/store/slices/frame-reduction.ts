@@ -16,6 +16,10 @@ import {
   parseSessionSpendSnapshot,
 } from "@omp-ui/core/session-spend";
 import {
+  COMPOSER_PREDICTIONS_STATUS_KEY,
+  parseComposerPredictionsSnapshot,
+} from "@omp-ui/core/composer-predictions";
+import {
   MCP_RUNTIME_STATUS_KEY,
   parseMcpRuntimeStatus,
 } from "@omp-ui/core/mcp-status";
@@ -221,6 +225,13 @@ export function createFrameReductionSlice(
       const tab = get().rpc[tabId];
       if (snapshot === null || tab === undefined) return;
       if (isNewerSnapshot(tab.sessionSpend, snapshot)) m.patchRpc(tabId, { sessionSpend: snapshot });
+    },
+    [COMPOSER_PREDICTIONS_STATUS_KEY]: (tabId, text) => {
+      const snapshot = parseComposerPredictionsSnapshot(text);
+      const tab = get().rpc[tabId];
+      if (snapshot === null || tab === undefined) return;
+      if (isNewerSnapshot(tab.composerPredictions, snapshot))
+        m.patchRpc(tabId, { composerPredictions: snapshot });
     },
     [MCP_RUNTIME_STATUS_KEY]: (tabId, text) => {
       const mcpStatus = parseMcpRuntimeStatus(text);

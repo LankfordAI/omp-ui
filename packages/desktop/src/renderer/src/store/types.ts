@@ -103,6 +103,7 @@ import type { AdvisorStatsView } from "@omp-ui/core/advisor-stats";
 import type { AsyncJobsSnapshot } from "@omp-ui/core/async-jobs";
 import type { AsyncNoticeFeed } from "../lib/async-notices";
 import type { CacheWarmingMethod, SessionSpendSnapshot } from "@omp-ui/core/session-spend";
+import type { ComposerPredictionsSnapshot } from "@omp-ui/core/composer-predictions";
 import type { LimitsView } from "@omp-ui/core/limits";
 import type { McpRuntimeStatus } from "@omp-ui/core/mcp-status";
 import type {
@@ -442,6 +443,16 @@ export interface RpcTabState {
    * Null until first observed; the HUD and rail fall back to `stats` then.
    */
   sessionSpend: SessionSpendSnapshot | null;
+  /**
+   * The composer next-message prediction bridge's last publish (issue #1239):
+   * whether a request COULD bill (side turns reachable and omp's effective
+   * `composer.predictions` on) plus the latest request's outcome correlated by
+   * requestId. Display state only — the child process runs the billed side
+   * turn and journals its usage; a malformed publish leaves the last good
+   * snapshot standing. The ghost text itself is composer-local state, exactly
+   * like the word ghost's: it lives with the draft it belongs to.
+   */
+  composerPredictions: ComposerPredictionsSnapshot | null;
   /**
    * How prompt-cache warming refreshed the provider, as the newest
    * `cache_warming_*` frame with a reported method observed it (issue #1238).
@@ -2019,6 +2030,10 @@ export interface UiStore extends SettingsSlice, UpdatesSlice, LabSlice, StatsSli
   refreshLimits(tabId: string): Promise<void>;
   /** Arms the session-spend bridge and asks it to republish (issue #866); quiet. */
   refreshSessionSpend(tabId: string): Promise<void>;
+  /** Arms the composer-predictions bridge and asks it to republish (issue #1239); quiet. */
+  refreshComposerPredictions(tabId: string): Promise<void>;
+  /** Asks the bridge for one billed next-message prediction, answered on the next publish (issue #1239). */
+  requestComposerPrediction(tabId: string, requestId: string): Promise<void>;
   /** Arms the async-jobs bridge and asks it to republish (issue #835); quiet. */
   refreshAsyncJobs(tabId: string): Promise<void>;
   /** Cancels one running background job, or every one when `job` is null (issue #835). */

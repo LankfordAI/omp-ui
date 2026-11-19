@@ -30,6 +30,7 @@ import {
   emptySpendTotals,
   type SessionSpendSnapshot,
 } from "@omp-ui/core/session-spend";
+import { COMPOSER_PREDICTIONS_STATUS_KEY } from "@omp-ui/core/composer-predictions";
 import {
   AUTORESEARCH_STATUS_KEY,
   AUTORESEARCH_WIDGET_KEY,
@@ -1514,6 +1515,46 @@ describe("handleRpcFrame routing", () => {
     publish({ processKey: "omp-ui-proc-2", revision: 1, total: { ...emptySpendTotals(), cost: 0.5 } });
     expect(spend()?.processKey).toBe("omp-ui-proc-2");
     expect(spend()?.total.cost).toBe(0.5);
+  });
+
+  it("accepts newer composer-predictions snapshots per process (issue #1239)", () => {
+    const publish = (patch: Record<string, unknown>): void => {
+      const snapshot = {
+        version: 1,
+        processKey: "omp-ui-proc-1",
+        revision: 1,
+        available: true,
+        unavailable: null,
+        result: null,
+        ...patch,
+      };
+      h.useStore.getState().handleRpcFrame(h.TAB, {
+        type: "extension_ui_request",
+        id: `pred-${snapshot.processKey}-${snapshot.revision}`,
+        method: "setStatus",
+        statusKey: COMPOSER_PREDICTIONS_STATUS_KEY,
+        statusText: JSON.stringify(snapshot),
+      });
+    };
+    const predictions = () => h.useStore.getState().rpc[h.TAB]!.composerPredictions;
+    publish({ revision: 3, result: { requestId: "r1", ok: true, choices: ["Ship it"] } });
+    expect(predictions()?.result).toEqual({ requestId: "r1", ok: true, choices: ["Ship it"] });
+    // A lower revision from the same process is stale.
+    publish({ revision: 2 });
+    expect(predictions()?.revision).toBe(3);
+    // A new process replaces regardless of revision.
+    publish({ processKey: "omp-ui-proc-2", revision: 1, available: false, unavailable: "settings-off" });
+    expect(predictions()?.processKey).toBe("omp-ui-proc-2");
+    expect(predictions()?.available).toBe(false);
+    // A malformed publish leaves the last good snapshot standing.
+    h.useStore.getState().handleRpcFrame(h.TAB, {
+      type: "extension_ui_request",
+      id: "pred-bad",
+      method: "setStatus",
+      statusKey: COMPOSER_PREDICTIONS_STATUS_KEY,
+      statusText: "{not json",
+    });
+    expect(predictions()?.processKey).toBe("omp-ui-proc-2");
   });
 
   it("auto-cancels a non-status extension request with a marker", () => {

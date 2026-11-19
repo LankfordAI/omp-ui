@@ -13,6 +13,7 @@ import { VIBE_COMMAND } from "@omp-ui/core/vibe";
 import { ASYNC_JOBS_COMMAND } from "@omp-ui/core/async-jobs";
 import { SESSION_SPEND_COMMAND } from "@omp-ui/core/session-spend";
 import { SIDE_COMMANDS_COMMAND } from "@omp-ui/core/side-commands";
+import { COMPOSER_PREDICTIONS_COMMAND } from "@omp-ui/core/composer-predictions";
 import { backend, backendFor, displayMessage } from "../backend";
 import type { ArtifactRecord } from "@omp-ui/core/artifacts";
 import { cn } from "../lib/cn";
@@ -47,6 +48,7 @@ import { useArtifactDraft } from "../lib/use-artifact-draft";
 import { ARTIFACT_DRAG_MIME, parseArtifactDrag } from "../lib/artifact-drag";
 import { SESSION_DRAG_EFFECT, SESSION_DRAG_MIME } from "../lib/session-drag";
 import { useWordGhost } from "../lib/use-word-ghost";
+import { useNextMessagePrediction } from "../lib/use-next-message-prediction";
 import { ComposerActions } from "./ComposerActions";
 import { ComposerOptions } from "./ComposerOptions";
 import { ComposerPlusMenu } from "./ComposerPlusMenu";
@@ -208,6 +210,7 @@ export function Composer({
           c.name !== ASYNC_JOBS_COMMAND &&
           c.name !== SESSION_SPEND_COMMAND &&
           c.name !== SIDE_COMMANDS_COMMAND &&
+          c.name !== COMPOSER_PREDICTIONS_COMMAND &&
           !owned.has(c.name),
       ),
     ];
@@ -511,6 +514,31 @@ export function Composer({
     text,
     caret,
     active: focused && collapsed && !unavailable && !converting && !paletteOpen && !mentionOpen && !inCode,
+  });
+  /**
+   * The next-message prediction ghost (issue #1239): a completed turn's
+   * single billed side turn, painted in the EMPTY composer as its placeholder
+   * — the exact surface the word ghost never touches, so the two cannot paint
+   * at once. Every dialog and hold that steals the composer also gates this:
+   * a pending ask owns the keyboard (#1234), a running or held session
+   * starts no turn to predict from. The compact sheet is ChatSlang's surface;
+   * predictions ride the full composer only.
+   */
+  const prediction = useNextMessagePrediction({
+    tabId,
+    text,
+    active:
+      focused &&
+      collapsed &&
+      !compact &&
+      !unavailable &&
+      !converting &&
+      !running &&
+      modelHold === null &&
+      pendingFrame === undefined &&
+      !paletteOpen &&
+      !mentionOpen &&
+      !stashOpen,
   });
   /**
    * omp reports vision support as `model.input` containing "image". A model
@@ -1309,6 +1337,15 @@ export function Composer({
         applyGhostDraft(accepted);
         return;
       }
+      // The next-message prediction paints only over an EMPTY draft, where the
+      // word ghost has nothing to offer — so the two never fight for this key.
+      // Explicit press inserts it into the draft; nothing is ever sent (#1239).
+      const predicted = prediction.accept();
+      if (predicted !== null) {
+        e.preventDefault();
+        applyGhostDraft({ text: predicted, caret: predicted.length });
+        return;
+      }
     }
 
     if (e.key === "Escape") {
@@ -1408,7 +1445,14 @@ export function Composer({
             ? t("composer.placeholder.running")
             : modelHold !== null
               ? t("composer.placeholder.modelHold")
-              : t("composer.placeholder.idle");
+              // The next-message prediction (issue #1239): upstream's exact
+              // surface — the ghost rides the empty composer's placeholder
+              // slot, so a draft always belongs to ordinary typing and the
+              // word ghost. `prediction.shown` already gates focus, idle, and
+              // the empty draft.
+              : prediction.text !== null
+                ? prediction.text
+                : t("composer.placeholder.idle");
 
   // An image or PDF alone is sendable: "what is this?" is in the attachment, not the text.
   // A held session still runs slash and bash commands (/new, !ls, …); main
@@ -1690,6 +1734,9 @@ export function Composer({
               onCodeChange={setCode}
               onEdit={(draft, from, to, noteEdit = true) => {
                 if (noteEdit) wordGhost.noteEdit(draft, from);
+                // Any keystroke retires the next-message prediction (issue #1239):
+                // the ghost belongs to the empty composer as it stood at settle.
+                prediction.noteEdit();
                 setText(draft);
                 setCaret(from);
                 setCollapsed(from === to);
@@ -1725,6 +1772,13 @@ export function Composer({
             {btwDraft && (
               <Chip mono tone="signal" title={t("composer.btw.chipTitle")}>
                 {t("composer.btw.chip")}
+              </Chip>
+            )}
+            {/* The next-message prediction's face (issue #1239): what Tab does
+                with the ghost, and that the ghost cost one extra billed request. */}
+            {prediction.text !== null && (
+              <Chip mono tone="iris" title={t("composer.predict.chipTitle")}>
+                {t("composer.predict.chip")}
               </Chip>
             )}
             {queueChip && !queueListed && (

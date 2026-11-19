@@ -309,12 +309,14 @@ export const AGENT_PREWALK_AUTO_SETTING_GROUP: OmpSettingGroup = {
  * master reads true (omp `modes/settings.ts`, condition
  * `composerPredictionsEnabled`), and the generic group loop would show both
  * rows unconditionally; ComposerPredictionSection mirrors the listing rule.
- * Both are plain booleans whose Switch renders through SettingControl. The
- * alternatives themselves stay inside omp's own TUI at 18.16.0 — RPC
- * `predict_word` still answers a single `suffix` and
- * `predict_word_feedback` carries no rank (omp-ui's composer ghost is the
- * daemon word-completion, a different feature; see issue #1030) — so these
- * keys toggle omp's interactive editor only, never this UI's ghost.
+ * Both are plain booleans whose Switch renders through SettingControl. Since
+ * issue #1239 they are also the gate for THIS UI: the composer-predictions
+ * bridge (composer-predictions-extension.ts) reads omp's effective value at
+ * request time, so an off value here never bills a native-tab prediction.
+ * The alternatives' pick-list UI is still open (issue #1030): the native
+ * composer renders only the first choice. RPC `predict_word` answers a single
+ * `suffix` and `predict_word_feedback` carries no rank — that is the daemon's
+ * word completion, a different upstream feature this bridge never touches.
  */
 export const COMPOSER_PREDICTIONS_KEY = "composer.predictions";
 export const COMPOSER_PREDICTION_ALTERNATIVES_KEY = "composer.predictionAlternatives";
