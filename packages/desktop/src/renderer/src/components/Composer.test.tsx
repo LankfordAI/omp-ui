@@ -4397,6 +4397,26 @@ describe("Composer skip & send with a multi-question ask (issue #1234)", () => {
     expect(pill.title).toContain("settle the questions above unanswered");
   });
 
+  it("leaves the keyboard to the form when the tab mounts over a waiting ask", () => {
+    // The composer's mount autofocus would otherwise yank the caret out of
+    // the card (caught in the live proof): upstream mounts an ask with the
+    // keys, so the draft yields while one waits and takes them back after.
+    desktop();
+    seedQueue([ASK_FRAME]);
+    renderRpcTab();
+    const scope = document.querySelector(`[data-tab-id="${TAB}"]`)!;
+    const active = document.activeElement as HTMLElement | null;
+    expect(active).not.toBeNull();
+    expect(scope.contains(active)).toBe(true);
+    expect(active!.closest(".cm-editor")).toBeNull();
+    // Dismissing the form hands the keyboard back to the draft.
+    act(() => useStore.setState((s) => ({
+      rpc: { ...s.rpc, [TAB]: { ...s.rpc[TAB]!, extensionQueue: [] } },
+    })));
+    const back = document.activeElement as HTMLElement | null;
+    expect(back?.closest(".cm-editor")).not.toBeNull();
+  });
+
   it("keeps slash commands off the skip route", () => {
     desktop();
     useStore.setState({ runSlashCommand });

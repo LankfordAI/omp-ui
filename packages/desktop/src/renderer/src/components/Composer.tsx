@@ -611,10 +611,14 @@ export function Composer({
 
   // The composer lands focused on a fresh session and whenever boot or an
   // advisor relaunch clears `unavailable`. Overlay teardown owns the separate
-  // focus handoff when a new active tab was opened beneath it.
+  // focus handoff when a new active tab was opened beneath it. A multi-question
+  // ask above the composer holds the keyboard instead (issue #1234 — upstream
+  // mounts the ask with the keys and hands them back only when it closes), so
+  // this autofocus yields to it; the flip back is what refocuses the draft
+  // when the form settles.
   useEffect(() => {
-    if (!unavailable) editor.current?.focus({ preventScroll: true });
-  }, [unavailable]);
+    if (!unavailable && !pendingAsk) editor.current?.focus({ preventScroll: true });
+  }, [unavailable, pendingAsk]);
 
   // One clock drives the focused draft and the authoritative active-turn ring.
   // Active work keeps moving without focus; draft paint stays at phase 0 then.
