@@ -1574,6 +1574,98 @@ describe("Jobs pane (issue #835)", () => {
     expect(blocks).toContain("rows-copied");
     expect(blocks).toContain("copying the last table");
   });
+
+  // #1235: omp 19 matching-output notices ride the row they belong to; a
+  // source no row lists (service, evicted job) groups under one trailing
+  // section instead of vanishing.
+  const notifyFrame = (reports: Array<Record<string, unknown>>, timestamp = 1_000): void => {
+    act(() => {
+      useStore.getState().handleRpcFrame(TAB, {
+        type: "message_end",
+        message: {
+          role: "custom",
+          customType: "async-notify",
+          content: "<system-notice>raw text never rendered</system-notice>",
+          display: true,
+          attribution: "agent",
+          timestamp,
+          details: { reports },
+        },
+      });
+    });
+  };
+  const bashReport = (overrides: Record<string, unknown> = {}): Record<string, unknown> => ({
+    id: "bg_1",
+    type: "bash",
+    pattern: "ERROR",
+    lines: ["ERROR boom"],
+    omitted: 0,
+    running: true,
+    stopped: false,
+    ...overrides,
+  });
+
+  it("a matching-output notice draws its newest line on the owning job row", () => {
+    publishJobs();
+    notifyFrame([bashReport({ lines: ["ERROR one", "ERROR boom"] })]);
+    renderRail();
+    openPane("jobs");
+    expect(document.body.textContent).toContain("ERROR boom");
+    expect(document.body.textContent).toContain("2 reported lines");
+    // It belongs to bg_1's row, never the other row's card.
+    const blocks = document.body.querySelectorAll("[data-notify-block]");
+    expect(blocks).toHaveLength(1);
+    // Collapsed shows only the newest line.
+    expect(document.body.textContent).not.toContain("ERROR one");
+  });
+
+  it("expanding the row keeps every reported line with omp's omitted counter", () => {
+    publishJobs();
+    notifyFrame([bashReport({ lines: ["ERROR one", "ERROR boom"], omitted: 7 })]);
+    renderRail();
+    openPane("jobs");
+    expandRow("show details for job bg_1");
+    expect(document.body.textContent).toContain("ERROR one");
+    expect(document.body.textContent).toContain("ERROR boom");
+    expect(document.body.textContent).toContain("+7 omp left out");
+  });
+
+  it("a service notice with no job row groups under other background output", () => {
+    publishJobs();
+    notifyFrame([bashReport({ id: "web", type: "service", pattern: "FATAL", lines: ["FATAL down"], stopped: true })]);
+    renderRail();
+    openPane("jobs");
+    expect(document.body.textContent).toContain("other background output · 1");
+    expect(document.body.textContent).toContain("FATAL down");
+    expect(document.body.textContent).toContain("notices stopped");
+  });
+
+  it("a notice for a job missing from the snapshot still renders", () => {
+    publishJobs();
+    notifyFrame([bashReport({ id: "bg_evicted" })]);
+    renderRail();
+    openPane("jobs");
+    expect(document.body.textContent).toContain("other background output · 1");
+    expect(document.body.textContent).toContain("bg_evicted");
+    expect(document.body.textContent).toContain("ERROR boom");
+  });
+
+  it("notices stay readable before the first snapshot arrives", () => {
+    notifyFrame([bashReport({ id: "web", type: "service" })]);
+    renderRail();
+    openPane("jobs");
+    expect(document.body.textContent).toContain("Waiting for omp");
+    expect(document.body.textContent).toContain("other background output · 1");
+  });
+
+  it("a cancelled job keeps its notices and stops pulsing", () => {
+    publishJobs({ running: [], recent: [{ ...finishedJob, status: "cancelled" as const, exitCode: null }] });
+    notifyFrame([bashReport({ id: "bg_0", running: false })]);
+    renderRail();
+    openPane("jobs");
+    expect(document.body.textContent).toContain("ERROR boom");
+    expect(document.body.querySelector('span[title="running"]')).toBeNull();
+  });
 });
 
 describe("Side questions pane (issue #775)", () => {

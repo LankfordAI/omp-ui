@@ -172,6 +172,7 @@ export function JobsPane({ tabId }: { tabId: string }) {
           <ul className="space-y-1">{recentRows.map(renderRow)}</ul>
         </Section>
       )}
+      {otherOutput}
     </>
   );
 }

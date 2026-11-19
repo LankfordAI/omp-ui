@@ -694,6 +694,65 @@ describe("authoritative running-input keywords (issue #726)", () => {
   });
 });
 
+describe("async-notify pane feed (issue #1235)", () => {
+  const frame = (event: object) => h.useStore.getState().handleRpcFrame(h.TAB, event);
+  const tab = () => h.useStore.getState().rpc[h.TAB]!;
+  const message = {
+    role: "custom",
+    customType: "async-notify",
+    content: "<system-notice>ERROR boom</system-notice>",
+    display: true,
+    attribution: "agent",
+    timestamp: 1_000,
+    details: {
+      reports: [
+        { id: "bg_1", type: "bash", pattern: "ERROR", lines: ["ERROR boom"], omitted: 2, running: true, stopped: false },
+        { id: "web", type: "service", pattern: "FATAL", lines: ["FATAL down"], omitted: 0, running: true, stopped: false },
+      ],
+    },
+  };
+
+  beforeEach(() => {
+    h.useStore.setState({ rpc: { [h.TAB]: rpcTabState({ status: "ready" }) } });
+  });
+
+  it("feeds the pane once per delivery — start alone feeds nothing, end folds both sources", () => {
+    frame({ type: "message_start", message });
+    expect(tab().asyncNotices).toEqual({});
+    frame({ type: "message_end", message });
+    const notices = tab().asyncNotices;
+    expect(Object.keys(notices).sort()).toEqual(["bash:bg_1", "service:web"]);
+    expect(notices["bash:bg_1"]).toMatchObject({ lines: ["ERROR boom"], omitted: 2, running: true });
+    // And the transcript card: one per delivery, no second one from the pair.
+    const cards = tab().items.filter((i) => i.kind === "asyncNotify");
+    expect(cards).toHaveLength(1);
+  });
+
+  it("a second delivery appends its lines to the same source", () => {
+    frame({ type: "message_end", message });
+    frame({
+      type: "message_end",
+      message: {
+        ...message,
+        timestamp: 2_000,
+        details: { reports: [{ id: "bg_1", type: "bash", pattern: "ERROR", lines: ["ERROR again"], omitted: 0, running: false, stopped: true }] },
+      },
+    });
+    expect(tab().asyncNotices["bash:bg_1"]).toMatchObject({
+      lines: ["ERROR boom", "ERROR again"],
+      running: false,
+      stopped: true,
+      omitted: 2,
+    });
+  });
+
+  it("a malformed reports payload feeds nothing and cards nothing", () => {
+    frame({ type: "message_end", message: { ...message, details: {} } });
+    expect(tab().asyncNotices).toEqual({});
+    expect(tab().items.filter((i) => i.kind === "asyncNotify")).toEqual([]);
+  });
+});
+
 describe("handleRpcFrame routing", () => {
   beforeEach(() => {
     h.useStore.setState({ rpc: { [h.TAB]: rpcTabState() } });

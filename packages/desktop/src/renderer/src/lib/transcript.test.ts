@@ -1248,6 +1248,74 @@ describe("reduceEvent fleet wake cards (#957)", () => {
   });
 });
 
+describe("reduceEvent async-notify cards (issue #1235)", () => {
+  const report = {
+    id: "bg_1",
+    type: "bash",
+    pattern: "ERROR",
+    lines: ["ERROR boom"],
+    omitted: 0,
+    running: true,
+    stopped: false,
+  };
+  const noticeMessage = (timestamp: number, overrides: Record<string, unknown> = {}) => ({
+    role: "custom",
+    customType: "async-notify",
+    content: "<system-notice>raw model text never rendered</system-notice>",
+    display: true,
+    attribution: "agent",
+    timestamp,
+    details: { reports: [{ ...report, ...overrides }] },
+  });
+
+  it("renders one card when message_start and message_end carry the same message", () => {
+    const message = noticeMessage(1_000);
+    let items: RenderItem[] = [];
+    items = reduceEvent(items, { type: "message_start", message });
+    items = reduceEvent(items, { type: "message_end", message });
+    const cards = items.filter((i) => i.kind === "asyncNotify");
+    expect(cards).toHaveLength(1);
+    expect(cards[0]).toMatchObject({ kind: "asyncNotify", reports: [report] });
+  });
+
+  it("cards a second delivery of identical lines — omp stamps each notice separately", () => {
+    let items: RenderItem[] = [];
+    items = reduceEvent(items, { type: "message_end", message: noticeMessage(1_000) });
+    items = reduceEvent(items, { type: "message_end", message: noticeMessage(2_000) });
+    expect(items.filter((i) => i.kind === "asyncNotify")).toHaveLength(2);
+  });
+
+  it("never reconciles a notice into the streaming assistant item", () => {
+    let items: RenderItem[] = [];
+    items = reduceEvent(items, { type: "message_start", message: { role: "assistant", content: [] } });
+    items = reduceEvent(items, { type: "message_update", assistantMessageEvent: { type: "text_delta", delta: "work" } });
+    const message = noticeMessage(1_000);
+    items = reduceEvent(items, { type: "message_end", message });
+    const a = assistant(items);
+    expect(a).toMatchObject({ text: "work", streaming: true });
+    expect(items.filter((i) => i.kind === "asyncNotify")).toHaveLength(1);
+    expect(items.some((i) => JSON.stringify(i).includes("raw model text"))).toBe(false);
+  });
+
+  it("drops a notice whose reports are unusable", () => {
+    const bad = { ...noticeMessage(1_000), details: { reports: [{ ...report, type: "nope" }] } };
+    expect(reduceEvent([], { type: "message_end", message: bad })).toEqual([]);
+  });
+
+  it("keeps the card when rebuilding from history", () => {
+    const items = historyToItems([noticeMessage(1_000)]);
+    expect(items).toHaveLength(1);
+    expect(items[0]).toMatchObject({ kind: "asyncNotify", reports: [report] });
+  });
+
+  it("searches the reported lines and the source id", () => {
+    const items = reduceEvent([], { type: "message_end", message: noticeMessage(1_000) });
+    expect(findMatches(items, "boom")).toEqual([items[0]!.id]);
+    expect(findMatches(items, "bg_1")).toEqual([items[0]!.id]);
+    expect(findMatches(items, "system-notice")).toEqual([]);
+  });
+});
+
 describe("reduceEvent markers, notice, irc, unknowns", () => {
   it("emits quiet marker rows for lifecycle events", () => {
     let items: RenderItem[] = [];
