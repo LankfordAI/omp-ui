@@ -746,6 +746,41 @@ describe("multi-question ask form (issue #1234)", () => {
     });
   });
 
+  it("moves between questions with Tab and Shift-Tab, falling through at the last one", () => {
+    renderDesktopHost([ASK_FRAME]);
+    // The card's Tab handler sits on the open question's container, so the
+    // keystroke comes from the control inside it — where focus actually is —
+    // and bubbles up exactly as a real Tab does.
+    const tab = (shiftKey: boolean) =>
+      act(() =>
+        (document.activeElement ?? document.body).dispatchEvent(
+          new KeyboardEvent("keydown", { key: "Tab", shiftKey, bubbles: true, cancelable: true }),
+        ),
+      );
+    // Open question starts at the first; Tab opens the next.
+    tab(false);
+    const collapsed = [...document.body.querySelectorAll<HTMLButtonElement>("button")].find(
+      (candidate) => candidate.getAttribute("aria-label")?.startsWith("edit your answer to: Which database?"),
+    );
+    expect(collapsed).toBeDefined();
+    // Shift+Tab returns to the first.
+    tab(true);
+    expect(document.body.querySelector("h3")!.textContent).toBe("Which database?");
+    // Tab to the last, then Tab again past it: nothing is swallowed, the open
+    // question stays put so native focus order can leave the form.
+    tab(false);
+    expect(document.body.querySelector("h3")!.textContent).toBe("Which features?");
+    tab(false);
+    expect(document.body.querySelector("h3")!.textContent).toBe("Which features?");
+  });
+
+  it("keeps plain Tab alive for the panel's own controls inside an open question", () => {
+    renderDesktopHost([{ id: "ask3", method: "ask", questions: [{ id: "only", question: "Pick?", options: ["Alpha"] }] }]);
+    const event = new KeyboardEvent("keydown", { key: "Tab", bubbles: true, cancelable: true });
+    act(() => (document.activeElement ?? document.body).dispatchEvent(event));
+    expect(event.defaultPrevented).toBe(false);
+  });
+
   it("leaves the draft unanswerable from the composer — free text is never an ask reply", () => {
     renderDesktopHost([ASK_FRAME]);
     expect(freeTextTarget(ASK_FRAME)).toBe("none");
