@@ -587,6 +587,10 @@ export const en = {
   "composer.predict.chip": "next message",
   "composer.predict.chipTitle":
     "OMP predicted what you might type next — one extra model request. Tab or → inserts it; nothing is sent. Turn off: settings → Composer predictions (composer.predictions)",
+  // The prediction alternatives (issue #1030): the ghost hint and the pick list
+  "composer.predict.more": " · tab {n} more",
+  "composer.predict.listTitle": "predicted next messages",
+  "composer.predict.listKeys": "↑↓ move · enter/tab swaps in · esc closes",
   // Attachment strip
   "composer.attachment.alt": "attachment {n}",
   "composer.attachment.remove": "remove attachment {n}",

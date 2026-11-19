@@ -538,6 +538,10 @@ export const ko: Partial<Record<MessageKey, string>> = {
   "composer.predict.chip": "다음 메시지",
   "composer.predict.chipTitle":
     "OMP가 다음에 입력할 메시지를 예측했습니다 — 모델 요청이 하나 추가되었습니다. Tab 또는 → 키로 삽입되며 전송되지는 않습니다. 끄기: 설정 → Composer predictions (composer.predictions)",
+  // The prediction alternatives (issue #1030): the ghost hint and the pick list
+  "composer.predict.more": " · tab 후보 {n}개 더",
+  "composer.predict.listTitle": "예측된 다음 메시지",
+  "composer.predict.listKeys": "↑↓ 이동 · enter/tab 적용 · esc 닫기",
   "composer.attachment.alt": "첨부 파일 {n}",
   "composer.attachment.remove": "첨부 파일 {n} 제거",
   "composer.attachment.image": "이미지",

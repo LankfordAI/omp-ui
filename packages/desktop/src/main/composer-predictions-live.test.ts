@@ -50,7 +50,7 @@ const MODELS_YML = (baseUrl: string): string => `providers:
         reasoning: false
 `;
 
-const CONFIG_YML = (predictions: boolean): string => `startup:
+const CONFIG_YML = (predictions: boolean, alternatives = false): string => `startup:
   checkUpdate: false
 retry:
   enabled: false
@@ -58,10 +58,13 @@ tools:
   approvalMode: yolo
 composer:
   predictions: ${predictions ? "true" : "false"}
+  predictionAlternatives: ${alternatives ? "true" : "false"}
 `;
 
 /** The line the scripted provider replies to a prediction request with. */
 const PREDICTED = "Sounds good — ship it.";
+/** The multi-line reply a request with alternatives on gets back (#1030). */
+const ALTERNATIVES = "Sounds good — ship it.\nRun the tests first\n- Just merge it";
 
 interface Frame {
   type: string;
@@ -153,12 +156,12 @@ async function scriptedProvider(reply: string): Promise<ScriptedProvider> {
   };
 }
 
-function hermeticBase(baseUrl: string, predictions: boolean): { base: string; env: NodeJS.ProcessEnv } {
+function hermeticBase(baseUrl: string, predictions: boolean, alternatives = false): { base: string; env: NodeJS.ProcessEnv } {
   const base = fs.mkdtempSync(path.join(os.tmpdir(), "omp-ui-predictions-live-"));
   const home = path.join(base, "home");
   fs.mkdirSync(path.join(home, ".omp", "agent"), { recursive: true });
   fs.writeFileSync(path.join(home, ".omp", "agent", "models.yml"), MODELS_YML(baseUrl));
-  fs.writeFileSync(path.join(home, ".omp", "agent", "config.yml"), CONFIG_YML(predictions));
+  fs.writeFileSync(path.join(home, ".omp", "agent", "config.yml"), CONFIG_YML(predictions, alternatives));
   return {
     base,
     env: {
@@ -372,5 +375,59 @@ describe.skipIf(ompPath === null)("composer predictions bridge on the real runti
     expect(settled.result).toEqual({ requestId: "live-2", ok: false, reason: "off" });
     expect(provider.requests()).toBe(1);
     expect(journalEntries(scope.lineage).some((e) => e.purpose === COMPOSER_PREDICTION_USAGE_PURPOSE)).toBe(false);
+  });
+
+  it("delivers every alternative on the one request when predictionAlternatives is on (#1030)", async () => {
+    provider = await scriptedProvider(ALTERNATIVES);
+    const { base, env } = hermeticBase(provider.baseUrl, true, true);
+    const scope = spawnScope(base, env);
+    scopes.push(scope);
+    await ready(scope);
+
+    const prompted = await request(scope, { type: "prompt", message: "go" });
+    expect(prompted.success).toBe(true);
+    await pollUntil(() => (provider!.requests() >= 1 ? true : undefined), 120_000, "the prompt turn");
+
+    const armed = await request(scope, { type: "prompt", message: `/${COMPOSER_PREDICTIONS_COMMAND}` });
+    expect(armed.success).toBe(true);
+    const snapshot = await pollUntil(
+      () => (last(scope)?.available === true ? last(scope) : undefined),
+      30_000,
+      "the available publish",
+    );
+    expect(snapshot.unavailable).toBeNull();
+
+    const asked = await request(scope, {
+      type: "prompt",
+      message: composerPredictionRequestMessage({ requestId: "live-3" }),
+    });
+    expect(asked.success).toBe(true);
+    const settled = await pollUntil(
+      () => published(scope).find((s) => s.result?.requestId === "live-3"),
+      60_000,
+      "the alternatives result",
+    );
+    // Every line arrives, most likely first, list markers stripped by the
+    // bridge's upstream parse — this is the whole pick list's data.
+    expect(settled.result).toEqual({
+      requestId: "live-3",
+      ok: true,
+      choices: ["Sounds good — ship it.", "Run the tests first", "Just merge it"],
+    });
+
+    // The alternatives ride the ONE request #1239 already makes: still exactly
+    // one extra provider call, asked with the multi-message prompt.
+    await pollUntil(() => (provider!.requests() === 2 ? true : undefined), 30_000, "the single prediction call");
+    expect(provider.requests()).toBe(2);
+    expect(provider.body(1)).toContain("different messages they might send next");
+    expect(provider.body(1)).toContain("one per line, most likely first");
+
+    const entry = await pollUntil(
+      () => journalEntries(scope.lineage).find((e) => e.purpose === COMPOSER_PREDICTION_USAGE_PURPOSE),
+      10_000,
+      "the journaled model_usage entry",
+    );
+    const usage = entry.usage as Record<string, unknown> | undefined;
+    expect(usage).toBeTruthy();
   });
 });

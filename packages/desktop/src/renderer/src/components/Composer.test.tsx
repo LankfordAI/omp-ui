@@ -3291,7 +3291,7 @@ describe("ghost completion (issue #715)", () => {
   }
 
   function ghostText(): string | null {
-    return document.body.querySelector("[data-word-ghost]")?.textContent ?? null;
+    return document.body.querySelector("[data-ghost-suffix]")?.textContent ?? null;
   }
 
   /** The draft typed, the debounce elapsed, and omp's "res" painted after it. */
@@ -4570,7 +4570,7 @@ describe("Composer next-message prediction ghost (issue #1239)", () => {
     await settleAndArm({ version: 1, processKey: "p", revision: 1, available: true, unavailable: null, result: null });
     publishResult(asked[0]![1], true);
     expect(placeholderText()).toBe(PREDICTED);
-    // Only the first choice paints; the pick list is issue #1030's surface.
+    // The empty draft shows only choices[0]; the rest wait for Tab (#1030).
     expect(document.body.textContent).not.toContain("Run the tests first");
     const chip = [...document.body.querySelectorAll<HTMLElement>("*")].find(
       (element) => element.textContent?.trim() === "next message",
@@ -4591,26 +4591,34 @@ describe("Composer next-message prediction ghost (issue #1239)", () => {
     expect(placeholderText()).not.toBe(PREDICTED);
   });
 
-  it("→ inserts it too, and a second Tab asks for nothing more", async () => {
+  it("→ inserts it too; a second Tab opens the alternatives list, never a send", async () => {
     await settleAndArm({ version: 1, processKey: "p", revision: 1, available: true, unavailable: null, result: null });
     publishResult(asked[0]![1], true);
     const box = composerInput();
     expect(press(box, "ArrowRight").defaultPrevented).toBe(true);
     expect(draftText(box)).toBe(PREDICTED);
     selectDraft(box, PREDICTED.length);
-    // The draft belongs to ordinary typing now: the second Tab changes nothing.
-    expect(press(box, "Tab").defaultPrevented).toBe(false);
+    // The buffer equals one of two predictions: Tab opens their list instead
+    // of extending (#1030) — and Right never opens it (it stays cursor
+    // movement; only the list's own absence proves that here).
+    press(box, "ArrowRight");
+    expect(document.querySelector("[data-prediction-picklist]")).toBeNull();
+    const tab = press(box, "Tab");
+    expect(tab.defaultPrevented).toBe(true);
+    expect(draftText(box)).toBe(PREDICTED);
+    expect(sendPrompt).not.toHaveBeenCalled();
     expect(asked).toHaveLength(1);
+    expect(document.querySelector("[data-prediction-picklist]")).not.toBeNull();
   });
 
   it("the first keystroke retires the placeholder", async () => {
     await settleAndArm({ version: 1, processKey: "p", revision: 1, available: true, unavailable: null, result: null });
     publishResult(asked[0]![1], true);
     expect(placeholderText()).toBe(PREDICTED);
-    const box = typeDraft("a");
+    const box = typeDraft("z");
     expect(placeholderText()).not.toBe(PREDICTED);
     press(box, "Tab");
-    expect(draftText(box)).toBe("a");
+    expect(draftText(box)).toBe("z");
   });
 
   it("a bridge-off publish keeps the placeholder ordinary and bills nothing", async () => {
@@ -4653,5 +4661,129 @@ describe("Composer next-message prediction ghost (issue #1239)", () => {
     });
     elapse(500);
     expect(asked).toHaveLength(0);
+  });
+
+  // ── #1030: typing ghosts the first MATCHING alternative; Tab opens the pick list ──
+
+  function publishChoices(choices: string[], revision = 2): void {
+    act(() => {
+      useStore.setState((s) => ({
+        rpc: {
+          ...s.rpc,
+          [TAB]: {
+            ...s.rpc[TAB]!,
+            composerPredictions: {
+              version: 1,
+              processKey: "p",
+              revision,
+              available: true,
+              unavailable: null,
+              result: { requestId: asked[0]![1], ok: true, choices },
+            },
+          },
+        },
+      }));
+    });
+  }
+
+  function pickList(): HTMLElement | null {
+    return document.querySelector<HTMLElement>("[data-prediction-picklist]");
+  }
+
+  function ghostText(): string | null {
+    return document.body.querySelector("[data-ghost-suffix]")?.textContent ?? null;
+  }
+
+  function hintText(): string | null {
+    return document.body.querySelector("[data-ghost-hint]")?.textContent ?? null;
+  }
+
+  it("typing letters ghosts the first matching alternative over a non-empty draft", async () => {
+    await settleAndArm({ version: 1, processKey: "p", revision: 1, available: true, unavailable: null, result: null });
+    publishChoices(["Run the tests", "Run the build"]);
+    const box = typeDraft("Run ");
+    // The placeholder retires (draft non-empty); the ghost widget takes over.
+    expect(placeholderText()).not.toBe("Run the tests");
+    expect(ghostText()).toBe("the tests");
+    // Past the divergence only the second matches — and its Tab inserts, no send.
+    typeDraft("Run the bu");
+    expect(ghostText()).toBe("ild");
+    expect(press(box, "Tab").defaultPrevented).toBe(true);
+    expect(draftText(box)).toBe("Run the build");
+    expect(sendPrompt).not.toHaveBeenCalled();
+  });
+
+  it("Tab over an inserted alternative opens the pick list; choosing swaps the draft", async () => {
+    await settleAndArm({ version: 1, processKey: "p", revision: 1, available: true, unavailable: null, result: null });
+    publishChoices(["Sounds good — ship it.", "Run the tests first", "Just merge it"]);
+    const box = composerInput();
+    press(box, "Tab");
+    expect(draftText(box)).toBe("Sounds good — ship it.");
+    // The inserted choice of ≥2 shows no extending ghost, only the hint.
+    expect(ghostText()).toBeNull();
+    expect(hintText()).toBe(" · tab 2 more");
+    press(box, "Tab");
+    const list = pickList();
+    expect(list).not.toBeNull();
+    expect(list!.getAttribute("role")).toBe("listbox");
+    const options = [...list!.querySelectorAll('[role="option"]')];
+    expect(options.map((row) => row.textContent?.trim())).toEqual([
+      "Sounds good — ship it.",
+      "Run the tests first",
+      "Just merge it",
+    ]);
+    // The list opens with the buffer's own choice selected.
+    expect(options[0]!.getAttribute("aria-selected")).toBe("true");
+    // Down moves, Enter swaps in the new one — never sends, focus stays.
+    press(box, "ArrowDown");
+    expect(options[1]!.getAttribute("aria-selected")).toBe("true");
+    press(box, "Enter");
+    expect(draftText(box)).toBe("Run the tests first");
+    expect(sendPrompt).not.toHaveBeenCalled();
+    expect(pickList()).toBeNull();
+    // The swapped-in choice hints again.
+    expect(hintText()).toBe(" · tab 2 more");
+  });
+
+  it("Tab inside the open list chooses; Escape closes without touching the draft", async () => {
+    await settleAndArm({ version: 1, processKey: "p", revision: 1, available: true, unavailable: null, result: null });
+    publishChoices(["Sounds good — ship it.", "Run the tests first"]);
+    const box = composerInput();
+    press(box, "Tab"); // accept choices[0]
+    press(box, "Tab"); // open the list
+    expect(pickList()).not.toBeNull();
+    press(box, "ArrowDown");
+    press(box, "Tab"); // Tab inside the list chooses the selection
+    expect(draftText(box)).toBe("Run the tests first");
+    press(box, "Tab"); // open again
+    press(box, "ArrowUp");
+    const escape = press(box, "Escape");
+    expect(escape.defaultPrevented).toBe(true);
+    expect(pickList()).toBeNull();
+    expect(draftText(box)).toBe("Run the tests first");
+    expect(abortAgent).not.toHaveBeenCalled(); // Escape belonged to the list
+  });
+
+  it("a mouse click on a row chooses it without stealing the caret", async () => {
+    await settleAndArm({ version: 1, processKey: "p", revision: 1, available: true, unavailable: null, result: null });
+    publishChoices(["Sounds good — ship it.", "Run the tests first"]);
+    const box = composerInput();
+    press(box, "Tab");
+    press(box, "Tab");
+    const row = pickList()!.querySelectorAll<HTMLElement>('[role="option"] button')[1]!;
+    act(() => row.click());
+    expect(draftText(box)).toBe("Run the tests first");
+    expect(pickList()).toBeNull();
+    expect(sendPrompt).not.toHaveBeenCalled();
+  });
+
+  it("a closed list claims no keys: ArrowUp never raises it", async () => {
+    await settleAndArm({ version: 1, processKey: "p", revision: 1, available: true, unavailable: null, result: null });
+    publishChoices(["Sounds good — ship it.", "Run the tests first"]);
+    const box = composerInput();
+    press(box, "Tab"); // accept into the draft
+    expect(pickList()).toBeNull();
+    press(box, "ArrowUp");
+    expect(pickList()).toBeNull();
   });
 });

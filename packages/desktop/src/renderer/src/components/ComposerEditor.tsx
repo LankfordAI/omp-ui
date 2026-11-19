@@ -38,6 +38,8 @@ interface ComposerEditorProps {
   literal: boolean;
   runs: ComposerPaintRun[];
   ghostSuffix: string | null;
+  /** Inline hint painted after the ghost (issue #1030): ` Tab N more`. */
+  ghostHint?: string | null;
   recall?: boolean;
   onEdit(text: string, from: number, to: number, noteEdit?: boolean): void;
   onSelection(from: number, to: number): void;
@@ -53,6 +55,7 @@ interface SurfaceOptions {
   literal: boolean;
   runs: ComposerEditorProps["runs"];
   ghostSuffix: string | null;
+  ghostHint: string | null;
 }
 
 const setOptions = StateEffect.define<SurfaceOptions>();
@@ -64,7 +67,7 @@ const historyConfig = new Compartment();
 const editorHistory = history();
 
 const optionsField = StateField.define<SurfaceOptions>({
-  create: () => ({ text: "", disabled: false, literal: false, runs: [], ghostSuffix: null }),
+  create: () => ({ text: "", disabled: false, literal: false, runs: [], ghostSuffix: null, ghostHint: null }),
   update(options, transaction) {
     return transaction.effects.find(effect => effect.is(setOptions))?.value ?? options;
   },
@@ -108,20 +111,29 @@ const parsedField = StateField.define({
 });
 
 class GhostSuffix extends WidgetType {
-  constructor(readonly suffix: string) { super(); }
+  constructor(readonly suffix: string, readonly hint: string | null) { super(); }
 
-  eq(other: GhostSuffix) { return this.suffix === other.suffix; }
+  eq(other: GhostSuffix) { return this.suffix === other.suffix && this.hint === other.hint; }
 
   toDOM(view: EditorView): HTMLElement {
     const doc = view.contentDOM.ownerDocument;
     const anchor = doc.createElement("span");
     anchor.className = "composer-editor-ghost";
     anchor.setAttribute("aria-hidden", "true");
-    const text = doc.createElement("span");
-    text.className = "composer-editor-ghost-text text-ink-faint";
-    text.setAttribute("data-word-ghost", "");
-    text.textContent = this.suffix;
-    anchor.append(text);
+    if (this.suffix !== "") {
+      const text = doc.createElement("span");
+      text.className = "composer-editor-ghost-text text-ink-faint";
+      text.setAttribute("data-ghost-suffix", "");
+      text.textContent = this.suffix;
+      anchor.append(text);
+    }
+    if (this.hint !== null && this.hint !== "") {
+      const hint = doc.createElement("span");
+      hint.className = "composer-editor-ghost-text text-ink-faint whitespace-pre";
+      hint.setAttribute("data-ghost-hint", "");
+      hint.textContent = this.hint;
+      anchor.append(hint);
+    }
     return anchor;
   }
 }
@@ -159,8 +171,12 @@ const paintDecorations = EditorView.decorations.compute([parsedField, optionsFie
       }
       from = to;
     }
-    if (focused && options.ghostSuffix && selection.empty && selection.head === text.length) {
-      ranges.push(Decoration.widget({ widget: new GhostSuffix(options.ghostSuffix), side: 1 }).range(text.length));
+    if (focused && options.ghostSuffix !== null && selection.empty && selection.head === text.length) {
+      ranges.push(Decoration.widget({ widget: new GhostSuffix(options.ghostSuffix, options.ghostHint), side: 1 }).range(text.length));
+    } else if (focused && options.ghostHint !== null && selection.empty && selection.head === text.length) {
+      // Hint-only ghost (issue #1030): the buffer equals a prediction, so
+      // there is no suffix to paint — only ` Tab N more` after the caret.
+      ranges.push(Decoration.widget({ widget: new GhostSuffix("", options.ghostHint), side: 1 }).range(text.length));
     }
   }
   return Decoration.set(ranges, true);
@@ -242,7 +258,7 @@ function editableTarget(view: EditorView | null, target: EventTarget): view is E
 }
 
 export function ComposerEditor(props: ComposerEditorProps) {
-  const { ref, text, disabled, literal, placeholder: hint, compact, runs, ghostSuffix, recall } = props;
+  const { ref, text, disabled, literal, placeholder: hint, compact, runs, ghostSuffix, ghostHint, recall } = props;
   const host = useRef<HTMLDivElement>(null);
   const editor = useRef<EditorView | null>(null);
   const latest = useRef(props);
@@ -263,7 +279,7 @@ export function ComposerEditor(props: ComposerEditorProps) {
         selection: EditorSelection.cursor(initial.recall ? doc.length : 0),
         extensions: [
           extensions,
-          optionsField.init(() => ({ text: doc, disabled: initial.disabled, literal: initial.literal, runs: initial.runs, ghostSuffix: initial.ghostSuffix })),
+          optionsField.init(() => ({ text: doc, disabled: initial.disabled, literal: initial.literal, runs: initial.runs, ghostSuffix: initial.ghostSuffix, ghostHint: initial.ghostHint ?? null })),
           placeholderConfig.of(placeholder(initial.placeholder)),
           historyConfig.of(editorHistory),
           EditorView.updateListener.of(update => {
@@ -338,8 +354,8 @@ export function ComposerEditor(props: ComposerEditorProps) {
     const previous = state.field(optionsField);
     const effects: StateEffect<unknown>[] = [];
     if (next !== previous.text || disabled !== previous.disabled || literal !== previous.literal ||
-        runs !== previous.runs || ghostSuffix !== previous.ghostSuffix) {
-      effects.push(setOptions.of({ text: next, disabled, literal, runs, ghostSuffix }));
+        runs !== previous.runs || ghostSuffix !== previous.ghostSuffix || (ghostHint ?? null) !== previous.ghostHint) {
+      effects.push(setOptions.of({ text: next, disabled, literal, runs, ghostSuffix, ghostHint: ghostHint ?? null }));
     }
     if (hint !== appliedHint.current) {
       effects.push(placeholderConfig.reconfigure(placeholder(hint)));
@@ -371,7 +387,7 @@ export function ComposerEditor(props: ComposerEditorProps) {
       view.dispatch({ effects });
     }
     if (disabled && view.root.activeElement === view.contentDOM) view.contentDOM.blur();
-  }, [text, disabled, literal, hint, runs, ghostSuffix, recall]);
+  }, [text, disabled, literal, hint, runs, ghostSuffix, ghostHint, recall]);
 
   useLayoutEffect(() => {
     const element = host.current;

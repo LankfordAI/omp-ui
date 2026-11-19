@@ -6,6 +6,8 @@ This guide explains what users receive from a release and how maintainers publis
 
 Changes since [v0.37.1](https://github.com/LankfordAI/omp-ui/releases/tag/v0.37.1). Add one bullet per shipped change here, citing its issue as `#N`; the release tag lifts these into Highlights.
 
+- The predicted next message now behaves like the terminal's with `composer.predictionAlternatives` on: typing letters ghosts the first prediction your draft is a prefix of (no second request — the alternatives ride the one #1239 already makes), and after inserting one, Tab opens a pick list of all of them (` Tab N more` hints it; ↑↓ move, Enter/Tab swap the draft in, Escape closes without touching it, a click picks). Like the terminal, choosing never sends, and the word-completion ghost steps aside whenever a prediction is on screen. (#1030)
+
 - The session HUD now shows the Claude subscription plan (e.g. "Max 20x") reported by omp 19 beside the provider rate windows and in their tooltip; accounts without a reported plan stay quiet. (#1237)
 - OMP 19 background-output notices (`notify` on `bash`) now reach the Jobs pane: each job row shows the lines it was asked to report (newest first, older ones under its details), unmatched sources — services and evicted jobs — group under an "other background output" section, and the transcript draws each delivery as a compact card instead of raw system-notice text. (#1235)
 - Native tool cards keep their intent headlines on OMP 19: omp-ui boots native (`rpc-ui`) sessions with `tools.intentTracing` pinned on unless your own config layers or `PI_INTENT_TRACING` state a preference (#1231).

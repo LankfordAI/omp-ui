@@ -39,6 +39,15 @@ import {
  *   The handler acks immediately; the result rides the next publish.
  * - A turn starting mid-request aborts the side turn and retires the result
  *   as `stale` (mirrors upstream's `#isCurrent` invalidation).
+ * - Accepted-rank is deliberately NOT carried back over this bridge. Upstream
+ *   resolves acceptance (`accepted(rank)` on retirement, offered count
+ *   `choices.length`) into OTLP metric attributes INSIDE
+ *   `ComposerPredictionController`, which only interactive TUI mode
+ *   instantiates; the extension API exposes no meter or telemetry surface for
+ *   a bridge to report one through (docs/extensions.md's ExtensionAPI list has
+ *   none), and `predict_word_feedback` — a different feature — has no rank
+ *   field either. omp offers this bridge no sink for an accepted rank, so the
+ *   renderer keeps the ranks local and nothing is invented on the wire (#1030).
  *
  * Word completion (`predict_word`) is a different upstream feature; nothing
  * here touches it.

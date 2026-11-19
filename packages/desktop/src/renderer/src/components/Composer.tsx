@@ -40,6 +40,7 @@ import { stashDraft, takeStashedDraft, useDraftStash } from "../lib/draft-stash"
 import { isTypingTarget, matchesHotkey } from "../lib/hotkeys";
 import { useActionHotkeys, useKeybinding } from "../lib/keybindings";
 import { StashPalette, type StashPaletteHandle } from "./StashPalette";
+import { PredictionPickList, type PredictionPickListHandle } from "./PredictionPickList";
 import { AnnotationChips } from "./AnnotationChips";
 import { SessionReferenceChips } from "./SessionReferenceChips";
 import { ArtifactReferenceChips } from "./ArtifactReferenceChips";
@@ -420,6 +421,7 @@ export function Composer({
   const palette = useRef<SlashPaletteHandle | null>(null);
   const mentionPalette = useRef<MentionPaletteHandle | null>(null);
   const stashPalette = useRef<StashPaletteHandle | null>(null);
+  const predictionPalette = useRef<PredictionPickListHandle | null>(null);
   const queueAnchor = useRef<HTMLSpanElement | null>(null);
   const queueTrigger = useRef<HTMLButtonElement | null>(null);
   /** Sent messages, newest last. */
@@ -505,21 +507,13 @@ export function Composer({
   const atQuery = inCode ? null : detectAtQuery(text, caret);
   const mentionKey = atQuery === null ? null : `${atQuery.start}:${atQuery.query}`;
   const mentionOpen = !unavailable && mentionKey !== null && mentionKey !== mentionDismissedFor;
-  // omp's ghost-text word completion (issue #715): prose at the end of the
-  // draft only; the palettes own Tab while open. A slash draft is asked about
-  // with its command word elided, and a shell command draft is never prose
-  // (wordGhostCandidate).
-  const wordGhost = useWordGhost({
-    tabId,
-    text,
-    caret,
-    active: focused && collapsed && !unavailable && !converting && !paletteOpen && !mentionOpen && !inCode,
-  });
   /**
-   * The next-message prediction ghost (issue #1239): a completed turn's
-   * single billed side turn, painted in the EMPTY composer as its placeholder
-   * — the exact surface the word ghost never touches, so the two cannot paint
-   * at once. Every dialog and hold that steals the composer also gates this:
+   * The next-message prediction (issues #1239, #1030): a completed turn's
+   * single billed side turn. Over the empty draft it paints choices[0] as the
+   * placeholder; over a typed draft it ghosts the first prediction that draft
+   * is a strict prefix of, and once the buffer equals one of ≥2 predictions
+   * its Tab opens the alternatives pick list — upstream editor.ts's exact
+   * rules. Every dialog and hold that steals the composer also gates this:
    * a pending ask owns the keyboard (#1234), a running or held session
    * starts no turn to predict from. The compact sheet is ChatSlang's surface;
    * predictions ride the full composer only.
@@ -527,6 +521,7 @@ export function Composer({
   const prediction = useNextMessagePrediction({
     tabId,
     text,
+    caret,
     active:
       focused &&
       collapsed &&
@@ -539,6 +534,22 @@ export function Composer({
       !paletteOpen &&
       !mentionOpen &&
       !stashOpen,
+  });
+  // omp's ghost-text word completion (issue #715): prose at the end of the
+  // draft only; the palettes own Tab while open. A slash draft is asked about
+  // with its command word elided, and a shell command draft is never prose
+  // (wordGhostCandidate). While any prediction face holds the ghost slot the
+  // word ghost neither paints nor bills: upstream's inline-hint precedence
+  // (`#getInlineHint`) puts the prediction first and shows the word ghost
+  // only when nothing above it claims the slot — never both. Inside a code
+  // fence no prediction paints, so the word ghost keeps its normal gate.
+  const predictionFace = !inCode && prediction.held;
+  const wordGhost = useWordGhost({
+    tabId,
+    text,
+    caret,
+    active:
+      focused && collapsed && !unavailable && !converting && !paletteOpen && !mentionOpen && !inCode && !predictionFace,
   });
   /**
    * omp reports vision support as `model.input` containing "image". A model
@@ -705,6 +716,11 @@ export function Composer({
     onEscape: () => setQueueMenu(false),
     restoreFocus: () => queueTrigger.current?.focus(),
   });
+
+  // The alternatives list is a composer popup: a click outside closes it
+  // without touching the draft (issue #1030), as Escape does through the
+  // forwarded keydown.
+  useDismissal({ open: prediction.listOpen, refs: composer, onClose: prediction.closeList });
 
   useDismissal({ open: stashOpen, refs: composer, onClose: () => setStashOpen(false) });
   useDismissal({
@@ -1330,20 +1346,32 @@ export function Composer({
         return;
       }
     }
+    // The prediction alternatives list gets first refusal on navigation keys
+    // while it is open (issue #1030): Up/Down move, Enter/Tab choose, Escape
+    // closes without touching the draft. Focus never leaves the editor.
+    if (prediction.listOpen && predictionPalette.current?.handleKey(e) === true) return;
     if (plain && !e.shiftKey && (e.key === "Tab" || e.key === "ArrowRight")) {
+      // Upstream's Tab order (`#handleTabCompletion`): accept the shown
+      // prediction → open its alternatives list → word completion. While any
+      // prediction face holds the ghost slot the word ghost offers nothing
+      // anyway (its `active` yields to `prediction.held`), so the two never
+      // fight for this key. Insert only — nothing is ever sent (#1239).
+      const predicted = inCode ? null : prediction.accept();
+      if (predicted !== null) {
+        e.preventDefault();
+        applyGhostDraft(predicted);
+        return;
+      }
+      // Tab over a buffer that equals one of ≥2 predictions opens their list,
+      // that row selected (#1030). Right never opens it (upstream parity).
+      if (!inCode && e.key === "Tab" && prediction.openList()) {
+        e.preventDefault();
+        return;
+      }
       const accepted = inCode ? null : wordGhost.accept(e.key === "Tab");
       if (accepted !== null) {
         e.preventDefault();
         applyGhostDraft(accepted);
-        return;
-      }
-      // The next-message prediction paints only over an EMPTY draft, where the
-      // word ghost has nothing to offer — so the two never fight for this key.
-      // Explicit press inserts it into the draft; nothing is ever sent (#1239).
-      const predicted = prediction.accept();
-      if (predicted !== null) {
-        e.preventDefault();
-        applyGhostDraft({ text: predicted, caret: predicted.length });
         return;
       }
     }
@@ -1445,11 +1473,11 @@ export function Composer({
             ? t("composer.placeholder.running")
             : modelHold !== null
               ? t("composer.placeholder.modelHold")
-              // The next-message prediction (issue #1239): upstream's exact
-              // surface — the ghost rides the empty composer's placeholder
-              // slot, so a draft always belongs to ordinary typing and the
-              // word ghost. `prediction.shown` already gates focus, idle, and
-              // the empty draft.
+              // The next-message prediction (issues #1239, #1030): upstream's
+              // exact surface — the first choice rides the empty composer's
+              // placeholder slot; a typed draft belongs to the ghosts, the
+              // prediction's matching-prefix suffix before the word ghost.
+              // `prediction.text` already gates focus, idle, and the empty draft.
               : prediction.text !== null
                 ? prediction.text
                 : t("composer.placeholder.idle");
@@ -1561,6 +1589,18 @@ export function Composer({
               still spans the full pane. */}
       <div className={cn("relative pointer-events-auto", !compact && "mx-auto w-full max-w-[var(--transcript-max)]")}>
         <div className="w-full">
+        {prediction.listOpen && (
+          <PredictionPickList
+            ref={predictionPalette}
+            choices={prediction.choices}
+            selectedIndex={prediction.selectedIndex}
+            onPick={(index) => {
+              const next = prediction.pick(index);
+              if (next !== null) applyGhostDraft(next);
+            }}
+            onClose={prediction.closeList}
+          />
+        )}
         {stashOpen && (
           <StashPalette
             ref={stashPalette}
@@ -1729,14 +1769,21 @@ export function Composer({
               compact={compact}
               literal={literal}
               runs={runs}
-              ghostSuffix={inCode ? null : wordGhost.ghost?.suffix ?? null}
+              // One ghost slot, upstream's precedence: the prediction suffix beats the word ghost.
+              ghostSuffix={inCode ? null : prediction.ghostSuffix ?? wordGhost.ghost?.suffix ?? null}
+              ghostHint={inCode || prediction.ghostSuffix !== null ? null : prediction.hintMore === null ? null : t("composer.predict.more", { n: prediction.hintMore })}
               recall={recall.current !== null}
               onCodeChange={setCode}
               onEdit={(draft, from, to, noteEdit = true) => {
-                if (noteEdit) wordGhost.noteEdit(draft, from);
-                // Any keystroke retires the next-message prediction (issue #1239):
-                // the ghost belongs to the empty composer as it stood at settle.
-                prediction.noteEdit();
+                if (noteEdit) {
+                  wordGhost.noteEdit(draft, from);
+                  // A user edit closes the alternatives list and ends any
+                  // prediction insert (#1030) — but NOT the offer itself: a
+                  // retyped prefix ghosts the matching choice again, exactly
+                  // like upstream (`#notifyChange` clears the assist state and
+                  // `#insertedPrediction`, never the controller's choices).
+                  prediction.noteEdit();
+                }
                 setText(draft);
                 setCaret(from);
                 setCollapsed(from === to);
@@ -1774,9 +1821,11 @@ export function Composer({
                 {t("composer.btw.chip")}
               </Chip>
             )}
-            {/* The next-message prediction's face (issue #1239): what Tab does
-                with the ghost, and that the ghost cost one extra billed request. */}
-            {prediction.text !== null && (
+            {/* The next-message prediction's face (issues #1239, #1030): what
+                Tab does with the ghost or the alternatives list, and that the
+                ghost cost one extra billed request. It rides every face of
+                the offer, including the ghost over a typed prefix. */}
+            {prediction.held && (
               <Chip mono tone="iris" title={t("composer.predict.chipTitle")}>
                 {t("composer.predict.chip")}
               </Chip>
