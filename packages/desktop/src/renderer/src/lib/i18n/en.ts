@@ -130,6 +130,14 @@ export const en = {
   "dialog.extension.questionCurrent": "current",
   "dialog.extension.questionNotAnswered": "not answered",
   "dialog.extension.questionReviewing": ", reviewing",
+  // AskFormCard.tsx — the one-frame multi-question ask (issue #1234)
+  "dialog.extension.ask.title": "The agent is asking questions",
+  "dialog.extension.ask.progress": "{answered} of {total} answered",
+  "dialog.extension.ask.recommended": "recommended",
+  "dialog.extension.ask.hint": "Tab moves between questions · Enter answers and moves on · Esc dismisses",
+  "dialog.extension.ask.submitTitle": "send the answers you chose",
+  "dialog.extension.ask.otherAria": "your own answer to: {question}",
+  "dialog.extension.ask.editAria": "edit your answer to: {question}",
 
   // ApprovalCard.tsx — the dedicated tool-approval card (issue #681)
   "dialog.approval.title": "Allow tool",
@@ -571,6 +579,7 @@ export const en = {
   "composer.placeholder.modelHold": "pick a model to start… · / commands",
   "composer.placeholder.idle": "message the agent… · / commands · @ files",
   "composer.placeholder.answer": "answer the question… · or choose an option above",
+  "composer.placeholder.skipAsk": "typing here skips the questions above and sends this message…",
   // The `?` side-question draft (issue #1233)
   "composer.btw.chip": "? side question",
   "composer.btw.chipTitle": "Enter asks this as a side question — no turn, nothing in the transcript (/btw)",
@@ -771,6 +780,8 @@ export const en = {
   "composer.actions.sheetInterrupt": "Interrupt-and-send",
   "composer.actions.abort": "Abort",
   "composer.actions.send": "send",
+  "composer.actions.skipSend": "skip & send",
+  "composer.actions.skipSendTitle": "settle the questions above unanswered and send this message",
   "composer.actions.steer": "steer",
   "composer.actions.run": "run",
   "composer.actions.interruptTitle": "abort the current turn, then send this as a fresh prompt (mod+shift+enter)",

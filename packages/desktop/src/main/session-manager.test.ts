@@ -7981,6 +7981,17 @@ describe("event filter negotiation (issue #718)", () => {
     });
   });
 
+  it("pushes the multi-question ask opt-in into initialCommands (issue #1234)", async () => {
+    // One opt-in per process beside the delta filter; a build without the
+    // command answers success:false and keeps the field-by-field walk.
+    const { commands } = await spawnAndCommands();
+    expect(commands).toContainEqual({
+      id: "omp-ui-ask-dialog-1",
+      type: "set_ask_dialog",
+      enabled: true,
+    });
+  });
+
   it.each([
     ["a rejection (older runtime)", { success: false, error: "unknown command" }],
     ["a full-mode echo", { success: true, data: { events: null, messageUpdates: "full" } }],

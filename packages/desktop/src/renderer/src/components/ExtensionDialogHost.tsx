@@ -22,6 +22,7 @@ import {
 } from "../lib/question-series";
 import { dialogQuestion } from "../lib/session-tile";
 import { useStore } from "../store";
+import { AskFormCard } from "./AskFormCard";
 import { Button, Chip, Dot, Meter } from "./ui";
 
 /**
@@ -99,6 +100,21 @@ const answerHandlers = new Map<string, (text: string) => AnswerOutcome>();
 export function answerPendingQuestion(tabId: string, text: string): AnswerOutcome {
   const handler = answerHandlers.get(tabId);
   return handler ? handler(text) : "not-answerable";
+}
+
+// The Skip & send route (issue #1234): registered only while a multi-question
+// ask heads the queue, so one call site can never skip the wrong dialog.
+const skipHandlers = new Map<string, () => void>();
+
+/** Settle the tab's pending multi-question ask as cancelled without sending
+ *  any partial answer — upstream sends no answers when a message skips an ask
+ *  ("sending your message skips these questions"; the ask tool's partials
+ *  only ride its local form path, never the wire). True when one was held. */
+export function skipPendingQuestion(tabId: string): boolean {
+  const handler = skipHandlers.get(tabId);
+  if (handler === undefined) return false;
+  handler();
+  return true;
 }
 
 export interface ExtensionDialogState {
@@ -350,9 +366,18 @@ export function ExtensionDialogHost({
   // subscription above); the cleanup drops any stale handler once the head
   // frame is gone or the host unmounts.
   useEffect(() => {
-    if (current !== undefined) answerHandlers.set(tabId, answerWithText);
+    if (current !== undefined) {
+      answerHandlers.set(tabId, answerWithText);
+      // Skip & send (#1234): while a multi-question ask heads the queue, the
+      // composer may settle it cancelled with its draft. An ask never takes
+      // free text (freeTextTarget reads "none"), so this is its only route.
+      if (method === "ask") {
+        skipHandlers.set(tabId, () => answerExtension(tabId, current, { cancelled: true }));
+      }
+    }
     return () => {
       answerHandlers.delete(tabId);
+      skipHandlers.delete(tabId);
     };
   });
 
@@ -362,7 +387,12 @@ export function ExtensionDialogHost({
   // the question, the form text around it renders separately below.
   const dialogTitle = splitDialogTitle(rawTitle);
   const title = plan ? plan.base : (dialogTitle.question.split("\n", 1)[0] ?? "");
-  const displayTitle = dialogQuestion(current) ?? t("dialog.extension.fallbackTitle");
+  // A multi-question ask carries no title at all (issue #1234): the card's
+  // header names the form; every question renders in the body below.
+  const displayTitle =
+    method === "ask"
+      ? t("dialog.extension.ask.title")
+      : (dialogQuestion(current) ?? t("dialog.extension.fallbackTitle"));
   const message = strField(current, "message") ?? strField(current, "label") ?? "";
   const reviewEntry =
     reviewing !== null && series !== null
@@ -568,6 +598,17 @@ export function ExtensionDialogHost({
               <p className="mb-3 whitespace-pre-wrap break-words text-xs leading-relaxed text-ink-mid">
                 {message}
               </p>
+            )}
+
+            {/* The one-frame multi-question ask (issue #1234): the whole form
+                lives in AskFormCard; every path out — submit, Escape, cancel —
+                answers through answerExtension like the other methods. */}
+            {method === "ask" && (
+              <AskFormCard
+                key={strField(current, "id") ?? ""}
+                frame={current}
+                onAnswer={(response) => answerExtension(tabId, current, response)}
+              />
             )}
 
             {method === "confirm" && (

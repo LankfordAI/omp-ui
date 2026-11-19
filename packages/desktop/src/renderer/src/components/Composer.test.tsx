@@ -4337,3 +4337,128 @@ describe("Composer side-question draft (issue #1233)", () => {
     expect(answered).toEqual([]);
   });
 });
+
+describe("Composer skip & send with a multi-question ask (issue #1234)", () => {
+  const flush = async (): Promise<void> => { await act(async () => {}); };
+  // The probed wire frame: method:"ask" carries questions and no title.
+  const ASK_FRAME = {
+    id: "ask1",
+    method: "ask",
+    questions: [
+      { id: "db", question: "Which database?", options: [{ label: "Postgres" }, { label: "SQLite" }], recommended: 1 },
+      { id: "features", question: "Which features?", options: [{ label: "Auth" }], multi: true },
+    ],
+  };
+  function desktop(): void {
+    Object.defineProperty(window, "matchMedia", {
+      configurable: true,
+      value: vi.fn(() => ({ matches: false, addEventListener: vi.fn(), removeEventListener: vi.fn() })),
+    });
+  }
+  function seedQueue(frames: unknown[]): void {
+    seed("ready");
+    useStore.setState((s) => ({
+      rpc: { ...s.rpc, [TAB]: { ...s.rpc[TAB]!, extensionQueue: frames } },
+    }));
+  }
+  const answerFrames = () =>
+    backendMock.rpcSend.mock.calls
+      .map((call) => call[1] as Record<string, unknown>)
+      .filter((frame) => frame.type === "extension_ui_response");
+
+  it("settles the ask cancelled before sending the draft as a prompt", async () => {
+    desktop();
+    seedQueue([ASK_FRAME]);
+    renderRpcTab();
+    const box = typeDraft("let's just talk");
+    press(box, "Enter");
+    await flush();
+    // One response — the bare cancel. A skip sends no partial answers (the
+    // form was never touched here, and upstream never carries them anyway).
+    expect(answerFrames()).toEqual([{ type: "extension_ui_response", id: "ask1", cancelled: true }]);
+    expect(sendPrompt).toHaveBeenCalledWith(TAB, "let's just talk", "prompt", [], [], { annotations: [], references: [], artifactReferences: [], refreshes: [] });
+    expect(draftText(box)).toBe("");
+  });
+
+  it("shows the skip placeholder and names the send control while an ask waits", () => {
+    desktop();
+    seedQueue([ASK_FRAME]);
+    renderRpcTab();
+    expect(composerInput().getAttribute("aria-placeholder")).toContain("skips the questions");
+    const send = [...document.body.querySelectorAll<HTMLButtonElement>("button")].find(
+      (candidate) => candidate.textContent?.trim() === "skip & send",
+    );
+    // The label appears with a plain draft: an empty box promises nothing.
+    expect(send).toBeUndefined();
+    typeDraft("anything");
+    const pill = [...document.body.querySelectorAll<HTMLButtonElement>("button")].find(
+      (candidate) => candidate.textContent?.trim() === "skip & send",
+    )!;
+    expect(pill.title).toContain("settle the questions above unanswered");
+  });
+
+  it("keeps slash commands off the skip route", () => {
+    desktop();
+    useStore.setState({ runSlashCommand });
+    seedQueue([ASK_FRAME]);
+    renderRpcTab();
+    const box = typeDraft("/compact");
+    press(box, "Enter");
+    expect(runSlashCommand).toHaveBeenCalledWith(TAB, "/compact");
+    expect(answerFrames()).toHaveLength(0);
+  });
+
+  it("routes a ? side question around the ask without settling it (issue #1233 ordering)", async () => {
+    // The btw branch runs before both dialog-answer paths: an ask stays held
+    // while a side question goes out (upstream's isBtwFocused excludes it).
+    desktop();
+    seedQueue([ASK_FRAME]);
+    useStore.setState((s) => ({
+      rpc: { ...s.rpc, [TAB]: { ...s.rpc[TAB]!, capabilities: { ...gateSnapshot([]), ompVersion: "18.7.0" } } },
+    }));
+    const draft = vi.fn(async (): Promise<boolean> => true);
+    useStore.setState({ submitSideQuestionDraft: draft });
+    renderRpcTab();
+    const box = typeDraft("? quick aside");
+    press(box, "Enter");
+    await flush();
+    expect(draft).toHaveBeenCalledWith(TAB, "quick aside");
+    expect(answerFrames()).toHaveLength(0);
+    expect(sendPrompt).not.toHaveBeenCalled();
+  });
+
+  it("sends an image-only draft as a prompt without settling the ask", async () => {
+    // Attachments alone are not "the message" upstream skips on; the cancel
+    // only rides a plain text draft.
+    desktop();
+    clipboardImageMock.readImageFiles.mockResolvedValueOnce({ images: [IMAGE_ONE], rejected: [] });
+    seedQueue([ASK_FRAME]);
+    renderRpcTab();
+    await act(async () => {
+      choose(imagePicker(), [new File(["one"], "one.png", { type: "image/png" })], "pick");
+      await Promise.resolve();
+    });
+    press(composerInput(), "Enter");
+    await flush();
+    expect(answerFrames()).toHaveLength(0);
+    expect(sendPrompt).toHaveBeenCalledWith(
+      TAB,
+      "",
+      "prompt",
+      [IMAGE_ONE],
+      [],
+      { annotations: [], references: [], artifactReferences: [], refreshes: [] },
+    );
+  });
+
+  it("leaves the steering path untouched in the compact shell", () => {
+    // No desktop(): a compact send with an ask queued prompts as today — the
+    // sheet never promises skip & send and settles nothing.
+    seedQueue([ASK_FRAME]);
+    renderRpcTab();
+    const box = typeDraft("compact steer");
+    press(box, "Enter");
+    expect(sendPrompt).toHaveBeenCalledWith(TAB, "compact steer", "prompt", [], [], { annotations: [], references: [], artifactReferences: [], refreshes: [] });
+    expect(answerFrames()).toHaveLength(0);
+  });
+});

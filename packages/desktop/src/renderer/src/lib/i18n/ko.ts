@@ -108,6 +108,14 @@ export const ko: Partial<Record<MessageKey, string>> = {
   "dialog.extension.questionCurrent": "현재",
   "dialog.extension.questionNotAnswered": "미답변",
   "dialog.extension.questionReviewing": ", 검토 중",
+  // AskFormCard.tsx — 한 프레임 다중 질문 ask (이슈 #1234)
+  "dialog.extension.ask.title": "에이전트가 질문하고 있습니다",
+  "dialog.extension.ask.progress": "{total}개 중 {answered}개 답변 완료",
+  "dialog.extension.ask.recommended": "권장",
+  "dialog.extension.ask.hint": "Tab으로 질문 이동 · Enter로 답변 후 다음 · Esc로 닫기",
+  "dialog.extension.ask.submitTitle": "선택한 답변 전송",
+  "dialog.extension.ask.otherAria": "직접 답변: {question}",
+  "dialog.extension.ask.editAria": "답변 수정: {question}",
 
   // ApprovalCard.tsx — 전용 도구 승인 카드 (issue #681)
   "dialog.approval.title": "도구 허용",
@@ -522,6 +530,7 @@ export const ko: Partial<Record<MessageKey, string>> = {
   "composer.placeholder.modelHold": "시작하려면 모델을 선택하세요… · / 명령",
   "composer.placeholder.idle": "에이전트에 메시지… · / 명령 · @ 파일",
   "composer.placeholder.answer": "질문에 답변… · 또는 위에서 선택",
+  "composer.placeholder.skipAsk": "여기에 입력하면 위의 질문을 건너뛰고 이 메시지를 전송합니다…",
   // The `?` side-question draft (issue #1233)
   "composer.btw.chip": "? 곁가지 질문",
   "composer.btw.chipTitle": "Enter를 누르면 이것이 곁가지 질문으로 전송됩니다 — 턴 없이, 대화 기록에도 남지 않음 (/btw)",
@@ -707,6 +716,8 @@ export const ko: Partial<Record<MessageKey, string>> = {
   "composer.actions.sheetInterrupt": "중단 후 전송",
   "composer.actions.abort": "중단",
   "composer.actions.send": "전송",
+  "composer.actions.skipSend": "건너뛰고 전송",
+  "composer.actions.skipSendTitle": "위의 질문에 답하지 않고 정리한 뒤 이 메시지 전송",
   "composer.actions.steer": "지시",
   "composer.actions.run": "실행",
   "composer.actions.interruptTitle": "현재 턴을 중단하고 새 프롬프트로 전송 (mod+shift+enter)",

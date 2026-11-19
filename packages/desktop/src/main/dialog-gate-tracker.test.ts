@@ -53,6 +53,21 @@ describe("DialogGateTracker (issue #555)", () => {
     expect(gates.hasOpen("t3")).toBe(false);
   });
 
+  it("tracks a multi-question ask like the other blocking dialogs (issue #1234)", () => {
+    const gates = new DialogGateTracker();
+    // The probed ask frame carries questions and no title: an ask with no
+    // usable title must still hold — it blocks omp exactly like a select.
+    gates.onFrame("t1", {
+      type: "extension_ui_request",
+      id: "a1",
+      method: "ask",
+      questions: [{ id: "db", question: "Which?", options: ["SQLite"] }],
+    } as RpcFrame);
+    expect(gates.openFrames("t1").map((f) => f.id)).toEqual(["a1"]);
+    gates.onSend("t1", response("a1"));
+    expect(gates.hasOpen("t1")).toBe(false);
+  });
+
   it("excludes the plan-review select — its gate owns that frame", () => {
     const gates = new DialogGateTracker();
     const title = `${PLAN_REVIEW_SENTINEL}${JSON.stringify({

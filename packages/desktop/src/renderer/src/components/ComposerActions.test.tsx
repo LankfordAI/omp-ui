@@ -11,6 +11,7 @@ interface Props {
   running?: boolean;
   isSlash?: boolean;
   canSend?: boolean;
+  skipSend?: boolean;
   contextRing?: { fraction: number; title: string } | null;
 }
 let root: Root | null = null;
@@ -30,6 +31,7 @@ function mount(p: Props = {}): void {
         running={p.running ?? false}
         isSlash={p.isSlash ?? false}
         canSend={p.canSend ?? true}
+        skipSend={p.skipSend ?? false}
         contextRing={p.contextRing}
         onSubmit={onSubmit}
         onAbort={onAbort}
@@ -254,5 +256,27 @@ describe("ComposerActions label parity", () => {
         expect(visible, `${layout}: ${word}`).not.toContain(word);
       }
     }
+  });
+});
+
+describe("ComposerActions skip & send (issue #1234)", () => {
+  it("idle with an ask waiting: the labeled skip pill replaces send and fires the prompt route", () => {
+    mount({ layout: "desktop", skipSend: true });
+    const all = buttons();
+    expect(all).toHaveLength(1);
+    expect(all[0]!.textContent).toBe("skip & send");
+    expect(all[0]!.title).toBe("settle the questions above unanswered and send this message");
+    click(all[0]!);
+    expect(onSubmit).toHaveBeenCalledWith("prompt");
+  });
+
+  it("idle without an ask: the plain send control is untouched", () => {
+    mount({ layout: "desktop" });
+    expect(buttons()[0]!.textContent).toBe("send");
+  });
+
+  it("running keeps the steer cluster: a skip never dresses up a running send", () => {
+    mount({ layout: "desktop", running: true, skipSend: true });
+    expect(buttons().some((button) => button.textContent === "skip & send")).toBe(false);
   });
 });

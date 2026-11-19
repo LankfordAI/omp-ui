@@ -11,6 +11,14 @@ describe("routeExtensionRequest", () => {
     }
   });
 
+  it("routes the multi-question ask to a dialog too (issue #1234)", () => {
+    // omp blocks on the one answers-carrying response exactly like the other
+    // methods; auto-cancelling it would fail every extension ui.askDialog call.
+    expect(
+      routeExtensionRequest({ type: "extension_ui_request", id: "1", method: "ask", questions: [] }),
+    ).toEqual({ action: "dialog", method: "ask" });
+  });
+
   it("routes open_url to the system browser", () => {
     expect(
       routeExtensionRequest({ type: "extension_ui_request", id: "1", method: "open_url" }),

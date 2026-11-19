@@ -1200,6 +1200,28 @@ describe("handleRpcFrame routing", () => {
     expect(h.useStore.getState().rpc[h.TAB]!.extensionQueue).toHaveLength(1);
   });
 
+  it("queues the multi-question ask and dismisses it on its timeout cancel (issue #1234)", () => {
+    // The probed frame shape: questions, no title. A timeout answers omp's
+    // defaults on its side and emits cancel{targetId} — the card leaves with
+    // no reply, exactly the rule #1191 pins for the other dialogs.
+    h.useStore.getState().handleRpcFrame(h.TAB, {
+      type: "extension_ui_request",
+      id: "ask1",
+      method: "ask",
+      questions: [{ id: "db", question: "Which?", options: [{ label: "SQLite" }] }],
+    });
+    expect(h.useStore.getState().rpc[h.TAB]!.extensionQueue).toHaveLength(1);
+    h.sent.length = 0;
+    h.useStore.getState().handleRpcFrame(h.TAB, {
+      type: "extension_ui_request",
+      id: "c1",
+      method: "cancel",
+      targetId: "ask1",
+    });
+    expect(h.useStore.getState().rpc[h.TAB]!.extensionQueue).toEqual([]);
+    expect(h.sent).toEqual([]);
+  });
+
   // omp settled these dialogs on its own (aborted approval, timed-out ask)
   // and says so with a fresh-id cancel frame naming the target (issue #1191).
   describe("extension cancel frames (issue #1191)", () => {

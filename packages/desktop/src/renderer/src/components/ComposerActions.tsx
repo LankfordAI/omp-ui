@@ -34,6 +34,7 @@ export function ComposerActions({
   running,
   isSlash,
   canSend,
+  skipSend = false,
   onSubmit,
   onAbort,
   contextRing = null,
@@ -52,6 +53,13 @@ export function ComposerActions({
    */
   isSlash: boolean;
   canSend: boolean;
+  /**
+   * Skip & send (issue #1234): a plain draft with a multi-question ask waiting
+   * above the composer. The idle primary names what Enter already does —
+   * settle the ask cancelled and send (the TUI's composer notice, "sending
+   * your message skips these questions"). False keeps today's send.
+   */
+  skipSend?: boolean;
   onSubmit: (route: SubmitRoute) => void;
   onAbort: () => void;
   /**
@@ -166,20 +174,38 @@ export function ComposerActions({
       {/* The same halo rides the idle send button (round-9 judge, Consistency
           1): the primary control's outline must not change the moment a turn
           starts. The halo traces the button's rounded-square shape, so it no
-          longer reads as a stray circle at rest. */}
-      {haloed(
-        <Button
-          variant="solid"
-          disabled={!canSend}
-          title={isSlash ? t("composer.actions.runTitle") : t("composer.actions.sendTitle")}
-          onClick={() => onSubmit("prompt")}
-          // Square in the app's 6px radius family (round-4 judge, Iconography 1):
-          // the circle was the only circular control among rounded-md buttons.
-          className="size-7 shrink-0 justify-center rounded-md p-0"
-        >
-          <IconSend />
-          <span className="sr-only">{label("send")}</span>
-        </Button>,
+          longer reads as a stray circle at rest. While an ask waits above the
+          composer (#1234), the copper pill names what Enter does with the
+          draft: settle the ask cancelled and send. */}
+      {skipSend ? (
+        haloed(
+          <Button
+            variant="solid"
+            tone="copper"
+            disabled={!canSend}
+            title={t("composer.actions.skipSendTitle")}
+            onClick={() => onSubmit("prompt")}
+            className="h-7 shrink-0 items-center gap-1.5 rounded-full px-2.5 text-xs"
+          >
+            <IconSend />
+            {t("composer.actions.skipSend")}
+          </Button>,
+        )
+      ) : (
+        haloed(
+          <Button
+            variant="solid"
+            disabled={!canSend}
+            title={isSlash ? t("composer.actions.runTitle") : t("composer.actions.sendTitle")}
+            onClick={() => onSubmit("prompt")}
+            // Square in the app's 6px radius family (round-4 judge, Iconography 1):
+            // the circle was the only circular control among rounded-md buttons.
+            className="size-7 shrink-0 justify-center rounded-md p-0"
+          >
+            <IconSend />
+            <span className="sr-only">{label("send")}</span>
+          </Button>,
+        )
       )}
     </>
   );

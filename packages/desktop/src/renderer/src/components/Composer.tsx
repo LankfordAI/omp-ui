@@ -52,7 +52,7 @@ import { ComposerOptions } from "./ComposerOptions";
 import { ComposerPlusMenu } from "./ComposerPlusMenu";
 import { ComposerSheet } from "./ComposerSheet";
 import type { BranchChipExternalRequest } from "./BranchChip";
-import { answerPendingQuestion, freeTextTarget } from "./ExtensionDialogHost";
+import { answerPendingQuestion, freeTextTarget, skipPendingQuestion } from "./ExtensionDialogHost";
 import { MentionPalette, type MentionPaletteHandle, type MentionSession } from "./MentionPalette";
 import { LiveVoiceControl } from "./LiveVoiceControl";
 import { LiveVoiceStrip } from "./LiveVoiceStrip";
@@ -444,6 +444,20 @@ export function Composer({
   // The non-compact composer is the Other field while a free-text dialog owns it.
   const pendingFrame = useStore((s) => s.rpc[tabId]?.extensionQueue[0]);
   const answering = !compact && freeTextTarget(pendingFrame) !== "none";
+  // A multi-question ask waits above the composer (issue #1234): the composer
+  // never answers it with its draft — a plain message SKIPS it (upstream
+  // `#draftSkipsAsk`: sending settles the ask cancelled, partial answers
+  // never reach the wire) — so the placeholder says which of the two typing
+  // here does. Distinct from `answering`, which turns this box into the card.
+  const pendingAsk = strField(pendingFrame, "method") === "ask";
+  /**
+   * The Skip & send state (issue #1234): a plain non-empty draft with a
+   * multi-question ask waiting above the composer — exactly upstream's
+   * `#draftSkipsAsk` (a slash command or shell run is not a message and
+   * skips nothing). Desktop only: the compact sheet never routes through the
+   * skip branch, so its send label never promises what Enter won't do.
+   */
+  const skipAskDraft = pendingAsk && !compact && trimmed !== "" && !isSlash && !trimmed.startsWith("!");
   const literal = isSlash || trimmed.startsWith("!") || answering;
   /**
    * The `?` side-question draft (issue #1233): omp v19's editor treats any
@@ -812,6 +826,13 @@ export function Composer({
           editor.current?.focus({ preventScroll: true });
           return;
         }
+        // A multi-question ask never takes the draft as an answer (#1234): a
+        // plain non-empty message SKIPS it — settle the frame cancelled first
+        // (upstream's skip sends no partial answers, only the cancel), then
+        // the draft goes out below as the ordinary prompt. A text-less draft
+        // (attachments alone) is not the message upstream would skip on, and
+        // the registry is a no-op unless an ask heads the queue.
+        if (message !== "") skipPendingQuestion(tabId);
       }
       if (!message.startsWith("/") && (artifactReferences.length > 0 || artifactRefreshes.length > 0) && !artifactLibraryEnabled) {
         appendNotice(tabId, t("artifacts.reference.disabled"), "warn");
@@ -1377,11 +1398,13 @@ export function Composer({
       ? t("composer.placeholder.restarting")
       : answering
         ? t("composer.placeholder.answer")
-        : running
-          ? t("composer.placeholder.running")
-          : modelHold !== null
-            ? t("composer.placeholder.modelHold")
-            : t("composer.placeholder.idle");
+        : pendingAsk && !compact
+          ? t("composer.placeholder.skipAsk")
+          : running
+            ? t("composer.placeholder.running")
+            : modelHold !== null
+              ? t("composer.placeholder.modelHold")
+              : t("composer.placeholder.idle");
 
   // An image or PDF alone is sendable: "what is this?" is in the attachment, not the text.
   // A held session still runs slash and bash commands (/new, !ls, …); main
@@ -1777,6 +1800,7 @@ export function Composer({
               running={running}
               isSlash={isSlash}
               canSend={canSend}
+              skipSend={skipAskDraft}
               contextRing={contextRing}
               onSubmit={(route) => void submit(route)}
               onAbort={() => void abortAgent(tabId)}

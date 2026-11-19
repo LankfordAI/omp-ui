@@ -1,9 +1,7 @@
 import { describe, expect, it } from "vitest";
 import {
   ASK_DIALOG_COMMAND_ID,
-  askAnswerIsValid,
   askDialogResponse,
-  askQuestionDefault,
   parseAskQuestions,
   setAskDialogCommand,
 } from "./ask-dialog";
@@ -38,7 +36,7 @@ describe("setAskDialogCommand (issue #1234)", () => {
 });
 
 describe("parseAskQuestions", () => {
-  it("reads the probed wire shape with defaults and multi flag", () => {
+  it("reads the probed wire shape with recommended and multi", () => {
     expect(QUESTIONS).toEqual([
       {
         id: "db",
@@ -81,43 +79,11 @@ describe("parseAskQuestions", () => {
     expect(kept?.options).toEqual([]);
   });
 
-  it("ignores a non-integer recommended index", () => {
+  it("ignores a non-integer or negative recommended index", () => {
     const [q] = parseAskQuestions([
       { id: "a", question: "Q?", options: ["X"], recommended: -1 },
     ]);
     expect(q?.recommended).toBeUndefined();
-  });
-});
-
-describe("askQuestionDefault", () => {
-  it("prefers the recommended option (the timeout rule)", () => {
-    expect(askQuestionDefault(QUESTIONS[0]!)).toEqual({ selectedOptions: ["SQLite"] });
-  });
-
-  it("falls back to the first option without a recommended index", () => {
-    expect(askQuestionDefault(QUESTIONS[1]!)).toEqual({ selectedOptions: ["Auth"] });
-  });
-
-  it("answers an optionless question with nothing selected", () => {
-    expect(askQuestionDefault(parseAskQuestions([{ id: "a", question: "Q?" }])[0]!)).toEqual({
-      selectedOptions: [],
-    });
-  });
-});
-
-describe("askAnswerIsValid", () => {
-  it("accepts empty multi and single answers with free text", () => {
-    expect(askAnswerIsValid(QUESTIONS[1]!, { selectedOptions: [] })).toBe(true);
-    expect(askAnswerIsValid(QUESTIONS[0]!, { selectedOptions: [], customInput: "DuckDB" })).toBe(true);
-  });
-
-  it("rejects a single-select holding both an option and free text", () => {
-    expect(askAnswerIsValid(QUESTIONS[0]!, { selectedOptions: ["Postgres"], customInput: "x" })).toBe(false);
-  });
-
-  it("rejects unlisted or duplicated labels", () => {
-    expect(askAnswerIsValid(QUESTIONS[1]!, { selectedOptions: ["Nope"] })).toBe(false);
-    expect(askAnswerIsValid(QUESTIONS[1]!, { selectedOptions: ["Auth", "Auth"] })).toBe(false);
   });
 });
 
@@ -133,12 +99,20 @@ describe("askDialogResponse", () => {
     ]);
   });
 
-  it("fills an unanswered question with its default, never a short list", () => {
+  it("sends an untouched question as an empty entry — never an invented default", () => {
     const answers = { db: { selectedOptions: ["Postgres"] } };
     expect(askDialogResponse(QUESTIONS, answers).answers).toEqual([
       { id: "db", selectedOptions: ["Postgres"] },
-      { id: "features", selectedOptions: ["Auth"] },
+      { id: "features", selectedOptions: [] },
     ]);
+  });
+
+  it("keeps an answered multi-select empty on purpose", () => {
+    const answers = { db: {}, features: { selectedOptions: [] } };
+    expect(askDialogResponse(QUESTIONS, answers).answers[1]).toEqual({
+      id: "features",
+      selectedOptions: [],
+    });
   });
 
   it("trims free text and drops it when blank", () => {

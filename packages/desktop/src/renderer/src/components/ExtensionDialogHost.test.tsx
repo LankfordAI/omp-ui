@@ -10,7 +10,7 @@ const rpcSend = vi.fn();
 Object.assign(window, { ompBackend: { rpcSend } });
 // Dynamic import is required because store.ts captures window.ompBackend at module evaluation.
 const { useStore } = await import("../store");
-const { ExtensionDialogHost, INITIAL_EXTENSION_DIALOG_STATE, reduceExtensionDialog, answerPendingQuestion, freeTextTarget } = await import("./ExtensionDialogHost");
+const { ExtensionDialogHost, INITIAL_EXTENSION_DIALOG_STATE, reduceExtensionDialog, answerPendingQuestion, freeTextTarget, skipPendingQuestion } = await import("./ExtensionDialogHost");
 
 const TAB = "tab-question";
 const OTHER = "Other (type your own)";
@@ -591,5 +591,168 @@ describe("composer answer path (issue #421)", () => {
     const box = document.createElement("textarea"); document.body.append(box); box.focus();
     renderDesktopHost([{ id: "q", method: "select", title: "Pick", options: ["Alpha", "Beta"] }]);
     expect((document.activeElement as HTMLElement).textContent).toContain("Alpha");
+  });
+});
+
+// The probed wire frame (issue #1234): method:"ask" carries questions and no
+// title at all — the shape 18.22.2 and 19.0.0 emit identically once
+// set_ask_dialog succeeds.
+const ASK_FRAME = {
+  id: "ask1",
+  method: "ask",
+  questions: [
+    { id: "db", question: "Which database?", options: [{ label: "Postgres" }, { label: "SQLite" }], recommended: 1 },
+    { id: "features", question: "Which features?", options: [{ label: "Auth" }, { label: "Billing" }], multi: true },
+  ],
+};
+
+describe("multi-question ask form (issue #1234)", () => {
+  const button = (text: string) =>
+    [...document.body.querySelectorAll<HTMLButtonElement>("button")].find(
+      (candidate) => candidate.textContent?.trim() === text,
+    );
+  const row = (label: string) =>
+    [...document.body.querySelectorAll<HTMLButtonElement>("button")].find((candidate) =>
+      candidate.textContent?.includes(label),
+    )!;
+
+  it("renders every question of the frame with its recommendation marked", () => {
+    renderDesktopHost([ASK_FRAME]);
+    expect(document.body.textContent).toContain("Which database?");
+    expect(document.body.textContent).toContain("recommended");
+    const second = [...document.body.querySelectorAll<HTMLButtonElement>("button")].find((candidate) =>
+      candidate.getAttribute("aria-label")?.startsWith("edit your answer to: Which features?"),
+    );
+    expect(second).toBeDefined();
+  });
+
+  it("lands focus in the first open question when the form opens", () => {
+    renderDesktopHost([ASK_FRAME]);
+    const option = row("Postgres");
+    expect(document.activeElement).toBe(option);
+  });
+
+  it("advances to the next unanswered question on a single-select answer and collapses the answered one", () => {
+    renderDesktopHost([ASK_FRAME]);
+    act(() => row("SQLite")!.click());
+    // The answer summary replaces the expanded first question…
+    const collapsed = [...document.body.querySelectorAll<HTMLButtonElement>("button")].find((candidate) =>
+      candidate.getAttribute("aria-label")?.startsWith("edit your answer to: Which database?"),
+    )!;
+    expect(collapsed.textContent).toContain("SQLite");
+    // …and the second question is open for its own answer.
+    expect(document.body.querySelector("input")).not.toBeNull();
+  });
+
+  it("submits the whole form from the submit button — in-order ids, exact labels", () => {
+    renderDesktopHost([ASK_FRAME]);
+    act(() => row("SQLite")!.click());
+    act(() => row("Auth")!.click()); // a multi flip stays put; nothing sends yet
+    expect(rpcSend).not.toHaveBeenCalled();
+    act(() => button("submit")!.click());
+    expect(lastFrame()).toEqual({
+      type: "extension_ui_response",
+      id: "ask1",
+      answers: [
+        { id: "db", selectedOptions: ["SQLite"] },
+        { id: "features", selectedOptions: ["Auth"] },
+      ],
+    });
+  });
+
+  it("keeps partial answers editable and submits untouched questions as empty entries", () => {
+    renderDesktopHost([ASK_FRAME]);
+    // The field belongs to the open question (db): its typed answer rides the
+    // wire while the never-opened multi stays an empty entry, not a default.
+    const field = document.body.querySelector<HTMLInputElement>("input")!;
+    const setter = Object.getOwnPropertyDescriptor(HTMLInputElement.prototype, "value")!.set!;
+    act(() => {
+      setter.call(field, "DuckDB");
+      field.dispatchEvent(new Event("input", { bubbles: true }));
+    });
+    act(() => button("submit")!.click());
+    expect(lastFrame()).toEqual({
+      type: "extension_ui_response",
+      id: "ask1",
+      answers: [
+        { id: "db", selectedOptions: [], customInput: "DuckDB" },
+        { id: "features", selectedOptions: [] },
+      ],
+    });
+  });
+
+  it("clears a single-select pick when free text lands, and vice versa", () => {
+    renderDesktopHost([ASK_FRAME]);
+    act(() => row("Postgres")!.click());
+    // Reopen the collapsed answer and type: the wire forbids option+text on a
+    // single-select, so the typed answer replaces the pick.
+    const collapsed = [...document.body.querySelectorAll<HTMLButtonElement>("button")].find((candidate) =>
+      candidate.getAttribute("aria-label")?.startsWith("edit your answer to: Which database?"),
+    )!;
+    act(() => collapsed.click());
+    const field = document.body.querySelector<HTMLInputElement>("input")!;
+    const setter = Object.getOwnPropertyDescriptor(HTMLInputElement.prototype, "value")!.set!;
+    act(() => {
+      setter.call(field, "DuckDB");
+      field.dispatchEvent(new Event("input", { bubbles: true }));
+    });
+    act(() => button("submit")!.click());
+    expect(lastFrame()).toMatchObject({
+      id: "ask1",
+      answers: [
+        { id: "db", selectedOptions: [], customInput: "DuckDB" },
+        { id: "features", selectedOptions: [] },
+      ],
+    });
+  });
+
+  it("dismisses on Escape with a cancel, never an answer", () => {
+    renderDesktopHost([ASK_FRAME]);
+    act(() => row("SQLite")!.click());
+    act(() => window.dispatchEvent(new KeyboardEvent("keydown", { key: "Escape", bubbles: true, cancelable: true })));
+    expect(lastFrame()).toMatchObject({ id: "ask1", cancelled: true });
+  });
+
+  it("leaves the draft unanswerable from the composer — free text is never an ask reply", () => {
+    renderDesktopHost([ASK_FRAME]);
+    expect(freeTextTarget(ASK_FRAME)).toBe("none");
+    expect(ask("just a message")).toBe("not-answerable");
+  });
+
+  it("skips the pending ask for the composer and drops it from the queue", () => {
+    renderDesktopHost([ASK_FRAME]);
+    act(() => row("SQLite")!.click()); // a partial answer exists; skip sends none of it
+    expect(skipPendingQuestion(TAB)).toBe(true);
+    expect(lastFrame()).toMatchObject({ type: "extension_ui_response", id: "ask1", cancelled: true });
+    expect(useStore.getState().rpc[TAB]!.extensionQueue).toEqual([]);
+  });
+
+  it("reports no skip once the ask is gone", () => {
+    renderDesktopHost([ASK_FRAME]);
+    act(() => window.dispatchEvent(new KeyboardEvent("keydown", { key: "Escape", bubbles: true, cancelable: true })));
+    expect(skipPendingQuestion(TAB)).toBe(false);
+  });
+
+  it("drops an unanswerable form quietly when a cancel frame names it (issue #1191 rule)", () => {
+    // A timeout on omp's side answers its defaults and emits cancel{targetId};
+    // the queue removal (frame-reduction) unmounts the card — never an answer.
+    renderDesktopHost([ASK_FRAME]);
+    act(() => useStore.setState({ rpc: { [TAB]: runtime([]) } }));
+    expect(document.body.textContent).not.toContain("Which database?");
+  });
+
+  it("keeps answers of two consecutive asks apart by frame id", () => {
+    renderDesktopHost([ASK_FRAME]);
+    act(() => row("SQLite")!.click());
+    advance({ ...ASK_FRAME, id: "ask2" });
+    expect(document.body.querySelector("input")).not.toBeNull();
+    act(() => button("submit")!.click());
+    expect(lastFrame()).toMatchObject({
+      id: "ask2",
+      answers: [
+        { id: "db", selectedOptions: [] },
+        { id: "features", selectedOptions: [] },
+      ],
+    });
   });
 });
