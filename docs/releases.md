@@ -4,7 +4,9 @@ This guide explains what users receive from a release and how maintainers publis
 
 ## Unreleased
 
-Nothing since [v0.37.1](https://github.com/LankfordAI/omp-ui/releases/tag/v0.37.1). Add one bullet per shipped change here, citing its issue as `#N`; the release tag lifts these into Highlights.
+Changes since [v0.37.1](https://github.com/LankfordAI/omp-ui/releases/tag/v0.37.1). Add one bullet per shipped change here, citing its issue as `#N`; the release tag lifts these into Highlights.
+
+- The session HUD now shows the Claude subscription plan (e.g. "Max 20x") reported by omp 19 beside the provider rate windows and in their tooltip; accounts without a reported plan stay quiet. (#1237)
 
 ## Choose a download
 
