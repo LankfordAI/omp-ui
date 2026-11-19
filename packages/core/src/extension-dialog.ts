@@ -14,6 +14,11 @@ export const BLOCKING_DIALOG_METHODS: Record<string, true> = {
   confirm: true,
   input: true,
   editor: true,
+  // The multi-question `ask` frame (issue #1234) blocks exactly like the
+  // others: omp waits on one `extension_ui_response` carrying every answer.
+  // It only ever arrives once `set_ask_dialog` succeeded — an opted-out or
+  // older build never emits it, so the field-by-field walk above is untouched.
+  ask: true,
 };
 
 /** Narrows an `unknown` frame method without stringifying the value. */

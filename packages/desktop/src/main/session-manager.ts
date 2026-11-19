@@ -49,6 +49,7 @@ import {
   fleetToolsRegistered,
   readInstalledOmpVersion,
   setEventFilterCommand,
+  setAskDialogCommand,
   setHostUriSchemesCommand,
   autoresearchArmMessage,
   vibeArmMessage,
@@ -1858,7 +1859,12 @@ export class SessionManager {
     // Riding initialCommands puts it before the first turn on fresh spawn
     // and hibernate-resume alike — the ADR-0043 registration guarantee.
     const registrationIndex = initialCommands.length;
-    initialCommands.push(setEventFilterCommand(), setHostUriSchemesCommand());
+    // The multi-question ask opt-in (#1234): during extension startup omp
+    // handles only `extension_ui_response` and this command, so its rail
+    // position never matters. A build without it answers success:false and
+    // keeps the field-by-field walk — the renderer routes whichever frame
+    // arrives, so no version check rides here.
+    initialCommands.push(setEventFilterCommand(), setAskDialogCommand(), setHostUriSchemesCommand());
     // The issue #774 recovery pick: `--model` forces the boot but never
     // rewrites the transcript, so the same initialCommands rail restates the
     // model through `set_model` — the entry it appends is what a later
