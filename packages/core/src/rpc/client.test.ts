@@ -355,6 +355,110 @@ describe("RpcClient handshake", () => {
   });
 });
 
+// OMP ≥19 retries a transiently unreachable auth broker for a bounded window
+// before self-exiting (upstream INITIAL_SNAPSHOT_RETRY_BUDGET_MS). These lines
+// are its exact v19.0.0 stderr shapes, verified against the real binary.
+describe("RpcClient auth-broker startup wait (issue #1230)", () => {
+  const brokerNotice =
+    "Waiting for auth broker at http://127.0.0.1:8765 (Auth broker request failed after 2 attempt(s)); retrying for up to 30s...\n";
+  const phaseMarker = "Still starting after 10s — phase: discoverAuthStorage\n";
+
+  it("keeps a broker-recovering child alive past the base deadline until ready lands", async () => {
+    vi.useFakeTimers({ toFake: ["setTimeout", "clearTimeout"] });
+    const h = harness();
+    h.fake.stderr.write(brokerNotice);
+    await tick();
+    await vi.advanceTimersByTimeAsync(40_000);
+    expect(h.errors).toEqual([]);
+    expect(h.fake.killed()).toBe(false);
+    h.fake.stdout.write(readyFrame());
+    await tick();
+    expect(h.frames).toHaveLength(1);
+    expect(h.errors).toEqual([]);
+  });
+
+  it("kills a broker-waiting child that never speaks ready, naming the extended deadline", async () => {
+    vi.useFakeTimers({ toFake: ["setTimeout", "clearTimeout"] });
+    const h = harness();
+    h.fake.stderr.write(brokerNotice);
+    await tick();
+    await vi.advanceTimersByTimeAsync(46_000);
+    expect(h.errors[0]).toMatch(/no ready frame in 45 s/);
+    expect(h.errors[0]).toMatch(/Waiting for auth broker/);
+    expect(h.fake.killed()).toBe(true);
+  });
+
+  it("honours a stated budget other than 30 s instead of repinning", async () => {
+    vi.useFakeTimers({ toFake: ["setTimeout", "clearTimeout"] });
+    const h = harness();
+    h.fake.stderr.write("Waiting for auth broker at http://b (x); retrying for up to 5s...\n");
+    await tick();
+    await vi.advanceTimersByTimeAsync(11_000);
+    expect(h.errors).toEqual([]);
+    await vi.advanceTimersByTimeAsync(10_000);
+    expect(h.errors[0]).toMatch(/no ready frame in 20 s/);
+  });
+
+  it("falls back to the 30 s window when the notice carries no parseable budget", async () => {
+    vi.useFakeTimers({ toFake: ["setTimeout", "clearTimeout"] });
+    const h = harness();
+    h.fake.stderr.write("Waiting for auth broker at http://b (x)\n");
+    await tick();
+    await vi.advanceTimersByTimeAsync(11_000);
+    expect(h.errors).toEqual([]);
+    await vi.advanceTimersByTimeAsync(35_000);
+    expect(h.errors[0]).toMatch(/no ready frame in 45 s/);
+  });
+
+  it("extends on the discoverAuthStorage phase marker alone, before any notice", async () => {
+    // A black-holed broker can delay the first retry failure past the base
+    // deadline; the watchdog marker is the only evidence that lands at 10 s.
+    vi.useFakeTimers({ toFake: ["setTimeout", "clearTimeout"] });
+    const h = harness();
+    h.fake.stderr.write(phaseMarker);
+    await tick();
+    await vi.advanceTimersByTimeAsync(11_000);
+    expect(h.errors).toEqual([]);
+  });
+
+  it("caps the extended wait below the renderer's 60 s boot-stall panel", async () => {
+    vi.useFakeTimers({ toFake: ["setTimeout", "clearTimeout"] });
+    const h = harness();
+    // A hypothetically larger repinned budget must still die at the ceiling.
+    h.fake.stderr.write("Waiting for auth broker at http://b (x); retrying for up to 120s...\n");
+    await tick();
+    await vi.advanceTimersByTimeAsync(56_000);
+    expect(h.errors[0]).toMatch(/no ready frame in 55 s/);
+    expect(h.fake.killed()).toBe(true);
+  });
+
+  it("reports the exit code when a broker-waiting child exits inside the extended window", async () => {
+    vi.useFakeTimers({ toFake: ["setTimeout", "clearTimeout"] });
+    const h = harness();
+    h.fake.stderr.write(brokerNotice);
+    await tick();
+    await vi.advanceTimersByTimeAsync(20_000);
+    h.fake.exit(1);
+    expect(h.errors[0]).toMatch(/omp exited with code 1/);
+    expect(h.exits).toEqual([1]);
+    // The cleared watchdog can't later pile a timeout verdict onto the exit.
+    await vi.advanceTimersByTimeAsync(60_000);
+    expect(h.errors).toHaveLength(1);
+  });
+
+  it("never extends after ready lands", async () => {
+    vi.useFakeTimers({ toFake: ["setTimeout", "clearTimeout"] });
+    const h = harness();
+    h.fake.stdout.write(readyFrame());
+    await tick();
+    h.fake.stderr.write(brokerNotice);
+    await tick();
+    await vi.advanceTimersByTimeAsync(120_000);
+    expect(h.errors).toEqual([]);
+    expect(h.fake.killed()).toBe(false);
+  });
+});
+
 describe("RpcClient deferred arm (warm pool, issue #908)", () => {
   interface Deferred {
     client: RpcClient;

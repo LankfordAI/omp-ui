@@ -8,6 +8,7 @@ Changes since [v0.37.1](https://github.com/LankfordAI/omp-ui/releases/tag/v0.37.
 
 - The session HUD now shows the Claude subscription plan (e.g. "Max 20x") reported by omp 19 beside the provider rate windows and in their tooltip; accounts without a reported plan stay quiet. (#1237)
 - Native tool cards keep their intent headlines on OMP 19: omp-ui boots native (`rpc-ui`) sessions with `tools.intentTracing` pinned on unless your own config layers or `PI_INTENT_TRACING` state a preference (#1231).
+- Native transcript tabs no longer kill an OMP 19 child that is legitimately waiting on a restarting auth broker: the RPC ready deadline now extends (bounded, and only while the child's own stderr proves the retry window) so a broker that recovers inside OMP's startup retry budget still reaches ready ([#1230](https://github.com/LankfordAI/omp-ui/issues/1230)).
 
 ## Choose a download
 

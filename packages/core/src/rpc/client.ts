@@ -99,6 +99,36 @@ export interface RpcSinks {
 
 const DEFAULT_MAX_FRAME_BYTES = 1_048_576;
 const READY_TIMEOUT_MS = 10_000;
+/**
+ * OMP ≥19 retries a transiently unreachable auth broker during startup for a
+ * bounded window before it gives up and exits 1 (upstream
+ * `INITIAL_SNAPSHOT_RETRY_BUDGET_MS`, packages/ai/src/auth-broker/discover.ts
+ * at v19.0.0). Used only when the child's wait notice omits a parseable
+ * budget; the notice states the window, so a changed upstream budget rides
+ * through without a repin here.
+ */
+const AUTH_BROKER_RETRY_BUDGET_MS = 30_000;
+/** Slack over the stated budget: boot time before discovery starts, and the child's exit after it spends the window. */
+const AUTH_BROKER_WAIT_MARGIN_MS = 15_000;
+/**
+ * Ceiling for one extended wait, measured from spawn. Deliberately below the
+ * renderer's 60 s boot-stall panel (RpcTab BOOT_STALL_MS): the client must
+ * render its own verdict — ready or a timeout with the stderr tail — before
+ * the panel latches its coarser error.
+ */
+const AUTH_BROKER_WAIT_CEILING_MS = 55_000;
+/** Upstream's once-per-startup stderr notice that the initial broker snapshot is retrying (v19 `authBrokerWaitNotice`). */
+const AUTH_BROKER_WAIT_NOTICE = /Waiting for auth broker at\b/;
+/** The budget the notice states: `retrying for up to 30s...`. */
+const AUTH_BROKER_STATED_BUDGET = /retrying for up to (\d+(?:\.\d+)?)s/;
+/**
+ * Upstream's startup watchdog names the still-running phase every 10 s
+ * (`Still starting after Ns — phase: discoverAuthStorage`). This closes the
+ * gap where a black-holed broker delays the FIRST retry failure — and with it
+ * the wait notice — past the base deadline: the marker lands at 10 s of boot
+ * and proves the child is inside auth discovery, not silently hung.
+ */
+const AUTH_BROKER_PHASE_MARKER = /Still starting after \d+s .*phase: discoverAuthStorage/;
 const STDERR_TAIL_BYTES = 8192;
 /** Park ceiling for a deferred client: boot noise is a handful of frames; more means the pool forgot to arm or kill. */
 const MAX_PARKED_FRAMES = 4096;
@@ -127,8 +157,10 @@ function isReadyFrame(
 
 /**
  * Speaks NDJSON with `omp --mode=rpc-ui` over plain pipes (no PTY). Owns the
- * handshake (negotiate v2 on ready, 10 s ready timeout — a bad --mode value
- * hangs silently otherwise), the 1 MiB frame cap (manual line splitting —
+ * handshake (negotiate v2 on ready, 10 s ready timeout — extended to at most
+ * 55 s only while the child's stderr proves an OMP ≥19 auth-broker startup
+ * retry (#1230) — a bad --mode value hangs silently otherwise), the 1 MiB
+ * frame cap (manual line splitting —
  * readline would buffer a delimiter-less line unboundedly), rpc_chunk
  * reassembly, and a drained 8 KiB stderr tail for diagnostics.
  */
@@ -154,7 +186,10 @@ export class RpcClient {
   #supportsBashExcludeFromContext = false;
   #pending: Buffer = Buffer.alloc(0);
   #stderrTail = "";
-  #readyTimer: NodeJS.Timeout;
+  #readyTimer!: NodeJS.Timeout;
+  /** Spawn-relative instant the ready wait expires; extended only on broker-retry evidence (#1230). */
+  #readyDeadlineMs = READY_TIMEOUT_MS;
+  readonly #spawnedAt = Date.now();
   #readySeen = false;
   #dead = false;
 
@@ -211,13 +246,44 @@ export class RpcClient {
       for (const cb of this.#deathWatchers) cb(code);
       this.#sinks.onExit(code);
     });
+    this.#armReadyTimer(READY_TIMEOUT_MS);
+  }
+
+  /** (Re)arm the ready watchdog for `ms` from now; the timeout reads `#readyDeadlineMs` for its verdict text. */
+  #armReadyTimer(ms: number): void {
+    clearTimeout(this.#readyTimer);
     this.#readyTimer = setTimeout(() => {
       if (!this.#readySeen) {
+        const seconds = Math.round(this.#readyDeadlineMs / 1000);
         this.#fatal(
-          `omp did not speak rpc-ui (no ready frame in 10 s); stderr: ${this.#stderrTail.trim() || "(empty)"}`,
+          `omp did not speak rpc-ui (no ready frame in ${seconds} s); stderr: ${this.#stderrTail.trim() || "(empty)"}`,
         );
       }
-    }, READY_TIMEOUT_MS);
+    }, ms);
+  }
+
+  /**
+   * One complete stderr line, before watchers see it: OMP ≥19 prints a
+   * once-per-startup `Waiting for auth broker at …; retrying for up to Ns...`
+   * notice (and a `Still starting after Ns — phase: discoverAuthStorage`
+   * watchdog marker) while its initial snapshot retries. Each is proof the
+   * child is waiting on a bounded upstream window, not hung, so push the
+   * ready deadline out to cover that window plus margin — capped at
+   * {@link AUTH_BROKER_WAIT_CEILING_MS} from spawn so a later-lying stderr
+   * (or a repinned bigger budget) can never hold a tab open for long.
+   */
+  #considerBrokerWaitExtension(line: string): void {
+    if (this.#readySeen || this.#dead) return;
+    const notice = AUTH_BROKER_WAIT_NOTICE.test(line);
+    if (!notice && !AUTH_BROKER_PHASE_MARKER.test(line)) return;
+    const stated = AUTH_BROKER_STATED_BUDGET.exec(line);
+    const statedMs = stated !== null ? Number(stated[1]) * 1000 : undefined;
+    const budgetMs = statedMs !== undefined && statedMs > 0 ? statedMs : AUTH_BROKER_RETRY_BUDGET_MS;
+    const elapsed = Date.now() - this.#spawnedAt;
+    const candidate = Math.min(elapsed + budgetMs + AUTH_BROKER_WAIT_MARGIN_MS, AUTH_BROKER_WAIT_CEILING_MS);
+    if (candidate <= this.#readyDeadlineMs) return;
+    this.#readyDeadlineMs = candidate;
+    this.#armReadyTimer(candidate - elapsed);
   }
 
   send(cmd: object): void {
@@ -373,6 +439,7 @@ export class RpcClient {
     this.#stderrPartial = lines.pop()!.slice(-STDERR_TAIL_BYTES);
     for (const line of lines) {
       if (line === "") continue;
+      this.#considerBrokerWaitExtension(line);
       for (const cb of this.#stderrWatchers) cb(line);
     }
   }
