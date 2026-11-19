@@ -4482,3 +4482,176 @@ describe("Composer skip & send with a multi-question ask (issue #1234)", () => {
     expect(answerFrames()).toHaveLength(0);
   });
 });
+
+describe("Composer next-message prediction ghost (issue #1239)", () => {
+  const PREDICTED = "Sounds good — ship it.";
+  /** requestId the hook asked for, captured from the mocked bridge action. */
+  let asked: Array<[string, string]>;
+
+  beforeEach(() => {
+    vi.useFakeTimers();
+    asked = [];
+    // The file default stubs every media query as matching (compact sheet);
+    // predictions ride the full composer only, so this suite runs desktop.
+    Object.defineProperty(window, "matchMedia", {
+      configurable: true,
+      value: vi.fn(() => ({
+        matches: false,
+        addEventListener: vi.fn(),
+        removeEventListener: vi.fn(),
+      })),
+    });
+    useStore.setState({
+      requestComposerPrediction: async (tabId: string, requestId: string): Promise<void> => {
+        asked.push([tabId, requestId]);
+      },
+    });
+  });
+
+  afterEach(() => {
+    vi.useRealTimers();
+  });
+
+  function elapse(ms: number): void {
+    act(() => vi.advanceTimersByTime(ms));
+  }
+
+  /** The composer's placeholder text, or null while CodeMirror paints none. */
+  function placeholderText(): string | null {
+    return document.querySelector(".cm-placeholder")?.textContent ?? null;
+  }
+
+  /** ready → the grace elapses → the hook has asked (or declined) once. */
+  async function settleAndArm(predictions: RpcTabState["composerPredictions"]): Promise<void> {
+    seed("running");
+    useStore.setState((s) => ({
+      rpc: { ...s.rpc, [TAB]: { ...s.rpc[TAB]!, composerPredictions: predictions } },
+    }));
+    renderComposer();
+    await act(async () => {
+      useStore.setState((s) => ({
+        rpc: { ...s.rpc, [TAB]: { ...s.rpc[TAB]!, status: "ready" } },
+      }));
+    });
+    elapse(500);
+  }
+
+  function publishResult(requestId: string, ok: boolean, revision = 2): void {
+    act(() => {
+      useStore.setState((s) => ({
+        rpc: {
+          ...s.rpc,
+          [TAB]: {
+            ...s.rpc[TAB]!,
+            composerPredictions: {
+              version: 1,
+              processKey: "p",
+              revision,
+              available: true,
+              unavailable: null,
+              result: ok
+                ? { requestId, ok: true, choices: [PREDICTED, "Run the tests first"] }
+                : { requestId, ok: false, reason: "skipped" },
+            },
+          },
+        },
+      }));
+    });
+  }
+
+  it("arms exactly one billed request when the turn settles over an empty focused composer", async () => {
+    await settleAndArm({ version: 1, processKey: "p", revision: 1, available: true, unavailable: null, result: null });
+    expect(asked).toEqual([[TAB, expect.any(String)]]);
+    // The idle placeholder stays ordinary while nothing has answered yet.
+    expect(placeholderText()).toBe("message the agent… · / commands · @ files");
+  });
+
+  it("paints the correlated choice as the empty composer's placeholder and chips the billed request", async () => {
+    await settleAndArm({ version: 1, processKey: "p", revision: 1, available: true, unavailable: null, result: null });
+    publishResult(asked[0]![1], true);
+    expect(placeholderText()).toBe(PREDICTED);
+    // Only the first choice paints; the pick list is issue #1030's surface.
+    expect(document.body.textContent).not.toContain("Run the tests first");
+    const chip = [...document.body.querySelectorAll<HTMLElement>("*")].find(
+      (element) => element.textContent?.trim() === "next message",
+    );
+    expect(chip).toBeDefined();
+    expect(chip!.title).toContain("one extra model request");
+  });
+
+  it("Tab inserts the prediction into the draft and never sends it", async () => {
+    await settleAndArm({ version: 1, processKey: "p", revision: 1, available: true, unavailable: null, result: null });
+    publishResult(asked[0]![1], true);
+    const box = composerInput();
+    const tab = press(box, "Tab");
+    expect(tab.defaultPrevented).toBe(true);
+    expect(draftText(box)).toBe(PREDICTED);
+    expect(sendPrompt).not.toHaveBeenCalled();
+    // The ghost retires with the draft it belonged to.
+    expect(placeholderText()).not.toBe(PREDICTED);
+  });
+
+  it("→ inserts it too, and a second Tab asks for nothing more", async () => {
+    await settleAndArm({ version: 1, processKey: "p", revision: 1, available: true, unavailable: null, result: null });
+    publishResult(asked[0]![1], true);
+    const box = composerInput();
+    expect(press(box, "ArrowRight").defaultPrevented).toBe(true);
+    expect(draftText(box)).toBe(PREDICTED);
+    selectDraft(box, PREDICTED.length);
+    // The draft belongs to ordinary typing now: the second Tab changes nothing.
+    expect(press(box, "Tab").defaultPrevented).toBe(false);
+    expect(asked).toHaveLength(1);
+  });
+
+  it("the first keystroke retires the placeholder", async () => {
+    await settleAndArm({ version: 1, processKey: "p", revision: 1, available: true, unavailable: null, result: null });
+    publishResult(asked[0]![1], true);
+    expect(placeholderText()).toBe(PREDICTED);
+    const box = typeDraft("a");
+    expect(placeholderText()).not.toBe(PREDICTED);
+    press(box, "Tab");
+    expect(draftText(box)).toBe("a");
+  });
+
+  it("a bridge-off publish keeps the placeholder ordinary and bills nothing", async () => {
+    await settleAndArm({
+      version: 1,
+      processKey: "p",
+      revision: 1,
+      available: false,
+      unavailable: "settings-off",
+      result: null,
+    });
+    expect(asked).toHaveLength(0);
+    expect(placeholderText()).toBe("message the agent… · / commands · @ files");
+  });
+
+  it("a declined prediction leaves the placeholder ordinary", async () => {
+    await settleAndArm({ version: 1, processKey: "p", revision: 1, available: true, unavailable: null, result: null });
+    publishResult(asked[0]![1], false);
+    expect(placeholderText()).toBe("message the agent… · / commands · @ files");
+    expect(press(composerInput(), "Tab").defaultPrevented).toBe(false);
+  });
+
+  it("no prediction is asked for while an extension dialog holds the composer", async () => {
+    seed("running");
+    useStore.setState((s) => ({
+      rpc: {
+        ...s.rpc,
+        [TAB]: {
+          ...s.rpc[TAB]!,
+          composerPredictions: { version: 1, processKey: "p", revision: 1, available: true, unavailable: null, result: null },
+          extensionQueue: [{ type: "extension_ui_request", id: "d1", method: "notify", message: "hold" }],
+        },
+      },
+    }));
+    renderComposer();
+    await act(async () => {
+      useStore.setState((s) => ({
+        rpc: { ...s.rpc, [TAB]: { ...s.rpc[TAB]!, status: "ready" } },
+      }));
+    });
+    elapse(500);
+    expect(asked).toHaveLength(0);
+  });
+});

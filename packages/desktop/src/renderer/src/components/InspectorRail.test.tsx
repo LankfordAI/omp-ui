@@ -164,6 +164,7 @@ function runtime(patch: Partial<RpcTabState> = {}): RpcTabState {
     asyncJobsKill: null,
     asyncJobsKillError: null,
     sessionSpend: null,
+    composerPredictions: null,
     cacheWarming: null,
     items: [],
     transcriptRevision: 0,

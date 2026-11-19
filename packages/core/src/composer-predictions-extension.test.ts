@@ -229,8 +229,15 @@ async function bound(h: Harness, tune?: (session: Session) => void): Promise<Ses
   return session;
 }
 
+// Executor form because the node tsconfig lib predates Promise.withResolvers
+// — the exception limits-live.test.ts documents.
 const deferred = <T,>(): { promise: Promise<T>; resolve: (v: T) => void; reject: (e: unknown) => void } => {
-  const { promise, resolve, reject } = Promise.withResolvers<T>();
+  let resolve!: (v: T) => void;
+  let reject!: (e: unknown) => void;
+  const promise = new Promise<T>((res, rej) => {
+    resolve = res;
+    reject = rej;
+  });
   return { promise, resolve, reject };
 };
 
