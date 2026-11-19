@@ -159,7 +159,10 @@ export function parseSessionSpendSnapshot(text: string | undefined): SessionSpen
   const main = readTotals(record.main);
   const subagents = readTotals(record.subagents);
   const total = readTotals(record.total);
-  const cacheWarm = readTotals(record.cacheWarm);
+  // A bridge from an omp-ui build before #1238 publishes no cacheWarm block:
+  // read it as nothing attributed rather than dropping the whole readout. A
+  // block that is present but malformed is still rejected.
+  const cacheWarm = record.cacheWarm === undefined ? emptySpendTotals() : readTotals(record.cacheWarm);
   if (main === null || subagents === null || total === null || cacheWarm === null) return null;
   return {
     version: 1,

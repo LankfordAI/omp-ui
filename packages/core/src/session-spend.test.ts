@@ -80,10 +80,18 @@ describe("parseSessionSpendSnapshot", () => {
     ["a numeric sessionFile", snapshot({ sessionFile: 3 })],
     ["a numeric unavailable", snapshot({ unavailable: 3 })],
     ["a negative transcripts count", snapshot({ transcripts: -1 })],
-    ["a missing cacheWarm block", (() => { const value = snapshot(); delete value.cacheWarm; return value; })()],
+    ["a null cacheWarm block", snapshot({ cacheWarm: null })],
     ["a non-object cacheWarm block", snapshot({ cacheWarm: 3 })],
   ])("rejects %s", (_label, value) => {
     expect(parse(value)).toBeNull();
+  });
+
+  it("reads a pre-#1238 snapshot without a cacheWarm block as nothing attributed", () => {
+    const value = snapshot();
+    delete value.cacheWarm;
+    const parsed = parse(value);
+    expect(parsed?.total.cost).toBe(0.75);
+    expect(parsed?.cacheWarm).toEqual(emptySpendTotals());
   });
 
   it("rejects non-object and non-JSON text", () => {
