@@ -216,6 +216,41 @@ describe("native /btw (issue #775)", () => {
   });
 });
 
+// The composer's `?` draft rides this route (issue #1233): the same native
+// btw dispatch, reported so a refused draft goes back to the box.
+describe("the ? draft route (issue #1233)", () => {
+  beforeEach(() => setup("rpc-ui"));
+
+  it("dispatches the question through the native btw verb and reports acceptance", async () => {
+    const asking = h.useStore.getState().submitSideQuestionDraft(h.TAB, "what changed?");
+    for (const { tabId, cmd } of [...h.sent]) h.respond(tabId, cmd, {}, true);
+    expect(await asking).toBe(true);
+    expect(commands("btw")).toHaveLength(1);
+    expect(commands("btw")[0]).toMatchObject({ question: "what changed?" });
+    expect(commands("prompt")).toEqual([]);
+    expect(h.useStore.getState().railPaneFocus[h.TAB]?.pane).toBe("btw");
+  });
+
+  it("an empty question is a no-op and reports refusal", async () => {
+    expect(await h.useStore.getState().submitSideQuestionDraft(h.TAB, "   ")).toBe(false);
+    expect(h.sent).toEqual([]);
+  });
+
+  it("a version that dropped below the floor refuses with the pane's notice", async () => {
+    setup("rpc-ui", null, "18.6.2");
+    expect(await h.useStore.getState().submitSideQuestionDraft(h.TAB, "anything")).toBe(false);
+    expect(h.sent).toEqual([]);
+    // Unlike askSideQuestion's silence: the composer saw the chip, so say why.
+    expect(h.useStore.getState().rpc[h.TAB]?.sideQuestions?.busy).toMatch(/update omp/i);
+  });
+
+  it("a busy session reports refusal with the draft-keeping line", async () => {
+    setup("rpc-ui", snapshot({ active: { topicId: "t", question: "q", answer: "" } }));
+    expect(await h.useStore.getState().submitSideQuestionDraft(h.TAB, "another")).toBe(false);
+    expect(h.sent).toEqual([]);
+  });
+});
+
 describe("terminal tabs keep omp's own /btw (issue #775)", () => {
   it("forwards the line verbatim and opens no pane", async () => {
     setup("pty");

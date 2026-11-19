@@ -4230,3 +4230,110 @@ describe("Composer artifact references", () => {
     await act(async () => { expect(await takeStashedDraft(draft.id)).toEqual(draft); });
   });
 });
+
+// The `?` side-question draft (issue #1233): on a native tab whose omp speaks
+// the native btw verb, a `? <question>` draft rides submitSideQuestionDraft —
+// never sendPrompt — and a refusal puts the draft back. A bare `?`, an old
+// omp, or an attachment-bearing draft keeps today's prompt behavior.
+describe("Composer side-question draft (issue #1233)", () => {
+  function seedBtwRoute(ompVersion: string | null): void {
+    useStore.setState((s) => ({
+      rpc: {
+        ...s.rpc,
+        [TAB]: { ...s.rpc[TAB]!, capabilities: { ...gateSnapshot([]), ompVersion } },
+      },
+    }));
+  }
+
+  it("routes a ? draft through the native btw dispatch and clears the box", async () => {
+    seed("ready");
+    seedBtwRoute("18.7.0");
+    const draft = vi.fn(async (): Promise<boolean> => true);
+    useStore.setState({ submitSideQuestionDraft: draft });
+    renderComposer();
+    const box = typeDraft("? what did we just change?");
+    await act(async () => { press(box, "Enter"); });
+    expect(draft).toHaveBeenCalledWith(TAB, "what did we just change?");
+    expect(sendPrompt).not.toHaveBeenCalled();
+    expect(draftText(box)).toBe("");
+  });
+
+  it("shows the side-question chip while the draft is claimed", () => {
+    seed("ready");
+    seedBtwRoute("18.7.0");
+    renderComposer();
+    typeDraft("? still there?");
+    expect(document.body.textContent).toContain("? side question");
+  });
+
+  it("hides the chip below the omp floor and sends the draft as typed", async () => {
+    seed("ready");
+    seedBtwRoute("18.6.2");
+    const draft = vi.fn(async (): Promise<boolean> => true);
+    useStore.setState({ submitSideQuestionDraft: draft });
+    renderComposer();
+    const box = typeDraft("? what changed?");
+    await act(async () => { press(box, "Enter"); });
+    expect(draft).not.toHaveBeenCalled();
+    expect(document.body.textContent).not.toContain("? side question");
+    expect(sendPrompt).toHaveBeenCalledWith(TAB, "? what changed?", "prompt", [], [], { annotations: [], references: [], artifactReferences: [], refreshes: [] });
+  });
+
+  it("sends a bare ? as ordinary text instead of an empty side question", async () => {
+    seed("ready");
+    seedBtwRoute("18.7.0");
+    const draft = vi.fn(async (): Promise<boolean> => true);
+    useStore.setState({ submitSideQuestionDraft: draft });
+    renderComposer();
+    const box = typeDraft("?");
+    await act(async () => { press(box, "Enter"); });
+    expect(draft).not.toHaveBeenCalled();
+    expect(sendPrompt).toHaveBeenCalledWith(TAB, "?", "prompt", [], [], { annotations: [], references: [], artifactReferences: [], refreshes: [] });
+  });
+
+  it("returns the draft to the box when the side question is refused", async () => {
+    seed("ready");
+    seedBtwRoute("18.7.0");
+    useStore.setState({ submitSideQuestionDraft: async (): Promise<boolean> => false });
+    renderComposer();
+    const box = typeDraft("? keep me intact");
+    await act(async () => { press(box, "Enter"); });
+    expect(draftText(box)).toBe("? keep me intact");
+  });
+
+  it("sends a draft carrying an image as the plain prompt it was", async () => {
+    clipboardImageMock.readImageFiles.mockResolvedValueOnce({ images: [IMAGE_ONE], rejected: [] });
+    seed("ready");
+    seedBtwRoute("18.7.0");
+    const draft = vi.fn(async (): Promise<boolean> => true);
+    useStore.setState({ submitSideQuestionDraft: draft });
+    renderComposer();
+    await act(async () => {
+      choose(imagePicker(), [new File(["one"], "one.png", { type: "image/png" })], "pick");
+      await Promise.resolve();
+    });
+    const box = typeDraft("? look at this");
+    await act(async () => { press(box, "Enter"); });
+    expect(draft).not.toHaveBeenCalled();
+    expect(sendPrompt).toHaveBeenCalledWith(TAB, "? look at this", "prompt", [IMAGE_ONE], [], { annotations: [], references: [], artifactReferences: [], refreshes: [] });
+  });
+
+  it("never answers a pending dialog with a side-question draft", async () => {
+    // Upstream `#draftSkipsAsk`: a btw-mode draft is not the dialog's answer.
+    seed("ready");
+    seedBtwRoute("18.7.0");
+    useStore.setState((s) => ({
+      rpc: { ...s.rpc, [TAB]: { ...s.rpc[TAB]!, extensionQueue: [{ id: "q", method: "input", title: "Pick?" }] } },
+    }));
+    const draft = vi.fn(async (): Promise<boolean> => true);
+    useStore.setState({ submitSideQuestionDraft: draft });
+    renderComposer();
+    const box = typeDraft("? answer to your dialog?");
+    await act(async () => { press(box, "Enter"); });
+    expect(draft).toHaveBeenCalledWith(TAB, "answer to your dialog?");
+    const answered = backendMock.rpcSend.mock.calls
+      .map((call) => call[1] as Record<string, unknown>)
+      .filter((frame) => frame.type === "extension_ui_response");
+    expect(answered).toEqual([]);
+  });
+});

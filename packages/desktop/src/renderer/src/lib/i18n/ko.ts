@@ -509,7 +509,7 @@ export const ko: Partial<Record<MessageKey, string>> = {
   "composer.placeholder.answer": "질문에 답변… · 또는 위에서 선택",
   // The `?` side-question draft (issue #1233)
   "composer.btw.chip": "? 곁가지 질문",
-  "composer.btw.chipTitle": "Enter가 이 내용을 곁가지 질문으로 묻습니다 — 턴 없음, 대화 기록에 남지 않음 (/btw)",
+  "composer.btw.chipTitle": "Enter를 누르면 이것이 곁가지 질문으로 전송됩니다 — 턴 없이, 대화 기록에도 남지 않음 (/btw)",
   "composer.attachment.alt": "첨부 파일 {n}",
   "composer.attachment.remove": "첨부 파일 {n} 제거",
   "composer.attachment.image": "이미지",
