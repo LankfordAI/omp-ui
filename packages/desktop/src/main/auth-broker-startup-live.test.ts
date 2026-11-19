@@ -5,6 +5,7 @@ import * as os from "node:os";
 import * as path from "node:path";
 import { afterEach, describe, expect, it } from "vitest";
 import { RpcClient, resolveOmpBinary, type RpcChildProcess } from "@omp-ui/core";
+import { writeInertLiveModel } from "./test/live-model";
 
 /**
  * Live proof for the auth-broker startup wait (issue #1230) against a real
@@ -117,13 +118,14 @@ function makeDirs(): Dirs {
     lineage: path.join(base, "lin"),
     home: path.join(base, "home"),
   };
-  fs.mkdirSync(path.join(dirs.home, ".omp", "agent"), { recursive: true });
   fs.mkdirSync(dirs.lineage, { recursive: true });
   fs.mkdirSync(dirs.project, { recursive: true });
-  fs.writeFileSync(
-    path.join(dirs.home, ".omp", "agent", "config.yml"),
-    "startup:\n  checkUpdate: false\nretry:\n  enabled: false\n",
-  );
+  // checkUpdate off, retry off, and an inert models.yml: a credential-less
+  // clean HOME has no default model to resolve, and once the broker recovers
+  // omp exits with "No default model selected" before `ready` (#1229's
+  // credential-less runners). The inert provider keeps this proof about the
+  // broker wait instead of the machine's credentials.
+  writeInertLiveModel(dirs.home);
   return dirs;
 }
 
@@ -152,6 +154,9 @@ function spawnScope(dirs: Dirs, brokerUrl: string): Scope {
     cwd: dirs.project,
     lineageDir: dirs.lineage,
     ompPath: ompPath!,
+    // The inert probe model from makeDirs' models.yml: an explicit selector
+    // keeps the post-recovery boot deterministic on a credential-less machine.
+    model: "probe/inert",
     spawnProcess: (bin, args, baseEnv): RpcChildProcess => {
       const proc = spawn(bin, args, {
         stdio: ["pipe", "pipe", "pipe"],

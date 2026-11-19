@@ -1,6 +1,7 @@
 import * as fs from "node:fs";
 import * as os from "node:os";
 import * as path from "node:path";
+import { spawn } from "node:child_process";
 import { afterEach, beforeAll, describe, expect, it } from "vitest";
 import {
   OAUTH_LOGIN_RISK_NAME_SUFFIX,
@@ -11,7 +12,9 @@ import {
   resolveOmpBinary,
   supportsRpcRiskLogin,
   type ProviderOAuthState,
+  type RpcSpawnFn,
 } from "@omp-ui/core";
+import { writeInertLiveModel } from "./test/live-model";
 
 /**
  * Pins issue #1197 to the REAL `omp --mode rpc` wire: since upstream #19527
@@ -60,25 +63,57 @@ async function pollUntil<T>(
 
 interface Scope {
   oauth: ProviderOAuth;
+  base: string;
   scratchDir: string;
   /** Every state main would publish to the renderer, in order. */
   states: ProviderOAuthState[];
 }
 
-/** A real sign-in flow over one bare rpc child, exactly as MainBackend runs it. */
+/**
+ * A real sign-in flow over one bare rpc child, exactly as MainBackend runs it,
+ * with HOME/XDG redirected to a scope carrying an inert models.yml. omp
+ * refuses to boot rpc-ui when no default model resolves (#1229's credential-
+ * less runners), so an inherited developer HOME is not the honest environment:
+ * the roster read would silently fall back to the static catalog on any clean
+ * machine and this proof would assert a discovery failure as a product one.
+ */
 function liveScope(): Scope {
-  const scratchDir = fs.mkdtempSync(path.join(os.tmpdir(), "omp-ui-login-risk-live-"));
+  const base = fs.mkdtempSync(path.join(os.tmpdir(), "omp-ui-login-risk-live-"));
+  const scratchDir = path.join(base, "scratch");
+  fs.mkdirSync(scratchDir, { recursive: true });
+  const home = path.join(base, "home");
+  writeInertLiveModel(home);
+  const spawnProcess: RpcSpawnFn = (bin, args, extra) => {
+    const proc = spawn(bin, args, {
+      stdio: ["pipe", "pipe", "pipe"],
+      env: {
+        ...extra,
+        HOME: home,
+        XDG_CONFIG_HOME: path.join(home, ".config"),
+        XDG_DATA_HOME: path.join(home, ".local", "share"),
+      },
+    });
+    return {
+      stdin: proc.stdin,
+      stdout: proc.stdout,
+      stderr: proc.stderr,
+      kill: (signal) => void proc.kill(signal),
+      onExit: (cb) => proc.on("exit", (code) => cb(code)),
+      onSpawnError: (cb) => proc.on("error", cb),
+    };
+  };
   const states: ProviderOAuthState[] = [];
   const oauth = new ProviderOAuth({
     getOmpPath: () => ompPath,
     scratchDir,
+    spawnProcess,
     send: (state) => states.push(state),
     // The proof stops at the risk prompt; a URL must never be launched.
     onOpenUrl: () => {
       throw new Error("the live proof must never reach a browser URL");
     },
   });
-  return { oauth, scratchDir, states };
+  return { oauth, base, scratchDir, states };
 }
 
 const isInputPrompt = (
@@ -91,7 +126,7 @@ afterEach(() => {
   if (scope !== null) {
     scope.oauth.dispose();
     // rmSync retries cover the child still holding its cwd for a moment.
-    fs.rmSync(scope.scratchDir, { recursive: true, force: true, maxRetries: 10, retryDelay: 200 });
+    fs.rmSync(scope.base, { recursive: true, force: true, maxRetries: 10, retryDelay: 200 });
     scope = null;
   }
 });
