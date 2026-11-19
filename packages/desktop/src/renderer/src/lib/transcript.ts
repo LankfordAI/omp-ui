@@ -11,6 +11,11 @@ import { parseOmpDiff, type DiffRow } from "./omp-diff";
 import { parseVaultDetails, type VaultToolDetails } from "@omp-ui/core/vault-shared";
 import type { SessionReference } from "@omp-ui/core/types";
 import { FLEET_WAKE_CUSTOM_TYPE, parseFleetWakeCard, type FleetWakeCard } from "@omp-ui/core/fleet-wake";
+import {
+  isAsyncNotifyMessage,
+  parseAsyncNotifyReports,
+  type AsyncNotifyReport,
+} from "@omp-ui/core/async-notify";
 import { toolResultReplies } from "@omp-ui/core/out-replies";
 import { isAgentPauseFrame, isNonTerminalAgentEnd } from "@omp-ui/core/run-end";
 import { parseBashMinimized, type BashMinimized } from "@omp-ui/core/bash-minimized";
@@ -327,6 +332,20 @@ export interface FleetWakeItem {
   text: string;
 }
 
+/**
+ * One omp 19 `async-notify` delivery (issue #1235): background output lines a
+ * job or service was asked to report (`notify` on `bash`), rendered as a
+ * compact per-source card instead of the raw `<system-notice>` model text.
+ */
+export interface AsyncNotifyItem {
+  kind: "asyncNotify";
+  id: string;
+  /** Identity of the delivery this card renders (omp timestamp + reports); settles the start/end pair. */
+  fingerprint: string;
+  reports: AsyncNotifyReport[];
+  timestamp?: number;
+}
+
 export type RenderItem =
   | UserItem
   | AssistantItem
@@ -338,7 +357,8 @@ export type RenderItem =
   | PlanItem
   | CommandItem
   | ShellItem
-  | FleetWakeItem;
+  | FleetWakeItem
+  | AsyncNotifyItem;
 
 let counter = 0;
 
@@ -481,6 +501,9 @@ export function itemSearchText(item: RenderItem): string {
       break;
     case "fleetWake":
       fields.push(item.card.title, item.card.machine, item.text);
+      break;
+    case "asyncNotify":
+      fields.push(...item.reports.flatMap((r) => [r.id, r.pattern, ...r.lines]));
       break;
   }
   const text = fields
@@ -939,6 +962,30 @@ function appendFleetWake(items: RenderItem[], message: Record<string, unknown>):
   return [...items, { kind: "fleetWake", id: `fleet-wake-${++counter}`, card, text: textFromContent(message.content) }];
 }
 
+/**
+ * One async-notify delivery as a card. message_start and message_end both
+ * carry the complete message; the fingerprint (reports + omp's build-time
+ * timestamp) is what makes the pair land as ONE card while still letting two
+ * genuinely identical re-deliveries through (a repeating-error loop prints the
+ * same line twice; omp stamps each notice separately).
+ */
+function appendAsyncNotify(items: RenderItem[], message: Record<string, unknown>): RenderItem[] {
+  const reports = parseAsyncNotifyReports(message.details);
+  if (reports === null) return items;
+  const fingerprint = `${numField(message, "timestamp") ?? ""}|${JSON.stringify(reports)}`;
+  if (items.some((i) => i.kind === "asyncNotify" && i.fingerprint === fingerprint)) return items;
+  return [
+    ...items,
+    {
+      kind: "asyncNotify",
+      id: `async-notify-${++counter}`,
+      fingerprint,
+      reports,
+      timestamp: numField(message, "timestamp"),
+    },
+  ];
+}
+
 /** True while the open run holds nothing since its "agent started" marker but
  *  ambient chrome and the empty assistant message omp may emit before a custom one. */
 function runHasNoContent(items: RenderItem[]): boolean {
@@ -1096,6 +1143,7 @@ export function reduceEvent(items: RenderItem[], event: unknown): RenderItem[] {
       if (!message) return items;
       if (isAdvisorMessage(message)) return appendAdvisory(items, message);
       if (isFleetWakeMessage(message)) return appendLiveFleetWake(items, message);
+      if (isAsyncNotifyMessage(message)) return appendAsyncNotify(items, message);
       const role = str(message.role);
       if (role === "user") {
         // A parent steer (omp 18.18.2+): render the IRC row, never the
@@ -1196,6 +1244,9 @@ export function reduceEvent(items: RenderItem[], event: unknown): RenderItem[] {
       const message = isObj(event.message) ? event.message : null;
       if (message && isAdvisorMessage(message)) return appendAdvisory(items, message);
       if (message && isFleetWakeMessage(message)) return appendLiveFleetWake(items, message);
+      // Before the assistant reconciliation: a notice's rendered <system-notice>
+      // text must never flow into a streaming assistant item.
+      if (message && isAsyncNotifyMessage(message)) return appendAsyncNotify(items, message);
       // `providerPayload` also lives on the message and is megabytes wide —
       // only these accounting fields are ever lifted out of it.
       const meta = message && str(message.role) === "assistant" ? assistantMeta(message) : {};
@@ -1533,6 +1584,11 @@ export function historyToItems(messages: unknown[]): RenderItem[] {
     }
     if (isFleetWakeMessage(raw)) {
       const next = appendFleetWake(items, raw);
+      if (next !== items) items.push(next.at(-1)!);
+      continue;
+    }
+    if (isAsyncNotifyMessage(raw)) {
+      const next = appendAsyncNotify(items, raw);
       if (next !== items) items.push(next.at(-1)!);
       continue;
     }

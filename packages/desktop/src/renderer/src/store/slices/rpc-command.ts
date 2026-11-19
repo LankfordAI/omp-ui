@@ -553,6 +553,8 @@ export function disposeTabRuntime(
     // The job list belongs to the dying process: its bridge's processKey is
     // dead, and the successor's bridge republishes on the boot arm (#835).
     asyncJobs: null,
+    // Its notices died with it too (#1235); the successor re-derives nothing.
+    asyncNotices: {},
     asyncJobsKill: null,
     asyncJobsKillError: null,
     // Spend totals belong to the dying process's bridge; the successor's
@@ -628,6 +630,7 @@ function freshRpcTabState(
     autoresearch: null,
     limits: null,
     asyncJobs: null,
+    asyncNotices: {},
     asyncJobsKill: null,
     asyncJobsKillError: null,
     sessionSpend: null,

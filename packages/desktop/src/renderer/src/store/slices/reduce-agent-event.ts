@@ -1,3 +1,4 @@
+import { asyncNotifyReportsFromFrame } from "@omp-ui/core/async-notify";
 import { credentialFallbackFromFrame } from "@omp-ui/core/credential-fallback";
 import { LIVE_DELEGATION_CUSTOM_TYPE } from "@omp-ui/core/live-voice";
 import { MAGIC_KEYWORDS } from "@omp-ui/core/magic-keywords";
@@ -5,6 +6,7 @@ import { agentEndAwaitsAsyncWork, isNonTerminalAgentEnd } from "@omp-ui/core/run
 import { parseCacheWarmingMethod } from "@omp-ui/core/session-spend";
 import { modelStreamCheckpointLabel } from "@omp-ui/core/stream-activity";
 import { OMP_ERROR_FLAG_USAGE_LIMIT } from "@omp-ui/core/held-prompt";
+import { feedAsyncNotices } from "../../lib/async-notices";
 import { formatDuration } from "../../lib/duration";
 import { arrField, boolField, field, numField, strField } from "../../lib/fields";
 import { DEFERRED_TITLE_MIN_WORDS, titleContextWords } from "../../lib/session-title";
@@ -407,6 +409,14 @@ export function reduceAgentEvent(
 
   if (type === "message_end") {
     const message = field(frame, "message");
+    // The Jobs-pane notice feed (#1235): fold the delivery's reports once per
+    // delivered message — message_end only, because both frames carry the
+    // complete message and feeding both would double every line.
+    const notices = asyncNotifyReportsFromFrame(frame);
+    if (notices !== null) {
+      rpc.asyncNotices = feedAsyncNotices(tab.asyncNotices, notices, now);
+      hasRpcPatch = true;
+    }
     if (strField(message, "role") === "assistant") {
       rpc.lastTurn = {
         stopReason: strField(message, "stopReason"),

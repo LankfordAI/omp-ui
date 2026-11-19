@@ -1,6 +1,7 @@
 import { useEffect, useState, type ReactNode } from "react";
 import { buildAsyncJobRows, type AsyncJob, type AsyncJobRow } from "@omp-ui/core/async-jobs";
 import { AGENT_TONE } from "../lib/agent-tone";
+import { asyncNoticeKey, orphanNoticeKeys, type AsyncNoticeSource } from "../lib/async-notices";
 import { cn } from "../lib/cn";
 import { formatDuration } from "../lib/duration";
 import { startVisibleInterval } from "../lib/visible-interval";
@@ -21,16 +22,22 @@ function useNow(active: boolean): number {
   return now;
 }
 
+/** Stable empty identity so the selector never re-renders on an absent feed. */
+const NO_NOTICES: Record<string, AsyncNoticeSource> = {};
+
 /**
  * The session's omp background jobs (issue #835): running first, then the
  * finished ones omp still retains. Rows expand to command, cwd, pids and the
  * output tail; kill rides the bridge and works mid-turn. Running rows also
  * draw omp's live job widget, a subagent's completion estimate, and its stage
- * (#954).
+ * (#954). omp 19's matching-output notices ride the row they belong to, or an
+ * "other background output" section when no row does (#1235).
  */
 export function JobsPane({ tabId }: { tabId: string }) {
   const t = useT();
   const snapshot = useStore((s) => s.rpc[tabId]?.asyncJobs ?? null);
+  // omp 19 matching-output notices (#1235), folded in per delivered message.
+  const notices = useStore((s) => s.rpc[tabId]?.asyncNotices ?? NO_NOTICES);
   const pending = useStore((s) => s.rpc[tabId]?.asyncJobsKill ?? null);
   const error = useStore((s) => s.rpc[tabId]?.asyncJobsKillError ?? null);
   const subagents = useStore((s) => s.rpc[tabId]?.subagents);
@@ -40,29 +47,53 @@ export function JobsPane({ tabId }: { tabId: string }) {
   const killAsyncJob = useStore((s) => s.killAsyncJob);
   const openSubagent = useStore((s) => s.openSubagent);
   const closeSubagent = useStore((s) => s.closeSubagent);
-  const now = useNow((snapshot?.running.length ?? 0) > 0);
+  // Second ticks while a job runs or a notice source still reports (#1235).
+  const now = useNow((snapshot?.running.length ?? 0) > 0 || Object.values(notices).some((n) => n.running));
 
   const refresh = (
     <IconButton label={t("rail.jobs.refreshLabel")} onClick={() => void refreshAsyncJobs(tabId)}>
       <IconRefresh />
     </IconButton>
   );
+  // #1235: every notice whose job has no row (services — they never enter the
+  // job manager — and jobs omp already evicted from the snapshot) groups into
+  // one trailing section; a reported line is never silently dropped. The early
+  // returns below render it too, since before the first snapshot every source
+  // is unlisted.
+  const listed = new Set([...(snapshot?.running ?? []), ...(snapshot?.recent ?? [])].map((job) => job.id));
+  const orphans = orphanNoticeKeys(notices, listed);
+  const otherOutput =
+    orphans.length === 0 ? null : (
+      <Section title={t("rail.jobs.outputTitle", { count: orphans.length })}>
+        <ul className="space-y-1">
+          {orphans.map((source) => (
+            <NoticeRow key={`${source.type}:${source.id}`} source={source} now={now} />
+          ))}
+        </ul>
+      </Section>
+    );
   if (snapshot === null) {
     return (
-      <Section title={t("rail.tabs.jobs")} action={refresh}>
-        <Empty
-          title={t("rail.jobs.waitingTitle")}
-          hint={t("rail.jobs.waitingHint")}
-          action={<Button size="xs" onClick={() => void refreshAsyncJobs(tabId)}>{t("rail.jobs.refresh")}</Button>}
-        />
-      </Section>
+      <>
+        <Section title={t("rail.tabs.jobs")} action={refresh}>
+          <Empty
+            title={t("rail.jobs.waitingTitle")}
+            hint={t("rail.jobs.waitingHint")}
+            action={<Button size="xs" onClick={() => void refreshAsyncJobs(tabId)}>{t("rail.jobs.refresh")}</Button>}
+          />
+        </Section>
+        {otherOutput}
+      </>
     );
   }
   if (!snapshot.available) {
     return (
-      <Section title={t("rail.tabs.jobs")} action={refresh}>
-        <Empty title={t("rail.jobs.unavailableTitle")} hint={snapshot.unavailable ?? ""} />
-      </Section>
+      <>
+        <Section title={t("rail.tabs.jobs")} action={refresh}>
+          <Empty title={t("rail.jobs.unavailableTitle")} hint={snapshot.unavailable ?? ""} />
+        </Section>
+        {otherOutput}
+      </>
     );
   }
   // Task jobs open the subagent view when the drill-down knows their agent.
@@ -85,6 +116,7 @@ export function JobsPane({ tabId }: { tabId: string }) {
         job={job}
         depth={depth}
         now={now}
+        notice={notices[asyncNoticeKey({ id: job.id, type: "bash" })] ?? null}
         canInspect={snapshot.canInspect}
         canCancel={snapshot.canCancel && (!nested || snapshot.canCancelNested)}
         busy={pending !== null}
@@ -157,6 +189,7 @@ function JobRow({
   job,
   depth,
   now,
+  notice,
   canInspect,
   canCancel,
   busy,
@@ -166,6 +199,8 @@ function JobRow({
   job: AsyncJob;
   depth: number;
   now: number;
+  /** omp 19 matching-output notices for this job, newest tail (#1235). */
+  notice: AsyncNoticeSource | null;
   canInspect: boolean;
   canCancel: boolean;
   busy: boolean;
@@ -228,6 +263,7 @@ function JobRow({
             {stage}
           </p>
         )}
+        {notice !== null && <NoticeOutput source={notice} expanded={open} />}
         {widget !== null && <JobWidgetGlance widget={widget} />}
         {open && widget !== null && <JobWidgetBlocks widget={widget} />}
         {open && !canInspect && <p className="mt-1 pl-3 text-xs text-ink-faint">{t("rail.jobs.noInspect")}</p>}
@@ -250,6 +286,78 @@ function JobRow({
             </Field>
           </dl>
         )}
+      </div>
+    </li>
+  );
+}
+
+/**
+ * The reported-line block (#1235): collapsed to the newest matched line and
+ * its counters so a running row stays scannable; expanded, every retained line
+ * with omp's own `omitted` count and the rolled-off "N earlier" count. A
+ * stopped source (omp's burst allowance spent) says so — silence after that is
+ * expected, not lost output.
+ */
+function NoticeOutput({ source, expanded }: { source: AsyncNoticeSource; expanded: boolean }) {
+  const t = useT();
+  const last = source.lines.at(-1);
+  return (
+    <div data-notify-block className="mt-1 space-y-1 pl-3">
+      {!expanded && last !== undefined && (
+        <p className="truncate font-mono text-xs text-ink-mid" title={last}>
+          {last}
+        </p>
+      )}
+      {expanded && (
+        <pre className="max-h-48 overflow-auto whitespace-pre-wrap break-all rounded bg-sunken p-1.5 font-mono text-xs">
+          {source.droppedLines > 0 ? `${t("rail.jobs.earlier", { count: source.droppedLines })}\n` : ""}
+          {source.lines.join("\n")}
+        </pre>
+      )}
+      <p className="flex flex-wrap items-baseline gap-x-2 font-mono text-xs text-ink-faint">
+        <span title={source.pattern}>/{source.pattern}/</span>
+        {source.omitted > 0 && (
+          <span>{t("rail.jobs.omitted", { count: source.omitted })}</span>
+        )}
+        {!expanded && source.lines.length > 1 && (
+          <span>{t("rail.jobs.matchedLines", { count: source.lines.length })}</span>
+        )}
+        {source.stopped && <span className="text-copper">{t("rail.jobs.stopped")}</span>}
+      </p>
+    </div>
+  );
+}
+
+/**
+ * One notice source with no job row — a daemon-supervised service (they never
+ * enter the job manager, ADR-0054) or a job omp already evicted from the
+ * snapshot (#1235: a report never renders as nothing). Read-only: the pane's
+ * kill verbs belong to listed jobs only.
+ */
+function NoticeRow({ source, now }: { source: AsyncNoticeSource; now: number }) {
+  const t = useT();
+  const [open, setOpen] = useState(false);
+  return (
+    <li className="animate-slide-in">
+      <div className="w-full rounded-md border border-line bg-raised px-2 py-1.5">
+        <div className="flex items-center gap-1.5">
+          <button
+            type="button"
+            aria-expanded={open}
+            aria-label={t(open ? "rail.jobs.collapse" : "rail.jobs.expand", { job: source.id })}
+            onClick={() => setOpen(!open)}
+            className="flex min-w-0 flex-1 items-center gap-1.5 text-left"
+          >
+            <Dot
+              tone={source.running ? "copper" : "neutral"}
+              pulse={source.running}
+              title={source.running ? t("rail.jobs.sourceRunning") : t("rail.jobs.sourceQuiet", { ago: formatDuration(now - source.lastAt) })}
+            />
+            <span className="shrink-0 font-mono text-xs text-ink">{source.id}</span>
+          </button>
+          <Chip mono>{source.type}</Chip>
+        </div>
+        <NoticeOutput source={source} expanded={open} />
       </div>
     </li>
   );

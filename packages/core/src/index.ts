@@ -252,6 +252,7 @@ export * from "./vibe";
 export * from "./collab";
 export * from "./autoresearch";
 export * from "./async-jobs";
+export * from "./async-notify";
 export * from "./session-tree";
 export * from "./side-questions";
 export {

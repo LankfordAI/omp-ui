@@ -19,6 +19,7 @@
     "./council": "./src/council.ts",
     "./council-config": "./src/council-config.ts",
     "./async-jobs": "./src/async-jobs.ts",
+    "./async-notify": "./src/async-notify.ts",
     "./run-end": "./src/run-end.ts",
     "./session-spend": "./src/session-spend.ts",
     "./limits": "./src/limits.ts",

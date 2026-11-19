@@ -101,6 +101,7 @@ import type { PlanReviewRequest, PlanStatus } from "@omp-ui/core/plan";
 import type { ScheduledPromptRequest } from "@omp-ui/core/scheduled-prompt";
 import type { AdvisorStatsView } from "@omp-ui/core/advisor-stats";
 import type { AsyncJobsSnapshot } from "@omp-ui/core/async-jobs";
+import type { AsyncNoticeFeed } from "../lib/async-notices";
 import type { CacheWarmingMethod, SessionSpendSnapshot } from "@omp-ui/core/session-spend";
 import type { LimitsView } from "@omp-ui/core/limits";
 import type { McpRuntimeStatus } from "@omp-ui/core/mcp-status";
@@ -425,6 +426,12 @@ export interface RpcTabState {
    * a malformed publish leaves the last good snapshot standing.
    */
   asyncJobs: AsyncJobsSnapshot | null;
+  /**
+   * Live `async-notify` output notices (issue #1235) keyed `type:id`, fed by
+   * omp 19's matching-output custom messages and read by the Jobs pane.
+   * Display state only; cleared with the tab, never with the job snapshot.
+   */
+  asyncNotices: AsyncNoticeFeed;
   /** The kill this client has in flight (one per tab); settled by the snapshot whose result carries its requestId. */
   asyncJobsKill: { requestId: string; jobId: string | null } | null;
   /** The last kill's failure — the bridge's sentence or the rpc error; cleared by the next kill. */

@@ -23,6 +23,7 @@ import { useTranscriptScale } from "../lib/text-scale";
 import { columnCapFor, useTranscriptWidth } from "../lib/transcript-width";
 import type {
   AssistantItem,
+  AsyncNotifyItem,
   CommandItem,
   FleetWakeItem,
   IrcItem,
@@ -815,6 +816,47 @@ function FleetWakeCard({ item }: { item: FleetWakeItem }) {
   );
 }
 
+/**
+ * One omp 19 background-output notice (issue #1235): the lines a job or
+ * service matched its `notify` regex, as a compact card per source — never
+ * the raw `<system-notice>` model text. The Jobs pane owns the live aggregate;
+ * this is the per-delivery record in the transcript.
+ */
+function AsyncNotifyCard({ item }: { item: AsyncNotifyItem }) {
+  const t = useT();
+  return (
+    <div className="animate-rise flex w-[min(100%,var(--prose-max))] flex-col gap-1">
+      {item.reports.map((report) => (
+        <div key={`${report.type}:${report.id}`} className="rounded-md border border-line bg-raised px-2.5 py-1.5">
+          <div className="flex flex-wrap items-baseline gap-1.5 text-xs">
+            <Chip tone={report.stopped ? "copper" : "signal"}>
+              {t(report.type === "service" ? "transcript.asyncNotify.service" : "transcript.asyncNotify.job")}
+            </Chip>
+            <span className="shrink-0 font-mono text-xs text-ink">{report.id}</span>
+            <span className="min-w-0 truncate font-mono text-xs text-ink-faint" title={report.pattern}>
+              /{report.pattern}/
+            </span>
+            {report.stopped && <span className="text-xs text-copper">{t("transcript.asyncNotify.stopped")}</span>}
+            {!report.running && !report.stopped && (
+              <span className="text-xs text-ink-faint">{t("transcript.asyncNotify.finished")}</span>
+            )}
+          </div>
+          {report.lines.length > 0 && (
+            <pre className="mt-1 max-h-40 overflow-auto whitespace-pre-wrap break-all rounded bg-sunken p-1.5 font-mono text-xs">
+              {report.lines.join("\n")}
+            </pre>
+          )}
+          {report.omitted > 0 && (
+            <p className="mt-0.5 font-mono text-xs text-ink-faint">
+              {t("transcript.asyncNotify.omitted", { count: report.omitted })}
+            </p>
+          )}
+        </div>
+      ))}
+    </div>
+  );
+}
+
 const MARKER_TONE: Record<string, string> = {
   signal: "text-signal",
   copper: "text-copper",
@@ -1151,6 +1193,7 @@ const SPEAKER: Record<RenderItem["kind"], string> = {
   command: "command",
   shell: "shell",
   fleetWake: "meta",
+  asyncNotify: "meta",
 };
 
 /** A reply write reads as the assistant speaking, so it joins the assistant's run. */
@@ -1319,6 +1362,8 @@ const TranscriptRow = memo(function TranscriptRow({
       return <ShellRow item={item} tabId={tabId} />;
     case "fleetWake":
       return <FleetWakeCard item={item} />;
+    case "asyncNotify":
+      return <AsyncNotifyCard item={item} />;
   }
 });
 
