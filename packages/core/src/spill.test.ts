@@ -63,8 +63,9 @@ describe("parseSpillReference", () => {
 
 describe("spillRootForTranscript", () => {
   it("strips active and archive suffixes to the sibling local root", () => {
-    expect(spillRootForTranscript("/s/2026_t.jsonl")).toBe("/s/2026_t/local");
-    expect(spillRootForTranscript("/s/2026_t.jsonl.gz")).toBe("/s/2026_t/local");
+    const expected = path.join("/s", "2026_t", "local");
+    expect(spillRootForTranscript("/s/2026_t.jsonl")).toBe(expected);
+    expect(spillRootForTranscript("/s/2026_t.jsonl.gz")).toBe(expected);
     expect(spillRootForTranscript("/s/weird.txt")).toBe("");
   });
 });
