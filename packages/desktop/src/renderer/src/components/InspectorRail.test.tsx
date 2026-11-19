@@ -163,6 +163,7 @@ function runtime(patch: Partial<RpcTabState> = {}): RpcTabState {
     asyncJobsKill: null,
     asyncJobsKillError: null,
     sessionSpend: null,
+    cacheWarming: null,
     items: [],
     transcriptRevision: 0,
     todos: [{ phase: "work", tasks: [{ content: "First task", status: "pending" }] }],

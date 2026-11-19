@@ -65,7 +65,7 @@ function runtime(patch: Partial<RpcTabState> = {}): RpcTabState {
     planSourceKey: null, planVoice: { ready: false, busy: false, error: null },
     advisorStats: null, mcpStatus: null, advisorReply: true,
     capabilities: null, capabilitiesLoad: "idle", goal: null, vibe: null, sideQuestions: null, sideCommands: null, live: null, autoresearch: null, limits: null,
-    asyncJobs: null, asyncJobsKill: null, asyncJobsKillError: null, sessionSpend: null,
+    asyncJobs: null, asyncJobsKill: null, asyncJobsKillError: null, sessionSpend: null, cacheWarming: null,
     subagentControlBusy: {}, subagentControlError: null,
     browserPane: { open: false, fullscreen: false, agentOpened: false, ensure: "idle", unavailableReason: null, state: null, frame: null },
     devicePane: { open: false, fullscreen: false, ensure: "idle", state: null, inventory: null, frame: null, streamGeneration: 0 },

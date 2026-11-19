@@ -1,6 +1,6 @@
 import { useCallback, useEffect, useId, useRef, useState, type KeyboardEvent, type ReactNode } from "react";
 import { liveOutputSpeaking, type LiveAudioEntry } from "@omp-ui/core/live-voice";
-import type { CacheWarmingMethod, SessionSpendSnapshot, SpendTotals } from "@omp-ui/core/session-spend";
+import type { CacheWarmingMethod, SpendTotals } from "@omp-ui/core/session-spend";
 import { PLAN_TRANSCRIPT_COMMAND, PLAN_TRANSCRIPT_STATUS_KEY } from "@omp-ui/core/plan";
 import { backendFor } from "../backend";
 import { cn } from "../lib/cn";
