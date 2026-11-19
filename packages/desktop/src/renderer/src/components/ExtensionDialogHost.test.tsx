@@ -708,9 +708,36 @@ describe("multi-question ask form (issue #1234)", () => {
 
   it("dismisses on Escape with a cancel, never an answer", () => {
     renderDesktopHost([ASK_FRAME]);
-    act(() => row("SQLite")!.click());
     act(() => window.dispatchEvent(new KeyboardEvent("keydown", { key: "Escape", bubbles: true, cancelable: true })));
     expect(lastFrame()).toMatchObject({ id: "ask1", cancelled: true });
+  });
+
+  it("sends from Enter on the last question once every answer is in", () => {
+    renderDesktopHost([ASK_FRAME]);
+    const setter = Object.getOwnPropertyDescriptor(HTMLInputElement.prototype, "value")!.set!;
+    // Enter in the open question's free text advances to the next empty one…
+    const first = document.body.querySelector<HTMLInputElement>("input")!;
+    act(() => {
+      setter.call(first, "DuckDB");
+      first.dispatchEvent(new Event("input", { bubbles: true }));
+    });
+    act(() => first.dispatchEvent(new KeyboardEvent("keydown", { key: "Enter", bubbles: true, cancelable: true })));
+    expect(rpcSend).not.toHaveBeenCalled();
+    // …and on the last question with nothing left empty it submits.
+    const last = document.body.querySelector<HTMLInputElement>("input")!;
+    act(() => {
+      setter.call(last, "Auth");
+      last.dispatchEvent(new Event("input", { bubbles: true }));
+    });
+    act(() => last.dispatchEvent(new KeyboardEvent("keydown", { key: "Enter", bubbles: true, cancelable: true })));
+    expect(lastFrame()).toEqual({
+      type: "extension_ui_response",
+      id: "ask1",
+      answers: [
+        { id: "db", selectedOptions: [], customInput: "DuckDB" },
+        { id: "features", selectedOptions: [], customInput: "Auth" },
+      ],
+    });
   });
 
   it("leaves the draft unanswerable from the composer — free text is never an ask reply", () => {

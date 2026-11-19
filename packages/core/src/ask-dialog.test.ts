@@ -108,7 +108,7 @@ describe("askDialogResponse", () => {
   });
 
   it("keeps an answered multi-select empty on purpose", () => {
-    const answers = { db: {}, features: { selectedOptions: [] } };
+    const answers = { db: { selectedOptions: [], customInput: "" }, features: { selectedOptions: [] } };
     expect(askDialogResponse(QUESTIONS, answers).answers[1]).toEqual({
       id: "features",
       selectedOptions: [],
