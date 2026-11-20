@@ -4,7 +4,9 @@ This guide explains what users receive from a release and how maintainers publis
 
 ## Unreleased
 
-Nothing since [v0.38.1](https://github.com/LankfordAI/omp-ui/releases/tag/v0.38.1). Add one bullet per shipped change here, citing its issue as `#N`; the release tag lifts these into Highlights.
+Add one bullet per shipped change here, citing its issue as `#N`; the release tag lifts these into Highlights.
+
+- The Share panel offers the official theme tag `animated`, for themes whose backdrop moves (#1212).
 
 ## Choose a download
 

@@ -30,6 +30,7 @@ export const REPOSITORY_IMAGE_BYTES_MAX = 1024 * 1024;
  */
 export const OFFICIAL_THEME_TAGS: readonly string[] = [
   "abstract",
+  "animated",
   "city",
   "cool",
   "cozy",
