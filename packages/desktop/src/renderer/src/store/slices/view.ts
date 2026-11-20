@@ -192,7 +192,15 @@ export function focusOn(
   return { activeTabId: tabId, lab: null, stats: null, fleet: null, fleetTerminal: null, artifacts: null };
 }
 
-/** Restores resumable tabs in saved renderer order, then settles the active tab. */
+/**
+ * Reattaches sessions whose process is still running, in saved renderer
+ * order, then settles focus to them (issue #1241). Restore never respawns: a
+ * dormant, settled, archived, or missing record is skipped and stays in the
+ * sidebar's Settled/active lists for an explicit one-click resume. On
+ * Electron every local session is dormant after quit (`killAll`), so a
+ * desktop relaunch lands on the startup screen unless a process outlived
+ * this client (a detached or remote-host session, a shared backend).
+ */
 export async function restoreSavedTabs(
   get: StoreApi<UiStore>["getState"],
   set: StoreApi<UiStore>["setState"],
@@ -201,7 +209,9 @@ export async function restoreSavedTabs(
   const restored: string[] = [];
   for (const tabId of saved.tabIds) {
     const record = findRecord(get().state, tabId);
-    if (record === undefined || record.live === "missing") continue;
+    // Live-only restore: only a running process reattaches. `archived` and
+    // `missing` were already skipped; `dormant` joins them (issue #1241).
+    if (record === undefined || record.live !== "live") continue;
     if (!IS_ELECTRON && isAndroidShell()) {
       // The host owns process lifetime. Android recovery only reattaches views;
       // even an id saved while live may have settled while this app was gone.

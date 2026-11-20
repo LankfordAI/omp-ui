@@ -182,7 +182,7 @@ const session = (
   tabId: string,
   projectCwd: string,
   mode: "pty" | "rpc-ui",
-  live: "dormant" | "missing",
+  live: "live" | "dormant" | "missing",
   advisor: boolean,
 ) => ({
   tabId,
@@ -228,13 +228,13 @@ const backendState: BackendState = makeBackendState({
   projects: [
     {
       project: { path: "/p/a", name: "a", addedAt: "2026-08-01T00:00:00.000Z", lastModel: null, lastThinkingLevel: null, lastAdvisor: null, lastAdvisorModel: null, defaultModel: null, defaultAdvisorModel: null, browserClock: false, councilRoster: null, knowledgeHome: null, repositoryKey: null, icon: null },
-      sessions: [session("pty-1", "/p/a", "pty", "dormant", false)],
+      sessions: [session("pty-1", "/p/a", "pty", "live", false)],
     },
     {
       project: { path: "/p/b", name: "b", addedAt: "2026-08-01T00:00:00.000Z", lastModel: null, lastThinkingLevel: null, lastAdvisor: null, lastAdvisorModel: null, defaultModel: null, defaultAdvisorModel: null, browserClock: false, councilRoster: null, knowledgeHome: null, repositoryKey: null, icon: null },
-      // rpc-1 resumable, missing-1 is gone on disk, deleted-1 has NO record.
+      // rpc-1 running, missing-1 is gone on disk, deleted-1 has NO record.
       sessions: [
-        session("rpc-1", "/p/b", "rpc-ui", "dormant", true),
+        session("rpc-1", "/p/b", "rpc-ui", "live", true),
         session("missing-1", "/p/b", "rpc-ui", "missing", false),
       ],
     },
@@ -277,7 +277,7 @@ afterEach(() => {
 });
 
 describe("desktop view restore across an AppImage update relaunch (issue #99)", () => {
-  it("resumes surviving tabs in saved order and settles focus to them", async () => {
+  it("reattaches only sessions whose process is still running, in saved order, and settles focus to them", async () => {
     seedSnapshot();
     const store = await freshStore();
     const snapshots: Array<{
@@ -338,6 +338,39 @@ describe("desktop view restore across an AppImage update relaunch (issue #99)", 
     const saved = readSnapshot();
     expect(saved.appVersion).toBe("1.1.0");
     expect(saved.tabIds).toEqual(["pty-1", "rpc-1"]);
+  });
+
+  it("a relaunch with every session dormant restores nothing and shows the startup screen", async () => {
+    // Ground truth after any quit: main's killAll leaves every local session
+    // dormant, so a snapshot of last run's tabs must never respawn (issue #1241).
+    const dormantState: BackendState = {
+      ...backendState,
+      projects: backendState.projects.map((group) => ({
+        ...group,
+        sessions: group.sessions.map((record) =>
+          record.live === "live" ? { ...record, live: "dormant" as const } : record,
+        ),
+      })),
+    };
+    mockBackend.getState.mockResolvedValueOnce(dormantState);
+    seedSnapshot();
+    const store = await freshStore();
+
+    await store.useStore.getState().init();
+
+    // Nothing revived: zero mounted tabs and no active tab is the store state
+    // App.tsx renders <Welcome /> from.
+    expect(mockBackend.spawnSession).not.toHaveBeenCalled();
+    const st = store.useStore.getState();
+    expect(st.tabs).toEqual([]);
+    expect(st.activeTabId).toBeNull();
+    // Panel widths are cross-session preferences: still restored from the blob.
+    expect(st.sidebarWidth).toBe(416);
+    expect(st.restoringTabs).toBe(false);
+    // The stale dormant ids never queue a future respawn; widths survive.
+    const saved = readSnapshot();
+    expect(saved.tabIds).toEqual([]);
+    expect(saved.sidebarWidth).toBe(416);
   });
 
   it("continues the sequence past one rejected spawn and falls back focus", async () => {
@@ -546,6 +579,26 @@ describe("browser view restore without the version gate (issue #890)", () => {
     const seen = mockBackend.spawnSession.mock.calls.map((c) => c[0]!.resumeTabId);
     expect(seen).not.toContain("missing-1");
     expect(seen).not.toContain("deleted-1");
+  });
+
+  it("a reload never resumes a settled row", async () => {
+    // A shared backend keeps running while this tab is gone; only rows whose
+    // process still runs may reattach (issue #1241).
+    mockBackend.getState.mockResolvedValueOnce({
+      ...backendState,
+      projects: backendState.projects.map((group) => ({
+        ...group,
+        sessions: group.sessions.map((record) =>
+          record.tabId === "pty-1" ? { ...record, live: "dormant" as const } : record,
+        ),
+      })),
+    });
+    seedSession();
+    const store = await freshStore();
+    await store.useStore.getState().init();
+    const seen = mockBackend.spawnSession.mock.calls.map((c) => c[0]!.resumeTabId);
+    expect(seen).toEqual(["rpc-1"]);
+    expect(store.useStore.getState().tabs.map((t) => t.tabId)).toEqual(["rpc-1"]);
   });
 
   it("a stale localStorage blob is never read for tabs", async () => {
