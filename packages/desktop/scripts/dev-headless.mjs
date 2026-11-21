@@ -85,7 +85,12 @@ console.log(
   `dev:headless: cdp-port-file=${join(appData, "@omp-ui/desktop-dev-headless", "dev-cdp-port.txt")}`,
 );
 if (pane) {
-  console.log(`dev:headless: pane=http://127.0.0.1:${seeded.remotePort}/?t=${paneToken}`);
+  console.log(`dev:headless: pane=http://127.0.0.1:${seeded.remotePort}/`);
+  // The token rides the registry the app just seeded; verbose opt-in only, so
+  // a pasted dev log never carries a live credential.
+  if (process.env.OMP_UI_VERBOSE === "1") {
+    console.log(`dev:headless: OMP_UI_PANE_TOKEN=${paneToken}`);
+  }
 }
 
 // electron-vite dev rebuilds out/main|preload|renderer only; the remote server

@@ -485,7 +485,6 @@ export class MainBackend {
       opts.providerKeysFile ?? path.join(path.dirname(registryFile), "provider-keys.json"),
       electronKeyCipher(),
     );
-    this.providerKeys.applyToProcessEnv();
     // Retained once: the SessionManager pins and the state projection must
     // describe the same startup value, never two environment reads.
     this.spawnGate = opts.spawnGate ?? NO_GATE;
@@ -1219,26 +1218,32 @@ export class MainBackend {
           await this.broadcast();
         },
         [CH.setProjectDefaultModel]: async (projectPath: string, model: string | null) => {
+          this.registeredProjectPath(projectPath);
           this.registry.setProjectDefaultModel(projectPath, model?.trim() || null);
           await this.broadcast();
         },
         [CH.setProjectDefaultAdvisorModel]: async (projectPath: string, model: string | null) => {
+          this.registeredProjectPath(projectPath);
           this.registry.setProjectDefaultAdvisorModel(projectPath, model?.trim() || null);
           await this.broadcast();
         },
         [CH.setProjectBrowserClock]: async (projectPath: string, on: boolean) => {
+          this.registeredProjectPath(projectPath);
           this.registry.setProjectBrowserClock(projectPath, on);
           await this.broadcast();
         },
         [CH.setProjectKnowledgeHome]: async (projectPath: string, home: KnowledgeHome | null) => {
+          this.registeredProjectPath(projectPath);
           if (this.registry.setProjectKnowledgeHome(projectPath, home)) await this.broadcast();
         },
         [CH.setProjectIcon]: (projectPath: string, req: ProjectIconRequest) => this.setProjectIcon(projectPath, req),
         [CH.getProjectSubagentModels]: (projectCwd: string): ProjectSubagentModelsResult => {
+          this.registeredProjectPath(projectCwd);
           const layer = readProjectConfigMap(projectCwd, ["task", "agentModelOverrides"]);
           return { map: layer.shape === "map" ? layer.value : {}, layer };
         },
         [CH.setProjectSubagentModel]: async (projectCwd: string, agent: string, value: string | null) => {
+          this.registeredProjectPath(projectCwd);
           // The writer quotes on emit, but a name/selector outside the grammar
           // could never match omp's resolution — refuse before touching the file.
           if (!isSafeAgentName(agent)) throw new Error(`refusing unsafe agent name: ${agent}`);
@@ -1248,10 +1253,12 @@ export class MainBackend {
           await setProjectConfigMapEntry(projectCwd, ["task", "agentModelOverrides"], agent, value);
         },
         [CH.getProjectMaxConcurrency]: (projectCwd: string): ProjectScalarResult => {
+          this.registeredProjectPath(projectCwd);
           const layer = readProjectConfigValue(projectCwd, ["task", "maxConcurrency"]);
           return { value: layer.shape === "value" ? layer.value : undefined, layer };
         },
         [CH.setProjectMaxConcurrency]: async (projectCwd: string, value: number | null) => {
+          this.registeredProjectPath(projectCwd);
           // The writer emits numbers bare, but a cap omp could never honor —
           // zero, a fraction, NaN — would hang or starve every spawn. Refuse
           // before touching the file, same stance as the agent-name guard.
@@ -1261,6 +1268,7 @@ export class MainBackend {
           await setProjectConfigValue(projectCwd, ["task", "maxConcurrency"], value);
         },
         [CH.getProjectSpendCaps]: (projectCwd: string): ProjectSpendCapsResult => {
+          this.registeredProjectPath(projectCwd);
           const read = (key: SpendCapKey): ProjectScalarResult => {
             const layer = readProjectConfigValue(projectCwd, ["session", key]);
             return { value: layer.shape === "value" ? layer.value : undefined, layer };
@@ -1268,6 +1276,7 @@ export class MainBackend {
           return { warnCost: read("warnCost"), maxCost: read("maxCost") };
         },
         [CH.setProjectSpendCap]: async (projectCwd: string, key: SpendCapKey, value: number | null) => {
+          this.registeredProjectPath(projectCwd);
           // The project file bypasses omp's own validator ("expected a
           // positive USD amount"), so refuse what omp would reject before
           // touching the file — the maxConcurrency guard's stance.
@@ -1277,10 +1286,12 @@ export class MainBackend {
           await setProjectConfigValue(projectCwd, ["session", key], value);
         },
         [CH.getProjectApprovalMode]: (projectCwd: string): ProjectScalarResult => {
+          this.registeredProjectPath(projectCwd);
           const layer = readProjectConfigValue(projectCwd, ["tools", "approvalMode"]);
           return { value: layer.shape === "value" ? layer.value : undefined, layer };
         },
         [CH.setProjectApprovalMode]: async (projectCwd: string, value: ApprovalMode | null) => {
+          this.registeredProjectPath(projectCwd);
           // A free-text value would make omp resolve the tier to yolo (no
           // approvals at all) — refuse before touching the file, same stance
           // as the maxConcurrency guard (issue #681, #950).
@@ -1311,6 +1322,12 @@ export class MainBackend {
           [CH.setTelemetryThemesEnabled]: () => {
             throw new Error("Theme usage sharing can only be changed in the desktop app.");
           },
+          // Directory browsing lists any absolute path on this host; only the
+          // desktop app's own root frame may call it (finding 3). A remote
+          // web client never needs it: its project picker runs on the owner.
+          [CH.browseDirectories]: () => {
+            throw new Error("Directory browsing is only available in the desktop app.");
+          },
         } : {}),
         ...registerArtifactHandlers(this.artifacts),
         // Human-only save exports: the stored bytes go straight to a chosen path at 0600; large payloads never ride renderer strings. Cancel reports null.
@@ -1340,6 +1357,7 @@ export class MainBackend {
         ...registerSttHandlers({
           registry: this.registry,
           ompPath: this.ompPath,
+          providerKeyValue: (envName) => this.providerKeys.rolloutValue(envName),
         }),
         ...registerAudioHandlers({
           registry: this.registry,
@@ -1500,29 +1518,36 @@ export class MainBackend {
           this.remoteVsCode.open(instanceId, remotePath),
         // Rejecting lets the renderer surface a failure instead of the click
         // dying silently.
-        [CH.openPath]: (absPath: string) => openPath(absPath),
+        [CH.openPath]: (absPath: string) => openPath(this.allowedRevealPath(absPath)),
         [CH.showPathInFolder]: (absPath: string) => {
-          shell.showItemInFolder(absPath);
+          shell.showItemInFolder(this.allowedRevealPath(absPath));
         },
-        [CH.getBranchDiff]: (projectCwd: string, base?: string | null) =>
-          readBranchDiff(projectCwd, base ?? null),
+        [CH.getBranchDiff]: (projectCwd: string, base?: string | null) => {
+          this.registeredProjectPath(projectCwd);
+          return readBranchDiff(projectCwd, base ?? null);
+        },
         // Branch mutations answer through the branch:changed event (#498),
         // never a BackendState broadcast: no registry/BackendState field
         // changes here. The ws transport dispatches through this same table,
         // so a joined instance's call emits on its owner too.
-        [CH.listBranches]: (projectCwd: string, opts?: BranchListOptions) =>
-          listBranches(projectCwd, opts),
+        [CH.listBranches]: (projectCwd: string, opts?: BranchListOptions) => {
+          this.registeredProjectPath(projectCwd);
+          return listBranches(projectCwd, opts);
+        },
         [CH.checkoutBranch]: async (projectCwd: string, name: string, opts?: { create?: boolean }) => {
+          this.registeredProjectPath(projectCwd);
           await checkoutBranch(projectCwd, name, opts);
           this.send(CH.onBranchChanged, projectCwd, null);
         },
         [CH.pullBranch]: async (projectCwd: string) => {
+          this.registeredProjectPath(projectCwd);
           await pullBranch(projectCwd);
           this.send(CH.onBranchChanged, projectCwd, null);
         },
         // Push answers git state through a structured PushResult rather than a
         // rejection (issue #414); only a result that moved a ref emits.
         [CH.pushBranch]: async (projectCwd: string, branch: string, remote?: string | null) => {
+          this.registeredProjectPath(projectCwd);
           const result = await pushBranch(projectCwd, branch, remote);
           if (result.kind === "pushed" || result.kind === "published")
             this.send(CH.onBranchChanged, projectCwd, null);
@@ -1530,14 +1555,19 @@ export class MainBackend {
         },
         // Builds a URL only. Main never opens it: the renderer hands the result
         // to window.open, where setWindowOpenHandler's web-scheme guard decides.
-        [CH.pullRequestUrl]: (projectCwd: string, base: string, head: string) =>
-          pullRequestUrl(projectCwd, base, head),
+        [CH.pullRequestUrl]: (projectCwd: string, base: string, head: string) => {
+          this.registeredProjectPath(projectCwd);
+          return pullRequestUrl(projectCwd, base, head);
+        },
         [CH.createBranch]: async (projectCwd: string, name: string, startPoint: string) => {
+          this.registeredProjectPath(projectCwd);
           await createBranch(projectCwd, name, startPoint);
           this.send(CH.onBranchChanged, projectCwd, null);
         },
-        [CH.resolveMergeDestination]: (projectCwd: string, base: string | null) =>
-          resolveMergeDestination(projectCwd, base),
+        [CH.resolveMergeDestination]: (projectCwd: string, base: string | null) => {
+          this.registeredProjectPath(projectCwd);
+          return resolveMergeDestination(projectCwd, base);
+        },
         [CH.getMergeBackStatus]: (
           projectCwd: string,
           branch: string,
@@ -1558,6 +1588,7 @@ export class MainBackend {
               : worktreePath,
           ),
         [CH.mergeWorktreeBranch]: async (projectCwd: string, branch: string, destination: string) => {
+          this.registeredProjectPath(projectCwd);
           const result = await mergeWorktreeBranch(projectCwd, branch, destination, {
             scratchRoot: path.join(this.worktreesRoot, ".merge"),
           });
@@ -2254,6 +2285,24 @@ export class MainBackend {
     return projectPath;
   }
 
+  /**
+   * The only paths a renderer may ask the OS to open or reveal (finding N4):
+   * files main itself produced — inside the sessions root (session
+   * transcripts, anonymize outputs) or the artifacts root. The renderer sends
+   * main-produced paths today, so this is containment against a compromised
+   * renderer, matching ADR-0082's threat model.
+   */
+  private allowedRevealPath(absPath: string): string {
+    for (const root of [this.sessionsRoot, this.archiveRoot, this.artifactsRoot]) {
+      if (isWithin(root, absPath)) return absPath;
+    }
+    throw new Error("only files this app produced (session transcripts, artifacts) can be opened here");
+  }
+
+  private get artifactsRoot(): string {
+    return path.join(path.dirname(this.registryFile), "artifacts");
+  }
+
   /** Project settings' icon actions (issue #1000); answers with the stored icon. */
   private async setProjectIcon(projectPath: string, req: ProjectIconRequest): Promise<ProjectIcon | null> {
     this.registeredProjectPath(projectPath);
@@ -2837,6 +2886,7 @@ export class MainBackend {
 
   /** omp's own advisor defaults, so the composer can show what it inherits. */
   private advisorDefaults(projectCwd: string): AdvisorDefaults {
+    this.registeredProjectPath(projectCwd);
     const defaults = readOmpAdvisorDefaults(projectCwd);
     return {
       enabled: defaults.enabled,

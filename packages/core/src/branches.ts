@@ -1,5 +1,5 @@
 import * as path from "node:path";
-import { git, type GitOptions } from "./git";
+import { git, refArg, type GitOptions } from "./git";
 import type { BranchList, BranchListOptions, PushResult } from "./types";
 
 const FETCH_TIMEOUT_MS = 5_000;
@@ -528,6 +528,13 @@ export function createBranchService(
     }
 
     try {
+      refArg(branch);
+      if (remoteArgument !== null && remoteArgument !== undefined) refArg(remoteArgument);
+    } catch (error) {
+      return { kind: "failed", detail: errorMessage(error) };
+    }
+
+    try {
       await runGit(root, ["rev-parse", "--verify", "--quiet", `refs/heads/${branch}`]);
     } catch {
       return { kind: "failed", detail: `Cannot push: branch ${branch} does not exist.` };
@@ -565,7 +572,7 @@ export function createBranchService(
       try {
         await runGit(
           root,
-          ["push", remote, `${branch}:${mergeRef}`],
+          ["push", refArg(remote), `${branch}:${mergeRef}`],
           networkOptions(PUSH_TIMEOUT_MS),
         );
       } catch (error) {
@@ -588,7 +595,7 @@ export function createBranchService(
       }
     }
     try {
-      await runGit(root, ["push", "-u", remote, branch], networkOptions(PUSH_TIMEOUT_MS));
+      await runGit(root, ["push", "-u", refArg(remote), refArg(branch)], networkOptions(PUSH_TIMEOUT_MS));
     } catch (error) {
       return classifyPushFailure(error, remote);
     }
@@ -641,7 +648,7 @@ export async function checkoutBranch(
   name: string,
   opts?: { create?: boolean },
 ): Promise<void> {
-  await git(projectCwd, opts?.create ? ["checkout", "-b", name] : ["checkout", name]);
+  await git(projectCwd, opts?.create ? ["checkout", "-b", refArg(name)] : ["checkout", refArg(name)]);
 }
 
 /**
@@ -713,5 +720,5 @@ export async function createBranch(
   name: string,
   startPoint: string,
 ): Promise<void> {
-  await git(projectCwd, ["branch", name, startPoint]);
+  await git(projectCwd, ["branch", refArg(name), refArg(startPoint)]);
 }

@@ -7,6 +7,7 @@ import {
   LOCAL_CLONE_TIMEOUT_MS,
   isWithin,
   parseCloneSource,
+  withoutProviderKeys,
   type FleetProjectManageOutcome,
   type FleetToolProjectArgs,
   type OwnedSessionRecord,
@@ -148,7 +149,9 @@ export class LocalProjectRequests {
         timeout: LOCAL_CLONE_TIMEOUT_MS,
         signal: control.signal,
         env: {
-          ...process.env,
+          // Provider keys never ride a git child (finding 9): a repo's
+          // credential helper or hook runs with this env.
+          ...withoutProviderKeys(process.env),
           GIT_TERMINAL_PROMPT: "0",
           GIT_SSH_COMMAND: process.env.GIT_SSH_COMMAND ?? "ssh -o BatchMode=yes",
         },

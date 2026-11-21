@@ -52,6 +52,12 @@ export interface RpcClientOpts {
    * nothing and keep the user's value.
    */
   childEnv?: NodeJS.ProcessEnv;
+  /**
+   * Provider-credential overlay (`providerKeyEnv`), merged over the sanitized
+   * base env at spawn. `ompChildEnv` strips credentials from inheritance, so
+   * this is the only delivery path to the omp child (finding 9, ADR-0010).
+   */
+  providerEnv?: NodeJS.ProcessEnv;
   /** Extra `-e` extensions — the plan-mode driver (see plan-extension.ts). */
   extensions?: string[];
   /** Commands resolved once on the command rail, after negotiation and before ready is forwarded. */
@@ -228,6 +234,7 @@ export class RpcClient {
       args.push("--no-session", "--no-tools", "--no-extensions", "--no-lsp", "--no-skills", "--no-rules");
     }
     const env = ompChildEnv(opts.ompPath);
+    if (opts.providerEnv !== undefined) Object.assign(env, opts.providerEnv);
     if (opts.childEnv !== undefined) Object.assign(env, opts.childEnv);
     const spawnProcess = opts.spawnProcess ?? defaultSpawn;
     this.#proc = spawnProcess(opts.ompPath, args, env);

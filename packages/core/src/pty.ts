@@ -102,6 +102,12 @@ export function spawnOmp(opts: {
    * only — omp-ui's own environment and ordinary spawns are untouched.
    */
   childEnv?: NodeJS.ProcessEnv;
+  /**
+   * Provider-credential overlay (`providerKeyEnv`), merged over the sanitized
+   * base env at spawn. `ompChildEnv` strips credentials from inheritance, so
+   * this is the only delivery path to the omp child (finding 9, ADR-0010).
+   */
+  providerEnv?: NodeJS.ProcessEnv;
 }): PtyHandle {
   const args = ["--cwd", opts.cwd, "--session-dir", opts.lineageDir];
   if (opts.restoreSessionId) args.push(`--restore=${opts.restoreSessionId}`);
@@ -119,7 +125,7 @@ export function spawnOmp(opts: {
     cols: opts.cols,
     rows: opts.rows,
     cwd: opts.cwd,
-    env: Object.assign(ompChildEnv(opts.ompPath), XTERM_ENV, opts.childEnv),
+    env: Object.assign(ompChildEnv(opts.ompPath), XTERM_ENV, opts.providerEnv, opts.childEnv),
     encoding: null, // raw Buffers, not decoded strings
   });
 

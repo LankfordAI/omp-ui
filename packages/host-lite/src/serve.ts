@@ -178,7 +178,9 @@ export async function startLiteFleetMember(opts: LiteServeOptions = {}): Promise
   } else if (live.status !== "listening") {
     log("omp-ui-lite: remote access is off; set remoteEnabled or use `remote:setEnabled`");
   } else {
-    log(`omp-ui-lite: listening on ${live.tokenUrls.join(", ")}`);
+    // Never log tokenUrls: the token in journald outlives rotation. The CLI
+    // `status` subcommand is the operator's way to read the pairing URLs.
+    log(`omp-ui-lite: listening on ${live.urls.join(", ")}`);
   }
 
   let stopped = false;

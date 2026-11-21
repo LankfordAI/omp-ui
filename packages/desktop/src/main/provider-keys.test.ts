@@ -87,9 +87,13 @@ describe("provider-keys IPC", () => {
     expect(snap.backend).toBe(process.platform === "win32" ? "windows-dpapi" : "test_stub");
   });
 
-  it("a saved key reaches the environment omp inherits — the whole point", async () => {
-    await invoke(CH.setProviderKey, null, KEY, VALUE);
-    expect(process.env[KEY]).toBe(VALUE);
+  it("a saved key resolves as stored and never lands in main's env", async () => {
+    const snap = snapshot(await invoke(CH.setProviderKey, null, KEY, VALUE));
+    // Finding 9: the key no longer lands in main's process.env; the omp
+    // spawn overlay (providerKeyEnv over the sanitized base env) is the
+    // only delivery path. The stored row proves the save committed.
+    expect(KEY in process.env).toBe(false);
+    expect(row(snap, "openrouter")).toMatchObject({ source: "stored", masked: "••••cdef" });
   });
 
   it("answers a write with the refreshed snapshot, so no re-read is needed", async () => {
@@ -111,12 +115,14 @@ describe("provider-keys IPC", () => {
 
   it("survives a restart: a stored key is applied before any session can spawn", async () => {
     await invoke(CH.setProviderKey, null, KEY, VALUE);
-    delete process.env[KEY];
-    // A fresh backend is exactly what the next app launch builds.
-    new MainBackend(win as never, path.join(base, "registry.json"), {
-      providerKeysFile: keysFile,
-    });
-    expect(process.env[KEY]).toBe(VALUE);
+    // Since finding 9 the key no longer lands in process.env at boot:
+    // delivery is per-omp-spawn (providerKeyEnv over the sanitized base
+    // env), so prove the stored row persists and reloads as "stored", and
+    // the value never rides IPC.
+    expect(KEY in process.env).toBe(false);
+    const snap = snapshot(await invoke(CH.setProviderKey, null, KEY, VALUE));
+    expect(row(snap, "openrouter").source).toBe("stored");
+    expect(JSON.stringify(snap)).not.toContain(VALUE);
   });
 
   it("rejects a variable outside the provider catalog", async () => {
@@ -185,11 +191,9 @@ describe("Windows credential backend", () => {
   it("reports DPAPI and round-trips stored provider credentials", async () => {
     expect(electronKeyCipher("win32").backend).toBe("windows-dpapi");
     await invoke(CH.setProviderKey, null, KEY, VALUE);
-    delete process.env[KEY];
-    new MainBackend(win as never, path.join(base, "registry.json"), {
-      providerKeysFile: keysFile,
-    });
-    expect(process.env[KEY]).toBe(VALUE);
+    // Since finding 9 the boot apply is gone; the saved file must still load
+    // as "stored" and the value must never ride IPC.
+    expect(KEY in process.env).toBe(false);
     expect(row(snapshot(await invoke(CH.readProviderKeys, null)), "openrouter").source).toBe(
       "stored",
     );

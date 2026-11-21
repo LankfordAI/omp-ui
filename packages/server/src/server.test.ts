@@ -260,10 +260,10 @@ const PW = "correct-horse-battery";
 const PW_HASH = hashRemotePassword(PW);
 
 /** Native form POST to /login, following no redirects. */
-function postLogin(base: string, password: string): Promise<Response> {
+function postLogin(base: string, password: string, headers: Record<string, string> = {}): Promise<Response> {
   return fetch(`${base}/login`, {
     method: "POST",
-    headers: { "Content-Type": "application/x-www-form-urlencoded" },
+    headers: { "Content-Type": "application/x-www-form-urlencoded", ...headers },
     body: `password=${encodeURIComponent(password)}`,
     redirect: "manual",
   });
@@ -311,6 +311,25 @@ describe("startRemoteServer password auth", () => {
     });
     expect(empty.status).toBe(400);
     expect(await empty.text()).toContain("Password is required");
+  });
+
+  it("refuses a cross-site Origin with 403, no cookie, and no throttle entry", async () => {
+    const { base } = await serve({ password: PW_HASH });
+    const res = await postLogin(base, PW, { Origin: "http://evil.example" });
+    expect(res.status).toBe(403);
+    expect(res.headers.get("set-cookie")).toBeNull();
+    // A correct password would otherwise mint a session: prove the refusal
+    // happened before credential handling, and that the throttle (which
+    // counts wrong-password attempts) did not ingest this as a guess.
+    const sameOrigin = await postLogin(base, PW, { Origin: new URL(base).origin });
+    expect(sameOrigin.status).toBe(302);
+  });
+
+  it("accepts a same-origin Origin and a missing Origin", async () => {
+    const { base } = await serve({ password: PW_HASH });
+    expect((await postLogin(base, PW, { Origin: new URL(base).origin })).status).toBe(302);
+    // No Origin header at all: the CLI/curl path.
+    expect((await postLogin(base, PW)).status).toBe(302);
   });
 
   it("answers a correct password with a redirect and a session cookie that then works", async () => {

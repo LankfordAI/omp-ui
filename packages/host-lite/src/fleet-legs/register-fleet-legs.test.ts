@@ -8,6 +8,7 @@
  */
 import { beforeEach, describe, expect, it, vi } from "vitest";
 import { CH, dispatchNotify, dispatchRequest, type ChannelTable, type FleetAuditEntry, type FleetGrantRecord, type FleetRequester } from "@omp-ui/core";
+import { credentialDigest } from "@omp-ui/server";
 import { registerFleetLegs } from "./register-fleet-legs";
 import type {
   FleetExecLegs,
@@ -261,6 +262,41 @@ describe("lite member grant store (issue #901 raise ceremony)", () => {
       ok: false,
       reason: "the token or password does not match this machine",
     });
+  });
+
+  it("binds the dispatcher id to the first credential and refuses a different one", async () => {
+    const registry = fakeRegistry({ fleetExecCeiling: "manage" });
+    const table = tableOf(registerFleetLegs({ registry, host: hostSeam() }));
+
+    expect(await dispatchRequest(table, CH.fleetGrantRaise, [{ requester: MANAGER, targetRung: "manage", credential: TOKEN }])).toEqual({
+      ok: true,
+      rung: "manage",
+    });
+    expect((registry.store.fleetGrants as Record<string, FleetGrantRecord>)[MANAGER.instanceId]?.credentialDigest).toBe(
+      credentialDigest(TOKEN),
+    );
+
+    // Rotate the token: the same id under the new (valid) credential is
+    // refused — grants do not survive credential rotation by id claim.
+    registry.setSetting("remoteToken", "rotated-token");
+    expect(
+      await dispatchRequest(table, CH.fleetGrantRaise, [{ requester: MANAGER, targetRung: "dispatch", credential: "rotated-token" }]),
+    ).toEqual({ ok: false, reason: expect.stringContaining("bound to a different credential") });
+    expect((registry.store.fleetGrants as Record<string, FleetGrantRecord>)[MANAGER.instanceId]?.rung).toBe("manage");
+  });
+
+  it("backfills the digest on an unbound legacy row, then enforces it", async () => {
+    const registry = fakeRegistry({ fleetExecCeiling: "manage" });
+    registry.setSetting("fleetGrants", { [MANAGER.instanceId]: { label: "desk", updatedAt: "t" } });
+    const table = tableOf(registerFleetLegs({ registry, host: hostSeam() }));
+
+    expect(await dispatchRequest(table, CH.fleetGrantRaise, [{ requester: MANAGER, targetRung: "manage", credential: TOKEN }])).toEqual({
+      ok: true,
+      rung: "manage",
+    });
+    expect((registry.store.fleetGrants as Record<string, FleetGrantRecord>)[MANAGER.instanceId]?.credentialDigest).toBe(
+      credentialDigest(TOKEN),
+    );
   });
 });
 

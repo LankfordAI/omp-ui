@@ -62,7 +62,7 @@ import {
   readInstalledOmpVersion,
   stampOmpManager,
 } from "@omp-ui/core";
-import { passwordSessionCredential, tokenMatches, verifyRemotePassword } from "@omp-ui/server";
+import { credentialDigest, passwordSessionCredential, tokenMatches, verifyRemotePassword } from "@omp-ui/server";
 import { FleetDetachedExecs } from "./fleet-detached-exec";
 import { FleetMaintenance } from "./fleet-maintenance";
 import { FleetTerminals, type FleetTerminalsDeps } from "./fleet-terminals";
@@ -790,13 +790,28 @@ export class FleetServer {
       this.#audit("grant-raise", req.requester, "raise", false, `target ${req.targetRung}: wrong credential`, null);
       return { ok: false, reason: "the token or password does not match this machine" };
     }
+    // Finding 6: a dispatcher id is bound to the credential digest first
+    // presented with it. A mismatched re-presentation is refused without
+    // revealing which credential the grant holds; an unbound (legacy) row
+    // backfills here.
+    const presented = credentialDigest(req.credential);
+    const existing = registry.getSetting("fleetGrants")[req.requester.instanceId];
+    if (existing !== undefined && existing.credentialDigest !== undefined && existing.credentialDigest !== presented) {
+      this.#audit("grant-raise", req.requester, "raise", false, `target ${req.targetRung}: dispatcher id bound to a different credential`, null);
+      return { ok: false, reason: "that dispatcher id is bound to a different credential; re-grant it in Fleet access on this machine" };
+    }
     const ceiling = registry.getSetting("fleetExecCeiling");
     if (fleetRungRank(req.targetRung) > fleetRungRank(ceiling)) {
       this.#audit("grant-raise", req.requester, "raise", false, `target ${req.targetRung}: above ceiling ${ceiling}`, null);
       return { ok: false, reason: `this machine's ceiling is "${ceiling}"; a grant above it never takes effect` };
     }
     const grants = { ...registry.getSetting("fleetGrants") };
-    grants[req.requester.instanceId] = { rung: req.targetRung, label: req.requester.label, updatedAt: new Date().toISOString() };
+    grants[req.requester.instanceId] = {
+      rung: req.targetRung,
+      label: req.requester.label,
+      updatedAt: new Date().toISOString(),
+      credentialDigest: presented,
+    };
     registry.setSetting("fleetGrants", grants);
     this.#deps.broadcast();
     this.#audit("grant-raise", req.requester, "raise", true, `raised to ${req.targetRung}`, null);

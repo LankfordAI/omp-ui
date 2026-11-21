@@ -52,7 +52,7 @@ import type {
   FleetTerminalRenewRequest,
   RequestHandlers,
 } from "@omp-ui/core";
-import { passwordSessionCredential, tokenMatches, verifyRemotePassword } from "@omp-ui/server";
+import { credentialDigest, passwordSessionCredential, tokenMatches, verifyRemotePassword } from "@omp-ui/server";
 import { realpathSync } from "node:fs";
 import * as os from "node:os";
 import type { FleetLegsDeps, FleetLegsHandle, FleetLegsRegistry } from "./types.js";
@@ -180,11 +180,20 @@ export function registerFleetLegs(deps: FleetLegsDeps): FleetLegsHandle {
 
   // `fleet:grantRaise`: the dispatcher re-presents this node's join credential;
   // it is verified against OUR settings before any grant is written. The
-  // credential never enters a log or the ring.
+  // credential never enters a log or the ring. The presented credential is
+  // also the binding check: a dispatcher id is bound to the credential digest
+  // first presented with it (finding 6), and a mismatched re-presentation is
+  // refused without revealing which credential the grant holds.
   request[CH.fleetGrantRaise] = (req: FleetGrantRaiseRequest): FleetGrantRaiseOutcome => {
     if (!credentialMatches(req.credential)) {
       audit("grant-raise", req.requester, "raise", false, `target ${req.targetRung}: wrong credential`, null);
       return { ok: false, reason: "the token or password does not match this machine" };
+    }
+    const presented = credentialDigest(req.credential);
+    const existing = registry.getSetting("fleetGrants")[req.requester.instanceId];
+    if (existing !== undefined && existing.credentialDigest !== undefined && existing.credentialDigest !== presented) {
+      audit("grant-raise", req.requester, "raise", false, `target ${req.targetRung}: dispatcher id bound to a different credential`, null);
+      return { ok: false, reason: "that dispatcher id is bound to a different credential; re-grant it in Fleet access on this machine" };
     }
     const ceiling = registry.getSetting("fleetExecCeiling");
     if (fleetRungRank(req.targetRung) > fleetRungRank(ceiling)) {
@@ -192,7 +201,13 @@ export function registerFleetLegs(deps: FleetLegsDeps): FleetLegsHandle {
       return { ok: false, reason: `this machine's ceiling is "${ceiling}"; a grant above it never takes effect` };
     }
     const grants = { ...registry.getSetting("fleetGrants") };
-    grants[req.requester.instanceId] = { rung: req.targetRung, label: req.requester.label, updatedAt: new Date().toISOString() };
+    grants[req.requester.instanceId] = {
+      rung: req.targetRung,
+      label: req.requester.label,
+      updatedAt: new Date().toISOString(),
+      // Backfill on an unbound (legacy) row; rewrite on an already-bound one.
+      credentialDigest: presented,
+    };
     registry.setSetting("fleetGrants", grants);
     deps.stateChanged?.();
     audit("grant-raise", req.requester, "raise", true, `raised to ${req.targetRung}`, null);

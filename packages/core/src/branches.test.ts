@@ -479,6 +479,19 @@ describe("checkoutBranch", () => {
     await expect(checkoutBranch(dir, "other")).rejects.toThrow(/overwritten by checkout/);
     expect((await listBranches(dir)).current).toBe("main");
   });
+
+  it("refuses dash-leading names and launches nothing", async () => {
+    const dir = await tmpRepo();
+    for (const name of ["-f", "-D", "--force"]) {
+      await expect(checkoutBranch(dir, name)).rejects.toThrow(/refusing ref-like argument/);
+      await expect(checkoutBranch(dir, name, { create: true })).rejects.toThrow(
+        /refusing ref-like argument/,
+      );
+    }
+    // Nothing happened: still on main, no branch created.
+    expect((await listBranches(dir)).current).toBe("main");
+    expect((await listBranches(dir)).branches).toEqual(["main"]);
+  });
 });
 
 describe("readDefaultBranch", () => {
@@ -543,6 +556,20 @@ describe("createBranch", () => {
     const dir = await tmpRepo();
     await expect(createBranch(dir, "main", "main")).rejects.toThrow(/already exists/);
   });
+
+  it("refuses dash-leading names and start points", async () => {
+    const dir = await tmpRepo();
+    for (const [name, startPoint] of [
+      ["-D", "main"],
+      ["release/x", "-x"],
+      ["--force", "main"],
+    ] as const) {
+      await expect(createBranch(dir, name, startPoint)).rejects.toThrow(
+        /refusing ref-like argument/,
+      );
+    }
+    expect((await listBranches(dir)).branches).toEqual(["main"]);
+  });
 });
 
 describe("pullBranch", () => {
@@ -597,6 +624,23 @@ describe("pullBranch", () => {
 });
 
 describe("pushBranch", () => {
+  it("refuses dash-leading remotes and branches before any network call", async () => {
+    const fixture = await remoteFixture();
+    const remoteHead = await headOf(fixture.bare, "release");
+
+    for (const [branch, remote] of [
+      ["-f", "team"],
+      ["work", "--force"],
+      ["--all", null],
+    ] as const) {
+      const result = await pushBranch(fixture.local, branch, remote ?? undefined);
+      expect(result).toMatchObject({ kind: "failed" });
+      if (result.kind === "failed") expect(result.detail).toMatch(/refusing ref-like argument/);
+    }
+    // The bare remote is untouched: no push ever launched.
+    expect(await headOf(fixture.bare, "release")).toBe(remoteHead);
+  });
+
   it("reports up-to-date without a network call when the upstream ref has everything", async () => {
     const fixture = await remoteFixture();
     const rec = recordingGit();
@@ -653,7 +697,6 @@ describe("pushBranch", () => {
     expect(await headOf(fixture.bare, "release")).toBe(await revParse(fixture.local));
     expect(await headOf(fixture.bare, "work")).toBeNull();
   });
-
   it("publishes a branch with no upstream and binds it to the sole remote", async () => {
     const fixture = await remoteFixture();
     await gitIn(fixture.local, ["checkout", "-q", "-b", "feature/new"]);

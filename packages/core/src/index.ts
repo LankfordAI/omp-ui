@@ -528,6 +528,7 @@ export {
   resolveOAuthProviderSpecs,
   supportsRpcRiskLogin,
   terminalLoginCommand,
+  withoutProviderKeys,
   terminalLoginExplanation,
   providerSpecById,
   type LoginProvider,
@@ -550,6 +551,7 @@ export {
 export { resolveMcpServers, setMcpServerEnabled } from "./mcp-config";
 export {
   ompChildEnv,
+  providerKeyEnv,
   runOmpOnce,
   type OmpOneShotProcess,
   type OmpOneShotSpawn,

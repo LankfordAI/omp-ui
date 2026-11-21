@@ -4,6 +4,16 @@ import { withoutAppImageRuntime } from "./appimage-env";
 
 const execFileP = promisify(execFile);
 
+/**
+ * A branch or ref name accepted from a renderer or remote client: never a git
+ * option. `git branch` has no `--` end-of-options marker, so a leading dash is
+ * refused outright instead of escaped.
+ */
+export function refArg(name: string): string {
+  if (name.startsWith("-")) throw new Error(`refusing ref-like argument: ${name}`);
+  return name;
+}
+
 export interface GitOptions {
   timeoutMs?: number;
   env?: NodeJS.ProcessEnv;

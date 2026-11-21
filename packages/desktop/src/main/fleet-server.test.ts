@@ -18,7 +18,7 @@ import {
   type FleetUpdateMemberRequest,
   type PtyHandle,
 } from "@omp-ui/core";
-import { hashRemotePassword, passwordSessionCredential } from "@omp-ui/server";
+import { credentialDigest, hashRemotePassword, passwordSessionCredential } from "@omp-ui/server";
 
 // Fleet update verbs reach core's omp machinery only inside maintenance jobs;
 // stub the network/install layer (precedent: diagnostics.test.ts) so no test
@@ -474,6 +474,40 @@ describe("FleetServer.grantRaise", () => {
     const B: FleetRequester = { ...A, instanceId: "inst-b" };
     expect(server().grantRaise({ requester: B, targetRung: "observe", credential: passwordSessionCredential(hash) }).ok).toBe(true);
     expect(server().grantRaise({ requester: B, targetRung: "manage", credential: "wrong horse" }).ok).toBe(false);
+  });
+
+  it("binds the dispatcher id to the first credential and refuses a different one", () => {
+    registry.setSetting("remoteToken", "");
+    const { salt, hash } = hashRemotePassword("correct horse");
+    registry.setSetting("remotePasswordSalt", salt);
+    registry.setSetting("remotePasswordHash", hash);
+    const s = server();
+    expect(s.grantRaise({ requester: A, targetRung: "manage", credential: "correct horse" }).ok).toBe(true);
+    // Same id, different (also valid) credential: refused, grant untouched.
+    expect(
+      s.grantRaise({ requester: A, targetRung: "observe", credential: passwordSessionCredential(hash) }),
+    ).toEqual({ ok: false, reason: expect.stringContaining("bound to a different credential") });
+    expect(registry.getSetting("fleetGrants")["inst-a"]).toMatchObject({ rung: "manage" });
+    // Same id, same credential: still passes.
+    expect(s.grantRaise({ requester: A, targetRung: "observe", credential: "correct horse" }).ok).toBe(true);
+    // The earlier mismatch was audited as refused.
+    expect(
+      s.auditEntries().some((e) => e.action === "grant-raise" && !e.accepted && e.detail.includes("different credential")),
+    ).toBe(true);
+  });
+
+  it("backfills the digest on an unbound legacy row and then enforces it", () => {
+    registry.setSetting("remoteToken", TOKEN);
+    const s = server();
+    // Pre-existing first-sight row from an older build: no credentialDigest.
+    registry.setSetting("fleetGrants", { "inst-a": { label: "studio", updatedAt: "t" } });
+    expect(s.grantRaise({ requester: A, targetRung: "manage", credential: TOKEN }).ok).toBe(true);
+    expect(registry.getSetting("fleetGrants")["inst-a"]?.credentialDigest).toBe(credentialDigest(TOKEN));
+    // A second dispatcher token now claiming inst-a is refused.
+    const B: FleetRequester = { ...A, instanceId: "inst-a" };
+    registry.setSetting("remoteToken", "rotated-token");
+    expect(s.grantRaise({ requester: B, targetRung: "observe", credential: "rotated-token" }).ok).toBe(false);
+    expect(registry.getSetting("fleetGrants")["inst-a"]?.rung).toBe("manage");
   });
 });
 
