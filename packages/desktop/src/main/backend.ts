@@ -2977,7 +2977,7 @@ export class MainBackend {
     this.planVerifier.dispose();
     this.clockStamper.dispose();
     this.snoozeClock.dispose();
-    this.pullRequests.dispose();
+    const prsSettled = this.pullRequests.dispose();
     this.transfers.dispose();
     this.sessions.killAll();
     this.artifacts.close();
@@ -2986,7 +2986,7 @@ export class MainBackend {
     this.fleetTerminals.dispose();
     this.remoteInstances.stop();
     void this.remote.stop();
-    return Promise.allSettled([statsSettled, headsSettled, ...this.projectProbes]).then(() => undefined);
+    return Promise.allSettled([statsSettled, headsSettled, prsSettled, ...this.projectProbes]).then(() => undefined);
   }
 
   /**

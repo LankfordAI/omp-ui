@@ -98,10 +98,11 @@ export class PullRequestPoller {
     return this.running;
   }
 
-  dispose(): void {
+  dispose(): Promise<void> {
     this.disposed = true;
     clearTimeout(this.timer);
     this.timer = undefined;
+    return this.running ?? Promise.resolve();
   }
 
   private arm(): void {
