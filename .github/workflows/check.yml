@@ -113,10 +113,20 @@ jobs:
           if [ -z "${WAYLAND_DISPLAY:-}${DISPLAY:-}" ]; then
             args=(--out=out/browser-pane-smoke/headless --ozone-platform=headless)
           fi
+          # On the ephemeral hosted runner there is no real GPU: software raster,
+          # where the #653 kick step passes vacuously by design. The gfx1201 pool
+          # (hardwareAcceleration true) keeps gating the GPU compositor.
+          if [ "${{ inputs.hosted }}" = "true" ]; then
+            args+=(--software)
+          fi
           smoke "${args[@]}"; rc=$?
           if [ "$rc" -eq 3 ] && command -v xvfb-run >/dev/null; then
+            software=()
+            if [ "${{ inputs.hosted }}" = "true" ]; then
+              software=(--software)
+            fi
             xvfb-run -a --server-args='-screen 0 1600x1000x24' \
-              npm run smoke:browser-pane --workspace @omp-ui/desktop -- --once --out=out/browser-pane-smoke/xvfb; rc=$?
+              npm run smoke:browser-pane --workspace @omp-ui/desktop -- --once "${software[@]}" --out=out/browser-pane-smoke/xvfb; rc=$?
           fi
           exit "$rc"
       - name: Smoke the plan verifier under headless Electron
