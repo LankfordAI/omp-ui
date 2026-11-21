@@ -124,6 +124,11 @@ function spawnScope(enable: boolean): Scope {
     HOME: home,
     XDG_CONFIG_HOME: path.join(home, ".config"),
     XDG_DATA_HOME: path.join(home, ".local", "share"),
+    // A provider must resolve for the runtime to boot (mirrors event-filter-
+    // live / knowledge-vault-live); the probe only calls ui.askDialog — no
+    // model turn — so this dummy is never used against a provider. Without it
+    // the ready frame never arrives on a clean runner with no ambient keys.
+    ANTHROPIC_API_KEY: process.env.ANTHROPIC_API_KEY ?? "omp-ui-live-test-dummy",
   };
   const client = new RpcClient({
     cwd: project,
