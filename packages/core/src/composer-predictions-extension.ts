@@ -21,8 +21,8 @@ import {
  * predicts the user's next message after a completed turn with one ephemeral
  * side turn (`composer-prediction-controller.ts`); docs/rpc.md has no
  * command or event for it, so the only host-reachable route is an extension's
- * `ctx.runEphemeralTurn` — present on both harness floors (18.22.x and
- * 19.0.0). This generated bridge takes that route:
+ * `ctx.runEphemeralTurn` — present since 18.22.x, so on the current supported
+ * harness (19.0.0) too. This generated bridge takes that route:
  *
  * - Bare arm: binds the command context's `ui`, captures the root session via
  *   the patched `AgentSession.prototype.prompt` (the established pattern), and

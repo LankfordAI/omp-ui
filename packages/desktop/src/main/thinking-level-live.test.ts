@@ -11,11 +11,14 @@ import { RpcClient, resolveOmpBinary } from "@omp-ui/core";
  * session resume on the real `omp --mode=rpc-ui` binary (issue #1232): the
  * seam omp-ui's HUD and every restore path trust, with no live proof before.
  *
- * The cross-version claims, grounded in the omp source of BOTH pinned CI
+ * The cross-version claims, grounded in the omp source of both released
  * binaries (v18.22.0 and v19.0.0 carry this wire identically — the
  * `set_thinking_level` ack, the forwarded `thinking_level_changed` receipt,
  * the `appendModelChange` / `appendThinkingLevelChange` transcript entries,
- * and the resume-time replay in session-context.ts):
+ * and the resume-time replay in session-context.ts). CI runs this proof
+ * against the single supported harness (the pinned current omp, now 19.0.0);
+ * the version branches below keep it truthful when run locally against an
+ * older binary:
  * 1. `set_thinking_level high` on an effort-ladder model answers with a
  *    success ack AND a `thinking_level_changed` frame carrying `high`.
  * 2. `set_model` switches the live model and get_state reports it.
@@ -26,14 +29,14 @@ import { RpcClient, resolveOmpBinary } from "@omp-ui/core";
  * 4. A resume of that session id with no --model and no --thinking restores
  *    BOTH: get_state reports model `switched` and thinking level `high`.
  *
- * One claim genuinely differs between the pins, and the gate asserts the
- * observed behavior on each lane rather than skipping it: what survives a
+ * One claim differs between released versions, and the gate asserts the
+ * observed behavior per binary rather than skipping it: what survives a
  * model switch. v19's #reapplyThinkingLevel carries the current level and
- * applies the new model's default only when none is set; at the floor,
+ * applies the new model's default only when none is set; on 18.x,
  * `preferredDefault ?? this.#thinkingLevel` lets the new model's declared
  * `defaultLevel` override the pinned level (probe: high -> low across the
- * switch). omp-ui masks the floor behavior by re-pinning its own record, so
- * the resume claim stays lane-independent by pinning after the switch.
+ * switch). omp-ui masks the 18.x behavior by re-pinning its own record, so
+ * the resume claim stays version-independent by pinning after the switch.
  *
  * Credential-free by construction: a scripted loopback provider (the
  * intent-headline-live pattern) answers every completion with one sentence
@@ -304,12 +307,12 @@ describe.skipIf(ompPath === null)("thinking level across model switch and resume
       expect(switched.success).toBe(true);
       const afterSwitch = await request(first, { type: "get_state" });
       expect(modelIdOf(afterSwitch.data)).toBe("switched");
-      // The one claim the pinned binaries disagree on — asserted per lane.
-      // v19 carries the pinned level across the switch; the floor lets the
+      // The one claim released versions disagree on — asserted per binary.
+      // v19 carries the pinned level across the switch; 18.x lets the
       // target model's defaultLevel win (omp 18 model-controls preferredDefault).
       expect(afterSwitch.data?.thinkingLevel).toBe(v19 ? "high" : "low");
 
-      // Pin high AFTER the switch so every later claim is lane-independent.
+      // Pin high AFTER the switch so every later claim is version-independent.
       const repin = await request(first, { type: "set_thinking_level", level: "high" });
       expect(repin.success).toBe(true);
       const repinnedState = await request(first, { type: "get_state" });

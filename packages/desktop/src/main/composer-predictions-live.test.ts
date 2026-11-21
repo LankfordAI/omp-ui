@@ -18,11 +18,12 @@ import {
  * Live proof for the composer next-message prediction bridge (issue #1239)
  * against the REAL `omp --mode=rpc-ui` binary — the same skip-when-no-binary
  * discipline as async-jobs-live.test.ts, with a scripted loopback provider so
- * no real provider is ever billed. Runs identically on both harness floors
- * (18.22.0 and 19.0.0): every surface this bridge uses — the command context's
- * `runEphemeralTurn`/`sessionManager`, `ctx.on("agent_start")`, the
- * ADR-0036 registry read, and `appendModelUsage`'s (sessionId, parentId)
- * owner — exists on both tags (verified against their sources).
+ * no real provider is ever billed. CI runs it against the single supported
+ * harness (the pinned current omp, now 19.0.0): every surface this bridge
+ * uses — the command context's `runEphemeralTurn`/`sessionManager`,
+ * `ctx.on("agent_start")`, the ADR-0036 registry read, and
+ * `appendModelUsage`'s (sessionId, parentId) owner — exists on that tag
+ * (verified against its sources).
  *
  * What it proves end to end: with `composer.predictions` on, the arm
  * publishes availability, a request runs exactly one extra provider call over

@@ -6,5 +6,8 @@
  * Lives in its own module so renderer surfaces can import the floor without
  * the barrel's Node-only update machinery; omp-update re-exports it, so
  * `@omp-ui/core` stays a valid path for main-process callers.
+ *
+ * CI proves only the pinned current harness (.github/workflows/check.yml);
+ * bump this floor in the same change that adopts a newer omp's features.
  */
-export const MIN_SUPPORTED_OMP = "18.22.0";
+export const MIN_SUPPORTED_OMP = "19.0.0";
