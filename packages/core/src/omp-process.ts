@@ -21,6 +21,12 @@ export interface RunOmpOnceOptions {
   ompPath: string;
   argv: string[];
   timeout: number;
+  /**
+   * Provider-credential overlay (`providerKeyEnv`), merged over the sanitized
+   * base env at spawn. `ompChildEnv` strips credentials from inheritance, so
+   * model-calling one-shots pass this overlay explicitly (finding 9).
+   */
+  providerEnv?: NodeJS.ProcessEnv;
   /** Test seam — defaults to child_process.spawn over pipes. */
   spawn?: OmpOneShotSpawn;
 }
@@ -79,7 +85,9 @@ export function spawnOmpOneShot(
 export async function runOmpOnce(opts: RunOmpOnceOptions): Promise<string | null> {
   let child: OmpOneShotProcess;
   try {
-    child = (opts.spawn ?? spawnOmpOneShot)(opts.ompPath, opts.argv, ompChildEnv(opts.ompPath));
+    const env = ompChildEnv(opts.ompPath);
+    if (opts.providerEnv !== undefined) Object.assign(env, opts.providerEnv);
+    child = (opts.spawn ?? spawnOmpOneShot)(opts.ompPath, opts.argv, env);
   } catch {
     return null;
   }

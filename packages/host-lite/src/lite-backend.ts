@@ -1,5 +1,6 @@
 import {
   CH,
+  redactFleetGrants,
   type BackendState,
   type ChannelTable,
   type ProjectGroup,
@@ -113,7 +114,11 @@ export function broadcastSettings(registry: Registry): BroadcastSettings {
     mcpEndpointEnabled: _mcp,
     ...broadcast
   } = snapshot;
-  return { ...broadcast, artifactLibraryEnabled: false };
+  return {
+    ...broadcast,
+    fleetGrants: redactFleetGrants(broadcast.fleetGrants),
+    artifactLibraryEnabled: false,
+  };
 }
 
 export class LiteBackend implements RemoteHost {

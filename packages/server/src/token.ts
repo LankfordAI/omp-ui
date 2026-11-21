@@ -17,8 +17,10 @@ export function tokenMatches(expected: string, given: string | null): boolean {
 }
 
 /**
- * Sha256 hex of a presented credential — for binding a fleet dispatcher id to
- * the credential that first claimed it. Stores a digest, never the credential.
+ * Sha256 hex of a high-entropy transport credential (`remoteToken` or
+ * `passwordSessionCredential(hash)`) — for binding a fleet dispatcher id to the
+ * credential that first claimed it. Never feed a raw user password here: use
+ * `passwordSessionCredential(storedScryptHash)` for password-backed credentials.
  */
 export function credentialDigest(credential: string): string {
   return createHash("sha256").update(credential, "utf8").digest("hex");

@@ -27,6 +27,8 @@ export interface ShellHostDependencies {
    * omp child. Hosts without a provider catalog answer empty: no login spawn.
    */
   listTerminalLoginProviderIds?: () => readonly string[];
+  /** Provider-credential overlay merged onto `omp-tui` handoff children (finding 9). */
+  providerEnv?: () => NodeJS.ProcessEnv;
 }
 
 /**
@@ -89,6 +91,7 @@ export class ShellHost {
             rows,
             ompPath: this.requireOmpPath(),
             model: this.deps.getOmpModelArg?.() ?? undefined,
+            ...(this.deps.providerEnv !== undefined ? { providerEnv: this.deps.providerEnv() } : {}),
           })
         : spawnShell({ id: tabId, cwd, cols, rows });
     const detachData = handle.onData((data) => this.deps.send(CH.onShellData, tabId, data));

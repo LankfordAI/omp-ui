@@ -8,12 +8,11 @@
 // URL another omp-ui instance can load in its browser pane.
 import { spawn } from "node:child_process";
 import { randomBytes } from "node:crypto";
-import { mkdtempSync, readFileSync, writeFileSync } from "node:fs";
+import { chmodSync, mkdtempSync, readFileSync, writeFileSync } from "node:fs";
 import { homedir, tmpdir } from "node:os";
-import { join } from "node:path";
+import { dirname, join } from "node:path";
 import { createServer } from "node:net";
 import { fileURLToPath } from "node:url";
-
 // The hoisted workspace bin, so `node scripts/dev-headless.mjs` works outside npm too.
 const electronVite = fileURLToPath(
   new URL("../../../node_modules/.bin/electron-vite", import.meta.url),
@@ -66,7 +65,23 @@ try {
   // Missing or malformed file: start from a fresh document.
 }
 doc.settings = { ...(doc.settings ?? {}), ...seeded };
-writeFileSync(env.OMP_UI_REGISTRY_PATH, JSON.stringify(doc));
+writeFileSync(env.OMP_UI_REGISTRY_PATH, JSON.stringify(doc), { mode: 0o600 });
+try {
+  chmodSync(env.OMP_UI_REGISTRY_PATH, 0o600);
+} catch {
+  // Best effort on non-POSIX filesystems.
+}
+const paneUrlFile = pane ? join(dirname(env.OMP_UI_REGISTRY_PATH), "dev-pane-url.txt") : null;
+if (paneUrlFile !== null) {
+  // Write the full pairing URL to a 0600 file beside the registry so a fresh
+  // browser or agent can authenticate without exposing the token in stdout logs.
+  writeFileSync(paneUrlFile, `http://127.0.0.1:${seeded.remotePort}/?token=${paneToken}\n`, { mode: 0o600 });
+  try {
+    chmodSync(paneUrlFile, 0o600);
+  } catch {
+    // Best effort on non-POSIX filesystems.
+  }
+}
 if (!env.OMP_UI_CDP_PORT) env.OMP_UI_CDP_PORT = "9223";
 if (!env.OMP_UI_TEST_MODEL) {
   console.warn(
@@ -85,9 +100,9 @@ console.log(
   `dev:headless: cdp-port-file=${join(appData, "@omp-ui/desktop-dev-headless", "dev-cdp-port.txt")}`,
 );
 if (pane) {
-  console.log(`dev:headless: pane=http://127.0.0.1:${seeded.remotePort}/`);
-  // The token rides the registry the app just seeded; verbose opt-in only, so
-  // a pasted dev log never carries a live credential.
+  console.log(`dev:headless: pane=http://127.0.0.1:${seeded.remotePort}/ pane-url-file=${paneUrlFile}`);
+  // The full pairing URL lives in the 0600 pane-url-file beside the registry;
+  // verbose opt-in only prints the token to stdout so pasted logs stay clean.
   if (process.env.OMP_UI_VERBOSE === "1") {
     console.log(`dev:headless: OMP_UI_PANE_TOKEN=${paneToken}`);
   }

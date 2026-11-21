@@ -142,7 +142,7 @@ describe("maskKey", () => {
 describe("ProviderKeys storage", () => {
   it("a stored key resolves through the spawn overlay, never into process.env", () => {
     const env: NodeJS.ProcessEnv = {};
-    const { keys } = make();
+    const { keys } = make({ env });
     keys.setKey(KEY, LONG);
     // Finding 9: no blanket env application; the omp spawn overlay is the
     // only delivery path.

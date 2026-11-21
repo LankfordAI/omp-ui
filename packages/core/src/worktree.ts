@@ -89,6 +89,8 @@ export async function addWorktree(
   branch: string,
   baseRef: string | null,
 ): Promise<string> {
+  refArg(branch);
+  if (baseRef !== null) refArg(baseRef);
   let base: string;
   if (baseRef !== null) {
     base = baseRef;
@@ -102,7 +104,7 @@ export async function addWorktree(
   await fs.promises.mkdir(path.dirname(worktreePath), { recursive: true });
   await git(
     projectCwd,
-    ["worktree", "add", "-b", branch, worktreePath, ...(baseRef ? [baseRef] : [])],
+    ["worktree", "add", "-b", refArg(branch), worktreePath, ...(baseRef ? [refArg(baseRef)] : [])],
     { timeoutMs: ADD_TIMEOUT_MS },
   );
   return base;
@@ -158,12 +160,13 @@ export async function addWorktreeForBranch(
   worktreePath: string,
   branch: string,
 ): Promise<string> {
+  refArg(branch);
   const current = await currentBranch(projectCwd);
   const base =
     (await readDefaultBranch(projectCwd)) ??
     (current !== "" ? current : (await git(projectCwd, ["rev-parse", "HEAD"])).trim());
   await fs.promises.mkdir(path.dirname(worktreePath), { recursive: true });
-  await git(projectCwd, ["worktree", "add", worktreePath, branch], {
+  await git(projectCwd, ["worktree", "add", worktreePath, refArg(branch)], {
     timeoutMs: ADD_TIMEOUT_MS,
   });
   return base;
@@ -193,7 +196,7 @@ export async function addWorktreeFromNewBase(
     // Best-effort: an add that died after registering the checkout leaves the
     // new ref held by it and -D then refuses. The primary error still surfaces
     // and spawn rollback reclaims the path.
-    await git(projectCwd, ["branch", "-D", baseBranch]).catch(() => undefined);
+    await git(projectCwd, ["branch", "-D", refArg(baseBranch)]).catch(() => undefined);
     throw err;
   }
   return baseBranch;
@@ -404,20 +407,21 @@ async function resolveMergeDestinationForCurrent(
   base: string | null,
   current: string,
 ): Promise<MergeDestination> {
+  const safeBase = base !== null && !base.startsWith("-") ? base : null;
   const baseIsBranch =
-    base !== null &&
-    !/^[0-9a-f]{40}$/.test(base) &&
-    (await hasRef(projectCwd, `refs/heads/${base}`));
+    safeBase !== null &&
+    !/^[0-9a-f]{40}$/.test(safeBase) &&
+    (await hasRef(projectCwd, `refs/heads/${safeBase}`));
   let destination: string | null = null;
   let reason: MergeDestination["reason"] = "base-gone";
   if (baseIsBranch) {
-    destination = base;
+    destination = safeBase;
     reason = null;
   }
-  if (destination === null && base !== null) {
+  if (destination === null && safeBase !== null) {
     let sha: string;
     try {
-      sha = (await git(projectCwd, ["rev-parse", "--verify", "--quiet", `${base}^{commit}`]))
+      sha = (await git(projectCwd, ["rev-parse", "--verify", "--quiet", `${safeBase}^{commit}`]))
         .trim();
     } catch {
       sha = "";
@@ -710,6 +714,8 @@ export async function readMergeBackStatus(
   destination: string,
   worktreePath: string | null,
 ): Promise<MergeBackStatus> {
+  refArg(branch);
+  refArg(destination);
   const [branchExists, destinationExists, mergeInProgress, destinationCheckout, worktreeDirty] =
     await Promise.all([
       hasRef(projectCwd, `refs/heads/${branch}`),
@@ -976,6 +982,7 @@ export async function syncWorktree(
   worktreePath: string,
   source: string,
 ): Promise<WorktreeSyncResult> {
+  refArg(source);
   if ((await readWorktreeDirty(projectCwd, worktreePath)) !== false) {
     throw new Error("commit or discard the worktree's changes before syncing");
   }
@@ -987,7 +994,7 @@ export async function syncWorktree(
     return { kind: "up-to-date", source, files: [] };
   }
   try {
-    await git(worktreePath, ["merge", "--no-edit", source], { timeoutMs: MERGE_TIMEOUT_MS });
+    await git(worktreePath, ["merge", "--no-edit", refArg(source)], { timeoutMs: MERGE_TIMEOUT_MS });
   } catch (error) {
     const conflicted = await readConflictedPaths(worktreePath);
     if (conflicted.length > 0) {

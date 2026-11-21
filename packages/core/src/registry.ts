@@ -967,8 +967,8 @@ function deepFreeze<T>(value: T): T {
 }
 
 function writeRegistry(file: string, data: RegistryData): void {
-  // The registry carries the remote token and password hash; 0600 like every
-  // other credential file. Replacements preserve an existing file's mode.
+  // The registry carries the remote token and password hash; always written
+  // 0600 like every other credential file.
   writeTextAtomic(file, `${JSON.stringify(data, null, 2)}\n`, 0o600);
 }
 

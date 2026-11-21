@@ -14,7 +14,6 @@
  */
 import {
   CH,
-  browseDirectories,
   formatModelRole,
   hydrateSessionFile,
   isInChatsRoot,
@@ -255,7 +254,8 @@ export function createSessionBundle(input: LiteSessionBundleDependencies): LiteS
   // ---------------------------------------------------------------------------
   const request = {
     [CH.getState]: () => buildState(),
-    [CH.browseDirectories]: (partialPath: string) => browseDirectories(partialPath),
+    // Finding 3: every host-lite client is remote; directory browsing lists
+    // arbitrary host paths and is desktop-only (omitted = unknown channel).
     [CH.addProject]: async (raw: string) => {
       const resolved = await resolveProjectPath(raw);
       if (isInChatsRoot(input.getChatsRoot(), resolved)) {

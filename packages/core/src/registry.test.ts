@@ -150,21 +150,47 @@ describe("SETTINGS", () => {
 });
 
 describe("registry file mode", () => {
-  it("writes a fresh registry 0600 and keeps the mode on rewrite", () => {
+  it("writes a fresh registry 0600 and enforces 0600 on replacement", () => {
     const file = tmpFile();
     const reg = Registry.load(file);
     reg.setSetting("desktopNotifications", false);
-    expect((fs.statSync(file).mode & 0o777) === 0o600).toBe(true);
+    if (process.platform === "win32") {
+      expect(fs.existsSync(file)).toBe(true);
+      return;
+    }
+    expect(fs.statSync(file).mode & 0o777).toBe(0o600);
+    fs.chmodSync(file, 0o644);
+    reg.setSetting("desktopNotifications", true);
+    expect(fs.statSync(file).mode & 0o777).toBe(0o600);
   });
 
-  it("heals a legacy world-readable registry to 0600 on load", () => {
+  it("heals a legacy world-readable registry to 0600 on load without rewriting", () => {
     const file = tmpFile();
-    fs.writeFileSync(file, JSON.stringify({ schemaVersion: 1, projects: [], sessions: [], settings: {} }), {
-      mode: 0o644,
-    });
-    fs.chmodSync(file, 0o644);
+    // Set all seed markers so Registry.load performs no seed writes: only the
+    // load-time chmod can tighten 0644 -> 0600.
+    fs.writeFileSync(
+      file,
+      JSON.stringify({
+        schemaVersion: 1,
+        projects: [],
+        sessions: [],
+        settings: {
+          autoThinkingDefaultSeeded: true,
+          hibernateManualDefaultSeeded: true,
+          experimentsFlagSplitSeeded: true,
+          councilDefaultOnSeeded: true,
+          themeAgentAccessDefaultOnSeeded: true,
+        },
+      }),
+      { mode: 0o644 },
+    );
+    if (process.platform !== "win32") fs.chmodSync(file, 0o644);
     Registry.load(file);
-    expect((fs.statSync(file).mode & 0o777) === 0o600).toBe(true);
+    if (process.platform === "win32") {
+      expect(fs.existsSync(file)).toBe(true);
+    } else {
+      expect(fs.statSync(file).mode & 0o777).toBe(0o600);
+    }
   });
 });
 

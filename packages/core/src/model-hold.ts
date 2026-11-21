@@ -105,6 +105,8 @@ export interface ModelSelectorProbeOpts {
   /** The project dir, so omp layers the same config the session does. */
   cwd: string;
   selector: string;
+  /** Provider-credential overlay merged onto the sanitized omp child env. */
+  providerEnv?: NodeJS.ProcessEnv;
   spawn?: OmpOneShotSpawn;
   timeoutMs?: number;
 }
@@ -134,7 +136,9 @@ export function readModelSelectorError(opts: ModelSelectorProbeOpts): Promise<st
   ];
   let child: OmpOneShotProcess;
   try {
-    child = (opts.spawn ?? spawnOmpOneShot)(opts.ompPath, argv, ompChildEnv(opts.ompPath));
+    const env = ompChildEnv(opts.ompPath);
+    if (opts.providerEnv !== undefined) Object.assign(env, opts.providerEnv);
+    child = (opts.spawn ?? spawnOmpOneShot)(opts.ompPath, argv, env);
   } catch {
     return Promise.resolve(null);
   }

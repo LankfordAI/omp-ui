@@ -224,6 +224,8 @@ export function spawnOmpTui(opts: {
   rows: number;
   /** Dev/test spawn gate selector; see `ompTuiArgs`. */
   model?: string;
+  /** Provider-credential overlay merged onto the sanitized omp child env (finding 9). */
+  providerEnv?: NodeJS.ProcessEnv;
 }): PtyHandle {
   const cmd = withFdSweep(opts.ompPath, ompTuiArgs(opts.cwd, opts.model));
   const proc = pty.spawn(cmd.file, cmd.args, {
@@ -231,7 +233,7 @@ export function spawnOmpTui(opts: {
     cols: opts.cols,
     rows: opts.rows,
     cwd: opts.cwd,
-    env: Object.assign(ompChildEnv(opts.ompPath), XTERM_ENV),
+    env: Object.assign(ompChildEnv(opts.ompPath), XTERM_ENV, opts.providerEnv),
     encoding: null, // raw Buffers, same as spawnOmp
   });
   return adapt(opts.id, proc);

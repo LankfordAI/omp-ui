@@ -17,8 +17,10 @@ import {
   FLEET_EXEC_TIMEOUT_MS,
   cloneRepositoryName,
   fleetEffectiveRung,
+  fleetGrantOf,
   fleetRungAtLeast,
   fleetRungRank,
+  isUnsafeFleetId,
   type AppUpdateState,
   type FleetAuditEntry,
   type FleetDetachedExecRequest,
@@ -61,8 +63,9 @@ import {
   managedOmpPath,
   readInstalledOmpVersion,
   stampOmpManager,
+  withoutProviderKeys,
 } from "@omp-ui/core";
-import { credentialDigest, passwordSessionCredential, tokenMatches, verifyRemotePassword } from "@omp-ui/server";
+import { credentialDigest, currentRemoteCredentialDigest, passwordSessionCredential, tokenMatches, verifyRemotePassword } from "@omp-ui/server";
 import { FleetDetachedExecs } from "./fleet-detached-exec";
 import { FleetMaintenance } from "./fleet-maintenance";
 import { FleetTerminals, type FleetTerminalsDeps } from "./fleet-terminals";
@@ -213,10 +216,25 @@ export class FleetServer {
    * UI can name it.
    */
   check(requester: FleetRequester, need: FleetRung): { ok: true; rung: FleetRung } | { ok: false; reason: string } {
+    if (isUnsafeFleetId(requester.instanceId)) {
+      return { ok: false, reason: "dispatcher id must not be a prototype key" };
+    }
     this.#recordFirstSight(requester);
     const registry = this.#deps.registry;
+    const grant = fleetGrantOf(registry.getSetting("fleetGrants"), requester.instanceId);
+    const connectionDigest = currentRemoteCredentialDigest();
+    if (
+      connectionDigest !== null &&
+      grant?.credentialDigest !== undefined &&
+      grant.credentialDigest !== connectionDigest
+    ) {
+      return {
+        ok: false,
+        reason: "that dispatcher id is bound to a different credential; re-grant it in Fleet access on this machine",
+      };
+    }
     const ceiling = registry.getSetting("fleetExecCeiling");
-    const rung = fleetEffectiveRung(registry.getSetting("fleetGrants")[requester.instanceId], ceiling);
+    const rung = fleetEffectiveRung(grant, ceiling);
     if (!fleetRungAtLeast(rung, need)) {
       return { ok: false, reason: `${requester.label} holds fleet access "${rung}" on this machine; this call needs "${need}"` };
     }
@@ -231,7 +249,7 @@ export class FleetServer {
     this.#recordFirstSight(requester);
     const registry = this.#deps.registry;
     return {
-      rung: fleetEffectiveRung(registry.getSetting("fleetGrants")[requester.instanceId], registry.getSetting("fleetExecCeiling")),
+      rung: fleetEffectiveRung(fleetGrantOf(registry.getSetting("fleetGrants"), requester.instanceId), registry.getSetting("fleetExecCeiling")),
       ceiling: registry.getSetting("fleetExecCeiling"),
       execEnabled: registry.getSetting("fleetExecEnabled"),
     };
@@ -586,7 +604,7 @@ export class FleetServer {
     const registry = this.#deps.registry;
     const holds = (id: string, need: FleetRung) =>
       registry.getSetting("fleetExecEnabled") &&
-      fleetRungAtLeast(fleetEffectiveRung(registry.getSetting("fleetGrants")[id], registry.getSetting("fleetExecCeiling")), need);
+      fleetRungAtLeast(fleetEffectiveRung(fleetGrantOf(registry.getSetting("fleetGrants"), id), registry.getSetting("fleetExecCeiling")), need);
     this.#detached.revokeWhere((id) => holds(id, "full"));
     this.#maintenance.revokeWhere((id) => holds(id, "full"));
     this.#terminals.revokeWhere((id) => holds(id, "terminal"));
@@ -772,7 +790,7 @@ export class FleetServer {
     const injected = this.#deps.execGit;
     if (injected !== undefined) return injected("git", args, opts);
     const { promise, resolve, reject } = Promise.withResolvers<{ stdout: Buffer }>();
-    execFileCb("git", args, { ...opts, maxBuffer: 1_048_576 }, (err, stdout) => {
+    execFileCb("git", args, { ...opts, env: withoutProviderKeys(process.env), maxBuffer: 1_048_576 }, (err, stdout) => {
       if (err !== null) reject(err);
       else resolve({ stdout: Buffer.from(stdout) });
     });
@@ -786,16 +804,20 @@ export class FleetServer {
    */
   grantRaise(req: FleetGrantRaiseRequest): FleetGrantRaiseOutcome {
     const registry = this.#deps.registry;
-    if (!this.#credentialMatches(req.credential)) {
+    if (isUnsafeFleetId(req.requester.instanceId)) {
+      return { ok: false, reason: "dispatcher id must not be a prototype key" };
+    }
+    const presented = this.#verifiedCredentialDigest(req.credential);
+    if (presented === null) {
       this.#audit("grant-raise", req.requester, "raise", false, `target ${req.targetRung}: wrong credential`, null);
       return { ok: false, reason: "the token or password does not match this machine" };
     }
-    // Finding 6: a dispatcher id is bound to the credential digest first
-    // presented with it. A mismatched re-presentation is refused without
-    // revealing which credential the grant holds; an unbound (legacy) row
-    // backfills here.
-    const presented = credentialDigest(req.credential);
-    const existing = registry.getSetting("fleetGrants")[req.requester.instanceId];
+    // Finding 6: a dispatcher id is bound to the high-entropy credential digest
+    // first presented with it (token digest or passwordSessionCredential digest,
+    // never an unsalted raw-password hash). A mismatched re-presentation is
+    // refused without revealing which credential the grant holds; an unbound
+    // (legacy) row backfills here.
+    const existing = fleetGrantOf(registry.getSetting("fleetGrants"), req.requester.instanceId);
     if (existing !== undefined && existing.credentialDigest !== undefined && existing.credentialDigest !== presented) {
       this.#audit("grant-raise", req.requester, "raise", false, `target ${req.targetRung}: dispatcher id bound to a different credential`, null);
       return { ok: false, reason: "that dispatcher id is bound to a different credential; re-grant it in Fleet access on this machine" };
@@ -825,11 +847,20 @@ export class FleetServer {
    * default: the label-only record stays so the dispatcher keeps its row.
    */
   setGrant(dispatcherId: string, rung: FleetRung | null): void {
+    if (dispatcherId === "" || isUnsafeFleetId(dispatcherId)) {
+      throw new Error("dispatcher id must not be a prototype key");
+    }
     const registry = this.#deps.registry;
     const grants = { ...registry.getSetting("fleetGrants") };
-    const label = grants[dispatcherId]?.label ?? "";
-    if (rung === null && grants[dispatcherId]?.rung === undefined) return;
-    grants[dispatcherId] = { ...(rung === null ? {} : { rung }), label, updatedAt: new Date().toISOString() };
+    const prev = fleetGrantOf(grants, dispatcherId);
+    const label = prev?.label ?? "";
+    if (rung === null && prev?.rung === undefined) return;
+    grants[dispatcherId] = {
+      ...(rung === null ? {} : { rung }),
+      label,
+      updatedAt: new Date().toISOString(),
+      ...(prev?.credentialDigest === undefined ? {} : { credentialDigest: prev.credentialDigest }),
+    };
     registry.setSetting("fleetGrants", grants);
     this.#audit(
       "grant-set",
@@ -842,22 +873,33 @@ export class FleetServer {
     this.enforceLadder();
   }
 
-  #credentialMatches(credential: string): boolean {
+  /**
+   * Verifies `credential` against this machine's settings and returns the
+   * high-entropy binding digest (or null when invalid). Both the raw password
+   * and its derived `passwordSessionCredential(hash)` map to the same
+   * session-credential digest, so a raw password is never hashed with unsalted
+   * SHA-256 and a password holder's WS cookie/session matches a password raise.
+   */
+  #verifiedCredentialDigest(credential: string): string | null {
     const registry = this.#deps.registry;
-    if (credential === "") return false;
-    if (tokenMatches(registry.getSetting("remoteToken"), credential)) return true;
+    if (credential === "") return null;
+    const remoteToken = registry.getSetting("remoteToken");
+    if (tokenMatches(remoteToken, credential)) return credentialDigest(remoteToken);
     const hash = registry.getSetting("remotePasswordHash");
-    if (hash === "") return false;
-    // A password holder's browser session credential is the same secret they
-    // could type; accept it too (same rule as the transport's cookie path).
-    if (tokenMatches(passwordSessionCredential(hash), credential)) return true;
-    return verifyRemotePassword(credential, registry.getSetting("remotePasswordSalt"), hash);
+    if (hash === "") return null;
+    const sessionCred = passwordSessionCredential(hash);
+    if (tokenMatches(sessionCred, credential)) return credentialDigest(sessionCred);
+    if (verifyRemotePassword(credential, registry.getSetting("remotePasswordSalt"), hash)) {
+      return credentialDigest(sessionCred);
+    }
+    return null;
   }
 
   #recordFirstSight(requester: FleetRequester): void {
+    if (isUnsafeFleetId(requester.instanceId)) return;
     const registry = this.#deps.registry;
     const grants = registry.getSetting("fleetGrants");
-    if (requester.instanceId in grants) return;
+    if (Object.hasOwn(grants, requester.instanceId)) return;
     // Label-only record: the default rung stays in force (rung omitted).
     const next: Record<string, FleetGrantRecord> = {
       ...grants,

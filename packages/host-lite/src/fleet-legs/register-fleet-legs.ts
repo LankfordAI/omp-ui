@@ -21,7 +21,7 @@
  * answer would pretend otherwise), and the owner-local fleet verbs, which are
  * off REMOTE_PROXY_CHANNELS by design.
  */
-import { CH, FLEET_LABEL_MAX, MIN_SUPPORTED_OMP, compareVersions, fleetEffectiveRung, fleetRungAtLeast, fleetRungRank } from "@omp-ui/core";
+import { CH, FLEET_LABEL_MAX, MIN_SUPPORTED_OMP, compareVersions, fleetEffectiveRung, fleetGrantOf, fleetRungAtLeast, fleetRungRank, isUnsafeFleetId } from "@omp-ui/core";
 import type {
   ChannelTable,
   FleetAuditEntry,
@@ -52,7 +52,7 @@ import type {
   FleetTerminalRenewRequest,
   RequestHandlers,
 } from "@omp-ui/core";
-import { credentialDigest, passwordSessionCredential, tokenMatches, verifyRemotePassword } from "@omp-ui/server";
+import { credentialDigest, currentRemoteCredentialDigest, passwordSessionCredential, tokenMatches, verifyRemotePassword } from "@omp-ui/server";
 import { realpathSync } from "node:fs";
 import * as os from "node:os";
 import type { FleetLegsDeps, FleetLegsHandle, FleetLegsRegistry } from "./types.js";
@@ -122,8 +122,9 @@ export function registerFleetLegs(deps: FleetLegsDeps): FleetLegsHandle {
   };
 
   const recordFirstSight = (requester: FleetRequester): void => {
+    if (isUnsafeFleetId(requester.instanceId)) return;
     const grants = registry.getSetting("fleetGrants");
-    if (requester.instanceId in grants) return;
+    if (Object.hasOwn(grants, requester.instanceId)) return;
     const next: Record<string, FleetGrantRecord> = {
       ...grants,
       [requester.instanceId]: { label: requester.label, updatedAt: new Date().toISOString() },
@@ -133,9 +134,24 @@ export function registerFleetLegs(deps: FleetLegsDeps): FleetLegsHandle {
 
   /** The ladder check — identical decision text to the desktop node's `check`. */
   const check = (requester: FleetRequester, need: FleetRung): RungGate => {
+    if (isUnsafeFleetId(requester.instanceId)) {
+      return { ok: false, reason: "dispatcher id must not be a prototype key" };
+    }
     recordFirstSight(requester);
+    const grant = fleetGrantOf(registry.getSetting("fleetGrants"), requester.instanceId);
+    const connectionDigest = currentRemoteCredentialDigest();
+    if (
+      connectionDigest !== null &&
+      grant?.credentialDigest !== undefined &&
+      grant.credentialDigest !== connectionDigest
+    ) {
+      return {
+        ok: false,
+        reason: "that dispatcher id is bound to a different credential; re-grant it in Fleet access on this machine",
+      };
+    }
     const ceiling = registry.getSetting("fleetExecCeiling");
-    const rung = fleetEffectiveRung(registry.getSetting("fleetGrants")[requester.instanceId], ceiling);
+    const rung = fleetEffectiveRung(grant, ceiling);
     if (!fleetRungAtLeast(rung, need)) {
       return { ok: false, reason: `${requester.label} holds fleet access "${rung}" on this machine; this call needs "${need}"` };
     }
@@ -147,7 +163,7 @@ export function registerFleetLegs(deps: FleetLegsDeps): FleetLegsHandle {
 
   const enforceLadder = (): void => {
     const holds = (id: string, need: FleetRung): boolean =>
-      fleetRungAtLeast(fleetEffectiveRung(registry.getSetting("fleetGrants")[id], registry.getSetting("fleetExecCeiling")), need);
+      fleetRungAtLeast(fleetEffectiveRung(fleetGrantOf(registry.getSetting("fleetGrants"), id), registry.getSetting("fleetExecCeiling")), need);
     deps.exec?.revokeWhere((id) => holds(id, "full"));
     deps.terminals?.revokeWhere((id) => holds(id, "terminal"));
   };
@@ -161,36 +177,44 @@ export function registerFleetLegs(deps: FleetLegsDeps): FleetLegsHandle {
   request[CH.fleetGrantRung] = (requester: FleetRequester) => {
     recordFirstSight(requester);
     return {
-      rung: fleetEffectiveRung(registry.getSetting("fleetGrants")[requester.instanceId], registry.getSetting("fleetExecCeiling")),
+      rung: fleetEffectiveRung(fleetGrantOf(registry.getSetting("fleetGrants"), requester.instanceId), registry.getSetting("fleetExecCeiling")),
       ceiling: registry.getSetting("fleetExecCeiling"),
       execEnabled: registry.getSetting("fleetExecEnabled"),
     };
   };
 
-  const credentialMatches = (credential: string): boolean => {
-    if (credential === "") return false;
-    if (tokenMatches(registry.getSetting("remoteToken"), credential)) return true;
+  const verifiedCredentialDigest = (credential: string): string | null => {
+    if (credential === "") return null;
+    const remoteToken = registry.getSetting("remoteToken");
+    if (tokenMatches(remoteToken, credential)) return credentialDigest(remoteToken);
     const hash = registry.getSetting("remotePasswordHash");
-    if (hash === "") return false;
-    // A password holder's browser session credential is the same secret they
-    // could type; accept it too (the transport's cookie-path rule).
-    if (tokenMatches(passwordSessionCredential(hash), credential)) return true;
-    return verifyRemotePassword(credential, registry.getSetting("remotePasswordSalt"), hash);
+    if (hash === "") return null;
+    const sessionCred = passwordSessionCredential(hash);
+    // A password holder's browser session credential and raw password both
+    // bind to the high-entropy session credential digest (never unsalted sha256(password)).
+    if (tokenMatches(sessionCred, credential)) return credentialDigest(sessionCred);
+    if (verifyRemotePassword(credential, registry.getSetting("remotePasswordSalt"), hash)) {
+      return credentialDigest(sessionCred);
+    }
+    return null;
   };
 
   // `fleet:grantRaise`: the dispatcher re-presents this node's join credential;
   // it is verified against OUR settings before any grant is written. The
   // credential never enters a log or the ring. The presented credential is
-  // also the binding check: a dispatcher id is bound to the credential digest
-  // first presented with it (finding 6), and a mismatched re-presentation is
-  // refused without revealing which credential the grant holds.
+  // also the binding check: a dispatcher id is bound to the high-entropy
+  // credential digest first presented with it (finding 6), and a mismatched
+  // re-presentation is refused without revealing which credential the grant holds.
   request[CH.fleetGrantRaise] = (req: FleetGrantRaiseRequest): FleetGrantRaiseOutcome => {
-    if (!credentialMatches(req.credential)) {
+    if (isUnsafeFleetId(req.requester.instanceId)) {
+      return { ok: false, reason: "dispatcher id must not be a prototype key" };
+    }
+    const presented = verifiedCredentialDigest(req.credential);
+    if (presented === null) {
       audit("grant-raise", req.requester, "raise", false, `target ${req.targetRung}: wrong credential`, null);
       return { ok: false, reason: "the token or password does not match this machine" };
     }
-    const presented = credentialDigest(req.credential);
-    const existing = registry.getSetting("fleetGrants")[req.requester.instanceId];
+    const existing = fleetGrantOf(registry.getSetting("fleetGrants"), req.requester.instanceId);
     if (existing !== undefined && existing.credentialDigest !== undefined && existing.credentialDigest !== presented) {
       audit("grant-raise", req.requester, "raise", false, `target ${req.targetRung}: dispatcher id bound to a different credential`, null);
       return { ok: false, reason: "that dispatcher id is bound to a different credential; re-grant it in Fleet access on this machine" };

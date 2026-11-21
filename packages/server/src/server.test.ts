@@ -315,19 +315,23 @@ describe("startRemoteServer password auth", () => {
 
   it("refuses a cross-site Origin with 403, no cookie, and no throttle entry", async () => {
     const { base } = await serve({ password: PW_HASH });
-    const res = await postLogin(base, PW, { Origin: "http://evil.example" });
-    expect(res.status).toBe(403);
-    expect(res.headers.get("set-cookie")).toBeNull();
-    // A correct password would otherwise mint a session: prove the refusal
-    // happened before credential handling, and that the throttle (which
-    // counts wrong-password attempts) did not ingest this as a guess.
+    // Send 5 cross-site attempts (the full throttle lockout threshold) and
+    // prove none are ingested as password guesses.
+    for (let i = 0; i < 5; i++) {
+      const res = await postLogin(base, PW, { Origin: "http://evil.example" });
+      expect(res.status).toBe(403);
+      expect(res.headers.get("set-cookie")).toBeNull();
+    }
+    const crossSiteFetch = await postLogin(base, PW, { "Sec-Fetch-Site": "cross-site" });
+    expect(crossSiteFetch.status).toBe(403);
     const sameOrigin = await postLogin(base, PW, { Origin: new URL(base).origin });
     expect(sameOrigin.status).toBe(302);
   });
 
-  it("accepts a same-origin Origin and a missing Origin", async () => {
+  it("accepts a same-origin Origin (case-insensitive host) and a missing Origin", async () => {
     const { base } = await serve({ password: PW_HASH });
-    expect((await postLogin(base, PW, { Origin: new URL(base).origin })).status).toBe(302);
+    const parsed = new URL(base);
+    expect((await postLogin(base, PW, { Origin: parsed.origin })).status).toBe(302);
     // No Origin header at all: the CLI/curl path.
     expect((await postLogin(base, PW)).status).toBe(302);
   });

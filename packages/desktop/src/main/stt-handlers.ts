@@ -2,6 +2,7 @@ import {
   CH,
   parseSttSelector,
   PROVIDER_ENV_NAMES,
+  withoutProviderKeys,
   readSttModels,
   resolveSttSelector,
   STT_ROUTES,
@@ -52,8 +53,7 @@ export function registerSttHandlers(
   /** The credential-carrying env for the omp probe and transcription: provider keys resolve
    * through the encrypted store, never main's process.env (finding 9). */
   const providerEnv = (): NodeJS.ProcessEnv => {
-    const env: NodeJS.ProcessEnv = { ...process.env };
-    for (const name of PROVIDER_ENV_NAMES) delete env[name];
+    const env = withoutProviderKeys(process.env);
     for (const name of PROVIDER_ENV_NAMES) {
       const value = deps.providerKeyValue(name);
       if (value !== null) env[name] = value;
@@ -65,10 +65,7 @@ export function registerSttHandlers(
   async function resolveModel(): Promise<string> {
     const stored = deps.registry.getSetting("sttModel");
     if (stored !== null) return stored;
-    const run: OmpConfigRunner | undefined = deps.runOmp
-      ? (args, opts) => deps.runOmp!(args, { ...opts, env: providerEnv() })
-      : undefined;
-    const snapshot = await readSttModels({ ompPath: deps.ompPath }, run);
+    const snapshot = await readSttModels({ ompPath: deps.ompPath, env: providerEnv() }, deps.runOmp);
     const resolved = resolveSttSelector(snapshot.models);
     if (resolved === null) {
       throw new Error(
@@ -81,7 +78,7 @@ export function registerSttHandlers(
   }
 
   return {
-    [CH.readSttModels]: () => readSttModels({ ompPath: deps.ompPath }, deps.runOmp),
+    [CH.readSttModels]: () => readSttModels({ ompPath: deps.ompPath, env: providerEnv() }, deps.runOmp),
     [CH.transcribeAudio]: async (req: SttTranscribeRequest): Promise<SttTranscribeResult> => {
       const model = await resolveModel();
       const route = parseSttSelector(model);

@@ -517,6 +517,7 @@ export class SessionManager {
       send: deps.send,
       getOmpModelArg: () => gateSelector(this.gate),
       listTerminalLoginProviderIds: deps.listTerminalLoginProviderIds,
+      providerEnv: () => providerKeyEnv((envName) => deps.providerKeys.rolloutValue(envName)),
     });
     this.browserPanes = new BrowserPaneHost({
       send: deps.send,

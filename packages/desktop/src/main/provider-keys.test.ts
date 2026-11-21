@@ -113,14 +113,16 @@ describe("provider-keys IPC", () => {
     expect(row(snap, "openrouter").source).toBe("none");
   });
 
-  it("survives a restart: a stored key is applied before any session can spawn", async () => {
+  it("survives a restart: a stored key reloads from disk without landing in process.env", async () => {
     await invoke(CH.setProviderKey, null, KEY, VALUE);
-    // Since finding 9 the key no longer lands in process.env at boot:
-    // delivery is per-omp-spawn (providerKeyEnv over the sanitized base
-    // env), so prove the stored row persists and reloads as "stored", and
-    // the value never rides IPC.
     expect(KEY in process.env).toBe(false);
-    const snap = snapshot(await invoke(CH.setProviderKey, null, KEY, VALUE));
+    // Construct a fresh backend on the same keys file to prove boot-time load.
+    handlers.clear();
+    new MainBackend(win as never, path.join(base, "registry.json"), {
+      providerKeysFile: keysFile,
+    }).registerIpc();
+    expect(KEY in process.env).toBe(false);
+    const snap = snapshot(await invoke(CH.readProviderKeys, null));
     expect(row(snap, "openrouter").source).toBe("stored");
     expect(JSON.stringify(snap)).not.toContain(VALUE);
   });

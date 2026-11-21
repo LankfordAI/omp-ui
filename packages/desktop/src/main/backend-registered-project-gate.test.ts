@@ -11,6 +11,7 @@ import { seedRegistry } from "./test/fixtures";
 vi.mock("electron", () => ({
   app: { isPackaged: false, getVersion: () => "0.0.0", getPath: () => os.tmpdir() },
   dialog: { showOpenDialog: vi.fn() },
+  shell: { showItemInFolder: vi.fn(), openPath: vi.fn(async () => "") },
   safeStorage: {
     isEncryptionAvailable: () => true,
     getSelectedStorageBackend: () => "test_stub",
@@ -85,7 +86,14 @@ describe("project-scoped channels are gated on registered projects", () => {
       ["pullRequestUrl", () => requests[CH.pullRequestUrl](unregistered, "main", "main")],
       ["createBranch", () => requests[CH.createBranch](unregistered, "feature/x", "main")],
       ["resolveMergeDestination", () => requests[CH.resolveMergeDestination](unregistered, null)],
+      ["getMergeBackStatus", () => requests[CH.getMergeBackStatus](unregistered, "main", "main", null)],
       ["mergeWorktreeBranch", () => requests[CH.mergeWorktreeBranch](unregistered, "main", "main")],
+      ["memoryOverview", () => requests[CH.memoryOverview](unregistered)],
+      ["autoresearchOverview", () => requests[CH.autoresearchOverview](unregistered)],
+      ["listProjectFiles", () => requests[CH.listProjectFiles](unregistered)],
+      ["resolveFileMentions", () => requests[CH.resolveFileMentions](unregistered, "@foo")],
+      ["openProject", () => requests[CH.openProject](unregistered, "files")],
+      ["getMcpServers", () => requests[CH.getMcpServers](unregistered)],
     ];
     for (const [name, call] of gated) {
       await expect(Promise.resolve().then(call), name).rejects.toThrow(
@@ -103,5 +111,55 @@ describe("project-scoped channels are gated on registered projects", () => {
       map: {},
     });
     await expect(requests[CH.listBranches](project)).resolves.toBeTruthy();
+  });
+
+  it("refuses browseDirectories and desktop-local shell open channels for remote clients", async () => {
+    const project = fs.mkdtempSync(path.join(base, "registered-"));
+    const be = bootWithProject(project);
+    const remote = be.handlers("remote").request;
+    await expect(Promise.resolve().then(() => remote[CH.browseDirectories]("/"))).rejects.toThrow(
+      /only available in the desktop app/,
+    );
+    await expect(Promise.resolve().then(() => remote[CH.openPath]("/tmp/x"))).rejects.toThrow(
+      /only available in the desktop app/,
+    );
+    await expect(Promise.resolve().then(() => remote[CH.showPathInFolder]("/tmp/x"))).rejects.toThrow(
+      /only available in the desktop app/,
+    );
+    await expect(Promise.resolve().then(() => remote[CH.openProject](project, "files"))).rejects.toThrow(
+      /only available in the desktop app/,
+    );
+  });
+
+  it("rejects symlink escapes and outside paths in showPathInFolder while allowing exported HTML in a registered project", async () => {
+    const project = fs.mkdtempSync(path.join(base, "registered-"));
+    const outside = path.join(base, "secret.txt");
+    fs.writeFileSync(outside, "secret");
+    const artifactsRoot = path.join(base, "custom-artifacts");
+    fs.mkdirSync(artifactsRoot, { recursive: true });
+    const escapeLink = path.join(artifactsRoot, "escape.txt");
+    fs.symlinkSync(outside, escapeLink);
+    const exportedHtml = path.join(project, "omp-session-abc.html");
+    fs.writeFileSync(exportedHtml, "<html></html>");
+
+    seedRegistry(registryFile, {
+      projects: [{
+        path: project, name: "project", addedAt: "2026-08-01T00:00:00.000Z",
+        lastModel: null, lastThinkingLevel: null, lastAdvisor: null, lastAdvisorModel: null,
+        defaultModel: null, defaultAdvisorModel: null, browserClock: false,
+        councilRoster: null, knowledgeHome: null, repositoryKey: null, icon: null,
+      }],
+    });
+    const be = new MainBackend(win as never, registryFile, { appVersion: "1.2.3", artifactsRoot });
+    backends.push(be);
+    const requests = be.handlers().request;
+
+    await expect(Promise.resolve().then(() => requests[CH.showPathInFolder](outside))).rejects.toThrow(
+      /only files this app produced/,
+    );
+    await expect(Promise.resolve().then(() => requests[CH.showPathInFolder](escapeLink))).rejects.toThrow(
+      /only files this app produced/,
+    );
+    await expect(Promise.resolve().then(() => requests[CH.showPathInFolder](exportedHtml))).resolves.toBeUndefined();
   });
 });

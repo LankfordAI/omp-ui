@@ -95,7 +95,7 @@ export function parseSttModelCatalog(
  * unparseable probe yields `discovered: false` with a short reason.
  */
 export async function readSttModels(
-  { ompPath }: { ompPath: string | null },
+  { ompPath, env = process.env }: { ompPath: string | null; env?: NodeJS.ProcessEnv },
   run: OmpConfigRunner = execOmpConfigRunner(ompPath ?? ""),
 ): Promise<SttModelSnapshot> {
   if (ompPath === null) {
@@ -104,7 +104,7 @@ export async function readSttModels(
   try {
     const stdout = await run(["models", "--kind", "stt", "--json"], {
       cwd: os.tmpdir(),
-      env: process.env,
+      env,
     });
     let parsed: unknown;
     try {
@@ -112,8 +112,8 @@ export async function readSttModels(
     } catch {
       return { models: [], discovered: false, error: "omp did not return a model list" };
     }
-    const models = parseSttModelCatalog(parsed, (env) => {
-      const value = process.env[env];
+    const models = parseSttModelCatalog(parsed, (envName) => {
+      const value = env[envName];
       return typeof value === "string" && value !== "";
     });
     return models === null
