@@ -864,6 +864,17 @@ describe("mergeWorktreeBranch", () => {
     );
   });
 
+  it("refuses a dash-leading branch name before merging", async () => {
+    const dir = await tmpRepo();
+    const before = (await git(dir, ["rev-parse", "main"])).trim();
+    await expect(
+      mergeWorktreeBranch(dir, "--force", "main", {
+        scratchRoot: path.join(dir, "scratch"),
+      }),
+    ).rejects.toThrow(/refusing ref-like argument/);
+    expect((await git(dir, ["rev-parse", "main"])).trim()).toBe(before);
+  });
+
   it("borrows the subject of a single folded commit", async () => {
     const dir = await tmpRepo();
     const branch = mint();
@@ -1449,6 +1460,17 @@ describe("renameWorktreeBranch", () => {
     const wt = path.join(dir, "wt", "checkout");
     await addWorktree(dir, wt, branch, "main");
     await expect(renameWorktreeBranch(wt, branch, "main")).rejects.toThrow(/already exists/);
+  });
+
+  it("refuses dash-leading names", async () => {
+    const dir = await tmpRepo();
+    const branch = mint();
+    const wt = path.join(dir, "wt", "checkout");
+    await addWorktree(dir, wt, branch, "main");
+    await expect(renameWorktreeBranch(wt, branch, "--force")).rejects.toThrow(
+      /refusing ref-like argument/,
+    );
+    expect((await git(wt, ["branch", "--show-current"])).trim()).toBe(branch);
   });
 });
 

@@ -18,7 +18,12 @@ afterEach(() => {
 });
 
 function handlers(fetchImpl: typeof fetch) {
-  return registerSttHandlers({ registry, ompPath: "/bin/omp", fetchImpl });
+  return registerSttHandlers({
+    registry,
+    ompPath: "/bin/omp",
+    fetchImpl,
+    providerKeyValue: (envName) => process.env[envName] ?? null,
+  });
 }
 
 const req: SttTranscribeRequest = { audioBase64: "AUIATABc", language: null };
@@ -107,27 +112,36 @@ describe("transcribeAudio", () => {
     }
   });
 
-  it("auto-resolves a null sttModel from the omp probe at call time", async () => {
+  it("auto-resolves a null sttModel from the omp probe using stored provider keys absent from process.env", async () => {
     // Exercise the real catalog parsing without a Unix shell shim (Windows
     // cannot spawn a shebang script via execFile).
-    const runOmp = async () => JSON.stringify({ models: [{ provider: "openrouter", kind: "stt", selector: "openrouter/openai/whisper-1", name: "Whisper 1" }] });
-    process.env.OPENROUTER_API_KEY = "sk-or";
-    try {
-      const fetchImpl = vi.fn(async (_url: unknown, init: unknown) => {
-        const body = (init as { body: FormData }).body;
-        expect(body.get("model")).toBe("openai/whisper-1");
-        return new Response(JSON.stringify({ text: "resolved" }), { status: 200 });
-      });
-      const h = registerSttHandlers({ registry, ompPath: "omp", runOmp, fetchImpl: fetchImpl as unknown as typeof fetch });
-      await expect(h[CH.transcribeAudio](req)).resolves.toEqual({ text: "resolved" });
-    } finally {
-      delete process.env.OPENROUTER_API_KEY;
-    }
+    delete process.env.OPENROUTER_API_KEY;
+    const seenEnvs: NodeJS.ProcessEnv[] = [];
+    const runOmp = async (_args: readonly string[], opts: { cwd: string; env: NodeJS.ProcessEnv }) => {
+      seenEnvs.push(opts.env);
+      return JSON.stringify({ models: [{ provider: "openrouter", kind: "stt", selector: "openrouter/openai/whisper-1", name: "Whisper 1" }] });
+    };
+    const fetchImpl = vi.fn(async (_url: unknown, init: unknown) => {
+      const body = (init as { body: FormData }).body;
+      expect(body.get("model")).toBe("openai/whisper-1");
+      return new Response(JSON.stringify({ text: "resolved" }), { status: 200 });
+    });
+    const h = registerSttHandlers({
+      registry,
+      ompPath: "omp",
+      runOmp,
+      fetchImpl: fetchImpl as unknown as typeof fetch,
+      providerKeyValue: (envName) => (envName === "OPENROUTER_API_KEY" ? "sk-or-stored" : null),
+    });
+    const snapshot = await h[CH.readSttModels]();
+    expect(snapshot.models[0]?.callable).toBe(true);
+    await expect(h[CH.transcribeAudio](req)).resolves.toEqual({ text: "resolved" });
+    expect(seenEnvs.every((e) => e.OPENROUTER_API_KEY === "sk-or-stored")).toBe(true);
   });
 
   it("rejects with the providers hint when nothing is callable", async () => {
     const runOmp = async () => JSON.stringify({ models: [] });
-    const h = registerSttHandlers({ registry, ompPath: "omp", runOmp, fetchImpl: vi.fn() as unknown as typeof fetch });
+    const h = registerSttHandlers({ registry, ompPath: "omp", runOmp, fetchImpl: vi.fn() as unknown as typeof fetch, providerKeyValue: () => null });
     await expect(h[CH.transcribeAudio](req)).rejects.toThrow(/no callable dictation model/);
   });
 });
@@ -138,14 +152,14 @@ describe("readSttModels handler", () => {
       { provider: "openrouter", kind: "stt", selector: "openrouter/openai/whisper-1", name: "Whisper 1" },
       { provider: "local", kind: "stt", selector: "local/whisper-base", name: "Whisper Base" },
     ] });
-    const h = registerSttHandlers({ registry, ompPath: "omp", runOmp, fetchImpl: vi.fn() as unknown as typeof fetch });
+    const h = registerSttHandlers({ registry, ompPath: "omp", runOmp, fetchImpl: vi.fn() as unknown as typeof fetch, providerKeyValue: () => null });
     const snapshot = await h[CH.readSttModels]();
     expect(snapshot.discovered).toBe(true);
     expect(snapshot.models.map((m) => m.selector)).toEqual(["openrouter/openai/whisper-1"]);
   });
 
   it("reports a missing binary", async () => {
-    const h = registerSttHandlers({ registry, ompPath: null, fetchImpl: vi.fn() as unknown as typeof fetch });
+    const h = registerSttHandlers({ registry, ompPath: null, fetchImpl: vi.fn() as unknown as typeof fetch, providerKeyValue: () => null });
     await expect(h[CH.readSttModels]()).resolves.toEqual({
       models: [],
       discovered: false,

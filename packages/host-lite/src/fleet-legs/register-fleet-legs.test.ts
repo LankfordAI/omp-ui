@@ -8,6 +8,7 @@
  */
 import { beforeEach, describe, expect, it, vi } from "vitest";
 import { CH, dispatchNotify, dispatchRequest, type ChannelTable, type FleetAuditEntry, type FleetGrantRecord, type FleetRequester } from "@omp-ui/core";
+import { credentialDigest, withRemoteCredentialDigest } from "@omp-ui/server";
 import { registerFleetLegs } from "./register-fleet-legs";
 import type {
   FleetExecLegs,
@@ -261,6 +262,47 @@ describe("lite member grant store (issue #901 raise ceremony)", () => {
       ok: false,
       reason: "the token or password does not match this machine",
     });
+  });
+
+  it("binds the dispatcher id to the first credential and refuses a different one on raise and exec", async () => {
+    const registry = fakeRegistry({ fleetExecCeiling: "full", fleetExecEnabled: true });
+    const exec = fakeExec();
+    const table = tableOf(registerFleetLegs({ registry, host: hostSeam(), exec }));
+
+    expect(await dispatchRequest(table, CH.fleetGrantRaise, [{ requester: MANAGER, targetRung: "full", credential: TOKEN }])).toEqual({
+      ok: true,
+      rung: "full",
+    });
+    expect((registry.store.fleetGrants as Record<string, FleetGrantRecord>)[MANAGER.instanceId]?.credentialDigest).toBe(
+      credentialDigest(TOKEN),
+    );
+
+    // Rotate the token: the same id under the new (valid) credential is
+    // refused on both grantRaise and exec.
+    registry.setSetting("remoteToken", "rotated-token");
+    expect(
+      await dispatchRequest(table, CH.fleetGrantRaise, [{ requester: MANAGER, targetRung: "dispatch", credential: "rotated-token" }]),
+    ).toEqual({ ok: false, reason: expect.stringContaining("bound to a different credential") });
+    expect((registry.store.fleetGrants as Record<string, FleetGrantRecord>)[MANAGER.instanceId]?.rung).toBe("full");
+    const execRes = await withRemoteCredentialDigest(credentialDigest("rotated-token"), () =>
+      dispatchRequest(table, CH.fleetExec, [{ requester: MANAGER, command: "echo hi", cwd: null, timeoutMs: null }]),
+    );
+    expect(execRes).toEqual({ status: "refused", reason: expect.stringContaining("bound to a different credential") });
+    expect(exec.calls).toEqual([]);
+  });
+
+  it("backfills the digest on an unbound legacy row, then enforces it", async () => {
+    const registry = fakeRegistry({ fleetExecCeiling: "manage" });
+    registry.setSetting("fleetGrants", { [MANAGER.instanceId]: { label: "desk", updatedAt: "t" } });
+    const table = tableOf(registerFleetLegs({ registry, host: hostSeam() }));
+
+    expect(await dispatchRequest(table, CH.fleetGrantRaise, [{ requester: MANAGER, targetRung: "manage", credential: TOKEN }])).toEqual({
+      ok: true,
+      rung: "manage",
+    });
+    expect((registry.store.fleetGrants as Record<string, FleetGrantRecord>)[MANAGER.instanceId]?.credentialDigest).toBe(
+      credentialDigest(TOKEN),
+    );
   });
 });
 

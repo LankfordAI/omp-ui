@@ -967,7 +967,9 @@ function deepFreeze<T>(value: T): T {
 }
 
 function writeRegistry(file: string, data: RegistryData): void {
-  writeTextAtomic(file, `${JSON.stringify(data, null, 2)}\n`);
+  // The registry carries the remote token and password hash; always written
+  // 0600 like every other credential file.
+  writeTextAtomic(file, `${JSON.stringify(data, null, 2)}\n`, 0o600);
 }
 
 /**
@@ -1078,6 +1080,13 @@ export class Registry {
     }
     const data = parseRegistryData(parsed);
     if (data) {
+      // Heal a pre-0600 registry once: the file holds the remote token and
+      // password hash, so a legacy world-readable mode tightens on first load.
+      try {
+        if ((fs.statSync(file).mode & 0o777) !== 0o600) fs.chmodSync(file, 0o600);
+      } catch {
+        // Best effort: the next save writes 0600 regardless.
+      }
       const registry = open(data, parsed && typeof parsed === "object" && "settings" in parsed ? parsed.settings : undefined);
       seedAutoThinkingDefault(file, data);
       seedHibernateManualDefault(file, data);

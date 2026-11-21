@@ -3,6 +3,7 @@
 // Main-process only (mirrors collab-cli.ts) — the renderer never shells out,
 // and redaction stays entirely omp-side: omp-ui never re-implements it.
 import { execFile } from "node:child_process";
+import { withoutProviderKeys } from "./provider-catalog";
 import type { AnonymizeSessionResult } from "./types";
 
 /** One CLI invocation outcome, captured without throwing on nonzero exit. */
@@ -32,10 +33,13 @@ const defaultExec: AnonymizeCliExec = (ompPath, argv) =>
       // NO_COLOR/FORCE_COLOR=0 keep the refusal scrape plain text
       // (omp-settings.ts:99-110): an inherited FORCE_COLOR would colorize
       // stderr past the "^error:" strip and surface escape codes verbatim.
+      // Provider keys never ride an anonymize child (finding 9): the
+      // redaction needs no model access, and the transcript leaves the
+      // machine in the same run.
       {
         timeout: DEFAULT_TIMEOUT_MS,
         maxBuffer: 4 * 1024 * 1024,
-        env: { ...process.env, NO_COLOR: "1", FORCE_COLOR: "0" },
+        env: withoutProviderKeys({ ...process.env, NO_COLOR: "1", FORCE_COLOR: "0" }),
       },
       (err, stdout, stderr) => {
         // execFile errors carry the exit code (or a spawn failure as a string);

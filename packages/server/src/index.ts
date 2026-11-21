@@ -1,3 +1,4 @@
+import { AsyncLocalStorage } from "node:async_hooks";
 import { randomBytes } from "node:crypto";
 import { createServer, type IncomingMessage, type Server, type ServerResponse } from "node:http";
 import { networkInterfaces } from "node:os";
@@ -32,6 +33,7 @@ import {
   type ServerFrame,
 } from "./protocol";
 import {
+  credentialDigest,
   passwordSessionCredential,
   tokenMatches,
   verifyRemotePassword,
@@ -287,7 +289,13 @@ export function startRemoteServer(opts: RemoteServerOptions): Promise<RemoteServ
     if (value === null) return false;
     return tokenMatches(token, value) || (sessionCred !== null && tokenMatches(sessionCred, value));
   };
-
+  /** High-entropy digest of the accepted WS connection credential, for fleet grant binding (finding 6). */
+  const acceptedCredentialDigest = (value: string | null): string | null => {
+    if (value === null) return null;
+    if (tokenMatches(token, value)) return credentialDigest(token);
+    if (sessionCred !== null && tokenMatches(sessionCred, value)) return credentialDigest(sessionCred);
+    return null;
+  };
   // One throttle per server: a restart (config change) resetting the lockout is the
   // documented v1 behavior.
   const loginThrottle = new LoginThrottle();
@@ -342,6 +350,32 @@ export function startRemoteServer(opts: RemoteServerOptions): Promise<RemoteServ
   };
 
   const handleLogin = (req: IncomingMessage, res: ServerResponse): void => {
+    // Cross-site login CSRF (finding N2): a form auto-posted from another
+    // origin could fix the victim's session to an attacker-known password.
+    // A present Origin that names a different host (or Sec-Fetch-Site:
+    // cross-site when Origin is absent) is refused before any body parsing
+    // and does not count against the throttle — it is not a password guess.
+    // Absent Origin + absent Sec-Fetch-Site (CLI, curl) proceeds unchanged.
+    const origin = req.headers.origin;
+    const rejectCrossSite = (): void => {
+      req.resume();
+      send(res, 403, loginPage("This sign-in did not come from this server's own pages."), "text/html; charset=utf-8");
+    };
+    if (origin !== undefined) {
+      let originUrl: URL;
+      let requestHostUrl: URL;
+      try {
+        originUrl = new URL(origin);
+        const rawHost = req.headers.host;
+        if (typeof rawHost !== "string" || rawHost === "") return rejectCrossSite();
+        requestHostUrl = new URL(`${originUrl.protocol}//${rawHost}`);
+      } catch {
+        return rejectCrossSite();
+      }
+      if (originUrl.host !== requestHostUrl.host) return rejectCrossSite();
+    } else if (req.headers["sec-fetch-site"] === "cross-site") {
+      return rejectCrossSite();
+    }
     const ip = req.socket.remoteAddress ?? "?";
     const retryAfter = loginThrottle.retryAfter(ip);
     if (retryAfter > 0) {
@@ -567,6 +601,8 @@ export function startRemoteServer(opts: RemoteServerOptions): Promise<RemoteServ
 
   const wss = new WebSocketServer({ noServer: true, maxPayload: MAX_PAYLOAD });
   const frameWss = new WebSocketServer({ noServer: true, maxPayload: 1024 });
+  /** Authenticated WS connection credential digest, recorded at upgrade, read in `connection`. */
+  const wsCredentialDigest = new WeakMap<WebSocket, string>();
   const pairs = new Map<string, FramePair>();
   let nextFrameId = 0;
   let closing = false;
@@ -661,8 +697,9 @@ export function startRemoteServer(opts: RemoteServerOptions): Promise<RemoteServ
       return;
     }
     const { value } = presentedToken(req, url);
+    const authDigest = acceptedCredentialDigest(value);
     if (
-      closing || !credentialMatches(value) ||
+      closing || authDigest === null ||
       (url.pathname !== REMOTE_WS_PATH && url.pathname !== REMOTE_FRAME_WS_PATH)
     ) {
       socket.write("HTTP/1.1 401 Unauthorized\r\n\r\n");
@@ -685,10 +722,14 @@ export function startRemoteServer(opts: RemoteServerOptions): Promise<RemoteServ
       frameWss.handleUpgrade(req, socket, head, (ws) => attachFrames(pair, ws));
       return;
     }
-    wss.handleUpgrade(req, socket, head, (ws) => wss.emit("connection", ws, req));
+    wss.handleUpgrade(req, socket, head, (ws) => {
+      wsCredentialDigest.set(ws, authDigest);
+      wss.emit("connection", ws, req);
+    });
   });
 
   wss.on("connection", (ws: WebSocket) => {
+    const connectionDigest = wsCredentialDigest.get(ws) ?? null;
     markAlive(ws);
     const key = randomBytes(32).toString("hex");
     const pair: FramePair = {
@@ -766,19 +807,26 @@ export function startRemoteServer(opts: RemoteServerOptions): Promise<RemoteServ
       }
       const frame = parseClientFrame(parsed);
       if (frame === null) return;
-      if (frame.t === "notify") {
-        const paneSubscribe = PANE_FRAME_CHANNELS.some((row) => row.subscribe === frame.ch);
-        dispatchNotify(paneSubscribe ? subscriptionTable : table, frame.ch, frame.args);
-        return;
+      const run = (): void => {
+        if (frame.t === "notify") {
+          const paneSubscribe = PANE_FRAME_CHANNELS.some((row) => row.subscribe === frame.ch);
+          dispatchNotify(paneSubscribe ? subscriptionTable : table, frame.ch, frame.args);
+          return;
+        }
+        const id = frame.id;
+        void dispatchRequest(table, frame.ch, frame.args)
+          .then((value) => {
+            reply(ws, makeServerResponseOk(id, value));
+          })
+          .catch((err: unknown) => {
+            reply(ws, makeServerResponseErr(id, err instanceof Error ? err.message : String(err)));
+          });
+      };
+      if (connectionDigest !== null) {
+        remoteAuthStore.run(connectionDigest, run);
+      } else {
+        run();
       }
-      const id = frame.id;
-      void dispatchRequest(table, frame.ch, frame.args)
-        .then((value) => {
-          reply(ws, makeServerResponseOk(id, value));
-        })
-        .catch((err: unknown) => {
-          reply(ws, makeServerResponseErr(id, err instanceof Error ? err.message : String(err)));
-        });
     });
     reply(ws, makeServerFrameStream(key));
   });
@@ -879,6 +927,24 @@ function reply(ws: WebSocket, frame: ServerFrame): void {
   ws.send(JSON.stringify(frame));
 }
 
+/**
+ * Carries the authenticated remote WebSocket connection's credential digest
+ * across async handler dispatch (finding 6) so FleetServer/registerFleetLegs
+ * can enforce `fleetGrants[id].credentialDigest` on every rung-gated call
+ * without changing channel signatures. Null outside a remote WS request.
+ */
+const remoteAuthStore = new AsyncLocalStorage<string>();
+
+/** Digest of the active remote WS connection's credential, or null for local/direct calls. */
+export function currentRemoteCredentialDigest(): string | null {
+  return remoteAuthStore.getStore() ?? null;
+}
+
+/** Test helper: run `fn` as if dispatched over a remote WS authenticated with `digest`. */
+export function withRemoteCredentialDigest<T>(digest: string, fn: () => T): T {
+  return remoteAuthStore.run(digest, fn);
+}
+
 export { REMOTE_CLOSE_REVOKED, REMOTE_COOKIE, REMOTE_TOKEN_PARAM, REMOTE_WS_PATH } from "./protocol";
 export {
   hashRemotePassword,
@@ -886,6 +952,7 @@ export {
   passwordSessionCredential,
   REMOTE_PASSWORD_MAX_BYTES,
   REMOTE_PASSWORD_MIN,
+  credentialDigest,
   tokenMatches,
   validateRemotePassword,
   verifyRemotePassword,

@@ -65,6 +65,7 @@ import {
   knowledgeVaultGuidance,
   mcpRuntimeStatusMessage,
   privateChildEnv,
+  providerKeyEnv,
   privateGuardArmMessage,
   MAX_DOCUMENT_BATCH_BYTES,
   readScratchDocument,
@@ -500,6 +501,9 @@ export class SessionManager {
       getSessionsRoot: deps.getSessionsRoot,
       gate: () => this.gate,
       subagentSpawnConfig: () => this.subagentSpawnConfig(),
+      // The warm child's spawn env carries provider credentials through this
+      // overlay, captured at build (finding 9, ADR-0010).
+      providerEnv: () => providerKeyEnv((envName) => deps.providerKeys.rolloutValue(envName)),
       enabled: () =>
         deps.warmRpc !== false &&
         (deps.forceWarmPool === true || (!process.env.VITEST && process.env.NODE_ENV !== "test")),
@@ -513,6 +517,7 @@ export class SessionManager {
       send: deps.send,
       getOmpModelArg: () => gateSelector(this.gate),
       listTerminalLoginProviderIds: deps.listTerminalLoginProviderIds,
+      providerEnv: () => providerKeyEnv((envName) => deps.providerKeys.rolloutValue(envName)),
     });
     this.browserPanes = new BrowserPaneHost({
       send: deps.send,
@@ -1630,6 +1635,9 @@ export class SessionManager {
       // HINDSIGHT_AUTO_RETAIN=true (upstream's env handle outranks config
       // layers), so the private spawn pins it off in its own environment.
       childEnv: privateChildEnv(record.private),
+      // omp children get provider credentials through this overlay only —
+      // the sanitized base env strips them (finding 9, ADR-0010).
+      providerEnv: providerKeyEnv((envName) => this.deps.providerKeys.rolloutValue(envName)),
     });
     const entry = createPtyLiveEntry(record, ptyHandle);
     this.live.set(record.tabId, entry);
@@ -2172,6 +2180,9 @@ export class SessionManager {
             // The warm slot can never carry it (private spawns are excluded
             // from reservation), so only the cold boot needs it.
             childEnv: privateChildEnv(record.private),
+            // omp children get provider credentials through this overlay
+            // only — the sanitized base env strips them (finding 9).
+            providerEnv: providerKeyEnv((envName) => this.deps.providerKeys.rolloutValue(envName)),
             extensions,
             initialCommands: commandsAtReady,
             onInputFrame: sinks.onInputFrame,

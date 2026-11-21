@@ -336,13 +336,13 @@ describe("console-drawer TUI handoff (issue #243)", () => {
     setup();
     invoke(CH.shellSpawn, TAB, "/proj", 100, 30, "omp-tui");
 
-    expect(spawnOmpTuiMock).toHaveBeenCalledWith({
+    expect(spawnOmpTuiMock).toHaveBeenCalledWith(expect.objectContaining({
       id: TAB,
       cwd: "/proj",
       cols: 100,
       rows: 30,
       ompPath: ompBin,
-    });
+    }));
     expect(spawnShellMock).not.toHaveBeenCalled();
 
     // The handoff's handle is the registered one: the banner's send must land
@@ -355,14 +355,14 @@ describe("console-drawer TUI handoff (issue #243)", () => {
     setup({ spawnGate: parseSpawnGate({ OMP_UI_TEST_MODEL: "gate/model:low" }) });
     invoke(CH.shellSpawn, TAB, "/proj", 100, 30, "omp-tui");
 
-    expect(spawnOmpTuiMock).toHaveBeenCalledWith({
+    expect(spawnOmpTuiMock).toHaveBeenCalledWith(expect.objectContaining({
       id: TAB,
       cwd: "/proj",
       cols: 100,
       rows: 30,
       ompPath: ompBin,
       model: "gate/model:low",
-    });
+    }));
   });
 
   it("a staged handoff replaces the running login shell without a stale exit", () => {

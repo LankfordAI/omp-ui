@@ -73,6 +73,9 @@ import {
   setScopedCapability,
   ProviderOAuth,
   ProviderKeys,
+  providerKeyEnv,
+  redactFleetGrants,
+  withoutProviderKeys,
   Registry,
   RemoteInstanceStore,
   WebhookDeliveryLog,
@@ -368,9 +371,8 @@ export class MainBackend {
    * abort, finish, or the idle sweep. */
   private readonly transfers = new TransferState();
   /**
-   * Provider credentials for every omp launch. Constructed before any spawn
-   * path can run and applied immediately, so even the first session sees the
-   * stored keys; the login-shell capture is awaited separately at boot.
+   * Provider credentials for every omp launch. Never written to main's
+   * `process.env` (finding 9); delivered per-spawn via `providerKeyEnv`.
    */
   private readonly providerKeys: ProviderKeys;
   /**
@@ -382,6 +384,8 @@ export class MainBackend {
   private readonly worktreesRoot: string;
   /** Where chat scratch dirs live (ADR-0059); defaults beside the registry. */
   private readonly chatsRoot: string;
+  /** Where artifact library files live; defaults beside the registry. */
+  private readonly artifactsRoot: string;
   /** Backdrop asset bytes by hash (issue #1168); a sibling folder of the registry. */
   private readonly themeBackdrops: ThemeBackdropStore;
   /** The one stored-theme save path's deps: settings handlers and the host tool share it. */
@@ -478,14 +482,12 @@ export class MainBackend {
       isActive: () => !this.win.isDestroyed() && this.win.isFocused(),
       readModels: (since, until) => this.telemetryModels(since, until),
     });
-    // Applied in the constructor, not at boot: spawn() must never be reachable
-    // with a keyless environment, and the login-shell capture (boot, async) only
-    // ever adds to what is already installed here.
+    // Constructed before any spawn path can run; credentials are read per-spawn
+    // via providerKeyEnv rather than written into main's process.env (finding 9).
     this.providerKeys = new ProviderKeys(
       opts.providerKeysFile ?? path.join(path.dirname(registryFile), "provider-keys.json"),
       electronKeyCipher(),
     );
-    this.providerKeys.applyToProcessEnv();
     // Retained once: the SessionManager pins and the state projection must
     // describe the same startup value, never two environment reads.
     this.spawnGate = opts.spawnGate ?? NO_GATE;
@@ -503,6 +505,7 @@ export class MainBackend {
     this.worktreesRoot =
       opts.worktreesRoot ?? path.join(path.dirname(registryFile), "worktrees");
     this.chatsRoot = opts.chatsRoot ?? path.join(path.dirname(registryFile), "chats");
+    this.artifactsRoot = opts.artifactsRoot ?? path.join(path.dirname(registryFile), "artifacts");
     this.themeBackdrops = new ThemeBackdropStore(path.join(path.dirname(registryFile), "theme-backdrops"));
     this.storedThemeDeps = {
       registry: this.registry,
@@ -594,8 +597,15 @@ export class MainBackend {
         hasConfiguredModelsFileProvider: () => readModelsFileModelProviders().length > 0,
         resolveModelHold: (model) => resolveModelHold(model),
         readModelSelectorError: async (selector, cwd) =>
-          this.ompPath === null ? null : readModelSelectorError({ ompPath: this.ompPath, cwd, selector }),
-        readModelCatalog: () => readModelCatalog({ ompPath: this.ompPath }),
+          this.ompPath === null
+            ? null
+            : readModelSelectorError({
+                ompPath: this.ompPath,
+                cwd,
+                selector,
+                providerEnv: this.providerKeyOverlay(),
+              }),
+        readModelCatalog: () => readModelCatalog({ ompPath: this.ompPath, env: this.providerProbeEnv() }),
         getOmpPath: () => this.ompPath,
         listTerminalLoginProviderIds: () => this.providerOAuth.terminalLoginProviderIds(),
         getSessionsRoot: () => this.sessionsRoot,
@@ -1219,26 +1229,32 @@ export class MainBackend {
           await this.broadcast();
         },
         [CH.setProjectDefaultModel]: async (projectPath: string, model: string | null) => {
+          this.registeredProjectPath(projectPath);
           this.registry.setProjectDefaultModel(projectPath, model?.trim() || null);
           await this.broadcast();
         },
         [CH.setProjectDefaultAdvisorModel]: async (projectPath: string, model: string | null) => {
+          this.registeredProjectPath(projectPath);
           this.registry.setProjectDefaultAdvisorModel(projectPath, model?.trim() || null);
           await this.broadcast();
         },
         [CH.setProjectBrowserClock]: async (projectPath: string, on: boolean) => {
+          this.registeredProjectPath(projectPath);
           this.registry.setProjectBrowserClock(projectPath, on);
           await this.broadcast();
         },
         [CH.setProjectKnowledgeHome]: async (projectPath: string, home: KnowledgeHome | null) => {
+          this.registeredProjectPath(projectPath);
           if (this.registry.setProjectKnowledgeHome(projectPath, home)) await this.broadcast();
         },
         [CH.setProjectIcon]: (projectPath: string, req: ProjectIconRequest) => this.setProjectIcon(projectPath, req),
         [CH.getProjectSubagentModels]: (projectCwd: string): ProjectSubagentModelsResult => {
+          this.registeredSessionCwd(projectCwd);
           const layer = readProjectConfigMap(projectCwd, ["task", "agentModelOverrides"]);
           return { map: layer.shape === "map" ? layer.value : {}, layer };
         },
         [CH.setProjectSubagentModel]: async (projectCwd: string, agent: string, value: string | null) => {
+          this.registeredProjectPath(projectCwd);
           // The writer quotes on emit, but a name/selector outside the grammar
           // could never match omp's resolution — refuse before touching the file.
           if (!isSafeAgentName(agent)) throw new Error(`refusing unsafe agent name: ${agent}`);
@@ -1248,10 +1264,12 @@ export class MainBackend {
           await setProjectConfigMapEntry(projectCwd, ["task", "agentModelOverrides"], agent, value);
         },
         [CH.getProjectMaxConcurrency]: (projectCwd: string): ProjectScalarResult => {
+          this.registeredProjectPath(projectCwd);
           const layer = readProjectConfigValue(projectCwd, ["task", "maxConcurrency"]);
           return { value: layer.shape === "value" ? layer.value : undefined, layer };
         },
         [CH.setProjectMaxConcurrency]: async (projectCwd: string, value: number | null) => {
+          this.registeredProjectPath(projectCwd);
           // The writer emits numbers bare, but a cap omp could never honor —
           // zero, a fraction, NaN — would hang or starve every spawn. Refuse
           // before touching the file, same stance as the agent-name guard.
@@ -1261,6 +1279,7 @@ export class MainBackend {
           await setProjectConfigValue(projectCwd, ["task", "maxConcurrency"], value);
         },
         [CH.getProjectSpendCaps]: (projectCwd: string): ProjectSpendCapsResult => {
+          this.registeredProjectPath(projectCwd);
           const read = (key: SpendCapKey): ProjectScalarResult => {
             const layer = readProjectConfigValue(projectCwd, ["session", key]);
             return { value: layer.shape === "value" ? layer.value : undefined, layer };
@@ -1268,6 +1287,7 @@ export class MainBackend {
           return { warnCost: read("warnCost"), maxCost: read("maxCost") };
         },
         [CH.setProjectSpendCap]: async (projectCwd: string, key: SpendCapKey, value: number | null) => {
+          this.registeredProjectPath(projectCwd);
           // The project file bypasses omp's own validator ("expected a
           // positive USD amount"), so refuse what omp would reject before
           // touching the file — the maxConcurrency guard's stance.
@@ -1277,10 +1297,12 @@ export class MainBackend {
           await setProjectConfigValue(projectCwd, ["session", key], value);
         },
         [CH.getProjectApprovalMode]: (projectCwd: string): ProjectScalarResult => {
+          this.registeredProjectPath(projectCwd);
           const layer = readProjectConfigValue(projectCwd, ["tools", "approvalMode"]);
           return { value: layer.shape === "value" ? layer.value : undefined, layer };
         },
         [CH.setProjectApprovalMode]: async (projectCwd: string, value: ApprovalMode | null) => {
+          this.registeredProjectPath(projectCwd);
           // A free-text value would make omp resolve the tier to yolo (no
           // approvals at all) — refuse before touching the file, same stance
           // as the maxConcurrency guard (issue #681, #950).
@@ -1311,6 +1333,12 @@ export class MainBackend {
           [CH.setTelemetryThemesEnabled]: () => {
             throw new Error("Theme usage sharing can only be changed in the desktop app.");
           },
+          // Directory browsing lists any absolute path on this host; only the
+          // desktop app's own root frame may call it (finding 3). A remote
+          // web client never needs it: its project picker runs on the owner.
+          [CH.browseDirectories]: () => {
+            throw new Error("Directory browsing is only available in the desktop app.");
+          },
         } : {}),
         ...registerArtifactHandlers(this.artifacts),
         // Human-only save exports: the stored bytes go straight to a chosen path at 0600; large payloads never ride renderer strings. Cancel reports null.
@@ -1340,6 +1368,7 @@ export class MainBackend {
         ...registerSttHandlers({
           registry: this.registry,
           ompPath: this.ompPath,
+          providerKeyValue: (envName) => this.providerKeys.rolloutValue(envName),
         }),
         ...registerAudioHandlers({
           registry: this.registry,
@@ -1494,35 +1523,46 @@ export class MainBackend {
           this.sessions.dismissProposedPlan(tabId, planFilePath),
         [CH.getProjectOpenAvailability]: () => this.projectOpener.availability(),
         [CH.openProject]: (projectPath: string, target: ProjectOpenTarget) =>
-          this.projectOpener.open(projectPath, target),
+          this.projectOpener.open(this.registeredProjectOrWorktreePath(projectPath), target),
         [CH.getRemoteVsCodeTarget]: (instanceId: string) => this.remoteVsCode.target(instanceId),
         [CH.openRemoteVsCode]: (instanceId: string, remotePath: string) =>
           this.remoteVsCode.open(instanceId, remotePath),
         // Rejecting lets the renderer surface a failure instead of the click
         // dying silently.
-        [CH.openPath]: (absPath: string) => openPath(absPath),
+        [CH.openPath]: (absPath: string) => openPath(this.allowedRevealPath(absPath)),
         [CH.showPathInFolder]: (absPath: string) => {
-          shell.showItemInFolder(absPath);
+          shell.showItemInFolder(this.allowedRevealPath(absPath));
         },
-        [CH.getBranchDiff]: (projectCwd: string, base?: string | null) =>
-          readBranchDiff(projectCwd, base ?? null),
+        [CH.getBranchDiff]: (projectCwd: string, base?: string | null) => {
+          this.registeredProjectOrWorktreePath(projectCwd);
+          return readBranchDiff(projectCwd, base ?? null);
+        },
         // Branch mutations answer through the branch:changed event (#498),
         // never a BackendState broadcast: no registry/BackendState field
         // changes here. The ws transport dispatches through this same table,
         // so a joined instance's call emits on its owner too.
-        [CH.listBranches]: (projectCwd: string, opts?: BranchListOptions) =>
-          listBranches(projectCwd, opts),
+        // The cwd is the session's effective checkout — a worktree path for
+        // worktree sessions (Composer passes `sessionCwd`) — so these channels
+        // take a registered project OR an owned worktree checkout, like
+        // getBranchDiff above.
+        [CH.listBranches]: (projectCwd: string, opts?: BranchListOptions) => {
+          this.registeredProjectOrWorktreePath(projectCwd);
+          return listBranches(projectCwd, opts);
+        },
         [CH.checkoutBranch]: async (projectCwd: string, name: string, opts?: { create?: boolean }) => {
+          this.registeredProjectOrWorktreePath(projectCwd);
           await checkoutBranch(projectCwd, name, opts);
           this.send(CH.onBranchChanged, projectCwd, null);
         },
         [CH.pullBranch]: async (projectCwd: string) => {
+          this.registeredProjectOrWorktreePath(projectCwd);
           await pullBranch(projectCwd);
           this.send(CH.onBranchChanged, projectCwd, null);
         },
         // Push answers git state through a structured PushResult rather than a
         // rejection (issue #414); only a result that moved a ref emits.
         [CH.pushBranch]: async (projectCwd: string, branch: string, remote?: string | null) => {
+          this.registeredProjectOrWorktreePath(projectCwd);
           const result = await pushBranch(projectCwd, branch, remote);
           if (result.kind === "pushed" || result.kind === "published")
             this.send(CH.onBranchChanged, projectCwd, null);
@@ -1530,34 +1570,42 @@ export class MainBackend {
         },
         // Builds a URL only. Main never opens it: the renderer hands the result
         // to window.open, where setWindowOpenHandler's web-scheme guard decides.
-        [CH.pullRequestUrl]: (projectCwd: string, base: string, head: string) =>
-          pullRequestUrl(projectCwd, base, head),
+        [CH.pullRequestUrl]: (projectCwd: string, base: string, head: string) => {
+          this.registeredProjectOrWorktreePath(projectCwd);
+          return pullRequestUrl(projectCwd, base, head);
+        },
         [CH.createBranch]: async (projectCwd: string, name: string, startPoint: string) => {
+          this.registeredProjectOrWorktreePath(projectCwd);
           await createBranch(projectCwd, name, startPoint);
           this.send(CH.onBranchChanged, projectCwd, null);
         },
-        [CH.resolveMergeDestination]: (projectCwd: string, base: string | null) =>
-          resolveMergeDestination(projectCwd, base),
+        [CH.resolveMergeDestination]: (projectCwd: string, base: string | null) => {
+          this.registeredProjectPath(projectCwd);
+          return resolveMergeDestination(projectCwd, base);
+        },
         [CH.getMergeBackStatus]: (
           projectCwd: string,
           branch: string,
           destination: string,
           worktreePath: string | null,
-        ) =>
+        ) => {
+          this.registeredProjectPath(projectCwd);
           // The worktreePath is renderer-supplied; only a path inside the
           // app's worktrees root may steer `git status`. Anything else reads
           // as null — the status still resolves, worktreeDirty comes back
           // null (issue #388). Never let a renderer point git at a
           // user-chosen directory.
-          readMergeBackStatus(
+          return readMergeBackStatus(
             projectCwd,
             branch,
             destination,
             worktreePath !== null && !isWithin(this.worktreesRoot, worktreePath)
               ? null
               : worktreePath,
-          ),
+          );
+        },
         [CH.mergeWorktreeBranch]: async (projectCwd: string, branch: string, destination: string) => {
+          this.registeredProjectPath(projectCwd);
           const result = await mergeWorktreeBranch(projectCwd, branch, destination, {
             scratchRoot: path.join(this.worktreesRoot, ".merge"),
           });
@@ -1568,26 +1616,40 @@ export class MainBackend {
         // The memory overview handler is a stateless core call like
         // getBranchDiff: it touches no registry/BackendState field and never
         // calls broadcast().
-        [CH.memoryOverview]: (projectCwd: string) => readMemoryOverview(projectCwd),
+        [CH.memoryOverview]: (projectCwd: string) => {
+          this.registeredProjectPath(projectCwd);
+          return readMemoryOverview(projectCwd);
+        },
         // Attribution comes from the owning host's registry/root snapshots,
         // never renderer-supplied paths or project metadata.
         [CH.statsOverview]: (query: StatsQuery) => this.statsOverview(query),
         [CH.statsSync]: (mode: StatsSyncMode) => this.statsCollector.start(mode),
         [CH.statsSyncStatus]: () => this.statsCollector.status(),
-        [CH.autoresearchOverview]: (projectCwd: string) =>
-          readProjectExperiments(this.registry.sessions, projectCwd),
-        [CH.autoresearchExperiment]: (projectCwd: string, tabId: string | null, experimentId: number) =>
-          readExperimentDetail(this.registry.sessions, projectCwd, tabId, experimentId),
+        [CH.autoresearchOverview]: (projectCwd: string) => {
+          this.registeredProjectPath(projectCwd);
+          return readProjectExperiments(this.registry.sessions, projectCwd);
+        },
+        [CH.autoresearchExperiment]: (projectCwd: string, tabId: string | null, experimentId: number) => {
+          this.registeredProjectPath(projectCwd);
+          return readExperimentDetail(this.registry.sessions, projectCwd, tabId, experimentId);
+        },
         [CH.autoresearchRunLog]: (
           projectCwd: string,
           tabId: string | null,
           experimentId: number,
           runId: number,
-        ) => readRunLog(this.registry.sessions, projectCwd, tabId, experimentId, runId),
-        [CH.suggestBranchName]: (projectCwd: string, planContext: string) =>
-          this.suggestBranchName(projectCwd, planContext),
-        [CH.readOmpSettings]: (projectCwd: string | null) =>
-          readOmpSettings({ ompPath: this.ompPath, projectCwd }),
+        ) => {
+          this.registeredProjectPath(projectCwd);
+          return readRunLog(this.registry.sessions, projectCwd, tabId, experimentId, runId);
+        },
+        [CH.suggestBranchName]: (projectCwd: string, planContext: string) => {
+          this.registeredProjectOrWorktreePath(projectCwd);
+          return this.suggestBranchName(projectCwd, planContext);
+        },
+        [CH.readOmpSettings]: (projectCwd: string | null) => {
+          if (projectCwd !== null) this.registeredSessionCwd(projectCwd);
+          return readOmpSettings({ ompPath: this.ompPath, projectCwd });
+        },
         [CH.writeOmpSetting]: (key: string, value: OmpSettingValue) =>
           writeOmpSetting({ ompPath: this.ompPath, key, value }),
         [CH.resetOmpSetting]: (key: string) => resetOmpSetting({ ompPath: this.ompPath, key }),
@@ -1632,14 +1694,14 @@ export class MainBackend {
         [CH.readWebSearchProviders]: () => readWebSearchProviders({ ompPath: this.ompPath }),
         // The judge catalog belongs to the installed omp version and the
         // provider keys: one probe per browse, no cache (issue #669).
-        [CH.readJudgeModels]: () => readJudgeModels({ ompPath: this.ompPath }),
+        [CH.readJudgeModels]: () => readJudgeModels({ ompPath: this.ompPath, env: this.providerProbeEnv() }),
         // The chat catalog for the resume-recovery picker (issue #774): the
         // tabId argument exists only to ride the tab router — the handler
         // runs on whichever host routing picked, and probes that host's omp.
-        [CH.readModelCatalog]: () => readModelCatalog({ ompPath: this.ompPath }),
+        [CH.readModelCatalog]: () => readModelCatalog({ ompPath: this.ompPath, env: this.providerProbeEnv() }),
         // The chat catalog for the model-role browse picker (issue #797):
         // unrouted, since the settings page can be open with no live session.
-        [CH.readChatModels]: () => readModelCatalog({ ompPath: this.ompPath }),
+        [CH.readChatModels]: () => readModelCatalog({ ompPath: this.ompPath, env: this.providerProbeEnv() }),
         // Each write answers with the refreshed snapshot in the same round trip,
         // so the page never has to guess what the store now holds.
         [CH.readProviderKeys]: (projectCwd: string | null) => this.providerSnapshot(projectCwd),
@@ -1674,28 +1736,42 @@ export class MainBackend {
             // No overlay on this platform — a theme change must not surface a platform error.
           }
         },
-        [CH.getMcpServers]: (projectCwd: string | null) => resolveMcpServers(projectCwd),
-        [CH.setMcpServerEnabled]: (req: McpSetEnabledRequest) => setMcpServerEnabled(req),
+        [CH.getMcpServers]: (projectCwd: string | null) => {
+          if (projectCwd !== null) this.registeredSessionCwd(projectCwd);
+          return resolveMcpServers(projectCwd);
+        },
+        [CH.setMcpServerEnabled]: (req: McpSetEnabledRequest) => {
+          if (req.projectCwd !== null) this.registeredSessionCwd(req.projectCwd);
+          return setMcpServerEnabled(req);
+        },
         // Capability catalogs (issue #383): stateless core reads like
         // getMcpServers — one ompSettings spawn chain, no session involved.
-        [CH.getScopedCapabilities]: (scopeCwd: string | null) =>
-          getScopedCapabilities(scopeCwd, this.ompPath),
-        [CH.setScopedCapability]: (req: ScopedCapabilityMutation) =>
-          setScopedCapability(req, this.ompPath),
-        [CH.getWatchdogRoster]: async (scopeCwd: string | null) =>
-          getWatchdogRoster(
+        [CH.getScopedCapabilities]: (scopeCwd: string | null) => {
+          if (scopeCwd !== null) this.registeredSessionCwd(scopeCwd);
+          return getScopedCapabilities(scopeCwd, this.ompPath);
+        },
+        [CH.setScopedCapability]: (req: ScopedCapabilityMutation) => {
+          if (req.scopeCwd !== null) this.registeredSessionCwd(req.scopeCwd);
+          return setScopedCapability(req, this.ompPath);
+        },
+        [CH.getWatchdogRoster]: async (scopeCwd: string | null) => {
+          if (scopeCwd !== null) this.registeredSessionCwd(scopeCwd);
+          return getWatchdogRoster(
             scopeCwd,
             process.env,
             os.homedir(),
             this.ompPath === null ? null : await readInstalledOmpVersion(this.ompPath),
-          ),
-        [CH.setWatchdogRoster]: async (req: WatchdogWriteRequest) =>
-          setWatchdogRoster(
+          );
+        },
+        [CH.setWatchdogRoster]: async (req: WatchdogWriteRequest) => {
+          if (req.scopeCwd !== null) this.registeredSessionCwd(req.scopeCwd);
+          return setWatchdogRoster(
             req,
             process.env,
             os.homedir(),
             this.ompPath === null ? null : await readInstalledOmpVersion(this.ompPath),
-          ),
+          );
+        },
         [CH.getCouncilRoster]: (scopeCwd: string | null) => this.councilRosterView(scopeCwd),
         [CH.setCouncilRoster]: async (req: CouncilWriteRequest) => {
           if (req.scope === "user") this.registry.setSetting("councilRoster", req.document);
@@ -1731,9 +1807,14 @@ export class MainBackend {
           name: string,
           enabled: boolean,
         ) => this.sessions.setSessionToolEnabled(tabId, processKey, sessionId, name, enabled),
-        [CH.listProjectFiles]: (projectCwd: string) => listProjectFiles(projectCwd),
-        [CH.resolveFileMentions]: (projectCwd: string, message: string) =>
-          resolveFileMentions(projectCwd, message),
+        [CH.listProjectFiles]: (projectCwd: string) => {
+          this.registeredSessionCwd(projectCwd);
+          return listProjectFiles(projectCwd);
+        },
+        [CH.resolveFileMentions]: (projectCwd: string, message: string) => {
+          this.registeredSessionCwd(projectCwd);
+          return resolveFileMentions(projectCwd, message);
+        },
         [CH.ptyPasteImage]: (tabId: string, image: ImageAttachment) =>
           this.sessions.ptyPasteImage(tabId, image),
         [CH.attachDocument]: (tabId: string, documents: DocumentAttachment[]) =>
@@ -1957,6 +2038,19 @@ export class MainBackend {
           this.sessions.collabShare(tabId, access),
         [CH.collabStop]: (tabId: string) => this.sessions.collabStop(tabId),
         [CH.collabLink]: (tabId: string, view: boolean) => this.sessions.collabLink(tabId, view),
+        ...(scope === "remote" ? {
+          // Desktop-local OS shell actions (finding N4): placed after the main
+          // table entries so they override them for remote clients.
+          [CH.openPath]: () => {
+            throw new Error("Opening local files is only available in the desktop app.");
+          },
+          [CH.showPathInFolder]: () => {
+            throw new Error("Revealing local files is only available in the desktop app.");
+          },
+          [CH.openProject]: () => {
+            throw new Error("Opening local projects is only available in the desktop app.");
+          },
+        } : {}),
       },
       notify: {
         [CH.ptyWrite]: (tabId: string, data: string) => this.sessions.ptyWrite(tabId, data),
@@ -2254,6 +2348,86 @@ export class MainBackend {
     return projectPath;
   }
 
+  /** A registered project checkout or one of this app's own worktree checkouts. */
+  private registeredProjectOrWorktreePath(cwd: string): string {
+    if (this.registry.projects.some((project) => project.path === cwd)) return cwd;
+    if (
+      isWithin(this.worktreesRoot, cwd) &&
+      this.registry.sessions.some((session) => session.worktree?.path === cwd)
+    ) {
+      return cwd;
+    }
+    throw new Error("that project is not registered here");
+  }
+
+  /** A registered project, an owned worktree, or an owned chat scratch dir. */
+  private registeredSessionCwd(cwd: string): string {
+    if (this.registry.projects.some((project) => project.path === cwd)) return cwd;
+    if (
+      isWithin(this.worktreesRoot, cwd) &&
+      this.registry.sessions.some((session) => session.worktree?.path === cwd)
+    ) {
+      return cwd;
+    }
+    if (
+      isWithin(this.chatsRoot, cwd) &&
+      this.registry.sessions.some((session) => session.chat && session.projectCwd === cwd)
+    ) {
+      return cwd;
+    }
+    throw new Error("that project is not registered here");
+  }
+
+  /**
+   * The only paths a renderer may ask the OS to open or reveal (finding N4):
+   * realpath-resolved targets inside the sessions root (transcripts, anonymize
+   * outputs), archive root, artifacts root, or an exported session HTML file
+   * (`*.html`) directly inside a registered project / owned worktree / chat dir.
+   * Resolving symlinks via `realpathSync` stops a symlink inside an allowed root
+   * from opening arbitrary files outside it.
+   */
+  private allowedRevealPath(absPath: string): string {
+    let real: string;
+    try {
+      real = fs.realpathSync(absPath);
+    } catch {
+      throw new Error("only files this app produced (session transcripts, artifacts) can be opened here");
+    }
+    for (const root of [this.sessionsRoot, this.archiveRoot, this.artifactsRoot]) {
+      let realRoot: string;
+      try {
+        realRoot = fs.realpathSync(root);
+      } catch {
+        continue;
+      }
+      if (isWithin(realRoot, real)) return real;
+    }
+    // omp's `export_html` writes `omp-session-*.html` in the session's cwd
+    // (registered project, owned worktree, or chat dir). Allow only `.html`
+    // files whose realpath sits inside one of those owned working trees.
+    if (path.extname(real).toLowerCase() === ".html") {
+      const ownedCwds = new Set<string>(this.registry.projects.map((p) => p.path));
+      for (const s of this.registry.sessions) {
+        if (s.worktree !== null && isWithin(this.worktreesRoot, s.worktree.path)) {
+          ownedCwds.add(s.worktree.path);
+        }
+        if (s.chat && isWithin(this.chatsRoot, s.projectCwd)) {
+          ownedCwds.add(s.projectCwd);
+        }
+      }
+      for (const cwd of ownedCwds) {
+        let realCwd: string;
+        try {
+          realCwd = fs.realpathSync(cwd);
+        } catch {
+          continue;
+        }
+        if (isWithin(realCwd, real)) return real;
+      }
+    }
+    throw new Error("only files this app produced (session transcripts, artifacts) can be opened here");
+  }
+
   /** Project settings' icon actions (issue #1000); answers with the stored icon. */
   private async setProjectIcon(projectPath: string, req: ProjectIconRequest): Promise<ProjectIcon | null> {
     this.registeredProjectPath(projectPath);
@@ -2282,6 +2456,15 @@ export class MainBackend {
     };
   }
 
+  /** Provider-credential overlay merged onto omp children at spawn (finding 9). */
+  private providerKeyOverlay(): NodeJS.ProcessEnv {
+    return providerKeyEnv((envName) => this.providerKeys.rolloutValue(envName));
+  }
+
+  /** Full env for key-gated omp catalog probes (process.env sanitized + resolved provider overlay). */
+  private providerProbeEnv(): NodeJS.ProcessEnv {
+    return { ...withoutProviderKeys(process.env), ...this.providerKeyOverlay() };
+  }
   /**
    * Recovers provider credentials the user exported from their shell rc, which a
    * .desktop/AppImage/dock launch never inherits — without this, omp starts with
@@ -2837,6 +3020,7 @@ export class MainBackend {
 
   /** omp's own advisor defaults, so the composer can show what it inherits. */
   private advisorDefaults(projectCwd: string): AdvisorDefaults {
+    this.registeredSessionCwd(projectCwd);
     const defaults = readOmpAdvisorDefaults(projectCwd);
     return {
       enabled: defaults.enabled,
@@ -3066,6 +3250,7 @@ export class MainBackend {
         projectCwd,
         model: role === null ? null : formatModelRole(role),
         prompt: planContext,
+        providerEnv: this.providerKeyOverlay(),
       });
     } catch (err) {
       console.warn("[branch-name] model naming failed:", err);
@@ -3174,7 +3359,7 @@ export class MainBackend {
       fleetAgentDispatch: this.registry.getSetting("fleetAgentDispatch"),
       fleetExecEnabled: this.registry.getSetting("fleetExecEnabled"),
       fleetExecCeiling: this.registry.getSetting("fleetExecCeiling"),
-      fleetGrants: this.registry.getSetting("fleetGrants"),
+      fleetGrants: redactFleetGrants(this.registry.getSetting("fleetGrants")),
       fleetProjectRoots: this.registry.getSetting("fleetProjectRoots"),
       fleetPending: this.fleet.pending(),
       fleetTerminals: this.fleetTerminals.list(),

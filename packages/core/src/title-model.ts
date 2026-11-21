@@ -74,6 +74,8 @@ export interface TitleRequest {
   model: string | null;
   /** The user message to title. */
   prompt: string;
+  /** Provider-credential overlay merged onto the sanitized omp child env. */
+  providerEnv?: NodeJS.ProcessEnv;
   /** Test seam forwarded to the generic one-shot runner. */
   spawn?: OmpOneShotSpawn;
   timeoutMs?: number;
@@ -104,6 +106,7 @@ async function runSmallModelCompletion(
     ompPath: req.ompPath,
     argv,
     timeout: req.timeoutMs ?? DEFAULT_TIMEOUT_MS,
+    providerEnv: req.providerEnv,
     spawn: req.spawn,
   });
 }

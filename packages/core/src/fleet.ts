@@ -115,11 +115,52 @@ export function fleetEffectiveRung(grant: FleetGrantRecord | undefined, ceiling:
  * One dispatcher's grant on this node, keyed by its CLAIMED instanceId. A
  * record without `rung` is the lazy first-sight entry: it names the
  * dispatcher for the Fleet-access UI while leaving the default rung in force.
+ * `credentialDigest` — sha256 hex of the high-entropy transport credential
+ * (`remoteToken` or `passwordSessionCredential(hash)`, never a raw password)
+ * first presented with this id — binds the id to that credential: a later
+ * request or raise claiming the id under a different credential is refused.
+ * Stripped before any state broadcast; absent on legacy rows (backfilled on
+ * next raise).
  */
 export interface FleetGrantRecord {
   rung?: FleetRung;
   label: string;
   updatedAt: string;
+  credentialDigest?: string;
+}
+
+/** Prototype-polluting or Object.prototype property names refused as fleet ids. */
+export function isUnsafeFleetId(key: string): boolean {
+  return (
+    key === "__proto__" ||
+    key === "constructor" ||
+    key === "prototype" ||
+    key in Object.prototype
+  );
+}
+
+/** Safe own-property lookup into a plain `fleetGrants` map. */
+export function fleetGrantOf(
+  grants: Readonly<Record<string, FleetGrantRecord>>,
+  dispatcherId: string,
+): FleetGrantRecord | undefined {
+  return Object.hasOwn(grants, dispatcherId) ? grants[dispatcherId] : undefined;
+}
+
+/** Strips `credentialDigest` before broadcasting `fleetGrants` to renderers or remote peers. */
+export function redactFleetGrants(
+  grants: Readonly<Record<string, FleetGrantRecord>>,
+): Record<string, FleetGrantRecord> {
+  const out: Record<string, FleetGrantRecord> = {};
+  for (const [id, grant] of Object.entries(grants)) {
+    if (isUnsafeFleetId(id)) continue;
+    out[id] = {
+      ...(grant.rung === undefined ? {} : { rung: grant.rung }),
+      label: grant.label,
+      updatedAt: grant.updatedAt,
+    };
+  }
+  return out;
 }
 
 /** Registry-safe grant map: keys are ids (≤ 128 chars), values shape-checked; anything else drops the entry. */
@@ -127,17 +168,24 @@ export function parseFleetGrants(value: unknown): Record<string, FleetGrantRecor
   const out: Record<string, FleetGrantRecord> = {};
   if (value === null || typeof value !== "object" || Array.isArray(value)) return out;
   for (const [key, raw] of Object.entries(value as ObjectValue)) {
-    if (key === "" || key.length > FLEET_ID_MAX || CONTROL_CHARS.test(key)) continue;
+    if (key === "" || key.length > FLEET_ID_MAX || CONTROL_CHARS.test(key) || isUnsafeFleetId(key)) continue;
     if (raw === null || typeof raw !== "object" || Array.isArray(raw)) continue;
     const g = raw as ObjectValue;
-    if (Object.keys(g).some((k) => !["rung", "label", "updatedAt"].includes(k))) continue;
+    if (Object.keys(g).some((k) => !["rung", "label", "updatedAt", "credentialDigest"].includes(k))) continue;
     if (g.rung !== undefined && !FLEET_RUNGS.includes(g.rung as FleetRung)) continue;
     if (typeof g.label !== "string" || CONTROL_CHARS.test(g.label)) continue;
     if (typeof g.updatedAt !== "string" || g.updatedAt === "") continue;
+    if (
+      g.credentialDigest !== undefined &&
+      (typeof g.credentialDigest !== "string" || !/^[0-9a-f]{64}$/.test(g.credentialDigest))
+    ) {
+      continue;
+    }
     out[key] = {
       ...(g.rung === undefined ? {} : { rung: g.rung as FleetRung }),
       label: [...g.label].slice(0, FLEET_LABEL_MAX).join(""),
       updatedAt: g.updatedAt,
+      ...(g.credentialDigest === undefined ? {} : { credentialDigest: g.credentialDigest }),
     };
   }
   return out;
@@ -562,6 +610,11 @@ function rejectUnknownKeys(value: ObjectValue, allowed: readonly string[], label
 function idString(value: unknown, label: string): string {
   if (typeof value !== "string" || value === "" || value.length > FLEET_ID_MAX || CONTROL_CHARS.test(value)) {
     throw new Error(`${label} must be a non-empty id`);
+  }
+  // Prototype/Object.prototype keys as a dispatcher or job id would collide
+  // with inherited properties in grant bookkeeping over plain objects.
+  if (isUnsafeFleetId(value)) {
+    throw new Error(`${label} must not be a prototype key`);
   }
   return value;
 }

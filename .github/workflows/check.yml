@@ -23,7 +23,7 @@ jobs:
   check:
     runs-on: ${{ fromJSON(inputs.runner) }}
     steps:
-      - uses: actions/checkout@v4
+      - uses: actions/checkout@11d5960a326750d5838078e36cf38b85af677262 # v4
       - name: Prepare hosted runner for the Electron smokes
         if: ${{ inputs.hosted }}
         shell: bash
@@ -32,7 +32,7 @@ jobs:
           sudo sysctl -w kernel.apparmor_restrict_unprivileged_userns=0
           sudo apt-get update -q
           sudo apt-get install -y -q xvfb
-      - uses: actions/setup-node@v4
+      - uses: actions/setup-node@49933ea5288caeca8642d1e84afbd3f7d6820020 # v4
         with:
           node-version: 22
           cache: npm
@@ -113,10 +113,20 @@ jobs:
           if [ -z "${WAYLAND_DISPLAY:-}${DISPLAY:-}" ]; then
             args=(--out=out/browser-pane-smoke/headless --ozone-platform=headless)
           fi
+          # On the ephemeral hosted runner there is no real GPU: software raster,
+          # where the #653 kick step passes vacuously by design. The gfx1201 pool
+          # (hardwareAcceleration true) keeps gating the GPU compositor.
+          if [ "${{ inputs.hosted }}" = "true" ]; then
+            args+=(--software)
+          fi
           smoke "${args[@]}"; rc=$?
           if [ "$rc" -eq 3 ] && command -v xvfb-run >/dev/null; then
+            software=()
+            if [ "${{ inputs.hosted }}" = "true" ]; then
+              software=(--software)
+            fi
             xvfb-run -a --server-args='-screen 0 1600x1000x24' \
-              npm run smoke:browser-pane --workspace @omp-ui/desktop -- --once --out=out/browser-pane-smoke/xvfb; rc=$?
+              npm run smoke:browser-pane --workspace @omp-ui/desktop -- --once "${software[@]}" --out=out/browser-pane-smoke/xvfb; rc=$?
           fi
           exit "$rc"
       - name: Smoke the plan verifier under headless Electron
@@ -135,7 +145,7 @@ jobs:
           exit "$rc"
       - name: Publish the plan verifier smoke summary
         if: ${{ always() && (steps.plan-verifier-smoke.outcome == 'success' || steps.plan-verifier-smoke.outcome == 'failure') }}
-        uses: actions/upload-artifact@v4
+        uses: actions/upload-artifact@ea165f8d65b6e75b540449e92b4886f43607fa02 # v4
         with:
           name: plan-verifier-smoke-summary
           path: packages/desktop/out/plan-verifier-smoke/**/summary.json
@@ -143,7 +153,7 @@ jobs:
           retention-days: 14
       - name: Publish the browser pane smoke summary
         if: ${{ always() && (steps.browser-pane-smoke.outcome == 'success' || steps.browser-pane-smoke.outcome == 'failure') }}
-        uses: actions/upload-artifact@v4
+        uses: actions/upload-artifact@ea165f8d65b6e75b540449e92b4886f43607fa02 # v4
         with:
           name: browser-pane-smoke-summary
           path: packages/desktop/out/browser-pane-smoke/**/summary.json
@@ -151,7 +161,7 @@ jobs:
           retention-days: 14
       - name: Publish the knowledge vault smoke summary
         if: ${{ always() && (steps.knowledge-vault-smoke.outcome == 'success' || steps.knowledge-vault-smoke.outcome == 'failure') }}
-        uses: actions/upload-artifact@v4
+        uses: actions/upload-artifact@ea165f8d65b6e75b540449e92b4886f43607fa02 # v4
         with:
           name: knowledge-vault-smoke-summary
           path: packages/desktop/out/knowledge-vault-smoke/summary.json

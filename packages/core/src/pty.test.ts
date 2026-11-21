@@ -174,6 +174,22 @@ describe("spawnOmp env", () => {
       if (saved !== undefined) process.env.HINDSIGHT_AUTO_RETAIN = saved;
     }
   });
+
+  it("strips provider credentials from inheritance and delivers them only via providerEnv (finding 9)", () => {
+    const saved = process.env.OPENROUTER_API_KEY;
+    process.env.OPENROUTER_API_KEY = "sk-or-inherited-value";
+    try {
+      // No providerEnv: the child never sees a key, even one main inherited.
+      const bare = spawnOmpEnv({ ...base });
+      expect("OPENROUTER_API_KEY" in bare).toBe(false);
+      // With providerEnv: the overlay is the only delivery path.
+      const injected = spawnOmpEnv({ ...base, providerEnv: { OPENROUTER_API_KEY: "sk-or-v1-0123456789abcdef" } });
+      expect(injected.OPENROUTER_API_KEY).toBe("sk-or-v1-0123456789abcdef");
+    } finally {
+      if (saved !== undefined) process.env.OPENROUTER_API_KEY = saved;
+      else delete process.env.OPENROUTER_API_KEY;
+    }
+  });
 });
 
 describe("spawnOmpLogin args", () => {

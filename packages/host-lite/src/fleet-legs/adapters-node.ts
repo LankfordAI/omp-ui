@@ -35,6 +35,7 @@ import {
   resolveOmpBinary,
   resolveRepositoryKey,
   sampleHostResources,
+  withoutProviderKeys,
 } from "@omp-ui/core";
 import type {
   FleetAuditEntry,
@@ -229,7 +230,7 @@ export function createProjectLegs(deps: ProjectAdapterDeps): FleetProjectLegs {
   const git = (args: string[], opts: { cwd: string; timeout: number }): Promise<{ stdout: Buffer }> => {
     if (deps.execGit !== undefined) return deps.execGit("git", args, opts);
     const { promise, resolve, reject } = Promise.withResolvers<{ stdout: Buffer }>();
-    execFileCb("git", args, { ...opts, maxBuffer: 1_048_576 }, (err, stdout) => {
+    execFileCb("git", args, { ...opts, env: withoutProviderKeys(process.env), maxBuffer: 1_048_576 }, (err, stdout) => {
       if (err !== null) reject(err);
       else resolve({ stdout: Buffer.from(stdout) });
     });

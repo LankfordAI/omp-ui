@@ -88,14 +88,14 @@ export function parseSttModelCatalog(
 /**
  * The installed omp's STT catalog, every row marked callable per the
  * credentials this process holds. Deliberate difference from the web-search
- * probe: this one runs under the LIVE `process.env`, not a pristine one — the
+ * probe: this one runs under the LIVE process env, not a pristine one — the
  * catalog is key-gated (verified on v18.2.11: `openai` rows appear only with
- * OPENAI_API_KEY), and the key omp-ui will actually call with is the one
- * `ProviderKeys.applyToProcessEnv` installed. Never throws; a failed or
+ * OPENAI_API_KEY), and the key omp-ui will actually call with is the one the
+ * caller resolved into that env. Never throws; a failed or
  * unparseable probe yields `discovered: false` with a short reason.
  */
 export async function readSttModels(
-  { ompPath }: { ompPath: string | null },
+  { ompPath, env = process.env }: { ompPath: string | null; env?: NodeJS.ProcessEnv },
   run: OmpConfigRunner = execOmpConfigRunner(ompPath ?? ""),
 ): Promise<SttModelSnapshot> {
   if (ompPath === null) {
@@ -104,7 +104,7 @@ export async function readSttModels(
   try {
     const stdout = await run(["models", "--kind", "stt", "--json"], {
       cwd: os.tmpdir(),
-      env: process.env,
+      env,
     });
     let parsed: unknown;
     try {
@@ -112,8 +112,8 @@ export async function readSttModels(
     } catch {
       return { models: [], discovered: false, error: "omp did not return a model list" };
     }
-    const models = parseSttModelCatalog(parsed, (env) => {
-      const value = process.env[env];
+    const models = parseSttModelCatalog(parsed, (envName) => {
+      const value = env[envName];
       return typeof value === "string" && value !== "";
     });
     return models === null

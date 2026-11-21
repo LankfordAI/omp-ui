@@ -5,8 +5,7 @@ export function mintRemoteToken(): string {
   return randomBytes(32).toString("base64url");
 }
 
-/**
- * Constant-time compare that tolerates unequal lengths. `timingSafeEqual` throws on a length
+/** Constant-time compare that tolerates unequal lengths. `timingSafeEqual` throws on a length
  * mismatch, so both sides are digested to a fixed 32 bytes first — the comparison then leaks
  * neither the expected token's length nor its content.
  */
@@ -15,6 +14,16 @@ export function tokenMatches(expected: string, given: string | null): boolean {
   const a = createHash("sha256").update(expected, "utf8").digest();
   const b = createHash("sha256").update(given, "utf8").digest();
   return timingSafeEqual(a, b);
+}
+
+/**
+ * Sha256 hex of a high-entropy transport credential (`remoteToken` or
+ * `passwordSessionCredential(hash)`) — for binding a fleet dispatcher id to the
+ * credential that first claimed it. Never feed a raw user password here: use
+ * `passwordSessionCredential(storedScryptHash)` for password-backed credentials.
+ */
+export function credentialDigest(credential: string): string {
+  return createHash("sha256").update(credential, "utf8").digest("hex");
 }
 
 const SCRYPT_KEYLEN = 32;

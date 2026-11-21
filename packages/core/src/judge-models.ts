@@ -38,7 +38,7 @@ export function parseJudgeModelCatalog(json: unknown): JudgeModelOption[] | null
  * probe yields `discovered: false` with a short reason.
  */
 export async function readJudgeModels(
-  { ompPath }: { ompPath: string | null },
+  { ompPath, env = process.env }: { ompPath: string | null; env?: NodeJS.ProcessEnv },
   run: OmpConfigRunner = execOmpConfigRunner(ompPath ?? ""),
 ): Promise<JudgeModelSnapshot> {
   if (ompPath === null) {
@@ -47,7 +47,7 @@ export async function readJudgeModels(
   try {
     const stdout = await run(["models", "--kind", "judge", "--json"], {
       cwd: os.tmpdir(),
-      env: process.env,
+      env,
     });
     let parsed: unknown;
     try {

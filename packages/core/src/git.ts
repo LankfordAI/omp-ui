@@ -1,8 +1,19 @@
 import { execFile } from "node:child_process";
 import { promisify } from "node:util";
 import { withoutAppImageRuntime } from "./appimage-env";
+import { withoutProviderKeys } from "./provider-catalog";
 
 const execFileP = promisify(execFile);
+
+/**
+ * A branch or ref name accepted from a renderer or remote client: never a git
+ * option. `git branch` has no `--` end-of-options marker, so a leading dash is
+ * refused outright instead of escaped.
+ */
+export function refArg(name: string): string {
+  if (name.startsWith("-")) throw new Error(`refusing ref-like argument: ${name}`);
+  return name;
+}
 
 export interface GitOptions {
   timeoutMs?: number;
@@ -27,7 +38,9 @@ export async function git(
   try {
     const { stdout } = await execFileP("git", args, {
       cwd,
-      env: Object.assign(withoutAppImageRuntime(), options.env),
+      // Provider keys never ride a git child (finding 9): a repo's hook or
+      // credential helper runs with this env.
+      env: Object.assign(withoutProviderKeys(withoutAppImageRuntime()), options.env),
       timeout: options.timeoutMs,
       maxBuffer: 32 * 1024 * 1024,
       encoding: "utf8",

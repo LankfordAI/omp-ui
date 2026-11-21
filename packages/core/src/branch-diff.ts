@@ -1,6 +1,6 @@
 import * as fs from "node:fs";
 import * as path from "node:path";
-import { git } from "./git";
+import { git, refArg } from "./git";
 import { readDefaultBranch } from "./branches";
 import type { BranchDiff } from "./types";
 
@@ -45,7 +45,7 @@ async function diffFromFirstBase(
 ): Promise<BaseDiff | null> {
   for (const candidate of candidates) {
     try {
-      const mergeBase = (await git(root, ["merge-base", candidate, "HEAD"])).trim();
+      const mergeBase = (await git(root, ["merge-base", refArg(candidate), "HEAD"])).trim();
       const diff = await git(root, ["diff", mergeBase, "--no-ext-diff"]);
       return { mergeBase, baseRef: candidate, diff };
     } catch {

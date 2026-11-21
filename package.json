@@ -3,6 +3,9 @@
   "private": true,
   "license": "MIT",
   "workspaces": ["packages/*"],
+  "overrides": {
+    "mermaid": { "katex": "^0.18.4" }
+  },
   "scripts": {
     "prepare": "node scripts/install-git-hooks.mjs",
     "dev": "npm run dev --workspace @omp-ui/desktop",

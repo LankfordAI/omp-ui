@@ -63,7 +63,7 @@ export function parseChatModelCatalog(json: unknown): CatalogModelOption[] | nul
  * yields `discovered: false` with a short reason.
  */
 export async function readModelCatalog(
-  { ompPath }: { ompPath: string | null },
+  { ompPath, env = process.env }: { ompPath: string | null; env?: NodeJS.ProcessEnv },
   run: OmpConfigRunner = execOmpConfigRunner(ompPath ?? ""),
 ): Promise<ModelCatalogSnapshot> {
   if (ompPath === null) {
@@ -72,7 +72,7 @@ export async function readModelCatalog(
   try {
     const stdout = await run(["models", "--kind", "chat", "--json"], {
       cwd: os.tmpdir(),
-      env: process.env,
+      env,
     });
     let parsed: unknown;
     try {

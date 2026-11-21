@@ -18,7 +18,7 @@ import {
   type FleetUpdateMemberRequest,
   type PtyHandle,
 } from "@omp-ui/core";
-import { hashRemotePassword, passwordSessionCredential } from "@omp-ui/server";
+import { credentialDigest, hashRemotePassword, passwordSessionCredential, withRemoteCredentialDigest } from "@omp-ui/server";
 
 // Fleet update verbs reach core's omp machinery only inside maintenance jobs;
 // stub the network/install layer (precedent: diagnostics.test.ts) so no test
@@ -475,10 +475,60 @@ describe("FleetServer.grantRaise", () => {
     expect(server().grantRaise({ requester: B, targetRung: "observe", credential: passwordSessionCredential(hash) }).ok).toBe(true);
     expect(server().grantRaise({ requester: B, targetRung: "manage", credential: "wrong horse" }).ok).toBe(false);
   });
+
+  it("binds the dispatcher id to the high-entropy credential digest, refuses a different credential on raise and check(), and never hashes raw passwords with SHA-256", () => {
+    registry.setSetting("remoteToken", TOKEN);
+    const { salt, hash } = hashRemotePassword("correct horse");
+    registry.setSetting("remotePasswordSalt", salt);
+    registry.setSetting("remotePasswordHash", hash);
+    registry.setSetting("fleetExecEnabled", true);
+    registry.setSetting("fleetExecCeiling", "full");
+    const s = server();
+    expect(s.grantRaise({ requester: A, targetRung: "full", credential: "correct horse" }).ok).toBe(true);
+    const storedDigest = registry.getSetting("fleetGrants")["inst-a"]?.credentialDigest;
+    // Must bind to the session-credential digest, NEVER unsalted sha256(rawPassword).
+    expect(storedDigest).toBe(credentialDigest(passwordSessionCredential(hash)));
+    expect(storedDigest).not.toBe(credentialDigest("correct horse"));
+    // The password's session credential represents the same password-backed identity.
+    expect(
+      s.grantRaise({ requester: A, targetRung: "full", credential: passwordSessionCredential(hash) }).ok,
+    ).toBe(true);
+    // A different valid credential (the bearer token) claiming inst-a is refused on BOTH grantRaise and check().
+    expect(
+      s.grantRaise({ requester: A, targetRung: "observe", credential: TOKEN }),
+    ).toEqual({ ok: false, reason: expect.stringContaining("bound to a different credential") });
+    expect(registry.getSetting("fleetGrants")["inst-a"]).toMatchObject({ rung: "full" });
+    expect(withRemoteCredentialDigest(credentialDigest(TOKEN), () => s.check(A, "full"))).toEqual({
+      ok: false,
+      reason: expect.stringContaining("bound to a different credential"),
+    });
+    // The bound session credential passes check().
+    expect(
+      withRemoteCredentialDigest(credentialDigest(passwordSessionCredential(hash)), () => s.check(A, "full")),
+    ).toEqual({ ok: true, rung: "full" });
+    // The earlier mismatch was audited as refused.
+    expect(
+      s.auditEntries().some((e) => e.action === "grant-raise" && !e.accepted && e.detail.includes("different credential")),
+    ).toBe(true);
+  });
+
+  it("backfills the digest on an unbound legacy row and then enforces it", () => {
+    registry.setSetting("remoteToken", TOKEN);
+    const s = server();
+    // Pre-existing first-sight row from an older build: no credentialDigest.
+    registry.setSetting("fleetGrants", { "inst-a": { label: "studio", updatedAt: "t" } });
+    expect(s.grantRaise({ requester: A, targetRung: "manage", credential: TOKEN }).ok).toBe(true);
+    expect(registry.getSetting("fleetGrants")["inst-a"]?.credentialDigest).toBe(credentialDigest(TOKEN));
+    // A second dispatcher token now claiming inst-a is refused.
+    const B: FleetRequester = { ...A, instanceId: "inst-a" };
+    registry.setSetting("remoteToken", "rotated-token");
+    expect(s.grantRaise({ requester: B, targetRung: "observe", credential: "rotated-token" }).ok).toBe(false);
+    expect(registry.getSetting("fleetGrants")["inst-a"]?.rung).toBe("manage");
+  });
 });
 
 describe("FleetServer.setGrant", () => {
-  it("sets, keeps the first-sight label, and null resets to the default while keeping the named row", () => {
+  it("sets, keeps the first-sight label and credentialDigest, and null resets to the default while keeping the named row", () => {
     const s = server();
     s.grantRung(A); // first sight records the label
     s.setGrant("inst-a", "observe");
@@ -489,6 +539,36 @@ describe("FleetServer.setGrant", () => {
     expect(s.check(A, "dispatch").ok).toBe(true);
     s.setGrant("inst-a", null); // already at the default: no write, no audit line
     expect(s.auditEntries().map((e) => e.detail)).toEqual(["set observe", "reset to default"]);
+    // Preserves credentialDigest across local rung edits and refuses prototype keys.
+    const token = "set-grant-token";
+    registry.setSetting("remoteToken", token);
+    registry.setSetting("fleetExecCeiling", "full");
+    expect(s.grantRaise({ requester: A, targetRung: "manage", credential: token }).ok).toBe(true);
+    s.setGrant("inst-a", "full");
+    expect(registry.getSetting("fleetGrants")["inst-a"]?.credentialDigest).toBe(credentialDigest(token));
+    expect(() => s.setGrant("toString", "full")).toThrow(/prototype key/);
+  });
+
+  it("reset to default unbinds the credential, re-opening the raise path after a rotation", () => {
+    registry.setSetting("remoteToken", "rotate-me");
+    registry.setSetting("fleetExecCeiling", "full");
+    const s = server();
+    expect(s.grantRaise({ requester: A, targetRung: "manage", credential: "rotate-me" }).ok).toBe(true);
+    // The owner rotates the token: the old binding refuses the new credential…
+    registry.setSetting("remoteToken", "rotated");
+    expect(
+      s.grantRaise({ requester: A, targetRung: "observe", credential: "rotated" }),
+    ).toEqual({ ok: false, reason: expect.stringContaining("bound to a different credential") });
+    // …and the owner-local reset is the documented way out: it drops the
+    // binding while keeping the named row.
+    s.setGrant("inst-a", null);
+    expect(registry.getSetting("fleetGrants")["inst-a"]).toEqual({
+      label: "studio",
+      updatedAt: expect.any(String),
+    });
+    // Re-granting under the rotated credential now binds it fresh.
+    expect(s.grantRaise({ requester: A, targetRung: "manage", credential: "rotated" }).ok).toBe(true);
+    expect(registry.getSetting("fleetGrants")["inst-a"]?.credentialDigest).toBe(credentialDigest("rotated"));
   });
 });
 

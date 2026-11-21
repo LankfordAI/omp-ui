@@ -283,28 +283,15 @@ export class ProviderKeys {
   }
 
   /**
-   * Installs the resolved credentials into this process's environment, where
-   * every omp launch path already inherits them. Stored beats inherited beats
-   * login-shell; a name with no value anywhere is left exactly as it was, so
-   * this never blanks a variable some other layer is providing.
-   */
-  applyToProcessEnv(env: NodeJS.ProcessEnv = this.env): void {
-    for (const name of PROVIDER_ENV_NAMES) {
-      const value = this.stored.get(name) ?? this.baseEnv[name] ?? this.shellKeys[name];
-      if (value !== undefined) env[name] = value;
-    }
-  }
-
-  /**
-   * One-shot login-shell capture, then re-apply. Awaited at boot before the
-   * first session can spawn; repeated calls are no-ops so a refresh from the
-   * settings page cannot pile up shell processes.
+   * One-shot login-shell capture. Awaited at boot before the first session
+   * can spawn; repeated calls are no-ops so a refresh from the settings page
+   * cannot pile up shell processes. The captured keys are read per-spawn
+   * through `rolloutValue` — no process.env write (finding 9).
    */
   async captureLoginShell(opts?: { capture?: ShellCaptureFn }): Promise<void> {
     if (this.shellCaptured) return;
     this.shellCaptured = true;
     this.shellKeys = await captureLoginShellKeys({ ...opts, platform: this.platform });
-    this.applyToProcessEnv();
   }
 
   /** Stores one credential and installs it immediately. Rejects unknown names. */
@@ -320,15 +307,16 @@ export class ProviderKeys {
     this.save(candidate);
     this.encrypted = candidate;
     this.stored.set(envName, plain);
-    this.applyToProcessEnv();
+    // No process.env write: since finding 9 the omp spawn overlay is the
+    // only delivery path (ADR-0010's guarantee, now per-spawn).
   }
 
   /**
-   * Forgets a stored credential. The variable falls back to whatever the
-   * environment or login shell supplies; when nothing does, it is removed from
-   * this process outright so the next omp genuinely sees it unset.
+   * Forgets a stored credential. The value falls back to whatever the
+   * environment or login shell supplies — the spawn overlay recomputes that
+   * per-spawn, so no process.env mutation is needed (or made).
    */
-  clearKey(envName: string, env: NodeJS.ProcessEnv = this.env): void {
+  clearKey(envName: string): void {
     if (!knownEnvName(envName)) throw new Error(`unknown provider variable: ${envName}`);
     if (!this.encrypted.has(envName)) return;
     const candidate = new Map(this.encrypted);
@@ -336,9 +324,6 @@ export class ProviderKeys {
     this.save(candidate);
     this.encrypted = candidate;
     this.stored.delete(envName);
-    const fallback = this.baseEnv[envName] ?? this.shellKeys[envName];
-    if (fallback === undefined) delete env[envName];
-    else env[envName] = fallback;
   }
 
   /**
