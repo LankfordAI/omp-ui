@@ -5,8 +5,7 @@ import {
   compareAppVersions,
   detectPackageFormat,
   downloadAppAsset,
-  fetchLatestAppRelease,
-  fetchNightlyAppRelease,
+  fetchAppReleaseForTrain,
   fetchSha256Sums,
   parseSemver,
   selectAsset,
@@ -588,9 +587,7 @@ export class AppUpdater extends UpdateController<AppUpdateState> {
     }
     this.publish({ t: "check-begin" });
     const train = this.deps.getTrain();
-    const lookup = await (train === "nightly"
-      ? fetchNightlyAppRelease(this.deps.fetchImpl)
-      : fetchLatestAppRelease(this.deps.fetchImpl));
+    const lookup = await fetchAppReleaseForTrain(train, this.deps.fetchImpl);
     // A newer check — or onTrainChanged's reset + re-check — superseded
     // this one; it must not publish or stage anything anymore.
     if (gen !== this.checkGen) return this.state;
@@ -602,7 +599,7 @@ export class AppUpdater extends UpdateController<AppUpdateState> {
       this.publish({ t: "release-unreadable", manual, releaseUrl: lookup.page });
       return this.state;
     }
-    const release = lookup.release;
+    const { release, source } = lookup;
     if (compareAppVersions(this.deps.currentVersion, release.version, train) >= 0) {
       this.publish({ t: "up-to-date", manual });
       return this.state;
@@ -615,10 +612,10 @@ export class AppUpdater extends UpdateController<AppUpdateState> {
     }
     const format = detectPackageFormat(this.deps.env, this.deps.exists, this.deps.platform);
     if (isAutoUpdateFormat(format)) {
-      await this.stageAutoUpdate(release, format, stageVisible, train);
+      await this.stageAutoUpdate(release, format, stageVisible, source);
       return this.state;
     }
-    this.publish({ t: "available", release, format: train === "nightly" ? "unknown" : format });
+    this.publish({ t: "available", release, format: source === "nightly" ? "unknown" : format });
     return this.state;
   }
 
@@ -636,7 +633,7 @@ export class AppUpdater extends UpdateController<AppUpdateState> {
     release: AppReleaseInfo,
     format: AutoUpdateFormat,
     visible: boolean,
-    train: UpdateTrain,
+    source: UpdateTrain,
   ): Promise<void> {
     if (this.machine.stage !== null) {
       // Join: re-announce so this check's check-begin never lingers on
@@ -698,22 +695,25 @@ export class AppUpdater extends UpdateController<AppUpdateState> {
         });
       }
       autoUpdater.setFeedURL(
-        train === "nightly"
+        source === "nightly"
           ? { provider: "generic", url: "https://github.com/LankfordAI/omp-ui/releases/download/nightly/" }
           : { provider: "github", owner: "LankfordAI", repo: "omp-ui" },
       );
-      // Same-base nightly is semver-older than stable; allow the opted-in
-      // nightly transition, then reset this flag on every stable stage.
-      autoUpdater.allowDowngrade = train === "nightly";
+      // Route staging by the winning release's source, not the configured
+      // train: a nightly-train install promoting to a newer stable release
+      // uses the GitHub provider with allowDowngrade=false and
+      // allowPrerelease=false, while a same-base nightly is semver-older than
+      // stable and requires allowDowngrade=true on the generic nightly feed.
+      autoUpdater.allowDowngrade = source === "nightly";
       // The GitHub provider picks a stable release by prerelease *channel* when
       // allowPrerelease is set, and it derives that flag from the installed
       // version. A nightly install would then search releases.atom for a tag
       // with a `nightly` prerelease; nightlies live under the literal,
       // non-semver `nightly` tag, so the search finds nothing and electron-updater
       // fails with "No published versions on GitHub" (issue #568). Pin the flag to
-      // the train: stable resolves /releases/latest, and the nightly train's
+      // the winning source: stable resolves /releases/latest, and the nightly
       // generic feed never reads it.
-      autoUpdater.allowPrerelease = train === "nightly";
+      autoUpdater.allowPrerelease = source === "nightly";
 
       const result = await autoUpdater.checkForUpdates();
       // A train switch abandoned this stage during the check.

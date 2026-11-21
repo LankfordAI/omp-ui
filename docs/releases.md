@@ -7,6 +7,7 @@ This guide explains what users receive from a release and how maintainers publis
 Add one bullet per shipped change here, citing its issue as `#N`; the release tag lifts these into Highlights.
 
 - The Share panel offers the official theme tag `animated`, for themes whose backdrop moves (#1212).
+- The nightly update train now follows newer stable releases automatically alongside the rolling `nightly` prerelease (#1245).
 
 ## Choose a download
 
@@ -116,7 +117,7 @@ Continue only when the selected file reports `OK`.
 
 ## How application updates behave
 
-Packaged Linux, Windows, and macOS builds check their update train in the background at launch when the omp-ui launch check is enabled: the stable train, the default, reads the latest stable GitHub release, and the nightly train reads the rolling `nightly` prerelease (Settings → Updates, *Update train*). The command palette can run the check on demand. Drafts and prereleases never qualify for the stable train. Background lookup, metadata, and download failures stay silent, as do no-update results. An on-demand check reports its staging progress and failures, including those of a download a background check already started. Development builds and builds without a valid stamped version do not check.
+Packaged Linux, Windows, and macOS builds check their update train in the background at launch when the omp-ui launch check is enabled: the stable train, the default, reads the latest stable GitHub release, and the nightly train checks both the rolling `nightly` prerelease and the latest stable release in parallel, following whichever is newer (Settings → Updates, *Update train*). The command palette can run the check on demand. Drafts and prereleases never qualify for the stable train. Background lookup, metadata, and download failures stay silent, as do no-update results. An on-demand check reports its staging progress and failures, including those of a download a background check already started. Development builds and builds without a valid stamped version do not check.
 
 AppImage, NSIS, and macOS installs use `electron-updater`. A background check downloads and verifies a newer release before the update card appears:
 
@@ -176,14 +177,19 @@ the nightly train's in-app check and staged installs work end to end; the
 workflow asserts the feeds are present before finishing. The prerelease flag,
 not feed absence, is what keeps nightlies off the stable train: the `nightly`
 release stays invisible to `releases/latest`, to `packaging/install.sh`, and
-to the stable train's update check. A nightly's version prefix equals the
-latest stable, and on the stable train the bare stable release outranks that
-same-base prerelease, so a nightly install following the stable train is
-offered the stable build and returns to it; the nightly train instead ranks
-each newer nightly ahead (issue #493). Staging pins electron-updater's
-`allowPrerelease` to the train, because left to itself the GitHub provider
-infers a release channel from the installed prerelease version and finds no
-matching tag for the rolling `nightly` release.
+to the stable train's update check. On the nightly train, the updater checks both
+the rolling `nightly` prerelease and the latest stable release in parallel and
+follows whichever ranks newer under nightly-train ordering (issue #1245): a
+newer stable release beats an older nightly, while a same-base or newer nightly
+beats stable (issue #493). On the stable train, the bare stable release outranks
+a same-base nightly prerelease, so a nightly install switched back to stable is
+offered the stable build and returns to it. Staging keys `setFeedURL`,
+`allowDowngrade`, and `allowPrerelease` on the winning release's source
+(`nightly` vs `stable`) rather than the configured train: a nightly install
+promoting to a newer stable release stages from the GitHub provider with
+`allowPrerelease` and `allowDowngrade` set to `false` (issue #568), because left
+to itself the GitHub provider infers a release channel from the installed
+prerelease version and finds no matching tag for the rolling `nightly` release.
 
 ## Publish a release
 

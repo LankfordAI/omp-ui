@@ -1509,7 +1509,7 @@ export const en = {
   "settings.updates.trainStable": "stable",
   "settings.updates.trainNightly": "nightly",
   "settings.updates.trainHint":
-    "Nightly follows the trunk: a rolling prerelease built on demand — expect rough edges. The Windows nightly is the unsigned preview build. Switching back to stable returns you to the latest stable release.",
+    "Nightly follows the trunk (a rolling prerelease built on demand) plus any newer stable release — expect rough edges. The Windows nightly is the unsigned preview build. Switching back to stable returns you to the latest stable release.",
   "settings.updates.dismissed": "Dismissed: {version}",
   "settings.updates.reoffer": "Re-offer",
   "settings.updates.ompBinary": "omp binary",

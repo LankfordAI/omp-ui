@@ -1402,7 +1402,7 @@ export const ko: Partial<Record<MessageKey, string>> = {
   "settings.updates.trainStable": "안정",
   "settings.updates.trainNightly": "nightly",
   "settings.updates.trainHint":
-    "Nightly는 trunk를 따라가는 롤링 프리릴리스로, 필요할 때 수동으로 빌드됩니다. 불안정할 수 있으며, Windows nightly는 서명되지 않은 미리보기 빌드입니다. stable로 다시 전환하면 최신 stable 릴리스로 돌아갑니다.",
+    "Nightly는 trunk를 따라가는 롤링 프리릴리스(필요할 때 수동으로 빌드)와 더 새로운 stable 릴리스를 함께 따릅니다. 불안정할 수 있으며, Windows nightly는 서명되지 않은 미리보기 빌드입니다. stable로 다시 전환하면 최신 stable 릴리스로 돌아갑니다.",
   "settings.updates.dismissed": "숨김: {version}",
   "settings.updates.reoffer": "다시 제안",
   "settings.updates.ompBinary": "omp binary",

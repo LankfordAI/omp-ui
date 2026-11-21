@@ -177,6 +177,56 @@ export async function fetchLatestAppRelease(
   return lookupRelease(APP_LATEST_RELEASE_URL, APP_LATEST_RELEASE_PAGE_URL, parseLatestRelease, fetchImpl);
 }
 
+/** Lookup result for a configured update train, carrying which release feed won. */
+export type AppTrainLookup =
+  | { kind: "release"; release: AppReleaseInfo; source: UpdateTrain }
+  | { kind: "unreachable" }
+  | { kind: "unreadable"; page: string };
+
+/**
+ * Pure reducer for the nightly train: picks the newer of the rolling nightly
+ * prerelease and the latest stable release using nightly-train ordering.
+ * Unreadable feeds are never hidden behind the other feed (issue #930), while
+ * a single unreachable feed degrades to the healthy one.
+ */
+export function selectNightlyTrainRelease(
+  nightly: AppReleaseLookup,
+  stable: AppReleaseLookup,
+): AppTrainLookup {
+  if (nightly.kind === "unreadable") return nightly;
+  if (stable.kind === "unreadable") return stable;
+  if (nightly.kind === "release" && stable.kind === "release") {
+    return compareAppVersions(nightly.release.version, stable.release.version, "nightly") >= 0
+      ? { kind: "release", release: nightly.release, source: "nightly" }
+      : { kind: "release", release: stable.release, source: "stable" };
+  }
+  if (nightly.kind === "release") return { kind: "release", release: nightly.release, source: "nightly" };
+  if (stable.kind === "release") return { kind: "release", release: stable.release, source: "stable" };
+  return { kind: "unreachable" };
+}
+
+/**
+ * Resolves the target release for an update train. Stable checks only
+ * /releases/latest; nightly checks both /releases/tags/nightly and
+ * /releases/latest in parallel and follows whichever is newer.
+ */
+export async function fetchAppReleaseForTrain(
+  train: UpdateTrain,
+  fetchImpl: FetchLike = defaultFetch,
+): Promise<AppTrainLookup> {
+  if (train === "stable") {
+    const lookup = await fetchLatestAppRelease(fetchImpl);
+    return lookup.kind === "release"
+      ? { kind: "release", release: lookup.release, source: "stable" }
+      : lookup;
+  }
+  const [nightly, stable] = await Promise.all([
+    fetchNightlyAppRelease(fetchImpl),
+    fetchLatestAppRelease(fetchImpl),
+  ]);
+  return selectNightlyTrainRelease(nightly, stable);
+}
+
 /**
  * How this install updates. Windows packages are NSIS. macOS DMG installs
  * auto-update through the ZIP feed Squirrel.Mac consumes. Linux preserves the
