@@ -823,20 +823,38 @@ describe("AppUpdater update trains (issue #493)", () => {
     json: async () => body,
     arrayBuffer: async () => new ArrayBuffer(0),
   });
+  const notFound = {
+    ok: false,
+    status: 404,
+    json: async () => ({}),
+    arrayBuffer: async () => new ArrayBuffer(0),
+  };
+  const trainFetch = (opts: { nightly?: unknown; stable?: unknown }): FetchLike => async (url) => {
+    if (url.includes("/tags/nightly")) {
+      return opts.nightly === undefined ? notFound : json(opts.nightly);
+    }
+    if (url.includes("/releases/latest")) {
+      return opts.stable === undefined ? notFound : json(opts.stable);
+    }
+    return notFound;
+  };
 
   it("fetches and offers same-base nightly as a release-page handoff", async () => {
-    let url = "";
+    const urls: string[] = [];
     const { updater } = makeUpdater({
       getTrain: () => "nightly",
       fetchImpl: async (input) => {
-        url = input;
-        return json(nightlyBody("1.0.0-nightly.20260911.abc1234"));
+        urls.push(input);
+        return input.includes("/tags/nightly")
+          ? json(nightlyBody("1.0.0-nightly.20260911.abc1234"))
+          : json(releaseBody("1.0.0"));
       },
       env: {},
       exists: (path) => path === "/usr/bin/dpkg",
     });
     await updater.checkNow(true);
-    expect(url).toContain("/releases/tags/nightly");
+    expect(urls.some((u) => u.includes("/releases/tags/nightly"))).toBe(true);
+    expect(urls.some((u) => u.includes("/releases/latest"))).toBe(true);
     expect(updater.state).toMatchObject({
       status: "available",
       latestVersion: "1.0.0-nightly.20260911.abc1234",
@@ -848,11 +866,13 @@ describe("AppUpdater update trains (issue #493)", () => {
     const { updater } = makeUpdater({
       currentVersion: "1.0.0-nightly.20261023.7a2d93b",
       getTrain: () => "nightly",
-      fetchImpl: async () =>
-        json({
+      fetchImpl: trainFetch({
+        nightly: {
           ...nightlyBody("1.0.0-nightly.20261023T180628.c77aa15"),
           name: "Nightly 1.0.0-nightly.20261023T180628Z.c77aa15",
-        }),
+        },
+        stable: releaseBody("1.0.0"),
+      }),
     });
     await updater.checkNow(false);
     expect(updater.state.status).toBe("idle");
@@ -903,7 +923,7 @@ describe("AppUpdater update trains (issue #493)", () => {
     const equal = makeUpdater({
       currentVersion,
       getTrain: () => "nightly",
-      fetchImpl: async () => json(nightlyBody(currentVersion)),
+      fetchImpl: trainFetch({ nightly: nightlyBody(currentVersion), stable: releaseBody("1.0.0") }),
     });
     await equal.updater.checkNow(true);
     expect(equal.updater.state.status).toBe("up-to-date");
@@ -911,7 +931,10 @@ describe("AppUpdater update trains (issue #493)", () => {
     const newer = makeUpdater({
       currentVersion,
       getTrain: () => "nightly",
-      fetchImpl: async () => json(nightlyBody("1.0.0-nightly.20260912T071530.0000000")),
+      fetchImpl: trainFetch({
+        nightly: nightlyBody("1.0.0-nightly.20260912T071530.0000000"),
+        stable: releaseBody("1.0.0"),
+      }),
       env: {},
       exists: () => true,
     });
@@ -925,7 +948,10 @@ describe("AppUpdater update trains (issue #493)", () => {
     const { updater } = makeUpdater({
       currentVersion: "1.0.0-nightly.20261023.7a2d93b",
       getTrain: () => "nightly",
-      fetchImpl: async () => json(nightlyBody("1.0.0-nightly.20261023T143045.3b31ac9")),
+      fetchImpl: trainFetch({
+        nightly: nightlyBody("1.0.0-nightly.20261023T143045.3b31ac9"),
+        stable: releaseBody("1.0.0"),
+      }),
       env: {},
       exists: () => true,
     });
@@ -939,7 +965,7 @@ describe("AppUpdater update trains (issue #493)", () => {
       const made = makeUpdater({
         getTrain: () => train,
         fetchImpl: train === "nightly"
-          ? async () => json(nightlyBody("1.0.0-nightly.20260911.abc1234"))
+          ? trainFetch({ nightly: nightlyBody("1.0.0-nightly.20260911.abc1234"), stable: releaseBody("1.0.0") })
           : updateFetch({ releaseBody: releaseBody("1.2.0") }),
         autoUpdaterFactory: async () => autoUpdater,
         env: { APPIMAGE: "/run/omp-ui.AppImage" },
@@ -960,9 +986,10 @@ describe("AppUpdater update trains (issue #493)", () => {
     const autoUpdater = makeFakeAutoUpdater();
     const made = makeUpdater({
       getTrain: () => train,
-      fetchImpl: async (url) => json(url.includes("/tags/nightly")
-        ? nightlyBody("1.0.0-nightly.20260911.abc1234")
-        : releaseBody("1.2.0")),
+      fetchImpl: trainFetch({
+        nightly: nightlyBody("1.2.0-nightly.20260911.abc1234"),
+        stable: releaseBody("1.2.0"),
+      }),
       autoUpdaterFactory: async () => autoUpdater,
       env: { APPIMAGE: "/run/omp-ui.AppImage" },
     });
@@ -982,18 +1009,13 @@ describe("AppUpdater update trains (issue #493)", () => {
 
   it("drops a check that started on the previous train", async () => {
     let train: "stable" | "nightly" = "stable";
-    const json = (body: unknown) => ({
-      ok: true,
-      status: 200,
-      json: async () => body,
-      arrayBuffer: async () => new ArrayBuffer(0),
-    });
-    let resolveStable!: (body: unknown) => void;
+    const stableBody = Promise.withResolvers<unknown>();
+    let stableCalls = 0;
     const fetchImpl: FetchLike = async (url) => {
       if (url.includes("/releases/latest")) {
-        return new Promise((res) => {
-          resolveStable = (body) => res(json(body));
-        });
+        stableCalls += 1;
+        if (stableCalls === 1) return json(await stableBody.promise);
+        return json(releaseBody("1.0.0"));
       }
       return json(nightlyBody("1.0.0-nightly.20260911.abc1234"));
     };
@@ -1013,7 +1035,7 @@ describe("AppUpdater update trains (issue #493)", () => {
     await made.updater.onTrainChanged(); // the nightly check completes and stages
     const mark = sent.length;
     expect(autoUpdater.setFeedURL).toHaveBeenCalledTimes(1);
-    resolveStable(releaseBody("1.2.0"));
+    stableBody.resolve(releaseBody("1.2.0"));
     await pending;
     // The superseded check publishes nothing and never touches the feed.
     expect(sent.length).toBe(mark);
@@ -1093,6 +1115,120 @@ describe("AppUpdater update trains (issue #493)", () => {
     expect(autoUpdater.downloadUpdate).toHaveBeenCalledTimes(1); // the old stage never downloads
     autoUpdater.emitDownloaded(nightly);
     expect(made.updater.state).toMatchObject({ status: "downloaded", latestVersion: nightly });
+  });
+
+  it("promotes a nightly-train install to a newer stable release via the GitHub feed", async () => {
+    const autoUpdater = makeFakeAutoUpdater();
+    const installed = "1.0.0-nightly.20260911T071530.abc1234";
+    const made = makeUpdater({
+      currentVersion: installed,
+      getTrain: () => "nightly",
+      fetchImpl: trainFetch({
+        nightly: nightlyBody(installed),
+        stable: releaseBody("1.1.0"),
+      }),
+      autoUpdaterFactory: async () => autoUpdater,
+      env: { APPIMAGE: "/run/omp-ui.AppImage" },
+    });
+    await made.updater.checkNow(true);
+    expect(autoUpdater.setFeedURL).toHaveBeenCalledWith({
+      provider: "github",
+      owner: "LankfordAI",
+      repo: "omp-ui",
+    });
+    expect(autoUpdater.allowPrerelease).toBe(false);
+    expect(autoUpdater.allowDowngrade).toBe(false);
+    autoUpdater.emitDownloaded("1.1.0");
+    expect(made.updater.state).toMatchObject({ status: "downloaded", latestVersion: "1.1.0" });
+  });
+
+  it("does not loop after promoting to stable on the nightly train while nightly is still older", async () => {
+    const autoUpdater = makeFakeAutoUpdater();
+    const made = makeUpdater({
+      currentVersion: "1.1.0",
+      getTrain: () => "nightly",
+      fetchImpl: trainFetch({
+        nightly: nightlyBody("1.0.0-nightly.20260911T071530.abc1234"),
+        stable: releaseBody("1.1.0"),
+      }),
+      autoUpdaterFactory: async () => autoUpdater,
+      env: { APPIMAGE: "/run/omp-ui.AppImage" },
+    });
+    await made.updater.checkNow(true);
+    expect(made.updater.state.status).toBe("up-to-date");
+    expect(autoUpdater.checkForUpdates).not.toHaveBeenCalled();
+  });
+
+  it("stages a subsequent same-base nightly after promoting to stable on the nightly train", async () => {
+    const autoUpdater = makeFakeAutoUpdater();
+    const nextNightly = "1.1.0-nightly.20260915T120000.def5678";
+    const made = makeUpdater({
+      currentVersion: "1.1.0",
+      getTrain: () => "nightly",
+      fetchImpl: trainFetch({
+        nightly: nightlyBody(nextNightly),
+        stable: releaseBody("1.1.0"),
+      }),
+      autoUpdaterFactory: async () => autoUpdater,
+      env: { APPIMAGE: "/run/omp-ui.AppImage" },
+    });
+    await made.updater.checkNow(true);
+    expect(autoUpdater.setFeedURL).toHaveBeenCalledWith({
+      provider: "generic",
+      url: "https://github.com/LankfordAI/omp-ui/releases/download/nightly/",
+    });
+    expect(autoUpdater.allowDowngrade).toBe(true);
+    expect(autoUpdater.allowPrerelease).toBe(true);
+    autoUpdater.emitDownloaded(nextNightly);
+    expect(made.updater.state).toMatchObject({ status: "downloaded", latestVersion: nextNightly });
+  });
+
+  it("falls back to a newer stable release when the nightly endpoint returns 404", async () => {
+    const autoUpdater = makeFakeAutoUpdater();
+    const made = makeUpdater({
+      currentVersion: "1.0.0-nightly.20260911T071530.abc1234",
+      getTrain: () => "nightly",
+      fetchImpl: trainFetch({ stable: releaseBody("1.1.0") }),
+      autoUpdaterFactory: async () => autoUpdater,
+      env: { APPIMAGE: "/run/omp-ui.AppImage" },
+    });
+    await made.updater.checkNow(true);
+    expect(autoUpdater.setFeedURL).toHaveBeenCalledWith({
+      provider: "github",
+      owner: "LankfordAI",
+      repo: "omp-ui",
+    });
+    expect(autoUpdater.allowPrerelease).toBe(false);
+    expect(autoUpdater.allowDowngrade).toBe(false);
+    autoUpdater.emitDownloaded("1.1.0");
+    expect(made.updater.state).toMatchObject({ status: "downloaded", latestVersion: "1.1.0" });
+  });
+
+  it("Fleet remote staging on a nightly member promotes to a newer stable release via GitHub", async () => {
+    const autoUpdater = makeFakeAutoUpdater();
+    autoUpdater.downloadUpdate.mockImplementation(async () => {
+      autoUpdater.emitDownloaded("1.1.0");
+      return [];
+    });
+    const made = makeUpdater({
+      currentVersion: "1.0.0-nightly.20260911T071530.abc1234",
+      getTrain: () => "nightly",
+      fetchImpl: trainFetch({
+        nightly: nightlyBody("1.0.0-nightly.20260911T071530.abc1234"),
+        stable: releaseBody("1.1.0"),
+      }),
+      autoUpdaterFactory: async () => autoUpdater,
+      env: { APPIMAGE: "/run/omp-ui.AppImage" },
+    });
+    expect(await made.updater.stageForRemoteRequest()).toBe("staged");
+    expect(autoUpdater.setFeedURL).toHaveBeenCalledWith({
+      provider: "github",
+      owner: "LankfordAI",
+      repo: "omp-ui",
+    });
+    expect(autoUpdater.allowPrerelease).toBe(false);
+    expect(autoUpdater.allowDowngrade).toBe(false);
+    expect(made.updater.state).toMatchObject({ status: "downloaded", latestVersion: "1.1.0" });
   });
 });
 describe("resolveAutoUpdater", () => {

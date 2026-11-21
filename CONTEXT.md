@@ -1631,7 +1631,7 @@ per-renderer visibility over the one persisted flag, never a second store of
 user progress.
 _Avoid_: onboarding wizard, tour, coach marks
 
-**Update train**: The user's choice of which omp-ui release line the update check follows — stable (the default: tagged GitHub releases) or nightly (the rolling `nightly` prerelease, built on demand from the trunk). Set in Settings → Updates; one setting, not per-install. _Avoid_: channel, ring, track.
+**Update train**: The user's choice of which omp-ui release line the update check follows — stable (the default: tagged GitHub releases) or nightly (whichever is newer between the rolling `nightly` prerelease, built on demand from the trunk, and the latest stable release). Set in Settings → Updates; one setting, not per-install. _Avoid_: channel, ring, track.
 
 **Settings surface**:
 The modal with twelve pages — General, Appearance, Updates, Remote access,

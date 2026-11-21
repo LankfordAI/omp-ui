@@ -5,6 +5,7 @@ import * as path from "node:path";
 import { afterEach, describe, expect, it } from "vitest";
 import {
   APP_LATEST_RELEASE_PAGE_URL,
+  APP_LATEST_RELEASE_URL,
   APP_NIGHTLY_RELEASE_PAGE_URL,
   APP_RELEASE_DOWNLOAD_BASE,
   APP_NIGHTLY_RELEASE_URL,
@@ -12,6 +13,7 @@ import {
   detectPackageFormat,
   downloadAppAsset,
   expectedAssetName,
+  fetchAppReleaseForTrain,
   fetchLatestAppRelease,
   fetchNightlyAppRelease,
   fetchSha256Sums,
@@ -19,7 +21,9 @@ import {
   parseNightlyRelease,
   parseSha256Sums,
   selectAsset,
+  selectNightlyTrainRelease,
   type AppReleaseInfo,
+  type AppReleaseLookup,
 } from "./app-update";
 import type { DownloadFetchLike, FetchLike } from "./fetch";
 
@@ -430,5 +434,152 @@ describe("compareAppVersions", () => {
   it("treats trailing text and non-nightly prereleases as unparseable", () => {
     expect(compareAppVersions("1.2.3-invalid", "1.2.3", "stable")).toBeLessThan(0);
     expect(compareAppVersions("1.2.3+build5", "1.2.3", "nightly")).toBeLessThan(0);
+  });
+});
+
+describe("selectNightlyTrainRelease", () => {
+  const release = (version: string, tag: string): AppReleaseLookup => ({
+    kind: "release",
+    release: {
+      version,
+      tag,
+      url: `https://github.com/LankfordAI/omp-ui/releases/tag/${tag}`,
+      name: tag === "nightly" ? `Nightly ${version}` : `omp-ui ${version}`,
+      assets: [],
+    },
+  });
+  const unreadableNightly: AppReleaseLookup = { kind: "unreadable", page: APP_NIGHTLY_RELEASE_PAGE_URL };
+  const unreadableStable: AppReleaseLookup = { kind: "unreadable", page: APP_LATEST_RELEASE_PAGE_URL };
+  const unreachable: AppReleaseLookup = { kind: "unreachable" };
+
+  it("picks newer stable over an older nightly base with source stable", () => {
+    const nightly = release("0.34.8-nightly.20260911T071530.abc1234", "nightly");
+    const stable = release("0.35.0", "v0.35.0");
+    expect(selectNightlyTrainRelease(nightly, stable)).toEqual({
+      kind: "release",
+      release: stable.kind === "release" ? stable.release : undefined,
+      source: "stable",
+    });
+  });
+
+  it("picks same-base nightly over bare stable with source nightly", () => {
+    const nightly = release("0.35.0-nightly.20260911T071530.abc1234", "nightly");
+    const stable = release("0.35.0", "v0.35.0");
+    expect(selectNightlyTrainRelease(nightly, stable)).toEqual({
+      kind: "release",
+      release: nightly.kind === "release" ? nightly.release : undefined,
+      source: "nightly",
+    });
+  });
+
+  it("picks newer nightly base over older stable with source nightly", () => {
+    const nightly = release("0.35.1-nightly.20260911T071530.abc1234", "nightly");
+    const stable = release("0.35.0", "v0.35.0");
+    expect(selectNightlyTrainRelease(nightly, stable)).toEqual({
+      kind: "release",
+      release: nightly.kind === "release" ? nightly.release : undefined,
+      source: "nightly",
+    });
+  });
+
+  it("degrades to the healthy feed when the other feed is unreachable", () => {
+    const nightly = release("0.35.0-nightly.20260911T071530.abc1234", "nightly");
+    const stable = release("0.35.0", "v0.35.0");
+    expect(selectNightlyTrainRelease(unreachable, stable)).toEqual({
+      kind: "release",
+      release: stable.kind === "release" ? stable.release : undefined,
+      source: "stable",
+    });
+    expect(selectNightlyTrainRelease(nightly, unreachable)).toEqual({
+      kind: "release",
+      release: nightly.kind === "release" ? nightly.release : undefined,
+      source: "nightly",
+    });
+    expect(selectNightlyTrainRelease(unreachable, unreachable)).toEqual({ kind: "unreachable" });
+  });
+
+  it("never hides an unreadable feed behind the other feed (issue #930)", () => {
+    const nightly = release("0.35.0-nightly.20260911T071530.abc1234", "nightly");
+    const stable = release("0.35.0", "v0.35.0");
+    expect(selectNightlyTrainRelease(unreadableNightly, stable)).toEqual(unreadableNightly);
+    expect(selectNightlyTrainRelease(nightly, unreadableStable)).toEqual(unreadableStable);
+    expect(selectNightlyTrainRelease(unreachable, unreadableStable)).toEqual(unreadableStable);
+    expect(selectNightlyTrainRelease(unreadableNightly, unreadableStable)).toEqual(unreadableNightly);
+  });
+});
+
+describe("fetchAppReleaseForTrain", () => {
+  const nightlyPayload = (version: string) => ({
+    tag_name: "nightly",
+    html_url: "https://github.com/LankfordAI/omp-ui/releases/tag/nightly",
+    name: `Nightly ${version}`,
+    draft: false,
+    prerelease: true,
+    assets: [],
+  });
+  const stablePayload = (version: string) => ({
+    tag_name: `v${version}`,
+    html_url: `https://github.com/LankfordAI/omp-ui/releases/tag/v${version}`,
+    name: `omp-ui ${version}`,
+    draft: false,
+    prerelease: false,
+    assets: [],
+  });
+
+  it("requests only /releases/latest on the stable train and tags source stable", async () => {
+    const seen: string[] = [];
+    const fetchImpl: FetchLike = async (url) => {
+      seen.push(url);
+      return {
+        ok: true,
+        status: 200,
+        json: async () => stablePayload("0.35.0"),
+        arrayBuffer: async () => new ArrayBuffer(0),
+      };
+    };
+    const result = await fetchAppReleaseForTrain("stable", fetchImpl);
+    expect(seen).toEqual([APP_LATEST_RELEASE_URL]);
+    expect(result).toMatchObject({
+      kind: "release",
+      source: "stable",
+      release: { version: "0.35.0", tag: "v0.35.0" },
+    });
+  });
+
+  it("requests both endpoints on the nightly train and resolves the newer winner", async () => {
+    const seen: string[] = [];
+    const makeFetch = (nightlyVersion: string, stableVersion: string): FetchLike => async (url) => {
+      seen.push(url);
+      const body = url === APP_NIGHTLY_RELEASE_URL
+        ? nightlyPayload(nightlyVersion)
+        : stablePayload(stableVersion);
+      return {
+        ok: true,
+        status: 200,
+        json: async () => body,
+        arrayBuffer: async () => new ArrayBuffer(0),
+      };
+    };
+
+    const stableWins = await fetchAppReleaseForTrain(
+      "nightly",
+      makeFetch("0.34.8-nightly.20260911T071530.abc1234", "0.35.0"),
+    );
+    expect(new Set(seen)).toEqual(new Set([APP_NIGHTLY_RELEASE_URL, APP_LATEST_RELEASE_URL]));
+    expect(stableWins).toMatchObject({
+      kind: "release",
+      source: "stable",
+      release: { version: "0.35.0", tag: "v0.35.0" },
+    });
+
+    const nightlyWins = await fetchAppReleaseForTrain(
+      "nightly",
+      makeFetch("0.35.0-nightly.20260912T071530.def5678", "0.35.0"),
+    );
+    expect(nightlyWins).toMatchObject({
+      kind: "release",
+      source: "nightly",
+      release: { version: "0.35.0-nightly.20260912T071530.def5678", tag: "nightly" },
+    });
   });
 });
