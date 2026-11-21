@@ -74,8 +74,10 @@ try {
 const paneUrlFile = pane ? join(dirname(env.OMP_UI_REGISTRY_PATH), "dev-pane-url.txt") : null;
 if (paneUrlFile !== null) {
   // Write the full pairing URL to a 0600 file beside the registry so a fresh
-  // browser or agent can authenticate without exposing the token in stdout logs.
-  writeFileSync(paneUrlFile, `http://127.0.0.1:${seeded.remotePort}/?token=${paneToken}\n`, { mode: 0o600 });
+  // browser or agent can authenticate without exposing the token in stdout
+  // logs. The query param must stay `t` (REMOTE_TOKEN_PARAM): any other name
+  // is ignored by presentedToken() and the page lands on /login.
+  writeFileSync(paneUrlFile, `http://127.0.0.1:${seeded.remotePort}/?t=${paneToken}\n`, { mode: 0o600 });
   try {
     chmodSync(paneUrlFile, 0o600);
   } catch {

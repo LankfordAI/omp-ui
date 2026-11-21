@@ -601,6 +601,8 @@ export function startRemoteServer(opts: RemoteServerOptions): Promise<RemoteServ
 
   const wss = new WebSocketServer({ noServer: true, maxPayload: MAX_PAYLOAD });
   const frameWss = new WebSocketServer({ noServer: true, maxPayload: 1024 });
+  /** Authenticated WS connection credential digest, recorded at upgrade, read in `connection`. */
+  const wsCredentialDigest = new WeakMap<WebSocket, string>();
   const pairs = new Map<string, FramePair>();
   let nextFrameId = 0;
   let closing = false;
@@ -726,7 +728,6 @@ export function startRemoteServer(opts: RemoteServerOptions): Promise<RemoteServ
     });
   });
 
-  const wsCredentialDigest = new WeakMap<WebSocket, string>();
   wss.on("connection", (ws: WebSocket) => {
     const connectionDigest = wsCredentialDigest.get(ws) ?? null;
     markAlive(ws);

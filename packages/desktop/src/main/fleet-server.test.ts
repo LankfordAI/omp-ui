@@ -548,6 +548,28 @@ describe("FleetServer.setGrant", () => {
     expect(registry.getSetting("fleetGrants")["inst-a"]?.credentialDigest).toBe(credentialDigest(token));
     expect(() => s.setGrant("toString", "full")).toThrow(/prototype key/);
   });
+
+  it("reset to default unbinds the credential, re-opening the raise path after a rotation", () => {
+    registry.setSetting("remoteToken", "rotate-me");
+    registry.setSetting("fleetExecCeiling", "full");
+    const s = server();
+    expect(s.grantRaise({ requester: A, targetRung: "manage", credential: "rotate-me" }).ok).toBe(true);
+    // The owner rotates the token: the old binding refuses the new credential…
+    registry.setSetting("remoteToken", "rotated");
+    expect(
+      s.grantRaise({ requester: A, targetRung: "observe", credential: "rotated" }),
+    ).toEqual({ ok: false, reason: expect.stringContaining("bound to a different credential") });
+    // …and the owner-local reset is the documented way out: it drops the
+    // binding while keeping the named row.
+    s.setGrant("inst-a", null);
+    expect(registry.getSetting("fleetGrants")["inst-a"]).toEqual({
+      label: "studio",
+      updatedAt: expect.any(String),
+    });
+    // Re-granting under the rotated credential now binds it fresh.
+    expect(s.grantRaise({ requester: A, targetRung: "manage", credential: "rotated" }).ok).toBe(true);
+    expect(registry.getSetting("fleetGrants")["inst-a"]?.credentialDigest).toBe(credentialDigest("rotated"));
+  });
 });
 
 describe("FleetServer.projectManage", () => {

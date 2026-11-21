@@ -1541,24 +1541,28 @@ export class MainBackend {
         // never a BackendState broadcast: no registry/BackendState field
         // changes here. The ws transport dispatches through this same table,
         // so a joined instance's call emits on its owner too.
+        // The cwd is the session's effective checkout — a worktree path for
+        // worktree sessions (Composer passes `sessionCwd`) — so these channels
+        // take a registered project OR an owned worktree checkout, like
+        // getBranchDiff above.
         [CH.listBranches]: (projectCwd: string, opts?: BranchListOptions) => {
-          this.registeredProjectPath(projectCwd);
+          this.registeredProjectOrWorktreePath(projectCwd);
           return listBranches(projectCwd, opts);
         },
         [CH.checkoutBranch]: async (projectCwd: string, name: string, opts?: { create?: boolean }) => {
-          this.registeredProjectPath(projectCwd);
+          this.registeredProjectOrWorktreePath(projectCwd);
           await checkoutBranch(projectCwd, name, opts);
           this.send(CH.onBranchChanged, projectCwd, null);
         },
         [CH.pullBranch]: async (projectCwd: string) => {
-          this.registeredProjectPath(projectCwd);
+          this.registeredProjectOrWorktreePath(projectCwd);
           await pullBranch(projectCwd);
           this.send(CH.onBranchChanged, projectCwd, null);
         },
         // Push answers git state through a structured PushResult rather than a
         // rejection (issue #414); only a result that moved a ref emits.
         [CH.pushBranch]: async (projectCwd: string, branch: string, remote?: string | null) => {
-          this.registeredProjectPath(projectCwd);
+          this.registeredProjectOrWorktreePath(projectCwd);
           const result = await pushBranch(projectCwd, branch, remote);
           if (result.kind === "pushed" || result.kind === "published")
             this.send(CH.onBranchChanged, projectCwd, null);
@@ -1567,11 +1571,11 @@ export class MainBackend {
         // Builds a URL only. Main never opens it: the renderer hands the result
         // to window.open, where setWindowOpenHandler's web-scheme guard decides.
         [CH.pullRequestUrl]: (projectCwd: string, base: string, head: string) => {
-          this.registeredProjectPath(projectCwd);
+          this.registeredProjectOrWorktreePath(projectCwd);
           return pullRequestUrl(projectCwd, base, head);
         },
         [CH.createBranch]: async (projectCwd: string, name: string, startPoint: string) => {
-          this.registeredProjectPath(projectCwd);
+          this.registeredProjectOrWorktreePath(projectCwd);
           await createBranch(projectCwd, name, startPoint);
           this.send(CH.onBranchChanged, projectCwd, null);
         },

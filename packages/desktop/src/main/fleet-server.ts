@@ -844,7 +844,9 @@ export class FleetServer {
 
   /**
    * Node-local grant edit (Settings → Fleet access). null resets to the join
-   * default: the label-only record stays so the dispatcher keeps its row.
+   * default: the label-only record stays so the dispatcher keeps its row, and
+   * its credential binding is dropped — the owner's re-grant path after a
+   * token or password rotation.
    */
   setGrant(dispatcherId: string, rung: FleetRung | null): void {
     if (dispatcherId === "" || isUnsafeFleetId(dispatcherId)) {
@@ -854,12 +856,16 @@ export class FleetServer {
     const grants = { ...registry.getSetting("fleetGrants") };
     const prev = fleetGrantOf(grants, dispatcherId);
     const label = prev?.label ?? "";
-    if (rung === null && prev?.rung === undefined) return;
+    if (rung === null && prev?.rung === undefined && prev?.credentialDigest === undefined) return;
     grants[dispatcherId] = {
       ...(rung === null ? {} : { rung }),
       label,
       updatedAt: new Date().toISOString(),
-      ...(prev?.credentialDigest === undefined ? {} : { credentialDigest: prev.credentialDigest }),
+      // A rung edit keeps the credential binding so it cannot be stolen; a
+      // reset to the default ALSO drops it — the owner-local unbind path for
+      // token/password rotation (the old credential can no longer verify, so
+      // without this a rotated machine could never re-grant from the UI).
+      ...(rung === null || prev?.credentialDigest === undefined ? {} : { credentialDigest: prev.credentialDigest }),
     };
     registry.setSetting("fleetGrants", grants);
     this.#audit(

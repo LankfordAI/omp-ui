@@ -1,10 +1,11 @@
+import { execFileSync } from "node:child_process";
 import * as fs from "node:fs";
 import * as os from "node:os";
 import * as path from "node:path";
 import { afterEach, beforeEach, describe, expect, it, vi } from "vitest";
 import { CH } from "@omp-ui/core";
 import { MainBackend } from "./backend";
-import { seedRegistry } from "./test/fixtures";
+import { ownedSessionRecord, seedRegistry } from "./test/fixtures";
 
 // The real MainBackend imports electron; stub the surfaces it touches
 // (backend-remote-instances.test.ts's pattern).
@@ -111,6 +112,57 @@ describe("project-scoped channels are gated on registered projects", () => {
       map: {},
     });
     await expect(requests[CH.listBranches](project)).resolves.toBeTruthy();
+  });
+
+  it("serves branch channels on an owned worktree checkout — the cwd the composer actually passes", async () => {
+    // The renderer hands every branch channel `sessionCwd(record)` (view.ts),
+    // i.e. the WORKTREE path for a worktree session, never the project root:
+    // the gate must accept it or the whole branch chip dies in worktrees.
+    const project = fs.mkdtempSync(path.join(base, "registered-"));
+    const gitIn = (cwd: string, args: string[]) =>
+      execFileSync("git", ["-c", "user.email=t@t", "-c", "user.name=t", ...args], {
+        cwd,
+        stdio: "ignore",
+      });
+    gitIn(project, ["init", "-q", "-b", "main"]);
+    fs.writeFileSync(path.join(project, "f.txt"), "a");
+    gitIn(project, ["add", "f.txt"]);
+    gitIn(project, ["commit", "-q", "-m", "seed"]);
+    const worktreesRoot = path.join(base, "worktrees");
+    const worktreePath = path.join(worktreesRoot, "proj", "feat-wt");
+    fs.mkdirSync(worktreesRoot, { recursive: true });
+    gitIn(project, ["worktree", "add", "-q", "-b", "feat/wt", worktreePath, "main"]);
+
+    seedRegistry(registryFile, {
+      projects: [{
+        path: project, name: "project", addedAt: "2026-08-01T00:00:00.000Z",
+        lastModel: null, lastThinkingLevel: null, lastAdvisor: null, lastAdvisorModel: null,
+        defaultModel: null, defaultAdvisorModel: null, browserClock: false,
+        councilRoster: null, knowledgeHome: null, repositoryKey: null, icon: null,
+      }],
+      sessions: [ownedSessionRecord({
+        projectCwd: project,
+        worktree: { path: worktreePath, branch: "feat/wt", base: "main" },
+      })],
+    });
+    const be = new MainBackend(win as never, registryFile, { appVersion: "1.2.3", worktreesRoot });
+    backends.push(be);
+    const requests = be.handlers().request;
+
+    await expect(requests[CH.listBranches](worktreePath)).resolves.toMatchObject({
+      current: "feat/wt",
+    });
+    await expect(requests[CH.pullRequestUrl](worktreePath, "main", "feat/wt")).resolves.toBeNull();
+    // A real git mutation through the same gate: it must reach git, not the gate.
+    await expect(requests[CH.createBranch](worktreePath, "cut-from-worktree", "HEAD")).resolves.toBeUndefined();
+
+    // The tolerance is scoped to OWNED worktrees: a path under the root with
+    // no session record stays refused.
+    const stranger = path.join(worktreesRoot, "proj", "not-mine");
+    fs.mkdirSync(stranger, { recursive: true });
+    await expect(Promise.resolve().then(() => requests[CH.listBranches](stranger))).rejects.toThrow(
+      "that project is not registered here",
+    );
   });
 
   it("refuses browseDirectories and desktop-local shell open channels for remote clients", async () => {
