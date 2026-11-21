@@ -40,7 +40,7 @@ beforeEach(() => {
 
 afterEach(async () => {
   await Promise.all(backends.splice(0).map((be) => be.killAll()));
-  fs.rmSync(base, { recursive: true, force: true });
+  fs.rmSync(base, { recursive: true, force: true, maxRetries: 10, retryDelay: 100 });
 });
 
 function bootWithProject(projectPath: string): MainBackend {
