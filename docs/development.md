@@ -46,7 +46,7 @@ The root scripts delegate to the npm workspaces where appropriate.
 | Package the default target | `npm run package` | Runs the Linux packaging script. |
 | Preview release notes | `npm run notes` | Runs `scripts/release-notes.mjs` to render a release's notes body locally from git history and the GitHub API, for example `npm run notes -- --tag v0.9.12 --stdout`. Read-only; writes nothing to GitHub. |
 | Test all workspaces | `npm test` | Runs each workspace's `test` script. The desktop test script checks generated themes before Vitest. |
-| Test process-backed live proofs | `npm run test:live` | Runs the desktop `src/main/**/*-live.test.ts` integration proofs serially against a real omp binary. Council and warm-pool proofs require a supported binary; other proofs can skip if their prerequisites are absent. CI provisions the two checksum-pinned omp binaries it runs the suite against: the harness floor and the current release (issue #1232). Includes the Knowledge vault live test (`knowledge-vault-live.test.ts`): registration of the ten `omp-ui_vault_*` tools always; a real search call and an `omp-ui://sessions` read when an API key is set. Includes the worker-thread bridge test (`subagent-workers-live.test.ts`, omp 18.17+, issue #1070): a 10-subagent fan-out against a loopback provider, run once with omp's default `task.workerThreads` and once with `task.workerThreads: 0`; the background-jobs tree, cancels, session spend, roster, and subagent frames must match across the two runs. Includes the ovnfs suppression test (`ovnfs-isolation-live.test.ts`, omp 18.17+, issue #1071, ADR-0089): against a real ovnfs daemon and mount it proves an owned session's isolated task runs outside any mount with its patch still applied to the parent, that the overlay outranks a `ovnfs.path` the user pinned in their global agent layer, and that the no-ovnfs run is byte-identical; it skips wherever no usable ovnfs binary exists (`$OMP_UI_OVNFS_BIN` or PATH). Includes the thinking-level proof (`thinking-level-live.test.ts`, issue #1232): `set_model` + `set_thinking_level` against a loopback provider must land durable transcript entries and restore both on resume, with the one per-version difference (the floor re-applies the target model's default level across a switch; omp 19 carries the pinned level) asserted per binary. |
+| Test process-backed live proofs | `npm run test:live` | Runs the desktop `src/main/**/*-live.test.ts` integration proofs serially against a real omp binary. Council and warm-pool proofs require a supported binary; other proofs can skip if their prerequisites are absent. CI provisions the one checksum-pinned omp binary it runs the suite against — the supported harness, equal to `MIN_SUPPORTED_OMP` (issue #1232) — per live shard job, and splits the suite across shards by file. Includes the Knowledge vault live test (`knowledge-vault-live.test.ts`): registration of the ten `omp-ui_vault_*` tools always; a real search call and an `omp-ui://sessions` read when an API key is set. Includes the worker-thread bridge test (`subagent-workers-live.test.ts`, omp 18.17+, issue #1070): a 10-subagent fan-out against a loopback provider, run once with omp's default `task.workerThreads` and once with `task.workerThreads: 0`; the background-jobs tree, cancels, session spend, roster, and subagent frames must match across the two runs. Includes the ovnfs suppression test (`ovnfs-isolation-live.test.ts`, omp 18.17+, issue #1071, ADR-0089): against a real ovnfs daemon and mount it proves an owned session's isolated task runs outside any mount with its patch still applied to the parent, that the overlay outranks a `ovnfs.path` the user pinned in their global agent layer, and that the no-ovnfs run is byte-identical; it skips wherever no usable ovnfs binary exists (`$OMP_UI_OVNFS_BIN` or PATH). Includes the thinking-level proof (`thinking-level-live.test.ts`, issue #1232): `set_model` + `set_thinking_level` against a loopback provider must land durable transcript entries and restore both on resume, with the one per-version difference (18.x re-applies the target model's default level across a switch; omp 19 carries the pinned level) asserted per binary. |
 | Type-check all workspaces | `npm run typecheck` | Runs each workspace's `typecheck` script. |
 | Lint the repository | `npm run lint` | Runs ESLint from the root. |
 | Build the theme repository tool | `npm run themes:build-tool -- <out-file>` | Bundles `packages/core/src/theme-repository-cli.ts` into one Node file the official theme repository commits as `tools/omp-ui-theme-tool.mjs` and runs as `check` and `generate` in CI. |
@@ -56,8 +56,9 @@ The root scripts delegate to the npm workspaces where appropriate.
 
 TypeScript runs at two versions. Every workspace typechecks and tests with TypeScript 7 (the native compiler); core tests use its `typescript/unstable/*` API and esbuild for type stripping. The root `typescript` entry is the `@typescript/typescript6` alias, kept only because `typescript-eslint` needs the classic compiler API that TypeScript 7 does not ship (typescript-eslint #10940). Remove the alias when typescript-eslint supports TypeScript 7.
 
-CI runs the knowledge-vault smoke right after the node-pty smoke, then lint
-before typecheck, tests, build, and the browser-pane smoke. Unused declarations
+CI runs the knowledge-vault smoke right after the node-pty smoke (both in the
+`checks` job), then lint before typecheck and tests; build and the
+browser-pane smoke live in the parallel `smokes` job. Unused declarations
 are lint errors: remove obsolete helpers and fixtures rather than disabling the
 rule (issue #742). Smoke-summary uploads run only when their corresponding
 smoke step succeeds or fails, not when an earlier gate skips it (issue #862).
@@ -839,7 +840,11 @@ For the agent *driving* the run, rather than the app it drives, OMP's own settin
 
 ## Continuous integration order
 
-The main CI job uses Node 22 and runs these commands in order:
+The shared check workflow splits into three jobs that run in parallel (no
+`needs:` edges between them): `checks` for the static gates and unit tests,
+`live` for the process-backed proofs, and `smokes` for the Electron smokes.
+
+`checks` uses Node 22 and runs these commands in order:
 
 ```bash
 npm ci
@@ -852,15 +857,16 @@ npm run typecheck
 node --test scripts/release-artifacts.test.mjs
 node --test scripts/release-notes.test.mjs
 node --test scripts/close-landed-issues.test.mjs
+node --test scripts/check-commit-refs.test.mjs
 npm test
-npm run test:live
-npm run build
-npm run smoke:browser-pane --workspace @omp-ui/desktop -- --once
+node packages/host-lite/scripts/bundle-session.mjs
 ```
 
 The `npm install --package-lock-only` and `git diff --exit-code package-lock.json` pair asserts that workspace metadata and `package-lock.json` agree. `npm ci` alone does not catch every workspace-version drift case.
 
-Before `npm run test:live`, the shared check workflow downloads each pinned Linux x64 omp release into the runner's temporary directory, verifies its SHA-256, and sets `OMP_UI_OMP_PATH` for that step. The suite runs twice, once against the harness floor (`MIN_SUPPORTED_OMP`) and once against the current release the managed updater can offer (issue #1232); each run is a named step, so a failure says which binary broke. It does not use or update the runner's installed copy.
+The `live` job is a matrix over vitest shard indices: each shard downloads the pinned Linux x64 omp release — the supported harness, equal to `MIN_SUPPORTED_OMP` (issue #1232) — into the runner's temporary directory, verifies its SHA-256, and sets `OMP_UI_OMP_PATH` for the step, so the suite never touches the runner's installed copy. One harness per policy: CI proves only that pin, and a release that adopts features from a newer omp bumps the pin and `MIN_SUPPORTED_OMP` together (see the live job's comment in `.github/workflows/check.yml`). The suite stays serial inside each shard; wall time falls by splitting files across shards with vitest `--shard`, never by raising `maxWorkers`. PR lanes run four shards on the hosted runner; the gfx1201 pool leg runs one shard because that pool also ships releases.
+
+`smokes` runs `npm run build`, then the browser-pane and plan-verifier smokes under Electron (with the hosted-runner Xvfb fallback), and publishes their summaries.
 
 ### Self-hosted Linux pool
 

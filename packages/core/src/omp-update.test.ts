@@ -16,6 +16,9 @@ import {
 } from "./omp-update";
 import { compareVersions } from "./semver";
 import { LOGOUT_ACCOUNTS_MIN_OMP } from "./provider-accounts";
+import { RPC_RISK_LOGIN_MIN_OMP } from "./provider-catalog";
+import { OUT_REPLIES_MIN_OMP } from "./out-replies";
+import { SPILL_READ_MIN_OMP } from "./spill";
 
 // Keep real filesystem behavior while permitting deterministic read failures.
 vi.mock("node:fs", async (importOriginal) => ({ ...(await importOriginal<typeof fs>()) }));
@@ -35,8 +38,13 @@ afterEach(() => {
 // every per-feature *_MIN_OMP. Renderer-side gates are guarded by
 // renderer/src/lib/harness-floor.test.ts (the barrel is off-limits there).
 describe("MIN_SUPPORTED_OMP harness floor", () => {
-  it("is at or above LOGOUT_ACCOUNTS_MIN_OMP", () => {
-    expect(compareVersions(MIN_SUPPORTED_OMP, LOGOUT_ACCOUNTS_MIN_OMP)).toBeGreaterThanOrEqual(0);
+  it.each([
+    ["LOGOUT_ACCOUNTS_MIN_OMP", LOGOUT_ACCOUNTS_MIN_OMP],
+    ["RPC_RISK_LOGIN_MIN_OMP", RPC_RISK_LOGIN_MIN_OMP],
+    ["OUT_REPLIES_MIN_OMP", OUT_REPLIES_MIN_OMP],
+    ["SPILL_READ_MIN_OMP", SPILL_READ_MIN_OMP],
+  ] as const)("is at or above %s", (_name, gate) => {
+    expect(compareVersions(MIN_SUPPORTED_OMP, gate)).toBeGreaterThanOrEqual(0);
   });
 });
 
@@ -301,10 +309,15 @@ describe("checkOmpUpdate", () => {
 
   describe("belowMinimum", () => {
     it("is true below the floor and false at or above it", async () => {
-      // Floor-minus-one: step the patch down, borrowing from the minor.
+      // Floor-minus-one: step the patch down, borrowing from the minor,
+      // or from the major when the floor is a .0.0 release (19.0.0).
       const [maj, min, patch] = MIN_SUPPORTED_OMP.split(".").map(Number);
       const belowVersion =
-        patch > 0 ? `${maj}.${min}.${patch - 1}` : `${maj}.${min - 1}.999`;
+        patch > 0
+          ? `${maj}.${min}.${patch - 1}`
+          : min > 0
+            ? `${maj}.${min - 1}.999`
+            : `${maj - 1}.999.999`;
       const below = await checkOmpUpdate({
         installPath: "/m/omp",
         runner: async () => `omp/${belowVersion}`,

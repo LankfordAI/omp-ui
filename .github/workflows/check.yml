@@ -4,7 +4,7 @@ on:
   workflow_call:
     inputs:
       runner:
-        description: JSON array of runs-on labels for the check job.
+        description: JSON array of runs-on labels for the check jobs.
         required: true
         type: string
       hosted:
@@ -15,23 +15,22 @@ on:
           image's chrome-sandbox helper is not setuid (issue #626).
         required: true
         type: boolean
+      shards:
+        description: >-
+          JSON array of live-suite vitest shard indices, e.g. ["1","2","3","4"].
+          One shard index runs the whole suite; use it on runners whose capacity
+          is shared (the gfx1201 pool ships releases).
+        required: true
+        type: string
 
 permissions:
   contents: read
 
 jobs:
-  check:
+  checks:
     runs-on: ${{ fromJSON(inputs.runner) }}
     steps:
       - uses: actions/checkout@11d5960a326750d5838078e36cf38b85af677262 # v4
-      - name: Prepare hosted runner for the Electron smokes
-        if: ${{ inputs.hosted }}
-        shell: bash
-        run: |
-          set -euo pipefail
-          sudo sysctl -w kernel.apparmor_restrict_unprivileged_userns=0
-          sudo apt-get update -q
-          sudo apt-get install -y -q xvfb
       - uses: actions/setup-node@49933ea5288caeca8642d1e84afbd3f7d6820020 # v4
         with:
           node-version: 22
@@ -59,28 +58,38 @@ jobs:
       # bundled closure fails CI instead of shipping (bundle-session.mjs header).
       - name: Build the host-lite session bundle (drift gate)
         run: node packages/host-lite/scripts/bundle-session.mjs
-      # Live proofs require a real omp even on a clean runner. The suite runs
-      # twice, once against the supported harness floor (keep this pin and its
-      # release checksum in sync with MIN_SUPPORTED_OMP) and once against the
-      # current release the managed updater can offer (issue #1232). Both are
-      # sha256-pinned; each run's step name names the binary so a failure says
-      # which one broke.
-      - name: Provision OMP 18.22.0 (floor) for live tests
-        id: live-omp-floor
-        shell: bash
-        run: |
-          set -euo pipefail
-          version=18.22.0
-          sha256=f706b27ba845834d8f8360705a2e9ba1534f3593fa24411d41358272de33642b
-          omp="$(mktemp -d "$RUNNER_TEMP/omp-live.XXXXXX")/omp"
-          curl --fail --silent --show-error --location --retry 3 --output "$omp" \
-            "https://github.com/can1357/oh-my-pi/releases/download/v${version}/omp-linux-x64"
-          printf '%s  %s\n' "$sha256" "$omp" | sha256sum --check
-          chmod 0755 "$omp"
-          "$omp" --version
-          printf 'path=%s\n' "$omp" >> "$GITHUB_OUTPUT"
-      - name: Provision OMP 19.0.0 for live tests
-        id: live-omp-19
+      - name: Publish the knowledge vault smoke summary
+        if: ${{ always() && (steps.knowledge-vault-smoke.outcome == 'success' || steps.knowledge-vault-smoke.outcome == 'failure') }}
+        uses: actions/upload-artifact@ea165f8d65b6e75b540449e92b4886f43607fa02 # v4
+        with:
+          name: knowledge-vault-smoke-summary
+          path: packages/desktop/out/knowledge-vault-smoke/summary.json
+          if-no-files-found: error
+          retention-days: 14
+
+  # One supported harness per policy (bump MIN_SUPPORTED_OMP when a release
+  # adopts features from a newer omp; below-floor users auto-upgrade at launch,
+  # see packages/core/src/harness-floor.ts). The pin below tracks that floor —
+  # currently both are 19.0.0; bump the two together and keep the sha256 in
+  # sync with the release asset. The suite stays serial inside each
+  # shard (vitest.live.config.ts) — every test boots a real omp and parallel
+  # boots starve one another — so wall time falls by splitting FILES across
+  # shards with vitest --shard, never by raising maxWorkers.
+  live:
+    runs-on: ${{ fromJSON(inputs.runner) }}
+    strategy:
+      fail-fast: false
+      matrix:
+        shard: ${{ fromJSON(inputs.shards) }}
+    steps:
+      - uses: actions/checkout@11d5960a326750d5838078e36cf38b85af677262 # v4
+      - uses: actions/setup-node@49933ea5288caeca8642d1e84afbd3f7d6820020 # v4
+        with:
+          node-version: 22
+          cache: npm
+      - run: npm ci
+      - name: Provision OMP 19.0.0 (the supported harness) for live tests
+        id: live-omp
         shell: bash
         run: |
           set -euo pipefail
@@ -93,14 +102,28 @@ jobs:
           chmod 0755 "$omp"
           "$omp" --version
           printf 'path=%s\n' "$omp" >> "$GITHUB_OUTPUT"
-      - name: Run live proofs against OMP 18.22.0 (floor)
-        run: npm run test:live
+      - name: Run live proofs shard ${{ matrix.shard }}/${{ strategy.job-total }} against OMP 19.0.0
+        run: npm run test:live --workspace @omp-ui/desktop -- --shard=${{ matrix.shard }}/${{ strategy.job-total }}
         env:
-          OMP_UI_OMP_PATH: ${{ steps.live-omp-floor.outputs.path }}
-      - name: Run live proofs against OMP 19.0.0
-        run: npm run test:live
-        env:
-          OMP_UI_OMP_PATH: ${{ steps.live-omp-19.outputs.path }}
+          OMP_UI_OMP_PATH: ${{ steps.live-omp.outputs.path }}
+
+  smokes:
+    runs-on: ${{ fromJSON(inputs.runner) }}
+    steps:
+      - uses: actions/checkout@11d5960a326750d5838078e36cf38b85af677262 # v4
+      - name: Prepare hosted runner for the Electron smokes
+        if: ${{ inputs.hosted }}
+        shell: bash
+        run: |
+          set -euo pipefail
+          sudo sysctl -w kernel.apparmor_restrict_unprivileged_userns=0
+          sudo apt-get update -q
+          sudo apt-get install -y -q xvfb
+      - uses: actions/setup-node@49933ea5288caeca8642d1e84afbd3f7d6820020 # v4
+        with:
+          node-version: 22
+          cache: npm
+      - run: npm ci
       - run: npm run build
       - name: Smoke the browser pane under real Electron
         id: browser-pane-smoke
@@ -157,13 +180,5 @@ jobs:
         with:
           name: browser-pane-smoke-summary
           path: packages/desktop/out/browser-pane-smoke/**/summary.json
-          if-no-files-found: error
-          retention-days: 14
-      - name: Publish the knowledge vault smoke summary
-        if: ${{ always() && (steps.knowledge-vault-smoke.outcome == 'success' || steps.knowledge-vault-smoke.outcome == 'failure') }}
-        uses: actions/upload-artifact@ea165f8d65b6e75b540449e92b4886f43607fa02 # v4
-        with:
-          name: knowledge-vault-smoke-summary
-          path: packages/desktop/out/knowledge-vault-smoke/summary.json
           if-no-files-found: error
           retention-days: 14

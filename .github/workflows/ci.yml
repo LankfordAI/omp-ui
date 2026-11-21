@@ -8,6 +8,14 @@ on:
 permissions:
   contents: read
 
+concurrency:
+  # Stale pushes to the same PR supersede one another. Push runs get their own
+  # group per SHA so two commits landing on main while the gfx1201 pool is
+  # busy never share GitHub's single pending slot (which would silently drop a
+  # trunk commit's CI); each push run executes or queues independently.
+  group: ${{ github.event_name == 'pull_request' && format('ci-pr-{0}', github.event.pull_request.number) || format('ci-push-{0}', github.sha) }}
+  cancel-in-progress: ${{ github.event_name == 'pull_request' }}
+
 jobs:
   # gfx1201 is the org's self-hosted Linux runner pool (labels linux,rocm,
   # gfx1201) that also builds the shipped Linux artifacts (release.yml
@@ -22,6 +30,7 @@ jobs:
     with:
       runner: '["self-hosted", "gfx1201"]'
       hosted: false
+      shards: '["1"]'
 
   check-pr:
     if: github.event_name == 'pull_request' && github.event.pull_request.head.repo.full_name == github.repository
@@ -29,6 +38,7 @@ jobs:
     with:
       runner: '["ubuntu-latest"]'
       hosted: true
+      shards: '["1","2","3","4"]'
 
   check-fork:
     if: github.event_name == 'pull_request' && github.event.pull_request.head.repo.full_name != github.repository
@@ -36,6 +46,7 @@ jobs:
     with:
       runner: '["ubuntu-latest"]'
       hosted: true
+      shards: '["1","2","3","4"]'
 
   android-check:
     runs-on: ubuntu-latest
