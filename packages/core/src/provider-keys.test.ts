@@ -4,6 +4,9 @@ import * as os from "node:os";
 import * as path from "node:path";
 import { afterEach, describe, expect, it, vi } from "vitest";
 import {
+  providerKeyEnv,
+} from "./omp-process";
+import {
   captureLoginShellKeys,
   credentialStoreUnavailableMessage,
   maskKey,
@@ -137,12 +140,14 @@ describe("maskKey", () => {
 });
 
 describe("ProviderKeys storage", () => {
-  it("injects a stored key into the environment omp inherits", () => {
+  it("a stored key resolves through the spawn overlay, never into process.env", () => {
     const env: NodeJS.ProcessEnv = {};
     const { keys } = make();
     keys.setKey(KEY, LONG);
-    keys.applyToProcessEnv(env);
-    expect(env[KEY]).toBe(LONG);
+    // Finding 9: no blanket env application; the omp spawn overlay is the
+    // only delivery path.
+    expect(KEY in env).toBe(false);
+    expect(providerKeyEnv((name) => keys.rolloutValue(name))[KEY]).toBe(LONG);
   });
 
   it("never writes plaintext to disk", () => {
@@ -186,10 +191,9 @@ describe("ProviderKeys storage", () => {
   });
 
   it("trims a paste's surrounding whitespace, which is a normal artifact", () => {
-    const env: NodeJS.ProcessEnv = {};
-    const { keys } = make({ env });
+    const { keys } = make();
     keys.setKey(KEY, `  ${LONG}\n`);
-    expect(env[KEY]).toBe(LONG);
+    expect(providerKeyEnv((name) => keys.rolloutValue(name))[KEY]).toBe(LONG);
   });
 
   it("refuses an empty value", () => {
@@ -244,14 +248,13 @@ describe("ProviderKeys unreadable stored entries", () => {
       // A rotated keyring refuses the blob outright; a stale one yields nothing.
       writeKeyFile(file, { [KEY]: mode === "throws" ? FOREIGN : EMPTY_CIPHER });
       const before = fs.readFileSync(file, "utf8");
-      const env: NodeJS.ProcessEnv = {};
-      const keys = new ProviderKeys(file, fakeCipher(), env);
+      const keys = new ProviderKeys(file, fakeCipher(), {});
       const entry = row(keys, "openrouter");
       expect(entry).toMatchObject({ source: "none", masked: null, shadowsEnvironment: false });
       expect(entry.unreadableStoredEnvs).toEqual([KEY]);
       expect(keys.hasModelProvider(null)).toBe(false);
-      keys.applyToProcessEnv(env);
-      expect(env).toEqual({});
+      // An unreadable entry contributes nothing to the spawn overlay.
+      expect(providerKeyEnv((name) => keys.rolloutValue(name))).toEqual({});
       // Reporting never rewrites: a later restart with the right store still works.
       expect(fs.readFileSync(file, "utf8")).toBe(before);
     },
@@ -263,12 +266,10 @@ describe("ProviderKeys unreadable stored entries", () => {
     const stuck = new ProviderKeys(file, fakeCipher(), {});
     expect(row(stuck, "openrouter")).toMatchObject({ source: "none", masked: null });
     expect(row(stuck, "openrouter").unreadableStoredEnvs).toEqual([KEY]);
-    const env: NodeJS.ProcessEnv = {};
-    const restored = new ProviderKeys(file, rotatedCipher(), env);
+    const restored = new ProviderKeys(file, rotatedCipher(), {});
     expect(row(restored, "openrouter")).toMatchObject({ source: "stored", masked: "••••cdef" });
     expect(row(restored, "openrouter").unreadableStoredEnvs).toEqual([]);
-    restored.applyToProcessEnv(env);
-    expect(env[KEY]).toBe(LONG);
+    expect(providerKeyEnv((name) => restored.rolloutValue(name))[KEY]).toBe(LONG);
   });
 
   it("preserves every untouched blob across unrelated edits and a compatible restart", () => {
@@ -292,15 +293,14 @@ describe("ProviderKeys unreadable stored entries", () => {
     expect(keyEntries(file)).toEqual(originalEntries);
     expect(row(keys, "openai")).toMatchObject({ source: "stored", masked: "••••6789" });
     expect(row(keys, "openrouter").unreadableStoredEnvs).toEqual([KEY]);
-    const env: NodeJS.ProcessEnv = {};
     const compatible = fakeCipher({
       decrypt: (blob) => blob.toString().startsWith("rot:")
         ? rotatedCipher().decrypt(blob)
         : fakeCipher().decrypt(blob),
     });
-    const restarted = new ProviderKeys(file, compatible, env);
-    restarted.applyToProcessEnv();
-    expect(env).toEqual({ [KEY]: LONG, XAI_API_KEY: xai, OPENAI_API_KEY: openai });
+    const restarted = new ProviderKeys(file, compatible, {});
+    const overlay = providerKeyEnv((name) => restarted.rolloutValue(name));
+    expect(overlay).toEqual({ [KEY]: LONG, XAI_API_KEY: xai, OPENAI_API_KEY: openai });
     expect(row(restarted, "openrouter")).toMatchObject({
       source: "stored", masked: "••••cdef", unreadableStoredEnvs: [],
     });
@@ -333,7 +333,9 @@ describe("ProviderKeys unreadable stored entries", () => {
     const keys = new ProviderKeys(file, fakeCipher({ available: false }), env);
     expect(row(keys, "openrouter")).toMatchObject({ source: "environment", masked: "••••alue" });
     expect(() => keys.setKey(KEY, LONG)).toThrow(/no OS credential store/);
-    keys.clearKey(KEY, env);
+    keys.clearKey(KEY);
+    // clearKey never touches the caller's env; the ambient value still
+    // resolves through the spawn overlay.
     expect(env[KEY]).toBe(ambient);
     expect(keyEntries(file)).toEqual({ OPENAI_API_KEY: FOREIGN });
     expect(row(keys, "openrouter").unreadableStoredEnvs).toEqual([]);
@@ -421,16 +423,17 @@ describe("ProviderKeys unreadable entries with a working fallback", () => {
       const keys = new ProviderKeys(file, fakeCipher(), env, "linux");
       if (kind === "login-shell") {
         await keys.captureLoginShell({ capture: async () => `${KEY}=${value}\n` });
-      } else {
-        keys.applyToProcessEnv(env);
       }
+      const overlay = providerKeyEnv((name) => keys.rolloutValue(name));
       const entry = row(keys, "openrouter", projectCwd);
       expect(entry).toMatchObject({ activeEnv: KEY, source: kind, masked: maskKey(value) });
       expect(entry.unreadableStoredEnvs).toEqual([KEY]);
       expect(keys.hasModelProvider(projectCwd)).toBe(true);
-      // dotenv stays report-only — omp loads the project file itself.
-      if (injected) expect(env[KEY]).toBe(value);
-      else expect(KEY in env).toBe(false);
+      // The overlay carries the fallback value for environment and
+      // login-shell sources; dotenv stays report-only — omp loads the
+      // project file itself.
+      if (injected) expect(overlay[KEY]).toBe(value);
+      else expect(KEY in overlay).toBe(false);
     },
   );
 });
@@ -450,7 +453,6 @@ describe("ProviderKeys failed mutations leave nothing behind", () => {
       }),
       env,
     );
-    keys.applyToProcessEnv();
     const beforeStatus = keys.statuses(null);
     const beforeEnv = { ...env };
     expect(() => keys.setKey(KEY, LONG)).toThrow(/keyring locked/);
@@ -469,7 +471,6 @@ describe("ProviderKeys failed mutations leave nothing behind", () => {
     const env: NodeJS.ProcessEnv = { [KEY]: "synthetic-ambient-1234" };
     const before = fs.readFileSync(file, "utf8");
     const keys = new ProviderKeys(file, fakeCipher(), env);
-    keys.applyToProcessEnv();
     const beforeStatus = keys.statuses(null);
     const beforeEnv = { ...env };
     expect(() =>
@@ -490,10 +491,9 @@ describe("ProviderKeys failed mutations leave nothing behind", () => {
     const before = fs.readFileSync(file, "utf8");
     const env: NodeJS.ProcessEnv = { [KEY]: "synthetic-ambient-1234" };
     const keys = new ProviderKeys(file, fakeCipher(), env);
-    keys.applyToProcessEnv();
     const beforeStatus = keys.statuses(null);
     const beforeEnv = { ...env };
-    expect(() => withSaveFailureOnce(step, () => keys.clearKey(KEY, env))).toThrow(
+    expect(() => withSaveFailureOnce(step, () => keys.clearKey(KEY))).toThrow(
       new RegExp(`simulated ${step} failure`),
     );
     expect(fs.readFileSync(file, "utf8")).toBe(before);
@@ -503,14 +503,12 @@ describe("ProviderKeys failed mutations leave nothing behind", () => {
   });
 });
 
-  it("reconstructs and injects a stored Windows credential", () => {
+  it("reconstructs a stored Windows credential", () => {
     const file = path.join(tmpDir(), "provider-keys.json");
     const cipher = fakeCipher({ backend: "windows-dpapi" });
     new ProviderKeys(file, cipher, {}, "win32").setKey(KEY, LONG);
-    const env: NodeJS.ProcessEnv = {};
-    const reconstructed = new ProviderKeys(file, cipher, env, "win32");
-    reconstructed.applyToProcessEnv();
-    expect(env[KEY]).toBe(LONG);
+    const reconstructed = new ProviderKeys(file, cipher, {}, "win32");
+    expect(providerKeyEnv((name) => reconstructed.rolloutValue(name))[KEY]).toBe(LONG);
     expect(reconstructed.backend).toBe("windows-dpapi");
     expect(row(reconstructed, "openrouter").source).toBe("stored");
   });
@@ -520,16 +518,18 @@ describe("ProviderKeys precedence", () => {
     const env: NodeJS.ProcessEnv = { [KEY]: "sk-or-inherited-value" };
     const { keys } = make({ env });
     keys.setKey(KEY, LONG);
-    keys.applyToProcessEnv(env);
-    expect(env[KEY]).toBe(LONG);
+    // The spawn overlay resolves stored first; the caller's env object is
+    // never rewritten.
+    expect(providerKeyEnv((name) => keys.rolloutValue(name))[KEY]).toBe(LONG);
+    expect(env[KEY]).toBe("sk-or-inherited-value");
     expect(row(keys, "openrouter")).toMatchObject({ source: "stored", shadowsEnvironment: true });
   });
 
-  it("reports an inherited key as environment and leaves it alone", () => {
+  it("reports an inherited key as environment and resolves it through the overlay", () => {
     const env: NodeJS.ProcessEnv = { [KEY]: LONG };
     const { keys } = make({ env });
-    keys.applyToProcessEnv(env);
     expect(env[KEY]).toBe(LONG);
+    expect(providerKeyEnv((name) => keys.rolloutValue(name))[KEY]).toBe(LONG);
     expect(row(keys, "openrouter")).toMatchObject({
       source: "environment",
       shadowsEnvironment: false,
@@ -541,25 +541,24 @@ describe("ProviderKeys precedence", () => {
     const env: NodeJS.ProcessEnv = { [KEY]: inherited };
     const { keys } = make({ env });
     keys.setKey(KEY, LONG);
-    keys.clearKey(KEY, env);
-    expect(env[KEY]).toBe(inherited);
+    keys.clearKey(KEY);
+    expect(providerKeyEnv((name) => keys.rolloutValue(name))[KEY]).toBe(inherited);
     expect(row(keys, "openrouter").source).toBe("environment");
   });
 
-  it("unsets the variable outright when nothing else supplies it", () => {
-    const env: NodeJS.ProcessEnv = {};
-    const { keys } = make({ env });
+  it("drops the variable from the overlay when nothing else supplies it", () => {
+    const { keys } = make();
     keys.setKey(KEY, LONG);
-    keys.applyToProcessEnv(env);
-    keys.clearKey(KEY, env);
-    expect(KEY in env).toBe(false);
+    expect(providerKeyEnv((name) => keys.rolloutValue(name))[KEY]).toBe(LONG);
+    keys.clearKey(KEY);
+    expect(KEY in providerKeyEnv((name) => keys.rolloutValue(name))).toBe(false);
   });
 
-  it("leaves an untouched variable exactly as it was", () => {
+  it("the overlay touches only catalogued variables", () => {
     const env: NodeJS.ProcessEnv = { PATH: "/usr/bin", OPENAI_API_KEY: "sk-openai-untouched" };
     const { keys } = make({ env });
-    keys.applyToProcessEnv(env);
-    expect(env).toEqual({ PATH: "/usr/bin", OPENAI_API_KEY: "sk-openai-untouched" });
+    const overlay = providerKeyEnv((name) => keys.rolloutValue(name));
+    expect(overlay).toEqual({ OPENAI_API_KEY: "sk-openai-untouched" });
   });
 
   it("falls back to an alternate variable when the primary is unset", () => {
@@ -580,10 +579,9 @@ describe("ProviderKeys precedence", () => {
 
 describe("ProviderKeys login-shell capture", () => {
   it("adopts a key the shell profile exports but the GUI never inherited", async () => {
-    const env: NodeJS.ProcessEnv = {};
-    const { keys } = make({ env, platform: "linux" });
+    const { keys } = make({ platform: "linux" });
     await keys.captureLoginShell({ capture: async () => `${KEY}=${LONG}\n` });
-    expect(env[KEY]).toBe(LONG);
+    expect(providerKeyEnv((name) => keys.rolloutValue(name))[KEY]).toBe(LONG);
     expect(row(keys, "openrouter").source).toBe("login-shell");
   });
 
@@ -677,7 +675,7 @@ describe("readDotenvKeys", () => {
     fs.writeFileSync(path.join(dir, ".env"), `${KEY}=${LONG}\n`);
     const env: NodeJS.ProcessEnv = {};
     const { keys } = make({ env });
-    keys.applyToProcessEnv(env);
+    expect(KEY in providerKeyEnv((name) => keys.rolloutValue(name))).toBe(false);
     expect(KEY in env).toBe(false);
     expect(row(keys, "openrouter", dir)).toMatchObject({ source: "dotenv", masked: "••••cdef" });
   });

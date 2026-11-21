@@ -88,10 +88,10 @@ export function parseSttModelCatalog(
 /**
  * The installed omp's STT catalog, every row marked callable per the
  * credentials this process holds. Deliberate difference from the web-search
- * probe: this one runs under the LIVE `process.env`, not a pristine one — the
+ * probe: this one runs under the LIVE process env, not a pristine one — the
  * catalog is key-gated (verified on v18.2.11: `openai` rows appear only with
- * OPENAI_API_KEY), and the key omp-ui will actually call with is the one
- * `ProviderKeys.applyToProcessEnv` installed. Never throws; a failed or
+ * OPENAI_API_KEY), and the key omp-ui will actually call with is the one the
+ * caller resolved into that env. Never throws; a failed or
  * unparseable probe yields `discovered: false` with a short reason.
  */
 export async function readSttModels(

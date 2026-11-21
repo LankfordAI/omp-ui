@@ -11,16 +11,24 @@ permissions:
 jobs:
   # gfx1201 is the org's self-hosted Linux runner pool (labels linux,rocm,
   # gfx1201) that also builds the shipped Linux artifacts (release.yml
-  # release-linux, nightly.yml linux-x64), so only same-repo events run there;
-  # fork PRs go to check-fork. A pull_request run executes the workflow from
-  # the PR's merge ref, so this guard routes; the repository's
-  # all-external-contributors approval policy is what gates (issue #626).
+  # release-linux, nightly.yml linux-x64). Finding N1: same-repo PR code
+  # running on that persistent pool is exposure the in-repo approval policy
+  # alone cannot bound, so PR-triggered checks run on the ephemeral hosted
+  # runner and the pool serves only push triggers — refs trunk-controlled by
+  # definition. Fork PRs route to the same hosted runner via check-fork.
   check:
-    if: github.event_name != 'pull_request' || github.event.pull_request.head.repo.full_name == github.repository
+    if: github.event_name != 'pull_request'
     uses: ./.github/workflows/check.yml
     with:
       runner: '["self-hosted", "gfx1201"]'
       hosted: false
+
+  check-pr:
+    if: github.event_name == 'pull_request' && github.event.pull_request.head.repo.full_name == github.repository
+    uses: ./.github/workflows/check.yml
+    with:
+      runner: '["ubuntu-latest"]'
+      hosted: true
 
   check-fork:
     if: github.event_name == 'pull_request' && github.event.pull_request.head.repo.full_name != github.repository
@@ -44,6 +52,10 @@ jobs:
         with:
           packages: platform-tools
       - uses: gradle/actions/setup-gradle@v4
+      - name: Verify gradle wrapper jar
+        run: |
+          expected="$(cat android/gradle/wrapper/gradle-wrapper.jar.sha256)"
+          echo "$expected  android/gradle/wrapper/gradle-wrapper.jar" | sha256sum -c -
       - name: Install pinned Android SDK packages
         run: sdkmanager "platform-tools" "platforms;android-36" "build-tools;36.0.0"
       - name: Check Android release verification boundaries

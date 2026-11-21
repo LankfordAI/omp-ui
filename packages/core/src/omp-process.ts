@@ -1,6 +1,7 @@
 import { spawn } from "node:child_process";
 import * as path from "node:path";
 import { withoutAppImageRuntime } from "./appimage-env";
+import { PROVIDER_ENV_NAMES, withoutProviderKeys } from "./provider-catalog";
 
 export interface OmpOneShotProcess {
   stdout: NodeJS.ReadableStream;
@@ -33,9 +34,29 @@ export function ompChildEnv(
   ompPath: string,
   base: NodeJS.ProcessEnv = process.env,
 ): NodeJS.ProcessEnv {
-  const env = withoutAppImageRuntime(base);
+  // Provider credentials are injected per-spawn by the caller (session-manager
+  // passes the resolved store) — never by blanket inheritance, so non-omp
+  // children (git, hooks, helpers) cannot pick them up (finding 9,
+  // ADR-0010's delivery guarantee moves from process.env to the omp spawn
+  // sites that need it).
+  const env = withoutProviderKeys(withoutAppImageRuntime(base));
   env.PATH = [path.dirname(ompPath), env.PATH].filter(Boolean).join(path.delimiter);
   return env;
+}
+
+/**
+ * The provider-credential overlay merged over an omp child's env at spawn:
+ * only the omp launch sites call it, so a spawned `git` never sees a key.
+ */
+export function providerKeyEnv(
+  rolloutValue: (envName: string) => string | null,
+): NodeJS.ProcessEnv {
+  const overlay: NodeJS.ProcessEnv = {};
+  for (const name of PROVIDER_ENV_NAMES) {
+    const value = rolloutValue(name);
+    if (value !== null) overlay[name] = value;
+  }
+  return overlay;
 }
 
 /** child_process.spawn over pipes, stdin closed; the default one-shot launcher. */

@@ -342,6 +342,25 @@ export function startRemoteServer(opts: RemoteServerOptions): Promise<RemoteServ
   };
 
   const handleLogin = (req: IncomingMessage, res: ServerResponse): void => {
+    // Cross-site login CSRF (finding N2): a form auto-posted from another
+    // origin could fix the victim's session to an attacker-known password.
+    // A present Origin that names a different host is refused before any
+    // body parsing and does not count against the throttle — it is not a
+    // password guess. Absent Origin (CLI, curl) proceeds unchanged; older
+    // browsers omit Sec-Fetch-Site, so it is not consulted alone.
+    const origin = req.headers.origin;
+    if (origin !== undefined) {
+      let originHost: string | null;
+      try {
+        originHost = new URL(origin).host;
+      } catch {
+        return send(res, 403, loginPage("This sign-in did not come from this server's own pages."), "text/html; charset=utf-8");
+      }
+      if (originHost !== req.headers.host) {
+        send(res, 403, loginPage("This sign-in did not come from this server's own pages."), "text/html; charset=utf-8");
+        return;
+      }
+    }
     const ip = req.socket.remoteAddress ?? "?";
     const retryAfter = loginThrottle.retryAfter(ip);
     if (retryAfter > 0) {
@@ -886,6 +905,7 @@ export {
   passwordSessionCredential,
   REMOTE_PASSWORD_MAX_BYTES,
   REMOTE_PASSWORD_MIN,
+  credentialDigest,
   tokenMatches,
   validateRemotePassword,
   verifyRemotePassword,

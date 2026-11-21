@@ -1,13 +1,14 @@
 import {
   CH,
   parseSttSelector,
+  PROVIDER_ENV_NAMES,
   readSttModels,
   resolveSttSelector,
   STT_ROUTES,
+  type OmpConfigRunner,
   type RequestHandlers,
   type Registry,
   type SttTranscribeRequest,
-  type OmpConfigRunner,
   type SttTranscribeResult,
 } from "@omp-ui/core";
 
@@ -20,6 +21,12 @@ interface SttHandlerDependencies {
   fetchImpl?: typeof fetch;
   /** Reuse the model probe's runner seam without spawning a test-only executable. */
   runOmp?: OmpConfigRunner;
+  /**
+   * Resolves a provider credential by env name. Production reads the
+   * encrypted provider-key store; main's process.env no longer carries
+   * provider keys (finding 9), so this seam replaces the old env read.
+   */
+  providerKeyValue: (envName: string) => string | null;
 }
 
 /** Upstream error bodies vary; dig out anything human-readable. */
@@ -42,12 +49,26 @@ export function registerSttHandlers(
   deps: SttHandlerDependencies,
 ): Pick<RequestHandlers, SttHandlerChannels> {
   const doFetch = deps.fetchImpl ?? fetch;
+  /** The credential-carrying env for the omp probe and transcription: provider keys resolve
+   * through the encrypted store, never main's process.env (finding 9). */
+  const providerEnv = (): NodeJS.ProcessEnv => {
+    const env: NodeJS.ProcessEnv = { ...process.env };
+    for (const name of PROVIDER_ENV_NAMES) delete env[name];
+    for (const name of PROVIDER_ENV_NAMES) {
+      const value = deps.providerKeyValue(name);
+      if (value !== null) env[name] = value;
+    }
+    return env;
+  };
 
   /** The stored selector, or the preferred callable model when unset. */
   async function resolveModel(): Promise<string> {
     const stored = deps.registry.getSetting("sttModel");
     if (stored !== null) return stored;
-    const snapshot = await readSttModels({ ompPath: deps.ompPath }, deps.runOmp);
+    const run: OmpConfigRunner | undefined = deps.runOmp
+      ? (args, opts) => deps.runOmp!(args, { ...opts, env: providerEnv() })
+      : undefined;
+    const snapshot = await readSttModels({ ompPath: deps.ompPath }, run);
     const resolved = resolveSttSelector(snapshot.models);
     if (resolved === null) {
       throw new Error(
@@ -66,8 +87,8 @@ export function registerSttHandlers(
       const route = parseSttSelector(model);
       if (route === null) throw new Error(`unsupported dictation model: ${model}`);
       const spec = STT_ROUTES[route.provider]!;
-      const key = process.env[spec.env];
-      if (key === undefined || key === "") {
+      const key = deps.providerKeyValue(spec.env);
+      if (key === null || key === "") {
         throw new Error(`no credential for ${route.provider} — add it in Settings → Providers`);
       }
       const form = new FormData();

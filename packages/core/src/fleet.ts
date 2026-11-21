@@ -115,11 +115,16 @@ export function fleetEffectiveRung(grant: FleetGrantRecord | undefined, ceiling:
  * One dispatcher's grant on this node, keyed by its CLAIMED instanceId. A
  * record without `rung` is the lazy first-sight entry: it names the
  * dispatcher for the Fleet-access UI while leaving the default rung in force.
+ * `credentialDigest` — sha256 hex of the join credential first presented with
+ * this id — binds the id to that credential: a later request claiming the id
+ * under a different credential is refused. Absent on legacy rows; backfilled
+ * on the row's next use (absent means "bind on next use").
  */
 export interface FleetGrantRecord {
   rung?: FleetRung;
   label: string;
   updatedAt: string;
+  credentialDigest?: string;
 }
 
 /** Registry-safe grant map: keys are ids (≤ 128 chars), values shape-checked; anything else drops the entry. */
@@ -130,14 +135,16 @@ export function parseFleetGrants(value: unknown): Record<string, FleetGrantRecor
     if (key === "" || key.length > FLEET_ID_MAX || CONTROL_CHARS.test(key)) continue;
     if (raw === null || typeof raw !== "object" || Array.isArray(raw)) continue;
     const g = raw as ObjectValue;
-    if (Object.keys(g).some((k) => !["rung", "label", "updatedAt"].includes(k))) continue;
+    if (Object.keys(g).some((k) => !["rung", "label", "updatedAt", "credentialDigest"].includes(k))) continue;
     if (g.rung !== undefined && !FLEET_RUNGS.includes(g.rung as FleetRung)) continue;
     if (typeof g.label !== "string" || CONTROL_CHARS.test(g.label)) continue;
     if (typeof g.updatedAt !== "string" || g.updatedAt === "") continue;
+    if (g.credentialDigest !== undefined && !/^[0-9a-f]{64}$/.test(g.credentialDigest as string)) continue;
     out[key] = {
       ...(g.rung === undefined ? {} : { rung: g.rung as FleetRung }),
       label: [...g.label].slice(0, FLEET_LABEL_MAX).join(""),
       updatedAt: g.updatedAt,
+      ...(g.credentialDigest === undefined ? {} : { credentialDigest: g.credentialDigest as string }),
     };
   }
   return out;
@@ -562,6 +569,11 @@ function rejectUnknownKeys(value: ObjectValue, allowed: readonly string[], label
 function idString(value: unknown, label: string): string {
   if (typeof value !== "string" || value === "" || value.length > FLEET_ID_MAX || CONTROL_CHARS.test(value)) {
     throw new Error(`${label} must be a non-empty id`);
+  }
+  // `__proto__`/`constructor` as a dispatcher or job id would collide with
+  // Object.prototype keys in `in`/bracket bookkeeping over plain grant maps.
+  if (value === "__proto__" || value === "constructor") {
+    throw new Error(`${label} must not be a prototype key`);
   }
   return value;
 }

@@ -144,10 +144,16 @@ describe("project model pins (issue #257)", () => {
     expect(broadcastPins()).toMatchObject({ defaultModel: null, defaultAdvisorModel: null });
   });
 
-  it("is a no-op for an unknown project", async () => {
+  it("refuses an unknown project and writes nothing", async () => {
     const { registryFile } = setup();
-    await invoke(CH.setProjectDefaultModel, "/p/zzz", "p/m");
-    await invoke(CH.setProjectDefaultAdvisorModel, "/p/zzz", "p/m");
+    // Phase-3 gate: an unregistered projectCwd is refused before the
+    // registry write, not silently ignored.
+    await expect(invoke(CH.setProjectDefaultModel, "/p/zzz", "p/m")).rejects.toThrow(
+      "that project is not registered here",
+    );
+    await expect(invoke(CH.setProjectDefaultAdvisorModel, "/p/zzz", "p/m")).rejects.toThrow(
+      "that project is not registered here",
+    );
     expect(diskPins(registryFile)).toMatchObject({ defaultModel: null, defaultAdvisorModel: null });
   });
 });

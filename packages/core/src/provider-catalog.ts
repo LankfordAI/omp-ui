@@ -109,6 +109,17 @@ export const PROVIDER_ENV_NAMES: readonly string[] = PROVIDER_KEY_SPECS.flatMap(
   ...(spec.alsoRead ?? []),
 ]);
 
+/**
+ * A copy of `env` with every catalogued provider variable removed. Children
+ * that need no model access — git-adjacent helpers, redaction CLI runs —
+ * never inherit credentials (finding 9).
+ */
+export function withoutProviderKeys(env: NodeJS.ProcessEnv): NodeJS.ProcessEnv {
+  const copy = { ...env };
+  for (const name of PROVIDER_ENV_NAMES) delete copy[name];
+  return copy;
+}
+
 export function providerSpecById(id: string): ProviderKeySpec | undefined {
   return PROVIDER_KEY_SPECS.find((spec) => spec.id === id);
 }

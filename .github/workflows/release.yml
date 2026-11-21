@@ -140,6 +140,10 @@ jobs:
       - uses: gradle/actions/setup-gradle@v4
         with:
           cache-disabled: true
+      - name: Verify gradle wrapper jar
+        run: |
+          expected="$(cat android/gradle/wrapper/gradle-wrapper.jar.sha256)"
+          echo "$expected  android/gradle/wrapper/gradle-wrapper.jar" | sha256sum -c -
       - name: Install pinned Android SDK packages
         run: sdkmanager "platform-tools" "platforms;android-36" "build-tools;36.0.0"
       - name: Check Android release verification boundaries

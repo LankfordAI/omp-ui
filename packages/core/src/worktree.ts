@@ -1,7 +1,7 @@
 import { createHash, randomBytes } from "node:crypto";
 import * as fs from "node:fs";
 import * as path from "node:path";
-import { git } from "./git";
+import { git, refArg } from "./git";
 import { countCommitsBetween, createBranch, readDefaultBranch } from "./branches";
 import { buildMergeMessage } from "./merge-message";
 import { projectSlug } from "./paths";
@@ -859,7 +859,7 @@ async function mergeInto(
   // merge in an editor no one can see.
   const args = ["merge", "--no-ff", "--no-edit", "-m", message.subject];
   if (message.body !== "") args.push("-m", message.body);
-  args.push(branch);
+  args.push(refArg(branch));
   try {
     await git(cwd, args, { timeoutMs: MERGE_TIMEOUT_MS });
   } catch (error) {
@@ -898,6 +898,8 @@ export async function mergeWorktreeBranch(
   destination: string,
   opts: { scratchRoot: string },
 ): Promise<MergeBackResult> {
+  refArg(branch);
+  refArg(destination);
   if (!(await hasRef(projectCwd, `refs/heads/${branch}`))) {
     throw new Error(`branch ${branch} no longer exists`);
   }
@@ -1008,7 +1010,7 @@ export async function renameWorktreeBranch(
   from: string,
   to: string,
 ): Promise<void> {
-  await git(worktreePath, ["branch", "-m", from, to]);
+  await git(worktreePath, ["branch", "-m", refArg(from), refArg(to)]);
 }
 
 /**

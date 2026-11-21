@@ -44,6 +44,13 @@ export interface WarmRpcPoolDeps {
   subagentSpawnConfig: () => SubagentSpawnConfig;
   /** Master switch; false parks the pool forever. */
   enabled: () => boolean;
+  /**
+   * The provider-credential overlay for the warm child's spawn env
+   * (`providerKeyEnv`); absent for Lite and tests. The warm slot's env is
+   * captured at build, so a key added afterwards applies to the next
+   * build — same "keys bind at process start" rule as ADR-0010.
+   */
+  providerEnv?: () => NodeJS.ProcessEnv;
 }
 
 /** Two consecutive build failures park the pool for the process — a machine that cannot boot one warm child will not benefit from retries. */
@@ -305,6 +312,7 @@ export class WarmRpcPool {
         // the auto-thinking flag — mirror it or frames lack configured:"auto".
         ...(plan.template.thinkingLevel === "auto" ? { thinking: "auto" } : {}),
         configOverlays,
+        ...(this.deps.providerEnv !== undefined ? { providerEnv: this.deps.providerEnv() } : {}),
         extensions,
         onBootReady: resolveReady,
         // The deferArm ctor installs inert sinks; these three opts only exist

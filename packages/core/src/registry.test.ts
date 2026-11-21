@@ -149,6 +149,25 @@ describe("SETTINGS", () => {
   });
 });
 
+describe("registry file mode", () => {
+  it("writes a fresh registry 0600 and keeps the mode on rewrite", () => {
+    const file = tmpFile();
+    const reg = Registry.load(file);
+    reg.setSetting("desktopNotifications", false);
+    expect((fs.statSync(file).mode & 0o777) === 0o600).toBe(true);
+  });
+
+  it("heals a legacy world-readable registry to 0600 on load", () => {
+    const file = tmpFile();
+    fs.writeFileSync(file, JSON.stringify({ schemaVersion: 1, projects: [], sessions: [], settings: {} }), {
+      mode: 0o644,
+    });
+    fs.chmodSync(file, 0o644);
+    Registry.load(file);
+    expect((fs.statSync(file).mode & 0o777) === 0o600).toBe(true);
+  });
+});
+
 describe("Registry.load", () => {
   it("starts empty when the file is missing", () => {
     const reg = Registry.load(tmpFile());
