@@ -82,6 +82,8 @@ const backendMock = {
   setAppUpdateInstallOnQuit: vi.fn(),
   dismissAppUpdate: vi.fn(),
   onAppUpdateState: vi.fn(),
+  // The GPU-process notice subscription (performance plan Phase 4).
+  onGpuProcessCrashed: vi.fn(() => () => {}),
   refreshRemoteInstanceState: vi.fn(async () => {}),
 };
 Object.assign(window, { ompBackend: backendMock });

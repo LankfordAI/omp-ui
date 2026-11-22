@@ -123,6 +123,8 @@ const mockBackend = {
   setAppUpdateInstallOnQuit: vi.fn(),
   dismissAppUpdate: vi.fn(),
   onAppUpdateState: vi.fn(),
+  // The GPU-process notice subscription (performance plan Phase 4).
+  onGpuProcessCrashed: vi.fn(() => () => {}),
   setThemeId: vi.fn(async () => {}),
   setFontFamilyId: vi.fn(async () => {}),
   setTranscriptWidth: vi.fn(async () => {}),

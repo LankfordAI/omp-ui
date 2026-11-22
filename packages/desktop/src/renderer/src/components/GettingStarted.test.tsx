@@ -71,6 +71,8 @@ const backendMock = {
   onBrowserPaneState: vi.fn(),
   onRpcFrame: vi.fn(),
   onAppUpdateState: vi.fn(),
+  // The GPU-process notice subscription (performance plan Phase 4).
+  onGpuProcessCrashed: vi.fn(() => () => {}),
   onOmpUpdateState: vi.fn(),
   onRemoteState: vi.fn(),
   getWebhooksState: vi.fn(async () => ({ enabled: false, credentialStore: false, webhooks: [], deliveries: [] })),
