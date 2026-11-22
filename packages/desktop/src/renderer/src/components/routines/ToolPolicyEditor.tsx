@@ -168,7 +168,7 @@ export function ToolPolicyEditor({
                     />
                     <span className="min-w-0 flex-1">
                       <span className="flex flex-wrap items-center gap-1.5">
-                        <span className="break-all font-mono font-medium text-ink">{tool.key}</span>
+                        <span className="break-words font-mono font-medium text-ink">{tool.key}</span>
                         {later && <Chip tone="copper">{t("routines.policy.addedLater")}</Chip>}
                         {tool.group === "missing" && <Chip tone="neutral">{t("routines.policy.missing")}</Chip>}
                         {denied ? (

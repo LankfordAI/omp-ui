@@ -7,7 +7,7 @@ import type {
 import { describe, expect, it } from "vitest";
 import { backendState, remoteInstance } from "../test/fixtures";
 import { projectIdentitySeed } from "./repository-members";
-import { buildSidebarLists, type SidebarEntry } from "./sidebar-sessions";
+import { buildAttentionEntries, buildSidebarLists, type SidebarEntry } from "./sidebar-sessions";
 
 function session(tabId: string, patch: Partial<SessionSummary> = {}): SessionSummary {
   return {
@@ -552,5 +552,82 @@ describe("settledAtMs persistence across restarts and reboots (issue #1137)", ()
     const lists = buildSidebarLists(state, "");
     expect(lists.active).toEqual([]);
     expect(ids(lists.settled)).toEqual(["legacy-dormant"]);
+  });
+});
+
+describe("Routine runs (ADR-0100, issue #1261)", () => {
+  const routine = {
+    id: "r".repeat(22),
+    name: "Morning overview",
+    approvalEntries: {},
+    deniedBuiltins: [],
+    warnCostUsd: 2,
+    maxCostUsd: 5,
+  };
+  const all = (lists: ReturnType<typeof buildSidebarLists>): string[] => [
+    ...ids(lists.pinned),
+    ...ids(lists.active),
+    ...ids(lists.working),
+    ...ids(lists.snoozed),
+    ...ids(lists.settled),
+  ];
+
+  it("files a local routine run into no section, whatever its state, while coding sessions stay", () => {
+    const state = backendState({
+      snoozedSectionEnabled: true,
+      projects: [
+        group("/a", "alpha", [
+          session("coding"),
+          session("run-idle", { routine }),
+          session("run-working", { routine, turnRunning: true }),
+          session("run-pinned", { routine, pinnedAtMs: 5 }),
+          session("run-snoozed", { routine, snoozed: true }),
+          session("run-settled", { routine, live: "dormant" }),
+        ]),
+      ],
+      chats: [session("run-chat", { routine, chat: true })],
+    });
+    expect(all(buildSidebarLists(state, ""))).toEqual(["coding"]);
+  });
+
+  it("keeps a joined instance's routine runs as ordinary sessions", () => {
+    const state = backendState({
+      remoteInstances: [remoteInstance({ projects: [group("/r", "remote", [session("remote-run", { routine })])] })],
+    });
+    expect(all(buildSidebarLists(state, ""))).toEqual(["remote-run"]);
+  });
+
+  it("holds a settled-unread routine run in the stack as ready until its mark clears", () => {
+    const state = backendState({
+      projects: [
+        group("/a", "alpha", [
+          session("run", { routine, live: "dormant" }),
+          session("coding", { live: "dormant" }),
+        ]),
+      ],
+    });
+    const mark = { atMs: 10, snippet: "done" };
+    const derive = (s: SessionSummary): string => s.live;
+    const marked = buildAttentionEntries(state, { run: mark, coding: mark }, derive);
+    expect(marked.map((a) => [a.entry.session.tabId, a.state])).toEqual([["run", "ready"]]);
+    expect(buildAttentionEntries(state, {}, derive)).toEqual([]);
+  });
+
+  it("surfaces a routine run parked on an Approval card without any mark", () => {
+    const state = backendState({
+      projects: [
+        group("/a", "alpha", [
+          session("run", { routine, awaitingHumanAnswer: true }),
+          session("coding", { awaitingHumanAnswer: true }),
+        ]),
+      ],
+    });
+    const entries = buildAttentionEntries(state, {}, (s) => (s.awaitingHumanAnswer === true ? "awaiting-answer" : "live"));
+    expect(entries.map((a) => [a.entry.session.tabId, a.state])).toEqual([["run", "awaiting-answer"]]);
+  });
+
+  it("drops a marked routine run while its turn is working", () => {
+    const state = backendState({ projects: [group("/a", "alpha", [session("run", { routine, turnRunning: true })])] });
+    expect(buildAttentionEntries(state, { run: { atMs: 1, snippet: null } }, () => "working")).toEqual([]);
   });
 });

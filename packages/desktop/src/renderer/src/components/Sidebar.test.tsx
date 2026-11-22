@@ -1742,3 +1742,39 @@ describe("Sidebar dispatch tethers (#1226)", () => {
     expect(lines()[0]!.className).toContain("bg-hover");
   });
 });
+
+describe("Sidebar Routine runs and the Routines button (ADR-0100, issue #1261)", () => {
+  const routine = { id: "r".repeat(22), name: "Morning overview", approvalEntries: {}, deniedBuiltins: [], warnCostUsd: 2, maxCostUsd: 5 };
+  const withRun = (patch: Partial<SessionSummary>, gate: boolean): BackendState => {
+    const group = state.projects[0]!;
+    const run: SessionSummary = { ...group.sessions[0]!, tabId: "tab-run", title: "Morning overview · 2026-11-22 08:00", routine, ...patch };
+    return { ...state, routinesEnabled: gate, projects: [{ ...group, sessions: [...group.sessions, run] }] };
+  };
+  const footerText = (): string => document.body.querySelector("footer")?.textContent ?? "";
+
+  it("keeps a live routine run out of the rows and the footer live count", () => {
+    useStore.setState({ state: withRun({ turnRunning: true }, true) });
+    renderSidebar();
+    expect(document.body.textContent).not.toContain("Morning overview · 2026-11-22 08:00");
+    expect(footerText()).toContain(t("sidebar.footer.readyCount", { n: 2 }));
+    expect(footerText()).not.toContain(t("sidebar.footer.workingCount", { n: 1 }));
+  });
+
+  it("renders no Routines button while the gate is off", () => {
+    useStore.setState({ state: withRun({ awaitingHumanAnswer: true }, false) });
+    renderSidebar();
+    expect(document.body.querySelector('button[aria-label="Routines"]')).toBeNull();
+  });
+
+  it("shows the Routines button with the waiting count and the waiting run as a stack card", () => {
+    const openRoutines = vi.fn();
+    useStore.setState({ state: withRun({ awaitingHumanAnswer: true }, true), openRoutines });
+    renderSidebar();
+    const routinesButton = button("Routines");
+    expect(routinesButton.querySelector("[data-routines-waiting]")?.textContent).toBe("1");
+    const stack = document.body.querySelector('[role="group"]');
+    expect(stack?.textContent).toContain("Morning overview · 2026-11-22 08:00");
+    act(() => routinesButton.click());
+    expect(openRoutines).toHaveBeenCalled();
+  });
+});

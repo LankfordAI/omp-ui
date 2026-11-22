@@ -54,7 +54,7 @@ export function DryRunPanel({
             <p className={`font-medium ${col.tone}`}>
               {col.title} ({col.keys.length})
             </p>
-            <p className="mt-1 break-all font-mono text-ink-mid">{col.keys.join(", ") || "—"}</p>
+            <p className="mt-1 break-words font-mono text-ink-mid">{col.keys.join(", ") || "—"}</p>
           </div>
         ))}
       </div>

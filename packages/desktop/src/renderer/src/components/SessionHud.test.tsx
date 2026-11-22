@@ -2016,6 +2016,30 @@ describe("SessionHud approval mode control (issue #681)", () => {
     expect(pick("always-ask").title).toContain("every tool waits");
   });
 
+  it("hides the picker and chip on a Routine run and names the routine (ADR-0100)", () => {
+    seedApproval("always-ask");
+    useStore.setState((s) => ({
+      state: {
+        ...s.state!,
+        projects: s.state!.projects.map((group) => ({
+          ...group,
+          sessions: group.sessions.map((rec) =>
+            rec.tabId === TAB
+              ? { ...rec, routine: { id: "r".repeat(22), name: "Morning overview", approvalEntries: {}, deniedBuiltins: [], warnCostUsd: 2, maxCostUsd: 5 } }
+              : rec,
+          ),
+        })),
+      },
+    }));
+    const host = renderWide();
+    expect(host.textContent).toContain("Started by the routine Morning overview");
+    expect(host.querySelector('[title*="approval mode pinned"]')).toBeNull();
+    openModes(host);
+    const labels = [...document.body.querySelectorAll<HTMLButtonElement>("button")].map((b) => b.textContent);
+    expect(labels).not.toContain("yolo");
+    expect(labels).not.toContain("inherit");
+  });
+
   const setInstalledOmp = (installedVersion: string): void => {
     useStore.setState((s) => ({ ompUpdate: { ...s.ompUpdate, installedVersion } }));
   };

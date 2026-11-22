@@ -1,7 +1,7 @@
 // @vitest-environment jsdom
 import { act } from "react";
 import { createRoot, type Root } from "react-dom/client";
-import { rpcTabState } from "../test/fixtures";
+import { remoteOwnedState, rpcTabState } from "../test/fixtures";
 import { afterEach, describe, expect, it, vi } from "vitest";
 import type { ApprovalPrompt } from "@omp-ui/core/approval";
 
@@ -300,5 +300,35 @@ describe("ApprovalCard compound bash segments (issue #1208)", () => {
     expect(pre.firstChild?.nodeType).toBe(Node.TEXT_NODE);
     expect(document.querySelector("[data-approval-segment]")).toBeNull();
     expect(scroll).not.toHaveBeenCalled();
+  });
+});
+
+describe("ApprovalCard on a Routine run (ADR-0100, issue #1261)", () => {
+  const SESSION_PROMPT = { ...PROMPT, sessionLabel: "Approve Bash for this session" };
+  const SESSION_FRAME = { ...FRAME, options: ["Approve", "Approve Bash for this session", "Deny"] };
+  const seed = (routine: boolean): void => {
+    const state = remoteOwnedState(TAB, "inst-1");
+    const session = state.remoteInstances[0]!.projects[0]!.sessions[0]!;
+    session.routine = routine
+      ? { id: "r".repeat(22), name: "Triage", approvalEntries: {}, deniedBuiltins: [], warnCostUsd: 2, maxCostUsd: 5 }
+      : null;
+    useStore.setState({ state });
+  };
+  afterEach(() => useStore.setState({ state: null }));
+
+  it("renders Deny and Allow once only, never the session-wide option", () => {
+    seed(true);
+    render(SESSION_PROMPT, SESSION_FRAME);
+    const texts = [...document.querySelectorAll("[data-approval-card] button")].map((b) => b.textContent);
+    expect(texts).toEqual(["Deny", "Allow"]);
+    act(() => button("Allow").click());
+    expect(rpcSend).toHaveBeenCalledWith(TAB, { type: "extension_ui_response", id: "a1", value: "Approve" });
+  });
+
+  it("keeps the three options on an ordinary session", () => {
+    seed(false);
+    render(SESSION_PROMPT, SESSION_FRAME);
+    const texts = [...document.querySelectorAll("[data-approval-card] button")].map((b) => b.textContent);
+    expect(texts).toEqual(["Deny", "Approve Bash for this session", "Allow"]);
   });
 });
