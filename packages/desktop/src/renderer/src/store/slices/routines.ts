@@ -39,6 +39,9 @@ export interface RoutinesSlice {
   runRoutineNow(id: string): Promise<{ tabId: string; runId: string }>;
   dryRunRoutine(req: RoutineDryRunRequest): Promise<RoutineDryRunResult>;
   loadRoutineToolCatalog(projectCwd: string): Promise<RoutineCatalogSnapshot>;
+  /** Appends one tool key to the routine's allow list; refuses a routine the
+   *  host no longer has. Used by the ApprovalCard's Always allow (#1276). */
+  grantRoutineTool(routineId: string, toolKey: string): Promise<RoutineRecord>;
 }
 
 export function createRoutinesSlice(set: SetState, get: GetState): RoutinesSlice {
@@ -83,5 +86,28 @@ export function createRoutinesSlice(set: SetState, get: GetState): RoutinesSlice
     runRoutineNow: (id) => backend.runRoutineNow(id),
     dryRunRoutine: (req) => backend.dryRunRoutine(req),
     loadRoutineToolCatalog: (projectCwd) => backend.listRoutineToolCatalog(projectCwd),
+    async grantRoutineTool(routineId, toolKey) {
+      // The renderer only holds a routines:state snapshot when the Routines
+      // view has opened or a broadcast landed; during an ordinary run it can
+      // be null, so re-read once before refusing (#1276).
+      let record = get().routinesState?.routines.find((r) => r.id === routineId) ?? null;
+      if (record === null) {
+        set({ routinesState: await backend.getRoutinesState() });
+        record = get().routinesState?.routines.find((r) => r.id === routineId) ?? null;
+      }
+      if (record === null) throw new Error(`unknown routine ${routineId}`);
+      const current = record.toolPolicy;
+      // RoutineService.update restamps lastReviewedAt/reviewedCatalog against
+      // the live catalog itself, so the stale values sent here are fine;
+      // dropping the key from deny avoids the both-lists refusal.
+      return backend.updateRoutine(routineId, {
+        toolPolicy: {
+          allow: current.allow.includes(toolKey) ? current.allow : [...current.allow, toolKey],
+          deny: current.deny.filter((d) => d !== toolKey),
+          lastReviewedAt: current.lastReviewedAt,
+          reviewedCatalog: current.reviewedCatalog,
+        },
+      });
+    },
   };
 }
