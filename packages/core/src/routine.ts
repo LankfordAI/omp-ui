@@ -218,10 +218,21 @@ export interface CompiledRoutinePolicy {
 
 export interface RoutinesState {
   enabled: boolean;
+  machineLabel: string;
   routines: RoutineRecord[];
   runs: RoutineRunRow[];
+  activeRunTabId: string | null;
   defaultWarnCostUsd: number;
   defaultMaxCostUsd: number;
+}
+
+export type RoutineDryRunRequest =
+  | { kind: "saved"; id: string }
+  | { kind: "draft"; input: RoutineInput };
+
+export interface RoutineSpendDefaultsInput {
+  warnUsd: number;
+  maxUsd: number;
 }
 
 export interface RoutineDryRunResult {
@@ -638,17 +649,45 @@ export function parseRoutinePatch(raw: unknown): RoutinePatch {
   return out;
 }
 
+/** Validates a dry-run request: either a saved routine id or an unsaved draft RoutineInput. */
+export function parseRoutineDryRunRequest(raw: unknown): RoutineDryRunRequest {
+  if (!isPlainObject(raw)) throw new Error("dry-run request must be an object");
+  if (raw.kind === "saved") {
+    assertAllowedKeys(raw, new Set(["kind", "id"]), "dry-run request");
+    if (typeof raw.id !== "string" || raw.id.trim() === "") {
+      throw new Error("dry-run request id must be a non-empty string");
+    }
+    return { kind: "saved", id: raw.id };
+  }
+  if (raw.kind === "draft") {
+    assertAllowedKeys(raw, new Set(["kind", "input"]), "dry-run request");
+    return { kind: "draft", input: parseRoutineInput(raw.input) };
+  }
+  throw new Error('dry-run request kind must be "saved" or "draft"');
+}
+
+/** Validates the host-wide default routine spend caps off the wire. */
+export function parseRoutineSpendDefaults(raw: unknown): RoutineSpendDefaultsInput {
+  if (!isPlainObject(raw)) throw new Error("routine spend defaults must be an object");
+  assertAllowedKeys(raw, SPEND_KEYS, "routine spend defaults");
+  if (typeof raw.warnUsd !== "number" || !Number.isFinite(raw.warnUsd) || raw.warnUsd < 0 || raw.warnUsd > ROUTINE_COST_MAX_USD) {
+    throw new Error(`warnUsd must be a finite number between 0 and ${ROUTINE_COST_MAX_USD}`);
+  }
+  if (typeof raw.maxUsd !== "number" || !Number.isFinite(raw.maxUsd) || raw.maxUsd < 0 || raw.maxUsd > ROUTINE_COST_MAX_USD) {
+    throw new Error(`maxUsd must be a finite number between 0 and ${ROUTINE_COST_MAX_USD}`);
+  }
+  return { warnUsd: raw.warnUsd, maxUsd: raw.maxUsd };
+}
+
 function isNotice(value: unknown): value is ScheduledPromptNotice {
   if (!isPlainObject(value)) return false;
   if (value.kind !== "skipped" && value.kind !== "late" && value.kind !== "failed") return false;
   if (typeof value.atMs !== "number" || !Number.isFinite(value.atMs)) return false;
-  if (value.scheduledForMs !== null && (typeof value.scheduledForMs !== "number" || !Number.isFinite(value.scheduledForMs))) {
+  if (typeof value.dueAtMs !== "number" || !Number.isFinite(value.dueAtMs)) return false;
+  if (typeof value.missed !== "number" || !Number.isInteger(value.missed) || value.missed < 0) {
     return false;
   }
-  if (value.missed !== undefined && (typeof value.missed !== "number" || !Number.isInteger(value.missed) || value.missed < 0)) {
-    return false;
-  }
-  if (value.reason !== undefined && typeof value.reason !== "string") return false;
+  if (value.error !== null && typeof value.error !== "string") return false;
   return true;
 }
 
