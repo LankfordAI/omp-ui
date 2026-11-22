@@ -870,6 +870,7 @@ describe("HostBridge omp-ui://sessions", () => {
       settledAtMs: null,
       heldPrompt: null,
       scheduledPrompt: null,
+      routine: null,
       pullRequests: [],
       autoSettleOnMerge: null,
       private: false,

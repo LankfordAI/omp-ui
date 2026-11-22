@@ -10,6 +10,12 @@ import { parseVaultRegistry } from "./vault-registry";
 import { isKnowledgeHome } from "./vault-shared";
 import { isHeldPrompt } from "./held-prompt";
 import { isScheduledPrompt } from "./scheduled-prompt";
+import {
+  ROUTINE_COST_MAX_USD,
+  ROUTINE_DEFAULT_MAX_COST_USD,
+  ROUTINE_DEFAULT_WARN_COST_USD,
+  isSessionRoutine,
+} from "./routine";
 import { isProjectIcon } from "./project-icon";
 import { parsePullRequestLinks } from "./pull-requests";
 import { parseKeybindingOverrides, type KeybindingOverrides } from "./keybindings";
@@ -104,6 +110,12 @@ export interface RegistrySettings {
   experimentsEnabled: boolean;
   /** Autoresearch bridge gate (#1052); default off. */
   autoresearchEnabled: boolean;
+  /** Experimental Routines subsystem gate (ADR-0100, #1263); default off. */
+  routinesEnabled: boolean;
+  /** Default per-run spend warning threshold in USD (0 = uncapped); default 2. */
+  routineWarnCostUsd: number;
+  /** Default per-run spend stop cap in USD (0 = uncapped); default 5. */
+  routineMaxCostUsd: number;
   /** Council subsystem gate (#1052); default on since graduation. */
   councilEnabled: boolean;
   /** Sidebar Snoozed section and Snooze/Unsnooze action (issue #935); default off. */
@@ -302,6 +314,20 @@ export const SETTINGS: SettingDescriptors = {
   artifactLibraryEnabled: validatedSetting(
     () => false,
     (value): value is boolean => typeof value === "boolean",
+  ),
+  routinesEnabled: validatedSetting(
+    () => false,
+    (value): value is boolean => typeof value === "boolean",
+  ),
+  routineWarnCostUsd: validatedSetting(
+    () => ROUTINE_DEFAULT_WARN_COST_USD,
+    (value): value is number =>
+      typeof value === "number" && Number.isFinite(value) && value >= 0 && value <= ROUTINE_COST_MAX_USD,
+  ),
+  routineMaxCostUsd: validatedSetting(
+    () => ROUTINE_DEFAULT_MAX_COST_USD,
+    (value): value is number =>
+      typeof value === "number" && Number.isFinite(value) && value >= 0 && value <= ROUTINE_COST_MAX_USD,
   ),
   deviceAgentAccess: validatedSetting(
     () => false,
@@ -928,6 +954,8 @@ function parseRegistryData(raw: unknown): RegistryData | null {
       heldPrompt: isHeldPrompt(s.heldPrompt) ? s.heldPrompt : null,
       // Same rule (issue #987): a schedule that no longer parses drops, never the session.
       scheduledPrompt: isScheduledPrompt(s.scheduledPrompt) ? s.scheduledPrompt : null,
+      // Same rule (ADR-0100, #1263): a malformed routine pin drops, never the session.
+      routine: isSessionRoutine(s.routine) ? s.routine : null,
       // Never a validity gate: a malformed link drops only itself (issue #985).
       pullRequests: parsePullRequestLinks(s.pullRequests),
       autoSettleOnMerge: s.autoSettleOnMerge ?? null,

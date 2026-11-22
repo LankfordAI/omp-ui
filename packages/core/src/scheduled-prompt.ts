@@ -117,9 +117,25 @@ function parseField(field: string, min: number, max: number, names: string[] | n
   return [...out].sort((a, b) => a - b);
 }
 
+/** Supported standard Vixie @macros expanded to canonical 5-field cron. */
+export const CRON_MACROS: Readonly<Record<string, string>> = {
+  "@yearly": "0 0 1 1 *",
+  "@monthly": "0 0 1 * *",
+  "@weekly": "0 0 * * 0",
+  "@daily": "0 0 * * *",
+  "@hourly": "0 * * * *",
+};
+
+/** Expands a supported @macro to its canonical 5-field cron expression; returns trimmed input otherwise. */
+export function normalizeCronExpr(raw: string): string {
+  const trimmed = raw.trim();
+  const mapped = CRON_MACROS[trimmed.toLowerCase()];
+  return mapped ?? trimmed;
+}
+
 /** Parses a five-field cron expression (minute hour day-of-month month day-of-week); null when invalid. */
 function parseCron(expr: string): CronFields | null {
-  const parts = expr.trim().split(/\s+/);
+  const parts = normalizeCronExpr(expr).split(/\s+/);
   if (parts.length !== 5) return null;
   const [mi, h, dom, mon, dow] = parts as [string, string, string, string, string];
   const minutes = parseField(mi, 0, 59, null, 0);
@@ -331,5 +347,7 @@ export function parseScheduledPromptRequest(value: unknown): ScheduledPromptRequ
   if (v.text.length > SCHEDULED_PROMPT_TEXT_MAX) throw new Error(`the prompt is over ${SCHEDULED_PROMPT_TEXT_MAX} characters`);
   if (!isSchedule(v.schedule)) throw new Error("the schedule is not a valid time or cron expression");
   if (typeof v.timeZone !== "string" || !isValidTimeZone(v.timeZone)) throw new Error("unknown time zone");
-  return { text: v.text, schedule: v.schedule, timeZone: v.timeZone };
+  const schedule: PromptSchedule =
+    v.schedule.kind === "cron" ? { kind: "cron", expr: normalizeCronExpr(v.schedule.expr) } : v.schedule;
+  return { text: v.text, schedule, timeZone: v.timeZone };
 }

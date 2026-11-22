@@ -258,4 +258,17 @@ describe("lite member remote settings channels (issue #1010)", () => {
     const reopened = Registry.load(path.join(dir, "registry.json"));
     expect(reopened.getSetting("remoteToken")).toBe(token);
   });
+
+  it("pins routinesEnabled false in broadcastSettings and registers zero routines:* channels (U12)", async () => {
+    const instance = await bootMember();
+    instance.registry.setSetting("routinesEnabled", true);
+    const state = await instance.backend.handlers().request[CH.getState]!();
+    expect(state.routinesEnabled).toBe(false);
+    const table = instance.backend.handlers();
+    const routineChannels = [
+      ...Object.keys(table.request),
+      ...Object.keys(table.notify),
+    ].filter((ch) => ch.startsWith("routines:"));
+    expect(routineChannels).toEqual([]);
+  });
 });

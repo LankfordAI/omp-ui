@@ -1,9 +1,12 @@
 import { describe, expect, it } from "vitest";
 import {
+  CRON_MACROS,
   countRunsBetween,
   cronPreset,
   isScheduledPrompt,
+  isValidCron,
   nextRunAfter,
+  normalizeCronExpr,
   parseScheduledPromptRequest,
   presetCron,
   type PromptSchedule,
@@ -96,5 +99,50 @@ describe("request and record validation", () => {
     };
     expect(isScheduledPrompt(record)).toBe(true);
     expect(isScheduledPrompt({ ...record, schedule: cron("bogus") })).toBe(false);
+  });
+});
+
+describe("CRON_MACROS and normalizeCronExpr (U3)", () => {
+  it("expands @yearly/@monthly/@weekly/@daily/@hourly case-insensitively to canonical 5-field cron", () => {
+    expect(CRON_MACROS).toEqual({
+      "@yearly": "0 0 1 1 *",
+      "@monthly": "0 0 1 * *",
+      "@weekly": "0 0 * * 0",
+      "@daily": "0 0 * * *",
+      "@hourly": "0 * * * *",
+    });
+    expect(normalizeCronExpr(" @DAILY ")).toBe("0 0 * * *");
+    expect(normalizeCronExpr("@hourly")).toBe("0 * * * *");
+    expect(normalizeCronExpr("@weekly")).toBe("0 0 * * 0");
+    expect(normalizeCronExpr("@monthly")).toBe("0 0 1 * *");
+    expect(normalizeCronExpr("@yearly")).toBe("0 0 1 1 *");
+    expect(normalizeCronExpr("  30 8,13 * * 1-5  ")).toBe("30 8,13 * * 1-5");
+  });
+
+  it("rejects unsupported macros, 6-field expressions, and L/LW/# syntax", () => {
+    expect(isValidCron("@reboot")).toBe(false);
+    expect(isValidCron("@annually")).toBe(false);
+    expect(isValidCron("0 0 9 * * *")).toBe(false);
+    expect(isValidCron("0 9 L * *")).toBe(false);
+    expect(isValidCron("0 9 LW * *")).toBe(false);
+    expect(isValidCron("0 9 * * 5#3")).toBe(false);
+  });
+
+  it("stores canonical expanded 5-field cron in parseScheduledPromptRequest", () => {
+    const req = parseScheduledPromptRequest({
+      text: "Check status",
+      schedule: { kind: "cron", expr: "@daily" },
+      timeZone: "UTC",
+    });
+    expect(req.schedule).toEqual({ kind: "cron", expr: "0 0 * * *" });
+  });
+
+  it("evaluates multi-time cron and @macros cleanly", () => {
+    expect(iso(nextRunAfter(cron("30 8,13 * * 1-5"), "UTC", Date.parse("2026-06-01T08:30:00Z")))).toBe(
+      "2026-06-01T13:30:00.000Z",
+    );
+    expect(iso(nextRunAfter(cron("@hourly"), "UTC", Date.parse("2026-06-01T08:15:00Z")))).toBe(
+      "2026-06-01T09:00:00.000Z",
+    );
   });
 });

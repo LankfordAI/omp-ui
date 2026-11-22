@@ -138,6 +138,7 @@ function mount(voiceInputEnabled: boolean, ownerId: string | null = null): void 
         settledAtMs: null,
         heldPrompt: null,
         scheduledPrompt: null,
+        routine: null,
         pullRequests: [],
         autoSettleOnMerge: null,
         private: false,

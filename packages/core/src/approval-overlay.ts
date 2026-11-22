@@ -1,5 +1,6 @@
 import * as path from "node:path";
 import { removeLineageArtifact, writeLineageArtifact } from "./lineage-artifact";
+import { renderApprovalOverlayYaml, type RoutineToolDecision } from "./routine";
 import type { ApprovalMode } from "./types";
 
 /**
@@ -33,11 +34,12 @@ export function approvalOverlayPath(lineageDir: string): string {
 export function writeApprovalOverlay(
   lineageDir: string,
   mode: ApprovalMode | null,
+  entries?: Readonly<Record<string, RoutineToolDecision>>,
 ): string | null {
   const file = approvalOverlayPath(lineageDir);
-  if (mode === null) {
+  if (mode === null && !entries) {
     removeLineageArtifact(file);
     return null;
   }
-  return writeLineageArtifact(lineageDir, file, `tools:\n  approvalMode: ${mode}\n`);
+  return writeLineageArtifact(lineageDir, file, renderApprovalOverlayYaml(mode, entries));
 }

@@ -43,6 +43,7 @@ function sessionRecord(patch: Partial<OwnedSessionRecord> = {}): OwnedSessionRec
     settledAtMs: null,
     heldPrompt: null,
     scheduledPrompt: null,
+    routine: null,
     pullRequests: [],
     autoSettleOnMerge: null,
     private: false,
@@ -2525,5 +2526,63 @@ describe("stale sidebar keys (issue #919)", () => {
     expect(raw.settings).not.toHaveProperty("sessionOrderFrozen");
     expect(raw.projects.map((p) => p.path)).toEqual(["/abs/a", "/abs/b", "/abs/c"]);
     expect(raw.sessions.map((s) => s.tabId)).toEqual(["s-1", "s-2"]);
+  });
+});
+
+describe("routines settings & OwnedSessionRecord.routine (U12, #1263)", () => {
+  it("defaults routinesEnabled to false and spend caps to 2 / 5, validating bounds", () => {
+    const reg = Registry.load(tmpFile());
+    expect(reg.getSetting("routinesEnabled")).toBe(false);
+    expect(reg.getSetting("routineWarnCostUsd")).toBe(2);
+    expect(reg.getSetting("routineMaxCostUsd")).toBe(5);
+
+    reg.setSetting("routinesEnabled", true);
+    reg.setSetting("routineWarnCostUsd", 0);
+    reg.setSetting("routineMaxCostUsd", 25);
+    expect(reg.getSetting("routinesEnabled")).toBe(true);
+    expect(reg.getSetting("routineWarnCostUsd")).toBe(0);
+    expect(reg.getSetting("routineMaxCostUsd")).toBe(25);
+
+    // Invalid persisted values fall back to defaults on load.
+    const badFile = tmpFile();
+    fs.writeFileSync(
+      badFile,
+      JSON.stringify({
+        schemaVersion: 1,
+        settings: { routinesEnabled: "yes", routineWarnCostUsd: -1, routineMaxCostUsd: 10_001 },
+        projects: [],
+        sessions: [],
+      }),
+    );
+    const reloaded = Registry.load(badFile);
+    expect(reloaded.getSetting("routinesEnabled")).toBe(false);
+    expect(reloaded.getSetting("routineWarnCostUsd")).toBe(2);
+    expect(reloaded.getSetting("routineMaxCostUsd")).toBe(5);
+  });
+
+  it("preserves valid OwnedSessionRecord.routine and normalizes malformed routine to null", () => {
+    const file = tmpFile();
+    const validRoutine = {
+      id: "AbCdEfGhIjKlMnOpQrStUv",
+      name: "Morning triage",
+      approvalEntries: { read: "allow" as const, bash: "deny" as const },
+      deniedBuiltins: ["bash"],
+      warnCostUsd: 2,
+      maxCostUsd: 5,
+    };
+    fs.writeFileSync(
+      file,
+      JSON.stringify({
+        schemaVersion: 1,
+        projects: [],
+        sessions: [
+          sessionRecord({ tabId: "s-valid", routine: validRoutine }),
+          { ...sessionRecord({ tabId: "s-bad" }), routine: { id: "short" } },
+        ],
+      }),
+    );
+    const reg = Registry.load(file);
+    expect(reg.sessions.find((s) => s.tabId === "s-valid")?.routine).toEqual(validRoutine);
+    expect(reg.sessions.find((s) => s.tabId === "s-bad")?.routine).toBeNull();
   });
 });

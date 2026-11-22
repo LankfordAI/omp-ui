@@ -137,6 +137,7 @@ export * from "./carryover-context";
 export * from "./carryover-bridge";
 export { advisorOverlayPath, writeAdvisorOverlay } from "./advisor-overlay";
 export { approvalOverlayPath, writeApprovalOverlay } from "./approval-overlay";
+export { spendOverlayPath, writeSpendOverlay } from "./spend-overlay";
 export { worktreeOverlayPath, writeWorktreeOverlay } from "./worktree-overlay";
 export { writeTitleOverlay } from "./title-overlay";
 export { modelOverlayPath, writeDefaultModelOverlay } from "./model-overlay";
@@ -183,6 +184,12 @@ export {
   privateGuardExtensionPath,
   writePrivateGuardExtension,
 } from "./private-guard-extension";
+export {
+  ROUTINE_GUARD_COMMAND,
+  routineGuardArmMessage,
+  routineGuardExtensionPath,
+  writeRoutineGuardExtension,
+} from "./routine-guard-extension";
 export {
   compactionMethodOverlayPath,
   writeCompactionMethodOverlay,
@@ -310,6 +317,8 @@ export {
   type ScheduledPromptNotice,
   type ScheduledPromptRequest,
 } from "./scheduled-prompt";
+export * from "./routine";
+export { RoutineRunHistory, RoutineStore, type RoutineSchedulePatch } from "./routine-store";
 export {
   HTML_PLAN_DOCUMENT_OPEN,
   HTML_PLAN_DOCUMENT_CLOSE,

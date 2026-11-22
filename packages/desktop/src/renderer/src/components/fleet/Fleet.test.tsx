@@ -108,6 +108,7 @@ function session(tabId: string, title: string, fleet: FleetProvenance | null): S
     settledAtMs: 1_000,
     heldPrompt: null,
     scheduledPrompt: null,
+    routine: null,
     pullRequests: [],
     autoSettleOnMerge: null,
     private: false,

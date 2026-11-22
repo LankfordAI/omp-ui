@@ -38,4 +38,26 @@ describe("writeApprovalOverlay", () => {
       "tools:\n  approvalMode: always-ask\n",
     );
   });
+
+  it("emits sorted JSON-quoted tools.approval entries beside tools.approvalMode (U7)", () => {
+    const dir = fs.mkdtempSync(path.join(os.tmpdir(), "omp-ui-approval-test-"));
+    dirs.push(dir);
+    const file = writeApprovalOverlay(dir, "always-ask", {
+      "mcp__gmail-work_send_message": "deny",
+      "bash": "prompt",
+      "mcp__gmail-work_list_messages": "allow",
+    });
+    expect(file).toBe(approvalOverlayPath(dir));
+    expect(fs.readFileSync(file!, "utf8")).toBe(
+      [
+        "tools:",
+        "  approvalMode: always-ask",
+        "  approval:",
+        '    "bash": prompt',
+        '    "mcp__gmail-work_list_messages": allow',
+        '    "mcp__gmail-work_send_message": deny',
+        "",
+      ].join("\n"),
+    );
+  });
 });

@@ -38,6 +38,7 @@ function session(tabId: string, patch: Partial<SessionSummary> = {}): SessionSum
     settledAtMs: (patch.live ?? "live") === "live" ? null : 1_000,
     heldPrompt: null,
     scheduledPrompt: null,
+    routine: null,
     pullRequests: [],
     autoSettleOnMerge: null,
     private: false,
