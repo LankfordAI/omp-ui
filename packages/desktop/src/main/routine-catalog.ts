@@ -294,12 +294,8 @@ export class RoutineCatalogService {
     const nowMs = this.now();
     const capturedAt = new Date(nowMs).toISOString();
 
-    let mcpResult: McpServersResult | null = null;
-    try {
-      mcpResult = await this.resolveMcp(projectCwd);
-    } catch {
-      mcpResult = null;
-    }
+    // An unreadable MCP config fingerprints as "none" and contributes no stale servers.
+    const mcpResult = await this.resolveMcp(projectCwd).catch(() => null);
     const fingerprint = mcpConfigFingerprint(mcpResult);
     const configuredServers = enabledConfiguredServerNames(mcpResult);
 

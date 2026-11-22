@@ -1972,6 +1972,7 @@ export interface DiagnosticsSection {
     | "window-state"
     | "browser-pane"
     | "knowledge-vault"
+    | "routines"
     | "transcripts";
   /** Stable zip prefix this section writes under, e.g. "logs/". */
   prefix: string;
@@ -2020,6 +2021,21 @@ export interface KnowledgeVaultDiagnostics {
   uriHandler: boolean;
   /** Per live tab, per vault action, calls answered since spawn. F1 always sends {}; F2 fills it. */
   calls: Record<string, Partial<Record<VaultAction, number>>>;
+}
+
+/**
+ * Routines counts for the diagnostics bundle (ADR-0100 §14): settings flags and
+ * counts only — never routine names, instructions, tool keys, or run rows.
+ */
+export interface RoutinesDiagnostics {
+  enabled: boolean;
+  warnCostUsd: number;
+  maxCostUsd: number;
+  routineCount: number;
+  enabledCount: number;
+  activeRunTabId: string | null;
+  waitingApprovalCount: number;
+  recentOutcomeCounts: Record<"running" | "waiting-approval" | "on-time" | "late" | "skipped" | "failed", number>;
 }
 
 /** What an export would contain, computed without reading file bodies. */

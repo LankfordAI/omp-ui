@@ -52,7 +52,7 @@ export interface RoutineSchedulerDeps {
     opts: { deadlineMs: number },
   ) => Promise<FleetDispatchResult>;
   /** Called once a routine run starts with a tabId so lifecycle timers can attach. */
-  onRunStarted: (tabId: string, routineId: string, runRowId: string, trigger: RoutineRunTrigger) => void;
+  onRunStarted: (tabId: string, routineId: string, runRowId: string, trigger: RoutineRunTrigger, firedAtMs: number) => void;
   /** Called after a fire starts so retention can prune aged runs. */
   onPostFire?: () => Promise<void> | void;
   /** Publishes `routines:state` to every connected client. */
@@ -379,7 +379,7 @@ export class RoutineScheduler {
         staleCatalog,
       };
       this.deps.history.record(row);
-      this.deps.onRunStarted(tabId, routine.id, runId, trigger);
+      this.deps.onRunStarted(tabId, routine.id, runId, trigger, firedAtMs);
       this.deps.publish();
       if (this.deps.onPostFire) {
         void Promise.resolve(this.deps.onPostFire()).catch((err) => {
