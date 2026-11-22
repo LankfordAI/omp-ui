@@ -3,6 +3,9 @@ import * as os from "node:os";
 import * as path from "node:path";
 import { afterEach, describe, expect, it, vi } from "vitest";
 import {
+  approvalOverlayPath,
+  routineGuardExtensionPath,
+  spendOverlayPath,
   gitGuardOverlayPath,
   intentTracingOverlayPath,
   outRepliesOverlayPath,
@@ -55,6 +58,7 @@ function bridgeWriters(write: (id: (typeof RPC_BRIDGE_IDS)[number]) => string): 
     askContext: () => write("askContext"),
     carryoverContext: () => write("carryoverContext"),
     privateGuard: () => write("privateGuard"),
+    routineGuard: () => write("routineGuard"),
     sideCommands: () => write("sideCommands"),
     composerPredictions: () => write("composerPredictions"),
     fleetWake: () => write("fleetWake"),
@@ -108,6 +112,7 @@ describe("writeRpcExtensions", () => {
         askContext: true,
         carryoverContext: true,
         privateGuard: true,
+        routineGuard: false,
         sideCommands: true,
         composerPredictions: true,
         fleetWake: true,
@@ -130,6 +135,27 @@ describe("writeRpcExtensions", () => {
     );
     expect(result.loaded.autoresearch).toBe(false);
     expect(autoresearch).not.toHaveBeenCalled();
+  });
+
+  it("writes routineGuard only when routineDeniedBuiltins is non-empty", () => {
+    const dir = tmp();
+    const without = writeRpcExtensions(dir, { autoresearchEnabled: false });
+    expect(without.loaded.routineGuard).toBe(false);
+    expect(fs.existsSync(routineGuardExtensionPath(dir))).toBe(false);
+
+    const empty = writeRpcExtensions(dir, { autoresearchEnabled: false, routineDeniedBuiltins: [] });
+    expect(empty.loaded.routineGuard).toBe(false);
+    expect(fs.existsSync(routineGuardExtensionPath(dir))).toBe(false);
+
+    const armed = writeRpcExtensions(dir, {
+      autoresearchEnabled: false,
+      routineDeniedBuiltins: ["bash", "eval"],
+    });
+    expect(armed.loaded.routineGuard).toBe(true);
+    expect(armed.paths).toContain(routineGuardExtensionPath(dir));
+    const source = fs.readFileSync(routineGuardExtensionPath(dir), "utf8");
+    expect(source).toContain('"bash"');
+    expect(source).toContain('"eval"');
   });
 
 });
@@ -549,6 +575,62 @@ describe("writeSessionOverlays — auto thinking selector", () => {
     });
     const file = overlays.find((f) => path.basename(f) === "omp-ui-model.yml");
     expect(fs.readFileSync(file!, "utf8")).toBe('modelRoles:\n  default: "p/m"\ndefaultThinkingLevel: "auto"\n');
+  });
+});
+
+describe("writeSessionOverlays — routine approval entries & spend cap (U7, ADR-0100)", () => {
+  it("writes omp-ui-approval.yml with sorted tool entries and omp-ui-spend.yml on launch and resume", () => {
+    const dir = tmp();
+    const record = ownedSessionRecord({
+      approvalMode: "always-ask",
+      private: true,
+      routine: {
+        id: "abcdefghijklmnopqrstuv",
+        name: "Morning brief",
+        approvalEntries: {
+          "mcp__gmail_send": "prompt",
+          "read": "allow",
+          "bash": "deny",
+        },
+        deniedBuiltins: ["bash"],
+        warnCostUsd: 2,
+        maxCostUsd: 5,
+      },
+    });
+    const overlays = writeSessionOverlays(record, dir);
+    expect(overlays).toContain(approvalOverlayPath(dir));
+    expect(overlays).toContain(spendOverlayPath(dir));
+    expect(fs.readFileSync(approvalOverlayPath(dir), "utf8")).toBe(
+      'tools:\n  approvalMode: always-ask\n  approval:\n    "bash": deny\n    "mcp__gmail_send": prompt\n    "read": allow\n',
+    );
+    expect(fs.readFileSync(spendOverlayPath(dir), "utf8")).toBe(
+      "session:\n  warnCost: 2\n  maxCost: 5\n",
+    );
+
+    // Rewriting identically on resume preserves both files; non-routine removes spend overlay.
+    const plainOverlays = writeSessionOverlays(ownedSessionRecord({ approvalMode: null, routine: null }), dir);
+    expect(plainOverlays).not.toContain(approvalOverlayPath(dir));
+    expect(plainOverlays).not.toContain(spendOverlayPath(dir));
+    expect(fs.existsSync(approvalOverlayPath(dir))).toBe(false);
+    expect(fs.existsSync(spendOverlayPath(dir))).toBe(false);
+  });
+
+  it("omits omp-ui-spend.yml when routine spend caps are 0 (uncapped)", () => {
+    const dir = tmp();
+    const record = ownedSessionRecord({
+      approvalMode: "always-ask",
+      routine: {
+        id: "abcdefghijklmnopqrstuv",
+        name: "Uncapped",
+        approvalEntries: { read: "allow" },
+        deniedBuiltins: [],
+        warnCostUsd: 0,
+        maxCostUsd: 0,
+      },
+    });
+    const overlays = writeSessionOverlays(record, dir);
+    expect(overlays).not.toContain(spendOverlayPath(dir));
+    expect(fs.existsSync(spendOverlayPath(dir))).toBe(false);
   });
 });
 

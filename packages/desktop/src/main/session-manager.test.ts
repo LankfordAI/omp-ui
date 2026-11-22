@@ -5723,7 +5723,7 @@ describe("foreign omp launch notice (#1022)", () => {
     expect(message).not.toContain("Let agents dispatch fleet work");
   });
 
-  it.each(["webhook", "mcp"] as const)("a %s-started session gets honest outside-sender advice even with the setting on (#1076)", async (kind) => {
+  it.each(["webhook", "mcp", "routine"] as const)("a %s-started session gets honest outside-sender advice even with the setting on (#1076, ADR-0100)", async (kind) => {
     const { manager, registry, sent } = setup({ mode: "rpc-ui" });
     registry.setSetting("fleetAgentDispatch", true);
     registry.updateSession(TAB, {
@@ -5732,8 +5732,9 @@ describe("foreign omp launch notice (#1022)", () => {
     await resumeRpc(manager);
 
     const message = await launchAndNoticeMessage(manager, sent);
-    expect(message).toContain("webhook or an MCP client");
+    expect(message).toContain("webhook, an MCP client, or a routine");
     expect(message).toContain("ADR-0075");
+    expect(message).toContain("ADR-0100");
     expect(message).not.toContain("Let agents dispatch fleet work");
   });
 
@@ -7717,6 +7718,7 @@ describe("device pane lifecycle and agent access", () => {
     ["agent-dispatched", true, "agent", true],
     ["webhook-started", true, "webhook", false],
     ["MCP-started", true, "mcp", false],
+    ["routine-started", true, "routine", false],
   ] as const)("preserves device tool registration restrictions for %s", async (_label, access, kind, expected) => {
     const { manager, registry } = setup({ mode: "rpc-ui" });
     registry.setSetting("deviceAgentAccess", access);
@@ -7739,6 +7741,7 @@ describe("device pane lifecycle and agent access", () => {
     ["agent-dispatched", true, "agent", true],
     ["webhook-started", true, "webhook", false],
     ["MCP-started", true, "mcp", false],
+    ["routine-started", true, "routine", false],
   ] as const)("preserves issue tool registration restrictions for %s (ADR-0095)", async (_label, access, kind, expected) => {
     const { manager, registry } = setup({ mode: "rpc-ui" });
     registry.setSetting("issueAgentAccess", access);
@@ -7763,6 +7766,7 @@ describe("device pane lifecycle and agent access", () => {
     ["agent-dispatched", true, true, "agent", true],
     ["webhook-started", true, true, "webhook", false],
     ["MCP-started", true, true, "mcp", false],
+    ["routine-started", true, true, "routine", false],
   ] as const)("registers the theme tool only when allowed: %s", async (_label, access, wired, kind, expected) => {
     const { manager, registry } = setup({
       mode: "rpc-ui",
@@ -9149,7 +9153,15 @@ describe("fleet dispatch on the owning side (issue #899, ADR-0061)", () => {
   const commandsOf = (): Cmd[] => (RpcClientMock.mock.calls.at(-1)?.[0]?.initialCommands ?? []) as Cmd[];
   const fleetSpawn = (
     manager: SessionManager,
-    opts: { dispatchId?: string; projectCwd?: string; kind?: "user" | "agent" | "webhook" | "mcp"; planMode?: boolean; model?: string; thinkingLevel?: string } = {},
+    opts: {
+      dispatchId?: string;
+      projectCwd?: string;
+      kind?: Core.FleetRequester["kind"];
+      planMode?: boolean;
+      model?: string;
+      thinkingLevel?: string;
+      routine?: Core.SessionRoutine;
+    } = {},
   ): Promise<Core.SpawnAnswer> =>
     manager.spawn({
       origin: "new",
@@ -9173,6 +9185,7 @@ describe("fleet dispatch on the owning side (issue #899, ADR-0061)", () => {
         },
         ...(opts.model === undefined ? {} : { model: opts.model }),
         ...(opts.thinkingLevel === undefined ? {} : { thinkingLevel: opts.thinkingLevel }),
+        ...(opts.routine === undefined ? {} : { routine: opts.routine }),
       },
     });
   const recordOf = (registry: Core.Registry, tabId: string): Core.OwnedSessionRecord =>
@@ -9316,6 +9329,7 @@ describe("fleet dispatch on the owning side (issue #899, ADR-0061)", () => {
     ["setting on, agent-dispatched", true, "agent", false],
     ["setting on, webhook-started", true, "webhook", false],
     ["setting on, MCP-started", true, "mcp", false],
+    ["setting on, routine-started", true, "routine", false],
     ["setting on, not dispatched", true, null, true],
   ] as const)("registers the fleet tools only when allowed (%s)", async (_label, setting, kind, expected) => {
     const { manager, registry } = setup({ mode: "rpc-ui" });
@@ -9329,6 +9343,70 @@ describe("fleet dispatch on the owning side (issue #899, ADR-0061)", () => {
     );
     const always = ["omp-ui_notify", "omp-ui_render_html"];
     expect(names).toEqual(expected ? [...always, ...Core.FLEET_TOOLS] : always);
+  });
+
+  it("stamps routine metadata, private pin, always-ask approvalMode, routine guard arm, and keeps vault tools while excluding outside-sender host tools (U8, ADR-0100)", async () => {
+    const { manager, registry, sessionsRoot } = setup({ mode: "rpc-ui" });
+    const vaultRoot = fs.mkdtempSync(path.join(os.tmpdir(), "omp-ui-routine-vault-"));
+    try {
+      registry.setSetting("fleetAgentDispatch", true);
+      registry.setSetting("deviceAgentAccess", true);
+      registry.setSetting("issueAgentAccess", true);
+      registry.setSetting("themeAgentAccess", true);
+      registry.setSetting("vaultRegistry", {
+        vaults: [{ name: "Notes", path: vaultRoot, homeFolder: "omp-ui", allowWritesOutsideHome: false }],
+        defaultWriteVault: "Notes",
+      });
+      const routine: Core.SessionRoutine = {
+        id: "abcdefghijklmnopqrstuv",
+        name: "Morning brief",
+        approvalEntries: { read: "allow", bash: "deny", "mcp__gmail_send": "prompt" },
+        deniedBuiltins: ["bash"],
+        warnCostUsd: 2,
+        maxCostUsd: 5,
+      };
+      const { tabId } = await fleetSpawn(manager, { kind: "routine", routine });
+      const record = recordOf(registry, tabId);
+      expect(record.routine).toEqual(routine);
+      expect(record.approvalMode).toBe("always-ask");
+      expect(record.private).toBe(true);
+
+      const rpcOpts = RpcClientMock.mock.calls.at(-1)?.[0] as {
+        initialCommands?: Cmd[];
+        extensions?: string[];
+        configOverlays?: string[];
+        childEnv?: Record<string, string>;
+      };
+      const lineageDir = path.join(sessionsRoot, record.lineageDir);
+      expect(rpcOpts.childEnv?.[Core.HINDSIGHT_AUTO_RETAIN_ENV]).toBe("false");
+      expect(rpcOpts.configOverlays).toContain(Core.approvalOverlayPath(lineageDir));
+      expect(rpcOpts.configOverlays).toContain(Core.spendOverlayPath(lineageDir));
+      expect(rpcOpts.configOverlays).toContain(Core.privateOverlayPath(lineageDir));
+      expect(rpcOpts.extensions).toContain(Core.routineGuardExtensionPath(lineageDir));
+
+      const commands = rpcOpts.initialCommands ?? [];
+      expect(commands.some((c) => c.type === "prompt" && c.message === Core.privateGuardArmMessage())).toBe(true);
+      expect(commands.some((c) => c.type === "prompt" && c.message === Core.routineGuardArmMessage())).toBe(true);
+
+      const registration = commands.find((c) => c.type === "set_host_tools");
+      const names = (Array.isArray(registration?.tools) ? registration.tools : []).map((tool: unknown) =>
+        Core.isObject(tool) ? String(tool.name) : "",
+      );
+      expect(names.some((n) => n.startsWith("omp-ui_fleet_"))).toBe(false);
+      expect(names).not.toContain(Core.DEVICE_TOOL_NAME);
+      expect(names).not.toContain(Core.ISSUE_DRAFT_TOOL_NAME);
+      expect(names).not.toContain(Core.ISSUE_FILE_TOOL_NAME);
+      expect(names).not.toContain(Core.THEME_TOOL_NAME);
+      expect(names.some((n) => n.startsWith("omp-ui_vault_"))).toBe(true);
+
+      // Project scope arm receives "no-dispatch" role for routine runs.
+      const scopeCmd = commands.find(
+        (c) => c.type === "prompt" && typeof c.message === "string" && c.message.startsWith("/omp-ui-project-scope "),
+      );
+      expect(scopeCmd?.message).toContain("This session cannot dispatch work to other sessions.");
+    } finally {
+      fs.rmSync(vaultRoot, { recursive: true, force: true });
+    }
   });
 
   describe("model choice (#956)", () => {

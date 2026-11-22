@@ -45,7 +45,7 @@ function fixture(): { root: string; db: DatabaseSync; context: StatsReadContext;
     subagentModels: null, proposedPlans: [], private: false, chat: false, askSource: null,
     fleet: null, autoTitled: false, snoozed: false, snoozedUntilMs: null, pinnedAtMs: null,
     settledAtMs: null,
-    heldPrompt: null, scheduledPrompt: null, pullRequests: [], autoSettleOnMerge: null,
+    heldPrompt: null, scheduledPrompt: null, routine: null, pullRequests: [], autoSettleOnMerge: null,
     cachedTitle: "Private title", cachedModified: null,
   };
   const sessionsRoot = path.join(root, "sessions");

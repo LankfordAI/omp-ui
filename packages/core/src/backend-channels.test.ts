@@ -15,6 +15,7 @@ import {
   type RequestChannel,
 } from "./backend-channels";
 import type { MergeBackStatus, SpawnRequest, StatsOverview, StatsQuery, StatsSyncMode, StatsSyncState } from "./types";
+import type { RoutineInput } from "./routine";
 
 type SpecChannel<Kind extends BackendChannelSpec[keyof BackendChannelSpec]["kind"]> = {
   [Method in keyof BackendChannelSpec]: BackendChannelSpec[Method]["kind"] extends Kind
@@ -57,6 +58,20 @@ const statsQuery: StatsQuery = {
   provider: null,
   model: null,
   agentType: null,
+};
+
+const ROUTINE_INPUT: RoutineInput = {
+  name: "Morning overview",
+  instructions: "Summarize yesterday's merged pull requests.",
+  schedule: { kind: "cron", expr: "0 8 * * 1-5" },
+  timeZone: "UTC",
+  destination: { projectCwd: "/project", workspace: "worktree" },
+  mode: "build",
+  model: null,
+  thinkingLevel: null,
+  spend: { warnUsd: null, maxUsd: null },
+  toolPolicy: { allow: ["read"], deny: [], lastReviewedAt: "2026-11-22T00:00:00.000Z", reviewedCatalog: ["read"] },
+  enabled: true,
 };
 
 const VALID_ARGS = {
@@ -540,6 +555,15 @@ const VALID_ARGS = {
   setFleetExecEnabled: [true],
   setFleetExecCeiling: ["manage"],
   setFleetProjectRoots: [["/srv/repos"]],
+  setRoutinesEnabled: [true],
+  setRoutineSpendDefaults: [{ warnUsd: 2, maxUsd: 5 }],
+  getRoutinesState: [],
+  createRoutine: [ROUTINE_INPUT],
+  updateRoutine: ["AAAAAAAAAAAAAAAAAAAAAA", { enabled: false }],
+  removeRoutine: ["AAAAAAAAAAAAAAAAAAAAAA"],
+  runRoutineNow: ["AAAAAAAAAAAAAAAAAAAAAA"],
+  dryRunRoutine: [{ kind: "draft", input: ROUTINE_INPUT }],
+  listRoutineToolCatalog: ["/project"],
 } satisfies { [Method in InboundMethod]: MethodArgs<Method> };
 
 function recordingTransport() {

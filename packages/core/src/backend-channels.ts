@@ -259,11 +259,25 @@ import {
   artifactRenameCodec, artifactDiscardCaptureCodec, artifactDismissRefreshCodec, artifactPruneCodec, artifactRestoreCodec,
   artifactSavePartCodec, artifactExportHtmlCodec,
   spillIdCodec,
+  routineInputCodec,
+  routinePatchCodec,
+  routineDryRunRequestCodec,
+  routineSpendDefaultsCodec,
 } from "./backend-arg-codecs";
 import type { SpillReadResult } from "./spill";
 import type { HeldPromptPayload, HeldPromptRequest } from "./held-prompt";
 import type { ScheduledPromptRequest } from "./scheduled-prompt";
 import type { WebhookInput, WebhookPatch, WebhookSecretReveal, WebhooksState } from "./webhook";
+import type {
+  RoutineCatalogSnapshot,
+  RoutineDryRunRequest,
+  RoutineDryRunResult,
+  RoutineInput,
+  RoutinePatch,
+  RoutineRecord,
+  RoutineSpendDefaultsInput,
+  RoutinesState,
+} from "./routine";
 import type { ThemeMode } from "./theme";
 import type { VsCodeImportResult, VsCodeThemeFileInput } from "./vscode-theme";
 import type { SaveStoredThemeResult, StoredThemeDraft } from "./theme-file";
@@ -624,6 +638,19 @@ export const BACKEND_CHANNELS = {
   setAutoresearchEnabled: {
     channel: "settings:setAutoresearchEnabled",
     ...request<[on: boolean], void>([bool()]),
+  },
+  /**
+   * Routines gate (ADR-0100); default off. Host-local: never proxied. Off parks
+   * per-run timers and stops the clock without reaping live runs.
+   */
+  setRoutinesEnabled: {
+    channel: "settings:setRoutinesEnabled",
+    ...request<[on: boolean], void>([bool()]),
+  },
+  /** Host-wide default per-run spend caps for routines (USD; 0 = uncapped). */
+  setRoutineSpendDefaults: {
+    channel: "settings:setRoutineSpendDefaults",
+    ...request<[defaults: RoutineSpendDefaultsInput], void>([routineSpendDefaultsCodec]),
   },
   /** Council subsystem gate (#1052); default on since graduation. */
   setCouncilEnabled: {
@@ -2312,6 +2339,32 @@ export const BACKEND_CHANNELS = {
   removeWebhook: { channel: "webhooks:remove", ...request<[id: string], void>([str()]) },
   clearWebhookDeliveries: { channel: "webhooks:clearDeliveries", ...request<[], void>([]) },
   onWebhooksState: { channel: "webhooks:state", ...event<[state: WebhooksState]>() },
+  /**
+   * Routines (ADR-0100). Host-local like webhooks:* — never in
+   * REMOTE_PROXY_CHANNELS, PROJECT_PROXY_CHANNELS, or the tab-routed sets, and
+   * never an agent or MCP endpoint verb. Mutations and runs refuse while the
+   * Experimental gate is off.
+   */
+  getRoutinesState: { channel: "routines:getState", ...request<[], RoutinesState>([]) },
+  createRoutine: { channel: "routines:create", ...request<[input: RoutineInput], RoutineRecord>([routineInputCodec]) },
+  updateRoutine: {
+    channel: "routines:update",
+    ...request<[id: string, patch: RoutinePatch], RoutineRecord>([str(), routinePatchCodec]),
+  },
+  /** Removes the routine and its history; live runs keep running and survivors lose the marker. */
+  removeRoutine: { channel: "routines:remove", ...request<[id: string], { releasedSessions: number }>([str()]) },
+  /** Fires once without advancing the schedule; refuses inline when another routine is turning. */
+  runRoutineNow: { channel: "routines:runNow", ...request<[id: string], { tabId: string; runId: string }>([str()]) },
+  /** The fire-time compiler over the live catalog; zero writes, zero spawns. */
+  dryRunRoutine: {
+    channel: "routines:dryRun",
+    ...request<[req: RoutineDryRunRequest], RoutineDryRunResult>([routineDryRunRequestCodec]),
+  },
+  listRoutineToolCatalog: {
+    channel: "routines:toolCatalog",
+    ...request<[projectCwd: string], RoutineCatalogSnapshot>([str()]),
+  },
+  onRoutinesState: { channel: "routines:state", ...event<[state: RoutinesState]>() },
   /**
    * MCP endpoint (issue #996, ADR-0080). Host-local like the remote:* channels:
    * never in REMOTE_PROXY_CHANNELS, and the state carries no token.

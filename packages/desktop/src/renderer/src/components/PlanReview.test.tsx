@@ -212,6 +212,7 @@ function sessionRecord(tabId: string, title: string) {
  settledAtMs: null,
  heldPrompt: null,
  scheduledPrompt: null,
+ routine: null,
  pullRequests: [],
  autoSettleOnMerge: null,
  private: false,

@@ -50,7 +50,12 @@ let base: string;
  */
 function setup(
   file: "active" | "archived" | "missing" = "active",
-  opts: { thinkingLevel?: string | null; autoThinking?: boolean } = {},
+  opts: {
+    thinkingLevel?: string | null;
+    autoThinking?: boolean;
+    routine?: Record<string, unknown> | null;
+    private?: boolean;
+  } = {},
 ): { sessionsRoot: string; archiveRoot: string } {
   base = fs.mkdtempSync(path.join(os.tmpdir(), "omp-ui-fork-be-"));
   const agentDir = path.join(base, "agent");
@@ -110,6 +115,8 @@ function setup(
         cachedTitle: "Old session",
         cachedModified: "2026-07-29T16:18:42.427Z",
         ...(opts.thinkingLevel === undefined ? {} : { thinkingLevel: opts.thinkingLevel }),
+        ...(opts.routine === undefined ? {} : { routine: opts.routine as never }),
+        ...(opts.private === undefined ? {} : { private: opts.private }),
       }),
     ],
   });
@@ -200,6 +207,28 @@ describe("sessionFork", () => {
     const sessions = [...state.projects.flatMap((g) => g.sessions), ...state.chats];
     expect(sessions.find((s) => s.tabId === res.tabId)?.forkSourceTabId).toBe("tab-1");
     expect(sessions.find((s) => s.tabId === "tab-1")?.forkSourceTabId).toBeNull();
+  });
+
+  it("clears routine: null on the fork so forked routine runs become ordinary sessions (U11, ADR-0100)", async () => {
+    setup("active", {
+      private: true,
+      routine: {
+        id: "abcdefghijklmnopqrstuv",
+        name: "Morning brief",
+        approvalEntries: { read: "allow" },
+        deniedBuiltins: [],
+        warnCostUsd: 2,
+        maxCostUsd: 5,
+      },
+    });
+
+    const res = (await invoke(CH.forkSession, "tab-1")) as { tabId: string };
+
+    const forkRecord = readRegistry().sessions.find((s) => s.tabId === res.tabId)!;
+    expect(forkRecord.routine).toBeNull();
+    expect(forkRecord.fleet).toBeNull();
+    expect(forkRecord.private).toBe(true);
+    expect(readRegistry().sessions.find((s) => s.tabId === "tab-1")?.routine).not.toBeNull();
   });
 
   it("rejects for an unknown tab", async () => {

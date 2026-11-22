@@ -139,6 +139,20 @@ describe("diagnostics channels", () => {
     expect(JSON.parse(settingsText).hasRemoteToken).toBe(true);
   });
 
+  it("never bundles routines.json or routine-runs.json and names both in the manifest redaction (U13)", async () => {
+    fs.writeFileSync(path.join(base, "routines.json"), JSON.stringify({ schemaVersion: 1, routines: [] }));
+    fs.writeFileSync(path.join(base, "routine-runs.json"), JSON.stringify({ schemaVersion: 1, runs: [] }));
+    makeBackend();
+    const dest = path.join(base, "out", "routines.zip");
+    await invoke(CH.exportDiagnosticsBundle, { includeTranscripts: false, destinationPath: dest });
+    const names = await zipNames(dest);
+    expect(names.filter((n) => /routine/.test(n))).toEqual([]);
+    const manifest = JSON.parse(await unzipEntry(dest, "manifest.json")) as { redaction: string[]; sections: Array<{ id: string; included: boolean }> };
+    expect(manifest.redaction).toContain("routines.json (routine instructions and policies) and routine-runs.json are never read");
+    // Gate off with zero routines: the counts section is omitted.
+    expect(manifest.sections.find((s) => s.id === "routines")?.included).toBe(false);
+  });
+
   it("export with null destination lands beside the registry", async () => {
     makeBackend();
     const result = (await invoke(CH.exportDiagnosticsBundle, {

@@ -14,7 +14,7 @@ import {
   resolveDesktopPanelWidths,
   resolveDockedSidebarWidth,
 } from "../lib/panel-layout";
-import { buildAttentionEntries, buildSidebarLists, isSessionSettled, type SidebarEntry } from "../lib/sidebar-sessions";
+import { buildAttentionEntries, buildSidebarLists, isLocalRoutineRun, isSessionSettled, type SidebarEntry } from "../lib/sidebar-sessions";
 import { setSettledOpen, useSettledOpen } from "../lib/sidebar-settled";
 import { setSidebarSectionOpen, useSidebarSectionOpen } from "../lib/sidebar-section-open";
 import { supportsSessionMigrate } from "../lib/session-migrate";
@@ -478,6 +478,9 @@ export function Sidebar() {
   const openArtifacts = useStore((st) => st.openArtifacts);
   const closeArtifacts = useStore((st) => st.closeArtifacts);
   const artifactsOpen = useStore((st) => st.artifacts !== null);
+  const openRoutines = useStore((st) => st.openRoutines);
+  const closeRoutines = useStore((st) => st.closeRoutines);
+  const routinesOpen = useStore((st) => st.routinesOpen);
   const settledOpen = useSettledOpen();
   // Working now starts collapsed, #1037 — waiting sessions surface as
   // attention-stack cards instead of hiding inside an expanded section.
@@ -701,14 +704,21 @@ export function Sidebar() {
   // (ignoring the search, like the count always did): working mirrors the
   // Working section's placement rule — in-flight work, not blocked on the
   // user, not pinned, not parked in Snoozed — everything else is ready.
-  const { totalLive, workingLive } = useMemo(() => {
+  // Routine runs (ADR-0100) are attention-only: this app's own never count
+  // as live coding sessions; they feed the Routines button's waiting chip.
+  const { totalLive, workingLive, routinesWaiting } = useMemo(() => {
     let live = 0;
     let working = 0;
+    let waiting = 0;
     if (state !== null) {
       const snoozeOn = state.snoozedSectionEnabled === true;
-      const count = (sessions: readonly SessionSummary[]) => {
+      const count = (sessions: readonly SessionSummary[], local: boolean) => {
         for (const s of sessions) {
           if (s.live !== "live") continue;
+          if (local && isLocalRoutineRun(s)) {
+            if (s.awaitingHumanAnswer === true) waiting += 1;
+            continue;
+          }
           live += 1;
           const needsUser = s.pendingPlan !== null || s.awaitingHumanAnswer === true;
           const inFlight = s.turnRunning === true || backgroundWorkTabIds.has(s.tabId);
@@ -717,14 +727,14 @@ export function Sidebar() {
           if (inFlight && !needsUser && !parked) working += 1;
         }
       };
-      for (const group of state.projects) count(group.sessions);
-      count(state.chats);
+      for (const group of state.projects) count(group.sessions, true);
+      count(state.chats, true);
       for (const instance of state.remoteInstances) {
         if (instance.status === "self") continue;
-        for (const group of instance.projects) count(group.sessions);
+        for (const group of instance.projects) count(group.sessions, false);
       }
     }
-    return { totalLive: live, workingLive: working };
+    return { totalLive: live, workingLive: working, routinesWaiting: waiting };
   }, [state, backgroundWorkTabIds]);
   const hasInstances = instances.some((i) => i.status !== "self");
 
@@ -1099,6 +1109,30 @@ export function Sidebar() {
             closeCompactSurface();
           }} className="flex size-auto h-6 w-auto items-center gap-1 px-1">
             <span aria-hidden>▤</span><span>{t("artifacts.title")}</span>
+          </IconButton>
+        )}
+        {state?.routinesEnabled === true && (
+          <IconButton
+            label={t("sidebar.footer.routines")}
+            pressed={routinesOpen}
+            onClick={() => {
+              if (routinesOpen) closeRoutines();
+              else openRoutines();
+              closeCompactSurface();
+            }}
+            className="flex size-auto h-6 w-auto items-center gap-1 px-1"
+          >
+            <span aria-hidden>↻</span>
+            <span className="hidden whitespace-nowrap @[17rem]:inline">{t("sidebar.footer.routines")}</span>
+            {routinesWaiting > 0 && (
+              <span
+                data-routines-waiting
+                title={t("routines.waitingBanner", { n: routinesWaiting })}
+                className="rounded-full bg-copper-wash px-1 font-mono text-xs leading-4 tabular-nums text-copper"
+              >
+                {routinesWaiting}
+              </span>
+            )}
           </IconButton>
         )}
         {hasInstances && (

@@ -6,6 +6,7 @@ import {
   TAB_ROUTED_NOTIFIES,
   TAB_ROUTED_REQUESTS,
 } from "./remote-instances";
+import { BACKEND_CHANNELS } from "./backend-channels";
 
 // The browser pane rides the remote-instance relay (#532, ADR-0028): every
 // renderer-to-main pane channel is tab-routed and proxied, and both pane events
@@ -178,5 +179,32 @@ describe("council roster channels (issue #1049)", () => {
   it("never proxies the council enable setting to a joined instance", () => {
     // Settings stay app-local, like every other settings:* channel.
     expect(REMOTE_PROXY_CHANNELS.has("settings:setCouncilEnabled")).toBe(false);
+  });
+});
+
+describe("routines channels (ADR-0100, U13)", () => {
+  it("never routes or proxies any routines:* or routine settings channel to a joined instance", () => {
+    const routineChannels = Object.values(BACKEND_CHANNELS)
+      .map((d) => d.channel)
+      .filter((c) => c.startsWith("routines:") || c === "settings:setRoutinesEnabled" || c === "settings:setRoutineSpendDefaults");
+    expect(routineChannels.sort()).toEqual([
+      "routines:create",
+      "routines:dryRun",
+      "routines:getState",
+      "routines:remove",
+      "routines:runNow",
+      "routines:state",
+      "routines:toolCatalog",
+      "routines:update",
+      "settings:setRoutineSpendDefaults",
+      "settings:setRoutinesEnabled",
+    ]);
+    // REMOTE_PROXY_CHANNELS is the union of the tab-routed and project-proxy sets.
+    for (const channel of routineChannels) {
+      expect(REMOTE_PROXY_CHANNELS.has(channel), channel).toBe(false);
+      expect(TAB_ROUTED_REQUESTS.has(channel), channel).toBe(false);
+      expect(TAB_ROUTED_NOTIFIES.has(channel), channel).toBe(false);
+      expect(REMOTE_TAB_EVENTS.has(channel), channel).toBe(false);
+    }
   });
 });

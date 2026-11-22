@@ -32,6 +32,7 @@ import { createStatsSlice } from "./store/slices/stats";
 import { createFleetSlice } from "./store/slices/fleet";
 import { createLabSlice } from "./store/slices/lab";
 import { createArtifactsSlice } from "./store/slices/artifacts";
+import { createRoutinesSlice } from "./store/slices/routines";
 import { createArtifactReferencesSlice } from "./store/slices/artifact-references";
 import {
   createLiveAudioSlice,
@@ -462,6 +463,7 @@ export const useStore = create<UiStore>()((set, get, api) => {
     ...stats,
     ...fleet,
     ...createArtifactsSlice(set, get),
+    ...createRoutinesSlice(set, get),
     ...createArtifactReferencesSlice(set, get),
     ...collab,
     ...sideQuestions,
@@ -558,6 +560,8 @@ export const useStore = create<UiStore>()((set, get, api) => {
       );
       backend.onRemoteState((remote) => get().replaceRemote(remote));
       backend.onWebhooksState((webhooks) => get().replaceWebhooks(webhooks));
+      // Routines (ADR-0100): host-local like webhooks; the view reads on open.
+      backend.onRoutinesState((routines) => get().replaceRoutines(routines));
       backend.onMcpEndpointState((mcpEndpoint) => get().replaceMcpEndpoint(mcpEndpoint));
       backend.onProviderOAuthState((s) => get().replaceProviderOAuth(s));
       backend.onCollabChanged((tabId, state) => get().applyCollabState(tabId, state));

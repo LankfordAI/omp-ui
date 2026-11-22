@@ -20,6 +20,8 @@ import {
   fleetToolUpdateRequest,
   fleetVersionsLine,
   formatFleetMachines,
+  isFleetProvenance,
+  isOutsideSenderKind,
   LOCAL_MACHINE_KEY,
   parseFleetDetachedExecRequest,
   parseFleetDispatchRequest,
@@ -32,6 +34,7 @@ import {
   parseFleetModelFavorites,
   parseFleetPackageManagers,
   parseFleetProjectManageRequest,
+  parseFleetRequester,
   parseFleetProjectRoots,
   parseFleetProviderKeysRequest,
   parseFleetSpawnSpec,
@@ -103,11 +106,23 @@ describe("fleetToolAccess (#1076)", () => {
     ["an agent-dispatched session with the setting off", { chat: false, agentDispatchEnabled: false, requestedByKind: "agent" }, "agent-recursion"],
     ["a webhook-started session with the setting on", { chat: false, agentDispatchEnabled: true, requestedByKind: "webhook" }, "external-sender"],
     ["an MCP-started session with the setting on", { chat: false, agentDispatchEnabled: true, requestedByKind: "mcp" }, "external-sender"],
+    ["a routine-started session with the setting on", { chat: false, agentDispatchEnabled: true, requestedByKind: "routine" }, "external-sender"],
+    ["a routine-started session with the setting off", { chat: false, agentDispatchEnabled: false, requestedByKind: "routine" }, "external-sender"],
     ["a user-dispatched session with the setting on", { chat: false, agentDispatchEnabled: true, requestedByKind: "user" }, "granted"],
     ["a user-dispatched session with the setting off", { chat: false, agentDispatchEnabled: false, requestedByKind: "user" }, "setting-off"],
   ] as const)("registers for %s exactly when granted", (_label, input, expected) => {
     expect(fleetToolAccess(input)).toBe(expected);
     expect(fleetToolsRegistered(fleetToolAccess(input))).toBe(expected === "granted");
+  });
+
+  it("isOutsideSenderKind covers webhook, mcp, and routine only", () => {
+    expect(isOutsideSenderKind("webhook")).toBe(true);
+    expect(isOutsideSenderKind("mcp")).toBe(true);
+    expect(isOutsideSenderKind("routine")).toBe(true);
+    expect(isOutsideSenderKind("user")).toBe(false);
+    expect(isOutsideSenderKind("agent")).toBe(false);
+    expect(isOutsideSenderKind(null)).toBe(false);
+    expect(isOutsideSenderKind(undefined)).toBe(false);
   });
 });
 
@@ -185,6 +200,31 @@ describe("parseFleetSpawnSpec", () => {
     expect(Object.keys(parseFleetSpawnSpec(spec))).not.toContain("model");
   });
 
+  const validRoutine = {
+    id: "abcdefghijklmnopqrstuv",
+    name: "Morning brief",
+    approvalEntries: { read: "allow", bash: "deny" } as const,
+    deniedBuiltins: ["bash"],
+    warnCostUsd: 2,
+    maxCostUsd: 5,
+  };
+
+  it("accepts routine requester kind and valid routine metadata (ADR-0100)", () => {
+    const req = { instanceId: "instance-a", label: "laptop", kind: "routine" as const, sourceTabId: null };
+    expect(parseFleetRequester(req)).toEqual(req);
+    expect(
+      isFleetProvenance({
+        dispatchId: "d-1",
+        batchId: null,
+        dispatchedAt: "2026-11-22T08:00:00.000Z",
+        requestedBy: req,
+      }),
+    ).toBe(true);
+    const raw = { ...spec, requestedBy: req, routine: validRoutine };
+    expect(parseFleetSpawnSpec(raw)).toEqual(raw);
+    expect(Object.keys(parseFleetSpawnSpec({ ...spec, requestedBy: req }))).not.toContain("routine");
+  });
+
   it.each([
     ["an unknown key", { ...spec, extra: 1 }],
     ["a blank prompt", { ...spec, prompt: " \n " }],
@@ -196,6 +236,19 @@ describe("parseFleetSpawnSpec", () => {
     ["a model with whitespace", { ...spec, model: "a/b c" }],
     ["an uppercase thinking level", { ...spec, thinkingLevel: "High" }],
     ["a non-string thinking level", { ...spec, thinkingLevel: 3 }],
+    ["routine metadata on a non-routine requester", { ...spec, routine: validRoutine }],
+    [
+      "routine metadata on a webhook requester",
+      { ...spec, requestedBy: { ...spec.requestedBy, kind: "webhook", sourceTabId: null }, routine: validRoutine },
+    ],
+    [
+      "malformed routine metadata on a routine requester",
+      {
+        ...spec,
+        requestedBy: { ...spec.requestedBy, kind: "routine", sourceTabId: null },
+        routine: { ...validRoutine, id: "too-short" },
+      },
+    ],
   ])("rejects %s", (_label, raw) => {
     expect(() => parseFleetSpawnSpec(raw)).toThrow(/spawn request\.fleet/);
   });
@@ -733,7 +786,7 @@ describe("fleet update request parsers", () => {
     expect(parseFleetUpdateMemberRequest(raw)).toEqual(raw);
     expect(() => parseFleetUpdateMemberRequest({ ...raw, extra: 1 })).toThrow("fleet update request contains unknown field extra");
     expect(() => parseFleetUpdateMemberRequest({ ...raw, requester: { ...requester, kind: "robot" } })).toThrow(
-      "fleet update request.requester.kind must be user, agent, webhook, or mcp",
+      "fleet update request.requester.kind must be user, agent, webhook, mcp, or routine",
     );
     expect(() => parseFleetUpdateMemberRequest({ target: "app", action: "check" })).toThrow("fleet update request.requester must be an object");
   });

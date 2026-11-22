@@ -40,7 +40,7 @@ export function createFleetSlice(set: SetState, get: GetState): FleetSlice {
     // closeLab, not a bare `lab: null`: it also stops the Lab's refresh timer.
     if (s.lab !== null) s.closeLab();
     if (s.fleet === null) {
-      set({ fleet: { machines: null, audit: null, updateAll: null, loading: false, error: null }, artifacts: null, stats: null, fleetTerminal: null });
+      set({ fleet: { machines: null, audit: null, updateAll: null, loading: false, error: null }, artifacts: null, stats: null, fleetTerminal: null, routinesOpen: false });
     } else if (s.fleetTerminal !== null) {
       set({ fleetTerminal: null });
     }
@@ -52,7 +52,7 @@ export function createFleetSlice(set: SetState, get: GetState): FleetSlice {
     bumpNavigationGeneration();
     const s = get();
     if (s.lab !== null) s.closeLab();
-    set({ fleetTerminal: terminalId, fleet: null, stats: null, artifacts: null });
+    set({ fleetTerminal: terminalId, fleet: null, stats: null, artifacts: null, routinesOpen: false });
   };
 
   const dispatchFleet: FleetSlice["dispatchFleet"] = async (req) => {

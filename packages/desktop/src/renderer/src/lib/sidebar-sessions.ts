@@ -56,6 +56,17 @@ function matches(entry: SidebarEntry, q: string): boolean {
 const EMPTY_TAB_IDS: ReadonlySet<string> = new Set();
 
 /**
+ * Whether a session is one of this app's own Routine runs (ADR-0100, #1255):
+ * attention-only, so it never files into a coding section or the footer live
+ * count — it surfaces solely as an Attention stack card. A joined instance's
+ * runs are ordinary sessions to this app (#1256): its marker is ignored, and
+ * an older host that publishes no `routine` reads as no run.
+ */
+export function isLocalRoutineRun(s: SessionSummary): boolean {
+  return s.routine != null;
+}
+
+/**
  * Whether a session belongs to Settled (issue #1137):
  * - A live session is never settled.
  * - Archived and missing transcripts cannot run in place and always file to Settled.
@@ -106,6 +117,7 @@ export function buildSidebarLists(
   const localHandoffs = resolveSessionHandoffs(local);
   for (const group of state.projects) {
     for (const session of group.sessions) {
+      if (isLocalRoutineRun(session)) continue;
       entries.push({
         session,
         instanceId: null,
@@ -118,6 +130,7 @@ export function buildSidebarLists(
     }
   }
   for (const session of state.chats) {
+    if (isLocalRoutineRun(session)) continue;
     entries.push({
       session,
       instanceId: null,
@@ -225,7 +238,8 @@ export interface AttentionEntry {
 /**
  * The attention stack (issue #1037): every flagged local session whose
  * derived state is still `ready` or `awaiting-answer` — a mark on a session
- * that went back to work (or died) waits for the next unseen reply. Entries
+ * that went back to work (or died) waits for the next unseen reply. A marked
+ * Routine run that has settled stays as `ready` until opened (ADR-0100). Entries
  * are built exactly like `buildSidebarLists`' local-instance branch.
  * Remote-instance rows are structurally excluded: no frames flow
  * cross-instance, so a remote row is never marked. The stack is unfiltered by
@@ -242,12 +256,29 @@ export function buildAttentionEntries(
   const out: AttentionEntry[] = [];
   const dispatch = resolveDispatchLinks(state);
   const visit = (session: SessionSummary, project: ProjectFace | null): void => {
-    const mark = unread[session.tabId];
+    // A Routine run parked on an Approval card needs a person whether or not
+    // this renderer saw the reply that raised it (a client that connected
+    // later holds no mark): it is attention-only, so this card is its one
+    // place in the sidebar (ADR-0100, #1255).
+    const waitingRun = isLocalRoutineRun(session) && session.live === "live" && session.awaitingHumanAnswer === true;
+    const mark =
+      unread[session.tabId] ?? (waitingRun ? { atMs: Number.isFinite(openOrderOf(session)) ? openOrderOf(session) : 0, snippet: null } : undefined);
     if (mark === undefined) return;
     // `derive` answers with the wide state union; a plain inequality guard
     // cannot narrow `string`, so map the two kept states explicitly.
     const derived = derive(session);
-    const kept = derived === "ready" ? "ready" : derived === "awaiting-answer" ? "awaiting-answer" : null;
+    // A finished Routine run holds its card until opened (#1255 clause 3):
+    // its 60 s self-Settle makes it dormant, and a run no tab ever mounted
+    // derives a bare idle "live" during the grace — either would otherwise
+    // drop the card and leave the unread reply nowhere to be seen.
+    const kept =
+      derived === "ready"
+        ? "ready"
+        : derived === "awaiting-answer"
+          ? "awaiting-answer"
+          : isLocalRoutineRun(session) && (session.live !== "live" || derived === "live")
+            ? "ready"
+            : null;
     if (kept === null) return;
     out.push({
       entry: {

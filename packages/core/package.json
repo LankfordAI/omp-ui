@@ -26,6 +26,7 @@
     "./limits": "./src/limits.ts",
     "./held-prompt": "./src/held-prompt.ts",
     "./scheduled-prompt": "./src/scheduled-prompt.ts",
+    "./routine": "./src/routine.ts",
     "./mcp-status": "./src/mcp-status.ts",
     "./capabilities": "./src/capabilities.ts",
     "./magic-keywords": "./src/magic-keywords.ts",

@@ -241,12 +241,15 @@ export class HibernationTracker implements FrameObserver {
     const sessions = this.deps.registry.sessions;
     const record = sessions.find((s) => s.tabId === tabId);
     if (!record) return false;
+    // Routine runs neither win nor steal a project's last-active warmth slot (#1253, ADR-0100).
+    if (record.routine !== null) return false;
     const recency = (s: OwnedSessionRecord): string => s.cachedModified ?? s.launchedAt;
     const mine = recency(record);
     const myIndex = sessions.indexOf(record);
     return !sessions.some(
       (other, i) =>
         i !== myIndex &&
+        other.routine === null &&
         other.chat === record.chat &&
         (record.chat || other.projectCwd === record.projectCwd) &&
         (recency(other) > mine || (recency(other) === mine && i < myIndex)),

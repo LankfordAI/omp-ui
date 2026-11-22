@@ -511,12 +511,12 @@ function guidance(access: FleetToolAccess): string {
         "needs dispatching and let the dispatching session (or the user) start it."
       );
     case "external-sender":
-      // ADR-0075 / ADR-0080: an outside sender's session, tools refused on
+      // ADR-0075 / ADR-0080 / ADR-0100: an outside sender's session, tools refused on
       // purpose; the honest route is a human-started session.
       return (
-        "This session was started by a webhook or an MCP client, so omp-ui " +
+        "This session was started by a webhook, an MCP client, or a routine, so omp-ui " +
         "deliberately withholds the fleet tools from it — no setting changes " +
-        "that (ADR-0075, ADR-0080). Work that needs its own agent session has " +
+        "that (ADR-0075, ADR-0080, ADR-0100). Work that needs its own agent session has " +
         "to be asked of the user in a session they start here."
       );
   }

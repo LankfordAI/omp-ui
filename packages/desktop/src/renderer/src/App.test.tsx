@@ -29,6 +29,7 @@ vi.mock("./components/DeleteSessionDialog", () => ({ DeleteSessionDialog: () => 
 vi.mock("./components/ProjectPicker", () => ({ ProjectPicker: () => null }));
 vi.mock("./components/CapabilitiesViewer", () => ({ CapabilitiesViewer: () => null }));
 vi.mock("./components/Settings", () => ({ Settings: () => null }));
+vi.mock("./components/routines/RoutinesView", () => ({ RoutinesView: () => <section data-routines-view-mock /> }));
 
 // Dynamic imports are the module-loading boundary under test: ./backend and
 // ./store capture window.ompBackend at evaluation, so the window stub above
@@ -163,6 +164,7 @@ const chatSummary = (): SessionSummary => ({
   settledAtMs: null,
   heldPrompt: null,
   scheduledPrompt: null,
+  routine: null,
   pullRequests: [],
   autoSettleOnMerge: null,
   private: false,
@@ -648,5 +650,27 @@ describe("model picker hotkey (issue #1157)", () => {
     pressModShiftM();
 
     expect(useStore.getState().modelPickerTab).toBeNull();
+  });
+});
+
+describe("Routines view gate (ADR-0100, issue #1261)", () => {
+  beforeEach(() => {
+    compact = false;
+  });
+
+  it("renders the Routines view only while the gate is on and closes it when the gate turns off", () => {
+    useStore.setState({ state: backendState({ routinesEnabled: true }), routinesOpen: true });
+    renderApp();
+    expect(document.body.querySelector("[data-routines-view-mock]")).not.toBeNull();
+    expect(document.body.querySelector('[data-tab-id="rpc"]')!.getAttribute("style")).toContain("display: none");
+    act(() => useStore.setState({ state: backendState({ routinesEnabled: false }) }));
+    expect(document.body.querySelector("[data-routines-view-mock]")).toBeNull();
+    expect(useStore.getState().routinesOpen).toBe(false);
+  });
+
+  it("refuses to open the view while the gate is off", () => {
+    useStore.setState({ state: backendState({ routinesEnabled: false }), routinesOpen: false });
+    useStore.getState().openRoutines();
+    expect(useStore.getState().routinesOpen).toBe(false);
   });
 });

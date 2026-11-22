@@ -94,6 +94,7 @@ function todayRecord(projectCwd: string): OwnedSessionRecord {
     settledAtMs: null,
     heldPrompt: null,
     scheduledPrompt: null,
+    routine: null,
     pullRequests: [],
     autoSettleOnMerge: null,
     private: false,

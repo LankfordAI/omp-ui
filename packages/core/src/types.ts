@@ -17,6 +17,7 @@ import type { FleetModelChoice, FleetPendingDispatch, FleetProvenance, FleetSpaw
 import type { APPROVAL_MODES } from "./approval";
 import type { HeldPrompt } from "./held-prompt";
 import type { ScheduledPrompt } from "./scheduled-prompt";
+import type { SessionRoutine } from "./routine";
 import type { ProjectRequestPrompt } from "./project-request";
 export type {
   CheckoutExperiments,
@@ -575,6 +576,10 @@ export interface OwnedSessionRecord {
    *  recurring schedule (issue #987, ADR-0081); null when none. Post-dates
    *  schema-1: absent or malformed normalizes to null. */
   scheduledPrompt: ScheduledPrompt | null;
+  /** Routine provenance pinned for the session's lifetime (ADR-0100, #1263);
+   *  null for ordinary coding sessions. Post-dates schema-1: absent or
+   *  malformed normalizes to null. */
+  routine: SessionRoutine | null;
   /** Pull requests whose head is this session's worktree branch, newest
    *  first, as the owning host's poll last saw them on the forge (issue
    *  #985). Post-dates schema-1: absent or malformed normalizes to []. */
@@ -1967,6 +1972,7 @@ export interface DiagnosticsSection {
     | "window-state"
     | "browser-pane"
     | "knowledge-vault"
+    | "routines"
     | "transcripts";
   /** Stable zip prefix this section writes under, e.g. "logs/". */
   prefix: string;
@@ -2015,6 +2021,21 @@ export interface KnowledgeVaultDiagnostics {
   uriHandler: boolean;
   /** Per live tab, per vault action, calls answered since spawn. F1 always sends {}; F2 fills it. */
   calls: Record<string, Partial<Record<VaultAction, number>>>;
+}
+
+/**
+ * Routines counts for the diagnostics bundle (ADR-0100 §14): settings flags and
+ * counts only — never routine names, instructions, tool keys, or run rows.
+ */
+export interface RoutinesDiagnostics {
+  enabled: boolean;
+  warnCostUsd: number;
+  maxCostUsd: number;
+  routineCount: number;
+  enabledCount: number;
+  activeRunTabId: string | null;
+  waitingApprovalCount: number;
+  recentOutcomeCounts: Record<"running" | "waiting-approval" | "on-time" | "late" | "skipped" | "failed", number>;
 }
 
 /** What an export would contain, computed without reading file bodies. */

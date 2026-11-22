@@ -26,12 +26,28 @@ interface Harness {
  * correlated response must clear it synchronously, leaving exactly one
  * pending handle — the re-armed idle window.
  */
-function harness(): Harness {
+interface SessionStub {
+  tabId: string;
+  projectCwd: string;
+  launchedAt: string;
+  cachedModified: string | null;
+  chat?: boolean;
+  routine?: { id: string; name: string } | null;
+}
+
+function harness(opts: {
+  sessions?: SessionStub[];
+  liveTabs?: string[];
+  hibernateImpl?: (tabId: string, entry: LiveEntry) => Promise<boolean>;
+} = {}): Harness {
   const rpcSend = vi.fn<(cmd: Record<string, unknown>) => void>();
   // A parked verdict must never reach the reap; calling it fails the test.
-  const hibernate = vi.fn<(tabId: string, entry: LiveEntry) => Promise<boolean>>(async () => {
-    throw new Error("hibernate must not be called on a parked verdict");
-  });
+  const hibernate = vi.fn<(tabId: string, entry: LiveEntry) => Promise<boolean>>(
+    opts.hibernateImpl ??
+      (async () => {
+        throw new Error("hibernate must not be called on a parked verdict");
+      }),
+  );
   const turns = new TurnTracker();
   const attention = {
     turnStarted: vi.fn<(tabId: string) => void>(),
@@ -47,11 +63,9 @@ function harness(): Harness {
     kind: "rpc-ui",
     rpc: { send: rpcSend },
   } as unknown as LiveEntry;
-  const registry = {
-    getSetting: (key: string): number => (key === "hibernateIdleMinutes" ? 30 : 0),
-    // TAB is not its project's last active session (issue #304): the sibling
-    // carries a newer cachedModified than TAB's `launchedAt` fallback.
-    sessions: [
+  const liveSet = new Set(opts.liveTabs ?? [TAB]);
+  const sessions = (
+    opts.sessions ?? [
       {
         tabId: "tab-newer",
         projectCwd: "/proj",
@@ -64,14 +78,18 @@ function harness(): Harness {
         launchedAt: "2026-07-29T10:00:00.000Z",
         cachedModified: null,
       },
-    ],
+    ]
+  ).map((s) => ({ chat: false, routine: null, ...s }));
+  const registry = {
+    getSetting: (key: string): number => (key === "hibernateIdleMinutes" ? 30 : 0),
+    sessions,
   } as unknown as Registry;
   const deps: HibernationTrackerDeps = {
     registry,
     send: () => {},
     broadcast: async () => {},
     turns,
-    getLive: (tabId) => (tabId === TAB ? entry : undefined),
+    getLive: (tabId) => (liveSet.has(tabId) ? entry : undefined),
     awaitingHumanAnswer: () => false,
     isViewed: () => false,
     preventsHibernation: () => false,
@@ -199,6 +217,59 @@ describe("HibernationTracker loop pauses (issue #1192)", () => {
       await vi.advanceTimersByTimeAsync(WINDOW * 2);
       expect(turns.isRunning(TAB)).toBe(true);
       expect(hibernate).not.toHaveBeenCalled();
+    } finally {
+      vi.useRealTimers();
+    }
+  });
+});
+
+describe("HibernationTracker routine warmth exclusion (U10, #1253, ADR-0100)", () => {
+  const ROUTINE = { id: "abcdefghijklmnopqrstuv", name: "Morning brief" };
+
+  it("a fresher routine run neither wins the last-active warmth slot nor steals it from a coding session", async () => {
+    vi.useFakeTimers({ toFake: ["setTimeout", "clearTimeout", "Date"] });
+    try {
+      const { tracker, rpcSend, hibernate } = harness({
+        liveTabs: ["coding-tab", "routine-tab"],
+        hibernateImpl: async () => true,
+        sessions: [
+          {
+            tabId: "coding-tab",
+            projectCwd: "/proj",
+            launchedAt: "2026-11-22T08:00:00.000Z",
+            cachedModified: "2026-11-22T08:05:00.000Z",
+            routine: null,
+          },
+          {
+            tabId: "routine-tab",
+            projectCwd: "/proj",
+            launchedAt: "2026-11-22T09:00:00.000Z",
+            cachedModified: "2026-11-22T09:05:00.000Z",
+            routine: ROUTINE,
+          },
+        ],
+      });
+
+      tracker.onFrame("coding-tab", { type: "agent_end" } as RpcFrame);
+      tracker.onFrame("routine-tab", { type: "agent_end" } as RpcFrame);
+
+      // Idle window elapses: only the routine tab is probed/reaped; the coding
+      // session retains its last-active warmth exemption despite the newer routine run.
+      await vi.advanceTimersByTimeAsync(WINDOW);
+      expect(rpcSend).toHaveBeenCalledTimes(1);
+      const probeId = lastProbeId(rpcSend);
+
+      tracker.onFrame("routine-tab", {
+        type: "response",
+        id: probeId,
+        command: "get_state",
+        success: true,
+        data: { queuedMessageCount: 0, isStreaming: false, hasPendingAsyncWork: false },
+      } as RpcFrame);
+      await vi.advanceTimersByTimeAsync(0);
+
+      expect(hibernate).toHaveBeenCalledTimes(1);
+      expect(hibernate).toHaveBeenCalledWith("routine-tab", expect.anything());
     } finally {
       vi.useRealTimers();
     }

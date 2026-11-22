@@ -3,7 +3,7 @@ import type { ApprovalDetailLine, ApprovalPrompt } from "@omp-ui/core/approval";
 import { classifyApprovalDetails } from "@omp-ui/core/approval";
 import { useT } from "../lib/i18n";
 import { useAndroidBack } from "../lib/android-back";
-import { useStore } from "../store";
+import { findRecord, useStore } from "../store";
 import { Button, Chip, Label, Switch } from "./ui";
 
 /**
@@ -59,6 +59,10 @@ export function ApprovalCard({ tabId }: { tabId: string }) {
   const t = useT();
   const held = useStore((s) => s.rpc[tabId]?.approvalPrompt ?? null);
   const answerApprovalPrompt = useStore((s) => s.answerApprovalPrompt);
+  // A Routine run's card answers once only (ADR-0100, #1252): granting a
+  // session-wide approval would widen its compiled tool policy for the rest
+  // of an unattended run, so the session option never renders there.
+  const isRoutine = useStore((s) => findRecord(s.state, tabId)?.routine != null);
   const prompt: ApprovalPrompt | null = held?.prompt ?? null;
   // The switch belongs to one held frame: a new approval starts un-remembered
   // without an effect, because the held frame object is stable per hold.
@@ -103,7 +107,7 @@ export function ApprovalCard({ tabId }: { tabId: string }) {
   const hasGrants = prompt.grants.length > 0;
   // Frame text deliberately not i18n'd: it names omp's grant subject and
   // must match what the harness composed.
-  const sessionLabel = prompt.sessionLabel;
+  const sessionLabel = isRoutine ? null : prompt.sessionLabel;
   const restrictedFolder = prompt.restrictedFolder;
   return (
     <div

@@ -424,6 +424,7 @@ const mockBackend = {
   removeWebhook: vi.fn(async () => {}),
   clearWebhookDeliveries: vi.fn(async () => {}),
   onWebhooksState: vi.fn(),
+  onRoutinesState: vi.fn(),
   getMcpEndpointState: vi.fn(async () => ({ enabled: false, clients: [], calls: [] })),
   setMcpEndpointEnabled: vi.fn(async () => {}),
   createMcpClient: vi.fn(async (): Promise<McpTokenReveal> => {
@@ -679,6 +680,7 @@ function stateWithRecord(
             settledAtMs: live === "live" ? null : 1_000,
             heldPrompt: null,
             scheduledPrompt: null,
+            routine: null,
             pullRequests: [],
             autoSettleOnMerge: null,
             private: false,

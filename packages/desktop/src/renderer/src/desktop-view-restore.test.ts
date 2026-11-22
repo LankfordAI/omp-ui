@@ -151,6 +151,7 @@ const mockBackend = {
   onRemoteState: vi.fn(),
   getWebhooksState: vi.fn(async () => ({ enabled: false, credentialStore: false, webhooks: [], deliveries: [] })),
   onWebhooksState: vi.fn(),
+  onRoutinesState: vi.fn(),
   getMcpEndpointState: vi.fn(async () => ({ enabled: false, clients: [], calls: [] })),
   onMcpEndpointState: vi.fn(),
   getProviderOAuthState: vi.fn(async () => ({
@@ -209,6 +210,7 @@ const session = (
  settledAtMs: 1_000,
  heldPrompt: null,
  scheduledPrompt: null,
+ routine: null,
  pullRequests: [],
  autoSettleOnMerge: null,
  private: false,

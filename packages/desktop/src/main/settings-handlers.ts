@@ -24,6 +24,7 @@ import {
   type TranscriptWidth,
   type UpdateTrain,
   type VaultNoteVoice,
+  type RoutineSpendDefaultsInput,
 } from "@omp-ui/core";
 import {
   commitStoredTheme,
@@ -34,6 +35,7 @@ import {
   type StoredThemeDeps,
 } from "./stored-themes";
 import type { ThemeRepositoryService } from "./theme-repositories";
+import { ROUTINES_DISABLED_ERROR } from "./routine-scheduler";
 
 type SettingsHandlerChannels =
   | typeof CH.setDefaultMode
@@ -59,6 +61,8 @@ type SettingsHandlerChannels =
   | typeof CH.setGettingStartedSeen
   | typeof CH.setExperimentsEnabled
   | typeof CH.setAutoresearchEnabled
+  | typeof CH.setRoutinesEnabled
+  | typeof CH.setRoutineSpendDefaults
   | typeof CH.setCouncilEnabled
   | typeof CH.setSnoozedSectionEnabled
   | typeof CH.setAutoSettleMergedPullRequests
@@ -110,6 +114,10 @@ interface SettingsHandlerDependencies {
   onTelemetryChanged: () => void;
   /** Revoke synchronously; roster reconciliation must not delay authoritative state. */
   onArtifactLibraryChanged?: (enabled: boolean) => void;
+  /** Routines gate moved (ADR-0100): park or resume timers and the clock; never reaps. */
+  onRoutinesEnabledChanged?: (enabled: boolean) => void;
+  /** Default routine spend caps moved: republish `routines:state`. */
+  onRoutineSpendDefaultsChanged?: () => void;
   /** Council graduation (amends #1055): seed the global roster from favorites. */
   seedCouncilRoster: () => Promise<void>;
   /** The one stored-theme save path (issue #1168); the host tool reuses the same object. */
@@ -173,6 +181,19 @@ export function registerSettingsHandlers(
     [CH.setGettingStartedSeen]: (value: boolean) => commit("gettingStartedSeen", value),
     [CH.setExperimentsEnabled]: (value: boolean) => commit("experimentsEnabled", value),
     [CH.setAutoresearchEnabled]: (value: boolean) => commit("autoresearchEnabled", value),
+    [CH.setRoutinesEnabled]: async (value: boolean) => {
+      deps.registry.setSetting("routinesEnabled", value);
+      try { deps.onRoutinesEnabledChanged?.(value); }
+      finally { await deps.broadcast(); }
+    },
+    // Edited only while the gate is on (ADR-0100 §9); the codec bounds both caps.
+    [CH.setRoutineSpendDefaults]: async (value: RoutineSpendDefaultsInput) => {
+      if (!deps.registry.getSetting("routinesEnabled")) throw new Error(ROUTINES_DISABLED_ERROR);
+      deps.registry.setSetting("routineWarnCostUsd", value.warnUsd);
+      deps.registry.setSetting("routineMaxCostUsd", value.maxUsd);
+      deps.onRoutineSpendDefaultsChanged?.();
+      await deps.broadcast();
+    },
     // Seed before committing so the editor rendered after the flip shows the
     // roster (#1055 ordering preserved).
     [CH.setCouncilEnabled]: async (value: boolean) => {

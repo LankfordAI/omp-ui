@@ -118,6 +118,7 @@ export function broadcastSettings(registry: Registry): BroadcastSettings {
     ...broadcast,
     fleetGrants: redactFleetGrants(broadcast.fleetGrants),
     artifactLibraryEnabled: false,
+    routinesEnabled: false,
   };
 }
 

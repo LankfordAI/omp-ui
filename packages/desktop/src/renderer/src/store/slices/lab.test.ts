@@ -389,6 +389,7 @@ describe("Lab view", () => {
       fleet: null,
       fleetTerminal: null,
       artifacts: null,
+      routinesOpen: false,
     });
   });
 

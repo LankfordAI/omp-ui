@@ -29,6 +29,9 @@ interface RegistrySettings {
   skipTerminateConfirmation: boolean;
   experimentsEnabled: boolean;
   autoresearchEnabled: boolean;
+  routinesEnabled: boolean;
+  routineWarnCostUsd: number;
+  routineMaxCostUsd: number;
   councilEnabled: boolean;
   experimentsFlagSplitSeeded: boolean;
   councilDefaultOnSeeded: boolean;
@@ -130,6 +133,7 @@ export function ownedSessionRecord(
     settledAtMs: null,
     heldPrompt: null,
     scheduledPrompt: null,
+    routine: null,
     pullRequests: [],
     autoSettleOnMerge: null,
     private: false,
@@ -163,6 +167,9 @@ export function seedRegistry(file: string, patch: RegistrySeedPatch = {}): void 
     skipTerminateConfirmation: false,
     experimentsEnabled: false,
     autoresearchEnabled: false,
+    routinesEnabled: false,
+    routineWarnCostUsd: 2,
+    routineMaxCostUsd: 5,
     councilEnabled: false,
     // Default true so seeds exercise post-migration registries; tests
     // wanting the pre-split shape set it false via the patch.

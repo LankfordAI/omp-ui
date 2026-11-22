@@ -8,6 +8,7 @@ Add one bullet per shipped change here, citing its issue as `#N`; the release ta
 
 - The Share panel offers the official theme tag `animated`, for themes whose backdrop moves (#1212).
 - The nightly update train now follows newer stable releases automatically alongside the rolling `nightly` prerelease (#1245).
+- Experimental host-local Routines start fresh background sessions on a schedule with a compiled per-tool policy, coding-first limits, and attention-only sidebar visibility (#1244).
 
 ## Choose a download
 

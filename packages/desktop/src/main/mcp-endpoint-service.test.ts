@@ -5,6 +5,7 @@ import { afterEach, describe, expect, it } from "vitest";
 import {
   LOCAL_MACHINE_KEY,
   MCP_GLOBAL_PER_HOUR,
+  MCP_TOOLS,
   McpCallLog,
   McpClientStore,
   type FleetDispatchRequest,
@@ -300,5 +301,11 @@ describe("McpEndpointService", () => {
     expect(finished).toMatchObject({ isError: false });
     expect(finished.text).toContain("finished session tab-a: its work is in main");
     expect(calls).toEqual([`stop ${mine.client.id} d-a`, `settle ${mine.client.id} d-a`, `finish ${mine.client.id} d-a main`]);
+  });
+});
+
+describe("MCP endpoint routine authority (ADR-0100, U13)", () => {
+  it("lists no routine read or write verb, so no MCP client can author or run a routine", () => {
+    expect(MCP_TOOLS.filter((t) => /routine/i.test(`${t.name} ${t.description}`))).toEqual([]);
   });
 });

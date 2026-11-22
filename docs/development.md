@@ -114,6 +114,12 @@ npm run smoke:plan-verifier --workspace @omp-ui/desktop
 # recorded, not gating); --slow adds the 60 s watchdog row (S9).
 npm run smoke:knowledge-vault --workspace @omp-ui/desktop
 
+# Headless Electron smoke of Routines (S1-S9, #1260): boots dev:headless --pane
+# against a throwaway HOME/registry, a scripted loopback model, and a stdio MCP
+# probe; writes out/routines-smoke/summary.json. Linux only; needs omp. See
+# "Routines acceptance" under Verification runs.
+npm run smoke:routines --workspace @omp-ui/desktop
+
 # Regenerate committed theme CSS from theme-sources.json.
 npm run themes:generate --workspace @omp-ui/desktop
 
@@ -653,6 +659,60 @@ are removed. Insert generated multiline refresh drafts as one input edit; typing
 unmodified newline keys into the composer can submit separate turns instead.
 Record the actual selected CDP port from the launcher/port file, since a preferred
 port can fall back. Label hermetic model-provider fixtures explicitly in evidence.
+
+#### Routines acceptance (#1260)
+
+Routines (ADR-0100) ships with four verification tiers (spec §17, matrix
+#1257): Tier U is `npm test`, Tier L is
+`npm run test:live --workspace @omp-ui/desktop -- src/main/routines-live.test.ts`,
+Tier S is the headless smoke below, and Tier M is the manual platform
+checklist after it.
+
+```bash
+npm run smoke:routines --workspace @omp-ui/desktop
+```
+
+`scripts/routines-smoke.mjs` boots the real app through
+`dev-headless.mjs --pane` (Electron main, preload, renderer, and the served web
+bundle) against a throwaway `HOME`, `XDG_CONFIG_HOME`, `XDG_DATA_HOME`, and
+`OMP_UI_REGISTRY_PATH`, with `OMP_UI_TEST_MODEL="probe/scripted"`. That
+selector names a scripted loopback OpenAI-compatible provider written into
+the throwaway `~/.omp/agent/models.yml`: no API key and no paid model. The
+destination project mounts a throwaway stdio MCP server (`probe_routines`
+exposing `probe_read` and `probe_write`) that logs every server-side call to
+`mcp-calls.jsonl`. Routine A runs `* * * * *` and allows `probe_read`; routine B
+only replies. The driver clicks and types through the real UI over CDP and
+uses DOM gates. Backend reads (`getState`, `getRoutinesState`) serve only as
+evidence. S7 opens the served web client (`dev-pane-url.txt`) in a second
+headless Electron at 1440×900 and 420×880.
+
+It needs a real omp binary (`OMP_UI_OMP_PATH`, the app-managed copy, or
+`PATH`) and Linux. A run takes about ten minutes: S3 to S5 wait on real minute
+boundaries and the 60 s self-Settle grace. It writes
+`packages/desktop/out/routines-smoke/summary.json`, which holds every S-row
+check with its detail, and one PNG per row. It exits 0 only when S1 to S9 all
+pass. `--keep` leaves the scratch directory (registry, `routines.json`,
+`routine-runs.json`, app and omp logs) for inspection. Extra arguments pass
+through to Chromium.
+
+##### Tier M: platform checklist (M1–M7)
+
+Manual, on the user's macOS x64/arm64, Windows x64, Android phone, mixed-OS
+joined desktops, and work laptop. Rows are verbatim from the spec. Record each
+result, with platform, date, and evidence, in the Result column. A platform
+that is skipped needs explicit user sign-off recorded in ADR-0100 Findings.
+When a platform diverges, apply the row's prescribed fallback. Start M7 with
+schedules disabled, then Dry run, then a read-only Run now.
+
+| # | Row | Platforms | Pass | Prescribed fallback | Result |
+| --- | --- | --- | --- | --- | --- |
+| M1 | Timers across OS sleep & wake (≥ 5 min sleep) | macOS x64/arm64, Windows x64 | Within ≤ 60 s of wake, fires once with Late notice & folded missed count ≥ 3 (never a burst). | Subscribe desktop main to Electron `powerMonitor.on("resume", () => routines.sync())` alongside ScheduledPromptRunner. | **Windows x64: pass** (2026-11-22, Windows 11 Pro 26200, `feat/routines` `95f47f1`, Electron 43.8.12). An every-minute routine was live through an S3 sleep of 15:23:57Z–15:29:29Z (Kernel-Power 42 / Power-Troubleshooter 1). Late fire at 15:29:27.578Z (due 15:24:00), late notice `missed: 5`, then on-time fires from 15:30:00; one fire, no burst, so the fallback is not needed. macOS: not run. |
+| M2 | Time zone & DST transitions (America/New_York spring-forward 02:30 & fall-back 01:30; host zone change) | macOS x64/arm64, Windows x64 | Next-fire matches Linux/ICU byte-for-byte; existing routine keeps stored IANA zone; new routine captures new OS zone. | Normalize `hour % 24` in `wallAt` (`scheduled-prompt.ts:185-189`) and add U3 regression row. | **Windows x64: pass** (2026-11-22). Ten `nextRunAfter`/`countRunsBetween` cases (New York 02:30 spring-forward and 01:30 fall-back, hourly and `*/30` across both, London, Lord Howe, Kolkata, Feb 29) give identical results on Linux (Electron 43.2.0, Node 22.22.2, ICU 78.2, tzdata 2025c) and Windows (Electron 43.8.12, Node 22.23.2, ICU 78.2, tzdata 2026e/2026a). Case-set SHA-256 is `7d5027d9…` on all four runtimes. After switching Windows to Pacific and restarting, the existing routine kept `America/New_York` and a routine created in the UI captured `America/Los_Angeles` (next 02:30 local = 10:30Z). Zone restored to Eastern. macOS: not run. |
+| M3 | Fire missed while app closed (> 120 s) + interrupted run at quit | macOS x64/arm64, Windows x64 | Boot catch-up fires once with Late notice & folded count ≥ 2; mid-turn quit lands dormant interrupted with Failed history row, never re-sent. | Confirm `advance()` atomic-writes `routines.json` synchronously before `FleetDispatcher.dispatch` starts. | **Windows x64: pass** (2026-11-22). The app was closed from 15:14:06Z to 15:17:30Z. On boot, one late fire (due 15:15:00), late notice `missed: 2`, and the next fire on time at 15:18. A run quit mid-turn, and a run quit while parked on an Approval card, each came back as `failed` / `interrupted` after reboot. The scripted provider saw no further request for either run, and `probe_write` never ran. A session with no transcript yet (quit before omp's first write) reads as missing rather than dormant. macOS: not run. |
+| M4 | Store file modes & permissions (`routines.json`, `routine-runs.json`) | macOS x64/arm64, Windows x64 | macOS `stat -f '%Lp'` = 600 after create & rewrite; Windows `icacls` grants only `%USERNAME%`, SYSTEM, Administrators. | Explicit `fs.chmodSync(temporaryPath, 0o600)` inside `writeTextAtomic` when mode is passed; document NTFS ACL reliance on Windows. | **Windows x64: pass** (2026-11-22). After create, rename and a run, `icacls` on `routines.json` and `routine-runs.json` (and `registry.json`) lists only `NT AUTHORITY\SYSTEM:(I)(F)`, `BUILTIN\Administrators:(I)(F)` and `Windows11\austin:(I)(F)`. All three are inherited from the profile; the default `%APPDATA%\@omp-ui\desktop` has the same ACL. Node's `mode` reads `666` on Windows and means nothing there, so NTFS inheritance is what protects these files. Linux (smoke S2) reads `600`. macOS: not run. |
+| M5 | Cross-instance join & remote card answering | Mixed OS | Joined desktop B shows no Routines view for A, proxy refuses `routines:*` with unknown channel, A's run appears in merged state, answering Deny on B routes via `rpc:send` to A, cancels A's 24 h timer, resumes cleanly with no per-client attribution row. | Fix `REMOTE_PROXY_CHANNELS` / `TAB_ROUTED_NOTIFIES` membership (covered by U13). | **Linux A ↔ Windows B: pass** (2026-11-22, LAN join by token). B showed no Routines button or view. `remoteInstanceRequest` refused `routines:getState`, `create`, `runNow`, `dryRun`, `toolCatalog` and `settings:setRoutinesEnabled` with `channel … is not proxied`. A's parked run appeared in B's merged state as a sidebar row ("answer needed"); per #1256 it is an ordinary session there, not an Attention card. Opening it on B showed `mcp__probe_routines_probe_write` with `Deny` / `Allow` only. Deny on B resumed A's run, which finished `on-time`; `probe_write` was never called. Afterwards A's diagnostics read `waitingApprovalCount: 0` and the run row has no client field. |
+| M6 | Android client parity & no-push contract | Android APK | Full CRUD + Dry run + Run now + once-only Approval card at 0 px overflow; no notification permission (INTERNET only); unopened card waits until opened or host 24 h auto-Deny. | Responsive CSS defect in Routines pane (< 900 px drill-down). | **Android 15 emulator: pass** (2026-11-22, API 35 x86_64, WebView 124.0.6367.219, debug APK built from `feat/routines`). Create, rename, Dry run (0 sessions), Run now and delete all worked from the phone. Overflow was 0 px on list, editor and Dry run at 412×839, 863×360 and 920×558. Approval card showed `Deny` / `Allow` only; Deny from the phone left `probe_write` uncalled. The card stayed waiting for 237 s while unopened. The 24 h auto-Deny is covered by U9, not observed. The APK requests only `INTERNET` (plus the self-declared signature permission AndroidX adds), and no notification was posted. A physical phone was not tested. |
+| M7 | Post-ship real-connector smoke (work laptop Gmail + Jira, schedule disabled first) | User's work laptop | Dry run lists exact `mcp__<server>_<tool>` names (reads allow, writes prompt/deny); Run now reads and drafts locally with 0 outside writes; any attempted write is intercepted by Approval card and stopped by Deny. | Inspect catalog enumeration vs omp's 64-char hash-truncated MCP tool name before enabling schedule. | Not run |
 
 #### Device pane acceptance (#1009)
 

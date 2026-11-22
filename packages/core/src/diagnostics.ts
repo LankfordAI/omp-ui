@@ -30,6 +30,7 @@ import type {
   DiagnosticsPreview,
   DiagnosticsSection,
   KnowledgeVaultDiagnostics,
+  RoutinesDiagnostics,
   OwnedSessionRecord,
   ProjectRecord,
 } from "./types";
@@ -86,6 +87,8 @@ export interface DiagnosticsOptions {
   devicePanes?: readonly DevicePaneDiagnostics[];
   /** Vault registry and detection (#764); null omits the section. */
   knowledgeVault: KnowledgeVaultDiagnostics | null;
+  /** Routines counts and flags only (ADR-0100 §14); null omits the section. */
+  routines: RoutinesDiagnostics | null;
   gitRunner?: GitRunner;
   transcriptCapBytes?: number;
   /** Stamp + dos-timestamped zip entries. */
@@ -448,6 +451,15 @@ async function buildSections(
     included: o.knowledgeVault !== null && o.knowledgeVault.vaults.length > 0,
     files: o.knowledgeVault === null ? [] : [bytesFile("knowledge-vault.json", o.knowledgeVault)],
   });
+  // Counts only; routines.json and routine-runs.json are never opened here.
+  const routines = o.routines;
+  const routinesIncluded = routines !== null && (routines.enabled || routines.routineCount > 0);
+  sections.push({
+    id: "routines",
+    prefix: "routines/",
+    included: routinesIncluded,
+    files: routinesIncluded ? [bytesFile("routines.json", routines)] : [],
+  });
 
   const transcriptFiles: PlannedFile[] = [];
   if (o.includeTranscripts) {
@@ -518,6 +530,7 @@ function manifestBytes(
       "remote-instances.json (joined-instance credentials) is never read",
       "webhooks.json (webhook secrets) and webhook-deliveries.json are never read",
       "mcp-clients.json (MCP client token hashes) and mcp-calls.json are never read",
+      "routines.json (routine instructions and policies) and routine-runs.json are never read",
       "remoteToken/remotePasswordHash/remotePasswordSalt replaced by hasRemoteToken/hasRemotePassword booleans",
       "<userData>/oauth-login/ is never walked",
       "plan bodies, transcripts (unless opted in), and project file contents are excluded",

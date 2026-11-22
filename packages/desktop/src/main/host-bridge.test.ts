@@ -3,7 +3,7 @@ import * as os from "node:os";
 import * as path from "node:path";
 import { createHash, randomUUID } from "node:crypto";
 import { describe, expect, it, vi, afterEach } from "vitest";
-import { FLEET_TOOLS, LOCAL_MACHINE_KEY, PLAN_REVIEW_SENTINEL, PLAN_STATUS_KEY, parseVaultDetails, type FleetDispatchRequest, type FleetDispatchResult, type FleetMachine, type FleetProjectManageOutcome, type FleetRung, type ObsidianListEntry, type OwnedSessionRecord, type RpcFrame, type SessionsResourceDeps, type ThemeList, type ThemeSource, type VaultRegistry, type VaultToolDetails } from "@omp-ui/core";
+import { FLEET_TOOLS, LOCAL_MACHINE_KEY, PLAN_REVIEW_SENTINEL, PLAN_STATUS_KEY, hostToolsDefinition, parseVaultDetails, type FleetDispatchRequest, type FleetDispatchResult, type FleetMachine, type FleetProjectManageOutcome, type FleetRung, type ObsidianListEntry, type OwnedSessionRecord, type RpcFrame, type SessionsResourceDeps, type ThemeList, type ThemeSource, type VaultRegistry, type VaultToolDetails } from "@omp-ui/core";
 import { HostBridge, HOST_ANSWER_WATCHDOG_MS, type FleetBridgeDeps, type HostBridgeDeps, type HostCallControl, type VaultBridgeDeps, type VaultTabContext } from "./host-bridge";
 import type { ConfinedPlanRead } from "./plan-file";
 import { ArtifactService } from "./artifact-service";
@@ -870,6 +870,7 @@ describe("HostBridge omp-ui://sessions", () => {
       settledAtMs: null,
       heldPrompt: null,
       scheduledPrompt: null,
+      routine: null,
       pullRequests: [],
       autoSettleOnMerge: null,
       private: false,
@@ -2332,5 +2333,17 @@ describe("HostBridge vault quota, diagnostics, and cancellation", () => {
     registry.vaults[0].allowWritesOutsideHome = false;
     const denied = await f.call("edit", { path: SOURCE, content: "must be denied", baseHash: resultHash(read) });
     expect(resultText(denied)).toContain("omp-ui writes only inside Missing/Nested/ in vault A;");
+  });
+});
+
+describe("HostBridge routine authority (ADR-0100, U13)", () => {
+  it("registers no routine host tool under any option set and refuses one by name", async () => {
+    const all = hostToolsDefinition({ vault: true, fleet: true, device: true, theme: true, issues: true, artifacts: true });
+    expect(all.filter((tool) => /routine/i.test(`${tool.name} ${tool.description}`))).toEqual([]);
+    const f = fixture();
+    f.bridge.route("t1", toolCallFrame("h1", "omp-ui_routines_create", { name: "x" }), f.send);
+    await settled();
+    expect(f.sent).toHaveLength(1);
+    expect(f.sent[0]).toMatchObject({ type: "host_tool_result", id: "h1", isError: true });
   });
 });

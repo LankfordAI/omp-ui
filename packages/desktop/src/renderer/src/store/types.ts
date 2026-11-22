@@ -85,6 +85,7 @@ import type { DraftSessionReference } from "../lib/session-references";
 import type { ArtifactReference, ArtifactRefreshEntry, DraftArtifactReference } from "@omp-ui/core/artifacts";
 import type { ArtifactReferencesSlice } from "./slices/artifact-references";
 import type { ArtifactsSlice } from "./slices/artifacts";
+import type { RoutinesSlice } from "./slices/routines";
 import type { DocumentRef } from "../lib/document-context";
 import type {
   BrowserPaneFrameHeader,
@@ -797,6 +798,10 @@ export interface SettingsSlice {
   setExperimentsEnabled(on: boolean): Promise<void>;
   /** Autoresearch RPC bridge gate (issue #1052); default off. */
   setAutoresearchEnabled(on: boolean): Promise<void>;
+  /** Routines gate (ADR-0100); default off. Host-local, never proxied. */
+  setRoutinesEnabled(on: boolean): Promise<void>;
+  /** Host-wide default per-run routine spend caps in USD (0 = uncapped). */
+  setRoutineSpendDefaults(warnUsd: number, maxUsd: number): Promise<void>;
   /** Council subsystem gate (issue #1052); default on; enabling seeds an
    * authored-empty global roster from favorites (main owns the seed). */
   setCouncilEnabled(on: boolean): Promise<void>;
@@ -1175,7 +1180,7 @@ export interface PromptAttachments {
   refreshes?: ArtifactRefreshEntry[];
 }
 
-export interface UiStore extends SettingsSlice, UpdatesSlice, LabSlice, StatsSlice, FleetSlice, UnreadSlice, ArtifactReferencesSlice, ArtifactsSlice {
+export interface UiStore extends SettingsSlice, UpdatesSlice, LabSlice, StatsSlice, FleetSlice, UnreadSlice, ArtifactReferencesSlice, ArtifactsSlice, RoutinesSlice {
   /** Resolves a saved session and adds its reference chip to the target composer. */
   referenceSession(targetTabId: string, sourceTabId: string): Promise<void>;
   state: BackendState | null;

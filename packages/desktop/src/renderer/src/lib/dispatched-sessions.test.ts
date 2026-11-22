@@ -33,6 +33,7 @@ function session(tabId: string, patch: Partial<SessionSummary> = {}): SessionSum
     settledAtMs: null,
     heldPrompt: null,
     scheduledPrompt: null,
+    routine: null,
     pullRequests: [],
     autoSettleOnMerge: null,
     private: false,

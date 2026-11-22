@@ -20,6 +20,7 @@ import type {
   KnowledgeVaultDiagnostics,
   OwnedSessionRecord,
   ProjectRecord,
+  RoutinesDiagnostics,
 } from "./types";
 
 const inflateRawP = promisify(inflateRaw);
@@ -93,6 +94,7 @@ function session(
     settledAtMs: null,
     heldPrompt: null,
     scheduledPrompt: null,
+    routine: null,
     pullRequests: [],
     autoSettleOnMerge: null,
     private: false,
@@ -140,6 +142,7 @@ function options(override: Partial<DiagnosticsOptions> = {}): DiagnosticsOptions
     liveTabIds: [],
     browserPanes: [],
     knowledgeVault: null,
+    routines: null,
     includeTranscripts: false,
     destinationPath: path.join(tmpRoot, "bundle.zip"),
     gitRunner: async () => "",
@@ -433,6 +436,42 @@ describe("collectDiagnosticsBundle", () => {
       options({ knowledgeVault: { ...knowledgeVault, vaults: [] } }),
     );
     expect(empty.sections.find((s) => s.id === "knowledge-vault")?.included).toBe(false);
+  });
+
+  it("writes counts-only routines/routines.json, never opens routines.json or routine-runs.json, and names both in redaction (U13)", async () => {
+    const dataDir = path.dirname(facts().registryFile);
+    fs.mkdirSync(dataDir, { recursive: true });
+    const secretInstructions = "SECRET-ROUTINE-INSTRUCTIONS";
+    fs.writeFileSync(path.join(dataDir, "routines.json"), JSON.stringify({ routines: [{ name: "Gmail triage", instructions: secretInstructions }] }));
+    fs.writeFileSync(path.join(dataDir, "routine-runs.json"), JSON.stringify({ runs: [{ routineName: "Gmail triage" }] }));
+    const routines: RoutinesDiagnostics = {
+      enabled: true,
+      warnCostUsd: 2,
+      maxCostUsd: 5,
+      routineCount: 1,
+      enabledCount: 1,
+      activeRunTabId: null,
+      waitingApprovalCount: 0,
+      recentOutcomeCounts: { running: 0, "waiting-approval": 0, "on-time": 3, late: 1, skipped: 2, failed: 0 },
+    };
+    const result = await collectDiagnosticsBundle(options({ routines }));
+    const entries = await readZip(result.path);
+    expect(jsonOf(entries.get("routines/routines.json"))).toEqual(routines);
+    for (const [name, bytes] of entries) {
+      expect(name).not.toBe("routines.json");
+      expect(name).not.toContain("routine-runs");
+      expect(textOf(bytes)).not.toContain(secretInstructions);
+      expect(textOf(bytes)).not.toContain("Gmail triage");
+    }
+    const manifest = jsonOf(entries.get("manifest.json")) as Record<string, unknown>;
+    expect(manifest.redaction).toContain(
+      "routines.json (routine instructions and policies) and routine-runs.json are never read",
+    );
+
+    const off = await previewDiagnosticsBundle(options({ routines: { ...routines, enabled: false, routineCount: 0, enabledCount: 0 } }));
+    expect(off.sections.find((s) => s.id === "routines")?.included).toBe(false);
+    const absent = await previewDiagnosticsBundle(options());
+    expect(absent.sections.find((s) => s.id === "routines")?.included).toBe(false);
   });
 
   it("excludes transcripts by default and caps them with a warning when opted in", async () => {

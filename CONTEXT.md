@@ -76,7 +76,9 @@ order (`launchedAt`, newest open first): exactly one section per session —
 the unheaded main list (unsettled, no running turn), **Working** (live inside a
 turn), **Snoozed** (parked via the row's context menu, only while the
 `snoozedSectionEnabled` setting is on), or **Settled** (`settledAtMs !== null`
-or archived/missing, not snoozed). There is no manual order.
+or archived/missing, not snoozed). There is no manual order. The one exception
+is a **Routine run**: while it needs nothing from a human it lists nowhere, and
+when it does it rides the **Attention stack**.
 _Avoid_: tracked session, managed session
 
 **Fork**:
@@ -170,7 +172,8 @@ pause back into a flagged `agent_end` on stdout, so only raw-stream consumers �
 `subagent_event` payloads and in-process extension subscriptions — ever see the
 pause frame itself, and they read both shapes as the same pause (issue #1193).
 _Avoid_: treating a loop end as the run's end, idle pause (the run is open),
-background work (the jobs themselves, not the run's state)
+background work (the jobs themselves, not the run's state), routine run (the
+session one Routine fire starts)
 
 **Attention stack**:
 The sidebar's digest above the main list of sessions holding an agent reply
@@ -184,6 +187,10 @@ ends, and a **Settled** session holds none. The stack hides entirely when
 empty, lists newest reply first with the row's state band and verb, and opens
 the session on click. The mark is renderer-local view state — never a count,
 never on the session record, never synced across renderers (issue #1037).
+A **Routine run** waiting on an Approval card joins the stack like any other
+answer-waiting session; opening its row opens the session to its card. A
+finished-unread Routine run holds its mark even while settled — the one
+exception to "a Settled session holds none" — until it is opened.
 _Avoid_: inbox, unread list, needs-you
 
 **Snoozed session**:
@@ -1008,7 +1015,10 @@ button between omp's label and its always-label, and the reply echoes the
 frame's chosen label verbatim (ADR-0038 amended for issue #950). On omp ≥
 18.13.1 a prompt whose reason is `Restricted folder: <path>` names that folder
 and notes that it asks in every approval mode; omp offers no session choice
-for it (issue #951).
+for it (issue #951). An unattended **Routine run** shows the card with Deny
+and Allow once only (no session-wide choice), and nobody answering is not
+denial: the run waits until someone answers, and after 24 hours omp-ui answers
+Deny for it (ADR-0100).
 _Avoid_: approval dialog, permission prompt, tool gate card
 
 **Approval mode**:
@@ -1024,7 +1034,9 @@ a `--config` overlay written at spawn and changing it relaunches the session
 subagents run under the user's `tools.approval` policy regardless, and a
 terminal session's prompts appear in its own embedded TUI, never as an
 approval card. Defaults live in omp's own config (ADR-0025), never in a
-second store.
+second store. Not a **Tool policy**: that is a Routine's per-tool
+allow-and-deny set, this is one session's tier; a Routine run's mode is pinned
+`always-ask` and cannot be changed.
 _Avoid_: permission mode, tool policy setting, auto-approve flag
 
 **Remembered approval**:
@@ -1193,7 +1205,9 @@ tail offers edit, remove, and run now. Each fire goes through the normal
 prompt path in Build, resuming a session that is not running; a run still in
 progress skips the fire with a notice, and fires missed while omp-ui was
 closed run once with a notice. A snoozed session returns to the main list
-when its run starts. Text only; one schedule per session.
+when its run starts. Text only; one schedule per session. Not a **Routine**: a
+routine starts a fresh **Routine run** with its own instructions, model, and
+tool policy at each fire.
 _Avoid_: cron job, timer, recurring task, held prompt (that waits for a usage reset)
 
 **Webhook**:
@@ -1225,6 +1239,53 @@ Every call lands in **Recent MCP calls**. The remote credential never opens
 it, and a client token never opens the app. Not the **MCP manager**, which
 lists the MCP servers omp itself connects to.
 _Avoid_: MCP server (ambiguous with omp's own), API, integration token
+
+**Routine**:
+A host-local definition of background work on a clock: instructions, a
+schedule (the same daily, weekdays, weekly, or five-field cron shape a
+**Scheduled prompt** uses, plus `@yearly`/`@monthly`/`@weekly`/`@daily`/`@hourly`),
+a destination, a model and thinking level, and a **Tool policy**, which
+together start one fresh **Routine run** at each fire. It lives in the
+**Routines** view — a full-pane view opened from the sidebar footer, gated
+behind the fourth switch on **Settings → Experimental**, off by default, Host
+Lite reporting false — never on a session record, and like a **Webhook** it is
+never shared or coordinated across hosts. While the gate is off nothing shows
+anywhere in the shell. **Run now** fires once immediately; **Dry run**
+resolves the destination and effective **Tool policy** without starting a
+session. Missed fires fold into one late fire with a notice, never a burst
+(issue #1244, ADR-0100).
+_Avoid_: assistant (the transcript role; this feature is Routines), automation,
+bot, cron job, timer, recurring task, scheduled prompt (that sends into one
+session it resumes)
+
+**Routine run**:
+The **Owned session** subtype one fire of a **Routine** starts: a fresh
+background native session at the routine's destination, prompted with its
+instructions and held to its **Tool policy**, started as a Fleet dispatch
+whose requester kind is `routine` — never fleet tools (the ADR-0075 rule) — so
+its Session HUD reads "Started by the routine {name}". It lists nowhere in the
+sidebar while it needs nothing from a human; while an **Approval card** or
+another answer holds it, it surfaces in the **Attention stack** and the footer
+button's count chip. One routine run spans several omp **Run**s: each answered
+card resumes it into a new one. 60 s after its terminal Run the run **Settle**s
+itself, and its history lives in the Routines view's run history rather than
+the coding sidebar; runs idle past 30 days are pruned. Every routine run is a
+**Private session**.
+_Avoid_: run (the omp agent run), firing, execution, job (omp's Background job)
+
+**Tool policy**:
+A **Routine**'s standing per-tool decision about what its **Routine run** may
+do unattended: allowed tools run without asking, denied tools are refused, and
+everything else — including any tool added to a server after the policy was
+last saved, flagged *Added later · not allowed* — waits on an **Approval card**
+rather than running or being denied outright. It is authored as a checklist
+over the built-in tools and each MCP server's tools, and compiled into the
+run's per-lineage `--config` overlay (the ADR-0038 rail) as omp
+`tools.approval` entries beside a pinned `always-ask` mode. Not an **Approval
+mode** (one session's tier), not a **Remembered approval** (omp's own grant
+cache).
+_Avoid_: allow list (the checklist UI, not the policy), permission profile,
+ACL, whitelist
 
 **Proposed plans pane**:
 The inspector rail pane (ADR-0004 vocab) that lists every plan the focus

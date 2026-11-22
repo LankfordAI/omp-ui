@@ -161,6 +161,8 @@ const backendMock = {
   setExperimentsEnabled: vi.fn(async () => {}),
   setAutoresearchEnabled: vi.fn(async () => {}),
   setArtifactLibraryEnabled: vi.fn(async () => {}),
+  setRoutinesEnabled: vi.fn(async () => {}),
+  setRoutineSpendDefaults: vi.fn(async () => {}),
   setCouncilEnabled: vi.fn(async () => {}),
   // Empty roster: a mounted editor resolves its load and renders no member
   // rows, so the council page's switch stays the only role="switch" node.
@@ -349,6 +351,7 @@ const backendMock = {
   removeWebhook: vi.fn(async () => {}),
   clearWebhookDeliveries: vi.fn(async () => {}),
   onWebhooksState: vi.fn(),
+  onRoutinesState: vi.fn(),
   getMcpEndpointState: vi.fn(async () => ({ enabled: false, clients: [], calls: [] })),
   setMcpEndpointEnabled: vi.fn(async () => {}),
   createMcpClient: vi.fn(async (): Promise<McpTokenReveal> => {
@@ -1055,6 +1058,32 @@ describe("Settings Experimental page (issues #571 and #739)", () => {
     expect(control.getAttribute("aria-checked")).toBe("false");
     act(() => useStore.setState({ state: backendState({ artifactLibraryEnabled: true }) }));
     expect(control.getAttribute("aria-checked")).toBe("true");
+  });
+
+  it("adds the Routines switch with no spend inputs while it is off", async () => {
+    seedExperimental();
+    await renderSettings();
+    const control = document.querySelector<HTMLElement>('[role="switch"][aria-label="Routines (experimental)"]')!;
+    expect(control.getAttribute("aria-checked")).toBe("false");
+    expect(document.querySelector('input[aria-label="Default routine spend warning (USD)"]')).toBeNull();
+    click(control);
+    expect(backendMock.setRoutinesEnabled).toHaveBeenCalledWith(true);
+  });
+
+  it("shows the $2 / $5 defaults while on and persists an edited cap", async () => {
+    seedExperimental();
+    act(() => useStore.setState({ state: backendState({ routinesEnabled: true }) }));
+    await renderSettings();
+    const warn = document.querySelector<HTMLInputElement>('input[aria-label="Default routine spend warning (USD)"]')!;
+    const max = document.querySelector<HTMLInputElement>('input[aria-label="Default routine spend cap (USD)"]')!;
+    expect(warn.value).toBe("2");
+    expect(max.value).toBe("5");
+    act(() => {
+      Object.getOwnPropertyDescriptor(HTMLInputElement.prototype, "value")!.set!.call(max, "7.5");
+      max.dispatchEvent(new Event("input", { bubbles: true }));
+    });
+    act(() => max.dispatchEvent(new KeyboardEvent("keydown", { key: "Enter", bubbles: true })));
+    expect(backendMock.setRoutineSpendDefaults).toHaveBeenCalledWith({ warnUsd: 2, maxUsd: 7.5 });
   });
 
   it("no longer renders the switch on the General page", async () => {
