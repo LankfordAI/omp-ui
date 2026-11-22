@@ -23,7 +23,7 @@ export const MAIN_CONTENT_MIN_WIDTH = 320;
 export const DESKTOP_CONTENT_MIN_WIDTH = 560;
 export const PANEL_KEYBOARD_STEP = 16;
 
-/** The inspector rail's panes; InspectorRail groups them (Work, Review, Side questions, Info). */
+/** The inspector rail's panes; InspectorRail groups them (Work, Review, Ask, Info). */
 export type RailTab = "todos" | "agents" | "jobs" | "session" | "plans" | "diffs" | "btw";
 
 export type DesktopPanel = "sidebar" | "inspector" | "browserPane" | "devicePane";

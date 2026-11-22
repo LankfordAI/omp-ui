@@ -1711,7 +1711,9 @@ export function InspectorRail({ tabId, active = true }: { tabId: string; active?
               <GroupIcon group={id} />
               {/* Sentence case, no tracking (round-3 judge, Iconography 1):
                   tracked caps put "REVIEW" at 53px in a 48px box, so the strip
-                  rendered "REVI…" everywhere. `Review` fits untruncated. */}
+                  rendered "REVI…" everywhere. `Review` fits untruncated, and
+                  `rail.groups.ask` is deliberately `Ask`/`질문` because
+                  "Side questions"/"곁가지 질문" overflow this box (issue #1267). */}
               <span className="tab-label max-w-full truncate">{label}</span>
               {count > 0 && <span className="absolute right-0.5 top-0.5 min-w-3 rounded-full bg-copper-wash px-0.5 text-center font-mono text-xs leading-3 text-copper">{count > 99 ? "99" : count}</span>}
             </button>

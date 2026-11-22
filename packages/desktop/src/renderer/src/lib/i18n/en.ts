@@ -3166,7 +3166,7 @@ export const en = {
   // Inspector rail groups (issue #940): the strip's four labelled buttons.
   "rail.groups.work": "Work",
   "rail.groups.review": "Review",
-  "rail.groups.ask": "Side questions",
+  "rail.groups.ask": "Ask",
   "rail.groups.info": "Info",
 
   "diff.rail.readingTitle": "Reading branch…",
