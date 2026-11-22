@@ -8,7 +8,16 @@ import type { Theme } from "./themes";
 export interface CreatedTerminal {
   term: Terminal;
   fit: FitAddon;
+  /** Clears pending WebGL-retry timers and disposes the live renderer addon.
+   *  Call sites that tear the terminal down call this first (Phase 4). */
+  dispose(): void;
 }
+
+/** Performance plan Phase 4: two reload attempts after a context loss —
+ *  a dead GPU is still dead at 500 ms, and a second chance covers a process
+ *  that is mid-restart. After the second throw, behavior is the shipped one:
+ *  xterm keeps its DOM renderer. */
+export const WEBGL_RETRY_DELAYS_MS = [500, 2_000];
 
 /** Constructs the common xterm surface and resilient renderer addons. */
 export function createTerminal(
@@ -31,14 +40,61 @@ export function createTerminal(
   term.open(host);
   term.loadAddon(fit);
   term.loadAddon(new WebLinksAddon());
-  try {
-    const webgl = new WebglAddon();
-    webgl.onContextLoss(() => webgl.dispose());
-    term.loadAddon(webgl);
-  } catch {
-    // WebGL unavailable — retain xterm's DOM renderer.
-  }
-  return { term, fit };
+  // WebGL renderer lifecycle (performance plan Phase 4): construction can
+  // throw synchronously when the GPU is dead — today's and every attempt's
+  // path. On context loss the addon is disposed and reloaded on a plain
+  // timer ladder, so a transient GPU-process death returns the tab to the
+  // GPU renderer instead of stranding it on the DOM renderer for the whole
+  // run (the shipped one-way `onContextLoss → dispose` did exactly that).
+  let webgl: WebglAddon | undefined;
+  let retryTimer: number | undefined;
+  let attempt = 0;
+  let disposed = false;
+  const loadWebgl = (): void => {
+    if (disposed) return;
+    try {
+      const addon = new WebglAddon();
+      addon.onContextLoss(() => {
+        addon.dispose();
+        if (webgl === addon) webgl = undefined;
+        if (disposed || attempt >= WEBGL_RETRY_DELAYS_MS.length) return;
+        const delay = WEBGL_RETRY_DELAYS_MS[attempt];
+        attempt += 1;
+        retryTimer = window.setTimeout(() => {
+          retryTimer = undefined;
+          loadWebgl();
+        }, delay);
+      });
+      term.loadAddon(addon);
+      webgl = addon;
+      // A renderer that survives its first reload closes the episode: a
+      // later loss restarts the ladder fresh.
+      if (attempt > 0) attempt = 0;
+    } catch {
+      // Construction threw (GPU still dead, or unavailable at all): with
+      // attempts left this rides the same ladder; with none it is today's
+      // outcome — xterm keeps its DOM renderer.
+      if (disposed || attempt >= WEBGL_RETRY_DELAYS_MS.length) return;
+      const delay = WEBGL_RETRY_DELAYS_MS[attempt];
+      attempt += 1;
+      retryTimer = window.setTimeout(() => {
+        retryTimer = undefined;
+        loadWebgl();
+      }, delay);
+    }
+  };
+  loadWebgl();
+  return {
+    term,
+    fit,
+    dispose() {
+      disposed = true;
+      if (retryTimer !== undefined) window.clearTimeout(retryTimer);
+      retryTimer = undefined;
+      webgl?.dispose();
+      webgl = undefined;
+    },
+  };
 }
 
 /** Repaints a live terminal without rebuilding it or losing scrollback. */

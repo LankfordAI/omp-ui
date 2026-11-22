@@ -343,6 +343,12 @@ if (!app.requestSingleInstanceLock()) {
       breadcrumbs.record("child-process-gone", {
         detail: `type=${details.type} reason=${details.reason}`,
       });
+      // Phase 4: a GPU process leaving while windows are open is news either
+      // way (any reason); the renderer turns it into one honest notice. The
+      // handler is registered before `backend` exists, so this reads at event
+      // time — an early death is still in the log, just not on screen.
+      if (details.type === "GPU" && BrowserWindow.getAllWindows().some((w) => !w.isDestroyed()))
+        backend?.notifyGpuCrashed(`reason=${details.reason} exitCode=${details.exitCode}`);
     });
 
     const registryFile =

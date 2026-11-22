@@ -82,7 +82,7 @@ import {
   type CommandItem,
   type RenderItem,
 } from "../../lib/transcript";
-import { peekTabRuntime, respData, type GetState, type StoreMachinery, type Watchers } from "./shared";
+import { deferUsageRefresh, isTabPainting, peekTabRuntime, respData, type GetState, type StoreMachinery, type Watchers } from "./shared";
 import { firstAssistantText, unreadRaisePredicate } from "./unread";
 import {
   armLiveTimer,
@@ -111,7 +111,7 @@ import type { UiStore } from "../types";
 
 export type FrameReductionSlice = Pick<
   UiStore,
-  "handleRpcFrame" | "appendNotice" | "reportLiveLevels"
+  "handleRpcFrame" | "setTabPainting" | "appendNotice" | "reportLiveLevels"
 >;
 
 /**
@@ -463,11 +463,26 @@ export function createFrameReductionSlice(
             : item,
         );
         return;
-      case "refresh-usage":
+      case "refresh-usage": {
+        // Phase 1: a non-painting tab's `message_end` cadence (one read per
+        // tool hop, capped only by USAGE_REFRESH_MS) collapses to one trailing
+        // read per USAGE_DEFERRED_REFRESH_MS window. Deferring entry keeps the
+        // effect body whole — the queue-settle scheduling `settleQueue`
+        // carries still runs when the deferred read finally fires. A visible
+        // tab's cadence is byte-identical to today's.
+        if (!isTabPainting(tabId)) {
+          deferUsageRefresh(tabId, () => {
+            if (effect.settleQueue)
+              void m.refreshUsage(tabId, () => scheduleQueueSettleRefresh(tabId));
+            else void m.refreshUsage(tabId);
+          });
+          return;
+        }
         if (effect.settleQueue)
           void m.refreshUsage(tabId, () => scheduleQueueSettleRefresh(tabId));
         else void m.refreshUsage(tabId);
         return;
+      }
       case "refresh-branch-diff": {
         // Same project resolution the DiffsPane uses (issue #711): the
         // session's checkout cwd under its owning instance's key.
@@ -1264,5 +1279,11 @@ export function createFrameReductionSlice(
     scheduleOrphanRestart(tabId);
   };
 
-  return { handleRpcFrame, appendNotice, reportLiveLevels };
+  // Phase 1: a mounted RpcTab reports its `active` prop here before paint;
+  // the machinery owns the map, the held-batch flush, and the deferred
+  // usage-refresh edge. See createMachinery's setTabPainting.
+  const setTabPainting = (tabId: string, painting: boolean): void =>
+    m.setTabPainting(tabId, painting);
+
+  return { handleRpcFrame, setTabPainting, appendNotice, reportLiveLevels };
 }

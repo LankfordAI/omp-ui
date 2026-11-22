@@ -62,8 +62,8 @@ export function ProviderTerminalLoginDialog({
   useEffect(() => {
     const host = hostRef.current;
     if (host === null) return;
-    const { term, fit } = createTerminal(host, theme, font);
-    termRef.current = { term, fit };
+    const { term, fit, dispose: disposeRenderers } = createTerminal(host, theme, font);
+    termRef.current = { term, fit, dispose: disposeRenderers };
     const dataSub = term.onData((data) => backend.shellWrite(ptyId, data));
     // The dialog renders the terminal only while open, so every byte writes
     // straight through — no hidden-drawer buffering like ShellDrawer needs.
@@ -88,6 +88,8 @@ export function ProviderTerminalLoginDialog({
       observer.disconnect();
       dataSub.dispose();
       unregister();
+      // Phase 4: cancel pending WebGL-retry timers before the surface goes.
+      disposeRenderers();
       term.dispose();
       termRef.current = null;
       // Closing the dialog ends the login attempt: kill first, and ShellHost

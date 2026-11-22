@@ -1588,6 +1588,12 @@ export interface UiStore extends SettingsSlice, UpdatesSlice, LabSlice, StatsSli
    *  normal resume path. False when nothing is left to undo. */
   undoSettle(): boolean;
   dismissSettleToast(): void;
+  /** The GPU process disappeared while windows were open (performance plan
+   *  Phase 4): the detail main observed, or null for no notice. One slot per
+   *  episode; dismiss resets the latch so a later death can raise a new one. */
+  gpuCrashDetail: string | null;
+  noteGpuCrash(detail: string): void;
+  dismissGpuCrash(): void;
   /** A host settled these sessions because their pull requests merged
    *  (issue #985): one undo entry and the toast, like a Settle. */
   recordAutoSettle(sessions: AutoSettledSession[]): void;
@@ -1652,6 +1658,9 @@ export interface UiStore extends SettingsSlice, UpdatesSlice, LabSlice, StatsSli
     opts?: { quiet?: boolean; captureId?: (id: string) => void },
   ): Promise<unknown>;
   handleRpcFrame(tabId: string, frame: object): void;
+  /** Reports whether a mounted tab's DOM is painting (performance plan
+   *  Phase 1); delta transcript batches hold while it is not. */
+  setTabPainting(tabId: string, painting: boolean): void;
   /** The renderer peer's microphone and speaker meters (ADR-0071). */
   reportLiveLevels(tabId: string, input: number, output: number): void;
   answerExtension(

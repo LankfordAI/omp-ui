@@ -13,7 +13,7 @@ import { cn } from "../lib/cn";
 import { copyFallback } from "../lib/clipboard";
 import { isAndroidShell } from "../lib/android-shell";
 import { formatDuration } from "../lib/duration";
-import { summarizeExchanges, type ExchangeChanges } from "../lib/exchange-changes";
+import { exchangeTotals, summarizeExchanges, type ExchangeChanges } from "../lib/exchange-changes";
 import { formatBytes, formatCost, shortModelLabel, tokenCount } from "../lib/format";
 import { splitInterviewDraft } from "../lib/interview-draft";
 import { localeTag, useT, type MessageKey } from "../lib/i18n";
@@ -268,6 +268,11 @@ const ExchangeReceipt = memo(function ExchangeReceipt({
   tabId?: string;
 }) {
   const t = useT();
+  // Phase 2: row counting happens here, for this exchange's rows only, memoed
+  // on the entry-list reference (rebuilt with every scan that owns the items
+  // array). The receipts that render are bounded by the window, so per-tick
+  // counting is too.
+  const totals = useMemo(() => exchangeTotals(changes), [changes.entries]);
   return (
     <button
       type="button"
@@ -285,8 +290,8 @@ const ExchangeReceipt = memo(function ExchangeReceipt({
       className="flex flex-wrap items-center gap-x-2 text-xs tabular-nums text-ink-dim"
     >
       <span>{t("transcript.receipt.changedFiles", { files: changes.files })}</span>
-      <span className="text-signal">+{changes.added}</span>
-      <span className="text-rose">−{changes.removed}</span>
+      <span className="text-signal">+{totals.added}</span>
+      <span className="text-rose">−{totals.removed}</span>
       <span>{t("transcript.receipt.openDiff")}</span>
     </button>
   );

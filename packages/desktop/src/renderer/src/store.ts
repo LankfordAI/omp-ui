@@ -46,6 +46,7 @@ import { createSessionParamsSlice } from "./store/slices/session-params";
 import { createSideQuestionsSlice } from "./store/slices/side-questions";
 import { createSettingsSlice } from "./store/slices/settings";
 import { createSettleSlice } from "./store/slices/settle";
+import { createGpuSlice } from "./store/slices/gpu";
 import { createSessionBulkSlice } from "./store/slices/session-bulk";
 import { createSubagentControlSlice } from "./store/slices/subagent-control";
 import {
@@ -215,6 +216,7 @@ export const useStore = create<UiStore>()((set, get, api) => {
   const asyncJobs = createAsyncJobsSlice(get, m);
   const liveAudio = createLiveAudioSlice(get, set);
   const settle = createSettleSlice(set, get);
+  const gpu = createGpuSlice(set, get, api);
   const sessionBulk = createSessionBulkSlice(get);
   /**
    * Repaints the document to match the registry's theme preference and
@@ -469,6 +471,7 @@ export const useStore = create<UiStore>()((set, get, api) => {
     ...sideQuestions,
     ...migrate,
     ...settle,
+    ...gpu,
     ...sessionBulk,
     ...subagentControl,
     ...asyncJobs,
@@ -565,6 +568,9 @@ export const useStore = create<UiStore>()((set, get, api) => {
       backend.onMcpEndpointState((mcpEndpoint) => get().replaceMcpEndpoint(mcpEndpoint));
       backend.onProviderOAuthState((s) => get().replaceProviderOAuth(s));
       backend.onCollabChanged((tabId, state) => get().applyCollabState(tabId, state));
+      // The GPU process died (performance plan Phase 4): one dismissible
+      // notice; recovery is relaunch and the card says so.
+      backend.onGpuProcessCrashed((detail) => get().noteGpuCrash(detail));
       // Live-share state (issue #686): the snapshot of every PTY tab as main
       // last saw omp's registry. The channel is local-only — a remote web
       // renderer's bridge rejects it, and the silence is the truth there:
@@ -643,6 +649,7 @@ export const useStore = create<UiStore>()((set, get, api) => {
     reloadHistory: rpcCommandSlice.reloadHistory,
     rpcCommand: rpcCommandSlice.rpcCommand,
     handleRpcFrame: frame.handleRpcFrame,
+    setTabPainting: frame.setTabPainting,
     reportLiveLevels: frame.reportLiveLevels,
 
     setInitialPrompt: rpcCommandSlice.setInitialPrompt,

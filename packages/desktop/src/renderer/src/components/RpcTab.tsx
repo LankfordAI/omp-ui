@@ -227,6 +227,13 @@ const BOOT_STALL_MS = 60_000;
 export const RpcTab = memo(function RpcTab({ tabId, active }: { tabId: string; active: boolean }) {
   const t = useT();
   useLiveTalkHotkey(tabId, active);
+  // Phase 1: `active` is exactly "this tab's DOM is visible" (App's `shown`
+  // folds in !t.hidden, the active-tab test, and every full-pane view).
+  // Report before paint so a switch-in flushes held batches in the same frame.
+  const setTabPainting = useStore((s) => s.setTabPainting);
+  useLayoutEffect(() => {
+    setTabPainting(tabId, active);
+  }, [tabId, active, setTabPainting]);
   const rpc = useStore((s) => s.rpc[tabId]);
   const bootRpcTab = useStore((s) => s.bootRpcTab);
   const flagBootStall = useStore((s) => s.flagBootStall);

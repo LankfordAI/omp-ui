@@ -2081,6 +2081,27 @@ describe("exchange receipts (issue #933)", () => {
     expect(el.querySelector('[data-item-id="a1:receipt"]')).toBe(before);
     act(() => root.unmount());
   });
+
+  // Phase 2 (performance plan): totals are lazy per receipt, so the receipt
+  // must still count every card of its exchange — including one scrolled far
+  // above the tail window. Identical text to the eager numbers is the
+  // no-visual-change proof.
+  it("counts a diff card that sits above the render window", () => {
+    // The oldest card is ~250 items from the tail: outside the 150-row
+    // window, inside its exchange. A second card closes the exchange near
+    // the tail so the boundary row itself renders.
+    const items: RenderItem[] = [userMsg("u1"), editCard("t-old", "src/old.ts")];
+    for (let i = 0; i < 250; i += 1) items.push(assistant(`f${i}`, "filler"));
+    items.push(editCard("t-new", "src/new.ts"), userMsg("u2"));
+    const { el, root } = render(items);
+    const line = el.querySelector('[data-item-id="t-new:receipt"]');
+    expect(line).not.toBeNull();
+    // Both cards roll up: 2 files, +4 −2 — the window never truncated it.
+    expect(line!.textContent).toContain("2 changed files");
+    expect(line!.textContent).toContain("+4");
+    expect(line!.textContent).toContain("−2");
+    act(() => root.unmount());
+  });
 });
 
 describe("shell truncation provenance", () => {

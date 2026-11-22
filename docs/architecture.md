@@ -656,6 +656,15 @@ Tab bodies are `memo` components (`RpcTab`, `TerminalTab`) and `App` must not
 subscribe to a whole per-tab slice: a hidden tab must not pay for an `App`
 re-render it has no props in.
 
+Stream frames keep being reduced eagerly (watchers, unread marks, plan gates,
+queue counts stay frame-exact); only the render commit is batched — the #187
+next-frame flush for lifecycle frames and the #481 cap for delta frames. The
+batch's hold gate is painting-aware: it holds while the window is hidden or
+the tab itself is not painting (performance plan Phase 1). `RpcTab` reports
+its `active` prop through the store's `setTabPainting` before paint, and a
+false→true edge flushes whatever the background held, so switching to a tab
+shows its settled state in the frame it appears.
+
 A provider replay replaces an abandoned assistant attempt mid-stream, and its
 boundary is `message_update.assistantMessageEvent.type === "start"` (issue
 #1089): the reducer clears the streaming item's text/thinking/narration (never

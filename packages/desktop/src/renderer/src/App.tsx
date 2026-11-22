@@ -33,6 +33,7 @@ import { RoutinesView } from "./components/routines/RoutinesView";
 import { ProjectSettings } from "./components/ProjectSettings";
 import { OmpUpdateCard } from "./components/OmpUpdateCard";
 import { SettleToast } from "./components/SettleToast";
+import { GpuCrashCard } from "./components/GpuCrashCard";
 import { BackgroundSeedToast } from "./components/BackgroundSeedToast";
 import { ProjectPicker } from "./components/ProjectPicker";
 import { RpcTab } from "./components/RpcTab";
@@ -650,6 +651,7 @@ export default function App() {
         <AppUpdateCard />
         <OmpUpdateCard />
         <SettleToast />
+        <GpuCrashCard />
         <BackgroundSeedToast />
       </div>
       {deleteConfirmation && (

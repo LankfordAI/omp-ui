@@ -2301,6 +2301,12 @@ export const BACKEND_CHANNELS = {
     ...request<[version: string, remember: boolean], void>([str(), bool()]),
   },
   onAppUpdateState: { channel: "app:updateState", ...event<[state: AppUpdateState]>() },
+  /**
+   * The GPU process disappeared while windows are open (performance plan
+   * Phase 4). Observation, not cause — Electron offers no supported way to
+   * restore it in-run, so the honest remedy the UI can offer is a relaunch.
+   */
+  onGpuProcessCrashed: { channel: "gpu:crashed", ...event<[detail: string]>() },
   /** Embedded remote-access server settings + live status (issue #37). */
   getRemoteState: { channel: "remote:getState", ...request<[], RemoteState>([]) },
   setRemoteEnabled: { channel: "remote:setEnabled", ...request<[on: boolean], void>([bool()]) },

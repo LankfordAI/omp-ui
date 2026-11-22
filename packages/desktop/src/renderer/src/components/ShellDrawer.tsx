@@ -56,8 +56,8 @@ export function ShellDrawer({ tabId, visible }: { tabId: string; visible: boolea
   useEffect(() => {
     const host = hostRef.current;
     if (!host) return;
-    const { term, fit } = createTerminal(host, theme, font);
-    termRef.current = { term, fit };
+    const { term, fit, dispose: disposeRenderers } = createTerminal(host, theme, font);
+    termRef.current = { term, fit, dispose: disposeRenderers };
 
     // The console toggle (mod+j unless rebound, issue #998) is this drawer's
     // own toggle (App.tsx); read through a ref so a rebind applies at once. xterm translates Ctrl+J to
@@ -110,6 +110,8 @@ export function ShellDrawer({ tabId, visible }: { tabId: string; visible: boolea
       dataSub.dispose();
       unregister();
       flushPendingRef.current = null;
+      // Phase 4: cancel pending WebGL-retry timers before the surface goes.
+      disposeRenderers();
       term.dispose();
       termRef.current = null;
       spawnedRef.current = false;

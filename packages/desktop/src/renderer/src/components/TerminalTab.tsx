@@ -202,14 +202,14 @@ export const TerminalTab = memo(function TerminalTab({ tabId, active }: { tabId:
   useEffect(() => {
     const host = hostRef.current;
     if (!host) return;
-    const { term, fit } = createTerminal(host, theme, font);
+    const { term, fit, dispose: disposeRenderers } = createTerminal(host, theme, font);
     const search = new SearchAddon();
     term.loadAddon(search);
     const resultsSub = search.onDidChangeResults(({ resultIndex, resultCount }) => {
       setResultIndex(resultIndex);
       setResultCount(resultCount);
     });
-    termRef.current = { term, fit, search };
+    termRef.current = { term, fit, search, dispose: disposeRenderers };
 
     // Spawn size is 80×24; immediately fit the real viewport and push it.
     fit.fit();
@@ -283,6 +283,8 @@ export const TerminalTab = memo(function TerminalTab({ tabId, active }: { tabId:
       host.removeEventListener("dragover", onDragOver);
       host.removeEventListener("drop", onDrop);
       resultsSub.dispose();
+      // Phase 4: cancel pending WebGL-retry timers before the surface goes.
+      disposeRenderers();
       term.dispose();
       termRef.current = null;
     };
