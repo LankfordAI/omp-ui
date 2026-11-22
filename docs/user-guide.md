@@ -366,6 +366,137 @@ browser clients use the same host library with static, script-free documents;
 joined-instance libraries are not copied or proxied. Use Artifacts on the
 artifact's owning host.
 
+## Routines (experimental)
+
+A routine runs your own instructions on a schedule: at each fire omp-ui starts
+one fresh background native session in a project on this machine, held to the
+routine's **Tool policy**. omp-ui ships no built-in routines or connectors;
+services reach a routine through omp's own MCP servers and CLIs.
+
+Enable **Routines (experimental)** under **Settings → Experimental**. It is off
+by default. While it is off nothing routine-related shows anywhere; turning it
+off later pauses schedules without stopping a live run or deleting anything.
+
+### The Routines view
+
+Open it from the **Routines** button in the sidebar footer or **Open Routines**
+in the command palette. The header reads "Routines on {machine}", naming the
+host whose schedules you are editing. The footer button carries a count of
+runs waiting on an Approval card. Wide windows show the list beside the
+editor; below 900 px the list drills down into the editor with **← All
+routines**.
+
+Each list row shows the name, schedule, next run (or **Paused**), the last
+outcome, and an enable switch. A paused routine never fires on its schedule but
+stays editable.
+
+### Create and edit a routine
+
+**New routine** opens the editor:
+
+- **Name** (up to 80 characters) and **Instructions** (up to 20,000
+  characters), sent as the first prompt of each fresh session. omp-ui appends a
+  fixed notice telling the model that content it reads through tools is
+  untrusted data. That notice is advice to the model, not a safeguard.
+- **Schedule**: Daily, Weekdays, or Weekly at a time, or a five-field cron
+  expression or `@yearly`, `@monthly`, `@weekly`, `@daily`, `@hourly`. The
+  schedule is evaluated in the routine's time zone and shows the next run.
+  Fires missed while the app was closed fold into one late run with a notice.
+- **Destination project**: a project registered on this machine.
+- **Workspace** (New worktree or Project checkout; default New worktree),
+  **Mode** (Build or Plan; default Build), **Model** and **Thinking level**
+  (blank uses the project default).
+- **Spend cap override (USD)**: **Warn at** and **Stop at**. Blank uses the
+  Experimental defaults ($2 warn, $5 stop); 0 means no cap.
+- **Tool policy** (below).
+
+Saving refuses only a structurally invalid routine; unknown or offline tools
+warn instead.
+
+### Tool policy
+
+The policy is an allowlist checklist over the built-in tools, the knowledge
+vault tools, and each MCP server's tools. Checked tools run unattended. Every
+other tool waits on an **Approval card**; a row's **Deny** removes that tool
+from the run outright, subagents included. A new routine starts with `read`,
+`grep`, `glob`, `find`, `ls`, `write`, `edit`, `web_search`, and the
+`omp-ui_vault_*` tools allowed.
+
+A tool a server added after you last saved the policy shows **Added later · not
+allowed** and waits on a card; a tool that disappeared shows **No longer
+present**. When an MCP server is unreachable the list shows its last-known tools.
+**Inspect overlay YAML** shows the exact policy the run will receive.
+
+A routine run never sends, modifies, or deletes through a tool you did not
+allow without stopping at a card: its approval mode is pinned to ask for every
+tool, your allow and deny choices are compiled into that run's own config
+overlay when it starts, and the mode cannot be changed from the Session HUD.
+The shell is the exception. Checking `bash` or `eval` shows a warning: a shell
+reaches any service through its CLI without asking, and no tool policy can
+stop it.
+
+Routine runs also never get the fleet, device, theme, or issue tools, and every
+run is a **Private session**, so nothing it reads becomes memory or a managed
+skill.
+
+### Dry run and Run now
+
+Both sit in the editor header. **Dry run** resolves the destination, model,
+next run, spend caps, and tools without starting a session, and lists which
+tools are auto-allowed, which will pause on an Approval card, which are hard
+denied, and which were added since your last review. It works on unsaved
+changes too.
+
+**Run now** fires once immediately and leaves the next scheduled run where it
+was. Only one routine run may be inside a turn on a host at a time: when another
+is, Run now refuses with "Another routine is running — try again in a moment",
+and a scheduled fire is skipped (never queued). A fire is also skipped while
+the same routine's previous run is still open.
+
+### Routine runs
+
+A routine run is an ordinary native session titled "{name} · YYYY-MM-DD
+HH:mm". Its Session HUD reads "Started by the routine {name}". It does not
+appear in any sidebar section or the footer live count. It surfaces in the
+**Attention stack** when it waits on an Approval card or another answer, and
+after it finishes it holds its unread mark there until you open it. The
+Routines view also shows a banner with **Review approval** while a run waits.
+
+On a routine run the Approval card offers **Deny** and **Allow once** only. A
+card nobody answers is denied automatically after 24 hours. Each answered card
+resumes the run.
+
+Limits are fixed: a run is stopped at 30 minutes from its fire, at its spend
+cap, or by a provider usage limit. 60 seconds after a run ends, it settles
+itself; a reply typed into it before or after reopens it like any session and
+keeps its tool policy.
+
+### Run history and retention
+
+Each routine's **Run history** lists its fires with an outcome — **Running**,
+**Waiting on approval**, **On time**, **Late**, **Skipped**, or **Failed** —
+and a reason when one applies (previous run still open, another routine was
+running, spend cap, 30-minute timeout, usage limit, approval timeout, could not
+start, destination project unavailable, interrupted when the app quit, or an
+error). **Open session** opens the run's transcript.
+
+Runs untouched for 30 days are pruned: the session and its worktree checkout
+are deleted, an unmerged branch is kept, and the history row reads
+**pruned**. A run you replied to counts its last activity from that reply.
+History rows older than 30 days are dropped.
+
+Deleting a routine removes it and its run history. Live runs keep running, and
+retained runs become ordinary sessions in your sidebar.
+
+### Routines are per host
+
+Routines live on one machine; two machines with the gate on each keep and fire
+their own copy. A joined remote instance never sees this host's routines (see
+[Remote instances](remote-instances.md#what-crosses-and-what-does-not)); a
+browser connected through remote access manages them in full (see
+[Remote access](remote-access.md#understand-what-is-hosted)). Webhooks, the MCP
+endpoint, and agent host tools cannot create, change, or run a routine.
+
 ## Plan mode and review
 
 **Build mode** allows working-tree writes and state-changing commands. **Plan mode** makes OMP explore read-only and answer in the same session. Plan mode does not require every response to produce a plan. A review begins only when your prompt asks for a plan and the agent submits a plan artifact.
