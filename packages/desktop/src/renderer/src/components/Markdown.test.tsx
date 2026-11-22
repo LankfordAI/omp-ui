@@ -5,6 +5,7 @@ import { act, type ReactNode } from "react";
 import { createRoot, type Root } from "react-dom/client";
 import { linkify, Markdown, ObsidianNoteLinkContext } from "./Markdown";
 import { TabMachineContext } from "./MarkdownMachineContext";
+import { RoutineFocusContext } from "./MarkdownRoutineContext";
 import { obsidianReplyLink, type ObsidianNoteTarget } from "@omp-ui/core/vault-shared";
 import { DEFAULT_THEME_ID, resolveTheme } from "../lib/themes";
 
@@ -975,5 +976,50 @@ describe("owner-loopback transcript links (#1023)", () => {
     open.mockRestore();
     act(() => root.unmount());
     el.remove();
+  });
+});
+
+describe("Markdown routine review links (ADR-0100 amendment)", () => {
+  const ID = "AbCdEfGhIjKlMnOpQrStUv";
+
+  function scoped(text: string, focus: ((id: string) => void) | null) {
+    const el = document.createElement("div");
+    document.body.appendChild(el);
+    const root = createRoot(el);
+    act(() => root.render(
+      <RoutineFocusContext.Provider value={focus}>
+        <Markdown text={text} />
+      </RoutineFocusContext.Provider>,
+    ));
+    return { el, root };
+  }
+
+  it("renders the review link clickable and routes the click to focusRoutine", () => {
+    const focus = vi.fn();
+    const { el, root } = scoped(`[Review "Gmail triage" in Routines](omp-ui://routine/${ID})`, focus);
+    const anchor = el.querySelector("a");
+    expect(anchor).not.toBeNull();
+    expect(anchor!.getAttribute("href")).toBeNull();
+    expect(anchor!.textContent).toContain("Review \"Gmail triage\" in Routines");
+    act(() => {
+      anchor!.dispatchEvent(new MouseEvent("click", { bubbles: true }));
+    });
+    expect(focus).toHaveBeenCalledWith(ID);
+    act(() => root.unmount());
+  });
+
+  it("keeps a malformed or non-routine omp-ui href plain text", () => {
+    const focus = vi.fn();
+    const { el, root } = scoped(`[x](omp-ui://routine/not-an-id) [y](omp-ui://plan)`, focus);
+    expect(el.querySelector("a")).toBeNull();
+    expect(focus).not.toHaveBeenCalled();
+    act(() => root.unmount());
+  });
+
+  it("falls back to plain text without the app-root provider", () => {
+    const { el, root } = scoped(`[Review](omp-ui://routine/${ID})`, null);
+    expect(el.textContent).toBe("Review");
+    expect(el.querySelector("a")).toBeNull();
+    act(() => root.unmount());
   });
 });

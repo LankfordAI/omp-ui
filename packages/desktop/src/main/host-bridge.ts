@@ -90,6 +90,11 @@ import {
   type SessionsResourceDeps,
   type HostUriContentType,
   type RpcFrame,
+  ROUTINE_CREATE_TOOL_NAME,
+  parseRoutineAgentCreateArgs,
+  parseRoutineFocusUri,
+  routineFocusUri,
+  type RoutineAgentCreateArgs,
 } from "@omp-ui/core";
 import type { ConfinedPlanRead } from "./plan-file";
 import type { ArtifactService } from "./artifact-service";
@@ -175,6 +180,8 @@ export interface HostBridgeDeps {
   };
   /** The issue host tools' answerer (ADR-0095); absent means both answer as unavailable. */
   issues?: IssueBridgeDeps;
+  /** The routine authoring tool's answerer (ADR-0100 amendment); absent means it answers as unavailable. */
+  routines?: { create(tabId: string, args: RoutineAgentCreateArgs): Promise<{ id: string; name: string }> };
   artifacts?: ArtifactService;
 }
 
@@ -735,6 +742,28 @@ export class HostBridge {
       this.answer(call.id, frame, send);
       return;
     }
+    if (call.toolName === ROUTINE_CREATE_TOOL_NAME) {
+      const routines = this.deps.routines;
+      if (routines === undefined) {
+        this.answer(call.id, hostToolErrorResult(call.id, "routine tools are unavailable"), send);
+        return;
+      }
+      let frame: RpcFrame;
+      try {
+        const args = parseRoutineAgentCreateArgs(call.args);
+        const created = await routines.create(tabId, args);
+        // The create path forces enabled: false (core routineInputFromAgentCreate).
+        frame = hostToolTextResult(call.id, [
+          `Created routine "${created.name}" (id ${created.id}) as a disabled draft.`,
+          `[Review "${created.name}" in Routines](${routineFocusUri(created.id)})`,
+          "It will not run until the user opens it and turns on the enable switch. Tell the user routine authoring always lands disabled and they must review and enable it.",
+        ].join("\n"));
+      } catch (error) {
+        frame = hostToolErrorResult(call.id, `routines_create refused: ${error instanceof Error ? error.message : "unavailable"}`);
+      }
+      this.answer(call.id, frame, send);
+      return;
+    }
     if (call.toolName !== HOST_NOTIFY_TOOL_NAME) {
       this.answer(call.id, hostToolErrorResult(call.id, `unknown host tool "${call.toolName}"`), send);
       return;
@@ -1171,6 +1200,14 @@ export class HostBridge {
     const query = queryAt === -1 ? "" : parsed.resource.slice(queryAt + 1);
     if (resourcePath === "sessions" || SESSION_SUMMARY_RESOURCE.test(resourcePath)) {
       await this.answerSessions(request.id, resourcePath, query, send);
+      return;
+    }
+    if (parseRoutineFocusUri(request.url) !== null) {
+      this.answer(
+        request.id,
+        hostUriErrorResult(request.id, "omp-ui://routine links are clickable chat links for the user; there is nothing to read"),
+        send,
+      );
       return;
     }
     if (resourcePath !== "plan") {

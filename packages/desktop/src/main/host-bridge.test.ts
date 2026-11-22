@@ -2336,14 +2336,90 @@ describe("HostBridge vault quota, diagnostics, and cancellation", () => {
   });
 });
 
-describe("HostBridge routine authority (ADR-0100, U13)", () => {
-  it("registers no routine host tool under any option set and refuses one by name", async () => {
-    const all = hostToolsDefinition({ vault: true, fleet: true, device: true, theme: true, issues: true, artifacts: true });
-    expect(all.filter((tool) => /routine/i.test(`${tool.name} ${tool.description}`))).toEqual([]);
-    const f = fixture();
-    f.bridge.route("t1", toolCallFrame("h1", "omp-ui_routines_create", { name: "x" }), f.send);
+describe("HostBridge routine authority (ADR-0100, U13, amended)", () => {
+  const GOOD_ARGS = {
+    name: "Gmail triage",
+    instructions: "Summarize unread mail.",
+    schedule: { kind: "cron", expr: "0 9 * * *" },
+    timeZone: "America/New_York",
+    projectCwd: "/home/user/project",
+    mode: "build",
+    allow: ["read"],
+  };
+  const ROUTINE_ID = "AbCdEfGhIjKlMnOpQrStUv";
+
+  function routineFixture() {
+    const sent: RpcFrame[] = [];
+    const received: unknown[] = [];
+    const deps: HostBridgeDeps = {
+      readPlanFile: async () => ({ ok: false, reason: "unreadable" }),
+      planSnapshot: () => null,
+      planRoot: () => null,
+      notify: () => "posted",
+      capabilitySessionId: () => null,
+      log: () => {},
+      routines: {
+        create: async (_tabId, args) => {
+          received.push(args);
+          return { id: ROUTINE_ID, name: "Gmail triage" };
+        },
+      },
+    };
+    return { bridge: new HostBridge(deps), sent, received, send: (frame: RpcFrame) => sent.push(frame) };
+  }
+
+  it("registers only omp-ui_routines_create when opts.routines and nothing older gains it", () => {
+    const all = hostToolsDefinition({ vault: true, fleet: true, device: true, theme: true, issues: true, artifacts: true, routines: true });
+    expect(all.filter((tool) => /routine/i.test(tool.name)).map((tool) => tool.name)).toEqual(["omp-ui_routines_create"]);
+    expect(all[all.length - 1]!.name).toBe("omp-ui_routines_create");
+    // Every pre-amendment option set (and the default) registers no routine tool.
+    expect(hostToolsDefinition().some((tool) => /routine/i.test(tool.name))).toBe(false);
+    const legacy = hostToolsDefinition({ vault: true, fleet: true, device: true, theme: true, issues: true, artifacts: true, routines: false } as never);
+    expect(legacy.some((tool) => /routine/i.test(tool.name))).toBe(false);
+  });
+
+  it("answers a well-formed create with the disabled-draft text and review link", async () => {
+    const f = routineFixture();
+    f.bridge.route("t1", toolCallFrame("h1", "omp-ui_routines_create", GOOD_ARGS), f.send);
     await settled();
+    // The service receives the validated narrow args, spend defaulted to inherit.
+    expect(f.received).toHaveLength(1);
+    expect(f.received[0]).toMatchObject({ ...GOOD_ARGS, model: null, thinkingLevel: null, warnUsd: null, maxUsd: null });
     expect(f.sent).toHaveLength(1);
-    expect(f.sent[0]).toMatchObject({ type: "host_tool_result", id: "h1", isError: true });
+    expect(f.sent[0]).not.toHaveProperty("isError");
+    const text = resultText(f.sent[0]!);
+    expect(text).toContain(`Created routine "Gmail triage" (id ${ROUTINE_ID}) as a disabled draft.`);
+    expect(text).toContain(`[Review "Gmail triage" in Routines](omp-ui://routine/${ROUTINE_ID})`);
+  });
+
+  it("refuses args the schema cannot express: an extra enabled or deny key never reaches the service", async () => {
+    const f = routineFixture();
+    f.bridge.route("t1", toolCallFrame("h1", "omp-ui_routines_create", { ...GOOD_ARGS, enabled: true }), f.send);
+    f.bridge.route("t1", toolCallFrame("h2", "omp-ui_routines_create", { ...GOOD_ARGS, toolPolicy: { allow: [], deny: ["bash"], lastReviewedAt: "2026-01-01T00:00:00.000Z", reviewedCatalog: [] } }), f.send);
+    await settled();
+    expect(f.received).toEqual([]);
+    expect(f.sent[0]).toMatchObject({ id: "h1", isError: true });
+    expect(JSON.stringify(f.sent[0])).toContain("enabled");
+    expect(f.sent[1]).toMatchObject({ id: "h2", isError: true });
+  });
+
+  it("refuses a bad schedule or unknown zone with the thrown reason so the agent can retry", async () => {
+    const f = routineFixture();
+    f.bridge.route("t1", toolCallFrame("h1", "omp-ui_routines_create", { ...GOOD_ARGS, schedule: { kind: "once", atMs: 1 } }), f.send);
+    f.bridge.route("t1", toolCallFrame("h2", "omp-ui_routines_create", { ...GOOD_ARGS, timeZone: "Mars/Olympus" }), f.send);
+    await settled();
+    expect(f.received).toEqual([]);
+    expect(JSON.stringify(f.sent[0])).toContain("schedule");
+    expect(JSON.stringify(f.sent[1])).toContain("time zone");
+  });
+
+  it("answers unavailable when the routines dep is absent and explains the review URI on read", async () => {
+    const f = fixture();
+    f.bridge.route("t1", toolCallFrame("h1", "omp-ui_routines_create", GOOD_ARGS), f.send);
+    f.bridge.route("t1", uriRequestFrame("u1", `omp-ui://routine/${ROUTINE_ID}`), f.send);
+    await settled();
+    expect(JSON.stringify(f.sent[0])).toContain("routine tools are unavailable");
+    expect(f.sent[1]).toMatchObject({ type: "host_uri_result", id: "u1", isError: true });
+    expect(JSON.stringify(f.sent[1])).toContain("clickable chat links for the user");
   });
 });

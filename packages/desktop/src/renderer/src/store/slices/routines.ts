@@ -22,8 +22,14 @@ export interface RoutinesSlice {
   routinesState: RoutinesState | null;
   /** The full-pane Routines view is showing (closed by any tab activation, like Stats). */
   routinesOpen: boolean;
+  /** A transcript review link asked the view to focus this routine id; cleared once picked. */
+  routineFocusId: string | null;
   openRoutines(): void;
   closeRoutines(): void;
+  /** Opens the view and asks it to select one routine (omp-ui://routine review link). */
+  focusRoutine(id: string): void;
+  /** The view consumed the focus request. */
+  clearRoutineFocus(): void;
   replaceRoutines(state: RoutinesState): void;
   refreshRoutines(): Promise<void>;
   createRoutine(input: RoutineInput): Promise<RoutineRecord>;
@@ -39,6 +45,7 @@ export function createRoutinesSlice(set: SetState, get: GetState): RoutinesSlice
   return {
     routinesState: null,
     routinesOpen: false,
+    routineFocusId: null,
     openRoutines() {
       if (get().state?.routinesEnabled !== true) return;
       bumpNavigationGeneration();
@@ -46,9 +53,19 @@ export function createRoutinesSlice(set: SetState, get: GetState): RoutinesSlice
       set({ routinesOpen: true, artifacts: null, stats: null, fleet: null, fleetTerminal: null, compactSurface: null });
       void get().refreshRoutines();
     },
+    focusRoutine(id) {
+      if (get().state?.routinesEnabled !== true) return;
+      // openRoutines() is the same navigation; set the focus id after it so a
+      // gate-off open leaves no stale request behind.
+      get().openRoutines();
+      if (get().routinesOpen) set({ routineFocusId: id });
+    },
+    clearRoutineFocus() {
+      set({ routineFocusId: null });
+    },
     closeRoutines() {
       bumpNavigationGeneration();
-      set({ routinesOpen: false });
+      set({ routinesOpen: false, routineFocusId: null });
     },
     replaceRoutines(routinesState) {
       set({ routinesState });

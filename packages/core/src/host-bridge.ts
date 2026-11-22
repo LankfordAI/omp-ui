@@ -8,6 +8,7 @@
 // malformed, and a URI scheme must match `^[a-z][a-z0-9+.-]*$`.
 
 import { deviceTool } from "./device-tool";
+import { ROUTINE_COST_MAX_USD, ROUTINE_INSTRUCTIONS_MAX, ROUTINE_NAME_MAX } from "./routine";
 import { issueDraftTool, issueFileTool } from "./issue-tool";
 import { themeListTool, themeSetTool, themeTool } from "./theme-tool";
 import {
@@ -83,12 +84,14 @@ export function hostUriSchemeDefinition(): RpcHostUriSchemeDefinition {
   };
 }
 
-export interface HostToolOptions { vault: boolean; fleet: boolean; device: boolean; theme: boolean; issues: boolean; artifacts: boolean }
+export interface HostToolOptions { vault: boolean; fleet: boolean; device: boolean; theme: boolean; issues: boolean; artifacts: boolean; routines: boolean }
 export const ARTIFACT_CAPTURE_TOOL_NAME = "omp-ui_artifact_capture";
+/** The one routine host tool (ADR-0100 amendment): author a disabled draft only. */
+export const ROUTINE_CREATE_TOOL_NAME = "omp-ui_routines_create";
 
-/** Notify and render_html are always present; registered vaults enable the ten vault tools; the caller's fleet gate (every chat, or the fleet setting) enables the nine fleet tools; a session-bound device pane enables omp-ui_device; the theme agent-access setting enables omp-ui_theme_save, omp-ui_theme_set and omp-ui_theme_list after it; the issue agent-access setting enables omp-ui_issue_draft and omp-ui_issue_file after that; managed artifacts enable omp-ui_artifact_capture last. */
+/** Notify and render_html are always present; registered vaults enable the ten vault tools; the caller's fleet gate (every chat, or the fleet setting) enables the nine fleet tools; a session-bound device pane enables omp-ui_device; the theme agent-access setting enables omp-ui_theme_save, omp-ui_theme_set and omp-ui_theme_list after it; the issue agent-access setting enables omp-ui_issue_draft and omp-ui_issue_file after that; managed artifacts enable omp-ui_artifact_capture; the Routines gate enables omp-ui_routines_create last. */
 export function hostToolsDefinition(
-  opts: HostToolOptions = { vault: false, fleet: false, device: false, theme: false, issues: false, artifacts: false },
+  opts: HostToolOptions = { vault: false, fleet: false, device: false, theme: false, issues: false, artifacts: false, routines: false },
 ): RpcHostToolDefinition[] {
   const tools: RpcHostToolDefinition[] = [
     {
@@ -115,7 +118,49 @@ export function hostToolsDefinition(
   if (opts.theme) tools.push(themeTool(), themeSetTool(), themeListTool());
   if (opts.issues) tools.push(issueDraftTool(), issueFileTool());
   if (opts.artifacts) tools.push(artifactCaptureTool());
+  if (opts.routines) tools.push(routineCreateTool());
   return tools;
+}
+
+/**
+ * The routine authoring tool (ADR-0100 amendment). The answerer forces
+ * `enabled: false` server-side: an agent may author a routine, only a human
+ * can arm one. Update, delete, and runNow stay human-only by absence.
+ */
+function routineCreateTool(): RpcHostToolDefinition {
+  return {
+    name: ROUTINE_CREATE_TOOL_NAME,
+    loadMode: "essential",
+    description:
+      "Create a scheduled Routine in the user's Routines library. Call it ONLY when the user explicitly asked for a recurring scheduled agent run; never for one-off timing of your own work. " +
+      "The routine is always saved DISABLED and cannot be enabled, edited, or run by you: the user must open it and turn on the enable switch before it ever fires. " +
+      "projectCwd must be a registered project path (omp-ui_fleet_machines lists them). allow lists exact omp tool keys the routine may use unprompted; anything else prompts the user at fire time. " +
+      `name ≤ 80 characters, instructions ≤ ${ROUTINE_INSTRUCTIONS_MAX}, timeZone an IANA zone, schedule a cron expression. ` +
+      "Paste the returned Markdown review link verbatim into your reply so the user can open the routine for review.",
+    parameters: {
+      type: "object",
+      additionalProperties: false,
+      required: ["name", "instructions", "schedule", "timeZone", "projectCwd", "mode", "allow"],
+      properties: {
+        name: { type: "string", maxLength: ROUTINE_NAME_MAX },
+        instructions: { type: "string", maxLength: ROUTINE_INSTRUCTIONS_MAX },
+        schedule: {
+          type: "object",
+          additionalProperties: false,
+          required: ["kind", "expr"],
+          properties: { kind: { const: "cron" }, expr: { type: "string" } },
+        },
+        timeZone: { type: "string", description: "IANA time zone, e.g. America/New_York." },
+        projectCwd: { type: "string", description: "Registered project path the routine runs in (always a fresh worktree)." },
+        mode: { type: "string", enum: ["plan", "build"] },
+        model: { type: ["string", "null"], description: "Model selector; null = machine default." },
+        thinkingLevel: { type: ["string", "null"], description: "Thinking level; null = machine default." },
+        allow: { type: "array", items: { type: "string" }, description: "Exact omp tool keys allowed unprompted at fire time." },
+        warnUsd: { type: ["number", "null"], minimum: 0, maximum: ROUTINE_COST_MAX_USD, description: "Spend warning cap; null = registry default." },
+        maxUsd: { type: ["number", "null"], minimum: 0, maximum: ROUTINE_COST_MAX_USD, description: "Spend hard cap; null = registry default." },
+      },
+    },
+  };
 }
 
 /**
@@ -613,7 +658,7 @@ export function setHostUriSchemesCommand(id = "omp-ui-host-uri-1"): object {
 }
 
 export function setHostToolsCommand(
-  opts: HostToolOptions = { vault: false, fleet: false, device: false, theme: false, issues: false, artifacts: false },
+  opts: HostToolOptions = { vault: false, fleet: false, device: false, theme: false, issues: false, artifacts: false, routines: false },
   id = "omp-ui-host-tools-1",
 ): object {
   return { id, type: "set_host_tools", tools: hostToolsDefinition(opts) };

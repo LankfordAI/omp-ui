@@ -82,6 +82,7 @@ import {
   WebhookStore,
   RoutineRunHistory,
   RoutineStore,
+  routineInputFromAgentCreate,
   type RoutineDryRunRequest,
   type RoutineInput,
   type RoutinePatch,
@@ -687,6 +688,15 @@ export class MainBackend {
             nativeImage.createFromBitmap(bitmap, { width, height }).toJPEG(quality),
           agentDeviceBin: () => resolveAgentDeviceBin(),
           stateDir: () => path.join(app.getPath("userData"), "agent-device"),
+        },
+        // Routines (ADR-0100 amendment): the agent authoring tool creates a
+        // disabled draft through the same service the editor uses. Lazy: the
+        // service is constructed after this manager, like publish() below.
+        routines: {
+          create: async (_tabId, args) => {
+            const record = await this.routines.create(routineInputFromAgentCreate(args, new Date().toISOString()));
+            return { id: record.id, name: record.name };
+          },
         },
         // Routines (ADR-0100): the per-run timer owner, right after the dialog gates.
         routineLifecycle: (access) => {

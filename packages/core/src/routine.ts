@@ -197,6 +197,110 @@ export interface RoutineCatalogSnapshot {
   capturedAt: string;
 }
 
+/**
+ * The narrow agent-facing shape behind `omp-ui_routines_create` (ADR-0100
+ * amendment): everything a human editor picks except `enabled`, `deny`, the
+ * workspace choice, and the review stamps — those are host-authored.
+ */
+export interface RoutineAgentCreateArgs {
+  name: string;
+  instructions: string;
+  schedule: { kind: "cron"; expr: string };
+  timeZone: string;
+  projectCwd: string;
+  mode: RoutineMode;
+  model: string | null;
+  thinkingLevel: string | null;
+  allow: string[];
+  warnUsd: number | null;
+  maxUsd: number | null;
+}
+
+const AGENT_CREATE_KEYS = new Set([
+  "name",
+  "instructions",
+  "schedule",
+  "timeZone",
+  "projectCwd",
+  "mode",
+  "model",
+  "thinkingLevel",
+  "allow",
+  "warnUsd",
+  "maxUsd",
+]);
+
+/**
+ * Validates the host tool's arguments off the wire; throws with the reason.
+ * Strict on purpose: `enabled`, `deny`, `spend`-as-object, and the review
+ * stamps are not expressible here — the answerer owns them.
+ */
+export function parseRoutineAgentCreateArgs(raw: unknown): RoutineAgentCreateArgs {
+  if (!isPlainObject(raw)) throw new Error("routine create arguments must be an object");
+  assertAllowedKeys(raw, AGENT_CREATE_KEYS, "routine create arguments");
+  const name = parseName(raw.name);
+  const instructions = parseInstructions(raw.instructions);
+  if (!isPlainObject(raw.schedule) || raw.schedule.kind !== "cron") {
+    throw new Error("schedule must be { kind: \"cron\", expr }");
+  }
+  const schedule = parseSchedule(raw.schedule);
+  if (schedule.kind !== "cron") throw new Error("routine schedule must be a cron expression");
+  const timeZone = parseTimeZone(raw.timeZone);
+  if (typeof raw.projectCwd !== "string" || raw.projectCwd.trim() === "" || hasControlChar(raw.projectCwd)) {
+    throw new Error("projectCwd must be a non-empty path");
+  }
+  const mode = parseMode(raw.mode);
+  const allow = parseToolKeyList(raw.allow, "allow");
+  return {
+    name,
+    instructions,
+    schedule,
+    timeZone,
+    projectCwd: raw.projectCwd,
+    mode,
+    model: parseNullableString(raw.model === undefined ? null : raw.model, "model"),
+    thinkingLevel: parseNullableString(raw.thinkingLevel === undefined ? null : raw.thinkingLevel, "thinkingLevel"),
+    allow,
+    warnUsd: parseSpendNumber(raw.warnUsd === undefined ? null : raw.warnUsd, "warnUsd"),
+    maxUsd: parseSpendNumber(raw.maxUsd === undefined ? null : raw.maxUsd, "maxUsd"),
+  };
+}
+
+/**
+ * Builds the stored input from agent create args. The guardrail lives here:
+ * `enabled` is forced false and the review stamps are placeholders that
+ * `RoutineService.create` overwrites with the live catalog — an agent can
+ * author a routine, only a human can arm one.
+ */
+export function routineInputFromAgentCreate(args: RoutineAgentCreateArgs, nowIso: string): RoutineInput {
+  return {
+    name: args.name,
+    instructions: args.instructions,
+    schedule: args.schedule,
+    timeZone: args.timeZone,
+    destination: { projectCwd: args.projectCwd, workspace: "worktree" },
+    mode: args.mode,
+    model: args.model,
+    thinkingLevel: args.thinkingLevel,
+    spend: { warnUsd: args.warnUsd, maxUsd: args.maxUsd },
+    toolPolicy: { allow: args.allow, deny: [], lastReviewedAt: nowIso, reviewedCatalog: [] },
+    enabled: false,
+  };
+}
+
+/** The chat-link URI that focuses one routine in the Routines view. */
+export function routineFocusUri(id: string): string {
+  if (!ROUTINE_ID_PATTERN.test(id)) throw new Error("invalid routine id");
+  return `omp-ui://routine/${id}`;
+}
+
+/** Strict parser for the transcript review link; mirrors parseObsidianNoteUri's discipline. */
+export function parseRoutineFocusUri(href: string): string | null {
+  if (/\s/.test(href)) return null;
+  const match = /^omp-ui:\/\/routine\/([A-Za-z0-9_-]{22})$/.exec(href);
+  return match === null ? null : (match[1] as string);
+}
+
 export interface CompiledRoutinePolicy {
   approvalMode: "always-ask";
   /** Total map over every catalogued tool + every explicit policy entry. */

@@ -45,6 +45,18 @@ export function RoutinesView() {
 
   const routines = state?.routines ?? [];
   const runs = state?.runs ?? [];
+  // A transcript review link (omp-ui://routine/<id>) picked a routine: select
+  // it once the list carries it, then consume the request. A vanished id
+  // (deleted between create and click) just clears.
+  const routineFocusId = useStore((s) => s.routineFocusId);
+  const clearRoutineFocus = useStore((s) => s.clearRoutineFocus);
+  useEffect(() => {
+    if (routineFocusId === null) return;
+    if (routines.some((routine) => routine.id === routineFocusId)) pick({ kind: "routine", id: routineFocusId });
+    clearRoutineFocus();
+    // `pick` is a stable local setter over setState; routines read once per request.
+    // eslint-disable-next-line react-hooks/exhaustive-deps
+  }, [routineFocusId]);
   const selected: RoutineRecord | null =
     selection?.kind === "routine" ? (routines.find((r) => r.id === selection.id) ?? null) : null;
   // Wide layout always shows a detail: the first routine when nothing is picked.

@@ -8,8 +8,12 @@ import {
   isRoutineRecord,
   isRoutineRunRow,
   isSessionRoutine,
+  parseRoutineAgentCreateArgs,
+  parseRoutineFocusUri,
   parseRoutineInput,
   parseRoutinePatch,
+  routineFocusUri,
+  routineInputFromAgentCreate,
   routinePrompt,
   routineRunTitle,
   type RoutineInput,
@@ -237,5 +241,57 @@ describe("RoutineStore & RoutineRunHistory (U1)", () => {
     expect(rows.find((r) => r.id === "r1")).toMatchObject({ outcome: "failed", reasonCode: "interrupted" });
     expect(rows.find((r) => r.id === "r2")).toMatchObject({ outcome: "failed", reasonCode: "interrupted" });
     expect(rows.find((r) => r.id === "r3")).toMatchObject({ outcome: "on-time", reasonCode: null });
+  });
+});
+
+describe("routineFocusUri & parseRoutineFocusUri (ADR-0100 amendment)", () => {
+  it("round-trips a valid id and rejects malformed hrefs", () => {
+    expect(parseRoutineFocusUri(routineFocusUri(VALID_ID))).toBe(VALID_ID);
+    expect(routineFocusUri(VALID_ID)).toBe(`omp-ui://routine/${VALID_ID}`);
+    expect(() => routineFocusUri("short")).toThrow();
+    expect(parseRoutineFocusUri("omp-ui://routine/short")).toBeNull();
+    expect(parseRoutineFocusUri(`omp-ui://routine/${VALID_ID}x`)).toBeNull();
+    expect(parseRoutineFocusUri(`omp-ui://routine/${VALID_ID}?x=1`)).toBeNull();
+    expect(parseRoutineFocusUri(`omp-ui://routine/${VALID_ID}#f`)).toBeNull();
+    expect(parseRoutineFocusUri(`omp-ui://routine/${VALID_ID.slice(0, 16)} ${VALID_ID.slice(17)}`)).toBeNull();
+    expect(parseRoutineFocusUri(`https://x/routine/${VALID_ID}`)).toBeNull();
+    expect(parseRoutineFocusUri("omp-ui://routine")).toBeNull();
+    expect(parseRoutineFocusUri(`OMP-UI://routine/${VALID_ID}`)).toBeNull();
+    expect(parseRoutineFocusUri(`omp-ui://routine/${"a".repeat(21)}!`)).toBeNull();
+  });
+});
+
+describe("parseRoutineAgentCreateArgs & routineInputFromAgentCreate (ADR-0100 amendment)", () => {
+  const GOOD = {
+    name: "Gmail triage",
+    instructions: "Summarize unread mail.",
+    schedule: { kind: "cron", expr: "@daily" },
+    timeZone: "America/New_York",
+    projectCwd: "/home/dev/repo",
+    mode: "build",
+    allow: ["read", "grep"],
+  };
+
+  it("accepts the narrow shape and defaults spend to inherit", () => {
+    const args = parseRoutineAgentCreateArgs(GOOD);
+    expect(args.warnUsd).toBeNull();
+    expect(args.maxUsd).toBeNull();
+    const input = routineInputFromAgentCreate(args, "2026-11-22T12:00:00.000Z");
+    // The guardrail: an agent-created routine is always a disabled draft.
+    expect(input.enabled).toBe(false);
+    expect(input.destination).toEqual({ projectCwd: "/home/dev/repo", workspace: "worktree" });
+    expect(input.toolPolicy).toEqual({ allow: ["read", "grep"], deny: [], lastReviewedAt: "2026-11-22T12:00:00.000Z", reviewedCatalog: [] });
+    expect(() => parseRoutineInput(input)).not.toThrow();
+  });
+
+  it("refuses keys the schema cannot express and bad values", () => {
+    expect(() => parseRoutineAgentCreateArgs({ ...GOOD, enabled: true })).toThrow(/enabled/);
+    expect(() => parseRoutineAgentCreateArgs({ ...GOOD, toolPolicy: GOOD.allow })).toThrow();
+    expect(() => parseRoutineAgentCreateArgs({ ...GOOD, schedule: { kind: "once", atMs: 1 } })).toThrow(/cron/);
+    expect(() => parseRoutineAgentCreateArgs({ ...GOOD, timeZone: "Mars/Olympus" })).toThrow(/time zone/);
+    expect(() => parseRoutineAgentCreateArgs({ ...GOOD, projectCwd: "  " })).toThrow();
+    expect(() => parseRoutineAgentCreateArgs({ ...GOOD, mode: "yolo" })).toThrow();
+    expect(() => parseRoutineAgentCreateArgs({ ...GOOD, maxUsd: 1e9 })).toThrow();
+    expect(parseRoutineAgentCreateArgs({ ...GOOD, model: null, thinkingLevel: null }).model).toBeNull();
   });
 });
