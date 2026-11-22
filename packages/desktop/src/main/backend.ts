@@ -3484,7 +3484,13 @@ export class MainBackend {
         ? "dormant"
         : loc.where === "archived"
           ? "archived"
-          : "missing";
+          : record.sessionId === null
+            // omp writes the transcript lazily, on the first turn. A record
+            // that never materialized a session id never had files to lose:
+            // it reads dormant (fresh start), not missing (#1265). Same rule
+            // prepareResumeRecord applies at spawn-config.ts.
+            ? "dormant"
+            : "missing";
     const streamStalled = this.sessions.isStreamStalled(record.tabId);
     const turnRunning = this.sessions.isTurnRunning(record.tabId);
     const turnAwaitingAsyncWork = this.sessions.isTurnAwaitingAsyncWork(record.tabId);
