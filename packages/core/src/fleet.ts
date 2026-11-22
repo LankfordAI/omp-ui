@@ -10,6 +10,7 @@ import { compareVersions } from "./semver";
 import { PROVIDER_ENV_NAMES } from "./provider-catalog";
 import { parseModelRole } from "./model-role";
 import type { CatalogModelOption, ModelCatalogSnapshot, SessionSummary, WorktreeBranchRemoval, WorktreeReleaseResult } from "./types";
+import { isSessionRoutine, type SessionRoutine } from "./routine";
 
 export const LOCAL_MACHINE_KEY = "local";
 export type PlacementPreference = "prefer" | "normal" | "less" | "manual";
@@ -198,11 +199,23 @@ export interface FleetRequester {
   label: string;
   /**
    * "webhook": a Webhook delivery on this app (issue #997, ADR-0075); "mcp": an
-   * MCP client of this app's MCP endpoint (issue #996, ADR-0080). Neither gets fleet tools.
+   * MCP client of this app's MCP endpoint (issue #996, ADR-0080); "routine": a
+   * scheduled Routine run on this host (issue #1244, ADR-0100). None gets fleet tools.
    */
-  kind: "user" | "agent" | "webhook" | "mcp";
-  /** The agent's tab on the dispatcher, or the MCP client id; null for a user or webhook dispatch. */
+  kind: "user" | "agent" | "webhook" | "mcp" | "routine";
+  /** The agent's tab on the dispatcher, or the MCP client id; null for user, webhook, or routine dispatches. */
   sourceTabId: string | null;
+}
+
+/**
+ * Single shared predicate for outside-sender requester kinds (ADR-0100, #1254):
+ * webhooks, MCP clients, and routines are all excluded from fleet tools
+ * (`"external-sender"`) and host-mutating agent tools (device, theme, issues).
+ */
+export function isOutsideSenderKind(
+  kind: FleetRequester["kind"] | null | undefined,
+): boolean {
+  return kind === "webhook" || kind === "mcp" || kind === "routine";
 }
 
 /**
@@ -219,7 +232,7 @@ export type FleetToolAccess =
   | "setting-off"
   /** Agent-dispatched: the no-recursion gate withholds the tools whatever the setting says (ADR-0061). */
   | "agent-recursion"
-  /** Webhook- or MCP-started: an outside sender never gets them, whatever the setting says (ADR-0075, ADR-0080). */
+  /** Webhook-, MCP-, or routine-started: an outside sender never gets them, whatever the setting says (ADR-0075, ADR-0080, ADR-0100). */
   | "external-sender";
 
 /** The inputs `fleetToolAccess` decides from — exactly what the spawn gate reads. */
@@ -243,7 +256,7 @@ export interface FleetToolAccessInput {
 export function fleetToolAccess(input: FleetToolAccessInput): FleetToolAccess {
   if (input.chat) return "granted";
   if (input.requestedByKind === "agent") return "agent-recursion";
-  if (input.requestedByKind === "webhook" || input.requestedByKind === "mcp") return "external-sender";
+  if (isOutsideSenderKind(input.requestedByKind)) return "external-sender";
   return input.agentDispatchEnabled ? "granted" : "setting-off";
 }
 
@@ -264,6 +277,8 @@ export interface FleetSpawnSpec {
   model?: string;
   /** #956: the main thinking level the dispatcher asked for; absent = the owner decides. */
   thinkingLevel?: string;
+  /** ADR-0100: pinned Routine metadata and compiled tool policy; valid only when requestedBy.kind === "routine". */
+  routine?: SessionRoutine;
 }
 
 /** Persisted on OwnedSessionRecord.fleet (no prompt: it is staged on disk). */
@@ -703,8 +718,8 @@ export function parseFleetRequester(value: unknown, label = "requester"): FleetR
   if (typeof name !== "string" || name.trim() === "" || CONTROL_CHARS.test(name) || [...name].length > FLEET_LABEL_MAX) {
     throw new Error(`${label}.label must be 1..${FLEET_LABEL_MAX} characters without control characters`);
   }
-  if (r.kind !== "user" && r.kind !== "agent" && r.kind !== "webhook" && r.kind !== "mcp") {
-    throw new Error(`${label}.kind must be user, agent, webhook, or mcp`);
+  if (r.kind !== "user" && r.kind !== "agent" && r.kind !== "webhook" && r.kind !== "mcp" && r.kind !== "routine") {
+    throw new Error(`${label}.kind must be user, agent, webhook, mcp, or routine`);
   }
   return {
     instanceId: idString(r.instanceId, `${label}.instanceId`),
@@ -718,17 +733,36 @@ export function parseFleetRequester(value: unknown, label = "requester"): FleetR
 export function parseFleetSpawnSpec(value: unknown): FleetSpawnSpec {
   const label = "spawn request.fleet";
   const spec = objectValue(value, label);
-  rejectUnknownKeys(spec, ["dispatchId", "batchId", "title", "prompt", "requestedBy", "model", "thinkingLevel"], label);
+  rejectUnknownKeys(spec, ["dispatchId", "batchId", "title", "prompt", "requestedBy", "model", "thinkingLevel", "routine"], label);
+  const requestedBy = parseFleetRequester(spec.requestedBy, `${label}.requestedBy`);
+  let routine: SessionRoutine | undefined;
+  if (spec.routine !== undefined) {
+    if (requestedBy.kind !== "routine") {
+      throw new Error(`${label}.routine is only valid when requestedBy.kind is "routine"`);
+    }
+    if (!isSessionRoutine(spec.routine)) {
+      throw new Error(`${label}.routine must be a valid SessionRoutine`);
+    }
+    routine = {
+      id: spec.routine.id,
+      name: spec.routine.name,
+      approvalEntries: { ...spec.routine.approvalEntries },
+      deniedBuiltins: [...spec.routine.deniedBuiltins],
+      warnCostUsd: spec.routine.warnCostUsd,
+      maxCostUsd: spec.routine.maxCostUsd,
+    };
+  }
   return {
     dispatchId: idString(spec.dispatchId, `${label}.dispatchId`),
     batchId: nullableId(spec.batchId, `${label}.batchId`),
     title: validateFleetTitle(spec.title, `${label}.title`),
     prompt: validateFleetPrompt(spec.prompt, `${label}.prompt`),
-    requestedBy: parseFleetRequester(spec.requestedBy, `${label}.requestedBy`),
+    requestedBy,
     ...(spec.model === undefined ? {} : { model: validateFleetModel(spec.model, `${label}.model`) }),
     ...(spec.thinkingLevel === undefined
       ? {}
       : { thinkingLevel: validateFleetThinkingLevel(spec.thinkingLevel, `${label}.thinkingLevel`) }),
+    ...(routine === undefined ? {} : { routine }),
   };
 }
 
@@ -747,7 +781,7 @@ export function isFleetProvenance(value: unknown): value is FleetProvenance {
   return (
     typeof q.instanceId === "string" &&
     typeof q.label === "string" &&
-    (q.kind === "user" || q.kind === "agent" || q.kind === "webhook" || q.kind === "mcp") &&
+    (q.kind === "user" || q.kind === "agent" || q.kind === "webhook" || q.kind === "mcp" || q.kind === "routine") &&
     (q.sourceTabId === null || typeof q.sourceTabId === "string")
   );
 }

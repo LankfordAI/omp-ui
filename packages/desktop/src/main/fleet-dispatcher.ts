@@ -85,6 +85,7 @@ import {
   type FleetUpdateAllStart,
   type FleetUpdateAllStep,
   type NewRpcSpawnRequest,
+  type SessionRoutine,
   type PlacementCandidate,
   type PlacementPreference,
   type RemoteInstanceSummary,
@@ -423,7 +424,8 @@ export class FleetDispatcher {
       | { kind: "user" }
       | { kind: "webhook" }
       | { kind: "agent"; sourceTabId: string }
-      | { kind: "mcp"; sourceTabId: string },
+      | { kind: "mcp"; sourceTabId: string }
+      | { kind: "routine"; routine: SessionRoutine },
     opts: { deadlineMs?: number } = {},
   ): Promise<FleetDispatchResult> {
     // The channel codec already parsed a user request; the agent path arrives unparsed.
@@ -445,6 +447,10 @@ export class FleetDispatcher {
         if (target.failure !== null || target.project === null) {
           return { ...base, status: "failed", message: target.failure ?? "no project" };
         }
+        const local = target.machineKey === LOCAL_MACHINE_KEY;
+        if (who.kind === "routine" && !local) {
+          return { ...base, status: "failed", message: "routines only target local projects" };
+        }
         const spawn: NewRpcSpawnRequest = {
           origin: "new",
           mode: "rpc-ui",
@@ -454,6 +460,7 @@ export class FleetDispatcher {
           advisor: target.project.advisor,
           advisorModel: target.project.advisorModel,
           planMode: req.planMode,
+          ...(who.kind === "routine" ? { private: true } : {}),
           worktree:
             req.workspace === "worktree"
               ? {
@@ -472,9 +479,9 @@ export class FleetDispatcher {
             requestedBy,
             ...(req.model === undefined ? {} : { model: req.model }),
             ...(req.thinkingLevel === undefined ? {} : { thinkingLevel: req.thinkingLevel }),
+            ...(who.kind === "routine" ? { routine: who.routine } : {}),
           },
         };
-        const local = target.machineKey === LOCAL_MACHINE_KEY;
         const work = local
           ? this.#deps.spawnLocal(spawn)
           : (this.#deps.request(target.machineKey, CH.spawnSession, [spawn]) as Promise<SpawnAnswer>);

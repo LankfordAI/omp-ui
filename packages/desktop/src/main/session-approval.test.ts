@@ -47,7 +47,7 @@ const win = {
 
 let base: string;
 
-function setup(): { sessionsRoot: string } {
+function setup(recordPatch: Record<string, unknown> = {}): { sessionsRoot: string } {
   base = fs.mkdtempSync(path.join(os.tmpdir(), "omp-ui-appr-"));
   const agentDir = path.join(base, "agent");
   process.env.PI_CODING_AGENT_DIR = agentDir;
@@ -91,6 +91,7 @@ function setup(): { sessionsRoot: string } {
         projectCwd: "/proj",
         launchedAt: "2026-07-29T16:18:42.427Z",
         mode: "rpc-ui",
+        ...recordPatch,
       }),
     ],
   });
@@ -175,5 +176,26 @@ describe("session:setApprovalMode (issue #681)", () => {
 
     const overlay = approvalOverlay(rpcOptions.at(-1));
     expect(fs.readFileSync(overlay!, "utf8")).toBe("tools:\n  approvalMode: yolo\n");
+  });
+
+  it("refuses to change approvalMode on a routine run (U14, ADR-0100)", async () => {
+    setup({
+      approvalMode: "always-ask",
+      routine: {
+        id: "abcdefghijklmnopqrstuv",
+        name: "Morning brief",
+        approvalEntries: { read: "allow" },
+        deniedBuiltins: [],
+        warnCostUsd: 2,
+        maxCostUsd: 5,
+      },
+    });
+    await resume();
+
+    await expect(invoke(CH.setSessionApprovalMode, TAB, "yolo")).rejects.toThrow(
+      "approval mode is owned by this routine's tool policy",
+    );
+    expect(readRegistry().sessions[0]).toMatchObject({ approvalMode: "always-ask" });
+    expect(relaunches()).toBe(0);
   });
 });

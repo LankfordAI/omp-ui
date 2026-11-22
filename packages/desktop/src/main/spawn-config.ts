@@ -54,6 +54,8 @@ import {
   writeTreeExtension,
   writeSubagentModelOverlay,
   writePrivateGuardExtension,
+  writeRoutineGuardExtension,
+  writeSpendOverlay,
   writePrivateOverlay,
   writeSideCommandsExtension,
   writeComposerPredictionsExtension,
@@ -153,10 +155,24 @@ export function writeSessionOverlays(
     console.warn("[title] could not write the overlay:", err);
   }
   try {
-    const overlay = writeApprovalOverlay(absLineageDir, record.approvalMode);
+    const overlay = writeApprovalOverlay(
+      absLineageDir,
+      record.approvalMode,
+      record.routine?.approvalEntries,
+    );
     if (overlay !== null) overlays.push(overlay);
   } catch (err) {
     console.warn("[approval] could not write the overlay:", err);
+  }
+  try {
+    const overlay = writeSpendOverlay(
+      absLineageDir,
+      record.routine?.warnCostUsd ?? 0,
+      record.routine?.maxCostUsd ?? 0,
+    );
+    if (overlay !== null) overlays.push(overlay);
+  } catch (err) {
+    console.warn("[spend] could not write the overlay:", err);
   }
   try {
     overlays.push(writeVaultOverlay(absLineageDir));
@@ -404,13 +420,17 @@ export const RPC_BRIDGE_IDS = [
   "askContext",
   "carryoverContext",
   "privateGuard",
+  "routineGuard",
   "sideCommands",
   "composerPredictions",
   "fleetWake",
   "projectScope",
 ] as const;
 export type RpcBridgeId = (typeof RPC_BRIDGE_IDS)[number];
-export type RpcBridgeWriters = Record<RpcBridgeId, (lineageDir: string) => string>;
+export type RpcBridgeWriters = Record<
+  RpcBridgeId,
+  (lineageDir: string, flags: RpcBridgeFlags) => string
+>;
 
 const DEFAULT_RPC_BRIDGE_WRITERS: RpcBridgeWriters = {
   plan: writePlanExtension,
@@ -428,6 +448,7 @@ const DEFAULT_RPC_BRIDGE_WRITERS: RpcBridgeWriters = {
   askContext: writeAskContextExtension,
   carryoverContext: writeCarryoverContextExtension,
   privateGuard: writePrivateGuardExtension,
+  routineGuard: (dir, flags) => writeRoutineGuardExtension(dir, flags.routineDeniedBuiltins ?? []),
   sideCommands: writeSideCommandsExtension,
   composerPredictions: writeComposerPredictionsExtension,
   fleetWake: writeFleetWakeExtension,
@@ -437,6 +458,7 @@ const DEFAULT_RPC_BRIDGE_WRITERS: RpcBridgeWriters = {
 /** The per-spawn bridge gates (#1052); mirrors the registry flags that arm bridges. */
 export interface RpcBridgeFlags {
   autoresearchEnabled: boolean;
+  routineDeniedBuiltins?: readonly string[];
 }
 
 const RPC_BRIDGES: ReadonlyArray<{
@@ -460,6 +482,12 @@ const RPC_BRIDGES: ReadonlyArray<{
   { id: "askContext", logId: "ask", warning: "ask-context", enabled: () => true },
   { id: "carryoverContext", logId: "carryover", warning: "carryover-context", enabled: () => true },
   { id: "privateGuard", logId: "private", warning: "private-guard", enabled: () => true },
+  {
+    id: "routineGuard",
+    logId: "routine",
+    warning: "routine-guard",
+    enabled: (f) => (f.routineDeniedBuiltins?.length ?? 0) > 0,
+  },
   { id: "sideCommands", logId: "side-commands", warning: "side-commands", enabled: () => true },
   { id: "composerPredictions", logId: "composer-predictions", warning: "composer-predictions", enabled: () => true },
   { id: "fleetWake", logId: "fleet-wake", warning: "fleet-wake", enabled: () => true },
@@ -482,7 +510,7 @@ export function writeRpcExtensions(
   for (const bridge of RPC_BRIDGES) {
     if (!bridge.enabled(flags)) continue;
     try {
-      paths.push(writers[bridge.id](absLineageDir));
+      paths.push(writers[bridge.id](absLineageDir, flags));
       loaded[bridge.id] = true;
     } catch (err) {
       console.warn(`[${bridge.logId}] could not write the ${bridge.warning} extension:`, err);

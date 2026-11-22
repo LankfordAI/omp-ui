@@ -10,6 +10,7 @@ import {
   type FleetSendRequest,
   type NewRpcSpawnRequest,
   type RemoteInstanceSummary,
+  type SessionRoutine,
   type SessionSummary,
 } from "@omp-ui/core";
 import { FleetDispatcher, type FleetDispatcherDeps } from "./fleet-dispatcher";
@@ -344,6 +345,44 @@ describe("FleetDispatcher", () => {
       expect(chosen!.fleet).toMatchObject({ model: "openrouter/openai/gpt-5.6-luna", thinkingLevel: "low" });
       expect(Object.keys(bare!.fleet!)).not.toContain("model");
       expect(Object.keys(bare!.fleet!)).not.toContain("thinkingLevel");
+    });
+
+    it("stamps private: true, requestedBy.kind: routine, and fleet.routine on routine dispatch (ADR-0100)", async () => {
+      const routine: SessionRoutine = {
+        id: "abcdefghijklmnopqrstuv",
+        name: "Morning brief",
+        approvalEntries: { read: "allow", bash: "deny" },
+        deniedBuiltins: ["bash"],
+        warnCostUsd: 2,
+        maxCostUsd: 5,
+      };
+      const h = harness({
+        local: report([project()]),
+        remotes: { r1: { report: async () => report([project({ path: "/srv/app" })]), spawn: async () => ({ tabId: "r1-tab" }) } },
+      });
+      const pick = { machineKey: LOCAL_MACHINE_KEY, projectCwd: "/work/app" };
+      const res = await h.dispatcher.dispatch(explicit([pick]), { kind: "routine", routine });
+      expect(res.outcomes).toEqual([expect.objectContaining({ status: "started", tabId: expect.stringMatching(/^local-tab-/) })]);
+
+      const spawn = h.spawnLocal.mock.calls[0]![0];
+      expect(spawn.private).toBe(true);
+      expect(spawn.fleet?.requestedBy).toEqual({
+        instanceId: "dispatcher",
+        label: "desk",
+        kind: "routine",
+        sourceTabId: null,
+      });
+      expect(spawn.fleet?.routine).toEqual(routine);
+
+      // Remote target is refused without sending kind: "routine" over the wire.
+      const remoteRes = await h.dispatcher.dispatch(
+        explicit([{ machineKey: "r1", projectCwd: "/srv/app" }]),
+        { kind: "routine", routine },
+      );
+      expect(remoteRes.outcomes).toEqual([
+        expect.objectContaining({ status: "failed", message: "routines only target local projects" }),
+      ]);
+      expect(spawnsTo(h, "r1")).toEqual([]);
     });
 
     it("fails an explicit choice on a member that predates #956 without sending it", async () => {

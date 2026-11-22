@@ -93,10 +93,11 @@ describe("ForeignOmpTracker guidance follows fleet access (#1076)", () => {
     expect(message).not.toContain("Let agents dispatch fleet work");
   });
 
-  it("a webhook- or MCP-started session gets the honest outside-sender advice, not the setting", () => {
+  it("a webhook-, MCP-, or routine-started session gets the honest outside-sender advice, not the setting", () => {
     const message = messageFor("external-sender");
-    expect(message).toContain("webhook or an MCP client");
+    expect(message).toContain("webhook, an MCP client, or a routine");
     expect(message).toContain("ADR-0075");
+    expect(message).toContain("ADR-0100");
     expect(message).not.toContain("Let agents dispatch fleet work");
   });
 

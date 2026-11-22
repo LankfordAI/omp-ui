@@ -47,6 +47,7 @@ import {
   isObject,
   fleetToolAccess,
   fleetToolsRegistered,
+  isOutsideSenderKind,
   readInstalledOmpVersion,
   setEventFilterCommand,
   setAskDialogCommand,
@@ -67,6 +68,7 @@ import {
   privateChildEnv,
   providerKeyEnv,
   privateGuardArmMessage,
+  routineGuardArmMessage,
   MAX_DOCUMENT_BATCH_BYTES,
   readScratchDocument,
   resolveDocument,
@@ -1307,7 +1309,7 @@ export class SessionManager {
           agentMode: "build",
           compactionMethod:
             req.mode === "rpc-ui" ? this.deps.registry.getSetting("defaultCompactionMethod") : null,
-          approvalMode: null,
+          approvalMode: req.fleet?.routine ? "always-ask" : null,
           serviceTier: null,
           model: chat
             ? this.deps.registry.getSetting("chatLastModel")
@@ -1323,13 +1325,22 @@ export class SessionManager {
           snoozed: false,
           snoozedUntilMs: null,
           pinnedAtMs: null,
-          routine: null,
+          routine: req.fleet?.routine
+            ? {
+                id: req.fleet.routine.id,
+                name: req.fleet.routine.name,
+                approvalEntries: { ...req.fleet.routine.approvalEntries },
+                deniedBuiltins: [...req.fleet.routine.deniedBuiltins],
+                warnCostUsd: req.fleet.routine.warnCostUsd,
+                maxCostUsd: req.fleet.routine.maxCostUsd,
+              }
+            : null,
           settledAtMs: null,
           heldPrompt: null,
           scheduledPrompt: null,
           pullRequests: [],
           autoSettleOnMerge: null,
-          private: req.private === true,
+          private: req.private === true || req.fleet?.routine != null,
           chat,
           askSource: ask?.source ?? null,
           cachedTitle: req.fleet?.title ?? ask?.title ?? null,
@@ -1681,6 +1692,7 @@ export class SessionManager {
     const entry = createRpcLiveEntry(record, fleetAccess);
     const { paths: extensions, loaded: bridgeLoaded } = writeRpcExtensions(absLineageDir, {
       autoresearchEnabled: this.deps.registry.getSetting("autoresearchEnabled"),
+      routineDeniedBuiltins: record.routine?.deniedBuiltins,
     });
     if (council.extensionPath !== null) extensions.push(council.extensionPath);
     switch (council.status) {
@@ -1842,6 +1854,13 @@ export class SessionManager {
         type: "prompt",
         id: `omp-ui-initial-private-guard-${randomUUID()}`,
         message: privateGuardArmMessage(),
+      });
+    }
+    if (record.routine !== null && record.routine.deniedBuiltins.length > 0 && bridgeLoaded.routineGuard) {
+      initialCommands.push({
+        type: "prompt",
+        id: `omp-ui-initial-routine-guard-${randomUUID()}`,
+        message: routineGuardArmMessage(),
       });
     }
     if (bridgeLoaded.autoresearch) {
@@ -2139,15 +2158,15 @@ export class SessionManager {
         vault: this.deps.registry.getSetting("vaultRegistry").vaults.length > 0,
         fleet: fleetToolsRegistered(entry.fleetToolAccess),
         device: this.deps.registry.getSetting("deviceAgentAccess") &&
-          current.fleet?.requestedBy.kind !== "webhook" && current.fleet?.requestedBy.kind !== "mcp",
-        // Same outside-sender exclusions as the device tool: a webhook or MCP
-        // sender must not change this app's settings (#1168).
+          !isOutsideSenderKind(current.fleet?.requestedBy.kind),
+        // Same outside-sender exclusions as the device tool: a webhook, MCP,
+        // or routine sender must not change this app's settings (#1168, ADR-0100).
         theme: this.deps.registry.getSetting("themeAgentAccess") && this.deps.themes !== undefined &&
-          current.fleet?.requestedBy.kind !== "webhook" && current.fleet?.requestedBy.kind !== "mcp",
-        // Same outside-sender exclusions (#1168): a webhook or MCP sender must
-        // not make this app file issues against the user's GitHub (ADR-0095).
+          !isOutsideSenderKind(current.fleet?.requestedBy.kind),
+        // Same outside-sender exclusions (#1168, ADR-0100): a webhook, MCP, or
+        // routine sender must not make this app file issues against the user's GitHub (ADR-0095).
         issues: this.deps.registry.getSetting("issueAgentAccess") &&
-          current.fleet?.requestedBy.kind !== "webhook" && current.fleet?.requestedBy.kind !== "mcp",
+          !isOutsideSenderKind(current.fleet?.requestedBy.kind),
         artifacts: this.deps.artifacts !== undefined && this.deps.registry.getSetting("artifactLibraryEnabled"),
       });
       commands.splice(registrationIndex + 2, 0, tools);
@@ -2622,6 +2641,9 @@ export class SessionManager {
     return this.enqueueOp(tabId, "relaunch", async () => {
       const record = this.deps.registry.sessions.find((s) => s.tabId === tabId);
       if (!record) return;
+      if (record.routine !== null) {
+        throw new Error("approval mode is owned by this routine's tool policy");
+      }
       const changed = record.approvalMode !== mode;
       this.deps.registry.setSessionApprovalMode(tabId, mode);
       if (!changed) {
