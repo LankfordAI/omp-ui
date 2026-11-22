@@ -79,11 +79,15 @@ const VAULT_KEY_SET = new Set<string>(ROUTINE_DEFAULT_ALLOW_VAULT_TOOLS);
 
 /**
  * Result of one bounded one-shot capabilities probe for a project cwd.
- * Injected in tests so unit tests never spawn `omp`.
+ * `expectedMcpServers` are the project's enabled configured servers: omp
+ * connects them after its first snapshot, so the probe keeps reading until
+ * each has reported tools or the bound expires. Injected in tests so unit
+ * tests never spawn `omp`.
  */
 export type RoutineCatalogProbeRunner = (
   projectCwd: string,
   timeoutMs: number,
+  expectedMcpServers: readonly string[],
 ) => Promise<CapabilitySnapshot>;
 
 export interface RoutineCatalogServiceDeps {
@@ -189,21 +193,32 @@ function mapCapabilityTools(items: readonly CapabilityTool[]): {
   return { builtins, mcpTools, mcpServersSeen };
 }
 
+/** Every expected server owns at least one tool in the snapshot. */
+function reportsServers(snapshot: CapabilitySnapshot, expected: readonly string[]): boolean {
+  if (snapshot.tools.status !== "available") return true;
+  const { mcpServersSeen } = mapCapabilityTools(snapshot.tools.items);
+  return expected.every((server) => mcpServersSeen.has(server));
+}
+
 /**
  * Default one-shot probe: spawns `omp --mode=rpc-ui --no-session --cwd <projectCwd> -e <capabilities-ext>`,
- * arms the capabilities bridge, waits for the `CAPABILITIES_STATUS_KEY` snapshot, and tears down.
+ * arms the capabilities bridge, and reads snapshots until every expected MCP
+ * server has reported (omp mounts MCP tools after its first snapshot), then
+ * tears down. At the bound it answers the latest snapshot, whose missing
+ * servers the caller marks stale; with no snapshot at all it fails.
  */
 export function createDefaultCatalogProbeRunner(
   getOmpPath: () => string | null,
   providerEnv?: () => NodeJS.ProcessEnv,
 ): RoutineCatalogProbeRunner {
-  return async (projectCwd: string, timeoutMs: number): Promise<CapabilitySnapshot> => {
+  return async (projectCwd: string, timeoutMs: number, expectedMcpServers: readonly string[]): Promise<CapabilitySnapshot> => {
     const ompPath = getOmpPath();
     if (!ompPath) throw new Error("omp binary is not available for tool catalog discovery");
     const tmpDir = fs.mkdtempSync(path.join(os.tmpdir(), "omp-ui-routine-cat-"));
     const { promise, resolve, reject } = Promise.withResolvers<CapabilitySnapshot>();
     let settled = false;
     let client: RpcClient | null = null;
+    let latest: CapabilitySnapshot | null = null;
     const finish = (err: Error | null, snap?: CapabilitySnapshot): void => {
       if (settled) return;
       settled = true;
@@ -212,10 +227,10 @@ export function createDefaultCatalogProbeRunner(
       if (err !== null) reject(err);
       else resolve(snap!);
     };
-    const timer = setTimeout(
-      () => finish(new Error(`tool catalog probe timed out after ${Math.round(timeoutMs / 1000)}s`)),
-      timeoutMs,
-    );
+    const timer = setTimeout(() => {
+      if (latest !== null) finish(null, latest);
+      else finish(new Error(`tool catalog probe timed out after ${Math.round(timeoutMs / 1000)}s`));
+    }, timeoutMs);
     try {
       client = new RpcClient({
         cwd: projectCwd,
@@ -246,10 +261,15 @@ export function createDefaultCatalogProbeRunner(
             const parsed = parseCapabilitySnapshot(
               typeof control.frame.statusText === "string" ? control.frame.statusText : undefined,
             );
-            if (parsed !== null) finish(null, parsed);
+            if (parsed === null) return;
+            latest = parsed;
+            if (reportsServers(parsed, expectedMcpServers)) finish(null, parsed);
           }
         },
-        onExit: (code) => finish(new Error(`tool catalog probe exited before reporting capabilities (code ${code ?? "null"})`)),
+        onExit: (code) =>
+          latest !== null
+            ? finish(null, latest)
+            : finish(new Error(`tool catalog probe exited before reporting capabilities (code ${code ?? "null"})`)),
         onError: (msg) => finish(new Error(`tool catalog probe failed: ${msg}`)),
       });
       return await promise;
@@ -327,7 +347,7 @@ export class RoutineCatalogService {
     const flightKey = `${projectCwd}\0${fingerprint}`;
     let probePromise = this.inFlight.get(flightKey);
     if (probePromise === undefined) {
-      probePromise = this.runProbe(projectCwd, ROUTINE_CATALOG_PROBE_TIMEOUT_MS);
+      probePromise = this.runProbe(projectCwd, ROUTINE_CATALOG_PROBE_TIMEOUT_MS, configuredServers);
       this.inFlight.set(flightKey, probePromise);
       const cleanup = (): void => {
         if (this.inFlight.get(flightKey) === probePromise) {

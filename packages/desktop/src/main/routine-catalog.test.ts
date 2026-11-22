@@ -113,9 +113,11 @@ describe("RoutineCatalogService", () => {
   it("caches one-shot probe by (projectCwd, mcpConfigFingerprint) for 60 s and invalidates on fingerprint or TTL change", async () => {
     let now = 1_000_000;
     let endpoint = "cmd:jira-v1";
-    const runProbe = vi.fn(async (cwd: string, timeoutMs: number) => {
+    const runProbe = vi.fn(async (cwd: string, timeoutMs: number, expected: readonly string[]) => {
       expect(cwd).toBe("/proj");
       expect(timeoutMs).toBe(ROUTINE_CATALOG_PROBE_TIMEOUT_MS);
+      // omp mounts MCP tools after its first snapshot: the probe must know which servers to wait for.
+      expect(expected).toEqual(["jira"]);
       return capSnapshot([
         capTool({
           name: "mcp__jira_search",

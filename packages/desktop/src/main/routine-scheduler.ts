@@ -96,15 +96,33 @@ export class RoutineScheduler {
   /** True while `tabId` is live and either turning or waiting on a human gate (Approval card, plan, etc.). */
   inRun(tabId: string): boolean {
     if (!this.deps.isLive(tabId)) return false;
-    return this.deps.isTurnRunning(tabId) || this.deps.awaitingHumanAnswer(tabId);
+    return this.deps.isTurnRunning(tabId) || this.deps.awaitingHumanAnswer(tabId) || this.rowStillRunning(tabId);
   }
 
-  /** The tabId of any live routine run currently executing a model turn (`turns.isRunning === true`). */
+  /**
+   * The run's history row still reads "running": dispatched (or resumed after
+   * a card) but not yet at its terminal `agent_end`. It covers the gap between
+   * the spawn answering and omp's first `agent_start`, when neither the turn
+   * latch nor a card is set; without it a second Run now in that gap spawned
+   * a duplicate run (S9 smoke).
+   */
+  private rowStillRunning(tabId: string): boolean {
+    return this.deps.history.list().some((row) => row.tabId === tabId && row.outcome === "running");
+  }
+
+  /**
+   * The tabId of any live routine run currently holding the host-wide lane:
+   * turning, or dispatched and not yet past its terminal end. A run parked on
+   * an Approval card is excluded: omp raises the card mid-turn, so
+   * `turns.isRunning` stays true while it waits, yet it holds no model work
+   * and must release the lane (#1253). Its per-routine latch (`inRun`) still holds.
+   */
   activeRunTabId(): string | null {
     for (const session of this.deps.sessions()) {
       if (session.routine === null) continue;
       if (!this.deps.isLive(session.tabId)) continue;
-      if (this.deps.isTurnRunning(session.tabId)) return session.tabId;
+      if (this.deps.awaitingHumanAnswer(session.tabId)) continue;
+      if (this.deps.isTurnRunning(session.tabId) || this.rowStillRunning(session.tabId)) return session.tabId;
     }
     return null;
   }

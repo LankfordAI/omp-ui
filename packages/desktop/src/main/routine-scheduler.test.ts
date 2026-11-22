@@ -282,8 +282,9 @@ describe("RoutineScheduler host lane (U5)", () => {
     const skipB = h.history.list().find((r) => r.routineId === ID_B)!;
     expect(skipB).toMatchObject({ outcome: "skipped", reasonCode: "host-lane-busy" });
 
-    // A parks on an Approval card: host lane released, A's own latch still holds.
-    h.running.delete(tabA);
+    // A parks on an Approval card: omp raises it mid-turn, so the turn latch
+    // stays set (observed live in the S6 smoke). The host lane is released
+    // anyway; A's own latch still holds.
     h.awaiting.add(tabA);
     h.store.replaceScheduleState(ID_B, { nextRunAtMs: Date.now() });
     h.store.replaceScheduleState(ID_A, { nextRunAtMs: Date.now() });
@@ -310,15 +311,28 @@ describe("RoutineScheduler host lane (U5)", () => {
     const h = harness([routine(ID_A, { nextRunAtMs: T0 + 3_600_000 }), routine(ID_B, { nextRunAtMs: T0 + 3_600_000 })]);
     await h.scheduler.runNow(ID_A);
     const tabA = h.started[0]!;
-    // Terminal agent_end: still live, no turn, no gate.
+    // Terminal agent_end: still live, no turn, no gate; the lifecycle finalizes the row.
     h.running.delete(tabA);
+    h.history.updateByTabId(tabA, { outcome: "on-time" });
     await h.scheduler.runNow(ID_B);
     await h.scheduler.runNow(ID_A).catch(() => undefined);
     expect(h.dispatches.map((d) => d.routine.id)).toEqual([ID_A, ID_B]);
     // A's second Run now refused only on the host lane (B is turning), not its own latch.
     h.running.clear();
+    h.history.updateByTabId(h.started[1]!, { outcome: "on-time" });
     await h.scheduler.runNow(ID_A);
     expect(h.dispatches.map((d) => d.routine.id)).toEqual([ID_A, ID_B, ID_A]);
+    h.scheduler.dispose();
+  });
+
+  it("a dispatched run before omp's first agent_start still holds both lanes", async () => {
+    const h = harness([routine(ID_A, { nextRunAtMs: T0 + 3_600_000 }), routine(ID_B, { nextRunAtMs: T0 + 3_600_000 })]);
+    await h.scheduler.runNow(ID_A);
+    // The spawn answered, but the child has not announced its turn yet.
+    h.running.clear();
+    await expect(h.scheduler.runNow(ID_A)).rejects.toThrow("Previous run is still open");
+    await expect(h.scheduler.runNow(ID_B)).rejects.toThrow(ROUTINE_BUSY_REFUSAL);
+    expect(h.dispatches).toHaveLength(1);
     h.scheduler.dispose();
   });
 });
