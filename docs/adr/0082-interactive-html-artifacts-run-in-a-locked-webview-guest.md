@@ -223,3 +223,16 @@ Alternatives rejected:
   posture.** It appears only for a non-deferred plain card whose document
   actually contains script markup, as faint text in the existing hover pill
   row and the expanded viewer header. Script-free documents stay fully flush.
+
+## Amendment — artifacts show after the run's final reply (2026-11-22, issue #1277)
+
+Reverses the #1141 "Place below the final reply" rejection. In practice, a long
+final reply emitted after `omp-ui_render_html` scrolled an above-reply figure
+out of view while the transcript stayed pinned to the bottom.
+
+A completed `omp-ui_render_html` call now flushes directly **after** the first
+final reply following it in its segment, keeping call order when multiple
+artifacts share a reply. Every other boundary, deferred-note, settled tail
+fallback, and display-only invariant from #1141 stays unchanged. The tool
+description in `packages/core/src/host-bridge.ts` tells the model that figures
+render directly below its final reply, as the last thing in the turn.

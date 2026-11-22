@@ -32,13 +32,13 @@ function ids(items: RenderItem[]): string[] {
 
 describe("presentArtifacts", () => {
   for (const running of [true, false]) {
-    it(`moves an artifact above the first final reply (running=${running})`, () => {
+    it(`moves an artifact after the first final reply (running=${running})`, () => {
       const items = [
         user("u"), reply("a1", "toolUse"), art("art"), reply("a2", "toolUse"),
         tool("t1", "bash", "done"), reply("a3", "stop"), marker("m", "agent finished"),
       ];
       const result = presentArtifacts(items, running);
-      expect(ids(result.items)).toEqual(["u", "a1", "a2", "t1", "art", "a3", "m"]);
+      expect(ids(result.items)).toEqual(["u", "a1", "a2", "t1", "a3", "art", "m"]);
       expect(result.deferred.size).toBe(0);
     });
   }
@@ -49,7 +49,32 @@ describe("presentArtifacts", () => {
       reply("a1", "stop"), tool("t2", "bash", "done"), reply("a2", "stop"),
     ];
     const result = presentArtifacts(items, false);
-    expect(ids(result.items)).toEqual(["u", "t1", "art1", "art2", "a1", "t2", "a2"]);
+    expect(ids(result.items)).toEqual(["u", "t1", "a1", "art1", "art2", "t2", "a2"]);
+  });
+
+  it("moves a single-hop artifact after the immediately following final reply", () => {
+    const items = [user("u"), art("art"), reply("a1", "stop")];
+    const result = presentArtifacts(items, false);
+    expect(ids(result.items)).toEqual(["u", "a1", "art"]);
+    expect(result.deferred.size).toBe(0);
+  });
+
+  it("binds each artifact to the first final reply after it in multi-reply segments", () => {
+    const items = [
+      user("u"), art("art1"), reply("a1", "stop"),
+      art("art2"), tool("t1", "bash", "done"), reply("a2", "stop"),
+    ];
+    const result = presentArtifacts(items, false);
+    expect(ids(result.items)).toEqual(["u", "a1", "art1", "t1", "a2", "art2"]);
+    expect(result.deferred.size).toBe(0);
+  });
+
+  it("is idempotent on its own settled output", () => {
+    const items = [user("u"), art("art"), reply("a1", "stop")];
+    const first = presentArtifacts(items, false);
+    const second = presentArtifacts(first.items, false);
+    expect(second.items).toBe(first.items);
+    expect(second.deferred.size).toBe(0);
   });
 
   it("holds an artifact in place while the run has no final reply", () => {

@@ -1540,7 +1540,7 @@ simulator) the agent shows inline in the native transcript by calling the
 chrome of its own, at its own measured content height: an injected guest
 script reports that measurement through a reserved `#omph<px>` document
 fragment, and the agent's requested height is only the initial hint and the
-static fallback. A completed artifact shows directly above its run's final
+static fallback. A completed artifact shows directly after its run's final
 reply rather than at its call position; until that reply exists, a one-line
 note holds its place. Its title names it to assistive tech rather than appearing
 on screen. The document is the tool call's own arguments, so it re-renders

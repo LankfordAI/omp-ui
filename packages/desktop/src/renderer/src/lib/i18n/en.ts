@@ -485,7 +485,7 @@ export const en = {
   "transcript.toolGroup.vault.one": "1 vault lookup",
   "transcript.artifact.untitled": "HTML artifact",
   "transcript.artifact.expand": "Expand to full view",
-  "transcript.artifact.deferred": "“{title}” appears with the final reply",
+  "transcript.artifact.deferred": "“{title}” appears after the final reply",
   "transcript.tool.stalledTitle":
     "No model-stream frame (text, thinking, or tool-call arguments) has arrived while " +
     "the assistant response is open. Local tool execution does not reset this clock.",
