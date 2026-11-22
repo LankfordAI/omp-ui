@@ -16,7 +16,7 @@ function fixture() {
   entry.rpc = {send: (command: RpcFrame) => sent.push(command)} as never;
   const controller = new ArtifactHostTools({enabled: () => enabled, current: () => current, error: (_tab, message) => errors.push(message)});
   controllers.push(controller);
-  const initial = controller.initial(entry, {vault: true, fleet: true, device: true, theme: false, issues: false, artifacts: true}) as RpcFrame;
+  const initial = controller.initial(entry, {vault: true, fleet: true, device: true, theme: false, issues: false, artifacts: true, routines: false}) as RpcFrame;
   const ack = (command: RpcFrame, success = true) => controller.observe(entry, {type: "response", id: command.id, command: "set_host_tools", success, ...(!success ? {error: "runtime refused roster"} : {})});
   return {entry, sent, errors, controller, initial, ack, enable: (value: boolean) => {enabled = value; return controller.sync(value);}, replace: () => { current = null; }};
 }
@@ -34,7 +34,7 @@ describe("artifact host roster admission", () => {
     expect(f.sent[0]).toMatchObject({type: "set_host_tools"});
     f.ack(f.sent[0]!);
     await off;
-    expect(f.entry.hostToolOptions).toEqual({vault: true, fleet: true, device: true, theme: false, issues: false, artifacts: false});
+    expect(f.entry.hostToolOptions).toEqual({vault: true, fleet: true, device: true, theme: false, issues: false, artifacts: false, routines: false});
     expect(f.entry.artifactHostToolsEpoch).toBe(f.controller.currentEpoch);
   });
 

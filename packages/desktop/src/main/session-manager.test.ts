@@ -7799,6 +7799,29 @@ describe("device pane lifecycle and agent access", () => {
     expect(tools.some((tool: unknown) => Core.isObject(tool) && tool.name === Core.THEME_TOOL_NAME)).toBe(expected);
   });
 
+  it.each([
+    ["setting off", false, null, false],
+    ["setting on", true, null, true],
+    ["user-dispatched", true, "user", true],
+    ["agent-dispatched", true, "agent", true],
+    ["webhook-started", true, "webhook", false],
+    ["MCP-started", true, "mcp", false],
+    ["routine-started", true, "routine", false],
+  ] as const)("preserves routine authoring tool registration restrictions for %s (ADR-0100 amendment)", async (_label, access, kind, expected) => {
+    const { manager, registry } = setup({ mode: "rpc-ui" });
+    registry.setSetting("routinesEnabled", access);
+    if (kind !== null) {
+      registry.updateSession(TAB, {
+        fleet: { dispatchId: "routine-dispatch", batchId: null, dispatchedAt: "2026-11-22T00:00:00.000Z", requestedBy: { instanceId: "inst-a", label: "host-a", kind, sourceTabId: kind === "agent" ? "source-tab" : null } },
+      } as Partial<Core.OwnedSessionRecord>);
+    }
+    await resume(manager);
+    const commands = (RpcClientMock.mock.calls.at(-1)?.[0]?.initialCommands ?? []) as Array<Record<string, unknown>>;
+    const registration = commands.find((command) => command.type === "set_host_tools");
+    const tools = Array.isArray(registration?.tools) ? registration.tools : [];
+    expect(tools.some((tool: unknown) => Core.isObject(tool) && tool.name === Core.ROUTINE_CREATE_TOOL_NAME)).toBe(expected);
+  });
+
   it("settles a stuck device owner command once and fences late results and renderer fallback", async () => {
     const { manager, registry } = setup({ mode: "rpc-ui" });
     registry.setSetting("deviceAgentAccess", true);

@@ -273,3 +273,21 @@ describe("RoutinesView (ADR-0100, issue #1261)", () => {
     expect(document.body.textContent).not.toContain("Added later · not allowed");
   });
 });
+
+describe("RoutinesView review-link focus (ADR-0100 amendment)", () => {
+  it("picks the routine a transcript review link asked for and consumes the request", async () => {
+    const second = routine({ id: "b".repeat(22), name: "Gmail triage" });
+    useStore.setState({ routinesState: routinesState({ routines: [routine(), second] }), routineFocusId: second.id });
+    const host = render();
+    await settle();
+    expect(host.querySelector('[aria-label="Name"]')?.getAttribute("value")).toBe("Gmail triage");
+    expect(useStore.getState().routineFocusId).toBeNull();
+  });
+
+  it("clears a focus request for a routine that no longer exists", async () => {
+    useStore.setState({ routinesState: routinesState(), routineFocusId: "g".repeat(22) });
+    render();
+    await settle();
+    expect(useStore.getState().routineFocusId).toBeNull();
+  });
+});

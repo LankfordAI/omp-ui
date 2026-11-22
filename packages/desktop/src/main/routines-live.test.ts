@@ -11,6 +11,7 @@ import {
   ISSUE_DRAFT_TOOL_NAME,
   ISSUE_FILE_TOOL_NAME,
   PRIVATE_DISABLED_TOOLS,
+  ROUTINE_CREATE_TOOL_NAME,
   RpcClient,
   THEME_TOOL_NAME,
   capabilitiesMessage,
@@ -1106,6 +1107,7 @@ describe.skipIf(ompPath === null)("Routines compiled tool policy & guardrails on
           theme: !isOutsideSenderKind(requestedByKind),
           issues: !isOutsideSenderKind(requestedByKind),
           artifacts: false,
+          routines: !isOutsideSenderKind(requestedByKind),
         },
         "omp-ui-host-tools-l6d",
       );
@@ -1134,6 +1136,10 @@ describe.skipIf(ompPath === null)("Routines compiled tool policy & guardrails on
     expect(routineHostTools).not.toContain(THEME_TOOL_NAME);
     expect(routineHostTools).not.toContain(ISSUE_DRAFT_TOOL_NAME);
     expect(routineHostTools).not.toContain(ISSUE_FILE_TOOL_NAME);
+    // ADR-0100 amendment: an ordinary session may author disabled routine
+    // drafts; a routine's own run never gets the authoring tool back.
+    expect(routineHostTools).not.toContain(ROUTINE_CREATE_TOOL_NAME);
+    expect(humanHostTools).toContain(ROUTINE_CREATE_TOOL_NAME);
     expect(routineHostTools.some((t) => t.startsWith("omp-ui_vault_"))).toBe(true);
 
     expect(humanHostTools).toContain(DEVICE_TOOL_NAME);

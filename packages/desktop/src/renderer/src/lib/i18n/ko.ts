@@ -276,6 +276,7 @@ export const ko: Partial<Record<MessageKey, string>> = {
   "transcript.rewind.here": "여기로 되돌리기",
   "transcript.rewind.edit": "수정 후 재전송",
   "transcript.fleetWake.result": "플릿 결과",
+  "transcript.routineLink": "Routines에서 이 루틴 검토 열기",
   "transcript.fleetWake.question": "플릿 세션이 응답을 기다립니다",
   "transcript.fleetWake.from": "{title} · {machine}",
   "transcript.asyncNotify.job": "백그라운드 출력",

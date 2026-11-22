@@ -215,7 +215,7 @@ async function spawnScope(deferred = false): Promise<Scope> {
   const rail = (): object[] => {
     factoryCalls++;
     if (gate.reject) throw new ArtifactError("disabled", "Artifact admission changed before the ready rail");
-    return [setHostUriSchemesCommand(), controller.initial(entry, { vault: false, fleet: false, device: false, theme: false, issues: false, artifacts: gate.enabled })];
+    return [setHostUriSchemesCommand(), controller.initial(entry, { vault: false, fleet: false, device: false, theme: false, issues: false, artifacts: gate.enabled, routines: false })];
   };
   const sinks: RpcSinks = {
     onInputFrame: (frame) => {

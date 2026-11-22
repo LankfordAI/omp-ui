@@ -204,7 +204,7 @@ import { DialogGateTracker } from "./dialog-gate-tracker";
 import type { FleetWakeLedgerAccess } from "./fleet-wake";
 import { HibernationTracker } from "./hibernation-tracker";
 import { CapabilityControlTracker } from "./capability-control-tracker";
-import { HostBridge, type HostCallControl } from "./host-bridge";
+import { HostBridge, type HostBridgeDeps, type HostCallControl } from "./host-bridge";
 import { IssueBridge } from "./issue-bridge";
 import type { ArtifactService } from "./artifact-service";
 import { ArtifactHostTools } from "./artifact-host-tools";
@@ -441,6 +441,8 @@ export interface SessionManagerDependencies {
    * hosts without Routines (Host Lite, focused tests).
    */
   routineLifecycle?: (access: RoutineLifecycleAccess) => FrameObserver;
+  /** The routine authoring tool's answerer (ADR-0100 amendment); absent = the tool answers as unavailable. */
+  routines?: HostBridgeDeps["routines"];
 }
 
 /** `tool`: a session-local tool enable/disable holding the tab while it waits. */
@@ -680,6 +682,9 @@ export class SessionManager {
         now: () => new Date(),
       },
       theme: deps.themes,
+      // The routine authoring tool (ADR-0100 amendment); the backend builds
+      // the service after this manager, so its dep is a late-bound closure.
+      routines: deps.routines,
       device: {
         run: (tabId, args) => {
           const record = deps.registry.sessions.find((session) => session.tabId === tabId);
@@ -2198,6 +2203,11 @@ export class SessionManager {
         issues: this.deps.registry.getSetting("issueAgentAccess") &&
           !isOutsideSenderKind(current.fleet?.requestedBy.kind),
         artifacts: this.deps.artifacts !== undefined && this.deps.registry.getSetting("artifactLibraryEnabled"),
+        // Agent-authored routines land disabled (ADR-0100 amendment): an agent
+        // may author a draft, only the user arms it. Same outside-sender
+        // exclusion — a routine run, webhook, or MCP sender never mints routines.
+        routines: this.deps.registry.getSetting("routinesEnabled") &&
+          !isOutsideSenderKind(current.fleet?.requestedBy.kind),
       });
       commands.splice(registrationIndex + 2, 0, tools);
       // Ahead of set_event_filter, the tool registration, and the fleet prompt.

@@ -29,6 +29,7 @@ import { Stats } from "./components/stats/Stats";
 import { Fleet } from "./components/fleet/Fleet";
 import { FleetTerminalView } from "./components/fleet/FleetTerminalView";
 import { Artifacts } from "./components/artifacts/Artifacts";
+import { RoutineFocusProvider } from "./components/RoutineFocusProvider";
 import { RoutinesView } from "./components/routines/RoutinesView";
 import { ProjectSettings } from "./components/ProjectSettings";
 import { OmpUpdateCard } from "./components/OmpUpdateCard";
@@ -554,6 +555,7 @@ export default function App() {
             : activeTitle ?? t("app.compact.sessions");
 
   return (
+    <RoutineFocusProvider>
     <div className="relative flex h-[var(--app-viewport-height,100dvh)] flex-col overflow-hidden backdrop-wash font-sans text-ink">
       <BackdropLayer />
       {!compact && <TitleBar />}
@@ -713,5 +715,6 @@ export default function App() {
           other overlay in the stack (issue #373). */}
       <AppFeedback />
     </div>
+    </RoutineFocusProvider>
   );
 }

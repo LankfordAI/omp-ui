@@ -392,7 +392,12 @@ stays editable.
 
 ### Create and edit a routine
 
-**New routine** opens the editor:
+**New routine** opens the editor. Asking the assistant in a chat is also a
+supported route: when you explicitly ask it to build you a scheduled routine,
+it calls `omp-ui_routines_create`, and the result always lands **disabled** —
+the assistant cannot arm or run a routine. Its reply carries a review link that
+opens the routine here; check its tool policy and schedule, then turn the enable
+switch on yourself.
 
 - **Name** (up to 80 characters) and **Instructions** (up to 20,000
   characters), sent as the first prompt of each fresh session. omp-ui appends a

@@ -3,6 +3,8 @@ import katex from "katex";
 import type { ThemedToken } from "shiki/core";
 import { isLoopbackHost } from "@omp-ui/core/browser-pane";
 import { parseObsidianNoteUri, type ObsidianNoteTarget } from "@omp-ui/core/vault-shared";
+import { parseRoutineFocusUri } from "@omp-ui/core/routine";
+import { useRoutineFocus } from "./MarkdownRoutineContext";
 import { useTabMachine } from "./MarkdownMachineContext";
 import { cn } from "../lib/cn";
 import { useHighlightTokens } from "../lib/highlight";
@@ -176,6 +178,37 @@ function safeHostname(href: string): string {
   }
 }
 
+/**
+ * An `omp-ui://routine/<id>` review link (ADR-0100 amendment): the click
+ * opens the Routines view with that routine selected. The renderer never
+ * navigates, so no href; the target is app-global, so unlike the per-tab
+ * vault link it needs only the root RoutineFocusProvider — a missing context
+ * (or a gate-off store) keeps the transcript on its plain-text fallback.
+ */
+function OpenRoutineLink({ id, children }: { id: string; children: ReactNode }) {
+  const t = useT();
+  const focus = useRoutineFocus();
+  if (focus === null) return <span>{children}</span>;
+  return (
+    <a
+      role="link"
+      tabIndex={0}
+      title={t("transcript.routineLink")}
+      onClick={() => focus(id)}
+      onKeyDown={(e) => {
+        if (e.key === "Enter" || e.key === " ") {
+          e.preventDefault();
+          focus(id);
+        }
+      }}
+      className="cursor-pointer text-iris underline decoration-iris-dim underline-offset-2 hover:decoration-iris"
+    >
+      {children}
+      <span className="ml-1 font-mono text-[0.75em] text-ink-faint">↗</span>
+    </a>
+  );
+}
+
 function Spans({ spans }: { spans: MdSpan[] }) {
   const t = useT();
   const renderObsidianLink = useContext(ObsidianNoteLinkContext);
@@ -235,6 +268,14 @@ function Spans({ spans }: { spans: MdSpan[] }) {
             const target = parseObsidianNoteUri(span.href);
             if (target !== null && renderObsidianLink !== null) {
               return <Fragment key={i}>{renderObsidianLink(target, <Spans spans={span.spans} />)}</Fragment>;
+            }
+            const routineId = parseRoutineFocusUri(span.href);
+            if (routineId !== null) {
+              return (
+                <OpenRoutineLink key={i} id={routineId}>
+                  <Spans spans={span.spans} />
+                </OpenRoutineLink>
+              );
             }
             // Rejected and unscoped destinations stay plain, without a tooltip.
             return <span key={i}><Spans spans={span.spans} /></span>;

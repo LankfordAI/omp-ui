@@ -308,6 +308,7 @@ export const en = {
   "transcript.rewind.here": "rewind here",
   "transcript.rewind.edit": "edit and resend",
   "transcript.fleetWake.result": "Fleet result",
+  "transcript.routineLink": "Open this routine in Routines for review",
   "transcript.fleetWake.question": "Fleet session needs you",
   "transcript.fleetWake.from": "{title} · {machine}",
   "transcript.asyncNotify.job": "Background output",
