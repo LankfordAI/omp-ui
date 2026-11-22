@@ -44,6 +44,9 @@ export function ApprovalModeControl({
   const instanceId = useStore((s) => findOwner(s.state, tabId)?.instanceId ?? null);
   const setSessionApprovalMode = useStore((s) => s.setSessionApprovalMode);
   const mode = record?.approvalMode ?? null;
+  // A Routine run's approval is its compiled tool policy (ADR-0100): main
+  // refuses session:setApprovalMode there, so no picker or chip renders.
+  const isRoutine = record?.routine != null;
   // A mode change relaunches the session: a local one on this computer's
   // installed omp, a joined-instance one on the remote, whose running
   // version is the best proxy.
@@ -55,6 +58,7 @@ export function ApprovalModeControl({
     ),
   );
 
+  if (isRoutine) return null;
   if (layout === "sheet") {
     return (
       <ApprovalSheet

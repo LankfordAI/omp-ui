@@ -258,7 +258,7 @@ export function HtmlArtifactCard({ item, tabId, deferred = false }: { item: Tool
   const [historical, setHistorical] = useState(false);
   const [actions, setActions] = useState<HTMLElement | null>(null);
   const dialogRef = useRef<HTMLDialogElement | null>(null);
-  const visible = useStore((s) => tabId === undefined || (s.activeTabId === tabId && s.artifacts === null && s.stats === null && s.lab === null && s.fleet === null && s.fleetTerminal === null));
+  const visible = useStore((s) => tabId === undefined || (s.activeTabId === tabId && s.artifacts === null && !s.routinesOpen && s.stats === null && s.lab === null && s.fleet === null && s.fleetTerminal === null));
   useEffect(() => { if (!visible) setExpanded(false); }, [visible]);
   // One-way mount latch for plain guests: mount when the card first approaches
   // the scroll viewport, never unmount on scroll-out. Scroll-driven teardown was

@@ -1790,6 +1790,8 @@ export function SessionHud({ tabId, active = true }: { tabId: string; active?: b
   const instance = useStore((s) => (instanceId === null ? undefined : findInstance(s.state, instanceId)));
   // Fleet provenance (issue #899): who dispatched this session, as a quiet chip.
   const fleetFrom = useStore((s) => findRecord(s.state, tabId)?.fleet?.requestedBy ?? null);
+  // Routine provenance (ADR-0100): the routine's own name, pinned on the record.
+  const routineName = useStore((s) => findRecord(s.state, tabId)?.routine?.name ?? null);
   // The dispatching session (#1226, ADR-0098): the same R1–R6 resolution as the
   // sidebar; the cached map keeps the reference stable per state.
   const dispatcher = useStore((s) => (s.state === null ? null : resolveDispatchLinks(s.state).get(tabId)?.parent ?? null));
@@ -1986,7 +1988,7 @@ export function SessionHud({ tabId, active = true }: { tabId: string; active?: b
   // "this app" chip on every one would say nothing.
   // The pinned approval tier (issue #681): quiet by default — an inheriting
   // session renders no chip, mirroring the fastChip gating above.
-  const approvalChip = approvalMode !== null && (
+  const approvalChip = approvalMode !== null && routineName === null && (
     <ApprovalModeControl
       tabId={tabId}
       className={compact ? "shrink-0" : "shrink-0 [app-region:no-drag]"}
@@ -2028,6 +2030,14 @@ export function SessionHud({ tabId, active = true }: { tabId: string; active?: b
       >
         ↩ <span className="truncate">{t("fleet.hud.dispatchedBySession", { title: dispatcher.session.title })}</span>
       </button>
+    ) : routineName !== null ? (
+      <Chip
+        truncate
+        title={t("fleet.hud.startedByRoutine", { name: routineName })}
+        className={compact ? undefined : "max-w-64 [app-region:no-drag]"}
+      >
+        {t("fleet.hud.startedByRoutine", { name: routineName })}
+      </Chip>
     ) : (
       fleetFrom !== null && (
         <Chip mono className={compact ? undefined : "shrink-0 [app-region:no-drag]"}>

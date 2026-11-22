@@ -13,7 +13,7 @@ export function createStatsSlice(set: SetState, get: GetState): StatsSlice {
   }) => {
     bumpNavigationGeneration();
     if (get().lab !== null) get().closeLab();
-    set({ stats: { ...query, model: query.model === null ? null : { ...query.model } }, artifacts: null, fleet: null, fleetTerminal: null });
+    set({ stats: { ...query, model: query.model === null ? null : { ...query.model } }, artifacts: null, fleet: null, fleetTerminal: null, routinesOpen: false });
   };
   const setStatsQuery: StatsSlice["setStatsQuery"] = (query) => {
     if (get().stats !== null) {

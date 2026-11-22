@@ -326,6 +326,20 @@ export const createSettingsSlice: StateCreator<UiStore, [], [], SettingsSlice> =
         get().reportError(err);
       }
     },
+    async setRoutinesEnabled(on) {
+      try {
+        await backend.setRoutinesEnabled(on);
+      } catch (err) {
+        get().reportError(err);
+      }
+    },
+    async setRoutineSpendDefaults(warnUsd, maxUsd) {
+      try {
+        await backend.setRoutineSpendDefaults({ warnUsd, maxUsd });
+      } catch (err) {
+        get().reportError(err);
+      }
+    },
     async setCouncilEnabled(on) {
       try {
         await backend.setCouncilEnabled(on);

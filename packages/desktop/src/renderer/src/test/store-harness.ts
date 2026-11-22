@@ -424,6 +424,7 @@ const mockBackend = {
   removeWebhook: vi.fn(async () => {}),
   clearWebhookDeliveries: vi.fn(async () => {}),
   onWebhooksState: vi.fn(),
+  onRoutinesState: vi.fn(),
   getMcpEndpointState: vi.fn(async () => ({ enabled: false, clients: [], calls: [] })),
   setMcpEndpointEnabled: vi.fn(async () => {}),
   createMcpClient: vi.fn(async (): Promise<McpTokenReveal> => {

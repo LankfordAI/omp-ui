@@ -33,7 +33,7 @@ export function createArtifactsSlice(set: SetState, get: GetState): ArtifactsSli
       if (get().state?.artifactLibraryEnabled !== true) return;
       bumpNavigationGeneration();
       if (get().lab !== null) get().closeLab();
-      set({ artifacts: selection ?? { artifactId: null }, stats: null, fleet: null, fleetTerminal: null, compactSurface: null });
+      set({ artifacts: selection ?? { artifactId: null }, stats: null, fleet: null, fleetTerminal: null, compactSurface: null, routinesOpen: false });
     },
     closeArtifacts() {
       bumpNavigationGeneration();

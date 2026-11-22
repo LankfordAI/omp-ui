@@ -182,14 +182,15 @@ export function getNavigationGeneration(): number { return navigationGeneration;
 
 /**
  * Moves the global focus for a tab activation. Activating a tab also closes
- * the Lab, the Stats view, the Fleet view, and a shown fleet terminal (issues
- * #559, #668, #899, #991): the main pane shows one thing at a time.
+ * the Lab, the Stats view, the Fleet view, a shown fleet terminal, and the
+ * Routines view (issues #559, #668, #899, #991, #1261): the main pane shows
+ * one thing at a time.
  */
 export function focusOn(
   tabId: string,
-): Pick<UiStore, "activeTabId" | "lab" | "stats" | "fleet" | "fleetTerminal" | "artifacts"> {
+): Pick<UiStore, "activeTabId" | "lab" | "stats" | "fleet" | "fleetTerminal" | "artifacts" | "routinesOpen"> {
   bumpNavigationGeneration();
-  return { activeTabId: tabId, lab: null, stats: null, fleet: null, fleetTerminal: null, artifacts: null };
+  return { activeTabId: tabId, lab: null, stats: null, fleet: null, fleetTerminal: null, artifacts: null, routinesOpen: false };
 }
 
 /**
