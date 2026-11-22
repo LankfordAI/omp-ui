@@ -1108,7 +1108,7 @@ export function Sidebar() {
             else openArtifacts();
             closeCompactSurface();
           }} className="flex size-auto h-6 w-auto items-center gap-1 px-1">
-            <span aria-hidden>▤</span><span>{t("artifacts.title")}</span>
+            <span aria-hidden>▤</span><span className="hidden whitespace-nowrap @[17rem]:inline">{t("artifacts.title")}</span>
           </IconButton>
         )}
         {state?.routinesEnabled === true && (
