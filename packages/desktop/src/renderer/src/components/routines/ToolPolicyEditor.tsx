@@ -7,7 +7,7 @@ import {
   type RoutineToolPolicy,
 } from "@omp-ui/core/routine";
 import { cn } from "../../lib/cn";
-import { useT } from "../../lib/i18n";
+import { useT, type MessageKey } from "../../lib/i18n";
 import { FIELD } from "../settings/rows";
 import { Button, Chip, Panel } from "../ui";
 
@@ -16,6 +16,18 @@ interface ToolGroup {
   label: string;
   tools: RoutineCatalogTool[];
 }
+
+/** Which rows the decision chips narrow the list to; "all" is unfiltered. */
+type DecisionView = "all" | "allow" | "deny" | "ask";
+
+const DECISION_VIEWS = ["all", "allow", "deny", "ask"] as const;
+
+const DECISION_VIEW_LABEL: Record<DecisionView, MessageKey> = {
+  all: "routines.policy.viewAll",
+  allow: "routines.policy.viewAllowed",
+  deny: "routines.policy.viewDenied",
+  ask: "routines.policy.viewAsk",
+};
 
 /** MCP servers first (alphabetical), then the vault, then omp's built-ins (spec §11.1). */
 function groupRank(group: string): number {
@@ -49,6 +61,7 @@ export function ToolPolicyEditor({
 }) {
   const t = useT();
   const [filter, setFilter] = useState("");
+  const [decisionView, setDecisionView] = useState<DecisionView>("all");
   const [showYaml, setShowYaml] = useState(false);
   const allow = useMemo(() => new Set(policy.allow), [policy.allow]);
   const deny = useMemo(() => new Set(policy.deny), [policy.deny]);
@@ -70,6 +83,10 @@ export function ToolPolicyEditor({
     const map = new Map<string, ToolGroup>();
     for (const tool of tools) {
       if (q !== "" && !tool.key.toLowerCase().includes(q) && !tool.groupLabel.toLowerCase().includes(q)) continue;
+      if (decisionView !== "all") {
+        const decision = allow.has(tool.key) ? "allow" : deny.has(tool.key) ? "deny" : "ask";
+        if (decision !== decisionView) continue;
+      }
       const entry = map.get(tool.group) ?? { group: tool.group, label: tool.groupLabel, tools: [] };
       entry.tools.push(tool);
       map.set(tool.group, entry);
@@ -77,7 +94,20 @@ export function ToolPolicyEditor({
     return [...map.values()].sort(
       (a, b) => groupRank(a.group) - groupRank(b.group) || a.label.localeCompare(b.label),
     );
-  }, [catalog, policy.allow, policy.deny, filter, t]);
+  }, [catalog, policy.allow, policy.deny, filter, decisionView, allow, deny, t]);
+
+  // Chip counts stay global — they answer "what is actually decided" and must
+  // not drift while a text or decision filter narrows the visible rows.
+  const counts = useMemo(() => {
+    const keys = new Set((catalog?.tools ?? []).map((tool) => tool.key));
+    for (const key of policy.allow) keys.add(key);
+    for (const key of policy.deny) keys.add(key);
+    let allowed = 0;
+    for (const key of keys) if (allow.has(key)) allowed += 1;
+    let denied = 0;
+    for (const key of keys) if (deny.has(key)) denied += 1;
+    return { all: keys.size, allowed, denied, ask: keys.size - allowed - denied };
+  }, [catalog, policy.allow, policy.deny, allow, deny]);
 
   const setDecision = (key: string, decision: "allow" | "ask" | "deny"): void => {
     const nextAllow = policy.allow.filter((k) => k !== key);
@@ -137,6 +167,22 @@ export function ToolPolicyEditor({
         aria-label={t("routines.policy.filter")}
         className={cn(FIELD, "w-full")}
       />
+      <div className="flex flex-wrap items-center gap-1.5" data-decision-filter>
+        {DECISION_VIEWS.map((view) => (
+          <Button
+            key={view}
+            size="xs"
+            selected={decisionView === view}
+            disabled={disabled}
+            onClick={() => setDecisionView(view)}
+          >
+            {t(DECISION_VIEW_LABEL[view])}
+            <span className="tabular-nums text-ink-faint">
+              {{ all: counts.all, allow: counts.allowed, deny: counts.denied, ask: counts.ask }[view]}
+            </span>
+          </Button>
+        ))}
+      </div>
       {groups.map(({ group, label, tools }) => (
         <Panel key={group} className="overflow-hidden">
           <div className="flex flex-wrap items-center gap-2 border-b border-line-soft px-3 py-1.5">
@@ -198,6 +244,9 @@ export function ToolPolicyEditor({
           </ul>
         </Panel>
       ))}
+      {groups.length === 0 && catalog !== null && catalogError === null && (
+        <p className="text-xs text-ink-faint" data-policy-empty>{t("routines.policy.noMatches")}</p>
+      )}
     </div>
   );
 }

@@ -430,7 +430,9 @@ from the run outright, subagents included. A new routine starts with `read`,
 A tool a server added after you last saved the policy shows **Added later · not
 allowed** and waits on a card; a tool that disappeared shows **No longer
 present**. When an MCP server is unreachable the list shows its last-known tools.
-**Inspect overlay YAML** shows the exact policy the run will receive.
+**Inspect overlay YAML** shows the exact policy the run will receive. Under the
+filter box, **All / Allowed / Denied / Ask** chips narrow the list to the tools
+in each state; the count beside each chip is global, so it survives any filter.
 
 A routine run never sends, modifies, or deletes through a tool you did not
 allow without stopping at a card: its approval mode is pinned to ask for every
