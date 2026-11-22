@@ -4,10 +4,10 @@
 // @vitest-environment jsdom
 import { afterEach, beforeEach, describe, expect, it, vi } from "vitest";
 
-/** One constructed addon with the knob each test drives. */
+/** One constructed addon with the knobs each test drives. */
 interface FakeWebgl {
-  fireLoss: () => void;
-  disposed: boolean;
+  fireLoss(): void;
+  isDisposed(): boolean;
 }
 
 const webgl = vi.hoisted(() => ({
@@ -40,18 +40,16 @@ vi.mock("@xterm/addon-webgl", () => ({
   WebglAddon: class WebglAddonMock {
     private loss: (() => void) | null = null;
     disposed = false;
-    private entry: FakeWebgl | null = null;
+    readonly entry: FakeWebgl;
     constructor() {
       if (webgl.throwOnConstruct || webgl.failNextConstructions > 0) {
         if (webgl.failNextConstructions > 0) webgl.failNextConstructions -= 1;
         throw new Error("no gpu");
       }
-      const self = this;
+      // Arrows capture the instance without aliasing `this`.
       this.entry = {
-        get disposed() {
-          return self.disposed;
-        },
-        fireLoss: () => self.loss?.(),
+        fireLoss: () => this.loss?.(),
+        isDisposed: () => this.disposed,
       };
       webgl.constructed.push(this.entry);
     }
@@ -150,6 +148,6 @@ describe("createTerminal WebGL retry ladder", () => {
     const created = make();
     const entry = webgl.constructed[0]!;
     created.dispose();
-    expect(entry.disposed).toBe(true);
+    expect(entry.isDisposed()).toBe(true);
   });
 });
