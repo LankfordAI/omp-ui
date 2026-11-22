@@ -2926,7 +2926,7 @@ export const ko: Partial<Record<MessageKey, string>> = {
   // 인스펙터 레일 그룹 (issue #940)
   "rail.groups.work": "진행",
   "rail.groups.review": "검토",
-  "rail.groups.ask": "곁가지 질문",
+  "rail.groups.ask": "질문",
   "rail.groups.info": "정보",
 
   "diff.rail.readingTitle": "브랜치 읽는 중…",
