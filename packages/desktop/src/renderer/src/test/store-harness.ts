@@ -33,6 +33,7 @@ import type {
   SetSessionToolEnabledResult,
 } from "@omp-ui/core/capabilities";
 import type { LiveAudioLoad, LiveHistoryEntry } from "@omp-ui/core/live-voice";
+import type { RoutinePatch, RoutineRecord, RoutinesState } from "@omp-ui/core/routine";
 import type { BrowserPaneEnsureResult } from "@omp-ui/core/browser-pane";
 import type { DevicePaneEnsureResult, DevicePaneState } from "@omp-ui/core/device-pane";
 import { backendState as makeBackendState } from "./fixtures";
@@ -427,6 +428,12 @@ const mockBackend = {
   clearWebhookDeliveries: vi.fn(async () => {}),
   onWebhooksState: vi.fn(),
   onRoutinesState: vi.fn(),
+  getRoutinesState: vi.fn(async (): Promise<RoutinesState> => {
+    throw new Error("getRoutinesState not mocked");
+  }),
+  updateRoutine: vi.fn(async (_id: string, _patch: RoutinePatch): Promise<RoutineRecord> => {
+    throw new Error("updateRoutine not mocked");
+  }),
   getMcpEndpointState: vi.fn(async () => ({ enabled: false, clients: [], calls: [] })),
   setMcpEndpointEnabled: vi.fn(async () => {}),
   createMcpClient: vi.fn(async (): Promise<McpTokenReveal> => {

@@ -1,6 +1,7 @@
 import { useEffect, useRef, useState, type ReactNode } from "react";
 import type { ApprovalDetailLine, ApprovalPrompt } from "@omp-ui/core/approval";
 import { classifyApprovalDetails } from "@omp-ui/core/approval";
+import { routineToolKeyFromApprovalName } from "@omp-ui/core/routine";
 import { useT } from "../lib/i18n";
 import { useAndroidBack } from "../lib/android-back";
 import { findRecord, useStore } from "../store";
@@ -61,8 +62,13 @@ export function ApprovalCard({ tabId }: { tabId: string }) {
   const answerApprovalPrompt = useStore((s) => s.answerApprovalPrompt);
   // A Routine run's card answers once only (ADR-0100, #1252): granting a
   // session-wide approval would widen its compiled tool policy for the rest
-  // of an unattended run, so the session option never renders there.
-  const isRoutine = useStore((s) => findRecord(s.state, tabId)?.routine != null);
+  // of an unattended run, so the session option never renders there. In
+  // place of it, Always allow (#1276) answers once and appends the tool to
+  // the routine's toolPolicy.allow so future fires never prompt again —
+  // only the definition changes, never this run's fire-time overlay.
+  const routine = useStore((s) => findRecord(s.state, tabId)?.routine ?? null);
+  const grantRoutineTool = useStore((s) => s.grantRoutineTool);
+  const reportError = useStore((s) => s.reportError);
   const prompt: ApprovalPrompt | null = held?.prompt ?? null;
   // The switch belongs to one held frame: a new approval starts un-remembered
   // without an effect, because the held frame object is stable per hold.
@@ -107,7 +113,8 @@ export function ApprovalCard({ tabId }: { tabId: string }) {
   const hasGrants = prompt.grants.length > 0;
   // Frame text deliberately not i18n'd: it names omp's grant subject and
   // must match what the harness composed.
-  const sessionLabel = isRoutine ? null : prompt.sessionLabel;
+  const sessionLabel = routine === null ? prompt.sessionLabel : null;
+  const grantKey = routine !== null ? routineToolKeyFromApprovalName(prompt.toolName) : "";
   const restrictedFolder = prompt.restrictedFolder;
   return (
     <div
@@ -199,6 +206,18 @@ export function ApprovalCard({ tabId }: { tabId: string }) {
         <Button variant="ghost" onClick={() => answerApprovalPrompt(tabId, "deny")}>
           {t("dialog.approval.deny")}
         </Button>
+        {routine !== null && grantKey !== "" && (
+          <Button
+            variant="outline"
+            title={`${prompt.toolName} · ${routine.name}`}
+            onClick={() => {
+              answerApprovalPrompt(tabId, "once");
+              void grantRoutineTool(routine.id, grantKey).catch(reportError);
+            }}
+          >
+            {t("dialog.approval.alwaysAllow")}
+          </Button>
+        )}
         {sessionLabel !== null && (
           <Button variant="ghost" onClick={() => answerApprovalPrompt(tabId, "session")}>
             {sessionLabel}

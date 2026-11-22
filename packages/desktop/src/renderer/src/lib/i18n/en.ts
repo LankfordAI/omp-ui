@@ -146,6 +146,7 @@ export const en = {
   "dialog.approval.safety": "Provider safety checks",
   "dialog.approval.allow": "Allow",
   "dialog.approval.allowOnce": "Allow once",
+  "dialog.approval.alwaysAllow": "Always allow",
   "dialog.approval.remember": "Remember",
   "dialog.approval.rememberAlways": "in every session",
   "dialog.approval.deny": "Deny",

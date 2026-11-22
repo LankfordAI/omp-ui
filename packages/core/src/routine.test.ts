@@ -16,12 +16,14 @@ import {
   routineInputFromAgentCreate,
   routinePrompt,
   routineRunTitle,
+  routineToolKeyFromApprovalName,
   type RoutineInput,
   type RoutineRecord,
   type RoutineRunRow,
   type SessionRoutine,
 } from "./routine";
 import { RoutineRunHistory, RoutineStore } from "./routine-store";
+import { WATCHDOG_KNOWN_TOOLS } from "./watchdog";
 
 const VALID_ID = "AbCdEfGhIjKlMnOpQrStUv";
 

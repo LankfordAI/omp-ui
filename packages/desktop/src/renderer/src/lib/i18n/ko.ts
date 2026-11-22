@@ -124,6 +124,7 @@ export const ko: Partial<Record<MessageKey, string>> = {
   "dialog.approval.safety": "제공자 안전 검사",
   "dialog.approval.allow": "허용",
   "dialog.approval.allowOnce": "한 번 허용",
+  "dialog.approval.alwaysAllow": "항상 허용",
   "dialog.approval.remember": "기억",
   "dialog.approval.rememberAlways": "모든 세션에서",
   "dialog.approval.deny": "거부",

@@ -1,7 +1,8 @@
 // The routines slice's review-link focus (ADR-0100 amendment): a transcript
 // omp-ui://routine/<id> click opens the full-pane view and carries the id for
 // RoutinesView to pick, gated by routinesEnabled like openRoutines itself.
-import { describe, expect, it } from "vitest";
+import { describe, expect, it, vi } from "vitest";
+import type { RoutineRecord, RoutinesState } from "@omp-ui/core/routine";
 import { h } from "../../test/store-harness";
 
 const ID = "AbCdEfGhIjKlMnOpQrStUv";
@@ -32,3 +33,22 @@ describe("routines slice focusRoutine", () => {
     expect(h.useStore.getState().routineFocusId).toBeNull();
   });
 });
+
+function routinesStateWith(allow: string[], deny: string[]): RoutinesState {
+        schedule: { kind: "cron", expr: "0 9 * * *" },
+        destination: { projectCwd: "/repo", workspace: "worktree" },
+        mode: "build",
+        toolPolicy: { allow, deny, lastReviewedAt: "2026-11-22T12:00:00.000Z", reviewedCatalog: [] },
+    h.useStore.setState({ routinesState: routinesStateWith(["read"], ["write"]) });
+    const updateRoutine = vi.mocked(h.mockBackend.updateRoutine);
+    expect(updateRoutine).toHaveBeenCalledTimes(1);
+    const [id, patch] = updateRoutine.mock.calls[0]!;
+    expect(patch.toolPolicy?.allow).toEqual(["read", "write"]);
+    expect(patch.toolPolicy?.deny).toEqual([]);
+    h.useStore.setState({ routinesState: routinesStateWith(["read"], []) });
+    const [, patch] = vi.mocked(h.mockBackend.updateRoutine).mock.calls[0]!;
+    expect(patch.toolPolicy?.allow).toEqual(["read"]);
+    vi.mocked(h.mockBackend.getRoutinesState).mockResolvedValue(routinesStateWith([], []));
+    const [, patch] = vi.mocked(h.mockBackend.updateRoutine).mock.calls[0]!;
+    expect(patch.toolPolicy?.allow).toEqual(["grep"]);
+    vi.mocked(h.mockBackend.getRoutinesState).mockResolvedValue({ ...routinesStateWith([], []), routines: [] });

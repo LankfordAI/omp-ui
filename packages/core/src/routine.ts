@@ -520,6 +520,20 @@ export function compileRoutineToolPolicy(
   };
 }
 
+/* ------------------------------------------------------------ approval keys */
+
+/**
+ * Maps an approval frame's display tool name to a routine policy key (#1276).
+ * Built-ins arrive PascalCase ("WebSearch"); catalog keys are snake_case.
+ * Returns "" for a name that cannot become a key (empty / control chars).
+ */
+export function routineToolKeyFromApprovalName(name: string): string {
+  const trimmed = name.trim();
+  if (trimmed === "" || hasControlChar(trimmed)) return "";
+  if (trimmed.startsWith("mcp__")) return trimmed;
+  return trimmed.replace(/([a-z0-9])([A-Z])/g, "$1_$2").toLowerCase();
+}
+
 /* --------------------------------------------------------------- validation */
 
 function hasControlChar(text: string): boolean {

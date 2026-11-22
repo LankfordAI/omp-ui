@@ -10,7 +10,9 @@ import type { ApprovalPrompt } from "@omp-ui/core/approval";
 // `?` segment row into view when the detail list overflows (issue #1208).
 HTMLElement.prototype.scrollIntoView = vi.fn();
 const rpcSend = vi.fn();
-Object.assign(window, { ompBackend: { rpcSend } });
+const updateRoutine = vi.fn().mockResolvedValue({});
+const getRoutinesState = vi.fn();
+Object.assign(window, { ompBackend: { rpcSend, updateRoutine, getRoutinesState } });
 // Dynamic import is required because store.ts captures window.ompBackend at module evaluation.
 const { useStore } = await import("../store");
 const { ApprovalCard } = await import("./ApprovalCard");
@@ -95,6 +97,9 @@ afterEach(() => {
   root = null;
   document.body.innerHTML = "";
   rpcSend.mockClear();
+  updateRoutine.mockClear();
+  getRoutinesState.mockReset();
+  useStore.setState({ routinesState: null });
 });
 
 describe("ApprovalCard (issue #681)", () => {
@@ -306,23 +311,80 @@ describe("ApprovalCard compound bash segments (issue #1208)", () => {
 describe("ApprovalCard on a Routine run (ADR-0100, issue #1261)", () => {
   const SESSION_PROMPT = { ...PROMPT, sessionLabel: "Approve Bash for this session" };
   const SESSION_FRAME = { ...FRAME, options: ["Approve", "Approve Bash for this session", "Deny"] };
+  const ROUTINE_ID = "r".repeat(22);
+  // A stored routine whose policy already allows read and hard-denies bash:
+  // the grant must append to allow and drop bash from deny (#1276).
+  const seedRoutineState = (): void => {
+    useStore.setState({
+      routinesState: {
+        enabled: true,
+        machineLabel: "host",
+        routines: [
+          {
+            id: ROUTINE_ID,
+            name: "Triage",
+            enabled: true,
+            instructions: "x",
+            schedule: { kind: "cron", expr: "0 9 * * *" },
+            timeZone: "UTC",
+            destination: { projectCwd: "/repo", workspace: "worktree" },
+            mode: "build",
+            model: null,
+            thinkingLevel: null,
+            spend: { warnUsd: 2, maxUsd: 5 },
+            toolPolicy: {
+              allow: ["read"],
+              deny: ["bash"],
+              lastReviewedAt: "2026-11-22T12:00:00.000Z",
+              reviewedCatalog: ["read", "bash"],
+            },
+            createdAt: "2026-11-01T00:00:00.000Z",
+            nextRunAtMs: null,
+            lastRunAtMs: null,
+            lastRunTabId: null,
+            notices: [],
+          },
+        ],
+        runs: [],
+        activeRunTabId: null,
+        defaultWarnCostUsd: 2,
+        defaultMaxCostUsd: 5,
+      },
+    });
+  };
   const seed = (routine: boolean): void => {
     const state = remoteOwnedState(TAB, "inst-1");
     const session = state.remoteInstances[0]!.projects[0]!.sessions[0]!;
     session.routine = routine
-      ? { id: "r".repeat(22), name: "Triage", approvalEntries: {}, deniedBuiltins: [], warnCostUsd: 2, maxCostUsd: 5 }
+      ? { id: ROUTINE_ID, name: "Triage", approvalEntries: {}, deniedBuiltins: [], warnCostUsd: 2, maxCostUsd: 5 }
       : null;
     useStore.setState({ state });
   };
   afterEach(() => useStore.setState({ state: null }));
 
-  it("renders Deny and Allow once only, never the session-wide option", () => {
+  it("renders Deny, Always allow and Allow — never the session-wide option", () => {
     seed(true);
     render(SESSION_PROMPT, SESSION_FRAME);
     const texts = [...document.querySelectorAll("[data-approval-card] button")].map((b) => b.textContent);
-    expect(texts).toEqual(["Deny", "Allow"]);
-    act(() => button("Allow").click());
+    expect(texts).toEqual(["Deny", "Always allow", "Allow"]);
+  });
+
+  it("Always allow answers once and patches the routine's toolPolicy.allow (#1276)", async () => {
+    seed(true);
+    seedRoutineState();
+    render(SESSION_PROMPT, SESSION_FRAME);
+    await act(async () => {
+      button("Always allow").click();
+    });
+    // The once-approval wire answer fires first, on the normal "once" label.
+    expect(rpcSend).toHaveBeenCalledTimes(1);
     expect(rpcSend).toHaveBeenCalledWith(TAB, { type: "extension_ui_response", id: "a1", value: "Approve" });
+    // The grant rides routines:update with the normalized key ("Bash" → "bash").
+    expect(updateRoutine).toHaveBeenCalledTimes(1);
+    const [id, patch] = updateRoutine.mock.calls[0]! as [string, { toolPolicy: { allow: string[]; deny: string[] } }];
+    expect(id).toBe(ROUTINE_ID);
+    expect(patch.toolPolicy.allow).toEqual(["read", "bash"]);
+    expect(patch.toolPolicy.deny).toEqual([]);
   });
 
   it("keeps the three options on an ordinary session", () => {
