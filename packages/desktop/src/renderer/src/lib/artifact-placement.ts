@@ -56,15 +56,17 @@ function placeSegment(
       }
       continue;
     }
-    if (isFinalReply(item) && pending.length > 0) { out.push(...pending); pending = []; }
     out.push(item);
-    if (i === tailAnchor && pending.length > 0) { out.push(...pending); pending = []; }
+    if ((isFinalReply(item) || i === tailAnchor) && pending.length > 0) {
+      out.push(...pending);
+      pending = [];
+    }
   }
 }
 
 /**
- * HTML artifacts show with the run's final reply (issue #1141): a done
- * render_html call moves to directly before the first final reply after it in
+ * HTML artifacts show after the run's final reply (issues #1141, #1277): a done
+ * render_html call moves to directly after the first final reply after it in
  * its segment (the span between user items). With no such reply it holds in
  * place while the tab runs, else lands after the segment's last content item.
  * Display-only: the session file and the store's items keep call order.

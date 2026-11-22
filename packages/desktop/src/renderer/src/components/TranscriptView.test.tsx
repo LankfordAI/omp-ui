@@ -9,6 +9,7 @@ import {
   type RenderItem,
   type ToolItem,
 } from "../lib/transcript";
+import { presentArtifacts } from "../lib/artifact-placement";
 import { requestTranscriptReveal } from "../lib/transcript-reveal";
 // Statically imported even though the module is mocked: vi.mock hoists above
 // imports, so this binding is the mock, not the window.ompBackend reader.
@@ -19,6 +20,7 @@ import { useStore } from "../store";
 import { TranscriptView, type FindState } from "./TranscriptView";
 import { guidedGoalPrompt } from "@omp-ui/core/goal";
 import type { CapabilitySnapshot } from "@omp-ui/core/capabilities";
+import { HTML_ARTIFACT_TOOL_NAME } from "@omp-ui/core/html-artifact";
 
 (globalThis as Record<string, unknown>).IS_REACT_ACT_ENVIRONMENT = true;
 
@@ -2263,5 +2265,28 @@ describe("artifact refresh cards (issue #1139)", () => {
     act(() => button!.click());
     expect(openArtifacts).toHaveBeenCalledWith({ artifactId: entry.artifactId, panel: "data" });
     act(() => linked.root.unmount());
+  });
+});
+
+describe("HTML artifact post-reply placement (issue #1277)", () => {
+  it("renders a completed artifact directly after the final assistant reply", () => {
+    const items: RenderItem[] = [
+      { kind: "user", id: "u1", text: "show chart" },
+      { kind: "assistant", id: "a-hop", text: "Generating chart.", thinking: "", narration: "", streaming: false, stopReason: "toolUse" },
+      tool("art1", HTML_ARTIFACT_TOOL_NAME, { title: "Results", html: "<p>chart</p>" }),
+      { kind: "assistant", id: "a-final", text: "Here is the detailed analysis.", thinking: "", narration: "", streaming: false, stopReason: "stop" },
+    ];
+    const presented = presentArtifacts(items, false);
+    const { el, root } = render(presented.items);
+    const ids = wrappers(el);
+    expect(ids.indexOf("a-final")).toBeGreaterThan(-1);
+    expect(ids.indexOf("art1")).toBeGreaterThan(ids.indexOf("a-final"));
+    expect(ids[ids.length - 1]).toBe("art1");
+    const finalNode = el.querySelector<HTMLElement>('[data-item-id="a-final"]');
+    const artNode = el.querySelector<HTMLElement>('[data-item-id="art1"]');
+    expect(finalNode).not.toBeNull();
+    expect(artNode).not.toBeNull();
+    expect(finalNode!.compareDocumentPosition(artNode!) & Node.DOCUMENT_POSITION_FOLLOWING).not.toBe(0);
+    act(() => root.unmount());
   });
 });
