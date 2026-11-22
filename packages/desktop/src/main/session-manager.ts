@@ -79,6 +79,7 @@ import {
   type VaultProjectIdentity,
   normalizeControlFrame,
   parseCapabilitySnapshot,
+  type CapabilitySnapshot,
   planMessage,
   planHandoffDescendants,
   type BrowserPaneClearDataResult,
@@ -318,6 +319,16 @@ function fleetOwnerRefusal(by: FleetRequester, verb: "send to" | "finish" | "sto
     : `only the session that dispatched this work can ${verb} it`;
 }
 
+/** What the Routines lifecycle observer reads from the session manager (ADR-0100 §7.2). */
+export interface RoutineLifecycleAccess {
+  isRoutineTab(tabId: string): boolean;
+  inRun(tabId: string): boolean;
+  awaitingHumanAnswer(tabId: string): boolean;
+  openDialogIds(tabId: string): string[];
+  settleSession(tabId: string): Promise<boolean>;
+  rpcSend(tabId: string, cmd: RpcFrame): void;
+}
+
 export interface SessionManagerDependencies {
   registry: Registry;
   registryFile: string;
@@ -424,6 +435,12 @@ export interface SessionManagerDependencies {
   fleet?: () => FleetDispatcherLike;
   /** The fleet-wake ledger (ADR-0069); lazy like `fleet`. */
   fleetWake?: () => FleetWakeLedgerAccess;
+  /**
+   * Builds the Routines per-run timer owner (ADR-0100 §7.2), registered right
+   * after the dialog gates so it reads the same open-card state. Absent on
+   * hosts without Routines (Host Lite, focused tests).
+   */
+  routineLifecycle?: (access: RoutineLifecycleAccess) => FrameObserver;
 }
 
 /** `tool`: a session-local tool enable/disable holding the tab while it waits. */
@@ -475,6 +492,8 @@ export class SessionManager {
   readonly scheduledPrompts: ScheduledPromptRunner;
   /** The open blocking dialogs per tab — the summary's `pendingDialogs` (#555). */
   private readonly dialogGates = new DialogGateTracker();
+  /** Routines per-run timers (ADR-0100); null on hosts without Routines. */
+  private readonly routineLifecycle: FrameObserver | null;
   /** Agent project requests waiting on the user's card (#1228, ADR-0099); in memory only. */
   readonly projectRequests: ProjectRequestGate;
   /** The omp collab local-registry watcher for terminal tabs (issue #686). */
@@ -766,6 +785,16 @@ export class SessionManager {
       // A scheduled run starts in Build (ADR-0081).
       resume: (tabId) => this.spawn({ origin: "resume", resumeTabId: tabId, cols: 80, rows: 24, planMode: false }),
     });
+    this.routineLifecycle =
+      deps.routineLifecycle?.({
+        isRoutineTab: (tabId) => deps.registry.sessions.some((s) => s.tabId === tabId && s.routine !== null),
+        inRun: (tabId) => this.turns.isRunning(tabId) || this.awaitingHumanAnswer(tabId),
+        awaitingHumanAnswer: (tabId) => this.awaitingHumanAnswer(tabId),
+        openDialogIds: (tabId) =>
+          this.dialogGates.openFrames(tabId).flatMap((f) => (typeof f.id === "string" ? [f.id] : [])),
+        settleSession: (tabId) => this.settleSession(tabId),
+        rpcSend: (tabId, cmd) => this.rpcSend(tabId, cmd),
+      }) ?? null;
     // Last: it reads the turn latch and answer gates the observers above settle.
     this.frameObservers = [
       this.hibernation,
@@ -779,6 +808,7 @@ export class SessionManager {
       this.autoresearch,
       this.projectRequests,
       this.dialogGates,
+      ...(this.routineLifecycle === null ? [] : [this.routineLifecycle]),
       this.heldPrompts,
       this.scheduledPrompts,
     ];
@@ -2675,6 +2705,12 @@ export class SessionManager {
     if (!record) return;
     this.deps.registry.setSessionServiceTier(tabId, tier);
     await this.deps.broadcast();
+  }
+
+  /** The last capability snapshot a live native tab published; null when none (Routines catalog, ADR-0100). */
+  capabilitySnapshot(tabId: string): CapabilitySnapshot | null {
+    const entry = this.live.get(tabId);
+    return entry?.kind === "rpc-ui" ? entry.capabilities : null;
   }
 
   /**

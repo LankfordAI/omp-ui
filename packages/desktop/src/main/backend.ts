@@ -80,6 +80,12 @@ import {
   RemoteInstanceStore,
   WebhookDeliveryLog,
   WebhookStore,
+  RoutineRunHistory,
+  RoutineStore,
+  type RoutineDryRunRequest,
+  type RoutineInput,
+  type RoutinePatch,
+  type CapabilitySnapshot,
   McpCallLog,
   McpClientStore,
   type McpClientInput,
@@ -264,6 +270,9 @@ import { registerLiveTranscriptHandlers } from "./live-transcript";
 import { registerRemoteHandlers } from "./remote-handlers";
 import { McpEndpointService, type FleetSessionRow } from "./mcp-endpoint-service";
 import { WebhookService } from "./webhook-service";
+import { RoutineCatalogService } from "./routine-catalog";
+import { RoutineLifecycleManager } from "./routine-lifecycle";
+import { RoutineService } from "./routine-service";
 import { registerVaultHandlers } from "./vault-handlers";
 import { DESKTOP_PANE_PORT, DESKTOP_PANE_PORT_REQUEST, type DesktopFrameDelivery, type DesktopMediaMessage } from "../browser-pane-desktop-protocol";
 import { createDesktopPaneStream } from "./browser-pane-desktop-stream";
@@ -316,6 +325,10 @@ export class MainBackend {
   private readonly webhooks: WebhookService;
   /** MCP endpoint (issue #996, ADR-0080): client token hashes, the call audit list, and the intake the remote server calls. */
   private readonly mcp: McpEndpointService;
+  /** Routines (ADR-0100): host-local schedules, per-run timers, and retention. */
+  private readonly routines: RoutineService;
+  /** Created before the session manager registers it as a frame observer. */
+  private routineLifecycle: RoutineLifecycleManager | null = null;
   /** Joined remote instances (issue #416): their sockets, credentials, and merged registries. */
   private readonly remoteInstances: RemoteInstanceManager;
   /** Fleet dispatch, dispatching side (issue #899, ADR-0061). */
@@ -444,6 +457,10 @@ export class MainBackend {
       mcpClientsFile?: string;
       /** Where the MCP call audit list is kept; defaults beside the registry. */
       mcpCallsFile?: string;
+      /** Where routine definitions (ADR-0100) are stored; defaults beside the registry. */
+      routinesFile?: string;
+      /** Where the routine run history is kept; defaults beside the registry. */
+      routineRunsFile?: string;
       /** Where worktree checkouts live; defaults beside the registry. */
       worktreesRoot?: string;
       /** Where chat scratch dirs live; defaults beside the registry. */
@@ -586,6 +603,9 @@ export class MainBackend {
       sourcePath: (tabId) => this.sessions.transcriptPath(tabId),
       onChanged: (change) => this.send(CH.onArtifactLibraryChanged, change),
     });
+    const routineHistory = new RoutineRunHistory(
+      opts.routineRunsFile ?? path.join(path.dirname(registryFile), "routine-runs.json"),
+    );
     this.sessions =
       opts.sessions ??
       new SessionManager({
@@ -667,6 +687,16 @@ export class MainBackend {
             nativeImage.createFromBitmap(bitmap, { width, height }).toJPEG(quality),
           agentDeviceBin: () => resolveAgentDeviceBin(),
           stateDir: () => path.join(app.getPath("userData"), "agent-device"),
+        },
+        // Routines (ADR-0100): the per-run timer owner, right after the dialog gates.
+        routineLifecycle: (access) => {
+          this.routineLifecycle = new RoutineLifecycleManager({
+            ...access,
+            history: routineHistory,
+            isEnabled: () => this.registry.getSetting("routinesEnabled"),
+            publish: () => this.routines?.publish(),
+          });
+          return this.routineLifecycle;
         },
       });
     this.pullRequests = new PullRequestPoller({
@@ -868,6 +898,42 @@ export class MainBackend {
       readProjectCopy: (projectCwd, picked) => readProjectCopyFiles(this.registeredProjectPath(projectCwd), picked),
       requestLocalProject: (tabId, args, control) => this.localProjectRequests.request(tabId, args, control),
     });
+    this.routines = new RoutineService({
+      store: new RoutineStore(opts.routinesFile ?? path.join(path.dirname(registryFile), "routines.json")),
+      history: routineHistory,
+      catalog: new RoutineCatalogService({
+        hasVaults: () => this.registry.getSetting("vaultRegistry").vaults.length > 0,
+        liveCapabilities: (projectCwd) => this.liveRoutineCapabilities(projectCwd),
+        getOmpPath: () => this.ompPath,
+        probeEnv: () => this.providerKeyOverlay(),
+      }),
+      // An injected manager (tests) registers no observer; a parked stand-in keeps the facade whole.
+      lifecycle: this.routineLifecycle ?? new RoutineLifecycleManager({
+        history: routineHistory,
+        isEnabled: () => false,
+        isRoutineTab: () => false,
+        inRun: () => false,
+        awaitingHumanAnswer: () => false,
+        openDialogIds: () => [],
+        settleSession: async () => false,
+        rpcSend: () => {},
+        publish: () => {},
+      }),
+      isEnabled: () => this.registry.getSetting("routinesEnabled"),
+      defaultWarnCostUsd: () => this.registry.getSetting("routineWarnCostUsd"),
+      defaultMaxCostUsd: () => this.registry.getSetting("routineMaxCostUsd"),
+      hasProject: (projectCwd) => this.registry.projects.some((p) => p.path === projectCwd),
+      sessions: () => this.registry.sessions,
+      clearSessionRoutine: (tabId) => this.registry.updateSession(tabId, { routine: null }),
+      isLive: (tabId) => this.sessions.isLive(tabId),
+      isTurnRunning: (tabId) => this.sessions.isTurnRunning(tabId),
+      awaitingHumanAnswer: (tabId) => this.sessions.pendingAnswer(tabId),
+      deleteSession: (tabId, cascade) => this.sessions.deleteSession(tabId, cascade),
+      dispatch: (req, who, dispatchOpts) => this.fleet.dispatch(req, who, dispatchOpts),
+      machineLabel: () => this.fleetLabel,
+      send: (state) => this.send(CH.onRoutinesState, state),
+      broadcast: () => void this.broadcast(),
+    });
     // The node half of the fleet ladder (issue #901): the owner answers for
     // its own machine, so it shares the registry and log dir with everything else.
     this.fleetServer = new FleetServer({
@@ -968,6 +1034,9 @@ export class MainBackend {
     // Scheduled prompts (#987): a fire missed while the app was closed runs
     // once now, with a late notice; later ones arm their timer.
     this.sessions.scheduledPrompts?.sync();
+    // Routines (ADR-0100): a fire missed while the app was closed runs once
+    // now, late; retention catches up. Both are no-ops while the gate is off.
+    this.routines.boot();
     // Pull request links (#985): one gh call per repository, now and on a
     // focus-dependent cadence. Never throws; a missing or logged-out gh only logs.
     this.pullRequests.start();
@@ -1154,6 +1223,7 @@ export class MainBackend {
         await this.detectVaults(),
         this.sessions.vaultCallCounts(),
       ),
+      routines: this.routines.diagnostics(),
       facts: {
         appVersion: app.getVersion(),
         ompVersion: this.ompPath ? await readInstalledOmpVersion(this.ompPath) : null,
@@ -1326,6 +1396,8 @@ export class MainBackend {
             void this.sessions.syncArtifactHostTools(enabled).catch(error =>
               console.warn("[artifacts] host tool reconciliation failed:", error));
           },
+          onRoutinesEnabledChanged: (enabled) => this.routines.onEnabledChanged(enabled),
+          onRoutineSpendDefaultsChanged: () => this.routines.publish(),
           themes: this.storedThemeDeps,
           themeRepositories: this.themeRepositories,
         }),
@@ -1863,6 +1935,14 @@ export class MainBackend {
         [CH.rotateWebhookSecret]: (id: string) => this.webhooks.rotate(id),
         [CH.removeWebhook]: (id: string) => this.webhooks.remove(id),
         [CH.clearWebhookDeliveries]: () => this.webhooks.clearDeliveries(),
+        // Routines (ADR-0100): host-local like webhooks:*; never proxied to a joined instance.
+        [CH.getRoutinesState]: () => this.routines.state(),
+        [CH.createRoutine]: (input: RoutineInput) => this.routines.create(input),
+        [CH.updateRoutine]: (id: string, patch: RoutinePatch) => this.routines.update(id, patch),
+        [CH.removeRoutine]: (id: string) => this.routines.remove(id),
+        [CH.runRoutineNow]: (id: string) => this.routines.runNow(id),
+        [CH.dryRunRoutine]: (req: RoutineDryRunRequest) => this.routines.dryRun(req),
+        [CH.listRoutineToolCatalog]: (projectCwd: string) => this.routines.toolCatalog(projectCwd),
         // MCP endpoint (issue #996, ADR-0080): host-local like remote:*; the state never carries a token.
         [CH.getMcpEndpointState]: () => this.mcp.state(),
         [CH.setMcpEndpointEnabled]: (on: boolean) => {
@@ -2978,6 +3058,7 @@ export class MainBackend {
     this.planVerifier.dispose();
     this.clockStamper.dispose();
     this.snoozeClock.dispose();
+    this.routines.dispose();
     const prsSettled = this.pullRequests.dispose();
     this.transfers.dispose();
     this.sessions.killAll();
@@ -2988,6 +3069,17 @@ export class MainBackend {
     this.remoteInstances.stop();
     void this.remote.stop();
     return Promise.allSettled([statsSettled, headsSettled, prsSettled, ...this.projectProbes]).then(() => undefined);
+  }
+
+  /** The freshest capability snapshot any live native session in this project published (Routines catalog). */
+  private liveRoutineCapabilities(projectCwd: string): CapabilitySnapshot | null {
+    let best: CapabilitySnapshot | null = null;
+    for (const s of this.registry.sessions) {
+      if (s.projectCwd !== projectCwd || s.chat) continue;
+      const snap = this.sessions.capabilitySnapshot(s.tabId);
+      if (snap !== null && snap.tools.status === "available" && (best === null || snap.updatedAt > best.updatedAt)) best = snap;
+    }
+    return best;
   }
 
   /**

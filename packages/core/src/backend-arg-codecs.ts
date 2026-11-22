@@ -55,6 +55,16 @@ import {
 import { parseDeviceSystemImagePackage } from "./device-profiles";
 import type { HeldPromptRequest } from "./held-prompt";
 import { parseScheduledPromptRequest, type ScheduledPromptRequest } from "./scheduled-prompt";
+import {
+  parseRoutineDryRunRequest,
+  parseRoutineInput,
+  parseRoutinePatch,
+  parseRoutineSpendDefaults,
+  type RoutineDryRunRequest,
+  type RoutineInput,
+  type RoutinePatch,
+  type RoutineSpendDefaultsInput,
+} from "./routine";
 import type {
   AgentMode,
   ApprovalMode,
@@ -1097,6 +1107,24 @@ export const scheduledPromptRequestCodec: ArgCodec<ScheduledPromptRequest> = {
     }
   },
 };
+
+/** Wraps a throwing routine parser as a channel codec (ADR-0100 §10). */
+function routineCodec<T>(expected: string, parse: (value: unknown) => T): ArgCodec<T> {
+  return {
+    expected,
+    decode(value, path) {
+      try {
+        return parse(value);
+      } catch (error) {
+        return fail(path, `${expected} (${(error as Error).message})`);
+      }
+    },
+  };
+}
+export const routineInputCodec = routineCodec<RoutineInput>("a valid routine", parseRoutineInput);
+export const routinePatchCodec = routineCodec<RoutinePatch>("a valid routine patch", parseRoutinePatch);
+export const routineDryRunRequestCodec = routineCodec<RoutineDryRunRequest>("a valid routine dry-run request", parseRoutineDryRunRequest);
+export const routineSpendDefaultsCodec = routineCodec<RoutineSpendDefaultsInput>("valid routine spend defaults", parseRoutineSpendDefaults);
 
 /** Fleet terminal open (issue #991): strict keys and cell bounds, via the shared parser. */
 export const fleetTerminalOpenRequestCodec: ArgCodec<FleetTerminalOpenRequest> = {
