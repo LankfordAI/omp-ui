@@ -1238,6 +1238,31 @@ describe("notification click focus (issue #271)", () => {
     expect(h.mockBackend.spawnSession).not.toHaveBeenCalled();
   });
 
+  it("a GPU-process death sets the notice once per episode; dismiss clears it", async () => {
+    vi.resetModules();
+    const { useStore: fresh } = await import("./store");
+    h.backendState = projectState([rec(h.TAB)]);
+    fresh.setState({ state: h.backendState });
+
+    const init = fresh.getState().init();
+    await init;
+    expect(h.mockBackend.onGpuProcessCrashed).toHaveBeenCalled();
+    const [cb] = h.mockBackend.onGpuProcessCrashed.mock.calls[0] as unknown as [
+      (detail: string) => void,
+    ];
+
+    cb("reason=crashed exitCode=133");
+    expect(fresh.getState().gpuCrashDetail).toBe("reason=crashed exitCode=133");
+    // Once per episode: a repeat while the notice is up changes nothing.
+    cb("reason=crashed exitCode=133");
+    expect(fresh.getState().gpuCrashDetail).toBe("reason=crashed exitCode=133");
+    fresh.getState().dismissGpuCrash();
+    expect(fresh.getState().gpuCrashDetail).toBeNull();
+    // Dismissing resets the latch: a later death raises a fresh notice.
+    cb("reason=launched failed exitCode=1");
+    expect(fresh.getState().gpuCrashDetail).toBe("reason=launched failed exitCode=1");
+  });
+
   it("a notification click resumes a session the store has no tab for", async () => {
     vi.resetModules();
     const { useStore: fresh } = await import("./store");

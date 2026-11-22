@@ -2053,6 +2053,9 @@ export const en = {
   "update.app.failed": "Update failed",
   "update.app.dismissLabel": "dismiss omp-ui {version} update",
   "update.card.dismiss": "dismiss",
+  // The GPU-process notice (performance plan Phase 4): observation, no cause.
+  "gpu.crash.title": "The graphics process stopped",
+  "gpu.crash.body": "Window smoothness may suffer until omp-ui is relaunched.",
   // Settle (issue #980).
   "settle.toast.one": "Settled {title}",
   "settle.toast.many": "Settled {n} sessions",

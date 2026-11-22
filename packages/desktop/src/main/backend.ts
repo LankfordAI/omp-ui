@@ -1161,6 +1161,16 @@ export class MainBackend {
   }
 
   /**
+   * Tells open renderers the GPU process disappeared (performance plan
+   * Phase 4). The child-process-gone handler in main/index.ts owns the when;
+   * this is the only bridge, so the log stays the record and the UI can show
+   * an honest notice where a log line cannot reach anyone.
+   */
+  notifyGpuCrashed(detail: string): void {
+    this.send(CH.onGpuProcessCrashed, detail);
+  }
+
+  /**
    * Delivers an event to this app's Electron window(s) only — never into
    * `sinks`, so an event converted here can not re-enter a socket relay and
    * loop across a mutual join (#498).

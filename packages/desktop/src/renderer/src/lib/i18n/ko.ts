@@ -1879,6 +1879,8 @@ export const ko: Partial<Record<MessageKey, string>> = {
   "update.app.failed": "업데이트 실패",
   "update.app.dismissLabel": "omp-ui {version} 업데이트 닫기",
   "update.card.dismiss": "닫기",
+  "gpu.crash.title": "그래픽 프로세스가 중단되었습니다",
+  "gpu.crash.body": "omp-ui를 다시 실행할 때까지 창 움직임이 매끄럽지 않을 수 있습니다.",
   "settle.toast.one": "{title} 종료 처리됨",
   "settle.toast.many": "세션 {n}개 종료 처리됨",
   "settle.toast.undo": "실행 취소",
