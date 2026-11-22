@@ -35,20 +35,70 @@ describe("routines slice focusRoutine", () => {
 });
 
 function routinesStateWith(allow: string[], deny: string[]): RoutinesState {
-        schedule: { kind: "cron", expr: "0 9 * * *" },
-        destination: { projectCwd: "/repo", workspace: "worktree" },
-        mode: "build",
-        toolPolicy: { allow, deny, lastReviewedAt: "2026-11-22T12:00:00.000Z", reviewedCatalog: [] },
+  const routine: RoutineRecord = {
+    id: ID,
+    name: "Morning overview",
+    instructions: "Summarize the repo.",
+    schedule: { kind: "cron", expr: "0 9 * * *" },
+    timeZone: "UTC",
+    destination: { projectCwd: "/repo", workspace: "worktree" },
+    mode: "build",
+    model: null,
+    thinkingLevel: null,
+    spend: { warnUsd: null, maxUsd: null },
+    toolPolicy: { allow, deny, lastReviewedAt: "2026-11-22T12:00:00.000Z", reviewedCatalog: [] },
+    enabled: true,
+    createdAt: "2026-11-01T00:00:00.000Z",
+    nextRunAtMs: null,
+    lastRunAtMs: null,
+    lastRunTabId: null,
+    notices: [],
+  };
+  return {
+    enabled: true,
+    machineLabel: "this computer",
+    routines: [routine],
+    runs: [],
+    activeRunTabId: null,
+    defaultWarnCostUsd: 1,
+    defaultMaxCostUsd: 5,
+  };
+}
+
+describe("routines slice grantRoutineTool", () => {
+  it("appends the key to allow and drops it from deny", async () => {
     h.useStore.setState({ routinesState: routinesStateWith(["read"], ["write"]) });
     const updateRoutine = vi.mocked(h.mockBackend.updateRoutine);
+    updateRoutine.mockResolvedValue(routinesStateWith(["read", "write"], []).routines[0]!);
+    await h.useStore.getState().grantRoutineTool(ID, "write");
     expect(updateRoutine).toHaveBeenCalledTimes(1);
     const [id, patch] = updateRoutine.mock.calls[0]!;
+    expect(id).toBe(ID);
     expect(patch.toolPolicy?.allow).toEqual(["read", "write"]);
     expect(patch.toolPolicy?.deny).toEqual([]);
+  });
+
+  it("leaves allow untouched when the key is already granted", async () => {
     h.useStore.setState({ routinesState: routinesStateWith(["read"], []) });
+    vi.mocked(h.mockBackend.updateRoutine).mockResolvedValue(routinesStateWith(["read"], []).routines[0]!);
+    await h.useStore.getState().grantRoutineTool(ID, "read");
     const [, patch] = vi.mocked(h.mockBackend.updateRoutine).mock.calls[0]!;
     expect(patch.toolPolicy?.allow).toEqual(["read"]);
+  });
+
+  it("refetches routines:state once when the local snapshot is missing", async () => {
+    h.useStore.setState({ routinesState: null });
     vi.mocked(h.mockBackend.getRoutinesState).mockResolvedValue(routinesStateWith([], []));
+    vi.mocked(h.mockBackend.updateRoutine).mockResolvedValue(routinesStateWith(["grep"], []).routines[0]!);
+    await h.useStore.getState().grantRoutineTool(ID, "grep");
     const [, patch] = vi.mocked(h.mockBackend.updateRoutine).mock.calls[0]!;
     expect(patch.toolPolicy?.allow).toEqual(["grep"]);
+  });
+
+  it("refuses an id the refetch does not know", async () => {
+    h.useStore.setState({ routinesState: null });
     vi.mocked(h.mockBackend.getRoutinesState).mockResolvedValue({ ...routinesStateWith([], []), routines: [] });
+    await expect(h.useStore.getState().grantRoutineTool(ID, "grep")).rejects.toThrow(/unknown routine/);
+    expect(h.mockBackend.updateRoutine).not.toHaveBeenCalled();
+  });
+});
