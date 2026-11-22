@@ -16,8 +16,28 @@ export interface ExchangeChanges {
   anchorId: string;
   entries: ExchangeChangeEntry[];
   files: number;
+}
+
+/**
+ * The +/− line totals for one exchange, counted on demand (performance plan
+ * Phase 2). Walking every row of every diff card is O(history) per stream
+ * commit when done eagerly inside the scan; at most a couple of receipts are
+ * rendered, so the readers call this for just their own exchange and the
+ * per-tick counting is bounded by what is on screen. `files` stays eager: it
+ * counts cards, not rows.
+ */
+export function exchangeTotals(changes: ExchangeChanges): {
   added: number;
   removed: number;
+} {
+  let added = 0;
+  let removed = 0;
+  for (const entry of changes.entries) {
+    const counts = diffCounts(entry.rows);
+    added += counts.added;
+    removed += counts.removed;
+  }
+  return { added, removed };
 }
 
 /**
@@ -40,21 +60,17 @@ export function summarizeExchanges(items: readonly RenderItem[]): Map<string, Ex
     if (entries.length === 0 || anchorId === null) return;
     const paths = new Set<string>();
     let anonymous = false;
-    let added = 0;
-    let removed = 0;
     for (const entry of entries) {
       if (entry.path === undefined) anonymous = true;
       else paths.add(entry.path);
-      const counts = diffCounts(entry.rows);
-      added += counts.added;
-      removed += counts.removed;
     }
+    // Line totals are deliberately absent (Phase 2): row counting moves to
+    // exchangeTotals, which the rendered receipts call for their own entry
+    // list only. Paths and file counts stay here — card-scale, not row-scale.
     map.set(anchorId, {
       anchorId,
       entries,
       files: paths.size + (anonymous ? 1 : 0),
-      added,
-      removed,
     });
   };
 

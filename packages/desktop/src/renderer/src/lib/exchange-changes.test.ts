@@ -1,6 +1,6 @@
 import { describe, expect, it } from "vitest";
 import type { DiffRow } from "./omp-diff";
-import { summarizeExchanges } from "./exchange-changes";
+import { exchangeTotals, summarizeExchanges } from "./exchange-changes";
 import type { RenderItem, ToolItem } from "./transcript";
 
 function rows(spec: [DiffRow["kind"], string][]): DiffRow[] {
@@ -45,13 +45,11 @@ describe("summarizeExchanges", () => {
     expect(first.anchorId).toBe("a1");
     expect(first.entries.map((e) => e.itemId)).toEqual(["t1", "t2"]);
     expect(first.files).toBe(2);
-    expect(first.added).toBe(2);
-    expect(first.removed).toBe(2);
+    expect(exchangeTotals(first)).toEqual({ added: 2, removed: 2 });
 
     const second = map.get("t3")!;
     expect(second.files).toBe(1);
-    expect(second.added).toBe(1);
-    expect(second.removed).toBe(0);
+    expect(exchangeTotals(second)).toEqual({ added: 1, removed: 0 });
   });
 
   it("aliases the tool item's rows array instead of cloning it", () => {
@@ -93,8 +91,7 @@ describe("summarizeExchanges", () => {
     const map = summarizeExchanges([user("u1"), tool("t1", [], "a.ts")]);
     const changes = map.get("t1")!;
     expect(changes.files).toBe(1);
-    expect(changes.added).toBe(0);
-    expect(changes.removed).toBe(0);
+    expect(exchangeTotals(changes)).toEqual({ added: 0, removed: 0 });
   });
 
   it("omits exchanges without a diff-bearing card entirely", () => {
@@ -124,5 +121,34 @@ describe("summarizeExchanges", () => {
 
   it("returns an empty map for an empty transcript", () => {
     expect(summarizeExchanges([]).size).toBe(0);
+  });
+
+  // Phase 2 (performance plan): totals moved out of the scan into a lazy
+  // per-exchange reader. The reader sees every card of its exchange, however
+  // far above the rendered window the oldest one sits — the scan is full-list
+  // — and equal counts to the pre-Phase-2 eager numbers.
+  it("counts rows for an exchange whose oldest card sits deep in history", () => {
+    const items: RenderItem[] = [];
+    // 200 settled exchanges of noise, then the measured one: its first card
+    // is ~2,600 items above the tail window any view would slice.
+    for (let i = 0; i < 200; i += 1) {
+      items.push(user(`u${i}`), assistant(`a${i}`));
+    }
+    items.push(
+      user("u-end"),
+      tool("big-old", rows(Array.from({ length: 500 }, (_, i) => (i % 2 ? (["add", "x"] as [DiffRow["kind"], string]) : (["del", "y"] as [DiffRow["kind"], string])))), "src/old.ts"),
+      tool("small-new", rows([["add", "z"]]), "src/new.ts"),
+    );
+    const changes = summarizeExchanges(items).get("small-new")!;
+    expect(changes.files).toBe(2);
+    expect(exchangeTotals(changes)).toEqual({ added: 251, removed: 250 });
+  });
+
+  it("keeps entries reference-equal to the item rows through the lazy reader", () => {
+    const diff = rows([["add", "a"], ["del", "b"]]);
+    const changes = summarizeExchanges([user("u1"), tool("t1", diff, "a.ts")]).get("t1")!;
+    expect(changes.entries[0]!.rows).toBe(diff);
+    // exchangeTotals reads through that same array; nothing cloned it.
+    expect(exchangeTotals(changes)).toEqual({ added: 1, removed: 1 });
   });
 });
