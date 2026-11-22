@@ -1652,6 +1652,9 @@ export interface UiStore extends SettingsSlice, UpdatesSlice, LabSlice, StatsSli
     opts?: { quiet?: boolean; captureId?: (id: string) => void },
   ): Promise<unknown>;
   handleRpcFrame(tabId: string, frame: object): void;
+  /** Reports whether a mounted tab's DOM is painting (performance plan
+   *  Phase 1); delta transcript batches hold while it is not. */
+  setTabPainting(tabId: string, painting: boolean): void;
   /** The renderer peer's microphone and speaker meters (ADR-0071). */
   reportLiveLevels(tabId: string, input: number, output: number): void;
   answerExtension(

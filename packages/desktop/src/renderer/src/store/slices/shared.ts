@@ -258,6 +258,9 @@ export interface StoreMachinery {
     stall: NoticeItem | null,
   ): void;
   flushTranscriptBatch(tabId: string): void;
+  /** Reports whether a mounted tab's DOM is painting (Phase 1); see the
+   *  module-level `tabPainting` map for the default and edge semantics. */
+  setTabPainting(tabId: string, painting: boolean): void;
   cancelTranscriptBatch(tabId: string): void;
   appendItem(tabId: string, item: RenderItem): void;
   patchItems(tabId: string, map: (item: RenderItem) => RenderItem): void;
@@ -642,6 +645,68 @@ export function dropPlanHandoff(
 const tabRuntimes = new Map<string, TabRuntime>();
 let nextCompactionUsageGeneration = 0;
 
+/**
+ * Whether each tab's DOM is actually painting (performance plan Phase 1).
+ * A tri-state map, not a set: an unregistered owner — a subagent view with
+ * no tabId, a store test, the first frames before effects run — must default
+ * to PAINTING and behave exactly as shipped. {@link RpcTab} reports its
+ * `active` prop (App's `shown`, which already folds in `!t.hidden`, the
+ * active-tab test, and every full-pane view) through the store action.
+ */
+const tabPainting = new Map<string, boolean>();
+
+/** Default paint: an unregistered tab behaves exactly as it does today. */
+export const isTabPainting = (tabId: string): boolean =>
+  tabPainting.get(tabId) ?? true;
+
+/**
+ * A usage refresh a non-painting tab asked to hold (Phase 1): one trailing
+ * timer per tab so a background stream's `message_end` cadence collapses from
+ * one read per tool hop to one read per window. The closure is the caller's
+ * effect body — re-arming replaces it, so the fire runs the latest queued
+ * body with its `settleQueue` coupling intact, never dropped or doubled.
+ */
+const USAGE_DEFERRED_REFRESH_MS = 2_000;
+const deferredUsageRefreshes = new Map<
+  string,
+  { timer: number; run: () => void }
+>();
+
+/**
+ * Hold one usage refresh for a non-painting tab (Phase 1): at most one
+ * trailing timer per tab; re-arming replaces the held body, so the fire runs
+ * the latest caller's effect — its `settleQueue` coupling included — never a
+ * dropped or doubled one. A visible tab never routes through here.
+ */
+export function deferUsageRefresh(tabId: string, run: () => void): void {
+  const previous = deferredUsageRefreshes.get(tabId);
+  if (previous !== undefined) window.clearTimeout(previous.timer);
+  const entry: { timer: number; run: () => void } = { timer: 0, run };
+  entry.timer = window.setTimeout(() => {
+    deferredUsageRefreshes.delete(tabId);
+    entry.run();
+  }, USAGE_DEFERRED_REFRESH_MS);
+  deferredUsageRefreshes.set(tabId, entry);
+}
+
+/** Clear any held refresh and hand back its body for one immediate run. */
+function takeDeferredUsageRefresh(tabId: string): (() => void) | undefined {
+  const pending = deferredUsageRefreshes.get(tabId);
+  if (pending === undefined) return undefined;
+  window.clearTimeout(pending.timer);
+  deferredUsageRefreshes.delete(tabId);
+  return pending.run;
+}
+
+/**
+ * True when a delta batch must not commit for this tab: the window is hidden
+ * (#187's shipped property), or the tab's own DOM is not painting (Phase 1).
+ * The single source of truth for both arms of {@link armDeltaBatch}, so the
+ * wake timer and the rAF fast path cannot drift. Lifecycle arms stay ungated.
+ */
+const holdsBatchUnpainted = (tabId: string): boolean =>
+  (typeof document !== "undefined" && document.hidden) || !isTabPainting(tabId);
+
 function freshTabRuntime(): TabRuntime {
   return {
     quietWedgeNotified: false,
@@ -672,6 +737,10 @@ export function resetTabRuntimesForTests(): void {
     }
   }
   tabRuntimes.clear();
+  for (const pending of deferredUsageRefreshes.values())
+    window.clearTimeout(pending.timer);
+  deferredUsageRefreshes.clear();
+  tabPainting.clear();
   resetLiveSwitchForTests();
 }
 
@@ -721,11 +790,15 @@ export const STREAM_STALL_TICK_MS = 1_000;
  * no matter what the display refresh rate offers: an uncapped visible stream
  * otherwise pays a full Markdown re-parse, reconciliation, and follow-pin
  * forced layout once per animation frame (#481). The wait is a plain timer
- * that skips harmlessly while the document is hidden, with one rAF fast path
- * that flushes paint-aligned once the cap has elapsed; hidden windows stay
- * silent because the pending batch simply waits (the #187 property), and a
- * lifecycle frame that lands on a capped batch flushes it immediately so
- * settled state is never held behind the cap.
+ * that skips harmlessly while the document is hidden or the tab's own DOM is
+ * not painting (performance plan Phase 1: {@link holdsBatchUnpainted}, fed by
+ * RpcTab's `active` prop through `setTabPainting`), with one rAF fast path
+ * that flushes paint-aligned once the cap has elapsed; unpainted tabs stay
+ * silent because the pending batch simply waits (the #187 property, now
+ * tab-painting-aware), and a lifecycle frame that lands on a capped batch
+ * flushes it immediately so settled state is never held behind the cap. A
+ * non-painting tab still converges its transcript on every message/tool/turn
+ * boundary at exactly today's cadence; only delta batches are held.
  */
 export const TRANSCRIPT_FLUSH_MS = 100;
 
@@ -824,6 +897,10 @@ export function createMachinery(
 
   const discardTabRuntime = (tabId: string): void => {
     invalidateDevicePane(tabId);
+    // Phase 1: a closed tab must not leave a stale painting record or a
+    // pending deferred usage refresh behind.
+    tabPainting.delete(tabId);
+    takeDeferredUsageRefresh(tabId);
     const current = tabRuntimes.get(tabId);
     if (current === undefined) return;
     const batch = current.transcriptBatch;
@@ -929,7 +1006,7 @@ export function createMachinery(
       if (tabRuntimes.get(tabId)?.transcriptBatch === undefined) return;
       // Store tests run under node, where no document exists at all; the
       // repo's convention for renderer globals applies (themes.ts).
-      if (typeof document !== "undefined" && document.hidden) {
+      if (holdsBatchUnpainted(tabId)) {
         batch.timer = window.setTimeout(wake, TRANSCRIPT_FLUSH_MS);
         return;
       }
@@ -941,9 +1018,10 @@ export function createMachinery(
         batch.raf = undefined;
         if (tabRuntimes.get(tabId)?.transcriptBatch === undefined) return;
         // Hidden windows never paint from the fast path either (real rAF
-        // simply stops firing; this keeps that property deterministic). The
-        // wake timer owns the batch while hidden, and never re-arms rAF.
-        if (typeof document !== "undefined" && document.hidden) return;
+        // simply stops firing; this keeps that property deterministic), and
+        // neither does a tab whose DOM is not painting (Phase 1). The wake
+        // timer owns the batch while unpainted, and never re-arms rAF.
+        if (holdsBatchUnpainted(tabId)) return;
         const last = runtime(tabId).transcriptLastFlushAt;
         if (
           last === undefined ||
@@ -951,6 +1029,24 @@ export function createMachinery(
         )
           flushTranscriptBatch(tabId);
       });
+    }
+  };
+
+  /**
+   * Phase 1's report from a mounted tab: is its DOM painting right now?
+   * A false→true edge flushes any held delta batch — switching to a tab shows
+   * its settled state in the same frame it appears — and runs a usage refresh
+   * the background cadence had been holding, exactly once. The true→false
+   * edge does nothing: the held-batch machinery already owns the batch, and
+   * lifecycle frames keep converging the transcript either way.
+   */
+  const setTabPainting = (tabId: string, painting: boolean): void => {
+    const previous = tabPainting.get(tabId);
+    if (previous === painting) return;
+    tabPainting.set(tabId, painting);
+    if (painting) {
+      flushTranscriptBatch(tabId);
+      takeDeferredUsageRefresh(tabId)?.();
     }
   };
 
@@ -1420,6 +1516,7 @@ export function createMachinery(
     effectiveItems,
     queueTranscriptFrame,
     flushTranscriptBatch,
+    setTabPainting,
     applyStagedParams,
     cancelTranscriptBatch,
     appendItem,

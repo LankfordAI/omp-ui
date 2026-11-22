@@ -46,7 +46,7 @@ import {
   tabInfo,
 } from "../../test/fixtures";
 import { h } from "../../test/store-harness";
-import { peekTabRuntime, resetTabRuntimesForTests } from "./shared";
+import { createMachinery, isTabPainting, peekTabRuntime, resetTabRuntimesForTests } from "./shared";
 import { HANDOFF_SOURCE_GRACE_MS, type LifecycleSlice } from "./lifecycle";
 import type { RpcTabState, UiStore } from "../types";
 import { reduceAgentEvent } from "./reduce-agent-event";
@@ -6795,6 +6795,178 @@ describe("transcript commit batching (issue #187)", () => {
       unsub();
       vi.useRealTimers();
     }
+  });
+
+  // Phase 1 (performance plan): the #481 hold extends from the hidden window
+  // to any tab whose DOM is not painting. Lifecycle paths stay ungated.
+  describe("tab painting gate (performance plan Phase 1)", () => {
+    it("holds delta batches for a non-painting tab across several wakes", () => {
+      vi.useFakeTimers();
+      let commits = 0;
+      const unsub = h.useStore.subscribe((state, prev) => {
+        if (state.rpc[h.TAB]?.items !== prev.rpc[h.TAB]?.items) commits++;
+      });
+      try {
+        h.useStore.getState().setTabPainting(h.TAB, false);
+        const store = h.useStore.getState();
+        for (const delta of ["a", "b", "c"]) {
+          store.handleRpcFrame(h.TAB, {
+            type: "message_update",
+            assistantMessageEvent: { type: "text_delta", delta },
+          });
+          runFrame();
+          vi.advanceTimersByTime(h.TRANSCRIPT_FLUSH_MS);
+        }
+        expect(commits).toBe(0);
+      } finally {
+        unsub();
+        vi.useRealTimers();
+      }
+    });
+
+    it("still force-flushes a non-delta frame landing on a held delta batch", () => {
+      // Path (a) unchanged: settled state never waits, painting or not.
+      const store = h.useStore.getState();
+      store.handleRpcFrame(h.TAB, {
+        type: "message_start",
+        message: { role: "user", content: [{ type: "text", text: "go" }] },
+      });
+      runFrame();
+      h.useStore.getState().setTabPainting(h.TAB, false);
+      for (const delta of ["a", "b"]) {
+        store.handleRpcFrame(h.TAB, {
+          type: "message_update",
+          assistantMessageEvent: { type: "text_delta", delta },
+        });
+      }
+      store.handleRpcFrame(h.TAB, {
+        type: "message_end",
+        message: { role: "assistant", content: [{ type: "text", text: "ab" }] },
+      });
+      const items = h.useStore.getState().rpc[h.TAB]!.items;
+      expect(items.map((i) => i.kind)).toEqual(["user", "assistant"]);
+      expect(items[1]).toMatchObject({ text: "ab", streaming: false });
+    });
+
+    it("commits a standalone lifecycle frame on a non-painting tab at its scheduled frame", () => {
+      // Path (b) unchanged: armLifecycleBatch is not gated.
+      h.useStore.getState().setTabPainting(h.TAB, false);
+      const store = h.useStore.getState();
+      store.handleRpcFrame(h.TAB, {
+        type: "message_start",
+        message: { role: "user", content: [{ type: "text", text: "go" }] },
+      });
+      expect(h.useStore.getState().rpc[h.TAB]!.items).toHaveLength(0);
+      runFrame();
+      expect(h.useStore.getState().rpc[h.TAB]!.items).toHaveLength(1);
+    });
+
+    it("painting edge flushes held deltas and fires the deferred usage refresh once", () => {
+      vi.useFakeTimers();
+      let commits = 0;
+      const unsub = h.useStore.subscribe((state, prev) => {
+        if (state.rpc[h.TAB]?.items !== prev.rpc[h.TAB]?.items) commits++;
+      });
+      try {
+        h.useStore.setState({
+          rpc: { [h.TAB]: rpcTabState({ status: "running" }) },
+        });
+        h.useStore.getState().setTabPainting(h.TAB, false);
+        const store = h.useStore.getState();
+        store.handleRpcFrame(h.TAB, {
+          type: "message_update",
+          assistantMessageEvent: { type: "text_delta", delta: "a" },
+        });
+        store.handleRpcFrame(h.TAB, {
+          type: "message_end",
+          message: { role: "assistant", content: [{ type: "text", text: "a" }] },
+        });
+        // The lifecycle flush above is path (a); the running-turn usage read
+        // was held for the non-painting tab.
+        expect(h.sent.some((s) => s.cmd.type === "get_state")).toBe(false);
+        h.useStore.getState().setTabPainting(h.TAB, true);
+        // Same-tick commit of whatever batch remained, and exactly one refresh.
+        vi.advanceTimersByTime(2_100);
+        expect(commits).toBeGreaterThan(0);
+        expect(h.sent.filter((s) => s.cmd.type === "get_state")).toHaveLength(1);
+        expect(
+          h.sent.filter((s) => s.cmd.type === "get_session_stats"),
+        ).toHaveLength(1);
+      } finally {
+        unsub();
+        vi.useRealTimers();
+      }
+    });
+
+    it("a held usage refresh fires on its own trailing timer and collapses repeats", () => {
+      vi.useFakeTimers();
+      try {
+        h.useStore.setState({
+          rpc: { [h.TAB]: rpcTabState({ status: "running" }) },
+        });
+        h.useStore.getState().setTabPainting(h.TAB, false);
+        const end = (text: string) =>
+          h.useStore.getState().handleRpcFrame(h.TAB, {
+            type: "message_end",
+            message: { role: "assistant", content: [{ type: "text", text }] },
+          });
+        end("a");
+        vi.advanceTimersByTime(1_000);
+        end("b"); // re-arms the single trailing timer, replacing the held read
+        expect(h.sent.some((s) => s.cmd.type === "get_state")).toBe(false);
+        vi.advanceTimersByTime(2_100);
+        expect(h.sent.filter((s) => s.cmd.type === "get_state")).toHaveLength(1);
+      } finally {
+        vi.useRealTimers();
+      }
+    });
+
+    it("discardTabRuntime drops the painting record and any held refresh", () => {
+      vi.useFakeTimers();
+      try {
+        h.useStore.setState({
+          rpc: { [h.TAB]: rpcTabState({ status: "running" }) },
+        });
+        h.useStore.getState().setTabPainting(h.TAB, false);
+        h.useStore.getState().handleRpcFrame(h.TAB, {
+          type: "message_end",
+          message: { role: "assistant", content: [{ type: "text", text: "a" }] },
+        });
+        expect(isTabPainting(h.TAB)).toBe(false);
+        createMachinery(
+          h.useStore.setState,
+          h.useStore.getState,
+          h.useStore,
+        ).discardTabRuntime(h.TAB);
+        expect(isTabPainting(h.TAB)).toBe(true);
+        vi.advanceTimersByTime(3_000);
+        expect(h.sent.some((s) => s.cmd.type === "get_state")).toBe(false);
+      } finally {
+        vi.useRealTimers();
+      }
+    });
+
+    it("an unregistered tab defaults to painting: deltas commit at the cap", () => {
+      // The map's default, not a set's absence: nothing ever reported for
+      // this tab, so it behaves exactly as shipped.
+      vi.useFakeTimers();
+      let commits = 0;
+      const unsub = h.useStore.subscribe((state, prev) => {
+        if (state.rpc[h.TAB]?.items !== prev.rpc[h.TAB]?.items) commits++;
+      });
+      try {
+        const store = h.useStore.getState();
+        store.handleRpcFrame(h.TAB, {
+          type: "message_update",
+          assistantMessageEvent: { type: "text_delta", delta: "a" },
+        });
+        vi.advanceTimersByTime(h.TRANSCRIPT_FLUSH_MS);
+        expect(commits).toBe(1);
+      } finally {
+        unsub();
+        vi.useRealTimers();
+      }
+    });
   });
 });
 

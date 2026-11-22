@@ -643,6 +643,7 @@ export const useStore = create<UiStore>()((set, get, api) => {
     reloadHistory: rpcCommandSlice.reloadHistory,
     rpcCommand: rpcCommandSlice.rpcCommand,
     handleRpcFrame: frame.handleRpcFrame,
+    setTabPainting: frame.setTabPainting,
     reportLiveLevels: frame.reportLiveLevels,
 
     setInitialPrompt: rpcCommandSlice.setInitialPrompt,
