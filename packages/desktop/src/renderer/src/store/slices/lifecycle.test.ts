@@ -703,6 +703,13 @@ describe("deleteSession", () => {
     expect(h.useStore.getState().deleteConfirmation?.hasFiles).toBe(false);
   });
 
+  it("promises no file erasure for a record that never started (issue #1265)", async () => {
+    h.useStore.setState({ state: h.stateWithRecord(null, "dormant") });
+    await h.useStore.getState().deleteSession(h.TAB);
+
+    expect(h.useStore.getState().deleteConfirmation?.hasFiles).toBe(false);
+  });
+
   it("records the worktree branch, base, and path on the confirmation", async () => {
     const state = h.stateWithRecord("sess-1", "live");
     state.projects[0]!.sessions[0]!.worktree = {

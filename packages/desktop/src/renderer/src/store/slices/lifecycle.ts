@@ -1974,7 +1974,7 @@ export function createLifecycleSlice(
       tabId,
       title: rec.title,
       running: rec.live === "live",
-      hasFiles: rec.live !== "missing",
+      hasFiles: rec.live !== "missing" && rec.sessionId !== null,
       worktreeBranch: rec.worktree?.branch ?? null,
       worktreeBase: rec.worktree?.base ?? null,
       worktreePath: rec.worktree?.path ?? null,

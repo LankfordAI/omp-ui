@@ -319,6 +319,8 @@ export function SessionRow({
   });
 
   const missing = s.live === "missing";
+  // A record omp never wrote a transcript for: nothing to erase beyond the row.
+  const noFiles = missing || s.sessionId === null;
   const selected = s.tabId === activeTabId;
   // A settled dead tab waiting to be resurfaced (issue #926).
   const strandedSettle = missing && exited !== undefined && tabMounted;
@@ -747,7 +749,7 @@ export function SessionRow({
           label={
             s.live === "live"
               ? t("sidebar.session.stopDelete")
-              : missing
+              : noFiles
                 ? t("sidebar.session.deleteRecord")
                 : t("sidebar.session.deleteFiles")
           }

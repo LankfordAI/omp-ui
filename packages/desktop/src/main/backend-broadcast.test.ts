@@ -264,9 +264,11 @@ describe("ordered backend broadcasts (issue #146)", () => {
       state.projects[0]?.sessions[0]?.live,
       state.modelFavorites,
     ]);
+    // The default fixture has sessionId: null and the mock reports "missing"
+    // for its second build: a never-started record reads dormant (#1265).
     expect(delivered).toEqual([
       ["archived", ["model-a", "model-b"]],
-      ["missing", ["model-a", "model-b"]],
+      ["dormant", ["model-a", "model-b"]],
     ]);
   });
 
@@ -779,5 +781,56 @@ describe("chats in backend state (issue #894)", () => {
     }
     expect(fs.readFileSync(registryFile, "utf8")).toBe(before);
     expect(Registry.load(registryFile).projects.map((p) => p.path)).not.toContain(chatsRoot);
+  });
+});
+
+describe("never-started records read dormant, not missing (issue #1265)", () => {
+  async function summaries(): Promise<BackendState["projects"][number]["sessions"]> {
+    const registryFile = path.join(base, "live-state-registry.json");
+    seedRegistry(registryFile, {
+      projects: [
+        {
+          path: "/p/a",
+          name: "A",
+          addedAt: "2026-08-01T00:00:00.000Z",
+          lastModel: null,
+          lastThinkingLevel: null,
+          lastAdvisor: null,
+          lastAdvisorModel: null,
+          defaultModel: null,
+          defaultAdvisorModel: null,
+          browserClock: false,
+          councilRoster: null,
+          knowledgeHome: null,
+          repositoryKey: null,
+          icon: null,
+        },
+      ],
+      sessions: [
+        ownedSessionRecord({ tabId: "tab-never-started", projectCwd: "/p/a" }),
+        ownedSessionRecord({
+          tabId: "tab-files-gone",
+          sessionId: "sid-1",
+          lineageDir: "omp-ui--proj--99999999-2222-3333-4444-555555555555",
+          projectCwd: "/p/a",
+        }),
+      ],
+    });
+    handlers.clear();
+    new MainBackend(win as never, registryFile).registerIpc();
+    const state = (await invoke(CH.getState)) as BackendState;
+    return state.projects.flatMap((group) => group.sessions);
+  }
+
+  it("labels a record that never materialized a session id dormant", async () => {
+    resolveSessionLocationMock.mockResolvedValue({ where: "missing" });
+    const sessions = await summaries();
+    expect(sessions.find((s) => s.tabId === "tab-never-started")?.live).toBe("dormant");
+  });
+
+  it("still labels a record whose files once existed missing", async () => {
+    resolveSessionLocationMock.mockResolvedValue({ where: "missing" });
+    const sessions = await summaries();
+    expect(sessions.find((s) => s.tabId === "tab-files-gone")?.live).toBe("missing");
   });
 });
