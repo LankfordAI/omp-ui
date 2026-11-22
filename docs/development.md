@@ -114,6 +114,12 @@ npm run smoke:plan-verifier --workspace @omp-ui/desktop
 # recorded, not gating); --slow adds the 60 s watchdog row (S9).
 npm run smoke:knowledge-vault --workspace @omp-ui/desktop
 
+# Headless Electron smoke of Routines (S1-S9, #1260): boots dev:headless --pane
+# against a throwaway HOME/registry, a scripted loopback model, and a stdio MCP
+# probe; writes out/routines-smoke/summary.json. Linux only; needs omp. See
+# "Routines acceptance" under Verification runs.
+npm run smoke:routines --workspace @omp-ui/desktop
+
 # Regenerate committed theme CSS from theme-sources.json.
 npm run themes:generate --workspace @omp-ui/desktop
 
@@ -653,6 +659,60 @@ are removed. Insert generated multiline refresh drafts as one input edit; typing
 unmodified newline keys into the composer can submit separate turns instead.
 Record the actual selected CDP port from the launcher/port file, since a preferred
 port can fall back. Label hermetic model-provider fixtures explicitly in evidence.
+
+#### Routines acceptance (#1260)
+
+Routines (ADR-0100) ships with four verification tiers (spec §17, matrix
+#1257): Tier U is `npm test`, Tier L is
+`npm run test:live --workspace @omp-ui/desktop -- src/main/routines-live.test.ts`,
+Tier S is the headless smoke below, and Tier M is the manual platform
+checklist after it.
+
+```bash
+npm run smoke:routines --workspace @omp-ui/desktop
+```
+
+`scripts/routines-smoke.mjs` boots the real app through
+`dev-headless.mjs --pane` (Electron main, preload, renderer, and the served web
+bundle) against a throwaway `HOME`, `XDG_CONFIG_HOME`, `XDG_DATA_HOME`, and
+`OMP_UI_REGISTRY_PATH`, with `OMP_UI_TEST_MODEL="probe/scripted"`. That
+selector names a scripted loopback OpenAI-compatible provider written into
+the throwaway `~/.omp/agent/models.yml`: no API key and no paid model. The
+destination project mounts a throwaway stdio MCP server (`probe_routines`
+exposing `probe_read` and `probe_write`) that logs every server-side call to
+`mcp-calls.jsonl`. Routine A runs `* * * * *` and allows `probe_read`; routine B
+only replies. The driver clicks and types through the real UI over CDP and
+uses DOM gates. Backend reads (`getState`, `getRoutinesState`) serve only as
+evidence. S7 opens the served web client (`dev-pane-url.txt`) in a second
+headless Electron at 1440×900 and 420×880.
+
+It needs a real omp binary (`OMP_UI_OMP_PATH`, the app-managed copy, or
+`PATH`) and Linux. A run takes about ten minutes: S3 to S5 wait on real minute
+boundaries and the 60 s self-Settle grace. It writes
+`packages/desktop/out/routines-smoke/summary.json`, which holds every S-row
+check with its detail, and one PNG per row. It exits 0 only when S1 to S9 all
+pass. `--keep` leaves the scratch directory (registry, `routines.json`,
+`routine-runs.json`, app and omp logs) for inspection. Extra arguments pass
+through to Chromium.
+
+##### Tier M: platform checklist (M1–M7)
+
+Manual, on the user's macOS x64/arm64, Windows x64, Android phone, mixed-OS
+joined desktops, and work laptop. Rows are verbatim from the spec. Record each
+result, with platform, date, and evidence, in the Result column. A platform
+that is skipped needs explicit user sign-off recorded in ADR-0100 Findings.
+When a platform diverges, apply the row's prescribed fallback. Start M7 with
+schedules disabled, then Dry run, then a read-only Run now.
+
+| # | Row | Platforms | Pass | Prescribed fallback | Result |
+| --- | --- | --- | --- | --- | --- |
+| M1 | Timers across OS sleep & wake (≥ 5 min sleep) | macOS x64/arm64, Windows x64 | Within ≤ 60 s of wake, fires once with Late notice & folded missed count ≥ 3 (never a burst). | Subscribe desktop main to Electron `powerMonitor.on("resume", () => routines.sync())` alongside ScheduledPromptRunner. | Not run |
+| M2 | Time zone & DST transitions (America/New_York spring-forward 02:30 & fall-back 01:30; host zone change) | macOS x64/arm64, Windows x64 | Next-fire matches Linux/ICU byte-for-byte; existing routine keeps stored IANA zone; new routine captures new OS zone. | Normalize `hour % 24` in `wallAt` (`scheduled-prompt.ts:185-189`) and add U3 regression row. | Not run |
+| M3 | Fire missed while app closed (> 120 s) + interrupted run at quit | macOS x64/arm64, Windows x64 | Boot catch-up fires once with Late notice & folded count ≥ 2; mid-turn quit lands dormant interrupted with Failed history row, never re-sent. | Confirm `advance()` atomic-writes `routines.json` synchronously before `FleetDispatcher.dispatch` starts. | Not run |
+| M4 | Store file modes & permissions (`routines.json`, `routine-runs.json`) | macOS x64/arm64, Windows x64 | macOS `stat -f '%Lp'` = 600 after create & rewrite; Windows `icacls` grants only `%USERNAME%`, SYSTEM, Administrators. | Explicit `fs.chmodSync(temporaryPath, 0o600)` inside `writeTextAtomic` when mode is passed; document NTFS ACL reliance on Windows. | Not run |
+| M5 | Cross-instance join & remote card answering | Mixed OS | Joined desktop B shows no Routines view for A, proxy refuses `routines:*` with unknown channel, A's run appears in merged state, answering Deny on B routes via `rpc:send` to A, cancels A's 24 h timer, resumes cleanly with no per-client attribution row. | Fix `REMOTE_PROXY_CHANNELS` / `TAB_ROUTED_NOTIFIES` membership (covered by U13). | Not run |
+| M6 | Android client parity & no-push contract | Android APK | Full CRUD + Dry run + Run now + once-only Approval card at 0 px overflow; no notification permission (INTERNET only); unopened card waits until opened or host 24 h auto-Deny. | Responsive CSS defect in Routines pane (< 900 px drill-down). | Not run |
+| M7 | Post-ship real-connector smoke (work laptop Gmail + Jira, schedule disabled first) | User's work laptop | Dry run lists exact `mcp__<server>_<tool>` names (reads allow, writes prompt/deny); Run now reads and drafts locally with 0 outside writes; any attempted write is intercepted by Approval card and stopped by Deny. | Inspect catalog enumeration vs omp's 64-char hash-truncated MCP tool name before enabling schedule. | Not run |
 
 #### Device pane acceptance (#1009)
 
