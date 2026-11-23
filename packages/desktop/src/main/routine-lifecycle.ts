@@ -13,14 +13,26 @@ import {
   type RoutineRunReasonCode,
   type RoutineRunRow,
   type RoutineRunTrigger,
+  type RoutineScripts,
+  type RoutineWorkspace,
   type RpcFrame,
 } from "@omp-ui/core";
 import type { FrameObserver } from "./frame-observer";
+import type { RoutineScriptEnv, RoutineScriptResult } from "./routine-scripts";
 
 /** Longest single wait for any per-run timer, so OS sleep/wake never drifts a deadline past a minute. */
 export const ROUTINE_LIFECYCLE_MAX_WAIT_MS = 60_000;
 
-type RowPatch = Partial<Pick<RoutineRunRow, "outcome" | "reasonCode">>;
+type RowPatch = Partial<Pick<RoutineRunRow, "outcome" | "reasonCode" | "postScript">>;
+
+/** Fire-time pin handed by the scheduler at bind (#1283): mid-run edits and
+ *  deletes can neither change nor skip an in-flight post hook. */
+export interface RoutineRunPin {
+  scripts: RoutineScripts;
+  routineId: string;
+  projectCwd: string;
+  workspace: RoutineWorkspace;
+}
 
 export interface RoutineLifecycleDeps {
   history: RoutineRunHistory;
@@ -33,10 +45,14 @@ export interface RoutineLifecycleDeps {
   awaitingHumanAnswer: (tabId: string) => boolean;
   /** Ids of the tab's open blocking dialogs (`DialogGateTracker.openFrames`). */
   openDialogIds: (tabId: string) => string[];
-  /** The ordinary Settle path; never joins renderer undo. */
+  /** The ordinary Settle path; resolves false when the child did not stop. */
   settleSession: (tabId: string) => Promise<boolean>;
   /** The normal reply rail (`SessionManager.rpcSend`). */
   rpcSend: (tabId: string, cmd: RpcFrame) => void;
+  /** Runs one post-run hook; the runner resolves (never rejects) with a fixed result (#1283). */
+  runScript: (command: string, cwd: string, env: RoutineScriptEnv) => Promise<RoutineScriptResult>;
+  /** The run's actual working directory (`worktree?.path ?? projectCwd`), read once at bind. */
+  runDirectory: (tabId: string) => string | null;
   /** Publishes `routines:state`. */
   publish: () => void;
   now?: () => number;
@@ -56,6 +72,18 @@ interface RunState {
   /** Row writes that arrived before the scheduler bound the run row. */
   pending: RowPatch;
   timer: NodeJS.Timeout | undefined;
+  /** Post-run hook pin (#1283), set by trackStart from the fire-time record. */
+  postCommand: string;
+  routineId: string;
+  projectCwd: string;
+  workspace: RoutineWorkspace;
+  /** Pinned at bind; never re-read — releaseWorktree clears record.worktree before reclaiming. */
+  runDir: string | null;
+  /** This run's single hook shot has been taken (set synchronously at first finalization). */
+  postClaimed: boolean;
+  /** Outcome/reason recorded by finalize(); every post call reads these, never a caller argument. */
+  finalOutcome: "on-time" | "late" | "failed" | null;
+  finalReason: RoutineRunReasonCode | null;
 }
 
 /**
@@ -67,23 +95,48 @@ interface RunState {
  */
 export class RoutineLifecycleManager implements FrameObserver {
   private readonly runs = new Map<string, RunState>();
+  /** Tabs whose post hook is live even though the run state may already be gone (§7.4 latch). */
+  readonly postRunningTabs = new Set<string>();
   private readonly now: () => number;
 
   constructor(private readonly deps: RoutineLifecycleDeps) {
     this.now = deps.now ?? Date.now;
   }
 
+  /** True while that tab's post-run hook is still executing (#1283). */
+  postRunning(tabId: string): boolean {
+    return this.postRunningTabs.has(tabId);
+  }
+
   /** Binds a freshly dispatched run: its history row and the wall clock from fire. */
-  trackStart(tabId: string, runRowId: string, trigger: RoutineRunTrigger, firedAtMs: number): void {
+  trackStart(
+    tabId: string,
+    runRowId: string,
+    trigger: RoutineRunTrigger,
+    firedAtMs: number,
+    pinned: RoutineRunPin,
+  ): void {
     const state = this.state(tabId);
     state.runRowId = runRowId;
     state.trigger = trigger;
     state.wallDeadline = state.finalized ? null : firedAtMs + ROUTINE_RUN_WALL_CLOCK_MS;
+    // Fire-time pin (#1283): the run cannot have been released yet (release
+    // needs a human Finish or 30-day retention), so this one read is correct.
+    state.postCommand = pinned.scripts.post;
+    state.routineId = pinned.routineId;
+    state.projectCwd = pinned.projectCwd;
+    state.workspace = pinned.workspace;
+    if (state.runDir === null) state.runDir = this.deps.runDirectory(tabId);
     if (Object.keys(state.pending).length > 0) {
       this.deps.history.update(runRowId, state.pending);
       state.pending = {};
       this.deps.publish();
     }
+    // Pre-bind race: a terminal agent_end or exit may have finalized the run
+    // before binding (outcome buffered in pending). That run still gets exactly
+    // one hook — deferred — and settleDeadline stays untouched, since today's
+    // synchronous arm already ran on the early frame.
+    if (state.finalized && this.claimPost(state)) void this.runPostScript(tabId, state);
     this.schedule(tabId, state);
   }
 
@@ -169,6 +222,9 @@ export class RoutineLifecycleManager implements FrameObserver {
     clearTimeout(state.timer);
     // A run that died before its terminal end (pre-turn failure, quit) still gets a fixed outcome.
     if (!state.finalized) this.finalize(state, { outcome: "failed", reasonCode: state.failure ?? "error" });
+    // The row write only needs state.runRowId and the latch lives in
+    // postRunningTabs, so removing the map entry cannot hide a live hook (#1283).
+    if (this.claimPost(state)) void this.runPostScript(tabId, state);
     this.runs.delete(tabId);
   }
 
@@ -196,6 +252,14 @@ export class RoutineLifecycleManager implements FrameObserver {
         finalized: false,
         pending: {},
         timer: undefined,
+        postCommand: "",
+        routineId: "",
+        projectCwd: "",
+        workspace: "worktree",
+        runDir: null,
+        postClaimed: false,
+        finalOutcome: null,
+        finalReason: null,
       };
       this.runs.set(tabId, state);
     }
@@ -213,7 +277,82 @@ export class RoutineLifecycleManager implements FrameObserver {
 
   private finalize(state: RunState, patch: RowPatch): void {
     state.finalized = true;
+    if (patch.outcome !== undefined && patch.outcome !== "running" && patch.outcome !== "waiting-approval") {
+      state.finalOutcome = patch.outcome === "late" ? "late" : patch.outcome === "on-time" ? "on-time" : "failed";
+      state.finalReason = patch.reasonCode ?? null;
+    }
     this.writeRow(state, patch);
+  }
+
+  /** First finalizer wins the hook; every later path returns false (#1283). */
+  private claimPost(state: RunState): boolean {
+    if (state.postCommand.trim() === "" || state.postClaimed) return false;
+    state.postClaimed = true; // synchronous, before any await
+    return true;
+  }
+
+  /** Caller owns the claim. Never throws; always releases the latch below. */
+  private async runPostScript(tabId: string, state: RunState): Promise<void> {
+    if (state.runDir === null || !this.deps.isEnabled()) {
+      this.writeRow(state, { postScript: "interrupted" }); // tab gone / gate off / dir lost
+      this.deps.publish();
+      return;
+    }
+    this.postRunningTabs.add(tabId);
+    try {
+      const result = await this.deps.runScript(state.postCommand, state.runDir, {
+        OMP_UI_ROUTINE_ID: state.routineId,
+        OMP_UI_ROUTINE_TRIGGER: state.trigger,
+        OMP_UI_ROUTINE_PROJECT_CWD: state.projectCwd,
+        OMP_UI_ROUTINE_WORKSPACE: state.workspace,
+        OMP_UI_ROUTINE_OUTCOME: state.finalOutcome ?? "failed", // stored by finalize()
+        OMP_UI_ROUTINE_REASON_CODE: state.finalReason ?? "",
+        OMP_UI_ROUTINE_TAB_ID: tabId,
+        OMP_UI_ROUTINE_RUN_CWD: state.runDir,
+      });
+      this.writeRow(state, {
+        postScript:
+          result.kind === "ok" ? "ok"
+            : result.kind === "skip" ? "failed" // skip code is pre-only
+            : result.timedOut ? "timeout" : "failed",
+      });
+    } catch (err) {
+      console.warn(`[routines] ${tabId}: post hook errored:`, err);
+      this.writeRow(state, { postScript: "failed" }); // latch still released below
+    } finally {
+      this.postRunningTabs.delete(tabId);
+      this.deps.publish();
+    }
+  }
+
+  /** First finalizer: finalize → claim → hook → arm Settle, with a fence after the await. */
+  private async finishRun(tabId: string, state: RunState, patch: RowPatch): Promise<void> {
+    const first = !state.finalized;
+    if (first) this.finalize(state, patch); // finalize() also stores finalOutcome/finalReason
+    if (first && this.claimPost(state)) await this.runPostScript(tabId, state);
+    // Fence: `agent_start`, a card, an exit, or disposeAll() may have happened during the hook.
+    if (this.runs.get(tabId) !== state) return;
+    state.settleDeadline =
+      this.deps.awaitingHumanAnswer(tabId) || this.deps.inRun(tabId) ? null : this.now() + ROUTINE_RUN_SETTLE_GRACE_MS;
+    this.schedule(tabId, state);
+  }
+
+  /**
+   * Wall-clock expiry: claim first (a synchronous statement, so it lands before
+   * the reap's own `onExit()` could steal the hook and report reason_code=error),
+   * then reap, then hook. No settle re-arm: it is already reaped (#1283).
+   */
+  private async reapThenPost(tabId: string, state: RunState): Promise<void> {
+    const owns = this.claimPost(state); // before any await: beats onExit()
+    const reaped = await this.deps.settleSession(tabId).catch(() => false);
+    if (!owns) return; // terminal end already owns it
+    if (!reaped) {
+      // Child still live: never run shell alongside an un-reaped agent.
+      this.writeRow(state, { postScript: "interrupted" });
+      this.deps.publish();
+      return;
+    }
+    await this.runPostScript(tabId, state);
   }
 
   private closeApproval(tabId: string, state: RunState, frameId: string): void {
@@ -224,19 +363,19 @@ export class RoutineLifecycleManager implements FrameObserver {
 
   private onTerminalEnd(tabId: string, state: RunState): void {
     state.wallDeadline = null;
-    if (!state.finalized) {
-      this.finalize(
-        state,
-        state.failure !== null
-          ? { outcome: "failed", reasonCode: state.failure }
-          : {
-              outcome: state.trigger === "late" ? "late" : "on-time",
-              reasonCode: state.autoDenied ? "approval-timeout" : null,
-            },
-      );
-    }
-    state.settleDeadline = this.deps.awaitingHumanAnswer(tabId) ? null : this.now() + ROUTINE_RUN_SETTLE_GRACE_MS;
-    this.schedule(tabId, state);
+    // The first-terminal guard lives inside finishRun now; a continuation turn
+    // (state.finalized already true) only re-arms the settle deadline, and the
+    // outcome written at first finalization is never rewritten (#1283).
+    void this.finishRun(
+      tabId,
+      state,
+      state.failure !== null
+        ? { outcome: "failed", reasonCode: state.failure }
+        : {
+            outcome: state.trigger === "late" ? "late" : "on-time",
+            reasonCode: state.autoDenied ? "approval-timeout" : null,
+          },
+    );
   }
 
   private schedule(tabId: string, state: RunState): void {
@@ -261,7 +400,7 @@ export class RoutineLifecycleManager implements FrameObserver {
       state.settleDeadline = null;
       state.approvals.clear();
       this.finalize(state, { outcome: "failed", reasonCode: "wall-clock" });
-      void this.deps.settleSession(tabId).catch((err: unknown) => console.warn(`[routines] ${tabId}: wall-clock settle failed:`, err));
+      void this.reapThenPost(tabId, state);
       return;
     }
 

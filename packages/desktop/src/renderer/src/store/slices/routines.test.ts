@@ -47,6 +47,7 @@ function routinesStateWith(allow: string[], deny: string[]): RoutinesState {
     thinkingLevel: null,
     spend: { warnUsd: null, maxUsd: null },
     toolPolicy: { allow, deny, lastReviewedAt: "2026-11-22T12:00:00.000Z", reviewedCatalog: [] },
+    scripts: { pre: "", post: "" },
     enabled: true,
     createdAt: "2026-11-01T00:00:00.000Z",
     nextRunAtMs: null,

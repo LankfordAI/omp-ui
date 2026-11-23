@@ -60,10 +60,12 @@ import {
   parseRoutineInput,
   parseRoutinePatch,
   parseRoutineSpendDefaults,
+  parseRoutineTestScriptRequest,
   type RoutineDryRunRequest,
   type RoutineInput,
   type RoutinePatch,
   type RoutineSpendDefaultsInput,
+  type RoutineTestScriptRequest,
 } from "./routine";
 import type {
   AgentMode,
@@ -1125,6 +1127,7 @@ export const routineInputCodec = routineCodec<RoutineInput>("a valid routine", p
 export const routinePatchCodec = routineCodec<RoutinePatch>("a valid routine patch", parseRoutinePatch);
 export const routineDryRunRequestCodec = routineCodec<RoutineDryRunRequest>("a valid routine dry-run request", parseRoutineDryRunRequest);
 export const routineSpendDefaultsCodec = routineCodec<RoutineSpendDefaultsInput>("valid routine spend defaults", parseRoutineSpendDefaults);
+export const routineTestScriptRequestCodec = routineCodec<RoutineTestScriptRequest>("a valid routine script test", parseRoutineTestScriptRequest);
 
 /** Fleet terminal open (issue #991): strict keys and cell bounds, via the shared parser. */
 export const fleetTerminalOpenRequestCodec: ArgCodec<FleetTerminalOpenRequest> = {

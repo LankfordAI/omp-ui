@@ -22,6 +22,7 @@ import {
   type SessionRoutine,
 } from "@omp-ui/core";
 import type { ListCatalogOptions } from "./routine-catalog";
+import type { RoutineScriptEnv, RoutineScriptResult } from "./routine-scripts";
 
 /** Longest single timer wait: matches ScheduledPromptRunner / SnoozeClock so OS sleep catches up within 60 s. */
 export const ROUTINE_SCHEDULER_MAX_WAIT_MS = 60_000;
@@ -53,6 +54,14 @@ export interface RoutineSchedulerDeps {
   ) => Promise<FleetDispatchResult>;
   /** Called once a routine run starts with a tabId so lifecycle timers can attach. */
   onRunStarted: (tabId: string, routineId: string, runRowId: string, trigger: RoutineRunTrigger, firedAtMs: number) => void;
+  /** Runs one pre-run hook; the runner resolves (never rejects) with a fixed result (#1283). */
+  runScript: (
+    command: string,
+    cwd: string,
+    env: RoutineScriptEnv,
+  ) => Promise<RoutineScriptResult>;
+  /** True while that tab's post-run hook is still executing (#1283); holds per-routine overlap. */
+  postRunning: (tabId: string) => boolean;
   /** Called after a fire starts so retention can prune aged runs. */
   onPostFire?: () => Promise<void> | void;
   /** Publishes `routines:state` to every connected client. */
@@ -95,6 +104,10 @@ export class RoutineScheduler {
 
   /** True while `tabId` is live and either turning or waiting on a human gate (Approval card, plan, etc.). */
   inRun(tabId: string): boolean {
+    // A post hook keeps running after `settleSession()` (wall-clock) or the
+    // child's exit has already made the tab non-live, so this must precede
+    // isLive() (#1283).
+    if (this.deps.postRunning(tabId)) return true;
     if (!this.deps.isLive(tabId)) return false;
     return this.deps.isTurnRunning(tabId) || this.deps.awaitingHumanAnswer(tabId) || this.rowStillRunning(tabId);
   }
@@ -283,6 +296,48 @@ export class RoutineScheduler {
     this.deps.publish();
   }
 
+  /** Post-advance skip (#1283): writes the row, appends the notice, touches no schedule. */
+  private recordPostDispatchSkip(
+    routine: RoutineRecord,
+    firedAtMs: number,
+    scheduledForMs: number | null,
+    trigger: RoutineRunTrigger,
+    missed: number,
+  ): RoutineRunRow {
+    // Re-read the current record (never the fire-time snapshot) so a
+    // concurrent update or a late notice written during the hook is never
+    // lost; tolerate the routine having been deleted meanwhile.
+    const current = this.deps.store.get(routine.id);
+    if (current !== null) {
+      this.deps.store.replaceScheduleState(current.id, {
+        notices: prependNotice(current.notices, {
+          kind: "skipped",
+          atMs: firedAtMs,
+          dueAtMs: scheduledForMs ?? firedAtMs,
+          missed,
+          error: null,
+        }),
+      });
+    }
+    const row: RoutineRunRow = {
+      id: this.uuid(),
+      routineId: routine.id,
+      routineName: routine.name,
+      firedAtMs,
+      scheduledForMs,
+      trigger,
+      outcome: "skipped",
+      tabId: null,
+      reasonCode: "pre-script-skip",
+      missed,
+      pruned: false,
+      staleCatalog: false,
+    };
+    this.deps.history.record(row);
+    this.deps.publish();
+    return row;
+  }
+
   private async dispatchRoutine(
     routine: RoutineRecord,
     trigger: RoutineRunTrigger,
@@ -308,6 +363,51 @@ export class RoutineScheduler {
           false,
           throwOnFailure,
         );
+      }
+
+      // Pre-run hook (#1283): fails closed. Runs in the destination checkout —
+      // the worktree does not exist until the spawn below. The inFlight guards
+      // held across this await block re-fires without new locking; time counts
+      // against the run's wall clock (pre budget is 1/30 of it).
+      if (routine.scripts.pre.trim() !== "") {
+        let result: RoutineScriptResult;
+        try {
+          result = await this.deps.runScript(routine.scripts.pre, routine.destination.projectCwd, {
+            OMP_UI_ROUTINE_ID: routine.id,
+            OMP_UI_ROUTINE_TRIGGER: trigger,
+            OMP_UI_ROUTINE_PROJECT_CWD: routine.destination.projectCwd,
+            OMP_UI_ROUTINE_WORKSPACE: routine.destination.workspace,
+          });
+        } catch (err) {
+          // A wiring bug, not an exit status: treat as failed, never reject.
+          console.warn(`[routines] ${routine.id}: pre hook threw:`, err);
+          result = { kind: "failed", timedOut: false, exitCode: null };
+        }
+        // Re-check admission after the await: "gate off fires nothing"
+        // (ADR-0100 §1) outranks an in-flight pre hook; a deleted routine
+        // dispatches nothing either.
+        if (!this.deps.isEnabled() || this.deps.store.get(routine.id) === null) {
+          return { tabId: "", runId: "" };
+        }
+        if (result.kind === "skip") {
+          const row = this.recordPostDispatchSkip(routine, firedAtMs, scheduledForMs, trigger, missed);
+          // Same empty-tabId convention as handleDispatchFailure: Run now
+          // resolves; the editor shows a neutral "nothing to do" line.
+          return { tabId: "", runId: row.id };
+        }
+        if (result.kind === "failed") {
+          return this.handleDispatchFailure(
+            routine,
+            trigger,
+            firedAtMs,
+            scheduledForMs,
+            missed,
+            "pre-script",
+            result.timedOut ? "Pre-run script timed out" : "Pre-run script failed",
+            false,
+            throwOnFailure,
+          );
+        }
       }
 
       const catalog = await this.deps.listCatalog(routine.destination.projectCwd, {
@@ -432,7 +532,7 @@ export class RoutineScheduler {
     firedAtMs: number,
     scheduledForMs: number | null,
     missed: number,
-    reasonCode: "project-missing" | "dispatch-failed",
+    reasonCode: RoutineRunReasonCode,
     fixedMessage: string,
     staleCatalog: boolean,
     throwOnFailure: boolean,

@@ -7,12 +7,14 @@ import {
   ROUTINE_DEFAULT_ALLOW_VAULT_TOOLS,
   ROUTINE_INSTRUCTIONS_MAX,
   ROUTINE_NAME_MAX,
+  ROUTINE_SCRIPT_MAX,
   type RoutineCatalogSnapshot,
   type RoutineDryRunResult,
   type RoutineInput,
   type RoutineMode,
   type RoutineRecord,
   type RoutineToolPolicy,
+  type RoutineTestScriptResult,
   type RoutineWorkspace,
 } from "@omp-ui/core/routine";
 import type { CatalogModelOption } from "@omp-ui/core/types";
@@ -75,6 +77,8 @@ interface Draft {
   warnUsd: string;
   maxUsd: string;
   toolPolicy: RoutineToolPolicy;
+  preScript: string;
+  postScript: string;
   enabled: boolean;
 }
 
@@ -98,6 +102,8 @@ function draftOf(routine: RoutineRecord | null, defaultProject: string): Draft {
         lastReviewedAt: new Date(0).toISOString(),
         reviewedCatalog: [],
       },
+      preScript: "",
+      postScript: "",
       enabled: true,
     };
   }
@@ -113,6 +119,10 @@ function draftOf(routine: RoutineRecord | null, defaultProject: string): Draft {
     warnUsd: routine.spend.warnUsd === null ? "" : String(routine.spend.warnUsd),
     maxUsd: routine.spend.maxUsd === null ? "" : String(routine.spend.maxUsd),
     toolPolicy: routine.toolPolicy,
+    // Hydrate both phases: seeding empty here would silently wipe a saved hook
+    // on any unrelated edit (#1283).
+    preScript: routine.scripts.pre,
+    postScript: routine.scripts.post,
     enabled: routine.enabled,
   };
 }
@@ -177,6 +187,7 @@ export function RoutineEditor({
   const updateRoutine = useStore((s) => s.updateRoutine);
   const runRoutineNow = useStore((s) => s.runRoutineNow);
   const dryRunRoutine = useStore((s) => s.dryRunRoutine);
+  const testRoutineScript = useStore((s) => s.testRoutineScript);
   const loadRoutineToolCatalog = useStore((s) => s.loadRoutineToolCatalog);
   const openSettings = useStore((s) => s.openSettings);
   const localProjects = projects ?? [];
@@ -191,9 +202,13 @@ export function RoutineEditor({
   const [policyTouched, setPolicyTouched] = useState(false);
   const [catalog, setCatalog] = useState<RoutineCatalogSnapshot | null>(null);
   const [catalogError, setCatalogError] = useState<string | null>(null);
-  const [busy, setBusy] = useState<"save" | "run" | "dry" | null>(null);
+  const [busy, setBusy] = useState<"save" | "run" | "dry" | "test" | null>(null);
   const [saveError, setSaveError] = useState<string | null>(null);
   const [actionError, setActionError] = useState<string | null>(null);
+  const [skippedNow, setSkippedNow] = useState(false);
+  const [testResult, setTestResult] = useState<{ phase: "pre" | "post"; result: RoutineTestScriptResult } | null>(
+    null,
+  );
   const [dryRun, setDryRun] = useState<RoutineDryRunResult | null>(null);
   const [modelPickerOpen, setModelPickerOpen] = useState(false);
   const [confirmDelete, setConfirmDelete] = useState(false);
@@ -209,6 +224,8 @@ export function RoutineEditor({
     setPolicyTouched(false);
     setSaveError(null);
     setActionError(null);
+    setSkippedNow(false);
+    setTestResult(null);
     setDryRun(null);
     setConfirmDelete(false);
   }, [initial]);
@@ -267,7 +284,9 @@ export function RoutineEditor({
                 ? t("routines.error.project")
                 : Number.isNaN(warnUsd) || Number.isNaN(maxUsd)
                   ? t("routines.error.spend", { max: ROUTINE_COST_MAX_USD })
-                  : null;
+                  : draft.preScript.length > ROUTINE_SCRIPT_MAX || draft.postScript.length > ROUTINE_SCRIPT_MAX
+                    ? t("routines.hooks.tooLong", { max: ROUTINE_SCRIPT_MAX })
+                    : null;
 
   const input: RoutineInput | null =
     problem === null && schedule !== null
@@ -282,6 +301,7 @@ export function RoutineEditor({
           thinkingLevel: draft.thinkingLevel,
           spend: { warnUsd, maxUsd },
           toolPolicy: draft.toolPolicy,
+          scripts: { pre: draft.preScript, post: draft.postScript },
           enabled: draft.enabled,
         }
       : null;
@@ -304,8 +324,26 @@ export function RoutineEditor({
     if (routine === null || busy !== null) return;
     setBusy("run");
     setActionError(null);
+    setSkippedNow(false);
     runRoutineNow(routine.id)
+      .then((result) => {
+        // Pre-hook exit 78 (#1283): a neutral "nothing to do" line, not failure.
+        if (result.tabId === "") setSkippedNow(true);
+      })
       .catch((err: unknown) => setActionError(displayMessage(err)))
+      .finally(() => setBusy(null));
+  };
+
+  const testScriptFor = (phase: "pre" | "post"): void => {
+    const command = phase === "pre" ? draft.preScript : draft.postScript;
+    if (busy !== null || draft.projectCwd === "" || command.trim() === "") return;
+    setBusy("test");
+    setTestResult(null);
+    testRoutineScript({ projectCwd: draft.projectCwd, command })
+      .then(
+        (result) => setTestResult({ phase, result }),
+        (err: unknown) => setTestResult({ phase, result: { kind: "failed", timedOut: false, exitCode: null, stdout: "", stderr: displayMessage(err) } }),
+      )
       .finally(() => setBusy(null));
   };
 
@@ -365,12 +403,18 @@ export function RoutineEditor({
   };
 
   const handleProjectChange = (nextProjectCwd: string): void => {
+    setTestResult(null); // a stale tail beside a different project lies (#1283)
     setDraft((d) => ({
       ...d,
       projectCwd: nextProjectCwd,
       thinkingLevel: reconcileThinking(d.model, nextProjectCwd, d.thinkingLevel),
     }));
   };
+
+  // Same for an edited command: clear the tail whenever the tested text changes.
+  useEffect(() => {
+    setTestResult(null);
+  }, [draft.preScript, draft.postScript]);
 
   const projectName = selectedProject?.name ?? draft.projectCwd;
   const runs = routine === null ? [] : runsOf(routinesState?.runs ?? [], routine.id);
@@ -399,6 +443,7 @@ export function RoutineEditor({
   }, [catalog, draft.toolPolicy.allow, draft.toolPolicy.deny]);
 
   const cliBypass = draft.toolPolicy.allow.some((key) => ROUTINE_CLI_BYPASS_TOOLS.has(key));
+  const hooksSet = draft.preScript.trim() !== "" || draft.postScript.trim() !== "";
   const modelDisplayName = selectedModel?.name ?? draft.model ?? t("routines.projectDefault");
   const defaultHint =
     projectModelSelector !== null
@@ -485,6 +530,11 @@ export function RoutineEditor({
         {actionError !== null && (
           <p role="alert" data-routine-action-error className="mt-2 px-1.5 text-xs leading-relaxed text-rose">
             {actionError}
+          </p>
+        )}
+        {skippedNow && (
+          <p role="status" data-routine-skipped-now className="mt-2 px-1.5 text-xs leading-relaxed text-ink-mid">
+            {t("routines.run.skippedNow")}
           </p>
         )}
         {validationBanner !== null && (
@@ -860,6 +910,59 @@ export function RoutineEditor({
                 </div>
               </section>
 
+              {/* Run hooks card (#1283) */}
+              <section className="studio-card space-y-3 rounded-xl p-4">
+                <div>
+                  <h4 className="text-sm font-semibold text-ink">{t("routines.hooks.title")}</h4>
+                  <p className="mt-0.5 text-xs text-ink-dim">{t("routines.hooks.skipHint")}</p>
+                </div>
+                {(["pre", "post"] as const).map((phase) => {
+                  const value = phase === "pre" ? draft.preScript : draft.postScript;
+                  const setPhase = (text: string): void =>
+                    set(phase === "pre" ? { preScript: text } : { postScript: text });
+                  return (
+                    <div key={phase} className="space-y-1.5">
+                      <div className="flex items-center justify-between gap-2">
+                        <Label>{phase === "pre" ? t("routines.hooks.preLabel") : t("routines.hooks.postLabel")}</Label>
+                        <Button
+                          size="xs"
+                          disabled={
+                            busy !== null || draft.projectCwd === "" || value.trim() === ""
+                          }
+                          onClick={() => testScriptFor(phase)}
+                        >
+                          {t("routines.hooks.testButton")}
+                        </Button>
+                      </div>
+                      <textarea
+                        value={value}
+                        rows={3}
+                        spellCheck={false}
+                        aria-label={phase === "pre" ? t("routines.hooks.preLabel") : t("routines.hooks.postLabel")}
+                        onChange={(e) => setPhase(e.target.value)}
+                        className={cn(FIELD, "h-auto w-full resize-y py-2 font-mono leading-relaxed")}
+                      />
+                      <p className="text-[11px] leading-relaxed text-ink-faint">
+                        {phase === "pre" ? t("routines.hooks.preNote") : t("routines.hooks.postNote")}
+                      </p>
+                      {testResult !== null && testResult.phase === phase && (
+                        <pre
+                          data-hook-test-output
+                          className="max-h-40 overflow-auto rounded-lg border border-line bg-raised px-2.5 py-2 font-mono text-[11px] leading-relaxed text-ink-mid"
+                        >
+                          {t("routines.hooks.testResult", {
+                            kind: testResult.result.kind,
+                            code: testResult.result.exitCode ?? "—",
+                          })}
+                          {testResult.result.stdout !== "" ? `\n${testResult.result.stdout}` : ""}
+                          {testResult.result.stderr !== "" ? `\n[stderr]\n${testResult.result.stderr}` : ""}
+                        </pre>
+                      )}
+                    </div>
+                  );
+                })}
+              </section>
+
               {/* Narrow-viewport delete footer */}
               {routine !== null && (
                 <div className="flex items-center justify-end pt-1 @[48rem]:hidden">
@@ -925,11 +1028,20 @@ export function RoutineEditor({
                   >
                     {t("routines.policy.cliBypassWarning")}
                   </p>
-                ) : (
+                ) : null}
+                {hooksSet ? (
+                  <p
+                    role="note"
+                    className="rounded-lg border border-copper-dim bg-copper-wash px-2.5 py-2 leading-relaxed text-copper"
+                  >
+                    {t("routines.hooks.warning")}
+                  </p>
+                ) : null}
+                {!cliBypass && !hooksSet ? (
                   <p className="rounded-lg border border-signal-dim/60 bg-signal-wash/50 px-2.5 py-2 leading-relaxed text-signal">
                     {t("routines.studio.policySafe")}
                   </p>
-                )}
+                ) : null}
 
                 <dl className="space-y-1.5 border-t border-line-soft pt-2.5">
                   <div className="flex items-center justify-between gap-2">

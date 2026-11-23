@@ -71,6 +71,7 @@ const ROUTINE_INPUT: RoutineInput = {
   thinkingLevel: null,
   spend: { warnUsd: null, maxUsd: null },
   toolPolicy: { allow: ["read"], deny: [], lastReviewedAt: "2026-11-22T00:00:00.000Z", reviewedCatalog: ["read"] },
+  scripts: { pre: "", post: "" },
   enabled: true,
 };
 
@@ -562,6 +563,7 @@ const VALID_ARGS = {
   updateRoutine: ["AAAAAAAAAAAAAAAAAAAAAA", { enabled: false }],
   removeRoutine: ["AAAAAAAAAAAAAAAAAAAAAA"],
   runRoutineNow: ["AAAAAAAAAAAAAAAAAAAAAA"],
+  testRoutineScript: [{ projectCwd: "/tmp/p", command: "true" }],
   dryRunRoutine: [{ kind: "draft", input: ROUTINE_INPUT }],
   listRoutineToolCatalog: ["/project"],
 } satisfies { [Method in InboundMethod]: MethodArgs<Method> };

@@ -86,6 +86,7 @@ import {
   RoutineStore,
   routineInputFromAgentCreate,
   type RoutineDryRunRequest,
+  type RoutineTestScriptRequest,
   type RoutineInput,
   type RoutinePatch,
   type CapabilitySnapshot,
@@ -275,6 +276,7 @@ import { McpEndpointService, type FleetSessionRow } from "./mcp-endpoint-service
 import { WebhookService } from "./webhook-service";
 import { RoutineCatalogService } from "./routine-catalog";
 import { RoutineLifecycleManager } from "./routine-lifecycle";
+import { runRoutineScript } from "./routine-scripts";
 import { RoutineService } from "./routine-service";
 import { registerVaultHandlers } from "./vault-handlers";
 import { DESKTOP_PANE_PORT, DESKTOP_PANE_PORT_REQUEST, type DesktopFrameDelivery, type DesktopMediaMessage } from "../browser-pane-desktop-protocol";
@@ -706,6 +708,8 @@ export class MainBackend {
         routineLifecycle: (access) => {
           this.routineLifecycle = new RoutineLifecycleManager({
             ...access,
+            runDirectory: access.routineRunDirectory,
+            runScript: (command, cwd, env) => runRoutineScript(command, cwd, env),
             history: routineHistory,
             isEnabled: () => this.registry.getSetting("routinesEnabled"),
             publish: () => this.routines?.publish(),
@@ -931,6 +935,8 @@ export class MainBackend {
         openDialogIds: () => [],
         settleSession: async () => false,
         rpcSend: () => {},
+        runScript: async () => ({ kind: "failed", timedOut: false, exitCode: null }),
+        runDirectory: () => null,
         publish: () => {},
       }),
       isEnabled: () => this.registry.getSetting("routinesEnabled"),
@@ -1965,6 +1971,7 @@ export class MainBackend {
         [CH.updateRoutine]: (id: string, patch: RoutinePatch) => this.routines.update(id, patch),
         [CH.removeRoutine]: (id: string) => this.routines.remove(id),
         [CH.runRoutineNow]: (id: string) => this.routines.runNow(id),
+        [CH.testRoutineScript]: (input: RoutineTestScriptRequest) => this.routines.testScript(input),
         [CH.dryRunRoutine]: (req: RoutineDryRunRequest) => this.routines.dryRun(req),
         [CH.listRoutineToolCatalog]: (projectCwd: string) => this.routines.toolCatalog(projectCwd),
         // MCP endpoint (issue #996, ADR-0080): host-local like remote:*; the state never carries a token.

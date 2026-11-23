@@ -1244,7 +1244,9 @@ _Avoid_: MCP server (ambiguous with omp's own), API, integration token
 A host-local definition of background work on a clock: instructions, a
 schedule (the same daily, weekdays, weekly, or five-field cron shape a
 **Scheduled prompt** uses, plus `@yearly`/`@monthly`/`@weekly`/`@daily`/`@hourly`),
-a destination, a model and thinking level, and a **Tool policy**, which
+a destination, a model and thinking level, a **Tool policy**, and optional
+pre and post **run hooks** (host-authored shell commands that bracket each
+**Routine run** outside the tool policy, #1283), which
 together start one fresh **Routine run** at each fire. It lives in the
 **Routines** view — a full-pane view opened from the sidebar footer, gated
 behind the fourth switch on **Settings → Experimental**, off by default, Host
@@ -1267,7 +1269,9 @@ its Session HUD reads "Started by the routine {name}". It lists nowhere in the
 sidebar while it needs nothing from a human; while an **Approval card** or
 another answer holds it, it surfaces in the **Attention stack** and the footer
 button's count chip. One routine run spans several omp **Run**s: each answered
-card resumes it into a new one. 60 s after its terminal Run the run **Settle**s
+card resumes it into a new one. 60 s after its terminal Run — with its post-run
+hook, when configured, running between the outcome being decided and that grace
+being armed (#1283) — the run **Settle**s
 itself, and its history lives in the Routines view's run history rather than
 the coding sidebar; runs idle past 30 days are pruned. Every routine run is a
 **Private session**.

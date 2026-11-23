@@ -18,6 +18,7 @@ import {
   ROUTINES_DISABLED_ERROR,
   RoutineScheduler,
 } from "./routine-scheduler";
+import type { RoutineScriptEnv, RoutineScriptResult } from "./routine-scripts";
 
 const ID_A = "AAAAAAAAAAAAAAAAAAAAAA";
 const ID_B = "BBBBBBBBBBBBBBBBBBBBBB";
@@ -46,6 +47,7 @@ function routine(id: string, overrides: Partial<RoutineRecord> = {}): RoutineRec
     thinkingLevel: null,
     spend: { warnUsd: null, maxUsd: 7 },
     toolPolicy: { allow: ["read"], deny: ["bash"], lastReviewedAt: new Date(T0).toISOString(), reviewedCatalog: ["read", "bash"] },
+    scripts: { pre: "", post: "" },
     enabled: true,
     createdAt: new Date(T0).toISOString(),
     nextRunAtMs: T0,
@@ -78,6 +80,9 @@ interface Harness {
   sessions: OwnedSessionRecord[];
   setDispatch: (fn: () => Promise<FleetDispatchResult>) => void;
   enabled: { value: boolean };
+  preRuns: Array<{ command: string; cwd: string; env: RoutineScriptEnv }>;
+  preResult: { current: RoutineScriptResult };
+  postRunningTabs: Set<string>;
 }
 
 let dir: string;
@@ -94,6 +99,9 @@ function harness(routines: RoutineRecord[]): Harness {
   const awaiting = new Set<string>();
   const sessions: OwnedSessionRecord[] = [];
   const enabled = { value: true };
+  const preRuns: Harness["preRuns"] = [];
+  const preResult = { current: { kind: "ok" } as RoutineScriptResult };
+  const postRunningTabs = new Set<string>();
   let dispatchImpl = async (): Promise<FleetDispatchResult> => {
     const tabId = `tab-${++nextTab}`;
     return {
@@ -126,6 +134,11 @@ function harness(routines: RoutineRecord[]): Harness {
       return result;
     },
     onRunStarted: (tabId) => started.push(tabId),
+    runScript: async (command, cwd, env) => {
+      preRuns.push({ command, cwd, env });
+      return preResult.current;
+    },
+    postRunning: (tabId) => postRunningTabs.has(tabId),
     publish: () => {},
     now: () => Date.now(),
   });
@@ -143,6 +156,9 @@ function harness(routines: RoutineRecord[]): Harness {
       dispatchImpl = fn;
     },
     enabled,
+    preRuns,
+    preResult,
+    postRunningTabs,
   };
 }
 
@@ -333,6 +349,160 @@ describe("RoutineScheduler host lane (U5)", () => {
     await expect(h.scheduler.runNow(ID_A)).rejects.toThrow("Previous run is still open");
     await expect(h.scheduler.runNow(ID_B)).rejects.toThrow(ROUTINE_BUSY_REFUSAL);
     expect(h.dispatches).toHaveLength(1);
+    h.scheduler.dispose();
+  });
+});
+
+describe("RoutineScheduler pre-run hook (#1283)", () => {
+  it("refuses the fire with a failed/pre-script row and dispatches nothing; Run now refuses inline", async () => {
+    const h = harness([routine(ID_A, { nextRunAtMs: null, scripts: { pre: "git fetch --all", post: "" } })]);
+    h.preResult.current = { kind: "failed", timedOut: false, exitCode: 128 };
+    await expect(h.scheduler.runNow(ID_A)).rejects.toThrow("Pre-run script failed");
+    const rows = h.history.list();
+    expect(rows).toHaveLength(1);
+    expect(rows[0]).toMatchObject({ outcome: "failed", reasonCode: "pre-script", tabId: null });
+    expect(h.store.get(ID_A)!.notices[0]).toMatchObject({ kind: "failed", error: "Pre-run script failed" });
+    expect(h.dispatches).toHaveLength(0);
+    // The hook ran in the checkout with the fire-time env.
+    expect(h.preRuns).toHaveLength(1);
+    expect(h.preRuns[0]!.cwd).toBe("/proj");
+    expect(h.preRuns[0]!.env).toMatchObject({
+      OMP_UI_ROUTINE_ID: ID_A,
+      OMP_UI_ROUTINE_TRIGGER: "manual",
+      OMP_UI_ROUTINE_WORKSPACE: "worktree",
+    });
+    h.scheduler.dispose();
+  });
+
+  it("a timed-out pre records the timeout message", async () => {
+    const h = harness([routine(ID_A, { nextRunAtMs: null, scripts: { pre: "sleep 999", post: "" } })]);
+    h.preResult.current = { kind: "failed", timedOut: true, exitCode: null };
+    await expect(h.scheduler.runNow(ID_A)).rejects.toThrow("Pre-run script timed out");
+    expect(h.history.list()[0]).toMatchObject({ outcome: "failed", reasonCode: "pre-script" });
+    h.scheduler.dispose();
+  });
+
+  it("exit 78 on a manual fire resolves with an empty tabId, records skipped/pre-script-skip, and leaves the schedule untouched", async () => {
+    const next = T0 + 3_600_000;
+    const h = harness([routine(ID_A, { nextRunAtMs: next, scripts: { pre: "exit 78", post: "" } })]);
+    h.preResult.current = { kind: "skip" };
+    const result = await h.scheduler.runNow(ID_A);
+    expect(result).toEqual({ tabId: "", runId: expect.any(String) });
+    expect(h.history.list()[0]).toMatchObject({ outcome: "skipped", reasonCode: "pre-script-skip" });
+    expect(h.store.get(ID_A)!.notices[0]).toMatchObject({ kind: "skipped" });
+    expect(h.store.get(ID_A)!.nextRunAtMs).toBe(next); // untouched by a manual fire
+    expect(h.dispatches).toHaveLength(0);
+    h.scheduler.dispose();
+  });
+
+  it("a clock fire whose pre exits 78 advances the schedule exactly once", async () => {
+    const h = harness([routine(ID_A, { nextRunAtMs: T0, scripts: { pre: "exit 78", post: "" } })]);
+    h.preResult.current = { kind: "skip" };
+    h.scheduler.sync();
+    await flush();
+    expect(h.history.list()).toHaveLength(1);
+    expect(h.history.list()[0]).toMatchObject({ outcome: "skipped", reasonCode: "pre-script-skip", trigger: "clock" });
+    expect(h.store.get(ID_A)!.nextRunAtMs).toBe(T0 + 3_600_000); // advanced once, not twice
+    h.scheduler.dispose();
+  });
+
+  it("the post-advance skip merges into the current record without dropping a late notice written during the hook", async () => {
+    const h = harness([routine(ID_A, { nextRunAtMs: null, scripts: { pre: "exit 78", post: "" } })]);
+    const gate = Promise.withResolvers<RoutineScriptResult>();
+    // Rebuild with a hook that stays pending until we release it.
+    const scheduler = new RoutineScheduler({
+      store: h.store,
+      history: h.history,
+      isEnabled: () => true,
+      defaultWarnCostUsd: () => 2,
+      defaultMaxCostUsd: () => 5,
+      hasProject: () => true,
+      sessions: () => [],
+      isLive: () => false,
+      isTurnRunning: () => false,
+      awaitingHumanAnswer: () => false,
+      listCatalog: async () => CATALOG,
+      dispatch: async () => {
+        throw new Error("must not dispatch on skip");
+      },
+      onRunStarted: () => undefined,
+      runScript: () => gate.promise,
+      postRunning: () => false,
+      publish: () => undefined,
+      now: () => Date.now(),
+    });
+    const fired = scheduler.runNow(ID_A);
+    await Promise.resolve();
+    // A late notice lands from elsewhere while the hook is in flight.
+    h.store.replaceScheduleState(ID_A, {
+      notices: [{ kind: "late", atMs: Date.now(), dueAtMs: T0 - 1, missed: 2, error: null }],
+    });
+    gate.resolve({ kind: "skip" });
+    const result = await fired;
+    expect(result.tabId).toBe("");
+    // The skip notice was prepended onto the re-read record: both survive.
+    const kinds = h.store.get(ID_A)!.notices.map((n) => n.kind);
+    expect(kinds).toEqual(["skipped", "late"]);
+    scheduler.dispose();
+  });
+
+  it("a pre hook that finishes after gate-off or deletion dispatches nothing", async () => {
+    const h = harness([routine(ID_A, { nextRunAtMs: null, scripts: { pre: "slow", post: "" } })]);
+    const gate = Promise.withResolvers<RoutineScriptResult>();
+    const enabled = { value: true };
+    const scheduler = new RoutineScheduler({
+      store: h.store,
+      history: h.history,
+      isEnabled: () => enabled.value,
+      defaultWarnCostUsd: () => 2,
+      defaultMaxCostUsd: () => 5,
+      hasProject: () => true,
+      sessions: () => [],
+      isLive: () => false,
+      isTurnRunning: () => false,
+      awaitingHumanAnswer: () => false,
+      listCatalog: async () => {
+        throw new Error("must not compile the catalog after gate-off");
+      },
+      dispatch: async () => {
+        throw new Error("must not dispatch after gate-off");
+      },
+      onRunStarted: () => undefined,
+      runScript: () => gate.promise,
+      postRunning: () => false,
+      publish: () => undefined,
+      now: () => Date.now(),
+    });
+    const fired = scheduler.runNow(ID_A);
+    await Promise.resolve();
+    // The gate flips (or the routine is deleted) while the hook runs.
+    enabled.value = false;
+    gate.resolve({ kind: "ok" });
+    await expect(fired).resolves.toEqual({ tabId: "", runId: "" });
+    expect(h.history.list()).toHaveLength(0); // records nothing
+    scheduler.dispose();
+  });
+
+  it("postRunning for a dead tab holds the per-routine latch while leaving the host lane free", async () => {
+    const h = harness([routine(ID_A, { nextRunAtMs: T0 + 3_600_000 }), routine(ID_B, { nextRunAtMs: T0 + 3_600_000 })]);
+    await h.scheduler.runNow(ID_A);
+    const tabA = h.started[0]!;
+    // Post-hook phase: run ended and reaped — not live, no turn, row finalized.
+    h.live.delete(tabA);
+    h.running.delete(tabA);
+    h.history.updateByTabId(tabA, { outcome: "on-time" });
+    h.postRunningTabs.add(tabA);
+    await h.scheduler.runNow(ID_A).catch(() => undefined); // own latch: refuses
+    expect(h.dispatches.map((d) => d.routine.id)).toEqual([ID_A]); // A never re-dispatched
+    // Host lane free for another routine — a post hook holds no model work.
+    await h.scheduler.runNow(ID_B);
+    expect(h.dispatches.map((d) => d.routine.id)).toEqual([ID_A, ID_B]);
+    // Clock overlap path: A due while its post runs → skipped/overlap row.
+    h.postRunningTabs.add(tabA);
+    h.store.replaceScheduleState(ID_A, { nextRunAtMs: Date.now() });
+    h.scheduler.sync();
+    await flush();
+    expect(h.history.list().some((r) => r.routineId === ID_A && r.outcome === "skipped" && r.reasonCode === "overlap")).toBe(true);
     h.scheduler.dispose();
   });
 });

@@ -38,11 +38,23 @@ export class RoutineStore {
     const routines = (parsed as Partial<RoutinesFile> | null)?.routines;
     if (!Array.isArray(routines)) return;
     const seen = new Set<string>();
+    let mutated = false;
     for (const raw of routines) {
       if (!isRoutineRecord(raw)) continue;
       if (seen.has(raw.id)) continue;
       seen.add(raw.id);
-      this.records.push(structuredClone(raw));
+      const record = structuredClone(raw);
+      // Legacy pre-#1283 record: default the hooks and write them back once,
+      // so in-memory records always carry the required key. Checked through the
+      // un-narrowed clone because the guard's type says the key is required.
+      if (!("scripts" in (record as Partial<RoutineRecord>))) {
+        record.scripts = { pre: "", post: "" };
+        mutated = true;
+      }
+      this.records.push(record);
+    }
+    if (mutated) {
+      this.save();
     }
   }
 
