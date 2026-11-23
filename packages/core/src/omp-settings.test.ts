@@ -972,6 +972,18 @@ describe("writeOmpSetting", () => {
     expect(seen).toEqual(["config", "set", "edit.mode", "none", "--json"]);
   });
 
+  it("admits edit.magic.model to the write boundary (#1273)", async () => {
+    let seen: readonly string[] = [];
+    await writeOmpSetting(
+      { ompPath: OMP, key: "edit.magic.model", value: "@smol" },
+      async (args) => {
+        seen = args;
+        return "";
+      },
+    );
+    expect(seen).toEqual(["config", "set", "edit.magic.model", "@smol", "--json"]);
+  });
+
   it("admits both composer prediction keys to the write boundary (#1030)", async () => {
     let seen: readonly string[] = [];
     await writeOmpSetting(

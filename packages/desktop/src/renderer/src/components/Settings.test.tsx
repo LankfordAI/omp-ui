@@ -1468,6 +1468,60 @@ describe("Settings omp Tools group (issue #1069)", () => {
     expect(field()).toBeNull();
     expect(document.body.textContent).not.toContain("edit.mode");
   });
+
+  it("commits and clears edit.magic.model when published and omits it when absent (#1273)", async () => {
+    backendMock.readOmpSettings.mockResolvedValue({
+      ...emptyOmpSettings,
+      entries: [
+        {
+          key: "edit.mode",
+          type: "enum",
+          description: "Edit tool dialect",
+          value: "magic",
+          globalValue: "magic",
+          options: ["hashline", "magic", "none"],
+          layer: "global",
+        },
+        {
+          key: "edit.magic.model",
+          type: "string",
+          description: "Model selector or role alias for magic mode, empty = smol role",
+          value: "@slow",
+          globalValue: "@slow",
+          options: null,
+          layer: "global",
+        },
+      ],
+    });
+    useStore.setState({
+      settingsPage: "omp",
+      state: backendState(),
+      tabs: [],
+      activeTabId: null,
+      appUpdate: appUpdateState({}),
+      ompUpdate: idleOmpUpdate,
+    });
+    await renderSettings();
+
+    const input = document.querySelector<HTMLInputElement>(
+      'input[aria-label="edit.magic.model"]',
+    )!;
+    expect(input).not.toBeNull();
+    expect(input.value).toBe("@slow");
+    expect(document.body.textContent).toContain("edit.magic.model row (empty = the smol role)");
+
+    const setter = Object.getOwnPropertyDescriptor(HTMLInputElement.prototype, "value")!.set!;
+    await act(async () => {
+      setter.call(input, "");
+      input.dispatchEvent(new Event("input", { bubbles: true }));
+    });
+    await act(async () => {
+      input.dispatchEvent(
+        new KeyboardEvent("keydown", { key: "Enter", bubbles: true, cancelable: true }),
+      );
+    });
+    expect(backendMock.writeOmpSetting).toHaveBeenCalledWith("edit.magic.model", "");
+  });
 });
 
 describe("Settings omp Subagents group (issue #1067)", () => {
