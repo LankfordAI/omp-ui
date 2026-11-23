@@ -21,6 +21,11 @@ import { isAgentPauseFrame, isNonTerminalAgentEnd } from "@omp-ui/core/run-end";
 import { parseBashMinimized, type BashMinimized } from "@omp-ui/core/bash-minimized";
 import { parseBashTruncation, type BashTruncation } from "@omp-ui/core/bash-truncation";
 import { parseBashToolTruncation, type BashToolTruncation } from "@omp-ui/core/bash-tool-truncation";
+import {
+  parseToolCommandDispatches,
+  sameToolCommandDispatches,
+  type ToolCommandDispatch,
+} from "@omp-ui/core/tool-command-dispatch";
 import { parseSpillReference, type SpillReference } from "@omp-ui/core/spill";
 import { parseWebSearchFailures, type WebSearchProviderFailure } from "@omp-ui/core/web-search-failures";
 
@@ -160,6 +165,11 @@ export interface ToolItem {
   minimized?: BashMinimized;
   /** Tool-result middle elision and column cuts; recovery notices remain in the output text. */
   toolTruncation?: BashToolTruncation;
+  /** bash result `details.toolCommands` (omp 19.1): every tool command the run
+   *  dispatched, in invocation order — the nested rows the card draws under the
+   *  bash card, since a command call ships no separate execution frames
+   *  (issue #1274). Absent on pre-19.1 results and runs that dispatched none. */
+  toolCommands?: ToolCommandDispatch[];
   /** The omp 19 spill (`local://<id>.log`) this result's output metadata references, when any
    *  carrier names one; the card offers View raw output only when the harness supports reading
    *  it. Parsed from `details.meta`; a pre-19 `artifact://` id lives in the same field and the
@@ -476,6 +486,7 @@ export function itemSearchText(item: RenderItem): string {
       fields.push(
         item.name,
         item.intent,
+        ...(item.toolCommands?.map((d) => d.tool) ?? []),
         typeof item.args === "string" ? item.args : JSON.stringify(item.args),
         item.path,
         item.op,
@@ -792,6 +803,16 @@ function minimizedField(details: unknown): { minimized?: BashMinimized } {
 function toolTruncationField(details: unknown): { toolTruncation?: BashToolTruncation } {
   const toolTruncation = parseBashToolTruncation(details);
   return toolTruncation ? { toolTruncation } : {};
+}
+
+/** omp 19.1 bash `details.toolCommands`: the in-run command dispatches the card nests (issue #1274). */
+function toolCommandsField(
+  name: string | undefined,
+  details: unknown,
+): { toolCommands?: ToolCommandDispatch[] } {
+  if (name !== "bash") return {};
+  const toolCommands = parseToolCommandDispatches(details);
+  return toolCommands.length > 0 ? { toolCommands } : {};
 }
 
 function spillField(details: unknown): { spillRef?: SpillReference } {
@@ -1374,8 +1395,15 @@ export function reduceEvent(items: RenderItem[], event: unknown): RenderItem[] {
       // already carried adds nothing, so heartbeats stay identity-cheap.
       const cwd = cwdText(partial?.details);
       const cwdProgress = cwd !== undefined && cwd !== item.cwd;
-      // Status stays `running` — an update is progress, never completion.
-      if (!partialText && replies.replies === undefined && toolTruncation.toolTruncation === undefined && !cwdProgress) return items;
+      // A command dispatched mid-run grows the record or updates a running
+      // dispatch when it finishes (progress starts with exitCode 1 before
+      // finish records exitCode 0, issue #1274); an identical repeat stays
+      // identity-cheap so heartbeats do not re-render.
+      const toolCommands = toolCommandsField(item.name, partial?.details);
+      const dispatchProgress =
+        toolCommands.toolCommands !== undefined &&
+        !sameToolCommandDispatches(item.toolCommands, toolCommands.toolCommands);
+      if (!partialText && replies.replies === undefined && toolTruncation.toolTruncation === undefined && !cwdProgress && !dispatchProgress) return items;
       return replaceAt(items, idx, {
         ...item,
         ...(partialText ? { partialText } : {}),
@@ -1385,6 +1413,7 @@ export function reduceEvent(items: RenderItem[], event: unknown): RenderItem[] {
         ...minimizedField(partial?.details),
         ...spillField(partial?.details),
         ...toolTruncation,
+        ...(dispatchProgress ? toolCommands : {}),
       });
     }
 
@@ -1412,6 +1441,7 @@ export function reduceEvent(items: RenderItem[], event: unknown): RenderItem[] {
         ...minimizedField(details),
         toolTruncation: toolTruncationField(details).toolTruncation,
         ...spillField(details),
+        ...toolCommandsField(item?.name ?? str(event.toolName), details),
         ...providerFailuresField(item?.name ?? str(event.toolName), details),
         ...askFactsField(item?.name ?? str(event.toolName), details),
       };
@@ -1688,6 +1718,7 @@ export function historyToItems(messages: unknown[]): RenderItem[] {
         ...minimizedField(details),
         ...toolTruncationField(details),
         ...spillField(details),
+        ...toolCommandsField(item.name, details),
         ...providerFailuresField(item.name, details),
         ...askFactsField(item.name, details),
       };

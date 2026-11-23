@@ -170,6 +170,12 @@ export { spillRootForTranscript, transcriptSpillCapable } from "./spill-header";
 export { readSpillFile } from "./spill-read";
 export { parseBashTruncation, type BashTruncation } from "./bash-truncation";
 export {
+  parseToolCommandDispatches,
+  sameToolCommandDispatches,
+  type ToolCommandDispatch,
+} from "./tool-command-dispatch";
+export { toolIntentLabel } from "./tool-intent-label";
+export {
   CHAT_DIR_RE,
   chatDirPath,
   createChatDir,
