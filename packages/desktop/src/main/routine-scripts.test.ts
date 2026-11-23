@@ -186,9 +186,9 @@ describe("runRoutineScript against the real shell", () => {
 
   describe.runIf(process.platform === "win32")("win32", () => {
     it("maps exit codes through the pwsh/cmd plan", async () => {
-      expect(await runRoutineScript("exit /b 78", process.cwd(), ENV)).toEqual({ kind: "skip" });
-      const failed = await runRoutineScript("exit /b 3", process.cwd(), ENV);
-      expect(failed.kind).toBe("failed");
+      expect(await runRoutineScript("exit 78", process.cwd(), ENV)).toEqual({ kind: "skip" });
+      const failed = await runRoutineScript("exit 3", process.cwd(), ENV);
+      expect(failed).toEqual({ kind: "failed", timedOut: false, exitCode: 3 });
     });
 
     it("times out a long sleep", async () => {
