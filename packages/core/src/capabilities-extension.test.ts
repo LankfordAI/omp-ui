@@ -36,7 +36,7 @@ interface FakeSession {
   toolByName: Map<string, unknown>;
   enabledNames: string[];
   activeNames: string[];
-  xdevNames: string[];
+  mountedNames: string[];
   evalBridgeNames: string[];
   setterCalls: { enabled: string[]; mounted: string[]; force: unknown }[];
   setterError: unknown;
@@ -128,7 +128,7 @@ function executableExtension(seam: CapabilitiesSeam = fullSeam()): CapabilitiesH
     toolByName = new Map<string, unknown>();
     enabledNames: string[] = [];
     activeNames: string[] = [];
-    xdevNames: string[] = [];
+    mountedNames: string[] = [];
     evalBridgeNames: string[] = [];
     setterCalls: { enabled: string[]; mounted: string[]; force: unknown }[] = [];
     setterError: unknown = null;
@@ -155,7 +155,7 @@ function executableExtension(seam: CapabilitiesSeam = fullSeam()): CapabilitiesH
     }
 
     getMountedXdevToolNames(): string[] {
-      return this.xdevNames;
+      return this.mountedNames;
     }
 
     getEvalBridgeToolNames(): string[] {
@@ -181,7 +181,7 @@ function executableExtension(seam: CapabilitiesSeam = fullSeam()): CapabilitiesH
       if (this.setterGate !== null) await this.setterGate;
       if (this.setterApplies) {
         this.enabledNames = [...enabled];
-        this.xdevNames = [...mounted];
+        this.mountedNames = [...mounted];
       }
     }
 
@@ -419,7 +419,7 @@ describe("generated capabilities extension", () => {
     await root.prompt();
     await harness.arm();
     const byName = new Map(publishedTools(harness.latest()).map((t) => [t.name, t]));
-    expect(byName.get("beta")).toMatchObject({ enabled: true, direct: false, xdev: false, evalBridge: true });
+    expect(byName.get("beta")).toMatchObject({ enabled: true, direct: false, mounted: false, evalBridge: true });
     expect(byName.get("mcp__ghost__x")).toMatchObject({ source: "unknown", mcpServerName: null, mcpToolName: null });
     expect(byName.get("drive.upload")).toMatchObject({
       source: "mcp",
@@ -468,9 +468,38 @@ describe("generated capabilities extension", () => {
     expect(publishedTools(harness.latest())[0]).toMatchObject({
       enabled: null,
       direct: true,
-      xdev: null,
+      mounted: null,
       evalBridge: false,
     });
+  });
+
+  it("reads mounted tools and allows tool control via getMountedToolCommandNames on omp 19.1+", async () => {
+    const harness = executableExtension();
+    const root = new harness.FakeAgentSession("root-a");
+    root.toolInfos = [
+      { name: "alpha", description: "base", source: "builtin", sourcePath: null },
+      { name: "lsp", description: "lang", source: "builtin", sourcePath: null },
+    ];
+    root.enabledNames = ["alpha", "lsp"];
+    root.activeNames = ["alpha"];
+    root.mountedNames = ["lsp"];
+    // Simulate omp 19.1+: getMountedXdevToolNames removed, getMountedToolCommandNames present.
+    Object.assign(root, {
+      getMountedXdevToolNames: undefined,
+      getMountedToolCommandNames: () => root.mountedNames,
+    });
+    await root.prompt();
+    await harness.arm();
+
+    const snap = harness.latest();
+    expect(snap.toolControl).toBe("available");
+    const byName = new Map(publishedTools(snap).map((t) => [t.name, t]));
+    expect(byName.get("lsp")).toMatchObject({ enabled: true, direct: false, mounted: true });
+    expect(byName.get("alpha")).toMatchObject({ enabled: true, direct: true, mounted: false });
+
+    await sendMutation(harness, root, "lsp", false);
+    expect(root.setterCalls[0]).toEqual({ enabled: ["alpha"], mounted: [], force: false });
+    expect(harness.latest().toolMutation).toEqual({ id: "mut-1", name: "lsp", enabled: false, status: "applied" });
   });
 
   it("replaces metadata under an unchanged name and stops publishing once settled", async () => {
@@ -601,7 +630,7 @@ describe("generated capabilities extension: tool mutation", () => {
     const root = await armRoot(harness);
     root.toolInfos.push({ name: "gamma", description: "g", source: "sdk", sourcePath: null });
     root.enabledNames = ["alpha", "gamma"];
-    root.xdevNames = ["gamma", "beta"];
+    root.mountedNames = ["gamma", "beta"];
     const frames = harness.published.length;
 
     await sendMutation(harness, root, "beta", true);

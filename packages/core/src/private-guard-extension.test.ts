@@ -72,6 +72,8 @@ function harness(
     /** Roster to report; defaults to the six memory tools plus read. */
     enabled?: string[];
     mounted?: string[];
+    /** Model an omp 19.1+ session: mounts come from getMountedToolCommandNames. */
+    toolCommands?: boolean;
   },
 ): Harness {
   let tools = options?.enabled ?? [
@@ -116,7 +118,10 @@ function harness(
       tools = [...names];
     };
   }
-  if (options?.presentation === false && options?.byName !== true) {
+  if (options?.toolCommands === true) {
+    delete proto.getMountedXdevToolNames;
+    proto.getMountedToolCommandNames = (): string[] => options.mounted ?? [];
+  } else if (options?.presentation === false && options?.byName !== true) {
     delete proto.getMountedXdevToolNames;
   }
 
@@ -186,6 +191,19 @@ describe("the private guard arm", () => {
 
   it("hands the presentation setter the mounted intersection and force", async () => {
     const h = harness(await loadExtension(), { mounted: ["xd://memory_edit", "recall"] });
+    await h.run();
+    expect(h.applies).toHaveLength(1);
+    const [enabled, mounted, force] = h.applies[0];
+    expect(mounted).toEqual(["recall"]);
+    expect(force).toBe(true);
+    expect(enabled).not.toContain("memory_edit");
+  });
+
+  it("reads mounted tool commands via getMountedToolCommandNames on omp 19.1+", async () => {
+    const h = harness(await loadExtension(), {
+      toolCommands: true,
+      mounted: ["memory_edit", "recall"],
+    });
     await h.run();
     expect(h.applies).toHaveLength(1);
     const [enabled, mounted, force] = h.applies[0];

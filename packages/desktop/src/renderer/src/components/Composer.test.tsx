@@ -2642,7 +2642,7 @@ describe("Composer keyword glow", () => {
                     sourcePath: null,
                     enabled: true,
                     direct: null,
-                    xdev: null,
+                    mounted: null,
                     evalBridge: null,
                     mcpServerName: null,
                     mcpToolName: null,

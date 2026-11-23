@@ -60,6 +60,7 @@
     "./semver": "./src/semver.ts",
     "./harness-floor": "./src/harness-floor.ts",
     "./out-replies": "./src/out-replies.ts",
+    "./tool-commands": "./src/tool-commands.ts",
     "./bash-minimized": "./src/bash-minimized.ts",
     "./spill": "./src/spill.ts",
     "./spill-header": "./src/spill-header.ts",

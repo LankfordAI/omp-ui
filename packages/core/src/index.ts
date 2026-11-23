@@ -158,6 +158,7 @@ export {
   toolResultReplies,
 } from "./out-replies";
 export { parseBashMinimized, type BashMinimized } from "./bash-minimized";
+export { supportsToolCommands, TOOL_COMMANDS_MIN_OMP } from "./tool-commands";
 export {
   parseSpillReference,
   SPILL_READ_MAX_BYTES,

@@ -896,7 +896,7 @@ const baseTool = (name: string, patch: Partial<CapabilityTool> = {}): Capability
   sourcePath: null,
   enabled: null,
   direct: null,
-  xdev: null,
+  mounted: null,
   evalBridge: null,
   mcpServerName: null,
   mcpToolName: null,
@@ -978,7 +978,7 @@ describe("CapabilitiesViewer — live sections", () => {
             tools: {
               status: "available",
               items: [
-                baseTool("eval_bridge_tool", { direct: false, xdev: false, evalBridge: true }),
+                baseTool("eval_bridge_tool", { direct: false, mounted: false, evalBridge: true }),
               ],
             },
           }),
@@ -992,6 +992,53 @@ describe("CapabilitiesViewer — live sections", () => {
     expect(row?.textContent).toContain("Eval");
     expect(row?.textContent).not.toContain("not enabled");
     expect(row?.textContent).not.toContain("disabled");
+  });
+
+  it("labels mounted tools as command on omp 19.1+ and xd:// on older harnesses", async () => {
+    useStore.setState({
+      capabilitiesViewer: { scopeCwd: PROJECT, tabId: TAB, section: "tools", instanceId: null },
+      state: liveState,
+      rpc: {
+        [TAB]: rpcTabState({
+          capabilitiesLoad: "available",
+          capabilities: baseSnapshot({
+            ompVersion: "19.1.0",
+            tools: {
+              status: "available",
+              items: [
+                baseTool("lsp", { enabled: true, direct: false, mounted: true, evalBridge: false }),
+                baseTool("mystery", { enabled: true, direct: true, mounted: null, evalBridge: false }),
+              ],
+            },
+          }),
+        }),
+      },
+    });
+    await renderManager();
+    const lspRow = [...document.body.querySelectorAll("li")].find((li) => li.textContent?.includes("lsp"));
+    const mysteryRow = [...document.body.querySelectorAll("li")].find((li) => li.textContent?.includes("mystery"));
+    expect(lspRow?.textContent).toContain("command");
+    expect(lspRow?.textContent).not.toContain("xd://");
+    expect(mysteryRow?.textContent).toContain("command: unknown");
+
+    useStore.setState({
+      rpc: {
+        [TAB]: rpcTabState({
+          capabilitiesLoad: "available",
+          capabilities: baseSnapshot({
+            ompVersion: "19.0.0",
+            tools: {
+              status: "available",
+              items: [baseTool("lsp", { enabled: true, direct: false, mounted: true, evalBridge: false })],
+            },
+          }),
+        }),
+      },
+    });
+    await renderManager();
+    const legacyRow = [...document.body.querySelectorAll("li")].find((li) => li.textContent?.includes("lsp"));
+    expect(legacyRow?.textContent).toContain("xd://");
+    expect(legacyRow?.textContent).not.toContain("command");
   });
 
   it("searches tool source paths and distinguishes no-match from no-entries", async () => {

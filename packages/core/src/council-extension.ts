@@ -19,7 +19,7 @@ import {
 } from "./council";
 import type { CouncilBridgeState } from "./council-roster-snapshot";
 import { writeLineageArtifact } from "./lineage-artifact";
-import { generatedAsRecordSource } from "./generated-extension-source";
+import { generatedAsRecordSource, generatedToolCommandEraSource } from "./generated-extension-source";
 
 /**
  * The generated `/council` bridge (ADR-0088, issue #1049). It ships as an
@@ -109,6 +109,7 @@ interface ZodFn {
 
 interface ExtensionApi {
   cwd?: string;
+  pi?: { AgentSession?: { prototype?: unknown } };
   zod?: Record<string, (...args: unknown[]) => ZodFn>;
   sendMessage?: (message: Record<string, unknown>, options?: Record<string, unknown>) => Promise<unknown>;
   registerCommand: (
@@ -133,6 +134,7 @@ interface ExtensionApi {
 export default function (pi: ExtensionApi): void {
 
 ${generatedAsRecordSource()}
+${generatedToolCommandEraSource()}
 
 type Target =
   | { kind: "local" }
@@ -485,13 +487,18 @@ async function runCouncil(intent: Intent, cwd: string, signal: AbortSignal | und
       );
       if (trial !== null) lines.push("- Head each \\"Trial model\\" section with the review round it belongs to.");
     } else if (plan) {
+      // omp 19.1 dispatches plan submission through the \`propose\` command; an
+      // older omp takes a plain-text write to the xd://propose device.
+      const submit = toolCommandsEra(pi.pi?.AgentSession?.prototype ?? null)
+        ? "run \`propose " + slug + "\` with the bash tool"
+        : "write \`" + slug + "\` as plain text to xd://propose";
       lines.push(
         "- Then revise \`" + label + "\` with your write tool: fix every blocker and major finding you agree with, " +
           "plus any changes the user asked for with this request. Stay within the plan's scope, keep its file and format, " +
           "and never widen the work.",
         "- If no " + (trial === null ? "member" : "council member") + " reports a blocker or major finding and the user " +
           "asked for no changes, leave the file unchanged.",
-        "- Either way, finish by calling your write tool to write \`" + slug + "\` as plain text to xd://propose so the user " +
+        "- Either way, finish by submitting \`" + label + "\`: " + submit + ", so the user " +
           "reviews the plan again; saying that you will propose it does not reopen the review. " +
           "Say in one line before that whether you revised it.",
         "- Do not implement the plan and do not edit any other file because of this message.",
