@@ -579,11 +579,16 @@ export class ArtifactStore {
       const record = this.record(request.artifactId); this.assertHeads(record, request.codeRevisionId, request.dataSnapshotId); if (!record.managed) invalid("Document-only artifacts cannot refresh datasets");
       const snapshot = this.object<SnapshotMeta>(request.dataSnapshotId, "snapshot"); const expectedDatasetHeads: Record<string, string> = {};
       for (const id of request.datasetIds) { const d = snapshot.datasets.find(d => d.id === id); if (!d) missing("Selected dataset is unavailable"); expectedDatasetHeads[id] = d.head; }
-      const reference = this.makeReference({ ...request, includeData: request.includeData ?? false }); const refresh: ArtifactRefreshRequest = { refreshRequestId: randomUUID(), referenceId: reference.referenceId, artifactId: record.artifactId, codeRevisionId: request.codeRevisionId, dataSnapshotId: request.dataSnapshotId, datasetIds: [...request.datasetIds], expectedDatasetHeads, targetTabId: request.targetTabId, bound: false, lineageDir: null, runtimeKey: null, sessionId: null, createdAt: now(), status: "awaiting" };
+      const reference = this.makeReference({ ...request, includeData: request.includeData ?? false }); const refresh: ArtifactRefreshRequest = { refreshRequestId: randomUUID(), referenceId: reference.referenceId, artifactId: record.artifactId, codeRevisionId: request.codeRevisionId, dataSnapshotId: request.dataSnapshotId, datasetIds: [...request.datasetIds], expectedDatasetHeads, targetTabId: request.targetTabId, bound: false, lineageDir: null, runtimeKey: null, sessionId: null, createdAt: now(), status: "awaiting", ...(request.autoApply === true ? { autoApply: true as const } : {}), ...(request.scheduledBy !== undefined ? { scheduledBy: request.scheduledBy } : {}) };
       this.putObject(refresh.refreshRequestId, "refresh", record.artifactId, refresh); this.db.prepare("INSERT INTO refreshes(id,reference_id) VALUES(?,?)").run(refresh.refreshRequestId, reference.referenceId); return refresh;
     }, request.authorize);
   }
   readRefresh(request: { refreshRequestId: string }): ArtifactRefreshRequest { return this.object(request.refreshRequestId, "refresh"); }
+  /** ADR-0101 one-shot guard: true once any refresh row (any status) names this tab as its destination. */
+  hasPreparedRefreshFor(request: { targetTabId: string }): boolean {
+    if (!request.targetTabId) invalid("Invalid refresh target");
+    return this.db.prepare("SELECT 1 FROM objects WHERE kind='refresh' AND json_extract(metadata,'$.targetTabId')=? LIMIT 1").get(request.targetTabId) !== undefined;
+  }
   bindRefresh(request: Authorized<{ refreshRequestId: string; targetTabId: string; lineageDir: string; runtimeKey: string | null; sessionId: string | null }>): ArtifactRefreshRequest {
     if (!request.targetTabId || !request.lineageDir || (request.sessionId === null && !request.runtimeKey)) invalid("Invalid refresh target");
     if (request.runtimeKey !== null) assertArtifactUuid(request.runtimeKey); if (request.sessionId !== null) assertArtifactUuid(request.sessionId);

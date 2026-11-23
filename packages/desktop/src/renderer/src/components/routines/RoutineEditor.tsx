@@ -22,7 +22,8 @@ import {
   type RoutineWorkspace,
 } from "@omp-ui/core/routine";
 import type { CatalogModelOption } from "@omp-ui/core/types";
-import { displayMessage } from "../../backend";
+import type { ArtifactDatasetDefinition, ArtifactRecord } from "@omp-ui/core/artifacts";
+import { backend, displayMessage } from "../../backend";
 import { cn } from "../../lib/cn";
 import { relativeTime } from "../../lib/format";
 import { thinkingLevelColor } from "../../lib/thinking-colors";
@@ -83,6 +84,10 @@ interface Draft {
   preScript: string;
   postScript: string;
   notifications: RoutineNotifications;
+  /** Scheduled refresh (ADR-0101): human-only binding editor state. */
+  artifactId: string | null;
+  datasetIds: string[];
+  autoApply: boolean;
   enabled: boolean;
 }
 
@@ -110,6 +115,9 @@ function draftOf(routine: RoutineRecord | null, defaultProject: string): Draft {
       preScript: "",
       postScript: "",
       notifications: { ...DEFAULT_ROUTINE_NOTIFICATIONS },
+      artifactId: null,
+      datasetIds: [],
+      autoApply: false,
       enabled: true,
     };
   }
@@ -131,6 +139,9 @@ function draftOf(routine: RoutineRecord | null, defaultProject: string): Draft {
     preScript: routine.scripts.pre,
     postScript: routine.scripts.post,
     notifications: { ...routine.notifications },
+    artifactId: routine.artifact?.artifactId ?? null,
+    datasetIds: routine.artifact ? [...routine.artifact.datasetIds] : [],
+    autoApply: routine.artifact?.autoApply ?? false,
     enabled: routine.enabled,
   };
 }
@@ -229,6 +240,12 @@ export function RoutineEditor({
   const [dryRun, setDryRun] = useState<RoutineDryRunResult | null>(null);
   const [modelPickerOpen, setModelPickerOpen] = useState(false);
   const [confirmDelete, setConfirmDelete] = useState(false);
+  // Scheduled refresh picker (ADR-0101): managed records from the same list the
+  // Artifacts view reads; dataset contracts follow the selected artifact.
+  const artifactLibraryEnabled = useStore((s) => s.state?.artifactLibraryEnabled === true);
+  const [artifactRows, setArtifactRows] = useState<ArtifactRecord[]>([]);
+  const [artifactDatasets, setArtifactDatasets] = useState<ArtifactDatasetDefinition[] | null>(null);
+  const [artifactMissing, setArtifactMissing] = useState(false);
 
   const routineId = routine?.id ?? null;
   useEffect(() => {
@@ -278,6 +295,52 @@ export function RoutineEditor({
     // policyTouched is read at resolve time only; re-fetching on a checkbox would be wrong.
   }, [draft.projectCwd, isNew, loadRoutineToolCatalog]);
 
+  // Managed artifacts for the scheduled-refresh picker (ADR-0101).
+  useEffect(() => {
+    if (!artifactLibraryEnabled) return;
+    let cancelled = false;
+    backend
+      .artifactList({ limit: 40 })
+      .then((page) => {
+        if (!cancelled) setArtifactRows(page.artifacts.filter((row) => row.managed));
+      })
+      .catch(() => {
+        if (!cancelled) setArtifactRows([]);
+      });
+    return () => {
+      cancelled = true;
+    };
+  }, [artifactLibraryEnabled]);
+
+  // The binding may reference an artifact deleted since it was saved; fires
+  // then fail with "artifact-missing", and the editor says so.
+  useEffect(() => {
+    if (draft.artifactId === null || artifactRows.length === 0) {
+      setArtifactMissing(false);
+      return;
+    }
+    setArtifactMissing(!artifactRows.some((row) => row.artifactId === draft.artifactId));
+  }, [draft.artifactId, artifactRows]);
+
+  useEffect(() => {
+    if (draft.artifactId === null || !artifactLibraryEnabled) {
+      setArtifactDatasets(null);
+      return;
+    }
+    let cancelled = false;
+    backend
+      .artifactDescribe({ artifactId: draft.artifactId })
+      .then((next) => {
+        if (!cancelled) setArtifactDatasets(next.code.definition?.datasets ?? []);
+      })
+      .catch(() => {
+        if (!cancelled) setArtifactDatasets(null);
+      });
+    return () => {
+      cancelled = true;
+    };
+  }, [draft.artifactId, artifactLibraryEnabled]);
+
   const timeZone = routine?.timeZone ?? Intl.DateTimeFormat().resolvedOptions().timeZone;
   const schedule = buildSchedule(draft.schedule);
   const nextRunMs = schedule === null ? null : nextRunAfter(schedule, timeZone, Date.now());
@@ -306,7 +369,9 @@ export function RoutineEditor({
                     ? `Run timeout is blank (30 min default), 0 (unlimited), or a whole number from 1 to ${ROUTINE_TIMEOUT_MAX_MINUTES} minutes.`
                     : draft.preScript.length > ROUTINE_SCRIPT_MAX || draft.postScript.length > ROUTINE_SCRIPT_MAX
                       ? `Each hook is at most ${ROUTINE_SCRIPT_MAX} characters.`
-                      : null;
+                      : draft.artifactId !== null && draft.datasetIds.length === 0
+                        ? "Pick at least one artifact dataset to refresh."
+                        : null;
 
   const input: RoutineInput | null =
     problem === null && schedule !== null
@@ -324,6 +389,10 @@ export function RoutineEditor({
           scripts: { pre: draft.preScript, post: draft.postScript },
           timeoutMinutes,
           notifications: draft.notifications,
+          artifact:
+            draft.artifactId === null
+              ? null
+              : { artifactId: draft.artifactId, datasetIds: [...draft.datasetIds], autoApply: draft.autoApply },
           enabled: draft.enabled,
         }
       : null;
@@ -1125,6 +1194,92 @@ export function RoutineEditor({
                   </label>
                 </div>
               </section>
+
+              {/* Card 2c — Scheduled artifact refresh (ADR-0101) */}
+              {artifactLibraryEnabled && (
+                <section className="studio-card space-y-2.5 rounded-xl p-3.5" data-routine-artifact-refresh>
+                  <div>
+                    <h4 className="text-sm font-semibold text-ink">Artifact refresh</h4>
+                    <p className="mt-0.5 text-xs text-ink-dim">
+                      Every fire repeats one kept artifact&apos;s recorded refresh recipes and stages the results for review.
+                    </p>
+                  </div>
+                  <label className="block space-y-1 text-xs text-ink">
+                    <span className="text-ink-dim">Artifact</span>
+                    <select
+                      data-routine-artifact-select
+                      className={cn(FIELD, "w-full")}
+                      value={draft.artifactId ?? ""}
+                      disabled={busy === "save"}
+                      onChange={(e) => {
+                        const next = e.target.value;
+                        set({ artifactId: next === "" ? null : next, datasetIds: [] });
+                        setArtifactDatasets(null);
+                      }}
+                    >
+                      <option value="">No scheduled refresh</option>
+                      {artifactRows.map((row) => (
+                        <option key={row.artifactId} value={row.artifactId}>
+                          {row.title}
+                        </option>
+                      ))}
+                      {draft.artifactId !== null && artifactMissing && (
+                        <option value={draft.artifactId}>{draft.artifactId} (missing)</option>
+                      )}
+                    </select>
+                  </label>
+                  {artifactMissing && (
+                    <p data-routine-artifact-missing className="rounded-lg border border-rose-dim bg-rose-wash/40 px-2.5 py-2 text-xs text-rose">
+                      The bound artifact no longer exists in the library. Until you fix this, every fire fails with
+                      &ldquo;Artifact or datasets unavailable.&rdquo;
+                    </p>
+                  )}
+                  {draft.artifactId !== null && (
+                    <>
+                      {artifactDatasets === null ? (
+                        <p className="text-xs text-ink-faint">Loading datasets&hellip;</p>
+                      ) : artifactDatasets.length === 0 ? (
+                        <p className="text-xs text-ink-faint">This artifact has no refreshable datasets.</p>
+                      ) : (
+                        <div className="space-y-1.5" data-routine-artifact-datasets>
+                          {artifactDatasets.map((dataset) => (
+                            <label key={dataset.id} className="flex cursor-pointer items-center gap-2 text-xs text-ink">
+                              <input
+                                type="checkbox"
+                                checked={draft.datasetIds.includes(dataset.id)}
+                                disabled={busy === "save"}
+                                onChange={(e) =>
+                                  set({
+                                    datasetIds: e.target.checked
+                                      ? [...draft.datasetIds, dataset.id]
+                                      : draft.datasetIds.filter((id) => id !== dataset.id),
+                                  })
+                                }
+                                className="accent-[var(--color-signal)]"
+                              />
+                              <span>{dataset.title}</span>
+                            </label>
+                          ))}
+                        </div>
+                      )}
+                      <label className="flex cursor-pointer items-start gap-2 text-xs text-ink">
+                        <input
+                          type="checkbox"
+                          data-routine-artifact-autoapply
+                          checked={draft.autoApply}
+                          disabled={busy === "save"}
+                          onChange={(e) => set({ autoApply: e.target.checked })}
+                          className="mt-0.5 accent-[var(--color-signal)]"
+                        />
+                        <span>Apply each scheduled capture without review (the app still refuses if the data changed underneath)</span>
+                      </label>
+                      <p className="text-[11px] leading-relaxed text-ink-faint">
+                        While bound, <code className="font-mono">omp-ui_artifact_capture</code> runs unprompted for this routine; a policy deny of that tool still wins.
+                      </p>
+                    </>
+                  )}
+                </section>
+              )}
 
               {/* Card 3 — Run hooks (#1283) */}
               <section className="studio-card space-y-2.5 rounded-xl p-3.5">

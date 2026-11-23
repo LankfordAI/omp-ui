@@ -276,7 +276,7 @@ afterEach(() => {
   for (const manager of harnessManagers.splice(0)) manager.killAll();
 });
 
-function setup(opts: { mode?: "pty" | "rpc-ui"; project?: string; projectName?: string; knowledgeHome?: Core.KnowledgeHome | null; appVersion?: string; mainLog?: (line: string) => void; attention?: Attention; providerEnv?: Record<string, string>; hasOAuthProvider?: () => boolean; hasConfiguredModelsFileProvider?: () => boolean; spawnGate?: SpawnGate; planVerify?: (html: string, themeId: string, signal: AbortSignal) => Promise<Core.PlanRenderResult>; hostNotify?: (tabId: string, title: string | null, message: string) => string; vaultProject?: (displayName: string, projectCwd: string) => Promise<Core.VaultProjectIdentity>; warm?: boolean; hibernateIdleMinutes?: number; resolveModelHold?: SessionManagerDependencies["resolveModelHold"]; readModelSelectorError?: SessionManagerDependencies["readModelSelectorError"]; readModelCatalog?: SessionManagerDependencies["readModelCatalog"]; fleetWake?: SessionManagerDependencies["fleetWake"]; themes?: SessionManagerDependencies["themes"] } = {}): {
+function setup(opts: { mode?: "pty" | "rpc-ui"; project?: string; projectName?: string; knowledgeHome?: Core.KnowledgeHome | null; appVersion?: string; mainLog?: (line: string) => void; attention?: Attention; providerEnv?: Record<string, string>; hasOAuthProvider?: () => boolean; hasConfiguredModelsFileProvider?: () => boolean; spawnGate?: SpawnGate; planVerify?: (html: string, themeId: string, signal: AbortSignal) => Promise<Core.PlanRenderResult>; hostNotify?: (tabId: string, title: string | null, message: string) => string; vaultProject?: (displayName: string, projectCwd: string) => Promise<Core.VaultProjectIdentity>; warm?: boolean; hibernateIdleMinutes?: number; resolveModelHold?: SessionManagerDependencies["resolveModelHold"]; readModelSelectorError?: SessionManagerDependencies["readModelSelectorError"]; readModelCatalog?: SessionManagerDependencies["readModelCatalog"]; fleetWake?: SessionManagerDependencies["fleetWake"]; themes?: SessionManagerDependencies["themes"]; artifacts?: SessionManagerDependencies["artifacts"] } = {}): {
   manager: SessionManager;
   registry: Core.Registry;
   broadcast: Mock;
@@ -370,6 +370,7 @@ function setup(opts: { mode?: "pty" | "rpc-ui"; project?: string; projectName?: 
     },
     hostNotify: opts.hostNotify,
     themes: opts.themes,
+    artifacts: opts.artifacts,
     appVersion: opts.appVersion,
     mainLog: opts.mainLog,
     vaultProject: opts.vaultProject,
@@ -9504,6 +9505,93 @@ describe("fleet dispatch on the owning side (issue #899, ADR-0061)", () => {
       expect(recordOf(registry, answer.tabId).model).toBe("pin/model");
       expect(answer.choice?.model).toBe("pin/model");
       expect(readModelCatalog).not.toHaveBeenCalled();
+    });
+  });
+
+  describe("scheduled artifact refresh boot wrap (ADR-0101)", () => {
+    const ROUTINE: Core.SessionRoutine = {
+      id: "abcdefghijklmnopqrstuv",
+      name: "Refresher",
+      approvalEntries: {},
+      deniedBuiltins: [],
+      warnCostUsd: 2,
+      maxCostUsd: 5,
+      artifact: { artifactId: "0e9d8c7b-6a5f-4e3d-8c1b-0a9f8e7d6c5b", datasetIds: ["rows"], autoApply: true },
+    };
+
+    it("wraps the staged fleet prompt with the host-minted refresh blocks and never re-asks on resume", async () => {
+      const preparedTabs = new Set<string>();
+      const prepareRoutineRefresh = vi.fn((request: { tabId: string; promptText: string }) => {
+        preparedTabs.add(request.tabId);
+        return { wirePrompt: `<artifact refresh>\nscheduled for ${request.tabId}\n</artifact refresh>\n\n${request.promptText}` };
+      });
+      const artifacts = {
+        admitPrompt: vi.fn(),
+        hasPreparedRefreshFor: (tabId: string) => preparedTabs.has(tabId),
+        prepareRoutineRefresh,
+      } as unknown as NonNullable<Parameters<typeof setup>[0]>["artifacts"];
+      const { manager, registry, sessionsRoot } = setup({ mode: "rpc-ui", artifacts });
+
+      const { tabId } = await fleetSpawn(manager, { kind: "routine", routine: ROUTINE });
+      const record = recordOf(registry, tabId);
+      // The binding rides the record byte-for-byte.
+      expect(record.routine?.artifact).toEqual(ROUTINE.artifact);
+      const commands = commandsOf();
+      const wrapped = promptsFor(commands)[0]!;
+      expect(wrapped.message).toBe(`<artifact refresh>\nscheduled for ${tabId}\n</artifact refresh>\n\n${PROMPT}`);
+      expect(prepareRoutineRefresh).toHaveBeenCalledTimes(1);
+      expect(prepareRoutineRefresh.mock.calls[0]![0]).toMatchObject({
+        tabId,
+        artifactId: ROUTINE.artifact!.artifactId,
+        datasetIds: ["rows"],
+        autoApply: true,
+        routineName: "Refresher",
+        promptText: PROMPT,
+      });
+
+      // A failed delivery re-delivers on resume, but the tab already owns the
+      // prepared refresh: no second ask, plain staged prompt instead.
+      const rpc = rpcInstances.at(-1)!;
+      rpc.frame({ type: "response", id: Core.fleetPromptCommandId(DISPATCH), command: "prompt", success: false, error: "busy" });
+      rpc.exit(0);
+      await settle();
+      fs.writeFileSync(
+        path.join(path.join(sessionsRoot, record.lineageDir), "2026-10-20T00-00-00-000Z_fleet-sid.jsonl"),
+        `${JSON.stringify({ type: "session", id: "fleet-sid", cwd: record.projectCwd })}\n`,
+      );
+      registry.updateSession(tabId, { sessionId: "fleet-sid" });
+      await manager.spawn({ origin: "resume", resumeTabId: tabId, cols: 80, rows: 24 });
+
+      expect(prepareRoutineRefresh).toHaveBeenCalledTimes(1);
+      expect(promptsFor(commandsOf())).toEqual([{ type: "prompt", id: Core.fleetPromptCommandId(DISPATCH), message: PROMPT }]);
+    });
+
+    it("boots plain when the selection goes stale between preflight and boot", async () => {
+      const warn = vi.spyOn(console, "warn").mockImplementation(() => {});
+      try {
+        const artifacts = {
+          admitPrompt: vi.fn(),
+          hasPreparedRefreshFor: () => false,
+          prepareRoutineRefresh: () => {
+            throw new Error("stale selection");
+          },
+        } as unknown as NonNullable<Parameters<typeof setup>[0]>["artifacts"];
+        const { manager } = setup({ mode: "rpc-ui", artifacts });
+        await fleetSpawn(manager, { kind: "routine", routine: ROUTINE });
+        expect(promptsFor(commandsOf())).toEqual([{ type: "prompt", id: Core.fleetPromptCommandId(DISPATCH), message: PROMPT }]);
+        expect(warn.mock.calls.some((call) => String(call[0]).includes("scheduled refresh skipped"))).toBe(true);
+      } finally {
+        warn.mockRestore();
+      }
+    });
+
+    it("never consults the artifact service for an unbound routine run", async () => {
+      const hasPreparedRefreshFor = vi.fn(() => false);
+      const artifacts = { admitPrompt: vi.fn(), hasPreparedRefreshFor } as unknown as NonNullable<Parameters<typeof setup>[0]>["artifacts"];
+      const { manager } = setup({ mode: "rpc-ui", artifacts });
+      await fleetSpawn(manager, { kind: "routine", routine: { ...ROUTINE, artifact: undefined } });
+      expect(hasPreparedRefreshFor).not.toHaveBeenCalled();
+      expect(promptsFor(commandsOf())).toEqual([{ type: "prompt", id: Core.fleetPromptCommandId(DISPATCH), message: PROMPT }]);
     });
   });
 });

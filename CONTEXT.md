@@ -1278,6 +1278,18 @@ the coding sidebar; runs idle past 30 days are pruned. Every routine run is a
 **Private session**.
 _Avoid_: run (the omp agent run), firing, execution, job (omp's Background job)
 
+**Scheduled refresh**:
+A **Routine** whose fires are bound (human-only, in the RoutineEditor) to one
+kept managed **Artifact**'s dataset set: each fire first fails or prepares an
+Artifact refresh request against its own session and sends it as the run's
+first prompt through the ordinary ADR-0092 grammar, so the agent repeats the
+recorded Refresh recipes and stages a capture. The capture is always staged;
+only a per-routine default-off `autoApply` opt-in lets the host apply it, and
+only while every acceptance fence still matches. A fire whose artifact or
+dataset selection no longer resolves fails with *Artifact or datasets
+unavailable* (issue #1303, ADR-0101).
+_Avoid_: auto-refresh job, background refresh, artifact automation
+
 **Tool policy**:
 A **Routine**'s standing per-tool decision about what its **Routine run** may
 do unattended: allowed tools run without asking, denied tools are refused, and

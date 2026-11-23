@@ -102,7 +102,18 @@ export function RoutinesView() {
             onClick={() => pick({ kind: "routine", id: routine.id })}
             className="min-w-0 flex-1 text-left"
           >
-            <span className="block truncate text-sm font-medium text-ink">{routine.name}</span>
+            <span className="block truncate text-sm font-medium text-ink">
+              {routine.name}
+              {routine.artifact !== null && (
+                <span
+                  data-routine-artifact-badge
+                  title="Scheduled artifact refresh"
+                  className="ml-1.5 align-middle text-[10px] uppercase tracking-wide text-copper"
+                >
+                  refresh
+                </span>
+              )}
+            </span>
             <span className="mt-0.5 block truncate text-xs text-ink-mid">{describeSchedule(routine.schedule)}</span>
             <span className="mt-0.5 block truncate text-xs text-ink-faint">
               {routine.enabled && routine.nextRunAtMs !== null

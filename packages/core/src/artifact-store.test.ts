@@ -373,4 +373,17 @@ describe("ArtifactStore human maintenance", () => {
     for (const id of removed) expect(() => store.readSnapshot({ artifactId: record.artifactId, dataSnapshotId: id })).toThrow();
     for (const id of after.snapshots.map(row => row.dataSnapshotId)) expect(() => store.readSnapshot({ artifactId: record.artifactId, dataSnapshotId: id })).not.toThrow();
   });
+
+  it("records autoApply and scheduledBy only when asked and answers hasPreparedRefreshFor (ADR-0101)", () => {
+    const store = open(); const record = keep(store);
+    const plain = store.prepareRefresh({ artifactId: record.artifactId, codeRevisionId: record.currentCodeRevisionId, dataSnapshotId: record.currentDataSnapshotId, targetTabId: "tab-plain", datasetIds: ["rows"] });
+    expect("autoApply" in plain).toBe(false); expect("scheduledBy" in plain).toBe(false);
+    const scheduled = store.prepareRefresh({ artifactId: record.artifactId, codeRevisionId: record.currentCodeRevisionId, dataSnapshotId: record.currentDataSnapshotId, targetTabId: "tab-routine", datasetIds: ["rows"], autoApply: true, scheduledBy: "Nightly" });
+    expect(scheduled.autoApply).toBe(true); expect(scheduled.scheduledBy).toBe("Nightly");
+    const falsey = store.prepareRefresh({ artifactId: record.artifactId, codeRevisionId: record.currentCodeRevisionId, dataSnapshotId: record.currentDataSnapshotId, targetTabId: "tab-false", datasetIds: ["rows"], autoApply: false });
+    expect("autoApply" in falsey).toBe(false);
+    expect(store.hasPreparedRefreshFor({ targetTabId: "tab-plain" })).toBe(true);
+    expect(store.hasPreparedRefreshFor({ targetTabId: "tab-routine" })).toBe(true);
+    expect(store.hasPreparedRefreshFor({ targetTabId: "tab-none" })).toBe(false);
+  });
 });

@@ -224,6 +224,7 @@ describe("routines across hosts (ADR-0100, U13)", () => {
       scripts: { pre: "", post: "" },
       timeoutMinutes: null,
       notifications: { onStart: false, onComplete: false, onFail: false, onApproval: false, agentMessage: false },
+      artifact: null,
       enabled: false,
     });
     const state = await remote[CH.getRoutinesState]();

@@ -29,6 +29,7 @@ import {
   FLEET_TOOLS,
 } from "./fleet";
 import {
+  ARTIFACT_CAPTURE_TOOL_NAME,
   HTML_ARTIFACT_DEFAULT_HEIGHT,
   HTML_ARTIFACT_MAX_BYTES,
   HTML_ARTIFACT_MAX_HEIGHT,
@@ -93,7 +94,6 @@ export function hostUriSchemeDefinition(): RpcHostUriSchemeDefinition {
 }
 
 export interface HostToolOptions { vault: boolean; fleet: boolean; device: boolean; theme: boolean; issues: boolean; artifacts: boolean; routines: boolean }
-export const ARTIFACT_CAPTURE_TOOL_NAME = "omp-ui_artifact_capture";
 /** The routine host tools (ADR-0100 amendments): author or edit a definition; only a human can arm one. */
 export const ROUTINE_CREATE_TOOL_NAME = "omp-ui_routines_create";
 export const ROUTINE_UPDATE_TOOL_NAME = "omp-ui_routines_update";

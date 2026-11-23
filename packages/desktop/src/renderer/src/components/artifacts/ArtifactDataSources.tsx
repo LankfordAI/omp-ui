@@ -6,10 +6,13 @@ import { useStore } from "../../store";
 import { IS_ELECTRON } from "../../lib/platform";
 import { copyFallback } from "../../lib/clipboard";
 import { downloadBlob, readAllPart, safeDownloadName } from "../../lib/artifact-parts";
+import { describeSchedule } from "../routines/routine-format";
 
 export function ArtifactDataSources({ description }: { description: ArtifactDescription }) {
   const [part, setPart] = useState<string>("state");
   const state = useStore((s) => s.state);
+  const routinesState = useStore((s) => s.routinesState);
+  const focusRoutine = useStore((s) => s.focusRoutine);
   const [offsets, setOffsets] = useState<number[]>([0]);
   const [page, setPage] = useState<ArtifactPartResult | null>(null);
   const [error, setError] = useState<string | null>(null);
@@ -47,6 +50,20 @@ export function ArtifactDataSources({ description }: { description: ArtifactDesc
       {selected.provenance.method.parameters && <details><summary className="cursor-pointer">Exact collection parameters</summary><pre className="max-h-48 overflow-auto whitespace-pre-wrap break-all rounded bg-raised p-2 text-xs">{JSON.stringify(selected.provenance.method.parameters, null, 2)}</pre></details>}
     </div>}
     {error && <p role="alert" className="text-sm text-rose">{error}</p>}
+    {(routinesState?.routines ?? []).some((routine) => routine.artifact?.artifactId === artifact.artifactId) && (
+      <div className="space-y-1 border-l-2 border-line-strong pl-3 text-sm" data-artifact-scheduled-refreshes>
+        <h3 className="font-semibold text-ink">Scheduled refreshes</h3>
+        {(routinesState?.routines ?? [])
+          .filter((routine) => routine.artifact?.artifactId === artifact.artifactId)
+          .map((routine) => (
+            <p key={routine.id} className="flex flex-wrap items-center gap-2 text-xs text-ink-mid">
+              <Button variant="ghost" size="xs" onClick={() => focusRoutine(routine.id)}>{routine.name}</Button>
+              <span>{describeSchedule(routine.schedule)}</span>
+              <span>{routine.enabled ? (routine.artifact!.autoApply ? "auto-applies" : "stages for review") : "paused"}</span>
+            </p>
+          ))}
+      </div>
+    )}
     <pre tabIndex={0} aria-label="Saved data page" className="max-h-72 overflow-auto whitespace-pre-wrap break-all rounded border border-line bg-raised p-3 text-xs text-ink-mid">{page?.text ?? "Loading…"}</pre>
     {page && <div className="flex flex-wrap items-center gap-2 text-xs text-ink-faint"><span>{`Bytes ${page.offset}–${page.nextOffset ?? page.totalBytes} of ${page.totalBytes}`}</span><Button disabled={offsets.length === 1} onClick={() => setOffsets((old) => old.slice(0, -1))}>Previous page</Button><Button disabled={page.nextOffset === null} onClick={() => { if (page.nextOffset !== null) setOffsets((old) => [...old, page.nextOffset!]); }}>Next page</Button></div>}
   </section>;

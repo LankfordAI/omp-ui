@@ -989,6 +989,10 @@ export class MainBackend {
       awaitingHumanAnswer: (tabId) => this.sessions.pendingAnswer(tabId),
       deleteSession: (tabId, cascade) => this.sessions.deleteSession(tabId, cascade),
       dispatch: (req, who, dispatchOpts) => this.fleet.dispatch(req, who, dispatchOpts),
+      artifactRefreshBlocked: (binding) => {
+        if (!this.artifacts.enabled) return "The artifact library is disabled";
+        return this.artifacts.artifactRefreshBlocked(binding);
+      },
       notifyRoutine: (payload) => this.notifier.notifyRoutine(payload),
       machineLabel: () => this.fleetLabel,
       send: (state) => this.send(CH.onRoutinesState, state),

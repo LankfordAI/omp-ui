@@ -10,6 +10,7 @@ import {
   type FleetDispatchResult,
   type OwnedSessionRecord,
   type RoutineAgentUpdateArgs,
+  type RoutineArtifactBinding,
   type RoutineCatalogSnapshot,
   type RoutineDryRunRequest,
   type RoutineDryRunResult,
@@ -68,6 +69,8 @@ export interface RoutineServiceDeps {
   broadcast: () => void;
   /** Posts a per-routine OS notification (#1294). */
   notifyRoutine?: (payload: RoutineNotificationPayload) => void;
+  /** Fire-time scheduled-refresh preflight (ADR-0101); omitted = never blocked. */
+  artifactRefreshBlocked?: (binding: RoutineArtifactBinding) => string | null;
   now?: () => number;
 }
 
@@ -112,6 +115,7 @@ export class RoutineService {
       isTurnRunning: deps.isTurnRunning,
       awaitingHumanAnswer: deps.awaitingHumanAnswer,
       listCatalog: (cwd, opts) => deps.catalog.list(cwd, opts),
+      artifactRefreshBlocked: deps.artifactRefreshBlocked ?? (() => null),
       dispatch: deps.dispatch,
       runScript: (command, cwd, env) => runRoutineScript(command, cwd, env),
       postRunning: (tabId) => deps.lifecycle.postRunning(tabId),

@@ -74,6 +74,7 @@ const ROUTINE_INPUT: RoutineInput = {
   scripts: { pre: "", post: "" },
   timeoutMinutes: null,
   notifications: { onStart: false, onComplete: false, onFail: false, onApproval: false, agentMessage: false },
+  artifact: null,
   enabled: true,
 };
 

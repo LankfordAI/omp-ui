@@ -3,6 +3,8 @@
 // imports, because the renderer imports it through the @omp-ui/core/routine
 // subpath.
 
+import { ARTIFACT_LIMITS, assertArtifactKey, assertArtifactUuid } from "./artifacts";
+import { ARTIFACT_CAPTURE_TOOL_NAME } from "./html-artifact";
 import {
   isValidCron,
   isValidTimeZone,
@@ -80,7 +82,8 @@ export type RoutineRunReasonCode =
   | "interrupted"
   | "error"
   | "pre-script"
-  | "pre-script-skip";
+  | "pre-script-skip"
+  | "artifact-missing";
 
 /** Optional shell hooks run before/after every Routine run (#1283). "" disables the phase. */
 export interface RoutineScripts {
@@ -125,11 +128,25 @@ export const ROUTINE_REASON_LABEL: Readonly<Record<RoutineRunReasonCode, string>
   error: "Ended with error",
   "pre-script": "Pre-run script failed",
   "pre-script-skip": "Pre-run script reported nothing to do",
+  "artifact-missing": "Artifact or datasets unavailable",
 });
 
 /** True iff this routine run should allow omp-ui_notify unprompted and ask for a completion summary. */
 export function routineAllowsAgentNotification(notifications: RoutineNotifications): boolean {
   return notifications.onComplete && notifications.agentMessage;
+}
+
+/**
+ * Human-only: binds a Routine's fires to one managed artifact's refresh
+ * (ADR-0101). The agent host tools carry no `artifact` key, so only the
+ * renderer picker can mint one.
+ */
+export interface RoutineArtifactBinding {
+  artifactId: string;
+  /** Dataset keys selected from the artifact's current definition; 1..32, unique. */
+  datasetIds: string[];
+  /** Host applies staged captures without review when every store fence holds. */
+  autoApply: boolean;
 }
 
 export interface RoutineDestination {
@@ -173,6 +190,8 @@ export interface RoutineRecord {
   timeoutMinutes: number | null;
   /** Per-routine opt-in OS notification preferences (#1294); all off by default. */
   notifications: RoutineNotifications;
+  /** Scheduled-refresh binding (ADR-0101); null = plain routine. Human-only field. */
+  artifact: RoutineArtifactBinding | null;
   enabled: boolean;
   createdAt: string;
   nextRunAtMs: number | null;
@@ -199,6 +218,8 @@ export interface RoutineInput {
   timeoutMinutes: number | null;
   /** Required on TS type; wire parser defaults omitted key to all-off for older clients (#1294). */
   notifications: RoutineNotifications;
+  /** Required on TS type; wire parser defaults omitted key to null (ADR-0101). */
+  artifact: RoutineArtifactBinding | null;
   enabled: boolean;
 }
 
@@ -216,6 +237,8 @@ export interface RoutinePatch {
   scripts?: RoutineScripts;
   timeoutMinutes?: number | null;
   notifications?: RoutineNotifications;
+  /** Scheduled-refresh binding (ADR-0101); explicit null clears it. Human-only field. */
+  artifact?: RoutineArtifactBinding | null;
   enabled?: boolean;
 }
 
@@ -230,6 +253,8 @@ export interface SessionRoutine {
   /** Resolved fire-time USD caps (0 = uncapped). */
   warnCostUsd: number;
   maxCostUsd: number;
+  /** Fire-time scheduled-refresh binding (ADR-0101); absent keeps today's byte shape. */
+  artifact?: RoutineArtifactBinding;
 }
 
 /** One audit row in routine-runs.json. Fixed strings only — never prompt/arg/secret content (#1254). */
@@ -370,6 +395,7 @@ export function routineInputFromAgentCreate(args: RoutineAgentCreateArgs, nowIso
     scripts: args.scripts,
     timeoutMinutes: args.timeoutMinutes,
     notifications: args.notifications,
+    artifact: null,
     enabled: false,
   };
 }
@@ -772,7 +798,7 @@ export function routinePrompt(
 export function compileRoutineToolPolicy(
   policy: RoutineToolPolicy,
   catalog: RoutineCatalogSnapshot,
-  opts?: { allowAgentNotify?: boolean },
+  opts?: { allowAgentNotify?: boolean; allowArtifactCapture?: boolean },
 ): CompiledRoutinePolicy {
   const allowSet = new Set(policy.allow);
   const denySet = new Set(policy.deny);
@@ -818,6 +844,10 @@ export function compileRoutineToolPolicy(
 
   if (opts?.allowAgentNotify === true && !denySet.has(ROUTINE_NOTIFY_TOOL_KEY)) {
     rawEntries[ROUTINE_NOTIFY_TOOL_KEY] = "allow";
+  }
+  // ADR-0101: a bound routine's run must stage its capture unprompted; deny still wins.
+  if (opts?.allowArtifactCapture === true && !denySet.has(ARTIFACT_CAPTURE_TOOL_NAME)) {
+    rawEntries[ARTIFACT_CAPTURE_TOOL_NAME] = "allow";
   }
 
   const overlayEntries: Record<string, RoutineToolDecision> = {};
@@ -928,6 +958,31 @@ function parseScripts(value: unknown): RoutineScripts {
 const NOTIFICATION_KEY_LIST = ["onStart", "onComplete", "onFail", "onApproval", "agentMessage"] as const;
 const NOTIFICATION_KEYS = new Set<string>(NOTIFICATION_KEY_LIST);
 
+const ARTIFACT_BINDING_KEYS = new Set(["artifactId", "datasetIds", "autoApply"]);
+
+/** Scheduled refresh (ADR-0101): null/undefined = unbound. Never coerce a malformed binding. */
+function parseArtifactBinding(value: unknown, field: string): RoutineArtifactBinding | null {
+  if (value === undefined || value === null) return null;
+  if (!isPlainObject(value)) throw new Error(`${field} must be an object or null`);
+  assertAllowedKeys(value, ARTIFACT_BINDING_KEYS, field);
+  // ArtifactError carries the message; callers' catch blocks never inspect type.
+  assertArtifactUuid(value.artifactId, `${field}.artifactId`);
+  if (!Array.isArray(value.datasetIds) || value.datasetIds.length === 0) {
+    throw new Error(`${field}.datasetIds must be a non-empty array`);
+  }
+  if (value.datasetIds.length > ARTIFACT_LIMITS.datasets) {
+    throw new Error(`${field}.datasetIds exceeds ${ARTIFACT_LIMITS.datasets} entries`);
+  }
+  const seen = new Set<string>();
+  for (const item of value.datasetIds) {
+    assertArtifactKey(item);
+    if (seen.has(item)) throw new Error(`${field}.datasetIds must be unique`);
+    seen.add(item);
+  }
+  if (typeof value.autoApply !== "boolean") throw new Error(`${field}.autoApply must be a boolean`);
+  return { artifactId: value.artifactId, datasetIds: [...value.datasetIds], autoApply: value.autoApply };
+}
+
 /** Absent means all-off. A present value must be well-formed: never coerce. */
 function parseNotifications(value: unknown): RoutineNotifications {
   if (value === undefined) return { ...DEFAULT_ROUTINE_NOTIFICATIONS };
@@ -957,6 +1012,7 @@ const ROUTINE_INPUT_KEYS = new Set([
   "scripts",
   "timeoutMinutes",
   "notifications",
+  "artifact",
   "enabled",
 ]);
 
@@ -986,6 +1042,7 @@ const ROUTINE_REASON_CODES = new Set<RoutineRunReasonCode>([
   "error",
   "pre-script",
   "pre-script-skip",
+  "artifact-missing",
 ]);
 const POST_SCRIPT_STATUSES = new Set<RoutinePostScriptStatus>(["ok", "failed", "timeout", "interrupted"]);
 const TOOL_DECISIONS = new Set<RoutineToolDecision>(["allow", "prompt", "deny"]);
@@ -1164,6 +1221,7 @@ export function parseRoutineInput(raw: unknown): RoutineInput {
     scripts: parseScripts(raw.scripts),
     timeoutMinutes: parseTimeoutMinutes(raw.timeoutMinutes, "timeoutMinutes", true),
     notifications: parseNotifications(raw.notifications),
+    artifact: parseArtifactBinding(raw.artifact, "artifact"),
     enabled,
   };
 }
@@ -1186,6 +1244,7 @@ export function parseRoutinePatch(raw: unknown): RoutinePatch {
   if ("scripts" in raw) out.scripts = parseScripts(raw.scripts);
   if ("timeoutMinutes" in raw) out.timeoutMinutes = parseTimeoutMinutes(raw.timeoutMinutes, "timeoutMinutes", false);
   if ("notifications" in raw) out.notifications = parseNotifications(raw.notifications);
+  if ("artifact" in raw) out.artifact = parseArtifactBinding(raw.artifact, "artifact");
   if ("enabled" in raw) {
     if (typeof raw.enabled !== "boolean") throw new Error("enabled must be a boolean");
     out.enabled = raw.enabled;
@@ -1269,6 +1328,7 @@ const ROUTINE_RECORD_KEYS = new Set([
   "scripts",
   "timeoutMinutes",
   "notifications",
+  "artifact",
   "enabled",
   "createdAt",
   "nextRunAtMs",
@@ -1313,6 +1373,8 @@ export function isRoutineRecord(raw: unknown): raw is RoutineRecord {
     if (raw.scripts !== undefined) parseScripts(raw.scripts);
     if (raw.timeoutMinutes !== undefined) parseTimeoutMinutes(raw.timeoutMinutes, "timeoutMinutes", false);
     if (raw.notifications !== undefined) parseNotifications(raw.notifications);
+    // Absent stays valid (legacy record; the store load backfills null).
+    if (raw.artifact !== undefined) parseArtifactBinding(raw.artifact, "artifact");
   } catch {
     return false;
   }
@@ -1375,6 +1437,7 @@ const SESSION_ROUTINE_KEYS = new Set([
   "deniedBuiltins",
   "warnCostUsd",
   "maxCostUsd",
+  "artifact",
 ]);
 
 export function isSessionRoutine(raw: unknown): raw is SessionRoutine {
@@ -1398,6 +1461,12 @@ export function isSessionRoutine(raw: unknown): raw is SessionRoutine {
     return false;
   }
   if (typeof raw.maxCostUsd !== "number" || !Number.isFinite(raw.maxCostUsd) || raw.maxCostUsd < 0) {
+    return false;
+  }
+  try {
+    // Absent keeps today's byte shape; present must be a well-formed binding.
+    if (raw.artifact !== undefined) parseArtifactBinding(raw.artifact, "artifact");
+  } catch {
     return false;
   }
   return true;
