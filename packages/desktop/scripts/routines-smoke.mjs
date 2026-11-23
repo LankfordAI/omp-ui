@@ -538,6 +538,9 @@ async function openRoutinesView(cdp) {
   await waitFor(() => cdp.run(DOM.exists, "[data-routines-view]"), 15_000, "Routines view");
 }
 async function settingsRoutines() {
+  // The Routines takeover unmounts the coding sidebar — and with it the
+  // Settings button — while the view is open (#1278), so drop back first.
+  if (await app.run(DOM.exists, "[data-routines-view]")) await clickLabel(app, "Close Routines");
   await clickLabel(app, "Settings");
   await click(app, "Routines", '[aria-labelledby="settings-title"]');
   await waitFor(() => app.run(DOM.exists, '[role="switch"][aria-label="Routines"]'), 15_000, "Routines switch");
