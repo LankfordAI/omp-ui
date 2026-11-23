@@ -106,7 +106,8 @@ function stallNotice(
   const errorId = numField(frame, "errorId") ?? 0;
   // omp 19.1.1 keeps Anthropic's request-id on the failed assistant message
   // (issue #1291): quote it at provider support straight from this notice.
-  const requestId = strField(frame, "requestId");
+  const rawRequestId = strField(frame, "requestId")?.trim();
+  const requestId = rawRequestId ? rawRequestId : undefined;
   const watchdogMatch = STALL_MESSAGE_RE.exec(errorMessage);
   if ((errorId & OMP_ERROR_FLAG_TIMEOUT) === 0 && watchdogMatch === null)
     return null;
@@ -422,11 +423,12 @@ export function reduceAgentEvent(
       hasRpcPatch = true;
     }
     if (strField(message, "role") === "assistant") {
+      const rawRequestId = strField(message, "requestId")?.trim();
       rpc.lastTurn = {
         stopReason: strField(message, "stopReason"),
         errorMessage: strField(message, "errorMessage"),
         errorId: numField(message, "errorId"),
-        requestId: strField(message, "requestId"),
+        requestId: rawRequestId ? rawRequestId : undefined,
         repetitionStop: carriesRepetitionStop(message),
       };
       hasRpcPatch = true;

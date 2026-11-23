@@ -951,6 +951,45 @@ describe("handleRpcFrame routing", () => {
       expect(tab().costCap ?? undefined).toBeUndefined();
     });
 
+    it("quotes the provider request id from lastTurn on a non-stall error notice (issue #1291)", () => {
+      h.useStore.getState().handleRpcFrame(h.TAB, {
+        type: "message_end",
+        message: {
+          role: "assistant",
+          content: [],
+          stopReason: "error",
+          errorMessage: "provider rejected the request",
+          requestId: "req_01Refused",
+        },
+      });
+      result("error", { message: "provider rejected the request", retryable: false });
+      expect(notices()).toHaveLength(1);
+      expect(notices()[0]).toMatchObject({
+        level: "error",
+        text: "provider rejected the request. Provider request id: req_01Refused.",
+      });
+    });
+
+    it("ignores a blank requestId on the assistant message (issue #1291)", () => {
+      h.useStore.getState().handleRpcFrame(h.TAB, {
+        type: "message_end",
+        message: {
+          role: "assistant",
+          content: [],
+          stopReason: "error",
+          errorMessage: "provider rejected the request",
+          requestId: "   ",
+        },
+      });
+      expect(tab().lastTurn?.requestId).toBeUndefined();
+      result("error", { message: "provider rejected the request", retryable: false });
+      expect(notices()).toHaveLength(1);
+      expect(notices()[0]).toMatchObject({
+        level: "error",
+        text: "provider rejected the request",
+      });
+    });
+
     it("an error outcome after a stream-stall turn adds no second notice", () => {
       h.useStore.setState({
         rpc: {
@@ -2403,6 +2442,7 @@ describe("handleRpcFrame routing", () => {
           .getState()
           .rpc[h.TAB]!.items.filter((i) => i.kind === "notice")
           .at(-1);
+        expect(notice?.kind).toBe("notice");
         if (notice?.kind !== "notice") return;
         expect(notice.text).toContain("provider stream stall #1");
         expect(notice.text).toContain("Provider request id: req_01AbCd.");
