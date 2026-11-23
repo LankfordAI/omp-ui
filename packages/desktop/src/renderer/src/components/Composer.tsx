@@ -444,12 +444,14 @@ export function Composer({
   // The non-compact composer is the Other field while a free-text dialog owns it.
   const pendingFrame = useStore((s) => s.rpc[tabId]?.extensionQueue[0]);
   const answering = !compact && freeTextTarget(pendingFrame) !== "none";
-  // A multi-question ask waits above the composer (issue #1234): the composer
-  // never answers it with its draft — a plain message SKIPS it (upstream
-  // `#draftSkipsAsk`: sending settles the ask cancelled, partial answers
-  // never reach the wire) — so the placeholder says which of the two typing
-  // here does. Distinct from `answering`, which turns this box into the card.
-  const pendingAsk = strField(pendingFrame, "method") === "ask";
+  // A multi-question ask or whole-HTML-form ask waits above the composer
+  // (issues #1234, #1271): the composer never answers it with its draft — a
+  // plain message SKIPS it (upstream `#draftSkipsAsk`: sending settles the
+  // ask cancelled, partial answers never reach the wire) — so the placeholder
+  // says which of the two typing here does. Distinct from `answering`, which
+  // turns this box into the card.
+  const pendingMethod = strField(pendingFrame, "method");
+  const pendingAsk = pendingMethod === "ask" || pendingMethod === "form";
   /**
    * The Skip & send state (issue #1234): a plain non-empty draft with a
    * multi-question ask waiting above the composer — exactly upstream's

@@ -68,6 +68,34 @@ describe("DialogGateTracker (issue #555)", () => {
     expect(gates.hasOpen("t1")).toBe(false);
   });
 
+  it("tracks a whole-HTML-form ask and drops it on data response or cancel (issue #1271)", () => {
+    const gates = new DialogGateTracker();
+    gates.onFrame("t1", {
+      type: "extension_ui_request",
+      id: "form-1",
+      method: "form",
+      html: '<form><input name="db"></form>',
+    } as RpcFrame);
+    expect(gates.hasOpen("t1")).toBe(true);
+    expect(gates.openFrames("t1").map((f) => f.id)).toEqual(["form-1"]);
+
+    gates.onSend("t1", {
+      type: "extension_ui_response",
+      id: "form-1",
+      data: { db: "sqlite" },
+    } as RpcFrame);
+    expect(gates.hasOpen("t1")).toBe(false);
+
+    gates.onFrame("t1", {
+      type: "extension_ui_request",
+      id: "form-2",
+      method: "form",
+      html: '<form><input name="db"></form>',
+    } as RpcFrame);
+    gates.onFrame("t1", cancel("c-form", "form-2"));
+    expect(gates.hasOpen("t1")).toBe(false);
+  });
+
   it("excludes the plan-review select — its gate owns that frame", () => {
     const gates = new DialogGateTracker();
     const title = `${PLAN_REVIEW_SENTINEL}${JSON.stringify({

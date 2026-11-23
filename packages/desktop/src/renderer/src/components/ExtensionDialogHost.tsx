@@ -303,7 +303,7 @@ export function ExtensionDialogHost({
   }, [current, method, compact]);
 
   keydown.current = (e) => {
-    if (!current || fromTextField(e)) return;
+    if (!current || e.defaultPrevented || fromTextField(e)) return;
     const listed = plan?.listed ?? [];
     if (reviewing !== null) {
       // Review swallows every key — the live options stay untouched, and
