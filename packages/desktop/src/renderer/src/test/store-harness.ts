@@ -431,7 +431,7 @@ const mockBackend = {
   getRoutinesState: vi.fn(async (): Promise<RoutinesState> => {
     throw new Error("getRoutinesState not mocked");
   }),
-  updateRoutine: vi.fn(async (_id: string, _patch: RoutinePatch): Promise<RoutineRecord> => {
+  updateRoutine: vi.fn<(id: string, patch: RoutinePatch) => Promise<RoutineRecord>>(async () => {
     throw new Error("updateRoutine not mocked");
   }),
   getMcpEndpointState: vi.fn(async () => ({ enabled: false, clients: [], calls: [] })),

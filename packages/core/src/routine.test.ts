@@ -297,3 +297,28 @@ describe("parseRoutineAgentCreateArgs & routineInputFromAgentCreate (ADR-0100 am
     expect(parseRoutineAgentCreateArgs({ ...GOOD, model: null, thinkingLevel: null }).model).toBeNull();
   });
 });
+
+describe("routineToolKeyFromApprovalName (#1276)", () => {
+  it("normalizes PascalCase built-ins to snake_case and keeps mcp__ keys verbatim", () => {
+    expect(routineToolKeyFromApprovalName("Bash")).toBe("bash");
+    expect(routineToolKeyFromApprovalName("WebSearch")).toBe("web_search");
+    expect(routineToolKeyFromApprovalName("AstEdit")).toBe("ast_edit");
+    expect(routineToolKeyFromApprovalName("  Read  ")).toBe("read");
+    expect(routineToolKeyFromApprovalName("mcp__github_create_issue")).toBe("mcp__github_create_issue");
+    expect(routineToolKeyFromApprovalName("mcp__MyServer_DoThing")).toBe("mcp__MyServer_DoThing");
+    for (const key of WATCHDOG_KNOWN_TOOLS) {
+      const pascal = key
+        .split("_")
+        .map((part) => part.slice(0, 1).toUpperCase() + part.slice(1))
+        .join("");
+      expect(routineToolKeyFromApprovalName(pascal)).toBe(key);
+    }
+  });
+
+  it("returns empty string for blank or control-character names", () => {
+    expect(routineToolKeyFromApprovalName("")).toBe("");
+    expect(routineToolKeyFromApprovalName("   ")).toBe("");
+    expect(routineToolKeyFromApprovalName("ba\nsh")).toBe("");
+    expect(routineToolKeyFromApprovalName("read\x00")).toBe("");
+  });
+});
