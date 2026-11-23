@@ -5,6 +5,7 @@ import type {
   OmpSettingValue,
 } from "@omp-ui/core/types";
 import {
+  BINJA_INSTALL_DIR_KEY,
   EDIT_MAGIC_MODEL_KEY,
   PYTHON_INTERPRETER_KEY,
 } from "@omp-ui/core/omp-settings-keys";
@@ -190,12 +191,14 @@ export function SettingControl({
     } else {
       // Empty is a real write only for string keys whose documented "" sentinel
       // clears the override (`python.interpreter` → auto-detect,
-      // `edit.magic.model` → fall back to the `smol` role). Every other string
-      // key keeps an empty draft a no-op.
+      // `edit.magic.model` → fall back to the `smol` role,
+      // `binja.installDir` → auto-detect). Every other string key keeps an
+      // empty draft a no-op.
       if (
         raw === "" &&
         entry.key !== PYTHON_INTERPRETER_KEY &&
-        entry.key !== EDIT_MAGIC_MODEL_KEY
+        entry.key !== EDIT_MAGIC_MODEL_KEY &&
+        entry.key !== BINJA_INSTALL_DIR_KEY
       ) {
         return;
       }

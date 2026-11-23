@@ -1522,6 +1522,59 @@ describe("Settings omp Tools group (issue #1069)", () => {
     });
     expect(backendMock.writeOmpSetting).toHaveBeenCalledWith("edit.magic.model", "");
   });
+
+  it("commits and clears binja.installDir when published (#1275)", async () => {
+    backendMock.readOmpSettings.mockResolvedValue({
+      ...emptyOmpSettings,
+      entries: [
+        {
+          key: "disassembler.backend",
+          type: "enum",
+          description: "Disassembler backend",
+          value: "binja",
+          globalValue: "binja",
+          options: ["auto", "ghidra", "ida", "binja", "none"],
+          layer: "global",
+        },
+        {
+          key: "binja.installDir",
+          type: "string",
+          description: "Directory containing the Binary Ninja core library; empty auto-detects",
+          value: "/opt/binja",
+          globalValue: "/opt/binja",
+          options: null,
+          layer: "global",
+        },
+      ],
+    });
+    useStore.setState({
+      settingsPage: "omp",
+      state: backendState(),
+      tabs: [],
+      activeTabId: null,
+      appUpdate: appUpdateState({}),
+      ompUpdate: idleOmpUpdate,
+    });
+    await renderSettings();
+
+    const input = document.querySelector<HTMLInputElement>(
+      'input[aria-label="binja.installDir"]',
+    )!;
+    expect(input).not.toBeNull();
+    expect(input.value).toBe("/opt/binja");
+
+    const setter = Object.getOwnPropertyDescriptor(HTMLInputElement.prototype, "value")!.set!;
+    await act(async () => {
+      setter.call(input, "");
+      input.dispatchEvent(new Event("input", { bubbles: true }));
+    });
+    await act(async () => {
+      input.dispatchEvent(
+        new KeyboardEvent("keydown", { key: "Enter", bubbles: true, cancelable: true }),
+      );
+    });
+    expect(backendMock.writeOmpSetting).toHaveBeenCalledWith("binja.installDir", "");
+  });
 });
 
 describe("Settings omp Subagents group (issue #1067)", () => {
