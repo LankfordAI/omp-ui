@@ -1,6 +1,6 @@
 import type { RoutineDryRunResult } from "@omp-ui/core/routine";
 import { useT } from "../../lib/i18n";
-import { Button, Panel } from "../ui";
+import { Button } from "../ui";
 import { formatUsd, formatWhen } from "./routine-format";
 
 /**
@@ -30,7 +30,7 @@ export function DryRunPanel({
     { title: t("routines.dryRun.hardDenied"), keys: denied, tone: "text-rose" },
   ];
   return (
-    <Panel tone="iris" className="space-y-2 px-3.5 py-3 text-xs">
+    <div className="studio-card space-y-2.5 rounded-xl border-iris-dim/80 px-4 py-3 text-xs">
       <div data-dry-run className="flex items-start justify-between gap-2">
         <div className="min-w-0">
           <p className="font-semibold text-ink">{t("routines.dryRun.title")}</p>
@@ -50,7 +50,7 @@ export function DryRunPanel({
       </div>
       <div className="grid grid-cols-1 gap-2 sm:grid-cols-3">
         {columns.map((col) => (
-          <div key={col.title} className="min-w-0 rounded border border-line bg-void/70 p-2">
+          <div key={col.title} className="min-w-0 rounded-lg border border-line-soft bg-raised/70 p-2.5">
             <p className={`font-medium ${col.tone}`}>
               {col.title} ({col.keys.length})
             </p>
@@ -68,6 +68,6 @@ export function DryRunPanel({
           {warning}
         </p>
       ))}
-    </Panel>
+    </div>
   );
 }

@@ -143,4 +143,34 @@ describe("ToolPolicyEditor decision filter", () => {
     click(chip("Allowed"));
     expect(visibleRows().sort()).toEqual(["gone_tool", "read"]);
   });
+
+  it("filters by Sources directory while keeping global decision counts stable", () => {
+    renderEditor();
+    const allSrc = document.querySelector<HTMLButtonElement>('[data-tool-source="all"]')!;
+    const demoSrc = document.querySelector<HTMLButtonElement>('[data-tool-source="mcp:demo"]')!;
+    const builtinSrc = document.querySelector<HTMLButtonElement>('[data-tool-source="builtin"]')!;
+    expect(allSrc.textContent).toContain("1/3");
+    expect(demoSrc.textContent).toContain("0/1");
+    expect(builtinSrc.textContent).toContain("1/2");
+
+    // Narrowing to mcp:demo shows only its tool; global decision chip counts do not drift.
+    click(demoSrc);
+    expect(visibleRows()).toEqual(["mcp__demo_ping"]);
+    expect(chip("All").textContent).toBe("All3");
+    expect(chip("Allowed").textContent).toBe("Allowed1");
+    expect(chip("Denied").textContent).toBe("Denied1");
+    expect(chip("Ask").textContent).toBe("Ask1");
+
+    // Composes with decision chips and search.
+    click(chip("Allowed"));
+    expect(visibleRows()).toEqual([]);
+    expect(document.querySelector("[data-policy-empty]")).not.toBeNull();
+
+    click(builtinSrc);
+    expect(visibleRows()).toEqual(["read"]);
+    typeFilter("read");
+    expect(visibleRows()).toEqual(["read"]);
+    typeFilter("bash");
+    expect(visibleRows()).toEqual([]);
+  });
 });

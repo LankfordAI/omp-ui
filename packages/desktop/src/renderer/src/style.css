@@ -517,6 +517,22 @@
   border-radius: 0.375rem;
 }
 
+/* Contrast-safe floating card over stage-void / stage-surface (issue #1278,
+ * ADR-0094): solid surface when no backdrop is active, surface at the theme's
+ * reading floor when one shows. Zero backdrop-filter so ADR-0094 §5 holds. */
+@utility studio-card {
+  background-color: color-mix(
+    in srgb,
+    var(--color-surface) var(--backdrop-floor-reading, 100%),
+    transparent
+  );
+  border: 1px solid color-mix(in srgb, var(--color-line-strong) 70%, var(--color-line));
+  box-shadow:
+    inset 0 1px 0 0 var(--color-edge-hi),
+    0 1px 3px 0 var(--color-edge-lo),
+    0 10px 28px -14px var(--color-edge-lo);
+}
+
 /* Chrome planes whose backdrop is always app-owned and static carry no
  * filter: Electron re-filters every backdrop-filter plane on any damaged
  * frame (#511), and blurring a static wash is invisible anyway. Floating

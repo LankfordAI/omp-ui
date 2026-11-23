@@ -7,21 +7,35 @@ import { useStore } from "../store";
 /** Stable empty so the per-field selector doesn't fire on every store tick. */
 const NO_EFFORTS: never[] = [];
 
-/**
- * The options popover's thinking slider (issue #946): one stop per model
- * effort on a track coloured cool → iris → warm. A manual level paints a
- * solid fill and a filled handle; under `auto` the handle sits on the level
- * the turn resolved to, over a dashed fill, and no tick reads pressed (the
- * drifting resolved level is never the user's choice). A drag previews
- * locally and commits once on release — no RPC while the pointer moves.
- */
-export function ThinkingSlider({ tabId, disabled }: { tabId: string; disabled: boolean }) {
-  const t = useT();
-  const efforts = useStore((s) => s.rpc[tabId]?.model?.thinking?.efforts ?? NO_EFFORTS);
-  const thinkingLevel = useStore((s) => s.rpc[tabId]?.session.thinkingLevel ?? null);
-  const thinkingConfigured = useStore((s) => s.rpc[tabId]?.session.thinkingConfigured ?? null);
-  const setThinkingLevel = useStore((s) => s.setThinkingLevel);
+/** Controlled thinking slider props shared by live sessions and Routine drafts. */
+export interface ThinkingSliderControlProps {
+  efforts: readonly string[];
+  /** Currently pinned effort, or null when unset/inherited. */
+  value: string | null;
+  /** True when thinking is set to "auto" (dashed fill & dashed thumb). */
+  auto: boolean;
+  /** Stop index highlighted while auto is active when no live resolved level exists. */
+  autoPreviewIndex?: number;
+  disabled: boolean;
+  onChange: (level: string) => void;
+}
 
+/**
+ * Pure thinking slider control (issue #946, #1278): one stop per model effort
+ * on a track coloured cool → iris → warm. A manual level paints a solid fill
+ * and a filled handle; under `auto` the handle sits on the resolved or preview
+ * stop over a dashed fill, and no tick reads pressed. A drag previews locally
+ * and commits once on release.
+ */
+export function ThinkingSliderControl({
+  efforts,
+  value,
+  auto,
+  autoPreviewIndex,
+  disabled,
+  onChange,
+}: ThinkingSliderControlProps) {
+  const t = useT();
   const trackRef = useRef<HTMLDivElement | null>(null);
   const tickRefs = useRef<Array<HTMLButtonElement | null>>([]);
   // The drag index lives in a ref too: pointerup commits what the last move
@@ -32,9 +46,13 @@ export function ThinkingSlider({ tabId, disabled }: { tabId: string; disabled: b
   const n = efforts.length;
   if (n === 0) return null;
 
-  const auto = thinkingConfigured === "auto";
-  const committed = efforts.indexOf(thinkingLevel ?? "");
-  const index = preview ?? committed;
+  const committed = value === null ? -1 : efforts.indexOf(value);
+  const baseIndex = auto
+    ? committed >= 0
+      ? committed
+      : (autoPreviewIndex ?? Math.max(0, n - 2))
+    : committed;
+  const index = preview ?? baseIndex;
   const position = (i: number): string => (n > 1 ? `${(i / (n - 1)) * 100}%` : "0%");
   const pct = position(index);
   const colour = thinkingLevelColor(index, n);
@@ -42,7 +60,7 @@ export function ThinkingSlider({ tabId, disabled }: { tabId: string; disabled: b
   const commit = (i: number): void => {
     if (i < 0 || i >= n) return;
     if (!auto && i === committed) return;
-    void setThinkingLevel(tabId, efforts[i]!);
+    onChange(efforts[i]!);
   };
 
   const nearest = (x: number): number => {
@@ -193,5 +211,23 @@ export function ThinkingSlider({ tabId, disabled }: { tabId: string; disabled: b
         ))}
       </div>
     </div>
+  );
+}
+
+/** Store-backed thinking slider for the live session composer options popover. */
+export function ThinkingSlider({ tabId, disabled }: { tabId: string; disabled: boolean }) {
+  const efforts = useStore((s) => s.rpc[tabId]?.model?.thinking?.efforts ?? NO_EFFORTS);
+  const thinkingLevel = useStore((s) => s.rpc[tabId]?.session.thinkingLevel ?? null);
+  const thinkingConfigured = useStore((s) => s.rpc[tabId]?.session.thinkingConfigured ?? null);
+  const setThinkingLevel = useStore((s) => s.setThinkingLevel);
+
+  return (
+    <ThinkingSliderControl
+      efforts={efforts}
+      value={thinkingLevel}
+      auto={thinkingConfigured === "auto"}
+      disabled={disabled}
+      onChange={(level) => void setThinkingLevel(tabId, level)}
+    />
   );
 }

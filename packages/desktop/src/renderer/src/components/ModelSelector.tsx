@@ -189,7 +189,7 @@ type ModelPaletteProps = {
    *  null for this app's own sessions. Favorites, the provider-keys link, and
    *  every favorite mutation follow it. */
   instanceId: string | null;
-  models: ModelInfo[];
+  models: readonly ModelInfo[];
   onClose(): void;
   /** The project's pin for this variant (issue #257); omit to hide the footer. */
   projectPin?: string | null;
@@ -221,12 +221,22 @@ type ModelPaletteProps = {
       allowInherit: boolean;
       onPick(selector: string | null): void;
     }
+  | {
+      /** Routine draft model picker (issue #1278): null inherits the destination project's default. */
+      variant: "routine";
+      /** Stored routine model selector ("provider/id"), or null for project default. */
+      current: string | null;
+      /** Subtitle describing what Project default resolves to (e.g. pinned model or "No pinned model"). */
+      defaultHint: string;
+      onPick(selector: string | null): void;
+    }
 );
 
 type ModelPaletteRow =
   | { kind: "configured-advisor" }
   | { kind: "session-model" }
   | { kind: "omp-default" }
+  | { kind: "project-default" }
   | { kind: "model"; model: ModelInfo };
 
 function selectorFor(model: ModelInfo): string {
@@ -329,6 +339,17 @@ export function ModelPalette(props: ModelPaletteProps) {
 
   const isFavoritesTab = tab === "favorites";
   const allowInherit = props.variant === "subagent" && props.allowInherit;
+  const routineDefaultHint = props.variant === "routine" ? props.defaultHint : "";
+  const showRoutineDefault = useMemo(() => {
+    if (props.variant !== "routine") return false;
+    if (query.trim() === "") return true;
+    return (
+      fuzzyBest(query, [
+        { text: t("routines.projectDefault"), weight: 1 },
+        { text: routineDefaultHint, weight: 0.7 },
+      ]) !== null
+    );
+  }, [props.variant, query, routineDefaultHint, t]);
   const rows = useMemo<ModelPaletteRow[]>(() => {
     const modelRows: ModelPaletteRow[] = shown.map((model) => ({ kind: "model", model }));
     if (props.variant === "subagent") {
@@ -338,10 +359,13 @@ export function ModelPalette(props: ModelPaletteProps) {
         : [{ kind: "omp-default" }];
       return [...special, ...modelRows];
     }
+    if (props.variant === "routine") {
+      return showRoutineDefault ? [{ kind: "project-default" }, ...modelRows] : modelRows;
+    }
     return props.variant === "advisor" && !isFavoritesTab
       ? [{ kind: "configured-advisor" }, ...modelRows]
       : modelRows;
-  }, [shown, props.variant, allowInherit, isFavoritesTab]);
+  }, [shown, props.variant, allowInherit, isFavoritesTab, showRoutineDefault]);
 
   const pickRow = (row: ModelPaletteRow) => {
     if (row.kind === "configured-advisor") {
@@ -354,6 +378,10 @@ export function ModelPalette(props: ModelPaletteProps) {
     }
     if (row.kind === "omp-default") {
       if (props.variant === "subagent") props.onPick(null);
+      return;
+    }
+    if (row.kind === "project-default") {
+      if (props.variant === "routine") props.onPick(null);
       return;
     }
     if (props.variant === "main") props.onPick(row.model);
@@ -456,7 +484,7 @@ export function ModelPalette(props: ModelPaletteProps) {
             {shown.length === 0 && tabTotal === 0 && !isFavoritesTab && (
               <p className="px-3 py-3 text-xs text-ink-dim">{t("composer.model.noneForProvider")}</p>
             )}
-            {shown.length === 0 && tabTotal > 0 && (
+            {shown.length === 0 && tabTotal > 0 && !showRoutineDefault && (
               <p className="px-3 py-3 text-xs text-ink-dim">{t("composer.model.noMatch")}</p>
             )}
 
@@ -530,6 +558,33 @@ export function ModelPalette(props: ModelPaletteProps) {
                 );
               }
 
+              if (row.kind === "project-default") {
+                const isCurrent = props.variant === "routine" && props.current === null;
+                return (
+                  <button
+                    key="project-default"
+                    type="button"
+                    ref={index === active ? activeRef : null}
+                    onMouseEnter={() => setActive(index)}
+                    onClick={() => pickRow(row)}
+                    className={cn(
+                      "flex w-full items-center gap-2 px-3 py-1.5 text-left",
+                      index === active ? "bg-hover" : isCurrent ? "bg-raised" : "hover:bg-raised",
+                    )}
+                  >
+                    <span className="grid w-2 shrink-0 place-items-center">
+                      {isCurrent && <Dot tone="signal" title={t("composer.model.inUse")} />}
+                    </span>
+                    <span className="min-w-0 flex-1">
+                      <span className="block truncate text-sm text-ink">{t("routines.projectDefault")}</span>
+                      <span className="block truncate font-mono text-xs text-ink-faint">
+                        {props.variant === "routine" ? props.defaultHint : ""}
+                      </span>
+                    </span>
+                  </button>
+                );
+              }
+
 
               const { model } = row;
               const modelKey = selectorFor(model);
@@ -566,13 +621,13 @@ export function ModelPalette(props: ModelPaletteProps) {
                     </span>
                     <span className="model-palette-chips flex shrink-0 items-center gap-1">
                       {model.reasoning === true && <Chip tone="iris">{t("composer.model.reasoning")}</Chip>}
-                      {props.variant === "main" && model.input?.includes("image") === true && (
+                      {(props.variant === "main" || props.variant === "routine") && model.input?.includes("image") === true && (
                         <Chip tone="signal">{t("composer.model.vision")}</Chip>
                       )}
-                      {props.variant === "main" && window !== null && (
+                      {(props.variant === "main" || props.variant === "routine") && window !== null && (
                         <Chip mono title={t("composer.model.contextWindow", { n: model.contextWindow ?? "" })}>{window}</Chip>
                       )}
-                      {props.variant === "main" && price !== null && (
+                      {(props.variant === "main" || props.variant === "routine") && price !== null && (
                         <Chip mono title={t("composer.model.priceTitle")}>{price}</Chip>
                       )}
                     </span>
@@ -593,7 +648,7 @@ export function ModelPalette(props: ModelPaletteProps) {
           <div
             className={cn(
               "flex flex-wrap items-center gap-x-3 gap-y-0.5 border-t border-line px-3 py-1.5 text-xs text-ink-faint",
-              props.variant !== "main" && "model-palette-kbd",
+              props.variant !== "main" && props.variant !== "routine" && "model-palette-kbd",
             )}
           >
             {/* Round-7 judge, Consistency 3: same bordered-chip key idiom as
@@ -623,7 +678,7 @@ export function ModelPalette(props: ModelPaletteProps) {
               <Chip mono>{formatHotkey("arrowright")}</Chip>
               {t("composer.model.kbdPanes")}
             </span>
-            {props.variant === "main" && (
+            {(props.variant === "main" || props.variant === "routine") && (
               <>
                 <span className="flex-1" />
                 {props.instanceId === null ? (

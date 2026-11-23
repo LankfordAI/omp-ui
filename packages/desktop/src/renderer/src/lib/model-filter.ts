@@ -7,7 +7,7 @@ import type { ModelInfo } from "./rpc-types";
  * but model no longer in availableModels) are silently dropped.
  */
 export function filterModelsForTab(
-  models: ModelInfo[],
+  models: readonly ModelInfo[],
   tab: string,
   favorites: Set<string>,
 ): ModelInfo[] {
