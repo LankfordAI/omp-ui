@@ -1059,10 +1059,42 @@ describe("Settings Experimental page (issues #571 and #739)", () => {
     expect(control.getAttribute("aria-checked")).toBe("true");
   });
 
-  it("adds the Routines switch with no spend inputs while it is off", async () => {
-    seedExperimental();
+  it("no longer renders the switch on the General page", async () => {
+    useStore.setState({
+      settingsPage: "general",
+      state: backendState(),
+      tabs: [],
+      activeTabId: null,
+      appUpdate: appUpdateState({}),
+      ompUpdate: idleOmpUpdate,
+    });
     await renderSettings();
-    const control = document.querySelector<HTMLElement>('[role="switch"][aria-label="Routines (experimental)"]')!;
+    expect(labSwitch()).toBeNull();
+  });
+});
+
+describe("Settings Routines page (#1244)", () => {
+  const seedRoutines = (): void => {
+    useStore.setState({
+      settingsPage: "routines",
+      state: backendState(),
+      tabs: [],
+      activeTabId: null,
+      appUpdate: appUpdateState({}),
+      ompUpdate: idleOmpUpdate,
+    });
+  };
+
+  it("lists Routines in the nav", async () => {
+    seedRoutines();
+    await renderSettings();
+    expect(buttonWithText("Routines")).not.toBeNull();
+  });
+
+  it("adds the Routines switch with no spend inputs while it is off", async () => {
+    seedRoutines();
+    await renderSettings();
+    const control = document.querySelector<HTMLElement>('[role="switch"][aria-label="Routines"]')!;
     expect(control.getAttribute("aria-checked")).toBe("false");
     expect(document.querySelector('input[aria-label="Default routine spend warning (USD)"]')).toBeNull();
     click(control);
@@ -1070,7 +1102,7 @@ describe("Settings Experimental page (issues #571 and #739)", () => {
   });
 
   it("shows the $2 / $5 defaults while on and persists an edited cap", async () => {
-    seedExperimental();
+    seedRoutines();
     act(() => useStore.setState({ state: backendState({ routinesEnabled: true }) }));
     await renderSettings();
     const warn = document.querySelector<HTMLInputElement>('input[aria-label="Default routine spend warning (USD)"]')!;
@@ -1083,19 +1115,6 @@ describe("Settings Experimental page (issues #571 and #739)", () => {
     });
     act(() => max.dispatchEvent(new KeyboardEvent("keydown", { key: "Enter", bubbles: true })));
     expect(backendMock.setRoutineSpendDefaults).toHaveBeenCalledWith({ warnUsd: 2, maxUsd: 7.5 });
-  });
-
-  it("no longer renders the switch on the General page", async () => {
-    useStore.setState({
-      settingsPage: "general",
-      state: backendState(),
-      tabs: [],
-      activeTabId: null,
-      appUpdate: appUpdateState({}),
-      ompUpdate: idleOmpUpdate,
-    });
-    await renderSettings();
-    expect(labSwitch()).toBeNull();
   });
 });
 

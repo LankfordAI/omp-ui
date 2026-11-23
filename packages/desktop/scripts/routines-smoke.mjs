@@ -531,16 +531,16 @@ async function openRoutinesView(cdp) {
   await clickLabel(cdp, "Routines");
   await waitFor(() => cdp.run(DOM.exists, "[data-routines-view]"), 15_000, "Routines view");
 }
-async function settingsExperimental() {
+async function settingsRoutines() {
   await clickLabel(app, "Settings");
-  await click(app, "Experimental");
-  await waitFor(() => app.run(DOM.exists, '[role="switch"][aria-label="Routines (experimental)"]'), 15_000, "Routines switch");
+  await click(app, "Routines", '[aria-labelledby="settings-title"]');
+  await waitFor(() => app.run(DOM.exists, '[role="switch"][aria-label="Routines"]'), 15_000, "Routines switch");
 }
 async function closeSettings() {
   await app.key("Escape", "Escape", 27, 0);
   await waitFor(async () => !(await app.run(DOM.exists, '[aria-labelledby="settings-title"]')), 10_000, "settings closed");
 }
-const switchOn = () => app.run(() => document.querySelector('[role="switch"][aria-label="Routines (experimental)"]')?.getAttribute("aria-checked"));
+const switchOn = () => app.run(() => document.querySelector('[role="switch"][aria-label="Routines"]')?.getAttribute("aria-checked"));
 
 /** Creates a routine through the editor; `cron` drives the Cron capsule. */
 async function createRoutine(cdp, { name, instructions, cron, allow }) {
@@ -588,8 +588,8 @@ const ROWS = [
     "S1",
     "Gate off by default",
     async () => {
-      await settingsExperimental();
-      check("Routines switch is off on Settings → Experimental", (await switchOn()) === "false");
+      await settingsRoutines();
+      check("Routines switch is off on Settings → Routines", (await switchOn()) === "false");
       await closeSettings();
       check("sidebar footer has no Routines button", !(await app.run(DOM.exists, 'aside button[aria-label="Routines"]')));
       check("no Routines view reachable", !(await app.run(DOM.exists, "[data-routines-view]")) && (await routines()).enabled === false);
@@ -601,8 +601,8 @@ const ROWS = [
     "S2",
     "Enable gate, create routine, inspect store & Dry run",
     async () => {
-      await settingsExperimental();
-      await waitFor(() => app.run(DOM.clickButton, { scope: null, text: null, label: "Routines (experimental)" }), 5_000, "toggle switch");
+      await settingsRoutines();
+      await waitFor(() => app.run(DOM.clickButton, { scope: '[aria-labelledby="settings-title"]', text: null, label: "Routines" }), 5_000, "toggle switch");
       await waitFor(async () => (await switchOn()) === "true", 10_000, "switch on");
       await closeSettings();
       check("footer button appears", await waitFor(() => app.run(DOM.exists, 'aside button[aria-label="Routines"]'), 10_000, "footer button"));
@@ -963,8 +963,8 @@ app.whenReady().then(() => {
 
       const historyBefore = (await routines()).runs.map((x) => x.id).sort();
       const aSessions = (await sessionsOf(ctx.routineA.id)).length;
-      await settingsExperimental();
-      await waitFor(() => app.run(DOM.clickButton, { scope: null, text: null, label: "Routines (experimental)" }), 5_000, "toggle off");
+      await settingsRoutines();
+      await waitFor(() => app.run(DOM.clickButton, { scope: '[aria-labelledby="settings-title"]', text: null, label: "Routines" }), 5_000, "toggle off");
       await waitFor(async () => (await switchOn()) === "false", 10_000, "switch off");
       await closeSettings();
       check(
@@ -983,8 +983,8 @@ app.whenReady().then(() => {
       const a3 = await session(ctx.runA3);
       check("does not reap live runs", a3.live === "live" && a3.awaiting, a3.live);
 
-      await settingsExperimental();
-      await waitFor(() => app.run(DOM.clickButton, { scope: null, text: null, label: "Routines (experimental)" }), 5_000, "toggle on");
+      await settingsRoutines();
+      await waitFor(() => app.run(DOM.clickButton, { scope: '[aria-labelledby="settings-title"]', text: null, label: "Routines" }), 5_000, "toggle on");
       await waitFor(async () => (await switchOn()) === "true", 10_000, "switch on");
       await closeSettings();
       const historyAfter = (await routines()).runs.map((x) => x.id).sort();

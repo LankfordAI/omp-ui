@@ -730,6 +730,7 @@ export type SettingsPage =
   | "knowledge-vault"
   | "omp"
   | "council"
+  | "routines"
   | "experimental"
   | "advanced"
   | "about";

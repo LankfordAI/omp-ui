@@ -366,14 +366,14 @@ browser clients use the same host library with static, script-free documents;
 joined-instance libraries are not copied or proxied. Use Artifacts on the
 artifact's owning host.
 
-## Routines (experimental)
+## Routines
 
 A routine runs your own instructions on a schedule: at each fire omp-ui starts
 one fresh background native session in a project on this machine, held to the
 routine's **Tool policy**. omp-ui ships no built-in routines or connectors;
 services reach a routine through omp's own MCP servers and CLIs.
 
-Enable **Routines (experimental)** under **Settings → Experimental**. It is off
+Enable **Routines** under **Settings → Routines**. It is off
 by default. While it is off nothing routine-related shows anywhere; turning it
 off later pauses schedules without stopping a live run or deleting anything.
 
