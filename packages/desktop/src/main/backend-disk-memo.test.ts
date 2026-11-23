@@ -138,18 +138,18 @@ describe("MainBackend disk memo and cached history titles (#1286)", () => {
   let sessionsRoot = "";
   let registryFile = "";
   let backend: MainBackend | null = null;
-  let originalAgentDir: string | undefined;
-
   beforeEach(() => {
-    originalAgentDir = process.env.PI_CODING_AGENT_DIR;
     base = fs.mkdtempSync(path.join(os.tmpdir(), "omp-ui-disk-memo-"));
     agentDir = path.join(base, "agent");
     sessionsRoot = path.join(agentDir, "sessions");
     fs.mkdirSync(sessionsRoot, { recursive: true });
-    process.env.PI_CODING_AGENT_DIR = agentDir;
-    delete process.env.XDG_DATA_HOME;
-    delete process.env.OMP_PROFILE;
-    delete process.env.PI_PROFILE;
+    const ompBin = path.join(base, "omp");
+    fs.writeFileSync(ompBin, "#!/bin/sh\n", { mode: 0o755 });
+    vi.stubEnv("OMP_UI_OMP_PATH", ompBin);
+    vi.stubEnv("PI_CODING_AGENT_DIR", agentDir);
+    vi.stubEnv("XDG_DATA_HOME", "");
+    vi.stubEnv("OMP_PROFILE", "");
+    vi.stubEnv("PI_PROFILE", "");
     registryFile = path.join(base, "registry.json");
 
     handlers.clear();
@@ -179,8 +179,7 @@ describe("MainBackend disk memo and cached history titles (#1286)", () => {
       await backend.killAll();
       backend = null;
     }
-    if (originalAgentDir === undefined) delete process.env.PI_CODING_AGENT_DIR;
-    else process.env.PI_CODING_AGENT_DIR = originalAgentDir;
+    vi.unstubAllEnvs();
     fs.rmSync(base, { recursive: true, force: true });
   });
 
