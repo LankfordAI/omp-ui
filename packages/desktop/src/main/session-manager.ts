@@ -326,11 +326,18 @@ export interface RoutineLifecycleAccess {
   isRoutineTab(tabId: string): boolean;
   inRun(tabId: string): boolean;
   awaitingHumanAnswer(tabId: string): boolean;
+  isViewed(tabId: string): boolean;
   openDialogIds(tabId: string): string[];
   settleSession(tabId: string): Promise<boolean>;
   rpcSend(tabId: string, cmd: RpcFrame): void;
   /** The run's actual working directory (#1283); same expression as terminal cwd. */
   routineRunDirectory(tabId: string): string | null;
+}
+
+/** Frame observer plus resume/view hooks wired from SessionManager to RoutineLifecycleManager (#1305). */
+export interface RoutineLifecycleObserver extends FrameObserver {
+  trackResume?(tabId: string): void;
+  noteViewedChanged?(prevTabId: string | null, nextTabId: string | null): void;
 }
 
 export interface SessionManagerDependencies {
@@ -444,7 +451,7 @@ export interface SessionManagerDependencies {
    * after the dialog gates so it reads the same open-card state. Absent on
    * hosts without Routines (Host Lite, focused tests).
    */
-  routineLifecycle?: (access: RoutineLifecycleAccess) => FrameObserver;
+  routineLifecycle?: (access: RoutineLifecycleAccess) => RoutineLifecycleObserver;
   /** The routine authoring tool's answerer (ADR-0100 amendment); absent = the tool answers as unavailable. */
   routines?: HostBridgeDeps["routines"];
   /** Notifies MainBackend when a watched lineage dir vanishes so it can drop its disk memo (#1286). */
@@ -502,7 +509,7 @@ export class SessionManager {
   /** The open blocking dialogs per tab — the summary's `pendingDialogs` (#555). */
   private readonly dialogGates = new DialogGateTracker();
   /** Routines per-run timers (ADR-0100); null on hosts without Routines. */
-  private readonly routineLifecycle: FrameObserver | null;
+  private readonly routineLifecycle: RoutineLifecycleObserver | null;
   /** Agent project requests waiting on the user's card (#1228, ADR-0099); in memory only. */
   readonly projectRequests: ProjectRequestGate;
   /** The omp collab local-registry watcher for terminal tabs (issue #686). */
@@ -803,6 +810,7 @@ export class SessionManager {
         isRoutineTab: (tabId) => deps.registry.sessions.some((s) => s.tabId === tabId && s.routine !== null),
         inRun: (tabId) => this.turns.isRunning(tabId) || this.awaitingHumanAnswer(tabId),
         awaitingHumanAnswer: (tabId) => this.awaitingHumanAnswer(tabId),
+        isViewed: (tabId) => this.viewTracker.isViewed(tabId),
         openDialogIds: (tabId) =>
           this.dialogGates.openFrames(tabId).flatMap((f) => (typeof f.id === "string" ? [f.id] : [])),
         settleSession: (tabId) => this.settleSession(tabId),
@@ -1450,6 +1458,11 @@ export class SessionManager {
       // on a hash miss); only an exception path can leave it live for the
       // rollback tail to release.
       warmHandoff = null;
+      // A resumed Routine run opened for inspection never triggers agent_end
+      // unless the user replies; arm view-aware self-Settle on spawn (#1305).
+      if (!fresh && record.routine !== null) {
+        this.routineLifecycle?.trackResume?.(record.tabId);
+      }
       // A fleet spawn never consumed a slot (ADR-0061), so it has nothing to
       // refill, and its #956 model choice must not template the pool.
       if (fresh && mode === "rpc-ui" && !record.chat && (req.origin !== "new" || req.fleet === undefined)) {
@@ -3322,8 +3335,9 @@ export class SessionManager {
 
 
   setViewedTab(clientId: string, tabId: string | null): void {
-    this.viewTracker.setViewedTab(clientId, tabId);
+    const prev = this.viewTracker.setViewedTab(clientId, tabId);
     this.browserPanes.noteViewed(clientId, tabId);
+    this.routineLifecycle?.noteViewedChanged?.(prev, tabId);
   }
 
   noteDesktopClientId(clientId: string): void {

@@ -1778,6 +1778,52 @@ describe("Sidebar Routine runs and the Routines button (ADR-0100, issue #1261)",
     act(() => routinesButton.click());
     expect(openRoutines).toHaveBeenCalled();
   });
+
+  it("hides remote routine runs from rows and footer counts, and surfaces remote approval-waiting runs in Needs attention (#1304)", () => {
+    const remoteGroup = {
+      project: { ...state.projects[0]!.project, path: "/projects/remote", name: "omp-ui" },
+      sessions: [
+        {
+          ...state.projects[0]!.sessions[0]!,
+          tabId: "remote-run-working",
+          projectCwd: "/projects/remote",
+          title: "Remote working run",
+          routine,
+          turnRunning: true,
+        },
+        {
+          ...state.projects[0]!.sessions[0]!,
+          tabId: "remote-run-waiting",
+          projectCwd: "/projects/remote",
+          title: "Remote waiting run",
+          routine,
+          awaitingHumanAnswer: true,
+        },
+      ],
+    };
+    useStore.setState({
+      state: backendState({
+        routinesEnabled: true,
+        projects: state.projects,
+        remoteInstances: [
+          remoteInstance({ id: "inst-fw", nickname: "FW-Desktop", status: "joined", projects: [remoteGroup] }),
+        ],
+      }),
+    });
+    renderSidebar();
+    // Working remote routine run does not appear in rows or increment counts.
+    expect(document.body.textContent).not.toContain("Remote working run");
+    expect(footerText()).toContain(`${2} ready`);
+    expect(footerText()).not.toContain(`${1} working`);
+    // Local Routines button badge stays host-local (does not count remote waiting runs).
+    expect(button("Routines").querySelector("[data-routines-waiting]")).toBeNull();
+    // Remote waiting routine run surfaces in Needs attention with machine label and approval copy.
+    const stack = document.body.querySelector('[role="group"]');
+    expect(stack?.textContent).toContain("Remote waiting run");
+    expect(stack?.textContent).toContain("on FW-Desktop");
+    expect(stack?.textContent).toContain("answer needed");
+    expect(stack?.textContent).toContain("Approval required");
+  });
 });
 
 describe("Sidebar store subscription stability (#1286)", () => {

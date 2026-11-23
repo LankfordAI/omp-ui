@@ -56,13 +56,12 @@ function matches(entry: SidebarEntry, q: string): boolean {
 const EMPTY_TAB_IDS: ReadonlySet<string> = new Set();
 
 /**
- * Whether a session is one of this app's own Routine runs (ADR-0100, #1255):
- * attention-only, so it never files into a coding section or the footer live
- * count — it surfaces solely as an Attention stack card. A joined instance's
- * runs are ordinary sessions to this app (#1256): its marker is ignored, and
- * an older host that publishes no `routine` reads as no run.
+ * Whether a session is a Routine run (ADR-0100, #1255, #1304): attention-only
+ * on every host (local or joined remote), so it never files into a coding
+ * section or the footer live/working counts. An older remote host that
+ * publishes no `routine` key reads as no run.
  */
-export function isLocalRoutineRun(s: SessionSummary): boolean {
+export function isRoutineRun(s: SessionSummary): boolean {
   return s.routine != null;
 }
 
@@ -117,7 +116,7 @@ export function buildSidebarLists(
   const localHandoffs = resolveSessionHandoffs(local);
   for (const group of state.projects) {
     for (const session of group.sessions) {
-      if (isLocalRoutineRun(session)) continue;
+      if (isRoutineRun(session)) continue;
       entries.push({
         session,
         instanceId: null,
@@ -130,7 +129,7 @@ export function buildSidebarLists(
     }
   }
   for (const session of state.chats) {
-    if (isLocalRoutineRun(session)) continue;
+    if (isRoutineRun(session)) continue;
     entries.push({
       session,
       instanceId: null,
@@ -148,6 +147,7 @@ export function buildSidebarLists(
     const reachable = instance.status === "joined";
     for (const group of instance.projects) {
       for (const session of group.sessions) {
+        if (isRoutineRun(session)) continue;
         entries.push({
           session,
           instanceId: instance.id,
@@ -238,15 +238,15 @@ export interface AttentionEntry {
 /**
  * The attention stack (issue #1037): every flagged local session whose
  * derived state is still `ready` or `awaiting-answer` — a mark on a session
- * that went back to work (or died) waits for the next unseen reply. A marked
- * Routine run that has settled stays as `ready` until opened (ADR-0100). Entries
- * are built exactly like `buildSidebarLists`' local-instance branch.
- * Remote-instance rows are structurally excluded: no frames flow
- * cross-instance, so a remote row is never marked. The stack is unfiltered by
- * the sidebar search query on purpose — a flagged session surfaces even while
- * the user is filtering or a section is collapsed. `derive` is the caller's
- * `deriveSidebarSessionState`: passed in at the call site so this lib keeps a
- * type-only (never runtime) dependency on the store slice. Newest mark first.
+ * that went back to work (or settled/died) waits for the next unseen reply.
+ * A live Routine run parked on an Approval card (local or on a joined remote
+ * instance) joins as `awaiting-answer` without needing a mark; a finished
+ * Routine run leaves the stack once it self-settles (ADR-0100, #1304, #1305).
+ * The stack is unfiltered by the sidebar search query on purpose — a flagged
+ * session surfaces even while the user is filtering or a section is collapsed.
+ * `derive` is the caller's `deriveSidebarSessionState`: passed in at the call
+ * site so this lib keeps a type-only (never runtime) dependency on the store
+ * slice. Newest mark first.
  */
 export function buildAttentionEntries(
   state: BackendState,
@@ -255,36 +255,41 @@ export function buildAttentionEntries(
 ): AttentionEntry[] {
   const out: AttentionEntry[] = [];
   const dispatch = resolveDispatchLinks(state);
-  const visit = (session: SessionSummary, project: ProjectFace | null): void => {
+  const visit = (
+    session: SessionSummary,
+    project: ProjectFace | null,
+    instanceId: string | null,
+    nickname: string | null,
+  ): void => {
     // A Routine run parked on an Approval card needs a person whether or not
     // this renderer saw the reply that raised it (a client that connected
-    // later holds no mark): it is attention-only, so this card is its one
-    // place in the sidebar (ADR-0100, #1255).
-    const waitingRun = isLocalRoutineRun(session) && session.live === "live" && session.awaitingHumanAnswer === true;
+    // later, or a joined remote host, holds no mark): it is attention-only, so
+    // this card is its one place in the sidebar (ADR-0100, #1255, #1304).
+    const waitingRun = isRoutineRun(session) && session.live === "live" && session.awaitingHumanAnswer === true;
     const mark =
-      unread[session.tabId] ?? (waitingRun ? { atMs: Number.isFinite(openOrderOf(session)) ? openOrderOf(session) : 0, snippet: null } : undefined);
+      (instanceId === null ? unread[session.tabId] : undefined) ??
+      (waitingRun ? { atMs: Number.isFinite(openOrderOf(session)) ? openOrderOf(session) : 0, snippet: null } : undefined);
     if (mark === undefined) return;
     // `derive` answers with the wide state union; a plain inequality guard
     // cannot narrow `string`, so map the two kept states explicitly.
     const derived = derive(session);
-    // A finished Routine run holds its card until opened (#1255 clause 3):
-    // its 60 s self-Settle makes it dormant, and a run no tab ever mounted
-    // derives a bare idle "live" during the grace — either would otherwise
-    // drop the card and leave the unread reply nowhere to be seen.
+    // A live Routine run in its 60 s post-end grace that no tab ever mounted
+    // derives bare idle "live" — keep it as "ready" while live, and drop it as
+    // soon as self-Settle makes it dormant (#1305).
     const kept =
       derived === "ready"
         ? "ready"
         : derived === "awaiting-answer"
           ? "awaiting-answer"
-          : isLocalRoutineRun(session) && (session.live !== "live" || derived === "live")
+          : isRoutineRun(session) && session.live === "live" && derived === "live"
             ? "ready"
             : null;
     if (kept === null) return;
     out.push({
       entry: {
         session,
-        instanceId: null,
-        nickname: null,
+        instanceId,
+        nickname,
         project,
         reachable: true,
         handoff: NO_HANDOFF,
@@ -295,9 +300,24 @@ export function buildAttentionEntries(
     });
   };
   for (const group of state.projects) {
-    for (const session of group.sessions) visit(session, projectFaceFor(state, null, group.project));
+    for (const session of group.sessions) visit(session, projectFaceFor(state, null, group.project), null, null);
   }
-  for (const session of state.chats) visit(session, null);
+  for (const session of state.chats) visit(session, null, null, null);
+  for (const instance of state.remoteInstances) {
+    if (instance.status !== "joined") continue;
+    for (const group of instance.projects) {
+      for (const session of group.sessions) {
+        if (!isRoutineRun(session)) continue;
+        if (session.live !== "live" || session.awaitingHumanAnswer !== true) continue;
+        visit(
+          session,
+          projectFaceFor(state, instance.id, group.project),
+          instance.id,
+          instance.nickname,
+        );
+      }
+    }
+  }
   out.sort((a, b) => b.mark.atMs - a.mark.atMs);
   return out;
 }

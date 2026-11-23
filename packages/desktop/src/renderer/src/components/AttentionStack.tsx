@@ -42,7 +42,7 @@ export function AttentionStack({
         const { session, dispatch } = a.entry;
         return (
           // The dispatch tether (#1226) is the card's sibling, never nested in its button.
-          <div key={session.tabId}>
+          <div key={`${a.entry.instanceId ?? "local"}:${session.tabId}`}>
           <button
             type="button"
             onClick={() => {
@@ -65,7 +65,7 @@ export function AttentionStack({
             <span className="flex min-w-0 flex-col gap-0.5">
               <SessionProjectLine
                 project={a.entry.project}
-                nickname={null}
+                nickname={a.entry.nickname}
                 dispatchedBy={
                   dispatch.parent === null
                     ? null
@@ -84,10 +84,19 @@ export function AttentionStack({
               </span>
               <span className="line-clamp-1 break-words text-xs text-ink-dim">
                 <span className={face.textClass}>{face.label}</span>
-                {" · "}
-                <span className="text-ink-faint">reply</span>
-                {" · "}
-                {a.mark.snippet ?? "The agent posted a new reply."}
+                {a.state === "awaiting-answer" && a.mark.snippet === null ? (
+                  <>
+                    {" · "}
+                    Approval required
+                  </>
+                ) : (
+                  <>
+                    {" · "}
+                    <span className="text-ink-faint">reply</span>
+                    {" · "}
+                    {a.mark.snippet ?? "The agent posted a new reply."}
+                  </>
+                )}
               </span>
             </span>
           </button>

@@ -792,20 +792,18 @@ const ROWS = [
         return s.settledAtMs !== null && s.live === "dormant" ? s : null;
       }, 100_000, "self-Settle after 60 s grace");
       check("after 60 s grace, settledAtMs !== null and process is dormant", settled.settledAtMs !== null && settled.live === "dormant", settled.settledAtMs);
-      // The view's own close returns to the sidebar's Attention stack.
+      // The view's own close returns to the sidebar: once self-Settled, the
+      // routine run has left the Attention stack (#1305).
       await clickLabel(app, "Close Routines");
-      const held = await app.run(DOM.attentionText);
-      check("unread entry stays in Attention stack as ready until opened", held.includes(rec.title) && held.includes("ready"), held);
-      const heldShot = await shot(app, "S5-settled-unread");
+      const afterSettleAttention = await app.run(DOM.attentionText);
+      check("settled routine run has left the Attention stack", !afterSettleAttention.includes(rec.title), afterSettleAttention);
+      const settledShot = await shot(app, "S5-settled-cleared");
       await app.run(DOM.blur);
       await app.key("z", "KeyZ", 90, 2);
       await sleep(4_000);
       const after = await session(ctx.runA1);
       check("Mod+Z does not undo self-Settle", after.settledAtMs === settled.settledAtMs && after.live === "dormant", after);
-      await app.run(DOM.clickAttention, rec.title);
-      await waitFor(async () => !(await app.run(DOM.attentionText)).includes(rec.title), 15_000, "entry clears on open");
-      check("entry clears once opened", true);
-      return heldShot;
+      return settledShot;
     },
   ],
   [

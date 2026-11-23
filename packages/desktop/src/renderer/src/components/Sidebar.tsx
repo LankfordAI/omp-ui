@@ -13,7 +13,7 @@ import {
   resolveDesktopPanelWidths,
   resolveDockedSidebarWidth,
 } from "../lib/panel-layout";
-import { buildAttentionEntries, buildSidebarLists, isLocalRoutineRun, isSessionSettled, type SidebarEntry } from "../lib/sidebar-sessions";
+import { buildAttentionEntries, buildSidebarLists, isRoutineRun, isSessionSettled, type SidebarEntry } from "../lib/sidebar-sessions";
 import { setSettledOpen, useSettledOpen } from "../lib/sidebar-settled";
 import { setSidebarSectionOpen, useSidebarSectionOpen } from "../lib/sidebar-section-open";
 import { supportsSessionMigrate } from "../lib/session-migrate";
@@ -580,14 +580,24 @@ export function Sidebar() {
   const attentionKey = useStore((st) => {
     if (st.state === null) return "";
     const parts: string[] = [];
-    const visit = (s: SessionSummary): void => {
+    const visit = (s: SessionSummary, instanceId: string | null): void => {
       const waitingRun =
-        isLocalRoutineRun(s) && s.live === "live" && s.awaitingHumanAnswer === true;
-      if (st.unread[s.tabId] === undefined && !waitingRun) return;
-      parts.push(`${s.tabId}|${deriveSidebarSessionState(s, st.rpc[s.tabId])}`);
+        isRoutineRun(s) && s.live === "live" && s.awaitingHumanAnswer === true;
+      if ((instanceId !== null || st.unread[s.tabId] === undefined) && !waitingRun) return;
+      parts.push(`${instanceId ?? "local"}:${s.tabId}|${deriveSidebarSessionState(s, st.rpc[s.tabId])}`);
     };
-    for (const g of st.state.projects) for (const s of g.sessions) visit(s);
-    for (const s of st.state.chats) visit(s);
+    for (const g of st.state.projects) for (const s of g.sessions) visit(s, null);
+    for (const s of st.state.chats) visit(s, null);
+    for (const instance of st.state.remoteInstances) {
+      if (instance.status !== "joined") continue;
+      for (const g of instance.projects) {
+        for (const s of g.sessions) {
+          if (!isRoutineRun(s)) continue;
+          if (s.live !== "live" || s.awaitingHumanAnswer !== true) continue;
+          visit(s, instance.id);
+        }
+      }
+    }
     return parts.join(";");
   });
   const attention = useMemo(
@@ -714,8 +724,8 @@ export function Sidebar() {
   // (ignoring the search, like the count always did): working mirrors the
   // Working section's placement rule — in-flight work, not blocked on the
   // user, not pinned, not parked in Snoozed — everything else is ready.
-  // Routine runs (ADR-0100) are attention-only: this app's own never count
-  // as live coding sessions; they feed the Routines button's waiting chip.
+  // Routine runs (ADR-0100, #1304) are attention-only on every host: they
+  // never count as live coding sessions; local ones feed the Routines chip.
   const { totalLive, workingLive, routinesWaiting } = useMemo(() => {
     let live = 0;
     let working = 0;
@@ -725,8 +735,8 @@ export function Sidebar() {
       const count = (sessions: readonly SessionSummary[], local: boolean) => {
         for (const s of sessions) {
           if (s.live !== "live") continue;
-          if (local && isLocalRoutineRun(s)) {
-            if (s.awaitingHumanAnswer === true) waiting += 1;
+          if (isRoutineRun(s)) {
+            if (local && s.awaitingHumanAnswer === true) waiting += 1;
             continue;
           }
           live += 1;
