@@ -263,6 +263,7 @@ import {
   routinePatchCodec,
   routineDryRunRequestCodec,
   routineSpendDefaultsCodec,
+  routineTestScriptRequestCodec,
 } from "./backend-arg-codecs";
 import type { SpillReadResult } from "./spill";
 import type { HeldPromptPayload, HeldPromptRequest } from "./held-prompt";
@@ -276,6 +277,8 @@ import type {
   RoutinePatch,
   RoutineRecord,
   RoutineSpendDefaultsInput,
+  RoutineTestScriptRequest,
+  RoutineTestScriptResult,
   RoutinesState,
 } from "./routine";
 import type { ThemeMode } from "./theme";
@@ -2361,6 +2364,11 @@ export const BACKEND_CHANNELS = {
   removeRoutine: { channel: "routines:remove", ...request<[id: string], { releasedSessions: number }>([str()]) },
   /** Fires once without advancing the schedule; refuses inline when another routine is turning. */
   runRoutineNow: { channel: "routines:runNow", ...request<[id: string], { tabId: string; runId: string }>([str()]) },
+  /** Attended editor action (#1283): runs one hook command on demand, tails capped, nothing persisted. */
+  testRoutineScript: {
+    channel: "routines:testScript",
+    ...request<[input: RoutineTestScriptRequest], RoutineTestScriptResult>([routineTestScriptRequestCodec]),
+  },
   /** The fire-time compiler over the live catalog; zero writes, zero spawns. */
   dryRunRoutine: {
     channel: "routines:dryRun",

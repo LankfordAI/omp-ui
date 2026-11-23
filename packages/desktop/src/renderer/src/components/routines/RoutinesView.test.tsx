@@ -45,6 +45,7 @@ function routine(patch: Partial<RoutineRecord> = {}): RoutineRecord {
     spend: { warnUsd: null, maxUsd: null },
     // gmail_send was not in the catalog the user reviewed: drift.
     toolPolicy: { allow: ["read", "mcp__gmail_list"], deny: [], lastReviewedAt: "2026-11-01T00:00:00.000Z", reviewedCatalog: ["read", "bash", "mcp__gmail_list"] },
+    scripts: { pre: "", post: "" },
     enabled: true,
     createdAt: "2026-11-01T00:00:00.000Z",
     nextRunAtMs: Date.UTC(2026, 10, 23, 8),
@@ -217,6 +218,7 @@ describe("RoutinesView (ADR-0100, issue #1261)", () => {
       maxCostUsd: 5,
       staleServers: [],
       enumerationError: null,
+      scripts: { pre: "", post: "" },
     };
     dryRunRoutine.mockResolvedValueOnce(result);
     render();
@@ -304,6 +306,7 @@ describe("RoutinesView (ADR-0100, issue #1261)", () => {
       maxCostUsd: 5,
       staleServers: [],
       enumerationError: null,
+      scripts: { pre: "", post: "" },
     };
     dryRunRoutine.mockResolvedValueOnce(result);
     render();

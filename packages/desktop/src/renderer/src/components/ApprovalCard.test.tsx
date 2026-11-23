@@ -338,6 +338,7 @@ describe("ApprovalCard on a Routine run (ADR-0100, issue #1261)", () => {
               lastReviewedAt: "2026-11-22T12:00:00.000Z",
               reviewedCatalog: ["read", "bash"],
             },
+            scripts: { pre: "", post: "" },
             createdAt: "2026-11-01T00:00:00.000Z",
             nextRunAtMs: null,
             lastRunAtMs: null,

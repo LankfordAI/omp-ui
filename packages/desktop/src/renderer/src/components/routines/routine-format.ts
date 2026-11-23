@@ -5,7 +5,7 @@ import {
   presetCron,
   type PromptSchedule,
 } from "@omp-ui/core/scheduled-prompt";
-import type { RoutineRunOutcome, RoutineRunReasonCode, RoutineRunRow } from "@omp-ui/core/routine";
+import type { RoutinePostScriptStatus, RoutineRunOutcome, RoutineRunReasonCode, RoutineRunRow } from "@omp-ui/core/routine";
 import { localeTag, t, type MessageKey } from "../../lib/i18n";
 import { formatSnoozeUntil } from "../../lib/snooze-until";
 import type { Tone } from "../ui";
@@ -103,6 +103,22 @@ export const REASON_LABEL: Record<RoutineRunReasonCode, MessageKey> = {
   "project-missing": "routines.reason.projectMissing",
   interrupted: "routines.reason.interrupted",
   error: "routines.reason.error",
+  "pre-script": "routines.reason.preScript",
+  "pre-script-skip": "routines.reason.preScriptSkip",
+};
+
+export const POST_SCRIPT_LABEL: Record<RoutinePostScriptStatus, MessageKey> = {
+  ok: "routines.postScript.ok",
+  failed: "routines.postScript.failed",
+  timeout: "routines.postScript.timeout",
+  interrupted: "routines.postScript.interrupted",
+};
+
+export const POST_SCRIPT_TONE: Record<RoutinePostScriptStatus, Tone> = {
+  ok: "signal",
+  failed: "rose",
+  timeout: "rose",
+  interrupted: "copper",
 };
 
 /** A routine's runs, newest fire first. */

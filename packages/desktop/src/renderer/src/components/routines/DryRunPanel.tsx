@@ -68,6 +68,19 @@ export function DryRunPanel({
           {warning}
         </p>
       ))}
+      {(["pre", "post"] as const).map((phase) => {
+        // Render each phase independently: one guard for both would hide a
+        // post-only routine's hook (#1283).
+        const command = phase === "pre" ? result.scripts.pre : result.scripts.post;
+        if (command === "") return null;
+        return (
+          <div key={phase} data-dry-run-hook={phase} className="rounded-lg border border-copper-dim bg-copper-wash/40 px-2.5 py-2">
+            <p className="text-copper">{t(`routines.hooks.${phase}Label`)}</p>
+            <pre className="mt-1 overflow-auto font-mono text-[11px] leading-relaxed text-ink-mid">{command}</pre>
+            <p className="mt-1 text-[11px] text-ink-faint">{t("routines.hooks.dryRunNote")}</p>
+          </div>
+        );
+      })}
     </div>
   );
 }

@@ -11,6 +11,8 @@ import type {
   RoutineInput,
   RoutinePatch,
   RoutineRecord,
+  RoutineTestScriptRequest,
+  RoutineTestScriptResult,
   RoutinesState,
 } from "@omp-ui/core/routine";
 import { backend } from "../../backend";
@@ -38,6 +40,8 @@ export interface RoutinesSlice {
   /** Rejects with main's inline refusal (busy lane, gate off) verbatim. */
   runRoutineNow(id: string): Promise<{ tabId: string; runId: string }>;
   dryRunRoutine(req: RoutineDryRunRequest): Promise<RoutineDryRunResult>;
+  /** Attended "Test script" editor action (#1283); nothing is persisted. */
+  testRoutineScript(input: RoutineTestScriptRequest): Promise<RoutineTestScriptResult>;
   loadRoutineToolCatalog(projectCwd: string): Promise<RoutineCatalogSnapshot>;
   /** Appends one tool key to the routine's allow list; refuses a routine the
    *  host no longer has. Used by the ApprovalCard's Always allow (#1276). */
@@ -85,6 +89,7 @@ export function createRoutinesSlice(set: SetState, get: GetState): RoutinesSlice
     removeRoutine: (id) => backend.removeRoutine(id),
     runRoutineNow: (id) => backend.runRoutineNow(id),
     dryRunRoutine: (req) => backend.dryRunRoutine(req),
+    testRoutineScript: (input) => backend.testRoutineScript(input),
     loadRoutineToolCatalog: (projectCwd) => backend.listRoutineToolCatalog(projectCwd),
     async grantRoutineTool(routineId, toolKey) {
       // The renderer only holds a routines:state snapshot when the Routines

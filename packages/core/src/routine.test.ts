@@ -5,6 +5,7 @@ import { afterEach, describe, expect, it } from "vitest";
 import {
   ROUTINE_INSTRUCTIONS_MAX,
   ROUTINE_NAME_MAX,
+  ROUTINE_SCRIPT_MAX,
   isRoutineRecord,
   isRoutineRunRow,
   isSessionRoutine,
@@ -12,6 +13,7 @@ import {
   parseRoutineFocusUri,
   parseRoutineInput,
   parseRoutinePatch,
+  parseRoutineTestScriptRequest,
   routineFocusUri,
   routineInputFromAgentCreate,
   routinePrompt,
@@ -44,6 +46,7 @@ function sampleInput(): RoutineInput {
       lastReviewedAt: "2026-11-20T12:00:00.000Z",
       reviewedCatalog: ["read", "grep", "bash"],
     },
+    scripts: { pre: "", post: "" },
     enabled: true,
   };
 }
@@ -158,6 +161,100 @@ describe("parseRoutineInput & parseRoutinePatch (U1)", () => {
     const patch = parseRoutinePatch({ enabled: false, schedule: { kind: "cron", expr: "@hourly" } });
     expect(patch).toEqual({ enabled: false, schedule: { kind: "cron", expr: "0 * * * *" } });
     expect(() => parseRoutinePatch({ unknownKey: true })).toThrow(/unknown/);
+  });
+});
+
+describe("scripts hooks (#1283)", () => {
+  it("defaults an omitted scripts key and accepts multi-line hooks with tabs", () => {
+    const legacy = { ...sampleInput() } as Partial<RoutineInput>;
+    delete legacy.scripts;
+    expect(parseRoutineInput(legacy).scripts).toEqual({ pre: "", post: "" });
+
+    const hook = "set -eu\n\tcd \"${OMP_UI_ROUTINE_RUN_CWD}\" && npm test";
+    const parsed = parseRoutineInput({ ...sampleInput(), scripts: { pre: "", post: hook } });
+    expect(parsed.scripts.post).toBe(hook);
+  });
+
+  it("caps length, rejects control chars other than tab/LF, and rejects malformed shapes", () => {
+    expect(() =>
+      parseRoutineInput({ ...sampleInput(), scripts: { pre: "x".repeat(ROUTINE_SCRIPT_MAX + 1), post: "" } }),
+    ).toThrow(/pre exceeds/);
+    expect(() => parseRoutineInput({ ...sampleInput(), scripts: { pre: "echo\rhi", post: "" } })).toThrow(
+      /control characters/,
+    );
+    expect(() => parseRoutineInput({ ...sampleInput(), scripts: { pre: "echo\u0007hi", post: "" } })).toThrow(
+      /control characters/,
+    );
+    expect(() => parseRoutineInput({ ...sampleInput(), scripts: null })).toThrow(/scripts must be an object/);
+    expect(() => parseRoutineInput({ ...sampleInput(), scripts: { pre: 1, post: "" } })).toThrow(
+      /scripts\.pre must be a string/,
+    );
+    expect(() => parseRoutineInput({ ...sampleInput(), scripts: { pre: "", extra: "x" } })).toThrow(
+      /unknown scripts field/,
+    );
+  });
+
+  it("validates scripts in patches and rejects non-string phases", () => {
+    expect(parseRoutinePatch({ scripts: { pre: "", post: "echo done" } }).scripts).toEqual({
+      pre: "",
+      post: "echo done",
+    });
+    expect(() => parseRoutinePatch({ scripts: { pre: null, post: "" } })).toThrow(/must be a string/);
+  });
+
+  it("rejects malformed scripts on a stored record but tolerates absence", () => {
+    expect(isRoutineRecord(sampleRecord())).toBe(true);
+    expect(isRoutineRecord({ ...sampleRecord(), scripts: null })).toBe(false);
+    expect(isRoutineRecord({ ...sampleRecord(), scripts: { pre: null, post: "" } })).toBe(false);
+    const legacy = { ...sampleRecord() } as Partial<RoutineRecord>;
+    delete legacy.scripts;
+    expect(isRoutineRecord(legacy)).toBe(true);
+  });
+
+  it("keeps scripts out of the agent tool and empty in its output", () => {
+    const agentArgs = {
+      name: "Nightly",
+      instructions: "x",
+      schedule: { kind: "cron", expr: "@daily" } as const,
+      timeZone: "UTC",
+      projectCwd: "/repo",
+      mode: "build" as const,
+      model: null,
+      thinkingLevel: null,
+      allow: ["read"],
+      warnUsd: null,
+      maxUsd: null,
+    };
+    expect(() => parseRoutineAgentCreateArgs({ ...agentArgs, scripts: { pre: "curl evil", post: "" } })).toThrow(
+      /unknown/,
+    );
+    expect(routineInputFromAgentCreate(agentArgs, "2026-11-22T00:00:00.000Z").scripts).toEqual({
+      pre: "",
+      post: "",
+    });
+  });
+
+  it("accepts new reason codes and postScript statuses on rows, rejects bogus ones", () => {
+    expect(isRoutineRunRow(sampleRunRow({ reasonCode: "pre-script" }))).toBe(true);
+    expect(isRoutineRunRow(sampleRunRow({ reasonCode: "pre-script-skip" }))).toBe(true);
+    expect(isRoutineRunRow(sampleRunRow({ postScript: "ok" }))).toBe(true);
+    expect(isRoutineRunRow(sampleRunRow({ postScript: "timeout" }))).toBe(true);
+    expect(isRoutineRunRow({ ...sampleRunRow(), postScript: "ran fine" })).toBe(false);
+    expect(isRoutineRunRow({ ...sampleRunRow(), postScript: null })).toBe(false);
+  });
+});
+
+describe("parseRoutineTestScriptRequest (#1283)", () => {
+  it("accepts a well-formed request and rejects blanks, control chars, unknown keys, missing path", () => {
+    expect(parseRoutineTestScriptRequest({ projectCwd: "/repo", command: "echo hello" })).toEqual({
+      projectCwd: "/repo",
+      command: "echo hello",
+    });
+    expect(() => parseRoutineTestScriptRequest({ projectCwd: "/repo", command: "   " })).toThrow(/nothing to test/);
+    expect(() => parseRoutineTestScriptRequest({ projectCwd: "/repo", command: "echo\u0007" })).toThrow(/control/);
+    expect(() => parseRoutineTestScriptRequest({ projectCwd: "/repo", command: "true", stray: 1 })).toThrow(/unknown/);
+    expect(() => parseRoutineTestScriptRequest({ command: "true" })).toThrow(/projectCwd/);
+    expect(() => parseRoutineTestScriptRequest({ projectCwd: "", command: "true" })).toThrow(/projectCwd/);
   });
 });
 

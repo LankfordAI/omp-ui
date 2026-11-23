@@ -15,6 +15,21 @@ import {
 import { RoutineLifecycleManager } from "./routine-lifecycle";
 import { ROUTINES_DISABLED_ERROR } from "./routine-scheduler";
 import { RoutineService } from "./routine-service";
+import { cancelAllRoutineScripts, runRoutineScript } from "./routine-scripts";
+
+vi.mock("./routine-scripts", () => ({
+  ROUTINE_SCRIPT_ENV_PREFIX: "OMP_UI_ROUTINE_",
+  ROUTINE_TEST_OUTPUT_CAP: 16_384,
+  cancelAllRoutineScripts: vi.fn(),
+  runRoutineScript: vi.fn(async () => ({ kind: "ok" as const })),
+  runRoutineScriptForTest: vi.fn(async () => ({
+    kind: "ok" as const,
+    timedOut: false,
+    exitCode: 0,
+    stdout: "hello\n",
+    stderr: "",
+  })),
+}));
 
 const T0 = Date.parse("2026-11-22T07:30:00.000Z");
 const DAY = 24 * 60 * 60 * 1000;
@@ -41,6 +56,7 @@ function input(overrides: Partial<RoutineInput> = {}): RoutineInput {
     thinkingLevel: null,
     spend: { warnUsd: null, maxUsd: null },
     toolPolicy: { allow: ["read"], deny: [], lastReviewedAt: "2026-01-01T00:00:00.000Z", reviewedCatalog: [] },
+    scripts: { pre: "", post: "" },
     enabled: true,
     ...overrides,
   };
@@ -77,6 +93,8 @@ function harness() {
     openDialogIds: () => [],
     settleSession,
     rpcSend: () => {},
+    runScript: async () => ({ kind: "failed", timedOut: false, exitCode: null }),
+    runDirectory: () => "/work/run-dir",
     publish: () => {},
   });
   const service = new RoutineService({

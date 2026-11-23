@@ -194,6 +194,7 @@ describe("routines channels (ADR-0100, U13)", () => {
       "routines:remove",
       "routines:runNow",
       "routines:state",
+      "routines:testScript",
       "routines:toolCatalog",
       "routines:update",
       "settings:setRoutineSpendDefaults",

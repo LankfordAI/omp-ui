@@ -330,6 +330,8 @@ export interface RoutineLifecycleAccess {
   openDialogIds(tabId: string): string[];
   settleSession(tabId: string): Promise<boolean>;
   rpcSend(tabId: string, cmd: RpcFrame): void;
+  /** The run's actual working directory (#1283); same expression as terminal cwd. */
+  routineRunDirectory(tabId: string): string | null;
 }
 
 export interface SessionManagerDependencies {
@@ -804,6 +806,12 @@ export class SessionManager {
           this.dialogGates.openFrames(tabId).flatMap((f) => (typeof f.id === "string" ? [f.id] : [])),
         settleSession: (tabId) => this.settleSession(tabId),
         rpcSend: (tabId, cmd) => this.rpcSend(tabId, cmd),
+        // Same expression the terminal cwd uses (#695, #1673); read exactly once
+        // inside trackStart and pinned on RunState (#1283).
+        routineRunDirectory: (tabId) => {
+          const s = deps.registry.sessions.find((x) => x.tabId === tabId);
+          return s === undefined ? null : s.worktree?.path ?? s.projectCwd;
+        },
       }) ?? null;
     // Last: it reads the turn latch and answer gates the observers above settle.
     this.frameObservers = [

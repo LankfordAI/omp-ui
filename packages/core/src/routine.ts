@@ -24,6 +24,9 @@ export const ROUTINE_RUN_SETTLE_GRACE_MS = 60_000; // 60 seconds
 export const ROUTINE_APPROVAL_TIMEOUT_MS = 24 * 60 * 60 * 1000; // 24 hours
 export const ROUTINE_RUN_RETENTION_DAYS = 30;
 export const ROUTINE_RUN_RETENTION_MS = ROUTINE_RUN_RETENTION_DAYS * 24 * 60 * 60 * 1000;
+export const ROUTINE_SCRIPT_MAX = 8_000; // UTF-16 units per hook (#1283)
+export const ROUTINE_SCRIPT_TIMEOUT_MS = 60_000; // both phases, desktop enforces
+export const ROUTINE_SCRIPT_SKIP_EXIT_CODE = 78; // EX_CONFIG: pre says "nothing to do"
 
 export const ROUTINE_DEFAULT_ALLOW_BUILTINS = [
   "read",
@@ -73,7 +76,18 @@ export type RoutineRunReasonCode =
   | "dispatch-failed"
   | "project-missing"
   | "interrupted"
-  | "error";
+  | "error"
+  | "pre-script"
+  | "pre-script-skip";
+
+/** Optional shell hooks run before/after every Routine run (#1283). "" disables the phase. */
+export interface RoutineScripts {
+  pre: string;
+  post: string;
+}
+
+/** Fixed status column recorded by the post-run hook; never free text (#1254). */
+export type RoutinePostScriptStatus = "ok" | "failed" | "timeout" | "interrupted";
 
 export interface RoutineDestination {
   /** Registered local project path only. No machineKey; Chat is rejected (#1251). */
@@ -110,6 +124,8 @@ export interface RoutineRecord {
   thinkingLevel: string | null;
   spend: RoutineSpendOverride;
   toolPolicy: RoutineToolPolicy;
+  /** Optional pre/post run hooks (#1283); "" per phase disables it. */
+  scripts: RoutineScripts;
   enabled: boolean;
   createdAt: string;
   nextRunAtMs: number | null;
@@ -130,6 +146,8 @@ export interface RoutineInput {
   thinkingLevel: string | null;
   spend: RoutineSpendOverride;
   toolPolicy: RoutineToolPolicy;
+  /** Required on the TS type; the wire parser defaults an omitted key so old clients keep working (#1283). */
+  scripts: RoutineScripts;
   enabled: boolean;
 }
 
@@ -144,6 +162,7 @@ export interface RoutinePatch {
   thinkingLevel?: string | null;
   spend?: RoutineSpendOverride;
   toolPolicy?: RoutineToolPolicy;
+  scripts?: RoutineScripts;
   enabled?: boolean;
 }
 
@@ -179,6 +198,8 @@ export interface RoutineRunRow {
   pruned: boolean;
   /** Stale-server warning flag if catalog fell back to last-known inventory at fire. */
   staleCatalog: boolean;
+  /** Fixed post-run hook status (#1283); absent = "no post status recorded". */
+  postScript?: RoutinePostScriptStatus;
 }
 
 export interface RoutineCatalogTool {
@@ -284,6 +305,7 @@ export function routineInputFromAgentCreate(args: RoutineAgentCreateArgs, nowIso
     thinkingLevel: args.thinkingLevel,
     spend: { warnUsd: args.warnUsd, maxUsd: args.maxUsd },
     toolPolicy: { allow: args.allow, deny: [], lastReviewedAt: nowIso, reviewedCatalog: [] },
+    scripts: { pre: "", post: "" },
     enabled: false,
   };
 }
@@ -347,6 +369,22 @@ export interface RoutineDryRunResult {
   maxCostUsd: number;
   staleServers: string[];
   enumerationError: string | null;
+  /** Hooks listed verbatim; Dry run never runs them (#1283). */
+  scripts: RoutineScripts;
+}
+
+/** Attended "Test script" editor action (#1283); never persisted, never proxied remotely. */
+export interface RoutineTestScriptRequest {
+  projectCwd: string;
+  command: string;
+}
+
+export interface RoutineTestScriptResult {
+  kind: "ok" | "skip" | "failed";
+  timedOut: boolean;
+  exitCode: number | null;
+  stdout: string;
+  stderr: string;
 }
 
 /* ---------------------------------------------------------- YAML serializer */
@@ -544,6 +582,39 @@ function hasControlChar(text: string): boolean {
   return false;
 }
 
+/** Multi-line hooks are the point: permits tab and LF only (#1283). */
+function hasUnsafeControlChar(text: string): boolean {
+  for (let i = 0; i < text.length; i++) {
+    const code = text.charCodeAt(i);
+    if (code <= 0x1f && code !== 0x09 && code !== 0x0a) return true;
+    if (code === 0x7f) return true;
+  }
+  return false;
+}
+
+const SCRIPT_KEYS = new Set(["pre", "post"]);
+
+/** Absent means "no hooks". A present value must be well-formed: never coerce. */
+function parseScripts(value: unknown): RoutineScripts {
+  if (value === undefined) return { pre: "", post: "" };
+  if (!isPlainObject(value)) throw new Error("scripts must be an object");
+  assertAllowedKeys(value, SCRIPT_KEYS, "scripts");
+  const out: RoutineScripts = { pre: "", post: "" };
+  for (const phase of ["pre", "post"] as const) {
+    const raw = value[phase];
+    if (raw === undefined) continue;
+    if (typeof raw !== "string") throw new Error(`scripts.${phase} must be a string`);
+    if (raw.length > ROUTINE_SCRIPT_MAX) {
+      throw new Error(`scripts.${phase} exceeds ${ROUTINE_SCRIPT_MAX} characters`);
+    }
+    if (hasUnsafeControlChar(raw)) {
+      throw new Error(`scripts.${phase} cannot contain control characters`);
+    }
+    out[phase] = raw;
+  }
+  return out;
+}
+
 const ROUTINE_INPUT_KEYS = new Set([
   "name",
   "instructions",
@@ -555,6 +626,7 @@ const ROUTINE_INPUT_KEYS = new Set([
   "thinkingLevel",
   "spend",
   "toolPolicy",
+  "scripts",
   "enabled",
 ]);
 
@@ -582,7 +654,10 @@ const ROUTINE_REASON_CODES = new Set<RoutineRunReasonCode>([
   "project-missing",
   "interrupted",
   "error",
+  "pre-script",
+  "pre-script-skip",
 ]);
+const POST_SCRIPT_STATUSES = new Set<RoutinePostScriptStatus>(["ok", "failed", "timeout", "interrupted"]);
 const TOOL_DECISIONS = new Set<RoutineToolDecision>(["allow", "prompt", "deny"]);
 
 function isPlainObject(value: unknown): value is Record<string, unknown> {
@@ -741,6 +816,7 @@ export function parseRoutineInput(raw: unknown): RoutineInput {
     thinkingLevel: parseNullableString(raw.thinkingLevel, "thinkingLevel"),
     spend: parseSpend(raw.spend),
     toolPolicy: parseToolPolicy(raw.toolPolicy),
+    scripts: parseScripts(raw.scripts),
     enabled,
   };
 }
@@ -760,6 +836,7 @@ export function parseRoutinePatch(raw: unknown): RoutinePatch {
   if ("thinkingLevel" in raw) out.thinkingLevel = parseNullableString(raw.thinkingLevel, "thinkingLevel");
   if ("spend" in raw) out.spend = parseSpend(raw.spend);
   if ("toolPolicy" in raw) out.toolPolicy = parseToolPolicy(raw.toolPolicy);
+  if ("scripts" in raw) out.scripts = parseScripts(raw.scripts);
   if ("enabled" in raw) {
     if (typeof raw.enabled !== "boolean") throw new Error("enabled must be a boolean");
     out.enabled = raw.enabled;
@@ -797,6 +874,25 @@ export function parseRoutineSpendDefaults(raw: unknown): RoutineSpendDefaultsInp
   return { warnUsd: raw.warnUsd, maxUsd: raw.maxUsd };
 }
 
+/** Validates the attended Test-script action off the wire (#1283). */
+export function parseRoutineTestScriptRequest(raw: unknown): RoutineTestScriptRequest {
+  if (!isPlainObject(raw)) throw new Error("routine script test request must be an object");
+  assertAllowedKeys(raw, new Set(["projectCwd", "command"]), "routine script test request");
+  if (typeof raw.projectCwd !== "string" || raw.projectCwd.trim() === "" || hasControlChar(raw.projectCwd)) {
+    throw new Error("projectCwd must be a non-empty path");
+  }
+  if (typeof raw.command !== "string") throw new Error("command must be a string");
+  if (raw.command.length > ROUTINE_SCRIPT_MAX) {
+    throw new Error(`command exceeds ${ROUTINE_SCRIPT_MAX} characters`);
+  }
+  if (hasUnsafeControlChar(raw.command)) {
+    throw new Error("command cannot contain control characters");
+  }
+  // parseScripts accepts a blank hook (clearing it is valid); testing one is not.
+  if (raw.command.trim() === "") throw new Error("nothing to test");
+  return { projectCwd: raw.projectCwd, command: raw.command };
+}
+
 function isNotice(value: unknown): value is ScheduledPromptNotice {
   if (!isPlainObject(value)) return false;
   if (value.kind !== "skipped" && value.kind !== "late" && value.kind !== "failed") return false;
@@ -821,6 +917,7 @@ const ROUTINE_RECORD_KEYS = new Set([
   "thinkingLevel",
   "spend",
   "toolPolicy",
+  "scripts",
   "enabled",
   "createdAt",
   "nextRunAtMs",
@@ -860,6 +957,9 @@ export function isRoutineRecord(raw: unknown): raw is RoutineRecord {
     parseNullableString(raw.thinkingLevel, "thinkingLevel");
     parseSpend(raw.spend);
     parseToolPolicy(raw.toolPolicy);
+    // Absent stays valid (legacy record; §4.4 owns the load default);
+    // present-but-malformed rejects the whole record — never half-repair.
+    if (raw.scripts !== undefined) parseScripts(raw.scripts);
   } catch {
     return false;
   }
@@ -879,6 +979,7 @@ const ROUTINE_RUN_ROW_KEYS = new Set([
   "missed",
   "pruned",
   "staleCatalog",
+  "postScript",
 ]);
 
 export function isRoutineRunRow(raw: unknown): raw is RoutineRunRow {
@@ -905,6 +1006,12 @@ export function isRoutineRunRow(raw: unknown): raw is RoutineRunRow {
   if (typeof raw.missed !== "number" || !Number.isInteger(raw.missed) || raw.missed < 0) return false;
   if (typeof raw.pruned !== "boolean") return false;
   if (typeof raw.staleCatalog !== "boolean") return false;
+  if (
+    raw.postScript !== undefined &&
+    (typeof raw.postScript !== "string" || !POST_SCRIPT_STATUSES.has(raw.postScript as RoutinePostScriptStatus))
+  ) {
+    return false;
+  }
   return true;
 }
 

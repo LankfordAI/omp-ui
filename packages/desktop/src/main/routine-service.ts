@@ -16,6 +16,8 @@ import {
   type RoutinesDiagnostics,
   type RoutinesState,
   type RoutineStore,
+  type RoutineTestScriptRequest,
+  type RoutineTestScriptResult,
   type RoutineToolPolicy,
   type SessionRoutine,
 } from "@omp-ui/core";
@@ -23,13 +25,17 @@ import type { RoutineCatalogService } from "./routine-catalog";
 import type { RoutineLifecycleManager } from "./routine-lifecycle";
 import { RoutineRetention } from "./routine-retention";
 import { ROUTINES_DISABLED_ERROR, RoutineScheduler } from "./routine-scheduler";
+import { cancelAllRoutineScripts, runRoutineScript, runRoutineScriptForTest } from "./routine-scripts";
 
 export interface RoutineServiceDeps {
   store: RoutineStore;
   history: RoutineRunHistory;
   catalog: Pick<RoutineCatalogService, "list">;
   /** The per-run timer owner registered in SessionManager's frame observers. */
-  lifecycle: Pick<RoutineLifecycleManager, "trackStart" | "parkAll" | "resumeAll" | "waitingApprovalCount">;
+  lifecycle: Pick<
+    RoutineLifecycleManager,
+    "trackStart" | "parkAll" | "resumeAll" | "waitingApprovalCount" | "postRunning"
+  >;
   /** The `routinesEnabled` registry setting. */
   isEnabled: () => boolean;
   defaultWarnCostUsd: () => number;
@@ -99,8 +105,19 @@ export class RoutineService {
       awaitingHumanAnswer: deps.awaitingHumanAnswer,
       listCatalog: (cwd, opts) => deps.catalog.list(cwd, opts),
       dispatch: deps.dispatch,
-      onRunStarted: (tabId, _routineId, runRowId, trigger, firedAtMs) =>
-        deps.lifecycle.trackStart(tabId, runRowId, trigger, firedAtMs),
+      runScript: (command, cwd, env) => runRoutineScript(command, cwd, env),
+      postRunning: (tabId) => deps.lifecycle.postRunning(tabId),
+      onRunStarted: (tabId, routineId, runRowId, trigger, firedAtMs) => {
+        // Fire-time pin: the scheduler still holds the fire-time record, so a
+        // mid-run edit or delete can neither change nor skip an in-flight post.
+        const routine = deps.store.get(routineId);
+        deps.lifecycle.trackStart(tabId, runRowId, trigger, firedAtMs, {
+          scripts: routine?.scripts ?? { pre: "", post: "" },
+          routineId,
+          projectCwd: routine?.destination.projectCwd ?? "",
+          workspace: routine?.destination.workspace ?? "worktree",
+        });
+      },
       onPostFire: async () => {
         await this.retention.prune();
       },
@@ -140,6 +157,8 @@ export class RoutineService {
     } else {
       this.scheduler.stopTimer();
       this.deps.lifecycle.parkAll();
+      // A 60 s hook must not outlive the gate or hold a project as cwd (#1283).
+      cancelAllRoutineScripts();
     }
     this.publish();
   }
@@ -235,6 +254,7 @@ export class RoutineService {
       maxCostUsd: input.spend.maxUsd ?? this.deps.defaultMaxCostUsd(),
       staleServers: catalog.staleServers,
       enumerationError: catalog.enumerationError,
+      scripts: input.scripts,
     };
   }
 
@@ -264,6 +284,29 @@ export class RoutineService {
   dispose(): void {
     this.scheduler.dispose();
     this.deps.lifecycle.parkAll();
+    // sessions.killAll() never reaches hook children (#1283).
+    cancelAllRoutineScripts();
+  }
+
+  /**
+   * Attended "Test script" editor action (#1283): runs one command on demand
+   * and returns capped tails. Writes nothing — no store, row, or notice — and
+   * takes no scheduler lane; concurrent tests each get their own child.
+   */
+  async testScript(input: RoutineTestScriptRequest): Promise<RoutineTestScriptResult> {
+    this.assertEnabled();
+    this.assertProject(input.projectCwd);
+    const result = await runRoutineScriptForTest(input.command, input.projectCwd, {
+      OMP_UI_ROUTINE_TRIGGER: "test",
+      OMP_UI_ROUTINE_PROJECT_CWD: input.projectCwd,
+    });
+    return {
+      kind: result.kind,
+      timedOut: result.kind === "failed" ? result.timedOut : false,
+      exitCode: result.kind === "failed" ? result.exitCode : result.kind === "ok" ? 0 : null,
+      stdout: result.stdout,
+      stderr: result.stderr,
+    };
   }
 
   private assertEnabled(): void {

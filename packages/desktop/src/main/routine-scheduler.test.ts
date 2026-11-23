@@ -18,6 +18,7 @@ import {
   ROUTINES_DISABLED_ERROR,
   RoutineScheduler,
 } from "./routine-scheduler";
+import type { RoutineScriptEnv, RoutineScriptResult } from "./routine-scripts";
 
 const ID_A = "AAAAAAAAAAAAAAAAAAAAAA";
 const ID_B = "BBBBBBBBBBBBBBBBBBBBBB";
@@ -46,6 +47,7 @@ function routine(id: string, overrides: Partial<RoutineRecord> = {}): RoutineRec
     thinkingLevel: null,
     spend: { warnUsd: null, maxUsd: 7 },
     toolPolicy: { allow: ["read"], deny: ["bash"], lastReviewedAt: new Date(T0).toISOString(), reviewedCatalog: ["read", "bash"] },
+    scripts: { pre: "", post: "" },
     enabled: true,
     createdAt: new Date(T0).toISOString(),
     nextRunAtMs: T0,
@@ -78,6 +80,9 @@ interface Harness {
   sessions: OwnedSessionRecord[];
   setDispatch: (fn: () => Promise<FleetDispatchResult>) => void;
   enabled: { value: boolean };
+  preRuns: Array<{ command: string; cwd: string; env: RoutineScriptEnv }>;
+  preResult: { current: RoutineScriptResult };
+  postRunningTabs: Set<string>;
 }
 
 let dir: string;
@@ -94,6 +99,9 @@ function harness(routines: RoutineRecord[]): Harness {
   const awaiting = new Set<string>();
   const sessions: OwnedSessionRecord[] = [];
   const enabled = { value: true };
+  const preRuns: Harness["preRuns"] = [];
+  const preResult = { current: { kind: "ok" } as RoutineScriptResult };
+  const postRunningTabs = new Set<string>();
   let dispatchImpl = async (): Promise<FleetDispatchResult> => {
     const tabId = `tab-${++nextTab}`;
     return {
@@ -126,6 +134,11 @@ function harness(routines: RoutineRecord[]): Harness {
       return result;
     },
     onRunStarted: (tabId) => started.push(tabId),
+    runScript: async (command, cwd, env) => {
+      preRuns.push({ command, cwd, env });
+      return preResult.current;
+    },
+    postRunning: (tabId) => postRunningTabs.has(tabId),
     publish: () => {},
     now: () => Date.now(),
   });
@@ -143,6 +156,9 @@ function harness(routines: RoutineRecord[]): Harness {
       dispatchImpl = fn;
     },
     enabled,
+    preRuns,
+    preResult,
+    postRunningTabs,
   };
 }
 

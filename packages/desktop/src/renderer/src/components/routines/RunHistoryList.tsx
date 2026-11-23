@@ -4,7 +4,7 @@ import { relativeTime } from "../../lib/format";
 import { useT } from "../../lib/i18n";
 import { findRecord, useStore } from "../../store";
 import { Button, Chip } from "../ui";
-import { OUTCOME_LABEL, OUTCOME_TONE, REASON_LABEL } from "./routine-format";
+import { OUTCOME_LABEL, OUTCOME_TONE, POST_SCRIPT_LABEL, POST_SCRIPT_TONE, REASON_LABEL } from "./routine-format";
 
 /**
  * One routine's run history (ADR-0100): routine-runs.json is the sole audit
@@ -30,6 +30,9 @@ export function RunHistoryList({ runs, onOpen }: { runs: readonly RoutineRunRow[
             <div className="min-w-0 flex-1 space-y-0.5">
               <div className="flex flex-wrap items-center gap-1.5">
                 <Chip tone={OUTCOME_TONE[run.outcome]}>{t(OUTCOME_LABEL[run.outcome])}</Chip>
+                {run.postScript !== undefined && (
+                  <Chip tone={POST_SCRIPT_TONE[run.postScript]}>{t(POST_SCRIPT_LABEL[run.postScript])}</Chip>
+                )}
                 {run.trigger === "manual" && <Chip>{t("routines.history.manual")}</Chip>}
                 {run.trigger === "late" && run.missed > 0 && (
                   <span className="text-ink-faint">{t("routines.history.missed", { n: run.missed })}</span>
