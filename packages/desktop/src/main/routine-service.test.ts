@@ -285,3 +285,52 @@ describe("RoutineService diagnostics", () => {
     h.service.dispose();
   });
 });
+
+describe("RoutineService script hooks (#1283)", () => {
+  it("the Test action refuses with the gate off or an unregistered project and touches nothing", async () => {
+    const h = harness();
+    await expect(h.service.testScript({ projectCwd: "/proj", command: "true" })).resolves.toEqual({
+      kind: "ok",
+      timedOut: false,
+      exitCode: 0,
+      stdout: "hello\n",
+      stderr: "",
+    });
+    await expect(h.service.testScript({ projectCwd: "/nope", command: "true" })).rejects.toThrow(/registered project/);
+    h.enabled.value = false;
+    await expect(h.service.testScript({ projectCwd: "/proj", command: "true" })).rejects.toThrow(
+      ROUTINES_DISABLED_ERROR,
+    );
+    // No store or history writes from any of the three calls.
+    expect(h.store.list()).toHaveLength(0);
+    expect(h.history.list()).toHaveLength(0);
+    h.service.dispose();
+  });
+
+  it("dryRun returns scripts verbatim without invoking the runner", async () => {
+    const h = harness();
+    const created = await h.service.create(input({ scripts: { pre: "git fetch", post: "echo done" } }));
+    const dry = await h.service.dryRun({ kind: "saved", id: created.id });
+    expect(dry.scripts).toEqual({ pre: "git fetch", post: "echo done" });
+    expect(vi.mocked(runRoutineScript)).not.toHaveBeenCalled();
+    h.service.dispose();
+  });
+
+  it("gate-off and dispose cancel live hook children", async () => {
+    const h = harness();
+    const before = vi.mocked(cancelAllRoutineScripts).mock.calls.length;
+    h.service.onEnabledChanged(false);
+    expect(vi.mocked(cancelAllRoutineScripts).mock.calls.length).toBe(before + 1);
+    h.service.dispose();
+    expect(vi.mocked(cancelAllRoutineScripts).mock.calls.length).toBe(before + 2);
+  });
+
+  it("a save round-trips hooks through update", async () => {
+    const h = harness();
+    const created = await h.service.create(input());
+    const updated = await h.service.update(created.id, { scripts: { pre: "", post: "echo bye" } });
+    expect(updated.scripts).toEqual({ pre: "", post: "echo bye" });
+    expect(h.store.get(created.id)!.scripts.post).toBe("echo bye");
+    h.service.dispose();
+  });
+});

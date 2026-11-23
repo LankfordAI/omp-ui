@@ -323,3 +323,181 @@ describe("RoutineLifecycleManager gate-off park", () => {
     expect(h.lifecycle.waitingApprovalCount()).toBe(0);
   });
 });
+
+describe("RoutineLifecycleManager post-run hook (#1283)", () => {
+  it("runs the hook exactly once on terminal end, before the settle grace is armed", async () => {
+    const h = harness();
+    h.withPostHook("echo done");
+    h.frame({ type: "agent_end" });
+    await vi.advanceTimersByTimeAsync(0);
+    expect(h.postRuns).toHaveLength(1);
+    expect(h.postRuns[0]!.command).toBe("echo done");
+    expect(h.postRuns[0]!.cwd).toBe("/work/run-dir");
+    expect(h.postRuns[0]!.env).toMatchObject({
+      OMP_UI_ROUTINE_ID: ROUTINE_ID,
+      OMP_UI_ROUTINE_TRIGGER: "clock",
+      OMP_UI_ROUTINE_PROJECT_CWD: "/proj",
+      OMP_UI_ROUTINE_WORKSPACE: "worktree",
+      OMP_UI_ROUTINE_OUTCOME: "on-time",
+      OMP_UI_ROUTINE_REASON_CODE: "",
+      OMP_UI_ROUTINE_TAB_ID: TAB,
+      OMP_UI_ROUTINE_RUN_CWD: "/work/run-dir",
+    });
+    expect(h.rowNow()).toMatchObject({ outcome: "on-time", postScript: "ok" });
+    // Settle armed after the hook: the grace fires 60 s after it resolved.
+    expect(h.settleSession).not.toHaveBeenCalled();
+    await vi.advanceTimersByTimeAsync(60_000);
+    expect(h.settleSession).toHaveBeenCalledTimes(1);
+  });
+
+  it("maps skip to failed and timeout to timeout on the row", async () => {
+    const h = harness();
+    h.withPostHook("exit 78");
+    h.scriptResult.current = { kind: "skip", timedOut: false, exitCode: 78 };
+    h.frame({ type: "agent_end" });
+    await vi.advanceTimersByTimeAsync(0);
+    expect(h.rowNow().postScript).toBe("failed"); // skip convention is pre-only
+
+    const g = harness();
+    g.withPostHook("sleep 999");
+    g.scriptResult.current = { kind: "failed", timedOut: true, exitCode: null };
+    g.frame({ type: "agent_end" });
+    await vi.advanceTimersByTimeAsync(0);
+    expect(g.rowNow().postScript).toBe("timeout");
+  });
+
+  it("never re-runs the hook on a continuation turn and never rewrites the outcome", async () => {
+    const h = harness();
+    h.withPostHook("echo done");
+    h.frame({ type: "agent_end" });
+    await vi.advanceTimersByTimeAsync(0);
+    expect(h.postRuns).toHaveLength(1);
+    // A human continuation turn ends with its own agent_end: no second hook,
+    // and the failed/cost-cap from first finalization survives.
+    h.scriptResult.current = { kind: "failed", timedOut: false, exitCode: 3 };
+    h.frame({ type: "agent_start" });
+    h.awaiting.add(TAB);
+    h.frame({ type: "agent_end" });
+    await vi.advanceTimersByTimeAsync(0);
+    expect(h.postRuns).toHaveLength(1);
+    expect(h.rowNow().outcome).toBe("on-time"); // first finalization wins
+    expect(h.rowNow().postScript).toBe("ok"); // the second result never overwrote it
+  });
+
+  it("wall clock runs the hook only after a successful reap, and onExit cannot steal it", async () => {
+    const h = harness();
+    h.withPostHook("notify");
+    let releaseReap!: (v: boolean) => void;
+    h.settleSession.mockImplementationOnce(
+      () => new Promise<boolean>((resolve) => (releaseReap = resolve)),
+    );
+    h.frame({ type: "agent_start" });
+    await vi.advanceTimersByTimeAsync(30 * 60_000);
+    expect(h.settleSession).toHaveBeenCalledWith(TAB);
+    expect(h.postRuns).toHaveLength(0); // still awaiting the reap
+    // The reap notifies onExit synchronously mid-await; the claim already landed.
+    h.lifecycle.onExit(TAB);
+    releaseReap(true);
+    await vi.advanceTimersByTimeAsync(0);
+    expect(h.postRuns).toHaveLength(1);
+    expect(h.postRuns[0]!.env.OMP_UI_ROUTINE_OUTCOME).toBe("failed");
+    expect(h.postRuns[0]!.env.OMP_UI_ROUTINE_REASON_CODE).toBe("wall-clock");
+    const late = h.history.list().find((r) => r.id === "run-1")!;
+    expect(late.reasonCode).toBe("wall-clock"); // never rewritten to error
+    expect(late.postScript).toBe("ok");
+  });
+
+  it("records interrupted and runs nothing when the reap resolves false", async () => {
+    const h = harness();
+    h.withPostHook("notify");
+    h.settleSession.mockResolvedValueOnce(false);
+    h.frame({ type: "agent_start" });
+    await vi.advanceTimersByTimeAsync(30 * 60_000);
+    await vi.advanceTimersByTimeAsync(0);
+    expect(h.postRuns).toHaveLength(0);
+    expect(h.rowNow()).toMatchObject({ reasonCode: "wall-clock", postScript: "interrupted" });
+  });
+
+  it("skips the hook when none is configured, and records interrupted when the gate is off at post time", async () => {
+    const plain = harness();
+    plain.frame({ type: "agent_end" });
+    await vi.advanceTimersByTimeAsync(0);
+    expect(plain.postRuns).toHaveLength(0);
+    expect(plain.rowNow().postScript).toBeUndefined();
+
+    const h = harness();
+    h.withPostHook("notify");
+    h.enabled.value = false;
+    h.frame({ type: "agent_end" });
+    await vi.advanceTimersByTimeAsync(0);
+    expect(h.postRuns).toHaveLength(0);
+    expect(h.rowNow().postScript).toBe("interrupted");
+  });
+
+  it("a post hook keeps the latch set while it runs and releases it when it settles", async () => {
+    const gate = Promise.withResolvers<{ kind: "ok" }>();
+    const history = new RoutineRunHistory(path.join(dir, `latch-${++fileSeq}.json`));
+    history.record(row("run-1"));
+    const mgr = new RoutineLifecycleManager({
+      history,
+      isEnabled: () => true,
+      isRoutineTab: () => true,
+      inRun: () => false,
+      awaitingHumanAnswer: () => false,
+      openDialogIds: () => [],
+      settleSession: async () => true,
+      rpcSend: () => {},
+      runScript: () => gate.promise,
+      runDirectory: () => "/work/run-dir",
+      publish: () => {},
+    });
+    mgr.trackStart(TAB, "run-1", "clock", T0, {
+      scripts: { pre: "", post: "slow" },
+      routineId: ROUTINE_ID,
+      projectCwd: "/proj",
+      workspace: "worktree",
+    });
+    mgr.onFrame(TAB, { type: "agent_end" });
+    await vi.advanceTimersByTimeAsync(0);
+    // The hook is in flight; the latch holds even though the settle grace has
+    // not been armed yet (§7.4).
+    expect(mgr.postRunning(TAB)).toBe(true);
+    gate.resolve({ kind: "ok" });
+    await vi.advanceTimersByTimeAsync(0);
+    expect(mgr.postRunning(TAB)).toBe(false);
+  });
+
+  it("a continuation in flight when the hook settles leaves the settle deadline disarmed", async () => {
+    const settleSession = vi.fn(async () => true);
+    const gate = Promise.withResolvers<{ kind: "ok" }>();
+    const history = new RoutineRunHistory(path.join(dir, `cont-${++fileSeq}.json`));
+    history.record(row("run-1"));
+    const awaiting = new Set<string>();
+    const mgr = new RoutineLifecycleManager({
+      history,
+      isEnabled: () => true,
+      isRoutineTab: () => true,
+      inRun: (tabId) => awaiting.has(tabId),
+      awaitingHumanAnswer: (tabId) => awaiting.has(tabId),
+      openDialogIds: () => [],
+      settleSession,
+      rpcSend: () => {},
+      runScript: () => gate.promise,
+      runDirectory: () => "/work/run-dir",
+      publish: () => {},
+    });
+    mgr.trackStart(TAB, "run-1", "clock", T0, {
+      scripts: { pre: "", post: "slow" },
+      routineId: ROUTINE_ID,
+      projectCwd: "/proj",
+      workspace: "worktree",
+    });
+    mgr.onFrame(TAB, { type: "agent_end" });
+    // A human continuation parks a card while the hook is still in flight.
+    awaiting.add(TAB);
+    gate.resolve({ kind: "ok" });
+    await vi.advanceTimersByTimeAsync(0);
+    await vi.advanceTimersByTimeAsync(120_000);
+    expect(settleSession).not.toHaveBeenCalled(); // fence saw awaitingHumanAnswer → no grace armed
+  });
+});

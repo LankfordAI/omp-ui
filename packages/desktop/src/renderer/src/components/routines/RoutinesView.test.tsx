@@ -419,3 +419,93 @@ describe("RoutinesView review-link focus (ADR-0100 amendment)", () => {
     expect(useStore.getState().routineFocusId).toBeNull();
   });
 });
+
+describe("RoutinesView run hooks (#1283)", () => {
+  function textareaByLabel(label: string): HTMLTextAreaElement {
+    const found = document.querySelector<HTMLTextAreaElement>(`textarea[aria-label="${label}"]`);
+    if (!found) throw new Error(`no textarea "${label}"`);
+    return found;
+  }
+
+  function typeInto(el: HTMLTextAreaElement | HTMLInputElement, value: string): void {
+    const proto = el instanceof HTMLTextAreaElement ? HTMLTextAreaElement : HTMLInputElement;
+    const setter = Object.getOwnPropertyDescriptor(proto.prototype, "value")!.set!;
+    act(() => {
+      setter.call(el, value);
+      el.dispatchEvent(new Event("input", { bubbles: true }));
+    });
+  }
+
+  it("hydrates both saved hooks and preserves them through an unrelated edit + save", async () => {
+    const saved = routine({ scripts: { pre: "git fetch --all", post: "notify-done" } });
+    useStore.setState({ routinesState: routinesState({ routines: [saved] }), routineFocusId: saved.id });
+    const updateRoutine = vi.fn(async (_id: string, patch: unknown) => ({ ...saved, ...(patch as Partial<RoutineRecord>) }));
+    useStore.setState({ updateRoutine });
+    render();
+    await settle();
+
+    expect(textareaByLabel("Run shell before starting").value).toBe("git fetch --all");
+    expect(textareaByLabel("Run shell after the run ends").value).toBe("notify-done");
+
+    // An unrelated edit (name) then save: both hooks must survive verbatim.
+    typeInto(document.querySelector<HTMLInputElement>('input[aria-label="Name"]')!, "Renamed");
+    await act(async () => buttonNamed("Save routine").click());
+    await settle();
+    expect(updateRoutine).toHaveBeenCalledWith(
+      saved.id,
+      expect.objectContaining({ name: "Renamed", scripts: { pre: "git fetch --all", post: "notify-done" } }),
+    );
+  });
+
+  it("the copper hook warning replaces the green safe box when only a hook is set", async () => {
+    const saved = routine({ scripts: { pre: "", post: "echo done" } });
+    useStore.setState({ routinesState: routinesState({ routines: [saved] }), routineFocusId: saved.id });
+    render();
+    await settle();
+    expect(document.body.textContent).toContain("Run hooks execute as you, unattended");
+    expect(document.body.textContent).not.toContain("No shell tool allowed");
+  });
+
+  it("Dry run lists a post-only routine's hook and never the empty pre phase", async () => {
+    const saved = routine({ scripts: { pre: "", post: "npm test" } });
+    useStore.setState({ routinesState: routinesState({ routines: [saved] }), routineFocusId: saved.id });
+    dryRunRoutine.mockResolvedValueOnce({
+      routineId: saved.id,
+      nextFireAtMs: null,
+      compiled: {
+        approvalMode: "always-ask",
+        overlayEntries: { read: "allow" },
+        deniedBuiltins: [],
+        addedLater: [],
+        missingFromCatalog: [],
+        cliBypassToolsAllowed: [],
+        cliBypassWarning: false,
+        overlayYamlPreview: "tools:\n",
+        warnings: [],
+      },
+      warnCostUsd: 2,
+      maxCostUsd: 5,
+      staleServers: [],
+      enumerationError: null,
+      scripts: { pre: "", post: "npm test" },
+    });
+    render();
+    await settle();
+    await act(async () => buttonNamed("Dry run").click());
+    await settle();
+    expect(document.querySelector("[data-dry-run-hook='post']")?.textContent).toContain("npm test");
+    expect(document.querySelector("[data-dry-run-hook='pre']")).toBeNull();
+  });
+
+  it("Run now on a pre-skip (empty tabId) shows the neutral line, not a failure", async () => {
+    const saved = routine({ scripts: { pre: "exit 78", post: "" } });
+    useStore.setState({ routinesState: routinesState({ routines: [saved] }), routineFocusId: saved.id });
+    runRoutineNow.mockResolvedValueOnce({ tabId: "", runId: "run-x" });
+    render();
+    await settle();
+    await act(async () => buttonNamed("Run now").click());
+    await settle();
+    expect(document.querySelector("[data-routine-skipped-now]")?.textContent).toContain("Nothing to do");
+    expect(document.querySelector("[data-routine-action-error]")).toBeNull();
+  });
+});
