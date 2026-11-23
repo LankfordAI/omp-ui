@@ -1845,7 +1845,7 @@ describe("hiding or deleting the active tab moves focus to the last visible surv
 describe("a settling session hides its tab and releases focus (issue #926)", () => {
   const lifecycle = () => h.useStore.getState() as UiStore & LifecycleSlice;
 
-  it("tearing down the active tab focuses the last visible survivor", () => {
+  it("tearing down the active tab releases focus to the home screen", () => {
     h.useStore.setState({
       tabs: [
         tabInfo({ tabId: h.TAB, mode: "rpc-ui", projectCwd: "/p", hidden: false }),
@@ -1858,7 +1858,7 @@ describe("a settling session hides its tab and releases focus (issue #926)", () 
 
     const st = h.useStore.getState();
     expect(st.tabs.find((t) => t.tabId === h.TAB)?.hidden).toBe(true);
-    expect(st.activeTabId).toBe("other");
+    expect(st.activeTabId).toBeNull();
     expect(st.tabs.find((t) => t.tabId === "other")?.hidden).toBe(false);
   });
 
@@ -1906,8 +1906,21 @@ describe("a settling session hides its tab and releases focus (issue #926)", () 
 
     const st = h.useStore.getState();
     expect(st.tabs.find((t) => t.tabId === h.TAB)?.hidden).toBe(true);
-    expect(st.activeTabId).toBe("other");
+    expect(st.activeTabId).toBeNull();
     expect(st.hibernated[h.TAB]).toBe(true);
+  });
+
+  it("hibernation clears any unread mark for the settled tab (#1305)", () => {
+    h.useStore.setState({
+      tabs: [tabInfo({ tabId: h.TAB, mode: "rpc-ui", projectCwd: "/p", hidden: true })],
+      activeTabId: null,
+    });
+    h.useStore.getState().markUnread(h.TAB, "finished reply");
+    expect(h.useStore.getState().unread[h.TAB]).toBeDefined();
+
+    lifecycle().teardownProcess(h.TAB, 0, true);
+
+    expect(h.useStore.getState().unread[h.TAB]).toBeUndefined();
   });
 
   it("settles a live spawned tab hidden and resumeDead brings it back focused with the marks cleared", async () => {

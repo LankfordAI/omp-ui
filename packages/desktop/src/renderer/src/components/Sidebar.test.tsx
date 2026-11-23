@@ -1778,6 +1778,84 @@ describe("Sidebar Routine runs and the Routines button (ADR-0100, issue #1261)",
     act(() => routinesButton.click());
     expect(openRoutines).toHaveBeenCalled();
   });
+
+  it("hides remote routine runs from rows and footer counts, and surfaces remote approval-waiting runs in Needs attention (#1304)", () => {
+    const remoteGroup = {
+      project: { ...state.projects[0]!.project, path: "/projects/remote", name: "omp-ui" },
+      sessions: [
+        {
+          ...state.projects[0]!.sessions[0]!,
+          tabId: "remote-run-working",
+          projectCwd: "/projects/remote",
+          title: "Remote working run",
+          routine,
+          turnRunning: true,
+        },
+        {
+          ...state.projects[0]!.sessions[0]!,
+          tabId: "remote-run-waiting",
+          projectCwd: "/projects/remote",
+          title: "Remote waiting run",
+          routine,
+          awaitingHumanAnswer: true,
+        },
+      ],
+    };
+    useStore.setState({
+      state: backendState({
+        routinesEnabled: true,
+        projects: state.projects,
+        remoteInstances: [
+          remoteInstance({ id: "inst-fw", nickname: "FW-Desktop", status: "joined", projects: [remoteGroup] }),
+        ],
+      }),
+    });
+    renderSidebar();
+    // Working remote routine run does not appear in rows or increment counts.
+    expect(document.body.textContent).not.toContain("Remote working run");
+    expect(footerText()).toContain(`${2} ready`);
+    expect(footerText()).not.toContain(`${1} working`);
+    // Routines button badge counts waiting runs across both local and joined remote hosts (#1306).
+    expect(button("Routines").querySelector("[data-routines-waiting]")?.textContent).toBe("1");
+    // Remote waiting routine run surfaces in Needs attention with machine label and approval copy.
+    const stack = document.body.querySelector('[role="group"]');
+    expect(stack?.textContent).toContain("Remote waiting run");
+    expect(stack?.textContent).toContain("on FW-Desktop");
+    expect(stack?.textContent).toContain("answer needed");
+    expect(stack?.textContent).toContain("Approval required");
+  });
+
+  it("shows the Routines button when local Routines is off but a joined remote has routinesEnabled (#1306)", () => {
+    useStore.setState({
+      state: backendState({
+        routinesEnabled: false,
+        projects: state.projects,
+        remoteInstances: [
+          remoteInstance({ id: "inst-studio", nickname: "studio", status: "joined", routinesEnabled: true }),
+        ],
+      }),
+    });
+    renderSidebar();
+    expect(document.body.querySelector('button[aria-label="Routines"]')).not.toBeNull();
+  });
+});
+
+describe("Sidebar Artifacts pending-review badge (#1307)", () => {
+  it("shows a copper pending-review badge on the Artifacts footer button when pending reviews exist and hides it at zero", () => {
+    useStore.setState({
+      state: backendState({ artifactLibraryEnabled: true, projects: state.projects }),
+      artifactPendingReviewCount: 2,
+    });
+    renderSidebar();
+    const artifactsBtn = document.body.querySelector<HTMLButtonElement>('button[aria-label="Artifacts"]')!;
+    expect(artifactsBtn).not.toBeNull();
+    expect(artifactsBtn.querySelector("[data-artifacts-pending-review]")?.textContent).toBe("2");
+
+    act(() => {
+      useStore.setState({ artifactPendingReviewCount: 0 });
+    });
+    expect(artifactsBtn.querySelector("[data-artifacts-pending-review]")).toBeNull();
+  });
 });
 
 describe("Sidebar store subscription stability (#1286)", () => {

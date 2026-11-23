@@ -829,6 +829,7 @@ type BackendBroadcastSettings = Omit<
   | "experimentsFlagSplitSeeded"
   | "councilDefaultOnSeeded"
   | "themeAgentAccessDefaultOnSeeded"
+  | "artifactLibraryDefaultOnSeeded"
   | "remoteEnabled"
   | "remoteBind"
   | "remotePort"
@@ -1530,6 +1531,8 @@ export interface RemoteInstanceSummary {
   projects: ProjectGroup[];
   /** The remote's own favorite model list (issue #440); [] until adopted. */
   modelFavorites: string[];
+  /** Whether Settings → Routines is enabled on this host (omitted by older servers). */
+  routinesEnabled?: boolean;
 }
 
 /** Answer to `instance:identity`; lets a joiner detect itself and version skew. */

@@ -1023,7 +1023,12 @@ export function createFrameReductionSlice(
               message !== "" &&
               !(lastTurn !== undefined && isStreamStallEnd(lastTurn))
             ) {
-              m.appendItem(tabId, noticeItem(message, "error"));
+              const requestId = lastTurn?.requestId;
+              const text =
+                requestId !== undefined
+                  ? `${message.trimEnd().replace(/\.$/, "")}. Provider request id: ${requestId}.`
+                  : message;
+              m.appendItem(tabId, noticeItem(text, "error"));
             }
           }
           // A prompt that ran no agent (a slash command, the boot's extension

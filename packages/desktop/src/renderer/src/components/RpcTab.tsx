@@ -21,6 +21,7 @@ import { SubagentView } from "./SubagentView";
 import { linkify } from "./Markdown";
 import { MarkdownMachineProvider } from "./MarkdownMachineProvider";
 import { MarkdownVaultProvider } from "./MarkdownVaultProvider";
+import { RoutineFocusProvider } from "./RoutineFocusProvider";
 import { TranscriptView, ShareLinkRow, TuiHandoffButton, CouncilSettingsButton } from "./TranscriptView";
 import { ModelPalette } from "./ModelSelector";
 import { Button, Chip, CopyButton, Panel, ProgressSweep, Sheet } from "./ui";
@@ -714,7 +715,9 @@ export const RpcTab = memo(function RpcTab({ tabId, active }: { tabId: string; a
   );
   return (
     <MarkdownMachineProvider tabId={tabId}>
-      <MarkdownVaultProvider tabId={tabId}>{content}</MarkdownVaultProvider>
+      <MarkdownVaultProvider tabId={tabId}>
+        <RoutineFocusProvider tabId={tabId}>{content}</RoutineFocusProvider>
+      </MarkdownVaultProvider>
     </MarkdownMachineProvider>
   );
 });

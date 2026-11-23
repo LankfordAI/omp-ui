@@ -172,8 +172,8 @@ describe("remote instances wiring (issue #416)", () => {
   });
 });
 
-describe("routines across hosts (ADR-0100, U13)", () => {
-  it("an authenticated web client runs routine CRUD on the owner; a joined instance sees runs in merged state but its proxy refuses routines:*", async () => {
+describe("routines across hosts (ADR-0100 §8 amendment, #1306)", () => {
+  it("projects routinesEnabled, proxies routine CRUD and models:readChat to the owner, relays routines:state as remote-routines:state, and refuses settings:setRoutinesEnabled", async () => {
     const projectCwd = path.join(base, "project");
     fs.mkdirSync(projectCwd);
     const project = { path: projectCwd, name: "project", addedAt: "2026-08-01T00:00:00.000Z", lastModel: null, lastThinkingLevel: null, lastAdvisor: null, lastAdvisorModel: null, defaultModel: null, defaultAdvisorModel: null, browserClock: false, councilRoster: null, knowledgeHome: null, repositoryKey: null, icon: null };
@@ -208,38 +208,16 @@ describe("routines across hosts (ADR-0100, U13)", () => {
     });
     servers.push(server);
 
-    // The remote table is what an authenticated browser or Android client reaches on the owner's listener.
-    const remote = owner.handlers("remote").request;
-    const created = await remote[CH.createRoutine]({
-      name: "Morning overview",
-      instructions: "Summarize yesterday.",
-      schedule: { kind: "cron", expr: "0 8 * * *" },
-      timeZone: "UTC",
-      destination: { projectCwd, workspace: "checkout" },
-      mode: "build",
-      model: null,
-      thinkingLevel: null,
-      spend: { warnUsd: null, maxUsd: null },
-      toolPolicy: { allow: ["read"], deny: [], lastReviewedAt: "2026-11-22T00:00:00.000Z", reviewedCatalog: ["read"] },
-      scripts: { pre: "", post: "" },
-      timeoutMinutes: null,
-      notifications: { onStart: false, onComplete: false, onFail: false, onApproval: false, agentMessage: false },
-      enabled: false,
-    });
-    const state = await remote[CH.getRoutinesState]();
-    expect(state.routines.map((r) => r.id)).toEqual([created.id]);
-    await remote[CH.updateRoutine](created.id, { name: "Renamed" });
-    expect(await remote[CH.removeRoutine](created.id)).toEqual({ releasedSessions: 0 });
-
-    // A live owner session publishes into the joiner's merged state (the Council test's pattern).
-    const ompBin = path.join(base, "omp");
-    fs.writeFileSync(ompBin, "#!/bin/sh\n", { mode: 0o755 });
-    vi.stubEnv("OMP_UI_OMP_PATH", ompBin);
-    owner.refreshOmpPath();
-    await owner.handlers().request[CH.spawnSession]({ origin: "resume", resumeTabId: "routine-run", cols: 80, rows: 24 });
-
     seedRegistry(registryFile, { settings: { instanceId: "joiner-instance" } });
-    boot();
+    const joiner = boot();
+    const remoteRoutineEvents: Array<{ instanceId: string; routineIds: string[] }> = [];
+    joiner.addSink((channel, args) => {
+      if (channel === CH.onRemoteRoutinesState) {
+        const [instanceId, state] = args as [string, { routines: Array<{ id: string }> }];
+        remoteRoutineEvents.push({ instanceId, routineIds: state.routines.map((r) => r.id) });
+      }
+    });
+
     await invoke(CH.addRemoteInstance, {
       url: `http://127.0.0.1:${server.port}`,
       nickname: "owner",
@@ -248,11 +226,64 @@ describe("routines across hosts (ADR-0100, U13)", () => {
     const merged = (await invoke(CH.getState)) as BackendState;
     const joined = merged.remoteInstances[0]!;
     expect(joined.status).toBe("joined");
+    expect(joined.routinesEnabled).toBe(true);
 
-    const run = joined.projects.flatMap((g) => g.sessions).find((s) => s.tabId === "routine-run");
-    expect(run?.routine).toMatchObject({ id: routineMark.id, name: "Inbox" });
-    for (const channel of [CH.getRoutinesState, CH.createRoutine, CH.runRoutineNow, CH.dryRunRoutine, CH.setRoutinesEnabled]) {
-      await expect(invoke(CH.remoteInstanceRequest, joined.id, channel, [])).rejects.toThrow(`channel ${channel} is not proxied`);
+    // Proxied routine CRUD from the joiner lands on the owner and relays remote-routines:state back into joiner sinks.
+    const created = (await invoke(CH.remoteInstanceRequest, joined.id, CH.createRoutine, [
+      {
+        name: "Morning overview",
+        instructions: "Summarize yesterday.",
+        schedule: { kind: "cron", expr: "0 8 * * *" },
+        timeZone: "UTC",
+        destination: { projectCwd, workspace: "checkout" },
+        mode: "build",
+        model: null,
+        thinkingLevel: null,
+        spend: { warnUsd: null, maxUsd: null },
+        toolPolicy: { allow: ["read"], deny: [], lastReviewedAt: "2026-11-22T00:00:00.000Z", reviewedCatalog: ["read"] },
+        scripts: { pre: "", post: "" },
+        timeoutMinutes: null,
+        notifications: { onStart: false, onComplete: false, onFail: false, onApproval: false, agentMessage: false },
+        artifact: null,
+        enabled: false,
+      },
+    ])) as { id: string; name: string };
+    const remoteState = (await invoke(CH.remoteInstanceRequest, joined.id, CH.getRoutinesState, [])) as {
+      routines: Array<{ id: string; name: string }>;
+    };
+    expect(remoteState.routines.map((r) => r.id)).toEqual([created.id]);
+    await invoke(CH.remoteInstanceRequest, joined.id, CH.updateRoutine, [created.id, { name: "Renamed" }]);
+    const updatedState = (await invoke(CH.remoteInstanceRequest, joined.id, CH.getRoutinesState, [])) as {
+      routines: Array<{ id: string; name: string }>;
+    };
+    expect(updatedState.routines[0]?.name).toBe("Renamed");
+    expect(await invoke(CH.remoteInstanceRequest, joined.id, CH.removeRoutine, [created.id])).toEqual({
+      releasedSessions: 0,
+    });
+    // models:readChat is proxied for the RoutineEditor model picker.
+    const catalog = (await invoke(CH.remoteInstanceRequest, joined.id, CH.readChatModels, [])) as {
+      models: unknown[];
+    };
+    expect(Array.isArray(catalog.models)).toBe(true);
+    // Live remote-routines:state events were relayed into local sinks for the joined instance.
+    expect(remoteRoutineEvents.some((e) => e.instanceId === joined.id && e.routineIds.includes(created.id))).toBe(true);
+    // Routine settings stay strictly host-local (ADR-0028).
+    for (const channel of [CH.setRoutinesEnabled, CH.setRoutineSpendDefaults]) {
+      await expect(invoke(CH.remoteInstanceRequest, joined.id, channel, [])).rejects.toThrow(
+        `channel ${channel} is not proxied`,
+      );
     }
+
+    // A live owner routine run publishes its routine metadata into the joiner's merged state.
+    const ompBin = path.join(base, "omp");
+    fs.writeFileSync(ompBin, "#!/bin/sh\n", { mode: 0o755 });
+    vi.stubEnv("OMP_UI_OMP_PATH", ompBin);
+    owner.refreshOmpPath();
+    await owner.handlers().request[CH.spawnSession]({ origin: "resume", resumeTabId: "routine-run", cols: 80, rows: 24 });
+    await vi.waitFor(async () => {
+      const latest = (await invoke(CH.getState)) as BackendState;
+      const run = latest.remoteInstances[0]?.projects.flatMap((g) => g.sessions).find((s) => s.tabId === "routine-run");
+      expect(run?.routine).toMatchObject({ id: routineMark.id, name: "Inbox" });
+    });
   });
 });

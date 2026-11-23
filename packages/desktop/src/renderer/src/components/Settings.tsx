@@ -15,6 +15,8 @@ import { AdvancedPage } from "./settings/AdvancedPage";
 import { AppearancePage } from "./settings/AppearancePage";
 import { CouncilFooter, CouncilPage } from "./settings/CouncilPage";
 import { ExperimentalFooter, ExperimentalPage } from "./settings/ExperimentalPage";
+import { RoutinesFooter, RoutinesPage } from "./settings/RoutinesPage";
+import { ArtifactsFooter, ArtifactsPage } from "./settings/ArtifactsPage";
 import { GeneralFooter, GeneralPage } from "./settings/GeneralPage";
 import { KeyboardPage } from "./settings/KeyboardPage";
 import { MemoryFooter, MemoryPage } from "./settings/MemoryPage";
@@ -123,6 +125,18 @@ const PAGES: ReadonlyArray<{
     label: "Council",
     render: () => <CouncilPage />,
     footer: CouncilFooter,
+  },
+  {
+    id: "routines",
+    label: "Routines",
+    render: () => <RoutinesPage />,
+    footer: RoutinesFooter,
+  },
+  {
+    id: "artifacts",
+    label: "Artifacts",
+    render: () => <ArtifactsPage />,
+    footer: ArtifactsFooter,
   },
   {
     id: "experimental",

@@ -1,13 +1,27 @@
 import { ARTIFACT_LIMITS, type ArtifactPartResult, type ArtifactReadRequest } from "@omp-ui/core/artifacts";
 import { backend } from "../backend";
 
-/** Assemble a complete stored part by paging reads to `nextOffset === null`, bounded by the dataset cap. */
-export async function readAllPart(request: Omit<ArtifactReadRequest, "offset" | "limit">): Promise<string> {
+export class ArtifactPartTooLargeError extends Error {
+  constructor(public readonly totalBytes: number, public readonly maxBytes: number) {
+    super(`Artifact part (${totalBytes} bytes) exceeds inspection bound (${maxBytes} bytes)`);
+    this.name = "ArtifactPartTooLargeError";
+  }
+}
+
+/** Assemble a complete stored part by paging reads to `nextOffset === null`, bounded by `maxBytes` (default dataset cap). */
+export async function readAllPart(
+  request: Omit<ArtifactReadRequest, "offset" | "limit">,
+  options?: { maxBytes?: number },
+): Promise<string> {
+  const limitBytes = options?.maxBytes ?? ARTIFACT_LIMITS.datasetBytes;
   let text = "";
   let offset = 0;
   for (;;) {
     const page: ArtifactPartResult = await backend.artifactReadPart({ ...request, offset, limit: 65536 });
-    if (page.totalBytes > ARTIFACT_LIMITS.datasetBytes) throw new Error("Dataset exceeds the export bound");
+    if (page.totalBytes > limitBytes) {
+      if (options?.maxBytes !== undefined) throw new ArtifactPartTooLargeError(page.totalBytes, options.maxBytes);
+      throw new Error("Dataset exceeds the export bound");
+    }
     text += page.text;
     if (page.nextOffset === null) return text;
     if (page.nextOffset <= offset) throw new Error("Invalid artifact page");

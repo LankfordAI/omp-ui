@@ -598,10 +598,12 @@ processes over one isolated store. It checks kernel seccomp and rejects
 trigger refusal exercises storage-write failure, not physical disk exhaustion.
 
 The proof covers pre-Keep saves, check/note/dataset/provenance restart checksums,
-root/guest/frame/ticket authority, network/loopback/WebSocket/STUN/device denial,
-rate/JSON refusal recovery, CAS, trusted save/reload status, delayed-save disable
-fencing and re-enable retention. Correlate host notices by surface ID and wait
-for the actual event: a guest receipt and root chrome cross different renderer
+root/guest/frame/ticket authority, network/loopback/WebSocket/STUN/device denial
+(both in the `<webview>` guest and in the offscreen `ArtifactThumbnailCapturer`
+window, plus fail-closed `isArtifactSessionLocked()` refusal), rate/JSON refusal
+recovery, CAS, trusted save/reload status, delayed-save disable fencing and
+re-enable retention. Correlate host notices by surface ID and wait for the
+actual event: a guest receipt and root chrome cross different renderer
 processes, so their delivery order is not a synchronization contract.
 
 Use the real derived curated palette in the smoke, not hex-only stand-ins:

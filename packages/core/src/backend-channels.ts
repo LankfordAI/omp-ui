@@ -161,9 +161,9 @@ import type {
 import type {
   ArtifactAcceptRevisionRequest, ArtifactApplyCaptureRequest, ArtifactDeleteRequest,
   ArtifactDescribeRequest, ArtifactDescription, ArtifactKeepRequest, ArtifactLibraryChanged,
-  ArtifactListRequest, ArtifactListResult, ArtifactPartResult, ArtifactPrepareRefreshRequest,
-  ArtifactReadRequest, ArtifactRecord, ArtifactReference, ArtifactReferenceRequest,
-  ArtifactRefreshRequest, ArtifactResolveSourceRequest, ArtifactSourceLookup,
+  ArtifactListRequest, ArtifactListResult, ArtifactPartResult, ArtifactPinRequest, ArtifactPrepareRefreshRequest,
+  ArtifactReadRequest, ArtifactReadThumbnailRequest, ArtifactRecord, ArtifactReference, ArtifactReferenceRequest,
+  ArtifactRefreshRequest, ArtifactResolveSourceRequest, ArtifactSourceLookup, ArtifactThumbnailResult,
   ArtifactRenameRequest, ArtifactDiscardCaptureRequest, ArtifactDismissRefreshRequest, ArtifactPruneRequest, ArtifactPruneResult, ArtifactRestoreSnapshotRequest, ArtifactSavePartRequest, ArtifactExportHtmlSourceRequest,
 } from "./artifacts";
 import { artifactFailure, serializeArtifactFailure } from "./artifacts";
@@ -256,7 +256,7 @@ import {
   artifactListCodec, artifactDescribeCodec, artifactReadCodec, artifactSourceCodec,
   artifactKeepCodec, artifactAcceptCodec, artifactReferenceCodec, artifactRefreshCodec,
   artifactApplyCodec, artifactDiscardCodec, artifactDeleteCodec,
-  artifactRenameCodec, artifactDiscardCaptureCodec, artifactDismissRefreshCodec, artifactPruneCodec, artifactRestoreCodec,
+  artifactRenameCodec, artifactPinCodec, artifactReadThumbnailCodec, artifactDiscardCaptureCodec, artifactDismissRefreshCodec, artifactPruneCodec, artifactRestoreCodec,
   artifactSavePartCodec, artifactExportHtmlCodec,
   spillIdCodec,
   routineInputCodec,
@@ -376,6 +376,8 @@ export const BACKEND_CHANNELS = {
   artifactDiscardDraft: { channel: "artifacts:discardDraft", ...request<[input: {draftId: string}], void>([artifactDiscardCodec]) },
   artifactDelete: { channel: "artifacts:delete", ...request<[input: ArtifactDeleteRequest], void>([artifactDeleteCodec]) },
   artifactRename: { channel: "artifacts:rename", ...request<[input: ArtifactRenameRequest], ArtifactRecord>([artifactRenameCodec]) },
+  artifactPin: { channel: "artifacts:pin", ...request<[input: ArtifactPinRequest], ArtifactRecord>([artifactPinCodec]) },
+  artifactReadThumbnail: { channel: "artifacts:readThumbnail", ...request<[input: ArtifactReadThumbnailRequest], ArtifactThumbnailResult>([artifactReadThumbnailCodec]) },
   artifactDiscardCapture: { channel: "artifacts:discardCapture", ...request<[input: ArtifactDiscardCaptureRequest], void>([artifactDiscardCaptureCodec]) },
   artifactDismissRefresh: { channel: "artifacts:dismissRefresh", ...request<[input: ArtifactDismissRefreshRequest], void>([artifactDismissRefreshCodec]) },
   artifactPrune: { channel: "artifacts:prune", ...request<[input: ArtifactPruneRequest], ArtifactPruneResult>([artifactPruneCodec]) },
@@ -2348,10 +2350,9 @@ export const BACKEND_CHANNELS = {
   clearWebhookDeliveries: { channel: "webhooks:clearDeliveries", ...request<[], void>([]) },
   onWebhooksState: { channel: "webhooks:state", ...event<[state: WebhooksState]>() },
   /**
-   * Routines (ADR-0100). Host-local like webhooks:* — never in
-   * REMOTE_PROXY_CHANNELS, PROJECT_PROXY_CHANNELS, or the tab-routed sets, and
-   * never an agent or MCP endpoint verb. Mutations and runs refuse while the
-   * Experimental gate is off.
+   * Routines (ADR-0100, amended §8, issue #1306). Host-owned, proxied to
+   * joined instances via REMOTE_PROXY_CHANNELS; never an MCP endpoint verb.
+   * Mutations and runs refuse while the target host's Routines gate is off.
    */
   getRoutinesState: { channel: "routines:getState", ...request<[], RoutinesState>([]) },
   createRoutine: { channel: "routines:create", ...request<[input: RoutineInput], RoutineRecord>([routineInputCodec]) },
@@ -2378,6 +2379,11 @@ export const BACKEND_CHANNELS = {
     ...request<[projectCwd: string], RoutineCatalogSnapshot>([str()]),
   },
   onRoutinesState: { channel: "routines:state", ...event<[state: RoutinesState]>() },
+  /** Joined remote host's routines:state relayed into local sinks (issue #1306); never re-relayed by joiners. */
+  onRemoteRoutinesState: {
+    channel: "remote-routines:state",
+    ...event<[instanceId: string, state: RoutinesState]>(),
+  },
   /** OS notification click for a pre-spawn routine failure (#1294): opens Routines and selects the routine. */
   onFocusRoutine: { channel: "routines:focus", ...event<[routineId: string]>() },
   /**

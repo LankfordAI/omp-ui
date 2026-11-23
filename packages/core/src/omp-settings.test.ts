@@ -972,6 +972,38 @@ describe("writeOmpSetting", () => {
     expect(seen).toEqual(["config", "set", "edit.mode", "none", "--json"]);
   });
 
+  it("admits edit.magic.model to the write boundary (#1273)", async () => {
+    let seen: readonly string[] = [];
+    await writeOmpSetting(
+      { ompPath: OMP, key: "edit.magic.model", value: "@smol" },
+      async (args) => {
+        seen = args;
+        return "";
+      },
+    );
+    expect(seen).toEqual(["config", "set", "edit.magic.model", "@smol", "--json"]);
+  });
+
+  it("admits the omp 19.1 mcp, binja and pty keys to the write boundary (#1275)", async () => {
+    const calls: string[][] = [];
+    const run = async (args: readonly string[]): Promise<string> => {
+      calls.push([...args]);
+      return "";
+    };
+    await writeOmpSetting({ ompPath: OMP, key: "mcp.shared", value: false }, run);
+    await writeOmpSetting({ ompPath: OMP, key: "mcp.idleStopMinutes", value: 10 }, run);
+    await writeOmpSetting({ ompPath: OMP, key: "binja.installDir", value: "/opt/binja" }, run);
+    await writeOmpSetting({ ompPath: OMP, key: "binja.installDir", value: "" }, run);
+    await writeOmpSetting({ ompPath: OMP, key: "pty.notify", value: "off" }, run);
+    expect(calls).toEqual([
+      ["config", "set", "mcp.shared", "false", "--json"],
+      ["config", "set", "mcp.idleStopMinutes", "10", "--json"],
+      ["config", "set", "binja.installDir", "/opt/binja", "--json"],
+      ["config", "set", "binja.installDir", "", "--json"],
+      ["config", "set", "pty.notify", "off", "--json"],
+    ]);
+  });
+
   it("admits both composer prediction keys to the write boundary (#1030)", async () => {
     let seen: readonly string[] = [];
     await writeOmpSetting(

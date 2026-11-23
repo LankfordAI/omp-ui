@@ -22,7 +22,7 @@ import { findOwner, useStore } from "../store";
 import { linkify } from "./Markdown";
 import { Slab } from "./ToolCard";
 import { Button, ICON_STROKE, IconButton, IconClose, Modal, ProgressSweep } from "./ui";
-import { ArtifactSurface as ManagedArtifactSurface } from "./artifacts/ArtifactSurface";
+import { ArtifactSurface as ManagedArtifactSurface, type ArtifactSurfaceReadyHandle } from "./artifacts/ArtifactSurface";
 import { ArtifactContractDiff } from "./artifacts/ArtifactContractDiff";
 
 function ArtifactGlyph({ className }: { className?: string }) {
@@ -159,7 +159,24 @@ function ArtifactViewer({ html, title, hint, onClose }: { html: string; title: s
   );
 }
 
-function ArtifactActions({ item, tabId, title, onResolvedDraft, onHistorical, container }: { item: ToolItem; tabId: string; title: string; onResolvedDraft: (draftId: string | null) => void; onHistorical: (value: boolean) => void; container: HTMLElement | null }) {
+function ArtifactActions({
+  item,
+  tabId,
+  title,
+  onResolvedDraft,
+  onHistorical,
+  container,
+  surfaceHandleRef,
+}: {
+  item: ToolItem;
+  tabId: string;
+  title: string;
+  onResolvedDraft: (draftId: string | null) => void;
+  onHistorical: (value: boolean) => void;
+  container: HTMLElement | null;
+  surfaceHandleRef: React.MutableRefObject<ArtifactSurfaceReadyHandle | null>;
+}) {
+  const theme = useTheme();
   const enabled = useStore((s) => s.state?.artifactLibraryEnabled === true);
   const owner = useStore((s) => findOwner(s.state, tabId));
   const revision = useStore((s) => s.artifactLibraryRevision);
@@ -198,7 +215,16 @@ function ArtifactActions({ item, tabId, title, onResolvedDraft, onHistorical, co
     setBusy(true); setError(null);
     try {
       const draft = lookup.draft;
-      const kept = accept && lookup.candidate ? await backend.artifactAcceptRevision({ draftId: draft.draftId, expectedCodeRevisionId: lookup.candidate.expectedCodeRevisionId }) : await backend.artifactKeep({ draftId: draft.draftId, title: keepTitle.trim() || title });
+      if (!accept) {
+        try {
+          await surfaceHandleRef.current?.captureThumbnail(theme.dark);
+        } catch {
+          // Best-effort draft thumbnail staging never blocks Keep.
+        }
+      }
+      const kept = accept && lookup.candidate
+        ? await backend.artifactAcceptRevision({ draftId: draft.draftId, expectedCodeRevisionId: lookup.candidate.expectedCodeRevisionId })
+        : await backend.artifactKeep({ draftId: draft.draftId, title: keepTitle.trim() || title });
       resolution.current++;
       if (accept && document.activeElement === focused) container?.querySelector<HTMLButtonElement>("button")?.focus();
       // Keep the loaded guest as a revoked historical preview; never mount a second writer.
@@ -207,11 +233,19 @@ function ArtifactActions({ item, tabId, title, onResolvedDraft, onHistorical, co
     } catch (reason) { setError(artifactFailure(reason)?.error === "over-limit" ? "Library is over its size limit — free space in Artifacts → Data or History, then try again." : displayMessage(reason)); }
     finally { setBusy(false); }
   };
-  if (!enabled) return item.args && typeof item.args === "object" && "artifact" in item.args ? <p className="mt-2 text-xs text-ink-dim">Managed state is disabled. Enable Artifact library in Settings → Experimental on the owning host.</p> : null;
+  if (!enabled) {
+    return item.args && typeof item.args === "object" && "artifact" in item.args ? (
+      <p className="mt-2 flex flex-wrap items-center gap-2 text-xs text-ink-dim">
+        <span>Managed state is disabled. Enable Artifact library in Settings → Artifacts on the owning host.</span>
+        <Button size="xs" variant="ghost" onClick={() => useStore.getState().openSettings("artifacts")}>Open Settings</Button>
+      </p>
+    ) : null;
+  }
   if (!native) return <p className="mt-2 text-xs text-ink-dim">Open this artifact on its owning host to keep it or use managed state. Joined-owner actions are not supported.</p>;
   const publishable = lookup?.status === "draft" || lookup?.status === "kept" ? lookup : null;
+  const showPersistentDraftBar = lookup?.status === "draft" && (lookup.draft.managed || lookup.candidate !== undefined);
   return <>
-    {container && publishable && createPortal(<>
+    {container && publishable && !showPersistentDraftBar && createPortal(<>
       <span className="text-xs text-ink-dim">{publishable.status === "kept" ? "Kept" : publishable.candidate ? "Draft candidate" : "Draft"}</span>
       {titling && publishable.status === "draft"
         ? <>
@@ -219,17 +253,62 @@ function ArtifactActions({ item, tabId, title, onResolvedDraft, onHistorical, co
           <Button disabled={busy} onClick={() => { setTitling(false); void keep(false); }}>Confirm</Button>
           <Button disabled={busy} onClick={() => setTitling(false)}>Cancel</Button>
         </>
-        : <>
-      <Button disabled={busy} onClick={() => { if (publishable.status === "kept") useStore.getState().openArtifacts({artifactId: publishable.artifact.artifactId}); else if (publishable.draft.artifactId) void keep(false); else { setKeepTitle(title); setTitling(true); } }}>{publishable.status === "kept" ? "Open in library" : publishable.draft.artifactId ? "Keep as new" : "Keep"}</Button>
-      {publishable.status === "draft" && publishable.candidate?.compatible && !publishable.candidate.stale && <Button disabled={busy} onClick={() => void keep(true)}>Accept revision</Button>}
-        </>}
+        : <Button disabled={busy} onClick={() => { if (publishable.status === "kept") useStore.getState().openArtifacts({artifactId: publishable.artifact.artifactId}); else if (publishable.draft.artifactId) void keep(false); else { setKeepTitle(title); setTitling(true); } }}>{publishable.status === "kept" ? "Open in library" : publishable.draft.artifactId ? "Keep as new" : "Keep"}</Button>}
     </>, container)}
-    {lookup?.status === "draft" && lookup.candidate && <div className="mt-2 space-y-1 text-xs text-ink-dim"><p>{lookup.candidate.stale ? "Based on older accepted code. Keep as new in the source session, or reference the current version to discuss another candidate." : lookup.candidate.compatible ? "Same declared data contract, not a verified migration. Accepting code retains the existing saved state and datasets." : "Different declared data contract. Keep as new; existing data will not be migrated."}</p><details open={!lookup.candidate.compatible}><summary className="cursor-pointer">Contract changes</summary><div className="break-words"><ArtifactContractDiff current={lookup.candidate.currentDefinition} candidate={lookup.candidate.definition} /></div></details></div>}
+    {showPersistentDraftBar && lookup.status === "draft" && (
+      <div data-artifact-draft-bar className="mt-2 flex flex-wrap items-center justify-between gap-2 rounded-md border border-line bg-raised/70 px-2.5 py-1.5 text-xs">
+        <div className="min-w-0 flex-1 space-y-0.5 text-ink-dim">
+          <p className="font-medium text-ink">
+            {lookup.candidate
+              ? lookup.candidate.stale
+                ? "Draft candidate · Stale base"
+                : lookup.candidate.compatible
+                  ? "Draft candidate · Compatible contract"
+                  : "Draft candidate · Contract changed"
+              : "Managed draft — not yet kept in library"}
+          </p>
+          {lookup.candidate && (
+            <p>
+              {lookup.candidate.stale
+                ? "Based on older accepted code. Keep as new in the source session, or reference the current version to discuss another candidate."
+                : lookup.candidate.compatible
+                  ? "Same declared data contract, not a verified migration. Accepting code retains the existing saved state and datasets."
+                  : "Different declared data contract. Keep as new; existing data will not be migrated."}
+            </p>
+          )}
+        </div>
+        <div className="flex flex-wrap items-center gap-1.5">
+          {titling ? (
+            <>
+              <label className="flex items-center gap-1"><span className="sr-only">Artifact title</span><input autoFocus type="text" maxLength={ARTIFACT_LIMITS.titleChars} value={keepTitle} onChange={(event) => setKeepTitle(event.target.value)} onKeyDown={(event) => { if (event.key === "Enter") { event.preventDefault(); setTitling(false); void keep(false); } if (event.key === "Escape") { event.preventDefault(); setTitling(false); } }} className="w-48 min-w-0 rounded border border-line bg-surface px-2 py-0.5 text-xs text-ink outline-none focus-visible:border-copper" aria-label="Artifact title" /></label>
+              <Button size="xs" variant="solid" disabled={busy} onClick={() => { setTitling(false); void keep(false); }}>Confirm</Button>
+              <Button size="xs" variant="ghost" disabled={busy} onClick={() => setTitling(false)}>Cancel</Button>
+            </>
+          ) : lookup.candidate ? (
+            <>
+              {lookup.candidate.compatible && !lookup.candidate.stale && (
+                <Button size="xs" variant="solid" disabled={busy} onClick={() => void keep(true)}>Accept revision</Button>
+              )}
+              <Button size="xs" disabled={busy} onClick={() => void keep(false)}>Keep as new</Button>
+            </>
+          ) : (
+            <Button size="xs" variant="solid" disabled={busy} onClick={() => { setKeepTitle(title); setTitling(true); }}>Keep</Button>
+          )}
+        </div>
+        {lookup.candidate && (
+          <details open={!lookup.candidate.compatible} className="w-full pt-1 text-xs text-ink-dim">
+            <summary className="cursor-pointer">Contract changes</summary>
+            <div className="mt-1 break-words"><ArtifactContractDiff current={lookup.candidate.currentDefinition} candidate={lookup.candidate.definition} /></div>
+          </details>
+        )}
+      </div>
+    )}
     {lookup?.status === "missing" && <p className="mt-2 text-xs text-ink-dim">The exact source session is unavailable. Kept code and data remain available.</p>}
     {lookup?.status === "deleted" && <p className="mt-2 text-xs text-ink-dim">This artifact was deleted. Its source remains in the transcript.</p>}
     {error && <p role="alert" className="mt-2 text-xs text-rose">{error}</p>}
   </>;
 }
+
 
 /**
  * An interactive HTML artifact (issue #994, flush posture issue #1041): the
@@ -252,6 +331,7 @@ export function HtmlArtifactCard({ item, tabId, deferred = false }: { item: Tool
   const [draftId, setDraftId] = useState<string | null>(null);
   const [historical, setHistorical] = useState(false);
   const [actions, setActions] = useState<HTMLElement | null>(null);
+  const surfaceHandleRef = useRef<ArtifactSurfaceReadyHandle | null>(null);
   const dialogRef = useRef<HTMLDialogElement | null>(null);
   const visible = useStore((s) => tabId === undefined || (s.activeTabId === tabId && s.artifacts === null && !s.routinesOpen && s.stats === null && s.lab === null && s.fleet === null && s.fleetTerminal === null));
   useEffect(() => { if (!visible) setExpanded(false); }, [visible]);
@@ -315,7 +395,7 @@ export function HtmlArtifactCard({ item, tabId, deferred = false }: { item: Tool
           onCancel: managed ? (event: {preventDefault(): void}) => { event.preventDefault(); setExpanded(false); } : undefined,
         }, <>
           <h3 id={titleId} className="sr-only">{title}</h3>
-          {managed ? <ManagedArtifactSurface key="managed" html={shown.html} title={title} source={visible && draftId ? {draftId} : undefined} historical={historical} inline className={expanded ? "min-h-0 flex-1" : undefined} style={expanded ? undefined : {height: frameHeight}} onMeasured={expanded ? undefined : setMeasured} onEscape={() => setExpanded(false)} /> : visible && latched && !expanded
+          {managed ? <ManagedArtifactSurface key="managed" html={shown.html} title={title} source={visible && draftId ? {draftId} : undefined} historical={historical} inline className={expanded ? "min-h-0 flex-1" : undefined} style={expanded ? undefined : {height: frameHeight}} onMeasured={expanded ? undefined : setMeasured} onEscape={() => setExpanded(false)} onSurfaceReady={(handle) => { surfaceHandleRef.current = handle; }} /> : visible && latched && !expanded
             ? <ArtifactSurface html={shown.html} title={title} style={{height: frameHeight}} onMeasured={setMeasured} />
             : <div aria-hidden className="w-full" style={{height: frameHeight}} />}
           <div className="pointer-events-none absolute inset-x-0 top-1.5 flex justify-end px-1.5" style={managed && expanded && IS_ELECTRON && OVERLAY_INSET > 0 ? { paddingRight: OVERLAY_INSET } : undefined}><div className="pointer-events-auto flex max-w-[calc(100vw-2rem)] flex-wrap items-center gap-1 rounded-md border border-line bg-overlay/85 px-1 py-0.5 opacity-0 backdrop-glass transition-opacity duration-150 group-hover:opacity-100 group-focus-within:opacity-100">
@@ -326,7 +406,7 @@ export function HtmlArtifactCard({ item, tabId, deferred = false }: { item: Tool
         </>)}
       </div>
       {expanded && !managed && <ArtifactViewer html={shown.html} title={title} hint={scriptsOffHint ? IS_ELECTRON ? "This artifact uses scripts, which are off in Settings → Artifacts." : "This viewer never runs artifact scripts; interactive behavior did not run." : undefined} onClose={() => setExpanded(false)} />}
-      {tabId && <ArtifactActions item={item} tabId={tabId} title={title} onResolvedDraft={setDraftId} onHistorical={setHistorical} container={actions} />}
+      {tabId && <ArtifactActions item={item} tabId={tabId} title={title} onResolvedDraft={setDraftId} onHistorical={setHistorical} container={actions} surfaceHandleRef={surfaceHandleRef} />}
     </div>}
     {item.status === "running" && <div className="flex items-center gap-2 animate-rise"><span className="text-xs text-ink-faint">running</span><div className="flex-1"><ProgressSweep tone="copper" /></div></div>}
     {slab !== null && <Slab className="max-h-48 animate-rise" tone={item.status === "error" ? "rose" : "neutral"}>{linkify(slab)}</Slab>}
