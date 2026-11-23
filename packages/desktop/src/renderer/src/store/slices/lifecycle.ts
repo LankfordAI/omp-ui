@@ -229,6 +229,10 @@ export function createLifecycleSlice(
       quietWedgeNotified: false,
       timedOutCommands: [],
       lastFrameAt: undefined,
+      // A fresh process has no renderer-observed checkpoint: resetting it
+      // also stops the #100 notice from citing the dead process's
+      // "since turn started" (issue #228, #179).
+      streamCheckpoint: undefined,
       pendingTurnKeywords: [],
       keywordInputBatchStarted: false,
     });
@@ -241,10 +245,6 @@ export function createLifecycleSlice(
       experimentProposal: null,
       approvalPrompt: null,
       failure: undefined,
-      // A fresh process has no renderer-observed checkpoint: resetting it
-      // also stops the #100 notice from citing the dead process's
-      // "since turn started" (issue #228, #179).
-      streamCheckpoint: undefined,
       streamStallMs: undefined,
       activeTurnKeywords: [],
       // The dying process's run (paused or not) dies with it (issue #1192).

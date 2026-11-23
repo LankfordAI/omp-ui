@@ -7055,7 +7055,7 @@ describe("live stream-stall indicator (issue #228)", () => {
         type: "message_update",
         assistantMessageEvent: { type, contentIndex: 0 },
       });
-      expect(h.useStore.getState().rpc[h.TAB]!.streamCheckpoint).toMatchObject({
+      expect(peekTabRuntime(h.TAB)?.streamCheckpoint).toMatchObject({
         at: 1_000_000 + i * 10_000,
         label: BLOCK_LABELS[i],
       });
@@ -7182,7 +7182,7 @@ describe("live stream-stall indicator (issue #228)", () => {
     expect(h.useStore.getState().rpc[h.TAB]!.streamStallMs).toBe(
       h.STREAM_STALL_THRESHOLD_MS,
     );
-    expect(h.useStore.getState().rpc[h.TAB]!.streamCheckpoint).toBeDefined();
+    expect(peekTabRuntime(h.TAB)?.streamCheckpoint).toBeDefined();
     // The explicit stop is observable without advancing the clock: the armed
     // interval is gone the moment the relaunch lands (self-termination would
     // only remove it on the next tick).
@@ -7193,10 +7193,33 @@ describe("live stream-stall indicator (issue #228)", () => {
     const tab = h.useStore.getState().rpc[h.TAB]!;
     expect(tab.status).toBe("starting");
     expect(tab.streamStallMs).toBeUndefined();
-    expect(tab.streamCheckpoint).toBeUndefined();
+    expect(peekTabRuntime(h.TAB)?.streamCheckpoint).toBeUndefined();
     // The clock is stopped: nothing can re-arm it while "starting".
     vi.advanceTimersByTime(120_000);
     expect(h.useStore.getState().rpc[h.TAB]!.streamStallMs).toBeUndefined();
+  });
+
+  it("does not bump the reactive rpc map on a pure token delta (#1286)", () => {
+    vi.useFakeTimers();
+    vi.setSystemTime(1_000_000);
+    openAssistant();
+    const beforeRpc = h.useStore.getState().rpc;
+    const beforeTab = beforeRpc[h.TAB];
+    const checkpointBefore = peekTabRuntime(h.TAB)?.streamCheckpoint;
+
+    vi.setSystemTime(1_000_500);
+    h.useStore.getState().handleRpcFrame(h.TAB, {
+      type: "message_update",
+      assistantMessageEvent: { type: "text_delta", delta: "hello" },
+    });
+
+    expect(h.useStore.getState().rpc).toBe(beforeRpc);
+    expect(h.useStore.getState().rpc[h.TAB]).toBe(beforeTab);
+    expect(peekTabRuntime(h.TAB)?.streamCheckpoint).not.toEqual(checkpointBefore);
+    expect(peekTabRuntime(h.TAB)?.streamCheckpoint).toMatchObject({
+      at: 1_000_500,
+      label: "streaming text",
+    });
   });
 
   it("does not claim a stall before it has seen a checkpoint (late joiner)", () => {

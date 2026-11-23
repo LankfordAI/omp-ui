@@ -1829,3 +1829,30 @@ describe("live voice handoff from a renderer that does not own the call (issue #
     expect(h.mockBackend.hibernatePlanSource).toHaveBeenCalledWith(h.TAB, "fresh-tab");
   });
 });
+
+describe("applyAuthoritativeState tabs identity (#1286)", () => {
+  it("preserves the tabs array reference when no record mode changed", async () => {
+    const initial = h.stateWithRecord(null);
+    const tab = tabInfo({ tabId: h.TAB, mode: "rpc-ui", hidden: true });
+    h.useStore.setState({ state: initial, tabs: [tab] });
+    const beforeTabs = h.useStore.getState().tabs;
+
+    h.mockBackend.getState.mockResolvedValueOnce({ ...initial });
+    await h.useStore.getState().resyncAfterReconnect();
+    expect(h.useStore.getState().tabs).toBe(beforeTabs);
+
+    // When a record's mode actually changes, a new tabs array is minted.
+    const flipped = makeBackendState({
+      projects: [
+        {
+          ...initial.projects[0]!,
+          sessions: [{ ...initial.projects[0]!.sessions[0]!, mode: "pty" }],
+        },
+      ],
+    });
+    h.mockBackend.getState.mockResolvedValueOnce(flipped);
+    await h.useStore.getState().resyncAfterReconnect();
+    expect(h.useStore.getState().tabs).not.toBe(beforeTabs);
+    expect(h.useStore.getState().tabs[0]!.mode).toBe("pty");
+  });
+});

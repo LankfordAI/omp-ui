@@ -413,16 +413,20 @@ export const useStore = create<UiStore>()((set, get, api) => {
           handedOffFor[sourceTabId] = implementationTabId;
         }
       }
+      let tabsChanged = false;
+      const nextTabs = current.tabs.map((tab) => {
+        const record = findRecord(state, tab.tabId);
+        if (record && record.mode !== tab.mode) {
+          tabsChanged = true;
+          return { ...tab, mode: record.mode };
+        }
+        return tab;
+      });
       return {
         state,
         handedOffFor,
         observedPlanHandoffs,
-        tabs: current.tabs.map((tab) => {
-          const record = findRecord(state, tab.tabId);
-          return record && record.mode !== tab.mode
-            ? { ...tab, mode: record.mode }
-            : tab;
-        }),
+        tabs: tabsChanged ? nextTabs : current.tabs,
       };
     });
     for (const tabId of reboot) void get().bootRpcTab(tabId);

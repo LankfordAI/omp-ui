@@ -21,6 +21,8 @@ export interface WatcherHubDeps {
   broadcast: () => Promise<void>;
   /** An actual transcript header was observed, not a fabricated session identity. */
   onSessionObserved?: (tabId: string, sessionId: string) => void;
+  /** Fired when a watched lineage dir vanishes so MainBackend can drop its disk memo (#1286). */
+  onLineageVanished?: (tabId: string) => void;
 }
 
 /**
@@ -44,6 +46,7 @@ export class WatcherHub {
       watchLineageDir(absDir, (event) => {
         if (event.kind === "vanished") {
           this.stop(record.tabId);
+          this.deps.onLineageVanished?.(record.tabId);
           void this.deps.broadcast();
           return;
         }
@@ -93,18 +96,18 @@ export class WatcherHub {
 
   /** First materialization, /new, /branch, title-slot rewrites → adopt + broadcast. */
   private async onSessionFile(tabId: string, filePath: string): Promise<void> {
-    const record = this.deps.registry.sessions.find((s) => s.tabId === tabId);
+    const record = this.deps.registry.findSession(tabId);
     if (!record) return;
     try {
       const h = await hydrateSessionFile(filePath);
-      const patch: Partial<Omit<OwnedSessionRecord, "tabId">> = {};
+      const patch: Partial<Pick<OwnedSessionRecord, "sessionId" | "cachedTitle" | "cachedModified">> = {};
       if (h.id && h.id !== record.sessionId) patch.sessionId = h.id;
       const title = h.title?.trim() ? h.title : null;
       if (title !== record.cachedTitle) patch.cachedTitle = title;
       const modified = h.mtime.toISOString();
       if (modified !== record.cachedModified) patch.cachedModified = modified;
       if (Object.keys(patch).length > 0) {
-        this.deps.registry.updateSession(tabId, patch);
+        this.deps.registry.updateSessionEphemeral(tabId, patch);
         if (typeof patch.sessionId === "string") this.deps.onSessionObserved?.(tabId, patch.sessionId);
         this.broadcastPatch(
           patch.sessionId !== undefined || patch.cachedTitle !== undefined,

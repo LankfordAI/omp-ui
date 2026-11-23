@@ -117,7 +117,7 @@ export * from "./types";
 export { parseSpawnRequest } from "./spawn-request";
 export * from "./backend-arg-codecs";
 export * from "./backend-channels";
-export { Registry, planHandoffDescendants, type RegistrySettings } from "./registry";
+export { Registry, planHandoffDescendants, type EphemeralSessionPatch, type RegistrySettings } from "./registry";
 export { spawnOmp, spawnOmpLogin, spawnOmpTui, spawnShell, isOmpLoginProgram, ompLoginArgs, ompTuiArgs, type PtyHandle } from "./pty";
 export { batched } from "./pty-batch";
 export * from "./session-command";

@@ -581,13 +581,27 @@ export function Sidebar() {
   // Entries held by a collapsed Working/Snoozed/Settled section, or hidden by
   // the search filter, still surface here — the stack ignores the query.
   const unread = useStore((st) => st.unread);
-  const rpcTabs = useStore((st) => st.rpc);
+  const attentionKey = useStore((st) => {
+    if (st.state === null) return "";
+    const parts: string[] = [];
+    const visit = (s: SessionSummary): void => {
+      const waitingRun =
+        isLocalRoutineRun(s) && s.live === "live" && s.awaitingHumanAnswer === true;
+      if (st.unread[s.tabId] === undefined && !waitingRun) return;
+      parts.push(`${s.tabId}|${deriveSidebarSessionState(s, st.rpc[s.tabId])}`);
+    };
+    for (const g of st.state.projects) for (const s of g.sessions) visit(s);
+    for (const s of st.state.chats) visit(s);
+    return parts.join(";");
+  });
   const attention = useMemo(
     () =>
       state === null
         ? []
-        : buildAttentionEntries(state, unread, (s) => deriveSidebarSessionState(s, rpcTabs[s.tabId])),
-    [state, unread, rpcTabs],
+        : buildAttentionEntries(state, unread, (s) =>
+            deriveSidebarSessionState(s, useStore.getState().rpc[s.tabId]),
+          ),
+    [state, unread, attentionKey],
   );
   // A session reads once (#1038): while its card heads the stack, its row is
   // suppressed from every list below — otherwise a fresh flag looks like a

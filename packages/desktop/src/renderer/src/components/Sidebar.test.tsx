@@ -1,5 +1,5 @@
 // @vitest-environment jsdom
-import { act } from "react";
+import { Profiler, act } from "react";
 import { createRoot, type Root } from "react-dom/client";
 import { afterEach, beforeEach, describe, expect, it, vi } from "vitest";
 import { ASYNC_JOBS_SNAPSHOT_VERSION, type AsyncJobsSnapshot } from "@omp-ui/core/async-jobs";
@@ -1778,5 +1778,54 @@ describe("Sidebar Routine runs and the Routines button (ADR-0100, issue #1261)",
     expect(stack?.textContent).toContain("Morning overview · 2026-11-22 08:00");
     act(() => routinesButton.click());
     expect(openRoutines).toHaveBeenCalled();
+  });
+});
+
+describe("Sidebar store subscription stability (#1286)", () => {
+  it("does not re-render Sidebar when an unrelated rpc field or token delta updates", () => {
+    const onRender = vi.fn();
+    const tabId = state.projects[0]!.sessions[0]!.tabId;
+    useStore.setState({
+      state,
+      rpc: { [tabId]: rpcTabState({ status: "running" }) },
+      unread: {},
+    });
+    const host = document.createElement("div");
+    document.body.appendChild(host);
+    const root = createRoot(host);
+    try {
+      act(() => {
+        root.render(
+          <Profiler id="sidebar" onRender={onRender}>
+            <Sidebar />
+          </Profiler>,
+        );
+      });
+      const initialCommits = onRender.mock.calls.length;
+      expect(initialCommits).toBeGreaterThan(0);
+
+      // Mutate an unrelated rpc field (simulating non-level rpc update):
+      act(() => {
+        useStore.setState((st) => ({
+          rpc: {
+            ...st.rpc,
+            [tabId]: { ...st.rpc[tabId]!, busy: true },
+          },
+        }));
+      });
+      expect(onRender.mock.calls.length).toBe(initialCommits);
+
+      // Dispatch a pure text_delta frame:
+      act(() => {
+        useStore.getState().handleRpcFrame(tabId, {
+          type: "message_update",
+          assistantMessageEvent: { type: "text_delta", delta: "chunk" },
+        });
+      });
+      expect(onRender.mock.calls.length).toBe(initialCommits);
+    } finally {
+      act(() => root.unmount());
+      host.remove();
+    }
   });
 });

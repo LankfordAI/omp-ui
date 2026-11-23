@@ -1000,6 +1000,20 @@ function writeRegistry(file: string, data: RegistryData): void {
   writeTextAtomic(file, `${JSON.stringify(data, null, 2)}\n`, 0o600);
 }
 
+/** Fixed-deadline batching window for ephemeral recency-field writes (#1286). */
+const EPHEMERAL_FLUSH_MS = 2_000;
+
+/** Keys allowed on the deferred ephemeral write path — all self-heal on next build (#1286). */
+export type EphemeralSessionPatch = Partial<
+  Pick<OwnedSessionRecord, "cachedModified" | "cachedTitle" | "sessionId">
+>;
+
+const EPHEMERAL_SESSION_KEYS: Record<string, true> = {
+  cachedModified: true,
+  cachedTitle: true,
+  sessionId: true,
+};
+
 /**
  * One-time default flip: legacy registries persisted the old off default for
  * `defaultAutoThinking` (the settings object is always written in full), so a
@@ -1079,6 +1093,9 @@ function seedThemeAgentAccessDefaultOn(file: string, data: RegistryData): void {
 export class Registry {
   readonly #file: string;
   #data: RegistryData;
+  #cachedSessions: readonly OwnedSessionRecord[] | null = null;
+  #dirty = false;
+  #flushTimer: ReturnType<typeof setTimeout> | null = null;
 
   private constructor(file: string, data: RegistryData) {
     this.#file = file;
@@ -1137,7 +1154,47 @@ export class Registry {
     if (!mutate(draft)) return false;
     writeRegistry(this.#file, draft);
     this.#data = draft;
+    this.#cachedSessions = null;
+    // The sync write persisted the whole registry (including any prior dirty ephemeral fields).
+    this.#clearPendingFlush();
     return true;
+  }
+
+  #clearPendingFlush(): void {
+    this.#dirty = false;
+    if (this.#flushTimer !== null) {
+      clearTimeout(this.#flushTimer);
+      this.#flushTimer = null;
+    }
+  }
+
+  #armFlushTimer(): void {
+    if (this.#flushTimer !== null) return;
+    // Fixed deadline anchored at first dirty (#1286): later patches inside the
+    // window extend the dirty set without starving persistence during streams.
+    this.#flushTimer = setTimeout(() => {
+      this.#flushTimer = null;
+      if (!this.#dirty) return;
+      try {
+        writeRegistry(this.#file, this.#data);
+        this.#dirty = false;
+      } catch (err) {
+        // Keep #dirty set so the next arm or explicit flush() retries; never throw from void timer.
+        console.warn("[registry] deferred ephemeral flush failed:", err);
+      }
+    }, EPHEMERAL_FLUSH_MS);
+    this.#flushTimer.unref?.();
+  }
+
+  /** Persists pending deferred ephemeral writes immediately and cancels the timer (#1286). */
+  flush(): void {
+    if (this.#flushTimer !== null) {
+      clearTimeout(this.#flushTimer);
+      this.#flushTimer = null;
+    }
+    if (!this.#dirty) return;
+    writeRegistry(this.#file, this.#data);
+    this.#dirty = false;
   }
 
   /**
@@ -1190,7 +1247,16 @@ export class Registry {
   }
 
   get sessions(): readonly OwnedSessionRecord[] {
-    return deepFreeze(structuredClone(this.#data.sessions));
+    if (this.#cachedSessions === null) {
+      this.#cachedSessions = deepFreeze(structuredClone(this.#data.sessions));
+    }
+    return this.#cachedSessions;
+  }
+
+  /** Returns one cloned session record without cloning the entire registry (#1286). */
+  findSession(tabId: string): OwnedSessionRecord | undefined {
+    const found = this.#data.sessions.find((session) => session.tabId === tabId);
+    return found === undefined ? undefined : structuredClone(found);
   }
 
 
@@ -1459,16 +1525,45 @@ export class Registry {
   ): OwnedSessionRecord | undefined {
     const existing = this.#data.sessions.find((session) => session.tabId === tabId);
     if (!existing) return undefined;
+    const keys = Object.keys(patch) as Array<keyof typeof patch>;
+    const changed = keys.some((key) => !Object.is(existing[key], patch[key]));
+    if (!changed) return structuredClone(existing);
     this.#transaction((draft) => {
       const record = draft.sessions.find((session) => session.tabId === tabId)!;
-      const changed = (Object.keys(patch) as Array<keyof typeof patch>).some(
-        (key) => !Object.is(record[key], patch[key]),
-      );
-      if (!changed) return false;
       Object.assign(record, patch);
       return true;
     });
     return structuredClone(this.#data.sessions.find((session) => session.tabId === tabId)!);
+  }
+
+  /**
+   * Deferred persistence path restricted to the three self-healing recency
+   * fields (`cachedModified`, `cachedTitle`, `sessionId`) (#1286). Applies
+   * immediately in memory and arms a fixed-deadline flush timer (max 2 s).
+   */
+  updateSessionEphemeral(
+    tabId: string,
+    patch: EphemeralSessionPatch,
+  ): OwnedSessionRecord | undefined {
+    const keys = Object.keys(patch);
+    for (const key of keys) {
+      if (!Object.hasOwn(EPHEMERAL_SESSION_KEYS, key)) {
+        throw new Error(`updateSessionEphemeral: disallowed key "${key}"`);
+      }
+    }
+    const existing = this.#data.sessions.find((session) => session.tabId === tabId);
+    if (!existing) return undefined;
+    const typedKeys = keys as Array<keyof EphemeralSessionPatch>;
+    const changed = typedKeys.some((key) => !Object.is(existing[key], patch[key]));
+    if (!changed) return structuredClone(existing);
+    const draft = structuredClone(this.#data);
+    const record = draft.sessions.find((session) => session.tabId === tabId)!;
+    Object.assign(record, patch);
+    this.#data = draft;
+    this.#cachedSessions = null;
+    this.#dirty = true;
+    this.#armFlushTimer();
+    return structuredClone(record);
   }
 
   getFavorites(): string[] {

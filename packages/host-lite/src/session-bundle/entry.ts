@@ -109,14 +109,42 @@ export function createSessionBundle(input: LiteSessionBundleDependencies): LiteS
   const sessionsRoot = input.getSessionsRoot();
   const archiveRoot = input.getArchiveRoot();
 
-  /** Mirrors the desktop backend's serialize-then-catch chain: a failed build never wedges the queue. */
-  let broadcastChain: Promise<void> = Promise.resolve();
+  /** Single-flight coalescing broadcast loop mirroring desktop MainBackend (#1286). */
+  let broadcastRequests = 0;
+  let broadcastInFlight = false;
+  const broadcastWaiters: { order: number; settle: PromiseWithResolvers<void> }[] = [];
+
+  const runBroadcastLoop = async (): Promise<void> => {
+    broadcastInFlight = true;
+    try {
+      while (broadcastWaiters.length > 0) {
+        await Promise.resolve();
+        const coversThrough = broadcastRequests;
+        let failure: unknown = null;
+        try {
+          emit(CH.onStateChanged, await buildState());
+        } catch (error) {
+          failure = error;
+        }
+        const covered: { order: number; settle: PromiseWithResolvers<void> }[] = [];
+        while (broadcastWaiters.length > 0 && broadcastWaiters[0]!.order <= coversThrough) {
+          covered.push(broadcastWaiters.shift()!);
+        }
+        for (const w of covered) {
+          if (failure === null) w.settle.resolve();
+          else w.settle.reject(failure);
+        }
+      }
+    } finally {
+      broadcastInFlight = false;
+    }
+  };
+
   const broadcast = (): Promise<void> => {
-    const task = broadcastChain.then(async () => {
-      emit(CH.onStateChanged, await buildState());
-    });
-    broadcastChain = task.catch(() => {});
-    return task;
+    const waiter = { order: ++broadcastRequests, settle: Promise.withResolvers<void>() };
+    broadcastWaiters.push(waiter);
+    if (!broadcastInFlight) void runBroadcastLoop();
+    return waiter.settle.promise;
   };
 
   // Windowless default where a desktop default would reach Electron: the

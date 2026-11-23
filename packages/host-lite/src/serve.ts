@@ -201,6 +201,7 @@ export async function startLiteFleetMember(opts: LiteServeOptions = {}): Promise
       // terminals before the session machinery drains below them.
       liveFleet?.dispose();
       await sessions.dispose();
+      registry.flush();
     },
   };
 }

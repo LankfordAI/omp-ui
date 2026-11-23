@@ -603,7 +603,6 @@ function freshRpcTabState(
     subagentMarkers: new Map(),
     subagentAckLevel: undefined,
     extensionStatus: {},
-    streamCheckpoint: undefined,
     streamStallMs: undefined,
     stallAbortPending: undefined,
     stallCount: 0,
