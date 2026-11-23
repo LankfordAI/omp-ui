@@ -410,9 +410,15 @@ export const OMP_SETTING_GROUPS: ReadonlyArray<OmpSettingGroup> = [
     // verified-passage hit threshold (both unset = omp's built-in behavior).
     // Each is a plain scalar row; keys an older binary does not publish
     // render no row, the existing per-key skip rule.
+    // omp 19.1 (issue #1273): `edit.mode` gains the `magic` value — described
+    // changes a fast model turns into patches — whose option rides in from
+    // `omp config list` like the rest of the enum; `edit.magic.model` picks
+    // the apply model (selector or @role alias, empty = the smol role) and
+    // renders as a plain string row.
     title: "Tools",
     keys: [
       "edit.mode",
+      "edit.magic.model",
       "todo.midRunNudges",
       "grep.contextBefore",
       "grep.contextAfter",
