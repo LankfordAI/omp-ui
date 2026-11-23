@@ -51,6 +51,11 @@ export class RoutineStore {
         record.scripts = { pre: "", post: "" };
         mutated = true;
       }
+      // Legacy pre-#1290 record: backfill missing timeoutMinutes to null (30 min default).
+      if (!("timeoutMinutes" in (record as Partial<RoutineRecord>))) {
+        record.timeoutMinutes = null;
+        mutated = true;
+      }
       this.records.push(record);
     }
     if (mutated) {

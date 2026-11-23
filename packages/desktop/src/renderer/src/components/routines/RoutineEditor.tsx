@@ -5,9 +5,11 @@ import {
   ROUTINE_COST_MAX_USD,
   ROUTINE_DEFAULT_ALLOW_BUILTINS,
   ROUTINE_DEFAULT_ALLOW_VAULT_TOOLS,
+  ROUTINE_DEFAULT_TIMEOUT_MINUTES,
   ROUTINE_INSTRUCTIONS_MAX,
   ROUTINE_NAME_MAX,
   ROUTINE_SCRIPT_MAX,
+  ROUTINE_TIMEOUT_MAX_MINUTES,
   type RoutineCatalogSnapshot,
   type RoutineDryRunResult,
   type RoutineInput,
@@ -52,6 +54,7 @@ import {
   OUTCOME_LABEL,
   OUTCOME_TONE,
   buildSchedule,
+  formatTimeout,
   formatUsd,
   formatWhen,
   runsOf,
@@ -74,6 +77,7 @@ interface Draft {
   thinkingLevel: string | null;
   warnUsd: string;
   maxUsd: string;
+  timeoutMinutes: string;
   toolPolicy: RoutineToolPolicy;
   preScript: string;
   postScript: string;
@@ -93,6 +97,7 @@ function draftOf(routine: RoutineRecord | null, defaultProject: string): Draft {
       thinkingLevel: null,
       warnUsd: "",
       maxUsd: "",
+      timeoutMinutes: "",
       toolPolicy: {
         allow: [...ROUTINE_DEFAULT_ALLOW_BUILTINS, ...ROUTINE_DEFAULT_ALLOW_VAULT_TOOLS],
         deny: [],
@@ -116,6 +121,7 @@ function draftOf(routine: RoutineRecord | null, defaultProject: string): Draft {
     thinkingLevel: routine.thinkingLevel,
     warnUsd: routine.spend.warnUsd === null ? "" : String(routine.spend.warnUsd),
     maxUsd: routine.spend.maxUsd === null ? "" : String(routine.spend.maxUsd),
+    timeoutMinutes: routine.timeoutMinutes === null ? "" : String(routine.timeoutMinutes),
     toolPolicy: routine.toolPolicy,
     // Hydrate both phases: seeding empty here would silently wipe a saved hook
     // on any unrelated edit (#1283).
@@ -130,6 +136,13 @@ function parseSpend(raw: string): number | null {
   if (raw.trim() === "") return null;
   const value = Number(raw);
   return Number.isFinite(value) && value >= 0 && value <= ROUTINE_COST_MAX_USD ? value : Number.NaN;
+}
+
+/** Blank = default (null, 30 min); 0 = unlimited; 1..1440 = custom minutes; NaN = invalid. */
+function parseTimeout(raw: string): number | null {
+  if (raw.trim() === "") return null;
+  const value = Number(raw);
+  return Number.isInteger(value) && value >= 0 && value <= ROUTINE_TIMEOUT_MAX_MINUTES ? value : Number.NaN;
 }
 
 /** Composer-style icon row shared by the execution control surfaces. */
@@ -266,6 +279,7 @@ export function RoutineEditor({
   const nextRunMs = schedule === null ? null : nextRunAfter(schedule, timeZone, Date.now());
   const warnUsd = parseSpend(draft.warnUsd);
   const maxUsd = parseSpend(draft.maxUsd);
+  const timeoutMinutes = parseTimeout(draft.timeoutMinutes);
   const trimmedName = draft.name.trim();
   const problem =
     trimmedName === ""
@@ -284,9 +298,11 @@ export function RoutineEditor({
                 ? t("routines.error.project")
                 : Number.isNaN(warnUsd) || Number.isNaN(maxUsd)
                   ? t("routines.error.spend", { max: ROUTINE_COST_MAX_USD })
-                  : draft.preScript.length > ROUTINE_SCRIPT_MAX || draft.postScript.length > ROUTINE_SCRIPT_MAX
-                    ? t("routines.hooks.tooLong", { max: ROUTINE_SCRIPT_MAX })
-                    : null;
+                  : Number.isNaN(timeoutMinutes)
+                    ? t("routines.error.timeout", { max: ROUTINE_TIMEOUT_MAX_MINUTES })
+                    : draft.preScript.length > ROUTINE_SCRIPT_MAX || draft.postScript.length > ROUTINE_SCRIPT_MAX
+                      ? t("routines.hooks.tooLong", { max: ROUTINE_SCRIPT_MAX })
+                      : null;
 
   const input: RoutineInput | null =
     problem === null && schedule !== null
@@ -302,6 +318,7 @@ export function RoutineEditor({
           spend: { warnUsd, maxUsd },
           toolPolicy: draft.toolPolicy,
           scripts: { pre: draft.preScript, post: draft.postScript },
+          timeoutMinutes,
           enabled: draft.enabled,
         }
       : null;
@@ -422,6 +439,9 @@ export function RoutineEditor({
   const defaults = { warn: routinesState?.defaultWarnCostUsd ?? 2, max: routinesState?.defaultMaxCostUsd ?? 5 };
   const effectiveWarn = warnUsd !== null && !Number.isNaN(warnUsd) ? warnUsd : defaults.warn;
   const effectiveMax = maxUsd !== null && !Number.isNaN(maxUsd) ? maxUsd : defaults.max;
+  const effectiveTimeoutMinutes =
+    timeoutMinutes !== null && !Number.isNaN(timeoutMinutes) ? timeoutMinutes : ROUTINE_DEFAULT_TIMEOUT_MINUTES;
+  const timeoutUnlimited = timeoutMinutes === 0;
   const set = (patch: Partial<Draft>): void => setDraft((d) => ({ ...d, ...patch }));
   const setSchedule = (patch: Partial<ScheduleDraft>): void =>
     setDraft((d) => ({ ...d, schedule: { ...d.schedule, ...patch } }));
@@ -672,9 +692,16 @@ export function RoutineEditor({
                   <IconLock className="size-3 text-ink-faint" />
                   {t("routines.studio.privateOverlay")}
                 </span>
-                <span className="inline-flex items-center gap-1 font-mono text-ink-mid">
-                  <IconClock className="size-3 text-ink-faint" />
-                  {t("routines.studio.wallClockLimit")}
+                <span
+                  data-flight-timeout
+                  title={timeoutUnlimited ? t("routines.field.timeoutUnlimitedWarning") : undefined}
+                  className={cn(
+                    "inline-flex items-center gap-1 font-mono",
+                    timeoutUnlimited ? "text-copper" : "text-ink-mid",
+                  )}
+                >
+                  <IconClock className={cn("size-3", timeoutUnlimited ? "text-copper" : "text-ink-faint")} />
+                  {formatTimeout(effectiveTimeoutMinutes)}
                 </span>
 
                 <Button size="xs" variant="ghost" className="ml-auto" onClick={() => setActiveTab("policy")}>
@@ -958,6 +985,57 @@ export function RoutineEditor({
                   </div>
                   <p className="text-[11px] leading-relaxed text-ink-faint">
                     {t("settings.experimental.routineCostHint")}
+                  </p>
+                </div>
+
+                <div aria-hidden className="h-px bg-line-soft" />
+
+                <div className="space-y-1.5 px-2 py-0.5">
+                  <div className="flex items-baseline justify-between gap-2 text-xs text-ink-mid">
+                    <span>{t("routines.field.timeout")}</span>
+                    <span
+                      className={cn(
+                        "truncate font-mono text-[11px]",
+                        timeoutUnlimited ? "text-copper" : "text-ink-faint",
+                      )}
+                    >
+                      {formatTimeout(effectiveTimeoutMinutes)}
+                    </span>
+                  </div>
+                  <div className="flex flex-wrap items-center gap-2">
+                    <ChoiceCapsule<"limited" | "unlimited">
+                      label={t("routines.field.timeout")}
+                      value={timeoutUnlimited ? "unlimited" : "limited"}
+                      options={[
+                        { value: "limited", label: t("routines.field.timeoutLimit") },
+                        { value: "unlimited", label: t("routines.timeout.unlimited") },
+                      ]}
+                      onChange={(next) => set({ timeoutMinutes: next === "unlimited" ? "0" : "" })}
+                      optionClassName="tab-label px-2"
+                    />
+                    {!timeoutUnlimited && (
+                      <input
+                        type="number"
+                        min={1}
+                        max={ROUTINE_TIMEOUT_MAX_MINUTES}
+                        step={1}
+                        aria-label={t("routines.field.timeout")}
+                        value={draft.timeoutMinutes}
+                        placeholder={String(ROUTINE_DEFAULT_TIMEOUT_MINUTES)}
+                        onChange={(e) => set({ timeoutMinutes: e.target.value })}
+                        className={cn(FIELD, "w-28")}
+                      />
+                    )}
+                  </div>
+                  <p
+                    className={cn(
+                      "text-[11px] leading-relaxed",
+                      timeoutUnlimited ? "text-copper" : "text-ink-faint",
+                    )}
+                  >
+                    {timeoutUnlimited
+                      ? t("routines.field.timeoutUnlimitedWarning")
+                      : t("routines.field.timeoutHint", { defaultMinutes: ROUTINE_DEFAULT_TIMEOUT_MINUTES })}
                   </p>
                 </div>
               </section>

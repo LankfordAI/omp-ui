@@ -2,7 +2,13 @@ import * as fs from "node:fs";
 import * as os from "node:os";
 import * as path from "node:path";
 import { afterEach, beforeEach, describe, expect, it, vi } from "vitest";
-import { OMP_ERROR_FLAG_USAGE_LIMIT, RoutineRunHistory, type RoutineRunRow, type RpcFrame } from "@omp-ui/core";
+import {
+  OMP_ERROR_FLAG_USAGE_LIMIT,
+  ROUTINE_RUN_WALL_CLOCK_MS,
+  RoutineRunHistory,
+  type RoutineRunRow,
+  type RpcFrame,
+} from "@omp-ui/core";
 import { RoutineLifecycleManager } from "./routine-lifecycle";
 import type { RoutineScriptEnv } from "./routine-scripts";
 
@@ -38,7 +44,7 @@ function row(id: string, trigger: RoutineRunRow["trigger"] = "clock"): RoutineRu
 let dir: string;
 let fileSeq = 0;
 
-function harness(trigger: RoutineRunRow["trigger"] = "clock") {
+function harness(trigger: RoutineRunRow["trigger"] = "clock", wallClockMs: number | null = ROUTINE_RUN_WALL_CLOCK_MS) {
   const history = new RoutineRunHistory(path.join(dir, `routine-runs-${++fileSeq}.json`));
   history.record(row("run-1", trigger));
   const enabled = { value: true };
@@ -72,6 +78,7 @@ function harness(trigger: RoutineRunRow["trigger"] = "clock") {
     routineId: ROUTINE_ID,
     projectCwd: "/proj",
     workspace: "worktree",
+    wallClockMs,
   });
   const frame = (f: RpcFrame): void => lifecycle.onFrame(TAB, f);
   const rowNow = (): RoutineRunRow => history.list().find((r) => r.id === "run-1")!;
@@ -82,6 +89,7 @@ function harness(trigger: RoutineRunRow["trigger"] = "clock") {
       routineId: ROUTINE_ID,
       projectCwd: "/proj",
       workspace: "worktree",
+      wallClockMs,
     });
   };
   return {
@@ -164,6 +172,7 @@ describe("RoutineLifecycleManager approval auto-Deny (U9b)", () => {
       routineId: ROUTINE_ID,
       projectCwd: "/proj",
       workspace: "worktree",
+      wallClockMs: null,
     });
     await vi.advanceTimersByTimeAsync(24 * 3_600_000 - 60_000);
     expect(h.sent).toEqual([]);
@@ -184,6 +193,7 @@ describe("RoutineLifecycleManager approval auto-Deny (U9b)", () => {
       routineId: ROUTINE_ID,
       projectCwd: "/proj",
       workspace: "worktree",
+      wallClockMs: null,
     });
     h.frame(approvalFrame("card-1"));
     h.frame(approvalFrame("card-2"));
@@ -203,6 +213,7 @@ describe("RoutineLifecycleManager approval auto-Deny (U9b)", () => {
       routineId: ROUTINE_ID,
       projectCwd: "/proj",
       workspace: "worktree",
+      wallClockMs: null,
     });
     h.frame(approvalFrame("card-1"));
     await vi.advanceTimersByTimeAsync(24 * 3_600_000);
@@ -232,6 +243,47 @@ describe("RoutineLifecycleManager wall clock (U9c)", () => {
     await vi.advanceTimersByTimeAsync(40 * 60_000);
     expect(h.settleSession).toHaveBeenCalledTimes(1);
     expect(h.rowNow().outcome).toBe("on-time");
+  });
+
+  it("enforces a shorter custom wall clock (5 min)", async () => {
+    const h = harness("clock", 5 * 60_000);
+    h.frame({ type: "agent_start" });
+    await vi.advanceTimersByTimeAsync(4 * 60_000);
+    expect(h.settleSession).not.toHaveBeenCalled();
+    await vi.advanceTimersByTimeAsync(60_000);
+    expect(h.settleSession).toHaveBeenCalledWith(TAB);
+    expect(h.rowNow()).toMatchObject({ outcome: "failed", reasonCode: "wall-clock" });
+  });
+
+  it("enforces a longer custom wall clock (90 min) past the 30-min default", async () => {
+    const h = harness("clock", 90 * 60_000);
+    h.frame({ type: "agent_start" });
+    await vi.advanceTimersByTimeAsync(35 * 60_000);
+    expect(h.settleSession).not.toHaveBeenCalled();
+    await vi.advanceTimersByTimeAsync(55 * 60_000);
+    expect(h.settleSession).toHaveBeenCalledWith(TAB);
+    expect(h.rowNow()).toMatchObject({ outcome: "failed", reasonCode: "wall-clock" });
+  });
+
+  it("unlimited (wallClockMs: null) never reaps for wall-clock, while Approval auto-Deny and settle grace still fire", async () => {
+    const h = harness("clock", null);
+    h.frame({ type: "agent_start" });
+    await vi.advanceTimersByTimeAsync(30 * 3_600_000);
+    expect(h.settleSession).not.toHaveBeenCalled();
+    expect(h.rowNow()).toMatchObject({ outcome: "running", reasonCode: null });
+
+    // Approval card still auto-Denies at 24 h even without a wall clock.
+    h.frame(approvalFrame("card-u"));
+    h.openDialogs.push("card-u");
+    await vi.advanceTimersByTimeAsync(24 * 3_600_000);
+    expect(h.sent).toEqual([{ tabId: TAB, cmd: { type: "extension_ui_response", id: "card-u", value: "Deny" } }]);
+    expect(h.settleSession).not.toHaveBeenCalled();
+    h.lifecycle.onSend(TAB, h.sent[0]!.cmd);
+
+    // Terminal agent_end still self-Settles after 60 s.
+    h.frame({ type: "agent_end" });
+    await vi.advanceTimersByTimeAsync(60_000);
+    expect(h.settleSession).toHaveBeenCalledTimes(1);
   });
 });
 
@@ -291,6 +343,7 @@ describe("RoutineLifecycleManager outcomes (U9d-e)", () => {
       routineId: ROUTINE_ID,
       projectCwd: "/proj",
       workspace: "worktree",
+      wallClockMs: ROUTINE_RUN_WALL_CLOCK_MS,
     });
     expect(history.list()[0]).toMatchObject({ outcome: "on-time" });
     // Pre-bind race (#1283): finalization happened on the early frame; the
@@ -456,6 +509,7 @@ describe("RoutineLifecycleManager post-run hook (#1283)", () => {
       routineId: ROUTINE_ID,
       projectCwd: "/proj",
       workspace: "worktree",
+      wallClockMs: ROUTINE_RUN_WALL_CLOCK_MS,
     });
     mgr.onFrame(TAB, { type: "agent_end" });
     await vi.advanceTimersByTimeAsync(0);
@@ -491,6 +545,7 @@ describe("RoutineLifecycleManager post-run hook (#1283)", () => {
       routineId: ROUTINE_ID,
       projectCwd: "/proj",
       workspace: "worktree",
+      wallClockMs: ROUTINE_RUN_WALL_CLOCK_MS,
     });
     mgr.onFrame(TAB, { type: "agent_end" });
     // A human continuation parks a card while the hook is still in flight.

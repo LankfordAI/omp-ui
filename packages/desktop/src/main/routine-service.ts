@@ -2,6 +2,8 @@ import { randomBytes } from "node:crypto";
 import {
   compileRoutineToolPolicy,
   nextRunAfter,
+  resolveRoutineTimeoutMinutes,
+  resolveRoutineWallClockMs,
   type FleetDispatchRequest,
   type FleetDispatchResult,
   type OwnedSessionRecord,
@@ -107,15 +109,15 @@ export class RoutineService {
       dispatch: deps.dispatch,
       runScript: (command, cwd, env) => runRoutineScript(command, cwd, env),
       postRunning: (tabId) => deps.lifecycle.postRunning(tabId),
-      onRunStarted: (tabId, routineId, runRowId, trigger, firedAtMs) => {
-        // Fire-time pin: the scheduler still holds the fire-time record, so a
-        // mid-run edit or delete can neither change nor skip an in-flight post.
-        const routine = deps.store.get(routineId);
+      onRunStarted: (tabId, routine, runRowId, trigger, firedAtMs) => {
+        // Fire-time pin: the scheduler hands over its fire-time snapshot directly, so a
+        // mid-run edit or delete can neither change nor skip an in-flight post hook or timeout.
         deps.lifecycle.trackStart(tabId, runRowId, trigger, firedAtMs, {
-          scripts: routine?.scripts ?? { pre: "", post: "" },
-          routineId,
-          projectCwd: routine?.destination.projectCwd ?? "",
-          workspace: routine?.destination.workspace ?? "worktree",
+          scripts: routine.scripts,
+          routineId: routine.id,
+          projectCwd: routine.destination.projectCwd,
+          workspace: routine.destination.workspace,
+          wallClockMs: resolveRoutineWallClockMs(routine.timeoutMinutes),
         });
       },
       onPostFire: async () => {
@@ -255,6 +257,7 @@ export class RoutineService {
       staleServers: catalog.staleServers,
       enumerationError: catalog.enumerationError,
       scripts: input.scripts,
+      timeoutMinutes: resolveRoutineTimeoutMinutes(input.timeoutMinutes),
     };
   }
 

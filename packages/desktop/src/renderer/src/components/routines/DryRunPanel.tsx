@@ -1,7 +1,7 @@
 import type { RoutineDryRunResult } from "@omp-ui/core/routine";
 import { useT } from "../../lib/i18n";
 import { Button } from "../ui";
-import { formatUsd, formatWhen } from "./routine-format";
+import { formatTimeout, formatUsd, formatWhen } from "./routine-format";
 
 /**
  * The Dry run preview (ADR-0100 §11.1): the exact fire-time compile over the
@@ -39,6 +39,7 @@ export function DryRunPanel({
               project: projectName,
               model: modelLabel,
               next: result.nextFireAtMs === null ? t("routines.paused") : formatWhen(result.nextFireAtMs),
+              timeout: formatTimeout(result.timeoutMinutes),
               warn: result.warnCostUsd === 0 ? t("routines.noCap") : formatUsd(result.warnCostUsd),
               max: result.maxCostUsd === 0 ? t("routines.noCap") : formatUsd(result.maxCostUsd),
             })}

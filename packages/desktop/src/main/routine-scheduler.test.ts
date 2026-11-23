@@ -48,6 +48,7 @@ function routine(id: string, overrides: Partial<RoutineRecord> = {}): RoutineRec
     spend: { warnUsd: null, maxUsd: 7 },
     toolPolicy: { allow: ["read"], deny: ["bash"], lastReviewedAt: new Date(T0).toISOString(), reviewedCatalog: ["read", "bash"] },
     scripts: { pre: "", post: "" },
+    timeoutMinutes: null,
     enabled: true,
     createdAt: new Date(T0).toISOString(),
     nextRunAtMs: T0,

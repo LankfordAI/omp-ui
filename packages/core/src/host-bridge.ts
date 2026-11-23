@@ -8,7 +8,13 @@
 // malformed, and a URI scheme must match `^[a-z][a-z0-9+.-]*$`.
 
 import { deviceTool } from "./device-tool";
-import { ROUTINE_COST_MAX_USD, ROUTINE_INSTRUCTIONS_MAX, ROUTINE_NAME_MAX } from "./routine";
+import {
+  ROUTINE_COST_MAX_USD,
+  ROUTINE_DEFAULT_TIMEOUT_MINUTES,
+  ROUTINE_INSTRUCTIONS_MAX,
+  ROUTINE_NAME_MAX,
+  ROUTINE_TIMEOUT_MAX_MINUTES,
+} from "./routine";
 import { issueDraftTool, issueFileTool } from "./issue-tool";
 import { themeListTool, themeSetTool, themeTool } from "./theme-tool";
 import {
@@ -158,6 +164,12 @@ function routineCreateTool(): RpcHostToolDefinition {
         allow: { type: "array", items: { type: "string" }, description: "Exact omp tool keys allowed unprompted at fire time." },
         warnUsd: { type: ["number", "null"], minimum: 0, maximum: ROUTINE_COST_MAX_USD, description: "Spend warning cap; null = registry default." },
         maxUsd: { type: ["number", "null"], minimum: 0, maximum: ROUTINE_COST_MAX_USD, description: "Spend hard cap; null = registry default." },
+        timeoutMinutes: {
+          type: ["integer", "null"],
+          minimum: 0,
+          maximum: ROUTINE_TIMEOUT_MAX_MINUTES,
+          description: `Wall-clock run timeout in minutes; null = default (${ROUTINE_DEFAULT_TIMEOUT_MINUTES} min), 0 = unlimited.`,
+        },
       },
     },
   };
