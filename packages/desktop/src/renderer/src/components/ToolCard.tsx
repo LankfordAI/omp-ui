@@ -622,9 +622,9 @@ function AskAnswers({ facts }: { facts: AskFacts }) {
   );
 }
 
-function jsonText(value: unknown): string {
+function jsonText(value: unknown, pretty = true): string {
   try {
-    return JSON.stringify(value, null, 2) ?? String(value);
+    return (pretty ? JSON.stringify(value, null, 2) : JSON.stringify(value)) ?? String(value);
   } catch {
     // Cyclic or exotic args must not take the transcript down with them.
     return String(value);
@@ -722,6 +722,7 @@ export function AdvisoryNotes({ notes }: { notes: AdvisorNote[] }) {
  * its own exit status (independent of the outer shell's).
  */
 function ToolCommandRows({ item }: { item: ToolItem }) {
+  if (item.name !== "bash") return null;
   const dispatches = item.toolCommands ?? [];
   if (dispatches.length === 0) return null;
   return (
@@ -735,7 +736,7 @@ function ToolCommandRows({ item }: { item: ToolItem }) {
             </span>
             <span
               className="min-w-0 truncate font-mono text-xs text-ink-mid"
-              title={dispatch.args === undefined ? dispatch.tool : `${dispatch.tool} ${JSON.stringify(dispatch.args)}`}
+              title={dispatch.args === undefined ? dispatch.tool : `${dispatch.tool} ${jsonText(dispatch.args, false)}`}
             >
               {dispatch.tool}
             </span>
@@ -833,9 +834,13 @@ export function ToolCard({ item, tabId }: { item: ToolItem; tabId?: string }) {
   // Upstream's brief-label rule (issue #1274): while a call streams, the header
   // carries pi-wire's short intent label and the full text only as the tooltip;
   // a settled card shows the whole intent again — ranking and history keep it.
+  // An intent can arrive on `tool_execution_start.intent` or, while args stream
+  // before start, in `args.i`.
+  const rawIntent = item.intent ?? strField(item.args, "i");
   const fullHeadline = item.intent ?? argSummary(item.args);
+  const headlineTitle = rawIntent ?? fullHeadline;
   const headline =
-    item.status === "running" && item.intent !== undefined ? toolIntentLabel(item.intent) : fullHeadline;
+    item.status === "running" && rawIntent !== undefined ? toolIntentLabel(rawIntent) : fullHeadline;
   const duration = item.wallTimeMs !== undefined ? formatDuration(item.wallTimeMs) : "";
   const draft = useMemo(() => editDraft(item.name, item.args), [item.name, item.args]);
   const taskFiles = useMemo(
@@ -885,7 +890,7 @@ export function ToolCard({ item, tabId }: { item: ToolItem; tabId?: string }) {
     hasDiff ||
     item.partialText !== undefined ||
     execDir !== null ||
-    (item.toolCommands?.length ?? 0) > 0 ||
+    (item.name === "bash" && (item.toolCommands?.length ?? 0) > 0) ||
     draft !== null ||
     (item.notes?.length ?? 0) > 0;
 
@@ -910,7 +915,7 @@ export function ToolCard({ item, tabId }: { item: ToolItem; tabId?: string }) {
           <ToolGlyph kind={glyphFor(item.name)} />
         </span>
         <span className="shrink-0 font-mono text-xs font-semibold text-ink">{item.name}</span>
-        <span className="min-w-0 flex-1 truncate text-xs text-ink-mid" title={fullHeadline}>
+        <span className="min-w-0 flex-1 truncate text-xs text-ink-mid" title={headlineTitle}>
           {headline}
         </span>
         {duration && (

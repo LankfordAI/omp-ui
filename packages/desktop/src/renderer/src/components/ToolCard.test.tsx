@@ -1138,16 +1138,46 @@ describe("ToolCard tool-command nesting and brief labels (issue #1274)", () => {
     const running = renderCard(
       tool({ name: "read", status: "running", intent: "Reading config.json: 3 top-level keys" }),
     );
-    expect(running.el.textContent).toContain("Reading config.json");
+    const headerText = running.el.querySelector("button")?.textContent ?? "";
+    expect(headerText).toContain("Reading config.json");
+    expect(headerText).not.toContain("3 top-level keys");
     expect(running.el.querySelector("span[title]")?.getAttribute("title")).toBe(
       "Reading config.json: 3 top-level keys",
     );
     act(() => running.root.unmount());
+
+    // Before tool_execution_start, streamed intent arrives in args.i.
+    const streamedArgs = renderCard(
+      tool({
+        name: "read",
+        status: "running",
+        args: { i: "Reading config.json: 3 top-level keys", path: "config.json" },
+      }),
+    );
+    const streamedHeader = streamedArgs.el.querySelector("button")?.textContent ?? "";
+    expect(streamedHeader).toContain("Reading config.json");
+    expect(streamedHeader).not.toContain("3 top-level keys");
+    expect(streamedArgs.el.querySelector("span[title]")?.getAttribute("title")).toBe(
+      "Reading config.json: 3 top-level keys",
+    );
+    act(() => streamedArgs.root.unmount());
 
     const settled = renderCard(
       tool({ name: "read", status: "done", intent: "Reading config.json: 3 top-level keys" }),
     );
     expect(settled.el.textContent).toContain("Reading config.json: 3 top-level keys");
     act(() => settled.root.unmount());
+  });
+
+  it("does not render toolCommands rows on non-bash tools", () => {
+    const { el, root } = renderCard(
+      tool({
+        name: "write",
+        resultText: "done",
+        toolCommands: [{ tool: "lsp", mode: "help", exitCode: 0 }],
+      }),
+    );
+    expect(el.querySelector("[data-tool-command]")).toBeNull();
+    act(() => root.unmount());
   });
 });

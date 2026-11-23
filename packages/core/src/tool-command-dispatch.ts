@@ -57,3 +57,28 @@ export function parseToolCommandDispatches(details: unknown): ToolCommandDispatc
   }
   return dispatches;
 }
+
+/** Structural equality for two dispatch snapshots — lets live updates detect
+ *  an in-place exitCode/mode/args transition on an already-recorded dispatch
+ *  (progress sets exitCode=1 before finish sets exitCode=0) while keeping
+ *  identical heartbeat frames identity-cheap. */
+export function sameToolCommandDispatches(
+  a: readonly ToolCommandDispatch[] | undefined,
+  b: readonly ToolCommandDispatch[] | undefined,
+): boolean {
+  if (a === b) return true;
+  if (!a || !b || a.length !== b.length) return false;
+  for (let i = 0; i < a.length; i++) {
+    const x = a[i]!;
+    const y = b[i]!;
+    if (x.tool !== y.tool || x.mode !== y.mode || x.exitCode !== y.exitCode) return false;
+    if (x.args === y.args) continue;
+    if (x.args === undefined || y.args === undefined) return false;
+    try {
+      if (JSON.stringify(x.args) !== JSON.stringify(y.args)) return false;
+    } catch {
+      return false;
+    }
+  }
+  return true;
+}

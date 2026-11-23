@@ -1,5 +1,5 @@
 import { describe, expect, it } from "vitest";
-import { parseToolCommandDispatches } from "./tool-command-dispatch";
+import { parseToolCommandDispatches, sameToolCommandDispatches } from "./tool-command-dispatch";
 
 describe("parseToolCommandDispatches (issue #1274)", () => {
   it("keeps the record's invocation order with mode and exit status", () => {
@@ -42,5 +42,14 @@ describe("parseToolCommandDispatches (issue #1274)", () => {
     expect(
       parseToolCommandDispatches({ toolCommands: [{ tool: "x", mode: "execute", exitCode: 0, args: [1] }] }),
     ).toEqual([{ tool: "x", mode: "execute", exitCode: 0 }]);
+  });
+
+  it("compares dispatch snapshots structurally so exitCode/args transitions register", () => {
+    const running = [{ tool: "read", mode: "execute" as const, exitCode: 1, args: { path: "a.ts" } }];
+    const done = [{ tool: "read", mode: "execute" as const, exitCode: 0, args: { path: "a.ts" } }];
+    const repeat = [{ tool: "read", mode: "execute" as const, exitCode: 1, args: { path: "a.ts" } }];
+    expect(sameToolCommandDispatches(running, repeat)).toBe(true);
+    expect(sameToolCommandDispatches(running, done)).toBe(false);
+    expect(sameToolCommandDispatches(undefined, running)).toBe(false);
   });
 });

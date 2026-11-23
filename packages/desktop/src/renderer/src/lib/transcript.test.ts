@@ -3003,4 +3003,47 @@ describe("bash tool-command nesting (issue #1274)", () => {
     expect(tool(history, "b3")).toMatchObject({ toolCommands: dispatches });
     expect(tool(history, "b4")).not.toHaveProperty("toolCommands");
   });
+
+  it("updates an in-place dispatch when a running command settles its exitCode", () => {
+    let items = reduceEvent([], { type: "tool_execution_start", toolCallId: "b5", toolName: "bash" });
+    items = reduceEvent(items, {
+      type: "tool_execution_update",
+      toolCallId: "b5",
+      toolName: "bash",
+      partialResult: {
+        content: [],
+        details: { toolCommands: [{ tool: "read", mode: "execute", exitCode: 1, args: { path: "a.ts" } }] },
+      },
+    });
+    expect(tool(items, "b5")?.toolCommands?.[0]?.exitCode).toBe(1);
+    // Same array length, but exitCode transitions 1 → 0 once finish() fires.
+    items = reduceEvent(items, {
+      type: "tool_execution_update",
+      toolCallId: "b5",
+      toolName: "bash",
+      partialResult: {
+        content: [],
+        details: { toolCommands: [{ tool: "read", mode: "execute", exitCode: 0, args: { path: "a.ts" } }] },
+      },
+    });
+    expect(tool(items, "b5")?.toolCommands?.[0]?.exitCode).toBe(0);
+  });
+
+  it("ignores stray toolCommands details on non-bash tools and indexes bash dispatches in search", () => {
+    const nonBash = reduceEvent([], {
+      type: "tool_execution_end",
+      toolCallId: "w1",
+      toolName: "write",
+      result: { content: [{ type: "text", text: "ok" }], details: { toolCommands: dispatches } },
+    });
+    expect(tool(nonBash, "w1")).not.toHaveProperty("toolCommands");
+
+    const bash = reduceEvent([], {
+      type: "tool_execution_end",
+      toolCallId: "b6",
+      toolName: "bash",
+      result: { content: [{ type: "text", text: "ok" }], details: { toolCommands: dispatches } },
+    });
+    expect(itemSearchText(tool(bash, "b6")!)).toContain("lsp");
+  });
 });

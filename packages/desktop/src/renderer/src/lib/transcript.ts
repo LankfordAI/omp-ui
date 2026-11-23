@@ -21,7 +21,11 @@ import { isAgentPauseFrame, isNonTerminalAgentEnd } from "@omp-ui/core/run-end";
 import { parseBashMinimized, type BashMinimized } from "@omp-ui/core/bash-minimized";
 import { parseBashTruncation, type BashTruncation } from "@omp-ui/core/bash-truncation";
 import { parseBashToolTruncation, type BashToolTruncation } from "@omp-ui/core/bash-tool-truncation";
-import { parseToolCommandDispatches, type ToolCommandDispatch } from "@omp-ui/core/tool-command-dispatch";
+import {
+  parseToolCommandDispatches,
+  sameToolCommandDispatches,
+  type ToolCommandDispatch,
+} from "@omp-ui/core/tool-command-dispatch";
 import { parseSpillReference, type SpillReference } from "@omp-ui/core/spill";
 import { parseWebSearchFailures, type WebSearchProviderFailure } from "@omp-ui/core/web-search-failures";
 
@@ -488,6 +492,7 @@ export function itemSearchText(item: RenderItem): string {
         item.resultText,
         item.partialText,
         ...(item.replies ?? []),
+        ...(item.toolCommands?.map((d) => d.tool) ?? []),
       );
       break;
     case "advisory":
@@ -801,7 +806,11 @@ function toolTruncationField(details: unknown): { toolTruncation?: BashToolTrunc
 }
 
 /** omp 19.1 bash `details.toolCommands`: the in-run command dispatches the card nests (issue #1274). */
-function toolCommandsField(details: unknown): { toolCommands?: ToolCommandDispatch[] } {
+function toolCommandsField(
+  name: string | undefined,
+  details: unknown,
+): { toolCommands?: ToolCommandDispatch[] } {
+  if (name !== "bash") return {};
   const toolCommands = parseToolCommandDispatches(details);
   return toolCommands.length > 0 ? { toolCommands } : {};
 }
@@ -1386,13 +1395,14 @@ export function reduceEvent(items: RenderItem[], event: unknown): RenderItem[] {
       // already carried adds nothing, so heartbeats stay identity-cheap.
       const cwd = cwdText(partial?.details);
       const cwdProgress = cwd !== undefined && cwd !== item.cwd;
-      // A command dispatched mid-run grows the record (issue #1274); a repeat
-      // of what the card already carries is a heartbeat, not progress.
-      const toolCommands = toolCommandsField(partial?.details);
+      // A command dispatched mid-run grows the record or updates a running
+      // dispatch when it finishes (progress starts with exitCode 1 before
+      // finish records exitCode 0, issue #1274); an identical repeat stays
+      // identity-cheap so heartbeats do not re-render.
+      const toolCommands = toolCommandsField(item.name, partial?.details);
       const dispatchProgress =
         toolCommands.toolCommands !== undefined &&
-        toolCommands.toolCommands.length > (item.toolCommands?.length ?? 0);
-      // Status stays `running` — an update is progress, never completion.
+        !sameToolCommandDispatches(item.toolCommands, toolCommands.toolCommands);
       if (!partialText && replies.replies === undefined && toolTruncation.toolTruncation === undefined && !cwdProgress && !dispatchProgress) return items;
       return replaceAt(items, idx, {
         ...item,
@@ -1431,7 +1441,7 @@ export function reduceEvent(items: RenderItem[], event: unknown): RenderItem[] {
         ...minimizedField(details),
         toolTruncation: toolTruncationField(details).toolTruncation,
         ...spillField(details),
-        ...toolCommandsField(details),
+        ...toolCommandsField(item?.name ?? str(event.toolName), details),
         ...providerFailuresField(item?.name ?? str(event.toolName), details),
         ...askFactsField(item?.name ?? str(event.toolName), details),
       };
@@ -1708,7 +1718,7 @@ export function historyToItems(messages: unknown[]): RenderItem[] {
         ...minimizedField(details),
         ...toolTruncationField(details),
         ...spillField(details),
-        ...toolCommandsField(details),
+        ...toolCommandsField(item.name, details),
         ...providerFailuresField(item.name, details),
         ...askFactsField(item.name, details),
       };
