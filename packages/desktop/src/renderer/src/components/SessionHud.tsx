@@ -43,6 +43,7 @@ import { PullRequestChip } from "./PullRequestChip";
 import { Button, Chevron, Chip, CopyButton, Dot, ICON_STROKE, IconButton, IconLock, IconRefresh, IconSessionTree, Label, Meter, Panel, ProgressRing, Sheet, Switch, type Tone } from "./ui";
 import { TONE_BORDER_OUTLINE_HOVER, TONE_CHIP, TONE_TEXT } from "./ui/tone";
 import { resolveDispatchLinks } from "../lib/dispatched-sessions";
+import { dispatchedSpendFingerprint, dispatchedSpendForTab, type DispatchedSpendSummary } from "../lib/dispatched-spend";
 
 /**
  * The instrument's status bar: one line that answers "is it alive, what is it
@@ -1407,6 +1408,7 @@ function GaugeChip({
   markerTokens,
   mainSpend,
   sessionSpend,
+  dispatchedSpend,
   warmingMethod,
   limits,
   advisor,
@@ -1423,6 +1425,7 @@ function GaugeChip({
   markerTokens: number | null;
   mainSpend: MainSpend | null;
   sessionSpend: SessionSpendSnapshot | null;
+  dispatchedSpend: DispatchedSpendSummary | null;
   /** The warming method the newest cache_warming_* frame reported (issue #1238);
    *  null on harnesses whose frames carry none — the popover then reads as today. */
   warmingMethod: CacheWarmingMethod | null;
@@ -1545,6 +1548,7 @@ function GaugeChip({
             title={mainSpend.sessionTotal ? t("hud.metrics.sessionTotalTitle") : t("hud.metrics.runOnlyTitle")}
           >
             {formatCost(mainSpend.cost)}
+            {dispatchedSpend !== null && dispatchedSpend.missing > 0 ? "+" : ""}
             <span className="ml-1 font-sans">
               {t(mainSpend.sessionTotal ? "hud.metrics.sessionShort" : "hud.metrics.thisRun")}
             </span>
@@ -1593,7 +1597,10 @@ function GaugeChip({
                     <Label>{t("hud.metrics.spend")}</Label>
                     <span className="font-mono tabular-nums text-ink-mid" title={mainSpend.title}>
                       {t("hud.stats.compact", {
-                        cost: formatCost(mainSpend.cost),
+                        cost:
+                          dispatchedSpend !== null && dispatchedSpend.missing > 0
+                            ? `${formatCost(mainSpend.cost)}+`
+                            : formatCost(mainSpend.cost),
                         tokens: compactNum(mainSpend.tokens),
                         premium: mainSpend.premium,
                       })}
@@ -1633,6 +1640,28 @@ function GaugeChip({
                         <span className="font-mono tabular-nums">{formatCost(sessionSpend.subagents.cost)}</span>
                       </div>
                     </>
+                  )}
+                  {dispatchedSpend !== null && (
+                    <div
+                      className={cn(GAUGE_HEADER, "pl-2 text-ink-dim")}
+                      title={
+                        dispatchedSpend.missing > 0
+                          ? t("hud.gauge.dispatchedPartialTitle", {
+                              reported: dispatchedSpend.reported,
+                              total: dispatchedSpend.count,
+                            })
+                          : undefined
+                      }
+                    >
+                      <span>{t("hud.gauge.dispatched", { count: dispatchedSpend.count })}</span>
+                      <span className="font-mono tabular-nums">
+                        {dispatchedSpend.reported === 0
+                          ? t("hud.gauge.valueUnknown")
+                          : dispatchedSpend.missing > 0
+                            ? `${formatCost(dispatchedSpend.totals.cost)}+`
+                            : formatCost(dispatchedSpend.totals.cost)}
+                      </span>
+                    </div>
                   )}
                   {/* How warming refreshed the provider and what omp's journal
                       attributes to it (issue #1238). The cost is part of the
@@ -1755,33 +1784,104 @@ export function SessionHud({ tabId, active = true }: { tabId: string; active?: b
   // How warming refreshed the provider, as the newest frame with a reported
   // method saw it (issue #1238); null keeps the popover reading as today.
   const warmingMethod = useStore((s) => s.rpc[tabId]?.cacheWarming ?? null);
+  const dispatchedSpendKey = useStore((s) => dispatchedSpendFingerprint(dispatchedSpendForTab(s.state, s.rpc, tabId)));
+  const dispatchedSpend =
+    dispatchedSpendKey === "" ? null : dispatchedSpendForTab(useStore.getState().state, useStore.getState().rpc, tabId);
+  const dispatchedCostLabel =
+    dispatchedSpend === null
+      ? ""
+      : dispatchedSpend.reported === 0
+        ? t("hud.gauge.valueUnknown")
+        : dispatchedSpend.missing > 0
+          ? `${formatCost(dispatchedSpend.totals.cost)}+`
+          : formatCost(dispatchedSpend.totals.cost);
   const sessionTotalReady =
     sessionSpend?.available === true &&
     (!stats || sessionSpendTrustworthy(sessionSpend.total.cost, stats.cost));
-  const mainSpend = sessionTotalReady && sessionSpend !== null
-    ? {
-        cost: sessionSpend.total.cost,
-        tokens: sessionSpend.total.totalTokens,
-        premium: sessionSpend.total.premiumRequests,
-        sessionTotal: true,
-        title: t("hud.stats.sessionDetails", {
-          cost: formatCost(sessionSpend.total.cost),
-          tokens: exactNum(sessionSpend.total.totalTokens),
-          premium: sessionSpend.total.premiumRequests,
-          main: formatCost(sessionSpend.main.cost),
-          subagents: formatCost(sessionSpend.subagents.cost),
-          count: sessionSpend.transcripts,
-        }),
-      }
-    : stats
-      ? {
-          cost: stats.cost,
-          tokens: stats.tokens.total,
-          premium: stats.premiumRequests,
-          sessionTotal: false,
-          title: t("hud.stats.details", { cost: formatCost(stats.cost), tokens: exactNum(stats.tokens.total), premium: stats.premiumRequests }),
-        }
-      : null;
+  const mainSpend: MainSpend | null =
+    sessionTotalReady && sessionSpend !== null
+      ? (() => {
+          const cost = sessionSpend.total.cost + (dispatchedSpend?.totals.cost ?? 0);
+          const tokens = sessionSpend.total.totalTokens + (dispatchedSpend?.totals.totalTokens ?? 0);
+          const premium = sessionSpend.total.premiumRequests + (dispatchedSpend?.totals.premiumRequests ?? 0);
+          const costDisplay =
+            dispatchedSpend !== null && dispatchedSpend.missing > 0 ? `${formatCost(cost)}+` : formatCost(cost);
+          return {
+            cost,
+            tokens,
+            premium,
+            sessionTotal: true,
+            title:
+              dispatchedSpend !== null
+                ? t("hud.stats.sessionDetailsWithDispatched", {
+                    cost: costDisplay,
+                    tokens: exactNum(tokens),
+                    premium,
+                    main: formatCost(sessionSpend.main.cost),
+                    subagents: formatCost(sessionSpend.subagents.cost),
+                    count: sessionSpend.transcripts,
+                    dispatched: dispatchedCostLabel,
+                    dispatchedCount: dispatchedSpend.count,
+                  })
+                : t("hud.stats.sessionDetails", {
+                    cost: formatCost(cost),
+                    tokens: exactNum(tokens),
+                    premium,
+                    main: formatCost(sessionSpend.main.cost),
+                    subagents: formatCost(sessionSpend.subagents.cost),
+                    count: sessionSpend.transcripts,
+                  }),
+          };
+        })()
+      : stats
+        ? (() => {
+            const cost = stats.cost + (dispatchedSpend?.totals.cost ?? 0);
+            const tokens = stats.tokens.total + (dispatchedSpend?.totals.totalTokens ?? 0);
+            const premium = stats.premiumRequests + (dispatchedSpend?.totals.premiumRequests ?? 0);
+            const costDisplay =
+              dispatchedSpend !== null && dispatchedSpend.missing > 0 ? `${formatCost(cost)}+` : formatCost(cost);
+            return {
+              cost,
+              tokens,
+              premium,
+              sessionTotal: false,
+              title:
+                dispatchedSpend !== null
+                  ? t("hud.stats.detailsWithDispatched", {
+                      cost: costDisplay,
+                      tokens: exactNum(tokens),
+                      premium,
+                      dispatched: dispatchedCostLabel,
+                      dispatchedCount: dispatchedSpend.count,
+                    })
+                  : t("hud.stats.details", {
+                      cost: formatCost(cost),
+                      tokens: exactNum(tokens),
+                      premium,
+                    }),
+            };
+          })()
+        : dispatchedSpend !== null && dispatchedSpend.reported > 0
+          ? (() => {
+              const cost = dispatchedSpend.totals.cost;
+              const tokens = dispatchedSpend.totals.totalTokens;
+              const premium = dispatchedSpend.totals.premiumRequests;
+              const costDisplay = dispatchedSpend.missing > 0 ? `${formatCost(cost)}+` : formatCost(cost);
+              return {
+                cost,
+                tokens,
+                premium,
+                sessionTotal: true,
+                title: t("hud.stats.detailsWithDispatched", {
+                  cost: costDisplay,
+                  tokens: exactNum(tokens),
+                  premium,
+                  dispatched: dispatchedCostLabel,
+                  dispatchedCount: dispatchedSpend.count,
+                }),
+              };
+            })()
+          : null;
   const extensionStatus = useStore((s) => s.rpc[tabId]?.extensionStatus);
   const title = useStore((s) => findRecord(s.state, tabId)?.title);
   // The owning remote instance (issue #416): the nickname chip, and the target
@@ -2105,7 +2205,24 @@ export function SessionHud({ tabId, active = true }: { tabId: string; active?: b
                 {worktree && <div className="space-y-1"><div className="flex items-center justify-between gap-3"><Label>{t("hud.metrics.worktree")}</Label><span className="flex items-center gap-1"><Chip mono title={worktree.path}>⎇ {worktree.branch}</Chip><CopyButton text={worktree.branch} label={t("hud.actions.copy")} doneLabel={t("hud.actions.copied")} /></span></div><div className="flex items-center justify-between gap-2"><span className="min-w-0 truncate font-mono text-xs text-ink-faint" title={worktree.path}>{worktree.path}</span><CopyButton text={worktree.path} label={t("hud.actions.copy")} doneLabel={t("hud.actions.copied")} /></div></div>}
                 {isPrivate && <div className="flex items-center justify-between gap-3"><Label>{t("hud.metrics.memory")}</Label><span className="flex items-center gap-1 text-ink-mid"><IconLock /><span title={t("session.badge.private")}>{t("hud.metrics.memoryPrivate")}</span></span></div>}
                 {usage && <div className="flex items-center justify-between gap-3"><Label>{t("hud.metrics.context")}</Label><ContextCluster usage={usage} markerTokens={markerTokens} /></div>}
-                {mainSpend && <div className="flex items-center justify-between gap-3"><Label>{t("hud.metrics.spend")}</Label><span className="font-mono text-xs tabular-nums text-ink-mid" title={mainSpend.title}>{t("hud.stats.compact", { cost: formatCost(mainSpend.cost), tokens: compactNum(mainSpend.tokens), premium: mainSpend.premium })} <span className="font-sans">{t(mainSpend.sessionTotal ? "hud.metrics.sessionShort" : "hud.metrics.thisRun")}</span></span></div>}
+                {mainSpend && (
+                  <div className="flex items-center justify-between gap-3">
+                    <Label>{t("hud.metrics.spend")}</Label>
+                    <span className="font-mono text-xs tabular-nums text-ink-mid" title={mainSpend.title}>
+                      {t("hud.stats.compact", {
+                        cost:
+                          dispatchedSpend !== null && dispatchedSpend.missing > 0
+                            ? `${formatCost(mainSpend.cost)}+`
+                            : formatCost(mainSpend.cost),
+                        tokens: compactNum(mainSpend.tokens),
+                        premium: mainSpend.premium,
+                      })}{" "}
+                      <span className="font-sans">
+                        {t(mainSpend.sessionTotal ? "hud.metrics.sessionShort" : "hud.metrics.thisRun")}
+                      </span>
+                    </span>
+                  </div>
+                )}
                 {costCapChip && (
                   <div className="flex items-center justify-between gap-3">
                     <Label>{t("hud.costCap.label")}</Label>
@@ -2230,6 +2347,7 @@ export function SessionHud({ tabId, active = true }: { tabId: string; active?: b
         markerTokens={markerTokens}
         mainSpend={mainSpend}
         sessionSpend={sessionSpend}
+        dispatchedSpend={dispatchedSpend}
         warmingMethod={warmingMethod}
         limits={limitsReady}
         advisor={showAdvisor ? advisorStats : null}

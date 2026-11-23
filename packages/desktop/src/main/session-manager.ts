@@ -54,6 +54,8 @@ import {
   setHostUriSchemesCommand,
   autoresearchArmMessage,
   vibeArmMessage,
+  sessionSpendArmMessage,
+  type SessionSpendSnapshot,
   mintLineageDirName,
   settledWithin,
   forkSessionFile,
@@ -217,6 +219,7 @@ import { ForeignOmpTracker } from "./foreign-omp-tracker";
 import { GoalStatusTracker } from "./goal-status-tracker";
 import { VibeStatusTracker } from "./vibe-status-tracker";
 import { AutoresearchStatusTracker } from "./autoresearch-status-tracker";
+import { SessionSpendTracker } from "./session-spend-tracker";
 import { HeldPromptScheduler } from "./held-prompt-scheduler";
 import { ScheduledPromptRunner } from "./scheduled-prompt-runner";
 import {
@@ -488,6 +491,7 @@ export class SessionManager {
   private readonly goals: GoalStatusTracker;
   private readonly autoresearch: AutoresearchStatusTracker;
   private readonly vibes: VibeStatusTracker;
+  private readonly sessionSpends: SessionSpendTracker;
   /** Send at reset (issue #986): the held prompt per native session. */
   readonly heldPrompts: HeldPromptScheduler;
   /** Scheduled prompts (issue #987): the schedule per native session. */
@@ -747,6 +751,7 @@ export class SessionManager {
     this.goals = new GoalStatusTracker({ broadcast: () => this.deps.broadcast() });
     this.vibes = new VibeStatusTracker({ broadcast: () => this.deps.broadcast() });
     this.autoresearch = new AutoresearchStatusTracker({ broadcast: () => this.deps.broadcast() });
+    this.sessionSpends = new SessionSpendTracker({ broadcast: () => this.deps.broadcast() });
     this.heldPrompts = new HeldPromptScheduler({
       sessions: () => deps.registry.sessions,
       updateSession: (tabId, patch) => deps.registry.updateSession(tabId, patch),
@@ -811,6 +816,7 @@ export class SessionManager {
       this.goals,
       this.vibes,
       this.autoresearch,
+      this.sessionSpends,
       this.projectRequests,
       this.dialogGates,
       ...(this.routineLifecycle === null ? [] : [this.routineLifecycle]),
@@ -938,6 +944,7 @@ export class SessionManager {
     this.toolControl.disposeAll();
     this.heldPrompts.disposeAll();
     this.scheduledPrompts.disposeAll();
+    this.sessionSpends.disposeAll();
     this.planPreflight.clearAll();
   }
 
@@ -1896,6 +1903,13 @@ export class SessionManager {
         type: "prompt",
         id: `omp-ui-initial-routine-guard-${randomUUID()}`,
         message: routineGuardArmMessage(),
+      });
+    }
+    if (bridgeLoaded.sessionSpend) {
+      initialCommands.push({
+        type: "prompt",
+        id: `omp-ui-initial-session-spend-${randomUUID()}`,
+        message: sessionSpendArmMessage(),
       });
     }
     if (bridgeLoaded.autoresearch) {
@@ -3227,6 +3241,11 @@ export class SessionManager {
   /** The live session's autoresearch snapshot, as its own bridge published it (issue #559). */
   autoresearchSnapshot(tabId: string): AutoresearchSnapshot | undefined {
     return this.autoresearch.snapshot(tabId);
+  }
+
+  /** The live session's spend snapshot, as its own bridge published it (ADR-0056 / #1279). */
+  sessionSpendSnapshot(tabId: string): SessionSpendSnapshot | undefined {
+    return this.sessionSpends.snapshot(tabId);
   }
 
   /** Every live terminal tab's Collab host state (issue #686); `null` is off. */

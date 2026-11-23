@@ -434,6 +434,91 @@ describe("desktop InspectorRail", () => {
     expect(spend.textContent).toMatch(/warm cost\s*unknown/);
   });
 
+  it("includes dispatched children spend in rail Spend headline, breakdown row, and Tokens table (#1279)", () => {
+    const totals = (cost: number, input: number, output: number, premiumRequests = 0) => ({
+      cost,
+      input,
+      output,
+      reasoning: 0,
+      cacheRead: 0,
+      cacheWrite: 0,
+      totalTokens: input + output,
+      premiumRequests,
+      requests: 1,
+    });
+    const parentSession = state.projects[0]!.sessions[0]!;
+    const childSession = {
+      ...parentSession,
+      tabId: "child-rail-1",
+      sessionId: "sess-child-rail-1",
+      lineageDir: "lin-child-rail-1",
+      live: "dormant" as const,
+      spend: totals(0.4, 300, 100, 2),
+      fleet: {
+        dispatchId: "disp-rail-1",
+        batchId: "batch-rail",
+        dispatchedAt: "2026-11-22T10:00:00.000Z",
+        requestedBy: { kind: "agent" as const, instanceId: "inst-1", label: "host", sourceTabId: TAB },
+      },
+    };
+    const withChild = backendState({
+      projects: [{ ...state.projects[0]!, sessions: [parentSession, childSession] }],
+    });
+    const sessionSpend = {
+      version: 1 as const,
+      processKey: "p",
+      revision: 1,
+      available: true,
+      unavailable: null,
+      sessionFile: "/s.jsonl",
+      main: totals(0.5, 500, 100, 1),
+      subagents: totals(0.1, 50, 50, 0),
+      total: totals(0.6, 550, 150, 1),
+      transcripts: 1,
+      cacheWarm: { ...totals(0, 0, 0, 0), requests: 0 },
+    };
+    useStore.setState({
+      state: withChild,
+      rpc: { [TAB]: runtime({ sessionSpend }) },
+    });
+    renderRail();
+    openPane("session");
+    const spend = railSection("spend")!;
+    expect(spend.textContent).toMatch(/session\s*\$1\.0000/);
+    expect(spend.textContent).toMatch(/dispatched \(1\)\s*\$0\.4000/);
+    expect(spend.textContent).toMatch(/premium reqs\s*3/);
+    const tokens = railSection("tokens")!;
+    expect(tokens.textContent).toContain("850");
+    expect(tokens.textContent).toContain("1.1K");
+
+    // Parent-lag guard: lagging parent bridge ($0.10 < run stats $0.30) keeps run headline ($0.30 + $0.40 = $0.7000)
+    // and marks parent session row stale, while still showing dispatched (1).
+    act(() =>
+      useStore.setState({
+        rpc: {
+          [TAB]: runtime({
+            stats: {
+              userMessages: 1,
+              assistantMessages: 1,
+              toolCalls: 0,
+              toolResults: 0,
+              totalMessages: 2,
+              tokens: { input: 200, output: 100, reasoning: 0, cacheRead: 0, cacheWrite: 0, total: 300 },
+              cost: 0.3,
+              premiumRequests: 1,
+              editRejections: [],
+              contextUsage: null,
+            },
+            sessionSpend: { ...sessionSpend, total: totals(0.1, 100, 0, 0) },
+          }),
+        },
+      }),
+    );
+    const lagging = railSection("spend")!;
+    expect(lagging.textContent).toMatch(/this run\s*\$0\.7000/);
+    expect(lagging.textContent).toMatch(/dispatched \(1\)\s*\$0\.4000/);
+  });
+
   it("leads with the run figure when the session read sits below it (round-7 judge)", () => {
     const totals = (cost: number) => ({
       cost, input: 0, output: 0, reasoning: 0, cacheRead: 0, cacheWrite: 0, totalTokens: 10, premiumRequests: 1, requests: 1,

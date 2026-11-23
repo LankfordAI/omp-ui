@@ -2429,6 +2429,9 @@ export const ko: Partial<Record<MessageKey, string>> = {
   "hud.gauge.contextShort": "컨텍스트",
   "hud.gauge.main": "메인",
   "hud.gauge.subagents": "서브에이전트 ({count})",
+  "hud.gauge.dispatched": "디스패치 ({count})",
+  "hud.gauge.dispatchedPartialTitle":
+    "디스패치된 세션 {total}개 중 {reported}개의 지출이 집계되었습니다. 나머지 세션은 연결할 수 없거나 이전 호스트 버전입니다.",
   "hud.gauge.cacheWarm": "캐시 워밍",
   "hud.gauge.cacheWarmTitle": "프롬프트 캐시 워밍이 제공자를 어떻게 갱신했는지, 그리고 omp 저널이 해당 갱신으로 집계한 비용. 비용은 위 수치에 이미 포함된 금액이며 추가 청구가 아닙니다. omp가 과금된 갱신을 기록할 때까지 알 수 없음으로 표시됩니다.",
   "hud.gauge.valueUnknown": "알 수 없음",
@@ -2666,6 +2669,10 @@ export const ko: Partial<Record<MessageKey, string>> = {
   "hud.stats.compact": "{cost} · {tokens} tok · 프리미엄 {premium}회",
   "hud.stats.details": "{cost} · {tokens} 토큰 · 프리미엄 요청 {premium}회",
   "hud.stats.sessionDetails": "{cost} · {tokens} 토큰 · 프리미엄 요청 {premium}회 — 메인 {main} · 서브에이전트 {subagents} ({count})",
+  "hud.stats.sessionDetailsWithDispatched":
+    "{cost} · {tokens} 토큰 · 프리미엄 요청 {premium}회 — 메인 {main} · 서브에이전트 {subagents} ({count}) · 디스패치 {dispatched} ({dispatchedCount})",
+  "hud.stats.detailsWithDispatched":
+    "{cost} · {tokens} 토큰 · 프리미엄 요청 {premium}회 — 디스패치 {dispatched} ({dispatchedCount})",
   "hud.status.compacting": "압축 중",
   "hud.status.awaitingWork": "백그라운드 작업 대기 중",
   "hud.status.error": "오류",
@@ -2790,6 +2797,7 @@ export const ko: Partial<Record<MessageKey, string>> = {
   "rail.stats.sessionStaleTitle": "세션 전체 수치가 이번 실행보다 뒤처진 채 집계 중입니다. 위 수치 아래로 내려가지 않습니다.",
   "rail.stats.premiumReqs": "프리미엄 요청",
   "rail.stats.subagentCost": "서브에이전트",
+  "rail.stats.dispatchedCost": "디스패치 ({count})",
   "rail.stats.cacheWarming": "캐시 워밍",
   "rail.stats.cacheWarmingTitle": "omp의 캐시 워밍 이벤트가 보고한 대로, 프롬프트 캐시 워밍이 제공자를 어떻게 갱신했는지.",
   "rail.stats.warmCost": "워밍 비용",

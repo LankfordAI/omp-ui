@@ -22,6 +22,7 @@ import { runningJobCount } from "../lib/async-jobs";
 import type { ProposedPlan, SessionSummary } from "@omp-ui/core/types";
 import type { VibeWorker, VibeWorkerState } from "@omp-ui/core/vibe";
 import { isInterruptedPlan, pendingPlanCount, proposedPlansFor } from "../lib/proposed-plans";
+import { dispatchedSpendFingerprint, dispatchedSpendForTab, type DispatchedSpendSummary } from "../lib/dispatched-spend";
 import { findOwner, findRecord, sessionCwd, useStore, type RpcTabState } from "../store";
 import { DiffViewer } from "./DiffViewer";
 import { TranscriptPlanPicker } from "./TranscriptPlanPicker";
@@ -528,6 +529,7 @@ function StatsTable({
   stats,
   spend,
   subagentCost,
+  dispatchedSpend,
   cacheWarm,
   warmingMethod,
   fileMessages,
@@ -535,6 +537,7 @@ function StatsTable({
   stats: SessionStats | null;
   spend: SpendTotals | null;
   subagentCost: number | null;
+  dispatchedSpend: DispatchedSpendSummary | null;
   /** Cache-warm attribution inside `spend`; null while no session is read. */
   cacheWarm: SpendTotals | null;
   /** The warming method the newest frame reported; null on older harnesses. */
@@ -543,48 +546,92 @@ function StatsTable({
   fileMessages: number | null;
 }) {
   const t = useT();
-  const tokens: TokenTotals | null = spend
-    ? {
-        input: spend.input,
-        output: spend.output,
-        reasoning: spend.reasoning,
-        cacheRead: spend.cacheRead,
-        cacheWrite: spend.cacheWrite,
-        total: spend.totalTokens,
-      }
-    : (stats?.tokens ?? null);
-  const cost = spend?.cost ?? stats?.cost ?? 0;
-  const premiumRequests = spend?.premiumRequests ?? stats?.premiumRequests ?? 0;
-  // The session figure may headline only when it covers this run's receipts.
+  // The session figure may headline only when the parent's own spend covers this run's receipts.
   const sessionHeadline =
     spend !== null && (stats === null || sessionSpendTrustworthy(spend.cost, stats.cost));
+  const dispatched = dispatchedSpend?.totals ?? null;
+  const dispatchedPartial = dispatchedSpend !== null && dispatchedSpend.missing > 0;
+  const tokens: TokenTotals | null =
+    spend && sessionHeadline
+      ? {
+          input: spend.input + (dispatched?.input ?? 0),
+          output: spend.output + (dispatched?.output ?? 0),
+          reasoning: spend.reasoning + (dispatched?.reasoning ?? 0),
+          cacheRead: spend.cacheRead + (dispatched?.cacheRead ?? 0),
+          cacheWrite: spend.cacheWrite + (dispatched?.cacheWrite ?? 0),
+          total: spend.totalTokens + (dispatched?.totalTokens ?? 0),
+        }
+      : spend
+        ? {
+            input: spend.input,
+            output: spend.output,
+            reasoning: spend.reasoning,
+            cacheRead: spend.cacheRead,
+            cacheWrite: spend.cacheWrite,
+            total: spend.totalTokens,
+          }
+        : stats
+          ? stats.tokens
+          : dispatchedSpend !== null && dispatchedSpend.reported > 0
+            ? {
+                input: dispatchedSpend.totals.input,
+                output: dispatchedSpend.totals.output,
+                reasoning: dispatchedSpend.totals.reasoning,
+                cacheRead: dispatchedSpend.totals.cacheRead,
+                cacheWrite: dispatchedSpend.totals.cacheWrite,
+                total: dispatchedSpend.totals.totalTokens,
+              }
+            : null;
+  const dispatchedOnlyHeadline = spend === null && stats === null && dispatchedSpend !== null && dispatchedSpend.reported > 0;
+  const headlineSessionCost =
+    spend && sessionHeadline
+      ? spend.cost + (dispatched?.cost ?? 0)
+      : dispatchedOnlyHeadline
+        ? dispatchedSpend.totals.cost
+        : null;
+  const headlineRunCost = (stats?.cost ?? 0) + (dispatched?.cost ?? 0);
+  const premiumRequests =
+    (spend && sessionHeadline
+      ? spend.premiumRequests
+      : (stats?.premiumRequests ?? spend?.premiumRequests ?? 0)) + (dispatched?.premiumRequests ?? 0);
+  const formatHeadline = (value: number) => (dispatchedPartial ? `${formatCost(value)}+` : formatCost(value));
   return (
     <>
       {/* Round-5 judge, Clarity 1: the headline spend is the whole session —
-          every turn, main and subagents — so it answers "what has this session
-          cost?" and agrees with the transcript's receipts. The process-only
-          figure sits under it as "this run" when both are known.
+          every turn, main, subagents, and dispatched children — so it answers
+          "what has this session cost?" and agrees with the transcript's receipts.
+          The process-only figure sits under it as "this run" when both are known.
           Round-7 judge, Clarity 1: a session total below this run's receipts
           is a stale bridge read, never a fact — lead with the larger figure
           and mark the session row as catching up instead of asserting the
           smaller one as truth. */}
       <Section
         title={
-          <span title={sessionHeadline ? t("hud.metrics.sessionTotalTitle") : t("hud.metrics.runOnlyTitle")}>
+          <span
+            title={
+              sessionHeadline || dispatchedOnlyHeadline
+                ? t("hud.metrics.sessionTotalTitle")
+                : t("hud.metrics.runOnlyTitle")
+            }
+          >
             {t("rail.stats.spend")}
           </span>
         }
       >
         <dl>
-          {spend && sessionHeadline ? (
+          {headlineSessionCost !== null ? (
             <Row label={t("rail.stats.sessionCost")} title={t("hud.metrics.sessionTotalTitle")}>
-              <Num tone="ink" title={`${spend.cost}`}>{formatCost(spend.cost)}</Num>
+              <Num tone="ink" title={`${headlineSessionCost}`}>
+                {formatHeadline(headlineSessionCost)}
+              </Num>
             </Row>
           ) : (
             // The headline is the largest figure we can vouch for: the run's
-            // own receipts whenever the session read lags them.
+            // own receipts (plus dispatched children) whenever the session read lags them.
             <Row label={t("rail.stats.cost")} title={t("hud.metrics.runOnlyTitle")}>
-              <Num tone="ink" title={`${stats?.cost ?? cost}`}>{formatCost(stats?.cost ?? cost)}</Num>
+              <Num tone="ink" title={`${headlineRunCost}`}>
+                {formatHeadline(headlineRunCost)}
+              </Num>
             </Row>
           )}
           {spend && sessionHeadline && stats && (
@@ -594,12 +641,35 @@ function StatsTable({
           )}
           {spend && !sessionHeadline && (
             <Row label={t("rail.stats.sessionCost")} title={t("rail.stats.sessionStaleTitle")}>
-              <Num tone="faint" title={`${spend.cost}`}>{formatCost(spend.cost)}</Num>
+              <Num tone="faint" title={`${spend.cost}`}>
+                {formatCost(spend.cost)}
+              </Num>
             </Row>
           )}
           {spend && sessionHeadline && subagentCost !== null && subagentCost > 0 && (
             <Row label={t("rail.stats.subagentCost")}>
               <Num title={`${subagentCost}`}>{formatCost(subagentCost)}</Num>
+            </Row>
+          )}
+          {dispatchedSpend !== null && (
+            <Row
+              label={t("rail.stats.dispatchedCost", { count: dispatchedSpend.count })}
+              title={
+                dispatchedPartial
+                  ? t("hud.gauge.dispatchedPartialTitle", {
+                      reported: dispatchedSpend.reported,
+                      total: dispatchedSpend.count,
+                    })
+                  : undefined
+              }
+            >
+              <Num title={dispatchedSpend.reported > 0 ? `${dispatchedSpend.totals.cost}` : undefined}>
+                {dispatchedSpend.reported === 0
+                  ? t("rail.stats.valueUnknown")
+                  : dispatchedPartial
+                    ? `${formatCost(dispatchedSpend.totals.cost)}+`
+                    : formatCost(dispatchedSpend.totals.cost)}
+              </Num>
             </Row>
           )}
           {premiumRequests > 0 && (
@@ -848,6 +918,9 @@ function SessionPane({ tabId, onJump }: { tabId: string; onJump?: () => void }) 
   const stats = useStore((s) => s.rpc[tabId]?.stats ?? null);
   const sessionSpend = useStore((s) => s.rpc[tabId]?.sessionSpend ?? null);
   const spendAvailable = sessionSpend?.available === true;
+  const dispatchedSpendKey = useStore((s) => dispatchedSpendFingerprint(dispatchedSpendForTab(s.state, s.rpc, tabId)));
+  const dispatchedSpend =
+    dispatchedSpendKey === "" ? null : dispatchedSpendForTab(useStore.getState().state, useStore.getState().rpc, tabId);
   // The warming method the newest cache_warming_* frame reported (issue #1238);
   // null on harnesses that send those frames without one.
   const warmingMethod = useStore((s) => s.rpc[tabId]?.cacheWarming ?? null);
@@ -884,11 +957,12 @@ function SessionPane({ tabId, onJump }: { tabId: string; onJump?: () => void }) 
         </Section>
       )}
 
-      {stats || spendAvailable ? (
+      {stats || spendAvailable || (dispatchedSpend !== null && dispatchedSpend.reported > 0) ? (
         <StatsTable
           stats={stats}
           spend={spendAvailable ? sessionSpend.total : null}
           subagentCost={spendAvailable ? sessionSpend.subagents.cost : null}
+          dispatchedSpend={dispatchedSpend}
           cacheWarm={spendAvailable ? sessionSpend.cacheWarm : null}
           warmingMethod={warmingMethod}
           fileMessages={session?.messageCount ?? null}

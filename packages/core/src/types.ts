@@ -19,6 +19,7 @@ import type { HeldPrompt } from "./held-prompt";
 import type { ScheduledPrompt } from "./scheduled-prompt";
 import type { SessionRoutine } from "./routine";
 import type { ProjectRequestPrompt } from "./project-request";
+import type { SpendTotals } from "./session-spend";
 export type {
   CheckoutExperiments,
   ExperimentDetail,
@@ -794,6 +795,14 @@ export interface SessionSummary extends OwnedSessionRecord {
    * remote host still decodes; absent reads as null.
    */
   forkSourceTabId?: string | null;
+  /**
+   * Whole-session spend (main + in-process subagents, ADR-0056). Sourced from
+   * the live spend bridge while running, or the mtime-cached transcript scan
+   * when dormant/archived; null when unpersisted, missing, or unreadable.
+   * Ephemeral projection — never persisted in registry.json. Optional so an
+   * older remote host still decodes; absent reads as unknown.
+   */
+  spend?: SpendTotals | null;
 }
 
 export interface ProjectGroup {

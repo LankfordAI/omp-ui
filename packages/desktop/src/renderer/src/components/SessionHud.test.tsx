@@ -469,6 +469,132 @@ describe("wide Session HUD", () => {
     expect(spend().textContent).not.toContain("$0.0000");
   });
 
+  it("includes dispatched children spend in headline, gauge pill, breakdown row, and compact sheet (#1279)", () => {
+    const totals = (cost: number, totalTokens: number, premiumRequests = 0) => ({
+      cost,
+      input: totalTokens,
+      output: 0,
+      reasoning: 0,
+      cacheRead: 0,
+      cacheWrite: 0,
+      totalTokens,
+      premiumRequests,
+      requests: 1,
+    });
+    const parentSession = state.projects[0]!.sessions[0]!;
+    const makeChild = (
+      tabId: string,
+      spend: { cost: number; input: number; output: number; reasoning: number; cacheRead: number; cacheWrite: number; totalTokens: number; premiumRequests: number; requests: number } | null | undefined,
+      live: "live" | "dormant" = "dormant",
+    ) => ({
+      ...parentSession,
+      tabId,
+      sessionId: `sess-${tabId}`,
+      lineageDir: `lin-${tabId}`,
+      live,
+      spend,
+      fleet: {
+        dispatchId: `disp-${tabId}`,
+        batchId: "batch-1",
+        dispatchedAt: "2026-11-22T10:00:00.000Z",
+        requestedBy: { kind: "agent" as const, instanceId: "inst-1", label: "host", sourceTabId: TAB },
+      },
+    });
+    const sessionSpend = {
+      version: 1 as const,
+      processKey: "omp-ui-p",
+      revision: 1,
+      available: true,
+      unavailable: null,
+      sessionFile: "/s/root.jsonl",
+      main: totals(0.2, 200, 1),
+      subagents: totals(0.1, 100, 0),
+      total: totals(0.3, 300, 1),
+      transcripts: 1,
+      cacheWarm: { ...totals(0, 0), requests: 0 },
+    };
+    const withChildren = backendState({
+      projects: [
+        {
+          ...state.projects[0]!,
+          sessions: [
+            parentSession,
+            makeChild("child-1", totals(0.4, 400, 2), "live"),
+            makeChild("child-2", totals(0.5, 500, 1), "dormant"),
+          ],
+        },
+      ],
+    });
+    useStore.setState({
+      state: withChildren,
+      rpc: {
+        [TAB]: { ...useStore.getState().rpc[TAB]!, sessionSpend },
+      },
+    });
+    const host = renderWide();
+    const chip = host.querySelector<HTMLButtonElement>('button[aria-label="context and spend"]')!;
+    expect(chip.textContent).toContain("$1.2000");
+    openGauge(host);
+    const spend = (): HTMLElement => document.body.querySelector<HTMLElement>(".gauge-spend")!;
+    const row = (label: string): HTMLElement | null | undefined =>
+      [...spend().querySelectorAll<HTMLElement>("*")].find((el) => el.textContent?.trim() === label)?.parentElement;
+    expect(spend().textContent).toContain("$1.2000");
+    expect(spend().textContent).toContain("1.2K tok");
+    expect(spend().textContent).toContain("4 premium");
+    expect(row("main")?.textContent).toContain("$0.2000");
+    expect(row("subagents (1)")?.textContent).toContain("$0.1000");
+    expect(row("dispatched (2)")?.textContent).toContain("$0.9000");
+
+    // Partial coverage when one child is from an older remote (spend: undefined): adds + suffix and tooltip.
+    const withPartial = backendState({
+      projects: [
+        {
+          ...state.projects[0]!,
+          sessions: [
+            parentSession,
+            makeChild("child-1", totals(0.4, 400, 2), "live"),
+            makeChild("child-older", undefined, "live"),
+          ],
+        },
+      ],
+    });
+    act(() => useStore.setState({ state: withPartial }));
+    expect(chip.textContent).toContain("$0.7000+");
+    const dispatchedRow = row("dispatched (2)");
+    expect(dispatchedRow?.textContent).toContain("$0.4000+");
+    expect(dispatchedRow?.getAttribute("title")).toContain("1 of 2");
+
+    // Parent-lag invariant: lagging parent bridge ($0.05 < run stats $0.25) still falls back to stats
+    // and hides parent main/subagents split, while still adding dispatched spend to headline & showing row.
+    act(() =>
+      useStore.setState({
+        state: withChildren,
+        rpc: {
+          [TAB]: {
+            ...useStore.getState().rpc[TAB]!,
+            stats: {
+              userMessages: 1,
+              assistantMessages: 1,
+              toolCalls: 0,
+              toolResults: 0,
+              totalMessages: 2,
+              tokens: { input: 200, output: 50, reasoning: 0, cacheRead: 0, cacheWrite: 0, total: 250 },
+              cost: 0.25,
+              premiumRequests: 1,
+              editRejections: [],
+              contextUsage: null,
+            },
+            sessionSpend: { ...sessionSpend, total: totals(0.05, 50, 0) },
+          },
+        },
+      }),
+    );
+    expect(chip.textContent).toContain("$1.1500");
+    expect(chip.textContent).toContain("this run");
+    expect(spend().textContent).not.toContain("subagents");
+    expect(row("dispatched (2)")?.textContent).toContain("$0.9000");
+  });
+
   it("labels the chip's spend as this-run-only and spells out the context word", () => {
     useStore.setState({
       rpc: {

@@ -225,6 +225,21 @@ export {
 export { limitsExtensionPath, writeLimitsExtension } from "./limits-extension";
 export { asyncJobsExtensionPath, writeAsyncJobsExtension } from "./async-jobs-extension";
 export { sessionSpendExtensionPath, writeSessionSpendExtension } from "./session-spend-extension";
+export {
+  SESSION_SPEND_COMMAND,
+  SESSION_SPEND_POLL_IDLE_MS,
+  SESSION_SPEND_POLL_MS,
+  SESSION_SPEND_STATUS_KEY,
+  addSpendTotals,
+  emptySpendTotals,
+  parseSessionSpendSnapshot,
+  sessionSpendArmMessage,
+  spendTotalsEqual,
+  sumSpendTotals,
+  type SessionSpendSnapshot,
+  type SpendTotals,
+} from "./session-spend";
+export { SessionSpendDiskCache, readSessionSpendFromDisk } from "./session-spend-reader";
 export { mcpStatusExtensionPath, writeMcpStatusExtension } from "./mcp-status-extension";
 export { capabilitiesExtensionPath, writeCapabilitiesExtension } from "./capabilities-extension";
 export { vibeExtensionPath, writeVibeExtension } from "./vibe-extension";
