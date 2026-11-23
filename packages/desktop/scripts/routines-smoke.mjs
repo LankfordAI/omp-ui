@@ -388,7 +388,12 @@ const DOM = {
     box.click();
     return true;
   },
-  selectHasOption: ({ selector, value }) => [...(document.querySelector(selector)?.options ?? [])].some((o) => o.value === value),
+  clickTab: (id) => {
+    const tab = document.querySelector(`[data-routine-tab="${id}"]`);
+    if (tab === null) return false;
+    tab.click();
+    return true;
+  },
   approvalCard: () => {
     const card = document.querySelector("[data-approval-card]");
     if (card === null) return null;
@@ -552,9 +557,9 @@ async function createRoutine(cdp, { name, instructions, cron, allow }) {
   await click(cdp, "Cron", '[data-routine-editor] [role="group"][aria-label="Schedule"]');
   await waitFor(() => cdp.run(DOM.fill, { selector: '[data-routine-editor] input[aria-label="Cron expression or @macro"]', value: cron }), 5_000, "cron input");
   await click(cdp, "Project checkout", '[data-routine-editor] [role="group"][aria-label="Workspace"]');
-  if (await cdp.run(DOM.selectHasOption, { selector: '[data-routine-editor] select[aria-label="Model"]', value: "probe/scripted" })) {
-    await cdp.run(DOM.fill, { selector: '[data-routine-editor] select[aria-label="Model"]', value: "probe/scripted" });
-  }
+  // Tool rows render on the Tabbed Studio's Tool policy tab (#1278); the model
+  // stays "Project default" — the scripted probe model is that host default.
+  await waitFor(() => cdp.run(DOM.clickTab, "policy"), 10_000, "Tool policy tab");
   await waitFor(() => cdp.run(DOM.exists, '[data-tool-row="mcp__probe_routines_probe_write"]'), 60_000, "live tool catalog");
   for (const key of allow) await cdp.run(DOM.toggleTool, key);
 }
@@ -569,7 +574,11 @@ async function dryRunText(cdp) {
 async function selectRoutine(cdp, name) {
   await openRoutinesView(cdp);
   await waitFor(() => cdp.run(DOM.pickRoutine, name), 10_000, `routine row ${name}`);
-  await waitFor(() => cdp.run((n) => document.querySelector("[data-routine-editor] h3")?.innerText === n, name), 10_000, `editor for ${name}`);
+  await waitFor(
+    () => cdp.run((n) => document.querySelector('[data-routine-editor] input[aria-label="Name"]')?.value === n, name),
+    10_000,
+    `editor for ${name}`,
+  );
 }
 /** Waits until wall clock sits `lo`–`hi` seconds past a minute boundary. */
 async function untilSecond(lo, hi) {
@@ -699,6 +708,10 @@ const ROWS = [
         first !== undefined && first.routinePrompt.indexOf(TAG_A) >= 0 && first.routinePrompt.indexOf(UNTRUSTED_CLAUSE) > first.routinePrompt.indexOf(TAG_A),
         first?.routinePrompt.slice(-200),
       );
+      // #1278's sidebar takeover unmounts the coding <aside> (and its footer
+      // live count) while the Routines view is open, so read both from the
+      // plain shell; the run and its background lane are unaffected.
+      await clickLabel(app, "Close Routines");
       const sidebar = await app.run(DOM.sidebarText);
       const control = await session(ctx.controlTabId);
       check("session absent from all coding sidebar sections", !sidebar.includes(rec.title) && sidebar.includes(control.title), { run: rec.title, control: control.title });
@@ -730,8 +743,8 @@ const ROWS = [
       check(`HUD reads "Started by the routine ${NAME_A}"`, hud.provenance);
       check("HUD hides approval-mode picker", !hud.approvalChip);
       check(
-        "Approval card renders Allow once / Deny only",
-        card.tool === "mcp__probe_routines_probe_write" && card.buttons.length === 2 && card.buttons[0] === "Deny" && /^Allow( once)?$/.test(card.buttons[1]),
+        "Approval card renders Deny / Always allow / Allow once",
+        card.tool === "mcp__probe_routines_probe_write" && card.buttons.length === 3 && card.buttons[0] === "Deny" && card.buttons.includes("Always allow") && /^Allow( once)?$/.test(card.buttons[2]),
         card,
       );
       const cardShot = await shot(app, "S4-approval-card");
@@ -747,6 +760,7 @@ const ROWS = [
         { skip, notice },
       );
       await selectRoutine(app, NAME_A);
+      await waitFor(() => app.run(DOM.clickTab, "history"), 10_000, "Run history tab");
       const rowText = await waitFor(() => app.run(DOM.text, '[data-run-row="skipped"]'), 10_000, "Skipped history row");
       check("history row reads Skipped / No session", rowText.includes("Skipped") && rowText.includes("No session") && rowText.includes("Previous run still open"), rowText);
       const lane = ctx.laneRefusal;
@@ -768,6 +782,7 @@ const ROWS = [
     async () => {
       const rec = await session(ctx.runA1);
       await selectRoutine(app, NAME_A);
+      await waitFor(() => app.run(DOM.clickTab, "history"), 10_000, "Run history tab");
       await click(app, "Review approval", "[data-run-history]");
       await waitFor(() => app.run(DOM.approvalCard), 15_000, "Approval card");
       await click(app, "Deny", "[data-approval-card]");
@@ -785,6 +800,7 @@ const ROWS = [
         "On time row",
       );
       await selectRoutine(app, NAME_A);
+      await waitFor(() => app.run(DOM.clickTab, "history"), 10_000, "Run history tab");
       const onTime = await app.run(() => document.querySelector('[data-run-row="on-time"]')?.innerText ?? "");
       check("A finishes with an On time row linking to its session", row !== undefined && onTime.includes("On time") && onTime.includes("Open session"), onTime);
       const settled = await waitFor(async () => {
@@ -868,9 +884,10 @@ app.whenReady().then(() => {
           await waitFor(() => remote.run(DOM.exists, "[data-routines-view]"), 15_000, "remote Routines view");
         };
         await openView();
-        // The label renders uppercase through CSS; textContent is the authored string.
-        const headerText = await remote.run(() => document.querySelector("[data-routines-view] header > :first-child")?.textContent?.trim());
-        check(`${tag}: Routines view renders with machine-name header`, headerText === header, headerText);
+        // #1306 moved the machine label into RoutinesHostMenu — title bar at desktop
+        // width, view header when compact; same authored string either way.
+        const hostLabel = await remote.run(() => document.querySelector("[data-routines-host-plain]")?.textContent?.trim());
+        check(`${tag}: host menu shows the machine name`, hostLabel === header, hostLabel);
         const listOverflow = await remote.run(DOM.overflow);
 
         const name = `Smoke remote ${tag}`;
@@ -882,6 +899,9 @@ app.whenReady().then(() => {
         const dry = await dryRunText(remote);
         const editorOverflow = await remote.run(DOM.overflow);
         shots.push(await shot(remote, `S7-${tag}-editor`));
+        // Delete lives on the studio's Configuration card; createRoutine left the
+        // selection on Tool policy.
+        await waitFor(() => remote.run(DOM.clickTab, "config"), 10_000, "Configuration tab");
         await click(remote, "Delete routine", "[data-routine-editor]");
         await click(remote, "Delete routine", '[role="alertdialog"]');
         const deleted = await waitFor(async () => !(await remote.run(DOM.routines)).routines.some((r) => r.id === created.id), 15_000, "remote delete");
@@ -908,7 +928,7 @@ app.whenReady().then(() => {
           }, 60_000, "A resumes after remote Deny");
           check(
             `${tag}: answering a waiting Approval card succeeds`,
-            card.buttons[0] === "Deny" && card.buttons.length === 2 && mcpCalls("probe_write") === 0,
+            card.buttons[0] === "Deny" && card.buttons.some((b) => /^Allow( once)?$/.test(b)) && mcpCalls("probe_write") === 0,
             card,
           );
         }
