@@ -188,9 +188,14 @@ describe("routines across hosts (ADR-0100, U13)", () => {
     });
     fs.mkdirSync(path.join(base, "agent", "sessions", ownerSession.lineageDir), { recursive: true });
     // No omp anywhere while CRUD runs (the RpcClient is mocked): the catalog falls back without a probe.
+    // Windows resolves managedOmpPath from LOCALAPPDATA and os.homedir() from USERPROFILE, not HOME.
+    const fakeHome = path.join(base, "home");
     vi.stubEnv("PATH", "");
     vi.stubEnv("OMP_UI_OMP_PATH", "");
-    vi.stubEnv("HOME", path.join(base, "home"));
+    vi.stubEnv("OMP_UI_INSTALL_DIR", path.join(fakeHome, "install"));
+    vi.stubEnv("HOME", fakeHome);
+    vi.stubEnv("USERPROFILE", fakeHome);
+    vi.stubEnv("LOCALAPPDATA", path.join(fakeHome, "AppData", "Local"));
     const owner = boot(ownerFile);
     const token = mintRemoteToken();
     const server = await startRemoteServer({
