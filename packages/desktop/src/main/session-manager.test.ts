@@ -35,6 +35,7 @@ vi.mock("@omp-ui/core", async (importOriginal) => {
     findObsidianList: vi.fn(),
     writeMcpStatusExtension: vi.fn(core.writeMcpStatusExtension),
     writeCapabilitiesExtension: vi.fn(core.writeCapabilitiesExtension),
+    writeSessionSpendExtension: vi.fn(core.writeSessionSpendExtension),
     resolveCouncilRoster: vi.fn(core.resolveCouncilRoster),
     writeCouncilOverlay: vi.fn(core.writeCouncilOverlay),
     writeCouncilRosterSnapshot: vi.fn(core.writeCouncilRosterSnapshot),
@@ -61,6 +62,7 @@ const readOmpGoalContinuationModesMock = vi.mocked(Core.readOmpGoalContinuationM
 const findObsidianListMock = vi.mocked(Core.findObsidianList);
 const writeMcpStatusExtensionMock = vi.mocked(Core.writeMcpStatusExtension);
 const writeCapabilitiesExtensionMock = vi.mocked(Core.writeCapabilitiesExtension);
+const writeSessionSpendExtensionMock = vi.mocked(Core.writeSessionSpendExtension);
 const resolveCouncilRosterMock = vi.mocked(Core.resolveCouncilRoster);
 const writeCouncilOverlayMock = vi.mocked(Core.writeCouncilOverlay);
 const writeCouncilRosterSnapshotMock = vi.mocked(Core.writeCouncilRosterSnapshot);
@@ -754,6 +756,7 @@ describe("MCP runtime status bridge", () => {
       Core.planMessage(false, "html"),
       Core.capabilitiesMessage(),
       Core.browserPaneSetMessage(fakePaneListeners.at(-1)!.url),
+      Core.sessionSpendArmMessage(),
     ]);
   });
 
@@ -820,6 +823,7 @@ describe("MCP runtime status bridge", () => {
       Core.planMessage(true, "html"),
       Core.capabilitiesMessage(),
       Core.browserPaneSetMessage(fakePaneListeners.at(-1)!.url),
+      Core.sessionSpendArmMessage(),
     ]);
   });
 
@@ -850,6 +854,7 @@ describe("MCP runtime status bridge", () => {
       Core.planMessage(true, "html"),
       Core.capabilitiesMessage(),
       Core.browserPaneSetMessage(fakePaneListeners.at(-1)!.url),
+      Core.sessionSpendArmMessage(),
     ]);
     expect(RpcClientMock).toHaveBeenCalledTimes(1);
     expect(warning).toHaveBeenCalledWith(
@@ -944,6 +949,7 @@ describe("session capabilities bridge (issue #374)", () => {
       Core.planMessage(false, "html"),
       Core.capabilitiesMessage(),
       Core.browserPaneSetMessage(fakePaneListeners.at(-1)!.url),
+      Core.sessionSpendArmMessage(),
     ]);
 
     // Bridged but silent so far: the viewer sees "starting", not an empty roster.
@@ -994,6 +1000,7 @@ describe("session capabilities bridge (issue #374)", () => {
       Core.vibeArmMessage(),
       Core.planMessage(false, "html"),
       Core.browserPaneSetMessage(fakePaneListeners.at(-1)!.url),
+      Core.sessionSpendArmMessage(),
     ]);
     await expect(manager.getSessionCapabilities(TAB)).resolves.toEqual({
       status: "bridge-unavailable",
@@ -1002,6 +1009,23 @@ describe("session capabilities bridge (issue #374)", () => {
       "[capabilities] could not write the capabilities extension:",
       expect.any(Error),
     );
+    warning.mockRestore();
+  });
+
+  it("omits sessionSpend arm command cleanly when writing the spend bridge fails", async () => {
+    const warning = vi.spyOn(console, "warn").mockImplementation(() => {});
+    writeSessionSpendExtensionMock.mockImplementationOnce(() => {
+      throw new Error("read-only lineage");
+    });
+    const { manager } = setup({ mode: "rpc-ui" });
+    await spawnRpcUi(manager);
+
+    const options = RpcClientMock.mock.calls.at(-1)?.[0];
+    expect(options?.extensions).not.toContainEqual(
+      expect.stringMatching(/omp-ui-session-spend\.ts$/),
+    );
+    const messages = armMessages(options?.initialCommands);
+    expect(messages).not.toContain(Core.sessionSpendArmMessage());
     warning.mockRestore();
   });
 

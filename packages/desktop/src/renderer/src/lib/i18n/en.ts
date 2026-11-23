@@ -2651,6 +2651,9 @@ export const en = {
   "hud.gauge.contextShort": "context",
   "hud.gauge.main": "main",
   "hud.gauge.subagents": "subagents ({count})",
+  "hud.gauge.dispatched": "dispatched ({count})",
+  "hud.gauge.dispatchedPartialTitle":
+    "Spend reported by {reported} of {total} dispatched sessions; remaining sessions are unreachable or on an older host.",
   "hud.gauge.cacheWarm": "cache warming",
   "hud.gauge.cacheWarmTitle": "How prompt-cache warming refreshed the provider, and what omp's own journal attributes to those refreshes. The cost is part of the figures above — never an added charge; it shows unknown until omp journals a billed refresh.",
   "hud.gauge.valueUnknown": "unknown",
@@ -2894,6 +2897,10 @@ export const en = {
   "hud.stats.compact": "{cost} · {tokens} tok · {premium} premium",
   "hud.stats.details": "{cost} · {tokens} tokens · {premium} premium requests",
   "hud.stats.sessionDetails": "{cost} · {tokens} tokens · {premium} premium requests — main {main} · subagents {subagents} ({count})",
+  "hud.stats.sessionDetailsWithDispatched":
+    "{cost} · {tokens} tokens · {premium} premium requests — main {main} · subagents {subagents} ({count}) · dispatched {dispatched} ({dispatchedCount})",
+  "hud.stats.detailsWithDispatched":
+    "{cost} · {tokens} tokens · {premium} premium requests — dispatched {dispatched} ({dispatchedCount})",
   "hud.status.compacting": "compacting",
   "hud.status.awaitingWork": "waiting on background work",
   "hud.status.error": "error",
@@ -3029,6 +3036,7 @@ export const en = {
   "rail.stats.sessionStaleTitle": "Whole-session read is still catching up with this run; it will not go below the figure above.",
   "rail.stats.premiumReqs": "premium reqs",
   "rail.stats.subagentCost": "subagents",
+  "rail.stats.dispatchedCost": "dispatched ({count})",
   "rail.stats.cacheWarming": "cache warming",
   "rail.stats.cacheWarmingTitle": "How prompt-cache warming refreshed the provider, as omp's cache-warming frames reported it.",
   "rail.stats.warmCost": "warm cost",

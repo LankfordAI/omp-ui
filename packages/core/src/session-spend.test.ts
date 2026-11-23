@@ -1,9 +1,12 @@
 import { describe, expect, it } from "vitest";
 import {
+  addSpendTotals,
   emptySpendTotals,
   parseCacheWarmingMethod,
   parseSessionSpendSnapshot,
   sessionSpendArmMessage,
+  spendTotalsEqual,
+  sumSpendTotals,
 } from "./session-spend";
 
 function totals(overrides: Record<string, unknown> = {}): Record<string, unknown> {
@@ -127,5 +130,50 @@ describe("parseCacheWarmingMethod", () => {
     ["null", null],
   ])("reads %s as no method", (_label, value) => {
     expect(parseCacheWarmingMethod(value)).toBeNull();
+  });
+});
+
+describe("spend totals helpers", () => {
+  it("adds, sums, and compares spend totals across all fields", () => {
+    const a = {
+      cost: 0.25,
+      input: 100,
+      output: 40,
+      reasoning: 10,
+      cacheRead: 20,
+      cacheWrite: 5,
+      totalTokens: 175,
+      premiumRequests: 1,
+      requests: 2,
+    };
+    const b = {
+      cost: 0.75,
+      input: 200,
+      output: 60,
+      reasoning: 15,
+      cacheRead: 30,
+      cacheWrite: 15,
+      totalTokens: 320,
+      premiumRequests: 2,
+      requests: 3,
+    };
+    const target = emptySpendTotals();
+    addSpendTotals(target, a);
+    addSpendTotals(target, b);
+    const summed = sumSpendTotals([a, b]);
+    expect(target).toEqual({
+      cost: 1,
+      input: 300,
+      output: 100,
+      reasoning: 25,
+      cacheRead: 50,
+      cacheWrite: 20,
+      totalTokens: 495,
+      premiumRequests: 3,
+      requests: 5,
+    });
+    expect(spendTotalsEqual(target, summed)).toBe(true);
+    expect(spendTotalsEqual(target, { ...summed, requests: 4 })).toBe(false);
+    expect(spendTotalsEqual(target, { ...summed, cost: 1.0001 })).toBe(false);
   });
 });

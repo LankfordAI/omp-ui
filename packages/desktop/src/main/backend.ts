@@ -51,6 +51,8 @@ import {
   StatsCollector,
   readSessionTitles,
   type SessionTitlesRead,
+  SessionSpendDiskCache,
+  type SpendTotals,
   readModelsFileModelProviders,
   resolveModelHold,
   readModelSelectorError,
@@ -417,6 +419,8 @@ export class MainBackend {
   private readonly breadcrumbs: BreadcrumbSink;
   /** Env seam for the read-only history.db title lookup (issue #1034). */
   private readonly historyEnv: NodeJS.ProcessEnv;
+  /** Mtime/inode/size-keyed disk cache for dormant/archived session spend (#1279). */
+  private readonly spendCache = new SessionSpendDiskCache();
   /** This build's version as reported to joiners and the app updater alike. */
   private readonly appVersion: string;
   /** One in-flight export at a time (issue #413). */
@@ -3393,18 +3397,24 @@ export class MainBackend {
       if (group) group.push(record);
       else byProject.set(record.projectCwd, [record]);
     }
+    const seenSpendFiles = new Set<string>();
     const groups: ProjectGroup[] = [];
     for (const project of this.registry.projects) {
       // Summarizes are independent — each reads its own lineage dir, and the registry
       // writes inside are synchronous — so they run concurrently; one slow disk no
       // longer stalls the rest. Order within a group follows the registry array.
       const sessions = await Promise.all(
-        (byProject.get(project.path) ?? []).map((record) => this.summarize(record, historyTitles, tabByLineage)),
+        (byProject.get(project.path) ?? []).map((record) =>
+          this.summarize(record, historyTitles, tabByLineage, seenSpendFiles),
+        ),
       );
       groups.push({ project, sessions });
     }
     // Chats never join a project group (ADR-0059); registry order is newest first.
-    const chats = await Promise.all(chatRecords.map((record) => this.summarize(record, historyTitles, tabByLineage)));
+    const chats = await Promise.all(
+      chatRecords.map((record) => this.summarize(record, historyTitles, tabByLineage, seenSpendFiles)),
+    );
+    this.spendCache.prune(seenSpendFiles);
     // Registry order is preserved as-is; the renderer sorts the sidebar by recency.
     return {
       projects: groups,
@@ -3491,6 +3501,8 @@ export class MainBackend {
     historyTitles: SessionTitlesRead["titles"],
     // Lineage dir → tabId over the whole registry, built once per buildState.
     tabByLineage: ReadonlyMap<string, string>,
+    // Collects active/archived file paths read via spendCache so buildState can prune evicted files.
+    seenSpendFiles: Set<string>,
   ): Promise<SessionSummary> {
     const loc = await resolveSessionLocation(
       this.sessionsRoot,
@@ -3559,12 +3571,21 @@ export class MainBackend {
     const vibe = this.sessions.vibeSnapshot(record.tabId);
     const autoresearch = this.sessions.autoresearchSnapshot(record.tabId);
     const bridgeAvailability = this.sessions.bridgeAvailability(record.tabId);
+    const liveSpend = this.sessions.sessionSpendSnapshot(record.tabId);
+    let spend: SpendTotals | null = null;
+    if (liveSpend?.available === true) {
+      spend = liveSpend.total;
+    } else if (loc.where === "active" || loc.where === "archived") {
+      seenSpendFiles.add(loc.filePath);
+      spend = await this.spendCache.read(loc);
+    }
     return {
       ...record,
       title: title?.trim() || "New session",
       status,
       live,
       forkSourceTabId,
+      spend,
       pendingPlan: gate?.pending ?? null,
       planSettle: gate?.settle ?? null,
       ...(bridgeAvailability === undefined ? {} : { bridgeAvailability }),

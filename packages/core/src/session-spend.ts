@@ -124,6 +124,23 @@ export function emptySpendTotals(): SpendTotals {
   };
 }
 
+export function addSpendTotals(target: SpendTotals, source: SpendTotals): void {
+  for (const key of SPEND_TOTALS_KEYS) target[key] += source[key];
+}
+
+export function sumSpendTotals(items: readonly SpendTotals[]): SpendTotals {
+  const out = emptySpendTotals();
+  for (const item of items) addSpendTotals(out, item);
+  return out;
+}
+
+export function spendTotalsEqual(a: SpendTotals, b: SpendTotals): boolean {
+  for (const key of SPEND_TOTALS_KEYS) {
+    if (a[key] !== b[key]) return false;
+  }
+  return true;
+}
+
 /** One wire totals block; null when any field is missing, non-finite, or negative. */
 function readTotals(value: unknown): SpendTotals | null {
   if (value === null || typeof value !== "object" || Array.isArray(value)) return null;
