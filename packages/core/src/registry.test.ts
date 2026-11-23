@@ -68,18 +68,31 @@ function rejectAtomicReplaces(file: string): () => void {
   };
 }
 
-describe("artifact library opt-in", () => {
-  it("keeps fresh, missing, and malformed values disabled without creating artifact storage", () => {
+describe("artifact library graduation default-on and one-time seed (#1307)", () => {
+  it("defaults fresh, missing, and malformed values to true without creating artifact storage", () => {
     const file = tmpFile();
-    expect(Registry.load(file).getSetting("artifactLibraryEnabled")).toBe(false);
+    expect(Registry.load(file).getSetting("artifactLibraryEnabled")).toBe(true);
+    expect(fs.existsSync(path.join(path.dirname(file), "artifacts"))).toBe(false);
     for (const value of [undefined, "true", 1, {}, null]) {
-      fs.writeFileSync(file, JSON.stringify({schemaVersion: 1, settings: {artifactLibraryEnabled: value}, projects: [], sessions: []}));
-      expect(Registry.load(file).getSetting("artifactLibraryEnabled")).toBe(false);
+      fs.writeFileSync(file, JSON.stringify({schemaVersion: 1, settings: {artifactLibraryEnabled: value, artifactLibraryDefaultOnSeeded: true}, projects: [], sessions: []}));
+      expect(Registry.load(file).getSetting("artifactLibraryEnabled")).toBe(true);
       expect(fs.existsSync(path.join(path.dirname(file), "artifacts"))).toBe(false);
     }
-    const registry = Registry.load(file);
-    registry.setSetting("artifactLibraryEnabled", true);
-    expect(Registry.load(file).getSetting("artifactLibraryEnabled")).toBe(true);
+  });
+
+  it("seeds legacy unseeded false to true once, then preserves explicit opt-out across reloads", () => {
+    const file = tmpFile();
+    fs.writeFileSync(file, JSON.stringify({schemaVersion: 1, settings: {artifactLibraryEnabled: false}, projects: [], sessions: []}));
+    const seeded = Registry.load(file);
+    expect(seeded.getSetting("artifactLibraryEnabled")).toBe(true);
+    expect(seeded.getSetting("artifactLibraryDefaultOnSeeded")).toBe(true);
+    expect(fs.existsSync(path.join(path.dirname(file), "artifacts"))).toBe(false);
+
+    seeded.setSetting("artifactLibraryEnabled", false);
+    const reloaded = Registry.load(file);
+    expect(reloaded.getSetting("artifactLibraryEnabled")).toBe(false);
+    expect(reloaded.getSetting("artifactLibraryDefaultOnSeeded")).toBe(true);
+    expect(fs.existsSync(path.join(path.dirname(file), "artifacts"))).toBe(false);
   });
 });
 
@@ -927,6 +940,7 @@ describe("Registry persistence", () => {
           autoThinkingDefaultSeeded: true,
           hibernateManualDefaultSeeded: true,
           themeAgentAccessDefaultOnSeeded: true,
+          artifactLibraryDefaultOnSeeded: true,
         },
       }),
     );

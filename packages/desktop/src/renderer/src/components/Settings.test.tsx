@@ -188,6 +188,15 @@ const backendMock = {
   setSnoozedSectionEnabled: vi.fn(async () => {}),
   setAutoSettleMergedPullRequests: vi.fn(async () => {}),
   setRemoteVsCodeEnabled: vi.fn(async () => {}),
+  artifactList: vi.fn(async () => ({
+    artifacts: [],
+    nextCursor: null,
+    libraryBytesUsed: 2048,
+    totalCount: 3,
+    pendingReviewCount: 0,
+    pendingReviewPreview: [],
+    origins: [],
+  })),
   spawnSession: vi.fn(),
   switchMode: vi.fn(),
   deleteSession: vi.fn(async (tabId: string) => ({ deleted: [tabId], failed: [] })),
@@ -1048,18 +1057,49 @@ describe("Settings Experimental page (issues #571 and #739)", () => {
     expect(backendMock.setAutoresearchEnabled).toHaveBeenCalledWith(true);
   });
 
-  it("persists artifact consent without an optimistic gate flip", async () => {
+  it("no longer renders Artifact library on the Experimental page", async () => {
     seedExperimental();
     await renderSettings();
+    expect(document.querySelector('[role="switch"][aria-label="Artifact library"]')).toBeNull();
+  });
+
+  it("no longer renders Run scripts in HTML artifacts on the General page", async () => {
+    useStore.setState({
+      settingsPage: "general",
+      state: backendState(),
+      tabs: [],
+      activeTabId: null,
+      appUpdate: appUpdateState({}),
+      ompUpdate: idleOmpUpdate,
+    });
+    await renderSettings();
+    expect(document.querySelector('[role="switch"][aria-label="Run scripts in HTML artifacts"]')).toBeNull();
+  });
+
+  it("persists artifact consent without an optimistic gate flip on Settings -> Artifacts and shows library footprint", async () => {
+    useStore.setState({
+      settingsPage: "artifacts",
+      state: backendState({ artifactLibraryEnabled: false, htmlArtifactScripts: true }),
+      tabs: [],
+      activeTabId: null,
+      appUpdate: appUpdateState({}),
+      ompUpdate: idleOmpUpdate,
+    });
+    await renderSettings();
     const control = document.querySelector<HTMLElement>('[role="switch"][aria-label="Artifact library"]')!;
+    const scripts = document.querySelector<HTMLElement>('[role="switch"][aria-label="Run scripts in HTML artifacts"]')!;
     expect(control.getAttribute("aria-checked")).toBe("false");
+    expect(scripts.getAttribute("aria-checked")).toBe("true");
     click(control);
     expect(backendMock.setArtifactLibraryEnabled).toHaveBeenCalledWith(true);
     expect(control.getAttribute("aria-checked")).toBe("false");
-    act(() => useStore.setState({ state: backendState({ artifactLibraryEnabled: true }) }));
+    await act(async () => {
+      useStore.setState({ state: backendState({ artifactLibraryEnabled: true, htmlArtifactScripts: true }) });
+    });
     expect(control.getAttribute("aria-checked")).toBe("true");
+    expect(backendMock.artifactList).toHaveBeenCalledWith({ limit: 1 });
+    expect(document.body.textContent).toContain("3 kept");
   });
-
   it("no longer renders the switch on the General page", async () => {
     useStore.setState({
       settingsPage: "general",

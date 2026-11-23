@@ -474,6 +474,7 @@ export function Sidebar() {
   const openArtifacts = useStore((st) => st.openArtifacts);
   const closeArtifacts = useStore((st) => st.closeArtifacts);
   const artifactsOpen = useStore((st) => st.artifacts !== null);
+  const artifactPendingReviewCount = useStore((st) => st.artifactPendingReviewCount);
   const openRoutines = useStore((st) => st.openRoutines);
   const closeRoutines = useStore((st) => st.closeRoutines);
   const routinesOpen = useStore((st) => st.routinesOpen);
@@ -1129,7 +1130,17 @@ export function Sidebar() {
             else openArtifacts();
             closeCompactSurface();
           }} className="flex size-auto h-6 w-auto items-center gap-1 px-1">
-            <span aria-hidden>▤</span><span className="hidden whitespace-nowrap @[17rem]:inline">Artifacts</span>
+            <span aria-hidden>▤</span>
+            <span className="hidden whitespace-nowrap @[17rem]:inline">Artifacts</span>
+            {artifactPendingReviewCount > 0 && (
+              <span
+                data-artifacts-pending-review
+                title={`${artifactPendingReviewCount} artifact${artifactPendingReviewCount === 1 ? "" : "s"} waiting for review`}
+                className="rounded-full bg-copper-wash px-1 font-mono text-xs leading-4 tabular-nums text-copper"
+              >
+                {artifactPendingReviewCount}
+              </span>
+            )}
           </IconButton>
         )}
         {hasAnyRoutinesHost(state) && (

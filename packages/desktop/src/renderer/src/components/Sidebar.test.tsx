@@ -1840,6 +1840,24 @@ describe("Sidebar Routine runs and the Routines button (ADR-0100, issue #1261)",
   });
 });
 
+describe("Sidebar Artifacts pending-review badge (#1307)", () => {
+  it("shows a copper pending-review badge on the Artifacts footer button when pending reviews exist and hides it at zero", () => {
+    useStore.setState({
+      state: backendState({ artifactLibraryEnabled: true, projects: state.projects }),
+      artifactPendingReviewCount: 2,
+    });
+    renderSidebar();
+    const artifactsBtn = document.body.querySelector<HTMLButtonElement>('button[aria-label="Artifacts"]')!;
+    expect(artifactsBtn).not.toBeNull();
+    expect(artifactsBtn.querySelector("[data-artifacts-pending-review]")?.textContent).toBe("2");
+
+    act(() => {
+      useStore.setState({ artifactPendingReviewCount: 0 });
+    });
+    expect(artifactsBtn.querySelector("[data-artifacts-pending-review]")).toBeNull();
+  });
+});
+
 describe("Sidebar store subscription stability (#1286)", () => {
   it("does not re-render Sidebar when an unrelated rpc field or token delta updates", () => {
     const onRender = vi.fn();

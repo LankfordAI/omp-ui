@@ -26,6 +26,8 @@ if (process.isMainFrame && window === window.top) {
     prepareSurface: (source, theme) => ipcRenderer.invoke("artifact-host:prepare-surface", source, theme),
     updateTheme: (surfaceId, theme) => ipcRenderer.invoke("artifact-host:update-theme", surfaceId, theme),
     releaseSurface: (surfaceId) => ipcRenderer.invoke("artifact-host:release-surface", surfaceId),
+    captureThumbnail: (surfaceId, dark) => ipcRenderer.invoke("artifact-host:capture-thumbnail", surfaceId, dark),
+    ensureDocumentThumbnail: (artifactId, theme) => ipcRenderer.invoke("artifact-host:ensure-doc-thumbnail", artifactId, theme),
     onSurfaceNotice: (listener) => {
       const handler = (_event: unknown, notice: ArtifactSurfaceNotice): void => listener(notice);
       ipcRenderer.on("artifact-host:surface-notice", handler);

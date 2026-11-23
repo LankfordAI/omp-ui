@@ -1,21 +1,28 @@
-import type { ArtifactDescribeRequest } from "@omp-ui/core/artifacts";
+import type { ArtifactDescribeRequest, ArtifactLibraryChanged } from "@omp-ui/core/artifacts";
+import { backend } from "../../backend";
 import type { GetState, SetState } from "./shared";
 import { bumpNavigationGeneration, findOwner, getNavigationGeneration } from "./view";
 
 export interface ArtifactsSlice {
   artifacts: ({ artifactId: string | null; codeRevisionId?: string; dataSnapshotId?: string; captureId?: string; panel?: "preview" | "data" | "history" }) | null;
   artifactLibraryRevision: number;
+  artifactLastChange: ArtifactLibraryChanged | null;
+  artifactPendingReviewCount: number;
   artifactSourceFocus: { tabId: string; sessionId: string | null; toolCallId: string | null; nonce: number } | null;
   openArtifactSource(target: { tabId: string; sessionId: string | null; toolCallId: string | null }): Promise<void>;
   openArtifacts(selection?: ArtifactDescribeRequest & { captureId?: string; panel?: "preview" | "data" | "history" }): void;
   closeArtifacts(): void;
-  invalidateArtifactLibrary(): void;
+  invalidateArtifactLibrary(event?: ArtifactLibraryChanged): void;
+  refreshArtifactSummary(): Promise<void>;
 }
 
 export function createArtifactsSlice(set: SetState, get: GetState): ArtifactsSlice {
+  let summaryGeneration = 0;
   return {
     artifacts: null,
     artifactLibraryRevision: 0,
+    artifactLastChange: null,
+    artifactPendingReviewCount: 0,
     artifactSourceFocus: null,
     async openArtifactSource(target) {
       const owner = findOwner(get().state, target.tabId);
@@ -38,8 +45,25 @@ export function createArtifactsSlice(set: SetState, get: GetState): ArtifactsSli
       bumpNavigationGeneration();
       set({ artifacts: null });
     },
-    invalidateArtifactLibrary() {
-      set((s) => ({ artifactLibraryRevision: s.artifactLibraryRevision + 1 }));
+    invalidateArtifactLibrary(event) {
+      set((s) => ({
+        artifactLibraryRevision: s.artifactLibraryRevision + 1,
+        artifactLastChange: event ?? null,
+      }));
+    },
+    async refreshArtifactSummary() {
+      const generation = ++summaryGeneration;
+      if (get().state?.artifactLibraryEnabled !== true) {
+        set({ artifactPendingReviewCount: 0 });
+        return;
+      }
+      try {
+        const page = await backend.artifactList({ limit: 1 });
+        if (generation !== summaryGeneration || get().state?.artifactLibraryEnabled !== true) return;
+        set({ artifactPendingReviewCount: page.pendingReviewCount });
+      } catch {
+        // Best-effort badge refresh: never surface background summary noise as an alert.
+      }
     },
   };
 }

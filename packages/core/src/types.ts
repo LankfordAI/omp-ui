@@ -829,6 +829,7 @@ type BackendBroadcastSettings = Omit<
   | "experimentsFlagSplitSeeded"
   | "councilDefaultOnSeeded"
   | "themeAgentAccessDefaultOnSeeded"
+  | "artifactLibraryDefaultOnSeeded"
   | "remoteEnabled"
   | "remoteBind"
   | "remotePort"

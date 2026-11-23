@@ -3,22 +3,16 @@ import { Switch } from "../ui";
 import { Row } from "./rows";
 
 /**
- * Settings → Experimental: independent app-global gates. Artifact library
- * keeps the authoritative registry flag: switching never optimistically
- * grants a guest writer or reference permission. Lab and the autoresearch
- * bridge remain separately controlled. Routines graduated to its own Settings
- * page (#1244); its switch and spend defaults live under Settings → Routines.
+ * Settings → Experimental: independent app-global gates. Lab and the
+ * autoresearch bridge remain separately controlled. Routines (#1244) and
+ * Artifacts (#1307) graduated to their own Settings pages.
  */
 export function ExperimentalPage() {
   const state = useStore((s) => s.state);
   const setExperimentsEnabled = useStore((s) => s.setExperimentsEnabled);
   const setAutoresearchEnabled = useStore((s) => s.setAutoresearchEnabled);
-  const setArtifactLibraryEnabled = useStore((s) => s.setArtifactLibraryEnabled);
   return (
     <div className="px-4 py-3">
-      <Row title="Artifact library" hint="Keep session-authored artifacts and their saved data on this machine. Experimental; off by default.">
-        <Switch on={state?.artifactLibraryEnabled === true} onChange={(on) => void setArtifactLibraryEnabled(on)} label="Artifact library" />
-      </Row>
       <Row
         title="Experiments lab (beta)"
         hint="Adds the Lab, the New experiment dialog, and the /autoresearch start and lab verbs. Off hides those surfaces and leaves /autoresearch to OMP."
