@@ -26,6 +26,7 @@ const backendMock = {
   setWindowChrome: vi.fn(async () => {}),
   artifactDescribe: vi.fn(),
   artifactList: vi.fn(),
+  artifactRestoreSnapshot: vi.fn(),
 };
 Object.assign(window, { ompBackend: backendMock });
 // The bridge is captured during module evaluation, so these imports intentionally exercise that loading boundary.
@@ -287,6 +288,274 @@ describe("Gallery & Full-Canvas Viewer (#1307)", () => {
     await act(async () => { useStore.getState().openArtifacts({ artifactId: id, panel: "data" }); });
     await render(<Artifacts />);
     expect(host.querySelector("[data-artifacts-drawer]")).not.toBeNull();
+  });
+
+  it("keeps the guest mounted when currentDataSnapshotId advances on state save, and re-prepares cleanly on repeated explicit Reload", async () => {
+    const snap2 = "66666666-6666-4666-8666-666666666666";
+    const snap3 = "77777777-7777-4777-8777-777777777777";
+    let current: ArtifactDescription = { ...description };
+    backendMock.artifactDescribe.mockImplementation(async () => ({
+      ...current,
+      snapshot: { ...current.snapshot, dataSnapshotId: current.artifact.currentDataSnapshotId },
+    }));
+    backendMock.artifactReadPart.mockImplementation(async (request: { part: string }) =>
+      page(request.part === "definition" ? JSON.stringify({ html: "<p>Chart</p>", managed: description.code.definition }) : "{}"),
+    );
+
+    let notice: ((event: ArtifactSurfaceNotice) => void) | undefined;
+    let surfaceCount = 0;
+    const prepareSurface = vi.fn(async () => {
+      surfaceCount += 1;
+      return {
+        surfaceId: `surface-${surfaceCount}`,
+        url: `data:text/html;base64,bWFpbg==#${surfaceCount}`,
+        partition: "omp-ui-artifacts",
+        managed: true,
+        readOnly: false,
+      };
+    });
+    const releaseSurface = vi.fn(async () => {});
+    window.ompArtifactHost = {
+      prepareSurface,
+      releaseSurface,
+      updateTheme: vi.fn(async () => {}),
+      captureThumbnail: vi.fn(async () => null),
+      ensureDocumentThumbnail: vi.fn(async () => null),
+      onSurfaceNotice: (listener) => {
+        notice = listener;
+        return () => {};
+      },
+    };
+
+    useStore.setState({ artifacts: { artifactId: id } });
+    await render(<Artifacts />);
+    const initialGuest = host.querySelector("webview");
+    expect(initialGuest).not.toBeNull();
+    expect(prepareSurface).toHaveBeenCalledTimes(1);
+    expect(prepareSurface).toHaveBeenLastCalledWith(
+      { artifactId: id, codeRevisionId: code, dataSnapshotId: snapshot },
+      expect.any(Object),
+    );
+    expect(releaseSurface).not.toHaveBeenCalled();
+
+    // Guest saveState() advances currentDataSnapshotId and invalidates the library without revoking the writer.
+    current = {
+      ...current,
+      artifact: { ...current.artifact, currentDataSnapshotId: snap2 },
+      snapshots: [
+        { dataSnapshotId: snap2, createdAt: timestamp, cause: "user-edit", stateRevision: 2 },
+        ...current.snapshots,
+      ],
+    };
+    await act(async () => {
+      useStore.getState().invalidateArtifactLibrary({ epoch: 1, artifactIds: [id], kind: "changed" });
+    });
+    expect(prepareSurface).toHaveBeenCalledTimes(1);
+    expect(releaseSurface).not.toHaveBeenCalled();
+    expect(host.querySelector("webview")).toBe(initialGuest);
+
+    // External head change revokes surface 1; explicit Reload re-prepares surface 2 against snap2.
+    act(() => notice!({ surfaceId: "surface-1", reason: "changed", reloadRequired: true }));
+    await act(async () => {
+      button("Reload").click();
+    });
+    expect(prepareSurface).toHaveBeenCalledTimes(2);
+    expect(prepareSurface).toHaveBeenLastCalledWith(
+      { artifactId: id, codeRevisionId: code, dataSnapshotId: snap2 },
+      expect.any(Object),
+    );
+    expect(releaseSurface).toHaveBeenCalledWith("surface-1");
+    const reloadedGuest = host.querySelector("webview");
+    expect(reloadedGuest).not.toBeNull();
+
+    // Subsequent saveState() after a manual Reload must still keep the guest mounted.
+    current = {
+      ...current,
+      artifact: { ...current.artifact, currentDataSnapshotId: snap3 },
+      snapshots: [
+        { dataSnapshotId: snap3, createdAt: timestamp, cause: "user-edit", stateRevision: 3 },
+        ...current.snapshots,
+      ],
+    };
+    await act(async () => {
+      useStore.getState().invalidateArtifactLibrary({ epoch: 2, artifactIds: [id], kind: "changed" });
+    });
+    expect(prepareSurface).toHaveBeenCalledTimes(2);
+    expect(host.querySelector("webview")).toBe(reloadedGuest);
+
+    // Second explicit Reload after another revocation still works.
+    act(() => notice!({ surfaceId: "surface-2", reason: "changed", reloadRequired: true }));
+    await act(async () => {
+      button("Reload").click();
+    });
+    expect(prepareSurface).toHaveBeenCalledTimes(3);
+    expect(prepareSurface).toHaveBeenLastCalledWith(
+      { artifactId: id, codeRevisionId: code, dataSnapshotId: snap3 },
+      expect.any(Object),
+    );
+    expect(releaseSurface).toHaveBeenCalledWith("surface-2");
+  });
+
+  it("reloads the preview when restoring a snapshot from the History drawer while viewing latest", async () => {
+    const olderSnap = "66666666-6666-4666-8666-666666666666";
+    const restoredSnap = "77777777-7777-4777-8777-777777777777";
+    let current: ArtifactDescription = {
+      ...description,
+      snapshots: [
+        { dataSnapshotId: snapshot, createdAt: timestamp, cause: "user-edit", stateRevision: 2 },
+        { dataSnapshotId: olderSnap, createdAt: timestamp, cause: "initial", stateRevision: 1 },
+      ],
+    };
+    backendMock.artifactDescribe.mockImplementation(async (req: { codeRevisionId?: string; dataSnapshotId?: string }) => ({
+      ...current,
+      code: { ...current.code, codeRevisionId: req.codeRevisionId ?? current.artifact.currentCodeRevisionId },
+      snapshot: { ...current.snapshot, dataSnapshotId: req.dataSnapshotId ?? current.artifact.currentDataSnapshotId },
+    }));
+    backendMock.artifactReadPart.mockImplementation(async (request: { part: string }) =>
+      page(request.part === "definition" ? JSON.stringify({ html: "<p>Chart</p>", managed: description.code.definition }) : "{}"),
+    );
+    backendMock.artifactRestoreSnapshot.mockImplementation(async () => {
+      current = {
+        ...current,
+        artifact: { ...current.artifact, currentDataSnapshotId: restoredSnap },
+        snapshots: [
+          { dataSnapshotId: restoredSnap, createdAt: timestamp, cause: "restore", stateRevision: 3 },
+          ...current.snapshots,
+        ],
+      };
+      return current.artifact;
+    });
+
+    let surfaceCount = 0;
+    const prepareSurface = vi.fn(async () => {
+      surfaceCount += 1;
+      return {
+        surfaceId: `surface-${surfaceCount}`,
+        url: `data:text/html;base64,bWFpbg==#${surfaceCount}`,
+        partition: "omp-ui-artifacts",
+        managed: true,
+        readOnly: false,
+      };
+    });
+    window.ompArtifactHost = {
+      prepareSurface,
+      releaseSurface: vi.fn(async () => {}),
+      updateTheme: vi.fn(async () => {}),
+      captureThumbnail: vi.fn(async () => null),
+      ensureDocumentThumbnail: vi.fn(async () => null),
+      onSurfaceNotice: () => () => {},
+    };
+
+    useStore.setState({ artifacts: { artifactId: id } });
+    await render(<Artifacts />);
+    expect(prepareSurface).toHaveBeenCalledTimes(1);
+    expect(prepareSurface).toHaveBeenLastCalledWith(
+      { artifactId: id, codeRevisionId: code, dataSnapshotId: snapshot },
+      expect.any(Object),
+    );
+
+    await act(async () => {
+      button("Data & History").click();
+    });
+    const historyTab = [...host.querySelectorAll<HTMLButtonElement>("[data-artifacts-drawer] button")].find(
+      (b) => b.textContent === "History",
+    )!;
+    await act(async () => {
+      historyTab.click();
+    });
+    await act(async () => {
+      button("Restore").click();
+    });
+    await act(async () => {
+      button("Restore").click();
+    });
+
+    expect(backendMock.artifactRestoreSnapshot).toHaveBeenCalledWith({
+      artifactId: id,
+      dataSnapshotId: olderSnap,
+      expectedCodeRevisionId: code,
+    });
+    expect(prepareSurface).toHaveBeenCalledTimes(2);
+    expect(prepareSurface).toHaveBeenLastCalledWith(
+      { artifactId: id, codeRevisionId: code, dataSnapshotId: restoredSnap },
+      expect.any(Object),
+    );
+  });
+
+  it("clears the previous artifact's guest while switching to another artifact", async () => {
+    const code2 = "88888888-8888-4888-8888-888888888888";
+    const snap2 = "99999999-9999-4999-8999-999999999999";
+    const description2: ArtifactDescription = {
+      ...description,
+      artifact: {
+        ...description.artifact,
+        artifactId: id2,
+        title: "Second artifact",
+        currentCodeRevisionId: code2,
+        currentDataSnapshotId: snap2,
+      },
+      code: { ...description.code, artifactId: id2, codeRevisionId: code2 },
+      snapshot: { ...description.snapshot, artifactId: id2, dataSnapshotId: snap2 },
+    };
+    const pending2 = Promise.withResolvers<ArtifactDescription>();
+    backendMock.artifactDescribe.mockImplementation(async (req: { artifactId: string }) => {
+      if (req.artifactId === id) return description;
+      return pending2.promise;
+    });
+    backendMock.artifactReadPart.mockImplementation(async (request: { artifactId: string; part: string }) =>
+      page(
+        request.part === "definition"
+          ? JSON.stringify({
+              html: request.artifactId === id ? "<p>First</p>" : "<p>Second</p>",
+              managed: description.code.definition,
+            })
+          : "{}",
+      ),
+    );
+
+    let surfaceCount = 0;
+    const prepareSurface = vi.fn(async () => {
+      surfaceCount += 1;
+      return {
+        surfaceId: `surface-${surfaceCount}`,
+        url: `data:text/html;base64,bWFpbg==#${surfaceCount}`,
+        partition: "omp-ui-artifacts",
+        managed: true,
+        readOnly: false,
+      };
+    });
+    const releaseSurface = vi.fn(async () => {});
+    window.ompArtifactHost = {
+      prepareSurface,
+      releaseSurface,
+      updateTheme: vi.fn(async () => {}),
+      captureThumbnail: vi.fn(async () => null),
+      ensureDocumentThumbnail: vi.fn(async () => null),
+      onSurfaceNotice: () => () => {},
+    };
+
+    useStore.setState({ artifacts: { artifactId: id } });
+    await render(<Artifacts />);
+    expect(host.querySelector("webview")).not.toBeNull();
+    expect(prepareSurface).toHaveBeenCalledTimes(1);
+
+    await act(async () => {
+      useStore.getState().openArtifacts({ artifactId: id2 });
+    });
+    // Previous guest is unmounted immediately while artifact 2 is still loading.
+    expect(host.querySelector("webview")).toBeNull();
+    expect(releaseSurface).toHaveBeenCalledWith("surface-1");
+    expect(host.textContent).toContain("Loading artifact");
+
+    await act(async () => {
+      pending2.resolve(description2);
+    });
+    expect(host.querySelector("webview")).not.toBeNull();
+    expect(prepareSurface).toHaveBeenCalledTimes(2);
+    expect(prepareSurface).toHaveBeenLastCalledWith(
+      { artifactId: id2, codeRevisionId: code2, dataSnapshotId: snap2 },
+      expect.any(Object),
+    );
   });
 });
 
