@@ -19,7 +19,7 @@ function tool(overrides: Record<string, unknown> = {}): Record<string, unknown> 
     sourcePath: "/omp/tools/alpha.ts",
     enabled: true,
     direct: true,
-    xdev: false,
+    mounted: false,
     evalBridge: false,
     mcpServerName: null,
     mcpToolName: null,

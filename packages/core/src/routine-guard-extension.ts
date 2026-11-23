@@ -1,6 +1,6 @@
 import * as path from "node:path";
 import { writeLineageArtifact } from "./lineage-artifact";
-import { generatedRootBindingSource } from "./generated-extension-source";
+import { generatedMountedNamesSource, generatedRootBindingSource } from "./generated-extension-source";
 
 /**
  * Generated `-e` bridge (`omp-ui-routine-guard.ts`, ADR-0100) mirroring
@@ -61,6 +61,9 @@ interface GuardSession {
     forcePromptRefresh?: boolean,
   ) => unknown;
   getEnabledToolNames: () => string[];
+  /** Mounted command names (omp 19.1+); absent on an older omp. */
+  getMountedToolCommandNames?: () => unknown;
+  /** Mounted xd:// device names; removed in omp 19.1. */
   getMountedXdevToolNames?: () => unknown;
 }
 
@@ -104,12 +107,7 @@ export default function (pi: GuardExtensionApi) {
     return names.filter(name => typeof name === "string");
   }
 
-  function readMounted(active: GuardSession): string[] {
-    const read = active.getMountedXdevToolNames;
-    if (typeof read !== "function") return [];
-    const names = read.call(active) as unknown;
-    return Array.isArray(names) ? names.filter(name => typeof name === "string") : [];
-  }
+  ${generatedMountedNamesSource("GuardSession")}
 
   async function applyTools(
     active: GuardSession,

@@ -13,6 +13,7 @@ import type {
   CapabilityTool,
 } from "@omp-ui/core/capabilities";
 import { backend, backendFor, displayMessage } from "../backend";
+import { supportsToolCommands } from "@omp-ui/core/tool-commands";
 import { cn } from "../lib/cn";
 import { fuzzyBest } from "../lib/fuzzy";
 import { useCapabilityRosterSource } from "../lib/use-capability-roster-source";
@@ -1053,6 +1054,7 @@ function ToolRow({
   pending,
   disabledReason,
   ownReason,
+  mountLabel,
 }: {
   tool: CapabilityTool;
   /** One deliberate click; the store decides whether it lands (#379). */
@@ -1064,10 +1066,12 @@ function ToolRow({
   disabledReason: string | null;
   /** True when `disabledReason` belongs to THIS row, so it belongs on it. */
   ownReason: boolean;
+  /** What this harness calls a mounted tool: "command" (omp 19.1+) or "xd://" (#1270). */
+  mountLabel: string;
 }) {
   const access: string[] = [];
   if (tool.direct === null) access.push("Direct");
-  if (tool.xdev === null) access.push("xd://");
+  if (tool.mounted === null) access.push(mountLabel);
   if (tool.evalBridge === null) access.push("Eval");
   // An unobserved membership gets no switch at all: an off-looking control
   // would report "not enabled", which the roster never said.
@@ -1089,18 +1093,19 @@ function ToolRow({
                 : "unknown"}
           </Chip>
           {/* Access paths: shown when true, absent when false — never a
-              "disabled" label for a tool that is reachable via xd:// or the
-              eval bridge instead of the model. Null is its own chip. */}
+              "disabled" label for a tool that is reachable as a mounted command
+              (omp 19.1+), an xd:// device, or through the eval bridge instead of
+              the model. Null is its own chip. */}
           {tool.direct === true && <Chip>Direct</Chip>}
           {tool.direct === null && (
             <Chip title={`${"Direct"}: unknown`}>
               {`${"Direct"}: unknown`}
             </Chip>
           )}
-          {tool.xdev === true && <Chip>xd://</Chip>}
-          {tool.xdev === null && (
-            <Chip title={`${"xd://"}: unknown`}>
-              {`${"xd://"}: unknown`}
+          {tool.mounted === true && <Chip>{mountLabel}</Chip>}
+          {tool.mounted === null && (
+            <Chip title={`${mountLabel}: unknown`}>
+              {`${mountLabel}: unknown`}
             </Chip>
           )}
           {tool.evalBridge === true && <Chip>Eval</Chip>}
@@ -1244,6 +1249,10 @@ export function CapabilitiesViewer({
     roster !== null && roster.tools.status === "available"
       ? roster.tools.items
       : null;
+  // omp 19.1 mounts rarely-used tools as bash commands; an older harness
+  // mounts them as xd:// devices (#1270). The chip names what the session runs.
+  const mountLabel =
+    roster !== null && supportsToolCommands(roster.ompVersion) ? "command" : "xd://";
 
   const reload = (): void => {
     if (tabId === undefined) return;
@@ -1788,6 +1797,7 @@ export function CapabilitiesViewer({
                           pending={toolPending?.name === tool.name}
                           disabledReason={disabledReason}
                           ownReason={ownReason !== null}
+                          mountLabel={mountLabel}
                           onToggle={(next) => toggleTool(tool.name, next)}
                         />
                       );

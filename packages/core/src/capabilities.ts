@@ -63,8 +63,8 @@ export interface CapabilityTool {
   enabled: boolean | null;
   /** Membership in the model-directly-exposed set; null when unknown. */
   direct: boolean | null;
-  /** Mounted as an `xd://` device; null when that API is missing. */
-  xdev: boolean | null;
+  /** Mounted as a tool command (omp 19.1+) or an `xd://` device (older omp); null when neither API is present. */
+  mounted: boolean | null;
   /** Reachable through the Eval bridge; null when that API is missing. */
   evalBridge: boolean | null;
   /** Exact MCP ownership from tool metadata; null when unknown. */
@@ -410,8 +410,8 @@ function parseTool(record: Record<string, unknown>): CapabilityTool | typeof INV
   if (enabled === INVALID) return INVALID;
   const direct = nullableBoolean(record.direct);
   if (direct === INVALID) return INVALID;
-  const xdev = nullableBoolean(record.xdev);
-  if (xdev === INVALID) return INVALID;
+  const mounted = nullableBoolean(record.mounted);
+  if (mounted === INVALID) return INVALID;
   const evalBridge = nullableBoolean(record.evalBridge);
   if (evalBridge === INVALID) return INVALID;
   if (record.mcpServerName !== null && typeof record.mcpServerName !== "string") return INVALID;
@@ -424,7 +424,7 @@ function parseTool(record: Record<string, unknown>): CapabilityTool | typeof INV
     sourcePath: (record.sourcePath as string | null) ?? null,
     enabled,
     direct,
-    xdev,
+    mounted,
     evalBridge,
     mcpServerName: (record.mcpServerName as string | null) ?? null,
     mcpToolName: (record.mcpToolName as string | null) ?? null,

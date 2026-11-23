@@ -23,7 +23,7 @@ function tool(name: string, enabled: boolean | null): CapabilityTool {
     sourcePath: null,
     enabled,
     direct: null,
-    xdev: null,
+    mounted: null,
     evalBridge: null,
     mcpServerName: null,
     mcpToolName: null,

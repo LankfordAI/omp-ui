@@ -27,7 +27,7 @@ import {
  * `loadSkills()`/`refreshSkills()` and never the system prompt), and MCP
  * ownership comes exclusively from the scalar metadata on the object
  * `getToolByName` returns — a tool is never relabeled MCP because its name
- * looks like one. Access facts (enabled/active/xdev/eval-bridge) are probed
+ * looks like one. Access facts (enabled/active/mounted/eval-bridge) are probed
  * per method; a missing or throwing method yields `null` fields, never a
  * fabricated `false`.
  *
@@ -74,7 +74,6 @@ const ARM_MESSAGE = "/" + COMMAND;
 const TOOL_COMMAND_PREFIX = ARM_MESSAGE + " " + TOOL_ARG_PREFIX;
 const CONTROL_APIS = [
   "getEnabledToolNames",
-  "getMountedXdevToolNames",
   "getAllToolInfos",
   "setActiveToolPresentation",
   "getPlanModeState",
@@ -98,6 +97,8 @@ interface SessionLike {
   getAllToolInfos?: () => unknown;
   getEnabledToolNames?: () => unknown;
   getActiveToolNames?: () => unknown;
+  getMountedToolCommandNames?: () => unknown;
+  /** Mounted xd:// device names; removed in omp 19.1. */
   getMountedXdevToolNames?: () => unknown;
   getEvalBridgeToolNames?: () => unknown;
   getToolByName?: (name: string) => unknown;
@@ -134,7 +135,7 @@ interface ToolRow {
   sourcePath: string | null;
   enabled: boolean | null;
   direct: boolean | null;
-  xdev: boolean | null;
+  mounted: boolean | null;
   evalBridge: boolean | null;
   mcpDigest: string;
 }
@@ -342,6 +343,26 @@ export default function (pi: ExtensionApi) {
       return { reason: "read-failed", rows: [] };
     }
   }
+  /**
+   * Mounted tool-command names on an omp from 19.1 on, mounted xd:// device
+   * names on an older omp, or undefined when no probe answers a name list —
+   * missing and throwing probes are equally unusable, never an empty roster.
+   */
+  function readMountedNames(root: SessionLike): unknown[] | undefined {
+    const probes = root as unknown as Record<string, unknown>;
+    for (const method of ["getMountedToolCommandNames", "getMountedXdevToolNames"]) {
+      const fn = probes[method];
+      if (typeof fn !== "function") continue;
+      try {
+        const names = (fn as () => unknown).call(root);
+        return Array.isArray(names) ? names : undefined;
+      } catch {
+        return undefined;
+      }
+    }
+    return undefined;
+  }
+
   function nameSet(root: SessionLike, method: string): Set<string> | null {
     const fn = (root as unknown as Record<string, unknown>)[method];
     if (typeof fn !== "function") return null;
@@ -446,7 +467,9 @@ export default function (pi: ExtensionApi) {
     try {
       const enabled = nameSet(root, "getEnabledToolNames");
       const direct = nameSet(root, "getActiveToolNames");
-      const xdev = nameSet(root, "getMountedXdevToolNames");
+      // omp 19.1 renamed the mount probe to getMountedToolCommandNames; older
+      // harnesses answer through getMountedXdevToolNames. Either one wins.
+      const mounted = nameSet(root, "getMountedToolCommandNames") ?? nameSet(root, "getMountedXdevToolNames");
       const evalBridge = nameSet(root, "getEvalBridgeToolNames");
       const rows: ToolRow[] = [];
       for (const entry of raw as Record<string, unknown>[]) {
@@ -465,7 +488,7 @@ export default function (pi: ExtensionApi) {
             : entry.sourcePath,
           enabled: enabled === null ? null : enabled.has(entry.name),
           direct: direct === null ? null : direct.has(entry.name),
-          xdev: xdev === null ? null : xdev.has(entry.name),
+          mounted: mounted === null ? null : mounted.has(entry.name),
           evalBridge: evalBridge === null ? null : evalBridge.has(entry.name),
           mcpDigest: infoServer !== null && infoTool !== null ? infoServer + "\\u0000" + infoTool : "",
         });
@@ -513,7 +536,7 @@ export default function (pi: ExtensionApi) {
     try {
       if (!Array.isArray(root?.getAllToolInfos?.())) return false;
       if (!Array.isArray(root?.getEnabledToolNames?.())) return false;
-      if (!Array.isArray(root?.getMountedXdevToolNames?.())) return false;
+      if (readMountedNames(root) === undefined) return false;
       root?.getPlanModeState?.();
     } catch {
       return false;
@@ -641,13 +664,13 @@ export default function (pi: ExtensionApi) {
     if (!hasControlApis(root)) return "unsupported";
     let infos: unknown;
     let enabledNames: unknown;
-    let xdevNames: unknown;
+    let mountedNames: unknown;
     let planState: unknown;
     let runtimeBusy = false;
     try {
       infos = root.getAllToolInfos?.();
       enabledNames = root.getEnabledToolNames?.();
-      xdevNames = root.getMountedXdevToolNames?.();
+      mountedNames = readMountedNames(root);
       planState = root.getPlanModeState?.();
       // Busy getters are optional: present-and-busy refuses, missing defers
       // to the root-prompt barrier installed in the prompt wrapper.
@@ -658,7 +681,7 @@ export default function (pi: ExtensionApi) {
     } catch {
       return "unsupported";
     }
-    if (!Array.isArray(infos) || !Array.isArray(enabledNames) || !Array.isArray(xdevNames)) {
+    if (!Array.isArray(infos) || !Array.isArray(enabledNames) || !Array.isArray(mountedNames)) {
       return "unsupported";
     }
     if (runtimeBusy || promptInFlight > 0) return "busy";
@@ -686,7 +709,7 @@ export default function (pi: ExtensionApi) {
     const nextEnabled = request.enabled
       ? enabledStrings.concat([request.name])
       : enabledStrings.filter((name) => name !== request.name);
-    const nextMounted = (xdevNames as unknown[])
+    const nextMounted = (mountedNames as unknown[])
       .filter(isString)
       .filter((name) => nextEnabled.indexOf(name) >= 0);
     try {
@@ -718,7 +741,7 @@ export default function (pi: ExtensionApi) {
       ? skills.rows.map((row) => [row.name, row.description, row.descriptionTruncated, row.filePath, row.source, row.scope, row.hidden])
       : ["unavailable", skills.reason];
     const toolRows = tools.reason === null
-      ? tools.rows.map((row) => [row.name, row.description, row.descriptionTruncated, row.source, row.enabled, row.direct, row.xdev, row.evalBridge, row.mcpDigest])
+      ? tools.rows.map((row) => [row.name, row.description, row.descriptionTruncated, row.source, row.enabled, row.direct, row.mounted, row.evalBridge, row.mcpDigest])
       : ["unavailable", tools.reason];
     const keywordRows = keywords.reason === null
       ? keywords.rows.map((row) => [row.id, row.word, row.requires.join(","), row.enabled])
@@ -772,7 +795,7 @@ export default function (pi: ExtensionApi) {
                 sourcePath: row.sourcePath,
                 enabled: row.enabled,
                 direct: row.direct,
-                xdev: row.xdev,
+                mounted: row.mounted,
                 evalBridge: row.evalBridge,
                 mcpServerName: ownership[0],
                 mcpToolName: ownership[1],

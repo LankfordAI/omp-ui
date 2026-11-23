@@ -896,7 +896,7 @@ const baseTool = (name: string, patch: Partial<CapabilityTool> = {}): Capability
   sourcePath: null,
   enabled: null,
   direct: null,
-  xdev: null,
+  mounted: null,
   evalBridge: null,
   mcpServerName: null,
   mcpToolName: null,
@@ -978,7 +978,7 @@ describe("CapabilitiesViewer — live sections", () => {
             tools: {
               status: "available",
               items: [
-                baseTool("eval_bridge_tool", { direct: false, xdev: false, evalBridge: true }),
+                baseTool("eval_bridge_tool", { direct: false, mounted: false, evalBridge: true }),
               ],
             },
           }),

@@ -3,7 +3,9 @@ import { writeLineageArtifact } from "./lineage-artifact";
 import { VIBE_MODE_TRANSITION_KEY } from "./vibe";
 import {
   generatedModeTransitionSource,
+  generatedMountedNamesSource,
   generatedRootBindingSource,
+  generatedToolCommandEraSource,
 } from "./generated-extension-source";
 import {
   HTML_PLAN_DOCUMENT_OPEN,
@@ -140,13 +142,16 @@ const PLAN_MODE_PREFIX =
   "rejected; only local:// session artifacts may be written.\\n\\n" +
   "Default behavior: answer in place. Explore with read/search tools and " +
   "respond directly. Do NOT write a plan unless the user's own prompt asks for one" +
-  ", and NEVER write to xd://propose without having written a plan file this " +
-  "turn.\\n\\n";
+  ", and NEVER submit a plan without having written a plan file this turn.\\n\\n";
 
-const MD_PLAN_BODY =
+/** How this harness dispatches plan submission: command (omp 19.1+) or device. */
+const SUBMIT_COMMAND = "run the \`propose\` command with that same <slug>";
+const SUBMIT_DEVICE = "write the same <slug> as plain text to xd://propose";
+
+const MD_PLAN_BODY = (submit: string): string =>
   "When the user does ask for a plan: choose a short kebab-case <slug>, write " +
   "the plan to local://<slug>-plan.md with the write tool, then request review " +
-  "by writing the same <slug> as plain text to xd://propose. ";
+  "by " + submit + ". ";
 
 /**
  * The repair instructions ship with the application (issue #312 follow-up):
@@ -174,10 +179,10 @@ const PREFLIGHT_HTML_CONTRACT =
   "tries per prompt). If a diagnostic says omp-ui could not prepare or verify " +
   "the plan (an application failure), report it and stop; never rewrite valid " +
   "source to compensate. ";
-const HTML_PLAN_BODY =
+const HTML_PLAN_BODY = (submit: string): string =>
   "When the user does ask for a plan: choose a short kebab-case <slug>, write " +
   "the plan to local://<slug>-plan.html with the write tool, then request review " +
-  "by writing the same <slug> as plain text to xd://propose. Write NO markdown plan: " +
+  "by " + submit + ". Write NO markdown plan: " +
   "in this session the HTML file is the one and only plan, and it is what " +
   "the implementer executes. Ignore any omp tooling text that names " +
   "local://<slug>-plan.md. The HTML must be a complete, self-contained document: " +
@@ -264,8 +269,8 @@ const PLAN_SPEC_SUFFIX =
   "until the user answers execute, refine, or defers; a plan file with no " +
   "propose write stays unreviewed, so always propose a plan you were asked to write.";
 
-function planModeInstruction(fmt: "html" | "md"): string {
-  return PLAN_MODE_PREFIX + (fmt === "html" ? HTML_PLAN_BODY : MD_PLAN_BODY) + PLAN_SPEC_SUFFIX;
+function planModeInstruction(fmt: "html" | "md", submit: string): string {
+  return PLAN_MODE_PREFIX + (fmt === "html" ? HTML_PLAN_BODY(submit) : MD_PLAN_BODY(submit)) + PLAN_SPEC_SUFFIX;
 }
 
 /** Notified when the instruction above cannot be delivered. The mode stays on. */
@@ -279,13 +284,13 @@ const MODE_INSTRUCTION_UNAVAILABLE =
  * The entry instruction is a durable conversation message, so the mode has to be
  * closed in the same channel it was opened in (issue #117).
  */
-const PLAN_MODE_EXIT_INSTRUCTION =
+const planModeExitInstruction = (submit: string): string =>
   "Build mode is ON as of this message. Plan mode is OFF. The read-only guard is lifted: you have " +
   "full write access to the working tree again, and state-changing commands are " +
   "allowed.\\n\\n" +
   "Every earlier omp-ui plan-mode and plan-format instruction in this conversation " +
   "is superseded and no longer applies — they described a mode that has ended. Do " +
-  "NOT write plan artifacts, and NEVER write to xd://propose, unless a later " +
+  "NOT write plan artifacts, and NEVER submit a plan (" + submit + "), unless a later " +
   "instruction turns plan mode back on. Carry out the user's request normally, " +
   "making the changes they ask for.";
 
@@ -340,7 +345,9 @@ interface PlanSession {
     forcePromptRefresh?: boolean,
   ) => unknown;
   getEnabledToolNames: () => string[];
-  /** Mounted xd:// names; absent on an omp with no xdev surface. */
+  /** Mounted command names (omp 19.1+) or xd:// device names (older omp); present on at least one era's method. */
+  getMountedToolCommandNames?: () => unknown;
+  /** Mounted xd:// device names; removed in omp 19.1. */
   getMountedXdevToolNames?: () => unknown;
   /** Every tool the session knows, enabled or not: the roster \`write\` is checked in. */
   getAllToolInfos?: () => unknown;
@@ -396,6 +403,7 @@ export default function (pi: PlanExtensionApi) {
   // no later prompt — descendant or not — may retarget it (ADR-0008 discipline).
   let rootSession: PlanSession | null = null;
   ${generatedRootBindingSource("PlanSession")}
+  ${generatedToolCommandEraSource()}
   let unavailable: string | undefined;
   let approved = false;
   // Which format the renderer asked for on the last \`on\`. A bare \`on\` typed by
@@ -975,13 +983,7 @@ export default function (pi: PlanExtensionApi) {
     return (names as unknown[]).filter(isString);
   }
 
-  /** Mounted xd:// names; an omp with no xdev surface mounts nothing. */
-  function readMounted(active: PlanSession): string[] {
-    const read = active.getMountedXdevToolNames;
-    if (typeof read !== "function") return [];
-    const names = read.call(active) as unknown;
-    return Array.isArray(names) ? (names as unknown[]).filter(isString) : [];
-  }
+  ${generatedMountedNamesSource("PlanSession")}
 
   /** Whether the roster knows a write tool at all; unknown counts as no. */
   function writeInRoster(active: PlanSession): boolean {
@@ -1206,7 +1208,8 @@ export default function (pi: PlanExtensionApi) {
   }
 
   /**
-   * Installed while plan mode is active; \`xd://propose\` dispatches the plan
+   * Installed while plan mode is active; the \`propose\` command (omp 19.1+)
+   * or the \`xd://propose\` device (older omp) dispatches the plan
    * title here. Blocks the agent on the renderer's answer, so a plan is never
    * executed without a decision.
    *
@@ -1269,7 +1272,9 @@ export default function (pi: PlanExtensionApi) {
                 text:
                   "No plan file found for \\"" + title + "\\". Write the finalized plan to local://" +
                   (slug ?? "<slug>") +
-                  "-plan.html with the write tool, then write the same slug to xd://propose again.",
+                  "-plan.html with the write tool, then " +
+                  (toolCommandsEra(active) ? SUBMIT_COMMAND : SUBMIT_DEVICE) +
+                  " again.",
               },
             ],
           };
@@ -1409,7 +1414,11 @@ export default function (pi: PlanExtensionApi) {
               "Plan refinement requested. The user's revision notes may arrive as a " +
               "follow-up message; incorporate them, revise " +
               planFilePath +
-              ", then write its title to xd://propose again when ready.",
+              ", then " +
+              (toolCommandsEra(active)
+                ? "run the \`propose\` command with its title again"
+                : "write its title to xd://propose again") +
+              " when ready.",
           },
         ],
         details,
@@ -1501,7 +1510,7 @@ export default function (pi: PlanExtensionApi) {
       await active.sendCustomMessage(
         {
           customType: "omp-ui:plan-mode",
-          content: planModeInstruction(format),
+          content: planModeInstruction(format, toolCommandsEra(active) ? SUBMIT_COMMAND : SUBMIT_DEVICE),
           display: false,
           attribution: "agent",
         },
@@ -1532,7 +1541,7 @@ export default function (pi: PlanExtensionApi) {
       await active.sendCustomMessage(
         {
           customType: "omp-ui:plan-mode-exit",
-          content: PLAN_MODE_EXIT_INSTRUCTION,
+          content: planModeExitInstruction(toolCommandsEra(active) ? SUBMIT_COMMAND : SUBMIT_DEVICE),
           display: false,
           attribution: "agent",
         },

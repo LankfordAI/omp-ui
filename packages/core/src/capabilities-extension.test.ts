@@ -36,7 +36,7 @@ interface FakeSession {
   toolByName: Map<string, unknown>;
   enabledNames: string[];
   activeNames: string[];
-  xdevNames: string[];
+  mountedNames: string[];
   evalBridgeNames: string[];
   setterCalls: { enabled: string[]; mounted: string[]; force: unknown }[];
   setterError: unknown;
@@ -128,7 +128,7 @@ function executableExtension(seam: CapabilitiesSeam = fullSeam()): CapabilitiesH
     toolByName = new Map<string, unknown>();
     enabledNames: string[] = [];
     activeNames: string[] = [];
-    xdevNames: string[] = [];
+    mountedNames: string[] = [];
     evalBridgeNames: string[] = [];
     setterCalls: { enabled: string[]; mounted: string[]; force: unknown }[] = [];
     setterError: unknown = null;
@@ -155,7 +155,7 @@ function executableExtension(seam: CapabilitiesSeam = fullSeam()): CapabilitiesH
     }
 
     getMountedXdevToolNames(): string[] {
-      return this.xdevNames;
+      return this.mountedNames;
     }
 
     getEvalBridgeToolNames(): string[] {
@@ -181,7 +181,7 @@ function executableExtension(seam: CapabilitiesSeam = fullSeam()): CapabilitiesH
       if (this.setterGate !== null) await this.setterGate;
       if (this.setterApplies) {
         this.enabledNames = [...enabled];
-        this.xdevNames = [...mounted];
+        this.mountedNames = [...mounted];
       }
     }
 
@@ -419,7 +419,7 @@ describe("generated capabilities extension", () => {
     await root.prompt();
     await harness.arm();
     const byName = new Map(publishedTools(harness.latest()).map((t) => [t.name, t]));
-    expect(byName.get("beta")).toMatchObject({ enabled: true, direct: false, xdev: false, evalBridge: true });
+    expect(byName.get("beta")).toMatchObject({ enabled: true, direct: false, mounted: false, evalBridge: true });
     expect(byName.get("mcp__ghost__x")).toMatchObject({ source: "unknown", mcpServerName: null, mcpToolName: null });
     expect(byName.get("drive.upload")).toMatchObject({
       source: "mcp",
@@ -468,7 +468,7 @@ describe("generated capabilities extension", () => {
     expect(publishedTools(harness.latest())[0]).toMatchObject({
       enabled: null,
       direct: true,
-      xdev: null,
+      mounted: null,
       evalBridge: false,
     });
   });
@@ -601,7 +601,7 @@ describe("generated capabilities extension: tool mutation", () => {
     const root = await armRoot(harness);
     root.toolInfos.push({ name: "gamma", description: "g", source: "sdk", sourcePath: null });
     root.enabledNames = ["alpha", "gamma"];
-    root.xdevNames = ["gamma", "beta"];
+    root.mountedNames = ["gamma", "beta"];
     const frames = harness.published.length;
 
     await sendMutation(harness, root, "beta", true);
