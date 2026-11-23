@@ -188,7 +188,10 @@ describe("generated council extension", () => {
       });
       const note = await runCommand(h, "is the cache invalidation safe?", cwd);
       expect(note).toEqual({
-        text: "Asked 2 council member(s) on (ask). The session model starts them on its next turn; answers arrive as background results.",
+        text:
+          "Asked 2 council member(s) on (ask). Do not launch the members yourself. The launch instructions " +
+          "arrive as a message on your next turn; follow that message exactly once, then " +
+          "wait for the answers to arrive as background results.",
         level: "info",
       });
       const send = h.sends[0]!;
@@ -210,6 +213,10 @@ describe("generated council extension", () => {
       expect(String(json.tasks[0]!.task)).toContain("Think about cost.");
       const prompt = launchPrompt(h);
       expect(prompt).toContain("sol (openai/gpt-6-sol), opus (anthropic/claude-opus-5.5)");
+      expect(prompt).toContain("are already running, a council wave is already underway");
+      expect(prompt).toContain("do not call the `task` tool at all");
+      expect(prompt.indexOf("do not call the `task` tool at all")).toBeLessThan(
+        prompt.indexOf("Call the `task` tool exactly once"));
       expect(prompt).toContain("Do not edit files or post anywhere because of this message.");
       expect(prompt).not.toContain("SCORE");
       expect(prompt).not.toMatch(/trial/i);
@@ -244,6 +251,8 @@ describe("generated council extension", () => {
       expect(String(trialTask.task)).not.toMatch(/trial/i);
       const prompt = launchPrompt(h);
       expect(prompt).toContain("It is not a council member");
+      expect(prompt.indexOf("do not call the `task` tool at all")).toBeLessThan(
+        prompt.indexOf("Call the `task` tool once with the council batch arguments"));
       expect(prompt).toContain('"Trial model" section');
       expect(prompt).toContain("trial-only, not acted on");
       expect(prompt).toContain("Never wait for the trial member");
@@ -257,6 +266,21 @@ describe("generated council extension", () => {
       const json = batchJson(h);
       expect(json.context).toBe("omp-ui council (/council). find bugs");
       expect(String(json.tasks[0]!.task)).toMatch(/\n\n## Request\nwhich queue fits\?$/);
+    });
+
+    it("a same-intent relaunch inside the window queues no second launch message", async () => {
+      const cwd = tempDir("omp-ui-council-ask-");
+      const h = harness();
+      const first = await runTool(h, { request: "which queue?" }, cwd);
+      expect(first.isError).toBeUndefined();
+      expect(first.content[0]!.text).toMatch(/^Asked /);
+      const second = await runTool(h, { request: "which queue?" }, cwd);
+      expect(second.isError).toBeUndefined();
+      expect(second.content[0]!.text).toContain("already queued");
+      expect(h.sends).toHaveLength(1);
+      const third = await runTool(h, { request: "which cache?" }, cwd);
+      expect(third.content[0]!.text).toMatch(/^Asked /);
+      expect(h.sends).toHaveLength(2);
     });
   });
 

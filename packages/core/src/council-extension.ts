@@ -95,6 +95,11 @@ const COUNCIL_STATE: CouncilState = ${JSON.stringify(state)};
 const NAME_RE = /^[A-Za-z0-9._/@][A-Za-z0-9._/@^{}~/-]{0,254}$/;
 const TARGET_KINDS = ["local", "commit", "pr"];
 
+/** Intent keys of launches queued this process; a same-intent relaunch inside the
+ * window is a duplicate tool call (eval device + write device), not user intent. */
+const RELAUNCH_WINDOW_MS = 60000;
+const recentLaunches = new Map<string, number>();
+
 interface ZodFn {
   (...args: unknown[]): ZodFn;
   describe: (text: string) => ZodFn;
@@ -335,6 +340,11 @@ async function resolveTarget(target: Target, cwd: string, signal: AbortSignal | 
 const COUNCIL_EMPTY =
   "This session started without council members. Configure Settings → Council, then relaunch the session. No council was launched.";
 const CANCELLED = "The council was cancelled before launch.";
+/** Opens each launch message: a wave already underway is awaited, never re-launched. */
+const GUARD_LAUNCH =
+  "First check for running members: if background agents named \`council-<member>\` for " +
+  "this request are already running, a council wave is already underway — do not call " +
+  "the \`task\` tool at all, and instead wait for those runs to answer. Otherwise ";
 
 // --- launch
 type TextResult = { content: Array<{ type: "text"; text: string }>; isError?: boolean };
@@ -398,6 +408,19 @@ async function runCouncil(intent: Intent, cwd: string, signal: AbortSignal | und
           (council.instructions ?? "Answer the request independently; your answer is compared with other models' answers.");
     const tasks = council.members.map(memberTask);
     const batch = { context, tasks };
+    const launchKey = JSON.stringify(intent);
+    const lastLaunch = recentLaunches.get(launchKey);
+    if (lastLaunch !== undefined && Date.now() - lastLaunch < RELAUNCH_WINDOW_MS) {
+      return {
+        result: toolResult(
+          "A council launch for this same request is already queued (" +
+            Math.max(1, Math.round((Date.now() - lastLaunch) / 1000)) +
+            "s ago). It fires on your next turn; do not call the council tool again " +
+            "for this request and do not launch members yourself.", false),
+        level: "info",
+      };
+    }
+    recentLaunches.set(launchKey, Date.now());
     const trial = council.trial;
     const names = council.members.map((m) => m.name + " (" + m.model + ")").join(", ");
     const slug = label.slice("local://".length).replace(/-plan\\.(?:md|html)$/i, "");
@@ -408,6 +431,7 @@ async function runCouncil(intent: Intent, cwd: string, signal: AbortSignal | und
     if (trial === null) {
       lines.push(
         opener + "; the council has " + tasks.length + " members: " + names + ". " +
+          GUARD_LAUNCH +
           "Call the \`task\` tool exactly once with these batch arguments, unchanged, then " +
           (plan
             ? "call the \`wait\` tool until every member has answered. Do not end your turn while a member is still running."
@@ -423,6 +447,7 @@ async function runCouncil(intent: Intent, cwd: string, signal: AbortSignal | und
         opener + "; the council has " + tasks.length + " members: " + names + ". " +
           "A trial member, " + trialName + ", answers the same assignment for comparison only. " +
           "It is not a council member and has no say in the outcome. " +
+          GUARD_LAUNCH +
           "Call the \`task\` tool once with the council batch arguments, unchanged:",
         inertBlock(JSON.stringify(batch)),
         "If that call fails, report omp's error verbatim and stop without launching the trial member. " +
@@ -484,7 +509,9 @@ async function runCouncil(intent: Intent, cwd: string, signal: AbortSignal | und
     }
     const text =
       "Asked " + tasks.length + " council member(s)" + (trial === null ? "" : " and trial member " + trial.name) +
-      " on " + label + ". The session model starts them on its next turn; answers arrive as background results.";
+      " on " + label + ". Do not launch the members yourself. The launch instructions " +
+      "arrive as a message on your next turn; follow that message exactly once, then " +
+      "wait for the answers to arrive as background results.";
     return {
       result: toolResult(text + warnings, false),
       level: warnings === "" ? "info" : "warning",
