@@ -292,7 +292,11 @@ export interface FleetDispatcherLike {
 /** The agent dispatch deadline: the answer must land inside HOST_ANSWER_WATCHDOG_MS (60 s). */
 const AGENT_FLEET_DEADLINE_MS = 45_000;
 /** Commands that start or extend a turn: refused while the model is held (#932). */
-const MODEL_HOLD_COMMANDS: ReadonlySet<string> = new Set(["prompt", "steer", "follow_up", "abort_and_prompt"]);
+// Turn-starting commands refused while the session is pinned to an
+// unreachable model (#932). `resume` and `abort_and_deliver_queue` join them
+// for #1272: like `abort_and_prompt` they start (or continue) a turn, which
+// would run on whatever fallback omp booted with.
+const MODEL_HOLD_COMMANDS: ReadonlySet<string> = new Set(["prompt", "steer", "follow_up", "abort_and_prompt", "resume", "abort_and_deliver_queue"]);
 /** omp's ack window for a fleet command sent into a live child (#959, #1164). */
 const FLEET_COMMAND_ACK_MS = 15_000;
 const FLEET_STOP_COMMAND_PREFIX = "omp-ui-fleet-stop-";

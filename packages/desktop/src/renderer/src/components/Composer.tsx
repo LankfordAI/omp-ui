@@ -63,6 +63,7 @@ import type { CheckoutEntry } from "../lib/repository-members";
 import { SlashPalette, type SlashPaletteHandle } from "./SlashPalette";
 import type { WorkspaceSelection } from "./WorktreeBranchFields";
 import { QueuedMessageList } from "./QueuedMessageList";
+import { HostRunControls } from "./HostRunControls";
 import { AttachmentButton, Button, Chevron, Chip, IconButton, IconClose, Label, PerimeterGlow, PerimeterSweep } from "./ui";
 import { DictationControl, DictationStrip } from "./ComposerDictation";
 import { useDictation } from "../lib/use-dictation";
@@ -1886,6 +1887,10 @@ export function Composer({
                 )}
               </span>
             )}
+            {/* Continue / deliver-queue ride the queue zone on a remote host's
+                tab: same verbs the host's TUI offers, sent to the owning
+                instance (issue #1272). Renders nothing on local tabs. */}
+            <HostRunControls tabId={tabId} disabled={unavailable} />
 
             <span className="flex-1" />
 
@@ -1962,6 +1967,8 @@ export function Composer({
                 </Chip>
               )}
               {queueChip && <Chip mono tone="copper" title={running ? "messages waiting for the current turn to finish" : "queued items do not run while the agent is idle — sending a new prompt runs parked follow-ups"}>{queued}</Chip>}
+              {/* The remote host's run verbs beside its queue chip (issue #1272). */}
+              <HostRunControls tabId={tabId} disabled={unavailable} />
               <ComposerActions
                 layout="compact"
                 atReset={atReset}

@@ -9,6 +9,7 @@ import { AdvisorControl } from "./AdvisorControl";
 import { BranchChip, type BranchChipExternalRequest } from "./BranchChip";
 import { BuildPlanControl } from "./BuildPlanControl";
 import { FastModeControl } from "./FastModeControl";
+import { HostModelPickerRow } from "./HostModelPicker";
 import { MachineChip } from "./MachineChip";
 import { ModelSelector } from "./ModelSelector";
 import { ThinkingSlider } from "./ThinkingSlider";
@@ -164,6 +165,10 @@ export function ComposerOptionsContent({
         )}
         {fastVisible && fastRow}
         {modelExtras}
+        {/* A remote host owns its catalog: omp's alt+p picker rides here,
+            gated by the host version and the refusal latch inside (issue
+            #1272). Local tabs never see the row. */}
+        <HostModelPickerRow tabId={tabId} instanceId={instanceId} />
       </section>
 
       <div aria-hidden className="mx-1.5 my-1 h-px bg-line" />

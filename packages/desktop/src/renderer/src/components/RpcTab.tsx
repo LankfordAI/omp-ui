@@ -23,6 +23,7 @@ import { MarkdownMachineProvider } from "./MarkdownMachineProvider";
 import { MarkdownVaultProvider } from "./MarkdownVaultProvider";
 import { RoutineFocusProvider } from "./RoutineFocusProvider";
 import { TranscriptView, ShareLinkRow, TuiHandoffButton, CouncilSettingsButton } from "./TranscriptView";
+import { HostModelPicker } from "./HostModelPicker";
 import { ModelPalette } from "./ModelSelector";
 import { Button, Chip, CopyButton, Panel, ProgressSweep, Sheet } from "./ui";
 import { BrowserPane } from "./browser-pane/BrowserPane";
@@ -444,6 +445,10 @@ export const RpcTab = memo(function RpcTab({ tabId, active }: { tabId: string; a
   const content = (
     <div className="ambient relative flex h-full flex-col stage-surface">
       {compact && <SessionHud tabId={tabId} active={active} />}
+
+      {/* omp's alt+p picker over RPC (issue #1272): mounts only while a
+          remote host's picker is open — a Modal portal of its own. */}
+      <HostModelPicker tabId={tabId} />
 
       {/* The find bar (issue #270) rides the tab's top edge. While the
           subagent view or plan-review dock owns the surface — or the tab has

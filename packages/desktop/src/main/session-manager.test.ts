@@ -9677,6 +9677,10 @@ describe("model hold on an unreachable pinned endpoint (issue #932)", () => {
 
     manager.rpcSend(tabId, { type: "prompt", id: "p1", message: "hello" });
     manager.rpcSend(tabId, { type: "steer", id: "s1", message: "faster" });
+    // #1272: omp 19.1's continue / interrupt-and-deliver-queue start a turn
+    // exactly like abort_and_prompt, so a held session refuses them too.
+    manager.rpcSend(tabId, { type: "resume", id: "r1" });
+    manager.rpcSend(tabId, { type: "abort_and_deliver_queue", id: "d1" });
     manager.rpcSend(tabId, { type: "prompt", id: "b1", message: "/omp-ui-plan on markdown" });
     manager.rpcSend(tabId, { type: "get_state", id: "g1" });
 
@@ -9684,6 +9688,8 @@ describe("model hold on an unreachable pinned endpoint (issue #932)", () => {
     expect(responses(sent)).toEqual([
       expect.objectContaining({ id: "p1", command: "prompt", success: false, error: expect.stringContaining("192.168.110.6:4000") }),
       expect.objectContaining({ id: "s1", command: "steer", success: false }),
+      expect.objectContaining({ id: "r1", command: "resume", success: false }),
+      expect.objectContaining({ id: "d1", command: "abort_and_deliver_queue", success: false }),
     ]);
   });
 
