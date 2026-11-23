@@ -19,6 +19,14 @@ describe("routeExtensionRequest", () => {
     ).toEqual({ action: "dialog", method: "ask" });
   });
 
+  it("routes the whole-HTML-form frame to a dialog (issue #1271)", () => {
+    // omp 19.1's ask tool and ui.formDialog block on one data-or-cancelled
+    // response; auto-cancelling the frame would cancel every ask unseen.
+    expect(
+      routeExtensionRequest({ type: "extension_ui_request", id: "1", method: "form", html: "<form></form>" }),
+    ).toEqual({ action: "dialog", method: "form" });
+  });
+
   it("routes open_url to the system browser", () => {
     expect(
       routeExtensionRequest({ type: "extension_ui_request", id: "1", method: "open_url" }),

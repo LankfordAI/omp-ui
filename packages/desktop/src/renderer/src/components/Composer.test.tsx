@@ -4480,6 +4480,31 @@ describe("Composer skip & send with a multi-question ask (issue #1234)", () => {
     expect(sendPrompt).toHaveBeenCalledWith(TAB, "compact steer", "prompt", [], [], { annotations: [], references: [], artifactReferences: [], refreshes: [] });
     expect(answerFrames()).toHaveLength(0);
   });
+
+  it("treats a whole-HTML-form ask like an ask for Skip & send, placeholder, and focus yield (issue #1271)", async () => {
+    const FORM_FRAME = {
+      id: "form1",
+      method: "form",
+      html: '<form><p>Which store?</p><label><input type="radio" name="db" value="sqlite" checked> SQLite</label></form>',
+    };
+    desktop();
+    seedQueue([FORM_FRAME]);
+    renderRpcTab();
+    // Mount autofocus yields to the waiting form card instead of yanking focus to the composer.
+    const active = document.activeElement as HTMLElement | null;
+    expect(active).not.toBeNull();
+    expect(active!.closest(".cm-editor")).toBeNull();
+    expect(composerInput().getAttribute("aria-placeholder")).toContain("skips the questions");
+    const box = typeDraft("skip the form");
+    const pill = [...document.body.querySelectorAll<HTMLButtonElement>("button")].find(
+      (candidate) => candidate.textContent?.trim() === "skip & send",
+    );
+    expect(pill).toBeDefined();
+    press(box, "Enter");
+    await flush();
+    expect(answerFrames()).toEqual([{ type: "extension_ui_response", id: "form1", cancelled: true }]);
+    expect(sendPrompt).toHaveBeenCalledWith(TAB, "skip the form", "prompt", [], [], { annotations: [], references: [], artifactReferences: [], refreshes: [] });
+  });
 });
 
 describe("Composer next-message prediction ghost (issue #1239)", () => {

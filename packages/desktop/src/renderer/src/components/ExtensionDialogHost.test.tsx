@@ -824,3 +824,158 @@ describe("multi-question ask form (issue #1234)", () => {
     });
   });
 });
+
+// The omp 19.1 wire frame (issue #1271): method:"form" carries the model's
+// complete HTML <form>; one response carries the submitted data or a cancel.
+const FORM_FRAME = {
+  id: "form1",
+  method: "form",
+  html:
+    "<form>" +
+    "<p>Which store?</p>" +
+    '<label><input type="radio" name="db" value="sqlite" checked> SQLite</label>' +
+    '<label><input type="radio" name="db" value="pg"> Postgres</label>' +
+    '<label><input type="checkbox" name="env" value="docker"> docker</label>' +
+    '<label><input type="checkbox" name="env" value="k8s"> k8s</label>' +
+    "</form>",
+};
+
+describe("whole-HTML-form dialog (issue #1271)", () => {
+  const button = (text: string) =>
+    [...document.body.querySelectorAll<HTMLButtonElement>("button")].find(
+      (candidate) => candidate.textContent?.trim() === text,
+    );
+
+  it("renders the form's controls and opens at its checked defaults", () => {
+    renderDesktopHost([FORM_FRAME]);
+    expect(document.body.textContent).toContain("Which store?");
+    const checked = [...document.body.querySelectorAll<HTMLInputElement>('input[type="radio"]')].filter(
+      (input) => input.checked,
+    );
+    expect(checked.map((input) => input.value)).toEqual(["sqlite"]);
+  });
+
+  it("answers with the submitted data keyed by control name", () => {
+    renderDesktopHost([FORM_FRAME]);
+    const pg = [...document.body.querySelectorAll<HTMLInputElement>('input[type="radio"]')].find(
+      (input) => input.value === "pg",
+    )!;
+    act(() => pg.click());
+    act(() => button("submit")!.click());
+    // The untouched checkbox group carries no key at all; omp applies the
+    // form's own default for a field whose answer is absent.
+    expect(lastFrame()).toEqual({
+      type: "extension_ui_response",
+      id: "form1",
+      data: { db: "pg" },
+    });
+  });
+
+  it("clears radio pick when typing Other and vice versa", () => {
+    renderDesktopHost([FORM_FRAME]);
+    const other = document.body.querySelector<HTMLInputElement>('input[placeholder="Other (type your own)"]')!;
+    const setter = Object.getOwnPropertyDescriptor(HTMLInputElement.prototype, "value")!.set!;
+    act(() => {
+      setter.call(other, "DuckDB");
+      other.dispatchEvent(new Event("input", { bubbles: true }));
+    });
+    const checkedAfterOther = [...document.body.querySelectorAll<HTMLInputElement>('input[type="radio"]')].filter(
+      (input) => input.checked,
+    );
+    expect(checkedAfterOther).toEqual([]);
+    // Clicking a radio clears the typed Other value so the clicked option submits.
+    const pg = [...document.body.querySelectorAll<HTMLInputElement>('input[type="radio"]')].find(
+      (input) => input.value === "pg",
+    )!;
+    act(() => pg.click());
+    expect(other.value).toBe("");
+    act(() => button("submit")!.click());
+    expect(lastFrame()).toEqual({
+      type: "extension_ui_response",
+      id: "form1",
+      data: { db: "pg" },
+    });
+  });
+
+  it("renders tables, lists, pre blocks, select dropdowns, and validates constraints before submitting", () => {
+    renderDesktopHost([
+      {
+        id: "form2",
+        method: "form",
+        html:
+          "<form>" +
+          "<table><thead><tr><th>Option</th></tr></thead><tbody><tr><td>SQLite</td></tr></tbody></table>" +
+          "<pre>PRAGMA journal_mode=WAL;</pre>" +
+          '<label>Tier <select name="tier"><option value="basic">Basic</option><option value="pro" selected>Pro</option></select></label>' +
+          '<label>TTL <input type="number" name="ttl" min="1" required></label>' +
+          "</form>",
+      },
+    ]);
+    expect(document.body.querySelector("table")?.textContent).toContain("SQLite");
+    expect(document.body.querySelector("pre")?.textContent).toContain("WAL");
+    const select = document.body.querySelector<HTMLSelectElement>("select")!;
+    expect(select.value).toBe("pro");
+
+    // Submitting with required number empty shows validation error without sending.
+    act(() => button("submit")!.click());
+    expect(rpcSend).not.toHaveBeenCalled();
+    expect(document.body.querySelector('[role="alert"]')?.textContent).toBe("Required");
+
+    // Out-of-bounds number is also caught before sending.
+    const ttl = document.body.querySelector<HTMLInputElement>('input[type="number"]')!;
+    const setter = Object.getOwnPropertyDescriptor(HTMLInputElement.prototype, "value")!.set!;
+    act(() => {
+      setter.call(ttl, "0");
+      ttl.dispatchEvent(new Event("input", { bubbles: true }));
+    });
+    act(() => button("submit")!.click());
+    expect(rpcSend).not.toHaveBeenCalled();
+    expect(document.body.querySelector('[role="alert"]')?.textContent).toBe("Must be at least 1");
+
+    // Valid number coerces to JSON number and submits cleanly.
+    act(() => {
+      setter.call(ttl, "30");
+      ttl.dispatchEvent(new Event("input", { bubbles: true }));
+    });
+    act(() => button("submit")!.click());
+    expect(lastFrame()).toEqual({
+      type: "extension_ui_response",
+      id: "form2",
+      data: { tier: "pro", ttl: 30 },
+    });
+  });
+
+  it("cancels once on Escape even while focused inside a form input", () => {
+    renderDesktopHost([FORM_FRAME]);
+    const other = document.body.querySelector<HTMLInputElement>('input[placeholder="Other (type your own)"]')!;
+    other.focus();
+    act(() => {
+      other.dispatchEvent(new KeyboardEvent("keydown", { key: "Escape", bubbles: true, cancelable: true }));
+    });
+    expect(rpcSend).toHaveBeenCalledTimes(1);
+    expect(lastFrame()).toMatchObject({ type: "extension_ui_response", id: "form1", cancelled: true });
+  });
+
+  it("cancels on cancel and stays out of the composer's free-text path", () => {
+    renderDesktopHost([FORM_FRAME]);
+    expect(freeTextTarget(FORM_FRAME)).toBe("none");
+    expect(ask("just a message")).toBe("not-answerable");
+    expect(skipPendingQuestion(TAB)).toBe(true);
+    expect(lastFrame()).toMatchObject({ type: "extension_ui_response", id: "form1", cancelled: true });
+  });
+
+  it("never renders external image URLs or inline SVG elements from untrusted form HTML", () => {
+    renderDesktopHost([
+      {
+        id: "form-xss",
+        method: "form",
+        html:
+          '<form><img src="https://evil.example/x.png" alt="remote"><svg aria-label="chart"><script>alert(1)</script></svg><label><input name="a"></label></form>',
+      },
+    ]);
+    expect(document.body.querySelector("img")).toBeNull();
+    expect(document.body.querySelector("svg")).toBeNull();
+    expect(document.body.textContent).toContain("[Image: remote]");
+    expect(document.body.textContent).toContain("[Image: chart]");
+  });
+});

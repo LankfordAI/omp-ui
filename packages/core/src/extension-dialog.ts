@@ -19,6 +19,13 @@ export const BLOCKING_DIALOG_METHODS: Record<string, true> = {
   // It only ever arrives once `set_ask_dialog` succeeded — an opted-out or
   // older build never emits it, so the field-by-field walk above is untouched.
   ask: true,
+  // The whole-HTML-form frame (issue #1271): from omp 19.1 the `ask` tool
+  // and `ui.formDialog` send one `form` request carrying the model's
+  // `<form>` and block on a single response with submitted `data`, or a
+  // cancellation. An unanswered `form` can block the tool indefinitely, so
+  // it must be answered like every other dialog, never auto-cancelled
+  // unseen.
+  form: true,
 };
 
 /** Narrows an `unknown` frame method without stringifying the value. */
