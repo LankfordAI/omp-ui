@@ -793,7 +793,34 @@ export function RunningChip({ streamStallMs }: { streamStallMs: number | undefin
   );
 }
 
-export function ToolCard({ item, tabId }: { item: ToolItem; tabId?: string }) {
+/**
+ * The header headline rule (issue #1274): while a call streams, the surface
+ * shows the brief intent — an explicit `toolIntentLabel` on the wire outranks
+ * the derived colon split of `intent`; a settled card shows the whole text
+ * again, since ranking and history keep it. `fallback` covers the no-intent
+ * case (an args summary).
+ */
+export function toolHeadline(item: ToolItem, fallback: string): string {
+  if (item.status !== "running") return fallback;
+  const rawIntent = item.intent ?? strField(item.args, "i");
+  if (item.toolIntentLabel !== undefined && item.toolIntentLabel !== "") {
+    return item.toolIntentLabel;
+  }
+  return rawIntent !== undefined ? toolIntentLabel(rawIntent) : fallback;
+}
+
+export function ToolCard({
+  item,
+  tabId,
+  nestedBody,
+}: {
+  item: ToolItem;
+  tabId?: string;
+  /** Child tool cards this call spawned (issue #1274), built by the transcript
+   *  view; rendered inside this card's body so collapsing the parent collapses
+   *  its children with it. */
+  nestedBody?: ReactNode;
+}) {
   const streamStallMs = useStore(
     tabId === undefined ? readNoStall : (s) => s.rpc[tabId]?.streamStallMs,
   );
@@ -831,15 +858,10 @@ export function ToolCard({ item, tabId }: { item: ToolItem; tabId?: string }) {
     item.status !== "done" || hasDiff || (item.notes?.length ?? 0) > 0 || !longOutput,
   );
 
-  // Upstream's brief-label rule (issue #1274): while a call streams, the header
-  // carries pi-wire's short intent label and the full text only as the tooltip;
-  // a settled card shows the whole intent again — ranking and history keep it.
-  // An intent can arrive on `tool_execution_start.intent` or, while args stream
-  // before start, in `args.i`.
+  // Upstream's brief-label rule (issue #1274) via the shared headline helper.
   const rawIntent = item.intent ?? strField(item.args, "i");
   const fullHeadline = rawIntent ?? argSummary(item.args);
-  const headline =
-    item.status === "running" && rawIntent !== undefined ? toolIntentLabel(rawIntent) : fullHeadline;
+  const headline = toolHeadline(item, fullHeadline);
   const duration = item.wallTimeMs !== undefined ? formatDuration(item.wallTimeMs) : "";
   const draft = useMemo(() => editDraft(item.name, item.args), [item.name, item.args]);
   const taskFiles = useMemo(
@@ -890,6 +912,7 @@ export function ToolCard({ item, tabId }: { item: ToolItem; tabId?: string }) {
     item.partialText !== undefined ||
     execDir !== null ||
     (item.name === "bash" && (item.toolCommands?.length ?? 0) > 0) ||
+    nestedBody !== undefined ||
     draft !== null ||
     (item.notes?.length ?? 0) > 0;
 
@@ -1028,6 +1051,11 @@ export function ToolCard({ item, tabId }: { item: ToolItem; tabId?: string }) {
           )}
 
           <ToolCommandRows item={item} />
+
+          {/* Session tools this call invoked (issue #1274): the transcript view
+              builds the indented child-card section; it lives inside this body,
+              so collapsing the parent collapses its children with it. */}
+          {nestedBody}
 
           <ToolTruncationFacts item={item} />
 

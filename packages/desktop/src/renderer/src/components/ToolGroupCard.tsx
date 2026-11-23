@@ -8,7 +8,6 @@ import {
   type ToolGroupCategory,
 } from "../lib/tool-groups";
 import type { ToolItem } from "../lib/transcript";
-import { toolIntentLabel } from "@omp-ui/core/tool-intent-label";
 import { useStore } from "../store";
 import {
   argSummary,
@@ -19,6 +18,7 @@ import {
   RunningChip,
   ToolCard,
   ToolGlyph,
+  toolHeadline,
 } from "./ToolCard";
 import { Chevron, Chip, Panel, ProgressSweep } from "./ui";
 
@@ -190,13 +190,13 @@ const ToolGroupLine = memo(function ToolGroupLine({
   streamStallMs: number | undefined;
   onToggle: (id: string) => void;
 }) {
-  // Upstream's brief-label rule (issue #1274): a streaming line shows pi-wire's
-  // short intent label, the settled line shows the whole intent; the tooltip
-  // always carries the full text.
+  // Upstream's brief-label rule (issue #1274) via the shared headline helper:
+  // a streaming line shows the brief intent (an explicit toolIntentLabel
+  // first), the settled line shows the whole intent; the tooltip always
+  // carries the full text.
   const rawIntent = item.intent ?? strField(item.args, "i");
   const fullHeadline = rawIntent ?? argSummary(item.args);
-  const headline =
-    item.status === "running" && rawIntent !== undefined ? toolIntentLabel(rawIntent) : fullHeadline;
+  const headline = toolHeadline(item, fullHeadline);
   const target = lineTarget(item);
   return (
     // data-group-member-id, never data-item-id: the reveal loop counts

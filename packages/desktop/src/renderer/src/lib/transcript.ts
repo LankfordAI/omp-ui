@@ -131,6 +131,16 @@ export interface ToolItem {
   status: "running" | "done" | "error" | "cancelled" | "aborted";
   /** tool_execution_start.intent — the human headline ("Reading hello.txt"). */
   intent?: string;
+  /** omp 19.1 (`parentToolCallId` on the call's start/end events): the invocation
+   *  that made this call when a JS/Python eval cell or a kernel-defined tool calls
+   *  a session tool — NOT the id of the eval that defined the tool. Direct calls
+   *  omit it; an optional wire field omp-ui never requires. The transcript nests
+   *  the card under the parent's (issue #1274). */
+  parentToolCallId?: string;
+  /** omp 19.1 `toolIntentLabel`: the brief structured-intent label for the
+   *  activity line while the call streams; full intent text stays on the card
+   *  and in search/ranking. Optional wire field, never required (issue #1274). */
+  toolIntentLabel?: string;
   resultText?: string;
   /** Image blocks from tool_result content, same shape as UserItem.images (issue #520).
    *  size/quality: generate_image details.images provenance, omp >= 18.4.0 (issue #672). */
@@ -1163,6 +1173,24 @@ function reduceToolcallStream(
 }
 
 /**
+ * The optional omp 19.1 nesting/label fields (`parentToolCallId`,
+ * `toolIntentLabel`) parsed off a tool event. Absent or non-string values are
+ * omitted from the result, never written as an undefined-valued key, so a
+ * spread merge can never clear a value a live card already carries (issue #1274).
+ */
+function toolNestingFields(
+  event: Record<string, unknown>,
+  existing?: Pick<ToolItem, "parentToolCallId" | "toolIntentLabel">,
+): Pick<ToolItem, "parentToolCallId" | "toolIntentLabel"> {
+  const out: Pick<ToolItem, "parentToolCallId" | "toolIntentLabel"> = {};
+  const parent = str(event.parentToolCallId) ?? existing?.parentToolCallId;
+  if (parent !== undefined) out.parentToolCallId = parent;
+  const label = str(event.toolIntentLabel) ?? existing?.toolIntentLabel;
+  if (label !== undefined) out.toolIntentLabel = label;
+  return out;
+}
+
+/**
  * Folds one AgentSessionEvent (or rpc control frame passed through) into the
  * render items. Unknown event types append nothing and warn once per type —
  * new upstream events must never break the transcript.
@@ -1355,6 +1383,7 @@ export function reduceEvent(items: RenderItem[], event: unknown): RenderItem[] {
           args: event.args ?? item.args,
           status: "running",
           intent: str(event.intent) ?? item.intent,
+          ...toolNestingFields(event, item),
           argsStreaming: false,
           executionStarted: true,
         });
@@ -1369,6 +1398,7 @@ export function reduceEvent(items: RenderItem[], event: unknown): RenderItem[] {
           args: event.args,
           status: "running",
           intent: str(event.intent),
+          ...toolNestingFields(event),
           executionStarted: true,
           timestamp: Date.now(),
         },
@@ -1430,6 +1460,10 @@ export function reduceEvent(items: RenderItem[], event: unknown): RenderItem[] {
       const patch = {
         status: (event.isError === true ? "error" : "done") as ToolItem["status"],
         resultText: result ? textFromContent(result.content) : undefined,
+        // The end event carries parentToolCallId/toolIntentLabel too (omp 19.1);
+        // merge with what a live card already holds so neither event clears
+        // the other's value (issue #1274).
+        ...toolNestingFields(event, item ?? undefined),
         diff: diffText ? parseOmpDiff(diffText) : undefined,
         notes: notes.length > 0 ? notes : undefined,
         vault: parseVaultDetails(details) ?? undefined,
@@ -1675,6 +1709,7 @@ export function historyToItems(messages: unknown[]): RenderItem[] {
             name: str(block.name) ?? "tool",
             args: block.arguments,
             status: "done",
+            ...toolNestingFields(block),
             timestamp: numField(raw, "timestamp"),
           });
         }
@@ -1707,6 +1742,9 @@ export function historyToItems(messages: unknown[]): RenderItem[] {
         ...item,
         status: raw.isError === true ? "error" : "done",
         resultText: textFromContent(raw.content),
+        // A persisted nested call keeps its parent/label fields where the
+        // session file carries them (result row or toolCall block).
+        ...toolNestingFields(raw, item),
         diff: diffText ? parseOmpDiff(diffText) : undefined,
         notes: notes.length > 0 ? notes : undefined,
         vault: parseVaultDetails(details) ?? undefined,

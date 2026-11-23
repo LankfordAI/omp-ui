@@ -35,6 +35,7 @@ import type {
 } from "../lib/transcript";
 import { onTranscriptReveal } from "../lib/transcript-reveal";
 import { toolGroupCategory } from "../lib/tool-groups";
+import { buildToolNesting, EMPTY_TOOL_NESTING, type ToolNesting } from "../lib/tool-nesting";
 import {
   LOAD_OLDER_TRIGGER_PX,
   TRANSCRIPT_REVEAL_CONTEXT,
@@ -1166,6 +1167,59 @@ interface Run {
   rows: Row[];
 }
 
+/** One nested child with its own descendants, built per window pass; the
+ *  tree is what a host row receives, so no card needs the full nesting map. */
+interface NestedNode {
+  readonly item: ToolItem;
+  readonly children: readonly NestedNode[];
+}
+
+/** Window-resolved nesting view state derived from `buildToolNesting` (issue #1274). */
+interface NestedToolMaps {
+  /** Top-level row id → its direct children (with descendants), rendered
+   *  inside that parent's card, transcript order. */
+  readonly nestedItems: ReadonlyMap<string, readonly NestedNode[]>;
+  /** Child ids suppressed from the flat flow because their parent row renders
+   *  in this window too. */
+  readonly nestedOut: ReadonlySet<string>;
+  /** Ids of rows hosting children: kept out of tool groups (issue #1274). */
+  readonly groupBlocked: ReadonlySet<string>;
+  /** Nested child id → the top-level row whose card hosts it, for reveal. */
+  readonly hostByChildId: ReadonlyMap<string, string>;
+}
+
+const NO_NESTING: NestedToolMaps = {
+  nestedItems: new Map(),
+  nestedOut: new Set(),
+  groupBlocked: new Set(),
+  hostByChildId: new Map(),
+};
+
+/** The indented child-card section a parent's card hosts (issue #1274). A
+ *  child's own children nest the same way inside that child's card, so an
+ *  eval-inside-eval chain stays one tree and collapsing any card hides
+ *  everything called inside it. */
+function NestedToolSection({ nodes, tabId }: { nodes: readonly NestedNode[]; tabId?: string }) {
+  return (
+    <div data-nested-tools className="space-y-1.5 border-l-2 border-line-strong pl-2.5">
+      <Label>called by this tool</Label>
+      {nodes.map((node) => (
+        <div key={node.item.id} data-nested-tool-id={node.item.id}>
+          <ToolCard
+            item={node.item}
+            tabId={tabId}
+            nestedBody={
+              node.children.length === 0 ? undefined : (
+                <NestedToolSection nodes={node.children} tabId={tabId} />
+              )
+            }
+          />
+        </div>
+      ))}
+    </div>
+  );
+}
+
 const SPEAKER: Record<RenderItem["kind"], string> = {
   user: "user",
   assistant: "assistant",
@@ -1186,7 +1240,17 @@ function isPresentedReplyWrite(item: RenderItem, replyWrites: boolean): boolean 
   return replyWrites && item.kind === "tool" && isReplyWrite(item.name, item.args) === true;
 }
 
-function buildRuns(items: RenderItem[], replyWrites: boolean): Run[] {
+function buildRuns(
+  items: RenderItem[],
+  replyWrites: boolean,
+  /** Nested children rendered inside their parent's card (issue #1274):
+   *  skipped from the flat flow whenever their chain's root row renders. */
+  nestedOut: ReadonlySet<string>,
+  /** Top-level rows that render hosted child cards: kept out of tool groups,
+   *  since a group line opens a bare ToolCard with no room for the nesting
+   *  (issue #1274) — nesting wins over grouping, never both. */
+  groupBlocked: ReadonlySet<string>,
+): Run[] {
   // Round-5 judge, Clarity 3: every tool remount records its own mount notice,
   // so a resumed session stacked identical "N MCP tools" pills. Only the newest
   // one is the current truth; the earlier ones fold away.
@@ -1231,19 +1295,32 @@ function buildRuns(items: RenderItem[], replyWrites: boolean): Run[] {
     ) {
       last!.rows.pop();
     }
+    // Nested children render inside their parent's card (issue #1274): while
+    // the hosting chain renders in this window, the child never appears in
+    // the flat flow. An orphan whose host fell out of the tail window keeps
+    // its top-level row — a nested card is never dropped.
+    if (item.kind === "tool" && nestedOut.has(item.id)) continue;
     // Back-to-back read-only lookups fold into one tool group (issue #1186).
     // Each assistant message opens its own run, so a group never spans messages.
+    // A row that hosts nested cards stays out of groups: a group line opens a
+    // bare ToolCard in place, with nowhere for the children to render —
+    // nesting wins over grouping, and a member is never wrapped twice.
     if (
       item.kind === "tool" &&
       last?.speaker === "tool" &&
       lastRow !== undefined &&
-      toolGroupCategory(item) !== null
+      toolGroupCategory(item) !== null &&
+      !groupBlocked.has(item.id)
     ) {
       if (lastRow.group !== undefined) {
         lastRow.group.push(item);
         continue;
       }
-      if (lastRow.item.kind === "tool" && toolGroupCategory(lastRow.item) !== null) {
+      if (
+        lastRow.item.kind === "tool" &&
+        toolGroupCategory(lastRow.item) !== null &&
+        !groupBlocked.has(lastRow.item.id)
+      ) {
         lastRow.group = [lastRow.item, item];
         continue;
       }
@@ -1273,10 +1350,85 @@ function opensExchange(runs: Run[], index: number): boolean {
 }
 
 /**
+ * Resolve the model-level nesting relation (built from the full item list)
+ * against the rows this window renders. A child attaches to its nearest
+ * ancestor that actually renders: when an intermediate card scrolled out of
+ * the tail window, the children climb to the next visible host instead of
+ * vanishing, and a child with no visible host renders top-level as before —
+ * a nested card is never dropped (issue #1274).
+ */
+function resolveToolNesting(
+  items: readonly RenderItem[],
+  visible: readonly RenderItem[],
+): NestedToolMaps {
+  const relation = buildToolNesting(items);
+  if (relation === EMPTY_TOOL_NESTING) return NO_NESTING;
+  const present = new Set(visible.map((item) => item.id));
+  // Nearest rendering ancestor per child; memoized, and the relation is
+  // cycle-free (breakCycles), so every walk terminates.
+  const resolvedParent = new Map<string, string | null>();
+  function resolve(id: string): string | null {
+    const known = resolvedParent.get(id);
+    if (known !== undefined) return known;
+    const parent = relation.parentIdByChildId.get(id);
+    let answer: string | null;
+    if (parent === undefined) answer = null;
+    else if (present.has(parent)) answer = parent;
+    else answer = resolve(parent);
+    resolvedParent.set(id, answer);
+    return answer;
+  }
+  function hostOf(id: string): string {
+    let current = id;
+    for (;;) {
+      const parent = resolve(current);
+      if (parent === null) return current;
+      current = parent;
+    }
+  }
+  const toolById = new Map<string, ToolItem>();
+  for (const item of visible) if (item.kind === "tool") toolById.set(item.id, item);
+  const nodes = new Map<string, { item: ToolItem; children: NestedNode[] }>();
+  const nodeFor = (item: ToolItem): { item: ToolItem; children: NestedNode[] } => {
+    const known = nodes.get(item.id);
+    if (known !== undefined) return known;
+    const created = { item, children: [] as NestedNode[] };
+    nodes.set(item.id, created);
+    return created;
+  };
+  const nestedOut = new Set<string>();
+  const hostByChildId = new Map<string, string>();
+  for (const item of visible) {
+    if (item.kind !== "tool") continue;
+    const parent = resolve(item.id);
+    // Orphan in this window: renders top-level exactly as before.
+    if (parent === null) continue;
+    const parentItem = toolById.get(parent);
+    if (parentItem === undefined) continue;
+    nestedOut.add(item.id);
+    hostByChildId.set(item.id, hostOf(item.id));
+    nodeFor(parentItem).children.push(nodeFor(item));
+  }
+  if (nestedOut.size === 0) return NO_NESTING;
+  const nestedItems = new Map<string, readonly NestedNode[]>();
+  for (const [id, node] of nodes) {
+    if (node.children.length > 0) nestedItems.set(id, node.children);
+  }
+  return {
+    nestedItems,
+    nestedOut,
+    groupBlocked: new Set(nestedItems.keys()),
+    hostByChildId,
+  };
+}
+
+/**
  * One transcript row. Memoized on the item's identity: `reduceEvent` copies
  * only the items it changes, so a tail-only stream update leaves every
  * historical row's props shallow-equal and skips its render entirely
- * (issue #187).
+ * (issue #187). `nestedItems` stays undefined for every row without
+ * children — a stable array reference from the nesting map, so nesting never
+ * costs the existing rows their memo.
  */
 const TranscriptRow = memo(function TranscriptRow({
   item,
@@ -1287,6 +1439,7 @@ const TranscriptRow = memo(function TranscriptRow({
   replyWrites,
   toolCallFollows,
   artifactDeferred,
+  nestedItems,
 }: {
   item: RenderItem;
   count: number;
@@ -1303,14 +1456,37 @@ const TranscriptRow = memo(function TranscriptRow({
   toolCallFollows: boolean;
   /** This done render_html card is held until the run's final reply (issue #1141). */
   artifactDeferred: boolean;
+  /** Session tools this tool invoked, rendered indented under its card
+   *  (issue #1274). The generic ToolCard hosts them inside its body, so a
+   *  parent collapse hides them with it; the shapes without a collapsible
+   *  body (artifact, vault) draw the same section after their card. */
+  nestedItems?: readonly NestedNode[];
 }) {
+  // Children nest inside the generic card's body (collapse follows the parent,
+  // issue #1274); the shapes without a collapsible body — reply prose, the
+  // artifact and vault cards — draw the same section under their card.
+  const genericCard =
+    item.kind === "tool" &&
+    !isPresentedReplyWrite(item, replyWrites) &&
+    item.name !== HTML_ARTIFACT_TOOL_NAME &&
+    !VAULT_WRITE_TOOLS.some((name) => name === item.name);
+  const nested =
+    nestedItems === undefined || genericCard ? undefined : (
+      <NestedToolSection nodes={nestedItems} tabId={tabId} />
+    );
   switch (item.kind) {
     case "user":
       return <UserBubble item={item} first={first} tabId={tabId} position={userPosition} />;
     case "assistant":
       return <AssistantBlock item={item} tabId={tabId} toolCallFollows={toolCallFollows} />;
     case "tool":
-      if (isPresentedReplyWrite(item, replyWrites)) return <ReplyWriteBlock item={item} />;
+      if (isPresentedReplyWrite(item, replyWrites))
+        return (
+          <>
+            <ReplyWriteBlock item={item} />
+            {nested}
+          </>
+        );
       return (
         <>
           {/* The four vault write tools get their own card (issue #767); reads, search and list stay generic. */}
@@ -1319,8 +1495,17 @@ const TranscriptRow = memo(function TranscriptRow({
           ) : VAULT_WRITE_TOOLS.some((name) => name === item.name) ? (
             <VaultToolCard item={item} tabId={tabId} />
           ) : (
-            <ToolCard item={item} tabId={tabId} />
+            <ToolCard
+              item={item}
+              tabId={tabId}
+              nestedBody={
+                !genericCard || nestedItems === undefined ? undefined : (
+                  <NestedToolSection nodes={nestedItems} tabId={tabId} />
+                )
+              }
+            />
           )}
+          {nested}
           {item.status === "done" && item.artifactCapture && tabId && (item.artifactCapture.status === "captured"
             ? <ArtifactCaptureTranscriptCard tabId={tabId} artifactId={item.artifactCapture.artifactId} captureId={item.artifactCapture.captureId} />
             : <ArtifactCaptureFailure message={item.artifactCapture.message} />)}
@@ -1500,8 +1685,14 @@ export function TranscriptView({
     (s) => tabId !== undefined && supportsOutReplies(s.rpc[tabId]?.capabilities?.ompVersion ?? null),
   );
   // Runs are built from the bounded tail window only (issue #867); the DOM
-  // cost is the window's, never the tab's whole history.
-  const runs = useMemo(() => buildRuns(visible, replyWrites), [visible, replyWrites]);
+  // cost is the window's, never the tab's whole history. Nesting resolves the
+  // full-list relation against that window so a parent scrolled out never
+  // hides its children (issue #1274).
+  const nesting = useMemo(() => resolveToolNesting(items, visible), [items, visible]);
+  const runs = useMemo(
+    () => buildRuns(visible, replyWrites, nesting.nestedOut, nesting.groupBlocked),
+    [visible, replyWrites, nesting],
+  );
   // The rewind correlation's positional key (issue #680): each user item's
   // index among user items. The map is rebuilt with the items, but the value
   // handed to each row is a stable primitive, so a stream tick leaves every
@@ -1709,7 +1900,10 @@ export function TranscriptView({
     if (reveal === null || handledRevealRef.current === reveal.seq) return;
     const scrollEl = scrollRef.current;
     if (!scrollEl) return;
-    const index = items.findIndex((item) => item.id === reveal.id);
+    // A nested child (issue #1274) has no row of its own — the host card is
+    // the row that holds it, so the reveal targets the host's position.
+    const domId = nesting.hostByChildId.get(reveal.id) ?? reveal.id;
+    const index = items.findIndex((item) => item.id === domId);
     if (index !== -1 && index < start) {
       updateFollowing(false);
       setFrozenStart(Math.max(0, index - TRANSCRIPT_REVEAL_CONTEXT));
@@ -1884,6 +2078,7 @@ export function TranscriptView({
                             replyWrites={replyWrites}
                             toolCallFollows={toolCardFollows.has(item.id)}
                             artifactDeferred={deferredArtifacts?.has(item.id) === true}
+                            nestedItems={nesting.nestedItems.get(item.id)}
                           />
                         </ErrorBoundary>
                       </div>
