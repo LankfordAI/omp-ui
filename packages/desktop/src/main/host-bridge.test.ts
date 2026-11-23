@@ -2363,15 +2363,22 @@ describe("HostBridge routine authority (ADR-0100, U13, amended)", () => {
           received.push(args);
           return { id: ROUTINE_ID, name: "Gmail triage" };
         },
+        update: async (_tabId, args) => {
+          received.push(args);
+          return { id: ROUTINE_ID, name: "Gmail triage", wasEnabled: true };
+        },
       },
     };
     return { bridge: new HostBridge(deps), sent, received, send: (frame: RpcFrame) => sent.push(frame) };
   }
 
-  it("registers only omp-ui_routines_create when opts.routines and nothing older gains it", () => {
+  it("registers both routine tools when opts.routines and nothing older gains them", () => {
     const all = hostToolsDefinition({ vault: true, fleet: true, device: true, theme: true, issues: true, artifacts: true, routines: true });
-    expect(all.filter((tool) => /routine/i.test(tool.name)).map((tool) => tool.name)).toEqual(["omp-ui_routines_create"]);
-    expect(all[all.length - 1]!.name).toBe("omp-ui_routines_create");
+    expect(all.filter((tool) => /routine/i.test(tool.name)).map((tool) => tool.name)).toEqual([
+      "omp-ui_routines_create",
+      "omp-ui_routines_update",
+    ]);
+    expect(all[all.length - 1]!.name).toBe("omp-ui_routines_update");
     // Every pre-amendment option set (and the default) registers no routine tool.
     expect(hostToolsDefinition().some((tool) => /routine/i.test(tool.name))).toBe(false);
     const legacy = hostToolsDefinition({ vault: true, fleet: true, device: true, theme: true, issues: true, artifacts: true, routines: false } as never);
@@ -2411,15 +2418,44 @@ describe("HostBridge routine authority (ADR-0100, U13, amended)", () => {
     expect(JSON.stringify(byId("h4"))).toContain("timeoutMinutes");
   });
 
+  it("answers a well-formed update with the disabled warning and review link", async () => {
+    const f = routineFixture();
+    f.bridge.route("t1", toolCallFrame("h1", "omp-ui_routines_update", { id: ROUTINE_ID, name: "Newer name" }), f.send);
+    await settled();
+    expect(f.received).toEqual([{ id: ROUTINE_ID, name: "Newer name" }]);
+    expect(f.sent).toHaveLength(1);
+    expect(f.sent[0]).not.toHaveProperty("isError");
+    const text = resultText(f.sent[0]!);
+    expect(text).toContain(`Updated routine "Gmail triage" (id ${ROUTINE_ID}). This routine was enabled and is now disabled.`);
+    expect(text).toContain(`[Review "Gmail triage" in Routines](omp-ui://routine/${ROUTINE_ID})`);
+    expect(text).toContain("enable switch back on");
+  });
+
+  it("refuses an update the parser rejects: id-only, unknown key, and bad ids never reach the service", async () => {
+    const f = routineFixture();
+    f.bridge.route("t1", toolCallFrame("h1", "omp-ui_routines_update", { id: ROUTINE_ID }), f.send);
+    f.bridge.route("t1", toolCallFrame("h2", "omp-ui_routines_update", { id: ROUTINE_ID, enabled: true }), f.send);
+    f.bridge.route("t1", toolCallFrame("h3", "omp-ui_routines_update", { id: "short" }), f.send);
+    await settled();
+    expect(f.received).toEqual([]);
+    expect(JSON.stringify(f.sent[0])).toContain("routines_update refused");
+    expect(JSON.stringify(f.sent[0])).toContain("at least one field");
+    expect(JSON.stringify(f.sent[1])).toContain("enabled");
+    expect(JSON.stringify(f.sent[2])).toContain("id");
+  });
+
   it("refuses args the schema cannot express: an extra enabled or deny key never reaches the service", async () => {
     const f = routineFixture();
+    f.bridge.route("t1", toolCallFrame("h0", "omp-ui_routines_update", { id: ROUTINE_ID, scripts: { pre: "ok" }, toolPolicy: { allow: [], deny: ["bash"] } }), f.send);
     f.bridge.route("t1", toolCallFrame("h1", "omp-ui_routines_create", { ...GOOD_ARGS, enabled: true }), f.send);
     f.bridge.route("t1", toolCallFrame("h2", "omp-ui_routines_create", { ...GOOD_ARGS, toolPolicy: { allow: [], deny: ["bash"], lastReviewedAt: "2026-01-01T00:00:00.000Z", reviewedCatalog: [] } }), f.send);
     await settled();
     expect(f.received).toEqual([]);
-    expect(f.sent[0]).toMatchObject({ id: "h1", isError: true });
-    expect(JSON.stringify(f.sent[0])).toContain("enabled");
-    expect(f.sent[1]).toMatchObject({ id: "h2", isError: true });
+    expect(f.sent[0]).toMatchObject({ id: "h0", isError: true });
+    expect(JSON.stringify(f.sent[0])).toContain("toolPolicy");
+    expect(f.sent[1]).toMatchObject({ id: "h1", isError: true });
+    expect(JSON.stringify(f.sent[1])).toContain("enabled");
+    expect(f.sent[2]).toMatchObject({ id: "h2", isError: true });
   });
 
   it("refuses a bad schedule or unknown zone with the thrown reason so the agent can retry", async () => {

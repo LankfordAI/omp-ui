@@ -4,9 +4,11 @@ import {
   nextRunAfter,
   resolveRoutineTimeoutMinutes,
   resolveRoutineWallClockMs,
+  routinePatchFromAgentUpdate,
   type FleetDispatchRequest,
   type FleetDispatchResult,
   type OwnedSessionRecord,
+  type RoutineAgentUpdateArgs,
   type RoutineCatalogSnapshot,
   type RoutineDryRunRequest,
   type RoutineDryRunResult,
@@ -204,6 +206,23 @@ export class RoutineService {
     this.scheduler.sync();
     this.publish();
     return updated;
+  }
+
+  /**
+   * The `omp-ui_routines_update` entry point (ADR-0100 amendment 2): read,
+   * merge over the stored record, and patch inside one call so a concurrent
+   * human edit can't slip between the read and the write and leave
+   * `wasEnabled` describing stale state. The builder forces `enabled: false`,
+   * so every agent edit disarms scheduled firing until a human re-arms.
+   */
+  async updateFromAgent(
+    args: RoutineAgentUpdateArgs,
+    nowIso: string,
+  ): Promise<{ record: RoutineRecord; wasEnabled: boolean }> {
+    const current = this.deps.store.get(args.id);
+    if (current === null) throw new Error(`unknown routine ${args.id}`);
+    const record = await this.update(args.id, routinePatchFromAgentUpdate(current, args, nowIso));
+    return { record, wasEnabled: current.enabled };
   }
 
   /**

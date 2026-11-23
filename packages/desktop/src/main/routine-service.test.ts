@@ -199,6 +199,28 @@ describe("RoutineService CRUD", () => {
   });
 });
 
+describe("RoutineService updateFromAgent (ADR-0100 amendment 2)", () => {
+  it("throws for an unknown id and disarms a stored enabled routine, reporting wasEnabled", async () => {
+    const h = harness();
+    await expect(
+      h.service.updateFromAgent({ id: "AbCdEfGhIjKlMnOpQrStUv", name: "x" }, new Date(T0).toISOString()),
+    ).rejects.toThrow(/unknown routine/);
+    const rec = await h.service.create(input());
+    expect(rec.enabled).toBe(true);
+    const { record, wasEnabled } = await h.service.updateFromAgent(
+      { id: rec.id, instructions: "Summarize twice.", allow: ["read", "grep"] },
+      new Date(T0).toISOString(),
+    );
+    expect(wasEnabled).toBe(true);
+    expect(record.enabled).toBe(false);
+    expect(record.instructions).toBe("Summarize twice.");
+    // update() restamped the review against the live catalog.
+    expect(record.toolPolicy.reviewedCatalog).toEqual(["mcp__jira_search", "read"]);
+    expect(h.store.get(rec.id)?.enabled).toBe(false);
+    h.service.dispose();
+  });
+});
+
 describe("RoutineService gate (U12)", () => {
   it("gate off rejects every mutation and run with the exact message and the clock fires nothing", async () => {
     const h = harness();
