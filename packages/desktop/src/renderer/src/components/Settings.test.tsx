@@ -188,6 +188,15 @@ const backendMock = {
   setSnoozedSectionEnabled: vi.fn(async () => {}),
   setAutoSettleMergedPullRequests: vi.fn(async () => {}),
   setRemoteVsCodeEnabled: vi.fn(async () => {}),
+  artifactList: vi.fn(async () => ({
+    artifacts: [],
+    nextCursor: null,
+    libraryBytesUsed: 2048,
+    totalCount: 3,
+    pendingReviewCount: 0,
+    pendingReviewPreview: [],
+    origins: [],
+  })),
   spawnSession: vi.fn(),
   switchMode: vi.fn(),
   deleteSession: vi.fn(async (tabId: string) => ({ deleted: [tabId], failed: [] })),
@@ -352,6 +361,7 @@ const backendMock = {
   clearWebhookDeliveries: vi.fn(async () => {}),
   onWebhooksState: vi.fn(),
   onRoutinesState: vi.fn(),
+  onRemoteRoutinesState: vi.fn(),
   onFocusRoutine: vi.fn(),
   getMcpEndpointState: vi.fn(async () => ({ enabled: false, clients: [], calls: [] })),
   setMcpEndpointEnabled: vi.fn(async () => {}),
@@ -1047,22 +1057,85 @@ describe("Settings Experimental page (issues #571 and #739)", () => {
     expect(backendMock.setAutoresearchEnabled).toHaveBeenCalledWith(true);
   });
 
-  it("persists artifact consent without an optimistic gate flip", async () => {
+  it("no longer renders Artifact library on the Experimental page", async () => {
     seedExperimental();
     await renderSettings();
+    expect(document.querySelector('[role="switch"][aria-label="Artifact library"]')).toBeNull();
+  });
+
+  it("no longer renders Run scripts in HTML artifacts on the General page", async () => {
+    useStore.setState({
+      settingsPage: "general",
+      state: backendState(),
+      tabs: [],
+      activeTabId: null,
+      appUpdate: appUpdateState({}),
+      ompUpdate: idleOmpUpdate,
+    });
+    await renderSettings();
+    expect(document.querySelector('[role="switch"][aria-label="Run scripts in HTML artifacts"]')).toBeNull();
+  });
+
+  it("persists artifact consent without an optimistic gate flip on Settings -> Artifacts and shows library footprint", async () => {
+    useStore.setState({
+      settingsPage: "artifacts",
+      state: backendState({ artifactLibraryEnabled: false, htmlArtifactScripts: true }),
+      tabs: [],
+      activeTabId: null,
+      appUpdate: appUpdateState({}),
+      ompUpdate: idleOmpUpdate,
+    });
+    await renderSettings();
     const control = document.querySelector<HTMLElement>('[role="switch"][aria-label="Artifact library"]')!;
+    const scripts = document.querySelector<HTMLElement>('[role="switch"][aria-label="Run scripts in HTML artifacts"]')!;
     expect(control.getAttribute("aria-checked")).toBe("false");
+    expect(scripts.getAttribute("aria-checked")).toBe("true");
     click(control);
     expect(backendMock.setArtifactLibraryEnabled).toHaveBeenCalledWith(true);
     expect(control.getAttribute("aria-checked")).toBe("false");
-    act(() => useStore.setState({ state: backendState({ artifactLibraryEnabled: true }) }));
+    await act(async () => {
+      useStore.setState({ state: backendState({ artifactLibraryEnabled: true, htmlArtifactScripts: true }) });
+    });
     expect(control.getAttribute("aria-checked")).toBe("true");
+    expect(backendMock.artifactList).toHaveBeenCalledWith({ limit: 1 });
+    expect(document.body.textContent).toContain("3 kept");
+  });
+  it("no longer renders the switch on the General page", async () => {
+    useStore.setState({
+      settingsPage: "general",
+      state: backendState(),
+      tabs: [],
+      activeTabId: null,
+      appUpdate: appUpdateState({}),
+      ompUpdate: idleOmpUpdate,
+    });
+    await renderSettings();
+    expect(labSwitch()).toBeNull();
+  });
+});
+
+describe("Settings Routines page (#1244)", () => {
+  const seedRoutines = (): void => {
+    useStore.setState({
+      settingsPage: "routines",
+      state: backendState(),
+      tabs: [],
+      activeTabId: null,
+      appUpdate: appUpdateState({}),
+      ompUpdate: idleOmpUpdate,
+    });
+  };
+
+  it("lists Routines in the nav", async () => {
+    seedRoutines();
+    await renderSettings();
+    expect(buttonWithText("Routines")).not.toBeNull();
   });
 
   it("adds the Routines switch with no spend inputs while it is off", async () => {
-    seedExperimental();
+    seedRoutines();
     await renderSettings();
-    const control = document.querySelector<HTMLElement>('[role="switch"][aria-label="Routines (experimental)"]')!;
+    const control = document.querySelector<HTMLElement>('[role="switch"][aria-label="Routines"]')!;
     expect(control.getAttribute("aria-checked")).toBe("false");
     expect(document.querySelector('input[aria-label="Default routine spend warning (USD)"]')).toBeNull();
     click(control);
@@ -1070,7 +1143,7 @@ describe("Settings Experimental page (issues #571 and #739)", () => {
   });
 
   it("shows the $2 / $5 defaults while on and persists an edited cap", async () => {
-    seedExperimental();
+    seedRoutines();
     act(() => useStore.setState({ state: backendState({ routinesEnabled: true }) }));
     await renderSettings();
     const warn = document.querySelector<HTMLInputElement>('input[aria-label="Default routine spend warning (USD)"]')!;
@@ -1083,19 +1156,6 @@ describe("Settings Experimental page (issues #571 and #739)", () => {
     });
     act(() => max.dispatchEvent(new KeyboardEvent("keydown", { key: "Enter", bubbles: true })));
     expect(backendMock.setRoutineSpendDefaults).toHaveBeenCalledWith({ warnUsd: 2, maxUsd: 7.5 });
-  });
-
-  it("no longer renders the switch on the General page", async () => {
-    useStore.setState({
-      settingsPage: "general",
-      state: backendState(),
-      tabs: [],
-      activeTabId: null,
-      appUpdate: appUpdateState({}),
-      ompUpdate: idleOmpUpdate,
-    });
-    await renderSettings();
-    expect(labSwitch()).toBeNull();
   });
 });
 
@@ -1407,6 +1467,113 @@ describe("Settings omp Tools group (issue #1069)", () => {
     await renderSettings();
     expect(field()).toBeNull();
     expect(document.body.textContent).not.toContain("edit.mode");
+  });
+
+  it("commits and clears edit.magic.model when published and omits it when absent (#1273)", async () => {
+    backendMock.readOmpSettings.mockResolvedValue({
+      ...emptyOmpSettings,
+      entries: [
+        {
+          key: "edit.mode",
+          type: "enum",
+          description: "Edit tool dialect",
+          value: "magic",
+          globalValue: "magic",
+          options: ["hashline", "magic", "none"],
+          layer: "global",
+        },
+        {
+          key: "edit.magic.model",
+          type: "string",
+          description: "Model selector or role alias for magic mode, empty = smol role",
+          value: "@slow",
+          globalValue: "@slow",
+          options: null,
+          layer: "global",
+        },
+      ],
+    });
+    useStore.setState({
+      settingsPage: "omp",
+      state: backendState(),
+      tabs: [],
+      activeTabId: null,
+      appUpdate: appUpdateState({}),
+      ompUpdate: idleOmpUpdate,
+    });
+    await renderSettings();
+
+    const input = document.querySelector<HTMLInputElement>(
+      'input[aria-label="edit.magic.model"]',
+    )!;
+    expect(input).not.toBeNull();
+    expect(input.value).toBe("@slow");
+    expect(document.body.textContent).toContain("edit.magic.model row (empty = the smol role)");
+
+    const setter = Object.getOwnPropertyDescriptor(HTMLInputElement.prototype, "value")!.set!;
+    await act(async () => {
+      setter.call(input, "");
+      input.dispatchEvent(new Event("input", { bubbles: true }));
+    });
+    await act(async () => {
+      input.dispatchEvent(
+        new KeyboardEvent("keydown", { key: "Enter", bubbles: true, cancelable: true }),
+      );
+    });
+    expect(backendMock.writeOmpSetting).toHaveBeenCalledWith("edit.magic.model", "");
+  });
+
+  it("commits and clears binja.installDir when published (#1275)", async () => {
+    backendMock.readOmpSettings.mockResolvedValue({
+      ...emptyOmpSettings,
+      entries: [
+        {
+          key: "disassembler.backend",
+          type: "enum",
+          description: "Disassembler backend",
+          value: "binja",
+          globalValue: "binja",
+          options: ["auto", "ghidra", "ida", "binja", "none"],
+          layer: "global",
+        },
+        {
+          key: "binja.installDir",
+          type: "string",
+          description: "Directory containing the Binary Ninja core library; empty auto-detects",
+          value: "/opt/binja",
+          globalValue: "/opt/binja",
+          options: null,
+          layer: "global",
+        },
+      ],
+    });
+    useStore.setState({
+      settingsPage: "omp",
+      state: backendState(),
+      tabs: [],
+      activeTabId: null,
+      appUpdate: appUpdateState({}),
+      ompUpdate: idleOmpUpdate,
+    });
+    await renderSettings();
+
+    const input = document.querySelector<HTMLInputElement>(
+      'input[aria-label="binja.installDir"]',
+    )!;
+    expect(input).not.toBeNull();
+    expect(input.value).toBe("/opt/binja");
+
+    const setter = Object.getOwnPropertyDescriptor(HTMLInputElement.prototype, "value")!.set!;
+    await act(async () => {
+      setter.call(input, "");
+      input.dispatchEvent(new Event("input", { bubbles: true }));
+    });
+    await act(async () => {
+      input.dispatchEvent(
+        new KeyboardEvent("keydown", { key: "Enter", bubbles: true, cancelable: true }),
+      );
+    });
+    expect(backendMock.writeOmpSetting).toHaveBeenCalledWith("binja.installDir", "");
   });
 });
 

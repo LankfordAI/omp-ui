@@ -80,7 +80,7 @@ export interface RegistrySettings {
   desktopNotifications: boolean;
   /** Interactive HTML artifacts run their scripts (issue #994); off shows them static. Default on. */
   htmlArtifactScripts: boolean;
-  /** Independent session-authored artifact library (issue #1121); default off. */
+  /** Independent session-authored artifact library (issue #1121, graduated #1307); default on. */
   artifactLibraryEnabled: boolean;
   /** The agent may drive the tab's bound emulator via omp-ui_device (issue #1006); default off. */
   deviceAgentAccess: boolean;
@@ -110,7 +110,7 @@ export interface RegistrySettings {
   experimentsEnabled: boolean;
   /** Autoresearch bridge gate (#1052); default off. */
   autoresearchEnabled: boolean;
-  /** Experimental Routines subsystem gate (ADR-0100, #1263); default off. */
+  /** Routines subsystem gate (ADR-0100, #1244); opt-in, default off. */
   routinesEnabled: boolean;
   /** Default per-run spend warning threshold in USD (0 = uncapped); default 2. */
   routineWarnCostUsd: number;
@@ -148,6 +148,9 @@ export interface RegistrySettings {
   /** One-time seed marker (#1177): legacy registries persisted the old off
    *  default; the first load on a new build flips theme agent access on once. */
   themeAgentAccessDefaultOnSeeded: boolean;
+  /** One-time seed marker (#1307): legacy registries persisted the old off
+   *  default; the first load on a new build flips the artifact library on once. */
+  artifactLibraryDefaultOnSeeded: boolean;
   /**
    * App-wide Council roster for /council (ADR-0088): null = unset. Members
    * resolve project → global → empty, so with neither document set no
@@ -310,7 +313,7 @@ export const SETTINGS: SettingDescriptors = {
     (value): value is boolean => typeof value === "boolean",
   ),
   artifactLibraryEnabled: validatedSetting(
-    () => false,
+    () => true,
     (value): value is boolean => typeof value === "boolean",
   ),
   routinesEnabled: validatedSetting(
@@ -456,6 +459,10 @@ export const SETTINGS: SettingDescriptors = {
     (value): value is boolean => typeof value === "boolean",
   ),
   themeAgentAccessDefaultOnSeeded: validatedSetting(
+    () => false,
+    (value): value is boolean => typeof value === "boolean",
+  ),
+  artifactLibraryDefaultOnSeeded: validatedSetting(
     () => false,
     (value): value is boolean => typeof value === "boolean",
   ),
@@ -664,6 +671,7 @@ function emptyRegistry(): RegistryData {
       experimentsFlagSplitSeeded: true,
       councilDefaultOnSeeded: true,
       themeAgentAccessDefaultOnSeeded: true,
+      artifactLibraryDefaultOnSeeded: true,
     },
     projects: [],
     sessions: [],
@@ -1078,6 +1086,20 @@ function seedThemeAgentAccessDefaultOn(file: string, data: RegistryData): void {
 }
 
 /**
+ * One-time default flip (#1307): legacy registries persisted the old off
+ * default for `artifactLibraryEnabled` (the settings object is always written
+ * in full), so a bare `false` cannot be told apart from an explicit one. Flip
+ * it to on once and mark the registry seeded; a later explicit off persists
+ * the marker and is never revisited. Same shape as `seedCouncilDefaultOn`.
+ */
+function seedArtifactLibraryDefaultOn(file: string, data: RegistryData): void {
+  if (data.settings.artifactLibraryDefaultOnSeeded) return;
+  data.settings.artifactLibraryDefaultOnSeeded = true;
+  data.settings.artifactLibraryEnabled = true;
+  writeRegistry(file, data);
+}
+
+/**
  * omp-ui's own state (projects + owned sessions), persisted as JSON.
  * Records are per lineage (one per spawned process); `sessionId: null` is
  * valid at every layer — a session can live minutes or forever without a file.
@@ -1130,6 +1152,7 @@ export class Registry {
       seedExperimentsFlagSplit(file, data);
       seedCouncilDefaultOn(file, data);
       seedThemeAgentAccessDefaultOn(file, data);
+      seedArtifactLibraryDefaultOn(file, data);
       return registry;
     }
     // Corrupt (or unknown schemaVersion): quarantine and start empty.

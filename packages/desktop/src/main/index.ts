@@ -7,6 +7,7 @@ import { openExternalSafe } from "./open-external";
 import { setupSpellcheck } from "./spellcheck";
 import { installHtmlArtifactGuard } from "./html-artifact-guard";
 import { ArtifactGuestBroker } from "./artifact-guest-broker";
+import { ArtifactThumbnailCapturer } from "./artifact-thumbnail-capturer";
 import {
   fitWindowBounds,
   loadWindowState,
@@ -73,6 +74,7 @@ if (!app.requestSingleInstanceLock()) {
   app.quit();
 } else {
   let backend: MainBackend | null = null;
+  let mainWin: BrowserWindow | null = null;
   let forceQuit = false;
   let appQuitting = false;
   let quitDialogOpen = false;
@@ -88,6 +90,7 @@ if (!app.requestSingleInstanceLock()) {
   let flushWindowState: (() => void) | null = null;
   let stopFdWatchdog: (() => void) | null = null;
   let artifactBroker: ArtifactGuestBroker | null = null;
+  let artifactCapturer: ArtifactThumbnailCapturer | null = null;
   let artifactDrainStarted = false;
   let artifactDrainComplete = false;
 
@@ -120,7 +123,7 @@ if (!app.requestSingleInstanceLock()) {
       return true;
     if (quitDialogOpen) return false;
     quitDialogOpen = true;
-    const win = BrowserWindow.getAllWindows()[0];
+    const win = mainWin && !mainWin.isDestroyed() ? mainWin : null;
     try {
       if (!win) return false;
       const r = await dialog.showMessageBox(win, {
@@ -164,7 +167,7 @@ if (!app.requestSingleInstanceLock()) {
   };
 
   app.on("second-instance", () => {
-    const win = BrowserWindow.getAllWindows()[0];
+    const win = mainWin && !mainWin.isDestroyed() ? mainWin : null;
     if (!nativeWindowReady) return;
     if (!win) return;
     if (win.isMinimized()) win.restore();
@@ -172,7 +175,7 @@ if (!app.requestSingleInstanceLock()) {
   });
 
   app.on("activate", () => {
-    const win = BrowserWindow.getAllWindows()[0];
+    const win = mainWin && !mainWin.isDestroyed() ? mainWin : null;
     if (!nativeWindowReady) return;
     if (!win) return;
     if (win.isMinimized()) win.restore();
@@ -230,6 +233,12 @@ if (!app.requestSingleInstanceLock()) {
         // partition and confines every guest that attaches.
         webviewTag: true,
       },
+    });
+    mainWin = win;
+    win.on("closed", () => {
+      if (mainWin === win) mainWin = null;
+      artifactCapturer?.dispose();
+      artifactCapturer = null;
     });
     breadcrumbs.record("window-created", { detail: `state=${savedWindowState ? "restored" : "fresh"}` });
 
@@ -393,10 +402,12 @@ if (!app.requestSingleInstanceLock()) {
       breadcrumbs,
     });
     backend = be;
+    artifactCapturer = new ArtifactThumbnailCapturer(() => be.artifacts);
     artifactBroker = new ArtifactGuestBroker({
       root: win.webContents,
       service: () => be.artifacts,
       preloadPath: join(__dirname, "../preload/artifact-runtime.js"),
+      capturer: artifactCapturer,
     });
     installHtmlArtifactGuard(win.webContents, artifactBroker);
     stopFdWatchdog = startFdWatchdog({ logDir });
@@ -464,6 +475,8 @@ if (!app.requestSingleInstanceLock()) {
       e.preventDefault();
       if (!artifactDrainStarted) {
         artifactDrainStarted = true;
+        artifactCapturer?.dispose();
+        artifactCapturer = null;
         void artifactBroker.dispose().then(() => {
           artifactDrainComplete = true;
           app.quit();

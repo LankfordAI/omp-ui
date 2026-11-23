@@ -13,13 +13,13 @@ import {
   resolveDesktopPanelWidths,
   resolveDockedSidebarWidth,
 } from "../lib/panel-layout";
-import { buildAttentionEntries, buildSidebarLists, isLocalRoutineRun, isSessionSettled, type SidebarEntry } from "../lib/sidebar-sessions";
+import { buildAttentionEntries, buildSidebarLists, isRoutineRun, isSessionSettled, type SidebarEntry } from "../lib/sidebar-sessions";
 import { setSettledOpen, useSettledOpen } from "../lib/sidebar-settled";
 import { setSidebarSectionOpen, useSidebarSectionOpen } from "../lib/sidebar-section-open";
 import { supportsSessionMigrate } from "../lib/session-migrate";
 import { fromDateTimeLocal, snoozePresets, toDateTimeLocal, type SnoozePreset } from "../lib/snooze-until";
 import { useShallow } from "zustand/react/shallow";
-import { canSettle, deriveSidebarSessionState, findRecord, supportsBulkAction, useStore } from "../store";
+import { canSettle, deriveSidebarSessionState, findRecord, hasAnyRoutinesHost, supportsBulkAction, useStore } from "../store";
 import { AttentionStack } from "./AttentionStack";
 import { SessionRow } from "./SessionRow";
 import { useSplitSlot } from "./split-slot";
@@ -474,6 +474,7 @@ export function Sidebar() {
   const openArtifacts = useStore((st) => st.openArtifacts);
   const closeArtifacts = useStore((st) => st.closeArtifacts);
   const artifactsOpen = useStore((st) => st.artifacts !== null);
+  const artifactPendingReviewCount = useStore((st) => st.artifactPendingReviewCount);
   const openRoutines = useStore((st) => st.openRoutines);
   const closeRoutines = useStore((st) => st.closeRoutines);
   const routinesOpen = useStore((st) => st.routinesOpen);
@@ -580,14 +581,24 @@ export function Sidebar() {
   const attentionKey = useStore((st) => {
     if (st.state === null) return "";
     const parts: string[] = [];
-    const visit = (s: SessionSummary): void => {
+    const visit = (s: SessionSummary, instanceId: string | null): void => {
       const waitingRun =
-        isLocalRoutineRun(s) && s.live === "live" && s.awaitingHumanAnswer === true;
-      if (st.unread[s.tabId] === undefined && !waitingRun) return;
-      parts.push(`${s.tabId}|${deriveSidebarSessionState(s, st.rpc[s.tabId])}`);
+        isRoutineRun(s) && s.live === "live" && s.awaitingHumanAnswer === true;
+      if ((instanceId !== null || st.unread[s.tabId] === undefined) && !waitingRun) return;
+      parts.push(`${instanceId ?? "local"}:${s.tabId}|${deriveSidebarSessionState(s, st.rpc[s.tabId])}`);
     };
-    for (const g of st.state.projects) for (const s of g.sessions) visit(s);
-    for (const s of st.state.chats) visit(s);
+    for (const g of st.state.projects) for (const s of g.sessions) visit(s, null);
+    for (const s of st.state.chats) visit(s, null);
+    for (const instance of st.state.remoteInstances) {
+      if (instance.status !== "joined") continue;
+      for (const g of instance.projects) {
+        for (const s of g.sessions) {
+          if (!isRoutineRun(s)) continue;
+          if (s.live !== "live" || s.awaitingHumanAnswer !== true) continue;
+          visit(s, instance.id);
+        }
+      }
+    }
     return parts.join(";");
   });
   const attention = useMemo(
@@ -714,18 +725,19 @@ export function Sidebar() {
   // (ignoring the search, like the count always did): working mirrors the
   // Working section's placement rule — in-flight work, not blocked on the
   // user, not pinned, not parked in Snoozed — everything else is ready.
-  // Routine runs (ADR-0100) are attention-only: this app's own never count
-  // as live coding sessions; they feed the Routines button's waiting chip.
+  // Routine runs (ADR-0100, #1304, #1306) are attention-only on every host:
+  // they never count as live coding sessions, and approval-waiting runs on
+  // both local and joined remote hosts feed the Routines footer chip.
   const { totalLive, workingLive, routinesWaiting } = useMemo(() => {
     let live = 0;
     let working = 0;
     let waiting = 0;
     if (state !== null) {
       const snoozeOn = state.snoozedSectionEnabled === true;
-      const count = (sessions: readonly SessionSummary[], local: boolean) => {
+      const count = (sessions: readonly SessionSummary[]) => {
         for (const s of sessions) {
           if (s.live !== "live") continue;
-          if (local && isLocalRoutineRun(s)) {
+          if (isRoutineRun(s)) {
             if (s.awaitingHumanAnswer === true) waiting += 1;
             continue;
           }
@@ -737,11 +749,11 @@ export function Sidebar() {
           if (inFlight && !needsUser && !parked) working += 1;
         }
       };
-      for (const group of state.projects) count(group.sessions, true);
-      count(state.chats, true);
+      for (const group of state.projects) count(group.sessions);
+      count(state.chats);
       for (const instance of state.remoteInstances) {
         if (instance.status === "self") continue;
-        for (const group of instance.projects) count(group.sessions, false);
+        for (const group of instance.projects) count(group.sessions);
       }
     }
     return { totalLive: live, workingLive: working, routinesWaiting: waiting };
@@ -1118,10 +1130,20 @@ export function Sidebar() {
             else openArtifacts();
             closeCompactSurface();
           }} className="flex size-auto h-6 w-auto items-center gap-1 px-1">
-            <span aria-hidden>▤</span><span className="hidden whitespace-nowrap @[17rem]:inline">Artifacts</span>
+            <span aria-hidden>▤</span>
+            <span className="hidden whitespace-nowrap @[17rem]:inline">Artifacts</span>
+            {artifactPendingReviewCount > 0 && (
+              <span
+                data-artifacts-pending-review
+                title={`${artifactPendingReviewCount} artifact${artifactPendingReviewCount === 1 ? "" : "s"} waiting for review`}
+                className="rounded-full bg-copper-wash px-1 font-mono text-xs leading-4 tabular-nums text-copper"
+              >
+                {artifactPendingReviewCount}
+              </span>
+            )}
           </IconButton>
         )}
-        {state?.routinesEnabled === true && (
+        {hasAnyRoutinesHost(state) && (
           <IconButton
             label="Routines"
             pressed={routinesOpen}

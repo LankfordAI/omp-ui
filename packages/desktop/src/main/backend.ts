@@ -971,6 +971,7 @@ export class MainBackend {
         isRoutineTab: () => false,
         inRun: () => false,
         awaitingHumanAnswer: () => false,
+        isViewed: () => false,
         openDialogIds: () => [],
         settleSession: async () => false,
         rpcSend: () => {},
@@ -984,11 +985,17 @@ export class MainBackend {
       hasProject: (projectCwd) => this.registry.projects.some((p) => p.path === projectCwd),
       sessions: () => this.registry.sessions,
       clearSessionRoutine: (tabId) => this.registry.updateSession(tabId, { routine: null }),
+      markSessionSettled: (tabId, settledAtMs) =>
+        this.registry.updateSession(tabId, { settledAtMs, snoozed: false, snoozedUntilMs: null }),
       isLive: (tabId) => this.sessions.isLive(tabId),
       isTurnRunning: (tabId) => this.sessions.isTurnRunning(tabId),
       awaitingHumanAnswer: (tabId) => this.sessions.pendingAnswer(tabId),
       deleteSession: (tabId, cascade) => this.sessions.deleteSession(tabId, cascade),
       dispatch: (req, who, dispatchOpts) => this.fleet.dispatch(req, who, dispatchOpts),
+      artifactRefreshBlocked: (binding) => {
+        if (!this.artifacts.enabled) return "The artifact library is disabled";
+        return this.artifacts.artifactRefreshBlocked(binding);
+      },
       notifyRoutine: (payload) => this.notifier.notifyRoutine(payload),
       machineLabel: () => this.fleetLabel,
       send: (state) => this.send(CH.onRoutinesState, state),

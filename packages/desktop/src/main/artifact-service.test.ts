@@ -3,7 +3,7 @@ import * as os from "node:os";
 import * as path from "node:path";
 import { randomUUID } from "node:crypto";
 import { afterEach, describe, expect, it } from "vitest";
-import { parseHtmlArtifactArgs, withArtifactReferenceContext, withArtifactRefreshContext, type ArtifactJson, type ArtifactLibraryChanged, type ArtifactRecord, type ArtifactReference } from "@omp-ui/core";
+import { parseHtmlArtifactArgs, parseArtifactPromptReferences, splitArtifactRefreshContext, withArtifactReferenceContext, withArtifactRefreshContext, type ArtifactJson, type ArtifactLibraryChanged, type ArtifactRecord, type ArtifactReference } from "@omp-ui/core";
 import { ArtifactService, type ArtifactTarget } from "./artifact-service";
 import { artifactSourceHash } from "./artifact-source";
 import { readArtifactDatasetFile } from "./artifact-dataset-file";
@@ -445,5 +445,111 @@ describe("human maintenance and export reads", () => {
     expect(composed.name).toBe("My rows");
     expect(composed.html).toContain("<main>Rows</main>");
     expect(composed.html).not.toContain("window.ompArtifact");
+  });
+});
+
+describe("scheduled artifact refresh (ADR-0101)", () => {
+  it("mints the routine fire's prompt in ADR-0092 grammar and marks the request scheduled", async () => {
+    const f = fixture(); const kept = await keep(f);
+    expect(f.service.artifactRefreshBlocked({ artifactId: kept.artifactId, datasetIds: ["rows"], autoApply: false })).toBeNull();
+    expect(f.service.artifactRefreshBlocked({ artifactId: kept.artifactId, datasetIds: ["gone"], autoApply: false })).toMatch(/no longer exist/);
+    expect(f.service.artifactRefreshBlocked({ artifactId: randomUUID(), datasetIds: ["rows"], autoApply: false })).toMatch(/no longer exists/);
+    expect(f.service.hasPreparedRefreshFor("tab")).toBe(false);
+    const { wirePrompt } = f.service.prepareRoutineRefresh({ tabId: "tab", artifactId: kept.artifactId, datasetIds: ["rows"], autoApply: true, routineName: "Nightly", promptText: "Do the task." });
+    expect(wirePrompt.startsWith("<artifact refresh>")).toBe(true);
+    expect(splitArtifactRefreshContext(wirePrompt).refreshes[0]?.datasetIds).toEqual(["rows"]);
+    expect(parseArtifactPromptReferences(wirePrompt)).toHaveLength(1);
+    const pending = f.service.describe({ artifactId: kept.artifactId }).refreshRequests[0]!;
+    expect(pending).toMatchObject({ autoApply: true, scheduledBy: "Nightly", bound: false, status: "awaiting" });
+    expect(f.service.hasPreparedRefreshFor("tab")).toBe(true);
+    expect(f.service.hasPreparedRefreshFor("other")).toBe(false);
+  });
+
+  it("auto-applies the staged capture when fences hold and refuses a stale overlapping fire", async () => {
+    const f = fixture(); const kept = await keep(f);
+    const first = f.service.prepareRoutineRefresh({ tabId: "tab-a", artifactId: kept.artifactId, datasetIds: ["rows"], autoApply: true, routineName: "Nightly", promptText: "Do the task." });
+    const second = f.service.prepareRoutineRefresh({ tabId: "tab-b", artifactId: kept.artifactId, datasetIds: ["rows"], autoApply: true, routineName: "Nightly", promptText: "Do the task." });
+    const firstId = splitArtifactRefreshContext(first.wirePrompt).refreshes[0]!.refreshRequestId;
+    const secondId = splitArtifactRefreshContext(second.wirePrompt).refreshes[0]!.refreshRequestId;
+    f.service.admitPrompt({ tabId: "tab-a", text: first.wirePrompt });
+    f.service.admitPrompt({ tabId: "tab-b", text: second.wirePrompt });
+    // Fire A stages and the host settles it with no human Apply.
+    expect(f.service.stageCapture({ tabId: "tab-a", toolCallId: "capture-a", args: { status: "captured", refreshRequestId: firstId, datasets: [dataset([3, 4])] } }).status).toBe("captured");
+    const applied = f.service.describe({ artifactId: kept.artifactId });
+    expect(applied.captures.every((row) => row.appliedDataSnapshotId !== null)).toBe(true);
+    expect(f.service.resolveSurface(versions(applied.artifact)).datasets.rows!.value).toEqual([3, 4]);
+    // Overlapping slow fire B against a now-moved head: staging itself fences.
+    expect(() => f.service.stageCapture({ tabId: "tab-b", toolCallId: "capture-b", args: { status: "captured", refreshRequestId: secondId, datasets: [dataset([5])] } })).toThrow();
+  });
+
+  it("keeps a non-autoApply scheduled capture staged for review", async () => {
+    const f = fixture(); const kept = await keep(f);
+    const prepared = f.service.prepareRoutineRefresh({ tabId: "tab", artifactId: kept.artifactId, datasetIds: ["rows"], autoApply: false, routineName: "Nightly", promptText: "Do the task." });
+    const refreshRequestId = splitArtifactRefreshContext(prepared.wirePrompt).refreshes[0]!.refreshRequestId;
+    f.service.admitPrompt({ tabId: "tab", text: prepared.wirePrompt });
+    f.service.stageCapture({ tabId: "tab", toolCallId: "capture", args: { status: "captured", refreshRequestId, datasets: [dataset([7])] } });
+    const described = f.service.describe({ artifactId: kept.artifactId });
+    expect(described.captures.every((row) => row.appliedDataSnapshotId === null)).toBe(true);
+    expect(described.refreshRequests[0]).toMatchObject({ status: "captured" });
+    expect("autoApply" in described.refreshRequests[0]!).toBe(false);
+  });
+});
+
+describe("lazy list, pinning, and thumbnails (#1307)", () => {
+  const PNG = new Uint8Array([0x89, 0x50, 0x4e, 0x47, 0x0d, 0x0a, 0x1a, 0x0a, 1, 2, 3, 4]);
+
+  it("returns an empty list without creating SQLite on disk until the first write", () => {
+    const f = fixture();
+    const page = f.service.list({ limit: 1 });
+    expect(page).toEqual({
+      artifacts: [],
+      nextCursor: null,
+      libraryBytesUsed: 0,
+      totalCount: 0,
+      pendingReviewCount: 0,
+      pendingReviewPreview: [],
+      origins: [],
+    });
+    expect(fs.existsSync(path.join(f.root, "artifacts", "library.sqlite"))).toBe(false);
+  });
+
+  it("attaches a state-matched staged draft thumbnail on Keep, drops mismatched state, and never copies draft pixels on acceptRevision", async () => {
+    const f = fixture();
+    const draft = await f.service.stageRender({ tabId: "tab", toolCallId: "draft-thumb", args: args() });
+    f.service.stageDraftThumbnail({
+      draftId: draft.draftId,
+      draftStateId: draft.draftStateId,
+      dark: true,
+      mime: "image/png",
+      bytes: PNG,
+    });
+    const kept = f.service.keep({ draftId: draft.draftId, title: "With thumb" });
+    const thumb = f.service.readThumbnail({ artifactId: kept.artifactId, dark: true });
+    expect(thumb).not.toBeNull();
+    expect(thumb?.stale).toBe(false);
+    expect(thumb?.dark).toBe(true);
+
+    // Pinning publishes empty artifactIds so open writers are not revoked.
+    const pinned = f.service.pin({ artifactId: kept.artifactId, expectedGeneration: kept.generation, pinned: true });
+    expect(pinned.pinnedAt).not.toBeNull();
+    expect(f.events.at(-1)).toMatchObject({ artifactIds: [], kind: "changed" });
+
+    // Candidate acceptRevision does NOT copy draft pixels; prior thumbnail stays visible as stale.
+    const grant = f.service.reference({ targetTabId: "tab", ...versions(pinned), includeData: false });
+    const candidateArgs = args();
+    (candidateArgs.artifact as Record<string, unknown>).basedOn = { referenceId: grant.referenceId };
+    const cand = await f.service.stageRender({ tabId: "tab", toolCallId: "cand-thumb", args: candidateArgs });
+    const otherPng = new Uint8Array([0x89, 0x50, 0x4e, 0x47, 0x0d, 0x0a, 0x1a, 0x0a, 9, 9, 9, 9]);
+    f.service.stageDraftThumbnail({
+      draftId: cand.draftId,
+      draftStateId: cand.draftStateId,
+      dark: true,
+      mime: "image/png",
+      bytes: otherPng,
+    });
+    f.service.acceptRevision({ draftId: cand.draftId, expectedCodeRevisionId: pinned.currentCodeRevisionId });
+    const afterAccept = f.service.readThumbnail({ artifactId: kept.artifactId, dark: true });
+    expect(afterAccept?.hash).toBe(thumb?.hash);
+    expect(afterAccept?.stale).toBe(true);
   });
 });

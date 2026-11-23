@@ -590,26 +590,86 @@ describe("Routine runs (ADR-0100, issue #1261)", () => {
     expect(all(buildSidebarLists(state, ""))).toEqual(["coding"]);
   });
 
-  it("keeps a joined instance's routine runs as ordinary sessions", () => {
+  it("excludes a joined instance's routine runs from every sidebar section (#1304)", () => {
     const state = backendState({
-      remoteInstances: [remoteInstance({ projects: [group("/r", "remote", [session("remote-run", { routine })])] })],
+      snoozedSectionEnabled: true,
+      remoteInstances: [
+        remoteInstance({
+          projects: [
+            group("/r", "remote", [
+              session("remote-coding"),
+              session("remote-run-idle", { routine }),
+              session("remote-run-working", { routine, turnRunning: true }),
+              session("remote-run-pinned", { routine, pinnedAtMs: 5 }),
+              session("remote-run-snoozed", { routine, snoozed: true }),
+              session("remote-run-settled", { routine, live: "dormant" }),
+            ]),
+          ],
+        }),
+      ],
     });
-    expect(all(buildSidebarLists(state, ""))).toEqual(["remote-run"]);
+    expect(all(buildSidebarLists(state, ""))).toEqual(["remote-coding"]);
   });
 
-  it("holds a settled-unread routine run in the stack as ready until its mark clears", () => {
+  it("surfaces a joined remote routine run awaiting approval in the attention stack and omits unreachable or non-waiting ones (#1304)", () => {
+    const state = backendState({
+      remoteInstances: [
+        remoteInstance({
+          id: "inst-fw",
+          nickname: "FW-Desktop",
+          status: "joined",
+          projects: [
+            group("/r", "omp-ui", [
+              session("remote-wait", { routine, live: "live", awaitingHumanAnswer: true }),
+              session("remote-idle", { routine, live: "live", awaitingHumanAnswer: false }),
+              session("remote-dormant-wait", { routine, live: "dormant", awaitingHumanAnswer: true }),
+            ]),
+          ],
+        }),
+        remoteInstance({
+          id: "inst-off",
+          nickname: "Offline-Box",
+          status: "unreachable",
+          projects: [
+            group("/r", "omp-ui", [
+              session("offline-wait", { routine, live: "live", awaitingHumanAnswer: true }),
+            ]),
+          ],
+        }),
+      ],
+    });
+    const derive = (s: SessionSummary): string =>
+      s.live === "live" && s.awaitingHumanAnswer === true ? "awaiting-answer" : s.live;
+    const entries = buildAttentionEntries(state, {}, derive);
+    expect(entries).toHaveLength(1);
+    expect(entries[0]).toMatchObject({
+      state: "awaiting-answer",
+      entry: {
+        instanceId: "inst-fw",
+        nickname: "FW-Desktop",
+        session: { tabId: "remote-wait" },
+      },
+    });
+  });
+
+  it("drops a settled routine run from the attention stack even when marked unread, while keeping a live unmounted run in grace (#1305)", () => {
     const state = backendState({
       projects: [
         group("/a", "alpha", [
-          session("run", { routine, live: "dormant" }),
-          session("coding", { live: "dormant" }),
+          session("run-settled", { routine, live: "dormant", settledAtMs: 100 }),
+          session("run-grace", { routine, live: "live", settledAtMs: null }),
+          session("coding", { live: "dormant", settledAtMs: 100 }),
         ]),
       ],
     });
     const mark = { atMs: 10, snippet: "done" };
     const derive = (s: SessionSummary): string => s.live;
-    const marked = buildAttentionEntries(state, { run: mark, coding: mark }, derive);
-    expect(marked.map((a) => [a.entry.session.tabId, a.state])).toEqual([["run", "ready"]]);
+    const marked = buildAttentionEntries(
+      state,
+      { "run-settled": mark, "run-grace": mark, coding: mark },
+      derive,
+    );
+    expect(marked.map((a) => [a.entry.session.tabId, a.state])).toEqual([["run-grace", "ready"]]);
     expect(buildAttentionEntries(state, {}, derive)).toEqual([]);
   });
 

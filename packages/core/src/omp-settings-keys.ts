@@ -219,6 +219,12 @@ export const GIT_SETTING_GROUP: OmpSettingGroup = {
 /** The exact-interpreter override; "" means "let omp discover one" (issue #671). */
 export const PYTHON_INTERPRETER_KEY = "python.interpreter";
 
+/** Apply model override for `edit.mode = "magic"`; "" falls back to the `smol` role (issue #1273). */
+export const EDIT_MAGIC_MODEL_KEY = "edit.magic.model";
+
+/** Binary Ninja install directory override; "" auto-detects (issue #1275). */
+export const BINJA_INSTALL_DIR_KEY = "binja.installDir";
+
 /**
  * Sharpshooter decision extraction (omp 18.12.0, issue #887). The shortest
  * prompt an exchange must reach before Sharpshooter extracts decisions from
@@ -410,6 +416,14 @@ export const OMP_SETTING_GROUPS: ReadonlyArray<OmpSettingGroup> = [
     // verified-passage hit threshold (both unset = omp's built-in behavior).
     // Each is a plain scalar row; keys an older binary does not publish
     // render no row, the existing per-key skip rule.
+    // omp 19.1 (issue #1273): `edit.mode` gains the `magic` value — described
+    // changes a fast model turns into patches — whose option rides in from
+    // `omp config list` like the rest of the enum; `edit.magic.model` picks
+    // the apply model (selector or @role alias, empty = the smol role) and
+    // renders as a plain string row.
+    // omp 19.1 (issue #1275): the disassembler enum gains `binja` (Binary
+    // Ninja), whose option rides in via parseEnumOptions like the others, and
+    // `binja.installDir` points at that install (empty = auto-detect).
     // omp 19.1.1 (issue #1292): todo.backend names the extension-registered
     // todo backend the session's list mirrors to (string; `native` — the
     // default — mirrors nothing), and computer.takeover (enum, default
@@ -419,16 +433,28 @@ export const OMP_SETTING_GROUPS: ReadonlyArray<OmpSettingGroup> = [
     title: "Tools",
     keys: [
       "edit.mode",
+      EDIT_MAGIC_MODEL_KEY,
       "todo.midRunNudges",
       "todo.backend",
       "grep.contextBefore",
       "grep.contextAfter",
       "commit.enabled",
       "disassembler.backend",
+      BINJA_INSTALL_DIR_KEY,
       "computer.takeover",
       "find.verifyModel",
       "find.hitThreshold",
     ],
+  },
+  {
+    // omp 19.1 (issue #1275): MCP servers moved into the omp daemon. On
+    // (default), every omp instance shares one process per server with a
+    // cached tool catalog; off keeps private per-session servers. Shared
+    // servers stop after mcp.idleStopMinutes of disuse (default 5) and
+    // restart on the next request. A boolean row and a number row; an older
+    // binary publishes neither, so the per-key skip rule hides both.
+    title: "MCP daemon",
+    keys: ["mcp.shared", "mcp.idleStopMinutes"],
   },
   {
     // omp 18.20+ (issue #1206): the system prompt's rule that makes `edit`
@@ -456,8 +482,11 @@ export const OMP_SETTING_GROUPS: ReadonlyArray<OmpSettingGroup> = [
     // omp 18.12.3 (issue #954): the `widget` model role designs one live widget
     // per running background job, which the Jobs pane and HUD jobs chip draw.
     // Off stops omp from authoring widgets, so no further widget model calls.
+    // omp 19.1 (issue #1275) adds pty.notify: enum on|off (default on) for the
+    // "an interactive console is waiting on keyboard input" notices a bash pty
+    // job raises; off silences them. Options ride in via parseEnumOptions.
     title: "Background jobs",
-    keys: ["async.widgets"],
+    keys: ["async.widgets", "pty.notify"],
   },
   {
     // omp 18.14 (issue #975): off by default. On, a task call may name each

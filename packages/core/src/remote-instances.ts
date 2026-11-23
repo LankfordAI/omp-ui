@@ -300,6 +300,20 @@ export const REMOTE_PROXY_CHANNELS: ReadonlySet<string> = new Set<string>([
   "session:ingest-finish",
   "auth:export-bundle",
   "auth:import-bundle",
+  // Routines (ADR-0100 §8 amendment, issue #1306): view, edit, control, and
+  // execute routines on a joined instance. Every routine, schedule, tool
+  // catalog, and run stays owned by the target host; settings:setRoutinesEnabled
+  // and settings:setRoutineSpendDefaults stay host-local (off this list).
+  "routines:getState",
+  "routines:create",
+  "routines:update",
+  "routines:remove",
+  "routines:runNow",
+  "routines:testScript",
+  "routines:dryRun",
+  "routines:toolCatalog",
+  // RoutineEditor model picker reads the owning host's chat model catalog.
+  "models:readChat",
 ]);
 
 /** Events a joined instance emits that are mirrored to local sinks unchanged. */

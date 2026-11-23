@@ -74,6 +74,7 @@ const ROUTINE_INPUT: RoutineInput = {
   scripts: { pre: "", post: "" },
   timeoutMinutes: null,
   notifications: { onStart: false, onComplete: false, onFail: false, onApproval: false, agentMessage: false },
+  artifact: null,
   enabled: true,
 };
 
@@ -91,6 +92,8 @@ const VALID_ARGS = {
   artifactDiscardDraft: [{draftId: "10000000-0000-4000-8000-000000000005"}],
   artifactDelete: [{artifactId: "10000000-0000-4000-8000-000000000001", expectedGeneration: 1}],
   artifactRename: [{artifactId: "10000000-0000-4000-8000-000000000001", expectedGeneration: 1, title: "Renamed"}],
+  artifactPin: [{artifactId: "10000000-0000-4000-8000-000000000001", expectedGeneration: 1, pinned: true}],
+  artifactReadThumbnail: [{artifactId: "10000000-0000-4000-8000-000000000001", dark: true}],
   artifactDiscardCapture: [{captureId: "10000000-0000-4000-8000-000000000006"}],
   artifactDismissRefresh: [{refreshRequestId: "10000000-0000-4000-8000-000000000007"}],
   artifactPrune: [{artifactId: "10000000-0000-4000-8000-000000000001", expectedGeneration: 2, keepRevisions: 5, keepSnapshots: 10}],

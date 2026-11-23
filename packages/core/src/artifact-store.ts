@@ -5,17 +5,21 @@ import { createHash, randomUUID } from "node:crypto";
 import { DatabaseSync, type SQLInputValue } from "node:sqlite";
 import {
   ARTIFACT_LIMITS, ArtifactError, artifactCanonicalJson, artifactDefinition, artifactDefinitionsCompatible,
-  assertArtifactKey, assertArtifactUuid, pageArtifactText, validateArtifactDatasets, validateArtifactDocument,
+  assertArtifactIsoDate, assertArtifactKey, assertArtifactUuid, pageArtifactText, validateArtifactDatasets, validateArtifactDocument,
   validateArtifactJson, validateArtifactSource,
   type ArtifactAcceptRevisionRequest, type ArtifactApplyCaptureRequest, type ArtifactCaptureDraft,
   type ArtifactCodeRevision, type ArtifactCreateReferenceRequest, type ArtifactDataSnapshot, type ArtifactDatasetInput,
   type ArtifactDatasetSnapshot, type ArtifactDefinition, type ArtifactDeleteRequest, type ArtifactDescription,
   type ArtifactDescribeRequest, type ArtifactDraft, type ArtifactJson, type ArtifactJsonObject, type ArtifactKeepRequest,
-  type ArtifactListRequest, type ArtifactListResult, type ArtifactPartResult, type ArtifactPatchDraftStateRequest, type ArtifactPatchUserStateRequest,
-  type ArtifactPrepareRefreshRequest, type ArtifactReference, type ArtifactReferencePartRequest, type ArtifactRefreshRequest,
-  type ArtifactPruneRequest, type ArtifactPruneResult, type ArtifactRenameRequest, type ArtifactDiscardCaptureRequest, type ArtifactDismissRefreshRequest, type ArtifactRestoreSnapshotRequest,
-  type ArtifactProvenance, type ArtifactReadRequest, type ArtifactRecord, type ArtifactSource, type ArtifactSourceLookup, type ArtifactStageCaptureRequest,
-  type ArtifactStageDocumentRequest,
+  type ArtifactListFilter, type ArtifactListItem, type ArtifactListRequest, type ArtifactListResult, type ArtifactListSort,
+  type ArtifactPartResult, type ArtifactPatchDraftStateRequest, type ArtifactPatchUserStateRequest,
+  type ArtifactPinRequest, type ArtifactPrepareRefreshRequest, type ArtifactReadThumbnailRequest, type ArtifactReference,
+  type ArtifactReferencePartRequest, type ArtifactRefreshRequest,
+  type ArtifactPruneRequest, type ArtifactPruneResult, type ArtifactRenameRequest, type ArtifactDiscardCaptureRequest,
+  type ArtifactDismissRefreshRequest, type ArtifactRestoreSnapshotRequest,
+  type ArtifactProvenance, type ArtifactReadRequest, type ArtifactRecord, type ArtifactSource, type ArtifactSourceLookup,
+  type ArtifactStageCaptureRequest, type ArtifactStageDocumentRequest,
+  type ArtifactThumbnailResult, type ArtifactThumbnailSlotMeta, type ArtifactThumbnailsMeta,
 } from "./artifacts";
 import { scanSecrets } from "./vault-secret-shapes";
 
@@ -225,6 +229,7 @@ export class ArtifactStore {
       if (metadata.origin !== undefined) this.owner(metadata.origin);
       if (metadata.ownerInstanceId !== undefined && metadata.ownerInstanceId !== this.ownerInstanceId) throw new Error("Foreign metadata owner");
       if (metadata.title !== undefined) title(metadata.title as string);
+      if (metadata.pinnedAt !== undefined && metadata.pinnedAt !== null) assertArtifactIsoDate(metadata.pinnedAt);
       const identityField: Record<string, string> = { artifact: "artifactId", draft: "draftId", code: "codeRevisionId", snapshot: "dataSnapshotId", reference: "referenceId", refresh: "refreshRequestId", capture: "captureId" };
       if (identityField[kind] && metadata[identityField[kind]!] !== id) throw new Error("Mismatched object identity");
       if (Array.isArray(metadata.datasets)) {
@@ -273,12 +278,16 @@ export class ArtifactStore {
       this.rememberPayload(digest);
     }
   }
-  private readPayload(id: string, slot: string): string {
+  private readPayloadBytes(id: string, slot: string): Uint8Array {
     this.open(); this.refreshIntegrityCache();
     const row = this.db.prepare("SELECT p.hash,p.bytes,p.size FROM payload_links l JOIN payloads p ON p.hash=l.payload_hash WHERE l.object_id=? AND l.slot=?").get(id, slot);
     if (!row || !(row.bytes instanceof Uint8Array) || row.bytes.byteLength !== Number(row.size) || hash(row.bytes) !== row.hash) throw new ArtifactError("unavailable", "Missing or corrupt immutable artifact payload");
     this.rememberPayload(text(row.hash));
-    try { return new TextDecoder("utf-8", { fatal: true }).decode(row.bytes); } catch { throw new ArtifactError("unavailable", "Artifact payload is not UTF-8"); }
+    return row.bytes;
+  }
+  private readPayload(id: string, slot: string): string {
+    const bytes = this.readPayloadBytes(id, slot);
+    try { return new TextDecoder("utf-8", { fatal: true }).decode(bytes); } catch { throw new ArtifactError("unavailable", "Artifact payload is not UTF-8"); }
   }
   private jsonPayload<T>(id: string, slot: string): T { try { return JSON.parse(this.readPayload(id, slot)) as T; } catch (error) { if (error instanceof ArtifactError) throw error; throw new ArtifactError("unavailable", "Corrupt artifact JSON payload"); } }
   private copyLinks(from: string, to: string, predicate = "1", parameters: SQLInputValue[] = []): void {
@@ -315,7 +324,25 @@ export class ArtifactStore {
   private record(id: string): ArtifactRecord {
     const metadata = this.object<ArtifactRecord>(id, "artifact");
     const row = this.db.prepare("SELECT current_code,current_snapshot,generation FROM artifacts WHERE id=?").get(id); if (!row) missing();
-    return { ...metadata, currentCodeRevisionId: text(row.current_code), currentDataSnapshotId: text(row.current_snapshot), generation: Number(row.generation) };
+    return { ...metadata, pinnedAt: metadata.pinnedAt ?? null, currentCodeRevisionId: text(row.current_code), currentDataSnapshotId: text(row.current_snapshot), generation: Number(row.generation) };
+  }
+  private thumbnailSlotMeta(record: Pick<ArtifactRecord, "artifactId" | "currentCodeRevisionId" | "currentDataSnapshotId">, pol: "dark" | "light"): ArtifactThumbnailSlotMeta | null {
+    const row = this.db.prepare("SELECT payload_hash FROM payload_links WHERE object_id=? AND slot=?").get(record.artifactId, `thumb:${pol}`);
+    if (!row) return null;
+    const meta = this.jsonPayload<{ codeRevisionId: string; dataSnapshotId: string; mime: string; capturedAt: string }>(record.artifactId, `thumb-meta:${pol}`);
+    assertArtifactUuid(meta.codeRevisionId, "thumbnail codeRevisionId");
+    assertArtifactUuid(meta.dataSnapshotId, "thumbnail dataSnapshotId");
+    if (meta.mime !== "image/png" && meta.mime !== "image/jpeg") throw new ArtifactError("unavailable", "Corrupt thumbnail metadata");
+    return {
+      hash: text(row.payload_hash),
+      stale: meta.codeRevisionId !== record.currentCodeRevisionId || meta.dataSnapshotId !== record.currentDataSnapshotId,
+    };
+  }
+  private thumbnailsMeta(record: Pick<ArtifactRecord, "artifactId" | "currentCodeRevisionId" | "currentDataSnapshotId">): ArtifactThumbnailsMeta {
+    return {
+      dark: this.thumbnailSlotMeta(record, "dark"),
+      light: this.thumbnailSlotMeta(record, "light"),
+    };
   }
   private assertHeads(record: ArtifactRecord, code: string, snapshot?: string): void {
     assertArtifactUuid(code); if (snapshot !== undefined) assertArtifactUuid(snapshot);
@@ -334,25 +361,166 @@ export class ArtifactStore {
   private datasets(id: string, metadata: DatasetMeta[]): ArtifactDatasetSnapshot[] { return metadata.map(d => ({ ...d, value: this.jsonPayload<ArtifactJson>(id, `dataset:${d.id}`), provenance: this.jsonPayload<ArtifactProvenance>(id, `provenance:${d.id}`) })); }
 
   list(request: ArtifactListRequest = {}): ArtifactListResult {
-    this.open(); const limit = request.limit ?? 50;
-    if (!Number.isSafeInteger(limit) || limit < 1 || limit > 50 || (request.query !== undefined && (typeof request.query !== "string" || request.query.length > 200))) invalid("Invalid list bounds");
-    // The cursor is an opaque compound token (`updatedAt|id`, base64url): rows
-    // order by recency, and equal timestamps page deterministically on the id
-    // tiebreak. Never assert a shape beyond the bound — cursors are store-owned.
-    let after: { updated: string; id: string } | null = null;
-    if (request.cursor !== undefined) {
-      if (typeof request.cursor !== "string" || !request.cursor || request.cursor.length > 200) invalid("Invalid list cursor");
-      const decoded = Buffer.from(request.cursor, "base64url").toString("utf8");
-      const at = decoded.lastIndexOf("|");
-      if (at <= 0 || at === decoded.length - 1) invalid("Invalid list cursor");
-      after = { updated: decoded.slice(0, at), id: decoded.slice(at + 1) };
-      assertArtifactUuid(after.id, "cursor id");
+    this.open();
+    const limit = request.limit ?? 50;
+    const filter: ArtifactListFilter = request.filter ?? "all";
+    const sort: ArtifactListSort = request.sort ?? "recent";
+    if (!Number.isSafeInteger(limit) || limit < 1 || limit > 50) invalid("Invalid list bounds");
+    if (request.query !== undefined && (typeof request.query !== "string" || request.query.length > 200)) invalid("Invalid list bounds");
+    if (request.origin !== undefined && (typeof request.origin !== "string" || request.origin.length > 512)) invalid("Invalid list bounds");
+    if (!["all", "review", "managed", "document"].includes(filter)) invalid("Invalid list filter");
+    if (!["recent", "name", "revisions"].includes(sort)) invalid("Invalid list sort");
+    const query = request.query && request.query.length > 0 ? request.query : null;
+    const origin = request.origin && request.origin.length > 0 ? request.origin : null;
+
+    interface AnchorRow {
+      id: string;
+      isPinned: number;
+      pinnedAt: string | null;
+      updatedAt: string;
+      titleLower: string;
+      revisionNumber: number;
     }
-    const rows = this.db.prepare(`SELECT id, json_extract(metadata,'$.updatedAt') AS updated FROM objects
-      WHERE kind='artifact' AND (? IS NULL OR updated < ? OR (updated = ? AND id > ?)) AND (? IS NULL OR instr(lower(json_extract(metadata,'$.title')),lower(?))>0)
-      ORDER BY updated DESC, id DESC LIMIT ?`).all(after?.updated ?? null, after?.updated ?? null, after?.updated ?? null, after?.id ?? null, request.query ?? null, request.query ?? null, limit + 1);
-    const encode = (updated: string, id: string): string => Buffer.from(`${updated}|${id}`, "utf8").toString("base64url");
-    return { artifacts: rows.slice(0, limit).map(row => this.record(text(row.id))), nextCursor: rows.length > limit ? encode(text(rows[limit - 1]!.updated), text(rows[limit - 1]!.id)) : null, libraryBytesUsed: this.libraryBytes() };
+    let anchor: AnchorRow | null = null;
+    if (request.cursor !== undefined) {
+      if (typeof request.cursor !== "string" || !request.cursor || request.cursor.length > 200 || !/^[A-Za-z0-9_-]+$/.test(request.cursor)) invalid("Invalid list cursor");
+      let parsed: unknown;
+      try { parsed = JSON.parse(Buffer.from(request.cursor, "base64url").toString("utf8")); }
+      catch { invalid("Invalid list cursor"); }
+      if (parsed === null || typeof parsed !== "object" || Array.isArray(parsed)) invalid("Invalid list cursor");
+      const fields = parsed as Record<string, unknown>;
+      const keys = Object.keys(fields);
+      if (keys.length !== 3 || fields.v !== 2 || fields.s !== sort || typeof fields.id !== "string") invalid("Invalid list cursor");
+      assertArtifactUuid(fields.id, "cursor id");
+      const row = this.db.prepare(`SELECT o.id,
+        CASE WHEN json_extract(o.metadata,'$.pinnedAt') IS NOT NULL THEN 1 ELSE 0 END AS is_pinned,
+        json_extract(o.metadata,'$.pinnedAt') AS pinned_at,
+        json_extract(o.metadata,'$.updatedAt') AS updated_at,
+        lower(json_extract(o.metadata,'$.title')) AS title_lower,
+        COALESCE((SELECT json_extract(c.metadata,'$.revisionNumber') FROM objects c WHERE c.id = a.current_code), 1) AS rev_num
+        FROM objects o JOIN artifacts a ON a.id = o.id WHERE o.id = ? AND o.kind = 'artifact'`).get(fields.id);
+      if (!row) conflict("List cursor expired; reload list");
+      anchor = {
+        id: text(row.id),
+        isPinned: Number(row.is_pinned),
+        pinnedAt: row.pinned_at === null ? null : text(row.pinned_at),
+        updatedAt: text(row.updated_at),
+        titleLower: text(row.title_lower),
+        revisionNumber: Number(row.rev_num),
+      };
+    }
+
+    const cte = `WITH listed AS (
+      SELECT o.id AS id,
+        CASE WHEN json_extract(o.metadata,'$.pinnedAt') IS NOT NULL THEN 1 ELSE 0 END AS is_pinned,
+        json_extract(o.metadata,'$.pinnedAt') AS pinned_at,
+        json_extract(o.metadata,'$.updatedAt') AS updated_at,
+        lower(json_extract(o.metadata,'$.title')) AS title_lower,
+        json_extract(o.metadata,'$.managed') AS is_managed,
+        json_extract(o.metadata,'$.originContext.kind') AS origin_kind,
+        json_extract(o.metadata,'$.originContext.path') AS origin_path,
+        json_extract(o.metadata,'$.originContext.label') AS origin_label,
+        COALESCE((SELECT json_extract(c.metadata,'$.revisionNumber') FROM objects c WHERE c.id = a.current_code), 1) AS rev_num,
+        COALESCE((SELECT json_array_length(s.metadata,'$.datasets') FROM objects s WHERE s.id = a.current_snapshot), 0) AS dataset_count,
+        (SELECT COUNT(*) FROM captures c JOIN objects co ON co.id = c.id WHERE co.artifact_id = a.id AND c.applied_snapshot IS NULL) AS pending_capture_count,
+        (SELECT COUNT(*) FROM objects d WHERE d.kind = 'draft' AND d.artifact_id = a.id) AS pending_candidate_count,
+        (SELECT COUNT(*) FROM objects r WHERE r.kind = 'refresh' AND r.artifact_id = a.id AND json_extract(r.metadata,'$.status') = 'awaiting') AS awaiting_refresh_count
+      FROM objects o
+      JOIN artifacts a ON a.id = o.id
+      WHERE o.kind = 'artifact'
+    )`;
+
+    const where: string[] = [];
+    const params: SQLInputValue[] = [];
+    if (query !== null) {
+      where.push("(instr(title_lower, lower(?)) > 0 OR (origin_kind = 'project' AND instr(lower(COALESCE(origin_label, '')), lower(?)) > 0) OR (origin_kind = 'chat' AND instr('chat', lower(?)) > 0))");
+      params.push(query, query, query);
+    }
+    if (origin !== null) {
+      if (origin === "chat") where.push("origin_kind = 'chat'");
+      else { where.push("origin_kind = 'project' AND origin_path = ?"); params.push(origin); }
+    }
+    if (filter === "managed") where.push("is_managed = 1");
+    else if (filter === "document") where.push("is_managed = 0");
+    else if (filter === "review") where.push("(pending_capture_count > 0 OR pending_candidate_count > 0)");
+
+    if (anchor !== null) {
+      let secondarySql: string;
+      let secondaryParams: SQLInputValue[];
+      if (sort === "name") {
+        secondarySql = "(title_lower > ? OR (title_lower = ? AND id > ?))";
+        secondaryParams = [anchor.titleLower, anchor.titleLower, anchor.id];
+      } else if (sort === "revisions") {
+        secondarySql = "(rev_num < ? OR (rev_num = ? AND updated_at < ?) OR (rev_num = ? AND updated_at = ? AND id < ?))";
+        secondaryParams = [anchor.revisionNumber, anchor.revisionNumber, anchor.updatedAt, anchor.revisionNumber, anchor.updatedAt, anchor.id];
+      } else {
+        secondarySql = "(updated_at < ? OR (updated_at = ? AND id < ?))";
+        secondaryParams = [anchor.updatedAt, anchor.updatedAt, anchor.id];
+      }
+      if (anchor.isPinned === 1) {
+        where.push(`(is_pinned = 0 OR (is_pinned = 1 AND (pinned_at < ? OR (pinned_at = ? AND ${secondarySql}))))`);
+        params.push(anchor.pinnedAt!, anchor.pinnedAt!, ...secondaryParams);
+      } else {
+        where.push(`(is_pinned = 0 AND ${secondarySql})`);
+        params.push(...secondaryParams);
+      }
+    }
+
+    const orderBy = sort === "name"
+      ? "ORDER BY is_pinned DESC, pinned_at DESC, title_lower ASC, id ASC"
+      : sort === "revisions"
+        ? "ORDER BY is_pinned DESC, pinned_at DESC, rev_num DESC, updated_at DESC, id DESC"
+        : "ORDER BY is_pinned DESC, pinned_at DESC, updated_at DESC, id DESC";
+    const whereSql = where.length > 0 ? `WHERE ${where.join(" AND ")}` : "";
+    const rows = this.db.prepare(`${cte} SELECT id, rev_num, dataset_count, pending_capture_count, pending_candidate_count, awaiting_refresh_count FROM listed ${whereSql} ${orderBy} LIMIT ?`).all(...params, limit + 1);
+
+    const artifacts: ArtifactListItem[] = rows.slice(0, limit).map(row => {
+      const record = this.record(text(row.id));
+      return {
+        ...record,
+        revisionNumber: Number(row.rev_num),
+        datasetCount: Number(row.dataset_count),
+        pendingCaptureCount: Number(row.pending_capture_count),
+        pendingCandidateCount: Number(row.pending_candidate_count),
+        awaitingRefreshCount: Number(row.awaiting_refresh_count),
+        thumbnails: this.thumbnailsMeta(record),
+      };
+    });
+    const encode = (id: string): string => Buffer.from(JSON.stringify({ v: 2, s: sort, id }), "utf8").toString("base64url");
+    const nextCursor = rows.length > limit ? encode(text(rows[limit - 1]!.id)) : null;
+
+    const totalCount = Number(this.db.prepare("SELECT COUNT(*) AS n FROM artifacts").get()?.n ?? 0);
+    const reviewRows = this.db.prepare(`SELECT id, title, pending_capture_count, pending_candidate_count FROM (
+      SELECT o.id, json_extract(o.metadata,'$.title') AS title, json_extract(o.metadata,'$.updatedAt') AS updated_at,
+        (SELECT COUNT(*) FROM captures c JOIN objects co ON co.id = c.id WHERE co.artifact_id = a.id AND c.applied_snapshot IS NULL) AS pending_capture_count,
+        (SELECT COUNT(*) FROM objects d WHERE d.kind = 'draft' AND d.artifact_id = a.id) AS pending_candidate_count
+      FROM objects o JOIN artifacts a ON a.id = o.id WHERE o.kind = 'artifact'
+    ) WHERE pending_capture_count > 0 OR pending_candidate_count > 0
+      ORDER BY updated_at DESC, id DESC`).all();
+    const pendingReviewCount = reviewRows.length;
+    const pendingReviewPreview = reviewRows.slice(0, 5).map(row => ({
+      artifactId: text(row.id),
+      title: text(row.title),
+      pendingCaptureCount: Number(row.pending_capture_count),
+      pendingCandidateCount: Number(row.pending_candidate_count),
+    }));
+    const originRows = this.db.prepare(`SELECT DISTINCT
+      json_extract(metadata,'$.originContext.kind') AS kind,
+      json_extract(metadata,'$.originContext.path') AS path,
+      json_extract(metadata,'$.originContext.label') AS label
+      FROM objects WHERE kind = 'artifact'`).all();
+    const originMap = new Map<string, { key: string; label: string; kind: "project" | "chat" }>();
+    let hasChat = false;
+    for (const row of originRows) {
+      if (row.kind === "chat") hasChat = true;
+      else if (row.kind === "project" && typeof row.path === "string" && typeof row.label === "string" && !originMap.has(row.path)) {
+        originMap.set(row.path, { key: row.path, label: row.label, kind: "project" });
+      }
+    }
+    const origins = [...originMap.values()].sort((a, b) => a.label.localeCompare(b.label, undefined, { sensitivity: "base" }));
+    if (hasChat) origins.push({ key: "chat", label: "Chat", kind: "chat" });
+
+    return { artifacts, nextCursor, libraryBytesUsed: this.libraryBytes(), totalCount, pendingReviewCount, pendingReviewPreview, origins };
   }
   describe(request: ArtifactDescribeRequest): ArtifactDescription {
     const artifact = this.record(request.artifactId);
@@ -380,7 +548,7 @@ export class ArtifactStore {
       if (reference.artifactId !== artifact.artifactId) throw new ArtifactError("unavailable", "Corrupt candidate base");
       return {draft, definition, compatible: artifactDefinitionsCompatible(currentCode.definition, definition), stale: reference.codeRevisionId !== artifact.currentCodeRevisionId, expectedCodeRevisionId: artifact.currentCodeRevisionId, currentDefinition: currentCode.definition ?? null, baseRevisionNumber: this.object<Omit<ArtifactCodeRevision, "html">>(reference.codeRevisionId, "code").revisionNumber};
     });
-    return { artifact, code, snapshot: { ...snapshot, datasets: snapshot.datasets.map(d => ({ ...d, provenance: this.jsonPayload<ArtifactProvenance>(snapshot.dataSnapshotId, `provenance:${d.id}`) })) }, revisions, snapshots, references, captures, refreshRequests, candidates, retainedBytes: this.retainedBytes(artifact.artifactId), libraryBytesUsed: this.libraryBytes() };
+    return { artifact, code, snapshot: { ...snapshot, datasets: snapshot.datasets.map(d => ({ ...d, provenance: this.jsonPayload<ArtifactProvenance>(snapshot.dataSnapshotId, `provenance:${d.id}`) })) }, revisions, snapshots, references, captures, refreshRequests, candidates, retainedBytes: this.retainedBytes(artifact.artifactId), libraryBytesUsed: this.libraryBytes(), thumbnails: this.thumbnailsMeta(artifact) };
   }
   lookupSource(request: { source: ArtifactSource; draftId?: string }): ArtifactSourceLookup {
     this.owner(request.source);
@@ -457,7 +625,7 @@ export class ArtifactStore {
       if (source?.artifact_id) return this.record(text(source.artifact_id));
       const d = this.object<DraftMeta>(request.draftId, "draft");
       const artifactId = randomUUID(); const codeRevisionId = randomUUID(); const dataSnapshotId = randomUUID(); const createdAt = now();
-      const artifact: ArtifactRecord = { artifactId, ownerInstanceId: this.ownerInstanceId, title: request.title.trim(), managed: d.managed, currentCodeRevisionId: codeRevisionId, currentDataSnapshotId: dataSnapshotId, generation: 1, createdAt, updatedAt: createdAt, keptAt: createdAt, origin: d.source, originContext: d.originContext, sourceDraftId: d.draftId };
+      const artifact: ArtifactRecord = { artifactId, ownerInstanceId: this.ownerInstanceId, title: request.title.trim(), managed: d.managed, currentCodeRevisionId: codeRevisionId, currentDataSnapshotId: dataSnapshotId, generation: 1, createdAt, updatedAt: createdAt, keptAt: createdAt, pinnedAt: null, origin: d.source, originContext: d.originContext, sourceDraftId: d.draftId };
       this.putObject(artifactId, "artifact", null, artifact); this.db.prepare("INSERT INTO artifacts(id,current_code,current_snapshot,generation) VALUES(?,?,?,1)").run(artifactId, codeRevisionId, dataSnapshotId);
       this.putObject(codeRevisionId, "code", artifactId, { codeRevisionId, artifactId, revisionNumber: 1, baseRevisionId: null, definition: d.definition, source: d.source, createdAt }); this.db.prepare("INSERT INTO codes(id,artifact_id) VALUES(?,?)").run(codeRevisionId, artifactId); this.copyLinks(d.draftId, codeRevisionId, "slot IN ('html','definition')");
       this.putObject(dataSnapshotId, "snapshot", artifactId, { dataSnapshotId, artifactId, stateRevision: d.stateRevision, cause: "initial", createdAt, datasets: d.datasets }); this.db.prepare("INSERT INTO snapshots(id,artifact_id) VALUES(?,?)").run(dataSnapshotId, artifactId); this.copyLinks(d.draftId, dataSnapshotId, "slot NOT IN ('html','definition')");
@@ -579,11 +747,16 @@ export class ArtifactStore {
       const record = this.record(request.artifactId); this.assertHeads(record, request.codeRevisionId, request.dataSnapshotId); if (!record.managed) invalid("Document-only artifacts cannot refresh datasets");
       const snapshot = this.object<SnapshotMeta>(request.dataSnapshotId, "snapshot"); const expectedDatasetHeads: Record<string, string> = {};
       for (const id of request.datasetIds) { const d = snapshot.datasets.find(d => d.id === id); if (!d) missing("Selected dataset is unavailable"); expectedDatasetHeads[id] = d.head; }
-      const reference = this.makeReference({ ...request, includeData: request.includeData ?? false }); const refresh: ArtifactRefreshRequest = { refreshRequestId: randomUUID(), referenceId: reference.referenceId, artifactId: record.artifactId, codeRevisionId: request.codeRevisionId, dataSnapshotId: request.dataSnapshotId, datasetIds: [...request.datasetIds], expectedDatasetHeads, targetTabId: request.targetTabId, bound: false, lineageDir: null, runtimeKey: null, sessionId: null, createdAt: now(), status: "awaiting" };
+      const reference = this.makeReference({ ...request, includeData: request.includeData ?? false }); const refresh: ArtifactRefreshRequest = { refreshRequestId: randomUUID(), referenceId: reference.referenceId, artifactId: record.artifactId, codeRevisionId: request.codeRevisionId, dataSnapshotId: request.dataSnapshotId, datasetIds: [...request.datasetIds], expectedDatasetHeads, targetTabId: request.targetTabId, bound: false, lineageDir: null, runtimeKey: null, sessionId: null, createdAt: now(), status: "awaiting", ...(request.autoApply === true ? { autoApply: true as const } : {}), ...(request.scheduledBy !== undefined ? { scheduledBy: request.scheduledBy } : {}) };
       this.putObject(refresh.refreshRequestId, "refresh", record.artifactId, refresh); this.db.prepare("INSERT INTO refreshes(id,reference_id) VALUES(?,?)").run(refresh.refreshRequestId, reference.referenceId); return refresh;
     }, request.authorize);
   }
   readRefresh(request: { refreshRequestId: string }): ArtifactRefreshRequest { return this.object(request.refreshRequestId, "refresh"); }
+  /** ADR-0101 one-shot guard: true once any refresh row (any status) names this tab as its destination. */
+  hasPreparedRefreshFor(request: { targetTabId: string }): boolean {
+    if (!request.targetTabId) invalid("Invalid refresh target");
+    return this.db.prepare("SELECT 1 FROM objects WHERE kind='refresh' AND json_extract(metadata,'$.targetTabId')=? LIMIT 1").get(request.targetTabId) !== undefined;
+  }
   bindRefresh(request: Authorized<{ refreshRequestId: string; targetTabId: string; lineageDir: string; runtimeKey: string | null; sessionId: string | null }>): ArtifactRefreshRequest {
     if (!request.targetTabId || !request.lineageDir || (request.sessionId === null && !request.runtimeKey)) invalid("Invalid refresh target");
     if (request.runtimeKey !== null) assertArtifactUuid(request.runtimeKey); if (request.sessionId !== null) assertArtifactUuid(request.sessionId);
@@ -692,6 +865,72 @@ export class ArtifactStore {
       this.updateObject(record.artifactId, updated);
       return updated;
     }, request.authorize);
+  }
+  pin(request: Authorized<ArtifactPinRequest>): ArtifactRecord {
+    this.open(); assertArtifactUuid(request.artifactId);
+    if (typeof request.pinned !== "boolean") invalid("Invalid pin flag");
+    if (!Number.isSafeInteger(request.expectedGeneration) || request.expectedGeneration < 1) invalid("Invalid pin generation");
+    return this.mutate(() => {
+      const record = this.record(request.artifactId);
+      if (record.generation !== request.expectedGeneration) conflict("Artifact changed before pinning");
+      const updated: ArtifactRecord = { ...record, pinnedAt: request.pinned ? now() : null, generation: record.generation + 1 };
+      const moved = this.db.prepare("UPDATE artifacts SET generation=? WHERE id=? AND generation=?").run(updated.generation, record.artifactId, request.expectedGeneration);
+      if (Number(moved.changes) !== 1) conflict("Artifact changed before pinning");
+      this.updateObject(record.artifactId, updated);
+      return updated;
+    }, request.authorize);
+  }
+  saveThumbnail(request: Authorized<{ artifactId: string; codeRevisionId: string; dataSnapshotId: string; dark: boolean; mime: "image/png" | "image/jpeg"; bytes: Uint8Array }>): { hash: string } | null {
+    this.open();
+    assertArtifactUuid(request.artifactId, "artifactId");
+    assertArtifactUuid(request.codeRevisionId, "codeRevisionId");
+    assertArtifactUuid(request.dataSnapshotId, "dataSnapshotId");
+    if (typeof request.dark !== "boolean") invalid("Invalid thumbnail polarity");
+    if (request.mime !== "image/png" && request.mime !== "image/jpeg") invalid("Unsupported thumbnail mime");
+    if (!(request.bytes instanceof Uint8Array) || request.bytes.byteLength === 0 || request.bytes.byteLength > ARTIFACT_LIMITS.thumbnailBytes) invalid("Thumbnail exceeds byte bounds");
+    const b = request.bytes;
+    const validMagic = request.mime === "image/png"
+      ? b.byteLength >= 8 && b[0] === 0x89 && b[1] === 0x50 && b[2] === 0x4e && b[3] === 0x47 && b[4] === 0x0d && b[5] === 0x0a && b[6] === 0x1a && b[7] === 0x0a
+      : b.byteLength >= 3 && b[0] === 0xff && b[1] === 0xd8 && b[2] === 0xff;
+    if (!validMagic) invalid("Thumbnail bytes do not match mime type");
+    const imageBytes = Buffer.from(b);
+    const imagePayload: PreparedPayload = { hash: hash(imageBytes), bytes: imageBytes };
+    const metaPayload = payload({ codeRevisionId: request.codeRevisionId, dataSnapshotId: request.dataSnapshotId, mime: request.mime, capturedAt: now() });
+    const pol = request.dark ? "dark" : "light";
+    const imgSlot = `thumb:${pol}`;
+    const metaSlot = `thumb-meta:${pol}`;
+    return this.mutate(() => {
+      const record = this.record(request.artifactId);
+      if (record.currentCodeRevisionId !== request.codeRevisionId || record.currentDataSnapshotId !== request.dataSnapshotId) return null;
+      this.db.prepare("DELETE FROM payload_links WHERE object_id=? AND slot IN (?,?)").run(record.artifactId, imgSlot, metaSlot);
+      this.addPayload(record.artifactId, imgSlot, imagePayload);
+      this.addPayload(record.artifactId, metaSlot, metaPayload);
+      return { hash: imagePayload.hash };
+    }, request.authorize);
+  }
+  readThumbnail(request: ArtifactReadThumbnailRequest): ArtifactThumbnailResult {
+    this.open();
+    assertArtifactUuid(request.artifactId, "artifactId");
+    if (typeof request.dark !== "boolean") invalid("Invalid thumbnail polarity");
+    const record = this.record(request.artifactId);
+    const order: readonly ("dark" | "light")[] = request.dark ? ["dark", "light"] : ["light", "dark"];
+    for (const pol of order) {
+      const link = this.db.prepare("SELECT payload_hash FROM payload_links WHERE object_id=? AND slot=?").get(record.artifactId, `thumb:${pol}`);
+      if (!link) continue;
+      const bytes = this.readPayloadBytes(record.artifactId, `thumb:${pol}`);
+      const meta = this.jsonPayload<{ codeRevisionId: string; dataSnapshotId: string; mime: string; capturedAt: string }>(record.artifactId, `thumb-meta:${pol}`);
+      assertArtifactUuid(meta.codeRevisionId, "thumbnail codeRevisionId");
+      assertArtifactUuid(meta.dataSnapshotId, "thumbnail dataSnapshotId");
+      if (meta.mime !== "image/png" && meta.mime !== "image/jpeg") throw new ArtifactError("unavailable", "Corrupt thumbnail metadata");
+      return {
+        mime: meta.mime,
+        base64: Buffer.from(bytes).toString("base64"),
+        hash: text(link.payload_hash),
+        dark: pol === "dark",
+        stale: meta.codeRevisionId !== record.currentCodeRevisionId || meta.dataSnapshotId !== record.currentDataSnapshotId,
+      };
+    }
+    return null;
   }
   discardCapture(request: Authorized<ArtifactDiscardCaptureRequest>): void {
     this.open(); assertArtifactUuid(request.captureId);

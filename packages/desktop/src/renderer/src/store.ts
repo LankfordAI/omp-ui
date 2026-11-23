@@ -31,7 +31,8 @@ import { createStatsSlice } from "./store/slices/stats";
 import { createFleetSlice } from "./store/slices/fleet";
 import { createLabSlice } from "./store/slices/lab";
 import { createArtifactsSlice } from "./store/slices/artifacts";
-import { createRoutinesSlice } from "./store/slices/routines";
+import { createRoutinesSlice, type RoutineDraftArtifactSeed } from "./store/slices/routines";
+export type { RoutineDraftArtifactSeed };
 import { createArtifactReferencesSlice } from "./store/slices/artifact-references";
 import {
   createLiveAudioSlice,
@@ -120,6 +121,7 @@ export {
 } from "./store/slices/frame-reduction";
 export { canSettle } from "./store/slices/settle";
 export { supportsBulkAction, type BulkAction } from "./store/slices/session-bulk";
+export { hasAnyRoutinesHost } from "./store/slices/routines";
 export {
   COMPACT_SETTLE_DEADLINE_MS,
   RPC_COMMAND_TIMEOUT_MS,
@@ -385,7 +387,16 @@ export const useStore = create<UiStore>()((set, get, api) => {
       return changed ? { rpc } : {};
     });
   };
+  let artifactSummaryTimer: NodeJS.Timeout | undefined;
+  const scheduleArtifactSummaryRefresh = (): void => {
+    clearTimeout(artifactSummaryTimer);
+    artifactSummaryTimer = setTimeout(() => {
+      artifactSummaryTimer = undefined;
+      void get().refreshArtifactSummary();
+    }, 200);
+  };
   const applyAuthoritativeState = (state: BackendState): void => {
+    const wasArtifactEnabled = get().state?.artifactLibraryEnabled === true;
     const reboot = reconcileTabs(state);
     const observedPlanHandoffs = persistedPlanHandoffs(state);
     set((current) => {
@@ -441,6 +452,16 @@ export const useStore = create<UiStore>()((set, get, api) => {
     rpcCommandSlice.reconcileGoals(state);
     rpcCommandSlice.reconcileAutoresearch(state);
     rpcCommandSlice.reconcileVibe(state);
+    get().reconcileRoutinesInstances(state);
+    const isArtifactEnabled = state.artifactLibraryEnabled === true;
+    if (!isArtifactEnabled) {
+      clearTimeout(artifactSummaryTimer);
+      artifactSummaryTimer = undefined;
+      if (get().artifactPendingReviewCount !== 0) set({ artifactPendingReviewCount: 0 });
+      if (get().artifacts !== null) get().closeArtifacts();
+    } else if (!wasArtifactEnabled) {
+      void get().refreshArtifactSummary();
+    }
   };
 
 
@@ -496,8 +517,15 @@ export const useStore = create<UiStore>()((set, get, api) => {
       initialized = true;
       backend.onStateChanged(applyAuthoritativeState);
       backend.onArtifactLibraryChanged((event) => {
-        if (event.kind === "disabled") get().closeArtifacts();
-        get().invalidateArtifactLibrary();
+        if (event.kind === "disabled") {
+          clearTimeout(artifactSummaryTimer);
+          artifactSummaryTimer = undefined;
+          set({ artifactPendingReviewCount: 0 });
+          get().closeArtifacts();
+        } else if (event.kind !== "thumbnail") {
+          scheduleArtifactSummaryRefresh();
+        }
+        get().invalidateArtifactLibrary(event);
       });
       // #498: the checkout moved outside this client — a remote transport
       // checkout executing on its owner, a host-side release switch, or a git
@@ -559,8 +587,11 @@ export const useStore = create<UiStore>()((set, get, api) => {
       );
       backend.onRemoteState((remote) => get().replaceRemote(remote));
       backend.onWebhooksState((webhooks) => get().replaceWebhooks(webhooks));
-      // Routines (ADR-0100): host-local like webhooks; the view reads on open.
+      // Routines (ADR-0100, amended §8, #1306): local + joined-remote updates.
       backend.onRoutinesState((routines) => get().replaceRoutines(routines));
+      backend.onRemoteRoutinesState((instanceId, routines) =>
+        get().replaceRemoteRoutines(instanceId, routines),
+      );
       backend.onMcpEndpointState((mcpEndpoint) => get().replaceMcpEndpoint(mcpEndpoint));
       backend.onProviderOAuthState((s) => get().replaceProviderOAuth(s));
       backend.onCollabChanged((tabId, state) => get().applyCollabState(tabId, state));
@@ -629,6 +660,7 @@ export const useStore = create<UiStore>()((set, get, api) => {
         return;
       }
       applyAuthoritativeState(state);
+      if (state.artifactLibraryEnabled === true) void get().refreshArtifactSummary();
       for (const tab of get().tabs) {
         if (tab.hidden) continue;
         const record = findRecord(state, tab.tabId);

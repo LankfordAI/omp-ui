@@ -188,10 +188,10 @@ ends, and a **Settled** session holds none. The stack hides entirely when
 empty, lists newest reply first with the row's state band and verb, and opens
 the session on click. The mark is renderer-local view state — never a count,
 never on the session record, never synced across renderers (issue #1037).
-A **Routine run** waiting on an Approval card joins the stack like any other
-answer-waiting session; opening its row opens the session to its card. A
-finished-unread Routine run holds its mark even while settled — the one
-exception to "a Settled session holds none" — until it is opened.
+A **Routine run** waiting on an Approval card (local or on a joined remote
+instance) joins the stack; opening its row opens the session to its card. A
+finished Routine run leaves the stack once it self-settles — its history lives
+in the Routines view's run history (#1304, #1305).
 _Avoid_: inbox, unread list, needs-you
 
 **Snoozed session**:
@@ -1250,13 +1250,16 @@ pre and post **run hooks** (host-authored shell commands that bracket each
 **Routine run** outside the tool policy, #1283), which
 together start one fresh **Routine run** at each fire. It lives in the
 **Routines** view — a full-pane view opened from the sidebar footer, gated
-behind the fourth switch on **Settings → Experimental**, off by default, Host
-Lite reporting false — never on a session record, and like a **Webhook** it is
-never shared or coordinated across hosts. While the gate is off nothing shows
-anywhere in the shell. **Run now** fires once immediately; **Dry run**
-resolves the destination and effective **Tool policy** without starting a
-session. Missed fires fold into one late fire with a notice, never a burst
-(issue #1244, ADR-0100).
+behind **Settings → Routines** on each host, opt-in, off by default, Host
+Lite reporting false — never on a session record. Each host owns and runs its
+own routines independently (never copied or coordinated across hosts), and the
+**Routines** view's top-bar host dropdown (`Routines on [host ▾]`) lets you
+view, edit, toggle, dry-run, test hooks, delete, and **Run now** on this
+computer or any joined remote instance (#1306). While no host has the gate on,
+nothing shows anywhere in the shell. **Run now** fires once immediately;
+**Dry run** resolves the destination and effective **Tool policy** without
+starting a session. Missed fires fold into one late fire with a notice, never a
+burst (issue #1244, ADR-0100).
 _Avoid_: assistant (the transcript role; this feature is Routines), automation,
 bot, cron job, timer, recurring task, scheduled prompt (that sends into one
 session it resumes)
@@ -1272,11 +1275,24 @@ another answer holds it, it surfaces in the **Attention stack** and the footer
 button's count chip. One routine run spans several omp **Run**s: each answered
 card resumes it into a new one. 60 s after its terminal Run — with its post-run
 hook, when configured, running between the outcome being decided and that grace
-being armed (#1283) — the run **Settle**s
-itself, and its history lives in the Routines view's run history rather than
-the coding sidebar; runs idle past 30 days are pruned. Every routine run is a
-**Private session**.
+being armed (#1283) — the run **Settle**s itself (deferring while any client
+views the tab), and its history lives in the Routines view's run history rather
+than the coding sidebar; resuming a settled Routine run to inspect it re-arms
+the 60 s self-Settle once unviewed (#1305). Runs idle past 30 days are pruned.
+Every routine run is a **Private session**.
 _Avoid_: run (the omp agent run), firing, execution, job (omp's Background job)
+
+**Scheduled refresh**:
+A **Routine** whose fires are bound (human-only, in the RoutineEditor) to one
+kept managed **Artifact**'s dataset set: each fire first fails or prepares an
+Artifact refresh request against its own session and sends it as the run's
+first prompt through the ordinary ADR-0092 grammar, so the agent repeats the
+recorded Refresh recipes and stages a capture. The capture is always staged;
+only a per-routine default-off `autoApply` opt-in lets the host apply it, and
+only while every acceptance fence still matches. A fire whose artifact or
+dataset selection no longer resolves fails with *Artifact or datasets
+unavailable* (issue #1303, ADR-0101).
+_Avoid_: auto-refresh job, background refresh, artifact automation
 
 **Tool policy**:
 A **Routine**'s standing per-tool decision about what its **Routine run** may

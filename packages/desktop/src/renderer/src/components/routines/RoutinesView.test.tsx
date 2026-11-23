@@ -10,10 +10,22 @@ import type {
   RoutinesState,
 } from "@omp-ui/core/routine";
 import type { CatalogModelOption } from "@omp-ui/core/types";
-import { backendState } from "../../test/fixtures";
+import { backendState, remoteInstance } from "../../test/fixtures";
 
 (globalThis as Record<string, unknown>).IS_REACT_ACT_ENVIRONMENT = true;
-Object.assign(window, { ompBackend: {} });
+const backendMock = {
+  artifactList: vi.fn(async () => ({
+    artifacts: [],
+    nextCursor: null,
+    libraryBytesUsed: 0,
+    totalCount: 0,
+    pendingReviewCount: 0,
+    pendingReviewPreview: [],
+    origins: [],
+  })),
+  artifactDescribe: vi.fn(),
+};
+Object.assign(window, { ompBackend: backendMock });
 // Dynamic import: store.ts captures window.ompBackend at module evaluation.
 const { useStore } = await import("../../store");
 const { RoutinesView } = await import("./RoutinesView");
@@ -48,6 +60,7 @@ function routine(patch: Partial<RoutineRecord> = {}): RoutineRecord {
     scripts: { pre: "", post: "" },
     timeoutMinutes: null,
     notifications: { onStart: false, onComplete: false, onFail: false, onApproval: false, agentMessage: false },
+    artifact: null,
     enabled: true,
     createdAt: "2026-11-01T00:00:00.000Z",
     nextRunAtMs: Date.UTC(2026, 10, 23, 8),
@@ -176,7 +189,7 @@ describe("RoutinesView (ADR-0100, issue #1261)", () => {
   it("names the serving host in the header", async () => {
     const host = render();
     await settle();
-    expect(host.querySelector("header")?.textContent).toContain("Routines on work-laptop");
+    expect(host.querySelector("header")?.textContent).toContain("work-laptop");
   });
 
   it("lists each routine with its schedule, next run, and last outcome", async () => {
@@ -198,7 +211,7 @@ describe("RoutinesView (ADR-0100, issue #1261)", () => {
     await settle();
     await act(async () => buttonNamed("Run now").click());
     await settle();
-    expect(runRoutineNow).toHaveBeenCalledWith("a".repeat(22));
+    expect(runRoutineNow).toHaveBeenCalledWith("a".repeat(22), null);
     expect(document.querySelector("[data-routine-action-error]")?.textContent).toBe(
       "Another routine is running — try again in a moment",
     );
@@ -232,7 +245,7 @@ describe("RoutinesView (ADR-0100, issue #1261)", () => {
     await settle();
     await act(async () => buttonNamed("Dry run").click());
     await settle();
-    expect(dryRunRoutine).toHaveBeenCalledWith({ kind: "saved", id: "a".repeat(22) });
+    expect(dryRunRoutine).toHaveBeenCalledWith({ kind: "saved", id: "a".repeat(22) }, null);
     const panel = document.querySelector("[data-dry-run]")!.parentElement!;
     expect(panel.textContent).toContain("Auto-allowed (2)");
     expect(panel.textContent).toContain("Will pause on Approval card (1)");
@@ -282,7 +295,7 @@ describe("RoutinesView (ADR-0100, issue #1261)", () => {
     expect(document.body.textContent).toContain("No routines on this host");
     act(() => buttonNamed("New routine").click());
     await settle();
-    expect(loadRoutineToolCatalog).toHaveBeenCalledWith(PROJECT);
+    expect(loadRoutineToolCatalog).toHaveBeenCalledWith(PROJECT, null);
     // Run history tab is hidden for an unsaved routine.
     expect(document.querySelector('[data-routine-tab="history"]')).toBeNull();
     act(() => routineTab("policy").click());
@@ -399,6 +412,7 @@ describe("RoutinesView (ADR-0100, issue #1261)", () => {
     expect(updateRoutine).toHaveBeenCalledWith(
       "a".repeat(22),
       expect.objectContaining({ model: "openai/gpt-plain", thinkingLevel: null }),
+      null,
     );
 
     // Pick Project default from the palette and verify model returns to null.
@@ -463,6 +477,7 @@ describe("RoutinesView run hooks (#1283)", () => {
     expect(updateRoutine).toHaveBeenCalledWith(
       saved.id,
       expect.objectContaining({ name: "Renamed", scripts: { pre: "git fetch --all", post: "notify-done" } }),
+      null,
     );
   });
 
@@ -645,7 +660,7 @@ describe("RoutinesView configurable timeout (#1290)", () => {
     expect(document.querySelector("[data-flight-timeout]")?.textContent).toBe("1 h 30 min");
     await act(async () => buttonNamed("Save routine").click());
     await settle();
-    expect(updateRoutine).toHaveBeenLastCalledWith(current.id, expect.objectContaining({ timeoutMinutes: 90 }));
+    expect(updateRoutine).toHaveBeenLastCalledWith(current.id, expect.objectContaining({ timeoutMinutes: 90 }), null);
 
     // Switch to Unlimited -> Flight check shows Unlimited, lane warning appears, saves timeoutMinutes: 0.
     act(() => buttonNamed("Unlimited").click());
@@ -654,7 +669,7 @@ describe("RoutinesView configurable timeout (#1290)", () => {
     expect(document.body.textContent).toContain("No wall-clock limit");
     await act(async () => buttonNamed("Save routine").click());
     await settle();
-    expect(updateRoutine).toHaveBeenLastCalledWith(current.id, expect.objectContaining({ timeoutMinutes: 0 }));
+    expect(updateRoutine).toHaveBeenLastCalledWith(current.id, expect.objectContaining({ timeoutMinutes: 0 }), null);
 
     // Switch back to Limit -> resets to default (timeoutMinutes: null).
     act(() => buttonNamed("Limit").click());
@@ -662,7 +677,7 @@ describe("RoutinesView configurable timeout (#1290)", () => {
     expect(timeoutInput()?.value).toBe("");
     await act(async () => buttonNamed("Save routine").click());
     await settle();
-    expect(updateRoutine).toHaveBeenLastCalledWith(current.id, expect.objectContaining({ timeoutMinutes: null }));
+    expect(updateRoutine).toHaveBeenLastCalledWith(current.id, expect.objectContaining({ timeoutMinutes: null }), null);
   });
 
   it("surfaces validation error and disables Save for invalid timeout values", async () => {
@@ -754,6 +769,7 @@ describe("RoutinesView notifications (#1294)", () => {
       expect.objectContaining({
         notifications: { onStart: false, onComplete: true, onFail: true, onApproval: false, agentMessage: true },
       }),
+      null,
     );
   });
 
@@ -812,5 +828,227 @@ describe("RoutinesView notifications (#1294)", () => {
     await settle();
     expect(useStore.getState().routineFocusId).toBeNull();
     expect((document.querySelector('input[aria-label="Name"]') as HTMLInputElement).value).toBe("Evening digest");
+  });
+});
+
+describe("RoutinesView remote hosts (issue #1306)", () => {
+  it("displays remote routines, preserves ADR-0101 artifact bindings read-only on save, and passes remote instanceId to updateRoutine", async () => {
+    const updateRoutine = vi.fn(async (_id, _patch, _inst) => remoteRoutine);
+    const remoteProject = "/remote/proj";
+    const remoteRoutine = routine({
+      id: "r".repeat(22),
+      name: "Remote digest",
+      destination: { projectCwd: remoteProject, workspace: "worktree" },
+      artifact: { artifactId: "art-1", datasetIds: ["ds-1"], autoApply: true },
+    });
+    const remote = remoteInstance({
+      id: "inst-studio",
+      nickname: "studio",
+      url: "https://studio.tailnet:4677",
+      status: "joined",
+      routinesEnabled: true,
+      projects: [
+        {
+          project: {
+            path: remoteProject,
+            name: "Studio Repo",
+            addedAt: "t",
+            lastModel: null,
+            lastThinkingLevel: null,
+            lastAdvisor: null,
+            lastAdvisorModel: null,
+            defaultModel: null,
+            defaultAdvisorModel: null,
+            browserClock: false,
+            councilRoster: null,
+            knowledgeHome: null,
+            repositoryKey: null,
+            icon: null,
+          },
+          sessions: [],
+        },
+      ],
+    });
+    useStore.setState({
+      state: backendState({ routinesEnabled: true, remoteInstances: [remote] }),
+      routinesInstanceId: "inst-studio",
+      routinesByInstance: {
+        "inst-studio": routinesState({ machineLabel: "studio", routines: [remoteRoutine] }),
+      },
+      routinesLoadError: {},
+      routinesLoading: {},
+      updateRoutine,
+      loadRoutineToolCatalog,
+      readChatModels,
+    });
+    render();
+    await settle();
+
+    expect(document.body.textContent).toContain("Remote · studio");
+    expect(readChatModels).toHaveBeenCalledWith("inst-studio");
+    expect(loadRoutineToolCatalog).toHaveBeenCalledWith(remoteProject, "inst-studio");
+    const preserved = document.querySelector("[data-routine-artifact-remote-preserved]");
+    expect(preserved?.textContent).toContain("Artifact refresh binding configured on studio — preserved on save.");
+
+    // Edit the name and save: the artifact binding must survive verbatim and route to inst-studio.
+    const nameInput = document.querySelector<HTMLInputElement>('input[aria-label="Name"]')!;
+    const setter = Object.getOwnPropertyDescriptor(HTMLInputElement.prototype, "value")!.set!;
+    act(() => {
+      setter.call(nameInput, "Remote digest v2");
+      nameInput.dispatchEvent(new Event("input", { bubbles: true }));
+    });
+    await act(async () => buttonNamed("Save routine").click());
+    await settle();
+    expect(updateRoutine).toHaveBeenCalledWith(
+      remoteRoutine.id,
+      expect.objectContaining({
+        name: "Remote digest v2",
+        artifact: { artifactId: "art-1", datasetIds: ["ds-1"], autoApply: true },
+      }),
+      "inst-studio",
+    );
+  });
+
+  it("shows read-only cached banner when remote disconnects, unsupported state on unknown channel, and disabled state when routinesEnabled is off", async () => {
+    const reconnectRemoteInstance = vi.fn(async () => {});
+    const cached = routinesState({ machineLabel: "studio", routines: [routine({ name: "Cached job" })] });
+    const offline = remoteInstance({ id: "inst-studio", nickname: "studio", status: "unreachable", routinesEnabled: true });
+    useStore.setState({
+      state: backendState({ routinesEnabled: true, remoteInstances: [offline] }),
+      routinesInstanceId: "inst-studio",
+      routinesByInstance: { "inst-studio": cached },
+      routinesLoadError: {},
+      routinesLoading: {},
+      reconnectRemoteInstance,
+    });
+    render();
+    await settle();
+
+    expect(document.querySelector("[data-routines-disconnected-banner]")?.textContent).toContain(
+      "studio is not connected — viewing cached snapshot",
+    );
+    expect(buttonNamed("Run now").disabled).toBe(true);
+    act(() => buttonNamed("Reconnect").click());
+    expect(reconnectRemoteInstance).toHaveBeenCalledWith("inst-studio");
+
+    // Unsupported (Host Lite / older omp-ui): unknown channel routines:getState.
+    act(() =>
+      useStore.setState({
+        state: backendState({
+          routinesEnabled: true,
+          remoteInstances: [remoteInstance({ id: "inst-lite", nickname: "lite", status: "joined", routinesEnabled: false })],
+        }),
+        routinesInstanceId: "inst-lite",
+        routinesByInstance: {},
+        routinesLoadError: { "inst-lite": "unknown channel routines:getState" },
+      }),
+    );
+    await settle();
+    expect(document.querySelector("[data-routines-unsupported]")?.textContent).toContain("lite does not support Routines");
+
+    // Routines disabled on remote host.
+    act(() =>
+      useStore.setState({
+        state: backendState({
+          routinesEnabled: true,
+          remoteInstances: [remoteInstance({ id: "inst-off", nickname: "gpu-box", status: "joined", routinesEnabled: false })],
+        }),
+        routinesInstanceId: "inst-off",
+        routinesByInstance: { "inst-off": routinesState({ enabled: false, machineLabel: "gpu-box", routines: [] }) },
+        routinesLoadError: {},
+      }),
+    );
+    await settle();
+    expect(document.querySelector("[data-routines-disabled]")?.textContent).toContain("Routines are off on gpu-box");
+  });
+});
+
+describe("RoutinesView Schedule refresh shortcut from Artifacts (#1307)", () => {
+  it("preserves openNewRoutineForArtifact seed across store clear and resolves bound artifacts beyond page 1", async () => {
+    const beyondPageId = "99999999-9999-4999-8999-999999999999";
+    backendMock.artifactList.mockResolvedValueOnce({
+      artifacts: [],
+      nextCursor: null,
+      libraryBytesUsed: 0,
+      totalCount: 60,
+      pendingReviewCount: 0,
+      pendingReviewPreview: [],
+      origins: [],
+    });
+    backendMock.artifactDescribe.mockResolvedValueOnce({
+      artifact: {
+        artifactId: beyondPageId,
+        ownerInstanceId: "11111111-1111-4111-8111-111111111111",
+        title: "Older Dashboard",
+        managed: true,
+        currentCodeRevisionId: "22222222-2222-4222-8222-222222222222",
+        currentDataSnapshotId: "33333333-3333-4333-8333-333333333333",
+        generation: 1,
+        keptAt: "2026-11-01T00:00:00.000Z",
+        createdAt: "2026-11-01T00:00:00.000Z",
+        updatedAt: "2026-11-01T00:00:00.000Z",
+        pinnedAt: null,
+        origin: { ownerInstanceId: "11111111-1111-4111-8111-111111111111", lineageDir: "l", sessionId: null, runtimeKey: null, toolCallId: null, sourceHash: "a".repeat(64), createdAt: "2026-11-01T00:00:00.000Z" },
+        originContext: { kind: "project", label: "one", path: PROJECT },
+        sourceDraftId: "44444444-4444-4444-8444-444444444444",
+      },
+      code: {
+        artifactId: beyondPageId,
+        codeRevisionId: "22222222-2222-4222-8222-222222222222",
+        revisionNumber: 1,
+        baseRevisionId: null,
+        definition: { protocolVersion: 1, stateSchema: "s-v1", datasets: [{ id: "metrics", title: "Metrics", schema: "m-v1" }] },
+        source: { ownerInstanceId: "11111111-1111-4111-8111-111111111111", lineageDir: "l", sessionId: null, runtimeKey: null, toolCallId: null, sourceHash: "a".repeat(64), createdAt: "2026-11-01T00:00:00.000Z" },
+        createdAt: "2026-11-01T00:00:00.000Z",
+      },
+      snapshot: { artifactId: beyondPageId, dataSnapshotId: "33333333-3333-4333-8333-333333333333", stateRevision: 0, cause: "initial", createdAt: "2026-11-01T00:00:00.000Z", datasets: [] },
+      revisions: [],
+      snapshots: [],
+      references: [],
+      captures: [],
+      refreshRequests: [],
+      candidates: [],
+      retainedBytes: 512,
+      libraryBytesUsed: 512,
+      thumbnails: { dark: null, light: null },
+    });
+    const artifactList = backendMock.artifactList;
+    const artifactDescribe = backendMock.artifactDescribe;
+
+    useStore.setState({
+      state: backendState({
+        routinesEnabled: true,
+        artifactLibraryEnabled: true,
+        projects: [{
+          project: { path: PROJECT, name: "one", addedAt: "2026-11-01T00:00:00.000Z", lastModel: null, lastThinkingLevel: null, lastAdvisor: null, lastAdvisorModel: null, defaultModel: null, defaultAdvisorModel: null, browserClock: false, councilRoster: null, knowledgeHome: null, repositoryKey: null, icon: null },
+          sessions: [],
+        }],
+      }),
+      routinesState: routinesState({ routines: [] }),
+      routinesInstanceId: null,
+      refreshRoutines: vi.fn(async () => {}),
+      loadRoutineToolCatalog: vi.fn(async () => CATALOG),
+      readChatModels: vi.fn(async () => ({ models: [], discovered: true, error: null })),
+    });
+
+    act(() => {
+      useStore.getState().openNewRoutineForArtifact({
+        artifactId: beyondPageId,
+        datasetIds: ["metrics"],
+        projectCwd: PROJECT,
+        title: "Older Dashboard",
+      });
+    });
+    render();
+    await settle();
+
+    // Store cleared the seed once copied to local state, while editor retained prefilled values.
+    expect(useStore.getState().routineDraftArtifact).toBeNull();
+    const nameInput = document.querySelector<HTMLInputElement>('input[aria-label="Name"]');
+    expect(nameInput?.value).toBe("Refresh Older Dashboard");
+    expect(artifactList).toHaveBeenCalledWith({ filter: "managed", limit: 50 });
+    expect(artifactDescribe).toHaveBeenCalledWith({ artifactId: beyondPageId });
+    expect(document.body.textContent).toContain("Older Dashboard");
+    expect(document.body.textContent).not.toContain("no longer exists");
   });
 });

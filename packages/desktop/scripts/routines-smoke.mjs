@@ -531,16 +531,16 @@ async function openRoutinesView(cdp) {
   await clickLabel(cdp, "Routines");
   await waitFor(() => cdp.run(DOM.exists, "[data-routines-view]"), 15_000, "Routines view");
 }
-async function settingsExperimental() {
+async function settingsRoutines() {
   await clickLabel(app, "Settings");
-  await click(app, "Experimental");
-  await waitFor(() => app.run(DOM.exists, '[role="switch"][aria-label="Routines (experimental)"]'), 15_000, "Routines switch");
+  await click(app, "Routines", '[aria-labelledby="settings-title"]');
+  await waitFor(() => app.run(DOM.exists, '[role="switch"][aria-label="Routines"]'), 15_000, "Routines switch");
 }
 async function closeSettings() {
   await app.key("Escape", "Escape", 27, 0);
   await waitFor(async () => !(await app.run(DOM.exists, '[aria-labelledby="settings-title"]')), 10_000, "settings closed");
 }
-const switchOn = () => app.run(() => document.querySelector('[role="switch"][aria-label="Routines (experimental)"]')?.getAttribute("aria-checked"));
+const switchOn = () => app.run(() => document.querySelector('[role="switch"][aria-label="Routines"]')?.getAttribute("aria-checked"));
 
 /** Creates a routine through the editor; `cron` drives the Cron capsule. */
 async function createRoutine(cdp, { name, instructions, cron, allow }) {
@@ -588,8 +588,8 @@ const ROWS = [
     "S1",
     "Gate off by default",
     async () => {
-      await settingsExperimental();
-      check("Routines switch is off on Settings → Experimental", (await switchOn()) === "false");
+      await settingsRoutines();
+      check("Routines switch is off on Settings → Routines", (await switchOn()) === "false");
       await closeSettings();
       check("sidebar footer has no Routines button", !(await app.run(DOM.exists, 'aside button[aria-label="Routines"]')));
       check("no Routines view reachable", !(await app.run(DOM.exists, "[data-routines-view]")) && (await routines()).enabled === false);
@@ -601,8 +601,8 @@ const ROWS = [
     "S2",
     "Enable gate, create routine, inspect store & Dry run",
     async () => {
-      await settingsExperimental();
-      await waitFor(() => app.run(DOM.clickButton, { scope: null, text: null, label: "Routines (experimental)" }), 5_000, "toggle switch");
+      await settingsRoutines();
+      await waitFor(() => app.run(DOM.clickButton, { scope: '[aria-labelledby="settings-title"]', text: null, label: "Routines" }), 5_000, "toggle switch");
       await waitFor(async () => (await switchOn()) === "true", 10_000, "switch on");
       await closeSettings();
       check("footer button appears", await waitFor(() => app.run(DOM.exists, 'aside button[aria-label="Routines"]'), 10_000, "footer button"));
@@ -792,20 +792,18 @@ const ROWS = [
         return s.settledAtMs !== null && s.live === "dormant" ? s : null;
       }, 100_000, "self-Settle after 60 s grace");
       check("after 60 s grace, settledAtMs !== null and process is dormant", settled.settledAtMs !== null && settled.live === "dormant", settled.settledAtMs);
-      // The view's own close returns to the sidebar's Attention stack.
+      // The view's own close returns to the sidebar: once self-Settled, the
+      // routine run has left the Attention stack (#1305).
       await clickLabel(app, "Close Routines");
-      const held = await app.run(DOM.attentionText);
-      check("unread entry stays in Attention stack as ready until opened", held.includes(rec.title) && held.includes("ready"), held);
-      const heldShot = await shot(app, "S5-settled-unread");
+      const afterSettleAttention = await app.run(DOM.attentionText);
+      check("settled routine run has left the Attention stack", !afterSettleAttention.includes(rec.title), afterSettleAttention);
+      const settledShot = await shot(app, "S5-settled-cleared");
       await app.run(DOM.blur);
       await app.key("z", "KeyZ", 90, 2);
       await sleep(4_000);
       const after = await session(ctx.runA1);
       check("Mod+Z does not undo self-Settle", after.settledAtMs === settled.settledAtMs && after.live === "dormant", after);
-      await app.run(DOM.clickAttention, rec.title);
-      await waitFor(async () => !(await app.run(DOM.attentionText)).includes(rec.title), 15_000, "entry clears on open");
-      check("entry clears once opened", true);
-      return heldShot;
+      return settledShot;
     },
   ],
   [
@@ -963,8 +961,8 @@ app.whenReady().then(() => {
 
       const historyBefore = (await routines()).runs.map((x) => x.id).sort();
       const aSessions = (await sessionsOf(ctx.routineA.id)).length;
-      await settingsExperimental();
-      await waitFor(() => app.run(DOM.clickButton, { scope: null, text: null, label: "Routines (experimental)" }), 5_000, "toggle off");
+      await settingsRoutines();
+      await waitFor(() => app.run(DOM.clickButton, { scope: '[aria-labelledby="settings-title"]', text: null, label: "Routines" }), 5_000, "toggle off");
       await waitFor(async () => (await switchOn()) === "false", 10_000, "switch off");
       await closeSettings();
       check(
@@ -983,8 +981,8 @@ app.whenReady().then(() => {
       const a3 = await session(ctx.runA3);
       check("does not reap live runs", a3.live === "live" && a3.awaiting, a3.live);
 
-      await settingsExperimental();
-      await waitFor(() => app.run(DOM.clickButton, { scope: null, text: null, label: "Routines (experimental)" }), 5_000, "toggle on");
+      await settingsRoutines();
+      await waitFor(() => app.run(DOM.clickButton, { scope: '[aria-labelledby="settings-title"]', text: null, label: "Routines" }), 5_000, "toggle on");
       await waitFor(async () => (await switchOn()) === "true", 10_000, "switch on");
       await closeSettings();
       const historyAfter = (await routines()).runs.map((x) => x.id).sort();

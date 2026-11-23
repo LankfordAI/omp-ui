@@ -12,7 +12,8 @@ import { deriveTheme, HTML_ARTIFACT_PARTITION, withArtifactReferenceContext, typ
 import type { ArtifactPreparedSurface, ArtifactRuntimeSnapshot, ArtifactSurfaceSource } from "../artifact-runtime-protocol";
 import { ArtifactService } from "./artifact-service";
 import { ArtifactGuestBroker } from "./artifact-guest-broker";
-import { installHtmlArtifactGuard } from "./html-artifact-guard";
+import { ArtifactThumbnailCapturer } from "./artifact-thumbnail-capturer";
+import { installHtmlArtifactGuard, isArtifactSessionLocked } from "./html-artifact-guard";
 import { MainBackend } from "./backend";
 import { CURATED_THEME_SOURCES } from "@omp-ui/core/theme-sources";
 
@@ -108,18 +109,30 @@ async function initialize(owner: string): Promise<void> {
     resolveTarget: () => ({ ownerInstanceId: owner, lineageDir: lineage, sessionId: "a1111111-1111-4111-8111-111111111111", runtimeKey: "b2222222-2222-4222-8222-222222222222", native: true, originContext: { kind: "chat" } }), sourcePath: async () => null });
   root = new BrowserWindow({ show: false, width: 800, height: 650, webPreferences: { sandbox: true, contextIsolation: true, nodeIntegration: false, webviewTag: true, preload: join(__dirname, "../preload/index.js") } });
   if (phase === "write") {
-    backend = new MainBackend(root, join(out, "backend/registry.json"), { historyEnv: {}, artifactsRoot: join(out, "backend/artifacts") });
+    const backendDir = join(out, "backend");
+    mkdirSync(backendDir, { recursive: true, mode: 0o700 });
+    writeFileSync(
+      join(backendDir, "registry.json"),
+      JSON.stringify({ schemaVersion: 1, settings: { artifactLibraryEnabled: false, artifactLibraryDefaultOnSeeded: true }, projects: [], sessions: [] }),
+      { mode: 0o600 },
+    );
+    backend = new MainBackend(root, join(backendDir, "registry.json"), { historyEnv: {}, artifactsRoot: join(out, "backend/artifacts") });
     backend.registerIpc();
   }
-  broker = new ArtifactGuestBroker({ root: root.webContents, service: () => service!, preloadPath: join(__dirname, "../preload/artifact-runtime.js") });
+  const unlockedCapturer = new ArtifactThumbnailCapturer(() => service!, () => false);
+  const refusedBeforeLock = await unlockedCapturer.ensure(randomUUID(), "", true);
+  requireProof(refusedBeforeLock === null, "Offscreen capturer did not fail closed when partition is unlocked");
+  unlockedCapturer.dispose();
+  const capturer = new ArtifactThumbnailCapturer(() => service!);
+  broker = new ArtifactGuestBroker({ root: root.webContents, service: () => service!, preloadPath: join(__dirname, "../preload/artifact-runtime.js"), capturer });
   installHtmlArtifactGuard(root.webContents, broker);
   await root.loadFile(fixtureFile);
   // Proxy lockdown is asynchronous and deliberately fail-closed. Wait for its
   // actual Chromium proxy configuration rather than racing an attach.
   const partition = session.fromPartition(HTML_ARTIFACT_PARTITION);
   let proxy = "";
-  for (let i = 0; i < 100; i++) { proxy = await partition.resolveProxy("http://127.0.0.1/"); if (proxy.includes("127.0.0.1:9")) break; await delay(20); }
-  requireProof(proxy.includes("127.0.0.1:9"), "Partition never acquired its dead loopback proxy");
+  for (let i = 0; i < 100; i++) { proxy = await partition.resolveProxy("http://127.0.0.1/"); if (proxy.includes("127.0.0.1:9") && isArtifactSessionLocked()) break; await delay(20); }
+  requireProof(proxy.includes("127.0.0.1:9") && isArtifactSessionLocked(), "Partition never acquired its dead loopback proxy");
 }
 async function writePhase(): Promise<void> {
   const owner = randomUUID(); await initialize(owner); requireProof(service && root && broker, "Fixture initialization failed");
@@ -316,11 +329,47 @@ async function writePhase(): Promise<void> {
   // store holds no session-targeted objects (success paths need registry sessions the
   // harness resolveTarget above owns), so the packaged boundary proof here is the new
   // result field plus typed store statuses for every new channel and codec shape.
-  const listed = await rootRun<{ libraryBytesUsed: number }>("window.ompBackend.artifactList({})");
-  requireProof(Number.isSafeInteger(listed.libraryBytesUsed) && listed.libraryBytesUsed > 0, "Human list lost its library quota figure");
+  // Prove offscreen ArtifactThumbnailCapturer runs inside the locked partition:
+  // produces a valid raster thumbnail while denying loopback HTTP and STUN UDP.
+  let capHttpHits = 0;
+  let capUdpHits = 0;
+  const capHttp = createServer((_req, res) => { capHttpHits++; res.end("forbidden"); });
+  capHttp.listen(0, "127.0.0.1"); await once(capHttp, "listening");
+  const capUdp = createSocket("udp4"); capUdp.on("message", () => capUdpHits++); capUdp.bind(0, "127.0.0.1"); await once(capUdp, "listening");
+  try {
+    const capAddr = capHttp.address();
+    requireProof(capAddr && typeof capAddr !== "string", "Missing capturer HTTP probe port");
+    const capPort = capAddr.port;
+    const capStunPort = capUdp.address().port;
+    const docHtml = `<main style="padding:24px;background:#18202c;color:#f3f4f6"><h1>Plain doc thumb</h1><svg width="240" height="120"><rect width="240" height="120" fill="#4f46e5"/></svg></main><script>
+      fetch('http://127.0.0.1:${capPort}/probe').catch(()=>{});
+      try { const pc = new RTCPeerConnection({iceServers:[{urls:'stun:127.0.0.1:${capStunPort}'}]}); pc.createDataChannel('p'); pc.createOffer().then(o=>pc.setLocalDescription(o)).catch(()=>{}); } catch {}
+    </script>`;
+    const docDraft = await service.stageRender({ tabId: "smoke", toolCallId: "render-plain-thumb", args: { title: "Plain doc thumb", html: docHtml } });
+    const docKept = service.keep({ draftId: docDraft.draftId, title: "Plain doc thumb" });
+    const captured = await rootRun<{ hash: string } | null>(`window.ompArtifactHost.ensureDocumentThumbnail(${JSON.stringify(docKept.artifactId)}, ${JSON.stringify(theme)})`);
+    await delay(400);
+    requireProof(captured !== null && typeof captured.hash === "string" && captured.hash.length === 64, "Offscreen document thumbnail capturer failed to produce a valid hash");
+    requireProof(capHttpHits === 0 && capUdpHits === 0, `Offscreen capturer leaked traffic: http=${capHttpHits} udp=${capUdpHits}`);
+    const readBack = service.readThumbnail({ artifactId: docKept.artifactId, dark: theme.dark });
+    requireProof(readBack !== null && readBack.hash === captured.hash && readBack.stale === false, "Captured offscreen thumbnail failed integrity readback");
+    passed("actual-offscreen-thumbnail-capturer-fail-closed-and-network-denied");
+  } finally {
+    capHttp.close();
+    capUdp.close();
+  }
+  // New human channels across real IPC. These ride MainBackend's own service, whose
+  // store holds no session-targeted objects (success paths need registry sessions the
+  // harness resolveTarget above owns), so the packaged boundary proof here is the new
+  // result field plus typed store statuses for every new channel and codec shape.
+  const listed = await rootRun<{ libraryBytesUsed: number; totalCount: number }>("window.ompBackend.artifactList({})");
+  requireProof(Number.isSafeInteger(listed.libraryBytesUsed) && listed.libraryBytesUsed >= 0 && listed.totalCount === 0, "Human list lost its lazy library quota/count figure");
+  requireProof(!existsSync(join(out, "backend/artifacts/library.sqlite")), "Read-only artifactList unexpectedly created library.sqlite");
   const ghost = randomUUID();
   for (const [name, expression] of [
     ["rename", `(async()=>{try{await window.ompBackend.artifactRename({artifactId:${JSON.stringify(ghost)},expectedGeneration:1,title:"Ghost"});return "unexpected-success"}catch(e){return typeof e==="object"&&e!==null?String(e.error!=null?e.error:"object-without-error"):"reject:"+String(e)}})()`],
+    ["pin", `(async()=>{try{await window.ompBackend.artifactPin({artifactId:${JSON.stringify(ghost)},expectedGeneration:1,pinned:true});return "unexpected-success"}catch(e){return typeof e==="object"&&e!==null?String(e.error!=null?e.error:"object-without-error"):"reject:"+String(e)}})()`],
+    ["readThumbnail", `(async()=>{try{await window.ompBackend.artifactReadThumbnail({artifactId:${JSON.stringify(ghost)},dark:true});return "unexpected-success"}catch(e){return typeof e==="object"&&e!==null?String(e.error!=null?e.error:"object-without-error"):"reject:"+String(e)}})()`],
     ["prune", `(async()=>{try{await window.ompBackend.artifactPrune({artifactId:${JSON.stringify(ghost)},expectedGeneration:1,keepRevisions:5,keepSnapshots:10});return "unexpected-success"}catch(e){return typeof e==="object"&&e!==null?String(e.error!=null?e.error:"object-without-error"):"reject:"+String(e)}})()`],
     ["dismissRefresh", `(async()=>{try{await window.ompBackend.artifactDismissRefresh({refreshRequestId:${JSON.stringify(ghost)}});return "unexpected-success"}catch(e){return typeof e==="object"&&e!==null?String(e.error!=null?e.error:"object-without-error"):"reject:"+String(e)}})()`],
     ["discardCapture", `(async()=>{try{await window.ompBackend.artifactDiscardCapture({captureId:${JSON.stringify(ghost)}});return "unexpected-success"}catch(e){return typeof e==="object"&&e!==null?String(e.error!=null?e.error:"object-without-error"):"reject:"+String(e)}})()`],

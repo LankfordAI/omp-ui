@@ -14,13 +14,15 @@ export class ViewTracker {
   /** clientId the desktop renderer reports under; only the IPC transport marks it (issue #271). */
   private desktopClientId: string | null = null;
 
-  /** Renderer reports the tab it currently has in view, or null (issue #266). */
-  setViewedTab(clientId: string, tabId: string | null): void {
+  /** Renderer reports the tab it currently has in view, or null (issue #266). Returns that client's previous tabId. */
+  setViewedTab(clientId: string, tabId: string | null): string | null {
+    const prev = this.reports.get(clientId)?.tabId ?? null;
     const now = Date.now();
     for (const [id, report] of this.reports) {
       if (now - report.at > VIEWED_SWEEP_MS) this.reports.delete(id);
     }
     this.reports.set(clientId, { tabId, at: now });
+    return prev;
   }
 
   /** Marks the clientId the desktop renderer reports under (issue #271). */

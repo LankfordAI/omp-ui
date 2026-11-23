@@ -78,12 +78,13 @@ interface FakeHost extends RemoteHost {
   projects: ProjectGroup[];
   /** What `state:get` answers as `modelFavorites`; raw values exercise malformed input (#440). */
   favorites: unknown;
+  routinesEnabled: boolean;
   /** Makes the next `state:get` hang unanswered (refresh watchdog test, #658). */
   holdNextStateGet(): void;
 }
 
 function fakeHost(
-  opts: { identity?: boolean; instanceId?: string; favorites?: unknown } = {},
+  opts: { identity?: boolean; instanceId?: string; favorites?: unknown; routinesEnabled?: boolean } = {},
 ): FakeHost {
   const requests: FakeHost["requests"] = [];
   const notified: FakeHost["notified"] = [];
@@ -95,6 +96,7 @@ function fakeHost(
     notified,
     projects: projectGroups(["/remote/a"]),
     favorites: opts.favorites ?? [],
+    routinesEnabled: opts.routinesEnabled ?? false,
     handlers: () => table,
     addSink(sink) {
       sinks.add(sink);
@@ -126,7 +128,13 @@ function fakeHost(
             },
           }),
       [CH.getState]: () => {
-        if (!holdStateGet) return { projects: host.projects, modelFavorites: host.favorites };
+        if (!holdStateGet) {
+          return {
+            projects: host.projects,
+            modelFavorites: host.favorites,
+            routinesEnabled: host.routinesEnabled,
+          };
+        }
         holdStateGet = false;
         return new Promise<never>(() => {});
       },
@@ -972,5 +980,55 @@ describe("state refresh (#658)", () => {
   it("unknown instance: rejects like every other admin channel", async () => {
     const h = harness();
     await expect(h.manager.refresh("nope")).rejects.toThrow("unknown instance nope");
+  });
+});
+
+describe("remote routines projection and event relay (issue #1306)", () => {
+  it("projects routinesEnabled from state:get and state:changed into summaries", async () => {
+    const host = fakeHost({ routinesEnabled: true });
+    const server = await serve(host);
+    const h = harness();
+    const instance = await join(h, server.port);
+    expect(instance.routinesEnabled).toBe(true);
+
+    host.emit(CH.onStateChanged, [{ routinesEnabled: false }]);
+    const [off] = await h.until((s) => s[0]!.routinesEnabled === false);
+    expect(off!.routinesEnabled).toBe(false);
+
+    host.routinesEnabled = true;
+    await h.manager.refresh(instance.id);
+    const [on] = await h.until((s) => s[0]!.routinesEnabled === true);
+    expect(on!.routinesEnabled).toBe(true);
+  });
+
+  it("relays remote routines:state as remote-routines:state into sinks and drops incoming remote-routines:state (mutual-join loop guard)", async () => {
+    const host = fakeHost({ routinesEnabled: true });
+    const server = await serve(host);
+    const h = harness();
+    const instance = await join(h, server.port);
+
+    const sampleState = {
+      enabled: true,
+      machineLabel: "remote-box",
+      routines: [],
+      runs: [],
+      activeRunTabId: null,
+      defaultWarnCostUsd: 2,
+      defaultMaxCostUsd: 5,
+    };
+    host.emit(CH.onRoutinesState, [sampleState]);
+    await vi.waitFor(() => {
+      expect(h.sent).toContainEqual({
+        channel: CH.onRemoteRoutinesState,
+        args: [instance.id, sampleState],
+      });
+    });
+
+    // Mutual join guard: an incoming remote-routines:state from B must never be re-relayed.
+    const beforeCount = h.sent.length;
+    host.emit(CH.onRemoteRoutinesState, ["some-other-id", sampleState]);
+    host.emit(CH.onStateChanged, [{ routinesEnabled: false }]);
+    await h.until((s) => s[0]!.routinesEnabled === false);
+    expect(h.sent).toHaveLength(beforeCount);
   });
 });
