@@ -3,7 +3,7 @@ import { ipcMain, session, type IpcMainInvokeEvent, type WebContents } from "ele
 import { composeHtmlArtifactDocument, HTML_ARTIFACT_PARTITION, htmlArtifactDataUrl, htmlArtifactThemeCss } from "@omp-ui/core";
 import type { ArtifactPreparedSurface, ArtifactRuntimeDataset, ArtifactRuntimeJson, ArtifactRuntimeSnapshot, ArtifactStatePatch, ArtifactStateReceipt, ArtifactSurfaceNotice, ArtifactSurfaceSource, ArtifactSurfaceTheme } from "../artifact-runtime-protocol";
 import type { ArtifactSurfaceBinding } from "./artifact-service";
-
+import { encodeArtifactThumbnail, type ArtifactThumbnailCapturer, type EncodedArtifactThumbnail } from "./artifact-thumbnail-capturer";
 export interface ArtifactSurfaceResolution {
   binding: ArtifactSurfaceBinding;
   html: string;
@@ -17,10 +17,13 @@ export interface ArtifactSurfaceResolution {
   datasets: Record<string, ArtifactRuntimeDataset>;
 }
 export interface ArtifactSurfaceService {
+  readonly enabled?: boolean;
   resolveSurface(source: ArtifactSurfaceSource): ArtifactSurfaceResolution | Promise<ArtifactSurfaceResolution>;
   assertBoundSurface(binding: ArtifactSurfaceBinding): unknown;
   saveBoundState(binding: ArtifactSurfaceBinding, patch: ArtifactStatePatch, authorize: () => void): Promise<ArtifactStateReceipt> | ArtifactStateReceipt;
   onSurfaceInvalidated(listener: (event: { epoch: number; artifactIds?: string[]; kind: string }) => void): () => void;
+  saveThumbnail?(request: { artifactId: string; codeRevisionId: string; dataSnapshotId: string; dark: boolean; mime: "image/png" | "image/jpeg"; bytes: Uint8Array }): { hash: string } | null;
+  stageDraftThumbnail?(request: { draftId: string; draftStateId: string; dark: boolean; mime: "image/png" | "image/jpeg"; bytes: Uint8Array }): void;
 }
 interface Surface {
   id: string;
@@ -35,6 +38,7 @@ interface Surface {
   managed: boolean;
   guest?: WebContents;
   hello: boolean;
+  readySent: boolean;
   revoked: boolean;
   revokedReason?: "changed" | "disabled" | "released" | "crashed";
   closing: boolean;
@@ -127,6 +131,7 @@ export class ArtifactGuestBroker {
   private readonly root: WebContents;
   readonly preloadPath: string;
   private readonly service: () => ArtifactSurfaceService;
+  private readonly capturer?: ArtifactThumbnailCapturer;
   private unsubscribe: (() => void) | undefined;
   private disposed = false;
   private draining = false;
@@ -150,15 +155,17 @@ export class ArtifactGuestBroker {
       void this.release(surface.id);
     }
   };
-  constructor(options: { root: WebContents; service: () => ArtifactSurfaceService; preloadPath: string }) {
+  constructor(options: { root: WebContents; service: () => ArtifactSurfaceService; preloadPath: string; capturer?: ArtifactThumbnailCapturer }) {
     this.root = options.root;
     this.service = options.service;
     this.preloadPath = options.preloadPath;
+    this.capturer = options.capturer;
     brokers.add(this);
     this.root.on("destroyed", this.rootGone);
     this.root.on("render-process-gone", this.rootCrashed);
     this.root.on("did-start-navigation", this.rootNavigation);
     this.unsubscribe = this.service().onSurfaceInvalidated((event) => {
+      if (event.kind === "thumbnail") return;
       for (const surface of this.surfaces.values()) {
         const sourceId = "draftId" in surface.binding.source ? surface.binding.source.draftId : surface.binding.artifactId;
         if (event.epoch !== surface.binding.epoch || (sourceId && event.artifactIds?.includes(sourceId))) {
@@ -174,7 +181,16 @@ export class ArtifactGuestBroker {
     this.timer.unref();
     if (!ipcInstalled) {
       ipcInstalled = true;
-      for (const channel of ["artifact-host:prepare-surface", "artifact-host:update-theme", "artifact-host:release-surface", "artifact-runtime:hello", "artifact-runtime:load", "artifact-runtime:save-state"]) {
+      for (const channel of [
+        "artifact-host:prepare-surface",
+        "artifact-host:update-theme",
+        "artifact-host:release-surface",
+        "artifact-host:capture-thumbnail",
+        "artifact-host:ensure-doc-thumbnail",
+        "artifact-runtime:hello",
+        "artifact-runtime:load",
+        "artifact-runtime:save-state",
+      ]) {
         ipcMain.handle(channel, async (event, ...args: unknown[]) => {
           const broker = [...brokers].find((candidate) => candidate.owns(event.sender) ||
             (channel === "artifact-runtime:hello" && candidate.helloSurface(event, args) !== undefined));
@@ -207,6 +223,12 @@ export class ArtifactGuestBroker {
       if (Date.now() - this.rootRateAt >= 1000) { this.rootRateAt = Date.now(); this.rootCalls = 0; }
       if (++this.rootCalls > 20) throw new Error("Artifact host rate limit exceeded");
       if (channel === "artifact-host:prepare-surface" && args.length === 2) return this.prepareSurface(sourceArgument(args[0]), args[1]);
+      if (channel === "artifact-host:ensure-doc-thumbnail" && args.length === 2) {
+        if (typeof args[0] !== "string" || !uuid.test(args[0])) throw new Error("Invalid artifact ID");
+        const themeCss = artifactThemeCss(args[1]);
+        const dark = (args[1] as ArtifactSurfaceTheme).dark;
+        return this.capturer ? this.capturer.ensure(args[0], themeCss, dark) : null;
+      }
       if (typeof args[0] !== "string" || !uuid.test(args[0])) throw new Error("Invalid artifact surface ID");
       if (channel === "artifact-host:update-theme" && args.length === 2) {
         const surface = this.surfaces.get(args[0]);
@@ -216,6 +238,10 @@ export class ArtifactGuestBroker {
         return;
       }
       if (channel === "artifact-host:release-surface" && args.length === 1) return this.release(args[0]);
+      if (channel === "artifact-host:capture-thumbnail" && args.length === 2) {
+        if (typeof args[1] !== "boolean") throw new Error("Invalid thumbnail polarity");
+        return this.captureThumbnail(args[0], args[1]);
+      }
       throw new Error("Invalid artifact host request");
     }
     let surface = [...this.surfaces.values()].find((entry) => entry.guest === event.sender);
@@ -232,6 +258,12 @@ export class ArtifactGuestBroker {
       surface.hello = true;
       await this.service().assertBoundSurface(surface.binding);
       this.assertGuest(surface, event);
+      const guest = surface.guest;
+      if (!surface.readySent && !surface.revoked && guest && typeof guest.isLoadingMainFrame === "function" && !guest.isLoadingMainFrame()) {
+        surface.readySent = true;
+        guest.send("artifact-runtime:theme", surface.themeCss);
+        this.notice(surface, { surfaceId: surface.id, reason: "ready", reloadRequired: false });
+      }
       return;
     }
     if (!surface.hello || !surface.managed) throw new Error("Artifact runtime is unavailable");
@@ -299,8 +331,50 @@ export class ArtifactGuestBroker {
       readOnly: resolved.readOnly || !resolved.managed || !!writer,
     };
     this.knownDocuments.add(createHash("sha256").update(url).digest("hex"));
-    this.surfaces.set(id, { id, ticket, url, rootEpoch, writerKey, createdAt: Date.now(), consumed: false, binding: resolved.binding, snapshot, managed: true, hello: false, revoked: false, closing: false, calls: 0, rateAt: Date.now(), inFlight: 0, writes: new Set(), themeCss });
+    this.surfaces.set(id, { id, ticket, url, rootEpoch, writerKey, createdAt: Date.now(), consumed: false, binding: resolved.binding, snapshot, managed: true, hello: false, readySent: false, revoked: false, closing: false, calls: 0, rateAt: Date.now(), inFlight: 0, writes: new Set(), themeCss });
     return { surfaceId: id, url, partition: HTML_ARTIFACT_PARTITION, managed: resolved.managed, readOnly: snapshot.readOnly };
+  }
+  async captureThumbnail(surfaceId: string, dark: boolean): Promise<{ hash: string } | null> {
+    if (this.disposed || this.draining) return null;
+    const surface = this.surfaces.get(surfaceId);
+    if (!surface || !surface.guest || surface.guest.isDestroyed() || !surface.hello || surface.revoked || surface.closing) return null;
+    const frozenEpoch = surface.binding.epoch;
+    const frozenSource = surface.binding.source;
+    const frozenArtifactId = surface.binding.artifactId;
+    const frozenCodeRevisionId = surface.binding.codeRevisionId;
+    const frozenDataSnapshotId = surface.binding.dataSnapshotId;
+    let encoded: EncodedArtifactThumbnail | null;
+    try {
+      const image = await surface.guest.capturePage();
+      encoded = encodeArtifactThumbnail(image);
+    } catch {
+      return null;
+    }
+    if (!encoded) return null;
+    const svc = this.service();
+    if (this.disposed || this.draining || surface.revoked || surface.closing || !surface.guest || surface.guest.isDestroyed()) return null;
+    if (surface.binding.epoch !== frozenEpoch || surface.binding.dataSnapshotId !== frozenDataSnapshotId) return null;
+    if (svc.enabled === false) return null;
+    if ("draftId" in frozenSource) {
+      if (frozenDataSnapshotId === null) return null;
+      svc.stageDraftThumbnail?.({
+        draftId: frozenSource.draftId,
+        draftStateId: frozenDataSnapshotId,
+        dark,
+        mime: encoded.mime,
+        bytes: encoded.bytes,
+      });
+      return { hash: createHash("sha256").update(encoded.bytes).digest("hex") };
+    }
+    if (frozenArtifactId === null || frozenCodeRevisionId === null || frozenDataSnapshotId === null) return null;
+    return svc.saveThumbnail?.({
+      artifactId: frozenArtifactId,
+      codeRevisionId: frozenCodeRevisionId,
+      dataSnapshotId: frozenDataSnapshotId,
+      dark,
+      mime: encoded.mime,
+      bytes: encoded.bytes,
+    }) ?? null;
   }
   isSurfaceDocument(url: string): boolean {
     return this.knownDocuments.has(createHash("sha256").update(artifactDocumentIdentity(url)).digest("hex"));
@@ -318,7 +392,13 @@ export class ArtifactGuestBroker {
     let documentLoaded = false;
     const loaded = (): void => {
       documentLoaded = true;
-      if (!surface.revoked) guest.send("artifact-runtime:theme", surface.themeCss);
+      if (!surface.revoked) {
+        guest.send("artifact-runtime:theme", surface.themeCss);
+        if (!surface.readySent) {
+          surface.readySent = true;
+          this.notice(surface, { surfaceId: surface.id, reason: "ready", reloadRequired: false });
+        }
+      }
     };
     const navigated = (_event: unknown, _url: string, inPlace: boolean, mainFrame: boolean): void => {
       if (documentLoaded && mainFrame && !inPlace) this.revoke(surface, "changed");
@@ -373,6 +453,7 @@ export class ArtifactGuestBroker {
     // Drain already-admitted writes before invalidating authority and dropping bindings.
     for (const surface of this.surfaces.values()) surface.closing = true;
     await Promise.allSettled([...this.surfaces.values()].map((surface) => this.release(surface.id)));
+    this.capturer?.dispose();
     this.disposed = true;
     clearInterval(this.timer);
     this.unsubscribe?.();

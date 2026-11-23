@@ -91,13 +91,17 @@ interface Draft {
   enabled: boolean;
 }
 
-function draftOf(routine: RoutineRecord | null, defaultProject: string): Draft {
+function draftOf(
+  routine: RoutineRecord | null,
+  defaultProject: string,
+  artifactSeed: { artifactId: string; datasetIds: string[]; projectCwd: string | null; title: string } | null = null,
+): Draft {
   if (routine === null) {
     return {
-      name: "",
-      instructions: "",
+      name: artifactSeed ? `Refresh ${artifactSeed.title}`.slice(0, 80) : "",
+      instructions: artifactSeed ? `Refresh the selected datasets for "${artifactSeed.title}".` : "",
       schedule: scheduleDraftOf("0 8 * * 1-5"),
-      projectCwd: defaultProject,
+      projectCwd: artifactSeed?.projectCwd ?? defaultProject,
       workspace: "worktree",
       mode: "build",
       model: null,
@@ -115,8 +119,8 @@ function draftOf(routine: RoutineRecord | null, defaultProject: string): Draft {
       preScript: "",
       postScript: "",
       notifications: { ...DEFAULT_ROUTINE_NOTIFICATIONS },
-      artifactId: null,
-      datasetIds: [],
+      artifactId: artifactSeed?.artifactId ?? null,
+      datasetIds: artifactSeed ? [...artifactSeed.datasetIds] : [],
       autoApply: false,
       enabled: true,
     };
@@ -195,6 +199,7 @@ function StudioOptionRow({
  */
 export function RoutineEditor({
   routine,
+  artifactSeed = null,
   models,
   instanceId = null,
   hostLabel = "this computer",
@@ -205,6 +210,7 @@ export function RoutineEditor({
   onBackToSessions,
 }: {
   routine: RoutineRecord | null;
+  artifactSeed?: { nonce: number; artifactId: string; datasetIds: string[]; projectCwd: string | null; title: string } | null;
   models: readonly CatalogModelOption[];
   instanceId?: string | null;
   hostLabel?: string;
@@ -233,8 +239,12 @@ export function RoutineEditor({
   // Re-seed when the saved editable fields change (another selection, this
   // routine's own save echo, the list's enable switch) — never on a schedule
   // bookkeeping broadcast (lastRunAtMs, notices), which would wipe an edit.
-  const seedKey = JSON.stringify([instanceId, routine?.id ?? null, draftOf(routine, hostProjects[0]?.project.path ?? "")]);
-  const initial = useMemo(() => draftOf(routine, hostProjects[0]?.project.path ?? ""), [seedKey]);
+  const seedProject = artifactSeed?.projectCwd && hostProjects.some((p) => p.project.path === artifactSeed.projectCwd)
+    ? artifactSeed.projectCwd
+    : (hostProjects[0]?.project.path ?? "");
+  const effectiveSeed = routine === null && artifactSeed !== null ? { ...artifactSeed, projectCwd: seedProject } : null;
+  const seedKey = JSON.stringify([instanceId, routine?.id ?? null, effectiveSeed?.nonce ?? null, draftOf(routine, hostProjects[0]?.project.path ?? "", effectiveSeed)]);
+  const initial = useMemo(() => draftOf(routine, hostProjects[0]?.project.path ?? "", effectiveSeed), [seedKey]);
   const [draft, setDraft] = useState<Draft>(initial);
   const [activeTab, setActiveTab] = useState<StudioTab>("config");
   const [policyTouched, setPolicyTouched] = useState(false);
@@ -314,7 +324,7 @@ export function RoutineEditor({
     }
     let cancelled = false;
     backend
-      .artifactList({ limit: 40 })
+      .artifactList({ filter: "managed", limit: 50 })
       .then((page) => {
         if (!cancelled) setArtifactRows(page.artifacts.filter((row) => row.managed));
       })
@@ -326,29 +336,31 @@ export function RoutineEditor({
     };
   }, [isRemote, artifactLibraryEnabled]);
 
-  // The binding may reference an artifact deleted since it was saved; fires
-  // then fail with "artifact-missing", and the editor says so.
-  useEffect(() => {
-    if (isRemote || draft.artifactId === null || artifactRows.length === 0) {
-      setArtifactMissing(false);
-      return;
-    }
-    setArtifactMissing(!artifactRows.some((row) => row.artifactId === draft.artifactId));
-  }, [isRemote, draft.artifactId, artifactRows]);
-
+  // Resolve the selected artifact's datasets — and if it sits beyond page 1 of
+  // artifactList, inject its record so the picker never falsely marks it missing.
   useEffect(() => {
     if (isRemote || draft.artifactId === null || !artifactLibraryEnabled) {
       setArtifactDatasets(null);
+      setArtifactMissing(false);
       return;
     }
     let cancelled = false;
     backend
       .artifactDescribe({ artifactId: draft.artifactId })
       .then((next) => {
-        if (!cancelled) setArtifactDatasets(next.code.definition?.datasets ?? []);
+        if (cancelled) return;
+        setArtifactDatasets(next.code.definition?.datasets ?? []);
+        setArtifactMissing(!next.artifact.managed);
+        if (next.artifact.managed) {
+          setArtifactRows((rows) =>
+            rows.some((row) => row.artifactId === next.artifact.artifactId) ? rows : [next.artifact, ...rows],
+          );
+        }
       })
       .catch(() => {
-        if (!cancelled) setArtifactDatasets(null);
+        if (cancelled) return;
+        setArtifactDatasets(null);
+        setArtifactMissing(true);
       });
     return () => {
       cancelled = true;

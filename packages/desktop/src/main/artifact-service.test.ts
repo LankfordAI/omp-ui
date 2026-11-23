@@ -494,3 +494,62 @@ describe("scheduled artifact refresh (ADR-0101)", () => {
     expect("autoApply" in described.refreshRequests[0]!).toBe(false);
   });
 });
+
+describe("lazy list, pinning, and thumbnails (#1307)", () => {
+  const PNG = new Uint8Array([0x89, 0x50, 0x4e, 0x47, 0x0d, 0x0a, 0x1a, 0x0a, 1, 2, 3, 4]);
+
+  it("returns an empty list without creating SQLite on disk until the first write", () => {
+    const f = fixture();
+    const page = f.service.list({ limit: 1 });
+    expect(page).toEqual({
+      artifacts: [],
+      nextCursor: null,
+      libraryBytesUsed: 0,
+      totalCount: 0,
+      pendingReviewCount: 0,
+      pendingReviewPreview: [],
+      origins: [],
+    });
+    expect(fs.existsSync(path.join(f.root, "artifacts", "library.sqlite"))).toBe(false);
+  });
+
+  it("attaches a state-matched staged draft thumbnail on Keep, drops mismatched state, and never copies draft pixels on acceptRevision", async () => {
+    const f = fixture();
+    const draft = await f.service.stageRender({ tabId: "tab", toolCallId: "draft-thumb", args: args() });
+    f.service.stageDraftThumbnail({
+      draftId: draft.draftId,
+      draftStateId: draft.draftStateId,
+      dark: true,
+      mime: "image/png",
+      bytes: PNG,
+    });
+    const kept = f.service.keep({ draftId: draft.draftId, title: "With thumb" });
+    const thumb = f.service.readThumbnail({ artifactId: kept.artifactId, dark: true });
+    expect(thumb).not.toBeNull();
+    expect(thumb?.stale).toBe(false);
+    expect(thumb?.dark).toBe(true);
+
+    // Pinning publishes empty artifactIds so open writers are not revoked.
+    const pinned = f.service.pin({ artifactId: kept.artifactId, expectedGeneration: kept.generation, pinned: true });
+    expect(pinned.pinnedAt).not.toBeNull();
+    expect(f.events.at(-1)).toMatchObject({ artifactIds: [], kind: "changed" });
+
+    // Candidate acceptRevision does NOT copy draft pixels; prior thumbnail stays visible as stale.
+    const grant = f.service.reference({ targetTabId: "tab", ...versions(pinned), includeData: false });
+    const candidateArgs = args();
+    (candidateArgs.artifact as Record<string, unknown>).basedOn = { referenceId: grant.referenceId };
+    const cand = await f.service.stageRender({ tabId: "tab", toolCallId: "cand-thumb", args: candidateArgs });
+    const otherPng = new Uint8Array([0x89, 0x50, 0x4e, 0x47, 0x0d, 0x0a, 0x1a, 0x0a, 9, 9, 9, 9]);
+    f.service.stageDraftThumbnail({
+      draftId: cand.draftId,
+      draftStateId: cand.draftStateId,
+      dark: true,
+      mime: "image/png",
+      bytes: otherPng,
+    });
+    f.service.acceptRevision({ draftId: cand.draftId, expectedCodeRevisionId: pinned.currentCodeRevisionId });
+    const afterAccept = f.service.readThumbnail({ artifactId: kept.artifactId, dark: true });
+    expect(afterAccept?.hash).toBe(thumb?.hash);
+    expect(afterAccept?.stale).toBe(true);
+  });
+});

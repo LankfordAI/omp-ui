@@ -161,9 +161,9 @@ import type {
 import type {
   ArtifactAcceptRevisionRequest, ArtifactApplyCaptureRequest, ArtifactDeleteRequest,
   ArtifactDescribeRequest, ArtifactDescription, ArtifactKeepRequest, ArtifactLibraryChanged,
-  ArtifactListRequest, ArtifactListResult, ArtifactPartResult, ArtifactPrepareRefreshRequest,
-  ArtifactReadRequest, ArtifactRecord, ArtifactReference, ArtifactReferenceRequest,
-  ArtifactRefreshRequest, ArtifactResolveSourceRequest, ArtifactSourceLookup,
+  ArtifactListRequest, ArtifactListResult, ArtifactPartResult, ArtifactPinRequest, ArtifactPrepareRefreshRequest,
+  ArtifactReadRequest, ArtifactReadThumbnailRequest, ArtifactRecord, ArtifactReference, ArtifactReferenceRequest,
+  ArtifactRefreshRequest, ArtifactResolveSourceRequest, ArtifactSourceLookup, ArtifactThumbnailResult,
   ArtifactRenameRequest, ArtifactDiscardCaptureRequest, ArtifactDismissRefreshRequest, ArtifactPruneRequest, ArtifactPruneResult, ArtifactRestoreSnapshotRequest, ArtifactSavePartRequest, ArtifactExportHtmlSourceRequest,
 } from "./artifacts";
 import { artifactFailure, serializeArtifactFailure } from "./artifacts";
@@ -256,7 +256,7 @@ import {
   artifactListCodec, artifactDescribeCodec, artifactReadCodec, artifactSourceCodec,
   artifactKeepCodec, artifactAcceptCodec, artifactReferenceCodec, artifactRefreshCodec,
   artifactApplyCodec, artifactDiscardCodec, artifactDeleteCodec,
-  artifactRenameCodec, artifactDiscardCaptureCodec, artifactDismissRefreshCodec, artifactPruneCodec, artifactRestoreCodec,
+  artifactRenameCodec, artifactPinCodec, artifactReadThumbnailCodec, artifactDiscardCaptureCodec, artifactDismissRefreshCodec, artifactPruneCodec, artifactRestoreCodec,
   artifactSavePartCodec, artifactExportHtmlCodec,
   spillIdCodec,
   routineInputCodec,
@@ -376,6 +376,8 @@ export const BACKEND_CHANNELS = {
   artifactDiscardDraft: { channel: "artifacts:discardDraft", ...request<[input: {draftId: string}], void>([artifactDiscardCodec]) },
   artifactDelete: { channel: "artifacts:delete", ...request<[input: ArtifactDeleteRequest], void>([artifactDeleteCodec]) },
   artifactRename: { channel: "artifacts:rename", ...request<[input: ArtifactRenameRequest], ArtifactRecord>([artifactRenameCodec]) },
+  artifactPin: { channel: "artifacts:pin", ...request<[input: ArtifactPinRequest], ArtifactRecord>([artifactPinCodec]) },
+  artifactReadThumbnail: { channel: "artifacts:readThumbnail", ...request<[input: ArtifactReadThumbnailRequest], ArtifactThumbnailResult>([artifactReadThumbnailCodec]) },
   artifactDiscardCapture: { channel: "artifacts:discardCapture", ...request<[input: ArtifactDiscardCaptureRequest], void>([artifactDiscardCaptureCodec]) },
   artifactDismissRefresh: { channel: "artifacts:dismissRefresh", ...request<[input: ArtifactDismissRefreshRequest], void>([artifactDismissRefreshCodec]) },
   artifactPrune: { channel: "artifacts:prune", ...request<[input: ArtifactPruneRequest], ArtifactPruneResult>([artifactPruneCodec]) },

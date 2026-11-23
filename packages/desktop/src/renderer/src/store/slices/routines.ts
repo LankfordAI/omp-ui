@@ -39,6 +39,14 @@ function defaultRoutinesHost(state: BackendState | null): string | null {
   return anyEnabled?.id ?? null;
 }
 
+export interface RoutineDraftArtifactSeed {
+  nonce: number;
+  artifactId: string;
+  datasetIds: string[];
+  projectCwd: string | null;
+  title: string;
+}
+
 export interface RoutinesSlice {
   /** The last local routines:state snapshot; null until the first read lands. */
   routinesState: RoutinesState | null;
@@ -54,6 +62,8 @@ export interface RoutinesSlice {
   routinesLoading: Record<string, boolean>;
   /** A transcript review link asked the view to focus this routine id; cleared once picked. */
   routineFocusId: string | null;
+  /** Pre-seeded artifact binding for a new routine draft ("Schedule refresh…", #1307). */
+  routineDraftArtifact: RoutineDraftArtifactSeed | null;
   openRoutines(instanceId?: string | null): void;
   selectRoutinesHost(instanceId: string | null): void;
   closeRoutines(): void;
@@ -61,6 +71,9 @@ export interface RoutinesSlice {
   focusRoutine(id: string, instanceId?: string | null): void;
   /** The view consumed the focus request. */
   clearRoutineFocus(): void;
+  /** Opens Routines on this computer to create a scheduled refresh for a kept artifact. */
+  openNewRoutineForArtifact(seed: Omit<RoutineDraftArtifactSeed, "nonce">): void;
+  clearRoutineDraftArtifact(): void;
   replaceRoutines(state: RoutinesState): void;
   replaceRemoteRoutines(instanceId: string, state: RoutinesState): void;
   reconcileRoutinesInstances(state: BackendState): void;
@@ -108,6 +121,7 @@ export function createRoutinesSlice(set: SetState, get: GetState): RoutinesSlice
     routinesLoadError: {},
     routinesLoading: {},
     routineFocusId: null,
+    routineDraftArtifact: null,
     openRoutines(instanceId) {
       const state = get().state;
       if (!hasAnyRoutinesHost(state)) return;
@@ -159,6 +173,19 @@ export function createRoutinesSlice(set: SetState, get: GetState): RoutinesSlice
     },
     clearRoutineFocus() {
       set({ routineFocusId: null });
+    },
+    openNewRoutineForArtifact(seed) {
+      if (get().state?.routinesEnabled !== true) return;
+      get().openRoutines(null);
+      if (get().routinesOpen) {
+        set((s) => ({
+          routinesInstanceId: null,
+          routineDraftArtifact: { ...seed, nonce: (s.routineDraftArtifact?.nonce ?? 0) + 1 },
+        }));
+      }
+    },
+    clearRoutineDraftArtifact() {
+      set({ routineDraftArtifact: null });
     },
     closeRoutines() {
       bumpNavigationGeneration();

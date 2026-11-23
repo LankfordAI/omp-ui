@@ -279,21 +279,104 @@ describe("ArtifactStore human maintenance", () => {
     // A stale delete on the shared generation still conflicts.
     expect(() => store.deleteArtifact({ artifactId: record.artifactId, expectedGeneration: record.generation })).toThrow(/changed/);
   });
-  it("orders the list by recency with a stable opaque cursor across equal timestamps", () => {
+  it("orders pinned first, pages deterministically with v2 cursors across equal timestamps and multibyte titles, and supports filters/sorts/counts", () => {
     const store = open();
-    const first = keep(store, managed(), source("a")); const second = keep(store, managed(), source("b"));
-    // Equal updatedAt values must page deterministically on the id tiebreak.
-    const pageOne = store.list({ limit: 1 });
-    expect(pageOne.artifacts).toHaveLength(1); expect(pageOne.nextCursor).not.toBeNull();
-    const pageTwo = store.list({ limit: 1, cursor: pageOne.nextCursor! });
-    expect(pageTwo.artifacts.map(row => row.artifactId)).toEqual([first.artifactId === pageOne.artifacts[0]!.artifactId ? second.artifactId : first.artifactId]);
-    const merged = [...pageOne.artifacts, ...pageTwo.artifacts].map(row => row.artifactId).sort();
-    expect(merged).toEqual([first.artifactId, second.artifactId].sort());
-    // Cursors are opaque store-owned tokens: a hand-built compound token pages; junk fails bounded validation.
-    const forged = Buffer.from(`${createdAt}|${first.artifactId}`, "utf8").toString("base64url");
-    expect(() => store.list({ cursor: forged })).not.toThrow();
+    const longTitle = "🚀".repeat(50) + "|Pipe|Alpha";
+    const d1 = store.stageDocument({ title: longTitle, html: "<p>1</p>", source: source("a"), originContext: { kind: "project", label: "Reports", path: "/reports" }, managed: managed() });
+    const first = store.keepDraft({ draftId: d1.draftId, title: longTitle });
+    const d2 = store.stageDocument({ title: "Beta Doc", html: "<p>2</p>", source: source("b"), originContext: { kind: "chat" } });
+    const second = store.keepDraft({ draftId: d2.draftId, title: "Beta Doc" });
+    const d3 = store.stageDocument({ title: "Gamma Chart", html: "<p>3</p>", source: source("c"), originContext: { kind: "project", label: "Reports", path: "/reports" }, managed: managed() });
+    const third = store.keepDraft({ draftId: d3.draftId, title: "Gamma Chart" });
+
+    // Pinning preserves updatedAt, increments generation, and puts the row on page 1 regardless of sort.
+    const pinned = store.pin({ artifactId: second.artifactId, expectedGeneration: second.generation, pinned: true });
+    expect(pinned.pinnedAt).not.toBeNull();
+    expect(pinned.updatedAt).toBe(second.updatedAt);
+    expect(pinned.generation).toBe(second.generation + 1);
+    expect(() => store.pin({ artifactId: second.artifactId, expectedGeneration: second.generation, pinned: false })).toThrow(/changed/);
+
+    // Paging with limit=1 covers every item deterministically with a bounded v2 cursor (< 80 chars).
+    const seen: string[] = [];
+    let cursor: string | undefined;
+    for (let step = 0; step < 5; step++) {
+      const page = store.list({ limit: 1, cursor, sort: "recent" });
+      expect(page.totalCount).toBe(3);
+      expect(page.origins).toEqual([
+        { key: "/reports", label: "Reports", kind: "project" },
+        { key: "chat", label: "Chat", kind: "chat" },
+      ]);
+      if (page.artifacts.length === 0) break;
+      seen.push(page.artifacts[0]!.artifactId);
+      if (!page.nextCursor) break;
+      expect(page.nextCursor.length).toBeLessThan(120);
+      cursor = page.nextCursor;
+    }
+    expect(seen[0]).toBe(second.artifactId);
+    expect([...seen].sort()).toEqual([first.artifactId, second.artifactId, third.artifactId].sort());
+
+    // Name sort still places pinned items first and pages cleanly over multibyte titles with '|'.
+    const namePage1 = store.list({ limit: 1, sort: "name" });
+    expect(namePage1.artifacts[0]!.artifactId).toBe(second.artifactId);
+    expect(() => store.list({ cursor: namePage1.nextCursor!, sort: "recent" })).toThrow(/cursor/);
+    const namePage2 = store.list({ limit: 2, cursor: namePage1.nextCursor!, sort: "name" });
+    expect(namePage2.artifacts.map(r => r.artifactId)).toEqual([third.artifactId, first.artifactId]);
+
+    // Search matches project labels and Chat; filters separate managed/document/review.
+    expect(store.list({ query: "reports" }).artifacts.map(r => r.artifactId).sort()).toEqual([first.artifactId, third.artifactId].sort());
+    expect(store.list({ query: "chat" }).artifacts.map(r => r.artifactId)).toEqual([second.artifactId]);
+    expect(store.list({ filter: "managed" }).artifacts.map(r => r.artifactId).sort()).toEqual([first.artifactId, third.artifactId].sort());
+    expect(store.list({ filter: "document" }).artifacts.map(r => r.artifactId)).toEqual([second.artifactId]);
+    expect(store.list({ origin: "chat" }).artifacts.map(r => r.artifactId)).toEqual([second.artifactId]);
+    expect(store.list({ origin: "/reports" }).artifacts.map(r => r.artifactId).sort()).toEqual([first.artifactId, third.artifactId].sort());
+
+    // Junk cursor fails validation; deleted anchor fails with conflict.
     expect(() => store.list({ cursor: "!!!not-a-token|||" })).toThrow(/cursor/);
-    expect(() => store.list({ cursor: Buffer.from(`${createdAt}|not-a-uuid`, "utf8").toString("base64url") })).toThrow(/cursor id/);
+    expect(() => store.list({ cursor: Buffer.from(JSON.stringify({ v: 2, s: "recent", id: "not-a-uuid" }), "utf8").toString("base64url") })).toThrow(/cursor id/);
+    const deletedAnchor = store.list({ limit: 1 }).nextCursor!;
+    store.deleteArtifact({ artifactId: pinned.artifactId, expectedGeneration: pinned.generation });
+    expect(() => store.list({ cursor: deletedAnchor })).toThrow(/expired/);
+  });
+  it("stores, replaces, validates, and reads binary raster thumbnails with polarity fallback and stale detection", () => {
+    const store = open();
+    const record = keep(store, managed(), source("thumb"));
+    const png1 = new Uint8Array([0x89, 0x50, 0x4e, 0x47, 0x0d, 0x0a, 0x1a, 0x0a, 1, 2, 3, 4]);
+    const png2 = new Uint8Array([0x89, 0x50, 0x4e, 0x47, 0x0d, 0x0a, 0x1a, 0x0a, 5, 6, 7, 8]);
+    const jpg1 = new Uint8Array([0xff, 0xd8, 0xff, 0xe0, 9, 10, 11]);
+
+    // Bad magic or oversize fails validation.
+    expect(() => store.saveThumbnail({ artifactId: record.artifactId, codeRevisionId: record.currentCodeRevisionId, dataSnapshotId: record.currentDataSnapshotId, dark: true, mime: "image/png", bytes: new Uint8Array([1, 2, 3]) })).toThrow(/mime/);
+    expect(() => store.saveThumbnail({ artifactId: record.artifactId, codeRevisionId: record.currentCodeRevisionId, dataSnapshotId: record.currentDataSnapshotId, dark: true, mime: "image/png", bytes: new Uint8Array(128 * 1024 + 1) })).toThrow(/bounds/);
+
+    // Save dark thumbnail without bumping generation or updatedAt.
+    const savedDark1 = store.saveThumbnail({ artifactId: record.artifactId, codeRevisionId: record.currentCodeRevisionId, dataSnapshotId: record.currentDataSnapshotId, dark: true, mime: "image/png", bytes: png1 });
+    expect(savedDark1).not.toBeNull();
+    const afterSave = store.describe({ artifactId: record.artifactId });
+    expect(afterSave.artifact.generation).toBe(record.generation);
+    expect(afterSave.artifact.updatedAt).toBe(record.updatedAt);
+    expect(afterSave.thumbnails.dark).toEqual({ hash: savedDark1!.hash, stale: false });
+    expect(afterSave.thumbnails.light).toBeNull();
+
+    // Light request falls back to dark polarity when light slot is absent.
+    const fallback = store.readThumbnail({ artifactId: record.artifactId, dark: false });
+    expect(fallback).toMatchObject({ mime: "image/png", dark: true, stale: false, hash: savedDark1!.hash });
+    expect(Buffer.from(fallback!.base64, "base64")).toEqual(Buffer.from(png1));
+
+    // Atomic same-polarity replacement swaps hash and keeps light intact.
+    const savedLight = store.saveThumbnail({ artifactId: record.artifactId, codeRevisionId: record.currentCodeRevisionId, dataSnapshotId: record.currentDataSnapshotId, dark: false, mime: "image/jpeg", bytes: jpg1 });
+    const savedDark2 = store.saveThumbnail({ artifactId: record.artifactId, codeRevisionId: record.currentCodeRevisionId, dataSnapshotId: record.currentDataSnapshotId, dark: true, mime: "image/png", bytes: png2 });
+    expect(savedDark2!.hash).not.toBe(savedDark1!.hash);
+    expect(store.readThumbnail({ artifactId: record.artifactId, dark: true })?.hash).toBe(savedDark2!.hash);
+    expect(store.readThumbnail({ artifactId: record.artifactId, dark: false })?.hash).toBe(savedLight!.hash);
+
+    // Advancing head marks existing thumbnails stale and refuses saving against superseded heads.
+    const moved = store.patchUserState({ artifactId: record.artifactId, expectedCodeRevisionId: record.currentCodeRevisionId, expectedDataSnapshotId: record.currentDataSnapshotId, expectedStateRevision: 0, set: { checked: true } });
+    expect(store.readThumbnail({ artifactId: record.artifactId, dark: true })?.stale).toBe(true);
+    expect(store.describe({ artifactId: record.artifactId }).thumbnails.dark?.stale).toBe(true);
+    expect(store.saveThumbnail({ artifactId: record.artifactId, codeRevisionId: record.currentCodeRevisionId, dataSnapshotId: record.currentDataSnapshotId, dark: true, mime: "image/png", bytes: png1 })).toBeNull();
+    const refreshed = store.saveThumbnail({ artifactId: record.artifactId, codeRevisionId: moved.currentCodeRevisionId, dataSnapshotId: moved.currentDataSnapshotId, dark: true, mime: "image/png", bytes: png1 });
+    expect(refreshed).not.toBeNull();
+    expect(store.readThumbnail({ artifactId: record.artifactId, dark: true })?.stale).toBe(false);
   });
   it("discards unapplied captures, refuses applied ones, and auto-dismisses emptied requests", () => {
     const store = open(); const original = keep(store);

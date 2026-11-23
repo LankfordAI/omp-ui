@@ -4,7 +4,7 @@ import type { CatalogModelOption } from "@omp-ui/core/types";
 import { cn } from "../../lib/cn";
 import { relativeTime } from "../../lib/format";
 import { useCompactShell } from "../../lib/responsive";
-import { findInstance, useStore } from "../../store";
+import { findInstance, useStore, type RoutineDraftArtifactSeed } from "../../store";
 import { Button, Chip, Empty, IconButton, IconClose, IconPlus, Label, Panel, Switch } from "../ui";
 import { RoutineEditor } from "./RoutineEditor";
 import { RoutinesHostMenu } from "./RoutinesHostMenu";
@@ -43,6 +43,7 @@ export function RoutinesView() {
   const openSettings = useStore((s) => s.openSettings);
   const [selection, setSelection] = useState<Selection>(null);
   const [drilled, setDrilled] = useState(false);
+  const [newDraftSeed, setNewDraftSeed] = useState<RoutineDraftArtifactSeed | null>(null);
   const [models, setModels] = useState<readonly CatalogModelOption[]>([]);
 
   const remoteInstance = instanceId === null ? null : (findInstance(backendState, instanceId) ?? null);
@@ -53,6 +54,7 @@ export function RoutinesView() {
   useEffect(() => {
     setSelection(null);
     setDrilled(false);
+    setNewDraftSeed(null);
   }, [instanceId]);
 
   // Re-fetch when a remote host transitions back into joined status.
@@ -118,6 +120,18 @@ export function RoutinesView() {
     // `pick` is a stable local setter over setState; wait for active host state before consuming focus.
   }, [routineFocusId, state]);
 
+  // "Schedule refresh…" from Artifacts (ADR-0101 / #1307): copy into local state
+  // before clearing the store so store clears never wipe pre-filled draft fields.
+  const routineDraftArtifact = useStore((s) => s.routineDraftArtifact);
+  const clearRoutineDraftArtifact = useStore((s) => s.clearRoutineDraftArtifact);
+  useEffect(() => {
+    if (routineDraftArtifact === null || instanceId !== null) return;
+    setNewDraftSeed(routineDraftArtifact);
+    setSelection({ kind: "new" });
+    setDrilled(true);
+    clearRoutineDraftArtifact();
+  }, [routineDraftArtifact, instanceId, clearRoutineDraftArtifact]);
+
   const selected: RoutineRecord | null =
     selection?.kind === "routine" ? (routines.find((r) => r.id === selection.id) ?? null) : null;
   // Wide layout always shows a detail: the first routine when nothing is picked.
@@ -132,6 +146,7 @@ export function RoutinesView() {
   const enabledCount = routines.filter((r) => r.enabled).length;
 
   const pick = (next: Selection): void => {
+    if (next?.kind !== "new") setNewDraftSeed(null);
     setSelection(next);
     setDrilled(next !== null);
   };
@@ -359,13 +374,17 @@ export function RoutinesView() {
       </div>
       <div className="flex min-h-0 flex-1 flex-col overflow-hidden">
         <RoutineEditor
-          key={`${instanceId ?? "local"}:${editing?.id ?? "new"}`}
+          key={`${instanceId ?? "local"}:${editing?.id ?? `new:${newDraftSeed?.nonce ?? 0}`}`}
           routine={editing}
+          artifactSeed={editing === null ? newDraftSeed : null}
           models={models}
           instanceId={instanceId}
           hostLabel={hostLabel}
           readOnly={readOnly}
-          onSaved={(saved) => setSelection({ kind: "routine", id: saved.id })}
+          onSaved={(saved) => {
+            setNewDraftSeed(null);
+            setSelection({ kind: "routine", id: saved.id });
+          }}
           onDeleted={() => pick(null)}
           onOpenSession={closeRoutines}
         />
@@ -478,13 +497,17 @@ export function RoutinesView() {
               </div>
             ) : (
               <RoutineEditor
-                key={`${instanceId ?? "local"}:${editing?.id ?? "new"}`}
+                key={`${instanceId ?? "local"}:${editing?.id ?? `new:${newDraftSeed?.nonce ?? 0}`}`}
                 routine={editing}
+                artifactSeed={editing === null ? newDraftSeed : null}
                 models={models}
                 instanceId={instanceId}
                 hostLabel={hostLabel}
                 readOnly={readOnly}
-                onSaved={(saved) => setSelection({ kind: "routine", id: saved.id })}
+                onSaved={(saved) => {
+                  setNewDraftSeed(null);
+                  setSelection({ kind: "routine", id: saved.id });
+                }}
                 onDeleted={() => pick(null)}
                 onOpenSession={closeRoutines}
                 onBackToSessions={sidebarCollapsed ? closeRoutines : undefined}

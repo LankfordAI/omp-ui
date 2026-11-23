@@ -507,7 +507,8 @@ Every rpc-ui spawn registers the `omp-ui://` read-only URI scheme and the namesp
 
 ### Kept artifact library
 
-The default-off `artifactLibraryEnabled` experiment is the exception to the
+The graduated `artifactLibraryEnabled` flag (default on since [#1307](https://github.com/LankfordAI/omp-ui/issues/1307),
+seeded once on upgrade from pre-graduation registries) is the exception to the
 spawn-only host-tool gates above ([#1121](https://github.com/LankfordAI/omp-ui/issues/1121),
 [ADR-0090](adr/0090-session-authored-artifact-library-and-scoped-data.md)). It
 extends `omp-ui_render_html` with optional `artifact` metadata and adds the

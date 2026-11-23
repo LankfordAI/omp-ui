@@ -173,11 +173,13 @@ Type `!` at the start of a native composer draft to run a shell command through 
 
 To copy terminal output, select it with the mouse, right-click the selection, and choose **Copy**; terminal tabs offer the same menu. When a program captures the mouse, such as vim or OMP's TUI, hold `Shift` while dragging to select on Linux and Windows.
 
-## Artifacts (experimental)
+## Artifacts
 
-Enable **Artifact library (experimental)** under **Settings → Experimental**.
-It is off by default and separate from **Run scripts in HTML artifacts**.
-Enabling it updates already-live native sessions without sending a model prompt.
+The **Artifact library** is on by default and configured under **Settings → Artifacts** alongside **Run scripts in HTML artifacts**. Toggling the library updates already-live native sessions without sending a model prompt.
+
+Opening **Artifacts** from the sidebar footer lands on a visual **Gallery** with a **Grid / List** toggle, search (matching titles and project/Chat origins), filter pills (**All**, **Needs review**, **Managed**, **Documents**), origin and sort controls, an **Attention strip** for pending captures or revision candidates, and a **Pinned** section at the top. Each card shows a cached preview thumbnail generated locally by the host, hover quick actions (**@ Reference**, **Refresh**, **Open**), and a star toggle for pinning.
+
+Selecting an artifact opens the **Full-Canvas Viewer**, handing the full width to the document with a slim top bar (artifact switcher, origin and version chips, **@ Reference**, **Refresh**, fullscreen expand, and overflow actions) and an on-demand slide-over **Data & History** drawer for inspecting structured capture diffs, dataset provenance, scheduled refresh shortcuts, revision/snapshot history, and pruning.
 
 ### Author a document directly
 

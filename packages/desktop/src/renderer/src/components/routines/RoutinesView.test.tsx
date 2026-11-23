@@ -13,7 +13,19 @@ import type { CatalogModelOption } from "@omp-ui/core/types";
 import { backendState, remoteInstance } from "../../test/fixtures";
 
 (globalThis as Record<string, unknown>).IS_REACT_ACT_ENVIRONMENT = true;
-Object.assign(window, { ompBackend: {} });
+const backendMock = {
+  artifactList: vi.fn(async () => ({
+    artifacts: [],
+    nextCursor: null,
+    libraryBytesUsed: 0,
+    totalCount: 0,
+    pendingReviewCount: 0,
+    pendingReviewPreview: [],
+    origins: [],
+  })),
+  artifactDescribe: vi.fn(),
+};
+Object.assign(window, { ompBackend: backendMock });
 // Dynamic import: store.ts captures window.ompBackend at module evaluation.
 const { useStore } = await import("../../store");
 const { RoutinesView } = await import("./RoutinesView");
@@ -948,5 +960,95 @@ describe("RoutinesView remote hosts (issue #1306)", () => {
     );
     await settle();
     expect(document.querySelector("[data-routines-disabled]")?.textContent).toContain("Routines are off on gpu-box");
+  });
+});
+
+describe("RoutinesView Schedule refresh shortcut from Artifacts (#1307)", () => {
+  it("preserves openNewRoutineForArtifact seed across store clear and resolves bound artifacts beyond page 1", async () => {
+    const beyondPageId = "99999999-9999-4999-8999-999999999999";
+    backendMock.artifactList.mockResolvedValueOnce({
+      artifacts: [],
+      nextCursor: null,
+      libraryBytesUsed: 0,
+      totalCount: 60,
+      pendingReviewCount: 0,
+      pendingReviewPreview: [],
+      origins: [],
+    });
+    backendMock.artifactDescribe.mockResolvedValueOnce({
+      artifact: {
+        artifactId: beyondPageId,
+        ownerInstanceId: "11111111-1111-4111-8111-111111111111",
+        title: "Older Dashboard",
+        managed: true,
+        currentCodeRevisionId: "22222222-2222-4222-8222-222222222222",
+        currentDataSnapshotId: "33333333-3333-4333-8333-333333333333",
+        generation: 1,
+        keptAt: "2026-11-01T00:00:00.000Z",
+        createdAt: "2026-11-01T00:00:00.000Z",
+        updatedAt: "2026-11-01T00:00:00.000Z",
+        pinnedAt: null,
+        origin: { ownerInstanceId: "11111111-1111-4111-8111-111111111111", lineageDir: "l", sessionId: null, runtimeKey: null, toolCallId: null, sourceHash: "a".repeat(64), createdAt: "2026-11-01T00:00:00.000Z" },
+        originContext: { kind: "project", label: "one", path: PROJECT },
+        sourceDraftId: "44444444-4444-4444-8444-444444444444",
+      },
+      code: {
+        artifactId: beyondPageId,
+        codeRevisionId: "22222222-2222-4222-8222-222222222222",
+        revisionNumber: 1,
+        baseRevisionId: null,
+        definition: { protocolVersion: 1, stateSchema: "s-v1", datasets: [{ id: "metrics", title: "Metrics", schema: "m-v1" }] },
+        source: { ownerInstanceId: "11111111-1111-4111-8111-111111111111", lineageDir: "l", sessionId: null, runtimeKey: null, toolCallId: null, sourceHash: "a".repeat(64), createdAt: "2026-11-01T00:00:00.000Z" },
+        createdAt: "2026-11-01T00:00:00.000Z",
+      },
+      snapshot: { artifactId: beyondPageId, dataSnapshotId: "33333333-3333-4333-8333-333333333333", stateRevision: 0, cause: "initial", createdAt: "2026-11-01T00:00:00.000Z", datasets: [] },
+      revisions: [],
+      snapshots: [],
+      references: [],
+      captures: [],
+      refreshRequests: [],
+      candidates: [],
+      retainedBytes: 512,
+      libraryBytesUsed: 512,
+      thumbnails: { dark: null, light: null },
+    });
+    const artifactList = backendMock.artifactList;
+    const artifactDescribe = backendMock.artifactDescribe;
+
+    useStore.setState({
+      state: backendState({
+        routinesEnabled: true,
+        artifactLibraryEnabled: true,
+        projects: [{
+          project: { path: PROJECT, name: "one", addedAt: "2026-11-01T00:00:00.000Z", lastModel: null, lastThinkingLevel: null, lastAdvisor: null, lastAdvisorModel: null, defaultModel: null, defaultAdvisorModel: null, browserClock: false, councilRoster: null, knowledgeHome: null, repositoryKey: null, icon: null },
+          sessions: [],
+        }],
+      }),
+      routinesState: routinesState({ routines: [] }),
+      routinesInstanceId: null,
+      refreshRoutines: vi.fn(async () => {}),
+      loadRoutineToolCatalog: vi.fn(async () => CATALOG),
+      readChatModels: vi.fn(async () => ({ models: [], discovered: true, error: null })),
+    });
+
+    act(() => {
+      useStore.getState().openNewRoutineForArtifact({
+        artifactId: beyondPageId,
+        datasetIds: ["metrics"],
+        projectCwd: PROJECT,
+        title: "Older Dashboard",
+      });
+    });
+    render();
+    await settle();
+
+    // Store cleared the seed once copied to local state, while editor retained prefilled values.
+    expect(useStore.getState().routineDraftArtifact).toBeNull();
+    const nameInput = document.querySelector<HTMLInputElement>('input[aria-label="Name"]');
+    expect(nameInput?.value).toBe("Refresh Older Dashboard");
+    expect(artifactList).toHaveBeenCalledWith({ filter: "managed", limit: 50 });
+    expect(artifactDescribe).toHaveBeenCalledWith({ artifactId: beyondPageId });
+    expect(document.body.textContent).toContain("Older Dashboard");
+    expect(document.body.textContent).not.toContain("no longer exists");
   });
 });
