@@ -219,6 +219,9 @@ export const GIT_SETTING_GROUP: OmpSettingGroup = {
 /** The exact-interpreter override; "" means "let omp discover one" (issue #671). */
 export const PYTHON_INTERPRETER_KEY = "python.interpreter";
 
+/** Apply model override for `edit.mode = "magic"`; "" falls back to the `smol` role (issue #1273). */
+export const EDIT_MAGIC_MODEL_KEY = "edit.magic.model";
+
 /**
  * Sharpshooter decision extraction (omp 18.12.0, issue #887). The shortest
  * prompt an exchange must reach before Sharpshooter extracts decisions from
@@ -418,7 +421,7 @@ export const OMP_SETTING_GROUPS: ReadonlyArray<OmpSettingGroup> = [
     title: "Tools",
     keys: [
       "edit.mode",
-      "edit.magic.model",
+      EDIT_MAGIC_MODEL_KEY,
       "todo.midRunNudges",
       "grep.contextBefore",
       "grep.contextAfter",

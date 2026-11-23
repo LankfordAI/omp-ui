@@ -4,7 +4,10 @@ import type {
   OmpSettingLayer,
   OmpSettingValue,
 } from "@omp-ui/core/types";
-import { PYTHON_INTERPRETER_KEY } from "@omp-ui/core/omp-settings-keys";
+import {
+  EDIT_MAGIC_MODEL_KEY,
+  PYTHON_INTERPRETER_KEY,
+} from "@omp-ui/core/omp-settings-keys";
 import { cn } from "../../lib/cn";
 import { Chip, Switch } from "../ui";
 
@@ -185,11 +188,17 @@ export function SettingControl({
       if (raw.trim() === "" || !Number.isFinite(value)) return;
       commit(entry.key, value);
     } else {
-      // Empty is a real write ONLY for python.interpreter, whose documented
-      // value for "let omp discover one" is "" (verified: `omp config set
-      // python.interpreter "" --json` clears the override). Every other string
+      // Empty is a real write only for string keys whose documented "" sentinel
+      // clears the override (`python.interpreter` → auto-detect,
+      // `edit.magic.model` → fall back to the `smol` role). Every other string
       // key keeps an empty draft a no-op.
-      if (raw === "" && entry.key !== PYTHON_INTERPRETER_KEY) return;
+      if (
+        raw === "" &&
+        entry.key !== PYTHON_INTERPRETER_KEY &&
+        entry.key !== EDIT_MAGIC_MODEL_KEY
+      ) {
+        return;
+      }
       commit(entry.key, raw);
     }
   };
