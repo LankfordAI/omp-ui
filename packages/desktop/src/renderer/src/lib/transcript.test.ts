@@ -3042,7 +3042,7 @@ describe("bash tool-command nesting (issue #1274)", () => {
       type: "tool_execution_end",
       toolCallId: "b6",
       toolName: "bash",
-      result: { content: [{ type: "text", text: "ok" }], details: { toolCommands: dispatches } },
+      result: { content: [{ type: "text", text: "x".repeat(40_000) }], details: { toolCommands: dispatches } },
     });
     expect(itemSearchText(tool(bash, "b6")!)).toContain("lsp");
   });

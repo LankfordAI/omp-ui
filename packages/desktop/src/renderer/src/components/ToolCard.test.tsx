@@ -1162,10 +1162,11 @@ describe("ToolCard tool-command nesting and brief labels (issue #1274)", () => {
     );
     act(() => streamedArgs.root.unmount());
 
+    const longIntent = `Reading config.json: ${"detail ".repeat(20)}end`;
     const settled = renderCard(
-      tool({ name: "read", status: "done", intent: "Reading config.json: 3 top-level keys" }),
+      tool({ name: "read", status: "done", args: { i: longIntent, path: "config.json" } }),
     );
-    expect(settled.el.textContent).toContain("Reading config.json: 3 top-level keys");
+    expect(settled.el.textContent).toContain(longIntent);
     act(() => settled.root.unmount());
   });
 

@@ -486,13 +486,13 @@ export function itemSearchText(item: RenderItem): string {
       fields.push(
         item.name,
         item.intent,
+        ...(item.toolCommands?.map((d) => d.tool) ?? []),
         typeof item.args === "string" ? item.args : JSON.stringify(item.args),
         item.path,
         item.op,
         item.resultText,
         item.partialText,
         ...(item.replies ?? []),
-        ...(item.toolCommands?.map((d) => d.tool) ?? []),
       );
       break;
     case "advisory":

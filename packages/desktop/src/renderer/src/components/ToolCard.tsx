@@ -837,8 +837,7 @@ export function ToolCard({ item, tabId }: { item: ToolItem; tabId?: string }) {
   // An intent can arrive on `tool_execution_start.intent` or, while args stream
   // before start, in `args.i`.
   const rawIntent = item.intent ?? strField(item.args, "i");
-  const fullHeadline = item.intent ?? argSummary(item.args);
-  const headlineTitle = rawIntent ?? fullHeadline;
+  const fullHeadline = rawIntent ?? argSummary(item.args);
   const headline =
     item.status === "running" && rawIntent !== undefined ? toolIntentLabel(rawIntent) : fullHeadline;
   const duration = item.wallTimeMs !== undefined ? formatDuration(item.wallTimeMs) : "";
@@ -915,7 +914,7 @@ export function ToolCard({ item, tabId }: { item: ToolItem; tabId?: string }) {
           <ToolGlyph kind={glyphFor(item.name)} />
         </span>
         <span className="shrink-0 font-mono text-xs font-semibold text-ink">{item.name}</span>
-        <span className="min-w-0 flex-1 truncate text-xs text-ink-mid" title={headlineTitle}>
+        <span className="min-w-0 flex-1 truncate text-xs text-ink-mid" title={fullHeadline}>
           {headline}
         </span>
         {duration && (
