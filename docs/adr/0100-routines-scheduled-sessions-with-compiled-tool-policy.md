@@ -116,3 +116,19 @@ omp-ui ships the mechanism and its guardrails, and ships **no built-in routines,
 - `OwnedSessionRecord` gains optional/nullable routine metadata (`routine` marker plus pinned run policy/spend snapshot) so resumes and human continuations preserve the exact guardrails without consulting `routines.json`.
 - A finished Routine run leaves the Attention stack on 60 s self-Settle (matching `CONTEXT.md`'s uniform "a **Settled** session holds none" invariant, amended 2026-11-23, #1305), and joined instances keep remote Routine runs out of the coding sidebar (#1304).
 - Any change in upstream omp's `tools.approval` precedence, MCP naming, or subagent entry inheritance is caught directly by `packages/desktop/src/main/routines-live.test.ts` (Tier L).
+
+## Addendum (2026-11-23, #1311): the full Routines surface reached the agent tools
+
+The two authoring host tools became the eight `omp-ui_routines_*` tools: create,
+update, plus list/get-state (`routines:getState`), remove, run-now
+(`routines:runNow`), dry-run (`routines:dryRun`), tool-catalog
+(`routines:toolCatalog`), and test-script (`routines:testScript`). Every one is
+a thin validated wrapper over the same `RoutineService` handler the renderer
+channel calls — no policy moved into the agent path, every service-side guard
+(the `routinesEnabled` gate, registered-project checks, runNow's
+overlap/host-lane refusals, testScript's caps) applies verbatim. Create still
+forces `enabled: false`; update now carries `artifact`, `workspace`, `deny`,
+and an explicit `enabled`, and an edit *without* an explicit `enabled` still
+lands disabled — arming by agent is a per-call explicit act the user asked
+for, not a side effect of editing. Destructive endpoints (remove) and run-now
+ride the same guards as the UI; nothing bypasses them by being agent-called.

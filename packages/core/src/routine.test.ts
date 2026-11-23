@@ -16,6 +16,9 @@ import {
   isSessionRoutine,
   parseRoutineAgentCreateArgs,
   parseRoutineAgentUpdateArgs,
+  parseRoutineAgentListArgs,
+  parseRoutineAgentIdArgs,
+  parseRoutineAgentDryRunArgs,
   parseRoutineFocusUri,
   parseRoutineInput,
   parseRoutinePatch,
@@ -486,6 +489,78 @@ describe("parseRoutineAgentCreateArgs & routineInputFromAgentCreate (ADR-0100 am
     expect(() => parseRoutineAgentCreateArgs({ ...GOOD, maxUsd: 1e9 })).toThrow();
     expect(parseRoutineAgentCreateArgs({ ...GOOD, model: null, thinkingLevel: null }).model).toBeNull();
   });
+
+  it("accepts workspace, deny and artifact; create still lands disabled (#1311)", () => {
+    const binding = {
+      artifactId: "3f2504e0-4f89-41d3-9a0c-0305e82c3301",
+      datasetIds: ["rows", "meta"],
+      autoApply: true,
+    };
+    const args = parseRoutineAgentCreateArgs({ ...GOOD, workspace: "checkout", deny: ["bash"], artifact: binding });
+    expect(args.workspace).toBe("checkout");
+    expect(args.deny).toEqual(["bash"]);
+    expect(args.artifact).toEqual(binding);
+    const input = routineInputFromAgentCreate(args, "2026-11-22T12:00:00.000Z");
+    // The create-always-disabled invariant survives every new field.
+    expect(input.enabled).toBe(false);
+    expect(input.destination).toEqual({ projectCwd: "/home/dev/repo", workspace: "checkout" });
+    expect(input.toolPolicy.deny).toEqual(["bash"]);
+    expect(input.artifact).toEqual(binding);
+    expect(() => parseRoutineInput(input)).not.toThrow();
+    // Defaults stay the isolated, unbound shape.
+    const plain = routineInputFromAgentCreate(parseRoutineAgentCreateArgs(GOOD), "2026-11-22T12:00:00.000Z");
+    expect(plain.destination.workspace).toBe("worktree");
+    expect(plain.toolPolicy.deny).toEqual([]);
+    expect(plain.artifact).toBeNull();
+  });
+
+  it("refuses malformed workspace, deny and artifact shapes (#1311)", () => {
+    expect(() => parseRoutineAgentCreateArgs({ ...GOOD, workspace: "cloud" })).toThrow(/workspace/);
+    expect(() => parseRoutineAgentCreateArgs({ ...GOOD, deny: "bash" })).toThrow(/deny/);
+    expect(() => parseRoutineAgentCreateArgs({ ...GOOD, artifact: { artifactId: "nope", datasetIds: ["rows"], autoApply: true } }))
+      .toThrow(/artifact/);
+    expect(() => parseRoutineAgentCreateArgs({ ...GOOD, artifact: { artifactId: "3f2504e0-4f89-41d3-9a0c-0305e82c3301", datasetIds: [], autoApply: false } }))
+      .toThrow(/datasetIds/);
+    expect(() => parseRoutineAgentCreateArgs({ ...GOOD, artifact: { artifactId: "3f2504e0-4f89-41d3-9a0c-0305e82c3301", datasetIds: ["rows"], autoApply: "yes" } }))
+      .toThrow(/autoApply/);
+  });
+});
+
+describe("agent args for the read/manage/list endpoint tools (#1311)", () => {
+  it("parseRoutineAgentListArgs accepts nothing or one valid id", () => {
+    expect(parseRoutineAgentListArgs({})).toEqual({});
+    expect(parseRoutineAgentListArgs({ id: VALID_ID })).toEqual({ id: VALID_ID });
+    expect(() => parseRoutineAgentListArgs({ id: "short" })).toThrow(/id/);
+    expect(() => parseRoutineAgentListArgs({ extra: 1 })).toThrow(/unknown/);
+    expect(() => parseRoutineAgentListArgs("x")).toThrow(/object/);
+  });
+
+  it("parseRoutineAgentIdArgs takes exactly one valid routine id", () => {
+    expect(parseRoutineAgentIdArgs({ id: VALID_ID }, "remove")).toBe(VALID_ID);
+    expect(() => parseRoutineAgentIdArgs({}, "remove")).toThrow(/id/);
+    expect(() => parseRoutineAgentIdArgs({ id: VALID_ID, extra: 1 }, "runNow")).toThrow(/runNow/);
+    expect(() => parseRoutineAgentIdArgs(null, "remove")).toThrow(/remove/);
+  });
+
+  it("parseRoutineAgentDryRunArgs splits saved by id and validates drafts through parseRoutineInput", () => {
+    expect(parseRoutineAgentDryRunArgs({ kind: "saved", id: VALID_ID })).toEqual({ kind: "saved", id: VALID_ID });
+    expect(() => parseRoutineAgentDryRunArgs({ kind: "saved", id: "short" })).toThrow(/id/);
+    expect(() => parseRoutineAgentDryRunArgs({ kind: "once" })).toThrow(/saved|draft/);
+    const draft = routineInputFromAgentCreate(
+      parseRoutineAgentCreateArgs({
+        name: "Draft",
+        instructions: "Do the thing.",
+        schedule: { kind: "cron", expr: "@daily" },
+        timeZone: "America/New_York",
+        projectCwd: "/home/dev/repo",
+        mode: "plan",
+        allow: ["read"],
+      }),
+      "2026-11-23T00:00:00.000Z",
+    );
+    expect(parseRoutineAgentDryRunArgs({ kind: "draft", input: draft })).toEqual({ kind: "draft", input: draft });
+    expect(() => parseRoutineAgentDryRunArgs({ kind: "draft", input: { name: 1 } })).toThrow();
+  });
 });
 
 describe("parseRoutineAgentUpdateArgs & routinePatchFromAgentUpdate (ADR-0100 amendment 2)", () => {
@@ -516,14 +591,17 @@ describe("parseRoutineAgentUpdateArgs & routinePatchFromAgentUpdate (ADR-0100 am
     expect(patch.toolPolicy).toBeUndefined();
   });
 
-  it("refuses an id-only call, unknown keys, host-owned fields, and a bad id", () => {
+  it("refuses an id-only call, unknown keys, whole-object policy, and a bad id (#1311)", () => {
     expect(() => parseRoutineAgentUpdateArgs({ id: VALID_ID })).toThrow(/at least one field/);
-    expect(() => parseRoutineAgentUpdateArgs({ id: VALID_ID, enabled: true })).toThrow(/unknown/);
     expect(() => parseRoutineAgentUpdateArgs({ id: VALID_ID, toolPolicy: { allow: [], deny: ["bash"] } })).toThrow(/unknown/);
     expect(() => parseRoutineAgentUpdateArgs({ id: VALID_ID, destination: { projectCwd: "/x", workspace: "checkout" } })).toThrow(/unknown/);
     expect(() => parseRoutineAgentUpdateArgs({ id: "too-short" })).toThrow(/id/);
     expect(() => parseRoutineAgentUpdateArgs({ id: VALID_ID, mode: "yolo" })).toThrow();
     expect(() => parseRoutineAgentUpdateArgs({ id: VALID_ID, timeZone: "Mars/Olympus" })).toThrow(/time zone/);
+    // #1311: enabled/deny/workspace/artifact became expressible — wrong types still refuse.
+    expect(() => parseRoutineAgentUpdateArgs({ id: VALID_ID, enabled: "yes" })).toThrow(/enabled/);
+    expect(() => parseRoutineAgentUpdateArgs({ id: VALID_ID, deny: ["" ] })).toThrow();
+    expect(() => parseRoutineAgentUpdateArgs({ id: VALID_ID, workspace: "cloud" })).toThrow(/workspace/);
   });
 
   it("distinguishes present-with-null from absent on nullable leaves", () => {
@@ -608,6 +686,77 @@ describe("parseRoutineAgentUpdateArgs & routinePatchFromAgentUpdate (ADR-0100 am
     );
     expect(reset.timeoutMinutes).toBeNull();
     expect(() => parseRoutineAgentUpdateArgs({ id: VALID_ID, timeoutMinutes: -1 })).toThrow(/timeoutMinutes/);
+  });
+
+  it("arms only on an explicit enabled:true; any other edit still lands disabled (#1311)", () => {
+    const current = currentRecord();
+    const armed = routinePatchFromAgentUpdate(
+      current,
+      parseRoutineAgentUpdateArgs({ id: VALID_ID, enabled: true }),
+      "2026-11-23T00:00:00.000Z",
+    );
+    expect(armed.enabled).toBe(true);
+    const disarmed = routinePatchFromAgentUpdate(
+      current,
+      parseRoutineAgentUpdateArgs({ id: VALID_ID, enabled: false, name: "Renamed" }),
+      "2026-11-23T00:00:00.000Z",
+    );
+    expect(disarmed.enabled).toBe(false);
+    expect(disarmed.name).toBe("Renamed");
+  });
+
+  it("replaces deny and keeps allow, or replaces both together, restamping the review (#1311)", () => {
+    const current = currentRecord();
+    const denyOnly = routinePatchFromAgentUpdate(
+      current,
+      parseRoutineAgentUpdateArgs({ id: VALID_ID, deny: ["web_search"] }),
+      "2026-11-23T00:00:00.000Z",
+    );
+    expect(denyOnly.toolPolicy).toEqual({
+      allow: ["read", "grep"],
+      deny: ["web_search"],
+      lastReviewedAt: "2026-11-23T00:00:00.000Z",
+      reviewedCatalog: [],
+    });
+    const cleared = routinePatchFromAgentUpdate(
+      current,
+      parseRoutineAgentUpdateArgs({ id: VALID_ID, allow: ["read"], deny: [] }),
+      "2026-11-23T00:00:00.000Z",
+    );
+    expect(cleared.toolPolicy).toMatchObject({ allow: ["read"], deny: [] });
+  });
+
+  it("restates workspace alone or together with projectCwd (#1311)", () => {
+    const current = currentRecord();
+    const workspaceOnly = routinePatchFromAgentUpdate(
+      current,
+      parseRoutineAgentUpdateArgs({ id: VALID_ID, workspace: "worktree" }),
+      "2026-11-23T00:00:00.000Z",
+    );
+    expect(workspaceOnly.destination).toEqual({ projectCwd: "/home/dev/repo", workspace: "worktree" });
+  });
+
+  it("patches an artifact binding and clears it with explicit null (#1311)", () => {
+    const current = currentRecord();
+    const binding = {
+      artifactId: "3f2504e0-4f89-41d3-9a0c-0305e82c3301",
+      datasetIds: ["rows"],
+      autoApply: false,
+    };
+    const bound = routinePatchFromAgentUpdate(
+      current,
+      parseRoutineAgentUpdateArgs({ id: VALID_ID, artifact: binding }),
+      "2026-11-23T00:00:00.000Z",
+    );
+    expect(bound.artifact).toEqual(binding);
+    const cleared = routinePatchFromAgentUpdate(
+      current,
+      parseRoutineAgentUpdateArgs({ id: VALID_ID, artifact: null }),
+      "2026-11-23T00:00:00.000Z",
+    );
+    expect(cleared.artifact).toBeNull();
+    expect(() => parseRoutineAgentUpdateArgs({ id: VALID_ID, artifact: { artifactId: "nope", datasetIds: [], autoApply: true } }))
+      .toThrow(/artifact/);
   });
 });
 
@@ -824,7 +973,7 @@ describe("scheduled artifact refresh (ADR-0101)", () => {
     expect(isSessionRoutine({ ...session, artifact: { ...binding, autoApply: 1 } })).toBe(false);
   });
 
-  it("keeps the agent create/patch surfaces free of any binding", () => {
+  it("defaults the agent create/patch surfaces to unbound and refuses malformed bindings (#1311 amends ADR-0101 §1)", () => {
     expect(routineInputFromAgentCreate(
       parseRoutineAgentCreateArgs({
         name: "Nightly",
@@ -837,6 +986,12 @@ describe("scheduled artifact refresh (ADR-0101)", () => {
       }),
       "2026-11-23T00:00:00.000Z",
     ).artifact).toBeNull();
+    expect(routinePatchFromAgentUpdate(
+      { ...sampleRecord(), artifact: binding },
+      parseRoutineAgentUpdateArgs({ id: VALID_ID, name: "Rename keeps binding out of the patch" }),
+      "2026-11-23T00:00:00.000Z",
+    ).artifact).toBeUndefined();
+    // #1311: the key became expressible — a malformed binding still refuses.
     expect(() =>
       parseRoutineAgentCreateArgs({
         name: "Nightly",
@@ -846,12 +1001,12 @@ describe("scheduled artifact refresh (ADR-0101)", () => {
         projectCwd: "/repo",
         mode: "build",
         allow: ["read"],
-        artifact: binding,
+        artifact: { ...binding, datasetIds: [] },
       }),
-    ).toThrow(/unknown routine create arguments field: artifact/);
+    ).toThrow(/datasetIds/);
     expect(() =>
-      parseRoutineAgentUpdateArgs({ id: VALID_ID, artifact: binding }),
-    ).toThrow(/unknown routine update arguments field: artifact/);
+      parseRoutineAgentUpdateArgs({ id: VALID_ID, artifact: { ...binding, autoApply: "yes" } }),
+    ).toThrow(/autoApply/);
   });
 
   it("force-allows omp-ui_artifact_capture when bound and lets deny win", () => {

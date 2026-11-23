@@ -3,7 +3,7 @@ import * as os from "node:os";
 import * as path from "node:path";
 import { createHash, randomUUID } from "node:crypto";
 import { describe, expect, it, vi, afterEach } from "vitest";
-import { FLEET_TOOLS, LOCAL_MACHINE_KEY, PLAN_REVIEW_SENTINEL, PLAN_STATUS_KEY, hostToolsDefinition, parseVaultDetails, type FleetDispatchRequest, type FleetDispatchResult, type FleetMachine, type FleetProjectManageOutcome, type FleetRung, type ObsidianListEntry, type OwnedSessionRecord, type RpcFrame, type SessionsResourceDeps, type ThemeList, type ThemeSource, type VaultRegistry, type VaultToolDetails } from "@omp-ui/core";
+import { FLEET_TOOLS, LOCAL_MACHINE_KEY, PLAN_REVIEW_SENTINEL, PLAN_STATUS_KEY, hostToolsDefinition, parseVaultDetails, type FleetDispatchRequest, type FleetDispatchResult, type FleetMachine, type FleetProjectManageOutcome, type FleetRung, type ObsidianListEntry, type OwnedSessionRecord, type RpcFrame, type RoutineCatalogSnapshot, type RoutineDryRunResult, type RoutineRecord, type RoutinesState, type SessionsResourceDeps, type ThemeList, type ThemeSource, type VaultRegistry, type VaultToolDetails } from "@omp-ui/core";
 import { HostBridge, HOST_ANSWER_WATCHDOG_MS, type FleetBridgeDeps, type HostBridgeDeps, type HostCallControl, type VaultBridgeDeps, type VaultTabContext } from "./host-bridge";
 import type { ConfinedPlanRead } from "./plan-file";
 import { ArtifactService } from "./artifact-service";
@@ -2347,6 +2347,81 @@ describe("HostBridge routine authority (ADR-0100, U13, amended)", () => {
     allow: ["read"],
   };
   const ROUTINE_ID = "AbCdEfGhIjKlMnOpQrStUv";
+  const storedRoutine: RoutineRecord = {
+    id: ROUTINE_ID,
+    name: "Gmail triage",
+    instructions: "Summarize unread mail.",
+    schedule: { kind: "cron", expr: "0 9 * * *" },
+    timeZone: "America/New_York",
+    destination: { projectCwd: "/home/user/project", workspace: "worktree" },
+    mode: "build",
+    model: null,
+    thinkingLevel: null,
+    spend: { warnUsd: null, maxUsd: null },
+    toolPolicy: { allow: ["read"], deny: [], lastReviewedAt: "2026-11-23T00:00:00.000Z", reviewedCatalog: [] },
+    scripts: { pre: "", post: "" },
+    timeoutMinutes: null,
+    notifications: { onStart: false, onComplete: false, onFail: false, onApproval: false, agentMessage: false },
+    artifact: null,
+    enabled: true,
+    createdAt: "2026-11-23T00:00:00.000Z",
+    nextRunAtMs: 1795000000000,
+    lastRunAtMs: null,
+    lastRunTabId: null,
+    notices: [],
+  };
+  const routineState: RoutinesState = {
+    enabled: true,
+    machineLabel: "testbox",
+    routines: [storedRoutine],
+    runs: [
+      {
+        id: "run-row-1",
+        routineId: ROUTINE_ID,
+        routineName: "Gmail triage",
+        firedAtMs: 1794000000000,
+        scheduledForMs: 1794000000000,
+        trigger: "clock",
+        outcome: "on-time",
+        tabId: "tab-9",
+        reasonCode: null,
+        missed: 0,
+        pruned: false,
+        staleCatalog: false,
+      },
+    ],
+    activeRunTabId: null,
+    defaultWarnCostUsd: 2,
+    defaultMaxCostUsd: 5,
+  };
+  const catalogSnapshot: RoutineCatalogSnapshot = {
+    tools: [{ key: "read", source: "builtin", group: "builtin", groupLabel: "Built-in tools", description: "Read files" }],
+    staleServers: [],
+    enumerationError: null,
+    capturedAt: "2026-11-23T00:00:00.000Z",
+  };
+  const dryRunResult: RoutineDryRunResult = {
+    routineId: ROUTINE_ID,
+    nextFireAtMs: 1795000000000,
+    compiled: {
+      approvalMode: "always-ask",
+      overlayEntries: { read: "allow" },
+      deniedBuiltins: [],
+      addedLater: [],
+      missingFromCatalog: [],
+      cliBypassToolsAllowed: [],
+      cliBypassWarning: false,
+      overlayYamlPreview: "",
+      warnings: [],
+    },
+    warnCostUsd: 2,
+    maxCostUsd: 5,
+    staleServers: [],
+    enumerationError: null,
+    scripts: { pre: "", post: "" },
+    timeoutMinutes: 30,
+    notifications: { onStart: false, onComplete: false, onFail: false, onApproval: false, agentMessage: false },
+  };
 
   function routineFixture() {
     const sent: RpcFrame[] = [];
@@ -2365,20 +2440,46 @@ describe("HostBridge routine authority (ADR-0100, U13, amended)", () => {
         },
         update: async (_tabId, args) => {
           received.push(args);
-          return { id: ROUTINE_ID, name: "Gmail triage", wasEnabled: true };
+          return { id: ROUTINE_ID, name: "Gmail triage", wasEnabled: true, enabled: args.enabled ?? false };
+        },
+        state: () => routineState,
+        remove: (id) => {
+          received.push({ removed: id });
+          return { releasedSessions: 2 };
+        },
+        runNow: async (id) => {
+          received.push({ ranNow: id });
+          return { tabId: "run-tab-1", runId: "run-1" };
+        },
+        dryRun: async (req) => {
+          received.push(req);
+          return dryRunResult;
+        },
+        toolCatalog: async (projectCwd) => {
+          received.push({ catalogFor: projectCwd });
+          return catalogSnapshot;
+        },
+        testScript: async (input) => {
+          received.push(input);
+          return { kind: "ok", timedOut: false, exitCode: 0, stdout: "hi\n", stderr: "" };
         },
       },
     };
     return { bridge: new HostBridge(deps), sent, received, send: (frame: RpcFrame) => sent.push(frame) };
   }
 
-  it("registers both routine tools when opts.routines and nothing older gains them", () => {
+  it("registers every routine tool when opts.routines and nothing older gains them", () => {
     const all = hostToolsDefinition({ vault: true, fleet: true, device: true, theme: true, issues: true, artifacts: true, routines: true });
     expect(all.filter((tool) => /routine/i.test(tool.name)).map((tool) => tool.name)).toEqual([
       "omp-ui_routines_create",
       "omp-ui_routines_update",
+      "omp-ui_routines_list",
+      "omp-ui_routines_remove",
+      "omp-ui_routines_run_now",
+      "omp-ui_routines_dry_run",
+      "omp-ui_routines_tool_catalog",
+      "omp-ui_routines_test_script",
     ]);
-    expect(all[all.length - 1]!.name).toBe("omp-ui_routines_update");
     // Every pre-amendment option set (and the default) registers no routine tool.
     expect(hostToolsDefinition().some((tool) => /routine/i.test(tool.name))).toBe(false);
     const legacy = hostToolsDefinition({ vault: true, fleet: true, device: true, theme: true, issues: true, artifacts: true, routines: false } as never);
@@ -2470,17 +2571,22 @@ describe("HostBridge routine authority (ADR-0100, U13, amended)", () => {
     expect(JSON.stringify(byId("h3"))).toContain("notifications.onStart");
   });
 
-  it("refuses an update the parser rejects: id-only, unknown key, and bad ids never reach the service", async () => {
+  it("refuses an update the parser rejects: id-only and bad ids never reach the service; explicit enabled arms (#1311)", async () => {
     const f = routineFixture();
     f.bridge.route("t1", toolCallFrame("h1", "omp-ui_routines_update", { id: ROUTINE_ID }), f.send);
     f.bridge.route("t1", toolCallFrame("h2", "omp-ui_routines_update", { id: ROUTINE_ID, enabled: true }), f.send);
     f.bridge.route("t1", toolCallFrame("h3", "omp-ui_routines_update", { id: "short" }), f.send);
+    f.bridge.route("t1", toolCallFrame("h4", "omp-ui_routines_update", { id: ROUTINE_ID, enabled: "yes" }), f.send);
     await settled();
-    expect(f.received).toEqual([]);
-    expect(JSON.stringify(f.sent[0])).toContain("routines_update refused");
-    expect(JSON.stringify(f.sent[0])).toContain("at least one field");
-    expect(JSON.stringify(f.sent[1])).toContain("enabled");
-    expect(JSON.stringify(f.sent[2])).toContain("id");
+    expect(f.received).toEqual([{ id: ROUTINE_ID, enabled: true }]);
+    const byId = (id: string) => f.sent.find((frame) => frame.id === id);
+    expect(JSON.stringify(byId("h1"))).toContain("routines_update refused");
+    expect(JSON.stringify(byId("h1"))).toContain("at least one field");
+    // An explicit arm lands enabled and says so instead of the disabled warning.
+    expect(byId("h2")).not.toHaveProperty("isError");
+    expect(resultText(byId("h2")!)).toContain("enabled and will fire on schedule");
+    expect(JSON.stringify(byId("h3"))).toContain("id must be a routine id");
+    expect(JSON.stringify(byId("h4"))).toContain("enabled must be a boolean");
   });
 
   it("refuses args the schema cannot express: an extra enabled or deny key never reaches the service", async () => {
@@ -2495,6 +2601,52 @@ describe("HostBridge routine authority (ADR-0100, U13, amended)", () => {
     expect(f.sent[1]).toMatchObject({ id: "h1", isError: true });
     expect(JSON.stringify(f.sent[1])).toContain("enabled");
     expect(f.sent[2]).toMatchObject({ id: "h2", isError: true });
+  });
+
+  it("answers list, remove, runNow, dryRun, toolCatalog and testScript through the service (#1311)", async () => {
+    const f = routineFixture();
+    f.bridge.route("t1", toolCallFrame("l1", "omp-ui_routines_list", {}), f.send);
+    f.bridge.route("t1", toolCallFrame("l2", "omp-ui_routines_list", { id: ROUTINE_ID }), f.send);
+    f.bridge.route("t1", toolCallFrame("r1", "omp-ui_routines_remove", { id: ROUTINE_ID }), f.send);
+    f.bridge.route("t1", toolCallFrame("n1", "omp-ui_routines_run_now", { id: ROUTINE_ID }), f.send);
+    f.bridge.route("t1", toolCallFrame("d1", "omp-ui_routines_dry_run", { kind: "saved", id: ROUTINE_ID }), f.send);
+    f.bridge.route("t1", toolCallFrame("c1", "omp-ui_routines_tool_catalog", { projectCwd: "/home/user/project" }), f.send);
+    f.bridge.route("t1", toolCallFrame("s1", "omp-ui_routines_test_script", { projectCwd: "/home/user/project", command: "echo hi" }), f.send);
+    await settled();
+    const byId = (id: string) => f.sent.find((frame) => frame.id === id);
+    expect(byId("l1")).not.toHaveProperty("isError");
+    expect(JSON.parse(resultText(byId("l1")!))).toMatchObject({ machineLabel: "testbox", activeRunTabId: null });
+    const one = JSON.parse(resultText(byId("l2")!));
+    expect(one.routine.id).toBe(ROUTINE_ID);
+    expect(one.runs).toHaveLength(1);
+    expect(byId("r1")).not.toHaveProperty("isError");
+    expect(resultText(byId("r1")!)).toContain("Deleted routine");
+    expect(resultText(byId("r1")!)).toContain("2 surviving session");
+    expect(f.received).toContainEqual({ removed: ROUTINE_ID });
+    expect(byId("n1")).not.toHaveProperty("isError");
+    expect(resultText(byId("n1")!)).toContain("run run-1 in session run-tab-1");
+    expect(byId("d1")).not.toHaveProperty("isError");
+    expect(JSON.parse(resultText(byId("d1")!))).toMatchObject({ routineId: ROUTINE_ID, timeoutMinutes: 30 });
+    expect(f.received).toContainEqual({ kind: "saved", id: ROUTINE_ID });
+    expect(byId("c1")).not.toHaveProperty("isError");
+    expect(JSON.parse(resultText(byId("c1")!)).tools[0].key).toBe("read");
+    expect(byId("s1")).not.toHaveProperty("isError");
+    expect(JSON.parse(resultText(byId("s1")!))).toMatchObject({ kind: "ok", exitCode: 0, stdout: "hi\n" });
+  });
+
+  it("refuses malformed args on the new routine tools before the service sees them (#1311)", async () => {
+    const f = routineFixture();
+    f.bridge.route("t1", toolCallFrame("l1", "omp-ui_routines_list", { id: "short" }), f.send);
+    f.bridge.route("t1", toolCallFrame("r1", "omp-ui_routines_remove", {}), f.send);
+    f.bridge.route("t1", toolCallFrame("n1", "omp-ui_routines_run_now", { id: ROUTINE_ID, extra: 1 }), f.send);
+    f.bridge.route("t1", toolCallFrame("d1", "omp-ui_routines_dry_run", { kind: "once" }), f.send);
+    f.bridge.route("t1", toolCallFrame("c1", "omp-ui_routines_tool_catalog", {}), f.send);
+    f.bridge.route("t1", toolCallFrame("s1", "omp-ui_routines_test_script", { projectCwd: "/home/user/project", command: "   " }), f.send);
+    await settled();
+    expect(f.received).toEqual([]);
+    for (const id of ["l1", "r1", "n1", "d1", "c1", "s1"]) {
+      expect(f.sent.find((frame) => frame.id === id)).toMatchObject({ id, isError: true });
+    }
   });
 
   it("refuses a bad schedule or unknown zone with the thrown reason so the agent can retry", async () => {

@@ -137,9 +137,10 @@ export function routineAllowsAgentNotification(notifications: RoutineNotificatio
 }
 
 /**
- * Human-only: binds a Routine's fires to one managed artifact's refresh
- * (ADR-0101). The agent host tools carry no `artifact` key, so only the
- * renderer picker can mint one.
+ * Binds a Routine's fires to one managed artifact's refresh (ADR-0101).
+ * #1311 amended ADR-0101 §1: the agent host tools now carry `artifact` too,
+ * still validated through `parseArtifactBinding`; the renderer picker remains
+ * the human route.
  */
 export interface RoutineArtifactBinding {
   artifactId: string;
@@ -297,9 +298,10 @@ export interface RoutineCatalogSnapshot {
 }
 
 /**
- * The narrow agent-facing shape behind `omp-ui_routines_create` (ADR-0100
- * amendment): everything a human editor picks except `enabled`, `deny`, the
- * workspace choice, and the review stamps — those are host-authored.
+ * The agent-facing shape behind `omp-ui_routines_create` (ADR-0100 amendment,
+ * extended by #1311): everything a human editor picks except `enabled` and the
+ * review stamps — those stay host-authored. `workspace`, `deny`, and
+ * `artifact` joined the surface in #1311.
  */
 export interface RoutineAgentCreateArgs {
   name: string;
@@ -307,10 +309,15 @@ export interface RoutineAgentCreateArgs {
   schedule: { kind: "cron"; expr: string };
   timeZone: string;
   projectCwd: string;
+  /** Absent means "worktree", the isolated default; "checkout" runs in place. */
+  workspace: RoutineWorkspace;
   mode: RoutineMode;
   model: string | null;
   thinkingLevel: string | null;
   allow: string[];
+  /** Exact omp tool keys hard-denied at fire time; absent means none. */
+  deny: string[];
+  artifact: RoutineArtifactBinding | null;
   warnUsd: number | null;
   maxUsd: number | null;
   timeoutMinutes: number | null;
@@ -324,10 +331,13 @@ const AGENT_CREATE_KEYS = new Set([
   "schedule",
   "timeZone",
   "projectCwd",
+  "workspace",
   "mode",
   "model",
   "thinkingLevel",
   "allow",
+  "deny",
+  "artifact",
   "warnUsd",
   "maxUsd",
   "timeoutMinutes",
@@ -337,8 +347,9 @@ const AGENT_CREATE_KEYS = new Set([
 
 /**
  * Validates the host tool's arguments off the wire; throws with the reason.
- * Strict on purpose: `enabled`, `deny`, `spend`-as-object, and the review
- * stamps are not expressible here — the answerer owns them.
+ * Strict on purpose: `enabled` and the review stamps are not expressible
+ * here — creating always lands disabled, and only a human (or an explicit
+ * `omp-ui_routines_update` with `enabled`) arms a routine.
  */
 export function parseRoutineAgentCreateArgs(raw: unknown): RoutineAgentCreateArgs {
   if (!isPlainObject(raw)) throw new Error("routine create arguments must be an object");
@@ -355,6 +366,7 @@ export function parseRoutineAgentCreateArgs(raw: unknown): RoutineAgentCreateArg
     throw new Error("projectCwd must be a non-empty path");
   }
   const mode = parseMode(raw.mode);
+  const workspace = parseWorkspace(raw.workspace === undefined ? "worktree" : raw.workspace);
   const allow = parseToolKeyList(raw.allow, "allow");
   return {
     name,
@@ -362,10 +374,13 @@ export function parseRoutineAgentCreateArgs(raw: unknown): RoutineAgentCreateArg
     schedule,
     timeZone,
     projectCwd: raw.projectCwd,
+    workspace,
     mode,
     model: parseNullableString(raw.model === undefined ? null : raw.model, "model"),
     thinkingLevel: parseNullableString(raw.thinkingLevel === undefined ? null : raw.thinkingLevel, "thinkingLevel"),
     allow,
+    deny: parseToolKeyList(raw.deny === undefined ? [] : raw.deny, "deny"),
+    artifact: parseArtifactBinding(raw.artifact, "artifact"),
     warnUsd: parseSpendNumber(raw.warnUsd === undefined ? null : raw.warnUsd, "warnUsd"),
     maxUsd: parseSpendNumber(raw.maxUsd === undefined ? null : raw.maxUsd, "maxUsd"),
     timeoutMinutes: parseTimeoutMinutes(raw.timeoutMinutes, "timeoutMinutes", true),
@@ -378,7 +393,7 @@ export function parseRoutineAgentCreateArgs(raw: unknown): RoutineAgentCreateArg
  * Builds the stored input from agent create args. The guardrail lives here:
  * `enabled` is forced false and the review stamps are placeholders that
  * `RoutineService.create` overwrites with the live catalog — an agent can
- * author a routine, only a human can arm one.
+ * author a routine, only a human (or an explicit armed update) arms one.
  */
 export function routineInputFromAgentCreate(args: RoutineAgentCreateArgs, nowIso: string): RoutineInput {
   return {
@@ -386,27 +401,29 @@ export function routineInputFromAgentCreate(args: RoutineAgentCreateArgs, nowIso
     instructions: args.instructions,
     schedule: args.schedule,
     timeZone: args.timeZone,
-    destination: { projectCwd: args.projectCwd, workspace: "worktree" },
+    destination: { projectCwd: args.projectCwd, workspace: args.workspace },
     mode: args.mode,
     model: args.model,
     thinkingLevel: args.thinkingLevel,
     spend: { warnUsd: args.warnUsd, maxUsd: args.maxUsd },
-    toolPolicy: { allow: args.allow, deny: [], lastReviewedAt: nowIso, reviewedCatalog: [] },
+    toolPolicy: { allow: args.allow, deny: [...args.deny], lastReviewedAt: nowIso, reviewedCatalog: [] },
     scripts: args.scripts,
     timeoutMinutes: args.timeoutMinutes,
     notifications: args.notifications,
-    artifact: null,
+    artifact: args.artifact,
     enabled: false,
   };
 }
 
 /**
- * The narrow agent-facing patch behind `omp-ui_routines_update` (ADR-0100
- * amendment 2). Every field is optional — present means change, absent means
- * leave. Nullable fields distinguish present-with-null (reset to default)
- * from absent (leave), so the parser never collapses them with `??`.
- * `enabled`, `deny`, `workspace`, and whole-object `spend`/`scripts`/
- * `toolPolicy` are not expressible here; `scripts` merges per leaf.
+ * The agent-facing patch behind `omp-ui_routines_update` (ADR-0100
+ * amendment 2, extended by #1311). Every field is optional — present means
+ * change, absent means leave. Nullable fields distinguish present-with-null
+ * (reset to default) from absent (leave), so the parser never collapses them
+ * with `??`. Whole-object `spend`/`scripts`/`toolPolicy` stay unexpressible;
+ * `scripts` merges per leaf. #1311 added `workspace`, `deny`, `artifact`, and
+ * an explicit `enabled` toggle: arming a routine through this tool is an
+ * intentional act the user asked for.
  */
 export interface RoutineAgentUpdateArgs {
   id: string;
@@ -415,10 +432,14 @@ export interface RoutineAgentUpdateArgs {
   schedule?: { kind: "cron"; expr: string };
   timeZone?: string;
   projectCwd?: string;
+  workspace?: RoutineWorkspace;
   mode?: RoutineMode;
   model?: string | null;
   thinkingLevel?: string | null;
   allow?: string[];
+  deny?: string[];
+  artifact?: RoutineArtifactBinding | null;
+  enabled?: boolean;
   warnUsd?: number | null;
   maxUsd?: number | null;
   timeoutMinutes?: number | null;
@@ -433,10 +454,14 @@ const AGENT_UPDATE_KEYS = new Set([
   "schedule",
   "timeZone",
   "projectCwd",
+  "workspace",
   "mode",
   "model",
   "thinkingLevel",
   "allow",
+  "deny",
+  "artifact",
+  "enabled",
   "warnUsd",
   "maxUsd",
   "timeoutMinutes",
@@ -481,6 +506,10 @@ export function parseRoutineAgentUpdateArgs(raw: unknown): RoutineAgentUpdateArg
     args.projectCwd = raw.projectCwd;
     changed = true;
   }
+  if (raw.workspace !== undefined) {
+    args.workspace = parseWorkspace(raw.workspace);
+    changed = true;
+  }
   if (raw.mode !== undefined) {
     args.mode = parseMode(raw.mode);
     changed = true;
@@ -495,6 +524,19 @@ export function parseRoutineAgentUpdateArgs(raw: unknown): RoutineAgentUpdateArg
   }
   if (raw.allow !== undefined) {
     args.allow = parseToolKeyList(raw.allow, "allow");
+    changed = true;
+  }
+  if (raw.deny !== undefined) {
+    args.deny = parseToolKeyList(raw.deny, "deny");
+    changed = true;
+  }
+  if (raw.artifact !== undefined) {
+    args.artifact = parseArtifactBinding(raw.artifact, "artifact");
+    changed = true;
+  }
+  if (raw.enabled !== undefined) {
+    if (typeof raw.enabled !== "boolean") throw new Error("enabled must be a boolean");
+    args.enabled = raw.enabled;
     changed = true;
   }
   if (raw.warnUsd !== undefined) {
@@ -556,17 +598,19 @@ export function parseRoutineAgentUpdateArgs(raw: unknown): RoutineAgentUpdateArg
  * `RoutineService.update`. The service shallow-merges whole objects, so this
  * must receive `current` and emit complete objects: an omitted sibling in
  * `spend`/`scripts`, or the `deny` list, would otherwise be clobbered.
- * The guardrail lives here: every agent edit lands `enabled: false` — editing
- * a live routine disarms scheduled firing until a human re-arms it; the
- * `deny` list and the workspace choice are carried over verbatim; and an
- * `allow` change restamps the review so newly allowed tools prompt at fire.
+ * The guardrails live here: an edit that does not carry an explicit
+ * `enabled` lands `enabled: false` — editing a live routine disarms scheduled
+ * firing until a human re-arms it or the agent is told to arm it outright;
+ * the workspace choice is carried over unless restated; and an
+ * `allow`/`deny` change restamps the review so newly allowed tools prompt at
+ * fire.
  */
 export function routinePatchFromAgentUpdate(
   current: RoutineRecord,
   args: RoutineAgentUpdateArgs,
   nowIso: string,
 ): RoutinePatch {
-  const patch: RoutinePatch = { enabled: false };
+  const patch: RoutinePatch = { enabled: args.enabled ?? false };
   if (args.name !== undefined) patch.name = args.name;
   if (args.instructions !== undefined) patch.instructions = args.instructions;
   if (args.schedule !== undefined) patch.schedule = args.schedule;
@@ -575,8 +619,12 @@ export function routinePatchFromAgentUpdate(
   if (args.model !== undefined) patch.model = args.model;
   if (args.thinkingLevel !== undefined) patch.thinkingLevel = args.thinkingLevel;
   if (args.timeoutMinutes !== undefined) patch.timeoutMinutes = args.timeoutMinutes;
-  if (args.projectCwd !== undefined) {
-    patch.destination = { projectCwd: args.projectCwd, workspace: current.destination.workspace };
+  if (args.artifact !== undefined) patch.artifact = args.artifact;
+  if (args.projectCwd !== undefined || args.workspace !== undefined) {
+    patch.destination = {
+      projectCwd: args.projectCwd ?? current.destination.projectCwd,
+      workspace: args.workspace ?? current.destination.workspace,
+    };
   }
   if (args.scripts !== undefined) {
     patch.scripts = {
@@ -599,17 +647,73 @@ export function routinePatchFromAgentUpdate(
       maxUsd: args.maxUsd !== undefined ? args.maxUsd : current.spend.maxUsd,
     };
   }
-  if (args.allow !== undefined) {
+  if (args.allow !== undefined || args.deny !== undefined) {
     // Restamping forces fire-time approval for newly allowed tools; RoutineService.update
     // replaces both stamps against the live catalog when a toolPolicy is patched.
     patch.toolPolicy = {
-      allow: args.allow,
-      deny: [...current.toolPolicy.deny],
+      allow: args.allow ?? [...current.toolPolicy.allow],
+      deny: args.deny ?? [...current.toolPolicy.deny],
       lastReviewedAt: nowIso,
       reviewedCatalog: [],
     };
   }
   return patch;
+}
+
+/**
+ * The agent arguments behind the read-only `omp-ui_routines_list` tool
+ * (#1311): the whole `routines:getState` snapshot, or one routine when an id
+ * is given.
+ */
+export interface RoutineAgentListArgs {
+  id?: string;
+}
+
+/** Validates the list host tool's arguments; throws with the reason. */
+export function parseRoutineAgentListArgs(raw: unknown): RoutineAgentListArgs {
+  if (!isPlainObject(raw)) throw new Error("routine list arguments must be an object");
+  assertAllowedKeys(raw, new Set(["id"]), "routine list arguments");
+  if (raw.id === undefined) return {};
+  if (typeof raw.id !== "string" || !ROUTINE_ID_PATTERN.test(raw.id)) {
+    throw new Error("id must be a routine id");
+  }
+  return { id: raw.id };
+}
+
+/** Validates the id-only host tools' arguments (`remove`, `runNow`); throws with the reason. */
+export function parseRoutineAgentIdArgs(raw: unknown, label: string): string {
+  if (!isPlainObject(raw)) throw new Error(`routine ${label} arguments must be an object`);
+  assertAllowedKeys(raw, new Set(["id"]), `routine ${label} arguments`);
+  if (typeof raw.id !== "string" || !ROUTINE_ID_PATTERN.test(raw.id)) {
+    throw new Error("id must be a routine id");
+  }
+  return raw.id;
+}
+
+/**
+ * The agent arguments behind `omp-ui_routines_dry_run` (#1311): a saved
+ * routine by id, or a full draft RoutineInput. Drafts validate through the
+ * same strict `parseRoutineInput` the renderer channel uses.
+ */
+export type RoutineAgentDryRunArgs =
+  | { kind: "saved"; id: string }
+  | { kind: "draft"; input: RoutineInput };
+
+/** Validates the dry-run host tool's arguments; throws with the reason. */
+export function parseRoutineAgentDryRunArgs(raw: unknown): RoutineAgentDryRunArgs {
+  if (!isPlainObject(raw)) throw new Error("routine dry-run arguments must be an object");
+  if (raw.kind === "saved") {
+    assertAllowedKeys(raw, new Set(["kind", "id"]), "routine dry-run arguments");
+    if (typeof raw.id !== "string" || !ROUTINE_ID_PATTERN.test(raw.id)) {
+      throw new Error("id must be a routine id");
+    }
+    return { kind: "saved", id: raw.id };
+  }
+  if (raw.kind === "draft") {
+    assertAllowedKeys(raw, new Set(["kind", "input"]), "routine dry-run arguments");
+    return { kind: "draft", input: parseRoutineInput(raw.input) };
+  }
+  throw new Error('routine dry-run kind must be "saved" or "draft"');
 }
 
 /** The chat-link URI that focuses one routine in the Routines view. */
@@ -1109,10 +1213,14 @@ function parseDestination(value: unknown): RoutineDestination {
   if (typeof value.projectCwd !== "string" || value.projectCwd.trim() === "") {
     throw new Error("destination.projectCwd must be a non-empty string");
   }
-  if (value.workspace !== "worktree" && value.workspace !== "checkout") {
+  return { projectCwd: value.projectCwd, workspace: parseWorkspace(value.workspace) };
+}
+
+function parseWorkspace(value: unknown): RoutineWorkspace {
+  if (value !== "worktree" && value !== "checkout") {
     throw new Error("destination.workspace must be \"worktree\" or \"checkout\"");
   }
-  return { projectCwd: value.projectCwd, workspace: value.workspace };
+  return value;
 }
 
 function parseMode(value: unknown): RoutineMode {

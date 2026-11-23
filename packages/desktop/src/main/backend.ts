@@ -727,9 +727,9 @@ export class MainBackend {
           agentDeviceBin: () => resolveAgentDeviceBin(),
           stateDir: () => path.join(app.getPath("userData"), "agent-device"),
         },
-        // Routines (ADR-0100 amendment): the agent authoring tool creates a
-        // disabled draft through the same service the editor uses. Lazy: the
-        // service is constructed after this manager, like publish() below.
+        // Routines (ADR-0100 amendment, #1311): the agent tools ride the same
+        // RoutineService handlers as the renderer's routines:* channels.
+        // Lazy: the service is constructed after this manager, like publish() below.
         routines: {
           create: async (_tabId, args) => {
             const record = await this.routines.create(routineInputFromAgentCreate(args, new Date().toISOString()));
@@ -738,8 +738,14 @@ export class MainBackend {
           update: async (_tabId, args) => {
             const { record, wasEnabled } = await this.routines.updateFromAgent(
               args, new Date().toISOString());
-            return { id: record.id, name: record.name, wasEnabled };
+            return { id: record.id, name: record.name, wasEnabled, enabled: record.enabled };
           },
+          state: () => this.routines.state(),
+          remove: (id) => this.routines.remove(id),
+          runNow: (id) => this.routines.runNow(id),
+          dryRun: (req) => this.routines.dryRun(req),
+          toolCatalog: (projectCwd) => this.routines.toolCatalog(projectCwd),
+          testScript: (input) => this.routines.testScript(input),
         },
         // Routines (ADR-0100): the per-run timer owner, right after the dialog gates.
         routineLifecycle: (access) => {

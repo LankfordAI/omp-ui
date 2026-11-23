@@ -551,3 +551,47 @@ describe("result builders", () => {
     });
   });
 });
+
+describe("routine tool schemas (#1311)", () => {
+  const byName = new Map(
+    hostToolsDefinition({ vault: false, fleet: false, device: false, theme: false, issues: false, artifacts: false, routines: true })
+      .filter((tool) => tool.name.startsWith("omp-ui_routines_"))
+      .map((tool) => [tool.name, tool]),
+  );
+
+  it("registers the eight routine tools behind the gate", () => {
+    expect([...byName.keys()]).toEqual([
+      "omp-ui_routines_create",
+      "omp-ui_routines_update",
+      "omp-ui_routines_list",
+      "omp-ui_routines_remove",
+      "omp-ui_routines_run_now",
+      "omp-ui_routines_dry_run",
+      "omp-ui_routines_tool_catalog",
+      "omp-ui_routines_test_script",
+    ]);
+  });
+
+  it("carries workspace, deny and artifact on create and update; enabled only on update", () => {
+    const props = (name: string) => byName.get(name)!.parameters.properties as Record<string, unknown>;
+    for (const name of ["omp-ui_routines_create", "omp-ui_routines_update"]) {
+      expect(props(name)).toMatchObject({
+        workspace: { type: "string", enum: ["worktree", "checkout"] },
+        deny: { type: "array", items: { type: "string" } },
+      });
+      expect(props(name)).toHaveProperty("artifact");
+    }
+    // Create never accepts enabled; update does, and only as a boolean.
+    expect(props("omp-ui_routines_create")).not.toHaveProperty("enabled");
+    expect(props("omp-ui_routines_update")).toMatchObject({ enabled: { type: "boolean" } });
+  });
+
+  it("gives the endpoint tools exact required keys", () => {
+    expect(byName.get("omp-ui_routines_list")!.parameters.required ?? []).toEqual([]);
+    expect(byName.get("omp-ui_routines_remove")!.parameters.required).toEqual(["id"]);
+    expect(byName.get("omp-ui_routines_run_now")!.parameters.required).toEqual(["id"]);
+    expect(byName.get("omp-ui_routines_dry_run")!.parameters.required).toEqual(["kind"]);
+    expect(byName.get("omp-ui_routines_tool_catalog")!.parameters.required).toEqual(["projectCwd"]);
+    expect(byName.get("omp-ui_routines_test_script")!.parameters.required).toEqual(["projectCwd", "command"]);
+  });
+});

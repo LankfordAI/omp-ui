@@ -23,3 +23,14 @@ The fire-time compiler takes `allowArtifactCapture`; while a routine is bound it
 ## Rejected
 
 - Agent-authored bindings (host-tool surfaces stay key-free); connector/scheduler platforms inside artifacts (ADR-0091's rejection stands — the Routine *is* the scheduler); fleet-dispatched or remote refreshes (routine dispatch and the artifact library are both local-owner-gated already); a second scheduled-prompt-style wire state for the ask.
+
+## Addendum (2026-11-23, #1311): agent-authored bindings
+
+§1's "human-only" rule superseded: `omp-ui_routines_create` /
+`omp-ui_routines_update` now carry the `artifact` key (create accepts a binding
+or omits it; update accepts a binding or an explicit null to clear). Bindings
+still validate through `parseArtifactBinding` on both paths — artifact UUID,
+1..32 unique dataset keys, boolean `autoApply` — and every fire-time fence
+(preflight, store fences on `autoApply` apply) is unchanged. The renderer
+picker remains the human route; strict unknown-key rejection still refuses a
+malformed binding.

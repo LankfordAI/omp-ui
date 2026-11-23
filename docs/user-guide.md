@@ -396,14 +396,19 @@ stays editable.
 
 **New routine** opens the editor. Asking the assistant in a chat is also a
 supported route: when you explicitly ask it to build you a scheduled routine,
-it calls `omp-ui_routines_create`, and the result always lands **disabled** —
-the assistant cannot arm or run a routine. Its reply carries a review link that
-opens the routine here; check its tool policy and schedule, then turn the enable
-switch on yourself. Asking it to change an existing routine works the same way
-(`omp-ui_routines_update`): it can edit the fields you ask for — including run
-hooks — but only you can re-arm it. **Any agent edit saves the routine
-disabled**, even one that was running on schedule, so review it and turn the
-enable switch back on.
+it calls `omp-ui_routines_create`, and the result always lands **disabled**.
+Its reply carries a review link that opens the routine here; check its tool
+policy and schedule, then turn the enable switch on yourself. Asking it to
+change an existing routine works the same way (`omp-ui_routines_update`): it
+can edit the fields you ask for — including run hooks, the deny list, the
+workspace choice, and an artifact binding. **Any agent edit that does not
+explicitly re-arm saves the routine disabled**, even one that was running on
+schedule, so review it and turn the enable switch back on — or tell the
+assistant to enable it, which it may only do when you asked for exactly that.
+Since #1311 the assistant can also reach the rest of the Routines view's
+surface when you ask: listing routines and their run history, deleting one,
+running one now, Dry run, the project's exact tool-key catalog, and testing a
+run-hook command — each behind the same guards the editor enforces.
 
 - **Name** (up to 80 characters) and **Instructions** (up to 20,000
   characters), sent as the first prompt of each fresh session. omp-ui appends a

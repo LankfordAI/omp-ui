@@ -94,9 +94,21 @@ export function hostUriSchemeDefinition(): RpcHostUriSchemeDefinition {
 }
 
 export interface HostToolOptions { vault: boolean; fleet: boolean; device: boolean; theme: boolean; issues: boolean; artifacts: boolean; routines: boolean }
-/** The routine host tools (ADR-0100 amendments): author or edit a definition; only a human can arm one. */
+/** The routine host tools (ADR-0100 amendments, extended by #1311): the full Routines surface; only create and an explicit update arm decision stay constrained. */
 export const ROUTINE_CREATE_TOOL_NAME = "omp-ui_routines_create";
 export const ROUTINE_UPDATE_TOOL_NAME = "omp-ui_routines_update";
+/** Full state behind `routines:getState`: every routine's complete config, run history, active run. (#1311) */
+export const ROUTINE_LIST_TOOL_NAME = "omp-ui_routines_list";
+/** Delete a routine behind `routines:remove` — destructive, same service guard as the UI. (#1311) */
+export const ROUTINE_REMOVE_TOOL_NAME = "omp-ui_routines_remove";
+/** Fire once behind `routines:runNow`; refuses while another routine is turning. (#1311) */
+export const ROUTINE_RUN_NOW_TOOL_NAME = "omp-ui_routines_run_now";
+/** The fire-time compiler preview behind `routines:dryRun`; zero writes, zero spawns. (#1311) */
+export const ROUTINE_DRY_RUN_TOOL_NAME = "omp-ui_routines_dry_run";
+/** Exact tool keys for a project behind `routines:toolCatalog`, so allow/deny need no guessing. (#1311) */
+export const ROUTINE_TOOL_CATALOG_TOOL_NAME = "omp-ui_routines_tool_catalog";
+/** Run one hook command on demand behind `routines:testScript`; nothing persisted. (#1311) */
+export const ROUTINE_TEST_SCRIPT_TOOL_NAME = "omp-ui_routines_test_script";
 
 /** Notify and render_html are always present; registered vaults enable the ten vault tools; the caller's fleet gate (every chat, or the fleet setting) enables the nine fleet tools; a session-bound device pane enables omp-ui_device; the theme agent-access setting enables omp-ui_theme_save, omp-ui_theme_set and omp-ui_theme_list after it; the issue agent-access setting enables omp-ui_issue_draft and omp-ui_issue_file after that; managed artifacts enable omp-ui_artifact_capture; the Routines gate enables omp-ui_routines_create and omp-ui_routines_update last. */
 export function hostToolsDefinition(
@@ -127,7 +139,17 @@ export function hostToolsDefinition(
   if (opts.theme) tools.push(themeTool(), themeSetTool(), themeListTool());
   if (opts.issues) tools.push(issueDraftTool(), issueFileTool());
   if (opts.artifacts) tools.push(artifactCaptureTool());
-  if (opts.routines) tools.push(routineCreateTool(), routineUpdateTool());
+  if (opts.routines)
+    tools.push(
+      routineCreateTool(),
+      routineUpdateTool(),
+      routineListTool(),
+      routineRemoveTool(),
+      routineRunNowTool(),
+      routineDryRunTool(),
+      routineToolCatalogTool(),
+      routineTestScriptTool(),
+    );
   return tools;
 }
 
@@ -156,11 +178,36 @@ const ROUTINE_NOTIFICATIONS_SCHEMA = {
   },
 } as const;
 
+const ROUTINE_ARTIFACT_BINDING_SCHEMA = {
+  type: "object",
+  additionalProperties: false,
+  required: ["artifactId", "datasetIds", "autoApply"],
+  properties: {
+    artifactId: {
+      type: "string",
+      pattern: "^[0-9a-fA-F]{8}-[0-9a-fA-F]{4}-[1-8][0-9a-fA-F]{3}-[89abAB][0-9a-fA-F]{3}-[0-9a-fA-F]{12}$",
+      description: "UUID of a kept, managed artifact the routine refreshes on every fire.",
+    },
+    datasetIds: {
+      type: "array",
+      minItems: 1,
+      maxItems: 32,
+      uniqueItems: true,
+      items: { type: "string", pattern: "^[A-Za-z][A-Za-z0-9_-]{0,63}$" },
+      description: "Dataset keys from the artifact's current definition to refresh.",
+    },
+    autoApply: {
+      type: "boolean",
+      description: "When true, the host applies staged captures without review if every store fence holds.",
+    },
+  },
+} as const;
+
 /**
- * The routine authoring tool (ADR-0100 amendment). The answerer forces
- * `enabled: false` server-side: an agent may author a routine, only a human
- * can arm one. Delete and runNow stay human-only by absence; edits go
- * through omp-ui_routines_update.
+ * The routine authoring tool (ADR-0100 amendment, extended by #1311). The
+ * answerer forces `enabled: false` server-side: an agent may author a
+ * routine, only the Routines view or an explicit omp-ui_routines_update with
+ * `enabled: true` arms one.
  */
 function routineCreateTool(): RpcHostToolDefinition {
   return {
@@ -168,8 +215,8 @@ function routineCreateTool(): RpcHostToolDefinition {
     loadMode: "essential",
     description:
       "Create a scheduled Routine in the user's Routines library. Call it ONLY when the user explicitly asked for a recurring scheduled agent run; never for one-off timing of your own work. " +
-      "The routine is always saved DISABLED and cannot be enabled or run by you; use omp-ui_routines_update to edit it later. The user must open it and turn on the enable switch before it ever fires. " +
-      "projectCwd must be a registered project path (omp-ui_fleet_machines lists them). allow lists exact omp tool keys the routine may use unprompted; anything else prompts the user at fire time. " +
+      "The routine is always saved DISABLED and cannot be enabled or run by you; use omp-ui_routines_update to edit it later, including an explicit enabled:true to arm it only when the user asked for that. The user must otherwise open it and turn on the enable switch before it ever fires. " +
+      "projectCwd must be a registered project path (omp-ui_fleet_machines lists them). allow lists exact omp tool keys the routine may use unprompted; deny hard-denies keys at fire time (omp-ui_routines_tool_catalog lists the exact keys for a project); anything else prompts the user at fire time. " +
       `name ≤ 80 characters, instructions ≤ ${ROUTINE_INSTRUCTIONS_MAX}, timeZone an IANA zone, schedule a cron expression. ` +
       `scripts are optional shell hooks run before/after each fire (≤ ${ROUTINE_SCRIPT_MAX} characters per phase); they land only in the disabled draft and are shown to the user for review before they can ever run. ` +
       "Paste the returned Markdown review link verbatim into your reply so the user can open the routine for review.",
@@ -187,11 +234,25 @@ function routineCreateTool(): RpcHostToolDefinition {
           properties: { kind: { const: "cron" }, expr: { type: "string" } },
         },
         timeZone: { type: "string", description: "IANA time zone, e.g. America/New_York." },
-        projectCwd: { type: "string", description: "Registered project path the routine runs in (always a fresh worktree)." },
+        projectCwd: { type: "string", description: "Registered project path the routine runs in." },
+        workspace: {
+          type: "string",
+          enum: ["worktree", "checkout"],
+          description: 'Run isolation; omit = "worktree" (a fresh worktree each fire). "checkout" runs in the registered checkout itself.',
+        },
         mode: { type: "string", enum: ["plan", "build"] },
         model: { type: ["string", "null"], description: "Model selector; null = machine default." },
         thinkingLevel: { type: ["string", "null"], description: "Thinking level; null = machine default." },
         allow: { type: "array", items: { type: "string" }, description: "Exact omp tool keys allowed unprompted at fire time." },
+        deny: {
+          type: "array",
+          items: { type: "string" },
+          description: "Exact omp tool keys hard-denied at fire time; omit or [] = none.",
+        },
+        artifact: {
+          oneOf: [ROUTINE_ARTIFACT_BINDING_SCHEMA, { type: "null" }],
+          description: "Scheduled-refresh binding (ADR-0101); omit = plain routine.",
+        },
         warnUsd: { type: ["number", "null"], minimum: 0, maximum: ROUTINE_COST_MAX_USD, description: "Spend warning cap; null = registry default." },
         maxUsd: { type: ["number", "null"], minimum: 0, maximum: ROUTINE_COST_MAX_USD, description: "Spend hard cap; null = registry default." },
         timeoutMinutes: {
@@ -214,10 +275,11 @@ function routineCreateTool(): RpcHostToolDefinition {
 }
 
 /**
- * The routine editing tool (ADR-0100 amendment 2). Field-level merge over the
- * stored record; the answerer forces `enabled: false` — every agent edit
- * disarms scheduled firing until a human re-arms. `deny`, `workspace`, and
- * the review stamps stay host-owned.
+ * The routine editing tool (ADR-0100 amendment 2, extended by #1311).
+ * Field-level merge over the stored record; an edit that omits `enabled`
+ * forces `enabled: false` — editing a live routine disarms scheduled firing
+ * until a human re-arms it or the user explicitly asks the agent to arm it
+ * with `enabled: true`.
  */
 function routineUpdateTool(): RpcHostToolDefinition {
   return {
@@ -226,11 +288,11 @@ function routineUpdateTool(): RpcHostToolDefinition {
     description:
       "Edit an existing scheduled Routine in the user's Routines library. Call it ONLY when the user explicitly asked to change a routine they own. " +
       "Field-level merge: only the fields you send change; absent fields keep their current values. warnUsd/maxUsd merge individually; scripts.pre/post merge per phase (send \"\" to clear one hook, omit to keep it); notifications flags merge individually; " +
-      "allow replaces the allow list but preserves the routine's existing deny list, which you can never change. " +
+      "allow replaces the allow list and deny replaces the deny list — omit a list to preserve it, send [] to clear it. " +
       "For model, thinkingLevel, warnUsd, maxUsd, timeoutMinutes: send null to reset to the machine/registry/30-min default, omit the key to leave it alone. " +
-      "Any update saves the routine DISABLED, even if it was enabled — the user must turn the enable switch back on; you can never enable or run a routine. " +
-      `enabled, deny, destination.workspace, and unknown keys are refused. name ≤ 80 characters, instructions ≤ ${ROUTINE_INSTRUCTIONS_MAX}, timeZone an IANA zone, schedule a cron expression, scripts phases ≤ ${ROUTINE_SCRIPT_MAX} characters. ` +
-      "Paste the returned Markdown review link verbatim into your reply and tell the user the edited routine is disabled until they re-enable it.",
+      "Any update that does not carry an explicit enabled field saves the routine DISABLED, even one that was enabled — the user must turn the enable switch back on, or you may pass enabled:true only when the user explicitly asked to arm/re-enable it. Arming this way is an explicit act; destructive actions (delete) and run-now stay available through the dedicated tools and remain visible in the Routines view. " +
+      `name ≤ 80 characters, instructions ≤ ${ROUTINE_INSTRUCTIONS_MAX}, timeZone an IANA zone, schedule a cron expression, scripts phases ≤ ${ROUTINE_SCRIPT_MAX} characters. ` +
+      "Paste the returned Markdown review link verbatim into your reply and tell the user whether the routine is left disabled (they must re-enable) or armed at their request.",
     parameters: {
       type: "object",
       additionalProperties: false,
@@ -246,11 +308,30 @@ function routineUpdateTool(): RpcHostToolDefinition {
           properties: { kind: { const: "cron" }, expr: { type: "string" } },
         },
         timeZone: { type: "string", description: "IANA time zone, e.g. America/New_York." },
-        projectCwd: { type: "string", description: "New registered project path; the workspace choice is kept from the stored routine." },
+        projectCwd: { type: "string", description: "New registered project path; the workspace choice is kept from the stored routine unless workspace is sent." },
+        workspace: {
+          type: "string",
+          enum: ["worktree", "checkout"],
+          description: 'New run isolation; omit = keep the stored choice. "checkout" runs in the registered checkout itself.',
+        },
         mode: { type: "string", enum: ["plan", "build"] },
         model: { type: ["string", "null"], description: "Model selector; null = machine default; omit = leave unchanged." },
         thinkingLevel: { type: ["string", "null"], description: "Thinking level; null = machine default; omit = leave unchanged." },
-        allow: { type: "array", items: { type: "string" }, description: "Replaces the exact omp tool keys allowed unprompted; deny is preserved." },
+        allow: { type: "array", items: { type: "string" }, description: "Replaces the exact omp tool keys allowed unprompted; omit = preserve the current list." },
+        deny: {
+          type: "array",
+          items: { type: "string" },
+          description: "Replaces the exact omp tool keys hard-denied at fire time; omit = preserve, [] = clear.",
+        },
+        artifact: {
+          oneOf: [ROUTINE_ARTIFACT_BINDING_SCHEMA, { type: "null" }],
+          description: "Scheduled-refresh binding (ADR-0101); null clears it, omit = leave unchanged.",
+        },
+        enabled: {
+          type: "boolean",
+          description:
+            "Arm (true) or disarm (false) scheduled firing. Omit = the routine is saved disabled like every agent edit; pass true ONLY when the user explicitly asked to enable this routine.",
+        },
         warnUsd: { type: ["number", "null"], minimum: 0, maximum: ROUTINE_COST_MAX_USD, description: "Spend warning cap; null = registry default; omit = leave unchanged." },
         maxUsd: { type: ["number", "null"], minimum: 0, maximum: ROUTINE_COST_MAX_USD, description: "Spend hard cap; null = registry default; omit = leave unchanged." },
         timeoutMinutes: {
@@ -267,6 +348,136 @@ function routineUpdateTool(): RpcHostToolDefinition {
           ...ROUTINE_NOTIFICATIONS_SCHEMA,
           description: "OS notification preferences; omitted flags keep their current values.",
         },
+      },
+    },
+  };
+}
+
+/**
+ * The read surface behind `routines:getState` (#1311): every stored routine's
+ * complete config, the run-history rows, and which run is active now. Answers
+ * as compact JSON the agent can read directly; pass an id for one routine.
+ */
+function routineListTool(): RpcHostToolDefinition {
+  return {
+    name: ROUTINE_LIST_TOOL_NAME,
+    loadMode: "essential",
+    description:
+      "List the user's scheduled Routines with their full configuration, recent run history, and which routine run is active right now. Read-only. " +
+      "Pass an id to get one routine's complete record (tool policy, scripts, caps, notifications, artifact binding). " +
+      "Answers as JSON: routines[], runs[] (audit rows: firedAtMs, trigger, outcome, reasonCode), activeRunTabId, defaultWarnCostUsd, defaultMaxCostUsd.",
+    parameters: {
+      type: "object",
+      additionalProperties: false,
+      properties: {
+        id: { type: "string", pattern: ROUTINE_ID_PATTERN.source, description: "Optional routine id; omit to list every routine." },
+      },
+    },
+  };
+}
+
+/** Destructive but service-guarded like the UI's delete (#1311). */
+function routineRemoveTool(): RpcHostToolDefinition {
+  return {
+    name: ROUTINE_REMOVE_TOOL_NAME,
+    loadMode: "essential",
+    description:
+      "Delete a scheduled Routine and its run history. Call it ONLY when the user explicitly asked to delete/remove that exact routine — this is destructive and cannot be undone. " +
+      "A run in flight keeps running; surviving sessions lose the routine marker. Refused while the Routines gate is off, like every other routine operation.",
+    parameters: {
+      type: "object",
+      additionalProperties: false,
+      required: ["id"],
+      properties: {
+        id: { type: "string", pattern: ROUTINE_ID_PATTERN.source, description: "The routine id to delete." },
+      },
+    },
+  };
+}
+
+/** Fires once; keeps the scheduler's lane/overlap guards verbatim (#1311). */
+function routineRunNowTool(): RpcHostToolDefinition {
+  return {
+    name: ROUTINE_RUN_NOW_TOOL_NAME,
+    loadMode: "essential",
+    description:
+      "Trigger one Routine immediately, without advancing its schedule. Call it ONLY when the user explicitly asked to run that routine now. " +
+      "Refused when the Routines gate is off, when the routine's previous run is still open, or when another routine is turning on this host — the same guards the Routines view enforces. " +
+      "The fire starts a real session and can spend money up to the routine's caps.",
+    parameters: {
+      type: "object",
+      additionalProperties: false,
+      required: ["id"],
+      properties: {
+        id: { type: "string", pattern: ROUTINE_ID_PATTERN.source, description: "The routine id to fire now." },
+      },
+    },
+  };
+}
+
+/** The compiled-policy preview (#1311); reuses the draft/saved dry-run request. */
+function routineDryRunTool(): RpcHostToolDefinition {
+  return {
+    name: ROUTINE_DRY_RUN_TOOL_NAME,
+    loadMode: "essential",
+    description:
+      "Preview one Routine exactly as it would fire: the compiled per-tool approval policy (allow/prompt/deny per catalogued tool), the next fire time when enabled, effective spend caps, wall-clock timeout, notifications, and warnings (newly-added tools, missing keys, CLI-bypass). " +
+      "Writes nothing and starts nothing. Preview a saved routine by id, or an unsaved configuration by passing the full draft input.",
+    parameters: {
+      type: "object",
+      additionalProperties: false,
+      required: ["kind"],
+      oneOf: [
+        { properties: { kind: { const: "saved" }, id: { type: "string" } }, required: ["id"] },
+        { properties: { kind: { const: "draft" }, input: { type: "object" } }, required: ["input"] },
+      ],
+      properties: {
+        kind: { type: "string", enum: ["saved", "draft"], description: "Preview a stored routine or an unsaved draft." },
+        id: { type: "string", pattern: ROUTINE_ID_PATTERN.source, description: "Routine id (kind saved)." },
+        input: {
+          type: ["object", "null"],
+          description:
+            'Full RoutineInput draft (kind draft): name, instructions, schedule { kind:"cron", expr }, timeZone, destination { projectCwd, workspace }, mode, model, thinkingLevel, spend { warnUsd, maxUsd }, toolPolicy { allow, deny }, scripts { pre, post }, timeoutMinutes, notifications, artifact, enabled.',
+        },
+      },
+    },
+  };
+}
+
+/** Exact policy keys for one project (#1311). */
+function routineToolCatalogTool(): RpcHostToolDefinition {
+  return {
+    name: ROUTINE_TOOL_CATALOG_TOOL_NAME,
+    loadMode: "essential",
+    description:
+      "List the exact omp tool keys available to a Routine running in one registered project — built-ins, vault tools, and every MCP server tool — so allow/deny lists need no guessing. " +
+      "Answers as JSON: tools[] with key, source, group, groupLabel, description, plus staleServers and enumerationError when some MCP server could not be enumerated.",
+    parameters: {
+      type: "object",
+      additionalProperties: false,
+      required: ["projectCwd"],
+      properties: {
+        projectCwd: { type: "string", description: "Registered project path whose tool inventory to enumerate." },
+      },
+    },
+  };
+}
+
+/** Attended hook test (#1283), now agent-reachable with the same caps (#1311). */
+function routineTestScriptTool(): RpcHostToolDefinition {
+  return {
+    name: ROUTINE_TEST_SCRIPT_TOOL_NAME,
+    loadMode: "essential",
+    description:
+      `Run one Routine pre/post hook command on demand in a registered project and return its exit code and capped stdout/stderr tails. Nothing is persisted: no store write, run row, or notice. ` +
+      `Command ≤ ${ROUTINE_SCRIPT_MAX} characters. It really executes the command in that project — call it when the user asked to test a hook command, not as a general shell.`,
+    parameters: {
+      type: "object",
+      additionalProperties: false,
+      required: ["projectCwd", "command"],
+      properties: {
+        projectCwd: { type: "string", description: "Registered project path the hook command runs in." },
+        command: { type: "string", maxLength: ROUTINE_SCRIPT_MAX, description: "The shell command to test." },
       },
     },
   };

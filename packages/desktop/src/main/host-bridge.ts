@@ -92,12 +92,28 @@ import {
   type RpcFrame,
   ROUTINE_CREATE_TOOL_NAME,
   ROUTINE_UPDATE_TOOL_NAME,
+  ROUTINE_LIST_TOOL_NAME,
+  ROUTINE_REMOVE_TOOL_NAME,
+  ROUTINE_RUN_NOW_TOOL_NAME,
+  ROUTINE_DRY_RUN_TOOL_NAME,
+  ROUTINE_TOOL_CATALOG_TOOL_NAME,
+  ROUTINE_TEST_SCRIPT_TOOL_NAME,
   parseRoutineAgentCreateArgs,
   parseRoutineAgentUpdateArgs,
+  parseRoutineAgentListArgs,
+  parseRoutineAgentIdArgs,
+  parseRoutineAgentDryRunArgs,
+  parseRoutineTestScriptRequest,
   parseRoutineFocusUri,
   routineFocusUri,
   type RoutineAgentCreateArgs,
   type RoutineAgentUpdateArgs,
+  type RoutineCatalogSnapshot,
+  type RoutineDryRunRequest,
+  type RoutineDryRunResult,
+  type RoutineTestScriptRequest,
+  type RoutineTestScriptResult,
+  type RoutinesState,
 } from "@omp-ui/core";
 import type { ConfinedPlanRead } from "./plan-file";
 import type { ArtifactService } from "./artifact-service";
@@ -183,10 +199,22 @@ export interface HostBridgeDeps {
   };
   /** The issue host tools' answerer (ADR-0095); absent means both answer as unavailable. */
   issues?: IssueBridgeDeps;
-  /** The routine host tools' answerers (ADR-0100 amendments); absent means they answer as unavailable. */
+  /** The routine host tools' answerers (ADR-0100 amendments, #1311); absent means they answer as unavailable. */
   routines?: {
     create(tabId: string, args: RoutineAgentCreateArgs): Promise<{ id: string; name: string }>;
-    update(tabId: string, args: RoutineAgentUpdateArgs): Promise<{ id: string; name: string; wasEnabled: boolean }>;
+    update(tabId: string, args: RoutineAgentUpdateArgs): Promise<{ id: string; name: string; wasEnabled: boolean; enabled: boolean }>;
+    /** Full host state behind `omp-ui_routines_list` (rides routines:getState). */
+    state(): Promise<RoutinesState> | RoutinesState;
+    /** Delete behind `omp-ui_routines_remove` (rides routines:remove). */
+    remove(id: string): Promise<{ releasedSessions: number }> | { releasedSessions: number };
+    /** Fire once behind `omp-ui_routines_run_now` (rides routines:runNow and its guards). */
+    runNow(id: string): Promise<{ tabId: string; runId: string }>;
+    /** Compiled-policy preview behind `omp-ui_routines_dry_run` (rides routines:dryRun). */
+    dryRun(req: RoutineDryRunRequest): Promise<RoutineDryRunResult>;
+    /** Exact tool keys behind `omp-ui_routines_tool_catalog` (rides routines:toolCatalog). */
+    toolCatalog(projectCwd: string): Promise<RoutineCatalogSnapshot>;
+    /** Attended hook test behind `omp-ui_routines_test_script` (rides routines:testScript). */
+    testScript(input: RoutineTestScriptRequest): Promise<RoutineTestScriptResult>;
   };
   artifacts?: ArtifactService;
 }
@@ -748,27 +776,38 @@ export class HostBridge {
       this.answer(call.id, frame, send);
       return;
     }
-    if (call.toolName === ROUTINE_CREATE_TOOL_NAME || call.toolName === ROUTINE_UPDATE_TOOL_NAME) {
+    if (
+      call.toolName === ROUTINE_CREATE_TOOL_NAME ||
+      call.toolName === ROUTINE_UPDATE_TOOL_NAME ||
+      call.toolName === ROUTINE_LIST_TOOL_NAME ||
+      call.toolName === ROUTINE_REMOVE_TOOL_NAME ||
+      call.toolName === ROUTINE_RUN_NOW_TOOL_NAME ||
+      call.toolName === ROUTINE_DRY_RUN_TOOL_NAME ||
+      call.toolName === ROUTINE_TOOL_CATALOG_TOOL_NAME ||
+      call.toolName === ROUTINE_TEST_SCRIPT_TOOL_NAME
+    ) {
       const routines = this.deps.routines;
       if (routines === undefined) {
         this.answer(call.id, hostToolErrorResult(call.id, "routine tools are unavailable"), send);
         return;
       }
-      const isUpdate = call.toolName === ROUTINE_UPDATE_TOOL_NAME;
+      const label = call.toolName.replace("omp-ui_", "");
       let frame: RpcFrame;
       try {
-        if (isUpdate) {
+        if (call.toolName === ROUTINE_UPDATE_TOOL_NAME) {
           const args = parseRoutineAgentUpdateArgs(call.args);
-          // routinePatchFromAgentUpdate forces enabled: false — every agent edit disarms firing.
+          // routinePatchFromAgentUpdate forces enabled:false unless the user explicitly asked to arm.
           const updated = await routines.update(tabId, args);
           frame = hostToolTextResult(call.id, [
-            updated.wasEnabled
+            updated.wasEnabled && !updated.enabled
               ? `Updated routine "${updated.name}" (id ${updated.id}). This routine was enabled and is now disabled.`
               : `Updated routine "${updated.name}" (id ${updated.id}).`,
             `[Review "${updated.name}" in Routines](${routineFocusUri(updated.id)})`,
-            "It was saved disabled — tell the user any agent edit disarms scheduled firing and they must turn the enable switch back on.",
+            updated.enabled
+              ? "It is enabled and will fire on schedule — the user asked to arm it."
+              : "It was saved disabled — tell the user any agent edit without an explicit enabled field disarms scheduled firing and they must turn the enable switch back on (or ask you to pass enabled:true).",
           ].join("\n"));
-        } else {
+        } else if (call.toolName === ROUTINE_CREATE_TOOL_NAME) {
           const args = parseRoutineAgentCreateArgs(call.args);
           const created = await routines.create(tabId, args);
           // The create path forces enabled: false (core routineInputFromAgentCreate).
@@ -777,9 +816,50 @@ export class HostBridge {
             `[Review "${created.name}" in Routines](${routineFocusUri(created.id)})`,
             "It will not run until the user opens it and turns on the enable switch. Tell the user routine authoring always lands disabled and they must review and enable it.",
           ].join("\n"));
+        } else if (call.toolName === ROUTINE_LIST_TOOL_NAME) {
+          const args = parseRoutineAgentListArgs(call.args);
+          const state = await routines.state();
+          frame = hostToolTextResult(
+            call.id,
+            JSON.stringify(
+              args.id === undefined
+                ? state
+                : {
+                    routine: state.routines.find((routine) => routine.id === args.id) ?? null,
+                    runs: state.runs.filter((row) => row.routineId === args.id),
+                    activeRunTabId: state.activeRunTabId,
+                  },
+            ),
+          );
+        } else if (call.toolName === ROUTINE_REMOVE_TOOL_NAME) {
+          const id = parseRoutineAgentIdArgs(call.args, "remove");
+          const { releasedSessions } = await routines.remove(id);
+          frame = hostToolTextResult(
+            call.id,
+            `Deleted routine ${id}.${releasedSessions > 0 ? ` Released the routine marker on ${releasedSessions} surviving session(s).` : ""}`,
+          );
+        } else if (call.toolName === ROUTINE_RUN_NOW_TOOL_NAME) {
+          const id = parseRoutineAgentIdArgs(call.args, "runNow");
+          const { tabId: runTabId, runId } = await routines.runNow(id);
+          frame = hostToolTextResult(call.id, `Started routine ${id} now: run ${runId} in session ${runTabId}.`);
+        } else if (call.toolName === ROUTINE_DRY_RUN_TOOL_NAME) {
+          const args = parseRoutineAgentDryRunArgs(call.args);
+          frame = hostToolTextResult(call.id, JSON.stringify(await routines.dryRun(args)));
+        } else if (call.toolName === ROUTINE_TOOL_CATALOG_TOOL_NAME) {
+          const record: Record<string, unknown> =
+            call.args !== null && typeof call.args === "object" ? (call.args as Record<string, unknown>) : {};
+          if (Object.keys(record).some((key) => key !== "projectCwd")) {
+            throw new Error("routine tool-catalog arguments only accept projectCwd");
+          }
+          if (typeof record.projectCwd !== "string" || record.projectCwd.trim() === "") {
+            throw new Error("projectCwd must be a non-empty path");
+          }
+          frame = hostToolTextResult(call.id, JSON.stringify(await routines.toolCatalog(record.projectCwd)));
+        } else {
+          const req = parseRoutineTestScriptRequest(call.args);
+          frame = hostToolTextResult(call.id, JSON.stringify(await routines.testScript(req)));
         }
       } catch (error) {
-        const label = isUpdate ? "routines_update" : "routines_create";
         frame = hostToolErrorResult(call.id, `${label} refused: ${error instanceof Error ? error.message : "unavailable"}`);
       }
       this.answer(call.id, frame, send);
