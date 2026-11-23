@@ -1225,7 +1225,7 @@ describe("PlanReview refine attachment picker (issue #65)", () => {
     const click = vi.spyOn(input, "click");
 
     expect(button).not.toBeNull();
-    expect(input.accept).toBe("image/*,application/pdf");
+    expect(input.accept).toBe("image/*,application/pdf,video/mp4,video/webm,video/quicktime,.mp4,.webm,.mov");
     expect(input.multiple).toBe(true);
     act(() => button.click());
     expect(click).toHaveBeenCalledOnce();

@@ -2022,8 +2022,8 @@ export const BACKEND_CHANNELS = {
   /**
    * Terminal-tab twin of attachDocument: writes the scratch file on the
    * owning instance and bracketed-pastes the bare path into the PTY, like
-   * pty:pasteImage but with a .pdf extension — omp's TUI treats a non-image
-   * path as ordinary text and the agent reads it.
+   * pty:pasteImage but with the attachment's extension (pdf/mp4/webm/mov) —
+   * omp's TUI treats a non-image path as ordinary text and the agent reads it.
    */
   ptyPasteDocument: {
     channel: "pty:pasteDocument",

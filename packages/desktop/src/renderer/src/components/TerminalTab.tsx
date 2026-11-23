@@ -441,7 +441,7 @@ export const TerminalTab = memo(function TerminalTab({ tabId, active }: { tabId:
       <input
         ref={filePickerRef}
         type="file"
-        accept="image/*,application/pdf"
+        accept="image/*,application/pdf,video/mp4,video/webm,video/quicktime,.mp4,.webm,.mov"
         multiple
         tabIndex={-1}
         aria-hidden

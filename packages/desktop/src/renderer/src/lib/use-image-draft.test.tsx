@@ -29,6 +29,15 @@ const DOC_ONE = {
 /** The reader is mocked, so any stand-in object carries the paste through. */
 const CLIP = {} as unknown as DataTransfer;
 
+/** What the drop button hands to addFiles; the readers are mocked anyway. */
+const DROP_FILES = [new File(["clip"], "clip.mp4", { type: "video/mp4" })];
+const DOC_VIDEO = {
+  type: "document" as const,
+  name: "clip.mp4",
+  data: "bXA0",
+  mimeType: "video/mp4",
+};
+
 /** A textarea + picker + state readout wired to the hook. */
 function Probe() {
   const draft = useImageDraft();
@@ -44,6 +53,14 @@ function Probe() {
           {image.data}
         </button>
       ))}
+      {draft.documents.map((document, i) => (
+        <button key={i} data-testid={`drop-doc-${i}`} onClick={() => draft.dropDocument(i)}>
+          {document.name}
+        </button>
+      ))}
+      <button data-testid="add-files" onClick={() => draft.addFiles(DROP_FILES)}>
+        add files
+      </button>
       <button data-testid="clear" onClick={draft.clearDraft}>
         clear
       </button>
@@ -205,6 +222,26 @@ describe("useImageDraft picker", () => {
 });
 
 describe("useImageDraft edits", () => {
+  it("routes a file drop through the picker's readers and adds the video document", async () => {
+    clipboardImageMock.readDocumentFiles.mockResolvedValueOnce({
+      documents: [DOC_VIDEO],
+      rejected: [],
+    });
+    mount();
+
+    await act(async () => {
+      (byId("add-files") as HTMLButtonElement).click();
+      await Promise.resolve();
+    });
+
+    expect(clipboardImageMock.readDocumentFiles).toHaveBeenCalledWith(DROP_FILES);
+    expect(byId("doc-count").textContent).toBe("1");
+    expect(byId("drop-doc-0").textContent).toBe("clip.mp4");
+
+    act(() => (byId("drop-doc-0") as HTMLButtonElement).click());
+    expect(byId("doc-count").textContent).toBe("0");
+  });
+
   it("drops one image by index and keeps the rest in order", async () => {
     clipboardImageMock.readImageFiles.mockResolvedValue({
       images: [IMAGE_ONE, IMAGE_TWO],

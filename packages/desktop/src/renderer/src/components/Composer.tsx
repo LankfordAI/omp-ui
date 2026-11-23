@@ -46,6 +46,7 @@ import { ArtifactReferenceChips } from "./ArtifactReferenceChips";
 import { ArtifactRefreshChips } from "./ArtifactRefreshChips";
 import { useArtifactDraft } from "../lib/use-artifact-draft";
 import { ARTIFACT_DRAG_MIME, parseArtifactDrag } from "../lib/artifact-drag";
+import { formatBytes } from "../lib/format";
 import { SESSION_DRAG_EFFECT, SESSION_DRAG_MIME } from "../lib/session-drag";
 import { useWordGhost } from "../lib/use-word-ghost";
 import { useNextMessagePrediction } from "../lib/use-next-message-prediction";
@@ -356,6 +357,7 @@ export function Composer({
     pasteError,
     onPaste,
     pickFiles,
+    addFiles,
     addImages,
     addDocuments,
     addAnnotations,
@@ -1526,10 +1528,13 @@ export function Composer({
       ref={composer}
       data-session-drop={dropping ? "over" : undefined}
       onDragOver={(e) => {
-        // Only a sidebar session row (issue #984): files and text keep their own paths.
-        if (unavailable || !(e.dataTransfer.types.includes(SESSION_DRAG_MIME) || (artifactLibraryEnabled && e.dataTransfer.types.includes(ARTIFACT_DRAG_MIME)))) return;
+        // A sidebar session row (issue #984), an artifact, or OS files (issue
+        // #1310); text and everything else keep their own paths.
+        if (unavailable) return;
+        const files = e.dataTransfer.types.includes("Files");
+        if (!files && !(e.dataTransfer.types.includes(SESSION_DRAG_MIME) || (artifactLibraryEnabled && e.dataTransfer.types.includes(ARTIFACT_DRAG_MIME)))) return;
         e.preventDefault();
-        e.dataTransfer.dropEffect = SESSION_DRAG_EFFECT;
+        e.dataTransfer.dropEffect = files && !e.dataTransfer.types.includes(SESSION_DRAG_MIME) ? "copy" : SESSION_DRAG_EFFECT;
         if (!dropping) setDropping(true);
       }}
       onDragLeave={(e) => {
@@ -1550,7 +1555,16 @@ export function Composer({
         }
         const source = e.dataTransfer.getData(SESSION_DRAG_MIME);
         setDropping(false);
-        if (unavailable || source === "") return;
+        if (unavailable) return;
+        // OS file drop (issue #1310): images and accepted documents/video ride
+        // the picker's readers exactly; anything else those readers skip.
+        if (source === "" && e.dataTransfer.files.length > 0) {
+          e.preventDefault();
+          addFiles(Array.from(e.dataTransfer.files));
+          editor.current?.focus({ preventScroll: true });
+          return;
+        }
+        if (source === "") return;
         e.preventDefault();
         void referenceSession(tabId, source);
         editor.current?.focus({ preventScroll: true });
@@ -1724,6 +1738,13 @@ export function Composer({
               {documents.map((document, i) => (
                 <Chip key={i} tone="iris" truncate title={document.path ?? document.mimeType}>
                   <span className="min-w-0 truncate">{document.name}</span>
+                  {document.data !== undefined && (
+                    // Human size from the carried bytes; a path-only re-attach
+                    // (rewind, restored queue) has none until materialized.
+                    <Label className="shrink-0 opacity-70">
+                      {formatBytes(Math.floor((document.data.length * 3) / 4))}
+                    </Label>
+                  )}
                   <IconButton
                     label={`remove document ${i + 1}`}
                     disabled={unavailable}
@@ -1955,7 +1976,7 @@ export function Composer({
           <input
             ref={filePicker}
             type="file"
-            accept="image/*,application/pdf"
+            accept="image/*,application/pdf,video/mp4,video/webm,video/quicktime,.mp4,.webm,.mov"
             multiple
             disabled={unavailable}
             tabIndex={-1}

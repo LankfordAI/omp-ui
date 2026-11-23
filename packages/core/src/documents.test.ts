@@ -86,12 +86,61 @@ describe("resolveDocument", () => {
       "document attachment needs exactly one of data/path",
     );
   });
+
+  it("writes a video under its own extension so omp's read tool decodes it (issue #1310)", () => {
+    const data = Buffer.from("ftypisom fake mp4 bytes");
+    for (const [mimeType, extension] of [
+      ["video/mp4", ".mp4"],
+      ["video/webm", ".webm"],
+      ["video/quicktime", ".mov"],
+    ] as const) {
+      const file = resolveDocument({
+        type: "document",
+        name: "clip",
+        mimeType,
+        data: data.toString("base64"),
+      });
+      try {
+        expect(file.endsWith(extension)).toBe(true);
+        expect(fs.readFileSync(file)).toEqual(data);
+      } finally {
+        fs.rmSync(file, { force: true });
+      }
+    }
+  });
+
+  it("keeps an unknown mime on the pdf extension", () => {
+    const file = resolveDocument({ type: "document", name: "x", mimeType: "application/zip", data: "AAAA" });
+    try {
+      expect(file.endsWith(".pdf")).toBe(true);
+    } finally {
+      fs.rmSync(file, { force: true });
+    }
+  });
 });
 
 describe("readScratchDocument", () => {
   it("round-trips a materialized document's bytes", () => {
     const data = Buffer.from("%PDF-1.4 stashed").toString("base64");
     expect(readScratchDocument(resolveDocument({ ...PDF, data }))).toBe(data);
+  });
+
+  it("round-trips a materialized video's bytes (issue #1310)", () => {
+    const data = Buffer.from("ftypisom video bytes").toString("base64");
+    expect(
+      readScratchDocument(resolveDocument({ type: "document", name: "clip.mp4", mimeType: "video/mp4", data })),
+    ).toBe(data);
+  });
+
+  it("refuses a scratch-dir file whose extension is not an accepted attachment type", () => {
+    fs.mkdirSync(documentScratchDir(), { recursive: true });
+    const smuggled = `${documentScratchDir()}/secret.txt`;
+    fs.writeFileSync(smuggled, "not an attachment");
+    try {
+      expect(() => readScratchDocument(smuggled)).toThrow("not an attached document");
+    } finally {
+      fs.rmSync(smuggled, { force: true });
+    }
   });
 
   it("refuses a file outside the scratch dir, even through a symlink", () => {

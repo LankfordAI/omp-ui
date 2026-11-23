@@ -269,7 +269,7 @@ describe("TerminalTab attachment picker", () => {
       .mockResolvedValueOnce({ images: [IMAGE_ONE], rejected: [] });
 
     const input = renderTerminal();
-    expect(input.accept).toBe("image/*,application/pdf");
+    expect(input.accept).toBe("image/*,application/pdf,video/mp4,video/webm,video/quicktime,.mp4,.webm,.mov");
     expect(input.multiple).toBe(true);
     const openPicker = vi.spyOn(input, "click");
     act(() => {

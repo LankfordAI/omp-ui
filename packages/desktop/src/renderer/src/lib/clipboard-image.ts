@@ -79,8 +79,29 @@ export async function readImageFiles(files: Iterable<File>): Promise<ClipboardIm
   return out;
 }
 
-/** The one document mime handled today; the picker's accept attribute mirrors it. */
+/** The default document mime; video rides the same route (issue #1310). */
 export const DOCUMENT_MIME = "application/pdf";
+
+/**
+ * Video mimes accepted as Document Attachments (issue #1310): omp's `read`
+ * tool decodes these through ffmpeg from a scratch path, so they materialize
+ * exactly like PDFs — no base64 on the rpc frame, same ceilings.
+ */
+export const VIDEO_MIMES = ["video/mp4", "video/webm", "video/quicktime"] as const;
+
+/** Extension fallback for empty-type files, keyed without a leading dot. */
+const EXTENSION_MIMES: Readonly<Record<string, string>> = {
+  pdf: DOCUMENT_MIME,
+  mp4: "video/mp4",
+  webm: "video/webm",
+  mov: "video/quicktime",
+};
+
+/** The document mime a materialized path's extension implies. */
+export function mimeForDocumentPath(file: string): string {
+  const ext = file.slice(file.lastIndexOf(".") + 1).toLowerCase();
+  return EXTENSION_MIMES[ext] ?? DOCUMENT_MIME;
+}
 
 /** Per-document ceiling; main re-checks it at materialization. */
 export const MAX_DOCUMENT_BYTES = 20 * 1024 * 1024;
@@ -96,17 +117,39 @@ export interface ClipboardDocuments {
   rejected: string[];
 }
 
+/** Scratch extension for an accepted document mime (mirrors core's mapping). */
+export function fileExtension(mimeType: string): string {
+  if (mimeType === "video/mp4") return "mp4";
+  if (mimeType === "video/webm") return "webm";
+  if (mimeType === "video/quicktime") return "mov";
+  return "pdf";
+}
+
 /**
- * Reads picker/paste PDF files, preserving input order. An empty MIME type
- * is accepted when the name ends in .pdf — some Chromium paths report none
- * for file-manager items. Non-PDF files are skipped silently: the dialog's
- * accept attribute already filters, and the images' silent-skip precedent
- * applies (readImageFiles:55).
+ * The accepted document mime for a file, or null: an exact mime match, or —
+ * for the empty type some Chromium paths report on file-manager items — the
+ * extension. Unknown types stay null so they fall through to other handlers.
+ */
+export function documentMime(type: string, name: string): string | null {
+  if (type === DOCUMENT_MIME || (VIDEO_MIMES as readonly string[]).includes(type)) return type;
+  if (type !== "") return null;
+  const ext = name.slice(name.lastIndexOf(".") + 1).toLowerCase();
+  return EXTENSION_MIMES[ext] ?? null;
+}
+
+/**
+ * Reads picker/paste document files — PDFs and accepted videos (issue #1310)
+ * — preserving input order. An empty MIME type is accepted when the name ends
+ * in an accepted extension — some Chromium paths report none for file-manager
+ * items. Other files are skipped silently: the dialog's accept attribute
+ * already filters, and the images' silent-skip precedent applies
+ * (readImageFiles:55).
  */
 export async function readDocumentFiles(files: Iterable<File>): Promise<ClipboardDocuments> {
   const out: ClipboardDocuments = { documents: [], rejected: [] };
   for (const file of files) {
-    if (file.type !== DOCUMENT_MIME && !(file.type === "" && /\.pdf$/i.test(file.name))) continue;
+    const mimeType = documentMime(file.type, file.name);
+    if (mimeType === null) continue;
     if (file.size > MAX_DOCUMENT_BYTES) {
       out.rejected.push(tooLargeDocument(file.name || "pasted document", file.size));
       continue;
@@ -120,9 +163,9 @@ export async function readDocumentFiles(files: Iterable<File>): Promise<Clipboar
       }
       out.documents.push({
         type: "document",
-        name: sanitizeDocumentName(file.name || "document.pdf"),
+        name: sanitizeDocumentName(file.name, `document.${fileExtension(mimeType)}`),
         data: bytesToBase64(new Uint8Array(buffer)),
-        mimeType: DOCUMENT_MIME,
+        mimeType,
       });
     } catch {
       out.rejected.push(`could not read ${file.name || "the pasted document"}`);
@@ -131,20 +174,16 @@ export async function readDocumentFiles(files: Iterable<File>): Promise<Clipboar
   return out;
 }
 
-/** Whether a paste/drop carries at least one PDF, without reading the bytes. */
+/** Whether a paste/drop carries at least one accepted document (PDF or video), without reading the bytes. */
 export function hasClipboardDocument(data: DataTransfer | null): boolean {
   if (data === null) return false;
   for (const item of data.items) {
-    if (item.kind === "file" && documentFile(item.type, item.getAsFile()?.name ?? "")) return true;
+    if (item.kind === "file" && documentMime(item.type, item.getAsFile()?.name ?? "") !== null) return true;
   }
   for (const file of data.files) {
-    if (documentFile(file.type, file.name)) return true;
+    if (documentMime(file.type, file.name) !== null) return true;
   }
   return false;
-}
-
-function documentFile(type: string, name: string): boolean {
-  return type === DOCUMENT_MIME || (type === "" && /\.pdf$/i.test(name));
 }
 
 /**
@@ -196,13 +235,13 @@ export async function readClipboardDocuments(
   if (data === null) return { documents: [], rejected: [] };
   const files: File[] = [];
   for (const item of data.items) {
-    if (item.kind !== "file" || !documentFile(item.type, item.getAsFile()?.name ?? "")) continue;
+    if (item.kind !== "file" || documentMime(item.type, item.getAsFile()?.name ?? "") === null) continue;
     const file = item.getAsFile();
     if (file !== null) files.push(file);
   }
   if (files.length === 0) {
     for (const file of data.files) {
-      if (documentFile(file.type, file.name)) files.push(file);
+      if (documentMime(file.type, file.name) !== null) files.push(file);
     }
   }
   return readDocumentFiles(files);

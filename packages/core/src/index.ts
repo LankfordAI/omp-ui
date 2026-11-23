@@ -626,6 +626,7 @@ export {
 } from "./images";
 export {
   clearDocumentScratch,
+  documentExtension,
   documentScratchDir,
   DOCUMENT_MIME,
   MAX_DOCUMENT_BATCH_BYTES,

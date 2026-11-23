@@ -24,8 +24,28 @@ export const MAX_DOCUMENT_BYTES = 20 * 1024 * 1024;
  */
 export const MAX_DOCUMENT_BATCH_BYTES = 48 * 1024 * 1024;
 
-/** The one document type handled today; the extension point for later ones. */
+/** The default document type; video rides the same route (issue #1310). */
 export const DOCUMENT_MIME = "application/pdf";
+
+/**
+ * Scratch extensions per accepted Document Attachment mime (issue #1310):
+ * omp's `read` tool converts a PDF to text and decodes `.mp4`/`.webm`/`.mov`
+ * through ffmpeg, so both ride the same materialization route.
+ */
+const DOCUMENT_EXTENSIONS: Readonly<Record<string, string>> = {
+  [DOCUMENT_MIME]: "pdf",
+  "video/mp4": "mp4",
+  "video/webm": "webm",
+  "video/quicktime": "mov",
+};
+
+/** The scratch extension for a document mime; unknown mimes keep `.pdf`. */
+export function documentExtension(mimeType: string): string {
+  return DOCUMENT_EXTENSIONS[mimeType.toLowerCase()] ?? "pdf";
+}
+
+/** Extensions `readScratchDocument` may read back — scratch files only. */
+const SCRATCH_DOCUMENT_EXTENSIONS = [".pdf", ".mp4", ".webm", ".mov"];
 
 /**
  * Where Document Attachments and native-prompt image copies (issue #993)
@@ -75,8 +95,9 @@ export function resolveDocument(doc: DocumentAttachment): string {
   const dir = documentScratchDir();
   fs.mkdirSync(dir, { recursive: true });
   // A fresh uuid, never the clipboard's name: two documents sharing a name
-  // must not collide, same reasoning as writeImageToScratch.
-  const file = path.join(dir, `${randomUUID()}.pdf`);
+  // must not collide, same reasoning as writeImageToScratch. The extension
+  // follows the mime so omp's `read` tool picks the right decoder (issue #1310).
+  const file = path.join(dir, `${randomUUID()}.${documentExtension(doc.mimeType)}`);
   fs.writeFileSync(file, Buffer.from(data, "base64"));
   return file;
 }
@@ -85,8 +106,9 @@ export function resolveDocument(doc: DocumentAttachment): string {
  * Reads a materialized Document Attachment back as base64 (issue #989): a
  * stashed draft must outlive the quit sweep and travel to another host, so a
  * path-only chip (rewind prefill, restored queue entry) is re-captured as
- * bytes. Only a `.pdf` inside THIS machine's scratch dir is readable — the
- * channel must not become a general file read.
+ * as bytes. Only an accepted attachment extension (`.pdf`, `.mp4`, `.webm`,
+ * `.mov`) inside THIS machine's scratch dir is readable — the channel must
+ * not become a general file read.
  */
 export function readScratchDocument(file: string): string {
   let real: string;
@@ -97,7 +119,8 @@ export function readScratchDocument(file: string): string {
   } catch {
     throw new Error(`document not found: ${file}`);
   }
-  if (path.dirname(real) !== root || path.extname(real).toLowerCase() !== ".pdf") {
+  const ext = path.extname(real).toLowerCase();
+  if (path.dirname(real) !== root || !SCRATCH_DOCUMENT_EXTENSIONS.includes(ext)) {
     throw new Error(`not an attached document: ${file}`);
   }
   const size = fs.statSync(real).size;

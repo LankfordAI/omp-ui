@@ -4,6 +4,7 @@ import {
   hasClipboardImage,
   MAX_DOCUMENT_BYTES,
   MAX_IMAGE_BYTES,
+  mimeForDocumentPath,
   readClipboardDocuments,
   readClipboardImages,
   readDocumentFiles,
@@ -39,6 +40,7 @@ const textOnly = {
 
 const PNG = new Uint8Array([0x89, 0x50, 0x4e, 0x47, 1, 2, 3]);
 const PDF_BYTES = new Uint8Array([0x25, 0x50, 0x44, 0x46, 45, 46, 46]);
+const MP4_BYTES = new Uint8Array([0x00, 0x00, 0x00, 0x18, 0x66, 0x74, 0x79, 0x70]);
 
 /** Independent base64 reference, so the expectation is not the code under test. */
 function b64(bytes: Uint8Array): string {
@@ -279,6 +281,22 @@ describe("hasClipboardDocument", () => {
       hasClipboardDocument(transfer([{ name: "from-manager.pdf", type: "", bytes: PDF_BYTES }])),
     ).toBe(true);
   });
+
+  it("is true for an accepted video and false for an unaccepted video codec", () => {
+    expect(
+      hasClipboardDocument(transfer([{ name: "a.mp4", type: "video/mp4", bytes: MP4_BYTES }])),
+    ).toBe(true);
+    expect(
+      hasClipboardDocument(transfer([{ name: "from-manager.mov", type: "", bytes: MP4_BYTES }])),
+    ).toBe(true);
+    expect(
+      hasClipboardDocument(transfer([{ name: "a.avi", type: "video/x-msvideo", bytes: MP4_BYTES }])),
+    ).toBe(false);
+    // An extension-only avi stays rejected too: the fallback knows only the accepted types.
+    expect(hasClipboardDocument(transfer([{ name: "a.avi", type: "", bytes: MP4_BYTES }]))).toBe(
+      false,
+    );
+  });
 });
 
 describe("readDocumentFiles", () => {
@@ -346,6 +364,54 @@ describe("readDocumentFiles", () => {
       transfer([{ name: "a<b>.pdf", type: "application/pdf", bytes: PDF_BYTES }]).files,
     );
     expect(documents[0]?.name).toBe("ab.pdf");
+  });
+
+  it("reads accepted videos as documents carrying their own mime (issue #1310)", async () => {
+    const files = transfer([
+      { name: "clip.mp4", type: "video/mp4", bytes: MP4_BYTES },
+      { name: "screen.webm", type: "video/webm", bytes: MP4_BYTES },
+      // Extension-less, type-less name: nothing identifies it, so it falls through.
+      { name: "quicktime", type: "", bytes: new Uint8Array([0x00]) },
+    ]).files;
+
+    const { documents, rejected } = await readDocumentFiles(files);
+    expect(rejected).toEqual([]);
+    expect(documents).toHaveLength(2);
+    expect(documents[0]).toEqual({
+      type: "document",
+      name: "clip.mp4",
+      data: b64(MP4_BYTES),
+      mimeType: "video/mp4",
+    });
+    expect(documents[1]?.mimeType).toBe("video/webm");
+  });
+
+  it("refuses a video over the same ceiling as documents", async () => {
+    const { documents, rejected } = await readDocumentFiles(
+      transfer([
+        { name: "huge.mp4", type: "video/mp4", bytes: MP4_BYTES, size: MAX_DOCUMENT_BYTES + 1 },
+      ]).files,
+    );
+    expect(documents).toEqual([]);
+    expect(rejected[0]).toContain("huge.mp4");
+  });
+
+  it("names an extension-less nameless video file by its mime's extension", async () => {
+    const { documents } = await readDocumentFiles(
+      transfer([{ name: "", type: "video/quicktime", bytes: MP4_BYTES }]).files,
+    );
+    expect(documents[0]?.name).toBe("document.mov");
+  });
+});
+
+describe("mimeForDocumentPath", () => {
+  it("maps a materialized scratch path's extension back to its mime", () => {
+    expect(mimeForDocumentPath("/tmp/omp-ui-attach/uuid.mp4")).toBe("video/mp4");
+    expect(mimeForDocumentPath("/tmp/omp-ui-attach/uuid.WEBM")).toBe("video/webm");
+    expect(mimeForDocumentPath("/tmp/omp-ui-attach/uuid.mov")).toBe("video/quicktime");
+    expect(mimeForDocumentPath("/tmp/omp-ui-attach/uuid.pdf")).toBe("application/pdf");
+    // An unknown or missing extension keeps the pdf default, as before.
+    expect(mimeForDocumentPath("/tmp/omp-ui-attach/uuid")).toBe("application/pdf");
   });
 });
 

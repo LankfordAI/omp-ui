@@ -32,7 +32,7 @@ import { withAnnotationContext, type Annotation } from "../../lib/annotations";
 import { withSessionReferenceContext, type DraftSessionReference } from "../../lib/session-references";
 import { withAttachmentRoutingContext } from "../../lib/attachment-routing";
 import { withDocumentContext, type DocumentRef } from "../../lib/document-context";
-import { DOCUMENT_MIME } from "../../lib/clipboard-image";
+import { mimeForDocumentPath } from "../../lib/clipboard-image";
 import { projectKey } from "../../lib/project-key";
 import { hasSeenSharePrivacy } from "../../lib/share-privacy";
 import { supportsAnonymize } from "../../lib/anonymize";
@@ -828,7 +828,7 @@ export function createSessionParamsSlice(
         for (const doc of documents)
           get().queueComposerDocument(
             tabId,
-            { type: "document", mimeType: DOCUMENT_MIME, name: doc.name, path: doc.path },
+            { type: "document", mimeType: mimeForDocumentPath(doc.path), name: doc.name, path: doc.path },
             "",
           );
       }
@@ -1039,7 +1039,7 @@ export function createSessionParamsSlice(
       restoreQueuedRefreshes(tabId, refreshes, legacyRefreshRequestId);
       for (const image of payload.images) get().queueComposerAttachment(tabId, image, "");
       for (const doc of documents)
-        get().queueComposerDocument(tabId, { type: "document", mimeType: DOCUMENT_MIME, name: doc.name, path: doc.path }, "");
+        get().queueComposerDocument(tabId, { type: "document", mimeType: mimeForDocumentPath(doc.path), name: doc.name, path: doc.path }, "");
     } catch (err) {
       get().reportError(err);
     }
@@ -1266,7 +1266,7 @@ export function createSessionParamsSlice(
     for (const doc of documents)
       get().queueComposerDocument(
         tabId,
-        { type: "document", mimeType: DOCUMENT_MIME, name: doc.name, path: doc.path },
+        { type: "document", mimeType: mimeForDocumentPath(doc.path), name: doc.name, path: doc.path },
         "",
       );
     if (boolField(data, "imagesDropped") === true)
@@ -2329,7 +2329,7 @@ export function createSessionParamsSlice(
         for (const document of source.documents ?? [])
           get().queueComposerDocument(
             tabId,
-            { type: "document", mimeType: DOCUMENT_MIME, ...document },
+            { type: "document", mimeType: mimeForDocumentPath(document.path), ...document },
             "",
           );
       }

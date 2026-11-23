@@ -36,6 +36,8 @@ export interface ImageDraft {
   onPaste: (e: ClipboardEvent<HTMLElement>) => void;
   /** Adds picker-selected Attachments through the same draft path as paste. */
   pickFiles: (e: ChangeEvent<HTMLInputElement>) => void;
+  /** Routes OS file drag-and-drop onto the composer through the picker's readers. */
+  addFiles: (files: File[]) => void;
   /** Appends ready-made image Attachments (the browser pane's hand-back) under the same size guard. */
   addImages: (images: ImageAttachment[]) => void;
   /** Appends ready-made Documents (rewind prefill re-sends by path) under the same size guard. */
@@ -97,13 +99,12 @@ export function useImageDraft(): ImageDraft {
     setPasteError(rejected.length > 0 ? rejected.join("; ") : null);
   }, []);
 
-  /** Adds picker-selected Attachments through the same draft path as paste. */
-  const pickFiles = useCallback(async (event: ChangeEvent<HTMLInputElement>) => {
-    const input = event.currentTarget;
-    const files = Array.from(input.files ?? []);
-    // Clear before reading, including rejected selections, so selecting the
-    // same file again always produces another change event.
-    input.value = "";
+  /**
+   * The one reader path for picker selections and OS file drops (issue
+   * #1310): images and accepted documents each go through their own reader,
+   * rejections join into the composer's dismissible notice.
+   */
+  const ingestFiles = useCallback(async (files: File[]) => {
     const [pickedImages, pickedDocuments] = await Promise.all([
       readImageFiles(files),
       readDocumentFiles(files),
@@ -114,6 +115,21 @@ export function useImageDraft(): ImageDraft {
     const rejected = [...pickedImages.rejected, ...pickedDocuments.rejected];
     setPasteError(rejected.length > 0 ? rejected.join("; ") : null);
   }, []);
+
+  /** Adds picker-selected Attachments through the same draft path as paste. */
+  const pickFiles = useCallback(async (event: ChangeEvent<HTMLInputElement>) => {
+    const input = event.currentTarget;
+    const files = Array.from(input.files ?? []);
+    // Clear before reading, including rejected selections, so selecting the
+    // same file again always produces another change event.
+    input.value = "";
+    ingestFiles(files);
+  }, [ingestFiles]);
+
+  /** OS file drag-and-drop onto the composer: the picker's readers exactly. */
+  const addFiles = useCallback((files: File[]) => {
+    ingestFiles(files);
+  }, [ingestFiles]);
 
   const addImages = useCallback((incoming: ImageAttachment[]) => {
     const accepted: ImageAttachment[] = [];
@@ -202,6 +218,7 @@ export function useImageDraft(): ImageDraft {
     setPasteError,
     onPaste,
     pickFiles,
+    addFiles,
     addImages,
     addDocuments,
     addAnnotations,

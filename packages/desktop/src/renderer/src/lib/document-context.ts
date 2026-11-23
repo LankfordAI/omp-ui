@@ -17,8 +17,8 @@ const BLOCK_OPEN = "<attached documents>";
 const BLOCK_CLOSE = "</attached documents>";
 
 /** Strips the block-shaping characters a display name could smuggle. */
-export function sanitizeDocumentName(name: string): string {
-  return name.replace(/[<>\r\n]/g, "").trim() || "document.pdf";
+export function sanitizeDocumentName(name: string, fallback = "document.pdf"): string {
+  return name.replace(/[<>\r\n]/g, "").trim() || fallback;
 }
 
 export function withDocumentContext(message: string, docs: readonly DocumentRef[]): string {

@@ -1016,7 +1016,7 @@ describe("Composer attachment picker", () => {
     const button = document.body.querySelector<HTMLButtonElement>('button[title="attach files"]')!;
     const click = vi.spyOn(input, "click");
 
-    expect(input.accept).toBe("image/*,application/pdf");
+    expect(input.accept).toBe("image/*,application/pdf,video/mp4,video/webm,video/quicktime,.mp4,.webm,.mov");
     expect(input.multiple).toBe(true);
     expect(input.classList.contains("sr-only")).toBe(true);
     expect(button.classList.contains("min-h-11")).toBe(true);
@@ -1131,6 +1131,59 @@ describe("Composer clipboard paste", () => {
         .click();
     });
     expect(sendPrompt).toHaveBeenCalledWith(TAB, "look", "prompt", [IMAGE_ONE], [], { annotations: [], references: [], artifactReferences: [], refreshes: [] });
+  });
+});
+
+describe("Composer file drop (issue #1310)", () => {
+  const VIDEO_DOC = { type: "document" as const, name: "clip.mp4", mimeType: "video/mp4", data: "bXA0" };
+
+  it("routes an OS file drop through the picker's readers and shows the video chip with its size", async () => {
+    const file = new File(["clip"], "clip.mp4", { type: "video/mp4" });
+    clipboardImageMock.readDocumentFiles.mockResolvedValueOnce({ documents: [VIDEO_DOC], rejected: [] });
+    seed("ready"); renderComposer();
+    const target = composerInput().closest<HTMLElement>(".shrink-0")!;
+    const transfer = { types: ["Files"], files: [file], getData: () => "", dropEffect: "none" };
+    const drop = new Event("drop", { bubbles: true, cancelable: true });
+    Object.assign(drop, { dataTransfer: transfer });
+    await act(async () => {
+      target.dispatchEvent(drop);
+      await Promise.resolve();
+    });
+
+    expect(clipboardImageMock.readDocumentFiles).toHaveBeenCalledWith([file]);
+    expect(clipboardImageMock.readImageFiles).toHaveBeenCalledWith([file]);
+    expect(document.body.textContent).toContain("clip.mp4");
+    // 4 base64 chars → 3 decoded bytes shown next to the name.
+    expect(document.body.textContent).toContain("3B");
+
+    const remove = [...document.body.querySelectorAll<HTMLButtonElement>("button")].find(
+      (button) => button.getAttribute("aria-label") === "remove document 1",
+    );
+    expect(remove).toBeDefined();
+    act(() => remove!.click());
+    expect(document.body.textContent).not.toContain("clip.mp4");
+  });
+
+  it("surfaces a reader rejection from a dropped file without adding a chip", async () => {
+    const file = new File(["huge"], "huge.mp4", { type: "video/mp4" });
+    clipboardImageMock.readDocumentFiles.mockResolvedValueOnce({
+      documents: [],
+      rejected: ["huge.mp4 is 260.0 MB — over the 20 MB document limit"],
+    });
+    seed("ready"); renderComposer();
+    const target = composerInput().closest<HTMLElement>(".shrink-0")!;
+    const transfer = { types: ["Files"], files: [file], getData: () => "", dropEffect: "none" };
+    const drop = new Event("drop", { bubbles: true, cancelable: true });
+    Object.assign(drop, { dataTransfer: transfer });
+    await act(async () => {
+      target.dispatchEvent(drop);
+      await Promise.resolve();
+    });
+
+    expect(document.body.textContent).toContain("huge.mp4 is 260.0 MB");
+    expect([...document.body.querySelectorAll<HTMLButtonElement>("button")].some(
+      (button) => button.getAttribute("aria-label") === "remove document 1",
+    )).toBe(false);
   });
 });
 
