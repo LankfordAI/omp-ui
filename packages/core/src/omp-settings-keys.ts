@@ -410,14 +410,22 @@ export const OMP_SETTING_GROUPS: ReadonlyArray<OmpSettingGroup> = [
     // verified-passage hit threshold (both unset = omp's built-in behavior).
     // Each is a plain scalar row; keys an older binary does not publish
     // render no row, the existing per-key skip rule.
+    // omp 19.1.1 (issue #1292): todo.backend names the extension-registered
+    // todo backend the session's list mirrors to (string; `native` — the
+    // default — mirrors nothing), and computer.takeover (enum, default
+    // fallback) decides when a computer-tool call reruns in foreground
+    // takeover; its options ride in from `omp config list` via
+    // parseEnumOptions like every other enum row here.
     title: "Tools",
     keys: [
       "edit.mode",
       "todo.midRunNudges",
+      "todo.backend",
       "grep.contextBefore",
       "grep.contextAfter",
       "commit.enabled",
       "disassembler.backend",
+      "computer.takeover",
       "find.verifyModel",
       "find.hitThreshold",
     ],
