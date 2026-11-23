@@ -3,9 +3,11 @@ import * as os from "node:os";
 import * as path from "node:path";
 import { afterEach, describe, expect, it } from "vitest";
 import {
+  ROUTINE_DEFAULT_TIMEOUT_MINUTES,
   ROUTINE_INSTRUCTIONS_MAX,
   ROUTINE_NAME_MAX,
   ROUTINE_SCRIPT_MAX,
+  ROUTINE_TIMEOUT_MAX_MINUTES,
   isRoutineRecord,
   isRoutineRunRow,
   isSessionRoutine,
@@ -17,6 +19,8 @@ import {
   parseRoutineTestScriptRequest,
   routineFocusUri,
   routineInputFromAgentCreate,
+  resolveRoutineTimeoutMinutes,
+  resolveRoutineWallClockMs,
   routinePatchFromAgentUpdate,
   routinePrompt,
   routineRunTitle,
@@ -49,6 +53,7 @@ function sampleInput(): RoutineInput {
       reviewedCatalog: ["read", "grep", "bash"],
     },
     scripts: { pre: "", post: "" },
+    timeoutMinutes: null,
     enabled: true,
   };
 }
@@ -226,6 +231,7 @@ describe("scripts hooks (#1283)", () => {
       allow: ["read"],
       warnUsd: null,
       maxUsd: null,
+      timeoutMinutes: null,
     };
     // Absent defaults to no hooks; a present hook carries through to the input.
     expect(routineInputFromAgentCreate(parseRoutineAgentCreateArgs(agentArgs), "2026-11-22T00:00:00.000Z").scripts)
@@ -250,6 +256,76 @@ describe("scripts hooks (#1283)", () => {
     expect(isRoutineRunRow(sampleRunRow({ postScript: "timeout" }))).toBe(true);
     expect(isRoutineRunRow({ ...sampleRunRow(), postScript: "ran fine" })).toBe(false);
     expect(isRoutineRunRow({ ...sampleRunRow(), postScript: null })).toBe(false);
+  });
+});
+
+describe("timeoutMinutes (#1290)", () => {
+  it("accepts null, omitted on create, 0 (unlimited), and integers 1..1440", () => {
+    const legacy = { ...sampleInput() } as Partial<RoutineInput>;
+    delete legacy.timeoutMinutes;
+    expect(parseRoutineInput(legacy).timeoutMinutes).toBeNull();
+    expect(parseRoutineInput({ ...sampleInput(), timeoutMinutes: null }).timeoutMinutes).toBeNull();
+    expect(parseRoutineInput({ ...sampleInput(), timeoutMinutes: 0 }).timeoutMinutes).toBe(0);
+    expect(parseRoutineInput({ ...sampleInput(), timeoutMinutes: 1 }).timeoutMinutes).toBe(1);
+    expect(parseRoutineInput({ ...sampleInput(), timeoutMinutes: ROUTINE_TIMEOUT_MAX_MINUTES }).timeoutMinutes).toBe(
+      ROUTINE_TIMEOUT_MAX_MINUTES,
+    );
+  });
+
+  it("rejects out-of-range, non-integer, and wrong-type values on input, patch, and record", () => {
+    for (const bad of [-1, 1.5, ROUTINE_TIMEOUT_MAX_MINUTES + 1, Number.NaN, Number.POSITIVE_INFINITY, "30", false]) {
+      expect(() => parseRoutineInput({ ...sampleInput(), timeoutMinutes: bad })).toThrow(/timeoutMinutes/);
+      expect(() => parseRoutinePatch({ timeoutMinutes: bad })).toThrow(/timeoutMinutes/);
+      expect(isRoutineRecord({ ...sampleRecord(), timeoutMinutes: bad })).toBe(false);
+    }
+    // Explicit undefined in patch is rejected (mirrors spend/model strictness).
+    expect(() => parseRoutinePatch({ timeoutMinutes: undefined })).toThrow(/timeoutMinutes/);
+    expect(parseRoutinePatch({ timeoutMinutes: null })).toEqual({ timeoutMinutes: null });
+    expect(parseRoutinePatch({ timeoutMinutes: 0 })).toEqual({ timeoutMinutes: 0 });
+    expect(parseRoutinePatch({ timeoutMinutes: 90 })).toEqual({ timeoutMinutes: 90 });
+
+    // Absent timeoutMinutes on stored legacy record stays valid for load backfill.
+    const legacy = { ...sampleRecord() } as Partial<RoutineRecord>;
+    delete legacy.timeoutMinutes;
+    expect(isRoutineRecord(legacy)).toBe(true);
+  });
+
+  it("resolves effective minutes and wallClockMs", () => {
+    expect(resolveRoutineTimeoutMinutes(undefined)).toBe(ROUTINE_DEFAULT_TIMEOUT_MINUTES);
+    expect(resolveRoutineTimeoutMinutes(null)).toBe(ROUTINE_DEFAULT_TIMEOUT_MINUTES);
+    expect(resolveRoutineTimeoutMinutes(0)).toBe(0);
+    expect(resolveRoutineTimeoutMinutes(90)).toBe(90);
+
+    expect(resolveRoutineWallClockMs(undefined)).toBe(30 * 60 * 1000);
+    expect(resolveRoutineWallClockMs(null)).toBe(30 * 60 * 1000);
+    expect(resolveRoutineWallClockMs(0)).toBeNull();
+    expect(resolveRoutineWallClockMs(90)).toBe(90 * 60 * 1000);
+  });
+
+  it("parses and forwards timeoutMinutes in parseRoutineAgentCreateArgs and routineInputFromAgentCreate", () => {
+    const base = {
+      name: "Deep audit",
+      instructions: "Audit repository.",
+      schedule: { kind: "cron", expr: "@daily" },
+      timeZone: "UTC",
+      projectCwd: "/repo",
+      mode: "build",
+      allow: ["read"],
+    };
+    const omitted = parseRoutineAgentCreateArgs(base);
+    expect(omitted.timeoutMinutes).toBeNull();
+    expect(routineInputFromAgentCreate(omitted, "2026-11-22T00:00:00.000Z").timeoutMinutes).toBeNull();
+
+    const unlimited = parseRoutineAgentCreateArgs({ ...base, timeoutMinutes: 0 });
+    expect(unlimited.timeoutMinutes).toBe(0);
+    expect(routineInputFromAgentCreate(unlimited, "2026-11-22T00:00:00.000Z").timeoutMinutes).toBe(0);
+
+    const custom = parseRoutineAgentCreateArgs({ ...base, timeoutMinutes: 90 });
+    expect(custom.timeoutMinutes).toBe(90);
+    expect(routineInputFromAgentCreate(custom, "2026-11-22T00:00:00.000Z").timeoutMinutes).toBe(90);
+
+    expect(() => parseRoutineAgentCreateArgs({ ...base, timeoutMinutes: -5 })).toThrow(/timeoutMinutes/);
+    expect(() => parseRoutineAgentCreateArgs({ ...base, timeoutMinutes: 2000 })).toThrow(/timeoutMinutes/);
   });
 });
 
@@ -499,6 +575,31 @@ describe("parseRoutineAgentUpdateArgs & routinePatchFromAgentUpdate (ADR-0100 am
       "2026-11-23T00:00:00.000Z",
     );
     expect(patch.destination).toEqual({ projectCwd: "/home/dev/other", workspace: "checkout" });
+  });
+
+  it("updates and resets timeoutMinutes (null = default, 0 = unlimited, custom integer, omit = unchanged)", () => {
+    const current = { ...currentRecord(), timeoutMinutes: 45 };
+    const untouched = routinePatchFromAgentUpdate(
+      current,
+      parseRoutineAgentUpdateArgs({ id: VALID_ID, name: "Same timeout" }),
+      "2026-11-23T00:00:00.000Z",
+    );
+    expect("timeoutMinutes" in untouched).toBe(false);
+
+    const unlimited = routinePatchFromAgentUpdate(
+      current,
+      parseRoutineAgentUpdateArgs({ id: VALID_ID, timeoutMinutes: 0 }),
+      "2026-11-23T00:00:00.000Z",
+    );
+    expect(unlimited.timeoutMinutes).toBe(0);
+
+    const reset = routinePatchFromAgentUpdate(
+      current,
+      parseRoutineAgentUpdateArgs({ id: VALID_ID, timeoutMinutes: null }),
+      "2026-11-23T00:00:00.000Z",
+    );
+    expect(reset.timeoutMinutes).toBeNull();
+    expect(() => parseRoutineAgentUpdateArgs({ id: VALID_ID, timeoutMinutes: -1 })).toThrow(/timeoutMinutes/);
   });
 });
 

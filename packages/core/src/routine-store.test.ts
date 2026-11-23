@@ -40,6 +40,7 @@ function record(overrides: Partial<RoutineRecord> = {}): RoutineRecord {
       reviewedCatalog: ["read"],
     },
     scripts: { pre: "", post: "" },
+    timeoutMinutes: null,
     enabled: true,
     createdAt: "2026-11-20T12:00:00.000Z",
     nextRunAtMs: null,
@@ -109,6 +110,50 @@ describe("RoutineStore scripts normalization (#1283)", () => {
     );
     const store = new RoutineStore(file);
     expect(store.list().map((r) => r.id)).toEqual([VALID_ID]);
+  });
+});
+
+describe("RoutineStore timeoutMinutes normalization (#1290)", () => {
+  it("backfills a legacy record missing timeoutMinutes to null once and round-trips", () => {
+    const file = tempFile("routines");
+    const legacy = { ...record() } as Partial<RoutineRecord>;
+    delete legacy.timeoutMinutes;
+    fs.writeFileSync(file, JSON.stringify({ schemaVersion: 1, routines: [legacy] }), "utf8");
+
+    const store = new RoutineStore(file);
+    expect(store.get(VALID_ID)?.timeoutMinutes).toBeNull();
+    const onDisk = JSON.parse(fs.readFileSync(file, "utf8")) as { routines: Array<Record<string, unknown>> };
+    expect(onDisk.routines[0]!.timeoutMinutes).toBeNull();
+
+    const reloaded = new RoutineStore(file);
+    expect(reloaded.get(VALID_ID)?.timeoutMinutes).toBeNull();
+  });
+
+  it("preserves custom and unlimited timeoutMinutes across save/load and drops malformed records", () => {
+    const file = tempFile("routines");
+    const store = new RoutineStore(file);
+    store.add(record({ id: VALID_ID, timeoutMinutes: 90 }));
+    store.add(record({ id: "b".repeat(22), timeoutMinutes: 0 }));
+    const reloaded = new RoutineStore(file);
+    expect(reloaded.get(VALID_ID)?.timeoutMinutes).toBe(90);
+    expect(reloaded.get("b".repeat(22))?.timeoutMinutes).toBe(0);
+
+    const malformedFile = tempFile("routines-bad-timeout");
+    fs.writeFileSync(
+      malformedFile,
+      JSON.stringify({
+        schemaVersion: 1,
+        routines: [
+          record({ id: VALID_ID, timeoutMinutes: 45 }),
+          { ...record({ id: "c".repeat(22) }), timeoutMinutes: "30" },
+          { ...record({ id: "d".repeat(22) }), timeoutMinutes: -1 },
+          { ...record({ id: "e".repeat(22) }), timeoutMinutes: 9999 },
+        ],
+      }),
+      "utf8",
+    );
+    const clean = new RoutineStore(malformedFile);
+    expect(clean.list().map((r) => r.id)).toEqual([VALID_ID]);
   });
 });
 

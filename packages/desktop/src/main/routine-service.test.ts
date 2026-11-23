@@ -57,6 +57,7 @@ function input(overrides: Partial<RoutineInput> = {}): RoutineInput {
     spend: { warnUsd: null, maxUsd: null },
     toolPolicy: { allow: ["read"], deny: [], lastReviewedAt: "2026-01-01T00:00:00.000Z", reviewedCatalog: [] },
     scripts: { pre: "", post: "" },
+    timeoutMinutes: null,
     enabled: true,
     ...overrides,
   };
@@ -161,13 +162,39 @@ describe("RoutineService CRUD", () => {
     const routinesBefore = fs.readFileSync(path.join(dir, "routines.json"), "utf8");
     const result = await h.service.dryRun({ kind: "saved", id: rec.id });
     expect(result.compiled.overlayEntries).toEqual({ mcp__jira_search: "prompt", read: "allow" });
-    expect(result).toMatchObject({ routineId: rec.id, warnCostUsd: 2, maxCostUsd: 5 });
-    const draft = await h.service.dryRun({ kind: "draft", input: input({ spend: { warnUsd: 0, maxUsd: 1 } }) });
-    expect(draft).toMatchObject({ routineId: null, warnCostUsd: 0, maxCostUsd: 1 });
+    expect(result).toMatchObject({ routineId: rec.id, warnCostUsd: 2, maxCostUsd: 5, timeoutMinutes: 30 });
+    const draft = await h.service.dryRun({ kind: "draft", input: input({ spend: { warnUsd: 0, maxUsd: 1 }, timeoutMinutes: 90 }) });
+    expect(draft).toMatchObject({ routineId: null, warnCostUsd: 0, maxCostUsd: 1, timeoutMinutes: 90 });
     expect(draft.compiled.addedLater).toEqual(["mcp__jira_search"]);
     expect(h.dispatch).not.toHaveBeenCalled();
     expect(fs.readFileSync(path.join(dir, "routines.json"), "utf8")).toBe(routinesBefore);
     expect(fs.existsSync(path.join(dir, "routine-runs.json"))).toBe(false);
+    h.service.dispose();
+  });
+
+  it("round-trips custom and unlimited timeoutMinutes and pins the fire-time timeout against mid-run edits", async () => {
+    const h = harness();
+    const custom = await h.service.create(input({ timeoutMinutes: 10 }));
+    expect(custom.timeoutMinutes).toBe(10);
+    expect((await h.service.dryRun({ kind: "saved", id: custom.id })).timeoutMinutes).toBe(10);
+
+    const unlimited = await h.service.create(input({ name: "Long", timeoutMinutes: 0 }));
+    expect((await h.service.dryRun({ kind: "saved", id: unlimited.id })).timeoutMinutes).toBe(0);
+
+    // Start a run with a 10-minute timeout, then edit the routine to unlimited mid-run.
+    const { tabId } = await h.service.runNow(custom.id);
+    await h.service.update(custom.id, { timeoutMinutes: 0 });
+    expect(h.store.get(custom.id)?.timeoutMinutes).toBe(0);
+
+    // The live run still honors its fire-time 10-minute pin.
+    await vi.advanceTimersByTimeAsync(9 * 60_000);
+    expect(h.settleSession).not.toHaveBeenCalled();
+    await vi.advanceTimersByTimeAsync(60_000);
+    expect(h.settleSession).toHaveBeenCalledWith(tabId);
+    expect(h.history.list().find((r) => r.tabId === tabId)).toMatchObject({
+      outcome: "failed",
+      reasonCode: "wall-clock",
+    });
     h.service.dispose();
   });
 });

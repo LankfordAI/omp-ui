@@ -8,7 +8,15 @@
 // malformed, and a URI scheme must match `^[a-z][a-z0-9+.-]*$`.
 
 import { deviceTool } from "./device-tool";
-import { ROUTINE_COST_MAX_USD, ROUTINE_ID_PATTERN, ROUTINE_INSTRUCTIONS_MAX, ROUTINE_NAME_MAX, ROUTINE_SCRIPT_MAX } from "./routine";
+import {
+  ROUTINE_COST_MAX_USD,
+  ROUTINE_DEFAULT_TIMEOUT_MINUTES,
+  ROUTINE_ID_PATTERN,
+  ROUTINE_INSTRUCTIONS_MAX,
+  ROUTINE_NAME_MAX,
+  ROUTINE_SCRIPT_MAX,
+  ROUTINE_TIMEOUT_MAX_MINUTES,
+} from "./routine";
 import { issueDraftTool, issueFileTool } from "./issue-tool";
 import { themeListTool, themeSetTool, themeTool } from "./theme-tool";
 import {
@@ -170,6 +178,12 @@ function routineCreateTool(): RpcHostToolDefinition {
         allow: { type: "array", items: { type: "string" }, description: "Exact omp tool keys allowed unprompted at fire time." },
         warnUsd: { type: ["number", "null"], minimum: 0, maximum: ROUTINE_COST_MAX_USD, description: "Spend warning cap; null = registry default." },
         maxUsd: { type: ["number", "null"], minimum: 0, maximum: ROUTINE_COST_MAX_USD, description: "Spend hard cap; null = registry default." },
+        timeoutMinutes: {
+          type: ["integer", "null"],
+          minimum: 0,
+          maximum: ROUTINE_TIMEOUT_MAX_MINUTES,
+          description: `Wall-clock run timeout in minutes; null = default (${ROUTINE_DEFAULT_TIMEOUT_MINUTES} min), 0 = unlimited.`,
+        },
         scripts: {
           ...ROUTINE_SCRIPTS_SCHEMA,
           description: "Optional pre/post run hooks; omitted phase means no hook.",
@@ -193,7 +207,7 @@ function routineUpdateTool(): RpcHostToolDefinition {
       "Edit an existing scheduled Routine in the user's Routines library. Call it ONLY when the user explicitly asked to change a routine they own. " +
       "Field-level merge: only the fields you send change; absent fields keep their current values. warnUsd/maxUsd merge individually; scripts.pre/post merge per phase (send \"\" to clear one hook, omit to keep it); " +
       "allow replaces the allow list but preserves the routine's existing deny list, which you can never change. " +
-      "For model, thinkingLevel, warnUsd, maxUsd: send null to reset to the machine/registry default, omit the key to leave it alone. " +
+      "For model, thinkingLevel, warnUsd, maxUsd, timeoutMinutes: send null to reset to the machine/registry/30-min default, omit the key to leave it alone. " +
       "Any update saves the routine DISABLED, even if it was enabled — the user must turn the enable switch back on; you can never enable or run a routine. " +
       `enabled, deny, destination.workspace, and unknown keys are refused. name ≤ 80 characters, instructions ≤ ${ROUTINE_INSTRUCTIONS_MAX}, timeZone an IANA zone, schedule a cron expression, scripts phases ≤ ${ROUTINE_SCRIPT_MAX} characters. ` +
       "Paste the returned Markdown review link verbatim into your reply and tell the user the edited routine is disabled until they re-enable it.",
@@ -219,6 +233,12 @@ function routineUpdateTool(): RpcHostToolDefinition {
         allow: { type: "array", items: { type: "string" }, description: "Replaces the exact omp tool keys allowed unprompted; deny is preserved." },
         warnUsd: { type: ["number", "null"], minimum: 0, maximum: ROUTINE_COST_MAX_USD, description: "Spend warning cap; null = registry default; omit = leave unchanged." },
         maxUsd: { type: ["number", "null"], minimum: 0, maximum: ROUTINE_COST_MAX_USD, description: "Spend hard cap; null = registry default; omit = leave unchanged." },
+        timeoutMinutes: {
+          type: ["integer", "null"],
+          minimum: 0,
+          maximum: ROUTINE_TIMEOUT_MAX_MINUTES,
+          description: `Wall-clock run timeout in minutes; null = default (${ROUTINE_DEFAULT_TIMEOUT_MINUTES} min); 0 = unlimited; omit = leave unchanged.`,
+        },
         scripts: {
           ...ROUTINE_SCRIPTS_SCHEMA,
           description: "Pre/post run hooks; an omitted phase keeps its current hook, an empty string clears it.",

@@ -477,17 +477,18 @@ On a routine run the Approval card offers **Deny** and **Allow once** only. A
 card nobody answers is denied automatically after 24 hours. Each answered card
 resumes the run.
 
-Limits are fixed: a run is stopped at 30 minutes from its fire, at its spend
-cap, or by a provider usage limit. 60 seconds after a run ends, it settles
-itself; a reply typed into it before or after reopens it like any session and
-keeps its tool policy.
+A run is stopped at its configured wall-clock timeout from fire (30 minutes by
+default, customizable up to 24 hours, or **Unlimited**), at its spend cap, or
+by a provider usage limit. 60 seconds after a run ends, it settles itself; a
+reply typed into it before or after reopens it like any session and keeps its
+tool policy.
 
 ### Run history and retention
 
 Each routine's **Run history** lists its fires with an outcome — **Running**,
 **Waiting on approval**, **On time**, **Late**, **Skipped**, or **Failed** —
 and a reason when one applies (previous run still open, another routine was
-running, spend cap, 30-minute timeout, usage limit, approval timeout, could not
+running, spend cap, wall-clock timeout, usage limit, approval timeout, could not
 start, destination project unavailable, interrupted when the app quit, or an
 error). **Open session** opens the run's transcript.
 

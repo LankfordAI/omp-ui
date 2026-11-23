@@ -19,7 +19,9 @@ export const ROUTINE_NOTICES_MAX = 3;
 export const ROUTINE_DEFAULT_WARN_COST_USD = 2;
 export const ROUTINE_DEFAULT_MAX_COST_USD = 5;
 export const ROUTINE_COST_MAX_USD = 10_000;
-export const ROUTINE_RUN_WALL_CLOCK_MS = 30 * 60 * 1000; // 30 minutes
+export const ROUTINE_DEFAULT_TIMEOUT_MINUTES = 30;
+export const ROUTINE_TIMEOUT_MAX_MINUTES = 1_440; // 24 hours; 0 = unlimited
+export const ROUTINE_RUN_WALL_CLOCK_MS = ROUTINE_DEFAULT_TIMEOUT_MINUTES * 60 * 1000; // 30 minutes
 export const ROUTINE_RUN_SETTLE_GRACE_MS = 60_000; // 60 seconds
 export const ROUTINE_APPROVAL_TIMEOUT_MS = 24 * 60 * 60 * 1000; // 24 hours
 export const ROUTINE_RUN_RETENTION_DAYS = 30;
@@ -126,6 +128,8 @@ export interface RoutineRecord {
   toolPolicy: RoutineToolPolicy;
   /** Optional pre/post run hooks (#1283); "" per phase disables it. */
   scripts: RoutineScripts;
+  /** null = default 30 min; 0 = unlimited; 1..1440 = custom wall-clock cap in minutes (#1290). */
+  timeoutMinutes: number | null;
   enabled: boolean;
   createdAt: string;
   nextRunAtMs: number | null;
@@ -148,6 +152,8 @@ export interface RoutineInput {
   toolPolicy: RoutineToolPolicy;
   /** Required on the TS type; the wire parser defaults an omitted key so old clients keep working (#1283). */
   scripts: RoutineScripts;
+  /** Required on TS type; wire parser defaults omitted key to null for older clients (#1290). */
+  timeoutMinutes: number | null;
   enabled: boolean;
 }
 
@@ -163,6 +169,7 @@ export interface RoutinePatch {
   spend?: RoutineSpendOverride;
   toolPolicy?: RoutineToolPolicy;
   scripts?: RoutineScripts;
+  timeoutMinutes?: number | null;
   enabled?: boolean;
 }
 
@@ -235,6 +242,7 @@ export interface RoutineAgentCreateArgs {
   allow: string[];
   warnUsd: number | null;
   maxUsd: number | null;
+  timeoutMinutes: number | null;
   scripts: RoutineScripts;
 }
 
@@ -250,6 +258,7 @@ const AGENT_CREATE_KEYS = new Set([
   "allow",
   "warnUsd",
   "maxUsd",
+  "timeoutMinutes",
   "scripts",
 ]);
 
@@ -286,6 +295,7 @@ export function parseRoutineAgentCreateArgs(raw: unknown): RoutineAgentCreateArg
     allow,
     warnUsd: parseSpendNumber(raw.warnUsd === undefined ? null : raw.warnUsd, "warnUsd"),
     maxUsd: parseSpendNumber(raw.maxUsd === undefined ? null : raw.maxUsd, "maxUsd"),
+    timeoutMinutes: parseTimeoutMinutes(raw.timeoutMinutes, "timeoutMinutes", true),
     scripts: parseScripts(raw.scripts),
   };
 }
@@ -309,6 +319,7 @@ export function routineInputFromAgentCreate(args: RoutineAgentCreateArgs, nowIso
     spend: { warnUsd: args.warnUsd, maxUsd: args.maxUsd },
     toolPolicy: { allow: args.allow, deny: [], lastReviewedAt: nowIso, reviewedCatalog: [] },
     scripts: args.scripts,
+    timeoutMinutes: args.timeoutMinutes,
     enabled: false,
   };
 }
@@ -334,6 +345,7 @@ export interface RoutineAgentUpdateArgs {
   allow?: string[];
   warnUsd?: number | null;
   maxUsd?: number | null;
+  timeoutMinutes?: number | null;
   scripts?: { pre?: string; post?: string };
 }
 
@@ -350,6 +362,7 @@ const AGENT_UPDATE_KEYS = new Set([
   "allow",
   "warnUsd",
   "maxUsd",
+  "timeoutMinutes",
   "scripts",
 ]);
 
@@ -435,6 +448,10 @@ export function parseRoutineAgentUpdateArgs(raw: unknown): RoutineAgentUpdateArg
     args.scripts = scripts;
     changed = true;
   }
+  if (raw.timeoutMinutes !== undefined) {
+    args.timeoutMinutes = parseTimeoutMinutes(raw.timeoutMinutes, "timeoutMinutes", false);
+    changed = true;
+  }
   if (!changed) throw new Error("routine update must change at least one field");
   return args;
 }
@@ -462,6 +479,7 @@ export function routinePatchFromAgentUpdate(
   if (args.mode !== undefined) patch.mode = args.mode;
   if (args.model !== undefined) patch.model = args.model;
   if (args.thinkingLevel !== undefined) patch.thinkingLevel = args.thinkingLevel;
+  if (args.timeoutMinutes !== undefined) patch.timeoutMinutes = args.timeoutMinutes;
   if (args.projectCwd !== undefined) {
     patch.destination = { projectCwd: args.projectCwd, workspace: current.destination.workspace };
   }
@@ -551,6 +569,8 @@ export interface RoutineDryRunResult {
   enumerationError: string | null;
   /** Hooks listed verbatim; Dry run never runs them (#1283). */
   scripts: RoutineScripts;
+  /** Resolved effective wall-clock limit in minutes (0 = unlimited) (#1290). */
+  timeoutMinutes: number;
 }
 
 /** Attended "Test script" editor action (#1283); never persisted, never proxied remotely. */
@@ -565,6 +585,20 @@ export interface RoutineTestScriptResult {
   exitCode: number | null;
   stdout: string;
   stderr: string;
+}
+
+/** Resolved wall-clock limit in minutes (0 = unlimited). */
+export function resolveRoutineTimeoutMinutes(timeoutMinutes: number | null | undefined): number {
+  if (timeoutMinutes === undefined || timeoutMinutes === null) {
+    return ROUTINE_DEFAULT_TIMEOUT_MINUTES;
+  }
+  return timeoutMinutes;
+}
+
+/** Resolved wall-clock limit in milliseconds, or null when unlimited (0). */
+export function resolveRoutineWallClockMs(timeoutMinutes: number | null | undefined): number | null {
+  const minutes = resolveRoutineTimeoutMinutes(timeoutMinutes);
+  return minutes === 0 ? null : minutes * 60 * 1000;
 }
 
 /* ---------------------------------------------------------- YAML serializer */
@@ -807,6 +841,7 @@ const ROUTINE_INPUT_KEYS = new Set([
   "spend",
   "toolPolicy",
   "scripts",
+  "timeoutMinutes",
   "enabled",
 ]);
 
@@ -931,6 +966,21 @@ function parseSpendNumber(value: unknown, field: string): number | null {
   return value;
 }
 
+function parseTimeoutMinutes(value: unknown, field: string, allowUndefined: boolean): number | null {
+  if (value === null || (allowUndefined && value === undefined)) return null;
+  if (
+    typeof value !== "number" ||
+    !Number.isInteger(value) ||
+    value < 0 ||
+    value > ROUTINE_TIMEOUT_MAX_MINUTES
+  ) {
+    throw new Error(
+      `${field} must be null, 0 (unlimited), or an integer between 1 and ${ROUTINE_TIMEOUT_MAX_MINUTES}`,
+    );
+  }
+  return value;
+}
+
 function parseSpend(value: unknown): RoutineSpendOverride {
   if (!isPlainObject(value)) throw new Error("spend must be an object");
   assertAllowedKeys(value, SPEND_KEYS, "spend");
@@ -997,6 +1047,7 @@ export function parseRoutineInput(raw: unknown): RoutineInput {
     spend: parseSpend(raw.spend),
     toolPolicy: parseToolPolicy(raw.toolPolicy),
     scripts: parseScripts(raw.scripts),
+    timeoutMinutes: parseTimeoutMinutes(raw.timeoutMinutes, "timeoutMinutes", true),
     enabled,
   };
 }
@@ -1017,6 +1068,7 @@ export function parseRoutinePatch(raw: unknown): RoutinePatch {
   if ("spend" in raw) out.spend = parseSpend(raw.spend);
   if ("toolPolicy" in raw) out.toolPolicy = parseToolPolicy(raw.toolPolicy);
   if ("scripts" in raw) out.scripts = parseScripts(raw.scripts);
+  if ("timeoutMinutes" in raw) out.timeoutMinutes = parseTimeoutMinutes(raw.timeoutMinutes, "timeoutMinutes", false);
   if ("enabled" in raw) {
     if (typeof raw.enabled !== "boolean") throw new Error("enabled must be a boolean");
     out.enabled = raw.enabled;
@@ -1098,6 +1150,7 @@ const ROUTINE_RECORD_KEYS = new Set([
   "spend",
   "toolPolicy",
   "scripts",
+  "timeoutMinutes",
   "enabled",
   "createdAt",
   "nextRunAtMs",
@@ -1140,6 +1193,7 @@ export function isRoutineRecord(raw: unknown): raw is RoutineRecord {
     // Absent stays valid (legacy record; §4.4 owns the load default);
     // present-but-malformed rejects the whole record — never half-repair.
     if (raw.scripts !== undefined) parseScripts(raw.scripts);
+    if (raw.timeoutMinutes !== undefined) parseTimeoutMinutes(raw.timeoutMinutes, "timeoutMinutes", false);
   } catch {
     return false;
   }

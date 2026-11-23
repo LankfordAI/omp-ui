@@ -46,6 +46,7 @@ function routine(patch: Partial<RoutineRecord> = {}): RoutineRecord {
     // gmail_send was not in the catalog the user reviewed: drift.
     toolPolicy: { allow: ["read", "mcp__gmail_list"], deny: [], lastReviewedAt: "2026-11-01T00:00:00.000Z", reviewedCatalog: ["read", "bash", "mcp__gmail_list"] },
     scripts: { pre: "", post: "" },
+    timeoutMinutes: null,
     enabled: true,
     createdAt: "2026-11-01T00:00:00.000Z",
     nextRunAtMs: Date.UTC(2026, 10, 23, 8),
@@ -222,6 +223,7 @@ describe("RoutinesView (ADR-0100, issue #1261)", () => {
       staleServers: [],
       enumerationError: null,
       scripts: { pre: "", post: "" },
+      timeoutMinutes: 30,
     };
     dryRunRoutine.mockResolvedValueOnce(result);
     render();
@@ -266,7 +268,7 @@ describe("RoutinesView (ADR-0100, issue #1261)", () => {
     const history = document.querySelector("[data-run-history]")!;
     expect(history.textContent).toContain("Previous run still open");
     expect(history.textContent).toContain("Stopped at spend cap");
-    expect(history.textContent).toContain("Timed out at 30 minutes");
+    expect(history.textContent).toContain("Timed out (wall-clock limit reached)");
     expect(history.textContent).toContain("pruned");
     expect([...history.querySelectorAll("button")]).toHaveLength(0);
   });
@@ -310,6 +312,7 @@ describe("RoutinesView (ADR-0100, issue #1261)", () => {
       staleServers: [],
       enumerationError: null,
       scripts: { pre: "", post: "" },
+      timeoutMinutes: 30,
     };
     dryRunRoutine.mockResolvedValueOnce(result);
     render();
@@ -491,6 +494,7 @@ describe("RoutinesView run hooks (#1283)", () => {
       staleServers: [],
       enumerationError: null,
       scripts: { pre: "", post: "npm test" },
+      timeoutMinutes: 30,
     });
     render();
     await settle();
@@ -602,5 +606,109 @@ describe("RoutinesView Variant B layout and Flight check (#1284)", () => {
     await act(async () => newButton!.click());
     await settle();
     expect(host.querySelector("[data-routine-editor]")).not.toBeNull();
+  });
+});
+
+describe("RoutinesView configurable timeout (#1290)", () => {
+  function typeInto(el: HTMLInputElement, value: string): void {
+    const setter = Object.getOwnPropertyDescriptor(HTMLInputElement.prototype, "value")!.set!;
+    act(() => {
+      setter.call(el, value);
+      el.dispatchEvent(new Event("input", { bubbles: true }));
+    });
+  }
+
+  function timeoutInput(): HTMLInputElement | null {
+    return document.querySelector<HTMLInputElement>('input[aria-label="Run timeout (minutes)"]');
+  }
+
+  it("defaults to 30 min in Flight check, saves custom minutes, switches to Unlimited, and resets back to Limit", async () => {
+    let current = routine();
+    const updateRoutine = vi.fn(async (_id: string, patch: unknown) => {
+      current = { ...current, ...(patch as Partial<RoutineRecord>) };
+      useStore.setState({ routinesState: routinesState({ routines: [current] }) });
+      return current;
+    });
+    useStore.setState({ updateRoutine });
+    render();
+    await settle();
+
+    expect(document.querySelector("[data-flight-timeout]")?.textContent).toBe("30 min");
+    expect(timeoutInput()?.value).toBe("");
+
+    // Enter 90 minutes -> formats as 1 h 30 min and saves timeoutMinutes: 90.
+    typeInto(timeoutInput()!, "90");
+    expect(document.querySelector("[data-flight-timeout]")?.textContent).toBe("1 h 30 min");
+    await act(async () => buttonNamed("Save routine").click());
+    await settle();
+    expect(updateRoutine).toHaveBeenLastCalledWith(current.id, expect.objectContaining({ timeoutMinutes: 90 }));
+
+    // Switch to Unlimited -> Flight check shows Unlimited, lane warning appears, saves timeoutMinutes: 0.
+    act(() => buttonNamed("Unlimited").click());
+    expect(document.querySelector("[data-flight-timeout]")?.textContent).toBe("Unlimited");
+    expect(timeoutInput()).toBeNull();
+    expect(document.body.textContent).toContain("No wall-clock limit");
+    await act(async () => buttonNamed("Save routine").click());
+    await settle();
+    expect(updateRoutine).toHaveBeenLastCalledWith(current.id, expect.objectContaining({ timeoutMinutes: 0 }));
+
+    // Switch back to Limit -> resets to default (timeoutMinutes: null).
+    act(() => buttonNamed("Limit").click());
+    expect(document.querySelector("[data-flight-timeout]")?.textContent).toBe("30 min");
+    expect(timeoutInput()?.value).toBe("");
+    await act(async () => buttonNamed("Save routine").click());
+    await settle();
+    expect(updateRoutine).toHaveBeenLastCalledWith(current.id, expect.objectContaining({ timeoutMinutes: null }));
+  });
+
+  it("surfaces validation error and disables Save for invalid timeout values", async () => {
+    render();
+    await settle();
+
+    for (const bad of ["-5", "1.5", "1441"]) {
+      typeInto(timeoutInput()!, bad);
+      expect(document.body.textContent).toContain("Run timeout is blank (30 min default)");
+      expect(buttonNamed("Save routine").disabled).toBe(true);
+    }
+
+    // Whole hours format cleanly and re-enable Save.
+    typeInto(timeoutInput()!, "120");
+    expect(document.querySelector("[data-flight-timeout]")?.textContent).toBe("2 h");
+    expect(buttonNamed("Save routine").disabled).toBe(false);
+  });
+
+  it("renders resolved timeout (custom and Unlimited) in Dry run summary", async () => {
+    const baseDryRun: RoutineDryRunResult = {
+      routineId: "a".repeat(22),
+      nextFireAtMs: Date.UTC(2026, 10, 23, 8),
+      compiled: {
+        approvalMode: "always-ask",
+        overlayEntries: { read: "allow" },
+        deniedBuiltins: [],
+        addedLater: [],
+        missingFromCatalog: [],
+        cliBypassToolsAllowed: [],
+        cliBypassWarning: false,
+        overlayYamlPreview: "tools:\n",
+        warnings: [],
+      },
+      warnCostUsd: 2,
+      maxCostUsd: 5,
+      staleServers: [],
+      enumerationError: null,
+      scripts: { pre: "", post: "" },
+      timeoutMinutes: 120,
+    };
+    dryRunRoutine.mockResolvedValueOnce(baseDryRun);
+    render();
+    await settle();
+    await act(async () => buttonNamed("Dry run").click());
+    await settle();
+    expect(document.querySelector("[data-dry-run]")?.textContent).toContain("timeout 2 h");
+
+    dryRunRoutine.mockResolvedValueOnce({ ...baseDryRun, timeoutMinutes: 0 });
+    await act(async () => buttonNamed("Dry run").click());
+    await settle();
+    expect(document.querySelector("[data-dry-run]")?.textContent).toContain("timeout Unlimited");
   });
 });

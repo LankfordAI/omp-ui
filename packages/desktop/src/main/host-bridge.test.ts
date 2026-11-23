@@ -2391,12 +2391,31 @@ describe("HostBridge routine authority (ADR-0100, U13, amended)", () => {
     await settled();
     // The service receives the validated narrow args, spend defaulted to inherit.
     expect(f.received).toHaveLength(1);
-    expect(f.received[0]).toMatchObject({ ...GOOD_ARGS, model: null, thinkingLevel: null, warnUsd: null, maxUsd: null });
+    expect(f.received[0]).toMatchObject({ ...GOOD_ARGS, model: null, thinkingLevel: null, warnUsd: null, maxUsd: null, timeoutMinutes: null });
     expect(f.sent).toHaveLength(1);
     expect(f.sent[0]).not.toHaveProperty("isError");
     const text = resultText(f.sent[0]!);
     expect(text).toContain(`Created routine "Gmail triage" (id ${ROUTINE_ID}) as a disabled draft.`);
     expect(text).toContain(`[Review "Gmail triage" in Routines](omp-ui://routine/${ROUTINE_ID})`);
+  });
+
+  it("forwards custom and unlimited timeoutMinutes and rejects out-of-range values (#1290)", async () => {
+    const f = routineFixture();
+    f.bridge.route("t1", toolCallFrame("h1", "omp-ui_routines_create", { ...GOOD_ARGS, timeoutMinutes: 0 }), f.send);
+    f.bridge.route("t1", toolCallFrame("h2", "omp-ui_routines_create", { ...GOOD_ARGS, timeoutMinutes: 90 }), f.send);
+    f.bridge.route("t1", toolCallFrame("h3", "omp-ui_routines_create", { ...GOOD_ARGS, timeoutMinutes: -1 }), f.send);
+    f.bridge.route("t1", toolCallFrame("h4", "omp-ui_routines_create", { ...GOOD_ARGS, timeoutMinutes: 2000 }), f.send);
+    await settled();
+    expect(f.received).toHaveLength(2);
+    expect(f.received[0]).toMatchObject({ timeoutMinutes: 0 });
+    expect(f.received[1]).toMatchObject({ timeoutMinutes: 90 });
+    const byId = (id: string) => f.sent.find((frame) => frame.id === id);
+    expect(byId("h1")).not.toHaveProperty("isError");
+    expect(byId("h2")).not.toHaveProperty("isError");
+    expect(byId("h3")).toMatchObject({ id: "h3", isError: true });
+    expect(JSON.stringify(byId("h3"))).toContain("timeoutMinutes");
+    expect(byId("h4")).toMatchObject({ id: "h4", isError: true });
+    expect(JSON.stringify(byId("h4"))).toContain("timeoutMinutes");
   });
 
   it("answers a well-formed update with the disabled warning and review link", async () => {

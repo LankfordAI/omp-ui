@@ -2,7 +2,6 @@ import {
   APPROVAL_DENY,
   ROUTINE_APPROVAL_TIMEOUT_MS,
   ROUTINE_RUN_SETTLE_GRACE_MS,
-  ROUTINE_RUN_WALL_CLOCK_MS,
   isNonTerminalAgentEnd,
   isObject,
   isUsageLimitError,
@@ -32,6 +31,8 @@ export interface RoutineRunPin {
   routineId: string;
   projectCwd: string;
   workspace: RoutineWorkspace;
+  /** Resolved fire-time wall-clock budget in ms; null = unlimited (#1290). */
+  wallClockMs: number | null;
 }
 
 export interface RoutineLifecycleDeps {
@@ -61,7 +62,7 @@ export interface RoutineLifecycleDeps {
 interface RunState {
   runRowId: string | null;
   trigger: RoutineRunTrigger;
-  /** Absolute 30-min deadline from fire; null for a resumed (human-continued) run or after terminal end. */
+  /** Pinned wall-clock deadline from fire; null when unlimited, resumed (human-continued), or after terminal end. */
   wallDeadline: number | null;
   settleDeadline: number | null;
   /** Open Approval card frame id → 24 h auto-Deny deadline. */
@@ -89,7 +90,7 @@ interface RunState {
 /**
  * The one main-process owner of every per-run Routine timer (ADR-0100, §7.2):
  * the 60 s self-Settle grace after a terminal `agent_end`, the 24 h Approval
- * card auto-Deny, and the 30-minute wall clock from fire. Each wait is stepped
+ * card auto-Deny, and the pinned wall clock from fire (if limited). Each wait is stepped
  * at ≤ 60 s. Also records the run's outcome (cost cap, usage limit, error,
  * normal end) on its history row. Gate-off parks every timer without reaping.
  */
@@ -119,7 +120,8 @@ export class RoutineLifecycleManager implements FrameObserver {
     const state = this.state(tabId);
     state.runRowId = runRowId;
     state.trigger = trigger;
-    state.wallDeadline = state.finalized ? null : firedAtMs + ROUTINE_RUN_WALL_CLOCK_MS;
+    state.wallDeadline =
+      state.finalized || pinned.wallClockMs === null ? null : firedAtMs + pinned.wallClockMs;
     // Fire-time pin (#1283): the run cannot have been released yet (release
     // needs a human Finish or 30-day retention), so this one read is correct.
     state.postCommand = pinned.scripts.post;

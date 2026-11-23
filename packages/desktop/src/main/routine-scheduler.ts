@@ -53,7 +53,13 @@ export interface RoutineSchedulerDeps {
     opts: { deadlineMs: number },
   ) => Promise<FleetDispatchResult>;
   /** Called once a routine run starts with a tabId so lifecycle timers can attach. */
-  onRunStarted: (tabId: string, routineId: string, runRowId: string, trigger: RoutineRunTrigger, firedAtMs: number) => void;
+  onRunStarted: (
+    tabId: string,
+    routine: RoutineRecord,
+    runRowId: string,
+    trigger: RoutineRunTrigger,
+    firedAtMs: number,
+  ) => void;
   /** Runs one pre-run hook; the runner resolves (never rejects) with a fixed result (#1283). */
   runScript: (
     command: string,
@@ -497,7 +503,7 @@ export class RoutineScheduler {
         staleCatalog,
       };
       this.deps.history.record(row);
-      this.deps.onRunStarted(tabId, routine.id, runId, trigger, firedAtMs);
+      this.deps.onRunStarted(tabId, routine, runId, trigger, firedAtMs);
       this.deps.publish();
       if (this.deps.onPostFire) {
         void Promise.resolve(this.deps.onPostFire()).catch((err) => {

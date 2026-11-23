@@ -129,3 +129,13 @@ export function runsOf(runs: readonly RoutineRunRow[], routineId: string): Routi
 export function formatUsd(value: number): string {
   return `$${value.toFixed(2).replace(/\.00$/, "")}`;
 }
+
+/** Formats a resolved routine timeout in minutes (0 = unlimited). */
+export function formatTimeout(minutes: number): string {
+  if (minutes === 0) return t("routines.timeout.unlimited");
+  if (minutes < 60) return t("routines.timeout.minutes", { m: minutes });
+  const h = Math.floor(minutes / 60);
+  const m = minutes % 60;
+  if (m === 0) return t("routines.timeout.hours", { h });
+  return t("routines.timeout.hoursMinutes", { h, m });
+}
