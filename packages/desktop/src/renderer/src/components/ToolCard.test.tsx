@@ -1182,3 +1182,55 @@ describe("ToolCard tool-command nesting and brief labels (issue #1274)", () => {
     act(() => root.unmount());
   });
 });
+
+describe("toolIntentLabel precedence (issue #1274)", () => {
+  it("prefers the explicit wire label over the derived colon split while running", () => {
+    const { el, root } = renderCard(
+      tool({
+        name: "read",
+        status: "running",
+        intent: "Reading config.json: 3 top-level keys",
+        toolIntentLabel: "Checking config",
+      }),
+    );
+    const header = el.querySelector("button")?.textContent ?? "";
+    expect(header).toContain("Checking config");
+    expect(header).not.toContain("Reading config.json");
+    // The tooltip keeps the full intent text.
+    expect(el.querySelector("span[title]")?.getAttribute("title")).toBe(
+      "Reading config.json: 3 top-level keys",
+    );
+    act(() => root.unmount());
+  });
+
+  it("falls back to the derived split when no wire label arrives (19.0.1 wire)", () => {
+    const { el, root } = renderCard(
+      tool({ name: "read", status: "running", intent: "Reading config.json: 3 top-level keys" }),
+    );
+    expect(el.querySelector("button")?.textContent).toContain("Reading config.json");
+    act(() => root.unmount());
+  });
+
+  it("ignores an empty wire label — an empty slice never wins", () => {
+    const { el, root } = renderCard(
+      tool({ name: "read", status: "running", intent: "Reading config.json: 3 lines", toolIntentLabel: "" }),
+    );
+    expect(el.querySelector("button")?.textContent).toContain("Reading config.json");
+    act(() => root.unmount());
+  });
+
+  it("shows the full intent once settled even with a wire label", () => {
+    const { el, root } = renderCard(
+      tool({
+        name: "read",
+        status: "done",
+        intent: "Reading config.json: 3 lines",
+        toolIntentLabel: "Checking config",
+        resultText: "ok",
+      }),
+    );
+    expect(el.textContent).toContain("Reading config.json: 3 lines");
+    expect(el.textContent).not.toContain("Checking config");
+    act(() => root.unmount());
+  });
+});

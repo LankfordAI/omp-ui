@@ -1,6 +1,6 @@
 // @vitest-environment jsdom
 import { afterEach, beforeEach, describe, expect, it, vi, type Mock } from "vitest";
-import { act } from "react";
+import { act, type ReactNode } from "react";
 import { createRoot, type Root } from "react-dom/client";
 import {
   historyToItems,
@@ -29,9 +29,17 @@ vi.mock("./ToolCard", async (importOriginal) => {
   const actual = await importOriginal<typeof import("./ToolCard")>();
   return {
     ...actual,
-    ToolCard: function ToolCardProbe({ item, tabId }: { item: ToolItem; tabId?: string }) {
+    ToolCard: function ToolCardProbe({
+      item,
+      tabId,
+      nestedBody,
+    }: {
+      item: ToolItem;
+      tabId?: string;
+      nestedBody?: ReactNode;
+    }) {
       toolCardRenders.push(item.id);
-      return <actual.ToolCard item={item} tabId={tabId} />;
+      return <actual.ToolCard item={item} tabId={tabId} nestedBody={nestedBody} />;
     },
   };
 });
@@ -2283,6 +2291,152 @@ describe("HTML artifact post-reply placement (issue #1277)", () => {
     expect(finalNode).not.toBeNull();
     expect(artNode).not.toBeNull();
     expect(finalNode!.compareDocumentPosition(artNode!) & Node.DOCUMENT_POSITION_FOLLOWING).not.toBe(0);
+    act(() => root.unmount());
+  });
+});
+
+describe("nested tool cards via parentToolCallId (issue #1274)", () => {
+  beforeEach(() => {
+    toolCardRenders.length = 0;
+  });
+
+  it("renders a child card inside the parent's card, not as its own row", () => {
+    const { el, root } = render([
+      tool("eval-1", "eval", { language: "js" }),
+      tool("read-1", "read", { path: "a.ts" }, { parentToolCallId: "eval-1" }),
+    ]);
+    expect(wrappers(el)).toEqual(["eval-1"]);
+    const nested = el.querySelectorAll<HTMLElement>("[data-nested-tool-id]");
+    expect(nested).toHaveLength(1);
+    expect(nested[0]?.dataset.nestedToolId).toBe("read-1");
+    // The child card lives inside the parent row's DOM, under the section.
+    expect(el.querySelector('[data-item-id="eval-1"] [data-nested-tools] [data-nested-tool-id="read-1"]')).not.toBeNull();
+    expect(el.textContent).toContain("called by this tool");
+    act(() => root.unmount());
+  });
+
+  it("nests several children in transcript order under one parent", () => {
+    const { el, root } = render([
+      tool("eval-1", "eval", { language: "js" }),
+      tool("read-2", "read", { path: "b.ts" }, { parentToolCallId: "eval-1" }),
+      tool("read-1", "read", { path: "a.ts" }, { parentToolCallId: "eval-1" }),
+    ]);
+    expect(wrappers(el)).toEqual(["eval-1"]);
+    expect([...el.querySelectorAll<HTMLElement>("[data-nested-tool-id]")].map((n) => n.dataset.nestedToolId)).toEqual([
+      "read-2",
+      "read-1",
+    ]);
+    act(() => root.unmount());
+  });
+
+  it("renders an orphan whose parent never rendered top-level, never dropped", () => {
+    const { el, root } = render([tool("read-1", "read", { path: "a.ts" }, { parentToolCallId: "gone" })]);
+    expect(wrappers(el)).toEqual(["read-1"]);
+    expect(el.querySelector("[data-nested-tools]")).toBeNull();
+    act(() => root.unmount());
+  });
+
+  it("orphans a self-parent and both sides of a cycle", () => {
+    // bash: non-groupable names keep every row its own card, so the wrapper
+    // list shows each orphan instead of a tool group folding them.
+    const { el, root } = render([
+      tool("x", "bash", { command: "x" }, { parentToolCallId: "x" }),
+      tool("a", "bash", { command: "a" }, { parentToolCallId: "b" }),
+      tool("b", "bash", { command: "b" }, { parentToolCallId: "a" }),
+    ]);
+    expect(wrappers(el)).toEqual(["x", "a", "b"]);
+    expect(el.querySelector("[data-nested-tools]")).toBeNull();
+    act(() => root.unmount());
+  });
+
+  it("nests a child whose frames arrived before the parent row", () => {
+    // Fixtures are final item lists; the derivation runs over the full list,
+    // so the child above its parent still resolves as nested.
+    const { el, root } = render([
+      tool("read-1", "read", { path: "a.ts" }, { parentToolCallId: "eval-1" }),
+      tool("eval-1", "eval", { language: "js" }),
+    ]);
+    expect(wrappers(el)).toEqual(["eval-1"]);
+    expect(el.querySelector('[data-nested-tool-id="read-1"]')).not.toBeNull();
+    act(() => root.unmount());
+  });
+
+  it("nests deep chains — a child of a child renders two levels in", () => {
+    const { el, root } = render([
+      tool("outer", "bash", { command: "x" }),
+      tool("inner", "eval", { language: "js" }, { parentToolCallId: "outer" }),
+      tool("deep", "read", { path: "a.ts" }, { parentToolCallId: "inner" }),
+    ]);
+    expect(wrappers(el)).toEqual(["outer"]);
+    expect(
+      el.querySelector('[data-nested-tool-id="inner"] [data-nested-tools] [data-nested-tool-id="deep"]'),
+    ).not.toBeNull();
+    act(() => root.unmount());
+  });
+
+  it("collapsing the parent hides its nested children with it", () => {
+    const long = { resultText: Array.from({ length: 20 }, (_, i) => `line ${i}`).join("\n") };
+    const { el, root } = render([
+      tool("eval-1", "eval", { language: "js" }, long),
+      tool("read-1", "read", { path: "a.ts" }, { ...long, parentToolCallId: "eval-1" }),
+    ]);
+    // A long settled output starts collapsed: children hidden with the body.
+    expect(el.querySelector("[data-nested-tools]")).toBeNull();
+    click(el.querySelector('[data-item-id="eval-1"] button'));
+    expect(el.querySelector('[data-nested-tool-id="read-1"]')).not.toBeNull();
+    click(el.querySelector('[data-item-id="eval-1"] button'));
+    expect(el.querySelector("[data-nested-tools]")).toBeNull();
+    act(() => root.unmount());
+  });
+
+  it("keeps a nesting host out of a tool group — nesting wins, never double-wraps", () => {
+    const { el, root } = render([
+      tool("r1", "read", { path: "a.ts" }),
+      tool("r2", "read", { path: "b.ts" }, { parentToolCallId: "eval-1" }),
+      tool("eval-1", "eval", { language: "js" }),
+    ]);
+    // r2 hosts a child (none here — it IS the child); as a nested member it
+    // leaves the flat flow entirely, so no group forms around it.
+    expect(wrappers(el)).toEqual(["r1", "eval-1"]);
+    expect(el.textContent).not.toContain("files read");
+    act(() => root.unmount());
+  });
+
+  it("a parent that hosts children stays its own card beside groupable siblings", () => {
+    const { el, root } = render([
+      tool("r1", "read", { path: "a.ts" }),
+      tool("bash-1", "bash", { command: "ls" }),
+      tool("kid", "grep", { pattern: "x" }, { parentToolCallId: "bash-1" }),
+    ]);
+    // r1 alone cannot group; bash-1 hosts a child so it stays top-level with
+    // the child inside its card. No group card anywhere.
+    expect(wrappers(el)).toEqual(["r1", "bash-1"]);
+    expect(el.querySelector('[data-nested-tool-id="kid"]')).not.toBeNull();
+    expect(el.textContent).not.toContain("file read");
+    act(() => root.unmount());
+  });
+
+  it("a groupable call with no children still folds into a group as before", () => {
+    const { el, root } = render([tool("r1", "read", { path: "a.ts" }), tool("r2", "read", { path: "b.ts" })]);
+    expect(wrappers(el)).toEqual(["r1"]);
+    expect(el.textContent).toContain("2 files read");
+    act(() => root.unmount());
+  });
+});
+
+describe("nesting vs lookup grouping (issue #1274)", () => {
+  it("a groupable call hosting children renders its own card and never joins a group", () => {
+    const { el, root } = render([
+      tool("r1", "read", { path: "a.ts" }),
+      tool("r2", "read", { path: "b.ts" }),
+      tool("kid", "grep", { pattern: "x" }, { parentToolCallId: "r2" }),
+      tool("r3", "read", { path: "c.ts" }),
+    ]);
+    // r2 hosts a child, so it leaves the group run: nothing folds, no member
+    // is wrapped in both a group line and a nested card.
+    expect(wrappers(el)).toEqual(["r1", "r2", "r3"]);
+    expect(el.querySelector("[data-group-member-id]")).toBeNull();
+    expect(el.querySelector('[data-nested-tool-id="kid"]')).not.toBeNull();
     act(() => root.unmount());
   });
 });

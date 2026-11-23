@@ -3047,3 +3047,87 @@ describe("bash tool-command nesting (issue #1274)", () => {
     expect(itemSearchText(tool(bash, "b6")!)).toContain("lsp");
   });
 });
+
+describe("nested tool calls and brief intent labels (issue #1274)", () => {
+  it("carries parentToolCallId/toolIntentLabel from tool_execution_start", () => {
+    const items = reduceEvent([], {
+      type: "tool_execution_start",
+      toolCallId: "c1",
+      toolName: "read",
+      parentToolCallId: "e1",
+      toolIntentLabel: "Reading config",
+      intent: "Reading config.json: 3 lines",
+    });
+    expect(tool(items, "c1")?.parentToolCallId).toBe("e1");
+    expect(tool(items, "c1")?.toolIntentLabel).toBe("Reading config");
+  });
+
+  it("carries the fields when the end event arrives without a start", () => {
+    const items = reduceEvent([], {
+      type: "tool_execution_end",
+      toolCallId: "c2",
+      toolName: "grep",
+      parentToolCallId: "e1",
+      toolIntentLabel: "Searching",
+      result: { content: [{ type: "text", text: "ok" }] },
+      isError: false,
+    });
+    expect(tool(items, "c2")?.parentToolCallId).toBe("e1");
+    expect(tool(items, "c2")?.toolIntentLabel).toBe("Searching");
+  });
+
+  it("merges the fields across start and end without clearing either", () => {
+    let items = reduceEvent([], {
+      type: "tool_execution_start",
+      toolCallId: "c3",
+      toolName: "bash",
+      parentToolCallId: "e1",
+    });
+    items = reduceEvent(items, {
+      type: "tool_execution_end",
+      toolCallId: "c3",
+      toolName: "bash",
+      toolIntentLabel: "Running tests",
+      result: { content: [{ type: "text", text: "done" }] },
+      isError: false,
+    });
+    expect(tool(items, "c3")?.parentToolCallId).toBe("e1");
+    expect(tool(items, "c3")?.toolIntentLabel).toBe("Running tests");
+  });
+
+  it("omits the keys entirely for direct calls (the pre-19.1 wire)", () => {
+    const items = reduceEvent([], {
+      type: "tool_execution_start",
+      toolCallId: "d1",
+      toolName: "bash",
+    });
+    expect(tool(items, "d1")).not.toHaveProperty("parentToolCallId");
+    expect(tool(items, "d1")).not.toHaveProperty("toolIntentLabel");
+  });
+
+  it("drops a non-string parent id instead of trusting it", () => {
+    const items = reduceEvent([], {
+      type: "tool_execution_start",
+      toolCallId: "c4",
+      toolName: "bash",
+      parentToolCallId: { nope: true },
+    });
+    expect(tool(items, "c4")).not.toHaveProperty("parentToolCallId");
+  });
+
+  it("replays the fields through historyToItems from both the call block and the result row", () => {
+    const items = historyToItems([
+      {
+        role: "assistant",
+        content: [
+          { type: "toolCall", id: "e9", name: "eval", arguments: { language: "js" }, toolIntentLabel: "Evaluating JS" },
+          { type: "toolCall", id: "c9", name: "read", arguments: { path: "a.ts" }, parentToolCallId: "e9" },
+        ],
+      },
+      { role: "toolResult", toolCallId: "c9", content: [{ type: "text", text: "ok" }], toolIntentLabel: "Reading a.ts" },
+    ]);
+    expect(tool(items, "e9")?.toolIntentLabel).toBe("Evaluating JS");
+    expect(tool(items, "c9")?.parentToolCallId).toBe("e9");
+    expect(tool(items, "c9")?.toolIntentLabel).toBe("Reading a.ts");
+  });
+});

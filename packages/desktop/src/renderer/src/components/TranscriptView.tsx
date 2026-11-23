@@ -35,7 +35,7 @@ import type {
 } from "../lib/transcript";
 import { onTranscriptReveal } from "../lib/transcript-reveal";
 import { toolGroupCategory } from "../lib/tool-groups";
-import { buildToolNesting, EMPTY_TOOL_NESTING, type ToolNesting } from "../lib/tool-nesting";
+import { buildToolNesting, EMPTY_TOOL_NESTING } from "../lib/tool-nesting";
 import {
   LOAD_OLDER_TRIGGER_PX,
   TRANSCRIPT_REVEAL_CONTEXT,
