@@ -297,10 +297,11 @@ async function waitFor(probe, timeoutMs, what) {
   let last;
   for (;;) {
     try {
+      // A throwing probe is just "not ready yet" (e.g. pageTarget's fetch
+      // racing the pane client's CDP bind); only a plain timeout fails.
       last = await probe();
-    } catch (err) {
+    } catch {
       last = undefined;
-      if (Date.now() - start > timeoutMs) throw new Error(`timeout waiting for ${what}: ${err.message}`, { cause: err });
     }
     if (last !== undefined && last !== null && last !== false) return last;
     if (Date.now() - start > timeoutMs) throw new Error(`timeout waiting for ${what}`);
