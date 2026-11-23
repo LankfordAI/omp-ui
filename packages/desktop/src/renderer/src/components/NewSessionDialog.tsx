@@ -14,7 +14,6 @@ import { mintBranchName, nextMintedWorktreeBranch, worktreeBranchPrefix } from "
 import { backend } from "../backend";
 import { formatHotkey, matchesHotkey } from "../lib/hotkeys";
 import { useKeybinding } from "../lib/keybindings";
-import { useT } from "../lib/i18n";
 import { useLoad } from "../lib/load";
 import { projectKey } from "../lib/project-key";
 import { useStore } from "../store";
@@ -71,7 +70,6 @@ interface HereGroup {
 }
 
 export function NewSessionDialog() {
-  const t = useT();
   const backgroundChord = useKeybinding("sendInBackground");
   const seed = useStore((s) => s.newSessionDialog);
   const closeNewSessionDialog = useStore((s) => s.closeNewSessionDialog);
@@ -336,7 +334,7 @@ export function NewSessionDialog() {
   // The machine's display name, not the Where segment label: the fleet face
   // names the local machine "This computer" in copy steppers and outcomes.
   const nameOf = (machine: Pick<FleetMachine, "nickname">): string =>
-    machine.nickname ?? t("dialog.newsession.machineLocal");
+    machine.nickname ?? "This computer";
 
   const canSubmit =
     face === "fleet"
@@ -455,30 +453,30 @@ export function NewSessionDialog() {
 
   return (
     <ConfirmDialog
-      kicker={t("dialog.newsession.kicker")}
-      title={t("dialog.newsession.title")}
+      kicker="New session"
+      title="Start work"
       tone="signal"
       onClose={close}
       width="w-[32rem]"
       actions={
         <>
           <Button variant="ghost" disabled={busy} onClick={close}>
-            {t("common.dialog.cancel")}
+            Cancel
           </Button>
           {face === "here" && (
             <Button
               variant="outline"
               tone="signal"
               disabled={!canSubmit}
-              title={t("dialog.newsession.backgroundTitle", { hotkey: formatHotkey(backgroundChord) })}
+              title={`Start the session without switching to it; the dialog stays open for the next one (${formatHotkey(backgroundChord)})`}
               onClick={() => void submit(true)}
             >
-              {t("dialog.newsession.background")}
+              Start in background
               <span className="ml-1.5 font-mono text-xs opacity-70">{formatHotkey(backgroundChord)}</span>
             </Button>
           )}
           <Button variant="solid" tone="signal" disabled={!canSubmit} onClick={() => void submit()}>
-            {busy ? t("dialog.newsession.busy") : t("dialog.newsession.create")}
+            {busy ? "Starting…" : "Start session"}
           </Button>
         </>
       }
@@ -486,14 +484,14 @@ export function NewSessionDialog() {
       <div className="space-y-4" onKeyDown={onKeyDown}>
         {joined.length > 0 && (
           <div>
-            <p className={LABEL}>{t("dialog.newsession.where")}</p>
+            <p className={LABEL}>Where</p>
             <div className="mt-1.5">
               <ChoiceCapsule
-                label={t("dialog.newsession.where")}
+                label="Where"
                 value={face}
                 options={[
-                  { value: "here", label: t("dialog.newsession.here") },
-                  { value: "fleet", label: t("dialog.newsession.fleet") },
+                  { value: "here", label: "This computer or one member" },
+                  { value: "fleet", label: "Multiple machines" },
                 ]}
                 onChange={setWhere}
               />
@@ -503,12 +501,12 @@ export function NewSessionDialog() {
 
         {face === "here" ? (
           selection === null ? (
-            <p className="text-xs text-ink-faint">{t("dialog.newsession.noProjects")}</p>
+            <p className="text-xs text-ink-faint">No project is registered yet.</p>
           ) : (
             <>
               <div>
                 <label htmlFor="newsession-project" className={LABEL}>
-                  {t("dialog.newsession.project")}
+                  Project
                 </label>
                 <select
                   id="newsession-project"
@@ -518,7 +516,7 @@ export function NewSessionDialog() {
                   className={FIELD}
                 >
                   {hereRepositories.map(([key, list]) => (
-                    <optgroup key={key ?? ""} label={key ?? t("dialog.newsession.noRepositoryKey")}>
+                    <optgroup key={key ?? ""} label={key ?? "No repository key"}>
                       {list.map((group) => (
                         <option key={group.id} value={group.id}>
                           {group.label}
@@ -531,7 +529,7 @@ export function NewSessionDialog() {
 
               <div>
                 <label htmlFor="newsession-machine" className={LABEL}>
-                  {t("dialog.newsession.machine")}
+                  Machine
                 </label>
                 <select
                   id="newsession-machine"
@@ -543,7 +541,7 @@ export function NewSessionDialog() {
                   {(hereGroup?.pairs ?? []).map((option) => (
                     <option key={option.id} value={option.id} title={option.title}>
                       {option.instanceId === null
-                        ? t("dialog.newsession.machineLocal")
+                        ? "This computer"
                         : (joined.find((instance) => instance.id === option.instanceId)?.nickname ??
                           option.instanceId)}
                     </option>
@@ -553,18 +551,18 @@ export function NewSessionDialog() {
 
               <div className="flex flex-wrap gap-6">
                 <div>
-                  <p className={LABEL}>{t("dialog.newsession.workspace")}</p>
+                  <p className={LABEL}>Workspace</p>
                   <div className="mt-1.5">
                     <ChoiceCapsule
-                      label={t("dialog.newsession.workspace")}
+                      label="Workspace"
                       value={effectiveWorkspace}
                       options={[
-                        { value: "checkout", label: t("dialog.newsession.checkout") },
+                        { value: "checkout", label: "Project checkout" },
                         {
                           value: "worktree",
-                          label: t("dialog.newsession.worktree"),
+                          label: "New worktree",
                           disabled: notGit,
-                          title: notGit ? t("dialog.worktree.notGit") : undefined,
+                          title: notGit ? "This project isn't inside a git repo, so there's nothing to worktree." : undefined,
                         },
                       ]}
                       onChange={setWorkspace}
@@ -572,14 +570,14 @@ export function NewSessionDialog() {
                   </div>
                 </div>
                 <div>
-                  <p className={LABEL}>{t("dialog.newsession.mode")}</p>
+                  <p className={LABEL}>Mode</p>
                   <div className="mt-1.5">
                     <ChoiceCapsule
-                      label={t("dialog.newsession.mode")}
+                      label="Mode"
                       value={planMode ? "plan" : "build"}
                       options={[
-                        { value: "build", label: t("dialog.newsession.build") },
-                        { value: "plan", label: t("dialog.newsession.plan") },
+                        { value: "build", label: "Build" },
+                        { value: "plan", label: "Plan" },
                       ]}
                       onChange={(mode) => setPlanMode(mode === "plan")}
                     />
@@ -590,16 +588,16 @@ export function NewSessionDialog() {
               {worktreeHere && (
                 <>
                   <ChoiceCapsule
-                    label={t("dialog.worktree.sourceLabel")}
+                    label="branch"
                     value={source}
                     onChange={setSource}
                     options={[
-                      { value: "new", label: t("dialog.worktree.sourceNew") },
+                      { value: "new", label: "new branch" },
                       {
                         value: "existing",
-                        label: t("dialog.worktree.sourceExisting"),
+                        label: "existing branch",
                         disabled: otherBranches.length === 0,
-                        title: otherBranches.length === 0 ? t("dialog.worktree.noOtherBranches") : undefined,
+                        title: otherBranches.length === 0 ? "no other local branch to check out" : undefined,
                       },
                     ]}
                   />
@@ -618,7 +616,7 @@ export function NewSessionDialog() {
                   ) : (
                     <div>
                       <label htmlFor="newsession-existing" className="block text-xs text-ink-faint">
-                        {t("dialog.worktree.existingBranch")}
+                        branch to check out
                       </label>
                       <select
                         id="newsession-existing"
@@ -633,7 +631,7 @@ export function NewSessionDialog() {
                         ))}
                       </select>
                       <p className="mt-1.5 text-xs leading-snug text-ink-faint">
-                        {t("dialog.worktree.existingHint")}
+                        cut point for diffs and merge-back is the repo's default branch
                       </p>
                     </div>
                   )}
@@ -642,14 +640,14 @@ export function NewSessionDialog() {
 
               <div>
                 <label htmlFor="newsession-title" className={LABEL}>
-                  {t("dialog.newsession.titleField")}
+                  Title (optional)
                 </label>
                 <input
                   id="newsession-title"
                   value={title}
                   maxLength={FLEET_TITLE_MAX}
                   disabled={busy}
-                  placeholder={t("dialog.newsession.titlePlaceholder")}
+                  placeholder="Derived from the prompt's first line"
                   spellCheck={false}
                   onChange={(event) => setTitle(event.target.value)}
                   className={FIELD}
@@ -658,7 +656,7 @@ export function NewSessionDialog() {
 
               <div>
                 <label htmlFor="newsession-prompt" className={LABEL}>
-                  {t("dialog.newsession.prompt")}
+                  Prompt
                 </label>
                 <textarea
                   ref={promptBox}
@@ -672,7 +670,7 @@ export function NewSessionDialog() {
                   className={`${FIELD} resize-none`}
                   data-modal-initial-focus
                 />
-                <p className={HINT}>{t("dialog.newsession.promptHintHere")}</p>
+                <p className={HINT}>Optional. An empty prompt starts an idle session.</p>
               </div>
 
               {error !== null && <p className="text-xs leading-relaxed text-rose">{error}</p>}
@@ -681,14 +679,14 @@ export function NewSessionDialog() {
         ) : load.status === "error" ? (
           <p className="text-xs leading-relaxed text-rose">{load.message}</p>
         ) : machines === null ? (
-          <p className="text-xs text-ink-faint">{t("dialog.newsession.loading")}</p>
+          <p className="text-xs text-ink-faint">Reading fleet machines…</p>
         ) : reference === null ? (
-          <p className="text-xs text-ink-faint">{t("dialog.newsession.noFleetProjects")}</p>
+          <p className="text-xs text-ink-faint">No ready fleet machine has a project yet.</p>
         ) : (
           <>
             <div>
               <label htmlFor="newsession-project" className={LABEL}>
-                {t("dialog.newsession.project")}
+                Project
               </label>
               <select
                 id="newsession-project"
@@ -698,7 +696,7 @@ export function NewSessionDialog() {
                 className={FIELD}
               >
                 {grouped.map(([key, list]) => (
-                  <optgroup key={key ?? ""} label={key ?? t("dialog.newsession.noRepositoryKey")}>
+                  <optgroup key={key ?? ""} label={key ?? "No repository key"}>
                     {list.map((option) => (
                       <option key={option.id} value={option.id}>
                         {nameOf(option.machine)} · {option.project.name} — {option.project.path}
@@ -710,22 +708,22 @@ export function NewSessionDialog() {
             </div>
 
             <div>
-              <p className={LABEL}>{t("dialog.newsession.runOn")}</p>
+              <p className={LABEL}>Run on</p>
               <div className="mt-1.5 flex items-center gap-3">
                 <ChoiceCapsule
-                  label={t("dialog.newsession.runOn")}
+                  label="Run on"
                   value={runOn}
                   options={[
-                    { value: "auto", label: t("dialog.newsession.auto") },
-                    { value: "choose", label: t("dialog.newsession.choose") },
+                    { value: "auto", label: "Auto" },
+                    { value: "choose", label: "Choose machines" },
                   ]}
                   onChange={setRunOn}
                 />
                 {runOn === "auto" && (
                   <label className="flex items-center gap-1.5 text-xs text-ink-mid">
-                    {t("dialog.newsession.copies")}
+                    Copies
                     <select
-                      aria-label={t("dialog.newsession.copies")}
+                      aria-label="Copies"
                       value={autoCopies}
                       disabled={busy}
                       onChange={(event) => setAutoCopies(Number(event.target.value))}
@@ -741,7 +739,7 @@ export function NewSessionDialog() {
                 )}
               </div>
               {runOn === "choose" && reference.project.repositoryKey === null && (
-                <p className={HINT}>{t("dialog.newsession.onlyReference")}</p>
+                <p className={HINT}>This project has no repository key, so only its own machine can run it.</p>
               )}
               {runOn === "choose" && (
                 <ul className="mt-2 space-y-1">
@@ -765,9 +763,9 @@ export function NewSessionDialog() {
                           <span className="min-w-0 truncate font-mono text-xs text-ink-faint">{c.project.path}</span>
                         </label>
                         {count > 0 && (
-                          <span className="flex shrink-0 items-center gap-1" aria-label={t("dialog.newsession.copiesFor", { machine: name })}>
+                          <span className="flex shrink-0 items-center gap-1" aria-label={`Copies on ${name}`}>
                             <IconButton
-                              label={t("dialog.newsession.fewer", { machine: name })}
+                              label={`One fewer copy on ${name}`}
                               disabled={busy || count <= 1}
                               onClick={() => setMachineCopies(c.machine.key, count - 1)}
                             >
@@ -775,7 +773,7 @@ export function NewSessionDialog() {
                             </IconButton>
                             <span className="w-4 text-center font-mono text-xs tabular-nums text-ink">{count}</span>
                             <IconButton
-                              label={t("dialog.newsession.more", { machine: name })}
+                              label={`One more copy on ${name}`}
                               disabled={busy || chosenTotal >= FLEET_BATCH_MAX}
                               onClick={() => setMachineCopies(c.machine.key, count + 1)}
                             >
@@ -792,18 +790,18 @@ export function NewSessionDialog() {
 
             <div className="flex flex-wrap gap-6">
               <div>
-                <p className={LABEL}>{t("dialog.newsession.workspace")}</p>
+                <p className={LABEL}>Workspace</p>
                 <div className="mt-1.5">
                   <ChoiceCapsule
-                    label={t("dialog.newsession.workspace")}
+                    label="Workspace"
                     value={effectiveWorkspace}
                     options={[
-                      { value: "worktree", label: t("dialog.newsession.worktree") },
+                      { value: "worktree", label: "New worktree" },
                       {
                         value: "checkout",
-                        label: t("dialog.newsession.checkout"),
+                        label: "Project checkout",
                         disabled: checkoutDisabled,
-                        title: checkoutDisabled ? t("dialog.newsession.checkoutDisabled") : undefined,
+                        title: checkoutDisabled ? "Several copies on one machine each need their own worktree." : undefined,
                       },
                     ]}
                     onChange={setWorkspace}
@@ -811,14 +809,14 @@ export function NewSessionDialog() {
                 </div>
               </div>
               <div>
-                <p className={LABEL}>{t("dialog.newsession.mode")}</p>
+                <p className={LABEL}>Mode</p>
                 <div className="mt-1.5">
                   <ChoiceCapsule
-                    label={t("dialog.newsession.mode")}
+                    label="Mode"
                     value={planMode ? "plan" : "build"}
                     options={[
-                      { value: "build", label: t("dialog.newsession.build") },
-                      { value: "plan", label: t("dialog.newsession.plan") },
+                      { value: "build", label: "Build" },
+                      { value: "plan", label: "Plan" },
                     ]}
                     onChange={(mode) => setPlanMode(mode === "plan")}
                   />
@@ -826,18 +824,18 @@ export function NewSessionDialog() {
               </div>
             </div>
 
-            {commitsDiffer && <p className="text-xs leading-relaxed text-copper">{t("dialog.newsession.commitsDiffer")}</p>}
+            {commitsDiffer && <p className="text-xs leading-relaxed text-copper">Machines are on different commits; each worktree starts from its own checkout.</p>}
 
             <div>
               <label htmlFor="newsession-title" className={LABEL}>
-                {t("dialog.newsession.titleField")}
+                Title (optional)
               </label>
               <input
                 id="newsession-title"
                 value={title}
                 maxLength={FLEET_TITLE_MAX}
                 disabled={busy}
-                placeholder={t("dialog.newsession.titlePlaceholder")}
+                placeholder="Derived from the prompt's first line"
                 spellCheck={false}
                 onChange={(event) => setTitle(event.target.value)}
                 className={FIELD}
@@ -846,7 +844,7 @@ export function NewSessionDialog() {
 
             <div>
               <label htmlFor="newsession-prompt" className={LABEL}>
-                {t("dialog.newsession.prompt")}
+                Prompt
               </label>
               <textarea
                 id="newsession-prompt"
@@ -859,7 +857,7 @@ export function NewSessionDialog() {
                 className={`${FIELD} resize-none`}
                 data-modal-initial-focus
               />
-              <p className={HINT}>{t("dialog.newsession.promptHintFleet")}</p>
+              <p className={HINT}>Required. Each dispatched session starts with this prompt.</p>
             </div>
 
             {unsettled.length > 0 && (
@@ -869,10 +867,7 @@ export function NewSessionDialog() {
                   return (
                     <li key={o.dispatchId} className={o.status === "failed" ? "text-rose" : "text-copper"}>
                       {o.status !== "started" &&
-                        t(o.status === "failed" ? "dialog.newsession.failed" : "dialog.newsession.unknown", {
-                          machine: machine === undefined ? o.machineKey : nameOf(machine),
-                          message: o.message,
-                        })}
+                        (o.status === "failed" ? `${machine === undefined ? o.machineKey : nameOf(machine)}: failed — ${o.message}` : `${machine === undefined ? o.machineKey : nameOf(machine)}: outcome unknown — ${o.message}`)}
                     </li>
                   );
                 })}

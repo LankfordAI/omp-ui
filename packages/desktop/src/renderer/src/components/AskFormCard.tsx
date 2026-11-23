@@ -3,7 +3,6 @@ import type { AskDialogAnswer, AskDialogQuestion } from "@omp-ui/core/ask-dialog
 import { askDialogResponse, parseAskQuestions } from "@omp-ui/core/ask-dialog";
 import { cn } from "../lib/cn";
 import { field } from "../lib/fields";
-import { useT } from "../lib/i18n";
 import { Button } from "./ui";
 
 /**
@@ -114,7 +113,6 @@ export function AskFormCard({
   /** Sends the wire response for this frame (answers or cancelled). */
   onAnswer: (response: Record<string, unknown>) => void;
 }) {
-  const t = useT();
   const questions = useMemo(() => parseAskQuestions(field(frame, "questions")), [frame]);
   const [state, dispatch] = useReducer(
     (s: AskFormState, a: AskFormAction) => reduceAskForm(s, a, questions),
@@ -180,10 +178,10 @@ export function AskFormCard({
   if (questions.length === 0) {
     return (
       <div>
-        <p className="rounded-md border border-line p-3 text-xs text-ink-dim">{t("dialog.extension.noChoices")}</p>
+        <p className="rounded-md border border-line p-3 text-xs text-ink-dim">No choices are available for this request.</p>
         <div className="flex justify-end pt-2">
           <Button variant="outline" size="xs" onClick={dismiss}>
-            {t("dialog.extension.cancel")}
+            cancel
           </Button>
         </div>
       </div>
@@ -198,7 +196,7 @@ export function AskFormCard({
       }}
     >
       <p className="mb-2 font-mono text-xs text-ink-faint">
-        {t("dialog.extension.ask.progress", { answered: answeredCount, total: questions.length })}
+        {`${answeredCount} of ${questions.length} answered`}
       </p>
       <ol className="space-y-1.5">
         {questions.map((question, index) => {
@@ -211,7 +209,7 @@ export function AskFormCard({
                 <button
                   type="button"
                   onClick={() => dispatch({ type: "open", id: question.id })}
-                  aria-label={t("dialog.extension.ask.editAria", { question: question.question })}
+                  aria-label={`edit your answer to: ${question.question}`}
                   className="flex w-full items-baseline gap-2 rounded-lg border border-line px-2.5 py-1.5 text-left transition-colors hover:bg-hover"
                 >
                   <span className="min-w-0 flex-1 truncate text-xs text-ink-mid">{question.question}</span>
@@ -273,7 +271,7 @@ export function AskFormCard({
                               {option.label}
                               {question.recommended === optionIndex && (
                                 <span className="ml-1.5 font-mono text-[10px] uppercase tracking-wide text-copper">
-                                  {t("dialog.extension.ask.recommended")}
+                                  recommended
                                 </span>
                               )}
                             </span>
@@ -294,8 +292,8 @@ export function AskFormCard({
                   })}
                   <input
                     value={answer?.customInput ?? ""}
-                    aria-label={t("dialog.extension.ask.otherAria", { question: question.question })}
-                    placeholder={t("dialog.extension.other")}
+                    aria-label={`your own answer to: ${question.question}`}
+                    placeholder="Other — type your own…"
                     onChange={(e) => dispatch({ type: "custom", id: question.id, value: e.target.value })}
                     onKeyDown={(e) => {
                       // The host's window listener skips text fields, so this
@@ -318,13 +316,13 @@ export function AskFormCard({
         })}
       </ol>
       <div className="flex items-center justify-between pt-2">
-        <span className="text-xs text-ink-faint">{t("dialog.extension.ask.hint")}</span>
+        <span className="text-xs text-ink-faint">Tab moves between questions · Enter answers and moves on · Esc dismisses</span>
         <span className="flex items-center gap-2">
           <Button variant="ghost" size="xs" onClick={dismiss}>
-            {t("dialog.extension.cancel")}
+            cancel
           </Button>
-          <Button type="submit" variant="solid" tone="signal" size="xs" title={t("dialog.extension.ask.submitTitle")}>
-            {t("dialog.extension.submit")}
+          <Button type="submit" variant="solid" tone="signal" size="xs" title="send the answers you chose">
+            submit
           </Button>
         </span>
       </div>

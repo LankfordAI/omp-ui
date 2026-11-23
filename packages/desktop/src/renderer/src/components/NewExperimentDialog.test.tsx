@@ -28,7 +28,6 @@ Object.assign(window, { ompBackend: backendMock });
 // Dynamic imports are required: store.ts → ./backend reads window.ompBackend
 // at module load, so the mock above must land first.
 const { useStore } = await import("../store");
-const { t } = await import("../lib/i18n");
 const { NewExperimentDialog } = await import("./NewExperimentDialog");
 
 let root: Root | null = null;
@@ -95,7 +94,7 @@ const field = <T extends HTMLElement>(selector: string): T => {
 
 const launchButton = (): HTMLButtonElement => {
   const button = [...document.body.querySelectorAll<HTMLButtonElement>("button")].find(
-    (candidate) => candidate.textContent === t("experiment.dialog.launch"),
+    (candidate) => candidate.textContent === "Launch",
   );
   expect(button).toBeDefined();
   return button!;
@@ -179,7 +178,7 @@ describe("NewExperimentDialog", () => {
 
   it("warns and launches at the project checkout when the project is not a git repository", async () => {
     await render("none");
-    expect(document.body.textContent).toContain(t("experiment.dialog.whereNone"));
+    expect(document.body.textContent).toContain("not a git repository: no branch isolation, baseline reset, or auto-commits — the experiment runs at the project checkout");
     expect(document.body.querySelector("#experiment-branch")).toBeNull();
     await fillRequired();
     await act(async () => {
@@ -191,7 +190,7 @@ describe("NewExperimentDialog", () => {
 
   it("refuses a jj-only workspace: the message shows and Launch stays disabled", async () => {
     await render("jj-only");
-    expect(document.body.textContent).toContain(t("experiment.dialog.whereJj"));
+    expect(document.body.textContent).toContain("Autoresearch needs a Git checkout. This is a jj-only workspace; run jj git init --colocate first.");
     await fillRequired();
     expect(launchButton().disabled).toBe(true);
     expect(backendMock.spawnSession).not.toHaveBeenCalled();
@@ -201,7 +200,7 @@ describe("NewExperimentDialog", () => {
     await render("git");
     await typeInto(field<HTMLTextAreaElement>("#experiment-goal"), "Reduce p95");
     await typeInto(field<HTMLInputElement>("#experiment-metric"), "p95 ms");
-    expect(document.body.textContent).toContain(t("experiment.dialog.metricInvalid"));
+    expect(document.body.textContent).toContain("metric name may only contain letters, digits, _ . and -");
     await act(async () => {
       launchButton().click();
       await flushMicrotasks();
@@ -231,13 +230,13 @@ describe("NewExperimentDialog", () => {
     expect(field<HTMLTextAreaElement>("#experiment-constraints").value).toBe("no new deps");
     expect(field<HTMLInputElement>("#experiment-max-iterations").value).toBe("12");
     expect(document.body.textContent).toContain(PROPOSAL.brief);
-    expect(document.body.textContent).toContain(t("experiment.dialog.proposedHint"));
-    expect(buttonByText(t("experiment.dialog.withAgent"))).toBeUndefined();
+    expect(document.body.textContent).toContain("Proposed by the agent. Edit anything, then Launch — Cancel sends it back to the conversation.");
+    expect(buttonByText("Configure with the agent")).toBeUndefined();
   });
 
   it("Cancel on a proposal answers the gate with revise and closes", async () => {
     await render("git", { proposalTabId: "exp-tab" });
-    const cancel = buttonByText(t("common.dialog.cancel"))!;
+    const cancel = buttonByText("Cancel")!;
     await act(async () => {
       cancel.click();
       await flushMicrotasks();
@@ -275,7 +274,7 @@ describe("NewExperimentDialog", () => {
     await render("git");
     act(() => useStore.setState({ startExperimentInterview }));
     await typeInto(field<HTMLTextAreaElement>("#experiment-goal"), "make tests faster");
-    const agent = buttonByText(t("experiment.dialog.withAgent"))!;
+    const agent = buttonByText("Configure with the agent")!;
     await act(async () => {
       agent.click();
       await flushMicrotasks();

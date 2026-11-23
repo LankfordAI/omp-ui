@@ -4,7 +4,6 @@ import { backendFor, displayMessage } from "../../backend";
 import { cn } from "../../lib/cn";
 import { formatDuration } from "../../lib/duration";
 import { experimentSession } from "../../lib/experiment-link";
-import { useT, type MessageKey } from "../../lib/i18n";
 import { projectKey } from "../../lib/project-key";
 import { findInstance, useStore } from "../../store";
 import type { LabView } from "../../store/types";
@@ -20,13 +19,13 @@ const EMPTY_SESSIONS: readonly SessionSummary[] = [];
 /** omp's run verdicts, plus the two non-verdict states a `status IS NULL` row can be in. */
 type RunVerdict = NonNullable<ExperimentRun["status"]> | "pending" | "abandoned";
 
-const RUN_LABEL: Record<RunVerdict, MessageKey> = {
-  keep: "lab.run.keep",
-  discard: "lab.run.discard",
-  crash: "lab.run.crash",
-  checks_failed: "lab.run.checksFailed",
-  pending: "lab.run.pending",
-  abandoned: "lab.run.abandoned",
+const RUN_LABEL: Record<RunVerdict, string> = {
+  keep: "kept",
+  discard: "discarded",
+  crash: "crashed",
+  checks_failed: "checks failed",
+  pending: "pending",
+  abandoned: "abandoned",
 };
 
 const RUN_TONE: Record<RunVerdict, Tone> = {
@@ -74,7 +73,6 @@ type LogLoad =
  * omp's own slash command or a prompt.
  */
 export function ExperimentDetail({ target }: { target: Target }) {
-  const t = useT();
   const key = projectKey(target.instanceId, target.projectCwd);
   const detailKey = `${target.tabId ?? ""}:${target.experimentId}`;
   const cache = useStore((s) => s.experiments[key]);
@@ -137,7 +135,7 @@ export function ExperimentDetail({ target }: { target: Target }) {
     const error = detail?.value?.error ?? cache?.error ?? null;
     return (
       <div className="px-4 py-6 text-center text-xs text-ink-faint">
-        {detail === undefined || detail.load === "loading" ? t("lab.detail.loading") : error ?? t("lab.detail.notFound")}
+        {detail === undefined || detail.load === "loading" ? "reading the experiment…" : error ?? "this experiment is no longer in the database"}
       </div>
     );
   }
@@ -168,14 +166,14 @@ export function ExperimentDetail({ target }: { target: Target }) {
           <Chip mono title={record.metricUnit === "" ? undefined : record.metricUnit}>
             {record.primaryMetric} · {record.direction}
           </Chip>
-          <Chip mono>{t("lab.detail.segment", { n: record.currentSegment })}</Chip>
+          <Chip mono>{`segment ${record.currentSegment}`}</Chip>
           {record.maxIterations !== null && (
-            <Chip mono>{t("lab.card.runOf", { n: progress.segmentRuns, cap: record.maxIterations })}</Chip>
+            <Chip mono>{`run ${progress.segmentRuns}/${record.maxIterations}`}</Chip>
           )}
           {record.branch !== null && <span className="truncate">{record.branch}</span>}
           {record.baselineCommit !== null && (
             <span title={record.baselineCommit}>
-              {t("lab.detail.baseline")} {record.baselineCommit.slice(0, 8)}
+              baseline {record.baselineCommit.slice(0, 8)}
             </span>
           )}
         </div>
@@ -185,15 +183,15 @@ export function ExperimentDetail({ target }: { target: Target }) {
           record.constraints.length > 0) && (
           <div className="grid gap-3 sm:grid-cols-2 lg:grid-cols-4">
             {record.preferredCommand !== null && (
-              <Field label={t("lab.detail.command")}>
+              <Field label="command">
                 <code className="block truncate font-mono text-xs" title={record.preferredCommand}>
                   {record.preferredCommand}
                 </code>
               </Field>
             )}
-            <PathList label={t("lab.detail.scope")} paths={record.scopePaths} />
-            <PathList label={t("lab.detail.offLimits")} paths={record.offLimits} />
-            <PathList label={t("lab.detail.constraints")} paths={record.constraints} />
+            <PathList label="scope paths" paths={record.scopePaths} />
+            <PathList label="off-limits" paths={record.offLimits} />
+            <PathList label="constraints" paths={record.constraints} />
           </div>
         )}
       </header>
@@ -201,16 +199,16 @@ export function ExperimentDetail({ target }: { target: Target }) {
       {linked !== null && (
         <div className="flex flex-wrap items-center gap-2">
           <Button tone="iris" variant="solid" onClick={() => void openSession(linked.tabId)}>
-            {live ? t("lab.detail.openSession") : t("lab.detail.resume")}
+            {live ? "Open session" : "Resume"}
           </Button>
           {live && native && modeOn && (
-            <Button onClick={() => void stopExperiment(linked.tabId)}>{t("lab.detail.stop")}</Button>
+            <Button onClick={() => void stopExperiment(linked.tabId)}>Stop</Button>
           )}
           {live && native && modeOn && progress.pendingRunId === null && (
-            <Button onClick={() => void startNewSegment(linked.tabId)}>{t("lab.detail.newSegment")}</Button>
+            <Button onClick={() => void startNewSegment(linked.tabId)}>New segment</Button>
           )}
           {worktree && (
-            <Button onClick={() => openFinishWorktree(linked.tabId)}>{t("lab.detail.land")}</Button>
+            <Button onClick={() => openFinishWorktree(linked.tabId)}>Land the winner</Button>
           )}
           {worktree && live && (
             <Button
@@ -219,7 +217,7 @@ export function ExperimentDetail({ target }: { target: Target }) {
                 setInspectorOpen(true);
               }}
             >
-              {t("lab.detail.branchDiff")}
+              Branch diff
             </Button>
           )}
         </div>
@@ -227,12 +225,12 @@ export function ExperimentDetail({ target }: { target: Target }) {
 
       <section className="flex flex-col gap-2">
         <div className="flex items-center gap-2">
-          <Label>{t("lab.detail.runs")}</Label>
-          {detail?.load === "loading" && <span className="text-xs text-ink-faint">{t("lab.detail.loading")}</span>}
+          <Label>runs</Label>
+          {detail?.load === "loading" && <span className="text-xs text-ink-faint">reading the experiment…</span>}
         </div>
         {runError !== null && <p className="text-xs text-rose">{runError}</p>}
         {runs.length === 0 && runError === null && detail?.load !== "loading" && (
-          <p className="text-xs text-ink-faint">{t("lab.detail.noRuns")}</p>
+          <p className="text-xs text-ink-faint">no runs logged yet</p>
         )}
         {runs.length > 0 && (
           <div className="overflow-x-auto rounded-lg border border-line bg-raised">
@@ -240,12 +238,12 @@ export function ExperimentDetail({ target }: { target: Target }) {
               <thead>
                 <tr className="border-b border-line text-left">
                   <th className="w-8 px-2 py-1.5" />
-                  <th className="px-2 py-1.5"><Label>{t("lab.detail.colRun")}</Label></th>
-                  <th className="px-2 py-1.5"><Label>{t("lab.detail.colStatus")}</Label></th>
-                  <th className="px-2 py-1.5 text-right"><Label>{t("lab.detail.colMetric")}</Label></th>
-                  <th className="px-2 py-1.5 text-right"><Label>{t("lab.detail.colDuration")}</Label></th>
-                  <th className="px-2 py-1.5"><Label>{t("lab.detail.colCommit")}</Label></th>
-                  <th className="px-2 py-1.5"><Label>{t("lab.detail.colDescription")}</Label></th>
+                  <th className="px-2 py-1.5"><Label>#</Label></th>
+                  <th className="px-2 py-1.5"><Label>status</Label></th>
+                  <th className="px-2 py-1.5 text-right"><Label>metric</Label></th>
+                  <th className="px-2 py-1.5 text-right"><Label>duration</Label></th>
+                  <th className="px-2 py-1.5"><Label>commit</Label></th>
+                  <th className="px-2 py-1.5"><Label>description</Label></th>
                 </tr>
               </thead>
               <tbody>
@@ -284,7 +282,7 @@ export function ExperimentDetail({ target }: { target: Target }) {
 
       {record.notes !== "" && (
         <section className="flex flex-col gap-2">
-          <Label>{t("lab.detail.notes")}</Label>
+          <Label>notes</Label>
           <Markdown text={record.notes} className="text-sm" />
         </section>
       )}
@@ -315,7 +313,6 @@ function RunRows({
   onViewLog: () => void;
   onHideLog: () => void;
 }) {
-  const t = useT();
   const isBaseline = baseline !== null && baseline.runId === run.id;
   // Improvement is whatever the direction says; a worse run reads rose-less
   // (neutral), because a discarded run is the loop working, not a failure.
@@ -325,9 +322,9 @@ function RunRows({
     !isBaseline &&
     (direction === "higher" ? run.metric > baseline.metric : run.metric < baseline.metric);
   const details: Array<[label: string, value: ReactNode]> = [];
-  if (run.modifiedPaths.length > 0) details.push([t("lab.detail.modifiedPaths"), <PathCell key="m" paths={run.modifiedPaths} />]);
-  if (run.scopeDeviations.length > 0) details.push([t("lab.detail.scopeDeviations"), <PathCell key="s" paths={run.scopeDeviations} />]);
-  if (run.justification !== null && run.justification !== "") details.push([t("lab.detail.justification"), run.justification]);
+  if (run.modifiedPaths.length > 0) details.push(["modified paths", <PathCell key="m" paths={run.modifiedPaths} />]);
+  if (run.scopeDeviations.length > 0) details.push(["scope deviations", <PathCell key="s" paths={run.scopeDeviations} />]);
+  if (run.justification !== null && run.justification !== "") details.push(["justification", run.justification]);
   return (
     <>
       <tr className={cn("border-b border-line-soft align-top", open && "bg-sunken")}>
@@ -335,7 +332,7 @@ function RunRows({
           <button
             type="button"
             aria-expanded={open}
-            aria-label={open ? t("lab.detail.collapse", { n: run.id }) : t("lab.detail.expand", { n: run.id })}
+            aria-label={open ? `hide run ${run.id} details` : `show run ${run.id} details`}
             onClick={onToggle}
             className="grid size-5 place-items-center rounded text-ink-dim transition-colors hover:bg-hover hover:text-ink"
           >
@@ -344,15 +341,15 @@ function RunRows({
         </td>
         <td className="px-2 py-1.5 font-mono tabular-nums text-ink-mid">
           {run.id}
-          {isBaseline && <span className="ml-1 text-xs text-ink-faint">{t("lab.detail.baseline")}</span>}
+          {isBaseline && <span className="ml-1 text-xs text-ink-faint">baseline</span>}
         </td>
         <td className="px-2 py-1.5">
           <span className="flex flex-wrap items-center gap-1">
-            <Chip tone={RUN_TONE[verdict]}>{t(RUN_LABEL[verdict])}</Chip>
-            {run.timedOut && <Chip tone="copper">{t("lab.run.timedOut")}</Chip>}
+            <Chip tone={RUN_TONE[verdict]}>{RUN_LABEL[verdict]}</Chip>
+            {run.timedOut && <Chip tone="copper">timed out</Chip>}
             {run.flagged && (
               <Chip tone="rose" title={run.flaggedReason ?? undefined}>
-                {t("lab.detail.flagged")}
+                flagged
               </Chip>
             )}
           </span>
@@ -387,7 +384,7 @@ function RunRows({
           <td />
           <td colSpan={6} className="px-2 pb-3 pt-1">
             <div className="flex flex-col gap-3">
-              <Field label={t("lab.detail.command")}>
+              <Field label="command">
                 <code className="block break-all font-mono text-xs">{run.command}</code>
               </Field>
               {details.map(([label, value]) => (
@@ -399,13 +396,13 @@ function RunRows({
                 <div className="flex flex-col gap-2">
                   <div className="flex items-center gap-2">
                     {log === undefined ? (
-                      <Button size="xs" onClick={onViewLog}>{t("lab.detail.viewLog")}</Button>
+                      <Button size="xs" onClick={onViewLog}>view log</Button>
                     ) : (
-                      <Button size="xs" onClick={onHideLog}>{t("lab.detail.hideLog")}</Button>
+                      <Button size="xs" onClick={onHideLog}>hide log</Button>
                     )}
-                    {log?.load === "loading" && <span className="text-xs text-ink-faint">{t("lab.detail.logLoading")}</span>}
+                    {log?.load === "loading" && <span className="text-xs text-ink-faint">reading the log…</span>}
                     {log?.load === "ready" && log.truncated && (
-                      <span className="text-xs text-ink-faint">{t("lab.detail.logTruncated")}</span>
+                      <span className="text-xs text-ink-faint">log truncated to its head</span>
                     )}
                   </div>
                   {log?.load === "error" && <p className="text-xs text-rose">{log.error}</p>}

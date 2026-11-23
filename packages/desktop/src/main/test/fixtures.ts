@@ -64,7 +64,6 @@ interface RegistrySettings {
   fontFamilyId: string;
   transcriptWidth: TranscriptWidth;
   glassChrome: GlassChrome;
-  localeId: string;
   keybindings: Record<string, string>;
   appUpdateCheckOnLaunch: boolean;
   appUpdateTrain: "stable" | "nightly";
@@ -208,7 +207,6 @@ export function seedRegistry(file: string, patch: RegistrySeedPatch = {}): void 
     fontFamilyId: "default",
     transcriptWidth: "wide",
     glassChrome: "subtle",
-    localeId: "en",
     keybindings: {},
     appUpdateCheckOnLaunch: true,
     appUpdateTrain: "stable",

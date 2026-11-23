@@ -18,7 +18,6 @@ import {
 } from "../../test/fixtures";
 
 import { h } from "../../test/store-harness";
-import { en } from "../../lib/i18n/en";
 import type { LifecycleSlice } from "./lifecycle";
 import type { LifecycleConfirmationChoice, RpcTabState, UiStore } from "../types";
 import { worktreeMergeResolutionState } from "../../lib/worktree-merge-resolution";
@@ -1282,7 +1281,7 @@ describe("newSession bounds a stalled spawn and lands late tabs once (issue #789
       await vi.advanceTimersByTimeAsync(30_000);
       // The caller learns the launch never landed instead of getting a phantom id.
       expect(await landing).toBeNull();
-      expect(h.errorMessages()).toEqual([en["session.error.spawnTimedOut"]]);
+      expect(h.errorMessages()).toEqual(["The new session did not start within 30 s. It may still be starting — check breadcrumbs.log in the app's logs folder."]);
       expect(h.useStore.getState().tabs).toEqual([]);
       expect(h.mockBackend.listBranches).not.toHaveBeenCalled();
     } finally {
@@ -1298,7 +1297,7 @@ describe("newSession bounds a stalled spawn and lands late tabs once (issue #789
       h.mockBackend.spawnSession.mockReturnValue(settle.promise);
       const landing = h.useStore.getState().newSession("/stall");
       await vi.advanceTimersByTimeAsync(30_000);
-      expect(h.errorMessages()).toEqual([en["session.error.spawnTimedOut"]]);
+      expect(h.errorMessages()).toEqual(["The new session did not start within 30 s. It may still be starting — check breadcrumbs.log in the app's logs folder."]);
       settle.resolve({ tabId: "fresh" });
       await landing;
       await h.flushMicrotasks();
@@ -1353,7 +1352,7 @@ describe("newWorktreeSession bounds a stalled spawn and lands late tabs once (is
       // Unlike a fast rejection, the settle timeout is a notice + null: the
       // dialog stays usable and the caller learns the launch never landed.
       expect(await landing).toBeNull();
-      expect(h.errorMessages()).toEqual([en["session.error.spawnTimedOut"]]);
+      expect(h.errorMessages()).toEqual(["The new session did not start within 30 s. It may still be starting — check breadcrumbs.log in the app's logs folder."]);
       expect(h.useStore.getState().tabs).toEqual([]);
       expect(h.mockBackend.listBranches).not.toHaveBeenCalled();
     } finally {
@@ -1370,7 +1369,7 @@ describe("newWorktreeSession bounds a stalled spawn and lands late tabs once (is
       const landing = h.useStore.getState().newWorktreeSession("/p", SPEC);
       await vi.advanceTimersByTimeAsync(30_000);
       expect(await landing).toBeNull();
-      expect(h.errorMessages()).toEqual([en["session.error.spawnTimedOut"]]);
+      expect(h.errorMessages()).toEqual(["The new session did not start within 30 s. It may still be starting — check breadcrumbs.log in the app's logs folder."]);
       settle.resolve({ tabId: "wt-late" });
       await h.flushMicrotasks();
       const st = h.useStore.getState();
@@ -1458,7 +1457,7 @@ describe("launchSession (issue #900)", () => {
       expect(h.useStore.getState().rpc[FRESH]!.items.at(-1)).toMatchObject({
         kind: "notice",
         level: "warn",
-        text: en["dialog.newsession.seedNotSent"],
+        text: "The session is open, but the draft was not sent. Send it there yourself.",
       });
     } finally {
       vi.useRealTimers();
@@ -2804,7 +2803,7 @@ describe("askAboutSession (issue #895)", () => {
     await h.useStore.getState().askAboutSession(tabId);
 
     expect(h.mockBackend.spawnSession).not.toHaveBeenCalled();
-    expect(h.errorMessages()).toEqual([en["ask.error.noTranscript"]]);
+    expect(h.errorMessages()).toEqual(["this session has no saved transcript to ask about yet"]);
   });
 
   it("reports and does not spawn for a session owned by another instance", async () => {
@@ -2813,7 +2812,7 @@ describe("askAboutSession (issue #895)", () => {
     await h.useStore.getState().askAboutSession(tabId);
 
     expect(h.mockBackend.spawnSession).not.toHaveBeenCalled();
-    expect(h.errorMessages()).toEqual([en["ask.error.remote"]]);
+    expect(h.errorMessages()).toEqual(["sessions on another instance can't be asked about here; chats are host-local"]);
   });
 });
 

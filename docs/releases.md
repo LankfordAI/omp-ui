@@ -98,11 +98,6 @@ then use a separate upload key for Play submissions. This preserves signing
 continuity between GitHub APKs and Play installs; Play uses Android App Bundles
 (`.aab`) rather than the manually installed APK. No Play upload is configured yet.
 
-
-### Language assets
-
-Every package includes the English and Korean UI catalogs and the bundled Pretendard Variable Korean fallback face. The font adds about 2.06 MB to the unpacked renderer assets; it is emitted byte-for-byte into both desktop and remote-web builds. The Settings → General language choice applies locally with no additional download, while session and terminal content remain unmodified.
-
 To verify one downloaded file, place it beside `SHA256SUMS.txt` and select only its line. For example:
 
 ```bash

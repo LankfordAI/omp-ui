@@ -2,7 +2,6 @@ import { useEffect, useRef, useState, type ReactNode } from "react";
 import { obsidianOpenUri } from "@omp-ui/core/vault-shared";
 import { desktopPaneMedia } from "../backend";
 import { copyFallback } from "../lib/clipboard";
-import { useT } from "../lib/i18n";
 import { IS_ELECTRON } from "../lib/platform";
 import { findOwner, useStore } from "../store";
 import { Button, ICON_STROKE, IconButton } from "./ui";
@@ -95,7 +94,6 @@ export function OpenInObsidianButton({
    *  never grows a second line. */
   iconOnly?: boolean;
 }) {
-  const t = useT();
   const local = useStore((s) => tabId === undefined || findOwner(s.state, tabId)?.instanceId == null);
   // An Electron-hosted browser viewer still has an Electron UA, but no preload transport (#782).
   const mode = IS_ELECTRON && desktopPaneMedia !== null && local && uriHandler !== false ? "open" : "copy";
@@ -103,10 +101,10 @@ export function OpenInObsidianButton({
 
   if (iconOnly) {
     const label = copied
-      ? t("transcript.vault.linkCopied")
+      ? "Link copied"
       : failedUri !== null
         ? failedUri
-        : t("transcript.vault.openInObsidian");
+        : "Open in Obsidian";
     return (
       <span className="inline-flex shrink-0" onClick={(e) => e.stopPropagation()}>
         <IconButton label={label} onClick={activate} className={copied ? "text-signal" : undefined}>
@@ -122,11 +120,11 @@ export function OpenInObsidianButton({
         <Button
           size="xs"
           tone={copied ? "signal" : "neutral"}
-          title={mode === "copy" ? t("transcript.vault.copyTitle") : undefined}
+          title={mode === "copy" ? "Copies the obsidian:// link. Paste it on a machine that has this vault." : undefined}
           onClick={activate}
         >
           <ExternalGlyph />
-          {copied ? t("transcript.vault.linkCopied") : t("transcript.vault.openInObsidian")}
+          {copied ? "Link copied" : "Open in Obsidian"}
         </Button>
       </span>
       {failedUri !== null && (
@@ -152,7 +150,6 @@ export function OpenInObsidianLink({
   uriHandler?: boolean;
   children: ReactNode;
 }) {
-  const t = useT();
   const local = useStore((s) => tabId !== undefined && findOwner(s.state, tabId)?.instanceId === null);
   // An Electron-hosted browser viewer still has an Electron UA, but no preload transport (#782).
   const mode = IS_ELECTRON && desktopPaneMedia !== null && local && uriHandler !== false ? "open" : "copy";
@@ -163,7 +160,7 @@ export function OpenInObsidianLink({
       <a
         role="link"
         tabIndex={0}
-        title={t(mode === "open" ? "transcript.vault.openInObsidian" : "transcript.vault.copyTitle")}
+        title={mode === "open" ? "Open in Obsidian" : "Copies the obsidian:// link. Paste it on a machine that has this vault."}
         onClick={(e) => {
           e.preventDefault();
           e.stopPropagation();
@@ -184,7 +181,7 @@ export function OpenInObsidianLink({
         {children}
       </a>
       <span role="status" aria-live="polite" className="ml-1 text-[0.85em] text-ink-mid">
-        {copied ? t("transcript.vault.linkCopied") : null}
+        {copied ? "Link copied" : null}
       </span>
       {failedUri !== null && (
         <span data-selectable className="ml-1 max-w-full select-all break-all font-mono text-[0.85em] text-ink-mid">

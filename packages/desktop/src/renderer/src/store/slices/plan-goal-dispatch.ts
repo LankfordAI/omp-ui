@@ -1,7 +1,6 @@
 // The goal arm both plan-implementation dispatch paths share (the "Run as
 // goal" switch): one native goal create frame on the executing session, sent
 // strictly after that session's implementation prompt was accepted.
-import { t } from "../../lib/i18n";
 import { noticeItem } from "../../lib/transcript";
 import {
   RpcCommandAbandonedError,
@@ -42,7 +41,7 @@ export async function armPlanGoal(
       tabId,
       noticeItem(
         message.startsWith(UNKNOWN_COMMAND_PREFIX)
-          ? t("composer.goal.needsNewerOmp")
+          ? "this omp has no goal commands — update omp to 18.4.11 or later"
           : message,
         "warn",
       ),

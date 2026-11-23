@@ -1,6 +1,5 @@
 // One notice per bulk action (issue #988): every per-row failure of a
 // multi-session action lands together, never one dialog per row.
-import { t } from "../../lib/i18n";
 
 export interface BulkFailure {
   tabId: string;
@@ -28,9 +27,5 @@ export function bulkFailureNotice(
   if (failures.length === 0) return null;
   if (order.length <= 1) return failures[0]!.alone ?? failures[0]!.message;
   const sorted = [...failures].sort((a, b) => order.indexOf(a.tabId) - order.indexOf(b.tabId));
-  return t("bulk.error.failed", {
-    n: sorted.length,
-    total: order.length,
-    failures: sorted.map((f) => `${f.title}: ${f.message}`).join("\n"),
-  });
+  return `${sorted.length} of ${order.length} sessions failed:\n${sorted.map((f) => `${f.title}: ${f.message}`).join("\n")}`;
 }

@@ -18,7 +18,6 @@ import { backend, backendFor, displayMessage } from "../backend";
 import type { ArtifactRecord } from "@omp-ui/core/artifacts";
 import { cn } from "../lib/cn";
 import { strField } from "../lib/fields";
-import { currentLocaleId, localeTag, useT, type MessageKey } from "../lib/i18n";
 import { useCompactShell } from "../lib/responsive";
 import { useComposerText } from "../lib/android-shell";
 import { keywordPalette, SHIMMER_PERIOD_MS } from "../lib/keyword-colors";
@@ -114,10 +113,6 @@ export function Composer({
   liveVoiceVisible?: boolean;
   onDictationActiveChange?: (active: boolean) => void;
 }) {
-  const t = useT();
-  // The palette's UI-authored descriptions must refresh with the locale, and
-  // a memo keyed on `commands` alone would hold them stale across a switch.
-  const localeId = currentLocaleId();
   const status = useStore((s) => s.rpc[tabId]?.status);
   const composerQueue = useStore((s) => s.rpc[tabId]?.composerQueue);
   const drainComposerQueue = useStore((s) => s.drainComposerQueue);
@@ -131,9 +126,9 @@ export function Composer({
   });
   const contextRing = useMemo(() => {
     if (contextUsage === null) return null;
-    const readout = contextReadout(contextUsage, null, t);
+    const readout = contextReadout(contextUsage, null);
     return { fraction: readout.fraction, title: readout.exact };
-  }, [contextUsage, t]);
+  }, [contextUsage]);
   const experimentsEnabled = useStore((s) => s.state?.experimentsEnabled === true);
   const councilEnabled = useStore((s) => s.state?.councilEnabled === true);
   // A chat has no plan mode and no project for autoresearch to key on (#894).
@@ -147,36 +142,36 @@ export function Composer({
   const paletteCommands = useMemo(() => {
     const uiEntries: SlashCommandInfo[] = [
       // omp-ui's own entries get their palette copy from the catalog (issue #363).
-      { ...UI_NEW_COMMAND, description: t("composer.slash.new") },
-      ...(chat ? [] : [{ ...UI_PLAN_COMMAND, description: t("composer.slash.plan") }]),
+      { ...UI_NEW_COMMAND, description: "new live session in a new tab" },
+      ...(chat ? [] : [{ ...UI_PLAN_COMMAND, description: "plan mode — read-only; a plan is drafted and reviewed on request" }]),
       {
         ...UI_GOAL_COMMAND,
-        description: t("composer.slash.goal"),
+        description: "goal — one objective this session works toward on its own",
         subcommands: UI_GOAL_SUBCOMMANDS.map((sub) => ({
           name: sub.name,
           ...(sub.usage === undefined ? {} : { usage: sub.usage }),
-          description: t(sub.key),
+          description: sub.description,
         })),
       },
-      { ...UI_GUIDED_GOAL_COMMAND, description: t("composer.slash.guidedGoal") },
-      { ...UI_BTW_COMMAND, description: t("composer.slash.btw") },
+      { ...UI_GUIDED_GOAL_COMMAND, description: "the agent interviews you, then sets the goal it agrees on" },
+      { ...UI_BTW_COMMAND, description: "ask a side question without touching the transcript" },
       {
         ...UI_VIBE_COMMAND,
-        description: t("composer.slash.vibe"),
+        description: "vibe mode — this session directs worker sessions of its own",
         subcommands: UI_VIBE_SUBCOMMANDS.map((sub) => ({
           name: sub.name,
           ...(sub.usage === undefined ? {} : { usage: sub.usage }),
-          description: t(sub.key),
+          description: sub.description,
         })),
       },
       ...(experimentsEnabled && !chat
         ? [
             {
               ...UI_AUTORESEARCH_COMMAND,
-              description: t("composer.slash.autoresearch"),
+              description: "autoresearch experiments: start, lab, off, clear",
               subcommands: UI_AUTORESEARCH_SUBCOMMANDS.map((sub) => ({
                 name: sub.name,
-                description: t(sub.key),
+                description: sub.description,
               })),
             },
           ]
@@ -185,11 +180,11 @@ export function Composer({
         ? [
             {
               ...UI_COUNCIL_COMMAND,
-              description: t("composer.slash.council"),
+              description: "ask the council: each member model answers independently",
               subcommands: UI_COUNCIL_SUBCOMMANDS.map((sub) => ({
                 name: sub.name,
                 ...(sub.usage === undefined ? {} : { usage: sub.usage }),
-                description: t(sub.key),
+                description: sub.description,
               })),
             },
           ]
@@ -215,7 +210,7 @@ export function Composer({
           !owned.has(c.name),
       ),
     ];
-  }, [chat, commands, councilEnabled, experimentsEnabled, localeId, t]);
+  }, [chat, commands, councilEnabled, experimentsEnabled]);
   const queued = useStore((s) => {
     const session = s.rpc[tabId]?.session;
     return session ? queueChipCount(session) : 0;
@@ -396,7 +391,7 @@ export function Composer({
   const moveToMember = async (member: CheckoutEntry): Promise<void> => {
     setMoving(
       member.instanceId === null
-        ? t("quickopen.host.local")
+        ? "This computer"
         : (findInstance(useStore.getState().state, member.instanceId)?.nickname ?? member.instanceId),
     );
     const next = await moveUnpromptedSession(tabId, member, { text, images, documents, annotations, references, artifactReferences });
@@ -883,7 +878,7 @@ export function Composer({
         if (message !== "") skipPendingQuestion(tabId);
       }
       if (!message.startsWith("/") && (artifactReferences.length > 0 || artifactRefreshes.length > 0) && !artifactLibraryEnabled) {
-        appendNotice(tabId, t("artifacts.reference.disabled"), "warn");
+        appendNotice(tabId, "Artifact references are retained, but cannot be sent while the library is off.", "warn");
         return;
       }
       // A first prompt with the branch chip's worktree section set to a fresh
@@ -983,7 +978,7 @@ export function Composer({
       documents,
       annotations,
       references,
-      artifactReferences, artifactRefreshes, artifactLibraryEnabled, appendNotice, t,
+      artifactReferences, artifactRefreshes, artifactLibraryEnabled, appendNotice,
       addImages,
       addDocuments,
       addAnnotations,
@@ -1038,11 +1033,11 @@ export function Composer({
       moving !== null
     )
       return;
-    if ((artifactReferences.length > 0 || artifactRefreshes.length > 0) && !artifactLibraryEnabled) { appendNotice(tabId, t("artifacts.reference.disabled"), "warn"); return; }
+    if ((artifactReferences.length > 0 || artifactRefreshes.length > 0) && !artifactLibraryEnabled) { appendNotice(tabId, "Artifact references are retained, but cannot be sent while the library is off.", "warn"); return; }
     if (artifactRefreshes.length > 0) {
       // A refresh request belongs to the tab it was prepared for (ADR-0092):
       // a background session never takes it. Drop it with a visible notice.
-      appendNotice(tabId, t("artifacts.refreshMovedDropped"), "warn");
+      appendNotice(tabId, "The pending refresh request belonged to this session's old tab and was dropped. Prepare a new refresh from the library.", "warn");
       clearArtifactRefreshes();
     }
     const draft = { text, images, documents, annotations, references, artifactReferences };
@@ -1111,7 +1106,7 @@ export function Composer({
     documents,
     annotations,
     references,
-    artifactReferences, artifactRefreshes, artifactLibraryEnabled, appendNotice, t, clearArtifactReferences, clearArtifactRefreshes,
+    artifactReferences, artifactRefreshes, artifactLibraryEnabled, appendNotice, clearArtifactReferences, clearArtifactRefreshes,
     unprompted,
     chat,
     record,
@@ -1243,7 +1238,7 @@ export function Composer({
       addDocuments(draft.documents);
       addAnnotations(draft.annotations);
       addReferences(draft.references);
-      setPasteError(t("composer.stash.failed", { reason: displayMessage(err) }));
+      setPasteError(`could not stash the draft: ${displayMessage(err)}`);
     } finally {
       stashing.current = false;
       editor.current?.focus({ preventScroll: true });
@@ -1256,11 +1251,11 @@ export function Composer({
     const candidate = stashed.find(draft => draft.id === id);
     if (candidate === undefined) return;
     const foreign = candidate.artifactReferences?.find(reference => reference.instanceId !== instanceId);
-    if (foreign !== undefined) { appendNotice(tabId, t("artifacts.reference.wrongMachine", { machine: foreign.machine }), "warn"); return; }
+    if (foreign !== undefined) { appendNotice(tabId, `Open this artifact on ${foreign.machine}; cross-machine references are not supported.`, "warn"); return; }
     // A refresh request is bound to the tab it was prepared for (ADR-0092):
     // it never travels with a stashed draft, so the whole draft stays put.
     if (candidate.artifactRefreshes?.length && candidate.artifactRefreshTabId !== tabId) {
-      appendNotice(tabId, t("artifacts.refreshStashRefused"), "warn");
+      appendNotice(tabId, "This refresh request belongs to the session it was prepared for and cannot move with a stashed draft. Prepare a new refresh from the library.", "warn");
       return;
     }
     // Taking a stash is destructive. Reject a foreign or over-limit merge
@@ -1288,9 +1283,9 @@ export function Composer({
       if (ref.instanceId === instanceId) continue;
       const machine =
         ref.instanceId === null
-          ? t("fleet.machine.thisComputer")
+          ? "This computer"
           : (findInstance(useStore.getState().state, ref.instanceId)?.nickname ?? ref.machine);
-      appendNotice(tabId, t("composer.reference.otherMachine", { title: ref.title, machine }), "warn");
+      appendNotice(tabId, `“${ref.title}” lives on ${machine}: its transcript is not on this session’s machine, so it cannot be referenced here`, "warn");
     }
     if (draft.text !== "") setText((prev) => (prev === "" ? draft.text : `${prev}\n${draft.text}`));
   };
@@ -1462,17 +1457,17 @@ export function Composer({
     setText((current) => (current === "" ? prefill : current));
   }, [compact, pendingFrame, setText]);
   const placeholder = dead
-    ? t("composer.placeholder.exited")
+    ? "agent exited — resume to continue"
     : relaunching
-      ? t("composer.placeholder.restarting")
+      ? "restarting advisor…"
       : answering
-        ? t("composer.placeholder.answer")
+        ? "answer the question… · or choose an option above"
         : pendingAsk && !compact
-          ? t("composer.placeholder.skipAsk")
+          ? "typing here skips the questions above and sends this message…"
           : running
-            ? t("composer.placeholder.running")
+            ? "steer the agent…"
             : modelHold !== null
-              ? t("composer.placeholder.modelHold")
+              ? "pick a model to start… · / commands"
               // The next-message prediction (issues #1239, #1030): upstream's
               // exact surface — the first choice rides the empty composer's
               // placeholder slot; a typed draft belongs to the ghosts, the
@@ -1480,7 +1475,7 @@ export function Composer({
               // `prediction.text` already gates focus, idle, and the empty draft.
               : prediction.text !== null
                 ? prediction.text
-                : t("composer.placeholder.idle");
+                : "message the agent… · / commands · @ files";
 
   // An image or PDF alone is sendable: "what is this?" is in the attachment, not the text.
   // A held session still runs slash and bash commands (/new, !ls, …); main
@@ -1495,7 +1490,7 @@ export function Composer({
   // session whose provider reports a reset ahead; its label names the reset.
   const atReset =
     holdsPrompts && resetAtMs !== null && !isSlash && !trimmed.startsWith("!")
-      ? { when: formatSnoozeUntil(resetAtMs, new Date(resetNow), localeTag()), canHold: canSend && modelHold === null }
+      ? { when: formatSnoozeUntil(resetAtMs, new Date(resetNow)), canHold: canSend && modelHold === null }
       : null;
   const lines = text === "" ? 0 : text.split("\n").length;
   const optionsControl = (
@@ -1543,8 +1538,8 @@ export function Composer({
         if (artifact !== null) {
           e.preventDefault(); setDropping(false);
           if (artifact.instanceId !== instanceId) {
-            const machine = artifact.instanceId === null ? t("fleet.machine.thisComputer") : (findInstance(useStore.getState().state, artifact.instanceId)?.nickname ?? artifact.instanceId);
-            appendNotice(tabId, t("artifacts.reference.wrongMachine", { machine }), "warn");
+            const machine = artifact.instanceId === null ? "This computer" : (findInstance(useStore.getState().state, artifact.instanceId)?.nickname ?? artifact.instanceId);
+            appendNotice(tabId, `Open this artifact on ${machine}; cross-machine references are not supported.`, "warn");
             return;
           }
           if (!unavailable) void attachArtifactVersion(artifact);
@@ -1573,7 +1568,7 @@ export function Composer({
     >
       {dropping && (
         <div className="pointer-events-none absolute inset-1 z-30 flex items-center justify-center rounded-md border border-dashed border-iris bg-iris-wash/60 text-xs text-iris">
-          {t("composer.reference.dropHint")}
+          drop to reference this session
         </div>
       )}
 
@@ -1695,13 +1690,13 @@ export function Composer({
                 <span key={i} className="group/att relative">
                   <img
                     src={`data:${image.mimeType};base64,${image.data}`}
-                    alt={t("composer.attachment.alt", { n: i + 1 })}
+                    alt={`attachment ${i + 1}`}
                     title={image.mimeType}
                     className="size-12 rounded border border-line-strong bg-sunken object-cover"
                   />
                   <span className="absolute -right-1 -top-1 opacity-0 transition-opacity group-hover/att:opacity-100 focus-within:opacity-100">
                     <IconButton
-                      label={t("composer.attachment.remove", { n: i + 1 })}
+                      label={`remove attachment ${i + 1}`}
                       disabled={unavailable}
                       tone="rose"
                       onClick={() => dropImage(i)}
@@ -1713,11 +1708,11 @@ export function Composer({
                 </span>
               ))}
               <Label className="ml-0.5">
-                {images.length} {images.length === 1 ? t("composer.attachment.image") : t("composer.attachment.images")}
+                {images.length} {images.length === 1 ? "image" : "images"}
               </Label>
               {!vision && (
-                <Chip tone="copper" title={t("composer.vision.title")}>
-                  {t("composer.vision.noVision")}
+                <Chip tone="copper" title="the selected model accepts text only — omp will drop these">
+                  model has no vision
                 </Chip>
               )}
             </div>
@@ -1728,7 +1723,7 @@ export function Composer({
                 <Chip key={i} tone="iris" truncate title={document.path ?? document.mimeType}>
                   <span className="min-w-0 truncate">{document.name}</span>
                   <IconButton
-                    label={t("composer.attachment.documentRemove", { n: i + 1 })}
+                    label={`remove document ${i + 1}`}
                     disabled={unavailable}
                     tone="rose"
                     onClick={() => dropDocument(i)}
@@ -1739,7 +1734,7 @@ export function Composer({
                 </Chip>
               ))}
               <Label className="ml-0.5">
-                {documents.length} {documents.length === 1 ? t("composer.attachment.document") : t("composer.attachment.documents")}
+                {documents.length} {documents.length === 1 ? "document" : "documents"}
               </Label>
             </div>
           )}
@@ -1772,7 +1767,7 @@ export function Composer({
               runs={runs}
               // One ghost slot, upstream's precedence: the prediction suffix beats the word ghost.
               ghostSuffix={inCode ? null : prediction.ghostSuffix ?? wordGhost.ghost?.suffix ?? null}
-              ghostHint={inCode || prediction.ghostSuffix !== null ? null : prediction.hintMore === null ? null : t("composer.predict.more", { n: prediction.hintMore })}
+              ghostHint={inCode || prediction.ghostSuffix !== null ? null : prediction.hintMore === null ? null : ` · tab ${prediction.hintMore} more`}
               recall={recall.current !== null}
               onCodeChange={setCode}
               onEdit={(draft, from, to, noteEdit = true) => {
@@ -1818,8 +1813,8 @@ export function Composer({
             {optionsControl}
             {/* The `?` draft's face (issue #1233): what Enter does with it. */}
             {btwDraft && (
-              <Chip mono tone="signal" title={t("composer.btw.chipTitle")}>
-                {t("composer.btw.chip")}
+              <Chip mono tone="signal" title="Enter asks this as a side question — no turn, nothing in the transcript (/btw)">
+                ? side question
               </Chip>
             )}
             {/* The next-message prediction's face (issues #1239, #1030): what
@@ -1827,19 +1822,19 @@ export function Composer({
                 ghost cost one extra billed request. It rides every face of
                 the offer, including the ghost over a typed prefix. */}
             {prediction.held && (
-              <Chip mono tone="iris" title={t("composer.predict.chipTitle")}>
-                {t("composer.predict.chip")}
+              <Chip mono tone="iris" title="OMP predicted what you might type next — one extra model request. Tab or → inserts it; nothing is sent. Turn off: settings → Composer predictions (composer.predictions)">
+                next message
               </Chip>
             )}
             {queueChip && !queueListed && (
               <Chip
                 mono
                 tone="copper"
-                title={running ? t("composer.queue.queuedTitle") : t("composer.queue.parkedTitle")}
+                title={running ? "messages waiting for the current turn to finish" : "queued items do not run while the agent is idle — sending a new prompt runs parked follow-ups"}
                 className="min-w-0 shrink"
               >
                 <span className="min-w-0 truncate">
-                  {running ? t("composer.queue.queued", { n: queued }) : t("composer.queue.parked", { n: queued })}
+                  {running ? `queued: ${queued}` : `parked: ${queued}`}
                 </span>
               </Chip>
             )}
@@ -1850,13 +1845,13 @@ export function Composer({
                   type="button"
                   aria-haspopup="true"
                   aria-expanded={queueMenu}
-                  title={running ? t("composer.queue.queuedTitle") : t("composer.queue.parkedTitle")}
+                  title={running ? "messages waiting for the current turn to finish" : "queued items do not run while the agent is idle — sending a new prompt runs parked follow-ups"}
                   onClick={() => setQueueMenu((open) => !open)}
                   className="flex min-w-0 rounded"
                 >
                   <Chip mono tone="copper" className="min-w-0 shrink">
                     <span className="min-w-0 truncate">
-                      {running ? t("composer.queue.queued", { n: queued }) : t("composer.queue.parked", { n: queued })}
+                      {running ? `queued: ${queued}` : `parked: ${queued}`}
                     </span>
                     <Chevron open={false} className="rotate-90 text-copper" />
                   </Chip>
@@ -1891,7 +1886,7 @@ export function Composer({
                  stays enabled; when it self-hides and the version gate holds live
                  voice back, a disabled live capsule names the required omp. */
               <span
-                title={liveActive ? t("composer.live.micInUse") : liveGateBlocked ? t("composer.live.needsNewerOmp", { version: NATIVE_LIVE_MIN_OMP }) : undefined}
+                title={liveActive ? "the microphone is in use by live voice" : liveGateBlocked ? `this omp has no live voice — update omp to ${NATIVE_LIVE_MIN_OMP} or later` : undefined}
                 className={cn("inline-flex", liveActive && "cursor-not-allowed")}
               >
                 {voice.supported ? (
@@ -1917,7 +1912,7 @@ export function Composer({
           )}
           {compact && (
             <div className="flex min-h-11 items-center gap-1.5 px-1.5 pb-1.5">
-              <AttachmentButton compact disabled={unavailable} label={t("common.button.attachFiles")} onClick={() => filePicker.current?.click()} />
+              <AttachmentButton compact disabled={unavailable} label="attach files" onClick={() => filePicker.current?.click()} />
               {/* Same exclusive slot in the compact row (issue #805). */}
               {liveSupported ? (liveVoiceVisible && (
                 <LiveVoiceControl
@@ -1926,7 +1921,7 @@ export function Composer({
                 />
               )) : (
                 <span
-                  title={liveActive ? t("composer.live.micInUse") : liveGateBlocked ? t("composer.live.needsNewerOmp", { version: NATIVE_LIVE_MIN_OMP }) : undefined}
+                  title={liveActive ? "the microphone is in use by live voice" : liveGateBlocked ? `this omp has no live voice — update omp to ${NATIVE_LIVE_MIN_OMP} or later` : undefined}
                   className={cn("inline-flex", liveActive && "cursor-not-allowed")}
                 >
                   {voice.supported ? (
@@ -1939,11 +1934,11 @@ export function Composer({
               {optionsControl}
               {/* The `?` draft's face (issue #1233), same chip as the desktop row. */}
               {btwDraft && (
-                <Chip mono tone="signal" title={t("composer.btw.chipTitle")}>
-                  {t("composer.btw.chip")}
+                <Chip mono tone="signal" title="Enter asks this as a side question — no turn, nothing in the transcript (/btw)">
+                  ? side question
                 </Chip>
               )}
-              {queueChip && <Chip mono tone="copper" title={running ? t("composer.queue.queuedTitle") : t("composer.queue.parkedTitle")}>{queued}</Chip>}
+              {queueChip && <Chip mono tone="copper" title={running ? "messages waiting for the current turn to finish" : "queued items do not run while the agent is idle — sending a new prompt runs parked follow-ups"}>{queued}</Chip>}
               <ComposerActions
                 layout="compact"
                 atReset={atReset}
@@ -1970,12 +1965,12 @@ export function Composer({
 
         {unconfirmedText !== null && (
           <div role="status" className="mt-2 flex flex-wrap items-center gap-2 text-xs text-copper">
-            <span className="min-w-0 flex-1 break-words" data-selectable>{t("composer.android.unconfirmed")}</span>
+            <span className="min-w-0 flex-1 break-words" data-selectable>A previous submission has unconfirmed delivery. Check the transcript before sending its text again; attachments are not recovered.</span>
             <Button variant="ghost" size="xs" disabled={recoveryInserted} onClick={recoverUnconfirmedText}>
-              {t("composer.android.recoverText")}
+              add unconfirmed text
             </Button>
             <Button variant="ghost" size="xs" onClick={dismissUnconfirmedText}>
-              {t("composer.android.dismissUnconfirmed")}
+              dismiss recovery
             </Button>
           </div>
         )}
@@ -1989,7 +1984,7 @@ export function Composer({
             <span className="min-w-0 flex-1 break-words" data-selectable>
               {pasteError}
             </span>
-            <IconButton label={t("composer.error.dismissPaste")} onClick={dismissError}>
+            <IconButton label="dismiss paste warning" onClick={dismissError}>
               <IconClose className="size-3" />
             </IconButton>
           </div>
@@ -2003,12 +1998,8 @@ export function Composer({
             </svg>
             <span className="min-w-0 flex-1 break-words" data-selectable>
               {modelHold.reason === "not-found"
-                ? t("composer.modelHold.notFound", { model: modelHold.model, message: modelHold.message })
-                : t("composer.modelHold.notice", {
-                    provider: modelHold.provider,
-                    endpoint: modelHold.endpoint,
-                    model: modelHold.model,
-                  })}
+                ? `omp could not find ${modelHold.model}, so this session started on a fallback model. Pick a model to send. omp: ${modelHold.message}`
+                : `${modelHold.provider} (${modelHold.endpoint}) is not reachable, so this session started without ${modelHold.model}. Pick a model to send.`}
             </span>
           </div>
         )}
@@ -2031,14 +2022,14 @@ export function Composer({
                 <span className="min-w-0 flex-1 break-words text-copper" data-selectable>
                   {workspaceError}
                 </span>
-                <IconButton label={t("composer.error.dismissWorktree")} onClick={() => setWorkspaceError(null)}>
+                <IconButton label="dismiss worktree error" onClick={() => setWorkspaceError(null)}>
                   <IconClose className="size-3" />
                 </IconButton>
               </>
             ) : moving !== null ? (
-              <span className="text-ink-faint">{t("composer.machine.moving", { machine: moving })}</span>
+              <span className="text-ink-faint">{`Moving to ${moving}…`}</span>
             ) : (
-              <span className="text-ink-faint">{t("composer.strip.converting")}</span>
+              <span className="text-ink-faint">cutting the worktree…</span>
             )}
           </div>
         )}
@@ -2110,12 +2101,12 @@ const UI_GOAL_COMMAND: SlashCommandInfo = {
 };
 
 /** Palette copy for each subcommand, resolved against the locale at build time. */
-const UI_GOAL_SUBCOMMANDS: { name: string; usage?: string; key: MessageKey }[] = [
-  { name: "set", usage: "[--budget N] <objective>", key: "composer.slash.goalSet" },
-  { name: "show", key: "composer.slash.goalShow" },
-  { name: "pause", key: "composer.slash.goalPause" },
-  { name: "resume", key: "composer.slash.goalResume" },
-  { name: "drop", key: "composer.slash.goalDrop" },
+const UI_GOAL_SUBCOMMANDS: { name: string; usage?: string; description: string }[] = [
+  { name: "set", usage: "[--budget N] <objective>", description: "set or replace the goal; --budget N caps its total tokens" },
+  { name: "show", description: "show the goal, its budget and what it has spent" },
+  { name: "pause", description: "stop starting goal turns; the current one may finish" },
+  { name: "resume", description: "resume the paused goal and continue it" },
+  { name: "drop", description: "remove the goal; its usage stays in the session" },
 ];
 
 const UI_GUIDED_GOAL_COMMAND: SlashCommandInfo = {
@@ -2152,14 +2143,14 @@ const UI_VIBE_COMMAND: SlashCommandInfo = {
 };
 
 /** Palette copy for each vibe verb, resolved against the locale at build time. */
-const UI_VIBE_SUBCOMMANDS: { name: string; usage?: string; key: MessageKey }[] = [
-  { name: "on", key: "composer.slash.vibeOn" },
-  { name: "off", key: "composer.slash.vibeOff" },
-  { name: "spawn", usage: "[--good] [--name NAME] PROMPT", key: "composer.slash.vibeSpawn" },
-  { name: "send", usage: "WORKER MESSAGE", key: "composer.slash.vibeSend" },
-  { name: "wait", key: "composer.slash.vibeWait" },
-  { name: "kill", usage: "WORKER", key: "composer.slash.vibeKill" },
-  { name: "list", key: "composer.slash.vibeList" },
+const UI_VIBE_SUBCOMMANDS: { name: string; usage?: string; description: string }[] = [
+  { name: "on", description: "enter vibe mode (bare /vibe also toggles)" },
+  { name: "off", description: "leave vibe mode and kill every worker" },
+  { name: "spawn", usage: "[--good] [--name NAME] PROMPT", description: "spawn a worker: [--good] [--name NAME] PROMPT" },
+  { name: "send", usage: "WORKER MESSAGE", description: "send a follow-up to a worker: WORKER MESSAGE" },
+  { name: "wait", description: "wait for workers to finish their queued turns" },
+  { name: "kill", usage: "WORKER", description: "kill one worker: WORKER" },
+  { name: "list", description: "show the worker roster" },
 ];
 
 /**
@@ -2176,11 +2167,11 @@ const UI_AUTORESEARCH_COMMAND: SlashCommandInfo = {
   subcommands: [],
 };
 
-const UI_AUTORESEARCH_SUBCOMMANDS: { name: string; key: MessageKey }[] = [
-  { name: "start", key: "composer.slash.autoresearchStart" },
-  { name: "lab", key: "composer.slash.autoresearchLab" },
-  { name: "off", key: "composer.slash.autoresearchOff" },
-  { name: "clear", key: "composer.slash.autoresearchClear" },
+const UI_AUTORESEARCH_SUBCOMMANDS: { name: string; description: string }[] = [
+  { name: "start", description: "open the New experiment dialog" },
+  { name: "lab", description: "open the Lab" },
+  { name: "off", description: "leave autoresearch mode" },
+  { name: "clear", description: "clear the autoresearch session" },
 ];
 
 /**
@@ -2197,8 +2188,8 @@ const UI_COUNCIL_COMMAND: SlashCommandInfo = {
   subcommands: [],
 };
 
-const UI_COUNCIL_SUBCOMMANDS: { name: string; usage?: string; key: MessageKey }[] = [
-  { name: "review", usage: "[pr N | REF | FROM..TO]", key: "composer.slash.councilReview" },
+const UI_COUNCIL_SUBCOMMANDS: { name: string; usage?: string; description: string }[] = [
+  { name: "review", usage: "[pr N | REF | FROM..TO]", description: "council code review with a score per member" },
 ];
 
 /** Stable empties keep the per-field selectors from firing on every store tick. */

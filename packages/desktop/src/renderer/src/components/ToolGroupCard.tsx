@@ -1,7 +1,6 @@
 import { memo, useCallback, useMemo, useState, type ReactNode } from "react";
 import { cn } from "../lib/cn";
 import { strField } from "../lib/fields";
-import { useT, type MessageKey } from "../lib/i18n";
 import {
   pathFromArgs,
   toolGroupCategory,
@@ -32,11 +31,11 @@ interface ToolGroupCardProps {
   findNonce?: number;
 }
 
-const SUMMARY_KEY: Record<ToolGroupCategory, { one: MessageKey; many: MessageKey }> = {
-  read: { one: "transcript.toolGroup.read.one", many: "transcript.toolGroup.read" },
-  search: { one: "transcript.toolGroup.search.one", many: "transcript.toolGroup.search" },
-  web: { one: "transcript.toolGroup.web.one", many: "transcript.toolGroup.web" },
-  vault: { one: "transcript.toolGroup.vault.one", many: "transcript.toolGroup.vault" },
+const SUMMARY_FORMAT: Record<ToolGroupCategory, { one: string; many: (count: number) => string }> = {
+  read: { one: "1 file read", many: (count) => `${count} files read` },
+  search: { one: "1 search", many: (count) => `${count} searches` },
+  web: { one: "1 web search", many: (count) => `${count} web searches` },
+  vault: { one: "1 vault lookup", many: (count) => `${count} vault lookups` },
 };
 
 /**
@@ -62,7 +61,6 @@ export const ToolGroupCard = memo(function ToolGroupCard({
   findActiveId,
   findNonce,
 }: ToolGroupCardProps) {
-  const t = useT();
   const streamStallMs = useStore(
     tabId === undefined ? readNoStall : (s) => s.rpc[tabId]?.streamStallMs,
   );
@@ -93,7 +91,7 @@ export const ToolGroupCard = memo(function ToolGroupCard({
   const counts = useMemo(() => toolGroupCounts(items), [items]);
   const summary = counts
     .map(({ category, count }) =>
-      t(count === 1 ? SUMMARY_KEY[category].one : SUMMARY_KEY[category].many, { count }),
+      count === 1 ? SUMMARY_FORMAT[category].one : SUMMARY_FORMAT[category].many(count),
     )
     .join(" · ");
   const running = items.some((item) => item.status === "running");
@@ -117,7 +115,7 @@ export const ToolGroupCard = memo(function ToolGroupCard({
       {open && (
         <div
           role="list"
-          aria-label={t("transcript.toolGroup.label")}
+          aria-label="Grouped tool calls"
           className="space-y-1 border-t border-line-soft px-2.5 py-2"
         >
           {items.map((item) => (

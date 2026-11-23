@@ -18,7 +18,7 @@ export interface TitleCard {
 }
 
 /** Private-use areas: Nerd Font glyphs live here and would render tofu in
- *  the renderer's emoji-only font stack (only Pretendard is bundled). */
+ *  the renderer's emoji-only font stack (no Nerd Font is bundled). */
 const PUA = /[\uE000-\uF8FF\u{F0000}-\u{FFFFD}\u{100000}-\u{10FFFD}]/gu;
 
 /** `${icon} ${CODE}: ${title}` — icon is one non-space token, code is

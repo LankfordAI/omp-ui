@@ -36,7 +36,6 @@ import type {
 } from "@omp-ui/core/types";
 import { backendState, rpcTabState, tabInfo } from "../test/fixtures";
 import type { SettingsPage } from "../store";
-import { applyLocale, resolveLocale, t } from "../lib/i18n";
 import { currentThemePreview } from "../lib/themes";
 
 // The General page gates the audio-device row on the Electron shell (issue #855);
@@ -255,7 +254,6 @@ const backendMock = {
   setThemeAgentAccess: vi.fn(async () => {}),
   setIssueAgentAccess: vi.fn(async () => {}),
   setKeybindings: vi.fn(async () => {}),
-  setLocaleId: vi.fn(async () => {}),
   setAppUpdateCheckOnLaunch: vi.fn(async () => {}),
   setAppUpdateTrain: vi.fn(async () => {}),
   setOmpUpdateCheckOnLaunch: vi.fn(async () => {}),
@@ -446,8 +444,6 @@ function click(el: HTMLElement): void {
 afterEach(() => {
   vi.clearAllMocks();
   platform.electron = false;
-  // Locale state is module-global; every test starts from the default.
-  applyLocale(resolveLocale("en"));
   if (root !== null) {
     act(() => root!.unmount());
     root = null;
@@ -2136,13 +2132,11 @@ describe("Settings page footer dispatch (issue #300)", () => {
     });
   }
 
-  it("remote footer copy comes from the catalog, mono origin token intact (issue #581)", async () => {
+  it("remote footer copy keeps the mono origin token intact (issue #581)", async () => {
     useStore.setState({ settingsPage: "remote", state: backendState(), tabs: [], activeTabId: null });
-    applyLocale(resolveLocale("ko"));
     await renderSettings();
     const footer = document.body.querySelector("footer")?.textContent ?? "";
-    expect(footer).toContain(t("settings.remote.footerRestart"));
-    expect(footer).not.toContain("Changing anything here restarts only the server");
+    expect(footer).toContain(" Changing anything here restarts only the server; sessions keep running.");
     // \x3c and \x3e are the angle brackets: the mono origin token must survive the fragment split.
     expect(footer).toMatch(/http:\/\/\x3clan-ip\x3e/);
   });
@@ -2224,50 +2218,6 @@ describe("Settings Appearance page font family (issue #315)", () => {
     openDisplayTab();
     expect(fontCard("Ubuntu").getAttribute("aria-pressed")).toBe("true");
     expect(fontCard("Default").getAttribute("aria-pressed")).toBe("false");
-  });
-});
-
-describe("Settings General page language row (issues #363, #367)", () => {
-  const seedGeneral = (localeId: string): void => {
-    useStore.setState({
-      settingsPage: "general",
-      state: backendState({ localeId }),
-      tabs: [],
-      activeTabId: null,
-      appUpdate: appUpdateState({}),
-      ompUpdate: idleOmpUpdate,
-    });
-  };
-
-  it("shows the persisted locale and persists a switch to Korean", async () => {
-    seedGeneral("en");
-    await renderSettings();
-    expect(document.body.textContent).toContain("Language");
-    expect(document.body.textContent).toContain(
-      "The language of the application chrome. Session content and terminal output are never translated.",
-    );
-    expect(buttonWithText("English")!.getAttribute("aria-pressed")).toBe("true");
-    expect(buttonWithText("한국어")!.getAttribute("aria-pressed")).toBe("false");
-
-    click(buttonWithText("한국어")!);
-    expect(backendMock.setLocaleId).toHaveBeenCalledWith("ko");
-    expect(document.getElementById("settings-title")?.textContent).toBe("설정");
-    expect(buttonWithText("일반")).not.toBeNull();
-    expect(buttonWithText("General")).toBeNull();
-    expect(buttonWithText("네이티브")).not.toBeNull();
-    expect(buttonWithText("터미널")).not.toBeNull();
-    expect(buttonWithText("플랜")).not.toBeNull();
-    expect(buttonWithText("빌드")).not.toBeNull();
-  });
-
-  it("reflects a persisted Korean setting", async () => {
-    seedGeneral("ko");
-    applyLocale(resolveLocale("ko"));
-    await renderSettings();
-    expect(buttonWithText("한국어")!.getAttribute("aria-pressed")).toBe("true");
-    expect(buttonWithText("English")!.getAttribute("aria-pressed")).toBe("false");
-    expect(document.getElementById("settings-title")?.textContent).toBe("설정");
-    expect(buttonWithText("모양")).not.toBeNull();
   });
 });
 
@@ -3412,7 +3362,7 @@ describe("Settings Appearance page Theme repositories (#1178)", () => {
     await renderSettings();
     await chooseShow("manage");
     await typeRepository("not a repo");
-    expect(document.body.textContent).toContain(t("settings.appearance.repoInvalid"));
+    expect(document.body.textContent).toContain("Enter a GitHub repository as owner/repo or its https://github.com address.");
     expect(backendMock.addThemeRepository).not.toHaveBeenCalled();
   });
 
@@ -3494,7 +3444,7 @@ describe("Settings Appearance page Theme repositories (#1178)", () => {
     expect(entryCard("Fresh").querySelector('img[src="blob:preview"]')).not.toBeNull();
     click(
       [...previewDialog()!.querySelectorAll<HTMLButtonElement>("button")].find(
-        (button) => button.textContent === t("settings.appearance.previewClose"),
+        (button) => button.textContent === "Close",
       )!,
     );
     expect(previewDialog()).toBeNull();
@@ -3507,7 +3457,7 @@ describe("Settings Appearance page Theme repositories (#1178)", () => {
     backendMock.previewRepositoryThemeBackdrop.mockResolvedValueOnce({ ok: false, message });
     await openListing(INSTALLED, SCENE_LISTING);
     await openFreshPreview();
-    expect(previewDialog()!.textContent).toContain(t("settings.appearance.backdropFailed", { message }));
+    expect(previewDialog()!.textContent).toContain(`The backdrop could not be shown: ${message}`);
     expect(previewDialog()!.querySelector("img")).toBeNull();
   });
 
@@ -3734,11 +3684,11 @@ describe("Settings Appearance page Share panel (#1212)", () => {
     expect(saveTheme().disabled).toBe(false);
     expect(saveDetails().disabled).toBe(false);
     await type(field("File name"), "Night Owl");
-    expect(panel()!.textContent).toContain(t("settings.appearance.shareSlugInvalid"));
+    expect(panel()!.textContent).toContain("Use lowercase letters, digits and single hyphens, 64 characters at most.");
     expect(saveTheme().disabled).toBe(true);
     await type(field("File name"), "night-owl");
     await type(field("GitHub username"), "not a user");
-    expect(panel()!.textContent).toContain(t("settings.appearance.shareAuthorInvalid"));
+    expect(panel()!.textContent).toContain("That is not a GitHub username.");
     expect(saveDetails().disabled).toBe(true);
     await type(field("GitHub username"), "");
     for (const tag of ["warm", "minimal", "retro", "cozy", "pastel"]) click(buttonWithText(tag)!);
@@ -3761,7 +3711,7 @@ describe("Settings Appearance page Share panel (#1212)", () => {
     backendMock.readThemeBackdrop.mockResolvedValueOnce(null);
     click(saveTheme());
     await act(async () => {});
-    expect(panel()!.querySelector('[role="alert"]')?.textContent).toBe(t("settings.appearance.shareBackdropMissing"));
+    expect(panel()!.querySelector('[role="alert"]')?.textContent).toBe("This theme's backdrop is not available on this host, so the file would be incomplete.");
     backendMock.readThemeBackdrop.mockRejectedValueOnce(new Error("no backdrop channel"));
     click(saveTheme());
     await act(async () => {});
@@ -4265,7 +4215,7 @@ describe("Settings omp Tool approval section (issue #681)", () => {
 
   const forgetButton = (): HTMLButtonElement =>
     [...document.body.querySelectorAll<HTMLButtonElement>("button")].find(
-      (b) => b.textContent === t("settings.omp.approvalForget"),
+      (b) => b.textContent === "forget remembered approvals",
     )!;
 
   const select = (): HTMLSelectElement =>
@@ -4362,7 +4312,7 @@ describe("Settings omp Tool approval section (issue #681)", () => {
     await renderSettings();
     expect(cachedOption().disabled).toBe(true);
     expect(document.body.textContent).toContain(
-      t("settings.omp.approvalCachedNeedsOmp", { version: "18.12.3" }),
+      `always-ask-cached needs omp ${"18.12.3"} or later.`,
     );
   });
 
@@ -4371,7 +4321,7 @@ describe("Settings omp Tool approval section (issue #681)", () => {
     await renderSettings();
     expect(cachedOption().disabled).toBe(false);
     expect(document.body.textContent).not.toContain(
-      t("settings.omp.approvalCachedNeedsOmp", { version: "18.12.3" }),
+      `always-ask-cached needs omp ${"18.12.3"} or later.`,
     );
     await pick("always-ask-cached");
     expect(backendMock.setProjectApprovalMode).toHaveBeenCalledWith("/project", "always-ask-cached");
@@ -4382,7 +4332,7 @@ describe("Settings omp Tool approval section (issue #681)", () => {
     useStore.setState({ rpc: { "tab-test": rpcTabState({ commands: [] }) } });
     await renderSettings();
     expect(forgetButton().disabled).toBe(true);
-    expect(document.body.textContent).toContain(t("settings.omp.approvalForgetUnavailable"));
+    expect(document.body.textContent).toContain("Focus a running session on this computer to forget remembered approvals.");
   });
 
   it("runs /forget-approvals in the focused session", async () => {
@@ -4404,7 +4354,7 @@ describe("Settings omp Tool approval section (issue #681)", () => {
         forgetButton().click();
       });
       expect(runSlashCommand).toHaveBeenCalledWith("tab-test", "/forget-approvals");
-      expect(document.body.textContent).toContain(t("settings.omp.approvalForgetSent"));
+      expect(document.body.textContent).toContain("Sent — omp's reply is in the focused session's transcript.");
     } finally {
       useStore.setState({ runSlashCommand: realRun });
     }

@@ -1,6 +1,5 @@
 import { useRef, useState, type KeyboardEvent, type PointerEvent } from "react";
 import { cn } from "../lib/cn";
-import { useT } from "../lib/i18n";
 import { thinkingFillGradient, thinkingLevelColor } from "../lib/thinking-colors";
 import { useStore } from "../store";
 
@@ -35,7 +34,6 @@ export function ThinkingSliderControl({
   disabled,
   onChange,
 }: ThinkingSliderControlProps) {
-  const t = useT();
   const trackRef = useRef<HTMLDivElement | null>(null);
   const tickRefs = useRef<Array<HTMLButtonElement | null>>([]);
   // The drag index lives in a ref too: pointerup commits what the last move
@@ -185,7 +183,7 @@ export function ThinkingSliderControl({
           is held there instead of centred (issue #1138). */}
       <div
         role="group"
-        aria-label={t("composer.thinking.label")}
+        aria-label="thinking"
         className="mx-[7px] grid font-mono text-xs text-ink-mid"
       >
         {efforts.map((effort, i) => (

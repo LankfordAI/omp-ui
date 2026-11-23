@@ -6,7 +6,6 @@ import type { Root } from "react-dom/client";
 import { afterEach, beforeEach, describe, expect, it, vi } from "vitest";
 import type { BackendState, ProjectGroup } from "@omp-ui/core/types";
 import type { ModelInfo } from "../lib/rpc-types";
-import { t } from "../lib/i18n";
 import { backendState, remoteInstance, rpcTabState } from "../test/fixtures";
 import type { RpcTabState } from "../store";
 
@@ -263,7 +262,7 @@ describe("ModelSelector", () => {
   it("locks the trigger while the turn is running", () => {
     useStore.setState({ state, rpc: { [TAB]: tabState({ status: "running" }) } });
     mount(<ModelSelector tabId={TAB} />);
-    const trigger = buttonByTitle(t("composer.model.afterTurn"));
+    const trigger = buttonByTitle("model changes are available after the current turn finishes");
     expect(trigger.disabled).toBe(true);
 
     act(() => trigger.click());
@@ -280,7 +279,7 @@ describe("ModelSelector", () => {
       useStore.setState({ rpc: { [TAB]: tabState({ status: "running" }) } });
     });
     expect(document.body.querySelector('[role="dialog"]')).toBeNull();
-    const lockedTrigger = buttonByTitle(t("composer.model.afterTurn"));
+    const lockedTrigger = buttonByTitle("model changes are available after the current turn finishes");
     expect(lockedTrigger.disabled).toBe(true);
 
     act(() => {
@@ -323,7 +322,7 @@ describe("ModelSelector", () => {
     mount(<ModelSelector tabId={TAB} />);
 
     const trigger = buttonByTitle(
-      t("composer.model.credFallback", { to: "keyprov/m1", pin: "nokeyprov/m1" }),
+      `Running ${"keyprov/m1"} — no usable credential for ${"nokeyprov/m1"}`,
     );
     expect(trigger.textContent).toContain("m1");
     expect(trigger.className).toContain("text-copper");
@@ -364,8 +363,8 @@ describe("ModelSelector", () => {
     mount(<ModelSelector tabId={TAB} />);
 
     // The hold masks the fallback: ask-for-a-pick copy, never the divergence tooltip.
-    const trigger = buttonByTitle(t("composer.model.pick"));
-    expect(trigger.textContent).toContain(t("composer.model.held"));
+    const trigger = buttonByTitle("pick a model");
+    expect(trigger.textContent).toContain("pick a model");
   });
 });
 
@@ -604,9 +603,9 @@ describe("remote instance ownership (#440)", () => {
     );
 
     expect(document.body.textContent).toContain(NICKNAME);
-    expect(document.body.textContent).toContain(t("composer.model.pricesNote"));
+    expect(document.body.textContent).toContain("prices are USD per Mtok");
     const providerKeys = [...document.body.querySelectorAll("button")].find((button) =>
-      button.textContent?.includes(t("composer.model.providerKeys")),
+      button.textContent?.includes("provider keys"),
     );
     expect(providerKeys).toBeUndefined();
   });

@@ -1,6 +1,5 @@
 import { useCallback } from "react";
 import { findRecord, useStore } from "../store";
-import { useT } from "../lib/i18n";
 import { Button, UpdateCard } from "./ui";
 
 /**
@@ -10,7 +9,6 @@ import { Button, UpdateCard } from "./ui";
  * the settle toast (App.tsx positions it); it stays until dismissed.
  */
 export function BackgroundSeedToast() {
-  const t = useT();
   const tabId = useStore((s) => s.backgroundSeedFailedTabId);
   const title = useStore((s) => (tabId === null ? undefined : findRecord(s.state, tabId)?.title));
   const focusTab = useStore((s) => s.focusTab);
@@ -18,10 +16,10 @@ export function BackgroundSeedToast() {
   const onDismiss = useCallback(() => dismiss(), [dismiss]);
   if (tabId === null) return null;
   return (
-    <UpdateCard key={tabId} dismissLabel={t("update.card.dismiss")} onDismiss={onDismiss}>
+    <UpdateCard key={tabId} dismissLabel="dismiss" onDismiss={onDismiss}>
       <div role="alert" className="min-w-0">
         <p className="text-sm font-medium text-ink">
-          {t("dialog.newsession.backgroundNotSent", { title: title ?? t("dialog.newsession.backgroundUntitled") })}
+          {`${title ?? "A new session"} started in the background, but its first prompt was not sent.`}
         </p>
         <div className="mt-2">
           <Button
@@ -32,7 +30,7 @@ export function BackgroundSeedToast() {
               dismiss();
             }}
           >
-            {t("dialog.newsession.backgroundOpen")}
+            Open session
           </Button>
         </div>
       </div>

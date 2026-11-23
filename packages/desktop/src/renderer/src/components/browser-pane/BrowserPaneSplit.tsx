@@ -4,7 +4,6 @@ import {
   BROWSER_PANE_DEFAULT_WIDTH,
   BROWSER_PANE_MIN_WIDTH,
 } from "../../lib/panel-layout";
-import { useT } from "../../lib/i18n";
 import { useStore } from "../../store";
 import { ResizeHandle } from "../ui";
 import { useDesktopPanelWidths } from "../split-slot";
@@ -12,7 +11,6 @@ import { BrowserPane } from "./BrowserPane";
 
 /** The desktop split: the pane as a resizable column between the transcript and the inspector rail. */
 export function BrowserPaneSplit({ tabId }: { tabId: string }) {
-  const t = useT();
   const resolved = useDesktopPanelWidths(tabId);
   const browserPaneWidth = useStore((s) => s.browserPaneWidth);
   const setBrowserPaneWidth = useStore((s) => s.setBrowserPaneWidth);
@@ -35,7 +33,7 @@ export function BrowserPaneSplit({ tabId }: { tabId: string }) {
       style={{ width: displayedWidth }}
     >
       <ResizeHandle
-        label={t("browser.split.resize")}
+        label="resize browser pane"
         edge="left"
         value={displayedWidth}
         min={BROWSER_PANE_MIN_WIDTH}

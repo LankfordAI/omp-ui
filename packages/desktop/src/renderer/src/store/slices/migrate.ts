@@ -4,7 +4,6 @@
 // the next is requested, so neither side ever holds the full bundle. Bytes may
 // ride the renderer here because transcript content already is renderer-
 // visible (ADR-0028) — credential bundles never take this path.
-import { t } from "../../lib/i18n";
 import { backendFor } from "../../backend";
 import type { UiStore } from "../types";
 import { findInstance, findOwner } from "./view";
@@ -42,7 +41,7 @@ export function createMigrateSlice(set: SetState, get: GetState): MigrateSlice {
       const owner = findOwner(get().state, tabId);
       if (owner === undefined) {
         inFlight.delete(tabId);
-        get().reportError(new Error(t("notice.migrate.failed", { message: "session not found" })));
+        get().reportError(new Error(`The migration failed: ${"session not found"}`));
         return;
       }
       const source = backendFor(owner.instanceId);
@@ -56,7 +55,7 @@ export function createMigrateSlice(set: SetState, get: GetState): MigrateSlice {
         if (packed.missingBlobs > 0) {
           // Images that GC already pruned will not load after unpack — a
           // warning, never a blocker.
-          get().reportNotice(t("notice.migrate.missingBlobs", { count: packed.missingBlobs }));
+          get().reportNotice(`${packed.missingBlobs} referenced image(s) are already gone from this machine — they will not appear in the migrated copy.`);
         }
 
         const transferId = await target.ingestStart();
@@ -92,7 +91,7 @@ export function createMigrateSlice(set: SetState, get: GetState): MigrateSlice {
           findOwner(get().state, finished.tabId)?.record.cachedTitle ??
           findOwner(get().state, tabId)?.record.cachedTitle ??
           null;
-        get().reportNotice(t("notice.migrate.done", { title: title ?? "" }));
+        get().reportNotice(`Session migrated: “${title ?? ""}” now lives at the target — open it from its project in the sidebar.`);
 
         // Mark the source copy stale via omp's own moved-guard. A failure is
         // warn-only: the migration succeeded, and omp's fork-on-resume keeps
@@ -101,11 +100,11 @@ export function createMigrateSlice(set: SetState, get: GetState): MigrateSlice {
         // warning then says so verbatim (ADR-0028's per-call skew rule).
         const targetLabel =
           targetInstanceId === null
-            ? t("dialog.migrate.local")
+            ? "This machine"
             : (findInstance(get().state, targetInstanceId)?.nickname ?? targetInstanceId);
         const marked = await source.markSessionMoved(tabId, targetLabel);
         if (!marked.ok) {
-          get().reportNotice(t("notice.migrate.markMoved", { message: marked.message }));
+          get().reportNotice(`The source copy was not marked as moved: ${marked.message}`);
         }
       } catch (err) {
         // Best-effort source cleanup; a half-pushed target bundle expires via

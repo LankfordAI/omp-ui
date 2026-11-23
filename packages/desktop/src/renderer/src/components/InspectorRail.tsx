@@ -5,7 +5,6 @@ import { PLAN_TRANSCRIPT_COMMAND, PLAN_TRANSCRIPT_STATUS_KEY } from "@omp-ui/cor
 import { backendFor } from "../backend";
 import { cn } from "../lib/cn";
 import { editErrorKindLabel } from "../lib/edit-rejections";
-import { useT } from "../lib/i18n";
 import { useCompactShell, useViewportWidth } from "../lib/responsive";
 import {
   INSPECTOR_DEFAULT_WIDTH,
@@ -72,14 +71,12 @@ interface BranchDiffLoad {
 
 type RailGroup = "work" | "review" | "ask" | "info";
 
-type GroupLabelKey = "rail.groups.work" | "rail.groups.review" | "rail.groups.ask" | "rail.groups.info";
-
 /** Strip order; members in pane order. */
-const GROUPS: readonly { id: RailGroup; labelKey: GroupLabelKey; members: readonly RailTab[] }[] = [
-  { id: "work", labelKey: "rail.groups.work", members: ["todos", "agents", "jobs"] },
-  { id: "review", labelKey: "rail.groups.review", members: ["plans", "diffs"] },
-  { id: "ask", labelKey: "rail.groups.ask", members: ["btw"] },
-  { id: "info", labelKey: "rail.groups.info", members: ["session"] },
+const GROUPS: readonly { id: RailGroup; label: string; members: readonly RailTab[] }[] = [
+  { id: "work", label: "Work", members: ["todos", "agents", "jobs"] },
+  { id: "review", label: "Review", members: ["plans", "diffs"] },
+  { id: "ask", label: "Ask", members: ["btw"] },
+  { id: "info", label: "Info", members: ["session"] },
 ];
 
 /**
@@ -226,7 +223,6 @@ function Mono({ children, title }: { children: ReactNode; title?: string }) {
 /* --------------------------------------------------------------- the panes */
 
 function AgentsPane({ tabId }: { tabId: string }) {
-  const t = useT();
   const subagents = useStore((s) => s.rpc[tabId]?.subagents) ?? [];
   const buffers = useStore((s) => s.rpc[tabId]?.subagentItems) ?? {};
   const selected = useStore((s) => s.rpc[tabId]?.selectedSubagent) ?? null;
@@ -249,11 +245,11 @@ function AgentsPane({ tabId }: { tabId: string }) {
 
   return (
     <Section
-      title={t("rail.agents.title", { count: roster.length })}
+      title={`subagents · ${roster.length}`}
       action={
         <>
           <SubagentModelsControl tabId={tabId} />
-          <IconButton label={t("rail.agents.refreshLabel")} onClick={() => void refreshSubagents(tabId)}>
+          <IconButton label="refresh subagents" onClick={() => void refreshSubagents(tabId)}>
             <IconRefresh />
           </IconButton>
         </>
@@ -261,11 +257,11 @@ function AgentsPane({ tabId }: { tabId: string }) {
     >
       {roster.length === 0 ? (
         <Empty
-          title={t("rail.agents.emptyTitle")}
-          hint={t("rail.agents.emptyHint")}
+          title="No subagents"
+          hint="Delegated agents appear here while they run."
           action={
             <Button size="xs" onClick={() => void refreshSubagents(tabId)}>
-              {t("rail.agents.refresh")}
+              refresh
             </Button>
           }
         />
@@ -286,7 +282,7 @@ function AgentsPane({ tabId }: { tabId: string }) {
                   <div className="flex items-center gap-1.5">
                     <button
                       type="button"
-                      aria-label={t(selected === agent.id ? "rail.agents.closeAgent" : "rail.agents.openAgent", { agent: agent.name ?? agent.agent ?? agent.id })}
+                      aria-label={selected === agent.id ? `close agent ${agent.name ?? agent.agent ?? agent.id}` : `open agent ${agent.name ?? agent.agent ?? agent.id}`}
                       aria-pressed={selected === agent.id}
                       onClick={() =>
                         selected === agent.id
@@ -305,7 +301,7 @@ function AgentsPane({ tabId }: { tabId: string }) {
                       </span>
                     </button>
                     {agent.agent && agent.name && (
-                      <Chip mono title={t("rail.agents.typeTitle", { type: agent.agent })}>
+                      <Chip mono title={`agent type: ${agent.agent}`}>
                         {agent.agent}
                       </Chip>
                     )}
@@ -318,7 +314,7 @@ function AgentsPane({ tabId }: { tabId: string }) {
                     {agent.completionPercent !== undefined && status === "running" && (
                       <span
                         className="shrink-0 font-mono text-xs text-ink-faint"
-                        title={t("rail.agents.estimateTitle")}
+                        title="agent's own completion estimate"
                       >
                         {agent.completionPercent}%
                       </span>
@@ -354,7 +350,6 @@ function AgentsPane({ tabId }: { tabId: string }) {
  * their runtime scope died, and only the transcript survived.
  */
 function VibeRoster({ tabId }: { tabId: string }) {
-  const t = useT();
   const vibe = useStore((s) => s.rpc[tabId]?.vibe) ?? null;
   const selected = useStore((s) => s.rpc[tabId]?.selectedSubagent) ?? null;
   const openSubagent = useStore((s) => s.openSubagent);
@@ -363,19 +358,19 @@ function VibeRoster({ tabId }: { tabId: string }) {
   if (vibe === null || !vibe.enabled) return null;
   return (
     <Section
-      title={t("rail.vibe.title", { count: vibe.workers.length })}
+      title={`vibe workers (${vibe.workers.length})`}
       action={
         <Button
           size="xs"
-          title={t("rail.vibe.listTitle")}
+          title="ask the director for a fresh roster"
           onClick={() => void runVibeCommand(tabId, "/vibe list")}
         >
-          {t("rail.vibe.list")}
+          list
         </Button>
       }
     >
       {vibe.workers.length === 0 ? (
-        <Empty title={t("rail.vibe.emptyTitle")} hint={t("rail.vibe.emptyHint")} />
+        <Empty title="No workers" hint="Spawn one with /vibe spawn PROMPT, or --good for the strong tier." />
       ) : (
         <ul className="space-y-1">
           {vibe.workers.map((worker) => (
@@ -406,7 +401,6 @@ function VibeWorkerRow({
   onOpen: () => void;
   onKill: () => void;
 }) {
-  const t = useT();
   const tomb = worker.killed || worker.state === "parked" || worker.state === "dead";
   const activity =
     worker.turnMessage ?? worker.currentTool ?? worker.lastIntent ?? "";
@@ -421,7 +415,7 @@ function VibeWorkerRow({
       >
         <button
           type="button"
-          aria-label={t(selected ? "rail.vibe.closeWorker" : "rail.vibe.openWorker", { worker: worker.id })}
+          aria-label={selected ? `close worker ${worker.id}` : `open worker ${worker.id}`}
           aria-pressed={selected}
           onClick={onOpen}
           className="block w-full text-left"
@@ -430,12 +424,12 @@ function VibeWorkerRow({
             <Dot
               tone={VIBE_TONE[worker.state]}
               pulse={worker.state === "running"}
-              title={worker.killed ? t("rail.vibe.killed") : worker.state}
+              title={worker.killed ? "killed" : worker.state}
             />
             <span className="min-w-0 flex-1 truncate text-xs text-ink">
               {worker.id}
             </span>
-            <Chip mono title={t("rail.vibe.tierTitle", { cli: worker.cli })}>
+            <Chip mono title={`tier: ${worker.cli}`}>
               {worker.cli}
             </Chip>
           </div>
@@ -446,7 +440,7 @@ function VibeWorkerRow({
             </span>
             {worker.turns > 0 && (
               <span className="shrink-0 font-mono text-xs text-ink-faint">
-                {t("rail.vibe.turns", { count: worker.turns })}
+                {`${worker.turns} turn(s)`}
               </span>
             )}
             {activity !== "" && (
@@ -458,8 +452,8 @@ function VibeWorkerRow({
         </button>
         {!worker.killed && worker.state !== "parked" && (
           <div className="mt-1 flex justify-end">
-            <Button size="xs" tone="rose" onClick={onKill} title={t("rail.vibe.killTitle", { worker: worker.id })}>
-              {t("rail.vibe.kill")}
+            <Button size="xs" tone="rose" onClick={onKill} title={`kill worker ${worker.id}`}>
+              kill
             </Button>
           </div>
         )}
@@ -468,13 +462,13 @@ function VibeWorkerRow({
   );
 }
 
-const TOKEN_ROWS: { key: keyof TokenTotals; labelKey: "rail.stats.input" | "rail.stats.output" | "rail.stats.reasoning" | "rail.stats.cacheRead" | "rail.stats.cacheWrite" | "rail.stats.total" }[] = [
-  { key: "input", labelKey: "rail.stats.input" },
-  { key: "output", labelKey: "rail.stats.output" },
-  { key: "reasoning", labelKey: "rail.stats.reasoning" },
-  { key: "cacheRead", labelKey: "rail.stats.cacheRead" },
-  { key: "cacheWrite", labelKey: "rail.stats.cacheWrite" },
-  { key: "total", labelKey: "rail.stats.total" },
+const TOKEN_ROWS: { key: keyof TokenTotals; label: string }[] = [
+  { key: "input", label: "input" },
+  { key: "output", label: "output" },
+  { key: "reasoning", label: "reasoning" },
+  { key: "cacheRead", label: "cache read" },
+  { key: "cacheWrite", label: "cache write" },
+  { key: "total", label: "total" },
 ];
 
 /**
@@ -497,19 +491,18 @@ function CacheWarmingRows({
   /** The bridge's cache-warm subset of the session totals; null before it answers. */
   warm: SpendTotals | null;
 }) {
-  const t = useT();
   if (method === null) return null;
   // A journaled refresh count is what makes the cost known: zero counts means
   // the bridge has nothing attributed yet, not that warming was free.
   const costKnown = warm !== null && warm.requests > 0;
   return (
     <>
-      <Row label={t("rail.stats.cacheWarming")} title={t("rail.stats.cacheWarmingTitle")}>
-        <Num tone="faint">{method ?? t("rail.stats.valueUnknown")}</Num>
+      <Row label="cache warming" title="How prompt-cache warming refreshed the provider, as omp's cache-warming frames reported it.">
+        <Num tone="faint">{method ?? "unknown"}</Num>
       </Row>
-      <Row label={t("rail.stats.warmCost")} title={t("rail.stats.warmCostTitle")}>
+      <Row label="warm cost" title="Billed cache-warm refreshes in the session journal — a share of the total above, never an added charge. Unknown until omp journals one.">
         <Num tone="faint" title={costKnown ? `${warm.cost}` : undefined}>
-          {costKnown ? formatCost(warm.cost) : t("rail.stats.valueUnknown")}
+          {costKnown ? formatCost(warm.cost) : "unknown"}
         </Num>
       </Row>
     </>
@@ -545,7 +538,6 @@ function StatsTable({
   /** Messages stored in the session file; null while no session is read. */
   fileMessages: number | null;
 }) {
-  const t = useT();
   // The session figure may headline only when the parent's own spend covers this run's receipts.
   const sessionHeadline =
     spend !== null && (stats === null || sessionSpendTrustworthy(spend.cost, stats.cost));
@@ -610,17 +602,17 @@ function StatsTable({
           <span
             title={
               sessionHeadline || dispatchedOnlyHeadline
-                ? t("hud.metrics.sessionTotalTitle")
-                : t("hud.metrics.runOnlyTitle")
+                ? "Whole session — every turn, main and subagents, counted from the session's journal."
+                : "Counts only the current process; the receipts in the transcript cover every turn."
             }
           >
-            {t("rail.stats.spend")}
+            spend
           </span>
         }
       >
         <dl>
           {headlineSessionCost !== null ? (
-            <Row label={t("rail.stats.sessionCost")} title={t("hud.metrics.sessionTotalTitle")}>
+            <Row label="session" title="Whole session — every turn, main and subagents, counted from the session's journal.">
               <Num tone="ink" title={`${headlineSessionCost}`}>
                 {formatHeadline(headlineSessionCost)}
               </Num>
@@ -628,44 +620,41 @@ function StatsTable({
           ) : (
             // The headline is the largest figure we can vouch for: the run's
             // own receipts (plus dispatched children) whenever the session read lags them.
-            <Row label={t("rail.stats.cost")} title={t("hud.metrics.runOnlyTitle")}>
+            <Row label="this run" title="Counts only the current process; the receipts in the transcript cover every turn.">
               <Num tone="ink" title={`${headlineRunCost}`}>
                 {formatHeadline(headlineRunCost)}
               </Num>
             </Row>
           )}
           {spend && sessionHeadline && stats && (
-            <Row label={t("rail.stats.cost")} title={t("hud.metrics.runOnlyTitle")}>
+            <Row label="this run" title="Counts only the current process; the receipts in the transcript cover every turn.">
               <Num>{formatCost(stats.cost)}</Num>
             </Row>
           )}
           {spend && !sessionHeadline && (
-            <Row label={t("rail.stats.sessionCost")} title={t("rail.stats.sessionStaleTitle")}>
+            <Row label="session" title="Whole-session read is still catching up with this run; it will not go below the figure above.">
               <Num tone="faint" title={`${spend.cost}`}>
                 {formatCost(spend.cost)}
               </Num>
             </Row>
           )}
           {spend && sessionHeadline && subagentCost !== null && subagentCost > 0 && (
-            <Row label={t("rail.stats.subagentCost")}>
+            <Row label="subagents">
               <Num title={`${subagentCost}`}>{formatCost(subagentCost)}</Num>
             </Row>
           )}
           {dispatchedSpend !== null && (
             <Row
-              label={t("rail.stats.dispatchedCost", { count: dispatchedSpend.count })}
+              label={`dispatched (${dispatchedSpend.count})`}
               title={
                 dispatchedPartial
-                  ? t("hud.gauge.dispatchedPartialTitle", {
-                      reported: dispatchedSpend.reported,
-                      total: dispatchedSpend.count,
-                    })
+                  ? `Spend reported by ${dispatchedSpend.reported} of ${dispatchedSpend.count} dispatched sessions; remaining sessions are unreachable or on an older host.`
                   : undefined
               }
             >
               <Num title={dispatchedSpend.reported > 0 ? `${dispatchedSpend.totals.cost}` : undefined}>
                 {dispatchedSpend.reported === 0
-                  ? t("rail.stats.valueUnknown")
+                  ? "unknown"
                   : dispatchedPartial
                     ? `${formatCost(dispatchedSpend.totals.cost)}+`
                     : formatCost(dispatchedSpend.totals.cost)}
@@ -673,7 +662,7 @@ function StatsTable({
             </Row>
           )}
           {premiumRequests > 0 && (
-            <Row label={t("rail.stats.premiumReqs")}>
+            <Row label="premium reqs">
               <Num>{exactNum(premiumRequests)}</Num>
             </Row>
           )}
@@ -686,21 +675,21 @@ function StatsTable({
         </dl>
       </Section>
       {stats && (
-        <Section title={<span title={t("rail.stats.messagesTitle")}>{t("rail.stats.messages")}</span>}>
+        <Section title={<span title="Message entries in the session's live context, as omp reports them.">messages</span>}>
           <dl>
-            <Row label={t("rail.stats.user")}>
+            <Row label="user">
               <Num>{exactNum(stats.userMessages)}</Num>
             </Row>
-            <Row label={t("rail.stats.assistant")}>
+            <Row label="assistant">
               <Num>{exactNum(stats.assistantMessages)}</Num>
             </Row>
             {stats.toolCalls > 0 && (
-              <Row label={t("rail.stats.toolCalls")}>
+              <Row label="tool calls">
                 <Num>{exactNum(stats.toolCalls)}</Num>
               </Row>
             )}
             {stats.toolResults > 0 && (
-              <Row label={t("rail.stats.toolResults")}>
+              <Row label="tool results">
                 <Num>{exactNum(stats.toolResults)}</Num>
               </Row>
             )}
@@ -709,7 +698,7 @@ function StatsTable({
                 leaving `user + assistant ≠ total` to a hover title. */}
             {stats.totalMessages >
               stats.userMessages + stats.assistantMessages + stats.toolCalls + stats.toolResults && (
-              <Row label={t("rail.stats.other")} title={t("rail.stats.otherTitle")}>
+              <Row label="other" title="Live-context entries beyond the two roles — tool events, system entries.">
                 <Num>
                   {exactNum(
                     stats.totalMessages -
@@ -721,7 +710,7 @@ function StatsTable({
                 </Num>
               </Row>
             )}
-            <Row label={t("rail.stats.total")} title={t("rail.stats.messagesTotalTitle")}>
+            <Row label="total" title="Message entries in the session's live context, as omp reports them; `other` carries what the two roles don't name.">
               <Num tone="ink">{exactNum(stats.totalMessages)}</Num>
             </Row>
             {/* Round-7 judge, Clarity 2: the file count used to sit in the
@@ -730,7 +719,7 @@ function StatsTable({
                 It now rides MESSAGES as a visibly qualified row; compaction
                 can still make it differ, and the title says so. */}
             {fileMessages !== null && (
-              <Row label={t("rail.stats.inFile")} title={t("rail.stats.inFileTitle")}>
+              <Row label="in file" title="Messages stored in the session file; compaction can make this differ from the live-context counts above.">
                 <Num tone="faint">{exactNum(fileMessages)}</Num>
               </Row>
             )}
@@ -738,7 +727,7 @@ function StatsTable({
         </Section>
       )}
       {stats && stats.editRejections.length > 0 && (
-        <Section title={t("rail.stats.failedEdits")}>
+        <Section title="failed edits">
           <table className="w-full">
             <tbody>
               {stats.editRejections.map(({ kind, count }) => (
@@ -754,7 +743,7 @@ function StatsTable({
               {stats.editRejections.length > 1 && (
                 <tr className="border-t border-line-soft">
                   <td className="py-0.5 text-sm text-ink-dim">
-                    {t("rail.stats.total")}
+                    total
                   </td>
                   <td className="py-0.5 text-right text-sm tabular-nums text-ink">
                     {exactNum(stats.editRejections.reduce((sum, row) => sum + row.count, 0))}
@@ -769,13 +758,13 @@ function StatsTable({
           it appears the moment any figure lands. Individual zero rows inside
           a live table stay demoted instead. */}
       {tokens && Object.values(tokens).some((value) => value > 0) && (
-        <Section title={t("rail.stats.tokens")}>
+        <Section title="tokens">
           <table className="w-full">
             <tbody>
-              {TOKEN_ROWS.map(({ key, labelKey }) => (
+              {TOKEN_ROWS.map(({ key, label }) => (
                 <tr key={key} className={key === "total" ? "border-t border-line-soft" : undefined}>
                   <td className="py-0.5 text-sm text-ink-dim">
-                    {t(labelKey)}
+                    {label}
                   </td>
                   <td
                     title={exactNum(tokens[key])}
@@ -814,7 +803,6 @@ function StatsTable({
  * section would be permanent noise.
  */
 function VoiceRecordingsSection({ tabId }: { tabId: string }) {
-  const t = useT();
   const listLiveRecordings = useStore((s) => s.listLiveRecordings);
   const playLiveRecording = useStore((s) => s.playLiveRecording);
   const pauseLiveReplay = useStore((s) => s.pauseLiveReplay);
@@ -844,9 +832,9 @@ function VoiceRecordingsSection({ tabId }: { tabId: string }) {
 
   return (
     <Section
-      title={t("rail.session.voiceSection")}
+      title="Voice recordings"
       action={
-        <IconButton label={t("rail.session.voiceRefreshLabel")} onClick={refresh}>
+        <IconButton label="refresh recordings" onClick={refresh}>
           <IconRefresh />
         </IconButton>
       }
@@ -867,7 +855,7 @@ function VoiceRecordingsSection({ tabId }: { tabId: string }) {
           return (
             <li key={clipKey} className="flex min-w-0 items-center gap-1.5 text-xs">
               <span className="chrome-label shrink-0 text-ink-faint">
-                {entry.role === "user" ? t("composer.live.roleUser") : t("composer.live.roleAssistant")}
+                {entry.role === "user" ? "you" : "assistant"}
               </span>
               <Mono title={clipKey}>{entry.turn}</Mono>
               <span className="min-w-0 flex-1 truncate text-ink-dim" title={entry.modifiedAt}>
@@ -877,20 +865,20 @@ function VoiceRecordingsSection({ tabId }: { tabId: string }) {
                 {compactNum(entry.sizeBytes)}
               </span>
               {replay?.status === "playing" ? (
-                <IconButton label={t("rail.session.voicePause")} onClick={pauseLiveReplay}>
+                <IconButton label="pause recording" onClick={pauseLiveReplay}>
                   <IconPause className="size-3" />
                 </IconButton>
               ) : replay?.status === "paused" ? (
-                <IconButton label={t("rail.session.voicePlay")} onClick={resumeLiveReplay}>
+                <IconButton label="play recording" onClick={resumeLiveReplay}>
                   <IconPlay className="size-3" />
                 </IconButton>
               ) : replay?.status === "loading" ? (
-                <IconButton label={t("composer.live.replayLoading")} onClick={() => {}} disabled>
+                <IconButton label="loading recording" onClick={() => {}} disabled>
                   <IconPlay className="size-3" />
                 </IconButton>
               ) : liveSpeaking && replay?.status !== "paused" ? (
                 <IconButton
-                  label={t("composer.live.replayLiveBusy")}
+                  label="live voice is speaking — replay waits"
                   onClick={() => {}}
                   disabled
                 >
@@ -898,7 +886,7 @@ function VoiceRecordingsSection({ tabId }: { tabId: string }) {
                 </IconButton>
               ) : (
                 <IconButton
-                  label={t("rail.session.voicePlay")}
+                  label="play recording"
                   onClick={() => void playLiveRecording(tabId, { kind: "entry", entry })}
                 >
                   <IconPlay className="size-3" />
@@ -913,7 +901,6 @@ function VoiceRecordingsSection({ tabId }: { tabId: string }) {
 }
 
 function SessionPane({ tabId, onJump }: { tabId: string; onJump?: () => void }) {
-  const t = useT();
   const session = useStore((s) => s.rpc[tabId]?.session);
   const stats = useStore((s) => s.rpc[tabId]?.stats ?? null);
   const sessionSpend = useStore((s) => s.rpc[tabId]?.sessionSpend ?? null);
@@ -940,14 +927,14 @@ function SessionPane({ tabId, onJump }: { tabId: string; onJump?: () => void }) 
       {/* The context fill leads with spend: it is the other number people open
           the rail for, and it exists before any stats do. */}
       {contextUsage !== null && (
-        <Section title={t("rail.session.context")}>
+        <Section title="context">
           <dl>
-            <Row label={t("rail.session.contextFill")} title={contextReadout(contextUsage, null, t).exact}>
+            <Row label="used" title={contextReadout(contextUsage, null).exact}>
               <Num tone="ink">
-                {Math.round(contextReadout(contextUsage, null, t).percent)}%
+                {Math.round(contextReadout(contextUsage, null).percent)}%
               </Num>
             </Row>
-            <Row label={t("rail.stats.tokens")}>
+            <Row label="tokens">
               <Num title={`${exactNum(contextUsage.tokens)} / ${contextUsage.contextWindow > 0 ? exactNum(contextUsage.contextWindow) : "?"}`}>
                 {compactNum(contextUsage.tokens)}
                 {contextUsage.contextWindow > 0 ? ` / ${compactNum(contextUsage.contextWindow)}` : ""}
@@ -968,31 +955,31 @@ function SessionPane({ tabId, onJump }: { tabId: string; onJump?: () => void }) 
           fileMessages={session?.messageCount ?? null}
         />
       ) : (
-        <Section title={t("rail.stats.title")}>
+        <Section title="stats">
           <Empty
-            title={t("rail.stats.emptyTitle")}
-            hint={t("rail.stats.emptyHint")}
+            title="No stats yet"
+            hint="Refresh to pull the session's token and cost breakdown."
             action={
               <Button size="xs" onClick={() => void refreshStats(tabId)}>
-                {t("rail.stats.refresh")}
+                refresh stats
               </Button>
             }
           />
         </Section>
       )}
 
-      <Section title={t("rail.session.modelSection")}>
+      <Section title="model">
         <dl>
-          <Row label={t("rail.session.model")}>
+          <Row label="model">
             <span className="block truncate" title={model?.id}>
               {model?.name ?? model?.id ?? "—"}
             </span>
           </Row>
-          <Row label={t("rail.session.provider")}>
+          <Row label="provider">
             {/* Provider names are prose, not code: proportional. */}
             <span className="block truncate">{model?.provider ?? "—"}</span>
           </Row>
-          <Row label={t("rail.session.thinking")}>
+          <Row label="thinking">
             {/* Under the automatic selector the row shows the selector and
                 what this turn resolved to, never the resolved level alone. */}
             <span className="block truncate">
@@ -1005,10 +992,10 @@ function SessionPane({ tabId, onJump }: { tabId: string; onJump?: () => void }) 
       </Section>
 
       <Section
-        title={t("rail.session.title")}
+        title="session"
         action={
           <IconButton
-            label={t("rail.session.refreshLabel")}
+            label="refresh state and stats"
             onClick={() => {
               void refreshState(tabId);
               void refreshStats(tabId);
@@ -1022,24 +1009,24 @@ function SessionPane({ tabId, onJump }: { tabId: string; onJump?: () => void }) 
           {/* Round-7 judge, Clarity 2: the file-message count moved up into
               MESSAGES as `in file`; SESSION keeps identifiers only. */}
           {session !== undefined && session.queuedMessageCount > 0 && (
-            <Row label={t("rail.session.queued")}>
+            <Row label="queued">
               <Num title={queueChip?.title}>
                 {`${exactNum(session.queuedMessageCount)}${
-                  queueChip && status !== "running" ? t("rail.session.parkedSuffix") : ""
+                  queueChip && status !== "running" ? " (parked)" : ""
                 }`}
               </Num>
             </Row>
           )}
-          <Row label={t("rail.session.id")}>
+          <Row label="id">
             <span className="flex items-center gap-1">
               <Mono title={session?.sessionId ?? undefined}>{session?.sessionId ?? "—"}</Mono>
-              {session?.sessionId && <CopyButton text={session.sessionId} label={t("hud.actions.copy")} doneLabel={t("hud.actions.copied")} />}
+              {session?.sessionId && <CopyButton text={session.sessionId} label="Copy" doneLabel="copied" />}
             </span>
           </Row>
-          <Row label={t("rail.session.file")}>
+          <Row label="file">
             <span className="flex items-center gap-1">
               <Mono title={session?.sessionFile ?? undefined}>{session?.sessionFile ?? "—"}</Mono>
-              {session?.sessionFile && <CopyButton text={session.sessionFile} label={t("hud.actions.copy")} doneLabel={t("hud.actions.copied")} />}
+              {session?.sessionFile && <CopyButton text={session.sessionFile} label="Copy" doneLabel="copied" />}
             </span>
           </Row>
         </dl>
@@ -1050,27 +1037,27 @@ function SessionPane({ tabId, onJump }: { tabId: string; onJump?: () => void }) 
           the mode so it stops being insider shorthand. */}
       <div className="px-3 py-2">
         <Disclosure
-          summary={<span className="chrome-label text-ink-faint">{t("rail.session.queue")}</span>}
+          summary={<span className="chrome-label text-ink-faint">queue</span>}
         >
           <dl className="mt-1">
-            <Row label={t("rail.session.steering")} title={t("hud.modes.steeringHint")}>
-              <span className="block truncate" title={t("hud.modes.steeringHint")}>
+            <Row label="steering" title="steering messages: what you send while the agent is still running">
+              <span className="block truncate" title="steering messages: what you send while the agent is still running">
                 {session?.steeringMode ?? "—"}
               </span>
             </Row>
-            <Row label={t("rail.session.followUp")} title={t("hud.modes.followUpHint")}>
-              <span className="block truncate" title={t("hud.modes.followUpHint")}>
+            <Row label="follow-up" title="follow-up messages: queued to run after the current turn completes">
+              <span className="block truncate" title="follow-up messages: queued to run after the current turn completes">
                 {session?.followUpMode ?? "—"}
               </span>
             </Row>
-            <Row label={t("rail.session.interrupt")} title={t("hud.modes.interruptHint")}>
-              <span className="block truncate" title={t("hud.modes.interruptHint")}>
+            <Row label="interrupt" title="when steering messages may interrupt tool execution">
+              <span className="block truncate" title="when steering messages may interrupt tool execution">
                 {session?.interruptMode ?? "—"}
               </span>
             </Row>
-            <Row label={t("rail.session.autoCompact")}>
+            <Row label="auto-compact">
               <Chip tone={session?.autoCompactionEnabled ? "signal" : "neutral"}>
-                {session?.autoCompactionEnabled ? t("rail.session.on") : t("rail.session.off")}
+                {session?.autoCompactionEnabled ? "on" : "off"}
               </Chip>
             </Row>
           </dl>
@@ -1092,19 +1079,12 @@ const PLAN_TONE: Record<ProposedPlan["status"], Tone> = {
   invalidated: "rose",
   dismissed: "neutral",
 };
-const PLAN_LABEL_KEY: Record<
-  ProposedPlan["status"],
-  | "rail.plans.waiting"
-  | "rail.plans.executed"
-  | "rail.plans.sentBack"
-  | "rail.plans.invalidated"
-  | "rail.plans.dismissed"
-> = {
-  pending: "rail.plans.waiting",
-  executed: "rail.plans.executed",
-  refined: "rail.plans.sentBack",
-  invalidated: "rail.plans.invalidated",
-  dismissed: "rail.plans.dismissed",
+const PLAN_LABEL: Record<ProposedPlan["status"], string> = {
+  pending: "waiting on you",
+  executed: "executed",
+  refined: "sent back",
+  invalidated: "source changed",
+  dismissed: "dismissed",
 };
 
 /**
@@ -1117,7 +1097,6 @@ const PLAN_LABEL_KEY: Record<
  * tracking it. Settled plans stay as a dim record of the session's plan history.
  */
 function PlansPane({ tabId }: { tabId: string }) {
-  const t = useT();
   const record = useStore((s) => findRecord(s.state, tabId));
   const reviewPath = useStore((s) => s.rpc[tabId]?.planReview?.request.planFilePath);
   const deferred = useStore((s) => s.rpc[tabId]?.planDeferred === true);
@@ -1162,7 +1141,7 @@ function PlansPane({ tabId }: { tabId: string }) {
     <div className="space-y-2 px-3 py-2.5">
       <div className="space-y-1.5">
         <Button size="xs" disabled={transcriptUnavailable !== null} onClick={() => setPickerOpen(true)}>
-          {t("plan.transcript.action")}
+          Review from transcript…
         </Button>
         {transcriptUnavailable !== null && <p className="break-words text-xs text-ink-muted">{transcriptUnavailable}</p>}
       </div>
@@ -1170,7 +1149,7 @@ function PlansPane({ tabId }: { tabId: string }) {
       {receipt !== null && (
         <section aria-live="polite" className="min-w-0 space-y-2 rounded-md border border-line bg-sunken p-2 text-xs">
           <p className={receipt.status === "failed" ? "font-medium text-rose" : "text-ink-muted"}>
-            {t(receipt.status === "failed" ? "plan.transcript.failed" : receipt.status === "captured" ? "plan.transcript.captured" : "plan.transcript.settled")}
+            {receipt.status === "failed" ? "Transcript plan import failed" : receipt.status === "captured" ? "Saved a copy. Waiting for its validated review." : "The transcript plan review has ended."}
           </p>
           {receipt.planFilePath && <p className="break-all font-mono text-ink-muted">{receipt.planFilePath}</p>}
           {receipt.status === "failed" && <>
@@ -1178,28 +1157,28 @@ function PlansPane({ tabId }: { tabId: string }) {
             {receipt.preflight?.diagnostics.map((diagnostic, index) => (
               <div key={index} className="space-y-1 border-t border-line-soft pt-2">
                 <p className="break-words font-mono text-ink">{diagnostic.code}</p>
-                <p className="text-ink-muted">{t("plan.transcript.repair", { repair: diagnostic.repair })}</p>
-                {diagnostic.location && <p className="text-ink-muted">{t("plan.transcript.location", { line: diagnostic.location.line, column: diagnostic.location.column })}</p>}
+                <p className="text-ink-muted">{`Repair: ${diagnostic.repair}`}</p>
+                {diagnostic.location && <p className="text-ink-muted">{`Line ${diagnostic.location.line}, column ${diagnostic.location.column}`}</p>}
                 <p className="whitespace-pre-wrap break-words text-ink">{diagnostic.message}</p>
                 {diagnostic.detail && <p className="whitespace-pre-wrap break-words text-ink-muted">{diagnostic.detail}</p>}
                 {diagnostic.excerpt && <pre className="max-h-40 overflow-y-auto whitespace-pre-wrap break-all rounded border border-line-soft p-2 text-ink-muted">{diagnostic.excerpt}</pre>}
               </div>
             ))}
-            {(receipt.preflight?.omitted ?? 0) > 0 && <p className="text-ink-faint">{t("plan.transcript.omitted", { count: receipt.preflight!.omitted! })}</p>}
+            {(receipt.preflight?.omitted ?? 0) > 0 && <p className="text-ink-faint">{`${receipt.preflight!.omitted!} more diagnostics omitted`}</p>}
             {savedCopy && <Button size="xs" disabled={!canRepresent} onClick={() => {
               setRepresenting(true);
-              void representPlan(tabId, savedCopy, records.find((plan) => plan.key === savedCopy)?.title ?? t("plan.transcript.defaultTitle"))
+              void representPlan(tabId, savedCopy, records.find((plan) => plan.key === savedCopy)?.title ?? "Plan from transcript")
                 .finally(() => setRepresenting(false));
-            }}>{t("plan.transcript.savedCopy")}</Button>}
+            }}>Review saved copy</Button>}
           </>}
         </section>
       )}
-      {records.length === 0 && <Empty title={t("rail.plans.emptyTitle")} hint={t("rail.plans.emptyHint")} />}
+      {records.length === 0 && <Empty title="No proposed plans" hint="A plan-mode draft appears here once the agent writes it up." />}
       {records.map((plan) => {
         const actionable = plan.status === "pending" && plan.key === reviewPath;
         const interrupted = isInterruptedPlan(plan, record, reviewPath);
         const tone = interrupted ? "copper" : PLAN_TONE[plan.status];
-        const label = interrupted ? t("rail.plans.interrupted") : t(PLAN_LABEL_KEY[plan.status]);
+        const label = interrupted ? "interrupted" : PLAN_LABEL[plan.status];
         return (
           <div key={plan.key} className="overflow-hidden rounded-md border border-line bg-raised">
             <button
@@ -1207,9 +1186,9 @@ function PlansPane({ tabId }: { tabId: string }) {
               disabled={!actionable}
               title={
                 actionable
-                  ? t("rail.plans.openReview")
+                  ? "open the plan review"
                   : interrupted
-                    ? t("rail.plans.interruptedTitle")
+                    ? "The review closed when the session's process ended — re-present it or dismiss it"
                     : plan.title
               }
               onClick={() => showPlanReview(tabId)}
@@ -1225,7 +1204,7 @@ function PlansPane({ tabId }: { tabId: string }) {
                     {label}
                   </Chip>
                   {actionable && deferred && (
-                    <span className="text-xs text-ink-faint">{t("rail.plans.paused")}</span>
+                    <span className="text-xs text-ink-faint">paused · not now</span>
                   )}
                 </span>
               </span>
@@ -1233,31 +1212,31 @@ function PlansPane({ tabId }: { tabId: string }) {
             {actionable && (
               <div className="flex items-center gap-1 border-t border-line-soft bg-sunken px-2 py-1.5">
                 <Button size="xs" onClick={() => showPlanReview(tabId)}>
-                  {t("rail.plans.review")}
+                  review
                 </Button>
                 <Button
                   size="xs"
-                  title={t("rail.plans.requestChangesTitle")}
+                  title="Send the agent back to revise the draft"
                   onClick={() => refinePlan(tabId)}
                 >
-                  {t("rail.plans.requestChanges")}
+                  request changes
                 </Button>
                 <Button
                   size="xs"
                   variant="ghost"
-                  title={t("rail.plans.dismissPendingTitle")}
+                  title="Decline this plan — the agent's turn ends without executing or revising it; the file stays on disk"
                   onClick={() => void dismissPlanReview(tabId)}
                 >
-                  {t("rail.plans.dismiss")}
+                  dismiss
                 </Button>
                 <Button
                   size="xs"
                   variant="ghost"
                   className="ml-auto"
-                  title={t("rail.plans.notNowTitle")}
+                  title="Leave the plan pending — the agent stays paused until you answer elsewhere"
                   onClick={() => deferPlanReview(tabId)}
                 >
-                  {t("rail.plans.notNow")}
+                  not now
                 </Button>
               </div>
             )}
@@ -1266,19 +1245,19 @@ function PlansPane({ tabId }: { tabId: string }) {
                 <Button
                   size="xs"
                   disabled={!canRepresent}
-                  title={canRepresent ? t("rail.plans.representTitle") : t("rail.plans.representBusy")}
+                  title={canRepresent ? "Reopen this plan's review — no agent turn is spent" : "Available once the session is idle and no other review is open"}
                   onClick={() => represent(plan)}
                 >
-                  {t("rail.plans.represent")}
+                  re-present
                 </Button>
                 <Button
                   size="xs"
                   variant="ghost"
                   className="ml-auto"
-                  title={t("rail.plans.dismissTitle")}
+                  title="Stop tracking this plan — its file stays on disk"
                   onClick={() => void dismissProposedPlan(tabId, plan.key)}
                 >
-                  {t("rail.plans.dismiss")}
+                  dismiss
                 </Button>
               </div>
             )}
@@ -1297,7 +1276,6 @@ function PlansPane({ tabId }: { tabId: string }) {
  * an empty state.
  */
 function DiffsPane({ tabId }: { tabId: string }) {
-  const t = useT();
   const record = useStore((s) => findRecord(s.state, tabId));
   // The session's owning instance (issue #416): the diff is read from that host.
   const instanceId = useStore((s) => findOwner(s.state, tabId)?.instanceId ?? null);
@@ -1345,16 +1323,16 @@ function DiffsPane({ tabId }: { tabId: string }) {
   }, [refresh, currentBranch, branchDiffRevision]);
 
   if (load.status === "idle" || load.status === "loading") {
-    return <Empty title={t("diff.rail.readingTitle")} hint={t("diff.rail.readingHint")} />;
+    return <Empty title="Reading branch…" hint="Gathering the working-tree diff." />;
   }
   if (load.status === "error") {
     return (
       <Empty
-        title={t("diff.rail.errorTitle")}
+        title="Could not read the diff"
         hint={load.message}
         action={
           <Button size="xs" onClick={() => void refresh()}>
-            {t("diff.rail.retry")}
+            retry
           </Button>
         }
       />
@@ -1363,8 +1341,8 @@ function DiffsPane({ tabId }: { tabId: string }) {
   if (!load.repoRoot) {
     return (
       <Empty
-        title={t("diff.rail.noRepoTitle")}
-        hint={t("diff.rail.noRepoHint")}
+        title="No git repository"
+        hint="This project isn't inside a git repo, so there's no branch to diff."
       />
     );
   }
@@ -1372,11 +1350,11 @@ function DiffsPane({ tabId }: { tabId: string }) {
   if (files.length === 0) {
     return (
       <Empty
-        title={t("diff.rail.cleanTitle")}
+        title="Working tree clean"
         hint={
           load.mergeBase != null && diffBase !== null
-            ? t("diff.rail.noChangesBase", { branch: load.branch ?? t("diff.rail.thisBranch"), base: shortBase(diffBase) })
-            : t("diff.rail.noChangesHead", { branch: load.branch ?? t("diff.rail.thisBranch") })
+            ? `No changes on ${load.branch ?? "this branch"} since ${shortBase(diffBase)}.`
+            : `No changes on ${load.branch ?? "this branch"} since HEAD.`
         }
       />
     );
@@ -1396,11 +1374,11 @@ function DiffsPane({ tabId }: { tabId: string }) {
         {/* Branch identity is chrome, not liveness — neutral, never signal
             (ADR-0004). */}
         <Chip mono title={load.repoRoot ?? undefined}>
-          {load.branch ?? t("diff.rail.detached")}
+          {load.branch ?? "detached"}
         </Chip>
         {load.mergeBase != null && diffBase !== null && (
           <Chip mono title={load.mergeBase}>
-            {t("diff.rail.since", { base: shortBase(diffBase) })}
+            {`since ${shortBase(diffBase)}`}
           </Chip>
         )}
         <span
@@ -1409,12 +1387,12 @@ function DiffsPane({ tabId }: { tabId: string }) {
         >
           {load.repoRoot}
         </span>
-        <IconButton label={t("diff.rail.refreshLabel")} onClick={() => void refresh()}>
+        <IconButton label="refresh branch diff" onClick={() => void refresh()}>
           <IconRefresh />
         </IconButton>
       </div>
       <div className="flex items-center gap-2 px-3 pt-2 text-xs">
-        <span className="text-ink-dim">{t("diff.rail.summary", { files: files.length })}</span>
+        <span className="text-ink-dim">{`${files.length} file(s)`}</span>
         <span className="tabular-nums">
           <span className="text-signal">+{totals.added}</span> <span className="text-rose">−{totals.removed}</span>
         </span>
@@ -1425,7 +1403,7 @@ function DiffsPane({ tabId }: { tabId: string }) {
             variant="ghost"
             onClick={() => setOpenPaths(allOpen ? new Set() : new Set(expandable.map((f) => f.path)))}
           >
-            {allOpen ? t("diff.rail.collapseAll") : t("diff.rail.expandAll")}
+            {allOpen ? "collapse all" : "expand all"}
           </Button>
         )}
       </div>
@@ -1458,14 +1436,14 @@ function DiffsPane({ tabId }: { tabId: string }) {
 /* -------------------------------------------------------------- the rail */
 
 /** Each pane's label; order is pane order within groups. */
-const TABS: { id: RailTab; labelKey: "rail.tabs.todos" | "rail.tabs.agents" | "rail.tabs.jobs" | "rail.tabs.session" | "rail.tabs.plans" | "rail.tabs.diffs" | "rail.tabs.btw" }[] = [
-  { id: "todos", labelKey: "rail.tabs.todos" },
-  { id: "agents", labelKey: "rail.tabs.agents" },
-  { id: "jobs", labelKey: "rail.tabs.jobs" },
-  { id: "session", labelKey: "rail.tabs.session" },
-  { id: "plans", labelKey: "rail.tabs.plans" },
-  { id: "diffs", labelKey: "rail.tabs.diffs" },
-  { id: "btw", labelKey: "rail.tabs.btw" },
+const TABS: { id: RailTab; label: string }[] = [
+  { id: "todos", label: "Todos" },
+  { id: "agents", label: "Agents" },
+  { id: "jobs", label: "Jobs" },
+  { id: "session", label: "Session" },
+  { id: "plans", label: "Plans" },
+  { id: "diffs", label: "Diffs" },
+  { id: "btw", label: "Side questions" },
 ];
 
 export function inspectorBadges(
@@ -1515,7 +1493,6 @@ function MemberTabs({
   baseId: string;
   onSelect: (pane: RailTab) => void;
 }) {
-  const t = useT();
   const refs = useRef<Partial<Record<RailTab, HTMLButtonElement | null>>>({});
   const onKeyDown = (event: KeyboardEvent): void => {
     const index = members.indexOf(shown);
@@ -1534,7 +1511,7 @@ function MemberTabs({
   return (
     <div role="tablist" aria-label={groupLabel} onKeyDown={onKeyDown} className="flex shrink-0 flex-wrap gap-1 border-b border-line px-2 py-1.5">
       {members.map((pane) => {
-        const label = t(TABS.find(({ id }) => id === pane)!.labelKey);
+        const label = TABS.find(({ id }) => id === pane)!.label;
         const count = badges[pane];
         const selected = pane === shown;
         return (
@@ -1550,7 +1527,7 @@ function MemberTabs({
             aria-controls={`${baseId}-panel`}
             tabIndex={selected ? 0 : -1}
             aria-label={label}
-            title={count > 0 ? t("rail.chrome.badgedTitle", { label, count }) : label}
+            title={count > 0 ? `${label} (${count})` : label}
             onClick={() => onSelect(pane)}
             className={cn(
               "tab-label flex items-center gap-1 rounded-md px-2 py-0.5 transition-colors",
@@ -1567,7 +1544,6 @@ function MemberTabs({
 }
 
 export function InspectorRail({ tabId, active = true }: { tabId: string; active?: boolean }) {
-  const t = useT();
   const [sel, setSel] = useState<RailSelection>(() => selection.get(tabId) ?? DEFAULT_SELECTION);
   const baseId = useId();
   const compact = useCompactShell();
@@ -1648,7 +1624,7 @@ export function InspectorRail({ tabId, active = true }: { tabId: string; active?
   const shownGroup = groups.find(({ id }) => id === sel.group) ?? groups[0]!;
   const remembered = sel.members[shownGroup.id];
   const shownTab: RailTab = remembered !== undefined && shownGroup.members.includes(remembered) ? remembered : shownGroup.members[0]!;
-  const groupLabel = t(shownGroup.labelKey);
+  const groupLabel = shownGroup.label;
   const close = (): void => {
     setOpen(false);
   };
@@ -1690,11 +1666,10 @@ export function InspectorRail({ tabId, active = true }: { tabId: string; active?
     // portals to body, so an unscoped hidden tab would overlay its own copy
     // on the visible session and steal focus/back (issue #1117).
     return (
-      <Sheet open={active && surface === "inspector"} placement="right" label={t("rail.chrome.inspector")} onClose={closeCompactSurface}>
+      <Sheet open={active && surface === "inspector"} placement="right" label="inspector" onClose={closeCompactSurface}>
         <div className="sticky top-0 z-10 bg-sunken">
           <div className={cn("grid border-b border-line", groups.length === 4 ? "grid-cols-4" : "grid-cols-3")}>
-            {groups.map(({ id, labelKey, members }) => {
-              const label = t(labelKey);
+            {groups.map(({ id, label, members }) => {
               const count = groupCount(badges, members);
               const active = id === shownGroup.id;
               return (
@@ -1702,7 +1677,7 @@ export function InspectorRail({ tabId, active = true }: { tabId: string; active?
                 key={id}
                 type="button"
                 aria-label={label}
-                title={count > 0 ? t("rail.chrome.badgedTitle", { label, count }) : label}
+                title={count > 0 ? `${label} (${count})` : label}
                 aria-pressed={active}
                 onClick={() => selectGroup(id)}
                 className={cn(
@@ -1737,7 +1712,7 @@ export function InspectorRail({ tabId, active = true }: { tabId: string; active?
           style={{ width: displayedInspectorWidth }}
         >
           <ResizeHandle
-            label={t("rail.chrome.resize")}
+            label="resize inspector"
             edge="left"
             value={displayedInspectorWidth}
             min={INSPECTOR_MIN_WIDTH}
@@ -1756,7 +1731,7 @@ export function InspectorRail({ tabId, active = true }: { tabId: string; active?
                 language no more — sentence case at 14/600 ink, where every
                 section header stays tracked caps in ink-faint. */}
             <span className="min-w-0 flex-1 truncate text-sm font-semibold text-ink">{groupLabel}</span>
-            <IconButton label={t("rail.chrome.collapse")} onClick={close}>
+            <IconButton label="collapse inspector" onClick={close}>
               <IconCollapse />
             </IconButton>
           </div>
@@ -1765,8 +1740,7 @@ export function InspectorRail({ tabId, active = true }: { tabId: string; active?
         </div>
       )}
       <div className="flex shrink-0 flex-col items-center gap-1 border-l border-line py-2" style={{ width: INSPECTOR_STRIP_WIDTH }}>
-        {groups.map(({ id, labelKey, members }) => {
-          const label = t(labelKey);
+        {groups.map(({ id, label, members }) => {
           const count = groupCount(badges, members);
           const active = open && id === shownGroup.id;
           return (
@@ -1774,7 +1748,7 @@ export function InspectorRail({ tabId, active = true }: { tabId: string; active?
               key={id}
               type="button"
               aria-label={label}
-              title={count > 0 ? t("rail.chrome.badgedTitle", { label, count }) : label}
+              title={count > 0 ? `${label} (${count})` : label}
               aria-pressed={active}
               onClick={() => selectGroup(id)}
               className={cn(

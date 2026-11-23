@@ -11,7 +11,6 @@ import type { BackendState, OmpBackend, VaultRegistry } from "@omp-ui/core/types
 import type * as RendererBackend from "../backend";
 import { obsidianReplyLink } from "@omp-ui/core/vault-shared";
 import { openVaultTarget } from "../../../main/vault-open";
-import { t } from "../lib/i18n";
 import { backendState, remoteOwnedState } from "../test/fixtures";
 
 type RootGuard = Parameters<typeof openVaultTarget>[3]["guard"];
@@ -183,7 +182,7 @@ describe("scoped Markdown vault activation", () => {
     const cardClick = vi.fn();
     const link = render({ onCardClick: cardClick });
     expect(link.textContent).toBe("Exact note");
-    expect(link.title).toBe(t("transcript.vault.openInObsidian"));
+    expect(link.title).toBe("Open in Obsidian");
     expect(link.tabIndex).toBe(0);
     expect(link.hasAttribute("href")).toBe(false);
     link.focus();
@@ -211,16 +210,16 @@ describe("scoped Markdown vault activation", () => {
     if (owner === "remote") useStore.setState({ state: remoteOwnedState(REMOTE_TAB, REMOTE) });
     if (owner === "null state") useStore.setState({ state: null });
     const link = render({ tabId: owner === "remote" ? REMOTE_TAB : owner === "unknown owner" ? "missing-tab" : TAB });
-    expect(link.title).toBe(t("transcript.vault.copyTitle"));
+    expect(link.title).toBe("Copies the obsidian:// link. Paste it on a machine that has this vault.");
     await activate(() => link.click());
     expect(launch).not.toHaveBeenCalled();
     expect(writeText).toHaveBeenCalledExactlyOnceWith(PORTABLE_URI);
     expect(link.textContent).toBe("Exact note");
     const status = document.body.querySelector('[role="status"]')!;
     expect(status.getAttribute("aria-live")).toBe("polite");
-    expect(status.textContent).toBe(t("transcript.vault.linkCopied"));
+    expect(status.textContent).toBe("Link copied");
     act(() => vi.advanceTimersByTime(1999));
-    expect(status.textContent).toBe(t("transcript.vault.linkCopied"));
+    expect(status.textContent).toBe("Link copied");
     act(() => vi.advanceTimersByTime(1));
     expect(status.textContent).toBe("");
   });
@@ -230,7 +229,7 @@ describe("scoped Markdown vault activation", () => {
     await activate(() => host.querySelector("a")!.click());
     expect(launch).not.toHaveBeenCalled();
     expect(writeText).toHaveBeenCalledExactlyOnceWith(PORTABLE_URI);
-    expect(host.querySelector('[role="status"]')?.textContent).toBe(t("transcript.vault.linkCopied"));
+    expect(host.querySelector('[role="status"]')?.textContent).toBe("Link copied");
   });
 
   it("routes each provider by its own tab rather than another tab's owner", async () => {
@@ -264,7 +263,7 @@ describe("scoped Markdown vault activation", () => {
     expect(selected).toBe(PORTABLE_URI);
     expect(document.querySelector("textarea")).toBeNull();
     expect(document.activeElement).toBe(link);
-    expect(document.body.querySelector('[role="status"]')?.textContent).toBe(t("transcript.vault.linkCopied"));
+    expect(document.body.querySelector('[role="status"]')?.textContent).toBe("Link copied");
     expect(launch).not.toHaveBeenCalled();
   });
 
@@ -286,7 +285,7 @@ describe("scoped Markdown vault activation", () => {
     writeText.mockResolvedValue(undefined);
     await activate(() => link.dispatchEvent(new KeyboardEvent("keydown", { key: "Enter", bubbles: true, cancelable: true })));
     expect(link.parentElement!.querySelector("[data-selectable]")).toBeNull();
-    expect(document.body.querySelector('[role="status"]')?.textContent).toBe(t("transcript.vault.linkCopied"));
+    expect(document.body.querySelector('[role="status"]')?.textContent).toBe("Link copied");
     expect(document.activeElement).toBe(link);
   });
 

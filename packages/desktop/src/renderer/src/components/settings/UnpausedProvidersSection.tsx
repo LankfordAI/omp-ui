@@ -4,7 +4,6 @@ import {
   PAUSED_PROVIDER_SPECS,
   UNPAUSED_PROVIDERS_KEY,
 } from "@omp-ui/core/omp-settings-keys";
-import { useT } from "../../lib/i18n";
 import { Button, Chip, Label } from "../ui";
 import { layerBadge } from "./rows";
 
@@ -39,7 +38,6 @@ export function UnpausedProvidersSection({
   pendingKey: string | null;
   commit: (key: string, value: OmpSettingValue) => void;
 }) {
-  const t = useT();
   /** id whose second acceptance click is armed; null when nothing awaits. */
   const [accepting, setAccepting] = useState<string | null>(null);
   if (entry === undefined) return null;
@@ -60,17 +58,15 @@ export function UnpausedProvidersSection({
   return (
     <section className="px-4 pt-3">
       <div className="flex items-center gap-2">
-        <Label>{t("settings.omp.unpausedProviders")}</Label>
+        <Label>Unpaused providers</Label>
         {layerBadge(entry.layer)}
       </div>
       <p className="mt-0.5 text-sm leading-relaxed text-ink-faint">
-        {t("settings.omp.unpausedProvidersHint")}
+        Providers omp paused, turned back on: login, token refresh and stored credentials work again (omp 18.19+). Each pause names the account risk you accept by re-enabling it — read it before accepting. Global only: a project's .omp/config.yml can never unpause a provider. Changes apply to sessions started afterwards.
       </p>
       {entry.layer === "project" && (
         <p className="mt-1 rounded-md border border-copper-dim/50 bg-copper-wash px-3 py-2 text-xs text-copper">
-          {t("settings.omp.unpausedProvidersProjectOverride", {
-            providers: effective.length === 0 ? "[]" : effective.join(", "),
-          })}
+          {`This project's .omp/config.yml lists its own unpaused providers, which omp disregards — only global settings unpause: ${effective.length === 0 ? "[]" : effective.join(", ")}`}
         </p>
       )}
       <div className="mt-1 divide-y divide-line-soft">
@@ -82,7 +78,7 @@ export function UnpausedProvidersSection({
                 <div className="min-w-0 flex-1">
                   <div className="flex items-center gap-2">
                     <span className="text-sm font-semibold text-ink">{spec.label}</span>
-                    {on && <Chip tone="copper">{t("settings.omp.unpausedProvidersOn")}</Chip>}
+                    {on && <Chip tone="copper">unpaused</Chip>}
                   </div>
                   <p className="mt-0.5 text-sm leading-relaxed text-ink-faint">{spec.risk}</p>
                 </div>
@@ -94,7 +90,7 @@ export function UnpausedProvidersSection({
                     disabled={pendingWrite}
                     onClick={() => write(globalList.filter((id) => id !== spec.id))}
                   >
-                    {t("settings.omp.unpausedProvidersPause")}
+                    pause again
                   </Button>
                 ) : accepting === spec.id ? (
                   <Button
@@ -103,7 +99,7 @@ export function UnpausedProvidersSection({
                     disabled={pendingWrite}
                     onClick={() => write([...globalList, spec.id])}
                   >
-                    {t("settings.omp.unpausedProvidersAccept")}
+                    accept the risk and enable
                   </Button>
                 ) : (
                   <Button
@@ -112,7 +108,7 @@ export function UnpausedProvidersSection({
                     disabled={pendingWrite}
                     onClick={() => setAccepting(spec.id)}
                   >
-                    {t("settings.omp.unpausedProvidersEnable")}
+                    enable…
                   </Button>
                 )}
               </div>
@@ -132,7 +128,7 @@ export function UnpausedProvidersSection({
               disabled={pendingWrite}
               onClick={() => write(globalList.filter((stored) => stored !== id))}
             >
-              {t("settings.omp.unpausedProvidersPause")}
+              pause again
             </Button>
           </div>
         ))}

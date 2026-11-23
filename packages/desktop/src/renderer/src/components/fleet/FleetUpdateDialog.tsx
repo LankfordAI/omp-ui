@@ -2,7 +2,6 @@ import { useEffect, useState } from "react";
 import type { FleetMachine, FleetOmpCheck, FleetUpdateAck, FleetUpdateCheck } from "@omp-ui/core/fleet";
 import { FLEET_VERSION_PATTERN } from "@omp-ui/core/fleet";
 import { backend, displayMessage } from "../../backend";
-import { useT } from "../../lib/i18n";
 import { FIELD } from "../settings/rows";
 import { Button, Chip, ConfirmDialog, Label } from "../ui";
 
@@ -47,7 +46,6 @@ export function FleetUpdateDialog({
   onClose: () => void;
   onRequestConfirmation: (request: FleetUpdateConfirmRequest) => void;
 }) {
-  const t = useT();
   const [omp, setOmp] = useState<SectionState<"omp">>({ status: "loading" });
   const [app, setApp] = useState<SectionState<"app">>({ status: "loading" });
   const [ompVersion, setOmpVersion] = useState("");
@@ -104,27 +102,27 @@ export function FleetUpdateDialog({
   const dash = "\u2014";
   return (
     <ConfirmDialog
-      kicker={t("fleet.header.title")}
-      title={t("fleet.update.title", { target })}
+      kicker="fleet"
+      title={`Update versions on ${target}`}
       tone="copper"
       onClose={onClose}
       width="w-[30rem]"
       actions={
         <Button variant="ghost" onClick={onClose}>
-          {t("dialog.migrate.cancel")}
+          Cancel
         </Button>
       }
     >
       <div className="space-y-4">
-        <p className="text-xs text-ink-faint">{t("fleet.update.intro", { target })}</p>
+        <p className="text-xs text-ink-faint">{`${target} updates itself from its own network through its own verified updaters; nothing ships from this computer.`}</p>
 
         {omp.status === "loading" && app.status === "loading" && (
-          <p className="text-xs text-ink-faint">{t("fleet.update.loading", { target })}</p>
+          <p className="text-xs text-ink-faint">{`Asking ${target} what it runs…`}</p>
         )}
 
         {omp.status !== "loading" && (
           <section data-update-section="omp">
-            <Label className="mb-1.5 block">{t("fleet.update.section.omp")}</Label>
+            <Label className="mb-1.5 block">omp binary</Label>
             {omp.status === "error" ? (
               <p className="text-xs text-rose">{omp.message}</p>
             ) : omp.status === "refused" ? (
@@ -133,22 +131,19 @@ export function FleetUpdateDialog({
               <div className="space-y-1.5">
                 <p className="font-mono text-xs tabular-nums text-ink">
                   {omp.check.installedVersion === null
-                    ? t("fleet.update.ompMissing")
-                    : t("fleet.update.line", {
-                        current: omp.check.installedVersion,
-                        latest: omp.check.latestVersion ?? dash,
-                      })}
+                    ? "omp is not installed in the managed path"
+                    : `${omp.check.installedVersion} → ${omp.check.latestVersion ?? dash}`}
                 </p>
-                {omp.check.belowMinimum && <p className="text-xs text-rose">{t("fleet.update.belowMinimum")}</p>}
-                {omp.check.pinned && <p className="text-xs text-copper">{t("fleet.update.pinned")}</p>}
+                {omp.check.belowMinimum && <p className="text-xs text-rose">Below the minimum omp-ui requires on this machine.</p>}
+                {omp.check.pinned && <p className="text-xs text-copper">omp is pinned by OMP_UI_OMP_PATH here; clear the pin or install into the managed path first.</p>}
                 <div className="flex items-center gap-2">
                   <input
                     type="text"
-                    aria-label={t("fleet.update.versionLabel")}
+                    aria-label="Exact omp version"
                     className={`${FIELD} w-36`}
                     value={ompVersion}
                     spellCheck={false}
-                    placeholder={t("fleet.update.versionPlaceholder")}
+                    placeholder="exact version"
                     onChange={(event) => setOmpVersion(event.target.value)}
                   />
                   <Button
@@ -158,14 +153,14 @@ export function FleetUpdateDialog({
                     disabled={!ompReady(omp.check) || (typedVersion !== "" && !typedExact)}
                     onClick={() => request({ target: "omp", action: "stage", version: typedExact ? typedVersion : null, allowLiveSessions: false })}
                   >
-                    {t("fleet.update.ompUpdate")}
+                    Update omp
                   </Button>
                 </div>
                 <p className="text-xs text-ink-faint">
                   {typedVersion !== "" && !typedExact ? (
-                    <span className="text-rose">{t("fleet.update.invalidVersion")}</span>
+                    <span className="text-rose">A version must look like 18.13.1</span>
                   ) : (
-                    t("fleet.update.versionHint")
+                    "Leave blank for the newest release, or name an exact version."
                   )}
                 </p>
               </div>
@@ -175,7 +170,7 @@ export function FleetUpdateDialog({
 
         {app.status !== "loading" && (
           <section data-update-section="app">
-            <Label className="mb-1.5 block">{t("fleet.update.section.app")}</Label>
+            <Label className="mb-1.5 block">omp-ui app</Label>
             {app.status === "error" ? (
               <p className="text-xs text-rose">{app.message}</p>
             ) : app.status === "refused" ? (
@@ -183,13 +178,13 @@ export function FleetUpdateDialog({
             ) : (
               <div className="space-y-1.5">
                 <p className="font-mono text-xs tabular-nums text-ink">
-                  {t("fleet.update.line", { current: app.check.currentVersion ?? dash, latest: app.check.latestVersion ?? dash })}
+                  {`${app.check.currentVersion ?? dash} → ${app.check.latestVersion ?? dash}`}
                   {app.check.format !== null && <Chip className="ml-2">{app.check.format}</Chip>}
                 </p>
                 {app.check.staged ? (
                   <>
                     <p className="text-xs text-ink-mid">
-                      {app.check.installOnQuit ? t("fleet.update.armed") : t("fleet.update.staged")}
+                      {app.check.installOnQuit ? "The staged update will install at the next quit." : "An update is staged and waits for this machine's next quit."}
                     </p>
                     {app.check.liveSessions > 0 && (
                       <label className="flex cursor-pointer items-center gap-2 text-xs text-ink-mid">
@@ -199,12 +194,7 @@ export function FleetUpdateDialog({
                           onChange={(event) => setAllowLiveSessions(event.target.checked)}
                           className="size-3.5 accent-current"
                         />
-                        {t(
-                          app.check.liveSessions === 1
-                            ? "fleet.update.allowLiveSessions.one"
-                            : "fleet.update.allowLiveSessions",
-                          { count: app.check.liveSessions },
-                        )}
+                        {app.check.liveSessions === 1 ? "1 live session runs there; arm the install anyway." : `${app.check.liveSessions} live session(s) run there; arm the install anyway.`}
                       </label>
                     )}
                     <Button
@@ -213,7 +203,7 @@ export function FleetUpdateDialog({
                       size="xs"
                       onClick={() => request({ target: "app", action: "apply", version: null, allowLiveSessions })}
                     >
-                      {t("fleet.update.apply")}
+                      Install at next quit
                     </Button>
                   </>
                 ) : (
@@ -223,7 +213,7 @@ export function FleetUpdateDialog({
                     size="xs"
                     onClick={() => request({ target: "app", action: "stage", version: null, allowLiveSessions: false })}
                   >
-                    {t("fleet.update.stageApp")}
+                    Stage update
                   </Button>
                 )}
               </div>

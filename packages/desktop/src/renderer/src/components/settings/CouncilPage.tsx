@@ -1,5 +1,4 @@
 import { useStore } from "../../store";
-import { useT } from "../../lib/i18n";
 import { CouncilRosterEditor } from "../CouncilRoster";
 import { Switch } from "../ui";
 import { Row } from "./rows";
@@ -13,16 +12,15 @@ import { Row } from "./rows";
  * this host, the document every project without an override falls back to.
  */
 export function CouncilPage() {
-  const t = useT();
   const state = useStore((s) => s.state);
   const setCouncilEnabled = useStore((s) => s.setCouncilEnabled);
   return (
     <div className="px-4 py-3">
-      <Row title={t("settings.council.title")} hint={t("settings.council.hint")}>
+      <Row title="Council" hint="Adds the /council command and the council bridge for new sessions, and grants per-session model roles. A project can override the global roster in its own settings under Council.">
         <Switch
           on={state?.councilEnabled === true}
           onChange={(next) => void setCouncilEnabled(next)}
-          label={t("settings.council.title")}
+          label="Council"
         />
       </Row>
       {state?.councilEnabled === true && <CouncilRosterEditor scopeCwd={null} instanceId={null} />}
@@ -31,6 +29,5 @@ export function CouncilPage() {
 }
 
 export function CouncilFooter() {
-  const t = useT();
-  return <p>{t("settings.council.footer")}</p>;
+  return <p>Applies to sessions started afterwards; a running session keeps the council it launched with.</p>;
 }

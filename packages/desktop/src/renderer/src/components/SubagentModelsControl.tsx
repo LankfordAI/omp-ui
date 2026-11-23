@@ -5,7 +5,6 @@ import { OMP_SUBAGENT_MODELS_KEY } from "@omp-ui/core/omp-settings-keys";
 import { SUBAGENT_MODEL_INHERIT, type SubagentModelMap } from "@omp-ui/core/subagent-model";
 import { parseModelRole } from "@omp-ui/core/model-role";
 import { backendFor, displayMessage } from "../backend";
-import { useT } from "../lib/i18n";
 import type { ModelInfo } from "../lib/rpc-types";
 import { useDismissal } from "../lib/use-dismissal";
 import { findOwner, findRecord, sessionCwd, useStore } from "../store";
@@ -66,7 +65,6 @@ function isStaleSelector(selector: string, models: readonly ModelInfo[]): boolea
  * of its trigger was clipped at the pane edge.
  */
 export function SubagentModelsControl({ tabId }: { tabId: string }) {
-  const t = useT();
   const record = useStore((s) => findRecord(s.state, tabId));
   const instanceId = useStore((s) => findOwner(s.state, tabId)?.instanceId ?? null);
   const roster = useStore((s) => s.state?.agentRoster ?? EMPTY_ROSTER);
@@ -194,22 +192,22 @@ export function SubagentModelsControl({ tabId }: { tabId: string }) {
       <button
         ref={triggerRef}
         type="button"
-        aria-label={t("rail.agents.modelsLabel")}
+        aria-label="subagent models"
         aria-haspopup="dialog"
         aria-expanded={open}
-        title={t("rail.agents.modelsLabel")}
+        title="subagent models"
         onClick={() => setOpen((value) => !value)}
         className="inline-flex h-6 shrink-0 items-center gap-1 rounded-md border border-line bg-transparent px-1.5 text-xs font-medium text-ink-mid transition-colors hover:border-line-strong hover:text-ink"
       >
         <IconTune className="size-3" />
-        <span>{t("rail.agents.modelsButton")}</span>
+        <span>models</span>
       </button>
       {open &&
         createPortal(
           <div
             ref={panelRef}
             role="dialog"
-            aria-label={t("rail.agents.modelsTitle")}
+            aria-label="Subagent models — this session"
             tabIndex={-1}
             className="fixed z-[70] overflow-y-auto rounded-lg border border-line bg-raised p-2.5 shadow-xl"
             style={{
@@ -219,16 +217,16 @@ export function SubagentModelsControl({ tabId }: { tabId: string }) {
               maxHeight: geometry?.maxHeight,
             }}
           >
-            <p className="text-xs font-medium text-ink">{t("rail.agents.modelsTitle")}</p>
+            <p className="text-xs font-medium text-ink">Subagent models — this session</p>
             <p className="mt-0.5 text-xs leading-relaxed text-ink-faint">
               {sessionModels === null
                 ? inheritByDefault
-                  ? t("rail.agents.modelsUmbrella")
-                  : t("rail.agents.modelsNoUmbrella")
-                : t("rail.agents.modelsExplicit")}
+                  ? "No session choices: every agent inherits this session's own model (the umbrella default)."
+                  : "No session choices: agents follow omp's own defaults — frontmatter model, else the session model."
+                : "Session choices below win over the project and global layers; unlisted agents follow them."}
             </p>
             <p className="mt-0.5 text-xs leading-relaxed text-ink-faint">
-              {t("rail.agents.modelsTiming")}
+              Applies to the next subagent spawn — running agents keep their model.
             </p>
             {error !== null && (
               <p className="mt-1 rounded-md border border-rose-dim/50 bg-rose-wash px-2 py-1 text-xs text-rose">
@@ -237,7 +235,7 @@ export function SubagentModelsControl({ tabId }: { tabId: string }) {
             )}
             <div className="mt-1.5 divide-y divide-line-soft">
               {roster.length === 0 && (
-                <p className="py-1.5 text-xs text-ink-faint">{t("rail.agents.modelsEmpty")}</p>
+                <p className="py-1.5 text-xs text-ink-faint">no agents discovered yet — refresh the roster</p>
               )}
               {roster.map((agent) => {
                 const sessionValue =
@@ -256,12 +254,12 @@ export function SubagentModelsControl({ tabId }: { tabId: string }) {
                     <span className="w-24 shrink-0 truncate font-mono text-xs text-ink-mid">
                       {agent}
                     </span>
-                    {layer === "session" && <Chip tone="signal">{t("rail.agents.modelsLayerSession")}</Chip>}
-                    {layer === "project" && <Chip tone="copper">{t("rail.agents.modelsLayerProject")}</Chip>}
-                    {layer === "global" && <Chip>{t("rail.agents.modelsLayerGlobal")}</Chip>}
+                    {layer === "session" && <Chip tone="signal">session</Chip>}
+                    {layer === "project" && <Chip tone="copper">project</Chip>}
+                    {layer === "global" && <Chip>global</Chip>}
                     {sessionValue !== undefined && isStaleSelector(sessionValue, models) && (
-                      <Chip tone="rose" title={t("rail.agents.modelsStaleTitle", { model: sessionValue })}>
-                        {t("rail.agents.modelsStale")}
+                      <Chip tone="rose" title={`omp has no model named ${sessionValue}; this agent fails to start until you pick another`}>
+                        not found
                       </Chip>
                     )}
                     <button
@@ -270,9 +268,9 @@ export function SubagentModelsControl({ tabId }: { tabId: string }) {
                       className="ml-auto max-w-32 truncate rounded-md border border-line bg-hover px-1.5 py-0.5 font-mono text-xs text-ink-mid transition-colors hover:text-ink"
                     >
                       {sessionValue === undefined
-                        ? t("rail.agents.modelsDefault")
+                        ? "unset"
                         : sessionValue === SUBAGENT_MODEL_INHERIT
-                          ? t("composer.model.subagentSessionModel")
+                          ? "session model"
                           : sessionValue}
                     </button>
                   </div>
@@ -284,7 +282,7 @@ export function SubagentModelsControl({ tabId }: { tabId: string }) {
               onClick={refreshRoster}
               className="mt-1.5 text-xs text-ink-faint transition-colors hover:text-ink-mid"
             >
-              {t("rail.agents.modelsRefresh")}
+              refresh agent roster
             </button>
           </div>,
           document.body,

@@ -1,11 +1,9 @@
-import { useT } from "../lib/i18n";
 import { useCompactShell } from "../lib/responsive";
 import { findInstance, useStore } from "../store";
 import { DirectoryPicker } from "./DirectoryPicker";
 
 /** "Add project" (issue #16): the shared DirectoryPicker wired to the project registry. */
 export function ProjectPicker() {
-  const t = useT();
   const closeProjectPicker = useStore((s) => s.closeProjectPicker);
   const addProject = useStore((s) => s.addProject);
   const newSession = useStore((s) => s.newSession);
@@ -29,7 +27,7 @@ export function ProjectPicker() {
     <DirectoryPicker
       mode="project"
       instanceId={instanceId}
-      banner={nickname === null ? null : t("remoteinstances.picker.title", { nickname })}
+      banner={nickname === null ? null : `Register project on ${nickname}`}
       onClose={closeProjectPicker}
       onSubmit={submit}
     />

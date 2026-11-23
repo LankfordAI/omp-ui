@@ -48,7 +48,6 @@ import { AndroidBackTab } from "./lib/android-back";
 import { formatHotkey } from "./lib/hotkeys";
 import { useActionHotkeys, useKeybindingLabel, useKeybindingOverrides } from "./lib/keybindings";
 import { effectiveChord, type KeybindingActionId } from "@omp-ui/core/keybindings";
-import { useT, type MessageKey } from "./lib/i18n";
 import { IS_ELECTRON } from "./lib/platform";
 import { OVERLAY_INSET, TRAFFIC_LIGHT_INSET } from "./lib/window-controls";
 import { resetTranscriptScale, stepTranscriptScale } from "./lib/text-scale";
@@ -57,15 +56,15 @@ import { tabTitle } from "./lib/tab-title";
 import { findInstance, findOwner, findRecord, isChatTab, useStore } from "./store";
 
 /** The shortcuts the chrome actually registers, spelled out for newcomers in their effective chords. */
-const HINTS: [action: KeybindingActionId, what: MessageKey][] = [
-  ["commandPalette", "app.welcome.hintCommandPalette"],
-  ["newSession", "app.welcome.hintNewSession"],
-  ["newChat", "app.welcome.hintNewChat"],
-  ["newSessionDialog", "app.welcome.hintNewSessionDialog"],
-  ["togglePlanMode", "app.welcome.hintMode"],
-  ["toggleConsole", "app.welcome.hintConsole"],
-  ["findInSession", "app.welcome.hintSearch"],
-  ["textLarger", "app.welcome.hintTranscriptScale"],
+const HINTS: [action: KeybindingActionId, what: string][] = [
+  ["commandPalette", "command palette"],
+  ["newSession", "new session — pick a project"],
+  ["newChat", "new chat — no project"],
+  ["newSessionDialog", "new session — full options dialog"],
+  ["togglePlanMode", "switch Build / Plan mode"],
+  ["toggleConsole", "toggle console"],
+  ["findInSession", "search within a session"],
+  ["textLarger", "larger transcript text"],
 ];
 
 /** Stable fallback so the selector never hands App a fresh array before state lands. */
@@ -111,7 +110,6 @@ function IconMenu() {
  * draggable, and the native overlay hit test owns it anyway.
  */
 function TitleBar() {
-  const t = useT();
   const tabs = useStore((s) => s.tabs);
   const activeTabId = useStore((s) => s.activeTabId);
   const title = useStore((s) => (s.activeTabId ? (tabTitle(s.state, s.activeTabId) ?? null) : null));
@@ -136,7 +134,7 @@ function TitleBar() {
           omp<span className="text-ink-faint">-ui</span>
         </span>
         <IconButton
-          label={sidebarCollapsed ? t("app.titlebar.expandSidebar") : t("app.titlebar.collapseSidebar")}
+          label={sidebarCollapsed ? "expand sidebar" : "collapse sidebar"}
           onClick={toggleSidebarCollapsed}
         >
           <Chevron open={false} className={cn("size-3.5", !sidebarCollapsed && "rotate-180")} />
@@ -144,13 +142,13 @@ function TitleBar() {
         {/* The sidebar header owns New session; collapsed, the aside is gone,
             so the title bar carries it — exactly one is visible at a time. */}
         {sidebarCollapsed && !routinesOpen && (
-          <IconButton label={t("app.titlebar.newSession")} onClick={() => openProjectQuickOpen()}>
+          <IconButton label="new session — pick a project" onClick={() => openProjectQuickOpen()}>
             <IconPlus />
           </IconButton>
         )}
       </div>
 
-      {routinesOpen ? <span className="min-w-0 flex-1 truncate px-3 text-sm text-ink-dim">{routinesState === null ? t("routines.title") : t("routines.headerOn", { machine: routinesState.machineLabel })}</span> : artifactsOpen ? <span className="min-w-0 flex-1 truncate px-3 text-sm text-ink-dim">{t("artifacts.title")}</span> : activeTab?.mode === "rpc-ui" ? (
+      {routinesOpen ? <span className="min-w-0 flex-1 truncate px-3 text-sm text-ink-dim">{routinesState === null ? "Routines" : `Routines on ${routinesState.machineLabel}`}</span> : artifactsOpen ? <span className="min-w-0 flex-1 truncate px-3 text-sm text-ink-dim">Artifacts</span> : activeTab?.mode === "rpc-ui" ? (
         <SessionHud tabId={activeTab.tabId} />
       ) : (
         <>
@@ -181,16 +179,14 @@ function TitleBar() {
  * restore.
  */
 function RestoringSessions() {
-  const t = useT();
   return (
     <div className="ambient flex h-full flex-col items-center justify-center stage-void px-5">
-      <p className="reading-card px-3 py-1.5 text-sm text-ink-dim">{t("app.restoring.label")}</p>
+      <p className="reading-card px-3 py-1.5 text-sm text-ink-dim">Restoring sessions…</p>
     </div>
   );
 }
 
 function Welcome() {
-  const t = useT();
   const openProjectPicker = useStore((s) => s.openProjectPicker);
   const openProjectQuickOpen = useStore((s) => s.openProjectQuickOpen);
   const openGettingStarted = useStore((s) => s.openGettingStarted);
@@ -211,8 +207,8 @@ function Welcome() {
             <h1 className="font-display text-2xl font-semibold tracking-tight text-ink">omp-ui</h1>
             <p className="text-balance-tight text-sm leading-relaxed text-ink-dim">
               {hasProjects
-                ? t("app.welcome.hasProjectsHint", { hotkey: newSessionHotkey })
-                : t("app.welcome.noProjectsHint")}
+                ? `Reopen a finished session from Settled in the sidebar — or start a new one with ${newSessionHotkey}.`
+                : "Track a project directory, then run omp agents against it — as a terminal or as a native session."}
             </p>
           </div>
 
@@ -226,19 +222,19 @@ function Welcome() {
             {hasProjects ? (
               <>
                 <Button variant="solid" className="h-9 px-4" onClick={() => openProjectQuickOpen()}>
-                  {t("app.welcome.openSession", { hotkey: newSessionHotkey })}
+                  {`New session (${newSessionHotkey})`}
                 </Button>
                 <Button variant="ghost" onClick={() => openProjectPicker()}>
-                  {t("app.welcome.addProject")}
+                  Add project
                 </Button>
               </>
             ) : (
               <>
                 <Button variant="solid" onClick={() => openProjectPicker()}>
-                  {t("app.welcome.addProject")}
+                  Add project
                 </Button>
                 <Button variant="ghost" onClick={openGettingStarted}>
-                  {t("app.gettingstarted.open")}
+                  Getting started
                 </Button>
               </>
             )}
@@ -261,7 +257,7 @@ function Welcome() {
               {/* The shortcut description is a sentence, not metadata: it sits
                   at the 14px chrome floor (round-3 judge, Typography 1); only
                   the keycap keeps 12px mono. */}
-              <dd className="min-w-0 truncate text-sm text-ink-faint">{t(what)}</dd>
+              <dd className="min-w-0 truncate text-sm text-ink-faint">{what}</dd>
             </div>
           ))}
         </dl>
@@ -271,7 +267,6 @@ function Welcome() {
 }
 
 export default function App() {
-  const t = useT();
   const init = useStore((s) => s.init);
   const tabs = useStore((s) => s.tabs);
   const restoringTabs = useStore((s) => s.restoringTabs);
@@ -542,18 +537,18 @@ export default function App() {
   // underneath, hidden, exactly as a background tab is.
   const compactTitle =
     routinesOpen
-      ? t("routines.title")
+      ? "Routines"
       : artifacts !== null
-      ? t("artifacts.title")
+      ? "Artifacts"
       : stats !== null
-      ? t("stats.header.title")
+      ? "stats"
       : fleetOpen
-        ? t("fleet.header.title")
+        ? "fleet"
         : shownFleetTerminal !== null
-          ? t("fleet.terminal.title", { machine: fleetTerminals.find((ft) => ft.terminalId === shownFleetTerminal)?.nickname ?? "" })
+          ? `Terminal on ${fleetTerminals.find((ft) => ft.terminalId === shownFleetTerminal)?.nickname ?? ""}`
           : lab !== null
-            ? t("lab.header.title")
-            : activeTitle ?? t("app.compact.sessions");
+            ? "lab"
+            : activeTitle ?? "sessions";
 
   return (
     <RoutineFocusProvider>
@@ -576,7 +571,7 @@ export default function App() {
         >
           <Button variant="ghost" className="h-11 min-w-11 justify-center px-2 text-ink-mid [app-region:no-drag]" onClick={docked ? toggleSidebarCollapsed : () => showCompactSurface("sessions")}>
             <IconMenu />
-            <span className="sr-only">{docked ? t(sidebarCollapsed ? "app.titlebar.expandSidebar" : "app.titlebar.collapseSidebar") : t("app.compact.sessions")}</span>
+            <span className="sr-only">{docked ? sidebarCollapsed ? "expand sidebar" : "collapse sidebar" : "sessions"}</span>
           </Button>
           <span className="min-w-0 flex-1 text-center">
             {docked ? (
@@ -588,7 +583,7 @@ export default function App() {
           {artifacts === null && !routinesOpen && lab === null && stats === null && !fleetOpen && shownFleetTerminal === null && activeTab?.mode === "rpc-ui" ? (
             <Button variant="ghost" className="relative h-11 min-w-11 justify-center px-2 text-ink-mid [app-region:no-drag]" onClick={() => showCompactSurface("inspector")}>
               <IconInspect className="size-4" />
-              <span className="sr-only">{t("app.compact.inspector")}</span>
+              <span className="sr-only">inspector</span>
               {inspectorCount > 0 && (
                 <span aria-hidden className="absolute right-1 top-1.5 min-w-3.5 rounded-full bg-copper-wash px-1 text-center font-mono text-xs leading-3.5 text-copper">
                   {inspectorCount > 99 ? "99+" : inspectorCount}

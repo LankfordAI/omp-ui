@@ -11,29 +11,28 @@ import {
 import { displayMessage } from "../../backend";
 import { cn } from "../../lib/cn";
 import { chordFromEvent, formatHotkey } from "../../lib/hotkeys";
-import { useT, type MessageKey } from "../../lib/i18n";
 import { useKeybindingOverrides } from "../../lib/keybindings";
 import { useStore } from "../../store";
 import { Button } from "../ui";
 
 /** Row label per bindable action, in the core table's order. */
-const ACTION_LABEL: Record<KeybindingActionId, MessageKey> = {
-  commandPalette: "settings.keyboard.action.commandPalette",
-  newSession: "settings.keyboard.action.newSession",
-  newChat: "settings.keyboard.action.newChat",
-  newSessionDialog: "settings.keyboard.action.newSessionDialog",
-  togglePlanMode: "settings.keyboard.action.togglePlanMode",
-  toggleConsole: "settings.keyboard.action.toggleConsole",
-  findInSession: "settings.keyboard.action.findInSession",
-  modelPicker: "settings.keyboard.action.modelPicker",
-  textLarger: "settings.keyboard.action.textLarger",
-  textSmaller: "settings.keyboard.action.textSmaller",
-  textReset: "settings.keyboard.action.textReset",
-  openSettings: "settings.keyboard.action.openSettings",
-  undoSettle: "settings.keyboard.action.undoSettle",
-  stashDraft: "settings.keyboard.action.stashDraft",
-  sendInBackground: "settings.keyboard.action.sendInBackground",
-  holdToTalk: "settings.keyboard.action.holdToTalk",
+const ACTION_LABEL: Record<KeybindingActionId, string> = {
+  commandPalette: "Open the command palette",
+  newSession: "New session (project quick-open)",
+  newChat: "New chat",
+  newSessionDialog: "New session dialog",
+  togglePlanMode: "Switch Build / Plan",
+  toggleConsole: "Show or hide the console",
+  findInSession: "Find in session",
+  modelPicker: "Open the model picker",
+  textLarger: "Larger transcript text",
+  textSmaller: "Smaller transcript text",
+  textReset: "Reset transcript text size",
+  openSettings: "Open Settings",
+  undoSettle: "Undo settle",
+  stashDraft: "Stash draft / open stashed drafts",
+  sendInBackground: "Start in background",
+  holdToTalk: "Hold to talk (dictation and live voice)",
 };
 
 /** A refused recording, shown under its row until the next attempt. */
@@ -49,7 +48,6 @@ interface Refusal {
  * draft at once, and the host refuses any map that still conflicts.
  */
 export function KeyboardPage() {
-  const t = useT();
   const stored = useKeybindingOverrides();
   const setKeybindings = useStore((s) => s.setKeybindings);
   // null: no local edits, so the page follows the stored map (another window may change it).
@@ -89,10 +87,10 @@ export function KeyboardPage() {
         action,
         message:
           problem === "reserved"
-            ? t("settings.keyboard.reserved", { chord: formatHotkey(chord) })
+            ? `${formatHotkey(chord)} is reserved for text editing, the composer, or the window`
             : kind === "hold"
-              ? t("settings.keyboard.invalidHold", { chord: formatHotkey(chord) })
-              : t("settings.keyboard.invalidPress", { chord: formatHotkey(chord), mod: formatHotkey("mod") }),
+              ? `${formatHotkey(chord)} cannot be used: hold to talk takes one letter, digit, or function key with no modifiers`
+              : `${formatHotkey(chord)} cannot be used: include ${formatHotkey("mod")} or use a function key`,
       });
       return;
     }
@@ -115,14 +113,14 @@ export function KeyboardPage() {
 
   return (
     <div className="px-4 py-3">
-      <p className="text-sm leading-relaxed text-ink-faint">{t("settings.keyboard.intro")}</p>
+      <p className="text-sm leading-relaxed text-ink-faint">Click a shortcut, then press the new chord. Press shortcuts need Ctrl (⌘ on macOS) or a function key; hold to talk takes one key with no modifiers. Escape cancels recording. Changes apply when you save.</p>
 
       <ul className="mt-2 divide-y divide-line-soft">
         {KEYBINDING_ACTIONS.map(({ id, kind }) => {
           const chord = effectiveChord(shown, id);
           const isDefault = chord === effectiveChord({}, id);
           const others = conflictWith(id);
-          const label = t(ACTION_LABEL[id]);
+          const label = ACTION_LABEL[id];
           const live = recording === id;
           return (
             <li key={id} className="py-2" data-keybinding-row={id}>
@@ -131,7 +129,7 @@ export function KeyboardPage() {
                 <button
                   type="button"
                   data-key-recorder={live ? "" : undefined}
-                  aria-label={t("settings.keyboard.recordAria", { action: label, chord: formatHotkey(chord) })}
+                  aria-label={`${label}: ${formatHotkey(chord)}. Press to record a new shortcut`}
                   aria-pressed={live}
                   onClick={() => {
                     setRefusal(null);
@@ -153,27 +151,27 @@ export function KeyboardPage() {
                 >
                   {live
                     ? kind === "hold"
-                      ? t("settings.keyboard.recordingHold")
-                      : t("settings.keyboard.recording")
+                      ? "press a key…"
+                      : "press a chord…"
                     : formatHotkey(chord)}
                 </button>
                 <Button
                   size="xs"
                   variant="ghost"
                   disabled={isDefault}
-                  aria-label={t("settings.keyboard.resetAria", { action: label })}
+                  aria-label={`Reset ${label} to its default`}
                   onClick={() => {
                     const { [id]: _dropped, ...rest } = shown;
                     setRefusal(null);
                     edit(rest);
                   }}
                 >
-                  {t("settings.keyboard.reset")}
+                  reset
                 </Button>
               </div>
               {others.length > 0 && (
                 <p className="mt-1 text-xs text-rose">
-                  {t("settings.keyboard.conflict", { actions: others.map((a) => t(ACTION_LABEL[a])).join(", ") })}
+                  {`Also bound to ${others.map((a) => ACTION_LABEL[a]).join(", ")}`}
                 </p>
               )}
               {refusal?.action === id && (
@@ -187,11 +185,7 @@ export function KeyboardPage() {
       </ul>
 
       <p className="mt-3 text-sm leading-relaxed text-ink-faint">
-        {t("settings.keyboard.fixed", {
-          queue: formatHotkey("mod+enter"),
-          interrupt: formatHotkey("mod+shift+enter"),
-          positional: `${formatHotkey("mod+1")}…${formatHotkey("mod+9")}`,
-        })}
+        {`Composer keys stay fixed: Enter, Shift+Enter, ${formatHotkey("mod+enter")}, ${formatHotkey("mod+shift+enter")}, Escape, and the picker keys, as do ${`${formatHotkey("mod+1")}…${formatHotkey("mod+9")}`} in the project quick-open.`}
       </p>
 
       <div className="mt-3 flex flex-wrap items-center gap-2 border-t border-line-soft pt-3">
@@ -204,11 +198,11 @@ export function KeyboardPage() {
             edit({});
           }}
         >
-          {t("settings.keyboard.resetAll")}
+          Reset all
         </Button>
         <span className="flex-1" />
-        {conflicts.length > 0 && <span className="text-xs text-rose">{t("settings.keyboard.conflictsBlock")}</span>}
-        {dirty && conflicts.length === 0 && <span className="text-xs text-ink-faint">{t("settings.keyboard.unsaved")}</span>}
+        {conflicts.length > 0 && <span className="text-xs text-rose">Resolve conflicts to save</span>}
+        {dirty && conflicts.length === 0 && <span className="text-xs text-ink-faint">Unsaved changes</span>}
         <Button
           size="xs"
           variant="ghost"
@@ -219,10 +213,10 @@ export function KeyboardPage() {
             setSaveError(null);
           }}
         >
-          {t("settings.keyboard.discard")}
+          Discard
         </Button>
         <Button size="xs" variant="solid" disabled={!dirty || saving || conflicts.length > 0} onClick={save}>
-          {t("settings.keyboard.save")}
+          Save
         </Button>
       </div>
       {saveError !== null && (

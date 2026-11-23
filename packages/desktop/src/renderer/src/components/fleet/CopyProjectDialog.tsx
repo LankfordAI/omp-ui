@@ -7,26 +7,27 @@ import {
   type ProjectCopySkipReason,
 } from "@omp-ui/core/fleet";
 import { backend } from "../../backend";
-import { useT, type MessageKey } from "../../lib/i18n";
 import { useLoad } from "../../lib/load";
 import { useStore } from "../../store";
 import { Button, Chip, ConfirmDialog, Switch } from "../ui";
 
-const SKIP_LABEL: Record<ProjectCopySkipReason, MessageKey> = {
-  "too-large": "copyproject.skip.tooLarge",
-  "over-total": "copyproject.skip.overTotal",
-  "too-many": "copyproject.skip.tooMany",
-  "provider-key": "copyproject.skip.providerKey",
-  symlink: "copyproject.skip.symlink",
-  "folder-too-large": "copyproject.skip.folderTooLarge",
-  unreadable: "copyproject.skip.unreadable",
-};
+function skipLabel(reason: ProjectCopySkipReason, envName?: string | null): string {
+  switch (reason) {
+    case "too-large": return "over 1 MB";
+    case "over-total": return "over the 8 MB total";
+    case "too-many": return "over 500 files";
+    case "provider-key": return `names ${envName ?? ""}`;
+    case "symlink": return "symlink";
+    case "folder-too-large": return "folder over 50 files";
+    case "unreadable": return "unreadable";
+  }
+}
 
 /** Why a member cannot take a copy, or null when it can. */
-function memberBlock(machine: FleetMachine): MessageKey | null {
-  if (machine.status !== "ready") return "copyproject.member.notReady";
-  if (machine.grantRung !== null && !fleetRungAtLeast(machine.grantRung, "manage")) return "copyproject.member.needsManage";
-  if (machine.report?.projectRoots?.length === 0) return "copyproject.member.noRoots";
+function memberBlock(machine: FleetMachine): string | null {
+  if (machine.status !== "ready") return "not connected";
+  if (machine.grantRung !== null && !fleetRungAtLeast(machine.grantRung, "manage")) return "needs the Manage projects rung on that machine";
+  if (machine.report?.projectRoots?.length === 0) return "declares no fleet project roots";
   return null;
 }
 
@@ -47,7 +48,6 @@ function formatBytes(bytes: number): string {
  * main reads the bytes at confirm time and sends them main-to-main.
  */
 export function CopyProjectDialog({ projectCwd, name }: { projectCwd: string; name: string }) {
-  const t = useT();
   const close = useStore((s) => s.closeCopyProjectDialog);
   const stageLifecycleConfirmation = useStore((s) => s.stageLifecycleConfirmation);
   const readMachines = useCallback(() => backend.fleetMachines(), []);
@@ -96,14 +96,14 @@ export function CopyProjectDialog({ projectCwd, name }: { projectCwd: string; na
 
   let membersBody: ReactNode;
   if (machinesLoad.status === "idle" || machinesLoad.status === "loading") {
-    membersBody = <p className="text-xs text-ink-faint">{t("copyproject.members.loading")}</p>;
+    membersBody = <p className="text-xs text-ink-faint">Reading fleet members…</p>;
   } else if (machinesLoad.status === "error") {
     membersBody = <p className="text-xs text-rose">{machinesLoad.message}</p>;
   } else if (members.length === 0) {
-    membersBody = <p className="text-xs text-ink-faint">{t("copyproject.members.none")}</p>;
+    membersBody = <p className="text-xs text-ink-faint">No joined remote instance can receive a copy.</p>;
   } else {
     membersBody = (
-      <ul className="space-y-1.5" role="radiogroup" aria-label={t("copyproject.members.label")}>
+      <ul className="space-y-1.5" role="radiogroup" aria-label="Fleet member">
         {members.map((machine) => {
           const block = memberBlock(machine);
           const roots = machine.report?.projectRoots ?? null;
@@ -129,10 +129,10 @@ export function CopyProjectDialog({ projectCwd, name }: { projectCwd: string; na
                   <span className="block truncate text-ink">{machine.nickname ?? machine.key}</span>
                   <span className="block truncate font-mono text-xs text-ink-faint">
                     {block !== null
-                      ? t(block)
+                      ? block
                       : roots === null
-                        ? t("copyproject.member.rootsUnknown")
-                        : t("copyproject.member.roots", { roots: roots.join(", ") })}
+                        ? "project roots not reported"
+                        : `into ${roots.join(", ")}`}
                   </span>
                 </span>
               </label>
@@ -146,14 +146,14 @@ export function CopyProjectDialog({ projectCwd, name }: { projectCwd: string; na
   let filesBody: ReactNode = null;
   if (withFiles) {
     if (previewLoad.status === "idle" || previewLoad.status === "loading") {
-      filesBody = <p className="text-xs text-ink-faint">{t("copyproject.files.loading")}</p>;
+      filesBody = <p className="text-xs text-ink-faint">Reading this checkout's gitignored files…</p>;
     } else if (previewLoad.status === "error") {
       filesBody = <p className="text-xs text-rose">{previewLoad.message}</p>;
     } else if (preview !== null) {
       filesBody = (
         <div className="space-y-2">
           {preview.files.length === 0 ? (
-            <p className="text-xs text-ink-faint">{t("copyproject.files.none")}</p>
+            <p className="text-xs text-ink-faint">This checkout has no gitignored file to copy.</p>
           ) : (
             <ul className="max-h-48 space-y-1 overflow-y-auto">
               {preview.files.map((file) => (
@@ -175,13 +175,13 @@ export function CopyProjectDialog({ projectCwd, name }: { projectCwd: string; na
           )}
           {preview.skipped.length > 0 && (
             <div>
-              <p className="mb-1 text-xs text-ink-dim">{t("copyproject.files.skipped")}</p>
+              <p className="mb-1 text-xs text-ink-dim">Not copied</p>
               <ul className="max-h-32 space-y-0.5 overflow-y-auto">
                 {preview.skipped.map((skip) => (
                   <li key={skip.path} className="flex items-center gap-2 px-1 text-xs text-ink-faint">
                     <span className="min-w-0 flex-1 truncate font-mono">{skip.path}</span>
                     <Chip tone={skip.reason === "provider-key" ? "rose" : "neutral"}>
-                      {t(SKIP_LABEL[skip.reason], { env: skip.envName ?? "" })}
+                      {skipLabel(skip.reason, skip.envName)}
                     </Chip>
                   </li>
                 ))}
@@ -195,19 +195,25 @@ export function CopyProjectDialog({ projectCwd, name }: { projectCwd: string; na
 
   // The route note: a member clones with no credential of its own (ADR-0064).
   const remoteNote =
-    preview === null ? null : preview.remote === "none" ? "copyproject.remote.none" : preview.remote === "ssh" ? "copyproject.remote.ssh" : null;
+    preview === null
+      ? null
+      : preview.remote === "none"
+        ? "This checkout has no web remote to clone. Ask an agent to provision the machine over its own ssh instead."
+        : preview.remote === "ssh"
+          ? "This checkout reaches its remote over SSH. The machine clones over HTTPS without credentials, so a private repository fails; ask an agent to provision it over its own ssh instead."
+          : null;
 
   return (
     <ConfirmDialog
-      kicker={t("fleet.header.title")}
-      title={t("copyproject.title", { name })}
+      kicker="fleet"
+      title={`Copy ${name} to another machine`}
       tone="copper"
       onClose={close}
       width="w-[32rem]"
       actions={
         <>
           <Button variant="ghost" onClick={close}>
-            {t("dialog.migrate.cancel")}
+            Cancel
           </Button>
           <Button
             variant="solid"
@@ -216,21 +222,21 @@ export function CopyProjectDialog({ projectCwd, name }: { projectCwd: string; na
             disabled={target === null || (withFiles && previewLoad.status !== "loaded") || preview?.remote === "none"}
             onClick={submit}
           >
-            {t("copyproject.continue")}
+            Continue
           </Button>
         </>
       }
     >
       <div className="space-y-3">
-        <p className="text-xs text-ink-dim">{t("copyproject.intro")}</p>
+        <p className="text-xs text-ink-dim">The machine you pick clones this repository from its remote into one of its fleet project roots and registers it there.</p>
         {membersBody}
         <div className="flex items-center gap-2.5 border-t border-line pt-3">
-          <Switch on={withFiles} onChange={setWithFiles} label={t("copyproject.files.toggle")} />
-          <span className="text-xs text-ink-mid">{t("copyproject.files.toggle")}</span>
+          <Switch on={withFiles} onChange={setWithFiles} label="Also copy gitignored files" />
+          <span className="text-xs text-ink-mid">Also copy gitignored files</span>
         </div>
-        {withFiles && <p className="text-xs text-ink-faint">{t("copyproject.files.hint")}</p>}
+        {withFiles && <p className="text-xs text-ink-faint">Files up to 1 MB each, 8 MB in total. Files that name a Provider key are never copied; roll keys out from the Fleet view instead.</p>}
         {filesBody}
-        {remoteNote !== null && <p className="text-xs text-copper">{t(remoteNote)}</p>}
+        {remoteNote !== null && <p className="text-xs text-copper">{remoteNote}</p>}
       </div>
     </ConfirmDialog>
   );

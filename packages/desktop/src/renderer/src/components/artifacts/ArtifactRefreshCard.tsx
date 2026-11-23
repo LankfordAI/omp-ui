@@ -1,5 +1,4 @@
 import { findOwner, useStore } from "../../store";
-import { useT } from "../../lib/i18n";
 import { Button } from "../ui";
 
 /**
@@ -15,16 +14,15 @@ export function ArtifactRefreshCard({ entry, tabId }: {
   entry: { refreshRequestId: string; title?: string; artifactId?: string; datasetIds?: string[] };
   tabId?: string;
 }) {
-  const t = useT();
   // The same library-enabled + locally-owned rpc-ui-tab gate as
   // ArtifactCaptureTranscriptCard: a foreign or PTY tab has no library to open.
   const allowed = useStore((s) => entry.artifactId !== undefined && s.state?.artifactLibraryEnabled === true && tabId !== undefined && findOwner(s.state, tabId)?.instanceId === null && findOwner(s.state, tabId)?.record.mode === "rpc-ui");
   const datasets = entry.datasetIds ?? [];
-  return <div className="flex flex-wrap items-center gap-2 rounded border border-line px-2 py-1 text-xs" title={t("artifacts.refreshChip", { title: entry.title ?? "Artifact" }) + ` (${entry.refreshRequestId}${datasets.length > 0 ? `; ${datasets.join(", ")}` : ""})`}>
+  return <div className="flex flex-wrap items-center gap-2 rounded border border-line px-2 py-1 text-xs" title={`Refresh request: ${entry.title ?? "Artifact"}` + ` (${entry.refreshRequestId}${datasets.length > 0 ? `; ${datasets.join(", ")}` : ""})`}>
     <span aria-hidden className="shrink-0 text-ink-mid">↻</span>
-    <span className="font-medium">{t("artifacts.refreshRequested")}</span>
+    <span className="font-medium">Data refresh requested</span>
     <span className="min-w-0 max-w-[24rem] truncate text-ink-dim">{entry.title}</span>
-    {datasets.length > 0 && <span className="min-w-0 truncate text-ink-dim">{t("artifacts.refreshRequestedDatasets", { datasets: datasets.join(", ") })}</span>}
-    {allowed && <Button variant="ghost" className="ml-auto shrink-0 px-1.5 py-0 text-xs" onClick={() => useStore.getState().openArtifacts({ artifactId: entry.artifactId!, panel: "data" })}>{t("artifacts.openLibrary")}</Button>}
+    {datasets.length > 0 && <span className="min-w-0 truncate text-ink-dim">{`Datasets: ${datasets.join(", ")}`}</span>}
+    {allowed && <Button variant="ghost" className="ml-auto shrink-0 px-1.5 py-0 text-xs" onClick={() => useStore.getState().openArtifacts({ artifactId: entry.artifactId!, panel: "data" })}>Open in library</Button>}
   </div>;
 }

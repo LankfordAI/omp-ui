@@ -1,18 +1,17 @@
 import type { ExperimentRecord, SessionExperiment } from "@omp-ui/core/types";
 import { cn } from "../../lib/cn";
-import { useT, type MessageKey } from "../../lib/i18n";
 import { relativeTime } from "../../lib/format";
 import { Chip, type Tone } from "../ui";
 import { deltaLabel, type ExperimentState } from "./experiment-state";
 import { MetricSparkline } from "./MetricSparkline";
 
-const STATE_LABEL: Record<ExperimentState, MessageKey> = {
-  running: "lab.state.running",
-  "awaiting-log": "lab.state.awaitingLog",
-  on: "lab.state.on",
-  off: "lab.state.off",
-  dormant: "lab.state.dormant",
-  closed: "lab.state.closed",
+const STATE_LABEL: Record<ExperimentState, string> = {
+  running: "running",
+  "awaiting-log": "awaiting log",
+  on: "on",
+  off: "off",
+  dormant: "dormant",
+  closed: "closed",
 };
 
 // Signal is reserved for liveness (ADR-0004): only a mode-on session earns it;
@@ -27,8 +26,7 @@ const STATE_TONE: Record<ExperimentState, Tone> = {
 };
 
 export function StateChip({ state }: { state: ExperimentState }) {
-  const t = useT();
-  return <Chip tone={STATE_TONE[state]}>{t(STATE_LABEL[state])}</Chip>;
+  return <Chip tone={STATE_TONE[state]}>{STATE_LABEL[state]}</Chip>;
 }
 
 const CARD_CLASS =
@@ -51,7 +49,6 @@ export function ExperimentCard({
   /** Where the row was read from; rides the footer tooltip only. */
   dbPath?: string;
 }) {
-  const t = useT();
   const { progress } = record;
   const delta =
     progress.baseline !== null && progress.best !== null
@@ -59,8 +56,8 @@ export function ExperimentCard({
       : null;
   const runs =
     record.maxIterations === null
-      ? t("lab.card.run", { n: progress.segmentRuns })
-      : t("lab.card.runOf", { n: progress.segmentRuns, cap: record.maxIterations });
+      ? `run ${progress.segmentRuns}`
+      : `run ${progress.segmentRuns}/${record.maxIterations}`;
   return (
     <button
       type="button"
@@ -85,7 +82,7 @@ export function ExperimentCard({
             {record.primaryMetric} · {record.direction}
           </Chip>
           <span className="flex items-center gap-2 font-mono text-xs tabular-nums text-ink-mid">
-            {delta !== null && <span>{t("lab.card.best", { delta })}</span>}
+            {delta !== null && <span>{`best ${delta}`}</span>}
             <span>{runs}</span>
           </span>
         </span>
@@ -115,7 +112,6 @@ export function PendingExperimentCard({
   experiment: SessionExperiment;
   title: string;
 }) {
-  const t = useT();
   return (
     <div className={CARD_CLASS}>
       <div className="flex items-start justify-between gap-2">
@@ -123,7 +119,7 @@ export function PendingExperimentCard({
           <span className="block truncate text-sm font-semibold">{title}</span>
           <span className="mt-0.5 line-clamp-2 block text-xs leading-relaxed text-ink-mid">{experiment.goal}</span>
         </span>
-        <Chip tone="copper">{t("lab.overview.settingUp")}</Chip>
+        <Chip tone="copper">setting up</Chip>
       </div>
       <div className="flex items-center gap-2">
         <Chip mono truncate title={`${experiment.metric} · ${experiment.direction}`}>

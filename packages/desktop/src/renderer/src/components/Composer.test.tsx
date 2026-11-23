@@ -10,7 +10,6 @@ import { backendState, remoteInstance, remoteOwnedState, rpcTabState } from "../
 import { composerEditorHarness } from "../test/composer-editor";
 import type { RpcTabState } from "../store";
 import { emptySessionRuntime, type SlashCommandInfo } from "../lib/rpc-types";
-import { t } from "../lib/i18n";
 import { keywordPalette, SHIMMER_PERIOD_MS } from "../lib/keyword-colors";
 import { markerItem, noticeItem } from "../lib/transcript";
 import { withAttachmentRoutingContext } from "../lib/attachment-routing";
@@ -349,7 +348,7 @@ describe("compact Composer", () => {
     }));
     renderComposer();
     const stop = [...document.body.querySelectorAll<HTMLButtonElement>("button")].find(
-      (button) => button.textContent?.trim() === t("composer.actions.abort"),
+      (button) => button.textContent?.trim() === "Abort",
     );
     expect(stop).not.toBeUndefined();
     act(() => stop!.click());
@@ -815,21 +814,21 @@ describe("Composer fast mode row (issue #689)", () => {
     seedFast({ provider: "openai" });
     const button = fastSwitch();
     expect(button).not.toBeNull();
-    expect(button!.title).toBe(t("hud.fast.offTitle"));
+    expect(button!.title).toBe("fast mode off · click to enable priority serving");
     await act(async () => button!.click());
     expect(setFastMode).toHaveBeenCalledWith(TAB, true);
   });
 
   it("reads on for a quiet provider whose session has active tier state (arm 2)", () => {
     seedFast({ fastModeActive: true });
-    expect(fastSwitch()!.title).toBe(t("hud.fast.onTitle"));
+    expect(fastSwitch()!.title).toBe("fast mode active — priority serving live · click to turn off");
   });
 
   it("states the declined pair beside the switch", () => {
     seedFast({ provider: "openai", fastModeEnabled: true, fastModeActive: false });
     const button = fastSwitch()!;
-    expect(button.title).toBe(t("hud.fast.declinedTitle"));
-    expect(button.parentElement!.textContent).toContain(t("hud.fast.declined"));
+    expect(button.title).toBe("fast mode enabled but the provider declined it · click to retry");
+    expect(button.parentElement!.textContent).toContain("on — provider declined");
   });
 
   it("offers the off/priority/ultrafast choice on an ultrafast-capable model", () => {
@@ -3613,7 +3612,7 @@ describe("@-mentions on slash drafts", () => {
     // The slash palette mounts but offers nothing: no command name fuzzy-
     // matches "@x", so it renders its empty state with zero rows.
     expect(slashRows()).toEqual([]);
-    expect(document.body.textContent).toContain(t("composer.slash.noMatch"));
+    expect(document.body.textContent).toContain("no command matches");
   });
 });
 
@@ -3647,7 +3646,7 @@ describe("Composer machine chip (issue #936)", () => {
   }
 
   const machineChip = (): HTMLButtonElement | null =>
-    document.body.querySelector<HTMLButtonElement>(`button[aria-label="${t("composer.machine.label")}"]`);
+    document.body.querySelector<HTMLButtonElement>(`button[aria-label="${"Machine"}"]`);
 
   it("renders for an unprompted session whose repository has 2+ members", () => {
     seedRepository([remoteInstance({ projects: [{ project: sharedProject("/remote/r"), sessions: [] }] })]);
@@ -3685,7 +3684,7 @@ describe("Composer machine chip (issue #936)", () => {
     expect(rows.map((row) => row.children[0]!.textContent)).toEqual(["This computer", "box-a", "box-b"]);
     expect(rows.map((row) => row.getAttribute("aria-checked"))).toEqual(["true", "false", "false"]);
     expect(rows.map((row) => row.disabled)).toEqual([false, false, true]);
-    expect(rows[2]!.title).toBe(t("composer.machine.unreachable"));
+    expect(rows[2]!.title).toBe("Not connected");
   });
 });
 
@@ -3723,7 +3722,7 @@ describe("Composer + menu (issue #939)", () => {
     openPlus();
     for (const label of ["commands", "shell command"]) {
       expect(row(label).disabled).toBe(true);
-      expect(row(label).title).toBe(t("composer.plus.emptyDraftOnly"));
+      expect(row(label).title).toBe("starts a new draft — clear the current draft first");
     }
     expect(row("mention a file").disabled).toBe(false);
   });
@@ -4059,7 +4058,7 @@ describe("Composer artifact references", () => {
     expect(sendPrompt).not.toHaveBeenCalled();
     expect(draftText(box)).toBe("keep this draft");
     expect(useStore.getState().artifactDrafts[TAB]).toEqual([REF]);
-    const remove = document.body.querySelector<HTMLButtonElement>('button[aria-label="' + t("artifacts.reference.remove", { title: REF.title }) + '"]')!;
+    const remove = document.body.querySelector<HTMLButtonElement>('button[aria-label="' + `Remove ${REF.title} reference` + '"]')!;
     act(() => remove.click());
     expect(useStore.getState().artifactDrafts[TAB]).toEqual([]);
   });
@@ -4115,13 +4114,13 @@ describe("Composer artifact references", () => {
     const box = typeDraft("My existing draft");
     await act(async () => { useStore.getState().attachArtifactRefresh(TAB, REFRESH); });
     expect(draftText(box)).toBe("My existing draft");
-    const chip = document.body.querySelector('[aria-label="' + t("artifacts.refreshChip", { title: REFRESH.title }) + '"]')!;
+    const chip = document.body.querySelector('[aria-label="' + `Refresh request: ${REFRESH.title}` + '"]')!;
     expect(chip.textContent).toContain(REFRESH.title);
     expect(chip.textContent).not.toContain(REFRESH.refreshRequestId);
     expect(chip.getAttribute("title")).toContain(REFRESH.refreshRequestId);
     expect(chip.getAttribute("title")).toContain(REFRESH.datasetIds.join(", "));
     expect(sendPrompt).not.toHaveBeenCalled();
-    const remove = document.body.querySelector<HTMLButtonElement>('button[aria-label="' + t("artifacts.refreshRemove", { title: REFRESH.title }) + '"]')!;
+    const remove = document.body.querySelector<HTMLButtonElement>('button[aria-label="' + `Remove refresh request for ${REFRESH.title}` + '"]')!;
     act(() => remove.click());
     expect(useStore.getState().artifactRefreshDrafts[TAB] ?? []).toEqual([]);
   });
@@ -4129,10 +4128,10 @@ describe("Composer artifact references", () => {
     const multi: ArtifactRefreshEntry = { ...REFRESH, refreshRequestId: "00000000-0000-4000-8000-000000000007", artifactId: "00000000-0000-4000-8000-000000000008", title: "Wide budget", datasetIds: ["quarter", "annual"] };
     renderComposer();
     await act(async () => { useStore.getState().attachArtifactRefresh(TAB, multi); });
-    const chip = document.body.querySelector('[aria-label="' + t("artifacts.refreshChip", { title: multi.title }) + '"]')!;
+    const chip = document.body.querySelector('[aria-label="' + `Refresh request: ${multi.title}` + '"]')!;
     expect(chip.textContent).toContain("(2)");
     await act(async () => { useStore.getState().attachArtifactRefresh(TAB, REFRESH); });
-    const single = document.body.querySelector('[aria-label="' + t("artifacts.refreshChip", { title: REFRESH.title }) + '"]')!;
+    const single = document.body.querySelector('[aria-label="' + `Refresh request: ${REFRESH.title}` + '"]')!;
     expect(single.textContent).not.toContain("(");
   });
   it("sends a refresh-only draft with the refreshes attachment and no prose", async () => {
@@ -4154,7 +4153,7 @@ describe("Composer artifact references", () => {
     act(() => box.dispatchEvent(new KeyboardEvent("keydown", { key: "Enter", ctrlKey: true, altKey: true, bubbles: true, cancelable: true })));
     await act(async () => {});
     expect(useStore.getState().artifactRefreshDrafts[TAB] ?? []).toEqual([]);
-    expect(notices).toContainEqual([TAB, t("artifacts.refreshMovedDropped")]);
+    expect(notices).toContainEqual([TAB, "The pending refresh request belonged to this session's old tab and was dropped. Prepare a new refresh from the library."]);
   });
   it("parks and restores artifact chips with a stashed draft", async () => {
     renderComposer();
@@ -4204,7 +4203,7 @@ describe("Composer artifact references", () => {
     const box = composerInput();
     act(() => stashChord(box));
     await act(async () => stashRow("foreign-tab refresh draft")!.querySelector<HTMLButtonElement>("button")!.click());
-    expect(notices).toContainEqual([TAB, t("artifacts.refreshStashRefused")]);
+    expect(notices).toContainEqual([TAB, "This refresh request belongs to the session it was prepared for and cannot move with a stashed draft. Prepare a new refresh from the library."]);
     expect(draftText(box)).toBe("");
     expect(useStore.getState().artifactRefreshDrafts[TAB] ?? []).toEqual([]);
     act(() => stashChord(box));

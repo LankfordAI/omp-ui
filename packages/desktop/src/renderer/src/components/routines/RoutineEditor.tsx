@@ -23,7 +23,6 @@ import type { CatalogModelOption } from "@omp-ui/core/types";
 import { displayMessage } from "../../backend";
 import { cn } from "../../lib/cn";
 import { relativeTime } from "../../lib/format";
-import { useT } from "../../lib/i18n";
 import { thinkingLevelColor } from "../../lib/thinking-colors";
 import { useStore } from "../../store";
 import { ModelPalette } from "../ModelSelector";
@@ -193,7 +192,6 @@ export function RoutineEditor({
   onOpenSession: () => void;
   onBackToSessions?: () => void;
 }) {
-  const t = useT();
   const projects = useStore((s) => s.state?.projects);
   const routinesState = useStore((s) => s.routinesState);
   const createRoutine = useStore((s) => s.createRoutine);
@@ -283,25 +281,25 @@ export function RoutineEditor({
   const trimmedName = draft.name.trim();
   const problem =
     trimmedName === ""
-      ? t("routines.error.name")
+      ? "Give the routine a name."
       : Array.from(trimmedName).length > ROUTINE_NAME_MAX
-        ? t("routines.error.nameTooLong", { max: ROUTINE_NAME_MAX })
+        ? `Names are at most ${ROUTINE_NAME_MAX} characters.`
         : draft.instructions.trim() === ""
-          ? t("routines.error.instructions")
+          ? "Write the instructions the routine sends."
           : draft.instructions.length > ROUTINE_INSTRUCTIONS_MAX
-            ? t("routines.error.instructionsTooLong", { max: ROUTINE_INSTRUCTIONS_MAX })
+            ? `Instructions are at most ${ROUTINE_INSTRUCTIONS_MAX} characters.`
             : schedule === null
               ? draft.schedule.repeat === "cron"
-                ? t("routines.error.cron")
-                : t("routines.error.time")
+                ? "Enter a 5-field cron expression or @yearly, @monthly, @weekly, @daily, @hourly."
+                : "Enter a valid 24-hour time."
               : draft.projectCwd === ""
-                ? t("routines.error.project")
+                ? "Pick a destination project."
                 : Number.isNaN(warnUsd) || Number.isNaN(maxUsd)
-                  ? t("routines.error.spend", { max: ROUTINE_COST_MAX_USD })
+                  ? `Spend caps are blank (host default) or 0 to ${ROUTINE_COST_MAX_USD} USD.`
                   : Number.isNaN(timeoutMinutes)
-                    ? t("routines.error.timeout", { max: ROUTINE_TIMEOUT_MAX_MINUTES })
+                    ? `Run timeout is blank (30 min default), 0 (unlimited), or a whole number from 1 to ${ROUTINE_TIMEOUT_MAX_MINUTES} minutes.`
                     : draft.preScript.length > ROUTINE_SCRIPT_MAX || draft.postScript.length > ROUTINE_SCRIPT_MAX
-                      ? t("routines.hooks.tooLong", { max: ROUTINE_SCRIPT_MAX })
+                      ? `Each hook is at most ${ROUTINE_SCRIPT_MAX} characters.`
                       : null;
 
   const input: RoutineInput | null =
@@ -464,11 +462,11 @@ export function RoutineEditor({
 
   const cliBypass = draft.toolPolicy.allow.some((key) => ROUTINE_CLI_BYPASS_TOOLS.has(key));
   const hooksSet = draft.preScript.trim() !== "" || draft.postScript.trim() !== "";
-  const modelDisplayName = selectedModel?.name ?? draft.model ?? t("routines.projectDefault");
+  const modelDisplayName = selectedModel?.name ?? draft.model ?? "Project default";
   const defaultHint =
     projectModelSelector !== null
-      ? t("routines.model.defaultPinned", { model: projectModelSelector })
-      : t("routines.model.defaultUnpinned");
+      ? `Uses ${projectModelSelector}`
+      : "No pinned model on this project";
 
   const thinkingAuto = draft.thinkingLevel === "auto";
   const thinkingPreviewIndex = Math.max(0, efforts.length - 2);
@@ -492,35 +490,35 @@ export function RoutineEditor({
         <div className="flex flex-wrap items-center gap-2.5">
           {onBackToSessions !== undefined && (
             <Button size="xs" variant="ghost" onClick={onBackToSessions} className="shrink-0">
-              ← {t("routines.backSessions")}
+              ← Sessions
             </Button>
           )}
           <input
             type="text"
             value={draft.name}
-            placeholder={t("routines.untitled")}
-            aria-label={t("routines.field.name")}
+            placeholder="Untitled routine"
+            aria-label="Name"
             onChange={(e) => set({ name: e.target.value })}
             className="min-w-48 flex-1 rounded-md border border-transparent bg-transparent px-1.5 py-0.5 font-display text-lg font-semibold text-ink transition-colors placeholder:text-ink-faint hover:border-line focus:border-line-strong focus:bg-raised/70 focus:outline-none"
           />
           <div
             role="tablist"
-            aria-label={t("routines.title")}
+            aria-label="Routines"
             className="inline-flex shrink-0 items-center gap-0.5 rounded-lg border border-line bg-sunken/70 p-0.5"
           >
             {(
               [
-                { id: "config" as const, label: t("routines.tab.config"), badge: null },
+                { id: "config" as const, label: "Configuration", badge: null },
                 {
                   id: "policy" as const,
-                  label: t("routines.tab.policy"),
+                  label: "Tool policy",
                   badge:
                     catalog !== null
                       ? `${draft.toolPolicy.allow.length}/${policyStats.total}`
                       : String(draft.toolPolicy.allow.length),
                 },
                 ...(routine !== null
-                  ? [{ id: "history" as const, label: t("routines.tab.history"), badge: String(runs.length) }]
+                  ? [{ id: "history" as const, label: "Run history", badge: String(runs.length) }]
                   : []),
               ] as const
             ).map((tab) => {
@@ -551,27 +549,27 @@ export function RoutineEditor({
           <div className="flex flex-wrap items-center gap-1.5">
             <div className="mr-1 flex items-center gap-1.5">
               <span className="text-xs text-ink-dim">
-                {draft.enabled ? t("routines.field.enabled") : t("routines.paused")}
+                {draft.enabled ? "Enabled" : "Paused"}
               </span>
               <Switch
                 on={draft.enabled}
                 onChange={(enabled) => set({ enabled })}
-                label={t("routines.field.enabled")}
+                label="Enabled"
               />
             </div>
             <Button size="xs" disabled={busy !== null} onClick={preview}>
-              {t("routines.dryRun")}
+              Dry run
             </Button>
             <Button size="xs" tone="signal" disabled={routine === null || busy !== null} onClick={runNow}>
-              {t("routines.runNow")}
+              Run now
             </Button>
             {routine !== null && dirty && (
               <Button size="xs" variant="ghost" onClick={() => setDraft(initial)}>
-                {t("routines.reset")}
+                Reset changes
               </Button>
             )}
             <Button size="xs" variant="solid" disabled={input === null || !dirty || busy !== null} onClick={save}>
-              {routine === null ? t("routines.create") : t("routines.save")}
+              {routine === null ? "Create routine" : "Save routine"}
             </Button>
           </div>
         </div>
@@ -584,7 +582,7 @@ export function RoutineEditor({
         )}
         {skippedNow && (
           <p role="status" data-routine-skipped-now className="mt-2 px-1.5 text-xs leading-relaxed text-ink-mid">
-            {t("routines.run.skippedNow")}
+            Nothing to do — the pre-run script skipped this fire.
           </p>
         )}
         {validationBanner !== null && (
@@ -600,7 +598,7 @@ export function RoutineEditor({
           <DryRunPanel
             result={dryRun}
             projectName={projectName}
-            modelLabel={draft.model ?? t("routines.projectDefault")}
+            modelLabel={draft.model ?? "Project default"}
             onDismiss={() => setDryRun(null)}
           />
         </div>
@@ -614,8 +612,8 @@ export function RoutineEditor({
             <section className="studio-card flex min-h-0 flex-col overflow-hidden rounded-xl">
               <div className="flex flex-wrap items-baseline justify-between gap-2 px-4 pt-3.5 pb-2">
                 <div>
-                  <h4 className="text-sm font-semibold text-ink">{t("routines.field.instructions")}</h4>
-                  <p className="mt-0.5 text-xs text-ink-dim">{t("routines.field.instructionsHint")}</p>
+                  <h4 className="text-sm font-semibold text-ink">Instructions</h4>
+                  <p className="mt-0.5 text-xs text-ink-dim">Sent as the first prompt of each fresh session.</p>
                 </div>
                 <span
                   className={cn(
@@ -629,7 +627,7 @@ export function RoutineEditor({
               <div className="flex min-h-0 flex-1 px-4 pb-3">
                 <textarea
                   value={draft.instructions}
-                  aria-label={t("routines.field.instructions")}
+                  aria-label="Instructions"
                   onChange={(e) => set({ instructions: e.target.value })}
                   className={cn(
                     FIELD,
@@ -642,21 +640,18 @@ export function RoutineEditor({
                   role="note"
                   className="border-t border-copper-dim bg-copper-wash px-4 py-2 text-xs leading-relaxed text-copper"
                 >
-                  {t("routines.hooks.warning")}
+                  Run hooks execute as you, unattended, outside the tool policy. A post hook running npm/make/repo scripts executes files the just-finished agent may have rewritten.
                 </p>
               )}
               <div
-                aria-label={t("routines.studio.flightCheck")}
+                aria-label="Flight check"
                 className="flex flex-wrap items-center gap-x-3 gap-y-2 border-t border-line bg-sunken/45 px-4 py-2.5 text-xs"
               >
                 <div className="flex items-center gap-2">
                   <span className="font-mono tabular-nums text-ink">
                     {catalog !== null
-                      ? t("routines.studio.policyRatio", {
-                          allow: policyStats.allowed,
-                          total: policyStats.total,
-                        })
-                      : t("routines.studio.policyCountOnly", { allow: draft.toolPolicy.allow.length })}
+                      ? `${policyStats.allowed} of ${policyStats.total} allowed`
+                      : `${draft.toolPolicy.allow.length} allowed`}
                   </span>
                   <div aria-hidden className="flex h-1.5 w-20 overflow-hidden rounded-full bg-raised">
                     {policyStats.total > 0 && (
@@ -679,22 +674,22 @@ export function RoutineEditor({
                 </div>
 
                 {cliBypass ? (
-                  <Chip tone="copper" title={t("routines.policy.cliBypassWarning")}>
-                    {t("routines.studio.shellBypassShort")}
+                  <Chip tone="copper" title="A shell reaches any service without asking — no tool policy can stop it.">
+                    Shell bypass enabled
                   </Chip>
                 ) : !hooksSet ? (
-                  <Chip tone="signal" title={t("routines.studio.policySafe")}>
-                    {t("routines.studio.policyEnforcedShort")}
+                  <Chip tone="signal" title="No shell tool allowed — every non-allowed tool pauses for approval.">
+                    Policy enforced
                   </Chip>
                 ) : null}
 
                 <span className="inline-flex items-center gap-1 text-ink-mid">
                   <IconLock className="size-3 text-ink-faint" />
-                  {t("routines.studio.privateOverlay")}
+                  Private overlay
                 </span>
                 <span
                   data-flight-timeout
-                  title={timeoutUnlimited ? t("routines.field.timeoutUnlimitedWarning") : undefined}
+                  title={timeoutUnlimited ? "No wall-clock limit — a stuck run holds the host routine lane until stopped manually or by spend cap." : undefined}
                   className={cn(
                     "inline-flex items-center gap-1 font-mono",
                     timeoutUnlimited ? "text-copper" : "text-ink-mid",
@@ -705,7 +700,7 @@ export function RoutineEditor({
                 </span>
 
                 <Button size="xs" variant="ghost" className="ml-auto" onClick={() => setActiveTab("policy")}>
-                  {t("routines.studio.reviewAllTools")} →
+                  Review all tools →
                 </Button>
               </div>
             </section>
@@ -715,18 +710,18 @@ export function RoutineEditor({
               {/* Card 1 — Schedule */}
               <section className="studio-card space-y-2.5 rounded-xl p-3.5">
                 <div className="flex items-baseline justify-between gap-2">
-                  <Label>{t("routines.field.schedule")}</Label>
+                  <Label>Schedule</Label>
                   <span className="truncate font-mono text-[11px] text-ink-faint">{timeZone}</span>
                 </div>
                 <div className="flex flex-wrap items-center gap-2">
                   <ChoiceCapsule<Repeat>
-                    label={t("routines.field.schedule")}
+                    label="Schedule"
                     value={draft.schedule.repeat}
                     options={[
-                      { value: "daily", label: t("dialog.schedule.daily") },
-                      { value: "weekdays", label: t("dialog.schedule.weekdays") },
-                      { value: "weekly", label: t("dialog.schedule.weekly") },
-                      { value: "cron", label: t("dialog.schedule.cron") },
+                      { value: "daily", label: "Daily" },
+                      { value: "weekdays", label: "Weekdays" },
+                      { value: "weekly", label: "Weekly" },
+                      { value: "cron", label: "Cron" },
                     ]}
                     onChange={(repeat) => setSchedule({ repeat })}
                     optionClassName="tab-label px-2"
@@ -736,7 +731,7 @@ export function RoutineEditor({
                       {draft.schedule.repeat === "weekly" && (
                         <select
                           value={draft.schedule.weekday}
-                          aria-label={t("routines.field.weekday")}
+                          aria-label="Weekday"
                           onChange={(e) => setSchedule({ weekday: Number(e.target.value) })}
                           className={FIELD}
                         >
@@ -750,7 +745,7 @@ export function RoutineEditor({
                       <input
                         type="time"
                         value={draft.schedule.time}
-                        aria-label={t("routines.field.time")}
+                        aria-label="Time"
                         onChange={(e) => setSchedule({ time: e.target.value })}
                         className={FIELD}
                       />
@@ -762,7 +757,7 @@ export function RoutineEditor({
                     type="text"
                     value={draft.schedule.expr}
                     spellCheck={false}
-                    aria-label={t("routines.field.cron")}
+                    aria-label="Cron expression or @macro"
                     placeholder="30 8 * * 1-5 · @daily"
                     onChange={(e) => setSchedule({ expr: e.target.value })}
                     className={cn(FIELD, "w-full font-mono")}
@@ -771,42 +766,42 @@ export function RoutineEditor({
                 <p data-next-run className={cn("text-xs", nextRunMs === null ? "text-rose" : "text-ink-dim")}>
                   {schedule === null
                     ? draft.schedule.repeat === "cron"
-                      ? t("routines.error.cron")
-                      : t("routines.error.time")
+                      ? "Enter a 5-field cron expression or @yearly, @monthly, @weekly, @daily, @hourly."
+                      : "Enter a valid 24-hour time."
                     : nextRunMs === null
-                      ? t("routines.never")
-                      : t("routines.nextRun", { when: formatWhen(nextRunMs), zone: timeZone })}
+                      ? "Never"
+                      : `Next run: ${formatWhen(nextRunMs)} (${timeZone})`}
                 </p>
               </section>
 
               {/* Card 2 — Execution & Spend */}
               <section className="studio-card space-y-2.5 rounded-xl p-3.5">
-                <Label>{t("routines.studio.execution")}</Label>
+                <Label>{"Schedule & execution"}</Label>
                 <div className="flex flex-col">
-                  <StudioOptionRow icon={<IconModel />} label={t("routines.field.model")}>
+                  <StudioOptionRow icon={<IconModel />} label="Model">
                     {models.length === 0 ? (
                       <div className="flex min-w-0 items-center gap-1.5">
                         <button
                           type="button"
                           disabled
-                          aria-label={t("routines.field.model")}
-                          title={draft.model ?? t("routines.projectDefault")}
+                          aria-label="Model"
+                          title={draft.model ?? "Project default"}
                           className="max-w-44 truncate font-mono text-xs text-ink-dim"
                         >
-                          {draft.model ?? t("routines.projectDefault")}
+                          {draft.model ?? "Project default"}
                         </button>
                         <button
                           type="button"
                           onClick={() => openSettings("providers")}
                           className="shrink-0 text-xs text-ink-faint underline decoration-dotted hover:text-ink-mid"
                         >
-                          {t("composer.model.providerKeys")}
+                          provider keys
                         </button>
                       </div>
                     ) : (
                       <button
                         type="button"
-                        aria-label={t("routines.field.model")}
+                        aria-label="Model"
                         title={draft.model ?? defaultHint}
                         onClick={() => setModelPickerOpen(true)}
                         className={cn(CAPSULE_SEGMENT, "max-w-52 text-xs font-medium text-ink")}
@@ -819,7 +814,7 @@ export function RoutineEditor({
 
                   <StudioOptionRow
                     icon={<IconThinking />}
-                    label={t("routines.field.thinking")}
+                    label="Thinking level"
                     iconStyle={thinkingIconColour !== undefined ? { color: thinkingIconColour } : undefined}
                   >
                     {efforts.length > 0 ? (
@@ -829,8 +824,8 @@ export function RoutineEditor({
                           style={thinkingIconColour !== undefined ? { color: thinkingIconColour } : undefined}
                         >
                           {thinkingAuto
-                            ? t("composer.thinking.auto")
-                            : (draft.thinkingLevel ?? t("routines.projectDefault"))}
+                            ? "auto"
+                            : (draft.thinkingLevel ?? "Project default")}
                         </span>
                         {draft.thinkingLevel !== null && (
                           <button
@@ -838,15 +833,15 @@ export function RoutineEditor({
                             onClick={() => set({ thinkingLevel: null })}
                             className="shrink-0 rounded px-1 py-0.5 text-[11px] text-ink-faint hover:bg-hover hover:text-ink"
                           >
-                            {t("routines.thinking.useDefault")}
+                            default
                           </button>
                         )}
                         <span aria-hidden className="shrink-0 text-xs text-ink-dim">
-                          {t("composer.thinking.auto")}
+                          auto
                         </span>
                         <Switch
                           on={thinkingAuto}
-                          label={t("composer.thinking.auto")}
+                          label="auto"
                           disabled={busy === "save"}
                           onChange={(next) =>
                             set({
@@ -858,8 +853,8 @@ export function RoutineEditor({
                     ) : effectiveModel !== null ? (
                       <span className="truncate text-xs text-ink-faint">
                         {draft.model === null
-                          ? t("routines.thinking.notSupportedDefault")
-                          : t("routines.thinking.notSupported")}
+                          ? "Not supported by project default"
+                          : "Not supported by model"}
                       </span>
                     ) : draft.thinkingLevel !== null ? (
                       <div className="flex min-w-0 items-center gap-1.5">
@@ -869,12 +864,12 @@ export function RoutineEditor({
                           onClick={() => set({ thinkingLevel: null })}
                           className="shrink-0 rounded px-1 py-0.5 text-[11px] text-ink-faint hover:bg-hover hover:text-ink"
                         >
-                          {t("routines.thinking.useDefault")}
+                          default
                         </button>
                       </div>
                     ) : (
                       <span className="truncate text-xs text-ink-faint">
-                        {t("routines.thinking.followsProjectDefault")}
+                        Follows project default
                       </span>
                     )}
                   </StudioOptionRow>
@@ -894,14 +889,14 @@ export function RoutineEditor({
 
                   <StudioOptionRow
                     icon={draft.mode === "plan" ? <IconPlanMode /> : <IconBuildMode />}
-                    label={t("routines.field.mode")}
+                    label="Mode"
                   >
                     <ChoiceCapsule<RoutineMode>
-                      label={t("routines.field.mode")}
+                      label="Mode"
                       value={draft.mode}
                       options={[
-                        { value: "build", label: t("settings.webhooks.mode.build") },
-                        { value: "plan", label: t("settings.webhooks.mode.plan") },
+                        { value: "build", label: "Build" },
+                        { value: "plan", label: "Plan" },
                       ]}
                       onChange={(mode) => set({ mode })}
                       optionClassName="tab-label px-2"
@@ -912,14 +907,14 @@ export function RoutineEditor({
                 <div aria-hidden className="h-px bg-line-soft" />
 
                 <div className="flex flex-col">
-                  <StudioOptionRow icon={<IconFleet />} label={t("routines.field.project")}>
+                  <StudioOptionRow icon={<IconFleet />} label="Destination project">
                     <select
                       value={draft.projectCwd}
-                      aria-label={t("routines.field.project")}
+                      aria-label="Destination project"
                       onChange={(e) => handleProjectChange(e.target.value)}
                       className={cn(FIELD, "min-w-0 max-w-44")}
                     >
-                      {localProjects.length === 0 && <option value="">{t("routines.noProjects")}</option>}
+                      {localProjects.length === 0 && <option value="">No projects on this machine</option>}
                       {draft.projectCwd !== "" && !localProjects.some((g) => g.project.path === draft.projectCwd) && (
                         <option value={draft.projectCwd}>{draft.projectCwd}</option>
                       )}
@@ -931,13 +926,13 @@ export function RoutineEditor({
                     </select>
                   </StudioOptionRow>
 
-                  <StudioOptionRow icon={<IconTune />} label={t("routines.field.workspace")}>
+                  <StudioOptionRow icon={<IconTune />} label="Workspace">
                     <ChoiceCapsule<RoutineWorkspace>
-                      label={t("routines.field.workspace")}
+                      label="Workspace"
                       value={draft.workspace}
                       options={[
-                        { value: "worktree", label: t("settings.webhooks.workspace.worktree") },
-                        { value: "checkout", label: t("settings.webhooks.workspace.checkout") },
+                        { value: "worktree", label: "New worktree" },
+                        { value: "checkout", label: "Project checkout" },
                       ]}
                       onChange={(workspace) => set({ workspace })}
                       optionClassName="tab-label px-2"
@@ -949,17 +944,14 @@ export function RoutineEditor({
 
                 <div className="space-y-1.5 px-2 py-0.5">
                   <div className="flex items-baseline justify-between gap-2 text-xs text-ink-mid">
-                    <span>{t("routines.field.spend")}</span>
+                    <span>Spend cap override (USD)</span>
                     <span className="truncate font-mono text-[11px] text-ink-faint">
-                      {t("routines.studio.spendSummary", {
-                        warn: effectiveWarn === 0 ? t("routines.noCap") : formatUsd(effectiveWarn),
-                        max: effectiveMax === 0 ? t("routines.noCap") : formatUsd(effectiveMax),
-                      })}
+                      {`${effectiveWarn === 0 ? "no cap" : formatUsd(effectiveWarn)} / ${effectiveMax === 0 ? "no cap" : formatUsd(effectiveMax)}`}
                     </span>
                   </div>
                   <div className="grid grid-cols-2 gap-2">
                     <label className="flex flex-col gap-1 text-xs text-ink-faint">
-                      {t("routines.field.warnUsd")}
+                      Warn at
                       <input
                         type="number"
                         min={0}
@@ -971,7 +963,7 @@ export function RoutineEditor({
                       />
                     </label>
                     <label className="flex flex-col gap-1 text-xs text-ink-faint">
-                      {t("routines.field.maxUsd")}
+                      Stop at
                       <input
                         type="number"
                         min={0}
@@ -984,7 +976,7 @@ export function RoutineEditor({
                     </label>
                   </div>
                   <p className="text-[11px] leading-relaxed text-ink-faint">
-                    {t("settings.experimental.routineCostHint")}
+                    Pinned per run through the session overlay. 0 disables the cap.
                   </p>
                 </div>
 
@@ -992,7 +984,7 @@ export function RoutineEditor({
 
                 <div className="space-y-1.5 px-2 py-0.5">
                   <div className="flex items-baseline justify-between gap-2 text-xs text-ink-mid">
-                    <span>{t("routines.field.timeout")}</span>
+                    <span>Run timeout (minutes)</span>
                     <span
                       className={cn(
                         "truncate font-mono text-[11px]",
@@ -1004,11 +996,11 @@ export function RoutineEditor({
                   </div>
                   <div className="flex flex-wrap items-center gap-2">
                     <ChoiceCapsule<"limited" | "unlimited">
-                      label={t("routines.field.timeout")}
+                      label="Run timeout (minutes)"
                       value={timeoutUnlimited ? "unlimited" : "limited"}
                       options={[
-                        { value: "limited", label: t("routines.field.timeoutLimit") },
-                        { value: "unlimited", label: t("routines.timeout.unlimited") },
+                        { value: "limited", label: "Limit" },
+                        { value: "unlimited", label: "Unlimited" },
                       ]}
                       onChange={(next) => set({ timeoutMinutes: next === "unlimited" ? "0" : "" })}
                       optionClassName="tab-label px-2"
@@ -1019,7 +1011,7 @@ export function RoutineEditor({
                         min={1}
                         max={ROUTINE_TIMEOUT_MAX_MINUTES}
                         step={1}
-                        aria-label={t("routines.field.timeout")}
+                        aria-label="Run timeout (minutes)"
                         value={draft.timeoutMinutes}
                         placeholder={String(ROUTINE_DEFAULT_TIMEOUT_MINUTES)}
                         onChange={(e) => set({ timeoutMinutes: e.target.value })}
@@ -1034,8 +1026,8 @@ export function RoutineEditor({
                     )}
                   >
                     {timeoutUnlimited
-                      ? t("routines.field.timeoutUnlimitedWarning")
-                      : t("routines.field.timeoutHint", { defaultMinutes: ROUTINE_DEFAULT_TIMEOUT_MINUTES })}
+                      ? "No wall-clock limit — a stuck run holds the host routine lane until stopped manually or by spend cap."
+                      : `Blank uses the ${ROUTINE_DEFAULT_TIMEOUT_MINUTES}-minute default. Counted from fire, including Approval card wait.`}
                   </p>
                 </div>
               </section>
@@ -1043,8 +1035,8 @@ export function RoutineEditor({
               {/* Card 3 — Run hooks (#1283) */}
               <section className="studio-card space-y-2.5 rounded-xl p-3.5">
                 <div>
-                  <h4 className="text-sm font-semibold text-ink">{t("routines.hooks.title")}</h4>
-                  <p className="mt-0.5 text-xs text-ink-dim">{t("routines.hooks.skipHint")}</p>
+                  <h4 className="text-sm font-semibold text-ink">Run hooks</h4>
+                  <p className="mt-0.5 text-xs text-ink-dim">Optional. The trigger, project, outcome and run directory arrive as OMP_UI_ROUTINE_* environment variables.</p>
                 </div>
                 {(["pre", "post"] as const).map((phase) => {
                   const value = phase === "pre" ? draft.preScript : draft.postScript;
@@ -1053,35 +1045,32 @@ export function RoutineEditor({
                   return (
                     <div key={phase} className="space-y-1.5">
                       <div className="flex items-center justify-between gap-2">
-                        <Label>{phase === "pre" ? t("routines.hooks.preLabel") : t("routines.hooks.postLabel")}</Label>
+                        <Label>{phase === "pre" ? "Run shell before starting" : "Run shell after the run ends"}</Label>
                         <Button
                           size="xs"
                           disabled={busy !== null || draft.projectCwd === "" || value.trim() === ""}
                           onClick={() => testScriptFor(phase)}
                         >
-                          {t("routines.hooks.testButton")}
+                          Test
                         </Button>
                       </div>
                       <textarea
                         value={value}
                         rows={3}
                         spellCheck={false}
-                        aria-label={phase === "pre" ? t("routines.hooks.preLabel") : t("routines.hooks.postLabel")}
+                        aria-label={phase === "pre" ? "Run shell before starting" : "Run shell after the run ends"}
                         onChange={(e) => setPhase(e.target.value)}
                         className={cn(FIELD, "h-auto w-full resize-y bg-sunken/65 py-2 font-mono leading-relaxed")}
                       />
                       <p className="text-[11px] leading-relaxed text-ink-faint">
-                        {phase === "pre" ? t("routines.hooks.preNote") : t("routines.hooks.postNote")}
+                        {phase === "pre" ? "Runs in the project checkout, before the worktree exists. Tracked edits change your live checkout; untracked files will not appear in a worktree run. A non-zero exit refuses the fire; exit 78 skips it." : "Runs once in the run's working directory after the outcome is decided (60 s cap). It never changes the run's result."}
                       </p>
                       {testResult !== null && testResult.phase === phase && (
                         <pre
                           data-hook-test-output
                           className="max-h-40 overflow-auto rounded-lg border border-line bg-raised px-2.5 py-2 font-mono text-[11px] leading-relaxed text-ink-mid"
                         >
-                          {t("routines.hooks.testResult", {
-                            kind: testResult.result.kind,
-                            code: testResult.result.exitCode ?? "—",
-                          })}
+                          {`exit: ${testResult.result.kind} (${testResult.result.exitCode ?? "—"})`}
                           {testResult.result.stdout !== "" ? `\n${testResult.result.stdout}` : ""}
                           {testResult.result.stderr !== "" ? `\n[stderr]\n${testResult.result.stderr}` : ""}
                         </pre>
@@ -1096,26 +1085,26 @@ export function RoutineEditor({
                 <section className="studio-card rounded-xl px-3.5 py-3">
                   <div className="flex flex-wrap items-center justify-between gap-2 text-xs">
                     <div className="flex flex-wrap items-center gap-2">
-                      <Label>{t("routines.studio.latestRun")}</Label>
+                      <Label>Latest run</Label>
                       {latestRun !== null ? (
                         <>
-                          <Chip tone={OUTCOME_TONE[latestRun.outcome]}>{t(OUTCOME_LABEL[latestRun.outcome])}</Chip>
+                          <Chip tone={OUTCOME_TONE[latestRun.outcome]}>{OUTCOME_LABEL[latestRun.outcome]}</Chip>
                           <span className="tabular-nums text-ink-faint">
                             {relativeTime(new Date(latestRun.firedAtMs).toISOString())}
                           </span>
                         </>
                       ) : (
-                        <span className="text-ink-faint">{t("routines.history.empty")}</span>
+                        <span className="text-ink-faint">No runs yet.</span>
                       )}
                     </div>
                     <div className="flex items-center gap-1.5">
                       {latestRun !== null && (
                         <Button size="xs" variant="ghost" onClick={() => setActiveTab("history")}>
-                          {t("routines.studio.viewHistory")}
+                          View run history
                         </Button>
                       )}
                       <Button size="xs" variant="ghost" tone="rose" onClick={() => setConfirmDelete(true)}>
-                        {t("routines.delete.confirm")}
+                        Delete routine
                       </Button>
                     </div>
                   </div>
@@ -1147,10 +1136,10 @@ export function RoutineEditor({
           <section className="studio-card mx-auto max-w-5xl space-y-3 rounded-xl p-4">
             <div className="flex flex-wrap items-center justify-between gap-2">
               <div className="flex items-center gap-2">
-                <h4 className="text-sm font-semibold text-ink">{t("routines.history.title")}</h4>
+                <h4 className="text-sm font-semibold text-ink">Run history</h4>
                 <Chip mono>{runs.length}</Chip>
               </div>
-              <p className="text-xs text-ink-faint">{t("routines.studio.historyRetention")}</p>
+              <p className="text-xs text-ink-faint">Audit entries keep 30 days of outcomes; finished runs self-settle after 60 s.</p>
             </div>
             <RunHistoryList runs={runs} onOpen={onOpenSession} />
           </section>

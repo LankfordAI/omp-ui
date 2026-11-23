@@ -2,7 +2,6 @@ import { useCallback, useEffect, useRef, useState } from "react";
 import { backend } from "../backend";
 import { useStore } from "../store";
 import { bytesToBase64 } from "./clipboard-image";
-import { t as translate } from "./i18n";
 import { PhraseSegmenter } from "./stt-segmenter";
 import { concatChunks, encodeWavPcm16, resampleLinear, STT_SAMPLE_RATE } from "./stt-wav";
 
@@ -273,12 +272,10 @@ export function useDictation(target: DictationSink): Dictation {
         const name = err instanceof Error && "name" in err ? (err as DOMException).name : "";
         fail(
           name === "NotAllowedError"
-            ? translate("composer.dictation.errorBlocked")
+            ? "microphone access was blocked — check your OS privacy settings"
             : name === "NotReadableError"
-              ? translate("composer.dictation.errorBusy")
-              : translate("composer.dictation.errorOpen", {
-                  message: err instanceof Error ? err.message : String(err),
-                }),
+              ? "the microphone is busy or missing"
+              : `could not open the microphone: ${err instanceof Error ? err.message : String(err)}`,
         );
       });
   }, [dispatch, fail, finish, goto, supported]);

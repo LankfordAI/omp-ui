@@ -5,7 +5,6 @@
 // Settle replaced Stop (#1005): a row mid-turn confirms before it is reaped.
 import type { SessionSummary } from "@omp-ui/core/types";
 import { backend } from "../../backend";
-import { t } from "../../lib/i18n";
 import { randomId } from "../../lib/random-id";
 import { isSessionSettled } from "../../lib/sidebar-sessions";
 import type { SettleUndoEntry, UiStore } from "../types";
@@ -88,8 +87,8 @@ export function createSettleSlice(set: SetState, get: GetState): SettleSlice {
               failures.push({
                 tabId: target.tabId,
                 title: target.title,
-                message: t("settle.error.skippedReason"),
-                alone: t("settle.error.skipped", { title: target.title }),
+                message: "its process did not stop or was replaced",
+                alone: `${target.title} did not settle: its process did not stop or was replaced`,
               });
             }
           } catch (err) {

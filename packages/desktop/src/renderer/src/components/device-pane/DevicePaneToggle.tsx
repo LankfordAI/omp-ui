@@ -1,4 +1,3 @@
-import { useT } from "../../lib/i18n";
 import { useStore } from "../../store";
 import { ICON_STROKE, IconButton } from "../ui";
 
@@ -14,12 +13,11 @@ function IconPhone() {
 
 /** The Session HUD's device pane button; pressed while the pane is open. */
 export function DevicePaneToggle({ tabId, className }: { tabId: string; className?: string }) {
-  const t = useT();
   const open = useStore((s) => s.rpc[tabId]?.devicePane.open === true);
   const toggleDevicePane = useStore((s) => s.toggleDevicePane);
   return (
     <IconButton
-      label={open ? t("hud.actions.devicePaneClose") : t("hud.actions.devicePane")}
+      label={open ? "close device pane" : "open device pane"}
       pressed={open}
       className={className}
       onClick={() => toggleDevicePane(tabId)}

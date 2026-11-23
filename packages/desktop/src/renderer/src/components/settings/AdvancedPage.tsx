@@ -1,5 +1,4 @@
 import { useStore } from "../../store";
-import { useT } from "../../lib/i18n";
 import { Button } from "../ui";
 import { Row } from "./rows";
 
@@ -9,19 +8,18 @@ import { Row } from "./rows";
  * store flag, matching every other overlay opener.
  */
 export function AdvancedPage() {
-  const t = useT();
   const openDiagnosticsDialog = useStore((s) => s.openDiagnosticsDialog);
   const openBrowserPaneClearDialog = useStore((s) => s.openBrowserPaneClearDialog);
   return (
     <div className="px-4 py-3">
-      <Row title={t("settings.advanced.bundleTitle")} hint={t("settings.advanced.bundleHint")}>
+      <Row title="Diagnostic bundle" hint="Packages logs, lifecycle breadcrumbs, versions, and registry state into one zip for bug reports. Provider keys and remote credentials are never included; transcripts are excluded unless you tick the option.">
         <Button size="xs" onClick={openDiagnosticsDialog}>
-          {t("settings.advanced.bundleAction")}
+          Export diagnostic bundle…
         </Button>
       </Row>
-      <Row title={t("settings.advanced.browserDataTitle")} hint={t("settings.advanced.browserDataHint")}>
+      <Row title="Browser pane data" hint="Pages opened in the browser pane keep cookies, storage and cache in their own profile across restarts and sessions. Clearing signs you out of every site you logged into there; no other data is touched.">
         <Button size="xs" onClick={openBrowserPaneClearDialog}>
-          {t("settings.advanced.browserDataAction")}
+          Clear browser pane data…
         </Button>
       </Row>
     </div>

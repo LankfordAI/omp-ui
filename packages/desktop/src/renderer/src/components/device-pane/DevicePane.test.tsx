@@ -4,7 +4,6 @@ import { createRoot, type Root } from "react-dom/client";
 import { afterEach, beforeEach, describe, expect, it, vi, type Mock } from "vitest";
 import { encodeDevicePaneFrameHeader, type DeviceInventory, type DevicePaneFrameHeader, type DevicePaneState } from "@omp-ui/core/device-pane";
 import { backend } from "../../backend";
-import { applyLocale, resolveLocale, t } from "../../lib/i18n";
 import { useStore } from "../../store";
 import { devicePaneWriters } from "../../store/slices/shared";
 import { backendState, remoteOwnedState, rpcTabState } from "../../test/fixtures";
@@ -88,7 +87,6 @@ function click(element: Element) {
   act(() => { element.dispatchEvent(new MouseEvent("click", { bubbles: true })); });
 }
 beforeEach(() => {
-  applyLocale(resolveLocale("en"));
   actDevicePane.mockClear();
   ensureDevicePane.mockClear();
   queueComposerAttachment.mockClear();
@@ -216,18 +214,18 @@ describe("DevicePane capture and input readiness", () => {
     const delivery = deliverFrame(header);
     expect(decodeImage).toHaveBeenCalledTimes(1);
     expect(drawImage).not.toHaveBeenCalled();
-    expect(button(t("device.toolbar.home")).disabled).toBe(true);
-    expect(button(t("device.toolbar.attach")).disabled).toBe(true);
+    expect(button("Android home").disabled).toBe(true);
+    expect(button("attach screen to prompt").disabled).toBe(true);
 
     await finishFrame(delivery);
     expect(drawImage).toHaveBeenCalledTimes(1);
     expect(canvas().style.visibility).toBe("visible");
     const captured = useStore.getState().rpc[tabId]!.devicePane;
     expect(captured.frame).toEqual(header);
-    expect(button(t("device.toolbar.home")).disabled).toBe(true);
-    expect(button(t("device.toolbar.attach")).disabled).toBe(true);
-    click(button(t("device.toolbar.home")));
-    click(button(t("device.toolbar.attach")));
+    expect(button("Android home").disabled).toBe(true);
+    expect(button("attach screen to prompt").disabled).toBe(true);
+    click(button("Android home"));
+    click(button("attach screen to prompt"));
     const proxy = host.querySelector("input");
     if (!proxy) throw new Error("Device text input is missing");
     act(() => proxy.dispatchEvent(new InputEvent("beforeinput", { bubbles: true, inputType: "insertText", data: "locked" })));
@@ -238,11 +236,11 @@ describe("DevicePane capture and input readiness", () => {
     expect(useStore.getState().rpc[tabId]!.devicePane.frame).toBe(captured.frame);
     expect(useStore.getState().rpc[tabId]!.devicePane.streamGeneration).toBe(captured.streamGeneration);
     expect(canvas().style.visibility).toBe("visible");
-    expect(button(t("device.toolbar.home")).disabled).toBe(false);
-    expect(button(t("device.toolbar.attach")).disabled).toBe(false);
-    click(button(t("device.toolbar.home")));
+    expect(button("Android home").disabled).toBe(false);
+    expect(button("attach screen to prompt").disabled).toBe(false);
+    click(button("Android home"));
     expect(backend.devicePaneInput).toHaveBeenCalledExactlyOnceWith(tabId, { type: "button", button: "home", bindingId: firstBinding, geometryRevision: 1 });
-    click(button(t("device.toolbar.attach")));
+    click(button("attach screen to prompt"));
     expect(queueComposerAttachment).toHaveBeenCalledExactlyOnceWith(tabId, { type: "image", data: "c2NyZWVu", mimeType: "image/jpeg" }, expect.any(String));
     expect(decodeImage).toHaveBeenCalledTimes(1);
     expect(drawImage).toHaveBeenCalledTimes(1);
@@ -253,8 +251,8 @@ describe("DevicePane capture and input readiness", () => {
     activate();
     await finishFrame(deliverFrame(frameHeader(state)));
     const captured = useStore.getState().rpc[tabId]!.devicePane.frame;
-    const home = button(t("device.toolbar.home"));
-    const attach = button(t("device.toolbar.attach"));
+    const home = button("Android home");
+    const attach = button("attach screen to prompt");
     const proxy = host.querySelector("input");
     if (!proxy) throw new Error("Device text input is missing");
     act(() => {
@@ -266,15 +264,15 @@ describe("DevicePane capture and input readiness", () => {
     });
     expect(canvas().style.visibility).toBe("visible");
     expect(useStore.getState().rpc[tabId]!.devicePane.frame).toBe(captured);
-    expect(button(t("device.toolbar.home")).disabled).toBe(true);
-    expect(button(t("device.toolbar.attach")).disabled).toBe(true);
-    click(button(t("device.toolbar.home")));
-    click(button(t("device.toolbar.attach")));
+    expect(button("Android home").disabled).toBe(true);
+    expect(button("attach screen to prompt").disabled).toBe(true);
+    click(button("Android home"));
+    click(button("attach screen to prompt"));
     expect(backend.devicePaneInput).not.toHaveBeenCalled();
     expect(queueComposerAttachment).not.toHaveBeenCalled();
     pushState(state);
-    expect(button(t("device.toolbar.home")).disabled).toBe(false);
-    expect(button(t("device.toolbar.attach")).disabled).toBe(false);
+    expect(button("Android home").disabled).toBe(false);
+    expect(button("attach screen to prompt").disabled).toBe(false);
     expect(drawImage).toHaveBeenCalledTimes(1);
   });
 
@@ -302,9 +300,9 @@ describe("DevicePane capture and input readiness", () => {
     await finishFrame(deliverFrame(frameHeader(current)), 1);
     expect(drawImage).toHaveBeenCalledTimes(1);
     expect(canvas().style.visibility).toBe("visible");
-    expect(button(t("device.toolbar.attach")).disabled).toBe(true);
+    expect(button("attach screen to prompt").disabled).toBe(true);
     pushState({ ...current, inputReady: true, operation: null });
-    click(button(t("device.toolbar.home")));
+    click(button("Android home"));
     expect(backend.devicePaneInput).toHaveBeenCalledExactlyOnceWith(tabId, { type: "button", button: "home", bindingId: firstBinding, geometryRevision: 2 });
     expect(drawImage).toHaveBeenCalledTimes(1);
   });
@@ -332,9 +330,9 @@ describe("DevicePane capture and input readiness", () => {
     if (replay === undefined) throw new Error("Current geometry did not request its cached frame");
     await finishFrame(replay);
     expect(canvas().style.visibility).toBe("visible");
-    expect(button(t("device.toolbar.attach")).disabled).toBe(true);
+    expect(button("attach screen to prompt").disabled).toBe(true);
     pushState({ ...current, inputReady: true, operation: null });
-    expect(button(t("device.toolbar.attach")).disabled).toBe(false);
+    expect(button("attach screen to prompt").disabled).toBe(false);
     expect(decodeImage).toHaveBeenCalledTimes(1);
     expect(drawImage).toHaveBeenCalledTimes(1);
     expect(subscribe).toHaveBeenCalledTimes(1);
@@ -357,12 +355,12 @@ describe("DevicePane capture and input readiness", () => {
     expect(bitmap.close).toHaveBeenCalledTimes(1);
     expect(drawImage).not.toHaveBeenCalled();
     expect(useStore.getState().rpc[tabId]!.devicePane.frame).toBeNull();
-    expect(button(t("device.toolbar.attach")).disabled).toBe(true);
+    expect(button("attach screen to prompt").disabled).toBe(true);
   });
 });
 
 describe("DevicePane owner status and recovery", () => {
-  it.each(["en", "ko"] as const)("shows the joined owner, known API and localized readiness in %s", async (locale) => {
+  it("shows the joined owner, known API and readiness", async () => {
     const state = deviceState(firstBinding, "native_phone");
     const inventory: DeviceInventory = {
       sdk: { status: "ready", sdkRoot: "/opt/android-sdk" },
@@ -373,25 +371,24 @@ describe("DevicePane owner status and recovery", () => {
     const owner = ownerState.remoteInstances[0]!;
     owner.nickname = "Android workstation";
     act(() => {
-      applyLocale(resolveLocale(locale));
       useStore.setState({ state: ownerState });
     });
     publish(state, inventory);
     activate();
     await finishFrame(deliverFrame(frameHeader(state)));
-    const header = button(t("device.toolbar.target"));
+    const header = button("emulator");
     expect(header.textContent).toContain(owner.nickname);
     expect(header.textContent).toContain("Native phone");
-    expect(header.textContent).toContain(t("device.picker.api", { api: 35 }));
-    expect(header.textContent).toContain(t("hud.status.ready"));
+    expect(header.textContent).toContain(`API ${35}`);
+    expect(header.textContent).toContain("ready");
     expect(header.textContent).not.toContain(state.serial);
 
     pushState({ ...state, inputReady: false, agent: "acting", operation: { kind: "rotate", stage: "rotating", rotation: 1 } });
     const statuses = Array.from(header.querySelectorAll('[role="status"]'));
-    expect(statuses.some((entry) => entry.textContent?.includes(t("device.state.rotating")))).toBe(true);
-    expect(statuses.some((entry) => entry.textContent === t("device.agent.acting"))).toBe(true);
+    expect(statuses.some((entry) => entry.textContent?.includes("Rotating device…"))).toBe(true);
+    expect(statuses.some((entry) => entry.textContent === "agent acting")).toBe(true);
     expect(header.textContent).toContain(owner.nickname);
-    expect(header.textContent).toContain(t("device.picker.api", { api: 35 }));
+    expect(header.textContent).toContain(`API ${35}`);
   });
 
   it("offers refresh and device selection after a failed control without hiding the usable screen", async () => {
@@ -403,13 +400,13 @@ describe("DevicePane owner status and recovery", () => {
     if (!alert) throw new Error("Failed control has no recovery banner");
     expect(alert.textContent).toContain("Rotation request was rejected");
     expect(canvas().style.visibility).toBe("visible");
-    expect(button(t("device.toolbar.attach")).disabled).toBe(false);
-    expect(button(t("device.toolbar.refresh"), alert).disabled).toBe(false);
-    await act(async () => { button(t("device.toolbar.refresh"), alert).click(); });
+    expect(button("attach screen to prompt").disabled).toBe(false);
+    expect(button("refresh emulators", alert).disabled).toBe(false);
+    await act(async () => { button("refresh emulators", alert).click(); });
     expect(actDevicePane).toHaveBeenCalledExactlyOnceWith(tabId, { action: "refresh", bindingId: firstBinding });
     expect(ensureDevicePane).toHaveBeenCalledExactlyOnceWith(tabId);
-    click(button(t("device.toolbar.choose"), alert));
-    expect(document.querySelector('[role="dialog"]')?.textContent).toContain(t("device.picker.title"));
+    click(button("choose an emulator", alert));
+    expect(document.querySelector('[role="dialog"]')?.textContent).toContain("Choose Android device");
     expect(canvas().style.visibility).toBe("visible");
     expect(actDevicePane).toHaveBeenCalledTimes(1);
   });

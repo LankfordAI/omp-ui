@@ -1,6 +1,5 @@
 import type { CSSProperties, ReactNode } from "react";
 import { cn } from "../lib/cn";
-import { useT } from "../lib/i18n";
 import { projectKey } from "../lib/project-key";
 import { repositoryMembers, type CheckoutEntry } from "../lib/repository-members";
 import { modelFastTier } from "../lib/rpc-types";
@@ -112,12 +111,11 @@ export function ComposerOptionsContent({
     workspaceDisabled, onCreateWorktree, finishTabId, offerMachine,
     machineDisabled, onPickMachine, onModeSelected, hotkeyOpens,
   } = props;
-  const t = useT();
   const { planEnabled, thinkingLevel, efforts, auto, levelColour, fastVisible, branchVisible, machineVisible } = useComposerOptionsState(props);
   const setThinkingLevel = useStore((s) => s.setThinkingLevel);
   const advisorOn = useStore((s) => findRecord(s.state, tabId)?.advisor ?? false);
-  const autoTitle = t("composer.thinking.autoTitle", { level: thinkingLevel ?? "—" });
-  const levelText = thinkingLevel ?? t("composer.thinking.fallback");
+  const autoTitle = `auto — omp classifies each prompt; this turn: ${thinkingLevel ?? "—"}`;
+  const levelText = thinkingLevel ?? "think —";
   const sheetMenus = compact || scrollable;
   const fastRow = (
     <OptionRow compact={compact} icon={<IconFast />}>
@@ -127,18 +125,18 @@ export function ComposerOptionsContent({
 
   return (
     <>
-      <section aria-label={t("composer.options.groupModel")} className="flex flex-col">
-        <OptionRow compact={compact} icon={<IconModel />} label={t("composer.options.groupModel")}>
+      <section aria-label="model" className="flex flex-col">
+        <OptionRow compact={compact} icon={<IconModel />} label="model">
           <ModelSelector tabId={tabId} disabled={disabled} hotkeyOpens={hotkeyOpens} />
         </OptionRow>
         {efforts.length > 0 && (
           <>
             {/* The readout sits beside the label; the right side holds only
                 the auto switch and its caption (issue #1138). */}
-            <OptionRow compact={compact} icon={<IconThinking />} label={t("composer.thinking.label")} iconStyle={{ color: levelColour }}>
+            <OptionRow compact={compact} icon={<IconThinking />} label="thinking" iconStyle={{ color: levelColour }}>
               {auto ? (
                 <span title={autoTitle} className="mr-auto min-w-0 truncate text-xs text-ink-dim">
-                  {t("composer.thinking.now", { level: "\u0000" })
+                  {`now ${"\u0000"}`
                     .split("\u0000")
                     .map((part, i) => i === 0 ? part : (
                       <span key={i}>
@@ -150,10 +148,10 @@ export function ComposerOptionsContent({
               ) : (
                 <span className="mr-auto min-w-0 truncate transition-colors duration-300 motion-reduce:transition-none" style={{ color: levelColour }}>{levelText}</span>
               )}
-              <span aria-hidden className="shrink-0 text-xs text-ink-dim">{t("composer.thinking.auto")}</span>
+              <span aria-hidden className="shrink-0 text-xs text-ink-dim">auto</span>
               <Switch
                 on={auto}
-                label={t("composer.thinking.auto")}
+                label="auto"
                 title={autoTitle}
                 disabled={disabled}
                 onChange={(next) => void setThinkingLevel(tabId, next ? "auto" : thinkingLevel !== null && efforts.includes(thinkingLevel) ? thinkingLevel : efforts[efforts.length - 1]!)}
@@ -170,18 +168,18 @@ export function ComposerOptionsContent({
 
       <div aria-hidden className="mx-1.5 my-1 h-px bg-line" />
 
-      <section aria-label={t("composer.options.groupSession")} className="flex flex-col">
+      <section aria-label="session" className="flex flex-col">
         {!chat && (
-          <OptionRow compact={compact} icon={planEnabled ? <IconPlanMode /> : <IconBuildMode />} label={t("composer.options.mode")}>
+          <OptionRow compact={compact} icon={planEnabled ? <IconPlanMode /> : <IconBuildMode />} label="mode">
             <BuildPlanControl tabId={tabId} disabled={disabled} onSelected={onModeSelected} />
           </OptionRow>
         )}
-        <OptionRow compact={compact} icon={<IconAdvisor />} label={t("composer.advisor.label")}>
+        <OptionRow compact={compact} icon={<IconAdvisor />} label="advisor">
           {/* A quiet hint, not a chip: nothing here is clickable. While the
               advisor is on it drops to its icon so the model name fits. */}
-          <span title={t("composer.options.advisorHint")} className="mr-auto inline-flex shrink-0 items-center gap-1 text-ink-faint">
+          <span title="changes restart the session" className="mr-auto inline-flex shrink-0 items-center gap-1 text-ink-faint">
             <IconRefresh className="size-2.5" />
-            <span className={cn(advisorOn && "sr-only")}>{t("composer.options.restarts")}</span>
+            <span className={cn(advisorOn && "sr-only")}>restarts session</span>
           </span>
           <AdvisorControl tabId={tabId} disabled={disabled} layout={sheetMenus ? "sheet" : "inline"} />
         </OptionRow>
@@ -191,7 +189,7 @@ export function ComposerOptionsContent({
       </section>
 
       <section
-        aria-label={t("composer.options.groupWorkspace")}
+        aria-label="workspace"
         hidden={!(branchVisible || (machineVisible && onPickMachine !== undefined))}
         className={cn(
           "-mx-1 -mb-1 mt-1 flex min-w-0 flex-wrap items-center gap-1.5 rounded-b-md border-t border-line bg-raised px-2 py-1.5",

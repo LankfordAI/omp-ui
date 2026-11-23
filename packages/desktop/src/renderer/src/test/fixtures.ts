@@ -55,7 +55,6 @@ export function backendState(patch: Partial<BackendState> = {}): BackendState {
     backdropMotion: true,
     themeAgentAccess: false,
     issueAgentAccess: false,
-    localeId: "en",
     keybindings: {},
     appUpdateCheckOnLaunch: true,
     appUpdateTrain: "stable",

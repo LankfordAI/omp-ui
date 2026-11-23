@@ -3,7 +3,6 @@ import type { ProjectOpenAvailability, ProjectOpenTarget } from "@omp-ui/core/ty
 import { backend } from "../backend";
 import { cn } from "../lib/cn";
 import { fuzzyBest, highlightRuns } from "../lib/fuzzy";
-import { currentLocaleId, useT } from "../lib/i18n";
 import { formatHotkey, useHotkeys, type HotkeyMap } from "../lib/hotkeys";
 import { identityWash } from "../lib/project-colors";
 import { checkoutEntries, groupByRepository, projectIdentitySeed, type CheckoutEntry } from "../lib/repository-members";
@@ -84,8 +83,6 @@ export function ProjectQuickOpen() {
   const removeProject = useStore((s) => s.removeProject);
   const openCopyProjectDialog = useStore((s) => s.openCopyProjectDialog);
   const reportError = useStore((s) => s.reportError);
-  const t = useT();
-  const localeId = currentLocaleId();
   const compact = useCompactShell();
 
   // The seed query is consumed at mount: App mounts this overlay only while
@@ -126,7 +123,7 @@ export function ProjectQuickOpen() {
         (a, b) => Number(a !== null) - Number(b !== null),
       );
       return ids
-        .map((id) => (id === null ? t("quickopen.host.local") : (nicknames.get(id) ?? id)))
+        .map((id) => (id === null ? "This computer" : (nicknames.get(id) ?? id)))
         .join(" · ");
     };
 
@@ -146,12 +143,12 @@ export function ProjectQuickOpen() {
         group.members[0]!;
       return {
         id: projectIdentitySeed({ repositoryKey: group.key, instanceId: target.instanceId, projectCwd: target.projectCwd }),
-        group: t("quickopen.group.projects"),
+        group: "Projects",
         label: target.name,
         sub:
           group.members.length === 1
             ? target.instanceId === null
-              ? t("quickopen.host.local")
+              ? "This computer"
               : `${nicknames.get(target.instanceId) ?? target.instanceId} · ${target.projectCwd}`
             : machineList(group.members),
         title: group.members.length === 1 ? target.title : group.members.map((m) => m.projectCwd).join("\n"),
@@ -169,8 +166,8 @@ export function ProjectQuickOpen() {
     const chatRow: QuickRow = {
       id: "chat",
       group: null,
-      label: t("quickopen.noproject"),
-      sub: t("quickopen.noproject.desc"),
+      label: "Chat",
+      sub: "no repository",
       hits: [],
       kind: "chat",
       index: 0,
@@ -191,13 +188,13 @@ export function ProjectQuickOpen() {
         ? [chatRow, ...projectRows]
         : [projectRows[lead]!, chatRow, ...projectRows.filter((_, j) => j !== lead)];
 
-    out.push({ id: "add", group: null, label: t("quickopen.add"), hits: [], kind: "add", index: 0, addOn: null });
+    out.push({ id: "add", group: null, label: "Add project…", hits: [], kind: "add", index: 0, addOn: null });
     for (const instance of state?.remoteInstances ?? []) {
       if (instance.status !== "joined") continue;
       out.push({
         id: `add:${instance.id}`,
         group: null,
-        label: t("remoteinstances.action.registerProject", { nickname: instance.nickname }),
+        label: `Register project on ${instance.nickname}`,
         hits: [],
         kind: "add",
         index: 0,
@@ -205,7 +202,7 @@ export function ProjectQuickOpen() {
       });
     }
     return out.map((row, i) => ({ ...row, index: i }));
-  }, [focused, state, nicknames, t, localeId]);
+  }, [focused, state, nicknames]);
 
   // The page's row as of the latest broadcast (a membership change re-derives
   // it); the stored snapshot only stands in until the reset effect fires.
@@ -235,57 +232,57 @@ export function ProjectQuickOpen() {
       rows.push({ id, group: null, label, hits: [], kind: "action", index: rows.length, run, ...extra });
     };
     if (page.kind === "chat") {
-      action("chat:new", t("palette.action.newChat"), () => void newChat());
-      action("chat:private", t("palette.action.newPrivateChat"), () => void newChat({ private: true }));
+      action("chat:new", "New chat", () => void newChat());
+      action("chat:private", "New private chat", () => void newChat({ private: true }));
       return rows;
     }
     if (pageRow?.pair === undefined) return rows;
     const { projectCwd: p, instanceId: i } = pageRow.pair;
-    action("newSession", t("project.actions.newSession"), () => void newSession(p, undefined, i));
-    action("newTerminal", t("project.actions.newTerminal"), () => void newSession(p, "pty", i));
-    action("newPrivate", t("project.actions.newPrivate"), () => void newSession(p, undefined, i, { private: true }));
-    action("newSessionDialog", t("project.actions.newSessionDialog"), () =>
+    action("newSession", "New session", () => void newSession(p, undefined, i));
+    action("newTerminal", "New terminal session", () => void newSession(p, "pty", i));
+    action("newPrivate", "New private session", () => void newSession(p, undefined, i, { private: true }));
+    action("newSessionDialog", "New session…", () =>
       openNewSessionDialog({ projectCwd: p, instanceId: i }),
     );
     // Open targets are host-local launches: never for a remote checkout, and
     // the compact shell has no desktop to hand them to.
     if (i === null && !compact) {
       const openIn = (target: ProjectOpenTarget, label: string): void => {
-        action(`open:${target}`, t("quickopen.action.openIn", { target: label }), () => {
+        action(`open:${target}`, `Open in ${label}`, () => {
           void backend.openProject(p, target).catch(reportError);
         });
       };
       if (availability?.vsCode === true) openIn("vscode", "VS Code");
-      openIn("files", t("project.open.files"));
-      if (availability?.terminal === true) openIn("terminal", t("project.open.terminal"));
+      openIn("files", "Files");
+      if (availability?.terminal === true) openIn("terminal", "Terminal");
     }
     // A remote checkout opens in this computer's VS Code over Remote-SSH
     // (issue #995, ADR-0083) once the user turns it on; the row stays,
     // disabled with the reason, while the member's ssh is not reachable.
     if (i !== null && remoteVsCodeEnabled && !compact) {
-      const row = remoteVsCodeRow(remoteVsCode, nicknames.get(i) ?? i, t);
+      const row = remoteVsCodeRow(remoteVsCode, nicknames.get(i) ?? i);
       if (row.show) {
         action(
           "open:remoteVscode",
-          t("quickopen.action.openIn", { target: "VS Code" }),
+          `Open in ${"VS Code"}`,
           () => void backend.openRemoteVsCode(i, p).catch(reportError),
-          row.reason === null ? { sub: t("remotevscode.sub") } : { sub: row.reason, disabled: true },
+          row.reason === null ? { sub: "Remote-SSH" } : { sub: row.reason, disabled: true },
         );
       }
     }
     if (experimentsEnabled) {
-      action("lab", t("project.actions.lab"), () => openLab(p, i));
-      action("newExperiment", t("project.actions.newExperiment"), () => openExperimentDialog(p, i));
+      action("lab", "Experiments", () => openLab(p, i));
+      action("newExperiment", "New experiment…", () => openExperimentDialog(p, i));
     }
-    action("settings", t("project.actions.settings"), () => openProjectSettings(p, i));
+    action("settings", "Project settings…", () => openProjectSettings(p, i));
     // Project copy (issue #992): this computer's checkout only, while at
     // least one joined member could receive it.
     const label = pageRow.label;
     if (i === null && (state?.remoteInstances ?? []).some((instance) => instance.status === "joined")) {
-      action("copyTo", t("project.actions.copyTo"), () => openCopyProjectDialog(p, label));
+      action("copyTo", "Copy project to…", () => openCopyProjectDialog(p, label));
     }
     // The store owns the confirmation.
-    action("remove", t("project.actions.remove"), () => void removeProject(p, i), { danger: true });
+    action("remove", "Remove project…", () => void removeProject(p, i), { danger: true });
     return rows;
   }, [
     page.kind,
@@ -306,8 +303,6 @@ export function ProjectQuickOpen() {
     openCopyProjectDialog,
     state,
     reportError,
-    t,
-    localeId,
   ]);
 
   // Flat, already-ordered result list; group headers derive from it so the
@@ -452,7 +447,7 @@ export function ProjectQuickOpen() {
           <IconSearch className="size-4 shrink-0 text-ink-dim" />
         ) : (
           <>
-            <IconButton label={t("quickopen.page.back")} onClick={goRoot}>
+            <IconButton label="back to projects" onClick={goRoot}>
               <Chevron open={false} className="rotate-180" />
             </IconButton>
             {/* Project pages wash the header chip with the project's identity
@@ -462,7 +457,7 @@ export function ProjectQuickOpen() {
               className="max-w-[12rem]"
               style={page.kind === "project" ? identityWash(pageRow?.id ?? "") : undefined}
             >
-              {pageRow?.label ?? t("quickopen.noproject")}
+              {pageRow?.label ?? "Chat"}
             </Chip>
           </>
         )}
@@ -470,7 +465,7 @@ export function ProjectQuickOpen() {
           ref={inputRef}
           value={query}
           spellCheck={false}
-          placeholder={onRoot ? t("quickopen.search.placeholder") : t("quickopen.actions.placeholder")}
+          placeholder={onRoot ? "Search projects…" : "Search actions…"}
           onChange={(e) => {
             setQuery(e.target.value);
           }}
@@ -482,7 +477,7 @@ export function ProjectQuickOpen() {
 
       <PaletteList>
         {results.length === 0 && (
-          <PaletteEmpty title={t("palette.empty.title")} hint={t("palette.empty.hint")} />
+          <PaletteEmpty title="Nothing matches" hint="Try fewer letters — matching is fuzzy, not exact." />
         )}
         {results.map((row, i) => {
           const header = row.group !== null && row.group !== lastGroup ? row.group : null;
@@ -546,7 +541,7 @@ export function ProjectQuickOpen() {
                   {onRoot && emptyQuery && i < 9 && <Chip mono>{formatHotkey(`mod+${i + 1}`)}</Chip>}
                 </button>
                 {drillable && (
-                  <IconButton label={t("quickopen.project.actions", { name: row.label })} onClick={() => openPage(row)}>
+                  <IconButton label={`actions for ${row.label}`} onClick={() => openPage(row)}>
                     <Chevron open={false} />
                   </IconButton>
                 )}
@@ -558,19 +553,19 @@ export function ProjectQuickOpen() {
 
       <div className="flex items-center gap-3 border-t border-line px-3.5 py-2 text-xs text-ink-faint">
         <span className="font-mono">{formatHotkey("arrowup")}{formatHotkey("arrowdown")}</span>
-        <span>{t("quickopen.footer.navigate")}</span>
+        <span>navigate</span>
         <span className="font-mono">{formatHotkey("enter")}</span>
-        <span>{t("quickopen.footer.select")}</span>
+        <span>Select</span>
         {onRoot && (
           <>
             <span className="font-mono">{formatHotkey("arrowright")}</span>
-            <span>{t("quickopen.footer.actions")}</span>
+            <span>Actions</span>
           </>
         )}
         <span className="font-mono">{formatHotkey("backspace")}</span>
-        <span>{t("quickopen.footer.back")}</span>
+        <span>Back</span>
         <span className="font-mono">{formatHotkey("escape")}</span>
-        <span>{t("quickopen.footer.close")}</span>
+        <span>Close</span>
       </div>
     </Modal>
   );

@@ -7,7 +7,6 @@ import {
   type RoutineToolPolicy,
 } from "@omp-ui/core/routine";
 import { cn } from "../../lib/cn";
-import { useT, type MessageKey } from "../../lib/i18n";
 import { FIELD } from "../settings/rows";
 import { Button, Chevron, Chip, Dot, IconSearch, Label } from "../ui";
 
@@ -30,11 +29,11 @@ type DecisionView = "all" | "allow" | "deny" | "ask";
 
 const DECISION_VIEWS = ["all", "allow", "deny", "ask"] as const;
 
-const DECISION_VIEW_LABEL: Record<DecisionView, MessageKey> = {
-  all: "routines.policy.viewAll",
-  allow: "routines.policy.viewAllowed",
-  deny: "routines.policy.viewDenied",
-  ask: "routines.policy.viewAsk",
+const DECISION_VIEW_LABEL: Record<DecisionView, string> = {
+  all: "All",
+  allow: "Allowed",
+  deny: "Denied",
+  ask: "Ask",
 };
 
 /** MCP servers first (alphabetical), then the vault, then omp's built-ins, then missing. */
@@ -69,7 +68,6 @@ export function ToolPolicyEditor({
   disabled: boolean;
   onChange: (next: RoutineToolPolicy) => void;
 }) {
-  const t = useT();
   const [filter, setFilter] = useState("");
   const [decisionView, setDecisionView] = useState<DecisionView>("all");
   const [selectedSource, setSelectedSource] = useState<string>("all");
@@ -96,12 +94,12 @@ export function ToolPolicyEditor({
         key,
         source: "builtin",
         group: "missing",
-        groupLabel: t("routines.policy.missing"),
+        groupLabel: "No longer present",
         description: "",
       });
     }
     return tools;
-  }, [catalog, policy.allow, policy.deny, t]);
+  }, [catalog, policy.allow, policy.deny]);
 
   const sources = useMemo<SourceSummary[]>(() => {
     const map = new Map<string, SourceSummary>();
@@ -231,12 +229,12 @@ export function ToolPolicyEditor({
             >
               {tool.key}
             </button>
-            {later && <Chip tone="copper">{t("routines.policy.addedLater")}</Chip>}
-            {tool.group === "missing" && <Chip tone="neutral">{t("routines.policy.missing")}</Chip>}
+            {later && <Chip tone="copper">Added later · not allowed</Chip>}
+            {tool.group === "missing" && <Chip tone="neutral">No longer present</Chip>}
             {denied ? (
-              <Chip tone="rose">{t("routines.policy.deny")}</Chip>
+              <Chip tone="rose">Deny</Chip>
             ) : allowed ? null : (
-              <span className="text-ink-faint">{t("routines.policy.ask")}</span>
+              <span className="text-ink-faint">Ask</span>
             )}
           </div>
           {tool.description !== "" && (
@@ -257,10 +255,10 @@ export function ToolPolicyEditor({
           tone="rose"
           selected={denied}
           disabled={disabled}
-          title={t("routines.policy.denyHint")}
+          title="Deny removes the tool from the run, subagents included."
           onClick={() => setDecision(tool.key, denied ? "ask" : "deny")}
         >
-          {t("routines.policy.deny")}
+          Deny
         </Button>
       </li>
     );
@@ -274,11 +272,11 @@ export function ToolPolicyEditor({
       <div className="flex min-h-0 flex-1 flex-col @[40rem]:flex-row">
         {/* Sources directory rail (vertical on >=40rem, horizontal pill strip below) */}
         <aside
-          aria-label={t("routines.policy.sources")}
+          aria-label="Sources"
           className="flex shrink-0 flex-col border-b border-line-soft bg-sunken/50 @[40rem]:w-52 @[40rem]:border-r @[40rem]:border-b-0"
         >
           <div className="hidden items-center justify-between border-b border-line-soft px-3 py-2 @[40rem]:flex">
-            <Label>{t("routines.policy.sources")}</Label>
+            <Label>Sources</Label>
             <span className="font-mono text-xs tabular-nums text-ink-faint">{sources.length}</span>
           </div>
           <div className="flex gap-1 overflow-x-auto p-2 @[40rem]:min-h-0 @[40rem]:flex-1 @[40rem]:flex-col @[40rem]:overflow-y-auto @[40rem]:overflow-x-hidden">
@@ -296,7 +294,7 @@ export function ToolPolicyEditor({
             >
               <span className="flex min-w-0 items-center gap-1.5">
                 <Dot tone={counts.allowed > 0 ? "signal" : "neutral"} />
-                <span className="truncate">{t("routines.policy.allSources")}</span>
+                <span className="truncate">All tools</span>
               </span>
               <span className="shrink-0 font-mono text-[11px] tabular-nums text-ink-faint">
                 {counts.allowed}/{counts.all}
@@ -342,13 +340,13 @@ export function ToolPolicyEditor({
                   type="search"
                   value={filter}
                   onChange={(e) => setFilter(e.target.value)}
-                  placeholder={t("routines.policy.filter")}
-                  aria-label={t("routines.policy.filter")}
+                  placeholder="Filter tools or servers"
+                  aria-label="Filter tools or servers"
                   className={cn(FIELD, "w-full pl-8")}
                 />
               </div>
               <Button size="xs" variant="ghost" disabled={compiled === null} onClick={() => setShowYaml((v) => !v)}>
-                {showYaml ? t("routines.policy.hideYaml") : t("routines.policy.inspectYaml")}
+                {showYaml ? "Hide overlay YAML" : "Inspect overlay YAML"}
               </Button>
             </div>
             <div className="flex flex-wrap items-center justify-between gap-2">
@@ -361,7 +359,7 @@ export function ToolPolicyEditor({
                     disabled={disabled}
                     onClick={() => setDecisionView(view)}
                   >
-                    {t(DECISION_VIEW_LABEL[view])}
+                    {DECISION_VIEW_LABEL[view]}
                     <span className="tabular-nums text-ink-faint">
                       {{ all: counts.all, allow: counts.allowed, deny: counts.denied, ask: counts.ask }[view]}
                     </span>
@@ -369,7 +367,7 @@ export function ToolPolicyEditor({
                 ))}
               </div>
               <p className="text-xs text-ink-faint">
-                {t("routines.policy.summary", { allow: policy.allow.length, deny: policy.deny.length })}
+                {`${policy.allow.length} allowed · ${policy.deny.length} denied · everything else asks`}
               </p>
             </div>
           </div>
@@ -389,12 +387,12 @@ export function ToolPolicyEditor({
                 role="note"
                 className="rounded-lg border border-copper-dim bg-copper-wash px-3 py-2 text-xs leading-relaxed text-copper"
               >
-                {t("routines.policy.cliBypassWarning")}
+                A shell reaches any service without asking — no tool policy can stop it.
               </p>
             )}
             {staleServers.length > 0 && (
               <p role="note" className="text-xs leading-relaxed text-copper">
-                {t("routines.policy.staleCatalog")} <span className="font-mono">{staleServers.join(", ")}</span>
+                Some MCP servers were unreachable; showing last-known tools. <span className="font-mono">{staleServers.join(", ")}</span>
               </p>
             )}
             {(catalogError ?? catalog?.enumerationError ?? null) !== null && (
@@ -403,7 +401,7 @@ export function ToolPolicyEditor({
               </p>
             )}
             {catalog === null && catalogError === null && (
-              <p className="text-xs text-ink-faint">{t("routines.policy.loading")}</p>
+              <p className="text-xs text-ink-faint">Reading the project's tools…</p>
             )}
 
             {selectedSource === "all" ? (
@@ -424,7 +422,7 @@ export function ToolPolicyEditor({
                         {allowedInGroup}/{tools.length}
                       </span>
                       {group.startsWith("mcp:") && staleServers.includes(label) && (
-                        <Chip tone="copper">{t("routines.policy.stale")}</Chip>
+                        <Chip tone="copper">last known</Chip>
                       )}
                     </button>
                     {!collapsed && <ul className="divide-y divide-line-soft">{tools.map(renderToolRow)}</ul>}
@@ -440,7 +438,7 @@ export function ToolPolicyEditor({
                       {tools.filter((tool) => allow.has(tool.key)).length}/{tools.length}
                     </span>
                     {group.startsWith("mcp:") && staleServers.includes(label) && (
-                      <Chip tone="copper">{t("routines.policy.stale")}</Chip>
+                      <Chip tone="copper">last known</Chip>
                     )}
                   </div>
                   <ul className="divide-y divide-line-soft">{tools.map(renderToolRow)}</ul>
@@ -450,7 +448,7 @@ export function ToolPolicyEditor({
 
             {groups.length === 0 && catalog !== null && catalogError === null && (
               <p className="text-xs text-ink-faint" data-policy-empty>
-                {t("routines.policy.noMatches")}
+                No tools match the filter.
               </p>
             )}
           </div>

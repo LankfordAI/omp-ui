@@ -1,6 +1,5 @@
 import { useEffect, useId, useState } from "react";
 import { cn } from "../lib/cn";
-import { useT } from "../lib/i18n";
 import { Chevron, IconClose, IconButton, Modal } from "./ui";
 
 /** The event every thumbnail dispatches; mirrors PALETTE_EVENT in CommandPalette.tsx. */
@@ -72,7 +71,6 @@ export function ImageViewer({
   start: number;
   onClose: () => void;
 }) {
-  const t = useT();
   const titleId = useId();
   const [index, setIndex] = useState(
     Math.min(Math.max(0, start), images.length - 1),
@@ -99,15 +97,15 @@ export function ImageViewer({
     >
       <header className="flex shrink-0 items-center gap-2 border-b border-line px-3 py-2">
         <h2 id={titleId} className="text-xs font-semibold text-ink">
-          {t("image.viewer.heading", { n: index + 1, count: images.length })}
+          {`image ${index + 1} of ${images.length}`}
         </h2>
         <span className="min-w-0 truncate font-mono text-xs text-ink-faint">
           {[
             failed
-              ? t("image.viewer.failed")
+              ? "this image could not be decoded"
               : size === null
                 ? image.mimeType
-                : `${image.mimeType} · ${t("image.viewer.dimensions", size)}`,
+                : `${image.mimeType} · ${size.width} × ${size.height} px`,
             !failed && image.model,
             !failed && image.quality,
           ]
@@ -123,14 +121,14 @@ export function ImageViewer({
         {many && (
           <>
             <IconButton
-              label={t("image.viewer.previous")}
+              label="previous image"
               disabled={index === 0}
               onClick={() => step(-1)}
             >
               <Chevron open={false} className="rotate-180" />
             </IconButton>
             <IconButton
-              label={t("image.viewer.next")}
+              label="next image"
               disabled={index === images.length - 1}
               onClick={() => step(1)}
             >
@@ -139,7 +137,7 @@ export function ImageViewer({
           </>
         )}
         <IconButton
-          label={actual ? t("image.viewer.fit") : t("image.viewer.actual")}
+          label={actual ? "fit to window" : "actual size"}
           onClick={() => setActual((v) => !v)}
         >
           <span className="font-mono text-xs">{actual ? "1:1" : "fit"}</span>
@@ -147,7 +145,7 @@ export function ImageViewer({
         {/* Modal's own close button appears only under the compact shell's
             899px rule, so this one stands down there or the two would overlap. */}
         <IconButton
-          label={t("common.overlay.close")}
+          label="close dialog"
           onClick={onClose}
           className="max-[899px]:hidden"
         >

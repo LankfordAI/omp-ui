@@ -778,7 +778,6 @@ export const BACKEND_CHANNELS = {
     channel: "settings:setGlassChrome",
     ...request<[level: GlassChrome], void>([glassChromeCodec]),
   },
-  setLocaleId: { channel: "settings:setLocaleId", ...request<[id: string], void>([str()]) },
   /**
    * Replaces the rebound app shortcuts (issue #998) with one whole map. The
    * host refuses unknown actions, invalid or reserved chords, and any chord

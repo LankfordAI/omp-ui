@@ -1,5 +1,4 @@
 import { useEffect, useRef, useState, type ReactNode } from "react";
-import { useT } from "../lib/i18n";
 import { useKeybindingLabel } from "../lib/keybindings";
 import { useDismissal } from "../lib/use-dismissal";
 import { useStore } from "../store";
@@ -42,7 +41,6 @@ export function ComposerPlusMenu({
   stash: "stash" | "pick";
   onStash: () => void;
 }) {
-  const t = useT();
   const [open, setOpen] = useState(false);
   const rootRef = useRef<HTMLSpanElement | null>(null);
   const triggerRef = useRef<HTMLButtonElement | null>(null);
@@ -79,8 +77,8 @@ export function ComposerPlusMenu({
         type="button"
         aria-haspopup="menu"
         aria-expanded={open}
-        aria-label={t("composer.plus.label")}
-        title={t("composer.plus.label")}
+        aria-label="attach, voice, and commands"
+        title="attach, voice, and commands"
         disabled={disabled}
         onClick={() => setOpen((o) => !o)}
         // Round-5 judge, Iconography 2: the strip's four controls share one
@@ -93,15 +91,15 @@ export function ComposerPlusMenu({
         <PlusMenuPanel>
           <MenuRow
             glyph={<IconPaperclip />}
-            label={t("common.button.attachFiles")}
-            hint={t("composer.plus.attachHint")}
+            label="attach files"
+            hint="images · pdf"
             onClick={run(onAttach)}
           />
           {voiceRow === "dictate" && (
             <MenuRow
               glyph={<IconMic />}
-              label={t("composer.plus.dictate")}
-              hint={t("composer.plus.dictateHint", { key: holdLabel })}
+              label="dictate"
+              hint={`hold ${holdLabel}`}
               disabled={dictateDisabled}
               onClick={run(onDictate)}
             />
@@ -109,7 +107,7 @@ export function ComposerPlusMenu({
           {voiceRow === "live" && (
             <MenuRow
               glyph={<IconMic />}
-              label={liveOn ? t("composer.live.stop") : t("composer.live.start")}
+              label={liveOn ? "stop live voice" : "start live voice"}
               disabled={disabled || (!liveOn && liveStartBlocked)}
               onClick={run(() => void (liveOn ? stopLiveVoice(tabId) : startLiveVoice(tabId)))}
             />
@@ -117,27 +115,27 @@ export function ComposerPlusMenu({
           <div className="my-1 border-t border-line" />
           <MenuRow
             glyph={<TriggerGlyph>/</TriggerGlyph>}
-            label={t("composer.plus.commands")}
+            label="commands"
             disabled={!draftEmpty}
-            title={draftEmpty ? undefined : t("composer.plus.emptyDraftOnly")}
+            title={draftEmpty ? undefined : "starts a new draft — clear the current draft first"}
             onClick={run(() => onInsert("/"))}
           />
           <MenuRow
             glyph={<TriggerGlyph>@</TriggerGlyph>}
-            label={t("composer.plus.mention")}
+            label="mention a file"
             onClick={run(() => onInsert("@"))}
           />
           <MenuRow
             glyph={<TriggerGlyph>!</TriggerGlyph>}
-            label={t("composer.plus.shell")}
+            label="shell command"
             disabled={!draftEmpty}
-            title={draftEmpty ? undefined : t("composer.plus.emptyDraftOnly")}
+            title={draftEmpty ? undefined : "starts a new draft — clear the current draft first"}
             onClick={run(() => onInsert("!"))}
           />
           <div className="my-1 border-t border-line" />
           <MenuRow
             glyph={<IconStash />}
-            label={stash === "pick" ? t("composer.stash.open") : t("composer.stash.stash")}
+            label={stash === "pick" ? "stashed drafts" : "stash draft"}
             hint={stashLabel}
             onClick={run(onStash)}
           />
@@ -149,7 +147,6 @@ export function ComposerPlusMenu({
 
 /** The menu surface; focuses its first enabled row once, on mount. */
 function PlusMenuPanel({ children }: { children: ReactNode }) {
-  const t = useT();
   const menuRef = useRef<HTMLDivElement | null>(null);
   useEffect(() => {
     menuRef.current?.querySelector<HTMLElement>("[role='menuitem']:not(:disabled)")?.focus();
@@ -158,7 +155,7 @@ function PlusMenuPanel({ children }: { children: ReactNode }) {
     <div
       ref={menuRef}
       role="menu"
-      aria-label={t("composer.plus.label")}
+      aria-label="attach, voice, and commands"
       className="animate-rise edge-lit absolute bottom-full left-0 z-20 mb-1 flex w-56 flex-col rounded-md border border-line-strong bg-overlay p-1"
     >
       {children}

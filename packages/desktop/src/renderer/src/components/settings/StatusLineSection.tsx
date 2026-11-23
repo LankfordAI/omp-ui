@@ -1,5 +1,4 @@
 import type { OmpSettingEntry, OmpSettingValue } from "@omp-ui/core/types";
-import { useT } from "../../lib/i18n";
 import { Label, Switch } from "../ui";
 import { Row, layerBadge } from "./rows";
 
@@ -21,7 +20,6 @@ export function StatusLineSection({
   pendingKey: string | null;
   commit: (key: string, value: OmpSettingValue) => void;
 }) {
-  const t = useT();
   if (entry === undefined) return null;
 
   // omp's documented default is `true`: an absent record, absent `pi`, or
@@ -49,13 +47,13 @@ export function StatusLineSection({
 
   return (
     <section className="px-4 pt-3">
-      <Label>{t("settings.omp.statusLine")}</Label>
+      <Label>Status line</Label>
       <p className="mt-0.5 text-sm leading-relaxed text-ink-faint">
-        {t("settings.omp.statusLineHint")}
+        Options for the agent's status line, which PTY tabs render inside their terminal.
       </p>
       <div className="mt-1 divide-y divide-line-soft">
         <Row
-          title={t("settings.omp.statusLineShowProfile")}
+          title="Show profile name"
           hint={entry.description}
           badge={layerBadge(entry.layer)}
         >

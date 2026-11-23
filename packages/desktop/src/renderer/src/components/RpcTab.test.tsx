@@ -3,7 +3,6 @@ import { act } from "react";
 import { createRoot, type Root } from "react-dom/client";
 import { afterEach, beforeEach, describe, expect, it, vi } from "vitest";
 import { emptySessionRuntime } from "../lib/rpc-types";
-import { t } from "../lib/i18n";
 import { backendState, rpcTabState } from "../test/fixtures";
 import { composerEditorHarness } from "../test/composer-editor";
 import type { RenderItem } from "../lib/transcript";
@@ -460,7 +459,7 @@ describe("RpcTab exit overlay", () => {
     expect(text.match(new RegExp(message.replace(/[.*+?^${}()|[\]\\]/g, "\\$&"), "g"))).toHaveLength(1);
     expect(text).toContain("The live session process stopped. Resume the session to continue.");
     expect(text).toContain("Copy");
-    expect(text).toContain(t("tab.exited.resume"));
+    expect(text).toContain("Resume session");
   });
 
   it("keeps the compact exit fallback when no process failure was captured", () => {
@@ -470,7 +469,7 @@ describe("RpcTab exit overlay", () => {
     const text = document.body.textContent ?? "";
     expect(text).toContain("Agent exited");
     expect(text).toContain("exit -1");
-    expect(text).toContain(t("tab.exited.resume"));
+    expect(text).toContain("Resume session");
     expect(text).not.toContain("The live session process stopped");
     expect(text).not.toContain("Copy");
   });
@@ -625,7 +624,7 @@ describe("RpcTab model recovery picker (issue #774)", () => {
     expect(document.body.textContent).toContain("the model probe failed: omp binary not found");
     expect(
       [...document.body.querySelectorAll<HTMLButtonElement>("button")].some(
-        (button) => button.textContent?.trim() === t("tab.exited.resume"),
+        (button) => button.textContent?.trim() === "Resume session",
       ),
     ).toBe(true);
   });

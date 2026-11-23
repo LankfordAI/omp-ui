@@ -10,7 +10,6 @@ import { parseModelRole } from "@omp-ui/core/model-role";
 import { councilMemberSlug, councilNameFromModel, MAX_COUNCIL_MEMBERS, MAX_COUNCIL_NAME } from "@omp-ui/core/council";
 import { backendFor, displayMessage } from "../backend";
 import { cn } from "../lib/cn";
-import { useT } from "../lib/i18n";
 import type { ModelInfo } from "../lib/rpc-types";
 import { findInstance, useStore } from "../store";
 import { ModelPalette } from "./ModelSelector";
@@ -87,7 +86,6 @@ function MemberPanel({
   onRemove: () => void;
   onPick: () => void;
 }) {
-  const t = useT();
   return (
     <Panel className="flex flex-col gap-2 p-2.5">
       <div className="flex items-center gap-2">
@@ -95,37 +93,37 @@ function MemberPanel({
           className={inputClass}
           placeholder={
             member.name.trim() === "" && modelOk(member.model)
-              ? councilNameFromModel(member.model) ?? t("council.roster.namePlaceholder")
-              : t("council.roster.namePlaceholder")
+              ? councilNameFromModel(member.model) ?? "Member name"
+              : "Member name"
           }
-          aria-label={t("council.roster.colName")}
+          aria-label="Member"
           value={member.name}
           onChange={(e) => onChange({ name: e.target.value })}
         />
-        <Switch on={member.enabled} label={t("council.roster.enabled")} onChange={(next) => onChange({ enabled: next })} />
+        <Switch on={member.enabled} label="Enabled" onChange={(next) => onChange({ enabled: next })} />
         <Button size="xs" variant="ghost" tone="rose" onClick={onRemove}>
-          {t("council.roster.remove")}
+          Remove
         </Button>
       </div>
       <div className="flex items-center gap-2">
         <input
           className={inputClass}
-          placeholder={t("council.roster.modelPlaceholder")}
-          aria-label={t("council.roster.colModel")}
+          placeholder="provider/id"
+          aria-label="Model"
           value={member.model ?? ""}
           onChange={(e) => onChange({ model: e.target.value === "" ? null : e.target.value })}
         />
         {canPick && (
           <Button size="xs" onClick={onPick}>
-            {t("council.roster.pick")}
+            Pick…
           </Button>
         )}
       </div>
-      {!modelOk(member.model) && <p className="text-xs text-rose">{t("council.roster.modelRequired")}</p>}
+      {!modelOk(member.model) && <p className="text-xs text-rose">Pick a model for every member.</p>}
       <textarea
         className={cn(inputClass, "h-14")}
-        aria-label={t("council.roster.instructions")}
-        placeholder={t("council.roster.instructions")}
+        aria-label="Instructions"
+        placeholder="Instructions"
         value={member.instructions ?? ""}
         onChange={(e) => onChange({ instructions: e.target.value === "" ? null : e.target.value })}
       />
@@ -134,7 +132,6 @@ function MemberPanel({
 }
 
 export function CouncilRosterEditor({ scopeCwd, instanceId }: { scopeCwd: string | null; instanceId: string | null }) {
-  const t = useT();
   const [scope, setScope] = useState<CouncilScope>(scopeCwd === null ? "user" : "project");
   const [load, setLoad, reload] = useRosterLoad(scopeCwd, instanceId);
   const [draft, setDraft] = useState<CouncilDocument | null>(null);
@@ -198,13 +195,13 @@ export function CouncilRosterEditor({ scopeCwd, instanceId }: { scopeCwd: string
     return (group?.sessions ?? []).filter((s) => s.live === "live" && s.mode === "rpc-ui");
   }, [state, scopeCwd, instanceId]);
 
-  if (load.status === "loading") return <p className="px-4 py-3 text-xs text-ink-faint">{t("council.roster.loading")}</p>;
+  if (load.status === "loading") return <p className="px-4 py-3 text-xs text-ink-faint">Loading council…</p>;
   if (load.status === "error") {
     return (
       <div className="px-4 py-3 text-xs">
         <p className="text-rose">{load.message}</p>
         <Button size="xs" onClick={reload}>
-          {t("council.roster.reload")}
+          Reload
         </Button>
       </div>
     );
@@ -311,26 +308,26 @@ export function CouncilRosterEditor({ scopeCwd, instanceId }: { scopeCwd: string
 
   return (
     <div className="flex flex-col gap-3 px-4 py-3 text-xs" data-testid="council-roster-editor">
-      <p className="text-xs leading-relaxed text-ink-faint">{t("council.roster.explain")}</p>
+      <p className="text-xs leading-relaxed text-ink-faint">/council asks each enabled member (one model each, ideally from different providers) for an independent, read-only answer; /council review adds a code-review target and a score out of 10. Up to three members run, plus the trial member when one is set.</p>
       {scopeCwd !== null && (
         <div className="flex items-center gap-2">
           <Button size="xs" selected={scope === "project"} onClick={() => setScope("project")}>
-            {t("council.roster.scopeProject")}
+            Project
           </Button>
           <Button size="xs" selected={scope === "user"} onClick={() => setScope("user")}>
-            {t("council.roster.scopeUser")}
+            Global
           </Button>
         </div>
       )}
       {scope === "project" && stored === null && (
-        <p className="text-ink-faint">{t("council.roster.inheritGlobal")}</p>
+        <p className="text-ink-faint">No project council — the global council applies until you save one here.</p>
       )}
 
       <div>
-        <Label>{t("council.roster.sharedInstructions")}</Label>
+        <Label>Shared instructions</Label>
         <textarea
           className={cn(inputClass, "mt-1 h-16")}
-          aria-label={t("council.roster.sharedInstructions")}
+          aria-label="Shared instructions"
           value={draft.instructions ?? ""}
           onChange={(e) => update({ instructions: e.target.value === "" ? null : e.target.value })}
         />
@@ -351,20 +348,20 @@ export function CouncilRosterEditor({ scopeCwd, instanceId }: { scopeCwd: string
         <Button
           size="xs"
           disabled={full}
-          title={full ? t("council.roster.full") : undefined}
+          title={full ? "A council has at most three members." : undefined}
           onClick={() => update({ members: [...draft.members, blankEntry()] })}
         >
-          {t("council.roster.add")}
+          Add member
         </Button>
       </div>
 
       <div className="flex flex-col gap-2" data-testid="council-trial">
-        <Label>{t("council.roster.trialTitle")}</Label>
-        <p className="text-xs leading-relaxed text-ink-faint">{t("council.roster.trialHint")}</p>
+        <Label>Trial member</Label>
+        <p className="text-xs leading-relaxed text-ink-faint">One extra model to compare against the council, for example a model that just came out. It gets the same assignment, and its answer is reported in its own section. It never counts toward the council's summary, recommendations, or review decisions, and it runs only when at least one member does.</p>
         {trial === null ? (
           <div>
             <Button size="xs" onClick={() => update({ trial: blankEntry() })}>
-              {t("council.roster.trialAdd")}
+              Add trial member
             </Button>
           </div>
         ) : (
@@ -388,7 +385,7 @@ export function CouncilRosterEditor({ scopeCwd, instanceId }: { scopeCwd: string
             disabled={saving}
             onClick={() => void clearOverride()}
           >
-            {t("council.roster.clearOverride")}
+            Clear override
           </Button>
         )}
         <Button
@@ -400,28 +397,28 @@ export function CouncilRosterEditor({ scopeCwd, instanceId }: { scopeCwd: string
             setError(null);
           }}
         >
-          {t("council.roster.discard")}
+          Discard
         </Button>
         <Button size="xs" variant="solid" disabled={!dirty || invalid || saving} onClick={() => void save()}>
-          {t("council.roster.save")}
+          Save
         </Button>
       </div>
       {error !== null && (
         <div className="flex items-center gap-2 text-rose">
           <span className="break-words">{error}</span>
           <Button size="xs" onClick={reload}>
-            {t("council.roster.reload")}
+            Reload
           </Button>
         </div>
       )}
       {saved && (
         <Panel className="p-2">
-          <p>{t("council.roster.applyOnRelaunch")}</p>
+          <p>Saved. Running sessions keep their council until restarted.</p>
           {liveSessions.map((s) => (
             <div key={s.tabId} className="mt-1 flex items-center justify-between gap-2">
               <span className="truncate">{s.title}</span>
               <Button size="xs" onClick={() => void restartSession(s.tabId)}>
-                {t("council.roster.restart")}
+                Restart
               </Button>
             </div>
           ))}
@@ -437,25 +434,25 @@ export function CouncilRosterEditor({ scopeCwd, instanceId }: { scopeCwd: string
         </ul>
       )}
       <div>
-        <Label>{t("council.roster.effective")}</Label>
+        <Label>Effective council</Label>
         {result.effective.length === 0 && result.effectiveTrial == null ? (
-          <p className="text-ink-faint">{t("council.roster.effectiveNone")}</p>
+          <p className="text-ink-faint">No members — /council asks you to add some first.</p>
         ) : (
           <ul className="mt-1 font-mono text-xs text-ink-mid">
             {result.effective.map((e) => (
               <li key={`${e.sourceScope}:${e.name}`} className="break-all">
-                {e.name} · {e.enabled ? "on" : "off"} · {e.model ?? t("council.roster.noModel")} ·{" "}
-                {e.sourceScope === "project" ? t("council.roster.scopeProject") : t("council.roster.scopeUser")}
+                {e.name} · {e.enabled ? "on" : "off"} · {e.model ?? "no model — skipped"} ·{" "}
+                {e.sourceScope === "project" ? "Project" : "Global"}
               </li>
             ))}
             {result.effectiveTrial != null && (
               <li key="trial" className="break-all">
-                {result.effectiveTrial.name} · {t("council.roster.trialTag")} ·{" "}
+                {result.effectiveTrial.name} · trial ·{" "}
                 {result.effectiveTrial.enabled ? "on" : "off"} ·{" "}
-                {result.effectiveTrial.model ?? t("council.roster.noModel")} ·{" "}
+                {result.effectiveTrial.model ?? "no model — skipped"} ·{" "}
                 {result.effectiveTrial.sourceScope === "project"
-                  ? t("council.roster.scopeProject")
-                  : t("council.roster.scopeUser")}
+                  ? "Project"
+                  : "Global"}
               </li>
             )}
           </ul>
@@ -463,11 +460,11 @@ export function CouncilRosterEditor({ scopeCwd, instanceId }: { scopeCwd: string
       </div>
 
       {pickTarget !== null && instanceId === null && catalog.status === "loading" && (
-        <p className="text-ink-faint">{t("council.roster.catalogLoading")}</p>
+        <p className="text-ink-faint">Reading omp's model catalog…</p>
       )}
       {pickTarget !== null && instanceId === null && catalog.status === "loaded" && !catalog.snapshot.discovered && (
         <p className="text-ink-faint">
-          {t("settings.omp.modelRoleCatalogFailed", { message: catalog.snapshot.error ?? "" })}
+          {`model list failed: ${catalog.snapshot.error ?? ""} — the field stays editable`}
         </p>
       )}
       {pickTarget !== null && paletteModels !== null && (

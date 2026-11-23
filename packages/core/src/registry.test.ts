@@ -1155,7 +1155,6 @@ describe("Registry persistence", () => {
     );
     const reg = Registry.load(file);
     expect(reg.getSetting("themeId")).toBe("graphite");
-    expect(reg.getSetting("localeId")).toBe("en");
     expect(reg.getSetting("appUpdateCheckOnLaunch")).toBe(true);
     expect(reg.getSetting("appUpdateTrain")).toBe("stable");
     expect(reg.getSetting("ompUpdateCheckOnLaunch")).toBe(true);
@@ -1168,7 +1167,6 @@ describe("Registry persistence", () => {
     const file = tmpFile();
     const reg = Registry.load(file);
     reg.setSetting("themeId", "theme-from-a-newer-build");
-    reg.setSetting("localeId", "ko");
     reg.setSetting("appUpdateCheckOnLaunch", false);
     reg.setSetting("appUpdateTrain", "nightly");
     reg.setSetting("vaultNoteVoice", "assistant");
@@ -1178,13 +1176,30 @@ describe("Registry persistence", () => {
 
     const reloaded = Registry.load(file);
     expect(reloaded.getSetting("themeId")).toBe("theme-from-a-newer-build");
-    expect(reloaded.getSetting("localeId")).toBe("ko");
     expect(reloaded.getSetting("appUpdateCheckOnLaunch")).toBe(false);
     expect(reloaded.getSetting("appUpdateTrain")).toBe("nightly");
     expect(reloaded.getSetting("vaultNoteVoice")).toBe("assistant");
     expect(reloaded.getSetting("ompUpdateCheckOnLaunch")).toBe(false);
     expect(reloaded.getSetting("ompAutoUpgrade")).toBe(false);
     expect(reloaded.getSetting("gettingStartedSeen")).toBe(true);
+  });
+
+  it("loads a legacy registry containing localeId and drops it on the next write", () => {
+    const file = tmpFile();
+    fs.writeFileSync(
+      file,
+      JSON.stringify({
+        schemaVersion: 1,
+        settings: { localeId: "ko", skipDeleteConfirmation: true },
+      }),
+    );
+    const reg = Registry.load(file);
+    expect(reg.getSetting("skipDeleteConfirmation")).toBe(true);
+    reg.setSetting("skipDeleteConfirmation", false);
+    const persisted = JSON.parse(fs.readFileSync(file, "utf8")) as {
+      settings: Record<string, unknown>;
+    };
+    expect("localeId" in persisted.settings).toBe(false);
   });
 
   it("round-trips the vault registry across a reload", () => {
@@ -1226,7 +1241,6 @@ describe("Registry persistence", () => {
       ["fontFamilyId", (registry) => registry.setSetting("fontFamilyId", "default")],
       ["transcriptWidth", (registry) => registry.setSetting("transcriptWidth", "wide")],
       ["glassChrome", (registry) => registry.setSetting("glassChrome", "subtle")],
-      ["localeId", (registry) => registry.setSetting("localeId", "en")],
       ["appUpdateCheckOnLaunch", (registry) => registry.setSetting("appUpdateCheckOnLaunch", true)],
       ["appUpdateTrain", (registry) => registry.setSetting("appUpdateTrain", "stable")],
       ["vaultNoteVoice", (registry) => registry.setSetting("vaultNoteVoice", "user")],

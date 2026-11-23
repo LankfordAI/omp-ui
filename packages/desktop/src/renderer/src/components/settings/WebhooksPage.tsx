@@ -16,7 +16,6 @@ import {
 } from "@omp-ui/core/webhook";
 import { displayMessage } from "../../backend";
 import { cn } from "../../lib/cn";
-import { localeTag, useT, type MessageKey } from "../../lib/i18n";
 import { useStore } from "../../store";
 import { Button, ChoiceCapsule, CopyButton, Empty, Label, Panel, Switch } from "../ui";
 import { FIELD, Row } from "./rows";
@@ -34,16 +33,16 @@ export function webhookEndpoints(urls: readonly string[], id: string): string[] 
   return [...new Set(bases)].map((base) => `${base}${WEBHOOK_PATH_PREFIX}${id}`);
 }
 
-const OUTCOME_LABEL: Record<WebhookDeliveryOutcome, MessageKey> = {
-  started: "settings.webhooks.outcome.started",
-  pending: "settings.webhooks.outcome.pending",
-  unknown: "settings.webhooks.outcome.unknown",
-  failed: "settings.webhooks.outcome.failed",
-  unauthorized: "settings.webhooks.outcome.unauthorized",
-  disabled: "settings.webhooks.outcome.disabled",
-  "rate-limited": "settings.webhooks.outcome.rateLimited",
-  duplicate: "settings.webhooks.outcome.duplicate",
-  "bad-request": "settings.webhooks.outcome.badRequest",
+const OUTCOME_LABEL: Record<WebhookDeliveryOutcome, string> = {
+  started: "started",
+  pending: "pending",
+  unknown: "unknown",
+  failed: "failed",
+  unauthorized: "unauthorized",
+  disabled: "disabled",
+  "rate-limited": "rate-limited",
+  duplicate: "duplicate",
+  "bad-request": "bad request",
 };
 
 function outcomeTone(outcome: WebhookDeliveryOutcome): string {
@@ -83,11 +82,10 @@ function useProjectChoices(): ProjectChoice[] {
 const choiceValue = (machineKey: string, path: string): string => JSON.stringify([machineKey, path]);
 
 function useMachineLabel(): (machineKey: string) => string {
-  const t = useT();
   const instances = useStore((s) => s.state?.remoteInstances ?? []);
   return (machineKey) =>
     machineKey === LOCAL_MACHINE_KEY
-      ? t("settings.webhooks.thisComputer")
+      ? "This computer"
       : (instances.find((i) => i.id === machineKey)?.nickname ?? machineKey);
 }
 
@@ -101,13 +99,12 @@ function projectName(choices: readonly ProjectChoice[], machineKey: string, path
 
 /** The one-time secret panel; Done drops the secret from component state. */
 function SecretReveal({ reveal, onDone }: { reveal: WebhookSecretReveal; onDone: () => void }) {
-  const t = useT();
   return (
     <Panel tone="copper" className="px-4 py-3">
       <p className="text-sm font-medium text-ink">
-        {t("settings.webhooks.reveal.title", { name: reveal.webhook.name })}
+        {`Secret for ${reveal.webhook.name}`}
       </p>
-      <p className="mt-0.5 text-sm leading-relaxed text-ink-faint">{t("settings.webhooks.reveal.once")}</p>
+      <p className="mt-0.5 text-sm leading-relaxed text-ink-faint">Copy it now; it is not shown again.</p>
       <div className="mt-2 flex items-center gap-1.5">
         <span data-selectable data-testid="webhook-secret" className="min-w-0 flex-1 truncate font-mono text-xs text-ink">
           {reveal.secret}
@@ -115,11 +112,11 @@ function SecretReveal({ reveal, onDone }: { reveal: WebhookSecretReveal; onDone:
         <CopyButton text={reveal.secret} />
       </div>
       <p className="mt-2 text-sm leading-relaxed text-ink-mid">
-        {reveal.webhook.auth === "hmac" ? t("settings.webhooks.reveal.hmac") : t("settings.webhooks.reveal.bearer")}
+        {reveal.webhook.auth === "hmac" ? "Set it as the webhook secret; omp-ui checks X-Hub-Signature-256." : "Send Authorization: Bearer SECRET."}
       </p>
       <div className="mt-2 flex justify-end">
         <Button size="xs" variant="solid" onClick={onDone}>
-          {t("settings.webhooks.reveal.done")}
+          Done
         </Button>
       </div>
     </Panel>
@@ -141,7 +138,6 @@ function WebhookForm({
   onCreated?: (reveal: WebhookSecretReveal) => void;
   onClose?: () => void;
 }) {
-  const t = useT();
   const createWebhook = useStore((s) => s.createWebhook);
   const updateWebhook = useStore((s) => s.updateWebhook);
   const choices = useProjectChoices();
@@ -187,7 +183,7 @@ function WebhookForm({
     if (busy) return;
     let input: WebhookInput;
     try {
-      if (project === "") throw new Error(t("settings.webhooks.form.noProject"));
+      if (project === "") throw new Error("Pick a project first.");
       const [machineKey, projectCwd] = JSON.parse(project) as [string, string];
       input = {
         name: validateWebhookName(name),
@@ -228,11 +224,11 @@ function WebhookForm({
 
   return (
     <div className="divide-y divide-line-soft">
-      <Row title={t("settings.webhooks.form.name")}>
+      <Row title="Name">
         <input
           type="text"
           value={name}
-          aria-label={t("settings.webhooks.form.name")}
+          aria-label="Name"
           spellCheck={false}
           autoComplete="off"
           disabled={disabled}
@@ -240,15 +236,15 @@ function WebhookForm({
           className={cn(FIELD, "w-56")}
         />
       </Row>
-      <Row title={t("settings.webhooks.form.project")}>
+      <Row title="Project">
         <select
-          aria-label={t("settings.webhooks.form.project")}
+          aria-label="Project"
           value={project}
           disabled={disabled}
           onChange={(e) => setProject(e.target.value)}
           className={cn(FIELD, "max-w-64")}
         >
-          {options.length === 0 && <option value="">{t("settings.webhooks.form.noProjects")}</option>}
+          {options.length === 0 && <option value="">No projects</option>}
           {options.map((c) => (
             <option key={choiceValue(c.machineKey, c.path)} value={choiceValue(c.machineKey, c.path)}>
               {c.nickname === null ? c.name : `${c.name} — ${c.nickname}`}
@@ -256,64 +252,64 @@ function WebhookForm({
           ))}
         </select>
       </Row>
-      <Row title={t("settings.webhooks.form.template")} hint={t("settings.webhooks.form.templateHint")} stacked>
+      <Row title="Prompt template" hint="Instructions placed before the request body." stacked>
         <textarea
           value={template}
-          aria-label={t("settings.webhooks.form.template")}
+          aria-label="Prompt template"
           disabled={disabled}
           onChange={(e) => setTemplate(e.target.value)}
           className={cn(FIELD, "h-20 w-full resize-y py-1.5")}
         />
       </Row>
-      <Row title={t("settings.webhooks.form.mode")} hint={t("settings.webhooks.form.modeHint")}>
+      <Row title="Mode" hint="Plan keeps a payload from editing files before you approve.">
         <ChoiceCapsule
-          label={t("settings.webhooks.form.mode")}
+          label="Mode"
           value={mode}
           options={[
-            { value: "plan", label: t("settings.webhooks.mode.plan") },
-            { value: "build", label: t("settings.webhooks.mode.build") },
+            { value: "plan", label: "Plan" },
+            { value: "build", label: "Build" },
           ] as const}
           onChange={setMode}
           optionClassName="tab-label px-2"
         />
       </Row>
-      <Row title={t("settings.webhooks.form.workspace")}>
+      <Row title="Workspace">
         <ChoiceCapsule
-          label={t("settings.webhooks.form.workspace")}
+          label="Workspace"
           value={workspace}
           options={[
-            { value: "worktree", label: t("settings.webhooks.workspace.worktree") },
-            { value: "checkout", label: t("settings.webhooks.workspace.checkout") },
+            { value: "worktree", label: "New worktree" },
+            { value: "checkout", label: "Project checkout" },
           ] as const}
           onChange={setWorkspace}
           optionClassName="tab-label px-2"
         />
       </Row>
-      <Row title={t("settings.webhooks.form.auth")}>
+      <Row title="Authentication">
         <ChoiceCapsule
-          label={t("settings.webhooks.form.auth")}
+          label="Authentication"
           value={auth}
           options={[
-            { value: "hmac", label: t("settings.webhooks.auth.hmac") },
-            { value: "bearer", label: t("settings.webhooks.auth.bearer") },
+            { value: "hmac", label: "GitHub signature (HMAC)" },
+            { value: "bearer", label: "Bearer token" },
           ] as const}
           onChange={setAuth}
           optionClassName="tab-label px-2"
         />
       </Row>
-      <Row title={t("settings.webhooks.form.rate")} hint={t("settings.webhooks.form.rateHint")}>
+      <Row title="Rate limit per hour" hint="Empty means only the app-wide ceiling applies.">
         <input
           type="number"
           min={1}
           value={rate}
-          aria-label={t("settings.webhooks.form.rate")}
+          aria-label="Rate limit per hour"
           disabled={disabled}
           onChange={(e) => setRate(e.target.value)}
           className={cn(FIELD, "w-24")}
         />
       </Row>
-      <Row title={t("settings.webhooks.form.enabled")}>
-        <Switch on={enabled} onChange={setEnabled} label={t("settings.webhooks.form.enabled")} />
+      <Row title="Enabled">
+        <Switch on={enabled} onChange={setEnabled} label="Enabled" />
       </Row>
       <div className="flex items-center gap-3 py-2.5">
         {error !== null && (
@@ -324,15 +320,15 @@ function WebhookForm({
         <div className="ml-auto flex items-center gap-1.5">
           {onClose !== undefined && (
             <Button size="xs" variant="ghost" onClick={onClose}>
-              {t("settings.webhooks.action.cancel")}
+              Cancel
             </Button>
           )}
           <Button variant="solid" size="xs" disabled={disabled} onClick={submit}>
             {initial === null
               ? busy
-                ? t("settings.webhooks.action.creating")
-                : t("settings.webhooks.action.create")
-              : t("settings.webhooks.action.save")}
+                ? "Creating…"
+                : "Create"
+              : "Save"}
           </Button>
         </div>
       </div>
@@ -347,7 +343,6 @@ function WebhookPanel({
   webhook: WebhookSummary;
   onRotated: (reveal: WebhookSecretReveal) => void;
 }) {
-  const t = useT();
   const remote = useStore((s) => s.remote);
   const updateWebhook = useStore((s) => s.updateWebhook);
   const rotateWebhookSecret = useStore((s) => s.rotateWebhookSecret);
@@ -373,12 +368,12 @@ function WebhookPanel({
   };
 
   const facts = [
-    t(webhook.mode === "plan" ? "settings.webhooks.mode.plan" : "settings.webhooks.mode.build"),
-    t(webhook.workspace === "worktree" ? "settings.webhooks.workspace.worktree" : "settings.webhooks.workspace.checkout"),
-    t(webhook.auth === "hmac" ? "settings.webhooks.auth.hmac" : "settings.webhooks.auth.bearer"),
+    webhook.mode === "plan" ? "Plan" : "Build",
+    webhook.workspace === "worktree" ? "New worktree" : "Project checkout",
+    webhook.auth === "hmac" ? "GitHub signature (HMAC)" : "Bearer token",
     webhook.ratePerHour === null
-      ? t("settings.webhooks.rate.none")
-      : t("settings.webhooks.rate.perHour", { count: webhook.ratePerHour }),
+      ? "No per-webhook limit"
+      : `${webhook.ratePerHour} per hour`,
   ];
 
   return (
@@ -387,17 +382,14 @@ function WebhookPanel({
         <div className="min-w-0 flex-1">
           <p className="truncate text-sm font-medium text-ink">{webhook.name}</p>
           <p className="mt-0.5 truncate text-xs text-ink-mid">
-            {t("settings.webhooks.projectOn", {
-              project: projectName(choices, webhook.machineKey, webhook.projectCwd),
-              machine: machineLabel(webhook.machineKey),
-            })}
+            {`${projectName(choices, webhook.machineKey, webhook.projectCwd)} on ${machineLabel(webhook.machineKey)}`}
           </p>
           <p className="mt-0.5 text-xs text-ink-faint">{facts.join(" · ")}</p>
         </div>
         <Switch
           on={webhook.enabled}
           onChange={(next) => void updateWebhook(webhook.id, { enabled: next })}
-          label={t("settings.webhooks.enabledLabel", { name: webhook.name })}
+          label={`enable webhook ${webhook.name}`}
         />
       </div>
       <div className="mt-2 space-y-0.5">
@@ -417,7 +409,7 @@ function WebhookPanel({
         )}
       </div>
       {!webhook.secretReadable && (
-        <p className="mt-1.5 text-sm leading-relaxed text-rose">{t("settings.webhooks.secretUnreadable")}</p>
+        <p className="mt-1.5 text-sm leading-relaxed text-rose">Secret unreadable — rotate it. Every delivery is refused until then.</p>
       )}
       {error !== null && (
         <p role="alert" className="mt-1.5 text-sm leading-relaxed text-rose">
@@ -426,23 +418,23 @@ function WebhookPanel({
       )}
       <div className="mt-2 flex flex-wrap items-center justify-end gap-1.5">
         <Button size="xs" variant="ghost" onClick={() => setEditing((v) => !v)}>
-          {editing ? t("settings.webhooks.action.cancel") : t("settings.webhooks.action.edit")}
+          {editing ? "Cancel" : "Edit"}
         </Button>
         <Button size="xs" variant="ghost" disabled={rotating || !credentialStore} onClick={rotate}>
-          {t("settings.webhooks.action.rotate")}
+          Rotate secret
         </Button>
         {confirmingDelete ? (
           <>
             <Button size="xs" variant="ghost" onClick={() => setConfirmingDelete(false)}>
-              {t("settings.webhooks.action.cancel")}
+              Cancel
             </Button>
             <Button size="xs" variant="solid" tone="rose" onClick={() => void removeWebhook(webhook.id)}>
-              {t("settings.webhooks.action.confirmDelete")}
+              Delete webhook
             </Button>
           </>
         ) : (
           <Button size="xs" variant="ghost" tone="rose" onClick={() => setConfirmingDelete(true)}>
-            {t("settings.webhooks.action.delete")}
+            Delete
           </Button>
         )}
       </div>
@@ -456,7 +448,6 @@ function WebhookPanel({
 }
 
 function Deliveries() {
-  const t = useT();
   const deliveries = useStore((s) => s.webhooks.deliveries);
   const clearWebhookDeliveries = useStore((s) => s.clearWebhookDeliveries);
   const openSession = useStore((s) => s.openSession);
@@ -465,35 +456,35 @@ function Deliveries() {
   return (
     <div>
       <div className="flex items-center gap-2">
-        <Label>{t("settings.webhooks.deliveries.title")}</Label>
+        <Label>Recent deliveries</Label>
         {deliveries.length > 0 && (
           <Button size="xs" variant="ghost" className="ml-auto" onClick={() => void clearWebhookDeliveries()}>
-            {t("settings.webhooks.deliveries.clear")}
+            Clear
           </Button>
         )}
       </div>
       {newestFirst.length === 0 ? (
-        <p className="mt-1 text-xs text-ink-faint">{t("settings.webhooks.deliveries.empty")}</p>
+        <p className="mt-1 text-xs text-ink-faint">No deliveries yet.</p>
       ) : (
         <ul className="mt-1 divide-y divide-line-soft">
           {newestFirst.map((d) => (
             <li key={d.id} className="flex items-start gap-3 py-1.5 text-xs">
               <div className="min-w-0 flex-1">
                 <p className="truncate text-ink">
-                  <span className="text-ink-faint">{new Date(d.at).toLocaleString(localeTag())}</span>
+                  <span className="text-ink-faint">{new Date(d.at).toLocaleString("en")}</span>
                   {" · "}
                   {d.webhookName}
                   {d.event !== null && <span className="font-mono text-ink-mid">{` · ${d.event}`}</span>}
                 </p>
                 <p className="truncate text-ink-faint">
-                  <span className={outcomeTone(d.outcome)}>{t(OUTCOME_LABEL[d.outcome])}</span>
-                  {` · HTTP ${d.status} · ${t("settings.webhooks.deliveries.bytes", { count: d.bytes })}`}
+                  <span className={outcomeTone(d.outcome)}>{OUTCOME_LABEL[d.outcome]}</span>
+                  {` · HTTP ${d.status} · ${`${d.bytes} bytes`}`}
                   {d.message !== null && ` · ${d.message}`}
                 </p>
               </div>
               {d.outcome === "started" && d.tabId !== null && d.machineKey === LOCAL_MACHINE_KEY && (
                 <Button size="xs" variant="ghost" onClick={() => void openSession(d.tabId!)}>
-                  {t("settings.webhooks.deliveries.open")}
+                  Open
                 </Button>
               )}
             </li>
@@ -505,7 +496,6 @@ function Deliveries() {
 }
 
 export function WebhooksPage() {
-  const t = useT();
   const webhooks = useStore((s) => s.webhooks);
   const remoteStatus = useStore((s) => s.remote.status);
   const setWebhooksEnabled = useStore((s) => s.setWebhooksEnabled);
@@ -515,34 +505,34 @@ export function WebhooksPage() {
 
   return (
     <div className="space-y-3 px-4 py-3">
-      <p className="text-sm leading-relaxed text-ink-faint">{t("settings.webhooks.intro")}</p>
-      <p className="text-sm leading-relaxed text-copper">{t("settings.webhooks.warning")}</p>
+      <p className="text-sm leading-relaxed text-ink-faint">Each webhook is an endpoint on the remote-access listener. A request that proves the webhook's secret starts one session with the prompt template, plus the request body marked as untrusted data.</p>
+      <p className="text-sm leading-relaxed text-copper">Anyone holding a secret can start sessions on that project. Keep the listener behind HTTPS and forward only /webhooks/.</p>
 
       <div className="divide-y divide-line-soft">
-        <Row title={t("settings.webhooks.accept")} hint={t("settings.webhooks.acceptHint")}>
+        <Row title="Accept webhooks" hint="While off, /webhooks/ is not a route: requests get the same 401 as any unauthenticated path.">
           <Switch
             on={webhooks.enabled}
             onChange={(next) => void setWebhooksEnabled(next)}
-            label={t("settings.webhooks.accept")}
+            label="Accept webhooks"
           />
         </Row>
       </div>
       {remoteStatus !== "listening" && (
         <div className="flex items-center gap-2">
-          <p className="min-w-0 flex-1 text-sm leading-relaxed text-copper">{t("settings.webhooks.needsRemote")}</p>
+          <p className="min-w-0 flex-1 text-sm leading-relaxed text-copper">Webhooks need remote access running; nothing reaches them until the listener is up.</p>
           <Button size="xs" onClick={() => openSettings("remote")}>
-            {t("settings.webhooks.openRemote")}
+            Open Remote access
           </Button>
         </div>
       )}
       {!webhooks.credentialStore && (
-        <p className="text-sm leading-relaxed text-rose">{t("settings.webhooks.noCredentialStore")}</p>
+        <p className="text-sm leading-relaxed text-rose">No OS credential store is available, so webhooks cannot be created or rotated.</p>
       )}
 
       {reveal !== null && <SecretReveal reveal={reveal} onDone={() => setReveal(null)} />}
 
       {webhooks.webhooks.length === 0 ? (
-        <Empty title={t("settings.webhooks.empty")} hint={t("settings.webhooks.emptyHint")} />
+        <Empty title="No webhooks yet" hint="Create one below; its secret is shown once." />
       ) : (
         <div className="space-y-2">
           {webhooks.webhooks.map((webhook) => (
@@ -552,7 +542,7 @@ export function WebhooksPage() {
       )}
 
       <div>
-        <Label>{t("settings.webhooks.createTitle")}</Label>
+        <Label>Create webhook</Label>
         <WebhookForm initial={null} canCreate={webhooks.credentialStore} onCreated={setReveal} />
       </div>
 

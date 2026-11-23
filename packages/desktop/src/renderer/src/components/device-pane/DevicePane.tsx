@@ -20,7 +20,6 @@ import { backend } from "../../backend";
 import { createFramePainter } from "../../lib/browser-pane-frame";
 import { cn } from "../../lib/cn";
 import { isAppHotkey } from "../../lib/hotkeys";
-import { useT } from "../../lib/i18n";
 import { useDismissal } from "../../lib/use-dismissal";
 import { findInstance, findOwner, registerDevicePaneWriter, useStore, viewedClientId } from "../../store";
 import { MenuRow } from "../MenuRow";
@@ -42,6 +41,13 @@ const FORWARDED_KEYS: Record<string, true> = {
   Home: true, End: true, PageUp: true, PageDown: true,
 };
 const POSTURES: readonly EmulatorPosture[] = ["closed", "half-open", "open", "flipped", "tent"];
+const POSTURE_LABEL: Record<EmulatorPosture, string> = {
+  closed: "Closed",
+  "half-open": "Half-open",
+  open: "Open",
+  flipped: "Flipped",
+  tent: "Tent",
+};
 const CONTROL_CLASS = "size-11 motion-reduce:transition-none";
 
 function IconBack() {
@@ -96,12 +102,11 @@ function textChunks(text: string): string[] {
 }
 
 export function DevicePane({ tabId, placement }: { tabId: string; placement: DevicePanePlacement }) {
-  const t = useT();
   const pane = useStore((s) => s.rpc[tabId]?.devicePane);
   const active = useStore((s) => s.activeTabId === tabId);
   const instanceId = useStore((s) => findOwner(s.state, tabId)?.instanceId ?? null);
   const instanceDown = useStore((s) => instanceId !== null && findInstance(s.state, instanceId)?.status !== "joined");
-  const ownerName = useStore((s) => instanceId === null ? null : findInstance(s.state, instanceId)?.nickname ?? instanceId) ?? t("quickopen.host.local");
+  const ownerName = useStore((s) => instanceId === null ? null : findInstance(s.state, instanceId)?.nickname ?? instanceId) ?? "This computer";
   const ensureDevicePane = useStore((s) => s.ensureDevicePane);
   const actDevicePane = useStore((s) => s.actDevicePane);
   const closeDevicePane = useStore((s) => s.closeDevicePane);
@@ -378,7 +383,7 @@ export function DevicePane({ tabId, placement }: { tabId: string; placement: Dev
     const url = canvas.toDataURL("image/jpeg");
     const comma = url.indexOf(",");
     if (comma === -1 || currentInputIdentity() !== identity) return;
-    queueComposerAttachment(tabId, { type: "image", data: url.slice(comma + 1), mimeType: "image/jpeg" }, t("device.attachment.label", { avd: state?.avd ?? "", serial: state?.serial ?? "" }));
+    queueComposerAttachment(tabId, { type: "image", data: url.slice(comma + 1), mimeType: "image/jpeg" }, `Android emulator ${state?.avd ?? ""} (${state?.serial ?? ""})`);
     setAttachedAt(Date.now());
   };
   const rotate = (rotation: EmulatorRotation): void => {
@@ -400,27 +405,27 @@ export function DevicePane({ tabId, placement }: { tabId: string; placement: Dev
   const foldTarget = state?.posture === "open" ? foldedEndpoint : "open";
   const foldAvailable = foldTarget !== null && supportedPostures.includes(foldTarget);
   const narrow = box === null || box.width < 420;
-  const rotationReason = state?.capabilities.rotation.reason ?? t("device.controls.unavailable");
-  const postureReason = state?.capabilities.postures.reason ?? t("device.controls.unavailable");
+  const rotationReason = state?.capabilities.rotation.reason ?? "Unavailable on this device";
+  const postureReason = state?.capabilities.postures.reason ?? "Unavailable on this device";
   const target = inventory?.targets.find((entry) => entry.serial === state?.serial && entry.avd === state?.avd);
 
   let status: string | null = null;
-  if (ensure === "idle" || ensure === "pending") status = t("device.state.pending");
-  else if (ensure === "update-required") status = t("device.state.updateRequired");
-  else if (ensure === "not-live") status = t("device.state.notLive");
-  else if (state?.operation?.stage === "creating" || phase === "provisioning") status = t("device.state.creating", { avd: state?.operation?.avd ?? state?.avd ?? "" });
-  else if (state?.operation?.stage === "rotating") status = t("device.state.rotating");
-  else if (state?.operation?.stage === "changing-posture") status = t("device.state.changingPosture");
-  else if (state?.operation?.stage === "starting" || phase === "booting") status = t("device.state.booting", { avd: state?.operation?.avd ?? state?.avd ?? "" });
-  else if (state?.operation?.stage === "connecting" || phase === "connecting") status = t("device.state.connecting", { avd: state?.operation?.avd ?? state?.avd ?? state?.serial ?? "" });
-  else if (inventory?.sdk.status === "missing") status = t("device.state.sdkMissing", { missing: inventory.sdk.missing.join(", ") });
-  else if (phase === "error") status = state?.error ?? t("device.state.error");
-  else if (state?.screen === "inactive") status = t("device.state.screenInactive");
-  else if (phase === "unbound") status = t((inventory?.targets.length ?? 0) === 0 ? "device.state.noTargets" : "device.state.unbound");
-  else if (!showFrame) status = t("device.state.noFrames");
-  const lifecycle = status ?? t("hud.status.ready");
-  const subtitle = [instanceId === null ? null : ownerName, target?.api == null ? null : t("device.picker.api", { api: target.api }),
-    lifecycle, state?.agent === "attached" ? t("device.agent.attached") : null].filter(Boolean).join(" · ");
+  if (ensure === "idle" || ensure === "pending") status = "opening the device pane…";
+  else if (ensure === "update-required") status = "Update the owning app to use this device pane.";
+  else if (ensure === "not-live") status = "the session is not running — resume it to use the device pane";
+  else if (state?.operation?.stage === "creating" || phase === "provisioning") status = `Creating ${state?.operation?.avd ?? state?.avd ?? ""}…`;
+  else if (state?.operation?.stage === "rotating") status = "Rotating device…";
+  else if (state?.operation?.stage === "changing-posture") status = "Changing device posture…";
+  else if (state?.operation?.stage === "starting" || phase === "booting") status = `booting ${state?.operation?.avd ?? state?.avd ?? ""}…`;
+  else if (state?.operation?.stage === "connecting" || phase === "connecting") status = `connecting to ${state?.operation?.avd ?? state?.avd ?? state?.serial ?? ""}…`;
+  else if (inventory?.sdk.status === "missing") status = `Android SDK not found (missing: ${inventory.sdk.missing.join(", ")}). Install the SDK platform-tools and emulator, or set ANDROID_HOME to a custom SDK location.`;
+  else if (phase === "error") status = state?.error ?? "the emulator stream stopped — refresh to reconnect";
+  else if (state?.screen === "inactive") status = "Device screen is off";
+  else if (phase === "unbound") status = ((inventory?.targets.length ?? 0) === 0 ? "no emulators or AVDs found — create an AVD, then refresh" : "choose an emulator above to start or connect to it");
+  else if (!showFrame) status = "no frames received yet";
+  const lifecycle = status ?? "ready";
+  const subtitle = [instanceId === null ? null : ownerName, target?.api == null ? null : `API ${target.api}`,
+    lifecycle, state?.agent === "attached" ? "agent connected" : null].filter(Boolean).join(" · ");
   let canvasSize: { width: number; height: number } | undefined;
   if (painted !== null && box !== null && box.width > 0 && box.height > 0) {
     const scale = Math.min(box.width / painted.width, box.height / painted.height);
@@ -433,28 +438,28 @@ export function DevicePane({ tabId, placement }: { tabId: string; placement: Dev
       {acting && <div aria-hidden className="pointer-events-none absolute inset-0 z-10 animate-pulse border border-copper motion-reduce:animate-none" />}
       <header className="relative z-20 shrink-0 border-b border-line bg-sunken">
         <div className="flex min-w-0 items-center px-1">
-          <button type="button" aria-haspopup="dialog" aria-expanded={pickerOpen} aria-label={t("device.toolbar.target")}
+          <button type="button" aria-haspopup="dialog" aria-expanded={pickerOpen} aria-label="emulator"
             disabled={instanceDown || !available} onClick={() => setPickerOpen(true)}
             className="min-h-11 min-w-0 flex-1 rounded-md px-2 py-1 text-left hover:bg-hover focus-visible:outline focus-visible:outline-1 focus-visible:outline-line-strong disabled:text-ink-faint">
-            <span className="block truncate text-sm font-medium text-ink">{target?.friendlyName ?? state?.avd ?? state?.serial ?? t("device.toolbar.choose")}</span>
+            <span className="block truncate text-sm font-medium text-ink">{target?.friendlyName ?? state?.avd ?? state?.serial ?? "choose an emulator"}</span>
             <span className="flex min-w-0 items-center gap-2">
               <span role="status" title={subtitle} className="min-w-0 flex-1 truncate text-xs text-ink-dim">{subtitle}</span>
-              {acting && <span role="status" className="shrink-0 rounded border border-copper/30 px-1 text-xs text-copper">{t("device.agent.acting")}</span>}
+              {acting && <span role="status" className="shrink-0 rounded border border-copper/30 px-1 text-xs text-copper">agent acting</span>}
             </span>
           </button>
           {!narrow && <span className="relative shrink-0">
-            <IconButton label={t("device.toolbar.attach")} disabled={!live} onClick={attach} className={CONTROL_CLASS}><IconAttach /></IconButton>
+            <IconButton label="attach screen to prompt" disabled={!live} onClick={attach} className={CONTROL_CLASS}><IconAttach /></IconButton>
           </span>}
-          {attachedAt !== 0 && <span role="status" className="pointer-events-none absolute right-0 top-full z-30 rounded-md border border-line bg-overlay px-2 py-1 text-xs text-ink-mid">{t("device.toolbar.attached")}</span>}
+          {attachedAt !== 0 && <span role="status" className="pointer-events-none absolute right-0 top-full z-30 rounded-md border border-line bg-overlay px-2 py-1 text-xs text-ink-mid">screenshot added to the composer</span>}
           {placement !== "sheet" && <>
-            {!narrow && <IconButton label={placement === "column" ? t("device.toolbar.split") : t("device.toolbar.fullscreen")} disabled={forcedColumn}
+            {!narrow && <IconButton label={placement === "column" ? "back to split view" : "fill the column"} disabled={forcedColumn}
               onClick={() => setDevicePaneFullscreen(tabId, placement !== "column")} className={CONTROL_CLASS}>{placement === "column" ? <IconSplit /> : <IconFullscreen />}</IconButton>}
-            <IconButton label={t("device.toolbar.close")} onClick={() => closeDevicePane(tabId)} className={CONTROL_CLASS}><IconClose className="size-3" /></IconButton>
+            <IconButton label="close device pane" onClick={() => closeDevicePane(tabId)} className={CONTROL_CLASS}><IconClose className="size-3" /></IconButton>
           </>}
             <div ref={menuRoot} className="relative shrink-0">
-              <button ref={menuTrigger} type="button" aria-label={t("device.toolbar.more")} title={t("device.toolbar.more")} aria-haspopup="menu" aria-expanded={menuOpen}
+              <button ref={menuTrigger} type="button" aria-label="More device controls" title="More device controls" aria-haspopup="menu" aria-expanded={menuOpen}
                 onClick={() => setMenuOpen((open) => !open)} className="grid size-11 place-items-center rounded-md text-ink-dim hover:bg-hover hover:text-ink focus-visible:outline focus-visible:outline-1 focus-visible:outline-line-strong"><IconMore /></button>
-              {menuOpen && <div ref={menuRef} role="menu" aria-label={t("device.toolbar.more")}
+              {menuOpen && <div ref={menuRef} role="menu" aria-label="More device controls"
                 style={menuMaxHeight === undefined ? undefined : { maxHeight: `min(32rem, ${menuMaxHeight}px)` }}
                 className="absolute right-0 top-full z-30 mt-1 flex max-h-[min(32rem,60dvh)] w-[min(18rem,calc(100vw-1rem))] flex-col overflow-y-auto rounded-md border border-line-strong bg-overlay p-1 shadow-lg [&_button]:min-h-11"
                 onKeyDown={(event) => {
@@ -465,56 +470,56 @@ export function DevicePane({ tabId, placement }: { tabId: string; placement: Dev
                   if (next >= 0) { event.preventDefault(); items[next]?.focus(); }
                 }}>
                 {narrow && <>
-                  <MenuRow glyph={<IconAttach />} label={t("device.toolbar.attach")} disabled={!live} onClick={() => { closeMenu(); attach(); }} />
-                  {placement !== "sheet" && <MenuRow glyph={placement === "column" ? <IconSplit /> : <IconFullscreen />} label={t(placement === "column" ? "device.toolbar.split" : "device.toolbar.fullscreen")} disabled={forcedColumn}
+                  <MenuRow glyph={<IconAttach />} label="attach screen to prompt" disabled={!live} onClick={() => { closeMenu(); attach(); }} />
+                  {placement !== "sheet" && <MenuRow glyph={placement === "column" ? <IconSplit /> : <IconFullscreen />} label={placement === "column" ? "back to split view" : "fill the column"} disabled={forcedColumn}
                     onClick={() => { closeMenu(); setDevicePaneFullscreen(tabId, placement !== "column"); }} />}
                 </>}
-                <MenuRow glyph={<IconRefresh />} label={t("device.toolbar.refresh")} disabled={instanceDown || busy} onClick={() => { closeMenu(); void refresh(); }} />
-                <Label className="px-2 pb-1 pt-2">{t("device.toolbar.rotationHeading")}</Label>
+                <MenuRow glyph={<IconRefresh />} label="refresh emulators" disabled={instanceDown || busy} onClick={() => { closeMenu(); void refresh(); }} />
+                <Label className="px-2 pb-1 pt-2">Rotation</Label>
                 {!rotationAvailable && <p className="px-2 text-xs text-ink-dim">{rotationReason}</p>}
-                {([0, 1, 2, 3] as const).map((rotation) => <MenuRow key={rotation} label={t("device.toolbar.rotation", { degrees: rotation * 90 })} hint={state?.rotation === rotation ? "✓" : undefined}
+                {([0, 1, 2, 3] as const).map((rotation) => <MenuRow key={rotation} label={`Rotation ${rotation * 90}°`} hint={state?.rotation === rotation ? "✓" : undefined}
                   disabled={controlsDisabled || !rotationAvailable} onClick={() => rotate(rotation)} />)}
-                <Label className="px-2 pb-1 pt-2">{t("device.toolbar.postures")}</Label>
+                <Label className="px-2 pb-1 pt-2">Device posture</Label>
                 {supportedPostures.length === 0 && <p className="px-2 text-xs text-ink-dim">{postureReason}</p>}
-                {supportedPostures.map((posture) => <MenuRow key={posture} label={t(`device.posture.${posture}`)} hint={state?.posture === posture ? "✓" : undefined}
+                {supportedPostures.map((posture) => <MenuRow key={posture} label={POSTURE_LABEL[posture]} hint={state?.posture === posture ? "✓" : undefined}
                   disabled={controlsDisabled} onClick={() => setPosture(posture)} />)}
-                {target?.layoutReference && <p className="px-2 py-2 text-xs text-ink-dim">{t("device.picker.layoutReference", { name: target.layoutReference })} · {t("device.picker.screenSizeOnly")}</p>}
+                {target?.layoutReference && <p className="px-2 py-2 text-xs text-ink-dim">{`Layout reference: ${target.layoutReference}`} · Screen size only — does not fold</p>}
                 <div className="my-1 border-t border-line" />
-                <MenuRow label={t("device.toolbar.disconnect")} disabled={!bound || busy} onClick={() => {
+                <MenuRow label="Disconnect" disabled={!bound || busy} onClick={() => {
                   closeMenu();
                   if (state?.bindingId == null) return;
                   releaseAll();
                   void actDevicePane(tabId, { action: "unbind", bindingId: state.bindingId });
                 }} />
-                <MenuRow glyph={<IconPower />} label={t("device.toolbar.powerOff")} disabled={!bound || busy} onClick={() => {
+                <MenuRow glyph={<IconPower />} label="power off emulator" disabled={!bound || busy} onClick={() => {
                   closeMenu();
                   if (state?.bindingId != null) setConfirmPowerOff({ bindingId: state.bindingId, avd: state.avd ?? state.serial ?? "" });
                 }} />
               </div>}
             </div>
         </div>
-        <div className={cn("flex min-w-0 border-t border-line px-1", narrow ? "flex-col items-stretch" : "items-center justify-between")} role="toolbar" aria-label={t("device.surface.label")}>
+        <div className={cn("flex min-w-0 border-t border-line px-1", narrow ? "flex-col items-stretch" : "items-center justify-between")} role="toolbar" aria-label="Android emulator — touches and keys go to the device">
           <div className="flex shrink-0">
-            <IconButton label={t("device.toolbar.back")} disabled={!live} onClick={() => pressButton("back")} className={CONTROL_CLASS}><IconBack /></IconButton>
-            <IconButton label={t("device.toolbar.home")} disabled={!live} onClick={() => pressButton("home")} className={CONTROL_CLASS}><IconHome /></IconButton>
-            <IconButton label={t("device.toolbar.recents")} disabled={!live} onClick={() => pressButton("recents")} className={CONTROL_CLASS}><IconRecents /></IconButton>
+            <IconButton label="Android back" disabled={!live} onClick={() => pressButton("back")} className={CONTROL_CLASS}><IconBack /></IconButton>
+            <IconButton label="Android home" disabled={!live} onClick={() => pressButton("home")} className={CONTROL_CLASS}><IconHome /></IconButton>
+            <IconButton label="Android recent apps" disabled={!live} onClick={() => pressButton("recents")} className={CONTROL_CLASS}><IconRecents /></IconButton>
           </div>
           <div className={cn("flex min-w-0 items-center", narrow ? "border-t border-line" : "border-l border-line pl-0.5")}>
-            <IconButton label={rotationAvailable ? t("device.toolbar.rotateLeft") : `${t("device.toolbar.rotateLeft")}: ${rotationReason}`} disabled={controlsDisabled || !rotationAvailable}
+            <IconButton label={rotationAvailable ? "Rotate left" : `${"Rotate left"}: ${rotationReason}`} disabled={controlsDisabled || !rotationAvailable}
               onClick={() => { if (state?.rotation != null) rotate(((state.rotation + 1) % 4) as EmulatorRotation); }} className={CONTROL_CLASS}><IconRotate /></IconButton>
-            <IconButton label={rotationAvailable ? t("device.toolbar.rotateRight") : `${t("device.toolbar.rotateRight")}: ${rotationReason}`} disabled={controlsDisabled || !rotationAvailable}
+            <IconButton label={rotationAvailable ? "Rotate right" : `${"Rotate right"}: ${rotationReason}`} disabled={controlsDisabled || !rotationAvailable}
               onClick={() => { if (state?.rotation != null) rotate(((state.rotation + 3) % 4) as EmulatorRotation); }} className={CONTROL_CLASS}><IconRotate right /></IconButton>
             {supportedPostures.length > 0 && <>
-              <button type="button" aria-label={t(foldTarget === "open" ? "device.toolbar.unfold" : "device.toolbar.fold")}
+              <button type="button" aria-label={foldTarget === "open" ? "Unfold" : "Fold"}
                 disabled={controlsDisabled || !foldAvailable} onClick={() => { if (foldTarget !== null) setPosture(foldTarget); }}
                 className="flex min-h-11 min-w-11 shrink-0 items-center gap-1 whitespace-nowrap rounded-md px-1 text-xs text-ink-dim hover:bg-hover focus-visible:outline focus-visible:outline-1 focus-visible:outline-line-strong disabled:opacity-50">
-                <IconFold />{state?.posture != null && t(`device.posture.${state.posture}`)}
+                <IconFold />{state?.posture != null && POSTURE_LABEL[state.posture]}
               </button>
-              <select aria-label={t("device.toolbar.postures")} value={state?.posture ?? ""} disabled={controlsDisabled}
+              <select aria-label="Device posture" value={state?.posture ?? ""} disabled={controlsDisabled}
                 onChange={(event) => setPosture(event.target.value as EmulatorPosture)}
                 className="min-h-11 w-0 min-w-11 flex-1 rounded-md border border-line bg-sunken px-1 text-xs text-ink focus-visible:outline focus-visible:outline-1 focus-visible:outline-line-strong">
-                {!supportedPostures.includes(state?.posture as EmulatorPosture) && <option value="" disabled>{t("device.toolbar.postures")}</option>}
-                {supportedPostures.map((posture) => <option key={posture} value={posture}>{t(`device.posture.${posture}`)}</option>)}
+                {!supportedPostures.includes(state?.posture as EmulatorPosture) && <option value="" disabled>Device posture</option>}
+                {supportedPostures.map((posture) => <option key={posture} value={posture}>{POSTURE_LABEL[posture]}</option>)}
               </select>
             </>}
           </div>
@@ -522,10 +527,10 @@ export function DevicePane({ tabId, placement }: { tabId: string; placement: Dev
       </header>
       {state?.actionError && <div role="alert" className="flex shrink-0 flex-wrap items-center gap-x-3 border-b border-line bg-sunken px-3 py-2 text-xs">
         <p className="min-w-0 flex-1 basis-full break-words text-rose">{state.actionError}</p>
-        <Button onClick={() => void refresh()} disabled={instanceDown || busy} className="min-h-11">{t("device.toolbar.refresh")}</Button>
-        <Button onClick={() => setPickerOpen(true)} disabled={instanceDown || !available || busy} className="min-h-11">{t("device.toolbar.choose")}</Button>
+        <Button onClick={() => void refresh()} disabled={instanceDown || busy} className="min-h-11">refresh emulators</Button>
+        <Button onClick={() => setPickerOpen(true)} disabled={instanceDown || !available || busy} className="min-h-11">choose an emulator</Button>
       </div>}
-      <div ref={hostRef} tabIndex={0} role="group" aria-label={t("device.surface.label")}
+      <div ref={hostRef} tabIndex={0} role="group" aria-label="Android emulator — touches and keys go to the device"
         onFocus={(event) => { if (event.target === event.currentTarget) proxyRef.current?.focus({ preventScroll: true }); }}
         className="relative flex min-h-0 flex-1 items-center justify-center overflow-hidden bg-void outline-none focus-within:ring-1 focus-within:ring-inset focus-within:ring-line-strong">
         <canvas ref={canvasRef} style={{ ...canvasSize, visibility: showFrame ? "visible" : "hidden" }} className={cn("block touch-none", live ? "cursor-default" : "cursor-not-allowed")}
@@ -535,16 +540,16 @@ export function DevicePane({ tabId, placement }: { tabId: string; placement: Dev
           onBlur={releaseAll} onPaste={(event) => { event.preventDefault(); if (live) sendText(event.clipboardData.getData("text")); }}
           onCompositionStart={() => { composition.current = live ? currentInputIdentity() : null; }} onCompositionEnd={onCompositionEnd} />
         {(instanceDown || status !== null) && <div role="status" className="absolute inset-x-4 top-1/2 flex -translate-y-1/2 flex-col items-center gap-3 text-center text-xs leading-relaxed text-ink-dim">
-          <p>{instanceDown ? t("device.state.instanceDown") : status}</p>
-          {available && !instanceDown && phase === "unbound" && <Button onClick={() => setPickerOpen(true)} className="min-h-11">{t("device.toolbar.choose")}</Button>}
-          {!instanceDown && phase === "error" && <Button onClick={() => void refresh()} disabled={busy} className="min-h-11">{t("device.toolbar.refresh")}</Button>}
+          <p>{instanceDown ? "showing the last frame while the instance is unreachable" : status}</p>
+          {available && !instanceDown && phase === "unbound" && <Button onClick={() => setPickerOpen(true)} className="min-h-11">choose an emulator</Button>}
+          {!instanceDown && phase === "error" && <Button onClick={() => void refresh()} disabled={busy} className="min-h-11">refresh emulators</Button>}
         </div>}
       </div>
       {pickerOpen && <DevicePicker inventory={inventory} state={state} ownerName={ownerName} disabled={instanceDown || !available}
         onAction={(action) => { releaseAll(); void actDevicePane(tabId, action); }} onRefresh={() => void refresh()} onClose={() => setPickerOpen(false)} />}
-      {confirmPowerOff !== null && <ConfirmDialog kicker={t("device.powerOff.kicker")} title={t("device.powerOff.title", { avd: confirmPowerOff.avd })} tone="rose"
+      {confirmPowerOff !== null && <ConfirmDialog kicker="device pane" title={`Power off ${confirmPowerOff.avd}?`} tone="rose"
         onClose={() => setConfirmPowerOff(null)} actions={<>
-          <Button onClick={() => setConfirmPowerOff(null)} className="min-h-11">{t("common.dialog.cancel")}</Button>
+          <Button onClick={() => setConfirmPowerOff(null)} className="min-h-11">Cancel</Button>
           <Button tone="rose" disabled={!confirmationCurrent} className="min-h-11" onClick={() => {
             const captured = confirmPowerOff;
             setConfirmPowerOff(null);
@@ -552,10 +557,10 @@ export function DevicePane({ tabId, placement }: { tabId: string; placement: Dev
             if (current == null || captured.bindingId !== current.bindingId || current.operation !== null || current.agent === "acting" || instanceDown) return;
             releaseAll();
             void actDevicePane(tabId, { action: "power-off", bindingId: captured.bindingId });
-          }}>{t("device.powerOff.confirm")}</Button>
+          }}>Power off</Button>
         </>}>
-        <p className="text-xs leading-relaxed text-ink-mid">{t("device.powerOff.body")}</p>
-        {!confirmationCurrent && <p role="status" className="mt-3 text-xs text-rose">{t("device.powerOff.changed")}</p>}
+        <p className="text-xs leading-relaxed text-ink-mid">The emulator shuts down for every session using it. Unsaved app state on the device is lost; choosing it again boots it fresh.</p>
+        {!confirmationCurrent && <p role="status" className="mt-3 text-xs text-rose">The connected device changed. Close this dialog and try again.</p>}
       </ConfirmDialog>}
     </div>
   );

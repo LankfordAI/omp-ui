@@ -4,7 +4,6 @@
 // refusal sentence rendered verbatim. The roster stays the status truth — a
 // cancel's aborted lifecycle frame and the follow-up get_subagents retire the row.
 import type { SessionCommand } from "@omp-ui/core/session-command";
-import { t } from "../../lib/i18n";
 import type { SubagentControlAction, UiStore } from "../types";
 import { RpcCommandAbandonedError, type GetState, type StoreMachinery } from "./shared";
 
@@ -50,7 +49,7 @@ export function createSubagentControlSlice(
       const message = err instanceof Error ? err.message : String(err);
       m.patchRpc(tabId, {
         subagentControlError: message.startsWith(UNKNOWN_COMMAND_PREFIX)
-          ? t("rail.agents.needsNewerOmp")
+          ? "this omp has no subagent controls — update omp to 18.4.9 or later"
           : message,
       });
     } finally {

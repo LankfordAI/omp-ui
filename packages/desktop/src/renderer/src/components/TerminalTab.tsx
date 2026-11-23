@@ -23,7 +23,6 @@ import {
   type CreatedTerminal,
 } from "../lib/terminal";
 import { findInstance, findOwner, registerTermWriter, useStore } from "../store";
-import { useT } from "../lib/i18n";
 import { useTerminalCopyMenu } from "./useTerminalCopyMenu";
 import { FindBar } from "./FindBar";
 import { RemoteInstanceBanner } from "./RemoteInstanceBanner";
@@ -71,7 +70,6 @@ export const TerminalTab = memo(function TerminalTab({ tabId, active }: { tabId:
   activeRef.current = active;
   /** Set by the mount effect: parses whatever bytes arrived while hidden. */
   const flushPendingRef = useRef<(() => void) | null>(null);
-  const t = useT();
   const hostRef = useRef<HTMLDivElement>(null);
   const termRef = useRef<(CreatedTerminal & { search: SearchAddon }) | null>(null);
   const filePickerRef = useRef<HTMLInputElement>(null);
@@ -155,21 +153,21 @@ export const TerminalTab = memo(function TerminalTab({ tabId, active }: { tabId:
         if (sent > 0) {
           parts.push(
             sent === 1
-              ? t("terminal.note.attached", { n: sent })
-              : t("terminal.note.attachedPlural", { n: sent }),
+              ? `attached ${sent} image`
+              : `attached ${sent} images`,
           );
         }
         if (sentDocs > 0) {
           parts.push(
             sentDocs === 1
-              ? t("terminal.note.attachedDocument", { n: sentDocs })
-              : t("terminal.note.attachedDocuments", { n: sentDocs }),
+              ? `attached ${sentDocs} document`
+              : `attached ${sentDocs} documents`,
           );
         }
         setNote({ text: parts.join(" \u00b7 "), bad: false });
       }
     },
-    [tabId, t],
+    [tabId],
   );
 
   const pasteAttachments = useCallback(
@@ -410,10 +408,10 @@ export const TerminalTab = memo(function TerminalTab({ tabId, active }: { tabId:
               variant="outline"
               tone="neutral"
               className="bg-surface/90 backdrop-glass max-[899px]:h-11 max-[899px]:px-3"
-              title={t("terminal.tab.shareLiveTitle")}
+              title="host a live Collab room from this terminal session"
               onClick={() => shareLive(tabId)}
             >
-              {t("terminal.tab.shareLive")}
+              share live
             </Button>
           )
         )}
@@ -437,7 +435,7 @@ export const TerminalTab = memo(function TerminalTab({ tabId, active }: { tabId:
               strokeLinejoin="round"
             />
           </svg>
-          {t("terminal.tab.attachFiles")}
+          attach files
         </Button>
       </span>
       <input
@@ -464,7 +462,7 @@ export const TerminalTab = memo(function TerminalTab({ tabId, active }: { tabId:
             {note.text}
           </span>
           <IconButton
-            label={t("terminal.note.dismiss")}
+            label="dismiss"
             tone={note.bad ? "rose" : "signal"}
             onClick={() => setNote(null)}
           >
@@ -475,22 +473,22 @@ export const TerminalTab = memo(function TerminalTab({ tabId, active }: { tabId:
       {exitCode !== undefined && (
         <div className="absolute inset-0 z-10 flex flex-col items-center justify-center gap-3 bg-void/85 backdrop-glass">
           <p className="text-sm text-ink-mid">
-            {t("terminal.tab.exited")}{" "}
+            agent exited{" "}
             <span className="font-mono tabular-nums text-rose">
-              {t("terminal.tab.exitedCode", { code: exitCode })}
+              {`(code ${exitCode})`}
             </span>
           </p>
           <Button tone="signal" variant="outline" onClick={() => void resumeDead(tabId)}>
-            {t("terminal.tab.resume")}
+            resume session
           </Button>
           {canRestore && (
             <Button
               tone="signal"
               variant="solid"
-              title={t("terminal.tab.restoreHint")}
+              title="continue the interrupted turn and its subagents, not just the transcript"
               onClick={() => void resumeDead(tabId, { restore: true })}
             >
-              {t("terminal.tab.restore")}
+              restore session
             </Button>
           )}
         </div>

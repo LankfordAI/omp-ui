@@ -1,7 +1,6 @@
 import { useEffect, useRef } from "react";
 import { createPortal } from "react-dom";
 import { cn } from "../lib/cn";
-import { useT } from "../lib/i18n";
 import { useDismissal } from "../lib/use-dismissal";
 import { Panel } from "./ui";
 
@@ -44,7 +43,6 @@ export function SelectionContextMenu({
   onComment?: (() => void) | null;
   onClose: () => void;
 }) {
-  const t = useT();
   const menuRef = useRef<HTMLDivElement>(null);
 
   // Focus the first item on open (mount-only: re-running on parent re-renders
@@ -80,7 +78,7 @@ export function SelectionContextMenu({
             onClose();
           }}
         >
-          {t("selection.contextmenu.copy")}
+          Copy
         </button>
         {markdown !== null && copyMarkdown !== null && (
           <button
@@ -92,7 +90,7 @@ export function SelectionContextMenu({
               onClose();
             }}
           >
-            {t("selection.contextmenu.copyMarkdown")}
+            Copy as Markdown
           </button>
         )}
         {onComment !== null && (
@@ -105,7 +103,7 @@ export function SelectionContextMenu({
               onComment();
             }}
           >
-            {t("selection.contextmenu.comment")}
+            Comment…
           </button>
         )}
       </Panel>

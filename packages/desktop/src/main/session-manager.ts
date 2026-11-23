@@ -7,7 +7,6 @@ import {
   base64Bytes,
   bracketedImagePaste,
   browserPaneSetMessage,
-  browserClockText,
   capabilityToolMutationMessage,
   askContextArmMessage,
   askContextText,
@@ -554,7 +553,6 @@ export class SessionManager {
       send: deps.send,
       ...deps.browserPane,
       clockEnabled: (tabId) => this.browserClockEnabled(tabId),
-      clockText: () => browserClockText(new Date(), deps.registry.getSetting("localeId")),
     });
     this.devicePanes = new DevicePaneHost({ send: deps.send, ...deps.devicePane });
     this.watcherHub = new WatcherHub({

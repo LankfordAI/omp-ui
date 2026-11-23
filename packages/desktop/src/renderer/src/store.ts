@@ -22,7 +22,6 @@ import {
   resolveGlassChrome,
 } from "./lib/glass-chrome";
 import { applyBackdropMotion, currentBackdropMotion } from "./lib/backdrop-motion";
-import { applyLocale, currentLocaleId, resolveLocale } from "./lib/i18n";
 import { createBranchesSlice } from "./store/slices/branches";
 import { createBrowserPaneSlice } from "./store/slices/browser-pane";
 import { createDevicePaneSlice } from "./store/slices/device-pane";
@@ -272,15 +271,6 @@ export const useStore = create<UiStore>()((set, get, api) => {
   };
 
   /**
-   * Re-applies the registry's persisted localeId — the same
-   * registry-authoritative, localStorage-mirror split as syncTheme.
-   */
-  const syncLocale = (s: BackendState): void => {
-    const l = resolveLocale(s.localeId);
-    if (l.id !== currentLocaleId()) applyLocale(l);
-  };
-
-  /**
    * Reconciles mounted tabs with the authoritative project snapshot. Local
    * tabs follow the local registry. Joined remote instances are authoritative
    * for their sessions, while unreachable instances retain their last-known
@@ -435,7 +425,6 @@ export const useStore = create<UiStore>()((set, get, api) => {
     syncTranscriptWidth(state);
     syncGlassChrome(state);
     syncBackdropMotion(state);
-    syncLocale(state);
     reconcilePlanGates(state);
     reconcileBridgeAvailability(state);
     // A deleted session holds no mark (issue #1037): the registry is the

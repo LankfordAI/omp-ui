@@ -1,5 +1,4 @@
 import { useState, type ReactNode } from "react";
-import { useT } from "../lib/i18n";
 import { PROMOTE_QUEUED_MIN_OMP, queueEntryDisplayText, RESTORE_QUEUE_MIN_OMP, supportsPromoteQueued, supportsRestoreQueue } from "../lib/queue-chip";
 import { useStore } from "../store";
 import { Button, Label } from "./ui";
@@ -19,7 +18,6 @@ import { Button, Label } from "./ui";
  * blind would only ever fail, and hiding it would leave no upgrade hint.
  */
 export function QueuedMessageList({ tabId, disabled }: { tabId: string; disabled: boolean }) {
-  const t = useT();
   const queued = useStore((s) => s.rpc[tabId]?.session.queuedMessages ?? null);
   const count = useStore((s) => s.rpc[tabId]?.session.queuedMessageCount ?? 0);
   const running = useStore((s) => s.rpc[tabId]?.status === "running");
@@ -51,13 +49,13 @@ export function QueuedMessageList({ tabId, disabled }: { tabId: string; disabled
   return (
     <div className="flex flex-col gap-2">
       {queued.steering.length > 0 && (
-        <section className="flex flex-col gap-1" title={t("composer.queue.steeringTitle")}>
-          <Label>{t("composer.queue.steering")}</Label>
+        <section className="flex flex-col gap-1" title="steers reach the agent at the next tool boundary — GPT models over the Codex WebSocket take them mid-response only when providers.openaiLiveSteering is on (Settings → omp → Providers)">
+          <Label>steering</Label>
           {queued.steering.map((raw, index) => (
             <QueueRow key={`steering-${index}`} raw={raw}>
               <EditButton
                 disabled={disabled || !canEdit}
-                title={canEdit ? t("composer.queue.editTitle") : t("composer.queue.needsNewerOmp", { version: RESTORE_QUEUE_MIN_OMP })}
+                title={canEdit ? "remove from the queue and return to the draft" : `this omp does not support this queue action — update omp to ${RESTORE_QUEUE_MIN_OMP} or later`}
                 pending={pending !== null}
                 onEdit={() => void edit(index, raw, "steering")}
               />
@@ -67,22 +65,22 @@ export function QueuedMessageList({ tabId, disabled }: { tabId: string; disabled
       )}
       {queued.followUp.length > 0 && (
         <section className="flex flex-col gap-1">
-          <Label>{t("composer.queue.followUp")}</Label>
+          <Label>follow-up</Label>
           {queued.followUp.map((raw, index) => (
             <QueueRow key={`followUp-${index}`} raw={raw}>
               <Button
                 size="xs"
                 tone="copper"
                 disabled={disabled || pending !== null || !canPromote}
-                title={canPromote ? (running ? t("composer.queue.promoteTitleRunning") : t("composer.queue.promoteTitleIdle")) : t("composer.queue.needsNewerOmp", { version: PROMOTE_QUEUED_MIN_OMP })}
+                title={canPromote ? (running ? "move to steering — delivered at the next tool boundary" : "move to steering and start a turn now") : `this omp does not support this queue action — update omp to ${PROMOTE_QUEUED_MIN_OMP} or later`}
                 onClick={() => void promote(index, raw)}
                 className="shrink-0"
               >
-                {t("composer.queue.promote")}
+                promote
               </Button>
               <EditButton
                 disabled={disabled || !canEdit}
-                title={canEdit ? t("composer.queue.editTitle") : t("composer.queue.needsNewerOmp", { version: RESTORE_QUEUE_MIN_OMP })}
+                title={canEdit ? "remove from the queue and return to the draft" : `this omp does not support this queue action — update omp to ${RESTORE_QUEUE_MIN_OMP} or later`}
                 pending={pending !== null}
                 onEdit={() => void edit(index, raw, "followUp")}
               />
@@ -91,7 +89,7 @@ export function QueuedMessageList({ tabId, disabled }: { tabId: string; disabled
         </section>
       )}
       {unlisted > 0 && (
-        <p className="font-mono text-xs text-ink-faint">{t("composer.queue.unlisted", { n: unlisted })}</p>
+        <p className="font-mono text-xs text-ink-faint">{`+${unlisted} more queued (advisor cards, deferred items)`}</p>
       )}
     </div>
   );
@@ -121,7 +119,6 @@ function EditButton({
   pending: boolean;
   onEdit: () => void;
 }) {
-  const t = useT();
   return (
     <Button
       size="xs"
@@ -131,7 +128,7 @@ function EditButton({
       onClick={onEdit}
       className="shrink-0"
     >
-      {t("composer.queue.edit")}
+      edit
     </Button>
   );
 }

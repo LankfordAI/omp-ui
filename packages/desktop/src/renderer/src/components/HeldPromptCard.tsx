@@ -1,5 +1,4 @@
 import { useEffect, useState } from "react";
-import { localeTag, useT } from "../lib/i18n";
 import { formatSnoozeUntil } from "../lib/snooze-until";
 import { startVisibleInterval } from "../lib/visible-interval";
 import { findRecord, useStore } from "../store";
@@ -16,7 +15,6 @@ const HELD_PROMPT_TICK_MS = 30_000;
  * same card.
  */
 export function HeldPromptCard({ tabId }: { tabId: string }) {
-  const t = useT();
   const held = useStore((s) => findRecord(s.state, tabId)?.heldPrompt ?? null);
   const cancelHeldPrompt = useStore((s) => s.cancelHeldPrompt);
   const sendHeldPromptNow = useStore((s) => s.sendHeldPromptNow);
@@ -28,30 +26,30 @@ export function HeldPromptCard({ tabId }: { tabId: string }) {
   if (held == null) return null;
   const sent = held.sentAtMs !== null;
   const status = sent
-    ? t("transcript.heldPrompt.sent")
+    ? "sent — waiting for the turn to end"
     : held.error !== null
-      ? t("transcript.heldPrompt.failed", { error: held.error })
+      ? `not sent: ${held.error}`
       : held.sendAtMs === null
-        ? t("transcript.heldPrompt.waiting")
+        ? "hit the usage limit again — waiting for the next reported reset"
         : held.sendAtMs <= now
-          ? t("transcript.heldPrompt.due")
-          : t("transcript.heldPrompt.at", { when: formatSnoozeUntil(held.sendAtMs, new Date(now), localeTag()) });
+          ? "sending…"
+          : `sends ${formatSnoozeUntil(held.sendAtMs, new Date(now))}`;
   const attachments = [
-    held.imageCount > 0 ? t("transcript.heldPrompt.images", { count: held.imageCount }) : null,
-    held.documentCount > 0 ? t("transcript.heldPrompt.documents", { count: held.documentCount }) : null,
+    held.imageCount > 0 ? `images: ${held.imageCount}` : null,
+    held.documentCount > 0 ? `documents: ${held.documentCount}` : null,
   ].filter((part) => part !== null);
   return (
     <div data-held-prompt className="animate-rise rounded-md border border-copper-dim/60 bg-raised px-2.5 py-1.5">
       <div className="flex flex-wrap items-center gap-1.5 text-xs">
-        <Chip tone="copper">{t("transcript.heldPrompt.label")}</Chip>
+        <Chip tone="copper">Send at reset</Chip>
         <span className="min-w-0 flex-1 truncate text-ink-mid">{status}</span>
         {!sent && (
           <>
             <Button size="xs" variant="ghost" onClick={() => void cancelHeldPrompt(tabId)}>
-              {t("transcript.heldPrompt.cancel")}
+              cancel
             </Button>
             <Button size="xs" tone="copper" onClick={() => void sendHeldPromptNow(tabId)}>
-              {t("transcript.heldPrompt.sendNow")}
+              send now
             </Button>
           </>
         )}
@@ -61,7 +59,7 @@ export function HeldPromptCard({ tabId }: { tabId: string }) {
       )}
       {attachments.length > 0 && <p className="mt-0.5 text-xs text-ink-dim">{attachments.join(" · ")}</p>}
       {held.attempts > 0 && !sent && (
-        <p className="mt-0.5 text-xs text-ink-dim">{t("transcript.heldPrompt.attempts", { count: held.attempts })}</p>
+        <p className="mt-0.5 text-xs text-ink-dim">{`re-armed after the limit: ${held.attempts}`}</p>
       )}
     </div>
   );

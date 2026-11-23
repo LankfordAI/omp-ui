@@ -1,7 +1,6 @@
 import { useEffect } from "react";
 import type { ProjectGroup } from "@omp-ui/core/types";
 import { experimentSession } from "../../lib/experiment-link";
-import { useT } from "../../lib/i18n";
 import { projectKey } from "../../lib/project-key";
 import { useStore } from "../../store";
 import type { LabView } from "../../store/types";
@@ -29,7 +28,6 @@ const EMPTY_SCOPE: readonly ScopedProject[] = [];
  * a linked session as omp's own command or a prompt.
  */
 export function Lab({ view }: { view: LabView }) {
-  const t = useT();
   // The registry snapshot is the one input; projects derive from it on
   // every state tick, which is what keeps a newly registered project in scope.
   const state = useStore((s) => s.state);
@@ -76,14 +74,14 @@ export function Lab({ view }: { view: LabView }) {
   return (
     <div className="absolute inset-0 overflow-auto bg-void text-ink">
       <header className="sticky top-0 z-10 flex h-9 items-center gap-2 border-b border-line chrome-void px-3">
-        <Label>{t("lab.header.title")}</Label>
+        <Label>lab</Label>
         {view.experiment !== null && (
           <Button variant="ghost" size="xs" onClick={() => openLab(view.projectCwd, view.instanceId)}>
-            ← {t("lab.detail.back")}
+            ← experiments
           </Button>
         )}
         <select
-          aria-label={t("lab.header.scope")}
+          aria-label="project scope"
           value={scopeKey}
           onChange={(event) => {
             const picked = all.find((p) => p.key === event.target.value);
@@ -92,7 +90,7 @@ export function Lab({ view }: { view: LabView }) {
           }}
           className="h-6 max-w-[16rem] rounded-md border border-line bg-raised px-1.5 text-xs text-ink-mid"
         >
-          <option value="">{t("lab.header.allProjects")}</option>
+          <option value="">all projects</option>
           {all.map((p) => (
             <option key={p.key} value={p.key}>
               {p.label}
@@ -100,7 +98,7 @@ export function Lab({ view }: { view: LabView }) {
           ))}
         </select>
         <span className="flex-1" />
-        <IconButton label={t("lab.header.refresh")} onClick={refresh}>
+        <IconButton label="refresh experiments" onClick={refresh}>
           <IconRefresh />
         </IconButton>
         <Button
@@ -108,14 +106,14 @@ export function Lab({ view }: { view: LabView }) {
           variant="solid"
           size="xs"
           disabled={view.projectCwd === null}
-          title={view.projectCwd === null ? t("lab.header.newExperimentScopeHint") : undefined}
+          title={view.projectCwd === null ? "scope the Lab to one project to start an experiment in it" : undefined}
           onClick={() => {
             if (view.projectCwd !== null) openExperimentDialog(view.projectCwd, view.instanceId);
           }}
         >
-          {t("lab.header.newExperiment")}
+          New experiment
         </Button>
-        <IconButton label={t("lab.header.close")} onClick={closeLab}>
+        <IconButton label="close the Lab" onClick={closeLab}>
           <IconClose className="size-3.5" />
         </IconButton>
       </header>
@@ -126,7 +124,7 @@ export function Lab({ view }: { view: LabView }) {
           {scoped.map((p) => (
             <ProjectExperimentsSection key={p.key} project={p} />
           ))}
-          {scoped.length === 0 && <p className="py-10 text-center text-xs text-ink-faint">{t("lab.overview.empty")}</p>}
+          {scoped.length === 0 && <p className="py-10 text-center text-xs text-ink-faint">No experiments yet. Start one with New experiment or /autoresearch start in a session.</p>}
         </div>
       )}
     </div>
@@ -134,7 +132,6 @@ export function Lab({ view }: { view: LabView }) {
 }
 
 function ProjectExperimentsSection({ project }: { project: ScopedProject }) {
-  const t = useT();
   const { group, instanceId, key } = project;
   const cache = useStore((s) => s.experiments[key]);
   const rpc = useStore((s) => s.rpc);
@@ -151,9 +148,9 @@ function ProjectExperimentsSection({ project }: { project: ScopedProject }) {
       <div className="flex items-baseline gap-2">
         <h2 className="text-sm font-semibold">{project.label}</h2>
         <span className="min-w-0 flex-1 truncate font-mono text-xs text-ink-faint">{group.project.path}</span>
-        {cache?.load === "loading" && <span className="text-xs text-ink-faint">{t("lab.overview.loading")}</span>}
+        {cache?.load === "loading" && <span className="text-xs text-ink-faint">reading experiments…</span>}
       </div>
-      {unsupported && <p className="text-xs text-ink-faint">{t("lab.overview.unsupportedHost")}</p>}
+      {unsupported && <p className="text-xs text-ink-faint">this host does not support experiments</p>}
       {!unsupported && cache?.error !== null && cache?.error !== undefined && (
         <p className="text-xs text-rose">{cache.error}</p>
       )}
@@ -161,7 +158,7 @@ function ProjectExperimentsSection({ project }: { project: ScopedProject }) {
         (checkout) =>
           checkout.result.error !== null && (
             <p key={checkout.cwd} className="truncate text-xs text-rose" title={checkout.result.error}>
-              {t("lab.overview.checkoutError", { cwd: checkout.cwd, error: checkout.result.error })}
+              {`could not read ${checkout.cwd}: ${checkout.result.error}`}
             </p>
           ),
       )}
@@ -202,7 +199,7 @@ function ProjectExperimentsSection({ project }: { project: ScopedProject }) {
         </div>
       )}
       {cache?.result != null && total === 0 && !unsupported && (
-        <p className="text-xs text-ink-faint">{t("lab.overview.empty")}</p>
+        <p className="text-xs text-ink-faint">No experiments yet. Start one with New experiment or /autoresearch start in a session.</p>
       )}
     </section>
   );

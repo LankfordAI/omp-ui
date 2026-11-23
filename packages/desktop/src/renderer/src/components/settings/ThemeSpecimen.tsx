@@ -2,7 +2,6 @@ import { useEffect, useState, type CSSProperties, type ReactElement, type ReactN
 import { backdropFloors, type BackdropFloors } from "@omp-ui/core/theme-backdrop";
 import { loadBackdropAsset, type BackdropAsset } from "../../lib/backdrop";
 import { cn } from "../../lib/cn";
-import { useT } from "../../lib/i18n";
 import type { Theme } from "../../lib/themes";
 import { Chip, Dot, ProgressRing } from "../ui";
 
@@ -121,13 +120,12 @@ function CodeBlock({ code }: { code: Theme["code"] }) {
 }
 
 function CardSpecimen({ theme }: { theme: Theme }) {
-  const t = useT();
   return (
     <>
       <div className="max-w-[80%] shrink-0 self-end truncate rounded-lg border border-iris-dim bg-iris-wash px-2 py-0.5">
-        {t("settings.appearance.specimenUser")}
+        Can we make the Appearance page calmer?
       </div>
-      <p className="shrink-0 truncate text-ink-mid">{t("settings.appearance.specimenReply")}</p>
+      <p className="shrink-0 truncate text-ink-mid">The page stacks nine sections, and stored themes appear twice.</p>
       <pre
         className="shrink-0 overflow-hidden whitespace-nowrap rounded bg-sunken px-2 py-1 font-mono text-[11px] leading-4"
         style={{ color: theme.code.foreground }}
@@ -135,7 +133,7 @@ function CardSpecimen({ theme }: { theme: Theme }) {
         <CodeLine code={theme.code} />
       </pre>
       <div className="mt-auto flex shrink-0 items-center justify-between rounded-md border border-line bg-raised px-2 py-1 text-ink-faint">
-        <span className="truncate">{t("settings.appearance.specimenComposer")}</span>
+        <span className="truncate">Ask anything…</span>
         <Dot tone="signal" pulse />
       </div>
     </>
@@ -143,7 +141,6 @@ function CardSpecimen({ theme }: { theme: Theme }) {
 }
 
 function FullSpecimen({ theme, floors }: { theme: Theme; floors: BackdropFloors | null }) {
-  const t = useT();
   const term = theme.term;
   const toolRow = "flex items-center gap-2 rounded-lg border border-line bg-raised px-3 py-2 text-xs";
   const sessionRow = "flex items-center gap-2 rounded-md px-2 py-1.5 text-xs";
@@ -154,7 +151,7 @@ function FullSpecimen({ theme, floors }: { theme: Theme; floors: BackdropFloors 
         style={planeStyle("void", floors?.void ?? null)}
       >
         <span className="chrome-label text-ink-faint">omp-ui</span>
-        <span className="truncate font-semibold">{t("settings.appearance.specimenSession")}</span>
+        <span className="truncate font-semibold">Refactor the theme gate</span>
         <span className="hidden truncate font-mono text-xs text-ink-dim sm:inline">~/Repos/omp-ui</span>
         <span className="flex-1" />
         <ProgressRing fraction={0.38} className="size-4" />
@@ -167,23 +164,23 @@ function FullSpecimen({ theme, floors }: { theme: Theme; floors: BackdropFloors 
         style={planeStyle("sunken", floors?.sunken ?? null)}
       >
         <div className="mb-1.5 rounded-md border border-line bg-surface px-2 py-1 text-xs text-ink-faint">
-          {t("settings.appearance.search")}
+          Search themes
         </div>
         <div className={cn(sessionRow, "bg-raised text-ink")}>
           <Dot tone="signal" pulse />
-          <span className="truncate">{t("settings.appearance.specimenSession")}</span>
+          <span className="truncate">Refactor the theme gate</span>
         </div>
         <div className={cn(sessionRow, "text-ink-mid")}>
           <Dot tone="copper" />
-          <span className="truncate">{t("settings.appearance.specimenSessionPlan")}</span>
+          <span className="truncate">Plan the theme browser</span>
         </div>
         <div className={cn(sessionRow, "text-ink-mid")}>
           <Dot tone="neutral" />
-          <span className="truncate">{t("settings.appearance.specimenSessionTests")}</span>
+          <span className="truncate">Fix a flaky test</span>
         </div>
         <div className={cn(sessionRow, "text-ink-mid")}>
           <Dot tone="rose" />
-          <span className="truncate">{t("settings.appearance.specimenSessionFailed")}</span>
+          <span className="truncate">Build failed</span>
         </div>
       </div>
 
@@ -193,13 +190,13 @@ function FullSpecimen({ theme, floors }: { theme: Theme; floors: BackdropFloors 
       >
         <div className="mx-auto flex min-h-0 w-full max-w-[56rem] flex-1 flex-col gap-3 overflow-hidden px-6 py-5">
           <div className="self-end max-w-[80%] rounded-xl border border-iris-dim bg-iris-wash px-3 py-2">
-            {t("settings.appearance.specimenUser")}
+            Can we make the Appearance page calmer?
           </div>
           <p className="border-l-2 border-think-cool pl-3 italic text-ink-dim">
-            {t("settings.appearance.specimenThinking")}
+            Reading the settings shell first.
           </p>
           <p className="text-ink">
-            {t("settings.appearance.specimenReply")}{" "}
+            The page stacks nine sections, and stored themes appear twice.{" "}
             <code className="rounded bg-hover px-1 font-mono text-xs">AppearancePage.tsx</code>
           </p>
           <div className={toolRow}>
@@ -221,15 +218,15 @@ function FullSpecimen({ theme, floors }: { theme: Theme; floors: BackdropFloors 
             <div className="bg-signal-wash px-3 py-0.5">+ if (theme.rev !== current.rev) applyTheme(theme);</div>
           </div>
           <div className="rounded-lg border border-copper-dim bg-copper-wash px-3 py-2">
-            {t("settings.appearance.specimenAttention")}
+            Awaiting your answer: keep Display on its own tab?
           </div>
-          <p className="text-rose">{t("settings.appearance.specimenFailed")}</p>
+          <p className="text-rose">1 test failed</p>
         </div>
         <div className="mx-auto mb-3 w-[calc(100%-3rem)] max-w-[56rem] rounded-xl border border-line bg-raised px-3 py-2">
-          <p className="text-ink-faint">{t("settings.appearance.specimenComposer")}</p>
+          <p className="text-ink-faint">Ask anything…</p>
           <div className="mt-2 flex items-center gap-2">
             <Chip>opus</Chip>
-            <Chip tone="iris">{t("settings.appearance.specimenPlan")}</Chip>
+            <Chip tone="iris">Plan</Chip>
             <span
               className="h-1.5 w-20 rounded-full"
               style={{ background: "linear-gradient(90deg, var(--color-think-cool), var(--color-think-warm))" }}
@@ -259,12 +256,12 @@ function FullSpecimen({ theme, floors }: { theme: Theme; floors: BackdropFloors 
         className="relative hidden flex-col gap-1 border-l border-line bg-sunken p-3 text-xs lg:flex"
         style={planeStyle("sunken", floors?.sunken ?? null)}
       >
-        <p className="line-through text-ink-faint">✓ {t("settings.appearance.specimenTodoRead")}</p>
+        <p className="line-through text-ink-faint">✓ Read the page</p>
         <p className="flex items-center gap-2 text-ink">
           <Dot tone="copper" />
-          {t("settings.appearance.specimenTodoBuild")}
+          Build the wall
         </p>
-        <p className="text-ink-mid">○ {t("settings.appearance.specimenTodoPlan")}</p>
+        <p className="text-ink-mid">○ Write the plan</p>
       </div>
     </>
   );

@@ -12,7 +12,6 @@ import type {
 } from "@omp-ui/core/capabilities";
 import { backend } from "../../backend";
 import { formatDuration } from "../../lib/duration";
-import { t } from "../../lib/i18n";
 import { projectKey } from "../../lib/project-key";
 import { arrField } from "../../lib/fields";
 import { randomId } from "../../lib/random-id";
@@ -948,7 +947,7 @@ export function createRpcCommandSlice(
     m.patchRpc(tabId, {
       status: "error",
       failure: {
-        message: t("tab.failure.bootStalled"),
+        message: "The session process never reported ready. It may still be starting — check breadcrumbs.log in the app's logs folder.",
         kind: "boot",
         fatal: true,
         sessionStatus: "error",
@@ -1185,7 +1184,7 @@ export function createRpcCommandSlice(
       // (issue #859).
       m.appendItem(
         tabId,
-        noticeItem(t("session.notice.titleGaveUp", { n: attempt.n }), "warn"),
+        noticeItem(`auto-title gave up after ${attempt.n} attempts — every title-chain model declined. Pick an answering model under Settings → omp → Model roles (modelRoles.tiny / commit / smol), or name the session yourself with /rename NAME.`, "warn"),
       );
       return;
     }

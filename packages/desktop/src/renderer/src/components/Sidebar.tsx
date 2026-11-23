@@ -3,7 +3,6 @@ import { createPortal } from "react-dom";
 import type { SessionSummary } from "@omp-ui/core/types";
 import { backgroundWorkInFlight } from "../lib/async-jobs";
 import { isAndroidShell } from "../lib/android-shell";
-import { useT } from "../lib/i18n";
 import { cn } from "../lib/cn";
 import { formatHotkey, isTypingTarget } from "../lib/hotkeys";
 import { useDismissal } from "../lib/use-dismissal";
@@ -89,10 +88,10 @@ const MENU_ROW =
 
 /** Menu label per timed-snooze preset (issue #979). */
 const SNOOZE_PRESET_LABEL = {
-  hour: "sidebar.session.snoozeHour",
-  evening: "sidebar.session.snoozeEvening",
-  morning: "sidebar.session.snoozeMorning",
-  nextWeek: "sidebar.session.snoozeNextWeek",
+  hour: "Snooze 1 hour",
+  evening: "Snooze until this evening",
+  morning: "Snooze until tomorrow morning",
+  nextWeek: "Snooze until next week",
 } as const satisfies Record<SnoozePreset, string>;
 
 /** The custom "Snooze until…" picker (issue #979): a local date-time, future only. */
@@ -103,31 +102,30 @@ function SnoozeUntilDialog({
   onSnooze: (untilMs: number) => void;
   onClose: () => void;
 }) {
-  const t = useT();
   // Opens on tomorrow 09:00, the "Tomorrow morning" preset's deadline.
   const [value, setValue] = useState(() => toDateTimeLocal(snoozePresets(new Date()).find((p) => p.preset === "morning")!.untilMs));
   const picked = fromDateTimeLocal(value);
   const untilMs = picked !== null && picked > Date.now() ? picked : null;
   return (
     <ConfirmDialog
-      kicker={t("dialog.snoozeUntil.kicker")}
-      title={t("dialog.snoozeUntil.title")}
+      kicker="Snooze"
+      title="Snooze until"
       tone="iris"
       onClose={onClose}
       width="w-[22rem]"
       actions={
         <>
           <Button variant="ghost" onClick={onClose}>
-            {t("common.dialog.cancel")}
+            Cancel
           </Button>
           <Button variant="solid" tone="iris" disabled={untilMs === null} onClick={() => untilMs !== null && onSnooze(untilMs)}>
-            {t("sidebar.session.snooze")}
+            Snooze
           </Button>
         </>
       }
     >
       <label className="flex flex-col gap-1.5 text-xs text-ink-mid">
-        {t("dialog.snoozeUntil.label")}
+        Return to the list at
         <input
           type="datetime-local"
           autoFocus
@@ -137,7 +135,7 @@ function SnoozeUntilDialog({
           className={FIELD}
         />
       </label>
-      {untilMs === null && <p className="mt-2 text-xs text-rose">{t("dialog.snoozeUntil.past")}</p>}
+      {untilMs === null && <p className="mt-2 text-xs text-rose">Pick a time in the future.</p>}
     </ConfirmDialog>
   );
 }
@@ -338,7 +336,6 @@ function SelectionBar({
   onSnoozeCustom: (tabIds: string[]) => void;
   onClear: () => void;
 }) {
-  const t = useT();
   const settleSessions = useStore((st) => st.settleSessions);
   const snoozeSessions = useStore((st) => st.snoozeSessions);
   const unsnoozeSessions = useStore((st) => st.unsnoozeSessions);
@@ -378,19 +375,19 @@ function SelectionBar({
   return (
     <footer
       role="toolbar"
-      aria-label={t("sidebar.selection.label", { n: tabIds.length })}
+      aria-label={`${tabIds.length} selected sessions`}
       className="relative shrink-0 space-y-1.5 border-t border-line bg-raised/60 px-3 py-2 text-xs text-ink-faint"
     >
       <div className="flex items-center gap-2">
-        <span className="font-mono tabular-nums text-ink-mid">{t("sidebar.selection.count", { n: tabIds.length })}</span>
+        <span className="font-mono tabular-nums text-ink-mid">{`${tabIds.length} selected`}</span>
         <span className="ml-auto font-mono">{formatHotkey("escape")}</span>
-        <IconButton label={t("sidebar.selection.clear")} onClick={onClear} className="size-5">
+        <IconButton label="clear selection" onClick={onClear} className="size-5">
           <IconClose className="size-3.5" />
         </IconButton>
       </div>
       <div className="flex flex-wrap gap-1">
         <Button size="xs" disabled={counts.settle === 0} onClick={() => act(() => settleSessions(tabIds))}>
-          {t("sidebar.selection.action", { action: t("sidebar.session.settleMenu"), n: counts.settle })}
+          {`${"Settle"} (${counts.settle})`}
         </Button>
         {snoozedOn && (
           <div ref={snoozeButtonRef} className="relative">
@@ -400,13 +397,13 @@ function SelectionBar({
               selected={snoozeMenuOpen}
               onClick={() => setSnoozeMenuOpen(!snoozeMenuOpen)}
             >
-              {t("sidebar.selection.action", { action: t("sidebar.session.snooze"), n: counts.snooze })}
+              {`${"Snooze"} (${counts.snooze})`}
             </Button>
             {snoozeMenuOpen && (
               <div ref={menuRef} role="menu" className="absolute bottom-full left-0 z-50 mb-1">
                 <Panel className="edge-lit animate-rise w-max p-1">
                   <button type="button" role="menuitem" autoFocus className={MENU_ROW} onClick={() => act(() => snoozeSessions(tabIds, null))}>
-                    {t("sidebar.session.snooze")}
+                    Snooze
                   </button>
                   {snoozePresets(new Date()).map(({ preset, untilMs }) => (
                     <button
@@ -416,7 +413,7 @@ function SelectionBar({
                       className={MENU_ROW}
                       onClick={() => act(() => snoozeSessions(tabIds, untilMs))}
                     >
-                      {t(SNOOZE_PRESET_LABEL[preset])}
+                      {SNOOZE_PRESET_LABEL[preset]}
                     </button>
                   ))}
                   <button
@@ -425,7 +422,7 @@ function SelectionBar({
                     className={MENU_ROW}
                     onClick={() => act(() => onSnoozeCustom(tabIds))}
                   >
-                    {t("sidebar.session.snoozeCustom")}
+                    Snooze until…
                   </button>
                 </Panel>
               </div>
@@ -434,19 +431,19 @@ function SelectionBar({
         )}
         {snoozedOn && (
           <Button size="xs" disabled={counts.unsnooze === 0} onClick={() => act(() => unsnoozeSessions(tabIds))}>
-            {t("sidebar.selection.action", { action: t("sidebar.session.unsnooze"), n: counts.unsnooze })}
+            {`${"Unsnooze"} (${counts.unsnooze})`}
           </Button>
         )}
         <Button
           size="xs"
           disabled={counts.retitle === 0}
-          title={counts.retitle === 0 ? t("session.error.retitleNotLive") : undefined}
+          title={counts.retitle === 0 ? "This session is not running, so its title cannot be regenerated. Resume the session first, then re-title it." : undefined}
           onClick={() => act(() => retitleSessions(tabIds))}
         >
-          {t("sidebar.selection.action", { action: t("sidebar.selection.retitle"), n: counts.retitle })}
+          {`${"Retitle"} (${counts.retitle})`}
         </Button>
         <Button size="xs" tone="rose" onClick={() => act(() => deleteSessions(tabIds))}>
-          {t("sidebar.selection.action", { action: t("sidebar.selection.delete"), n: tabIds.length })}
+          {`${"Delete…"} (${tabIds.length})`}
         </Button>
       </div>
     </footer>
@@ -456,7 +453,6 @@ function SelectionBar({
 /* ------------------------------------------------------------------ sidebar */
 
 export function Sidebar() {
-  const t = useT();
   const state = useStore((st) => st.state);
   const openProjectQuickOpen = useStore((st) => st.openProjectQuickOpen);
   const openSettings = useStore((st) => st.openSettings);
@@ -805,8 +801,8 @@ export function Sidebar() {
               value={query}
               spellCheck={false}
               onChange={(e) => setQuery(e.target.value)}
-              placeholder={t("sidebar.filter.placeholder")}
-              aria-label={t("sidebar.filter.label")}
+              placeholder="Search sessions…"
+              aria-label="filter sessions"
               className="min-w-0 flex-1 bg-transparent text-xs text-ink placeholder:text-ink-dim focus:outline-none"
             />
             {filtering && (
@@ -816,14 +812,14 @@ export function Sidebar() {
                     ? 0
                     : lists.pinned.length + lists.active.length + lists.working.length + lists.snoozed.length + lists.settled.length}
                 </span>
-                <IconButton label={t("sidebar.filter.clear")} onClick={() => setQuery("")} className="size-5">
+                <IconButton label="clear filter" onClick={() => setQuery("")} className="size-5">
                   <IconClose className="size-3.5" />
                 </IconButton>
               </>
             )}
           </div>
           <IconButton
-            label={t("sidebar.newSession")}
+            label="new session — pick a project"
             onClick={() => { openProjectQuickOpen(); closeCompactSurface(); }}
             className={headerButton}
           >
@@ -850,9 +846,9 @@ export function Sidebar() {
                 {/* Pinned (#981) heads the main list in pin order; it never
                     collapses, since a pin means "keep this in view". */}
                 {lists.pinned.length > 0 && (
-                  <div role="group" aria-label={t("sidebar.pinned.heading", { n: lists.pinned.length })} className="space-y-1">
+                  <div role="group" aria-label={`Pinned (${lists.pinned.length})`} className="space-y-1">
                     <div className="chrome-label -mx-1.5 px-3 pt-2 pb-1 text-ink-dim">
-                      {t("sidebar.pinned.heading", { n: lists.pinned.length })}
+                      {`Pinned (${lists.pinned.length})`}
                     </div>
                     {lists.pinned.map((entry) => (
                       <Row key={rowKey(entry)} entry={entry} onActivate={closeCompactSurface} openSessionMenu={openSessionMenu} slim={false} section="main" selection={rowSelection} />
@@ -874,16 +870,16 @@ export function Sidebar() {
                  carries the full explanation. It owns the free height so the
                  headed sections stay docked to the bottom edge (issue #1044). */
               <p className="min-h-0 flex-1 px-3 py-2 text-sm text-ink-faint">
-                {t("sidebar.empty.noLive")}
+                No sessions running
               </p>
             ) : filtering && !anyRow ? (
               <div className="min-h-0 flex-1 overflow-y-auto">
                 <Empty
-                  title={t("sidebar.empty.noMatches", { query: query.trim() })}
-                  hint={t("sidebar.empty.noMatchesHint")}
+                  title={`Nothing matches “${query.trim()}”`}
+                  hint="No session title, plan, project, or machine name contains that."
                   action={
                     <Button variant="ghost" onClick={() => setQuery("")}>
-                      {t("sidebar.filter.clear")}
+                      clear filter
                     </Button>
                   }
                 />
@@ -895,7 +891,7 @@ export function Sidebar() {
             )}
             {lists.snoozed.length > 0 && (
               <SidebarSection
-                heading={t("sidebar.snoozed.heading", { n: lists.snoozed.length })}
+                heading={`Snoozed (${lists.snoozed.length})`}
                 entries={lists.snoozed}
                 shown={snoozedShown}
                 grow
@@ -909,7 +905,7 @@ export function Sidebar() {
               />
             )}
             <SidebarSection
-              heading={t("sidebar.working.heading", { n: lists.working.length })}
+              heading={`Working (${lists.working.length})`}
               entries={lists.working}
               shown={workingShown}
               grow={false}
@@ -923,7 +919,7 @@ export function Sidebar() {
             />
             {lists.settled.length > 0 && (
               <SidebarSection
-                heading={t("sidebar.settled.heading", { n: lists.settled.length })}
+                heading={`Settled (${lists.settled.length})`}
                 entries={lists.settled}
                 shown={settledShown}
                 grow
@@ -967,7 +963,7 @@ export function Sidebar() {
                   }}
                   className={MENU_ROW}
                 >
-                  {t("sidebar.session.settleMenu")}
+                  Settle
                 </button>
               )}
               {sessionMenu.ask && (
@@ -983,7 +979,7 @@ export function Sidebar() {
                   }}
                   className={MENU_ROW}
                 >
-                  {t("sidebar.session.ask")}
+                  Ask about this session
                 </button>
               )}
               {sessionMenu.migrate && (
@@ -998,7 +994,7 @@ export function Sidebar() {
                   }}
                   className={MENU_ROW}
                 >
-                  {t("sidebar.session.migrate")}
+                  Migrate…
                 </button>
               )}
               {sessionMenu.pin && (
@@ -1013,7 +1009,7 @@ export function Sidebar() {
                   }}
                   className={MENU_ROW}
                 >
-                  {t(sessionMenu.pinned ? "sidebar.session.unpin" : "sidebar.session.pin")}
+                  {sessionMenu.pinned ? "Unpin" : "Pin"}
                 </button>
               )}
               {sessionMenu.snooze && (
@@ -1028,7 +1024,7 @@ export function Sidebar() {
                   }}
                   className={MENU_ROW}
                 >
-                  {t(sessionMenu.snoozed ? "sidebar.session.unsnooze" : "sidebar.session.snooze")}
+                  {sessionMenu.snoozed ? "Unsnooze" : "Snooze"}
                 </button>
               )}
               {/* Timed snooze (#979): presets resolve against the clock at open. */}
@@ -1046,7 +1042,7 @@ export function Sidebar() {
                       }}
                       className={MENU_ROW}
                     >
-                      {t(SNOOZE_PRESET_LABEL[preset])}
+                      {SNOOZE_PRESET_LABEL[preset]}
                     </button>
                   ))}
                   <button
@@ -1059,7 +1055,7 @@ export function Sidebar() {
                     }}
                     className={MENU_ROW}
                   >
-                    {t("sidebar.session.snoozeCustom")}
+                    Snooze until…
                   </button>
                 </>
               )}
@@ -1102,11 +1098,11 @@ export function Sidebar() {
             onClick={closeCompactSurface}
             className="flex min-h-11 w-full items-center rounded-md px-1 text-sm text-ink-mid hover:bg-hover hover:text-ink focus-visible:outline focus-visible:outline-2 focus-visible:outline-copper"
           >
-            {t("sidebar.footer.hostConnection")}
+            Host connection…
           </a>
         )}
         <IconButton
-          label={t("sidebar.footer.settings")}
+          label="Settings"
           onClick={() => {
             openSettings();
             closeCompactSurface();
@@ -1114,20 +1110,20 @@ export function Sidebar() {
           className="flex size-auto h-6 w-auto items-center gap-1 px-1"
         >
           <IconGear />
-          <span className="hidden whitespace-nowrap @[17rem]:inline">{t("sidebar.footer.settings")}</span>
+          <span className="hidden whitespace-nowrap @[17rem]:inline">Settings</span>
         </IconButton>
         {state?.artifactLibraryEnabled === true && (
-          <IconButton label={t("artifacts.title")} pressed={artifactsOpen} onClick={() => {
+          <IconButton label="Artifacts" pressed={artifactsOpen} onClick={() => {
             if (artifactsOpen) closeArtifacts();
             else openArtifacts();
             closeCompactSurface();
           }} className="flex size-auto h-6 w-auto items-center gap-1 px-1">
-            <span aria-hidden>▤</span><span className="hidden whitespace-nowrap @[17rem]:inline">{t("artifacts.title")}</span>
+            <span aria-hidden>▤</span><span className="hidden whitespace-nowrap @[17rem]:inline">Artifacts</span>
           </IconButton>
         )}
         {state?.routinesEnabled === true && (
           <IconButton
-            label={t("sidebar.footer.routines")}
+            label="Routines"
             pressed={routinesOpen}
             onClick={() => {
               if (routinesOpen) closeRoutines();
@@ -1137,11 +1133,11 @@ export function Sidebar() {
             className="flex size-auto h-6 w-auto items-center gap-1 px-1"
           >
             <span aria-hidden>↻</span>
-            <span className="hidden whitespace-nowrap @[17rem]:inline">{t("sidebar.footer.routines")}</span>
+            <span className="hidden whitespace-nowrap @[17rem]:inline">Routines</span>
             {routinesWaiting > 0 && (
               <span
                 data-routines-waiting
-                title={t("routines.waitingBanner", { n: routinesWaiting })}
+                title={`${routinesWaiting} routine run waiting on an Approval card`}
                 className="rounded-full bg-copper-wash px-1 font-mono text-xs leading-4 tabular-nums text-copper"
               >
                 {routinesWaiting}
@@ -1151,7 +1147,7 @@ export function Sidebar() {
         )}
         {hasInstances && (
           <IconButton
-            label={t("fleet.sidebar.open")}
+            label="Fleet"
             pressed={fleetOpen}
             onClick={() => {
               if (fleetOpen) closeFleet();
@@ -1161,19 +1157,19 @@ export function Sidebar() {
             className="flex size-auto h-6 w-auto items-center gap-1 px-1"
           >
             <IconFleet />
-            <span className="hidden whitespace-nowrap @[17rem]:inline">{t("fleet.sidebar.open")}</span>
+            <span className="hidden whitespace-nowrap @[17rem]:inline">Fleet</span>
           </IconButton>
         )}
         {totalLive > 0 && (
-          <span className="ml-auto flex shrink-0 items-center gap-1.5 whitespace-nowrap" title={t("sidebar.footer.liveTitle", { n: totalLive })}>
+          <span className="ml-auto flex shrink-0 items-center gap-1.5 whitespace-nowrap" title={`Live sessions: ${totalLive} with a running process — Ready and Working`}>
             <Dot tone="signal" />
             {/* Proportional tabular (round-3 judge, Consistency 3): the footer
                 number reads like every other meta count, not like code. The
                 words are the section headings' own (round-4 judge, Clarity 2).
                 nowrap (#1079): a count is one unit; it moves lines, never wraps. */}
-            <span className="tabular-nums whitespace-nowrap">{t("sidebar.footer.readyCount", { n: totalLive - workingLive })}</span>
+            <span className="tabular-nums whitespace-nowrap">{`${totalLive - workingLive} ready`}</span>
             {workingLive > 0 && (
-              <span className="tabular-nums whitespace-nowrap">{t("sidebar.footer.workingCount", { n: workingLive })}</span>
+              <span className="tabular-nums whitespace-nowrap">{`${workingLive} working`}</span>
             )}
           </span>
         )}
@@ -1181,7 +1177,7 @@ export function Sidebar() {
       )}
       {!sheet && !resolved.pinned && (
         <ResizeHandle
-          label={t("sidebar.footer.resize")}
+          label="resize sidebar"
           edge="right"
           value={displayedSidebarWidth}
           min={SIDEBAR_MIN_WIDTH}
@@ -1198,7 +1194,7 @@ export function Sidebar() {
     </aside>
   );
   return sheet ? (
-    <Sheet open={surface === "sessions"} placement="left" label={t("app.compact.sessions")} onClose={closeCompactSurface}>
+    <Sheet open={surface === "sessions"} placement="left" label="sessions" onClose={closeCompactSurface}>
       {sidebar}
     </Sheet>
   ) : sidebar;

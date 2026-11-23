@@ -1,7 +1,6 @@
 import { useEffect, useRef, useState } from "react";
 import { displayMessage } from "../backend";
 import { cn } from "../lib/cn";
-import { useT } from "../lib/i18n";
 import { projectKey } from "../lib/project-key";
 import type { GitResolutionTrigger } from "../lib/git-resolution-prompt";
 import { useDismissal } from "../lib/use-dismissal";
@@ -117,10 +116,9 @@ export function BranchChip({
   finishTabId?: string;
   externalRequest?: BranchChipExternalRequest | null;
 }) {
-  const t = useT();
   /** The drift count as prose: "3 commits" / "1 commit". */
   const commits = (count: number): string =>
-    `${count} ${count === 1 ? t("composer.branch.commit") : t("composer.branch.commits")}`;
+    `${count} ${count === 1 ? "commit" : "commits"}`;
   const key = projectCwd === undefined ? undefined : projectKey(instanceId, projectCwd);
   const info = useStore((s) => (key === undefined ? undefined : s.branches[key]));
   const refreshing = useStore(
@@ -295,7 +293,7 @@ export function BranchChip({
    */
   const behindReading =
     resolvable && behind > 0 && upstreamRef !== null
-      ? t("composer.branch.behind", { commits: commits(behind), upstream: upstreamRef })
+      ? `${commits(behind)} behind ${upstreamRef}`
       : null;
 
   /**
@@ -305,23 +303,23 @@ export function BranchChip({
    */
   const note: { text: string; tone: "quiet" | "copper" } | null =
     mergeInProgress
-      ? { text: t("composer.branch.mergeInProgress"), tone: "copper" }
+      ? { text: "a merge is in progress in this checkout — conflicts are waiting", tone: "copper" }
       : current === null
-      ? { text: t("composer.branch.detached"), tone: "quiet" }
+      ? { text: "detached HEAD — check out a branch to track an upstream", tone: "quiet" }
       : upstreamRef === null
-        ? { text: t("composer.branch.noUpstream"), tone: "quiet" }
+        ? { text: "no upstream configured for this branch", tone: "quiet" }
         : !hasUpstream
-          ? { text: t("composer.branch.upstreamUnavailable", { upstream: upstreamRef }), tone: "copper" }
+          ? { text: `upstream ${upstreamRef} is unavailable`, tone: "copper" }
           : diverged
             ? {
-                text: t("composer.branch.diverged", { ahead, behind, upstream: upstreamRef }),
+                text: `${ahead} ahead, ${behind} behind ${upstreamRef} — merge or rebase first`,
                 tone: "copper",
               }
             : behind > 0
               ? null
               : ahead > 0
-                ? { text: t("composer.branch.ahead", { commits: commits(ahead), upstream: upstreamRef }), tone: "quiet" }
-                : { text: t("composer.branch.upToDate", { upstream: upstreamRef }), tone: "quiet" };
+                ? { text: `${commits(ahead)} ahead of ${upstreamRef}`, tone: "quiet" }
+                : { text: `up to date with ${upstreamRef}`, tone: "quiet" };
 
   // The row survives the pull itself: the post-pull refresh zeroes `behind`
   // before `pulling` clears, and a row that vanished mid-operation would read
@@ -524,12 +522,12 @@ export function BranchChip({
     try {
       const url = await getPullRequestUrl(projectCwd, defaultBranch, current, instanceId);
       if (url === null) {
-        setError(t("composer.branch.prUnavailable"));
+        setError("cannot build a pull-request URL for this remote");
         return;
       }
       window.open(url, "_blank", "noopener,noreferrer");
     } catch {
-      setError(t("composer.branch.prUnavailable"));
+      setError("cannot build a pull-request URL for this remote");
     }
   };
 
@@ -546,18 +544,11 @@ export function BranchChip({
         aria-expanded={menuOpen}
         title={
           workspace?.mode === "worktree"
-            ? t("composer.branch.worktreeTitle", {
-                branch: workspace.branch,
-                base:
-                  baseBranchSegment(workspace.baseBranch, workspace.baseRef, current) ??
-                  t("composer.branch.currentHead"),
-              })
+            ? `worktree — the first prompt cuts ${workspace.branch} from ${baseBranchSegment(workspace.baseBranch, workspace.baseRef, current) ??
+                  "current HEAD"}`
             : behindReading === null
-              ? t("composer.branch.title", { branch: current ?? t("composer.branch.detachedHead") })
-              : t("composer.branch.titleBehind", {
-                  branch: current ?? t("composer.branch.detachedHead"),
-                  behind: behindReading,
-                })
+              ? `branch — ${current ?? "detached HEAD"} (click to switch)`
+              : `branch — ${current ?? "detached HEAD"} · ${behindReading} (click to switch)`
         }
         onClick={toggleMenu}
         className="tap-target inline-flex h-6 min-w-0 items-center gap-1 rounded-md border border-line px-1.5 font-mono text-xs leading-4 text-ink-mid transition-colors duration-150 hover:bg-hover hover:text-ink"
@@ -569,10 +560,10 @@ export function BranchChip({
           <path d="M5 5.6v4.8M11 7.6c0 2.2-2.4 2.4-3.7 3" {...ICON_STROKE} />
         </svg>
         <span className="min-w-0 max-w-44 truncate">
-          {workspace?.mode === "worktree" ? workspace.branch : current ?? t("composer.branch.detachedChip")}
+          {workspace?.mode === "worktree" ? workspace.branch : current ?? "detached"}
         </span>
         {workspace?.mode === "worktree" && (
-          <span className="shrink-0 text-ink-dim">{t("composer.branch.worktreeMarker")}</span>
+          <span className="shrink-0 text-ink-dim">· worktree</span>
         )}
         {resolvable && behind > 0 && (
           <>
@@ -605,12 +596,12 @@ export function BranchChip({
             <>
               <div className="px-1.5 py-1 text-xs leading-snug text-copper">
                 {confirm.kind === "pull"
-                  ? t("composer.branch.confirmPull", { title: busyTitle! })
+                  ? `session “${busyTitle!}” is mid-turn — pulling changes the project working tree`
                   : confirm.kind === "push"
-                    ? t("composer.branch.confirmPush", { title: busyTitle! })
+                    ? `session “${busyTitle!}” is mid-turn — the branch is shared as it stands`
                     : confirm.kind === "resolve"
-                      ? t("composer.branch.confirmResolve", { title: busyTitle! })
-                      : t("composer.branch.confirmSwitch", { title: busyTitle! })}
+                      ? `session “${busyTitle!}” is mid-turn — the agent will change the same checkout`
+                      : `session “${busyTitle!}” is mid-turn — the tree will change under it`}
               </div>
               <div className="flex gap-1.5 px-1.5 pb-0.5">
                 {confirm.kind === "pull" ? (
@@ -620,7 +611,7 @@ export function BranchChip({
                     disabled={!pullEnabled}
                     onClick={() => void attemptPull()}
                   >
-                    {pulling ? t("composer.branch.pulling") : t("composer.branch.pullAnyway")}
+                    {pulling ? "Pulling…" : "pull anyway"}
                   </Button>
                 ) : confirm.kind === "push" ? (
                   <Button
@@ -629,7 +620,7 @@ export function BranchChip({
                     disabled={!pushEnabled && !publishEnabled}
                     onClick={() => void attemptPush(confirm.branch)}
                   >
-                    {pushing ? t("composer.branch.pushing") : t("composer.branch.pushAnyway")}
+                    {pushing ? "Pushing…" : "push anyway"}
                   </Button>
                 ) : confirm.kind === "resolve" ? (
                   <Button
@@ -637,7 +628,7 @@ export function BranchChip({
                     tone="copper"
                     onClick={() => void attemptResolve()}
                   >
-                    {t("composer.branch.resolveAnyway")}
+                    resolve anyway
                   </Button>
                 ) : (
                   <Button
@@ -645,11 +636,11 @@ export function BranchChip({
                     tone="copper"
                     onClick={() => void attempt(confirm.branch, false)}
                   >
-                    {t("composer.branch.switchAnyway")}
+                    switch anyway
                   </Button>
                 )}
                 <Button size="xs" variant="ghost" onClick={() => setConfirm(null)}>
-                  {t("composer.branch.cancel")}
+                  cancel
                 </Button>
               </div>
             </>
@@ -658,8 +649,8 @@ export function BranchChip({
               <input
                 autoFocus
                 value={name}
-                placeholder={t("composer.branch.namePlaceholder")}
-                aria-label={t("composer.branch.nameLabel")}
+                placeholder="new-branch-name"
+                aria-label="new branch name"
                 onChange={(e) => setName(e.target.value)}
                 onKeyDown={(e) => {
                   if (e.key === "Enter" && name.trim() !== "") {
@@ -670,7 +661,7 @@ export function BranchChip({
                 className="mx-1 mb-1 rounded border border-line bg-void px-1.5 py-1 font-mono text-xs text-ink outline-none placeholder:text-ink-faint focus:border-line-strong"
               />
               <span className="px-1.5 pb-1 text-xs text-ink-faint">
-                {t("composer.branch.createHint")}
+                creates and switches to the branch
               </span>
               <div className="flex gap-1.5 px-1.5 pb-0.5">
                 <Button
@@ -678,7 +669,7 @@ export function BranchChip({
                   disabled={name.trim() === ""}
                   onClick={() => void attempt(name.trim(), true)}
                 >
-                  {t("composer.branch.createSwitch")}
+                  {"create & switch"}
                 </Button>
                 <Button
                   size="xs"
@@ -688,7 +679,7 @@ export function BranchChip({
                     setName("");
                   }}
                 >
-                  {t("composer.branch.back")}
+                  back
                 </Button>
               </div>
             </>
@@ -727,7 +718,7 @@ export function BranchChip({
                 idPrefix="composer-worktree"
               />
               <span className="px-1.5 pb-1 text-xs text-ink-faint">
-                {t("composer.branch.worktreeHint")}
+                create it now, or the first prompt cuts it
               </span>
               <div className="flex gap-1.5 px-1.5 pb-0.5">
                 {onCreateWorktree !== undefined && (
@@ -736,11 +727,11 @@ export function BranchChip({
                     disabled={cutting || worktreeLocked || info === undefined || workspace.branch.trim() === "" || (workspace.baseBranch !== null && workspace.baseBranch.trim() === "")}
                     onClick={() => void attemptCreate()}
                   >
-                    {cutting ? t("composer.branch.creating") : t("composer.branch.create")}
+                    {cutting ? "creating…" : "create"}
                   </Button>
                 )}
                 <Button size="xs" variant="ghost" onClick={() => setMode("list")}>
-                  {t("composer.branch.back")}
+                  back
                 </Button>
               </div>
             </>
@@ -756,7 +747,7 @@ export function BranchChip({
                   }}
                   className="rounded px-1.5 py-0.5 text-left font-mono text-xs text-ink-mid hover:bg-hover hover:text-ink"
                 >
-                  {t("composer.branch.finishWorktree")}
+                  finish worktree…
                 </button>
               )}
               {showPull && (
@@ -766,7 +757,7 @@ export function BranchChip({
                   onClick={() => void attemptPull()}
                   className="rounded px-1.5 py-0.5 text-left font-mono text-xs text-ink hover:bg-hover disabled:pointer-events-none disabled:text-ink-dim"
                 >
-                  {pulling ? t("composer.branch.pulling") : t("composer.branch.pull", { commits: commits(behind) })}
+                  {pulling ? "Pulling…" : `pull ${commits(behind)}`}
                 </button>
               )}
               {/* The `upstreamRef !== null` and `current`/`defaultRemote`
@@ -783,8 +774,8 @@ export function BranchChip({
                   className="rounded px-1.5 py-0.5 text-left font-mono text-xs text-ink hover:bg-hover disabled:pointer-events-none disabled:text-ink-dim"
                 >
                   {pushing
-                    ? t("composer.branch.pushing")
-                    : t("composer.branch.push", { commits: commits(ahead), upstream: upstreamRef })}
+                    ? "Pushing…"
+                    : `push ${commits(ahead)} to ${upstreamRef}`}
                 </button>
               )}
               {showPublish && current !== null && defaultRemote !== null && (
@@ -794,7 +785,7 @@ export function BranchChip({
                   onClick={() => void attemptPublish()}
                   className="rounded px-1.5 py-0.5 text-left font-mono text-xs text-ink hover:bg-hover disabled:pointer-events-none disabled:text-ink-dim"
                 >
-                  {t("composer.branch.publish", { branch: current, remote: defaultRemote })}
+                  {`publish ${current} to ${defaultRemote}`}
                 </button>
               )}
               {showPullRequest && (
@@ -803,7 +794,7 @@ export function BranchChip({
                   onClick={() => void openPullRequest()}
                   className="rounded px-1.5 py-0.5 text-left font-mono text-xs text-ink hover:bg-hover disabled:pointer-events-none disabled:text-ink-dim"
                 >
-                  {t("composer.branch.pullRequest")}
+                  pull request…
                 </button>
               )}
               {resolveTrigger !== null && (
@@ -815,8 +806,8 @@ export function BranchChip({
                   className="rounded px-1.5 py-0.5 text-left font-mono text-xs text-ink hover:bg-hover disabled:pointer-events-none disabled:text-ink-dim"
                 >
                   {resolveTrigger.kind === "diverged"
-                    ? t("composer.branch.resolveDiverged", { upstream: resolveTrigger.upstream })
-                    : t("composer.branch.resolveMerge")}
+                    ? `integrate with ${resolveTrigger.upstream}…`
+                    : "resolve merge conflicts…"}
                 </button>
               )}
               {note !== null && (
@@ -837,7 +828,7 @@ export function BranchChip({
                 }}
                 className="rounded px-1.5 py-0.5 text-left font-mono text-xs text-ink-mid hover:bg-hover"
               >
-                {t("composer.branch.newBranch")}
+                new branch…
               </button>
               {workspace?.mode === "worktree" && (
                 <button
@@ -849,7 +840,7 @@ export function BranchChip({
                     "disabled:pointer-events-none disabled:text-ink-dim",
                   )}
                 >
-                  {t("composer.branch.currentCheckout")}
+                  Current checkout
                 </button>
               )}
               {worktreeOffered && (
@@ -858,7 +849,7 @@ export function BranchChip({
                   disabled={worktreeLocked}
                   title={
                     worktreeLocked
-                      ? t("composer.branch.worktreeLocked")
+                      ? "the session must be ready before it can run in a worktree"
                       : undefined
                   }
                   onClick={enterWorktree}
@@ -870,14 +861,14 @@ export function BranchChip({
                     workspace?.mode === "worktree" ? "text-iris" : "text-ink-mid",
                   )}
                 >
-                  {t("composer.branch.worktree")}
+                  worktree…
                 </button>
               )}
               <input
                 autoFocus
                 value={filter}
-                placeholder={t("composer.branch.filterPlaceholder")}
-                aria-label={t("composer.branch.filterLabel")}
+                placeholder="filter branches…"
+                aria-label="filter branches"
                 onChange={(e) => setFilter(e.target.value)}
                 onKeyDown={(e) => {
                   if (e.key === "Enter" && filtered.length > 0) {
@@ -905,7 +896,7 @@ export function BranchChip({
                 ))}
                 {filtered.length === 0 && (
                   <span className="px-1.5 py-0.5 font-mono text-xs text-ink-faint">
-                    {t("composer.branch.noMatches")}
+                    no matches
                   </span>
                 )}
               </div>
@@ -914,7 +905,7 @@ export function BranchChip({
           {/* A background fetch that failed is not worth interrupting anyone
               for — it surfaces here, quietly, only once the popover is open. */}
           {fetching && (
-            <div className="px-1.5 py-1 text-xs text-ink-faint">{t("composer.branch.refreshing")}</div>
+            <div className="px-1.5 py-1 text-xs text-ink-faint">refreshing upstream…</div>
           )}
           {info.upstreamRefreshError !== null && !fetching && (
             <div className="break-words px-1.5 py-1 text-xs leading-snug text-rose">

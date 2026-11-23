@@ -1,6 +1,5 @@
 import { annotationQuotePreview, type Annotation } from "../lib/annotations";
 import { cn } from "../lib/cn";
-import { useT } from "../lib/i18n";
 import { IconButton, IconClose } from "./ui";
 
 /** The full quote and comment, for the chip's hover title. */
@@ -27,11 +26,10 @@ export function AnnotationChips({
   align?: "start" | "end";
   className?: string;
 }) {
-  const t = useT();
   return (
     <div
       role="group"
-      aria-label={t("annotation.chips.label")}
+      aria-label="annotations"
       className={cn(
         "flex max-w-full flex-wrap gap-1.5",
         align === "end" ? "justify-end" : "justify-start",
@@ -55,7 +53,7 @@ export function AnnotationChips({
           </div>
           {onRemove !== undefined && (
             <IconButton
-              label={t("annotation.chips.remove", { n: i + 1 })}
+              label={`remove annotation ${i + 1}`}
               disabled={disabled}
               tone="rose"
               onClick={() => onRemove(i)}

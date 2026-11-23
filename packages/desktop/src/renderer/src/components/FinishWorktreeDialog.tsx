@@ -1,6 +1,5 @@
 import { useEffect, useId, useRef } from "react";
 import { relativeTime } from "../lib/format";
-import { useT, type MessageKey } from "../lib/i18n";
 import { useStore } from "../store";
 import { Button, ConfirmDialog } from "./ui";
 import { commitsText, useFinishWorktree, type FinishStep } from "./useFinishWorktree";
@@ -25,13 +24,13 @@ import { NEW_BRANCH_SENTINEL } from "./WorktreeBranchFields";
  * chips used to carry inline.
  */
 
-const stepLabel: Record<FinishStep, MessageKey> = {
-  creating: "finish.step.creating",
-  renaming: "finish.step.renaming",
-  merging: "finish.step.merging",
-  syncing: "finish.step.syncing",
-  returning: "finish.step.returning",
-  restoring: "finish.step.restoring",
+const stepLabel: Record<FinishStep, string> = {
+  creating: "creating branch…",
+  renaming: "renaming…",
+  merging: "merging…",
+  syncing: "syncing…",
+  returning: "returning…",
+  restoring: "restoring…",
 };
 
 const fieldClass =
@@ -43,7 +42,6 @@ const radioRowClass =
   "flex cursor-pointer items-start gap-2.5 rounded-md border border-line bg-raised px-3 py-2.5 text-xs text-ink-mid transition-colors hover:border-line-strong hover:text-ink has-[:checked]:border-line-strong has-[:checked]:text-ink";
 
 export function FinishWorktreeDialog({ tabId }: { tabId: string }) {
-  const t = useT();
   const c = useFinishWorktree(tabId);
   const toggleConsole = useStore((s) => s.toggleConsole);
   const abortAgent = useStore((s) => s.abortAgent);
@@ -93,20 +91,20 @@ export function FinishWorktreeDialog({ tabId }: { tabId: string }) {
   const blockerTab = c.resolution?.blockedByTabId ?? null;
   const label =
     c.phase.s === "loading"
-      ? t("finish.dialog.loading")
+      ? "checking the repo…"
       : c.phase.s === "working"
-        ? t(stepLabel[c.phase.step])
-        : (c.primaryLabel ?? t("finish.primary.nothing"));
+        ? stepLabel[c.phase.step]
+        : (c.primaryLabel ?? "nothing to do");
 
   const mergeSublabel = (): React.ReactNode => {
     if (status === null) return null;
     if (c.newBranch === null && status.destinationCheckout === "other")
-      return <p className={copperClass}>{t("finish.dialog.heldElsewhere", { destination: targetName })}</p>;
+      return <p className={copperClass}>{`${targetName} is checked out in another worktree — pick another destination`}</p>;
     if (c.newBranch === null && status.destinationCheckout === "project" && status.mergeInProgress)
-      return <p className={copperClass}>{t("branch.merge.inProgress")}</p>;
+      return <p className={copperClass}>a merge is already in progress in the project — finish it there: git merge --continue or git merge --abort</p>;
     if (status.alreadyMerged)
       return (
-        <p className={quietClass}>{t("finish.dialog.alreadyIn", { branch, destination: targetName })}</p>
+        <p className={quietClass}>{`the branch ${branch} is already in ${targetName}`}</p>
       );
     const preview = status.preview;
     // The working-tree overlap (issue #1050): the ref-level preview below is
@@ -126,7 +124,7 @@ export function FinishWorktreeDialog({ tabId }: { tabId: string }) {
       <>
         {destinationDirty.length > 0 && (
           <>
-            <p className={copperClass}>{t("finish.dialog.destinationDirty")}</p>
+            <p className={copperClass}>the project checkout has uncommitted changes to files this merge would overwrite — commit or stash them in the project checkout first</p>
             <ul className="mt-1 space-y-0.5">
               {destinationDirty.slice(0, 5).map((file) => (
                 <li key={file} className="truncate font-mono text-xs text-copper" title={file}>
@@ -134,22 +132,22 @@ export function FinishWorktreeDialog({ tabId }: { tabId: string }) {
                 </li>
               ))}
               {destinationDirty.length > 5 && (
-                <li className={quietClass}>{t("dialog.delete.more", { n: destinationDirty.length - 5 })}</li>
+                <li className={quietClass}>{`+${destinationDirty.length - 5} more`}</li>
               )}
             </ul>
           </>
         )}
         {destinationDirtyUnknown && (
-          <p className={copperClass}>{t("finish.dialog.destinationDirtyUnknown")}</p>
+          <p className={copperClass}>the project checkout's working tree could not be read — the merge may still stop there; commit or stash local edits to be sure</p>
         )}
         {preview.kind === "clean" && destinationDirty.length === 0 && !destinationDirtyUnknown && (
-          <p className={quietClass}>{t("finish.dialog.previewClean")}</p>
+          <p className={quietClass}>no conflicts predicted</p>
         )}
-        {preview.kind === "unknown" && <p className={quietClass}>{t("finish.dialog.previewUnknown")}</p>}
+        {preview.kind === "unknown" && <p className={quietClass}>this git cannot predict conflicts — the merge may still stop</p>}
         {preview.kind === "conflicts" && (
           <>
             <p className={copperClass}>
-              {t("finish.dialog.previewConflicts", { count: preview.files.length })}
+              {`${preview.files.length} file(s) would conflict`}
             </p>
             <ul className="mt-1 space-y-0.5">
               {preview.files.slice(0, 5).map((file) => (
@@ -158,7 +156,7 @@ export function FinishWorktreeDialog({ tabId }: { tabId: string }) {
                 </li>
               ))}
               {preview.files.length > 5 && (
-                <li className={quietClass}>{t("dialog.delete.more", { n: preview.files.length - 5 })}</li>
+                <li className={quietClass}>{`+${preview.files.length - 5} more`}</li>
               )}
             </ul>
             <Button
@@ -168,14 +166,14 @@ export function FinishWorktreeDialog({ tabId }: { tabId: string }) {
               disabled={working || done || c.resolutionBusy || c.ownRunning || dirty}
               title={
                 c.ownRunning
-                  ? t("finish.dialog.syncBlockedRunning")
+                  ? "this session is mid-turn — pause it before syncing"
                   : dirty
-                    ? t("finish.dialog.syncBlockedDirty")
+                    ? "the checkout is dirty — commit or discard before syncing"
                     : undefined
               }
               onClick={() => void c.sync()}
             >
-              {t("finish.dialog.syncFirst", { destination: c.newBranch === null ? targetName : c.newBranch.from })}
+              {`sync ${c.newBranch === null ? targetName : c.newBranch.from} into the worktree`}
             </Button>
           </>
         )}
@@ -183,7 +181,7 @@ export function FinishWorktreeDialog({ tabId }: { tabId: string }) {
           status.destinationCheckout === "project" &&
           c.busyTitle !== null && (
             <p className={copperClass}>
-              {t("finish.dialog.busyProject", { title: c.busyTitle, destination: targetName })}
+              {`session “${c.busyTitle}” is mid-turn in the project — merging moves ${targetName} under it`}
             </p>
           )}
         {/* The switch variant of the busy row (#431): a new-branch or
@@ -192,10 +190,7 @@ export function FinishWorktreeDialog({ tabId }: { tabId: string }) {
             the two rows are disjoint, so they can never stack. */}
         {c.checkoutTarget !== null && c.busyTitle !== null && (
           <p className={copperClass}>
-            {t("finish.dialog.busySwitchProject", {
-              title: c.busyTitle,
-              destination: c.checkoutTarget,
-            })}
+            {`session “${c.busyTitle}” is mid-turn in the project — returning would move its checkout to ${c.checkoutTarget}, so the checkout is left alone`}
           </p>
         )}
       </>
@@ -206,12 +201,12 @@ export function FinishWorktreeDialog({ tabId }: { tabId: string }) {
     if (c.outcome === "merge")
       return c.returnSession
         ? c.checkoutTarget !== null
-          ? t("finish.hint.mergeReturnSwitch", { branch, destination: targetName })
-          : t("finish.hint.mergeReturn", { branch, destination: targetName })
-        : t("finish.hint.mergeStay", { branch });
+          ? `the checkout is removed, the branch ${branch} deleted once it is in ${targetName}, and this session returns on ${targetName}`
+          : `the checkout is removed and the branch ${branch} deleted once it is in ${targetName}`
+        : `the session stays in its checkout on ${branch}`;
     return c.returnSession
-      ? t("finish.hint.keepReturn", { branch })
-      : t("finish.hint.keepStay");
+      ? `the checkout is removed; the branch ${branch} stays`
+      : "nothing changes in git; the session keeps running here";
   };
 
   /**
@@ -227,20 +222,16 @@ export function FinishWorktreeDialog({ tabId }: { tabId: string }) {
     const confirming = c.pushState.s === "confirm";
     if (!confirming && c.pushState.s !== "idle") return null;
     let label: string;
-    if (confirming) label = t("composer.branch.pushAnyway");
+    if (confirming) label = "push anyway";
     else {
       const { destination, destinationAhead, destinationUpstream } = c.phase;
       if (destinationAhead !== null && destinationAhead > 0)
         // The status read reports a count and its ref together; a count with
         // no ref is not a state main returns, and the branch name is the
         // honest fallback for a line that cannot be drawn.
-        label = t("finish.done.pushTo", {
-          destination,
-          commits: commitsText(destinationAhead),
-          upstream: destinationUpstream ?? destination,
-        });
+        label = `push ${destination} — ${commitsText(destinationAhead)} to ${destinationUpstream ?? destination}`;
       else if (destinationAhead === null && c.defaultRemote !== null)
-        label = t("finish.done.publishTo", { destination, remote: c.defaultRemote });
+        label = `publish ${destination} to ${c.defaultRemote}`;
       else return null;
     }
     const midTurn = c.busyTitle !== null || c.ownRunning;
@@ -253,8 +244,8 @@ export function FinishWorktreeDialog({ tabId }: { tabId: string }) {
 
   return (
     <ConfirmDialog
-      kicker={t("finish.dialog.kicker")}
-      title={t("finish.dialog.title", { branch })}
+      kicker="Finish worktree"
+      title={`Finish ${branch}?`}
       tone="neutral"
       onClose={c.close}
       androidBack={done ? "block" : "dismiss"}
@@ -269,7 +260,7 @@ export function FinishWorktreeDialog({ tabId }: { tabId: string }) {
             disabled={c.resolutionBusy || c.pushState.s === "busy"}
             onClick={c.close}
           >
-            {t("finish.primary.done")}
+            done
           </Button>
         ) : (
           <>
@@ -278,7 +269,7 @@ export function FinishWorktreeDialog({ tabId }: { tabId: string }) {
               disabled={c.resolutionBusy || working || c.phase.s === "loading"}
               onClick={c.close}
             >
-              {t("common.dialog.cancel")}
+              Cancel
             </Button>
             <Button
               variant="solid"
@@ -300,16 +291,12 @@ export function FinishWorktreeDialog({ tabId }: { tabId: string }) {
             {status === null
               ? "…"
               : status.alreadyMerged
-                ? t("finish.dialog.alreadyIn", { branch, destination: targetName })
-                : t("finish.dialog.facts", {
-                    ahead: t(status.ahead === 1 ? "branch.merge.oneCommit" : "branch.merge.manyCommits", { count: status.ahead }),
-                    behind: status.behind,
-                    destination: targetName,
-                  })}
+                ? `the branch ${branch} is already in ${targetName}`
+                : `${status.ahead === 1 ? `${status.ahead} commit` : `${status.ahead} commits`} ahead of ${targetName}, ${status.behind} behind`}
           </p>
           {dirty && (
             <div className="flex items-center justify-between gap-2">
-              <p className="text-xs leading-snug text-copper">{t("finish.dialog.dirty")}</p>
+              <p className="text-xs leading-snug text-copper">uncommitted changes in the checkout — commit them, or discard them, before returning</p>
               <Button
                 size="xs"
                 variant="ghost"
@@ -318,13 +305,13 @@ export function FinishWorktreeDialog({ tabId }: { tabId: string }) {
                   if (!consoleIsOpen) toggleConsole(tabId);
                 }}
               >
-                {t("finish.dialog.openConsole")}
+                open console
               </Button>
             </div>
           )}
           {c.sharers > 0 && (
             <p className="text-xs leading-snug text-ink-faint">
-              {t("branch.merge.sharers", { count: c.sharers })}
+              {`${c.sharers} other session(s) still run in this checkout, so it and the branch are kept until they leave.`}
             </p>
           )}
         </div>
@@ -334,36 +321,33 @@ export function FinishWorktreeDialog({ tabId }: { tabId: string }) {
             git stash apply --index, staged changes staged again. */}
         {c.discarded.length > 0 && !done && (
           <section className="space-y-1.5 rounded-md border border-line bg-raised px-3 py-2.5">
-            <p className="text-xs text-ink">{t("finish.discarded.title", { count: c.discarded.length })}</p>
-            <p className={quietClass}>{t("finish.discarded.hint")}</p>
+            <p className="text-xs text-ink">{`discarded changes omp saved (${c.discarded.length})`}</p>
+            <p className={quietClass}>omp's git guard saved these before a git command in this worktree discarded them; untracked files are never saved, and saves expire with git's reflog</p>
             <ul className="space-y-1">
               {c.discarded.slice(0, 5).map((save) => (
                 <li key={save.commit} className="flex items-center justify-between gap-2">
                   <span className="min-w-0" title={save.files.join("\n")}>
                     <span className="block truncate font-mono text-xs text-ink-mid">
-                      {t("finish.discarded.entry", {
-                        command: save.command === "" ? save.commit.slice(0, 7) : save.command,
-                        branch: save.branch,
-                      })}
+                      {`${save.command === "" ? save.commit.slice(0, 7) : save.command} on ${save.branch}`}
                     </span>
                     <span className={`block ${quietClass}`}>
                       {save.commit.slice(0, 7)} · {relativeTime(new Date(save.savedAt).toISOString())} ·{" "}
-                      {t("finish.discarded.files", { count: save.files.length })}
+                      {`${save.files.length} file(s)`}
                     </span>
                   </span>
                   <Button
                     size="xs"
                     variant="ghost"
                     disabled={working || c.resolutionBusy || c.ownRunning}
-                    title={c.ownRunning ? t("finish.discarded.restoreBlockedRunning") : undefined}
+                    title={c.ownRunning ? "this session is mid-turn — pause it before restoring" : undefined}
                     onClick={() => void c.restoreDiscarded(save.commit)}
                   >
-                    {t("finish.discarded.restore")}
+                    restore
                   </Button>
                 </li>
               ))}
               {c.discarded.length > 5 && (
-                <li className={quietClass}>{t("dialog.delete.more", { n: c.discarded.length - 5 })}</li>
+                <li className={quietClass}>{`+${c.discarded.length - 5} more`}</li>
               )}
             </ul>
           </section>
@@ -373,7 +357,7 @@ export function FinishWorktreeDialog({ tabId }: { tabId: string }) {
             destination; "new branch…" cuts one from a chosen start point. */}
         <div>
           <label htmlFor={`${ids}-dest`} className={labelClass}>
-            {t("finish.dialog.destination")}
+            where the work goes
           </label>
           <select
             id={`${ids}-dest`}
@@ -390,7 +374,7 @@ export function FinishWorktreeDialog({ tabId }: { tabId: string }) {
           >
             {c.destination === null && c.newBranch === null && (
               <option value="" disabled>
-                {t("finish.dialog.loading")}
+                checking the repo…
               </option>
             )}
             {c.branches.map((name) => (
@@ -398,13 +382,13 @@ export function FinishWorktreeDialog({ tabId }: { tabId: string }) {
                 {name}
               </option>
             ))}
-            <option value={NEW_BRANCH_SENTINEL}>{t("finish.dialog.newBranchOption")}</option>
+            <option value={NEW_BRANCH_SENTINEL}>new branch…</option>
           </select>
           {c.newBranch !== null && (
             <div className="mt-2 space-y-2">
               <div>
                 <label htmlFor={`${ids}-nb-name`} className={labelClass}>
-                  {t("finish.dialog.newBranchName")}
+                  branch name
                 </label>
                 <input
                   id={`${ids}-nb-name`}
@@ -418,7 +402,7 @@ export function FinishWorktreeDialog({ tabId }: { tabId: string }) {
               </div>
               <div>
                 <label htmlFor={`${ids}-nb-from`} className={labelClass}>
-                  {t("finish.dialog.newBranchFrom")}
+                  cut from
                 </label>
                 <select
                   id={`${ids}-nb-from`}
@@ -445,13 +429,13 @@ export function FinishWorktreeDialog({ tabId }: { tabId: string }) {
             className={mergeBlocked ? `${radioRowClass} pointer-events-none text-ink-dim` : radioRowClass}
             title={
               status !== null && c.newBranch === null && status.destinationCheckout === "other"
-                ? t("finish.dialog.heldElsewhere", { destination: status.destination })
+                ? `${status.destination} is checked out in another worktree — pick another destination`
                 : status !== null &&
                     status.destinationCheckout === "project" &&
                     status.mergeInProgress
-                  ? t("branch.merge.inProgress")
+                  ? "a merge is already in progress in the project — finish it there: git merge --continue or git merge --abort"
                   : (c.destinationDirtyFiles?.length ?? 0) > 0
-                    ? t("finish.dialog.destinationDirty")
+                    ? "the project checkout has uncommitted changes to files this merge would overwrite — commit or stash them in the project checkout first"
                     : undefined
             }
           >
@@ -465,7 +449,7 @@ export function FinishWorktreeDialog({ tabId }: { tabId: string }) {
             />
             <span className="min-w-0 space-y-1">
               <span className="block text-ink">
-                {t("finish.outcome.merge", { destination: targetName })}
+                {`merge into ${targetName}`}
               </span>
               {mergeSublabel()}
             </span>
@@ -480,12 +464,12 @@ export function FinishWorktreeDialog({ tabId }: { tabId: string }) {
               onChange={() => c.setOutcome("keep")}
             />
             <span className="min-w-0 space-y-1">
-              <span className="block text-ink">{t("finish.outcome.keep")}</span>
-              <span className={`block ${quietClass}`}>{t("finish.dialog.keepHint")}</span>
+              <span className="block text-ink">keep the branch</span>
+              <span className={`block ${quietClass}`}>the branch survives the finish; rename it if you like</span>
               {c.outcome === "keep" && (
                 <span className="block">
                   <label htmlFor={`${ids}-rename`} className={labelClass}>
-                    {t("finish.dialog.renameLabel")}
+                    rename branch to
                   </label>
                   <input
                     id={`${ids}-rename`}
@@ -505,7 +489,7 @@ export function FinishWorktreeDialog({ tabId }: { tabId: string }) {
         <div>
           <label
             className={radioRowClass}
-            title={dirty ? t("finish.dialog.returnBlockedDirty") : undefined}
+            title={dirty ? "the checkout is dirty — commit or discard the changes first" : undefined}
           >
             <input
               type="checkbox"
@@ -516,7 +500,7 @@ export function FinishWorktreeDialog({ tabId }: { tabId: string }) {
             />
             <span className="min-w-0 space-y-1">
               <span className="block text-ink">
-                {t("finish.dialog.returnSession", { projectCwd: record.projectCwd })}
+                {`return this session to ${record.projectCwd}`}
               </span>
               <span className={`block ${quietClass}`}>{returnHint()}</span>
             </span>
@@ -530,31 +514,23 @@ export function FinishWorktreeDialog({ tabId }: { tabId: string }) {
             {c.phase.s === "conflict" && (
               <p className="text-xs leading-relaxed text-copper">
                 {c.phase.leftIn === "project"
-                  ? t("finish.dialog.conflictProject", { count: c.phase.files.length })
-                  : t("finish.dialog.conflictAborted", { count: c.phase.files.length })}
+                  ? `the merge stopped on ${c.phase.files.length} file(s) in the project checkout — nothing was returned`
+                  : `nothing was changed — ${c.phase.files.length} file(s) would conflict. Sync first, resolve in the worktree, then finish again`}
               </p>
             )}
             {c.resolution !== null && (
               <>
                 {c.resolution.startsMerge ? (
                   <p className={copperClass}>
-                    {t("finish.resolution.mergeFirst", {
-                      source: branch,
-                      destination: c.status?.destination ?? "",
-                    })}
+                    {`This starts the merge of ${branch} into ${c.status?.destination ?? ""} in the project checkout. If it stops on conflicts, the agent resolves them there; if it lands clean, it simply finishes the merge.`}
                   </p>
                 ) : (
                   !(c.phase.s === "conflict" && c.phase.leftIn === "project") && (
-                    <p className={copperClass}>{t("branch.merge.inProgress")}</p>
+                    <p className={copperClass}>a merge is already in progress in the project — finish it there: git merge --continue or git merge --abort</p>
                   )
                 )}
                 <p className={`${quietClass} [overflow-wrap:anywhere]`}>
-                  {t(
-                    c.resolution.route === "current"
-                      ? "finish.resolution.currentHint"
-                      : "finish.resolution.freshHint",
-                    { cwd: c.resolution.trigger.cwd },
-                  )}
+                  {c.resolution.route === "current" ? `Send this task to this session. It will resolve the merge in ${c.resolution.trigger.cwd}, not its worktree. Nothing will be pushed or returned.` : `Start a new native resolution session in ${c.resolution.trigger.cwd}. Your original session and worktree stay unchanged. Nothing will be pushed or returned.`}
                 </p>
                 <div className="flex flex-wrap items-center gap-2">
                   <Button
@@ -564,7 +540,7 @@ export function FinishWorktreeDialog({ tabId }: { tabId: string }) {
                     disabled={c.resolutionBusy || working || c.resolution.blockedReason !== null}
                     onClick={() => void c.resolveWithAgent()}
                   >
-                    {t(c.resolutionBusy ? "finish.resolution.sending" : "finish.resolution.action")}
+                    {c.resolutionBusy ? "Sending resolution task…" : "Resolve with agent"}
                   </Button>
                   {c.resolution.blockedReason !== null && (
                     <p className={`${copperClass} min-w-0`}>{c.resolution.blockedReason}</p>
@@ -578,7 +554,7 @@ export function FinishWorktreeDialog({ tabId }: { tabId: string }) {
                       disabled={c.resolutionBusy || working}
                       onClick={() => void abortAgent(blockerTab)}
                     >
-                      {t("finish.resolution.stopBlocker")}
+                      Stop that turn
                     </Button>
                     <Button
                       size="xs"
@@ -589,7 +565,7 @@ export function FinishWorktreeDialog({ tabId }: { tabId: string }) {
                         c.close();
                       }}
                     >
-                      {t("finish.resolution.openBlocker")}
+                      Open that session
                     </Button>
                   </div>
                 )}
@@ -599,7 +575,7 @@ export function FinishWorktreeDialog({ tabId }: { tabId: string }) {
                   </p>
                 )}
                 <p className={`${quietClass} [overflow-wrap:anywhere]`}>
-                  {t("branch.merge.resolveHint", { cwd: c.resolution.trigger.cwd })}
+                  {`resolve in ${c.resolution.trigger.cwd}, then git merge --continue — or git merge --abort`}
                 </p>
               </>
             )}
@@ -617,10 +593,7 @@ export function FinishWorktreeDialog({ tabId }: { tabId: string }) {
         {c.phase.s === "done" && (
           <div className="space-y-1.5 rounded-md border border-line bg-raised px-3 py-2.5">
             <p className="text-xs leading-snug text-ink">
-              {t("finish.done.landed", {
-                commits: commitsText(c.phase.commits),
-                destination: c.phase.destination,
-              })}
+              {`merged ${commitsText(c.phase.commits)} into ${c.phase.destination}`}
             </p>
             {c.pushState.s === "idle" && donePush !== null && (
               <Button size="xs" onClick={donePush.onClick}>
@@ -629,7 +602,7 @@ export function FinishWorktreeDialog({ tabId }: { tabId: string }) {
             )}
             {c.pushState.s === "busy" && (
               <Button size="xs" disabled>
-                {t("finish.done.pushing")}
+                pushing…
               </Button>
             )}
             {c.pushState.s === "confirm" && (
@@ -637,7 +610,7 @@ export function FinishWorktreeDialog({ tabId }: { tabId: string }) {
                 {/* The chip's own busy row, in spirit: the mid-turn session is
                     either another tab on this checkout or this one itself. */}
                 <p className={copperClass}>
-                  {t("composer.branch.confirmPush", { title: c.busyTitle ?? record.title })}
+                  {`session “${c.busyTitle ?? record.title}” is mid-turn — the branch is shared as it stands`}
                 </p>
                 <div className="flex gap-1.5">
                   {donePush !== null && (
@@ -646,7 +619,7 @@ export function FinishWorktreeDialog({ tabId }: { tabId: string }) {
                     </Button>
                   )}
                   <Button size="xs" variant="ghost" onClick={c.dismissPushConfirm}>
-                    {t("composer.branch.cancel")}
+                    cancel
                   </Button>
                 </div>
               </>
@@ -655,23 +628,17 @@ export function FinishWorktreeDialog({ tabId }: { tabId: string }) {
               <>
                 {c.pushState.result.kind === "pushed" && (
                   <p className={quietClass}>
-                    {t("finish.done.pushed", {
-                      commits: commitsText(c.pushState.result.commits),
-                      upstream: c.pushState.result.upstreamRef,
-                    })}
+                    {`pushed ${commitsText(c.pushState.result.commits)} to ${c.pushState.result.upstreamRef}`}
                   </p>
                 )}
                 {c.pushState.result.kind === "published" && (
                   <p className={quietClass}>
-                    {t("finish.done.published", {
-                      destination: c.phase.destination,
-                      remote: c.pushState.result.remote,
-                    })}
+                    {`published ${c.phase.destination} to ${c.pushState.result.remote}`}
                   </p>
                 )}
                 {c.pushState.result.kind === "up-to-date" && (
                   <p className={quietClass}>
-                    {t("composer.branch.upToDate", { upstream: c.pushState.result.upstreamRef })}
+                    {`up to date with ${c.pushState.result.upstreamRef}`}
                   </p>
                 )}
                 {/* Git refused a non-fast-forward, so the remote moved: naming
@@ -680,12 +647,9 @@ export function FinishWorktreeDialog({ tabId }: { tabId: string }) {
                 {c.pushState.result.kind === "rejected" && (
                   <>
                     <p className={copperClass}>
-                      {t("finish.done.rejected", {
-                        upstream:
-                          c.pushState.result.remote === null
+                      {`${c.pushState.result.remote === null
                             ? c.phase.destinationUpstream ?? c.phase.destination
-                            : `${c.pushState.result.remote}/${c.phase.destination}`,
-                      })}
+                            : `${c.pushState.result.remote}/${c.phase.destination}`} has commits this branch lacks — pull first, then push`}
                     </p>
                     <p className={`${quietClass} break-words`}>{c.pushState.result.detail}</p>
                   </>
@@ -702,7 +666,7 @@ export function FinishWorktreeDialog({ tabId }: { tabId: string }) {
                   c.phase.destination !== c.defaultBranch &&
                   (c.prOpened ? (
                     <p className={`${quietClass} [overflow-wrap:anywhere]`}>
-                      {t("finish.done.prOpened", { destination: c.phase.destination })}
+                      {`compare page for ${c.phase.destination} opened in your browser`}
                     </p>
                   ) : (
                     <Button
@@ -710,7 +674,7 @@ export function FinishWorktreeDialog({ tabId }: { tabId: string }) {
                       variant="ghost"
                       onClick={() => void c.openPullRequest()}
                     >
-                      {t("finish.done.openPr")}
+                      open pull request
                     </Button>
                   ))}
               </>
@@ -721,7 +685,7 @@ export function FinishWorktreeDialog({ tabId }: { tabId: string }) {
               </p>
             )}
             {c.prUnavailable && (
-              <p className={quietClass}>{t("composer.branch.prUnavailable")}</p>
+              <p className={quietClass}>cannot build a pull-request URL for this remote</p>
             )}
           </div>
         )}

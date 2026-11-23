@@ -299,7 +299,7 @@ export interface BrowserClockStampRequest {
 }
 
 /** GNOME-style date and time parts ("Sep 23, 2026" / "4:19 PM CDT"); an invalid locale tag falls back to "en". */
-export function formatBrowserClock(now: Date, locale: string): { date: string; time: string } {
+export function formatBrowserClock(now: Date, locale = "en"): { date: string; time: string } {
   const parts = (tag: string): { date: string; time: string } => ({
     date: new Intl.DateTimeFormat(tag, { month: "short", day: "numeric", year: "numeric" }).format(now),
     time: new Intl.DateTimeFormat(tag, { hour: "numeric", minute: "2-digit", timeZoneName: "short" }).format(now),
@@ -312,7 +312,7 @@ export function formatBrowserClock(now: Date, locale: string): { date: string; t
 }
 
 /** The single-line stamp text: date, two spaces, time. */
-export function browserClockText(now: Date, locale: string): string {
+export function browserClockText(now: Date, locale = "en"): string {
   const { date, time } = formatBrowserClock(now, locale);
   return `${date}  ${time}`;
 }

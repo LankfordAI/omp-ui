@@ -6,7 +6,6 @@ import type { BranchList, ServiceTier } from "@omp-ui/core/types";
 import { backendState, rpcTabState } from "../test/fixtures";
 import type { CapabilitySnapshot } from "@omp-ui/core/capabilities";
 import { emptySessionRuntime } from "../lib/rpc-types";
-import { t } from "../lib/i18n";
 
 (globalThis as Record<string, unknown>).IS_REACT_ACT_ENVIRONMENT = true;
 
@@ -322,12 +321,12 @@ describe("ComposerSheet", () => {
       },
     }));
     render(true);
-    expect(document.body.textContent).toContain(t("hud.fast.declined"));
+    expect(document.body.textContent).toContain("on — provider declined");
     const sw = document.querySelector<HTMLButtonElement>(
       `button[role="switch"][aria-label="fast mode"]`,
     )!;
     expect(sw).not.toBeNull();
-    expect(sw.title).toBe(t("hud.fast.declinedTitle"));
+    expect(sw.title).toBe("fast mode enabled but the provider declined it · click to retry");
     expect(sw.getAttribute("aria-checked")).toBe("true");
     await act(async () => sw.click());
     expect(setFastMode).toHaveBeenCalledWith(TAB, false);
@@ -388,9 +387,9 @@ describe("ComposerSheet", () => {
     expect(fastSwitches()).toHaveLength(0);
     const choices = [...group.querySelectorAll<HTMLButtonElement>("button")];
     expect(choices.map((button) => button.textContent)).toEqual([
-      t("hud.fast.tierOff"),
-      t("hud.fast.tierPriority"),
-      t("hud.fast.tierUltrafast"),
+      "off",
+      "priority",
+      "ultrafast",
     ]);
     await act(async () => choices[2]!.click());
     expect(setServiceTier).toHaveBeenCalledWith(TAB, "ultrafast");
@@ -421,11 +420,11 @@ describe("ComposerSheet", () => {
     render(true);
     const group = document.body.querySelector('[role="group"][aria-label="fast mode"]')!;
     const choices = [...group.querySelectorAll<HTMLButtonElement>("button")];
-    const ultrafast = choices.find((button) => button.textContent === t("hud.fast.tierUltrafast"))!;
+    const ultrafast = choices.find((button) => button.textContent === "ultrafast")!;
     expect(ultrafast.getAttribute("aria-pressed")).toBe("true");
-    expect(ultrafast.title).toBe(t("hud.fast.declinedTitle"));
-    expect(choices.find((button) => button.textContent === t("hud.fast.tierPriority"))!.title)
-      .toBe(t("hud.fast.tierPriorityTitle"));
+    expect(ultrafast.title).toBe("fast mode enabled but the provider declined it · click to retry");
+    expect(choices.find((button) => button.textContent === "priority")!.title)
+      .toBe("priority serving · click to set this tier");
     await act(async () => ultrafast.click());
     expect(setServiceTier).toHaveBeenCalledWith(TAB, "ultrafast");
   });
@@ -456,7 +455,7 @@ describe("ComposerSheet", () => {
 describe("ComposerSheet live voice gate (issue #968)", () => {
   const liveSwitch = (): HTMLButtonElement | null =>
     document.body.querySelector<HTMLButtonElement>(
-      `button[role="switch"][aria-label="${t("composer.live.start")}"]`,
+      `button[role="switch"][aria-label="${"start live voice"}"]`,
     );
 
   beforeEach(() => {
@@ -473,6 +472,6 @@ describe("ComposerSheet live voice gate (issue #968)", () => {
     seedLiveCapable();
     render(true);
     expect(liveSwitch()).toBeNull();
-    expect(document.body.textContent).not.toContain(t("composer.live.start"));
+    expect(document.body.textContent).not.toContain("start live voice");
   });
 });

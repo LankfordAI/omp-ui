@@ -12,7 +12,6 @@ import { useDiagramSvg } from "../lib/diagram";
 import { svgImageSrc } from "../lib/svg-block";
 import { useTheme } from "../lib/themes";
 import { bareUrlAt, isSafeHref, parseMarkdownCached, type MdBlock, type MdList, type MdSpan, type MdTableTail } from "../lib/markdown";
-import { useT } from "../lib/i18n";
 import { isHtmlPlanDocument } from "@omp-ui/core/plan";
 import { PlanDocument } from "./PlanDocumentView";
 import { CopyButton } from "./ui";
@@ -116,7 +115,6 @@ function MathExpression({ text, display }: { text: string; display: boolean }): 
  * lives and the click explains instead of silently mis-opening.
  */
 export function OpenExternalLink({ href, children }: { href: string; children: ReactNode }) {
-  const t = useT();
   const machine = useTabMachine();
   const ownerLoopback = machine !== null && isLoopbackHost(safeHostname(href));
   const [explained, setExplained] = useState(false);
@@ -126,7 +124,7 @@ export function OpenExternalLink({ href, children }: { href: string; children: R
         <a
           role="link"
           tabIndex={0}
-          title={t("markdown.link.otherMachine.tip", { machine })}
+          title={`lives on ${machine}: this loopback address only resolves there, not on this computer`}
           onClick={() => setExplained(true)}
           onKeyDown={(e) => {
             if (e.key === "Enter" || e.key === " ") {
@@ -144,7 +142,7 @@ export function OpenExternalLink({ href, children }: { href: string; children: R
             role="status"
             className="ml-2 rounded border border-line bg-overlay px-1.5 py-0.5 text-[0.8em] text-ink-mid"
           >
-            {t("markdown.link.otherMachine.note", { machine })}
+            {`this address only resolves on ${machine} — open it there, or use the session’s browser pane`}
           </span>
         )}
       </span>
@@ -186,14 +184,13 @@ function safeHostname(href: string): string {
  * (or a gate-off store) keeps the transcript on its plain-text fallback.
  */
 function OpenRoutineLink({ id, children }: { id: string; children: ReactNode }) {
-  const t = useT();
   const focus = useRoutineFocus();
   if (focus === null) return <span>{children}</span>;
   return (
     <a
       role="link"
       tabIndex={0}
-      title={t("transcript.routineLink")}
+      title="Open this routine in Routines for review"
       onClick={() => focus(id)}
       onKeyDown={(e) => {
         if (e.key === "Enter" || e.key === " ") {
@@ -210,7 +207,6 @@ function OpenRoutineLink({ id, children }: { id: string; children: ReactNode }) 
 }
 
 function Spans({ spans }: { spans: MdSpan[] }) {
-  const t = useT();
   const renderObsidianLink = useContext(ObsidianNoteLinkContext);
   return (
     <>
@@ -223,7 +219,7 @@ function Spans({ spans }: { spans: MdSpan[] }) {
             return (
               <span
                 key={i}
-                title={t("markdown.inf.tip")}
+                title="Model-flagged inference: not verified against sources"
                 className="select-none align-[0.15em] font-mono text-[0.62em] tracking-[0.08em] text-ink-mid"
               >
                 INF
@@ -398,7 +394,6 @@ function CodeHeader({
   text: string;
   toggle?: { label: string; onClick: () => void };
 }) {
-  const t = useT();
   return (
     <div className="flex items-center justify-between border-b border-line-soft px-2 py-0.5">
       <span className="font-mono text-xs lowercase text-ink-dim">{label}</span>
@@ -414,8 +409,8 @@ function CodeHeader({
         )}
         <CopyButton
           text={text}
-          label={t("common.button.copy")}
-          doneLabel={t("common.button.copied")}
+          label="Copy"
+          doneLabel="Copied"
         />
       </span>
     </div>
@@ -467,7 +462,6 @@ function CodeBlock({
   const isDiagram = lower === "mermaid";
   const isSvg = lower === "svg";
   const settled = trailing === undefined;
-  const t = useT();
   // Declared ahead of the token hook: the svg gate below reads it.
   const [showSource, setShowSource] = useState(false);
   const theme = useTheme();
@@ -503,10 +497,10 @@ function CodeBlock({
           (isDiagram && svg !== null) || (isSvg && imgSrc !== null)
             ? {
                 label: asDiagram || asImage
-                  ? t("markdown.codeblock.source")
+                  ? "source"
                   : isSvg
-                    ? t("markdown.codeblock.image")
-                    : t("markdown.codeblock.diagram"),
+                    ? "image"
+                    : "diagram",
                 onClick: () => setShowSource((s) => !s),
               }
             : undefined
@@ -519,7 +513,7 @@ function CodeBlock({
         // `draggable={false}` keeps a diagram from being dragged into a
         // data-URI navigation (#101's intent). Centers/scrolls per .md-svg.
         <div className="md-svg">
-          <img src={imgSrc} alt={t("markdown.svg.aria")} draggable={false} />
+          <img src={imgSrc} alt="SVG image" draggable={false} />
         </div>
       ) : asDiagram ? (
         // The sole HTML insertion for agent prose beyond KaTeX: `svg` is
@@ -528,7 +522,7 @@ function CodeBlock({
         <div
           className="md-diagram"
           role="img"
-          aria-label={t("markdown.diagram.aria")}
+          aria-label="mermaid diagram"
           dangerouslySetInnerHTML={{ __html: svg }}
         />
       ) : (
@@ -541,9 +535,9 @@ function CodeBlock({
             // keeps it one line; the title carries the full detail.
             <p
               className="flex items-baseline gap-1.5 border-b border-line-soft px-2 py-0.5 text-xs leading-snug text-copper"
-              title={t("markdown.diagram.failed.detail", { detail: diagramError })}
+              title={`diagram failed to render — ${diagramError}`}
             >
-              <strong className="shrink-0">{t("markdown.diagram.failed")}</strong>
+              <strong className="shrink-0">diagram failed to render</strong>
               <span className="min-w-0 truncate font-mono">
                 {diagramError.replace(/\s+/g, " ").trim()}
               </span>
@@ -563,7 +557,6 @@ function CodeBlock({
  * lets a user prompt widen to the column (TranscriptView UserBubble).
  */
 function HtmlPlanBlock({ text }: { text: string }) {
-  const t = useT();
   const [showSource, setShowSource] = useState(false);
   const tokens = useHighlightTokens(text, "html", showSource);
   return (
@@ -572,12 +565,12 @@ function HtmlPlanBlock({ text }: { text: string }) {
         label="html"
         text={text}
         toggle={{
-          label: showSource ? t("markdown.codeblock.document") : t("markdown.codeblock.source"),
+          label: showSource ? "document" : "source",
           onClick: () => setShowSource((s) => !s),
         }}
       />
       <div className={cn("p-1.5", showSource && "hidden")}>
-        <PlanDocument html={text} title={t("markdown.plan.frameTitle")} className="h-[28rem]" />
+        <PlanDocument html={text} title="html plan" className="h-[28rem]" />
       </div>
       {showSource && <CodePre text={text} tokens={tokens} />}
     </div>

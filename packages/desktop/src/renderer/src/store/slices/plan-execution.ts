@@ -22,7 +22,6 @@ import { goalOwnsSession as coreGoalOwnsSession } from "@omp-ui/core/goal";
 import { councilPlanReviewPrompt } from "@omp-ui/core/council";
 import { backend } from "../../backend";
 import { arrField, field, strField } from "../../lib/fields";
-import { t } from "../../lib/i18n";
 import { AdvisorReplyWatcher } from "../../lib/advisor-reply";
 import {
   PlanConcernWatcher,
@@ -135,15 +134,15 @@ export function transcriptPlanUnavailable(state: UiStore, tabId: string): string
   if (!owner || owner.record.chat || owner.record.mode !== "rpc-ui" || owner.record.live !== "live" ||
     (owner.instanceId !== null && findInstance(state.state, owner.instanceId)?.status !== "joined") ||
     !tab || state.exited[tabId] !== undefined || !tab.session.sessionId ||
-    owner.record.sessionId !== tab.session.sessionId) return t("plan.transcript.liveRequired");
+    owner.record.sessionId !== tab.session.sessionId) return "Open a live native session to use transcript HTML.";
   if (!tab.commands.some((command) => command.name === PLAN_TRANSCRIPT_COMMAND))
-    return t("plan.transcript.updateRequired");
+    return "This host does not advertise transcript plan import. Update omp-ui on the owning host and relaunch the session.";
   const status = transcriptPlanStatus(state, tabId);
   if (tab.status !== "ready" || tab.commandAdmissionBlocked || tab.session.isStreaming ||
     tab.session.isCompacting || tab.compacting !== undefined || tab.busy || tab.planReview !== null ||
     tab.extensionQueue.length > 0 || tab.approvalPrompt !== null || tab.experimentProposal !== null ||
-    owner.record.awaitingHumanAnswer === true || status?.busy) return t("plan.transcript.busy");
-  if (!status?.available) return status?.reason || t("plan.transcript.hostUnavailable");
+    owner.record.awaitingHumanAnswer === true || status?.busy) return "Wait until the session is idle and its current review or dialog is closed.";
+  if (!status?.available) return status?.reason || "The host has not made transcript plan import available. Refresh or relaunch the session.";
   return null;
 }
 
@@ -212,7 +211,7 @@ export function createPlanExecutionSlice(
 
   const loadTranscriptPlanSources = async (tabId: string) => {
     const reason = transcriptPlanUnavailable(get(), tabId);
-    if (reason !== null || !m.acceptsCommands(tabId)) throw new Error(reason ?? t("plan.transcript.busy"));
+    if (reason !== null || !m.acceptsCommands(tabId)) throw new Error(reason ?? "Wait until the session is idle and its current review or dialog is closed.");
     const identity = transcriptIdentity(tabId);
     if (!identity?.current() || !identity.sessionId) return null;
     const reads = transcriptRuntime(identity.runtime);
@@ -223,29 +222,29 @@ export function createPlanExecutionSlice(
       response = await get().rpcCommand(tabId, { type: "get_entries" }, { quiet: true });
     } catch {
       if (!current()) return null;
-      throw new Error(t("plan.transcript.entriesUnavailable"));
+      throw new Error("The host could not read original transcript entries. Update the owning host and relaunch the session.");
     }
     if (!current()) return null;
     const unavailable = transcriptPlanUnavailable(get(), tabId);
     if (unavailable !== null) throw new Error(unavailable);
     const data = respData(response);
-    if (!Array.isArray(field(data, "entries"))) throw new Error(t("plan.transcript.entriesUnavailable"));
+    if (!Array.isArray(field(data, "entries"))) throw new Error("The host could not read original transcript entries. Update the owning host and relaunch the session.");
     const candidates = transcriptPlanCandidates(arrField(data, "entries"), field(data, "leafId"));
-    if (candidates === null) throw new Error(t("plan.transcript.entriesInvalid"));
+    if (candidates === null) throw new Error("The host returned an invalid transcript branch. No source was selected.");
     return { sessionId: identity.sessionId, candidates };
   };
 
   const adoptTranscriptPlan = async (tabId: string, selection: TranscriptPlanSelection): Promise<void> => {
     const reason = transcriptPlanUnavailable(get(), tabId);
-    if (reason !== null || !m.acceptsCommands(tabId)) throw new Error(reason ?? t("plan.transcript.busy"));
+    if (reason !== null || !m.acceptsCommands(tabId)) throw new Error(reason ?? "Wait until the session is idle and its current review or dialog is closed.");
     const identity = transcriptIdentity(tabId);
     if (!identity?.current() || selection.sessionId !== identity.sessionId ||
-      parseTranscriptPlanSelection(selection) === null) throw new Error(t("plan.transcript.sourceChanged"));
+      parseTranscriptPlanSelection(selection) === null) throw new Error("The session or source changed. Close this picker and load the transcript again.");
     const reads = transcriptRuntime(identity.runtime);
     const result = transcriptPlanStatus(get(), tabId)?.result;
     if (reads.pending !== null && result?.requestId === reads.pending && result.status !== "captured")
       reads.pending = null;
-    if (reads.pending !== null) throw new Error(t("plan.transcript.busy"));
+    if (reads.pending !== null) throw new Error("Wait until the session is idle and its current review or dialog is closed.");
     reads.pending = selection.requestId;
     // The extension's command acknowledgement is blocked by the real review gate.
     // Receipts, not that acknowledgement, own completion. Never retry automatically.
@@ -903,7 +902,7 @@ export function createPlanExecutionSlice(
         planVoice: {
           ready: false,
           busy: false,
-          error: unavailable ? t("plan.review.voiceUnavailable") : null,
+          error: unavailable ? "The reviewed plan is not available to live voice." : null,
         },
       });
     };
@@ -925,7 +924,7 @@ export function createPlanExecutionSlice(
           planSourceKey: text === null ? null : JSON.stringify([gateKey, sequence]),
           planReadiness: null,
           ...(text === null ? { planVoice: {
-            ready: false, busy: false, error: t("plan.review.voiceUnavailable"),
+            ready: false, busy: false, error: "The reviewed plan is not available to live voice.",
           } } : {}),
         });
         get().reconcileLivePlanReview(tabId);

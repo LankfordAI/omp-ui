@@ -5,7 +5,6 @@ import { findMatches, preExchange, type RenderItem } from "../lib/transcript";
 import { findOwner, findRecord, useStore, type RpcFailure } from "../store";
 import { backend } from "../backend";
 import type { ModelCatalogSnapshot } from "@omp-ui/core/types";
-import { useT } from "../lib/i18n";
 import { presentArtifacts } from "../lib/artifact-placement";
 import { useLiveTalkHotkey } from "../lib/use-live-talk-hotkey";
 import { Composer } from "./Composer";
@@ -62,20 +61,19 @@ function TranscriptSkeleton({ centered = false }: { centered?: boolean }) {
 /** The fresh-session greeting above the centered composer. A Chat has no
  *  project and no plan mode, so it greets as a conversation. */
 function HeroGreeting({ projectCwd, chat }: { projectCwd: string | undefined; chat: boolean }) {
-  const t = useT();
   const project = projectCwd?.replace(/[\\/]+$/, "").split(/[\\/]/).pop();
   return (
     <div className="animate-rise flex min-h-0 flex-1 flex-col items-center justify-end gap-2 px-6 pb-6">
       <div className="reading-card flex flex-col items-center gap-2">
         <h1 className="text-balance-tight text-center font-display text-2xl text-ink">
           {chat
-            ? t("rpc.hero.chat")
+            ? "What's up?"
             : project
-              ? t("rpc.hero.project", { project })
-              : t("rpc.hero.default")}
+              ? `What's next in ${project}?`
+              : "What's next?"}
         </h1>
         <p className="text-sm text-ink-dim">
-          {t(chat ? "rpc.hero.chatHint" : "rpc.hero.hint")}
+          {chat ? "Ask, think out loud, or send work to a project." : "Describe it — plan first, or build straight away."}
         </p>
       </div>
     </div>
@@ -163,7 +161,6 @@ function HeroFooter({ items, tabId }: { items: RenderItem[]; tabId: string }) {
  * failure surfaces (banner and exit overlay) whenever the marker is set.
  */
 function ModelRecoveryPicker({ tabId, failedModel }: { tabId: string; failedModel: string }) {
-  const t = useT();
   const resumeWithModel = useStore((s) => s.resumeWithModel);
   const instanceId = useStore((s) => findOwner(s.state, tabId)?.instanceId ?? null);
   const [open, setOpen] = useState(false);
@@ -189,14 +186,14 @@ function ModelRecoveryPicker({ tabId, failedModel }: { tabId: string; failedMode
         title={failedModel}
         onClick={probe}
       >
-        {t("tab.failure.chooseModel")}
+        choose a model…
       </Button>
       {open && catalog === null && (
         <p className="self-center font-mono text-xs text-ink-faint">…</p>
       )}
       {open && catalog !== null && !catalog.discovered && (
         <p className="self-center whitespace-pre-wrap text-xs text-rose">
-          {t("tab.failure.modelCatalogFailed", { error: catalog.error ?? "" })}
+          {`the model probe failed: ${catalog.error ?? ""}`}
         </p>
       )}
       {open && catalog !== null && catalog.discovered && (
@@ -225,7 +222,6 @@ const BOOT_STALL_MS = 60_000;
  * re-render stops here. The tab's own store selectors still drive it.
  */
 export const RpcTab = memo(function RpcTab({ tabId, active }: { tabId: string; active: boolean }) {
-  const t = useT();
   useLiveTalkHotkey(tabId, active);
   // Phase 1: `active` is exactly "this tab's DOM is visible" (App's `shown`
   // folds in !t.hidden, the active-tab test, and every full-pane view).
@@ -487,19 +483,19 @@ export const RpcTab = memo(function RpcTab({ tabId, active }: { tabId: string; a
             <p className="min-w-0 flex-1 whitespace-pre-wrap text-xs leading-snug text-rose">
               {failureText}
             </p>
-            <CopyButton text={failureText} label={t("tab.failure.copy")} />
+            <CopyButton text={failureText} label="Copy" />
             {failure.failedModel !== undefined && (
               <ModelRecoveryPicker tabId={tabId} failedModel={failure.failedModel} />
             )}
             {failure.kind === "boot" && (
               <Button size="xs" variant="ghost" tone="rose" onClick={() => void bootRpcTab(tabId)}>
-                {t("tab.failure.retryBoot")}
+                Retry boot
               </Button>
             )}
             {!failure.fatal && (
               <>
                 <Button size="xs" variant="ghost" tone="rose" onClick={() => void refreshState(tabId)}>
-                  {t("tab.failure.refresh")}
+                  Refresh state
                 </Button>
                 <Button
                   size="xs"
@@ -507,7 +503,7 @@ export const RpcTab = memo(function RpcTab({ tabId, active }: { tabId: string; a
                   tone="rose"
                   onClick={() => setDismissedFailure(failure)}
                 >
-                  {t("tab.failure.dismiss")}
+                  Dismiss
                 </Button>
               </>
             )}
@@ -649,7 +645,7 @@ export const RpcTab = memo(function RpcTab({ tabId, active }: { tabId: string; a
           <Sheet
             open={surface === "browser-pane"}
             placement="bottom"
-            label={t("browser.sheet.label")}
+            label="browser pane"
             onClose={() => closeBrowserPane(tabId)}
           >
             <div className="flex h-[70dvh] flex-col">
@@ -661,7 +657,7 @@ export const RpcTab = memo(function RpcTab({ tabId, active }: { tabId: string; a
           <Sheet
             open={surface === "device-pane"}
             placement="bottom"
-            label={t("device.sheet.label")}
+            label="device pane"
             onClose={() => closeDevicePane(tabId)}
           >
             <div className="flex h-[70dvh] flex-col">
@@ -681,20 +677,20 @@ export const RpcTab = memo(function RpcTab({ tabId, active }: { tabId: string; a
             )}
           >
             <p className="text-sm font-semibold text-ink">
-              {hibernated ? t("tab.exited.titleHibernated") : t("tab.exited.titleExited")}
+              {hibernated ? "Settled" : "Agent exited"}
             </p>
             {/* One state word (round-3 judge, Clarity 1): the card used to
                 stack Hibernated + Idle + dormant for one condition the
                 sidebar already calls Settled. The exit chip stays — its
                 payload is the numeric exit code, real data. */}
             {!hibernated && (
-              <Chip tone="rose" mono title={t("tab.exited.exitTitle", { code: exitCode })}>
-                {t("tab.exited.exitChip", { code: exitCode })}
+              <Chip tone="rose" mono title={`process exit code ${exitCode}`}>
+                {`exit ${exitCode}`}
               </Chip>
             )}
             {hibernated && (
               <p className="text-sm text-ink-dim">
-                {t("tab.exited.dormant")}
+                Its transcript is safe on disk — resume to continue.
               </p>
             )}
             {failure && (
@@ -702,14 +698,14 @@ export const RpcTab = memo(function RpcTab({ tabId, active }: { tabId: string; a
                 <p className="min-w-0 flex-1 whitespace-pre-wrap text-left text-xs leading-snug text-rose">
                   {failureText}
                 </p>
-                <CopyButton text={failureText} label={t("tab.failure.copy")} />
+                <CopyButton text={failureText} label="Copy" />
               </div>
             )}
             {failure?.failedModel !== undefined && (
               <ModelRecoveryPicker tabId={tabId} failedModel={failure.failedModel} />
             )}
             <Button variant="solid" tone="signal" onClick={() => void resumeDead(tabId)}>
-              {t("tab.exited.resume")}
+              Resume session
             </Button>
           </Panel>
         </div>

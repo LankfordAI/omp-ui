@@ -842,7 +842,6 @@ export interface SettingsSlice {
   setGlassChrome(level: GlassChrome): Promise<void>;
   /** Lets a theme's scene animate (issue #1168); default on. */
   setBackdropMotion(on: boolean): Promise<void>;
-  setLocaleId(id: string): Promise<void>;
   /** Replaces the rebound app shortcuts (issue #998); rejects on a host refusal so the Keyboard page shows it. */
   setKeybindings(overrides: KeybindingOverrides): Promise<void>;
   setAppUpdateCheckOnLaunch(on: boolean): Promise<void>;

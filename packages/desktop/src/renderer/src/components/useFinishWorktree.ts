@@ -7,7 +7,6 @@ import type {
   SessionSummary,
 } from "@omp-ui/core/types";
 import { releaseNoticeLevel, releaseNoticeText } from "../lib/format";
-import { t } from "../lib/i18n";
 import { IS_ELECTRON } from "../lib/platform";
 import { projectKey } from "../lib/project-key";
 import { displayMessage } from "../backend";
@@ -167,7 +166,7 @@ export interface FinishController {
 
 /** The plural helper every landed-commit line shares. */
 export const commitsText = (count: number): string =>
-  t(count === 1 ? "branch.merge.oneCommit" : "branch.merge.manyCommits", { count });
+  count === 1 ? `${count} commit` : `${count} commits`;
 
 export function useFinishWorktree(tabId: string): FinishController {
   const record = useStore((s) => findRecord(s.state, tabId));
@@ -561,11 +560,7 @@ export function useFinishWorktree(tabId: string): FinishController {
           setResolutionAttempt(dispatch);
           appendNotice(
             tabId,
-            t("notice.merge.conflictProject", {
-              count: result.files.length,
-              destination: result.destination,
-              cwd,
-            }),
+            `the merge of ${result.destination} stopped on ${result.files.length} file(s) in the project checkout — resolve them there, or sync and finish again`,
             "warn",
           );
           setPhase({ s: "conflict", files: result.files, leftIn: "project", destination: result.destination });
@@ -576,11 +571,7 @@ export function useFinishWorktree(tabId: string): FinishController {
           // reopened to return, exactly the #727 contract.
           appendNotice(
             tabId,
-            t("notice.merge.landed", {
-              commits: commitsText(result.commits),
-              branch: mergeBranch,
-              destination: result.destination,
-            }),
+            `merged ${mergeBranch} (${commitsText(result.commits)}) into ${result.destination}`,
             "info",
           );
           const landed = await readMergeBackStatus(
@@ -608,10 +599,7 @@ export function useFinishWorktree(tabId: string): FinishController {
           setPhase({ s: "conflict", files: result.files, leftIn: null, destination: result.destination });
           appendNotice(
             tabId,
-            t("notice.merge.conflictAborted", {
-              count: result.files.length,
-              destination: result.destination,
-            }),
+            `the merge into ${result.destination} would conflict on ${result.files.length} file(s) and was aborted — sync ${result.destination} into the worktree, resolve there, then finish again`,
             "warn",
           );
           fetchStatus();
@@ -625,9 +613,9 @@ export function useFinishWorktree(tabId: string): FinishController {
       }
       const accepted = await resolveWorktreeMerge(tabId, dispatch.trigger, dispatch.route);
       if (accepted) closeOwnDialog();
-      else setResolutionError(t("finish.resolution.failed"));
+      else setResolutionError("The agent did not accept the resolution request. The merge is unchanged; try again, or resolve it manually.");
     } catch (error) {
-      setResolutionError(`${t("finish.resolution.failed")} ${displayMessage(error)}`);
+      setResolutionError(`${"The agent did not accept the resolution request. The merge is unchanged; try again, or resolve it manually."} ${displayMessage(error)}`);
     } finally {
       resolutionPending.current = false;
       setResolutionBusy(false);
@@ -709,15 +697,8 @@ export function useFinishWorktree(tabId: string): FinishController {
         appendNotice(
           tabId,
           result.conflictsLeftIn === "project"
-            ? t("notice.merge.conflictProject", {
-                count: result.files.length,
-                destination: result.destination,
-                cwd,
-              })
-            : t("notice.merge.conflictAborted", {
-                count: result.files.length,
-                destination: result.destination,
-              }),
+            ? `the merge of ${result.destination} stopped on ${result.files.length} file(s) in the project checkout — resolve them there, or sync and finish again`
+            : `the merge into ${result.destination} would conflict on ${result.files.length} file(s) and was aborted — sync ${result.destination} into the worktree, resolve there, then finish again`,
           "warn",
         );
         fetchStatus();
@@ -744,11 +725,7 @@ export function useFinishWorktree(tabId: string): FinishController {
         // never comes, so name the landing here.
         appendNotice(
           tabId,
-          t("notice.merge.landed", {
-            commits: commitsText(result.commits),
-            branch,
-            destination: target,
-          }),
+          `merged ${branch} (${commitsText(result.commits)}) into ${target}`,
           "info",
         );
       }
@@ -778,7 +755,7 @@ export function useFinishWorktree(tabId: string): FinishController {
       if (checkoutTarget !== null && switchTo === null) {
         appendNotice(
           tabId,
-          t("notice.finish.switchSkippedBusy", { title: busyTitle ?? "", destination: checkoutTarget }),
+          `the project checkout was left on its own branch — session “${busyTitle ?? ""}” is mid-turn there; the work is in ${checkoutTarget}`,
           "warn",
         );
       }
@@ -820,11 +797,7 @@ export function useFinishWorktree(tabId: string): FinishController {
     if (result.kind === "conflicts") {
       appendNotice(
         tabId,
-        t("notice.merge.syncConflicts", {
-          count: result.files.length,
-          source: result.source,
-          path: record.worktree.path,
-        }),
+        `the sync of ${result.source} stopped on ${result.files.length} file(s) in ${record.worktree.path} — resolve them in the worktree, then git merge --continue, then finish again`,
         "warn",
       );
       // The dialog has done its job; the work moves to the checkout, where
@@ -856,7 +829,7 @@ export function useFinishWorktree(tabId: string): FinishController {
     if (result.kind === "conflicts") {
       appendNotice(
         tabId,
-        t("notice.discarded.conflicts", { commit: short, count: result.files.length, path }),
+        `restoring the changes omp saved as ${short} stopped on ${result.files.length} file(s) in ${path} — resolve them in the worktree; the save stays on refs/omp/discarded`,
         "warn",
       );
       closeOwnDialog();
@@ -864,10 +837,7 @@ export function useFinishWorktree(tabId: string): FinishController {
     }
     appendNotice(
       tabId,
-      t(result.indexRestored ? "notice.discarded.restored" : "notice.discarded.restoredUnstaged", {
-        commit: short,
-        path,
-      }),
+      result.indexRestored ? `restored the changes omp saved as ${short} into ${path}` : `restored the changes omp saved as ${short} into ${path}, all unstaged — git could not rebuild the staged split`,
       result.indexRestored ? "info" : "warn",
     );
     fetchDiscarded();
@@ -968,14 +938,12 @@ export function useFinishWorktree(tabId: string): FinishController {
     if (mergeBlocked) primaryLabel = null;
     else if (newBranch !== null && newBranch.name.trim() === "") primaryLabel = null;
     else if (returnSession)
-      primaryLabel = t(
-        status.alreadyMerged ? "finish.primary.return" : "finish.primary.mergeReturn",
-      );
-    else primaryLabel = status.alreadyMerged ? null : t("finish.primary.merge");
+      primaryLabel = (status.alreadyMerged ? "return" : "merge & return");
+    else primaryLabel = status.alreadyMerged ? null : "merge";
   } else {
     if (returnSession)
-      primaryLabel = t(renaming ? "finish.primary.renameReturn" : "finish.primary.returnKeep");
-    else primaryLabel = renaming ? t("finish.primary.rename") : null;
+      primaryLabel = (renaming ? "rename & return" : "return, keep branch");
+    else primaryLabel = renaming ? "rename" : null;
   }
 
   return {

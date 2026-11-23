@@ -2,7 +2,6 @@ import { useEffect, useState, type ReactNode } from "react";
 import type { FleetMachine } from "@omp-ui/core/fleet";
 import type { ProviderKeySource, ProviderKeysSnapshot, ProviderKeyStatus } from "@omp-ui/core/types";
 import { displayMessage } from "../../backend";
-import { useT, type MessageKey } from "../../lib/i18n";
 import { useStore } from "../../store";
 import { Button, Chip, ConfirmDialog, type Tone } from "../ui";
 
@@ -13,7 +12,7 @@ type KeysLoad =
 
 interface SourceFace {
   tone: Tone;
-  labelKey: MessageKey;
+  label: string;
 }
 
 /**
@@ -21,9 +20,9 @@ interface SourceFace {
  * their chip; null leaves the row out (project .env is omp's own read).
  */
 const ROLLOUT_SOURCE_FACE: Record<ProviderKeySource, SourceFace | null> = {
-  stored: { tone: "signal", labelKey: "settings.providers.savedHere" },
-  environment: { tone: "neutral", labelKey: "settings.providers.environment" },
-  "login-shell": { tone: "iris", labelKey: "settings.providers.shellProfile" },
+  stored: { tone: "signal", label: "saved here" },
+  environment: { tone: "neutral", label: "environment" },
+  "login-shell": { tone: "iris", label: "shell profile" },
   dotenv: null,
   none: null,
 };
@@ -37,7 +36,6 @@ const ROLLOUT_SOURCE_FACE: Record<ProviderKeySource, SourceFace | null> = {
  * sends them main-to-main, so no key value ever reaches a renderer.
  */
 export function ProviderKeyRolloutDialog({ machine, onClose }: { machine: FleetMachine; onClose: () => void }) {
-  const t = useT();
   const stageLifecycleConfirmation = useStore((s) => s.stageLifecycleConfirmation);
   const [load, setLoad] = useState<KeysLoad>({ status: "loading" });
   const [unchecked, setUnchecked] = useState<ReadonlySet<string>>(() => new Set());
@@ -102,11 +100,11 @@ export function ProviderKeyRolloutDialog({ machine, onClose }: { machine: FleetM
 
   let body: ReactNode;
   if (load.status === "loading") {
-    body = <p className="text-xs text-ink-faint">{t("fleet.rollout.loading")}</p>;
+    body = <p className="text-xs text-ink-faint">Reading this computer's Provider keys…</p>;
   } else if (load.status === "error") {
     body = <p className="text-xs text-rose">{load.message}</p>;
   } else if (rows.length === 0) {
-    body = <p className="text-xs text-ink-faint">{t("fleet.rollout.none")}</p>;
+    body = <p className="text-xs text-ink-faint">This computer has no Provider key to roll out.</p>;
   } else {
     body = (
       <ul className="space-y-1.5">
@@ -127,7 +125,7 @@ export function ProviderKeyRolloutDialog({ machine, onClose }: { machine: FleetM
                   {row.masked !== null && <span className="ml-2 text-ink-dim">{row.masked}</span>}
                 </span>
               </span>
-              <Chip tone={face.tone}>{t(face.labelKey)}</Chip>
+              <Chip tone={face.tone}>{face.label}</Chip>
             </label>
           </li>
         ))}
@@ -137,18 +135,18 @@ export function ProviderKeyRolloutDialog({ machine, onClose }: { machine: FleetM
 
   return (
     <ConfirmDialog
-      kicker={t("fleet.header.title")}
-      title={t("fleet.rollout.title", { target })}
+      kicker="fleet"
+      title={`Roll out Provider keys to ${target}`}
       tone="copper"
       onClose={onClose}
       width="w-[30rem]"
       actions={
         <>
           <Button variant="ghost" onClick={onClose}>
-            {t("dialog.migrate.cancel")}
+            Cancel
           </Button>
           <Button variant="solid" tone="copper" initialFocus disabled={envNames.length === 0} onClick={submit}>
-            {t("fleet.rollout.continue")}
+            Continue
           </Button>
         </>
       }

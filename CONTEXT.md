@@ -2055,23 +2055,12 @@ follows the OS scheme between a light pick and a dark pick (**Follow
 system**), switching the moment the OS does (ADR-0078).
 _Avoid_: auto theme, dark mode toggle
 
-**UI locale**:
-The Settings → General choice that selects the language of omp-ui's own
-application chrome. It applies immediately to desktop and remote renderers and
-persists in the registry; unknown saved ids fall back to English. Session
-content, PTY bytes, plan content, code and paths, names, backend errors, and
-rendered technical output remain exactly as produced rather than being
-translated.
-_Avoid_: language mode, content locale, session language
-
 **Font family**:
 The Settings → Appearance choice between the app's own typeface (Bricolage
 Grotesque for display, Instrument Sans for text, JetBrains Mono for code) and
-the Ubuntu family (Ubuntu for display and text, Ubuntu Mono for code). Both
-families place bundled Pretendard Variable after their Latin sans face so
-Korean chrome uses a consistent local fallback without changing monospace
-content. The choice persists in the registry like the theme id and repoints
-the `--font-display`, `--font-sans`, and `--font-mono` tokens on the document
+the Ubuntu family (Ubuntu for display and text, Ubuntu Mono for code). The
+choice persists in the registry like the theme id and repoints the
+`--font-display`, `--font-sans`, and `--font-mono` tokens on the document
 root, so every font utility, code block, and xterm surface (terminal tabs,
 console drawer) follows one switch without a CSS rebuild. A fixed set of
 choices, never a free-form picker.

@@ -1,7 +1,6 @@
 import { useEffect, useMemo, useRef, useState } from "react";
 import { composeWorktreeBranch, mintBranchName } from "@omp-ui/core/worktree-branch";
 import { AUTORESEARCH_METRIC_NAME_RE, EXPERIMENT_PROPOSAL_REVISE } from "@omp-ui/core/autoresearch";
-import { useT } from "../lib/i18n";
 import type { ModelInfo } from "../lib/rpc-types";
 import { projectKey } from "../lib/project-key";
 import { experimentSlug } from "../lib/experiment-kickoff";
@@ -50,7 +49,6 @@ export function NewExperimentDialog({
   /** The tab whose agent proposed this spec (issue #567); null for the blank form. */
   proposalTabId: string | null;
 }) {
-  const t = useT();
   // The proposal that opened this dialog, captured once: App remounts the
   // dialog per proposal so these initializers seed from it (issue #567).
   const draft = useStore((s) => (proposalTabId === null ? null : s.rpc[proposalTabId]?.experimentProposal ?? null));
@@ -173,8 +171,8 @@ export function NewExperimentDialog({
 
   return (
     <ConfirmDialog
-      kicker={t("experiment.dialog.kicker")}
-      title={t("experiment.dialog.title", { name: projectName })}
+      kicker="new experiment"
+      title={`New experiment in ${projectName}`}
       tone="iris"
       onClose={close}
       androidBack={proposalTabId === null ? "dismiss" : "block"}
@@ -188,11 +186,11 @@ export function NewExperimentDialog({
               disabled={pending}
               onClick={() => void startExperimentInterview(projectCwd, instanceId, goal)}
             >
-              {t("experiment.dialog.withAgent")}
+              Configure with the agent
             </Button>
           )}
           <Button variant="ghost" onClick={close}>
-            {t("common.dialog.cancel")}
+            Cancel
           </Button>
           <Button
             variant="solid"
@@ -200,37 +198,37 @@ export function NewExperimentDialog({
             disabled={pending || repo === undefined || repo === "jj-only"}
             onClick={() => void submit()}
           >
-            {pending ? t("experiment.dialog.launching") : t("experiment.dialog.launch")}
+            {pending ? "Launching…" : "Launch"}
           </Button>
         </>
       }
     >
       <div className="space-y-4">
-        {seed !== null && <p className={HINT}>{t("experiment.dialog.proposedHint")}</p>}
+        {seed !== null && <p className={HINT}>Proposed by the agent. Edit anything, then Launch — Cancel sends it back to the conversation.</p>}
         <div>
           <label htmlFor="experiment-goal" className={LABEL}>
-            {t("experiment.dialog.goal")}
+            What to optimize
           </label>
           <textarea
             id="experiment-goal"
             rows={3}
             value={goal}
             maxLength={GOAL_CHAR_LIMIT}
-            placeholder={t("experiment.dialog.goalPlaceholder")}
+            placeholder="e.g. reduce the p95 latency of the /search endpoint"
             spellCheck={false}
             onChange={(event) => setGoal(event.target.value)}
             className={`${FIELD} resize-none`}
             data-modal-initial-focus
           />
           {attempted && goalMissing && (
-            <p className="mt-1.5 text-xs leading-snug text-rose">{t("experiment.dialog.goalRequired")}</p>
+            <p className="mt-1.5 text-xs leading-snug text-rose">describe what to optimize</p>
           )}
         </div>
 
         <div className="grid grid-cols-[1fr_6rem] gap-3">
           <div>
             <label htmlFor="experiment-metric" className={LABEL}>
-              {t("experiment.dialog.metric")}
+              Metric name
             </label>
             <input
               id="experiment-metric"
@@ -240,16 +238,16 @@ export function NewExperimentDialog({
               className={FIELD}
             />
             {metricInvalid ? (
-              <p className="mt-1.5 text-xs leading-snug text-rose">{t("experiment.dialog.metricInvalid")}</p>
+              <p className="mt-1.5 text-xs leading-snug text-rose">metric name may only contain letters, digits, _ . and -</p>
             ) : attempted && metricMissing ? (
-              <p className="mt-1.5 text-xs leading-snug text-rose">{t("experiment.dialog.metricRequired")}</p>
+              <p className="mt-1.5 text-xs leading-snug text-rose">name the metric</p>
             ) : (
-              <p className={HINT}>{t("experiment.dialog.metricHint")}</p>
+              <p className={HINT}>letters, digits, _ . and - (what METRIC name=value accepts)</p>
             )}
           </div>
           <div>
             <label htmlFor="experiment-unit" className={LABEL}>
-              {t("experiment.dialog.unit")}
+              Unit
             </label>
             <input
               id="experiment-unit"
@@ -262,19 +260,19 @@ export function NewExperimentDialog({
         </div>
 
         <ChoiceCapsule
-          label={t("experiment.dialog.direction")}
+          label="Direction"
           value={direction}
           onChange={setDirection}
           tone="iris"
           options={[
-            { value: "lower", label: t("experiment.dialog.lower") },
-            { value: "higher", label: t("experiment.dialog.higher") },
+            { value: "lower", label: "lower is better" },
+            { value: "higher", label: "higher is better" },
           ]}
         />
 
         <div>
           <label htmlFor="experiment-command" className={LABEL}>
-            {t("experiment.dialog.command")}
+            Benchmark command
           </label>
           <input
             id="experiment-command"
@@ -283,20 +281,20 @@ export function NewExperimentDialog({
             onChange={(event) => setCommand(event.target.value)}
             className={FIELD}
           />
-          <p className={HINT}>{t("experiment.dialog.commandHint")}</p>
+          <p className={HINT}>empty: the agent writes ./autoresearch.sh</p>
         </div>
 
         {(
           [
-            ["scope", "experiment.dialog.scopePaths", scopePaths, setScopePaths],
-            ["off-limits", "experiment.dialog.offLimits", offLimits, setOffLimits],
-            ["constraints", "experiment.dialog.constraints", constraints, setConstraints],
+            ["scope", "Scope paths", scopePaths, setScopePaths],
+            ["off-limits", "Off-limits", offLimits, setOffLimits],
+            ["constraints", "Constraints", constraints, setConstraints],
           ] as const
-        ).map(([id, labelKey, value, onChange]) => (
+        ).map(([id, label, value, onChange]) => (
           <div key={id}>
             <label htmlFor={`experiment-${id}`} className={LABEL}>
-              {t(labelKey)}{" "}
-              <span className="text-ink-faint/70">· {t("experiment.dialog.onePerLine")}</span>
+              {label}{" "}
+              <span className="text-ink-faint/70">· one per line</span>
             </label>
             <textarea
               id={`experiment-${id}`}
@@ -312,8 +310,8 @@ export function NewExperimentDialog({
         {brief !== null && (
           <div>
             <span className={LABEL}>
-              {t("experiment.dialog.brief")}{" "}
-              <span className="text-ink-faint/70">· {t("experiment.dialog.briefHint")}</span>
+              Agent brief{" "}
+              <span className="text-ink-faint/70">· sent with the kickoff prompt</span>
             </span>
             <pre className="mt-1.5 max-h-32 overflow-y-auto whitespace-pre-wrap rounded-md border border-line bg-void px-2 py-1.5 font-mono text-xs text-ink-mid">
               {brief}
@@ -324,7 +322,7 @@ export function NewExperimentDialog({
         <div className="grid grid-cols-[8rem_1fr] gap-3">
           <div>
             <label htmlFor="experiment-max-iterations" className={LABEL}>
-              {t("experiment.dialog.maxIterations")}
+              Max iterations per segment
             </label>
             <input
               id="experiment-max-iterations"
@@ -337,30 +335,30 @@ export function NewExperimentDialog({
             />
           </div>
           <div>
-            <span className={LABEL}>{t("experiment.dialog.model")}</span>
+            <span className={LABEL}>Model</span>
             <button
               type="button"
               id="experiment-model"
               disabled={models.length === 0}
-              title={pickedModel === null ? t("plan.review.sessionDefault") : `${pickedModel.provider}/${pickedModel.id}`}
+              title={pickedModel === null ? "session default" : `${pickedModel.provider}/${pickedModel.id}`}
               onClick={() => setPickingModel(true)}
               className="mt-1.5 flex w-full items-center justify-between gap-2 rounded-md border border-line bg-void px-2 py-1.5 text-left font-mono text-xs text-ink hover:border-line-strong disabled:cursor-default disabled:text-ink-faint"
             >
-              {pickedModel === null ? t("plan.review.sessionDefault") : pickedModel.name || pickedModel.id}
+              {pickedModel === null ? "session default" : pickedModel.name || pickedModel.id}
             </button>
           </div>
         </div>
 
         <div>
-          <span className={LABEL}>{t("experiment.dialog.where")}</span>
+          <span className={LABEL}>Where it runs</span>
           {repo === undefined ? (
-            <p className={HINT}>{t("experiment.dialog.preflight")}</p>
+            <p className={HINT}>checking the repository…</p>
           ) : repo === "git" ? (
             <>
-              <p className={HINT}>{t("experiment.dialog.whereGit")}</p>
+              <p className={HINT}>in a new worktree on branch</p>
               <input
                 id="experiment-branch"
-                aria-label={t("worktree.field.branch")}
+                aria-label="Branch"
                 value={branch}
                 spellCheck={false}
                 onChange={(event) => setBranchDraft(event.target.value)}
@@ -368,9 +366,9 @@ export function NewExperimentDialog({
               />
             </>
           ) : repo === "none" ? (
-            <p className="mt-1.5 text-xs leading-snug text-copper">{t("experiment.dialog.whereNone")}</p>
+            <p className="mt-1.5 text-xs leading-snug text-copper">not a git repository: no branch isolation, baseline reset, or auto-commits — the experiment runs at the project checkout</p>
           ) : (
-            <p className="mt-1.5 text-xs leading-snug text-rose">{t("experiment.dialog.whereJj")}</p>
+            <p className="mt-1.5 text-xs leading-snug text-rose">Autoresearch needs a Git checkout. This is a jj-only workspace; run jj git init --colocate first.</p>
           )}
         </div>
 

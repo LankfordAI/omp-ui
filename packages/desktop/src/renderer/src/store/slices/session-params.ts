@@ -1,7 +1,7 @@
 // Session parameter domain (decomposed for #295): prompting, slash commands,
 // and every per-session parameter command — model, advisor, modes, retry,
 // compaction, plan, todos, refreshes, subagent drill-down.
-import type { ApprovalMode, BackendState, ImageAttachment, ServiceTier, SessionCouncilStatus, SessionReference } from "@omp-ui/core/types";
+import type { ApprovalMode, BackendState, CouncilInitializationStage, ImageAttachment, ServiceTier, SessionCouncilStatus, SessionReference } from "@omp-ui/core/types";
 import type { ArtifactReference, ArtifactRefreshEntry } from "@omp-ui/core/artifacts";
 import { withArtifactRefreshContext, withArtifactReferenceContext } from "@omp-ui/core/artifact-references";
 import { ADVISOR_STATS_COMMAND } from "@omp-ui/core/advisor-stats";
@@ -33,7 +33,6 @@ import { withSessionReferenceContext, type DraftSessionReference } from "../../l
 import { withAttachmentRoutingContext } from "../../lib/attachment-routing";
 import { withDocumentContext, type DocumentRef } from "../../lib/document-context";
 import { DOCUMENT_MIME } from "../../lib/clipboard-image";
-import { t, type MessageKey } from "../../lib/i18n";
 import { projectKey } from "../../lib/project-key";
 import { hasSeenSharePrivacy } from "../../lib/share-privacy";
 import { supportsAnonymize } from "../../lib/anonymize";
@@ -226,6 +225,13 @@ interface LocalCommand {
 /** omp's dispatch answer for a command its build does not know (rpc-mode.ts). */
 const UNKNOWN_COMMAND_PREFIX = "Unknown command:";
 
+const COUNCIL_STAGE_LABEL: Record<CouncilInitializationStage, string> = {
+  resolve: "roster resolution",
+  overlay: "model-role overlay creation",
+  snapshot: "launch snapshot creation",
+  extension: "bridge extension creation",
+};
+
 /** What one `/goal` or `/guided-goal` line asks for, before anything is sent. */
 type GoalIntent =
   | { kind: "show" }
@@ -250,14 +256,14 @@ function parseGoalLine(name: string, args: string): GoalIntent {
   const spaceAt = text.search(/\s/);
   const head = (spaceAt === -1 ? text : text.slice(0, spaceAt)).toLowerCase();
   const rest = spaceAt === -1 ? "" : text.slice(spaceAt + 1).trim();
-  if (head === "budget") return { kind: "invalid", error: t("composer.goal.budgetAtCreate") };
+  if (head === "budget") return { kind: "invalid", error: "A goal's budget is set when it is created: /goal --budget N OBJECTIVE." };
   const sub = GOAL_SUBCOMMANDS.find((candidate) => candidate === head);
   if (sub === undefined) return parseGoalObjective(text, false);
   if (sub === "set") {
-    if (rest === "") return { kind: "invalid", error: t("composer.goal.needsObjective") };
+    if (rest === "") return { kind: "invalid", error: "Give the goal an objective: /goal set OBJECTIVE." };
     return parseGoalObjective(rest, true);
   }
-  if (rest !== "") return { kind: "invalid", error: t("composer.goal.noArgs", { sub }) };
+  if (rest !== "") return { kind: "invalid", error: `/goal ${sub} takes no arguments.` };
   return { kind: sub };
 }
 
@@ -270,7 +276,7 @@ function parseGoalObjective(text: string, replace: boolean): GoalIntent {
   const objective = match?.[2]?.trim();
   const budget = raw !== undefined && /^[1-9][0-9]*$/.test(raw) ? Number(raw) : NaN;
   if (objective === undefined || !Number.isSafeInteger(budget)) {
-    return { kind: "invalid", error: t("composer.goal.badBudget") };
+    return { kind: "invalid", error: "--budget needs a positive whole number of tokens, followed by the objective." };
   }
   return { kind: "create", objective, budget, replace };
 }
@@ -306,7 +312,7 @@ const localCommands: readonly LocalCommand[] = [
       if (tab?.mode !== "rpc-ui") return false;
       // A chat has no plan mode; the toggle must never reach omp.
       if (isChatTab(get().state, tabId)) {
-        get().appendNotice(tabId, t("chat.planUnavailable"), "warn");
+        get().appendNotice(tabId, "Plan mode isn't available in a chat.", "warn");
         return undefined;
       }
       return get().setPlanMode(tabId, true);
@@ -318,7 +324,7 @@ const localCommands: readonly LocalCommand[] = [
       const tab = get().tabs.find((candidate) => candidate.tabId === tabId);
       if (tab?.mode !== "rpc-ui") return false;
       if (isChatTab(get().state, tabId)) {
-        get().appendNotice(tabId, t("chat.planUnavailable"), "warn");
+        get().appendNotice(tabId, "Plan mode isn't available in a chat.", "warn");
         return undefined;
       }
       return get().setPlanMode(tabId, false);
@@ -641,7 +647,7 @@ export function createSessionParamsSlice(
     if (target === undefined || source === undefined) return;
     const title = source.record.title;
     if (sourceTabId === targetTabId) {
-      get().appendNotice(targetTabId, t("composer.reference.self"), "warn");
+      get().appendNotice(targetTabId, "a session cannot reference itself", "warn");
       return;
     }
     // Same-machine only (issue #984): the path names a file on the source's
@@ -649,24 +655,24 @@ export function createSessionParamsSlice(
     if (source.instanceId !== target.instanceId) {
       const machine =
         source.instanceId === null
-          ? t("fleet.machine.thisComputer")
+          ? "This computer"
           : (findInstance(state, source.instanceId)?.nickname ?? source.instanceId);
-      get().appendNotice(targetTabId, t("composer.reference.otherMachine", { title, machine }), "warn");
+      get().appendNotice(targetTabId, `“${title}” lives on ${machine}: its transcript is not on this session’s machine, so it cannot be referenced here`, "warn");
       return;
     }
     if (source.record.sessionId === null) {
-      get().appendNotice(targetTabId, t("composer.reference.noTranscript", { title }), "warn");
+      get().appendNotice(targetTabId, `“${title}” has no saved transcript to reference yet`, "warn");
       return;
     }
     let reference: SessionReference | null;
     try {
       reference = await backendFor(source.instanceId).sessionReference(sourceTabId);
     } catch (err) {
-      get().appendNotice(targetTabId, t("composer.reference.failed", { title, reason: displayMessage(err) }), "warn");
+      get().appendNotice(targetTabId, `could not reference “${title}”: ${displayMessage(err)}`, "warn");
       return;
     }
     if (reference === null) {
-      get().appendNotice(targetTabId, t("composer.reference.noTranscript", { title }), "warn");
+      get().appendNotice(targetTabId, `“${title}” has no saved transcript to reference yet`, "warn");
       return;
     }
     get().queueComposerReferences(targetTabId, [{ ...reference, instanceId: source.instanceId }]);
@@ -703,12 +709,12 @@ export function createSessionParamsSlice(
     legacyRefreshRequestId: string | null,
   ): void => {
     if (!get().restoreArtifactRefreshes(tabId, refreshes) || legacyRefreshRequestId !== null)
-      get().appendNotice(tabId, t("artifacts.refreshRestoreDropped"), "warn");
+      get().appendNotice(tabId, "A queued refresh request could not be restored into this tab and was dropped. Prepare a new refresh from the library.", "warn");
   };
   const admitArtifactReferences = (tabId: string, references: readonly ArtifactReference[] | undefined): boolean => {
     if (!references?.length) return true;
     if (get().state?.artifactLibraryEnabled !== true) {
-      get().appendNotice(tabId, t("artifacts.reference.disabled"), "warn");
+      get().appendNotice(tabId, "Artifact references are retained, but cannot be sent while the library is off.", "warn");
       return false;
     }
     try { withArtifactReferenceContext("", references); return true; }
@@ -827,9 +833,9 @@ export function createSessionParamsSlice(
           );
       }
       if (restored.imagesDropped)
-        m.appendItem(tabId, noticeItem(t("composer.queue.restoreImagesDropped"), "info"));
+        m.appendItem(tabId, noticeItem("queued messages returned to the draft without their images — they exceeded the transport limit", "info"));
       if (restored.truncated)
-        m.appendItem(tabId, noticeItem(t("composer.queue.restoreTruncated"), "info"));
+        m.appendItem(tabId, noticeItem("queued messages were cleared — only the oldest fit the transport limit and returned to the draft", "info"));
     }
     // The chip count/list settle now, not at the next turn end (the
     // promoteQueuedMessage `promoted:false` idiom).
@@ -930,7 +936,7 @@ export function createSessionParamsSlice(
       );
       if (commandsRemain || parametersRemain) {
         if (current) m.patchRpc(tabId, { commandAdmissionBlocked: false });
-        get().reportError(t("session.error.advisorBusy"));
+        get().reportError("Could not restart the advisor because an in-flight session command did not settle. The session is still running.");
         return;
       }
       deps.prepareRpcRelaunch(tabId);
@@ -944,9 +950,7 @@ export function createSessionParamsSlice(
       // policy is unchanged: no claim of success, no auto-resume.
       const reason = err instanceof Error ? err.message : String(err);
       get().reportError(
-        t(advisor ? "session.error.advisorEnable" : "session.error.advisorDisable", {
-          reason,
-        }),
+        advisor ? `Could not enable the advisor: ${reason}\n\nThe agent has stopped — resume the session to continue.` : `Could not disable the advisor: ${reason}\n\nThe agent has stopped — resume the session to continue.`,
       );
     }
   };
@@ -1116,7 +1120,7 @@ export function createSessionParamsSlice(
       );
       if (commandsRemain || parametersRemain) {
         if (current) m.patchRpc(tabId, { commandAdmissionBlocked: false });
-        get().reportError(t("session.error.approvalBusy"));
+        get().reportError("Could not relaunch the session with the new approval mode because an in-flight command did not settle. The session is still running.");
         return;
       }
       deps.prepareRpcRelaunch(tabId);
@@ -1128,7 +1132,7 @@ export function createSessionParamsSlice(
       // means the session is down, not merely that a setting did not stick
       // (the advisor's honesty rule at the same seam).
       const reason = err instanceof Error ? err.message : String(err);
-      get().reportError(t("session.error.approval", { reason }));
+      get().reportError(`Could not change the approval mode: ${reason}\n\nThe agent has stopped — resume the session to continue.`);
     }
   };
 
@@ -1266,7 +1270,7 @@ export function createSessionParamsSlice(
         "",
       );
     if (boolField(data, "imagesDropped") === true)
-      m.appendItem(tabId, noticeItem(t("composer.queue.restoreImagesDropped"), "info"));
+      m.appendItem(tabId, noticeItem("queued messages returned to the draft without their images — they exceeded the transport limit", "info"));
   };
 
   const setInterruptMode = async (tabId: string, mode: string): Promise<void> => {
@@ -1413,8 +1417,8 @@ export function createSessionParamsSlice(
       (!isHtmlPlanPath(tab.planReview?.request.planFilePath) ||
         tab.planReadiness?.status === "ready" || tab.planReadiness?.status === "failed" ||
         tab.planReadiness?.status === "unavailable");
-    const error = ownedElsewhere ? t("plan.review.voiceOwnedElsewhere") :
-      unavailable ? t("plan.review.voiceUnavailable") :
+    const error = ownedElsewhere ? "Live voice is controlled from another view. Stop it and start it here to explain the plan." :
+      unavailable ? "The reviewed plan is not available to live voice." :
         tab.planSourceKey == null ? tab.planVoice.error : null;
     const next = {
       ready: review !== null,
@@ -1468,7 +1472,7 @@ export function createSessionParamsSlice(
     releaseLivePeer(rt, peer);
     const current = get().rpc[tabId]?.live;
     if (peekTabRuntime(tabId) !== rt || !hasLiveCall(current)) return;
-    livePatch(tabId, { ...current, error: t("composer.live.audioFailed") });
+    livePatch(tabId, { ...current, error: "the live call's audio connection failed — try again" });
     if (rt.liveStopInFlight === undefined)
       void trackLiveDispatch(tabId, rt, "liveStopInFlight", dispatchLiveStop(tabId, rt));
   };
@@ -1557,9 +1561,9 @@ export function createSessionParamsSlice(
     // One tracked start (ADR-0071): open the peer (microphone + ICE), hand
     // omp its offer, apply the answer. `resp` is omp's success or null;
     // `failure` names why a start that never reached omp's answer failed.
-    const start = async (): Promise<{ resp: unknown; failure?: MessageKey }> => {
+    const start = async (): Promise<{ resp: unknown; failure?: string }> => {
       const peer = await openCallPeer(tabId, rt, built.contextAppends);
-      if (peer === null) return { resp: null, failure: "composer.live.micUnavailable" };
+      if (peer === null) return { resp: null, failure: "live voice could not open the microphone" };
       if (!valid() || liveVoiceGeneration(tabId) !== generation || !liveAdmitted(tabId) ||
         peekTabRuntime(tabId) !== rt) {
         peer.close();
@@ -1591,7 +1595,7 @@ export function createSessionParamsSlice(
         if (peekTabRuntime(tabId) === rt && rt.liveStopInFlight === undefined)
           void trackLiveDispatch(tabId, rt, "liveStopInFlight", dispatchLiveStop(tabId, rt));
         else releaseLivePeer(rt, peer);
-        return { resp: null, failure: "composer.live.audioFailed" };
+        return { resp: null, failure: "the live call's audio connection failed — try again" };
       }
       return { resp };
     };
@@ -1610,7 +1614,7 @@ export function createSessionParamsSlice(
               m.patchRuntime(tabId, {
                 liveReviewFailedSourceKey: get().rpc[tabId]?.planSourceKey ?? null,
               });
-              livePatch(tabId, { ...(current ?? emptyLiveSnapshot()), error: t("composer.live.sendFailed") });
+              livePatch(tabId, { ...(current ?? emptyLiveSnapshot()), error: "the live voice command could not be sent" });
             } else if (current !== null && current !== undefined) {
               livePatch(tabId, applyLiveEnd(current, null));
             }
@@ -1622,7 +1626,7 @@ export function createSessionParamsSlice(
     m.patchRuntime(tabId, { liveReviewExplicitBriefingKey: undefined });
     if (resp === null) {
       m.patchRuntime(tabId, { liveReviewFailedSourceKey: review?.sourceKey ?? null });
-      livePatch(tabId, { ...emptyLiveSnapshot(), ended: true, error: t(failure ?? "composer.live.sendFailed") });
+      livePatch(tabId, { ...emptyLiveSnapshot(), ended: true, error: failure ?? "the live voice command could not be sent" });
       publishPlanVoice(tabId);
       return;
     }
@@ -1702,7 +1706,7 @@ export function createSessionParamsSlice(
         liveReviewFailedSourceKey: get().rpc[tabId]?.planSourceKey ?? null,
       });
       m.syncLiveVoiceBadge(tabId);
-      livePatch(tabId, { ...current, error: t("composer.live.sendFailed") });
+      livePatch(tabId, { ...current, error: "the live voice command could not be sent" });
       return false;
     }
     livePatch(tabId, applyLiveEnd(current, null));
@@ -1799,7 +1803,7 @@ export function createSessionParamsSlice(
     publishPlanVoice(tabId);
     if (review === null || tab.planDeferred) return;
     if (hasLiveCall(tab.live) && rt.liveVoiceOwner !== true && rt.liveStartInFlight === undefined) {
-      m.patchRpc(tabId, { planVoice: { ...tab.planVoice, error: t("plan.review.voiceOwnedElsewhere") } });
+      m.patchRpc(tabId, { planVoice: { ...tab.planVoice, error: "Live voice is controlled from another view. Stop it and start it here to explain the plan." } });
       return;
     }
     if (rt.liveReviewExplicitBriefingKey === review.sourceKey || rt.liveStartInFlight !== undefined) return;
@@ -1836,7 +1840,7 @@ export function createSessionParamsSlice(
     if (resp === null) {
       // A stop that never answered must still end the local snapshot:
       // an un-ended wedged call blocks every lawful restart (#827).
-      livePatch(tabId, applyLiveEnd(after, t("composer.live.sendFailed")));
+      livePatch(tabId, applyLiveEnd(after, "the live voice command could not be sent"));
       return;
     }
     livePatch(tabId, applyLiveEnd(after, null));
@@ -1863,7 +1867,7 @@ export function createSessionParamsSlice(
       m.syncLiveVoiceBadge(tabId);
     }
     const current = get().rpc[tabId]?.live;
-    if (current != null) livePatch(tabId, { ...current, error: t("composer.live.sendFailed") });
+    if (current != null) livePatch(tabId, { ...current, error: "the live voice command could not be sent" });
   };
 
   const setLiveTalking = async (tabId: string, talking: boolean): Promise<void> => {
@@ -1912,7 +1916,7 @@ export function createSessionParamsSlice(
     if (current.ended || current.phase !== "connecting") return;
     const rt = peekTabRuntime(tabId);
     if (rt?.liveParked === true) return;
-    livePatch(tabId, applyLiveEnd(current, t("composer.live.connectTimeout")));
+    livePatch(tabId, applyLiveEnd(current, "the live call did not connect — try again"));
     m.patchRuntime(tabId, { liveParked: false });
     m.syncLiveVoiceBadge(tabId);
     publishPlanVoice(tabId);
@@ -2030,8 +2034,8 @@ export function createSessionParamsSlice(
     // self-contained file.
     const network = exportViewerNeedsNetwork(get().rpc[tabId]?.capabilities?.ompVersion ?? null);
     const text = path === undefined
-      ? t("notice.export.finished")
-      : t(network ? "notice.export.doneNetwork" : "notice.export.done", { path });
+      ? "export finished"
+      : network ? `exported to ${path} — opening it needs network access` : `exported to ${path}`;
     // The path rides the notice as data so the transcript can offer
     // open/reveal without parsing it back out of the text (issue #84).
     m.appendItem(tabId, {
@@ -2048,7 +2052,7 @@ export function createSessionParamsSlice(
       (c) => c.name === "share" || (c.aliases?.includes("share") ?? false),
     );
     if (!advertised) {
-      m.appendItem(tabId, noticeItem(t("notice.share.needsOmpCommand"), "info"));
+      m.appendItem(tabId, noticeItem("this omp session does not offer /share — update omp to publish the share command", "info"));
       return;
     }
     if (!hasSeenSharePrivacy()) {
@@ -2068,11 +2072,11 @@ export function createSessionParamsSlice(
     const result = await backend.anonymizeSession(tabId);
     if (result.ok) {
       m.appendItem(tabId, {
-        ...noticeItem(t("notice.anonymize.done"), "info"),
+        ...noticeItem("an anonymized copy was written to the session folder", "info"),
         path: result.path,
       });
     } else {
-      m.appendItem(tabId, noticeItem(t("notice.anonymize.failed", { message: result.message }), "warn"));
+      m.appendItem(tabId, noticeItem(`anonymize failed: ${result.message}`, "warn"));
     }
   };
 
@@ -2102,7 +2106,7 @@ export function createSessionParamsSlice(
    */
   const readEntriesForRewind = async (
     tabId: string,
-    busyKey: MessageKey = "session.error.rewindBusy",
+    busyMessage = "Rewind needs a live, idle native session. Wait for the turn to finish (or stop it), then try again.",
   ): Promise<Record<string, unknown> | null> => {
     const rec = findRecord(get().state, tabId);
     const tab = get().rpc[tabId];
@@ -2118,7 +2122,7 @@ export function createSessionParamsSlice(
       tab.status === "running" ||
       tab.busy
     ) {
-      get().reportError(t(busyKey));
+      get().reportError(busyMessage);
       return null;
     }
     // Direct rpcCommand, never runCommand: an older omp without
@@ -2128,7 +2132,7 @@ export function createSessionParamsSlice(
       .rpcCommand(tabId, { type: "get_entries" }, { quiet: true })
       .catch(() => null);
     if (resp === null) {
-      get().reportError(t("session.error.rewindCorrelation"));
+      get().reportError("Could not match this prompt to a session entry, so nothing was rewound. Refresh the session and try again.");
       return null;
     }
     const data = respData(resp);
@@ -2164,7 +2168,7 @@ export function createSessionParamsSlice(
       itemIndex,
     );
     if (entryId === null) {
-      get().reportError(t("session.error.rewindCorrelation"));
+      get().reportError("Could not match this prompt to a session entry, so nothing was rewound. Refresh the session and try again.");
       return;
     }
     // Rows strictly after the clicked user row: what the dialog counts as
@@ -2206,7 +2210,7 @@ export function createSessionParamsSlice(
     if (data === null) return;
     const prompt = entryUserPrompt(arrField(data, "entries"), entryId);
     if (prompt === null) {
-      get().reportError(t("session.error.rewindCorrelation"));
+      get().reportError("Could not match this prompt to a session entry, so nothing was rewound. Refresh the session and try again.");
       return;
     }
     const laterTurns =
@@ -2230,10 +2234,10 @@ export function createSessionParamsSlice(
    *  runs; the entry must exist and be a message (`fork` throws otherwise),
    *  and the dialog counts the turns the current branch gives up. */
   const stageForkEntry = async (tabId: string, entryId: string): Promise<void> => {
-    const data = await readEntriesForRewind(tabId, "session.error.forkBusy");
+    const data = await readEntriesForRewind(tabId, "Fork needs a live, idle native session. Wait for the turn to finish (or stop it), then try again.");
     if (data === null) return;
     if (entryUserPrompt(arrField(data, "entries"), entryId) === null) {
-      get().reportError(t("session.error.forkEntry"));
+      get().reportError("This entry is not a message entry in the session file, so it cannot be forked from. Refresh the session and try again.");
       return;
     }
     const laterTurns =
@@ -2254,7 +2258,7 @@ export function createSessionParamsSlice(
     if (resp === null) return; // failure already reported by runCommand
     if (boolField(respData(resp), "cancelled")) {
       // A session_before_branch hook cancelled the fork; nothing moved.
-      m.appendItem(tabId, noticeItem(t("transcript.fork.cancelled"), "info"));
+      m.appendItem(tabId, noticeItem("the fork was cancelled by a session hook — nothing moved", "info"));
       return;
     }
     await get().reloadHistory(tabId);
@@ -2262,7 +2266,7 @@ export function createSessionParamsSlice(
     // the new same-dir file, and applyRpcState merges sessionId/sessionFile
     // from this get_state even if the runtime omits session_info_update.
     void m.runCommand(tabId, { type: "get_state" }, { quiet: true });
-    m.appendItem(tabId, noticeItem(t("transcript.fork.done"), "info"));
+    m.appendItem(tabId, noticeItem("forked — this tab continues in a new session file up to that prompt; the original stays on disk unchanged", "info"));
   };
 
   /** Stages a tree jump for an entry that is not a user prompt (issue #680). */
@@ -2329,7 +2333,7 @@ export function createSessionParamsSlice(
             "",
           );
       }
-      m.appendItem(tabId, noticeItem(t("transcript.rewind.done"), "info"));
+      m.appendItem(tabId, noticeItem("rewound — later turns stay in the session file as another branch", "info"));
     } catch (err) {
       takeRewindPrefill(tabId);
       throw err;
@@ -2370,18 +2374,18 @@ export function createSessionParamsSlice(
     );
     const result = publishedTree()?.navigation;
     if (result === undefined || result.entryId !== entryId) {
-      get().reportError(t("session.error.navigateUnconfirmed"));
+      get().reportError("The tree bridge did not report a result for this jump. Refresh the session before navigating again.");
       return;
     }
     if (!result.ok) {
       get().reportError(
-        result.error ?? t("session.error.navigateFailed"),
+        result.error ?? "The session could not navigate to that entry.",
       );
       return;
     }
     await get().reloadHistory(tabId);
     void m.runCommand(tabId, { type: "get_state" }, { quiet: true });
-    m.appendItem(tabId, noticeItem(t("transcript.rewind.navigated"), "info"));
+    m.appendItem(tabId, noticeItem("navigated — the transcript shows the branch you jumped to", "info"));
   };
 
   const renameSessionTo = async (tabId: string, name: string): Promise<void> => {
@@ -2405,7 +2409,7 @@ export function createSessionParamsSlice(
     if (rec === undefined || rec.live !== "live" || get().exited[tabId] !== undefined) {
       // No process to run `/rename`, and omp-ui does not write session
       // files — resume first, then re-title (CONTEXT.md, Session).
-      get().reportError(t("session.error.retitleNotLive"));
+      get().reportError("This session is not running, so its title cannot be regenerated. Resume the session first, then re-title it.");
       return;
     }
     // omp's generator digests the session itself and answers in the
@@ -2525,7 +2529,7 @@ export function createSessionParamsSlice(
     if (!m.acceptsCommands(tabId)) return;
     const exclude = opts?.excludeFromContext === true;
     if (exclude && m.runtime(tabId).supportsBashExcludeFromContext !== true) {
-      get().appendNotice(tabId, t("composer.shell.excludeUnsupported"), "warn");
+      get().appendNotice(tabId, "this omp version cannot run a !! command out of model context — nothing was run", "warn");
       return;
     }
     const item = shellItem(command, exclude);
@@ -2649,38 +2653,38 @@ export function createSessionParamsSlice(
       return;
     }
     if (!m.acceptsCommands(tabId)) {
-      fail(t("composer.goal.notReady"));
+      fail("The session is not ready for commands yet.");
       return;
     }
     const startsWork =
       intent.kind === "create" || intent.kind === "resume" || intent.kind === "guided";
     if (startsWork && get().rpc[tabId]?.vibe?.enabled === true) {
-      fail(t("composer.goal.vibeBlocks"));
+      fail("Exit vibe mode before starting a goal.");
       return;
     }
     const before = get().rpc[tabId]?.goal ?? null;
 
     if (intent.kind === "guided") {
       if (get().rpc[tabId]?.plan?.enabled === true) {
-        fail(t("composer.goal.planBlocks"));
+        fail("Exit plan mode before starting a goal.");
         return;
       }
       if (before !== null && coreGoalOwnsSession(before)) {
-        fail(t("composer.goal.guidedHasGoal", { status: before.goal.status }));
+        fail(`This session already has a goal (${before.goal.status}). Drop or resume it first.`);
         return;
       }
       const result = await get().setSessionToolEnabled(tabId, "goal", true);
       if (result.status !== "applied") {
         fail(
           result.status === "busy"
-            ? t("composer.goal.busy")
-            : t("composer.goal.guidedToolFailed", { status: result.status }),
+            ? "Stop the current turn before starting a guided goal."
+            : `The goal tool could not be enabled (${result.status}).`,
         );
         return;
       }
       const sent = await get().sendPrompt(tabId, guidedGoalPrompt(intent.rough), "prompt");
-      if (!sent) fail(t("composer.goal.notReady"));
-      else done(t("composer.goal.guidedStarted"));
+      if (!sent) fail("The session is not ready for commands yet.");
+      else done("Guided goal interview started. The agent will ask before creating a goal.");
       return;
     }
 
@@ -2688,7 +2692,7 @@ export function createSessionParamsSlice(
       const reply = await goalOp(tabId, { op: "get" });
       if (!reply.ok) return fail(reply.error);
       const state = parseGoalState(field(reply.data, "state"));
-      done(state ? goalDetails(state) : t("composer.goal.none"));
+      done(state ? goalDetails(state) : "No goal is set. Start one with /goal OBJECTIVE.");
       return;
     }
     if (intent.kind === "pause" || intent.kind === "resume" || intent.kind === "drop") {
@@ -2696,10 +2700,10 @@ export function createSessionParamsSlice(
       if (!reply.ok) return fail(reply.error);
       const nothing = before === null && field(reply.data, "goal") == null;
       if (intent.kind === "pause")
-        done(t(nothing ? "composer.goal.nothingToPause" : "composer.goal.paused"));
+        done(nothing ? "There is no goal to pause." : "Goal paused. An in-progress turn may still finish.");
       else if (intent.kind === "drop")
-        done(t(nothing ? "composer.goal.nothingToDrop" : "composer.goal.dropped"));
-      else done(t("composer.goal.resumed"));
+        done(nothing ? "There is no goal to drop." : "Goal dropped. A running turn finishes on its own.");
+      else done("Goal resumed.");
       return;
     }
 
@@ -2719,15 +2723,13 @@ export function createSessionParamsSlice(
     if (!reply.ok) {
       fail(
         replacing && !reply.abandoned
-          ? t("composer.goal.replaceFailed", { reason: reply.error })
+          ? `The previous goal was dropped, but omp refused the new one: ${reply.error}`
           : reply.error,
       );
       return;
     }
     done(
-      t(replacing ? "composer.goal.replaced" : "composer.goal.set", {
-        objective: intent.objective,
-      }),
+      replacing ? `Goal replaced: ${intent.objective}` : `Goal set: ${intent.objective}`,
     );
   };
 
@@ -2746,50 +2748,47 @@ export function createSessionParamsSlice(
     };
     const tab = get().tabs.find((c) => c.tabId === tabId);
     if (tab === undefined) {
-      fail(t("council.command.missingSession"));
+      fail("This session no longer exists. /council was not sent.");
       return;
     }
     let status: SessionCouncilStatus;
     try {
       status = await backendFor(tab.instanceId).getSessionCouncilStatus(tabId);
     } catch (err) {
-      fail(t("council.command.queryFailed", { cause: err instanceof Error ? err.message : String(err) }));
+      fail(`Could not read this session process's Council status: ${err instanceof Error ? err.message : String(err)}`);
       return;
     }
     switch (status.status) {
       case "available":
         if (!get().rpc[tabId]?.commands.some((c) => c.name === "council" && c.source === "extension")) {
-          fail(t("council.command.missingBridge"));
+          fail("This session process did not advertise the Council bridge command. Relaunch the session before using /council.");
           return;
         }
         await forwardSlashCommand(tabId, message);
         return;
       case "empty":
         fail(
-          [t("council.command.empty"), ...status.configWarnings].join("\n"),
+          ["This session process started with no council members. Choose models in Council settings, then relaunch the session; Settings changes do not update this process.", ...status.configWarnings].join("\n"),
           "council-settings",
         );
         return;
       case "unavailable":
-        fail(t("council.command.unavailable", {
-          stage: t(`council.command.stage.${status.failure.stage}`),
-          cause: status.failure.message,
-        }));
+        fail(`Council initialization failed during ${COUNCIL_STAGE_LABEL[status.failure.stage]}: ${status.failure.message}`);
         return;
       case "disabled":
-        fail(t("council.command.disabled"));
+        fail("This session process started with Council disabled. Enable Council in Settings, then relaunch the session.");
         return;
       case "starting":
-        fail(t("council.command.starting"));
+        fail("This session process is still starting. Wait until startup finishes, then try /council again.");
         return;
       case "missing-session":
-        fail(t("council.command.missingSession"));
+        fail("This session no longer exists. /council was not sent.");
         return;
       case "not-live":
-        fail(t("council.command.notLive"));
+        fail("This session has no running process. Resume it before using /council.");
         return;
       case "terminal":
-        fail(t("council.command.terminal"));
+        fail("This session process is running in terminal mode, so native /council dispatch is unavailable.");
         return;
     }
   };
@@ -2816,7 +2815,7 @@ export function createSessionParamsSlice(
       return {
         ok: false,
         error: message.startsWith(UNKNOWN_COMMAND_PREFIX)
-          ? t("composer.goal.needsNewerOmp")
+          ? "this omp has no goal commands — update omp to 18.4.11 or later"
           : message,
         abandoned: false,
       };
@@ -2854,15 +2853,13 @@ export function createSessionParamsSlice(
     };
     const snapshot = get().rpc[tabId]?.vibe ?? null;
     if (snapshot === null) {
-      settle({ status: "failed", error: t("composer.vibe.needsRestart") });
+      settle({ status: "failed", error: "Vibe commands require restarting this live session with the updated app." });
       return;
     }
     if (!snapshot.available) {
       settle({
         status: "failed",
-        error: t("composer.vibe.unavailable", {
-          reason: snapshot.unavailable ?? t("composer.vibe.unavailableUnknown"),
-        }),
+        error: `Vibe commands are unavailable: ${snapshot.unavailable ?? "this omp build exposes no vibe runtime"}`,
       });
       return;
     }
@@ -2881,7 +2878,7 @@ export function createSessionParamsSlice(
       const cli = good ? "good" : "fast";
       const prompt = named ? named[2]!.trim() : rest.replace(/^--good\b\s*/i, "").trim();
       if (prompt === "") {
-        settle({ status: "failed", error: t("composer.vibe.spawnNeedsPrompt") });
+        settle({ status: "failed", error: "spawn needs a prompt: /vibe spawn [--good] [--name NAME] PROMPT" });
         return;
       }
       command = "spawn";
@@ -2890,14 +2887,14 @@ export function createSessionParamsSlice(
       const sendId = rest.split(/\s+/)[0] ?? "";
       const text = rest.slice(sendId.length).trim();
       if (sendId === "" || text === "") {
-        settle({ status: "failed", error: t("composer.vibe.sendNeedsArgs") });
+        settle({ status: "failed", error: "send needs a worker and a message: /vibe send WORKER MESSAGE" });
         return;
       }
       command = "send";
       args = JSON.stringify({ session: sendId, message: text });
     } else if (name === "kill") {
       if (rest === "") {
-        settle({ status: "failed", error: t("composer.vibe.killNeedsId") });
+        settle({ status: "failed", error: "kill needs a worker: /vibe kill WORKER" });
         return;
       }
       command = "kill";
@@ -2909,11 +2906,11 @@ export function createSessionParamsSlice(
     } else {
       // omp's own /vibe verb (scope, undo, …) has no rpc surface; the bridge
       // answers none of them, and prose would reach the director as a prompt.
-      settle({ status: "failed", error: t("composer.vibe.unsupportedVerb", { verb: name }) });
+      settle({ status: "failed", error: `omp-ui's vibe bridge does not support /vibe ${name} over a native session.` });
       return;
     }
     if (new TextEncoder().encode(args).length > VIBE_ARGS_BYTE_LIMIT) {
-      settle({ status: "failed", error: t("composer.vibe.tooLong") });
+      settle({ status: "failed", error: "That vibe command is longer than the bridge accepts." });
       return;
     }
     const request: VibeCommandRequest = {

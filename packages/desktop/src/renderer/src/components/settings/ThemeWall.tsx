@@ -21,7 +21,6 @@ import {
 import { displayMessage } from "../../backend";
 import type { BackdropAsset } from "../../lib/backdrop";
 import { cn } from "../../lib/cn";
-import { useT, type MessageKey } from "../../lib/i18n";
 import { resolveTheme, storedThemes, THEMES, type Theme } from "../../lib/themes";
 import { useDismissal } from "../../lib/use-dismissal";
 import { useRepositoryBackdrops } from "../../lib/use-repository-backdrops";
@@ -31,8 +30,6 @@ import { FIELD, Row } from "./rows";
 import { GateFailures } from "./ThemeEditor";
 import { ThemePreviewOverlay } from "./ThemePreviewOverlay";
 import { ThemeSpecimen } from "./ThemeSpecimen";
-
-type Translate = (key: MessageKey, vars?: Record<string, string | number>) => string;
 
 type Listing =
   | { status: "loading" }
@@ -142,11 +139,11 @@ function repoCard(
  * A stored theme may reuse a curated theme's label (VS Code's own Dark
  * Modern), so its accessible name and chip say which kind it is.
  */
-function kindLabel(theme: Theme, t: Translate): string | null {
-  if (theme.origin !== null) return t("settings.appearance.themeFrom", { repository: theme.origin.repository });
+function kindLabel(theme: Theme): string | null {
+  if (theme.origin !== null) return `from ${theme.origin.repository}`;
   const kind = storedThemeKind(theme.id);
-  if (kind === "imported") return t("settings.appearance.themeImported");
-  if (kind === "authored") return t("settings.appearance.themeAuthored");
+  if (kind === "imported") return "imported";
+  if (kind === "authored") return "custom";
   return null;
 }
 
@@ -157,7 +154,6 @@ function kindLabel(theme: Theme, t: Translate): string | null {
  * or hides the implicit official repository entry.
  */
 function RepositoryManager({ onBrowse }: { onBrowse: (repository: string) => void }) {
-  const t = useT();
   const repositories = useStore((s) => s.state?.themeRepositories) ?? NO_REPOSITORIES;
   const officialThemes = useStore((s) => s.state?.officialThemes) ?? true;
   const setOfficialThemes = useStore((s) => s.setOfficialThemes);
@@ -171,36 +167,36 @@ function RepositoryManager({ onBrowse }: { onBrowse: (repository: string) => voi
   const add = async (): Promise<void> => {
     setAddError(null);
     if (parseThemeRepositoryRef(input) === null) {
-      setAddError(t("settings.appearance.repoInvalid"));
+      setAddError("Enter a GitHub repository as owner/repo or its https://github.com address.");
       return;
     }
     try {
       const result = await addThemeRepository(input);
       if (!result.ok) {
-        setAddError(t("settings.appearance.repoAddFailed", { message: result.message }));
+        setAddError(`Could not add: ${result.message}`);
         return;
       }
       setInput("");
       onBrowse(result.repository);
     } catch (err) {
-      setAddError(t("settings.appearance.repoAddFailed", { message: displayMessage(err) }));
+      setAddError(`Could not add: ${displayMessage(err)}`);
     }
   };
 
   return (
     <div className="mt-3">
       <Row
-        title={t("settings.appearance.officialTitle")}
-        hint={t("settings.appearance.officialHint", { repository: OFFICIAL_THEME_REPOSITORY })}
+        title="omp-ui themes"
+        hint={`Lists the official theme repository, ${OFFICIAL_THEME_REPOSITORY}, under Show so you can browse and install its themes. Nothing is downloaded until you pick it. Turning this off hides it; themes you installed stay.`}
       >
         <Switch
           on={officialThemes}
           onChange={(next) => void setOfficialThemes(next)}
-          label={t("settings.appearance.officialTitle")}
+          label="omp-ui themes"
         />
       </Row>
-      <h3 className="text-base font-semibold text-ink">{t("settings.appearance.repoTitle")}</h3>
-      <p className="mt-0.5 text-sm leading-relaxed text-ink-faint">{t("settings.appearance.repoHint")}</p>
+      <h3 className="text-base font-semibold text-ink">Theme repositories</h3>
+      <p className="mt-0.5 text-sm leading-relaxed text-ink-faint">Browse themes other people publish in public GitHub repositories. Every theme must pass the same contrast checks before it is saved, backdrops show only as images, and an installed theme never changes until you update it. omp-ui contacts GitHub only when you browse or install.</p>
       <form
         className="mt-2 flex items-end gap-2"
         onSubmit={(event) => {
@@ -209,17 +205,17 @@ function RepositoryManager({ onBrowse }: { onBrowse: (repository: string) => voi
         }}
       >
         <label className="flex min-w-0 flex-1 flex-col gap-1 text-sm text-ink-mid">
-          {t("settings.appearance.repoInputLabel")}
+          GitHub repository
           <input
             type="text"
             className={FIELD}
             value={input}
             maxLength={200}
-            placeholder={t("settings.appearance.repoInputPlaceholder")}
+            placeholder="owner/repo or https://github.com/owner/repo"
             onChange={(event) => setInput(event.target.value)}
           />
         </label>
-        <Button type="submit">{t("settings.appearance.repoAdd")}</Button>
+        <Button type="submit">Add</Button>
       </form>
       {addError !== null && (
         <p role="alert" className="mt-2 text-sm text-rose">
@@ -233,14 +229,14 @@ function RepositoryManager({ onBrowse }: { onBrowse: (repository: string) => voi
               className={cn("flex items-center gap-2 text-sm", officialThemes ? "text-ink-mid" : "text-ink-faint")}
             >
               <span className="min-w-0 flex-1 truncate font-mono">{OFFICIAL_THEME_REPOSITORY}</span>
-              <Chip>{t("settings.appearance.officialChip")}</Chip>
+              <Chip>official</Chip>
               <Button
                 variant="ghost"
                 disabled={!officialThemes}
-                aria-label={t("settings.appearance.repoBrowseAria", { repository: OFFICIAL_THEME_REPOSITORY })}
+                aria-label={`Browse ${OFFICIAL_THEME_REPOSITORY}`}
                 onClick={() => onBrowse(OFFICIAL_THEME_REPOSITORY)}
               >
-                {t("settings.appearance.repoBrowse")}
+                Browse
               </Button>
             </li>
           )}
@@ -249,17 +245,17 @@ function RepositoryManager({ onBrowse }: { onBrowse: (repository: string) => voi
               <span className="min-w-0 flex-1 truncate font-mono">{repository}</span>
               <Button
                 variant="ghost"
-                aria-label={t("settings.appearance.repoBrowseAria", { repository })}
+                aria-label={`Browse ${repository}`}
                 onClick={() => onBrowse(repository)}
               >
-                {t("settings.appearance.repoBrowse")}
+                Browse
               </Button>
               <Button
                 variant="ghost"
-                aria-label={t("settings.appearance.repoRemoveAria", { repository })}
+                aria-label={`Remove repository ${repository}`}
                 onClick={() => void removeThemeRepository(repository)}
               >
-                {t("settings.appearance.remove")}
+                Remove
               </Button>
             </li>
           ))}
@@ -296,7 +292,6 @@ export function ThemeWall(props: {
   onShare: (source: ThemeSource) => void;
 }): ReactElement {
   const { sources, pick } = props;
-  const t = useT();
   const themeMode = useStore((s) => s.state?.themeMode) ?? "fixed";
   const themeRepositories = useStore((s) => s.state?.themeRepositories) ?? NO_REPOSITORIES;
   const officialThemes = useStore((s) => s.state?.officialThemes) ?? true;
@@ -468,20 +463,20 @@ export function ThemeWall(props: {
     <Button
       variant={variant}
       disabled={busyPath !== null}
-      aria-label={t("settings.appearance.repoInstallAria", { name: card.label })}
+      aria-label={`Install theme ${card.label}`}
       onClick={() => void install(card)}
     >
-      {t("settings.appearance.repoInstall")}
+      Install
     </Button>
   );
   const updateButton = (card: WallCard, variant?: "solid"): ReactNode => (
     <Button
       variant={variant}
       disabled={busyPath !== null}
-      aria-label={t("settings.appearance.repoUpdateAria", { name: card.label })}
+      aria-label={`Update theme ${card.label}`}
       onClick={() => void install(card)}
     >
-      {t("settings.appearance.repoUpdate")}
+      Update
     </Button>
   );
 
@@ -489,23 +484,23 @@ export function ThemeWall(props: {
   const repoStatus = (card: WallCard): ReactNode => {
     switch (card.repoState) {
       case "installed":
-        return <Chip>{t("settings.appearance.repoInstalledChip")}</Chip>;
+        return <Chip>installed</Chip>;
       case "update":
         return updateButton(card);
       case "fails":
         return (
           <span className="text-sm text-rose">
-            {t("settings.appearance.repoGateFailed", { count: String(card.failures.length) })}
+            {`Fails ${String(card.failures.length)} colour checks; cannot be installed.`}
           </span>
         );
       default:
         if (sources.length >= STORED_THEMES_MAX) {
           return (
             <>
-              <Button disabled aria-label={t("settings.appearance.repoInstallAria", { name: card.label })}>
-                {t("settings.appearance.repoInstall")}
+              <Button disabled aria-label={`Install theme ${card.label}`}>
+                Install
               </Button>
-              <span className="text-sm text-ink-faint">{t("settings.appearance.repoFull")}</span>
+              <span className="text-sm text-ink-faint">Your themes are full (24 at most); remove one to install another.</span>
             </>
           );
         }
@@ -523,19 +518,19 @@ export function ThemeWall(props: {
           key="light"
           size="xs"
           disabled={holds(id, "light")}
-          aria-label={t("settings.appearance.useForLightAria", { name: card.label })}
+          aria-label={`Use ${card.label} for light`}
           onClick={() => apply(id, "light")}
         >
-          {t("settings.appearance.useForLight")}
+          Use for light
         </Button>,
         <Button
           key="dark"
           size="xs"
           disabled={holds(id, "dark")}
-          aria-label={t("settings.appearance.useForDarkAria", { name: card.label })}
+          aria-label={`Use ${card.label} for dark`}
           onClick={() => apply(id, "dark")}
         >
-          {t("settings.appearance.useForDark")}
+          Use for dark
         </Button>,
       );
     }
@@ -548,10 +543,10 @@ export function ThemeWall(props: {
           <Button
             key="edit"
             variant="ghost"
-            aria-label={t("settings.appearance.editAria", { name: source.label })}
+            aria-label={`Edit theme ${source.label}`}
             onClick={() => props.onEdit(source)}
           >
-            {t("settings.appearance.edit")}
+            Edit
           </Button>,
         );
       }
@@ -559,10 +554,10 @@ export function ThemeWall(props: {
         <Button
           key="duplicate"
           variant="ghost"
-          aria-label={t("settings.appearance.duplicateAria", { name: source.label })}
+          aria-label={`Duplicate theme ${source.label}`}
           onClick={() => props.onDuplicate(source)}
         >
-          {t("settings.appearance.duplicate")}
+          Duplicate
         </Button>,
       );
       if (authored) {
@@ -570,10 +565,10 @@ export function ThemeWall(props: {
           <Button
             key="export"
             variant="ghost"
-            aria-label={t("settings.appearance.exportAria", { name: source.label })}
+            aria-label={`Export theme ${source.label}`}
             onClick={() => props.onExport(source)}
           >
-            {t("settings.appearance.export")}
+            Export
           </Button>,
         );
       }
@@ -583,10 +578,10 @@ export function ThemeWall(props: {
           <Button
             key="share"
             variant="ghost"
-            aria-label={t("settings.appearance.shareAria", { name: source.label })}
+            aria-label={`Share theme ${source.label}`}
             onClick={() => props.onShare(source)}
           >
-            {t("settings.appearance.share")}
+            Share…
           </Button>,
         );
       }
@@ -597,7 +592,7 @@ export function ThemeWall(props: {
             key="animate"
             on={origin.animate}
             onChange={(next) => void setStoredThemeMotion(source.id, next)}
-            label={t("settings.appearance.repoAnimateAria", { name: source.label })}
+            label={`Animate the backdrop of ${source.label}`}
           />,
         );
       }
@@ -605,10 +600,10 @@ export function ThemeWall(props: {
         <Button
           key="remove"
           variant="ghost"
-          aria-label={t("settings.appearance.removeAria", { name: source.label })}
+          aria-label={`Remove theme ${source.label}`}
           onClick={() => void removeStoredTheme(source.id)}
         >
-          {t("settings.appearance.remove")}
+          Remove
         </Button>,
       );
     }
@@ -616,11 +611,11 @@ export function ThemeWall(props: {
   };
 
   const schemeChip = (card: WallCard): ReactNode => (
-    <Chip>{card.theme.dark ? t("settings.appearance.themeDark") : t("settings.appearance.themeLight")}</Chip>
+    <Chip>{card.theme.dark ? "dark" : "light"}</Chip>
   );
   // Listing cards carry no kind: the group heading names the repository, and
   // an uninstalled entry's placeholder id would read as "custom".
-  const cardKind = (card: WallCard): string | null => (card.entry !== null ? null : kindLabel(card.theme, t));
+  const cardKind = (card: WallCard): string | null => (card.entry !== null ? null : kindLabel(card.theme));
 
   const pickChips = (card: WallCard): ReactNode[] => {
     const id = card.applyId;
@@ -630,10 +625,10 @@ export function ThemeWall(props: {
         {text}
       </Chip>
     );
-    if (themeMode === "fixed") return holds(id, "fixed") ? [chip("fixed", t("settings.appearance.inUseChip"))] : [];
+    if (themeMode === "fixed") return holds(id, "fixed") ? [chip("fixed", "in use")] : [];
     const chips: ReactNode[] = [];
-    if (holds(id, "light")) chips.push(chip("light", t("settings.appearance.lightPickChip")));
-    if (holds(id, "dark")) chips.push(chip("dark", t("settings.appearance.darkPickChip")));
+    if (holds(id, "light")) chips.push(chip("light", "light pick"));
+    if (holds(id, "dark")) chips.push(chip("dark", "dark pick"));
     return chips;
   };
 
@@ -653,7 +648,7 @@ export function ThemeWall(props: {
         <button
           type="button"
           aria-pressed={pressed}
-          aria-label={t("settings.appearance.themeAria", { name: accessibleName })}
+          aria-label={`${accessibleName} theme`}
           onClick={() => choose(card)}
           className={cn(
             "block w-full rounded-lg border p-2 text-left transition-colors duration-150",
@@ -667,8 +662,8 @@ export function ThemeWall(props: {
             {card.backdropKind !== null && (
               <Chip>
                 {card.backdropKind === "scene"
-                  ? t("settings.appearance.themeScene")
-                  : t("settings.appearance.themeBackdrop")}
+                  ? "animated backdrop"
+                  : "backdrop"}
               </Chip>
             )}
             {card.meta.tags.map((tag) => (
@@ -676,11 +671,11 @@ export function ThemeWall(props: {
                 {tag}
               </Chip>
             ))}
-            {card.repoState === "install" && <Chip>{t("settings.appearance.notInstalledChip")}</Chip>}
-            {card.repoState === "update" && <Chip>{t("settings.appearance.updateChip")}</Chip>}
+            {card.repoState === "install" && <Chip>not installed</Chip>}
+            {card.repoState === "update" && <Chip>update available</Chip>}
             {card.repoState === "fails" && (
               <Chip tone="rose">
-                {t("settings.appearance.repoGateFailed", { count: String(card.failures.length) })}
+                {`Fails ${String(card.failures.length)} colour checks; cannot be installed.`}
               </Chip>
             )}
             {picks}
@@ -689,7 +684,7 @@ export function ThemeWall(props: {
             <span className="mt-1 block truncate text-xs text-ink-faint">
               {[
                 card.meta.description,
-                card.meta.author !== null ? t("settings.appearance.themeBy", { author: card.meta.author }) : null,
+                card.meta.author !== null ? `by ${card.meta.author}` : null,
               ]
                 .filter((part) => part !== null)
                 .join(" · ")}
@@ -700,10 +695,10 @@ export function ThemeWall(props: {
         <Button
           size="xs"
           className="absolute right-2 top-2"
-          aria-label={t("settings.appearance.previewAria", { name: card.label })}
+          aria-label={`Preview theme ${card.label}`}
           onClick={() => openPreview(card)}
         >
-          {t("settings.appearance.preview")}
+          Preview
         </Button>
         {card.entry !== null && <div className="mt-1.5 flex flex-wrap items-center gap-2 px-1">{repoStatus(card)}</div>}
         {row.length > 0 && (
@@ -729,25 +724,25 @@ export function ThemeWall(props: {
         {card.repoState === "update" && updateButton(card)}
         {themeMode === "fixed" ? (
           <Button variant="solid" disabled={holds(id, "fixed")} onClick={() => use("fixed")}>
-            {holds(id, "fixed") ? t("settings.appearance.inUseButton") : t("settings.appearance.useTheme")}
+            {holds(id, "fixed") ? "In use" : "Use this theme"}
           </Button>
         ) : (
           <>
             <Button
               variant="solid"
               disabled={holds(id, "light")}
-              aria-label={t("settings.appearance.useForLightAria", { name: card.label })}
+              aria-label={`Use ${card.label} for light`}
               onClick={() => use("light")}
             >
-              {t("settings.appearance.useForLight")}
+              Use for light
             </Button>
             <Button
               variant="solid"
               disabled={holds(id, "dark")}
-              aria-label={t("settings.appearance.useForDarkAria", { name: card.label })}
+              aria-label={`Use ${card.label} for dark`}
               onClick={() => use("dark")}
             >
-              {t("settings.appearance.useForDark")}
+              Use for dark
             </Button>
           </>
         )}
@@ -758,16 +753,16 @@ export function ThemeWall(props: {
   const previewNotes = (card: WallCard): string[] => {
     const notes: string[] = [];
     const loaded = card.entry !== null && card.applyId === null ? repoBackdrops.get(card.entry.blob) : undefined;
-    if (loaded?.status === "loading") notes.push(t("settings.appearance.backdropLoading"));
-    if (loaded?.status === "error") notes.push(t("settings.appearance.backdropFailed", { message: loaded.message }));
-    if (specimenOf(card).theme.backdrop !== null) notes.push(t("settings.appearance.backdropStill"));
+    if (loaded?.status === "loading") notes.push("Downloading the backdrop…");
+    if (loaded?.status === "error") notes.push(`The backdrop could not be shown: ${loaded.message}`);
+    if (specimenOf(card).theme.backdrop !== null) notes.push("The backdrop shows as a still frame here.");
     return notes;
   };
 
   // Groups by Show, each filtered by scheme, backdrop, tags and search, sorted, then paged.
   const shownRepository = show.startsWith("repo:") ? show.slice(5) : null;
-  const builtInGroup = { title: t("settings.appearance.showBuiltIn"), cards: curatedCards };
-  const yoursGroup = { title: t("settings.appearance.storedTitle"), cards: storedCards };
+  const builtInGroup = { title: "Built-in", cards: curatedCards };
+  const yoursGroup = { title: "Your themes", cards: storedCards };
   const groups: { title: string; cards: WallCard[] }[] =
     show === "all"
       ? [builtInGroup, yoursGroup]
@@ -863,11 +858,11 @@ export function ThemeWall(props: {
       <div className="sticky top-0 z-10 -mx-4 border-b border-line-soft bg-overlay px-4 pb-2 pt-2">
         <div className="flex flex-wrap items-center gap-2">
           <ChoiceCapsule
-            label={t("settings.appearance.themeMode")}
+            label="Theme mode"
             value={themeMode}
             options={[
-              { value: "fixed", label: t("settings.appearance.themeModeFixed") },
-              { value: "system", label: t("settings.appearance.themeModeSystem") },
+              { value: "fixed", label: "One theme" },
+              { value: "system", label: "Follow system" },
             ]}
             onChange={(mode) => void setThemeMode(mode)}
             optionClassName="tab-label px-2"
@@ -875,107 +870,104 @@ export function ThemeWall(props: {
           <span className="flex-1" />
           <span className="text-sm text-ink-mid">
             {themeMode === "fixed"
-              ? t("settings.appearance.using", { name: labelOf(pick.themeId) })
-              : t("settings.appearance.picks", { light: labelOf(pick.lightThemeId), dark: labelOf(pick.darkThemeId) })}
+              ? `Using ${labelOf(pick.themeId)}`
+              : `Light: ${labelOf(pick.lightThemeId)} · Dark: ${labelOf(pick.darkThemeId)}`}
           </span>
         </div>
         {themeMode === "system" && (
           <p className="mt-1 text-xs text-ink-faint">
-            {t("settings.appearance.themeModeSystemHint")}{" "}
+            Uses your light theme while the OS is in light mode and your dark theme while it is in dark mode, and switches the moment the OS does.{" "}
             <span data-testid="theme-now-showing" className="text-ink-mid">
-              {t("settings.appearance.nowShowing", { name: props.showing.label })}
+              {`Now showing: ${props.showing.label}`}
             </span>
           </p>
         )}
         <div className="mt-2 flex flex-wrap items-center gap-2">
           <select
-            aria-label={t("settings.appearance.show")}
+            aria-label="Show"
             // Fixed width: a native select sizes to its longest option, so listing a repository would reflow the
             // toolbar. 15rem fits lankfordai/omp-ui-themes; a longer added name truncates in the closed select.
             className={cn(FIELD, "w-60 shrink-0")}
             value={show}
             onChange={(event) => changeShow(event.target.value as Show)}
           >
-            <option value="all">{t("settings.appearance.showAll")}</option>
-            <option value="builtin">{t("settings.appearance.showBuiltIn")}</option>
+            <option value="all">All local</option>
+            <option value="builtin">Built-in</option>
             <option value="yours">
-              {t("settings.appearance.showYours", {
-                count: String(sources.length),
-                max: String(STORED_THEMES_MAX),
-              })}
+              {`Your themes (${String(sources.length)}/${String(STORED_THEMES_MAX)})`}
             </option>
             {repositoryOptions.map((repository) => (
               <option key={repository} value={`repo:${repository}`}>
                 {repository}
               </option>
             ))}
-            <option value="manage">{t("settings.appearance.showManage")}</option>
+            <option value="manage">Manage repositories…</option>
           </select>
           <ChoiceCapsule
-            label={t("settings.appearance.schemeFilter")}
+            label="Scheme"
             value={scheme}
             options={[
-              { value: "any", label: t("settings.appearance.schemeAny") },
-              { value: "dark", label: t("settings.appearance.schemeDark") },
-              { value: "light", label: t("settings.appearance.schemeLight") },
+              { value: "any", label: "Any" },
+              { value: "dark", label: "Dark" },
+              { value: "light", label: "Light" },
             ]}
             onChange={setScheme}
             optionClassName="tab-label px-2"
           />
           <ChoiceCapsule
-            label={t("settings.appearance.backdropFilter")}
+            label="Backdrop"
             value={backdropFilter}
             options={[
-              { value: "any", label: t("settings.appearance.backdropAny") },
-              { value: "none", label: t("settings.appearance.backdropNone") },
-              { value: "image", label: t("settings.appearance.backdropImage") },
-              { value: "scene", label: t("settings.appearance.backdropScene") },
+              { value: "any", label: "Any backdrop" },
+              { value: "none", label: "No backdrop" },
+              { value: "image", label: "Image" },
+              { value: "scene", label: "Animated" },
             ]}
             onChange={setBackdropFilter}
             optionClassName="tab-label px-2"
           />
           <select
-            aria-label={t("settings.appearance.sort")}
+            aria-label="Sort"
             className={FIELD}
             value={effectiveSort}
             onChange={(event) => setSort(event.target.value as Sort)}
           >
-            <option value="default">{t("settings.appearance.sortDefault")}</option>
-            {hasDates && <option value="newest">{t("settings.appearance.sortNewest")}</option>}
-            <option value="name">{t("settings.appearance.sortName")}</option>
+            <option value="default">Default order</option>
+            {hasDates && <option value="newest">Newest</option>}
+            <option value="name">Name</option>
           </select>
           <input
             type="search"
-            aria-label={t("settings.appearance.search")}
-            placeholder={t("settings.appearance.search")}
+            aria-label="Search themes"
+            placeholder="Search themes"
             className={cn(FIELD, "min-w-0 flex-1")}
             value={query}
             onChange={(event) => setQuery(event.target.value)}
           />
           <div ref={menuButtonRef} className="relative">
             <Button selected={menuOpen} onClick={() => setMenuOpen(!menuOpen)}>
-              {t("settings.appearance.newMenu")}
+              New
               <Chevron open={menuOpen} />
             </Button>
             {menuOpen && (
               <div ref={menuRef} role="menu" className="absolute right-0 top-full z-20 mt-1">
                 <Panel className="edge-lit animate-rise w-max p-1">
-                  {newItem(t("settings.appearance.newTheme"), props.onNewTheme, true)}
-                  {newItem(t("settings.appearance.importFile"), props.onImportFile)}
-                  {newItem(t("settings.appearance.importVsCode"), props.onImportVsCode)}
+                  {newItem("New theme", props.onNewTheme, true)}
+                  {newItem("Import theme file…", props.onImportFile)}
+                  {newItem("Import VS Code theme…", props.onImportVsCode)}
                 </Panel>
               </div>
             )}
           </div>
         </div>
         {show !== "manage" && availableTags.length > 0 && (
-          <div role="group" aria-label={t("settings.appearance.tagFilter")} className="mt-2 flex flex-wrap items-center gap-1.5">
+          <div role="group" aria-label="Tags" className="mt-2 flex flex-wrap items-center gap-1.5">
             {availableTags.map((tag) => (
               <Button
                 key={tag}
                 size="xs"
                 selected={activeTags.includes(tag)}
-                aria-label={t("settings.appearance.tagAria", { tag })}
+                aria-label={`Filter by tag ${tag}`}
                 onClick={() => toggleTag(tag)}
               >
                 {tag}
@@ -983,7 +975,7 @@ export function ThemeWall(props: {
             ))}
             {activeTags.length > 0 && (
               <Button size="xs" variant="ghost" onClick={() => setTags([])}>
-                {t("settings.appearance.tagClear")}
+                Clear tags
               </Button>
             )}
           </div>
@@ -993,7 +985,7 @@ export function ThemeWall(props: {
       {props.verdict}
       {installVerdict?.ok === true && (
         <p role="status" className="mt-2 text-sm text-ink-mid">
-          {t("settings.appearance.repoInstalled", { name: installVerdict.source.label })}
+          {`Installed ${installVerdict.source.label}.`}
         </p>
       )}
       {installVerdict?.ok === false && installVerdict.reason === "gate" && (
@@ -1001,7 +993,7 @@ export function ThemeWall(props: {
       )}
       {installVerdict?.ok === false && installVerdict.reason === "invalid" && (
         <p role="alert" className="mt-2 text-sm text-rose">
-          {t("settings.appearance.repoInstallFailed", { message: installVerdict.message })}
+          {`Could not install: ${installVerdict.message}`}
         </p>
       )}
 
@@ -1011,30 +1003,27 @@ export function ThemeWall(props: {
         <>
           {shownRepository !== null && listing?.status === "loading" && (
             <p role="status" className="mt-3 text-sm text-ink-faint">
-              {t("settings.appearance.repoLoading", { repository: shownRepository })}
+              {`Reading ${shownRepository}…`}
             </p>
           )}
           {shownRepository !== null && listing?.status === "error" && (
             <p role="alert" className="mt-3 text-sm text-rose">
-              {t("settings.appearance.repoFailed", { repository: shownRepository, message: listing.message })}
+              {`Could not read ${shownRepository}: ${listing.message}`}
             </p>
           )}
           {shownRepository !== null && listing?.status === "ok" && (
             <div className="mt-3">
               <div className="flex items-center gap-2 text-sm text-ink-faint">
                 <span className="min-w-0 flex-1">
-                  {t("settings.appearance.repoCommit", {
-                    count: String(listing.listing.themes.length),
-                    commit: listing.listing.commit.slice(0, 7),
-                  })}
+                  {`${String(listing.listing.themes.length)} themes at commit ${listing.listing.commit.slice(0, 7)}`}
                 </span>
                 <Button variant="ghost" onClick={() => void openRepository(shownRepository, true)}>
-                  {t("settings.appearance.repoRefresh")}
+                  Refresh
                 </Button>
               </div>
               {listing.listing.skipped > 0 && (
                 <p className="mt-1 text-sm text-ink-faint">
-                  {t("settings.appearance.repoSkipped", { count: String(listing.listing.skipped) })}
+                  {`${String(listing.listing.skipped)} listed themes were skipped (missing, or larger than 6 MiB).`}
                 </p>
               )}
             </div>
@@ -1048,23 +1037,23 @@ export function ThemeWall(props: {
           {remaining > 0 && (
             <div className="mt-3 flex justify-center">
               <Button onClick={() => setLimit(limit + PAGE)}>
-                {t("settings.appearance.showMore", { count: String(Math.min(PAGE, remaining)) })}
+                {`Show ${String(Math.min(PAGE, remaining))} more`}
               </Button>
             </div>
           )}
-          {matchCount === 0 && listingSettled && <Empty title={t("settings.appearance.noMatch")} />}
+          {matchCount === 0 && listingSettled && <Empty title="No themes match." />}
         </>
       )}
 
       {show === "all" && repositories.length > 0 && (
-        <p className="mt-3 text-sm text-ink-faint">{t("settings.appearance.repoAllNote")}</p>
+        <p className="mt-3 text-sm text-ink-faint">Pick a repository under Show to see more themes; that reads it from GitHub.</p>
       )}
-      <p className="mt-3 text-sm text-ink-faint">{t("settings.appearance.mintNote")}</p>
+      <p className="mt-3 text-sm text-ink-faint">In every theme, green marks only agent activity — never decoration.</p>
 
       {previewCard !== null && (
         <ThemePreviewOverlay
           {...specimenOf(previewCard)}
-          title={t("settings.appearance.previewTitle", { name: previewCard.label })}
+          title={`Preview: ${previewCard.label}`}
           chips={
             <>
               {schemeChip(previewCard)}

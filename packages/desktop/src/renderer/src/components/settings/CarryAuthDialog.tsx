@@ -1,6 +1,5 @@
 import { useState } from "react";
 import { backend } from "../../backend";
-import { useT } from "../../lib/i18n";
 import { useStore } from "../../store";
 import type { LifecycleConfirmationChoice } from "../../store/types";
 import { Button, ChoiceCapsule, ConfirmDialog } from "../ui";
@@ -18,7 +17,6 @@ type CarryAction = "to-instance" | "from-instance" | "save-file" | "import-file"
  * pickers in main.
  */
 export function CarryAuthDialog({ onClose }: { onClose: () => void }) {
-  const t = useT();
   const state = useStore((s) => s.state);
   const stageLifecycleConfirmation = useStore((s) => s.stageLifecycleConfirmation);
   const joined = (state?.remoteInstances ?? []).filter((i) => i.status === "joined");
@@ -37,7 +35,7 @@ export function CarryAuthDialog({ onClose }: { onClose: () => void }) {
 
   const submit = async (): Promise<void> => {
     if (action === "save-file") {
-      stage({ kind: "carry-auth", action, targetLabel: t("dialog.carryAuth.fileTarget") });
+      stage({ kind: "carry-auth", action, targetLabel: "a file you choose" });
       return;
     }
     if (action === "import-file") {
@@ -59,15 +57,15 @@ export function CarryAuthDialog({ onClose }: { onClose: () => void }) {
 
   return (
     <ConfirmDialog
-      kicker={t("dialog.carryAuth.kicker")}
-      title={t("dialog.carryAuth.title")}
+      kicker="Carry sign-ins"
+      title="Move credentials between machines"
       tone="copper"
       onClose={onClose}
       width="w-[30rem]"
       actions={
         <>
           <Button variant="ghost" onClick={onClose}>
-            {t("dialog.migrate.cancel")}
+            Cancel
           </Button>
           <Button
             variant="solid"
@@ -76,22 +74,22 @@ export function CarryAuthDialog({ onClose }: { onClose: () => void }) {
             disabled={needsPeer || pickingFile}
             onClick={() => void submit()}
           >
-            {t("dialog.carryAuth.action")}
+            Continue
           </Button>
         </>
       }
     >
       <div className="space-y-4">
         <div>
-          <p className="text-sm text-ink-dim">{t("dialog.carryAuth.routeLabel")}</p>
+          <p className="text-sm text-ink-dim">Route</p>
           <ChoiceCapsule
-            label={t("dialog.carryAuth.routeLabel")}
+            label="Route"
             value={action}
             options={[
-              { value: "to-instance", label: t("dialog.carryAuth.toInstance") },
-              { value: "from-instance", label: t("dialog.carryAuth.fromInstance") },
-              { value: "save-file", label: t("dialog.carryAuth.saveFile") },
-              { value: "import-file", label: t("dialog.carryAuth.importFile") },
+              { value: "to-instance", label: "This machine → instance" },
+              { value: "from-instance", label: "Instance → this machine" },
+              { value: "save-file", label: "Save to file…" },
+              { value: "import-file", label: "Import from file…" },
             ]}
             onChange={(value) => setAction(value as CarryAction)}
             optionClassName="tab-label px-2"
@@ -100,10 +98,10 @@ export function CarryAuthDialog({ onClose }: { onClose: () => void }) {
         {(action === "to-instance" || action === "from-instance") && (
           <div>
             {joined.length === 0 ? (
-              <p className="text-xs text-ink-faint">{t("dialog.migrate.emptyInstances")}</p>
+              <p className="text-xs text-ink-faint">No joined instances — join one on the Remote settings page, or pick a directory here on this machine.</p>
             ) : (
               <ChoiceCapsule
-                label={t("dialog.carryAuth.peerLabel")}
+                label="Instance"
                 value={instanceId ?? joined[0]!.id}
                 options={joined.map((instance) => ({ value: instance.id, label: instance.nickname }))}
                 onChange={(value) => setInstanceId(String(value))}
@@ -114,8 +112,8 @@ export function CarryAuthDialog({ onClose }: { onClose: () => void }) {
         )}
         <p className="text-sm leading-relaxed text-ink-faint">
           {action === "save-file" || action === "import-file"
-            ? t("dialog.carryAuth.hintFile")
-            : t("dialog.carryAuth.hintInstance")}
+            ? "The bundle is a plaintext JSON file holding every API key and login token. Treat the file like a password: delete it once both machines are set up."
+            : "Credentials ride the encrypted instance link and merge into the target's store — nothing is removed here."}
         </p>
       </div>
     </ConfirmDialog>

@@ -3,7 +3,6 @@ import "@xterm/xterm/css/xterm.css";
 import { Button, Modal } from "../ui";
 import { backend, displayMessage } from "../../backend";
 import { useFontFamily } from "../../lib/font-families";
-import { useT } from "../../lib/i18n";
 import { applyTerminalAppearance, createPtyResizePusher, createTerminal, type CreatedTerminal } from "../../lib/terminal";
 import { useTheme } from "../../lib/themes";
 import { registerShellWriter, useStore } from "../../store";
@@ -46,7 +45,6 @@ export function ProviderTerminalLoginDialog({
   onClose: () => void;
   onSignedIn: () => void;
 }) {
-  const t = useT();
   const hostRef = useRef<HTMLDivElement>(null);
   const termRef = useRef<CreatedTerminal | null>(null);
   const theme = useTheme();
@@ -127,10 +125,10 @@ export function ProviderTerminalLoginDialog({
     <Modal onClose={onClose} width="w-[46rem]" labelledBy="provider-terminal-login-title">
       <div className="flex h-full min-h-0 flex-col gap-2 p-4">
         <p id="provider-terminal-login-title" className="text-sm font-medium text-ink">
-          {t("settings.providers.terminalLogin.title", { provider: label })}
+          {`Sign in to ${label} in a terminal`}
         </p>
         <p className="break-words text-xs leading-relaxed text-ink-dim">
-          {t("settings.providers.terminalLogin.hint")}
+          omp asks you to accept its account-risk warning here — type the answer it asks for yourself. Paste any code it requests into the terminal. If no browser opens, copy the sign-in URL from the terminal and open it.
         </p>
         <div className="ambient relative min-h-0 flex-1 overflow-hidden rounded-lg border border-line bg-surface p-2">
           <div ref={hostRef} className="h-full w-full" onContextMenu={copyMenu.onContextMenu} />
@@ -139,16 +137,16 @@ export function ProviderTerminalLoginDialog({
         {exitCode !== undefined && exitCode !== 0 && (
           <div className="flex flex-wrap items-center gap-2">
             <p className="min-w-0 flex-1 break-words text-sm text-ink-mid">
-              {t("settings.providers.terminalLogin.exited")}{" "}
+              login exited{" "}
               <span className="font-mono tabular-nums text-rose">
-                {t("shell.drawer.exitedCode", { code: exitCode })}
+                {`(code ${exitCode})`}
               </span>
             </p>
             <Button tone="signal" variant="outline" size="xs" onClick={retry}>
-              {t("settings.providers.terminalLogin.retry")}
+              retry
             </Button>
             <Button variant="ghost" size="xs" onClick={onClose}>
-              {t("settings.providers.terminalLogin.close")}
+              close
             </Button>
           </div>
         )}

@@ -9,7 +9,6 @@ vi.mock("../backend", () => ({
 import { act } from "react";
 import { createRoot, type Root } from "react-dom/client";
 import type { ToolItem } from "../lib/transcript";
-import { applyLocale, resolveLocale } from "../lib/i18n";
 import { formatBytes } from "../lib/format";
 import { useStore } from "../store";
 import type { RpcTabState } from "../store/types";
@@ -861,18 +860,6 @@ describe("ToolCard bash execution directory (issue #1093)", () => {
     act(() => root.unmount());
   });
 
-  it("labels the requested directory in Korean", () => {
-    applyLocale(resolveLocale("ko"));
-    try {
-      const { el, root } = renderCard(
-        tool({ name: "bash", args: { command: "pwd", cwd: "/other" }, resultText: "/other" }),
-      );
-      expect(el.textContent).toContain("cwd (요청됨)");
-      act(() => root.unmount());
-    } finally {
-      applyLocale(resolveLocale("en"));
-    }
-  });
 });
 
 describe("ToolCard tool-result truncation", () => {
@@ -935,24 +922,6 @@ describe("ToolCard tool-result truncation", () => {
     expect(el.textContent).not.toContain("UTF-8");
     expect(el.textContent).not.toContain("elided");
     act(() => root.unmount());
-  });
-  it("renders truncation facts in Korean", () => {
-    applyLocale(resolveLocale("ko"));
-    try {
-      const { el, root } = renderCard(tool({
-        name: "bash",
-        resultText: "preview",
-        toolTruncation: {
-          truncation: { direction: "middle", truncatedBy: "middle", elidedLines: 4120 },
-          columnTruncated: { maxColumn: 80, unit: "bytes" },
-        },
-      }));
-      expect(el.textContent).toContain("중간 생략: 4,120줄");
-      expect(el.textContent).toContain("열 잘림: maxColumn 80 · 줄당 UTF-8 바이트");
-      act(() => root.unmount());
-    } finally {
-      applyLocale(resolveLocale("en"));
-    }
   });
 
 
@@ -1045,25 +1014,6 @@ describe("ToolCard web-search provider failures", () => {
     act(() => root.unmount());
   });
 
-  it("localizes the status suffix in Korean without translating provider reasons", () => {
-    applyLocale(resolveLocale("ko"));
-    try {
-      const { el, root } = renderCard(tool({
-        name: "web_search",
-        providerFailures: [
-          { provider: "exa", label: "Exa", reason: "empty response", status: 204 },
-          { provider: "brave", label: "Brave", reason: "credential missing" },
-        ],
-      }));
-      expect(el.textContent).toContain("Exa — empty response (상태 204)");
-      expect(el.textContent).toContain("Brave — credential missing");
-      expect(el.textContent).not.toContain("(status");
-      expect(el.querySelector("button svg.text-signal")).not.toBeNull();
-      act(() => root.unmount());
-    } finally {
-      applyLocale(resolveLocale("en"));
-    }
-  });
 });
 
 describe("ToolCard ask answers (issue #1203)", () => {

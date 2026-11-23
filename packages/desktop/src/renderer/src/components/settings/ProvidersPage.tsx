@@ -29,7 +29,6 @@ import { cn } from "../../lib/cn";
 import { useStore } from "../../store";
 import { Button, Chip, Dot, Empty, Label, Panel, Switch } from "../ui";
 import { FIELD, Row, layerBadge } from "./rows";
-import { t, useT } from "../../lib/i18n";
 import { OMP_MISSING, type FooterContext, type Load } from "./types";
 import { CarryAuthDialog } from "./CarryAuthDialog";
 import { ProviderTerminalLoginDialog } from "./ProviderTerminalLoginDialog";
@@ -51,11 +50,11 @@ type WebSearchLoad =
 /** How the row labels each source, and how loudly. */
 function sourceChip(row: ProviderKeyStatus): ReactNode {
   if (row.source === "stored")
-    return <Chip tone="signal">{t("settings.providers.savedHere")}</Chip>;
+    return <Chip tone="signal">saved here</Chip>;
   if (row.source === "environment")
-    return <Chip>{t("settings.providers.environment")}</Chip>;
+    return <Chip>environment</Chip>;
   if (row.source === "login-shell")
-    return <Chip tone="iris">{t("settings.providers.shellProfile")}</Chip>;
+    return <Chip tone="iris">shell profile</Chip>;
   // Report-only: omp loads project .env files itself, so nothing was injected.
   if (row.source === "dotenv") return <Chip tone="copper">project .env</Chip>;
   return null;
@@ -79,7 +78,6 @@ function ProviderRow({
    *  exact unreadable entry's own name for an unreadable remove. */
   onClear: (envName: string) => void;
 }) {
-  const t = useT();
   const [editing, setEditing] = useState(false);
   const [draft, setDraft] = useState("");
   const input = useRef<HTMLInputElement>(null);
@@ -111,7 +109,7 @@ function ProviderRow({
             </span>
             {sourceChip(row)}
             {row.unreadableStoredEnvs.length > 0 && (
-              <Chip tone="copper">{t("settings.providers.savedUnreadable")}</Chip>
+              <Chip tone="copper">saved key unreadable</Chip>
             )}
           </div>
           <p className="mt-0.5 break-words font-mono text-xs text-ink-faint">
@@ -125,8 +123,8 @@ function ProviderRow({
           {!editing && (
             <Button size="xs" disabled={busy} onClick={() => setEditing(true)}>
               {row.source === "stored" || row.unreadableStoredEnvs.includes(row.env)
-                ? t("settings.providers.replace")
-                : t("settings.providers.addKey")}
+                ? "Replace"
+                : "Add key"}
             </Button>
           )}
           {!editing && row.source === "stored" && (
@@ -136,7 +134,7 @@ function ProviderRow({
               disabled={busy}
               onClick={() => onClear(row.activeEnv)}
             >
-              {t("settings.providers.remove")}
+              remove
             </Button>
           )}
         </div>
@@ -150,7 +148,7 @@ function ProviderRow({
             // screen share, and so no password manager offers to autofill it.
             type="password"
             value={draft}
-            aria-label={t("settings.providers.keyAria", { name: row.label })}
+            aria-label={`${row.label} key`}
             placeholder={row.hint ?? row.env}
             spellCheck={false}
             autoComplete="off"
@@ -174,10 +172,10 @@ function ProviderRow({
             disabled={busy || draft.trim() === ""}
             onClick={save}
           >
-            {t("settings.providers.save")}
+            Save
           </Button>
           <Button size="xs" variant="ghost" disabled={busy} onClick={cancel}>
-            {t("settings.providers.cancel")}
+            cancel
           </Button>
         </div>
       )}
@@ -186,27 +184,27 @@ function ProviderRow({
       {row.unreadableStoredEnvs.map((envName) => (
         <div key={envName} className="mt-1.5 flex flex-wrap items-center gap-x-2 gap-y-1">
           <p className="min-w-0 flex-1 break-words text-sm leading-relaxed text-copper">
-            {t("settings.providers.unreadableDetail", { env: envName })}
+            {`${envName}: the saved key could not be decrypted. The encrypted entry is retained; restarting with the original OS credential store may make it readable again. Removing this entry permanently discards that saved value.`}
           </p>
           <Button
             size="xs"
             variant="ghost"
             tone="copper"
             disabled={busy}
-            aria-label={t("settings.providers.removeUnreadableAria", { env: envName })}
+            aria-label={`Remove unreadable saved ${envName}`}
             onClick={() => onClear(envName)}
             className="shrink-0"
           >
-            {t("settings.providers.remove")}
+            remove
           </Button>
         </div>
       ))}
 
       {row.shadowsEnvironment && !editing && (
         <p className="mt-1 text-sm leading-relaxed text-ink-faint">
-          {t("settings.providers.shadowsEnvPrefix")}
+          {"Overrides the "}
           <span className="font-mono">{row.activeEnv}</span>
-          {t("settings.providers.shadowsEnvSuffix")}
+          {" your environment already provides."}
         </p>
       )}
     </div>
@@ -246,7 +244,6 @@ function ProviderSignInRow({
   onSubmit: (value: string) => void;
   onCancel: () => void;
 }) {
-  const t = useT();
   const [draft, setDraft] = useState("");
   const input = useRef<HTMLInputElement>(null);
   const signedIn = row.credentials.length > 0;
@@ -276,13 +273,13 @@ function ProviderSignInRow({
               {row.label}
             </span>
             {signedIn ? (
-              <Chip tone="signal">{t("settings.providers.oauthSignedIn")}</Chip>
+              <Chip tone="signal">signed in</Chip>
             ) : row.requiresTerminalLogin === true ? (
-              <Chip tone="copper">{t("settings.providers.oauthTerminalChip")}</Chip>
+              <Chip tone="copper">terminal login</Chip>
             ) : row.accountsUnsupported ? (
-              <Chip>{t("settings.providers.oauthRequiresOmp")}</Chip>
+              <Chip>update omp to see what is signed in</Chip>
             ) : (
-              <Chip>{t("settings.providers.oauthNotSignedIn")}</Chip>
+              <Chip>not signed in</Chip>
             )}
           </div>
           {signedIn ? (
@@ -292,7 +289,7 @@ function ProviderSignInRow({
                 <p className="break-words font-mono text-xs text-ink-faint">{c.detail}</p>
                 {c.provider !== row.providerId && (
                   <p className="break-words font-mono text-xs text-ink-faint">
-                    {t("settings.providers.oauthStoredAs", { provider: c.provider })}
+                    {`stored as ${c.provider}`}
                   </p>
                 )}
               </div>
@@ -302,21 +299,19 @@ function ProviderSignInRow({
           )}
           {!signedIn && row.requiresTerminalLogin === true && (
             <p className="mt-1 break-words text-sm leading-relaxed text-ink-dim">
-              {t("settings.providers.oauthTerminalLogin", {
-                command: terminalLoginCommand(row.providerId),
-              })}
+              {`omp makes you accept an account-risk warning before this sign-in starts, which omp-ui cannot answer; run ${terminalLoginCommand(row.providerId)} in a terminal instead.`}
             </p>
           )}
         </div>
         <div className="flex min-w-0 flex-wrap items-center gap-1.5">
           {!signedIn && row.requiresTerminalLogin !== true && (
             <Button size="xs" disabled={flowBusy} onClick={onSignIn}>
-              {t("settings.providers.oauthSignIn")}
+              Sign in
             </Button>
           )}
           {!signedIn && row.requiresTerminalLogin === true && (
             <Button size="xs" disabled={flowBusy} onClick={onTerminalSignIn}>
-              {t("settings.providers.oauthTerminalSignIn")}
+              Sign in in terminal
             </Button>
           )}
           {row.credentials.map((c) => (
@@ -327,7 +322,7 @@ function ProviderSignInRow({
               disabled={flowBusy}
               onClick={() => onSignOut(c.credentialId)}
             >
-              {t("settings.providers.oauthSignOut")}
+              sign out
             </Button>
           ))}
         </div>
@@ -337,10 +332,10 @@ function ProviderSignInRow({
         <div className="mt-2 flex flex-wrap items-center gap-2">
           <Dot tone="signal" pulse />
           <span className="min-w-0 break-words text-xs text-ink-dim">
-            {t("settings.providers.oauthStarting")}
+            Starting omp…
           </span>
           <Button size="xs" variant="ghost" onClick={onCancel}>
-            {t("settings.providers.oauthCancel")}
+            cancel
           </Button>
         </div>
       )}
@@ -357,7 +352,7 @@ function ProviderSignInRow({
             </p>
           ) : (
             <p className="break-words text-sm leading-relaxed text-ink-dim">
-              {t("settings.providers.oauthBrowser")}
+              Finish signing in in the browser omp-ui just opened. This page updates as soon as omp receives the callback.
             </p>
           )}
           {flow.instructions !== null && (
@@ -367,10 +362,10 @@ function ProviderSignInRow({
           )}
           <div className="flex min-w-0 flex-wrap items-center gap-1.5">
             <Button size="xs" onClick={openLink}>
-              {t("settings.providers.oauthOpenLink")}
+              Open sign-in page
             </Button>
             <Button size="xs" variant="ghost" onClick={onCancel}>
-              {t("settings.providers.oauthCancel")}
+              cancel
             </Button>
           </div>
           {flow.phase === "input" && flow.prompt !== null && (
@@ -379,9 +374,7 @@ function ProviderSignInRow({
                 ref={input}
                 type="text"
                 value={draft}
-                aria-label={t("settings.providers.oauthInputAria", {
-                  name: flow.prompt.title || row.label,
-                })}
+                aria-label={`${flow.prompt.title || row.label} sign-in response`}
                 placeholder={flow.prompt.placeholder ?? ""}
                 spellCheck={false}
                 autoComplete="off"
@@ -400,7 +393,7 @@ function ProviderSignInRow({
                 className={cn(FIELD, "min-w-0 flex-1")}
               />
               <Button size="xs" disabled={draft.trim() === ""} onClick={submit}>
-                {t("settings.providers.oauthSubmit")}
+                Submit
               </Button>
             </div>
           )}
@@ -409,12 +402,12 @@ function ProviderSignInRow({
 
       {mine && flow.phase === "done" && (
         <div className="mt-2 flex flex-wrap items-center gap-2">
-          <Chip tone="signal">{t("settings.providers.oauthSignedIn")}</Chip>
+          <Chip tone="signal">signed in</Chip>
           <span className="min-w-0 flex-1 break-words text-xs text-ink-dim">
-            {t("settings.providers.oauthDone", { label: row.label })}
+            {`Signed in to ${row.label}. New sessions use the updated credentials; restart a running session to apply them.`}
           </span>
           <Button size="xs" variant="ghost" onClick={onCancel}>
-            {t("settings.providers.oauthDismiss")}
+            dismiss
           </Button>
         </div>
       )}
@@ -422,12 +415,10 @@ function ProviderSignInRow({
       {mine && flow.phase === "error" && (
         <div className="mt-2 flex flex-wrap items-center gap-2">
           <p className="min-w-0 flex-1 break-words text-sm leading-relaxed text-rose">
-            {t("settings.providers.oauthFailed", {
-              error: flow.error ?? "",
-            })}
+            {`Sign-in failed: ${flow.error ?? ""}`}
           </p>
           <Button size="xs" variant="ghost" onClick={onCancel}>
-            {t("settings.providers.oauthDismiss")}
+            dismiss
           </Button>
         </div>
       )}
@@ -451,22 +442,21 @@ function WebSearchNotes({
   toolOff: boolean;
   undiscovered: boolean;
 }) {
-  const t = useT();
   return (
     <>
       {undiscovered && (
         <p className="text-sm leading-relaxed text-ink-faint">
-          {t("settings.providers.webSearchUndiscovered")}
+          This omp did not publish its provider list, so only providers already configured are listed.
         </p>
       )}
       {chosen !== null && excludedOrder.includes(chosen) && (
         <p className="text-sm leading-relaxed text-rose">
-          {t("settings.providers.webSearchExcluded", { provider: chosen })}
+          {`${chosen} is also listed in providers.webSearchExclude, so omp always skips it.`}
         </p>
       )}
       {toolOff && (
         <p className="text-sm leading-relaxed text-ink-faint">
-          {t("settings.providers.webSearchToolOff")}
+          The web_search tool is switched off (web_search.enabled), so no provider is consulted.
         </p>
       )}
     </>
@@ -498,10 +488,9 @@ function WebSearchProviderRow({
   commit: (key: string, value: OmpSettingValue) => void;
   retry: () => void;
 }) {
-  const t = useT();
   if (load.status === "loading") {
     return (
-      <p className="py-2.5 text-xs text-ink-faint">{t("settings.omp.reading")}</p>
+      <p className="py-2.5 text-xs text-ink-faint">Reading omp configuration…</p>
     );
   }
   // readOmpSettings never rejects — snapshot.error carries omp's own failure —
@@ -518,11 +507,11 @@ function WebSearchProviderRow({
     return (
       <div className="flex items-center justify-between gap-3 py-2.5">
         <p className="text-sm leading-relaxed text-rose">
-          {t("settings.providers.webSearchUnavailable")}{" "}
-          {failure === OMP_MISSING ? t("settings.omp.ompMissingHint") : failure}
+          omp's configuration could not be read, so the search order is unknown.{" "}
+          {failure === OMP_MISSING ? "omp is not installed, so there is nothing to configure yet." : failure}
         </p>
         <Button size="xs" onClick={retry}>
-          {t("settings.omp.retry")}
+          retry
         </Button>
       </div>
     );
@@ -541,7 +530,7 @@ function WebSearchProviderRow({
       // the raw value rather than guess a writer.
       return (
         <Row
-          title={t("settings.providers.webSearchOrder")}
+          title="Preferred provider"
           hint={legacy.description}
           badge={layerBadge(legacy.layer)}
         >
@@ -572,16 +561,16 @@ function WebSearchProviderRow({
     return (
       <div className="pt-1">
         <Row
-          title={t("settings.providers.webSearchOrder")}
+          title="Preferred provider"
           hint={
             legacy.layer === "project"
-              ? t("settings.providers.webSearchProjectOverride")
-              : t("settings.providers.webSearchHint")
+              ? "The focused project's .omp/config.yml sets its own order, so this shows the project's value. A choice here writes omp's global config and applies to projects without that override."
+              : "The provider the native web_search tool tries first. Unlisted providers stay available in omp's own order, and a provider needs its credential above or in the environment. Applies to sessions started after the change."
           }
           badge={layerBadge(legacy.layer)}
         >
           <select
-            aria-label={t("settings.providers.webSearchAria")}
+            aria-label="Preferred web-search provider"
             value={selectValue}
             disabled={pending}
             onChange={(event) =>
@@ -589,7 +578,7 @@ function WebSearchProviderRow({
             }
             className={FIELD}
           >
-            <option value="">{t("settings.providers.webSearchAutomatic")}</option>
+            <option value="">Automatic — omp's default order</option>
             {list.map((id) => (
               <option key={id} value={id}>
                 {id}
@@ -597,12 +586,12 @@ function WebSearchProviderRow({
             ))}
             {extra.map((id) => (
               <option key={id} value={id}>
-                {t("settings.providers.webSearchUnknown", { provider: id })}
+                {`${id} (not in this omp's list)`}
               </option>
             ))}
             {selection.kind === "custom" && (
               <option value={WEB_SEARCH_CUSTOM_OPTION} disabled>
-                {t("settings.providers.webSearchCustom", { order: order.join(" → ") })}
+                {`Custom order: ${order.join(" → ")}`}
               </option>
             )}
           </select>
@@ -628,7 +617,7 @@ function WebSearchProviderRow({
     // the raw value rather than a guessed writer.
     return (
       <Row
-        title={t("settings.providers.webSearchOrder")}
+        title="Preferred provider"
         hint={roleEntry.description}
         badge={layerBadge(roleEntry.layer)}
       >
@@ -660,16 +649,16 @@ function WebSearchProviderRow({
   return (
     <div className="pt-1">
       <Row
-        title={t("settings.providers.webSearchOrder")}
+        title="Preferred provider"
         hint={
           roleLayer === "project"
-            ? t("settings.providers.webSearchProjectOverride")
-            : t("settings.providers.webSearchHint")
+            ? "The focused project's .omp/config.yml sets its own order, so this shows the project's value. A choice here writes omp's global config and applies to projects without that override."
+            : "The provider the native web_search tool tries first. Unlisted providers stay available in omp's own order, and a provider needs its credential above or in the environment. Applies to sessions started after the change."
         }
         badge={layerBadge(roleLayer)}
       >
         <select
-          aria-label={t("settings.providers.webSearchAria")}
+          aria-label="Preferred web-search provider"
           value={selectValue}
           disabled={pending}
           onChange={(event) =>
@@ -687,7 +676,7 @@ function WebSearchProviderRow({
           }
           className={FIELD}
         >
-          <option value="">{t("settings.providers.webSearchAutomatic")}</option>
+          <option value="">Automatic — omp's default order</option>
           {list.map((id) => (
             <option key={id} value={id}>
               {id}
@@ -695,14 +684,12 @@ function WebSearchProviderRow({
           ))}
           {extras.map((id) => (
             <option key={id} value={id}>
-              {t("settings.providers.webSearchUnknown", { provider: id })}
+              {`${id} (not in this omp's list)`}
             </option>
           ))}
           {selection.kind === "selector" && (
             <option value={WEB_SEARCH_CUSTOM_OPTION} disabled>
-              {t("settings.providers.webSearchRoleCustom", {
-                selector: selection.selector,
-              })}
+              {`Custom selector: ${selection.selector}`}
             </option>
           )}
         </select>
@@ -733,12 +720,11 @@ function PrivacyRow({
   pendingKey: string | null;
   commit: (key: string, value: OmpSettingValue) => void;
 }) {
-  const t = useT();
   if (entry === undefined) return null;
   if (entry.type !== "boolean") {
     return (
       <Row
-        title={t("settings.providers.telemetryExport")}
+        title="Telemetry export"
         hint={entry.description}
         badge={layerBadge(entry.layer)}
       >
@@ -750,14 +736,14 @@ function PrivacyRow({
   }
   return (
     <Row
-      title={t("settings.providers.telemetryExport")}
+      title="Telemetry export"
       hint={entry.description}
       badge={layerBadge(entry.layer)}
     >
       <Switch
         on={entry.value === true}
         onChange={(next) => commit(OMP_TELEMETRY_EXPORT_KEY, next)}
-        label={t("settings.providers.telemetryExport")}
+        label="Telemetry export"
         disabled={pendingKey === OMP_TELEMETRY_EXPORT_KEY}
       />
     </Row>
@@ -781,7 +767,6 @@ export function ProvidersPage({
   commit: (key: string, value: OmpSettingValue) => void;
   retry: () => void;
 }) {
-  const t = useT();
   const readProviderKeys = useStore((s) => s.readProviderKeys);
   const setProviderKey = useStore((s) => s.setProviderKey);
   const clearProviderKey = useStore((s) => s.clearProviderKey);
@@ -955,10 +940,10 @@ export function ProvidersPage({
   };
 
   if (keysLoad.status === "loading") {
-    return <Empty title={t("settings.providers.reading")} />;
+    return <Empty title="Reading providers…" />;
   }
   if (keysLoad.status === "error") {
-    return <Empty title={t("settings.providers.readFailed")} hint={keysLoad.message} />;
+    return <Empty title="Could not read provider keys" hint={keysLoad.message} />;
   }
 
   const { providers, encryptionAvailable, backend, configFileProviders } = keysLoad.snapshot;
@@ -968,12 +953,6 @@ export function ProvidersPage({
     configured.length +
     oauthRows.filter((r) => r.credentials.length > 0).length +
     configFileProviders.length;
-  // The note splits its own sentence around the id list so each provider id
-  // renders in mono (issue #814); a translation without the placeholder just
-  // appends the ids after the lead.
-  const [modelsFileLead, modelsFileTail = ""] = t(
-    "settings.providers.modelsFileNote",
-  ).split("{providers}");
   const totalCount = providers.length + oauthRows.length;
   // Unreadable saved entries never count as usable credentials.
   const unreadableCount = providers.filter(
@@ -983,8 +962,8 @@ export function ProvidersPage({
     id: ProviderKeyStatus["group"];
     label: string;
   }> = [
-    { id: "models", label: t("settings.providers.modelProviders") },
-    { id: "search", label: t("settings.providers.webSearch") },
+    { id: "models", label: "Model providers" },
+    { id: "search", label: "Web search" },
   ];
 
   // The web-search row reads its value from the shell's snapshot, the same
@@ -1001,28 +980,25 @@ export function ProvidersPage({
           <p className="min-w-0 break-words text-sm font-medium text-ink">
             {configuredCount === 0
               ? unreadableCount > 0
-                ? t("settings.providers.noneUsable")
-                : t("settings.providers.noneConfigured")
-              : t("settings.providers.someConfigured", {
-                  configured: configuredCount,
-                  total: totalCount,
-                })}
+                ? "No usable provider credentials — saved keys could not be read"
+                : "No provider credentials — omp can only offer models that need no key"
+              : `${configuredCount} of ${totalCount} providers have a credential`}
           </p>
         </div>
         {encryptionAvailable ? (
           <p className="mt-1.5 text-sm leading-relaxed text-ink-faint">
-            {t("settings.providers.encryptedPrefix")}
+            Keys you add are encrypted by your OS credential store (
             <span className="font-mono">{backend}</span>
-            {t("settings.providers.encryptedSuffix")}
+            ).
           </p>
         ) : (
           <p className="mt-1.5 text-sm leading-relaxed text-copper">
-            {t("settings.providers.noCredentialStore")}
+            No OS credential store is available here, so keys cannot be saved securely and adding one is refused. Export the variable from your shell profile instead.
           </p>
         )}
         {unreadableCount > 0 && (
           <p className="mt-1.5 break-words text-sm leading-relaxed text-copper">
-            {t("settings.providers.unreadableSummary", { count: unreadableCount })}
+            {`Providers with unreadable saved keys: ${unreadableCount}. Encrypted entries are retained.`}
           </p>
         )}
       </Panel>
@@ -1055,14 +1031,13 @@ export function ProvidersPage({
               ))}
               {id === "models" && configFileProviders.length > 0 && (
                 <p className="break-words py-2.5 text-sm leading-relaxed text-ink-faint">
-                  {modelsFileLead}
+                  {"Configured in omp's models.yml, so no key is needed here: "}
                   {configFileProviders.map((providerId, index) => (
                     <span key={providerId}>
                       {index > 0 ? ", " : ""}
                       <span className="font-mono">{providerId}</span>
                     </span>
                   ))}
-                  {modelsFileTail}
                 </p>
               )}
               {id === "search" && (
@@ -1081,13 +1056,13 @@ export function ProvidersPage({
       })}
 
       <div className="space-y-0.5">
-        <Label>{t("settings.providers.oauthGroup")}</Label>
+        <Label>Provider sign-ins</Label>
         <p className="text-sm leading-relaxed text-ink-faint">
-          {t("settings.providers.oauthLimit")}
+          Providers that require a secret or setup prompts before opening a browser must be signed in through omp's terminal UI.
         </p>
         {oauth.status === "error" ? (
           <p className="py-2.5 text-sm leading-relaxed text-rose">
-            {t("settings.providers.oauthReadFailed")}
+            Could not read provider sign-ins
             {oauth.message}
           </p>
         ) : oauth.status === "loaded" ? (
@@ -1114,7 +1089,7 @@ export function ProvidersPage({
         ) : null}
         {stillAuthenticated !== null && (
           <p className="break-words py-2.5 text-sm leading-relaxed text-ink-dim">
-            {t("settings.providers.oauthStillAuthenticated")}{" "}
+            omp reports you are still authenticated through:{" "}
             <span className="font-mono">{stillAuthenticated}</span>
           </p>
         )}
@@ -1122,7 +1097,7 @@ export function ProvidersPage({
 
       {ompEntries.has(OMP_TELEMETRY_EXPORT_KEY) && (
         <div className="space-y-0.5">
-          <Label>{t("settings.providers.privacy")}</Label>
+          <Label>Privacy</Label>
           <div className="divide-y divide-line-soft">
             <PrivacyRow
               entry={ompEntries.get(OMP_TELEMETRY_EXPORT_KEY)}
@@ -1152,25 +1127,24 @@ export function ProvidersPage({
 export function ProvidersFooter({ anyLive }: FooterContext) {
   // Load-bearing: keys bind at process start, and a GUI launch inherits none
   // of the user's shell exports — the two facts that make this page exist.
-  const t = useT();
   // Issue #888: the same page that explains where credentials live is the
   // natural place to move them between machines.
   const [carrying, setCarrying] = useState(false);
   return (
     <>
       <p>
-        {t("settings.providers.footerIntro")}
-        {anyLive && t("settings.providers.footerRestart")}
-        {t("settings.providers.footerEnvPrefix")}
+        omp reads credentials from the environment, so omp-ui supplies these to every session it launches — a key added here takes effect on the next session spawn.
+        {anyLive && " Restart a session from its MCP panel to apply now."}
+        {" Keys already exported by your shell profile are picked up automatically, and a project's "}
         <span className="font-mono">.env</span>
-        {t("settings.providers.footerEnvSuffix")}
-        {t("settings.providers.oauthFooter")}
+        {" is loaded by omp itself, so both are shown here but neither needs re-entering."}
+        {" Provider sign-ins are kept by omp itself, shared with terminal omp, and are never stored by omp-ui."}
       </p>
       <p className="mt-1">
         <Button size="xs" variant="ghost" onClick={() => setCarrying(true)}>
-          {t("settings.providers.carryAuth.button")}
+          Carry sign-ins…
         </Button>
-        <span className="ml-2">{t("settings.providers.carryAuth.hint")}</span>
+        <span className="ml-2">Copy every stored credential (API keys, logins) to another machine or a bundle file.</span>
       </p>
       {carrying && <CarryAuthDialog onClose={() => setCarrying(false)} />}
     </>

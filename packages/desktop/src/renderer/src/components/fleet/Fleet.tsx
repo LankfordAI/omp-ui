@@ -18,7 +18,6 @@ import {
   type FleetUpdateAllStep,
   type PlacementPreference,
 } from "@omp-ui/core/fleet";
-import { useT, type MessageKey } from "../../lib/i18n";
 import { startVisibleInterval } from "../../lib/visible-interval";
 import { deriveSidebarSessionState, useStore, type SidebarSessionState } from "../../store";
 import { SESSION_FACE } from "../SessionRow";
@@ -36,26 +35,26 @@ import { ProviderKeyRolloutDialog } from "./ProviderKeyRolloutDialog";
 
 const FLEET_POLL_MS = 5_000;
 
-const STATUS_FACE: Record<FleetMachineStatus, { tone: Tone; labelKey: MessageKey }> = {
-  ready: { tone: "signal", labelKey: "fleet.status.ready" },
-  unsupported: { tone: "copper", labelKey: "fleet.status.unsupported" },
-  unreachable: { tone: "rose", labelKey: "fleet.status.unreachable" },
-  error: { tone: "rose", labelKey: "fleet.status.error" },
+const STATUS_FACE: Record<FleetMachineStatus, { tone: Tone; label: string }> = {
+  ready: { tone: "signal", label: "Ready" },
+  unsupported: { tone: "copper", label: "Needs an omp-ui update" },
+  unreachable: { tone: "rose", label: "Not connected" },
+  error: { tone: "rose", label: "Did not answer" },
 };
 
-const PREFERENCE_LABEL: Record<PlacementPreference, MessageKey> = {
-  prefer: "fleet.preference.prefer",
-  normal: "fleet.preference.normal",
-  less: "fleet.preference.less",
-  manual: "fleet.preference.manual",
+const PREFERENCE_LABEL: Record<PlacementPreference, string> = {
+  prefer: "Prefer",
+  normal: "Normal",
+  less: "Less often",
+  manual: "Manual only",
 };
 
-const RUNG_LABEL: Record<FleetRung, MessageKey> = {
-  observe: "fleet.rung.observe",
-  dispatch: "fleet.rung.dispatch",
-  manage: "fleet.rung.manage",
-  full: "fleet.rung.full",
-  terminal: "fleet.rung.terminal",
+const RUNG_LABEL: Record<FleetRung, string> = {
+  observe: "Observe",
+  dispatch: "Dispatch",
+  manage: "Manage projects",
+  full: "Full control",
+  terminal: "Terminal",
 };
 
 /** Full control or above: the rung the member-side maintenance verbs need (#905, ADR-0066). */
@@ -65,19 +64,19 @@ const holdsFull = (machine: FleetMachine): boolean => machine.grantRung !== null
 const TERMINAL_OPEN_COLS = 120;
 const TERMINAL_OPEN_ROWS = 32;
 
-const AUDIT_ACTION_LABEL: Record<FleetAuditEntry["action"], MessageKey> = {
-  exec: "fleet.audit.exec",
-  manage: "fleet.audit.manage",
-  "grant-raise": "fleet.audit.grantRaise",
-  "grant-set": "fleet.audit.grantSet",
-  "exec-detached": "fleet.audit.execDetached",
-  keys: "fleet.audit.keys",
-  update: "fleet.audit.update",
-  send: "fleet.audit.send",
-  finish: "fleet.audit.finish",
-  stop: "fleet.audit.stop",
-  settle: "fleet.audit.settle",
-  terminal: "fleet.audit.terminal",
+const AUDIT_ACTION_LABEL: Record<FleetAuditEntry["action"], string> = {
+  exec: "exec",
+  manage: "manage",
+  "grant-raise": "grant raise",
+  "grant-set": "grant set",
+  "exec-detached": "Detached exec",
+  keys: "Provider keys",
+  update: "update",
+  send: "send",
+  finish: "finish",
+  stop: "stop",
+  settle: "settle",
+  terminal: "terminal",
 };
 
 /** One dispatched session wherever it lives: this app's registry or a joined instance's. */
@@ -102,25 +101,17 @@ function Section({ title, action, children }: { title: string; action?: ReactNod
 /* ------------------------------------------------------------- machines */
 
 /** The OS chip's hover text (#905): each manager by name, off-PATH ones with their absolute path. */
-function packageManagersTitle(
-  t: (key: MessageKey, vars?: Record<string, string | number>) => string,
-  managers: FleetPackageManager[] | null,
-): string {
-  if (managers === null) return t("fleet.machine.packageManagersUnknown");
-  if (managers.length === 0) return t("fleet.machine.packageManagersNone");
-  return t("fleet.machine.packageManagers", {
-    list: managers.map((m) => (m.onPath ? m.name : `${m.name} (${m.path})`)).join(", "),
-  });
+function packageManagersTitle(managers: FleetPackageManager[] | null): string {
+  if (managers === null) return "Package managers not reported (update omp-ui on this machine)";
+  if (managers.length === 0) return "No package manager found";
+  return `Package managers: ${managers.map((m) => (m.onPath ? m.name : `${m.name} (${m.path})`)).join(", ")}`;
 }
 
 /** The omp chip's hover text (ADR-0066): the managed path, plus how it was chosen. */
-function ompChipTitle(
-  t: (key: MessageKey, vars?: Record<string, string | number>) => string,
-  report: NonNullable<FleetMachine["report"]>,
-): string {
-  if (report.ompVersion === null && report.ompPath === null) return t("fleet.machine.ompChipNotInstalled");
+function ompChipTitle(report: NonNullable<FleetMachine["report"]>): string {
+  if (report.ompVersion === null && report.ompPath === null) return "omp is not installed on this machine";
   const path = report.ompPath ?? "";
-  return report.ompPinned ? t("fleet.machine.ompChipPinned", { path }) : t("fleet.machine.ompChip", { path });
+  return report.ompPinned ? `${path} · pinned by OMP_UI_OMP_PATH` : `${path}`;
 }
 
 /**
@@ -129,15 +120,11 @@ function ompChipTitle(
  * the machines poll while a job runs.
  */
 function MaintenanceChip({ record }: { record: FleetMaintenanceRecord }) {
-  const t = useT();
   if (record.state === "running") {
     return (
       <span data-maintenance="running">
         <Chip tone="copper">
-          {t("fleet.maintenance.running", {
-            target: record.target,
-            progress: record.progress === null ? "" : ` ${record.progress}%`,
-          })}
+          {`updating ${record.target}…${record.progress === null ? "" : ` ${record.progress}%`}`}
         </Chip>
       </span>
     );
@@ -149,8 +136,8 @@ function MaintenanceChip({ record }: { record: FleetMaintenanceRecord }) {
       <span data-maintenance="succeeded">
         <Chip tone="signal" title={record.detail ?? undefined}>
           {record.target === "omp"
-            ? t("fleet.maintenance.succeededOmp", { detail: tail ?? "" })
-            : t("fleet.maintenance.succeededApp")}
+            ? `omp → ${tail ?? ""}`
+            : "update staged"}
         </Chip>
       </span>
     );
@@ -159,15 +146,15 @@ function MaintenanceChip({ record }: { record: FleetMaintenanceRecord }) {
     return (
       <span data-maintenance="failed">
         <Chip tone="rose" truncate title={record.detail ?? undefined}>
-          {t("fleet.maintenance.failed", { detail: record.detail ?? "" })}
+          {`failed: ${record.detail ?? ""}`}
         </Chip>
       </span>
     );
   }
   return (
     <span data-maintenance="revoked">
-      <Chip tone="neutral" title={t("fleet.maintenance.revokedTitle")}>
-        {t("fleet.maintenance.revoked")}
+      <Chip tone="neutral" title="Full control was lost on this machine before the update committed, so nothing was replaced.">
+        revoked
       </Chip>
     </span>
   );
@@ -182,11 +169,10 @@ function MachineRow({
   onRollout: (machine: FleetMachine) => void;
   onUpdate: (machine: FleetMachine) => void;
 }) {
-  const t = useT();
   const setFleetPlacement = useStore((s) => s.setFleetPlacement);
   const openFleetTerminal = useStore((s) => s.openFleetTerminal);
   const holdsTerminal = machine.grantRung !== null && fleetRungAtLeast(machine.grantRung, "terminal");
-  const name = machine.nickname ?? t("fleet.machine.thisComputer");
+  const name = machine.nickname ?? "This computer";
   const face = STATUS_FACE[machine.status];
   const report = machine.report;
   // ADR-0066: the maintenance chip reads the last job we started here, if any.
@@ -194,31 +180,31 @@ function MachineRow({
   return (
     <li className="flex flex-wrap items-center gap-x-3 gap-y-1 py-1.5 text-xs" data-machine-key={machine.key}>
       <span className="flex min-w-0 items-center gap-1.5">
-        <Dot tone={face.tone} title={t(face.labelKey)} />
+        <Dot tone={face.tone} title={face.label} />
         <span className="truncate text-xs text-ink">{name}</span>
-        {report !== null && <Chip mono>{t("fleet.machine.version", { version: report.version })}</Chip>}
+        {report !== null && <Chip mono>{`omp-ui ${report.version}`}</Chip>}
         {/* ADR-0066: what each member runs, so skew is visible before dispatching to it. */}
         {report !== null && (report.ompVersion !== null || report.ompPath === null) && (
-          <Chip mono title={ompChipTitle(t, report)}>
+          <Chip mono title={ompChipTitle(report)}>
             {report.ompVersion === null
-              ? t("fleet.machine.ompNotInstalled")
-              : t("fleet.machine.ompVersion", { version: report.ompVersion })}
+              ? "omp not installed"
+              : `omp ${report.ompVersion}`}
           </Chip>
         )}
         {report !== null && report.ompBelowMinimum && (
-          <Chip tone="rose" title={t("fleet.machine.belowFloorTitle")}>
-            {t("fleet.machine.belowFloor")}
+          <Chip tone="rose" title="This omp is older than the minimum omp-ui requires; update it before sending work here.">
+            below the floor
           </Chip>
         )}
         {report !== null &&
           (report.appUpdateStaged ? (
-            <Chip title={t("fleet.machine.updateStagedTitle", { machine: name })}>
-              {t("fleet.machine.updateStaged")}
+            <Chip title={`An omp-ui update is staged on ${name}; it installs the next time that app quits.`}>
+              update staged
             </Chip>
           ) : (
             fleetAppUpdateAvailable(report.version, report.appLatestVersion) && (
-              <Chip title={t("fleet.machine.updateAvailableTitle", { version: report.appLatestVersion ?? "" })}>
-                {t("fleet.machine.updateAvailable")}
+              <Chip title={`${report.appLatestVersion ?? ""} is published for this machine; stage it from Update versions…`}>
+                omp-ui update available
               </Chip>
             )
           ))}
@@ -226,7 +212,7 @@ function MachineRow({
         {/* #901: what this member will accept from us; null for this computer and older peers. */}
         {machine.grantRung !== null && (
           <Chip tone={holdsFull(machine) ? "copper" : "neutral"}>
-            {t("fleet.machine.access", { rung: t(RUNG_LABEL[machine.grantRung]) })}
+            {`access ${RUNG_LABEL[machine.grantRung]}`}
           </Chip>
         )}
         {/* #904: where an agent's own ssh reaches this member, and whether port 22 answered. */}
@@ -236,23 +222,16 @@ function MachineRow({
               mono
               truncate
               tone={machine.sshReachable === true ? "signal" : machine.sshReachable === false ? "rose" : "neutral"}
-              title={t(
-                machine.sshReachable === true
-                  ? "fleet.machine.sshOpen"
-                  : machine.sshReachable === false
-                    ? "fleet.machine.sshClosed"
-                    : "fleet.machine.sshUnknown",
-                { address: machine.address },
-              )}
+              title={machine.sshReachable === true ? `SSH port 22 answers on ${machine.address}` : machine.sshReachable === false ? `SSH port 22 did not answer on ${machine.address}` : `SSH not checked: ${machine.address} is not connected`}
             >
-              {t("fleet.machine.ssh", { target: report?.user ? `${report.user}@${machine.address}` : machine.address })}
+              {`ssh ${report?.user ? `${report.user}@${machine.address}` : machine.address}`}
             </Chip>
           </span>
         )}
         {/* #905: the member's OS; hover names the package managers found on it. */}
         {report !== null && report.os !== null && (
           <span data-machine-os className="min-w-0">
-            <Chip truncate title={packageManagersTitle(t, report.packageManagers)}>
+            <Chip truncate title={packageManagersTitle(report.packageManagers)}>
               {fleetOsLabel(report.os)}
             </Chip>
           </span>
@@ -260,22 +239,20 @@ function MachineRow({
       </span>
       <span className="min-w-0 flex-1 truncate text-ink-mid">
         {machine.status === "unsupported" ? (
-          t("fleet.machine.unsupported", { nickname: name })
+          `Update omp-ui on ${name} to use Fleet`
         ) : machine.status !== "ready" || report === null ? (
-          <span className="text-rose">{machine.error ?? t(face.labelKey)}</span>
+          <span className="text-rose">{machine.error ?? face.label}</span>
         ) : (
           <>
             <span className="font-mono tabular-nums">
               {report.cpuUtilization === null
-                ? t("fleet.machine.cpuUnknown")
-                : t("fleet.machine.cpu", { percent: Math.round(report.cpuUtilization * 100) })}
+                ? "CPU unknown"
+                : `CPU ${Math.round(report.cpuUtilization * 100)}%`}
               {report.totalMemoryBytes > 0 &&
-                ` · ${t("fleet.machine.memory", {
-                  percent: Math.round((report.availableMemoryBytes / report.totalMemoryBytes) * 100),
-                })}`}
+                ` · ${`${Math.round((report.availableMemoryBytes / report.totalMemoryBytes) * 100)}% memory free`}`}
             </span>
             <span className="ml-3">
-              {t("fleet.machine.sessions", { live: report.liveSessions, turns: report.runningTurns })}
+              {`${report.liveSessions} live sessions · ${report.runningTurns} running turns`}
             </span>
           </>
         )}
@@ -287,37 +264,37 @@ function MachineRow({
             size="xs"
             variant="ghost"
             disabled={!holdsTerminal}
-            title={holdsTerminal ? t("fleet.machine.terminalHint", { machine: name }) : t("fleet.machine.terminalNeedsRung")}
+            title={holdsTerminal ? `Open a login shell on ${name}; closing the terminal ends it` : "Needs the Terminal rung on this machine"}
             onClick={() => void openFleetTerminal(machine.key, TERMINAL_OPEN_COLS, TERMINAL_OPEN_ROWS)}
           >
-            {t("fleet.machine.terminal")}
+            Terminal
           </Button>
           {/* #905: Provider key rollout; the member refuses anything below Full control. */}
           <Button
             size="xs"
             variant="ghost"
             disabled={!holdsFull(machine)}
-            title={!holdsFull(machine) ? t("fleet.machine.rolloutKeysNeedsFull") : undefined}
+            title={!holdsFull(machine) ? "Needs Full control on this machine" : undefined}
             onClick={() => onRollout(machine)}
           >
-            {t("fleet.machine.rolloutKeys")}
+            Roll out keys
           </Button>
           {/* ADR-0066: remote version maintenance rides the same Full-control gate. */}
           <Button
             size="xs"
             variant="ghost"
             disabled={!holdsFull(machine)}
-            title={!holdsFull(machine) ? t("fleet.machine.updateVersionsNeedsFull") : undefined}
+            title={!holdsFull(machine) ? "Needs Full control on this machine" : undefined}
             onClick={() => onUpdate(machine)}
           >
-            {t("fleet.machine.updateVersions")}
+            Update versions…
           </Button>
         </>
       )}
       <ChoiceCapsule
-        label={t("fleet.machine.preference", { machine: name })}
+        label={`Placement preference for ${name}`}
         value={machine.preference}
-        options={PLACEMENT_PREFERENCES.map((pref) => ({ value: pref, label: t(PREFERENCE_LABEL[pref]) }))}
+        options={PLACEMENT_PREFERENCES.map((pref) => ({ value: pref, label: PREFERENCE_LABEL[pref] }))}
         onChange={(pref) => void setFleetPlacement(machine.key, pref)}
         className="text-xs"
       />
@@ -327,29 +304,25 @@ function MachineRow({
 
 /* ----------------------------------------------------------- update all */
 
-const UPDATE_ALL_FACE: Record<FleetUpdateAllMember["state"], { tone: Tone; labelKey: MessageKey }> = {
-  queued: { tone: "neutral", labelKey: "fleet.updateAll.state.queued" },
-  running: { tone: "copper", labelKey: "fleet.updateAll.state.running" },
-  done: { tone: "signal", labelKey: "fleet.updateAll.state.done" },
-  skipped: { tone: "neutral", labelKey: "fleet.updateAll.state.skipped" },
-  failed: { tone: "rose", labelKey: "fleet.updateAll.state.failed" },
+const UPDATE_ALL_FACE: Record<FleetUpdateAllMember["state"], { tone: Tone; label: string }> = {
+  queued: { tone: "neutral", label: "queued" },
+  running: { tone: "copper", label: "updating…" },
+  done: { tone: "signal", label: "done" },
+  skipped: { tone: "neutral", label: "skipped" },
+  failed: { tone: "rose", label: "failed" },
 };
 
 /** One step's outcome as the row's chip text and tone. */
 function UpdateAllStepChip({ product, step }: { product: "omp" | "omp-ui"; step: FleetUpdateAllStep }) {
-  const t = useT();
   const tone: Tone = step.kind === "updated" ? "signal" : step.kind === "failed" ? "rose" : "neutral";
   const text =
     step.kind === "current"
-      ? t("fleet.updateAll.step.current", { product, version: step.version ?? "" })
+      ? `${product} ${step.version ?? ""} current`
       : step.kind === "updated"
-        ? t(product === "omp" ? "fleet.updateAll.step.updatedOmp" : "fleet.updateAll.step.stagedApp", {
-            product,
-            version: step.version ?? "",
-          })
+        ? product === "omp" ? `${product} → ${step.version ?? ""}` : `${product} ${step.version ?? ""} at next quit`
         : step.kind === "skipped"
-          ? t("fleet.updateAll.step.skipped", { product })
-          : t("fleet.updateAll.step.failed", { product });
+          ? `${product} skipped`
+          : `${product} failed`;
   const title = step.kind === "skipped" || step.kind === "failed" ? step.reason : step.kind === "updated" ? (step.detail ?? undefined) : undefined;
   return (
     <span data-update-all-step={product} data-step-kind={step.kind} className="min-w-0">
@@ -362,12 +335,11 @@ function UpdateAllStepChip({ product, step }: { product: "omp" | "omp-ui"; step:
 
 /** Update all's progress (issue #990): one row per member, from the run main keeps. */
 function UpdateAllProgress({ run }: { run: FleetUpdateAllRun }) {
-  const t = useT();
   const settled = run.finishedAt !== null;
   return (
     <div data-update-all-run={settled ? "finished" : "running"} className="mb-2 rounded-md border border-line bg-raised px-3 py-2">
       <p className="mb-1 text-xs text-ink-mid">
-        {settled ? t("fleet.updateAll.finished") : t("fleet.updateAll.running")}
+        {settled ? "Update all finished" : "Update all is running"}
       </p>
       <ul className="divide-y divide-line-soft">
         {run.members.map((member) => {
@@ -382,11 +354,8 @@ function UpdateAllProgress({ run }: { run: FleetUpdateAllRun }) {
               <span className="truncate text-xs text-ink">{member.nickname ?? member.machineKey}</span>
               <Chip tone={face.tone}>
                 {member.state === "running" && member.step !== null
-                  ? t("fleet.updateAll.state.runningStep", {
-                      product: member.step === "omp" ? "omp" : "omp-ui",
-                      progress: member.progress === null ? "" : ` ${member.progress}%`,
-                    })
-                  : t(face.labelKey)}
+                  ? `updating ${member.step === "omp" ? "omp" : "omp-ui"}…${member.progress === null ? "" : ` ${member.progress}%`}`
+                  : face.label}
               </Chip>
               {member.omp !== null && <UpdateAllStepChip product="omp" step={member.omp} />}
               {member.app !== null && <UpdateAllStepChip product="omp-ui" step={member.app} />}
@@ -400,7 +369,6 @@ function UpdateAllProgress({ run }: { run: FleetUpdateAllRun }) {
 }
 
 function MachinesSection() {
-  const t = useT();
   const view = useStore((s) => s.fleet);
   const [rollout, setRollout] = useState<FleetMachine | null>(null);
   const [update, setUpdate] = useState<FleetMachine | null>(null);
@@ -444,7 +412,7 @@ function MachinesSection() {
   const runActive = view.updateAll !== null && view.updateAll.finishedAt === null;
   return (
     <Section
-      title={t("fleet.section.machines")}
+      title="Machines"
       action={
         members.length > 0 && (
           // #990: this computer's own update stays on Settings → Updates.
@@ -454,16 +422,16 @@ function MachinesSection() {
             disabled={eligible === 0 || runActive}
             title={
               runActive
-                ? t("fleet.updateAll.busy")
+                ? "An Update all run is in progress"
                 : eligible === 0
-                  ? t("fleet.updateAll.needsFull")
-                  : t("fleet.updateAll.hint")
+                  ? "No member gives this app Full control"
+                  : "Update omp and omp-ui on every member this app holds Full control on; this computer updates from Settings → Updates"
             }
             onClick={() =>
               stageLifecycleConfirmation({ kind: "fleet-update-all", eligible, skipped: members.length - eligible })
             }
           >
-            {t("fleet.updateAll.button")}
+            Update all
           </Button>
         )
       }
@@ -473,7 +441,7 @@ function MachinesSection() {
         <p className="mb-1.5 rounded-md border border-line bg-raised px-3 py-2 text-xs text-ink-mid">{view.error}</p>
       )}
       {view.machines === null ? (
-        view.loading && <p className="text-xs text-ink-faint">{t("fleet.machine.loading")}</p>
+        view.loading && <p className="text-xs text-ink-faint">Reading fleet machines…</p>
       ) : (
         <ul className="divide-y divide-line-soft">
           {view.machines.map((machine) => (
@@ -496,39 +464,37 @@ function MachinesSection() {
 /* ----------------------------------------------------------- unresolved */
 
 function PendingRow({ pending }: { pending: FleetPendingDispatch }) {
-  const t = useT();
   const retryable = useStore((s) => pending.dispatchId in s.fleetLastRequests);
   const retryFleetDispatch = useStore((s) => s.retryFleetDispatch);
   const dismissFleetDispatch = useStore((s) => s.dismissFleetDispatch);
-  const machine = pending.nickname ?? t("fleet.machine.thisComputer");
+  const machine = pending.nickname ?? "This computer";
   return (
     <li className="flex items-center gap-3 py-1.5 text-xs" data-dispatch-id={pending.dispatchId}>
       <span className="min-w-0 flex-1">
         <span className="block truncate text-xs text-ink">{pending.title}</span>
         <span className="block truncate text-ink-faint" title={pending.message}>
-          {machine} · {t("fleet.pending.outcome", { machine })}
+          {machine} · {`Outcome unknown — resolves when ${machine} reconnects`}
         </span>
       </span>
       {retryable ? (
         <Button variant="ghost" size="xs" onClick={() => void retryFleetDispatch(pending)}>
-          {t("fleet.pending.retry")}
+          Retry
         </Button>
       ) : (
-        <span className="shrink-0 text-ink-faint">{t("fleet.pending.retryUnavailable")}</span>
+        <span className="shrink-0 text-ink-faint">Retry unavailable after reload</span>
       )}
       <Button variant="ghost" size="xs" onClick={() => void dismissFleetDispatch(pending.dispatchId)}>
-        {t("fleet.pending.dismiss")}
+        Dismiss
       </Button>
     </li>
   );
 }
 
 function UnresolvedSection() {
-  const t = useT();
   const pending = useStore((s) => s.state?.fleetPending ?? null);
   if (pending === null || pending.length === 0) return null;
   return (
-    <Section title={t("fleet.section.unresolved")}>
+    <Section title="Unresolved">
       <ul className="divide-y divide-line-soft">
         {pending.map((p) => (
           <PendingRow key={p.dispatchId} pending={p} />
@@ -541,7 +507,6 @@ function UnresolvedSection() {
 /* ----------------------------------------------------------- dispatches */
 
 function DispatchRow({ row, state }: { row: FleetRow; state: SidebarSessionState }) {
-  const t = useT();
   const openSession = useStore((s) => s.openSession);
   const settleSessions = useStore((s) => s.settleSessions);
   const { summary } = row;
@@ -549,25 +514,25 @@ function DispatchRow({ row, state }: { row: FleetRow; state: SidebarSessionState
   const requestedBy = summary.fleet.requestedBy;
   return (
     <li className="flex items-center gap-3 py-1 text-xs" data-tab-id={summary.tabId}>
-      <Dot tone={face.tone} pulse={face.pulse} title={t(face.titleKey)} />
-      <span className="w-28 shrink-0 truncate text-ink-mid">{row.nickname ?? t("fleet.machine.thisComputer")}</span>
+      <Dot tone={face.tone} pulse={face.pulse} title={face.title} />
+      <span className="w-28 shrink-0 truncate text-ink-mid">{row.nickname ?? "This computer"}</span>
       <span className="min-w-0 flex-1">
         <span className="block truncate text-xs text-ink">{summary.title}</span>
         <span className="block truncate text-ink-faint">
-          {t("fleet.dispatches.from", { label: requestedBy.label })}
-          {requestedBy.kind === "agent" && ` · ${t("fleet.dispatches.agent")}`}
-          {requestedBy.kind === "webhook" && ` · ${t("fleet.dispatches.webhook")}`}
-          {requestedBy.kind === "mcp" && ` · ${t("fleet.dispatches.mcp")}`}
-          {requestedBy.kind === "routine" && ` · ${t("fleet.dispatches.routine")}`}
+          {`from ${requestedBy.label}`}
+          {requestedBy.kind === "agent" && ` · ${"agent"}`}
+          {requestedBy.kind === "webhook" && ` · ${"webhook"}`}
+          {requestedBy.kind === "mcp" && ` · ${"MCP client"}`}
+          {requestedBy.kind === "routine" && ` · ${"routine"}`}
         </span>
       </span>
-      <span className={`shrink-0 ${face.textClass}`}>{t(face.labelKey)}</span>
+      <span className={`shrink-0 ${face.textClass}`}>{face.label}</span>
       <Button variant="ghost" size="xs" onClick={() => void openSession(summary.tabId)}>
-        {t("fleet.dispatches.open")}
+        Open
       </Button>
       {summary.live === "live" && (
         <Button variant="ghost" size="xs" onClick={() => void settleSessions([summary.tabId])}>
-          {t("fleet.dispatches.settle")}
+          Settle
         </Button>
       )}
     </li>
@@ -576,7 +541,6 @@ function DispatchRow({ row, state }: { row: FleetRow; state: SidebarSessionState
 
 /** One dispatch batch (or a lone dispatch): its sessions newest first, with per-state counts. */
 function DispatchGroup({ batchId, rows }: { batchId: string | null; rows: FleetRow[] }) {
-  const t = useT();
   // A joined string, not an array: the selector must compare stably or every
   // rpc frame re-renders the group.
   const statesKey = useStore((s) =>
@@ -592,7 +556,7 @@ function DispatchGroup({ batchId, rows }: { batchId: string | null; rows: FleetR
           <span className="min-w-0 flex-1 truncate font-medium text-ink">{rows[0]!.summary.title}</span>
           {[...counts].map(([state, count]) => (
             <span key={state} className={SESSION_FACE[state].textClass}>
-              {t("fleet.dispatches.stateCount", { count, state: t(SESSION_FACE[state].labelKey) })}
+              {`${count} ${SESSION_FACE[state].label}`}
             </span>
           ))}
         </div>
@@ -607,7 +571,6 @@ function DispatchGroup({ batchId, rows }: { batchId: string | null; rows: FleetR
 }
 
 function DispatchesSection() {
-  const t = useT();
   const state = useStore((s) => s.state);
   const groups = useMemo(() => {
     const rows: FleetRow[] = [];
@@ -635,9 +598,9 @@ function DispatchesSection() {
     return [...byBatch.entries()];
   }, [state]);
   return (
-    <Section title={t("fleet.section.dispatches")}>
+    <Section title="Dispatches">
       {groups.length === 0 ? (
-        <p className="text-xs text-ink-faint">{t("fleet.dispatches.empty")}</p>
+        <p className="text-xs text-ink-faint">No unsettled dispatches.</p>
       ) : (
         groups.map(([key, group]) => <DispatchGroup key={key} batchId={group.batchId} rows={group.rows} />)
       )}
@@ -653,12 +616,11 @@ function DispatchesSection() {
  * the live mirror over `fleet:audit`.
  */
 function AuditSection() {
-  const t = useT();
   const audit = useStore((s) => s.fleet?.audit ?? null);
   if (audit === null || audit.length === 0) return null;
   const rows = [...audit].reverse();
   return (
-    <Section title={t("fleet.section.activity")}>
+    <Section title="Activity">
       <ul className="divide-y divide-line-soft">
         {rows.map((entry, index) => (
           <li
@@ -667,10 +629,10 @@ function AuditSection() {
             data-audit-index={index}
           >
             <span className={`shrink-0 font-medium ${entry.accepted ? "text-ink-mid" : "text-rose"}`}>
-              {t(AUDIT_ACTION_LABEL[entry.action])}
+              {AUDIT_ACTION_LABEL[entry.action]}
             </span>
             <span className="min-w-0 flex-1 truncate text-ink-faint" title={entry.detail}>
-              {t("fleet.audit.line", { dispatcher: entry.dispatcherLabel, detail: entry.detail })}
+              {`${entry.dispatcherLabel} · ${entry.detail}`}
             </span>
             <span className="shrink-0 font-mono tabular-nums text-ink-dim">
               {new Date(entry.at).toLocaleTimeString()}
@@ -687,30 +649,29 @@ function AuditSection() {
 
 /** The fleet terminals this app has open (issue #991): reopen one, or close it to end its shell. */
 function TerminalsSection() {
-  const t = useT();
   const terminals = useStore((s) => s.state?.fleetTerminals ?? null);
   const showFleetTerminal = useStore((s) => s.showFleetTerminal);
   const closeFleetTerminal = useStore((s) => s.closeFleetTerminal);
   if (terminals === null || terminals.length === 0) return null;
   return (
-    <Section title={t("fleet.section.terminals")}>
+    <Section title="Terminals">
       <ul className="divide-y divide-line-soft">
         {terminals.map((ft) => (
           <li key={ft.terminalId} className="flex items-center gap-2 py-1.5 text-xs" data-fleet-terminal-row={ft.terminalId}>
             <Dot tone={ft.exitCode === null ? "signal" : "neutral"} />
-            <span className="min-w-0 flex-1 truncate text-xs text-ink">{t("fleet.terminal.title", { machine: ft.nickname })}</span>
+            <span className="min-w-0 flex-1 truncate text-xs text-ink">{`Terminal on ${ft.nickname}`}</span>
             <span className="shrink-0 font-mono tabular-nums text-ink-dim">
               {ft.exitCode === null
                 ? new Date(ft.openedAt).toLocaleTimeString()
                 : ft.exitCode === -1
-                  ? t("fleet.terminal.lost")
-                  : t("fleet.terminal.exited", { code: ft.exitCode })}
+                  ? "ended on the member"
+                  : `exited ${ft.exitCode}`}
             </span>
             <Button size="xs" variant="ghost" onClick={() => showFleetTerminal(ft.terminalId)}>
-              {t("fleet.terminal.show")}
+              Show
             </Button>
             <Button size="xs" variant="ghost" tone="rose" onClick={() => void closeFleetTerminal(ft.terminalId)}>
-              {t("fleet.terminal.close")}
+              Close terminal
             </Button>
           </li>
         ))}
@@ -722,7 +683,6 @@ function TerminalsSection() {
 /* --------------------------------------------------------------- surface */
 
 export function Fleet() {
-  const t = useT();
   const open = useStore((s) => s.fleet !== null);
   const loading = useStore((s) => s.fleet?.loading === true);
   const refreshFleet = useStore((s) => s.refreshFleet);
@@ -738,15 +698,15 @@ export function Fleet() {
   return (
     <div className="absolute inset-0 overflow-auto bg-void text-ink">
       <header className="sticky top-0 z-10 flex h-9 items-center gap-2 border-b border-line chrome-void px-3">
-        <Label>{t("fleet.header.title")}</Label>
+        <Label>fleet</Label>
         <span className="flex-1" />
-        <IconButton label={t("fleet.header.refresh")} disabled={loading} onClick={() => void refreshFleet()}>
+        <IconButton label="refresh machines" disabled={loading} onClick={() => void refreshFleet()}>
           <IconRefresh />
         </IconButton>
         <Button tone="signal" variant="solid" size="xs" onClick={() => openNewSessionDialog({ where: "fleet" })}>
-          {t("fleet.header.dispatch")}
+          Dispatch
         </Button>
-        <IconButton label={t("fleet.header.close")} onClick={closeFleet}>
+        <IconButton label="close the Fleet view" onClick={closeFleet}>
           <IconClose />
         </IconButton>
       </header>

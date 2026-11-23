@@ -1,5 +1,4 @@
 import type { WorktreeReleaseResult } from "@omp-ui/core/types";
-import { currentLocaleId } from "./i18n";
 
 /**
  * Number, cost, and ref formatting for display — the one home for count and
@@ -86,7 +85,7 @@ export function relativeTime(iso: string | null): string {
   const then = Date.parse(iso);
   if (Number.isNaN(then)) return "";
   const seconds = Math.round((Date.now() - then) / 1000);
-  const format = new Intl.RelativeTimeFormat(currentLocaleId(), {
+  const format = new Intl.RelativeTimeFormat("en", {
     numeric: "auto",
     style: "narrow",
   });
@@ -97,7 +96,7 @@ export function relativeTime(iso: string | null): string {
   if (hours < 24) return format.format(-hours, "hour");
   const days = Math.round(hours / 24);
   if (days < 7) return format.format(-days, "day");
-  return new Date(then).toLocaleDateString(currentLocaleId(), {
+  return new Date(then).toLocaleDateString("en", {
     month: "short",
     day: "numeric",
   });

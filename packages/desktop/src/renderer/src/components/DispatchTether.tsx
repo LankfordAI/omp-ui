@@ -1,5 +1,4 @@
 import { useEffect, useSyncExternalStore } from "react";
-import { useT } from "../lib/i18n";
 import { cn } from "../lib/cn";
 import type { DispatchLink } from "../lib/dispatched-sessions";
 import { releaseDispatchHover, setDispatchHover, useDispatchHover } from "../lib/dispatch-hover";
@@ -68,7 +67,6 @@ export function DispatchTether({
   /** Sidebar's onActivate (closes the compact surface). */
   onActivate?: () => void;
 }) {
-  const t = useT();
   const collapsed = useTetherFlag("collapsed", parentTabId);
   const expanded = useTetherFlag("expanded", parentTabId);
   const showSettled = useTetherFlag("showSettled", parentTabId);
@@ -93,29 +91,29 @@ export function DispatchTether({
   return (
     <div
       role="group"
-      aria-label={t("sidebar.dispatch.group", { title: parentTitle })}
+      aria-label={`Sessions dispatched by “${parentTitle}”`}
       className="mx-3 mb-2 border-l border-line-strong pl-2"
     >
       <button
         type="button"
         aria-expanded={!collapsed}
-        title={t(collapsed ? "sidebar.dispatch.expand" : "sidebar.dispatch.collapse")}
+        title={collapsed ? "Show dispatched sessions" : "Hide dispatched sessions"}
         onClick={() => toggle("collapsed", parentTabId)}
         className="flex min-w-0 items-center gap-1 rounded px-1 py-0.5 text-left hover:bg-hover"
       >
         <Chevron open={!collapsed} />
         <span className="min-w-0 truncate text-xs text-ink-faint">
-          {t("sidebar.dispatch.summary", { n: children.length })}
+          {`${children.length} dispatched`}
           {waiting > 0 && (
             <>
               {" · "}
-              <span className="text-iris">{t("sidebar.dispatch.needsYou", { n: waiting })}</span>
+              <span className="text-iris">{`${waiting} waiting on you`}</span>
             </>
           )}
           {working > 0 && (
             <>
               {" · "}
-              <span className="text-copper">{t("sidebar.dispatch.working", { n: working })}</span>
+              <span className="text-copper">{`${working} working`}</span>
             </>
           )}
         </span>
@@ -131,7 +129,7 @@ export function DispatchTether({
               onClick={() => toggle("expanded", parentTabId)}
               className="rounded px-1.5 py-0.5 text-left text-xs text-ink-faint hover:bg-hover hover:text-ink"
             >
-              {t("sidebar.dispatch.more", { n: hidden })}
+              {`+${hidden} more`}
             </button>
           )}
           {settled.length > 0 && (
@@ -145,7 +143,7 @@ export function DispatchTether({
                 onClick={() => toggle("showSettled", parentTabId)}
                 className="rounded px-1.5 py-0.5 text-left text-xs text-ink-faint hover:bg-hover hover:text-ink"
               >
-                {showSettled ? t("sidebar.dispatch.hideSettled") : t("sidebar.dispatch.settled", { n: settled.length })}
+                {showSettled ? "hide settled" : `+${settled.length} settled`}
               </button>
             </>
           )}
@@ -164,7 +162,6 @@ function TetherLine({
   settled?: boolean;
   onActivate?: () => void;
 }) {
-  const t = useT();
   const tabId = link.session.tabId;
   const openSession = useStore((st) => st.openSession);
   const state = useStore((st) => deriveSidebarSessionState(link.session, st.rpc[tabId]));
@@ -175,8 +172,8 @@ function TetherLine({
 
   const face = SESSION_FACE[state];
   const where =
-    (link.project?.name ?? t("sidebar.session.chat")) + (link.nickname !== null ? ` · ${link.nickname}` : "");
-  const title = t("sidebar.dispatch.lineTitle", { title: link.session.title, where, state: t(face.labelKey) });
+    (link.project?.name ?? "chat") + (link.nickname !== null ? ` · ${link.nickname}` : "");
+  const title = `${link.session.title} — ${where} · ${face.label}`;
   const inert = link.session.live === "missing" && !stranded;
   const className = cn(
     "flex min-w-0 items-center gap-1.5 rounded px-1.5 py-0.5 text-left text-xs text-ink-mid hover:bg-hover hover:text-ink",
@@ -199,7 +196,7 @@ function TetherLine({
         <ChatMark />
       )}
       <span className="min-w-0 flex-1 truncate">{withTitleCard(link.session.title)}</span>
-      {state === "awaiting-answer" && <span className="shrink-0 text-iris">{t(face.labelKey)}</span>}
+      {state === "awaiting-answer" && <span className="shrink-0 text-iris">{face.label}</span>}
     </>
   );
   const hover = { tabId, source: "tether" } as const;

@@ -3,7 +3,6 @@ import type { CollabAccess } from "@omp-ui/core/collab";
 import { useStore } from "../store";
 import { Button, Chip, ChoiceCapsule, CopyButton, Label, Modal } from "./ui";
 import { PairingQr } from "./PairingQr";
-import { useT } from "../lib/i18n";
 
 /**
  * The Share-live dialog (issue #686): omp hosts the room from inside the
@@ -14,7 +13,6 @@ import { useT } from "../lib/i18n";
  * as the dialog is open.
  */
 export function ShareLiveDialog({ tabId }: { tabId: string }) {
-  const t = useT();
   const titleId = useId();
   const close = useStore((s) => s.closeShareLive);
   const view = useStore((s) => s.collab[tabId]);
@@ -66,14 +64,14 @@ export function ShareLiveDialog({ tabId }: { tabId: string }) {
     <Modal onClose={close} labelledBy={titleId} width="w-[34rem]">
       <div className="border-b border-line px-5 pb-4 pt-5">
         <h2 id={titleId} className="font-display text-xl font-semibold tracking-tight text-ink">
-          {t("collab.dialog.title")}
+          Share live
         </h2>
         <p className="mt-0.5 text-xs text-ink-dim">
           {native
-            ? t("collab.dialog.unavailable")
+            ? "live sharing needs a terminal tab — omp's /collab lives in the TUI, and native sessions do not expose it."
             : sharing === null
-              ? t("collab.dialog.introOff")
-              : t("collab.dialog.introOn")}
+              ? "omp hosts a live room from this terminal; guests watch and steer as it runs."
+              : "This session is hosting a live Collab room."}
         </p>
       </div>
 
@@ -81,59 +79,59 @@ export function ShareLiveDialog({ tabId }: { tabId: string }) {
         {native ? null : sharing === null ? (
           <>
             <div className="flex items-center justify-between gap-3">
-              <Label>{t("collab.dialog.access")}</Label>
+              <Label>access</Label>
               <ChoiceCapsule
-                label={t("collab.dialog.access")}
+                label="access"
                 value={access}
                 options={[
-                  { value: "full", label: t("collab.access.full") },
-                  { value: "view", label: t("collab.access.view") },
+                  { value: "full", label: "full" },
+                  { value: "view", label: "view-only" },
                 ]}
                 onChange={setAccess}
               />
             </div>
-            <p className="text-xs leading-relaxed text-ink-faint">{t("collab.dialog.hint")}</p>
+            <p className="text-xs leading-relaxed text-ink-faint">full access: guests steer and approve; view-only: they watch, and approval stays with you.</p>
           </>
         ) : (
           <>
             <div className="flex flex-wrap items-center gap-2 text-xs text-ink-mid">
               <Chip tone={sharing.status === "full" ? "signal" : "copper"}>
-                {sharing.status === "full" ? t("collab.access.full") : t("collab.access.view")}
+                {sharing.status === "full" ? "full" : "view-only"}
               </Chip>
               <Chip mono>
-                {t("collab.dialog.participants", { count: sharing.participants })}
+                {`${sharing.participants} guest(s)`}
               </Chip>
               {!sharing.relayConnected && (
-                <Chip tone="rose">{t("collab.dialog.relayDown")}</Chip>
+                <Chip tone="rose">relay offline</Chip>
               )}
               {sharing.inputRequired && (
-                <Chip tone="copper">{t("collab.dialog.inputRequired")}</Chip>
+                <Chip tone="copper">waiting for input</Chip>
               )}
             </div>
             {controlUrl !== null && (
               <div className="space-y-2">
                 <div className="flex items-center justify-between gap-2">
-                  <Label>{t("collab.dialog.controlLink")}</Label>
+                  <Label>control link</Label>
                   <CopyButton
                     text={controlUrl}
-                    label={t("collab.dialog.copy")}
-                    doneLabel={t("collab.dialog.copied")}
+                    label="copy"
+                    doneLabel="copied"
                   />
                 </div>
                 <p data-selectable className="truncate font-mono text-xs text-ink-mid">
                   {controlUrl}
                 </p>
-                <PairingQr url={controlUrl} title={t("collab.dialog.scan")} caption={t("collab.dialog.controlCaption")} />
+                <PairingQr url={controlUrl} title="scan to join" caption="opens the room with the access shown above" />
               </div>
             )}
             {viewUrl !== null && (
               <div className="space-y-2">
                 <div className="flex items-center justify-between gap-2">
-                  <Label>{t("collab.dialog.viewLink")}</Label>
+                  <Label>view-only link</Label>
                   <CopyButton
                     text={viewUrl}
-                    label={t("collab.dialog.copy")}
-                    doneLabel={t("collab.dialog.copied")}
+                    label="copy"
+                    doneLabel="copied"
                   />
                 </div>
                 <p data-selectable className="truncate font-mono text-xs text-ink-mid">
@@ -142,7 +140,7 @@ export function ShareLiveDialog({ tabId }: { tabId: string }) {
               </div>
             )}
             <p className="text-xs leading-relaxed text-ink-faint">
-              {t("collab.dialog.linkWarning")}
+              a link is secret material — the key to the room lives in its fragment; anyone who holds it can join while the room is open.
             </p>
           </>
         )}
@@ -150,16 +148,16 @@ export function ShareLiveDialog({ tabId }: { tabId: string }) {
 
       <footer className="flex items-center justify-end gap-2 border-t border-line px-5 py-3">
         <Button size="sm" variant="ghost" onClick={close}>
-          {t("collab.dialog.close")}
+          close
         </Button>
         {!native && sharing === null && (
           <Button size="sm" variant="solid" onClick={() => void startCollab(tabId, access)}>
-            {t("collab.dialog.start")}
+            start sharing
           </Button>
         )}
         {sharing !== null && (
           <Button size="sm" variant="outline" tone="rose" onClick={() => void stopCollab(tabId)}>
-            {t("collab.dialog.stop")}
+            stop sharing
           </Button>
         )}
       </footer>

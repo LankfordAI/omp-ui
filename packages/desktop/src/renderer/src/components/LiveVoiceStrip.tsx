@@ -1,6 +1,5 @@
 import { useEffect, useMemo, useRef, useState, type JSX } from "react";
 import { liveOutputSpeaking, type LiveHistoryEntry, type LiveTurn } from "@omp-ui/core/live-voice";
-import { useT } from "../lib/i18n";
 import { useStore } from "../store";
 import { useCompactShell } from "../lib/responsive";
 import { cn } from "../lib/cn";
@@ -34,7 +33,6 @@ export function LiveVoiceStrip({
   tabId: string;
   layout?: "composer" | "review";
 }) {
-  const t = useT();
   const compact = useCompactShell();
   const live = useStore((s) => s.rpc[tabId]?.live ?? null);
   const listLiveHistory = useStore((s) => s.listLiveHistory);
@@ -157,8 +155,8 @@ export function LiveVoiceStrip({
       return (
         <span
           role="img"
-          aria-label={t("composer.live.audioUnavailable")}
-          title={t("composer.live.audioUnavailable")}
+          aria-label="omp did not expose the output audio for this reply"
+          title="omp did not expose the output audio for this reply"
           aria-disabled="true"
           className="ml-auto shrink-0 cursor-default text-ink-faint opacity-60"
         >
@@ -175,8 +173,8 @@ export function LiveVoiceStrip({
       return (
         <span
           role="img"
-          aria-label={t("composer.live.audioIncomplete")}
-          title={t("composer.live.audioIncomplete")}
+          aria-label="recording incomplete — half-written take"
+          title="recording incomplete — half-written take"
           aria-disabled="true"
           className="ml-auto shrink-0 cursor-default text-ink-faint opacity-60"
         >
@@ -195,11 +193,11 @@ export function LiveVoiceStrip({
       return (
         <span className="ml-auto flex shrink-0 items-center gap-1">
           {replay.notice !== null && (
-            <span className="text-xs text-ink-faint" title={t("composer.live.replayLiveBusy")}>
-              {t("composer.live.phaseSpeaking")}
+            <span className="text-xs text-ink-faint" title="live voice is speaking — replay waits">
+              speaking
             </span>
           )}
-          <IconButton label={t("composer.live.replayPause")} onClick={pauseLiveReplay}>
+          <IconButton label="pause recording" onClick={pauseLiveReplay}>
             <IconPause className="size-3" />
           </IconButton>
         </span>
@@ -214,7 +212,7 @@ export function LiveVoiceStrip({
     if (live !== null && !live.ended && liveOutputSpeaking(live) && replay?.status !== "paused") {
       return (
         <span className="ml-auto shrink-0">
-          <IconButton label={t("composer.live.replayLiveBusy")} onClick={() => {}} disabled>
+          <IconButton label="live voice is speaking — replay waits" onClick={() => {}} disabled>
             <IconPlay className="size-3" />
           </IconButton>
         </span>
@@ -226,11 +224,11 @@ export function LiveVoiceStrip({
       return (
         <span className="ml-auto flex shrink-0 items-center gap-1">
           {replay.notice !== null && (
-            <span className="text-xs text-ink-faint" title={t("composer.live.replayLiveBusy")}>
-              {t("composer.live.phaseSpeaking")}
+            <span className="text-xs text-ink-faint" title="live voice is speaking — replay waits">
+              speaking
             </span>
           )}
-          <IconButton label={t("composer.live.replayPlay")} onClick={resumeLiveReplay}>
+          <IconButton label="play recording" onClick={resumeLiveReplay}>
             <IconPlay className="size-3" />
           </IconButton>
         </span>
@@ -241,8 +239,8 @@ export function LiveVoiceStrip({
         <IconButton
           label={
             replay?.status === "loading"
-              ? t("composer.live.replayLoading")
-              : t("composer.live.replayPlay")
+              ? "loading recording"
+              : "play recording"
           }
           onClick={() =>
             void playLiveRecording(tabId, {
@@ -298,7 +296,7 @@ export function LiveVoiceStrip({
                 row.role === "user" ? "text-ink-faint" : "text-signal",
               )}
             >
-              {row.role === "user" ? t("composer.live.roleUser") : t("composer.live.roleAssistant")}
+              {row.role === "user" ? "you" : "assistant"}
             </span>
             <span
               className={cn(
@@ -320,7 +318,7 @@ export function LiveVoiceStrip({
       </div>
       {live !== null && live.ended && error === null && parked && (
         <div className="px-3 pb-2 pt-1 text-xs text-ink-faint">
-          {t("composer.live.parkedHint")}
+          The call is closed for now and reopens when you return to this session. Click to turn live voice off.
         </div>
       )}
       {error !== null && (
@@ -332,7 +330,7 @@ export function LiveVoiceStrip({
           <span className="min-w-0 flex-1 [overflow-wrap:anywhere]" data-selectable>
             {error}
           </span>
-          <IconButton label={t("composer.live.dismiss")} onClick={() => clearLiveError(tabId)}>
+          <IconButton label="dismiss live voice message" onClick={() => clearLiveError(tabId)}>
             <IconClose className="size-3" />
           </IconButton>
         </div>

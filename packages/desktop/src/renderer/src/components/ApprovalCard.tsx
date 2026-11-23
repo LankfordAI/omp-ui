@@ -2,7 +2,6 @@ import { useEffect, useRef, useState, type ReactNode } from "react";
 import type { ApprovalDetailLine, ApprovalPrompt } from "@omp-ui/core/approval";
 import { classifyApprovalDetails } from "@omp-ui/core/approval";
 import { routineToolKeyFromApprovalName } from "@omp-ui/core/routine";
-import { useT } from "../lib/i18n";
 import { useAndroidBack } from "../lib/android-back";
 import { findRecord, useStore } from "../store";
 import { Button, Chip, Label, Switch } from "./ui";
@@ -57,7 +56,6 @@ function renderDetailLines(lines: readonly ApprovalDetailLine[]): ReactNode {
  * call waits.
  */
 export function ApprovalCard({ tabId }: { tabId: string }) {
-  const t = useT();
   const held = useStore((s) => s.rpc[tabId]?.approvalPrompt ?? null);
   const answerApprovalPrompt = useStore((s) => s.answerApprovalPrompt);
   // A Routine run's card answers once only (ADR-0100, #1252): granting a
@@ -121,35 +119,35 @@ export function ApprovalCard({ tabId }: { tabId: string }) {
       ref={root}
       role="dialog"
       aria-modal="false"
-      aria-label={t("dialog.approval.title")}
+      aria-label="Allow tool"
       data-approval-card
       className="animate-rise pointer-events-auto mx-auto mb-2 w-full max-w-[var(--transcript-max)] rounded-md border border-line ambient glass-surface shadow-float"
     >
       <div className="flex items-center gap-2 px-4 pt-3">
-        <Label>{t("dialog.approval.title")}</Label>
+        <Label>Allow tool</Label>
         <span className="min-w-0 truncate font-mono text-xs text-ink" title={prompt.toolName}>
           {prompt.toolName}
         </span>
-        {prompt.origin === "mcp" && <Chip tone="iris">{t("dialog.approval.origin")}</Chip>}
-        {restrictedFolder !== null && <Chip tone="copper">{t("dialog.approval.restricted")}</Chip>}
+        {prompt.origin === "mcp" && <Chip tone="iris">MCP server tool</Chip>}
+        {restrictedFolder !== null && <Chip tone="copper">Restricted folder</Chip>}
       </div>
       <div className="px-4 pt-2">
         {restrictedFolder !== null ? (
           <div data-approval-restricted>
             <p className="text-xs leading-snug text-ink-mid">
-              <span className="text-ink-faint">{t("dialog.approval.restricted")}: </span>
+              <span className="text-ink-faint">Restricted folder: </span>
               <span data-selectable className="break-all font-mono">
                 {restrictedFolder}
               </span>
             </p>
             <p className="mt-0.5 text-xs leading-snug text-ink-faint">
-              {t("dialog.approval.restrictedHint")}
+              Restricted folders (tools.restrictedFolders) ask in every approval mode, yolo included. No session or remembered approval covers them.
             </p>
           </div>
         ) : (
           prompt.reason !== null && (
             <p className="text-xs leading-snug text-ink-mid">
-              <span className="text-ink-faint">{t("dialog.approval.reason")}: </span>
+              <span className="text-ink-faint">Reason: </span>
               <span data-selectable>{prompt.reason}</span>
             </p>
           )
@@ -164,7 +162,7 @@ export function ApprovalCard({ tabId }: { tabId: string }) {
         )}
         {prompt.providerSafety.length > 0 && (
           <div className="mt-2">
-            <Label>{t("dialog.approval.safety")}</Label>
+            <Label>Provider safety checks</Label>
             <ul className="mt-1 space-y-0.5 text-xs leading-snug text-ink-mid">
               {prompt.providerSafety.map((line, i) => (
                 <li key={i} data-selectable>
@@ -177,7 +175,7 @@ export function ApprovalCard({ tabId }: { tabId: string }) {
       </div>
       {hasGrants && (
         <div data-approval-grants className="flex flex-wrap items-center gap-2 px-4 pt-3">
-          <Label>{t("dialog.approval.remember")}</Label>
+          <Label>Remember</Label>
           {prompt.grants.map((grant) => {
             const label = always ? grant.alwaysLabel : grant.label;
             return (
@@ -196,15 +194,15 @@ export function ApprovalCard({ tabId }: { tabId: string }) {
             <Switch
               on={always}
               onChange={(next) => setAlwaysFrame(next ? held!.frame : null)}
-              label={t("dialog.approval.rememberAlways")}
+              label="in every session"
             />
-            {t("dialog.approval.rememberAlways")}
+            in every session
           </span>
         </div>
       )}
       <div className="flex items-center justify-end gap-2 px-4 pb-3 pt-3">
         <Button variant="ghost" onClick={() => answerApprovalPrompt(tabId, "deny")}>
-          {t("dialog.approval.deny")}
+          Deny
         </Button>
         {routine !== null && grantKey !== "" && (
           <Button
@@ -215,7 +213,7 @@ export function ApprovalCard({ tabId }: { tabId: string }) {
               void grantRoutineTool(routine.id, grantKey).catch(reportError);
             }}
           >
-            {t("dialog.approval.alwaysAllow")}
+            Always allow
           </Button>
         )}
         {sessionLabel !== null && (
@@ -224,7 +222,7 @@ export function ApprovalCard({ tabId }: { tabId: string }) {
           </Button>
         )}
         <Button variant="solid" tone="signal" onClick={() => answerApprovalPrompt(tabId, "once")}>
-          {hasGrants ? t("dialog.approval.allowOnce") : t("dialog.approval.allow")}
+          {hasGrants ? "Allow once" : "Allow"}
         </Button>
       </div>
     </div>

@@ -1,5 +1,4 @@
 import { relativeTime } from "../lib/format";
-import { useT } from "../lib/i18n";
 import { cn } from "../lib/cn";
 import type { AttentionEntry } from "../lib/sidebar-sessions";
 import { useStore } from "../store";
@@ -23,7 +22,6 @@ export function AttentionStack({
   entries: AttentionEntry[];
   onActivate?: () => void;
 }) {
-  const t = useT();
   const openSession = useStore((st) => st.openSession);
   if (entries.length === 0) return null;
   return (
@@ -33,11 +31,11 @@ export function AttentionStack({
     // it stays visible on the raised surface.
     <div
       role="group"
-      aria-label={t("sidebar.attention.heading", { n: entries.length })}
+      aria-label={`Needs attention (${entries.length})`}
       className="mb-1.5 space-y-0.5 rounded-md border border-line bg-raised/60 p-1"
     >
       <div className="chrome-label px-2 pt-1.5 pb-1 text-ink-dim">
-        {t("sidebar.attention.heading", { n: entries.length })}
+        {`Needs attention (${entries.length})`}
       </div>
       {entries.map((a) => {
         const face = SESSION_FACE[a.state];
@@ -85,11 +83,11 @@ export function AttentionStack({
                 {withTitleCard(a.entry.session.title)}
               </span>
               <span className="line-clamp-1 break-words text-xs text-ink-dim">
-                <span className={face.textClass}>{t(face.labelKey)}</span>
+                <span className={face.textClass}>{face.label}</span>
                 {" · "}
-                <span className="text-ink-faint">{t("sidebar.attention.reply")}</span>
+                <span className="text-ink-faint">reply</span>
                 {" · "}
-                {a.mark.snippet ?? t("sidebar.attention.fallback")}
+                {a.mark.snippet ?? "The agent posted a new reply."}
               </span>
             </span>
           </button>

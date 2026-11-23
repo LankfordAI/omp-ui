@@ -16,7 +16,6 @@ import { downloadBlob, safeDownloadName } from "../../lib/artifact-parts";
 import { cn } from "../../lib/cn";
 import { FONT_FAMILIES, resolveFontFamily } from "../../lib/font-families";
 import { GLASS_CHROME_STEPS, resolveGlassChrome } from "../../lib/glass-chrome";
-import { useT, type MessageKey } from "../../lib/i18n";
 import { resolveTheme, usePrefersDarkScheme } from "../../lib/themes";
 import {
   TRANSCRIPT_WIDTHS,
@@ -34,10 +33,10 @@ import { ThemeWall } from "./ThemeWall";
  * bar is gone: the WidthMock below now shows column cap vs prose measure
  * honestly (issue #1059).
  */
-const WIDTH_CARDS: Record<TranscriptWidth, { label: MessageKey }> = {
-  comfortable: { label: "settings.appearance.widthComfortable" },
-  wide: { label: "settings.appearance.widthWide" },
-  full: { label: "settings.appearance.widthFull" },
+const WIDTH_CARDS: Record<TranscriptWidth, { label: string }> = {
+  comfortable: { label: "Comfortable" },
+  wide: { label: "Wide" },
+  full: { label: "Full" },
 };
 
 /** Column cap (as a share of card width) each transcript-width mock draws. */
@@ -92,15 +91,15 @@ function WidthMock({ col }: { col: number }) {
 }
 
 /** Label and one-line hint each glass-chrome card paints (issue #393). */
-const GLASS_CARDS: Record<GlassChrome, { label: MessageKey; hint: MessageKey }> = {
-  off: { label: "settings.appearance.glassOff", hint: "settings.appearance.glassOffHint" },
+const GLASS_CARDS: Record<GlassChrome, { label: string; hint: string }> = {
+  off: { label: "Off", hint: "Opaque planes, as before." },
   subtle: {
-    label: "settings.appearance.glassSubtle",
-    hint: "settings.appearance.glassSubtleHint",
+    label: "Subtle",
+    hint: "A hint of depth; light blur.",
   },
   frosted: {
-    label: "settings.appearance.glassFrosted",
-    hint: "settings.appearance.glassFrostedHint",
+    label: "Frosted",
+    hint: "Stronger blur and wash; costs a little GPU.",
   },
 };
 
@@ -145,18 +144,17 @@ async function themeFileOf(source: ThemeSource): Promise<ThemeFile> {
 
 /** A save verdict from the host: saved, refused by the gate, or invalid. */
 function SaveVerdict({ result }: { result: SaveStoredThemeResult }) {
-  const t = useT();
   if (result.ok) {
     return (
       <p role="status" className="mt-2 text-sm text-ink-mid">
-        {t("settings.appearance.fileSaved", { name: result.source.label })}
+        {`Saved ${result.source.label}.`}
       </p>
     );
   }
   if (result.reason === "gate") return <GateFailures label={result.label} failures={result.failures} />;
   return (
     <p role="alert" className="mt-2 text-sm text-rose">
-      {t("settings.appearance.importParseFailed", { message: result.message })}
+      {`Could not import: ${result.message}`}
     </p>
   );
 }
@@ -169,7 +167,6 @@ function SaveVerdict({ result }: { result: SaveStoredThemeResult }) {
  * listing survive the edit.
  */
 function ThemesTab() {
-  const t = useT();
   const state = useStore((s) => s.state);
   const importVsCodeTheme = useStore((s) => s.importVsCodeTheme);
   const saveStoredTheme = useStore((s) => s.saveStoredTheme);
@@ -213,7 +210,7 @@ function ThemesTab() {
     try {
       setVsCodeResult(await importVsCodeTheme(await readPicked(list)));
     } catch (err) {
-      setError(t("settings.appearance.importParseFailed", { message: displayMessage(err) }));
+      setError(`Could not import: ${displayMessage(err)}`);
     } finally {
       setBusy(false);
       // Clearing lets the same file be picked again after editing it.
@@ -227,18 +224,18 @@ function ThemesTab() {
     clearVerdicts();
     try {
       if (file.size > THEME_FILE_BYTES_MAX) {
-        setError(t("settings.appearance.fileTooLarge"));
+        setError("That file is too large to be a theme file (6 MiB at most).");
         return;
       }
       setBusy(true);
       const parsed = parseThemeFile(await file.text());
       if (!parsed.ok) {
-        setError(t("settings.appearance.importParseFailed", { message: parsed.message }));
+        setError(`Could not import: ${parsed.message}`);
         return;
       }
       setFileResult(await saveStoredTheme(parsed.draft));
     } catch (err) {
-      setError(t("settings.appearance.saveFailed", { message: displayMessage(err) }));
+      setError(`Could not save: ${displayMessage(err)}`);
     } finally {
       setBusy(false);
       event.target.value = "";
@@ -251,7 +248,7 @@ function ThemesTab() {
       const file = await themeFileOf(source);
       downloadBlob(safeDownloadName(source.label, "json"), "application/json", JSON.stringify(file, null, 2));
     } catch (err) {
-      setError(t("settings.appearance.exportFailed", { message: displayMessage(err) }));
+      setError(`Could not export: ${displayMessage(err)}`);
     }
   };
 
@@ -259,12 +256,12 @@ function ThemesTab() {
     <>
       {vsCodeResult?.ok === true && (
         <p role="status" className="mt-2 text-sm text-ink-mid">
-          {t("settings.appearance.importSaved", { name: vsCodeResult.source.label })}
+          {`Imported ${vsCodeResult.source.label}.`}
         </p>
       )}
       {vsCodeResult?.ok === false && vsCodeResult.reason === "parse" && (
         <p role="alert" className="mt-2 text-sm text-rose">
-          {t("settings.appearance.importParseFailed", { message: vsCodeResult.message })}
+          {`Could not import: ${vsCodeResult.message}`}
         </p>
       )}
       {vsCodeResult?.ok === false && vsCodeResult.reason === "contrast" && (
@@ -315,7 +312,7 @@ function ThemesTab() {
           verdict={verdict}
           onNewTheme={() =>
             openEditor({
-              label: t("settings.appearance.editorDefaultName"),
+              label: "My theme",
               // Seeds read the showing theme's raw source; the derived Theme has no syntax seeds.
               seeds: seedsOfTheme(
                 [...CURATED_SOURCES, ...sources].find((candidate) => candidate.id === showing.id) ??
@@ -328,7 +325,7 @@ function ThemesTab() {
           onImportVsCode={() => vsCodePicker.current?.click()}
           onEdit={(source) => openEditor(editorInitialOf(source, source.label, source.id))}
           onDuplicate={(source) =>
-            openEditor(editorInitialOf(source, t("settings.appearance.duplicateName", { name: source.label })))
+            openEditor(editorInitialOf(source, `${source.label} copy`))
           }
           onExport={(source) => void exportTheme(source)}
           onShare={(source) => {
@@ -343,7 +340,6 @@ function ThemesTab() {
 
 /** The Display tab: font family, transcript width, glass chrome and backdrop motion. */
 function DisplaySection() {
-  const t = useT();
   const fontFamilyId = useStore((s) => s.state?.fontFamilyId);
   const setFontFamilyId = useStore((s) => s.setFontFamilyId);
   const transcriptWidth = useStore((s) => s.state?.transcriptWidth);
@@ -359,9 +355,9 @@ function DisplaySection() {
   return (
     <>
       <div className="pt-2">
-        <h3 className="text-base font-semibold text-ink">{t("settings.appearance.fontFamily")}</h3>
+        <h3 className="text-base font-semibold text-ink">Font family</h3>
         <p className="mt-0.5 text-sm leading-relaxed text-ink-faint">
-          {t("settings.appearance.fontFamilyHint")}
+          Default is the app's own typeface — Bricolage Grotesque, Instrument Sans, and JetBrains Mono. Ubuntu swaps the whole set, code and terminals included.
         </p>
         <div className="mt-2 grid grid-cols-2 gap-2">
           {FONT_FAMILIES.map((f) => {
@@ -370,7 +366,7 @@ function DisplaySection() {
               <button
                 key={f.id}
                 type="button"
-                aria-label={t("settings.appearance.fontFamilyAria", { name: f.label })}
+                aria-label={`${f.label} font family`}
                 aria-pressed={active}
                 onClick={() => void setFontFamilyId(f.id)}
                 className={cn(
@@ -404,10 +400,10 @@ function DisplaySection() {
 
       <div className="mt-4 border-t border-line-soft pt-3">
         <h3 className="text-base font-semibold text-ink">
-          {t("settings.appearance.transcriptWidth")}
+          Transcript width
         </h3>
         <p className="mt-0.5 text-sm leading-relaxed text-ink-faint">
-          {t("settings.appearance.transcriptWidthHint")}
+          How wide the transcript column and composer card may grow. Prose keeps a readable measure at every step; tool cards, code, tables, and diffs take the whole column — and Full lets the column take the pane.
         </p>
         <div className="mt-2 grid grid-cols-3 gap-2">
           {TRANSCRIPT_WIDTHS.map((w) => {
@@ -417,9 +413,7 @@ function DisplaySection() {
               <button
                 key={w.id}
                 type="button"
-                aria-label={t("settings.appearance.transcriptWidthAria", {
-                  name: t(card.label),
-                })}
+                aria-label={`${card.label} transcript width`}
                 aria-pressed={active}
                 onClick={() => void setTranscriptWidth(w.id)}
                 className={cn(
@@ -429,7 +423,7 @@ function DisplaySection() {
                     : "border-line bg-raised hover:border-line-strong",
                 )}
               >
-                <span className="text-sm font-medium text-ink">{t(card.label)}</span>
+                <span className="text-sm font-medium text-ink">{card.label}</span>
                 <span className="mt-2 block text-ink-dim">
                   <WidthMock col={WIDTH_CARD_MOCKS[w.id]} />
                 </span>
@@ -440,9 +434,9 @@ function DisplaySection() {
       </div>
 
       <div className="mt-4 border-t border-line-soft pt-3">
-        <h3 className="text-base font-semibold text-ink">{t("settings.appearance.glassChrome")}</h3>
+        <h3 className="text-base font-semibold text-ink">Glass chrome</h3>
         <p className="mt-0.5 text-sm leading-relaxed text-ink-faint">
-          {t("settings.appearance.glassChromeHint")}
+          Lets the sidebar, rail, title bar, composer card, and dialogs show a soft backdrop through them. Text is never blurred; terminals stay opaque.
         </p>
         <div className="mt-2 grid grid-cols-3 gap-2">
           {GLASS_CHROME_STEPS.map((g) => {
@@ -452,7 +446,7 @@ function DisplaySection() {
               <button
                 key={g.id}
                 type="button"
-                aria-label={t("settings.appearance.glassChromeAria", { name: t(card.label) })}
+                aria-label={`${card.label} glass chrome`}
                 aria-pressed={active}
                 onClick={() => void setGlassChrome(g.id)}
                 className={cn(
@@ -462,8 +456,8 @@ function DisplaySection() {
                     : "border-line bg-raised hover:border-line-strong",
                 )}
               >
-                <span className="text-sm font-medium text-ink">{t(card.label)}</span>
-                <span className="mt-1 block text-sm leading-snug text-ink-dim">{t(card.hint)}</span>
+                <span className="text-sm font-medium text-ink">{card.label}</span>
+                <span className="mt-1 block text-sm leading-snug text-ink-dim">{card.hint}</span>
               </button>
             );
           })}
@@ -472,13 +466,13 @@ function DisplaySection() {
 
       <div className="mt-4 border-t border-line-soft">
         <Row
-          title={t("settings.appearance.backdropMotion")}
-          hint={t("settings.appearance.backdropMotionHint")}
+          title="Animate backdrops"
+          hint="Lets a theme's scene move. Costs some GPU while the window is visible; pauses when it is hidden or when the system asks for reduced motion. Backdrops show beside the transcript, so a full-width transcript leaves little room for them."
         >
           <Switch
             on={backdropMotion !== false}
             onChange={(next) => void setBackdropMotion(next)}
-            label={t("settings.appearance.backdropMotion")}
+            label="Animate backdrops"
           />
         </Row>
       </div>
@@ -487,13 +481,12 @@ function DisplaySection() {
 }
 
 type AppearanceTab = "themes" | "display";
-const APPEARANCE_TABS: ReadonlyArray<{ id: AppearanceTab; labelKey: MessageKey }> = [
-  { id: "themes", labelKey: "settings.appearance.tabThemes" },
-  { id: "display", labelKey: "settings.appearance.tabDisplay" },
+const APPEARANCE_TABS: ReadonlyArray<{ id: AppearanceTab; label: string }> = [
+  { id: "themes", label: "Themes" },
+  { id: "display", label: "Display" },
 ];
 
 export function AppearancePage() {
-  const t = useT();
   const [tab, setTab] = useState<AppearanceTab>("themes");
   const tabRefs = useRef<Partial<Record<AppearanceTab, HTMLButtonElement | null>>>({});
 
@@ -519,7 +512,7 @@ export function AppearancePage() {
     <div className="px-4 pb-3">
       <div
         role="tablist"
-        aria-label={t("settings.appearance.tabsAria")}
+        aria-label="Appearance sections"
         onKeyDown={onTabListKeyDown}
         className="-mx-4 mb-1 flex gap-1 border-b border-line px-4 py-2"
       >
@@ -543,7 +536,7 @@ export function AppearancePage() {
                 selected ? "bg-hover text-ink" : "text-ink-mid hover:text-ink",
               )}
             >
-              {t(candidate.labelKey)}
+              {candidate.label}
             </button>
           );
         })}

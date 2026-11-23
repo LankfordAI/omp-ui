@@ -2,7 +2,6 @@ import { useEffect, useState } from "react";
 import type { OmpSettingEntry, OmpSettingValue } from "@omp-ui/core/types";
 import { LIVE_VOICE_SETTING_GROUP } from "@omp-ui/core/omp-settings-keys";
 import { SPEECH_SPEED_BAND } from "../../lib/live-voice";
-import { useT } from "../../lib/i18n";
 import { Label } from "../ui";
 import { CommitField, Row, SettingControl, layerBadge } from "./rows";
 import arborSample from "../../assets/live-voice/arbor.mp3?url";
@@ -63,7 +62,6 @@ export function LiveVoiceSection({
   pendingKey: string | null;
   commit: (key: string, value: OmpSettingValue) => void;
 }) {
-  const t = useT();
   const [playing, setPlaying] = useState<string | null>(null);
 
   // A section unmount (navigating away from Settings) ends the clip; a clip
@@ -120,12 +118,7 @@ export function LiveVoiceSection({
                 key={voice}
                 type="button"
                 onClick={() => toggle(voice)}
-                title={t(
-                  playing === voice
-                    ? "settings.omp.liveVoiceStop"
-                    : "settings.omp.liveVoicePlay",
-                  { voice },
-                )}
+                title={playing === voice ? `stop the ${voice} sample` : `play a ${voice} sample`}
                 className={
                   "chrome-label h-6 rounded-md border px-2 transition-colors duration-150 " +
                   (playing === voice

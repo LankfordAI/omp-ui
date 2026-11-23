@@ -11,7 +11,6 @@ vi.mock("../backend", () => ({
   backendFor: () => new Proxy({}, { get: () => vi.fn(async () => undefined) }),
 }));
 
-import { applyLocale, resolveLocale } from "../lib/i18n";
 import type { DiffRow } from "../lib/omp-diff";
 import { useStore } from "../store";
 import { DiffViewer, type DiffViewerProps } from "./DiffViewer";
@@ -69,7 +68,6 @@ afterEach(() => {
   observers.length = 0;
   measuredWidth = 0;
   useStore.setState({ diffViewLayout: "unified" });
-  applyLocale(resolveLocale("en"));
 });
 
 function render(rows: DiffRow[], path = "src/foo/bar.ts", extra: Partial<DiffViewerProps> = {}): void {
@@ -202,13 +200,10 @@ describe("DiffViewer", () => {
     expect(document.body.querySelector("button[aria-expanded]")).toBeNull();
   });
 
-  it("shows delete in rose and localizes the op chip", () => {
+  it("shows delete in rose", () => {
     render([{ kind: "del", lineNum: 1, text: "x" }], "a.ts", { op: "delete" });
     const chip = Array.from(document.body.querySelectorAll("span")).findLast((s) => s.textContent === "delete");
     expect(chip?.className).toContain(TONE_CHIP.rose.split(" ")[0]);
-    act(() => applyLocale(resolveLocale("ko")));
-    act(() => root!.render(<DiffViewer rows={[{ kind: "del", lineNum: 1, text: "x" }]} path="a.ts" op="delete" />));
-    expect(document.body.textContent).toContain("삭제");
   });
 
   it("follows a controlled open prop and reports toggles", () => {

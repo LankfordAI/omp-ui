@@ -3,7 +3,6 @@ import { flushSync } from "react-dom";
 import { cn } from "../lib/cn";
 import { formatHotkey } from "../lib/hotkeys";
 import { filterModelsForTab } from "../lib/model-filter";
-import { t, useT } from "../lib/i18n";
 import { fuzzyBest } from "../lib/fuzzy";
 import type { ModelInfo } from "../lib/rpc-types";
 import { SUBAGENT_MODEL_INHERIT } from "@omp-ui/core/subagent-model";
@@ -26,7 +25,7 @@ function priceLabel(cost: ModelInfo["cost"]): string | null {
   const input = cost?.input;
   const output = cost?.output;
   if (typeof input !== "number" || typeof output !== "number") return null;
-  if (input === 0 && output === 0) return t("composer.model.free");
+  if (input === 0 && output === 0) return "free";
   const money = (n: number) => `$${Number(n.toFixed(n < 1 ? 2 : n < 10 ? 1 : 0))}`;
   return `${money(input)}/${money(output)}`;
 }
@@ -44,7 +43,6 @@ const EMPTY: ModelInfo[] = [];
 const EMPTY_FAVORITES: string[] = [];
 
 export function ModelSelector({ tabId, disabled, hotkeyOpens = true }: { tabId: string; disabled?: boolean; hotkeyOpens?: boolean }) {
-  const t = useT();
   const model = useStore((s) => s.rpc[tabId]?.model ?? null);
   // #932: a held session runs on omp's fallback, which the user never chose —
   // the chip asks for a pick instead of naming it.
@@ -108,7 +106,7 @@ export function ModelSelector({ tabId, disabled, hotkeyOpens = true }: { tabId: 
   // fix another host, so the copy states where to act instead — nonactionable.
   if (models.length === 0) {
     if (instanceId !== null) {
-      const copy = t("composer.model.noModelsRemote", { nickname: nickname ?? instanceId });
+      const copy = `No models are available on ${nickname ?? instanceId}. Configure provider credentials there, then restart the session.`;
       return (
         <button
           type="button"
@@ -124,11 +122,11 @@ export function ModelSelector({ tabId, disabled, hotkeyOpens = true }: { tabId: 
       <button
         type="button"
         disabled={locked}
-        title={running ? t("composer.model.afterTurn") : (model?.id ?? t("composer.model.noModelsTitle"))}
+        title={running ? "model changes are available after the current turn finishes" : (model?.id ?? "no models available — add a provider key")}
         onClick={() => openSettings("providers")}
         className="flex items-center px-1.5 font-mono text-xs text-ink-mid hover:text-ink"
       >
-        {model === null ? t("composer.model.none") : model.id}
+        {model === null ? "no models" : model.id}
       </button>
     );
   }
@@ -140,11 +138,11 @@ export function ModelSelector({ tabId, disabled, hotkeyOpens = true }: { tabId: 
         disabled={locked}
         title={
           running
-            ? t("composer.model.afterTurn")
+            ? "model changes are available after the current turn finishes"
             : model === null || held
-              ? t("composer.model.pick")
+              ? "pick a model"
               : credFallback !== null
-                ? t("composer.model.credFallback", { to: `${model.provider}/${model.id}`, pin: credFallback.from })
+                ? `Running ${`${model.provider}/${model.id}`} — no usable credential for ${credFallback.from}`
                 : `${model.provider}/${model.id}`
         }
         onClick={() => setOpen(true)}
@@ -155,7 +153,7 @@ export function ModelSelector({ tabId, disabled, hotkeyOpens = true }: { tabId: 
         )}
       >
         <span className="min-w-0 truncate">
-          {held ? t("composer.model.held") : model === null ? t("composer.model.fallback") : model.name || model.id}
+          {held ? "pick a model" : model === null ? "no model" : model.name || model.id}
         </span>
         <Chevron open={false} className="rotate-90 text-ink-faint" />
       </button>
@@ -245,7 +243,6 @@ function selectorFor(model: ModelInfo): string {
 
 export function ModelPalette(props: ModelPaletteProps) {
   const { models, onClose } = props;
-  const t = useT();
   // Favorites follow the owning instance (issue #440): this app's registry
   // for local sessions, the remote's own registry for its sessions.
   const favoriteKeys = useStore((s) => {
@@ -345,11 +342,11 @@ export function ModelPalette(props: ModelPaletteProps) {
     if (query.trim() === "") return true;
     return (
       fuzzyBest(query, [
-        { text: t("routines.projectDefault"), weight: 1 },
+        { text: "Project default", weight: 1 },
         { text: routineDefaultHint, weight: 0.7 },
       ]) !== null
     );
-  }, [props.variant, query, routineDefaultHint, t]);
+  }, [props.variant, query, routineDefaultHint]);
   const rows = useMemo<ModelPaletteRow[]>(() => {
     const modelRows: ModelPaletteRow[] = shown.map((model) => ({ kind: "model", model }));
     if (props.variant === "subagent") {
@@ -418,7 +415,7 @@ export function ModelPalette(props: ModelPaletteProps) {
     ? models.filter((model) => favorites.has(selectorFor(model))).length
     : models.filter((model) => model.provider === tab).length;
   const placeholder =
-    isFavoritesTab ? t("composer.model.searchFavorites") : t("composer.model.searchCount", { n: tabTotal });
+    isFavoritesTab ? "search favorites…" : `search ${tabTotal} models…`;
 
   return (
     <Modal onClose={onClose} width="w-[40rem]">
@@ -427,7 +424,7 @@ export function ModelPalette(props: ModelPaletteProps) {
         <div className="min-h-0 min-w-0 flex flex-1 flex-col">
           <div className="flex items-center gap-2 border-b border-line px-3 py-2">
             {props.variant === "advisor" ? (
-              <Label>{t("composer.model.advisorModel")}</Label>
+              <Label>advisor model</Label>
             ) : (
               <IconSearch className="size-4 text-ink-faint" />
             )}
@@ -465,27 +462,27 @@ export function ModelPalette(props: ModelPaletteProps) {
             />
             <Label>
               {matched === tabTotal ? tabTotal : `${matched}/${tabTotal}`}
-              {shown.length < matched && t("composer.model.topN", { n: shown.length })}
+              {shown.length < matched && ` · top ${shown.length}`}
             </Label>
           </div>
 
           {props.variant === "advisor" && (
             <p className="border-b border-line px-3 py-1.5 text-xs text-ink-dim">
-              {t("composer.model.advisorRestart")}
+              omp binds the advisor model at startup, so picking one restarts this session and resumes it.
             </p>
           )}
 
           <div className="min-h-0 flex-1 overflow-y-auto py-1">
             {isFavoritesTab && tabTotal === 0 && (
               <p className="px-3 py-3 text-xs text-ink-dim">
-                {t("composer.model.noFavorites")}
+                No favorites yet. Star models from any provider tab to see them here.
               </p>
             )}
             {shown.length === 0 && tabTotal === 0 && !isFavoritesTab && (
-              <p className="px-3 py-3 text-xs text-ink-dim">{t("composer.model.noneForProvider")}</p>
+              <p className="px-3 py-3 text-xs text-ink-dim">no models for this provider</p>
             )}
             {shown.length === 0 && tabTotal > 0 && !showRoutineDefault && (
-              <p className="px-3 py-3 text-xs text-ink-dim">{t("composer.model.noMatch")}</p>
+              <p className="px-3 py-3 text-xs text-ink-dim">nothing matches that search</p>
             )}
 
             {rows.map((row, index) => {
@@ -504,14 +501,14 @@ export function ModelPalette(props: ModelPaletteProps) {
                     )}
                   >
                     <span className="grid w-2 shrink-0 place-items-center">
-                      {inherited && <Dot tone="signal" title={t("composer.model.inUse")} />}
+                      {inherited && <Dot tone="signal" title="in use" />}
                     </span>
                     <span className="min-w-0 flex-1">
                       <span className="block truncate text-sm text-ink">
-                        {t("composer.model.useConfigured")}
+                        use omp's configured advisor
                       </span>
                       <span className="block truncate font-mono text-xs text-ink-faint">
-                        {props.variant === "advisor" && (props.defaultModel ?? t("composer.model.advisorUnset"))}
+                        {props.variant === "advisor" && (props.defaultModel ?? "modelRoles.advisor is unset — omp resolves its slow model chain")}
                       </span>
                     </span>
                   </button>
@@ -540,18 +537,18 @@ export function ModelPalette(props: ModelPaletteProps) {
                     )}
                   >
                     <span className="grid w-2 shrink-0 place-items-center">
-                      {isCurrent && <Dot tone="signal" title={t("composer.model.inUse")} />}
+                      {isCurrent && <Dot tone="signal" title="in use" />}
                     </span>
                     <span className="min-w-0 flex-1">
                       <span className="block truncate text-sm text-ink">
                         {isSessionRow
-                          ? t("composer.model.subagentSessionModel")
-                          : t("composer.model.subagentOmpDefault")}
+                          ? "session model"
+                          : "omp default"}
                       </span>
                       <span className="block truncate font-mono text-xs text-ink-faint">
                         {isSessionRow
-                          ? t("composer.model.subagentSessionModelHint")
-                          : t("composer.model.subagentOmpDefaultHint")}
+                          ? "* · the subagent runs on this session's own model"
+                          : "the agent's own frontmatter model, else the session model"}
                       </span>
                     </span>
                   </button>
@@ -573,10 +570,10 @@ export function ModelPalette(props: ModelPaletteProps) {
                     )}
                   >
                     <span className="grid w-2 shrink-0 place-items-center">
-                      {isCurrent && <Dot tone="signal" title={t("composer.model.inUse")} />}
+                      {isCurrent && <Dot tone="signal" title="in use" />}
                     </span>
                     <span className="min-w-0 flex-1">
-                      <span className="block truncate text-sm text-ink">{t("routines.projectDefault")}</span>
+                      <span className="block truncate text-sm text-ink">Project default</span>
                       <span className="block truncate font-mono text-xs text-ink-faint">
                         {props.variant === "routine" ? props.defaultHint : ""}
                       </span>
@@ -611,7 +608,7 @@ export function ModelPalette(props: ModelPaletteProps) {
                       {isCurrent && (props.variant !== "advisor" || !props.inherited) && (
                         <Dot
                           tone="signal"
-                          title={props.variant === "main" ? t("composer.model.current") : t("composer.model.pinned")}
+                          title={props.variant === "main" ? "current model" : "pinned to this session"}
                         />
                       )}
                     </span>
@@ -620,20 +617,20 @@ export function ModelPalette(props: ModelPaletteProps) {
                       <span className="block truncate font-mono text-xs text-ink-faint">{modelKey}</span>
                     </span>
                     <span className="model-palette-chips flex shrink-0 items-center gap-1">
-                      {model.reasoning === true && <Chip tone="iris">{t("composer.model.reasoning")}</Chip>}
+                      {model.reasoning === true && <Chip tone="iris">reasoning</Chip>}
                       {(props.variant === "main" || props.variant === "routine") && model.input?.includes("image") === true && (
-                        <Chip tone="signal">{t("composer.model.vision")}</Chip>
+                        <Chip tone="signal">vision</Chip>
                       )}
                       {(props.variant === "main" || props.variant === "routine") && window !== null && (
-                        <Chip mono title={t("composer.model.contextWindow", { n: model.contextWindow ?? "" })}>{window}</Chip>
+                        <Chip mono title={`${model.contextWindow ?? ""} token context window`}>{window}</Chip>
                       )}
                       {(props.variant === "main" || props.variant === "routine") && price !== null && (
-                        <Chip mono title={t("composer.model.priceTitle")}>{price}</Chip>
+                        <Chip mono title="USD per million tokens (input/output)">{price}</Chip>
                       )}
                     </span>
                   </button>
                   <IconButton
-                    label={isFavorite ? t("composer.model.unfavorite") : t("composer.model.favorite")}
+                    label={isFavorite ? "remove from favorites" : "add to favorites"}
                     tone="copper"
                     onClick={() => void toggleFavorite(modelKey, props.instanceId)}
                     className="mr-2 self-center"
@@ -656,27 +653,27 @@ export function ModelPalette(props: ModelPaletteProps) {
             <span className="model-palette-kbd flex items-center gap-1">
               <Chip mono>{formatHotkey("arrowup")}</Chip>
               <Chip mono>{formatHotkey("arrowdown")}</Chip>
-              {t("composer.model.kbdMove")}
+              move
             </span>
             <span className="model-palette-kbd flex items-center gap-1">
               <Chip mono>{formatHotkey("enter")}</Chip>
-              {t("composer.model.kbdPick")}
+              pick
             </span>
             <span className="model-palette-kbd flex items-center gap-1">
               <Chip mono>{formatHotkey("escape")}</Chip>
-              {t("composer.model.kbdClose")}
+              close
             </span>
             <span className="model-palette-kbd flex items-center gap-1">
               {/* The chord is literally ctrl on every platform (omp's own), so
                   no mod substitution here. */}
               <Chip mono>Ctrl+[</Chip>
               <Chip mono>Ctrl+]</Chip>
-              {t("composer.model.kbdTabs")}
+              tabs
             </span>
             <span className="model-palette-kbd flex items-center gap-1">
               <Chip mono>{formatHotkey("arrowleft")}</Chip>
               <Chip mono>{formatHotkey("arrowright")}</Chip>
-              {t("composer.model.kbdPanes")}
+              panes
             </span>
             {(props.variant === "main" || props.variant === "routine") && (
               <>
@@ -690,17 +687,17 @@ export function ModelPalette(props: ModelPaletteProps) {
                     }}
                     className="tap-target text-ink-faint underline decoration-dotted hover:text-ink-mid"
                   >
-                    {t("composer.model.providerKeys")}
+                    provider keys
                   </button>
                 ) : (
                   // The owning host manages its own provider credentials
                   // (issue #440): no settings hop from a remote palette, just
                   // the noninteractive fact of where the keys live.
                   <span className="text-ink-faint">
-                    {t("composer.model.remoteKeysNote", { nickname: nickname ?? props.instanceId })}
+                    {`provider keys are managed on ${nickname ?? props.instanceId}`}
                   </span>
                 )}
-                <span>{t("composer.model.pricesNote")}</span>
+                <span>prices are USD per Mtok</span>
               </>
             )}
           </div>
@@ -708,11 +705,11 @@ export function ModelPalette(props: ModelPaletteProps) {
           {props.projectPin !== undefined && (
             <div className="flex items-center gap-2 border-t border-line px-3 py-1.5">
               <span className="min-w-0 flex-1 truncate text-xs">
-                <span className="text-ink-faint">{t("composer.model.projectDefault")}</span>{" "}
+                <span className="text-ink-faint">project default:</span>{" "}
                 <span className={cn("font-mono", props.projectPin === null ? "text-ink-faint" : "text-ink")}>
-                  {props.projectPin ?? t("composer.model.notSet")}
+                  {props.projectPin ?? "not set"}
                 </span>
-                <span className="text-ink-faint">{t("composer.model.newSessionsOnly")}</span>
+                <span className="text-ink-faint">{" · new sessions only"}</span>
               </span>
               <button
                 type="button"
@@ -720,7 +717,7 @@ export function ModelPalette(props: ModelPaletteProps) {
                 onClick={() => props.onPinChange?.(pinTarget)}
                 className="rounded px-1.5 py-0.5 text-xs text-ink-mid hover:bg-hover hover:text-ink disabled:opacity-40"
               >
-                {t("composer.model.setDefault")}
+                Set as default
               </button>
               {props.projectPin !== null && (
                 <button
@@ -728,7 +725,7 @@ export function ModelPalette(props: ModelPaletteProps) {
                   onClick={() => props.onPinChange?.(null)}
                   className="rounded px-1.5 py-0.5 text-xs text-ink-mid hover:bg-hover hover:text-ink"
                 >
-                  {t("composer.model.clear")}
+                  Clear
                 </button>
               )}
             </div>

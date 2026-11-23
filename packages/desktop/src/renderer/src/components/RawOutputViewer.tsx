@@ -1,7 +1,6 @@
 import { useEffect, useId, useState } from "react";
 import type { SpillReadResult, SpillReference } from "@omp-ui/core/spill";
 import { cn } from "../lib/cn";
-import { useT } from "../lib/i18n";
 import { backend, displayMessage } from "../backend";
 import { Button, CopyButton, Label, Modal } from "./ui";
 
@@ -29,7 +28,6 @@ export function RawOutputViewer({
   spill: SpillReference;
   onClose: () => void;
 }) {
-  const t = useT();
   const titleId = useId();
   const [state, setState] = useState<ViewerState>({ status: "loading" });
   const [attempt, setAttempt] = useState(0);
@@ -53,7 +51,7 @@ export function RawOutputViewer({
     <Modal onClose={onClose} labelledBy={titleId} width="w-[48rem]" className="flex flex-col gap-2 p-3">
       <div className="flex min-w-0 items-center gap-2 pr-8">
         <Label>
-          <span id={titleId}>{t("transcript.tool.rawOutput.title")}</span>
+          <span id={titleId}>Raw output</span>
         </Label>
         <span className="min-w-0 truncate font-mono text-xs text-ink-faint" title={ref}>
           {ref}
@@ -63,18 +61,18 @@ export function RawOutputViewer({
         </span>
       </div>
       {state.status === "loading" && (
-        <div className="text-xs text-ink-faint">{t("transcript.tool.rawOutput.loading")}</div>
+        <div className="text-xs text-ink-faint">Reading…</div>
       )}
       {state.status === "missing" && (
-        <div className="text-xs text-ink-faint">{t("transcript.tool.rawOutput.missing")}</div>
+        <div className="text-xs text-ink-faint">The full output is no longer on this machine — its spill file was pruned or never saved.</div>
       )}
       {state.status === "legacy" && (
-        <div className="text-xs text-ink-faint">{t("transcript.tool.rawOutput.legacy")}</div>
+        <div className="text-xs text-ink-faint">Full output is unavailable on this harness version — this session predates spill files (omp 19).</div>
       )}
       {state.status === "error" && (
         <div className="min-w-0">
           <div className="text-xs text-rose [overflow-wrap:anywhere]">
-            {t("transcript.tool.rawOutput.failed", { reason: state.message })}
+            {`Could not read the raw output: ${state.message}`}
           </div>
           <Button
             variant="ghost"
@@ -84,18 +82,18 @@ export function RawOutputViewer({
               setAttempt((n) => n + 1);
             }}
           >
-            {t("transcript.tool.rawOutput.retry")}
+            Retry
           </Button>
         </div>
       )}
       {state.status === "ok" && (
         <div className="min-w-0 space-y-1.5">
           {spill.sample && (
-            <div className="text-xs text-copper">{t("transcript.tool.rawOutput.sample")}</div>
+            <div className="text-xs text-copper">This file holds a head/tail sample; the middle of the output was never saved.</div>
           )}
           {state.truncated && (
             <div className="text-xs text-copper">
-              {t("transcript.tool.rawOutput.truncated", { limit: READ_BOUND })}
+              {`Showing the first ${READ_BOUND}; the raw output is larger.`}
             </div>
           )}
           <pre

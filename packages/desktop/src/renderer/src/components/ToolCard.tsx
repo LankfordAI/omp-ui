@@ -11,7 +11,6 @@ import {
 import { arrField, strArrayField, strField } from "../lib/fields";
 import { editErrorKindLabel } from "../lib/edit-rejections";
 import type { ThemedToken } from "shiki/core";
-import { localeTag, useT, type MessageKey } from "../lib/i18n";
 import type { AdvisorNote, AskFacts, RecordedTaskFile, ToolItem } from "../lib/transcript";
 import { cwdText } from "../lib/transcript";
 import { pathFromArgs } from "../lib/tool-groups";
@@ -377,7 +376,6 @@ export function PathChip({ value }: { value: string }) {
  * it stays available behind a disclosure for the shapes we do not know.
  */
 function ToolArgs({ name, args }: { name: string; args: unknown }) {
-  const t = useT();
   const kind = glyphFor(name);
   const entries: [string, unknown][] =
     args !== null && typeof args === "object" && !Array.isArray(args) ? Object.entries(args) : [];
@@ -389,7 +387,7 @@ function ToolArgs({ name, args }: { name: string; args: unknown }) {
   // (issue #1203).
   if (name === "ask" && entries.length > 0) {
     return (
-      <Disclosure summary={<Label>{t("transcript.tool.allArguments")}</Label>}>
+      <Disclosure summary={<Label>all arguments</Label>}>
         <CodeSlab code={argsJson} lang="json" className="mt-1 max-h-48" />
       </Disclosure>
     );
@@ -463,7 +461,7 @@ function ToolArgs({ name, args }: { name: string; args: unknown }) {
         </dl>
       )}
       {(hasComplex || scalars.some(([, v]) => v.length > ARG_VALUE_MAX)) && (
-        <Disclosure summary={<Label>{t("transcript.tool.allArguments")}</Label>}>
+        <Disclosure summary={<Label>all arguments</Label>}>
           <CodeSlab code={argsJson} lang="json" className="mt-1 max-h-48" />
         </Disclosure>
       )}
@@ -503,16 +501,15 @@ function taskFileRows(args: unknown, recorded: RecordedTaskFile[] | undefined): 
 }
 
 function TaskFiles({ rows }: { rows: TaskFileRow[] }) {
-  const t = useT();
   return (
     <div className="space-y-1">
-      <Label>{t("transcript.tool.taskFile")}</Label>
+      <Label>task file</Label>
       {rows.map((row) => (
         <div key={row.key} className="flex min-w-0 flex-wrap items-center gap-1.5">
           {row.label !== undefined && <Chip tone="iris" mono>{row.label}</Chip>}
           <PathChip value={row.path} />
           {row.sha256 !== undefined && (
-            <Chip mono title={t("transcript.tool.taskFileShaTitle", { sha256: row.sha256 })}>
+            <Chip mono title={`SHA-256 omp recorded for this file's bytes at spawn: ${row.sha256}`}>
               {`sha256 ${row.sha256.slice(0, 12)}`}
             </Chip>
           )}
@@ -551,10 +548,9 @@ function taskStepRows(args: unknown): TaskStageRow[] {
 }
 
 function TaskStages({ rows }: { rows: TaskStageRow[] }) {
-  const t = useT();
   return (
     <div className="space-y-1.5">
-      <Label>{t("transcript.tool.taskStages")}</Label>
+      <Label>stages</Label>
       {rows.map((row) => (
         <div key={row.key} className="min-w-0 space-y-1">
           {row.label !== undefined && <Chip tone="iris" mono>{row.label}</Chip>}
@@ -581,7 +577,6 @@ function TaskStages({ rows }: { rows: TaskStageRow[] }) {
  * and the timeout note, mirroring omp's own renderer.
  */
 function AskAnswers({ facts }: { facts: AskFacts }) {
-  const t = useT();
   return (
     <div className="space-y-2">
       {facts.answers.map((answer, i) => {
@@ -605,7 +600,7 @@ function AskAnswers({ facts }: { facts: AskFacts }) {
                 <span className="min-w-0 text-ink [overflow-wrap:anywhere]">{linkify(text)}</span>
               </div>
             ) : (
-              <div className="text-xs text-ink-faint">{t("transcript.tool.askNoAnswer")}</div>
+              <div className="text-xs text-ink-faint">(no answer)</div>
             )}
             {(facts.notes ?? [])
               .filter((note) => note.name === answer.name)
@@ -620,7 +615,7 @@ function AskAnswers({ facts }: { facts: AskFacts }) {
         );
       })}
       {facts.timedOut && (
-        <div className="text-xs text-ink-faint">{t("transcript.tool.askTimedOut")}</div>
+        <div className="text-xs text-ink-faint">auto-selected after timeout — not a user choice</div>
       )}
     </div>
   );
@@ -660,14 +655,13 @@ export function argSummary(args: unknown): string {
 
 /** generate_image provenance for one thumbnail (issue #672); null when nothing is known. */
 function imageCaption(
-  t: (key: MessageKey, vars?: Record<string, string | number>) => string,
   model: string | undefined,
   image: { size?: string; quality?: string },
 ): string | null {
   const parts: string[] = [];
   if (model) parts.push(model);
   const dims = /(\d+)\s*[xX×]\s*(\d+)/.exec(image.size ?? "");
-  if (dims) parts.push(t("image.viewer.dimensions", { width: dims[1], height: dims[2] }));
+  if (dims) parts.push(`${dims[1]} × ${dims[2]} px`);
   else if (image.size) parts.push(image.size);
   if (image.quality) parts.push(image.quality);
   return parts.length > 0 ? parts.join(" · ") : null;
@@ -720,30 +714,27 @@ export function AdvisoryNotes({ notes }: { notes: AdvisorNote[] }) {
 
 /** Tool-result metadata is distinct from RPC shell-row provenance. Keep the output notice intact. */
 function ToolTruncationFacts({ item }: { item: ToolItem }) {
-  const t = useT();
   const metadata = item.toolTruncation;
   if (!metadata) return null;
   const facts: string[] = [];
   const elision = metadata.truncation;
   if (elision) {
-    const lines = elision.elidedLines === undefined ? undefined : t("transcript.tool.elidedLines", {
-      count: elision.elidedLines.toLocaleString(localeTag()),
-    });
+    const lines = elision.elidedLines === undefined ? undefined : `${elision.elidedLines.toLocaleString("en")} lines`;
     const bytes = elision.elidedBytes === undefined ? undefined : formatBytes(elision.elidedBytes);
     const magnitude = lines && bytes ? `${lines} (${bytes})` : lines ?? bytes;
-    const directionKeys = {
+    const directionLabel = {
       // Upstream direction names the retained window, not the elided side.
-      head: "transcript.tool.tailElided",
-      tail: "transcript.tool.headElided",
-      middle: "transcript.tool.middleElided",
+      head: "Tail elided",
+      tail: "Head elided",
+      middle: "Middle elided",
     } as const;
-    facts.push(t(directionKeys[elision.direction], { magnitude: magnitude ?? t("transcript.tool.outputTruncated") }));
+    facts.push(`${directionLabel[elision.direction]}: ${magnitude ?? "output truncated"}`);
   }
   const columns = metadata.columnTruncated;
   if (columns) {
-    const limit = columns.maxColumn.toLocaleString(localeTag());
-    facts.push(t("transcript.tool.columnCut", { limit }));
-    if (columns.unit) facts.push(t(columns.unit === "bytes" ? "transcript.tool.columnBytes" : "transcript.tool.columnChars"));
+    const limit = columns.maxColumn.toLocaleString("en");
+    facts.push(`Column cut: maxColumn ${limit}`);
+    if (columns.unit) facts.push(columns.unit === "bytes" ? "UTF-8 bytes per line" : "UTF-16 characters per line");
   }
   return <div className="font-mono text-xs tabular-nums text-ink-faint">{facts.join(" · ")}</div>;
 }
@@ -756,18 +747,16 @@ export const readNoStall = (): undefined => undefined;
 
 /** The running chip, or the stalled readout while the model stream is silent (issue #228). */
 export function RunningChip({ streamStallMs }: { streamStallMs: number | undefined }) {
-  const t = useT();
   return streamStallMs === undefined ? (
-    <Chip tone="copper">{t("transcript.tool.running")}</Chip>
+    <Chip tone="copper">running</Chip>
   ) : (
-    <Chip tone="copper" mono title={t("transcript.tool.stalledTitle")}>
-      {t("transcript.tool.stalled", { duration: formatDuration(streamStallMs) })}
+    <Chip tone="copper" mono title="No model-stream frame (text, thinking, or tool-call arguments) has arrived while the assistant response is open. Local tool execution does not reset this clock.">
+      {`stalled ${formatDuration(streamStallMs)}`}
     </Chip>
   );
 }
 
 export function ToolCard({ item, tabId }: { item: ToolItem; tabId?: string }) {
-  const t = useT();
   const streamStallMs = useStore(
     tabId === undefined ? readNoStall : (s) => s.rpc[tabId]?.streamStallMs,
   );
@@ -791,11 +780,11 @@ export function ToolCard({ item, tabId }: { item: ToolItem; tabId?: string }) {
       (item.images ?? []).map((im, n) => ({
         src: `data:${im.mimeType};base64,${im.data}`,
         mimeType: im.mimeType,
-        label: t("transcript.tool.imageAlt", { n: n + 1 }),
+        label: `tool result image ${n + 1}`,
         ...(item.imageModel !== undefined ? { model: item.imageModel } : {}),
         ...(im.quality !== undefined ? { quality: im.quality } : {}),
       })),
-    [item.images, item.imageModel, t],
+    [item.images, item.imageModel],
   );
   const hasDiff = (item.diff?.length ?? 0) > 0;
   const longOutput = resultLines > LONG_OUTPUT_LINES;
@@ -887,21 +876,21 @@ export function ToolCard({ item, tabId }: { item: ToolItem; tabId?: string }) {
             {duration}
           </span>
         )}
-        {planWrite && <Chip tone="iris">{t("transcript.tool.plan")}</Chip>}
+        {planWrite && <Chip tone="iris">plan</Chip>}
         {item.askFacts?.timedOut === true && (
-          <Chip tone="copper" title={t("transcript.tool.askTimedOut")}>
-            {t("transcript.tool.askTimedOutChip")}
+          <Chip tone="copper" title="auto-selected after timeout — not a user choice">
+            timed out
           </Chip>
         )}
         {item.status === "running" && <RunningChip streamStallMs={streamStallMs} />}
         {item.status === "error" && item.errorKind !== undefined && (
-          <Chip tone="rose" title={t("transcript.tool.errorKindTitle", { kind: item.errorKind })}>
+          <Chip tone="rose" title={`Why omp refused this edit: ${item.errorKind}`}>
             {editErrorKindLabel(item.errorKind)}
           </Chip>
         )}
-        {item.status === "error" && <Chip tone="rose">{t("transcript.tool.error")}</Chip>}
-        {item.status === "aborted" && <Chip tone="copper">{t("transcript.tool.aborted")}</Chip>}
-        {item.status === "cancelled" && <Chip>{t("transcript.tool.cancelled")}</Chip>}
+        {item.status === "error" && <Chip tone="rose">error</Chip>}
+        {item.status === "aborted" && <Chip tone="copper">aborted</Chip>}
+        {item.status === "cancelled" && <Chip>cancelled</Chip>}
         {item.status === "done" && <CheckGlyph />}
       </button>
 
@@ -913,12 +902,7 @@ export function ToolCard({ item, tabId }: { item: ToolItem; tabId?: string }) {
           {item.providerFailures!.map((failure, index) => (
             <Chip key={`${failure.provider}-${index}`} tone="rose" className="min-w-0 max-w-full whitespace-normal">
               <span className="min-w-0 [overflow-wrap:anywhere]">
-                {t(
-                  failure.status === undefined
-                    ? "transcript.tool.providerFailure"
-                    : "transcript.tool.providerFailureStatus",
-                  { label: failure.label, reason: failure.reason, status: failure.status ?? "" },
-                )}
+                {failure.status === undefined ? `${failure.label} — ${failure.reason}` : `${failure.label} — ${failure.reason} (status ${failure.status ?? ""})`}
               </span>
             </Chip>
           ))}
@@ -931,14 +915,14 @@ export function ToolCard({ item, tabId }: { item: ToolItem; tabId?: string }) {
           {/* `ask` still open: the dialog owns the interaction; say what the
               card is waiting for instead of the form source (issue #1203). */}
           {item.name === "ask" && item.askFacts === undefined && item.status === "running" && (
-            <div className="text-xs text-ink-faint">{t("transcript.tool.askPending")}</div>
+            <div className="text-xs text-ink-faint">Waiting for your answer…</div>
           )}
 
           {item.askFacts !== undefined && <AskAnswers facts={item.askFacts} />}
 
           {execDir && (
             <div className="flex min-w-0 items-baseline gap-1.5 font-mono text-xs">
-              <Label>{t(execDir.resolved ? "transcript.tool.cwd" : "transcript.tool.cwdRequested")}</Label>
+              <Label>{execDir.resolved ? "cwd" : "cwd (requested)"}</Label>
               {/* Wraps instead of clipping: the directory must stay readable,
                   and `[overflow-wrap:anywhere]` inside the card's min-w-0 body
                   keeps even a single long segment from growing the page. */}
@@ -965,7 +949,7 @@ export function ToolCard({ item, tabId }: { item: ToolItem; tabId?: string }) {
 
           {item.status === "running" && draft && (
             <div className="space-y-1">
-              <Label>{t("transcript.tool.writing")}</Label>
+              <Label>writing</Label>
               <IncrementalCodeSlab
                 code={draft.code}
                 lang={draft.lang}
@@ -976,7 +960,7 @@ export function ToolCard({ item, tabId }: { item: ToolItem; tabId?: string }) {
 
           {item.status === "running" && item.partialText && (
             <div className="space-y-1">
-              <Label>{t("transcript.tool.streaming")}</Label>
+              <Label>streaming</Label>
               {partialParts?.header !== null && partialParts ? (
                 <ReadResultSlab parts={partialParts} lang={partialLang} pin className="max-h-32" />
               ) : partialLang !== undefined ? (
@@ -993,11 +977,7 @@ export function ToolCard({ item, tabId }: { item: ToolItem; tabId?: string }) {
 
           {item.minimized && (
             <div className="font-mono text-xs tabular-nums text-ink-faint">
-              {t("transcript.tool.minimized", {
-                filter: item.minimized.filter,
-                before: formatBytes(item.minimized.inputBytes),
-                after: formatBytes(item.minimized.outputBytes),
-              })}
+              {`Minimized: ${item.minimized.filter} ${formatBytes(item.minimized.inputBytes)} → ${formatBytes(item.minimized.outputBytes)}`}
             </div>
           )}
 
@@ -1010,7 +990,7 @@ export function ToolCard({ item, tabId }: { item: ToolItem; tabId?: string }) {
                 onClick={() => setRawOutputOpen(true)}
                 className="block self-start border-0 bg-transparent p-0 font-mono text-xs text-iris hover:underline"
               >
-                {t("transcript.tool.rawOutput.open")}
+                view raw output
               </button>
               {rawOutputOpen && (
                 <RawOutputViewer tabId={tabId} spill={item.spillRef} onClose={() => setRawOutputOpen(false)} />
@@ -1028,7 +1008,7 @@ export function ToolCard({ item, tabId }: { item: ToolItem; tabId?: string }) {
               <Disclosure
                 summary={
                   <span className="text-xs">
-                    {t("transcript.tool.showOutput", { lines: resultLines })}
+                    {`show output · ${resultLines} lines`}
                   </span>
                 }
               >
@@ -1051,11 +1031,11 @@ export function ToolCard({ item, tabId }: { item: ToolItem; tabId?: string }) {
           {(item.images?.length ?? 0) > 0 && (
             <div
               role="group"
-              aria-label={t("transcript.tool.imageLabel")}
+              aria-label="result images"
               className="flex flex-wrap gap-1.5"
             >
               {(item.images ?? []).map((image, i) => {
-                const caption = imageCaption(t, item.imageModel, image);
+                const caption = imageCaption(item.imageModel, image);
                 return (
                   <div key={i} className="flex flex-col items-start gap-1">
                     {/* Index-keyed deliberately, as in UserBubble: the list is fixed
@@ -1063,17 +1043,13 @@ export function ToolCard({ item, tabId }: { item: ToolItem; tabId?: string }) {
                     <button
                       type="button"
                       className="block cursor-zoom-in rounded border-0 p-0"
-                      title={t("transcript.tool.imageTitle", {
-                        mimeType: image.mimeType,
-                        n: i + 1,
-                        count: item.images!.length,
-                      })}
-                      aria-label={t("image.viewer.open", { n: i + 1 })}
+                      title={`${image.mimeType} — image ${i + 1} of ${item.images!.length}`}
+                      aria-label={`enlarge image ${i + 1}`}
                       onClick={() => openImageViewer(toolViewerImages, i)}
                     >
                       <img
                         src={`data:${image.mimeType};base64,${image.data}`}
-                        alt={t("transcript.tool.imageAlt", { n: i + 1 })}
+                        alt={`tool result image ${i + 1}`}
                         className="max-h-40 rounded border border-line-strong bg-sunken object-contain"
                       />
                     </button>

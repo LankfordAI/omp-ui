@@ -8,7 +8,6 @@ import {
   asyncJobsKillMessage,
   type AsyncJobsSnapshot,
 } from "@omp-ui/core/async-jobs";
-import { t } from "../../lib/i18n";
 import { randomId } from "../../lib/random-id";
 import { isNewerSnapshot } from "../snapshot-acceptance";
 import type { UiStore } from "../types";
@@ -109,7 +108,7 @@ export function createAsyncJobsSlice(get: GetState, m: StoreMachinery): AsyncJob
       );
       setTimeout(() => {
         if (get().rpc[tabId]?.asyncJobsKill?.requestId !== requestId) return;
-        m.patchRpc(tabId, { asyncJobsKill: null, asyncJobsKillError: t("rail.jobs.noAnswer") });
+        m.patchRpc(tabId, { asyncJobsKill: null, asyncJobsKillError: "The background jobs bridge did not answer; refresh the list and try again." });
       }, ASYNC_JOBS_KILL_ANSWER_MS);
     } catch (err) {
       // A dropped process says nothing here: disposeTabRuntime resets the fields.

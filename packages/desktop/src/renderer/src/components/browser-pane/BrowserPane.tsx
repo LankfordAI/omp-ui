@@ -36,7 +36,6 @@ import { bytesToBase64 } from "../../lib/clipboard-image";
 import { cn } from "../../lib/cn";
 import { isAppHotkey } from "../../lib/hotkeys";
 import { STAMPED_JPEG_QUALITY, stampImage } from "../../lib/clock-stamp";
-import { currentLocaleId, useT } from "../../lib/i18n";
 import { IS_ELECTRON, IS_MAC } from "../../lib/platform";
 import { findInstance, findOwner, registerBrowserPaneWriter, useStore, viewedClientId } from "../../store";
 import { Dot, ICON_STROKE, IconButton, IconClose } from "../ui";
@@ -171,7 +170,6 @@ function keyLike(e: ReactKeyboardEvent<HTMLInputElement>): KeyLike {
 }
 
 export function BrowserPane({ tabId, posture }: { tabId: string; posture: BrowserPanePosture }) {
-  const t = useT();
   const pane = useStore((s) => s.rpc[tabId]?.browserPane);
   /** Hidden tabs stay mounted (display:none); only the viewed one takes frames. */
   const active = useStore((s) => s.activeTabId === tabId);
@@ -457,7 +455,7 @@ export function BrowserPane({ tabId, posture }: { tabId: string; posture: Browse
   const handBack = async (jpeg: Uint8Array, dsf: number): Promise<Uint8Array | null> => {
     if (!clockOn) return jpeg;
     try {
-      const text = browserClockText(new Date(), currentLocaleId());
+      const text = browserClockText(new Date());
       return await stampImage(jpeg, "image/jpeg", STAMPED_JPEG_QUALITY, text, { scale: dsf });
     } catch {
       setStampFailedAt(Date.now());
@@ -505,7 +503,7 @@ export function BrowserPane({ tabId, posture }: { tabId: string; posture: Browse
     const bytes = await handBack(jpeg, header.dsf);
     if (bytes === null) return;
     const where = result.framed
-      ? t("browser.pick.framed", { selector: result.selector })
+      ? `selector inside a child frame: ${result.selector}`
       : `selector: ${result.selector}`;
     const label = result.text === "" ? `<${result.tag}>` : `<${result.tag}> "${result.text}"`;
     queueComposerAttachment(
@@ -531,14 +529,14 @@ export function BrowserPane({ tabId, posture }: { tabId: string; posture: Browse
   const loopbackOnOwner = ownerMachine !== null && isLoopbackHost(loopbackHostname(state?.url ?? null));
 
   let status: string | null = null;
-  if (ensure === "pending") status = t("browser.state.pending");
-  else if (ensure === "not-live") status = t("browser.state.notLive");
+  if (ensure === "pending") status = "opening the browser pane…";
+  else if (ensure === "not-live") status = "the session is not running — resume it to use the browser pane";
   else if (ensure === "unavailable") {
-    status = t("browser.state.unavailable", { reason: pane?.unavailableReason ?? "" });
+    status = `browser pane unavailable (${pane?.unavailableReason ?? ""})`;
   } else if (state?.error) {
     status = state.error;
   } else if (available && !hasFrame) {
-    status = state?.url === null ? t("browser.state.idle") : t("browser.state.noFrames");
+    status = state?.url === null ? "enter an address or ask the agent to open a page" : "no frames received yet";
   }
 
   return (
@@ -549,26 +547,26 @@ export function BrowserPane({ tabId, posture }: { tabId: string; posture: Browse
       {acting && <div aria-hidden className="pointer-events-none absolute inset-0 z-10 animate-pulse border border-copper" />}
       <div className="flex shrink-0 items-center gap-1 border-b border-line bg-sunken px-2 py-1">
         <IconButton
-          label={t("browser.toolbar.back")}
+          label="back"
           disabled={controlsDisabled || state?.canGoBack !== true}
           onClick={() => navigate("back")}
         >
           <IconBack />
         </IconButton>
         <IconButton
-          label={t("browser.toolbar.forward")}
+          label="forward"
           disabled={controlsDisabled || state?.canGoForward !== true}
           onClick={() => navigate("forward")}
         >
           <IconForward />
         </IconButton>
         {loading ? (
-          <IconButton label={t("browser.toolbar.stop")} disabled={controlsDisabled} onClick={() => navigate("stop")}>
+          <IconButton label="stop loading" disabled={controlsDisabled} onClick={() => navigate("stop")}>
             <IconStop />
           </IconButton>
         ) : (
           <IconButton
-            label={t("browser.toolbar.reload")}
+            label="reload"
             disabled={controlsDisabled}
             onClick={() => navigate("reload")}
           >
@@ -581,9 +579,9 @@ export function BrowserPane({ tabId, posture }: { tabId: string; posture: Browse
             inputMode="url"
             spellCheck={false}
             autoComplete="off"
-            aria-label={t("browser.toolbar.address")}
+            aria-label="page address"
             aria-invalid={blocked || undefined}
-            placeholder={t("browser.toolbar.addressPlaceholder")}
+            placeholder="https://localhost:5173"
             disabled={controlsDisabled}
             value={draft ?? state?.url ?? ""}
             onChange={(e) => {
@@ -611,7 +609,7 @@ export function BrowserPane({ tabId, posture }: { tabId: string; posture: Browse
           />
           {blocked && (
             <p role="alert" className="absolute inset-x-0 top-full z-10 mt-0.5 rounded-md border border-rose bg-overlay px-2 py-1 text-xs leading-snug text-rose">
-              {t("browser.toolbar.blocked")}
+              only http and https pages load here
             </p>
           )}
         </div>
@@ -623,21 +621,21 @@ export function BrowserPane({ tabId, posture }: { tabId: string; posture: Browse
             )}
           >
             <Dot tone={acting ? "copper" : "signal"} pulse={acting} />
-            {acting ? t("browser.agent.acting") : t("browser.agent.attached")}
+            {acting ? "agent acting" : "agent connected"}
           </span>
         )}
         {loopbackOnOwner && (
           <span
-            title={t("browser.toolbar.loopback.tip", { machine: ownerMachine })}
+            title={`this address only resolves on ${ownerMachine}; the pane frames it through the owning instance`}
             className="flex shrink-0 items-center gap-1 rounded border border-line px-1 text-xs text-ink-mid"
           >
             <Dot tone="iris" />
-            {t("browser.toolbar.loopback.label", { machine: ownerMachine })}
+            {`loopback on ${ownerMachine}`}
           </span>
         )}
         <span className="relative shrink-0">
           <IconButton
-            label={t("browser.toolbar.attach")}
+            label="attach page to prompt"
             disabled={!hasFrame}
             onClick={() => void attach()}
           >
@@ -648,7 +646,7 @@ export function BrowserPane({ tabId, posture }: { tabId: string; posture: Browse
               role="alert"
               className="pointer-events-none absolute right-0 top-full z-10 mt-0.5 whitespace-nowrap rounded-md border border-rose bg-overlay px-2 py-1 text-xs text-rose"
             >
-              {t("browser.clock.stampFailed")}
+              Couldn't stamp the clock on the screenshot — nothing was attached
             </span>
           ) : (
             attachedAt !== 0 && (
@@ -656,13 +654,13 @@ export function BrowserPane({ tabId, posture }: { tabId: string; posture: Browse
                 role="status"
                 className="pointer-events-none absolute right-0 top-full z-10 mt-0.5 whitespace-nowrap rounded-md border border-line bg-overlay px-2 py-1 text-xs text-ink-mid"
               >
-                {t("browser.toolbar.attached")}
+                screenshot and URL added to the composer
               </span>
             )
           )}
         </span>
         <IconButton
-          label={t("browser.toolbar.pick")}
+          label="attach an element to the prompt"
           pressed={picking}
           disabled={!hasFrame || !live}
           onClick={() => setPicking((active) => !active)}
@@ -672,13 +670,13 @@ export function BrowserPane({ tabId, posture }: { tabId: string; posture: Browse
         {posture !== "sheet" && (
           <>
             <IconButton
-              label={posture === "column" ? t("browser.toolbar.split") : t("browser.toolbar.fullscreen")}
+              label={posture === "column" ? "back to split view" : "fill the column"}
               disabled={forcedColumn}
               onClick={() => setBrowserPaneFullscreen(tabId, posture !== "column")}
             >
               {posture === "column" ? <IconSplit /> : <IconFullscreen />}
             </IconButton>
-            <IconButton label={t("browser.toolbar.close")} onClick={() => closeBrowserPane(tabId)}>
+            <IconButton label="close browser pane" onClick={() => closeBrowserPane(tabId)}>
               <IconClose className="size-3" />
             </IconButton>
           </>
@@ -691,7 +689,7 @@ export function BrowserPane({ tabId, posture }: { tabId: string; posture: Browse
         ref={hostRef}
         tabIndex={0}
         role="group"
-        aria-label={t("browser.surface.label")}
+        aria-label="shared page — keys and clicks go to the page"
         onFocus={(e) => {
           if (e.target === e.currentTarget) proxyRef.current?.focus({ preventScroll: true });
         }}
@@ -742,17 +740,17 @@ export function BrowserPane({ tabId, posture }: { tabId: string; posture: Browse
         )}
         {instanceDown && (
           <p className="pointer-events-none absolute inset-x-0 top-0 bg-overlay/85 px-3 py-1 text-center text-xs text-ink-mid backdrop-glass">
-            {t("browser.state.instanceDown")}
+            showing the last frame while the instance is unreachable
           </p>
         )}
         {loopbackOnOwner && !instanceDown && !picking && pickNote !== "miss" && (
           <p className="pointer-events-none absolute inset-x-0 top-0 bg-overlay/85 px-3 py-1 text-center text-xs text-ink-mid backdrop-glass">
-            {t("browser.state.loopback", { machine: ownerMachine })}
+            {`this page is served from ${ownerMachine}’s loopback — the pane shows it through that machine`}
           </p>
         )}
         {(picking || pickNote === "miss") && !instanceDown && (
           <p className="pointer-events-none absolute inset-x-0 top-0 bg-overlay/85 px-3 py-1 text-center text-xs text-ink-mid backdrop-glass">
-            {pickNote === "miss" ? t("browser.pick.miss") : t("browser.pick.hint")}
+            {pickNote === "miss" ? "nothing to pick at that point" : "click an element to attach its screenshot and selector — Esc cancels"}
           </p>
         )}
       </div>

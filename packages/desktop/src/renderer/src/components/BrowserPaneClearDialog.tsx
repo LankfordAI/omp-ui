@@ -1,12 +1,10 @@
 import { useState } from "react";
 import { backend, displayMessage } from "../backend";
-import { useT } from "../lib/i18n";
 import { useStore } from "../store";
 import { Button, ConfirmDialog } from "./ui";
 
 /** Explicit, app-scoped clearing flow for the browser pane profile (#542). */
 export function BrowserPaneClearDialog() {
-  const t = useT();
   const close = useStore((state) => state.closeBrowserPaneClearDialog);
   const reportError = useStore((state) => state.reportError);
   const [openPages, setOpenPages] = useState<number | null>(null);
@@ -30,13 +28,13 @@ export function BrowserPaneClearDialog() {
   if (done) {
     return (
       <ConfirmDialog
-        kicker={t("dialog.browserdata.kicker")}
-        title={t("dialog.browserdata.done")}
+        kicker="Browser pane"
+        title="Browser pane data cleared"
         tone="signal"
         onClose={close}
-        actions={<Button size="sm" onClick={close}>{t("common.overlay.close")}</Button>}
+        actions={<Button size="sm" onClick={close}>close dialog</Button>}
       >
-        <p className="text-xs text-ink-mid">{t("dialog.browserdata.done")}</p>
+        <p className="text-xs text-ink-mid">Browser pane data cleared</p>
       </ConfirmDialog>
     );
   }
@@ -44,25 +42,25 @@ export function BrowserPaneClearDialog() {
   const busyFace = openPages !== null;
   return (
     <ConfirmDialog
-      kicker={t("dialog.browserdata.kicker")}
-      title={t(busyFace ? "dialog.browserdata.busyTitle" : "dialog.browserdata.title")}
+      kicker="Browser pane"
+      title={busyFace ? "Pages are still open" : "Clear browser pane data?"}
       tone="rose"
       onClose={close}
       actions={
         <>
-          <Button size="sm" disabled={working} onClick={close}>{t("dialog.diagnostics.cancel")}</Button>
+          <Button size="sm" disabled={working} onClick={close}>Cancel</Button>
           <Button size="sm" tone="rose" disabled={working} onClick={() => void clear(busyFace)}>
             {working
-              ? t("dialog.browserdata.working")
-              : t(busyFace ? "dialog.browserdata.force" : "dialog.browserdata.confirm")}
+              ? "Clearing…"
+              : busyFace ? "Close pages and clear" : "Clear"}
           </Button>
         </>
       }
     >
       <p className="text-xs leading-relaxed text-ink-mid">
         {busyFace
-          ? t("dialog.browserdata.busyBody", { count: openPages })
-          : t("dialog.browserdata.body")}
+          ? `${openPages} browser pane page(s) are running. Closing them clears the data and reopens each visible pane at its last address, signed out; the agent's connection to those pages is dropped until it reconnects.`
+          : "Cookies, site storage, the HTTP cache and saved HTTP logins of every page opened in the browser pane are deleted. Sessions, transcripts and settings are not affected."}
       </p>
     </ConfirmDialog>
   );

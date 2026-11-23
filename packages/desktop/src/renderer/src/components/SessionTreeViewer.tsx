@@ -4,7 +4,6 @@ import {
   type TreeSnapshot,
 } from "@omp-ui/core/session-tree";
 import { useMemo, useState, type JSX } from "react";
-import { useT, type MessageKey } from "../lib/i18n";
 import { NATIVE_FORK_MIN_OMP, supportsNativeFork } from "../lib/session-fork";
 import { useStore } from "../store";
 import { Chip, ICON_STROKE, IconSessionTree, Label, Modal } from "./ui";
@@ -35,14 +34,14 @@ function IconTreeBranch() {
   );
 }
 
-function reasonKey(reason: string | undefined): MessageKey {
+function reasonLabel(reason: string | undefined): string {
   switch (reason) {
     case "read-failed":
-      return "session.tree.reasonReadFailed";
+      return "the tree could not be read";
     case "payload-too-large":
-      return "session.tree.reasonPayloadTooLarge";
+      return "the tree is too large to publish";
     default:
-      return "session.tree.reasonMissingApi";
+      return "this omp build exposes no tree API";
   }
 }
 
@@ -90,7 +89,6 @@ function rowsOf(snapshot: TreeSnapshot): Row[] {
 }
 
 export function SessionTreeViewer(): JSX.Element | null {
-  const t = useT();
   const viewer = useStore((s) => s.sessionTreeView);
   const closeSessionTreeView = useStore((s) => s.closeSessionTreeView);
   const published = useStore((s) =>
@@ -126,9 +124,9 @@ export function SessionTreeViewer(): JSX.Element | null {
   );
   const leafId = snapshot?.available === true ? snapshot.leafId : null;
   const disabled = busy || snapshot === null || !snapshot.available;
-  const busyTitle = busy ? t("session.tree.busy") : undefined;
+  const busyTitle = busy ? "Navigation is available when the session is idle." : undefined;
   // A below-gate fork button stays mounted, inert, and tells why (floor plan §6).
-  const forkTitle = canFork ? busyTitle : (busyTitle ?? t("session.tree.needsNewerOmp", { version: NATIVE_FORK_MIN_OMP }));
+  const forkTitle = canFork ? busyTitle : (busyTitle ?? `this omp has no fork — update omp to ${NATIVE_FORK_MIN_OMP} or later`);
 
   return (
     <Modal
@@ -141,16 +139,16 @@ export function SessionTreeViewer(): JSX.Element | null {
         <div className="flex items-baseline gap-2">
           <IconSessionTree className="shrink-0" />
           <h2 id="session-tree-viewer-title" className="text-sm font-semibold text-ink">
-            {t("session.tree.title")}
+            Session tree
           </h2>
         </div>
-        <Label>{t("session.tree.kicker")}</Label>
+        <Label>Session action</Label>
       </div>
       {snapshot === null ? (
-        <p className="py-6 text-center text-xs text-ink-dim">{t("session.tree.empty")}</p>
+        <p className="py-6 text-center text-xs text-ink-dim">The tree bridge has not published a snapshot yet. Refresh the session.</p>
       ) : !snapshot.available ? (
         <p className="py-6 text-center text-xs text-copper">
-          {t("session.tree.unavailable", { reason: t(reasonKey(snapshot.reason)) })}
+          {`The session tree is unavailable: ${reasonLabel(snapshot.reason)}`}
         </p>
       ) : (
         <div className="mt-3 min-h-0 flex-1 overflow-y-auto">
@@ -180,10 +178,10 @@ export function SessionTreeViewer(): JSX.Element | null {
                   >
                     {row.text === "" ? <em>{row.type}</em> : row.text}
                   </span>
-                  {row.id === leafId && <Chip tone="signal">{t("session.tree.current")}</Chip>}
+                  {row.id === leafId && <Chip tone="signal">leaf</Chip>}
                   {active && row.id !== leafId && (
                     <span className="shrink-0 text-xs text-ink-mid">
-                      {t("session.tree.active")}
+                      current branch
                     </span>
                   )}
                   <span className="flex shrink-0 items-center gap-1 opacity-0 transition-opacity duration-150 group-hover:opacity-100 group-focus-within:opacity-100">
@@ -192,7 +190,7 @@ export function SessionTreeViewer(): JSX.Element | null {
                         <button
                           type="button"
                           className="grid size-6 place-items-center rounded-md text-ink-dim transition-colors hover:bg-hover hover:text-ink disabled:cursor-default disabled:text-ink-faint"
-                          aria-label={t("transcript.rewind.here")}
+                          aria-label="rewind here"
                           title={busyTitle}
                           disabled={disabled}
                           onClick={() => void stageRewindEntry(tabId, row.id, false)}
@@ -202,7 +200,7 @@ export function SessionTreeViewer(): JSX.Element | null {
                         <button
                           type="button"
                           className="grid size-6 place-items-center rounded-md text-ink-dim transition-colors hover:bg-hover hover:text-ink disabled:cursor-default disabled:text-ink-faint"
-                          aria-label={t("transcript.rewind.edit")}
+                          aria-label="edit and resend"
                           title={busyTitle}
                           disabled={disabled}
                           onClick={() => void stageRewindEntry(tabId, row.id, true)}
@@ -212,7 +210,7 @@ export function SessionTreeViewer(): JSX.Element | null {
                         <button
                           type="button"
                           className="grid size-6 place-items-center rounded-md text-ink-dim transition-colors hover:bg-hover hover:text-ink disabled:cursor-default disabled:text-ink-faint"
-                          aria-label={t("session.tree.fork")}
+                          aria-label="fork from here"
                           title={forkTitle}
                           disabled={disabled || !canFork}
                           onClick={() => void stageForkEntry(tabId, row.id)}
@@ -224,7 +222,7 @@ export function SessionTreeViewer(): JSX.Element | null {
                       <button
                         type="button"
                         className="grid size-6 place-items-center rounded-md text-ink-dim transition-colors hover:bg-hover hover:text-ink disabled:cursor-default disabled:text-ink-faint"
-                        aria-label={t("session.tree.navigate")}
+                        aria-label="navigate here"
                         title={busyTitle}
                         disabled={disabled}
                         onClick={() => void stageNavigate(tabId, row.id, summarize)}
@@ -247,7 +245,7 @@ export function SessionTreeViewer(): JSX.Element | null {
           onChange={(event) => setSummarize(event.target.checked)}
           disabled={disabled}
         />
-        {t("session.tree.summarize")}
+        summarize abandoned turns
       </label>
     </Modal>
   );

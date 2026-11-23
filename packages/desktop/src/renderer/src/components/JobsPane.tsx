@@ -5,7 +5,6 @@ import { asyncNoticeKey, orphanNoticeKeys, type AsyncNoticeSource } from "../lib
 import { cn } from "../lib/cn";
 import { formatDuration } from "../lib/duration";
 import { startVisibleInterval } from "../lib/visible-interval";
-import { useT } from "../lib/i18n";
 import { useStore } from "../store";
 import { Section } from "./RailSection";
 import { Button, Chip, Dot, Empty, IconButton, IconRefresh } from "./ui";
@@ -34,7 +33,6 @@ const NO_NOTICES: Record<string, AsyncNoticeSource> = {};
  * "other background output" section when no row does (#1235).
  */
 export function JobsPane({ tabId }: { tabId: string }) {
-  const t = useT();
   const snapshot = useStore((s) => s.rpc[tabId]?.asyncJobs ?? null);
   // omp 19 matching-output notices (#1235), folded in per delivered message.
   const notices = useStore((s) => s.rpc[tabId]?.asyncNotices ?? NO_NOTICES);
@@ -51,7 +49,7 @@ export function JobsPane({ tabId }: { tabId: string }) {
   const now = useNow((snapshot?.running.length ?? 0) > 0 || Object.values(notices).some((n) => n.running));
 
   const refresh = (
-    <IconButton label={t("rail.jobs.refreshLabel")} onClick={() => void refreshAsyncJobs(tabId)}>
+    <IconButton label="refresh background jobs" onClick={() => void refreshAsyncJobs(tabId)}>
       <IconRefresh />
     </IconButton>
   );
@@ -64,7 +62,7 @@ export function JobsPane({ tabId }: { tabId: string }) {
   const orphans = orphanNoticeKeys(notices, listed);
   const otherOutput =
     orphans.length === 0 ? null : (
-      <Section title={t("rail.jobs.outputTitle", { count: orphans.length })}>
+      <Section title={`other background output · ${orphans.length}`}>
         <ul className="space-y-1">
           {orphans.map((source) => (
             <NoticeRow key={`${source.type}:${source.id}`} source={source} now={now} />
@@ -75,11 +73,11 @@ export function JobsPane({ tabId }: { tabId: string }) {
   if (snapshot === null) {
     return (
       <>
-        <Section title={t("rail.tabs.jobs")} action={refresh}>
+        <Section title="Jobs" action={refresh}>
           <Empty
-            title={t("rail.jobs.waitingTitle")}
-            hint={t("rail.jobs.waitingHint")}
-            action={<Button size="xs" onClick={() => void refreshAsyncJobs(tabId)}>{t("rail.jobs.refresh")}</Button>}
+            title="Waiting for omp"
+            hint="The job list appears once this session's bridge reports."
+            action={<Button size="xs" onClick={() => void refreshAsyncJobs(tabId)}>refresh</Button>}
           />
         </Section>
         {otherOutput}
@@ -89,8 +87,8 @@ export function JobsPane({ tabId }: { tabId: string }) {
   if (!snapshot.available) {
     return (
       <>
-        <Section title={t("rail.tabs.jobs")} action={refresh}>
-          <Empty title={t("rail.jobs.unavailableTitle")} hint={snapshot.unavailable ?? ""} />
+        <Section title="Jobs" action={refresh}>
+          <Empty title="Background jobs unavailable" hint={snapshot.unavailable ?? ""} />
         </Section>
         {otherOutput}
       </>
@@ -135,7 +133,7 @@ export function JobsPane({ tabId }: { tabId: string }) {
   return (
     <>
       <Section
-        title={t("rail.jobs.runningTitle", { count: snapshot.running.length })}
+        title={`running · ${snapshot.running.length}`}
         action={
           <>
             {snapshot.canCancel && snapshot.running.length > 0 && (
@@ -143,10 +141,10 @@ export function JobsPane({ tabId }: { tabId: string }) {
                 size="xs"
                 tone="rose"
                 disabled={pending !== null}
-                title={t("rail.jobs.killAllTitle")}
+                title="cancel every running background job"
                 onClick={() => void killAsyncJob(tabId, null)}
               >
-                {t("rail.jobs.killAll")}
+                kill all
               </Button>
             )}
             {refresh}
@@ -154,12 +152,12 @@ export function JobsPane({ tabId }: { tabId: string }) {
         }
       >
         {snapshot.running.length === 0 ? (
-          <Empty title={t("rail.jobs.emptyTitle")} hint={t("rail.jobs.emptyHint")} />
+          <Empty title="No background jobs running" hint="Async bash commands and background subagents appear here while they run." />
         ) : (
           <ul className="space-y-1">{runningRows.map(renderRow)}</ul>
         )}
         {!snapshot.canCancel && snapshot.running.length > 0 && (
-          <p className="mt-1 text-xs text-ink-faint">{t("rail.jobs.noCancel")}</p>
+          <p className="mt-1 text-xs text-ink-faint">This omp build cannot cancel background jobs — update omp to 18.4.9 or later.</p>
         )}
         {error !== null && (
           <p className="mt-1 rounded-md border border-rose-dim/50 bg-rose-wash px-2 py-1 text-xs text-rose">
@@ -168,7 +166,7 @@ export function JobsPane({ tabId }: { tabId: string }) {
         )}
       </Section>
       {snapshot.recent.length > 0 && (
-        <Section title={t("rail.jobs.recentTitle", { count: snapshot.recent.length })}>
+        <Section title={`finished · ${snapshot.recent.length}`}>
           <ul className="space-y-1">{recentRows.map(renderRow)}</ul>
         </Section>
       )}
@@ -208,7 +206,6 @@ function JobRow({
   agent: { selected: boolean; toggle: () => void } | null;
   onKill: () => void;
 }) {
-  const t = useT();
   const [open, setOpen] = useState(false);
   const running = job.status === "running";
   // omp's live fields belong to a running job only (the bridge never sends
@@ -223,7 +220,7 @@ function JobRow({
           <button
             type="button"
             aria-expanded={open}
-            aria-label={t(open ? "rail.jobs.collapse" : "rail.jobs.expand", { job: job.id })}
+            aria-label={open ? `hide details for job ${job.id}` : `show details for job ${job.id}`}
             onClick={() => setOpen(!open)}
             className="flex min-w-0 flex-1 items-center gap-1.5 text-left"
           >
@@ -236,15 +233,15 @@ function JobRow({
             <Button
               size="xs"
               selected={agent.selected}
-              aria-label={t("rail.jobs.openAgent", { agent: job.agentId ?? job.id })}
+              aria-label={`open agent ${job.agentId ?? job.id}`}
               onClick={agent.toggle}
             >
-              {t("rail.jobs.open")}
+              open
             </Button>
           )}
           {running && canCancel && (
-            <Button size="xs" tone="rose" disabled={busy} title={t("rail.jobs.killTitle", { job: job.id })} onClick={onKill}>
-              {t("rail.jobs.kill")}
+            <Button size="xs" tone="rose" disabled={busy} title={`cancel background job ${job.id}`} onClick={onKill}>
+              kill
             </Button>
           )}
         </div>
@@ -255,7 +252,7 @@ function JobRow({
         )}
         <div className="mt-0.5 flex items-baseline gap-1.5 pl-3 font-mono text-xs text-ink-faint">
           <span>{job.status}</span>
-          {job.exitCode !== null && <span>{t("rail.jobs.exit", { code: job.exitCode })}</span>}
+          {job.exitCode !== null && <span>{`exit ${job.exitCode}`}</span>}
           <span>{formatDuration((job.endTime ?? now) - job.startTime)}</span>
           {completion !== null && <CompletionRing percent={completion} />}
         </div>
@@ -267,20 +264,20 @@ function JobRow({
         {notice !== null && <NoticeOutput source={notice} expanded={open} />}
         {widget !== null && <JobWidgetGlance widget={widget} />}
         {open && widget !== null && <JobWidgetBlocks widget={widget} />}
-        {open && !canInspect && <p className="mt-1 pl-3 text-xs text-ink-faint">{t("rail.jobs.noInspect")}</p>}
+        {open && !canInspect && <p className="mt-1 pl-3 text-xs text-ink-faint">This omp build reports no job details — update omp to 18.4.9 or later.</p>}
         {open && canInspect && (
           <dl className="mt-1 space-y-1 pl-3">
-            {job.command !== null && <Field label={t("rail.jobs.command")}>{job.command}</Field>}
-            {job.cwd !== null && <Field label={t("rail.jobs.cwd")}>{job.cwd}</Field>}
-            {job.pids.length > 0 && <Field label={t("rail.jobs.pids")}>{job.pids.join(" ")}</Field>}
+            {job.command !== null && <Field label="command">{job.command}</Field>}
+            {job.cwd !== null && <Field label="directory">{job.cwd}</Field>}
+            {job.pids.length > 0 && <Field label="pids">{job.pids.join(" ")}</Field>}
             {/* A tailed redirect target must never read as the job's own stream:
                 the path label carries the provenance (issue #1154). */}
-            <Field label={job.outputFile !== null ? t("rail.jobs.outputFile", { file: job.outputFile }) : t("rail.jobs.output")}>
+            <Field label={job.outputFile !== null ? `output · ${job.outputFile}` : "output"}>
               {job.outputTail === "" && !job.outputTruncated ? (
-                <span className="text-ink-faint">{t("rail.jobs.noOutput")}</span>
+                <span className="text-ink-faint">no output yet</span>
               ) : (
                 <pre className="max-h-48 overflow-auto whitespace-pre-wrap break-all rounded bg-sunken p-1.5 text-xs">
-                  {job.outputTruncated ? `${t("rail.jobs.outputTruncated")}\n` : ""}
+                  {job.outputTruncated ? `${"… earlier output trimmed"}\n` : ""}
                   {job.outputTail}
                 </pre>
               )}
@@ -300,7 +297,6 @@ function JobRow({
  * expected, not lost output.
  */
 function NoticeOutput({ source, expanded }: { source: AsyncNoticeSource; expanded: boolean }) {
-  const t = useT();
   const last = source.lines.at(-1);
   return (
     <div data-notify-block className="mt-1 space-y-1 pl-3">
@@ -311,19 +307,19 @@ function NoticeOutput({ source, expanded }: { source: AsyncNoticeSource; expande
       )}
       {expanded && (
         <pre className="max-h-48 overflow-auto whitespace-pre-wrap break-all rounded bg-sunken p-1.5 font-mono text-xs">
-          {source.droppedLines > 0 ? `${t("rail.jobs.earlier", { count: source.droppedLines })}\n` : ""}
+          {source.droppedLines > 0 ? `${`… ${source.droppedLines} earlier reported lines trimmed`}\n` : ""}
           {source.lines.join("\n")}
         </pre>
       )}
       <p className="flex flex-wrap items-baseline gap-x-2 font-mono text-xs text-ink-faint">
         <span title={source.pattern}>/{source.pattern}/</span>
         {source.omitted > 0 && (
-          <span>{t("rail.jobs.omitted", { count: source.omitted })}</span>
+          <span>{`+${source.omitted} omp left out`}</span>
         )}
         {!expanded && source.lines.length > 1 && (
-          <span>{t("rail.jobs.matchedLines", { count: source.lines.length })}</span>
+          <span>{`${source.lines.length} reported lines`}</span>
         )}
-        {source.stopped && <span className="text-copper">{t("rail.jobs.stopped")}</span>}
+        {source.stopped && <span className="text-copper">notices stopped</span>}
       </p>
     </div>
   );
@@ -336,7 +332,6 @@ function NoticeOutput({ source, expanded }: { source: AsyncNoticeSource; expande
  * kill verbs belong to listed jobs only.
  */
 function NoticeRow({ source, now }: { source: AsyncNoticeSource; now: number }) {
-  const t = useT();
   const [open, setOpen] = useState(false);
   return (
     <li className="animate-slide-in">
@@ -345,14 +340,14 @@ function NoticeRow({ source, now }: { source: AsyncNoticeSource; now: number }) 
           <button
             type="button"
             aria-expanded={open}
-            aria-label={t(open ? "rail.jobs.collapse" : "rail.jobs.expand", { job: source.id })}
+            aria-label={open ? `hide details for job ${source.id}` : `show details for job ${source.id}`}
             onClick={() => setOpen(!open)}
             className="flex min-w-0 flex-1 items-center gap-1.5 text-left"
           >
             <Dot
               tone={source.running ? "copper" : "neutral"}
               pulse={source.running}
-              title={source.running ? t("rail.jobs.sourceRunning") : t("rail.jobs.sourceQuiet", { ago: formatDuration(now - source.lastAt) })}
+              title={source.running ? "reported recently" : `last report ${formatDuration(now - source.lastAt)} ago`}
             />
             <span className="shrink-0 font-mono text-xs text-ink">{source.id}</span>
           </button>

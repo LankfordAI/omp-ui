@@ -3,7 +3,6 @@ import { MIN_SUPPORTED_OMP } from "@omp-ui/core/harness-floor";
 import { compareVersions } from "@omp-ui/core/semver";
 import type { PythonCheckSnapshot } from "@omp-ui/core/types";
 import { backend, displayMessage } from "../backend";
-import { useT } from "../lib/i18n";
 import { useStore } from "../store";
 import { Button, Modal } from "./ui";
 import { CheckIcon } from "./ui/icons";
@@ -55,7 +54,6 @@ function Step({
 }
 
 export function GettingStarted() {
-  const t = useT();
   const titleId = useId();
   const dismiss = useStore((s) => s.dismissGettingStarted);
   const openSettings = useStore((s) => s.openSettings);
@@ -156,7 +154,7 @@ export function GettingStarted() {
   const binaryHint =
     status === "downloading" ? (
       <>
-        {t("app.gettingstarted.hintBinary", { version: MIN_SUPPORTED_OMP })}
+        {`omp-ui runs its own private copy of omp (${MIN_SUPPORTED_OMP} or later).`}
         <span className="mt-1.5 flex items-center gap-2">
           <span className="h-1 flex-1 overflow-hidden rounded bg-raised">
             {progress === null ? (
@@ -167,48 +165,48 @@ export function GettingStarted() {
           </span>
           {progress !== null && (
             <span className="text-xs tabular-nums text-ink-dim">
-              {t("app.gettingstarted.downloading", { percent: progress })}
+              {`installing — ${progress}%`}
             </span>
           )}
         </span>
       </>
     ) : status === "error" && error !== null ? (
       <>
-        {t("app.gettingstarted.hintBinary", { version: MIN_SUPPORTED_OMP })}
+        {`omp-ui runs its own private copy of omp (${MIN_SUPPORTED_OMP} or later).`}
         <span className="mt-0.5 block break-words text-xs text-ink-faint">{error.message}</span>
       </>
     ) : (
-      t("app.gettingstarted.hintBinary", { version: MIN_SUPPORTED_OMP })
+      `omp-ui runs its own private copy of omp (${MIN_SUPPORTED_OMP} or later).`
     );
 
   const pythonHint =
     python === null
-      ? t("app.gettingstarted.hintPythonChecking")
+      ? "Checking the Python omp will run…"
       : python.status === "ok"
         ? python.version !== null
-          ? t("app.gettingstarted.hintPythonOk", { version: python.version })
+          ? `Python ${python.version} — the eval tool is ready.`
           : python.pythonPath !== null
-            ? t("app.gettingstarted.hintPythonOkPath", { path: python.pythonPath })
-            : t("app.gettingstarted.hintPythonOkGeneric")
+            ? `Interpreter at ${python.pythonPath} — the eval tool is ready.`
+            : "omp reports Python execution is ready."
         : python.status === "unavailable"
           ? python.pythonPath !== null
-            ? t("app.gettingstarted.hintPythonBrokenPath", { path: python.pythonPath })
-            : t("app.gettingstarted.hintPythonMissing")
-          : t("app.gettingstarted.hintPythonError", { reason: python.error ?? "" });
+            ? `The configured interpreter (${python.pythonPath}) is not usable. Pick another in omp settings.`
+            : "No working Python interpreter. Sessions work anyway; the eval tool needs Python."
+          : `This omp could not answer the Python check: ${python.error ?? ""}`;
 
   const firstProject = projects?.[0];
   return (
     <Modal onClose={dismiss} width="w-[34rem]" labelledBy={titleId}>
       <div className="border-b border-line px-5 pb-4 pt-5">
         <h2 id={titleId} className="font-display text-xl font-semibold tracking-tight text-ink">
-          {t("app.gettingstarted.title")}
+          Getting started
         </h2>
-        <p className="mt-0.5 text-xs text-ink-dim">{t("app.gettingstarted.subtitle")}</p>
+        <p className="mt-0.5 text-xs text-ink-dim">Four steps to your first session, plus a Python readiness check. Status updates as you go.</p>
       </div>
       <ul className="divide-y divide-line">
         <Step
           done={binaryDone}
-          title={t("app.gettingstarted.stepBinary")}
+          title="Install the omp agent binary"
           hint={binaryHint}
           action={
             <Button
@@ -220,35 +218,35 @@ export function GettingStarted() {
               }
             >
               {status === "missing" || status === "error"
-                ? t("app.gettingstarted.actionInstall")
-                : t("app.gettingstarted.actionCheck")}
+                ? "Install"
+                : "Check"}
             </Button>
           }
         />
         <Step
           done={providerDone}
-          title={t("app.gettingstarted.stepProvider")}
-          hint={t("app.gettingstarted.hintProvider")}
+          title="Connect a model provider"
+          hint="Add an API key or sign in to a subscription."
           action={
             <Button variant="solid" onClick={() => openSettings("providers")}>
-              {t("app.gettingstarted.actionOpenProviders")}
+              Open provider settings
             </Button>
           }
         />
         <Step
           done={projectDone}
-          title={t("app.gettingstarted.stepProject")}
-          hint={t("app.gettingstarted.hintProject")}
+          title="Track a project"
+          hint="Point omp-ui at the directory you want to work in."
           action={
             <Button variant="solid" onClick={() => openProjectPicker()}>
-              {t("app.gettingstarted.actionAddProject")}
+              Add project
             </Button>
           }
         />
         <Step
           done={sessionDone}
-          title={t("app.gettingstarted.stepSession")}
-          hint={t("app.gettingstarted.hintSession")}
+          title="Start your first session"
+          hint="Native transcript, or an embedded terminal tab."
           action={
             <Button
               variant="solid"
@@ -257,13 +255,13 @@ export function GettingStarted() {
                 firstProject === undefined ? undefined : void newSession(firstProject.project.path)
               }
             >
-              {t("app.gettingstarted.actionNewSession")}
+              New session
             </Button>
           }
         />
         <Step
           done={python?.status === "ok"}
-          title={t("app.gettingstarted.stepPython")}
+          title="Python for the eval tool"
           hint={pythonHint}
           action={
             <Button
@@ -275,15 +273,15 @@ export function GettingStarted() {
               }
             >
               {python !== null && python.status === "unavailable"
-                ? t("app.gettingstarted.actionOpenPythonSettings")
-                : t("app.gettingstarted.actionCheck")}
+                ? "Open Python settings"
+                : "Check"}
             </Button>
           }
         />
       </ul>
       <div className="flex justify-end border-t border-line px-5 py-3.5">
         <Button variant="solid" onClick={dismiss}>
-          {t("app.gettingstarted.done")}
+          Done
         </Button>
       </div>
     </Modal>

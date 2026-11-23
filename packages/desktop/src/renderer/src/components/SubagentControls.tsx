@@ -4,7 +4,6 @@
 // as omp's own sentence.
 import { useEffect, useLayoutEffect, useRef, useState } from "react";
 import { createPortal } from "react-dom";
-import { useT } from "../lib/i18n";
 import { useDismissal } from "../lib/use-dismissal";
 import { useStore } from "../store";
 import { ICON_STROKE, IconButton } from "./ui";
@@ -57,7 +56,6 @@ export function SubagentControls({
   agentId: string;
   status: string;
 }) {
-  const t = useT();
   // A terminal tab has no RpcTabState at all, so `accepts` covers the mode:
   // omp's own subagent UX stays the PTY path's only one.
   const accepts = useStore(
@@ -141,7 +139,7 @@ export function SubagentControls({
     >
       <span ref={triggerRef}>
         <IconButton
-          label={t("rail.agents.steer")}
+          label="steer"
           disabled={!usable || busy}
           onClick={() => setSteerOpen((value) => !value)}
           className="size-5"
@@ -150,7 +148,7 @@ export function SubagentControls({
         </IconButton>
       </span>
       <IconButton
-        label={t("rail.agents.kill")}
+        label="kill"
         tone="rose"
         disabled={!usable || busy}
         onClick={() => void killSubagent(tabId, agentId)}
@@ -163,7 +161,7 @@ export function SubagentControls({
           <div
             ref={panelRef}
             role="dialog"
-            aria-label={t("rail.agents.steer")}
+            aria-label="steer"
             tabIndex={-1}
             className="fixed z-[70] rounded-lg border border-line bg-raised p-2 shadow-xl"
             style={{
@@ -176,7 +174,7 @@ export function SubagentControls({
               ref={inputRef}
               rows={3}
               value={text}
-              placeholder={t("rail.agents.steerPlaceholder")}
+              placeholder="steer this agent…"
               onChange={(event) => setText(event.target.value)}
               onKeyDown={(event) => {
                 if (event.key === "Enter" && !event.shiftKey) {
@@ -193,7 +191,7 @@ export function SubagentControls({
                 disabled={text.trim() === ""}
                 className="rounded-md px-1.5 py-0.5 text-xs uppercase tracking-[0.08em] text-ink-mid transition-colors hover:bg-hover disabled:cursor-default disabled:text-ink-faint"
               >
-                {t("rail.agents.steerSend")}
+                send
               </button>
             </div>
           </div>,

@@ -1,16 +1,15 @@
 import { useCallback, useMemo } from "react";
 import type { KnowledgeHome, KnowledgeHomeKind, ProjectRecord } from "@omp-ui/core/types";
 import { cn } from "../lib/cn";
-import { useT, type MessageKey } from "../lib/i18n";
 import { useLoad } from "../lib/load";
 import { useStore } from "../store";
 import { FIELD } from "./settings/rows";
 import { Button } from "./ui";
 
-const KINDS: { kind: KnowledgeHomeKind; labelKey: MessageKey }[] = [
-  { kind: "docs", labelKey: "project.settings.knowledgeDocs" },
-  { kind: "vault", labelKey: "project.settings.knowledgeVault" },
-  { kind: "both", labelKey: "project.settings.knowledgeBoth" },
+const KINDS: { kind: KnowledgeHomeKind; label: string }[] = [
+  { kind: "docs", label: "Repo docs" },
+  { kind: "vault", label: "Vault" },
+  { kind: "both", label: "Both" },
 ];
 
 const ROSE_LINE = "rounded-md border border-rose-dim/50 bg-rose-wash px-3 py-2 text-xs text-rose";
@@ -25,7 +24,6 @@ const ROSE_LINE = "rounded-md border border-rose-dim/50 bg-rose-wash px-3 py-2 t
  * holding undefined: the backend codec rejects it.
  */
 export function KnowledgeHomeSection({ project, instanceId }: { project: ProjectRecord; instanceId: string | null }) {
-  const t = useT();
   const setProjectKnowledgeHome = useStore((s) => s.setProjectKnowledgeHome);
   const openSettings = useStore((s) => s.openSettings);
   const vaultNames = useStore((s) => s.vaultNames);
@@ -61,19 +59,19 @@ export function KnowledgeHomeSection({ project, instanceId }: { project: Project
   return (
     <section aria-labelledby="project-settings-knowledge" className="px-4 py-4">
       <h3 id="project-settings-knowledge" className="mb-1 text-sm font-semibold text-ink">
-        {t("project.settings.knowledgeHome")}
+        Knowledge home
       </h3>
-      <p className="text-xs leading-relaxed text-ink-faint">{t("project.settings.knowledgeHint")}</p>
+      <p className="text-xs leading-relaxed text-ink-faint">Where the agent files decisions and lessons for this project.</p>
 
       {load.status === "error" && <p className={cn("mt-2", ROSE_LINE)}>{load.message}</p>}
 
       <div className="mt-3 flex flex-wrap items-center gap-2">
         <span
           role="radiogroup"
-          aria-label={t("project.settings.knowledgeHome")}
+          aria-label="Knowledge home"
           className="flex flex-wrap items-center gap-1"
         >
-          {KINDS.map(({ kind, labelKey }) => {
+          {KINDS.map(({ kind, label }) => {
             const checked = current?.home === kind;
             const needsVault = kind !== "docs";
             return (
@@ -83,7 +81,7 @@ export function KnowledgeHomeSection({ project, instanceId }: { project: Project
                 role="radio"
                 aria-checked={checked}
                 disabled={needsVault ? vaultDisabled : undefined}
-                title={needsVault && noVault ? t("project.settings.knowledgeNeedsVault") : undefined}
+                title={needsVault && noVault ? "Add a vault in Settings first" : undefined}
                 onClick={() => pickKind(kind)}
                 className={cn(
                   "rounded-md px-2 py-0.5 text-xs transition-colors",
@@ -93,24 +91,24 @@ export function KnowledgeHomeSection({ project, instanceId }: { project: Project
                 )}
               >
                 {kind === "vault" && names?.length === 1
-                  ? t("project.settings.knowledgeVaultNamed", { name: names[0]! })
-                  : t(labelKey)}
+                  ? `Vault: ${names[0]!}`
+                  : label}
               </button>
             );
           })}
         </span>
         {current !== null && (
           <Button size="xs" variant="ghost" onClick={() => write(null)}>
-            {t("project.settings.knowledgeClear")}
+            Clear
           </Button>
         )}
       </div>
 
-      {current === null && <p className="mt-2 text-xs text-ink-dim">{t("project.settings.knowledgeNotSet")}</p>}
+      {current === null && <p className="mt-2 text-xs text-ink-dim">Not set. The routing default applies.</p>}
 
       {names !== null && (names.length >= 2 || brokenPin !== null) && (
         <select
-          aria-label={t("project.settings.knowledgeHome")}
+          aria-label="Knowledge home"
           className={cn(FIELD, "mt-2")}
           disabled={current === null}
           value={current?.vault ?? ""}
@@ -121,7 +119,7 @@ export function KnowledgeHomeSection({ project, instanceId }: { project: Project
               {brokenPin}
             </option>
           )}
-          <option value="">{t("project.settings.knowledgeFollowDefault")}</option>
+          <option value="">Follow the default write vault</option>
           {names.map((name) => (
             <option key={name} value={name}>
               {name}
@@ -131,12 +129,12 @@ export function KnowledgeHomeSection({ project, instanceId }: { project: Project
       )}
 
       {brokenPin !== null && (
-        <p className={cn("mt-2", ROSE_LINE)}>{t("project.settings.knowledgeBroken", { name: brokenPin })}</p>
+        <p className={cn("mt-2", ROSE_LINE)}>{`Vault ${brokenPin} is no longer registered. Pick another vault; until then the agent writes nothing to a vault.`}</p>
       )}
 
       {noVault && instanceId === null && (
         <Button size="xs" variant="ghost" className="mt-2" onClick={() => openSettings("knowledge-vault")}>
-          {t("project.settings.knowledgeOpenSettings")}
+          Open Settings
         </Button>
       )}
     </section>

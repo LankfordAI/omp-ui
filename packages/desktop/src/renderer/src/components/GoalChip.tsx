@@ -4,7 +4,6 @@ import type { GoalState } from "@omp-ui/core/goal";
 import { cn } from "../lib/cn";
 import { exactNum } from "../lib/format";
 import { goalDetails } from "../lib/goal-format";
-import { useT } from "../lib/i18n";
 import { useDismissal } from "../lib/use-dismissal";
 import { useStore } from "../store";
 import { Button, Chip, Dot, Panel, type Tone } from "./ui";
@@ -29,7 +28,6 @@ export function GoalChip({
   tabId: string;
   className?: string;
 }) {
-  const t = useT();
   const runSlashCommand = useStore((s) => s.runSlashCommand);
   const goal = state.goal;
   const [open, setOpen] = useState(false);
@@ -69,27 +67,24 @@ export function GoalChip({
   const tone: Tone = goal.status === "active" ? "signal" : "copper";
   const label =
     goal.status === "active"
-      ? t("hud.goal.active")
+      ? "goal"
       : goal.status === "paused"
-        ? t("hud.goal.paused")
+        ? "goal paused"
         : goal.status === "budget-limited"
-          ? t("hud.goal.limited")
-          : t("hud.goal.complete");
+          ? "goal budget reached"
+          : "goal done";
   const title =
     goal.status === "active"
-      ? t("hud.goal.objective", { objective: goal.objective })
+      ? `goal: ${goal.objective}`
       : goal.status === "paused"
-        ? t("hud.goal.pausedObjective", { objective: goal.objective })
+        ? `goal paused: ${goal.objective}`
         : goal.status === "budget-limited"
-          ? t("hud.goal.limitedObjective", { objective: goal.objective })
-          : t("hud.goal.completeObjective", { objective: goal.objective });
+          ? `goal out of budget: ${goal.objective}`
+          : `goal complete: ${goal.objective}`;
   const usage =
     goal.tokenBudget === null
-      ? t("hud.goal.unbounded", { used: exactNum(goal.tokensUsed) })
-      : t("hud.goal.usage", {
-          used: exactNum(goal.tokensUsed),
-          budget: exactNum(goal.tokenBudget),
-        });
+      ? `${exactNum(goal.tokensUsed)} tokens used`
+      : `${exactNum(goal.tokensUsed)} / ${exactNum(goal.tokenBudget)} tokens`;
   // goalDetails ends with the tokens and elapsed lines; the objective (which
   // may span lines) gets its own scrollable block, and the chip names the status.
   const detailLines = open ? goalDetails(state).split("\n").slice(-2) : [];
@@ -101,7 +96,7 @@ export function GoalChip({
         ref={anchor}
         type="button"
         onClick={() => (open ? close() : setOpen(true))}
-        title={`${title} — ${usage}. ${t("hud.goal.openTitle")}`}
+        title={`${title} — ${usage}. ${"goal controls"}`}
         aria-label={title}
         aria-expanded={open}
         className={cn("shrink-0 rounded border border-transparent", className)}
@@ -127,26 +122,26 @@ export function GoalChip({
               {confirmDrop ? (
                 <>
                   <Button variant="ghost" size="xs" onClick={() => setConfirmDrop(false)}>
-                    {t("hud.goal.cancel")}
+                    Cancel
                   </Button>
                   <Button variant="ghost" size="xs" tone="rose" onClick={() => run("/goal drop")}>
-                    {t("hud.goal.dropConfirm")}
+                    Confirm drop
                   </Button>
                 </>
               ) : (
                 <>
                   {canPause && (
                     <Button variant="ghost" size="xs" onClick={() => run("/goal pause")}>
-                      {t("hud.goal.pause")}
+                      Pause
                     </Button>
                   )}
                   {goal.status === "paused" && (
                     <Button variant="ghost" size="xs" onClick={() => run("/goal resume")}>
-                      {t("hud.goal.resume")}
+                      Resume
                     </Button>
                   )}
                   <Button variant="ghost" size="xs" onClick={() => setConfirmDrop(true)}>
-                    {t("hud.goal.drop")}
+                    Drop
                   </Button>
                 </>
               )}

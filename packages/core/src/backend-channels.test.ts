@@ -379,7 +379,6 @@ const VALID_ARGS = {
   setStallAutoContinue: [true],
   setStreamStallAbortSeconds: [45],
   setThemeId: ["dark"],
-  setLocaleId: ["ko"],
   setTranscriptWidth: ["wide"],
   setVoiceInputEnabled: [true],
   setWindowChrome: ["#000", "#fff"],

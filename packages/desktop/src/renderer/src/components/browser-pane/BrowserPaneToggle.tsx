@@ -1,4 +1,3 @@
-import { useT } from "../../lib/i18n";
 import { useStore } from "../../store";
 import { ICON_STROKE, IconButton } from "../ui";
 
@@ -14,12 +13,11 @@ function IconGlobe() {
 
 /** The Session HUD's browser pane button; pressed while the pane is open. */
 export function BrowserPaneToggle({ tabId, className }: { tabId: string; className?: string }) {
-  const t = useT();
   const open = useStore((s) => s.rpc[tabId]?.browserPane.open === true);
   const toggleBrowserPane = useStore((s) => s.toggleBrowserPane);
   return (
     <IconButton
-      label={open ? t("hud.actions.browserPaneClose") : t("hud.actions.browserPane")}
+      label={open ? "close browser pane" : "open browser pane"}
       pressed={open}
       className={className}
       onClick={() => toggleBrowserPane(tabId)}
