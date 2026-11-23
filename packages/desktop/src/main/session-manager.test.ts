@@ -10236,6 +10236,42 @@ describe("fleet wake and fleet send (issues #957, #959)", () => {
       expect(RpcClientMock).toHaveBeenCalledTimes(1);
     });
 
+    it("settles a session whose branch landed rebased, not merged (#1313)", async () => {
+      const { manager, registry } = setup({ mode: "rpc-ui" });
+      const { project, tabId, wt } = await worktreeChild(manager, registry);
+      // The supervisor landed the content as a patch-equivalent copy (the
+      // rebase + fast-forward recipe): main holds the same patch at another
+      // SHA, so raw ancestry fails while the finish gate must accept.
+      fs.writeFileSync(path.join(wt.path, "done.txt"), "done\n");
+      await execFileP("git", ["add", "done.txt"], { cwd: wt.path });
+      await execFileP("git", ["commit", "-q", "-m", "done"], { cwd: wt.path });
+      const sha = (await execFileP("git", ["rev-parse", "HEAD"], { cwd: wt.path })).stdout.trim();
+      // Advance main with unrelated work first: on an unmoved base git would
+      // re-create the identical commit object and ancestry would pass.
+      fs.writeFileSync(path.join(project, "other.txt"), "other\n");
+      await execFileP("git", ["add", "other.txt"], { cwd: project });
+      await execFileP("git", ["commit", "-q", "-m", "other work lands first"], { cwd: project });
+      await execFileP("git", ["cherry-pick", "--quiet", sha], { cwd: project });
+
+      const outcome = await manager.fleetFinish(finishReq());
+
+      expect(outcome).toEqual({
+        status: "finished",
+        destination: "main",
+        worktreePath: wt.path,
+        checkoutKept: null,
+        branch: wt.branch,
+        // Patch equivalence licenses the -D as fully landed (#1313): the
+        // strict-ancestry build reported kept-unmerged here.
+        branchOutcome: "removed",
+        workingBranches: [],
+      });
+      expect(manager.isLive(tabId)).toBe(false);
+      expect(registry.sessions.find((s) => s.tabId === tabId)!.worktree).toBeNull();
+      expect(fs.existsSync(wt.path)).toBe(false);
+      expect(await branches(project)).toEqual(["main"]);
+    });
+
     it("settles a session whose checkout was removed out-of-band (#1014)", async () => {
       const { manager, registry } = setup({ mode: "rpc-ui" });
       const { project, tabId, wt } = await worktreeChild(manager, registry);

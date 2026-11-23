@@ -377,6 +377,51 @@ async function isAncestor(cwd: string, ancestor: string, descendant: string): Pr
 }
 
 /**
+ * Probe: every commit `ref` has that `destination` lacks already lives there
+ * as an equivalent patch (issue #1313) — the shape a landing left behind when
+ * it rebased or cherry-picked the branch instead of merging it: the content
+ * is fully landed, but at different SHAs, so raw ancestry fails. `git cherry`
+ * compares patch-ids, so a moved copy counts. Two refusals are deliberate and
+ * proven against real git: a branch carrying a MERGE commit stays refused
+ * (git cherry ignores merges; an evil merge's conflict-resolution content
+ * exists in no parent's patch), and a SQUASH landing stays refused (the
+ * combined commit shares no patch-id with any individual one — the per-commit
+ * provenance really is gone). An unreadable probe answers false.
+ */
+async function patchEquivalentLanded(
+  cwd: string,
+  ref: string,
+  destination: string,
+): Promise<boolean> {
+  try {
+    const merges = (
+      await git(cwd, ["rev-list", "--merges", "--count", `${refArg(destination)}..${refArg(ref)}`])
+    ).trim();
+    if (merges !== "0") return false;
+    const out = await git(cwd, ["cherry", "-v", refArg(destination), refArg(ref)]);
+    return !out.split(/\r?\n/).some((line) => line.startsWith("+"));
+  } catch {
+    return false;
+  }
+}
+
+/**
+ * The work at `ref` is fully contained in `destination`: raw ancestry (a
+ * merge landing) or patch equivalence (#1313: a rebase/cherry-pick landing
+ * left copies at different SHAs). One exported gate because every already-
+ * landed decision must lockstep: the finish flow's recorded-branch check, its
+ * gone-checkout fallback, the HEAD/visited-branch read, and branch deletion
+ * all answer with this. Never "landed" on an unreadable probe.
+ */
+export async function landedInDestination(
+  cwd: string,
+  ref: string,
+  destination: string,
+): Promise<boolean> {
+  return (await isAncestor(cwd, ref, destination)) || (await patchEquivalentLanded(cwd, ref, destination));
+}
+
+/**
  * Destination resolution from a recorded base (issue #323), the body behind
  * resolveMergeDestination: (1) a local branch named by `base`; (2) else, when
  * `base` resolves to a commit — a unique local branch pointing at it, else
@@ -1021,15 +1066,18 @@ export async function renameWorktreeBranch(
 }
 
 /**
- * Deletes the worktree branch once it is verified fully merged into one of
+ * Deletes the worktree branch once it is verified fully landed in one of
  * the candidate destinations (issue #323, widened by #386: the caller's
- * mergedInto plus the destination resolved from the recorded base). Runs in
- * the project checkout, after the checkout's worktree has been removed. The
- * explicit `isAncestor(branch, candidate)` check is what licenses `branch
- * -D` — plain `-d` tests against HEAD only and would refuse a branch merged
- * into a destination that is not checked out (issue #385); the safety
- * property, never deleting unmerged work, moves into that check. git still
- * refuses a branch another worktree holds — reported as kept-refused.
+ * mergedInto plus the destination resolved from the recorded base; #1313:
+ * landed means raw ancestry OR patch equivalence — a rebased landing whose
+ * every ahead commit the destination holds as an equivalent patch is fully
+ * landed and safe to delete). Runs in the project checkout, after the
+ * checkout's worktree has been removed. The explicit `landedInDestination`
+ * check is what licenses `branch -D` — plain `-d` tests against HEAD only and
+ * would refuse a branch merged into a destination that is not checked out
+ * (issue #385); the safety property, never deleting unlanded work, moves into
+ * that check. git still refuses a branch another worktree holds — reported as
+ * kept-refused.
  */
 export async function removeWorktreeBranch(
   projectCwd: string,
@@ -1046,7 +1094,7 @@ export async function removeWorktreeBranch(
   if (existing.length === 0) return { kind: "kept-no-destination" };
   let merged = false;
   for (const candidate of existing) {
-    if (await isAncestor(projectCwd, branch, candidate)) {
+    if (await landedInDestination(projectCwd, branch, candidate)) {
       merged = true;
       break;
     }
@@ -1120,7 +1168,9 @@ export async function readWorktreeLanding(
     head = "";
   }
   const headBranch = (await currentBranch(worktreePath)) || null;
-  const headLanded = head !== "" && (await isAncestor(projectCwd, head, destination));
+  // #1313: a rebase/cherry-pick landing holds HEAD's content as equivalent
+  // patches at different SHAs — landed, though not ancestral.
+  const headLanded = head !== "" && (await landedInDestination(projectCwd, head, destination));
   const headLog = await readReflog(worktreePath, "HEAD");
   const born = headLog.length === 0 ? null : Math.min(...headLog.map(([at]) => at));
   const names = new Set<string>();

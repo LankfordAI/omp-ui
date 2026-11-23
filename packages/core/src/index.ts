@@ -39,6 +39,7 @@ export {
   addWorktreeFromNewBase,
   finalizeMintBranch,
   isWithin,
+  landedInDestination,
   linkProjectOmpDir,
   mergeWorktreeBranch,
   mintBranchHash,

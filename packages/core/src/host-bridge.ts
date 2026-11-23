@@ -939,7 +939,7 @@ function fleetTools(): RpcHostToolDefinition[] {
       name: finish,
       loadMode: "essential",
       description:
-        "Clean up a worktree session you started with omp-ui_fleet_dispatch once its work is already landed (for example after it rebased, fast-forwarded the base, and pushed): removes its worktree, deletes its worktree branch and any fully merged branch it created there, and settles the session. By default the work must be in the branch the worktree was based on; when it landed somewhere else, declare that branch in landedOn — it is verified, never trusted. Only the session that dispatched the work can finish it. It never merges, pushes, or discards work: it refuses while the session is working, waiting for the user's answer, has uncommitted changes, or holds commits its destination lacks.",
+        "Clean up a worktree session you started with omp-ui_fleet_dispatch once its work is already landed (for example after it rebased, fast-forwarded the base, and pushed): removes its worktree, deletes its worktree branch and any fully merged branch it created there, and settles the session. By default the work must be in the branch the worktree was based on; when it landed somewhere else, declare that branch in landedOn — it is verified, never trusted. Only the session that dispatched the work can finish it. It never merges, pushes, or discards work: it refuses while the session is working, waiting for the user's answer, has uncommitted changes, or holds work its destination lacks — landed means merged in, or every ahead commit present as an equivalent patch (a rebased/cherry-picked landing counts; a multi-commit squash does not).",
       parameters: {
         type: "object",
         properties: {

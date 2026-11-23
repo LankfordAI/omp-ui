@@ -9,6 +9,7 @@ import {
   addWorktreeFromNewBase,
   finalizeMintBranch,
   isWithin,
+  landedInDestination,
   linkProjectOmpDir,
   mergeWorktreeBranch,
   mintBranchHash,
@@ -1474,6 +1475,87 @@ describe("renameWorktreeBranch", () => {
   });
 });
 
+describe("landedInDestination (issue #1313)", () => {
+  it("accepts a merge landing by raw ancestry", async () => {
+    const dir = await tmpRepo();
+    const branch = mint();
+    const wt = path.join(dir, "wt", "checkout");
+    await addWorktree(dir, wt, branch, "main");
+    await commitFile(wt, "one.txt", "one\n", "one");
+    await git(dir, ["merge", "-q", "--no-ff", "-m", "fold", branch]);
+    expect(await landedInDestination(dir, branch, "main")).toBe(true);
+  });
+
+  it("accepts a rebased landing: the tip is not an ancestor, its patch twin is", async () => {
+    const dir = await tmpRepo();
+    const branch = mint();
+    const wt = path.join(dir, "wt", "checkout");
+    await addWorktree(dir, wt, branch, "main");
+    await commitFile(wt, "one.txt", "one\n", "one");
+    const sha = (await git(wt, ["rev-parse", "HEAD"])).trim();
+    // The landing moved the content as an equivalent copy onto advanced main
+    // (rebase + ff, or a cherry-pick after other work): different parent, so
+    // a different SHA carrying the same patch. Raw ancestry fails; the finish
+    // gate must not. (On an unmoved base git re-creates the identical commit
+    // object, which would test nothing.)
+    await commitFile(dir, "other.txt", "other\n", "other work lands first");
+    await git(dir, ["cherry-pick", "--quiet", sha]);
+    await expect(git(dir, ["merge-base", "--is-ancestor", branch, "main"])).rejects.toThrow();
+    expect(await landedInDestination(dir, branch, "main")).toBe(true);
+    // The finish read hands HEAD's SHA to the same probe, not a ref name.
+    expect(await landedInDestination(dir, sha, "main")).toBe(true);
+  });
+
+  it("refuses work whose patch is not in the destination", async () => {
+    const dir = await tmpRepo();
+    const branch = mint();
+    const wt = path.join(dir, "wt", "checkout");
+    await addWorktree(dir, wt, branch, "main");
+    await commitFile(wt, "one.txt", "one\n", "one");
+    expect(await landedInDestination(dir, branch, "main")).toBe(false);
+  });
+
+  it("refuses a squash landing: the combined commit shares no patch-id", async () => {
+    const dir = await tmpRepo();
+    const branch = mint();
+    const wt = path.join(dir, "wt", "checkout");
+    await addWorktree(dir, wt, branch, "main");
+    await commitFile(wt, "one.txt", "one\n", "one");
+    await commitFile(wt, "two.txt", "two\n", "two");
+    // Squashing two commits into one drops the per-commit provenance git
+    // cherry needs: the CONTENT is landed but no individual patch twin
+    // exists, so the conservative refusal stays. (A single-commit squash does
+    // match — its combined diff is that commit's patch — and is accepted,
+    // correctly: the provenance survives.)
+    await git(dir, ["merge", "-q", "--squash", branch]);
+    await git(dir, ["commit", "-q", "-m", "squashed"]);
+    expect(await landedInDestination(dir, branch, "main")).toBe(false);
+  });
+
+  it("refuses a branch carrying a merge even when every parent patch landed", async () => {
+    const dir = await tmpRepo();
+    const branch = mint();
+    const side = mint("side");
+    const wt = path.join(dir, "wt", "checkout");
+    await addWorktree(dir, wt, branch, "main");
+    await commitFile(wt, "b.txt", "b\n", "B");
+    const shaB = (await git(wt, ["rev-parse", "HEAD"])).trim();
+    await git(wt, ["checkout", "-q", "-b", side]);
+    await commitFile(wt, "c.txt", "c\n", "C");
+    const shaC = (await git(wt, ["rev-parse", "HEAD"])).trim();
+    await git(wt, ["checkout", "-q", branch]);
+    await git(wt, ["merge", "-q", "--no-ff", "-m", "M", side]);
+    await git(dir, ["cherry-pick", "--quiet", shaB]);
+    await git(dir, ["cherry-pick", "--quiet", shaC]);
+    // git cherry ignores merge commits and would answer yes here; an evil
+    // merge's conflict-resolution content lives in no parent patch, so the
+    // merge-count guard keeps this refused.
+    const cherry = await git(dir, ["cherry", "-v", "main", branch]);
+    expect(cherry.split(/\r?\n/).some((line) => line.startsWith("+"))).toBe(false);
+    expect(await landedInDestination(dir, branch, "main")).toBe(false);
+  });
+});
+
 describe("removeWorktreeBranch", () => {
   it("removes a branch verified merged into a named candidate", async () => {
     const dir = await tmpRepo();
@@ -1500,6 +1582,25 @@ describe("removeWorktreeBranch", () => {
     // The project moves off main to a branch without the commit: plain -d
     // would refuse; the caller's ancestry check licenses -D (issue #385).
     await git(dir, ["checkout", "-q", "-b", "elsewhere", "HEAD~1"]);
+    const result = await removeWorktreeBranch(dir, branch, ["main"]);
+    expect(result).toEqual({ kind: "removed" });
+    expect((await git(dir, ["branch", "--list", branch])).trim()).toBe("");
+  });
+
+  it("removes a branch landed by patch equivalence only (#1313: rebased landing)", async () => {
+    const dir = await tmpRepo();
+    const branch = mint();
+    const wt = path.join(dir, "wt", "checkout");
+    await addWorktree(dir, wt, branch, "main");
+    await commitFile(wt, "one.txt", "one\n", "one");
+    // The supervisor landed the content as a copy onto advanced main (the
+    // rebase + ff recipe), then removed the checkout: ancestry fails, patch
+    // equivalence holds, and deleting unlanded-work safety still rides that
+    // check.
+    const sha = (await git(wt, ["rev-parse", "HEAD"])).trim();
+    await commitFile(dir, "other.txt", "other\n", "other work lands first");
+    await git(dir, ["cherry-pick", "--quiet", sha]);
+    await removeWorktree(dir, wt);
     const result = await removeWorktreeBranch(dir, branch, ["main"]);
     expect(result).toEqual({ kind: "removed" });
     expect((await git(dir, ["branch", "--list", branch])).trim()).toBe("");

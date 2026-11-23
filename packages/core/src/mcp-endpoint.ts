@@ -347,7 +347,7 @@ export const MCP_TOOLS: readonly McpToolDescriptor[] = [
     readOnly: false,
     destructive: true,
     description:
-      "Clean up a worktree session this client started whose work already landed: settle it, remove its worktree, and delete the branches it made that are fully merged. It never merges or pushes. By default the work must be in the branch the worktree was based on; pass landedOn to name the branch it landed on instead (verified, never trusted). Refused while working, waiting for the user's answer, with uncommitted changes, or with commits the destination lacks. A session started with workspace checkout has nothing to finish; settle it. Never counts toward the hourly limit.",
+      "Clean up a worktree session this client started whose work already landed: settle it, remove its worktree, and delete the branches it made that are fully merged. It never merges or pushes. By default the work must be in the branch the worktree was based on; pass landedOn to name the branch it landed on instead (verified, never trusted). Refused while working, waiting for the user's answer, with uncommitted changes, or with work the destination lacks (landed means merged in or every ahead commit present as an equivalent patch — a rebased landing counts, a multi-commit squash does not). A session started with workspace checkout has nothing to finish; settle it. Never counts toward the hourly limit.",
     inputSchema: {
       type: "object",
       properties: {

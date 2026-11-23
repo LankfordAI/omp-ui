@@ -5,6 +5,7 @@ import {
   addWorktreeFromNewBase,
   checkoutBranch,
   finalizeMintBranch,
+  landedInDestination,
   mintWorktreePath,
   readMergeBackStatus,
   readWorktreeDirty,
@@ -158,7 +159,9 @@ export class WorktreeOps {
       if (!goneStatus.destinationExists) {
         return { ok: false, reason: `the base branch ${destination} no longer exists` };
       }
-      if (goneStatus.branchExists && !goneStatus.alreadyMerged) {
+      // #1313: same patch-equivalence acceptance as the live path; a truly
+      // unlanded commit still answers "+" to git cherry and refuses.
+      if (goneStatus.branchExists && !(await landedInDestination(projectCwd, worktree.branch, destination))) {
         return {
           ok: false,
           reason: `${worktree.branch} has ${goneStatus.ahead} commit${goneStatus.ahead === 1 ? "" : "s"} ${destination} lacks; land the work first`,
@@ -170,7 +173,11 @@ export class WorktreeOps {
     if (!status.destinationExists) return { ok: false, reason: `the base branch ${destination} no longer exists` };
     if (status.worktreeDirty === null) return { ok: false, reason: `the worktree at ${worktree.path} cannot be read` };
     if (status.worktreeDirty) return { ok: false, reason: "the worktree has uncommitted changes" };
-    if (status.branchExists && !status.alreadyMerged) {
+    // #1313: ancestry alone refuses a rebase/cherry-pick landing whose every
+    // ahead commit the destination already holds as an equivalent patch;
+    // readMergeBackStatus stays raw (its other consumer, the finish dialog,
+    // offers a real merge, where only ancestry means "nothing left to merge").
+    if (status.branchExists && !(await landedInDestination(projectCwd, worktree.branch, destination))) {
       return {
         ok: false,
         reason: `${worktree.branch} has ${status.ahead} commit${status.ahead === 1 ? "" : "s"} ${destination} lacks; land the work first`,
