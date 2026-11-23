@@ -49,6 +49,7 @@
     "./stream-activity": "./src/stream-activity.ts",
     "./approval": "./src/approval.ts",
     "./extension-dialog": "./src/extension-dialog.ts",
+    "./form-dialog": "./src/form-dialog.ts",
     "./ask-dialog": "./src/ask-dialog.ts",
     "./rpc/control-frames": "./src/rpc/control-frames.ts",
     "./remote-instances": "./src/remote-instances.ts",

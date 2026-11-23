@@ -22,6 +22,7 @@ import {
 import { dialogQuestion } from "../lib/session-tile";
 import { useStore } from "../store";
 import { AskFormCard } from "./AskFormCard";
+import { FormHtmlCard } from "./FormHtmlCard";
 import { Button, Chip, Dot, Meter } from "./ui";
 
 /**
@@ -369,7 +370,8 @@ export function ExtensionDialogHost({
       // Skip & send (#1234): while a multi-question ask heads the queue, the
       // composer may settle it cancelled with its draft. An ask never takes
       // free text (freeTextTarget reads "none"), so this is its only route.
-      if (method === "ask") {
+      // The whole-HTML-form frame (#1271) follows the same rule.
+      if (method === "ask" || method === "form") {
         skipHandlers.set(tabId, () => answerExtension(tabId, current, { cancelled: true }));
       }
     }
@@ -390,7 +392,9 @@ export function ExtensionDialogHost({
   const displayTitle =
     method === "ask"
       ? "The agent is asking questions"
-      : (dialogQuestion(current) ?? "extension request");
+      : method === "form"
+        ? "The agent is asking"
+        : (dialogQuestion(current) ?? "extension request");
   const message = strField(current, "message") ?? strField(current, "label") ?? "";
   const reviewEntry =
     reviewing !== null && series !== null
@@ -603,6 +607,17 @@ export function ExtensionDialogHost({
                 answers through answerExtension like the other methods. */}
             {method === "ask" && (
               <AskFormCard
+                key={strField(current, "id") ?? ""}
+                frame={current}
+                onAnswer={(response) => answerExtension(tabId, current, response)}
+              />
+            )}
+
+            {/* The whole-HTML-form frame (issue #1271, omp 19.1): the `ask`
+                tool and ui.formDialog ship the model's <form> as one request;
+                the card answers {data} keyed by control name, or cancelled. */}
+            {method === "form" && (
+              <FormHtmlCard
                 key={strField(current, "id") ?? ""}
                 frame={current}
                 onAnswer={(response) => answerExtension(tabId, current, response)}

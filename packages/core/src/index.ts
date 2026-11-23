@@ -129,6 +129,7 @@ export {
   parseExtensionDialogCancel,
 } from "./extension-dialog";
 export * from "./ask-dialog";
+export * from "./form-dialog";
 export * from "./approval";
 export { escapeHtml } from "./html";
 export { watchLineageDir, type LineageEvent } from "./watcher";

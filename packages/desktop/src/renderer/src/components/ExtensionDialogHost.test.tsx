@@ -824,3 +824,56 @@ describe("multi-question ask form (issue #1234)", () => {
     });
   });
 });
+
+// The omp 19.1 wire frame (issue #1271): method:"form" carries the model's
+// complete HTML <form>; one response carries the submitted data or a cancel.
+const FORM_FRAME = {
+  id: "form1",
+  method: "form",
+  html:
+    "<p>Which store?</p>" +
+    '<label><input type="radio" name="db" value="sqlite" checked> SQLite</label>' +
+    '<label><input type="radio" name="db" value="pg"> Postgres</label>' +
+    '<label><input type="checkbox" name="env" value="docker"> docker</label>' +
+    '<label><input type="checkbox" name="env" value="k8s"> k8s</label>',
+};
+
+describe("whole-HTML-form dialog (issue #1271)", () => {
+  const button = (text: string) =>
+    [...document.body.querySelectorAll<HTMLButtonElement>("button")].find(
+      (candidate) => candidate.textContent?.trim() === text,
+    );
+
+  it("renders the form's controls and opens at its checked defaults", () => {
+    renderDesktopHost([FORM_FRAME]);
+    expect(document.body.textContent).toContain("Which store?");
+    const checked = [...document.body.querySelectorAll<HTMLInputElement>('input[type="radio"]')].filter(
+      (input) => input.checked,
+    );
+    expect(checked.map((input) => input.value)).toEqual(["sqlite"]);
+  });
+
+  it("answers with the submitted data keyed by control name", () => {
+    renderDesktopHost([FORM_FRAME]);
+    const pg = [...document.body.querySelectorAll<HTMLInputElement>('input[type="radio"]')].find(
+      (input) => input.value === "pg",
+    )!;
+    act(() => pg.click());
+    act(() => button("submit")!.click());
+    // The untouched checkbox group carries no key at all; omp applies the
+    // form's own default for a field whose answer is absent.
+    expect(lastFrame()).toEqual({
+      type: "extension_ui_response",
+      id: "form1",
+      data: { db: "pg" },
+    });
+  });
+
+  it("cancels on cancel and stays out of the composer's free-text path", () => {
+    renderDesktopHost([FORM_FRAME]);
+    expect(freeTextTarget(FORM_FRAME)).toBe("none");
+    expect(ask("just a message")).toBe("not-answerable");
+    act(() => button("cancel")!.click());
+    expect(lastFrame()).toMatchObject({ type: "extension_ui_response", id: "form1", cancelled: true });
+  });
+});
