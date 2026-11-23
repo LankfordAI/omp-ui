@@ -72,6 +72,7 @@ const mockBackend = {
   onSessionHibernated: vi.fn(),
   onSessionsAutoSettled: vi.fn(),
   onFocusSession: vi.fn(),
+  onFocusRoutine: vi.fn(),
   onShellData: vi.fn(),
   onFleetTerminalData: vi.fn(),
   onShellExit: vi.fn(),

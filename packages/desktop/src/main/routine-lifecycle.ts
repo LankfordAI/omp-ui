@@ -1,6 +1,8 @@
 import {
   APPROVAL_DENY,
+  DEFAULT_ROUTINE_NOTIFICATIONS,
   ROUTINE_APPROVAL_TIMEOUT_MS,
+  ROUTINE_REASON_LABEL,
   ROUTINE_RUN_SETTLE_GRACE_MS,
   isNonTerminalAgentEnd,
   isObject,
@@ -8,6 +10,8 @@ import {
   normalizeControlFrame,
   parseApprovalPrompt,
   parseExtensionDialogCancel,
+  routineAllowsAgentNotification,
+  type RoutineNotifications,
   type RoutineRunHistory,
   type RoutineRunReasonCode,
   type RoutineRunRow,
@@ -16,6 +20,7 @@ import {
   type RoutineWorkspace,
   type RpcFrame,
 } from "@omp-ui/core";
+import type { RoutineNotificationPayload } from "./desktop-notifier";
 import type { FrameObserver } from "./frame-observer";
 import type { RoutineScriptEnv, RoutineScriptResult } from "./routine-scripts";
 
@@ -29,10 +34,13 @@ type RowPatch = Partial<Pick<RoutineRunRow, "outcome" | "reasonCode" | "postScri
 export interface RoutineRunPin {
   scripts: RoutineScripts;
   routineId: string;
+  routineName: string;
   projectCwd: string;
   workspace: RoutineWorkspace;
   /** Resolved fire-time wall-clock budget in ms; null = unlimited (#1290). */
   wallClockMs: number | null;
+  /** Fire-time notification preferences (#1294). */
+  notifications: RoutineNotifications;
 }
 
 export interface RoutineLifecycleDeps {
@@ -56,6 +64,10 @@ export interface RoutineLifecycleDeps {
   runDirectory: (tabId: string) => string | null;
   /** Publishes `routines:state`. */
   publish: () => void;
+  /** Posts a per-routine OS notification (#1294). */
+  notifyRoutine?: (payload: RoutineNotificationPayload) => void;
+  /** Clears a routine tab's notification (e.g. when an Approval card closes). */
+  clearRoutineNotification?: (tabId: string) => void;
   now?: () => number;
 }
 
@@ -76,6 +88,12 @@ interface RunState {
   /** Post-run hook pin (#1283), set by trackStart from the fire-time record. */
   postCommand: string;
   routineId: string;
+  routineName: string;
+  notifications: RoutineNotifications;
+  bound: boolean;
+  agentNotified: boolean;
+  pendingApprovalTool: string | null;
+  completionNotified: boolean;
   projectCwd: string;
   workspace: RoutineWorkspace;
   /** Pinned at bind; never re-read — releaseWorktree clears record.worktree before reclaiming. */
@@ -109,6 +127,12 @@ export class RoutineLifecycleManager implements FrameObserver {
     return this.postRunningTabs.has(tabId);
   }
 
+  /** Records that the run posted a notification via omp-ui_notify (#1294). */
+  markAgentNotified(tabId: string): void {
+    if (!this.runs.has(tabId) && !this.deps.isRoutineTab(tabId)) return;
+    this.state(tabId).agentNotified = true;
+  }
+
   /** Binds a freshly dispatched run: its history row and the wall clock from fire. */
   trackStart(
     tabId: string,
@@ -126,6 +150,9 @@ export class RoutineLifecycleManager implements FrameObserver {
     // needs a human Finish or 30-day retention), so this one read is correct.
     state.postCommand = pinned.scripts.post;
     state.routineId = pinned.routineId;
+    state.routineName = pinned.routineName;
+    state.notifications = { ...pinned.notifications };
+    state.bound = true;
     state.projectCwd = pinned.projectCwd;
     state.workspace = pinned.workspace;
     if (state.runDir === null) state.runDir = this.deps.runDirectory(tabId);
@@ -133,6 +160,15 @@ export class RoutineLifecycleManager implements FrameObserver {
       this.deps.history.update(runRowId, state.pending);
       state.pending = {};
       this.deps.publish();
+    }
+    if (state.finalized) {
+      this.emitTerminalNotification(tabId, state);
+    } else if (state.approvals.size > 0 && state.pendingApprovalTool !== null) {
+      const toolName = state.pendingApprovalTool;
+      state.pendingApprovalTool = null;
+      if (state.notifications.onApproval) {
+        this.emitApprovalNotification(tabId, state, toolName);
+      }
     }
     // Pre-bind race: a terminal agent_end or exit may have finalized the run
     // before binding (outcome buffered in pending). That run still gets exactly
@@ -174,10 +210,20 @@ export class RoutineLifecycleManager implements FrameObserver {
 
     const control = normalizeControlFrame(frame);
     if (control?.kind === "ext_request" && control.method === "select" && typeof control.id === "string") {
-      if (parseApprovalPrompt(frame.title, frame.options) === null) return;
+      const prompt = parseApprovalPrompt(frame.title, frame.options);
+      if (prompt === null) return;
       state.approvals.set(control.id, this.now() + ROUTINE_APPROVAL_TIMEOUT_MS);
       state.settleDeadline = null;
-      if (!state.finalized) this.writeRow(state, { outcome: "waiting-approval" });
+      if (!state.finalized) {
+        this.writeRow(state, { outcome: "waiting-approval" });
+        if (state.bound) {
+          if (state.notifications.onApproval) {
+            this.emitApprovalNotification(tabId, state, prompt.toolName);
+          }
+        } else {
+          state.pendingApprovalTool = prompt.toolName;
+        }
+      }
       this.schedule(tabId, state);
       return;
     }
@@ -223,7 +269,7 @@ export class RoutineLifecycleManager implements FrameObserver {
     if (state === undefined) return;
     clearTimeout(state.timer);
     // A run that died before its terminal end (pre-turn failure, quit) still gets a fixed outcome.
-    if (!state.finalized) this.finalize(state, { outcome: "failed", reasonCode: state.failure ?? "error" });
+    if (!state.finalized) this.finalize(tabId, state, { outcome: "failed", reasonCode: state.failure ?? "error" });
     // The row write only needs state.runRowId and the latch lives in
     // postRunningTabs, so removing the map entry cannot hide a live hook (#1283).
     if (this.claimPost(state)) void this.runPostScript(tabId, state);
@@ -256,6 +302,12 @@ export class RoutineLifecycleManager implements FrameObserver {
         timer: undefined,
         postCommand: "",
         routineId: "",
+        routineName: "",
+        notifications: { ...DEFAULT_ROUTINE_NOTIFICATIONS },
+        bound: false,
+        agentNotified: false,
+        pendingApprovalTool: null,
+        completionNotified: false,
         projectCwd: "",
         workspace: "worktree",
         runDir: null,
@@ -277,13 +329,46 @@ export class RoutineLifecycleManager implements FrameObserver {
     this.deps.publish();
   }
 
-  private finalize(state: RunState, patch: RowPatch): void {
+  private finalize(tabId: string, state: RunState, patch: RowPatch): void {
     state.finalized = true;
     if (patch.outcome !== undefined && patch.outcome !== "running" && patch.outcome !== "waiting-approval") {
       state.finalOutcome = patch.outcome === "late" ? "late" : patch.outcome === "on-time" ? "on-time" : "failed";
       state.finalReason = patch.reasonCode ?? null;
     }
     this.writeRow(state, patch);
+    if (state.bound) this.emitTerminalNotification(tabId, state);
+  }
+
+  private emitApprovalNotification(tabId: string, state: RunState, toolName: string): void {
+    this.deps.notifyRoutine?.({
+      routineId: state.routineId,
+      tabId,
+      title: state.routineName,
+      body: toolName.trim() !== "" ? `Approval needed: ${toolName}` : "Approval needed",
+    });
+  }
+
+  private emitTerminalNotification(tabId: string, state: RunState): void {
+    if (state.completionNotified || state.finalOutcome === null) return;
+    state.completionNotified = true;
+    if (state.finalOutcome === "failed") {
+      if (!state.notifications.onFail) return;
+      this.deps.notifyRoutine?.({
+        routineId: state.routineId,
+        tabId,
+        title: state.routineName,
+        body: `Failed — ${ROUTINE_REASON_LABEL[state.finalReason ?? "error"]}`,
+      });
+      return;
+    }
+    if (!state.notifications.onComplete) return;
+    if (routineAllowsAgentNotification(state.notifications) && state.agentNotified) return;
+    this.deps.notifyRoutine?.({
+      routineId: state.routineId,
+      tabId,
+      title: state.routineName,
+      body: state.autoDenied ? "Completed (an approval request timed out)" : "Completed",
+    });
   }
 
   /** First finalizer wins the hook; every later path returns false (#1283). */
@@ -330,7 +415,7 @@ export class RoutineLifecycleManager implements FrameObserver {
   /** First finalizer: finalize → claim → hook → arm Settle, with a fence after the await. */
   private async finishRun(tabId: string, state: RunState, patch: RowPatch): Promise<void> {
     const first = !state.finalized;
-    if (first) this.finalize(state, patch); // finalize() also stores finalOutcome/finalReason
+    if (first) this.finalize(tabId, state, patch); // finalize() also stores finalOutcome/finalReason
     if (first && this.claimPost(state)) await this.runPostScript(tabId, state);
     // Fence: `agent_start`, a card, an exit, or disposeAll() may have happened during the hook.
     if (this.runs.get(tabId) !== state) return;
@@ -359,7 +444,11 @@ export class RoutineLifecycleManager implements FrameObserver {
 
   private closeApproval(tabId: string, state: RunState, frameId: string): void {
     if (!state.approvals.delete(frameId)) return;
-    if (state.approvals.size === 0 && !state.finalized) this.writeRow(state, { outcome: "running" });
+    if (state.approvals.size === 0 && !state.finalized) {
+      state.pendingApprovalTool = null;
+      this.writeRow(state, { outcome: "running" });
+      this.deps.clearRoutineNotification?.(tabId);
+    }
     this.schedule(tabId, state);
   }
 
@@ -401,18 +490,24 @@ export class RoutineLifecycleManager implements FrameObserver {
       state.wallDeadline = null;
       state.settleDeadline = null;
       state.approvals.clear();
-      this.finalize(state, { outcome: "failed", reasonCode: "wall-clock" });
+      this.finalize(tabId, state, { outcome: "failed", reasonCode: "wall-clock" });
       void this.reapThenPost(tabId, state);
       return;
     }
 
+    let expiredApproval = false;
     for (const [frameId, deadline] of [...state.approvals]) {
       if (deadline > now) continue;
       state.approvals.delete(frameId);
+      expiredApproval = true;
       // Answer only a card still open: a human or omp may have settled it meanwhile.
       if (!this.deps.openDialogIds(tabId).includes(frameId)) continue;
       state.autoDenied = true;
       this.deps.rpcSend(tabId, { type: "extension_ui_response", id: frameId, value: APPROVAL_DENY });
+    }
+    if (expiredApproval && state.approvals.size === 0 && !state.finalized) {
+      state.pendingApprovalTool = null;
+      this.deps.clearRoutineNotification?.(tabId);
     }
 
     if (state.settleDeadline !== null && state.settleDeadline <= now) {

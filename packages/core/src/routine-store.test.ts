@@ -2,7 +2,7 @@ import * as fs from "node:fs";
 import * as os from "node:os";
 import * as path from "node:path";
 import { afterEach, describe, expect, it } from "vitest";
-import type { RoutineRecord, RoutineRunRow } from "./routine";
+import { DEFAULT_ROUTINE_NOTIFICATIONS, type RoutineRecord, type RoutineRunRow } from "./routine";
 import { RoutineRunHistory, RoutineStore } from "./routine-store";
 
 const dirs: string[] = [];
@@ -41,6 +41,7 @@ function record(overrides: Partial<RoutineRecord> = {}): RoutineRecord {
     },
     scripts: { pre: "", post: "" },
     timeoutMinutes: null,
+    notifications: { ...DEFAULT_ROUTINE_NOTIFICATIONS },
     enabled: true,
     createdAt: "2026-11-20T12:00:00.000Z",
     nextRunAtMs: null,
@@ -154,6 +155,47 @@ describe("RoutineStore timeoutMinutes normalization (#1290)", () => {
     );
     const clean = new RoutineStore(malformedFile);
     expect(clean.list().map((r) => r.id)).toEqual([VALID_ID]);
+  });
+});
+
+describe("RoutineStore notifications normalization (#1294)", () => {
+  it("backfills a legacy record missing notifications to all-off once and round-trips", () => {
+    const file = tempFile("routines");
+    const legacy = { ...record() } as Partial<RoutineRecord>;
+    delete legacy.notifications;
+    fs.writeFileSync(file, JSON.stringify({ schemaVersion: 1, routines: [legacy] }), "utf8");
+
+    const store = new RoutineStore(file);
+    expect(store.get(VALID_ID)?.notifications).toEqual(DEFAULT_ROUTINE_NOTIFICATIONS);
+    const onDisk = JSON.parse(fs.readFileSync(file, "utf8")) as { routines: Array<Record<string, unknown>> };
+    expect(onDisk.routines[0]!.notifications).toEqual(DEFAULT_ROUTINE_NOTIFICATIONS);
+
+    const reloaded = new RoutineStore(file);
+    expect(reloaded.get(VALID_ID)?.notifications).toEqual(DEFAULT_ROUTINE_NOTIFICATIONS);
+  });
+
+  it("preserves configured notifications and drops records with malformed notifications", () => {
+    const file = tempFile("routines");
+    const store = new RoutineStore(file);
+    const custom = { ...DEFAULT_ROUTINE_NOTIFICATIONS, onComplete: true, agentMessage: true, onFail: true };
+    store.add(record({ notifications: custom }));
+    const reloaded = new RoutineStore(file);
+    expect(reloaded.get(VALID_ID)?.notifications).toEqual(custom);
+
+    const badFile = tempFile("routines-bad-notif");
+    fs.writeFileSync(
+      badFile,
+      JSON.stringify({
+        schemaVersion: 1,
+        routines: [
+          record({ id: VALID_ID }),
+          { ...record({ id: "b".repeat(22) }), notifications: null },
+          { ...record({ id: "c".repeat(22) }), notifications: { onStart: "yes" } },
+        ],
+      }),
+      "utf8",
+    );
+    expect(new RoutineStore(badFile).list().map((r) => r.id)).toEqual([VALID_ID]);
   });
 });
 

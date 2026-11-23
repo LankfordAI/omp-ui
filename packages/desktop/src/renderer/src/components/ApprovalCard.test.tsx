@@ -340,6 +340,7 @@ describe("ApprovalCard on a Routine run (ADR-0100, issue #1261)", () => {
             },
             scripts: { pre: "", post: "" },
             timeoutMinutes: null,
+            notifications: { onStart: false, onComplete: false, onFail: false, onApproval: false, agentMessage: false },
             createdAt: "2026-11-01T00:00:00.000Z",
             nextRunAtMs: null,
             lastRunAtMs: null,

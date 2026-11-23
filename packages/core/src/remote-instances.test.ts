@@ -190,6 +190,7 @@ describe("routines channels (ADR-0100, U13)", () => {
     expect(routineChannels.sort()).toEqual([
       "routines:create",
       "routines:dryRun",
+      "routines:focus",
       "routines:getState",
       "routines:remove",
       "routines:runNow",

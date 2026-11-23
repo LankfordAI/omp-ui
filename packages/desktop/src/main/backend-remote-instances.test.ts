@@ -223,6 +223,7 @@ describe("routines across hosts (ADR-0100, U13)", () => {
       toolPolicy: { allow: ["read"], deny: [], lastReviewedAt: "2026-11-22T00:00:00.000Z", reviewedCatalog: ["read"] },
       scripts: { pre: "", post: "" },
       timeoutMinutes: null,
+      notifications: { onStart: false, onComplete: false, onFail: false, onApproval: false, agentMessage: false },
       enabled: false,
     });
     const state = await remote[CH.getRoutinesState]();

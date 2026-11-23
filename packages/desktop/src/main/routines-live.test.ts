@@ -22,6 +22,8 @@ import {
   parseApprovalPrompt,
   privateChildEnv,
   privateGuardArmMessage,
+  ROUTINE_NOTIFY_TOOL_KEY,
+  hostToolTextResult,
   resolveOmpBinary,
   routineGuardArmMessage,
   setHostToolsCommand,
@@ -442,6 +444,8 @@ function spawnLiveScope(opts: {
   extraExtensions?: Array<(lineage: string) => string>;
   initialCommands?: object[];
   autoAnswer?: "Deny" | "Approve" | null;
+  /** Answers every host_tool_call with this text, as the desktop bridge would. */
+  hostToolAnswer?: string;
 }): LiveScope {
   if (opts.exportedAutoRetain === true) vi.stubEnv(HINDSIGHT_AUTO_RETAIN_ENV, "true");
   else vi.unstubAllEnvs();
@@ -610,6 +614,9 @@ function spawnLiveScope(opts: {
             client.send({ type: "extension_ui_response", id: frame.id, value: answer });
           }
         }
+      }
+      if (opts.hostToolAnswer !== undefined && frame.type === "host_tool_call" && typeof frame.id === "string") {
+        client.send(hostToolTextResult(frame.id, opts.hostToolAnswer));
       }
     },
     onExit: () => markExited(),
@@ -1147,5 +1154,59 @@ describe.skipIf(ompPath === null)("Routines compiled tool policy & guardrails on
     expect(humanHostTools).toContain(ISSUE_DRAFT_TOOL_NAME);
     expect(humanHostTools).toContain(ISSUE_FILE_TOOL_NAME);
     expect(humanHostTools.some((t) => t.startsWith("omp-ui_vault_"))).toBe(true);
+  });
+
+  it("L7: compiled omp-ui_notify allow runs the host tool unprompted; without it the call raises an Approval card (#1294)", async () => {
+    const runNotifyScope = async (allowAgentNotify: boolean) => {
+      const provider = trackProvider(
+        await startScriptedProvider(({ assistantTurns }) =>
+          assistantTurns === 0
+            ? { toolCalls: [{ id: "call_notify", name: ROUTINE_NOTIFY_TOOL_KEY, args: { message: "Routine done: 0 issues." } }] }
+            : { text: "finished L7" },
+        ),
+      );
+      const compiled = compileRoutineToolPolicy(
+        {
+          allow: ["read"],
+          deny: [],
+          lastReviewedAt: "2026-11-22T00:00:00.000Z",
+          reviewedCatalog: baseCatalog().tools.map((t) => t.key),
+        },
+        baseCatalog(),
+        { allowAgentNotify },
+      );
+      expect(compiled.overlayEntries[ROUTINE_NOTIFY_TOOL_KEY]).toBe(allowAgentNotify ? "allow" : undefined);
+      const scope = spawnLiveScope({
+        baseUrl: provider.baseUrl,
+        approvalEntries: compiled.overlayEntries,
+        autoAnswer: "Deny",
+        hostToolAnswer: "posted",
+        initialCommands: [
+          setHostToolsCommand(
+            { vault: false, fleet: false, device: false, theme: false, issues: false, artifacts: false, routines: false },
+            "omp-ui-host-tools-l7",
+          ),
+        ],
+      });
+      await waitFor(
+        () => scope.frames.find((f) => f.type === "response" && f.id === "omp-ui-host-tools-l7" && f.success === true),
+        30_000,
+        `set_host_tools response (${scope.diagnostics()})`,
+      );
+      await runTurn(scope, "Run L7 probe.");
+      const hostCalls = scope.frames.filter(
+        (f) => f.type === "host_tool_call" && (f as Frame & { toolName?: string }).toolName === ROUTINE_NOTIFY_TOOL_KEY,
+      );
+      return { approvals: scope.approvalPrompts, hostCalls };
+    };
+
+    const allowed = await runNotifyScope(true);
+    expect(allowed.approvals).toHaveLength(0);
+    expect(allowed.hostCalls).toHaveLength(1);
+
+    const prompted = await runNotifyScope(false);
+    expect(prompted.approvals).toHaveLength(1);
+    expect(prompted.approvals[0]!.parsed.toolName).toBe(ROUTINE_NOTIFY_TOOL_KEY);
+    expect(prompted.hostCalls).toHaveLength(0);
   });
 });

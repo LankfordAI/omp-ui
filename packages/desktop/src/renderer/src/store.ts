@@ -527,6 +527,9 @@ export const useStore = create<UiStore>()((set, get, api) => {
       backend.onFocusSession((tabId) => {
         void get().openSession(tabId);
       });
+      backend.onFocusRoutine((routineId) => {
+        get().focusRoutine(routineId);
+      });
       backend.onShellData((tabId, data) => shellWriters.get(tabId)?.(data));
       backend.onFleetTerminalData((terminalId, data) => fleetTerminalWriters.get(terminalId)?.(data));
       backend.onShellExit((tabId, code) => {

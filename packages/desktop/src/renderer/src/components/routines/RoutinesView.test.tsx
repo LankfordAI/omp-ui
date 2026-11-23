@@ -47,6 +47,7 @@ function routine(patch: Partial<RoutineRecord> = {}): RoutineRecord {
     toolPolicy: { allow: ["read", "mcp__gmail_list"], deny: [], lastReviewedAt: "2026-11-01T00:00:00.000Z", reviewedCatalog: ["read", "bash", "mcp__gmail_list"] },
     scripts: { pre: "", post: "" },
     timeoutMinutes: null,
+    notifications: { onStart: false, onComplete: false, onFail: false, onApproval: false, agentMessage: false },
     enabled: true,
     createdAt: "2026-11-01T00:00:00.000Z",
     nextRunAtMs: Date.UTC(2026, 10, 23, 8),
@@ -224,6 +225,7 @@ describe("RoutinesView (ADR-0100, issue #1261)", () => {
       enumerationError: null,
       scripts: { pre: "", post: "" },
       timeoutMinutes: 30,
+      notifications: { onStart: false, onComplete: false, onFail: false, onApproval: false, agentMessage: false },
     };
     dryRunRoutine.mockResolvedValueOnce(result);
     render();
@@ -313,6 +315,7 @@ describe("RoutinesView (ADR-0100, issue #1261)", () => {
       enumerationError: null,
       scripts: { pre: "", post: "" },
       timeoutMinutes: 30,
+      notifications: { onStart: false, onComplete: false, onFail: false, onApproval: false, agentMessage: false },
     };
     dryRunRoutine.mockResolvedValueOnce(result);
     render();
@@ -495,6 +498,7 @@ describe("RoutinesView run hooks (#1283)", () => {
       enumerationError: null,
       scripts: { pre: "", post: "npm test" },
       timeoutMinutes: 30,
+      notifications: { onStart: false, onComplete: false, onFail: false, onApproval: false, agentMessage: false },
     });
     render();
     await settle();
@@ -698,6 +702,7 @@ describe("RoutinesView configurable timeout (#1290)", () => {
       enumerationError: null,
       scripts: { pre: "", post: "" },
       timeoutMinutes: 120,
+      notifications: { onStart: false, onComplete: false, onFail: false, onApproval: false, agentMessage: false },
     };
     dryRunRoutine.mockResolvedValueOnce(baseDryRun);
     render();
@@ -710,5 +715,102 @@ describe("RoutinesView configurable timeout (#1290)", () => {
     await act(async () => buttonNamed("Dry run").click());
     await settle();
     expect(document.querySelector("[data-dry-run]")?.textContent).toContain("timeout Unlimited");
+  });
+});
+
+describe("RoutinesView notifications (#1294)", () => {
+  function checkbox(label: string): HTMLInputElement {
+    const found = [...document.querySelectorAll<HTMLLabelElement>("[data-routine-notifications] label")].find(
+      (l) => l.textContent?.trim() === label,
+    );
+    if (!found) throw new Error(`no "${label}" checkbox`);
+    return found.querySelector("input")!;
+  }
+
+  it("defaults all off, gates agentMessage on onComplete, and saves the selections", async () => {
+    let current = routine();
+    const updateRoutine = vi.fn(async (_id: string, patch: unknown) => {
+      current = { ...current, ...(patch as Partial<RoutineRecord>) };
+      useStore.setState({ routinesState: routinesState({ routines: [current] }) });
+      return current;
+    });
+    useStore.setState({ updateRoutine });
+    render();
+    await settle();
+
+    for (const label of ["When routine starts", "When approval is needed", "When routine completes", "Let agent write completion message", "When routine fails"]) {
+      expect(checkbox(label).checked).toBe(false);
+    }
+    expect(checkbox("Let agent write completion message").disabled).toBe(true);
+
+    act(() => checkbox("When routine completes").click());
+    expect(checkbox("Let agent write completion message").disabled).toBe(false);
+    act(() => checkbox("Let agent write completion message").click());
+    act(() => checkbox("When routine fails").click());
+    await act(async () => buttonNamed("Save routine").click());
+    await settle();
+    expect(updateRoutine).toHaveBeenLastCalledWith(
+      current.id,
+      expect.objectContaining({
+        notifications: { onStart: false, onComplete: true, onFail: true, onApproval: false, agentMessage: true },
+      }),
+    );
+  });
+
+  it("links to Settings when desktop notifications are off globally", async () => {
+    const openSettings = vi.fn();
+    useStore.setState((s) => ({ state: { ...s.state!, desktopNotifications: false }, openSettings }));
+    render();
+    await settle();
+    const note = document.querySelector("[data-routine-notifications-disabled-note]");
+    expect(note?.textContent).toContain("Desktop notifications are off in Settings → General.");
+    act(() => buttonNamed("Open Settings").click());
+    expect(openSettings).toHaveBeenCalledWith("general");
+  });
+
+  it("summarizes active notification events in the Dry run panel", async () => {
+    dryRunRoutine.mockResolvedValueOnce({
+      routineId: "a".repeat(22),
+      nextFireAtMs: null,
+      compiled: {
+        approvalMode: "always-ask",
+        overlayEntries: { read: "allow", "omp-ui_notify": "allow" },
+        deniedBuiltins: [],
+        addedLater: [],
+        missingFromCatalog: [],
+        cliBypassToolsAllowed: [],
+        cliBypassWarning: false,
+        overlayYamlPreview: "tools:\n",
+        warnings: [],
+      },
+      warnCostUsd: 2,
+      maxCostUsd: 5,
+      staleServers: [],
+      enumerationError: null,
+      scripts: { pre: "", post: "" },
+      timeoutMinutes: 30,
+      notifications: { onStart: true, onComplete: true, onFail: true, onApproval: true, agentMessage: true },
+    } satisfies RoutineDryRunResult);
+    render();
+    await settle();
+    await act(async () => buttonNamed("Dry run").click());
+    await settle();
+    expect(document.querySelector("[data-dry-run-notifications]")?.textContent).toBe(
+      "Notifications: start, approval, complete (agent message), fail",
+    );
+    expect(document.body.textContent).toContain("omp-ui_notify");
+  });
+
+  it("selects a focused routine once routinesState arrives after navigation", async () => {
+    const second = routine({ id: "b".repeat(22), name: "Evening digest" });
+    useStore.setState({ routinesState: null, routineFocusId: second.id });
+    render();
+    await settle();
+    // Focus request survives while state is still null.
+    expect(useStore.getState().routineFocusId).toBe(second.id);
+    act(() => useStore.setState({ routinesState: routinesState({ routines: [routine(), second] }) }));
+    await settle();
+    expect(useStore.getState().routineFocusId).toBeNull();
+    expect((document.querySelector('input[aria-label="Name"]') as HTMLInputElement).value).toBe("Evening digest");
   });
 });

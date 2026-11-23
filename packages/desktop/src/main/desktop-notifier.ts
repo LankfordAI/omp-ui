@@ -15,6 +15,13 @@ import { CH } from "@omp-ui/core";
 
 export type AttentionKind = "turn-complete" | "plan-pending" | "stall-paused" | "project-request";
 
+export interface RoutineNotificationPayload {
+  routineId: string;
+  tabId: string | null;
+  title: string;
+  body: string;
+}
+
 /** The frame-derived attention transitions SessionManager reports. */
 export interface Attention {
   /** A turn started on this tab: activity answers every pending attention. */
@@ -50,6 +57,8 @@ export interface DesktopNotifierDeps {
   icon: () => string | null;
   /** Fans the notification-click event out to every renderer sink. */
   send: (channel: string, ...args: unknown[]) => void;
+  /** True when the tab belongs to a Routine run (#1294). */
+  isRoutineTab?: (tabId: string) => boolean;
 }
 
 interface TabAttention {
@@ -78,6 +87,7 @@ const COPY = {
 
 export class DesktopNotifier implements Attention {
   private readonly tabs = new Map<string, TabAttention>();
+  private readonly routineNotifications = new Map<string, Notification>();
   private warnedUnsupported = false;
   private warnedShowFailure = false;
 
@@ -90,6 +100,7 @@ export class DesktopNotifier implements Attention {
   }
 
   turnEnded(tabId: string): void {
+    if (this.deps.isRoutineTab?.(tabId) === true) return;
     this.schedule(tabId, "turn-complete", null);
   }
 
@@ -111,6 +122,7 @@ export class DesktopNotifier implements Attention {
 
   viewedChanged(tabId: string): void {
     this.drop(tabId);
+    this.clearRoutine(tabId);
   }
 
   sessionExit(tabId: string): void {
@@ -126,6 +138,71 @@ export class DesktopNotifier implements Attention {
   /** Clears every timer and closes every notification (app quit). */
   dispose(): void {
     for (const tabId of [...this.tabs.keys()]) this.drop(tabId);
+    for (const notification of this.routineNotifications.values()) notification.close();
+    this.routineNotifications.clear();
+  }
+
+  // --- routine lifecycle notifications (#1294) ---------------------------
+
+  /**
+   * Posts one per-routine OS notification immediately. Replaces any prior
+   * banner for the same run (or routine for pre-spawn failures) and survives
+   * 60 s self-settle until the run tab is viewed, cleared, or the app quits.
+   */
+  notifyRoutine(payload: RoutineNotificationPayload): void {
+    if (!this.enabled()) return;
+    const win = this.deps.win;
+    if (
+      payload.tabId !== null &&
+      !win.isDestroyed() &&
+      win.isFocused() &&
+      this.deps.isViewedByDesktop(payload.tabId)
+    ) {
+      return;
+    }
+    const key = payload.tabId ?? `routine:${payload.routineId}`;
+    const prev = this.routineNotifications.get(key);
+    if (prev !== undefined) {
+      prev.close();
+      this.routineNotifications.delete(key);
+    }
+    let notification: Notification;
+    try {
+      const icon = this.deps.icon();
+      notification = new Notification({
+        title: payload.title,
+        body: payload.body,
+        ...(icon !== null ? { icon } : {}),
+      });
+    } catch (err) {
+      if (!this.warnedShowFailure) {
+        this.warnedShowFailure = true;
+        console.warn("[notifier] could not create notification:", err);
+      }
+      return;
+    }
+    notification.on("click", () => {
+      if (payload.tabId !== null) this.focusSession(payload.tabId);
+      else this.focusRoutine(payload.routineId);
+    });
+    try {
+      notification.show();
+    } catch (err) {
+      if (!this.warnedShowFailure) {
+        this.warnedShowFailure = true;
+        console.warn("[notifier] could not show notification:", err);
+      }
+      return;
+    }
+    this.routineNotifications.set(key, notification);
+  }
+
+  /** Closes any active routine banner for a run tab (viewed or approval closed). */
+  clearRoutine(tabId: string): void {
+    const prev = this.routineNotifications.get(tabId);
+    if (prev === undefined) return;
+    prev.close();
+    this.routineNotifications.delete(tabId);
   }
 
   // --- direct post (host tool, issue #688) -------------------------------
@@ -155,6 +232,7 @@ export class DesktopNotifier implements Attention {
       return "the desktop refused to create the notification";
     }
     notification.on("click", () => this.focusSession(tabId));
+    this.clearRoutine(tabId);
     try {
       notification.show();
     } catch (err) {
@@ -163,6 +241,9 @@ export class DesktopNotifier implements Attention {
         console.warn("[notifier] could not show notification:", err);
       }
       return "the desktop refused to show the notification";
+    }
+    if (this.deps.isRoutineTab?.(tabId) === true) {
+      this.routineNotifications.set(tabId, notification);
     }
     return "posted";
   }
@@ -299,5 +380,14 @@ export class DesktopNotifier implements Attention {
     win.show();
     win.focus();
     this.deps.send(CH.onFocusSession, tabId);
+  }
+
+  private focusRoutine(routineId: string): void {
+    const win = this.deps.win;
+    if (win.isDestroyed()) return;
+    if (win.isMinimized()) win.restore();
+    win.show();
+    win.focus();
+    this.deps.send(CH.onFocusRoutine, routineId);
   }
 }

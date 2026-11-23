@@ -2378,6 +2378,8 @@ export const BACKEND_CHANNELS = {
     ...request<[projectCwd: string], RoutineCatalogSnapshot>([str()]),
   },
   onRoutinesState: { channel: "routines:state", ...event<[state: RoutinesState]>() },
+  /** OS notification click for a pre-spawn routine failure (#1294): opens Routines and selects the routine. */
+  onFocusRoutine: { channel: "routines:focus", ...event<[routineId: string]>() },
   /**
    * MCP endpoint (issue #996, ADR-0080). Host-local like the remote:* channels:
    * never in REMOTE_PROXY_CHANNELS, and the state carries no token.

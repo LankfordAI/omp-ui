@@ -3,11 +3,14 @@ import * as os from "node:os";
 import * as path from "node:path";
 import { afterEach, describe, expect, it } from "vitest";
 import {
+  DEFAULT_ROUTINE_NOTIFICATIONS,
   ROUTINE_DEFAULT_TIMEOUT_MINUTES,
   ROUTINE_INSTRUCTIONS_MAX,
   ROUTINE_NAME_MAX,
+  ROUTINE_NOTIFY_TOOL_KEY,
   ROUTINE_SCRIPT_MAX,
   ROUTINE_TIMEOUT_MAX_MINUTES,
+  compileRoutineToolPolicy,
   isRoutineRecord,
   isRoutineRunRow,
   isSessionRoutine,
@@ -17,6 +20,7 @@ import {
   parseRoutineInput,
   parseRoutinePatch,
   parseRoutineTestScriptRequest,
+  routineAllowsAgentNotification,
   routineFocusUri,
   routineInputFromAgentCreate,
   resolveRoutineTimeoutMinutes,
@@ -25,6 +29,7 @@ import {
   routinePrompt,
   routineRunTitle,
   routineToolKeyFromApprovalName,
+  type RoutineCatalogSnapshot,
   type RoutineInput,
   type RoutineRecord,
   type RoutineRunRow,
@@ -54,6 +59,7 @@ function sampleInput(): RoutineInput {
     },
     scripts: { pre: "", post: "" },
     timeoutMinutes: null,
+    notifications: { ...DEFAULT_ROUTINE_NOTIFICATIONS },
     enabled: true,
   };
 }
@@ -625,5 +631,133 @@ describe("routineToolKeyFromApprovalName (#1276)", () => {
     expect(routineToolKeyFromApprovalName("   ")).toBe("");
     expect(routineToolKeyFromApprovalName("ba\nsh")).toBe("");
     expect(routineToolKeyFromApprovalName("read\x00")).toBe("");
+  });
+});
+
+describe("routine notifications (#1294)", () => {
+  const catalog: RoutineCatalogSnapshot = {
+    tools: [
+      { key: "read", source: "builtin", group: "builtin", groupLabel: "Built-in tools", description: "" },
+      { key: "bash", source: "builtin", group: "builtin", groupLabel: "Built-in tools", description: "" },
+    ],
+    staleServers: [],
+    enumerationError: null,
+    capturedAt: "2026-11-23T00:00:00.000Z",
+  };
+
+  it("defaults omitted notifications on create input and agent create, and validates patches and leaves strictly", () => {
+    const legacy = { ...sampleInput() } as Partial<RoutineInput>;
+    delete legacy.notifications;
+    expect(parseRoutineInput(legacy).notifications).toEqual(DEFAULT_ROUTINE_NOTIFICATIONS);
+
+    const parsed = parseRoutineInput({
+      ...sampleInput(),
+      notifications: { onStart: true, onComplete: true, agentMessage: true },
+    });
+    expect(parsed.notifications).toEqual({
+      onStart: true,
+      onComplete: true,
+      onFail: false,
+      onApproval: false,
+      agentMessage: true,
+    });
+
+    expect(() => parseRoutineInput({ ...sampleInput(), notifications: null })).toThrow(/notifications must be an object/);
+    expect(() => parseRoutineInput({ ...sampleInput(), notifications: { onStart: "yes" } })).toThrow(
+      /notifications\.onStart must be a boolean/,
+    );
+    expect(() => parseRoutineInput({ ...sampleInput(), notifications: { extra: true } })).toThrow(
+      /unknown notifications field/,
+    );
+
+    expect(parseRoutinePatch({ notifications: { onFail: true } }).notifications).toEqual({
+      ...DEFAULT_ROUTINE_NOTIFICATIONS,
+      onFail: true,
+    });
+    expect(() => parseRoutinePatch({ notifications: { onApproval: 1 } })).toThrow(
+      /notifications\.onApproval must be a boolean/,
+    );
+
+    const agentArgs = parseRoutineAgentCreateArgs({
+      name: "Nightly",
+      instructions: "Check CI",
+      schedule: { kind: "cron", expr: "@daily" },
+      timeZone: "UTC",
+      projectCwd: "/repo",
+      mode: "build",
+      allow: ["read"],
+      notifications: { onFail: true },
+    });
+    expect(routineInputFromAgentCreate(agentArgs, "2026-11-23T00:00:00.000Z").notifications).toEqual({
+      ...DEFAULT_ROUTINE_NOTIFICATIONS,
+      onFail: true,
+    });
+  });
+
+  it("merges notifications leaf-by-leaf on agent update and rejects empty/malformed notifications", () => {
+    const current = {
+      ...sampleRecord(),
+      notifications: {
+        onStart: true,
+        onComplete: true,
+        onFail: false,
+        onApproval: false,
+        agentMessage: false,
+      },
+    };
+    const patch = routinePatchFromAgentUpdate(
+      current,
+      parseRoutineAgentUpdateArgs({ id: VALID_ID, notifications: { onFail: true, agentMessage: true } }),
+      "2026-11-23T00:00:00.000Z",
+    );
+    expect(patch.enabled).toBe(false);
+    expect(patch.notifications).toEqual({
+      onStart: true,
+      onComplete: true,
+      onFail: true,
+      onApproval: false,
+      agentMessage: true,
+    });
+    expect(() => parseRoutineAgentUpdateArgs({ id: VALID_ID, notifications: {} })).toThrow(/at least one field/);
+    expect(() => parseRoutineAgentUpdateArgs({ id: VALID_ID, notifications: { onStart: 1 } })).toThrow(
+      /notifications\.onStart must be a boolean/,
+    );
+    expect(() => parseRoutineAgentUpdateArgs({ id: VALID_ID, notifications: { bogus: true } })).toThrow(
+      /unknown notifications field/,
+    );
+  });
+
+  it("tolerates missing notifications on legacy stored records but rejects malformed ones", () => {
+    const legacy = { ...sampleRecord() } as Partial<RoutineRecord>;
+    delete legacy.notifications;
+    expect(isRoutineRecord(legacy)).toBe(true);
+    expect(isRoutineRecord({ ...sampleRecord(), notifications: null })).toBe(false);
+    expect(isRoutineRecord({ ...sampleRecord(), notifications: { onStart: "true" } })).toBe(false);
+    expect(isRoutineRecord({ ...sampleRecord(), notifications: { unknown: true } })).toBe(false);
+  });
+
+  it("compiles omp-ui_notify allow and appends prompt clause iff allowAgentNotify/agentNotification is true", () => {
+    expect(routineAllowsAgentNotification({ ...DEFAULT_ROUTINE_NOTIFICATIONS, agentMessage: true })).toBe(false);
+    expect(
+      routineAllowsAgentNotification({ ...DEFAULT_ROUTINE_NOTIFICATIONS, onComplete: true, agentMessage: true }),
+    ).toBe(true);
+
+    const policy = sampleInput().toolPolicy;
+    const without = compileRoutineToolPolicy(policy, catalog);
+    expect(without.overlayEntries[ROUTINE_NOTIFY_TOOL_KEY]).toBeUndefined();
+
+    const withNotify = compileRoutineToolPolicy(policy, catalog, { allowAgentNotify: true });
+    expect(withNotify.overlayEntries[ROUTINE_NOTIFY_TOOL_KEY]).toBe("allow");
+    expect(withNotify.overlayYamlPreview).toContain(`"${ROUTINE_NOTIFY_TOOL_KEY}": allow`);
+
+    const deniedPolicy = { ...policy, deny: [...policy.deny, ROUTINE_NOTIFY_TOOL_KEY] };
+    const denied = compileRoutineToolPolicy(deniedPolicy, catalog, { allowAgentNotify: true });
+    expect(denied.overlayEntries[ROUTINE_NOTIFY_TOOL_KEY]).toBe("deny");
+
+    const plainPrompt = routinePrompt("Check status", "Daily");
+    expect(plainPrompt).not.toContain("omp-ui_notify");
+    const agentPrompt = routinePrompt("Check status", "Daily", { agentNotification: true });
+    expect(agentPrompt).toContain("omp-ui_notify");
+    expect(agentPrompt.indexOf("untrusted data")).toBeLessThan(agentPrompt.indexOf("omp-ui_notify"));
   });
 });

@@ -4,6 +4,7 @@ import {
   nextRunAfter,
   resolveRoutineTimeoutMinutes,
   resolveRoutineWallClockMs,
+  routineAllowsAgentNotification,
   routinePatchFromAgentUpdate,
   type FleetDispatchRequest,
   type FleetDispatchResult,
@@ -25,6 +26,7 @@ import {
   type RoutineToolPolicy,
   type SessionRoutine,
 } from "@omp-ui/core";
+import type { RoutineNotificationPayload } from "./desktop-notifier";
 import type { RoutineCatalogService } from "./routine-catalog";
 import type { RoutineLifecycleManager } from "./routine-lifecycle";
 import { RoutineRetention } from "./routine-retention";
@@ -64,6 +66,8 @@ export interface RoutineServiceDeps {
   send: (state: RoutinesState) => void;
   /** Rebuilds `state:changed` after session records change. */
   broadcast: () => void;
+  /** Posts a per-routine OS notification (#1294). */
+  notifyRoutine?: (payload: RoutineNotificationPayload) => void;
   now?: () => number;
 }
 
@@ -117,14 +121,17 @@ export class RoutineService {
         deps.lifecycle.trackStart(tabId, runRowId, trigger, firedAtMs, {
           scripts: routine.scripts,
           routineId: routine.id,
+          routineName: routine.name,
           projectCwd: routine.destination.projectCwd,
           workspace: routine.destination.workspace,
           wallClockMs: resolveRoutineWallClockMs(routine.timeoutMinutes),
+          notifications: routine.notifications,
         });
       },
       onPostFire: async () => {
         await this.retention.prune();
       },
+      notifyRoutine: deps.notifyRoutine,
       publish,
       now: this.now,
     });
@@ -270,13 +277,16 @@ export class RoutineService {
     return {
       routineId,
       nextFireAtMs: input.enabled ? nextRunAfter(input.schedule, input.timeZone, this.now()) : null,
-      compiled: compileRoutineToolPolicy(input.toolPolicy, catalog),
+      compiled: compileRoutineToolPolicy(input.toolPolicy, catalog, {
+        allowAgentNotify: routineAllowsAgentNotification(input.notifications),
+      }),
       warnCostUsd: input.spend.warnUsd ?? this.deps.defaultWarnCostUsd(),
       maxCostUsd: input.spend.maxUsd ?? this.deps.defaultMaxCostUsd(),
       staleServers: catalog.staleServers,
       enumerationError: catalog.enumerationError,
       scripts: input.scripts,
       timeoutMinutes: resolveRoutineTimeoutMinutes(input.timeoutMinutes),
+      notifications: input.notifications,
     };
   }
 

@@ -1,6 +1,7 @@
 import { useEffect, useMemo, useState, type CSSProperties, type ReactNode } from "react";
 import { nextRunAfter } from "@omp-ui/core/scheduled-prompt";
 import {
+  DEFAULT_ROUTINE_NOTIFICATIONS,
   ROUTINE_CLI_BYPASS_TOOLS,
   ROUTINE_COST_MAX_USD,
   ROUTINE_DEFAULT_ALLOW_BUILTINS,
@@ -14,6 +15,7 @@ import {
   type RoutineDryRunResult,
   type RoutineInput,
   type RoutineMode,
+  type RoutineNotifications,
   type RoutineRecord,
   type RoutineToolPolicy,
   type RoutineTestScriptResult,
@@ -80,6 +82,7 @@ interface Draft {
   toolPolicy: RoutineToolPolicy;
   preScript: string;
   postScript: string;
+  notifications: RoutineNotifications;
   enabled: boolean;
 }
 
@@ -106,6 +109,7 @@ function draftOf(routine: RoutineRecord | null, defaultProject: string): Draft {
       },
       preScript: "",
       postScript: "",
+      notifications: { ...DEFAULT_ROUTINE_NOTIFICATIONS },
       enabled: true,
     };
   }
@@ -126,6 +130,7 @@ function draftOf(routine: RoutineRecord | null, defaultProject: string): Draft {
     // on any unrelated edit (#1283).
     preScript: routine.scripts.pre,
     postScript: routine.scripts.post,
+    notifications: { ...routine.notifications },
     enabled: routine.enabled,
   };
 }
@@ -194,6 +199,7 @@ export function RoutineEditor({
 }) {
   const projects = useStore((s) => s.state?.projects);
   const routinesState = useStore((s) => s.routinesState);
+  const desktopNotifications = useStore((s) => s.state?.desktopNotifications);
   const createRoutine = useStore((s) => s.createRoutine);
   const updateRoutine = useStore((s) => s.updateRoutine);
   const runRoutineNow = useStore((s) => s.runRoutineNow);
@@ -317,6 +323,7 @@ export function RoutineEditor({
           toolPolicy: draft.toolPolicy,
           scripts: { pre: draft.preScript, post: draft.postScript },
           timeoutMinutes,
+          notifications: draft.notifications,
           enabled: draft.enabled,
         }
       : null;
@@ -443,6 +450,8 @@ export function RoutineEditor({
   const set = (patch: Partial<Draft>): void => setDraft((d) => ({ ...d, ...patch }));
   const setSchedule = (patch: Partial<ScheduleDraft>): void =>
     setDraft((d) => ({ ...d, schedule: { ...d.schedule, ...patch } }));
+  const setNotifications = (patch: Partial<RoutineNotifications>): void =>
+    setDraft((d) => ({ ...d, notifications: { ...d.notifications, ...patch } }));
 
   // Policy metrics for tab badge and Flight check distribution bar.
   const policyStats = useMemo(() => {
@@ -1029,6 +1038,91 @@ export function RoutineEditor({
                       ? "No wall-clock limit — a stuck run holds the host routine lane until stopped manually or by spend cap."
                       : `Blank uses the ${ROUTINE_DEFAULT_TIMEOUT_MINUTES}-minute default. Counted from fire, including Approval card wait.`}
                   </p>
+                </div>
+              </section>
+
+              {/* Card 2b — Notifications (#1294) */}
+              <section className="studio-card space-y-2.5 rounded-xl p-3.5" data-routine-notifications>
+                <div>
+                  <h4 className="text-sm font-semibold text-ink">Notifications</h4>
+                  <p className="mt-0.5 text-xs text-ink-dim">
+                    OS desktop banners posted on this machine for this routine&apos;s runs.
+                  </p>
+                </div>
+                {desktopNotifications === false && (
+                  <div
+                    data-routine-notifications-disabled-note
+                    className="flex flex-wrap items-center justify-between gap-2 rounded-lg border border-copper-dim bg-copper-wash/40 px-2.5 py-2 text-xs text-copper"
+                  >
+                    <span>Desktop notifications are off in Settings → General.</span>
+                    <Button size="xs" variant="ghost" onClick={() => openSettings("general")}>
+                      Open Settings
+                    </Button>
+                  </div>
+                )}
+                <div className="space-y-2 text-xs text-ink">
+                  <label className="flex cursor-pointer items-center gap-2">
+                    <input
+                      type="checkbox"
+                      checked={draft.notifications.onStart}
+                      disabled={busy === "save"}
+                      onChange={(e) => setNotifications({ onStart: e.target.checked })}
+                      className="accent-[var(--color-signal)]"
+                    />
+                    <span>When routine starts</span>
+                  </label>
+                  <label className="flex cursor-pointer items-center gap-2">
+                    <input
+                      type="checkbox"
+                      checked={draft.notifications.onApproval}
+                      disabled={busy === "save"}
+                      onChange={(e) => setNotifications({ onApproval: e.target.checked })}
+                      className="accent-[var(--color-signal)]"
+                    />
+                    <span>When approval is needed</span>
+                  </label>
+                  <div className="space-y-1.5">
+                    <label className="flex cursor-pointer items-center gap-2">
+                      <input
+                        type="checkbox"
+                        checked={draft.notifications.onComplete}
+                        disabled={busy === "save"}
+                        onChange={(e) => setNotifications({ onComplete: e.target.checked })}
+                        className="accent-[var(--color-signal)]"
+                      />
+                      <span>When routine completes</span>
+                    </label>
+                    <div className="space-y-1 pl-6">
+                      <label
+                        className={cn(
+                          "flex items-center gap-2",
+                          draft.notifications.onComplete ? "cursor-pointer text-ink" : "cursor-not-allowed text-ink-faint",
+                        )}
+                      >
+                        <input
+                          type="checkbox"
+                          checked={draft.notifications.agentMessage}
+                          disabled={busy === "save" || !draft.notifications.onComplete}
+                          onChange={(e) => setNotifications({ agentMessage: e.target.checked })}
+                          className="accent-[var(--color-signal)]"
+                        />
+                        <span>Let agent write completion message</span>
+                      </label>
+                      <p className="pl-5 text-[11px] leading-relaxed text-ink-faint">
+                        Allows <code className="font-mono">omp-ui_notify</code> without prompting and asks the agent for a brief summary. Falls back to a standard notice if none is sent.
+                      </p>
+                    </div>
+                  </div>
+                  <label className="flex cursor-pointer items-center gap-2">
+                    <input
+                      type="checkbox"
+                      checked={draft.notifications.onFail}
+                      disabled={busy === "save"}
+                      onChange={(e) => setNotifications({ onFail: e.target.checked })}
+                      className="accent-[var(--color-signal)]"
+                    />
+                    <span>When routine fails</span>
+                  </label>
                 </div>
               </section>
 
