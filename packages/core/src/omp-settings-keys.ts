@@ -424,16 +424,24 @@ export const OMP_SETTING_GROUPS: ReadonlyArray<OmpSettingGroup> = [
     // omp 19.1 (issue #1275): the disassembler enum gains `binja` (Binary
     // Ninja), whose option rides in via parseEnumOptions like the others, and
     // `binja.installDir` points at that install (empty = auto-detect).
+    // omp 19.1.1 (issue #1292): todo.backend names the extension-registered
+    // todo backend the session's list mirrors to (string; `native` — the
+    // default — mirrors nothing), and computer.takeover (enum, default
+    // fallback) decides when a computer-tool call reruns in foreground
+    // takeover; its options ride in from `omp config list` via
+    // parseEnumOptions like every other enum row here.
     title: "Tools",
     keys: [
       "edit.mode",
       EDIT_MAGIC_MODEL_KEY,
       "todo.midRunNudges",
+      "todo.backend",
       "grep.contextBefore",
       "grep.contextAfter",
       "commit.enabled",
       "disassembler.backend",
       BINJA_INSTALL_DIR_KEY,
+      "computer.takeover",
       "find.verifyModel",
       "find.hitThreshold",
     ],

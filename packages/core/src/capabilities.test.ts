@@ -19,7 +19,7 @@ function tool(overrides: Record<string, unknown> = {}): Record<string, unknown> 
     sourcePath: "/omp/tools/alpha.ts",
     enabled: true,
     direct: true,
-    xdev: false,
+    mounted: false,
     evalBridge: false,
     mcpServerName: null,
     mcpToolName: null,
@@ -196,6 +196,15 @@ describe("parseCapabilitySnapshot", () => {
     expect(parsed).not.toBeNull();
     expect(parsed!.toolControl).toBe("unsupported");
     expect(parsed!.toolMutation).toBeNull();
+  });
+
+  it("accepts a legacy snapshot that publishes xdev instead of mounted", () => {
+    const legacyTool = tool();
+    delete legacyTool.mounted;
+    legacyTool.xdev = true;
+    const parsed = parse(snapshot({ tools: { status: "available", items: [legacyTool] } }));
+    expect(parsed).not.toBeNull();
+    expect(parsed!.tools.status === "available" && parsed!.tools.items[0]?.mounted).toBe(true);
   });
 
   it.each([

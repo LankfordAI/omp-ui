@@ -220,6 +220,50 @@ function redirectTarget(raw: string): string | null {
 }`;
 }
 
+/**
+ * The omp 19.1 tool-command era flag (issue #1270). 19.1 renamed the mount
+ * probe to `getMountedToolCommandNames` and moved plan submission from the
+ * `xd://propose` device to the `propose` command in the same release, so the
+ * presence of the renamed method on the session is the harness fact that picks
+ * the dialect. An older omp defines neither and stays on `xd://`.
+ */
+export function generatedToolCommandEraSource(): string {
+  return `/** True when this omp dispatches tool commands instead of xd:// devices. */
+function toolCommandsEra(session: unknown): boolean {
+  try {
+    return (session as Record<string, unknown> | null) !== null &&
+      typeof (session as Record<string, unknown>).getMountedToolCommandNames === "function";
+  } catch {
+    return false;
+  }
+}`;
+}
+
+/**
+ * Mounted tool-command names on an omp from 19.1 on, falling back to the
+ * mounted `xd://` device names on an older omp. The two sets feed the same
+ * presentation setter, and neither probe existing reads as nothing mounted.
+ */
+export function generatedMountedNamesSource(sessionType: string): string {
+  return `/** Mounted command (19.1+) or xd:// device (older omp) names. */
+function readMounted(active: ${sessionType}): string[] {
+  const session = active as unknown as Record<string, unknown>;
+  const isString = (value: unknown): value is string => typeof value === "string";
+  for (const method of ["getMountedToolCommandNames", "getMountedXdevToolNames"]) {
+    const read = session[method];
+    if (typeof read !== "function") continue;
+    let names: unknown;
+    try {
+      names = (read as () => unknown).call(active);
+    } catch {
+      continue;
+    }
+    return Array.isArray(names) ? (names as unknown[]).filter(isString) : [];
+  }
+  return [];
+}`;
+}
+
 export function generatedPollTimerSource(): string {
   return `interface PollTimer {
   unref?: () => void;

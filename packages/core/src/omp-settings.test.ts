@@ -1004,6 +1004,20 @@ describe("writeOmpSetting", () => {
     ]);
   });
 
+  it("admits the omp 19.1.1 todo.backend and computer.takeover keys to the write boundary (#1292)", async () => {
+    const calls: string[][] = [];
+    const run = async (args: readonly string[]): Promise<string> => {
+      calls.push([...args]);
+      return "";
+    };
+    await writeOmpSetting({ ompPath: OMP, key: "todo.backend", value: "linear" }, run);
+    await writeOmpSetting({ ompPath: OMP, key: "computer.takeover", value: "always" }, run);
+    expect(calls).toEqual([
+      ["config", "set", "todo.backend", "linear", "--json"],
+      ["config", "set", "computer.takeover", "always", "--json"],
+    ]);
+  });
+
   it("admits both composer prediction keys to the write boundary (#1030)", async () => {
     let seen: readonly string[] = [];
     await writeOmpSetting(

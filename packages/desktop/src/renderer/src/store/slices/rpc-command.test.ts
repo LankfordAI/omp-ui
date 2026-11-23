@@ -2634,7 +2634,7 @@ describe("session-local tool control (issue #379)", () => {
     sourcePath: null,
     enabled,
     direct: enabled,
-    xdev: null,
+    mounted: null,
     evalBridge: null,
     mcpServerName: null,
     mcpToolName: null,

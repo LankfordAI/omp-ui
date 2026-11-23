@@ -159,6 +159,7 @@ export {
   toolResultReplies,
 } from "./out-replies";
 export { parseBashMinimized, type BashMinimized } from "./bash-minimized";
+export { supportsToolCommands, TOOL_COMMANDS_MIN_OMP } from "./tool-commands";
 export {
   parseSpillReference,
   SPILL_READ_MAX_BYTES,
@@ -170,6 +171,12 @@ export {
 export { spillRootForTranscript, transcriptSpillCapable } from "./spill-header";
 export { readSpillFile } from "./spill-read";
 export { parseBashTruncation, type BashTruncation } from "./bash-truncation";
+export {
+  parseToolCommandDispatches,
+  sameToolCommandDispatches,
+  type ToolCommandDispatch,
+} from "./tool-command-dispatch";
+export { toolIntentLabel } from "./tool-intent-label";
 export {
   CHAT_DIR_RE,
   chatDirPath,

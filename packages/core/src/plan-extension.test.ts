@@ -290,6 +290,8 @@ function harness(
     /** Report vibe mode on, the way the vibe bridge's session reports it. */
     vibeEnabled?: boolean;
     transcript?: TranscriptFixture;
+    /** Model an omp 19.1 session: mounts arrive as tool commands. */
+    toolCommands?: boolean;
   },
 ): Harness {
   const sent: SentMessage[] = [];
@@ -363,6 +365,14 @@ function harness(
     prompt(): Promise<boolean> {
       return Promise.resolve(true);
     }
+  }
+  if (options?.toolCommands === true) {
+    // An omp 19.1 session mounts rarely-used tools as tool commands.
+    Object.defineProperty(FakeSession.prototype, "getMountedToolCommandNames", {
+      value: (): string[] => [],
+      writable: true,
+      configurable: true,
+    });
   }
   if (options?.canSendMessages !== false) {
     Object.defineProperty(FakeSession.prototype, "sendCustomMessage", {
@@ -669,6 +679,42 @@ describe("plan mode transitions", () => {
     await h.run("on html");
 
     expect(entries(h.sent)[0]?.content).toContain("supersedes every earlier omp-ui");
+  });
+
+  it("names the propose command when the harness dispatches tool commands", async () => {
+    const artifacts = tempArtifacts();
+    const h = harness(await loadExtension(), { toolCommands: true, artifactsDir: artifacts });
+    await h.run("on html");
+    await h.run("off");
+
+    const entry = entries(h.sent)[0]?.content ?? "";
+    expect(entry).toContain("running `propose <slug>` with the bash tool (matching that same <slug>)");
+    expect(entry).toContain("a plan file with no `propose` call stays unreviewed");
+    expect(entry).not.toContain("xd://propose");
+    expect(entry).not.toContain("propose write");
+    const exit = exits(h.sent).at(-1);
+    expect(exit?.content).toContain("run `propose <slug>` with the bash tool (matching that same <slug>)");
+    expect(exit?.content).not.toContain("xd://propose");
+
+    // Missing-file error and refine reply speak the same 19.1 dialect.
+    await h.run("on html");
+    const missing = (await h.propose("auth")).content.map((c) => c.text).join("\n");
+    expect(missing).toContain("run `propose <slug>` with the bash tool");
+    expect(missing).not.toContain("xd://propose");
+
+    writePlanFile(artifacts, "auth-plan.html", 1_700_000_000);
+    const refine = (await h.propose("auth")).content.map((c) => c.text).join("\n");
+    expect(refine).toContain("run `propose <slug>` with the bash tool again");
+    expect(refine).not.toContain("xd://propose");
+  });
+
+  it("keeps the xd://propose submission channel on a harness predating tool commands", async () => {
+    const h = harness(await loadExtension());
+    await h.run("on html");
+    await h.run("off");
+
+    expect(entries(h.sent)[0]?.content).toContain("writing the same <slug> as plain text to xd://propose");
+    expect(exits(h.sent).at(-1)?.content).toContain("xd://propose");
   });
 
   it("never tells a session it left a mode it was never told it entered", async () => {

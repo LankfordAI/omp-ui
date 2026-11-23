@@ -15,7 +15,7 @@ function capTool(overrides: Partial<CapabilityTool> & { name: string }): Capabil
     sourcePath: null,
     enabled: true,
     direct: true,
-    xdev: false,
+    mounted: false,
     evalBridge: false,
     mcpServerName: null,
     mcpToolName: null,

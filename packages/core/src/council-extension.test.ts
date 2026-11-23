@@ -52,7 +52,7 @@ interface Harness {
 }
 
 function harness(
-  options: { sendThrows?: boolean; withoutSend?: boolean; state?: CouncilBridgeState } = {},
+  options: { sendThrows?: boolean; withoutSend?: boolean; state?: CouncilBridgeState; toolCommands?: boolean } = {},
   council: CouncilRosterResult = DEFAULT_COUNCIL,
 ): Harness {
   const dir = tempDir("omp-ui-council-ext-");
@@ -74,6 +74,9 @@ function harness(
 
   factory({
     cwd: process.cwd(),
+    ...(options.toolCommands === true
+      ? { pi: { AgentSession: { prototype: { getMountedToolCommandNames: () => [] } } } }
+      : {}),
     zod: { object: () => z, string: () => z, boolean: () => z },
     registerCommand: (name: string, opts: { handler: (args: string, ctx: Record<string, unknown>) => Promise<void> }) => {
       commands.set(name, opts.handler);
@@ -397,6 +400,16 @@ describe("generated council extension", () => {
       expect(prompt).toContain("write `auth` as plain text to xd://propose");
       expect(prompt).not.toContain("SCORE");
       expect(prompt).not.toContain("stop and wait");
+    });
+
+    it("names the propose command instead of the xd:// device on an omp 19.1 harness", async () => {
+      const h = harness({ toolCommands: true });
+      const cwd = tempDir("omp-ui-council-plan-");
+      const result = await runTool(h, { plan: "local://auth-plan.html" }, cwd);
+      expect(result.isError).toBeUndefined();
+      const prompt = launchPrompt(h);
+      expect(prompt).toContain("run `propose auth` with the bash tool");
+      expect(prompt).not.toContain("xd://propose");
     });
 
     it("with a trial member, the plan review adds the trial batch and waits with the wait tool", async () => {
