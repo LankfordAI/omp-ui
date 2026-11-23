@@ -102,13 +102,16 @@ export function Artifacts() {
     document.getElementById(`artifact-capture-${selection.captureId}`)?.scrollIntoView?.({ block: "nearest" });
   }, [selection?.captureId, drawerOpen, drawerTab, description?.artifact.artifactId]);
 
-  // Load description for the selected artifact.
+  // Clear viewer metadata when leaving the viewer or switching to another artifact.
+  // Changing only codeRevisionId/dataSnapshotId keeps ArtifactViewer (and History drawer scroll) mounted.
   useEffect(() => {
-    if (!selectedId) {
-      setDescription(null);
-      setPreview(null);
-      return;
-    }
+    setDescription(null);
+  }, [selectedId]);
+
+  // Load description for the selected artifact; follows library revisions independently
+  // so Data & History stay fresh without remounting the active guest writer.
+  useEffect(() => {
+    if (!selectedId) return;
     let canceled = false;
     void backend
       .artifactDescribe({
@@ -130,56 +133,56 @@ export function Artifacts() {
     };
   }, [selectedId, selectedCode, selectedSnapshot, revision]);
 
-  // Load preview HTML for the selected artifact (independent of drawer open/close so toggling
-  // the drawer never unmounts or reloads the guest canvas).
+  // Load preview HTML only when the selected artifact/version changes or the user
+  // explicitly reloads. Never depend on `description` or `revision`: a managed
+  // writer's own `saveState()` advances `currentDataSnapshotId` and must keep its
+  // guest mounted; external head changes revoke the writer and surface Reload.
   useEffect(() => {
-    if (!selectedId || !description || description.artifact.artifactId !== selectedId) return;
-    const codeId = selectedCode ?? description.artifact.currentCodeRevisionId;
-    const snapId = selectedSnapshot ?? description.artifact.currentDataSnapshotId;
-    if (
-      preview !== null &&
-      preview.source.artifactId === selectedId &&
-      preview.source.codeRevisionId === codeId &&
-      preview.source.dataSnapshotId === snapId &&
-      previewReload === 0
-    ) {
-      return;
-    }
     let canceled = false;
-    void readAllPart({
-      artifactId: selectedId,
-      codeRevisionId: codeId,
-      dataSnapshotId: snapId,
-      part: "definition",
-    })
-      .then((raw) => {
-        if (canceled) return;
-        const parsed: unknown = JSON.parse(raw);
-        const html =
-          typeof parsed === "object" && parsed !== null && "html" in parsed && typeof parsed.html === "string"
-            ? parsed.html
-            : "";
-        setPreview({
-          html,
-          source: { artifactId: selectedId, codeRevisionId: codeId, dataSnapshotId: snapId },
-        });
-      })
-      .catch((reason: unknown) => {
-        if (!canceled) setError(displayMessage(reason));
+    setPreview(null);
+    setError(null);
+    if (!selectedId) return;
+    void (async () => {
+      const next = await backend.artifactDescribe({
+        artifactId: selectedId,
+        ...(selectedCode ? { codeRevisionId: selectedCode } : {}),
+        ...(selectedSnapshot ? { dataSnapshotId: selectedSnapshot } : {}),
       });
+      if (canceled) return;
+      const raw = await readAllPart(
+        {
+          artifactId: selectedId,
+          codeRevisionId: next.code.codeRevisionId,
+          dataSnapshotId: next.snapshot.dataSnapshotId,
+          part: "definition",
+        },
+        { maxBytes: ARTIFACT_LIMITS.envelopeBytes },
+      );
+      if (canceled) return;
+      const parsed: unknown = JSON.parse(raw);
+      if (
+        typeof parsed !== "object" ||
+        parsed === null ||
+        !("html" in parsed) ||
+        typeof parsed.html !== "string"
+      ) {
+        throw new Error("The saved definition is invalid.");
+      }
+      setPreview({
+        html: parsed.html,
+        source: {
+          artifactId: selectedId,
+          codeRevisionId: next.code.codeRevisionId,
+          dataSnapshotId: next.snapshot.dataSnapshotId,
+        },
+      });
+    })().catch((reason: unknown) => {
+      if (!canceled) setError(displayMessage(reason));
+    });
     return () => {
       canceled = true;
     };
-    // eslint-disable-next-line react-hooks/exhaustive-deps
-  }, [
-    selectedId,
-    selectedCode,
-    selectedSnapshot,
-    description?.artifact.artifactId,
-    description?.artifact.currentCodeRevisionId,
-    description?.artifact.currentDataSnapshotId,
-    previewReload,
-  ]);
+  }, [selectedId, selectedCode, selectedSnapshot, previewReload]);
 
   const handleGalleryQuickAction = async (row: ArtifactListItem, mode: "reference" | "refresh"): Promise<void> => {
     setError(null);
@@ -285,6 +288,7 @@ export function Artifacts() {
       });
       setRestoring(null);
       open({ artifactId: description.artifact.artifactId });
+      setPreviewReload((n) => n + 1);
       useStore.getState().invalidateArtifactLibrary();
     } catch (reason) {
       setError(displayMessage(reason));
