@@ -9,6 +9,7 @@ import { backendState } from "./test/fixtures";
 import type { RpcTabState, UiStore } from "./store";
 import type { LifecycleSlice } from "./store/slices/lifecycle";
 import type { BackendState, SessionSummary } from "@omp-ui/core/types";
+import type { RoutinesState } from "@omp-ui/core/routine";
 
 (globalThis as Record<string, unknown>).IS_REACT_ACT_ENVIRONMENT = true;
 Object.assign(window, { ompBackend: {} });
@@ -98,6 +99,8 @@ function seed(): void {
     projectQuickOpen: null,
     // Same leakage guard for the model-picker request (#1157).
     modelPickerTab: null,
+    routinesOpen: false,
+    routinesState: null,
   });
 }
 
@@ -672,5 +675,65 @@ describe("Routines view gate (ADR-0100, issue #1261)", () => {
     useStore.setState({ state: backendState({ routinesEnabled: false }), routinesOpen: false });
     useStore.getState().openRoutines();
     expect(useStore.getState().routinesOpen).toBe(false);
+  });
+});
+
+describe("Routines desktop sidebar takeover & TitleBar (issue #1284)", () => {
+  const routinesSnapshot = (machineLabel: string): RoutinesState => ({
+    enabled: true,
+    machineLabel,
+    routines: [],
+    runs: [],
+    activeRunTabId: null,
+    defaultWarnCostUsd: 2,
+    defaultMaxCostUsd: 5,
+  });
+
+  it("replaces the app Sidebar with RoutinesView on desktop, updates TitleBar host label, hides collapsed New session button, and restores Sidebar on close", () => {
+    compact = false;
+    useStore.setState({
+      state: backendState({ routinesEnabled: true }),
+      routinesOpen: false,
+      routinesState: routinesSnapshot("work-laptop"),
+      sidebarCollapsed: false,
+    });
+    renderApp();
+
+    expect(document.body.querySelector("[data-sidebar-mock]")).not.toBeNull();
+    expect(document.body.querySelector("[data-routines-view-mock]")).toBeNull();
+
+    act(() => useStore.setState({ routinesOpen: true }));
+
+    expect(document.body.querySelector("[data-sidebar-mock]")).toBeNull();
+    expect(document.body.querySelector("[data-routines-view-mock]")).not.toBeNull();
+    expect(document.body.querySelector("header")?.textContent).toContain("Routines on work-laptop");
+
+    act(() => useStore.setState({ sidebarCollapsed: true }));
+
+    const newSessionLabel = t("app.titlebar.newSession");
+    const expandLabel = t("app.titlebar.expandSidebar");
+    expect(document.body.querySelector(`button[aria-label="${newSessionLabel}"]`)).toBeNull();
+    const expandBtn = document.body.querySelector<HTMLButtonElement>(`button[aria-label="${expandLabel}"]`);
+    expect(expandBtn).not.toBeNull();
+
+    act(() => expandBtn!.click());
+    expect(useStore.getState().sidebarCollapsed).toBe(false);
+
+    act(() => useStore.getState().closeRoutines());
+    expect(document.body.querySelector("[data-sidebar-mock]")).not.toBeNull();
+    expect(document.body.querySelector("[data-routines-view-mock]")).toBeNull();
+  });
+
+  it("keeps the app Sidebar mounted on compact shells while Routines is open", () => {
+    compact = true;
+    useStore.setState({
+      state: backendState({ routinesEnabled: true }),
+      routinesOpen: true,
+      routinesState: routinesSnapshot("work-laptop"),
+    });
+    renderApp();
+
+    expect(document.body.querySelector("[data-sidebar-mock]")).not.toBeNull();
+    expect(document.body.querySelector("[data-routines-view-mock]")).not.toBeNull();
   });
 });

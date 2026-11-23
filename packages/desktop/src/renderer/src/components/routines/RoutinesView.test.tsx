@@ -91,6 +91,7 @@ const runRoutineNow = vi.fn();
 const dryRunRoutine = vi.fn();
 const loadRoutineToolCatalog = vi.fn(async () => CATALOG);
 const readChatModels = vi.fn(async () => ({ models: [] as CatalogModelOption[], discovered: true, error: null }));
+const closeRoutines = vi.fn();
 let root: Root | null = null;
 
 function render(): HTMLElement {
@@ -153,6 +154,8 @@ beforeEach(() => {
     }),
     routinesState: routinesState(),
     routinesOpen: true,
+    sidebarCollapsed: false,
+    closeRoutines,
     runRoutineNow,
     dryRunRoutine,
     loadRoutineToolCatalog,
@@ -507,5 +510,97 @@ describe("RoutinesView run hooks (#1283)", () => {
     await settle();
     expect(document.querySelector("[data-routine-skipped-now]")?.textContent).toContain("Nothing to do");
     expect(document.querySelector("[data-routine-action-error]")).toBeNull();
+  });
+});
+
+describe("RoutinesView Variant B layout and Flight check (#1284)", () => {
+  it("closes Routines from the sidebar ← Sessions button and renders on studio-stage", async () => {
+    const host = render();
+    await settle();
+    const view = host.querySelector("[data-routines-view]")!;
+    expect(view.classList.contains("studio-stage")).toBe(true);
+    expect(view.classList.contains("stage-void")).toBe(false);
+
+    const sidebar = host.querySelector("[data-routines-sidebar]")!;
+    const backButton = [...sidebar.querySelectorAll("button")].find((b) => b.textContent?.includes("Sessions"));
+    expect(backButton).toBeDefined();
+    await act(async () => backButton!.click());
+    expect(closeRoutines).toHaveBeenCalledTimes(1);
+  });
+
+  it("hides the left routine rail when sidebarCollapsed is true while keeping ← Sessions in the editor", async () => {
+    useStore.setState({ sidebarCollapsed: true });
+    const host = render();
+    await settle();
+    expect(host.querySelector("[data-routines-sidebar]")).toBeNull();
+
+    const editor = host.querySelector("[data-routine-editor]")!;
+    const backButton = [...editor.querySelectorAll("button")].find((b) => b.textContent?.includes("Sessions"));
+    expect(backButton).toBeDefined();
+    await act(async () => backButton!.click());
+    expect(closeRoutines).toHaveBeenCalledTimes(1);
+  });
+
+  it("keeps the host-named header and ← Sessions return path in the collapsed empty state", async () => {
+    useStore.setState({
+      sidebarCollapsed: true,
+      routinesState: routinesState({ routines: [] }),
+    });
+    const host = render();
+    await settle();
+    expect(host.querySelector("[data-routines-sidebar]")).toBeNull();
+    const header = host.querySelector("header")!;
+    expect(header.textContent).toContain("Routines on work-laptop");
+    const backButton = [...header.querySelectorAll("button")].find((b) => b.textContent?.includes("Sessions"));
+    expect(backButton).toBeDefined();
+    await act(async () => backButton!.click());
+    expect(closeRoutines).toHaveBeenCalledTimes(1);
+  });
+
+  it("renders the integrated Flight check bar in Configuration and links to Tool policy", async () => {
+    const host = render();
+    await settle();
+    expect(host.querySelector('aside[aria-label="Flight check"]')).toBeNull();
+
+    const bar = host.querySelector('[aria-label="Flight check"]')!;
+    expect(bar).not.toBeNull();
+    expect(bar.textContent).toContain("Policy enforced");
+    expect(bar.textContent).not.toContain("Shell bypass enabled");
+
+    const reviewButton = [...bar.querySelectorAll("button")].find((b) => b.textContent?.includes("Review all tools"));
+    expect(reviewButton).toBeDefined();
+    await act(async () => reviewButton!.click());
+    expect(routineTab("policy").getAttribute("aria-selected")).toBe("true");
+  });
+
+  it("switches the Flight check chip to Shell bypass enabled when bash is allowed", async () => {
+    const withBash = routine({
+      toolPolicy: {
+        allow: ["read", "bash"],
+        deny: [],
+        lastReviewedAt: "2026-11-01T00:00:00.000Z",
+        reviewedCatalog: ["read", "bash", "mcp__gmail_list"],
+      },
+    });
+    useStore.setState({ routinesState: routinesState({ routines: [withBash] }) });
+    const host = render();
+    await settle();
+    const bar = host.querySelector('[aria-label="Flight check"]')!;
+    expect(bar.textContent).toContain("Shell bypass enabled");
+    expect(bar.textContent).not.toContain("Policy enforced");
+  });
+
+  it("opens the new-routine editor from the main-stage empty card New routine button", async () => {
+    useStore.setState({ routinesState: routinesState({ routines: [] }) });
+    const host = render();
+    await settle();
+    expect(host.querySelector("[data-routine-editor]")).toBeNull();
+
+    const emptyCard = host.querySelector(".studio-card")!;
+    const newButton = [...emptyCard.querySelectorAll("button")].find((b) => b.textContent?.trim() === "New routine");
+    expect(newButton).toBeDefined();
+    await act(async () => newButton!.click());
+    await settle();
+    expect(host.querySelector("[data-routine-editor]")).not.toBeNull();
   });
 });

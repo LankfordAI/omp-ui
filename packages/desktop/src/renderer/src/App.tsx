@@ -121,6 +121,7 @@ function TitleBar() {
   const activeTab = tabs.find((t) => t.tabId === activeTabId);
   const artifactsOpen = useStore((s) => s.artifacts !== null);
   const routinesOpen = useStore((s) => s.routinesOpen && s.state?.routinesEnabled === true);
+  const routinesState = useStore((s) => s.routinesState);
 
   return (
     <header
@@ -142,14 +143,14 @@ function TitleBar() {
         </IconButton>
         {/* The sidebar header owns New session; collapsed, the aside is gone,
             so the title bar carries it — exactly one is visible at a time. */}
-        {sidebarCollapsed && (
+        {sidebarCollapsed && !routinesOpen && (
           <IconButton label={t("app.titlebar.newSession")} onClick={() => openProjectQuickOpen()}>
             <IconPlus />
           </IconButton>
         )}
       </div>
 
-      {routinesOpen ? <span className="min-w-0 flex-1 truncate px-3 text-sm text-ink-dim">{t("routines.title")}</span> : artifactsOpen ? <span className="min-w-0 flex-1 truncate px-3 text-sm text-ink-dim">{t("artifacts.title")}</span> : activeTab?.mode === "rpc-ui" ? (
+      {routinesOpen ? <span className="min-w-0 flex-1 truncate px-3 text-sm text-ink-dim">{routinesState === null ? t("routines.title") : t("routines.headerOn", { machine: routinesState.machineLabel })}</span> : artifactsOpen ? <span className="min-w-0 flex-1 truncate px-3 text-sm text-ink-dim">{t("artifacts.title")}</span> : activeTab?.mode === "rpc-ui" ? (
         <SessionHud tabId={activeTab.tabId} />
       ) : (
         <>
@@ -602,7 +603,7 @@ export default function App() {
         </nav>
       )}
       <div className="flex min-h-0 flex-1 border-t border-line">
-        <Sidebar />
+        {(compact || !routinesOpen) && <Sidebar />}
         <div className="flex min-w-0 flex-1 flex-col">
           <div className="relative min-h-0 flex-1">
             {/*
