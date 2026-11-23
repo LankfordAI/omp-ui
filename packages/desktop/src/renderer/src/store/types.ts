@@ -519,6 +519,10 @@ export interface LastTurnMeta {
   stopReason?: string;
   errorMessage?: string;
   errorId?: number;
+  /** omp 19.1.1 (`AssistantMessage.requestId`): Anthropic's `request-id` for
+   *  the failed turn, quotable at provider support (issue #1291). Absent on an
+   *  older binary and on providers that report none. */
+  requestId?: string;
   /** The terminal assistant text carried a server repetition-halt notice (issue #839). */
   repetitionStop?: boolean;
 }

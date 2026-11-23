@@ -2379,6 +2379,38 @@ describe("handleRpcFrame routing", () => {
       }
     });
 
+    it("quotes the provider request id the failed turn carried (issue #1291)", () => {
+      vi.useFakeTimers();
+      try {
+        vi.setSystemTime(1_000_000);
+        // omp 19.1.1 keeps Anthropic's request-id on the assistant message;
+        // the reducer carries it onto lastTurn and the stall notice quotes it.
+        h.useStore.getState().handleRpcFrame(h.TAB, {
+          type: "message_end",
+          message: {
+            role: "assistant",
+            content: [],
+            stopReason: "error",
+            errorMessage: "Stream idle: no event from the provider",
+            errorId: 397312, // 0x4000 timeout bit set
+            requestId: "req_01AbCd",
+          },
+        });
+        expect(h.useStore.getState().rpc[h.TAB]!.lastTurn).toMatchObject({ requestId: "req_01AbCd" });
+        vi.setSystemTime(1_100_000);
+        h.useStore.getState().handleRpcFrame(h.TAB, { type: "agent_end" });
+        const notice = h.useStore
+          .getState()
+          .rpc[h.TAB]!.items.filter((i) => i.kind === "notice")
+          .at(-1);
+        if (notice?.kind !== "notice") return;
+        expect(notice.text).toContain("provider stream stall #1");
+        expect(notice.text).toContain("Provider request id: req_01AbCd.");
+      } finally {
+        vi.useRealTimers();
+      }
+    });
+
     it("stays silent for a non-stall retry (no Timeout bit, no watchdog message)", () => {
       h.useStore.getState().handleRpcFrame(h.TAB, {
         type: "auto_retry_start",
