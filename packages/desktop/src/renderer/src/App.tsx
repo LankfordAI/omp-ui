@@ -531,7 +531,10 @@ export default function App() {
     if (docked && useStore.getState().compactSurface === "sessions") closeCompactSurface();
   }, [docked, closeCompactSurface]);
 
-  const visibleTabs = tabs.filter((t) => !t.hidden);
+  // A visible tab is actually on screen: exactly the condition under which
+  // the per-tab `shown` flag below paints one, so Welcome renders precisely
+  // when no tab is painted (issue #1296).
+  const shownTab = tabs.find((t) => t.tabId === activeTabId && !t.hidden);
   const activeTab = tabs.find((tab) => tab.tabId === activeTabId);
   // The Lab takes the main pane whole (issue #559): the tabs stay mounted
   // underneath, hidden, exactly as a background tab is.
@@ -636,7 +639,7 @@ export default function App() {
                 <FleetTerminalView terminal={ft} />
               </div>
             ))}
-            {visibleTabs.length === 0 && artifacts === null && !routinesOpen && (lab === null || !experimentsEnabled) && stats === null && !fleetOpen && shownFleetTerminal === null && (restoringTabs ? <RestoringSessions /> : <Welcome />)}
+            {shownTab === undefined && artifacts === null && !routinesOpen && (lab === null || !experimentsEnabled) && stats === null && !fleetOpen && shownFleetTerminal === null && (restoringTabs ? <RestoringSessions /> : <Welcome />)}
           </div>
         </div>
       </div>
