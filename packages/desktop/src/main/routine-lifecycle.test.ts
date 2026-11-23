@@ -3,12 +3,15 @@ import * as os from "node:os";
 import * as path from "node:path";
 import { afterEach, beforeEach, describe, expect, it, vi } from "vitest";
 import {
+  DEFAULT_ROUTINE_NOTIFICATIONS,
   OMP_ERROR_FLAG_USAGE_LIMIT,
   ROUTINE_RUN_WALL_CLOCK_MS,
   RoutineRunHistory,
+  type RoutineNotifications,
   type RoutineRunRow,
   type RpcFrame,
 } from "@omp-ui/core";
+import type { RoutineNotificationPayload } from "./desktop-notifier";
 import { RoutineLifecycleManager } from "./routine-lifecycle";
 import type { RoutineScriptEnv } from "./routine-scripts";
 
@@ -44,7 +47,12 @@ function row(id: string, trigger: RoutineRunRow["trigger"] = "clock"): RoutineRu
 let dir: string;
 let fileSeq = 0;
 
-function harness(trigger: RoutineRunRow["trigger"] = "clock", wallClockMs: number | null = ROUTINE_RUN_WALL_CLOCK_MS) {
+function harness(
+  trigger: RoutineRunRow["trigger"] = "clock",
+  wallClockMs: number | null = ROUTINE_RUN_WALL_CLOCK_MS,
+  notifications: RoutineNotifications = { ...DEFAULT_ROUTINE_NOTIFICATIONS },
+  bindImmediately = true,
+) {
   const history = new RoutineRunHistory(path.join(dir, `routine-runs-${++fileSeq}.json`));
   history.record(row("run-1", trigger));
   const enabled = { value: true };
@@ -54,6 +62,8 @@ function harness(trigger: RoutineRunRow["trigger"] = "clock", wallClockMs: numbe
   const settleSession = vi.fn(async () => true);
   const sent: Array<{ tabId: string; cmd: RpcFrame }> = [];
   const postRuns: Array<{ command: string; cwd: string; env: RoutineScriptEnv }> = [];
+  const routineNotifications: RoutineNotificationPayload[] = [];
+  const clearedNotifications: string[] = [];
   const scriptResult = { current: { kind: "ok" as "ok" | "skip" | "failed", timedOut: false, exitCode: 0 as number | null } };
   const runScript = vi.fn(async (command: string, cwd: string, env: RoutineScriptEnv) => {
     postRuns.push({ command, cwd, env });
@@ -71,27 +81,26 @@ function harness(trigger: RoutineRunRow["trigger"] = "clock", wallClockMs: numbe
     runScript,
     runDirectory: () => "/work/run-dir",
     publish: () => {},
+    notifyRoutine: (payload) => routineNotifications.push(payload),
+    clearRoutineNotification: (tabId) => clearedNotifications.push(tabId),
     now: () => Date.now(),
   });
-  lifecycle.trackStart(TAB, "run-1", trigger, T0, {
-    scripts: { pre: "", post: "" },
-    routineId: ROUTINE_ID,
-    projectCwd: "/proj",
-    workspace: "worktree",
-    wallClockMs,
-  });
-  const frame = (f: RpcFrame): void => lifecycle.onFrame(TAB, f);
-  const rowNow = (): RoutineRunRow => history.list().find((r) => r.id === "run-1")!;
-  /** Re-bind with a post hook configured, as the scheduler would at fire time. */
-  const withPostHook = (post: string): void => {
+  const bind = (overrideNotifications: RoutineNotifications = notifications, post = ""): void => {
     lifecycle.trackStart(TAB, "run-1", trigger, T0, {
       scripts: { pre: "", post },
       routineId: ROUTINE_ID,
+      routineName: "Inbox",
       projectCwd: "/proj",
       workspace: "worktree",
       wallClockMs,
+      notifications: overrideNotifications,
     });
   };
+  if (bindImmediately) bind();
+  const frame = (f: RpcFrame): void => lifecycle.onFrame(TAB, f);
+  const rowNow = (): RoutineRunRow => history.list().find((r) => r.id === "run-1")!;
+  /** Re-bind with a post hook configured, as the scheduler would at fire time. */
+  const withPostHook = (post: string): void => bind(notifications, post);
   return {
     lifecycle,
     history,
@@ -106,6 +115,9 @@ function harness(trigger: RoutineRunRow["trigger"] = "clock", wallClockMs: numbe
     postRuns,
     scriptResult,
     withPostHook,
+    bind,
+    routineNotifications,
+    clearedNotifications,
   };
 }
 
@@ -170,6 +182,8 @@ describe("RoutineLifecycleManager approval auto-Deny (U9b)", () => {
     h.lifecycle.trackStart(TAB, "run-1", "clock", Date.now() + 48 * 3_600_000, {
       scripts: { pre: "", post: "" },
       routineId: ROUTINE_ID,
+      routineName: "Inbox",
+      notifications: { ...DEFAULT_ROUTINE_NOTIFICATIONS },
       projectCwd: "/proj",
       workspace: "worktree",
       wallClockMs: null,
@@ -191,6 +205,8 @@ describe("RoutineLifecycleManager approval auto-Deny (U9b)", () => {
     h.lifecycle.trackStart(TAB, "run-1", "clock", Date.now() + 48 * 3_600_000, {
       scripts: { pre: "", post: "" },
       routineId: ROUTINE_ID,
+      routineName: "Inbox",
+      notifications: { ...DEFAULT_ROUTINE_NOTIFICATIONS },
       projectCwd: "/proj",
       workspace: "worktree",
       wallClockMs: null,
@@ -211,6 +227,8 @@ describe("RoutineLifecycleManager approval auto-Deny (U9b)", () => {
     h.lifecycle.trackStart(TAB, "run-1", "clock", Date.now() + 48 * 3_600_000, {
       scripts: { pre: "", post: "" },
       routineId: ROUTINE_ID,
+      routineName: "Inbox",
+      notifications: { ...DEFAULT_ROUTINE_NOTIFICATIONS },
       projectCwd: "/proj",
       workspace: "worktree",
       wallClockMs: null,
@@ -341,6 +359,8 @@ describe("RoutineLifecycleManager outcomes (U9d-e)", () => {
     lifecycle.trackStart("tab-early", "run-early", "clock", T0, {
       scripts: { pre: "", post: "echo deferred" },
       routineId: ROUTINE_ID,
+      routineName: "Inbox",
+      notifications: { ...DEFAULT_ROUTINE_NOTIFICATIONS },
       projectCwd: "/proj",
       workspace: "worktree",
       wallClockMs: ROUTINE_RUN_WALL_CLOCK_MS,
@@ -507,9 +527,11 @@ describe("RoutineLifecycleManager post-run hook (#1283)", () => {
     mgr.trackStart(TAB, "run-1", "clock", T0, {
       scripts: { pre: "", post: "slow" },
       routineId: ROUTINE_ID,
+      routineName: "Inbox",
       projectCwd: "/proj",
       workspace: "worktree",
       wallClockMs: ROUTINE_RUN_WALL_CLOCK_MS,
+      notifications: { ...DEFAULT_ROUTINE_NOTIFICATIONS },
     });
     mgr.onFrame(TAB, { type: "agent_end" });
     await vi.advanceTimersByTimeAsync(0);
@@ -543,9 +565,11 @@ describe("RoutineLifecycleManager post-run hook (#1283)", () => {
     mgr.trackStart(TAB, "run-1", "clock", T0, {
       scripts: { pre: "", post: "slow" },
       routineId: ROUTINE_ID,
+      routineName: "Inbox",
       projectCwd: "/proj",
       workspace: "worktree",
       wallClockMs: ROUTINE_RUN_WALL_CLOCK_MS,
+      notifications: { ...DEFAULT_ROUTINE_NOTIFICATIONS },
     });
     mgr.onFrame(TAB, { type: "agent_end" });
     // A human continuation parks a card while the hook is still in flight.
@@ -554,5 +578,122 @@ describe("RoutineLifecycleManager post-run hook (#1283)", () => {
     await vi.advanceTimersByTimeAsync(0);
     await vi.advanceTimersByTimeAsync(120_000);
     expect(settleSession).not.toHaveBeenCalled(); // fence saw awaitingHumanAnswer → no grace armed
+  });
+});
+
+describe("RoutineLifecycleManager notifications (#1294)", () => {
+  it("posts onApproval with tool name, clears on card close, and stays silent when off", () => {
+    const h = harness("clock", ROUTINE_RUN_WALL_CLOCK_MS, { ...DEFAULT_ROUTINE_NOTIFICATIONS, onApproval: true });
+    h.frame(approvalFrame("req-1"));
+    expect(h.routineNotifications).toEqual([
+      { routineId: ROUTINE_ID, tabId: TAB, title: "Inbox", body: "Approval needed: mcp__gmail_send_message" },
+    ]);
+    h.lifecycle.onSend(TAB, { type: "extension_ui_response", id: "req-1", value: "Approve" });
+    expect(h.clearedNotifications).toEqual([TAB]);
+
+    const silent = harness("clock", ROUTINE_RUN_WALL_CLOCK_MS, { ...DEFAULT_ROUTINE_NOTIFICATIONS });
+    silent.frame(approvalFrame("req-2"));
+    expect(silent.routineNotifications).toHaveLength(0);
+  });
+
+  it("posts onComplete fallback unless agentMessage && agentNotified, and never re-notifies on continuation turns", () => {
+    const fallback = harness("clock", ROUTINE_RUN_WALL_CLOCK_MS, {
+      ...DEFAULT_ROUTINE_NOTIFICATIONS,
+      onComplete: true,
+      agentMessage: true,
+    });
+    fallback.frame({ type: "agent_end" });
+    expect(fallback.routineNotifications).toEqual([
+      { routineId: ROUTINE_ID, tabId: TAB, title: "Inbox", body: "Completed" },
+    ]);
+    // Human continuation turn ends later: must not notify a second time.
+    fallback.frame({ type: "agent_start" });
+    fallback.frame({ type: "agent_end" });
+    expect(fallback.routineNotifications).toHaveLength(1);
+
+    const agentSent = harness("clock", ROUTINE_RUN_WALL_CLOCK_MS, {
+      ...DEFAULT_ROUTINE_NOTIFICATIONS,
+      onComplete: true,
+      agentMessage: true,
+    });
+    agentSent.lifecycle.markAgentNotified(TAB);
+    agentSent.frame({ type: "agent_end" });
+    expect(agentSent.routineNotifications).toHaveLength(0);
+  });
+
+  it("posts onFail for wall-clock, cost-cap, usage-limit, error, and premature exit even after markAgentNotified", async () => {
+    const allOn: RoutineNotifications = {
+      onStart: true,
+      onComplete: true,
+      onFail: true,
+      onApproval: true,
+      agentMessage: true,
+    };
+
+    // Cost cap after agent already notified.
+    const cost = harness("clock", ROUTINE_RUN_WALL_CLOCK_MS, allOn);
+    cost.lifecycle.markAgentNotified(TAB);
+    cost.frame({ type: "notice", source: "cost-gate", level: "error" });
+    cost.frame({ type: "agent_end" });
+    expect(cost.routineNotifications).toEqual([
+      { routineId: ROUTINE_ID, tabId: TAB, title: "Inbox", body: "Failed — Stopped at spend cap" },
+    ]);
+
+    // Usage limit.
+    const usage = harness("clock", ROUTINE_RUN_WALL_CLOCK_MS, allOn);
+    usage.frame({
+      type: "message_end",
+      message: { role: "assistant", stopReason: "error", errorId: OMP_ERROR_FLAG_USAGE_LIMIT },
+    });
+    usage.frame({ type: "agent_end" });
+    expect(usage.routineNotifications[0]!.body).toBe("Failed — Provider usage limit reached");
+
+    // Wall-clock timeout.
+    const wall = harness("clock", 60_000, allOn);
+    await vi.advanceTimersByTimeAsync(60_000);
+    expect(wall.routineNotifications[0]!.body).toBe("Failed — Timed out (wall-clock limit reached)");
+
+    // Premature exit.
+    const crash = harness("clock", ROUTINE_RUN_WALL_CLOCK_MS, allOn);
+    crash.lifecycle.onExit(TAB);
+    expect(crash.routineNotifications[0]!.body).toBe("Failed — Ended with error");
+  });
+
+  it("flushes pre-bind approval and terminal notifications once trackStart binds", () => {
+    const preApproval = harness(
+      "clock",
+      ROUTINE_RUN_WALL_CLOCK_MS,
+      { ...DEFAULT_ROUTINE_NOTIFICATIONS, onApproval: true },
+      false,
+    );
+    preApproval.frame(approvalFrame("req-early"));
+    expect(preApproval.routineNotifications).toHaveLength(0);
+    preApproval.bind();
+    expect(preApproval.routineNotifications).toEqual([
+      { routineId: ROUTINE_ID, tabId: TAB, title: "Inbox", body: "Approval needed: mcp__gmail_send_message" },
+    ]);
+
+    const preEnd = harness(
+      "clock",
+      ROUTINE_RUN_WALL_CLOCK_MS,
+      { ...DEFAULT_ROUTINE_NOTIFICATIONS, onComplete: true },
+      false,
+    );
+    preEnd.frame({ type: "agent_end" });
+    expect(preEnd.routineNotifications).toHaveLength(0);
+    preEnd.bind();
+    expect(preEnd.routineNotifications).toEqual([
+      { routineId: ROUTINE_ID, tabId: TAB, title: "Inbox", body: "Completed" },
+    ]);
+  });
+
+  it("pins notifications at trackStart so mutating the source object mid-run does not alter in-flight alerts", () => {
+    const mutable: RoutineNotifications = { ...DEFAULT_ROUTINE_NOTIFICATIONS, onComplete: true };
+    const h = harness("clock", ROUTINE_RUN_WALL_CLOCK_MS, mutable);
+    mutable.onComplete = false;
+    h.frame({ type: "agent_end" });
+    expect(h.routineNotifications).toEqual([
+      { routineId: ROUTINE_ID, tabId: TAB, title: "Inbox", body: "Completed" },
+    ]);
   });
 });

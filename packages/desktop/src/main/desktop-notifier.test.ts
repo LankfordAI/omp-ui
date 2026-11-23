@@ -73,7 +73,7 @@ function makeWin() {
   return win;
 }
 
-function setup() {
+function setup(isRoutineTab?: (tabId: string) => boolean) {
   const win = makeWin();
   const flags = {
     enabled: true,
@@ -89,6 +89,7 @@ function setup() {
     titleOf: () => flags.title,
     icon: () => flags.icon,
     send: (channel, ...args) => sent.push({ channel, args }),
+    ...(isRoutineTab ? { isRoutineTab } : {}),
   });
   return { notifier, win, flags, sent };
 }
@@ -396,5 +397,78 @@ describe("DesktopNotifier", () => {
     expect(state.instances[0]!.shown).toBe(1);
     notifier.dispose();
     expect(state.instances[0]!.closed).toBe(1);
+  });
+
+  describe("routine notifications (#1294)", () => {
+    it("suppresses generic turnEnded on routine tabs", async () => {
+      const { notifier } = setup((tabId) => tabId === TAB);
+      notifier.turnEnded(TAB);
+      await vi.advanceTimersByTimeAsync(NOTIFICATION_POST_DELAY_MS + 100);
+      expect(state.instances).toHaveLength(0);
+    });
+
+    it("notifyRoutine posts immediately, replaces per run, survives sessionExit, and dismisses on viewed/clearRoutine/dispose", () => {
+      const { notifier, win, sent } = setup((tabId) => tabId === TAB);
+      notifier.notifyRoutine({ routineId: "r1", tabId: TAB, title: "Morning", body: "Routine started" });
+      expect(state.instances).toHaveLength(1);
+      expect(state.instances[0]!.options).toEqual({ title: "Morning", body: "Routine started", icon: "/icons/app.png" });
+
+      // Second banner for same run replaces the first.
+      notifier.notifyRoutine({ routineId: "r1", tabId: TAB, title: "Morning", body: "Completed" });
+      expect(state.instances).toHaveLength(2);
+      expect(state.instances[0]!.closed).toBe(1);
+      expect(state.instances[1]!.shown).toBe(1);
+
+      // Survives 60 s self-settle exit.
+      notifier.sessionExit(TAB);
+      expect(state.instances[1]!.closed).toBe(0);
+
+      // Click focuses session when tabId != null.
+      state.instances[1]!.clickHandlers[0]!();
+      expect(win.focuses).toBe(1);
+      expect(sent).toEqual([{ channel: CH.onFocusSession, args: [TAB] }]);
+
+      // viewedChanged dismisses it.
+      notifier.viewedChanged(TAB);
+      expect(state.instances[1]!.closed).toBe(1);
+
+      // clearRoutine dismisses an active banner; dispose closes remaining ones.
+      notifier.notifyRoutine({ routineId: "r1", tabId: TAB, title: "Morning", body: "Approval needed: bash" });
+      notifier.clearRoutine(TAB);
+      expect(state.instances[2]!.closed).toBe(1);
+
+      notifier.notifyRoutine({ routineId: "r1", tabId: null, title: "Morning", body: "Failed — Pre-run script failed" });
+      notifier.dispose();
+      expect(state.instances[3]!.closed).toBe(1);
+    });
+
+    it("notifyRoutine suppresses when focused+viewed for a run tab and click-focuses routine for pre-spawn failures", () => {
+      const { notifier, win, flags, sent } = setup((tabId) => tabId === TAB);
+      win.focused = true;
+      flags.viewedTab = TAB;
+      notifier.notifyRoutine({ routineId: "r1", tabId: TAB, title: "Morning", body: "Completed" });
+      expect(state.instances).toHaveLength(0);
+
+      // Pre-spawn failure (tabId: null) still posts and click focuses the routine.
+      notifier.notifyRoutine({ routineId: "r1", tabId: null, title: "Morning", body: "Failed — Could not start session" });
+      expect(state.instances).toHaveLength(1);
+      state.instances[0]!.clickHandlers[0]!();
+      expect(sent).toEqual([{ channel: CH.onFocusRoutine, args: ["r1"] }]);
+    });
+
+    it("notifyNow closes an earlier routine banner for the same tab and tracks routine tabs for viewedChanged/dispose", () => {
+      const { notifier } = setup((tabId) => tabId === TAB);
+      notifier.notifyRoutine({ routineId: "r1", tabId: TAB, title: "Morning", body: "Routine started" });
+      expect(notifier.notifyNow(TAB, "Morning", "All checks passed.")).toBe("posted");
+      expect(state.instances).toHaveLength(2);
+      expect(state.instances[0]!.closed).toBe(1);
+      expect(state.instances[1]!.shown).toBe(1);
+
+      // Survives sessionExit and closes on viewedChanged.
+      notifier.sessionExit(TAB);
+      expect(state.instances[1]!.closed).toBe(0);
+      notifier.viewedChanged(TAB);
+      expect(state.instances[1]!.closed).toBe(1);
+    });
   });
 });

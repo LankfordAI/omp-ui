@@ -6,6 +6,7 @@ import {
   compileRoutineToolPolicy,
   countRunsBetween,
   nextRunAfter,
+  routineAllowsAgentNotification,
   routinePrompt,
   routineRunTitle,
   type FleetDispatchRequest,
@@ -22,6 +23,7 @@ import {
   type SessionRoutine,
 } from "@omp-ui/core";
 import type { ListCatalogOptions } from "./routine-catalog";
+import type { RoutineNotificationPayload } from "./desktop-notifier";
 import type { RoutineScriptEnv, RoutineScriptResult } from "./routine-scripts";
 
 /** Longest single timer wait: matches ScheduledPromptRunner / SnoozeClock so OS sleep catches up within 60 s. */
@@ -72,6 +74,8 @@ export interface RoutineSchedulerDeps {
   onPostFire?: () => Promise<void> | void;
   /** Publishes `routines:state` to every connected client. */
   publish: () => void;
+  /** Posts a per-routine OS notification (#1294). */
+  notifyRoutine?: (payload: RoutineNotificationPayload) => void;
   now?: () => number;
   uuid?: () => string;
 }
@@ -421,7 +425,8 @@ export class RoutineScheduler {
       });
       staleCatalog = catalog.staleServers.length > 0 || catalog.enumerationError !== null;
 
-      const compiled = compileRoutineToolPolicy(routine.toolPolicy, catalog);
+      const allowAgentNotify = routineAllowsAgentNotification(routine.notifications);
+      const compiled = compileRoutineToolPolicy(routine.toolPolicy, catalog, { allowAgentNotify });
       const warnCostUsd = routine.spend.warnUsd ?? this.deps.defaultWarnCostUsd();
       const maxCostUsd = routine.spend.maxUsd ?? this.deps.defaultMaxCostUsd();
       const sessionRoutine: SessionRoutine = {
@@ -444,7 +449,7 @@ export class RoutineScheduler {
               },
             ],
           },
-          prompt: routinePrompt(routine.instructions, routine.name),
+          prompt: routinePrompt(routine.instructions, routine.name, { agentNotification: allowAgentNotify }),
           title: routineRunTitle(routine.name, firedAtMs, routine.timeZone),
           workspace: routine.destination.workspace,
           planMode: routine.mode === "plan",
@@ -503,6 +508,19 @@ export class RoutineScheduler {
         staleCatalog,
       };
       this.deps.history.record(row);
+      if (routine.notifications.onStart) {
+        this.deps.notifyRoutine?.({
+          routineId: routine.id,
+          tabId,
+          title: routine.name,
+          body:
+            trigger === "manual"
+              ? "Routine started (manual)"
+              : trigger === "late"
+                ? "Routine started (late)"
+                : "Routine started",
+        });
+      }
       this.deps.onRunStarted(tabId, routine, runId, trigger, firedAtMs);
       this.deps.publish();
       if (this.deps.onPostFire) {
@@ -571,6 +589,14 @@ export class RoutineScheduler {
     };
     this.deps.history.record(row);
     this.deps.publish();
+    if (routine.notifications.onFail) {
+      this.deps.notifyRoutine?.({
+        routineId: routine.id,
+        tabId: null,
+        title: routine.name,
+        body: `Failed — ${fixedMessage}`,
+      });
+    }
     if (throwOnFailure) {
       throw new RoutineDispatchFailureError(fixedMessage);
     }

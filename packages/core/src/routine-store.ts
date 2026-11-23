@@ -1,6 +1,7 @@
 import * as fs from "node:fs";
 import { writeTextAtomic } from "./atomic-write";
 import {
+  DEFAULT_ROUTINE_NOTIFICATIONS,
   isRoutineRecord,
   isRoutineRunRow,
   type RoutineRecord,
@@ -54,6 +55,11 @@ export class RoutineStore {
       // Legacy pre-#1290 record: backfill missing timeoutMinutes to null (30 min default).
       if (!("timeoutMinutes" in (record as Partial<RoutineRecord>))) {
         record.timeoutMinutes = null;
+        mutated = true;
+      }
+      // Legacy pre-#1294 record: backfill missing notifications to all-off.
+      if (!("notifications" in (record as Partial<RoutineRecord>))) {
+        record.notifications = { ...DEFAULT_ROUTINE_NOTIFICATIONS };
         mutated = true;
       }
       this.records.push(record);

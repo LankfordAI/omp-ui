@@ -27,6 +27,13 @@ export function DryRunPanel({
   const allowed = entries.filter(([, d]) => d === "allow").map(([k]) => k);
   const prompted = entries.filter(([, d]) => d === "prompt").map(([k]) => k);
   const denied = entries.filter(([, d]) => d === "deny").map(([k]) => k);
+  const notificationParts: string[] = [];
+  if (result.notifications.onStart) notificationParts.push("start");
+  if (result.notifications.onApproval) notificationParts.push("approval");
+  if (result.notifications.onComplete) {
+    notificationParts.push(result.notifications.agentMessage ? "complete (agent message)" : "complete");
+  }
+  if (result.notifications.onFail) notificationParts.push("fail");
   const columns = [
     { title: "Auto-allowed", keys: allowed, tone: "text-signal" },
     { title: "Will pause on Approval card", keys: prompted, tone: "text-copper" },
@@ -55,6 +62,11 @@ export function DryRunPanel({
           </div>
         ))}
       </div>
+      {notificationParts.length > 0 && (
+        <p data-dry-run-notifications className="break-words text-ink-mid">
+          Notifications: {notificationParts.join(", ")}
+        </p>
+      )}
       {result.compiled.addedLater.length > 0 && (
         <p className="break-words text-copper">
           Added after last review: <span className="font-mono">{result.compiled.addedLater.join(", ")}</span>

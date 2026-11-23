@@ -140,6 +140,22 @@ const ROUTINE_SCRIPTS_SCHEMA = {
   },
 } as const;
 
+const ROUTINE_NOTIFICATIONS_SCHEMA = {
+  type: "object",
+  additionalProperties: false,
+  properties: {
+    onStart: { type: "boolean", description: "Post an OS notification when a routine run starts." },
+    onComplete: { type: "boolean", description: "Post an OS notification when a routine run completes." },
+    onFail: { type: "boolean", description: "Post an OS notification when a routine run fails (pre-spawn or in-run)." },
+    onApproval: { type: "boolean", description: "Post an OS notification when a routine run pauses on an Approval card." },
+    agentMessage: {
+      type: "boolean",
+      description:
+        "Effective only when onComplete is true: allows omp-ui_notify without prompting and asks the agent for a brief completion summary (falls back to a host notice if none is sent).",
+    },
+  },
+} as const;
+
 /**
  * The routine authoring tool (ADR-0100 amendment). The answerer forces
  * `enabled: false` server-side: an agent may author a routine, only a human
@@ -188,6 +204,10 @@ function routineCreateTool(): RpcHostToolDefinition {
           ...ROUTINE_SCRIPTS_SCHEMA,
           description: "Optional pre/post run hooks; omitted phase means no hook.",
         },
+        notifications: {
+          ...ROUTINE_NOTIFICATIONS_SCHEMA,
+          description: "Optional OS notification preferences; omitted flags default to false.",
+        },
       },
     },
   };
@@ -205,7 +225,7 @@ function routineUpdateTool(): RpcHostToolDefinition {
     loadMode: "essential",
     description:
       "Edit an existing scheduled Routine in the user's Routines library. Call it ONLY when the user explicitly asked to change a routine they own. " +
-      "Field-level merge: only the fields you send change; absent fields keep their current values. warnUsd/maxUsd merge individually; scripts.pre/post merge per phase (send \"\" to clear one hook, omit to keep it); " +
+      "Field-level merge: only the fields you send change; absent fields keep their current values. warnUsd/maxUsd merge individually; scripts.pre/post merge per phase (send \"\" to clear one hook, omit to keep it); notifications flags merge individually; " +
       "allow replaces the allow list but preserves the routine's existing deny list, which you can never change. " +
       "For model, thinkingLevel, warnUsd, maxUsd, timeoutMinutes: send null to reset to the machine/registry/30-min default, omit the key to leave it alone. " +
       "Any update saves the routine DISABLED, even if it was enabled — the user must turn the enable switch back on; you can never enable or run a routine. " +
@@ -242,6 +262,10 @@ function routineUpdateTool(): RpcHostToolDefinition {
         scripts: {
           ...ROUTINE_SCRIPTS_SCHEMA,
           description: "Pre/post run hooks; an omitted phase keeps its current hook, an empty string clears it.",
+        },
+        notifications: {
+          ...ROUTINE_NOTIFICATIONS_SCHEMA,
+          description: "OS notification preferences; omitted flags keep their current values.",
         },
       },
     },

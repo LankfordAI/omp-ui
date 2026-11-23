@@ -3,6 +3,8 @@ import * as os from "node:os";
 import * as path from "node:path";
 import { afterEach, beforeEach, describe, expect, it, vi } from "vitest";
 import {
+  DEFAULT_ROUTINE_NOTIFICATIONS,
+  ROUTINE_NOTIFY_TOOL_KEY,
   ROUTINE_ID_PATTERN,
   RoutineRunHistory,
   RoutineStore,
@@ -58,6 +60,7 @@ function input(overrides: Partial<RoutineInput> = {}): RoutineInput {
     toolPolicy: { allow: ["read"], deny: [], lastReviewedAt: "2026-01-01T00:00:00.000Z", reviewedCatalog: [] },
     scripts: { pre: "", post: "" },
     timeoutMinutes: null,
+    notifications: { ...DEFAULT_ROUTINE_NOTIFICATIONS },
     enabled: true,
     ...overrides,
   };
@@ -380,6 +383,39 @@ describe("RoutineService script hooks (#1283)", () => {
     const updated = await h.service.update(created.id, { scripts: { pre: "", post: "echo bye" } });
     expect(updated.scripts).toEqual({ pre: "", post: "echo bye" });
     expect(h.store.get(created.id)!.scripts.post).toBe("echo bye");
+    h.service.dispose();
+  });
+});
+
+describe("RoutineService notifications (#1294)", () => {
+  it("round-trips notifications through CRUD and compiles omp-ui_notify in dryRun when onComplete && agentMessage", async () => {
+    const h = harness();
+    const notif = { ...DEFAULT_ROUTINE_NOTIFICATIONS, onStart: true, onComplete: true, agentMessage: true };
+    const created = await h.service.create(input({ notifications: notif }));
+    expect(created.notifications).toEqual(notif);
+
+    const dry = await h.service.dryRun({ kind: "saved", id: created.id });
+    expect(dry.notifications).toEqual(notif);
+    expect(dry.compiled.overlayEntries[ROUTINE_NOTIFY_TOOL_KEY]).toBe("allow");
+
+    const updated = await h.service.update(created.id, {
+      notifications: { ...notif, onComplete: false },
+    });
+    const dryOff = await h.service.dryRun({ kind: "saved", id: updated.id });
+    expect(dryOff.compiled.overlayEntries[ROUTINE_NOTIFY_TOOL_KEY]).toBeUndefined();
+
+    const agentUpdated = await h.service.updateFromAgent(
+      { id: created.id, notifications: { onComplete: true, onFail: true } },
+      new Date(T0).toISOString(),
+    );
+    expect(agentUpdated.record.enabled).toBe(false);
+    expect(agentUpdated.record.notifications).toEqual({
+      onStart: true,
+      onComplete: true,
+      onFail: true,
+      onApproval: false,
+      agentMessage: true,
+    });
     h.service.dispose();
   });
 });

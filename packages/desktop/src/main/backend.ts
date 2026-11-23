@@ -585,6 +585,7 @@ export class MainBackend {
       },
       icon: () => (fs.existsSync(iconPath) ? iconPath : null),
       send: (channel, ...args) => this.send(channel, ...args),
+      isRoutineTab: (tabId) => this.registry.sessions.some((s) => s.tabId === tabId && s.routine !== null),
     });
     this.planVerifier = new PlanVerifier({
       storedTheme: (id) => this.registry.getSetting("storedThemes").find((t) => t.id === id) ?? null,
@@ -688,7 +689,11 @@ export class MainBackend {
           ),
         // The host notify tool posts through the same notifier, bypassing the
         // attention pipeline's delay and suppression (#688).
-        hostNotify: (tabId, title, message) => this.notifier.notifyNow(tabId, title, message),
+        hostNotify: (tabId, title, message) => {
+          const result = this.notifier.notifyNow(tabId, title, message);
+          if (result === "posted") this.routineLifecycle?.markAgentNotified(tabId);
+          return result;
+        },
         // The theme host tools (issues #1168, #1175): main answers through the shared save path.
         themes: {
           save: (tabId, args) => this.saveThemeFromTool(tabId, args),
@@ -745,6 +750,8 @@ export class MainBackend {
             history: routineHistory,
             isEnabled: () => this.registry.getSetting("routinesEnabled"),
             publish: () => this.routines?.publish(),
+            notifyRoutine: (payload) => this.notifier.notifyRoutine(payload),
+            clearRoutineNotification: (tabId) => this.notifier.clearRoutine(tabId),
           });
           return this.routineLifecycle;
         },
@@ -982,6 +989,7 @@ export class MainBackend {
       awaitingHumanAnswer: (tabId) => this.sessions.pendingAnswer(tabId),
       deleteSession: (tabId, cascade) => this.sessions.deleteSession(tabId, cascade),
       dispatch: (req, who, dispatchOpts) => this.fleet.dispatch(req, who, dispatchOpts),
+      notifyRoutine: (payload) => this.notifier.notifyRoutine(payload),
       machineLabel: () => this.fleetLabel,
       send: (state) => this.send(CH.onRoutinesState, state),
       broadcast: () => void this.broadcast(),

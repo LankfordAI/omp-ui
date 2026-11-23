@@ -3,6 +3,8 @@ import * as os from "node:os";
 import * as path from "node:path";
 import { afterEach, beforeEach, describe, expect, it, vi } from "vitest";
 import {
+  DEFAULT_ROUTINE_NOTIFICATIONS,
+  ROUTINE_NOTIFY_TOOL_KEY,
   RoutineRunHistory,
   RoutineStore,
   type FleetDispatchRequest,
@@ -18,6 +20,7 @@ import {
   ROUTINES_DISABLED_ERROR,
   RoutineScheduler,
 } from "./routine-scheduler";
+import type { RoutineNotificationPayload } from "./desktop-notifier";
 import type { RoutineScriptEnv, RoutineScriptResult } from "./routine-scripts";
 
 const ID_A = "AAAAAAAAAAAAAAAAAAAAAA";
@@ -49,6 +52,7 @@ function routine(id: string, overrides: Partial<RoutineRecord> = {}): RoutineRec
     toolPolicy: { allow: ["read"], deny: ["bash"], lastReviewedAt: new Date(T0).toISOString(), reviewedCatalog: ["read", "bash"] },
     scripts: { pre: "", post: "" },
     timeoutMinutes: null,
+    notifications: { ...DEFAULT_ROUTINE_NOTIFICATIONS },
     enabled: true,
     createdAt: new Date(T0).toISOString(),
     nextRunAtMs: T0,
@@ -84,6 +88,8 @@ interface Harness {
   preRuns: Array<{ command: string; cwd: string; env: RoutineScriptEnv }>;
   preResult: { current: RoutineScriptResult };
   postRunningTabs: Set<string>;
+  notifications: RoutineNotificationPayload[];
+  hasProjectFlag: { value: boolean };
 }
 
 let dir: string;
@@ -103,6 +109,8 @@ function harness(routines: RoutineRecord[]): Harness {
   const preRuns: Harness["preRuns"] = [];
   const preResult = { current: { kind: "ok" } as RoutineScriptResult };
   const postRunningTabs = new Set<string>();
+  const notifications: RoutineNotificationPayload[] = [];
+  const hasProjectFlag = { value: true };
   let dispatchImpl = async (): Promise<FleetDispatchResult> => {
     const tabId = `tab-${++nextTab}`;
     return {
@@ -116,7 +124,7 @@ function harness(routines: RoutineRecord[]): Harness {
     isEnabled: () => enabled.value,
     defaultWarnCostUsd: () => 2,
     defaultMaxCostUsd: () => 5,
-    hasProject: () => true,
+    hasProject: () => hasProjectFlag.value,
     sessions: () => sessions,
     isLive: (tabId) => live.has(tabId),
     isTurnRunning: (tabId) => running.has(tabId),
@@ -140,6 +148,7 @@ function harness(routines: RoutineRecord[]): Harness {
       return preResult.current;
     },
     postRunning: (tabId) => postRunningTabs.has(tabId),
+    notifyRoutine: (payload) => notifications.push(payload),
     publish: () => {},
     now: () => Date.now(),
   });
@@ -160,6 +169,8 @@ function harness(routines: RoutineRecord[]): Harness {
     preRuns,
     preResult,
     postRunningTabs,
+    notifications,
+    hasProjectFlag,
   };
 }
 
@@ -504,6 +515,136 @@ describe("RoutineScheduler pre-run hook (#1283)", () => {
     h.scheduler.sync();
     await flush();
     expect(h.history.list().some((r) => r.routineId === ID_A && r.outcome === "skipped" && r.reasonCode === "overlap")).toBe(true);
+    h.scheduler.dispose();
+  });
+});
+
+describe("RoutineScheduler notifications (#1294)", () => {
+  it("posts onStart for clock/late/manual runs and suppresses when off", async () => {
+    const h = harness([
+      routine(ID_A, {
+        name: "Alpha",
+        nextRunAtMs: T0,
+        notifications: { ...DEFAULT_ROUTINE_NOTIFICATIONS, onStart: true },
+      }),
+      routine(ID_B, {
+        name: "Beta",
+        nextRunAtMs: null,
+        notifications: { ...DEFAULT_ROUTINE_NOTIFICATIONS },
+      }),
+    ]);
+    h.scheduler.sync();
+    await flush();
+    expect(h.notifications).toEqual([
+      { routineId: ID_A, tabId: h.started[0]!, title: "Alpha", body: "Routine started" },
+    ]);
+
+    // Release run A so manual run fires cleanly.
+    h.live.delete(h.started[0]!);
+    h.running.delete(h.started[0]!);
+    h.history.updateByTabId(h.started[0]!, { outcome: "on-time" });
+    await h.scheduler.runNow(ID_A);
+    expect(h.notifications[1]).toEqual({
+      routineId: ID_A,
+      tabId: h.started[1]!,
+      title: "Alpha",
+      body: "Routine started (manual)",
+    });
+
+    // Release run A again and trigger a late fire (> 120 s past due).
+    h.live.delete(h.started[1]!);
+    h.running.delete(h.started[1]!);
+    h.history.updateByTabId(h.started[1]!, { outcome: "on-time" });
+    h.store.replaceScheduleState(ID_A, { nextRunAtMs: T0 });
+    vi.setSystemTime(T0 + 5 * 60_000);
+    h.scheduler.sync();
+    await flush();
+    expect(h.notifications[2]).toEqual({
+      routineId: ID_A,
+      tabId: h.started[2]!,
+      title: "Alpha",
+      body: "Routine started (late)",
+    });
+
+    // Routine with onStart off posts nothing.
+    h.live.delete(h.started[2]!);
+    h.running.delete(h.started[2]!);
+    h.history.updateByTabId(h.started[2]!, { outcome: "on-time" });
+    await h.scheduler.runNow(ID_B);
+    expect(h.notifications).toHaveLength(3);
+    h.scheduler.dispose();
+  });
+
+  it("posts onFail with tabId=null for project-missing, pre-script, and dispatch-failed, never for skips", async () => {
+    const h = harness([
+      routine(ID_A, {
+        name: "Alpha",
+        nextRunAtMs: null,
+        scripts: { pre: "check", post: "" },
+        notifications: { ...DEFAULT_ROUTINE_NOTIFICATIONS, onFail: true },
+      }),
+    ]);
+
+    // Pre-script skip (exit 78) posts no failure banner.
+    h.preResult.current = { kind: "skip" };
+    await h.scheduler.runNow(ID_A);
+    expect(h.notifications).toHaveLength(0);
+
+    // Pre-script failure posts failure banner.
+    h.preResult.current = { kind: "failed", timedOut: false, exitCode: 1 };
+    await h.scheduler.runNow(ID_A).catch(() => undefined);
+    expect(h.notifications[0]).toEqual({
+      routineId: ID_A,
+      tabId: null,
+      title: "Alpha",
+      body: "Failed — Pre-run script failed",
+    });
+
+    // Project-missing posts failure banner.
+    h.hasProjectFlag.value = false;
+    await h.scheduler.runNow(ID_A).catch(() => undefined);
+    expect(h.notifications[1]).toEqual({
+      routineId: ID_A,
+      tabId: null,
+      title: "Alpha",
+      body: "Failed — Destination project unavailable",
+    });
+
+    // Dispatch failure posts failure banner.
+    h.hasProjectFlag.value = true;
+    h.preResult.current = { kind: "ok" };
+    h.setDispatch(async () => ({ batchId: null, outcomes: [] }) as unknown as FleetDispatchResult);
+    await h.scheduler.runNow(ID_A).catch(() => undefined);
+    expect(h.notifications[2]).toEqual({
+      routineId: ID_A,
+      tabId: null,
+      title: "Alpha",
+      body: "Failed — Could not start session",
+    });
+    h.scheduler.dispose();
+  });
+
+  it("compiles omp-ui_notify allow and injects prompt instruction iff onComplete && agentMessage", async () => {
+    const h = harness([
+      routine(ID_A, {
+        nextRunAtMs: null,
+        notifications: { ...DEFAULT_ROUTINE_NOTIFICATIONS, onComplete: true, agentMessage: true },
+      }),
+      routine(ID_B, {
+        nextRunAtMs: null,
+        notifications: { ...DEFAULT_ROUTINE_NOTIFICATIONS, onComplete: false, agentMessage: true },
+      }),
+    ]);
+    await h.scheduler.runNow(ID_A);
+    expect(h.dispatches[0]!.routine.approvalEntries[ROUTINE_NOTIFY_TOOL_KEY]).toBe("allow");
+    expect(h.dispatches[0]!.req.prompt).toContain("omp-ui_notify");
+
+    h.live.delete(h.started[0]!);
+    h.running.delete(h.started[0]!);
+    h.history.updateByTabId(h.started[0]!, { outcome: "on-time" });
+    await h.scheduler.runNow(ID_B);
+    expect(h.dispatches[1]!.routine.approvalEntries[ROUTINE_NOTIFY_TOOL_KEY]).toBeUndefined();
+    expect(h.dispatches[1]!.req.prompt).not.toContain("omp-ui_notify");
     h.scheduler.dispose();
   });
 });

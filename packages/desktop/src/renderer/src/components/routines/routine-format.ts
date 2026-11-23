@@ -5,7 +5,13 @@ import {
   presetCron,
   type PromptSchedule,
 } from "@omp-ui/core/scheduled-prompt";
-import type { RoutinePostScriptStatus, RoutineRunOutcome, RoutineRunReasonCode, RoutineRunRow } from "@omp-ui/core/routine";
+import {
+  ROUTINE_REASON_LABEL,
+  type RoutinePostScriptStatus,
+  type RoutineRunOutcome,
+  type RoutineRunReasonCode,
+  type RoutineRunRow,
+} from "@omp-ui/core/routine";
 import { formatSnoozeUntil } from "../../lib/snooze-until";
 import type { Tone } from "../ui";
 
@@ -91,20 +97,7 @@ export const OUTCOME_TONE: Record<RoutineRunOutcome, Tone> = {
   failed: "rose",
 };
 
-export const REASON_LABEL: Record<RoutineRunReasonCode, string> = {
-  overlap: "Previous run still open",
-  "host-lane-busy": "Another routine was running",
-  "cost-cap": "Stopped at spend cap",
-  "wall-clock": "Timed out (wall-clock limit reached)",
-  "usage-limit": "Provider usage limit reached",
-  "approval-timeout": "Approval timed out (auto-denied at 24 h)",
-  "dispatch-failed": "Could not start session",
-  "project-missing": "Destination project unavailable",
-  interrupted: "Interrupted when app quit",
-  error: "Ended with error",
-  "pre-script": "Pre-run script failed",
-  "pre-script-skip": "Pre-run script reported nothing to do",
-};
+export const REASON_LABEL: Readonly<Record<RoutineRunReasonCode, string>> = ROUTINE_REASON_LABEL;
 
 export const POST_SCRIPT_LABEL: Record<RoutinePostScriptStatus, string> = {
   ok: "Post hook ok",

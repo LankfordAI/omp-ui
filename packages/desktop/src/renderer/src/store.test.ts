@@ -1238,6 +1238,18 @@ describe("notification click focus (issue #271)", () => {
     expect(h.mockBackend.spawnSession).not.toHaveBeenCalled();
   });
 
+  it("a pre-spawn routine failure notification click opens Routines focused on that routine", async () => {
+    vi.resetModules();
+    const { useStore: fresh } = await import("./store");
+    h.backendState = { ...projectState([]), routinesEnabled: true };
+    fresh.setState({ state: h.backendState });
+    await fresh.getState().init();
+    const cb = h.mockBackend.onFocusRoutine.mock.calls[0]![0] as (routineId: string) => void;
+    cb("r".repeat(22));
+    expect(fresh.getState().routinesOpen).toBe(true);
+    expect(fresh.getState().routineFocusId).toBe("r".repeat(22));
+  });
+
   it("a GPU-process death sets the notice once per episode; dismiss clears it", async () => {
     vi.resetModules();
     const { useStore: fresh } = await import("./store");

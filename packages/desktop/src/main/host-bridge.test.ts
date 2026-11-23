@@ -2431,6 +2431,45 @@ describe("HostBridge routine authority (ADR-0100, U13, amended)", () => {
     expect(text).toContain("enable switch back on");
   });
 
+  it("forwards notifications on create and leaf-merged notifications on update (#1294)", async () => {
+    const f = routineFixture();
+    f.bridge.route(
+      "t1",
+      toolCallFrame("h1", "omp-ui_routines_create", {
+        ...GOOD_ARGS,
+        notifications: { onComplete: true, agentMessage: true, onFail: true },
+      }),
+      f.send,
+    );
+    f.bridge.route(
+      "t1",
+      toolCallFrame("h2", "omp-ui_routines_update", {
+        id: ROUTINE_ID,
+        notifications: { onStart: true },
+      }),
+      f.send,
+    );
+    f.bridge.route(
+      "t1",
+      toolCallFrame("h3", "omp-ui_routines_update", {
+        id: ROUTINE_ID,
+        notifications: { onStart: "yes" },
+      }),
+      f.send,
+    );
+    await settled();
+    expect(f.received).toHaveLength(2);
+    expect(f.received[0]).toMatchObject({
+      notifications: { onStart: false, onComplete: true, onFail: true, onApproval: false, agentMessage: true },
+    });
+    expect(f.received[1]).toEqual({ id: ROUTINE_ID, notifications: { onStart: true } });
+    const byId = (id: string) => f.sent.find((frame) => frame.id === id);
+    expect(byId("h1")).not.toHaveProperty("isError");
+    expect(byId("h2")).not.toHaveProperty("isError");
+    expect(byId("h3")).toMatchObject({ id: "h3", isError: true });
+    expect(JSON.stringify(byId("h3"))).toContain("notifications.onStart");
+  });
+
   it("refuses an update the parser rejects: id-only, unknown key, and bad ids never reach the service", async () => {
     const f = routineFixture();
     f.bridge.route("t1", toolCallFrame("h1", "omp-ui_routines_update", { id: ROUTINE_ID }), f.send);
