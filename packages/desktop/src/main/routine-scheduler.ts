@@ -32,8 +32,8 @@ export const ROUTINE_SCHEDULER_MAX_WAIT_MS = 60_000;
 export const ROUTINE_DISPATCH_DEADLINE_MS = 45_000;
 /** Exact inline refusal string when Run now hits a busy host-wide active-turn lane (§7.1, #1253). */
 export const ROUTINE_BUSY_REFUSAL = "Another routine is running — try again in a moment";
-/** Exact refusal string when the Experimental gate is off (§9). */
-export const ROUTINES_DISABLED_ERROR = "Routines is disabled in Settings → Experimental";
+/** Exact refusal string when the Routines gate is off (§9). */
+export const ROUTINES_DISABLED_ERROR = "Routines is disabled in Settings → Routines";
 
 export interface RoutineSchedulerDeps {
   store: RoutineStore;

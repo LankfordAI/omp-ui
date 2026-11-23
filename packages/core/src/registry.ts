@@ -110,7 +110,7 @@ export interface RegistrySettings {
   experimentsEnabled: boolean;
   /** Autoresearch bridge gate (#1052); default off. */
   autoresearchEnabled: boolean;
-  /** Experimental Routines subsystem gate (ADR-0100, #1263); default off. */
+  /** Routines subsystem gate (ADR-0100, #1244); opt-in, default off. */
   routinesEnabled: boolean;
   /** Default per-run spend warning threshold in USD (0 = uncapped); default 2. */
   routineWarnCostUsd: number;

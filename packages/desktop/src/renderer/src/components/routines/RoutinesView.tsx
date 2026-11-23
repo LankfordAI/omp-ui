@@ -193,7 +193,7 @@ export function RoutinesView() {
           <header className="flex h-9 shrink-0 items-center gap-2 border-b border-line chrome-void px-3">
             <Label className="min-w-0 truncate">{hostHeaderLabel}</Label>
             <Chip tone="iris" className="hidden sm:inline-flex">
-              Experimental · host-local
+              Host-local
             </Chip>
             <span className="flex-1" />
             <IconButton label="Close Routines" onClick={closeRoutines}>
@@ -247,7 +247,7 @@ export function RoutinesView() {
                 )}
               </div>
               <div className="shrink-0 border-t border-line px-3 py-2">
-                <Chip tone="iris">Experimental · host-local</Chip>
+                <Chip tone="iris">Host-local</Chip>
               </div>
             </aside>
           )}

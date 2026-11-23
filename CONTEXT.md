@@ -1250,7 +1250,7 @@ pre and post **run hooks** (host-authored shell commands that bracket each
 **Routine run** outside the tool policy, #1283), which
 together start one fresh **Routine run** at each fire. It lives in the
 **Routines** view — a full-pane view opened from the sidebar footer, gated
-behind the fourth switch on **Settings → Experimental**, off by default, Host
+behind its own **Settings → Routines** page, opt-in, off by default, Host
 Lite reporting false — never on a session record, and like a **Webhook** it is
 never shared or coordinated across hosts. While the gate is off nothing shows
 anywhere in the shell. **Run now** fires once immediately; **Dry run**
